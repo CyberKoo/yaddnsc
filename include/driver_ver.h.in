@@ -1,0 +1,10 @@
+//
+// Created by Kotarou on 2022/4/5.
+//
+
+#ifndef YADDNSC_DRIVER_VER_H_IN_H
+#define YADDNSC_DRIVER_VER_H_IN_H
+
+constexpr char DRV_VERSION[] = "@YADDNSC_DRV_VERSION@";
+
+#endif //YADDNSC_DRIVER_VER_H_IN_H

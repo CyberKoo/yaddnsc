@@ -1,0 +1,15 @@
+[submodule "deps/cxxopts"]
+	path = deps/cxxopts
+	url = https://github.com/jarro2783/cxxopts.git
+[submodule "deps/spdlog"]
+	path = deps/spdlog
+	url = https://github.com/gabime/spdlog.git
+[submodule "deps/fmt"]
+	path = deps/fmt
+	url = https://github.com/fmtlib/fmt.git
+[submodule "deps/nlohmann_json"]
+	path = deps/nlohmann_json
+	url = https://github.com/nlohmann/json.git
+[submodule "deps/cpp-httplib"]
+	path = deps/cpp-httplib
+	url = https://github.com/yhirose/cpp-httplib.git

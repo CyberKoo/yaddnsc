@@ -1,0 +1,15 @@
+[Unit]
+Description=Yet another dynamic DNS client
+Wants=network-online.target
+After=network.target network-online.target
+
+[Service]
+Type=simple
+User=nobody
+#EnvironmentFile=/etc/default/yaddnsc
+ExecStart=/opt/yaddnsc/yaddnsc -c /etc/yaddnsc/config.json
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
