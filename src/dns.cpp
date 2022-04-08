@@ -2,18 +2,16 @@
 // Created by Kotarou on 2022/4/5.
 //
 
+#include <netdb.h>
 #include <resolv.h>
+#include <arpa/inet.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
-#include <arpa/inet.h>
-
-#include <fmt/format.h>
-#include <spdlog/spdlog.h>
 #include <arpa/nameser.h>
-#include <netdb.h>
+
+#include <spdlog/spdlog.h>
 
 #include "dns.h"
-#include "util.h"
 
 const int MAXIMUM_UDP_SIZE = 512;
 
@@ -79,13 +77,13 @@ std::vector<std::string> DNS::resolve(std::string_view host, dns_record_t type, 
         }
 
         auto rr_type = ns_rr_type(rr);
-        std::array<char, INET6_ADDRSTRLEN> address_buffer{};
+        char address_buffer[INET6_ADDRSTRLEN] = {};
         if (rr_type == ns_t_a) {
-            inet_ntop(AF_INET, ns_rr_rdata(rr), address_buffer.data(), address_buffer.size());
-            resolve_result.emplace_back(address_buffer.data());
+            inet_ntop(AF_INET, ns_rr_rdata(rr), address_buffer, INET6_ADDRSTRLEN);
+            resolve_result.emplace_back(address_buffer);
         } else if (rr_type == ns_t_aaaa) {
-            inet_ntop(AF_INET6, ns_rr_rdata(rr), address_buffer.data(), address_buffer.size());
-            resolve_result.emplace_back(address_buffer.data());
+            inet_ntop(AF_INET6, ns_rr_rdata(rr), address_buffer, INET6_ADDRSTRLEN);
+            resolve_result.emplace_back(address_buffer);
         }
     }
 
