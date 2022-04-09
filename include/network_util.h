@@ -6,6 +6,8 @@
 #define YADDNSC_NETWORK_UTIL_H
 
 #include <map>
+#include <memory>
+#include <string>
 #include <functional>
 
 struct ifaddrs;

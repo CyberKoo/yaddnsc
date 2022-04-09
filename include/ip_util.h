@@ -7,6 +7,9 @@
 #define YADDNSC_IP_UTILS_H
 
 #include <string>
+#include <vector>
+#include <optional>
+
 #include "type.h"
 
 namespace IPUtil {

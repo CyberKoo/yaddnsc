@@ -2,6 +2,8 @@
 // Created by Kotarou on 2022/4/5.
 //
 
+#include "ip_util.h"
+
 #include <vector>
 #include <sys/socket.h>
 
@@ -10,7 +12,6 @@
 #include <optional>
 
 #include "uri.h"
-#include "ip_util.h"
 #include "httpclient.h"
 #include "string_util.h"
 #include "network_util.h"

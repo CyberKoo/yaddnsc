@@ -8,10 +8,13 @@
 
 #include "dns.h"
 #include "uri.h"
+#include "util.h"
 #include "worker.h"
 #include "context.h"
 #include "ip_util.h"
 #include "httpclient.h"
+
+#include "exception/dns_lookup_exception.h"
 #include "exception/driver_exception.h"
 
 void Worker::run() {
@@ -31,21 +34,29 @@ void Worker::run() {
 
 std::optional<std::string> Worker::dns_lookup(std::string_view host, dns_record_t type) {
     auto &context = Context::getInstance();
+    std::optional<DNS::dns_server_t> server = std::nullopt;
+
+    if (context.resolver_config.use_customise_server) {
+        server = {.ip_address = context.resolver_config.ip_address,
+                .port = context.resolver_config.port};
+    }
+
     try {
-        std::optional<DNS::dns_server_t> server = std::nullopt;
-        if (context.resolver_config.use_customise_server) {
-            server = {.ip_address = context.resolver_config.ip_address,
-                    .port = context.resolver_config.port};
-        }
+        auto dns = Util::retry_on_exception<std::string, DnsLookupException>(
+                [&]() {
+                    auto dns_answer = DNS::resolve(host, type, server);
+                    if (dns_answer.size() > 1) {
+                        SPDLOG_WARN("{} resolved more than one address (count: {})", host, dns_answer.size());
+                    }
 
-        auto dns_answer = DNS::resolve(host, type, server);
+                    return dns_answer.front();
+                }, 3,
+                [](const DnsLookupException &e) {
+                    return e.get_error() == dns_lookup_error_t::NX_DOMAIN;
+                }, 500
+        );
 
-        if (dns_answer.size() > 1) {
-            SPDLOG_WARN("{} resolved more than one address (count: {})", host, dns_answer.size());
-        }
-
-        return dns_answer.front();
-    } catch (std::exception &e) {
+    } catch (YaddnscException &e) {
         SPDLOG_WARN("Resolve domain {} type: {} failed. Error: {}", host, record_type_to_string(type), e.what());
         return std::nullopt;
     }
@@ -56,7 +67,7 @@ void Worker::run_scheduled_tasks() {
         SPDLOG_DEBUG("---- Event loop start ----");
         auto &context = Context::getInstance();
         auto &driver = context.driver_manager->get_driver(_worker_config.driver);
-        bool force_update = (_force_update_counter * _worker_config.update_interval) > _worker_config.force_update;
+        bool force_update = is_forced_update();
         SPDLOG_DEBUG("Update counter: {}, estimated elapsed time {} seconds, force update: {}", _force_update_counter,
                      _force_update_counter * _worker_config.update_interval, force_update);
 
@@ -73,7 +84,7 @@ void Worker::run_scheduled_tasks() {
                     SPDLOG_WARN("DNS lookup did not return any value, proceed anyway.");
                 }
 
-                if (record->empty() || record.value() != *ip_addr || force_update) {
+                if (record.has_value() && (record.value() != *ip_addr || force_update)) {
                     if (force_update) {
                         SPDLOG_INFO("Force update triggered!!");
                         _force_update_counter = 0;
@@ -162,6 +173,10 @@ Worker::update_dns_record(const request_t &request, ip_version_t version, std::s
     }
 
     return std::nullopt;
+}
+
+bool Worker::is_forced_update() const {
+    return (_force_update_counter * _worker_config.update_interval) > _worker_config.force_update;
 }
 
 ip_version_t Worker::record_type_to_ip_ver(dns_record_t type) {

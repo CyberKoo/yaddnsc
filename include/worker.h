@@ -23,9 +23,11 @@ public:
     void run();
 
 private:
-    static std::optional<std::string> dns_lookup(std::string_view host, dns_record_t type);
-
     void run_scheduled_tasks();
+
+    bool is_forced_update() const;
+
+    static std::optional<std::string> dns_lookup(std::string_view host, dns_record_t type);
 
     static std::optional<std::string> get_ip_address(const Config::sub_domain_config_t &);
 

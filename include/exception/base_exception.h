@@ -10,6 +10,8 @@
 class YaddnscException : public std::runtime_error {
 public:
     using std::runtime_error::runtime_error;
+
+    [[nodiscard]] virtual std::string_view get_name() const = 0;
 };
 
 #endif //YADDNSC_BASE_EXCEPTION_H

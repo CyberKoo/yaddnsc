@@ -18,11 +18,13 @@ public:
         unsigned short port;
     };
 
-    static std::vector<std::string> resolve(std::string_view, dns_record_t);
-
-    static std::vector<std::string> resolve(std::string_view, dns_record_t, std::optional<dns_server_t>);
+    static std::vector<std::string> resolve(std::string_view, dns_record_t, std::optional<dns_server_t> = std::nullopt);
 
 private:
+    constexpr static int MAXIMUM_UDP_SIZE = 512;
+
+    static dns_lookup_error_t get_dns_lookup_err(int);
+
     static int get_dns_type(dns_record_t);
 };
 

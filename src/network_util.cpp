@@ -1,6 +1,8 @@
 //
 // Created by Kotarou on 2022/4/5.
 //
+#include "network_util.h"
+
 #include <map>
 #include <vector>
 #include <string>
@@ -8,8 +10,6 @@
 #include <arpa/inet.h>
 #include <ifaddrs.h>
 #include <fmt/format.h>
-
-#include "network_util.h"
 
 std::vector<std::string> NetworkUtil::get_interfaces() {
     std::vector<std::string> interfaces;

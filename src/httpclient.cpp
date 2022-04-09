@@ -1,12 +1,13 @@
 //
 // Created by Kotarou on 2022/4/5.
 //
+#include "httpclient.h"
+
 #include <filesystem>
 #include <httplib.h>
 #include <spdlog/spdlog.h>
 
 #include "uri.h"
-#include "httpclient.h"
 
 std::unique_ptr<httplib::Client> HttpClient::connect(const Uri &uri, int family, const char *nif_name) {
     auto client = std::make_unique<httplib::Client>(

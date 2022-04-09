@@ -1,9 +1,9 @@
 //
 // Created by Kotarou on 2022/4/7.
 //
+#include "string_util.h"
 
 #include <algorithm>
-#include "string_util.h"
 
 std::string StringUtil::strToLower(std::string s) {
     std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) { return std::tolower(c); });

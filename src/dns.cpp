@@ -2,35 +2,17 @@
 // Created by Kotarou on 2022/4/5.
 //
 
+#include "dns.h"
+
 #include <netdb.h>
 #include <resolv.h>
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <arpa/nameser.h>
-
 #include <spdlog/spdlog.h>
 
-#include "dns.h"
-
-const int MAXIMUM_UDP_SIZE = 512;
-
-std::string errno_string(int error) {
-    switch (error) {
-        case HOST_NOT_FOUND:
-            return "NXDOMAIN";
-        case NO_DATA:
-            return "NO_DATA";
-        case TRY_AGAIN:
-            return "TRY_AGAIN";
-        default:
-            return "Unknown Error";
-    }
-}
-
-std::vector<std::string> DNS::resolve(std::string_view host, dns_record_t type) {
-    return resolve(host, type, std::nullopt);
-}
+#include "exception/dns_lookup_exception.h"
 
 std::vector<std::string> DNS::resolve(std::string_view host, dns_record_t type, std::optional<dns_server_t> server) {
     SPDLOG_DEBUG("Resolve domain \"{}\"", host);
@@ -59,7 +41,7 @@ std::vector<std::string> DNS::resolve(std::string_view host, dns_record_t type, 
         size = res_nquery(&local_res, host.data(), ns_c_in, get_dns_type(type), buffer.get(), buffer_size);
         if (size < 0) {
             res_nclose(&local_res);
-            throw std::runtime_error(errno_string(h_errno));
+            throw DnsLookupException(host.data(), get_dns_lookup_err(h_errno));
         }
         SPDLOG_DEBUG("Response payload size: {}, buffer size: {}", size, buffer_size);
     } while (size >= buffer_size);
@@ -73,7 +55,8 @@ std::vector<std::string> DNS::resolve(std::string_view host, dns_record_t type, 
     for (int i = 0; i < msg_count; i++) {
         ns_rr rr;
         if (ns_parserr(&handle, ns_s_an, i, &rr)) {
-            throw std::runtime_error(strerror(errno));
+            throw DnsLookupException(fmt::format("Error occurred when parse dns resource, {}", strerror(errno)),
+                                     dns_lookup_error_t::PARSE);
         }
 
         auto rr_type = ns_rr_type(rr);
@@ -88,6 +71,19 @@ std::vector<std::string> DNS::resolve(std::string_view host, dns_record_t type, 
     }
 
     return resolve_result;
+}
+
+dns_lookup_error_t DNS::get_dns_lookup_err(int error) {
+    switch (error) {
+        case HOST_NOT_FOUND:
+            return dns_lookup_error_t::NX_DOMAIN;
+        case NO_DATA:
+            return dns_lookup_error_t::NODATA;
+        case TRY_AGAIN:
+            return dns_lookup_error_t::RETRY;
+        default:
+            return dns_lookup_error_t::UNKNOWN;
+    }
 }
 
 int DNS::get_dns_type(dns_record_t type) {

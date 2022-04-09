@@ -2,12 +2,13 @@
 // Created by Kotarou on 2022/4/7.
 //
 
+#include "manager.h"
+
 #include <mutex>
 #include <algorithm>
 #include <fmt/format.h>
 
 #include "worker.h"
-#include "manager.h"
 #include "context.h"
 #include "network_util.h"
 #include "spdlog/spdlog.h"

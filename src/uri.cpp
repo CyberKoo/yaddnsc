@@ -1,11 +1,11 @@
 //
 // Created by Kotarou on 2021/9/7.
 //
+#include "uri.h"
+
 #include <string>
 #include <algorithm>
 #include <fmt/format.h>
-
-#include "uri.h"
 
 Uri Uri::parse(std::string_view uri) {
     Uri result;

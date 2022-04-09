@@ -13,4 +13,8 @@ enum class dns_record_t {
     A, AAAA, TXT
 };
 
+enum class dns_lookup_error_t {
+    NX_DOMAIN, RETRY, NODATA, PARSE, UNKNOWN
+};
+
 #endif //YADDNSC_TYPE_H

@@ -1,15 +1,13 @@
 //
 // Created by Kotarou on 2022/4/5.
 //
-
-#include <csignal>
-
-#include <cxxopts.hpp>
-#include <spdlog/spdlog.h>
-
 #include "config.h"
 #include "context.h"
 #include "manager.h"
+
+#include <csignal>
+#include <cxxopts.hpp>
+#include <spdlog/spdlog.h>
 
 void sigint_handler([[maybe_unused]] int signal) {
     SPDLOG_INFO("Received exit signal, quiting...");

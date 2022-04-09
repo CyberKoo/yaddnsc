@@ -1,6 +1,8 @@
 //
 // Created by Kotarou on 2022/4/5.
 //
+#include "driver_manager.h"
+
 #include <string>
 #include <filesystem>
 
@@ -11,7 +13,6 @@
 
 #include "IDriver.h"
 #include "driver_ver.h"
-#include "driver_manager.h"
 
 DriverManager::~DriverManager() {
     // this must be done before dlclose

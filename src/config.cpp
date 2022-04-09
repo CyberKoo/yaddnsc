@@ -2,13 +2,13 @@
 // Created by Kotarou on 2022/4/6.
 //
 
+#include "config.h"
+
 #include <fstream>
 #include <filesystem>
 #include <nlohmann/json.hpp>
 #include <fmt/format.h>
 #include <optional>
-
-#include "config.h"
 
 template<typename T>
 std::optional<T> get_optional(const nlohmann::json &j, const std::string &key) try {

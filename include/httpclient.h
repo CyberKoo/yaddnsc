@@ -6,7 +6,9 @@
 #define YADDNSC_HTTPCLIENT_H
 
 #include <map>
+#include <memory>
 #include <string_view>
+
 #include <sys/socket.h>
 
 #include "common_fwd.h"
