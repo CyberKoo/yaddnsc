@@ -23,10 +23,10 @@ int main(int argc, char *argv[]) {
 
     cxxopts::Options options("yaddnsc", "Yet another DDNS client");
     options.add_options()
-            ("v,verbose", "enable verbose mode")
+            ("v,verbose", "Enable verbose mode")
             ("c,config", "Config file path",
              cxxopts::value(context.config_path)->default_value("./config.json"))
-            ("V,version", "print version")
+            ("V,version", "Print version")
             ("h,help", "Print usage");
 
     try {

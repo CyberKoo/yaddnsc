@@ -33,8 +33,6 @@ private:
     Context() {
         driver_manager = std::make_unique<DriverManager>();
     };
-
-    ~Context() = default;
 };
 
 #endif //YADDNSC_CONTEXT_H

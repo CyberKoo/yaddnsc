@@ -25,7 +25,7 @@ public:
 private:
     void run_scheduled_tasks();
 
-    bool is_forced_update() const;
+    [[nodiscard]] bool is_forced_update() const;
 
     static std::optional<std::string> dns_lookup(std::string_view host, dns_record_t type);
 

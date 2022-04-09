@@ -24,19 +24,25 @@ public:
     std::unique_ptr<IDriver> &get_driver(std::string_view);
 
 private:
+    class handle_closer {
+    public:
+        void operator()(void *);
+    };
 
-    bool is_not_loaded(std::unique_ptr<IDriver> &) const;
+    using handle_ptr_t = std::unique_ptr<void, handle_closer>;
 
-    static void *open_file(std::string_view);
+    [[nodiscard]] static bool is_driver_loaded(std::string_view driver_path);
 
-    static IDriver *get_instance(void *);
+    static handle_ptr_t open_file(std::string_view path);
+
+    static IDriver *get_instance(handle_ptr_t &handle);
 
     static std::string_view get_driver_name(std::string_view path);
 
 private:
     std::map<std::string, std::unique_ptr<IDriver>> _driver_map;
 
-    std::vector<void *> _driver_handle;
+    std::vector<handle_ptr_t> _handlers;
 };
 
 #endif //YADDNSC_DRIVER_MANAGER_H

@@ -64,17 +64,16 @@ void Manager::run() {
     SPDLOG_INFO("All available interface: {}", fmt::join(interfaces, ", "));
 
     // create worker threads
-    for (auto &worker: _workers) {
-        auto thread = std::thread(&Worker::run, std::addressof(worker));
-        thread.detach();
-    }
+    std::vector<std::thread> worker_threads;
+    std::transform(_workers.begin(), _workers.end(), std::back_inserter(worker_threads),
+                   [](auto &worker) {
+                       return std::thread(&Worker::run, std::addressof(worker));
+                   }
+    );
 
-    std::mutex mutex;
-    std::unique_lock<std::mutex> lock(mutex);
-
-    // all clear, block main thread.
-    while (!context.terminate) {
-        context.cv.wait(lock, [&context]() { return context.terminate; });
+    // all clear, join workers in order to block main.
+    for (auto &worker: worker_threads) {
+        worker.join();
     }
 }
 

@@ -47,6 +47,7 @@ add_subdirectory(deps/nlohmann_json EXCLUDE_FROM_ALL)
 
 # fmt
 add_subdirectory(deps/fmt EXCLUDE_FROM_ALL)
+set_target_properties(fmt PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 # spdlog
 set(SPDLOG_FMT_EXTERNAL ON)
@@ -59,6 +60,8 @@ add_compile_definitions(SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_DEBUG)
 add_compile_definitions(CPPHTTPLIB_OPENSSL_SUPPORT)
 set(HTTPLIB_USE_BROTLI_IF_AVAILABLE OFF)
 add_subdirectory(deps/cpp-httplib EXCLUDE_FROM_ALL)
+
+# cxxopts command line parser
 add_subdirectory(deps/cxxopts EXCLUDE_FROM_ALL)
 ## submodules ##
 
