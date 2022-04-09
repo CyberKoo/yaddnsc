@@ -85,7 +85,7 @@ void Worker::run_scheduled_tasks() {
                     SPDLOG_WARN("DNS lookup did not return any value, proceed anyway.");
                 }
 
-                if (record.has_value() && (record.value() != *ip_addr || force_update)) {
+                if ((record.has_value() && record.value() != *ip_addr) || force_update) {
                     if (force_update) {
                         SPDLOG_INFO("Force update triggered!!");
                         _force_update_counter = 0;
