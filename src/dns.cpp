@@ -98,3 +98,18 @@ int DNS::get_dns_type(dns_record_t type) {
             return ns_t_soa;
     }
 }
+
+std::string_view DNS::error_to_str(dns_lookup_error_t error) {
+    switch (error) {
+        case dns_lookup_error_t::NX_DOMAIN:
+            return "No such domain";
+        case dns_lookup_error_t::RETRY:
+            return "retry";
+        case dns_lookup_error_t::NODATA:
+            return "no data";
+        case dns_lookup_error_t::PARSE:
+            return "dns record parse error";
+        default:
+            return "unknown error";
+    }
+}

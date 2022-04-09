@@ -61,6 +61,7 @@ public:
 
     void init_logger(int level, std::string_view pattern) override {
         spdlog::set_level(static_cast<spdlog::level::level_enum>(level));
+        spdlog::set_pattern(pattern.data());
     }
 };
 

@@ -20,6 +20,7 @@ public:
 
     static std::vector<std::string> resolve(std::string_view, dns_record_t, std::optional<dns_server_t> = std::nullopt);
 
+    static std::string_view error_to_str(dns_lookup_error_t error);
 private:
     constexpr static int MAXIMUM_UDP_SIZE = 512;
 

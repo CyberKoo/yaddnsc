@@ -43,7 +43,7 @@ std::optional<std::string> Worker::dns_lookup(std::string_view host, dns_record_
     }
 
     try {
-        auto dns = Util::retry_on_exception<std::string, DnsLookupException>(
+        return Util::retry_on_exception<std::string, DnsLookupException>(
                 [&]() {
                     auto dns_answer = DNS::resolve(host, type, server);
                     if (dns_answer.size() > 1) {
@@ -56,9 +56,9 @@ std::optional<std::string> Worker::dns_lookup(std::string_view host, dns_record_
                     return e.get_error() == dns_lookup_error_t::RETRY;
                 }, 500
         );
-
-    } catch (YaddnscException &e) {
-        SPDLOG_WARN("Resolve domain {} type: {} failed. Error: {}", host, record_type_to_string(type), e.what());
+    } catch (DnsLookupException &e) {
+        SPDLOG_WARN("Resolve domain {} type: {} failed. Error: {}", host, record_type_to_string(type),
+                    DNS::error_to_str(e.get_error()));
         return std::nullopt;
     }
 }
