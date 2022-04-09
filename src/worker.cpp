@@ -59,8 +59,9 @@ std::optional<std::string> Worker::dns_lookup(std::string_view host, dns_record_
     } catch (DnsLookupException &e) {
         SPDLOG_WARN("Resolve domain {} type: {} failed. Error: {}", host, record_type_to_string(type),
                     DNS::error_to_str(e.get_error()));
-        return std::nullopt;
     }
+
+    return std::nullopt;
 }
 
 void Worker::run_scheduled_tasks() {
@@ -85,7 +86,7 @@ void Worker::run_scheduled_tasks() {
                     SPDLOG_WARN("DNS lookup did not return any value, proceed anyway.");
                 }
 
-                if ((record.has_value() && record.value() != *ip_addr) || force_update) {
+                if (force_update || (record.has_value() && record.value() != *ip_addr)) {
                     if (force_update) {
                         SPDLOG_INFO("Force update triggered!!");
                         _force_update_counter = 0;
@@ -114,7 +115,7 @@ void Worker::run_scheduled_tasks() {
                     SPDLOG_DEBUG("**** Domain {} task finished ****", fqdn);
                 } else {
                     SPDLOG_DEBUG("Domain: {}, type: {}, current {}, new {}, skip updating", fqdn, rd_type,
-                                 (record.has_value() ? record.value() : "<empty>"), *ip_addr);
+                                 (record.has_value() ? *record : "<empty>"), *ip_addr);
                 }
             } else {
                 SPDLOG_WARN("No valid IP Address found, skip update");

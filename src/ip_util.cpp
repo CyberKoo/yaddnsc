@@ -5,11 +5,11 @@
 #include "ip_util.h"
 
 #include <vector>
+#include <optional>
 #include <sys/socket.h>
 
 #include <httplib.h>
 #include <spdlog/spdlog.h>
-#include <optional>
 
 #include "uri.h"
 #include "httpclient.h"

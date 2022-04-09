@@ -10,10 +10,6 @@
 class DriverException : public YaddnscException {
 public:
     using YaddnscException::YaddnscException;
-
-    [[nodiscard]] std::string_view get_name() const override {
-        return "DriverException";
-    }
 };
 
 #endif //YADDNSC_DRIVER_EXCEPTION_H

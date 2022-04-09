@@ -10,6 +10,10 @@
 class MissingRequiredParamException : public DriverException {
 public:
     using DriverException::DriverException;
+
+    [[nodiscard]] std::string_view get_name() const override {
+        return "MissingRequiredParamException";
+    }
 };
 
 #endif //YADDNSC_MISSING_REQUIRED_PARAM_EXCEPTION_H

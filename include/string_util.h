@@ -11,27 +11,31 @@
 #include <string_view>
 
 namespace StringUtil {
-    void ltrim(std::string &s);
+    void ltrim(std::string &);
 
-    void rtrim(std::string &s);
+    void rtrim(std::string &);
 
-    void trim(std::string &s);
+    void trim(std::string &);
 
-    std::string ltrimCopy(std::string s);
+    std::string ltrim_copy(std::string);
 
-    std::string rtrimCopy(std::string s);
+    std::string rtrim_copy(std::string);
 
-    std::string trimCopy(std::string s);
+    std::string trim_copy(std::string);
 
-    std::string strToLower(std::string s);
+    void to_lower(std::string &);
 
-    std::vector<std::string_view> split(const std::string &s, const std::string &delims);
+    void to_upper(std::string &);
 
-    std::vector<std::string_view> split(std::string_view str, std::string_view delims);
+    std::string to_lower(std::string);
 
-    void replace(std::string &str, const std::map<std::string_view, std::string_view> &replace_list);
+    std::string to_upper(std::string);
 
-    std::string replaceCopy(std::string_view str, const std::map<std::string_view, std::string_view> &replace_list);
+    std::vector<std::string> split(std::string_view str, std::string_view delim = " ");
+
+    void replace(std::string &, const std::map<std::string_view, std::string_view> &);
+
+    std::string replace_copy(std::string_view, const std::map<std::string_view, std::string_view> &);
 }
 
 #endif //YADDNSC_STRING_UTIL_H

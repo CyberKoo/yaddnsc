@@ -28,9 +28,7 @@ request_t DigitalOceanDriver::generate_request(const driver_config_t &config) {
     request.body = nlohmann::json({{"data", config.at("ip_addr")}}).dump();
     request.content_type = "application/json";
     request.request_method = request_method_t::PUT;
-
-    SPDLOG_INFO(request.body);
-
+    
     return request;
 }
 

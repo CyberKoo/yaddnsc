@@ -5,21 +5,30 @@
 
 #include <algorithm>
 
-std::string StringUtil::strToLower(std::string s) {
-    std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) { return std::tolower(c); });
+std::string StringUtil::to_lower(std::string s) {
+    std::transform(s.begin(), s.end(), s.begin(), [](auto c) { return std::tolower(c); });
     return s;
 }
 
-std::vector<std::string_view> StringUtil::split(const std::string &s, const std::string &delim) {
-    return StringUtil::split(std::string_view(s), std::string_view(delim));
+std::string StringUtil::to_upper(std::string s) {
+    std::transform(s.begin(), s.end(), s.begin(), [](auto c) { return std::toupper(c); });
+    return s;
 }
 
-std::vector<std::string_view> StringUtil::split(std::string_view str, std::string_view delims = " ") {
-    std::vector<std::string_view> output;
+void StringUtil::to_lower(std::string &s) {
+    std::transform(s.begin(), s.end(), s.begin(), [](auto c) { return std::tolower(c); });
+}
+
+void StringUtil::to_upper(std::string &s) {
+    std::transform(s.begin(), s.end(), s.begin(), [](auto c) { return std::toupper(c); });
+}
+
+std::vector<std::string> StringUtil::split(std::string_view str, std::string_view delim) {
+    std::vector<std::string> output;
     size_t first = 0;
 
     while (first < str.size()) {
-        const auto second = str.find(delims, first);
+        const auto second = str.find(delim, first);
 
         if (first != second) {
             output.emplace_back(str.substr(first, second - first));
@@ -29,7 +38,7 @@ std::vector<std::string_view> StringUtil::split(std::string_view str, std::strin
             break;
         }
 
-        first = second + delims.size();
+        first = second + delim.size();
     }
 
     return output;
@@ -57,19 +66,19 @@ void StringUtil::trim(std::string &s) {
 }
 
 // trim from start (copying)
-std::string StringUtil::ltrimCopy(std::string s) {
+std::string StringUtil::ltrim_copy(std::string s) {
     StringUtil::ltrim(s);
     return s;
 }
 
 // trim from end (copying)
-std::string StringUtil::rtrimCopy(std::string s) {
+std::string StringUtil::rtrim_copy(std::string s) {
     StringUtil::rtrim(s);
     return s;
 }
 
 // trim from both ends (copying)
-std::string StringUtil::trimCopy(std::string s) {
+std::string StringUtil::trim_copy(std::string s) {
     StringUtil::trim(s);
     return s;
 }
@@ -85,7 +94,7 @@ void StringUtil::replace(std::string &str, const std::map<std::string_view, std:
 }
 
 std::string
-StringUtil::replaceCopy(std::string_view str, const std::map<std::string_view, std::string_view> &replace_list) {
+StringUtil::replace_copy(std::string_view str, const std::map<std::string_view, std::string_view> &replace_list) {
     auto s = std::string(str);
     StringUtil::replace(s, replace_list);
 
