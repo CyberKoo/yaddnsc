@@ -13,6 +13,8 @@ foreach(dir ${DRIVERS})
         message(STATUS "Build driver ${dir}")
 
         add_subdirectory(${dir})
+        set_target_properties(${DIR_NAME} PROPERTIES POSITION_INDEPENDENT_CODE ON)
+        set_target_properties(${DIR_NAME} PROPERTIES PREFIX "")
         target_link_libraries(${DIR_NAME} PRIVATE spdlog::spdlog fmt::fmt nlohmann_json::nlohmann_json)
     ENDIF()
 endforeach()
