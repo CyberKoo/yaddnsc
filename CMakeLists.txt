@@ -10,15 +10,7 @@ set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -O2 -flto")
 set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -O0 -g -ggdb -gdwarf-3 -Wall")
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/objs/lib)
 set(EXECUTABLE_OUTPUT_PATH ${CMAKE_BINARY_DIR}/objs)
-set(YADDNSC_DRV_VERSION "1000000")
-
-OPTION(STATIC OFF "Compile standalone binary file")
-
-if (POLICY CMP0115)
-    # suppress warnings about missing filename extensions caused by policy
-    # CMP0115, introduced with CMake 3.20
-    cmake_policy(SET CMP0115 OLD)
-endif ()
+set(YADDNSC_DRV_VERSION "1000001")
 
 if (NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release)

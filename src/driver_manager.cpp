@@ -12,6 +12,7 @@
 #include "IDriver.h"
 #include "driver_ver.h"
 #include "logging_pattern.h"
+#include "exception/bad_driver_exception.h"
 
 DriverManager::~DriverManager() {
     // destroy all drivers before dlclose
@@ -33,16 +34,21 @@ void DriverManager::load_driver(std::string_view path) {
         if (!is_driver_loaded(path)) {
             auto handle = open_file(path);
             auto driver = std::unique_ptr<IDriver>(get_instance(handle));
+
+            // validate driver ABI version
+            if (driver->get_driver_version().compare(DRV_VERSION) != 0) {
+                SPDLOG_CRITICAL("Driver {} version {} instead of {}.", driver_lib_name, driver->get_driver_version(),
+                                DRV_VERSION);
+
+                throw BadDriverException("driver ABI mismatch");
+            }
+
+            // initialize logger
             driver->init_logger(spdlog::get_level(), _SPDLOG_LOGGING_PATTERN);
             auto driver_detail = driver->get_detail();
-            SPDLOG_INFO("Loaded {}, driver name: {}", driver_lib_name, driver_detail.name);
-            SPDLOG_DEBUG("Driver {} ({}), developed by {}, version: {}.", driver_detail.name, driver_detail.description,
+            SPDLOG_INFO("Driver {} loaded, driver name: {}", driver_lib_name, driver_detail.name);
+            SPDLOG_DEBUG("Driver {} ({}), developed by {}, version: {}", driver_detail.name, driver_detail.description,
                          driver_detail.author, driver_detail.version);
-            if (driver->get_driver_version().compare(DRV_VERSION) != 0) {
-                SPDLOG_ERROR("Driver {} version mismatch. Current version {}, driver compiled for version {}.",
-                             driver_lib_name, DRV_VERSION, driver->get_driver_version());
-                throw std::runtime_error("");
-            }
 
             _handlers.emplace_back(std::move(handle));
             _driver_map.emplace(std::make_pair(driver_detail.name, std::move(driver)));
@@ -50,8 +56,8 @@ void DriverManager::load_driver(std::string_view path) {
             SPDLOG_WARN("Driver {} already loaded.", driver_lib_name);
         }
     } else {
-        SPDLOG_ERROR("Failed to load driver {}", driver_lib_name);
-        throw std::invalid_argument(fmt::format("File {} not found.", driver_lib_name));
+        SPDLOG_ERROR("Failed to load driver {}, file {} not found", driver_lib_name, path);
+        throw BadDriverException(driver_lib_name.data());
     }
 }
 
@@ -59,8 +65,8 @@ DriverManager::handle_ptr_t DriverManager::open_file(std::string_view path) {
     auto handle = handle_ptr_t(dlopen(path.data(), RTLD_LAZY));
 
     if (handle == nullptr) {
-        dlclose(handle.get());
-        throw std::runtime_error(fmt::format("Unable load {}, error: {}", get_driver_name(path), dlerror()));
+        SPDLOG_CRITICAL("Unable to load driver {}, error: {}", get_driver_name(path), dlerror());
+        throw BadDriverException("load error");
     }
 
     return handle;
@@ -72,9 +78,9 @@ IDriver *DriverManager::get_instance(handle_ptr_t &handle) {
 
     // load create function
     auto create = reinterpret_cast<std::add_pointer<IDriver *()>::type>(dlsym(handle.get(), "create"));
-    const auto error = dlerror();
-    if (error) {
-        throw std::runtime_error(fmt::format("Cannot load plugin, error: {}", error));
+    if (const auto error = dlerror()) {
+        SPDLOG_CRITICAL("Failed to create driver instance, error: {}", dlerror());
+        throw BadDriverException("dlsym error");
     }
 
     // return class instance
@@ -102,7 +108,8 @@ std::unique_ptr<IDriver> &DriverManager::get_driver(std::string_view name) {
         return _driver_map[name.data()];
     }
 
-    throw std::runtime_error(fmt::format("Driver {} not found", name));
+    SPDLOG_CRITICAL("Driver {} not found", name);
+    throw BadDriverException("driver not found");
 }
 
 std::vector<std::string> DriverManager::get_loaded_drivers() {

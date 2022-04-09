@@ -9,6 +9,7 @@
 #include <csignal>
 #include <cxxopts.hpp>
 #include <spdlog/spdlog.h>
+#include <exception/base_exception.h>
 
 void sigint_handler([[maybe_unused]] int signal) {
     SPDLOG_INFO("Received exit signal, quiting...");
@@ -62,6 +63,10 @@ int main(int argc, char *argv[]) {
         manager.run();
 
         return 0;
+    } catch (YaddnscException &e) {
+        SPDLOG_CRITICAL("Program crashed due to an unrecoverable error.");
+        // exit(-1);
+        std::abort();
     } catch (cxxopts::OptionException &e) {
         SPDLOG_CRITICAL(e.what());
     } catch (std::exception &e) {
