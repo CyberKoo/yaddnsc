@@ -114,7 +114,7 @@ void Worker::run_scheduled_tasks() {
                     SPDLOG_DEBUG("**** Domain {} task finished ****", fqdn);
                 } else {
                     SPDLOG_DEBUG("Domain: {}, type: {}, current {}, new {}, skip updating", fqdn, rd_type,
-                                 (record->empty() ? "<empty>" : record.value()), *ip_addr);
+                                 (record.has_value() ? record.value() : "<empty>"), *ip_addr);
                 }
             } else {
                 SPDLOG_WARN("No valid IP Address found, skip update");
