@@ -19,6 +19,7 @@ void sigint_handler([[maybe_unused]] int signal) {
 int main(int argc, char *argv[]) {
     auto &context = Context::getInstance();
     signal(SIGINT, sigint_handler);
+    signal(SIGTERM, sigint_handler);
 
     cxxopts::Options options("yaddnsc", "Yet another DDNS client");
     options.add_options()
