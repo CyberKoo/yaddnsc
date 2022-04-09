@@ -17,7 +17,7 @@ namespace IPUtil {
 
     std::optional<std::string> get_ip_from_url(std::string_view url, ip_version_t version, const char *nif_name);
 
-    int ip_version_to_af(ip_version_t version);
+    int ip2af(ip_version_t version);
 }
 
 

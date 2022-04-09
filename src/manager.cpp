@@ -13,6 +13,12 @@
 #include "network_util.h"
 #include "spdlog/spdlog.h"
 
+template<typename T>
+void dedupe(std::vector<T> &vec) {
+    std::sort(vec.begin(), vec.end());
+    vec.erase(std::unique(vec.begin(), vec.end()), vec.end());
+}
+
 void Manager::validate_config() {
     auto &context = Context::getInstance();
 
@@ -41,8 +47,12 @@ void Manager::load_drivers() const {
     auto &context = Context::getInstance();
     auto &driver_manager = context.driver_manager;
 
+    // remove duplicated lines
+    std::vector<std::string> load(_config.driver.load);
+    dedupe(load);
+
     // load drivers
-    for (auto &driver: _config.driver.load) {
+    for (auto &driver: load) {
         driver_manager->load_driver(driver);
     }
 }

@@ -27,6 +27,7 @@ public:
 
 private:
     Config::config_t _config;
+
     std::vector<Worker> _workers;
 };
 

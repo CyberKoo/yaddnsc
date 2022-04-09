@@ -33,9 +33,7 @@ private:
 
     static std::optional<std::string> update_dns_record(const request_t &request, ip_version_t version, std::string_view nif);
 
-    static std::string record_type_to_string(dns_record_t);
-
-    static ip_version_t record_type_to_ip_ver(dns_record_t type);
+    static ip_version_t rdtype2ip(dns_record_t type);
 
 private:
     const Config::domains_config_t &_worker_config;

@@ -63,6 +63,9 @@ add_subdirectory(deps/cpp-httplib EXCLUDE_FROM_ALL)
 
 # cxxopts command line parser
 add_subdirectory(deps/cxxopts EXCLUDE_FROM_ALL)
+
+# magic enum
+add_subdirectory(deps/magic_enum EXCLUDE_FROM_ALL)
 ## submodules ##
 
 ### source code
@@ -89,7 +92,7 @@ add_executable(yaddnsc src/main.cpp include/context.h include/non_copyable.h ${C
 # link internal library
 target_link_libraries(yaddnsc PRIVATE string_util)
 
-target_link_libraries(yaddnsc PRIVATE httplib spdlog::spdlog fmt::fmt OpenSSL::SSL OpenSSL::Crypto
+target_link_libraries(yaddnsc PRIVATE httplib spdlog::spdlog fmt::fmt OpenSSL::SSL OpenSSL::Crypto magic_enum::magic_enum
         ZLIB::ZLIB cxxopts::cxxopts std::filesystem nlohmann_json::nlohmann_json resolv ${CMAKE_DL_LIBS})
 
 # external drivers

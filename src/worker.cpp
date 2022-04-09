@@ -6,6 +6,7 @@
 
 #include <thread>
 #include <httplib.h>
+#include <magic_enum.hpp>
 #include <spdlog/spdlog.h>
 
 #include "dns.h"
@@ -57,7 +58,7 @@ std::optional<std::string> Worker::dns_lookup(std::string_view host, dns_record_
                 }, 500
         );
     } catch (DnsLookupException &e) {
-        SPDLOG_WARN("Resolve domain {} type: {} failed. Error: {}", host, record_type_to_string(type),
+        SPDLOG_WARN("Resolve domain {} type: {} failed. Error: {}", host, magic_enum::enum_name(type),
                     DNS::error_to_str(e.get_error()));
     }
 
@@ -66,7 +67,7 @@ std::optional<std::string> Worker::dns_lookup(std::string_view host, dns_record_
 
 void Worker::run_scheduled_tasks() {
     try {
-        SPDLOG_DEBUG("---- Event loop start ----");
+        SPDLOG_DEBUG("---- Event loop start for {} ----", _worker_config.name);
         auto &context = Context::getInstance();
         auto &driver = context.driver_manager->get_driver(_worker_config.driver);
         bool force_update = is_forced_update();
@@ -77,16 +78,12 @@ void Worker::run_scheduled_tasks() {
             auto fqdn = fmt::format("{}.{}", sub_domain.name, _worker_config.name);
 
             SPDLOG_DEBUG("**** Domain {} task start ****", fqdn);
-            auto rd_type = record_type_to_string(sub_domain.type);
+            auto rd_type = magic_enum::enum_name(sub_domain.type);
 
             if (auto ip_addr = get_ip_address(sub_domain)) {
                 auto record = dns_lookup(fqdn, sub_domain.type);
-
-                if (!record.has_value()) {
-                    SPDLOG_WARN("DNS lookup did not return any value, proceed anyway.");
-                }
-
-                if (force_update || (record.has_value() && record.value() != *ip_addr)) {
+                // force update or ip not same or even no ip
+                if (force_update || (record.has_value() && record.value() != *ip_addr) || !record.has_value()) {
                     if (force_update) {
                         SPDLOG_INFO("Force update triggered!!");
                         _force_update_counter = 0;
@@ -122,23 +119,23 @@ void Worker::run_scheduled_tasks() {
             }
         }
         ++_force_update_counter;
-        SPDLOG_DEBUG("---- Event loop finished ----");
+        SPDLOG_DEBUG("---- Event loop finished for {} ----", _worker_config.name);
     } catch (std::exception &e) {
         SPDLOG_CRITICAL("Scheduler exited with unhandled error: {}", e.what());
     }
 }
 
 std::optional<std::string> Worker::get_ip_address(const Config::sub_domain_config_t &config) {
+    auto ip_version = rdtype2ip(config.type);
     if (config.ip_source == Config::ip_source_t::INTERFACE) {
-        auto addresses = IPUtil::get_ip_from_interface(config.interface, record_type_to_ip_ver(config.type));
+        auto addresses = IPUtil::get_ip_from_interface(config.interface, ip_version);
         if (!addresses.empty()) {
             return addresses.front();
         }
     } else {
-        auto ip_ver = record_type_to_ip_ver(config.type);
         // ipv6 do not pass nif, this is a bug in cpp-httplib
-        auto nif_name = ip_ver == ip_version_t::IPV6 ? nullptr : config.interface.data();
-        return IPUtil::get_ip_from_url(config.ip_source_param, ip_ver, nif_name);
+        auto nif_name = ip_version == ip_version_t::IPV6 ? nullptr : config.interface.data();
+        return IPUtil::get_ip_from_url(config.ip_source_param, ip_version, nif_name);
     }
 
     return std::nullopt;
@@ -155,7 +152,7 @@ Worker::update_dns_record(const request_t &request, ip_version_t version, std::s
 
         // do not force interface when update ipv6 record
         auto nif_name = version == ip_version_t::IPV6 ? nullptr : nif.data();
-        auto client = HttpClient::connect(uri, IPUtil::ip_version_to_af(version), nif_name);
+        auto client = HttpClient::connect(uri, IPUtil::ip2af(version), nif_name);
         switch (request.request_method) {
             case request_method_t::GET:
                 return client->Get(path.c_str(), headers);
@@ -178,10 +175,11 @@ Worker::update_dns_record(const request_t &request, ip_version_t version, std::s
 }
 
 bool Worker::is_forced_update() const {
-    return (_force_update_counter * _worker_config.update_interval) > _worker_config.force_update;
+    return (_worker_config.force_update > 0) &&
+           (_force_update_counter * _worker_config.update_interval) > _worker_config.force_update;
 }
 
-ip_version_t Worker::record_type_to_ip_ver(dns_record_t type) {
+ip_version_t Worker::rdtype2ip(dns_record_t type) {
     switch (type) {
         case dns_record_t::A:
             return ip_version_t::IPV4;
@@ -191,18 +189,5 @@ ip_version_t Worker::record_type_to_ip_ver(dns_record_t type) {
             return ip_version_t::UNSPECIFIED;
         default:
             return ip_version_t::UNSPECIFIED;
-    }
-}
-
-std::string Worker::record_type_to_string(dns_record_t type) {
-    switch (type) {
-        case dns_record_t::A:
-            return "A";
-        case dns_record_t::AAAA:
-            return "AAAA";
-        case dns_record_t::TXT:
-            return "TXT";
-        default:
-            return "UNKNOWN";
     }
 }

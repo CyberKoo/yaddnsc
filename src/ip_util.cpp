@@ -17,11 +17,10 @@
 #include "network_util.h"
 
 std::vector<std::string> IPUtil::get_ip_from_interface(std::string_view nif_name, ip_version_t version) {
-    int expected_af = ip_version_to_af(version);
     auto addresses = NetworkUtil::get_nif_ip_address(nif_name);
     std::vector<std::string> nif_addresses;
     for (auto &[addr, addr_af]: addresses) {
-        if (addr_af == expected_af) {
+        if (addr_af == ip2af(version)) {
             nif_addresses.emplace_back(addr);
         }
     }
@@ -33,7 +32,7 @@ std::optional<std::string> IPUtil::get_ip_from_url(std::string_view url, ip_vers
     SPDLOG_DEBUG("Trying get ip address from {}", url);
 
     auto parsed = Uri::parse(url);
-    auto response = HttpClient::get(parsed, ip_version_to_af(version), nif_name);
+    auto response = HttpClient::get(parsed, ip2af(version), nif_name);
     if (response) {
         auto body = response->body;
         StringUtil::trim(body);
@@ -45,7 +44,7 @@ std::optional<std::string> IPUtil::get_ip_from_url(std::string_view url, ip_vers
     }
 }
 
-int IPUtil::ip_version_to_af(ip_version_t version) {
+int IPUtil::ip2af(ip_version_t version) {
     switch (version) {
         case ip_version_t::IPV4:
             return AF_INET;
