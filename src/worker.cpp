@@ -2,6 +2,8 @@
 // Created by Kotarou on 2022/4/5.
 //
 
+#include "worker.h"
+
 #include <thread>
 #include <httplib.h>
 #include <spdlog/spdlog.h>
@@ -9,7 +11,6 @@
 #include "dns.h"
 #include "uri.h"
 #include "util.h"
-#include "worker.h"
 #include "context.h"
 #include "ip_util.h"
 #include "httpclient.h"
@@ -52,7 +53,7 @@ std::optional<std::string> Worker::dns_lookup(std::string_view host, dns_record_
                     return dns_answer.front();
                 }, 3,
                 [](const DnsLookupException &e) {
-                    return e.get_error() == dns_lookup_error_t::NX_DOMAIN;
+                    return e.get_error() == dns_lookup_error_t::RETRY;
                 }, 500
         );
 

@@ -8,7 +8,7 @@
 #include "base_exception.h"
 #include "type.h"
 
-class DnsLookupException : YaddnscException {
+class DnsLookupException : public YaddnscException {
 public:
     using YaddnscException::YaddnscException;
 

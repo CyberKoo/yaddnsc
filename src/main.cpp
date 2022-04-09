@@ -4,6 +4,7 @@
 #include "config.h"
 #include "context.h"
 #include "manager.h"
+#include "logging_pattern.h"
 
 #include <csignal>
 #include <cxxopts.hpp>
@@ -35,7 +36,7 @@ int main(int argc, char *argv[]) {
         }
 
         // logging
-        spdlog::set_pattern("[%D %T.%e] [%^%8l%$] [%15s:%#] %v");
+        spdlog::set_pattern(_SPDLOG_LOGGING_PATTERN);
         if (result["verbose"].as<bool>()) {
             spdlog::set_level(spdlog::level::debug);
             SPDLOG_DEBUG("verbose mode enabled");

@@ -5,14 +5,13 @@
 
 #include <string>
 #include <filesystem>
-
 #include <fmt/format.h>
 #include <spdlog/spdlog.h>
-
 #include <dlfcn.h>
 
 #include "IDriver.h"
 #include "driver_ver.h"
+#include "logging_pattern.h"
 
 DriverManager::~DriverManager() {
     // this must be done before dlclose
@@ -38,7 +37,7 @@ void DriverManager::load_driver(std::string_view path) {
         auto handle = open_file(path);
         auto driver = std::unique_ptr<IDriver>(get_instance(handle));
         if (is_not_loaded(driver)) {
-            driver->init_logger(spdlog::get_level(), "");
+            driver->init_logger(spdlog::get_level(), _SPDLOG_LOGGING_PATTERN);
             auto driver_detail = driver->get_detail();
             SPDLOG_INFO("Loaded {}, driver name: {}", driver_lib_name, driver_detail.name);
             SPDLOG_DEBUG("Driver {} ({}), developed by {}, version: {}.", driver_detail.name, driver_detail.description,
