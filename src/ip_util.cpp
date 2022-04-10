@@ -20,7 +20,7 @@ std::vector<std::string> IPUtil::get_ip_from_interface(std::string_view nif_name
     auto addresses = NetworkUtil::get_nif_ip_address(nif_name);
     std::vector<std::string> nif_addresses;
     for (auto &[ip_address, family]: addresses) {
-        if (family == ip2af(version)) {
+        if (version == ip_version_t::UNSPECIFIED || family == ip2af(version)) {
             nif_addresses.emplace_back(ip_address);
         }
     }

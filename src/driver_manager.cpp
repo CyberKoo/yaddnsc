@@ -42,7 +42,7 @@ void DriverManager::load_driver(std::string_view path) {
             }
 
             // initialize logger
-            driver->init_logger(spdlog::get_level(), _SPDLOG_LOGGING_PATTERN);
+            driver->init_logger(spdlog::get_level(), YADDNSC_LOGGING_PATTERN);
             auto driver_detail = driver->get_detail();
             SPDLOG_INFO("Driver {} loaded, driver name: {}", driver_lib_name, driver_detail.name);
             SPDLOG_DEBUG("Driver {} ({}), developed by {}, version: {}", driver_detail.name, driver_detail.description,

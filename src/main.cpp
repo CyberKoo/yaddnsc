@@ -38,7 +38,7 @@ int main(int argc, char *argv[]) {
         }
 
         // logging
-        spdlog::set_pattern(_SPDLOG_LOGGING_PATTERN);
+        spdlog::set_pattern(YADDNSC_LOGGING_PATTERN);
         if (result["verbose"].as<bool>()) {
             spdlog::set_level(spdlog::level::debug);
             SPDLOG_DEBUG("verbose mode enabled");

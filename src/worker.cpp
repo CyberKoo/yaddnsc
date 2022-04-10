@@ -12,6 +12,7 @@
 #include "dns.h"
 #include "uri.h"
 #include "util.h"
+#include "cache.h"
 #include "context.h"
 #include "ip_util.h"
 #include "httpclient.h"
@@ -77,47 +78,53 @@ void Worker::run_scheduled_tasks() {
         for (const auto &sub_domain: _worker_config.subdomains) {
             auto fqdn = fmt::format("{}.{}", sub_domain.name, _worker_config.name);
 
-            SPDLOG_DEBUG("**** Domain {} task start ****", fqdn);
-            auto rd_type = magic_enum::enum_name(sub_domain.type);
+            try {
+                SPDLOG_DEBUG("**** Domain {} task start ****", fqdn);
+                auto rd_type = magic_enum::enum_name(sub_domain.type);
 
-            if (auto ip_addr = get_ip_address(sub_domain)) {
-                auto record = dns_lookup(fqdn, sub_domain.type);
-                // force update or ip not same or even no ip
-                if (force_update || (record.has_value() && record.value() != *ip_addr) || !record.has_value()) {
-                    if (force_update) {
-                        SPDLOG_INFO("Force update triggered!!");
-                        _force_update_counter = 0;
-                    }
-
-                    auto parameters = std::map<std::string, std::string>(sub_domain.driver_param);
-                    parameters.emplace("domain", _worker_config.name);
-                    parameters.emplace("subdomain", sub_domain.name);
-                    parameters.emplace("ip_addr", *ip_addr);
-                    parameters.emplace("rd_type", rd_type);
-                    parameters.emplace("fqdn", fqdn);
-
-                    auto request = driver->generate_request(parameters);
-                    SPDLOG_DEBUG("Received DNS record update instruction from driver {}", driver->get_detail().name);
-
-                    // this may throw exception
-                    auto update_result = update_dns_record(request, sub_domain.ip_type, sub_domain.interface);
-                    if (update_result.has_value()) {
-                        if (driver->check_response(update_result.value())) {
-                            SPDLOG_INFO("Update {}, type: {}, to {}", fqdn, rd_type, *ip_addr);
+                if (auto ip_addr = get_ip_address(sub_domain, force_update)) {
+                    auto record = dns_lookup(fqdn, sub_domain.type);
+                    // force update or ip not same or even no ip
+                    if (force_update || (record.has_value() && record.value() != *ip_addr) || !record.has_value()) {
+                        if (force_update) {
+                            SPDLOG_INFO("Force update triggered!!");
+                            _force_update_counter = 0;
                         }
-                    } else {
-                        SPDLOG_INFO("Update domain {} failed", fqdn);
-                    }
 
-                    SPDLOG_DEBUG("**** Domain {} task finished ****", fqdn);
+                        auto parameters = std::map<std::string, std::string>(sub_domain.driver_param);
+                        parameters.emplace("domain", _worker_config.name);
+                        parameters.emplace("subdomain", sub_domain.name);
+                        parameters.emplace("ip_addr", *ip_addr);
+                        parameters.emplace("rd_type", rd_type);
+                        parameters.emplace("fqdn", fqdn);
+
+                        auto request = driver->generate_request(parameters);
+                        SPDLOG_DEBUG("Received DNS record update instruction from driver {}",
+                                     driver->get_detail().name);
+
+                        // this may throw exception
+                        auto update_result = update_dns_record(request, sub_domain.ip_type, sub_domain.interface);
+                        if (update_result.has_value()) {
+                            if (driver->check_response(update_result.value())) {
+                                SPDLOG_INFO("Update {}, type: {}, to {}", fqdn, rd_type, *ip_addr);
+                            }
+                        } else {
+                            SPDLOG_INFO("Update domain {} failed", fqdn);
+                        }
+
+                        SPDLOG_DEBUG("**** Domain {} task finished ****", fqdn);
+                    } else {
+                        SPDLOG_DEBUG("Domain: {}, type: {}, current {}, new {}, skip updating", fqdn, rd_type,
+                                     (record.has_value() ? *record : "<empty>"), *ip_addr);
+                    }
                 } else {
-                    SPDLOG_DEBUG("Domain: {}, type: {}, current {}, new {}, skip updating", fqdn, rd_type,
-                                 (record.has_value() ? *record : "<empty>"), *ip_addr);
+                    SPDLOG_WARN("No valid IP Address found, skip update");
                 }
-            } else {
-                SPDLOG_WARN("No valid IP Address found, skip update");
+            } catch (DriverException &e) {
+                SPDLOG_ERROR("Task for domain {}, ended with driver exception: {}", fqdn, e.what());
             }
         }
+
         ++_force_update_counter;
         SPDLOG_DEBUG("---- Event loop finished for {} ----", _worker_config.name);
     } catch (std::exception &e) {
@@ -125,20 +132,31 @@ void Worker::run_scheduled_tasks() {
     }
 }
 
-std::optional<std::string> Worker::get_ip_address(const Config::sub_domain_config_t &config) {
-    auto ip_version = rdtype2ip(config.type);
-    if (config.ip_source == Config::ip_source_t::INTERFACE) {
-        auto addresses = IPUtil::get_ip_from_interface(config.interface, ip_version);
-        if (!addresses.empty()) {
-            return addresses.front();
+std::optional<std::string> Worker::get_ip_address(const Config::sub_domain_config_t &config, bool bypass_cache) {
+    static Cache<std::optional<std::string>> ip_cache;
+    static const auto func = [&config]() -> std::optional<std::string> {
+        auto ip_type = rdtype2ip(config.type);
+        if (config.ip_source == Config::ip_source_t::INTERFACE) {
+            auto addresses = IPUtil::get_ip_from_interface(config.interface, ip_type);
+            if (!addresses.empty()) {
+                return addresses.front();
+            }
+        } else {
+            // ipv6 do not pass nif, this is a bug in cpp-httplib
+            auto nif_name = ip_type == ip_version_t::IPV6 ? nullptr : config.interface.data();
+            return IPUtil::get_ip_from_url(config.ip_source_param, ip_type, nif_name);
         }
-    } else {
-        // ipv6 do not pass nif, this is a bug in cpp-httplib
-        auto nif_name = ip_version == ip_version_t::IPV6 ? nullptr : config.interface.data();
-        return IPUtil::get_ip_from_url(config.ip_source_param, ip_version, nif_name);
-    }
 
-    return std::nullopt;
+        return std::nullopt;
+    };
+
+    if (!bypass_cache) {
+        auto key = fmt::format("{}_{}_{}_{}", magic_enum::enum_name(config.ip_source), config.interface,
+                               magic_enum::enum_name(config.ip_type), config.ip_source_param);
+        return ip_cache.get(key, func, 30);
+    } else {
+        return func();
+    }
 }
 
 std::optional<std::string>

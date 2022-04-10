@@ -78,8 +78,8 @@ file(GLOB_RECURSE Exceptions "include/exception/*.h")
 add_library(string_util STATIC src/string_util.cpp include/string_util.h)
 
 # main executable
-add_executable(yaddnsc src/main.cpp include/context.h include/non_copyable.h ${Config} ${DriverManager} ${Worker}
-        ${NetworkUtil} ${Exceptions} ${URI} ${DNS} ${HttpClient} ${Util} ${IPUtil} ${Manager})
+add_executable(yaddnsc src/main.cpp ${Config} ${DriverManager} ${URI} ${DNS} ${Util} ${Worker} ${Exceptions} ${Manager}
+        ${NetworkUtil} ${HttpClient} ${IPUtil})
 
 # link internal library
 target_link_libraries(yaddnsc PRIVATE string_util)

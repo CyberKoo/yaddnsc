@@ -29,7 +29,7 @@ private:
 
     static std::optional<std::string> dns_lookup(std::string_view host, dns_record_t type);
 
-    static std::optional<std::string> get_ip_address(const Config::sub_domain_config_t &);
+    static std::optional<std::string> get_ip_address(const Config::sub_domain_config_t &, bool);
 
     static std::optional<std::string> update_dns_record(const request_t &request, ip_version_t version, std::string_view nif);
 

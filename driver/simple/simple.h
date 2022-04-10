@@ -9,6 +9,8 @@
 
 class SimpleDriver final : public Driver {
 public:
+    SimpleDriver();
+
     ~SimpleDriver() override = default;
 
     request_t generate_request(const driver_config_t &config) final;

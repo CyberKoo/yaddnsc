@@ -22,7 +22,7 @@ public:
     void check_required_params(const driver_config_t &config) {
         for (auto &name: required_param) {
             if (config.find(name) == config.end()) {
-                throw MissingRequiredParamException(fmt::format("Missing required parameter \"{}\"", "name"));
+                throw MissingRequiredParamException(fmt::format("Missing required parameter \"{}\"", name));
             }
         }
     }

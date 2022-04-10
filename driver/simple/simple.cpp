@@ -5,8 +5,13 @@
 
 #include "simple.h"
 
+SimpleDriver::SimpleDriver() {
+    required_param.emplace_back("url");
+}
+
 request_t SimpleDriver::generate_request(const driver_config_t &config) {
     check_required_params(config);
+
     auto url = config.at("url");
     auto format = get_optional(config, "format");
     if (format.has_value()) {
