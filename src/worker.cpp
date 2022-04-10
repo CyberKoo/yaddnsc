@@ -12,7 +12,6 @@
 #include "dns.h"
 #include "uri.h"
 #include "util.h"
-#include "cache.h"
 #include "context.h"
 #include "ip_util.h"
 #include "httpclient.h"
@@ -133,30 +132,19 @@ void Worker::run_scheduled_tasks() {
 }
 
 std::optional<std::string> Worker::get_ip_address(const Config::sub_domain_config_t &config, bool bypass_cache) {
-    static Cache<std::optional<std::string>> ip_cache;
-    static const auto func = [&config]() -> std::optional<std::string> {
-        auto ip_type = rdtype2ip(config.type);
-        if (config.ip_source == Config::ip_source_t::INTERFACE) {
-            auto addresses = IPUtil::get_ip_from_interface(config.interface, ip_type);
-            if (!addresses.empty()) {
-                return addresses.front();
-            }
-        } else {
-            // ipv6 do not pass nif, this is a bug in cpp-httplib
-            auto nif_name = ip_type == ip_version_t::IPV6 ? nullptr : config.interface.data();
-            return IPUtil::get_ip_from_url(config.ip_source_param, ip_type, nif_name);
+    auto ip_type = rdtype2ip(config.type);
+    if (config.ip_source == Config::ip_source_t::INTERFACE) {
+        auto addresses = IPUtil::get_ip_from_interface(config.interface, ip_type);
+        if (!addresses.empty()) {
+            return addresses.front();
         }
-
-        return std::nullopt;
-    };
-
-    if (!bypass_cache) {
-        auto key = fmt::format("{}_{}_{}_{}", magic_enum::enum_name(config.ip_source), config.interface,
-                               magic_enum::enum_name(config.ip_type), config.ip_source_param);
-        return ip_cache.get(key, func, 30);
     } else {
-        return func();
+        // ipv6 do not pass nif, this is a bug in cpp-httplib
+        auto nif_name = ip_type == ip_version_t::IPV6 ? nullptr : config.interface.data();
+        return IPUtil::get_ip_from_url(config.ip_source_param, ip_type, nif_name);
     }
+
+    return std::nullopt;
 }
 
 std::optional<std::string>
