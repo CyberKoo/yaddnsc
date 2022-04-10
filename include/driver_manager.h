@@ -33,7 +33,7 @@ private:
 
     [[nodiscard]] static bool is_driver_loaded(std::string_view driver_path);
 
-    static handle_ptr_t open_file(std::string_view path);
+    static handle_ptr_t load_external_dynamic_library(std::string_view path);
 
     static IDriver *get_instance(handle_ptr_t &handle);
 

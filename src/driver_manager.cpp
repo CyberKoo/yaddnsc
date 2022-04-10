@@ -20,8 +20,6 @@ DriverManager::~DriverManager() {
         driver.reset();
     }
 
-    _driver_map.clear();
-
     // close all handles
     _handlers.clear();
 }
@@ -32,7 +30,7 @@ void DriverManager::load_driver(std::string_view path) {
 
     if (std::filesystem::exists(path)) {
         if (!is_driver_loaded(path)) {
-            auto handle = open_file(path);
+            auto handle = load_external_dynamic_library(path);
             auto driver = std::unique_ptr<IDriver>(get_instance(handle));
 
             // validate driver ABI version
@@ -61,12 +59,12 @@ void DriverManager::load_driver(std::string_view path) {
     }
 }
 
-DriverManager::handle_ptr_t DriverManager::open_file(std::string_view path) {
+DriverManager::handle_ptr_t DriverManager::load_external_dynamic_library(std::string_view path) {
     auto handle = handle_ptr_t(dlopen(path.data(), RTLD_LAZY));
 
     if (handle == nullptr) {
         SPDLOG_CRITICAL("Unable to load driver {}, error: {}", get_driver_name(path), dlerror());
-        throw BadDriverException("load error");
+        throw BadDriverException("loader error");
     }
 
     return handle;

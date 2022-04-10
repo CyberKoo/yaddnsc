@@ -19,9 +19,9 @@
 std::vector<std::string> IPUtil::get_ip_from_interface(std::string_view nif_name, ip_version_t version) {
     auto addresses = NetworkUtil::get_nif_ip_address(nif_name);
     std::vector<std::string> nif_addresses;
-    for (auto &[addr, addr_af]: addresses) {
-        if (addr_af == ip2af(version)) {
-            nif_addresses.emplace_back(addr);
+    for (auto &[ip_address, family]: addresses) {
+        if (family == ip2af(version)) {
+            nif_addresses.emplace_back(ip_address);
         }
     }
 
