@@ -81,7 +81,7 @@ void Worker::run_scheduled_tasks() {
                 SPDLOG_DEBUG("**** Domain {} task start ****", fqdn);
                 auto rd_type = magic_enum::enum_name(sub_domain.type);
 
-                if (auto ip_addr = get_ip_address(sub_domain, force_update)) {
+                if (auto ip_addr = get_ip_address(sub_domain)) {
                     auto record = dns_lookup(fqdn, sub_domain.type);
                     // force update or ip not same or even no ip
                     if (force_update || (record.has_value() && record.value() != *ip_addr) || !record.has_value()) {
@@ -131,7 +131,7 @@ void Worker::run_scheduled_tasks() {
     }
 }
 
-std::optional<std::string> Worker::get_ip_address(const Config::sub_domain_config_t &config, bool bypass_cache) {
+std::optional<std::string> Worker::get_ip_address(const Config::sub_domain_config_t &config) {
     auto ip_type = rdtype2ip(config.type);
     if (config.ip_source == Config::ip_source_t::INTERFACE) {
         auto addresses = IPUtil::get_ip_from_interface(config.interface, ip_type);

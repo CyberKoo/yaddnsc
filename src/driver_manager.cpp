@@ -49,7 +49,7 @@ void DriverManager::load_driver(std::string_view path) {
                          driver_detail.author, driver_detail.version);
 
             _handlers.emplace_back(std::move(handle));
-            _driver_map.emplace(std::make_pair(driver_detail.name, std::move(driver)));
+            _driver_map.emplace(driver_detail.name, std::move(driver));
         } else {
             SPDLOG_WARN("Driver {} already loaded.", driver_lib_name);
         }

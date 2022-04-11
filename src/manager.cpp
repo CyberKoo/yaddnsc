@@ -59,7 +59,7 @@ void Manager::load_drivers() const {
 
 void Manager::create_worker() {
     for (const auto &domain: _config.domains) {
-        _workers.emplace_back(Worker{{domain}});
+        _workers.emplace_back(domain);
     }
 }
 

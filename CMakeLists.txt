@@ -72,13 +72,11 @@ set(URI src/uri.cpp include/uri.h)
 set(IPUtil src/ip_util.cpp include/ip_util.h)
 set(HttpClient src/httpclient.cpp include/httpclient.h)
 
-file(GLOB_RECURSE Exceptions "include/exception/*.h")
-
 # library
 add_library(string_util STATIC src/string_util.cpp include/string_util.h)
 
 # main executable
-add_executable(yaddnsc src/main.cpp ${Config} ${DriverManager} ${URI} ${DNS} ${Util} ${Worker} ${Exceptions} ${Manager}
+add_executable(yaddnsc src/main.cpp ${Config} ${DriverManager} ${URI} ${DNS} ${Util} ${Worker} ${Manager}
         ${NetworkUtil} ${HttpClient} ${IPUtil})
 
 # link internal library
