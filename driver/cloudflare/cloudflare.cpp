@@ -2,10 +2,12 @@
 // Created by Kotarou on 2022/4/5.
 //
 
+#include <any>
 #include <fmt/format.h>
+#include <nlohmann/json.hpp>
 
 #include "cloudflare.h"
-#include "nlohmann/json.hpp"
+#include "string_util.h"
 
 constexpr char API_URL[] = "https://api.cloudflare.com/client/v4/zones/{ZONE_ID}/dns_records/{RECORD_ID}";
 
@@ -21,22 +23,13 @@ CloudflareDriver::CloudflareDriver() {
 request_t CloudflareDriver::generate_request(const driver_config_t &config) {
     check_required_params(config);
 
-    std::map<std::string, std::string> body{
-            {"type",    config.at("rd_type")},
-            {"name",    config.at("sub_domain")},
-            {"content", config.at("ip_addr")},
-            {"ttl",     config.at("$ttl")},
-            {"proxied", config.at("$proxied")}
-    };
-
     request_t request{};
-    // request.header.insert({"Content-Type", "application/json"});
-    request.header.insert({"Authorization", vformat("Bearer {}", {config.at("token")})});
+    request.header.insert({"Authorization", fmt::format("Bearer {}", config.at("token"))});
     request.url = vformat(API_URL, {
             {"ZONE_ID",   config.at("zone_id")},
             {"RECORD_ID", config.at("record_id")}
     });
-    request.body = nlohmann::json(body).dump();
+    request.body = generate_body(config);
     request.content_type = "application/json";
     request.request_method = request_method_t::PUT;
 
@@ -54,4 +47,15 @@ driver_detail_t CloudflareDriver::get_detail() {
             .author="Kotarou",
             .version = "1.0.0"
     };
+}
+
+std::string CloudflareDriver::generate_body(const driver_config_t &config) {
+    nlohmann::json body;
+    body["type"] = config.at("rd_type");
+    body["name"] = config.at("sub_domain");
+    body["content"] = config.at("ip_addr");
+    body["ttl"] = std::stoi(get_optional(config, "ttl").value_or("30"));
+    body["proxied"] = StringUtil::str_to_bool(get_optional(config, "proxied").value_or("0"));
+
+    return body.dump();
 }

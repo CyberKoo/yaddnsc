@@ -19,7 +19,6 @@ request_t DigitalOceanDriver::generate_request(const driver_config_t &config) {
     check_required_params(config);
 
     request_t request{};
-    // request.header.insert({"Content-Type", "application/json"});
     request.header.insert({"Authorization", fmt::format("Bearer {}", config.at("token"))});
     request.url = vformat(API_URL, {
             {"DOMAIN",    config.at("domain")},

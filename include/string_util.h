@@ -17,6 +17,8 @@ namespace StringUtil {
 
     void trim(std::string &);
 
+    bool str_to_bool(std::string_view);
+
     std::string ltrim_copy(std::string);
 
     std::string rtrim_copy(std::string);

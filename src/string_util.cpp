@@ -5,6 +5,11 @@
 
 #include <algorithm>
 
+bool StringUtil::str_to_bool(std::string_view str) {
+    auto lower_str = to_lower(str.data());
+    return lower_str == "1" || lower_str == "on" || lower_str == "true" || lower_str == "yes";
+}
+
 std::string StringUtil::to_lower(std::string s) {
     std::transform(s.begin(), s.end(), s.begin(), [](auto c) { return std::tolower(c); });
     return s;
