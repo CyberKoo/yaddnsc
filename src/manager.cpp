@@ -4,7 +4,6 @@
 
 #include "manager.h"
 
-#include <mutex>
 #include <algorithm>
 #include <fmt/format.h>
 
@@ -36,7 +35,7 @@ void Manager::validate_config() {
     // check resolver
     if (_config.resolver.use_customise_server) {
         auto &address = _config.resolver.ip_address;
-        if (!IPUtil::is_ipv4_address(address) || !IPUtil::is_ipv6_address(address)) {
+        if (!IPUtil::is_ipv4_address(address) && !IPUtil::is_ipv6_address(address)) {
             throw ConfigVerificationException(fmt::format("Invalid resolver address {}", address));
         }
     }

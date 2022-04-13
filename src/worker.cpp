@@ -139,9 +139,7 @@ std::optional<std::string> Worker::get_ip_address(const Config::sub_domain_confi
             return addresses.front();
         }
     } else {
-        // ipv6 do not pass nif, this is a bug in cpp-httplib
-        auto nif_name = ip_type == ip_version_t::IPV6 ? nullptr : config.interface.data();
-        return IPUtil::get_ip_from_url(config.ip_source_param, ip_type, nif_name);
+        return IPUtil::get_ip_from_url(config.ip_source_param, ip_type, config.interface.data());
     }
 
     return std::nullopt;
@@ -156,9 +154,7 @@ Worker::update_dns_record(const request_t &request, ip_version_t version, std::s
         // copy headers
         headers.insert(request.header.begin(), request.header.end());
 
-        // do not force interface when update ipv6 record
-        auto nif_name = version == ip_version_t::IPV6 ? nullptr : nif.data();
-        auto client = HttpClient::connect(uri, IPUtil::ip2af(version), nif_name);
+        auto client = HttpClient::connect(uri, IPUtil::ip2af(version), nif.data());
         switch (request.request_method) {
             case request_method_t::GET:
                 return client->Get(path.c_str(), headers);
