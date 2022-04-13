@@ -12,12 +12,20 @@
 #include <arpa/nameser.h>
 #include <spdlog/spdlog.h>
 
+#include <utility>
+
 #include "exception/dns_lookup_exception.h"
 
-std::vector<std::string> DNS::resolve(std::string_view host, dns_record_t type, std::optional<dns_server_t> server) {
+DNS::query_result DNS::query(std::string_view host, dns_record_t type, std::optional<dns_server_t> server) {
+    int size = 0;
+    int buffer_size = MAXIMUM_UDP_SIZE;
+    std::unique_ptr<unsigned char[]> buffer;
+
+#ifdef USE_RES_NQUERY
     SPDLOG_DEBUG("Resolve domain \"{}\"", host);
     struct __res_state local_res{};
     res_ninit(&local_res);
+    std::unique_ptr<struct __res_state, decltype(&res_nclose)> req_ptr(&local_res, res_nclose);
 
     if (server.has_value() && !server->ip_address.empty()) {
         SPDLOG_DEBUG("Use customized resolver \"{}:{}\"", server->ip_address, server->port);
@@ -27,10 +35,9 @@ std::vector<std::string> DNS::resolve(std::string_view host, dns_record_t type, 
         local_res.nsaddr_list[0].sin_addr.s_addr = inet_addr(server->ip_address.c_str());
         local_res.nsaddr_list[0].sin_port = htons(server->port);
     }
-
-    int size = 0;
-    int buffer_size = MAXIMUM_UDP_SIZE;
-    std::unique_ptr<unsigned char[]> buffer;
+#else
+    SPDLOG_WARN("res_nquery not found, customized server will be ignored");
+#endif
 
     do {
         // adjust buffer size
@@ -38,14 +45,23 @@ std::vector<std::string> DNS::resolve(std::string_view host, dns_record_t type, 
         // allocate buffer
         buffer = std::make_unique<unsigned char[]>(buffer_size);
         // perform dns lookup
+#ifdef USE_RES_NQUERY
         size = res_nquery(&local_res, host.data(), ns_c_in, get_dns_type(type), buffer.get(), buffer_size);
+#else
+        size = res_query(host.data(), ns_c_in, get_dns_type(type), buffer.get(), buffer_size);
+#endif
         if (size < 0) {
-            res_nclose(&local_res);
             throw DnsLookupException(host.data(), get_dns_lookup_err(h_errno));
         }
         SPDLOG_DEBUG("Response payload size: {}, buffer size: {}", size, buffer_size);
     } while (size >= buffer_size);
-    res_nclose(&local_res);
+
+
+    return {std::move(buffer), buffer_size};
+}
+
+std::vector<std::string> DNS::resolve(std::string_view host, dns_record_t type, std::optional<dns_server_t> server) {
+    auto[buffer, buffer_size] = query(host, type, std::move(server));
 
     ns_msg handle;
     ns_initparse(buffer.get(), buffer_size, &handle);

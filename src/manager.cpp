@@ -10,8 +10,11 @@
 
 #include "worker.h"
 #include "context.h"
+#include "ip_util.h"
 #include "network_util.h"
 #include "spdlog/spdlog.h"
+
+#include "exception/config_verification_exception.h"
 
 template<typename T>
 void dedupe(std::vector<T> &vec) {
@@ -26,7 +29,15 @@ void Manager::validate_config() {
     auto drivers = context.driver_manager->get_loaded_drivers();
     for (auto &domain: _config.domains) {
         if (std::find(drivers.begin(), drivers.end(), domain.driver) == drivers.end()) {
-            throw std::runtime_error(fmt::format("Driver {} not found", domain.driver));
+            throw ConfigVerificationException(fmt::format("Driver {} not found", domain.driver));
+        }
+    }
+
+    // check resolver
+    if (_config.resolver.use_customise_server) {
+        auto &address = _config.resolver.ip_address;
+        if (!IPUtil::is_ipv4_address(address) || !IPUtil::is_ipv6_address(address)) {
+            throw ConfigVerificationException(fmt::format("Invalid resolver address {}", address));
         }
     }
 
@@ -36,7 +47,7 @@ void Manager::validate_config() {
         for (auto &subdomain: domain.subdomains) {
             if (!subdomain.interface.empty()) {
                 if (std::find(interfaces.begin(), interfaces.end(), subdomain.interface) == interfaces.end()) {
-                    throw std::runtime_error(fmt::format("Interface {} not found", subdomain.interface));
+                    throw ConfigVerificationException(fmt::format("Interface {} not found", subdomain.interface));
                 }
             }
         }

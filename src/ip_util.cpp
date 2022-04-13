@@ -56,3 +56,13 @@ int IPUtil::ip2af(ip_version_t version) {
             return AF_UNSPEC;
     }
 }
+
+bool IPUtil::is_ipv4_address(std::string_view str) {
+    struct sockaddr_in sa{};
+    return inet_pton(AF_INET, str.data(), &(sa.sin_addr)) != 0;
+}
+
+bool IPUtil::is_ipv6_address(std::string_view str) {
+    struct sockaddr_in6 sa{};
+    return inet_pton(AF_INET6, str.data(), &(sa.sin6_addr)) != 0;
+}

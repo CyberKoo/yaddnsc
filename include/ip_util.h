@@ -15,10 +15,13 @@
 namespace IPUtil {
     std::vector<std::string> get_ip_from_interface(std::string_view, ip_version_t);
 
-    std::optional<std::string> get_ip_from_url(std::string_view url, ip_version_t version, const char *nif_name);
+    std::optional<std::string> get_ip_from_url(std::string_view, ip_version_t, const char *);
 
     int ip2af(ip_version_t version);
-}
 
+    bool is_ipv4_address(std::string_view);
+
+    bool is_ipv6_address(std::string_view);
+}
 
 #endif //YADDNSC_IP_UTILS_H

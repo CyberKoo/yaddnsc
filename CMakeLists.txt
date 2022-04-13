@@ -3,15 +3,23 @@ project(yaddnsc)
 
 list(APPEND CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/cmake)
 
+option("LIBC_MUSL" "OFF")
+
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra")
-set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -O2 -flto")
+set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -O2")
 set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -O0 -g -ggdb -gdwarf-3 -Wall")
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/objs/lib)
 set(EXECUTABLE_OUTPUT_PATH ${CMAKE_BINARY_DIR}/objs)
 set(YADDNSC_DRV_VERSION "1000001")
 
+# if not musl add lto flag to release target
+if (NOT LIBC_MUSL)
+    set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -flto")
+endif ()
+
+# set default build target to release
 if (NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release)
 endif ()
@@ -29,6 +37,13 @@ find_package(Filesystem REQUIRED)
 find_package(ZLIB REQUIRED)
 find_package(OpenSSL REQUIRED)
 ## required modules ##
+
+# check symbols
+include(CheckSymbolExists)
+check_symbol_exists("res_nquery" "resolv.h" "HAVE_RES_NQUERY")
+if (${HAVE_RES_NQUERY})
+    add_compile_definitions(USE_RES_NQUERY)
+endif ()
 
 ## submodules ##
 # nlohmann_json

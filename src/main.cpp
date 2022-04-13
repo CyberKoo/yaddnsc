@@ -1,15 +1,18 @@
 //
 // Created by Kotarou on 2022/4/5.
 //
+
+#include <csignal>
+#include <cxxopts.hpp>
+#include <spdlog/spdlog.h>
+
 #include "config.h"
 #include "context.h"
 #include "manager.h"
 #include "logging_pattern.h"
 
-#include <csignal>
-#include <cxxopts.hpp>
-#include <spdlog/spdlog.h>
-#include <exception/base_exception.h>
+#include "exception/base_exception.h"
+#include "exception/config_verification_exception.h"
 
 void sigint_handler([[maybe_unused]] int signal) {
     SPDLOG_INFO("Received exit signal, quiting...");
@@ -63,9 +66,11 @@ int main(int argc, char *argv[]) {
         manager.run();
 
         return 0;
+    } catch (ConfigVerificationException &e) {
+        SPDLOG_CRITICAL(e.what());
+        std::abort();
     } catch (YaddnscException &e) {
         SPDLOG_CRITICAL("Program crashed due to an unrecoverable error.");
-        // exit(-1);
         std::abort();
     } catch (cxxopts::OptionException &e) {
         SPDLOG_CRITICAL(e.what());
