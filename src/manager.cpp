@@ -24,11 +24,36 @@ void dedupe(std::vector<T> &vec) {
 void Manager::validate_config() {
     auto &context = Context::getInstance();
 
-    // check drivers
     auto drivers = context.driver_manager->get_loaded_drivers();
-    for (auto &domain: _config.domains) {
+    auto interfaces = NetworkUtil::get_interfaces();
+
+    for (const auto &domain: _config.domains) {
+        // check drivers
         if (std::find(drivers.begin(), drivers.end(), domain.driver) == drivers.end()) {
             throw ConfigVerificationException(fmt::format("Driver {} not found", domain.driver));
+        }
+
+        // check update interval
+        if (domain.update_interval < MIN_UPDATE_INTERVAL) {
+            throw ConfigVerificationException(
+                    fmt::format("Update interval too low for domain {} ({}), minimal interval: {}", domain.name,
+                                domain.update_interval, MIN_UPDATE_INTERVAL));
+        }
+
+        // check force update interval
+        if (domain.force_update != 0 && domain.force_update < domain.update_interval) {
+            throw ConfigVerificationException(
+                    fmt::format("Force update interval for domain {} must not be smaller than the update interval ({})",
+                                domain.name, domain.update_interval));
+        }
+
+        // check interfaces
+        for (auto &subdomain: domain.subdomains) {
+            if (!subdomain.interface.empty()) {
+                if (std::find(interfaces.begin(), interfaces.end(), subdomain.interface) == interfaces.end()) {
+                    throw ConfigVerificationException(fmt::format("Interface {} not found", subdomain.interface));
+                }
+            }
         }
     }
 
@@ -37,18 +62,6 @@ void Manager::validate_config() {
         auto &address = _config.resolver.ip_address;
         if (!IPUtil::is_ipv4_address(address) && !IPUtil::is_ipv6_address(address)) {
             throw ConfigVerificationException(fmt::format("Invalid resolver address {}", address));
-        }
-    }
-
-    // check interfaces
-    auto interfaces = NetworkUtil::get_interfaces();
-    for (auto &domain: _config.domains) {
-        for (auto &subdomain: domain.subdomains) {
-            if (!subdomain.interface.empty()) {
-                if (std::find(interfaces.begin(), interfaces.end(), subdomain.interface) == interfaces.end()) {
-                    throw ConfigVerificationException(fmt::format("Interface {} not found", subdomain.interface));
-                }
-            }
         }
     }
 }
@@ -96,4 +109,3 @@ void Manager::run() {
         worker.join();
     }
 }
-

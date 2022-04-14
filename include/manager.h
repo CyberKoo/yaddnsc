@@ -29,6 +29,8 @@ private:
     Config::config_t _config;
 
     std::vector<Worker> _workers;
+
+    static constexpr int MIN_UPDATE_INTERVAL = 60;
 };
 
 

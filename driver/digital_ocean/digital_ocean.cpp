@@ -35,7 +35,6 @@ bool DigitalOceanDriver::check_response(std::string_view response) {
     SPDLOG_TRACE("Got {} from server.", response);
     auto json = nlohmann::json::parse(response);
     if (json.contains("domain_record")) {
-        SPDLOG_INFO("Successfully updated DNS record");
         return true;
     } else {
         if (json.contains("message")) {

@@ -67,7 +67,6 @@ std::optional<std::string> Worker::dns_lookup(std::string_view host, dns_record_
 
 void Worker::run_scheduled_tasks() {
     try {
-        SPDLOG_DEBUG("---- Event loop start for {} ----", _worker_config.name);
         auto &context = Context::getInstance();
         auto &driver = context.driver_manager->get_driver(_worker_config.driver);
         bool force_update = is_forced_update();
@@ -78,7 +77,6 @@ void Worker::run_scheduled_tasks() {
             auto fqdn = fmt::format("{}.{}", sub_domain.name, _worker_config.name);
 
             try {
-                SPDLOG_DEBUG("**** Domain {} task start ****", fqdn);
                 auto rd_type = magic_enum::enum_name(sub_domain.type);
 
                 if (auto ip_addr = get_ip_address(sub_domain)) {
@@ -101,17 +99,15 @@ void Worker::run_scheduled_tasks() {
                         SPDLOG_DEBUG("Received DNS record update instruction from driver {}",
                                      driver->get_detail().name);
 
-                        // this may throw exception
+                        // update dns record via http request
                         auto update_result = update_dns_record(request, sub_domain.ip_type, sub_domain.interface);
                         if (update_result.has_value()) {
-                            if (driver->check_response(update_result.value())) {
+                            if (driver->check_response(*update_result)) {
                                 SPDLOG_INFO("Update {}, type: {}, to {}", fqdn, rd_type, *ip_addr);
                             }
                         } else {
                             SPDLOG_INFO("Update domain {} failed", fqdn);
                         }
-
-                        SPDLOG_DEBUG("**** Domain {} task finished ****", fqdn);
                     } else {
                         SPDLOG_DEBUG("Domain: {}, type: {}, current {}, new {}, skip updating", fqdn, rd_type,
                                      (record.has_value() ? *record : "<empty>"), *ip_addr);
@@ -125,7 +121,6 @@ void Worker::run_scheduled_tasks() {
         }
 
         ++_force_update_counter;
-        SPDLOG_DEBUG("---- Event loop finished for {} ----", _worker_config.name);
     } catch (std::exception &e) {
         SPDLOG_CRITICAL("Scheduler exited with unhandled error: {}", e.what());
     }
