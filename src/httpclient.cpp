@@ -30,9 +30,8 @@ std::unique_ptr<httplib::Client> HttpClient::connect(const Uri &uri, int family,
 
     // set address family
     client->set_address_family(family);
-
-    client->set_connection_timeout(5);
-    client->set_read_timeout(5, 1000);
+    client->set_connection_timeout(std::chrono::seconds(5));
+    client->set_read_timeout(std::chrono::seconds(5));
     client->set_follow_location(true);
     client->set_default_headers({{"User-Agent", "YADDNSC"}});
 
@@ -46,7 +45,6 @@ httplib::Result HttpClient::get(const Uri &uri, int family, const char *nif_name
 
     return response;
 }
-
 
 httplib::Result HttpClient::post(const Uri &uri, const Params &parameters, int family, const char *nif_name) {
     SPDLOG_TRACE("Post to uri {}", uri.get_raw_uri());

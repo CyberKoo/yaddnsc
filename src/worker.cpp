@@ -16,8 +16,8 @@
 #include "ip_util.h"
 #include "httpclient.h"
 
-#include "exception/dns_lookup_exception.h"
 #include "exception/driver_exception.h"
+#include "exception/dns_lookup_exception.h"
 
 void Worker::run() {
     SPDLOG_INFO("Worker for domain {} started.", _worker_config.name);
@@ -177,7 +177,7 @@ Worker::update_dns_record(const request_t &request, ip_version_t version, std::s
 }
 
 bool Worker::is_forced_update() const {
-    return (_worker_config.force_update > 0) &&
+    return (_worker_config.force_update >= _worker_config.update_interval) &&
            (_force_update_counter * _worker_config.update_interval) > _worker_config.force_update;
 }
 
