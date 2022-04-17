@@ -14,11 +14,6 @@
 
 class DNS {
 public:
-    struct dns_server_t {
-        std::string ip_address;
-        unsigned short port;
-    };
-
     static std::vector<std::string> resolve(std::string_view, dns_record_t, std::optional<dns_server_t> = std::nullopt);
 
     static std::string_view error_to_str(dns_lookup_error_t);

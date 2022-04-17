@@ -24,7 +24,7 @@ void Worker::run() {
     auto &context = Context::getInstance();
 
     std::mutex mutex;
-    std::unique_lock<std::mutex> lock(mutex);
+    std::unique_lock <std::mutex> lock(mutex);
     auto update_interval = std::chrono::seconds(_worker_config.update_interval);
 
     while (!context.terminate) {
@@ -34,19 +34,13 @@ void Worker::run() {
     }
 }
 
-std::optional<std::string> Worker::dns_lookup(std::string_view host, dns_record_t type) {
-    auto &context = Context::getInstance();
-    std::optional<DNS::dns_server_t> server = std::nullopt;
-
-    if (context.resolver_config.use_customise_server) {
-        server = {.ip_address = context.resolver_config.ip_address,
-                .port = context.resolver_config.port};
-    }
-
+std::optional <std::string> Worker::dns_lookup(std::string_view host, dns_record_t type) {
     try {
+        std::optional <dns_server_t> dns_server = get_dns_server();
+
         return Util::retry_on_exception<std::string, DnsLookupException>(
                 [&]() {
-                    auto dns_answer = DNS::resolve(host, type, server);
+                    auto dns_answer = DNS::resolve(host, type, dns_server);
                     if (dns_answer.size() > 1) {
                         SPDLOG_WARN("{} resolved more than one address (count: {})", host, dns_answer.size());
                     }
@@ -101,12 +95,10 @@ void Worker::run_scheduled_tasks() {
 
                         // update dns record via http request
                         auto update_result = update_dns_record(request, sub_domain.ip_type, sub_domain.interface);
-                        if (update_result.has_value()) {
-                            if (driver->check_response(*update_result)) {
-                                SPDLOG_INFO("Update {}, type: {}, to {}", fqdn, rd_type, *ip_addr);
-                            }
+                        if (update_result.has_value() && driver->check_response(*update_result)) {
+                            SPDLOG_INFO("Update {}, type: {}, to {}", fqdn, rd_type, *ip_addr);
                         } else {
-                            SPDLOG_INFO("Update domain {} failed", fqdn);
+                            SPDLOG_WARN("Update domain {} failed", fqdn);
                         }
                     } else {
                         SPDLOG_DEBUG("Domain: {}, type: {}, current {}, new {}, skip updating", fqdn, rd_type,
@@ -126,7 +118,7 @@ void Worker::run_scheduled_tasks() {
     }
 }
 
-std::optional<std::string> Worker::get_ip_address(const Config::sub_domain_config_t &config) {
+std::optional <std::string> Worker::get_ip_address(const Config::sub_domain_config_t &config) {
     auto ip_type = rdtype2ip(config.type);
     if (config.ip_source == Config::ip_source_t::INTERFACE) {
         auto addresses = IPUtil::get_ip_from_interface(config.interface, ip_type);
@@ -140,8 +132,8 @@ std::optional<std::string> Worker::get_ip_address(const Config::sub_domain_confi
     return std::nullopt;
 }
 
-std::optional<std::string>
-Worker::update_dns_record(const request_t &request, ip_version_t version, std::string_view nif) {
+std::optional <std::string>
+Worker::update_dns_record(const driver_request_t &request, ip_version_t version, std::string_view nif) {
     auto response = [&request, &nif, &version]() {
         auto uri = Uri::parse(request.url);
         auto path = HttpClient::build_request(uri);
@@ -151,12 +143,26 @@ Worker::update_dns_record(const request_t &request, ip_version_t version, std::s
 
         auto client = HttpClient::connect(uri, IPUtil::ip2af(version), nif.data());
         switch (request.request_method) {
-            case request_method_t::GET:
+            case driver_http_method_t::GET:
                 return client->Get(path.c_str(), headers);
-            case request_method_t::POST:
-                return client->Post(path.c_str(), headers, request.body, request.content_type.c_str());
-            case request_method_t::PUT:
-                return client->Put(path.c_str(), headers, request.body, request.content_type.c_str());
+            case driver_http_method_t::POST:
+                return std::visit([&](const auto &body) {
+                                      using T = std::decay_t<decltype(body)>;
+                                      if constexpr (std::is_same_v < T, driver_param_t >)
+                                          return client->Post(path.c_str(), headers, body);
+                                      else if constexpr (std::is_same_v < T, std::string >)
+                                          return client->Post(path.c_str(), headers, body, request.content_type.c_str());
+                                  }, request.body
+                );
+            case driver_http_method_t::PUT:
+                return std::visit([&](const auto &body) {
+                                      using T = std::decay_t<decltype(body)>;
+                                      if constexpr (std::is_same_v < T, driver_param_t >)
+                                          return client->Put(path.c_str(), headers, body);
+                                      else if constexpr (std::is_same_v < T, std::string >)
+                                          return client->Put(path.c_str(), headers, body, request.content_type.c_str());
+                                  }, request.body
+                );
             default:
                 return client->Get(path.c_str(), headers);
         }
@@ -171,9 +177,19 @@ Worker::update_dns_record(const request_t &request, ip_version_t version, std::s
     return std::nullopt;
 }
 
+std::optional <dns_server_t> Worker::get_dns_server() {
+    auto &context = Context::getInstance();
+
+    if (context.resolver_config.use_customise_server) {
+        return dns_server_t{.ip_address = context.resolver_config.ip_address,
+                .port = context.resolver_config.port};
+    }
+
+    return std::nullopt;
+}
+
 bool Worker::is_forced_update() const {
-    return (_worker_config.force_update >= _worker_config.update_interval) &&
-           (_force_update_counter * _worker_config.update_interval) > _worker_config.force_update;
+    return (_force_update_counter * _worker_config.update_interval) >= _worker_config.force_update;
 }
 
 ip_version_t Worker::rdtype2ip(dns_record_t type) {
@@ -188,3 +204,4 @@ ip_version_t Worker::rdtype2ip(dns_record_t type) {
             return ip_version_t::UNSPECIFIED;
     }
 }
+

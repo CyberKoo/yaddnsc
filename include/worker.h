@@ -11,7 +11,7 @@
 
 #include "config.h"
 
-struct request_t;
+struct driver_request_t;
 
 class Worker {
 public:
@@ -26,11 +26,13 @@ private:
 
     [[nodiscard]] bool is_forced_update() const;
 
-    static std::optional<std::string> dns_lookup(std::string_view host, dns_record_t type);
+    [[nodiscard]] static std::optional <dns_server_t> get_dns_server();
 
-    static std::optional<std::string> get_ip_address(const Config::sub_domain_config_t &);
+    static std::optional <std::string> dns_lookup(std::string_view host, dns_record_t);
 
-    static std::optional<std::string> update_dns_record(const request_t &, ip_version_t, std::string_view);
+    static std::optional <std::string> get_ip_address(const Config::sub_domain_config_t &);
+
+    static std::optional <std::string> update_dns_record(const driver_request_t &, ip_version_t, std::string_view);
 
     static ip_version_t rdtype2ip(dns_record_t);
 

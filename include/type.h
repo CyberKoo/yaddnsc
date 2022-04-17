@@ -17,4 +17,9 @@ enum class dns_lookup_error_t {
     NX_DOMAIN, RETRY, NODATA, PARSE, UNKNOWN
 };
 
+struct dns_server_t {
+    std::string ip_address;
+    unsigned short port;
+};
+
 #endif //YADDNSC_TYPE_H

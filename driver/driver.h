@@ -42,7 +42,7 @@ public:
             return fmt::detail::make_arg<fmt::format_context>(arg);
         });
 
-        return fmt::vformat(format, fmt::basic_format_args<fmt::format_context>(fmt_args.data(), fmt_args.size()));
+        return fmt::vformat(format, fmt::basic_format_args<fmt::format_context>(fmt_args.data(), static_cast<int>(fmt_args.size())));
     }
 
     static std::string vformat(std::string_view format, const std::map<std::string, std::string> &args) {

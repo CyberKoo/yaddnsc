@@ -20,10 +20,10 @@ CloudflareDriver::CloudflareDriver() {
     required_param.emplace_back("rd_type");
 }
 
-request_t CloudflareDriver::generate_request(const driver_config_t &config) {
+driver_request_t CloudflareDriver::generate_request(const driver_config_t &config) {
     check_required_params(config);
 
-    request_t request{};
+    driver_request_t request{};
     request.header.insert({"Authorization", fmt::format("Bearer {}", config.at("token"))});
     request.url = vformat(API_URL, {
             {"ZONE_ID",   config.at("zone_id")},
@@ -31,7 +31,7 @@ request_t CloudflareDriver::generate_request(const driver_config_t &config) {
     });
     request.body = generate_body(config);
     request.content_type = "application/json";
-    request.request_method = request_method_t::PUT;
+    request.request_method = driver_http_method_t::PUT;
 
     return request;
 }

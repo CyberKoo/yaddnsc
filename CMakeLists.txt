@@ -65,6 +65,7 @@ add_compile_definitions(SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_DEBUG)
 
 # cpp-httplib
 add_compile_definitions(CPPHTTPLIB_OPENSSL_SUPPORT)
+set(HTTPLIB_REQUIRE_OPENSSL ON)
 set(HTTPLIB_USE_BROTLI_IF_AVAILABLE OFF)
 add_subdirectory(deps/cpp-httplib EXCLUDE_FROM_ALL)
 

@@ -13,7 +13,7 @@ public:
 
     ~SimpleDriver() override = default;
 
-    request_t generate_request(const driver_config_t &config) final;
+    driver_request_t generate_request(const driver_config_t &config) final;
 
     driver_detail_t get_detail() override;
 

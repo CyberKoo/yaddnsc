@@ -13,7 +13,7 @@ public:
 
     ~DigitalOceanDriver() override = default;
 
-    request_t generate_request(const driver_config_t &config) override;
+    driver_request_t generate_request(const driver_config_t &config) override;
 
     bool check_response(std::string_view response) override;
 

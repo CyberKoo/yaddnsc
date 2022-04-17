@@ -13,7 +13,7 @@ public:
 
     ~CloudflareDriver() override = default;
 
-    request_t generate_request(const driver_config_t &) override;
+    driver_request_t generate_request(const driver_config_t &) override;
 
     bool check_response(std::string_view) override;
 
