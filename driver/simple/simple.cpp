@@ -6,7 +6,7 @@
 #include "simple.h"
 
 SimpleDriver::SimpleDriver() {
-    required_param.emplace_back("url");
+    _required_param.emplace_back("url");
 }
 
 driver_request_t SimpleDriver::generate_request(const driver_config_t &config) {

@@ -11,11 +11,11 @@ constexpr char API_URL_CN[] = "https://dnsapi.cn/Domain.List";
 constexpr char API_URL_GLOBAL[] = "https://api.dnspod.com/Record.Ddns";
 
 DNSPodDriver::DNSPodDriver() {
-    required_param.emplace_back("domain_id");
-    required_param.emplace_back("record_id");
-    required_param.emplace_back("subdomain");
-    required_param.emplace_back("login_token");
-    required_param.emplace_back("ip_addr");
+    _required_param.emplace_back("domain_id");
+    _required_param.emplace_back("record_id");
+    _required_param.emplace_back("subdomain");
+    _required_param.emplace_back("login_token");
+    _required_param.emplace_back("ip_addr");
 }
 
 driver_request_t DNSPodDriver::generate_request(const driver_config_t &config) {

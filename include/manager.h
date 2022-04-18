@@ -26,12 +26,11 @@ public:
     void run();
 
 private:
+    static constexpr int MIN_UPDATE_INTERVAL = 60;
+
     Config::config_t _config;
 
-    std::vector<Worker> _workers;
-
-    static constexpr int MIN_UPDATE_INTERVAL = 60;
+    std::vector <Worker> _workers;
 };
-
 
 #endif //YADDNSC_MANAGER_H

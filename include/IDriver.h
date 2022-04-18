@@ -64,7 +64,7 @@ public:
     virtual void init_logger(int, std::string_view) = 0;
 
 protected:
-    std::vector <std::string> required_param;
+    std::vector <std::string> _required_param;
 };
 
 #endif //YADDNSC_IDRIVER_H

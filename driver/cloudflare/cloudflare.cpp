@@ -12,12 +12,12 @@
 constexpr char API_URL[] = "https://api.cloudflare.com/client/v4/zones/{ZONE_ID}/dns_records/{RECORD_ID}";
 
 CloudflareDriver::CloudflareDriver() {
-    required_param.emplace_back("sub_domain");
-    required_param.emplace_back("zone_id");
-    required_param.emplace_back("record_id");
-    required_param.emplace_back("token");
-    required_param.emplace_back("ip_addr");
-    required_param.emplace_back("rd_type");
+    _required_param.emplace_back("sub_domain");
+    _required_param.emplace_back("zone_id");
+    _required_param.emplace_back("record_id");
+    _required_param.emplace_back("token");
+    _required_param.emplace_back("ip_addr");
+    _required_param.emplace_back("rd_type");
 }
 
 driver_request_t CloudflareDriver::generate_request(const driver_config_t &config) {

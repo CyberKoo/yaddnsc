@@ -9,10 +9,10 @@
 constexpr char API_URL[] = "https://api.digitalocean.com/v2/domains/{DOMAIN}/records/{RECORD_ID}";
 
 DigitalOceanDriver::DigitalOceanDriver() {
-    required_param.emplace_back("domain");
-    required_param.emplace_back("record_id");
-    required_param.emplace_back("token");
-    required_param.emplace_back("ip_addr");
+    _required_param.emplace_back("domain");
+    _required_param.emplace_back("record_id");
+    _required_param.emplace_back("token");
+    _required_param.emplace_back("ip_addr");
 }
 
 driver_request_t DigitalOceanDriver::generate_request(const driver_config_t &config) {
