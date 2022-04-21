@@ -6,7 +6,7 @@
 #include "dnspod.h"
 #include "string_util.h"
 
-constexpr char API_URL_CN[] = "https://dnsapi.cn/Domain.List";
+constexpr char API_URL_CN[] = "https://dnsapi.cn/Record.Ddns";
 
 constexpr char API_URL_GLOBAL[] = "https://api.dnspod.com/Record.Ddns";
 
@@ -25,13 +25,15 @@ driver_request_t DNSPodDriver::generate_request(const driver_config_t &config) {
     driver_request_t request{};
     request.url = is_global ? API_URL_GLOBAL : API_URL_CN;
     request.body = driver_param_t{
-            {"login_token", config.at("login_token")},
-            {"domain_id",   config.at("domain_id")},
-            {"record_id",   config.at("record_id")},
-            {"sub_domain",  config.at("subdomain")},
-            {"record_line", get_optional(config, "redord_line").value_or("default")},
-            {"value",       config.at("ip_addr")},
-            {"format",      "json"}
+            {"login_token",    config.at("login_token")},
+            {"domain_id",      config.at("domain_id")},
+            {"record_id",      config.at("record_id")},
+            {"sub_domain",     config.at("subdomain")},
+            {"record_type",    config.at("rd_type")},
+            {"record_line",    get_optional(config, "record_line").value_or("默认")},
+            {"record_line_id", get_optional(config, "record_line_id").value_or("0")},
+            {"value",          config.at("ip_addr")},
+            {"format",         "json"}
     };
     request.content_type = "application/json";
     request.request_method = driver_http_method_t::POST;
