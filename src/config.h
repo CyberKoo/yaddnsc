@@ -6,7 +6,7 @@
 #define YADDNSC_CONFIG_H
 
 #include <string_view>
-#include <nlohmann/json_fwd.hpp>
+#include "nlohmann/json_fwd.hpp"
 
 #include "type.h"
 

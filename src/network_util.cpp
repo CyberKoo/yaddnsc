@@ -6,15 +6,16 @@
 #include <map>
 #include <vector>
 #include <string>
-#include <netdb.h>
-#include <arpa/inet.h>
-#include <ifaddrs.h>
 #include <fmt/format.h>
+
+#include <netdb.h>
+#include <ifaddrs.h>
+#include <arpa/inet.h>
 
 std::vector<std::string> NetworkUtil::get_interfaces() {
     std::vector<std::string> interfaces;
 
-    auto if_addrs = get_all_assigned_addresses();
+    auto if_addrs = get_all_ip_addresses();
     interfaces.reserve(if_addrs.size());
     std::transform(if_addrs.begin(), if_addrs.end(), std::back_inserter(interfaces),
                    [](const auto &kv) { return kv.first; });
@@ -23,7 +24,7 @@ std::vector<std::string> NetworkUtil::get_interfaces() {
 }
 
 std::map<std::string, int> NetworkUtil::get_nif_ip_address(std::string_view nif) {
-    auto all_nif_addrs = get_all_assigned_addresses();
+    auto all_nif_addrs = get_all_ip_addresses();
     if (all_nif_addrs.find(nif.data()) != all_nif_addrs.end()) {
         auto ip_addresses = all_nif_addrs[nif.data()];
 
@@ -41,7 +42,7 @@ std::map<std::string, int> NetworkUtil::get_nif_ip_address(std::string_view nif)
     }
 }
 
-std::map<std::string, std::vector<NetworkUtil::interface_addrs_t>> NetworkUtil::get_all_assigned_addresses() {
+std::map<std::string, std::vector<NetworkUtil::interface_addrs_t>> NetworkUtil::get_all_ip_addresses() {
     std::map<std::string, std::vector<interface_addrs_t>> address_map;
 
     auto ifaddrs = get_ifaddrs();
@@ -81,8 +82,8 @@ NetworkUtil::ifaddrs_ptr_t NetworkUtil::get_ifaddrs() {
     return {ifaddr, [](ifaddrs *a) { freeifaddrs(a); }};
 }
 
-size_t NetworkUtil::get_address_struct_size(int af_type) {
-    if (af_type == AF_INET6) {
+size_t NetworkUtil::get_address_struct_size(int family) {
+    if (family == AF_INET6) {
         return sizeof(struct sockaddr_in6);
     } else {
         return sizeof(struct sockaddr_in);

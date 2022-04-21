@@ -68,13 +68,13 @@ int main(int argc, char *argv[]) {
         return 0;
     } catch (ConfigVerificationException &e) {
         SPDLOG_CRITICAL(e.what());
-        std::abort();
     } catch (YaddnscException &e) {
         SPDLOG_CRITICAL("Program crashed due to an unrecoverable error.");
-        std::abort();
     } catch (cxxopts::OptionException &e) {
         SPDLOG_CRITICAL(e.what());
     } catch (std::exception &e) {
         SPDLOG_CRITICAL("Unhandled exception, error: {}", e.what());
     }
+
+    return -1;
 }

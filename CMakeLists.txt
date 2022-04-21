@@ -77,22 +77,21 @@ add_subdirectory(deps/magic_enum EXCLUDE_FROM_ALL)
 ## submodules ##
 
 ### source code
-set(Manager src/manager.cpp include/manager.h)
-set(Config src/config.cpp include/config.h)
-set(DriverManager src/driver_manager.cpp include/driver_manager.h)
-set(Util include/util.h)
-set(Worker src/worker.cpp include/worker.h)
+set(Manager src/manager.cpp src/manager.h)
+set(Config src/config.cpp src/config.h)
+set(DriverManager src/driver_manager.cpp src/driver_manager.h)
+set(Worker src/worker.cpp src/worker.h)
 set(NetworkUtil src/network_util.cpp include/network_util.h)
 set(DNS src/dns.cpp include/dns.h)
 set(URI src/uri.cpp include/uri.h)
-set(IPUtil src/ip_util.cpp include/ip_util.h)
+set(IPUtil src/ip_util.cpp src/ip_util.h)
 set(HttpClient src/httpclient.cpp include/httpclient.h)
 
 # library
 add_library(string_util STATIC src/string_util.cpp include/string_util.h)
 
 # main executable
-add_executable(yaddnsc src/main.cpp ${Config} ${DriverManager} ${URI} ${DNS} ${Util} ${Worker} ${Manager}
+add_executable(yaddnsc src/main.cpp ${Config} ${DriverManager} ${URI} ${DNS} ${Worker} ${Manager}
         ${NetworkUtil} ${HttpClient} ${IPUtil})
 
 # link internal library

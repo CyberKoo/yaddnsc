@@ -46,7 +46,7 @@ httplib::Result HttpClient::get(const Uri &uri, int family, const char *nif_name
     return response;
 }
 
-httplib::Result HttpClient::post(const Uri &uri, const Params &parameters, int family, const char *nif_name) {
+httplib::Result HttpClient::post(const Uri &uri, const param_t &parameters, int family, const char *nif_name) {
     SPDLOG_TRACE("Post to uri {}", uri.get_raw_uri());
 
     auto client = HttpClient::connect(uri, family, nif_name);
@@ -55,7 +55,7 @@ httplib::Result HttpClient::post(const Uri &uri, const Params &parameters, int f
     return response;
 }
 
-httplib::Result HttpClient::put(const Uri &uri, const Params &parameters, int family, const char *nif_name) {
+httplib::Result HttpClient::put(const Uri &uri, const param_t &parameters, int family, const char *nif_name) {
     SPDLOG_TRACE("Put to uri {}", uri.get_raw_uri());
 
     auto client = HttpClient::connect(uri, family, nif_name);
