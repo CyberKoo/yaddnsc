@@ -16,7 +16,59 @@
 
 #include "exception/dns_lookup_exception.h"
 
-DNS::query_result DNS::query(std::string_view host, dns_record_t type, std::optional<dns_server_t> server) {
+using query_result = std::tuple<std::unique_ptr<unsigned char[]>, int>;
+
+constexpr static int MAXIMUM_UDP_SIZE = 512;
+
+dns_lookup_error_t get_dns_lookup_err(int);
+
+query_result query(std::string_view, dns_record_t, std::optional<dns_server_t>);
+
+int get_dns_type(dns_record_t);
+
+std::vector<std::string> DNS::resolve(std::string_view host, dns_record_t type, std::optional<dns_server_t> server) {
+    auto [buffer, buffer_size] = query(host, type, std::move(server));
+
+    ns_msg handle;
+    ns_initparse(buffer.get(), buffer_size, &handle);
+    auto msg_count = ns_msg_count(handle, ns_s_an);
+
+    std::vector<std::string> resolve_result;
+    for (int i = 0; i < msg_count; i++) {
+        ns_rr rr;
+        if (ns_parserr(&handle, ns_s_an, i, &rr)) {
+            throw DnsLookupException(fmt::format("Error occurred when parse dns resource, {}", strerror(errno)),
+                                     dns_lookup_error_t::PARSE);
+        }
+
+        auto rr_type = ns_rr_type(rr);
+        char address_buffer[INET6_ADDRSTRLEN] = {};
+        if (rr_type == ns_t_a) {
+            inet_ntop(AF_INET, ns_rr_rdata(rr), address_buffer, INET6_ADDRSTRLEN);
+            resolve_result.emplace_back(address_buffer);
+        } else if (rr_type == ns_t_aaaa) {
+            inet_ntop(AF_INET6, ns_rr_rdata(rr), address_buffer, INET6_ADDRSTRLEN);
+            resolve_result.emplace_back(address_buffer);
+        }
+    }
+
+    return resolve_result;
+}
+
+dns_lookup_error_t get_dns_lookup_err(int error) {
+    switch (error) {
+        case HOST_NOT_FOUND:
+            return dns_lookup_error_t::NX_DOMAIN;
+        case NO_DATA:
+            return dns_lookup_error_t::NODATA;
+        case TRY_AGAIN:
+            return dns_lookup_error_t::RETRY;
+        default:
+            return dns_lookup_error_t::UNKNOWN;
+    }
+}
+
+query_result query(std::string_view host, dns_record_t type, std::optional<dns_server_t> server) {
     int size = 0;
     int buffer_size = MAXIMUM_UDP_SIZE;
     std::unique_ptr<unsigned char[]> buffer;
@@ -60,49 +112,7 @@ DNS::query_result DNS::query(std::string_view host, dns_record_t type, std::opti
     return {std::move(buffer), buffer_size};
 }
 
-std::vector<std::string> DNS::resolve(std::string_view host, dns_record_t type, std::optional<dns_server_t> server) {
-    auto[buffer, buffer_size] = query(host, type, std::move(server));
-
-    ns_msg handle;
-    ns_initparse(buffer.get(), buffer_size, &handle);
-    auto msg_count = ns_msg_count(handle, ns_s_an);
-
-    std::vector<std::string> resolve_result;
-    for (int i = 0; i < msg_count; i++) {
-        ns_rr rr;
-        if (ns_parserr(&handle, ns_s_an, i, &rr)) {
-            throw DnsLookupException(fmt::format("Error occurred when parse dns resource, {}", strerror(errno)),
-                                     dns_lookup_error_t::PARSE);
-        }
-
-        auto rr_type = ns_rr_type(rr);
-        char address_buffer[INET6_ADDRSTRLEN] = {};
-        if (rr_type == ns_t_a) {
-            inet_ntop(AF_INET, ns_rr_rdata(rr), address_buffer, INET6_ADDRSTRLEN);
-            resolve_result.emplace_back(address_buffer);
-        } else if (rr_type == ns_t_aaaa) {
-            inet_ntop(AF_INET6, ns_rr_rdata(rr), address_buffer, INET6_ADDRSTRLEN);
-            resolve_result.emplace_back(address_buffer);
-        }
-    }
-
-    return resolve_result;
-}
-
-dns_lookup_error_t DNS::get_dns_lookup_err(int error) {
-    switch (error) {
-        case HOST_NOT_FOUND:
-            return dns_lookup_error_t::NX_DOMAIN;
-        case NO_DATA:
-            return dns_lookup_error_t::NODATA;
-        case TRY_AGAIN:
-            return dns_lookup_error_t::RETRY;
-        default:
-            return dns_lookup_error_t::UNKNOWN;
-    }
-}
-
-int DNS::get_dns_type(dns_record_t type) {
+int get_dns_type(dns_record_t type) {
     switch (type) {
         case dns_record_t::A:
             return ns_t_a;
