@@ -8,7 +8,6 @@
 #include <memory>
 #include <condition_variable>
 
-#include "config.h"
 #include "non_copyable.h"
 
 class DriverManager;
@@ -28,8 +27,6 @@ public:
     std::unique_ptr<DriverManager, DriverManagerDeleter> driver_manager{};
 
     std::string config_path{};
-
-    Config::resolver_config_t resolver_config{};
 
     bool terminate{false};
 

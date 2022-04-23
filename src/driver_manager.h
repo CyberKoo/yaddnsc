@@ -10,8 +10,9 @@
 #include <vector>
 #include <string_view>
 
-#include "common_fwd.h"
 #include "non_copyable.h"
+
+class IDriver;
 
 class DriverManager : public NonCopyable {
 public:

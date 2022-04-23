@@ -8,7 +8,13 @@
 #include <map>
 #include <string_view>
 
-#include "common_fwd.h"
+namespace httplib {
+    class Result;
+
+    class Client;
+};
+
+class Uri;
 
 namespace HttpClient {
     using param_t = std::multimap<std::string, std::string>;

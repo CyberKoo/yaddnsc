@@ -111,11 +111,6 @@ void Manager::Impl::create_worker() {
 }
 
 void Manager::Impl::run() {
-    auto &context = Context::getInstance();
-    // move resolver_config to context
-    context.resolver_config = std::move(_config.resolver);
-    _config.resolver = {};
-
     // print all interfaces name
     auto interfaces = NetworkUtil::get_interfaces();
     SPDLOG_INFO("All available interface: {}", fmt::join(interfaces, ", "));
