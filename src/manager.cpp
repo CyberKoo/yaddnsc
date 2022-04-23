@@ -110,7 +110,7 @@ void Manager::run() {
 #ifdef USE_RES_NQUERY
         SPDLOG_INFO("Use customized resolver \"{}:{}\"", _impl->_config.resolver.ip_address,
                     _impl->_config.resolver.port);
-#elif
+#else
         SPDLOG_WARN("Custom resolver defined, but res_nquery not support on your system, this option will be ignored");
 #endif
     }

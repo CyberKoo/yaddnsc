@@ -4,15 +4,14 @@
 
 #include "dns.h"
 
+#include <spdlog/spdlog.h>
+
 #include <netdb.h>
 #include <resolv.h>
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <arpa/nameser.h>
-#include <spdlog/spdlog.h>
-
-#include <utility>
 
 #include "exception/dns_lookup_exception.h"
 
@@ -68,7 +67,7 @@ dns_lookup_error_t get_dns_lookup_err(int error) {
     }
 }
 
-query_result query(std::string_view host, dns_record_t type, std::optional<dns_server_t> server) {
+query_result query(std::string_view host, dns_record_t type, [[maybe_unused]]std::optional<dns_server_t> server) {
     int buffer_size = MAXIMUM_UDP_SIZE;
 
 #ifdef USE_RES_NQUERY
@@ -96,7 +95,7 @@ query_result query(std::string_view host, dns_record_t type, std::optional<dns_s
 #ifdef USE_RES_NQUERY
         received_size = res_nquery(&local_res, host.data(), ns_c_in, get_dns_type(type), buffer.get(), buffer_size);
 #else
-        size = res_query(host.data(), ns_c_in, get_dns_type(type), buffer.get(), buffer_size);
+        received_size = res_query(host.data(), ns_c_in, get_dns_type(type), buffer.get(), buffer_size);
 #endif
         if (received_size < 0) {
             throw DnsLookupException(host.data(), get_dns_lookup_err(h_errno));
