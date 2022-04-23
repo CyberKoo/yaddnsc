@@ -32,9 +32,7 @@ public:
 
     ~Impl() = default;
 
-    void run();
-
-private:
+public:
 
     void run_scheduled_tasks();
 
@@ -55,17 +53,17 @@ private:
     int _force_update_counter = 0;
 };
 
-void Worker::Impl::run() {
-    SPDLOG_INFO("Worker for domain {} started.", _worker_config.name);
+void Worker::run() {
+    SPDLOG_INFO("Worker for domain {} started, update interval: {}s", _impl->_worker_config.name,
+                _impl->_worker_config.update_interval);
     auto &context = Context::getInstance();
 
     std::mutex mutex;
     std::unique_lock<std::mutex> lock(mutex);
-    auto update_interval = std::chrono::seconds(_worker_config.update_interval);
-    SPDLOG_INFO("Update interval: {}s", _worker_config.update_interval);
+    auto update_interval = std::chrono::seconds(_impl->_worker_config.update_interval);
 
     while (!context.terminate) {
-        auto updater = std::thread(&Impl::run_scheduled_tasks, this);
+        auto updater = std::thread(&Impl::run_scheduled_tasks, _impl.get());
         updater.detach();
         context.cv.wait_for(lock, update_interval, [&context]() { return context.terminate; });
     }
@@ -232,10 +230,6 @@ ip_version_t Worker::Impl::rdtype2ip(dns_record_t type) {
 
 Worker::Worker(const Config::domains_config_t &domain_config, const Config::resolver_config_t &resolver_config) : _impl(
         new Worker::Impl(domain_config, resolver_config)) {
-}
-
-void Worker::run() {
-    _impl->run();
 }
 
 void Worker::ImplDeleter::operator()(Worker::Impl *ptr) {
