@@ -23,7 +23,12 @@
 
 class Worker::Impl {
 public:
-    explicit Impl(const Config::domains_config_t &domain_config) : _worker_config(domain_config) {};
+    explicit Impl(const Config::domains_config_t &domain_config, const Config::resolver_config_t &resolver_config)
+            : _dns_server(resolver_config.use_customise_server ?
+                          std::make_optional<dns_server_t>({resolver_config.ip_address, resolver_config.port})
+                                                               : std::nullopt),
+              _worker_config(domain_config) {
+    };
 
     ~Impl() = default;
 
@@ -35,15 +40,15 @@ private:
 
     [[nodiscard]] bool is_forced_update() const;
 
-    [[nodiscard]] static std::optional<dns_server_t> get_dns_server();
+    std::optional<std::string> dns_lookup(std::string_view host, dns_record_t);
 
-    static std::optional<std::string> dns_lookup(std::string_view host, dns_record_t);
-
-    static std::optional<std::string> get_ip_address(const Config::sub_domain_config_t &);
+    std::optional<std::string> get_ip_address(const Config::sub_domain_config_t &);
 
     static std::optional<std::string> update_dns_record(const driver_request_t &, ip_version_t, std::string_view);
 
     static ip_version_t rdtype2ip(dns_record_t);
+
+    const std::optional<dns_server_t> _dns_server;
 
     const Config::domains_config_t &_worker_config;
 
@@ -67,11 +72,9 @@ void Worker::Impl::run() {
 
 std::optional<std::string> Worker::Impl::dns_lookup(std::string_view host, dns_record_t type) {
     try {
-        std::optional<dns_server_t> dns_server = get_dns_server();
-
         return Util::retry_on_exception<std::string, DnsLookupException>(
                 [&]() {
-                    auto dns_answer = DNS::resolve(host, type, dns_server);
+                    auto dns_answer = DNS::resolve(host, type, _dns_server);
                     if (dns_answer.size() > 1) {
                         SPDLOG_WARN("{} resolved more than one address (count: {})", host, dns_answer.size());
                     }
@@ -208,17 +211,6 @@ Worker::Impl::update_dns_record(const driver_request_t &request, ip_version_t ve
     return std::nullopt;
 }
 
-std::optional<dns_server_t> Worker::Impl::get_dns_server() {
-    auto &context = Context::getInstance();
-
-    if (context.resolver_config.use_customise_server) {
-        return dns_server_t{.ip_address = context.resolver_config.ip_address,
-                .port = context.resolver_config.port};
-    }
-
-    return std::nullopt;
-}
-
 bool Worker::Impl::is_forced_update() const {
     return (_worker_config.force_update >= _worker_config.update_interval) &&
            (_force_update_counter * _worker_config.update_interval) > _worker_config.force_update;
@@ -237,12 +229,12 @@ ip_version_t Worker::Impl::rdtype2ip(dns_record_t type) {
     }
 }
 
-void Worker::run() {
-    _impl->run();
+Worker::Worker(const Config::domains_config_t &domain_config, const Config::resolver_config_t &resolver_config) : _impl(
+        new Worker::Impl(domain_config, resolver_config)) {
 }
 
-Worker::Worker(const Config::domains_config_t &domain_config) : _impl(new Worker::Impl(domain_config)) {
-
+void Worker::run() {
+    _impl->run();
 }
 
 void Worker::ImplDeleter::operator()(Worker::Impl *ptr) {

@@ -11,11 +11,9 @@
 
 #include "config.h"
 
-struct driver_request_t;
-
 class Worker {
 public:
-    explicit Worker(const Config::domains_config_t &);
+    explicit Worker(const Config::domains_config_t &, const Config::resolver_config_t &);
 
     ~Worker() = default;
 

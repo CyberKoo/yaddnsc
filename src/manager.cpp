@@ -16,13 +16,35 @@
 
 #include "exception/config_verification_exception.h"
 
-template<typename T>
-void dedupe(std::vector<T> &vec) {
-    std::sort(vec.begin(), vec.end());
-    vec.erase(std::unique(vec.begin(), vec.end()), vec.end());
-}
+class Manager::Impl {
+public:
+    explicit Impl(Config::config_t config) : _config(std::move(config)) {};
 
-void Manager::validate_config() {
+    ~Impl() = default;
+
+    void validate_config();
+
+    void load_drivers() const;
+
+    void create_worker();
+
+    void run();
+
+private:
+    static constexpr int MIN_UPDATE_INTERVAL = 60;
+
+    Config::config_t _config;
+
+    std::vector<Worker> _workers;
+private:
+    template<typename T>
+    void dedupe(std::vector<T> &vec) const {
+        std::sort(vec.begin(), vec.end());
+        vec.erase(std::unique(vec.begin(), vec.end()), vec.end());
+    }
+};
+
+void Manager::Impl::validate_config() {
     auto &context = Context::getInstance();
 
     auto drivers = context.driver_manager->get_loaded_drivers();
@@ -67,7 +89,7 @@ void Manager::validate_config() {
     }
 }
 
-void Manager::load_drivers() const {
+void Manager::Impl::load_drivers() const {
     auto &context = Context::getInstance();
     auto &driver_manager = context.driver_manager;
 
@@ -81,13 +103,13 @@ void Manager::load_drivers() const {
     }
 }
 
-void Manager::create_worker() {
+void Manager::Impl::create_worker() {
     for (const auto &domain: _config.domains) {
-        _workers.emplace_back(domain);
+        _workers.emplace_back(domain, _config.resolver);
     }
 }
 
-void Manager::run() {
+void Manager::Impl::run() {
     auto &context = Context::getInstance();
     // move resolver_config to context
     context.resolver_config = std::move(_config.resolver);
@@ -109,4 +131,28 @@ void Manager::run() {
     for (auto &worker: worker_threads) {
         worker.join();
     }
+}
+
+Manager::Manager(Config::config_t config) : _impl(new Impl(std::move(config))) {
+
+}
+
+void Manager::validate_config() {
+    return _impl->validate_config();
+}
+
+void Manager::load_drivers() const {
+    return _impl->load_drivers();
+}
+
+void Manager::create_worker() {
+    return _impl->create_worker();
+}
+
+void Manager::run() {
+    return _impl->run();
+}
+
+void Manager::ImplDeleter::operator()(Manager::Impl *ptr) {
+    delete ptr;
 }

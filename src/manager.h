@@ -9,11 +9,10 @@
 #include <thread>
 
 #include "config.h"
-#include "worker.h"
 
 class Manager {
 public:
-    explicit Manager(Config::config_t config) : _config(std::move(config)) {};
+    explicit Manager(Config::config_t config);
 
     ~Manager() = default;
 
@@ -26,11 +25,13 @@ public:
     void run();
 
 private:
-    static constexpr int MIN_UPDATE_INTERVAL = 60;
+    class Impl;
 
-    Config::config_t _config;
+    struct ImplDeleter {
+        void operator()(Impl *);
+    };
 
-    std::vector <Worker> _workers;
+    std::unique_ptr<Impl, ImplDeleter> _impl;
 };
 
 #endif //YADDNSC_MANAGER_H
