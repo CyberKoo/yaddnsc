@@ -10,9 +10,9 @@
 #include <vector>
 
 namespace NetworkUtil {
-    static std::vector<std::string> get_interfaces();
+    std::vector<std::string> get_interfaces();
 
-    static std::map<std::string, int> get_nif_ip_address(std::string_view);
+    std::map<std::string, int> get_nif_ip_address(std::string_view);
 }
 
 #endif //YADDNSC_NETWORK_UTIL_H

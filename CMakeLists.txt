@@ -87,7 +87,6 @@ set(Manager src/manager.cpp src/manager.h)
 set(Config src/config.cpp src/config.h)
 set(DriverManager src/driver_manager.cpp src/driver_manager.h)
 set(Worker src/worker.cpp src/worker.h)
-set(NetworkUtil src/network_util.cpp include/network_util.h)
 set(DNS src/dns.cpp src/dns.h)
 set(URI src/uri.cpp include/uri.h)
 set(IPUtil src/ip_util.cpp src/ip_util.h)
@@ -95,14 +94,16 @@ set(HttpClient src/httpclient.cpp include/httpclient.h)
 
 # library
 add_library(string_util STATIC src/string_util.cpp include/string_util.h)
+add_library(network_util STATIC src/network_util.cpp include/network_util.h)
 
 # main executable
 add_executable(yaddnsc src/main.cpp ${Context} ${Config} ${DriverManager} ${URI} ${DNS} ${Worker} ${Manager}
-        ${NetworkUtil} ${HttpClient} ${IPUtil})
+        ${HttpClient} ${IPUtil})
 
-# link internal library
-target_link_libraries(yaddnsc PRIVATE string_util)
+# link internal libraries
+target_link_libraries(yaddnsc PRIVATE string_util network_util)
 
+# link third party libraries
 target_link_libraries(yaddnsc PRIVATE httplib spdlog::spdlog fmt::fmt OpenSSL::SSL OpenSSL::Crypto magic_enum::magic_enum
         ZLIB::ZLIB cxxopts::cxxopts std::filesystem nlohmann_json::nlohmann_json resolv ${CMAKE_DL_LIBS})
 

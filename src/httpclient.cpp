@@ -9,31 +9,32 @@
 
 #include "uri.h"
 
-std::unique_ptr<httplib::Client> HttpClient::connect(const Uri &uri, int family, const char *nif_name) {
-    auto client = std::make_unique<httplib::Client>(
-            fmt::format("{}://{}:{}", uri.get_schema(), uri.get_host(), uri.get_port()).data());
+std::string_view get_system_ca_path();
+
+httplib::Client HttpClient::connect(const Uri &uri, int family, const char *nif_name) {
+    auto client = httplib::Client(fmt::format("{}://{}:{}", uri.get_schema(), uri.get_host(), uri.get_port()));
 
     // if is https
     if (uri.get_schema() == "https") {
         auto ca_path = get_system_ca_path();
 
         if (!ca_path.empty()) {
-            client->set_ca_cert_path(ca_path.data());
-            client->enable_server_certificate_verification(true);
+            client.set_ca_cert_path(ca_path.data());
+            client.enable_server_certificate_verification(true);
         }
     }
 
     // set outbound interface
     if (nif_name != nullptr) {
-        client->set_interface(nif_name);
+        client.set_interface(nif_name);
     }
 
     // set address family
-    client->set_address_family(family);
-    client->set_connection_timeout(std::chrono::seconds(5));
-    client->set_read_timeout(std::chrono::seconds(5));
-    client->set_follow_location(true);
-    client->set_default_headers({{"User-Agent", "YADDNSC"}});
+    client.set_address_family(family);
+    client.set_connection_timeout(std::chrono::seconds(5));
+    client.set_read_timeout(std::chrono::seconds(5));
+    client.set_follow_location(true);
+    client.set_default_headers({{"User-Agent", "YADDNSC"}});
 
     return client;
 }
@@ -41,7 +42,7 @@ std::unique_ptr<httplib::Client> HttpClient::connect(const Uri &uri, int family,
 httplib::Result HttpClient::get(const Uri &uri, int family, const char *nif_name) {
     auto client = HttpClient::connect(uri, family, nif_name);
     auto x = HttpClient::build_request(uri);
-    auto response = client->Get(HttpClient::build_request(uri).c_str());
+    auto response = client.Get(HttpClient::build_request(uri).c_str());
 
     return response;
 }
@@ -50,7 +51,7 @@ httplib::Result HttpClient::post(const Uri &uri, const param_t &parameters, int 
     SPDLOG_TRACE("Post to uri {}", uri.get_raw_uri());
 
     auto client = HttpClient::connect(uri, family, nif_name);
-    auto response = client->Post(HttpClient::build_request(uri).c_str(), parameters);
+    auto response = client.Post(HttpClient::build_request(uri).c_str(), parameters);
 
     return response;
 }
@@ -59,7 +60,7 @@ httplib::Result HttpClient::put(const Uri &uri, const param_t &parameters, int f
     SPDLOG_TRACE("Put to uri {}", uri.get_raw_uri());
 
     auto client = HttpClient::connect(uri, family, nif_name);
-    auto response = client->Put(HttpClient::build_request(uri).c_str(), parameters);
+    auto response = client.Put(HttpClient::build_request(uri).c_str(), parameters);
 
     return response;
 }
@@ -72,7 +73,7 @@ std::string HttpClient::build_request(const Uri &uri) {
     }
 }
 
-std::string_view HttpClient::get_system_ca_path() {
+std::string_view get_system_ca_path() {
     static std::string_view path = []() -> std::string_view {
         constexpr std::string_view SEARCH_PATH[]{
                 "/etc/ssl/certs/ca-certificates.crt",                // Debian/Ubuntu/Gentoo etc.

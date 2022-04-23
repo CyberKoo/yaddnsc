@@ -6,27 +6,22 @@
 #define YADDNSC_HTTPCLIENT_H
 
 #include <map>
-#include <memory>
 #include <string_view>
 
 #include "common_fwd.h"
 
-class HttpClient {
-public:
+namespace HttpClient {
     using param_t = std::multimap<std::string, std::string>;
 
-    static std::unique_ptr<httplib::Client> connect(const Uri &, int, const char *);
+    httplib::Client connect(const Uri &uri, int family, const char *nif_name);
 
-    static httplib::Result get(const Uri &, int, const char * = nullptr);
+    httplib::Result get(const Uri &, int, const char * = nullptr);
 
-    static httplib::Result post(const Uri &, const param_t &, int, const char * = nullptr);
+    httplib::Result post(const Uri &, const param_t &, int, const char * = nullptr);
 
-    static httplib::Result put(const Uri &, const param_t &, int, const char * = nullptr);
+    httplib::Result put(const Uri &, const param_t &, int, const char * = nullptr);
 
-    static std::string build_request(const Uri &);
-
-private:
-    static std::string_view get_system_ca_path();
+    std::string build_request(const Uri &);
 };
 
 #endif //YADDNSC_HTTPCLIENT_H

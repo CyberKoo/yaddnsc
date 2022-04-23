@@ -6,8 +6,9 @@
 #include <map>
 #include <vector>
 #include <string>
+#include <memory>
+#include <stdexcept>
 #include <functional>
-#include <fmt/format.h>
 
 #include <netdb.h>
 #include <ifaddrs.h>
@@ -52,7 +53,7 @@ std::map<std::string, int> NetworkUtil::get_nif_ip_address(std::string_view nif)
         return nif_ip_addrs;
 
     } else {
-        throw std::runtime_error(fmt::format("Interface {} not found", nif));
+        throw std::runtime_error(std::string("Interface ") + nif.data() + " not found");
     }
 }
 
@@ -75,7 +76,7 @@ std::map<std::string, std::vector<interface_addrs_t>> get_all_ip_addresses() {
             int error = getnameinfo(ifa->ifa_addr, get_address_struct_size(ifa->ifa_addr->sa_family), host,
                                     NI_MAXHOST, nullptr, 0, NI_NUMERICHOST);
             if (error != 0) {
-                throw std::runtime_error(fmt::format("getnameinfo() failed: {}", gai_strerror(error)));
+                throw std::runtime_error(std::string("getnameinfo() failed, error: ") + gai_strerror(error));
             }
 
             address_map[ifa->ifa_name].emplace_back(interface_addrs_t{host, ifa->ifa_addr->sa_family});

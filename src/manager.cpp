@@ -36,6 +36,7 @@ private:
     Config::config_t _config;
 
     std::vector<Worker> _workers;
+
 private:
     template<typename T>
     void dedupe(std::vector<T> &vec) const {
