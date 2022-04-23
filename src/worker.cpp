@@ -14,7 +14,9 @@
 #include "util.h"
 #include "context.h"
 #include "ip_util.h"
+#include "IDriver.h"
 #include "httpclient.h"
+#include "driver_manager.h"
 
 #include "exception/driver_exception.h"
 #include "exception/dns_lookup_exception.h"

@@ -8,19 +8,24 @@
 #include <memory>
 #include <condition_variable>
 
-#include "IDriver.h"
+#include "config.h"
 #include "non_copyable.h"
-#include "driver_manager.h"
+
+class DriverManager;
 
 class Context : NonCopyable {
+private:
+    struct DriverManagerDeleter {
+        void operator()(DriverManager *);
+    };
+
 public:
     static Context &getInstance() {
         static Context instance;
         return instance;
     }
 
-public:
-    std::unique_ptr<DriverManager> driver_manager{};
+    std::unique_ptr<DriverManager, DriverManagerDeleter> driver_manager{};
 
     std::string config_path{};
 
@@ -30,9 +35,7 @@ public:
 
     std::condition_variable cv{};
 private:
-    Context() {
-        driver_manager = std::make_unique<DriverManager>();
-    };
+    Context();
 };
 
 #endif //YADDNSC_CONTEXT_H

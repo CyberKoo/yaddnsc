@@ -82,6 +82,7 @@ add_subdirectory(deps/magic_enum EXCLUDE_FROM_ALL)
 ## submodules ##
 
 ### source code
+set(Context src/context.cpp src/context.h)
 set(Manager src/manager.cpp src/manager.h)
 set(Config src/config.cpp src/config.h)
 set(DriverManager src/driver_manager.cpp src/driver_manager.h)
@@ -96,7 +97,7 @@ set(HttpClient src/httpclient.cpp include/httpclient.h)
 add_library(string_util STATIC src/string_util.cpp include/string_util.h)
 
 # main executable
-add_executable(yaddnsc src/main.cpp ${Config} ${DriverManager} ${URI} ${DNS} ${Worker} ${Manager}
+add_executable(yaddnsc src/main.cpp ${Context} ${Config} ${DriverManager} ${URI} ${DNS} ${Worker} ${Manager}
         ${NetworkUtil} ${HttpClient} ${IPUtil})
 
 # link internal library

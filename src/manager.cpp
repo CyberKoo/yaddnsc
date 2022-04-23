@@ -6,12 +6,13 @@
 
 #include <algorithm>
 #include <fmt/format.h>
+#include <spdlog/spdlog.h>
 
 #include "worker.h"
 #include "context.h"
 #include "ip_util.h"
 #include "network_util.h"
-#include "spdlog/spdlog.h"
+#include "driver_manager.h"
 
 #include "exception/config_verification_exception.h"
 
