@@ -14,7 +14,41 @@
 #include "logging_pattern.h"
 #include "exception/bad_driver_exception.h"
 
-DriverManager::~DriverManager() {
+
+class DriverManager::Impl {
+public:
+    ~Impl();
+
+    void load_driver(std::string_view);
+
+    std::vector<std::string> get_loaded_drivers();
+
+    std::unique_ptr<IDriver> &get_driver(std::string_view);
+
+private:
+    class handle_closer {
+    public:
+        void operator()(void *);
+    };
+
+    using handle_ptr_t = std::unique_ptr<void, handle_closer>;
+
+    [[nodiscard]] static bool is_driver_loaded(std::string_view driver_path);
+
+    static handle_ptr_t load_external_dynamic_library(std::string_view path);
+
+    static IDriver *get_instance(handle_ptr_t &handle);
+
+    static std::string_view get_driver_name(std::string_view path);
+
+private:
+    std::map<std::string, std::unique_ptr<IDriver>> _driver_map;
+
+    std::vector<handle_ptr_t> _handlers;
+};
+
+
+DriverManager::Impl::~Impl() {
     // destroy all drivers before dlclose
     for (auto &[name, driver]: _driver_map) {
         driver.reset();
@@ -24,7 +58,7 @@ DriverManager::~DriverManager() {
     _handlers.clear();
 }
 
-void DriverManager::load_driver(std::string_view path) {
+void DriverManager::Impl::load_driver(std::string_view path) {
     auto driver_lib_name = get_driver_name(path);
     SPDLOG_DEBUG("Trying to load driver {}", driver_lib_name);
 
@@ -59,7 +93,7 @@ void DriverManager::load_driver(std::string_view path) {
     }
 }
 
-DriverManager::handle_ptr_t DriverManager::load_external_dynamic_library(std::string_view path) {
+DriverManager::Impl::handle_ptr_t DriverManager::Impl::load_external_dynamic_library(std::string_view path) {
     auto handle = handle_ptr_t(dlopen(path.data(), RTLD_LAZY));
 
     if (handle == nullptr) {
@@ -70,7 +104,7 @@ DriverManager::handle_ptr_t DriverManager::load_external_dynamic_library(std::st
     return handle;
 }
 
-IDriver *DriverManager::get_instance(handle_ptr_t &handle) {
+IDriver *DriverManager::Impl::get_instance(handle_ptr_t &handle) {
     // reset errors
     dlerror();
 
@@ -85,7 +119,7 @@ IDriver *DriverManager::get_instance(handle_ptr_t &handle) {
     return create();
 }
 
-std::string_view DriverManager::get_driver_name(std::string_view path) {
+std::string_view DriverManager::Impl::get_driver_name(std::string_view path) {
     auto pos = path.rfind('/');
 
     if (pos != std::string_view::npos && pos + 1 != path.size()) {
@@ -95,13 +129,13 @@ std::string_view DriverManager::get_driver_name(std::string_view path) {
     }
 }
 
-bool DriverManager::is_driver_loaded(std::string_view driver_path) {
+bool DriverManager::Impl::is_driver_loaded(std::string_view driver_path) {
     handle_ptr_t handle = handle_ptr_t(dlopen(driver_path.data(), RTLD_NOW | RTLD_NOLOAD));
 
     return handle != nullptr;
 }
 
-std::unique_ptr<IDriver> &DriverManager::get_driver(std::string_view name) {
+std::unique_ptr<IDriver> &DriverManager::Impl::get_driver(std::string_view name) {
     if (_driver_map.find(name.data()) != _driver_map.end()) {
         return _driver_map[name.data()];
     }
@@ -110,7 +144,7 @@ std::unique_ptr<IDriver> &DriverManager::get_driver(std::string_view name) {
     throw BadDriverException("driver not found");
 }
 
-std::vector<std::string> DriverManager::get_loaded_drivers() {
+std::vector<std::string> DriverManager::Impl::get_loaded_drivers() {
     std::vector<std::string> loaded_drivers;
     std::transform(_driver_map.begin(), _driver_map.end(), std::back_inserter(loaded_drivers),
                    [](const auto &kv) { return kv.first; });
@@ -118,6 +152,26 @@ std::vector<std::string> DriverManager::get_loaded_drivers() {
     return loaded_drivers;
 }
 
-void DriverManager::handle_closer::operator()(void *handle) {
+DriverManager::DriverManager() : _impl(new Impl) {
+
+}
+
+void DriverManager::load_driver(std::string_view path) {
+    return _impl->load_driver(path);
+}
+
+std::vector<std::string> DriverManager::get_loaded_drivers() {
+    return _impl->get_loaded_drivers();
+}
+
+std::unique_ptr<IDriver> &DriverManager::get_driver(std::string_view drv_name) {
+    return _impl->get_driver(drv_name);
+}
+
+void DriverManager::Impl::handle_closer::operator()(void *handle) {
     dlclose(handle);
+}
+
+void DriverManager::ImplDeleter::operator()(DriverManager::Impl *ptr) {
+    delete ptr;
 }
