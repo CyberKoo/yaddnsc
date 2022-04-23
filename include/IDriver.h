@@ -7,6 +7,7 @@
 
 #include <map>
 #include <string>
+#include <vector>
 #include <variant>
 #include <string_view>
 

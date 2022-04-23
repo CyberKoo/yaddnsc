@@ -15,31 +15,22 @@ struct driver_request_t;
 
 class Worker {
 public:
-    explicit Worker(const Config::domains_config_t &domain_config) : _worker_config(domain_config) {};
+    explicit Worker(const Config::domains_config_t &);
 
     ~Worker() = default;
+
+    Worker(Worker &&) = default;
 
     void run();
 
 private:
-    void run_scheduled_tasks();
+    class Impl;
 
-    [[nodiscard]] bool is_forced_update() const;
+    struct ImplDeleter {
+        void operator()(Impl *);
+    };
 
-    [[nodiscard]] static std::optional <dns_server_t> get_dns_server();
-
-    static std::optional <std::string> dns_lookup(std::string_view host, dns_record_t);
-
-    static std::optional <std::string> get_ip_address(const Config::sub_domain_config_t &);
-
-    static std::optional <std::string> update_dns_record(const driver_request_t &, ip_version_t, std::string_view);
-
-    static ip_version_t rdtype2ip(dns_record_t);
-
-private:
-    const Config::domains_config_t &_worker_config;
-
-    int _force_update_counter = 0;
+    std::unique_ptr<Impl, ImplDeleter> _impl;
 };
 
 #endif //YADDNSC_WORKER_H

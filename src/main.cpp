@@ -9,6 +9,7 @@
 #include "config.h"
 #include "context.h"
 #include "manager.h"
+#include "version.h"
 #include "logging_pattern.h"
 
 #include "exception/base_exception.h"
@@ -37,6 +38,11 @@ int main(int argc, char *argv[]) {
         auto result = options.parse(argc, argv);
         if (result.count("help")) {
             std::cout << options.help() << std::endl;
+            exit(0);
+        }
+
+        if (result.count("version")) {
+            std::cout << "YADDNSC/" << get_version() << std::endl;
             exit(0);
         }
 

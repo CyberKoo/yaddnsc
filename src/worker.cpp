@@ -19,7 +19,36 @@
 #include "exception/driver_exception.h"
 #include "exception/dns_lookup_exception.h"
 
-void Worker::run() {
+class Worker::Impl {
+public:
+    explicit Impl(const Config::domains_config_t &domain_config) : _worker_config(domain_config) {};
+
+    ~Impl() = default;
+
+    void run();
+
+private:
+
+    void run_scheduled_tasks();
+
+    [[nodiscard]] bool is_forced_update() const;
+
+    [[nodiscard]] static std::optional<dns_server_t> get_dns_server();
+
+    static std::optional<std::string> dns_lookup(std::string_view host, dns_record_t);
+
+    static std::optional<std::string> get_ip_address(const Config::sub_domain_config_t &);
+
+    static std::optional<std::string> update_dns_record(const driver_request_t &, ip_version_t, std::string_view);
+
+    static ip_version_t rdtype2ip(dns_record_t);
+
+    const Config::domains_config_t &_worker_config;
+
+    int _force_update_counter = 0;
+};
+
+void Worker::Impl::run() {
     SPDLOG_INFO("Worker for domain {} started.", _worker_config.name);
     auto &context = Context::getInstance();
 
@@ -28,13 +57,13 @@ void Worker::run() {
     auto update_interval = std::chrono::seconds(_worker_config.update_interval);
 
     while (!context.terminate) {
-        auto updater = std::thread(&Worker::run_scheduled_tasks, this);
+        auto updater = std::thread(&Impl::run_scheduled_tasks, this);
         updater.detach();
         context.cv.wait_for(lock, update_interval, [&context]() { return context.terminate; });
     }
 }
 
-std::optional<std::string> Worker::dns_lookup(std::string_view host, dns_record_t type) {
+std::optional<std::string> Worker::Impl::dns_lookup(std::string_view host, dns_record_t type) {
     try {
         std::optional<dns_server_t> dns_server = get_dns_server();
 
@@ -59,7 +88,7 @@ std::optional<std::string> Worker::dns_lookup(std::string_view host, dns_record_
     return std::nullopt;
 }
 
-void Worker::run_scheduled_tasks() {
+void Worker::Impl::run_scheduled_tasks() {
     try {
         auto &context = Context::getInstance();
         auto &driver = context.driver_manager->get_driver(_worker_config.driver);
@@ -118,7 +147,7 @@ void Worker::run_scheduled_tasks() {
     }
 }
 
-std::optional<std::string> Worker::get_ip_address(const Config::sub_domain_config_t &config) {
+std::optional<std::string> Worker::Impl::get_ip_address(const Config::sub_domain_config_t &config) {
     auto ip_type = rdtype2ip(config.type);
     if (config.ip_source == Config::ip_source_t::INTERFACE) {
         auto addresses = IPUtil::get_ip_from_interface(config.interface, ip_type);
@@ -133,7 +162,7 @@ std::optional<std::string> Worker::get_ip_address(const Config::sub_domain_confi
 }
 
 std::optional<std::string>
-Worker::update_dns_record(const driver_request_t &request, ip_version_t version, std::string_view nif) {
+Worker::Impl::update_dns_record(const driver_request_t &request, ip_version_t version, std::string_view nif) {
     auto response = [&request, &nif, &version]() {
         auto uri = Uri::parse(request.url);
         auto path = HttpClient::build_request(uri);
@@ -177,7 +206,7 @@ Worker::update_dns_record(const driver_request_t &request, ip_version_t version,
     return std::nullopt;
 }
 
-std::optional<dns_server_t> Worker::get_dns_server() {
+std::optional<dns_server_t> Worker::Impl::get_dns_server() {
     auto &context = Context::getInstance();
 
     if (context.resolver_config.use_customise_server) {
@@ -188,12 +217,12 @@ std::optional<dns_server_t> Worker::get_dns_server() {
     return std::nullopt;
 }
 
-bool Worker::is_forced_update() const {
+bool Worker::Impl::is_forced_update() const {
     return (_worker_config.force_update >= _worker_config.update_interval) &&
            (_force_update_counter * _worker_config.update_interval) > _worker_config.force_update;
 }
 
-ip_version_t Worker::rdtype2ip(dns_record_t type) {
+ip_version_t Worker::Impl::rdtype2ip(dns_record_t type) {
     switch (type) {
         case dns_record_t::A:
             return ip_version_t::IPV4;
@@ -206,3 +235,14 @@ ip_version_t Worker::rdtype2ip(dns_record_t type) {
     }
 }
 
+void Worker::run() {
+    _impl->run();
+}
+
+Worker::Worker(const Config::domains_config_t &domain_config) : _impl(new Worker::Impl(domain_config)) {
+
+}
+
+void Worker::ImplDeleter::operator()(Worker::Impl *ptr) {
+    delete ptr;
+}
