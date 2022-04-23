@@ -12,7 +12,12 @@ set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -O2")
 set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -O0 -g -ggdb -gdwarf-3 -Wall")
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/objs/lib)
 set(EXECUTABLE_OUTPUT_PATH ${CMAKE_BINARY_DIR}/objs)
-set(YADDNSC_DRV_VERSION "1000001")
+
+# yaddnsc version
+set(YADDNSC_VERSION_MAJOR 0)
+set(YADDNSC_VERSION_MINOR 1)
+set(YADDNSC_VERSION_PATCH 5)
+set(YADDNSC_DRV_VERSION "1000000")
 
 # if not musl add lto flag to release target
 if (NOT LIBC_MUSL)
@@ -82,7 +87,7 @@ set(Config src/config.cpp src/config.h)
 set(DriverManager src/driver_manager.cpp src/driver_manager.h)
 set(Worker src/worker.cpp src/worker.h)
 set(NetworkUtil src/network_util.cpp include/network_util.h)
-set(DNS src/dns.cpp include/dns.h)
+set(DNS src/dns.cpp src/dns.h)
 set(URI src/uri.cpp include/uri.h)
 set(IPUtil src/ip_util.cpp src/ip_util.h)
 set(HttpClient src/httpclient.cpp include/httpclient.h)
