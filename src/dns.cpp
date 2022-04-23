@@ -69,9 +69,7 @@ dns_lookup_error_t get_dns_lookup_err(int error) {
 }
 
 query_result query(std::string_view host, dns_record_t type, std::optional<dns_server_t> server) {
-    int size = 0;
     int buffer_size = MAXIMUM_UDP_SIZE;
-    std::unique_ptr<unsigned char[]> buffer;
 
 #ifdef USE_RES_NQUERY
     SPDLOG_DEBUG("Resolve domain \"{}\"", host);
@@ -80,34 +78,31 @@ query_result query(std::string_view host, dns_record_t type, std::optional<dns_s
     std::unique_ptr<struct __res_state, decltype(&res_nclose)> req_ptr(&local_res, res_nclose);
 
     if (server.has_value() && !server->ip_address.empty()) {
-        SPDLOG_DEBUG("Use customized resolver \"{}:{}\"", server->ip_address, server->port);
-
         local_res.nscount = 1;
         local_res.nsaddr_list[0].sin_family = AF_INET;
         local_res.nsaddr_list[0].sin_addr.s_addr = inet_addr(server->ip_address.c_str());
         local_res.nsaddr_list[0].sin_port = htons(server->port);
     }
-#else
-    SPDLOG_WARN("res_nquery not found, customized server will be ignored");
 #endif
 
+    int received_size = 0;
+    std::unique_ptr<unsigned char[]> buffer;
     do {
         // adjust buffer size
-        buffer_size = size + buffer_size;
+        buffer_size = received_size + buffer_size;
         // allocate buffer
         buffer = std::make_unique<unsigned char[]>(buffer_size);
         // perform dns lookup
 #ifdef USE_RES_NQUERY
-        size = res_nquery(&local_res, host.data(), ns_c_in, get_dns_type(type), buffer.get(), buffer_size);
+        received_size = res_nquery(&local_res, host.data(), ns_c_in, get_dns_type(type), buffer.get(), buffer_size);
 #else
         size = res_query(host.data(), ns_c_in, get_dns_type(type), buffer.get(), buffer_size);
 #endif
-        if (size < 0) {
+        if (received_size < 0) {
             throw DnsLookupException(host.data(), get_dns_lookup_err(h_errno));
         }
-        SPDLOG_DEBUG("Response payload size: {}, buffer size: {}", size, buffer_size);
-    } while (size >= buffer_size);
-
+        SPDLOG_DEBUG("Response payload size: {}, buffer size: {}", received_size, buffer_size);
+    } while (received_size >= buffer_size);
 
     return {std::move(buffer), buffer_size};
 }

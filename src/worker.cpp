@@ -62,6 +62,7 @@ void Worker::Impl::run() {
     std::mutex mutex;
     std::unique_lock<std::mutex> lock(mutex);
     auto update_interval = std::chrono::seconds(_worker_config.update_interval);
+    SPDLOG_INFO("Update interval: {}s", _worker_config.update_interval);
 
     while (!context.terminate) {
         auto updater = std::thread(&Impl::run_scheduled_tasks, this);

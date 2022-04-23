@@ -74,7 +74,7 @@ std::string HttpClient::build_request(const Uri &uri) {
 }
 
 std::string_view get_system_ca_path() {
-    static std::string_view path = []() -> std::string_view {
+    static std::string_view ca_path = []() -> std::string_view {
         constexpr std::string_view SEARCH_PATH[]{
                 "/etc/ssl/certs/ca-certificates.crt",                // Debian/Ubuntu/Gentoo etc.
                 "/etc/pki/tls/certs/ca-bundle.crt",                  // Fedora/RHEL 6
@@ -85,16 +85,18 @@ std::string_view get_system_ca_path() {
                 "./ca.pem"                                           // Load local
         };
 
-        SPDLOG_TRACE("Looking for CA bundle");
+        SPDLOG_DEBUG("Looking for CA bundle...");
         for (const auto &search: SEARCH_PATH) {
-            if (std::filesystem::exists(search)) {
-                SPDLOG_INFO("Found CA bundle at {}", search);
+            if (std::filesystem::exists(search) && !std::filesystem::is_directory(search)) {
+                SPDLOG_DEBUG("Found CA bundle at {}", search);
                 return search;
             }
         }
 
+        SPDLOG_INFO("CA bundle not found, server certificate verification will be disabled.");
+
         return "";
     }();
 
-    return path;
+    return ca_path;
 }
