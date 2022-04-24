@@ -72,10 +72,11 @@ void Manager::validate_config() {
         }
     }
 
+#ifdef HAVE_RES_NQUERY
     // check resolver
     if (_impl->_config.resolver.use_customise_server) {
         auto &address = _impl->_config.resolver.ip_address;
-#ifdef HAVE_RES_STATE_EXT
+#ifdef HAVE_RES_STATE_EXT_NSADDRS
         if (!IPUtil::is_ipv4_address(address) && !IPUtil::is_ipv6_address(address)) {
             throw ConfigVerificationException(fmt::format("Invalid resolver address {}", address));
         }
@@ -86,6 +87,7 @@ void Manager::validate_config() {
         }
 #endif
     }
+#endif
 }
 
 void Manager::load_drivers() const {

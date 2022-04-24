@@ -51,9 +51,9 @@ if (${HAVE_RES_NQUERY})
     add_compile_definitions(HAVE_RES_NQUERY)
 
     # check structure has ext member for ipv6 support
-    check_struct_has_member("struct __res_state" _u._ext resolv.h HAVE_RES_STATE_EXT LANGUAGE C)
-    if (${HAVE_RES_STATE_EXT})
-        add_compile_definitions(HAVE_RES_STATE_EXT)
+    check_struct_has_member("struct __res_state" _u._ext.nsaddrs resolv.h HAVE_RES_STATE_EXT_NSADDRS LANGUAGE C)
+    if (${HAVE_RES_STATE_EXT_NSADDRS})
+        add_compile_definitions(HAVE_RES_STATE_EXT_NSADDRS)
     endif ()
 
     # check if res_ndestroy should be used

@@ -93,7 +93,7 @@ query(std::string_view host, dns_record_t type, [[maybe_unused]]const std::optio
             local_state.nsaddr_list[0].sin_addr.s_addr = inet_addr(server->ip_address.c_str());
             local_state.nsaddr_list[0].sin_port = htons(server->port);
         } else {
-#ifdef HAVE_RES_STATE_EXT
+#ifdef HAVE_RES_STATE_EXT_NSADDRS
             // zero out all settings from resolv.conf
             for (auto i = 0; i < local_state.nscount; ++i) {
                 std::memset(&local_state.nsaddr_list[i], 0, sizeof(local_state.nsaddr_list[i]));
