@@ -107,7 +107,7 @@ void Manager::run() {
     SPDLOG_INFO("All available interface: {}", fmt::join(interfaces, ", "));
 
     if (_impl->_config.resolver.use_customise_server) {
-#ifdef USE_RES_NQUERY
+#ifdef HAVE_RES_NQUERY
         SPDLOG_INFO("Use customized resolver \"{}:{}\"", _impl->_config.resolver.ip_address,
                     _impl->_config.resolver.port);
 #else
