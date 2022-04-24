@@ -100,6 +100,8 @@ set(HttpClient src/httpclient.cpp include/httpclient.h)
 # library
 add_library(string_util STATIC src/string_util.cpp include/string_util.h)
 add_library(network_util STATIC src/network_util.cpp include/network_util.h)
+set_target_properties(string_util PROPERTIES POSITION_INDEPENDENT_CODE ON)
+set_target_properties(network_util PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 # main executable
 add_executable(yaddnsc src/main.cpp ${Context} ${Config} ${DriverManager} ${URI} ${DNS} ${Worker} ${Manager}
