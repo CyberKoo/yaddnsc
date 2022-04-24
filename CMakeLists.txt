@@ -45,14 +45,22 @@ find_package(OpenSSL REQUIRED)
 
 # check symbols
 include(CheckSymbolExists)
+include(CheckStructHasMember)
 check_symbol_exists("res_nquery" "resolv.h" "HAVE_RES_NQUERY")
 if (${HAVE_RES_NQUERY})
     add_compile_definitions(HAVE_RES_NQUERY)
-endif ()
 
-check_symbol_exists("res_ndestroy" "resolv.h" "HAVE_RES_NDESTROY")
-if (${HAVE_RES_NDESTROY})
-    add_compile_definitions(HAVE_RES_NDESTROY)
+    # check structure has ext member for ipv6 support
+    check_struct_has_member("struct __res_state" _u._ext resolv.h HAVE_RES_STATE_EXT LANGUAGE C)
+    if (${HAVE_RES_STATE_EXT})
+        add_compile_definitions(HAVE_RES_STATE_EXT)
+    endif ()
+
+    # check if res_ndestroy should be used
+    check_symbol_exists("res_ndestroy" "resolv.h" "HAVE_RES_NDESTROY")
+    if (${HAVE_RES_NDESTROY})
+        add_compile_definitions(HAVE_RES_NDESTROY)
+    endif ()
 endif ()
 
 ## submodules ##

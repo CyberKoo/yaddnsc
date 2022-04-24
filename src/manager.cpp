@@ -75,10 +75,16 @@ void Manager::validate_config() {
     // check resolver
     if (_impl->_config.resolver.use_customise_server) {
         auto &address = _impl->_config.resolver.ip_address;
-        if (!IPUtil::is_ipv4_address(address) /*&& !IPUtil::is_ipv6_address(address)*/) {
-            throw ConfigVerificationException(
-                    fmt::format("Invalid resolver address {}, currently only IPv4 is supported", address));
+#ifdef HAVE_RES_STATE_EXT
+        if (!IPUtil::is_ipv4_address(address) && !IPUtil::is_ipv6_address(address)) {
+            throw ConfigVerificationException(fmt::format("Invalid resolver address {}", address));
         }
+#else
+        if (!IPUtil::is_ipv4_address(address)) {
+            throw ConfigVerificationException(
+                    fmt::format("Invalid resolver address {}, Only IPv4 address is supported on your platform.", address));
+        }
+#endif
     }
 }
 
@@ -109,8 +115,13 @@ void Manager::run() {
 
     if (_impl->_config.resolver.use_customise_server) {
 #ifdef HAVE_RES_NQUERY
-        SPDLOG_INFO("Use customized resolver \"{}:{}\"", _impl->_config.resolver.ip_address,
-                    _impl->_config.resolver.port);
+        if (IPUtil::is_ipv4_address(_impl->_config.resolver.ip_address)) {
+            SPDLOG_INFO("Use customized resolver \"{}:{}\"", _impl->_config.resolver.ip_address,
+                        _impl->_config.resolver.port);
+        } else {
+            SPDLOG_INFO("Use customized resolver \"[{}]:{}\"", _impl->_config.resolver.ip_address,
+                        _impl->_config.resolver.port);
+        }
 #else
         SPDLOG_WARN("Custom resolver defined, but res_nquery not support on your system, this option will be ignored");
 #endif

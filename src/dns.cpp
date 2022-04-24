@@ -14,19 +14,20 @@
 #include <sys/socket.h>
 #include <arpa/nameser.h>
 
+#include "ip_util.h"
 #include "exception/dns_lookup_exception.h"
-
-using query_result = std::tuple<std::unique_ptr<unsigned char[]>, int>;
-
-using resolve_result = std::vector<std::string>;
 
 constexpr static int MAXIMUM_UDP_SIZE = 512;
 
+using resolve_result = std::vector<std::string>;
+
+using query_result = std::tuple<std::unique_ptr<unsigned char[]>, int>;
+
 dns_lookup_error_t get_dns_lookup_err(int);
 
-query_result query(std::string_view, dns_record_t, const std::optional<dns_server_t> &);
-
 int get_dns_type(dns_record_t);
+
+query_result query(std::string_view, dns_record_t, const std::optional<dns_server_t> &);
 
 resolve_result DNS::resolve(std::string_view host, dns_record_t type, const std::optional<dns_server_t> &server) {
     auto [buffer, buffer_size] = query(host, type, server);
@@ -76,20 +77,45 @@ query(std::string_view host, dns_record_t type, [[maybe_unused]]const std::optio
 
 #ifdef HAVE_RES_NQUERY
     SPDLOG_DEBUG("Resolve domain \"{}\"", host);
-    struct __res_state local_res{};
-    res_ninit(&local_res);
+    struct __res_state local_state{};
+    res_ninit(&local_state);
 
 #ifndef HAVE_RES_NDESTROY
-    std::unique_ptr<struct __res_state, decltype(&res_nclose)> req_ptr(&local_res, res_nclose);
+    std::unique_ptr<struct __res_state, decltype(&res_nclose)> req_ptr(&local_state, res_nclose);
 #else
-    std::unique_ptr<struct __res_state, decltype(&res_ndestroy)> req_ptr(&local_res, res_ndestroy);
+    std::unique_ptr<struct __res_state, decltype(&res_ndestroy)> req_ptr(&local_state, res_ndestroy);
 #endif
 
     if (server.has_value() && !server->ip_address.empty()) {
-        local_res.nscount = 1;
-        local_res.nsaddr_list[0].sin_family = AF_INET;
-        local_res.nsaddr_list[0].sin_addr.s_addr = inet_addr(server->ip_address.c_str());
-        local_res.nsaddr_list[0].sin_port = htons(server->port);
+        if (IPUtil::is_ipv4_address(server->ip_address)) {
+            local_state.nscount = 1;
+            local_state.nsaddr_list[0].sin_family = AF_INET;
+            local_state.nsaddr_list[0].sin_addr.s_addr = inet_addr(server->ip_address.c_str());
+            local_state.nsaddr_list[0].sin_port = htons(server->port);
+        } else {
+#ifdef HAVE_RES_STATE_EXT
+            // zero out all settings from resolv.conf
+            for (auto i = 0; i < local_state.nscount; ++i) {
+                std::memset(&local_state.nsaddr_list[i], 0, sizeof(local_state.nsaddr_list[i]));
+            }
+
+            local_state.nscount = 1;
+            local_state._u._ext.nsmap[0] = MAXNS + 1;
+            local_state._u._ext.nscount = 1;
+            local_state._u._ext.nscount6 = 1;
+
+            struct sockaddr_in6 *sa6 = local_state._u._ext.nsaddrs[0];
+            if (sa6 == nullptr) {
+                // Memory allocated here will be free'd in res_nclose() as we have done res_ninit() above.
+                sa6 = reinterpret_cast<struct sockaddr_in6 *>(calloc(1, sizeof(struct sockaddr_in6)));
+                local_state._u._ext.nsaddrs[0] = sa6;
+            }
+
+            sa6->sin6_port = htons(server->port);
+            sa6->sin6_family = AF_INET6;
+            inet_pton(AF_INET6, server->ip_address.c_str(), &sa6->sin6_addr);
+#endif
+        }
     }
 #endif
 
@@ -102,7 +128,7 @@ query(std::string_view host, dns_record_t type, [[maybe_unused]]const std::optio
         buffer = std::make_unique<unsigned char[]>(buffer_size);
         // perform dns lookup
 #ifdef HAVE_RES_NQUERY
-        received_size = res_nquery(&local_res, host.data(), ns_c_in, get_dns_type(type), buffer.get(), buffer_size);
+        received_size = res_nquery(&local_state, host.data(), ns_c_in, get_dns_type(type), buffer.get(), buffer_size);
 #else
         received_size = res_query(host.data(), ns_c_in, get_dns_type(type), buffer.get(), buffer_size);
 #endif
