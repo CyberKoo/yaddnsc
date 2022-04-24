@@ -6,7 +6,7 @@
 #define YADDNSC_DNS_LOOKUP_EXCEPTION_H
 
 #include "base_exception.h"
-#include "../../src/type.h"
+#include "type.h"
 
 class DnsLookupException : public YaddnscException {
 public:
