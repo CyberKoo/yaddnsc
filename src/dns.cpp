@@ -20,38 +20,35 @@
 
 constexpr static int MAXIMUM_UDP_SIZE = 512;
 
-using resolve_result = std::vector<std::string>;
-
-using query_result = std::tuple<std::unique_ptr<unsigned char[]>, int>;
-
 dns_lookup_error_t get_dns_lookup_err(int);
 
 int get_dns_type(dns_record_t);
 
-query_result query(std::string_view, dns_record_t, const std::optional<dns_server_t> &);
+std::basic_string<unsigned char> query(std::string_view, dns_record_t, const std::optional<dns_server_t> &);
 
-resolve_result DNS::resolve(std::string_view host, dns_record_t type, const std::optional<dns_server_t> &server) {
-    auto [buffer, buffer_size] = query(host, type, server);
+std::vector<std::string>
+DNS::resolve(std::string_view host, dns_record_t type, const std::optional<dns_server_t> &server) {
+    auto query_res = query(host, type, server);
 
-    ns_msg handle{};
-    ns_initparse(buffer.get(), buffer_size, &handle);
-    auto msg_count = ns_msg_count(handle, ns_s_an);
+    ns_msg dns_message{};
+    ns_initparse(query_res.c_str(), query_res.size(), &dns_message);
+    auto answers = ns_msg_count(dns_message, ns_s_an);
 
-    resolve_result resolve_result;
-    for (int i = 0; i < msg_count; i++) {
-        ns_rr rr{};
-        if (ns_parserr(&handle, ns_s_an, i, &rr)) {
-            throw DnsLookupException(fmt::format("Error occurred when parse dns resource, {}", strerror(errno)),
-                                     dns_lookup_error_t::PARSE);
+    std::vector<std::string> resolve_result;
+    for (auto i = 0; i < answers; i++) {
+        ns_rr dns_resource{};
+        if (ns_parserr(&dns_message, ns_s_an, i, &dns_resource)) {
+            throw DnsLookupException(fmt::format("Error occurred when parse dns resource, {}",
+                                                 strerror(errno)), dns_lookup_error_t::PARSE);
         }
 
-        auto rr_type = ns_rr_type(rr);
+        auto dns_type = ns_rr_type(dns_resource);
         char address_buffer[INET6_ADDRSTRLEN] = {};
-        if (rr_type == ns_t_a) {
-            inet_ntop(AF_INET, ns_rr_rdata(rr), address_buffer, INET6_ADDRSTRLEN);
+        if (dns_type == ns_t_a) {
+            inet_ntop(AF_INET, ns_rr_rdata(dns_resource), address_buffer, INET6_ADDRSTRLEN);
             resolve_result.emplace_back(address_buffer);
-        } else if (rr_type == ns_t_aaaa) {
-            inet_ntop(AF_INET6, ns_rr_rdata(rr), address_buffer, INET6_ADDRSTRLEN);
+        } else if (dns_type == ns_t_aaaa) {
+            inet_ntop(AF_INET6, ns_rr_rdata(dns_resource), address_buffer, INET6_ADDRSTRLEN);
             resolve_result.emplace_back(address_buffer);
         }
     }
@@ -59,7 +56,7 @@ resolve_result DNS::resolve(std::string_view host, dns_record_t type, const std:
     return resolve_result;
 }
 
-query_result
+std::basic_string<unsigned char>
 query(std::string_view host, dns_record_t type, [[maybe_unused]]const std::optional<dns_server_t> &server) {
     int buffer_size = MAXIMUM_UDP_SIZE;
 
@@ -118,8 +115,10 @@ query(std::string_view host, dns_record_t type, [[maybe_unused]]const std::optio
     do {
         // adjust buffer size
         buffer_size = received_size + buffer_size;
+
         // allocate buffer
         buffer = std::make_unique<unsigned char[]>(buffer_size);
+
         // perform dns lookup
 #ifdef HAVE_RES_NQUERY
         received_size = res_nquery(&local_state, host.data(), ns_c_in, get_dns_type(type), buffer.get(), buffer_size);
@@ -132,7 +131,7 @@ query(std::string_view host, dns_record_t type, [[maybe_unused]]const std::optio
         SPDLOG_DEBUG("Response payload size: {}, buffer size: {}", received_size, buffer_size);
     } while (received_size >= buffer_size);
 
-    return {std::move(buffer), buffer_size};
+    return {buffer.get(), static_cast<unsigned int>(received_size)};
 }
 
 std::string_view DNS::error_to_str(dns_lookup_error_t error) {
