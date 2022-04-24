@@ -75,8 +75,9 @@ void Manager::validate_config() {
     // check resolver
     if (_impl->_config.resolver.use_customise_server) {
         auto &address = _impl->_config.resolver.ip_address;
-        if (!IPUtil::is_ipv4_address(address) && !IPUtil::is_ipv6_address(address)) {
-            throw ConfigVerificationException(fmt::format("Invalid resolver address {}", address));
+        if (!IPUtil::is_ipv4_address(address) /*&& !IPUtil::is_ipv6_address(address)*/) {
+            throw ConfigVerificationException(
+                    fmt::format("Invalid resolver address {}, currently only IPv4 is supported", address));
         }
     }
 }
