@@ -16,9 +16,10 @@
 #include "exception/config_verification_exception.h"
 
 void sigint_handler([[maybe_unused]] int signal) {
+    auto &context = Context::getInstance();
     SPDLOG_INFO("Received exit signal, quiting...");
-    Context::getInstance().terminate = true;
-    Context::getInstance().cv.notify_all();
+    context.terminate = true;
+    context.cv.notify_all();
 }
 
 int main(int argc, char *argv[]) {

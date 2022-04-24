@@ -6,8 +6,8 @@
 #define YADDNSC_UTIL_H
 
 #include <thread>
-#include <type_traits>
 #include <functional>
+#include <type_traits>
 
 #include "exception/base_exception.h"
 

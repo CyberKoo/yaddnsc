@@ -11,6 +11,8 @@
 #include <fmt/format.h>
 #include <nlohmann/json.hpp>
 
+#include "type.h"
+
 template<typename T>
 std::optional<T> get_optional(const nlohmann::json &j, const std::string &key) try {
     return j.at(key).get<T>();
@@ -38,7 +40,6 @@ void Config::from_json(const nlohmann::json &j, sub_domain_config_t &sub_domain)
     j.at("name").get_to(sub_domain.name);
     j.at("type").get_to(sub_domain.type);
     j.at("interface").get_to(sub_domain.interface);
-    j.at("ip_source").get_to(sub_domain.ip_source);
     j.at("ip_source").get_to(sub_domain.ip_source);
     j.at("ip_source_param").get_to(sub_domain.ip_source_param);
     j.at("driver_param").get_to(sub_domain.driver_param);

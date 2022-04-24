@@ -12,7 +12,7 @@ namespace httplib {
     class Result;
 
     class Client;
-};
+}
 
 class Uri;
 

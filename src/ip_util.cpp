@@ -12,6 +12,7 @@
 #include <spdlog/spdlog.h>
 
 #include "uri.h"
+#include "type.h"
 #include "httpclient.h"
 #include "string_util.h"
 #include "network_util.h"

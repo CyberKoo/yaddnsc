@@ -12,6 +12,7 @@
 std::string_view get_system_ca_path();
 
 httplib::Client HttpClient::connect(const Uri &uri, int family, const char *nif_name) {
+    SPDLOG_DEBUG("Connecting to {}", uri.get_host());
     auto client = httplib::Client(fmt::format("{}://{}:{}", uri.get_schema(), uri.get_host(), uri.get_port()));
 
     // if is https

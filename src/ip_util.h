@@ -10,7 +10,7 @@
 #include <vector>
 #include <optional>
 
-#include "type.h"
+enum class ip_version_t;
 
 namespace IPUtil {
     std::vector<std::string> get_ip_from_interface(std::string_view, ip_version_t);

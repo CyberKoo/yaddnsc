@@ -47,7 +47,12 @@ find_package(OpenSSL REQUIRED)
 include(CheckSymbolExists)
 check_symbol_exists("res_nquery" "resolv.h" "HAVE_RES_NQUERY")
 if (${HAVE_RES_NQUERY})
-    add_compile_definitions(USE_RES_NQUERY)
+    add_compile_definitions(HAVE_RES_NQUERY)
+endif ()
+
+check_symbol_exists("res_ndestroy" "resolv.h" "HAVE_RES_NDESTROY")
+if (${HAVE_RES_NDESTROY})
+    add_compile_definitions(HAVE_RES_NDESTROY)
 endif ()
 
 ## submodules ##

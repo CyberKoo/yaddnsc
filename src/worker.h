@@ -5,11 +5,15 @@
 #ifndef YADDNSC_WORKER_H
 #define YADDNSC_WORKER_H
 
+#include <memory>
 #include <vector>
 #include <optional>
 #include <string_view>
 
-#include "config.h"
+namespace Config {
+    struct domains_config_t;
+    struct resolver_config_t;
+}
 
 class Worker {
 public:

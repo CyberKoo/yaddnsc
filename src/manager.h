@@ -12,7 +12,7 @@
 
 class Manager {
 public:
-    explicit Manager(Config::config_t config);
+    explicit Manager(Config::config_t);
 
     ~Manager() = default;
 

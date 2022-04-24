@@ -12,6 +12,7 @@
 #include "dns.h"
 #include "uri.h"
 #include "util.h"
+#include "config.h"
 #include "context.h"
 #include "ip_util.h"
 #include "IDriver.h"

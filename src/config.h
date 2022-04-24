@@ -8,7 +8,8 @@
 #include <string_view>
 #include "nlohmann/json_fwd.hpp"
 
-#include "type.h"
+enum class dns_record_t;
+enum class ip_version_t;
 
 namespace Config {
     enum class ip_source_t {
