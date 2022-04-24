@@ -13,6 +13,8 @@
 #include <netdb.h>
 #include <ifaddrs.h>
 #include <arpa/inet.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
 
 struct interface_addrs_t {
     std::string address;
@@ -80,7 +82,6 @@ std::map<std::string, std::vector<interface_addrs_t>> get_all_ip_addresses() {
             }
 
             address_map[ifa->ifa_name].emplace_back(interface_addrs_t{host, ifa->ifa_addr->sa_family});
-
         }
     }
 

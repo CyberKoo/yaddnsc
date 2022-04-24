@@ -43,9 +43,9 @@ public:
 
     std::optional<std::string> get_ip_address(const Config::sub_domain_config_t &);
 
-    static std::optional<std::string> update_dns_record(const driver_request_t &, ip_version_t, std::string_view);
+    std::optional<std::string> update_dns_record(const driver_request_t &, ip_version_t, std::string_view);
 
-    static ip_version_t rdtype2ip(dns_record_t);
+    ip_version_t rdtype2ip(dns_record_t);
 
     const std::optional<dns_server_t> _dns_server;
 

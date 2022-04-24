@@ -46,18 +46,27 @@ find_package(OpenSSL REQUIRED)
 # check symbols
 include(CheckSymbolExists)
 include(CheckStructHasMember)
-check_symbol_exists("res_nquery" "resolv.h" "HAVE_RES_NQUERY")
+check_symbol_exists("res_nquery" "netinet/in.h;resolv.h" HAVE_RES_NQUERY)
 if (${HAVE_RES_NQUERY})
     add_compile_definitions(HAVE_RES_NQUERY)
 
     # check structure has ext member for ipv6 support
-    check_struct_has_member("struct __res_state" _u._ext.nsaddrs resolv.h HAVE_RES_STATE_EXT_NSADDRS LANGUAGE C)
+    # glibc
+    check_struct_has_member("struct __res_state" _u._ext.nsaddrs "netinet/in.h;resolv.h" HAVE_RES_STATE_EXT_NSADDRS LANGUAGE C)
     if (${HAVE_RES_STATE_EXT_NSADDRS})
         add_compile_definitions(HAVE_RES_STATE_EXT_NSADDRS)
+        add_compile_definitions(HAVE_IPV6_RESOLVE_SUPPORT)
+    endif ()
+
+    # bsd-libc
+    check_symbol_exists("res_setservers" "netinet/in.h;resolv.h" HAVE_RES_SETSERVERS)
+    if (${HAVE_RES_SETSERVERS})
+        add_compile_definitions(HAVE_RES_SETSERVERS)
+        add_compile_definitions(HAVE_IPV6_RESOLVE_SUPPORT)
     endif ()
 
     # check if res_ndestroy should be used
-    check_symbol_exists("res_ndestroy" "resolv.h" "HAVE_RES_NDESTROY")
+    check_symbol_exists("res_ndestroy" "netinet/in.h;resolv.h" HAVE_RES_NDESTROY)
     if (${HAVE_RES_NDESTROY})
         add_compile_definitions(HAVE_RES_NDESTROY)
     endif ()
@@ -120,7 +129,13 @@ target_link_libraries(yaddnsc PRIVATE string_util network_util)
 
 # link third party libraries
 target_link_libraries(yaddnsc PRIVATE httplib spdlog::spdlog fmt::fmt OpenSSL::SSL OpenSSL::Crypto magic_enum::magic_enum
-        ZLIB::ZLIB cxxopts::cxxopts std::filesystem nlohmann_json::nlohmann_json resolv ${CMAKE_DL_LIBS})
+        ZLIB::ZLIB cxxopts::cxxopts std::filesystem nlohmann_json::nlohmann_json ${CMAKE_DL_LIBS})
+
+# libresolv is needed on linux, but not on BSDs, so only link it if we can find it
+find_library(RESOLV resolv)
+if (RESOLV)
+    target_link_libraries(yaddnsc PRIVATE ${RESOLV})
+endif ()
 
 # external drivers
 add_subdirectory(${PROJECT_SOURCE_DIR}/driver/)

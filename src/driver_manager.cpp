@@ -94,15 +94,6 @@ void DriverManager::load_driver(std::string_view path) {
 }
 
 void DriverManager::reset() {
-    std::lock_guard<std::mutex> lock(_impl->_mutex);
-
-    for(auto &[name, driver]: _impl->_driver_map) {
-        driver.reset();
-    }
-
-    _impl->_driver_map.clear();
-
-    _impl->_handlers.clear();
 }
 
 DriverManager::Impl::handle_ptr_t DriverManager::Impl::load_external_dynamic_library(std::string_view path) {
