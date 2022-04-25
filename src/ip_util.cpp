@@ -38,7 +38,7 @@ std::optional<std::string> IPUtil::get_ip_from_url(std::string_view url, ip_vers
         SPDLOG_DEBUG("HTTP response: {}", body);
         return body;
     } else {
-        SPDLOG_WARN(R"(Unable to obtain an IP address from "{}", error: {})", url, httplib::to_string(response.error()));
+        SPDLOG_WARN(R"(Failed to obtain IP address from "{}", error: {})", url, httplib::to_string(response.error()));
         return std::nullopt;
     }
 }
