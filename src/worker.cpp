@@ -6,7 +6,6 @@
 
 #include <thread>
 #include <httplib.h>
-#include <magic_enum.hpp>
 #include <spdlog/spdlog.h>
 
 #include "dns.h"
@@ -41,11 +40,13 @@ public:
 
     std::optional<std::string> dns_lookup(std::string_view host, dns_record_t);
 
-    std::optional<std::string> get_ip_address(const Config::sub_domain_config_t &);
+    static std::optional<std::string> get_ip_address(const Config::sub_domain_config_t &);
 
-    std::optional<std::string> update_dns_record(const driver_request_t &, ip_version_t, std::string_view);
+    static std::optional<std::string> update_dns_record(const driver_request_t &, ip_version_t, std::string_view);
 
-    ip_version_t rdtype2ip(dns_record_t);
+    static ip_version_t rdtype2ip(dns_record_t);
+
+    static std::string_view to_string(dns_record_t);
 
     const std::optional<dns_server_t> _dns_server;
 
@@ -86,7 +87,7 @@ std::optional<std::string> Worker::Impl::dns_lookup(std::string_view host, dns_r
                 }, 500
         );
     } catch (DnsLookupException &e) {
-        SPDLOG_WARN("Resolve domain {} type: {} failed. Error: {}", host, magic_enum::enum_name(type),
+        SPDLOG_WARN("Resolve domain {} type: {} failed. Error: {}", host, to_string(type),
                     DNS::error_to_str(e.get_error()));
     }
 
@@ -105,7 +106,7 @@ void Worker::Impl::run_scheduled_tasks() {
             auto fqdn = fmt::format("{}.{}", sub_domain.name, _worker_config.name);
 
             try {
-                auto rd_type = magic_enum::enum_name(sub_domain.type);
+                auto rd_type = to_string(sub_domain.type);
 
                 if (auto ip_addr = get_ip_address(sub_domain)) {
                     auto record = dns_lookup(fqdn, sub_domain.type);
@@ -226,6 +227,19 @@ ip_version_t Worker::Impl::rdtype2ip(dns_record_t type) {
             return ip_version_t::UNSPECIFIED;
         default:
             return ip_version_t::UNSPECIFIED;
+    }
+}
+
+std::string_view Worker::Impl::to_string(dns_record_t type) {
+    switch (type) {
+        case dns_record_t::A:
+            return "A";
+        case dns_record_t::AAAA:
+            return "AAAA";
+        case dns_record_t::TXT:
+            return "TXT";
+        default:
+            return "UNKNOWN";
     }
 }
 
