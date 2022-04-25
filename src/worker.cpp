@@ -157,6 +157,55 @@ std::optional<std::string> Worker::Impl::get_ip_address(const Config::sub_domain
     auto ip_type = rdtype2ip(config.type);
     if (config.ip_source == Config::ip_source_t::INTERFACE) {
         auto addresses = IPUtil::get_ip_from_interface(config.interface, ip_type);
+
+        if (ip_type == ip_version_t::IPV6) {
+            // filter out local link
+            if (!config.allow_local_link) {
+                addresses.erase(
+                        std::remove_if(addresses.begin(), addresses.end(),
+                                       [](const std::string &ip_addr) {
+
+                                           struct sockaddr_in6 sa{};
+                                           if (inet_pton(AF_INET6, ip_addr.data(), &(sa.sin6_addr))) {
+                                               // local-link
+                                               auto addr = &sa.sin6_addr;
+                                               if (addr->s6_addr[0] == 0xfe &&
+                                                   ((addr->s6_addr[1] & 0xc0) == 0x80)) {
+                                                   return true;
+                                               }
+
+                                               // site-link
+                                               if (addr->s6_addr[0] == 0xfe &&
+                                                   ((addr->s6_addr[1] & 0xc0) == 0xc0)) {
+                                                   return true;
+                                               }
+                                           } else {
+                                               return true;
+                                           }
+
+                                           return false;
+                                       }
+                        ), addresses.end()
+                );
+            }
+
+            // filter out ula
+            if (!config.allow_ula) {
+                addresses.erase(
+                        std::remove_if(addresses.begin(), addresses.end(),
+                                       [](const std::string &ip_addr) {
+                                           struct sockaddr_in6 sa{};
+                                           inet_pton(AF_INET6, ip_addr.data(), &(sa.sin6_addr));
+
+                                           // unique-local address
+                                           auto addr = &sa.sin6_addr;
+                                           return (addr->s6_addr[0] == 0xfc || addr->s6_addr[0] == 0xfd);
+                                       }
+                        ), addresses.end()
+                );
+            }
+        }
+
         if (!addresses.empty()) {
             return addresses.front();
         }

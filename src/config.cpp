@@ -45,11 +45,13 @@ void Config::from_json(const nlohmann::json &j, sub_domain_config_t &sub_domain)
     j.at("driver_param").get_to(sub_domain.driver_param);
 
     auto ip_type = get_optional<ip_version_t>(j, "ip_type");
-    if (ip_type.has_value()) {
-        sub_domain.ip_type = ip_type.value();
-    } else {
-        sub_domain.ip_type = ip_version_t::UNSPECIFIED;
-    }
+    sub_domain.ip_type = ip_type.value_or(ip_version_t::UNSPECIFIED);
+
+    auto allow_ula = get_optional<bool>(j, "allow_ula");
+    sub_domain.allow_ula = allow_ula.value_or(false);
+
+    auto allow_local_link = get_optional<bool>(j, "allow_local_link");
+    sub_domain.allow_local_link = allow_local_link.value_or(false);
 }
 
 void Config::from_json(const nlohmann::json &j, domains_config_t &domain) {

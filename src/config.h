@@ -33,6 +33,8 @@ namespace Config {
         ip_version_t ip_type;
         ip_source_t ip_source;
         std::string ip_source_param;
+        bool allow_ula;
+        bool allow_local_link;
         std::map<std::string, std::string> driver_param;
     };
 
