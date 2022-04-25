@@ -75,7 +75,7 @@ void Manager::validate_config() {
 
     if constexpr (DNS::can_use_custom_resolver()) {
         // check resolver
-        if (_impl->_config.resolver.use_customise_server) {
+        if (_impl->_config.resolver.use_custom_server) {
             auto &address = _impl->_config.resolver.ip_address;
             if constexpr(DNS::can_use_ipv6_resolver()) {
                 if (!IPUtil::is_ipv4_address(address) && !IPUtil::is_ipv6_address(address)) {
@@ -117,13 +117,13 @@ void Manager::run() {
     auto interfaces = NetworkUtil::get_interfaces();
     SPDLOG_INFO("All available interface: {}", fmt::join(interfaces, ", "));
 
-    if (_impl->_config.resolver.use_customise_server) {
+    if (_impl->_config.resolver.use_custom_server) {
         if constexpr(DNS::can_use_custom_resolver()) {
             const auto &ip_addr = _impl->_config.resolver.ip_address;
             if (IPUtil::is_ipv4_address(ip_addr)) {
-                SPDLOG_INFO(R"(Use customized resolver "{}:{}")", ip_addr, _impl->_config.resolver.port);
+                SPDLOG_INFO(R"(Use custom resolver "{}:{}")", ip_addr, _impl->_config.resolver.port);
             } else if (ip_addr.front() != '[' && ip_addr.back() != ']') {
-                SPDLOG_INFO(R"(Use customized resolver "[{}]:{}")", ip_addr, _impl->_config.resolver.port);
+                SPDLOG_INFO(R"(Use custom resolver "[{}]:{}")", ip_addr, _impl->_config.resolver.port);
             }
         } else {
             SPDLOG_WARN("Custom resolver defined, but res_nquery not support on your platform, this option will be ignored");

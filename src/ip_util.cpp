@@ -30,8 +30,6 @@ std::vector<std::string> IPUtil::get_ip_from_interface(std::string_view nif_name
 }
 
 std::optional<std::string> IPUtil::get_ip_from_url(std::string_view url, ip_version_t version, const char *nif_name) {
-    SPDLOG_DEBUG("Trying get ip address from {}", url);
-
     auto parsed = Uri::parse(url);
     auto response = HttpClient::get(parsed, ip2af(version), nif_name);
     if (response) {
@@ -40,7 +38,7 @@ std::optional<std::string> IPUtil::get_ip_from_url(std::string_view url, ip_vers
         SPDLOG_DEBUG("HTTP response: {}", body);
         return body;
     } else {
-        SPDLOG_WARN("Unable to get ip address from {}, Error: {}", url, httplib::to_string(response.error()));
+        SPDLOG_WARN(R"(Unable to obtain an IP address from "{}", error: {})", url, httplib::to_string(response.error()));
         return std::nullopt;
     }
 }

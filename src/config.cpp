@@ -31,7 +31,7 @@ void Config::from_json(const nlohmann::json &j, config_t &config) {
 }
 
 void Config::from_json(const nlohmann::json &j, resolver_config_t &resolver) {
-    j.at("use_customise_server").get_to(resolver.use_customise_server);
+    j.at("use_custom_server").get_to(resolver.use_custom_server);
     j.at("ipaddress").get_to(resolver.ip_address);
     j.at("port").get_to(resolver.port);
 }
@@ -43,15 +43,9 @@ void Config::from_json(const nlohmann::json &j, sub_domain_config_t &sub_domain)
     j.at("ip_source").get_to(sub_domain.ip_source);
     j.at("ip_source_param").get_to(sub_domain.ip_source_param);
     j.at("driver_param").get_to(sub_domain.driver_param);
-
-    auto ip_type = get_optional<ip_version_t>(j, "ip_type");
-    sub_domain.ip_type = ip_type.value_or(ip_version_t::UNSPECIFIED);
-
-    auto allow_ula = get_optional<bool>(j, "allow_ula");
-    sub_domain.allow_ula = allow_ula.value_or(false);
-
-    auto allow_local_link = get_optional<bool>(j, "allow_local_link");
-    sub_domain.allow_local_link = allow_local_link.value_or(false);
+    sub_domain.ip_type = get_optional<ip_version_t>(j, "ip_type").value_or(ip_version_t::UNSPECIFIED);
+    sub_domain.allow_ula = get_optional<bool>(j, "allow_ula").value_or(false);
+    sub_domain.allow_local_link = get_optional<bool>(j, "allow_local_link").value_or(false);
 }
 
 void Config::from_json(const nlohmann::json &j, domains_config_t &domain) {

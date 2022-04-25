@@ -24,9 +24,9 @@
 class Worker::Impl {
 public:
     explicit Impl(const Config::domains_config_t &domain_config, const Config::resolver_config_t &resolver_config)
-            : _dns_server(resolver_config.use_customise_server ?
+            : _dns_server(resolver_config.use_custom_server ?
                           std::make_optional<dns_server_t>({resolver_config.ip_address, resolver_config.port})
-                                                               : std::nullopt),
+                                                            : std::nullopt),
               _worker_config(domain_config) {
     };
 
@@ -56,7 +56,7 @@ public:
 };
 
 void Worker::run() {
-    SPDLOG_INFO("Worker for domain {} started, update interval: {}s", _impl->_worker_config.name,
+    SPDLOG_INFO(R"(Worker for domain "{}" started, update interval: {}s)", _impl->_worker_config.name,
                 _impl->_worker_config.update_interval);
     auto &context = Context::getInstance();
 
@@ -77,7 +77,7 @@ std::optional<std::string> Worker::Impl::dns_lookup(std::string_view host, dns_r
                 [&]() {
                     auto dns_answer = DNS::resolve(host, type, _dns_server);
                     if (dns_answer.size() > 1) {
-                        SPDLOG_WARN("{} resolved more than one address (count: {})", host, dns_answer.size());
+                        SPDLOG_WARN(R"(Domain "{}" resolved more than one address (count: {}))", host, dns_answer.size());
                     }
 
                     return dns_answer.front();
@@ -87,7 +87,7 @@ std::optional<std::string> Worker::Impl::dns_lookup(std::string_view host, dns_r
                 }, 500
         );
     } catch (DnsLookupException &e) {
-        SPDLOG_WARN("Resolve domain {} type: {} failed. Error: {}", host, to_string(type),
+        SPDLOG_WARN("DNS lookup for domain {} type: {} failed. Error: {}", host, to_string(type),
                     DNS::error_to_str(e.get_error()));
     }
 
@@ -140,7 +140,7 @@ void Worker::Impl::run_scheduled_tasks() {
                                      (record.has_value() ? *record : "<empty>"), *ip_addr);
                     }
                 } else {
-                    SPDLOG_WARN("No valid IP Address found, skip update");
+                    SPDLOG_WARN("No valid IP address found, skip the update");
                 }
             } catch (DriverException &e) {
                 SPDLOG_ERROR("Task for domain {}, ended with driver exception: {}", fqdn, e.what());
@@ -149,7 +149,7 @@ void Worker::Impl::run_scheduled_tasks() {
 
         ++_force_update_counter;
     } catch (std::exception &e) {
-        SPDLOG_CRITICAL("Scheduler exited with unhandled error: {}", e.what());
+        SPDLOG_CRITICAL("Scheduler exited with an unhandled error: {}", e.what());
     }
 }
 

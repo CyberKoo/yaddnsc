@@ -31,14 +31,14 @@ DNS::resolve(std::string_view host, dns_record_t type, const std::optional<dns_s
     auto query_res = query(host, type, server);
 
     ns_msg dns_message{};
-    ns_initparse(query_res.c_str(), query_res.size(), &dns_message);
+    ns_initparse(query_res.c_str(), static_cast<int>(query_res.size()), &dns_message);
     auto answers = ns_msg_count(dns_message, ns_s_an);
 
     std::vector<std::string> resolve_result;
     for (auto i = 0; i < answers; i++) {
         ns_rr dns_resource{};
         if (ns_parserr(&dns_message, ns_s_an, i, &dns_resource)) {
-            throw DnsLookupException(fmt::format("Error occurred when parse dns resource, {}",
+            throw DnsLookupException(fmt::format("An error occurred when parsing DNS resource, detail: {}",
                                                  strerror(errno)), dns_lookup_error_t::PARSE);
         }
 
@@ -61,7 +61,7 @@ query(std::string_view host, dns_record_t type, [[maybe_unused]]const std::optio
     int buffer_size = MAXIMUM_UDP_SIZE;
 
 #ifdef HAVE_RES_NQUERY
-    SPDLOG_DEBUG(R"(Resolve domain "{}")", host);
+    SPDLOG_DEBUG(R"(DNS lookup for domain "{}")", host);
     struct __res_state local_state{};
     res_ninit(&local_state);
 

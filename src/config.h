@@ -21,7 +21,7 @@ namespace Config {
     };
 
     struct resolver_config_t {
-        bool use_customise_server;
+        bool use_custom_server;
         std::string ip_address;
         unsigned short port;
     };
