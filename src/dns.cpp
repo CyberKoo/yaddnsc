@@ -4,20 +4,28 @@
 
 #include "dns.h"
 
-#include <utility>
 #include <spdlog/spdlog.h>
 
 #include <arpa/nameser.h>
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
-#include <sys/errno.h>
 #include <resolv.h>
 #include <netdb.h>
 
 #include "ip_util.h"
 #include "exception/dns_lookup_exception.h"
 
+// only for musl
+#ifndef NETDB_INTERNAL
+#define NETDB_INTERNAL -1
+#endif
+
+#ifndef NETDB_SUCCESS
+#define NETDB_SUCCESS 0
+#endif
+
+// declaration
 constexpr static int MAXIMUM_UDP_SIZE = 512;
 
 dns_lookup_error_t get_dns_lookup_err(int);
