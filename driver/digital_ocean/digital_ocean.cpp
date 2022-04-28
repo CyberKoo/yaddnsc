@@ -15,7 +15,7 @@ DigitalOceanDriver::DigitalOceanDriver() {
     _required_param.emplace_back("ip_addr");
 }
 
-driver_request_t DigitalOceanDriver::generate_request(const driver_config_t &config) {
+driver_request_t DigitalOceanDriver::generate_request(const driver_config_t &config) const {
     check_required_params(config);
 
     driver_request_t request{};
@@ -31,7 +31,7 @@ driver_request_t DigitalOceanDriver::generate_request(const driver_config_t &con
     return request;
 }
 
-bool DigitalOceanDriver::check_response(std::string_view response) {
+bool DigitalOceanDriver::check_response(std::string_view response) const {
     SPDLOG_TRACE("Got {} from server.", response);
     auto json = nlohmann::json::parse(response);
     if (json.contains("domain_record")) {
@@ -47,7 +47,7 @@ bool DigitalOceanDriver::check_response(std::string_view response) {
     }
 }
 
-driver_detail_t DigitalOceanDriver::get_detail() {
+constexpr driver_detail_t DigitalOceanDriver::get_detail() const {
     return {
             .name = "digital_ocean",
             .description="Digital Ocean DDNS driver",

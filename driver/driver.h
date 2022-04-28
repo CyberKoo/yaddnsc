@@ -19,7 +19,7 @@
 
 class Driver : public IDriver {
 public:
-    void check_required_params(const driver_config_t &config) {
+    void check_required_params(const driver_config_t &config) const {
         for (auto &name: _required_param) {
             if (config.find(name) == config.end()) {
                 throw MissingRequiredParamException(fmt::format("Missing required parameter \"{}\"", name));
@@ -55,11 +55,11 @@ public:
         return fmt::vformat(format, store);
     }
 
-    std::string_view get_driver_version() override {
+     [[nodiscard]] std::string_view get_driver_version() const final {
         return DRV_VERSION;
     };
 
-    void init_logger(int level, std::string_view pattern) override {
+    void init_logger(int level, std::string_view pattern) final {
         spdlog::set_level(static_cast<spdlog::level::level_enum>(level));
         spdlog::set_pattern(pattern.data());
     }

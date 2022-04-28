@@ -13,11 +13,11 @@ public:
 
     ~SimpleDriver() override = default;
 
-    driver_request_t generate_request(const driver_config_t &config) final;
+    [[nodiscard]] driver_request_t generate_request(const driver_config_t &config) const override;
 
-    driver_detail_t get_detail() override;
+    [[nodiscard]] constexpr driver_detail_t get_detail() const override;
 
-    bool check_response(std::string_view) override;
+    [[nodiscard]] bool check_response(std::string_view) const override;
 
 private:
     static std::map<std::string, std::string> get_format_params(const driver_config_t &config);

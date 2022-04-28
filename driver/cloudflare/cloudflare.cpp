@@ -20,7 +20,7 @@ CloudflareDriver::CloudflareDriver() {
     _required_param.emplace_back("rd_type");
 }
 
-driver_request_t CloudflareDriver::generate_request(const driver_config_t &config) {
+driver_request_t CloudflareDriver::generate_request(const driver_config_t &config) const {
     check_required_params(config);
 
     driver_request_t request{};
@@ -36,17 +36,8 @@ driver_request_t CloudflareDriver::generate_request(const driver_config_t &confi
     return request;
 }
 
-bool CloudflareDriver::check_response(std::string_view) {
+bool CloudflareDriver::check_response(std::string_view) const {
     return true;
-}
-
-driver_detail_t CloudflareDriver::get_detail() {
-    return {
-            .name = "cloudflare",
-            .description="Cloudflare DDNS driver",
-            .author="Kotarou",
-            .version = "1.0.0"
-    };
 }
 
 std::string CloudflareDriver::generate_body(const driver_config_t &config) {
@@ -58,4 +49,13 @@ std::string CloudflareDriver::generate_body(const driver_config_t &config) {
     body["proxied"] = StringUtil::str_to_bool(get_optional(config, "proxied").value_or("0"));
 
     return body.dump();
+}
+
+constexpr driver_detail_t CloudflareDriver::get_detail() const {
+    return {
+            .name = "cloudflare",
+            .description="Cloudflare DDNS driver",
+            .author="Kotarou",
+            .version = "1.0.0"
+    };
 }

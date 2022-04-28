@@ -11,11 +11,11 @@ class DNSPodDriver : public Driver {
 public:
     DNSPodDriver();
 
-    driver_request_t generate_request(const driver_config_t &config) override;
+    [[nodiscard]] driver_request_t generate_request(const driver_config_t &config) const override;
 
-    bool check_response(std::string_view view) override;
+    [[nodiscard]] bool check_response(std::string_view view) const override;
 
-    driver_detail_t get_detail() override;
+    [[nodiscard]] constexpr driver_detail_t get_detail() const override;
 };
 
 extern "C" [[maybe_unused]] IDriver *create() {

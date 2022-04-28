@@ -27,7 +27,7 @@ struct driver_detail_t final {
 
 struct driver_request_t {
     std::string url;
-    std::variant <driver_param_t, std::string> body;
+    std::variant<driver_param_t, std::string> body;
     std::string content_type;
     driver_http_method_t request_method;
     driver_param_t header;
@@ -54,18 +54,18 @@ public:
     IDriver() = default;
 
 public:
-    virtual driver_request_t generate_request(const driver_config_t &) = 0;
+    [[nodiscard]] virtual driver_request_t generate_request(const driver_config_t &) const = 0;
 
-    virtual bool check_response(std::string_view) = 0;
+    [[nodiscard]] virtual bool check_response(std::string_view) const = 0;
 
-    virtual driver_detail_t get_detail() = 0;
+    [[nodiscard]] virtual constexpr driver_detail_t get_detail() const = 0;
 
-    virtual std::string_view get_driver_version() = 0;
+    [[nodiscard]] virtual constexpr std::string_view get_driver_version() const = 0;
 
     virtual void init_logger(int, std::string_view) = 0;
 
 protected:
-    std::vector <std::string> _required_param;
+    std::vector<std::string> _required_param;
 };
 
 #endif //YADDNSC_IDRIVER_H

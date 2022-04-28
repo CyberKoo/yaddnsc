@@ -18,7 +18,7 @@ DNSPodDriver::DNSPodDriver() {
     _required_param.emplace_back("ip_addr");
 }
 
-driver_request_t DNSPodDriver::generate_request(const driver_config_t &config) {
+driver_request_t DNSPodDriver::generate_request(const driver_config_t &config) const {
     check_required_params(config);
     auto is_global = StringUtil::str_to_bool(get_optional(config, "global").value_or("false"));
 
@@ -41,7 +41,7 @@ driver_request_t DNSPodDriver::generate_request(const driver_config_t &config) {
     return request;
 }
 
-bool DNSPodDriver::check_response(std::string_view response) {
+bool DNSPodDriver::check_response(std::string_view response) const {
     SPDLOG_TRACE("Got {} from server.", response);
     auto json = nlohmann::json::parse(response);
     if (json.contains("status")) {
@@ -59,7 +59,7 @@ bool DNSPodDriver::check_response(std::string_view response) {
     return false;
 }
 
-driver_detail_t DNSPodDriver::get_detail() {
+constexpr driver_detail_t DNSPodDriver::get_detail() const {
     return {
             .name = "dnspod",
             .description="DNSPod DDNS driver",

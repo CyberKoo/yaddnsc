@@ -77,7 +77,8 @@ std::optional<std::string> Worker::Impl::dns_lookup(std::string_view host, dns_r
                 [&]() {
                     auto dns_answer = DNS::resolve(host, type, _dns_server);
                     if (dns_answer.size() > 1) {
-                        SPDLOG_WARN(R"(Domain "{}" resolved more than one address (count: {}))", host, dns_answer.size());
+                        SPDLOG_WARN(R"(Domain "{}" resolved more than one address (count: {}))", host,
+                                    dns_answer.size());
                     }
 
                     return dns_answer.front();
@@ -124,9 +125,9 @@ void Worker::Impl::run_scheduled_tasks() {
                         parameters.emplace("rd_type", rd_type);
                         parameters.emplace("fqdn", fqdn);
 
+                        SPDLOG_INFO(R"(Update needed, L"{}" != R"{}")", *ip_addr, record.value_or("<empty>"));
                         auto request = driver->generate_request(parameters);
-                        SPDLOG_DEBUG("Received DNS record update instruction from driver {}",
-                                     driver->get_detail().name);
+                        SPDLOG_DEBUG("Received DNS record update instruction from driver {}", driver->get_detail().name);
 
                         // update dns record via http request
                         auto update_result = update_dns_record(request, sub_domain.ip_type, sub_domain.interface);
@@ -137,7 +138,7 @@ void Worker::Impl::run_scheduled_tasks() {
                         }
                     } else {
                         SPDLOG_DEBUG("Domain: {}, type: {}, current {}, new {}, skip updating", fqdn, rd_type,
-                                     (record.has_value() ? *record : "<empty>"), *ip_addr);
+                                     record.value_or("<empty>"), *ip_addr);
                     }
                 } else {
                     SPDLOG_WARN("No valid IP address found, skip the update");
