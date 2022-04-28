@@ -36,7 +36,7 @@ bool SimpleDriver::check_response([[maybe_unused]] std::string_view response) co
     return true;
 }
 
-constexpr driver_detail_t SimpleDriver::get_detail() const {
+driver_detail_t SimpleDriver::get_detail() const {
     return {
             .name = "simple",
             .description="Simple HTTP driver",

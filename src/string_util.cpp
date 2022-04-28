@@ -5,48 +5,12 @@
 
 #include <algorithm>
 
-bool StringUtil::str_to_bool(std::string_view str) {
-    auto lower_str = to_lower(str.data());
-    return lower_str == "1" || lower_str == "on" || lower_str == "true" || lower_str == "yes";
+void StringUtil::to_upper(std::string &_str) {
+    str_transform(_str, &::toupper);
 }
 
-std::string StringUtil::to_lower(std::string s) {
-    std::transform(s.begin(), s.end(), s.begin(), [](auto c) { return std::tolower(c); });
-    return s;
-}
-
-std::string StringUtil::to_upper(std::string s) {
-    std::transform(s.begin(), s.end(), s.begin(), [](auto c) { return std::toupper(c); });
-    return s;
-}
-
-void StringUtil::to_lower(std::string &s) {
-    std::transform(s.begin(), s.end(), s.begin(), [](auto c) { return std::tolower(c); });
-}
-
-void StringUtil::to_upper(std::string &s) {
-    std::transform(s.begin(), s.end(), s.begin(), [](auto c) { return std::toupper(c); });
-}
-
-std::vector<std::string> StringUtil::split(std::string_view str, std::string_view delim) {
-    std::vector<std::string> output;
-    size_t first = 0;
-
-    while (first < str.size()) {
-        const auto second = str.find(delim, first);
-
-        if (first != second) {
-            output.emplace_back(str.substr(first, second - first));
-        }
-
-        if (second == std::string_view::npos) {
-            break;
-        }
-
-        first = second + delim.size();
-    }
-
-    return output;
+void StringUtil::to_lower(std::string &_str) {
+    str_transform(_str, &::tolower);
 }
 
 // from https://stackoverflow.com/questions/216823/whats-the-best-way-to-trim-stdstring

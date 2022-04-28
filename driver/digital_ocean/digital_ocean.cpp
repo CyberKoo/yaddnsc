@@ -47,7 +47,7 @@ bool DigitalOceanDriver::check_response(std::string_view response) const {
     }
 }
 
-constexpr driver_detail_t DigitalOceanDriver::get_detail() const {
+driver_detail_t DigitalOceanDriver::get_detail() const {
     return {
             .name = "digital_ocean",
             .description="Digital Ocean DDNS driver",

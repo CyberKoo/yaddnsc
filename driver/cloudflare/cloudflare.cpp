@@ -51,7 +51,7 @@ std::string CloudflareDriver::generate_body(const driver_config_t &config) {
     return body.dump();
 }
 
-constexpr driver_detail_t CloudflareDriver::get_detail() const {
+driver_detail_t CloudflareDriver::get_detail() const {
     return {
             .name = "cloudflare",
             .description="Cloudflare DDNS driver",

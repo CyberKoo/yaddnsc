@@ -115,7 +115,7 @@ void Manager::create_worker() {
 void Manager::run() {
     // print all interfaces name
     auto interfaces = NetworkUtil::get_interfaces();
-    SPDLOG_INFO("All available interface: {}", fmt::join(interfaces, ", "));
+    SPDLOG_INFO("All available interfaces: {}", fmt::join(interfaces, ", "));
 
     if (_impl->_config.resolver.use_custom_server) {
         if constexpr(DNS::can_use_custom_resolver()) {

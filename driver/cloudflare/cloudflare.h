@@ -17,7 +17,7 @@ public:
 
     [[nodiscard]] bool check_response(std::string_view) const override;
 
-    [[nodiscard]] constexpr driver_detail_t get_detail() const override;
+    [[nodiscard]] driver_detail_t get_detail() const override;
 
 private:
     static std::string generate_body(const driver_config_t &);

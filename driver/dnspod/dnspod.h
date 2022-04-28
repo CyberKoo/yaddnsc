@@ -15,7 +15,7 @@ public:
 
     [[nodiscard]] bool check_response(std::string_view view) const override;
 
-    [[nodiscard]] constexpr driver_detail_t get_detail() const override;
+    [[nodiscard]] driver_detail_t get_detail() const override;
 };
 
 extern "C" [[maybe_unused]] IDriver *create() {

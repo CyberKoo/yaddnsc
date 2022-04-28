@@ -58,7 +58,7 @@ public:
 
     [[nodiscard]] virtual bool check_response(std::string_view) const = 0;
 
-    [[nodiscard]] virtual constexpr driver_detail_t get_detail() const = 0;
+    [[nodiscard]] virtual driver_detail_t get_detail() const = 0;
 
     [[nodiscard]] virtual constexpr std::string_view get_driver_version() const = 0;
 

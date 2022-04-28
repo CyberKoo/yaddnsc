@@ -59,7 +59,7 @@ bool DNSPodDriver::check_response(std::string_view response) const {
     return false;
 }
 
-constexpr driver_detail_t DNSPodDriver::get_detail() const {
+driver_detail_t DNSPodDriver::get_detail() const {
     return {
             .name = "dnspod",
             .description="DNSPod DDNS driver",

@@ -144,7 +144,7 @@ void Worker::Impl::run_scheduled_tasks() {
                     SPDLOG_WARN("No valid IP address found, skip the update");
                 }
             } catch (DriverException &e) {
-                SPDLOG_ERROR("Task for domain {}, ended with driver exception: {}", fqdn, e.what());
+                SPDLOG_ERROR("Task for domain {}, ended with a driver exception: {}", fqdn, e.what());
             }
         }
 

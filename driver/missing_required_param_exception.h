@@ -5,7 +5,7 @@
 #ifndef YADDNSC_MISSING_REQUIRED_PARAM_EXCEPTION_H
 #define YADDNSC_MISSING_REQUIRED_PARAM_EXCEPTION_H
 
-#include "exception/driver_exception.h"
+#include <exception/driver_exception.h>
 
 class MissingRequiredParamException : public DriverException {
 public:
