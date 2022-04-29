@@ -4,6 +4,7 @@ project(yaddnsc)
 list(APPEND CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/cmake)
 
 option("LIBC_MUSL" "OFF")
+option("NO_RTTI" "OFF")
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -22,6 +23,12 @@ set(YADDNSC_DRV_VERSION "1000000")
 # if not musl add lto flag to release target
 if (NOT LIBC_MUSL)
     set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -flto")
+endif ()
+
+# disable rtti
+if (NO_RTTI)
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-rtti")
+    add_compile_definitions(CXXOPTS_NO_RTTI)
 endif ()
 
 # set default build target to release
