@@ -60,7 +60,7 @@ public:
 
     [[nodiscard]] virtual driver_detail_t get_detail() const = 0;
 
-    [[nodiscard]] virtual constexpr std::string_view get_driver_version() const = 0;
+    [[nodiscard]] virtual std::string_view get_driver_version() const = 0;
 
     virtual void init_logger(int, std::string_view) = 0;
 
