@@ -17,7 +17,7 @@ set(EXECUTABLE_OUTPUT_PATH ${CMAKE_BINARY_DIR}/objs)
 # yaddnsc version
 set(YADDNSC_VERSION_MAJOR 0)
 set(YADDNSC_VERSION_MINOR 1)
-set(YADDNSC_VERSION_PATCH 5)
+set(YADDNSC_VERSION_PATCH 6)
 set(YADDNSC_DRV_VERSION "1000000")
 
 # if not musl add lto flag to release target

@@ -17,6 +17,7 @@ namespace Config {
     };
 
     struct driver_config_t {
+        std::string driver_dir;
         std::vector<std::string> load;
     };
 

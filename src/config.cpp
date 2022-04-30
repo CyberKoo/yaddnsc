@@ -21,6 +21,7 @@ std::optional<T> get_optional(const nlohmann::json &j, const std::string &key) t
 }
 
 void Config::from_json(const nlohmann::json &j, driver_config_t &driver) {
+    driver.driver_dir = get_optional<std::string>(j, "driver_dir").value_or("");
     j.at("load").get_to(driver.load);
 }
 

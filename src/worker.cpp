@@ -32,13 +32,11 @@ public:
 
     ~Impl() = default;
 
-public:
-
     void run_scheduled_tasks();
 
     [[nodiscard]] bool is_forced_update() const;
 
-    std::optional<std::string> dns_lookup(std::string_view host, dns_record_t);
+    std::optional<std::string> dns_lookup(std::string_view, dns_record_t);
 
     static std::optional<std::string> get_ip_address(const Config::sub_domain_config_t &);
 
@@ -48,6 +46,13 @@ public:
 
     static std::string_view to_string(dns_record_t);
 
+    static bool is_ipv6_local_link(const struct in6_addr *);
+
+    static bool is_ipv6_site_local(const struct in6_addr *);
+
+    static bool is_ipv6_unique_local(const struct in6_addr *);
+
+public:
     const std::optional<dns_server_t> _dns_server;
 
     const Config::domains_config_t &_worker_config;
@@ -85,7 +90,7 @@ std::optional<std::string> Worker::Impl::dns_lookup(std::string_view host, dns_r
                 }, 3,
                 [](const DnsLookupException &e) {
                     return e.get_error() == dns_lookup_error_t::RETRY;
-                }, 500
+                }, 550
         );
     } catch (DnsLookupException &e) {
         SPDLOG_WARN("DNS lookup for domain {} type: {} failed. Error: {}", host, to_string(type),
@@ -168,23 +173,11 @@ std::optional<std::string> Worker::Impl::get_ip_address(const Config::sub_domain
 
                                            struct sockaddr_in6 sa{};
                                            if (inet_pton(AF_INET6, ip_addr.data(), &(sa.sin6_addr))) {
-                                               // local-link
-                                               auto addr = &sa.sin6_addr;
-                                               if (addr->s6_addr[0] == 0xfe &&
-                                                   ((addr->s6_addr[1] & 0xc0) == 0x80)) {
-                                                   return true;
-                                               }
-
-                                               // site-link
-                                               if (addr->s6_addr[0] == 0xfe &&
-                                                   ((addr->s6_addr[1] & 0xc0) == 0xc0)) {
-                                                   return true;
-                                               }
+                                               const auto *addr = &sa.sin6_addr;
+                                               return is_ipv6_local_link(addr) || is_ipv6_site_local(addr);
                                            } else {
                                                return true;
                                            }
-
-                                           return false;
                                        }
                         ), addresses.end()
                 );
@@ -197,10 +190,7 @@ std::optional<std::string> Worker::Impl::get_ip_address(const Config::sub_domain
                                        [](const std::string &ip_addr) {
                                            struct sockaddr_in6 sa{};
                                            inet_pton(AF_INET6, ip_addr.data(), &(sa.sin6_addr));
-
-                                           // unique-local address
-                                           auto addr = &sa.sin6_addr;
-                                           return (addr->s6_addr[0] == 0xfc || addr->s6_addr[0] == 0xfd);
+                                           return is_ipv6_unique_local(&sa.sin6_addr);
                                        }
                         ), addresses.end()
                 );
@@ -291,6 +281,18 @@ std::string_view Worker::Impl::to_string(dns_record_t type) {
         default:
             return "UNKNOWN";
     }
+}
+
+bool Worker::Impl::is_ipv6_local_link(const in6_addr *addr) {
+    return (addr->s6_addr[0] == 0xfe && ((addr->s6_addr[1] & 0xc0) == 0x80));
+}
+
+bool Worker::Impl::is_ipv6_site_local(const in6_addr *addr) {
+    return (addr->s6_addr[0] == 0xfe && ((addr->s6_addr[1] & 0xc0) == 0xc0));
+}
+
+bool Worker::Impl::is_ipv6_unique_local(const in6_addr *addr) {
+    return (addr->s6_addr[0] == 0xfc || addr->s6_addr[0] == 0xfd);
 }
 
 Worker::Worker(const Config::domains_config_t &domain_config, const Config::resolver_config_t &resolver_config) : _impl(

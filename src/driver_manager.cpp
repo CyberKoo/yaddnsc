@@ -7,6 +7,7 @@
 #include <filesystem>
 #include <fmt/format.h>
 #include <spdlog/spdlog.h>
+
 #include <dlfcn.h>
 
 #include "IDriver.h"
@@ -16,7 +17,9 @@
 
 class DriverManager::Impl {
 public:
-    ~Impl();
+    class Driver;
+
+    ~Impl() = default;
 
     class handle_closer {
     public:
@@ -25,25 +28,78 @@ public:
 
     using handle_ptr_t = std::unique_ptr<void, handle_closer>;
 
-    [[nodiscard]] static bool is_driver_loaded(std::string_view driver_path);
-
-    static handle_ptr_t load_external_dynamic_library(std::string_view path);
-
-    static IDriver *get_instance(handle_ptr_t &handle);
+    bool is_driver_loaded(std::string_view driver_path);
 
     static std::string_view get_driver_name(std::string_view path);
 
 public:
-    std::map<std::string, std::unique_ptr<IDriver>> _driver_map;
+    std::map<std::string, Driver> _driver_map;
 
-    std::vector<handle_ptr_t> _handlers;
+    std::vector<std::string> _loaded_lib;
+};
 
-    std::mutex _mutex;
+// RAII Driver
+class DriverManager::Impl::Driver {
+private:
+    class handle_closer {
+    public:
+        void operator()(void *handle) {
+            dlclose(handle);
+        }
+    };
+
+    using handle_ptr_t = std::unique_ptr<void, handle_closer>;
+
+    handle_ptr_t _handle;
+
+    std::unique_ptr<IDriver> _driver;
+private:
+    IDriver *get_instance() {
+        // reset errors
+        dlerror();
+
+        // load create function
+        auto create = reinterpret_cast<std::add_pointer<IDriver *()>::type>(dlsym(_handle.get(), "create"));
+        if (const auto error = dlerror()) {
+            SPDLOG_CRITICAL("Failed to create driver instance, error: {}", dlerror());
+            throw BadDriverException("dlsym error");
+        }
+
+        // return class instance
+        return create();
+    }
+
+public:
+    Driver(Driver const &) = delete;
+
+    Driver(Driver &&) = default;
+
+    Driver &operator=(Driver const &) = delete;
+
+    Driver &operator=(Driver &&) = default;
+
+    explicit Driver(std::string_view path) : _handle(handle_ptr_t(dlopen(path.data(), RTLD_LAZY))) {
+        if (_handle == nullptr) {
+            SPDLOG_CRITICAL("Unable to load driver {}, error: {}", get_driver_name(path), dlerror());
+            throw BadDriverException("loader error");
+        }
+
+        _driver = std::unique_ptr<IDriver>(get_instance());
+    }
+
+    std::unique_ptr<IDriver> &get() {
+        return _driver;
+    }
+
+    ~Driver() {
+        _driver.reset();
+        _handle.reset();
+    }
 };
 
 std::unique_ptr<IDriver> &DriverManager::get_driver(std::string_view name) {
     if (_impl->_driver_map.find(name.data()) != _impl->_driver_map.end()) {
-        return _impl->_driver_map[name.data()];
+        return _impl->_driver_map.at(name.data()).get();
     }
 
     SPDLOG_CRITICAL("Driver {} not found", name);
@@ -64,8 +120,8 @@ void DriverManager::load_driver(std::string_view path) {
 
     if (std::filesystem::exists(path)) {
         if (!_impl->is_driver_loaded(path)) {
-            auto handle = _impl->load_external_dynamic_library(path);
-            auto driver = std::unique_ptr<IDriver>(_impl->get_instance(handle));
+            auto driver_res = DriverManager::Impl::Driver(path);
+            auto &driver = driver_res.get();
 
             // validate driver ABI version
             if (driver->get_driver_version().compare(DRV_VERSION) != 0) {
@@ -82,74 +138,39 @@ void DriverManager::load_driver(std::string_view path) {
             SPDLOG_DEBUG("Driver {} ({}), developed by {}, version: {}", driver_detail.name, driver_detail.description,
                          driver_detail.author, driver_detail.version);
 
-            _impl->_handlers.emplace_back(std::move(handle));
-            _impl->_driver_map.emplace(driver_detail.name, std::move(driver));
+            _impl->_driver_map.emplace(driver_detail.name, std::move(driver_res));
+            _impl->_loaded_lib.emplace_back(driver_lib_name);
         } else {
             SPDLOG_WARN("Driver {} already loaded.", driver_lib_name);
         }
     } else {
-        SPDLOG_ERROR("Failed to load driver {}, file {} not found", driver_lib_name, path);
+        SPDLOG_CRITICAL("Failed to load driver {}, file {} not found", driver_lib_name, path);
         throw BadDriverException(driver_lib_name.data());
     }
 }
 
 void DriverManager::reset() {
-}
-
-DriverManager::Impl::handle_ptr_t DriverManager::Impl::load_external_dynamic_library(std::string_view path) {
-    auto handle = handle_ptr_t(dlopen(path.data(), RTLD_LAZY));
-
-    if (handle == nullptr) {
-        SPDLOG_CRITICAL("Unable to load driver {}, error: {}", get_driver_name(path), dlerror());
-        throw BadDriverException("loader error");
-    }
-
-    return handle;
-}
-
-IDriver *DriverManager::Impl::get_instance(handle_ptr_t &handle) {
-    // reset errors
-    dlerror();
-
-    // load create function
-    auto create = reinterpret_cast<std::add_pointer<IDriver *()>::type>(dlsym(handle.get(), "create"));
-    if (const auto error = dlerror()) {
-        SPDLOG_CRITICAL("Failed to create driver instance, error: {}", dlerror());
-        throw BadDriverException("dlsym error");
-    }
-
-    // return class instance
-    return create();
+    _impl->_driver_map.clear();
+    _impl->_loaded_lib.clear();
 }
 
 std::string_view DriverManager::Impl::get_driver_name(std::string_view path) {
     auto pos = path.rfind('/');
-
-    if (pos != std::string_view::npos && pos + 1 != path.size()) {
-        return path.substr(pos + 1, path.size());
-    } else {
-        return path;
-    }
+    return (pos != std::string_view::npos && pos + 1 != path.size()) ? path.substr(pos + 1, path.size()) : path;
 }
 
 bool DriverManager::Impl::is_driver_loaded(std::string_view driver_path) {
-    handle_ptr_t handle = handle_ptr_t(dlopen(driver_path.data(), RTLD_NOW | RTLD_NOLOAD));
+    auto driver_name = get_driver_name(driver_path);
+    if (std::find(_loaded_lib.begin(), _loaded_lib.end(), driver_name) != _loaded_lib.end()) {
+        return true;
+    }
 
+    handle_ptr_t handle = handle_ptr_t(dlopen(driver_path.data(), RTLD_NOW | RTLD_NOLOAD));
     return handle != nullptr;
 }
 
 DriverManager::DriverManager() : _impl(new Impl) {
 
-}
-
-DriverManager::Impl::~Impl() {
-    // destroy all drivers before dlclose
-    for (auto &[name, driver]: _driver_map) {
-        driver.reset();
-    }
-
-    // close all handles
-    _handlers.clear();
 }
 
 void DriverManager::Impl::handle_closer::operator()(void *handle) {

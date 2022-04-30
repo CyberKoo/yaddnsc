@@ -5,6 +5,8 @@
 #include "manager.h"
 
 #include <algorithm>
+#include <filesystem>
+#include <unordered_set>
 #include <fmt/format.h>
 #include <spdlog/spdlog.h>
 
@@ -25,8 +27,17 @@ public:
 
     template<typename T>
     void dedupe(std::vector<T> &vec) const {
-        std::sort(vec.begin(), vec.end());
-        vec.erase(std::unique(vec.begin(), vec.end()), vec.end());
+        std::unordered_set<T> seen;
+
+        auto end = std::remove_if(vec.begin(), vec.end(), [&seen](const T &value) {
+            if (seen.find(value) != seen.end())
+                return true;
+
+            seen.insert(value);
+            return false;
+        });
+
+        vec.erase(end, vec.end());
     }
 
 public:
@@ -97,12 +108,14 @@ void Manager::load_drivers() const {
     auto &driver_manager = context.driver_manager;
 
     // remove duplicated lines
-    std::vector<std::string> load(_impl->_config.driver.load);
+    auto load{_impl->_config.driver.load};
     _impl->dedupe(load);
 
     // load drivers
+    auto base_dir = std::filesystem::path(_impl->_config.driver.driver_dir);
     for (auto &driver: load) {
-        driver_manager->load_driver(driver);
+        auto driver_full_path = base_dir.empty() ? std::filesystem::path(driver) : base_dir / driver;
+        driver_manager->load_driver(driver_full_path.string());
     }
 }
 

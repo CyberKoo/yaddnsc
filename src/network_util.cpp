@@ -47,8 +47,8 @@ std::map<std::string, int> NetworkUtil::get_nif_ip_address(std::string_view nif)
 
         auto nif_ip_addrs = std::map<std::string, int>();
         std::transform(ip_addresses.begin(), ip_addresses.end(), std::inserter(nif_ip_addrs, nif_ip_addrs.end()),
-                       [](const auto &addr) {
-                           return std::pair<std::string, int>{addr.address, addr.inet_type};
+                       [](const auto &addr) -> std::pair<std::string, int> {
+                           return {addr.address, addr.inet_type};
                        }
         );
 
