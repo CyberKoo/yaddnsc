@@ -10,6 +10,6 @@ void Context::DriverManagerDeleter::operator()(DriverManager *ptr) {
     delete ptr;
 }
 
-Context::Context() : driver_manager(new DriverManager) {
+Context::Context() : driver_manager_(new DriverManager) {
 
 }

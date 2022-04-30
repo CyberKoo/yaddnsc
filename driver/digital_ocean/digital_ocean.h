@@ -13,11 +13,11 @@ public:
 
     ~DigitalOceanDriver() override = default;
 
-    [[nodiscard]] driver_request_t generate_request(const driver_config_t &config) const override;
+    [[nodiscard]] driver_request generate_request(const driver_config_type &config) const override;
 
     [[nodiscard]] bool check_response(std::string_view response) const override;
 
-    [[nodiscard]] driver_detail_t get_detail() const override;
+    [[nodiscard]] driver_detail get_detail() const override;
 };
 
 extern "C" [[maybe_unused]] IDriver *create() {

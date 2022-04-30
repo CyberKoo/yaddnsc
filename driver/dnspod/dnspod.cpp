@@ -11,20 +11,20 @@ constexpr char API_URL_CN[] = "https://dnsapi.cn/Record.Ddns";
 constexpr char API_URL_GLOBAL[] = "https://api.dnspod.com/Record.Ddns";
 
 DNSPodDriver::DNSPodDriver() {
-    _required_param.emplace_back("domain_id");
-    _required_param.emplace_back("record_id");
-    _required_param.emplace_back("subdomain");
-    _required_param.emplace_back("login_token");
-    _required_param.emplace_back("ip_addr");
+    required_param_.emplace_back("domain_id");
+    required_param_.emplace_back("record_id");
+    required_param_.emplace_back("subdomain");
+    required_param_.emplace_back("login_token");
+    required_param_.emplace_back("ip_addr");
 }
 
-driver_request_t DNSPodDriver::generate_request(const driver_config_t &config) const {
+driver_request DNSPodDriver::generate_request(const driver_config_type &config) const {
     check_required_params(config);
     auto is_global = StringUtil::str_to_bool(get_optional(config, "global").value_or("false"));
 
-    driver_request_t request{};
+    driver_request request{};
     request.url = is_global ? API_URL_GLOBAL : API_URL_CN;
-    request.body = driver_param_t{
+    request.body = driver_param_type{
             {"login_token",    config.at("login_token")},
             {"domain_id",      config.at("domain_id")},
             {"record_id",      config.at("record_id")},
@@ -36,7 +36,7 @@ driver_request_t DNSPodDriver::generate_request(const driver_config_t &config) c
             {"format",         "json"}
     };
     request.content_type = "application/json";
-    request.request_method = driver_http_method_t::POST;
+    request.request_method = driver_http_method_type::POST;
 
     return request;
 }
@@ -59,7 +59,7 @@ bool DNSPodDriver::check_response(std::string_view response) const {
     return false;
 }
 
-driver_detail_t DNSPodDriver::get_detail() const {
+driver_detail DNSPodDriver::get_detail() const {
     return {
             .name = "dnspod",
             .description="DNSPod DDNS driver",

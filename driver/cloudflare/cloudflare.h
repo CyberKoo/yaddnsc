@@ -13,14 +13,14 @@ public:
 
     ~CloudflareDriver() override = default;
 
-    [[nodiscard]] driver_request_t generate_request(const driver_config_t &) const override;
+    [[nodiscard]] driver_request generate_request(const driver_config_type &) const override;
 
     [[nodiscard]] bool check_response(std::string_view) const override;
 
-    [[nodiscard]] driver_detail_t get_detail() const override;
+    [[nodiscard]] driver_detail get_detail() const override;
 
 private:
-    static std::string generate_body(const driver_config_t &);
+    static std::string generate_body(const driver_config_type &);
 };
 
 extern "C" [[maybe_unused]] IDriver *create() {

@@ -12,26 +12,26 @@ class DnsLookupException : public YaddnscException {
 public:
     using YaddnscException::YaddnscException;
 
-    DnsLookupException(const std::string &msg, dns_lookup_error_t error) : YaddnscException(msg), error(error) {}
+    DnsLookupException(const std::string &msg, dns_lookup_error_type error) : YaddnscException(msg), error(error) {}
 
-    DnsLookupException(const char *msg, dns_lookup_error_t error) : YaddnscException(msg), error(error) {}
+    DnsLookupException(const char *msg, dns_lookup_error_type error) : YaddnscException(msg), error(error) {}
 
-    DnsLookupException(YaddnscException &&l_error, dns_lookup_error_t error) : YaddnscException(l_error),
-                                                                               error(error) {}
+    DnsLookupException(YaddnscException &&l_error, dns_lookup_error_type error) : YaddnscException(l_error),
+                                                                                  error(error) {}
 
-    DnsLookupException(const YaddnscException &l_error, dns_lookup_error_t error) : YaddnscException(l_error),
-                                                                                    error(error) {}
+    DnsLookupException(const YaddnscException &l_error, dns_lookup_error_type error) : YaddnscException(l_error),
+                                                                                       error(error) {}
 
     [[nodiscard]] std::string_view get_name() const override {
         return "DnsLookupException";
     }
 
-    [[nodiscard]] dns_lookup_error_t get_error() const {
+    [[nodiscard]] dns_lookup_error_type get_error() const {
         return error;
     }
 
 private:
-    dns_lookup_error_t error;
+    dns_lookup_error_type error;
 };
 
 

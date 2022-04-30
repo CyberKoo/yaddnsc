@@ -16,7 +16,7 @@
 #include <netinet/in.h>
 #include <sys/socket.h>
 
-struct interface_addrs_t {
+struct interface_addrs {
     std::string address;
     int inet_type;
 };
@@ -25,7 +25,7 @@ using ifaddrs_ptr_t = std::unique_ptr<ifaddrs, std::function<void(ifaddrs *)>>;
 
 static ifaddrs_ptr_t get_ifaddrs();
 
-static std::map<std::string, std::vector<interface_addrs_t>> get_all_ip_addresses();
+static std::map<std::string, std::vector<interface_addrs>> get_all_ip_addresses();
 
 static size_t get_address_struct_size(int);
 
@@ -59,8 +59,8 @@ std::map<std::string, int> NetworkUtil::get_nif_ip_address(std::string_view nif)
     }
 }
 
-std::map<std::string, std::vector<interface_addrs_t>> get_all_ip_addresses() {
-    std::map<std::string, std::vector<interface_addrs_t>> address_map;
+std::map<std::string, std::vector<interface_addrs>> get_all_ip_addresses() {
+    std::map<std::string, std::vector<interface_addrs>> address_map;
 
     auto ifaddrs = get_ifaddrs();
     for (auto ifa = ifaddrs.get(); ifa != nullptr; ifa = ifa->ifa_next) {
@@ -81,7 +81,7 @@ std::map<std::string, std::vector<interface_addrs_t>> get_all_ip_addresses() {
                 throw std::runtime_error(std::string("getnameinfo() failed, error: ") + gai_strerror(error));
             }
 
-            address_map[ifa->ifa_name].emplace_back(interface_addrs_t{host, ifa->ifa_addr->sa_family});
+            address_map[ifa->ifa_name].emplace_back(interface_addrs{host, ifa->ifa_addr->sa_family});
         }
     }
 

@@ -8,64 +8,64 @@
 #include <string_view>
 #include "nlohmann/json_fwd.hpp"
 
-enum class dns_record_t;
-enum class ip_version_t;
+enum class dns_record_type;
+enum class ip_version_type;
 
 namespace Config {
-    enum class ip_source_t {
+    enum class ip_source_type {
         INTERFACE, URL
     };
 
-    struct driver_config_t {
+    struct driver_config {
         std::string driver_dir;
         std::vector<std::string> load;
     };
 
-    struct resolver_config_t {
+    struct resolver_config {
         bool use_custom_server;
         std::string ip_address;
         unsigned short port;
     };
 
-    struct sub_domain_config_t {
+    struct sub_domain_config {
         std::string name;
-        dns_record_t type;
+        dns_record_type type;
         std::string interface;
-        ip_version_t ip_type;
-        ip_source_t ip_source;
+        ip_version_type ip_type;
+        ip_source_type ip_source;
         std::string ip_source_param;
         bool allow_ula;
         bool allow_local_link;
         std::map<std::string, std::string> driver_param;
     };
 
-    struct domains_config_t {
+    struct domains_config {
         std::string name;
         int update_interval;
         int force_update;
         std::string driver;
-        std::vector<sub_domain_config_t> subdomains;
+        std::vector<sub_domain_config> subdomains;
     };
 
-    struct config_t {
-        driver_config_t driver;
-        resolver_config_t resolver;
-        std::vector<domains_config_t> domains;
+    struct config {
+        driver_config driver;
+        resolver_config resolver;
+        std::vector<domains_config> domains;
     };
 
-    void from_json(const nlohmann::json &, driver_config_t &);
+    void from_json(const nlohmann::json &, driver_config &);
 
-    void from_json(const nlohmann::json &, config_t &);
+    void from_json(const nlohmann::json &, config &);
 
-    void from_json(const nlohmann::json &, resolver_config_t &);
+    void from_json(const nlohmann::json &, resolver_config &);
 
-    void from_json(const nlohmann::json &, sub_domain_config_t &);
+    void from_json(const nlohmann::json &, sub_domain_config &);
 
-    void from_json(const nlohmann::json &, domains_config_t &);
+    void from_json(const nlohmann::json &, domains_config &);
 
-    void from_json(const nlohmann::json &, ip_source_t &);
+    void from_json(const nlohmann::json &, ip_source_type &);
 
-    config_t load_config(std::string_view config_path);
+    config load_config(std::string_view config_path);
 }
 
 #endif //YADDNSC_CONFIG_H

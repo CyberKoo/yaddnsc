@@ -10,14 +10,14 @@
 #include <vector>
 #include <optional>
 
-enum class ip_version_t;
+enum class ip_version_type;
 
 namespace IPUtil {
-    std::vector<std::string> get_ip_from_interface(std::string_view, ip_version_t);
+    std::vector<std::string> get_ip_from_interface(std::string_view, ip_version_type);
 
-    std::optional<std::string> get_ip_from_url(std::string_view, ip_version_t, const char *);
+    std::optional<std::string> get_ip_from_url(std::string_view, ip_version_type, const char *);
 
-    int ip2af(ip_version_t version);
+    int ip2af(ip_version_type);
 
     bool is_ipv4_address(std::string_view);
 

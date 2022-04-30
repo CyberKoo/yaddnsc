@@ -6,10 +6,10 @@
 #include "simple.h"
 
 SimpleDriver::SimpleDriver() {
-    _required_param.emplace_back("url");
+    required_param_.emplace_back("url");
 }
 
-driver_request_t SimpleDriver::generate_request(const driver_config_t &config) const {
+driver_request SimpleDriver::generate_request(const driver_config_type &config) const {
     check_required_params(config);
 
     auto url = config.at("url");
@@ -18,10 +18,10 @@ driver_request_t SimpleDriver::generate_request(const driver_config_t &config) c
         url = vformat(url, get_format_params(config));
     }
 
-    return {.url = url, .body="", .content_type = "", .request_method = driver_http_method_t::GET, .header = {}};
+    return {.url = url, .body="", .content_type = "", .request_method = driver_http_method_type::GET, .header = {}};
 }
 
-std::map<std::string, std::string> SimpleDriver::get_format_params(const driver_config_t &config) {
+std::map<std::string, std::string> SimpleDriver::get_format_params(const driver_config_type &config) {
     std::map<std::string, std::string> params;
     for (auto &[key, val]: config) {
         if (key.front() == '{' and key.back() == '}') {
@@ -36,7 +36,7 @@ bool SimpleDriver::check_response([[maybe_unused]] std::string_view response) co
     return true;
 }
 
-driver_detail_t SimpleDriver::get_detail() const {
+driver_detail SimpleDriver::get_detail() const {
     return {
             .name = "simple",
             .description="Simple HTTP driver",

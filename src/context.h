@@ -24,13 +24,13 @@ public:
         return instance;
     }
 
-    std::unique_ptr<DriverManager, DriverManagerDeleter> driver_manager{};
+    std::unique_ptr<DriverManager, DriverManagerDeleter> driver_manager_{};
 
-    std::string config_path{};
+    std::string config_path_{};
 
-    bool terminate{false};
+    bool terminate_{false};
 
-    std::condition_variable cv{};
+    std::condition_variable condition_{};
 private:
     Context();
 };

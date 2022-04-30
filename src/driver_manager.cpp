@@ -27,9 +27,9 @@ public:
 public:
     class Driver;
 
-    std::map<std::string, Driver> _driver_map;
+    std::map<std::string, Driver> driver_map_;
 
-    std::vector<std::string> _loaded_lib;
+    std::vector<std::string> loaded_lib_;
 };
 
 // Driver RAII class
@@ -52,8 +52,8 @@ public:
 
     Driver &operator=(Driver &&) = default;
 
-    explicit Driver(std::string_view path) : _handle{dlopen(path.data(), RTLD_LAZY)} {
-        if (_handle == nullptr) {
+    explicit Driver(std::string_view path) : handle_{dlopen(path.data(), RTLD_LAZY)} {
+        if (handle_ == nullptr) {
             SPDLOG_CRITICAL("Unable to load driver {}, error: {}", get_driver_name(path), dlerror());
             throw BadDriverException("loader error");
         }
@@ -62,33 +62,33 @@ public:
         dlerror();
 
         // load create function
-        auto create = reinterpret_cast<std::add_pointer_t<IDriver *()>>(dlsym(_handle.get(), "create"));
+        auto create = reinterpret_cast<std::add_pointer_t<IDriver *()>>(dlsym(handle_.get(), "create"));
         if (const auto error = dlerror()) {
             SPDLOG_CRITICAL("Failed to create driver instance, error: {}", error);
             throw BadDriverException("dlsym error");
         }
 
-        _driver = std::unique_ptr<IDriver>(create());
+        driver_ = std::unique_ptr<IDriver>(create());
     }
 
     std::unique_ptr<IDriver> &get() {
-        return _driver;
+        return driver_;
     }
 
     ~Driver() {
-        _driver.reset();
-        _handle.reset();
+        driver_.reset();
+        handle_.reset();
     }
 
 private:
-    handle_ptr_t _handle;
+    handle_ptr_t handle_;
 
-    std::unique_ptr<IDriver> _driver;
+    std::unique_ptr<IDriver> driver_;
 };
 
 std::unique_ptr<IDriver> &DriverManager::get_driver(std::string_view name) {
-    if (_impl->_driver_map.find(name.data()) != _impl->_driver_map.end()) {
-        return _impl->_driver_map.at(name.data()).get();
+    if (impl_->driver_map_.find(name.data()) != impl_->driver_map_.end()) {
+        return impl_->driver_map_.at(name.data()).get();
     }
 
     SPDLOG_CRITICAL("Driver {} not found", name);
@@ -97,18 +97,18 @@ std::unique_ptr<IDriver> &DriverManager::get_driver(std::string_view name) {
 
 std::vector<std::string_view> DriverManager::get_loaded_drivers() {
     std::vector<std::string_view> loaded_drivers;
-    std::transform(_impl->_driver_map.begin(), _impl->_driver_map.end(), std::back_inserter(loaded_drivers),
+    std::transform(impl_->driver_map_.begin(), impl_->driver_map_.end(), std::back_inserter(loaded_drivers),
                    [](const auto &kv) -> std::string_view { return kv.first; });
 
     return loaded_drivers;
 }
 
 void DriverManager::load_driver(std::string_view path) {
-    auto driver_lib_name = _impl->get_driver_name(path);
+    auto driver_lib_name = impl_->get_driver_name(path);
     SPDLOG_DEBUG("Trying to load driver {}", driver_lib_name);
 
     if (std::filesystem::exists(path)) {
-        if (!_impl->is_driver_loaded(path)) {
+        if (!impl_->is_driver_loaded(path)) {
             auto driver_res = Impl::Driver(path);
             auto &driver = driver_res.get();
 
@@ -127,8 +127,8 @@ void DriverManager::load_driver(std::string_view path) {
             SPDLOG_DEBUG("Driver {} ({}), developed by {}, version: {}", driver_detail.name, driver_detail.description,
                          driver_detail.author, driver_detail.version);
 
-            _impl->_driver_map.emplace(driver_detail.name, std::move(driver_res));
-            _impl->_loaded_lib.emplace_back(driver_lib_name);
+            impl_->driver_map_.emplace(driver_detail.name, std::move(driver_res));
+            impl_->loaded_lib_.emplace_back(driver_lib_name);
         } else {
             SPDLOG_WARN("Driver {} already loaded.", driver_lib_name);
         }
@@ -139,8 +139,8 @@ void DriverManager::load_driver(std::string_view path) {
 }
 
 void DriverManager::reset() {
-    _impl->_driver_map.clear();
-    _impl->_loaded_lib.clear();
+    impl_->driver_map_.clear();
+    impl_->loaded_lib_.clear();
 }
 
 std::string_view DriverManager::Impl::get_driver_name(std::string_view path) {
@@ -150,14 +150,14 @@ std::string_view DriverManager::Impl::get_driver_name(std::string_view path) {
 
 bool DriverManager::Impl::is_driver_loaded(std::string_view driver_path) {
     auto driver_name = get_driver_name(driver_path);
-    if (std::find(_loaded_lib.begin(), _loaded_lib.end(), driver_name) != _loaded_lib.end()) {
+    if (std::find(loaded_lib_.begin(), loaded_lib_.end(), driver_name) != loaded_lib_.end()) {
         return true;
     }
 
     return DriverManager::Impl::Driver::handle_ptr_t(dlopen(driver_path.data(), RTLD_NOW | RTLD_NOLOAD)) != nullptr;
 }
 
-DriverManager::DriverManager() : _impl(new Impl) {
+DriverManager::DriverManager() : impl_(new Impl) {
 
 }
 

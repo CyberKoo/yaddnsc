@@ -5,19 +5,19 @@
 #ifndef YADDNSC_TYPE_H
 #define YADDNSC_TYPE_H
 
-enum class ip_version_t {
+enum class ip_version_type {
     UNSPECIFIED, IPV4, IPV6
 };
 
-enum class dns_record_t {
+enum class dns_record_type {
     A, AAAA, TXT
 };
 
-enum class dns_lookup_error_t {
+enum class dns_lookup_error_type {
     NX_DOMAIN, RETRY, NODATA, PARSE, UNKNOWN
 };
 
-struct dns_server_t {
+struct dns_server {
     std::string ip_address;
     unsigned short port;
 };

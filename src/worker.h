@@ -11,21 +11,21 @@
 #include <string_view>
 
 namespace Config {
-    struct domains_config_t;
-    struct resolver_config_t;
+    struct domains_config;
+    struct resolver_config;
 }
 
 class Worker {
 public:
-    explicit Worker(const Config::domains_config_t &, const Config::resolver_config_t &);
+    explicit Worker(const Config::domains_config &, const Config::resolver_config &);
 
     ~Worker() = default;
 
     Worker(Worker &&) = default;
 
-    static void set_concurrency(unsigned int thread_count);
-
     void run();
+
+    static void set_concurrency(unsigned int);
 
 private:
     class Impl;
@@ -34,7 +34,7 @@ private:
         void operator()(Impl *);
     };
 
-    std::unique_ptr<Impl, ImplDeleter> _impl;
+    std::unique_ptr<Impl, ImplDeleter> impl_;
 };
 
 #endif //YADDNSC_WORKER_H

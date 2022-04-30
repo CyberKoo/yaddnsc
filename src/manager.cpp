@@ -21,7 +21,7 @@
 
 class Manager::Impl {
 public:
-    explicit Impl(Config::config_t config) : _config(std::move(config)) {};
+    explicit Impl(Config::config config) : config_(std::move(config)) {};
 
     ~Impl() = default;
 
@@ -45,16 +45,16 @@ public:
 public:
     static constexpr int MIN_UPDATE_INTERVAL = 60;
 
-    Config::config_t _config;
+    Config::config config_;
 
-    std::vector<Worker> _workers;
+    std::vector<Worker> workers_;
 };
 
 unsigned int Manager::Impl::estimated_threads() {
     unsigned int total_subdomains = 0;
     auto thread_count = std::thread::hardware_concurrency();
 
-    for (auto &domain: _config.domains) {
+    for (auto &domain: config_.domains) {
         total_subdomains += static_cast<unsigned int>(domain.subdomains.size());
     }
 
@@ -70,20 +70,20 @@ unsigned int Manager::Impl::estimated_threads() {
 void Manager::validate_config() {
     auto &context = Context::getInstance();
 
-    auto drivers = context.driver_manager->get_loaded_drivers();
+    auto drivers = context.driver_manager_->get_loaded_drivers();
     auto interfaces = NetworkUtil::get_interfaces();
 
-    for (const auto &domain: _impl->_config.domains) {
+    for (const auto &domain: impl_->config_.domains) {
         // check drivers
         if (std::find(drivers.begin(), drivers.end(), domain.driver) == drivers.end()) {
             throw ConfigVerificationException(fmt::format("Driver {} not found", domain.driver));
         }
 
         // check update interval
-        if (domain.update_interval < _impl->MIN_UPDATE_INTERVAL) {
+        if (domain.update_interval < impl_->MIN_UPDATE_INTERVAL) {
             throw ConfigVerificationException(
                     fmt::format("Update interval too low for domain {} ({}), minimal interval: {}", domain.name,
-                                domain.update_interval, _impl->MIN_UPDATE_INTERVAL));
+                                domain.update_interval, impl_->MIN_UPDATE_INTERVAL));
         }
 
         // check force update interval
@@ -105,8 +105,8 @@ void Manager::validate_config() {
 
     if constexpr (DNS::can_use_custom_resolver()) {
         // check resolver
-        if (_impl->_config.resolver.use_custom_server) {
-            auto &address = _impl->_config.resolver.ip_address;
+        if (impl_->config_.resolver.use_custom_server) {
+            auto &address = impl_->config_.resolver.ip_address;
             if constexpr(DNS::can_use_ipv6_resolver()) {
                 if (!IPUtil::is_ipv4_address(address) && !IPUtil::is_ipv6_address(address)) {
                     throw ConfigVerificationException(fmt::format("Invalid resolver address {}", address));
@@ -124,14 +124,14 @@ void Manager::validate_config() {
 
 void Manager::load_drivers() const {
     auto &context = Context::getInstance();
-    auto &driver_manager = context.driver_manager;
+    auto &driver_manager = context.driver_manager_;
 
     // remove duplicated lines
-    auto load{_impl->_config.driver.load};
-    _impl->dedupe(load);
+    auto load{impl_->config_.driver.load};
+    impl_->dedupe(load);
 
     // load drivers
-    auto base_dir = std::filesystem::path(_impl->_config.driver.driver_dir);
+    auto base_dir = std::filesystem::path(impl_->config_.driver.driver_dir);
     for (auto &driver: load) {
         auto driver_full_path = base_dir.empty() ? std::filesystem::path(driver) : base_dir / driver;
         driver_manager->load_driver(driver_full_path.string());
@@ -139,8 +139,8 @@ void Manager::load_drivers() const {
 }
 
 void Manager::create_worker() {
-    for (const auto &domain: _impl->_config.domains) {
-        _impl->_workers.emplace_back(domain, _impl->_config.resolver);
+    for (const auto &domain: impl_->config_.domains) {
+        impl_->workers_.emplace_back(domain, impl_->config_.resolver);
     }
 }
 
@@ -149,13 +149,13 @@ void Manager::run() {
     auto interfaces = NetworkUtil::get_interfaces();
     SPDLOG_INFO("All available interfaces: {}", fmt::join(interfaces, ", "));
 
-    if (_impl->_config.resolver.use_custom_server) {
+    if (impl_->config_.resolver.use_custom_server) {
         if constexpr(DNS::can_use_custom_resolver()) {
-            const auto &ip_addr = _impl->_config.resolver.ip_address;
+            const auto &ip_addr = impl_->config_.resolver.ip_address;
             if (IPUtil::is_ipv4_address(ip_addr)) {
-                SPDLOG_INFO(R"(Use custom resolver "{}:{}")", ip_addr, _impl->_config.resolver.port);
+                SPDLOG_INFO(R"(Use custom resolver "{}:{}")", ip_addr, impl_->config_.resolver.port);
             } else if (ip_addr.front() != '[' && ip_addr.back() != ']') {
-                SPDLOG_INFO(R"(Use custom resolver "[{}]:{}")", ip_addr, _impl->_config.resolver.port);
+                SPDLOG_INFO(R"(Use custom resolver "[{}]:{}")", ip_addr, impl_->config_.resolver.port);
             }
         } else {
             SPDLOG_WARN(
@@ -164,11 +164,11 @@ void Manager::run() {
     }
 
     // set worker concurrency level
-    Worker::set_concurrency(_impl->estimated_threads());
+    Worker::set_concurrency(impl_->estimated_threads());
 
     // create worker threads
     std::vector<std::thread> worker_threads;
-    std::transform(_impl->_workers.begin(), _impl->_workers.end(), std::back_inserter(worker_threads),
+    std::transform(impl_->workers_.begin(), impl_->workers_.end(), std::back_inserter(worker_threads),
                    [](auto &worker) {
                        return std::thread(&Worker::run, std::addressof(worker));
                    }
@@ -180,7 +180,7 @@ void Manager::run() {
     }
 }
 
-Manager::Manager(Config::config_t config) : _impl(new Impl(std::move(config))) {
+Manager::Manager(Config::config config) : impl_(new Impl(std::move(config))) {
 
 }
 

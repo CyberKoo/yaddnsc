@@ -35,7 +35,7 @@ private:
         void operator()(Impl *);
     };
 
-    std::unique_ptr<Impl, ImplDeleter> _impl;
+    std::unique_ptr<Impl, ImplDeleter> impl_;
 };
 
 #endif //YADDNSC_DRIVER_MANAGER_H

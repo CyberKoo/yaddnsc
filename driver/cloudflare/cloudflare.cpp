@@ -12,18 +12,18 @@
 constexpr char API_URL[] = "https://api.cloudflare.com/client/v4/zones/{ZONE_ID}/dns_records/{RECORD_ID}";
 
 CloudflareDriver::CloudflareDriver() {
-    _required_param.emplace_back("sub_domain");
-    _required_param.emplace_back("zone_id");
-    _required_param.emplace_back("record_id");
-    _required_param.emplace_back("token");
-    _required_param.emplace_back("ip_addr");
-    _required_param.emplace_back("rd_type");
+    required_param_.emplace_back("sub_domain");
+    required_param_.emplace_back("zone_id");
+    required_param_.emplace_back("record_id");
+    required_param_.emplace_back("token");
+    required_param_.emplace_back("ip_addr");
+    required_param_.emplace_back("rd_type");
 }
 
-driver_request_t CloudflareDriver::generate_request(const driver_config_t &config) const {
+driver_request CloudflareDriver::generate_request(const driver_config_type &config) const {
     check_required_params(config);
 
-    driver_request_t request{};
+    driver_request request{};
     request.header.insert({"Authorization", fmt::format("Bearer {}", config.at("token"))});
     request.url = vformat(API_URL, {
             {"ZONE_ID",   config.at("zone_id")},
@@ -31,7 +31,7 @@ driver_request_t CloudflareDriver::generate_request(const driver_config_t &confi
     });
     request.body = generate_body(config);
     request.content_type = "application/json";
-    request.request_method = driver_http_method_t::PUT;
+    request.request_method = driver_http_method_type::PUT;
 
     return request;
 }
@@ -40,7 +40,7 @@ bool CloudflareDriver::check_response(std::string_view) const {
     return true;
 }
 
-std::string CloudflareDriver::generate_body(const driver_config_t &config) {
+std::string CloudflareDriver::generate_body(const driver_config_type &config) {
     nlohmann::json body;
     body["type"] = config.at("rd_type");
     body["name"] = config.at("sub_domain");
@@ -51,7 +51,7 @@ std::string CloudflareDriver::generate_body(const driver_config_t &config) {
     return body.dump();
 }
 
-driver_detail_t CloudflareDriver::get_detail() const {
+driver_detail CloudflareDriver::get_detail() const {
     return {
             .name = "cloudflare",
             .description="Cloudflare DDNS driver",

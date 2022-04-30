@@ -12,7 +12,7 @@
 
 class Manager {
 public:
-    explicit Manager(Config::config_t);
+    explicit Manager(Config::config);
 
     ~Manager() = default;
 
@@ -31,7 +31,7 @@ private:
         void operator()(Impl *);
     };
 
-    std::unique_ptr<Impl, ImplDeleter> _impl;
+    std::unique_ptr<Impl, ImplDeleter> impl_;
 };
 
 #endif //YADDNSC_MANAGER_H

@@ -17,11 +17,11 @@
 #include "string_util.h"
 #include "network_util.h"
 
-std::vector<std::string> IPUtil::get_ip_from_interface(std::string_view nif_name, ip_version_t version) {
+std::vector<std::string> IPUtil::get_ip_from_interface(std::string_view nif_name, ip_version_type version) {
     auto addresses = NetworkUtil::get_nif_ip_address(nif_name);
     std::vector<std::string> nif_addresses;
     for (auto &[ip_address, family]: addresses) {
-        if (version == ip_version_t::UNSPECIFIED || family == ip2af(version)) {
+        if (version == ip_version_type::UNSPECIFIED || family == ip2af(version)) {
             nif_addresses.emplace_back(ip_address);
         }
     }
@@ -29,7 +29,7 @@ std::vector<std::string> IPUtil::get_ip_from_interface(std::string_view nif_name
     return nif_addresses;
 }
 
-std::optional<std::string> IPUtil::get_ip_from_url(std::string_view url, ip_version_t version, const char *nif_name) {
+std::optional<std::string> IPUtil::get_ip_from_url(std::string_view url, ip_version_type version, const char *nif_name) {
     auto parsed = Uri::parse(url);
     auto response = HttpClient::get(parsed, ip2af(version), nif_name);
     if (response) {
@@ -43,13 +43,13 @@ std::optional<std::string> IPUtil::get_ip_from_url(std::string_view url, ip_vers
     }
 }
 
-int IPUtil::ip2af(ip_version_t version) {
+int IPUtil::ip2af(ip_version_type version) {
     switch (version) {
-        case ip_version_t::IPV4:
+        case ip_version_type::IPV4:
             return AF_INET;
-        case ip_version_t::IPV6:
+        case ip_version_type::IPV6:
             return AF_INET6;
-        case ip_version_t::UNSPECIFIED:
+        case ip_version_type::UNSPECIFIED:
             return AF_UNSPEC;
         default:
             return AF_UNSPEC;

@@ -24,11 +24,11 @@
 
 class Worker::Impl {
 public:
-    explicit Impl(const Config::domains_config_t &domain_config, const Config::resolver_config_t &resolver_config)
-            : _dns_server(resolver_config.use_custom_server ?
-                          std::make_optional<dns_server_t>({resolver_config.ip_address, resolver_config.port})
+    explicit Impl(const Config::domains_config &domain_config, const Config::resolver_config &resolver_config)
+            : dns_server_(resolver_config.use_custom_server ?
+                          std::make_optional<dns_server>({resolver_config.ip_address, resolver_config.port})
                                                             : std::nullopt),
-              _worker_config(domain_config) {
+              worker_config_(domain_config) {
     };
 
     ~Impl() = default;
@@ -37,15 +37,15 @@ public:
 
     [[nodiscard]] bool is_forced_update() const;
 
-    std::optional<std::string> dns_lookup(std::string_view, dns_record_t);
+    std::optional<std::string> dns_lookup(std::string_view, dns_record_type);
 
-    static std::optional<std::string> get_ip_address(const Config::sub_domain_config_t &);
+    static std::optional<std::string> get_ip_address(const Config::sub_domain_config &);
 
-    static std::optional<std::string> update_dns_record(const driver_request_t &, ip_version_t, std::string_view);
+    static std::optional<std::string> update_dns_record(const driver_request &, ip_version_type, std::string_view);
 
-    static ip_version_t rdtype2ip(dns_record_t);
+    static ip_version_type rdtype2ip(dns_record_type);
 
-    static std::string_view to_string(dns_record_t);
+    static std::string_view to_string(dns_record_type);
 
     static thread_pool &get_thread_pool();
 
@@ -56,26 +56,26 @@ public:
     static bool is_ipv6_unique_local(const struct in6_addr *);
 
 public:
-    const std::optional<dns_server_t> _dns_server;
+    const std::optional<dns_server> dns_server_;
 
-    const Config::domains_config_t &_worker_config;
+    const Config::domains_config &worker_config_;
 
-    int _force_update_counter = 0;
+    int force_update_counter_ = 0;
 };
 
 void Worker::run() {
-    SPDLOG_INFO(R"(Worker for domain "{}" started, update interval: {}s)", _impl->_worker_config.name,
-                _impl->_worker_config.update_interval);
+    SPDLOG_INFO(R"(Worker for domain "{}" started, update interval: {}s)", impl_->worker_config_.name,
+                impl_->worker_config_.update_interval);
     auto &context = Context::getInstance();
-    auto &thread_pool = _impl->get_thread_pool();
+    auto &thread_pool = impl_->get_thread_pool();
 
     std::mutex mutex;
     std::unique_lock<std::mutex> lock(mutex);
-    auto update_interval = std::chrono::seconds(_impl->_worker_config.update_interval);
+    auto update_interval = std::chrono::seconds(impl_->worker_config_.update_interval);
 
-    while (!context.terminate) {
-        thread_pool.push_task([_impl_ptr = _impl.get()] { _impl_ptr->run_scheduled_tasks(); });
-        context.cv.wait_for(lock, update_interval, [&context]() { return context.terminate; });
+    while (!context.terminate_) {
+        thread_pool.push_task([_impl_ptr = impl_.get()] { _impl_ptr->run_scheduled_tasks(); });
+        context.condition_.wait_for(lock, update_interval, [&context]() { return context.terminate_; });
     }
 
     // wait for all tasks to finish
@@ -83,11 +83,11 @@ void Worker::run() {
     thread_pool.wait_for_tasks();
 }
 
-std::optional<std::string> Worker::Impl::dns_lookup(std::string_view host, dns_record_t type) {
+std::optional<std::string> Worker::Impl::dns_lookup(std::string_view host, dns_record_type type) {
     try {
         return Util::retry_on_exception<std::string, DnsLookupException>(
                 [&]() {
-                    auto dns_answer = DNS::resolve(host, type, _dns_server);
+                    auto dns_answer = DNS::resolve(host, type, dns_server_);
                     if (dns_answer.size() > 1) {
                         SPDLOG_WARN(R"(Domain "{}" resolved more than one address (count: {}))", host,
                                     dns_answer.size());
@@ -96,7 +96,7 @@ std::optional<std::string> Worker::Impl::dns_lookup(std::string_view host, dns_r
                     return dns_answer.front();
                 }, 3,
                 [](const DnsLookupException &e) {
-                    return e.get_error() == dns_lookup_error_t::RETRY;
+                    return e.get_error() == dns_lookup_error_type::RETRY;
                 }, 550
         );
     } catch (DnsLookupException &e) {
@@ -110,13 +110,13 @@ std::optional<std::string> Worker::Impl::dns_lookup(std::string_view host, dns_r
 void Worker::Impl::run_scheduled_tasks() {
     try {
         auto &context = Context::getInstance();
-        auto &driver = context.driver_manager->get_driver(_worker_config.driver);
+        auto &driver = context.driver_manager_->get_driver(worker_config_.driver);
         bool force_update = is_forced_update();
-        SPDLOG_DEBUG("Update counter: {}, estimated elapsed time {} seconds, force update: {}", _force_update_counter,
-                     _force_update_counter * _worker_config.update_interval, force_update);
+        SPDLOG_DEBUG("Update counter: {}, estimated elapsed time {} seconds, force update: {}", force_update_counter_,
+                     force_update_counter_ * worker_config_.update_interval, force_update);
 
-        for (const auto &sub_domain: _worker_config.subdomains) {
-            auto fqdn = fmt::format("{}.{}", sub_domain.name, _worker_config.name);
+        for (const auto &sub_domain: worker_config_.subdomains) {
+            auto fqdn = fmt::format("{}.{}", sub_domain.name, worker_config_.name);
 
             try {
                 auto rd_type = to_string(sub_domain.type);
@@ -127,11 +127,11 @@ void Worker::Impl::run_scheduled_tasks() {
                     if (force_update || (record.has_value() && record.value() != *ip_addr) || !record.has_value()) {
                         if (force_update) {
                             SPDLOG_INFO("Force update triggered!!");
-                            _force_update_counter = 0;
+                            force_update_counter_ = 0;
                         }
 
                         auto parameters = std::map<std::string, std::string>(sub_domain.driver_param);
-                        parameters.emplace("domain", _worker_config.name);
+                        parameters.emplace("domain", worker_config_.name);
                         parameters.emplace("subdomain", sub_domain.name);
                         parameters.emplace("ip_addr", *ip_addr);
                         parameters.emplace("rd_type", rd_type);
@@ -161,18 +161,18 @@ void Worker::Impl::run_scheduled_tasks() {
             }
         }
 
-        ++_force_update_counter;
+        ++force_update_counter_;
     } catch (std::exception &e) {
         SPDLOG_CRITICAL("Scheduler exited with an unhandled error: {}", e.what());
     }
 }
 
-std::optional<std::string> Worker::Impl::get_ip_address(const Config::sub_domain_config_t &config) {
+std::optional<std::string> Worker::Impl::get_ip_address(const Config::sub_domain_config &config) {
     auto ip_type = rdtype2ip(config.type);
-    if (config.ip_source == Config::ip_source_t::INTERFACE) {
+    if (config.ip_source == Config::ip_source_type::INTERFACE) {
         auto addresses = IPUtil::get_ip_from_interface(config.interface, ip_type);
 
-        if (ip_type == ip_version_t::IPV6) {
+        if (ip_type == ip_version_type::IPV6) {
             // filter out local link
             if (!config.allow_local_link) {
                 addresses.erase(
@@ -216,7 +216,7 @@ std::optional<std::string> Worker::Impl::get_ip_address(const Config::sub_domain
 }
 
 std::optional<std::string>
-Worker::Impl::update_dns_record(const driver_request_t &request, ip_version_t version, std::string_view nif) {
+Worker::Impl::update_dns_record(const driver_request &request, ip_version_type version, std::string_view nif) {
     auto response = [&request, &nif, &version]() {
         auto uri = Uri::parse(request.url);
         auto path = HttpClient::build_request(uri);
@@ -226,21 +226,21 @@ Worker::Impl::update_dns_record(const driver_request_t &request, ip_version_t ve
 
         auto client = HttpClient::connect(uri, IPUtil::ip2af(version), nif.data());
         switch (request.request_method) {
-            case driver_http_method_t::GET:
+            case driver_http_method_type::GET:
                 return client.Get(path.c_str(), headers);
-            case driver_http_method_t::POST:
+            case driver_http_method_type::POST:
                 return std::visit([&](const auto &body) {
                                       using T = std::decay_t<decltype(body)>;
-                                      if constexpr (std::is_same_v<T, driver_param_t>)
+                                      if constexpr (std::is_same_v<T, driver_param_type>)
                                           return client.Post(path.c_str(), headers, body);
                                       else if constexpr (std::is_same_v<T, std::string>)
                                           return client.Post(path.c_str(), headers, body, request.content_type.c_str());
                                   }, request.body
                 );
-            case driver_http_method_t::PUT:
+            case driver_http_method_type::PUT:
                 return std::visit([&](const auto &body) {
                                       using T = std::decay_t<decltype(body)>;
-                                      if constexpr (std::is_same_v<T, driver_param_t>)
+                                      if constexpr (std::is_same_v<T, driver_param_type>)
                                           return client.Put(path.c_str(), headers, body);
                                       else if constexpr (std::is_same_v<T, std::string>)
                                           return client.Put(path.c_str(), headers, body, request.content_type.c_str());
@@ -261,30 +261,30 @@ Worker::Impl::update_dns_record(const driver_request_t &request, ip_version_t ve
 }
 
 bool Worker::Impl::is_forced_update() const {
-    return (_worker_config.force_update >= _worker_config.update_interval) &&
-           (_force_update_counter * _worker_config.update_interval) > _worker_config.force_update;
+    return (worker_config_.force_update >= worker_config_.update_interval) &&
+           (force_update_counter_ * worker_config_.update_interval) > worker_config_.force_update;
 }
 
-ip_version_t Worker::Impl::rdtype2ip(dns_record_t type) {
+ip_version_type Worker::Impl::rdtype2ip(dns_record_type type) {
     switch (type) {
-        case dns_record_t::A:
-            return ip_version_t::IPV4;
-        case dns_record_t::AAAA:
-            return ip_version_t::IPV6;
-        case dns_record_t::TXT:
-            return ip_version_t::UNSPECIFIED;
+        case dns_record_type::A:
+            return ip_version_type::IPV4;
+        case dns_record_type::AAAA:
+            return ip_version_type::IPV6;
+        case dns_record_type::TXT:
+            return ip_version_type::UNSPECIFIED;
         default:
-            return ip_version_t::UNSPECIFIED;
+            return ip_version_type::UNSPECIFIED;
     }
 }
 
-std::string_view Worker::Impl::to_string(dns_record_t type) {
+std::string_view Worker::Impl::to_string(dns_record_type type) {
     switch (type) {
-        case dns_record_t::A:
+        case dns_record_type::A:
             return "A";
-        case dns_record_t::AAAA:
+        case dns_record_type::AAAA:
             return "AAAA";
-        case dns_record_t::TXT:
+        case dns_record_type::TXT:
             return "TXT";
         default:
             return "UNKNOWN";
@@ -309,7 +309,7 @@ bool Worker::Impl::is_ipv6_unique_local(const in6_addr *addr) {
     return (addr->s6_addr[0] == 0xfc || addr->s6_addr[0] == 0xfd);
 }
 
-Worker::Worker(const Config::domains_config_t &domain_config, const Config::resolver_config_t &resolver_config) : _impl(
+Worker::Worker(const Config::domains_config &domain_config, const Config::resolver_config &resolver_config) : impl_(
         new Worker::Impl(domain_config, resolver_config)) {
 }
 

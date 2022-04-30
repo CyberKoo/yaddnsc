@@ -9,16 +9,16 @@
 constexpr char API_URL[] = "https://api.digitalocean.com/v2/domains/{DOMAIN}/records/{RECORD_ID}";
 
 DigitalOceanDriver::DigitalOceanDriver() {
-    _required_param.emplace_back("domain");
-    _required_param.emplace_back("record_id");
-    _required_param.emplace_back("token");
-    _required_param.emplace_back("ip_addr");
+    required_param_.emplace_back("domain");
+    required_param_.emplace_back("record_id");
+    required_param_.emplace_back("token");
+    required_param_.emplace_back("ip_addr");
 }
 
-driver_request_t DigitalOceanDriver::generate_request(const driver_config_t &config) const {
+driver_request DigitalOceanDriver::generate_request(const driver_config_type &config) const {
     check_required_params(config);
 
-    driver_request_t request{};
+    driver_request request{};
     request.header.insert({"Authorization", fmt::format("Bearer {}", config.at("token"))});
     request.url = vformat(API_URL, {
             {"DOMAIN",    config.at("domain")},
@@ -26,7 +26,7 @@ driver_request_t DigitalOceanDriver::generate_request(const driver_config_t &con
     });
     request.body = nlohmann::json({{"data", config.at("ip_addr")}}).dump();
     request.content_type = "application/json";
-    request.request_method = driver_http_method_t::PUT;
+    request.request_method = driver_http_method_type::PUT;
 
     return request;
 }
@@ -47,7 +47,7 @@ bool DigitalOceanDriver::check_response(std::string_view response) const {
     }
 }
 
-driver_detail_t DigitalOceanDriver::get_detail() const {
+driver_detail DigitalOceanDriver::get_detail() const {
     return {
             .name = "digital_ocean",
             .description="Digital Ocean DDNS driver",

@@ -28,14 +28,14 @@
 // declaration
 constexpr static int MAXIMUM_UDP_SIZE = 512;
 
-dns_lookup_error_t get_dns_lookup_err(int);
+dns_lookup_error_type get_dns_lookup_err(int);
 
-int get_dns_type(dns_record_t);
+int get_dns_type(dns_record_type);
 
-std::basic_string<unsigned char> query(std::string_view, dns_record_t, const std::optional<dns_server_t> &);
+std::basic_string<unsigned char> query(std::string_view, dns_record_type, const std::optional<dns_server> &);
 
 std::vector<std::string>
-DNS::resolve(std::string_view host, dns_record_t type, const std::optional<dns_server_t> &server) {
+DNS::resolve(std::string_view host, dns_record_type type, const std::optional<dns_server> &server) {
     auto query_res = query(host, type, server);
 
     ns_msg dns_message{};
@@ -47,7 +47,7 @@ DNS::resolve(std::string_view host, dns_record_t type, const std::optional<dns_s
         ns_rr dns_resource{};
         if (ns_parserr(&dns_message, ns_s_an, i, &dns_resource)) {
             throw DnsLookupException(fmt::format("An error occurred when parsing DNS resource, detail: {}",
-                                                 strerror(errno)), dns_lookup_error_t::PARSE);
+                                                 strerror(errno)), dns_lookup_error_type::PARSE);
         }
 
         auto dns_type = ns_rr_type(dns_resource);
@@ -65,7 +65,7 @@ DNS::resolve(std::string_view host, dns_record_t type, const std::optional<dns_s
 }
 
 std::basic_string<unsigned char>
-query(std::string_view host, dns_record_t type, [[maybe_unused]]const std::optional<dns_server_t> &server) {
+query(std::string_view host, dns_record_type type, [[maybe_unused]]const std::optional<dns_server> &server) {
     int buffer_size = MAXIMUM_UDP_SIZE;
 
 #ifdef HAVE_RES_NQUERY
@@ -142,44 +142,44 @@ query(std::string_view host, dns_record_t type, [[maybe_unused]]const std::optio
     return {buffer.get(), static_cast<unsigned int>(received_size)};
 }
 
-std::string_view DNS::error_to_str(dns_lookup_error_t error) {
+std::string_view DNS::error_to_str(dns_lookup_error_type error) {
     switch (error) {
-        case dns_lookup_error_t::NX_DOMAIN:
+        case dns_lookup_error_type::NX_DOMAIN:
             return "no such domain (NXDOMAIN)";
-        case dns_lookup_error_t::RETRY:
+        case dns_lookup_error_type::RETRY:
             return "retry (TRY_AGAIN)";
-        case dns_lookup_error_t::NODATA:
+        case dns_lookup_error_type::NODATA:
             return "no data (NO_DATA)";
-        case dns_lookup_error_t::PARSE:
+        case dns_lookup_error_type::PARSE:
             return "dns record parse error";
         default:
             return "unknown error";
     }
 }
 
-int get_dns_type(dns_record_t type) {
+int get_dns_type(dns_record_type type) {
     switch (type) {
-        case dns_record_t::A:
+        case dns_record_type::A:
             return ns_t_a;
-        case dns_record_t::AAAA:
+        case dns_record_type::AAAA:
             return ns_t_aaaa;
-        case dns_record_t::TXT:
+        case dns_record_type::TXT:
             return ns_t_txt;
         default:
             return ns_t_soa;
     }
 }
 
-dns_lookup_error_t get_dns_lookup_err(int error) {
+dns_lookup_error_type get_dns_lookup_err(int error) {
     switch (error) {
         case HOST_NOT_FOUND:
-            return dns_lookup_error_t::NX_DOMAIN;
+            return dns_lookup_error_type::NX_DOMAIN;
         case NO_DATA:
         case NETDB_SUCCESS:
-            return dns_lookup_error_t::NODATA;
+            return dns_lookup_error_type::NODATA;
         case TRY_AGAIN:
-            return dns_lookup_error_t::RETRY;
+            return dns_lookup_error_type::RETRY;
         default:
-            return dns_lookup_error_t::UNKNOWN;
+            return dns_lookup_error_type::UNKNOWN;
     }
 }

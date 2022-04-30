@@ -18,8 +18,8 @@
 void sigint_handler([[maybe_unused]] int signal) {
     auto &context = Context::getInstance();
     SPDLOG_INFO("Received exit signal, quiting...");
-    context.terminate = true;
-    context.cv.notify_all();
+    context.terminate_ = true;
+    context.condition_.notify_all();
 }
 
 int main(int argc, char *argv[]) {
@@ -30,7 +30,7 @@ int main(int argc, char *argv[]) {
     cxxopts::Options options("yaddnsc", "Yet another DDNS client");
     options.add_options()
             ("v,verbose", "Enable verbose mode")
-            ("c,config", "Config file path", cxxopts::value(context.config_path)->default_value("./config.json"))
+            ("c,config", "Config file path", cxxopts::value(context.config_path_)->default_value("./config.json"))
             ("V,version", "Print version")
             ("h,help", "Print usage");
 
@@ -55,7 +55,7 @@ int main(int argc, char *argv[]) {
             spdlog::set_level(spdlog::level::info);
         }
 
-        auto config = Config::load_config(context.config_path);
+        auto config = Config::load_config(context.config_path_);
 
         Manager manager(config);
 

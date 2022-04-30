@@ -19,15 +19,15 @@
 
 class Driver : public IDriver {
 public:
-    void check_required_params(const driver_config_t &config) const {
-        for (auto &name: _required_param) {
+    void check_required_params(const driver_config_type &config) const {
+        for (auto &name: required_param_) {
             if (config.find(name) == config.end()) {
                 throw MissingRequiredParamException(fmt::format("Missing required parameter \"{}\"", name));
             }
         }
     }
 
-    static std::optional<std::string> get_optional(const driver_config_t &config, std::string_view name) {
+    static std::optional<std::string> get_optional(const driver_config_type &config, std::string_view name) {
         if (config.find(name.data()) != config.end()) {
             return {config.at(name.data())};
         }

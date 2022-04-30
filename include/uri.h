@@ -30,13 +30,13 @@ private:
     Uri() = default;
 
 private:
-    std::string query_string;
-    std::string path;
-    std::string schema;
-    std::string host;
-    std::string raw_uri;
-    std::string body;
-    int port = 0;
+    std::string query_string_;
+    std::string path_;
+    std::string schema_;
+    std::string host_;
+    std::string raw_uri_;
+    std::string body_;
+    int port_ = 0;
 };
 
 #endif //YADDNSC_URI_H
