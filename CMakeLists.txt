@@ -27,6 +27,7 @@ endif ()
 
 # disable rtti
 if (NO_RTTI)
+    message(STATUS "RTTI disabled")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-rtti")
     add_compile_definitions(CXXOPTS_NO_RTTI)
 endif ()
