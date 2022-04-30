@@ -67,15 +67,22 @@ void Worker::run() {
     SPDLOG_INFO(R"(Worker for domain "{}" started, update interval: {}s)", _impl->_worker_config.name,
                 _impl->_worker_config.update_interval);
     auto &context = Context::getInstance();
+    auto &thread_pool = _impl->get_thread_pool();
+    // set sleep duration to 0 in order use yield instead sleep_for
+    thread_pool.sleep_duration = 0;
 
     std::mutex mutex;
     std::unique_lock<std::mutex> lock(mutex);
     auto update_interval = std::chrono::seconds(_impl->_worker_config.update_interval);
 
     while (!context.terminate) {
-        _impl->get_thread_pool().push_task([_impl_ptr = _impl.get()] { _impl_ptr->run_scheduled_tasks(); });
+        thread_pool.push_task([_impl_ptr = _impl.get()] { _impl_ptr->run_scheduled_tasks(); });
         context.cv.wait_for(lock, update_interval, [&context]() { return context.terminate; });
     }
+
+    // wait for all tasks to finish
+    thread_pool.paused = true;
+    thread_pool.wait_for_tasks();
 }
 
 std::optional<std::string> Worker::Impl::dns_lookup(std::string_view host, dns_record_t type) {

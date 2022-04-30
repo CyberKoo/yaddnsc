@@ -19,7 +19,8 @@ namespace Util {
 
     template<class R, class E, class=std::enable_if_t<std::is_base_of_v<YaddnscException, E>>>
     R retry_on_exception(const std::function<R()> &func, const unsigned retry,
-                         const std::optional<std::function<bool(const E &)>> &e_filter, unsigned long backoff = 500) {
+                         const std::optional<std::function<bool(const E &)>> &e_filter = std::nullopt,
+                         unsigned long backoff = 500) {
         unsigned counter = 0;
         while (true) {
             try {
