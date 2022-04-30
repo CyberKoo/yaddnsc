@@ -40,6 +40,8 @@ public:
         vec.erase(end, vec.end());
     }
 
+    unsigned int estimated_threads();
+
 public:
     static constexpr int MIN_UPDATE_INTERVAL = 60;
 
@@ -47,6 +49,23 @@ public:
 
     std::vector<Worker> _workers;
 };
+
+unsigned int Manager::Impl::estimated_threads() {
+    unsigned int total_subdomains = 0;
+    auto thread_count = std::thread::hardware_concurrency();
+
+    for (auto &domain: _config.domains) {
+        total_subdomains += static_cast<unsigned int>(domain.subdomains.size());
+    }
+
+    if (total_subdomains < 2 || thread_count < 2) {
+        return 2;
+    } else if (total_subdomains < thread_count) {
+        return total_subdomains;
+    }
+
+    return thread_count;
+}
 
 void Manager::validate_config() {
     auto &context = Context::getInstance();
@@ -139,9 +158,13 @@ void Manager::run() {
                 SPDLOG_INFO(R"(Use custom resolver "[{}]:{}")", ip_addr, _impl->_config.resolver.port);
             }
         } else {
-            SPDLOG_WARN("Custom resolver defined, but res_nquery not support on your platform, this option will be ignored");
+            SPDLOG_WARN(
+                    "Custom resolver defined, but res_nquery not support on your platform, this option will be ignored");
         }
     }
+
+    // set worker concurrency level
+    Worker::set_concurrency(_impl->estimated_threads());
 
     // create worker threads
     std::vector<std::thread> worker_threads;

@@ -23,6 +23,8 @@ public:
 
     Worker(Worker &&) = default;
 
+    static void set_concurrency(unsigned int thread_count);
+
     void run();
 
 private:

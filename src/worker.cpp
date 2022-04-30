@@ -7,6 +7,7 @@
 #include <thread>
 #include <httplib.h>
 #include <spdlog/spdlog.h>
+#include <thread_pool.hpp>
 
 #include "dns.h"
 #include "uri.h"
@@ -46,6 +47,8 @@ public:
 
     static std::string_view to_string(dns_record_t);
 
+    static thread_pool &get_thread_pool();
+
     static bool is_ipv6_local_link(const struct in6_addr *);
 
     static bool is_ipv6_site_local(const struct in6_addr *);
@@ -70,8 +73,7 @@ void Worker::run() {
     auto update_interval = std::chrono::seconds(_impl->_worker_config.update_interval);
 
     while (!context.terminate) {
-        auto updater = std::thread(&Impl::run_scheduled_tasks, _impl.get());
-        updater.detach();
+        _impl->get_thread_pool().push_task([_impl_ptr = _impl.get()] { _impl_ptr->run_scheduled_tasks(); });
         context.cv.wait_for(lock, update_interval, [&context]() { return context.terminate; });
     }
 }
@@ -132,7 +134,8 @@ void Worker::Impl::run_scheduled_tasks() {
 
                         SPDLOG_INFO(R"(Update needed, L"{}" != R"{}")", *ip_addr, record.value_or("<empty>"));
                         auto request = driver->generate_request(parameters);
-                        SPDLOG_DEBUG("Received DNS record update instruction from driver {}", driver->get_detail().name);
+                        SPDLOG_DEBUG("Received DNS record update instruction from driver {}",
+                                     driver->get_detail().name);
 
                         // update dns record via http request
                         auto update_result = update_dns_record(request, sub_domain.ip_type, sub_domain.interface);
@@ -283,6 +286,12 @@ std::string_view Worker::Impl::to_string(dns_record_t type) {
     }
 }
 
+thread_pool &Worker::Impl::get_thread_pool() {
+    static thread_pool _thread_pool{};
+
+    return _thread_pool;
+}
+
 bool Worker::Impl::is_ipv6_local_link(const in6_addr *addr) {
     return (addr->s6_addr[0] == 0xfe && ((addr->s6_addr[1] & 0xc0) == 0x80));
 }
@@ -297,6 +306,13 @@ bool Worker::Impl::is_ipv6_unique_local(const in6_addr *addr) {
 
 Worker::Worker(const Config::domains_config_t &domain_config, const Config::resolver_config_t &resolver_config) : _impl(
         new Worker::Impl(domain_config, resolver_config)) {
+}
+
+void Worker::set_concurrency(unsigned int thread_count) {
+    SPDLOG_INFO("Set worker thread-pool size to {}", thread_count);
+    if (Impl::get_thread_pool().get_thread_count() != thread_count) {
+        Impl::get_thread_pool().reset(thread_count);
+    }
 }
 
 void Worker::ImplDeleter::operator()(Worker::Impl *ptr) {
