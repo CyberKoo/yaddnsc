@@ -24,7 +24,7 @@ public:
 
     void reset();
 
-    std::vector<std::string> get_loaded_drivers();
+    std::vector<std::string_view> get_loaded_drivers();
 
     std::unique_ptr<IDriver> &get_driver(std::string_view);
 

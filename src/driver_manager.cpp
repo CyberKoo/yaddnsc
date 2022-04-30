@@ -15,23 +15,24 @@
 #include "logging_pattern.h"
 #include "exception/bad_driver_exception.h"
 
+// Internal implementation
 class DriverManager::Impl {
+public:
+    ~Impl() = default;
+
+    bool is_driver_loaded(std::string_view);
+
+    static std::string_view get_driver_name(std::string_view);
+
 public:
     class Driver;
 
-    ~Impl() = default;
-
-    bool is_driver_loaded(std::string_view driver_path);
-
-    static std::string_view get_driver_name(std::string_view path);
-
-public:
     std::map<std::string, Driver> _driver_map;
 
     std::vector<std::string> _loaded_lib;
 };
 
-// RAII Driver
+// Driver RAII class
 class DriverManager::Impl::Driver {
 public:
     class handle_closer {
@@ -57,13 +58,13 @@ public:
             throw BadDriverException("loader error");
         }
 
-        // reset errors
+        // reset error message pointer
         dlerror();
 
         // load create function
-        auto create = reinterpret_cast<std::add_pointer<IDriver *()>::type>(dlsym(_handle.get(), "create"));
+        auto create = reinterpret_cast<std::add_pointer_t<IDriver *()>>(dlsym(_handle.get(), "create"));
         if (const auto error = dlerror()) {
-            SPDLOG_CRITICAL("Failed to create driver instance, error: {}", dlerror());
+            SPDLOG_CRITICAL("Failed to create driver instance, error: {}", error);
             throw BadDriverException("dlsym error");
         }
 
@@ -94,10 +95,10 @@ std::unique_ptr<IDriver> &DriverManager::get_driver(std::string_view name) {
     throw BadDriverException("driver not found");
 }
 
-std::vector<std::string> DriverManager::get_loaded_drivers() {
-    std::vector<std::string> loaded_drivers;
+std::vector<std::string_view> DriverManager::get_loaded_drivers() {
+    std::vector<std::string_view> loaded_drivers;
     std::transform(_impl->_driver_map.begin(), _impl->_driver_map.end(), std::back_inserter(loaded_drivers),
-                   [](const auto &kv) { return kv.first; });
+                   [](const auto &kv) -> std::string_view { return kv.first; });
 
     return loaded_drivers;
 }
@@ -153,8 +154,7 @@ bool DriverManager::Impl::is_driver_loaded(std::string_view driver_path) {
         return true;
     }
 
-    auto handle = DriverManager::Impl::Driver::handle_ptr_t(dlopen(driver_path.data(), RTLD_NOW | RTLD_NOLOAD));
-    return handle != nullptr;
+    return DriverManager::Impl::Driver::handle_ptr_t(dlopen(driver_path.data(), RTLD_NOW | RTLD_NOLOAD)) != nullptr;
 }
 
 DriverManager::DriverManager() : _impl(new Impl) {
