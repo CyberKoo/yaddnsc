@@ -21,13 +21,6 @@ public:
 
     ~Impl() = default;
 
-    class handle_closer {
-    public:
-        void operator()(void *);
-    };
-
-    using handle_ptr_t = std::unique_ptr<void, handle_closer>;
-
     bool is_driver_loaded(std::string_view driver_path);
 
     static std::string_view get_driver_name(std::string_view path);
@@ -40,21 +33,30 @@ public:
 
 // RAII Driver
 class DriverManager::Impl::Driver {
-private:
+public:
     class handle_closer {
     public:
-        void operator()(void *handle) {
-            dlclose(handle);
+        void operator()(void *ptr) {
+            dlclose(ptr);
         }
     };
 
     using handle_ptr_t = std::unique_ptr<void, handle_closer>;
 
-    handle_ptr_t _handle;
+    Driver(Driver const &) = delete;
 
-    std::unique_ptr<IDriver> _driver;
-private:
-    IDriver *get_instance() {
+    Driver(Driver &&) = default;
+
+    Driver &operator=(Driver const &) = delete;
+
+    Driver &operator=(Driver &&) = default;
+
+    explicit Driver(std::string_view path) : _handle{dlopen(path.data(), RTLD_LAZY)} {
+        if (_handle == nullptr) {
+            SPDLOG_CRITICAL("Unable to load driver {}, error: {}", get_driver_name(path), dlerror());
+            throw BadDriverException("loader error");
+        }
+
         // reset errors
         dlerror();
 
@@ -65,26 +67,7 @@ private:
             throw BadDriverException("dlsym error");
         }
 
-        // return class instance
-        return create();
-    }
-
-public:
-    Driver(Driver const &) = delete;
-
-    Driver(Driver &&) = default;
-
-    Driver &operator=(Driver const &) = delete;
-
-    Driver &operator=(Driver &&) = default;
-
-    explicit Driver(std::string_view path) : _handle(handle_ptr_t(dlopen(path.data(), RTLD_LAZY))) {
-        if (_handle == nullptr) {
-            SPDLOG_CRITICAL("Unable to load driver {}, error: {}", get_driver_name(path), dlerror());
-            throw BadDriverException("loader error");
-        }
-
-        _driver = std::unique_ptr<IDriver>(get_instance());
+        _driver = std::unique_ptr<IDriver>(create());
     }
 
     std::unique_ptr<IDriver> &get() {
@@ -95,6 +78,11 @@ public:
         _driver.reset();
         _handle.reset();
     }
+
+private:
+    handle_ptr_t _handle;
+
+    std::unique_ptr<IDriver> _driver;
 };
 
 std::unique_ptr<IDriver> &DriverManager::get_driver(std::string_view name) {
@@ -120,7 +108,7 @@ void DriverManager::load_driver(std::string_view path) {
 
     if (std::filesystem::exists(path)) {
         if (!_impl->is_driver_loaded(path)) {
-            auto driver_res = DriverManager::Impl::Driver(path);
+            auto driver_res = Impl::Driver(path);
             auto &driver = driver_res.get();
 
             // validate driver ABI version
@@ -165,16 +153,12 @@ bool DriverManager::Impl::is_driver_loaded(std::string_view driver_path) {
         return true;
     }
 
-    handle_ptr_t handle = handle_ptr_t(dlopen(driver_path.data(), RTLD_NOW | RTLD_NOLOAD));
+    auto handle = DriverManager::Impl::Driver::handle_ptr_t(dlopen(driver_path.data(), RTLD_NOW | RTLD_NOLOAD));
     return handle != nullptr;
 }
 
 DriverManager::DriverManager() : _impl(new Impl) {
 
-}
-
-void DriverManager::Impl::handle_closer::operator()(void *handle) {
-    dlclose(handle);
 }
 
 void DriverManager::ImplDeleter::operator()(DriverManager::Impl *ptr) {
