@@ -68,8 +68,6 @@ void Worker::run() {
                 _impl->_worker_config.update_interval);
     auto &context = Context::getInstance();
     auto &thread_pool = _impl->get_thread_pool();
-    // set sleep duration to 0 in order use yield instead sleep_for
-    thread_pool.sleep_duration = 0;
 
     std::mutex mutex;
     std::unique_lock<std::mutex> lock(mutex);
@@ -81,7 +79,7 @@ void Worker::run() {
     }
 
     // wait for all tasks to finish
-    thread_pool.paused = true;
+    thread_pool.pause();
     thread_pool.wait_for_tasks();
 }
 
