@@ -43,11 +43,15 @@ public:
 
     static std::optional<std::string> update_dns_record(const driver_request &, ip_version_type, std::string_view);
 
-    static ip_version_type rdtype2ip(dns_record_type);
+    static ip_version_type dns2ip(dns_record_type);
 
     static std::string_view to_string(dns_record_type);
 
     static thread_pool &get_thread_pool();
+
+    static bool is_ipv6_la(const std::string &);
+
+    static bool is_ipv6_ula(const std::string &);
 
     static bool is_ipv6_local_link(const struct in6_addr *);
 
@@ -77,10 +81,6 @@ void Worker::run() {
         thread_pool.push_task([_impl_ptr = impl_.get()] { _impl_ptr->run_scheduled_tasks(); });
         context.condition_.wait_for(lock, update_interval, [&context]() { return context.terminate_; });
     }
-
-    // wait for all tasks to finish
-    thread_pool.pause();
-    thread_pool.wait_for_tasks();
 }
 
 std::optional<std::string> Worker::Impl::dns_lookup(std::string_view host, dns_record_type type) {
@@ -130,17 +130,17 @@ void Worker::Impl::run_scheduled_tasks() {
                             force_update_counter_ = 0;
                         }
 
-                        auto parameters = std::map<std::string, std::string>(sub_domain.driver_param);
-                        parameters.emplace("domain", worker_config_.name);
-                        parameters.emplace("subdomain", sub_domain.name);
-                        parameters.emplace("ip_addr", *ip_addr);
-                        parameters.emplace("rd_type", rd_type);
-                        parameters.emplace("fqdn", fqdn);
+                        auto parameters = std::map<std::string, std::string>{sub_domain.driver_param};
+                        parameters.try_emplace("domain", worker_config_.name);
+                        parameters.try_emplace("subdomain", sub_domain.name);
+                        parameters.try_emplace("ip_addr", *ip_addr);
+                        parameters.try_emplace("rd_type", rd_type);
+                        parameters.try_emplace("fqdn", fqdn);
 
                         SPDLOG_INFO(R"(Update needed, L"{}" != R"{}")", *ip_addr, record.value_or("<empty>"));
                         auto request = driver->generate_request(parameters);
-                        SPDLOG_DEBUG("Received DNS record update instruction from driver {}",
-                                     driver->get_detail().name);
+                        SPDLOG_DEBUG("Received DNS record update request from driver {}, {}",
+                                     driver->get_detail().name, request);
 
                         // update dns record via http request
                         auto update_result = update_dns_record(request, sub_domain.ip_type, sub_domain.interface);
@@ -168,40 +168,19 @@ void Worker::Impl::run_scheduled_tasks() {
 }
 
 std::optional<std::string> Worker::Impl::get_ip_address(const Config::sub_domain_config &config) {
-    auto ip_type = rdtype2ip(config.type);
+    auto ip_type = dns2ip(config.type);
     if (config.ip_source == Config::ip_source_type::INTERFACE) {
         auto addresses = IPUtil::get_ip_from_interface(config.interface, ip_type);
 
         if (ip_type == ip_version_type::IPV6) {
             // filter out local link
             if (!config.allow_local_link) {
-                addresses.erase(
-                        std::remove_if(addresses.begin(), addresses.end(),
-                                       [](const std::string &ip_addr) {
-
-                                           struct sockaddr_in6 sa{};
-                                           if (inet_pton(AF_INET6, ip_addr.data(), &(sa.sin6_addr))) {
-                                               const auto *addr = &sa.sin6_addr;
-                                               return is_ipv6_local_link(addr) || is_ipv6_site_local(addr);
-                                           } else {
-                                               return true;
-                                           }
-                                       }
-                        ), addresses.end()
-                );
+                addresses.erase(std::remove_if(addresses.begin(), addresses.end(), &is_ipv6_la), addresses.end());
             }
 
             // filter out ula
             if (!config.allow_ula) {
-                addresses.erase(
-                        std::remove_if(addresses.begin(), addresses.end(),
-                                       [](const std::string &ip_addr) {
-                                           struct sockaddr_in6 sa{};
-                                           inet_pton(AF_INET6, ip_addr.data(), &(sa.sin6_addr));
-                                           return is_ipv6_unique_local(&sa.sin6_addr);
-                                       }
-                        ), addresses.end()
-                );
+                addresses.erase(std::remove_if(addresses.begin(), addresses.end(), &is_ipv6_ula), addresses.end());
             }
         }
 
@@ -265,7 +244,7 @@ bool Worker::Impl::is_forced_update() const {
            (force_update_counter_ * worker_config_.update_interval) > worker_config_.force_update;
 }
 
-ip_version_type Worker::Impl::rdtype2ip(dns_record_type type) {
+ip_version_type Worker::Impl::dns2ip(dns_record_type type) {
     switch (type) {
         case dns_record_type::A:
             return ip_version_type::IPV4;
@@ -309,8 +288,23 @@ bool Worker::Impl::is_ipv6_unique_local(const in6_addr *addr) {
     return (addr->s6_addr[0] == 0xfc || addr->s6_addr[0] == 0xfd);
 }
 
-Worker::Worker(const Config::domains_config &domain_config, const Config::resolver_config &resolver_config) : impl_(
-        new Worker::Impl(domain_config, resolver_config)) {
+bool Worker::Impl::is_ipv6_ula(const std::string &ip_addr) {
+    struct sockaddr_in6 sa{};
+    inet_pton(AF_INET6, ip_addr.data(), &(sa.sin6_addr));
+    return is_ipv6_unique_local(&sa.sin6_addr);
+}
+
+bool Worker::Impl::is_ipv6_la(const std::string &ip_addr) {
+    struct sockaddr_in6 sa{};
+    if (inet_pton(AF_INET6, ip_addr.data(), &(sa.sin6_addr))) {
+        return is_ipv6_local_link(&sa.sin6_addr) || is_ipv6_site_local(&sa.sin6_addr);
+    } else {
+        return true;
+    }
+}
+
+Worker::Worker(const Config::domains_config &domain_config, const Config::resolver_config &resolver_config) :
+        impl_(new Worker::Impl(domain_config, resolver_config)) {
 }
 
 void Worker::set_concurrency(unsigned int thread_count) {
@@ -323,3 +317,65 @@ void Worker::set_concurrency(unsigned int thread_count) {
 void Worker::ImplDeleter::operator()(Worker::Impl *ptr) {
     delete ptr;
 }
+
+template<>
+struct fmt::formatter<driver_request> {
+    static std::string_view to_string(driver_http_method_type type) {
+        switch (type) {
+            case driver_http_method_type::GET:
+                return "GET";
+            case driver_http_method_type::POST:
+                return "POST";
+            case driver_http_method_type::PUT:
+                return "PUT";
+            default:
+                return "UNKNOWN";
+        }
+    }
+
+    template<typename K, typename V, template<typename, typename> class MAP>
+    std::string format_map(const MAP<K, V> &map) {
+        std::string buf;
+
+        for (auto &[key, value]: map) {
+            buf.append(key);
+            buf.append("=");
+            buf.append(value);
+            buf.append("; ");
+        }
+
+        if (!buf.empty()) {
+            buf.erase(buf.end() - 2);
+        }
+
+        return buf;
+    }
+
+    static constexpr auto parse(format_parse_context &ctx) -> decltype(ctx.begin()) {
+        return ctx.end();
+    }
+
+    template<typename FormatContext>
+    auto format(const driver_request &request, FormatContext &ctx) -> decltype(ctx.out()) {
+        std::string body_type;
+        std::string body;
+
+        std::visit([&](const auto &body_) {
+                       using T = std::decay_t<decltype(body_)>;
+                       if constexpr (std::is_same_v<T, driver_param_type>) {
+                           body_type = "map";
+                           body = format_map(body_);
+                       } else if constexpr (std::is_same_v<T, std::string>) {
+                           body_type = "string";
+                           body = body_;
+                       }
+                   }, request.body
+        );
+
+        return format_to(ctx.out(),
+                         R"(driver_request(url="{}", body_type="{}", body="{}", content_type="{}", request_method="{}", header="{}"))",
+                         request.url, body_type, body, request.content_type, to_string(request.request_method),
+                         format_map(request.header));
+
+    }
+};
