@@ -333,14 +333,14 @@ struct fmt::formatter<driver_request> {
         }
     }
 
-    template<typename K, typename V, template<typename, typename> class MAP>
-    std::string format_map(const MAP<K, V> &map) {
+    template<typename Iter>
+    std::string format_map(Iter first, Iter last) {
         std::string buf;
 
-        for (auto &[key, value]: map) {
-            buf.append(key);
+        for (Iter begin = first, it = begin, end = last; it != end; ++it) {
+            buf.append(it->first);
             buf.append("=");
-            buf.append(value);
+            buf.append(it->second);
             buf.append("; ");
         }
 
@@ -364,7 +364,7 @@ struct fmt::formatter<driver_request> {
                        using T = std::decay_t<decltype(body_)>;
                        if constexpr (std::is_same_v<T, driver_param_type>) {
                            body_type = "map";
-                           body = format_map(body_);
+                           body = format_map(body_.begin(), body_.end());
                        } else if constexpr (std::is_same_v<T, std::string>) {
                            body_type = "string";
                            body = body_;
@@ -375,7 +375,7 @@ struct fmt::formatter<driver_request> {
         return format_to(ctx.out(),
                          R"(driver_request(url="{}", body_type="{}", body="{}", content_type="{}", request_method="{}", header="{}"))",
                          request.url, body_type, body, request.content_type, to_string(request.request_method),
-                         format_map(request.header));
+                         format_map(request.header.begin(), request.header.end()));
 
     }
 };
