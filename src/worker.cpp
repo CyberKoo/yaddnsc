@@ -137,7 +137,11 @@ void Worker::Impl::run_scheduled_tasks() {
                         parameters.try_emplace("rd_type", rd_type);
                         parameters.try_emplace("fqdn", fqdn);
 
-                        SPDLOG_INFO(R"(Update needed, L"{}" != R"{}")", *ip_addr, record.value_or("<empty>"));
+                        // if ip not equal print log
+                        if (*ip_addr != record.value_or("<empty>")) {
+                            SPDLOG_INFO(R"(Update needed, L"{}" != R"{}")", *ip_addr, record.value_or("<empty>"));
+                        }
+
                         auto request = driver->generate_request(parameters);
                         SPDLOG_DEBUG("Received DNS record update request from driver {}, {}",
                                      driver->get_detail().name, request);
@@ -344,7 +348,7 @@ struct fmt::formatter<driver_request> {
             buf.append("; ");
         }
 
-        if (!buf.empty()) {
+        if (!buf.empty() && buf.size() >= 2) {
             buf.erase(buf.end() - 2);
         }
 
