@@ -64,7 +64,7 @@ public:
 
     const Config::domains_config &worker_config_;
 
-    int force_update_counter_ = 0;
+    unsigned long force_update_counter_ = 0;
 };
 
 void Worker::run() {
@@ -123,14 +123,16 @@ void Worker::Impl::run_scheduled_tasks() {
 
                 if (auto ip_addr = get_ip_address(sub_domain)) {
                     auto record = dns_lookup(fqdn, sub_domain.type);
+                    auto record_val = record.value_or("<empty>");
+                    auto is_record_staled = record.has_value() && record.value() != *ip_addr;
                     // force update or ip not same or even no ip
-                    if (force_update || (record.has_value() && record.value() != *ip_addr) || !record.has_value()) {
+                    if (force_update || is_record_staled || !record.has_value()) {
                         if (force_update) {
                             SPDLOG_INFO("Force update triggered!!");
                             force_update_counter_ = 0;
                         }
 
-                        auto parameters = std::map<std::string, std::string>{sub_domain.driver_param};
+                        auto parameters = driver_config_type{sub_domain.driver_param};
                         parameters.try_emplace("domain", worker_config_.name);
                         parameters.try_emplace("subdomain", sub_domain.name);
                         parameters.try_emplace("ip_addr", *ip_addr);
@@ -138,8 +140,8 @@ void Worker::Impl::run_scheduled_tasks() {
                         parameters.try_emplace("fqdn", fqdn);
 
                         // if ip not equal print log
-                        if (*ip_addr != record.value_or("<empty>")) {
-                            SPDLOG_INFO(R"(Update needed, L"{}" != R"{}")", *ip_addr, record.value_or("<empty>"));
+                        if (is_record_staled) {
+                            SPDLOG_INFO(R"(Update needed, L"{}" != R"{}")", *ip_addr, record_val);
                         }
 
                         auto request = driver->generate_request(parameters);
@@ -155,7 +157,7 @@ void Worker::Impl::run_scheduled_tasks() {
                         }
                     } else {
                         SPDLOG_DEBUG("Domain: {}, type: {}, current {}, new {}, skip updating", fqdn, rd_type,
-                                     record.value_or("<empty>"), *ip_addr);
+                                     record_val, *ip_addr);
                     }
                 } else {
                     SPDLOG_WARN("No valid IP address found, skip the update");
