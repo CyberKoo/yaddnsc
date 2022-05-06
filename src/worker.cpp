@@ -64,7 +64,7 @@ public:
 
     const Config::domains_config &worker_config_;
 
-    unsigned long force_update_counter_ = 0;
+    long force_update_counter_ = 0;
 
     static constexpr int RESOLVER_RETRY = 5;
 
