@@ -43,6 +43,9 @@ public:
 
     static std::optional<std::string> update_dns_record(const driver_request &, ip_version_type, std::string_view);
 
+    static httplib::Result
+    do_http_request(const driver_request &request, ip_version_type version, std::string_view nif);
+
     static ip_version_type dns2ip(dns_record_type);
 
     static std::string_view to_string(dns_record_type);
@@ -204,37 +207,39 @@ std::optional<std::string> Worker::Impl::get_ip_address(const Config::sub_domain
     return std::nullopt;
 }
 
+httplib::Result
+Worker::Impl::do_http_request(const driver_request &request, ip_version_type version, std::string_view nif) {
+    auto uri = Uri::parse(request.url);
+    auto path = HttpClient::build_request(uri);
+    auto headers = httplib::Headers{request.header.begin(), request.header.end()};
+    auto client = HttpClient::connect(uri, IPUtil::ip2af(version), nif.data());
+    auto post = [&client](auto &&...args) { return client.Post(args...); };
+    auto put = [&client](auto &&...args) { return client.Put(args...); };
+    auto requester_factory = [&](auto &&request_method) {
+        return [&](const auto &body) {
+            using T = std::decay_t<decltype(body)>;
+            if constexpr (std::is_same_v<T, driver_param_type>)
+                return request_method(path.c_str(), headers, body);
+            else if constexpr (std::is_same_v<T, std::string>)
+                return request_method(path.c_str(), headers, body, request.content_type.c_str());
+        };
+    };
+
+    switch (request.request_method) {
+        case driver_http_method_type::GET:
+            return client.Get(path.c_str(), headers);
+        case driver_http_method_type::POST:
+            return std::visit(requester_factory(post), request.body);
+        case driver_http_method_type::PUT:
+            return std::visit(requester_factory(put), request.body);
+        default:
+            return client.Get(path.c_str(), headers);
+    }
+}
+
 std::optional<std::string>
 Worker::Impl::update_dns_record(const driver_request &request, ip_version_type version, std::string_view nif) {
-    auto response = [&request, &nif, &version]() {
-        auto uri = Uri::parse(request.url);
-        auto path = HttpClient::build_request(uri);
-        auto headers = httplib::Headers{};
-        // copy headers
-        headers.insert(request.header.begin(), request.header.end());
-
-        auto client = HttpClient::connect(uri, IPUtil::ip2af(version), nif.data());
-        auto requester_factory = [&](auto &&request_method) {
-            return [&](const auto &body) {
-                using T = std::decay_t<decltype(body)>;
-                if constexpr (std::is_same_v<T, driver_param_type>)
-                    return request_method(path.c_str(), headers, body);
-                else if constexpr (std::is_same_v<T, std::string>)
-                    return request_method(path.c_str(), headers, body, request.content_type.c_str());
-            };
-        };
-
-        switch (request.request_method) {
-            case driver_http_method_type::GET:
-                return client.Get(path.c_str(), headers);
-            case driver_http_method_type::POST:
-                return std::visit(requester_factory([&client](auto &&...args) { return client.Post(args...); }), request.body);
-            case driver_http_method_type::PUT:
-                return std::visit(requester_factory([&client](auto &&...args) { return client.Put(args...); }), request.body);
-            default:
-                return client.Get(path.c_str(), headers);
-        }
-    }();
+    auto response = do_http_request(request, version, nif);
 
     if (response) {
         return response->body;
