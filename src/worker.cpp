@@ -65,6 +65,10 @@ public:
     const Config::domains_config &worker_config_;
 
     unsigned long force_update_counter_ = 0;
+
+    static constexpr int RESOLVER_RETRY = 5;
+
+    static constexpr int RESOLVER_RETRY_BACKOFF = 1000;
 };
 
 void Worker::run() {
@@ -94,14 +98,14 @@ std::optional<std::string> Worker::Impl::dns_lookup(std::string_view host, dns_r
                     }
 
                     return dns_answer.front();
-                }, 3,
+                }, RESOLVER_RETRY,
                 [](const DnsLookupException &e) {
                     return e.get_error() == dns_lookup_error_type::RETRY;
-                }, 550
+                }, RESOLVER_RETRY_BACKOFF
         );
     } catch (DnsLookupException &e) {
-        SPDLOG_WARN("DNS lookup for domain {} type: {} failed. Error: {}", host, to_string(type),
-                    DNS::error_to_str(e.get_error()));
+        SPDLOG_WARN("DNS lookup for domain {} type: {} failed after {} retries. Error: {}", host, to_string(type),
+                    RESOLVER_RETRY, DNS::error_to_str(e.get_error()));
     }
 
     return std::nullopt;

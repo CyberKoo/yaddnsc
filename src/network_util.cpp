@@ -74,7 +74,7 @@ std::map<std::string, std::vector<interface_addrs>> get_all_ip_addresses() {
                 address_map.insert({ifa->ifa_name, {}});
             }
 
-            char host[NI_MAXHOST];
+            char host[NI_MAXHOST] = {};
             int error = getnameinfo(ifa->ifa_addr, get_address_struct_size(ifa->ifa_addr->sa_family), host,
                                     NI_MAXHOST, nullptr, 0, NI_NUMERICHOST);
             if (error != 0) {
