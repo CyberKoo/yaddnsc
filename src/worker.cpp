@@ -214,27 +214,23 @@ Worker::Impl::update_dns_record(const driver_request &request, ip_version_type v
         headers.insert(request.header.begin(), request.header.end());
 
         auto client = HttpClient::connect(uri, IPUtil::ip2af(version), nif.data());
+        auto requester = [&](auto &&request_method) {
+            return [&](const auto &body) {
+                using T = std::decay_t<decltype(body)>;
+                if constexpr (std::is_same_v<T, driver_param_type>)
+                    return request_method(path.c_str(), headers, body);
+                else if constexpr (std::is_same_v<T, std::string>)
+                    return request_method(path.c_str(), headers, body, request.content_type.c_str());
+            };
+        };
+
         switch (request.request_method) {
             case driver_http_method_type::GET:
                 return client.Get(path.c_str(), headers);
             case driver_http_method_type::POST:
-                return std::visit([&](const auto &body) {
-                                      using T = std::decay_t<decltype(body)>;
-                                      if constexpr (std::is_same_v<T, driver_param_type>)
-                                          return client.Post(path.c_str(), headers, body);
-                                      else if constexpr (std::is_same_v<T, std::string>)
-                                          return client.Post(path.c_str(), headers, body, request.content_type.c_str());
-                                  }, request.body
-                );
+                return std::visit(requester([&client](auto &&...args) { return client.Post(args...); }), request.body);
             case driver_http_method_type::PUT:
-                return std::visit([&](const auto &body) {
-                                      using T = std::decay_t<decltype(body)>;
-                                      if constexpr (std::is_same_v<T, driver_param_type>)
-                                          return client.Put(path.c_str(), headers, body);
-                                      else if constexpr (std::is_same_v<T, std::string>)
-                                          return client.Put(path.c_str(), headers, body, request.content_type.c_str());
-                                  }, request.body
-                );
+                return std::visit(requester([&client](auto &&...args) { return client.Put(args...); }), request.body);
             default:
                 return client.Get(path.c_str(), headers);
         }
