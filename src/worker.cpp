@@ -214,7 +214,7 @@ Worker::Impl::update_dns_record(const driver_request &request, ip_version_type v
         headers.insert(request.header.begin(), request.header.end());
 
         auto client = HttpClient::connect(uri, IPUtil::ip2af(version), nif.data());
-        auto requester = [&](auto &&request_method) {
+        auto requester_factory = [&](auto &&request_method) {
             return [&](const auto &body) {
                 using T = std::decay_t<decltype(body)>;
                 if constexpr (std::is_same_v<T, driver_param_type>)
@@ -228,9 +228,9 @@ Worker::Impl::update_dns_record(const driver_request &request, ip_version_type v
             case driver_http_method_type::GET:
                 return client.Get(path.c_str(), headers);
             case driver_http_method_type::POST:
-                return std::visit(requester([&client](auto &&...args) { return client.Post(args...); }), request.body);
+                return std::visit(requester_factory([&client](auto &&...args) { return client.Post(args...); }), request.body);
             case driver_http_method_type::PUT:
-                return std::visit(requester([&client](auto &&...args) { return client.Put(args...); }), request.body);
+                return std::visit(requester_factory([&client](auto &&...args) { return client.Put(args...); }), request.body);
             default:
                 return client.Get(path.c_str(), headers);
         }
@@ -247,7 +247,7 @@ Worker::Impl::update_dns_record(const driver_request &request, ip_version_type v
 
 bool Worker::Impl::is_forced_update() const {
     return (worker_config_.force_update >= worker_config_.update_interval) &&
-           (force_update_counter_ * worker_config_.update_interval) > worker_config_.force_update;
+           (force_update_counter_ * worker_config_.update_interval) >= worker_config_.force_update;
 }
 
 ip_version_type Worker::Impl::dns2ip(dns_record_type type) {
