@@ -107,7 +107,7 @@ query(std::string_view host, dns_record_type type, [[maybe_unused]]const std::op
             sa6->sin6_port = htons(server->port);
             sa6->sin6_family = AF_INET6;
             inet_pton(AF_INET6, server->ip_address.c_str(), &sa6->sin6_addr);
-#elif HAVE_RES_SETSERVERS // bsd-libc (*BSD & MacOS)
+#elif defined(HAVE_RES_SETSERVERS) // bsd-libc (*BSD & MacOS)
             res_sockaddr_union sau{};
 
             sau.sin6.sin6_port = htons(server->port);
