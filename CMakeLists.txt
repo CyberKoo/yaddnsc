@@ -7,6 +7,7 @@ option("LIBC_MUSL" "OFF")
 option("NO_RTTI" "OFF")
 
 set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra")
 set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -O2")
@@ -40,11 +41,6 @@ endif ()
 # include headers
 include_directories(${PROJECT_SOURCE_DIR}/include/)
 
-# generate header file for .h.in file
-include_directories(${CMAKE_BINARY_DIR}/generated/)
-configure_file("${CMAKE_SOURCE_DIR}/include/version.h.in" "${CMAKE_BINARY_DIR}/generated/version.h" @ONLY)
-configure_file("${CMAKE_SOURCE_DIR}/include/driver_ver.h.in" "${CMAKE_BINARY_DIR}/generated/driver_ver.h" @ONLY)
-
 ## required modules ##
 find_package(Filesystem REQUIRED)
 find_package(ZLIB REQUIRED)
@@ -55,30 +51,16 @@ find_package(OpenSSL REQUIRED)
 include(CheckSymbolExists)
 include(CheckStructHasMember)
 check_symbol_exists("res_nquery" "netinet/in.h;resolv.h" HAVE_RES_NQUERY)
-if (${HAVE_RES_NQUERY})
-    add_compile_definitions(HAVE_RES_NQUERY)
+check_symbol_exists("res_setservers" "netinet/in.h;resolv.h" HAVE_RES_SETSERVERS)
+check_symbol_exists("res_ndestroy" "netinet/in.h;resolv.h" HAVE_RES_NDESTROY)
+check_symbol_exists(prctl "sys/prctl.h" HAVE_PRCTL)
+check_struct_has_member("struct __res_state" _u._ext.nsaddrs "netinet/in.h;resolv.h" HAVE_RES_STATE_EXT_NSADDRS LANGUAGE C)
 
-    # check structure has ext member for ipv6 support
-    # glibc
-    check_struct_has_member("struct __res_state" _u._ext.nsaddrs "netinet/in.h;resolv.h" HAVE_RES_STATE_EXT_NSADDRS LANGUAGE C)
-    if (${HAVE_RES_STATE_EXT_NSADDRS})
-        add_compile_definitions(HAVE_RES_STATE_EXT_NSADDRS)
-        add_compile_definitions(HAVE_IPV6_RESOLVE_SUPPORT)
-    endif ()
-
-    # bsd-libc
-    check_symbol_exists("res_setservers" "netinet/in.h;resolv.h" HAVE_RES_SETSERVERS)
-    if (${HAVE_RES_SETSERVERS})
-        add_compile_definitions(HAVE_RES_SETSERVERS)
-        add_compile_definitions(HAVE_IPV6_RESOLVE_SUPPORT)
-    endif ()
-
-    # check if res_ndestroy should be used
-    check_symbol_exists("res_ndestroy" "netinet/in.h;resolv.h" HAVE_RES_NDESTROY)
-    if (${HAVE_RES_NDESTROY})
-        add_compile_definitions(HAVE_RES_NDESTROY)
-    endif ()
-endif ()
+# generate header file for .h.in file
+include_directories(${CMAKE_BINARY_DIR}/generated/)
+configure_file("${CMAKE_SOURCE_DIR}/include/version.h.in" "${CMAKE_BINARY_DIR}/generated/version.h" @ONLY)
+configure_file("${CMAKE_SOURCE_DIR}/include/driver_ver.h.in" "${CMAKE_BINARY_DIR}/generated/driver_ver.h" @ONLY)
+configure_file("${CMAKE_SOURCE_DIR}/include/config_cmake.h.in" "${CMAKE_BINARY_DIR}/generated/config_cmake.h")
 
 ## submodules ##
 # nlohmann_json
@@ -109,15 +91,15 @@ add_subdirectory(deps/cxxopts EXCLUDE_FROM_ALL)
 ## submodules ##
 
 ### source code
-set(Context src/context.cpp src/context.h)
-set(Manager src/manager.cpp src/manager.h)
-set(Config src/config.cpp src/config.h)
-set(DriverManager src/driver_manager.cpp src/driver_manager.h)
-set(Worker src/worker.cpp src/worker.h)
 set(DNS src/dns.cpp src/dns.h)
 set(URI src/uri.cpp include/uri.h)
+set(Config src/config.cpp src/config.h)
+set(Worker src/worker.cpp src/worker.h)
 set(IPUtil src/ip_util.cpp src/ip_util.h)
+set(Context src/context.cpp src/context.h)
+set(Manager src/manager.cpp src/manager.h)
 set(HttpClient src/httpclient.cpp include/httpclient.h)
+set(DriverManager src/driver_manager.cpp src/driver_manager.h)
 
 # library
 add_library(string_util STATIC src/string_util.cpp include/string_util.h)
@@ -126,7 +108,7 @@ set_target_properties(string_util PROPERTIES POSITION_INDEPENDENT_CODE ON)
 set_target_properties(network_util PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 # main executable
-add_executable(yaddnsc src/main.cpp ${Context} ${Config} ${DriverManager} ${URI} ${DNS} ${Worker} ${Manager}
+add_executable(yaddnsc src/main.cpp ${DNS} ${Context} ${Config} ${DriverManager} ${URI}  ${Worker} ${Manager}
         ${HttpClient} ${IPUtil})
 
 # link internal libraries

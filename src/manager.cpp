@@ -9,6 +9,7 @@
 #include <unordered_set>
 #include <fmt/format.h>
 #include <spdlog/spdlog.h>
+#include <config_cmake.h>
 
 #include "dns.h"
 #include "worker.h"
@@ -103,23 +104,23 @@ void Manager::validate_config() {
         }
     }
 
-    if constexpr (DNS::can_use_custom_resolver()) {
-        // check resolver
-        if (impl_->config_.resolver.use_custom_server) {
-            auto &address = impl_->config_.resolver.ip_address;
-            if constexpr(DNS::can_use_ipv6_resolver()) {
-                if (!IPUtil::is_ipv4_address(address) && !IPUtil::is_ipv6_address(address)) {
-                    throw ConfigVerificationException(fmt::format("Invalid resolver address {}", address));
-                }
-            } else {
-                if (!IPUtil::is_ipv4_address(address)) {
-                    throw ConfigVerificationException(
-                            fmt::format(R"(Invalid resolver address "{}". Only IPv4 is supported on your platform.)",
-                                        address));
-                }
-            }
+#ifdef HAVE_RES_NQUERY
+    // check resolver
+    if (impl_->config_.resolver.use_custom_server) {
+        auto &address = impl_->config_.resolver.ip_address;
+#ifdef HAVE_IPV6_RESOLVE_SUPPORT
+        if (!IPUtil::is_ipv4_address(address) && !IPUtil::is_ipv6_address(address)) {
+            throw ConfigVerificationException(fmt::format("Invalid resolver address {}", address));
         }
+#else
+        if (!IPUtil::is_ipv4_address(address)) {
+            throw ConfigVerificationException(
+                    fmt::format(R"(Invalid resolver address "{}". Only IPv4 is supported on your platform.)",
+                                address));
+        }
+#endif
     }
+#endif
 }
 
 void Manager::load_drivers() const {
@@ -150,17 +151,17 @@ void Manager::run() {
     SPDLOG_INFO("All available interfaces: {}", fmt::join(interfaces, ", "));
 
     if (impl_->config_.resolver.use_custom_server) {
-        if constexpr(DNS::can_use_custom_resolver()) {
-            const auto &ip_addr = impl_->config_.resolver.ip_address;
-            if (IPUtil::is_ipv4_address(ip_addr)) {
-                SPDLOG_INFO(R"(Use custom resolver "{}:{}")", ip_addr, impl_->config_.resolver.port);
-            } else if (ip_addr.front() != '[' && ip_addr.back() != ']') {
-                SPDLOG_INFO(R"(Use custom resolver "[{}]:{}")", ip_addr, impl_->config_.resolver.port);
-            }
-        } else {
-            SPDLOG_WARN(
-                    "Custom resolver defined, but res_nquery not support on your platform, this option will be ignored");
+#ifdef HAVE_RES_NQUERY
+        const auto &ip_addr = impl_->config_.resolver.ip_address;
+        if (IPUtil::is_ipv4_address(ip_addr)) {
+            SPDLOG_INFO(R"(Use custom resolver "{}:{}")", ip_addr, impl_->config_.resolver.port);
+        } else if (ip_addr.front() != '[' && ip_addr.back() != ']') {
+            SPDLOG_INFO(R"(Use custom resolver "[{}]:{}")", ip_addr, impl_->config_.resolver.port);
         }
+#else
+        SPDLOG_WARN(
+                "Custom resolver defined, but res_nquery not support on your platform, this option will be ignored");
+#endif
     }
 
     // set worker concurrency level

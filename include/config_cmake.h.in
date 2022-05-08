@@ -1,0 +1,22 @@
+//
+// Created by Kotarou on 2022/4/5.
+//
+
+#ifndef YADDNSC_CONFIG_CMAKE_H
+#define YADDNSC_CONFIG_CMAKE_H
+
+#cmakedefine HAVE_RES_NQUERY "${HAVE_RES_NQUERY}"
+
+#cmakedefine HAVE_RES_STATE_EXT_NSADDRS "${HAVE_RES_STATE_EXT_NSADDRS}"
+
+#cmakedefine HAVE_RES_SETSERVERS "${HAVE_RES_SETSERVERS}"
+
+#cmakedefine HAVE_RES_NDESTROY "${HAVE_RES_NDESTROY}"
+
+#cmakedefine HAVE_PRCTL "${HAVE_PRCTL}"
+
+#if defined(HAVE_RES_STATE_EXT_NSADDRS) || defined(HAVE_RES_SETSERVERS)
+#define HAVE_IPV6_RESOLVE_SUPPORT "1"
+#endif
+
+#endif //YADDNSC_CONFIG_CMAKE_H

@@ -12,6 +12,7 @@
 #include <sys/socket.h>
 #include <resolv.h>
 #include <netdb.h>
+#include <config_cmake.h>
 
 #include "ip_util.h"
 #include "exception/dns_lookup_exception.h"
