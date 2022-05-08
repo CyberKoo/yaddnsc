@@ -1,7 +1,6 @@
 find_package(Git QUIET)
 if (GIT_FOUND)
-    execute_process(COMMAND ${GIT_EXECUTABLE} describe --all --long --dirty
-            ${SRC_DIR}
+    execute_process(COMMAND ${GIT_EXECUTABLE} -C ${CMAKE_SOURCE_DIR} describe --all --long --dirty
             OUTPUT_VARIABLE "GIT_VERSION"
             OUTPUT_STRIP_TRAILING_WHITESPACE
             ERROR_QUIET)
