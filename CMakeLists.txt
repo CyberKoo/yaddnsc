@@ -18,8 +18,15 @@ set(EXECUTABLE_OUTPUT_PATH ${CMAKE_BINARY_DIR}/objs)
 # yaddnsc version
 set(YADDNSC_VERSION_MAJOR 0)
 set(YADDNSC_VERSION_MINOR 1)
-set(YADDNSC_VERSION_PATCH 6)
+set(YADDNSC_VERSION_PATCH 7)
+set(YADDNSC_DEVELOPMENT ON)
+set(YADDNSC_RELEASE_INFO RELEASE)
 set(YADDNSC_DRV_VERSION "1000000")
+
+if (YADDNSC_DEVELOPMENT)
+    include(GitVersion)
+    set(YADDNSC_RELEASE_INFO ${GIT_VERSION})
+endif ()
 
 # if not musl add lto flag to release target
 if (NOT LIBC_MUSL)
@@ -50,10 +57,9 @@ find_package(OpenSSL REQUIRED)
 # check symbols
 include(CheckSymbolExists)
 include(CheckStructHasMember)
-check_symbol_exists("res_nquery" "netinet/in.h;resolv.h" HAVE_RES_NQUERY)
-check_symbol_exists("res_setservers" "netinet/in.h;resolv.h" HAVE_RES_SETSERVERS)
-check_symbol_exists("res_ndestroy" "netinet/in.h;resolv.h" HAVE_RES_NDESTROY)
-check_symbol_exists(prctl "sys/prctl.h" HAVE_PRCTL)
+check_symbol_exists(res_nquery "netinet/in.h;resolv.h" HAVE_RES_NQUERY)
+check_symbol_exists(res_setservers "netinet/in.h;resolv.h" HAVE_RES_SETSERVERS)
+check_symbol_exists(res_ndestroy "netinet/in.h;resolv.h" HAVE_RES_NDESTROY)
 check_struct_has_member("struct __res_state" _u._ext.nsaddrs "netinet/in.h;resolv.h" HAVE_RES_STATE_EXT_NSADDRS LANGUAGE C)
 
 # generate header file for .h.in file
@@ -108,8 +114,8 @@ set_target_properties(string_util PROPERTIES POSITION_INDEPENDENT_CODE ON)
 set_target_properties(network_util PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 # main executable
-add_executable(yaddnsc src/main.cpp ${DNS} ${Context} ${Config} ${DriverManager} ${URI}  ${Worker} ${Manager}
-        ${HttpClient} ${IPUtil})
+add_executable(yaddnsc src/main.cpp ${DNS} ${Context} ${Config} ${DriverManager} ${URI} ${Worker} ${Manager} ${IPUtil}
+        ${HttpClient})
 
 # link internal libraries
 target_link_libraries(yaddnsc PRIVATE string_util network_util)

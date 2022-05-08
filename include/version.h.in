@@ -5,17 +5,24 @@
 #ifndef YADDNSC_VERSION_H
 #define YADDNSC_VERSION_H
 
-#include <string>
-#include <fmt/format.h>
-
 constexpr char YADDNSC_VERSION_MAJOR[] = "@YADDNSC_VERSION_MAJOR@";
 
 constexpr char YADDNSC_VERSION_MINOR[] = "@YADDNSC_VERSION_MINOR@";
 
 constexpr char YADDNSC_VERSION_PATCH[] = "@YADDNSC_VERSION_PATCH@";
 
-std::string get_version() {
-    return fmt::format("{}.{}.{}", YADDNSC_VERSION_MAJOR, YADDNSC_VERSION_MINOR, YADDNSC_VERSION_PATCH);
+constexpr char YADDNSC_RELEASE_INFO[] = "@YADDNSC_RELEASE_INFO@";
+
+constexpr const char *get_full_version() {
+    return "yaddnsc/@YADDNSC_VERSION_MAJOR@.@YADDNSC_VERSION_MINOR@.@YADDNSC_VERSION_PATCH@-@YADDNSC_RELEASE_INFO@";
+}
+
+constexpr const char *get_short_version() {
+    return "@YADDNSC_VERSION_MAJOR@.@YADDNSC_VERSION_MINOR@.@YADDNSC_VERSION_PATCH@-@YADDNSC_RELEASE_INFO@";
+}
+
+constexpr const char *get_version() {
+    return "@YADDNSC_VERSION_MAJOR@.@YADDNSC_VERSION_MINOR@.@YADDNSC_VERSION_PATCH@";
 }
 
 #endif //YADDNSC_VERSION_H

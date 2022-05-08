@@ -8,6 +8,7 @@
 #include <spdlog/spdlog.h>
 
 #include "uri.h"
+#include "version.h"
 
 std::string_view get_system_ca_path();
 
@@ -35,7 +36,7 @@ httplib::Client HttpClient::connect(const Uri &uri, int family, const char *nif_
     client.set_connection_timeout(std::chrono::seconds(5));
     client.set_read_timeout(std::chrono::seconds(5));
     client.set_follow_location(true);
-    client.set_default_headers({{"User-Agent", "YADDNSC"}});
+    client.set_default_headers({{"User-Agent", get_full_version()}});
 
     return client;
 }

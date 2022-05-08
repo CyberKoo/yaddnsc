@@ -42,7 +42,7 @@ int main(int argc, char *argv[]) {
         }
 
         if (result.count("version")) {
-            std::cout << "YADDNSC/" << get_version() << std::endl;
+            std::cout << get_full_version() << std::endl;
             exit(0);
         }
 
