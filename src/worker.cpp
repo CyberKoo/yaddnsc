@@ -43,8 +43,7 @@ public:
 
     static std::optional<std::string> update_dns_record(const driver_request &, ip_version_type, std::string_view);
 
-    static httplib::Result
-    do_http_request(const driver_request &request, ip_version_type version, std::string_view nif);
+    static httplib::Result do_http_request(const driver_request &, ip_version_type, std::string_view);
 
     static ip_version_type dns2ip(dns_record_type);
 

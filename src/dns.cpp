@@ -35,6 +35,9 @@ int get_dns_type(dns_record_type);
 
 std::basic_string<unsigned char> query(std::string_view, dns_record_type, const std::optional<dns_server> &);
 
+template<typename T>
+T *ccalloc(size_t);
+
 std::vector<std::string>
 DNS::resolve(std::string_view host, dns_record_type type, const std::optional<dns_server> &server) {
     auto query_res = query(host, type, server);
@@ -100,7 +103,7 @@ query(std::string_view host, dns_record_type type, [[maybe_unused]]const std::op
             struct sockaddr_in6 *sa6 = local_state._u._ext.nsaddrs[0];
             if (sa6 == nullptr) {
                 // Memory allocated here will be free'd in res_nclose() as we have done res_ninit() above.
-                sa6 = reinterpret_cast<struct sockaddr_in6 *>(calloc(1, sizeof(struct sockaddr_in6)));
+                sa6 = ccalloc<struct sockaddr_in6>(1);
                 local_state._u._ext.nsaddrs[0] = sa6;
             }
 
@@ -183,4 +186,9 @@ dns_lookup_error_type get_dns_lookup_err(int error) {
         default:
             return dns_lookup_error_type::UNKNOWN;
     }
+}
+
+template<typename T>
+T *ccalloc(size_t count) {
+    return static_cast<T *>(calloc(count, sizeof(T)));
 }
