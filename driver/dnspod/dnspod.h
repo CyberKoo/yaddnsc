@@ -5,9 +5,9 @@
 #ifndef YADDNSC_DNSPOD_H
 #define YADDNSC_DNSPOD_H
 
-#include "../driver.h"
+#include "../base_driver.h"
 
-class DNSPodDriver : public Driver {
+class DNSPodDriver : public BaseDriver {
 public:
     DNSPodDriver();
 

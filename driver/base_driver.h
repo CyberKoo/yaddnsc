@@ -2,8 +2,8 @@
 // Created by Kotarou on 2022/4/5.
 //
 
-#ifndef YADDNSC_DRIVER_H
-#define YADDNSC_DRIVER_H
+#ifndef YADDNSC_BASE_DRIVER_H
+#define YADDNSC_BASE_DRIVER_H
 
 #include <map>
 #include <string>
@@ -17,7 +17,7 @@
 #include "driver_ver.h"
 #include "missing_required_param_exception.h"
 
-class Driver : public IDriver {
+class BaseDriver : public IDriver {
 public:
     void check_required_params(const driver_config_type &config) const {
         for (auto &name: required_param_) {
@@ -65,4 +65,4 @@ public:
     }
 };
 
-#endif //YADDNSC_DRIVER_H
+#endif //YADDNSC_BASE_DRIVER_H

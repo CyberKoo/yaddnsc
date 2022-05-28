@@ -33,7 +33,7 @@ public:
 };
 
 // Driver RAII class
-class DriverManager::Impl::Driver {
+class DriverManager::Impl::Driver : public NonCopyable {
 public:
     class handle_closer {
     public:
@@ -42,13 +42,9 @@ public:
         }
     };
 
-    using handle_ptr_t = std::unique_ptr<void, handle_closer>;
-
-    Driver(Driver const &) = delete;
+    using handle_ptr = std::unique_ptr<void, handle_closer>;
 
     Driver(Driver &&) = default;
-
-    Driver &operator=(Driver const &) = delete;
 
     Driver &operator=(Driver &&) = default;
 
@@ -81,7 +77,7 @@ public:
     }
 
 private:
-    handle_ptr_t handle_;
+    handle_ptr handle_;
 
     std::unique_ptr<IDriver> driver_;
 };
@@ -154,7 +150,7 @@ bool DriverManager::Impl::is_driver_loaded(std::string_view driver_path) {
         return true;
     }
 
-    return DriverManager::Impl::Driver::handle_ptr_t(dlopen(driver_path.data(), RTLD_NOW | RTLD_NOLOAD)) != nullptr;
+    return DriverManager::Impl::Driver::handle_ptr(dlopen(driver_path.data(), RTLD_NOW | RTLD_NOLOAD)) != nullptr;
 }
 
 DriverManager::DriverManager() : impl_(new Impl) {

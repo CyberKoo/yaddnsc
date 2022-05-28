@@ -5,9 +5,9 @@
 #ifndef YADDNSC_DIGITAL_OCEAN_H
 #define YADDNSC_DIGITAL_OCEAN_H
 
-#include "../driver.h"
+#include "../base_driver.h"
 
-class DigitalOceanDriver final : public Driver {
+class DigitalOceanDriver final : public BaseDriver {
 public:
     DigitalOceanDriver();
 

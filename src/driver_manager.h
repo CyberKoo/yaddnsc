@@ -10,11 +10,11 @@
 #include <vector>
 #include <string_view>
 
-#include "non_copyable.h"
+#include "base_classes.h"
 
 class IDriver;
 
-class DriverManager : public NonCopyable {
+class DriverManager : public RestrictedClass {
 public:
     DriverManager();
 

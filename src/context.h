@@ -8,11 +8,11 @@
 #include <memory>
 #include <condition_variable>
 
-#include "non_copyable.h"
+#include "base_classes.h"
 
 class DriverManager;
 
-class Context : NonCopyable {
+class Context : public RestrictedClass {
 private:
     struct DriverManagerDeleter {
         void operator()(DriverManager *);

@@ -35,6 +35,10 @@ struct driver_request {
 
 class IDriver {
 public:
+    // Default construct
+    IDriver() = default;
+
+    // deconstruct
     virtual ~IDriver() = default;
 
     // delete copy and move constructors and assign operators
@@ -49,9 +53,6 @@ public:
 
     // Move assign
     IDriver &operator=(IDriver &&) = delete;
-
-    // Default construct
-    IDriver() = default;
 
 public:
     [[nodiscard]] virtual driver_request generate_request(const driver_config_type &) const = 0;

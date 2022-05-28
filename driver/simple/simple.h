@@ -5,9 +5,9 @@
 #ifndef YADDNSC_SIMPLE_H
 #define YADDNSC_SIMPLE_H
 
-#include "../driver.h"
+#include "../base_driver.h"
 
-class SimpleDriver final : public Driver {
+class SimpleDriver final : public BaseDriver {
 public:
     SimpleDriver();
 
