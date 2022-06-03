@@ -7,7 +7,7 @@
 #include <thread>
 #include <httplib.h>
 #include <spdlog/spdlog.h>
-#include <thread_pool.hpp>
+#include <BS_thread_pool.hpp>
 
 #include "dns.h"
 #include "uri.h"
@@ -49,7 +49,7 @@ public:
 
     static std::string_view to_string(dns_record_type);
 
-    static thread_pool &get_thread_pool();
+    static BS::thread_pool &get_thread_pool();
 
     static bool is_ipv6_la(const std::string &);
 
@@ -280,10 +280,10 @@ std::string_view Worker::Impl::to_string(dns_record_type type) {
     }
 }
 
-thread_pool &Worker::Impl::get_thread_pool() {
-    static thread_pool _thread_pool{};
+BS::thread_pool &Worker::Impl::get_thread_pool() {
+    static BS::thread_pool thread_pool{};
 
-    return _thread_pool;
+    return thread_pool;
 }
 
 bool Worker::Impl::is_ipv6_local_link(const in6_addr *addr) {
