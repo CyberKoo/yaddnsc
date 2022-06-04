@@ -212,9 +212,9 @@ Worker::Impl::do_http_request(const driver_request &request, ip_version_type ver
     auto path = HttpClient::build_request(uri);
     auto headers = httplib::Headers{request.header.begin(), request.header.end()};
     auto client = HttpClient::connect(uri, IPUtil::ip2af(version), nif.data());
-    auto post = [&client](auto &&...args) { return client.Post(args...); };
-    auto put = [&client](auto &&...args) { return client.Put(args...); };
-    auto requester_factory = [&](auto &&request_method) {
+    auto post = [&client](auto ...args) { return client.Post(std::move(args)...); };
+    auto put = [&client](auto ...args) { return client.Put(std::move(args)...); };
+    auto requester_factory = [&](const auto &request_method) {
         return [&](const auto &body) {
             using T = std::decay_t<decltype(body)>;
             if constexpr (std::is_same_v<T, driver_param_type>)
