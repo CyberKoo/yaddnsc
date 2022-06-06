@@ -25,11 +25,7 @@
 class Worker::Impl {
 public:
     explicit Impl(const Config::domains_config &domain_config, const Config::resolver_config &resolver_config)
-            : dns_server_(resolver_config.use_custom_server ?
-                          std::make_optional<dns_server>({resolver_config.ip_address, resolver_config.port})
-                                                            : std::nullopt),
-              worker_config_(domain_config) {
-    };
+            : dns_server_(get_dns_server(resolver_config)), worker_config_(domain_config) {};
 
     ~Impl() = default;
 
@@ -60,6 +56,8 @@ public:
     static bool is_ipv6_site_local(const struct in6_addr *);
 
     static bool is_ipv6_unique_local(const struct in6_addr *);
+
+    static inline std::optional<dns_server> get_dns_server(const Config::resolver_config &) noexcept;
 
 public:
     const std::optional<dns_server> dns_server_;
@@ -311,6 +309,14 @@ bool Worker::Impl::is_ipv6_la(const std::string &ip_addr) {
     } else {
         return true;
     }
+}
+
+std::optional<dns_server> Worker::Impl::get_dns_server(const Config::resolver_config &config) noexcept {
+    if (config.use_custom_server) {
+        return std::make_optional<dns_server>({config.ip_address, config.port});
+    }
+
+    return std::nullopt;
 }
 
 Worker::Worker(const Config::domains_config &domain_config, const Config::resolver_config &resolver_config) :
