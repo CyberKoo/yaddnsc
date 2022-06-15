@@ -2,7 +2,6 @@
 // Created by Kotarou on 2022/4/5.
 //
 
-#include <csignal>
 #include <cxxopts.hpp>
 #include <spdlog/spdlog.h>
 
@@ -10,12 +9,13 @@
 #include "context.h"
 #include "manager.h"
 #include "version.h"
+#include "signal_handler.h"
 #include "logging_pattern.h"
 
 #include "exception/base_exception.h"
 #include "exception/config_verification_exception.h"
 
-void sigint_handler([[maybe_unused]] int signal) {
+void gracefully_quit() {
     auto &context = Context::getInstance();
     SPDLOG_INFO("Received exit signal, quiting...");
     context.terminate_ = true;
@@ -23,10 +23,16 @@ void sigint_handler([[maybe_unused]] int signal) {
 }
 
 int main(int argc, char *argv[]) {
-    auto &context = Context::getInstance();
-    signal(SIGINT, sigint_handler);
-    signal(SIGTERM, sigint_handler);
+    // blocked signals, will be process by signal handling thread
+    sigset_t sigset = SignalHandler::block_signal({SIGINT, SIGTERM});
+    SignalHandler::register_handler(SIGINT, &gracefully_quit);
+    SignalHandler::register_handler(SIGTERM, &gracefully_quit);
 
+    // signal handling thread
+    auto sig_thread = std::thread(SignalHandler::handler_thread, &sigset);
+    sig_thread.detach();
+
+    auto &context = Context::getInstance();
     cxxopts::Options options("yaddnsc", "Yet another DDNS client");
     options.add_options()
             ("v,verbose", "Enable verbose mode")

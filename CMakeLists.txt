@@ -106,6 +106,7 @@ set(Context src/context.cpp src/context.h)
 set(Manager src/manager.cpp src/manager.h)
 set(HttpClient src/httpclient.cpp include/httpclient.h)
 set(DriverManager src/driver_manager.cpp src/driver_manager.h)
+set(SignalHandler src/signal_handler.cpp src/signal_handler.h)
 
 # library
 add_library(string_util STATIC src/string_util.cpp include/string_util.h)
@@ -115,7 +116,7 @@ set_target_properties(network_util PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 # main executable
 add_executable(yaddnsc src/main.cpp ${DNS} ${Context} ${Config} ${DriverManager} ${URI} ${Worker} ${Manager} ${IPUtil}
-        ${HttpClient})
+        ${HttpClient} ${SignalHandler})
 
 # link internal libraries
 target_link_libraries(yaddnsc PRIVATE string_util network_util)
