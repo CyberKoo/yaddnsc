@@ -43,28 +43,21 @@ httplib::Client HttpClient::connect(const Uri &uri, int family, const char *nif_
 
 httplib::Result HttpClient::get(const Uri &uri, int family, const char *nif_name) {
     auto client = HttpClient::connect(uri, family, nif_name);
-    auto x = HttpClient::build_request(uri);
-    auto response = client.Get(HttpClient::build_request(uri).c_str());
-
-    return response;
+    return client.Get(HttpClient::build_request(uri).c_str());
 }
 
 httplib::Result HttpClient::post(const Uri &uri, const param_type &parameters, int family, const char *nif_name) {
     SPDLOG_TRACE("Post to uri {}", uri.get_raw_uri());
 
     auto client = HttpClient::connect(uri, family, nif_name);
-    auto response = client.Post(HttpClient::build_request(uri).c_str(), parameters);
-
-    return response;
+    return client.Post(HttpClient::build_request(uri).c_str(), parameters);
 }
 
 httplib::Result HttpClient::put(const Uri &uri, const param_type &parameters, int family, const char *nif_name) {
     SPDLOG_TRACE("Put to uri {}", uri.get_raw_uri());
 
     auto client = HttpClient::connect(uri, family, nif_name);
-    auto response = client.Put(HttpClient::build_request(uri).c_str(), parameters);
-
-    return response;
+    return client.Put(HttpClient::build_request(uri).c_str(), parameters);
 }
 
 std::string HttpClient::build_request(const Uri &uri) {
@@ -78,13 +71,15 @@ std::string HttpClient::build_request(const Uri &uri) {
 std::string_view get_system_ca_path() {
     static std::string_view ca_path = []() -> std::string_view {
         constexpr std::string_view SEARCH_PATH[]{
-                "/etc/ssl/certs/ca-certificates.crt",                // Debian/Ubuntu/Gentoo etc.
-                "/etc/pki/tls/certs/ca-bundle.crt",                  // Fedora/RHEL 6
-                "/etc/ssl/ca-bundle.pem",                            // OpenSUSE
-                "/etc/pki/tls/cacert.pem",                           // OpenELEC
-                "/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem", // CentOS/RHEL 7
-                "/usr/local/etc/openssl/cert.pem",                   // MacOS via Homebrew
-                "./ca.pem"                                           // Load local
+                "./ca.pem",                                             // Local CA file
+                "/etc/ssl/certs/ca-certificates.crt",                   // Debian/Ubuntu/Gentoo etc.
+                "/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem",    // CentOS/RHEL 7
+                "/etc/ssl/ca-bundle.pem",                               // OpenSUSE
+                "/usr/local/etc/openssl/cert.pem",                      // MacOS via Homebrew
+                "/opt/homebrew/etc/openssl/cert.pem",                   // MacOS via Homebrew(M1 and above)
+                "/etc/pki/tls/certs/ca-bundle.crt",                     // Fedora/RHEL 6
+                "/etc/pki/tls/cacert.pem",                              // OpenELEC
+                "/etc/ssl/cert.pem",                                    // OpenWRT
         };
 
         SPDLOG_DEBUG("Looking for CA bundle...");
