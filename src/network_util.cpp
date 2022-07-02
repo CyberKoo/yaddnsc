@@ -23,11 +23,12 @@ struct interface_addrs {
 
 using ifaddrs_ptr_t = std::unique_ptr<ifaddrs, std::function<void(ifaddrs *)>>;
 
-static ifaddrs_ptr_t get_ifaddrs();
+ifaddrs_ptr_t get_ifaddrs();
 
-static std::map<std::string, std::vector<interface_addrs>> get_all_ip_addresses();
+std::map<std::string, std::vector<interface_addrs>> get_all_ip_addresses();
 
-static size_t get_address_struct_size(int);
+template<typename T, typename = std::enable_if_t<std::is_trivial_v<T>>>
+size_t calc_obj_size(const T &);
 
 std::vector<std::string> NetworkUtil::get_interfaces() {
     std::vector<std::string> interfaces;
@@ -66,7 +67,7 @@ std::map<std::string, std::vector<interface_addrs>> get_all_ip_addresses() {
     for (auto ifa = ifaddrs.get(); ifa != nullptr; ifa = ifa->ifa_next) {
         if (ifa->ifa_addr != nullptr) {
             // ignore address not ipv6 or ipv4
-            if (ifa->ifa_addr->sa_family != AF_INET and ifa->ifa_addr->sa_family != AF_INET6) {
+            if (ifa->ifa_addr->sa_family != AF_INET && ifa->ifa_addr->sa_family != AF_INET6) {
                 continue;
             }
 
@@ -75,7 +76,7 @@ std::map<std::string, std::vector<interface_addrs>> get_all_ip_addresses() {
             }
 
             char host[NI_MAXHOST] = {};
-            int error = getnameinfo(ifa->ifa_addr, get_address_struct_size(ifa->ifa_addr->sa_family), host,
+            int error = getnameinfo(ifa->ifa_addr, calc_obj_size(ifa->ifa_addr->sa_family), host,
                                     NI_MAXHOST, nullptr, 0, NI_NUMERICHOST);
             if (error != 0) {
                 throw std::runtime_error(std::string("getnameinfo() failed, error: ") + gai_strerror(error));
@@ -98,10 +99,7 @@ ifaddrs_ptr_t get_ifaddrs() {
     return {ifaddr, [](ifaddrs *a) { freeifaddrs(a); }};
 }
 
-size_t get_address_struct_size(int family) {
-    if (family == AF_INET6) {
-        return sizeof(struct sockaddr_in6);
-    } else {
-        return sizeof(struct sockaddr_in);
-    }
+template<typename T, typename>
+size_t calc_obj_size(const T &obj) {
+    return sizeof(obj);
 }
