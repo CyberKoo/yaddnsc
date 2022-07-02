@@ -27,7 +27,7 @@ ifaddrs_ptr_t get_ifaddrs();
 
 std::map<std::string, std::vector<interface_addrs>> get_all_ip_addresses();
 
-template<typename T, typename = std::enable_if_t<std::is_trivial_v<T>>>
+template<typename T, typename = std::enable_if_t<std::is_trivial_v<T>>, typename = std::enable_if_t<!std::is_pointer_v<T>>>
 size_t calc_obj_size(const T &);
 
 std::vector<std::string> NetworkUtil::get_interfaces() {
@@ -99,7 +99,7 @@ ifaddrs_ptr_t get_ifaddrs() {
     return {ifaddr, [](ifaddrs *a) { freeifaddrs(a); }};
 }
 
-template<typename T, typename>
+template<typename T, typename, typename>
 size_t calc_obj_size(const T &obj) {
     return sizeof(obj);
 }
