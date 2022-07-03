@@ -99,9 +99,5 @@ ifaddrs_ptr_t get_ifaddrs() {
 }
 
 size_t get_address_struct_size(int family) {
-    if (family == AF_INET6) {
-        return sizeof(struct sockaddr_in6);
-    } else {
-        return sizeof(struct sockaddr_in);
-    }
+    return family == AF_INET6 ? sizeof(struct sockaddr_in6) : sizeof(struct sockaddr_in);
 }

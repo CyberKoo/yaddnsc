@@ -13,6 +13,8 @@
 
 #cmakedefine HAVE_RES_NDESTROY "${HAVE_RES_NDESTROY}"
 
+#cmakedefine STATIC_COMPILE "${STATIC}"
+
 #if defined(HAVE_RES_STATE_EXT_NSADDRS) || defined(HAVE_RES_SETSERVERS)
 #define HAVE_IPV6_RESOLVE_SUPPORT "1"
 #endif

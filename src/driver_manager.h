@@ -20,9 +20,9 @@ public:
 
     ~DriverManager() = default;
 
-    void load_driver(std::string_view);
+    void load_driver(IDriver *);
 
-    void reset();
+    void load_driver(std::string_view);
 
     std::vector<std::string_view> get_loaded_drivers();
 
