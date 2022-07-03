@@ -17,6 +17,11 @@ namespace Util {
         return static_cast<typename std::underlying_type<Enumeration>::type>(value);
     }
 
+    template<typename T, typename = std::enable_if_t<std::is_trivial_v<T>>, typename = std::enable_if_t<!std::is_pointer_v<T>>>
+    size_t sizeof_obj(const T &obj) {
+        return sizeof(obj);
+    }
+
     template<class R, class E, class=std::enable_if_t<std::is_base_of_v<YaddnscException, E>>>
     R retry_on_exception(const std::function<R()> &func, const unsigned retry,
                          const std::optional<std::function<bool(const E &)>> &e_filter = std::nullopt,
