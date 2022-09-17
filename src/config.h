@@ -27,7 +27,7 @@ namespace Config {
         unsigned short port;
     };
 
-    struct sub_domain_config {
+    struct subdomain_config {
         std::string name;
         dns_record_type type;
         std::string interface;
@@ -39,18 +39,18 @@ namespace Config {
         std::map<std::string, std::string> driver_param;
     };
 
-    struct domains_config {
+    struct domain_config {
         std::string name;
         int update_interval;
         int force_update;
         std::string driver;
-        std::vector<sub_domain_config> subdomains;
+        std::vector<subdomain_config> subdomains;
     };
 
     struct config {
         driver_config driver;
         resolver_config resolver;
-        std::vector<domains_config> domains;
+        std::vector<domain_config> domains;
     };
 
     void from_json(const nlohmann::json &, driver_config &);
@@ -59,9 +59,9 @@ namespace Config {
 
     void from_json(const nlohmann::json &, resolver_config &);
 
-    void from_json(const nlohmann::json &, sub_domain_config &);
+    void from_json(const nlohmann::json &, subdomain_config &);
 
-    void from_json(const nlohmann::json &, domains_config &);
+    void from_json(const nlohmann::json &, domain_config &);
 
     void from_json(const nlohmann::json &, ip_source_type &);
 

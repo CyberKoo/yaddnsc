@@ -37,19 +37,19 @@ void Config::from_json(const nlohmann::json &j, resolver_config &resolver) {
     j.at("port").get_to(resolver.port);
 }
 
-void Config::from_json(const nlohmann::json &j, sub_domain_config &sub_domain) {
-    j.at("name").get_to(sub_domain.name);
-    j.at("type").get_to(sub_domain.type);
-    j.at("interface").get_to(sub_domain.interface);
-    j.at("ip_source").get_to(sub_domain.ip_source);
-    j.at("ip_source_param").get_to(sub_domain.ip_source_param);
-    j.at("driver_param").get_to(sub_domain.driver_param);
-    sub_domain.ip_type = get_optional<ip_version_type>(j, "ip_type").value_or(ip_version_type::UNSPECIFIED);
-    sub_domain.allow_ula = get_optional<bool>(j, "allow_ula").value_or(false);
-    sub_domain.allow_local_link = get_optional<bool>(j, "allow_local_link").value_or(false);
+void Config::from_json(const nlohmann::json &j, subdomain_config &subdomain) {
+    j.at("name").get_to(subdomain.name);
+    j.at("type").get_to(subdomain.type);
+    j.at("interface").get_to(subdomain.interface);
+    j.at("ip_source").get_to(subdomain.ip_source);
+    j.at("ip_source_param").get_to(subdomain.ip_source_param);
+    j.at("driver_param").get_to(subdomain.driver_param);
+    subdomain.ip_type = get_optional<ip_version_type>(j, "ip_type").value_or(ip_version_type::UNSPECIFIED);
+    subdomain.allow_ula = get_optional<bool>(j, "allow_ula").value_or(false);
+    subdomain.allow_local_link = get_optional<bool>(j, "allow_local_link").value_or(false);
 }
 
-void Config::from_json(const nlohmann::json &j, domains_config &domain) {
+void Config::from_json(const nlohmann::json &j, domain_config &domain) {
     j.at("name").get_to(domain.name);
     j.at("update_interval").get_to(domain.update_interval);
     j.at("force_update").get_to(domain.force_update);

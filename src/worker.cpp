@@ -24,7 +24,7 @@
 
 class Worker::Impl {
 public:
-    explicit Impl(const Config::domains_config &domain_config, const Config::resolver_config &resolver_config)
+    explicit Impl(const Config::domain_config &domain_config, const Config::resolver_config &resolver_config)
             : dns_server_(get_dns_server(resolver_config)), worker_config_(domain_config) {};
 
     ~Impl() = default;
@@ -35,7 +35,7 @@ public:
 
     std::optional<std::string> dns_lookup(std::string_view, dns_record_type);
 
-    static std::optional<std::string> get_ip_address(const Config::sub_domain_config &);
+    static std::optional<std::string> get_ip_address(const Config::subdomain_config &);
 
     static std::optional<std::string> update_dns_record(const driver_request &, ip_version_type, std::string_view);
 
@@ -62,7 +62,7 @@ public:
 public:
     const std::optional<dns_server> dns_server_;
 
-    const Config::domains_config &worker_config_;
+    const Config::domain_config &worker_config_;
 
     long force_update_counter_ = 0;
 
@@ -119,14 +119,14 @@ void Worker::Impl::run_scheduled_tasks() {
         SPDLOG_DEBUG("Update counter: {}, estimated elapsed time {} seconds, force update: {}", force_update_counter_,
                      force_update_counter_ * worker_config_.update_interval, force_update);
 
-        for (const auto &sub_domain: worker_config_.subdomains) {
-            auto fqdn = fmt::format("{}.{}", sub_domain.name, worker_config_.name);
+        for (const auto &config: worker_config_.subdomains) {
+            auto fqdn = fmt::format("{}.{}", config.name, worker_config_.name);
 
             try {
-                auto rd_type = to_string(sub_domain.type);
+                auto rd_type = to_string(config.type);
 
-                if (auto ip_addr = get_ip_address(sub_domain)) {
-                    auto record = dns_lookup(fqdn, sub_domain.type);
+                if (auto ip_addr = get_ip_address(config)) {
+                    auto record = dns_lookup(fqdn, config.type);
                     auto record_val = record.value_or("<empty>");
                     auto is_record_staled = record.has_value() && record.value() != *ip_addr;
                     // force update or ip not same or even no ip
@@ -136,9 +136,9 @@ void Worker::Impl::run_scheduled_tasks() {
                             force_update_counter_ = 0;
                         }
 
-                        auto parameters = driver_config_type{sub_domain.driver_param};
+                        auto parameters = driver_config_type{config.driver_param};
                         parameters.try_emplace("domain", worker_config_.name);
-                        parameters.try_emplace("subdomain", sub_domain.name);
+                        parameters.try_emplace("subdomain", config.name);
                         parameters.try_emplace("ip_addr", *ip_addr);
                         parameters.try_emplace("rd_type", rd_type);
                         parameters.try_emplace("fqdn", fqdn);
@@ -153,7 +153,7 @@ void Worker::Impl::run_scheduled_tasks() {
                                      driver->get_detail().name, request);
 
                         // update dns record via http request
-                        auto update_result = update_dns_record(request, sub_domain.ip_type, sub_domain.interface);
+                        auto update_result = update_dns_record(request, config.ip_type, config.interface);
                         if (update_result.has_value() && driver->check_response(*update_result)) {
                             SPDLOG_INFO("Update {}, type: {}, to {}", fqdn, rd_type, *ip_addr);
                         } else {
@@ -177,7 +177,7 @@ void Worker::Impl::run_scheduled_tasks() {
     }
 }
 
-std::optional<std::string> Worker::Impl::get_ip_address(const Config::sub_domain_config &config) {
+std::optional<std::string> Worker::Impl::get_ip_address(const Config::subdomain_config &config) {
     auto ip_type = dns2ip(config.type);
     if (config.ip_source == Config::ip_source_type::INTERFACE) {
         auto addresses = IPUtil::get_ip_from_interface(config.interface, ip_type);
@@ -319,7 +319,7 @@ std::optional<dns_server> Worker::Impl::get_dns_server(const Config::resolver_co
     return std::nullopt;
 }
 
-Worker::Worker(const Config::domains_config &domain_config, const Config::resolver_config &resolver_config) :
+Worker::Worker(const Config::domain_config &domain_config, const Config::resolver_config &resolver_config) :
         impl_(new Worker::Impl(domain_config, resolver_config)) {
 }
 

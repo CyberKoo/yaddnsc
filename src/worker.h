@@ -11,13 +11,13 @@
 #include <string_view>
 
 namespace Config {
-    struct domains_config;
+    struct domain_config;
     struct resolver_config;
 }
 
 class Worker {
 public:
-    explicit Worker(const Config::domains_config &, const Config::resolver_config &);
+    explicit Worker(const Config::domain_config &, const Config::resolver_config &);
 
     ~Worker() = default;
 
