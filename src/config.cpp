@@ -14,10 +14,12 @@
 #include "type.h"
 
 template<typename T>
-std::optional<T> get_optional(const nlohmann::json &j, const std::string &key) try {
-    return j.at(key).get<T>();
-} catch (const nlohmann::json::exception &) {
-    return std::nullopt;
+std::optional<T> get_optional(const nlohmann::json &j, const std::string &key) {
+    try {
+        return j.at(key).get<T>();
+    } catch (const nlohmann::json::exception &) {
+        return std::nullopt;
+    }
 }
 
 void Config::from_json(const nlohmann::json &j, driver_config &driver) {
@@ -75,6 +77,7 @@ NLOHMANN_JSON_SERIALIZE_ENUM(dns_record_type, {
     { dns_record_type::A, "a" },
     { dns_record_type::AAAA, "aaaa" },
     { dns_record_type::TXT, "txt" },
+    { dns_record_type::SOA, "soa" },
 })
 
 NLOHMANN_JSON_SERIALIZE_ENUM(ip_version_type, {

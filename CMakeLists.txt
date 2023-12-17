@@ -6,7 +6,7 @@ list(APPEND CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/cmake)
 option("LIBC_MUSL" "OFF")
 option("NO_RTTI" "OFF")
 
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra")
@@ -84,7 +84,7 @@ set(SPDLOG_FMT_EXTERNAL ON)
 add_subdirectory(deps/spdlog EXCLUDE_FROM_ALL)
 set_target_properties(spdlog PROPERTIES POSITION_INDEPENDENT_CODE ON)
 # define spdlog logging level
-add_compile_definitions(SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_DEBUG)
+add_compile_definitions(SPDLOG_ACTIVE_LEVEL=SPDLOG_LEVEL_DEBUG)
 
 # cpp-httplib
 add_compile_definitions(CPPHTTPLIB_OPENSSL_SUPPORT)

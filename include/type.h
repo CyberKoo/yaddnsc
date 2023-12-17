@@ -10,7 +10,7 @@ enum class ip_version_type {
 };
 
 enum class dns_record_type {
-    A, AAAA, TXT
+    A, AAAA, TXT, SOA
 };
 
 enum class dns_lookup_error_type {

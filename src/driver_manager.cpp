@@ -72,8 +72,7 @@ public:
     }
 
     // candidate for statically compiled driver
-    explicit Driver(IDriver *driver_ptr) : handle_{nullptr}, driver_(driver_ptr) {
-    }
+    explicit Driver(IDriver *driver_ptr) : handle_{nullptr}, driver_(driver_ptr) {}
 
     std::unique_ptr<IDriver> &get() {
         return driver_;

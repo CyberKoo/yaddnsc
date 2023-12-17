@@ -258,8 +258,6 @@ ip_version_type Worker::Impl::dns2ip(dns_record_type type) {
             return ip_version_type::IPV4;
         case dns_record_type::AAAA:
             return ip_version_type::IPV6;
-        case dns_record_type::TXT:
-            return ip_version_type::UNSPECIFIED;
         default:
             return ip_version_type::UNSPECIFIED;
     }
@@ -273,6 +271,8 @@ std::string_view Worker::Impl::to_string(dns_record_type type) {
             return "AAAA";
         case dns_record_type::TXT:
             return "TXT";
+        case dns_record_type::SOA:
+            return "SOA";
         default:
             return "UNKNOWN";
     }

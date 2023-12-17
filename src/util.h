@@ -12,6 +12,8 @@
 #include "exception/base_exception.h"
 
 namespace Util {
+    static constexpr int DOMAIN_NAME_MAX_LEN = 253;
+
     template<typename Enumeration>
     typename std::underlying_type<Enumeration>::type as_integer(Enumeration const value) {
         return static_cast<typename std::underlying_type<Enumeration>::type>(value);
@@ -44,6 +46,24 @@ namespace Util {
                 }
             }
         }
+    }
+
+    static bool is_valid_domain(std::string_view domain) {
+        const static std::regex domain_regex(
+                "^(((?!-))(xn--|_)?[a-z0-9-]{0,61}[a-z0-9]{1,1}\\.)*(xn--)?([a-z0-9][a-z0-9\\-]{0,60}|[a-z0-9-]{1,30}\\.[a-z]{2,})\\.?$");
+
+        if(domain.length() > DOMAIN_NAME_MAX_LEN) {
+            return false;
+        }
+
+        if (domain.find(".") != std::string_view::npos) {
+            std::cmatch match;
+            std::regex_match(domain.data(), match, domain_regex);
+
+            return !match.empty();
+        }
+
+        return false;
     }
 }
 
