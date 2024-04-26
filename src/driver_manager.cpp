@@ -7,6 +7,7 @@
 #include <dlfcn.h>
 
 #include <string>
+#include <algorithm>
 #include <filesystem>
 
 #include <fmt/format.h>

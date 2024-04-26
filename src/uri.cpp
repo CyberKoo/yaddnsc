@@ -5,6 +5,7 @@
 
 #include <string>
 #include <algorithm>
+
 #include <fmt/format.h>
 
 Uri Uri::parse(std::string_view uri) {
