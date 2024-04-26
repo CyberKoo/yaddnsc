@@ -6,7 +6,8 @@
 #define YADDNSC_CONFIG_H
 
 #include <string_view>
-#include "nlohmann/json_fwd.hpp"
+
+#include <nlohmann/json_fwd.hpp>
 
 enum class dns_record_type;
 enum class ip_version_type;

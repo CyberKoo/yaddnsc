@@ -4,10 +4,12 @@
 
 #include "manager.h"
 
+#include <thread>
 #include <algorithm>
 #include <filesystem>
 #include <unordered_set>
-#include <fmt/format.h>
+
+#include <fmt/core.h>
 #include <spdlog/spdlog.h>
 #include <config_cmake.h>
 
@@ -22,7 +24,8 @@
 
 class Manager::Impl {
 public:
-    explicit Impl(Config::config config) : config_(std::move(config)) {};
+    explicit Impl(Config::config config) : config_(std::move(config)) {
+    }
 
     ~Impl() = default;
 
@@ -31,7 +34,7 @@ public:
         std::unordered_set<T> seen;
 
         auto end = std::remove_if(vec.begin(), vec.end(), [&seen](const T &value) {
-            if (seen.find(value) != seen.end())
+            if (seen.contains(value))
                 return true;
 
             seen.insert(value);
@@ -41,7 +44,7 @@ public:
         vec.erase(end, vec.end());
     }
 
-    unsigned int estimated_threads();
+    unsigned int estimated_threads() const;
 
 public:
     static constexpr int MIN_UPDATE_INTERVAL = 60;
@@ -51,7 +54,7 @@ public:
     std::vector<Worker> workers_;
 };
 
-unsigned int Manager::Impl::estimated_threads() {
+unsigned int Manager::Impl::estimated_threads() const {
     unsigned int total_subdomains = 0;
     auto thread_count = std::thread::hardware_concurrency();
 
@@ -61,14 +64,16 @@ unsigned int Manager::Impl::estimated_threads() {
 
     if (total_subdomains < 2 || thread_count < 2) {
         return 2;
-    } else if (total_subdomains < thread_count) {
+    }
+
+    if (total_subdomains < thread_count) {
         return total_subdomains;
     }
 
     return thread_count;
 }
 
-void Manager::validate_config() {
+void Manager::validate_config() const {
     auto &context = Context::getInstance();
 
     auto drivers = context.driver_manager_->get_loaded_drivers();
@@ -76,22 +81,22 @@ void Manager::validate_config() {
 
     for (const auto &domain: impl_->config_.domains) {
         // check drivers
-        if (std::find(drivers.begin(), drivers.end(), domain.driver) == drivers.end()) {
+        if (std::ranges::find(drivers, domain.driver) == drivers.end()) {
             throw ConfigVerificationException(fmt::format("Driver {} not found", domain.driver));
         }
 
         // check update interval
         if (domain.update_interval < impl_->MIN_UPDATE_INTERVAL) {
             throw ConfigVerificationException(
-                    fmt::format("Update interval too low for domain {} ({}), minimal interval: {}", domain.name,
-                                domain.update_interval, impl_->MIN_UPDATE_INTERVAL));
+                fmt::format("Update interval too low for domain {} ({}), minimal interval: {}", domain.name,
+                            domain.update_interval, impl_->MIN_UPDATE_INTERVAL));
         }
 
         // check force update interval
         if (domain.force_update != 0 && domain.force_update < domain.update_interval) {
             throw ConfigVerificationException(
-                    fmt::format("Force update interval for domain {} must not be smaller than the update interval ({})",
-                                domain.name, domain.update_interval));
+                fmt::format("Force update interval for domain {} must not be smaller than the update interval ({})",
+                            domain.name, domain.update_interval));
         }
 
         // check interfaces
@@ -139,13 +144,13 @@ void Manager::load_drivers() const {
     }
 }
 
-void Manager::create_worker() {
+void Manager::create_worker() const {
     for (const auto &domain: impl_->config_.domains) {
         impl_->workers_.emplace_back(domain, impl_->config_.resolver);
     }
 }
 
-void Manager::run() {
+void Manager::run() const {
     // print all interfaces name
     auto interfaces = NetworkUtil::get_interfaces();
     SPDLOG_INFO("All available interfaces: {}", fmt::join(interfaces, ", "));
@@ -181,10 +186,7 @@ void Manager::run() {
     }
 }
 
-Manager::Manager(Config::config config) : impl_(new Impl(std::move(config))) {
-
+Manager::Manager(Config::config config) : impl_(std::make_unique<Impl>(std::move(config))) {
 }
 
-void Manager::ImplDeleter::operator()(Manager::Impl *ptr) {
-    delete ptr;
-}
+Manager::~Manager() = default;

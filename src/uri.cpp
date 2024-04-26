@@ -17,26 +17,28 @@ Uri Uri::parse(std::string_view uri) {
     result.raw_uri_ = uri;
 
     // get query start
-    auto query_start = std::find(uri.begin(), uri.end(), '?');
+    auto query_start = std::ranges::find(uri, '?');
 
     // schema
     auto schema_start = uri.begin();
     auto schema_end = std::find(schema_start, uri.end(), ':');
 
     if (schema_end != uri.end()) {
-        std::string port = &*(schema_end);
-        if ((port.length() > 3) && (port.substr(0, 3) == "://")) {
+        std::string port = schema_end;
+        if (port.length() > 3 && port.substr(0, 3) == "://") {
             result.schema_ = std::string(schema_start, schema_end);
 
-            std::transform(result.schema_.begin(), result.schema_.end(), result.schema_.begin(),
-                           [](unsigned char c) { return std::tolower(c); });
+            std::ranges::transform(
+                result.schema_, result.schema_.begin(),
+                [](unsigned char c) { return std::tolower(c); }
+            );
 
-            schema_end += 3;   //      ://
+            schema_end += 3; //      ://
         } else {
-            schema_end = uri.begin();  // no schema
+            schema_end = uri.begin(); // no schema
         }
     } else {
-        schema_end = uri.begin();  // no schema
+        schema_end = uri.begin(); // no schema
     }
 
     if (result.schema_.empty()) {
@@ -53,7 +55,7 @@ Uri Uri::parse(std::string_view uri) {
     result.host_ = std::string(host_start, host_end);
 
     // port
-    if ((host_end != uri.end()) && ((&*(host_end))[0] == ':')) {
+    if (host_end != uri.end() && host_end[0] == ':') {
         host_end++;
         auto portEnd = (path_start != uri.end()) ? path_start : query_start;
         auto port = std::string(host_end, portEnd);

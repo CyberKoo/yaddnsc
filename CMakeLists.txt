@@ -13,11 +13,12 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra")
 set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -ggdb -gdwarf-3 -Wall")
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/objs/lib)
 set(EXECUTABLE_OUTPUT_PATH ${CMAKE_BINARY_DIR}/objs)
+set(CMAKE_POLICY_DEFAULT_CMP0077 NEW)
 
 # yaddnsc version
 set(YADDNSC_VERSION_MAJOR 0)
-set(YADDNSC_VERSION_MINOR 1)
-set(YADDNSC_VERSION_PATCH 7)
+set(YADDNSC_VERSION_MINOR 2)
+set(YADDNSC_VERSION_PATCH 0)
 set(YADDNSC_DEVELOPMENT ON)
 set(YADDNSC_RELEASE_INFO RELEASE)
 set(YADDNSC_DRV_VERSION "1000000")
@@ -46,10 +47,9 @@ endif ()
 
 # include headers
 include_directories(${PROJECT_SOURCE_DIR}/include/)
-include_directories(${PROJECT_SOURCE_DIR}/deps/thread-pool)
+include_directories(${PROJECT_SOURCE_DIR}/deps/thread-pool/include)
 
 ## required modules ##
-find_package(Filesystem REQUIRED)
 find_package(ZLIB REQUIRED)
 find_package(OpenSSL REQUIRED)
 ## required modules ##
@@ -123,7 +123,7 @@ target_link_libraries(yaddnsc PRIVATE string_util network_util)
 
 # link third party libraries
 target_link_libraries(yaddnsc PRIVATE httplib spdlog::spdlog fmt::fmt OpenSSL::SSL OpenSSL::Crypto ZLIB::ZLIB
-        cxxopts::cxxopts std::filesystem nlohmann_json::nlohmann_json ${CMAKE_DL_LIBS})
+        cxxopts::cxxopts nlohmann_json::nlohmann_json ${CMAKE_DL_LIBS})
 
 # libresolv is needed on linux, but not on BSDs, so only link it if we can find it
 find_library(RESOLV resolv)

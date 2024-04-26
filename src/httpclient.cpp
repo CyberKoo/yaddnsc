@@ -4,6 +4,7 @@
 #include "httpclient.h"
 
 #include <filesystem>
+
 #include <httplib.h>
 #include <spdlog/spdlog.h>
 
@@ -43,29 +44,29 @@ httplib::Client HttpClient::connect(const Uri &uri, int family, const char *nif_
 
 httplib::Result HttpClient::get(const Uri &uri, int family, const char *nif_name) {
     auto client = HttpClient::connect(uri, family, nif_name);
-    return client.Get(HttpClient::build_request(uri).c_str());
+    return client.Get(build_request(uri).c_str());
 }
 
 httplib::Result HttpClient::post(const Uri &uri, const param_type &parameters, int family, const char *nif_name) {
     SPDLOG_TRACE("Post to uri {}", uri.get_raw_uri());
 
     auto client = HttpClient::connect(uri, family, nif_name);
-    return client.Post(HttpClient::build_request(uri).c_str(), parameters);
+    return client.Post(build_request(uri).c_str(), parameters);
 }
 
 httplib::Result HttpClient::put(const Uri &uri, const param_type &parameters, int family, const char *nif_name) {
     SPDLOG_TRACE("Put to uri {}", uri.get_raw_uri());
 
     auto client = HttpClient::connect(uri, family, nif_name);
-    return client.Put(HttpClient::build_request(uri).c_str(), parameters);
+    return client.Put(build_request(uri).c_str(), parameters);
 }
 
 std::string HttpClient::build_request(const Uri &uri) {
     if (uri.get_query_string().empty()) {
         return uri.get_path().data();
-    } else {
-        return fmt::format("{}?{}", uri.get_path(), uri.get_query_string());
     }
+
+    return fmt::format("{}?{}", uri.get_path(), uri.get_query_string());
 }
 
 std::string_view get_system_ca_path() {

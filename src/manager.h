@@ -5,33 +5,26 @@
 #ifndef YADDNSC_MANAGER_H
 #define YADDNSC_MANAGER_H
 
-#include <vector>
-#include <thread>
-
 #include "config.h"
 
 class Manager {
 public:
     explicit Manager(Config::config);
 
-    ~Manager() = default;
+    ~Manager();
 
-    void validate_config();
+    void validate_config() const;
 
     void load_drivers() const;
 
-    void create_worker();
+    void create_worker() const;
 
-    void run();
+    void run() const;
 
 private:
     class Impl;
 
-    struct ImplDeleter {
-        void operator()(Impl *);
-    };
-
-    std::unique_ptr<Impl, ImplDeleter> impl_;
+    std::unique_ptr<Impl> impl_;
 };
 
 #endif //YADDNSC_MANAGER_H

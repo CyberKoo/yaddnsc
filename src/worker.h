@@ -6,9 +6,6 @@
 #define YADDNSC_WORKER_H
 
 #include <memory>
-#include <vector>
-#include <optional>
-#include <string_view>
 
 namespace Config {
     struct domain_config;
@@ -19,22 +16,18 @@ class Worker {
 public:
     explicit Worker(const Config::domain_config &, const Config::resolver_config &);
 
-    ~Worker() = default;
+    ~Worker();
 
     Worker(Worker &&) = default;
 
-    void run();
+    void run() const;
 
     static void set_concurrency(unsigned int);
 
 private:
     class Impl;
 
-    struct ImplDeleter {
-        void operator()(Impl *);
-    };
-
-    std::unique_ptr<Impl, ImplDeleter> impl_;
+    std::unique_ptr<Impl, void(*)(const Impl *)> impl_;
 };
 
 #endif //YADDNSC_WORKER_H

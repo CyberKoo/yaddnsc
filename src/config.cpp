@@ -98,7 +98,7 @@ Config::config Config::load_config(std::string_view config_path) {
 
     try {
         auto json = nlohmann::json::parse(fin);
-        return json.get<Config::config>();
+        return json.get<config>();
     } catch (nlohmann::detail::parse_error &e) {
         throw std::runtime_error(fmt::format("failed to parse config file, error {}", e.what()));
     }

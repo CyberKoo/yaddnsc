@@ -3,13 +3,9 @@
 //
 
 #include "context.h"
-#include "IDriver.h"
 #include "driver_manager.h"
 
-void Context::DriverManagerDeleter::operator()(DriverManager *ptr) {
-    delete ptr;
+Context::Context() : driver_manager_(std::make_unique<DriverManager>()) {
 }
 
-Context::Context() : driver_manager_(new DriverManager) {
-
-}
+Context::~Context() = default;

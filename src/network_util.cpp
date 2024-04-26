@@ -21,11 +21,11 @@ struct interface_addrs {
     int inet_type;
 };
 
-using ifaddrs_ptr_t = std::unique_ptr<ifaddrs, std::function<void(ifaddrs *)>>;
+using ifaddrs_ptr_t = std::unique_ptr<ifaddrs, std::function<void(ifaddrs *)> >;
 
 ifaddrs_ptr_t get_ifaddrs();
 
-std::map<std::string, std::vector<interface_addrs>> get_all_ip_addresses();
+std::map<std::string, std::vector<interface_addrs> > get_all_ip_addresses();
 
 size_t get_address_struct_size(int);
 
@@ -53,14 +53,13 @@ std::map<std::string, int> NetworkUtil::get_nif_ip_address(std::string_view nif)
         );
 
         return nif_ip_addrs;
-
-    } else {
-        throw std::runtime_error(std::string("Interface ") + nif.data() + " not found");
     }
+
+    throw std::runtime_error(std::string("Interface ") + nif.data() + " not found");
 }
 
-std::map<std::string, std::vector<interface_addrs>> get_all_ip_addresses() {
-    std::map<std::string, std::vector<interface_addrs>> address_map;
+std::map<std::string, std::vector<interface_addrs> > get_all_ip_addresses() {
+    std::map<std::string, std::vector<interface_addrs> > address_map;
 
     auto ifaddrs = get_ifaddrs();
     for (auto ifa = ifaddrs.get(); ifa != nullptr; ifa = ifa->ifa_next) {
@@ -89,7 +88,7 @@ std::map<std::string, std::vector<interface_addrs>> get_all_ip_addresses() {
 }
 
 ifaddrs_ptr_t get_ifaddrs() {
-    struct ifaddrs *ifaddr;
+    ifaddrs *ifaddr;
 
     if (getifaddrs(&ifaddr) == -1) {
         throw std::runtime_error("getifaddrs() error");
@@ -99,5 +98,5 @@ ifaddrs_ptr_t get_ifaddrs() {
 }
 
 size_t get_address_struct_size(int family) {
-    return family == AF_INET6 ? sizeof(struct sockaddr_in6) : sizeof(struct sockaddr_in);
+    return family == AF_INET6 ? sizeof(sockaddr_in6) : sizeof(sockaddr_in);
 }

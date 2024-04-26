@@ -12,6 +12,7 @@
 #include <sys/socket.h>
 #include <resolv.h>
 #include <netdb.h>
+
 #include <config_cmake.h>
 
 #include "ip_util.h"
@@ -55,9 +56,7 @@ DNS::resolve(std::string_view host, dns_record_type type, const std::optional<dn
                                                  strerror(errno)), dns_lookup_error_type::PARSE);
         }
 
-        auto dns_rr_type = ns_rr_type(dns_resource);
-
-        switch (dns_rr_type) {
+        switch (auto dns_rr_type = ns_rr_type(dns_resource)) {
             case ns_t_a: {
                 char address_buffer[INET6_ADDRSTRLEN] = {};
                 inet_ntop(AF_INET, ns_rr_rdata(dns_resource), address_buffer, INET6_ADDRSTRLEN);
@@ -107,7 +106,11 @@ DNS::resolve(std::string_view host, dns_record_type type, const std::optional<dn
                 break;
             }
             default:
-                throw DnsLookupException(fmt::format("DNS parsing: {} is not supported yet", dns_rr_type));
+                throw DnsLookupException(
+                    fmt::format("DNS parsing: {} is not supported yet",
+                                static_cast<std::underlying_type_t<ns_type>>(dns_rr_type)
+                    )
+                );
         }
     }
 
@@ -115,7 +118,7 @@ DNS::resolve(std::string_view host, dns_record_type type, const std::optional<dn
 }
 
 std::basic_string<unsigned char>
-query(std::string_view host, dns_record_type type, [[maybe_unused]]const std::optional<dns_server> &server) {
+query(std::string_view host, dns_record_type type, [[maybe_unused]] const std::optional<dns_server> &server) {
     int buffer_size = MAXIMUM_UDP_SIZE;
 
 #ifdef HAVE_RES_NQUERY
@@ -146,10 +149,10 @@ query(std::string_view host, dns_record_type type, [[maybe_unused]]const std::op
 #ifdef HAVE_RES_STATE_EXT_NSADDRS // glibc
             local_state._u._ext.nscount6 = 1;
             local_state._u._ext.nsmap[0] = MAXNS + 1;
-            struct sockaddr_in6 *sa6 = local_state._u._ext.nsaddrs[0];
+            sockaddr_in6 *sa6 = local_state._u._ext.nsaddrs[0];
             if (sa6 == nullptr) {
                 // Memory allocated here will be free'd in res_nclose() as we have done res_ninit() above.
-                sa6 = ccalloc<struct sockaddr_in6>(1);
+                sa6 = ccalloc<sockaddr_in6>(1);
                 local_state._u._ext.nsaddrs[0] = sa6;
             }
 

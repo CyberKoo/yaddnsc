@@ -1,6 +1,7 @@
 //
 // Created by Kotarou on 2022/4/5.
 //
+#include <iostream>
 
 #include <cxxopts.hpp>
 #include <spdlog/spdlog.h>
@@ -80,9 +81,9 @@ int main(int argc, char *argv[]) {
         return 0;
     } catch (ConfigVerificationException &e) {
         SPDLOG_CRITICAL(e.what());
-    } catch (YaddnscException &e) {
+    } catch (YaddnscException &) {
         SPDLOG_CRITICAL("Program crashed due to an unrecoverable error.");
-    } catch (cxxopts::OptionException &e) {
+    } catch (cxxopts::exceptions::exception &e) {
         SPDLOG_CRITICAL(e.what());
     } catch (std::exception &e) {
         SPDLOG_CRITICAL("Unhandled exception, error: {}", e.what());

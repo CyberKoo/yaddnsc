@@ -5,7 +5,9 @@
 #include "worker.h"
 
 #include <thread>
+
 #include <httplib.h>
+#include <fmt/format.h>
 #include <spdlog/spdlog.h>
 #include <BS_thread_pool.hpp>
 
@@ -25,7 +27,8 @@
 class Worker::Impl {
 public:
     explicit Impl(const Config::domain_config &domain_config, const Config::resolver_config &resolver_config)
-            : dns_server_(get_dns_server(resolver_config)), worker_config_(domain_config) {};
+        : dns_server_(get_dns_server(resolver_config)), worker_config_(domain_config) {
+    }
 
     ~Impl() = default;
 
@@ -33,7 +36,7 @@ public:
 
     [[nodiscard]] bool is_forced_update() const;
 
-    std::optional<std::string> dns_lookup(std::string_view, dns_record_type);
+    std::optional<std::string> dns_lookup(std::string_view, dns_record_type) const;
 
     static std::optional<std::string> get_ip_address(const Config::subdomain_config &);
 
@@ -51,11 +54,11 @@ public:
 
     static bool is_ipv6_ula(const std::string &);
 
-    static bool is_ipv6_local_link(const struct in6_addr *);
+    static bool is_ipv6_local_link(const in6_addr *);
 
-    static bool is_ipv6_site_local(const struct in6_addr *);
+    static bool is_ipv6_site_local(const in6_addr *);
 
-    static bool is_ipv6_unique_local(const struct in6_addr *);
+    static bool is_ipv6_unique_local(const in6_addr *);
 
     static inline std::optional<dns_server> get_dns_server(const Config::resolver_config &) noexcept;
 
@@ -71,37 +74,97 @@ public:
     static constexpr int RESOLVER_RETRY_BACKOFF = 1000;
 };
 
-void Worker::run() {
+template<>
+struct fmt::formatter<driver_request> {
+    static std::string_view to_string(driver_http_method_type type) {
+        switch (type) {
+            case driver_http_method_type::GET:
+                return "GET";
+            case driver_http_method_type::POST:
+                return "POST";
+            case driver_http_method_type::PUT:
+                return "PUT";
+            default:
+                return "UNKNOWN";
+        }
+    }
+
+    template<typename Iter>
+    std::string format_map(Iter first, Iter last) {
+        std::string buf;
+
+        for (auto begin = first, it = begin, end = last; it != end; ++it) {
+            buf.append(it->first);
+            buf.append("=");
+            buf.append(it->second);
+            buf.append("; ");
+        }
+
+        if (!buf.empty() && buf.size() >= 2) {
+            buf.erase(buf.end() - 2);
+        }
+
+        return buf;
+    }
+
+    static constexpr auto parse(format_parse_context &ctx) -> decltype(ctx.begin()) {
+        return ctx.begin();
+    }
+
+    template<typename FormatContext>
+    auto format(const driver_request &request, FormatContext &ctx) -> decltype(ctx.out()) {
+        std::string body_type;
+        std::string body;
+
+        std::visit([&]<typename T>(const T &body_) {
+                       if constexpr (std::is_same_v<T, driver_param_type>) {
+                           body_type = "map";
+                           body = format_map(body_.begin(), body_.end());
+                       } else if constexpr (std::is_same_v<T, std::string>) {
+                           body_type = "string";
+                           body = body_;
+                       }
+                   }, request.body
+        );
+
+        return fmt::format_to(ctx.out(),
+                              R"(driver_request(url="{}", body_type="{}", body="{}", content_type="{}", request_method="{}", header="{}"))",
+                              request.url, body_type, body, request.content_type, to_string(request.request_method),
+                              format_map(request.header.begin(), request.header.end()));
+    }
+};
+
+void Worker::run() const {
     SPDLOG_INFO(R"(Worker for domain "{}" started, update interval: {}s)", impl_->worker_config_.name,
                 impl_->worker_config_.update_interval);
     auto &context = Context::getInstance();
     auto &thread_pool = impl_->get_thread_pool();
 
     std::mutex mutex;
-    std::unique_lock<std::mutex> lock(mutex);
+    std::unique_lock lock(mutex);
     auto update_interval = std::chrono::seconds(impl_->worker_config_.update_interval);
 
     while (!context.terminate_) {
-        thread_pool.push_task([_impl_ptr = impl_.get()] { _impl_ptr->run_scheduled_tasks(); });
+        thread_pool.detach_task([_impl_ptr = impl_.get()] { _impl_ptr->run_scheduled_tasks(); });
         context.condition_.wait_for(lock, update_interval, [&context]() { return context.terminate_; });
     }
 }
 
-std::optional<std::string> Worker::Impl::dns_lookup(std::string_view host, dns_record_type type) {
+std::optional<std::string> Worker::Impl::dns_lookup(std::string_view host, dns_record_type type) const {
     try {
         return Util::retry_on_exception<std::string, DnsLookupException>(
-                [&]() {
-                    auto dns_answer = DNS::resolve(host, type, dns_server_);
-                    if (dns_answer.size() > 1) {
-                        SPDLOG_WARN(R"(Domain "{}" resolved more than one address (count: {}))", host,
-                                    dns_answer.size());
-                    }
+            [&] {
+                auto dns_answer = DNS::resolve(host, type, dns_server_);
+                if (dns_answer.size() > 1) {
+                    SPDLOG_WARN(R"(Domain "{}" resolved more than one address (count: {}))", host,
+                                dns_answer.size());
+                }
 
-                    return dns_answer.front();
-                }, RESOLVER_RETRY,
-                [](const DnsLookupException &e) {
-                    return e.get_error() == dns_lookup_error_type::RETRY;
-                }, RESOLVER_RETRY_BACKOFF
+                return dns_answer.front();
+            }, RESOLVER_RETRY,
+            [](const DnsLookupException &e) {
+                return e.get_error() == dns_lookup_error_type::RETRY;
+            }, RESOLVER_RETRY_BACKOFF
         );
     } catch (DnsLookupException &e) {
         SPDLOG_WARN("DNS lookup for domain {} type: {} failed after {} retries. Error: {}", host, to_string(type),
@@ -149,8 +212,8 @@ void Worker::Impl::run_scheduled_tasks() {
                         }
 
                         auto request = driver->generate_request(parameters);
-                        SPDLOG_DEBUG("Received DNS record update request from driver {}, {}",
-                                     driver->get_detail().name, request);
+                        SPDLOG_DEBUG("Received DNS record update request from driver {}, {}", driver->get_detail().name,
+                                     request);
 
                         // update dns record via http request
                         auto update_result = update_dns_record(request, config.ip_type, config.interface);
@@ -185,12 +248,12 @@ std::optional<std::string> Worker::Impl::get_ip_address(const Config::subdomain_
         if (ip_type == ip_version_type::IPV6) {
             // filter out local link
             if (!config.allow_local_link) {
-                addresses.erase(std::remove_if(addresses.begin(), addresses.end(), &is_ipv6_la), addresses.end());
+                std::erase_if(addresses, &is_ipv6_la);
             }
 
             // filter out ula
             if (!config.allow_ula) {
-                addresses.erase(std::remove_if(addresses.begin(), addresses.end(), &is_ipv6_ula), addresses.end());
+                std::erase_if(addresses, &is_ipv6_ula);
             }
         }
 
@@ -210,11 +273,10 @@ Worker::Impl::do_http_request(const driver_request &request, ip_version_type ver
     auto path = HttpClient::build_request(uri);
     auto headers = httplib::Headers{request.header.begin(), request.header.end()};
     auto client = HttpClient::connect(uri, IPUtil::ip2af(version), nif.data());
-    auto post = [&client](auto ...args) { return client.Post(std::move(args)...); };
-    auto put = [&client](auto ...args) { return client.Put(std::move(args)...); };
+    auto post = [&client](auto... args) { return client.Post(std::move(args)...); };
+    auto put = [&client](auto... args) { return client.Put(std::move(args)...); };
     auto requester_factory = [&](const auto &request_method) {
-        return [&](const auto &body) {
-            using T = std::decay_t<decltype(body)>;
+        return [&]<typename T>(const T &body) {
             if constexpr (std::is_same_v<T, driver_param_type>)
                 return request_method(path.c_str(), headers, body);
             else if constexpr (std::is_same_v<T, std::string>)
@@ -240,10 +302,9 @@ Worker::Impl::update_dns_record(const driver_request &request, ip_version_type v
 
     if (response) {
         return response->body;
-    } else {
-        SPDLOG_ERROR("HTTP request failed, error: {}", httplib::to_string(response.error()));
     }
 
+    SPDLOG_ERROR("HTTP request failed, error: {}", httplib::to_string(response.error()));
     return std::nullopt;
 }
 
@@ -285,30 +346,30 @@ BS::thread_pool &Worker::Impl::get_thread_pool() {
 }
 
 bool Worker::Impl::is_ipv6_local_link(const in6_addr *addr) {
-    return (addr->s6_addr[0] == 0xfe && ((addr->s6_addr[1] & 0xc0) == 0x80));
+    return addr->s6_addr[0] == 0xfe && (addr->s6_addr[1] & 0xc0) == 0x80;
 }
 
 bool Worker::Impl::is_ipv6_site_local(const in6_addr *addr) {
-    return (addr->s6_addr[0] == 0xfe && ((addr->s6_addr[1] & 0xc0) == 0xc0));
+    return addr->s6_addr[0] == 0xfe && (addr->s6_addr[1] & 0xc0) == 0xc0;
 }
 
 bool Worker::Impl::is_ipv6_unique_local(const in6_addr *addr) {
-    return (addr->s6_addr[0] == 0xfc || addr->s6_addr[0] == 0xfd);
+    return addr->s6_addr[0] == 0xfc || addr->s6_addr[0] == 0xfd;
 }
 
 bool Worker::Impl::is_ipv6_ula(const std::string &ip_addr) {
-    struct sockaddr_in6 sa{};
+    sockaddr_in6 sa{};
     inet_pton(AF_INET6, ip_addr.data(), &(sa.sin6_addr));
     return is_ipv6_unique_local(&sa.sin6_addr);
 }
 
 bool Worker::Impl::is_ipv6_la(const std::string &ip_addr) {
-    struct sockaddr_in6 sa{};
-    if (inet_pton(AF_INET6, ip_addr.data(), &(sa.sin6_addr))) {
+    sockaddr_in6 sa{};
+    if (inet_pton(AF_INET6, ip_addr.data(), &sa.sin6_addr)) {
         return is_ipv6_local_link(&sa.sin6_addr) || is_ipv6_site_local(&sa.sin6_addr);
-    } else {
-        return true;
     }
+
+    return true;
 }
 
 std::optional<dns_server> Worker::Impl::get_dns_server(const Config::resolver_config &config) noexcept {
@@ -319,10 +380,6 @@ std::optional<dns_server> Worker::Impl::get_dns_server(const Config::resolver_co
     return std::nullopt;
 }
 
-Worker::Worker(const Config::domain_config &domain_config, const Config::resolver_config &resolver_config) :
-        impl_(new Worker::Impl(domain_config, resolver_config)) {
-}
-
 void Worker::set_concurrency(unsigned int thread_count) {
     SPDLOG_INFO("Set worker thread-pool size to {}", thread_count);
     if (Impl::get_thread_pool().get_thread_count() != thread_count) {
@@ -330,68 +387,8 @@ void Worker::set_concurrency(unsigned int thread_count) {
     }
 }
 
-void Worker::ImplDeleter::operator()(Worker::Impl *ptr) {
-    delete ptr;
+Worker::Worker(const Config::domain_config &domain_config, const Config::resolver_config &resolver_config) : impl_(
+    new Impl(domain_config, resolver_config), [](const Impl *ptr) { delete ptr; }) {
 }
 
-template<>
-struct fmt::formatter<driver_request> {
-    static std::string_view to_string(driver_http_method_type type) {
-        switch (type) {
-            case driver_http_method_type::GET:
-                return "GET";
-            case driver_http_method_type::POST:
-                return "POST";
-            case driver_http_method_type::PUT:
-                return "PUT";
-            default:
-                return "UNKNOWN";
-        }
-    }
-
-    template<typename Iter>
-    std::string format_map(Iter first, Iter last) {
-        std::string buf;
-
-        for (Iter begin = first, it = begin, end = last; it != end; ++it) {
-            buf.append(it->first);
-            buf.append("=");
-            buf.append(it->second);
-            buf.append("; ");
-        }
-
-        if (!buf.empty() && buf.size() >= 2) {
-            buf.erase(buf.end() - 2);
-        }
-
-        return buf;
-    }
-
-    static constexpr auto parse(format_parse_context &ctx) -> decltype(ctx.begin()) {
-        return ctx.end();
-    }
-
-    template<typename FormatContext>
-    auto format(const driver_request &request, FormatContext &ctx) -> decltype(ctx.out()) {
-        std::string body_type;
-        std::string body;
-
-        std::visit([&](const auto &body_) {
-                       using T = std::decay_t<decltype(body_)>;
-                       if constexpr (std::is_same_v<T, driver_param_type>) {
-                           body_type = "map";
-                           body = format_map(body_.begin(), body_.end());
-                       } else if constexpr (std::is_same_v<T, std::string>) {
-                           body_type = "string";
-                           body = body_;
-                       }
-                   }, request.body
-        );
-
-        return format_to(ctx.out(),
-                         R"(driver_request(url="{}", body_type="{}", body="{}", content_type="{}", request_method="{}", header="{}"))",
-                         request.url, body_type, body, request.content_type, to_string(request.request_method),
-                         format_map(request.header.begin(), request.header.end()));
-
-    }
-};
+Worker::~Worker() = default;

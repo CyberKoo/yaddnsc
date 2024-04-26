@@ -16,7 +16,7 @@ void StringUtil::to_lower(std::string &_str) {
 // from https://stackoverflow.com/questions/216823/whats-the-best-way-to-trim-stdstring
 // trim from start (in place)
 void StringUtil::ltrim(std::string &s) {
-    s.erase(s.begin(), std::find_if(s.begin(), s.end(), [](int ch) {
+    s.erase(s.begin(), std::ranges::find_if(s, [](int ch) {
         return !std::isspace(ch);
     }));
 }
@@ -30,25 +30,25 @@ void StringUtil::rtrim(std::string &s) {
 
 // trim from both ends (in place)
 void StringUtil::trim(std::string &s) {
-    StringUtil::ltrim(s);
-    StringUtil::rtrim(s);
+    ltrim(s);
+    rtrim(s);
 }
 
 // trim from start (copying)
 std::string StringUtil::ltrim_copy(std::string s) {
-    StringUtil::ltrim(s);
+    ltrim(s);
     return s;
 }
 
 // trim from end (copying)
 std::string StringUtil::rtrim_copy(std::string s) {
-    StringUtil::rtrim(s);
+    rtrim(s);
     return s;
 }
 
 // trim from both ends (copying)
 std::string StringUtil::trim_copy(std::string s) {
-    StringUtil::trim(s);
+    trim(s);
     return s;
 }
 

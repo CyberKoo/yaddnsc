@@ -6,31 +6,30 @@
 #define YADDNSC_CONTEXT_H
 
 #include <memory>
+#include <string>
 #include <condition_variable>
 
 #include "base_classes.h"
 
 class DriverManager;
 
-class Context : public RestrictedClass {
-private:
-    struct DriverManagerDeleter {
-        void operator()(DriverManager *);
-    };
-
+class Context final : public RestrictedClass {
 public:
     static Context &getInstance() {
         static Context instance;
         return instance;
     }
 
-    std::unique_ptr<DriverManager, DriverManagerDeleter> driver_manager_{};
+    ~Context() override;
+
+    std::unique_ptr<DriverManager> driver_manager_{};
 
     std::string config_path_{};
 
     bool terminate_{false};
 
     std::condition_variable condition_{};
+
 private:
     Context();
 };
