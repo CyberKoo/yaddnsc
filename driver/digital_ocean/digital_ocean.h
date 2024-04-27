@@ -20,7 +20,7 @@ public:
     [[nodiscard]] driver_detail get_detail() const override;
 };
 
-extern "C" [[maybe_unused]] IDriver *create() {
+extern "C" inline IDriver *create() {
     return new DigitalOceanDriver;
 }
 

@@ -23,7 +23,7 @@ private:
     static std::map<std::string, std::string> get_format_params(const driver_config_type &config);
 };
 
-extern "C" [[maybe_unused]] IDriver *create() {
+extern "C" inline IDriver *create() {
     return new SimpleDriver;
 }
 

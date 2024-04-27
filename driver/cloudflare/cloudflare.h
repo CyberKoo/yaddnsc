@@ -23,7 +23,7 @@ private:
     static std::string generate_body(const driver_config_type &);
 };
 
-extern "C" [[maybe_unused]] IDriver *create() {
+extern "C" inline IDriver *create() {
     return new CloudflareDriver;
 }
 

@@ -7,7 +7,7 @@
 
 #include "../base_driver.h"
 
-class DNSPodDriver : public BaseDriver {
+class DNSPodDriver final : public BaseDriver {
 public:
     DNSPodDriver();
 
@@ -18,7 +18,7 @@ public:
     [[nodiscard]] driver_detail get_detail() const override;
 };
 
-extern "C" [[maybe_unused]] IDriver *create() {
+extern "C" inline IDriver *create() {
     return new DNSPodDriver;
 }
 

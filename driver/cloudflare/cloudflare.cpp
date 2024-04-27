@@ -1,9 +1,6 @@
 //
 // Created by Kotarou on 2022/4/5.
 //
-
-#include <any>
-#include <fmt/format.h>
 #include <nlohmann/json.hpp>
 
 #include "cloudflare.h"
@@ -25,10 +22,12 @@ driver_request CloudflareDriver::generate_request(const driver_config_type &conf
 
     driver_request request{};
     request.header.insert({"Authorization", fmt::format("Bearer {}", config.at("token"))});
-    request.url = vformat(API_URL, {
-            {"ZONE_ID",   config.at("zone_id")},
+    request.url = vformat(
+        API_URL, {
+            {"ZONE_ID", config.at("zone_id")},
             {"RECORD_ID", config.at("record_id")}
-    });
+        }
+    );
     request.body = generate_body(config);
     request.content_type = "application/json";
     request.request_method = driver_http_method_type::PUT;
@@ -53,9 +52,9 @@ std::string CloudflareDriver::generate_body(const driver_config_type &config) {
 
 driver_detail CloudflareDriver::get_detail() const {
     return {
-            .name = "cloudflare",
-            .description="Cloudflare DDNS driver",
-            .author="Kotarou",
-            .version = "1.0.0"
+        .name = "cloudflare",
+        .description = "Cloudflare DDNS driver",
+        .author = "Kotarou",
+        .version = "1.0.0"
     };
 }

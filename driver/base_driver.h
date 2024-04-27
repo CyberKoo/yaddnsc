@@ -9,6 +9,7 @@
 #include <string>
 #include <vector>
 #include <optional>
+#include <algorithm>
 
 #include <fmt/args.h>
 #include <spdlog/spdlog.h>
@@ -21,14 +22,14 @@ class BaseDriver : public IDriver {
 public:
     void check_required_params(const driver_config_type &config) const {
         for (auto &name: required_param_) {
-            if (config.find(name) == config.end()) {
+            if (!config.contains(name)) {
                 throw MissingRequiredParamException(fmt::format("Missing required parameter \"{}\"", name));
             }
         }
     }
 
     static std::optional<std::string> get_optional(const driver_config_type &config, std::string_view name) {
-        if (config.find(name.data()) != config.end()) {
+        if (config.contains(name.data())) {
             return {config.at(name.data())};
         }
 
@@ -36,13 +37,13 @@ public:
     }
 
     static std::string vformat(std::string_view format, const std::vector<std::string_view> &args) {
-        std::vector<fmt::basic_format_arg<fmt::format_context>> fmt_args;
+        std::vector<fmt::basic_format_arg<fmt::format_context> > fmt_args;
 
-        std::transform(args.begin(), args.end(), std::back_inserter(fmt_args), [](std::string_view arg) {
+        std::ranges::transform(args, std::back_inserter(fmt_args), [](std::string_view arg) {
             return fmt::detail::make_arg<fmt::format_context>(arg);
         });
 
-        return fmt::vformat(format, fmt::basic_format_args<fmt::format_context>(fmt_args.data(), static_cast<int>(fmt_args.size())));
+        return fmt::vformat(format, fmt::basic_format_args(fmt_args.data(), static_cast<int>(fmt_args.size())));
     }
 
     static std::string vformat(std::string_view format, const std::map<std::string, std::string> &args) {
@@ -55,9 +56,9 @@ public:
         return fmt::vformat(format, store);
     }
 
-     [[nodiscard]] std::string_view get_driver_version() const final {
+    [[nodiscard]] std::string_view get_driver_version() const final {
         return DRV_VERSION;
-    };
+    }
 
     void init_logger(int level, std::string_view pattern) final {
         spdlog::set_level(static_cast<spdlog::level::level_enum>(level));

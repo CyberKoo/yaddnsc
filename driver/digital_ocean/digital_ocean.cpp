@@ -20,10 +20,12 @@ driver_request DigitalOceanDriver::generate_request(const driver_config_type &co
 
     driver_request request{};
     request.header.insert({"Authorization", fmt::format("Bearer {}", config.at("token"))});
-    request.url = vformat(API_URL, {
-            {"DOMAIN",    config.at("domain")},
+    request.url = vformat(
+        API_URL, {
+            {"DOMAIN", config.at("domain")},
             {"RECORD_ID", config.at("record_id")}
-    });
+        }
+    );
     request.body = nlohmann::json({{"data", config.at("ip_addr")}}).dump();
     request.content_type = "application/json";
     request.request_method = driver_http_method_type::PUT;
@@ -36,22 +38,22 @@ bool DigitalOceanDriver::check_response(std::string_view response) const {
     auto json = nlohmann::json::parse(response);
     if (json.contains("domain_record")) {
         return true;
-    } else {
-        if (json.contains("message")) {
-            SPDLOG_ERROR("Error from server: {}", json["message"].get<std::string>());
-        } else {
-            SPDLOG_ERROR("Server return an unknown error, raw response: {}", response);
-        }
-
-        return false;
     }
+
+    if (json.contains("message")) {
+        SPDLOG_ERROR("Error from server: {}", json["message"].get<std::string>());
+    } else {
+        SPDLOG_ERROR("Server return an unknown error, raw response: {}", response);
+    }
+
+    return false;
 }
 
 driver_detail DigitalOceanDriver::get_detail() const {
     return {
-            .name = "digital_ocean",
-            .description="Digital Ocean DDNS driver",
-            .author="Kotarou",
-            .version = "1.0.0"
+        .name = "digital_ocean",
+        .description = "Digital Ocean DDNS driver",
+        .author = "Kotarou",
+        .version = "1.0.0"
     };
 }
