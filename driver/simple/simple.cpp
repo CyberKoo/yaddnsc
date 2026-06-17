@@ -8,10 +8,6 @@
 
 DEFINE_DRIVER_CREATE(SimpleDriver)
 
-SimpleDriver::SimpleDriver() {
-    required_param_.emplace_back("url");
-}
-
 driver_request SimpleDriver::generate_request(const driver_config_type &config) const {
     check_required_params(config);
 
@@ -30,7 +26,7 @@ driver_request SimpleDriver::generate_request(const driver_config_type &config) 
 
 std::map<std::string, std::string> SimpleDriver::get_format_params(const driver_config_type &config) {
     std::map<std::string, std::string> params;
-    for (auto &[key, val]: config) {
+    for (auto [key, val]: config) {
         if (key.front() == '{' and key.back() == '}') {
             params.emplace(key.substr(1, key.size() - 2), val);
         }

@@ -76,8 +76,8 @@ struct glz::meta<Config::ip_source_type> {
 };
 
 template<>
-struct glz::meta<dns_record_type> {
-    using enum dns_record_type;
+struct glz::meta<dns_type> {
+    using enum dns_type;
     static constexpr auto value = enumerate(
         "a", A,
         "aaaa", AAAA,
@@ -87,8 +87,8 @@ struct glz::meta<dns_record_type> {
 };
 
 template<>
-struct glz::meta<ip_version_type> {
-    using enum ip_version_type;
+struct glz::meta<address_family> {
+    using enum address_family;
     static constexpr auto value = enumerate(
         "ipv6", IPV6,
         "ipv4", IPV4,

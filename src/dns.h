@@ -12,9 +12,9 @@
 #include "type.h"
 
 namespace DNS {
-    std::vector<std::string> resolve(const std::string &, dns_record_type, const std::optional<dns_server> &);
+    std::vector<std::string> resolve(const std::string &, dns_type, const std::optional<dns_server> &);
 
-    std::string_view error_to_str(dns_lookup_error_type);
+    std::string_view error_to_str(dns_error);
 }
 
 #endif //YADDNSC_DNS_H

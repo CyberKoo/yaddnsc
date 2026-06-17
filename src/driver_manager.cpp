@@ -132,7 +132,7 @@ std::string_view DriverManager::Impl::get_driver_name(std::string_view path) {
 }
 
 bool DriverManager::Impl::is_driver_loaded(std::string_view driver_path) const {
-    auto driver_name = get_driver_name(driver_path);
+    const auto driver_name = get_driver_name(driver_path);
     return std::ranges::find(loaded_lib_, driver_name) != loaded_lib_.end();
 }
 
@@ -148,9 +148,9 @@ void DriverManager::Impl::register_driver(Driver driver_res, std::string_view dr
                                                 driver_lib_name, driver->get_driver_version(), DRV_VERSION));
     }
 
-    // initialize logger (no-op, logging is handled by CoreLogger in the core)
     auto [name, description, author, version] = driver->get_detail();
     SPDLOG_INFO("Driver {} loaded, driver name: {}", driver_lib_name, name);
+    // SPDLOG_INFO("Driver {} loaded, description: {}", driver_lib_name, description);
     SPDLOG_DEBUG("Driver {} ({}), developed by {}, version: {}", name, description, author, version);
 
     driver_map_.emplace(name, std::move(driver_res));

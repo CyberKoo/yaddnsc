@@ -11,14 +11,14 @@
 #include <optional>
 
 class NetworkManager;
-enum class ip_version_type;
+enum class address_family;
 
 namespace IPUtil {
-    std::vector<std::string> get_ip_from_interface(NetworkManager &, const std::string &, ip_version_type);
+    std::vector<std::string> get_ip_from_interface(NetworkManager &, const std::string &, address_family);
 
-    std::optional<std::string> get_ip_from_url(std::string_view, ip_version_type, const char *);
+    std::optional<std::string> get_ip_from_url(std::string_view, address_family, const char *);
 
-    int ip2af(ip_version_type);
+    int ip2af(address_family);
 
     bool is_ipv4_address(const std::string &);
 

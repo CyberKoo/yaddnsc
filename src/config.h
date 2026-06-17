@@ -5,9 +5,9 @@
 #ifndef YADDNSC_CONFIG_H
 #define YADDNSC_CONFIG_H
 
-#include <map>
 #include <vector>
 #include <string>
+#include <flat_map>
 
 #include "type.h"
 
@@ -29,14 +29,14 @@ namespace Config {
 
     struct subdomain_config {
         std::string name;
-        dns_record_type type{};
+        dns_type type{};
         std::string interface;
-        ip_version_type ip_type = ip_version_type::UNSPECIFIED;
+        address_family ip_type = address_family::UNSPECIFIED;
         ip_source_type ip_source{};
         std::string ip_source_param;
         bool allow_ula = false;
         bool allow_local_link = false;
-        std::map<std::string, std::string> driver_param;
+        std::flat_map<std::string, std::string> driver_param;
     };
 
     struct domain_config {

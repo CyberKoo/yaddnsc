@@ -5,17 +5,17 @@
 #ifndef YADDNSC_DRIVER_INTERFACE_H
 #define YADDNSC_DRIVER_INTERFACE_H
 
-#include <map>
+#include <span>
 #include <string>
-#include <vector>
-#include <variant>
+#include <flat_map>
 #include <string_view>
+#include <variant>
 
-using driver_config_type = std::map<std::string, std::string>;
+using driver_config_type = std::flat_map<std::string, std::string>;
 using driver_param_type = std::multimap<std::string, std::string>;
 
 enum class driver_http_method_type {
-    GET, POST, PUT
+    GET, POST, PUT, PATCH, DELETE
 };
 
 struct driver_detail final {
@@ -63,10 +63,11 @@ public:
 
     [[nodiscard]] virtual std::string_view get_driver_version() const = 0;
 
-    virtual void init_logger(int, const std::string &) {}
+    virtual void init_logger(int, const std::string &) {
+    }
 
 protected:
-    std::vector<std::string> required_param_;
+    [[nodiscard]] virtual std::span<const std::string_view> get_required_params() const = 0;
 };
 
 #endif //YADDNSC_DRIVER_INTERFACE_H

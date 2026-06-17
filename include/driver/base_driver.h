@@ -6,10 +6,8 @@
 #define YADDNSC_DRIVER_BASE_DRIVER_H
 
 #include <map>
-#include <string>
-#include <vector>
 #include <optional>
-#include <algorithm>
+#include <string>
 
 #include "fmt.h"
 #include "core_logger.h"
@@ -22,8 +20,8 @@
 class BaseDriver : public IDriver {
 public:
     void check_required_params(const driver_config_type &config) const {
-        for (auto &name: required_param_) {
-            if (!config.contains(name)) {
+        for (auto name: get_required_params()) {
+            if (!config.contains(name.data())) {
                 throw MissingRequiredParamException(fmt::format("Missing required parameter \"{}\"", name));
             }
         }

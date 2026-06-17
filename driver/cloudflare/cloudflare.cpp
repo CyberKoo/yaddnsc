@@ -12,23 +12,16 @@ DEFINE_DRIVER_CREATE(CloudflareDriver)
 
 constexpr char API_URL[] = "https://api.cloudflare.com/client/v4/zones/{ZONE_ID}/dns_records/{RECORD_ID}";
 
-CloudflareDriver::CloudflareDriver() {
-    required_param_.emplace_back("sub_domain");
-    required_param_.emplace_back("zone_id");
-    required_param_.emplace_back("record_id");
-    required_param_.emplace_back("token");
-    required_param_.emplace_back("ip_addr");
-    required_param_.emplace_back("rd_type");
-}
-
 driver_request CloudflareDriver::generate_request(const driver_config_type &config) const {
     check_required_params(config);
 
     driver_request request{};
     request.header.insert({"Authorization", fmt::format("Bearer {}", config.at("token"))});
-    request.url = fmt::format(API_URL,
-                                fmt::arg("ZONE_ID", config.at("zone_id")),
-                                fmt::arg("RECORD_ID", config.at("record_id")));
+    request.url = fmt::format(
+        API_URL,
+        fmt::arg("ZONE_ID", config.at("zone_id")),
+        fmt::arg("RECORD_ID", config.at("record_id"))
+    );
     request.body = generate_body(config);
     request.content_type = "application/json";
     request.request_method = driver_http_method_type::PUT;
@@ -37,6 +30,8 @@ driver_request CloudflareDriver::generate_request(const driver_config_type &conf
 }
 
 bool CloudflareDriver::check_response(std::string_view response) const {
+    CORE_LOG_TRACE("Got {} from server.", response);
+
     auto result = glz::read_json<CloudflareResponse>(response);
     if (!result) {
         CORE_LOG_ERROR("Failed to parse Cloudflare API response");
@@ -46,10 +41,24 @@ bool CloudflareDriver::check_response(std::string_view response) const {
     auto &resp = result.value();
     if (!resp.success) {
         for (const auto &error: resp.errors) {
-            CORE_LOG_ERROR("Cloudflare API error: {} ({})", error.message, error.code);
+            if (error.source.has_value()) {
+                CORE_LOG_ERROR("Cloudflare API error ({}): {} [{}]",
+                               error.code, error.message, error.source->pointer);
+            } else {
+                CORE_LOG_ERROR("Cloudflare API error ({}): {}", error.code, error.message);
+            }
         }
+        return false;
     }
-    return resp.success;
+
+    if (resp.result.has_value()) {
+        auto &record = resp.result.value();
+        CORE_LOG_INFO("DNS record updated successfully: {} {} -> {} (TTL: {}, proxied: {})",
+                       record.type, record.name, record.content, record.ttl,
+                       record.proxied ? "yes" : "no");
+    }
+
+    return true;
 }
 
 std::string CloudflareDriver::generate_body(const driver_config_type &config) {

@@ -3,7 +3,6 @@
 //
 
 #include "digital_ocean.h"
-#include "core_logger.h"
 #include "response.h"
 
 #include <glaze/glaze.hpp>
@@ -11,13 +10,6 @@
 DEFINE_DRIVER_CREATE(DigitalOceanDriver)
 
 constexpr char API_URL[] = "https://api.digitalocean.com/v2/domains/{DOMAIN}/records/{RECORD_ID}";
-
-DigitalOceanDriver::DigitalOceanDriver() {
-    required_param_.emplace_back("domain");
-    required_param_.emplace_back("record_id");
-    required_param_.emplace_back("token");
-    required_param_.emplace_back("ip_addr");
-}
 
 driver_request DigitalOceanDriver::generate_request(const driver_config_type &config) const {
     check_required_params(config);
@@ -38,18 +30,23 @@ driver_request DigitalOceanDriver::generate_request(const driver_config_type &co
 bool DigitalOceanDriver::check_response(std::string_view response) const {
     CORE_LOG_TRACE("Got {} from server.", response);
 
-    DigitalOceanResponse resp{};
-    if (auto ec = glz::read<glz::opts{.error_on_unknown_keys = false}>(resp, response)) {
-        CORE_LOG_ERROR("Failed to parse DigitalOcean API response");
+    // Try success response: { "domain_record": { ... } }
+    if (auto result = glz::read_json<DigitalOceanDomainResponse>(response)) {
+        auto &record = result.value().domain_record;
+        CORE_LOG_INFO("DNS record updated successfully: {} {} -> {} (TTL: {})",
+                       record.type, record.name, record.data, record.ttl);
+        return true;
+    }
+
+    // Try error response: { "id": "...", "message": "..." }
+    if (auto result = glz::read_json<DigitalOceanErrorResponse>(response)) {
+        auto &err = result.value();
+        CORE_LOG_ERROR("DigitalOcean API error ({}): {}", err.id, err.message);
         return false;
     }
 
-    if (resp.message.has_value()) {
-        CORE_LOG_ERROR("Error from server: {}", resp.message.value());
-        return false;
-    }
-
-    return true;
+    CORE_LOG_ERROR("Failed to parse DigitalOcean API response");
+    return false;
 }
 
 driver_detail DigitalOceanDriver::get_detail() const {

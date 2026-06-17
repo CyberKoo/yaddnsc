@@ -3,10 +3,6 @@
 //
 #include "dns_resolver.h"
 
-#include <cstring>
-
-#include "fmt.h"
-
 #include <spdlog/spdlog.h>
 
 #include <arpa/nameser.h>
@@ -16,10 +12,12 @@
 #include <resolv.h>
 #include <netdb.h>
 
+#include <cstring>
 #include <config_cmake.h>
 
-#include "ip_util.h"
 #include "dns.h"
+#include "fmt.h"
+#include "ip_util.h"
 #include "exception/dns_lookup_exception.h"
 
 // only for musl
@@ -34,12 +32,12 @@
 namespace {
     constexpr int MAXIMUM_UDP_SIZE = 512;
 
-    int to_ns_type(dns_record_type type) noexcept {
+    int to_ns_type(dns_type type) noexcept {
         switch (type) {
-            case dns_record_type::A: return ns_t_a;
-            case dns_record_type::AAAA: return ns_t_aaaa;
-            case dns_record_type::TXT: return ns_t_txt;
-            case dns_record_type::SOA: return ns_t_soa;
+            case dns_type::A: return ns_t_a;
+            case dns_type::AAAA: return ns_t_aaaa;
+            case dns_type::TXT: return ns_t_txt;
+            case dns_type::SOA: return ns_t_soa;
             default: return ns_t_invalid;
         }
     }
@@ -80,7 +78,7 @@ public:
 
     Impl &operator=(Impl &&) = delete;
 
-    std::vector<unsigned char> query(const std::string &host_str, dns_record_type type) {
+    std::vector<unsigned char> query(const std::string &host_str, dns_type type) {
         SPDLOG_DEBUG(R"(DNS lookup for domain "{}")", host_str);
 
         int buffer_size = MAXIMUM_UDP_SIZE;
@@ -152,17 +150,17 @@ private:
         }
     }
 
-    static dns_lookup_error_type get_dns_lookup_err(int error) {
+    static dns_error get_dns_lookup_err(int error) {
         switch (error) {
             case HOST_NOT_FOUND:
-                return dns_lookup_error_type::NX_DOMAIN;
+                return dns_error::NX_DOMAIN;
             case NO_DATA:
             case NETDB_SUCCESS:
-                return dns_lookup_error_type::NODATA;
+                return dns_error::NODATA;
             case TRY_AGAIN:
-                return dns_lookup_error_type::RETRY;
+                return dns_error::RETRY;
             default:
-                return dns_lookup_error_type::UNKNOWN;
+                return dns_error::UNKNOWN;
         }
     }
 
@@ -180,6 +178,6 @@ DnsResolver::DnsResolver(std::optional<dns_server> server)
 
 DnsResolver::~DnsResolver() = default;
 
-std::vector<unsigned char> DnsResolver::query(const std::string &host, dns_record_type type) const {
+std::vector<unsigned char> DnsResolver::query(const std::string &host, dns_type type) const {
     return impl_->query(host, type);
 }
