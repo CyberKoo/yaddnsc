@@ -7,7 +7,7 @@
 
 #include <vector>
 #include <string>
-#include <flat_map>
+#include <unordered_map>
 
 #include "type.h"
 
@@ -36,7 +36,7 @@ namespace Config {
         std::string ip_source_param;
         bool allow_ula = false;
         bool allow_local_link = false;
-        std::flat_map<std::string, std::string> driver_param;
+        std::unordered_map<std::string, std::string> driver_param;
     };
 
     struct domain_config {

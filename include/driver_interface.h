@@ -8,11 +8,11 @@
 #include <map>
 #include <span>
 #include <string>
-#include <flat_map>
 #include <variant>
 #include <string_view>
+#include <unordered_map>
 
-using driver_config_type = std::flat_map<std::string, std::string>;
+using driver_config_type = std::unordered_map<std::string, std::string>;
 using driver_param_type = std::multimap<std::string, std::string>;
 
 enum class driver_http_method_type {
