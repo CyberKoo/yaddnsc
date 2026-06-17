@@ -5,11 +5,16 @@
 #ifndef YADDNSC_MANAGER_H
 #define YADDNSC_MANAGER_H
 
+#include <memory>
+#include <stop_token>
+
 #include "config.h"
+
+struct AppContext;
 
 class Manager {
 public:
-    explicit Manager(Config::config);
+    explicit Manager(std::shared_ptr<AppContext>, Config::config);
 
     ~Manager();
 
@@ -19,7 +24,7 @@ public:
 
     void create_worker() const;
 
-    void run() const;
+    void run(std::stop_token) const;
 
 private:
     class Impl;

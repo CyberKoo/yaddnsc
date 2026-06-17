@@ -3,7 +3,7 @@
 //
 #include "dns_record_parser.h"
 
-#include <fmt/format.h>
+#include "fmt.h"
 
 #include <arpa/nameser.h>
 #include <netinet/in.h>
@@ -27,7 +27,7 @@ size_t DnsRecordParser::record_count() const noexcept {
 
 std::string DnsRecordParser::parse_record(size_t index) const {
     ns_rr dns_resource{};
-    if (ns_parserr(const_cast<ns_msg *>(&message_), ns_s_an, static_cast<int>(index), &dns_resource)) {
+    if (ns_parserr(&message_, ns_s_an, static_cast<int>(index), &dns_resource)) {
         throw DnsLookupException(
             fmt::format("An error occurred when parsing DNS resource at index {}, detail: {}",
                         index, strerror(errno)),

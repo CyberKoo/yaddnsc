@@ -23,7 +23,7 @@ public:
 
     std::vector<std::string_view> get_loaded_drivers() const;
 
-    std::unique_ptr<IDriver> &get_driver(std::string_view) const;
+    IDriver &get_driver(std::string_view) const;
 
 private:
     class Impl;

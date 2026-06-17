@@ -5,8 +5,9 @@
 
 #include <string>
 #include <algorithm>
+#include <charconv>
 
-#include <fmt/format.h>
+#include "fmt.h"
 
 Uri Uri::parse(std::string_view uri) {
     Uri result;
@@ -21,20 +22,19 @@ Uri Uri::parse(std::string_view uri) {
     auto query_start = std::ranges::find(uri, '?');
 
     // schema
-    auto schema_start = uri.begin();
-    auto schema_end = std::find(schema_start, uri.end(), ':');
+    auto schema_end = std::ranges::find(uri, ':');
 
     if (schema_end != uri.end()) {
-        std::string port = schema_end;
-        if (port.length() > 3 && port.substr(0, 3) == "://") {
-            result.schema_ = std::string(schema_start, schema_end);
+        auto remaining = std::string_view(schema_end, uri.end());
+        if (remaining.starts_with("://")) {
+            result.schema_ = std::string(uri.begin(), schema_end);
 
             std::ranges::transform(
                 result.schema_, result.schema_.begin(),
                 [](unsigned char c) { return std::tolower(c); }
             );
 
-            schema_end += 3; //      ://
+            schema_end += 3; // skip ://
         } else {
             schema_end = uri.begin(); // no schema
         }
@@ -57,11 +57,14 @@ Uri Uri::parse(std::string_view uri) {
 
     // port
     if (host_end != uri.end() && host_end[0] == ':') {
-        host_end++;
-        auto portEnd = (path_start != uri.end()) ? path_start : query_start;
-        auto port = std::string(host_end, portEnd);
-        if (!port.empty()) {
-            result.port_ = std::stoi(port);
+        ++host_end;
+        auto port_end = (path_start != uri.end()) ? path_start : query_start;
+        auto port_str = std::string_view(host_end, port_end);
+        if (!port_str.empty()) {
+            auto [ptr, ec] = std::from_chars(port_str.data(), port_str.data() + port_str.size(), result.port_);
+            if (ec != std::errc()) {
+                result.port_ = 0;
+            }
         }
     }
 

@@ -6,28 +6,31 @@
 #define YADDNSC_WORKER_H
 
 #include <memory>
+#include <stop_token>
 
 namespace Config {
     struct domain_config;
     struct resolver_config;
 }
 
+struct AppContext;
+
 class Worker {
 public:
-    explicit Worker(const Config::domain_config &, const Config::resolver_config &);
+    explicit Worker(std::shared_ptr<AppContext>, const Config::domain_config &, const Config::resolver_config &);
 
     ~Worker();
 
-    Worker(Worker &&) = default;
+    Worker(Worker &&) noexcept;
 
-    void run() const;
+    void run(std::stop_token) const;
 
     static void set_concurrency(unsigned int);
 
 private:
     class Impl;
 
-    std::unique_ptr<Impl, void(*)(const Impl *)> impl_;
+    std::unique_ptr<Impl> impl_;
 };
 
 #endif //YADDNSC_WORKER_H

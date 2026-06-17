@@ -5,6 +5,8 @@
 
 #include <filesystem>
 
+#include "fmt.h"
+
 #include <httplib.h>
 #include <spdlog/spdlog.h>
 

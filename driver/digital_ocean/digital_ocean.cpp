@@ -2,9 +2,10 @@
 // Created by Kotarou on 2022/4/5.
 //
 #include <spdlog/spdlog.h>
-#include <nlohmann/json.hpp>
+#include <glaze/glaze.hpp>
 
 #include "digital_ocean.h"
+#include "response.h"
 
 constexpr char API_URL[] = "https://api.digitalocean.com/v2/domains/{DOMAIN}/records/{RECORD_ID}";
 
@@ -20,13 +21,14 @@ driver_request DigitalOceanDriver::generate_request(const driver_config_type &co
 
     driver_request request{};
     request.header.insert({"Authorization", fmt::format("Bearer {}", config.at("token"))});
-    request.url = vformat(
-        API_URL, {
+    request.url = fmt::vformat(
+        API_URL, std::map<std::string, std::string>{
             {"DOMAIN", config.at("domain")},
             {"RECORD_ID", config.at("record_id")}
         }
     );
-    request.body = nlohmann::json({{"data", config.at("ip_addr")}}).dump();
+    auto do_body = glz::obj{"data", config.at("ip_addr")};
+    request.body = glz::write_json(do_body).value_or("{}");
     request.content_type = "application/json";
     request.request_method = driver_http_method_type::PUT;
 
@@ -35,18 +37,19 @@ driver_request DigitalOceanDriver::generate_request(const driver_config_type &co
 
 bool DigitalOceanDriver::check_response(std::string_view response) const {
     SPDLOG_TRACE("Got {} from server.", response);
-    auto json = nlohmann::json::parse(response);
-    if (json.contains("domain_record")) {
-        return true;
+
+    DigitalOceanResponse resp{};
+    if (auto ec = glz::read<glz::opts{.error_on_unknown_keys = false}>(resp, response)) {
+        SPDLOG_ERROR("Failed to parse DigitalOcean API response");
+        return false;
     }
 
-    if (json.contains("message")) {
-        SPDLOG_ERROR("Error from server: {}", json["message"].get<std::string>());
-    } else {
-        SPDLOG_ERROR("Server return an unknown error, raw response: {}", response);
+    if (resp.message.has_value()) {
+        SPDLOG_ERROR("Error from server: {}", resp.message.value());
+        return false;
     }
 
-    return false;
+    return true;
 }
 
 driver_detail DigitalOceanDriver::get_detail() const {
@@ -54,6 +57,6 @@ driver_detail DigitalOceanDriver::get_detail() const {
         .name = "digital_ocean",
         .description = "Digital Ocean DDNS driver",
         .author = "Kotarou",
-        .version = "1.0.0"
+        .version = "2.0.0"
     };
 }

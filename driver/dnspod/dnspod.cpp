@@ -1,9 +1,9 @@
 //
 // Created by Kotarou on 2022/4/11.
 //
-#include <nlohmann/json.hpp>
 
 #include "dnspod.h"
+#include "response.h"
 #include "string_util.h"
 
 constexpr char API_URL_CN[] = "https://dnsapi.cn/Record.Ddns";
@@ -43,14 +43,21 @@ driver_request DNSPodDriver::generate_request(const driver_config_type &config) 
 
 bool DNSPodDriver::check_response(std::string_view response) const {
     SPDLOG_TRACE("Got {} from server.", response);
-    if (auto json = nlohmann::json::parse(response); json.contains("status")) {
-        auto &status = json["status"];
-        if (status["code"].get<std::string>() == "1") {
+
+    auto result = glz::read_json<DnsPodResponse>(response);
+    if (!result) {
+        SPDLOG_ERROR("Failed to parse DNSPod API response");
+        return false;
+    }
+
+    auto& resp = result.value();
+    if (resp.status.has_value()) {
+        auto& status = resp.status.value();
+        if (status.code == "1") {
             return true;
         }
 
-        SPDLOG_ERROR("Error from server: {}, code: {}", status["message"].get<std::string>(),
-                     status["code"].get<std::string>());
+        SPDLOG_ERROR("Error from server: {}, code: {}", status.message, status.code);
     } else {
         SPDLOG_ERROR("Server return an unknown error, raw response: {}", response);
     }
@@ -63,6 +70,6 @@ driver_detail DNSPodDriver::get_detail() const {
         .name = "dnspod",
         .description = "DNSPod DDNS driver",
         .author = "Kotarou",
-        .version = "1.0.0"
+        .version = "2.0.0"
     };
 }

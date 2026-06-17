@@ -10,10 +10,10 @@
 #include <algorithm>
 #include <filesystem>
 
-#include <fmt/format.h>
+#include "fmt.h"
 #include <spdlog/spdlog.h>
 
-#include "IDriver.h"
+#include "driver_interface.h"
 #include "driver_ver.h"
 #include "logging_pattern.h"
 #include "exception/bad_driver_exception.h"
@@ -89,9 +89,10 @@ private:
 
 DriverManager::~DriverManager() = default;
 
-std::unique_ptr<IDriver> &DriverManager::get_driver(std::string_view name) const {
-    if (impl_->driver_map_.contains(name.data())) {
-        return impl_->driver_map_.at(name.data()).get();
+IDriver &DriverManager::get_driver(std::string_view name) const {
+    auto key = std::string(name);
+    if (auto it = impl_->driver_map_.find(key); it != impl_->driver_map_.end()) {
+        return *it->second.get();
     }
 
     SPDLOG_CRITICAL("Driver {} not found", name);
@@ -126,16 +127,15 @@ void DriverManager::load_driver(std::string_view path) const {
 
 std::string_view DriverManager::Impl::get_driver_name(std::string_view path) {
     auto pos = path.rfind('/');
-    return pos != std::string_view::npos && pos + 1 != path.size() ? path.substr(pos + 1, path.size()) : path;
+    if (pos == std::string_view::npos) {
+        return path;
+    }
+    return path.substr(pos + 1);
 }
 
 bool DriverManager::Impl::is_driver_loaded(std::string_view driver_path) const {
     auto driver_name = get_driver_name(driver_path);
-    if (std::ranges::find(loaded_lib_, driver_name) != loaded_lib_.end()) {
-        return true;
-    }
-
-    return Driver::handle_ptr(dlopen(driver_path.data(), RTLD_NOW | RTLD_NOLOAD)) != nullptr;
+    return std::ranges::find(loaded_lib_, driver_name) != loaded_lib_.end();
 }
 
 void DriverManager::Impl::register_driver(Driver driver_res, std::string_view driver_lib_name) {

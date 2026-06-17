@@ -2,25 +2,32 @@
 // Created by Kotarou on 2022/4/5.
 //
 #include <iostream>
+#include <stop_token>
 
 #include <cxxopts.hpp>
 #include <spdlog/spdlog.h>
 
 #include "config.h"
-#include "context.h"
 #include "manager.h"
+#include "context.h"
 #include "version.h"
 #include "signal_handler.h"
 #include "logging_pattern.h"
+#include "driver_manager.h"
+#include "network_manager.h"
 
 #include "exception/base_exception.h"
 #include "exception/config_verification_exception.h"
 
+namespace {
+    std::stop_source g_stop_source;
+}
+
 void gracefully_quit() {
-    auto &context = Context::getInstance();
     SPDLOG_INFO("Received exit signal, quiting...");
-    context.terminate_ = true;
-    context.condition_.notify_all();
+    if (g_stop_source.stop_possible()) {
+        g_stop_source.request_stop();
+    }
 }
 
 int main(int argc, char *argv[]) {
@@ -33,11 +40,12 @@ int main(int argc, char *argv[]) {
     auto sig_thread = std::thread(SignalHandler::handler_thread, &sigset);
     sig_thread.detach();
 
-    auto &context = Context::getInstance();
+    // CLI parsing
+    std::string config_path = "./config.json";
     cxxopts::Options options("yaddnsc", "Yet another DDNS client");
     options.add_options()
             ("v,verbose", "Enable verbose mode")
-            ("c,config", "Config file path", cxxopts::value(context.config_path_)->default_value("./config.json"))
+            ("c,config", "Config file path", cxxopts::value(config_path)->default_value("./config.json"))
             ("V,version", "Print version")
             ("h,help", "Print usage");
 
@@ -62,9 +70,13 @@ int main(int argc, char *argv[]) {
             spdlog::set_level(spdlog::level::info);
         }
 
-        auto config = Config::load_config(context.config_path_);
+        auto app_ctx = std::make_shared<AppContext>();
+        app_ctx->driver_manager_ = std::make_unique<DriverManager>();
+        app_ctx->network_manager_ = std::make_unique<NetworkManager>();
 
-        Manager manager(config);
+        auto config = Config::load_config(config_path);
+
+        Manager manager(app_ctx, config);
 
         // load all drivers
         manager.load_drivers();
@@ -76,7 +88,7 @@ int main(int argc, char *argv[]) {
         manager.create_worker();
 
         // main event loop
-        manager.run();
+        manager.run(g_stop_source.get_token());
 
         return 0;
     } catch (ConfigVerificationException &e) {

@@ -11,10 +11,10 @@
 #include <optional>
 #include <algorithm>
 
-#include <fmt/args.h>
+#include "fmt.h"
 #include <spdlog/spdlog.h>
 
-#include "IDriver.h"
+#include "driver_interface.h"
 #include "driver_ver.h"
 #include "missing_required_param_exception.h"
 
@@ -34,26 +34,6 @@ public:
         }
 
         return std::nullopt;
-    }
-
-    static std::string vformat(std::string_view format, const std::vector<std::string_view> &args) {
-        std::vector<fmt::basic_format_arg<fmt::format_context> > fmt_args;
-
-        std::ranges::transform(args, std::back_inserter(fmt_args), [](std::string_view arg) {
-            return fmt::detail::make_arg<fmt::format_context>(arg);
-        });
-
-        return fmt::vformat(format, fmt::basic_format_args(fmt_args.data(), static_cast<int>(fmt_args.size())));
-    }
-
-    static std::string vformat(std::string_view format, const std::map<std::string, std::string> &args) {
-        fmt::dynamic_format_arg_store<fmt::format_context> store;
-
-        for (auto const &[key, val]: args) {
-            store.push_back(fmt::arg(key.c_str(), val));
-        }
-
-        return fmt::vformat(format, store);
     }
 
     [[nodiscard]] std::string_view get_driver_version() const final {

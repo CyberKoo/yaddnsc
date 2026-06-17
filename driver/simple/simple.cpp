@@ -14,7 +14,7 @@ driver_request SimpleDriver::generate_request(const driver_config_type &config) 
 
     auto url = config.at("url");
     if (auto format = get_optional(config, "format"); format.has_value()) {
-        url = vformat(url, get_format_params(config));
+        url = fmt::vformat(url, get_format_params(config));
     }
 
     return {.url = url, .body = "", .content_type = "", .request_method = driver_http_method_type::GET, .header = {}};
@@ -31,8 +31,8 @@ std::map<std::string, std::string> SimpleDriver::get_format_params(const driver_
     return params;
 }
 
-bool SimpleDriver::check_response([[maybe_unused]] std::string_view response) const {
-    return true;
+bool SimpleDriver::check_response(std::string_view response) const {
+    return !response.empty();
 }
 
 driver_detail SimpleDriver::get_detail() const {
@@ -40,6 +40,6 @@ driver_detail SimpleDriver::get_detail() const {
         .name = "simple",
         .description = "Simple HTTP driver",
         .author = "Kotarou",
-        .version = "1.0.0"
+        .version = "2.0.0"
     };
 }

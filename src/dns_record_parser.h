@@ -31,7 +31,7 @@ private:
                                        const unsigned char *msg_end,
                                        const unsigned char *rdata);
 
-    ns_msg message_{};
+    mutable ns_msg message_{};
 };
 
 #endif //YADDNSC_DNS_RECORD_PARSER_H

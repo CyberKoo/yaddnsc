@@ -4,6 +4,8 @@
 #include "string_util.h"
 
 #include <algorithm>
+#include <ranges>
+#include <cctype>
 
 void StringUtil::to_upper(std::string &_str) {
     str_transform(_str, &::toupper);
@@ -16,16 +18,17 @@ void StringUtil::to_lower(std::string &_str) {
 // from https://stackoverflow.com/questions/216823/whats-the-best-way-to-trim-stdstring
 // trim from start (in place)
 void StringUtil::ltrim(std::string &s) {
-    s.erase(s.begin(), std::ranges::find_if(s, [](int ch) {
+    s.erase(s.begin(), std::ranges::find_if(s, [](unsigned char ch) {
         return !std::isspace(ch);
     }));
 }
 
 // trim from end (in place)
 void StringUtil::rtrim(std::string &s) {
-    s.erase(std::find_if(s.rbegin(), s.rend(), [](int ch) {
+    auto it = std::ranges::find_if(s | std::views::reverse, [](unsigned char ch) {
         return !std::isspace(ch);
-    }).base(), s.end());
+    });
+    s.erase(it.base(), s.end());
 }
 
 // trim from both ends (in place)
@@ -57,7 +60,7 @@ void StringUtil::replace(std::string &str, const std::map<std::string_view, std:
         auto pos = str.find(target);
         while (pos != std::string::npos) {
             str.replace(pos, target.length(), new_content);
-            pos = str.find(target);
+            pos = str.find(target, pos + new_content.length());
         }
     }
 }

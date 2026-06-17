@@ -10,10 +10,11 @@
 #include <vector>
 #include <optional>
 
+class NetworkManager;
 enum class ip_version_type;
 
 namespace IPUtil {
-    std::vector<std::string> get_ip_from_interface(std::string_view, ip_version_type);
+    std::vector<std::string> get_ip_from_interface(NetworkManager &, std::string_view, ip_version_type);
 
     std::optional<std::string> get_ip_from_url(std::string_view, ip_version_type, const char *);
 

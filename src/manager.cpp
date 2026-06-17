@@ -8,8 +8,9 @@
 #include <algorithm>
 #include <filesystem>
 #include <unordered_set>
+#include <stop_token>
 
-#include <fmt/core.h>
+#include "fmt.h"
 #include <spdlog/spdlog.h>
 #include <config_cmake.h>
 
@@ -17,14 +18,15 @@
 #include "worker.h"
 #include "context.h"
 #include "ip_util.h"
-#include "network_util.h"
+#include "network_manager.h"
 #include "driver_manager.h"
 
 #include "exception/config_verification_exception.h"
 
 class Manager::Impl {
 public:
-    explicit Impl(Config::config config) : config_(std::move(config)) {
+    explicit Impl(std::shared_ptr<AppContext> app_ctx, Config::config config)
+        : app_ctx_(std::move(app_ctx)), config_(std::move(config)) {
     }
 
     ~Impl() = default;
@@ -32,22 +34,17 @@ public:
     template<typename T>
     void dedupe(std::vector<T> &vec) const {
         std::unordered_set<T> seen;
-
-        auto end = std::remove_if(vec.begin(), vec.end(), [&seen](const T &value) {
-            if (seen.contains(value))
-                return true;
-
-            seen.insert(value);
-            return false;
+        std::erase_if(vec, [&seen](const T &value) {
+            return !seen.insert(value).second;
         });
-
-        vec.erase(end, vec.end());
     }
 
     unsigned int estimated_threads() const;
 
 public:
     static constexpr int MIN_UPDATE_INTERVAL = 60;
+
+    std::shared_ptr<AppContext> app_ctx_;
 
     Config::config config_;
 
@@ -74,10 +71,8 @@ unsigned int Manager::Impl::estimated_threads() const {
 }
 
 void Manager::validate_config() const {
-    auto &context = Context::getInstance();
-
-    auto drivers = context.driver_manager_->get_loaded_drivers();
-    auto interfaces = NetworkUtil::get_interfaces();
+    auto drivers = impl_->app_ctx_->driver_manager_->get_loaded_drivers();
+    auto interfaces = impl_->app_ctx_->network_manager_->get_interfaces();
 
     for (const auto &domain: impl_->config_.domains) {
         // check drivers
@@ -129,11 +124,10 @@ void Manager::validate_config() const {
 }
 
 void Manager::load_drivers() const {
-    auto &context = Context::getInstance();
-    auto &driver_manager = context.driver_manager_;
+    auto &driver_manager = impl_->app_ctx_->driver_manager_;
 
+    auto &load = impl_->config_.driver.load;
     // remove duplicated lines
-    auto load{impl_->config_.driver.load};
     impl_->dedupe(load);
 
     // load drivers
@@ -146,13 +140,13 @@ void Manager::load_drivers() const {
 
 void Manager::create_worker() const {
     for (const auto &domain: impl_->config_.domains) {
-        impl_->workers_.emplace_back(domain, impl_->config_.resolver);
+        impl_->workers_.emplace_back(impl_->app_ctx_, domain, impl_->config_.resolver);
     }
 }
 
-void Manager::run() const {
+void Manager::run(std::stop_token stop_token) const {
     // print all interfaces name
-    auto interfaces = NetworkUtil::get_interfaces();
+    auto interfaces = impl_->app_ctx_->network_manager_->get_interfaces();
     SPDLOG_INFO("All available interfaces: {}", fmt::join(interfaces, ", "));
 
     if (impl_->config_.resolver.use_custom_server) {
@@ -172,21 +166,20 @@ void Manager::run() const {
     // set worker concurrency level
     Worker::set_concurrency(impl_->estimated_threads());
 
-    // create worker threads
-    std::vector<std::thread> worker_threads;
-    std::transform(impl_->workers_.begin(), impl_->workers_.end(), std::back_inserter(worker_threads),
-                   [](auto &worker) {
-                       return std::thread(&Worker::run, std::addressof(worker));
-                   }
-    );
-
-    // all clear, join workers in order to block main.
-    for (auto &worker: worker_threads) {
-        worker.join();
+    // create worker jthreads
+    std::vector<std::jthread> worker_threads;
+    worker_threads.reserve(impl_->workers_.size());
+    for (auto &worker: impl_->workers_) {
+        worker_threads.emplace_back(&Worker::run, &worker, stop_token);
     }
+
+    // jthread destructors join automatically when vector goes out of scope.
+    // If a stop is requested (e.g. via signal), each Worker::run will exit
+    // its loop, and the jthread destructors will join them.
 }
 
-Manager::Manager(Config::config config) : impl_(std::make_unique<Impl>(std::move(config))) {
+Manager::Manager(std::shared_ptr<AppContext> app_ctx, Config::config config)
+    : impl_(std::make_unique<Impl>(std::move(app_ctx), std::move(config))) {
 }
 
 Manager::~Manager() = default;

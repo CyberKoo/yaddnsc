@@ -20,7 +20,7 @@ namespace Util {
     }
 
     template<typename T> requires (std::is_trivial_v<T> && !std::is_pointer_v<T>)
-    size_t sizeof_obj(const T &obj) {
+    size_t sizeof_obj([[maybe_unused]] const T &obj) {
         return sizeof(obj);
     }
 

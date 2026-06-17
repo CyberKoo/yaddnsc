@@ -5,9 +5,11 @@
 #include "worker.h"
 
 #include <thread>
+#include <climits>
+#include <stop_token>
 
 #include <httplib.h>
-#include <fmt/format.h>
+#include "fmt.h"
 #include <spdlog/spdlog.h>
 #include <BS_thread_pool.hpp>
 
@@ -17,7 +19,7 @@
 #include "config.h"
 #include "context.h"
 #include "ip_util.h"
-#include "IDriver.h"
+#include "driver_interface.h"
 #include "httpclient.h"
 #include "driver_manager.h"
 
@@ -26,8 +28,12 @@
 
 class Worker::Impl {
 public:
-    explicit Impl(const Config::domain_config &domain_config, const Config::resolver_config &resolver_config)
-        : dns_server_(get_dns_server(resolver_config)), worker_config_(domain_config) {
+    explicit Impl(std::shared_ptr<AppContext> app_ctx,
+                  const Config::domain_config &domain_config,
+                  const Config::resolver_config &resolver_config)
+        : app_ctx_(std::move(app_ctx)),
+          dns_server_(get_dns_server(resolver_config)),
+          worker_config_(domain_config) {
     }
 
     ~Impl() = default;
@@ -38,7 +44,7 @@ public:
 
     std::optional<std::string> dns_lookup(std::string_view, dns_record_type) const;
 
-    static std::optional<std::string> get_ip_address(const Config::subdomain_config &);
+    static std::optional<std::string> get_ip_address(NetworkManager &, const Config::subdomain_config &);
 
     static std::optional<std::string> update_dns_record(const driver_request &, ip_version_type, std::string_view);
 
@@ -63,9 +69,11 @@ public:
     static inline std::optional<dns_server> get_dns_server(const Config::resolver_config &) noexcept;
 
 public:
+    std::shared_ptr<AppContext> app_ctx_;
+
     const std::optional<dns_server> dns_server_;
 
-    const Config::domain_config &worker_config_;
+    Config::domain_config worker_config_;
 
     long force_update_counter_ = 0;
 
@@ -74,8 +82,13 @@ public:
     static constexpr int RESOLVER_RETRY_BACKOFF = 1000;
 };
 
+#ifdef YADDNSC_USE_STD_FORMAT
+template<>
+struct std::formatter<driver_request> {
+#else
 template<>
 struct fmt::formatter<driver_request> {
+#endif
     static std::string_view to_string(driver_http_method_type type) {
         switch (type) {
             case driver_http_method_type::GET:
@@ -90,7 +103,11 @@ struct fmt::formatter<driver_request> {
     }
 
     template<typename Iter>
+#ifdef YADDNSC_USE_STD_FORMAT
+    std::string format_map(Iter first, Iter last) const {
+#else
     std::string format_map(Iter first, Iter last) {
+#endif
         std::string buf;
 
         for (auto begin = first, it = begin, end = last; it != end; ++it) {
@@ -112,7 +129,11 @@ struct fmt::formatter<driver_request> {
     }
 
     template<typename FormatContext>
+#ifdef YADDNSC_USE_STD_FORMAT
+    auto format(const driver_request &request, FormatContext &ctx) const -> decltype(ctx.out()) {
+#else
     auto format(const driver_request &request, FormatContext &ctx) -> decltype(ctx.out()) {
+#endif
         std::string body_type;
         std::string body;
 
@@ -127,27 +148,32 @@ struct fmt::formatter<driver_request> {
                    }, request.body
         );
 
+#ifdef YADDNSC_USE_STD_FORMAT
+        return std::format_to(ctx.out(),
+                              R"(driver_request(url="{}", body_type="{}", body="{}", content_type="{}", request_method="{}", header="{}"))",
+                              request.url, body_type, body, request.content_type, to_string(request.request_method),
+                              format_map(request.header.begin(), request.header.end()));
+#else
         return fmt::format_to(ctx.out(),
                               R"(driver_request(url="{}", body_type="{}", body="{}", content_type="{}", request_method="{}", header="{}"))",
                               request.url, body_type, body, request.content_type, to_string(request.request_method),
                               format_map(request.header.begin(), request.header.end()));
+#endif
     }
 };
 
-void Worker::run() const {
+void Worker::run(std::stop_token st) const {
     SPDLOG_INFO(R"(Worker for domain "{}" started, update interval: {}s)", impl_->worker_config_.name,
                 impl_->worker_config_.update_interval);
-    auto &context = Context::getInstance();
     auto &thread_pool = impl_->get_thread_pool();
-
-    std::mutex mutex;
-    std::unique_lock lock(mutex);
     auto update_interval = std::chrono::seconds(impl_->worker_config_.update_interval);
 
-    while (!context.terminate_) {
+    while (!st.stop_requested()) {
         thread_pool.detach_task([_impl_ptr = impl_.get()] { _impl_ptr->run_scheduled_tasks(); });
-        context.condition_.wait_for(lock, update_interval, [&context]() { return context.terminate_; });
+        std::this_thread::sleep_for(update_interval);
     }
+
+    SPDLOG_INFO(R"(Worker for domain "{}" stopped)", impl_->worker_config_.name);
 }
 
 std::optional<std::string> Worker::Impl::dns_lookup(std::string_view host, dns_record_type type) const {
@@ -176,8 +202,7 @@ std::optional<std::string> Worker::Impl::dns_lookup(std::string_view host, dns_r
 
 void Worker::Impl::run_scheduled_tasks() {
     try {
-        auto &context = Context::getInstance();
-        auto &driver = context.driver_manager_->get_driver(worker_config_.driver);
+        auto &driver = app_ctx_->driver_manager_->get_driver(worker_config_.driver);
         bool force_update = is_forced_update();
         SPDLOG_DEBUG("Update counter: {}, estimated elapsed time {} seconds, force update: {}", force_update_counter_,
                      force_update_counter_ * worker_config_.update_interval, force_update);
@@ -188,7 +213,7 @@ void Worker::Impl::run_scheduled_tasks() {
             try {
                 auto rd_type = to_string(config.type);
 
-                if (auto ip_addr = get_ip_address(config)) {
+                if (auto ip_addr = get_ip_address(*app_ctx_->network_manager_, config)) {
                     auto record = dns_lookup(fqdn, config.type);
                     auto record_val = record.value_or("<empty>");
                     auto is_record_staled = record.has_value() && record.value() != *ip_addr;
@@ -211,13 +236,13 @@ void Worker::Impl::run_scheduled_tasks() {
                             SPDLOG_INFO(R"(Update needed, L"{}" != R"{}")", *ip_addr, record_val);
                         }
 
-                        auto request = driver->generate_request(parameters);
-                        SPDLOG_DEBUG("Received DNS record update request from driver {}, {}", driver->get_detail().name,
+                        auto request = driver.generate_request(parameters);
+                        SPDLOG_DEBUG("Received DNS record update request from driver {}, {}", driver.get_detail().name,
                                      request);
 
                         // update dns record via http request
                         auto update_result = update_dns_record(request, config.ip_type, config.interface);
-                        if (update_result.has_value() && driver->check_response(*update_result)) {
+                        if (update_result.has_value() && driver.check_response(*update_result)) {
                             SPDLOG_INFO("Update {}, type: {}, to {}", fqdn, rd_type, *ip_addr);
                         } else {
                             SPDLOG_WARN("Update domain {} failed", fqdn);
@@ -234,16 +259,18 @@ void Worker::Impl::run_scheduled_tasks() {
             }
         }
 
-        ++force_update_counter_;
+        if (worker_config_.force_update > 0 && force_update_counter_ < LONG_MAX) {
+            ++force_update_counter_;
+        }
     } catch (std::exception &e) {
         SPDLOG_CRITICAL("Scheduler exited with an unhandled error: {}", e.what());
     }
 }
 
-std::optional<std::string> Worker::Impl::get_ip_address(const Config::subdomain_config &config) {
+std::optional<std::string> Worker::Impl::get_ip_address(NetworkManager &net_mgr, const Config::subdomain_config &config) {
     auto ip_type = dns2ip(config.type);
     if (config.ip_source == Config::ip_source_type::INTERFACE) {
-        auto addresses = IPUtil::get_ip_from_interface(config.interface, ip_type);
+        auto addresses = IPUtil::get_ip_from_interface(net_mgr, config.interface, ip_type);
 
         if (ip_type == ip_version_type::IPV6) {
             // filter out local link
@@ -387,8 +414,12 @@ void Worker::set_concurrency(unsigned int thread_count) {
     }
 }
 
-Worker::Worker(const Config::domain_config &domain_config, const Config::resolver_config &resolver_config) : impl_(
-    new Impl(domain_config, resolver_config), [](const Impl *ptr) { delete ptr; }) {
+Worker::Worker(std::shared_ptr<AppContext> app_ctx,
+               const Config::domain_config &domain_config,
+               const Config::resolver_config &resolver_config)
+    : impl_(std::make_unique<Impl>(std::move(app_ctx), domain_config, resolver_config)) {
 }
 
 Worker::~Worker() = default;
+
+Worker::Worker(Worker &&) noexcept = default;

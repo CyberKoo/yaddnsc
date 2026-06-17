@@ -3,9 +3,3 @@
 //
 
 #include "context.h"
-#include "driver_manager.h"
-
-Context::Context() : driver_manager_(std::make_unique<DriverManager>()) {
-}
-
-Context::~Context() = default;

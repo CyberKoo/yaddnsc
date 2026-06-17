@@ -15,10 +15,10 @@
 #include "type.h"
 #include "httpclient.h"
 #include "string_util.h"
-#include "network_util.h"
+#include "network_manager.h"
 
-std::vector<std::string> IPUtil::get_ip_from_interface(std::string_view nif_name, ip_version_type version) {
-    auto addresses = NetworkUtil::get_nif_ip_address(nif_name);
+std::vector<std::string> IPUtil::get_ip_from_interface(NetworkManager &net_mgr, std::string_view nif_name, ip_version_type version) {
+    auto addresses = net_mgr.get_nif_ip_address(nif_name);
     std::vector<std::string> nif_addresses;
     for (auto &[ip_address, family]: addresses) {
         if (version == ip_version_type::UNSPECIFIED || family == ip2af(version)) {

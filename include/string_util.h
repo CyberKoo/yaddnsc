@@ -8,8 +8,9 @@
 #include <map>
 #include <vector>
 #include <string>
-#include <functional>
+
 #include <string_view>
+#include <ranges>
 
 namespace StringUtil {
     void to_lower(std::string &);
@@ -36,24 +37,20 @@ namespace StringUtil {
     std::vector<std::string> split(T &&_str, std::string_view delim = " ") {
         std::string_view str(_str);
         std::vector<std::string> output;
-        size_t first = 0;
-        size_t second;
 
-        while (first < str.size() && (second = str.find(delim, first)) != std::string_view::npos) {
-            if (first != second) {
-                output.emplace_back(str.substr(first, second - first));
+        for (auto part : str | std::views::split(delim)) {
+            if (!part.empty()) {
+                output.emplace_back(part.begin(), part.end());
             }
-
-            first = second + delim.size();
         }
 
         return output;
     }
 
     template<typename T> requires std::is_constructible_v<std::string_view, T>
-    void str_transform(T &_str, const std::function<int(int)> &func) {
+    void str_transform(T &_str, int (*func)(int)) {
         for (auto &c: _str) {
-            c = func(c);
+            c = func(static_cast<unsigned char>(c));
         }
     }
 
@@ -73,10 +70,11 @@ namespace StringUtil {
         return new_str;
     }
 
-    template<typename T> requires std::is_constructible_v<std::string, T>
+    template<typename T> requires std::is_constructible_v<std::string_view, T>
     bool str_to_bool(T &&_str) {
-        std::string new_str(to_lower_copy(_str));
-        return new_str == "1" || new_str == "on" || new_str == "true" || new_str == "yes";
+        std::string_view s(_str);
+        return s == "1" || s == "on" || s == "true" || s == "yes"
+            || s == "ON" || s == "TRUE" || s == "YES";
     }
 }
 

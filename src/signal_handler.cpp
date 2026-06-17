@@ -6,6 +6,7 @@
 
 #include <map>
 #include <csignal>
+#include <cstring>
 #include <thread>
 #include <spdlog/spdlog.h>
 
