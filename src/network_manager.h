@@ -10,15 +10,13 @@
 #include <string>
 #include <vector>
 
-class NetworkManager {
+#include "base_classes.h"
+
+class NetworkManager : public RestrictedClass {
 public:
     NetworkManager();
-    ~NetworkManager();
 
-    NetworkManager(const NetworkManager &) = delete;
-    NetworkManager &operator=(const NetworkManager &) = delete;
-    NetworkManager(NetworkManager &&) = delete;
-    NetworkManager &operator=(NetworkManager &&) = delete;
+    ~NetworkManager() override;
 
     [[nodiscard]] std::vector<std::string> get_interfaces() const;
 

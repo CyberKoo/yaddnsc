@@ -3,9 +3,12 @@
 //
 
 #include "dnspod.h"
+
 #include "core_logger.h"
 #include "response.h"
 #include "string_util.h"
+
+DEFINE_DRIVER_CREATE(DNSPodDriver)
 
 constexpr char API_URL_CN[] = "https://dnsapi.cn/Record.Ddns";
 

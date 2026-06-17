@@ -12,24 +12,13 @@
 #include <stdexcept>
 #include <functional>
 
+#include "fmt.h"
+
 #include <netdb.h>
 #include <ifaddrs.h>
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
-
-#include "fmt.h"
-
-struct interface_addrs {
-    std::string address;
-    int inet_type;
-};
-
-using ifaddrs_ptr_t = std::unique_ptr<ifaddrs, std::function<void(ifaddrs *)> >;
-
-ifaddrs_ptr_t get_ifaddrs();
-
-size_t get_address_struct_size(int);
 
 class NetworkManager::Impl {
 public:
@@ -57,6 +46,27 @@ public:
     }
 
 private:
+    struct interface_addrs {
+        std::string address;
+        int inet_type;
+    };
+
+    using ifaddrs_ptr_t = std::unique_ptr<ifaddrs, std::function<void(ifaddrs *)> >;
+
+    static ifaddrs_ptr_t get_ifaddrs() {
+        ifaddrs *ifaddr;
+
+        if (getifaddrs(&ifaddr) == -1) {
+            throw std::runtime_error("getifaddrs() failed");
+        }
+
+        return {ifaddr, [](ifaddrs *a) { freeifaddrs(a); }};
+    }
+
+    static size_t get_address_struct_size(int family) {
+        return family == AF_INET6 ? sizeof(sockaddr_in6) : sizeof(sockaddr_in);
+    }
+
     std::map<std::string, std::vector<interface_addrs>> get_all_ip_addresses() {
         auto now = std::chrono::steady_clock::now();
         if (!cached_addresses_.empty() && (now - cache_timestamp_) < CACHE_TTL) {
@@ -108,16 +118,3 @@ std::map<std::string, int> NetworkManager::get_nif_ip_address(const std::string 
     return impl_->get_nif_ip_address(nif);
 }
 
-ifaddrs_ptr_t get_ifaddrs() {
-    ifaddrs *ifaddr;
-
-    if (getifaddrs(&ifaddr) == -1) {
-        throw std::runtime_error("getifaddrs() failed");
-    }
-
-    return {ifaddr, [](ifaddrs *a) { freeifaddrs(a); }};
-}
-
-size_t get_address_struct_size(int family) {
-    return family == AF_INET6 ? sizeof(sockaddr_in6) : sizeof(sockaddr_in);
-}

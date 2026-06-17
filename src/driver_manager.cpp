@@ -3,15 +3,15 @@
 //
 #include "driver_manager.h"
 
-// POSIX function
-#include <dlfcn.h>
-
 #include <string>
 #include <algorithm>
 #include <filesystem>
 
 #include "fmt.h"
 #include <spdlog/spdlog.h>
+
+// POSIX function
+#include <dlfcn.h>
 
 #include "driver_interface.h"
 #include "driver_ver.h"

@@ -1,9 +1,12 @@
 //
 // Created by Kotarou on 2022/4/5.
 //
-#include <map>
 
 #include "simple.h"
+
+#include <map>
+
+DEFINE_DRIVER_CREATE(SimpleDriver)
 
 SimpleDriver::SimpleDriver() {
     required_param_.emplace_back("url");

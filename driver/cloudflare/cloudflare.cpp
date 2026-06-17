@@ -1,13 +1,14 @@
 //
 // Created by Kotarou on 2022/4/5.
 //
-
-
 #include "cloudflare.h"
+
+#include <charconv>
+
 #include "string_util.h"
 #include "response.h"
 
-#include <charconv>
+DEFINE_DRIVER_CREATE(CloudflareDriver)
 
 constexpr char API_URL[] = "https://api.cloudflare.com/client/v4/zones/{ZONE_ID}/dns_records/{RECORD_ID}";
 

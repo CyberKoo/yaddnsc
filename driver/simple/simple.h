@@ -2,8 +2,8 @@
 // Created by Kotarou on 2022/4/5.
 //
 
-#ifndef YADDNSC_SIMPLE_H
-#define YADDNSC_SIMPLE_H
+#ifndef YADDNSC_DRV_SIMPLE_SIMPLE_H
+#define YADDNSC_DRV_SIMPLE_SIMPLE_H
 
 #include <driver/base_driver.h>
 
@@ -23,8 +23,4 @@ private:
     static std::map<std::string, std::string> get_format_params(const driver_config_type &config);
 };
 
-extern "C" inline IDriver *create() {
-    return new SimpleDriver;
-}
-
-#endif //YADDNSC_SIMPLE_H
+#endif //YADDNSC_DRV_SIMPLE_SIMPLE_H

@@ -2,8 +2,8 @@
 // Created by Kotarou on 2022/4/5.
 //
 
-#ifndef YADDNSC_BASE_DRIVER_H
-#define YADDNSC_BASE_DRIVER_H
+#ifndef YADDNSC_DRIVER_BASE_DRIVER_H
+#define YADDNSC_DRIVER_BASE_DRIVER_H
 
 #include <map>
 #include <string>
@@ -14,8 +14,9 @@
 #include "fmt.h"
 #include "core_logger.h"
 
-#include "driver_interface.h"
 #include "driver_ver.h"
+#include "driver_factory.h"
+#include "driver_interface.h"
 #include "missing_required_param_exception.h"
 
 class BaseDriver : public IDriver {
@@ -41,4 +42,6 @@ public:
     }
 };
 
-#endif //YADDNSC_BASE_DRIVER_H
+extern "C" IDriver* create();
+
+#endif //YADDNSC_DRIVER_BASE_DRIVER_H

@@ -2,8 +2,8 @@
 // Created by Kotarou on 2022/4/5.
 //
 
-#ifndef YADDNSC_DIGITAL_OCEAN_H
-#define YADDNSC_DIGITAL_OCEAN_H
+#ifndef YADDNSC_DRV_DIGITALOCEAN_DIGITALOCEAN_H
+#define YADDNSC_DRV_DIGITALOCEAN_DIGITALOCEAN_H
 
 #include <driver/base_driver.h>
 
@@ -20,8 +20,4 @@ public:
     [[nodiscard]] driver_detail get_detail() const override;
 };
 
-extern "C" inline IDriver *create() {
-    return new DigitalOceanDriver;
-}
-
-#endif //YADDNSC_DIGITAL_OCEAN_H
+#endif //YADDNSC_DRV_DIGITALOCEAN_DIGITALOCEAN_H

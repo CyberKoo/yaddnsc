@@ -1,11 +1,14 @@
 //
 // Created by Kotarou on 2022/4/5.
 //
-#include <glaze/glaze.hpp>
 
 #include "digital_ocean.h"
 #include "core_logger.h"
 #include "response.h"
+
+#include <glaze/glaze.hpp>
+
+DEFINE_DRIVER_CREATE(DigitalOceanDriver)
 
 constexpr char API_URL[] = "https://api.digitalocean.com/v2/domains/{DOMAIN}/records/{RECORD_ID}";
 

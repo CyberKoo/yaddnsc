@@ -3,6 +3,8 @@
 //
 #include "dns_record_parser.h"
 
+#include <cstring>
+
 #include "fmt.h"
 
 #include <arpa/nameser.h>
@@ -10,14 +12,11 @@
 #include <sys/socket.h>
 #include <arpa/inet.h>
 
-#include <cstring>
-
 #include "exception/dns_lookup_exception.h"
 
-DnsRecordParser::DnsRecordParser(const unsigned char *data, size_t size) {
+DnsRecordParser::DnsRecordParser(data_type *data, const size_t size) {
     if (ns_initparse(data, static_cast<int>(size), &message_) != 0) {
-        throw DnsLookupException("Failed to parse DNS response message",
-                                 dns_lookup_error_type::PARSE);
+        throw DnsLookupException("Failed to parse DNS response message", dns_lookup_error_type::PARSE);
     }
 }
 
@@ -62,19 +61,19 @@ std::string DnsRecordParser::parse_record(size_t index) const {
     }
 }
 
-std::string DnsRecordParser::parse_a_record(const unsigned char *rdata) {
+std::string DnsRecordParser::parse_a_record(data_type *rdata) {
     char address_buffer[INET6_ADDRSTRLEN] = {};
     inet_ntop(AF_INET, rdata, address_buffer, INET6_ADDRSTRLEN);
     return address_buffer;
 }
 
-std::string DnsRecordParser::parse_aaaa_record(const unsigned char *rdata) {
+std::string DnsRecordParser::parse_aaaa_record(data_type *rdata) {
     char address_buffer[INET6_ADDRSTRLEN] = {};
     inet_ntop(AF_INET6, rdata, address_buffer, INET6_ADDRSTRLEN);
     return address_buffer;
 }
 
-std::string DnsRecordParser::parse_txt_record(const unsigned char *rdata, int rdlen) {
+std::string DnsRecordParser::parse_txt_record(data_type *rdata, int rdlen) {
     // <character-string>: length (1 octet), string
     if (rdlen < 1) {
         throw DnsLookupException("Invalid TXT record (no data)");
@@ -83,15 +82,13 @@ std::string DnsRecordParser::parse_txt_record(const unsigned char *rdata, int rd
     auto length = *rdata;
     if (rdlen < 1 + length) {
         throw DnsLookupException(fmt::format("Invalid TXT record: declared length {} exceeds remaining data length {}",
-                                                 length, rdlen - 1));
+                                             length, rdlen - 1));
     }
 
     return {reinterpret_cast<const char *>(rdata + 1), length};
 }
 
-std::string DnsRecordParser::parse_domain_name_record(const unsigned char *msg_base,
-                                                      const unsigned char *msg_end,
-                                                      const unsigned char *rdata) {
+std::string DnsRecordParser::parse_domain_name_record(data_type *msg_base, data_type *msg_end, data_type *rdata) {
     // <domain-name> (compressed)
     char nsname[NS_MAXDNAME];
     if (ns_name_uncompress(msg_base, msg_end, rdata, nsname, NS_MAXDNAME) < 0) {
@@ -101,9 +98,7 @@ std::string DnsRecordParser::parse_domain_name_record(const unsigned char *msg_b
     return nsname;
 }
 
-std::string DnsRecordParser::parse_mx_record(const unsigned char *msg_base,
-                                             const unsigned char *msg_end,
-                                             const unsigned char *rdata) {
+std::string DnsRecordParser::parse_mx_record(data_type *msg_base, data_type *msg_end, data_type *rdata) {
     // MX: preference (2 octets), <domain-name> (compressed)
     char nsname[NS_MAXDNAME];
     if (ns_name_uncompress(msg_base, msg_end, rdata + 2, nsname, NS_MAXDNAME) < 0) {

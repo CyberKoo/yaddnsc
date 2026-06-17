@@ -23,14 +23,8 @@ namespace {
     std::stop_source g_stop_source;
 }
 
-void gracefully_quit() {
-    SPDLOG_INFO("Received exit signal, quitting...");
-    if (g_stop_source.stop_possible()) {
-        if (!g_stop_source.request_stop()) {
-            SPDLOG_ERROR("Request stop failed.");
-        }
-    }
-}
+void gracefully_quit();
+std::shared_ptr<AppContext> init_context();
 
 int main(int argc, char *argv[]) {
     // blocked signals, will be process by signal handling thread
@@ -72,9 +66,7 @@ int main(int argc, char *argv[]) {
             spdlog::set_level(spdlog::level::info);
         }
 
-        auto app_ctx = std::make_shared<AppContext>();
-        app_ctx->driver_manager_ = std::make_unique<DriverManager>();
-        app_ctx->network_manager_ = std::make_unique<NetworkManager>();
+        auto app_ctx = init_context();
 
         auto config = Config::load_config(config_path);
 
@@ -104,4 +96,22 @@ int main(int argc, char *argv[]) {
     }
 
     return -1;
+}
+
+void gracefully_quit() {
+    SPDLOG_INFO("Received exit signal, quitting...");
+    if (g_stop_source.stop_possible()) {
+        if (!g_stop_source.request_stop()) {
+            SPDLOG_ERROR("Request stop failed.");
+        }
+    }
+}
+
+std::shared_ptr<AppContext> init_context() {
+    auto app_ctx = std::make_shared<AppContext>();
+
+    app_ctx->driver_manager_ = std::make_unique<DriverManager>();
+    app_ctx->network_manager_ = std::make_unique<NetworkManager>();
+
+    return app_ctx;
 }

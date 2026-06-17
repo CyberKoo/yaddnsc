@@ -10,13 +10,14 @@
 // available (Apple Clang >= 15 / Xcode >= 15, GCC >= 11, Clang >= 14,
 // MSVC >= 2022 17.4) and falls back to a minimal polyfill otherwise.
 
-#if __has_include(<stop_token>)
+#include <version>
+
+#if defined(__cpp_lib_jthread) && __cpp_lib_jthread >= 201911L
 
 #include <stop_token>
 #include <thread>
-// jthread is in <thread> on all standard libraries that ship <stop_token>.
 
-#else
+#else  // no native support – provide a minimal polyfill
 
 #include <atomic>
 #include <functional>
@@ -149,14 +150,14 @@ private:
 
 // Inject into namespace std so that the rest of the code can use the
 // standard names without any source-level changes.  This is well-defined
-// because the native <stop_token> header is absent (the __has_include
-// guard above ensures we only reach here when the standard library does
-// *not* provide these types), so no ODR conflict can arise.
+// because we only reach here when the standard library does *not* provide
+// these types, so no ODR conflict can arise.
 namespace std {
     using yaddnsc_detail::stop_token;
     using yaddnsc_detail::stop_source;
     using yaddnsc_detail::jthread;
 } // namespace std
 
-#endif // __has_include(<stop_token>)
-#endif // YADDNSC_STOP_TOKEN_COMPAT_H
+#endif // defined(__cpp_lib_jthread) && __cpp_lib_jthread >= 201911L
+
+#endif //YADDNSC_STOP_TOKEN_COMPAT_H

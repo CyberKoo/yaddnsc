@@ -2,8 +2,8 @@
 // Created by Kotarou on 2022/4/11.
 //
 
-#ifndef YADDNSC_DNSPOD_H
-#define YADDNSC_DNSPOD_H
+#ifndef YADDNSC_DRV_DNSPOD_DNSPOD_H
+#define YADDNSC_DRV_DNSPOD_DNSPOD_H
 
 #include <driver/base_driver.h>
 
@@ -18,8 +18,4 @@ public:
     [[nodiscard]] driver_detail get_detail() const override;
 };
 
-extern "C" inline IDriver *create() {
-    return new DNSPodDriver;
-}
-
-#endif //YADDNSC_DNSPOD_H
+#endif //YADDNSC_DRV_DNSPOD_DNSPOD_H

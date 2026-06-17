@@ -3,6 +3,10 @@
 //
 #include "dns_resolver.h"
 
+#include <cstring>
+
+#include "fmt.h"
+
 #include <spdlog/spdlog.h>
 
 #include <arpa/nameser.h>
@@ -12,10 +16,8 @@
 #include <resolv.h>
 #include <netdb.h>
 
-#include <cstring>
 #include <config_cmake.h>
 
-#include "fmt.h"
 #include "ip_util.h"
 #include "dns.h"
 #include "exception/dns_lookup_exception.h"

@@ -2,8 +2,8 @@
 // Created by Kotarou on 2022/4/5.
 //
 
-#ifndef YADDNSC_CLOUDFLARE_H
-#define YADDNSC_CLOUDFLARE_H
+#ifndef YADDNSC_DRV_CLOUDFLARE_CLOUDFLARE_H
+#define YADDNSC_DRV_CLOUDFLARE_CLOUDFLARE_H
 
 #include <driver/base_driver.h>
 
@@ -23,8 +23,4 @@ private:
     static std::string generate_body(const driver_config_type &);
 };
 
-extern "C" inline IDriver *create() {
-    return new CloudflareDriver;
-}
-
-#endif //YADDNSC_CLOUDFLARE_H
+#endif //YADDNSC_DRV_CLOUDFLARE_CLOUDFLARE_H

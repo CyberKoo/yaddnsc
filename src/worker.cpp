@@ -6,13 +6,15 @@
 
 #include <thread>
 #include <climits>
+#include <utility>
+#include <condition_variable>
+
+#include "fmt.h"
 #include "stop_token_compat.h"
 
 #include <httplib.h>
-#include "fmt.h"
 #include <spdlog/spdlog.h>
 #include <BS_thread_pool.hpp>
-#include <utility>
 
 #include "dns.h"
 #include "uri.h"
@@ -166,12 +168,20 @@ struct fmt::formatter<driver_request> {
 void Worker::run(std::stop_token st) const {
     SPDLOG_INFO(R"(Worker for domain "{}" started, update interval: {}s)", impl_->worker_config_.name,
                 impl_->worker_config_.update_interval);
-    auto &thread_pool = impl_->get_thread_pool();
+    auto &thread_pool = Impl::get_thread_pool();
     auto update_interval = std::chrono::seconds(impl_->worker_config_.update_interval);
+
+    std::mutex cv_mtx;
+    std::condition_variable cv;
+    // Register a callback that notifies the cv when stop is requested,
+    // so the worker wakes up immediately instead of blocking for the full interval.
+    std::stop_callback cb(st, [&cv] { cv.notify_all(); });
 
     while (!st.stop_requested()) {
         thread_pool.detach_task([_impl_ptr = impl_.get()] { _impl_ptr->run_scheduled_tasks(); });
-        std::this_thread::sleep_for(update_interval);
+
+        std::unique_lock lock(cv_mtx);
+        cv.wait_for(lock, update_interval, [&st] { return st.stop_requested(); });
     }
 
     SPDLOG_INFO(R"(Worker for domain "{}" stopped)", impl_->worker_config_.name);

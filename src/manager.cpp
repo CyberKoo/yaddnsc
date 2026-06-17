@@ -8,9 +8,10 @@
 #include <algorithm>
 #include <filesystem>
 #include <unordered_set>
-#include "stop_token_compat.h"
 
 #include "fmt.h"
+#include "stop_token_compat.h"
+
 #include <spdlog/spdlog.h>
 #include <config_cmake.h>
 

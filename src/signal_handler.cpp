@@ -8,6 +8,7 @@
 #include <csignal>
 #include <cstring>
 #include <thread>
+
 #include <spdlog/spdlog.h>
 
 std::map<int, std::function<void()>> signal_handlers;

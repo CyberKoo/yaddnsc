@@ -5,10 +5,11 @@
 
 #include <filesystem>
 
+#include "fmt.h"
+
 #include <httplib.h>
 #include <spdlog/spdlog.h>
 
-#include "fmt.h"
 #include "uri.h"
 #include "version.h"
 

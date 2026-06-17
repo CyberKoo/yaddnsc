@@ -2,8 +2,8 @@
 // Created by kotarou on 2026/6/17.
 //
 
-#ifndef YADDNSC_DNSPOD_RESPONSE_H
-#define YADDNSC_DNSPOD_RESPONSE_H
+#ifndef YADDNSC_DRV_DNSPOD_RESPONSE_H
+#define YADDNSC_DRV_DNSPOD_RESPONSE_H
 
 #include <string>
 #include <optional>
@@ -28,4 +28,4 @@ struct glz::meta<DnsPodStatus> {
     );
 };
 
-#endif //YADDNSC_DNSPOD_RESPONSE_H
+#endif //YADDNSC_DRV_DNSPOD_RESPONSE_H
