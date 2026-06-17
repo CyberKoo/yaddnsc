@@ -1,5 +1,5 @@
 //
-// Created by Kotarou on 2022/4/5.
+// Created by Kotarou on 2026/6/17.
 //
 #include "network_manager.h"
 
@@ -18,6 +18,8 @@
 #include <netinet/in.h>
 #include <sys/socket.h>
 
+#include "fmt.h"
+
 struct interface_addrs {
     std::string address;
     int inet_type;
@@ -35,24 +37,23 @@ public:
         auto if_addrs = get_all_ip_addresses();
         std::vector<std::string> interfaces;
         interfaces.reserve(if_addrs.size());
-        std::transform(if_addrs.begin(), if_addrs.end(), std::back_inserter(interfaces),
+        std::ranges::transform(if_addrs, std::back_inserter(interfaces),
                        [](const auto &kv) { return kv.first; });
         return interfaces;
     }
 
-    std::map<std::string, int> get_nif_ip_address(std::string_view nif) {
+    std::map<std::string, int> get_nif_ip_address(const std::string &nif) {
         auto all_nif_addrs = get_all_ip_addresses();
-        if (auto it = all_nif_addrs.find(nif.data()); it != all_nif_addrs.end()) {
+        if (auto it = all_nif_addrs.find(nif); it != all_nif_addrs.end()) {
             std::map<std::string, int> nif_ip_addrs;
-            std::transform(it->second.begin(), it->second.end(),
-                           std::inserter(nif_ip_addrs, nif_ip_addrs.end()),
+            std::ranges::transform(it->second, std::inserter(nif_ip_addrs, nif_ip_addrs.end()),
                            [](const auto &addr) -> std::pair<std::string, int> {
                                return {addr.address, addr.inet_type};
                            });
             return nif_ip_addrs;
         }
 
-        throw std::runtime_error(std::string("Interface ") + nif.data() + " not found");
+        throw std::runtime_error(fmt::format("Interface {} not found", nif));
     }
 
 private:
@@ -78,7 +79,7 @@ private:
             char host[NI_MAXHOST] = {};
             if (getnameinfo(ifa->ifa_addr, get_address_struct_size(family), host,
                             NI_MAXHOST, nullptr, 0, NI_NUMERICHOST) != 0) {
-                throw std::runtime_error(std::string("getnameinfo() failed, error: ") + gai_strerror(errno));
+                throw std::runtime_error(fmt::format("getnameinfo() failed, error: {}", gai_strerror(errno)));
             }
 
             address_map[ifa->ifa_name].emplace_back(interface_addrs{host, family});
@@ -99,11 +100,11 @@ NetworkManager::NetworkManager() : impl_(std::make_unique<Impl>()) {}
 
 NetworkManager::~NetworkManager() = default;
 
-std::vector<std::string> NetworkManager::get_interfaces() {
+std::vector<std::string> NetworkManager::get_interfaces() const {
     return impl_->get_interfaces();
 }
 
-std::map<std::string, int> NetworkManager::get_nif_ip_address(std::string_view nif) {
+std::map<std::string, int> NetworkManager::get_nif_ip_address(const std::string &nif) const {
     return impl_->get_nif_ip_address(nif);
 }
 
@@ -111,7 +112,7 @@ ifaddrs_ptr_t get_ifaddrs() {
     ifaddrs *ifaddr;
 
     if (getifaddrs(&ifaddr) == -1) {
-        throw std::runtime_error("getifaddrs() error");
+        throw std::runtime_error("getifaddrs() failed");
     }
 
     return {ifaddr, [](ifaddrs *a) { freeifaddrs(a); }};

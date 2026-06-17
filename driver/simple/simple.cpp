@@ -17,7 +17,7 @@ driver_request SimpleDriver::generate_request(const driver_config_type &config) 
         url = fmt::vformat(url, get_format_params(config));
     }
 
-    return {.url = url, .body = "", .content_type = "", .request_method = driver_http_method_type::GET, .header = {}};
+    return {.url = std::move(url), .body = std::string(), .content_type = std::string(), .request_method = driver_http_method_type::GET, .header = {}};
 }
 
 std::map<std::string, std::string> SimpleDriver::get_format_params(const driver_config_type &config) {

@@ -63,7 +63,7 @@ public:
 
     [[nodiscard]] virtual std::string_view get_driver_version() const = 0;
 
-    virtual void init_logger(int, std::string_view) = 0;
+    virtual void init_logger(int, const std::string &) = 0;
 
 protected:
     std::vector<std::string> required_param_;

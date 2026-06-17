@@ -28,9 +28,9 @@ public:
         }
     }
 
-    static std::optional<std::string> get_optional(const driver_config_type &config, std::string_view name) {
-        if (config.contains(name.data())) {
-            return {config.at(name.data())};
+    static std::optional<std::string> get_optional(const driver_config_type &config, const std::string &name) {
+        if (auto it = config.find(name); it != config.end()) {
+            return {it->second};
         }
 
         return std::nullopt;
@@ -40,9 +40,9 @@ public:
         return DRV_VERSION;
     }
 
-    void init_logger(int level, std::string_view pattern) final {
+    void init_logger(int level, const std::string &pattern) final {
         spdlog::set_level(static_cast<spdlog::level::level_enum>(level));
-        spdlog::set_pattern(pattern.data());
+        spdlog::set_pattern(pattern);
     }
 };
 

@@ -1,9 +1,9 @@
 //
-// Created by Kotarou on 2022/4/5.
+// Created by Kotarou on 2026/6/17.
 //
 
-#ifndef YADDNSC_CONTEXT_H
-#define YADDNSC_CONTEXT_H
+#ifndef YADDNSC_APP_CONTEXT_H
+#define YADDNSC_APP_CONTEXT_H
 
 #include <memory>
 
@@ -15,4 +15,4 @@ struct AppContext {
     std::unique_ptr<NetworkManager> network_manager_;
 };
 
-#endif //YADDNSC_CONTEXT_H
+#endif //YADDNSC_APP_CONTEXT_H

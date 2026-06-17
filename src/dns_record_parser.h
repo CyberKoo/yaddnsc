@@ -6,12 +6,9 @@
 #define YADDNSC_DNS_RECORD_PARSER_H
 
 #include <string>
-#include <vector>
-#include <cstddef>
 #include <string_view>
 
 #include <arpa/nameser.h>
-#include <arpa/inet.h>
 
 class DnsRecordParser {
 public:

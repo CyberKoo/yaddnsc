@@ -43,7 +43,7 @@ Uri Uri::parse(std::string_view uri) {
     }
 
     if (result.schema_.empty()) {
-        throw std::runtime_error(fmt::format("URI doesn't have a valid schema, {}", uri));
+        throw std::runtime_error(fmt::format("URI does not have a valid schema: {}", uri));
     }
 
     result.body_ = std::string(schema_end, uri.end());

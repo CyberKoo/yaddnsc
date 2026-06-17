@@ -17,7 +17,11 @@
 #include "string_util.h"
 #include "network_manager.h"
 
-std::vector<std::string> IPUtil::get_ip_from_interface(NetworkManager &net_mgr, std::string_view nif_name, ip_version_type version) {
+std::vector<std::string> IPUtil::get_ip_from_interface(
+    NetworkManager &net_mgr,
+    const std::string &nif_name,
+    ip_version_type version
+) {
     auto addresses = net_mgr.get_nif_ip_address(nif_name);
     std::vector<std::string> nif_addresses;
     for (auto &[ip_address, family]: addresses) {
@@ -30,7 +34,7 @@ std::vector<std::string> IPUtil::get_ip_from_interface(NetworkManager &net_mgr, 
 }
 
 std::optional<std::string> IPUtil::get_ip_from_url(std::string_view url, ip_version_type version, const char *if_name) {
-    auto parsed = Uri::parse(url);
+    const auto parsed = Uri::parse(url);
     auto response = HttpClient::get(parsed, ip2af(version), if_name);
     if (response) {
         auto body = response->body;
@@ -49,19 +53,17 @@ int IPUtil::ip2af(ip_version_type version) {
             return AF_INET;
         case ip_version_type::IPV6:
             return AF_INET6;
-        case ip_version_type::UNSPECIFIED:
-            return AF_UNSPEC;
         default:
             return AF_UNSPEC;
     }
 }
 
-bool IPUtil::is_ipv4_address(std::string_view str) {
+bool IPUtil::is_ipv4_address(const std::string &str) {
     sockaddr_in sa{};
-    return inet_pton(AF_INET, str.data(), &(sa.sin_addr)) != 0;
+    return inet_pton(AF_INET, str.c_str(), &(sa.sin_addr)) != 0;
 }
 
-bool IPUtil::is_ipv6_address(std::string_view str) {
+bool IPUtil::is_ipv6_address(const std::string &str) {
     sockaddr_in6 sa{};
-    return inet_pton(AF_INET6, str.data(), &(sa.sin6_addr)) != 0;
+    return inet_pton(AF_INET6, str.c_str(), &(sa.sin6_addr)) != 0;
 }

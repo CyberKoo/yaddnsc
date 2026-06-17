@@ -15,7 +15,9 @@
 #include <cstring>
 #include <config_cmake.h>
 
+#include "fmt.h"
 #include "ip_util.h"
+#include "dns.h"
 #include "exception/dns_lookup_exception.h"
 
 // only for musl
@@ -32,11 +34,11 @@ namespace {
 
     int to_ns_type(dns_record_type type) noexcept {
         switch (type) {
-            case dns_record_type::A:    return ns_t_a;
+            case dns_record_type::A: return ns_t_a;
             case dns_record_type::AAAA: return ns_t_aaaa;
-            case dns_record_type::TXT:  return ns_t_txt;
-            case dns_record_type::SOA:  return ns_t_soa;
-            default:                    return ns_t_invalid;
+            case dns_record_type::TXT: return ns_t_txt;
+            case dns_record_type::SOA: return ns_t_soa;
+            default: return ns_t_invalid;
         }
     }
 
@@ -69,12 +71,15 @@ public:
     }
 
     Impl(const Impl &) = delete;
+
     Impl &operator=(const Impl &) = delete;
+
     Impl(Impl &&) = delete;
+
     Impl &operator=(Impl &&) = delete;
 
-    std::vector<unsigned char> query(std::string_view host, dns_record_type type) {
-        SPDLOG_DEBUG(R"(DNS lookup for domain "{}")", host);
+    std::vector<unsigned char> query(const std::string &host_str, dns_record_type type) {
+        SPDLOG_DEBUG(R"(DNS lookup for domain "{}")", host_str);
 
         int buffer_size = MAXIMUM_UDP_SIZE;
         int received_size = 0;
@@ -85,14 +90,17 @@ public:
             buffer.resize(buffer_size);
 
 #ifdef HAVE_RES_NQUERY
-            received_size = res_nquery(&state_, host.data(), ns_c_in, to_ns_type(type),
+            received_size = res_nquery(&state_, host_str.c_str(), ns_c_in, to_ns_type(type),
                                        buffer.data(), buffer_size);
 #else
-            received_size = res_query(host.data(), ns_c_in, to_ns_type(type),
+            received_size = res_query(host_str.c_str(), ns_c_in, to_ns_type(type),
                                       buffer.data(), buffer_size);
 #endif
             if (received_size < 0) {
-                throw DnsLookupException(host.data(), get_dns_lookup_err(h_errno));
+                auto error_type = get_dns_lookup_err(h_errno);
+                throw DnsLookupException(
+                    fmt::format(R"(DNS lookup failed for domain "{}", error: {})", host_str, DNS::error_to_str(error_type)),
+                    error_type);
             }
             SPDLOG_DEBUG("Response payload size: {}, buffer size: {}", received_size, buffer_size);
         } while (received_size >= buffer_size);
@@ -161,12 +169,15 @@ private:
 #endif
 };
 
+DnsResolver::DnsResolver() : DnsResolver(std::nullopt) {
+}
+
 DnsResolver::DnsResolver(std::optional<dns_server> server)
     : impl_(std::make_unique<Impl>(std::move(server))) {
 }
 
 DnsResolver::~DnsResolver() = default;
 
-std::vector<unsigned char> DnsResolver::query(std::string_view host, dns_record_type type) const {
+std::vector<unsigned char> DnsResolver::query(const std::string &host, dns_record_type type) const {
     return impl_->query(host, type);
 }

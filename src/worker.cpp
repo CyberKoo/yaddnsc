@@ -12,12 +12,13 @@
 #include "fmt.h"
 #include <spdlog/spdlog.h>
 #include <BS_thread_pool.hpp>
+#include <utility>
 
 #include "dns.h"
 #include "uri.h"
 #include "util.h"
 #include "config.h"
-#include "context.h"
+#include "app_context.h"
 #include "ip_util.h"
 #include "driver_interface.h"
 #include "httpclient.h"
@@ -29,11 +30,11 @@
 class Worker::Impl {
 public:
     explicit Impl(std::shared_ptr<AppContext> app_ctx,
-                  const Config::domain_config &domain_config,
+                  Config::domain_config domain_config,
                   const Config::resolver_config &resolver_config)
         : app_ctx_(std::move(app_ctx)),
           dns_server_(get_dns_server(resolver_config)),
-          worker_config_(domain_config) {
+          worker_config_(std::move(domain_config)) {
     }
 
     ~Impl() = default;
@@ -42,13 +43,13 @@ public:
 
     [[nodiscard]] bool is_forced_update() const;
 
-    std::optional<std::string> dns_lookup(std::string_view, dns_record_type) const;
+    [[nodiscard]] std::optional<std::string> dns_lookup(const std::string &, dns_record_type) const;
 
     static std::optional<std::string> get_ip_address(NetworkManager &, const Config::subdomain_config &);
 
-    static std::optional<std::string> update_dns_record(const driver_request &, ip_version_type, std::string_view);
+    static std::optional<std::string> update_dns_record(const driver_request &, ip_version_type, const std::string &);
 
-    static httplib::Result do_http_request(const driver_request &, ip_version_type, std::string_view);
+    static httplib::Result do_http_request(const driver_request &, ip_version_type, const std::string &);
 
     static ip_version_type dns2ip(dns_record_type);
 
@@ -104,9 +105,9 @@ struct fmt::formatter<driver_request> {
 
     template<typename Iter>
 #ifdef YADDNSC_USE_STD_FORMAT
-    std::string format_map(Iter first, Iter last) const {
+    [[nodiscard]] std::string format_map(Iter first, Iter last) const {
 #else
-    std::string format_map(Iter first, Iter last) {
+    [[nodiscard]] std::string format_map(Iter first, Iter last) {
 #endif
         std::string buf;
 
@@ -176,13 +177,13 @@ void Worker::run(std::stop_token st) const {
     SPDLOG_INFO(R"(Worker for domain "{}" stopped)", impl_->worker_config_.name);
 }
 
-std::optional<std::string> Worker::Impl::dns_lookup(std::string_view host, dns_record_type type) const {
+std::optional<std::string> Worker::Impl::dns_lookup(const std::string &host, dns_record_type type) const {
     try {
         return Util::retry_on_exception<std::string, DnsLookupException>(
             [&] {
                 auto dns_answer = DNS::resolve(host, type, dns_server_);
                 if (dns_answer.size() > 1) {
-                    SPDLOG_WARN(R"(Domain "{}" resolved more than one address (count: {}))", host,
+                    SPDLOG_WARN(R"(Domain "{}" resolved to more than one address (count: {}))", host,
                                 dns_answer.size());
                 }
 
@@ -220,7 +221,7 @@ void Worker::Impl::run_scheduled_tasks() {
                     // force update or ip not same or even no ip
                     if (force_update || is_record_staled || !record.has_value()) {
                         if (force_update) {
-                            SPDLOG_INFO("Force update triggered!!");
+                            SPDLOG_INFO("Force update triggered");
                             force_update_counter_ = 0;
                         }
 
@@ -233,7 +234,7 @@ void Worker::Impl::run_scheduled_tasks() {
 
                         // if ip not equal print log
                         if (is_record_staled) {
-                            SPDLOG_INFO(R"(Update needed, L"{}" != R"{}")", *ip_addr, record_val);
+                            SPDLOG_INFO(R"(Update needed, local IP "{}" != DNS record "{}")", *ip_addr, record_val);
                         }
 
                         auto request = driver.generate_request(parameters);
@@ -248,14 +249,14 @@ void Worker::Impl::run_scheduled_tasks() {
                             SPDLOG_WARN("Update domain {} failed", fqdn);
                         }
                     } else {
-                        SPDLOG_DEBUG("Domain: {}, type: {}, current {}, new {}, skip updating", fqdn, rd_type,
+                        SPDLOG_DEBUG("Domain: {}, type: {}, current {}, new {}, skipping update", fqdn, rd_type,
                                      record_val, *ip_addr);
                     }
                 } else {
-                    SPDLOG_WARN("No valid IP address found, skip the update");
+                    SPDLOG_WARN("No valid IP address found, skipping the update");
                 }
             } catch (DriverException &e) {
-                SPDLOG_ERROR("Task for domain {}, ended with a driver exception: {}", fqdn, e.what());
+                SPDLOG_ERROR("Task for domain {} ended with a driver exception: {}", fqdn, e.what());
             }
         }
 
@@ -295,11 +296,11 @@ std::optional<std::string> Worker::Impl::get_ip_address(NetworkManager &net_mgr,
 }
 
 httplib::Result
-Worker::Impl::do_http_request(const driver_request &request, ip_version_type version, std::string_view nif) {
+Worker::Impl::do_http_request(const driver_request &request, ip_version_type version, const std::string &nif) {
     auto uri = Uri::parse(request.url);
     auto path = HttpClient::build_request(uri);
     auto headers = httplib::Headers{request.header.begin(), request.header.end()};
-    auto client = HttpClient::connect(uri, IPUtil::ip2af(version), nif.data());
+    auto client = HttpClient::connect(uri, IPUtil::ip2af(version), nif.c_str());
     auto post = [&client](auto... args) { return client.Post(std::move(args)...); };
     auto put = [&client](auto... args) { return client.Put(std::move(args)...); };
     auto requester_factory = [&](const auto &request_method) {
@@ -313,18 +314,18 @@ Worker::Impl::do_http_request(const driver_request &request, ip_version_type ver
 
     switch (request.request_method) {
         case driver_http_method_type::GET:
-            return client.Get(path.c_str(), headers);
+            return client.Get(path, headers);
         case driver_http_method_type::POST:
             return std::visit(requester_factory(post), request.body);
         case driver_http_method_type::PUT:
             return std::visit(requester_factory(put), request.body);
         default:
-            return client.Get(path.c_str(), headers);
+            return client.Get(path, headers);
     }
 }
 
 std::optional<std::string>
-Worker::Impl::update_dns_record(const driver_request &request, ip_version_type version, std::string_view nif) {
+Worker::Impl::update_dns_record(const driver_request &request, ip_version_type version, const std::string &nif) {
     auto response = do_http_request(request, version, nif);
 
     if (response) {
@@ -386,17 +387,18 @@ bool Worker::Impl::is_ipv6_unique_local(const in6_addr *addr) {
 
 bool Worker::Impl::is_ipv6_ula(const std::string &ip_addr) {
     sockaddr_in6 sa{};
-    inet_pton(AF_INET6, ip_addr.data(), &(sa.sin6_addr));
+    if (inet_pton(AF_INET6, ip_addr.data(), &(sa.sin6_addr)) != 1) {
+        return false;
+    }
     return is_ipv6_unique_local(&sa.sin6_addr);
 }
 
 bool Worker::Impl::is_ipv6_la(const std::string &ip_addr) {
     sockaddr_in6 sa{};
-    if (inet_pton(AF_INET6, ip_addr.data(), &sa.sin6_addr)) {
-        return is_ipv6_local_link(&sa.sin6_addr) || is_ipv6_site_local(&sa.sin6_addr);
+    if (inet_pton(AF_INET6, ip_addr.data(), &sa.sin6_addr) != 1) {
+        return true;  // unparseable → treat as link-local (don't use)
     }
-
-    return true;
+    return is_ipv6_local_link(&sa.sin6_addr) || is_ipv6_site_local(&sa.sin6_addr);
 }
 
 std::optional<dns_server> Worker::Impl::get_dns_server(const Config::resolver_config &config) noexcept {

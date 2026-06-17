@@ -20,9 +20,9 @@ public:
     NetworkManager(NetworkManager &&) = delete;
     NetworkManager &operator=(NetworkManager &&) = delete;
 
-    std::vector<std::string> get_interfaces();
+    [[nodiscard]] std::vector<std::string> get_interfaces() const;
 
-    std::map<std::string, int> get_nif_ip_address(std::string_view nif);
+    [[nodiscard]] std::map<std::string, int> get_nif_ip_address(const std::string &nif) const;
 
 private:
     class Impl;

@@ -1,8 +1,8 @@
 //
 // Created by Kotarou on 2026/6/17.
 //
-#ifndef YADDNSC_DIGITAL_OCEAN_RESPONSE_H
-#define YADDNSC_DIGITAL_OCEAN_RESPONSE_H
+#ifndef YADDNSC_CLOUDFLARE_RESPONSE_H
+#define YADDNSC_CLOUDFLARE_RESPONSE_H
 
 #include <cstdint>
 #include <glaze/glaze.hpp>
@@ -35,4 +35,4 @@ struct glz::meta<CloudflareResponse> {
     );
 };
 
-#endif // YADDNSC_DIGITAL_OCEAN_RESPONSE_H
+#endif // YADDNSC_CLOUDFLARE_RESPONSE_H

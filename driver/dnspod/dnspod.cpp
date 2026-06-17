@@ -59,7 +59,7 @@ bool DNSPodDriver::check_response(std::string_view response) const {
 
         SPDLOG_ERROR("Error from server: {}, code: {}", status.message, status.code);
     } else {
-        SPDLOG_ERROR("Server return an unknown error, raw response: {}", response);
+        SPDLOG_ERROR("Server returned an unknown error, raw response: {}", response);
     }
 
     return false;

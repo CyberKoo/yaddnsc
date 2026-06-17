@@ -24,8 +24,9 @@ namespace Util {
         return sizeof(obj);
     }
 
-    template<class R, class E> requires std::is_base_of_v<YaddnscException, E>
-    R retry_on_exception(const std::function<R()> &func, const unsigned retry,
+    template<class R, class E, std::invocable<> Fn>
+        requires std::is_base_of_v<YaddnscException, E>
+    R retry_on_exception(Fn &&func, const unsigned retry,
                          const std::optional<std::function<bool(const E &)> > &e_filter = std::nullopt,
                          unsigned long backoff = 500) {
         unsigned counter = 0;
@@ -48,15 +49,15 @@ namespace Util {
 
     inline bool is_valid_domain(std::string_view domain) {
         const static std::regex domain_regex(
-            "^(((?!-))(xn--|_)?[a-z0-9-]{0,61}[a-z0-9]{1,1}\\.)*(xn--)?([a-z0-9][a-z0-9\\-]{0,60}|[a-z0-9-]{1,30}\\.[a-z]{2,})\\.?$");
+            R"(^(((?!-))(xn--|_)?[a-z0-9-]{0,61}[a-z0-9]{1,1}\.)*(xn--)?([a-z0-9][a-z0-9\-]{0,60}|[a-z0-9-]{1,30}\.[a-z]{2,})\.?$)");
 
         if (domain.length() > DOMAIN_NAME_MAX_LEN) {
             return false;
         }
 
-        if (domain.find(".") != std::string_view::npos) {
-            std::cmatch match;
-            std::regex_match(domain.data(), match, domain_regex);
+        if (domain.find('.') != std::string_view::npos) {
+            std::match_results<std::string_view::const_iterator> match;
+            std::regex_match(domain.begin(), domain.end(), match, domain_regex);
 
             return !match.empty();
         }

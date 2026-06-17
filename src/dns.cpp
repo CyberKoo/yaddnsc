@@ -9,11 +9,11 @@
 #include "dns_record_parser.h"
 
 std::vector<std::string>
-DNS::resolve(std::string_view host, dns_record_type type, const std::optional<dns_server> &server) {
-    DnsResolver resolver(server);
+DNS::resolve(const std::string &host, dns_record_type type, const std::optional<dns_server> &server) {
+    const DnsResolver resolver(server);
     auto raw_response = resolver.query(host, type);
 
-    DnsRecordParser parser(raw_response.data(), raw_response.size());
+    const DnsRecordParser parser(raw_response.data(), raw_response.size());
     std::vector<std::string> result;
     result.reserve(parser.record_count());
 
@@ -33,8 +33,8 @@ std::string_view DNS::error_to_str(dns_lookup_error_type error) {
         case dns_lookup_error_type::NODATA:
             return "no data (NO_DATA)";
         case dns_lookup_error_type::PARSE:
-            return "dns record parse error";
+            return "dns record parse error (PARSE)";
         default:
-            return "unknown error";
+            return "unknown DNS error";
     }
 }

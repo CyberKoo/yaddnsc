@@ -5,15 +5,14 @@
 
 #include <filesystem>
 
-#include "fmt.h"
-
 #include <httplib.h>
 #include <spdlog/spdlog.h>
 
+#include "fmt.h"
 #include "uri.h"
 #include "version.h"
 
-std::string_view get_system_ca_path();
+std::string get_system_ca_path();
 
 httplib::Client HttpClient::connect(const Uri &uri, int family, const char *nif_name) {
     SPDLOG_DEBUG("Connecting to {}", uri.get_host());
@@ -24,7 +23,7 @@ httplib::Client HttpClient::connect(const Uri &uri, int family, const char *nif_
         auto ca_path = get_system_ca_path();
 
         if (!ca_path.empty()) {
-            client.set_ca_cert_path(ca_path.data());
+            client.set_ca_cert_path(ca_path);
             client.enable_server_certificate_verification(true);
         }
     }
@@ -46,56 +45,58 @@ httplib::Client HttpClient::connect(const Uri &uri, int family, const char *nif_
 
 httplib::Result HttpClient::get(const Uri &uri, int family, const char *nif_name) {
     auto client = HttpClient::connect(uri, family, nif_name);
-    return client.Get(build_request(uri).c_str());
+    return client.Get(build_request(uri));
 }
 
 httplib::Result HttpClient::post(const Uri &uri, const param_type &parameters, int family, const char *nif_name) {
-    SPDLOG_TRACE("Post to uri {}", uri.get_raw_uri());
+    SPDLOG_TRACE("POST to URI {}", uri.get_raw_uri());
 
     auto client = HttpClient::connect(uri, family, nif_name);
-    return client.Post(build_request(uri).c_str(), parameters);
+    return client.Post(build_request(uri), parameters);
 }
 
 httplib::Result HttpClient::put(const Uri &uri, const param_type &parameters, int family, const char *nif_name) {
-    SPDLOG_TRACE("Put to uri {}", uri.get_raw_uri());
+    SPDLOG_TRACE("PUT to URI {}", uri.get_raw_uri());
 
     auto client = HttpClient::connect(uri, family, nif_name);
-    return client.Put(build_request(uri).c_str(), parameters);
+    return client.Put(build_request(uri), parameters);
 }
 
 std::string HttpClient::build_request(const Uri &uri) {
     if (uri.get_query_string().empty()) {
-        return uri.get_path().data();
+        return std::string(uri.get_path());
     }
 
     return fmt::format("{}?{}", uri.get_path(), uri.get_query_string());
 }
 
-std::string_view get_system_ca_path() {
-    static std::string_view ca_path = []() -> std::string_view {
-        constexpr std::string_view SEARCH_PATH[]{
-                "./ca.pem",                                             // Local CA file
-                "/etc/ssl/certs/ca-certificates.crt",                   // Debian/Ubuntu/Gentoo etc.
-                "/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem",    // CentOS/RHEL 7
-                "/etc/ssl/ca-bundle.pem",                               // OpenSUSE
-                "/usr/local/etc/openssl/cert.pem",                      // MacOS via Homebrew
-                "/opt/homebrew/etc/openssl/cert.pem",                   // MacOS via Homebrew(M1 and above)
-                "/etc/pki/tls/certs/ca-bundle.crt",                     // Fedora/RHEL 6
-                "/etc/pki/tls/cacert.pem",                              // OpenELEC
-                "/etc/ssl/cert.pem",                                    // OpenWRT
+std::string get_system_ca_path() {
+    static const std::string ca_path = [] {
+        constexpr std::string_view search_paths[]{
+            "./ca.pem",
+            "/etc/ssl/certs/ca-certificates.crt",
+            "/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem",
+            "/etc/ssl/ca-bundle.pem",
+            "/usr/local/etc/openssl/cert.pem",
+            "/opt/homebrew/etc/openssl/cert.pem",
+            "/etc/pki/tls/certs/ca-bundle.crt",
+            "/etc/pki/tls/cacert.pem",
+            "/etc/ssl/cert.pem",
         };
 
         SPDLOG_DEBUG("Looking for CA bundle...");
-        for (const auto &search: SEARCH_PATH) {
-            if (std::filesystem::exists(search) && !std::filesystem::is_directory(search)) {
-                SPDLOG_DEBUG("Found CA bundle at {}", search);
-                return search;
-            }
+
+        const auto it = std::ranges::find_if(search_paths, [](std::string_view p) {
+            return std::filesystem::exists(p) && !std::filesystem::is_directory(p);
+        });
+
+        if (it != std::end(search_paths)) {
+            SPDLOG_DEBUG("Found CA bundle at {}", *it);
+            return std::string(*it);
         }
 
         SPDLOG_INFO("CA bundle not found, server certificate verification will be disabled.");
-
-        return "";
+        return std::string{};
     }();
 
     return ca_path;

@@ -14,9 +14,8 @@
 #include <spdlog/spdlog.h>
 #include <config_cmake.h>
 
-#include "dns.h"
 #include "worker.h"
-#include "context.h"
+#include "app_context.h"
 #include "ip_util.h"
 #include "network_manager.h"
 #include "driver_manager.h"
@@ -39,7 +38,7 @@ public:
         });
     }
 
-    unsigned int estimated_threads() const;
+    [[nodiscard]] unsigned int estimated_threads() const;
 
 public:
     static constexpr int MIN_UPDATE_INTERVAL = 60;
@@ -81,10 +80,10 @@ void Manager::validate_config() const {
         }
 
         // check update interval
-        if (domain.update_interval < impl_->MIN_UPDATE_INTERVAL) {
+        if (domain.update_interval < Impl::MIN_UPDATE_INTERVAL) {
             throw ConfigVerificationException(
                 fmt::format("Update interval too low for domain {} ({}), minimal interval: {}", domain.name,
-                            domain.update_interval, impl_->MIN_UPDATE_INTERVAL));
+                            domain.update_interval, Impl::MIN_UPDATE_INTERVAL));
         }
 
         // check force update interval
@@ -97,7 +96,7 @@ void Manager::validate_config() const {
         // check interfaces
         for (auto &subdomain: domain.subdomains) {
             if (!subdomain.interface.empty()) {
-                if (std::find(interfaces.begin(), interfaces.end(), subdomain.interface) == interfaces.end()) {
+                if (std::ranges::find(interfaces, subdomain.interface) == interfaces.end()) {
                     throw ConfigVerificationException(fmt::format("Interface {} not found", subdomain.interface));
                 }
             }
@@ -159,7 +158,7 @@ void Manager::run(std::stop_token stop_token) const {
         }
 #else
         SPDLOG_WARN(
-                "Custom resolver defined, but res_nquery not support on your platform, this option will be ignored");
+                "Custom resolver defined, but res_nquery() is not supported on this platform; the option will be ignored");
 #endif
     }
 

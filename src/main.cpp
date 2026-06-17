@@ -9,7 +9,7 @@
 
 #include "config.h"
 #include "manager.h"
-#include "context.h"
+#include "app_context.h"
 #include "version.h"
 #include "signal_handler.h"
 #include "logging_pattern.h"
@@ -24,9 +24,11 @@ namespace {
 }
 
 void gracefully_quit() {
-    SPDLOG_INFO("Received exit signal, quiting...");
+    SPDLOG_INFO("Received exit signal, quitting...");
     if (g_stop_source.stop_possible()) {
-        g_stop_source.request_stop();
+        if (!g_stop_source.request_stop()) {
+            SPDLOG_ERROR("Request stop failed.");
+        }
     }
 }
 
@@ -65,7 +67,7 @@ int main(int argc, char *argv[]) {
         spdlog::set_pattern(YADDNSC_LOGGING_PATTERN);
         if (result["verbose"].as<bool>()) {
             spdlog::set_level(spdlog::level::debug);
-            SPDLOG_DEBUG("verbose mode enabled");
+            SPDLOG_DEBUG("Verbose mode enabled");
         } else {
             spdlog::set_level(spdlog::level::info);
         }
@@ -98,7 +100,7 @@ int main(int argc, char *argv[]) {
     } catch (cxxopts::exceptions::exception &e) {
         SPDLOG_CRITICAL(e.what());
     } catch (std::exception &e) {
-        SPDLOG_CRITICAL("Unhandled exception, error: {}", e.what());
+        SPDLOG_CRITICAL("Unhandled exception. Error: {}", e.what());
     }
 
     return -1;

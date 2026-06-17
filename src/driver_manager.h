@@ -19,11 +19,11 @@ public:
 
     ~DriverManager() override;
 
-    void load_driver(std::string_view) const;
+    void load_driver(const std::string &) const;
 
-    std::vector<std::string_view> get_loaded_drivers() const;
+    [[nodiscard]] std::vector<std::string_view> get_loaded_drivers() const;
 
-    IDriver &get_driver(std::string_view) const;
+    [[nodiscard]] IDriver &get_driver(const std::string &) const;
 
 private:
     class Impl;

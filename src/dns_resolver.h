@@ -6,16 +6,16 @@
 #define YADDNSC_DNS_RESOLVER_H
 
 #include <vector>
-#include <cstddef>
 #include <memory>
 #include <optional>
-#include <string_view>
 
 #include "type.h"
 
 class DnsResolver {
 public:
-    explicit DnsResolver(std::optional<dns_server> server = std::nullopt);
+    explicit DnsResolver();
+
+    explicit DnsResolver(std::optional<dns_server> server);
     ~DnsResolver();
 
     DnsResolver(const DnsResolver &) = delete;
@@ -23,7 +23,7 @@ public:
     DnsResolver(DnsResolver &&) = delete;
     DnsResolver &operator=(DnsResolver &&) = delete;
 
-    [[nodiscard]] std::vector<unsigned char> query(std::string_view host, dns_record_type type) const;
+    [[nodiscard]] std::vector<unsigned char> query(const std::string &host, dns_record_type type) const;
 
 private:
     class Impl;

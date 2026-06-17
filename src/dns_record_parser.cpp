@@ -8,9 +8,9 @@
 #include <arpa/nameser.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
+#include <arpa/inet.h>
 
 #include <cstring>
-#include <stdexcept>
 
 #include "exception/dns_lookup_exception.h"
 
@@ -82,7 +82,8 @@ std::string DnsRecordParser::parse_txt_record(const unsigned char *rdata, int rd
 
     auto length = *rdata;
     if (rdlen < 1 + length) {
-        throw DnsLookupException("Invalid TXT record");
+        throw DnsLookupException(fmt::format("Invalid TXT record: declared length {} exceeds remaining data length {}",
+                                                 length, rdlen - 1));
     }
 
     return {reinterpret_cast<const char *>(rdata + 1), length};

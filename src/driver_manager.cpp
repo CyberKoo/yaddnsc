@@ -25,7 +25,7 @@ public:
 
     ~Impl() = default;
 
-    bool is_driver_loaded(std::string_view) const;
+    [[nodiscard]] bool is_driver_loaded(std::string_view) const;
 
     static std::string_view get_driver_name(std::string_view);
 
@@ -53,10 +53,10 @@ public:
 
     Driver &operator=(Driver &&) = default;
 
-    explicit Driver(std::string_view path) : handle_{dlopen(path.data(), RTLD_LAZY)} {
+    explicit Driver(const std::string &path) : handle_{dlopen(path.c_str(), RTLD_LAZY)} {
         if (handle_ == nullptr) {
             SPDLOG_CRITICAL("Unable to load driver {}, error: {}", get_driver_name(path), dlerror());
-            throw BadDriverException("loader error");
+            throw BadDriverException(fmt::format("Failed to load driver: {}", dlerror()));
         }
 
         // reset error message pointer
@@ -66,7 +66,7 @@ public:
         auto create_func = reinterpret_cast<std::add_pointer_t<IDriver *()>>(dlsym(handle_.get(), "create"));
         if (const auto error = dlerror()) {
             SPDLOG_CRITICAL("Failed to create driver instance, error: {}", error);
-            throw BadDriverException("dlsym error");
+            throw BadDriverException(fmt::format("Failed to resolve symbol 'create' in driver: {}", error));
         }
 
         driver_ = std::unique_ptr<IDriver>(create_func());
@@ -89,39 +89,38 @@ private:
 
 DriverManager::~DriverManager() = default;
 
-IDriver &DriverManager::get_driver(std::string_view name) const {
-    auto key = std::string(name);
-    if (auto it = impl_->driver_map_.find(key); it != impl_->driver_map_.end()) {
+IDriver &DriverManager::get_driver(const std::string &name) const {
+    if (const auto it = impl_->driver_map_.find(name); it != impl_->driver_map_.end()) {
         return *it->second.get();
     }
 
     SPDLOG_CRITICAL("Driver {} not found", name);
-    throw BadDriverException("Driver not found");
+    throw BadDriverException(fmt::format("Driver '{}' is not loaded", name));
 }
 
 std::vector<std::string_view> DriverManager::get_loaded_drivers() const {
     std::vector<std::string_view> loaded_drivers;
-    std::transform(
-        impl_->driver_map_.begin(), impl_->driver_map_.end(), std::back_inserter(loaded_drivers),
+    std::ranges::transform(
+        impl_->driver_map_, std::back_inserter(loaded_drivers),
         [](const auto &kv) -> std::string_view { return kv.first; }
     );
 
     return loaded_drivers;
 }
 
-void DriverManager::load_driver(std::string_view path) const {
-    auto driver_lib_name = impl_->get_driver_name(path);
+void DriverManager::load_driver(const std::string &path) const {
+    auto driver_lib_name = Impl::get_driver_name(path);
     SPDLOG_DEBUG("Trying to load driver {}", driver_lib_name);
 
     if (std::filesystem::exists(path)) {
         if (!impl_->is_driver_loaded(path)) {
             impl_->register_driver(Impl::Driver(path), driver_lib_name);
         } else {
-            SPDLOG_WARN("Driver {} already loaded.", driver_lib_name);
+            SPDLOG_WARN("Driver {} is already loaded", driver_lib_name);
         }
     } else {
         SPDLOG_CRITICAL("Failed to load driver {}, file {} not found", driver_lib_name, path);
-        throw BadDriverException(driver_lib_name.data());
+        throw BadDriverException(fmt::format("Driver library '{}' not found at {}", driver_lib_name, path));
     }
 }
 
@@ -139,24 +138,24 @@ bool DriverManager::Impl::is_driver_loaded(std::string_view driver_path) const {
 }
 
 void DriverManager::Impl::register_driver(Driver driver_res, std::string_view driver_lib_name) {
-    auto &driver = driver_res.get();
+    const auto &driver = driver_res.get();
 
     // validate driver ABI version
-    if (driver->get_driver_version().compare(DRV_VERSION) != 0) {
-        SPDLOG_CRITICAL("Driver {} version {} instead of {}.", driver_lib_name, driver->get_driver_version(),
+    if (driver->get_driver_version() != DRV_VERSION) {
+        SPDLOG_CRITICAL("Driver {} has version {} but expected version {}", driver_lib_name, driver->get_driver_version(),
                         DRV_VERSION);
 
-        throw BadDriverException("Driver ABI mismatch");
+        throw BadDriverException(fmt::format("Driver {} ABI version mismatch: got {}, expected {}",
+                                                driver_lib_name, driver->get_driver_version(), DRV_VERSION));
     }
 
     // initialize logger
     driver->init_logger(spdlog::get_level(), YADDNSC_LOGGING_PATTERN);
-    auto driver_detail = driver->get_detail();
-    SPDLOG_INFO("Driver {} loaded, driver name: {}", driver_lib_name, driver_detail.name);
-    SPDLOG_DEBUG("Driver {} ({}), developed by {}, version: {}", driver_detail.name, driver_detail.description,
-                 driver_detail.author, driver_detail.version);
+    auto [name, description, author, version] = driver->get_detail();
+    SPDLOG_INFO("Driver {} loaded, driver name: {}", driver_lib_name, name);
+    SPDLOG_DEBUG("Driver {} ({}), developed by {}, version: {}", name, description, author, version);
 
-    driver_map_.emplace(driver_detail.name, std::move(driver_res));
+    driver_map_.emplace(name, std::move(driver_res));
     loaded_lib_.emplace_back(driver_lib_name);
 }
 
