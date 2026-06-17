@@ -7,6 +7,14 @@ include_directories("${PROJECT_SOURCE_DIR}/../include")
 
 add_custom_target(drivers)
 
+# On macOS the linker requires exported symbols from shared modules to be
+# resolved at link time by default, but driver modules resolve them from
+# the main executable at dlopen time.  Allow undefined symbols at link
+# time so that symbols such as CoreLogger::* can be resolved at runtime.
+if (APPLE)
+    set(CMAKE_MODULE_LINKER_FLAGS "${CMAKE_MODULE_LINKER_FLAGS} -Wl,-undefined,dynamic_lookup")
+endif ()
+
 # add all drivers
 file(GLOB DRIVER_DIRS "./**" LIST_DIRECTORIES true)
 foreach (DIR_NAME ${DRIVER_DIRS})
