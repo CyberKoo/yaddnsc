@@ -1,11 +1,11 @@
-cmake_minimum_required(VERSION 3.14 FATAL_ERROR)
+cmake_minimum_required(VERSION 3.28...3.31 FATAL_ERROR)
 project(yaddnsc)
 
 list(APPEND CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/cmake)
 
-# --- compiler & project-wide settings ---
-option(LIBC_MUSL "Use musl libc" OFF)
-
+# ==============================================================================
+# Compiler & project-wide settings
+# ==============================================================================
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -15,20 +15,34 @@ set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/objs/lib)
 set(EXECUTABLE_OUTPUT_PATH ${CMAKE_BINARY_DIR}/objs)
 set(CMAKE_POLICY_DEFAULT_CMP0077 NEW)
 
-# if not musl add lto flag to release target
-if (NOT LIBC_MUSL)
-    set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -flto=auto")
-endif ()
-
-# set default build target to release
+# default to release if not specified
 if (NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release)
 endif ()
 
-# --- feature detection ---
+# ==============================================================================
+# Feature detection
+# ==============================================================================
 include(FeatureCheck)
 
-# --- version info ---
+# ==============================================================================
+# Release build flags
+# ==============================================================================
+# LTO is incompatible with musl (auto-detected in FeatureCheck)
+if (NOT LIBC_MUSL)
+    set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -flto=auto")
+endif ()
+
+# Strip symbols in Release builds
+if (APPLE)
+    set(CMAKE_EXE_LINKER_FLAGS_RELEASE "${CMAKE_EXE_LINKER_FLAGS_RELEASE} -Wl,-S")
+else ()
+    set(CMAKE_EXE_LINKER_FLAGS_RELEASE "${CMAKE_EXE_LINKER_FLAGS_RELEASE} -Wl,-s")
+endif ()
+
+# ==============================================================================
+# Version info & generated headers
+# ==============================================================================
 set(YADDNSC_VERSION_MAJOR 1)
 set(YADDNSC_VERSION_MINOR 0)
 set(YADDNSC_VERSION_PATCH 0)
@@ -41,22 +55,26 @@ if (YADDNSC_DEVELOPMENT)
     set(YADDNSC_RELEASE_INFO ${GIT_VERSION})
 endif ()
 
-# --- generated headers ---
-include_directories(${CMAKE_BINARY_DIR}/generated/)
 configure_file("${CMAKE_SOURCE_DIR}/include/version.h.in" "${CMAKE_BINARY_DIR}/generated/version.h" @ONLY)
 configure_file("${CMAKE_SOURCE_DIR}/include/driver_ver.h.in" "${CMAKE_BINARY_DIR}/generated/driver_ver.h" @ONLY)
 configure_file("${CMAKE_SOURCE_DIR}/include/config_cmake.h.in" "${CMAKE_BINARY_DIR}/generated/config_cmake.h")
 
-# --- required system libraries ---
+# ==============================================================================
+# Dependencies
+# ==============================================================================
 find_package(ZLIB REQUIRED)
 find_package(OpenSSL REQUIRED)
-
-# --- third-party dependencies ---
 include(Dependencies)
 
-# --- source file variables ---
+# ==============================================================================
+# Include paths (inherited by driver subdirectory)
+# ==============================================================================
 include_directories(${PROJECT_SOURCE_DIR}/include/)
+include_directories(${CMAKE_BINARY_DIR}/generated/)
 
+# ==============================================================================
+# Source files
+# ==============================================================================
 set(URI src/uri.cpp)
 set(Config src/config.cpp)
 set(Worker src/worker.cpp)
@@ -69,30 +87,25 @@ set(NetworkManager src/network_manager.cpp)
 set(CoreLogger src/core_logger.cpp)
 set(DNS src/dns.cpp src/dns_resolver.cpp src/dns_record_parser.cpp)
 
-# --- static libraries ---
 add_library(string_util STATIC src/string_util.cpp)
 set_target_properties(string_util PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
-# --- main executable ---
-add_executable(yaddnsc src/main.cpp ${DNS} ${Context} ${Config} ${DriverManager} ${URI} ${Worker} ${Manager} ${IPUtil}
-        ${HttpClient} ${SignalHandler} ${NetworkManager} ${CoreLogger})
+# ==============================================================================
+# Main executable
+# ==============================================================================
+add_executable(yaddnsc src/main.cpp ${DNS} ${Context} ${Config} ${DriverManager} ${URI} ${Worker} ${Manager} ${IPUtil} ${HttpClient} ${SignalHandler} ${NetworkManager} ${CoreLogger})
 
-# Export symbols from the main executable so that driver modules loaded
-# via dlopen(3) at runtime can resolve them (e.g. CoreLogger::*).
 set_target_properties(yaddnsc PROPERTIES ENABLE_EXPORTS ON)
-
-# link internal libraries
 target_link_libraries(yaddnsc PRIVATE string_util BS_thread_pool)
+target_link_libraries(yaddnsc PRIVATE httplib spdlog::spdlog yaddnsc_fmt OpenSSL::SSL OpenSSL::Crypto ZLIB::ZLIB cxxopts::cxxopts glaze::glaze ${CMAKE_DL_LIBS})
 
-# link third party libraries
-target_link_libraries(yaddnsc PRIVATE httplib spdlog::spdlog yaddnsc_fmt OpenSSL::SSL OpenSSL::Crypto ZLIB::ZLIB
-        cxxopts::cxxopts glaze::glaze ${CMAKE_DL_LIBS})
-
-# libresolv is needed on linux, but not on BSDs, so only link it if we can find it
+# resolv is linux-specific, not present on BSDs
 find_library(RESOLV resolv)
 if (RESOLV)
     target_link_libraries(yaddnsc PRIVATE ${RESOLV})
 endif ()
 
-# --- external driver modules ---
+# ==============================================================================
+# Driver modules
+# ==============================================================================
 add_subdirectory(${PROJECT_SOURCE_DIR}/driver/)

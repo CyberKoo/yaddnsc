@@ -57,7 +57,7 @@ public:
 
     static std::string_view to_string(dns_record_type);
 
-    static BS::thread_pool &get_thread_pool();
+    static BS::thread_pool<> &get_thread_pool();
 
     static bool is_ipv6_la(const std::string &);
 
@@ -109,7 +109,7 @@ struct fmt::formatter<driver_request> {
 #ifdef YADDNSC_USE_STD_FORMAT
     [[nodiscard]] std::string format_map(Iter first, Iter last) const {
 #else
-    [[nodiscard]] std::string format_map(Iter first, Iter last) {
+    [[nodiscard]] std::string format_map(Iter first, Iter last) const {
 #endif
         std::string buf;
 
@@ -135,7 +135,7 @@ struct fmt::formatter<driver_request> {
 #ifdef YADDNSC_USE_STD_FORMAT
     auto format(const driver_request &request, FormatContext &ctx) const -> decltype(ctx.out()) {
 #else
-    auto format(const driver_request &request, FormatContext &ctx) -> decltype(ctx.out()) {
+    auto format(const driver_request &request, FormatContext &ctx) const -> decltype(ctx.out()) {
 #endif
         std::string body_type;
         std::string body;
@@ -377,7 +377,7 @@ std::string_view Worker::Impl::to_string(dns_record_type type) {
     }
 }
 
-BS::thread_pool &Worker::Impl::get_thread_pool() {
+BS::thread_pool<> &Worker::Impl::get_thread_pool() {
     static BS::thread_pool thread_pool{};
 
     return thread_pool;

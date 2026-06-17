@@ -26,12 +26,9 @@ driver_request CloudflareDriver::generate_request(const driver_config_type &conf
 
     driver_request request{};
     request.header.insert({"Authorization", fmt::format("Bearer {}", config.at("token"))});
-    request.url = fmt::vformat(
-        API_URL, std::map<std::string, std::string>{
-            {"ZONE_ID", config.at("zone_id")},
-            {"RECORD_ID", config.at("record_id")}
-        }
-    );
+    request.url = fmt::format(API_URL,
+                                fmt::arg("ZONE_ID", config.at("zone_id")),
+                                fmt::arg("RECORD_ID", config.at("record_id")));
     request.body = generate_body(config);
     request.content_type = "application/json";
     request.request_method = driver_http_method_type::PUT;

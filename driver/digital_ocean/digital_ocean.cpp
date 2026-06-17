@@ -24,12 +24,9 @@ driver_request DigitalOceanDriver::generate_request(const driver_config_type &co
 
     driver_request request{};
     request.header.insert({"Authorization", fmt::format("Bearer {}", config.at("token"))});
-    request.url = fmt::vformat(
-        API_URL, std::map<std::string, std::string>{
-            {"DOMAIN", config.at("domain")},
-            {"RECORD_ID", config.at("record_id")}
-        }
-    );
+    request.url = fmt::format(API_URL,
+                                fmt::arg("DOMAIN", config.at("domain")),
+                                fmt::arg("RECORD_ID", config.at("record_id")));
     auto do_body = glz::obj{"data", config.at("ip_addr")};
     request.body = glz::write_json(do_body).value_or("{}");
     request.content_type = "application/json";

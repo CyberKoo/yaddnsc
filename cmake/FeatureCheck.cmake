@@ -25,3 +25,13 @@ check_cxx_source_compiles(
     "
     HAVE_STD_FORMAT
 )
+
+# --- libc detection (musl vs glibc) -------------------------------------------
+# LTO is incompatible with musl, so we need to know which libc is in use.
+
+check_cxx_source_compiles("
+    #ifndef __MUSL__
+    #error not musl
+    #endif
+    int main() { return 0; }
+" LIBC_MUSL)

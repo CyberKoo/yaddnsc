@@ -16,8 +16,13 @@ driver_request SimpleDriver::generate_request(const driver_config_type &config) 
     check_required_params(config);
 
     auto url = config.at("url");
-    if (auto format = get_optional(config, "format"); format.has_value()) {
-        url = fmt::vformat(url, get_format_params(config));
+    if (get_optional(config, "format").has_value()) {
+        for (const auto &[key, val]: get_format_params(config)) {
+            const auto placeholder = "{" + key + "}";
+            for (auto pos = url.find(placeholder); pos != std::string::npos; pos = url.find(placeholder, pos + val.size())) {
+                url.replace(pos, placeholder.size(), val);
+            }
+        }
     }
 
     return {.url = std::move(url), .body = std::string(), .content_type = std::string(), .request_method = driver_http_method_type::GET, .header = {}};

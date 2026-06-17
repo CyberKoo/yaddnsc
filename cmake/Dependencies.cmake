@@ -25,7 +25,7 @@ else ()
     FetchContent_Declare(
         fmt
         GIT_REPOSITORY https://github.com/fmtlib/fmt.git
-        GIT_TAG        10.2.1
+        GIT_TAG        12.2.0
         GIT_SHALLOW    TRUE
     )
     FetchContent_MakeAvailable(fmt)
@@ -87,7 +87,7 @@ cmake_policy(SET CMP0169 OLD)
 FetchContent_Declare(
     thread-pool
     GIT_REPOSITORY https://github.com/bshoshany/thread-pool.git
-    GIT_TAG        097aa718f25d44315cadb80b407144ad455ee4f9
+    GIT_TAG        v5.1.0
 )
 FetchContent_GetProperties(thread-pool)
 if(NOT thread-pool_POPULATED)
