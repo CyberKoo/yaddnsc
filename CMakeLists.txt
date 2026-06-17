@@ -77,6 +77,10 @@ set_target_properties(string_util PROPERTIES POSITION_INDEPENDENT_CODE ON)
 add_executable(yaddnsc src/main.cpp ${DNS} ${Context} ${Config} ${DriverManager} ${URI} ${Worker} ${Manager} ${IPUtil}
         ${HttpClient} ${SignalHandler} ${NetworkManager} ${CoreLogger})
 
+# Export symbols from the main executable so that driver modules loaded
+# via dlopen(3) at runtime can resolve them (e.g. CoreLogger::*).
+set_target_properties(yaddnsc PROPERTIES ENABLE_EXPORTS ON)
+
 # link internal libraries
 target_link_libraries(yaddnsc PRIVATE string_util BS_thread_pool)
 
