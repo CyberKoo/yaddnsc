@@ -20,11 +20,11 @@
 #include "uri.h"
 #include "util.h"
 #include "config.h"
-#include "app_context.h"
 #include "ip_util.h"
-#include "driver_interface.h"
+#include "app_context.h"
 #include "http_client.h"
 #include "driver_manager.h"
+#include "driver_interface.h"
 
 #include "exception/driver_exception.h"
 #include "exception/dns_lookup_exception.h"
@@ -95,7 +95,7 @@ struct std::formatter<driver_request> {
 
 
 #endif
-    static std::string_view to_string(driver_http_method_type type) {
+    static std::string_view to_string(const driver_http_method_type type) {
         switch (type) {
             case driver_http_method_type::GET:
                 return "GET";
@@ -105,7 +105,7 @@ struct std::formatter<driver_request> {
                 return "PUT";
             case driver_http_method_type::PATCH:
                 return "PATCH";
-            case driver_http_method_type::DELETE:
+            case driver_http_method_type::DEL:
                 return "DELETE";
             default:
                 return "UNKNOWN";
@@ -338,7 +338,7 @@ Worker::Impl::do_http_request(const driver_request &request, address_family vers
             return with_body([&]<typename... T>(T &&... args) { return client.Put(std::forward<T>(args)...); });
         case driver_http_method_type::PATCH:
             return with_body([&]<typename... T>(T &&... args) { return client.Patch(std::forward<T>(args)...); });
-        case driver_http_method_type::DELETE:
+        case driver_http_method_type::DEL:
             return client.Delete(path, headers);
         default:
             return client.Get(path, headers);
