@@ -97,7 +97,7 @@ add_subdirectory(deps/cxxopts EXCLUDE_FROM_ALL)
 ## submodules ##
 
 ### source code
-set(DNS src/dns.cpp src/dns.h)
+set(DNS src/dns.cpp src/dns_resolver.cpp src/dns_record_parser.cpp)
 set(URI src/uri.cpp include/uri.h)
 set(Config src/config.cpp src/config.h)
 set(Worker src/worker.cpp src/worker.h)
