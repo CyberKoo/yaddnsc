@@ -15,7 +15,6 @@
 
 #include "driver_interface.h"
 #include "driver_ver.h"
-#include "logging_pattern.h"
 #include "exception/bad_driver_exception.h"
 
 // Internal implementation
@@ -149,8 +148,7 @@ void DriverManager::Impl::register_driver(Driver driver_res, std::string_view dr
                                                 driver_lib_name, driver->get_driver_version(), DRV_VERSION));
     }
 
-    // initialize logger
-    driver->init_logger(spdlog::get_level(), YADDNSC_LOGGING_PATTERN);
+    // initialize logger (no-op, logging is handled by CoreLogger in the core)
     auto [name, description, author, version] = driver->get_detail();
     SPDLOG_INFO("Driver {} loaded, driver name: {}", driver_lib_name, name);
     SPDLOG_DEBUG("Driver {} ({}), developed by {}, version: {}", name, description, author, version);

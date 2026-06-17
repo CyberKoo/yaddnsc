@@ -6,7 +6,7 @@
 #define YADDNSC_MANAGER_H
 
 #include <memory>
-#include <stop_token>
+#include "stop_token_compat.h"
 
 #include "config.h"
 

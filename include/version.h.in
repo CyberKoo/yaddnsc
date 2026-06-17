@@ -5,6 +5,7 @@
 #ifndef YADDNSC_VERSION_H
 #define YADDNSC_VERSION_H
 
+namespace yaddnsc {
 constexpr char YADDNSC_VERSION_MAJOR[] = "@YADDNSC_VERSION_MAJOR@";
 
 constexpr char YADDNSC_VERSION_MINOR[] = "@YADDNSC_VERSION_MINOR@";
@@ -24,5 +25,5 @@ constexpr const char *get_short_version() {
 constexpr const char *get_version() {
     return "@YADDNSC_VERSION_MAJOR@.@YADDNSC_VERSION_MINOR@.@YADDNSC_VERSION_PATCH@";
 }
-
+}
 #endif //YADDNSC_VERSION_H

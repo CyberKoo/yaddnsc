@@ -5,7 +5,6 @@ list(APPEND CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/cmake)
 
 # --- compiler & project-wide settings ---
 option(LIBC_MUSL "Use musl libc" OFF)
-option(NO_RTTI "Disable RTTI" OFF)
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -19,13 +18,6 @@ set(CMAKE_POLICY_DEFAULT_CMP0077 NEW)
 # if not musl add lto flag to release target
 if (NOT LIBC_MUSL)
     set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -flto=auto")
-endif ()
-
-# disable rtti
-if (NO_RTTI)
-    message(STATUS "RTTI disabled")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-rtti")
-    add_compile_definitions(CXXOPTS_NO_RTTI)
 endif ()
 
 # set default build target to release
@@ -65,7 +57,6 @@ include(Dependencies)
 # --- source file variables ---
 include_directories(${PROJECT_SOURCE_DIR}/include/)
 
-set(DNS src/dns.cpp src/dns_resolver.cpp src/dns_record_parser.cpp)
 set(URI src/uri.cpp)
 set(Config src/config.cpp)
 set(Worker src/worker.cpp)
@@ -75,6 +66,8 @@ set(HttpClient src/httpclient.cpp)
 set(DriverManager src/driver_manager.cpp)
 set(SignalHandler src/signal_handler.cpp)
 set(NetworkManager src/network_manager.cpp)
+set(CoreLogger src/core_logger.cpp)
+set(DNS src/dns.cpp src/dns_resolver.cpp src/dns_record_parser.cpp)
 
 # --- static libraries ---
 add_library(string_util STATIC src/string_util.cpp)
@@ -82,7 +75,7 @@ set_target_properties(string_util PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 # --- main executable ---
 add_executable(yaddnsc src/main.cpp ${DNS} ${Context} ${Config} ${DriverManager} ${URI} ${Worker} ${Manager} ${IPUtil}
-        ${HttpClient} ${SignalHandler} ${NetworkManager})
+        ${HttpClient} ${SignalHandler} ${NetworkManager} ${CoreLogger})
 
 # link internal libraries
 target_link_libraries(yaddnsc PRIVATE string_util BS_thread_pool)

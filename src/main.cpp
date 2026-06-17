@@ -2,7 +2,7 @@
 // Created by Kotarou on 2022/4/5.
 //
 #include <iostream>
-#include <stop_token>
+#include "stop_token_compat.h"
 
 #include <cxxopts.hpp>
 #include <spdlog/spdlog.h>
@@ -59,7 +59,7 @@ int main(int argc, char *argv[]) {
         }
 
         if (result.count("version")) {
-            std::cout << get_full_version() << std::endl;
+            std::cout << yaddnsc::get_full_version() << std::endl;
             exit(0);
         }
 

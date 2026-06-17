@@ -2,6 +2,7 @@
 // Created by Kotarou on 2022/4/5.
 //
 
+
 #include "cloudflare.h"
 #include "string_util.h"
 #include "response.h"
@@ -40,14 +41,14 @@ driver_request CloudflareDriver::generate_request(const driver_config_type &conf
 bool CloudflareDriver::check_response(std::string_view response) const {
     auto result = glz::read_json<CloudflareResponse>(response);
     if (!result) {
-        SPDLOG_ERROR("Failed to parse Cloudflare API response");
+        CORE_LOG_ERROR("Failed to parse Cloudflare API response");
         return false;
     }
 
     auto &resp = result.value();
     if (!resp.success) {
         for (const auto &error: resp.errors) {
-            SPDLOG_ERROR("Cloudflare API error: {} ({})", error.message, error.code);
+            CORE_LOG_ERROR("Cloudflare API error: {} ({})", error.message, error.code);
         }
     }
     return resp.success;

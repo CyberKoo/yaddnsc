@@ -3,6 +3,7 @@
 //
 
 #include "dnspod.h"
+#include "core_logger.h"
 #include "response.h"
 #include "string_util.h"
 
@@ -42,11 +43,11 @@ driver_request DNSPodDriver::generate_request(const driver_config_type &config) 
 }
 
 bool DNSPodDriver::check_response(std::string_view response) const {
-    SPDLOG_TRACE("Got {} from server.", response);
+    CORE_LOG_TRACE("Got {} from server.", response);
 
     auto result = glz::read_json<DnsPodResponse>(response);
     if (!result) {
-        SPDLOG_ERROR("Failed to parse DNSPod API response");
+        CORE_LOG_ERROR("Failed to parse DNSPod API response");
         return false;
     }
 
@@ -57,9 +58,9 @@ bool DNSPodDriver::check_response(std::string_view response) const {
             return true;
         }
 
-        SPDLOG_ERROR("Error from server: {}, code: {}", status.message, status.code);
+        CORE_LOG_ERROR("Error from server: {}, code: {}", status.message, status.code);
     } else {
-        SPDLOG_ERROR("Server returned an unknown error, raw response: {}", response);
+        CORE_LOG_ERROR("Server returned an unknown error, raw response: {}", response);
     }
 
     return false;

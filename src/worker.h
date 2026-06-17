@@ -6,7 +6,7 @@
 #define YADDNSC_WORKER_H
 
 #include <memory>
-#include <stop_token>
+#include "stop_token_compat.h"
 
 namespace Config {
     struct domain_config;

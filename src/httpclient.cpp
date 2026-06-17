@@ -38,7 +38,7 @@ httplib::Client HttpClient::connect(const Uri &uri, int family, const char *nif_
     client.set_connection_timeout(std::chrono::seconds(5));
     client.set_read_timeout(std::chrono::seconds(5));
     client.set_follow_location(true);
-    client.set_default_headers({{"User-Agent", get_full_version()}});
+    client.set_default_headers({{"User-Agent", yaddnsc::get_full_version()}});
 
     return client;
 }

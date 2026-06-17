@@ -12,7 +12,7 @@
 #include <algorithm>
 
 #include "fmt.h"
-#include <spdlog/spdlog.h>
+#include "core_logger.h"
 
 #include "driver_interface.h"
 #include "driver_ver.h"
@@ -29,7 +29,7 @@ public:
     }
 
     static std::optional<std::string> get_optional(const driver_config_type &config, const std::string &name) {
-        if (auto it = config.find(name); it != config.end()) {
+        if (const auto it = config.find(name); it != config.end()) {
             return {it->second};
         }
 
@@ -38,11 +38,6 @@ public:
 
     [[nodiscard]] std::string_view get_driver_version() const final {
         return DRV_VERSION;
-    }
-
-    void init_logger(int level, const std::string &pattern) final {
-        spdlog::set_level(static_cast<spdlog::level::level_enum>(level));
-        spdlog::set_pattern(pattern);
     }
 };
 

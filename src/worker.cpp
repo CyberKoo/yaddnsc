@@ -6,7 +6,7 @@
 
 #include <thread>
 #include <climits>
-#include <stop_token>
+#include "stop_token_compat.h"
 
 #include <httplib.h>
 #include "fmt.h"

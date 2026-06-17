@@ -1,10 +1,10 @@
 //
 // Created by Kotarou on 2022/4/5.
 //
-#include <spdlog/spdlog.h>
 #include <glaze/glaze.hpp>
 
 #include "digital_ocean.h"
+#include "core_logger.h"
 #include "response.h"
 
 constexpr char API_URL[] = "https://api.digitalocean.com/v2/domains/{DOMAIN}/records/{RECORD_ID}";
@@ -36,16 +36,16 @@ driver_request DigitalOceanDriver::generate_request(const driver_config_type &co
 }
 
 bool DigitalOceanDriver::check_response(std::string_view response) const {
-    SPDLOG_TRACE("Got {} from server.", response);
+    CORE_LOG_TRACE("Got {} from server.", response);
 
     DigitalOceanResponse resp{};
     if (auto ec = glz::read<glz::opts{.error_on_unknown_keys = false}>(resp, response)) {
-        SPDLOG_ERROR("Failed to parse DigitalOcean API response");
+        CORE_LOG_ERROR("Failed to parse DigitalOcean API response");
         return false;
     }
 
     if (resp.message.has_value()) {
-        SPDLOG_ERROR("Error from server: {}", resp.message.value());
+        CORE_LOG_ERROR("Error from server: {}", resp.message.value());
         return false;
     }
 
