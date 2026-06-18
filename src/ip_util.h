@@ -23,6 +23,11 @@ namespace IPUtil {
     bool is_ipv4_address(const std::string &);
 
     bool is_ipv6_address(const std::string &);
-}
+
+    // IPv6 address classification
+    bool is_ipv6_local_link(const std::string &);
+
+    bool is_ipv6_ula(const std::string &);
+};
 
 #endif //YADDNSC_IP_UTILS_H

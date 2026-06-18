@@ -7,8 +7,6 @@
 #include <thread>
 #include <algorithm>
 #include <filesystem>
-#include <unordered_set>
-
 #include "fmt.h"
 #include "stop_token_compat.h"
 
@@ -20,6 +18,7 @@
 #include "ip_util.h"
 #include "network_manager.h"
 #include "driver_manager.h"
+#include "util.h"
 
 #include "exception/config_verification_exception.h"
 
@@ -30,14 +29,6 @@ public:
     }
 
     ~Impl() = default;
-
-    template<typename T>
-    void dedupe(std::vector<T> &vec) const {
-        std::unordered_set<T> seen;
-        std::erase_if(vec, [&seen](const T &value) {
-            return !seen.insert(value).second;
-        });
-    }
 
     [[nodiscard]] unsigned int estimated_threads() const;
 
@@ -128,7 +119,7 @@ void Manager::load_drivers() const {
 
     auto &load = impl_->config_.driver.load;
     // remove duplicated lines
-    impl_->dedupe(load);
+    Util::dedupe(load);
 
     // load drivers
     auto base_dir = std::filesystem::path(impl_->config_.driver.driver_dir);

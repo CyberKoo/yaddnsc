@@ -5,33 +5,23 @@
 #ifndef YADDNSC_DRIVER_INTERFACE_H
 #define YADDNSC_DRIVER_INTERFACE_H
 
-#include <map>
 #include <span>
 #include <string>
-#include <variant>
 #include <string_view>
 #include <unordered_map>
 
-using driver_config_type = std::unordered_map<std::string, std::string>;
-using driver_param_type = std::multimap<std::string, std::string>;
+#include "http_types.h"
 
-enum class driver_http_method_type {
-    GET, POST, PUT, DEL, PATCH
-};
+using driver_config_type = std::unordered_map<std::string, std::string>;
+using driver_param_type = http_param_type;
+using driver_http_method_type = http_method_type;
+using driver_request = http_request;
 
 struct driver_detail final {
     const std::string_view name;
     const std::string_view description;
     const std::string_view author;
     const std::string_view version;
-};
-
-struct driver_request {
-    std::string url;
-    std::variant<driver_param_type, std::string> body;
-    std::string content_type;
-    driver_http_method_type request_method;
-    driver_param_type header;
 };
 
 class IDriver {

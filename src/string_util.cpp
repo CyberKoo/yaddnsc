@@ -8,24 +8,24 @@
 #include <cctype>
 
 void StringUtil::to_upper(std::string &_str) {
-    str_transform(_str, &::toupper);
+    std::ranges::transform(_str, _str.begin(), [](const unsigned char c) { return ::toupper(c); });
 }
 
 void StringUtil::to_lower(std::string &_str) {
-    str_transform(_str, &::tolower);
+    std::ranges::transform(_str, _str.begin(), [](const unsigned char c) { return ::tolower(c); });
 }
 
 // from https://stackoverflow.com/questions/216823/whats-the-best-way-to-trim-stdstring
 // trim from start (in place)
 void StringUtil::ltrim(std::string &s) {
-    s.erase(s.begin(), std::ranges::find_if(s, [](unsigned char ch) {
+    s.erase(s.begin(), std::ranges::find_if(s, [](const unsigned char ch) {
         return !std::isspace(ch);
     }));
 }
 
 // trim from end (in place)
 void StringUtil::rtrim(std::string &s) {
-    auto it = std::ranges::find_if(s | std::views::reverse, [](unsigned char ch) {
+    const auto it = std::ranges::find_if(s | std::views::reverse, [](const unsigned char ch) {
         return !std::isspace(ch);
     });
     s.erase(it.base(), s.end());
@@ -52,23 +52,5 @@ std::string StringUtil::rtrim_copy(std::string s) {
 // trim from both ends (copying)
 std::string StringUtil::trim_copy(std::string s) {
     trim(s);
-    return s;
-}
-
-void StringUtil::replace(std::string &str, const std::map<std::string_view, std::string_view> &replace_list) {
-    for (const auto &[target, new_content]: replace_list) {
-        auto pos = str.find(target);
-        while (pos != std::string::npos) {
-            str.replace(pos, target.length(), new_content);
-            pos = str.find(target, pos + new_content.length());
-        }
-    }
-}
-
-std::string
-StringUtil::replace_copy(std::string_view str, const std::map<std::string_view, std::string_view> &replace_list) {
-    auto s = std::string(str);
-    StringUtil::replace(s, replace_list);
-
     return s;
 }

@@ -5,12 +5,10 @@
 #ifndef YADDNSC_STRING_UTIL_H
 #define YADDNSC_STRING_UTIL_H
 
-#include <map>
 #include <vector>
 #include <string>
-
-#include <string_view>
 #include <ranges>
+#include <string_view>
 
 namespace StringUtil {
     void to_lower(std::string &);
@@ -29,9 +27,35 @@ namespace StringUtil {
 
     std::string trim_copy(std::string);
 
-    void replace(std::string &, const std::map<std::string_view, std::string_view> &);
+    template<typename T>
+    requires std::ranges::input_range<const T> &&
+        requires { typename std::ranges::range_value_t<const T>::first_type; } &&
+        requires { typename std::ranges::range_value_t<const T>::second_type; } &&
+        std::is_constructible_v<std::string_view, typename std::ranges::range_value_t<const T>::first_type> &&
+        std::is_constructible_v<std::string_view, typename std::ranges::range_value_t<const T>::second_type>
+    void replace(std::string &str, const T &replace_list) {
+        for (const auto &[target, new_content] : replace_list) {
+            std::string_view target_sv(target);
+            std::string_view new_content_sv(new_content);
+            auto pos = str.find(target_sv);
+            while (pos != std::string::npos) {
+                str.replace(pos, target_sv.length(), new_content_sv);
+                pos = str.find(target_sv, pos + new_content_sv.length());
+            }
+        }
+    }
 
-    std::string replace_copy(std::string_view, const std::map<std::string_view, std::string_view> &);
+    template<typename T>
+    requires std::ranges::input_range<const T> &&
+        requires { typename std::ranges::range_value_t<const T>::first_type; } &&
+        requires { typename std::ranges::range_value_t<const T>::second_type; } &&
+        std::is_constructible_v<std::string_view, typename std::ranges::range_value_t<const T>::first_type> &&
+        std::is_constructible_v<std::string_view, typename std::ranges::range_value_t<const T>::second_type>
+    std::string replace_copy(std::string_view str, const T &replace_list) {
+        auto s = std::string(str);
+        replace(s, replace_list);
+        return s;
+    }
 
     template<typename T> requires std::is_constructible_v<std::string_view, T>
     std::vector<std::string> split(T &&_str, std::string_view delim = " ") {
@@ -45,13 +69,6 @@ namespace StringUtil {
         }
 
         return output;
-    }
-
-    template<typename T> requires std::is_constructible_v<std::string_view, T>
-    void str_transform(T &_str, int (*func)(int)) {
-        for (auto &c: _str) {
-            c = func(static_cast<unsigned char>(c));
-        }
     }
 
     template<typename T> requires std::is_constructible_v<std::string, T>

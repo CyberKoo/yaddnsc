@@ -17,7 +17,7 @@
 
 std::optional<std::string> IPUtil::get_ip_from_url(std::string_view url, address_family version, const char *if_name) {
     const auto parsed = Uri::parse(url);
-    auto response = HttpClient::get(parsed, ip2af(version), if_name);
+    auto response = HttpClient::get(parsed, version, if_name);
     if (response) {
         auto body = response->body;
         StringUtil::trim(body);

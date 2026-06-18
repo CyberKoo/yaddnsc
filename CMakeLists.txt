@@ -17,7 +17,7 @@ set(CMAKE_POLICY_DEFAULT_CMP0077 NEW)
 
 # default to release if not specified
 if (NOT CMAKE_BUILD_TYPE)
-    set(CMAKE_BUILD_TYPE Release)
+  set(CMAKE_BUILD_TYPE Release)
 endif ()
 
 # ==============================================================================
@@ -30,14 +30,14 @@ include(FeatureCheck)
 # ==============================================================================
 # LTO is incompatible with musl (auto-detected in FeatureCheck)
 if (NOT LIBC_MUSL)
-    set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -flto=auto")
+  set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -flto=auto")
 endif ()
 
 # Strip symbols in Release builds
 if (APPLE)
-    set(CMAKE_EXE_LINKER_FLAGS_RELEASE "${CMAKE_EXE_LINKER_FLAGS_RELEASE} -Wl,-S")
+  set(CMAKE_EXE_LINKER_FLAGS_RELEASE "${CMAKE_EXE_LINKER_FLAGS_RELEASE} -Wl,-S")
 else ()
-    set(CMAKE_EXE_LINKER_FLAGS_RELEASE "${CMAKE_EXE_LINKER_FLAGS_RELEASE} -Wl,-s")
+  set(CMAKE_EXE_LINKER_FLAGS_RELEASE "${CMAKE_EXE_LINKER_FLAGS_RELEASE} -Wl,-s")
 endif ()
 
 # ==============================================================================
@@ -51,8 +51,8 @@ set(YADDNSC_RELEASE_INFO RELEASE)
 set(YADDNSC_DRV_VERSION "1100000")
 
 if (YADDNSC_DEVELOPMENT)
-    include(GitVersion)
-    set(YADDNSC_RELEASE_INFO ${GIT_VERSION})
+  include(GitVersion)
+  set(YADDNSC_RELEASE_INFO ${GIT_VERSION})
 endif ()
 
 configure_file("${CMAKE_SOURCE_DIR}/include/version.h.in" "${CMAKE_BINARY_DIR}/generated/version.h" @ONLY)
@@ -60,11 +60,71 @@ configure_file("${CMAKE_SOURCE_DIR}/include/driver_ver.h.in" "${CMAKE_BINARY_DIR
 configure_file("${CMAKE_SOURCE_DIR}/include/config_cmake.h.in" "${CMAKE_BINARY_DIR}/generated/config_cmake.h")
 
 # ==============================================================================
-# Dependencies
+# Dependencies (via CPM.cmake)
 # ==============================================================================
+include(CPM)
+
 find_package(ZLIB REQUIRED)
 find_package(OpenSSL REQUIRED)
-include(Dependencies)
+
+# ---------------------------------------------------------------------------
+# glaze – JSON/reflection library
+# ---------------------------------------------------------------------------
+CPMAddPackage("gh:stephenberry/glaze@7.8.2")
+
+# ---------------------------------------------------------------------------
+# fmt / std::format  (conditional)
+# ---------------------------------------------------------------------------
+if (HAVE_STD_FORMAT)
+  message(STATUS "Using native std::format")
+  add_compile_definitions(YADDNSC_USE_STD_FORMAT)
+  set(SPDLOG_USE_STD_FORMAT ON)
+else ()
+  message(STATUS "Using external fmt library")
+  CPMAddPackage("gh:fmtlib/fmt@12.2.0")
+  set(SPDLOG_FMT_EXTERNAL ON)
+endif ()
+
+# ---------------------------------------------------------------------------
+# spdlog – logging library
+# ---------------------------------------------------------------------------
+CPMAddPackage("gh:gabime/spdlog@1.17.0")
+set_target_properties(spdlog PROPERTIES POSITION_INDEPENDENT_CODE ON)
+add_compile_definitions(SPDLOG_ACTIVE_LEVEL=SPDLOG_LEVEL_DEBUG)
+
+# ---------------------------------------------------------------------------
+# cpp-httplib – HTTP client/server
+# ---------------------------------------------------------------------------
+CPMAddPackage(
+    URI     "gh:yhirose/cpp-httplib@0.47.0"
+    OPTIONS "HTTPLIB_REQUIRE_OPENSSL ON"
+            "HTTPLIB_USE_BROTLI_IF_AVAILABLE OFF"
+)
+add_compile_definitions(CPPHTTPLIB_OPENSSL_SUPPORT)
+
+# ---------------------------------------------------------------------------
+# cxxopts – command line parser
+# ---------------------------------------------------------------------------
+CPMAddPackage(
+    URI "gh:jarro2783/cxxopts@3.3.1"
+    OPTIONS "CXXOPTS_BUILD_EXAMPLES NO"
+            "CXXOPTS_BUILD_TESTS NO"
+            "CXXOPTS_ENABLE_INSTALL NO"
+)
+
+# ---------------------------------------------------------------------------
+# BS::thread_pool – header-only, no CMakeLists.txt
+# ---------------------------------------------------------------------------
+CPMAddPackage(
+    NAME        thread-pool
+    GIT_REPOSITORY https://github.com/bshoshany/thread-pool.git
+    GIT_TAG     v5.1.0
+    DOWNLOAD_ONLY YES
+)
+if(thread-pool_ADDED)
+  add_library(BS_thread_pool INTERFACE)
+  target_include_directories(BS_thread_pool INTERFACE ${thread-pool_SOURCE_DIR}/include)
+endif()
 
 # ==============================================================================
 # Include paths (inherited by driver subdirectory)
@@ -87,22 +147,30 @@ set(NetworkManager src/network_manager.cpp)
 set(CoreLogger src/core_logger.cpp)
 set(DNS src/dns.cpp src/dns_resolver.cpp src/dns_record_parser.cpp)
 
-add_library(string_util STATIC src/string_util.cpp)
-set_target_properties(string_util PROPERTIES POSITION_INDEPENDENT_CODE ON)
-
 # ==============================================================================
 # Main executable
 # ==============================================================================
-add_executable(yaddnsc src/main.cpp ${DNS} ${Context} ${Config} ${DriverManager} ${URI} ${Worker} ${Manager} ${IPUtil} ${HttpClient} ${SignalHandler} ${NetworkManager} ${CoreLogger})
+add_executable(yaddnsc src/main.cpp src/string_util.cpp ${DNS} ${Context} ${Config} ${DriverManager} ${URI}
+        ${Worker} ${Manager} ${IPUtil} ${HttpClient} ${SignalHandler} ${NetworkManager} ${CoreLogger}
+)
 
 set_target_properties(yaddnsc PROPERTIES ENABLE_EXPORTS ON)
-target_link_libraries(yaddnsc PRIVATE string_util BS_thread_pool)
-target_link_libraries(yaddnsc PRIVATE httplib spdlog::spdlog yaddnsc_fmt OpenSSL::SSL OpenSSL::Crypto ZLIB::ZLIB cxxopts::cxxopts glaze::glaze ${CMAKE_DL_LIBS})
+target_link_libraries(yaddnsc PRIVATE BS_thread_pool httplib spdlog::spdlog OpenSSL::SSL OpenSSL::Crypto
+  ZLIB::ZLIB cxxopts::cxxopts glaze::glaze ${CMAKE_DL_LIBS}
+)
+
+# interface target: wraps fmt so consumers always get the right dep regardless of HAVE_STD_FORMAT
+add_library(yaddnsc_fmt INTERFACE)
+target_include_directories(yaddnsc_fmt INTERFACE ${CMAKE_SOURCE_DIR}/include)
+if (NOT HAVE_STD_FORMAT)
+  target_link_libraries(yaddnsc_fmt INTERFACE fmt::fmt)
+endif ()
+target_link_libraries(yaddnsc PRIVATE yaddnsc_fmt)
 
 # resolv is linux-specific, not present on BSDs
 find_library(RESOLV resolv)
 if (RESOLV)
-    target_link_libraries(yaddnsc PRIVATE ${RESOLV})
+  target_link_libraries(yaddnsc PRIVATE ${RESOLV})
 endif ()
 
 # ==============================================================================

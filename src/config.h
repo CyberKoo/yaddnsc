@@ -22,20 +22,20 @@ namespace Config {
     };
 
     struct resolver_config {
-        bool use_custom_server{};
+        bool use_custom_server{false};
         std::string ip_address;
-        unsigned short port{};
+        unsigned short port{53};
     };
 
     struct subdomain_config {
         std::string name;
         dns_type type{};
         std::string interface;
-        address_family ip_type = address_family::UNSPECIFIED;
+        address_family ip_type{address_family::UNSPECIFIED};
         ip_source_type ip_source{};
         std::string ip_source_param;
-        bool allow_ula = false;
-        bool allow_local_link = false;
+        bool allow_ula{false};
+        bool allow_local_link{false};
         std::unordered_map<std::string, std::string> driver_param;
     };
 

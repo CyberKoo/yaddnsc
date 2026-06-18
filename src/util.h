@@ -5,9 +5,12 @@
 #ifndef YADDNSC_UTIL_H
 #define YADDNSC_UTIL_H
 
+#include <regex>
 #include <thread>
+#include <vector>
 #include <functional>
 #include <type_traits>
+#include <unordered_set>
 
 #include "exception/base_exception.h"
 
@@ -45,6 +48,14 @@ namespace Util {
                 SPDLOG_DEBUG("{} exception caught, retrying...(counter {})", e.get_name(), counter);
             }
         }
+    }
+
+    template<typename T>
+    void dedupe(std::vector<T> &vec) {
+        std::unordered_set<T> seen;
+        std::erase_if(vec, [&seen](const T &value) {
+            return !seen.insert(value).second;
+        });
     }
 
     inline bool is_valid_domain(std::string_view domain) {

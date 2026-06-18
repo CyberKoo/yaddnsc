@@ -15,6 +15,10 @@ namespace DNS {
     std::vector<std::string> resolve(const std::string &, dns_type, const std::optional<dns_server> &);
 
     std::string_view error_to_str(dns_error);
+
+    std::string_view to_string(dns_type type);
+
+    address_family dns2ip(dns_type type);
 }
 
 #endif //YADDNSC_DNS_H
