@@ -154,6 +154,13 @@ Updater::Impl::dns_lookup(const std::string &host, dns_type type) const {
         return Util::retry_on_exception<std::string, DnsLookupException>(
             [&] {
                 const auto dns_answer = DNS::resolve(host, type, dns_server_);
+                if (dns_answer.empty()) {
+                    throw DnsLookupException(
+                        fmt::format(R"(DNS lookup for domain "{}" returned no records)", host),
+                        dns_error::NODATA
+                    );
+                }
+
                 if (dns_answer.size() > 1) {
                     SPDLOG_WARN(R"(Domain "{}" resolved to more than one address (count: {}))",
                                 host, dns_answer.size());

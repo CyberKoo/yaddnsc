@@ -12,6 +12,7 @@
 #include <cstring>
 #include <stdexcept>
 #include <functional>
+#include <mutex>
 
 #include "fmt.h"
 
@@ -76,8 +77,11 @@ private:
 
     std::map<std::string, std::vector<interface_addrs> > get_all_ip_addresses() {
         auto now = std::chrono::steady_clock::now();
-        if (!cached_addresses_.empty() && (now - cache_timestamp_) < CACHE_TTL) {
-            return cached_addresses_;
+        {
+            std::lock_guard lock(cache_mutex_);
+            if (!cached_addresses_.empty() && (now - cache_timestamp_) < CACHE_TTL) {
+                return cached_addresses_;
+            }
         }
 
         std::map<std::string, std::vector<interface_addrs> > address_map;
@@ -107,13 +111,17 @@ private:
             address_map[ifa->ifa_name].emplace_back(interface_addrs{host, family});
         }
 
-        cached_addresses_ = address_map;
-        cache_timestamp_ = now;
+        {
+            std::lock_guard lock(cache_mutex_);
+            cached_addresses_ = address_map;
+            cache_timestamp_ = now;
+        }
         return address_map;
     }
 
     static constexpr auto CACHE_TTL = std::chrono::seconds(5);
 
+    std::mutex cache_mutex_;
     std::map<std::string, std::vector<interface_addrs> > cached_addresses_;
     std::chrono::steady_clock::time_point cache_timestamp_;
 };

@@ -24,13 +24,14 @@ namespace {
             constexpr std::string_view search_paths[]{
                 "./ca.pem",
                 "/etc/ssl/certs/ca-certificates.crt",
+                "/etc/ssl/cert.pem",
                 "/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem",
                 "/etc/ssl/ca-bundle.pem",
-                "/usr/local/etc/openssl/cert.pem",
+                "/usr/local/etc/ssl/cert.pem",
                 "/opt/homebrew/etc/openssl/cert.pem",
                 "/etc/pki/tls/certs/ca-bundle.crt",
                 "/etc/pki/tls/cacert.pem",
-                "/etc/ssl/cert.pem",
+                "/usr/local/share/certs/ca-root-nss.crt", // OPNsense
             };
 
             SPDLOG_DEBUG("Looking for CA bundle...");
@@ -44,7 +45,7 @@ namespace {
                 return std::string(*it);
             }
 
-            SPDLOG_INFO("CA bundle not found, server certificate verification will be disabled.");
+            SPDLOG_WARN("CA bundle not found, server certificate verification will be disabled.");
             return std::nullopt;
         }();
 

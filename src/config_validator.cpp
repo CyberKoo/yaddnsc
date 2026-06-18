@@ -7,12 +7,66 @@
 #include "fmt.h"
 
 #include <config_cmake.h>
+#include <magic_enum/magic_enum.hpp>
 
+#include "dns.h"
 #include "ip_util.h"
 #include "driver_manager.h"
 #include "network_manager.h"
+#include "driver_interface.h"
+#include "uri.h"
 
 #include "exception/config_verification_exception.h"
+
+namespace {
+    std::string fqdn_for(const Config::domain_config &domain, const Config::subdomain_config &subdomain) {
+        return fmt::format("{}.{}", subdomain.name, domain.name);
+    }
+
+    void validate_record_ip_type(const Config::domain_config &domain, const Config::subdomain_config &subdomain) {
+        const auto expected = DNS::dns2ip(subdomain.type);
+        if (expected == address_family::UNSPECIFIED || subdomain.ip_type == address_family::UNSPECIFIED) {
+            return;
+        }
+
+        if (subdomain.ip_type != expected) {
+            throw ConfigVerificationException(
+                fmt::format("Subdomain {} has record type/IP type mismatch", fqdn_for(domain, subdomain))
+            );
+        }
+    }
+
+    void validate_ip_source(const Config::domain_config &domain, const Config::subdomain_config &subdomain) {
+        if (subdomain.ip_source == Config::ip_source_type::URL) {
+            if (subdomain.ip_source_param.empty()) {
+                throw ConfigVerificationException(
+                    fmt::format("Subdomain {} uses url IP source but ip_source param is empty",
+                                fqdn_for(domain, subdomain))
+                );
+            }
+
+            try {
+                const auto uri = Uri::parse(subdomain.ip_source_param);
+                if (uri.get_host().empty() || uri.get_port() == 0) {
+                    throw std::runtime_error("missing host or port");
+                }
+            } catch (const std::exception &e) {
+                throw ConfigVerificationException(
+                    fmt::format("Subdomain {} has invalid ip_source_param '{}': {}",
+                                fqdn_for(domain, subdomain), subdomain.ip_source_param, e.what())
+                );
+            }
+            return;
+        }
+
+        if (subdomain.interface.empty()) {
+            throw ConfigVerificationException(
+                fmt::format("Subdomain {} uses interface IP source but interface is empty",
+                            fqdn_for(domain, subdomain))
+            );
+        }
+    }
+}
 
 // ---------------------------------------------------------------------------
 // ConfigValidator
@@ -70,6 +124,10 @@ void ConfigValidator<MinUpdateInterval>::validate(const Config::config &cfg) con
                     fmt::format("Subdomain name must not be empty in domain '{}'", name)
                 );
             }
+
+            const Config::domain_config domain{name, update_interval, force_update, driver, subdomains};
+            validate_ip_source(domain, subdomain);
+            validate_record_ip_type(domain, subdomain);
 
             // --- Validate per-subdomain update_interval if set. --------------
             if (subdomain.update_interval != 0 && subdomain.update_interval < MinUpdateInterval) {

@@ -45,20 +45,21 @@ bool IPUtil::is_ipv6_address(const std::string &str) {
 }
 
 bool IPUtil::is_ipv6_local_link(const std::string &ip_addr) {
-    static constexpr auto is_local = [](const in6_addr *addr) {
-        return addr->s6_addr[0] == 0xfe && (addr->s6_addr[1] & 0xc0) == 0x80;
-    };
-
-    static constexpr auto is_site_local = [](const in6_addr *addr) {
-        return addr->s6_addr[0] == 0xfe && (addr->s6_addr[1] & 0xc0) == 0xc0;
-    };
-
     sockaddr_in6 sa{};
     if (inet_pton(AF_INET6, ip_addr.data(), &sa.sin6_addr) != 1) {
         return false; // parse error
     }
 
-    return is_local(&sa.sin6_addr) || is_site_local(&sa.sin6_addr);
+    return sa.sin6_addr.s6_addr[0] == 0xfe && (sa.sin6_addr.s6_addr[1] & 0xc0) == 0x80;
+}
+
+bool IPUtil::is_ipv6_site_local(const std::string &ip_addr) {
+    sockaddr_in6 sa{};
+    if (inet_pton(AF_INET6, ip_addr.data(), &sa.sin6_addr) != 1) {
+        return false; // parse error
+    }
+
+    return sa.sin6_addr.s6_addr[0] == 0xfe && (sa.sin6_addr.s6_addr[1] & 0xc0) == 0xc0;
 }
 
 bool IPUtil::is_ipv6_ula(const std::string &ip_addr) {

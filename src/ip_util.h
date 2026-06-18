@@ -27,6 +27,8 @@ namespace IPUtil {
     // IPv6 address classification
     bool is_ipv6_local_link(const std::string &);
 
+    bool is_ipv6_site_local(const std::string &);
+
     bool is_ipv6_ula(const std::string &);
 };
 
