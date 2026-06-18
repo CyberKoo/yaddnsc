@@ -25,8 +25,6 @@ protected:
     }
 
 private:
-    static std::map<std::string, std::string> get_format_params(const driver_config_type &config);
-
     static constexpr std::array<std::string_view, 1> required_params_{"url"};
 };
 

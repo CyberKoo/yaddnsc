@@ -8,7 +8,6 @@
 #include <regex>
 #include <thread>
 #include <vector>
-#include <functional>
 #include <type_traits>
 #include <unordered_set>
 
@@ -27,10 +26,16 @@ namespace Util {
         return sizeof(obj);
     }
 
-    template<class R, class E, std::invocable<> Fn>
-        requires std::is_base_of_v<YaddnscException, E>
+    namespace detail {
+        template<typename Pred, typename E>
+        concept invocable_pred_for = std::predicate<Pred, const E &>;
+    }
+
+    template<class R, class E, std::invocable<> Fn, typename Pred = std::nullopt_t>
+        requires std::is_base_of_v<YaddnscException, E> &&
+                 (std::same_as<Pred, std::nullopt_t> || detail::invocable_pred_for<Pred, E>)
     R retry_on_exception(Fn &&func, const unsigned retry,
-                         const std::optional<std::function<bool(const E &)> > &e_filter = std::nullopt,
+                         Pred &&e_filter = std::nullopt,
                          unsigned long backoff = 500) {
         unsigned counter = 0;
         while (true) {
@@ -38,8 +43,10 @@ namespace Util {
                 return func();
             } catch (const E &e) {
                 // apply filter if available
-                if (e_filter.has_value() && !e_filter.value()(e)) {
-                    throw;
+                if constexpr (!std::same_as<std::decay_t<Pred>, std::nullopt_t>) {
+                    if (!std::forward<Pred>(e_filter)(e)) {
+                        throw;
+                    }
                 }
                 if (++counter > retry) {
                     throw;

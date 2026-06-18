@@ -133,6 +133,9 @@ private:
                 // Memory allocated here will be freed in res_nclose()
                 // as we have done res_ninit() above.
                 sa6 = ccalloc<sockaddr_in6>(1);
+                if (sa6 == nullptr) {
+                    throw std::bad_alloc();
+                }
                 state_._u._ext.nsaddrs[0] = sa6;
             }
 

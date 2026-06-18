@@ -16,8 +16,6 @@ namespace DNS {
 
     std::string_view error_to_str(dns_error);
 
-    std::string_view to_string(dns_type type);
-
     address_family dns2ip(dns_type type);
 }
 

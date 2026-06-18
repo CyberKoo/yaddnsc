@@ -4,173 +4,314 @@
 
 #include "manager.h"
 
+#include <queue>
 #include <thread>
-#include <algorithm>
+#include <utility>
+#include <chrono>
 #include <filesystem>
-#include "fmt.h"
-#include "stop_token_compat.h"
+#include <condition_variable>
+#include <csignal>
 
+#include "fmt.h"
 #include <spdlog/spdlog.h>
+#include <BS_thread_pool.hpp>
 #include <config_cmake.h>
 
-#include "worker.h"
-#include "app_context.h"
+#include "updater.h"
+#include "update_task.h"
+#include "config_validator.h"
 #include "ip_util.h"
 #include "network_manager.h"
 #include "driver_manager.h"
 #include "util.h"
 
-#include "exception/config_verification_exception.h"
-
+// ---------------------------------------------------------------------------
+// Manager::Impl — owns the shared thread pool, the scheduling data structures,
+//                 the Updater, and all dependencies it requires.
+// ---------------------------------------------------------------------------
 class Manager::Impl {
 public:
-    explicit Impl(std::shared_ptr<AppContext> app_ctx, Config::config config)
-        : app_ctx_(std::move(app_ctx)), config_(std::move(config)) {
-    }
-
-    ~Impl() = default;
-
-    [[nodiscard]] unsigned int estimated_threads() const;
-
-public:
-    static constexpr int MIN_UPDATE_INTERVAL = 60;
-
-    std::shared_ptr<AppContext> app_ctx_;
-
-    Config::config config_;
-
-    std::vector<Worker> workers_;
-};
-
-unsigned int Manager::Impl::estimated_threads() const {
-    unsigned int total_subdomains = 0;
-    auto thread_count = std::thread::hardware_concurrency();
-
-    for (auto &domain: config_.domains) {
-        total_subdomains += static_cast<unsigned int>(domain.subdomains.size());
-    }
-
-    if (total_subdomains < 2 || thread_count < 2) {
-        return 2;
-    }
-
-    if (total_subdomains < thread_count) {
-        return total_subdomains;
-    }
-
-    return thread_count;
-}
-
-void Manager::validate_config() const {
-    auto drivers = impl_->app_ctx_->driver_manager_->get_loaded_drivers();
-    auto interfaces = impl_->app_ctx_->network_manager_->get_interfaces();
-
-    for (const auto &domain: impl_->config_.domains) {
-        // check drivers
-        if (std::ranges::find(drivers, domain.driver) == drivers.end()) {
-            throw ConfigVerificationException(fmt::format("Driver {} not found", domain.driver));
+    explicit Impl(Config::config config)
+        : config_(std::move(config)) {
+        // Resolve the optional DNS server once.
+        if (config_.resolver.use_custom_server) {
+            dns_server_ = dns_server{config_.resolver.ip_address, config_.resolver.port};
         }
 
-        // check update interval
-        if (domain.update_interval < Impl::MIN_UPDATE_INTERVAL) {
-            throw ConfigVerificationException(
-                fmt::format("Update interval too low for domain {} ({}), minimal interval: {}", domain.name,
-                            domain.update_interval, Impl::MIN_UPDATE_INTERVAL));
+        // Wire up the Updater with the dependency references.
+        updater_ = std::make_unique<Updater>(driver_manager_, network_manager_, dns_server_);
+    }
+
+    ~Impl() {
+        // If the signal thread was started but is still blocked on sigwait()
+        // (e.g. install_signal_handler() was called but run() never ran,
+        // or an exception escaped run()), send SIGTERM to wake it up so
+        // that ~jthread can join cleanly instead of hanging.
+        //
+        // In normal operation the signal thread has already exited by this
+        // point (it called request_stop() and returned), so the kill() is
+        // harmless — SIGTERM is blocked in all thread masks and nobody is
+        // waiting on sigwait for it, so it is simply discarded.
+        if (signal_thread_.joinable()) {
+            kill(getpid(), SIGTERM);
+        }
+    }
+
+    // --- driver loading ------------------------------------------------
+
+    void load_drivers() {
+        auto &load = config_.driver.load;
+        Util::dedupe(load);
+
+        const auto base_dir = std::filesystem::path(config_.driver.driver_dir);
+        for (const auto &driver: load) {
+            const auto driver_full_path = base_dir.empty() ? std::filesystem::path(driver) : base_dir / driver;
+            driver_manager_.load_driver(driver_full_path.string());
+        }
+    }
+
+    // --- config validation (delegated) ----------------------------------
+
+    void validate_config() const {
+        const ConfigValidator<60> validator(driver_manager_, network_manager_);
+        validator.validate(config_);
+    }
+
+    // --- scheduling ---------------------------------------------------------
+
+    void install_signal_handler() {
+        // Idempotent: do nothing if the handler thread already exists or
+        // has already been consumed (stop_source is one-shot).
+        if (signal_thread_.joinable()) {
+            return;
         }
 
-        // check force update interval
-        if (domain.force_update != 0 && domain.force_update < domain.update_interval) {
-            throw ConfigVerificationException(
-                fmt::format("Force update interval for domain {} must not be smaller than the update interval ({})",
-                            domain.name, domain.update_interval));
+        // Signal-handler thread.
+        //
+        // SIGINT and SIGTERM were blocked in the main thread before Manager
+        // was constructed, so all threads inherited the blocked mask.  This
+        // thread is the only thread that handles them via sigwait().  Once a
+        // signal arrives it requests a graceful stop — the scheduler loop
+        // in run() will break out and drain the thread pool before returning.
+        signal_thread_ = std::jthread([this] {
+            sigset_t sigset;
+            sigemptyset(&sigset);
+            sigaddset(&sigset, SIGINT);
+            sigaddset(&sigset, SIGTERM);
+
+            int sig;
+            sigwait(&sigset, &sig);
+            SPDLOG_INFO("Received exit signal, quitting...");
+            stop_source_.request_stop();
+        });
+    }
+
+    void run() {
+        // Resize the thread pool based on the total number of subdomains.
+        pool_.reset(estimated_pool_size());
+
+        // Print available interfaces.
+        const auto interfaces = network_manager_.get_interfaces();
+        SPDLOG_INFO("All available interfaces: {}", fmt::join(interfaces, ", "));
+
+        // Log custom resolver info.
+        if (config_.resolver.use_custom_server) {
+#ifdef HAVE_RES_NQUERY
+            const auto &ip_addr = config_.resolver.ip_address;
+            if (IPUtil::is_ipv4_address(ip_addr)) {
+                SPDLOG_INFO(R"(Use custom resolver "{}:{}")", ip_addr, config_.resolver.port);
+            } else if (ip_addr.front() != '[' && ip_addr.back() != ']') {
+                SPDLOG_INFO(R"(Use custom resolver "[{}]:{}")", ip_addr, config_.resolver.port);
+            }
+#else
+            SPDLOG_WARN("Custom resolver defined, but res_nquery() is not supported "
+                "on this platform; the option will be ignored");
+#endif
         }
 
-        // check interfaces
-        for (auto &subdomain: domain.subdomains) {
-            if (!subdomain.interface.empty()) {
-                if (std::ranges::find(interfaces, subdomain.interface) == interfaces.end()) {
-                    throw ConfigVerificationException(fmt::format("Interface {} not found", subdomain.interface));
-                }
+        // Build the initial schedule (one SubdomainEntry per subdomain).
+        build_initial_schedule();
+
+        auto st = stop_source_.get_token();
+
+        // Register a stop callback that wakes up the scheduler immediately.
+        std::stop_callback cb(st, [this] { cv_.notify_all(); });
+
+        std::unique_lock lock(cv_mtx_);
+
+        while (!st.stop_requested()) {
+            const auto now = std::chrono::steady_clock::now();
+
+            // Pop all entries whose deadline has passed.
+            while (!schedule_.empty() && now >= schedule_.top().deadline) {
+                auto entry = std::move(const_cast<SubdomainEntry &>(schedule_.top()));
+                schedule_.pop();
+
+                // Copy the task for the pool — the entry's copy must remain
+                // valid for re-queuing into the schedule heap.
+                auto update_task = entry.task;
+                update_task.force_update = check_force_update(entry, now);
+
+                // Submit a single subdomain update task to the shared pool.
+                pool_.detach_task(
+                    [&updater = *updater_, task = std::move(update_task)] {
+                        try {
+                            static_cast<void>(updater.process(task));
+                        } catch (const std::exception &e) {
+                            SPDLOG_ERROR("Unhandled exception during update for {}: {}", task.fqdn, e.what());
+                        }
+                    }
+                );
+
+                // Re-schedule this entry for the next interval.
+                entry.deadline = now + std::chrono::seconds(entry.update_interval);
+                schedule_.push(std::move(entry));
+            }
+
+            // Sleep until the nearest deadline (or indefinitely if the heap is empty).
+            if (schedule_.empty()) {
+                cv_.wait(lock, [&st] { return st.stop_requested(); });
+            } else {
+                cv_.wait_until(lock, schedule_.top().deadline,
+                               [&st] { return st.stop_requested(); });
             }
         }
+
+        // Gracefully drain all in-flight pool tasks before the Manager is torn down.
+        SPDLOG_INFO("Stop requested, waiting for {} pending task(s) to complete...",
+                    pool_.get_tasks_queued());
+        pool_.wait();
+        SPDLOG_INFO("All tasks completed.");
     }
 
-#ifdef HAVE_RES_NQUERY
-    // check resolver
-    if (impl_->config_.resolver.use_custom_server) {
-        auto &address = impl_->config_.resolver.ip_address;
-#ifdef HAVE_IPV6_RESOLVE_SUPPORT
-        if (!IPUtil::is_ipv4_address(address) && !IPUtil::is_ipv6_address(address)) {
-            throw ConfigVerificationException(fmt::format("Invalid resolver address {}", address));
+private:
+    // -----------------------------------------------------------------------
+    // Heap helpers
+    // -----------------------------------------------------------------------
+
+    void build_initial_schedule() {
+        domain_states_.reserve(config_.domains.size());
+
+        for (size_t di = 0; di < config_.domains.size(); ++di) {
+            const auto &[name, update_interval, force_update, driver, subdomains] = config_.domains[di];
+
+            domain_states_.emplace_back();
+
+            for (const auto &subdomain: subdomains) {
+                const auto fqdn = fmt::format("{}.{}", subdomain.name, name);
+
+                // Use per-subdomain update_interval if set (> 0), otherwise
+                // fall back to the domain-level value.
+                const auto effective_interval = subdomain.update_interval > 0
+                                                    ? subdomain.update_interval
+                                                    : update_interval;
+
+                schedule_.push(SubdomainEntry{
+                    .deadline = std::chrono::steady_clock::now(),
+                    .update_interval = effective_interval,
+                    .force_update_interval = force_update,
+                    .domain_idx = di,
+                    .task = {
+                        .subdomain = subdomain,
+                        .domain_name = name,
+                        .driver_name = driver,
+                        .fqdn = fqdn,
+                        .force_update = false,
+                    },
+                });
+            }
         }
-#else
-        if (!IPUtil::is_ipv4_address(address)) {
-            throw ConfigVerificationException(
-                    fmt::format(R"(Invalid resolver address "{}". Only IPv4 is supported on your platform.)",
-                                address));
+
+        SPDLOG_INFO("Scheduler initialised with {} tasks", schedule_.size());
+    }
+
+    bool check_force_update(const SubdomainEntry &entry,
+                            std::chrono::steady_clock::time_point now) {
+        if (entry.force_update_interval <= 0) {
+            return false;
         }
-#endif
-    }
-#endif
-}
 
-void Manager::load_drivers() const {
-    auto &driver_manager = impl_->app_ctx_->driver_manager_;
+        auto &state = domain_states_[entry.domain_idx];
+        const auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - state.last_force_update).count();
 
-    auto &load = impl_->config_.driver.load;
-    // remove duplicated lines
-    Util::dedupe(load);
-
-    // load drivers
-    auto base_dir = std::filesystem::path(impl_->config_.driver.driver_dir);
-    for (auto &driver: load) {
-        auto driver_full_path = base_dir.empty() ? std::filesystem::path(driver) : base_dir / driver;
-        driver_manager->load_driver(driver_full_path.string());
-    }
-}
-
-void Manager::create_worker() const {
-    for (const auto &domain: impl_->config_.domains) {
-        impl_->workers_.emplace_back(impl_->app_ctx_, domain, impl_->config_.resolver);
-    }
-}
-
-void Manager::run(std::stop_token stop_token) const {
-    // print all interfaces name
-    auto interfaces = impl_->app_ctx_->network_manager_->get_interfaces();
-    SPDLOG_INFO("All available interfaces: {}", fmt::join(interfaces, ", "));
-
-    if (impl_->config_.resolver.use_custom_server) {
-#ifdef HAVE_RES_NQUERY
-        const auto &ip_addr = impl_->config_.resolver.ip_address;
-        if (IPUtil::is_ipv4_address(ip_addr)) {
-            SPDLOG_INFO(R"(Use custom resolver "{}:{}")", ip_addr, impl_->config_.resolver.port);
-        } else if (ip_addr.front() != '[' && ip_addr.back() != ']') {
-            SPDLOG_INFO(R"(Use custom resolver "[{}]:{}")", ip_addr, impl_->config_.resolver.port);
+        if (elapsed >= entry.force_update_interval) {
+            state.last_force_update = now;
+            return true;
         }
-#else
-        SPDLOG_WARN(
-                "Custom resolver defined, but res_nquery() is not supported on this platform; the option will be ignored");
-#endif
+
+        return false;
     }
 
-    // set worker concurrency level
-    Worker::set_concurrency(impl_->estimated_threads());
+    unsigned int estimated_pool_size() const {
+        unsigned int total_subdomains = 0;
+        const auto thread_count = std::thread::hardware_concurrency();
 
-    // create worker jthreads
-    std::vector<std::jthread> worker_threads;
-    worker_threads.reserve(impl_->workers_.size());
-    for (auto &worker: impl_->workers_) {
-        worker_threads.emplace_back(&Worker::run, &worker, stop_token);
+        for (const auto &domain: config_.domains) {
+            total_subdomains += static_cast<unsigned int>(domain.subdomains.size());
+        }
+
+        if (total_subdomains < 2 || thread_count < 2) {
+            return 2;
+        }
+
+        if (total_subdomains < thread_count) {
+            return total_subdomains;
+        }
+
+        return thread_count;
     }
 
-    // jthread destructors join automatically when vector goes out of scope.
-    // If a stop is requested (e.g. via signal), each Worker::run will exit
-    // its loop, and the jthread destructors will join them.
-}
+private:
+    // ---- owned components --------------------------------------------------
+    DriverManager driver_manager_;
+    NetworkManager network_manager_;
+    std::unique_ptr<Updater> updater_;
+    BS::thread_pool<> pool_;
 
-Manager::Manager(std::shared_ptr<AppContext> app_ctx, Config::config config)
-    : impl_(std::make_unique<Impl>(std::move(app_ctx), std::move(config))) {
+    // stop_source_ must be declared before signal_thread_ so that during
+    // destruction ~jthread() joins the signal thread before ~stop_source()
+    // runs — any final request_stop() from the signal thread during cleanup
+    // will see a valid stop_source.
+    std::stop_source stop_source_;
+    std::jthread signal_thread_;
+
+    // ---- scheduling state --------------------------------------------------
+    std::priority_queue<SubdomainEntry,
+        std::vector<SubdomainEntry>,
+        std::greater<> > schedule_;
+    std::vector<DomainState> domain_states_;
+
+    // ---- synchronisation for scheduler sleep -------------------------------
+    std::mutex cv_mtx_;
+    std::condition_variable cv_;
+
+    // ---- config & derived values -------------------------------------------
+    Config::config config_;
+    std::optional<dns_server> dns_server_;
+};
+
+// ---------------------------------------------------------------------------
+// Manager public API
+// ---------------------------------------------------------------------------
+
+Manager::Manager(Config::config config)
+    : impl_(std::make_unique<Impl>(std::move(config))) {
 }
 
 Manager::~Manager() = default;
+
+void Manager::load_drivers() const {
+    impl_->load_drivers();
+}
+
+void Manager::validate_config() const {
+    impl_->validate_config();
+}
+
+void Manager::install_signal_handler() const {
+    impl_->install_signal_handler();
+}
+
+void Manager::run() const {
+    impl_->run();
+}

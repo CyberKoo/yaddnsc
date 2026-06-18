@@ -1,0 +1,36 @@
+{
+  "driver": {
+    "driver_dir": "./build/objs/driver",
+    "load": [
+      "simple.so"
+    ]
+  },
+  "resolver": {
+    "use_custom_server": false,
+    "ipaddress": "1.1.1.1",
+    "port": 53
+  },
+  "domains": [
+    {
+      "name": "example.com",
+      "update_interval": 60,
+      "force_update": 0,
+      "driver": "simple",
+      "subdomains": [
+        {
+          "name": "www",
+          "type": "a",
+          "interface": "eth0",
+          "ip_source": "url",
+          "ip_type": "ipv4",
+          "ip_source_param": "https://api.ipify.org/",
+          "driver_param": {
+            "record_id": "123456789",
+            "token": "your-token-here",
+            "url": "https://example.com/update"
+          }
+        }
+      ]
+    }
+  ]
+}

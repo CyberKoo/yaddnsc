@@ -62,8 +62,8 @@ std::string DnsRecordParser::parse_record(size_t index) const {
 }
 
 std::string DnsRecordParser::parse_a_record(data_type *rdata) {
-    char address_buffer[INET6_ADDRSTRLEN] = {};
-    inet_ntop(AF_INET, rdata, address_buffer, INET6_ADDRSTRLEN);
+    char address_buffer[INET_ADDRSTRLEN] = {};
+    inet_ntop(AF_INET, rdata, address_buffer, INET_ADDRSTRLEN);
     return address_buffer;
 }
 

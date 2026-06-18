@@ -18,7 +18,7 @@ namespace IPUtil {
 
     std::optional<std::string> get_ip_from_url(std::string_view, address_family, const char *);
 
-    int ip2af(address_family);
+    int to_address_family(address_family);
 
     bool is_ipv4_address(const std::string &);
 

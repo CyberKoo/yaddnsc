@@ -40,6 +40,7 @@ struct glz::meta<Config::subdomain_config> {
         "ip_source_param", &T::ip_source_param,
         "allow_ula", &T::allow_ula,
         "allow_local_link", &T::allow_local_link,
+        "update_interval", &T::update_interval,
         "driver_param", &T::driver_param
     );
 };

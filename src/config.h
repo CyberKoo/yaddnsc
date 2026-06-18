@@ -36,6 +36,7 @@ namespace Config {
         std::string ip_source_param;
         bool allow_ula{false};
         bool allow_local_link{false};
+        int update_interval{};    // 0 = inherit from domain
         std::unordered_map<std::string, std::string> driver_param;
     };
 

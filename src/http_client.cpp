@@ -70,7 +70,7 @@ httplib::Client HttpClient::detail::connect(const Uri &uri, address_family famil
     }
 
     // set address family
-    client.set_address_family(IPUtil::ip2af(family));
+    client.set_address_family(IPUtil::to_address_family(family));
     client.set_connection_timeout(std::chrono::seconds(5));
     client.set_read_timeout(std::chrono::seconds(5));
     client.set_follow_location(true);

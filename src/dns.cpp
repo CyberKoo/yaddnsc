@@ -24,21 +24,6 @@ DNS::resolve(const std::string &host, dns_type type, const std::optional<dns_ser
     return result;
 }
 
-std::string_view DNS::to_string(dns_type type) {
-    switch (type) {
-        case dns_type::A:
-            return "A";
-        case dns_type::AAAA:
-            return "AAAA";
-        case dns_type::TXT:
-            return "TXT";
-        case dns_type::SOA:
-            return "SOA";
-        default:
-            return "UNKNOWN";
-    }
-}
-
 address_family DNS::dns2ip(dns_type type) {
     switch (type) {
         case dns_type::A:

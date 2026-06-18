@@ -31,7 +31,7 @@ public:
         return interfaces;
     }
 
-    std::map<std::string, int> get_nif_ip_address(const std::string &nif) {
+    std::map<std::string, int> get_interface_ip_addresses(const std::string &nif) {
         auto all_nif_addrs = get_all_ip_addresses();
         if (auto it = all_nif_addrs.find(nif); it != all_nif_addrs.end()) {
             std::map<std::string, int> nif_ip_addrs;
@@ -114,7 +114,7 @@ std::vector<std::string> NetworkManager::get_interfaces() const {
     return impl_->get_interfaces();
 }
 
-std::map<std::string, int> NetworkManager::get_nif_ip_address(const std::string &nif) const {
-    return impl_->get_nif_ip_address(nif);
+std::map<std::string, int> NetworkManager::get_interface_ip_addresses(const std::string &nif) const {
+    return impl_->get_interface_ip_addresses(nif);
 }
 

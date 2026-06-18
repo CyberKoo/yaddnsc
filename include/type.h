@@ -16,6 +16,9 @@ enum class dns_type {
     A, AAAA, TXT, SOA
 };
 
+// NOTE: NX_DOMAIN (with underscore) is intentional. The system header
+// <arpa/nameser.h> defines NXDOMAIN as ns_r_nxdomain, which would
+// cause a preprocessor conflict if we used the bare NXDOMAIN name.
 enum class dns_error {
     NX_DOMAIN, RETRY, NODATA, PARSE, UNKNOWN
 };

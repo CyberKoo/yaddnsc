@@ -12,27 +12,24 @@ driver_request SimpleDriver::generate_request(const driver_config_type &config) 
     check_required_params(config);
 
     auto url = config.at("url");
-    if (get_optional(config, "format").has_value()) {
-        for (const auto &[key, val]: get_format_params(config)) {
-            const auto placeholder = "{" + key + "}";
-            for (auto pos = url.find(placeholder); pos != std::string::npos; pos = url.find(placeholder, pos + val.size())) {
-                url.replace(pos, placeholder.size(), val);
-            }
+
+    // Substitute every known parameter (except "url" itself) into the URL
+    // template.  For each key present in config, any "{key}" placeholder in
+    // the url is replaced with the corresponding value.
+    for (const auto &[key, val]: config) {
+        if (key == "url") continue;
+
+        const auto placeholder = "{" + key + "}";
+        for (auto pos = url.find(placeholder); pos != std::string::npos;
+             pos = url.find(placeholder, pos + val.size())) {
+            url.replace(pos, placeholder.size(), val);
         }
     }
 
-    return {.url = std::move(url), .body = std::string(), .content_type = std::string(), .request_method = driver_http_method_type::GET, .header = {}};
-}
-
-std::map<std::string, std::string> SimpleDriver::get_format_params(const driver_config_type &config) {
-    std::map<std::string, std::string> params;
-    for (auto [key, val]: config) {
-        if (key.front() == '{' and key.back() == '}') {
-            params.emplace(key.substr(1, key.size() - 2), val);
-        }
-    }
-
-    return params;
+    return {
+        .url = std::move(url), .body = std::string{}, .content_type = std::string{},
+        .request_method = driver_http_method_type::GET, .header = {}
+    };
 }
 
 bool SimpleDriver::check_response(std::string_view response) const {

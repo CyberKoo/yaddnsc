@@ -10,21 +10,26 @@
 
 #include "config.h"
 
-struct AppContext;
-
 class Manager {
 public:
-    explicit Manager(std::shared_ptr<AppContext>, Config::config);
+    explicit Manager(Config::config);
 
     ~Manager();
 
-    void validate_config() const;
-
     void load_drivers() const;
 
-    void create_worker() const;
+    void validate_config() const;
 
-    void run(std::stop_token) const;
+    // Install a signal-handling thread that catches SIGINT/SIGTERM via
+    // sigwait() and requests graceful shutdown.  Must be called after
+    // validate_config() and before run().  Signals must have been
+    // blocked in the main thread (with pthread_sigmask) before the
+    // Manager was constructed so that all threads inherit the mask.
+    void install_signal_handler() const;
+
+    // Run the scheduler loop.  Uses the stop_source set up by
+    // install_signal_handler().  Blocks until a stop is requested.
+    void run() const;
 
 private:
     class Impl;

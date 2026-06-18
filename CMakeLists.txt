@@ -113,13 +113,18 @@ CPMAddPackage(
 )
 
 # ---------------------------------------------------------------------------
+# magic_enum – static reflection for enums (header-only)
+# ---------------------------------------------------------------------------
+CPMAddPackage("gh:Neargye/magic_enum@0.9.8")
+
+# ---------------------------------------------------------------------------
 # BS::thread_pool – header-only, no CMakeLists.txt
 # ---------------------------------------------------------------------------
 CPMAddPackage(
-    NAME        thread-pool
-    GIT_REPOSITORY https://github.com/bshoshany/thread-pool.git
-    GIT_TAG     v5.1.0
-    DOWNLOAD_ONLY YES
+        NAME        thread-pool
+        GIT_REPOSITORY https://github.com/bshoshany/thread-pool.git
+        GIT_TAG     v5.1.0
+        DOWNLOAD_ONLY YES
 )
 if(thread-pool_ADDED)
   add_library(BS_thread_pool INTERFACE)
@@ -137,12 +142,12 @@ include_directories(${CMAKE_BINARY_DIR}/generated/)
 # ==============================================================================
 set(URI src/uri.cpp)
 set(Config src/config.cpp)
-set(Worker src/worker.cpp)
+set(Validator src/config_validator.cpp)
+set(Updater src/updater.cpp)
 set(IPUtil src/ip_util.cpp src/ip_util_http.cpp)
 set(Manager src/manager.cpp)
 set(HttpClient src/http_client.cpp)
 set(DriverManager src/driver_manager.cpp)
-set(SignalHandler src/signal_handler.cpp)
 set(NetworkManager src/network_manager.cpp)
 set(CoreLogger src/core_logger.cpp)
 set(DNS src/dns.cpp src/dns_resolver.cpp src/dns_record_parser.cpp)
@@ -150,12 +155,12 @@ set(DNS src/dns.cpp src/dns_resolver.cpp src/dns_record_parser.cpp)
 # ==============================================================================
 # Main executable
 # ==============================================================================
-add_executable(yaddnsc src/main.cpp src/string_util.cpp ${DNS} ${Context} ${Config} ${DriverManager} ${URI}
-        ${Worker} ${Manager} ${IPUtil} ${HttpClient} ${SignalHandler} ${NetworkManager} ${CoreLogger}
+add_executable(yaddnsc src/main.cpp src/string_util.cpp ${DNS} ${Config} ${Validator} ${DriverManager} ${URI}
+        ${Updater} ${Manager} ${IPUtil} ${HttpClient} ${NetworkManager} ${CoreLogger}
 )
 
 set_target_properties(yaddnsc PROPERTIES ENABLE_EXPORTS ON)
-target_link_libraries(yaddnsc PRIVATE BS_thread_pool httplib spdlog::spdlog OpenSSL::SSL OpenSSL::Crypto
+target_link_libraries(yaddnsc PRIVATE BS_thread_pool magic_enum httplib spdlog::spdlog OpenSSL::SSL OpenSSL::Crypto
   ZLIB::ZLIB cxxopts::cxxopts glaze::glaze ${CMAKE_DL_LIBS}
 )
 

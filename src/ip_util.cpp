@@ -15,10 +15,10 @@
 #include "network_manager.h"
 
 std::vector<std::string> IPUtil::get_ip_from_interface(NetworkManager &mgr, const std::string &nif, address_family af) {
-    auto addresses = mgr.get_nif_ip_address(nif);
+    auto addresses = mgr.get_interface_ip_addresses(nif);
     std::vector<std::string> nif_addresses;
     for (auto &[ip_address, family]: addresses) {
-        if (af == address_family::UNSPECIFIED || family == ip2af(af)) {
+        if (af == address_family::UNSPECIFIED || family == to_address_family(af)) {
             nif_addresses.emplace_back(ip_address);
         }
     }
@@ -26,7 +26,7 @@ std::vector<std::string> IPUtil::get_ip_from_interface(NetworkManager &mgr, cons
     return nif_addresses;
 }
 
-int IPUtil::ip2af(address_family version) {
+int IPUtil::to_address_family(address_family version) {
     switch (version) {
         case address_family::IPV4:
             return AF_INET;

@@ -2,41 +2,30 @@
 // Created by Kotarou on 2022/4/5.
 //
 #include <iostream>
-#include "stop_token_compat.h"
+#include <csignal>
 
 #include <cxxopts.hpp>
 #include <spdlog/spdlog.h>
 
 #include "config.h"
 #include "manager.h"
-#include "app_context.h"
 #include "version.h"
-#include "signal_handler.h"
 #include "logging_pattern.h"
-#include "driver_manager.h"
-#include "network_manager.h"
 
 #include "exception/base_exception.h"
 #include "exception/config_verification_exception.h"
 
-namespace {
-    std::stop_source g_stop_source;
-}
-
-void gracefully_quit();
-std::shared_ptr<AppContext> init_context();
-
 int main(int argc, char *argv[]) {
-    // blocked signals, will be process by signal handling thread
-    sigset_t sigset = SignalHandler::block_signal({SIGINT, SIGTERM});
-    SignalHandler::register_handler(SIGINT, &gracefully_quit);
-    SignalHandler::register_handler(SIGTERM, &gracefully_quit);
+    // Block SIGINT and SIGTERM in all threads so they can be handled by
+    // a dedicated sigwait() thread inside Manager::run() instead of the
+    // default handler (which would kill the process immediately).
+    sigset_t sigset;
+    sigemptyset(&sigset);
+    sigaddset(&sigset, SIGINT);
+    sigaddset(&sigset, SIGTERM);
+    pthread_sigmask(SIG_BLOCK, &sigset, nullptr);
 
-    // signal handling thread
-    auto sig_thread = std::thread(SignalHandler::handler_thread, &sigset);
-    sig_thread.detach();
-
-    // CLI parsing
+    // CLI parsing.
     std::string config_path = "./config.json";
     cxxopts::Options options("yaddnsc", "Yet another DDNS client");
     options.add_options()
@@ -49,15 +38,15 @@ int main(int argc, char *argv[]) {
         auto result = options.parse(argc, argv);
         if (result.count("help")) {
             std::cout << options.help() << std::endl;
-            exit(0);
+            return 0;
         }
 
         if (result.count("version")) {
             std::cout << yaddnsc::get_full_version() << std::endl;
-            exit(0);
+            return 0;
         }
 
-        // logging
+        // Logging.
         spdlog::set_pattern(YADDNSC_LOGGING_PATTERN);
         if (result["verbose"].as<bool>()) {
             spdlog::set_level(spdlog::level::debug);
@@ -66,23 +55,22 @@ int main(int argc, char *argv[]) {
             spdlog::set_level(spdlog::level::info);
         }
 
-        auto app_ctx = init_context();
-
         auto config = Config::load_config(config_path);
 
-        Manager manager(app_ctx, config);
+        Manager manager(std::move(config));
 
-        // load all drivers
+        // Load all drivers.
         manager.load_drivers();
 
-        // check the config file
+        // Validate the config file.
         manager.validate_config();
 
-        // create workers
-        manager.create_worker();
+        // Install a signal-handling thread that catches SIGINT/SIGTERM
+        // and requests a graceful shutdown.
+        manager.install_signal_handler();
 
-        // main event loop
-        manager.run(g_stop_source.get_token());
+        // Main event loop (single scheduler thread + shared thread pool).
+        manager.run();
 
         return 0;
     } catch (ConfigVerificationException &e) {
@@ -96,22 +84,4 @@ int main(int argc, char *argv[]) {
     }
 
     return -1;
-}
-
-void gracefully_quit() {
-    SPDLOG_INFO("Received exit signal, quitting...");
-    if (g_stop_source.stop_possible()) {
-        if (!g_stop_source.request_stop()) {
-            SPDLOG_ERROR("Request stop failed.");
-        }
-    }
-}
-
-std::shared_ptr<AppContext> init_context() {
-    auto app_ctx = std::make_shared<AppContext>();
-
-    app_ctx->driver_manager_ = std::make_unique<DriverManager>();
-    app_ctx->network_manager_ = std::make_unique<NetworkManager>();
-
-    return app_ctx;
 }

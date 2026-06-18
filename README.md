@@ -4,7 +4,7 @@
 
 ## Features
 
-- **Multi-domain, multi-subdomain support** — manage multiple domains and subdomains from a single configuration file.
+- **Multi-domain, multi-subdomain management** — manage multiple domains and subdomains from a single configuration file.
 - **Pluggable driver architecture** — drivers are loaded as shared libraries (`.so`) at runtime via `dlopen`. Built-in drivers:
   - [Cloudflare](https://www.cloudflare.com/) — updates DNS records via the Cloudflare API v4
   - [DigitalOcean](https://www.digitalocean.com/) — updates DNS records via the DigitalOcean API v2
@@ -13,53 +13,50 @@
 - **Flexible IP source configuration** — per-subdomain, choose:
   - `interface` — obtain the IP from a local network interface
   - `url` — obtain the IP from an external HTTP service (e.g. `https://ifconfig.me`)
+- **Per-subdomain update interval** — each subdomain can override the domain-level update interval.
 - **IPv4 and IPv6 support** — configure A and AAAA records independently.
 - **Custom DNS resolver** — optionally use a specific DNS server for record lookups instead of the system resolver.
 - **Forced update scheduling** — periodically force-update DNS records even when the IP hasn't changed.
-- **Graceful shutdown** — handles SIGINT/SIGTERM to stop workers cleanly.
+- **Graceful shutdown** — handles SIGINT/SIGTERM via a dedicated signal-handling thread with a stop_token.
 - **Thread-pool based concurrency** — subdomain updates are dispatched to a BS::thread_pool for parallel execution.
 - **C++23** — built with modern C++ standards, using `std::format` (or the fmt library as fallback) and `std::jthread`.
 - **Cross-platform** — CI-tested on Linux (Ubuntu) and macOS.
 
 ## Architecture Overview
 
+```mermaid
+flowchart TB
+    main["main.cpp
+CLI parsing · Load config · Init"]
+    mgr["Manager
+Load drivers · Validate config
+Build min-heap of SubdomainEntries
+Owns BS::thread_pool"]
+    sched["Scheduler (single thread)
+Pop due entries → detach_task to pool
+Re-queue with next deadline
+Sleep until nearest deadline
+On stop: pool.wait()"]
+    pool["BS::thread_pool
+Parallel workers"]
+    updaterA["Updater (task A)
+Get IP → DNS lookup → Compare → Update"]
+    updaterB["Updater (task B)
+Get IP → DNS lookup → Compare → Update"]
+    driver["Driver Plugin (.so)
+generate_request · check_response
+HTTP → DNS provider API"]
+
+    main --> mgr
+    mgr --> sched
+    sched --> pool
+    pool --> updaterA
+    pool --> updaterB
+    updaterA --> driver
+    updaterB --> driver
 ```
-┌──────────────────────────────────────────────────────────┐
-│                        main.cpp                          │
-│  CLI parsing (cxxopts) · Config loading · Initialization │
-└──────────────────────────┬───────────────────────────────┘
-                           │
-                           ▼
-┌──────────────────────────────────────────────────────────┐
-│                        Manager                           │
-│  · Loads driver plugins from config.driver.driver_dir    │
-│  · Validates configuration                               │
-│  · Creates one Worker per domain                         │
-│  · Manages worker lifecycle with std::jthread            │
-└──────────────────────────┬───────────────────────────────┘
-                           │
-            ┌──────────────┴──────────────┐
-            ▼                              ▼
-┌──────────────────────┐     ┌────────────────────────────┐
-│  Worker (domain A)   │     │  Worker (domain B)         │
-│                      │     │                            │
-│  Each worker runs a  │     │  Runs in its own jthread   │
-│  scheduled loop:     │     │  with a thread pool for    │
-│                      │     │  parallel subdomain tasks  │
-│  1. Get local IP     │     │                            │
-│  2. DNS lookup       │     │                            │
-│  3. Compare          │     │                            │
-│  4. Update if needed │     │                            │
-└──────────────────────┘     └────────────────────────────┘
-         │                             │
-         └──────────┬──────────────────┘
-                    ▼
-┌──────────────────────────────────────────────────────────┐
-│                    Driver Plugin (.so)                    │
-│  · IDriver interface (generate_request / check_response) │
-│  · Communicates with DNS provider API via HTTP           │
-└──────────────────────────────────────────────────────────┘
-```
+
+**Thread model:** A single scheduler thread maintains a min-heap of `SubdomainEntry` items ordered by deadline. When a subdomain is due, the scheduler pops it, submits the work (IP detection, DNS comparison, HTTP update) to the shared thread pool, and re-queues the entry with its next deadline. The scheduler sleeps on a condition variable until the nearest deadline or a stop request. On shutdown it drains all in-flight pool tasks before returning.
 
 ## Build Requirements
 
@@ -67,7 +64,7 @@
 
 | Tool / Library  | Minimum Version    |
 |-----------------|--------------------|
-| CMake           | 3.14               |
+| CMake           | 3.28               |
 | C++ Compiler    | C++23 capable      |
 | OpenSSL         | Any recent version |
 | Zlib            | Any recent version |
@@ -97,13 +94,14 @@ make -j$(nproc)
 | Option             | Default | Description                                      |
 |--------------------|---------|--------------------------------------------------|
 | `CMAKE_BUILD_TYPE` | Release | Set to `Debug` for debug builds                  |
-| `LIBC_MUSL`        | OFF     | Enable if building with musl libc (disables LTO) |
 
-Third-party dependencies (glaze, spdlog, cpp-httplib, cxxopts, BS::thread_pool, fmt) are fetched automatically via CMake's FetchContent.
+Third-party dependencies (glaze, spdlog, cpp-httplib, cxxopts, BS::thread_pool, fmt) are fetched automatically via CPM.cmake.
 
 ## Configuration
 
 yaddnsc uses a JSON configuration file. By default it looks for `./config.json`, or you can specify a custom path with the `-c` flag.
+
+A template configuration is available at `config.example.json`.
 
 ### Example Configuration
 
@@ -135,6 +133,9 @@ yaddnsc uses a JSON configuration file. By default it looks for `./config.json`,
           "ip_source": "interface",
           "ip_type": "ipv6",
           "ip_source_param": "",
+          "allow_ula": false,
+          "allow_local_link": false,
+          "update_interval": 600,
           "driver_param": {
             "zone_id": "your-zone-id",
             "record_id": "your-record-id",
@@ -192,24 +193,25 @@ yaddnsc uses a JSON configuration file. By default it looks for `./config.json`,
 | Field             | Type   | Description                                                                                 |
 |-------------------|--------|---------------------------------------------------------------------------------------------|
 | `name`            | string | Domain name (e.g. `example.com`)                                                            |
-| `update_interval` | int    | Interval in seconds between updates (minimum: 60)                                           |
+| `update_interval` | int    | Interval in seconds between updates (minimum: 60). Used as default for all subdomains.      |
 | `force_update`    | int    | Interval in seconds for forced updates (0 = disabled). Must be >= `update_interval` if set. |
 | `driver`          | string | Name of the driver to use (must match a loaded driver)                                      |
 | `subdomains`      | array  | List of subdomain records to manage                                                         |
 
 #### `subdomains[]` object
 
-| Field              | Type    | Description                                                                       |
-|--------------------|---------|-----------------------------------------------------------------------------------|
-| `name`             | string  | Subdomain name (e.g. `home` for `home.example.com`)                               |
-| `type`             | string  | DNS record type: `"a"`, `"aaaa"`, `"txt"`, or `"soa"`                             |
-| `interface`        | string  | Network interface name (e.g. `eth0`). Required when `ip_source` is `"interface"`. |
-| `ip_source`        | string  | IP source: `"interface"` (read from a local NIC) or `"url"` (fetch from HTTP)     |
-| `ip_type`          | string  | IP version: `"ipv4"`, `"ipv6"`, or `"unspecified"`                                |
-| `ip_source_param`  | string  | For `"url"` source: the HTTP(S) URL. For `"interface"` source: currently unused.  |
-| `allow_ula`        | boolean | When using IPv6 interface source, allow Unique Local Addresses (default: false)   |
-| `allow_local_link` | boolean | When using IPv6 interface source, allow link-local addresses (default: false)     |
-| `driver_param`     | object  | Driver-specific parameters (key-value map)                                        |
+| Field              | Type    | Description                                                                                                |
+|--------------------|---------|------------------------------------------------------------------------------------------------------------|
+| `name`             | string  | Subdomain name (e.g. `home` for `home.example.com`)                                                        |
+| `type`             | string  | DNS record type: `"a"`, `"aaaa"`, `"txt"`, or `"soa"`                                                      |
+| `interface`        | string  | Network interface name (e.g. `eth0`). Required when `ip_source` is `"interface"`.                          |
+| `ip_source`        | string  | IP source: `"interface"` (read from a local NIC) or `"url"` (fetch from HTTP)                              |
+| `ip_type`          | string  | IP version: `"ipv4"`, `"ipv6"`, or `"unspecified"`                                                         |
+| `ip_source_param`  | string  | For `"url"` source: the HTTP(S) URL. For `"interface"` source: currently unused.                           |
+| `allow_ula`        | boolean | When using IPv6 interface source, allow Unique Local Addresses (default: false)                            |
+| `allow_local_link` | boolean | When using IPv6 interface source, allow link-local addresses (default: false)                              |
+| `update_interval`  | int     | Per-subdomain update interval in seconds (optional). 0 or omitted = inherit from `domain.update_interval`. |
+| `driver_param`     | object  | Driver-specific parameters (key-value map)                                                                 |
 
 ## Driver Parameters
 
@@ -312,12 +314,13 @@ Drivers use `CORE_LOG_*` macros for logging — these delegate to the core execu
 
 | Library                                                     | Purpose                                        | Management   |
 |-------------------------------------------------------------|------------------------------------------------|--------------|
-| [glaze](https://github.com/stephenberry/glaze)              | JSON serialization/reflection                  | FetchContent |
-| [spdlog](https://github.com/gabime/spdlog)                  | Logging                                        | FetchContent |
-| [cpp-httplib](https://github.com/yhirose/cpp-httplib)       | HTTP client                                    | FetchContent |
-| [cxxopts](https://github.com/jarro2783/cxxopts)             | CLI option parsing                             | FetchContent |
-| [BS::thread_pool](https://github.com/bshoshany/thread-pool) | Thread pool                                    | FetchContent |
-| [fmt](https://github.com/fmtlib/fmt)                        | String formatting (fallback if no std::format) | FetchContent |
+| [glaze](https://github.com/stephenberry/glaze)              | JSON serialization/reflection                  | CPM.cmake    |
+| [spdlog](https://github.com/gabime/spdlog)                  | Logging                                        | CPM.cmake    |
+| [cpp-httplib](https://github.com/yhirose/cpp-httplib)       | HTTP client                                    | CPM.cmake    |
+| [cxxopts](https://github.com/jarro2783/cxxopts)             | CLI option parsing                             | CPM.cmake    |
+| [BS::thread_pool](https://github.com/bshoshany/thread-pool) | Thread pool                                    | CPM.cmake    |
+| [fmt](https://github.com/fmtlib/fmt)                        | String formatting (fallback if no std::format) | CPM.cmake    |
+| [magic_enum](https://github.com/Neargye/magic_enum)         | Static enum reflection                         | CPM.cmake    |
 | OpenSSL                                                     | TLS support                                    | System       |
 | Zlib                                                        | Compression                                    | System       |
 
