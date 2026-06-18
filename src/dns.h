@@ -12,7 +12,7 @@
 #include "type.h"
 
 namespace DNS {
-    std::vector<std::string> resolve(const std::string &, dns_type, const std::optional<dns_server> &);
+    std::vector<std::string> resolve(const std::string &, dns_type, const std::optional<DnsServer> &);
 
     std::string_view error_to_str(dns_error);
 

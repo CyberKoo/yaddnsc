@@ -17,7 +17,7 @@ public:
 
     [[nodiscard]] bool check_response(std::string_view response) const override;
 
-    [[nodiscard]] driver_detail get_detail() const override;
+    [[nodiscard]] DriverDetail get_detail() const override;
 
 protected:
     [[nodiscard]] std::span<const std::string_view> get_required_params() const override {

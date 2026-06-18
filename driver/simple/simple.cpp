@@ -36,7 +36,7 @@ bool SimpleDriver::check_response(std::string_view response) const {
     return !response.empty();
 }
 
-driver_detail SimpleDriver::get_detail() const {
+DriverDetail SimpleDriver::get_detail() const {
     return {
         .name = "simple",
         .description = "Simple HTTP driver",

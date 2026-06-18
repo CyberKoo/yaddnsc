@@ -17,7 +17,7 @@ using driver_param_type = http_param_type;
 using driver_http_method_type = http_method_type;
 using driver_request = http_request;
 
-struct driver_detail final {
+struct DriverDetail final {
     const std::string_view name;
     const std::string_view description;
     const std::string_view author;
@@ -50,12 +50,9 @@ public:
 
     [[nodiscard]] virtual bool check_response(std::string_view) const = 0;
 
-    [[nodiscard]] virtual driver_detail get_detail() const = 0;
+    [[nodiscard]] virtual DriverDetail get_detail() const = 0;
 
     [[nodiscard]] virtual std::string_view get_driver_version() const = 0;
-
-    virtual void init_logger(int, const std::string &) {
-    }
 
 protected:
     [[nodiscard]] virtual std::span<const std::string_view> get_required_params() const = 0;

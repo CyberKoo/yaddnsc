@@ -15,7 +15,7 @@ public:
 
     [[nodiscard]] driver_request generate_request(const driver_config_type &config) const override;
 
-    [[nodiscard]] driver_detail get_detail() const override;
+    [[nodiscard]] DriverDetail get_detail() const override;
 
     [[nodiscard]] bool check_response(std::string_view) const override;
 

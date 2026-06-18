@@ -31,10 +31,10 @@ class Updater::Impl {
 public:
     explicit Impl(DriverManager &driver_manager,
                   NetworkManager &network_manager,
-                  std::optional<dns_server> dns_server)
+                  std::optional<DnsServer> DnsServer)
         : driver_manager_(driver_manager),
           network_manager_(network_manager),
-          dns_server_(std::move(dns_server)) {
+          dns_server_(std::move(DnsServer)) {
     }
 
     void process(const UpdateTask &task) const;
@@ -52,7 +52,7 @@ private:
 private:
     DriverManager &driver_manager_;
     NetworkManager &network_manager_;
-    const std::optional<dns_server> dns_server_;
+    const std::optional<DnsServer> dns_server_;
 
     static constexpr int RESOLVER_RETRY = 5;
     static constexpr int RESOLVER_RETRY_BACKOFF = 1000;
@@ -64,8 +64,8 @@ private:
 
 Updater::Updater(DriverManager &driver_manager,
                  NetworkManager &network_manager,
-                 std::optional<dns_server> dns_server)
-    : impl_(std::make_unique<Impl>(driver_manager, network_manager, std::move(dns_server))) {
+                 std::optional<DnsServer> DnsServer)
+    : impl_(std::make_unique<Impl>(driver_manager, network_manager, std::move(DnsServer))) {
 }
 
 Updater::~Updater() = default;

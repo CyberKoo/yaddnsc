@@ -54,7 +54,7 @@ namespace {
             return res_nquery(&state, name, ns_c_in, type, buf, len);
         }
 
-        void set_nameserver(const dns_server &server) {
+        void set_nameserver(const DnsServer &server) {
             if (IPUtil::is_ipv4_address(server.ip_address)) {
                 state.nscount = 1;
                 state.nsaddr_list[0].sin_family = AF_INET;
@@ -74,7 +74,7 @@ namespace {
 #endif
         }
 
-        void set_ipv6_nameserver(const dns_server &server) {
+        void set_ipv6_nameserver(const DnsServer &server) {
             // zero out settings from resolv.conf
             for (int i = 0; i < state.nscount; ++i) {
                 std::memset(&state.nsaddr_list[i], 0, sizeof(state.nsaddr_list[i]));
@@ -116,13 +116,13 @@ namespace {
             return res_query(name, ns_c_in, type, buf, len);
         }
 
-        void set_nameserver([[maybe_unused]] const dns_server &server) {
+        void set_nameserver([[maybe_unused]] const DnsServer &server) {
             // Custom DNS server not supported without res_ninit
         }
 #endif
     };
 
-    void log_custom_resolver_once(const dns_server &server) {
+    void log_custom_resolver_once(const DnsServer &server) {
         static bool logged = false;
         if (logged) return;
         logged = true;
@@ -142,7 +142,7 @@ namespace {
 
 class DnsResolver::Impl {
 public:
-    explicit Impl(std::optional<dns_server> server) {
+    explicit Impl(std::optional<DnsServer> server) {
         if (server.has_value() && !server->ip_address.empty()) {
             log_custom_resolver_once(*server);
             ctx_.set_nameserver(*server);
@@ -217,7 +217,7 @@ private:
 DnsResolver::DnsResolver() : DnsResolver(std::nullopt) {
 }
 
-DnsResolver::DnsResolver(std::optional<dns_server> server) : impl_(std::make_unique<Impl>(std::move(server))) {
+DnsResolver::DnsResolver(std::optional<DnsServer> server) : impl_(std::make_unique<Impl>(std::move(server))) {
 }
 
 DnsResolver::~DnsResolver() = default;

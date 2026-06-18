@@ -35,7 +35,7 @@ public:
     explicit Impl(Config::config config) : config_(std::move(config)) {
         // Resolve the optional DNS server once.
         if (config_.resolver.use_custom_server) {
-            dns_server_ = dns_server{config_.resolver.ip_address, config_.resolver.port};
+            dns_server_ = DnsServer{config_.resolver.ip_address, config_.resolver.port};
         }
 
         // Wire up the Updater with the dependency references.
@@ -278,7 +278,7 @@ private:
 
     // ---- config & derived values -------------------------------------------
     Config::config config_;
-    std::optional<dns_server> dns_server_;
+    std::optional<DnsServer> dns_server_;
 };
 
 // ---------------------------------------------------------------------------

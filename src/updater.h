@@ -19,7 +19,7 @@ class NetworkManager;
 //
 // The Updater holds non-owning references to the DriverManager and
 // NetworkManager (both initialised before any call to process()), and a
-// pre-resolved dns_server configuration.
+// pre-resolved DnsServer configuration.
 //
 // process() is thread-safe: it is marked const, owns no mutable state, and
 // may be called concurrently from multiple pool threads.
@@ -28,7 +28,7 @@ class Updater {
 public:
     Updater(DriverManager &driver_manager,
             NetworkManager &network_manager,
-            std::optional<dns_server> dns_server);
+            std::optional<DnsServer> DnsServer);
 
     ~Updater();
 

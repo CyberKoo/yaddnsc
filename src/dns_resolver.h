@@ -16,7 +16,7 @@ class DnsResolver {
 public:
     explicit DnsResolver();
 
-    explicit DnsResolver(std::optional<dns_server> server);
+    explicit DnsResolver(std::optional<DnsServer> server);
     ~DnsResolver();
 
     DnsResolver(const DnsResolver &) = delete;

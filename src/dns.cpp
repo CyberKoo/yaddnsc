@@ -9,7 +9,7 @@
 #include "dns_record_parser.h"
 
 std::vector<std::string>
-DNS::resolve(const std::string &host, dns_type type, const std::optional<dns_server> &server) {
+DNS::resolve(const std::string &host, dns_type type, const std::optional<DnsServer> &server) {
     const DnsResolver resolver(server);
     auto raw_response = resolver.query(host, type);
 

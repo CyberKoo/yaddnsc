@@ -76,7 +76,7 @@ std::string CloudflareDriver::generate_body(const driver_config_type &config) {
     return glz::write_json(body).value_or("{}");
 }
 
-driver_detail CloudflareDriver::get_detail() const {
+DriverDetail CloudflareDriver::get_detail() const {
     return {
         .name = "cloudflare",
         .description = "Cloudflare DDNS driver",
