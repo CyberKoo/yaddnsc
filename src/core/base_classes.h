@@ -2,8 +2,8 @@
 // Created by Kotarou on 2022/5/19.
 //
 
-#ifndef YADDNSC_BASE_CLASSES_H
-#define YADDNSC_BASE_CLASSES_H
+#ifndef YADDNSC_CORE_BASE_CLASSES_H
+#define YADDNSC_CORE_BASE_CLASSES_H
 
 class NonCopyable {
 public:
@@ -62,4 +62,4 @@ public:
     RestrictedClass &operator=(RestrictedClass &&) = delete;
 };
 
-#endif //YADDNSC_BASE_CLASSES_H
+#endif //YADDNSC_CORE_BASE_CLASSES_H

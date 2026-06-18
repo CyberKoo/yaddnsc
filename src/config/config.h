@@ -2,8 +2,8 @@
 // Created by Kotarou on 2022/4/6.
 //
 
-#ifndef YADDNSC_CONFIG_H
-#define YADDNSC_CONFIG_H
+#ifndef YADDNSC_CONFIG_CONFIG_H
+#define YADDNSC_CONFIG_CONFIG_H
 
 #include <vector>
 #include <string>
@@ -57,4 +57,4 @@ namespace Config {
     config load_config(const std::string &config_path);
 }
 
-#endif //YADDNSC_CONFIG_H
+#endif //YADDNSC_CONFIG_CONFIG_H

@@ -2,8 +2,8 @@
 // Created by Kotarou on 2022/4/5.
 //
 
-#ifndef YADDNSC_HTTPCLIENT_H
-#define YADDNSC_HTTPCLIENT_H
+#ifndef YADDNSC_NETWORK_HTTPCLIENT_H
+#define YADDNSC_NETWORK_HTTPCLIENT_H
 
 #include <map>
 #include <string>
@@ -43,4 +43,4 @@ namespace HttpClient {
     httplib::Result send(const http_request &, address_family, std::string_view nif_name = {});
 }
 
-#endif //YADDNSC_HTTPCLIENT_H
+#endif //YADDNSC_NETWORK_HTTPCLIENT_H

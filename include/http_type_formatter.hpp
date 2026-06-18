@@ -6,7 +6,7 @@
 #define YADDNSC_HTTP_TYPE_FORMATTER_H
 
 #include "http_types.h"
-#include "fmt.h"
+#include "fmt.hpp"
 
 // ---------------------------------------------------------------------------
 // fmt / std::format formatter for http_request

@@ -94,6 +94,8 @@ make -j$(nproc)
 | Option             | Default | Description                                      |
 |--------------------|---------|--------------------------------------------------|
 | `CMAKE_BUILD_TYPE` | Release | Set to `Debug` for debug builds                  |
+| `YADDNSC_LOGGING_PATTERN` | `[%D %T.%e] [%^%8l%$] [%8!t] [%15!s:%-4#] %v` | Logging pattern passed to spdlog::set_pattern() |
+| `YADDNSC_MIN_UPDATE_INTERVAL` | 60 | Minimum allowed update interval in seconds (must not be negative) |
 
 Third-party dependencies (glaze, spdlog, cpp-httplib, cxxopts, BS::thread_pool, fmt) are fetched automatically via CPM.cmake.
 

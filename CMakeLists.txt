@@ -42,7 +42,7 @@ else ()
 endif ()
 
 # ==============================================================================
-# Version info & generated headers
+# Version info
 # ==============================================================================
 set(YADDNSC_VERSION_MAJOR 1)
 set(YADDNSC_VERSION_MINOR 0)
@@ -56,9 +56,25 @@ if (YADDNSC_DEVELOPMENT)
   set(YADDNSC_RELEASE_INFO ${GIT_VERSION})
 endif ()
 
+# ==============================================================================
+# User options (cache variables, overridable via -D)
+# ==============================================================================
+set(YADDNSC_LOGGING_PATTERN "[%D %T.%e] [%^%8l%$] [%8!t] [%15!s:%-4#] %v" CACHE STRING
+  "Logging pattern passed to spdlog::set_pattern()")
+
+set(YADDNSC_MIN_UPDATE_INTERVAL 60 CACHE STRING "Minimum allowed update interval (seconds)")
+if(YADDNSC_MIN_UPDATE_INTERVAL LESS 0)
+  message(FATAL_ERROR "YADDNSC_MIN_UPDATE_INTERVAL must not be negative, got ${YADDNSC_MIN_UPDATE_INTERVAL}")
+endif()
+
+# ==============================================================================
+# Generated headers (all configure_file calls, after all variables are defined)
+# ==============================================================================
 configure_file("${CMAKE_SOURCE_DIR}/include/version.h.in" "${CMAKE_BINARY_DIR}/generated/version.h" @ONLY)
 configure_file("${CMAKE_SOURCE_DIR}/include/driver_ver.h.in" "${CMAKE_BINARY_DIR}/generated/driver_ver.h" @ONLY)
-configure_file("${CMAKE_SOURCE_DIR}/include/config_cmake.h.in" "${CMAKE_BINARY_DIR}/generated/config_cmake.h")
+configure_file("${CMAKE_SOURCE_DIR}/src/template/config_cmake.h.in" "${CMAKE_BINARY_DIR}/generated/config_cmake.h")
+configure_file("${CMAKE_SOURCE_DIR}/src/template/logging_pattern.h.in" "${CMAKE_BINARY_DIR}/generated/logging_pattern.h" @ONLY)
+configure_file("${CMAKE_SOURCE_DIR}/src/template/min_update_interval.h.in" "${CMAKE_BINARY_DIR}/generated/min_update_interval.h" @ONLY)
 
 # ==============================================================================
 # Dependencies (via CPM.cmake)
@@ -136,28 +152,29 @@ endif()
 # Include paths (inherited by driver subdirectory)
 # ==============================================================================
 include_directories(${PROJECT_SOURCE_DIR}/include/)
+include_directories(${PROJECT_SOURCE_DIR}/src/)
 include_directories(${CMAKE_BINARY_DIR}/generated/)
 
 # ==============================================================================
 # Source files
 # ==============================================================================
-set(URI src/uri.cpp)
-set(Config src/config.cpp)
-set(Validator src/config_validator.cpp)
-set(Updater src/updater.cpp)
-set(IPUtil src/ip_util.cpp src/ip_util_http.cpp)
-set(Manager src/manager.cpp)
-set(HttpClient src/http_client.cpp)
-set(DriverManager src/driver_manager.cpp)
-set(NetworkManager src/network_manager.cpp)
-set(CoreLogger src/core_logger.cpp)
-set(DNS src/dns.cpp src/dns_resolver.cpp src/dns_record_parser.cpp)
+set(URI src/util/uri.cpp)
+set(Config src/config/config.cpp)
+
+set(Updater src/core/updater.cpp)
+set(IPUtil src/network/ip_util.cpp src/network/ip_util_http.cpp)
+set(Manager src/core/manager.cpp)
+set(HttpClient src/network/http_client.cpp)
+set(DriverManager src/core/driver_manager.cpp)
+set(NetworkManager src/network/network_manager.cpp)
+set(CoreLogger src/core/core_logger.cpp)
+set(DNS src/dns/dns.cpp src/dns/dns_resolver.cpp src/dns/dns_record_parser.cpp)
 
 # ==============================================================================
 # Main executable
 # ==============================================================================
-add_executable(yaddnsc src/main.cpp src/string_util.cpp ${DNS} ${Config} ${Validator} ${DriverManager} ${URI}
-        ${Updater} ${Manager} ${IPUtil} ${HttpClient} ${NetworkManager} ${CoreLogger}
+add_executable(yaddnsc src/main.cpp src/util/string_util.cpp ${DNS} ${Config} ${DriverManager} ${URI}
+  ${Updater} ${Manager} ${IPUtil} ${HttpClient} ${NetworkManager} ${CoreLogger}
 )
 
 set_target_properties(yaddnsc PROPERTIES ENABLE_EXPORTS ON)
@@ -172,6 +189,7 @@ if (NOT HAVE_STD_FORMAT)
   target_link_libraries(yaddnsc_fmt INTERFACE fmt::fmt)
 endif ()
 target_link_libraries(yaddnsc PRIVATE yaddnsc_fmt)
+
 
 # resolv is linux-specific, not present on BSDs
 find_library(RESOLV resolv)

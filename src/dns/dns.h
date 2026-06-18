@@ -2,8 +2,8 @@
 // Created by Kotarou on 2022/4/5.
 //
 
-#ifndef YADDNSC_DNS_H
-#define YADDNSC_DNS_H
+#ifndef YADDNSC_DNS_DNS_H
+#define YADDNSC_DNS_DNS_H
 
 #include <string>
 #include <vector>
@@ -19,4 +19,4 @@ namespace DNS {
     address_family dns2ip(dns_type type);
 }
 
-#endif //YADDNSC_DNS_H
+#endif //YADDNSC_DNS_DNS_H

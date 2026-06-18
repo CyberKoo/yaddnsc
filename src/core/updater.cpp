@@ -6,19 +6,19 @@
 
 #include <utility>
 
-#include "fmt.h"
+#include "fmt.hpp"
 
 #include <spdlog/spdlog.h>
 
 #include <httplib.h>
 #include <magic_enum/magic_enum.hpp>
 
-#include "dns.h"
-#include "util.h"
-#include "ip_util.h"
-#include "http_client.h"
+#include "dns/dns.h"
+#include "util/retry_util.h"
+#include "network/ip_util.h"
+#include "network/http_client.h"
 #include "driver_manager.h"
-#include "network_manager.h"
+#include "network/network_manager.h"
 #include "driver_interface.h"
 #include "http_type_formatter.hpp"
 

@@ -7,9 +7,9 @@
 #include <cxxopts.hpp>
 #include <spdlog/spdlog.h>
 
-#include "config.h"
-#include "manager.h"
 #include "version.h"
+#include "config/config.h"
+#include "core/manager.h"
 #include "logging_pattern.h"
 
 #include "exception/base_exception.h"

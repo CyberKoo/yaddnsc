@@ -2,8 +2,8 @@
 // Created by Kotarou on 2026/6/18.
 //
 
-#ifndef YADDNSC_UPDATER_H
-#define YADDNSC_UPDATER_H
+#ifndef YADDNSC_CORE_UPDATER_H
+#define YADDNSC_CORE_UPDATER_H
 
 #include <memory>
 #include <optional>
@@ -47,4 +47,4 @@ private:
     std::unique_ptr<Impl> impl_;
 };
 
-#endif // YADDNSC_UPDATER_H
+#endif // YADDNSC_CORE_UPDATER_H

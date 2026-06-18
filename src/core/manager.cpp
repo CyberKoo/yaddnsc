@@ -14,17 +14,18 @@
 
 #include <unistd.h>
 
-#include "fmt.h"
+#include "fmt.hpp"
 #include <spdlog/spdlog.h>
 #include <BS_thread_pool.hpp>
 #include <config_cmake.h>
 
 #include "updater.h"
 #include "update_task.h"
-#include "config_validator.h"
-#include "network_manager.h"
+#include "config/config_validator.hpp"
+#include "min_update_interval.h"
+#include "network/network_manager.h"
 #include "driver_manager.h"
-#include "util.h"
+#include "util/algorithm.h"
 
 // ---------------------------------------------------------------------------
 // Manager::Impl — owns the shared thread pool, the scheduling data structures,
@@ -73,7 +74,7 @@ public:
     // --- config validation (delegated) ----------------------------------
 
     void validate_config() const {
-        const ConfigValidator<60> validator(driver_manager_, network_manager_);
+        const ConfigValidator<YADDNSC_MIN_UPDATE_INTERVAL> validator(driver_manager_, network_manager_);
         validator.validate(config_);
     }
 

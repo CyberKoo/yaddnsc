@@ -3,8 +3,8 @@
 // Created by Kotarou on 2022/4/5.
 //
 
-#ifndef YADDNSC_IP_UTILS_H
-#define YADDNSC_IP_UTILS_H
+#ifndef YADDNSC_NETWORK_IP_UTILS_H
+#define YADDNSC_NETWORK_IP_UTILS_H
 
 #include <map>
 #include <string>
@@ -32,4 +32,4 @@ namespace IPUtil {
     bool is_ipv6_ula(const std::string &);
 };
 
-#endif //YADDNSC_IP_UTILS_H
+#endif //YADDNSC_NETWORK_IP_UTILS_H

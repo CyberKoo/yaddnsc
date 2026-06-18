@@ -93,6 +93,8 @@ make -j$(nproc)
 | 选项                 | 默认值     | 说明                       |
 |--------------------|---------|--------------------------|
 | `CMAKE_BUILD_TYPE` | Release | 设为 `Debug` 可生成调试版本       |
+| `YADDNSC_LOGGING_PATTERN` | `[%D %T.%e] [%^%8l%$] [%8!t] [%15!s:%-4#] %v` | 传递给 spdlog::set_pattern() 的日志格式 |
+| `YADDNSC_MIN_UPDATE_INTERVAL` | 60 | 最小允许的更新间隔（秒），不能为负数 |
 
 第三方依赖（glaze、spdlog、cpp-httplib、cxxopts、BS::thread_pool、fmt、magic_enum）通过 CPM.cmake 自动下载。
 

@@ -2,8 +2,8 @@
 // Created by Kotarou on 2026/6/17.
 //
 
-#ifndef YADDNSC_DNS_RESOLVER_H
-#define YADDNSC_DNS_RESOLVER_H
+#ifndef YADDNSC_DNS_DNS_RESOLVER_H
+#define YADDNSC_DNS_DNS_RESOLVER_H
 
 #include <vector>
 #include <memory>
@@ -31,4 +31,4 @@ private:
     std::unique_ptr<Impl> impl_;
 };
 
-#endif //YADDNSC_DNS_RESOLVER_H
+#endif //YADDNSC_DNS_DNS_RESOLVER_H

@@ -14,7 +14,7 @@
 #include <functional>
 #include <mutex>
 
-#include "fmt.h"
+#include "fmt.hpp"
 
 #include <netdb.h>
 #include <ifaddrs.h>

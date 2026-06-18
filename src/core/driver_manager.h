@@ -2,14 +2,14 @@
 // Created by Kotarou on 2022/4/5.
 //
 
-#ifndef YADDNSC_DRIVER_MANAGER_H
-#define YADDNSC_DRIVER_MANAGER_H
+#ifndef YADDNSC_CORE_DRIVER_MANAGER_H
+#define YADDNSC_CORE_DRIVER_MANAGER_H
 
 #include <memory>
 #include <vector>
 #include <string_view>
 
-#include "base_classes.h"
+#include "core/base_classes.h"
 
 class IDriver;
 
@@ -31,4 +31,4 @@ private:
     std::unique_ptr<Impl> impl_;
 };
 
-#endif //YADDNSC_DRIVER_MANAGER_H
+#endif //YADDNSC_CORE_DRIVER_MANAGER_H

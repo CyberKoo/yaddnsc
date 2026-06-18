@@ -2,8 +2,8 @@
 // Created by kotarou on 2026/6/17.
 //
 
-#ifndef YADDNSC_CONFIG_PARSER_H
-#define YADDNSC_CONFIG_PARSER_H
+#ifndef YADDNSC_CONFIG_CONFIG_PARSER_HPP
+#define YADDNSC_CONFIG_CONFIG_PARSER_HPP
 
 #include <glaze/glaze.hpp>
 
@@ -97,4 +97,4 @@ struct glz::meta<address_family> {
     );
 };
 
-#endif //YADDNSC_CONFIG_PARSER_H
+#endif //YADDNSC_CONFIG_CONFIG_PARSER_HPP

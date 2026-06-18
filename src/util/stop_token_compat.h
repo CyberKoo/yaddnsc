@@ -2,8 +2,8 @@
 // Created by Kotarou on 2022/4/7.
 //
 
-#ifndef YADDNSC_STOP_TOKEN_COMPAT_H
-#define YADDNSC_STOP_TOKEN_COMPAT_H
+#ifndef YADDNSC_UTIL_STOP_TOKEN_COMPAT_H
+#define YADDNSC_UTIL_STOP_TOKEN_COMPAT_H
 
 // Drop-in compatibility header for std::stop_token, std::stop_source,
 // std::stop_callback, and std::jthread.  Uses the native standard-library
@@ -246,4 +246,4 @@ namespace std {
 
 #endif // defined(__cpp_lib_jthread) && __cpp_lib_jthread >= 201911L
 
-#endif //YADDNSC_STOP_TOKEN_COMPAT_H
+#endif //YADDNSC_UTIL_STOP_TOKEN_COMPAT_H

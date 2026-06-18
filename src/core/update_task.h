@@ -2,13 +2,13 @@
 // Created by Kotarou on 2026/6/18.
 //
 
-#ifndef YADDNSC_UPDATE_TASK_H
-#define YADDNSC_UPDATE_TASK_H
+#ifndef YADDNSC_CORE_UPDATE_TASK_H
+#define YADDNSC_CORE_UPDATE_TASK_H
 
 #include <chrono>
 #include <string>
 
-#include "config.h"
+#include "config/config.h"
 
 // ---------------------------------------------------------------------------
 // UpdateTask — a self-contained value type describing one DNS record update
@@ -45,4 +45,4 @@ struct DomainState {
     std::chrono::steady_clock::time_point last_force_update;
 };
 
-#endif // YADDNSC_UPDATE_TASK_H
+#endif // YADDNSC_CORE_UPDATE_TASK_H

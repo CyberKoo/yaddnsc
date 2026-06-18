@@ -8,7 +8,7 @@
 #include <charconv>
 #include <string_view>
 
-#include "fmt.h"
+#include "fmt.hpp"
 
 Uri Uri::parse(std::string_view uri) {
     Uri result;

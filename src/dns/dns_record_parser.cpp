@@ -5,7 +5,7 @@
 
 #include <cstring>
 
-#include "fmt.h"
+#include "fmt.hpp"
 
 #include <arpa/nameser.h>
 #include <netinet/in.h>

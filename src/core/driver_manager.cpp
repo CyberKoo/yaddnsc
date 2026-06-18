@@ -7,7 +7,7 @@
 #include <algorithm>
 #include <filesystem>
 
-#include "fmt.h"
+#include "fmt.hpp"
 #include <spdlog/spdlog.h>
 
 // POSIX function

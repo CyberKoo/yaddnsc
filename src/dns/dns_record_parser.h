@@ -2,8 +2,8 @@
 // Created by Kotarou on 2026/6/17.
 //
 
-#ifndef YADDNSC_DNS_RECORD_PARSER_H
-#define YADDNSC_DNS_RECORD_PARSER_H
+#ifndef YADDNSC_DNS_DNS_RECORD_PARSER_H
+#define YADDNSC_DNS_DNS_RECORD_PARSER_H
 
 #include <string>
 #include <string_view>
@@ -35,4 +35,4 @@ private:
     mutable ns_msg message_{};
 };
 
-#endif //YADDNSC_DNS_RECORD_PARSER_H
+#endif //YADDNSC_DNS_DNS_RECORD_PARSER_H

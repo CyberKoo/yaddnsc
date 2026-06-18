@@ -8,7 +8,7 @@
 
 #include <sys/socket.h>
 
-#include "fmt.h"
+#include "fmt.hpp"
 
 #include <httplib.h>
 #include <spdlog/spdlog.h>
@@ -75,7 +75,7 @@ httplib::Client HttpClient::detail::connect(const Uri &uri, address_family famil
     client.set_connection_timeout(std::chrono::seconds(5));
     client.set_read_timeout(std::chrono::seconds(5));
     client.set_follow_location(true);
-    client.set_default_headers({{"User-Agent", yaddnsc::get_full_version()}});
+    client.set_default_headers({{"User-Agent", yaddnsc::get_full_version().data()}});
 
     return client;
 }

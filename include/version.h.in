@@ -5,24 +5,26 @@
 #ifndef YADDNSC_VERSION_H
 #define YADDNSC_VERSION_H
 
+#include <string_view>
+
 namespace yaddnsc {
-constexpr char YADDNSC_VERSION_MAJOR[] = "@YADDNSC_VERSION_MAJOR@";
+constexpr std::string_view YADDNSC_VERSION_MAJOR = "@YADDNSC_VERSION_MAJOR@";
 
-constexpr char YADDNSC_VERSION_MINOR[] = "@YADDNSC_VERSION_MINOR@";
+constexpr std::string_view YADDNSC_VERSION_MINOR = "@YADDNSC_VERSION_MINOR@";
 
-constexpr char YADDNSC_VERSION_PATCH[] = "@YADDNSC_VERSION_PATCH@";
+constexpr std::string_view YADDNSC_VERSION_PATCH = "@YADDNSC_VERSION_PATCH@";
 
-constexpr char YADDNSC_RELEASE_INFO[] = "@YADDNSC_RELEASE_INFO@";
+constexpr std::string_view YADDNSC_RELEASE_INFO = "@YADDNSC_RELEASE_INFO@";
 
-constexpr const char *get_full_version() {
+constexpr std::string_view get_full_version() {
     return "yaddnsc/@YADDNSC_VERSION_MAJOR@.@YADDNSC_VERSION_MINOR@.@YADDNSC_VERSION_PATCH@-@YADDNSC_RELEASE_INFO@";
 }
 
-constexpr const char *get_short_version() {
+constexpr std::string_view get_short_version() {
     return "@YADDNSC_VERSION_MAJOR@.@YADDNSC_VERSION_MINOR@.@YADDNSC_VERSION_PATCH@-@YADDNSC_RELEASE_INFO@";
 }
 
-constexpr const char *get_version() {
+constexpr std::string_view get_version() {
     return "@YADDNSC_VERSION_MAJOR@.@YADDNSC_VERSION_MINOR@.@YADDNSC_VERSION_PATCH@";
 }
 }

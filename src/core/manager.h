@@ -2,13 +2,13 @@
 // Created by Kotarou on 2022/4/7.
 //
 
-#ifndef YADDNSC_MANAGER_H
-#define YADDNSC_MANAGER_H
+#ifndef YADDNSC_CORE_MANAGER_H
+#define YADDNSC_CORE_MANAGER_H
 
 #include <memory>
-#include "stop_token_compat.h"
+#include "util/stop_token_compat.h"
 
-#include "config.h"
+#include "config/config.h"
 
 class Manager {
 public:
@@ -37,4 +37,4 @@ private:
     std::unique_ptr<Impl> impl_;
 };
 
-#endif //YADDNSC_MANAGER_H
+#endif //YADDNSC_CORE_MANAGER_H

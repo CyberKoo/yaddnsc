@@ -1,9 +1,10 @@
 #include "config.h"
+#include "config_parser.hpp"
 
 #include <filesystem>
+#include <glaze/glaze.hpp>
 
-#include "config_parser.h"
-#include "fmt.h"
+#include "fmt.hpp"
 
 Config::config Config::load_config(const std::string &config_path) {
     if (!std::filesystem::exists(config_path)) {
@@ -11,8 +12,9 @@ Config::config Config::load_config(const std::string &config_path) {
     }
 
     config cfg{};
-    if (const auto ec = glz::read_file_json(cfg, config_path, std::string{})) {
-        throw std::runtime_error(fmt::format("Failed to parse config file, error: {}", glz::format_error(ec)));
+    std::string buffer;
+    if (const auto ec = glz::read_file_json(cfg, config_path, buffer)) {
+        throw std::runtime_error(fmt::format("Failed to parse config file, error: {}", glz::format_error(ec, buffer)));
     }
 
     return cfg;

@@ -20,8 +20,8 @@
 #endif
 
 #include "dns.h"
-#include "fmt.h"
-#include "ip_util.h"
+#include "fmt.hpp"
+#include "network/ip_util.h"
 #include "exception/dns_lookup_exception.h"
 
 // only for musl
