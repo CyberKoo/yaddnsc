@@ -22,7 +22,6 @@
 #include "updater.h"
 #include "update_task.h"
 #include "config_validator.h"
-#include "ip_util.h"
 #include "network_manager.h"
 #include "driver_manager.h"
 #include "util.h"
@@ -120,20 +119,7 @@ public:
         const auto interfaces = network_manager_.get_interfaces();
         SPDLOG_INFO("All available interfaces: {}", fmt::join(interfaces, ", "));
 
-        // Log custom resolver info.
-        if (config_.resolver.use_custom_server) {
-#ifdef HAVE_RES_NQUERY
-            const auto &ip_addr = config_.resolver.ip_address;
-            if (IPUtil::is_ipv4_address(ip_addr)) {
-                SPDLOG_INFO(R"(Use custom resolver "{}:{}")", ip_addr, config_.resolver.port);
-            } else if (ip_addr.front() != '[' && ip_addr.back() != ']') {
-                SPDLOG_INFO(R"(Use custom resolver "[{}]:{}")", ip_addr, config_.resolver.port);
-            }
-#else
-            SPDLOG_WARN("Custom resolver defined, but res_nquery() is not supported "
-                "on this platform; the option will be ignored");
-#endif
-        }
+        // Log custom resolver info is handled by DnsResolver internally.
 
         // Build the initial schedule (one SubdomainEntry per subdomain).
         build_initial_schedule();

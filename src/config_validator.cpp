@@ -66,6 +66,23 @@ namespace {
             );
         }
     }
+
+    void validate_resolver_address(const std::string &address) {
+#if defined(HAVE_RES_NQUERY)
+#if defined(HAVE_IPV6_RESOLVE_SUPPORT)
+        if (!IPUtil::is_ipv4_address(address) && !IPUtil::is_ipv6_address(address)) {
+            throw ConfigVerificationException(
+                fmt::format("Invalid resolver address {}", address)
+            );
+        }
+#else
+        if (!IPUtil::is_ipv4_address(address)) {
+            throw ConfigVerificationException(
+                fmt::format(R"(Invalid resolver address "{}". Only IPv4 is supported on this platform.)", address));
+        }
+#endif
+#endif
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -147,21 +164,9 @@ void ConfigValidator<MinUpdateInterval>::validate(const Config::config &cfg) con
     }
 
     // --- Validate custom resolver address. ----------------------------------
-#ifdef HAVE_RES_NQUERY
+#if defined(HAVE_RES_NQUERY)
     if (cfg.resolver.use_custom_server) {
-        const auto &address = cfg.resolver.ip_address;
-#ifdef HAVE_IPV6_RESOLVE_SUPPORT
-        if (!IPUtil::is_ipv4_address(address) && !IPUtil::is_ipv6_address(address)) {
-            throw ConfigVerificationException(
-                fmt::format("Invalid resolver address {}", address)
-            );
-        }
-#else
-        if (!IPUtil::is_ipv4_address(address)) {
-            throw ConfigVerificationException(
-                fmt::format(R"(Invalid resolver address "{}". Only IPv4 is supported on this platform.)", address));
-        }
-#endif
+        validate_resolver_address(cfg.resolver.ip_address);
     }
 #endif
 }

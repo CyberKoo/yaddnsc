@@ -25,11 +25,11 @@
 class NetworkManager::Impl {
 public:
     std::vector<std::string> get_interfaces() {
-        auto if_addrs = get_all_ip_addresses();
+        auto interface_map = get_all_interface_addresses();
         std::vector<std::string> interfaces;
-        interfaces.reserve(if_addrs.size());
+        interfaces.reserve(interface_map.size());
         std::ranges::transform(
-            if_addrs,
+            interface_map,
             std::back_inserter(interfaces),
             [](const auto &kv) { return kv.first; }
         );
@@ -37,31 +37,31 @@ public:
         return interfaces;
     }
 
-    std::map<std::string, int> get_interface_ip_addresses(const std::string &nif) {
-        auto all_nif_addrs = get_all_ip_addresses();
-        if (auto it = all_nif_addrs.find(nif); it != all_nif_addrs.end()) {
-            std::map<std::string, int> nif_ip_addrs;
+    std::map<std::string, int> get_interface_ip_addresses(const std::string &interface_name) {
+        auto all_interface_addresses = get_all_interface_addresses();
+        if (auto it = all_interface_addresses.find(interface_name); it != all_interface_addresses.end()) {
+            std::map<std::string, int> interface_addrs;
             std::ranges::transform(
-                it->second, std::inserter(nif_ip_addrs, nif_ip_addrs.end()),
+                it->second, std::inserter(interface_addrs, interface_addrs.end()),
                 [](const auto &addr) -> std::pair<std::string, int> {
                     return {addr.address, addr.inet_type};
                 }
             );
-            return nif_ip_addrs;
+            return interface_addrs;
         }
 
-        throw std::runtime_error(fmt::format("Interface {} not found", nif));
+        throw std::runtime_error(fmt::format("Interface {} not found", interface_name));
     }
 
 private:
-    struct interface_addrs {
+    struct interface_address {
         std::string address;
         int inet_type;
     };
 
-    using ifaddrs_ptr_t = std::unique_ptr<ifaddrs, std::function<void(ifaddrs *)> >;
+    using ifaddr_ptr = std::unique_ptr<ifaddrs, std::function<void(ifaddrs *)> >;
 
-    static ifaddrs_ptr_t get_ifaddrs() {
+    static ifaddr_ptr get_ifaddrs() {
         ifaddrs *ifaddr;
 
         if (getifaddrs(&ifaddr) == -1) {
@@ -75,16 +75,16 @@ private:
         return family == AF_INET6 ? sizeof(sockaddr_in6) : sizeof(sockaddr_in);
     }
 
-    std::map<std::string, std::vector<interface_addrs> > get_all_ip_addresses() {
-        auto now = std::chrono::steady_clock::now();
+    std::map<std::string, std::vector<interface_address> > get_all_interface_addresses() {
+        auto current_time = std::chrono::steady_clock::now();
         {
             std::lock_guard lock(cache_mutex_);
-            if (!cached_addresses_.empty() && (now - cache_timestamp_) < CACHE_TTL) {
+            if (!cached_addresses_.empty() && (current_time - cache_timestamp_) < CACHE_TTL) {
                 return cached_addresses_;
             }
         }
 
-        std::map<std::string, std::vector<interface_addrs> > address_map;
+        std::map<std::string, std::vector<interface_address> > interface_address_map;
         auto ifaddrs = get_ifaddrs();
 
         for (auto ifa = ifaddrs.get(); ifa != nullptr; ifa = ifa->ifa_next) {
@@ -108,21 +108,21 @@ private:
                 throw std::runtime_error(err_msg);
             }
 
-            address_map[ifa->ifa_name].emplace_back(interface_addrs{host, family});
+            interface_address_map[ifa->ifa_name].emplace_back(interface_address{host, family});
         }
 
         {
             std::lock_guard lock(cache_mutex_);
-            cached_addresses_ = address_map;
-            cache_timestamp_ = now;
+            cached_addresses_ = interface_address_map;
+            cache_timestamp_ = current_time;
         }
-        return address_map;
+        return interface_address_map;
     }
 
     static constexpr auto CACHE_TTL = std::chrono::seconds(5);
 
     std::mutex cache_mutex_;
-    std::map<std::string, std::vector<interface_addrs> > cached_addresses_;
+    std::map<std::string, std::vector<interface_address> > cached_addresses_;
     std::chrono::steady_clock::time_point cache_timestamp_;
 };
 
@@ -135,6 +135,6 @@ std::vector<std::string> NetworkManager::get_interfaces() const {
     return impl_->get_interfaces();
 }
 
-std::map<std::string, int> NetworkManager::get_interface_ip_addresses(const std::string &nif) const {
-    return impl_->get_interface_ip_addresses(nif);
+std::map<std::string, int> NetworkManager::get_interface_ip_addresses(const std::string &interface_name) const {
+    return impl_->get_interface_ip_addresses(interface_name);
 }

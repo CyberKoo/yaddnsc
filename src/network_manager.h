@@ -20,7 +20,7 @@ public:
 
     [[nodiscard]] std::vector<std::string> get_interfaces() const;
 
-    [[nodiscard]] std::map<std::string, int> get_interface_ip_addresses(const std::string &nif) const;
+    [[nodiscard]] std::map<std::string, int> get_interface_ip_addresses(const std::string &interface_name) const;
 
 private:
     class Impl;
