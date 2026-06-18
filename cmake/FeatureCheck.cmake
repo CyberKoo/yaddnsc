@@ -29,9 +29,17 @@ check_cxx_source_compiles(
 # --- libc detection (musl vs glibc) -------------------------------------------
 # LTO is incompatible with musl, so we need to know which libc is in use.
 
-check_cxx_source_compiles("
-    #ifndef __MUSL__
-    #error not musl
-    #endif
-    int main() { return 0; }
-" LIBC_MUSL)
+message(STATUS "Looking for musl")
+execute_process(
+    COMMAND sh -c "ldd --version 2>&1"
+    OUTPUT_VARIABLE LDD_OUTPUT
+    ERROR_QUIET
+)
+
+if(LDD_OUTPUT MATCHES "musl")
+  set(LIBC_MUSL 1)
+  message(STATUS "Looking for musl - found")
+else()
+  set(LIBC_MUSL 0)
+  message(STATUS "Looking for musl - not found")
+endif()

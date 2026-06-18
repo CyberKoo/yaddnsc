@@ -117,7 +117,8 @@ public:
     }
 
 private:
-    void configure_server(const dns_server &server) {
+    void configure_server([[maybe_unused]] const dns_server &server) {
+#ifdef HAVE_RES_NQUERY
         if (IPUtil::is_ipv4_address(server.ip_address)) {
             state_.nscount = 1;
             state_.nsaddr_list[0].sin_family = AF_INET;
@@ -158,6 +159,7 @@ private:
             res_setservers(&state_, &sau, 1);
 #endif
         }
+#endif
     }
 
     static dns_error get_dns_lookup_err(int error) {
