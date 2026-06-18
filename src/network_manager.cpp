@@ -9,6 +9,7 @@
 #include <memory>
 #include <algorithm>
 #include <chrono>
+#include <cstring>
 #include <stdexcept>
 #include <functional>
 
@@ -26,8 +27,12 @@ public:
         auto if_addrs = get_all_ip_addresses();
         std::vector<std::string> interfaces;
         interfaces.reserve(if_addrs.size());
-        std::ranges::transform(if_addrs, std::back_inserter(interfaces),
-                       [](const auto &kv) { return kv.first; });
+        std::ranges::transform(
+            if_addrs,
+            std::back_inserter(interfaces),
+            [](const auto &kv) { return kv.first; }
+        );
+
         return interfaces;
     }
 
@@ -35,10 +40,12 @@ public:
         auto all_nif_addrs = get_all_ip_addresses();
         if (auto it = all_nif_addrs.find(nif); it != all_nif_addrs.end()) {
             std::map<std::string, int> nif_ip_addrs;
-            std::ranges::transform(it->second, std::inserter(nif_ip_addrs, nif_ip_addrs.end()),
-                           [](const auto &addr) -> std::pair<std::string, int> {
-                               return {addr.address, addr.inet_type};
-                           });
+            std::ranges::transform(
+                it->second, std::inserter(nif_ip_addrs, nif_ip_addrs.end()),
+                [](const auto &addr) -> std::pair<std::string, int> {
+                    return {addr.address, addr.inet_type};
+                }
+            );
             return nif_ip_addrs;
         }
 
@@ -63,17 +70,17 @@ private:
         return {ifaddr, [](ifaddrs *a) { freeifaddrs(a); }};
     }
 
-    static size_t get_address_struct_size(int family) {
+    constexpr static size_t get_address_struct_size(int family) {
         return family == AF_INET6 ? sizeof(sockaddr_in6) : sizeof(sockaddr_in);
     }
 
-    std::map<std::string, std::vector<interface_addrs>> get_all_ip_addresses() {
+    std::map<std::string, std::vector<interface_addrs> > get_all_ip_addresses() {
         auto now = std::chrono::steady_clock::now();
         if (!cached_addresses_.empty() && (now - cache_timestamp_) < CACHE_TTL) {
             return cached_addresses_;
         }
 
-        std::map<std::string, std::vector<interface_addrs>> address_map;
+        std::map<std::string, std::vector<interface_addrs> > address_map;
         auto ifaddrs = get_ifaddrs();
 
         for (auto ifa = ifaddrs.get(); ifa != nullptr; ifa = ifa->ifa_next) {
@@ -87,9 +94,14 @@ private:
             }
 
             char host[NI_MAXHOST] = {};
-            if (getnameinfo(ifa->ifa_addr, get_address_struct_size(family), host,
-                            NI_MAXHOST, nullptr, 0, NI_NUMERICHOST) != 0) {
-                throw std::runtime_error(fmt::format("getnameinfo() failed, error: {}", gai_strerror(errno)));
+            int ret = getnameinfo(ifa->ifa_addr, get_address_struct_size(family), host, NI_MAXHOST, nullptr, 0,
+                                  NI_NUMERICHOST);
+            if (ret != 0) {
+                auto err_msg = fmt::format("getnameinfo() failed, error: {}", gai_strerror(ret));
+                if (ret == EAI_SYSTEM) {
+                    err_msg += fmt::format(" (errno: {})", strerror(errno));
+                }
+                throw std::runtime_error(err_msg);
             }
 
             address_map[ifa->ifa_name].emplace_back(interface_addrs{host, family});
@@ -102,11 +114,12 @@ private:
 
     static constexpr auto CACHE_TTL = std::chrono::seconds(5);
 
-    std::map<std::string, std::vector<interface_addrs>> cached_addresses_;
+    std::map<std::string, std::vector<interface_addrs> > cached_addresses_;
     std::chrono::steady_clock::time_point cache_timestamp_;
 };
 
-NetworkManager::NetworkManager() : impl_(std::make_unique<Impl>()) {}
+NetworkManager::NetworkManager() : impl_(std::make_unique<Impl>()) {
+}
 
 NetworkManager::~NetworkManager() = default;
 
@@ -117,4 +130,3 @@ std::vector<std::string> NetworkManager::get_interfaces() const {
 std::map<std::string, int> NetworkManager::get_interface_ip_addresses(const std::string &nif) const {
     return impl_->get_interface_ip_addresses(nif);
 }
-

@@ -19,7 +19,7 @@ driver_request SimpleDriver::generate_request(const driver_config_type &config) 
     for (const auto &[key, val]: config) {
         if (key == "url") continue;
 
-        const auto placeholder = "{" + key + "}";
+        const auto placeholder = fmt::format("{{{}}}", key);
         for (auto pos = url.find(placeholder); pos != std::string::npos;
              pos = url.find(placeholder, pos + val.size())) {
             url.replace(pos, placeholder.size(), val);

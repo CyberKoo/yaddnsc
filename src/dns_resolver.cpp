@@ -13,6 +13,7 @@
 #include <netdb.h>
 
 #include <cstring>
+#include <mutex>
 #include <config_cmake.h>
 
 #include "dns.h"
@@ -78,12 +79,12 @@ public:
 
     Impl &operator=(Impl &&) = delete;
 
-    std::vector<unsigned char> query(const std::string &host_str, dns_type type) {
+    std::vector<uint8_t> query(const std::string &host_str, dns_type type) {
         SPDLOG_DEBUG(R"(DNS lookup for domain "{}")", host_str);
 
         int buffer_size = MAXIMUM_UDP_SIZE;
         int received_size = 0;
-        std::vector<unsigned char> buffer;
+        std::vector<uint8_t> buffer;
 
         do {
             buffer_size = received_size + buffer_size;
@@ -93,14 +94,20 @@ public:
             received_size = res_nquery(&state_, host_str.c_str(), ns_c_in, to_ns_type(type),
                                        buffer.data(), buffer_size);
 #else
-            received_size = res_query(host_str.c_str(), ns_c_in, to_ns_type(type),
-                                      buffer.data(), buffer_size);
+            {
+                static std::mutex res_mutex;
+                std::lock_guard lock(res_mutex);
+                received_size = res_query(host_str.c_str(), ns_c_in, to_ns_type(type),
+                                          buffer.data(), buffer_size);
+            }
 #endif
             if (received_size < 0) {
                 auto error_type = get_dns_lookup_err(h_errno);
                 throw DnsLookupException(
-                    fmt::format(R"(DNS lookup failed for domain "{}", error: {})", host_str, DNS::error_to_str(error_type)),
-                    error_type);
+                    fmt::format(
+                        R"(DNS lookup failed for domain "{}", error: {})",
+                        host_str, DNS::error_to_str(error_type)), error_type
+                );
             }
             SPDLOG_DEBUG("Response payload size: {}, buffer size: {}", received_size, buffer_size);
         } while (received_size >= buffer_size);
@@ -175,12 +182,11 @@ private:
 DnsResolver::DnsResolver() : DnsResolver(std::nullopt) {
 }
 
-DnsResolver::DnsResolver(std::optional<dns_server> server)
-    : impl_(std::make_unique<Impl>(std::move(server))) {
+DnsResolver::DnsResolver(std::optional<dns_server> server) : impl_(std::make_unique<Impl>(std::move(server))) {
 }
 
 DnsResolver::~DnsResolver() = default;
 
-std::vector<unsigned char> DnsResolver::query(const std::string &host, dns_type type) const {
+std::vector<uint8_t> DnsResolver::query(const std::string &host, dns_type type) const {
     return impl_->query(host, type);
 }

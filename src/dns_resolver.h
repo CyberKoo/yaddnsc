@@ -7,6 +7,7 @@
 
 #include <vector>
 #include <memory>
+#include <cstdint>
 #include <optional>
 
 #include "type.h"
@@ -23,7 +24,7 @@ public:
     DnsResolver(DnsResolver &&) = delete;
     DnsResolver &operator=(DnsResolver &&) = delete;
 
-    [[nodiscard]] std::vector<unsigned char> query(const std::string &host, dns_type type) const;
+    [[nodiscard]] std::vector<uint8_t> query(const std::string &host, dns_type type) const;
 
 private:
     class Impl;

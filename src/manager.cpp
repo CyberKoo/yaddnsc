@@ -8,9 +8,11 @@
 #include <thread>
 #include <utility>
 #include <chrono>
+#include <csignal>
 #include <filesystem>
 #include <condition_variable>
-#include <csignal>
+
+#include <unistd.h>
 
 #include "fmt.h"
 #include <spdlog/spdlog.h>
@@ -31,8 +33,7 @@
 // ---------------------------------------------------------------------------
 class Manager::Impl {
 public:
-    explicit Impl(Config::config config)
-        : config_(std::move(config)) {
+    explicit Impl(Config::config config) : config_(std::move(config)) {
         // Resolve the optional DNS server once.
         if (config_.resolver.use_custom_server) {
             dns_server_ = dns_server{config_.resolver.ip_address, config_.resolver.port};
@@ -102,7 +103,12 @@ public:
             int sig;
             sigwait(&sigset, &sig);
             SPDLOG_INFO("Received exit signal, quitting...");
-            stop_source_.request_stop();
+            if (!stop_source_.request_stop()) {
+                SPDLOG_WARN(
+                    "Stop request failed, current stop_possible: {}, stop_requested: {}",
+                    stop_source_.stop_possible(), stop_source_.stop_requested()
+                );
+            }
         });
     }
 
@@ -178,8 +184,7 @@ public:
         }
 
         // Gracefully drain all in-flight pool tasks before the Manager is torn down.
-        SPDLOG_INFO("Stop requested, waiting for {} pending task(s) to complete...",
-                    pool_.get_tasks_queued());
+        SPDLOG_INFO("Stop requested, waiting for {} pending task(s) to complete...", pool_.get_tasks_queued());
         pool_.wait();
         SPDLOG_INFO("All tasks completed.");
     }

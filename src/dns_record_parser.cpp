@@ -14,7 +14,7 @@
 
 #include "exception/dns_lookup_exception.h"
 
-DnsRecordParser::DnsRecordParser(data_type *data, const size_t size) {
+DnsRecordParser::DnsRecordParser(const data_type *data, const size_t size) {
     if (ns_initparse(data, static_cast<int>(size), &message_) != 0) {
         throw DnsLookupException("Failed to parse DNS response message", dns_error::PARSE);
     }
@@ -61,19 +61,19 @@ std::string DnsRecordParser::parse_record(size_t index) const {
     }
 }
 
-std::string DnsRecordParser::parse_a_record(data_type *rdata) {
+std::string DnsRecordParser::parse_a_record(const data_type *rdata) {
     char address_buffer[INET_ADDRSTRLEN] = {};
     inet_ntop(AF_INET, rdata, address_buffer, INET_ADDRSTRLEN);
     return address_buffer;
 }
 
-std::string DnsRecordParser::parse_aaaa_record(data_type *rdata) {
+std::string DnsRecordParser::parse_aaaa_record(const data_type *rdata) {
     char address_buffer[INET6_ADDRSTRLEN] = {};
     inet_ntop(AF_INET6, rdata, address_buffer, INET6_ADDRSTRLEN);
     return address_buffer;
 }
 
-std::string DnsRecordParser::parse_txt_record(data_type *rdata, int rdlen) {
+std::string DnsRecordParser::parse_txt_record(const data_type *rdata, int rdlen) {
     // <character-string>: length (1 octet), string
     if (rdlen < 1) {
         throw DnsLookupException("Invalid TXT record (no data)");
@@ -88,7 +88,8 @@ std::string DnsRecordParser::parse_txt_record(data_type *rdata, int rdlen) {
     return {reinterpret_cast<const char *>(rdata + 1), length};
 }
 
-std::string DnsRecordParser::parse_domain_name_record(data_type *msg_base, data_type *msg_end, data_type *rdata) {
+std::string DnsRecordParser::parse_domain_name_record(const data_type *msg_base, const data_type *msg_end,
+                                                      const data_type *rdata) {
     // <domain-name> (compressed)
     char nsname[NS_MAXDNAME];
     if (ns_name_uncompress(msg_base, msg_end, rdata, nsname, NS_MAXDNAME) < 0) {
@@ -98,7 +99,8 @@ std::string DnsRecordParser::parse_domain_name_record(data_type *msg_base, data_
     return nsname;
 }
 
-std::string DnsRecordParser::parse_mx_record(data_type *msg_base, data_type *msg_end, data_type *rdata) {
+std::string DnsRecordParser::parse_mx_record(const data_type *msg_base, const data_type *msg_end,
+                                             const data_type *rdata) {
     // MX: preference (2 octets), <domain-name> (compressed)
     char nsname[NS_MAXDNAME];
     if (ns_name_uncompress(msg_base, msg_end, rdata + 2, nsname, NS_MAXDNAME) < 0) {

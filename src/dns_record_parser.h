@@ -12,9 +12,9 @@
 
 class DnsRecordParser {
 public:
-    using data_type = const unsigned char;
+    using data_type = uint8_t;
 
-    explicit DnsRecordParser(data_type *data, size_t size);
+    explicit DnsRecordParser(const data_type *data, size_t size);
 
     [[nodiscard]] size_t record_count() const noexcept;
 
@@ -22,15 +22,15 @@ public:
 
 private:
 
-    static std::string parse_a_record(data_type *rdata);
+    static std::string parse_a_record(const data_type *);
 
-    static std::string parse_aaaa_record(data_type *rdata);
+    static std::string parse_aaaa_record(const data_type *);
 
-    static std::string parse_txt_record(data_type *rdata, int rdlen);
+    static std::string parse_txt_record(const data_type *, int );
 
-    static std::string parse_domain_name_record(data_type *msg_base, data_type *msg_end, data_type *rdata);
+    static std::string parse_domain_name_record(const data_type *, const data_type *, const data_type *);
 
-    static std::string parse_mx_record(data_type *msg_base, data_type *msg_end, data_type *rdata);
+    static std::string parse_mx_record(const data_type *, const data_type *, const data_type *);
 
     mutable ns_msg message_{};
 };
