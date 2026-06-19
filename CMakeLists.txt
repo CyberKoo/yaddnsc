@@ -160,7 +160,6 @@ include_directories(${CMAKE_BINARY_DIR}/generated/)
 # ==============================================================================
 set(URI src/util/uri.cpp)
 set(Config src/config/config.cpp)
-
 set(Updater src/core/updater.cpp)
 set(IPUtil src/network/ip_util.cpp src/network/ip_util_http.cpp)
 set(Manager src/core/manager.cpp)
