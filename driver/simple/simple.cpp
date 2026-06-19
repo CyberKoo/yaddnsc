@@ -19,10 +19,9 @@ driver_request SimpleDriver::generate_request(const driver_config_type &config) 
     for (const auto &[key, val]: config) {
         if (key == "url") continue;
 
-        const auto placeholder = fmt::format("{{{}}}", key);
-        for (auto pos = url.find(placeholder); pos != std::string::npos;
-             pos = url.find(placeholder, pos + val.size())) {
-            url.replace(pos, placeholder.size(), val);
+        const auto target = fmt::format("{{{}}}", key);
+        for (auto pos = url.find(target); pos != std::string::npos; pos = url.find(target, pos + val.size())) {
+            url.replace(pos, target.size(), val);
         }
     }
 
@@ -33,6 +32,7 @@ driver_request SimpleDriver::generate_request(const driver_config_type &config) 
 }
 
 bool SimpleDriver::check_response(std::string_view response) const {
+    CORE_LOG_DEBUG("Response: {}", response);
     return !response.empty();
 }
 

@@ -35,7 +35,7 @@ struct DigitalOceanErrorResponse {
     std::string message;
 };
 
-template <>
+template<>
 struct glz::meta<DigitalOceanDomainRecord> {
     using T = DigitalOceanDomainRecord;
     static constexpr auto value = object(
@@ -52,7 +52,7 @@ struct glz::meta<DigitalOceanDomainRecord> {
     );
 };
 
-template <>
+template<>
 struct glz::meta<DigitalOceanDomainResponse> {
     using T = DigitalOceanDomainResponse;
     static constexpr auto value = object(
@@ -60,7 +60,7 @@ struct glz::meta<DigitalOceanDomainResponse> {
     );
 };
 
-template <>
+template<>
 struct glz::meta<DigitalOceanErrorResponse> {
     using T = DigitalOceanErrorResponse;
     static constexpr auto value = object(

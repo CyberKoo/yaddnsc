@@ -39,7 +39,7 @@ struct CloudflareDnsRecord {
     bool proxiable = false;
     std::optional<bool> private_routing;
     std::optional<std::string> comment;
-    std::optional<std::vector<std::string>> tags;
+    std::optional<std::vector<std::string> > tags;
 };
 
 struct CloudflareResponse {
@@ -49,7 +49,7 @@ struct CloudflareResponse {
     std::optional<CloudflareDnsRecord> result;
 };
 
-template <>
+template<>
 struct glz::meta<CloudflareSource> {
     using T = CloudflareSource;
     static constexpr auto value = object(
@@ -57,7 +57,7 @@ struct glz::meta<CloudflareSource> {
     );
 };
 
-template <>
+template<>
 struct glz::meta<CloudflareErrorDetail> {
     using T = CloudflareErrorDetail;
     static constexpr auto value = object(
@@ -68,7 +68,7 @@ struct glz::meta<CloudflareErrorDetail> {
     );
 };
 
-template <>
+template<>
 struct glz::meta<CloudflareMessage> {
     using T = CloudflareMessage;
     static constexpr auto value = object(
@@ -79,7 +79,7 @@ struct glz::meta<CloudflareMessage> {
     );
 };
 
-template <>
+template<>
 struct glz::meta<CloudflareDnsRecord> {
     using T = CloudflareDnsRecord;
     static constexpr auto value = object(
@@ -96,7 +96,7 @@ struct glz::meta<CloudflareDnsRecord> {
     );
 };
 
-template <>
+template<>
 struct glz::meta<CloudflareResponse> {
     using T = CloudflareResponse;
     static constexpr auto value = object(

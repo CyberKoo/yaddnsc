@@ -3,8 +3,8 @@ project(drivers)
 
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/objs/driver)
 include_directories(
-    "${PROJECT_SOURCE_DIR}/../include"
-    "${CMAKE_BINARY_DIR}/generated/"
+        "${PROJECT_SOURCE_DIR}/../include"
+        "${CMAKE_BINARY_DIR}/generated/"
 )
 
 add_custom_target(drivers)
@@ -36,7 +36,7 @@ foreach (DIR_NAME ${DRIVER_DIRS})
 
         # own code warnings + treat warnings as errors
         target_compile_options(${DRIVER_NAME} PRIVATE
-            -Wall -Wextra -Wpedantic -Wshadow -Wnon-virtual-dtor -Werror
+                -Wall -Wextra -Wpedantic -Wshadow -Wnon-virtual-dtor -Werror
         )
 
         add_dependencies(drivers ${DRIVER_NAME})

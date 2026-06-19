@@ -17,8 +17,8 @@ driver_request DigitalOceanDriver::generate_request(const driver_config_type &co
     driver_request request{};
     request.header.insert({"Authorization", fmt::format("Bearer {}", config.at("token"))});
     request.url = fmt::format(API_URL,
-                                fmt::arg("DOMAIN", config.at("domain")),
-                                fmt::arg("RECORD_ID", config.at("record_id")));
+                              fmt::arg("DOMAIN", config.at("domain")),
+                              fmt::arg("RECORD_ID", config.at("record_id")));
     auto do_body = glz::obj{"data", config.at("ip_addr")};
     request.body = glz::write_json(do_body).value_or("{}");
     request.content_type = "application/json";
@@ -33,7 +33,7 @@ bool DigitalOceanDriver::check_response(std::string_view response) const {
     // Try success response: { "domain_record": { ... } }
     if (auto result = glz::read_json<DigitalOceanDomainResponse>(response)) {
         auto &record = result.value().domain_record;
-        CORE_LOG_INFO("DNS record updated successfully: {} {} -> {} (TTL: {})",
+        CORE_LOG_DEBUG("DNS record updated successfully: {} {} -> {} (TTL: {})",
                        record.type, record.name, record.data, record.ttl);
         return true;
     }

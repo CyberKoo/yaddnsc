@@ -31,19 +31,6 @@ namespace detail {
         return fmt::format("{}.{}", subdomain.name, domain.name);
     }
 
-    inline void validate_record_ip_type(const Config::domain_config &domain, const Config::subdomain_config &subdomain) {
-        const auto expected = DNS::dns2ip(subdomain.type);
-        if (expected == address_family::UNSPECIFIED || subdomain.ip_type == address_family::UNSPECIFIED) {
-            return;
-        }
-
-        if (subdomain.ip_type != expected) {
-            throw ConfigVerificationException(
-                fmt::format("Subdomain {} has record type/IP type mismatch", fqdn_for(domain, subdomain))
-            );
-        }
-    }
-
     inline void validate_ip_source(const Config::domain_config &domain, const Config::subdomain_config &subdomain) {
         if (subdomain.ip_source == Config::ip_source_type::URL) {
             if (subdomain.ip_source_param.empty()) {
@@ -76,20 +63,20 @@ namespace detail {
     }
 
     inline void validate_resolver_address(const std::string &address) {
-    #if defined(HAVE_RES_NQUERY)
-    #if defined(HAVE_IPV6_RESOLVE_SUPPORT)
+#if defined(HAVE_RES_NQUERY)
+#if defined(HAVE_IPV6_RESOLVE_SUPPORT)
         if (!IPUtil::is_ipv4_address(address) && !IPUtil::is_ipv6_address(address)) {
             throw ConfigVerificationException(
                 fmt::format("Invalid resolver address {}", address)
             );
         }
-    #else
+#else
         if (!IPUtil::is_ipv4_address(address)) {
             throw ConfigVerificationException(
                 fmt::format(R"(Invalid resolver address "{}". Only IPv4 is supported on this platform.)", address));
         }
-    #endif
-    #endif
+#endif
+#endif
     }
 } // namespace detail
 
@@ -105,8 +92,8 @@ namespace detail {
 // to validate() either returns normally (all checks pass) or throws at the
 // first violated constraint.
 // ---------------------------------------------------------------------------
-template <int MUpdateInterval>
-class ConfigValidator: public RestrictedClass {
+template<int MUpdateInterval>
+class ConfigValidator : public RestrictedClass {
 public:
     ConfigValidator(const DriverManager &driver_manager, const NetworkManager &network_manager)
         : driver_manager_(driver_manager), network_manager_(network_manager) {
@@ -160,7 +147,6 @@ public:
 
                 const Config::domain_config domain{name, update_interval, force_update, driver, subdomains};
                 detail::validate_ip_source(domain, subdomain);
-                detail::validate_record_ip_type(domain, subdomain);
 
                 // --- Validate per-subdomain update_interval if set. --------------
                 if (subdomain.update_interval != 0 && subdomain.update_interval < MUpdateInterval) {
@@ -180,11 +166,11 @@ public:
         }
 
         // --- Validate custom resolver address. ----------------------------------
-    #if defined(HAVE_RES_NQUERY)
+#if defined(HAVE_RES_NQUERY)
         if (cfg.resolver.use_custom_server) {
             detail::validate_resolver_address(cfg.resolver.ip_address);
         }
-    #endif
+#endif
     }
 
 private:

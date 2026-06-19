@@ -53,7 +53,7 @@ bool CloudflareDriver::check_response(std::string_view response) const {
 
     if (resp.result.has_value()) {
         auto &record = resp.result.value();
-        CORE_LOG_INFO("DNS record updated successfully: {} {} -> {} (TTL: {}, proxied: {})",
+        CORE_LOG_DEBUG("DNS record updated successfully: {} {} -> {} (TTL: {}, proxied: {})",
                        record.type, record.name, record.content, record.ttl,
                        record.proxied ? "yes" : "no");
     }

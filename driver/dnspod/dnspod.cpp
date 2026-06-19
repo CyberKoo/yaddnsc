@@ -90,7 +90,7 @@ bool DNSPodDriver::check_response(std::string_view response) const {
     if (status.code == "1") {
         if (resp.record.has_value()) {
             auto &record = resp.record.value();
-            CORE_LOG_INFO("Record updated successfully, id: {}, name: {}, value: {}", record.id, record.name,
+            CORE_LOG_DEBUG("Record updated successfully, id: {}, name: {}, value: {}", record.id, record.name,
                            record.value);
         }
         return true;
