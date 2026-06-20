@@ -8,7 +8,6 @@
 #include <vector>
 #include <memory>
 #include <cstdint>
-#include <optional>
 
 #include "type.h"
 
@@ -16,7 +15,7 @@ class DnsResolver {
 public:
     explicit DnsResolver();
 
-    explicit DnsResolver(std::optional<DnsServer> server);
+    explicit DnsResolver(std::vector<DnsServer> servers);
     ~DnsResolver();
 
     DnsResolver(const DnsResolver &) = delete;

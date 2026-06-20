@@ -5,12 +5,15 @@
 
 #include <string_view>
 
+#include <spdlog/spdlog.h>
+
+#include "fmt.hpp"
 #include "dns_resolver.h"
 #include "dns_record_parser.h"
 
 std::vector<std::string>
-DNS::resolve(const std::string &host, dns_type type, const std::optional<DnsServer> &server) {
-    const DnsResolver resolver(server);
+DNS::resolve(const std::string &host, dns_type type, const std::vector<DnsServer> &servers) {
+    const DnsResolver resolver(servers);
     auto raw_response = resolver.query(host, type);
 
     const DnsRecordParser parser(raw_response.data(), raw_response.size());
@@ -18,7 +21,14 @@ DNS::resolve(const std::string &host, dns_type type, const std::optional<DnsServ
     result.reserve(parser.record_count());
 
     for (size_t i = 0; i < parser.record_count(); ++i) {
-        result.push_back(parser.parse_record(i));
+        auto record = parser.parse_record(i);
+        SPDLOG_TRACE(R"(DNS answer #{} for "{}": {})", i, host, record);
+        result.push_back(std::move(record));
+    }
+
+    if (!result.empty()) {
+        SPDLOG_DEBUG(R"(DNS lookup for "{}" returned {} record(s): {})",
+                     host, result.size(), fmt::join(result, ", "));
     }
 
     return result;

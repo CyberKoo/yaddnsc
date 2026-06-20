@@ -13,11 +13,12 @@
 #include <netdb.h>
 
 #include <cstring>
-#include <config_cmake.h>
-
-#ifndef HAVE_RES_NQUERY
+#include <thread>
 #include <mutex>
-#endif
+#include <condition_variable>
+#include <memory>
+#include <optional>
+#include <config_cmake.h>
 
 #include "dns.h"
 #include "fmt.hpp"
@@ -122,70 +123,7 @@ namespace {
 #endif
     };
 
-    void log_custom_resolver_once(const DnsServer &server) {
-        static bool logged = false;
-        if (logged) return;
-        logged = true;
-
-#if defined(HAVE_RES_NQUERY)
-        if (IPUtil::is_ipv4_address(server.ip_address)) {
-            SPDLOG_INFO(R"(Use custom resolver "{}:{}")", server.ip_address, server.port);
-        } else if (server.ip_address.front() != '[' && server.ip_address.back() != ']') {
-            SPDLOG_INFO(R"(Use custom resolver "[{}]:{}")", server.ip_address, server.port);
-        }
-#else
-        SPDLOG_WARN("Custom resolver defined, but res_nquery() is not supported "
-                     "on this platform; the option will be ignored");
-#endif
-    }
-}
-
-class DnsResolver::Impl {
-public:
-    explicit Impl(std::optional<DnsServer> server) {
-        if (server.has_value() && !server->ip_address.empty()) {
-            log_custom_resolver_once(*server);
-            ctx_.set_nameserver(*server);
-        }
-    }
-
-    ~Impl() = default;
-
-    Impl(const Impl &) = delete;
-    Impl &operator=(const Impl &) = delete;
-    Impl(Impl &&) = delete;
-    Impl &operator=(Impl &&) = delete;
-
-    std::vector<uint8_t> query(const std::string &host_str, dns_type type) {
-        SPDLOG_DEBUG(R"(DNS lookup for domain "{}")", host_str);
-
-        int buffer_size = MAXIMUM_UDP_SIZE;
-        int received_size = 0;
-        std::vector<uint8_t> buffer;
-
-        do {
-            buffer_size = received_size + buffer_size;
-            buffer.resize(buffer_size);
-
-            received_size = ctx_.query(host_str.c_str(), to_ns_type(type),
-                                       buffer.data(), buffer_size);
-            if (received_size < 0) {
-                auto error_type = get_dns_lookup_err(h_errno);
-                throw DnsLookupException(
-                    fmt::format(
-                        R"(DNS lookup failed for domain "{}", error: {})",
-                        host_str, DNS::error_to_str(error_type)), error_type
-                );
-            }
-            SPDLOG_DEBUG("Response payload size: {}, buffer size: {}", received_size, buffer_size);
-        } while (received_size >= buffer_size);
-
-        buffer.resize(static_cast<size_t>(received_size));
-        return buffer;
-    }
-
-private:
-    static dns_error get_dns_lookup_err(int error) {
+    dns_error get_dns_lookup_err(int error) {
         switch (error) {
             case HOST_NOT_FOUND:
                 return dns_error::NX_DOMAIN;
@@ -199,7 +137,194 @@ private:
         }
     }
 
-    static int to_ns_type(dns_type type) noexcept {
+    // ── Single query execution against one nameserver ──
+    std::vector<uint8_t> do_query(ResolverContext &ctx,
+                                  const std::string &host_str,
+                                  int ns_type) {
+        static constexpr int MAXIMUM_UDP_SIZE = 512;
+
+        int buffer_size = MAXIMUM_UDP_SIZE;
+        int received_size = 0;
+        std::vector<uint8_t> buffer;
+
+        do {
+            buffer_size = received_size + buffer_size;
+            buffer.resize(buffer_size);
+
+            SPDLOG_TRACE(R"(Sending DNS query for "{}" (buffer size: {}))", host_str, buffer_size);
+            received_size = ctx.query(host_str.c_str(), ns_type,
+                                      buffer.data(), buffer_size);
+            if (received_size < 0) {
+                auto error_type = get_dns_lookup_err(h_errno);
+                SPDLOG_DEBUG(R"(DNS query failed for "{}": {})", host_str, DNS::error_to_str(error_type));
+                throw DnsLookupException(
+                    fmt::format(
+                        R"(DNS lookup failed for domain "{}", error: {})",
+                        host_str, DNS::error_to_str(error_type)), error_type
+                );
+            }
+            SPDLOG_TRACE(R"(DNS query received: {} bytes (buffer size: {}))", received_size, buffer_size);
+        } while (received_size >= buffer_size);
+
+        buffer.resize(static_cast<size_t>(received_size));
+        SPDLOG_TRACE(R"(DNS response for "{}": {} bytes total)", host_str, received_size);
+        return buffer;
+    }
+
+    bool should_fallback(dns_error error) {
+        return error == dns_error::RETRY || error == dns_error::UNKNOWN;
+    }
+
+    // ── Shared state for concurrent queries (heap-allocated, outlives caller) ──
+    struct ConcurrentState {
+        std::mutex mtx;
+        std::condition_variable cv;
+        std::vector<uint8_t> result;
+        bool has_result = false;
+        std::optional<DnsLookupException> definitive_error;
+        std::optional<DnsLookupException> transient_error;
+        int completed = 0;
+        int total = 0;
+    };
+}
+
+class DnsResolver::Impl {
+public:
+    explicit Impl(std::vector<DnsServer> servers)
+        : servers_(std::move(servers)) {
+#if !defined(HAVE_RES_NQUERY)
+        if (!servers_.empty()) {
+            SPDLOG_WARN("Custom resolver defined, but res_nquery() is not supported "
+                         "on this platform; the option will be ignored");
+            servers_.clear();
+        }
+#endif
+    }
+
+    ~Impl() = default;
+
+    Impl(const Impl &) = delete;
+    Impl &operator=(const Impl &) = delete;
+    Impl(Impl &&) = delete;
+    Impl &operator=(Impl &&) = delete;
+
+    // ── Concurrent query: fire all resolvers in parallel, take fastest ──
+    std::vector<uint8_t> query_concurrent(const std::string &host_str, int ns_type) {
+        auto state = std::make_shared<ConcurrentState>();
+        state->total = static_cast<int>(servers_.size());
+
+        for (size_t i = 0; i < servers_.size(); ++i) {
+            auto addr = servers_[i].ip_address;
+            auto port = servers_[i].port;
+
+            SPDLOG_TRACE(R"(Launching concurrent resolver #{} ({}:{}) for "{}")",
+                         i, addr, port, host_str);
+
+            // Each thread creates its own ResolverContext on the stack,
+            // configures its nameserver, and runs the query.
+            // No shared state between threads — the context is RAII and
+            // gets cleaned up when the thread function returns.
+            std::thread(
+                [host = host_str,
+                 ns_type,
+                 addr = std::move(addr),
+                 port,
+                 state]() {
+                    ResolverContext ctx;
+                    ctx.set_nameserver(DnsServer{addr, port});
+
+                    try {
+                        auto data = do_query(ctx, host, ns_type);
+                        std::lock_guard lock(state->mtx);
+                        if (!state->has_result) {
+                            SPDLOG_TRACE(R"(Resolver {}:{} responded first for "{}")",
+                                         addr, port, host);
+                            state->result = std::move(data);
+                            state->has_result = true;
+                            state->cv.notify_one();
+                        } else {
+                            SPDLOG_TRACE(R"(Resolver {}:{} also succeeded for "{}", discarded)",
+                                         addr, port, host);
+                        }
+                    } catch (const DnsLookupException &e) {
+                        std::lock_guard lock(state->mtx);
+                        if (should_fallback(e.get_error())) {
+                            SPDLOG_TRACE(R"(Resolver {}:{} failed for "{}" (transient: {}))",
+                                         addr, port, host, DNS::error_to_str(e.get_error()));
+                            state->transient_error = e;
+                        } else if (!state->definitive_error.has_value()) {
+                            SPDLOG_DEBUG(R"(Resolver {}:{} returned {} for "{}")",
+                                         addr, port, DNS::error_to_str(e.get_error()), host);
+                            state->definitive_error = e;
+                        }
+                        ++state->completed;
+                        if (state->completed == state->total) {
+                            state->cv.notify_one();
+                        }
+                    }
+                }).detach();
+        }
+
+        // Wait for first success, or all threads to finish.
+        {
+            std::unique_lock lock(state->mtx);
+            state->cv.wait(lock, [&state] {
+                return state->has_result || state->completed == state->total;
+            });
+        }
+
+        if (state->has_result) {
+            return std::move(state->result);
+        }
+
+        // All failed — throw the best error we have.
+        if (state->definitive_error.has_value()) {
+            throw state->definitive_error.value();
+        }
+
+        auto last_err = state->transient_error.value_or(
+            DnsLookupException("All resolvers failed", dns_error::UNKNOWN));
+
+        if (state->total > 1) {
+            SPDLOG_ERROR(
+                R"(All {} resolver(s) failed for domain "{}", last error: {})",
+                state->total, host_str,
+                DNS::error_to_str(last_err.get_error()));
+        }
+
+        throw last_err;
+    }
+
+    std::vector<uint8_t> query(const std::string &host_str, dns_type type) {
+        SPDLOG_DEBUG(R"(DNS lookup for domain "{}")", host_str);
+
+        const auto ns_type = to_ns_type(type);
+
+        // No custom resolvers — use the default system resolver.
+        if (servers_.empty()) {
+            SPDLOG_TRACE(R"(Using default system resolver for "{}")", host_str);
+            ResolverContext ctx;
+            return do_query(ctx, host_str, ns_type);
+        }
+
+        // Single resolver — no concurrency overhead needed.
+        if (servers_.size() == 1) {
+            SPDLOG_TRACE(R"(Using single custom resolver {}:{} for "{}")",
+                         servers_[0].ip_address, servers_[0].port, host_str);
+            ResolverContext ctx;
+            ctx.set_nameserver(servers_[0]);
+            return do_query(ctx, host_str, ns_type);
+        }
+
+        // Multiple resolvers — fire all queries concurrently via detached threads.
+        // Each thread creates its own ephemeral ResolverContext, so no server-side
+        // state or shared_ptr overhead is needed.
+        SPDLOG_TRACE(R"(Firing {} resolver(s) concurrently for "{}")", servers_.size(), host_str);
+        return query_concurrent(host_str, ns_type);
+    }
+
+private:
+    [[nodiscard]] static int to_ns_type(dns_type type) noexcept {
         switch (type) {
             case dns_type::A: return ns_t_a;
             case dns_type::AAAA: return ns_t_aaaa;
@@ -208,16 +333,16 @@ private:
             default: return ns_t_invalid;
         }
     }
-private:
-    ResolverContext ctx_;
 
-    static constexpr int MAXIMUM_UDP_SIZE = 512;
+private:
+    std::vector<DnsServer> servers_;
 };
 
-DnsResolver::DnsResolver() : DnsResolver(std::nullopt) {
+DnsResolver::DnsResolver() : DnsResolver(std::vector<DnsServer>{}) {
 }
 
-DnsResolver::DnsResolver(std::optional<DnsServer> server) : impl_(std::make_unique<Impl>(std::move(server))) {
+DnsResolver::DnsResolver(std::vector<DnsServer> servers)
+    : impl_(std::make_unique<Impl>(std::move(servers))) {
 }
 
 DnsResolver::~DnsResolver() = default;

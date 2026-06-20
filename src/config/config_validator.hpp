@@ -165,10 +165,16 @@ public:
             }
         }
 
-        // --- Validate custom resolver address. ----------------------------------
+        // --- Validate custom resolver address(es). --------------------------------
 #if defined(HAVE_RES_NQUERY)
         if (cfg.resolver.use_custom_server) {
-            detail::validate_resolver_address(cfg.resolver.ip_address);
+            if (!cfg.resolver.servers.empty()) {
+                for (const auto &server : cfg.resolver.servers) {
+                    detail::validate_resolver_address(server.ip_address);
+                }
+            } else if (!cfg.resolver.ip_address.empty()) {
+                detail::validate_resolver_address(cfg.resolver.ip_address);
+            }
         }
 #endif
     }

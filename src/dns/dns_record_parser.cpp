@@ -7,6 +7,8 @@
 
 #include "fmt.hpp"
 
+#include <spdlog/spdlog.h>
+
 #include <arpa/nameser.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
@@ -18,6 +20,9 @@ DnsRecordParser::DnsRecordParser(const data_type *data, const size_t size) {
     if (ns_initparse(data, static_cast<int>(size), &message_) != 0) {
         throw DnsLookupException("Failed to parse DNS response message", dns_error::PARSE);
     }
+
+    SPDLOG_TRACE(R"(DNS record parser initialised (message size: {}, answer count: {}))",
+                 size, ns_msg_count(message_, ns_s_an));
 }
 
 size_t DnsRecordParser::record_count() const noexcept {
@@ -35,30 +40,41 @@ std::string DnsRecordParser::parse_record(size_t index) const {
 
     auto rdlen = ns_rr_rdlen(dns_resource);
     auto rdata = ns_rr_rdata(dns_resource);
+    auto rr_type = ns_rr_type(dns_resource);
 
-    switch (ns_rr_type(dns_resource)) {
+    std::string value;
+    switch (rr_type) {
         case ns_t_a:
-            return parse_a_record(rdata);
+            value = parse_a_record(rdata);
+            break;
 
         case ns_t_aaaa:
-            return parse_aaaa_record(rdata);
+            value = parse_aaaa_record(rdata);
+            break;
 
         case ns_t_txt:
-            return parse_txt_record(rdata, rdlen);
+            value = parse_txt_record(rdata, rdlen);
+            break;
 
         case ns_t_ns:
         case ns_t_soa:
         case ns_t_cname:
-            return parse_domain_name_record(ns_msg_base(message_), ns_msg_end(message_), rdata);
+            value = parse_domain_name_record(ns_msg_base(message_), ns_msg_end(message_), rdata);
+            break;
 
         case ns_t_mx:
-            return parse_mx_record(ns_msg_base(message_), ns_msg_end(message_), rdata);
+            value = parse_mx_record(ns_msg_base(message_), ns_msg_end(message_), rdata);
+            break;
 
         default:
             throw DnsLookupException(
                 fmt::format("DNS parsing: record type {} is not supported yet",
-                            static_cast<std::underlying_type_t<ns_type>>(ns_rr_type(dns_resource))));
+                            static_cast<std::underlying_type_t<ns_type>>(rr_type)));
     }
+
+    SPDLOG_TRACE(R"(Parsed DNS record #{}: type={}, value="{}")", index,
+                 static_cast<int>(rr_type), value);
+    return value;
 }
 
 std::string DnsRecordParser::parse_a_record(const data_type *rdata) {

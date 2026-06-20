@@ -34,13 +34,41 @@
 class Manager::Impl {
 public:
     explicit Impl(Config::config config) : config_(std::move(config)) {
-        // Resolve the optional DNS server once.
+        // Build the list of DNS servers from config, preserving backward
+        // compatibility with the legacy single-server format.
         if (config_.resolver.use_custom_server) {
-            dns_server_ = DnsServer{config_.resolver.ip_address, config_.resolver.port};
+            if (!config_.resolver.servers.empty()) {
+                dns_servers_ = config_.resolver.servers;
+            } else if (!config_.resolver.ip_address.empty()) {
+                // Legacy single-server format.
+                dns_servers_.push_back(
+                    DnsServer{config_.resolver.ip_address, config_.resolver.port});
+            }
         }
 
         // Wire up the Updater with the dependency references.
-        updater_ = std::make_unique<Updater>(driver_manager_, network_manager_, dns_server_);
+        updater_ = std::make_unique<Updater>(driver_manager_, network_manager_, dns_servers_);
+
+        // Log configured custom resolver(s) — once at startup.
+        if (!dns_servers_.empty()) {
+            if (dns_servers_.size() > 1) {
+                SPDLOG_INFO("Configured {} custom resolver(s) with fallback", dns_servers_.size());
+                for (const auto &server : dns_servers_) {
+                    if (IPUtil::is_ipv4_address(server.ip_address)) {
+                        SPDLOG_INFO("  {}:{}", server.ip_address, server.port);
+                    } else {
+                        SPDLOG_INFO("  [{}]:{}", server.ip_address, server.port);
+                    }
+                }
+            } else {
+                const auto &server = dns_servers_.front();
+                if (IPUtil::is_ipv4_address(server.ip_address)) {
+                    SPDLOG_INFO("Custom resolver: {}:{}", server.ip_address, server.port);
+                } else {
+                    SPDLOG_INFO("Custom resolver: [{}]:{}", server.ip_address, server.port);
+                }
+            }
+        }
     }
 
     ~Impl() {
@@ -279,7 +307,7 @@ private:
 
     // ---- config & derived values -------------------------------------------
     Config::config config_;
-    std::optional<DnsServer> dns_server_;
+    std::vector<DnsServer> dns_servers_;
 };
 
 // ---------------------------------------------------------------------------

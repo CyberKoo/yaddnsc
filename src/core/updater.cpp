@@ -31,10 +31,10 @@ class Updater::Impl {
 public:
     explicit Impl(DriverManager &driver_manager,
                   NetworkManager &network_manager,
-                  std::optional<DnsServer> DnsServer)
+                  std::vector<DnsServer> DnsServers)
         : driver_manager_(driver_manager),
           network_manager_(network_manager),
-          dns_server_(std::move(DnsServer)) {
+          dns_servers_(std::move(DnsServers)) {
     }
 
     void process(const UpdateTask &task) const;
@@ -52,7 +52,7 @@ private:
 private:
     DriverManager &driver_manager_;
     NetworkManager &network_manager_;
-    const std::optional<DnsServer> dns_server_;
+    const std::vector<DnsServer> dns_servers_;
 
     static constexpr int RESOLVER_RETRY = 5;
     static constexpr int RESOLVER_RETRY_BACKOFF = 1000;
@@ -64,8 +64,8 @@ private:
 
 Updater::Updater(DriverManager &driver_manager,
                  NetworkManager &network_manager,
-                 std::optional<DnsServer> DnsServer)
-    : impl_(std::make_unique<Impl>(driver_manager, network_manager, std::move(DnsServer))) {
+                 std::vector<DnsServer> DnsServers)
+    : impl_(std::make_unique<Impl>(driver_manager, network_manager, std::move(DnsServers))) {
 }
 
 Updater::~Updater() = default;
@@ -153,7 +153,7 @@ Updater::Impl::dns_lookup(const std::string &host, dns_type type) const {
     try {
         return Util::retry_on_exception<std::string, DnsLookupException>(
             [&] {
-                const auto dns_answer = DNS::resolve(host, type, dns_server_);
+                const auto dns_answer = DNS::resolve(host, type, dns_servers_);
                 if (dns_answer.empty()) {
                     throw DnsLookupException(
                         fmt::format(R"(DNS lookup for domain "{}" returned no records)", host),

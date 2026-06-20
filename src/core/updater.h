@@ -6,7 +6,7 @@
 #define YADDNSC_CORE_UPDATER_H
 
 #include <memory>
-#include <optional>
+#include <vector>
 
 #include "type.h"
 #include "update_task.h"
@@ -19,7 +19,7 @@ class NetworkManager;
 //
 // The Updater holds non-owning references to the DriverManager and
 // NetworkManager (both initialised before any call to process()), and a
-// pre-resolved DnsServer configuration.
+// list of pre-resolved DnsServer entries.
 //
 // process() is thread-safe: it is marked const, owns no mutable state, and
 // may be called concurrently from multiple pool threads.
@@ -28,7 +28,7 @@ class Updater {
 public:
     Updater(DriverManager &driver_manager,
             NetworkManager &network_manager,
-            std::optional<DnsServer> DnsServer);
+            std::vector<DnsServer> DnsServers);
 
     ~Updater();
 

@@ -19,12 +19,22 @@ struct glz::meta<Config::driver_config> {
 };
 
 template<>
+struct glz::meta<DnsServer> {
+    using T = DnsServer;
+    static constexpr auto value = object(
+        "ipaddress", &T::ip_address,
+        "port", &T::port
+    );
+};
+
+template<>
 struct glz::meta<Config::resolver_config> {
     using T = Config::resolver_config;
     static constexpr auto value = object(
         "use_custom_server", &T::use_custom_server,
         "ipaddress", &T::ip_address,
-        "port", &T::port
+        "port", &T::port,
+        "servers", &T::servers
     );
 };
 

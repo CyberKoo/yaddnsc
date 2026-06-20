@@ -15,7 +15,7 @@
   - `url` — obtain the IP from an external HTTP service (e.g. `https://ifconfig.me`)
 - **Per-subdomain update interval** — each subdomain can override the domain-level update interval.
 - **IPv4 and IPv6 support** — configure A and AAAA records independently.
-- **Custom DNS resolver** — optionally use a specific DNS server for record lookups instead of the system resolver.
+- **Custom DNS resolver** — optionally use specific DNS servers for record lookups instead of the system resolver. Supports multiple servers with **concurrent query** and automatic fallback (fires all configured resolvers in parallel and takes the fastest response).
 - **Forced update scheduling** — periodically force-update DNS records even when the IP hasn't changed.
 - **Graceful shutdown** — handles SIGINT/SIGTERM via a dedicated signal-handling thread with a stop_token.
 - **Thread-pool based concurrency** — subdomain updates are dispatched to a BS::thread_pool for parallel execution.
@@ -119,7 +119,11 @@ A template configuration is available at `config.example.json`.
   "resolver": {
     "use_custom_server": false,
     "ipaddress": "1.1.1.1",
-    "port": 53
+    "port": 53,
+    "servers": [
+      { "ipaddress": "1.1.1.1", "port": 53 },
+      { "ipaddress": "8.8.8.8", "port": 53 }
+    ]
   },
   "domains": [
     {
@@ -184,11 +188,16 @@ A template configuration is available at `config.example.json`.
 
 #### `resolver` object
 
-| Field               | Type    | Description                                             |
-|---------------------|---------|---------------------------------------------------------|
-| `use_custom_server` | boolean | If true, use the specified DNS server instead of system |
-| `ipaddress`         | string  | DNS server IP address                                   |
-| `port`              | integer | DNS server port (typically 53)                          |
+| Field               | Type           | Description                                                                                                    |
+|---------------------|----------------|----------------------------------------------------------------------------------------------------------------|
+| `use_custom_server` | boolean        | If true, use the specified DNS server(s) instead of system                                                     |
+| `ipaddress`         | string         | DNS server IP address (legacy — used only when `servers` is empty)                                             |
+| `port`              | integer        | DNS server port, typically 53 (legacy — used only when `servers` is empty)                                     |
+| `servers`           | DnsServer[]    | List of DNS servers for redundancy. When multiple servers are configured, all queries are fired **concurrently** and the fastest successful response is used. If all servers fail, errors are propagated. |
+
+When the `servers` array is present and non-empty, `ipaddress` and `port` are ignored. On platforms without `res_nquery()` support (e.g. some musl builds), custom servers cannot be configured and the system resolver is always used.
+
+> **IPv6 note:** Write the address **without** brackets, e.g. `"2606:4700:4700::1111"`. Brackets are used for URI literals (`[::1]:53`) but `inet_pton()` — which validates and parses the address — expects a plain address.
 
 #### `domains[]` object
 
