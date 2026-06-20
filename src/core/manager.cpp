@@ -53,7 +53,7 @@ public:
         if (!dns_servers_.empty()) {
             if (dns_servers_.size() > 1) {
                 SPDLOG_INFO("Configured {} custom resolver(s) with fallback", dns_servers_.size());
-                for (const auto &server : dns_servers_) {
+                for (const auto &server: dns_servers_) {
                     if (IPUtil::is_ipv4_address(server.ip_address)) {
                         SPDLOG_INFO("  {}:{}", server.ip_address, server.port);
                     } else {
@@ -89,13 +89,42 @@ public:
     // --- driver loading ------------------------------------------------
 
     void load_drivers() {
-        auto &load = config_.driver.load;
-        Util::dedupe(load);
+        if (config_.driver.auto_discover) {
+            // Auto-discover all .so files in driver_dir; manual load list is ignored
+            if (!config_.driver.load.empty()) {
+                SPDLOG_WARN("auto_discover is enabled, ignoring manual load list with {} entry(ies)",
+                            config_.driver.load.size());
+            }
 
-        const auto base_dir = std::filesystem::path(config_.driver.driver_dir);
-        for (const auto &driver: load) {
-            const auto driver_full_path = base_dir.empty() ? std::filesystem::path(driver) : base_dir / driver;
-            driver_manager_.load_driver(driver_full_path.string());
+            const auto base_dir = std::filesystem::path(config_.driver.driver_dir);
+            if (!std::filesystem::exists(base_dir)) {
+                SPDLOG_WARN("auto_discover enabled but driver_dir '{}' does not exist", config_.driver.driver_dir);
+                return;
+            }
+            if (!std::filesystem::is_directory(base_dir)) {
+                SPDLOG_WARN("auto_discover enabled but '{}' is not a directory", config_.driver.driver_dir);
+                return;
+            }
+
+            for (const auto &entry: std::filesystem::directory_iterator(base_dir)) {
+                if (entry.is_regular_file() && entry.path().extension() == ".so") {
+                    driver_manager_.load_driver(entry.path().string());
+                }
+            }
+        } else {
+            // Manual load list
+            auto &load = config_.driver.load;
+            Util::dedupe(load);
+
+            const auto base_dir = std::filesystem::path(config_.driver.driver_dir);
+            for (const auto &driver: load) {
+                const auto driver_full_path = base_dir.empty() ? std::filesystem::path(driver) : base_dir / driver;
+                driver_manager_.load_driver(driver_full_path.string());
+            }
+        }
+
+        if (driver_manager_.get_loaded_drivers().empty()) {
+            SPDLOG_WARN("No drivers were loaded, DDNS updates will not be performed");
         }
     }
 
@@ -177,7 +206,7 @@ public:
                 pool_.detach_task(
                     [&updater = *updater_, task = std::move(update_task)] {
                         try {
-                            static_cast<void>(updater.process(task));
+                            updater.process(task);
                         } catch (const std::exception &e) {
                             SPDLOG_ERROR("Unhandled exception during update for {}: {}", task.fqdn, e.what());
                         }
@@ -193,8 +222,7 @@ public:
             if (schedule_.empty()) {
                 cv_.wait(lock, [&st] { return st.stop_requested(); });
             } else {
-                cv_.wait_until(lock, schedule_.top().deadline,
-                               [&st] { return st.stop_requested(); });
+                cv_.wait_until(lock, schedule_.top().deadline, [&st] { return st.stop_requested(); });
             }
         }
 

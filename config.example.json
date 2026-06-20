@@ -1,6 +1,7 @@
 {
   "driver": {
     "driver_dir": "./build/objs/driver",
+    "auto_discover": false,
     "load": ["simple.so"]
   },
   "resolver": {

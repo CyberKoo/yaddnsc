@@ -4,26 +4,44 @@
 
 #include "simple.h"
 
-#include <map>
+#include "core_logger.h"
+#include "fmt.hpp"
+#include <driver/driver_factory.h>
 
-DEFINE_DRIVER_CREATE(SimpleDriver)
+#include <glaze/glaze.hpp>
 
-driver_request SimpleDriver::generate_request(const driver_config_type &config) const {
-    check_required_params(config);
+DEFINE_DRIVER_FACTORY(SimpleDriver)
 
-    auto url = config.at("url");
+driver_request SimpleDriver::generate_request(
+    const driver_config_type &config, const UpdateContext &ctx) const {
+    auto full = parse_config<glz::generic>(config);
+    if (!full.is_object() || !full.contains("url") || !full["url"].is_string()) {
+        throw ParamParseException(fmt::format("Missing required parameter \"url\" in driver config"));
+    }
 
-    // Substitute every known parameter (except "url" itself) into the URL
-    // template.  For each key present in config, any "{key}" placeholder in
-    // the url is replaced with the corresponding value.
-    for (const auto &[key, val]: config) {
-        if (key == "url") continue;
+    auto &obj = full.get_object();
+    auto url = obj["url"].get_string();
 
+    // Substitute all keys into the URL template: config params first, then context
+    auto substitute = [&](std::string_view key, std::string_view val) {
         const auto target = fmt::format("{{{}}}", key);
-        for (auto pos = url.find(target); pos != std::string::npos; pos = url.find(target, pos + val.size())) {
+        for (auto pos = url.find(target); pos != std::string::npos;
+             pos = url.find(target, pos + val.size())) {
             url.replace(pos, target.size(), val);
         }
+    };
+
+    for (auto &[key, val] : obj) {
+        if (key != "url" && val.is_string()) {
+            substitute(key, val.get_string());
+        }
     }
+
+    substitute("ip_addr", ctx.ip_addr);
+    substitute("rd_type", ctx.rd_type);
+    substitute("domain", ctx.domain);
+    substitute("subdomain", ctx.subdomain);
+    substitute("fqdn", ctx.fqdn);
 
     return {
         .url = std::move(url), .body = std::string{}, .content_type = std::string{},

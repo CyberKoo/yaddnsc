@@ -47,7 +47,10 @@ private:
     get_ip_address(const Config::subdomain_config &config, address_family af) const;
 
     [[nodiscard]] static driver_config_type
-    build_driver_parameters(const UpdateTask &task, const std::string &ip_addr, std::string_view rd_type);
+    build_driver_parameters(const UpdateTask &task);
+
+    [[nodiscard]] static UpdateContext
+    build_update_context(const UpdateTask &task, const std::string &ip_addr, std::string_view rd_type);
 
 private:
     DriverManager &driver_manager_;
@@ -113,7 +116,8 @@ void Updater::Impl::process(const UpdateTask &task) const {
 
     // --- Step 4: build parameters & generate request ------------------------
 
-    const auto parameters = build_driver_parameters(task, *local_ip, rd_type);
+    const auto parameters = build_driver_parameters(task);
+    const auto ctx = build_update_context(task, *local_ip, rd_type);
 
     IDriver *driver = nullptr;
     try {
@@ -123,9 +127,8 @@ void Updater::Impl::process(const UpdateTask &task) const {
         return;
     }
 
-    const auto request = driver->generate_request(parameters);
-    SPDLOG_DEBUG("Received DNS record update request from driver {}, {}",
-                 driver->get_detail().name, request);
+    const auto request = driver->generate_request(parameters, ctx);
+    SPDLOG_DEBUG("Received DNS record update request from driver {}, {}", driver->get_detail().name, request);
 
     // --- Step 5: send HTTP request ------------------------------------------
 
@@ -214,18 +217,23 @@ Updater::Impl::get_ip_address(const Config::subdomain_config &config, address_fa
 }
 
 // ---------------------------------------------------------------------------
-// build_driver_parameters — merge subdomain.driver_param with the standard
-//                           key-value pairs the driver expects.
+// build_driver_parameters — serialize subdomain.driver_param to JSON string.
 // ---------------------------------------------------------------------------
-driver_config_type
-Updater::Impl::build_driver_parameters(const UpdateTask &task,
-                                       const std::string &ip_addr,
-                                       std::string_view rd_type) {
-    auto parameters = driver_config_type{task.subdomain.driver_param};
-    parameters.try_emplace("domain", task.domain_name);
-    parameters.try_emplace("subdomain", task.subdomain.name);
-    parameters.try_emplace("ip_addr", ip_addr);
-    parameters.try_emplace("rd_type", rd_type);
-    parameters.try_emplace("fqdn", task.fqdn);
-    return parameters;
+driver_config_type Updater::Impl::build_driver_parameters(const UpdateTask &task) {
+    return task.subdomain.driver_param.dump().value_or("{}");
+}
+
+// ---------------------------------------------------------------------------
+// build_driver_context — assemble the runtime UpdateContext from the task and
+//                        the resolved IP / record type.
+// ---------------------------------------------------------------------------
+UpdateContext
+Updater::Impl::build_update_context(const UpdateTask &task, const std::string &ip_addr, std::string_view rd_type) {
+    return {
+        .ip_addr = ip_addr,
+        .rd_type = std::string(rd_type),
+        .domain = task.domain_name,
+        .subdomain = task.subdomain.name,
+        .fqdn = task.fqdn
+    };
 }

@@ -155,6 +155,12 @@ include_directories(${PROJECT_SOURCE_DIR}/include/)
 include_directories(${PROJECT_SOURCE_DIR}/src/)
 include_directories(${CMAKE_BINARY_DIR}/generated/)
 
+# Glaze include path — propagated to all subdirectories (including drivers)
+# so they can consume glaze headers without linking the library.
+if (glaze_ADDED)
+  include_directories(SYSTEM ${glaze_SOURCE_DIR}/include)
+endif ()
+
 # ==============================================================================
 # Source files
 # ==============================================================================

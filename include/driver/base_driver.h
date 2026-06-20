@@ -5,38 +5,31 @@
 #ifndef YADDNSC_DRIVER_BASE_DRIVER_H
 #define YADDNSC_DRIVER_BASE_DRIVER_H
 
-#include <map>
-#include <optional>
-#include <string>
-
-#include "fmt.hpp"
-#include "core_logger.h"
+#include <glaze/glaze.hpp>
 
 #include "driver_ver.h"
-#include "driver_factory.h"
 #include "driver_interface.h"
-#include "missing_required_param_exception.h"
+#include "driver/exceptions.h"
 
 class BaseDriver : public IDriver {
 public:
-    void check_required_params(const driver_config_type &config) const {
-        for (auto name: get_required_params()) {
-            if (!config.contains(name.data())) {
-                throw MissingRequiredParamException(fmt::format("Missing required parameter \"{}\"", name));
-            }
-        }
-    }
-
-    static std::optional<std::string> get_optional(const driver_config_type &config, const std::string &name) {
-        if (const auto it = config.find(name); it != config.end()) {
-            return {it->second};
-        }
-
-        return std::nullopt;
-    }
-
-    [[nodiscard]] std::string_view get_driver_version() const final {
+    [[nodiscard]] uint32_t get_driver_version() const final {
         return DRV_VERSION;
+    }
+
+protected:
+    // Parse config JSON into a typed struct with built-in validation.
+    // On failure, logs the glaze error and throws MissingRequiredParamException.
+    template<typename T>
+    [[nodiscard]] static T parse_config(const driver_config_type &config) {
+        T value{};
+        glz::context ctx{};
+        const auto ec = glz::read<glz::opts{.error_on_missing_keys = true}>(value, config, ctx);
+        if (ec == glz::error_code::none) [[likely]] {
+            return value;
+        }
+
+        throw ParamParseException(glz::format_error(ec, config));
     }
 };
 

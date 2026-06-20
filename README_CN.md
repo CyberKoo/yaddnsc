@@ -243,7 +243,6 @@ API 端点：`PUT https://api.cloudflare.com/client/v4/zones/{ZONE_ID}/dns_recor
 
 | 参数          | 必需 | 说明                                 |
 |-------------|----|------------------------------------|
-| `domain`    | 是  | 域名                                 |
 | `record_id` | 是  | DigitalOcean DNS 记录 ID             |
 | `token`     | 是  | DigitalOcean Personal Access Token |
 
@@ -255,7 +254,6 @@ API 端点：`PUT https://api.digitalocean.com/v2/domains/{DOMAIN}/records/{RECO
 |------------------|----|-----------------------------------|
 | `domain_id`      | 是  | DNSPod 域名 ID                      |
 | `record_id`      | 是  | DNSPod 记录 ID                      |
-| `subdomain`      | 是  | 子域名名称                             |
 | `login_token`    | 是  | DNSPod API 登录令牌（ID,Token 格式）      |
 | `global`         | 否  | 使用国际 API 端点（`"1"`）或国内端点（`"0"`，默认） |
 | `record_line`    | 否  | 记录线路（如 `"默认"`）                    |
@@ -267,10 +265,30 @@ API 端点：
 
 ### Simple（`simple.so`）
 
-| 参数       | 必需 | 说明                                                                                  |
-|----------|----|-------------------------------------------------------------------------------------|
-| `url`    | 是  | 要调用的 HTTP(S) URL。支持格式占位符。                                                           |
-| `format` | 否  | 如果设置，URL 会被视为格式字符串。`driver_param` 中以 `{` 开头、`}` 结尾的键会被替换（如 `{ip_addr}` 替换为检测到的 IP）。 |
+通用 HTTP GET 驱动，适用于自定义 API。将 `url` 视为模板，将 `{key}` 占位符替换为配置中的值和运行时上下文的值。
+
+| 参数    | 必需 | 说明                                                              |
+|--------|----|-----------------------------------------------------------------|
+| `url`  | 是  | HTTP(S) URL 模板，支持 `{key}` 占位符。`driver_param` 中的其他键都会作为 `{key}` 参与替换。 |
+
+**可用的替换变量：**
+
+| 变量             | 来源            | 说明                  |
+|----------------|---------------|---------------------|
+| `{ip_addr}`    | 运行时          | 检测到的 IP 地址          |
+| `{rd_type}`    | 运行时          | DNS 记录类型（A、AAAA）    |
+| `{domain}`     | 运行时          | 域名                  |
+| `{subdomain}`  | 运行时          | 子域名名称               |
+| `{fqdn}`       | 运行时          | 完整域名                |
+| `{any_key}`    | `driver_param` | `driver_param` 中的任意键（除 `url` 外） |
+
+示例：
+```json
+"driver_param": {
+    "url": "https://api.example.com/update?ip={ip_addr}&type={rd_type}&domain={domain}",
+    "key": "my-secret-key"
+}
+```
 
 只要响应的 body 非空即视为成功。
 
@@ -314,7 +332,7 @@ sudo systemctl enable --now yaddnsc
    - `generate_request(config)` → 构造 `driver_request`（URL、HTTP 方法、请求头、请求体）
    - `check_response(response)` → 验证 API 响应
    - `get_detail()` → 返回驱动元信息（名称、描述、作者、版本）
-3. 在实现文件末尾使用 `DEFINE_DRIVER_CREATE(YourDriverClass)` 宏导出工厂函数。
+3. 在实现文件末尾使用 `DEFINE_DRIVER_FACTORY(YourDriverClass)` 宏导出 `create()` 和 `destroy()` 工厂函数。
 4. 将驱动编译为 `MODULE` 库（位置无关代码，不添加 `lib` 前缀）。
 5. 将生成的 `.so` 文件放到驱动目录，并在配置的 `load` 列表中添加该驱动。
 

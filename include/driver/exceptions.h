@@ -7,12 +7,12 @@
 
 #include <exception/driver_exception.h>
 
-class MissingRequiredParamException : public DriverException {
+class ParamParseException : public DriverException {
 public:
     using DriverException::DriverException;
 
     [[nodiscard]] std::string_view get_name() const override {
-        return "MissingRequiredParamException";
+        return "ParamParseException";
     }
 };
 

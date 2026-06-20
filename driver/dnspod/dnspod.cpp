@@ -5,30 +5,37 @@
 #include "dnspod.h"
 
 #include "response.h"
-#include "string_util.h"
 
-DEFINE_DRIVER_CREATE(DNSPodDriver)
+#include "fmt.hpp"
+#include "core_logger.h"
+#include <driver/driver_factory.h>
 
-constexpr char API_URL_CN[] = "https://dnsapi.cn/Record.Ddns";
+#include "config.hpp"
 
-constexpr char API_URL_GLOBAL[] = "https://api.dnspod.com/Record.Ddns";
+DEFINE_DRIVER_FACTORY(DNSPodDriver)
 
-driver_request DNSPodDriver::generate_request(const driver_config_type &config) const {
-    check_required_params(config);
-    auto is_global = StringUtil::str_to_bool(get_optional(config, "global").value_or("false"));
-    auto default_record_line = is_global ? "default" : "默认";
+constexpr std::string_view API_URL_CN = "https://dnsapi.cn/Record.Ddns";
+
+constexpr std::string_view API_URL_GLOBAL = "https://api.dnspod.com/Record.Ddns";
+
+driver_request DNSPodDriver::generate_request(
+    const driver_config_type &config, const UpdateContext &ctx) const {
+    auto cfg = parse_config<DNSPodParams>(config);
+
+    // record_line: optional, with dynamic default based on global flag
+    auto record_line = cfg.record_line.value_or(cfg.global ? std::string("default") : std::string("默认"));
 
     driver_request request{};
-    request.url = is_global ? API_URL_GLOBAL : API_URL_CN;
+    request.url = cfg.global ? API_URL_GLOBAL : API_URL_CN;
     request.body = driver_param_type{
-        {"login_token", config.at("login_token")},
-        {"domain_id", config.at("domain_id")},
-        {"record_id", config.at("record_id")},
-        {"sub_domain", config.at("subdomain")},
-        {"record_type", config.at("rd_type")},
-        {"record_line", get_optional(config, "record_line").value_or(default_record_line)},
-        {"record_line_id", get_optional(config, "record_line_id").value_or("0")},
-        {"value", config.at("ip_addr")},
+        {"login_token", cfg.login_token},
+        {"domain_id", cfg.domain_id},
+        {"record_id", cfg.record_id},
+        {"sub_domain", ctx.subdomain},
+        {"record_type", ctx.rd_type},
+        {"value", ctx.ip_addr},
+        {"record_line", record_line},
+        {"record_line_id", cfg.record_line_id},
         {"format", "json"}
     };
     request.content_type = "application/json";

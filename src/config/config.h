@@ -7,7 +7,8 @@
 
 #include <vector>
 #include <string>
-#include <unordered_map>
+
+#include <glaze/glaze.hpp>
 
 #include "type.h"
 
@@ -18,6 +19,7 @@ namespace Config {
 
     struct driver_config {
         std::string driver_dir;
+        bool auto_discover{false};
         std::vector<std::string> load;
     };
 
@@ -38,7 +40,7 @@ namespace Config {
         bool allow_ula{false};
         bool allow_local_link{false};
         int update_interval{};    // 0 = inherit from domain
-        std::unordered_map<std::string, std::string> driver_param;
+        glz::generic driver_param;
     };
 
     struct domain_config {

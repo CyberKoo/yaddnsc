@@ -5,22 +5,25 @@
 #include "digital_ocean.h"
 #include "response.h"
 
-#include <glaze/glaze.hpp>
+#include "core_logger.h"
+#include "fmt.hpp"
+#include <driver/driver_factory.h>
 
-DEFINE_DRIVER_CREATE(DigitalOceanDriver)
+#include "config.hpp"
 
-constexpr char API_URL[] = "https://api.digitalocean.com/v2/domains/{DOMAIN}/records/{RECORD_ID}";
+DEFINE_DRIVER_FACTORY(DigitalOceanDriver)
 
-driver_request DigitalOceanDriver::generate_request(const driver_config_type &config) const {
-    check_required_params(config);
+constexpr std::string_view API_URL = "https://api.digitalocean.com/v2/domains/{DOMAIN}/records/{RECORD_ID}";
+
+driver_request DigitalOceanDriver::generate_request(
+    const driver_config_type &config, const UpdateContext &ctx) const {
+    auto cfg = parse_config<DigitalOceanParams>(config);
 
     driver_request request{};
-    request.header.insert({"Authorization", fmt::format("Bearer {}", config.at("token"))});
-    request.url = fmt::format(API_URL,
-                              fmt::arg("DOMAIN", config.at("domain")),
-                              fmt::arg("RECORD_ID", config.at("record_id")));
-    auto do_body = glz::obj{"data", config.at("ip_addr")};
-    request.body = glz::write_json(do_body).value_or("{}");
+    request.header.insert({"Authorization", fmt::format("Bearer {}", cfg.token)});
+    request.url = fmt::format(API_URL, fmt::arg("DOMAIN", ctx.domain), fmt::arg("RECORD_ID", cfg.record_id));
+    auto request_body = DigitalOceanBody{.data = ctx.ip_addr};
+    request.body = glz::write_json(request_body).value_or("{}");
     request.content_type = "application/json";
     request.request_method = driver_http_method_type::PUT;
 
@@ -33,8 +36,8 @@ bool DigitalOceanDriver::check_response(std::string_view response) const {
     // Try success response: { "domain_record": { ... } }
     if (auto result = glz::read_json<DigitalOceanDomainResponse>(response)) {
         auto &record = result.value().domain_record;
-        CORE_LOG_DEBUG("DNS record updated successfully: {} {} -> {} (TTL: {})",
-                       record.type, record.name, record.data, record.ttl);
+        CORE_LOG_DEBUG("DNS record updated successfully: {} {} -> {} (TTL: {})", record.type, record.name, record.data,
+                       record.ttl);
         return true;
     }
 

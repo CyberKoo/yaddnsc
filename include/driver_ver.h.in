@@ -5,8 +5,8 @@
 #ifndef YADDNSC_DRIVER_VER_H
 #define YADDNSC_DRIVER_VER_H
 
-#include <string_view>
+#include <cstdint>
 
-constexpr std::string_view DRV_VERSION = "@YADDNSC_DRV_VERSION@";
+constexpr uint32_t DRV_VERSION = @YADDNSC_DRV_VERSION@;
 
 #endif //YADDNSC_DRIVER_VER_H

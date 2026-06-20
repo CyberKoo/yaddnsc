@@ -14,6 +14,7 @@ struct glz::meta<Config::driver_config> {
     using T = Config::driver_config;
     static constexpr auto value = object(
         "driver_dir", &T::driver_dir,
+        "auto_discover", &T::auto_discover,
         "load", &T::load
     );
 };

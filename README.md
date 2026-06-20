@@ -244,7 +244,6 @@ API endpoint: `PUT https://api.cloudflare.com/client/v4/zones/{ZONE_ID}/dns_reco
 
 | Parameter   | Required | Description                          |
 |-------------|----------|--------------------------------------|
-| `domain`    | Yes      | Domain name                          |
 | `record_id` | Yes      | DigitalOcean DNS Record ID           |
 | `token`     | Yes      | DigitalOcean Personal Access Token   |
 
@@ -256,7 +255,6 @@ API endpoint: `PUT https://api.digitalocean.com/v2/domains/{DOMAIN}/records/{REC
 |------------------|----------|--------------------------------------------------------------------|
 | `domain_id`      | Yes      | DNSPod Domain ID                                                   |
 | `record_id`      | Yes      | DNSPod Record ID                                                   |
-| `subdomain`      | Yes      | Subdomain name                                                     |
 | `login_token`    | Yes      | DNSPod API login token (ID,Token format)                           |
 | `global`         | No       | Use global API endpoint (`"1"`) or China endpoint (`"0"`, default) |
 | `record_line`    | No       | Record line (e.g. `"默认"` for default)                              |
@@ -268,10 +266,30 @@ API endpoints:
 
 ### Simple (`simple.so`)
 
-| Parameter | Required | Description                                                                                                                                                                    |
-|-----------|----------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `url`     | Yes      | HTTP(S) URL to call. Supports format placeholders.                                                                                                                             |
-| `format`  | No       | If set, the URL is treated as a format string. Parameters from `driver_param` whose keys start with `{` and end with `}` are substituted (e.g. `{ip_addr}` → the detected IP). |
+A generic HTTP GET driver for custom APIs. The driver treats the `url` as a template and substitutes `{key}` placeholders with values from the configuration and runtime context.
+
+| Parameter | Required | Description                           |
+|-----------|----------|---------------------------------------|
+| `url`     | Yes      | HTTP(S) URL template with `{key}` placeholders. All other `driver_param` keys are available for substitution as `{key}`. |
+
+**Available substitution variables:**
+
+| Variable       | Source         | Description                |
+|----------------|----------------|----------------------------|
+| `{ip_addr}`    | Runtime        | The detected IP address    |
+| `{rd_type}`    | Runtime        | DNS record type (A, AAAA)  |
+| `{domain}`     | Runtime        | Domain name                |
+| `{subdomain}`  | Runtime        | Subdomain name             |
+| `{fqdn}`       | Runtime        | Full domain name           |
+| `{any_key}`    | `driver_param` | Any key from `driver_param` (except `url`) |
+
+Example:
+```json
+"driver_param": {
+    "url": "https://api.example.com/update?ip={ip_addr}&type={rd_type}&domain={domain}",
+    "key": "my-secret-key"
+}
+```
 
 A successful response is any non-empty body.
 
@@ -315,7 +333,7 @@ Drivers are shared libraries loaded at runtime. To write one:
    - `generate_request(config)` → construct a `driver_request` (URL, HTTP method, headers, body)
    - `check_response(response)` → validate the API response
    - `get_detail()` → return driver metadata (name, description, author, version)
-3. Use the `DEFINE_DRIVER_CREATE(YourDriverClass)` macro at the bottom of the implementation file to export the factory function.
+3. Use the `DEFINE_DRIVER_FACTORY(YourDriverClass)` macro at the bottom of the implementation file to export the `create()` and `destroy()` factory functions.
 4. Build as a `MODULE` library (position-independent code, no `lib` prefix).
 5. Place the resulting `.so` in the driver directory and add it to the `load` list in the config.
 
