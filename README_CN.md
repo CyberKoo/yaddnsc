@@ -43,7 +43,8 @@ flowchart TB
     updaterB["Updater (任务 B)
 获取 IP → DNS 查询 → 对比 → 更新"]
     driver["驱动插件 (.so)
-generate_request · check_response
+execute (默认: generate_request
+→ IHttpSender::send → check_response)
 HTTP → DNS 服务商 API"]
 
     main --> mgr
@@ -328,15 +329,85 @@ sudo systemctl enable --now yaddnsc
 驱动是运行时加载的共享库。编写自定义驱动的步骤：
 
 1. 包含 `driver/base_driver.h`，继承 `BaseDriver` 类。
-2. 实现 `IDriver` 接口的三个纯虚方法：
-   - `generate_request(config)` → 构造 `driver_request`（URL、HTTP 方法、请求头、请求体）
-   - `check_response(response)` → 验证 API 响应
+2. 实现 `IDriver` 接口的纯虚方法：
+   - `generate_request(config, ctx)` → 构造 `driver_request`（URL、HTTP 方法、请求头、请求体）
+   - `check_response(response)` → 验证 API 响应体
    - `get_detail()` → 返回驱动元信息（名称、描述、作者、版本）
+   - `execute(config, ctx, http)` → 执行完整的更新流程（见下文）
 3. 在实现文件末尾使用 `DEFINE_DRIVER_FACTORY(YourDriverClass)` 宏导出 `create()` 和 `destroy()` 工厂函数。
 4. 将驱动编译为 `MODULE` 库（位置无关代码，不添加 `lib` 前缀）。
 5. 将生成的 `.so` 文件放到驱动目录，并在配置的 `load` 列表中添加该驱动。
 
 驱动中使用 `CORE_LOG_*` 宏记录日志——这些宏通过 `dlopen` 时的符号解析，将日志委托给主程序的日志子系统。
+
+### `execute()` 方法
+
+`execute()` 是驱动执行更新的入口。它接收以下参数：
+
+- `config` — 驱动配置（通常是 JSON 字符串）。
+- `ctx` — `UpdateContext` 结构体，包含运行时信息（IP 地址、记录类型、域名、子域名、FQDN）。
+- `http` — `IHttpSender` 引用，用于发送 HTTP 请求。
+
+`BaseDriver` 提供的默认实现保持了原来的三段式行为：
+
+```
+generate_request(config, ctx)
+    → http.send(request)
+    → check_response(response.body)
+```
+
+对于简单驱动，只需实现 `generate_request()` 和 `check_response()`，默认的 `execute()` 会自动继承。
+
+`IHttpSender` 由初始核⼼以正确的地址族（IPv4/IPv6）和⽹络接⼝初始化，这些值来⾃每个⼦域名的配置。覆盖 `execute()` 的驱动可以在多次调⽤间通过 `set_address_family()` 切换地址族。
+
+### 多步骤工作流
+
+需要多次 HTTP 交互的驱动（例如：先认证、再查询资源、最后更新）可以重写 `execute()` 并多次调用 `http.send()`：
+
+```
+bool MyDriver::execute(const driver_config_type &config,
+                       const UpdateContext &ctx,
+                       IHttpSender &http) override {
+    // 步骤 1：获取认证 token
+    http.set_address_family(address_family::IPV4);
+    auto auth_resp = http.send(build_auth_request(config));
+    if (!auth_resp.success) return false;
+    auto token = extract_token(auth_resp.body);
+
+    // 步骤 2：查询 record_id
+    auto list_resp = http.send(build_list_request(token, ctx));
+    if (!list_resp.success) return false;
+    auto record_id = extract_record_id(list_resp.body);
+
+    // 步骤 3：执行更新
+    auto update_req = build_update_request(token, record_id, ctx);
+    auto update_resp = http.send(update_req);
+    if (!update_resp.success) return false;
+    return check_response(update_resp.body);
+}
+```
+
+`IHttpSender` 接口定义：
+
+```cpp
+class IHttpSender {
+public:
+    virtual void set_address_family(address_family af) = 0;
+    virtual HttpResponse send(const http_request &req) = 0;
+};
+```
+
+`HttpResponse` 包含完整的 HTTP 返回信息：
+
+| 字段             | 类型                            | 说明                |
+|-----------------|--------------------------------|-------------------|
+| `success`       | `bool`                         | 请求是否成功发送         |
+| `status_code`   | `int`                          | HTTP 状态码（如 200、404） |
+| `headers`       | `multimap<string, string>`     | 响应头              |
+| `body`          | `string`                       | 响应体              |
+| `error_message` | `string`                       | 传输层错误描述          |
+
+网络接口由核心绑定，驱动不可配置。地址族可以通过 `set_address_family()` 在多次调用间切换。
 
 ## 依赖项
 

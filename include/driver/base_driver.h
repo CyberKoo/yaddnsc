@@ -8,13 +8,36 @@
 #include <glaze/glaze.hpp>
 
 #include "driver_ver.h"
+#include "core_logger.h"
 #include "driver_interface.h"
 #include "driver/exceptions.h"
+#include "http_client_interface.h"
+#include "http_type_formatter.hpp"
 
 class BaseDriver : public IDriver {
 public:
     [[nodiscard]] uint32_t get_driver_version() const final {
         return DRV_VERSION;
+    }
+
+    // Default execute: generate_request -> send via IHttpSender -> check_response.
+    // Matches the original three-step behavior in Updater::process().
+    bool execute(const driver_config_type &config, const UpdateContext &ctx, IHttpSender &http) override {
+        const auto req = generate_request(config, ctx);
+        CORE_LOG_DEBUG("Received DNS record update request from driver {}, {}", get_detail().name, req);
+
+        const auto resp = http.send(req);
+        if (!resp.success) {
+            CORE_LOG_WARN("Update for {} failed (HTTP error: {})", ctx.fqdn, resp.error_message);
+            return false;
+        }
+
+        if (!check_response(resp.body)) {
+            CORE_LOG_WARN("Update domain {} failed (driver rejected the response)", ctx.fqdn);
+            return false;
+        }
+
+        return true;
     }
 
 protected:

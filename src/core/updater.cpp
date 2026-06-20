@@ -19,22 +19,54 @@
 #include "network/http_client.h"
 #include "driver_manager.h"
 #include "network/network_manager.h"
+#include "http_client_interface.h"
 #include "driver_interface.h"
 #include "http_type_formatter.hpp"
 
 #include "exception/dns_lookup_exception.h"
 
 // ---------------------------------------------------------------------------
+// HttpClientSender — wraps HttpClient::send() in the IHttpSender interface.
+// Binds the network interface at construction; address family is settable.
+// ---------------------------------------------------------------------------
+class HttpClientSender final : public IHttpSender {
+public:
+    HttpClientSender(address_family af, std::string_view interface) : af_(af), interface_(interface) {
+    }
+
+    void set_address_family(address_family af) override {
+        af_ = af;
+    }
+
+    HttpResponse send(const http_request &req) override {
+        auto result = HttpClient::send(req, af_, interface_);
+
+        HttpResponse resp;
+        if (!result) {
+            resp.success = false;
+            resp.error_message = std::string(magic_enum::enum_name(result.error()));
+            return resp;
+        }
+
+        resp.success = true;
+        resp.status_code = result->status;
+        resp.headers = {result->headers.begin(), result->headers.end()};
+        resp.body = result->body;
+        return resp;
+    }
+
+private:
+    address_family af_;
+    std::string interface_;
+};
+
+// ---------------------------------------------------------------------------
 // Updater::Impl — all private helpers live here.
 // ---------------------------------------------------------------------------
 class Updater::Impl {
 public:
-    explicit Impl(DriverManager &driver_manager,
-                  NetworkManager &network_manager,
-                  std::vector<DnsServer> DnsServers)
-        : driver_manager_(driver_manager),
-          network_manager_(network_manager),
-          dns_servers_(std::move(DnsServers)) {
+    explicit Impl(DriverManager &driver_manager, NetworkManager &network_manager, std::vector<DnsServer> DnsServers)
+        : driver_manager_(driver_manager), network_manager_(network_manager), dns_servers_(std::move(DnsServers)) {
     }
 
     void process(const UpdateTask &task) const;
@@ -65,9 +97,7 @@ private:
 // Public API
 // ---------------------------------------------------------------------------
 
-Updater::Updater(DriverManager &driver_manager,
-                 NetworkManager &network_manager,
-                 std::vector<DnsServer> DnsServers)
+Updater::Updater(DriverManager &driver_manager, NetworkManager &network_manager, std::vector<DnsServer> DnsServers)
     : impl_(std::make_unique<Impl>(driver_manager, network_manager, std::move(DnsServers))) {
 }
 
@@ -127,21 +157,10 @@ void Updater::Impl::process(const UpdateTask &task) const {
         return;
     }
 
-    const auto request = driver->generate_request(parameters, ctx);
-    SPDLOG_DEBUG("Received DNS record update request from driver {}, {}", driver->get_detail().name, request);
+    // --- Step 5: delegate to driver via IHttpSender -------------------------
 
-    // --- Step 5: send HTTP request ------------------------------------------
-
-    const auto response = HttpClient::send(request, task.subdomain.ip_type, task.subdomain.interface);
-    if (!response) {
-        SPDLOG_WARN("Update for {} failed (HTTP {} error)", task.fqdn, magic_enum::enum_name(response.error()));
-        return;
-    }
-
-    // --- Step 6: verify response --------------------------------------------
-
-    if (!driver->check_response(response->body)) {
-        SPDLOG_WARN("Update domain {} failed (driver rejected the response)", task.fqdn);
+    HttpClientSender http_sender{address_family::UNSPECIFIED, task.subdomain.interface};
+    if (!driver->execute(parameters, ctx, http_sender)) {
         return;
     }
 
@@ -234,6 +253,6 @@ Updater::Impl::build_update_context(const UpdateTask &task, const std::string &i
         .rd_type = std::string(rd_type),
         .domain = task.domain_name,
         .subdomain = task.subdomain.name,
-        .fqdn = task.fqdn
+        .fqdn = task.fqdn,
     };
 }

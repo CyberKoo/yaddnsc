@@ -9,6 +9,7 @@
 #include <string_view>
 
 #include "http_types.h"
+#include "http_client_interface.h"
 
 using driver_config_type = std::string;
 using driver_param_type = http_param_type;
@@ -61,6 +62,8 @@ public:
     [[nodiscard]] virtual DriverDetail get_detail() const = 0;
 
     [[nodiscard]] virtual uint32_t get_driver_version() const = 0;
+
+    [[nodiscard]] virtual bool execute(const driver_config_type &, const UpdateContext &, IHttpSender &) = 0;
 };
 
 #endif //YADDNSC_DRIVER_INTERFACE_H

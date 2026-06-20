@@ -44,7 +44,8 @@ Get IP → DNS lookup → Compare → Update"]
     updaterB["Updater (task B)
 Get IP → DNS lookup → Compare → Update"]
     driver["Driver Plugin (.so)
-generate_request · check_response
+execute (default: generate_request
+→ IHttpSender::send → check_response)
 HTTP → DNS provider API"]
 
     main --> mgr
@@ -111,6 +112,7 @@ A template configuration is available at `config.example.json`.
 {
   "driver": {
     "driver_dir": "/opt/yaddnsc/drivers",
+    "auto_discover": false,
     "load": [
       "cloudflare.so",
       "simple.so"
@@ -181,10 +183,11 @@ A template configuration is available at `config.example.json`.
 
 #### `driver` object
 
-| Field        | Type     | Description                                     |
-|--------------|----------|-------------------------------------------------|
-| `driver_dir` | string   | Directory containing driver `.so` files         |
-| `load`       | string[] | List of driver shared library filenames to load |
+| Field          | Type      | Description                                                       |
+|----------------|-----------|-------------------------------------------------------------------|
+| `driver_dir`   | string    | Directory containing driver `.so` files                           |
+| `auto_discover`| boolean   | If true, automatically loads all `.so` files in `driver_dir` (ignores `load` list) |
+| `load`          | string[]  | List of driver shared library filenames to load (ignored when `auto_discover` is true) |
 
 #### `resolver` object
 
@@ -256,7 +259,7 @@ API endpoint: `PUT https://api.digitalocean.com/v2/domains/{DOMAIN}/records/{REC
 | `domain_id`      | Yes      | DNSPod Domain ID                                                   |
 | `record_id`      | Yes      | DNSPod Record ID                                                   |
 | `login_token`    | Yes      | DNSPod API login token (ID,Token format)                           |
-| `global`         | No       | Use global API endpoint (`"1"`) or China endpoint (`"0"`, default) |
+| `global`         | No       | Use global API endpoint (`true`) or China endpoint (`false`, default) |
 | `record_line`    | No       | Record line (e.g. `"默认"` for default)                              |
 | `record_line_id` | No       | Record line ID                                                     |
 
@@ -330,14 +333,84 @@ Drivers are shared libraries loaded at runtime. To write one:
 
 1. Include `driver/base_driver.h` and inherit from `BaseDriver`.
 2. Implement the `IDriver` interface:
-   - `generate_request(config)` → construct a `driver_request` (URL, HTTP method, headers, body)
-   - `check_response(response)` → validate the API response
+   - `generate_request(config, ctx)` → construct a `driver_request` (URL, HTTP method, headers, body)
+   - `check_response(response)` → validate the API response body
    - `get_detail()` → return driver metadata (name, description, author, version)
+   - `execute(config, ctx, http)` → drive the full update workflow (see below)
 3. Use the `DEFINE_DRIVER_FACTORY(YourDriverClass)` macro at the bottom of the implementation file to export the `create()` and `destroy()` factory functions.
 4. Build as a `MODULE` library (position-independent code, no `lib` prefix).
 5. Place the resulting `.so` in the driver directory and add it to the `load` list in the config.
 
 Drivers use `CORE_LOG_*` macros for logging — these delegate to the core executable's logging subsystem via symbol resolution at `dlopen` time.
+
+### The `execute()` method
+
+`execute()` is the entry point for a driver to perform its update. It receives:
+
+- `config` — the parsed driver configuration (typically a JSON string).
+- `ctx` — an `UpdateContext` with runtime information (IP address, record type, domain, subdomain, FQDN).
+- `http` — an `IHttpSender` reference for making HTTP requests.
+
+The default implementation in `BaseDriver` reproduces the original three-step behaviour:
+
+```
+generate_request(config, ctx)
+    → http.send(request)
+    → check_response(response.body)
+```
+
+For simple drivers this is sufficient — just implement `generate_request()` and `check_response()`, and the default `execute()` is inherited automatically.
+
+The `IHttpSender` is initialised by the core with the correct address family (IPv4/IPv6) and network interface from the per-subdomain configuration. Drivers that override `execute()` can call `set_address_family()` to switch between calls when needed.
+
+### Multi-step workflows with `IHttpSender`
+
+Drivers that need multiple HTTP interactions (e.g. authenticate first, then query a resource, then update) can override `execute()` and call `http.send()` multiple times:
+
+```
+bool MyDriver::execute(const driver_config_type &config,
+                       const UpdateContext &ctx,
+                       IHttpSender &http) override {
+    // Step 1: fetch authentication token
+    http.set_address_family(address_family::IPV4);
+    auto auth_resp = http.send(build_auth_request(config));
+    if (!auth_resp.success) return false;
+    auto token = extract_token(auth_resp.body);
+
+    // Step 2: query record id
+    auto list_resp = http.send(build_list_request(token, ctx));
+    if (!list_resp.success) return false;
+    auto record_id = extract_record_id(list_resp.body);
+
+    // Step 3: perform the update
+    auto update_req = build_update_request(token, record_id, ctx);
+    auto update_resp = http.send(update_req);
+    if (!update_resp.success) return false;
+    return check_response(update_resp.body);
+}
+```
+
+The `IHttpSender` interface provides:
+
+```cpp
+class IHttpSender {
+public:
+    virtual void set_address_family(address_family af) = 0;
+    virtual HttpResponse send(const http_request &req) = 0;
+};
+```
+
+`HttpResponse` contains the full HTTP result:
+
+| Field             | Type                           | Description                          |
+|-------------------|--------------------------------|--------------------------------------|
+| `success`         | `bool`                         | Whether the request was sent         |
+| `status_code`     | `int`                          | HTTP status code (e.g. 200, 404)     |
+| `headers`         | `multimap<string, string>`     | Response headers                     |
+| `body`            | `string`                       | Response body                        |
+| `error_message`   | `string`                       | Transport-level error description    |
+
+The network interface is always bound by the core and is not configurable from the driver. Address family can be switched between calls via `set_address_family()`.
 
 ## Dependencies
 
