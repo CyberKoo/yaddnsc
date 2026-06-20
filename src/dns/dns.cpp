@@ -29,6 +29,8 @@ DNS::resolve(const std::string &host, dns_type type, const std::vector<DnsServer
     if (!result.empty()) {
         SPDLOG_DEBUG(R"(DNS lookup for "{}" returned {} record(s): {})",
                      host, result.size(), fmt::join(result, ", "));
+    } else {
+        SPDLOG_DEBUG(R"(DNS lookup for "{}" returned no records)", host);
     }
 
     return result;

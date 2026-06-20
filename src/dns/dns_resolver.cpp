@@ -237,7 +237,7 @@ public:
                         auto data = do_query(ctx, host, ns_type);
                         std::lock_guard lock(state->mtx);
                         if (!state->has_result) {
-                            SPDLOG_TRACE(R"(Resolver {}:{} responded first for "{}")",
+                            SPDLOG_DEBUG(R"(Resolver {}:{} responded first for "{}")",
                                          addr, port, host);
                             state->result = std::move(data);
                             state->has_result = true;
@@ -309,7 +309,7 @@ public:
 
         // Single resolver — no concurrency overhead needed.
         if (servers_.size() == 1) {
-            SPDLOG_TRACE(R"(Using single custom resolver {}:{} for "{}")",
+            SPDLOG_DEBUG(R"(Using single custom resolver {}:{} for "{}")",
                          servers_[0].ip_address, servers_[0].port, host_str);
             ResolverContext ctx;
             ctx.set_nameserver(servers_[0]);
@@ -319,7 +319,7 @@ public:
         // Multiple resolvers — fire all queries concurrently via detached threads.
         // Each thread creates its own ephemeral ResolverContext, so no server-side
         // state or shared_ptr overhead is needed.
-        SPDLOG_TRACE(R"(Firing {} resolver(s) concurrently for "{}")", servers_.size(), host_str);
+        SPDLOG_DEBUG(R"(Firing {} resolver(s) concurrently for "{}")", servers_.size(), host_str);
         return query_concurrent(host_str, ns_type);
     }
 

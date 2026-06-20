@@ -174,7 +174,7 @@ void DriverManager::Impl::register_driver(Driver driver_res, std::string_view dr
     }
 
     auto [name, description, author, version] = driver->get_detail();
-    SPDLOG_INFO("Loaded driver '{}' ({}) [ABI: {}]", name, driver_lib_name, DRV_VERSION);
+    SPDLOG_INFO("Loaded driver '{}' ({})", name, driver_lib_name);
     SPDLOG_DEBUG("Driver {} ({}), developed by {}, version: {}", name, description, author, version);
 
     driver_map_.emplace(name, std::move(driver_res));
