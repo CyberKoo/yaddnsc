@@ -155,7 +155,6 @@ A template configuration is available at `config.example.json`.
         {
           "name": "home",
           "type": "a",
-          "interface": "",
           "ip_source": "url",
           "ip_type": "ipv4",
           "ip_source_param": "https://ipv4.example.com/",
@@ -220,7 +219,7 @@ When the `servers` array is present and non-empty, `ipaddress` and `port` are ig
 |--------------------|---------|------------------------------------------------------------------------------------------------------------|
 | `name`             | string  | Subdomain name (e.g. `home` for `home.example.com`)                                                        |
 | `type`             | string  | DNS record type: `"a"`, `"aaaa"`, `"txt"`, or `"soa"`                                                      |
-| `interface`        | string  | Network interface name (e.g. `eth0`). Required when `ip_source` is `"interface"`.                          |
+| `interface`        | string  | Network interface name (e.g. `eth0`). Required when `ip_source` is `"interface"`; can be omitted when using `"url"`. |
 | `ip_source`        | string  | IP source: `"interface"` (read from a local NIC) or `"url"` (fetch from HTTP)                              |
 | `ip_type`          | string  | IP version: `"ipv4"`, `"ipv6"`, or `"unspecified"`                                                         |
 | `ip_source_param`  | string  | For `"url"` source: the HTTP(S) URL. For `"interface"` source: currently unused.                           |
@@ -228,6 +227,8 @@ When the `servers` array is present and non-empty, `ipaddress` and `port` are ig
 | `allow_local_link` | boolean | When using IPv6 interface source, allow link-local addresses (default: false)                              |
 | `update_interval`  | int     | Per-subdomain update interval in seconds (optional). 0 or omitted = inherit from `domain.update_interval`. |
 | `driver_param`     | object  | Driver-specific parameters (key-value map)                                                                 |
+
+> **Note:** The `interface` field is optional. When `ip_source` is `"url"`, you may omit `interface` entirely — no network interface binding will be used for the HTTP request. When `ip_source` is `"interface"`, `interface` is required.
 
 ## Driver Parameters
 

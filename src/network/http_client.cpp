@@ -52,7 +52,7 @@ namespace {
         return ca_path;
     }
 
-    httplib::Client connect(const Uri &uri, address_family family, std::string_view nif_name) {
+    httplib::Client connect(const Uri &uri, address_family family, const std::optional<std::string> &nif_name) {
         SPDLOG_DEBUG("Connecting to {}", uri.get_host());
         auto client = httplib::Client(fmt::format("{}://{}:{}", uri.get_schema(), uri.get_host(), uri.get_port()));
 
@@ -65,8 +65,8 @@ namespace {
         }
 
         // set outbound interface
-        if (!nif_name.empty()) {
-            client.set_interface(nif_name.data());
+        if (nif_name.has_value() && !nif_name->empty()) {
+            client.set_interface(nif_name->c_str());
         }
 
         // set address family
@@ -92,8 +92,8 @@ namespace {
 // Construction
 // ---------------------------------------------------------------------------
 
-HttpClient::HttpClient(address_family af, std::string_view interface)
-    : af_(af), interface_(interface) {
+HttpClient::HttpClient(address_family af, std::optional<std::string> interface)
+    : af_(af), interface_(std::move(interface)) {
 }
 
 // ---------------------------------------------------------------------------
@@ -158,12 +158,12 @@ HttpResponse HttpClient::send(const http_request &req) {
 // Static convenience: one-shot GET
 // ---------------------------------------------------------------------------
 
-std::optional<std::string> HttpClient::get_body(std::string_view url, address_family af, std::string_view interface) {
+std::optional<std::string> HttpClient::get_body(std::string_view url, std::optional<address_family> af, const std::optional<std::string> &interface) {
     http_request req;
     req.url = url;
     req.request_method = http_method_type::GET;
 
-    HttpClient client(af, interface);
+    HttpClient client(af.value_or(address_family::UNSPECIFIED), interface);
     auto resp = client.send(req);
 
     if (!resp.success) {

@@ -174,7 +174,7 @@ Updater::Impl::dns_lookup(const std::string &host, dns_type type) const {
 std::optional<std::string>
 Updater::Impl::get_ip_address(const Config::subdomain_config &config, address_family af) const {
     if (config.ip_source == Config::ip_source_type::INTERFACE) {
-        const auto if_addresses = network_manager_.get_interface_ip_addresses(config.interface);
+        const auto if_addresses = network_manager_.get_interface_ip_addresses(*config.interface);
         auto addresses = IPUtil::extract_address(if_addresses, af);
 
         if (af == address_family::IPV6) {
@@ -193,7 +193,7 @@ Updater::Impl::get_ip_address(const Config::subdomain_config &config, address_fa
             return addresses.front();
         }
     } else {
-        return IPUtil::get_ip_from_url(config.ip_source_param, af, config.interface.data());
+        return IPUtil::get_ip_from_url(config.ip_source_param, af, config.interface);
     }
 
     return std::nullopt;

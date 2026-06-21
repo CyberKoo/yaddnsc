@@ -54,7 +54,7 @@ namespace detail {
             return;
         }
 
-        if (subdomain.interface.empty()) {
+        if (!subdomain.interface.has_value()) {
             throw ConfigVerificationException(
                 fmt::format("Subdomain {} uses interface IP source but interface is empty",
                             fqdn_for(domain, subdomain))
@@ -156,11 +156,11 @@ public:
                     );
                 }
 
-                if (!subdomain.interface.empty()) {
-                    if (std::ranges::find(interfaces, subdomain.interface) == interfaces.end()) {
+                if (subdomain.interface.has_value()) {
+                    if (std::ranges::find(interfaces, *subdomain.interface) == interfaces.end()) {
                         auto available = fmt::format("{}", fmt::join(interfaces, ", "));
                         throw ConfigVerificationException(
-                            fmt::format("Interface {} not found, available interfaces: {}", subdomain.interface, available)
+                            fmt::format("Interface {} not found, available interfaces: {}", *subdomain.interface, available)
                         );
                     }
                 }

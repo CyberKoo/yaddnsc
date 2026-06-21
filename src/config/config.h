@@ -5,6 +5,7 @@
 #ifndef YADDNSC_CONFIG_CONFIG_H
 #define YADDNSC_CONFIG_CONFIG_H
 
+#include <optional>
 #include <vector>
 #include <string>
 
@@ -33,7 +34,7 @@ namespace Config {
     struct subdomain_config {
         std::string name;
         dns_type type{};
-        std::string interface;
+        std::optional<std::string> interface;
         address_family ip_type{address_family::UNSPECIFIED};
         ip_source_type ip_source{};
         std::string ip_source_param;

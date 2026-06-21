@@ -31,7 +31,6 @@
         {
           "name": "www",
           "type": "a",
-          "interface": "eth0",
           "ip_source": "url",
           "ip_type": "ipv4",
           "ip_source_param": "https://api.ipify.org/",

@@ -21,7 +21,7 @@
 // ---------------------------------------------------------------------------
 class HttpClient final : public IHttpSender {
 public:
-    explicit HttpClient(address_family af, std::string_view interface = {});
+    explicit HttpClient(address_family af, std::optional<std::string> interface = std::nullopt);
 
     ~HttpClient() override = default;
 
@@ -35,11 +35,12 @@ public:
 
     // One-shot GET — returns the raw response body on success.
     static std::optional<std::string>
-    get_body(std::string_view url, address_family af, std::string_view interface = {});
+    get_body(std::string_view url, std::optional<address_family> af = std::nullopt,
+             const std::optional<std::string> &interface = std::nullopt);
 
 private:
     address_family af_;
-    std::string interface_;
+    std::optional<std::string> interface_;
 };
 
 #endif //YADDNSC_NETWORK_HTTPCLIENT_H

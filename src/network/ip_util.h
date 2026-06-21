@@ -16,7 +16,7 @@ enum class address_family;
 namespace IPUtil {
     std::vector<std::string> extract_address(const std::map<std::string, int> &, address_family);
 
-    std::optional<std::string> get_ip_from_url(std::string_view, address_family, const char *);
+    std::optional<std::string> get_ip_from_url(std::string_view, address_family, const std::optional<std::string> &);
 
     int to_socket_type(address_family);
 
