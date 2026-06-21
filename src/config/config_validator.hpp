@@ -158,8 +158,10 @@ public:
 
                 if (!subdomain.interface.empty()) {
                     if (std::ranges::find(interfaces, subdomain.interface) == interfaces.end()) {
+                        auto available = fmt::format("{}", fmt::join(interfaces, ", "));
                         throw ConfigVerificationException(
-                            fmt::format("Interface {} not found", subdomain.interface));
+                            fmt::format("Interface {} not found, available interfaces: {}", subdomain.interface, available)
+                        );
                     }
                 }
             }
