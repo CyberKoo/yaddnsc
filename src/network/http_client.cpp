@@ -51,85 +51,64 @@ namespace {
 
         return ca_path;
     }
-}
 
-httplib::Client HttpClient::detail::connect(const Uri &uri, address_family family, std::string_view nif_name) {
-    SPDLOG_DEBUG("Connecting to {}", uri.get_host());
-    auto client = httplib::Client(fmt::format("{}://{}:{}", uri.get_schema(), uri.get_host(), uri.get_port()));
+    httplib::Client connect(const Uri &uri, address_family family, std::string_view nif_name) {
+        SPDLOG_DEBUG("Connecting to {}", uri.get_host());
+        auto client = httplib::Client(fmt::format("{}://{}:{}", uri.get_schema(), uri.get_host(), uri.get_port()));
 
-    // if is https
-    if (uri.get_schema() == "https") {
-        if (const auto ca_path = get_system_ca_path()) {
-            client.set_ca_cert_path(*ca_path);
-            client.enable_server_certificate_verification(true);
+        // if is https
+        if (uri.get_schema() == "https") {
+            if (const auto ca_path = get_system_ca_path()) {
+                client.set_ca_cert_path(*ca_path);
+                client.enable_server_certificate_verification(true);
+            }
         }
+
+        // set outbound interface
+        if (!nif_name.empty()) {
+            client.set_interface(nif_name.data());
+        }
+
+        // set address family
+        client.set_address_family(IPUtil::to_socket_type(family));
+        client.set_connection_timeout(std::chrono::seconds(5));
+        client.set_read_timeout(std::chrono::seconds(5));
+        client.set_follow_location(true);
+        client.set_default_headers({{"User-Agent", yaddnsc::get_full_version().data()}});
+
+        return client;
     }
 
-    // set outbound interface
-    if (!nif_name.empty()) {
-        client.set_interface(nif_name.data());
+    std::string build_request(const Uri &uri) {
+        if (uri.get_query_string().empty()) {
+            return std::string(uri.get_path());
+        }
+
+        return fmt::format("{}?{}", uri.get_path(), uri.get_query_string());
     }
-
-    // set address family
-    client.set_address_family(IPUtil::to_socket_type(family));
-    client.set_connection_timeout(std::chrono::seconds(5));
-    client.set_read_timeout(std::chrono::seconds(5));
-    client.set_follow_location(true);
-    client.set_default_headers({{"User-Agent", yaddnsc::get_full_version().data()}});
-
-    return client;
 }
 
-httplib::Result HttpClient::get(const Uri &uri, address_family family, std::string_view nif_name) {
-    auto client = detail::connect(uri, family, nif_name);
-    return client.Get(detail::build_request(uri));
+// ---------------------------------------------------------------------------
+// Construction
+// ---------------------------------------------------------------------------
+
+HttpClient::HttpClient(address_family af, std::string_view interface)
+    : af_(af), interface_(interface) {
 }
 
-httplib::Result HttpClient::post(const Uri &uri, const param_type &parameters, address_family family,
-                                 std::string_view nif_name) {
-    SPDLOG_TRACE("POST to URI {}", uri.get_raw_uri());
+// ---------------------------------------------------------------------------
+// IHttpSender
+// ---------------------------------------------------------------------------
 
-    auto client = detail::connect(uri, family, nif_name);
-    return client.Post(detail::build_request(uri), parameters);
+void HttpClient::set_address_family(address_family af) {
+    af_ = af;
 }
 
-httplib::Result HttpClient::put(const Uri &uri, const param_type &parameters, address_family family,
-                                std::string_view nif_name) {
-    SPDLOG_TRACE("PUT to URI {}", uri.get_raw_uri());
-
-    auto client = detail::connect(uri, family, nif_name);
-    return client.Put(detail::build_request(uri), parameters);
-}
-
-httplib::Result HttpClient::patch(const Uri &uri, const param_type &parameters, address_family family,
-                                  std::string_view nif_name) {
-    SPDLOG_TRACE("PATCH to URI {}", uri.get_raw_uri());
-
-    auto client = detail::connect(uri, family, nif_name);
-    return client.Patch(detail::build_request(uri), parameters);
-}
-
-httplib::Result HttpClient::del(const Uri &uri, const param_type &parameters, address_family family,
-                                std::string_view nif_name) {
-    SPDLOG_TRACE("DELETE to URI {}", uri.get_raw_uri());
-
-    auto client = detail::connect(uri, family, nif_name);
-    return client.Delete(detail::build_request(uri), parameters);
-}
-
-std::string HttpClient::detail::build_request(const Uri &uri) {
-    if (uri.get_query_string().empty()) {
-        return std::string(uri.get_path());
-    }
-
-    return fmt::format("{}?{}", uri.get_path(), uri.get_query_string());
-}
-
-httplib::Result HttpClient::send(const http_request &req, address_family family, std::string_view nif_name) {
+HttpResponse HttpClient::send(const http_request &req) {
     const auto uri = Uri::parse(req.url);
-    auto client = detail::connect(uri, family, nif_name);
+    auto client = connect(uri, af_, interface_);
     httplib::Headers headers{req.header.begin(), req.header.end()};
-    const auto path = detail::build_request(uri);
+    const auto path = build_request(uri);
 
     auto with_body = [&](auto method) -> httplib::Result {
         if (auto *body = std::get_if<http_param_type>(&req.body)) {
@@ -140,18 +119,57 @@ httplib::Result HttpClient::send(const http_request &req, address_family family,
                       std::get<std::string>(req.body), req.content_type.c_str());
     };
 
+    httplib::Result result;
+
     switch (req.request_method) {
         case http_method_type::GET:
-            return client.Get(path, headers);
+            result = client.Get(path, headers);
+            break;
         case http_method_type::POST:
-            return with_body([&]<typename... T>(T &&... args) { return client.Post(std::forward<T>(args)...); });
+            result = with_body([&]<typename... T>(T &&... args) { return client.Post(std::forward<T>(args)...); });
+            break;
         case http_method_type::PUT:
-            return with_body([&]<typename... T>(T &&... args) { return client.Put(std::forward<T>(args)...); });
+            result = with_body([&]<typename... T>(T &&... args) { return client.Put(std::forward<T>(args)...); });
+            break;
         case http_method_type::PATCH:
-            return with_body([&]<typename... T>(T &&... args) { return client.Patch(std::forward<T>(args)...); });
+            result = with_body([&]<typename... T>(T &&... args) { return client.Patch(std::forward<T>(args)...); });
+            break;
         case http_method_type::DEL:
-            return client.Delete(path, headers);
-        default:
-            return client.Get(path, headers);
+            result = client.Delete(path, headers);
+            break;
     }
+
+    if (!result) {
+        HttpResponse resp;
+        resp.success = false;
+        resp.error_message = std::string(httplib::to_string(result.error()));
+        return resp;
+    }
+
+    HttpResponse resp;
+    resp.success = true;
+    resp.status_code = result->status;
+    resp.headers = {result->headers.begin(), result->headers.end()};
+    resp.body = result->body;
+    return resp;
+}
+
+// ---------------------------------------------------------------------------
+// Static convenience: one-shot GET
+// ---------------------------------------------------------------------------
+
+std::optional<std::string> HttpClient::get_body(std::string_view url, address_family af, std::string_view interface) {
+    http_request req;
+    req.url = url;
+    req.request_method = http_method_type::GET;
+
+    HttpClient client(af, interface);
+    auto resp = client.send(req);
+
+    if (!resp.success) {
+        SPDLOG_WARN(R"(Failed to fetch "{}", error: {})", url, resp.error_message);
+        return std::nullopt;
+    }
+
+    return resp.body;
 }

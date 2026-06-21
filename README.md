@@ -59,6 +59,8 @@ HTTP → DNS provider API"]
 
 **Thread model:** A single scheduler thread maintains a min-heap of `SubdomainEntry` items ordered by deadline. When a subdomain is due, the scheduler pops it, submits the work (IP detection, DNS comparison, HTTP update) to the shared thread pool, and re-queues the entry with its next deadline. The scheduler sleeps on a condition variable until the nearest deadline or a stop request. On shutdown it drains all in-flight pool tasks before returning.
 
+**HTTP abstraction layer:** All provider API communication flows through the `IHttpSender` interface. The concrete implementation — `HttpClient` — wraps [cpp-httplib](https://github.com/yhirose/cpp-httplib) internally and keeps `httplib` types out of all public headers. The core binds the correct network interface and address family from the per-subdomain config, then injects the sender into each driver call.
+
 ## Build Requirements
 
 ### Prerequisites

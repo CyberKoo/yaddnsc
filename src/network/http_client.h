@@ -5,42 +5,41 @@
 #ifndef YADDNSC_NETWORK_HTTPCLIENT_H
 #define YADDNSC_NETWORK_HTTPCLIENT_H
 
-#include <map>
+#include <optional>
 #include <string>
 #include <string_view>
 
 #include "type.h"
+#include "http_client_interface.h"
 
-struct http_request;
+// ---------------------------------------------------------------------------
+// HttpClient — concrete IHttpSender that wraps cpp-httplib.
+//
+// Construct with an address family and optional network interface; use
+// send() to issue arbitrary requests.  get_text() is a static convenience
+// for one-shot GET calls (e.g. external-IP discovery).
+// ---------------------------------------------------------------------------
+class HttpClient final : public IHttpSender {
+public:
+    explicit HttpClient(address_family af, std::string_view interface = {});
 
-namespace httplib {
-    class Result;
+    ~HttpClient() override = default;
 
-    class Client;
-}
+    HttpClient(const HttpClient &) = delete;
 
-class Uri;
+    HttpClient &operator=(const HttpClient &) = delete;
 
-namespace HttpClient {
-    using param_type = std::multimap<std::string, std::string>;
+    void set_address_family(address_family af) override;
 
-    namespace detail {
-        httplib::Client connect(const Uri &uri, address_family family, std::string_view nif_name = {});
-        std::string build_request(const Uri &);
-    }
+    HttpResponse send(const http_request &req) override;
 
-    httplib::Result get(const Uri &, address_family, std::string_view nif_name = {});
+    // One-shot GET — returns the raw response body on success.
+    static std::optional<std::string>
+    get_body(std::string_view url, address_family af, std::string_view interface = {});
 
-    httplib::Result post(const Uri &, const param_type &, address_family, std::string_view nif_name = {});
-
-    httplib::Result patch(const Uri &, const param_type &, address_family, std::string_view nif_name = {});
-
-    httplib::Result put(const Uri &, const param_type &, address_family, std::string_view nif_name = {});
-
-    httplib::Result del(const Uri &, const param_type &, address_family, std::string_view nif_name = {});
-
-    // General-purpose request: accepts an http_request (any method, any body type, custom headers)
-    httplib::Result send(const http_request &, address_family, std::string_view nif_name = {});
-}
+private:
+    address_family af_;
+    std::string interface_;
+};
 
 #endif //YADDNSC_NETWORK_HTTPCLIENT_H

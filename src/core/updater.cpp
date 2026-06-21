@@ -10,7 +10,6 @@
 
 #include <spdlog/spdlog.h>
 
-#include <httplib.h>
 #include <magic_enum/magic_enum.hpp>
 
 #include "dns/dns.h"
@@ -24,41 +23,6 @@
 #include "http_type_formatter.hpp"
 
 #include "exception/dns_lookup_exception.h"
-
-// ---------------------------------------------------------------------------
-// HttpClientSender — wraps HttpClient::send() in the IHttpSender interface.
-// Binds the network interface at construction; address family is settable.
-// ---------------------------------------------------------------------------
-class HttpClientSender final : public IHttpSender {
-public:
-    HttpClientSender(address_family af, std::string_view interface) : af_(af), interface_(interface) {
-    }
-
-    void set_address_family(address_family af) override {
-        af_ = af;
-    }
-
-    HttpResponse send(const http_request &req) override {
-        auto result = HttpClient::send(req, af_, interface_);
-
-        HttpResponse resp;
-        if (!result) {
-            resp.success = false;
-            resp.error_message = std::string(magic_enum::enum_name(result.error()));
-            return resp;
-        }
-
-        resp.success = true;
-        resp.status_code = result->status;
-        resp.headers = {result->headers.begin(), result->headers.end()};
-        resp.body = result->body;
-        return resp;
-    }
-
-private:
-    address_family af_;
-    std::string interface_;
-};
 
 // ---------------------------------------------------------------------------
 // Updater::Impl — all private helpers live here.
@@ -159,7 +123,7 @@ void Updater::Impl::process(const UpdateTask &task) const {
 
     // --- Step 5: delegate to driver via IHttpSender -------------------------
 
-    HttpClientSender http_sender{address_family::UNSPECIFIED, task.subdomain.interface};
+    HttpClient http_sender{address_family::UNSPECIFIED, task.subdomain.interface};
     if (!driver->execute(parameters, ctx, http_sender)) {
         return;
     }
