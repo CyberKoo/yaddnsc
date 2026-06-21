@@ -88,7 +88,7 @@ namespace Util {
                 return std::move(*cached);
             }
             Value value = std::invoke(std::forward<Fn>(factory));
-            set(key, std::move(value));
+            set(key, value);
             return value;
         }
 
