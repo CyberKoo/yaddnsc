@@ -8,8 +8,8 @@
 #include <map>
 #include <string>
 
-#include "http_types.h"
 #include "type.h"
+#include "http_types.h"
 
 struct HttpResponse final {
     bool success{false};

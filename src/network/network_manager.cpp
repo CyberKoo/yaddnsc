@@ -12,9 +12,9 @@
 #include <cstring>
 #include <stdexcept>
 #include <functional>
-#include <mutex>
 
 #include "fmt.hpp"
+#include "util/cache.h"
 
 #include <netdb.h>
 #include <ifaddrs.h>
@@ -75,15 +75,15 @@ private:
         return family == AF_INET6 ? sizeof(sockaddr_in6) : sizeof(sockaddr_in);
     }
 
-    std::map<std::string, std::vector<interface_address> > get_all_interface_addresses() {
-        auto current_time = std::chrono::steady_clock::now();
-        {
-            std::lock_guard lock(cache_mutex_);
-            if (!cached_addresses_.empty() && (current_time - cache_timestamp_) < CACHE_TTL) {
-                return cached_addresses_;
-            }
-        }
+    static constexpr auto CACHE_TTL = std::chrono::seconds(5);
 
+    std::map<std::string, std::vector<interface_address> > get_all_interface_addresses() {
+        return address_cache_.get_or_compute(CACHE_KEY, [this]() -> decltype(auto) {
+            return collect_interface_addresses();
+        });
+    }
+
+    std::map<std::string, std::vector<interface_address> > collect_interface_addresses() {
         std::map<std::string, std::vector<interface_address> > interface_address_map;
         auto ifaddrs = get_ifaddrs();
 
@@ -111,19 +111,11 @@ private:
             interface_address_map[ifa->ifa_name].emplace_back(interface_address{host, family});
         }
 
-        {
-            std::lock_guard lock(cache_mutex_);
-            cached_addresses_ = interface_address_map;
-            cache_timestamp_ = current_time;
-        }
         return interface_address_map;
     }
 
-    static constexpr auto CACHE_TTL = std::chrono::seconds(5);
-
-    std::mutex cache_mutex_;
-    std::map<std::string, std::vector<interface_address> > cached_addresses_;
-    std::chrono::steady_clock::time_point cache_timestamp_;
+    inline static const std::string CACHE_KEY = "interfaces";
+    Util::TtlCache<std::string, std::map<std::string, std::vector<interface_address> > > address_cache_{CACHE_TTL};
 };
 
 NetworkManager::NetworkManager() : impl_(std::make_unique<Impl>()) {
