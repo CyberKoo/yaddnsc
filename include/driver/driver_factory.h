@@ -11,10 +11,11 @@
 #define EXPORT __attribute__((visibility("default")))
 #endif
 
-#define DEFINE_DRIVER_FACTORY(DriverClass)      \
+#define DEFINE_DRIVER_FACTORY(DriverClass)     \
 extern "C" EXPORT IDriver* create() {          \
     return new DriverClass();                  \
 }                                              \
+                                               \
 extern "C" EXPORT void destroy(IDriver* p) {   \
     delete p;                                  \
 }

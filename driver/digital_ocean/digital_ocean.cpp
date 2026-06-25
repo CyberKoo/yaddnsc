@@ -3,20 +3,18 @@
 //
 
 #include "digital_ocean.h"
-#include "response.h"
-
-#include "core_logger.h"
-#include "fmt.hpp"
-#include <driver/driver_factory.h>
 
 #include "config.hpp"
+#include "driver/driver_factory.h"
+#include "fmt.hpp"
+#include "interfaces/core_logger.h"
+#include "response.h"
 
 DEFINE_DRIVER_FACTORY(DigitalOceanDriver)
 
 constexpr std::string_view API_URL = "https://api.digitalocean.com/v2/domains/{DOMAIN}/records/{RECORD_ID}";
 
-driver_request DigitalOceanDriver::generate_request(
-    const driver_config_type &config, const UpdateContext &ctx) const {
+driver_request DigitalOceanDriver::generate_request(const driver_config_type &config, const UpdateContext &ctx) const {
     auto cfg = parse_config<DigitalOceanParams>(config);
 
     driver_request request{};

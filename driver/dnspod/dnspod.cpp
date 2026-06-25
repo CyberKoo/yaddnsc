@@ -4,13 +4,13 @@
 
 #include "dnspod.h"
 
-#include "response.h"
-
-#include "fmt.hpp"
-#include "core_logger.h"
-#include <driver/driver_factory.h>
+#include <unordered_map>
 
 #include "config.hpp"
+#include "driver/driver_factory.h"
+#include "fmt.hpp"
+#include "interfaces/core_logger.h"
+#include "response.h"
 
 DEFINE_DRIVER_FACTORY(DNSPodDriver)
 
@@ -18,12 +18,11 @@ constexpr std::string_view API_URL_CN = "https://dnsapi.cn/Record.Ddns";
 
 constexpr std::string_view API_URL_GLOBAL = "https://api.dnspod.com/Record.Ddns";
 
-driver_request DNSPodDriver::generate_request(
-    const driver_config_type &config, const UpdateContext &ctx) const {
+driver_request DNSPodDriver::generate_request(const driver_config_type &config, const UpdateContext &ctx) const {
     auto cfg = parse_config<DNSPodParams>(config);
 
     // record_line: optional, with dynamic default based on global flag
-    auto record_line = cfg.record_line.value_or(cfg.global ? std::string("default") : std::string("默认"));
+    auto record_line = cfg.record_line.value_or(cfg.global ? "default" : "默认");
 
     driver_request request{};
     request.url = cfg.global ? API_URL_GLOBAL : API_URL_CN;
@@ -45,7 +44,7 @@ driver_request DNSPodDriver::generate_request(
 }
 
 std::string_view DNSPodDriver::describe_error_code(std::string_view code) {
-    static constexpr std::pair<std::string_view, std::string_view> known_codes[] = {
+    static std::unordered_map<std::string_view, std::string_view> known_codes = {
         {"-15", "Domain got prohibited"},
         {"-8", "You need a upgrade for the domain you are acting for"},
         {"-7", "A domain of a company account need a upgrade first"},
@@ -69,13 +68,8 @@ std::string_view DNSPodDriver::describe_error_code(std::string_view code) {
         {"-99", "This API is not ready to be used"},
     };
 
-    for (auto &[c, desc]: known_codes) {
-        if (c == code) {
-            return desc;
-        }
-    }
-
-    return "Unknown error code";
+    const auto it = known_codes.find(code);
+    return it != known_codes.end() ? it->second : "Unknown error code";
 }
 
 bool DNSPodDriver::check_response(std::string_view response) const {

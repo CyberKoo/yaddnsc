@@ -7,11 +7,12 @@
 
 #include <glaze/glaze.hpp>
 
+#include "interfaces/driver.h"
+#include "interfaces/core_logger.h"
+#include "interfaces/http_client.h"
+
 #include "driver_ver.h"
-#include "core_logger.h"
-#include "driver_interface.h"
 #include "driver/exceptions.h"
-#include "http_client_interface.h"
 #include "http_type_formatter.hpp"
 
 class BaseDriver : public IDriver {
@@ -46,8 +47,7 @@ protected:
     template<typename T>
     [[nodiscard]] static T parse_config(const driver_config_type &config) {
         T value{};
-        glz::context ctx{};
-        const auto ec = glz::read<glz::opts{.error_on_missing_keys = true}>(value, config, ctx);
+        const auto ec = glz::read<glz::opts{.error_on_missing_keys = true}>(value, config, glz::context{});
         if (ec == glz::error_code::none) [[likely]] {
             return value;
         }

@@ -3,19 +3,18 @@
 //
 #include "http_client.h"
 
-#include <filesystem>
-#include <optional>
-
 #include <sys/socket.h>
 
-#include "fmt.hpp"
+#include <filesystem>
+#include <optional>
 
 #include <httplib.h>
 #include <spdlog/spdlog.h>
 
+#include "fmt.hpp"
 #include "http_types.h"
-#include "uri.h"
 #include "ip_util.h"
+#include "uri.h"
 #include "version.h"
 
 namespace {

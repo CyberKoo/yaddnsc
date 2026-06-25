@@ -6,23 +6,20 @@
 
 #include <utility>
 
-#include "fmt.hpp"
-
+#include <magic_enum/magic_enum.hpp>
 #include <spdlog/spdlog.h>
 
-#include <magic_enum/magic_enum.hpp>
-
 #include "dns/dns.h"
-#include "util/retry_util.h"
-#include "network/ip_util.h"
-#include "network/http_client.h"
 #include "driver_manager.h"
-#include "network/network_manager.h"
-#include "http_client_interface.h"
-#include "driver_interface.h"
-#include "http_type_formatter.hpp"
-
 #include "exception/dns_lookup_exception.h"
+#include "fmt.hpp"
+#include "http_type_formatter.hpp"
+#include "interfaces/driver.h"
+#include "interfaces/http_client.h"
+#include "network/http_client.h"
+#include "network/ip_util.h"
+#include "network/network_manager.h"
+#include "util/retry_util.h"
 
 // ---------------------------------------------------------------------------
 // Updater::Impl — all private helpers live here.

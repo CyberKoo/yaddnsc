@@ -3,19 +3,18 @@
 //
 #include "driver_manager.h"
 
-#include <string>
-#include <algorithm>
-#include <filesystem>
-
-#include "fmt.hpp"
-#include <spdlog/spdlog.h>
-
-// POSIX function
 #include <dlfcn.h>
 
+#include <algorithm>
+#include <filesystem>
+#include <string>
+
+#include <spdlog/spdlog.h>
+
 #include "driver_ver.h"
-#include "driver_interface.h"
 #include "exception/bad_driver_exception.h"
+#include "fmt.hpp"
+#include "interfaces/driver.h"
 
 // Internal implementation
 class DriverManager::Impl {
@@ -42,9 +41,9 @@ public:
     // Custom deleter that calls destroy() inside the driver .so,
     // ensuring allocation and deallocation stay in the same module.
     struct DriverDeleter {
-        void (*destroy_)(IDriver*) = nullptr;
+        void (*destroy_)(IDriver *) = nullptr;
 
-        void operator()(IDriver* p) const noexcept {
+        void operator()(IDriver *p) const noexcept {
             if (destroy_ && p) {
                 destroy_(p);
             }
@@ -66,7 +65,8 @@ public:
 
     Driver &operator=(Driver &&) = default;
 
-    explicit Driver(const std::string &path) : handle_{dlopen(path.c_str(), RTLD_NOW)}, driver_(nullptr, DriverDeleter{}) {
+    explicit Driver(const std::string &path) : handle_{dlopen(path.c_str(), RTLD_NOW)},
+                                               driver_(nullptr, DriverDeleter{}) {
         if (handle_ == nullptr) {
             SPDLOG_CRITICAL("Unable to load driver {}, error: {}", get_driver_name(path), dlerror());
             throw BadDriverException(fmt::format("Failed to load driver: {}", dlerror()));
@@ -75,7 +75,7 @@ public:
                      static_cast<const void *>(handle_.get()));
 
         auto create_func = resolve_symbol<IDriver*()>(handle_.get(), "create");
-        auto destroy_func = resolve_symbol<void(IDriver*)>(handle_.get(), "destroy");
+        auto destroy_func = resolve_symbol<void(IDriver *)>(handle_.get(), "destroy");
 
         driver_ = driver_ptr(create_func(), DriverDeleter{destroy_func});
     }
@@ -84,9 +84,9 @@ private:
     // Resolve a symbol from a shared library and check for errors.
     // Signature is a function type, e.g. IDriver*() or void(IDriver*).
     template<typename Signature>
-    static Signature* resolve_symbol(void* handle, const char* name) {
-        dlerror();  // clear previous errors before calling dlsym
-        auto sym = reinterpret_cast<Signature*>(dlsym(handle, name));
+    static Signature *resolve_symbol(void *handle, const char *name) {
+        dlerror(); // clear previous errors before calling dlsym
+        auto sym = reinterpret_cast<Signature *>(dlsym(handle, name));
         if (const auto error = dlerror()) {
             SPDLOG_CRITICAL("Failed to resolve symbol '{}', error: {}", name, error);
             throw BadDriverException(fmt::format("Failed to resolve symbol '{}' in driver: {}", name, error));
@@ -96,7 +96,6 @@ private:
     }
 
 public:
-
     driver_ptr &get() {
         return driver_;
     }
@@ -170,7 +169,7 @@ void DriverManager::Impl::register_driver(Driver driver_res, std::string_view dr
                         driver->get_driver_version(), DRV_VERSION);
 
         throw BadDriverException(fmt::format("Driver {} ABI version mismatch: got {}, expected {}",
-                                                driver_lib_name, driver->get_driver_version(), DRV_VERSION));
+                                             driver_lib_name, driver->get_driver_version(), DRV_VERSION));
     }
 
     auto [name, description, author, version] = driver->get_detail();

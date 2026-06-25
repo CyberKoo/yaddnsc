@@ -4,27 +4,27 @@
 
 #include "manager.h"
 
+#include <unistd.h>
+
+#include <chrono>
+#include <condition_variable>
+#include <csignal>
+#include <filesystem>
 #include <queue>
 #include <thread>
 #include <utility>
-#include <chrono>
-#include <csignal>
-#include <filesystem>
-#include <condition_variable>
 
-#include <unistd.h>
-
-#include "fmt.hpp"
-#include <spdlog/spdlog.h>
 #include <BS_thread_pool.hpp>
-#include <config_cmake.h>
+#include <spdlog/spdlog.h>
 
-#include "updater.h"
-#include "update_task.h"
 #include "config/config_validator.hpp"
+#include "config_cmake.h"
+#include "driver_manager.h"
+#include "fmt.hpp"
 #include "min_update_interval.h"
 #include "network/network_manager.h"
-#include "driver_manager.h"
+#include "update_task.h"
+#include "updater.h"
 #include "util/algorithm.h"
 
 // ---------------------------------------------------------------------------

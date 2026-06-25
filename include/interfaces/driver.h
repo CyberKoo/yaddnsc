@@ -9,7 +9,7 @@
 #include <string_view>
 
 #include "http_types.h"
-#include "http_client_interface.h"
+#include "http_client.h"
 
 using driver_config_type = std::string;
 using driver_param_type = http_param_type;

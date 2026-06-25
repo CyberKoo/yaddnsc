@@ -1,0 +1,75 @@
+yaddnsc Third-Party Licenses
+=============================
+
+This project uses the following third-party libraries. Each is used under its
+respective license. The full license texts are referenced via URL; when
+distributing binaries, please retain this file and ensure compliance with each
+license's attribution and notice requirements.
+
+===============================================================================
+MIT License (all libraries listed below)
+===============================================================================
+
+The following libraries are licensed under the MIT License. Copies of the
+MIT license are available at: https://opensource.org/licenses/MIT
+
+  - glaze 7.8.2               https://github.com/stephenberry/glaze
+    Copyright (c) 2019 - present, Stephen Berry
+
+  - fmt 12.2.0                https://github.com/fmtlib/fmt
+    Copyright (c) 2012 - present, Victor Zverovich and {fmt} contributors
+
+  - spdlog 1.17.0             https://github.com/gabime/spdlog
+    Copyright (c) 2016 - present, Gabi Melman and spdlog contributors
+
+  - cpp-httplib 0.47.0        https://github.com/yhirose/cpp-httplib
+    Copyright (c) 2017 yhirose
+
+  - cxxopts 3.3.1             https://github.com/jarro2783/cxxopts
+    Copyright (c) 2014 Jarryd Beck
+
+  - magic_enum 0.9.8          https://github.com/Neargye/magic_enum
+    Copyright (c) 2019 - 2024 Daniil Goncharov
+
+  - BS::thread_pool 5.1.0     https://github.com/bshoshany/thread-pool
+    Copyright (c) 2021-2026 Barak Shoshany
+
+===============================================================================
+zlib License
+===============================================================================
+
+  - zlib (system library)     https://www.zlib.net/
+    Copyright (c) 1995-2024 Jean-loup Gailly and Mark Adler
+
+  This software is provided 'as-is', without any express or implied warranty.
+  In no event will the authors be held liable for any damages arising from
+  the use of this software.
+
+  Permission is granted to anyone to use this software for any purpose,
+  including commercial applications, and to alter it and redistribute it
+  freely, subject to the following restrictions:
+
+  1. The origin of this software must not be misrepresented; you must not
+     claim that you wrote the original software. If you use this software
+     in a product, an acknowledgment in the product documentation would be
+     appreciated but is not required.
+  2. Altered source versions must be plainly marked as such, and must not
+     be misrepresented as being the original software.
+  3. This notice may not be removed or altered from any source distribution.
+
+===============================================================================
+OpenSSL License
+===============================================================================
+
+  - OpenSSL (system library)   https://www.openssl.org/
+    Copyright (c) 1995-2024 The OpenSSL Project
+
+  OpenSSL is dual-licensed under the OpenSSL License and the original SSLeay
+  License.  When distributing binaries that link OpenSSL, you must include
+  the following notice in your documentation:
+
+    This product includes software developed by the OpenSSL Project for use
+    in the OpenSSL Toolkit (https://www.openssl.org/).
+
+  The full license texts can be found at:
+    https://www.openssl.org/source/license.html

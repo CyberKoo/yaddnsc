@@ -3,27 +3,27 @@
 //
 #include "dns_resolver.h"
 
+#include <arpa/inet.h>
+#include <arpa/nameser.h>
+#include <netdb.h>
+#include <netinet/in.h>
+#include <resolv.h>
+#include <sys/socket.h>
+
+#include <condition_variable>
+#include <cstring>
+#include <memory>
+#include <mutex>
+#include <optional>
+#include <thread>
+
 #include <spdlog/spdlog.h>
 
-#include <arpa/nameser.h>
-#include <arpa/inet.h>
-#include <netinet/in.h>
-#include <sys/socket.h>
-#include <resolv.h>
-#include <netdb.h>
-
-#include <cstring>
-#include <thread>
-#include <mutex>
-#include <condition_variable>
-#include <memory>
-#include <optional>
-#include <config_cmake.h>
-
+#include "config_cmake.h"
 #include "dns.h"
+#include "exception/dns_lookup_exception.h"
 #include "fmt.hpp"
 #include "network/ip_util.h"
-#include "exception/dns_lookup_exception.h"
 
 // only for musl
 #ifndef NETDB_INTERNAL

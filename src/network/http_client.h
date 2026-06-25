@@ -10,7 +10,7 @@
 #include <string_view>
 
 #include "type.h"
-#include "http_client_interface.h"
+#include "interfaces/http_client.h"
 
 // ---------------------------------------------------------------------------
 // HttpClient — concrete IHttpSender that wraps cpp-httplib.

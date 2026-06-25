@@ -3,19 +3,17 @@
 //
 #include "cloudflare.h"
 
-#include "core_logger.h"
-#include "fmt.hpp"
-#include <driver/driver_factory.h>
-
 #include "config.hpp"
+#include "driver/driver_factory.h"
+#include "fmt.hpp"
+#include "interfaces/core_logger.h"
 #include "response.h"
 
 DEFINE_DRIVER_FACTORY(CloudflareDriver)
 
 constexpr std::string_view API_URL = "https://api.cloudflare.com/client/v4/zones/{ZONE_ID}/dns_records/{RECORD_ID}";
 
-driver_request CloudflareDriver::generate_request(
-    const driver_config_type &config, const UpdateContext &ctx) const {
+driver_request CloudflareDriver::generate_request(const driver_config_type &config, const UpdateContext &ctx) const {
     auto cfg = parse_config<CloudflareParams>(config);
 
     driver_request request{};

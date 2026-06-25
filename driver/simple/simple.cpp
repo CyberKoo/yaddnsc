@@ -4,16 +4,15 @@
 
 #include "simple.h"
 
-#include "core_logger.h"
-#include "fmt.hpp"
-#include <driver/driver_factory.h>
-
 #include <glaze/glaze.hpp>
+
+#include "driver/driver_factory.h"
+#include "fmt.hpp"
+#include "interfaces/core_logger.h"
 
 DEFINE_DRIVER_FACTORY(SimpleDriver)
 
-driver_request SimpleDriver::generate_request(
-    const driver_config_type &config, const UpdateContext &ctx) const {
+driver_request SimpleDriver::generate_request(const driver_config_type &config, const UpdateContext &ctx) const {
     auto full = parse_config<glz::generic>(config);
     if (!full.is_object() || !full.contains("url") || !full["url"].is_string()) {
         throw ParamParseException(fmt::format("Missing required parameter \"url\" in driver config"));
@@ -31,7 +30,7 @@ driver_request SimpleDriver::generate_request(
         }
     };
 
-    for (auto &[key, val] : obj) {
+    for (auto &[key, val]: obj) {
         if (key != "url" && val.is_string()) {
             substitute(key, val.get_string());
         }

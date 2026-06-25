@@ -3,18 +3,17 @@
 //
 #include "dns_record_parser.h"
 
-#include <cstring>
-
-#include "fmt.hpp"
-
-#include <spdlog/spdlog.h>
-
+#include <arpa/inet.h>
 #include <arpa/nameser.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
-#include <arpa/inet.h>
+
+#include <cstring>
+
+#include <spdlog/spdlog.h>
 
 #include "exception/dns_lookup_exception.h"
+#include "fmt.hpp"
 
 DnsRecordParser::DnsRecordParser(const data_type *data, const size_t size) {
     if (ns_initparse(data, static_cast<int>(size), &message_) != 0) {

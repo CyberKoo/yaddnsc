@@ -8,17 +8,15 @@
 #include "config.h"
 #include "core/base_classes.h"
 
-#include "fmt.hpp"
-#include <config_cmake.h>
-#include <min_update_interval.h>
-
-#include "uri.h"
-#include "dns/dns.h"
-#include "network/ip_util.h"
+#include "config_cmake.h"
 #include "core/driver_manager.h"
-#include "network/network_manager.h"
-
+#include "dns/dns.h"
 #include "exception/config_verification_exception.h"
+#include "fmt.hpp"
+#include "min_update_interval.h"
+#include "network/ip_util.h"
+#include "network/network_manager.h"
+#include "uri.h"
 
 class DriverManager;
 class NetworkManager;

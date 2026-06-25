@@ -1,36 +1,32 @@
 //
 // Created by Kotarou on 2022/4/5.
 //
-#include <iostream>
 #include <csignal>
+#include <iostream>
 
 #include <cxxopts.hpp>
 #include <spdlog/spdlog.h>
 
-#include "version.h"
 #include "config/config.h"
 #include "core/manager.h"
-#include "logging_pattern.h"
-
 #include "exception/base_exception.h"
 #include "exception/config_verification_exception.h"
+#include "logging_pattern.h"
+#include "version.h"
+
+void block_signals();
 
 int main(int argc, char *argv[]) {
-    // Block SIGINT and SIGTERM in all threads so they can be handled by
-    // a dedicated sigwait() thread inside Manager::run() instead of the
-    // default handler (which would kill the process immediately).
-    sigset_t sigset;
-    sigemptyset(&sigset);
-    sigaddset(&sigset, SIGINT);
-    sigaddset(&sigset, SIGTERM);
-    pthread_sigmask(SIG_BLOCK, &sigset, nullptr);
+    block_signals();
 
     // CLI parsing.
-    std::string config_path = "./config.json";
+    std::string config_path = "config.json";
+    bool test_config = false;
     cxxopts::Options options("yaddnsc", "Yet another DDNS client");
     options.add_options()
             ("v,verbose", "Enable verbose mode")
             ("c,config", "Config file path", cxxopts::value(config_path)->default_value("./config.json"))
+            ("t,test", "Test configuration file and exit")
             ("V,version", "Print version")
             ("h,help", "Print usage");
 
@@ -46,9 +42,13 @@ int main(int argc, char *argv[]) {
             return 0;
         }
 
+        if (result.count("test")) {
+            test_config = true;
+        }
+
         // Logging.
         spdlog::set_pattern(YADDNSC_LOGGING_PATTERN);
-        if (result["verbose"].as<bool>()) {
+        if (test_config || result["verbose"].as<bool>()) {
             spdlog::set_level(spdlog::level::debug);
             SPDLOG_DEBUG("Verbose mode enabled");
         } else {
@@ -64,6 +64,11 @@ int main(int argc, char *argv[]) {
 
         // Validate the config file.
         manager.validate_config();
+
+        if (test_config) {
+            SPDLOG_INFO("Configuration file test passed");
+            return 0;
+        }
 
         // Install a signal-handling thread that catches SIGINT/SIGTERM
         // and requests a graceful shutdown.
@@ -84,4 +89,15 @@ int main(int argc, char *argv[]) {
     }
 
     return -1;
+}
+
+void block_signals() {
+    // Block SIGINT and SIGTERM in all threads so they can be handled by
+    // a dedicated sigwait() thread inside Manager::run() instead of the
+    // default handler (which would kill the process immediately).
+    sigset_t sigset;
+    sigemptyset(&sigset);
+    sigaddset(&sigset, SIGINT);
+    sigaddset(&sigset, SIGTERM);
+    pthread_sigmask(SIG_BLOCK, &sigset, nullptr);
 }

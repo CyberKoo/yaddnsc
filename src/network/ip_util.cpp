@@ -4,11 +4,11 @@
 
 #include "ip_util.h"
 
-#include <vector>
-
-#include <sys/socket.h>
-#include <netinet/in.h>
 #include <arpa/inet.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
+
+#include <vector>
 
 #include "type.h"
 

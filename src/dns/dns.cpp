@@ -7,9 +7,9 @@
 
 #include <spdlog/spdlog.h>
 
-#include "fmt.hpp"
-#include "dns_resolver.h"
 #include "dns_record_parser.h"
+#include "dns_resolver.h"
+#include "fmt.hpp"
 
 std::vector<std::string>
 DNS::resolve(const std::string &host, dns_type type, const std::vector<DnsServer> &servers) {
