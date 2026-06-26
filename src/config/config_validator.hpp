@@ -13,7 +13,6 @@
 #include "dns/dns.h"
 #include "exception/config_verification_exception.h"
 #include "fmt.hpp"
-#include "min_update_interval.h"
 #include "network/ip_util.h"
 #include "network/network_manager.h"
 #include "uri.h"
@@ -71,7 +70,8 @@ namespace detail {
 #else
         if (!IPUtil::is_ipv4_address(address)) {
             throw ConfigVerificationException(
-                fmt::format(R"(Invalid resolver address "{}". Only IPv4 is supported on this platform.)", address));
+                fmt::format(R"(Invalid resolver address "{}". Only IPv4 is supported on this platform.)", address)
+            );
         }
 #endif
 #endif
@@ -90,7 +90,7 @@ namespace detail {
 // to validate() either returns normally (all checks pass) or throws at the
 // first violated constraint.
 // ---------------------------------------------------------------------------
-template<int MUpdateInterval>
+template<int UpdateInterval>
 class ConfigValidator : public RestrictedClass {
 public:
     ConfigValidator(const DriverManager &driver_manager, const NetworkManager &network_manager)
@@ -119,10 +119,10 @@ public:
             }
 
             // --- Check update interval. ------------------------------------------
-            if (update_interval < MUpdateInterval) {
+            if (update_interval < UpdateInterval) {
                 throw ConfigVerificationException(
                     fmt::format("Update interval too low for domain {} ({}), "
-                                "minimal interval: {}", name, update_interval, MUpdateInterval));
+                                "minimal interval: {}", name, update_interval, UpdateInterval));
             }
 
             // --- Check force-update interval. ------------------------------------
@@ -147,10 +147,10 @@ public:
                 detail::validate_ip_source(domain, subdomain);
 
                 // --- Validate per-subdomain update_interval if set. --------------
-                if (subdomain.update_interval != 0 && subdomain.update_interval < MUpdateInterval) {
+                if (subdomain.update_interval != 0 && subdomain.update_interval < UpdateInterval) {
                     throw ConfigVerificationException(
                         fmt::format("Update interval too low for subdomain {}.{} ({}), minimal interval: {}",
-                                    subdomain.name, name, subdomain.update_interval, MUpdateInterval)
+                                    subdomain.name, name, subdomain.update_interval, UpdateInterval)
                     );
                 }
 

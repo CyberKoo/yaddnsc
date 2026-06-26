@@ -7,6 +7,7 @@
 
 #include <filesystem>
 #include <optional>
+#include <utility>
 
 #include <httplib.h>
 #include <spdlog/spdlog.h>
@@ -73,7 +74,7 @@ namespace {
         client.set_connection_timeout(std::chrono::seconds(5));
         client.set_read_timeout(std::chrono::seconds(5));
         client.set_follow_location(true);
-        client.set_default_headers({{"User-Agent", yaddnsc::get_full_version().data()}});
+        client.set_default_headers({{"User-Agent", yaddnsc::get_full_version()}});
 
         return client;
     }
@@ -84,6 +85,65 @@ namespace {
         }
 
         return fmt::format("{}?{}", uri.get_path(), uri.get_query_string());
+    }
+
+    // -----------------------------------------------------------------------
+    // Dispatch: http_method_type -> httplib callable
+    // -----------------------------------------------------------------------
+
+    using BodyType = std::variant<http_param_type, std::string>;
+    using Invoker = httplib::Result (*)(httplib::Client &, const char *,
+                                        const httplib::Headers &,
+                                        const BodyType &, const char *);
+
+    Invoker select_invoker(http_method_type method) {
+        switch (method) {
+            case http_method_type::GET:
+                return [](httplib::Client &c, const char *p, const httplib::Headers &h,
+                          const BodyType &, const char *) -> httplib::Result {
+                    return c.Get(p, h);
+                };
+            case http_method_type::POST:
+                return [](httplib::Client &c, const char *p, const httplib::Headers &h,
+                          const BodyType &b, const char *ct) -> httplib::Result {
+                    if (auto body = std::get_if<http_param_type>(&b)) {
+                        return c.Post(p, h, *body);
+                    }
+                    return c.Post(p, h, std::get<std::string>(b), ct);
+                };
+            case http_method_type::PUT:
+                return [](httplib::Client &c, const char *p, const httplib::Headers &h,
+                          const BodyType &b, const char *ct) -> httplib::Result {
+                    if (auto body = std::get_if<http_param_type>(&b)) {
+                        return c.Put(p, h, *body);
+                    }
+                    return c.Put(p, h, std::get<std::string>(b), ct);
+                };
+            case http_method_type::DEL:
+                return [](httplib::Client &c, const char *p, const httplib::Headers &h,
+                          const BodyType &, const char *) -> httplib::Result {
+                    return c.Delete(p, h);
+                };
+            case http_method_type::PATCH:
+                return [](httplib::Client &c, const char *p, const httplib::Headers &h,
+                          const BodyType &b, const char *ct) -> httplib::Result {
+                    if (auto body = std::get_if<http_param_type>(&b)) {
+                        return c.Patch(p, h, *body);
+                    }
+                    return c.Patch(p, h, std::get<std::string>(b), ct);
+                };
+            case http_method_type::HEAD:
+                return [](httplib::Client &c, const char *p, const httplib::Headers &h,
+                          const BodyType &, const char *) -> httplib::Result {
+                    return c.Head(p, h);
+                };
+            case http_method_type::OPTIONS:
+                return [](httplib::Client &c, const char *p, const httplib::Headers &h,
+                          const BodyType &, const char *) -> httplib::Result {
+                    return c.Options(p, h);
+                };
+        }
+        std::unreachable();
     }
 }
 
@@ -109,34 +169,9 @@ HttpResponse HttpClient::send(const http_request &req) {
     httplib::Headers headers{req.header.begin(), req.header.end()};
     const auto path = build_request(uri);
 
-    auto with_body = [&](auto method) -> httplib::Result {
-        if (auto *body = std::get_if<http_param_type>(&req.body)) {
-            return method(path.c_str(), std::move(headers), *body);
-        }
-
-        return method(path.c_str(), std::move(headers),
-                      std::get<std::string>(req.body), req.content_type.c_str());
-    };
-
-    httplib::Result result;
-
-    switch (req.request_method) {
-        case http_method_type::GET:
-            result = client.Get(path, headers);
-            break;
-        case http_method_type::POST:
-            result = with_body([&]<typename... T>(T &&... args) { return client.Post(std::forward<T>(args)...); });
-            break;
-        case http_method_type::PUT:
-            result = with_body([&]<typename... T>(T &&... args) { return client.Put(std::forward<T>(args)...); });
-            break;
-        case http_method_type::PATCH:
-            result = with_body([&]<typename... T>(T &&... args) { return client.Patch(std::forward<T>(args)...); });
-            break;
-        case http_method_type::DEL:
-            result = client.Delete(path, headers);
-            break;
-    }
+    const auto result = select_invoker(req.request_method)(
+        client, path.c_str(), headers, req.body, req.content_type.c_str()
+    );
 
     if (!result) {
         HttpResponse resp;
@@ -157,7 +192,8 @@ HttpResponse HttpClient::send(const http_request &req) {
 // Static convenience: one-shot GET
 // ---------------------------------------------------------------------------
 
-std::optional<std::string> HttpClient::get_body(std::string_view url, std::optional<address_family> af, const std::optional<std::string> &interface) {
+std::optional<std::string> HttpClient::get_body(std::string_view url, std::optional<address_family> af,
+                                                const std::optional<std::string> &interface) {
     http_request req;
     req.url = url;
     req.request_method = http_method_type::GET;

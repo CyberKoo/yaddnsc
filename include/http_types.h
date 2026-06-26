@@ -12,7 +12,7 @@
 using http_param_type = std::multimap<std::string, std::string>;
 
 enum class http_method_type {
-    GET, POST, PUT, DEL, PATCH
+    GET, POST, PUT, DEL, PATCH, HEAD, OPTIONS
 };
 
 struct http_request {

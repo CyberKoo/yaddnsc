@@ -94,11 +94,11 @@ make -j$(nproc)
 
 ### CMake Options
 
-| Option             | Default | Description                                      |
-|--------------------|---------|--------------------------------------------------|
-| `CMAKE_BUILD_TYPE` | Release | Set to `Debug` for debug builds                  |
-| `YADDNSC_LOGGING_PATTERN` | `[%D %T.%e] [%^%8l%$] [%8!t] [%15!s:%-4#] %v` | Logging pattern passed to spdlog::set_pattern() |
-| `YADDNSC_MIN_UPDATE_INTERVAL` | 60 | Minimum allowed update interval in seconds (must not be negative) |
+| Option                        | Default                                       | Description                                                       |
+|-------------------------------|-----------------------------------------------|-------------------------------------------------------------------|
+| `CMAKE_BUILD_TYPE`            | Release                                       | Set to `Debug` for debug builds                                   |
+| `YADDNSC_LOGGING_PATTERN`     | `[%D %T.%e] [%^%8l%$] [%8!t] [%15!s:%-4#] %v` | Logging pattern passed to spdlog::set_pattern()                   |
+| `YADDNSC_MIN_UPDATE_INTERVAL` | 60                                            | Minimum allowed update interval in seconds (must not be negative) |
 
 Third-party dependencies (glaze, spdlog, cpp-httplib, cxxopts, BS::thread_pool, fmt) are fetched automatically via CPM.cmake.
 
@@ -184,20 +184,20 @@ A template configuration is available at `config.example.json`.
 
 #### `driver` object
 
-| Field          | Type      | Description                                                       |
-|----------------|-----------|-------------------------------------------------------------------|
-| `driver_dir`   | string    | Directory containing driver `.so` files                           |
-| `auto_discover`| boolean   | If true, automatically loads all `.so` files in `driver_dir` (ignores `load` list) |
-| `load`          | string[]  | List of driver shared library filenames to load (ignored when `auto_discover` is true) |
+| Field           | Type     | Description                                                                            |
+|-----------------|----------|----------------------------------------------------------------------------------------|
+| `driver_dir`    | string   | Directory containing driver `.so` files                                                |
+| `auto_discover` | boolean  | If true, automatically loads all `.so` files in `driver_dir` (ignores `load` list)     |
+| `load`          | string[] | List of driver shared library filenames to load (ignored when `auto_discover` is true) |
 
 #### `resolver` object
 
-| Field               | Type           | Description                                                                                                    |
-|---------------------|----------------|----------------------------------------------------------------------------------------------------------------|
-| `use_custom_server` | boolean        | If true, use the specified DNS server(s) instead of system                                                     |
-| `ipaddress`         | string         | DNS server IP address (legacy — used only when `servers` is empty)                                             |
-| `port`              | integer        | DNS server port, typically 53 (legacy — used only when `servers` is empty)                                     |
-| `servers`           | DnsServer[]    | List of DNS servers for redundancy. When multiple servers are configured, all queries are fired **concurrently** and the fastest successful response is used. If all servers fail, errors are propagated. |
+| Field               | Type        | Description                                                                                                                                                                                               |
+|---------------------|-------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `use_custom_server` | boolean     | If true, use the specified DNS server(s) instead of system                                                                                                                                                |
+| `ipaddress`         | string      | DNS server IP address (legacy — used only when `servers` is empty)                                                                                                                                        |
+| `port`              | integer     | DNS server port, typically 53 (legacy — used only when `servers` is empty)                                                                                                                                |
+| `servers`           | DnsServer[] | List of DNS servers for redundancy. When multiple servers are configured, all queries are fired **concurrently** and the fastest successful response is used. If all servers fail, errors are propagated. |
 
 When the `servers` array is present and non-empty, `ipaddress` and `port` are ignored. On platforms without `res_nquery()` support (e.g. some musl builds), custom servers cannot be configured and the system resolver is always used.
 
@@ -215,18 +215,18 @@ When the `servers` array is present and non-empty, `ipaddress` and `port` are ig
 
 #### `subdomains[]` object
 
-| Field              | Type    | Description                                                                                                |
-|--------------------|---------|------------------------------------------------------------------------------------------------------------|
-| `name`             | string  | Subdomain name (e.g. `home` for `home.example.com`)                                                        |
-| `type`             | string  | DNS record type: `"a"`, `"aaaa"`, `"txt"`, or `"soa"`                                                      |
+| Field              | Type    | Description                                                                                                          |
+|--------------------|---------|----------------------------------------------------------------------------------------------------------------------|
+| `name`             | string  | Subdomain name (e.g. `home` for `home.example.com`)                                                                  |
+| `type`             | string  | DNS record type: `"a"`, `"aaaa"`, `"txt"`, or `"soa"`                                                                |
 | `interface`        | string  | Network interface name (e.g. `eth0`). Required when `ip_source` is `"interface"`; can be omitted when using `"url"`. |
-| `ip_source`        | string  | IP source: `"interface"` (read from a local NIC) or `"url"` (fetch from HTTP)                              |
-| `ip_type`          | string  | IP version: `"ipv4"`, `"ipv6"`, or `"unspecified"`                                                         |
-| `ip_source_param`  | string  | For `"url"` source: the HTTP(S) URL. For `"interface"` source: currently unused.                           |
-| `allow_ula`        | boolean | When using IPv6 interface source, allow Unique Local Addresses (default: false)                            |
-| `allow_local_link` | boolean | When using IPv6 interface source, allow link-local addresses (default: false)                              |
-| `update_interval`  | int     | Per-subdomain update interval in seconds (optional). 0 or omitted = inherit from `domain.update_interval`. |
-| `driver_param`     | object  | Driver-specific parameters (key-value map)                                                                 |
+| `ip_source`        | string  | IP source: `"interface"` (read from a local NIC) or `"url"` (fetch from HTTP)                                        |
+| `ip_type`          | string  | IP version: `"ipv4"`, `"ipv6"`, or `"unspecified"`                                                                   |
+| `ip_source_param`  | string  | For `"url"` source: the HTTP(S) URL. For `"interface"` source: currently unused.                                     |
+| `allow_ula`        | boolean | When using IPv6 interface source, allow Unique Local Addresses (default: false)                                      |
+| `allow_local_link` | boolean | When using IPv6 interface source, allow link-local addresses (default: false)                                        |
+| `update_interval`  | int     | Per-subdomain update interval in seconds (optional). 0 or omitted = inherit from `domain.update_interval`.           |
+| `driver_param`     | object  | Driver-specific parameters (key-value map)                                                                           |
 
 > **Note:** The `interface` field is optional. When `ip_source` is `"url"`, you may omit `interface` entirely — no network interface binding will be used for the HTTP request. When `ip_source` is `"interface"`, `interface` is required.
 
@@ -257,14 +257,14 @@ API endpoint: `PUT https://api.digitalocean.com/v2/domains/{DOMAIN}/records/{REC
 
 ### DNSPod (`dnspod.so`)
 
-| Parameter        | Required | Description                                                        |
-|------------------|----------|--------------------------------------------------------------------|
-| `domain_id`      | Yes      | DNSPod Domain ID                                                   |
-| `record_id`      | Yes      | DNSPod Record ID                                                   |
-| `login_token`    | Yes      | DNSPod API login token (ID,Token format)                           |
+| Parameter        | Required | Description                                                           |
+|------------------|----------|-----------------------------------------------------------------------|
+| `domain_id`      | Yes      | DNSPod Domain ID                                                      |
+| `record_id`      | Yes      | DNSPod Record ID                                                      |
+| `login_token`    | Yes      | DNSPod API login token (ID,Token format)                              |
 | `global`         | No       | Use global API endpoint (`true`) or China endpoint (`false`, default) |
-| `record_line`    | No       | Record line (e.g. `"默认"` for default)                              |
-| `record_line_id` | No       | Record line ID                                                     |
+| `record_line`    | No       | Record line (e.g. `"默认"` for default, `"default"` for global)         |
+| `record_line_id` | No       | Record line ID (default: `"0"`)                                       |
 
 API endpoints:
 - China: `POST https://dnsapi.cn/Record.Ddns`
@@ -274,26 +274,28 @@ API endpoints:
 
 A generic HTTP GET driver for custom APIs. The driver treats the `url` as a template and substitutes `{key}` placeholders with values from the configuration and runtime context.
 
-| Parameter | Required | Description                           |
-|-----------|----------|---------------------------------------|
+| Parameter | Required | Description                                                                                                              |
+|-----------|----------|--------------------------------------------------------------------------------------------------------------------------|
 | `url`     | Yes      | HTTP(S) URL template with `{key}` placeholders. All other `driver_param` keys are available for substitution as `{key}`. |
 
 **Available substitution variables:**
 
-| Variable       | Source         | Description                |
-|----------------|----------------|----------------------------|
-| `{ip_addr}`    | Runtime        | The detected IP address    |
-| `{rd_type}`    | Runtime        | DNS record type (A, AAAA)  |
-| `{domain}`     | Runtime        | Domain name                |
-| `{subdomain}`  | Runtime        | Subdomain name             |
-| `{fqdn}`       | Runtime        | Full domain name           |
-| `{any_key}`    | `driver_param` | Any key from `driver_param` (except `url`) |
+| Variable      | Source         | Description                                |
+|---------------|----------------|--------------------------------------------|
+| `{ip_addr}`   | Runtime        | The detected IP address                    |
+| `{rd_type}`   | Runtime        | DNS record type (A, AAAA)                  |
+| `{domain}`    | Runtime        | Domain name                                |
+| `{subdomain}` | Runtime        | Subdomain name                             |
+| `{fqdn}`      | Runtime        | Full domain name                           |
+| `{any_key}`   | `driver_param` | Any key from `driver_param` (except `url`) |
 
 Example:
 ```json
-"driver_param": {
+{
+  "driver_param": {
     "url": "https://api.example.com/update?ip={ip_addr}&type={rd_type}&domain={domain}",
     "key": "my-secret-key"
+  }
 }
 ```
 
@@ -310,6 +312,9 @@ yaddnsc -c /etc/yaddnsc/config.json
 
 # Enable verbose (debug) logging
 yaddnsc -v
+
+# Test configuration and exit
+yaddnsc -t
 
 # Print version
 yaddnsc -V
@@ -339,18 +344,21 @@ Drivers are shared libraries loaded at runtime. To write one:
    - `generate_request(config, ctx)` → construct a `driver_request` (URL, HTTP method, headers, body)
    - `check_response(response)` → validate the API response body
    - `get_detail()` → return driver metadata (name, description, author, version)
-   - `execute(config, ctx, http)` → drive the full update workflow (see below)
+   - `get_driver_version()` → return the ABI version constant (implemented as `final` in `BaseDriver` — no need to override)
+   - `execute(config, ctx, http)` → drive the full update workflow (default provided by `BaseDriver`, override for multi-step workflows)
 3. Use the `DEFINE_DRIVER_FACTORY(YourDriverClass)` macro at the bottom of the implementation file to export the `create()` and `destroy()` factory functions.
 4. Build as a `MODULE` library (position-independent code, no `lib` prefix).
 5. Place the resulting `.so` in the driver directory and add it to the `load` list in the config.
 
 Drivers use `CORE_LOG_*` macros for logging — these delegate to the core executable's logging subsystem via symbol resolution at `dlopen` time.
 
+`BaseDriver` also provides a `parse_config<T>()` helper that parses the driver configuration JSON into a typed struct with built-in validation (using glaze). On missing required keys it throws `ParamParseException`, so your driver does not need to manually validate each field.
+
 ### The `execute()` method
 
 `execute()` is the entry point for a driver to perform its update. It receives:
 
-- `config` — the parsed driver configuration (typically a JSON string).
+- `config` — the driver configuration (a JSON string, typically parsed with `parse_config<T>()`).
 - `ctx` — an `UpdateContext` with runtime information (IP address, record type, domain, subdomain, FQDN).
 - `http` — an `IHttpSender` reference for making HTTP requests.
 
