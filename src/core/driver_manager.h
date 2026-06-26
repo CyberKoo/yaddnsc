@@ -17,7 +17,7 @@ class DriverManager final : public RestrictedClass {
 public:
     DriverManager();
 
-    ~DriverManager() override;
+    ~DriverManager();
 
     void load_driver(const std::string &) const;
 

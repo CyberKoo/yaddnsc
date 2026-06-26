@@ -16,7 +16,7 @@ class NetworkManager : public RestrictedClass {
 public:
     NetworkManager();
 
-    ~NetworkManager() override;
+    ~NetworkManager();
 
     [[nodiscard]] std::vector<std::string> get_interfaces() const;
 

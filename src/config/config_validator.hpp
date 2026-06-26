@@ -114,15 +114,15 @@ public:
 
             // --- Check that the referenced driver is loaded. ---------------------
             if (std::ranges::find(drivers, driver) == drivers.end()) {
-                throw ConfigVerificationException(
-                    fmt::format("Driver {} not found", driver));
+                throw ConfigVerificationException(fmt::format("Driver {} not found", driver));
             }
 
             // --- Check update interval. ------------------------------------------
             if (update_interval < UpdateInterval) {
                 throw ConfigVerificationException(
-                    fmt::format("Update interval too low for domain {} ({}), "
-                                "minimal interval: {}", name, update_interval, UpdateInterval));
+                    fmt::format("Update interval too low for domain {} ({}), minimal interval: {}", name,
+                                update_interval, UpdateInterval)
+                );
             }
 
             // --- Check force-update interval. ------------------------------------
@@ -158,7 +158,8 @@ public:
                     if (std::ranges::find(interfaces, *subdomain.interface) == interfaces.end()) {
                         auto available = fmt::format("{}", fmt::join(interfaces, ", "));
                         throw ConfigVerificationException(
-                            fmt::format("Interface {} not found, available interfaces: {}", *subdomain.interface, available)
+                            fmt::format("Interface {} not found, available interfaces: {}", *subdomain.interface,
+                                        available)
                         );
                     }
                 }
@@ -169,7 +170,7 @@ public:
 #if defined(HAVE_RES_NQUERY)
         if (cfg.resolver.use_custom_server) {
             if (!cfg.resolver.servers.empty()) {
-                for (const auto &server : cfg.resolver.servers) {
+                for (const auto &server: cfg.resolver.servers) {
                     detail::validate_resolver_address(server.ip_address);
                 }
             } else if (!cfg.resolver.ip_address.empty()) {

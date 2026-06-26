@@ -12,9 +12,9 @@
 #include <spdlog/spdlog.h>
 
 #include "driver_ver.h"
-#include "exception/bad_driver_exception.h"
 #include "fmt.hpp"
 #include "interfaces/driver.h"
+#include "exception/bad_driver_exception.h"
 
 // Internal implementation
 class DriverManager::Impl {
@@ -100,7 +100,7 @@ public:
         return driver_;
     }
 
-    ~Driver() override = default;
+    ~Driver() = default;
 
 private:
     handle_ptr handle_;

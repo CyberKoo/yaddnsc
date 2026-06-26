@@ -18,7 +18,6 @@
 #include <spdlog/spdlog.h>
 
 #include "config/config_validator.hpp"
-#include "config_cmake.h"
 #include "driver_manager.h"
 #include "fmt.hpp"
 #include "min_update_interval.h"

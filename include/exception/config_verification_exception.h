@@ -7,8 +7,6 @@
 
 #include "base_exception.h"
 
-#include <string>
-
 class ConfigVerificationException : public YaddnscException {
 public:
     using YaddnscException::YaddnscException;

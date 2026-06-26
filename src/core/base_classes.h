@@ -9,7 +9,7 @@ class NonCopyable {
 public:
     NonCopyable() = default;
 
-    virtual ~NonCopyable() = default;
+    ~NonCopyable() = default;
 
     // Copy construct
     NonCopyable(NonCopyable const &) = delete;
@@ -28,7 +28,7 @@ class NonMovable {
 public:
     NonMovable() = default;
 
-    virtual ~NonMovable() = default;
+    ~NonMovable() = default;
 
     // Move construct
     NonMovable(NonMovable &&) = delete;
@@ -47,7 +47,7 @@ class RestrictedClass {
 public:
     RestrictedClass() = default;
 
-    virtual ~RestrictedClass() = default;
+    ~RestrictedClass() = default;
 
     // Copy construct
     RestrictedClass(RestrictedClass const &) = delete;

@@ -13,7 +13,6 @@
 #include "driver_manager.h"
 #include "exception/dns_lookup_exception.h"
 #include "fmt.hpp"
-#include "http_type_formatter.hpp"
 #include "interfaces/driver.h"
 #include "interfaces/http_client.h"
 #include "network/http_client.h"
@@ -26,8 +25,8 @@
 // ---------------------------------------------------------------------------
 class Updater::Impl {
 public:
-    explicit Impl(DriverManager &driver_manager, NetworkManager &network_manager, std::vector<DnsServer> DnsServers)
-        : driver_manager_(driver_manager), network_manager_(network_manager), dns_servers_(std::move(DnsServers)) {
+    explicit Impl(DriverManager &driver_manager, NetworkManager &network_manager, std::vector<DnsServer> dns_servers)
+            : driver_manager_(driver_manager), network_manager_(network_manager), dns_servers_(std::move(dns_servers)) {
     }
 
     void process(const UpdateTask &task) const;
@@ -58,8 +57,8 @@ private:
 // Public API
 // ---------------------------------------------------------------------------
 
-Updater::Updater(DriverManager &driver_manager, NetworkManager &network_manager, std::vector<DnsServer> DnsServers)
-    : impl_(std::make_unique<Impl>(driver_manager, network_manager, std::move(DnsServers))) {
+Updater::Updater(DriverManager &driver_manager, NetworkManager &network_manager, std::vector<DnsServer> dns_servers)
+    : impl_(std::make_unique<Impl>(driver_manager, network_manager, std::move(dns_servers))) {
 }
 
 Updater::~Updater() = default;
@@ -76,6 +75,12 @@ void Updater::Impl::process(const UpdateTask &task) const {
     const auto rd_type = rd_type_name.empty() ? "UNKNOWN" : rd_type_name;
     const auto ip_type = DNS::dns2ip(task.subdomain.type);
 
+    // --- Step 0: resolve driver ------------------------------------------------
+    // The driver is guaranteed to exist: ConfigValidator already verified that every
+    // domain's driver was loaded before the scheduler started.
+
+    auto &driver = driver_manager_.get_driver(task.driver_name);
+
     // --- Step 1: local IP ---------------------------------------------------
 
     const auto local_ip = get_ip_address(task.subdomain, ip_type);
@@ -87,18 +92,17 @@ void Updater::Impl::process(const UpdateTask &task) const {
     // --- Step 2: DNS lookup ------------------------------------------------
 
     const auto record = dns_lookup(task.fqdn, task.subdomain.type);
-    const auto record_val = record.value_or("<empty>");
 
     // --- Step 3: skip if unchanged ------------------------------------------
 
     if (!task.force_update && record.has_value() && record.value() == *local_ip) {
         SPDLOG_DEBUG("Domain: {}, type: {}, current {}, new {}, skipping update",
-                     task.fqdn, rd_type, record_val, *local_ip);
+                     task.fqdn, rd_type, record.value(), *local_ip);
         return;
     }
 
     if (record.has_value() && record.value() != *local_ip) {
-        SPDLOG_INFO(R"(Update needed, local IP "{}" != DNS record "{}")", *local_ip, record_val);
+        SPDLOG_INFO(R"(Update needed, local IP "{}" != DNS record "{}")", *local_ip, record.value());
     }
 
     if (task.force_update) {
@@ -110,18 +114,10 @@ void Updater::Impl::process(const UpdateTask &task) const {
     const auto parameters = build_driver_parameters(task);
     const auto ctx = build_update_context(task, *local_ip, rd_type);
 
-    IDriver *driver = nullptr;
-    try {
-        driver = &driver_manager_.get_driver(task.driver_name);
-    } catch (const YaddnscException &e) {
-        SPDLOG_ERROR("Driver '{}' not found for {}: {}", task.driver_name, task.fqdn, e.what());
-        return;
-    }
-
     // --- Step 5: delegate to driver via IHttpSender -------------------------
 
     HttpClient http_sender{address_family::UNSPECIFIED, task.subdomain.interface};
-    if (!driver->execute(parameters, ctx, http_sender)) {
+    if (!driver.execute(parameters, ctx, http_sender)) {
         return;
     }
 
@@ -189,11 +185,10 @@ Updater::Impl::get_ip_address(const Config::subdomain_config &config, address_fa
         if (!addresses.empty()) {
             return addresses.front();
         }
-    } else {
-        return IPUtil::get_ip_from_url(config.ip_source_param, af, config.interface);
+        return std::nullopt;
     }
 
-    return std::nullopt;
+    return IPUtil::get_ip_from_url(config.ip_source_param, af, config.interface);
 }
 
 // ---------------------------------------------------------------------------

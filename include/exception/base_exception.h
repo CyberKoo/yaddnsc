@@ -6,6 +6,7 @@
 #define YADDNSC_BASE_EXCEPTION_H
 
 #include <stdexcept>
+#include <string_view>
 
 class YaddnscException : public std::runtime_error {
 public:

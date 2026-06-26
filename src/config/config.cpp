@@ -1,5 +1,5 @@
 #include "config.h"
-#include "config_parser.hpp"
+#include "config_parser.hpp" // IWYU pragma: keep
 
 #include <filesystem>
 
