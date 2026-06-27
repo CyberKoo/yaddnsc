@@ -45,10 +45,14 @@ namespace {
 #ifdef HAVE_RES_NQUERY
         struct __res_state state{};
 
-        ResolverContext()  { res_ninit(&state); }
+        ResolverContext() {
+            res_ninit(&state);
+        }
+
         ~ResolverContext() { nclose_or_ndestroy(&state); }
 
         ResolverContext(const ResolverContext &) = delete;
+
         ResolverContext &operator=(const ResolverContext &) = delete;
 
         int query(const char *name, int type, unsigned char *buf, int len) {
@@ -68,10 +72,11 @@ namespace {
 
     private:
         static void nclose_or_ndestroy(struct __res_state *s) {
+
 #if defined(HAVE_RES_NDESTROY)
-            res_ndestroy(s);
+        res_ndestroy (s);
 #else
-            res_nclose(s);
+        res_nclose (s);
 #endif
         }
 
@@ -85,10 +90,10 @@ namespace {
             state._u._ext.nscount = 1;
 
 #if defined(HAVE_RES_STATE_EXT_NSADDRS)  // glibc
-            state._u._ext.nscount6 = 1;
-            state._u._ext.nsmap[0] = MAXNS + 1;
-            auto *sa6 = state._u._ext.nsaddrs[0];
-            if (sa6 == nullptr) {
+        state._u._ext.nscount6=1;
+        state._u._ext.nsmap [0] = MAXNS+ 1;
+        auto *sa6 = state._u._ext.nsaddrs[0];
+            if (sa6== nullptr) {
                 // Memory allocated here will be freed in res_nclose()
                 // as we have done res_ninit() above.
                 sa6 = ccalloc<sockaddr_in6>(1);
@@ -98,15 +103,15 @@ namespace {
                 state._u._ext.nsaddrs[0] = sa6;
             }
 
-            sa6->sin6_port = htons(server.port);
-            sa6->sin6_family = AF_INET6;
-            inet_pton(AF_INET6, server.ip_address.c_str(), &sa6->sin6_addr);
+        sa6->sin6_port= htons(server.port);
+        sa6->sin6_family= AF_INET6;
+        inet_pton(AF_INET6, server.ip_address.c_str (), &sa6->sin6_addr);
 #elif defined(HAVE_RES_SETSERVERS)  // BSD/macOS
-            res_sockaddr_union sau{};
-            sau.sin6.sin6_port = htons(server.port);
-            sau.sin6.sin6_family = AF_INET6;
-            inet_pton(AF_INET6, server.ip_address.c_str(), &sau.sin6.sin6_addr);
-            res_setservers(&state, &sau, 1);
+        res_sockaddr_union sau{};
+        sau.sin6.sin6_port= htons(server.port);
+        sau.sin6.sin6_family= AF_INET6;
+        inet_pton(AF_INET6, server.ip_address.c_str (), &sau.sin6.sin6_addr);
+        res_setservers (&state, &sau, 1);
 #endif
         }
 
@@ -195,7 +200,7 @@ public:
 #if !defined(HAVE_RES_NQUERY)
         if (!servers_.empty()) {
             SPDLOG_WARN("Custom resolver defined, but res_nquery() is not supported "
-                         "on this platform; the option will be ignored");
+                "on this platform; the option will be ignored");
             servers_.clear();
         }
 #endif
@@ -204,8 +209,11 @@ public:
     ~Impl() = default;
 
     Impl(const Impl &) = delete;
+
     Impl &operator=(const Impl &) = delete;
+
     Impl(Impl &&) = delete;
+
     Impl &operator=(Impl &&) = delete;
 
     // ── Concurrent query: fire all resolvers in parallel, take fastest ──
@@ -226,10 +234,10 @@ public:
             // gets cleaned up when the thread function returns.
             std::thread(
                 [host = host_str,
-                 ns_type,
-                 addr = std::move(addr),
-                 port,
-                 state]() {
+                    ns_type,
+                    addr = std::move(addr),
+                    port,
+                    state]() {
                     ResolverContext ctx;
                     ctx.set_nameserver(DnsServer{addr, port});
 

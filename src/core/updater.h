@@ -10,7 +10,7 @@
 
 #include "type.h"
 #include "update_task.h"
-#include "base_classes.h"
+#include "mixin.h"
 
 class DriverManager;
 class NetworkManager;
@@ -25,7 +25,7 @@ class NetworkManager;
 // process() is thread-safe: it is marked const, owns no mutable state, and
 // may be called concurrently from multiple pool threads.
 // ---------------------------------------------------------------------------
-class Updater : public RestrictedClass {
+class Updater {
 public:
     Updater(DriverManager &driver_manager, NetworkManager &network_manager, std::vector<DnsServer> dns_servers);
 
@@ -36,6 +36,9 @@ public:
     void process(const UpdateTask &task) const;
 
 private:
+    [[maybe_unused, no_unique_address]] NoCopy _nc_;
+    [[maybe_unused, no_unique_address]] NoMove _nm_;
+
     class Impl;
     std::unique_ptr<Impl> impl_;
 };

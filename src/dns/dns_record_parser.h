@@ -21,12 +21,11 @@ public:
     [[nodiscard]] std::string parse_record(size_t index) const;
 
 private:
-
     static std::string parse_a_record(const data_type *);
 
     static std::string parse_aaaa_record(const data_type *);
 
-    static std::string parse_txt_record(const data_type *, int );
+    static std::string parse_txt_record(const data_type *, int);
 
     static std::string parse_domain_name_record(const data_type *, const data_type *, const data_type *);
 

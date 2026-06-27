@@ -30,13 +30,13 @@ namespace StringUtil {
     YADDNSC_EXPORT std::string trim_copy(std::string);
 
     template<typename T>
-    requires std::ranges::input_range<const T> &&
-        requires { typename std::ranges::range_value_t<const T>::first_type; } &&
-        requires { typename std::ranges::range_value_t<const T>::second_type; } &&
-        std::is_constructible_v<std::string_view, typename std::ranges::range_value_t<const T>::first_type> &&
-        std::is_constructible_v<std::string_view, typename std::ranges::range_value_t<const T>::second_type>
+        requires std::ranges::input_range<const T> &&
+                 requires { typename std::ranges::range_value_t<const T>::first_type; } &&
+                 requires { typename std::ranges::range_value_t<const T>::second_type; } &&
+                 std::is_constructible_v<std::string_view, typename std::ranges::range_value_t<const T>::first_type> &&
+                 std::is_constructible_v<std::string_view, typename std::ranges::range_value_t<const T>::second_type>
     YADDNSC_EXPORT void replace(std::string &str, const T &replace_list) {
-        for (const auto &[target, new_content] : replace_list) {
+        for (const auto &[target, new_content]: replace_list) {
             std::string_view target_sv(target);
             std::string_view new_content_sv(new_content);
             auto pos = str.find(target_sv);
@@ -48,11 +48,11 @@ namespace StringUtil {
     }
 
     template<typename T>
-    requires std::ranges::input_range<const T> &&
-        requires { typename std::ranges::range_value_t<const T>::first_type; } &&
-        requires { typename std::ranges::range_value_t<const T>::second_type; } &&
-        std::is_constructible_v<std::string_view, typename std::ranges::range_value_t<const T>::first_type> &&
-        std::is_constructible_v<std::string_view, typename std::ranges::range_value_t<const T>::second_type>
+        requires std::ranges::input_range<const T> &&
+                 requires { typename std::ranges::range_value_t<const T>::first_type; } &&
+                 requires { typename std::ranges::range_value_t<const T>::second_type; } &&
+                 std::is_constructible_v<std::string_view, typename std::ranges::range_value_t<const T>::first_type> &&
+                 std::is_constructible_v<std::string_view, typename std::ranges::range_value_t<const T>::second_type>
     YADDNSC_EXPORT std::string replace_copy(std::string_view str, const T &replace_list) {
         auto s = std::string(str);
         replace(s, replace_list);
@@ -64,7 +64,7 @@ namespace StringUtil {
         std::string_view str(_str);
         std::vector<std::string> output;
 
-        for (auto part : str | std::views::split(delim)) {
+        for (auto part: str | std::views::split(delim)) {
             if (!part.empty()) {
                 output.emplace_back(part.begin(), part.end());
             }
@@ -93,7 +93,7 @@ namespace StringUtil {
     YADDNSC_EXPORT bool str_to_bool(T &&_str) {
         std::string_view s(_str);
         return s == "1" || s == "on" || s == "true" || s == "yes"
-            || s == "ON" || s == "TRUE" || s == "YES";
+               || s == "ON" || s == "TRUE" || s == "YES";
     }
 }
 

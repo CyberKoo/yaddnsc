@@ -40,7 +40,7 @@ namespace Config {
         std::string ip_source_param;
         bool allow_ula{false};
         bool allow_local_link{false};
-        int update_interval{};    // 0 = inherit from domain
+        int update_interval{}; // 0 = inherit from domain
         glz::generic driver_param;
     };
 

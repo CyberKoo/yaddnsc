@@ -16,11 +16,15 @@ public:
     explicit DnsResolver();
 
     explicit DnsResolver(std::vector<DnsServer> servers);
+
     ~DnsResolver();
 
     DnsResolver(const DnsResolver &) = delete;
+
     DnsResolver &operator=(const DnsResolver &) = delete;
+
     DnsResolver(DnsResolver &&) = delete;
+
     DnsResolver &operator=(DnsResolver &&) = delete;
 
     [[nodiscard]] std::vector<uint8_t> query(const std::string &host, dns_type type) const;

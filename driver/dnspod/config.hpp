@@ -22,13 +22,13 @@ template<>
 struct glz::meta<DNSPodParams> {
     using T = DNSPodParams;
     static constexpr auto value = object(
-            "domain_id", &T::domain_id,
-            "record_id", &T::record_id,
-            "login_token", &T::login_token,
-            "record_line", &T::record_line,
-            "record_line_id", &T::record_line_id,
-            "global", &T::global
-        );
+        "domain_id", &T::domain_id,
+        "record_id", &T::record_id,
+        "login_token", &T::login_token,
+        "record_line", &T::record_line,
+        "record_line_id", &T::record_line_id,
+        "global", &T::global
+    );
 };
 
 #endif // YADDNSC_DRV_DNSPOD_CONFIG_HPP

@@ -23,17 +23,17 @@ public:
 
     // Default execute: generate_request -> send via IHttpSender -> check_response.
     // Matches the original three-step behavior in Updater::process().
-    bool execute(const driver_config_type &config, const UpdateContext &ctx, IHttpSender &http) override {
-        const auto req = generate_request(config, ctx);
-        CORE_LOG_DEBUG("Received DNS record update request from driver {}, {}", get_detail().name, req);
+    bool execute(const driver_config_type &config, const UpdateContext &ctx, IHttpSender &http) const override {
+        const auto request = generate_request(config, ctx);
+        CORE_LOG_DEBUG("Received DNS record update request from driver {}, {}", get_detail().name, request);
 
-        const auto resp = http.send(req);
-        if (!resp.success) {
-            CORE_LOG_WARN("Update for {} failed (HTTP error: {})", ctx.fqdn, resp.error_message);
+        const auto response = http.send(request);
+        if (!response.success) {
+            CORE_LOG_WARN("Update for {} failed (HTTP error: {})", ctx.fqdn, response.error_message);
             return false;
         }
 
-        if (!check_response(resp.body)) {
+        if (!check_response(response.body)) {
             CORE_LOG_WARN("Update domain {} failed (driver rejected the response)", ctx.fqdn);
             return false;
         }
@@ -56,6 +56,6 @@ protected:
     }
 };
 
-extern "C" IDriver* create();
+extern "C" IDriver *create();
 
 #endif //YADDNSC_DRIVER_BASE_DRIVER_H

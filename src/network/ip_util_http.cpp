@@ -14,7 +14,8 @@
 #include "string_util.h"
 #include "type.h"
 
-std::optional<std::string> IPUtil::get_ip_from_url(std::string_view url, address_family version, const std::optional<std::string> &if_name) {
+std::optional<std::string> IPUtil::get_ip_from_url(std::string_view url, address_family version,
+                                                   const std::optional<std::string> &if_name) {
     auto body = HttpClient::get_body(url, version, if_name);
     if (!body) {
         return std::nullopt;

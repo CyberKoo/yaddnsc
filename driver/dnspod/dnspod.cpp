@@ -12,7 +12,7 @@
 #include "interfaces/core_logger.h"
 #include "response.h"
 
-DEFINE_DRIVER_FACTORY(DNSPodDriver)
+DEFINE_DRIVER_FACTORY (DNSPodDriver)
 
 constexpr std::string_view API_URL_CN = "https://dnsapi.cn/Record.Ddns";
 

@@ -11,7 +11,8 @@ class DigitalOceanDriver final : public BaseDriver {
 public:
     ~DigitalOceanDriver() override = default;
 
-    [[nodiscard]] driver_request generate_request(const driver_config_type &, const UpdateContext &) const override;
+    [[nodiscard]] driver_request generate_request(
+        const driver_config_type &config, const UpdateContext &ctx) const override;
 
     [[nodiscard]] bool check_response(std::string_view response) const override;
 

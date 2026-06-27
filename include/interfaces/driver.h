@@ -55,15 +55,16 @@ public:
 
 public:
     [[nodiscard]] virtual driver_request generate_request(
-        const driver_config_type &, const UpdateContext &) const = 0;
+        const driver_config_type &config, const UpdateContext &ctx) const = 0;
 
-    [[nodiscard]] virtual bool check_response(std::string_view) const = 0;
+    [[nodiscard]] virtual bool check_response(std::string_view response) const = 0;
 
     [[nodiscard]] virtual DriverDetail get_detail() const = 0;
 
     [[nodiscard]] virtual uint32_t get_driver_version() const = 0;
 
-    [[nodiscard]] virtual bool execute(const driver_config_type &, const UpdateContext &, IHttpSender &) = 0;
+    [[nodiscard]] virtual bool execute(
+        const driver_config_type &config, const UpdateContext &ctx, IHttpSender &http) const = 0;
 };
 
 #endif //YADDNSC_DRIVER_INTERFACE_H

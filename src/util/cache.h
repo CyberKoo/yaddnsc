@@ -82,7 +82,11 @@ namespace Util {
          * Return the cached value for `key`, or compute-and-cache it
          * via the provided factory if absent / expired.
          */
-        template<std::invocable<> Fn> requires std::same_as<std::invoke_result_t<Fn>, Value>
+        template<std::invocable<> Fn> requires std::same_as < std::invoke_result_t < Fn >
+
+        ,
+        Value
+        >
         Value get_or_compute(const Key &key, Fn &&factory) {
             if (auto cached = get(key)) {
                 return std::move(*cached);

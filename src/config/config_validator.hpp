@@ -6,7 +6,7 @@
 #define YADDNSC_CONFIG_CONFIG_VALIDATOR_HPP
 
 #include "config.h"
-#include "core/base_classes.h"
+#include "mixin.h"
 
 #include "config_cmake.h"
 #include "core/driver_manager.h"
@@ -91,7 +91,9 @@ namespace detail {
 // first violated constraint.
 // ---------------------------------------------------------------------------
 template<int UpdateInterval>
-class ConfigValidator : public RestrictedClass {
+class ConfigValidator {
+    [[maybe_unused, no_unique_address]] NoCopy _nc_;
+    [[maybe_unused, no_unique_address]] NoMove _nm_;
 public:
     ConfigValidator(const DriverManager &driver_manager, const NetworkManager &network_manager)
         : driver_manager_(driver_manager), network_manager_(network_manager) {

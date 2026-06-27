@@ -25,10 +25,6 @@ public:
 
     ~HttpClient() override = default;
 
-    HttpClient(const HttpClient &) = delete;
-
-    HttpClient &operator=(const HttpClient &) = delete;
-
     void set_address_family(address_family af) override;
 
     HttpResponse send(const http_request &req) override;

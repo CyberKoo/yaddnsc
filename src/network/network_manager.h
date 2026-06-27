@@ -10,9 +10,9 @@
 #include <string>
 #include <vector>
 
-#include "core/base_classes.h"
+#include "mixin.h"
 
-class NetworkManager : public RestrictedClass {
+class NetworkManager {
 public:
     NetworkManager();
 
@@ -23,6 +23,9 @@ public:
     [[nodiscard]] std::map<std::string, int> get_interface_ip_addresses(const std::string &interface_name) const;
 
 private:
+    [[maybe_unused, no_unique_address]] NoCopy _nc_;
+    [[maybe_unused, no_unique_address]] NoMove _nm_;
+
     class Impl;
     std::unique_ptr<Impl> impl_;
 };

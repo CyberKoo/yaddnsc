@@ -92,7 +92,8 @@ public:
             // Auto-discover all .so files in driver_dir; manual load list is ignored
             if (!config_.driver.load.empty()) {
                 SPDLOG_WARN("auto_discover is enabled, ignoring manual load list with {} entry(ies)",
-                            config_.driver.load.size());
+                            config_.driver.load.size()
+                );
             }
 
             const auto base_dir = std::filesystem::path(config_.driver.driver_dir);

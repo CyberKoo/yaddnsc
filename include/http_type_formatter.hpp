@@ -17,8 +17,9 @@
 template<>
 struct std::formatter<http_request> {
 #else
-template<>
-struct fmt::formatter<http_request> {
+    template<>
+    struct fmt::formatter<http_request> {
+
 #endif
 
     static std::string_view to_string(const http_method_type type) {
@@ -42,7 +43,7 @@ struct fmt::formatter<http_request> {
 #ifdef YADDNSC_USE_STD_FORMAT
     [[nodiscard]] std::string format_map(Iter first, Iter last) const {
 #else
-    [[nodiscard]] std::string format_map(Iter first, Iter last) const {
+        [[nodiscard]] std::string format_map(Iter first, Iter last) const {
 #endif
         std::string buf;
 
@@ -68,7 +69,7 @@ struct fmt::formatter<http_request> {
 #ifdef YADDNSC_USE_STD_FORMAT
     auto format(const http_request &request, FormatContext &ctx) const -> decltype(ctx.out()) {
 #else
-    auto format(const http_request &request, FormatContext &ctx) const -> decltype(ctx.out()) {
+        auto format(const http_request &request, FormatContext &ctx) const -> decltype(ctx.out()) {
 #endif
         std::string body_type;
         std::string body;

@@ -9,10 +9,11 @@
 #include "util/stop_token_compat.h"
 
 #include "config/config.h"
+#include "mixin.h"
 
 class Manager {
 public:
-    explicit Manager(Config::config);
+    explicit Manager(Config::config config);
 
     ~Manager();
 
@@ -32,6 +33,9 @@ public:
     void run() const;
 
 private:
+    [[maybe_unused, no_unique_address]] NoCopy _nc_;
+    [[maybe_unused, no_unique_address]] NoMove _nm_;
+
     class Impl;
 
     std::unique_ptr<Impl> impl_;

@@ -29,7 +29,7 @@ struct SubdomainEntry {
     std::chrono::steady_clock::time_point deadline;
     int update_interval;
     int force_update_interval;
-    size_t domain_idx;          // index into Manager::Impl::domain_states_
+    size_t domain_idx; // index into Manager::Impl::domain_states_
     UpdateTask task;
 
     // std::priority_queue is a max-heap by default, so we invert the comparison.

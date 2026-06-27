@@ -9,6 +9,7 @@
 #include <string>
 
 #include "type.h"
+#include "mixin.h"
 #include "http_types.h"
 
 struct HttpResponse final {
@@ -26,6 +27,10 @@ public:
     virtual void set_address_family(address_family af) = 0;
 
     virtual HttpResponse send(const http_request &req) = 0;
+
+private:
+    [[maybe_unused, no_unique_address]] NoCopy _nc_;
+    [[maybe_unused, no_unique_address]] NoMove _nm_;
 };
 
 #endif //YADDNSC_HTTP_CLIENT_INTERFACE_H

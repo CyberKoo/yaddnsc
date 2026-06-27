@@ -10,7 +10,7 @@
 class DNSPodDriver final : public BaseDriver {
 public:
     [[nodiscard]] driver_request generate_request(
-        const driver_config_type &, const UpdateContext &) const override;
+        const driver_config_type &config, const UpdateContext &ctx) const override;
 
     [[nodiscard]] bool check_response(std::string_view view) const override;
 

@@ -11,7 +11,6 @@
 
 #include "dns/dns.h"
 #include "driver_manager.h"
-#include "exception/dns_lookup_exception.h"
 #include "fmt.hpp"
 #include "interfaces/driver.h"
 #include "interfaces/http_client.h"
@@ -19,6 +18,7 @@
 #include "network/ip_util.h"
 #include "network/network_manager.h"
 #include "util/retry_util.h"
+#include "exception/dns_lookup_exception.h"
 
 // ---------------------------------------------------------------------------
 // Updater::Impl — all private helpers live here.
@@ -26,7 +26,7 @@
 class Updater::Impl {
 public:
     explicit Impl(DriverManager &driver_manager, NetworkManager &network_manager, std::vector<DnsServer> dns_servers)
-            : driver_manager_(driver_manager), network_manager_(network_manager), dns_servers_(std::move(dns_servers)) {
+        : driver_manager_(driver_manager), network_manager_(network_manager), dns_servers_(std::move(dns_servers)) {
     }
 
     void process(const UpdateTask &task) const;

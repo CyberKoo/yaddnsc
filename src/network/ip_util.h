@@ -1,4 +1,3 @@
-
 //
 // Created by Kotarou on 2022/4/5.
 //
@@ -14,9 +13,10 @@
 enum class address_family;
 
 namespace IPUtil {
-    std::vector<std::string> extract_address(const std::map<std::string, int> &, address_family);
+    std::vector<std::string> extract_address(const std::map<std::string, int> &addresses, address_family af);
 
-    std::optional<std::string> get_ip_from_url(std::string_view, address_family, const std::optional<std::string> &);
+    std::optional<std::string> get_ip_from_url(
+        std::string_view url, address_family af, const std::optional<std::string> &interface);
 
     int to_socket_type(address_family);
 

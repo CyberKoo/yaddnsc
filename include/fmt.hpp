@@ -26,7 +26,6 @@
 #include <algorithm>
 
 namespace fmt {
-
     // --- named_arg type -----------------------------------------------------
 
     struct named_arg_t {
@@ -97,8 +96,8 @@ namespace fmt {
         std::map<std::string, std::string> m;
         m[std::forward<First>(first).name.data()] = std::forward<First>(first).value;
         ((m[std::forward<Rest>(rest).name.data()] =
-              std::forward<Rest>(rest).value),
-         ...);
+          std::forward<Rest>(rest).value),
+            ...);
         return vformat(fmt_, m);
     }
 
@@ -138,7 +137,6 @@ namespace fmt {
         }
         return result;
     }
-
 } // namespace fmt
 
 #else // !YADDNSC_USE_STD_FORMAT – use the real fmt library
