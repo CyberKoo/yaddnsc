@@ -6,7 +6,6 @@
 #define YADDNSC_CORE_MANAGER_H
 
 #include <memory>
-#include "util/stop_token_compat.h"
 
 #include "config/config.h"
 #include "mixin.h"

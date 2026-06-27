@@ -25,8 +25,8 @@ jobs:
         run: mkdir build
       - name: Build
         run: cd build && cmake ../ -DCMAKE_BUILD_TYPE=Debug && make -s -j 2
-  macos:
-    runs-on: macos-latest
+  macos-arm64:
+    runs-on: macos-26
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -35,4 +35,4 @@ jobs:
       - name: Create build directory
         run: mkdir build
       - name: Build
-        run: cd build && cmake ../ -DOPENSSL_ROOT_DIR=/usr/local/opt/openssl@3/ -DCMAKE_BUILD_TYPE=Debug && make -s -j 2
+        run: cd build && cmake ../ -DOPENSSL_ROOT_DIR=/opt/homebrew/opt/openssl@3/ -DCMAKE_BUILD_TYPE=Debug && make -s -j 2
