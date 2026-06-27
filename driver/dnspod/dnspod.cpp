@@ -12,11 +12,37 @@
 #include "interfaces/core_logger.h"
 #include "response.h"
 
-DEFINE_DRIVER_FACTORY (DNSPodDriver)
+DEFINE_DRIVER_FACTORY(DNSPodDriver)
 
 constexpr std::string_view API_URL_CN = "https://dnsapi.cn/Record.Ddns";
 
 constexpr std::string_view API_URL_GLOBAL = "https://api.dnspod.com/Record.Ddns";
+
+namespace detail {
+    static std::unordered_map<std::string_view, std::string_view> ERROR_CODES = {
+        {"-15", "Domain got prohibited"},
+        {"-8", "You need a upgrade for the domain you are acting for"},
+        {"-7", "A domain of a company account need a upgrade first"},
+        {"-4", "Not in this agent"},
+        {"-3", "Invalid agent"},
+        {"-2", "API used too frequently"},
+        {"-1", "Login fails"},
+        {"1", "Action completed successfully"},
+        {"2", "POST method only"},
+        {"3", "Unknown errors"},
+        {"6", "Invalid user_id / Invalid domain id"},
+        {"7", "You don't have the permission / User is not under this agent"},
+        {"8", "Invalid record id"},
+        {"21", "Domain got locked"},
+        {"22", "Invalid sub domain"},
+        {"23", "The number of the record level is up to limit"},
+        {"24", "Invalid sub domain for general analysis"},
+        {"25", "The number of poll is up to limit"},
+        {"26", "Invalid record line"},
+        {"85", "Account logged-on in another place and your request got rejected"},
+        {"-99", "This API is not ready to be used"},
+    };
+}
 
 driver_request DNSPodDriver::generate_request(const driver_config_type &config, const UpdateContext &ctx) const {
     auto cfg = parse_config<DNSPodParams>(config);
@@ -44,32 +70,8 @@ driver_request DNSPodDriver::generate_request(const driver_config_type &config, 
 }
 
 std::string_view DNSPodDriver::describe_error_code(std::string_view code) {
-    static std::unordered_map<std::string_view, std::string_view> known_codes = {
-        {"-15", "Domain got prohibited"},
-        {"-8", "You need a upgrade for the domain you are acting for"},
-        {"-7", "A domain of a company account need a upgrade first"},
-        {"-4", "Not in this agent"},
-        {"-3", "Invalid agent"},
-        {"-2", "API used too frequently"},
-        {"-1", "Login fails"},
-        {"1", "Action completed successfully"},
-        {"2", "POST method only"},
-        {"3", "Unknown errors"},
-        {"6", "Invalid user_id / Invalid domain id"},
-        {"7", "You don't have the permission / User is not under this agent"},
-        {"8", "Invalid record id"},
-        {"21", "Domain got locked"},
-        {"22", "Invalid sub domain"},
-        {"23", "The number of the record level is up to limit"},
-        {"24", "Invalid sub domain for general analysis"},
-        {"25", "The number of poll is up to limit"},
-        {"26", "Invalid record line"},
-        {"85", "Account logged-on in another place and your request got rejected"},
-        {"-99", "This API is not ready to be used"},
-    };
-
-    const auto it = known_codes.find(code);
-    return it != known_codes.end() ? it->second : "Unknown error code";
+    const auto it = detail::ERROR_CODES.find(code);
+    return it != detail::ERROR_CODES.end() ? it->second : "Unknown error code";
 }
 
 bool DNSPodDriver::check_response(std::string_view response) const {

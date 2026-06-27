@@ -13,6 +13,9 @@ jobs:
       - name: Create build directory
         run: mkdir build
       - name: Build
+        env:
+          CC: gcc-14
+          CXX: g++-14
         run: cd build && cmake ../ -DCMAKE_BUILD_TYPE=Debug && make -s -j 2
   linux-arm64:
     runs-on: ubuntu-24.04-arm
@@ -24,6 +27,9 @@ jobs:
       - name: Create build directory
         run: mkdir build
       - name: Build
+        env:
+          CC: gcc-14
+          CXX: g++-14
         run: cd build && cmake ../ -DCMAKE_BUILD_TYPE=Debug && make -s -j 2
   macos-arm64:
     runs-on: macos-26
