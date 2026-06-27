@@ -21,17 +21,17 @@ int main(int argc, char *argv[]) {
 
     // CLI parsing.
     std::string config_path = "config.json";
-    bool test_config = false;
     cxxopts::Options options("yaddnsc", "Yet another DDNS client");
     options.add_options()
             ("v,verbose", "Enable verbose mode")
-            ("c,config", "Config file path", cxxopts::value(config_path)->default_value("./config.json"))
+            ("c,config", "Config file path", cxxopts::value(config_path)->default_value("config.json"))
             ("t,test", "Test configuration file and exit")
             ("V,version", "Print version")
             ("h,help", "Print usage");
 
     try {
-        auto result = options.parse(argc, argv);
+        bool test_config = false;
+        const auto result = options.parse(argc, argv);
         if (result.count("help")) {
             std::cout << options.help() << std::endl;
             return 0;
