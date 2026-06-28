@@ -52,7 +52,7 @@ namespace {
             return res_nquery(&state, name, ns_c_in, type, buf, len);
         }
 
-        void set_nameserver(const dns_server &server) {
+        void set_nameserver(const dns_server_type &server) {
             if (IPUtil::is_ipv4_address(server.address)) {
                 state.nscount = 1;
                 state.nsaddr_list[0].sin_family = AF_INET;
@@ -75,7 +75,7 @@ namespace {
 #endif
         }
 
-        void set_ipv6_nameserver(const dns_server &server) {
+        void set_ipv6_nameserver(const dns_server_type &server) {
             // zero out settings from resolv.conf
             for (int i = 0; i < state.nscount; ++i) {
                 state.nsaddr_list[i] = {};
@@ -117,24 +117,24 @@ namespace {
             return res_query(name, ns_c_in, type, buf, len);
         }
 
-        void set_nameserver([[maybe_unused]] const dns_server &server) {
+        void set_nameserver([[maybe_unused]] const dns_server_type &server) {
             // Custom DNS server not supported without res_ninit
         }
 #endif
     };
 
-    dns_error get_dns_lookup_err(int error) {
+    dns_error_type get_dns_lookup_err(int error) {
         switch (error) {
             case HOST_NOT_FOUND:
-                return dns_error::NX_DOMAIN;
+                return dns_error_type::NX_DOMAIN;
             case NO_DATA:
-                return dns_error::NODATA;
+                return dns_error_type::NODATA;
             case NETDB_SUCCESS:
-                return dns_error::UNKNOWN;
+                return dns_error_type::UNKNOWN;
             case TRY_AGAIN:
-                return dns_error::RETRY;
+                return dns_error_type::RETRY;
             default:
-                return dns_error::UNKNOWN;
+                return dns_error_type::UNKNOWN;
         }
     }
 
@@ -173,7 +173,7 @@ namespace {
 
 class DnsResolver::Impl {
 public:
-    explicit Impl(std::optional<dns_server> server)
+    explicit Impl(std::optional<dns_server_type> server)
         : server_(std::move(server)) {
 #if !defined(HAVE_RES_NQUERY)
         if (server_.has_value()) {
@@ -207,16 +207,16 @@ public:
     }
 
 private:
-    std::optional<dns_server> server_;
+    std::optional<dns_server_type> server_;
 
     [[maybe_unused, no_unique_address]] NoCopy _nc_;
     [[maybe_unused, no_unique_address]] NoMove _nm_;
 };
 
-DnsResolver::DnsResolver() : DnsResolver(std::optional<dns_server>{}) {
+DnsResolver::DnsResolver() : DnsResolver(std::optional<dns_server_type>{}) {
 }
 
-DnsResolver::DnsResolver(std::optional<dns_server> server)
+DnsResolver::DnsResolver(std::optional<dns_server_type> server)
     : impl_(std::make_unique<Impl>(std::move(server))) {
 }
 

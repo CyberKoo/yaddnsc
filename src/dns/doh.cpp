@@ -35,7 +35,7 @@ public:
         if (ns_type == ns_t_invalid) {
             throw DnsLookupException(
                 fmt::format(R"(Unsupported dns_type for DoH query: "{}")", host),
-                dns_error::UNKNOWN
+                dns_error_type::UNKNOWN
             );
         }
 
@@ -58,7 +58,7 @@ public:
         if (!response) {
             throw DnsLookupException(
                 fmt::format(R"(DoH query to "{}" failed: {})", req.url, response.error()),
-                dns_error::CONNECTION
+                dns_error_type::CONNECTION
             );
         }
 
@@ -68,7 +68,7 @@ public:
             const auto is_transient = response->status_code >= 500;
             throw DnsLookupException(
                 fmt::format(R"(DoH server "{}" returned HTTP status {})", req.url, response->status_code),
-                is_transient ? dns_error::UNKNOWN : dns_error::NODATA
+                is_transient ? dns_error_type::UNKNOWN : dns_error_type::NODATA
             );
         }
 
@@ -105,7 +105,7 @@ private:
         if (len < 0) {
             throw DnsLookupException(
                 fmt::format(R"(Failed to construct DNS query packet for "{}")", host),
-                dns_error::UNKNOWN
+                dns_error_type::UNKNOWN
             );
         }
 

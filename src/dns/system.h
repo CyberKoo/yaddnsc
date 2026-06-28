@@ -16,7 +16,7 @@ class DnsResolver final : public ResolverBase {
 public:
     explicit DnsResolver();
 
-    explicit DnsResolver(std::optional<dns_server> server);
+    explicit DnsResolver(std::optional<dns_server_type> server);
 
     ~DnsResolver() override;
 

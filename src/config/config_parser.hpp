@@ -20,8 +20,8 @@ struct glz::meta<Config::driver_config> {
 };
 
 template<>
-struct glz::meta<dns_server> {
-    using T = dns_server;
+struct glz::meta<dns_server_type> {
+    using T = dns_server_type;
     static constexpr auto value = object(
         "address", &T::address,
         "ipaddress", &T::address,
@@ -111,8 +111,8 @@ struct glz::meta<dns_type> {
 };
 
 template<>
-struct glz::meta<address_family> {
-    using enum address_family;
+struct glz::meta<address_family_type> {
+    using enum address_family_type;
     static constexpr auto value = enumerate(
         "ipv6", IPV6,
         "ipv4", IPV4,

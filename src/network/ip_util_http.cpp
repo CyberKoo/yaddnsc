@@ -14,7 +14,7 @@
 #include "http_client.h"
 #include "string_util.h"
 
-std::optional<std::string> IPUtil::get_ip_from_url(std::string_view url, address_family version,
+std::optional<std::string> IPUtil::get_ip_from_url(std::string_view url, address_family_type version,
                                                    const std::optional<std::string> &if_name) {
     auto body = TransientHttpClient::get_body(url, {.address_family = version, .interface = if_name});
     if (!body) {

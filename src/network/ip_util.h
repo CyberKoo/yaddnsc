@@ -10,15 +10,15 @@
 #include <vector>
 #include <optional>
 
-enum class address_family;
+enum class address_family_type;
 
 namespace IPUtil {
-    std::vector<std::string> extract_address(const std::map<std::string, int> &addresses, address_family af);
+    std::vector<std::string> extract_address(const std::map<std::string, int> &addresses, address_family_type af);
 
     std::optional<std::string> get_ip_from_url(
-        std::string_view url, address_family af, const std::optional<std::string> &interface);
+        std::string_view url, address_family_type af, const std::optional<std::string> &interface);
 
-    int to_socket_type(address_family);
+    int to_socket_type(address_family_type);
 
     bool is_ipv4_address(const std::string &);
 

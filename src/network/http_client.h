@@ -27,7 +27,7 @@ namespace httplib {
 // Every field is optional; unset fields fall back to a sensible default.
 // ---------------------------------------------------------------------------
 struct HttpClientOptions {
-    std::optional<address_family> address_family{};
+    std::optional<address_family_type> address_family{};
     std::optional<std::string> interface{};
     std::optional<std::string> ca_cert_path{};
     std::optional<bool> verify_server_cert{};

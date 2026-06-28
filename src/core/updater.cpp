@@ -134,7 +134,7 @@ Updater::Impl::get_ip_address(const Config::subdomain_config &config) const {
         const auto if_addresses = network_manager_.get_interface_ip_addresses(*config.interface);
         auto addresses = IPUtil::extract_address(if_addresses, address_family);
 
-        if (address_family == address_family::IPV6) {
+        if (address_family == address_family_type::IPV6) {
             // Filter out link-local addresses unless explicitly allowed.
             if (!config.allow_local_link) {
                 std::erase_if(addresses, &IPUtil::is_ipv6_local_link);

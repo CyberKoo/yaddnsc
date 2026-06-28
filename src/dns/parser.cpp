@@ -19,7 +19,7 @@
 
 DnsRecordParser::DnsRecordParser(const data_type *data, const size_t size) {
     if (ns_initparse(data, static_cast<int>(size), &message_) != 0) {
-        throw DnsLookupException("Failed to parse DNS response message", dns_error::PARSE);
+        throw DnsLookupException("Failed to parse DNS response message", dns_error_type::PARSE);
     }
 
     SPDLOG_TRACE(R"(DNS record parser initialised (message size: {}, answer count: {}))",
@@ -35,7 +35,7 @@ std::string DnsRecordParser::parse_record(size_t index) const {
     if (ns_parserr(&message_, ns_s_an, static_cast<int>(index), &dns_resource)) {
         throw DnsLookupException(
             fmt::format("An error occurred when parsing DNS resource at index {}, detail: {}", index, strerror(errno)),
-            dns_error::PARSE);
+            dns_error_type::PARSE);
     }
 
     auto rdlen = ns_rr_rdlen(dns_resource);

@@ -71,7 +71,7 @@ public:
                 if (dns_answer.empty()) {
                     throw DnsLookupException(
                         fmt::format(R"(DNS lookup for domain "{}" returned no records)", host),
-                        dns_error::NODATA);
+                        dns_error_type::NODATA);
                 }
 
                 if (dns_answer.size() > 1) {
@@ -82,7 +82,7 @@ public:
                 return dns_answer.front();
             },
             max_retries,
-            [](const DnsLookupException &e) { return e.get_error() == dns_error::RETRY; },
+            [](const DnsLookupException &e) { return e.get_error() == dns_error_type::RETRY; },
             backoff_ms,
             &actual_retries
         );
@@ -113,8 +113,8 @@ private:
         int total = 0;
     };
 
-    static bool is_retryable(dns_error error) {
-        return error == dns_error::RETRY || error == dns_error::UNKNOWN || error == dns_error::CONNECTION;
+    static bool is_retryable(dns_error_type error) {
+        return error == dns_error_type::RETRY || error == dns_error_type::UNKNOWN || error == dns_error_type::CONNECTION;
     }
 
     static void query_resolver(const ResolverBase &resolver, const std::string &host, dns_type type, int resolver_id,
@@ -133,7 +133,7 @@ private:
         } catch (const DnsLookupException &e) {
             std::lock_guard lock(state->mtx);
 
-            if (e.get_error() == dns_error::NX_DOMAIN) {
+            if (e.get_error() == dns_error_type::NX_DOMAIN) {
                 SPDLOG_DEBUG(R"(Resolver #{} returned NXDOMAIN for "{}")", resolver_id, host);
                 state->has_nxdomain = true;
                 state->definitive_error = e;
@@ -155,7 +155,7 @@ private:
                 if (!state->definitive_error.has_value()) {
                     state->definitive_error = DnsLookupException(
                         fmt::format(R"(Resolver #{} threw an unknown exception for "{}")", resolver_id, host),
-                        dns_error::UNKNOWN);
+                        dns_error_type::UNKNOWN);
                 }
             }
         }
@@ -172,7 +172,7 @@ private:
         auto fallback = [&]() -> std::vector<std::string> {
             DnsLookupException last_error(
                 fmt::format(R"(DNS lookup for domain "{}" returned no records)", host),
-                dns_error::NODATA);
+                dns_error_type::NODATA);
 
             for (size_t i = 0; i < resolvers_.size(); ++i) {
                 SPDLOG_DEBUG(R"(Fallback resolver #{}: trying "{}")", i, host);
@@ -189,12 +189,12 @@ private:
                     SPDLOG_TRACE(R"(Fallback resolver #{} returned no records for "{}")", i, host);
                     last_error = DnsLookupException(
                         fmt::format(R"(DNS lookup for domain "{}" returned no records)", host),
-                        dns_error::NODATA);
+                        dns_error_type::NODATA);
                 } catch (const DnsLookupException &e) {
                     SPDLOG_TRACE(R"(Fallback resolver #{} failed for "{}": {})", i, host,
                                  DNS::error_to_str(e.get_error()));
 
-                    if (e.get_error() == dns_error::NX_DOMAIN) {
+                    if (e.get_error() == dns_error_type::NX_DOMAIN) {
                         throw;
                     }
 
@@ -254,7 +254,7 @@ private:
             auto last_err = state->transient_error.value_or(
                 DnsLookupException(
                     fmt::format(R"(DNS lookup for domain "{}" returned no records)", host),
-                    dns_error::NODATA));
+                    dns_error_type::NODATA));
 
             if (state->total > 1) {
                 SPDLOG_ERROR(R"(All {} resolver(s) failed for domain "{}", last error: {})",

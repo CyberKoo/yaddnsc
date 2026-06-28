@@ -129,7 +129,7 @@ namespace {
         }
 
         // --- Address family --------------------------------------------------
-        const auto af = opts.address_family.value_or(address_family::UNSPECIFIED);
+        const auto af = opts.address_family.value_or(address_family_type::UNSPECIFIED);
         client.set_address_family(IPUtil::to_socket_type(af));
 
         // --- Timeouts --------------------------------------------------------

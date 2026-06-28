@@ -32,7 +32,7 @@ namespace Config {
         bool use_custom_server{false};
         std::string address;
         unsigned short port{53};
-        std::vector<dns_server> servers;
+        std::vector<dns_server_type> servers;
         resolver_strategy strategy{resolver_strategy::CONCURRENT};
     };
 
@@ -40,7 +40,7 @@ namespace Config {
         std::string name;
         dns_type type{};
         std::optional<std::string> interface;
-        address_family ip_type{address_family::UNSPECIFIED};
+        address_family_type ip_type{address_family_type::UNSPECIFIED};
         ip_source_type ip_source{};
         std::string ip_source_param;
         bool allow_ula{false};

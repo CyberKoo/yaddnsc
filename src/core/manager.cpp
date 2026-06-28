@@ -42,7 +42,7 @@ public:
     explicit Impl(Config::config config) : config_(std::move(config)) {
         // Build the list of DNS servers from config, preserving backward
         // compatibility with the legacy single-server format.
-        std::vector<dns_server> dns_servers;
+        std::vector<dns_server_type> dns_servers;
         if (config_.resolver.use_custom_server) {
             if (!config_.resolver.servers.empty()) {
                 dns_servers = config_.resolver.servers;

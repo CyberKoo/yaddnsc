@@ -12,10 +12,10 @@
 
 #include "type.h"
 
-std::vector<std::string> IPUtil::extract_address(const std::map<std::string, int> &addresses, address_family af) {
+std::vector<std::string> IPUtil::extract_address(const std::map<std::string, int> &addresses, address_family_type af) {
     std::vector<std::string> nif_addresses;
     for (auto &[ip_address, family]: addresses) {
-        if (af == address_family::UNSPECIFIED || family == to_socket_type(af)) {
+        if (af == address_family_type::UNSPECIFIED || family == to_socket_type(af)) {
             nif_addresses.emplace_back(ip_address);
         }
     }
@@ -23,11 +23,11 @@ std::vector<std::string> IPUtil::extract_address(const std::map<std::string, int
     return nif_addresses;
 }
 
-int IPUtil::to_socket_type(const address_family version) {
+int IPUtil::to_socket_type(const address_family_type version) {
     switch (version) {
-        case address_family::IPV4:
+        case address_family_type::IPV4:
             return AF_INET;
-        case address_family::IPV6:
+        case address_family_type::IPV6:
             return AF_INET6;
         default:
             return AF_UNSPEC;

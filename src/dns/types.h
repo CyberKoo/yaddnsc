@@ -17,9 +17,9 @@
 // full resolver hierarchy.
 // ---------------------------------------------------------------------------
 namespace DNS {
-    std::string_view error_to_str(dns_error error);
+    std::string_view error_to_str(dns_error_type error);
 
-    address_family dns2ip(dns_type type);
+    address_family_type dns2ip(dns_type type);
 
     // Convert dns_type to the corresponding <arpa/nameser.h> ns_t_* constant.
     [[nodiscard]] int to_ns_type(dns_type type) noexcept;

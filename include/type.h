@@ -8,7 +8,7 @@
 #include <string>
 #include <cstdint>
 
-enum class address_family {
+enum class address_family_type {
     UNSPECIFIED, IPV4, IPV6
 };
 
@@ -19,11 +19,11 @@ enum class dns_type {
 // NOTE: NX_DOMAIN (with underscore) is intentional. The system header
 // <arpa/nameser.h> defines NXDOMAIN as ns_r_nxdomain, which would
 // cause a preprocessor conflict if we used the bare NXDOMAIN name.
-enum class dns_error {
+enum class dns_error_type {
     NX_DOMAIN, RETRY, NODATA, PARSE, CONNECTION, UNKNOWN
 };
 
-struct dns_server {
+struct dns_server_type {
     std::string address;
     uint16_t port{53};
 };
