@@ -11,6 +11,7 @@
 #include "type.h"
 #include "mixin.h"
 #include "http_types.h"
+#include "yaddnsc_export.h"
 
 struct HttpResponse final {
     bool success{false};
@@ -20,7 +21,7 @@ struct HttpResponse final {
     std::string error_message;
 };
 
-class IHttpSender {
+class YADDNSC_EXPORT IHttpSender {
 public:
     virtual ~IHttpSender() = default;
 
