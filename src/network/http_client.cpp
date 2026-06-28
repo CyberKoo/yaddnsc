@@ -91,60 +91,70 @@ namespace {
     // Dispatch: http_method_type -> httplib callable
     // -----------------------------------------------------------------------
 
-    using BodyType = std::variant<http_param_type, std::string>;
-    using Invoker = httplib::Result (*)(httplib::Client &, const char *,
-                                        const httplib::Headers &,
-                                        const BodyType &, const char *);
+    using BodyType = std::optional<std::string>;
+    using Invoker = httplib::Result (*)(httplib::Client &, const char *, const httplib::Headers &, const BodyType &,
+                                        const char *);
 
     Invoker select_invoker(http_method_type method) {
         switch (method) {
             case http_method_type::GET:
-                return [](httplib::Client &c, const char *p, const httplib::Headers &h,
-                          const BodyType &, const char *) -> httplib::Result {
+                return [](httplib::Client &c, const char *p, const httplib::Headers &h, const BodyType &,
+                          const char *) -> httplib::Result {
                     return c.Get(p, h);
                 };
             case http_method_type::POST:
-                return [](httplib::Client &c, const char *p, const httplib::Headers &h,
-                          const BodyType &b, const char *ct) -> httplib::Result {
-                    if (auto body = std::get_if<http_param_type>(&b)) {
-                        return c.Post(p, h, *body);
-                    }
-                    return c.Post(p, h, std::get<std::string>(b), ct);
+                return [](httplib::Client &c, const char *p, const httplib::Headers &h, const BodyType &b,
+                          const char *ct) -> httplib::Result {
+                    return c.Post(p, h, b.value_or(""), ct);
                 };
             case http_method_type::PUT:
-                return [](httplib::Client &c, const char *p, const httplib::Headers &h,
-                          const BodyType &b, const char *ct) -> httplib::Result {
-                    if (auto body = std::get_if<http_param_type>(&b)) {
-                        return c.Put(p, h, *body);
-                    }
-                    return c.Put(p, h, std::get<std::string>(b), ct);
+                return [](httplib::Client &c, const char *p, const httplib::Headers &h, const BodyType &b,
+                          const char *ct) -> httplib::Result {
+                    return c.Put(p, h, b.value_or(""), ct);
                 };
             case http_method_type::DEL:
-                return [](httplib::Client &c, const char *p, const httplib::Headers &h,
-                          const BodyType &, const char *) -> httplib::Result {
+                return [](httplib::Client &c, const char *p, const httplib::Headers &h, const BodyType &,
+                          const char *) -> httplib::Result {
                     return c.Delete(p, h);
                 };
             case http_method_type::PATCH:
-                return [](httplib::Client &c, const char *p, const httplib::Headers &h,
-                          const BodyType &b, const char *ct) -> httplib::Result {
-                    if (auto body = std::get_if<http_param_type>(&b)) {
-                        return c.Patch(p, h, *body);
-                    }
-                    return c.Patch(p, h, std::get<std::string>(b), ct);
+                return [](httplib::Client &c, const char *p, const httplib::Headers &h, const BodyType &b,
+                          const char *ct) -> httplib::Result {
+                    return c.Patch(p, h, b.value_or(""), ct);
                 };
             case http_method_type::HEAD:
-                return [](httplib::Client &c, const char *p, const httplib::Headers &h,
-                          const BodyType &, const char *) -> httplib::Result {
+                return [](httplib::Client &c, const char *p, const httplib::Headers &h, const BodyType &,
+                          const char *) -> httplib::Result {
                     return c.Head(p, h);
                 };
             case http_method_type::OPTIONS:
-                return [](httplib::Client &c, const char *p, const httplib::Headers &h,
-                          const BodyType &, const char *) -> httplib::Result {
+                return [](httplib::Client &c, const char *p, const httplib::Headers &h, const BodyType &,
+                          const char *) -> httplib::Result {
                     return c.Options(p, h);
                 };
         }
         std::unreachable();
     }
+}
+
+// ---------------------------------------------------------------------------
+// IHttpSender (static)
+// ---------------------------------------------------------------------------
+
+std::string IHttpSender::params_to_query_string(const http_param_type &params) {
+    return std::ranges::fold_left(
+        params | std::views::transform([](const auto &p) {
+            return httplib::encode_query_component(p.first) + '=' +
+                   httplib::encode_query_component(p.second);
+        }),
+        std::string{},
+        [](std::string acc, const std::string &kv) -> std::string {
+            if (acc.empty()) return kv;
+            acc += '&';
+            acc += kv;
+            return acc;
+        }
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -170,17 +180,16 @@ HttpResponse HttpClient::send(const http_request &req) {
     const auto path = build_request(uri);
 
     const auto result = select_invoker(req.request_method)(
-        client, path.c_str(), headers, req.body, req.content_type.c_str()
+        client, path.c_str(), headers, req.body, req.content_type.data()
     );
 
+    HttpResponse resp;
     if (!result) {
-        HttpResponse resp;
         resp.success = false;
         resp.error_message = std::string(httplib::to_string(result.error()));
         return resp;
     }
 
-    HttpResponse resp;
     resp.success = true;
     resp.status_code = result->status;
     resp.headers = {result->headers.begin(), result->headers.end()};

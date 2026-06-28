@@ -6,8 +6,8 @@
 
 #include <glaze/glaze.hpp>
 
-#include "driver/driver_factory.h"
 #include "fmt.hpp"
+#include "driver/driver_factory.h"
 #include "interfaces/core_logger.h"
 
 DEFINE_DRIVER_FACTORY(SimpleDriver)
@@ -22,7 +22,7 @@ driver_request SimpleDriver::generate_request(const driver_config_type &config, 
     auto url = obj["url"].get_string();
 
     // Substitute all keys into the URL template: config params first, then context
-    auto substitute = [&](std::string_view key, std::string_view val) {
+    const auto substitute = [&](std::string_view key, std::string_view val) {
         const auto target = fmt::format("{{{}}}", key);
         for (auto pos = url.find(target); pos != std::string::npos;
              pos = url.find(target, pos + val.size())) {
@@ -43,21 +43,24 @@ driver_request SimpleDriver::generate_request(const driver_config_type &config, 
     substitute("fqdn", ctx.fqdn);
 
     return {
-        .url = std::move(url), .body = std::string{}, .content_type = std::string{},
-        .request_method = driver_http_method_type::GET, .header = {}
+        .url = std::move(url),
+        .content_type = std::string{},
+        .request_method = driver_http_method_type::GET,
+        .header = {},
+        .body = std::nullopt
+    };
+}
+
+DriverDetail SimpleDriver::get_detail() const {
+    return {
+        .name = "simple",
+        .description = "Generic HTTP driver with URL template substitution",
+        .author = "Kotarou",
+        .version = "2.0.0"
     };
 }
 
 bool SimpleDriver::check_response(std::string_view response) const {
     CORE_LOG_DEBUG("Response: {}", response);
     return !response.empty();
-}
-
-DriverDetail SimpleDriver::get_detail() const {
-    return {
-        .name = "simple",
-        .description = "Simple HTTP driver",
-        .author = "Kotarou",
-        .version = "2.0.0"
-    };
 }

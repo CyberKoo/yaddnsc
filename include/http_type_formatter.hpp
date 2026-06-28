@@ -71,19 +71,13 @@ struct std::formatter<http_request> {
 #else
         auto format(const http_request &request, FormatContext &ctx) const -> decltype(ctx.out()) {
 #endif
-        std::string body_type;
+        std::string body_type = "none";
         std::string body;
 
-        std::visit([&]<typename T>(const T &body_) {
-                       if constexpr (std::is_same_v<T, http_param_type>) {
-                           body_type = "map";
-                           body = format_map(body_.begin(), body_.end());
-                       } else if constexpr (std::is_same_v<T, std::string>) {
-                           body_type = "string";
-                           body = body_;
-                       }
-                   }, request.body
-        );
+        if (request.body.has_value()) {
+            body_type = "string";
+            body = request.body.value();
+        }
 
 #ifdef YADDNSC_USE_STD_FORMAT
         return std::format_to(ctx.out(),

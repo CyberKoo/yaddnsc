@@ -4,15 +4,17 @@
 
 #include "digital_ocean.h"
 
-#include "config.hpp"
-#include "driver/driver_factory.h"
 #include "fmt.hpp"
-#include "interfaces/core_logger.h"
+#include "config.hpp"
 #include "response.h"
+#include "driver/driver_factory.h"
+#include "interfaces/core_logger.h"
+
+namespace {
+    constexpr std::string_view API_URL = "https://api.digitalocean.com/v2/domains/{DOMAIN}/records/{RECORD_ID}";
+}
 
 DEFINE_DRIVER_FACTORY(DigitalOceanDriver)
-
-constexpr std::string_view API_URL = "https://api.digitalocean.com/v2/domains/{DOMAIN}/records/{RECORD_ID}";
 
 driver_request DigitalOceanDriver::generate_request(const driver_config_type &config, const UpdateContext &ctx) const {
     auto cfg = parse_config<DigitalOceanParams>(config);
@@ -53,7 +55,7 @@ bool DigitalOceanDriver::check_response(std::string_view response) const {
 DriverDetail DigitalOceanDriver::get_detail() const {
     return {
         .name = "digital_ocean",
-        .description = "Digital Ocean DDNS driver",
+        .description = "Updates DNS records via the DigitalOcean API",
         .author = "Kotarou",
         .version = "2.0.0"
     };

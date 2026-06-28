@@ -29,11 +29,14 @@ foreach (DIR_NAME ${DRIVER_DIRS})
     message(STATUS "Build driver ${DRIVER_NAME}")
 
     add_subdirectory(${DIR_NAME})
-    set_target_properties(${DRIVER_NAME} PROPERTIES PREFIX "")
+    # Target is named drv_<name> to avoid collisions, but output filename is <name>.so
+    # (no lib prefix, no drv_ prefix) so the driver loader can find it by just <name>
+    set_target_properties(${DRIVER_NAME} PROPERTIES PREFIX "" OUTPUT_NAME "${DRIVER_NAME}")
 
-    # own code warnings + treat warnings as errors
+    # Strict warnings for driver code, treated as errors
     target_compile_options(${DRIVER_NAME} PRIVATE -Wall -Wextra -Wpedantic -Wshadow -Wnon-virtual-dtor -Werror)
 
+    # Aggregate all drivers under the top-level 'drivers' target
     add_dependencies(drivers ${DRIVER_NAME})
   endif ()
 endforeach ()

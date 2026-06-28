@@ -3,15 +3,17 @@
 //
 #include "cloudflare.h"
 
-#include "config.hpp"
-#include "driver/driver_factory.h"
 #include "fmt.hpp"
-#include "interfaces/core_logger.h"
+#include "config.hpp"
 #include "response.h"
+#include "driver/driver_factory.h"
+#include "interfaces/core_logger.h"
+
+namespace {
+    constexpr std::string_view API_URL = "https://api.cloudflare.com/client/v4/zones/{ZONE_ID}/dns_records/{RECORD_ID}";
+}
 
 DEFINE_DRIVER_FACTORY(CloudflareDriver)
-
-constexpr std::string_view API_URL = "https://api.cloudflare.com/client/v4/zones/{ZONE_ID}/dns_records/{RECORD_ID}";
 
 driver_request CloudflareDriver::generate_request(const driver_config_type &config, const UpdateContext &ctx) const {
     auto cfg = parse_config<CloudflareParams>(config);
@@ -56,6 +58,15 @@ bool CloudflareDriver::check_response(std::string_view response) const {
     return true;
 }
 
+DriverDetail CloudflareDriver::get_detail() const {
+    return {
+        .name = "cloudflare",
+        .description = "Updates DNS records via the Cloudflare API",
+        .author = "Kotarou",
+        .version = "2.0.0"
+    };
+}
+
 std::string CloudflareDriver::generate_body(const CloudflareParams &cfg, const UpdateContext &ctx) {
     auto body = CloudflareRequestBody{
         .type = ctx.rd_type,
@@ -65,13 +76,4 @@ std::string CloudflareDriver::generate_body(const CloudflareParams &cfg, const U
         .proxied = cfg.proxied.value_or(false)
     };
     return glz::write_json(body).value_or("{}");
-}
-
-DriverDetail CloudflareDriver::get_detail() const {
-    return {
-        .name = "cloudflare",
-        .description = "Cloudflare DDNS driver",
-        .author = "Kotarou",
-        .version = "2.0.0"
-    };
 }

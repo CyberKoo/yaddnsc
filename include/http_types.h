@@ -6,8 +6,8 @@
 #define YADDNSC_HTTP_TYPES_H
 
 #include <map>
+#include <optional>
 #include <string>
-#include <variant>
 
 using http_param_type = std::multimap<std::string, std::string>;
 
@@ -17,10 +17,10 @@ enum class http_method_type {
 
 struct http_request {
     std::string url;
-    std::variant<http_param_type, std::string> body;
     std::string content_type;
     http_method_type request_method;
     http_param_type header;
+    std::optional<std::string> body;
 };
 
 #endif //YADDNSC_HTTP_TYPES_H

@@ -28,6 +28,9 @@ public:
 
     virtual HttpResponse send(const http_request &req) = 0;
 
+    // Form-encode a parameter map into application/x-www-form-urlencoded string.
+    static std::string params_to_query_string(const http_param_type &params);
+
 private:
     [[maybe_unused, no_unique_address]] NoCopy _nc_;
     [[maybe_unused, no_unique_address]] NoMove _nm_;

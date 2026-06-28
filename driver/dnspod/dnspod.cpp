@@ -6,20 +6,19 @@
 
 #include <unordered_map>
 
-#include "config.hpp"
-#include "driver/driver_factory.h"
 #include "fmt.hpp"
-#include "interfaces/core_logger.h"
+#include "config.hpp"
 #include "response.h"
+#include "driver/driver_factory.h"
+#include "interfaces/core_logger.h"
+#include "interfaces/http_client.h"
 
-DEFINE_DRIVER_FACTORY(DNSPodDriver)
+namespace {
+    constexpr std::string_view API_URL_CN = "https://dnsapi.cn/Record.Ddns";
 
-constexpr std::string_view API_URL_CN = "https://dnsapi.cn/Record.Ddns";
+    constexpr std::string_view API_URL_GLOBAL = "https://api.dnspod.com/Record.Ddns";
 
-constexpr std::string_view API_URL_GLOBAL = "https://api.dnspod.com/Record.Ddns";
-
-namespace detail {
-    static std::unordered_map<std::string_view, std::string_view> ERROR_CODES = {
+    std::unordered_map<std::string_view, std::string_view> ERROR_CODES = {
         {"-15", "Domain got prohibited"},
         {"-8", "You need a upgrade for the domain you are acting for"},
         {"-7", "A domain of a company account need a upgrade first"},
@@ -44,6 +43,8 @@ namespace detail {
     };
 }
 
+DEFINE_DRIVER_FACTORY(DNSPodDriver)
+
 driver_request DNSPodDriver::generate_request(const driver_config_type &config, const UpdateContext &ctx) const {
     auto cfg = parse_config<DNSPodParams>(config);
 
@@ -52,7 +53,7 @@ driver_request DNSPodDriver::generate_request(const driver_config_type &config, 
 
     driver_request request{};
     request.url = cfg.global ? API_URL_GLOBAL : API_URL_CN;
-    request.body = driver_param_type{
+    request.body = IHttpSender::params_to_query_string(driver_param_type{
         {"login_token", cfg.login_token},
         {"domain_id", cfg.domain_id},
         {"record_id", cfg.record_id},
@@ -62,16 +63,11 @@ driver_request DNSPodDriver::generate_request(const driver_config_type &config, 
         {"record_line", record_line},
         {"record_line_id", cfg.record_line_id},
         {"format", "json"}
-    };
-    request.content_type = "application/json";
+    });
+    request.content_type = "application/x-www-form-urlencoded";
     request.request_method = driver_http_method_type::POST;
 
     return request;
-}
-
-std::string_view DNSPodDriver::describe_error_code(std::string_view code) {
-    const auto it = detail::ERROR_CODES.find(code);
-    return it != detail::ERROR_CODES.end() ? it->second : "Unknown error code";
 }
 
 bool DNSPodDriver::check_response(std::string_view response) const {
@@ -108,8 +104,13 @@ bool DNSPodDriver::check_response(std::string_view response) const {
 DriverDetail DNSPodDriver::get_detail() const {
     return {
         .name = "dnspod",
-        .description = "DNSPod DDNS driver",
+        .description = "Updates DNS records via the DNSPod API",
         .author = "Kotarou",
         .version = "2.0.0"
     };
+}
+
+std::string_view DNSPodDriver::describe_error_code(std::string_view code) {
+    const auto it = ERROR_CODES.find(code);
+    return it != ERROR_CODES.end() ? it->second : "Unknown error code";
 }

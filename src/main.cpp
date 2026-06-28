@@ -14,7 +14,18 @@
 #include "logging_pattern.h"
 #include "version.h"
 
-void block_signals();
+namespace {
+    void block_signals() {
+        // Block SIGINT and SIGTERM in all threads so they can be handled by
+        // a dedicated sigwait() thread inside Manager::run() instead of the
+        // default handler (which would kill the process immediately).
+        sigset_t sigset;
+        sigemptyset(&sigset);
+        sigaddset(&sigset, SIGINT);
+        sigaddset(&sigset, SIGTERM);
+        pthread_sigmask(SIG_BLOCK, &sigset, nullptr);
+    }
+}
 
 int main(int argc, char *argv[]) {
     block_signals();
@@ -89,15 +100,4 @@ int main(int argc, char *argv[]) {
     }
 
     return -1;
-}
-
-void block_signals() {
-    // Block SIGINT and SIGTERM in all threads so they can be handled by
-    // a dedicated sigwait() thread inside Manager::run() instead of the
-    // default handler (which would kill the process immediately).
-    sigset_t sigset;
-    sigemptyset(&sigset);
-    sigaddset(&sigset, SIGINT);
-    sigaddset(&sigset, SIGTERM);
-    pthread_sigmask(SIG_BLOCK, &sigset, nullptr);
 }
