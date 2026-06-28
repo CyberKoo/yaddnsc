@@ -4,11 +4,78 @@
 #include "uri.h"
 
 #include <string>
-#include <algorithm>
 #include <charconv>
+#include <optional>
+#include <algorithm>
 #include <string_view>
 
 #include "fmt.hpp"
+
+namespace {
+    /// Parse a host:port authority string into host and port.
+    ///
+    /// Expects a view that contains only the authority portion (no path/query).
+    /// Handles IPv6 literals (`[::1]` / `[::1]:53`), bare IPv6 (`::1`,
+    /// `2001:db8::1`), host:port, and plain hostname/IPv4.
+    void parse_authority(std::string_view auth, std::string &host_out, std::optional<int> &port_out,
+                         std::string_view raw_uri_hint) {
+        if (auth.empty()) {
+            return;
+        }
+
+        if (auth.starts_with('[')) {
+            auto const closing = auth.find(']');
+            if (closing == std::string_view::npos) {
+                throw std::runtime_error(
+                    fmt::format("Unclosed IPv6 literal bracket: {}", raw_uri_hint));
+            }
+
+            host_out.assign(auth.substr(1, closing - 1));
+
+            if (closing + 1 < auth.size() && auth[closing + 1] == ':') {
+                auto const port_str = auth.substr(closing + 2);
+                if (!port_str.empty()) {
+                    int v{};
+                    if (auto [p, ec] = std::from_chars(
+                            port_str.data(), port_str.data() + port_str.size(), v);
+                        ec == std::errc()) {
+                        port_out.emplace(v);
+                    }
+                }
+            }
+            return;
+        }
+
+        // Bare IPv6 with two or more colons (e.g. ::1, 2001:db8::1)
+        if (std::ranges::count(auth, ':') >= 2) {
+            host_out.assign(auth);
+            return;
+        }
+
+        // Possibly host:port  (exactly one colon)
+        auto const colon = auth.rfind(':');
+        if (colon != std::string_view::npos) {
+            host_out.assign(auth.substr(0, colon));
+            auto const port_str = auth.substr(colon + 1);
+            if (!port_str.empty()) {
+                int v{};
+                if (auto [p, ec] = std::from_chars(
+                        port_str.data(), port_str.data() + port_str.size(), v);
+                    ec == std::errc()) {
+                    port_out.emplace(v);
+                }
+            }
+            return;
+        }
+
+        host_out.assign(auth);
+    }
+}
+
+
+// ---------------------------------------------------------------------------
+// Parse
+// ---------------------------------------------------------------------------
 
 Uri Uri::parse(std::string_view uri) {
     Uri result{};
@@ -19,133 +86,113 @@ Uri Uri::parse(std::string_view uri) {
 
     result.raw_uri_ = uri;
 
-    // get query start
-    auto query_start = std::ranges::find(uri, '?');
-
-    // schema
-    auto schema_end = std::ranges::find(uri, ':');
-
-    if (schema_end != uri.end()) {
-        auto remaining = std::string_view(schema_end, uri.end());
-        if (remaining.starts_with("://")) {
-            result.schema_ = std::string(uri.begin(), schema_end);
-
-            std::ranges::transform(
-                result.schema_, result.schema_.begin(),
-                [](unsigned char c) { return std::tolower(c); }
-            );
-
-            schema_end += 3; // skip ://
-        } else {
-            schema_end = uri.begin(); // no schema
-        }
-    } else {
-        schema_end = uri.begin(); // no schema
+    // -------- strip fragment (#...) ---------------------------------------
+    // Fragment is always the very last component per RFC 3986.
+    if (auto const frag_pos = uri.find('#'); frag_pos != std::string_view::npos) {
+        uri.remove_suffix(uri.size() - frag_pos);
     }
 
-    if (result.schema_.empty()) {
-        throw std::runtime_error(fmt::format("URI does not have a valid schema: {}", uri));
-    }
+    // -------- scheme detection --------------------------------------------
+    // Look for "://".  If found and there is at least one character before
+    // it, treat the part before "://" as a scheme name.
+    bool has_scheme = false;
+    std::size_t authority_start = 0; // offset where authority begins
 
-    result.body_ = std::string_view(schema_end, uri.end());
+    auto const hier_delim = uri.find("://");
+    if (hier_delim != std::string_view::npos && hier_delim > 0) {
+        has_scheme = true;
 
-    // --- host & port (with IPv6 literal support) -------------------------
-
-    auto authority_start = schema_end;
-
-    // Find the start of the path (first '/' after authority)
-    auto path_start = std::find(authority_start, uri.end(), '/');
-    // If there's a query before any path, adjust
-    auto authority_end = path_start != uri.end() ? path_start : query_start;
-
-    // Check for IPv6 literal: [::1]
-    if (authority_start != authority_end && *authority_start == '[') {
-        auto closing_bracket = std::find(authority_start + 1, authority_end, ']');
-        if (closing_bracket == authority_end) {
-            throw std::runtime_error(
-                fmt::format("URI contains unclosed IPv6 literal bracket: {}", uri)
-            );
-        }
-
-        // Host is between [ and ]
-        result.host_ = std::string(authority_start + 1, closing_bracket);
-
-        // Look for port after ]
-        auto port_start = closing_bracket + 1;
-        if (port_start < authority_end && *port_start == ':') {
-            ++port_start;
-            const auto port_str = std::string_view(port_start, authority_end);
-            if (!port_str.empty()) {
-                auto [ptr, ec] = std::from_chars(port_str.data(), port_str.data() + port_str.size(), result.port_);
-                if (ec != std::errc()) {
-                    result.port_ = 0;
-                }
+        result.schema_ = std::string(uri.substr(0, hier_delim));
+        // scheme is case-insensitive → normalize to lowercase
+        std::ranges::transform(
+            result.schema_, result.schema_.begin(),
+            [](unsigned char c) {
+                return static_cast<char>(std::tolower(c));
             }
-        }
+        );
+
+        authority_start = hier_delim + 3; // skip "://"
+        result.body_ = std::string(uri.substr(authority_start));
     } else {
-        // Plain host (IPv4 or hostname) — use ':' to split host and port
-        auto host_end = std::find(authority_start, authority_end, ':');
-        result.host_ = std::string(authority_start, host_end);
-
-        if (host_end != authority_end) {
-            // skip ':'
-            ++host_end;
-            auto port_str = std::string_view(host_end, authority_end);
-            if (!port_str.empty()) {
-                auto [ptr, ec] = std::from_chars(port_str.data(), port_str.data() + port_str.size(), result.port_);
-                if (ec != std::errc()) {
-                    result.port_ = 0;
-                }
-            }
-        }
+        // No scheme – the whole input (minus fragment) is treated as
+        // authority, path, or a combination thereof.
+        result.body_ = std::string(uri);
     }
 
-    // default ports
-    if (result.port_ == 0) {
-        if (result.schema_ == "http") {
-            result.port_ = 80;
-        } else if (result.schema_ == "https") {
-            result.port_ = 443;
-        }
+    // -------- locate path & query boundaries ------------------------------
+    auto const query_pos = uri.find('?', authority_start);
+    auto const path_pos = uri.find('/', authority_start);
+
+    // -------- path-only inputs (no authority) -----------------------------
+    // Relative/absolute paths with no scheme and no host.
+    if (!has_scheme && (uri.starts_with('/') || uri.starts_with('.'))) {
+        result.path_ = std::string(uri);
+        return result;
     }
 
-    // path
-    if (path_start != uri.end()) {
-        result.path_ = std::string(path_start, query_start);
+    // -------- extract authority -------------------------------------------
+    // Authority runs from authority_start up to the earliest structural
+    // delimiter (path, query, or end-of-string).
+    auto authority_end = uri.size();
+    if (path_pos != std::string_view::npos) {
+        authority_end = (std::min)(authority_end, path_pos);
+    }
+    if (query_pos != std::string_view::npos) {
+        authority_end = (std::min)(authority_end, query_pos);
     }
 
-    // query
-    if (query_start != uri.end()) {
-        result.query_string_ = std::string(query_start + 1, uri.end());
+    parse_authority(uri.substr(authority_start, authority_end - authority_start),
+                    result.host_, result.port_, result.raw_uri_);
+
+    // -------- default port ------------------------------------------------
+    // Only apply well-known defaults when a scheme was explicitly given.
+    // Bare host:port inputs keep whatever port was (or was not) specified.
+    if (!result.port_.has_value()) {
+        int const fallback = has_scheme ? default_port_for(result.schema_) : 0;
+        result.port_.emplace(fallback);
+    }
+
+    // -------- path --------------------------------------------------------
+    if (path_pos != std::string_view::npos) {
+        // Path runs from the first '/' up to (but not including) '?'.
+        // If a pathological '?' appears before '/', ignore it.
+        auto const path_end = (query_pos != std::string_view::npos && query_pos > path_pos)
+                                  ? query_pos
+                                  : uri.size();
+        result.path_ = std::string(uri.substr(path_pos, path_end - path_pos));
+    }
+
+    // -------- query string ------------------------------------------------
+    if (query_pos != std::string_view::npos) {
+        result.query_string_ = std::string(uri.substr(query_pos + 1));
     }
 
     return result;
 }
 
-std::string_view Uri::get_query_string() const {
-    return query_string_;
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+int Uri::default_port_for(std::string_view scheme) noexcept {
+    if (scheme == "http") return 80;
+    if (scheme == "https") return 443;
+    return 0;
 }
 
-std::string_view Uri::get_path() const {
-    return path_;
-}
+// ---------------------------------------------------------------------------
+// Accessors
+// ---------------------------------------------------------------------------
 
-std::string_view Uri::get_schema() const {
-    return schema_;
-}
-
-std::string_view Uri::get_host() const {
-    return host_;
-}
+std::string_view Uri::get_query_string() const { return query_string_; }
+std::string_view Uri::get_path() const { return path_; }
+std::string_view Uri::get_schema() const { return schema_; }
+std::string_view Uri::get_host() const { return host_; }
+std::string_view Uri::get_raw_uri() const { return raw_uri_; }
+std::string_view Uri::get_body() const { return body_; }
 
 int Uri::get_port() const {
-    return port_;
-}
-
-std::string_view Uri::get_raw_uri() const {
-    return raw_uri_;
-}
-
-std::string_view Uri::get_body() const {
-    return body_;
+    // port_ is always populated after parse() — either explicitly set or
+    // filled in by the default-port logic above — so value() is safe here.
+    return *port_;
 }

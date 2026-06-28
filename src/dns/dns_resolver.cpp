@@ -12,7 +12,6 @@
 #include <sys/socket.h>
 
 #include <memory>
-#include <mutex>
 #include <optional>
 
 #include <spdlog/spdlog.h>
@@ -80,7 +79,7 @@ namespace {
         void set_ipv6_nameserver(const dns_server &server) {
             // zero out settings from resolv.conf
             for (int i = 0; i < state.nscount; ++i) {
-                std::memset(&state.nsaddr_list[i], 0, sizeof(state.nsaddr_list[i]));
+                state.nsaddr_list[i] = {};
             }
 
             state.nscount = 1;

@@ -6,6 +6,7 @@
 #define YADDNSC_URI_H
 
 #include <string>
+#include <optional>
 #include <string_view>
 
 class Uri {
@@ -29,6 +30,8 @@ public:
 private:
     Uri() = default;
 
+    static int default_port_for(std::string_view scheme) noexcept;
+
 private:
     std::string query_string_;
     std::string path_;
@@ -36,7 +39,7 @@ private:
     std::string host_;
     std::string raw_uri_;
     std::string body_;
-    int port_ = 0;
+    std::optional<int> port_;     // nullopt = not explicitly set
 };
 
 #endif //YADDNSC_URI_H
