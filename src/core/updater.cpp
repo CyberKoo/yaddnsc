@@ -13,7 +13,8 @@
 #include "interfaces/driver.h"
 #include "interfaces/http_client.h"
 #include "network/http_client.h"
-#include "network/ip_util.h"
+#include "network/inet_address.h"
+#include "string_util.h"
 #include "network/network_manager.h"
 
 // ---------------------------------------------------------------------------
@@ -33,13 +34,13 @@ private:
     [[nodiscard]] std::optional<std::string>
     dns_lookup(const std::string &host, dns_type type) const;
 
-    [[nodiscard]] std::optional<std::string> get_ip_address(const Config::subdomain_config &config) const;
+    [[nodiscard]] std::optional<InetAddress> get_ip_address(const Config::subdomain_config &config) const;
 
     [[nodiscard]] static driver_config_type
     build_driver_parameters(const UpdateTask &task);
 
     [[nodiscard]] static UpdateContext
-    build_update_context(const UpdateTask &task, const std::string &ip_addr, std::string_view rd_type);
+    build_update_context(const UpdateTask &task, const InetAddress &ip_addr, std::string_view rd_type);
 
 private:
     const DriverManager &driver_manager_;
@@ -89,13 +90,13 @@ void Updater::Impl::process(const UpdateTask &task) const {
         const auto record = dns_lookup(task.fqdn, task.subdomain.type);
 
         if (record.has_value()) {
-            if (record.value() == *local_ip) {
+            if (record.value() == local_ip->to_string()) {
                 SPDLOG_DEBUG("Domain: {}, type: {}, current {}, new {}, skipping update",
-                             task.fqdn, rd_type, record.value(), *local_ip);
+                             task.fqdn, rd_type, record.value(), local_ip->to_string());
                 return;
             }
 
-            SPDLOG_INFO(R"(Update needed, local IP "{}" != DNS record "{}")", *local_ip, record.value());
+            SPDLOG_INFO(R"(Update needed, local IP "{}" != DNS record "{}")", local_ip->to_string(), record.value());
         }
     } else {
         SPDLOG_INFO("Force update triggered for {}", task.fqdn);
@@ -113,7 +114,7 @@ void Updater::Impl::process(const UpdateTask &task) const {
         return;
     }
 
-    SPDLOG_INFO("Update {}, type: {}, to {}", task.fqdn, rd_type, *local_ip);
+    SPDLOG_INFO("Update {}, type: {}, to {}", task.fqdn, rd_type, local_ip->to_string());
 }
 
 // ---------------------------------------------------------------------------
@@ -127,32 +128,44 @@ Updater::Impl::dns_lookup(const std::string &host, dns_type type) const {
 // ---------------------------------------------------------------------------
 // get_ip_address — obtain the local IP from an interface or a URL.
 // ---------------------------------------------------------------------------
-std::optional<std::string>
-Updater::Impl::get_ip_address(const Config::subdomain_config &config) const {
+std::optional<InetAddress> Updater::Impl::get_ip_address(const Config::subdomain_config &config) const {
     auto address_family = DNS::dns2ip(config.type);
     if (config.ip_source == Config::ip_source_type::INTERFACE) {
-        const auto if_addresses = network_manager_.get_interface_ip_addresses(*config.interface);
-        auto addresses = IPUtil::extract_address(if_addresses, address_family);
+        auto addresses = network_manager_.get_interface_ip_addresses(*config.interface);
+
+        // Filter by address family.
+        if (address_family != address_family_type::UNSPECIFIED) {
+            std::erase_if(addresses, [af = address_family](const InetAddress &addr) {
+                return addr.get_family() != af;
+            });
+        }
 
         if (address_family == address_family_type::IPV6) {
             // Filter out link-local addresses unless explicitly allowed.
             if (!config.allow_local_link) {
-                std::erase_if(addresses, &IPUtil::is_ipv6_local_link);
+                std::erase_if(addresses, [](const InetAddress &addr) { return addr.is_link_local(); });
             }
 
             // Filter out unique-local addresses unless explicitly allowed.
             if (!config.allow_ula) {
-                std::erase_if(addresses, &IPUtil::is_ipv6_ula);
+                std::erase_if(addresses, [](const InetAddress &addr) { return addr.is_ula(); });
             }
         }
 
         if (!addresses.empty()) {
-            return addresses.front();
+            return std::move(addresses.front());
         }
         return std::nullopt;
     }
 
-    return IPUtil::get_ip_from_url(config.ip_source_param, address_family, config.interface);
+    auto body = TransientHttpClient::get_body(config.ip_source_param, {.address_family = address_family, .interface = config.interface});
+    if (!body) {
+        return std::nullopt;
+    }
+
+    StringUtil::trim(*body);
+    SPDLOG_DEBUG("HTTP response: {}", *body);
+    return InetAddress::parse(*body);
 }
 
 // ---------------------------------------------------------------------------
@@ -167,9 +180,9 @@ driver_config_type Updater::Impl::build_driver_parameters(const UpdateTask &task
 //                        the resolved IP / record type.
 // ---------------------------------------------------------------------------
 UpdateContext
-Updater::Impl::build_update_context(const UpdateTask &task, const std::string &ip_addr, std::string_view rd_type) {
+Updater::Impl::build_update_context(const UpdateTask &task, const InetAddress &ip_addr, std::string_view rd_type) {
     return {
-        .ip_addr = ip_addr,
+        .ip_addr = ip_addr.to_string(),
         .rd_type = std::string(rd_type),
         .domain = task.domain_name,
         .subdomain = task.subdomain.name,

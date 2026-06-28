@@ -8,8 +8,8 @@
 #include <map>
 #include <string>
 #include <chrono>
-#include <optional>
 #include <memory>
+#include <optional>
 #include <string_view>
 
 #include "type.h"
@@ -73,7 +73,7 @@ private:
 // ---------------------------------------------------------------------------
 class PersistentHttpClient final : public HttpClient {
 public:
-    PersistentHttpClient(const Uri &uri, HttpClientOptions opts = {});
+    explicit PersistentHttpClient(const Uri &uri, HttpClientOptions opts = {});
 
     ~PersistentHttpClient() override;
 

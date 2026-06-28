@@ -144,6 +144,14 @@ Uri Uri::parse(std::string_view uri) {
     parse_authority(uri.substr(authority_start, authority_end - authority_start),
                     result.host_, result.port_, result.raw_uri_);
 
+    // host is case-insensitive per RFC 3986 §3.2.2
+    std::ranges::transform(
+        result.host_, result.host_.begin(),
+        [](unsigned char c) {
+            return static_cast<char>(std::tolower(c));
+        }
+    );
+
     // -------- default port ------------------------------------------------
     // Only apply well-known defaults when a scheme was explicitly given.
     // Bare host:port inputs keep whatever port was (or was not) specified.

@@ -126,8 +126,9 @@ const Driver &DriverManager::get_driver(const std::string &name) const {
 std::vector<std::string_view> DriverManager::get_loaded_drivers() const {
     std::vector<std::string_view> loaded_drivers;
     std::ranges::transform(
-        impl_->driver_map_, std::back_inserter(loaded_drivers),
-        [](const auto &kv) -> std::string_view { return kv.first; }
+        impl_->driver_map_, std::back_inserter(loaded_drivers), [](const auto &kv) -> std::string_view {
+            return kv.first;
+        }
     );
 
     return loaded_drivers;
@@ -160,12 +161,12 @@ void DriverManager::Impl::register_driver(DriverModule driver_res, std::string_v
 
     // validate driver ABI version
     if (driver.get_driver_version() != DRV_VERSION) {
-        SPDLOG_CRITICAL("Failed to load driver '{}' [ABI: {}] - version mismatch: got {}, expected {}",
-                        driver_lib_name, DRV_VERSION, driver.get_driver_version(), DRV_VERSION);
+        SPDLOG_CRITICAL("Failed to load driver '{}' [ABI: {}] - version mismatch: got {}, expected {}", driver_lib_name,
+                        DRV_VERSION, driver.get_driver_version(), DRV_VERSION);
 
         throw BadDriverException(
-            fmt::format("Driver {} ABI version mismatch: got {}, expected {}",
-                        driver_lib_name, driver.get_driver_version(), DRV_VERSION
+            fmt::format("Driver {} ABI version mismatch: got {}, expected {}", driver_lib_name,
+                        driver.get_driver_version(), DRV_VERSION
             )
         );
     }

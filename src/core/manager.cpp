@@ -29,6 +29,7 @@
 #include "dns/base.h"
 #include "dns/multi_resolver.h"
 #include "min_update_interval.h"
+#include "network/inet_address.h"
 #include "network/http_client.h"
 #include "network/network_manager.h"
 #include "config/config_validator.hpp"
@@ -58,8 +59,7 @@ public:
         //   otherwise    → DnsResolver (traditional UDP/TCP DNS)
         std::vector<std::shared_ptr<ResolverBase> > resolvers;
         for (const auto &server: dns_servers) {
-            const auto uri = Uri::parse(server.address);
-            if (uri.get_schema() == "https") {
+            if (const auto uri = Uri::parse(server.address); uri.get_schema() == "https") {
                 auto http_client = std::make_unique<PersistentHttpClient>(
                     uri, HttpClientOptions{
                         .connection_timeout = std::chrono::seconds(1), .read_timeout = std::chrono::seconds(5)
@@ -78,9 +78,9 @@ public:
             if (dns_servers.size() > 1) {
                 SPDLOG_INFO("Configured {} custom resolver(s) with fallback", dns_servers.size());
                 for (const auto &server: dns_servers) {
-                    if (IPUtil::is_ipv4_address(server.address)) {
+                    if (Inet4Address::parse(server.address)) {
                         SPDLOG_INFO("  {}:{}", server.address, server.port);
-                    } else if (IPUtil::is_ipv6_address(server.address)) {
+                    } else if (Inet6Address::parse(server.address)) {
                         SPDLOG_INFO("  [{}]:{}", server.address, server.port);
                     } else {
                         SPDLOG_INFO("  {}", server.address);
@@ -88,9 +88,9 @@ public:
                 }
             } else {
                 const auto &server = dns_servers.front();
-                if (IPUtil::is_ipv4_address(server.address)) {
+                if (Inet4Address::parse(server.address)) {
                     SPDLOG_INFO("Custom resolver: {}:{}", server.address, server.port);
-                } else if (IPUtil::is_ipv6_address(server.address)) {
+                } else if (Inet6Address::parse(server.address)) {
                     SPDLOG_INFO("Custom resolver: [{}]:{}", server.address, server.port);
                 } else {
                     SPDLOG_INFO("Custom DoH resolver: {}", server.address);

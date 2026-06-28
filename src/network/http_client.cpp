@@ -16,7 +16,6 @@
 
 #include "uri.h"
 #include "fmt.hpp"
-#include "ip_util.h"
 #include "version.h"
 #include "http_types.h"
 
@@ -149,7 +148,17 @@ namespace {
 
         // --- Address family --------------------------------------------------
         const auto af = opts.address_family.value_or(address_family_type::UNSPECIFIED);
-        client.set_address_family(IPUtil::to_socket_type(af));
+        switch (af) {
+            case address_family_type::IPV4:
+                client.set_address_family(AF_INET);
+                break;
+            case address_family_type::IPV6:
+                client.set_address_family(AF_INET6);
+                break;
+            default:
+                client.set_address_family(AF_UNSPEC);
+                break;
+        }
 
         // --- Timeouts --------------------------------------------------------
         client.set_connection_timeout(opts.connection_timeout.value_or(std::chrono::seconds(5)));

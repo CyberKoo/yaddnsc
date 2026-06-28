@@ -171,19 +171,19 @@ endif ()
 set(URI src/util/uri.cpp)
 set(Config src/config/config.cpp)
 set(Updater src/core/updater.cpp)
-set(IPUtil src/network/ip_util.cpp src/network/ip_util_http.cpp)
 set(Manager src/core/manager.cpp)
+set(CoreLogger src/core/core_logger.cpp)
 set(HttpClient src/network/http_client.cpp)
+set(InetAddress src/network/inet_address.cpp)
 set(DriverManager src/core/driver_manager.cpp)
 set(NetworkManager src/network/network_manager.cpp)
-set(CoreLogger src/core/core_logger.cpp)
 set(DNS src/dns/types.cpp src/dns/system.cpp src/dns/parser.cpp src/dns/doh.cpp src/dns/multi_resolver.cpp)
 
 # ==============================================================================
 # Main executable
 # ==============================================================================
 add_executable(yaddnsc src/main.cpp src/util/string_util.cpp ${DNS} ${Config} ${DriverManager} ${URI}
-        ${Updater} ${Manager} ${IPUtil} ${HttpClient} ${NetworkManager} ${CoreLogger}
+        ${Updater} ${Manager} ${HttpClient} ${NetworkManager} ${CoreLogger} ${InetAddress}
 )
 
 # Hide all symbols at compile time; only YADDNSC_EXPORT-marked functions

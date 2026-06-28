@@ -5,12 +5,13 @@
 #ifndef YADDNSC_NETWORK_NETWORK_MANAGER_H
 #define YADDNSC_NETWORK_NETWORK_MANAGER_H
 
-#include <map>
 #include <memory>
 #include <string>
 #include <vector>
 
 #include "mixin.h"
+
+class InetAddress;
 
 class NetworkManager {
 public:
@@ -20,7 +21,8 @@ public:
 
     [[nodiscard]] std::vector<std::string> get_interfaces() const;
 
-    [[nodiscard]] std::map<std::string, int> get_interface_ip_addresses(const std::string &interface_name) const;
+    [[nodiscard]] std::vector<InetAddress> get_interface_ip_addresses(
+        const std::string &interface_name) const;
 
 private:
     [[maybe_unused, no_unique_address]] NoCopy _nc_;

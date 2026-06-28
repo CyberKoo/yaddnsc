@@ -3,24 +3,23 @@
 //
 #include "network_manager.h"
 
+#include <ifaddrs.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
+
 #include <map>
+#include <mutex>
 #include <vector>
 #include <string>
 #include <memory>
-#include <algorithm>
 #include <chrono>
-#include <cstring>
-#include <mutex>
+#include <algorithm>
 #include <stdexcept>
 #include <functional>
 
 #include "fmt.hpp"
 
-#include <netdb.h>
-#include <ifaddrs.h>
-#include <arpa/inet.h>
-#include <netinet/in.h>
-#include <sys/socket.h>
+#include "inet_address.h"
 
 class NetworkManager::Impl {
 public:
@@ -33,17 +32,16 @@ public:
         return interfaces;
     }
 
-    std::map<std::string, int> get_interface_ip_addresses(const std::string &interface_name) {
+    std::vector<InetAddress> get_interface_ip_addresses(const std::string &interface_name) {
         const auto &all_interface_addresses = get_all_interface_addresses();
         if (auto it = all_interface_addresses.find(interface_name); it != all_interface_addresses.end()) {
-            std::map<std::string, int> interface_addrs;
-            std::ranges::transform(
-                it->second, std::inserter(interface_addrs, interface_addrs.end()),
-                [](const auto &addr) -> std::pair<std::string, int> {
-                    return {addr.address, addr.inet_type};
+            std::vector<InetAddress> result;
+            for (const auto &entry: it->second) {
+                if (auto parsed = InetAddress::from_bytes(entry.addr_bytes)) {
+                    result.push_back(std::move(*parsed));
                 }
-            );
-            return interface_addrs;
+            }
+            return result;
         }
 
         throw std::runtime_error(fmt::format("Interface {} not found", interface_name));
@@ -51,8 +49,7 @@ public:
 
 private:
     struct interface_address {
-        std::string address;
-        int inet_type;
+        std::vector<uint8_t> addr_bytes;
     };
 
     using ifaddr_ptr = std::unique_ptr<ifaddrs, std::function<void(ifaddrs *)> >;
@@ -65,10 +62,6 @@ private:
         }
 
         return {ifaddr, [](ifaddrs *a) { freeifaddrs(a); }};
-    }
-
-    constexpr static size_t get_address_struct_size(int family) {
-        return family == AF_INET6 ? sizeof(sockaddr_in6) : sizeof(sockaddr_in);
     }
 
     static constexpr auto CACHE_TTL = std::chrono::seconds(5);
@@ -102,18 +95,17 @@ private:
                 continue;
             }
 
-            char host[NI_MAXHOST] = {};
-            int ret = getnameinfo(ifa->ifa_addr, get_address_struct_size(family), host, NI_MAXHOST, nullptr, 0,
-                                  NI_NUMERICHOST);
-            if (ret != 0) {
-                auto err_msg = fmt::format("getnameinfo() failed, error: {}", gai_strerror(ret));
-                if (ret == EAI_SYSTEM) {
-                    err_msg += fmt::format(" (errno: {})", strerror(errno));
-                }
-                throw std::runtime_error(err_msg);
+            std::vector<uint8_t> bytes;
+            if (family == AF_INET) {
+                const auto *in = reinterpret_cast<const sockaddr_in *>(ifa->ifa_addr);
+                const auto *raw = reinterpret_cast<const uint8_t *>(&in->sin_addr.s_addr);
+                bytes.assign(raw, raw + 4);
+            } else {
+                const auto *in6 = reinterpret_cast<const sockaddr_in6 *>(ifa->ifa_addr);
+                bytes.assign(in6->sin6_addr.s6_addr, in6->sin6_addr.s6_addr + 16);
             }
 
-            interface_address_map[ifa->ifa_name].emplace_back(interface_address{host, family});
+            interface_address_map[ifa->ifa_name].emplace_back(interface_address{std::move(bytes)});
         }
 
         return interface_address_map;
@@ -136,6 +128,6 @@ std::vector<std::string> NetworkManager::get_interfaces() const {
     return impl_->get_interfaces();
 }
 
-std::map<std::string, int> NetworkManager::get_interface_ip_addresses(const std::string &interface_name) const {
+std::vector<InetAddress> NetworkManager::get_interface_ip_addresses(const std::string &interface_name) const {
     return impl_->get_interface_ip_addresses(interface_name);
 }

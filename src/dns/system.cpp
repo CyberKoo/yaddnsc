@@ -19,7 +19,7 @@
 #include "fmt.hpp"
 #include "mixin.h"
 #include "config_cmake.h"
-#include "network/ip_util.h"
+#include "network/inet_address.h"
 #include "exception/dns_lookup_exception.h"
 
 // only for musl
@@ -53,7 +53,7 @@ namespace {
         }
 
         void set_nameserver(const dns_server_type &server) {
-            if (IPUtil::is_ipv4_address(server.address)) {
+            if (Inet4Address::parse(server.address)) {
                 state.nscount = 1;
                 state.nsaddr_list[0].sin_family = AF_INET;
                 state.nsaddr_list[0].sin_addr.s_addr = inet_addr(server.address.c_str());

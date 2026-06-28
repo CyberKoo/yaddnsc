@@ -5,14 +5,16 @@
 #ifndef YADDNSC_CONFIG_CONFIG_VALIDATOR_HPP
 #define YADDNSC_CONFIG_CONFIG_VALIDATOR_HPP
 
-#include "mixin.h"
-#include "config.h"
+#include <ranges>
+#include <cctype>
 
 #include "uri.h"
 #include "fmt.hpp"
+#include "config.h"
+#include "mixin.h"
 #include "dns/types.h"
 #include "config_cmake.h"
-#include "network/ip_util.h"
+#include "network/inet_address.h"
 #include "core/driver_manager.h"
 #include "network/network_manager.h"
 #include "exception/config_verification_exception.h"
@@ -29,11 +31,11 @@ namespace detail {
     }
 
     inline void validate_ip_source(const Config::domain_config &domain, const Config::subdomain_config &subdomain) {
+        auto fqdn = fqdn_for(domain, subdomain);
         if (subdomain.ip_source == Config::ip_source_type::URL) {
             if (subdomain.ip_source_param.empty()) {
                 throw ConfigVerificationException(
-                    fmt::format("Subdomain {} uses url IP source but ip_source param is empty",
-                                fqdn_for(domain, subdomain))
+                    fmt::format("Subdomain {} uses url IP source but ip_source param is empty", fqdn)
                 );
             }
 
@@ -44,8 +46,8 @@ namespace detail {
                 }
             } catch (const std::exception &e) {
                 throw ConfigVerificationException(
-                    fmt::format("Subdomain {} has invalid ip_source_param '{}': {}",
-                                fqdn_for(domain, subdomain), subdomain.ip_source_param, e.what())
+                    fmt::format("Subdomain {} has invalid ip_source_param '{}': {}", fqdn, subdomain.ip_source_param,
+                                e.what())
                 );
             }
             return;
@@ -53,28 +55,29 @@ namespace detail {
 
         if (!subdomain.interface.has_value()) {
             throw ConfigVerificationException(
-                fmt::format("Subdomain {} uses interface IP source but interface is empty",
-                            fqdn_for(domain, subdomain))
+                fmt::format("Subdomain {} uses interface IP source but interface is empty", fqdn)
             );
         }
     }
 
     inline void validate_resolver_address(const std::string &address) {
+        const auto lower = address | std::views::transform([](unsigned char c) {
+            return std::tolower(c);
+        }) | std::ranges::to<std::string>();
+
         // DoH address — starts with https://, skip IP validation.
-        if (address.starts_with("https://")) {
+        if (lower.starts_with("https://")) {
             return;
         }
 
         // Plain DNS address — must be a valid IP.
 #if defined(HAVE_RES_NQUERY)
 #if defined(HAVE_IPV6_RESOLVE_SUPPORT)
-        if (!IPUtil::is_ipv4_address(address) && !IPUtil::is_ipv6_address(address)) {
-            throw ConfigVerificationException(
-                fmt::format("Invalid resolver address {}", address)
-            );
+        if (!InetAddress::parse(lower)) {
+            throw ConfigVerificationException(fmt::format("Invalid resolver address {}", address));
         }
 #else
-        if (!IPUtil::is_ipv4_address(address)) {
+        if (!Inet4Address::parse(lower)) {
             throw ConfigVerificationException(
                 fmt::format(R"(Invalid resolver address "{}". Only IPv4 is supported on this platform.)", address)
             );
