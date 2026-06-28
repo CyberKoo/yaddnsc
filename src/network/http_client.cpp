@@ -197,7 +197,7 @@ HttpResponse TransientHttpClient::send(const http_request &req) const {
 
     if (!result) {
         auto error_str = httplib::to_string(result.error());
-        SPDLOG_ERROR("HTTP request to {}://{}{} failed: {}", uri.get_schema(), uri.get_host(), path, error_str);
+        SPDLOG_DEBUG("HTTP request to {}://{}{} failed: {}", uri.get_schema(), uri.get_host(), path, error_str);
         return std::unexpected(error_str);
     }
 
@@ -221,7 +221,7 @@ std::optional<std::string> TransientHttpClient::get_body(std::string_view url, c
     auto resp = client.send(req);
 
     if (!resp) {
-        SPDLOG_WARN(R"(Failed to fetch "{}", error: {})", url, resp.error());
+        SPDLOG_DEBUG(R"(Failed to fetch "{}", error: {})", url, resp.error());
         return std::nullopt;
     }
 
@@ -255,7 +255,7 @@ HttpResponse PersistentHttpClient::send(const http_request &req) const {
 
     if (!result) {
         auto error_str = httplib::to_string(result.error());
-        SPDLOG_ERROR("HTTP request to {}://{}{} failed: {}", uri.get_schema(), uri.get_host(), path, error_str);
+        SPDLOG_DEBUG("HTTP request to {}://{}{} failed: {}", uri.get_schema(), uri.get_host(), path, error_str);
         return std::unexpected(error_str);
     }
 
