@@ -37,7 +37,17 @@ struct glz::meta<Config::resolver_config> {
         "address", &T::address,
         "ipaddress", &T::address,
         "port", &T::port,
-        "servers", &T::servers
+        "servers", &T::servers,
+        "strategy", &T::strategy
+    );
+};
+
+template<>
+struct glz::meta<Config::resolver_strategy> {
+    using enum Config::resolver_strategy;
+    static constexpr auto value = enumerate(
+        "fallback", FALLBACK,
+        "concurrent", CONCURRENT
     );
 };
 

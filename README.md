@@ -9,13 +9,13 @@
   - [Cloudflare](https://www.cloudflare.com/) — updates DNS records via the Cloudflare API v4
   - [DigitalOcean](https://www.digitalocean.com/) — updates DNS records via the DigitalOcean API v2
   - [DNSPod](https://www.dnspod.com/) — updates DNS records via DNSPod API (supports both China and Global endpoints)
-  - [Simple](https://github.com/Kotarou/yaddnsc) — a generic HTTP GET driver for custom API endpoints
+  - [Simple](https://github.com/Kotarou/yaddnsc) — a generic HTTP driver with URL template substitution for custom API endpoints
 - **Flexible IP source configuration** — per-subdomain, choose:
   - `interface` — obtain the IP from a local network interface
   - `url` — obtain the IP from an external HTTP service (e.g. `https://ifconfig.me`)
 - **Per-subdomain update interval** — each subdomain can override the domain-level update interval.
 - **IPv4 and IPv6 support** — configure A and AAAA records independently.
-- **Custom DNS resolver** — optionally use specific DNS servers for record lookups instead of the system resolver. Supports both **traditional DNS** (plain IP + port) and **DNS-over-HTTPS (DoH)** (full HTTPS URL, e.g. `https://1.1.1.1/dns-query`). Multiple servers are queried **concurrently** with automatic fallback (fires all configured resolvers in parallel and takes the fastest response).
+- **Custom DNS resolver** — optionally use specific DNS servers for record lookups instead of the system resolver. Supports both **traditional DNS** (plain IP + port) and **DNS-over-HTTPS (DoH)** (full HTTPS URL, e.g. `https://1.1.1.1/dns-query`). Multiple servers are queried using a configurable strategy — **fallback** (try the first available resolver, then the next on failure) or **concurrent** (fire all configured resolvers in parallel and take the fastest successful response).
 - **Forced update scheduling** — periodically force-update DNS records even when the IP hasn't changed.
 - **Graceful shutdown** — handles SIGINT/SIGTERM via a dedicated signal-handling thread with a stop_token.
 - **Thread-pool based concurrency** — subdomain updates are dispatched to a BS::thread_pool for parallel execution.
@@ -48,9 +48,9 @@ Parallel workers"]
     updaterA["Updater::process() (task A)
 1. Get driver from DriverManager
 2. Get local IP (interface or URL)
-3. DNS lookup (DnsResolver / DohResolver)
+3. DNS lookup (MultiResolver)
 4. Compare; skip if unchanged
-5. Create HttplibHttpClient
+5. Create TransientHttpClient
 6. driver.execute()"]
     updaterB["Updater::process() (task B)
 same as task A…"]
@@ -60,9 +60,10 @@ execute (default: generate_request
 HTTP → DNS provider API"]
     net["NetworkManager
 Interface IP detection"]
-    dns["ResolverBase
-DnsResolver (UDP/TCP)
-DohResolver (HTTPS POST)"]
+    dns["MultiResolver
+ResolverBase
+├─ DnsResolver (UDP/TCP)
+└─ DohResolver (HTTPS POST)"]
 
     main --> mgr
     mgr --> run
@@ -90,10 +91,10 @@ DohResolver (HTTPS POST)"]
 2. **Get local IP** — read from a network interface (`NetworkManager`) or fetch from an external URL.
 3. **DNS lookup** — query the current DNS record using `DnsResolver` (UDP/TCP) or `DohResolver` (HTTPS POST, RFC 8484).
 4. **Compare** — skip the update if unchanged (unless `force_update` is set).
-5. **Create `HttplibHttpClient`** — a per-task HTTP client bound to the configured network interface and address family.
+5. **Create `TransientHttpClient`** — a per-task HTTP client that creates a new httplib::Client on every `send()` call.
 6. **Call `driver.execute()`** — delegates to the driver plugin, which calls `generate_request()` → `HttpClient::send()` → `check_response()`.
 
-**HTTP abstraction layer:** All provider API communication flows through the `HttpClient` interface. The concrete implementation — `HttplibHttpClient` — wraps [cpp-httplib](https://github.com/yhirose/cpp-httplib) internally. It is created per-task inside `Updater::process()`, bound to the correct interface and address family from the subdomain config.
+**HTTP abstraction layer:** All provider API communication flows through the `HttpClient` interface. Two concrete implementations exist: `TransientHttpClient` creates a fresh [cpp-httplib](https://github.com/yhirose/cpp-httplib) client per request (used by the updater), while `PersistentHttpClient` reuses a single connection across multiple calls (used internally by the DoH resolver). Address family and network interface are configured per-subdomain via `HttpClientOptions`.
 
 ## Build Requirements
 
@@ -156,8 +157,7 @@ A template configuration is available at `config.example.json`.
   },
   "resolver": {
     "use_custom_server": false,
-    "address": "1.1.1.1",
-    "port": 53,
+    "strategy": "concurrent",
     "servers": [
       { "address": "1.1.1.1", "port": 53 },
       { "address": "8.8.8.8", "port": 53 }
@@ -209,10 +209,12 @@ A template configuration is available at `config.example.json`.
 > **DoH example:** To use DNS-over-HTTPS, set the server address to a full HTTPS URL including the path:
 >
 > ```json
-> "servers": [
->   { "address": "https://1.1.1.1/dns-query" },
->   { "address": "https://cloudflare-dns.com/dns-query" }
-> ]
+> {
+>   "servers": [
+>     { "address": "https://1.1.1.1/dns-query" },
+>     { "address": "https://cloudflare-dns.com/dns-query" }
+>   ]
+> }
 > ```
 >
 > The address must start with `https://` and include the complete path (typically `/dns-query` per RFC 8484). The code does **not** append `/dns-query` automatically. The `port` field is ignored for DoH.
@@ -237,12 +239,13 @@ A template configuration is available at `config.example.json`.
 
 #### `resolver` object
 
-| Field               | Type        | Description                                                                                                                                                                                                                                                                                    |
-|---------------------|-------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `use_custom_server` | boolean     | If true, use the specified DNS server(s) instead of system                                                                                                                                                                                                                                     |
-| `address`           | string      | DNS server address (legacy — used only when `servers` is empty). For traditional DNS, use a plain IP address. For **DoH**, use the full HTTPS URL including the path (e.g. `https://1.1.1.1/dns-query`).                                                                                       |
-| `port`              | integer     | DNS server port, typically 53 (legacy — used only when `servers` is empty). Ignored when `address` is a full HTTPS URL.                                                                                                                                                                        |
-| `servers`           | DnsServer[] | List of DNS servers for redundancy. Each entry has an `address` field (string) and a `port` field (integer, default 53). When multiple servers are configured, all queries are fired **concurrently** and the fastest successful response is used. If all servers fail, errors are propagated. |
+| Field               | Type        | Description                                                                                                                                                                                              |
+|---------------------|-------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `use_custom_server` | boolean     | If true, use the specified DNS server(s) instead of system                                                                                                                                               |
+| `address`           | string      | DNS server address (legacy — used only when `servers` is empty). For traditional DNS, use a plain IP address. For **DoH**, use the full HTTPS URL including the path (e.g. `https://1.1.1.1/dns-query`). |
+| `port`              | integer     | DNS server port, typically 53 (legacy — used only when `servers` is empty). Ignored when `address` is a full HTTPS URL.                                                                                  |
+| `servers`           | DnsServer[] | List of DNS servers for redundancy. Each entry has an `address` field (string) and a `port` field (integer, default 53).                                                                                 |
+| `strategy`          | string      | Resolver query strategy: `"concurrent"` (default — fire all queries in parallel, take the fastest success) or `"fallback"` (try the first resolver, then the next on failure).                           |
 
 Each `DnsServer` entry in the `servers` array has the following structure:
 
@@ -274,8 +277,8 @@ When the `servers` array is present and non-empty, `address` and `port` are igno
 | `name`             | string  | Subdomain name (e.g. `home` for `home.example.com`)                                                                  |
 | `type`             | string  | DNS record type: `"a"`, `"aaaa"`, `"txt"`, or `"soa"`                                                                |
 | `interface`        | string  | Network interface name (e.g. `eth0`). Required when `ip_source` is `"interface"`; can be omitted when using `"url"`. |
-| `ip_source`        | string  | IP source: `"interface"` (read from a local NIC) or `"url"` (fetch from HTTP)                                        |
 | `ip_type`          | string  | IP version: `"ipv4"`, `"ipv6"`, or `"unspecified"`                                                                   |
+| `ip_source`        | string  | IP source: `"interface"` (read from a local NIC) or `"url"` (fetch from HTTP)                                        |
 | `ip_source_param`  | string  | For `"url"` source: the HTTP(S) URL. For `"interface"` source: currently unused.                                     |
 | `allow_ula`        | boolean | When using IPv6 interface source, allow Unique Local Addresses (default: false)                                      |
 | `allow_local_link` | boolean | When using IPv6 interface source, allow link-local addresses (default: false)                                        |
@@ -426,7 +429,7 @@ generate_request(config, ctx)
 
 For simple drivers this is sufficient — just implement `generate_request()` and `check_response()`, and the default `execute()` is inherited automatically.
 
-The `HttpClient` is initialised by the core with the correct address family (IPv4/IPv6) and network interface from the per-subdomain configuration. Drivers that override `execute()` can call `set_address_family()` to switch between calls when needed.
+The `HttpClient` is initialized by the core with the correct address family (IPv4/IPv6) and network interface from the per-subdomain configuration, passed via `HttpClientOptions` at construction time. Drivers that override `execute()` receive the pre-configured client and can use it directly.
 
 ### Multi-step workflows with `HttpClient`
 
@@ -437,7 +440,6 @@ bool MyDriver::execute(const driver_config_type &config,
                        const UpdateContext &ctx,
                        HttpClient &http) override {
     // Step 1: fetch authentication token
-    http.set_address_family(address_family::IPV4);
     auto auth_resp = http.send(build_auth_request(config));
     if (!auth_resp) return false;
     auto token = extract_token(auth_resp->body);
@@ -460,11 +462,12 @@ The `HttpClient` interface provides:
 ```cpp
 class HttpClient {
 public:
-    virtual void set_address_family(address_family af) = 0;
     virtual HttpResponse send(const http_request &req) const = 0;
     static std::string params_to_query_string(const http_param_type &params);
 };
 ```
+
+Address family and network interface are not configurable at the interface level; instead, they are passed via `HttpClientOptions` when constructing concrete implementations (`TransientHttpClient` / `PersistentHttpClient`). The updater binds these options from the per-subdomain configuration at construction time.
 
 `HttpResponse` is a type alias for `std::expected<HttpResponseData, std::string>`. Check it with implicit boolean conversion (success) or use `error()` to retrieve the error string:
 
@@ -476,7 +479,7 @@ public:
 | `resp->body`        | `string` response body                      |
 | `resp.error()`      | `string` transport-level error description  |
 
-The network interface is always bound by the core and is not configurable from the driver. Address family can be switched between calls via `set_address_family()`.
+The network interface and address family are always bound at construction time via `HttpClientOptions` and are not configurable from the driver.
 
 ## Dependencies
 

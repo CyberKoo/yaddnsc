@@ -2,11 +2,13 @@
 // Created by Kotarou on 2026/6/17.
 //
 
-#ifndef YADDNSC_DNS_DNS_RECORD_PARSER_H
-#define YADDNSC_DNS_DNS_RECORD_PARSER_H
+#ifndef YADDNSC_DNS_PARSER_H
+#define YADDNSC_DNS_PARSER_H
 
+#include <cstdint>
 #include <string>
 #include <string_view>
+#include <vector>
 
 #include <arpa/nameser.h>
 
@@ -19,6 +21,11 @@ public:
     [[nodiscard]] size_t record_count() const noexcept;
 
     [[nodiscard]] std::string parse_record(size_t index) const;
+
+    // Convenience: parse all answer records and return as a vector.
+    // This is the preferred entry point for most callers.
+    [[nodiscard]] static std::vector<std::string>
+    parse_all(const data_type *data, size_t size, const std::string &host = {});
 
 private:
     static std::string parse_a_record(const data_type *);
@@ -34,4 +41,4 @@ private:
     mutable ns_msg message_{};
 };
 
-#endif //YADDNSC_DNS_DNS_RECORD_PARSER_H
+#endif // YADDNSC_DNS_PARSER_H

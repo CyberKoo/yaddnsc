@@ -13,7 +13,7 @@
 
 #include "driver_ver.h"
 #include "driver/exceptions.h"
-#include "http_type_formatter.hpp"
+#include "http_request_formatter.hpp"
 
 class BaseDriver : public Driver {
 public:

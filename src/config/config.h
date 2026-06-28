@@ -18,6 +18,10 @@ namespace Config {
         INTERFACE, URL
     };
 
+    enum class resolver_strategy {
+        FALLBACK, CONCURRENT
+    };
+
     struct driver_config {
         std::string driver_dir;
         bool auto_discover{false};
@@ -29,6 +33,7 @@ namespace Config {
         std::string address;
         unsigned short port{53};
         std::vector<dns_server> servers;
+        resolver_strategy strategy{resolver_strategy::CONCURRENT};
     };
 
     struct subdomain_config {

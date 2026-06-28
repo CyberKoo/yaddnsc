@@ -28,8 +28,6 @@ class YADDNSC_EXPORT HttpClient {
 public:
     virtual ~HttpClient() = default;
 
-    virtual void set_address_family(address_family af) = 0;
-
     virtual HttpResponse send(const http_request &req) const = 0;
 
     // Form-encode a parameter map into application/x-www-form-urlencoded string.

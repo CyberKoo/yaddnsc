@@ -177,7 +177,7 @@ set(HttpClient src/network/http_client.cpp)
 set(DriverManager src/core/driver_manager.cpp)
 set(NetworkManager src/network/network_manager.cpp)
 set(CoreLogger src/core/core_logger.cpp)
-set(DNS src/dns/dns.cpp src/dns/dns_resolver.cpp src/dns/dns_record_parser.cpp src/dns/doh_resolver.cpp)
+set(DNS src/dns/types.cpp src/dns/system.cpp src/dns/parser.cpp src/dns/doh.cpp src/dns/multi_resolver.cpp)
 
 # ==============================================================================
 # Main executable

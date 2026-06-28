@@ -24,9 +24,10 @@
 #include "update_task.h"
 #include "driver_manager.h"
 #include "util/algorithm.h"
-#include "dns/dns_resolver.h"
-#include "dns/doh_resolver.h"
-#include "dns/resolver_base.h"
+#include "dns/system.h"
+#include "dns/doh.h"
+#include "dns/base.h"
+#include "dns/multi_resolver.h"
 #include "min_update_interval.h"
 #include "network/http_client.h"
 #include "network/network_manager.h"
@@ -53,25 +54,24 @@ public:
 
         // Build resolver objects from server configurations.
         // Each address is parsed as a URI to determine the protocol:
-        //   https://...  → DohResolver (DNS-over-HTTPS, with a default HttplibHttpClient)
+        //   https://...  → DohResolver (DNS-over-HTTPS, with a default PersistentHttpClient)
         //   otherwise    → DnsResolver (traditional UDP/TCP DNS)
+        std::vector<std::shared_ptr<ResolverBase> > resolvers;
         for (const auto &server: dns_servers) {
-            std::string schema;
-
-            try {
-                const auto uri = Uri::parse(server.address);
-                schema = std::string(uri.get_schema());
-            } catch (const std::exception &) {
-                // Not a valid URI — treat as plain DNS server address.
-            }
-
-            if (schema == "https") {
-                auto http_client = std::make_unique<HttplibHttpClient>(address_family::UNSPECIFIED);
-                resolvers_.push_back(std::make_shared<DohResolver>(std::move(http_client), server.address));
+            const auto uri = Uri::parse(server.address);
+            if (uri.get_schema() == "https") {
+                auto http_client = std::make_unique<PersistentHttpClient>(
+                    uri, HttpClientOptions{
+                        .connection_timeout = std::chrono::seconds(1), .read_timeout = std::chrono::seconds(5)
+                    }
+                );
+                resolvers.push_back(std::make_shared<DohResolver>(std::move(http_client), server.address));
             } else {
-                resolvers_.push_back(std::make_shared<DnsResolver>(server));
+                resolvers.push_back(std::make_shared<DnsResolver>(server));
             }
         }
+
+        resolver_pool_ = MultiResolver(std::move(resolvers), config_.resolver.strategy);
 
         // Log configured custom resolver(s) — once at startup.
         if (!dns_servers.empty()) {
@@ -98,7 +98,7 @@ public:
             }
         }
 
-        updater_ = std::make_unique<Updater>(driver_manager_, network_manager_, resolvers_);
+        updater_ = std::make_unique<Updater>(driver_manager_, network_manager_, resolver_pool_);
     }
 
     ~Impl() {
@@ -304,8 +304,7 @@ private:
         SPDLOG_INFO("Scheduler initialised with {} tasks", schedule_.size());
     }
 
-    bool check_force_update(const SubdomainEntry &entry,
-                            std::chrono::steady_clock::time_point now) {
+    bool check_force_update(const SubdomainEntry &entry, std::chrono::steady_clock::time_point now) {
         if (entry.force_update_interval <= 0) {
             return false;
         }
@@ -342,8 +341,15 @@ private:
 
 private:
     // ---- owned components --------------------------------------------------
+    //
+    // IMPORTANT: destruction order is the reverse of declaration order.
+    // resolver_pool_ MUST outlive updater_ because Updater::Impl stores a
+    // reference to it.  NetworkManager and DriverManager must also outlive
+    // updater_ for the same reason.
+    //
     DriverManager driver_manager_;
     NetworkManager network_manager_;
+    MultiResolver resolver_pool_;
     std::unique_ptr<Updater> updater_;
     BS::thread_pool<> pool_;
 
@@ -364,7 +370,6 @@ private:
 
     // ---- config & derived values -------------------------------------------
     Config::config config_;
-    std::vector<std::shared_ptr<ResolverBase> > resolvers_;
 };
 
 // ---------------------------------------------------------------------------

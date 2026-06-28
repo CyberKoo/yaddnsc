@@ -10,13 +10,13 @@
 
 #include <spdlog/spdlog.h>
 
+#include "type.h"
 #include "http_client.h"
 #include "string_util.h"
-#include "type.h"
 
 std::optional<std::string> IPUtil::get_ip_from_url(std::string_view url, address_family version,
                                                    const std::optional<std::string> &if_name) {
-    auto body = HttplibHttpClient::get_body(url, version, if_name);
+    auto body = TransientHttpClient::get_body(url, {.address_family = version, .interface = if_name});
     if (!body) {
         return std::nullopt;
     }

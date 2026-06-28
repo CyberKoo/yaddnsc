@@ -1,25 +1,24 @@
 //
 // Created by Kotarou on 2026/6/17.
 //
-#include "dns_resolver.h"
-
-#include <arpa/inet.h>
-#include <arpa/nameser.h>
+#include "system.h"
 
 #include <netdb.h>
-#include <netinet/in.h>
 #include <resolv.h>
+#include <arpa/inet.h>
+#include <netinet/in.h>
 #include <sys/socket.h>
+#include <arpa/nameser.h>
 
 #include <memory>
 #include <optional>
 
 #include <spdlog/spdlog.h>
 
-#include "dns.h"
+#include "types.h"
 #include "fmt.hpp"
-#include "config_cmake.h"
 #include "mixin.h"
+#include "config_cmake.h"
 #include "network/ip_util.h"
 #include "exception/dns_lookup_exception.h"
 
@@ -179,7 +178,8 @@ public:
 #if !defined(HAVE_RES_NQUERY)
         if (server_.has_value()) {
             SPDLOG_WARN("Custom resolver defined, but res_nquery() is not supported "
-                "on this platform; the option will be ignored");
+                "on this platform; the option will be ignored. "
+                "Consider using a DoH (https://...) resolver address instead.");
             server_.reset();
         }
 #endif

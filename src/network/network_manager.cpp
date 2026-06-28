@@ -10,11 +10,11 @@
 #include <algorithm>
 #include <chrono>
 #include <cstring>
+#include <mutex>
 #include <stdexcept>
 #include <functional>
 
 #include "fmt.hpp"
-#include "util/cache.h"
 
 #include <netdb.h>
 #include <ifaddrs.h>
@@ -25,20 +25,16 @@
 class NetworkManager::Impl {
 public:
     std::vector<std::string> get_interfaces() {
-        auto interface_map = get_all_interface_addresses();
+        const auto &interface_map = get_all_interface_addresses();
         std::vector<std::string> interfaces;
         interfaces.reserve(interface_map.size());
-        std::ranges::transform(
-            interface_map,
-            std::back_inserter(interfaces),
-            [](const auto &kv) { return kv.first; }
-        );
+        std::ranges::transform(interface_map, std::back_inserter(interfaces), [](const auto &kv) { return kv.first; });
 
         return interfaces;
     }
 
     std::map<std::string, int> get_interface_ip_addresses(const std::string &interface_name) {
-        auto all_interface_addresses = get_all_interface_addresses();
+        const auto &all_interface_addresses = get_all_interface_addresses();
         if (auto it = all_interface_addresses.find(interface_name); it != all_interface_addresses.end()) {
             std::map<std::string, int> interface_addrs;
             std::ranges::transform(
@@ -77,13 +73,22 @@ private:
 
     static constexpr auto CACHE_TTL = std::chrono::seconds(5);
 
-    std::map<std::string, std::vector<interface_address> > get_all_interface_addresses() {
-        return address_cache_.get_or_compute(CACHE_KEY, [this]() -> decltype(auto) {
-            return collect_interface_addresses();
-        });
+    // Returns a const reference to the cached interface map, computing it on
+    // first call or after the TTL expires.  Thread-safe: the entire
+    // check-then-compute sequence is protected by a single lock, so there is
+    // no TOCTOU race and only one thread ever runs collect_interface_addresses().
+    const std::map<std::string, std::vector<interface_address> > &get_all_interface_addresses() {
+        std::lock_guard lock(cache_mtx_);
+        const auto now = Clock::now();
+        if (!cached_ || now - last_refresh_ >= CACHE_TTL) {
+            cached_interfaces_ = collect_interface_addresses();
+            last_refresh_ = now;
+            cached_ = true;
+        }
+        return cached_interfaces_;
     }
 
-    std::map<std::string, std::vector<interface_address> > collect_interface_addresses() {
+    static std::map<std::string, std::vector<interface_address> > collect_interface_addresses() {
         std::map<std::string, std::vector<interface_address> > interface_address_map;
         auto ifaddrs = get_ifaddrs();
 
@@ -114,8 +119,12 @@ private:
         return interface_address_map;
     }
 
-    inline static const std::string CACHE_KEY = "interfaces";
-    Util::TtlCache<std::string, std::map<std::string, std::vector<interface_address> > > address_cache_{CACHE_TTL};
+    using Clock = std::chrono::steady_clock;
+
+    std::mutex cache_mtx_;
+    std::map<std::string, std::vector<interface_address> > cached_interfaces_;
+    Clock::time_point last_refresh_;
+    bool cached_ = false;
 };
 
 NetworkManager::NetworkManager() : impl_(std::make_unique<Impl>()) {

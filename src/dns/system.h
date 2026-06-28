@@ -2,14 +2,14 @@
 // Created by Kotarou on 2026/6/17.
 //
 
-#ifndef YADDNSC_DNS_DNS_RESOLVER_H
-#define YADDNSC_DNS_DNS_RESOLVER_H
+#ifndef YADDNSC_DNS_SYSTEM_H
+#define YADDNSC_DNS_SYSTEM_H
 
 #include <memory>
 #include <string>
 #include <optional>
 
-#include "resolver_base.h"
+#include "base.h"
 #include "type.h"
 
 class DnsResolver final : public ResolverBase {
@@ -27,4 +27,4 @@ private:
     std::unique_ptr<Impl> impl_;
 };
 
-#endif //YADDNSC_DNS_DNS_RESOLVER_H
+#endif // YADDNSC_DNS_SYSTEM_H

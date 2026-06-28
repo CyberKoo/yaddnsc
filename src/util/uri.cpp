@@ -167,6 +167,13 @@ Uri Uri::parse(std::string_view uri) {
         result.query_string_ = std::string(uri.substr(query_pos + 1));
     }
 
+    // -------- default path ------------------------------------------------
+    // An empty path with an explicit authority (scheme + host) defaults to "/"
+    // per RFC 3986 §3.3.
+    if (result.path_.empty() && has_scheme) {
+        result.path_ = "/";
+    }
+
     return result;
 }
 

@@ -4,31 +4,27 @@
 
 #include "updater.h"
 
-#include <utility>
-
-#include <magic_enum/magic_enum.hpp>
 #include <spdlog/spdlog.h>
+#include <magic_enum/magic_enum.hpp>
 
-#include "dns/dns.h"
-#include "dns/resolver_base.h"
+#include "dns/types.h"
+#include "dns/multi_resolver.h"
 #include "driver_manager.h"
-#include "fmt.hpp"
 #include "interfaces/driver.h"
 #include "interfaces/http_client.h"
 #include "network/http_client.h"
 #include "network/ip_util.h"
 #include "network/network_manager.h"
-#include "util/retry_util.h"
-#include "exception/dns_lookup_exception.h"
 
 // ---------------------------------------------------------------------------
 // Updater::Impl — all private helpers live here.
 // ---------------------------------------------------------------------------
 class Updater::Impl {
 public:
-    explicit Impl(DriverManager &driver_manager, NetworkManager &network_manager,
-                  const std::vector<std::shared_ptr<ResolverBase> > &resolvers) : driver_manager_(driver_manager),
-        network_manager_(network_manager), resolvers_(resolvers) {
+    explicit Impl(const DriverManager &driver_manager, const NetworkManager &network_manager,
+                  const MultiResolver &resolver_pool) : driver_manager_(driver_manager),
+                                                        network_manager_(network_manager),
+                                                        resolver_pool_(resolver_pool) {
     }
 
     void process(const UpdateTask &task) const;
@@ -37,8 +33,7 @@ private:
     [[nodiscard]] std::optional<std::string>
     dns_lookup(const std::string &host, dns_type type) const;
 
-    [[nodiscard]] std::optional<std::string>
-    get_ip_address(const Config::subdomain_config &config, address_family af) const;
+    [[nodiscard]] std::optional<std::string> get_ip_address(const Config::subdomain_config &config) const;
 
     [[nodiscard]] static driver_config_type
     build_driver_parameters(const UpdateTask &task);
@@ -47,21 +42,18 @@ private:
     build_update_context(const UpdateTask &task, const std::string &ip_addr, std::string_view rd_type);
 
 private:
-    DriverManager &driver_manager_;
-    NetworkManager &network_manager_;
-    const std::vector<std::shared_ptr<ResolverBase> > resolvers_;
-
-    static constexpr int RESOLVER_RETRY = 5;
-    static constexpr int RESOLVER_RETRY_BACKOFF = 1000;
+    const DriverManager &driver_manager_;
+    const NetworkManager &network_manager_;
+    const MultiResolver &resolver_pool_;
 };
 
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
 
-Updater::Updater(DriverManager &driver_manager, NetworkManager &network_manager,
-                 const std::vector<std::shared_ptr<ResolverBase> > &resolvers)
-    : impl_(std::make_unique<Impl>(driver_manager, network_manager, resolvers)) {
+Updater::Updater(const DriverManager &driver_manager, const NetworkManager &network_manager,
+                 const MultiResolver &resolver_pool)
+    : impl_(std::make_unique<Impl>(driver_manager, network_manager, resolver_pool)) {
 }
 
 Updater::~Updater() = default;
@@ -76,7 +68,6 @@ void Updater::process(const UpdateTask &task) const {
 void Updater::Impl::process(const UpdateTask &task) const {
     auto rd_type_name = magic_enum::enum_name(task.subdomain.type);
     const auto rd_type = rd_type_name.empty() ? "UNKNOWN" : rd_type_name;
-    const auto ip_type = DNS::dns2ip(task.subdomain.type);
 
     // --- Step 0: resolve driver ------------------------------------------------
     // The driver is guaranteed to exist: ConfigValidator already verified that every
@@ -86,29 +77,27 @@ void Updater::Impl::process(const UpdateTask &task) const {
 
     // --- Step 1: local IP ---------------------------------------------------
 
-    const auto local_ip = get_ip_address(task.subdomain, ip_type);
+    const auto local_ip = get_ip_address(task.subdomain);
     if (!local_ip) {
         SPDLOG_WARN("No valid IP address found for {}, skipping the update", task.fqdn);
         return;
     }
 
-    // --- Step 2: DNS lookup ------------------------------------------------
+    // --- Step 2: skip if unchanged (unless force_update) --------------------
 
-    const auto record = dns_lookup(task.fqdn, task.subdomain.type);
+    if (!task.force_update) {
+        const auto record = dns_lookup(task.fqdn, task.subdomain.type);
 
-    // --- Step 3: skip if unchanged ------------------------------------------
+        if (record.has_value()) {
+            if (record.value() == *local_ip) {
+                SPDLOG_DEBUG("Domain: {}, type: {}, current {}, new {}, skipping update",
+                             task.fqdn, rd_type, record.value(), *local_ip);
+                return;
+            }
 
-    if (!task.force_update && record.has_value() && record.value() == *local_ip) {
-        SPDLOG_DEBUG("Domain: {}, type: {}, current {}, new {}, skipping update",
-                     task.fqdn, rd_type, record.value(), *local_ip);
-        return;
-    }
-
-    if (record.has_value() && record.value() != *local_ip) {
-        SPDLOG_INFO(R"(Update needed, local IP "{}" != DNS record "{}")", *local_ip, record.value());
-    }
-
-    if (task.force_update) {
+            SPDLOG_INFO(R"(Update needed, local IP "{}" != DNS record "{}")", *local_ip, record.value());
+        }
+    } else {
         SPDLOG_INFO("Force update triggered for {}", task.fqdn);
     }
 
@@ -119,8 +108,8 @@ void Updater::Impl::process(const UpdateTask &task) const {
 
     // --- Step 5: delegate to driver via HttpClient --------------------------
 
-    HttplibHttpClient http_sender{address_family::UNSPECIFIED, task.subdomain.interface};
-    if (!driver.execute(parameters, ctx, http_sender)) {
+    TransientHttpClient http_client{};
+    if (!driver.execute(parameters, ctx, http_client)) {
         return;
     }
 
@@ -132,48 +121,20 @@ void Updater::Impl::process(const UpdateTask &task) const {
 // ---------------------------------------------------------------------------
 std::optional<std::string>
 Updater::Impl::dns_lookup(const std::string &host, dns_type type) const {
-    try {
-        return Util::retry_on_exception<std::string, DnsLookupException>(
-            [&] {
-                const auto dns_answer = DNS::resolve(host, type, resolvers_);
-                if (dns_answer.empty()) {
-                    throw DnsLookupException(
-                        fmt::format(R"(DNS lookup for domain "{}" returned no records)", host),
-                        dns_error::NODATA
-                    );
-                }
-
-                if (dns_answer.size() > 1) {
-                    SPDLOG_WARN(R"(Domain "{}" resolved to more than one address (count: {}))",
-                                host, dns_answer.size());
-                }
-
-                return dns_answer.front();
-            },
-            RESOLVER_RETRY,
-            [](const DnsLookupException &e) {
-                return e.get_error() == dns_error::RETRY;
-            },
-            RESOLVER_RETRY_BACKOFF
-        );
-    } catch (const DnsLookupException &e) {
-        SPDLOG_WARN("DNS lookup for domain {} type: {} failed after {} retries. Error: {}",
-                    host, magic_enum::enum_name(type), RESOLVER_RETRY, DNS::error_to_str(e.get_error()));
-    }
-
-    return std::nullopt;
+    return resolver_pool_.resolve(host, type);
 }
 
 // ---------------------------------------------------------------------------
 // get_ip_address — obtain the local IP from an interface or a URL.
 // ---------------------------------------------------------------------------
 std::optional<std::string>
-Updater::Impl::get_ip_address(const Config::subdomain_config &config, address_family af) const {
+Updater::Impl::get_ip_address(const Config::subdomain_config &config) const {
+    auto address_family = DNS::dns2ip(config.type);
     if (config.ip_source == Config::ip_source_type::INTERFACE) {
         const auto if_addresses = network_manager_.get_interface_ip_addresses(*config.interface);
-        auto addresses = IPUtil::extract_address(if_addresses, af);
+        auto addresses = IPUtil::extract_address(if_addresses, address_family);
 
-        if (af == address_family::IPV6) {
+        if (address_family == address_family::IPV6) {
             // Filter out link-local addresses unless explicitly allowed.
             if (!config.allow_local_link) {
                 std::erase_if(addresses, &IPUtil::is_ipv6_local_link);
@@ -191,7 +152,7 @@ Updater::Impl::get_ip_address(const Config::subdomain_config &config, address_fa
         return std::nullopt;
     }
 
-    return IPUtil::get_ip_from_url(config.ip_source_param, af, config.interface);
+    return IPUtil::get_ip_from_url(config.ip_source_param, address_family, config.interface);
 }
 
 // ---------------------------------------------------------------------------

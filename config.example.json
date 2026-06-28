@@ -6,6 +6,7 @@
   },
   "resolver": {
     "use_custom_server": false,
+    "strategy": "concurrent",
     "servers": [
       {
         "address": "1.1.1.1",

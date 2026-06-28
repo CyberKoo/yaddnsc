@@ -20,7 +20,7 @@ enum class dns_type {
 // <arpa/nameser.h> defines NXDOMAIN as ns_r_nxdomain, which would
 // cause a preprocessor conflict if we used the bare NXDOMAIN name.
 enum class dns_error {
-    NX_DOMAIN, RETRY, NODATA, PARSE, UNKNOWN
+    NX_DOMAIN, RETRY, NODATA, PARSE, CONNECTION, UNKNOWN
 };
 
 struct dns_server {

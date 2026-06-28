@@ -5,17 +5,17 @@
 #ifndef YADDNSC_CONFIG_CONFIG_VALIDATOR_HPP
 #define YADDNSC_CONFIG_CONFIG_VALIDATOR_HPP
 
-#include "config.h"
 #include "mixin.h"
+#include "config.h"
 
-#include "config_cmake.h"
-#include "core/driver_manager.h"
-#include "dns/dns.h"
-#include "exception/config_verification_exception.h"
-#include "fmt.hpp"
-#include "network/ip_util.h"
-#include "network/network_manager.h"
 #include "uri.h"
+#include "fmt.hpp"
+#include "dns/types.h"
+#include "config_cmake.h"
+#include "network/ip_util.h"
+#include "core/driver_manager.h"
+#include "network/network_manager.h"
+#include "exception/config_verification_exception.h"
 
 class DriverManager;
 class NetworkManager;
@@ -98,8 +98,6 @@ namespace detail {
 // ---------------------------------------------------------------------------
 template<int UpdateInterval>
 class ConfigValidator {
-    [[maybe_unused, no_unique_address]] NoCopy _nc_;
-    [[maybe_unused, no_unique_address]] NoMove _nm_;
 public:
     ConfigValidator(const DriverManager &driver_manager, const NetworkManager &network_manager)
         : driver_manager_(driver_manager), network_manager_(network_manager) {
@@ -144,6 +142,9 @@ public:
             }
 
             // --- Check that every referenced interface exists. -------------------
+            // Build a domain_config once so we don't copy the subdomains vector
+            // on every iteration of the inner loop.
+            const Config::domain_config domain{name, update_interval, force_update, driver, subdomains};
             for (const auto &subdomain: subdomains) {
                 if (subdomain.name.empty()) {
                     throw ConfigVerificationException(
@@ -151,7 +152,6 @@ public:
                     );
                 }
 
-                const Config::domain_config domain{name, update_interval, force_update, driver, subdomains};
                 detail::validate_ip_source(domain, subdomain);
 
                 // --- Validate per-subdomain update_interval if set. --------------
@@ -191,6 +191,9 @@ public:
 private:
     const DriverManager &driver_manager_;
     const NetworkManager &network_manager_;
+
+    [[maybe_unused, no_unique_address]] NoCopy _nc_;
+    [[maybe_unused, no_unique_address]] NoMove _nm_;
 };
 
 #endif // YADDNSC_CONFIG_CONFIG_VALIDATOR_HPP

@@ -2,8 +2,8 @@
 // Created by Kotarou on 2026/6/28.
 //
 
-#ifndef YADDNSC_DNS_RESOLVER_BASE_H
-#define YADDNSC_DNS_RESOLVER_BASE_H
+#ifndef YADDNSC_DNS_BASE_H
+#define YADDNSC_DNS_BASE_H
 
 #include <string>
 #include <vector>
@@ -29,4 +29,4 @@ private:
     [[maybe_unused, no_unique_address]] NoMove _nm_;
 };
 
-#endif // YADDNSC_DNS_RESOLVER_BASE_H
+#endif // YADDNSC_DNS_BASE_H

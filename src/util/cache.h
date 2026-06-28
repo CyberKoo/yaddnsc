@@ -81,19 +81,21 @@ namespace Util {
         /**
          * Return the cached value for `key`, or compute-and-cache it
          * via the provided factory if absent / expired.
+         *
+         * Thread-safe: the entire check-then-compute sequence is atomic
+         * under a single lock acquisition, avoiding the TOCTOU race that
+         * a separate get() + set() pair would have.
          */
-        template<std::invocable<> Fn> requires std::same_as < std::invoke_result_t < Fn >
-
-        ,
-        Value
-        >
+        template<std::invocable<> Fn>
+            requires std::same_as<std::invoke_result_t<Fn>, Value>
         Value get_or_compute(const Key &key, Fn &&factory) {
-            if (auto cached = get(key)) {
-                return std::move(*cached);
+            std::lock_guard lock(mutex_);
+            auto it = map_.find(key);
+            if (it != map_.end() && !expired(it->second)) {
+                return it->second.value;
             }
-            Value value = std::invoke(std::forward<Fn>(factory));
-            set(key, value);
-            return value;
+            map_[key] = Entry{Clock::now(), std::invoke(std::forward<Fn>(factory))};
+            return map_[key].value;
         }
 
         /**

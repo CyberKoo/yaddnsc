@@ -1,16 +1,18 @@
 //
 // Created by Kotarou on 2026/6/17.
 //
-#include "dns_record_parser.h"
+#include "parser.h"
 
 #include <arpa/inet.h>
-#include <arpa/nameser.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
+#include <arpa/nameser.h>
 
 #include <cstring>
+#include <vector>
 
 #include <spdlog/spdlog.h>
+#include <magic_enum/magic_enum.hpp>
 
 #include "fmt.hpp"
 #include "exception/dns_lookup_exception.h"
@@ -32,8 +34,7 @@ std::string DnsRecordParser::parse_record(size_t index) const {
     ns_rr dns_resource{};
     if (ns_parserr(&message_, ns_s_an, static_cast<int>(index), &dns_resource)) {
         throw DnsLookupException(
-            fmt::format("An error occurred when parsing DNS resource at index {}, detail: {}",
-                        index, strerror(errno)),
+            fmt::format("An error occurred when parsing DNS resource at index {}, detail: {}", index, strerror(errno)),
             dns_error::PARSE);
     }
 
@@ -65,14 +66,23 @@ std::string DnsRecordParser::parse_record(size_t index) const {
             value = parse_mx_record(ns_msg_base(message_), ns_msg_end(message_), rdata);
             break;
 
-        default:
+        default: {
+            const auto type_name = magic_enum::enum_name(rr_type);
+            const auto &type_str = type_name.empty() ? "?" : type_name;
             throw DnsLookupException(
-                fmt::format("DNS parsing: record type {} is not supported yet",
-                            static_cast<std::underlying_type_t<ns_type>>(rr_type)));
+                fmt::format("DNS parsing: record type {} ({}) is not supported yet", type_str,
+                            magic_enum::enum_name(rr_type))
+            );
+        }
     }
 
-    SPDLOG_TRACE(R"(Parsed DNS record #{}: type={}, value="{}")", index,
-                 static_cast<int>(rr_type), value);
+    {
+        const auto type_name = magic_enum::enum_name(rr_type);
+        [[maybe_unused]] const auto type_str = type_name.empty() ? "?" : type_name;
+        SPDLOG_TRACE(R"(Parsed DNS record #{}: type={} ({}), value="{}")", index, type_str,
+                     magic_enum::enum_integer(rr_type), value);
+    }
+
     return value;
 }
 
@@ -123,4 +133,19 @@ std::string DnsRecordParser::parse_mx_record(const data_type *msg_base, const da
     }
 
     return nsname;
+}
+
+std::vector<std::string>
+DnsRecordParser::parse_all(const data_type *data, size_t size, [[maybe_unused]] const std::string &host) {
+    DnsRecordParser parser(data, size);
+    std::vector<std::string> result;
+    result.reserve(parser.record_count());
+
+    for (size_t i = 0; i < parser.record_count(); ++i) {
+        auto record = parser.parse_record(i);
+        SPDLOG_TRACE(R"(DNS answer #{} for "{}": {})", i, host, record);
+        result.push_back(std::move(record));
+    }
+
+    return result;
 }

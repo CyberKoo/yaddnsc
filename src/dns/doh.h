@@ -2,15 +2,15 @@
 // Created by Kotarou on 2026/6/28.
 //
 
-#ifndef YADDNSC_DOH_RESOLVER_H
-#define YADDNSC_DOH_RESOLVER_H
+#ifndef YADDNSC_DNS_DOH_H
+#define YADDNSC_DNS_DOH_H
 
-#include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
+#include <cstdint>
 
-#include "resolver_base.h"
+#include "base.h"
 #include "type.h"
 
 class HttpClient;
@@ -18,7 +18,7 @@ class HttpClient;
 // ---------------------------------------------------------------------------
 // DohResolver — DNS-over-HTTPS (RFC 8484) resolver.
 //
-// Uses the existing HttplibHttpClient wrapper (not cpp-httplib directly) to send
+// Uses the existing TransientHttpClient wrapper (not cpp-httplib directly) to send
 // DNS queries as HTTPS POST requests with Content-Type: application/dns-message
 // to the well-known /dns-query endpoint.
 //
@@ -39,4 +39,4 @@ private:
     std::unique_ptr<Impl> impl_;
 };
 
-#endif // YADDNSC_DOH_RESOLVER_H
+#endif // YADDNSC_DNS_DOH_H

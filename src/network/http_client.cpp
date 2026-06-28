@@ -5,18 +5,19 @@
 
 #include <sys/socket.h>
 
-#include <filesystem>
-#include <optional>
 #include <utility>
+#include <optional>
+#include <filesystem>
 
 #include <httplib.h>
 #include <spdlog/spdlog.h>
+#include <magic_enum/magic_enum.hpp>
 
-#include "fmt.hpp"
-#include "http_types.h"
-#include "ip_util.h"
 #include "uri.h"
+#include "fmt.hpp"
+#include "ip_util.h"
 #include "version.h"
+#include "http_types.h"
 
 namespace {
     std::optional<std::string> get_system_ca_path() {
@@ -52,39 +53,16 @@ namespace {
         return ca_path;
     }
 
-    httplib::Client connect(const Uri &uri, address_family family, const std::optional<std::string> &nif_name) {
-        SPDLOG_DEBUG("Connecting to {}", uri.get_host());
-        auto client = httplib::Client(fmt::format("{}://{}:{}", uri.get_schema(), uri.get_host(), uri.get_port()));
-
-        // if is https
-        if (uri.get_schema() == "https") {
-            if (const auto ca_path = get_system_ca_path()) {
-                client.set_ca_cert_path(*ca_path);
-                client.enable_server_certificate_verification(true);
-            }
-        }
-
-        // set outbound interface
-        if (nif_name.has_value() && !nif_name->empty()) {
-            client.set_interface(nif_name->c_str());
-        }
-
-        // set address family
-        client.set_address_family(IPUtil::to_socket_type(family));
-        client.set_connection_timeout(std::chrono::seconds(5));
-        client.set_read_timeout(std::chrono::seconds(5));
-        client.set_follow_location(true);
-        client.set_default_headers({{"User-Agent", yaddnsc::get_full_version()}});
-
-        return client;
-    }
-
     std::string build_request(const Uri &uri) {
         if (uri.get_query_string().empty()) {
             return std::string(uri.get_path());
         }
 
         return fmt::format("{}?{}", uri.get_path(), uri.get_query_string());
+    }
+
+    std::string build_base_url(const Uri &uri) {
+        return fmt::format("{}://{}:{}", uri.get_schema(), uri.get_host(), uri.get_port());
     }
 
     // -----------------------------------------------------------------------
@@ -124,6 +102,58 @@ namespace {
             return c.Options(p, h);
         },
     };
+
+    // Apply all configured (or defaulted) options from HttpClientOptions onto
+    // a freshly created httplib::Client.
+    void apply_options(httplib::Client &client, const Uri &uri, const HttpClientOptions &opts) {
+        // --- TLS / CA --------------------------------------------------------
+        if (uri.get_schema() == "https") {
+            std::optional<std::string> ca_path;
+
+            if (opts.ca_cert_path.has_value()) {
+                ca_path = opts.ca_cert_path;
+            } else {
+                // fall back to auto-detection
+                ca_path = get_system_ca_path();
+            }
+
+            if (ca_path.has_value()) {
+                client.set_ca_cert_path(*ca_path);
+                client.enable_server_certificate_verification(opts.verify_server_cert.value_or(true));
+            }
+        }
+
+        // --- Outbound interface ----------------------------------------------
+        if (opts.interface.has_value() && !opts.interface->empty()) {
+            client.set_interface(opts.interface->c_str());
+        }
+
+        // --- Address family --------------------------------------------------
+        const auto af = opts.address_family.value_or(address_family::UNSPECIFIED);
+        client.set_address_family(IPUtil::to_socket_type(af));
+
+        // --- Timeouts --------------------------------------------------------
+        client.set_connection_timeout(opts.connection_timeout.value_or(std::chrono::seconds(5)));
+        client.set_read_timeout(opts.read_timeout.value_or(std::chrono::seconds(5)));
+        if (opts.write_timeout.has_value()) {
+            client.set_write_timeout(*opts.write_timeout);
+        }
+
+        // --- Redirects -------------------------------------------------------
+        client.set_follow_location(opts.follow_location.value_or(true));
+
+        // --- Headers ---------------------------------------------------------
+        httplib::Headers default_headers;
+        default_headers.emplace("User-Agent", yaddnsc::get_full_version());
+
+        if (opts.default_headers.has_value()) {
+            for (const auto &[k, v]: *opts.default_headers) {
+                default_headers.emplace(k, v);
+            }
+        }
+
+        client.set_default_headers(std::move(default_headers));
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -141,24 +171,23 @@ std::string HttpClient::params_to_query_string(const http_param_type &params) {
 }
 
 // ---------------------------------------------------------------------------
-// Construction
+// TransientHttpClient
 // ---------------------------------------------------------------------------
 
-HttplibHttpClient::HttplibHttpClient(address_family af, std::optional<std::string> interface)
-    : af_(af), interface_(std::move(interface)) {
+TransientHttpClient::TransientHttpClient(HttpClientOptions opts) : opts_(std::move(opts)) {
 }
 
-// ---------------------------------------------------------------------------
-// HttpClient
-// ---------------------------------------------------------------------------
-
-void HttplibHttpClient::set_address_family(address_family af) {
-    af_ = af;
-}
-
-HttpResponse HttplibHttpClient::send(const http_request &req) const {
+HttpResponse TransientHttpClient::send(const http_request &req) const {
     const auto uri = Uri::parse(req.url);
-    auto client = connect(uri, af_, interface_);
+
+    SPDLOG_DEBUG("Sending {} request to {}://{}{} ({} header(s), {} bytes body)",
+                 magic_enum::enum_name(req.request_method), uri.get_schema(), uri.get_host(), build_request(uri),
+                 req.header.size(), req.body ? req.body->size() : 0
+    );
+
+    auto client = httplib::Client(build_base_url(uri));
+    apply_options(client, uri, opts_);
+
     httplib::Headers headers{req.header.begin(), req.header.end()};
     const auto path = build_request(uri);
 
@@ -167,27 +196,28 @@ HttpResponse HttplibHttpClient::send(const http_request &req) const {
     );
 
     if (!result) {
-        return std::unexpected(httplib::to_string(result.error()));
+        auto error_str = httplib::to_string(result.error());
+        SPDLOG_ERROR("HTTP request to {}://{}{} failed: {}", uri.get_schema(), uri.get_host(), path, error_str);
+        return std::unexpected(error_str);
     }
 
+    SPDLOG_DEBUG("Received {} response from {}://{}{} (status {}, {} bytes)", magic_enum::enum_name(req.request_method),
+                 uri.get_schema(), uri.get_host(), path, result->status, result->body.size()
+    );
+
     return HttpResponseData{
-        .status_code = result->status,
-        .body = result->body,
+        .status_code = result->status, .body = result->body,
         .headers = {result->headers.begin(), result->headers.end()},
     };
 }
 
-// ---------------------------------------------------------------------------
-// Static convenience: one-shot GET
-// ---------------------------------------------------------------------------
-
-std::optional<std::string> HttplibHttpClient::get_body(std::string_view url, std::optional<address_family> af,
-                                                       const std::optional<std::string> &interface) {
+// One-shot GET — convenience.
+std::optional<std::string> TransientHttpClient::get_body(std::string_view url, const HttpClientOptions &opts) {
     http_request req;
     req.url = url;
     req.request_method = http_method_type::GET;
 
-    HttplibHttpClient client(af.value_or(address_family::UNSPECIFIED), interface);
+    TransientHttpClient client(opts);
     auto resp = client.send(req);
 
     if (!resp) {
@@ -196,4 +226,46 @@ std::optional<std::string> HttplibHttpClient::get_body(std::string_view url, std
     }
 
     return resp->body;
+}
+
+// ---------------------------------------------------------------------------
+// PersistentHttpClient
+// ---------------------------------------------------------------------------
+
+PersistentHttpClient::PersistentHttpClient(const Uri &uri, HttpClientOptions opts) : client_(
+    std::make_unique<httplib::Client>(build_base_url(uri))) {
+    apply_options(*client_, uri, opts);
+}
+
+PersistentHttpClient::~PersistentHttpClient() = default;
+
+HttpResponse PersistentHttpClient::send(const http_request &req) const {
+    const auto uri = Uri::parse(req.url);
+    const auto path = build_request(uri);
+
+    SPDLOG_DEBUG("Sending {} request to {}://{}{} ({} header(s), {} bytes body)",
+                 magic_enum::enum_name(req.request_method), uri.get_schema(), uri.get_host(), path,
+                 req.header.size(), req.body ? req.body->size() : 0);
+
+    httplib::Headers headers{req.header.begin(), req.header.end()};
+
+    const auto result = INVOKERS[std::to_underlying(req.request_method)](
+        *client_, path.c_str(), headers, req.body, req.content_type.data()
+    );
+
+    if (!result) {
+        auto error_str = httplib::to_string(result.error());
+        SPDLOG_ERROR("HTTP request to {}://{}{} failed: {}", uri.get_schema(), uri.get_host(), path, error_str);
+        return std::unexpected(error_str);
+    }
+
+    SPDLOG_DEBUG("Received {} response from {}://{} (status {}, {} bytes)",
+                 magic_enum::enum_name(req.request_method),
+                 uri.get_schema(), uri.get_host(), result->status, result->body.size()
+    );
+
+    return HttpResponseData{
+        .status_code = result->status, .body = result->body,
+        .headers = {result->headers.begin(), result->headers.end()},
+    };
 }

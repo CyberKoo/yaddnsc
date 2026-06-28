@@ -5,38 +5,82 @@
 #ifndef YADDNSC_NETWORK_HTTPCLIENT_H
 #define YADDNSC_NETWORK_HTTPCLIENT_H
 
-#include <optional>
+#include <map>
 #include <string>
+#include <chrono>
+#include <optional>
+#include <memory>
 #include <string_view>
 
 #include "type.h"
 #include "interfaces/http_client.h"
 
+class Uri;
+
+namespace httplib {
+    class Client;
+}
+
 // ---------------------------------------------------------------------------
-// HttplibHttpClient — concrete HttpClient that wraps cpp-httplib.
+// HttpClientOptions — all knobs exposed by TransientHttpClient / PersistentHttpClient.
 //
-// Construct with an address family and optional network interface; use
+// Every field is optional; unset fields fall back to a sensible default.
+// ---------------------------------------------------------------------------
+struct HttpClientOptions {
+    std::optional<address_family> address_family{};
+    std::optional<std::string> interface{};
+    std::optional<std::string> ca_cert_path{};
+    std::optional<bool> verify_server_cert{};
+    std::optional<std::chrono::seconds> connection_timeout{};
+    std::optional<std::chrono::seconds> read_timeout{};
+    std::optional<std::chrono::seconds> write_timeout{};
+    std::optional<bool> follow_location{};
+    std::optional<std::multimap<std::string, std::string> > default_headers{};
+};
+
+// ---------------------------------------------------------------------------
+// TransientHttpClient — HttpClient that creates a new httplib::Client
+// on every send() call.
+//
+// Construct with HttpClientOptions (all fields optional); use
 // send() to issue arbitrary requests.  get_body() is a static convenience
 // for one-shot GET calls (e.g. external-IP discovery).
 // ---------------------------------------------------------------------------
-class HttplibHttpClient final : public HttpClient {
+class TransientHttpClient final : public HttpClient {
 public:
-    explicit HttplibHttpClient(address_family af, std::optional<std::string> interface = std::nullopt);
+    explicit TransientHttpClient(HttpClientOptions opts = {});
 
-    ~HttplibHttpClient() override = default;
-
-    void set_address_family(address_family af) override;
+    ~TransientHttpClient() override = default;
 
     HttpResponse send(const http_request &req) const override;
 
     // One-shot GET — returns the raw response body on success.
     static std::optional<std::string>
-    get_body(std::string_view url, std::optional<address_family> af = std::nullopt,
-             const std::optional<std::string> &interface = std::nullopt);
+    get_body(std::string_view url, const HttpClientOptions &opts = {});
 
 private:
-    address_family af_;
-    std::optional<std::string> interface_;
+    HttpClientOptions opts_;
+};
+
+// ---------------------------------------------------------------------------
+// PersistentHttpClient — HttpClient that owns a single httplib::Client
+// instance for the lifetime of the object.
+//
+// Construct with a Uri and HttpClientOptions; the underlying httplib::Client
+// is built once in the constructor and reused across all send() calls.
+// This is more efficient than TransientHttpClient when making multiple
+// requests to the same host.
+// ---------------------------------------------------------------------------
+class PersistentHttpClient final : public HttpClient {
+public:
+    PersistentHttpClient(const Uri &uri, HttpClientOptions opts = {});
+
+    ~PersistentHttpClient() override;
+
+    HttpResponse send(const http_request &req) const override;
+
+private:
+    std::unique_ptr<httplib::Client> client_;
 };
 
 #endif //YADDNSC_NETWORK_HTTPCLIENT_H

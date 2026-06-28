@@ -1,23 +1,23 @@
 //
 // Created by Kotarou on 2026/6/28.
 //
-#include "doh_resolver.h"
+#include "doh.h"
 
-#include <arpa/nameser.h>
 #include <resolv.h>
+#include <arpa/nameser.h>
 
 #include <mutex>
 
 #include <spdlog/spdlog.h>
 
-#include "dns.h"
+#include "types.h"
 #include "fmt.hpp"
 #include "http_types.h"
 #include "network/http_client.h"
 #include "exception/dns_lookup_exception.h"
 
 namespace {
-    constexpr std::string_view DOH_CONTENT_TYPE = "application/dns-message";
+    constexpr auto DOH_CONTENT_TYPE = "application/dns-message";
 } // anonymous namespace
 
 // ===========================================================================
@@ -47,8 +47,8 @@ public:
         http_request req;
         req.url = server_;
         req.request_method = http_method_type::POST;
-        req.content_type = std::string(DOH_CONTENT_TYPE);
-        req.header = {{"Accept", std::string(DOH_CONTENT_TYPE)}};
+        req.content_type = DOH_CONTENT_TYPE;
+        req.header = {{"Accept", DOH_CONTENT_TYPE}};
         req.body = body_str;
 
         SPDLOG_TRACE(R"(DoH POST {}  ({} bytes))", server_, body_str.size());
@@ -58,7 +58,7 @@ public:
         if (!response) {
             throw DnsLookupException(
                 fmt::format(R"(DoH query to "{}" failed: {})", req.url, response.error()),
-                dns_error::UNKNOWN
+                dns_error::CONNECTION
             );
         }
 
