@@ -22,18 +22,36 @@
 
 namespace {
     std::optional<std::string> get_system_ca_path() {
-        static const std::optional<std::string> ca_path = []() -> std::optional<std::string> {
+        static const std::optional<std::string> system_ca_path = []() -> std::optional<std::string> {
             constexpr std::string_view search_paths[]{
+                // Local CA file
                 "./ca.pem",
+                // Debian/Ubuntu/Gentoo etc.
                 "/etc/ssl/certs/ca-certificates.crt",
-                "/etc/ssl/cert.pem",
+                // CentOS/RHEL 7
                 "/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem",
+                // OpenSUSE
                 "/etc/ssl/ca-bundle.pem",
-                "/usr/local/etc/ssl/cert.pem",
+                // macOS via Homebrew
+                "/usr/local/etc/openssl/cert.pem",
+                // macOS via Homebrew (Apple Silicon)
                 "/opt/homebrew/etc/openssl/cert.pem",
+                // Fedora/RHEL 6
                 "/etc/pki/tls/certs/ca-bundle.crt",
+                // OpenELEC
                 "/etc/pki/tls/cacert.pem",
-                "/usr/local/share/certs/ca-root-nss.crt", // OPNsense
+                // OpenWRT
+                "/etc/ssl/cert.pem",
+                // FreeBSD (ca_root_nss package)
+                "/usr/local/share/certs/ca-root-nss.crt",
+                // FreeBSD/OpenSSL
+                "/etc/ssl/cert.pem",
+                // OpenBSD
+                "/etc/ssl/cert.pem",
+                // NetBSD (pkgsrc)
+                "/etc/openssl/certs/ca-certificates.crt",
+                // NetBSD/OpenSSL
+                "/etc/openssl/cert.pem",
             };
 
             SPDLOG_DEBUG("Looking for CA bundle...");
@@ -51,7 +69,7 @@ namespace {
             return std::nullopt;
         }();
 
-        return ca_path;
+        return system_ca_path;
     }
 
     std::string build_request(const Uri &uri) {

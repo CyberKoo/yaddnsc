@@ -85,12 +85,17 @@ namespace {
             state._u._ext.nscount = 1;
 
 #if defined(HAVE_RES_STATE_EXT_NSADDRS)  // glibc
+            // Release any previously allocated IPv6 address structures to prevent memory leaks.
+            // res_nclose() frees the internal nsaddrs array but keeps the state alive.
+            res_nclose(&state);
+            // Re-set counters because res_nclose() zeroed them.
+            state.nscount = 1;
+            state._u._ext.nscount = 1;
             state._u._ext.nscount6 = 1;
             state._u._ext.nsmap[0] = MAXNS + 1;
             auto *sa6 = state._u._ext.nsaddrs[0];
             if (sa6 == nullptr) {
-                // Memory allocated here will be freed in res_nclose()
-                // as we have done res_ninit() above.
+                // Memory allocated here will be freed in res_nclose() later.
                 sa6 = ccalloc<sockaddr_in6>(1);
                 if (sa6 == nullptr) {
                     throw std::bad_alloc();
