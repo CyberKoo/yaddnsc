@@ -11,7 +11,7 @@
 #include "fmt.hpp"
 
 Uri Uri::parse(std::string_view uri) {
-    Uri result;
+    Uri result{};
 
     if (uri.empty()) {
         return result;
@@ -47,7 +47,7 @@ Uri Uri::parse(std::string_view uri) {
         throw std::runtime_error(fmt::format("URI does not have a valid schema: {}", uri));
     }
 
-    result.body_ = std::string(schema_end, uri.end());
+    result.body_ = std::string_view(schema_end, uri.end());
 
     // --- host & port (with IPv6 literal support) -------------------------
 
@@ -56,14 +56,15 @@ Uri Uri::parse(std::string_view uri) {
     // Find the start of the path (first '/' after authority)
     auto path_start = std::find(authority_start, uri.end(), '/');
     // If there's a query before any path, adjust
-    auto authority_end = (path_start != uri.end()) ? path_start : query_start;
+    auto authority_end = path_start != uri.end() ? path_start : query_start;
 
     // Check for IPv6 literal: [::1]
     if (authority_start != authority_end && *authority_start == '[') {
         auto closing_bracket = std::find(authority_start + 1, authority_end, ']');
         if (closing_bracket == authority_end) {
             throw std::runtime_error(
-                fmt::format("URI contains unclosed IPv6 literal bracket: {}", uri));
+                fmt::format("URI contains unclosed IPv6 literal bracket: {}", uri)
+            );
         }
 
         // Host is between [ and ]
@@ -73,10 +74,9 @@ Uri Uri::parse(std::string_view uri) {
         auto port_start = closing_bracket + 1;
         if (port_start < authority_end && *port_start == ':') {
             ++port_start;
-            auto port_str = std::string_view(port_start, authority_end);
+            const auto port_str = std::string_view(port_start, authority_end);
             if (!port_str.empty()) {
-                auto [ptr, ec] = std::from_chars(
-                    port_str.data(), port_str.data() + port_str.size(), result.port_);
+                auto [ptr, ec] = std::from_chars(port_str.data(), port_str.data() + port_str.size(), result.port_);
                 if (ec != std::errc()) {
                     result.port_ = 0;
                 }
@@ -92,8 +92,7 @@ Uri Uri::parse(std::string_view uri) {
             ++host_end;
             auto port_str = std::string_view(host_end, authority_end);
             if (!port_str.empty()) {
-                auto [ptr, ec] = std::from_chars(
-                    port_str.data(), port_str.data() + port_str.size(), result.port_);
+                auto [ptr, ec] = std::from_chars(port_str.data(), port_str.data() + port_str.size(), result.port_);
                 if (ec != std::errc()) {
                     result.port_ = 0;
                 }

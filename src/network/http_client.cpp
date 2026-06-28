@@ -91,129 +91,109 @@ namespace {
     // Dispatch: http_method_type -> httplib callable
     // -----------------------------------------------------------------------
 
-    using BodyType = std::optional<std::string>;
-    using Invoker = httplib::Result (*)(httplib::Client &, const char *, const httplib::Headers &, const BodyType &,
-                                        const char *);
+    using Invoker = httplib::Result (*)(httplib::Client &, const char *, const httplib::Headers &,
+                                        const std::optional<std::string> &, const char *);
 
-    Invoker select_invoker(http_method_type method) {
-        switch (method) {
-            case http_method_type::GET:
-                return [](httplib::Client &c, const char *p, const httplib::Headers &h, const BodyType &,
-                          const char *) -> httplib::Result {
-                    return c.Get(p, h);
-                };
-            case http_method_type::POST:
-                return [](httplib::Client &c, const char *p, const httplib::Headers &h, const BodyType &b,
-                          const char *ct) -> httplib::Result {
-                    return c.Post(p, h, b.value_or(""), ct);
-                };
-            case http_method_type::PUT:
-                return [](httplib::Client &c, const char *p, const httplib::Headers &h, const BodyType &b,
-                          const char *ct) -> httplib::Result {
-                    return c.Put(p, h, b.value_or(""), ct);
-                };
-            case http_method_type::DEL:
-                return [](httplib::Client &c, const char *p, const httplib::Headers &h, const BodyType &,
-                          const char *) -> httplib::Result {
-                    return c.Delete(p, h);
-                };
-            case http_method_type::PATCH:
-                return [](httplib::Client &c, const char *p, const httplib::Headers &h, const BodyType &b,
-                          const char *ct) -> httplib::Result {
-                    return c.Patch(p, h, b.value_or(""), ct);
-                };
-            case http_method_type::HEAD:
-                return [](httplib::Client &c, const char *p, const httplib::Headers &h, const BodyType &,
-                          const char *) -> httplib::Result {
-                    return c.Head(p, h);
-                };
-            case http_method_type::OPTIONS:
-                return [](httplib::Client &c, const char *p, const httplib::Headers &h, const BodyType &,
-                          const char *) -> httplib::Result {
-                    return c.Options(p, h);
-                };
-        }
-        std::unreachable();
-    }
+    constexpr Invoker INVOKERS[]{
+        [](httplib::Client &c, const char *p, const httplib::Headers &h, const std::optional<std::string> &,
+           const char *) -> httplib::Result {
+            return c.Get(p, h);
+        },
+        [](httplib::Client &c, const char *p, const httplib::Headers &h, const std::optional<std::string> &b,
+           const char *ct) -> httplib::Result {
+            return c.Post(p, h, b.value_or(""), ct);
+        },
+        [](httplib::Client &c, const char *p, const httplib::Headers &h, const std::optional<std::string> &b,
+           const char *ct) -> httplib::Result {
+            return c.Put(p, h, b.value_or(""), ct);
+        },
+        [](httplib::Client &c, const char *p, const httplib::Headers &h, const std::optional<std::string> &,
+           const char *) -> httplib::Result {
+            return c.Delete(p, h);
+        },
+        [](httplib::Client &c, const char *p, const httplib::Headers &h, const std::optional<std::string> &b,
+           const char *ct) -> httplib::Result {
+            return c.Patch(p, h, b.value_or(""), ct);
+        },
+        [](httplib::Client &c, const char *p, const httplib::Headers &h, const std::optional<std::string> &,
+           const char *) -> httplib::Result {
+            return c.Head(p, h);
+        },
+        [](httplib::Client &c, const char *p, const httplib::Headers &h, const std::optional<std::string> &,
+           const char *) -> httplib::Result {
+            return c.Options(p, h);
+        },
+    };
 }
 
 // ---------------------------------------------------------------------------
-// IHttpSender (static)
+// HttpClient (static)
 // ---------------------------------------------------------------------------
 
-std::string IHttpSender::params_to_query_string(const http_param_type &params) {
-    return std::ranges::fold_left(
-        params | std::views::transform([](const auto &p) {
-            return httplib::encode_query_component(p.first) + '=' +
-                   httplib::encode_query_component(p.second);
-        }),
-        std::string{},
-        [](std::string acc, const std::string &kv) -> std::string {
-            if (acc.empty()) return kv;
-            acc += '&';
-            acc += kv;
-            return acc;
-        }
-    );
+std::string HttpClient::params_to_query_string(const http_param_type &params) {
+    auto encoded = params | std::views::transform([](const auto &p) {
+        return fmt::format("{}={}",
+                           httplib::encode_query_component(p.first),
+                           httplib::encode_query_component(p.second)
+        );
+    });
+    return fmt::format("{}", fmt::join(encoded, "&"));
 }
 
 // ---------------------------------------------------------------------------
 // Construction
 // ---------------------------------------------------------------------------
 
-HttpClient::HttpClient(address_family af, std::optional<std::string> interface)
+HttplibHttpClient::HttplibHttpClient(address_family af, std::optional<std::string> interface)
     : af_(af), interface_(std::move(interface)) {
 }
 
 // ---------------------------------------------------------------------------
-// IHttpSender
+// HttpClient
 // ---------------------------------------------------------------------------
 
-void HttpClient::set_address_family(address_family af) {
+void HttplibHttpClient::set_address_family(address_family af) {
     af_ = af;
 }
 
-HttpResponse HttpClient::send(const http_request &req) {
+HttpResponse HttplibHttpClient::send(const http_request &req) const {
     const auto uri = Uri::parse(req.url);
     auto client = connect(uri, af_, interface_);
     httplib::Headers headers{req.header.begin(), req.header.end()};
     const auto path = build_request(uri);
 
-    const auto result = select_invoker(req.request_method)(
+    const auto result = INVOKERS[std::to_underlying(req.request_method)](
         client, path.c_str(), headers, req.body, req.content_type.data()
     );
 
-    HttpResponse resp;
     if (!result) {
-        resp.success = false;
-        resp.error_message = std::string(httplib::to_string(result.error()));
-        return resp;
+        return std::unexpected(httplib::to_string(result.error()));
     }
 
-    resp.success = true;
-    resp.status_code = result->status;
-    resp.headers = {result->headers.begin(), result->headers.end()};
-    resp.body = result->body;
-    return resp;
+    return HttpResponseData{
+        .status_code = result->status,
+        .body = result->body,
+        .headers = {result->headers.begin(), result->headers.end()},
+    };
 }
 
 // ---------------------------------------------------------------------------
 // Static convenience: one-shot GET
 // ---------------------------------------------------------------------------
 
-std::optional<std::string> HttpClient::get_body(std::string_view url, std::optional<address_family> af,
-                                                const std::optional<std::string> &interface) {
+std::optional<std::string> HttplibHttpClient::get_body(std::string_view url, std::optional<address_family> af,
+                                                       const std::optional<std::string> &interface) {
     http_request req;
     req.url = url;
     req.request_method = http_method_type::GET;
 
-    HttpClient client(af.value_or(address_family::UNSPECIFIED), interface);
+    HttplibHttpClient client(af.value_or(address_family::UNSPECIFIED), interface);
     auto resp = client.send(req);
 
-    if (!resp.success) {
-        SPDLOG_WARN(R"(Failed to fetch "{}", error: {})", url, resp.error_message);
+    if (!resp) {
+        SPDLOG_WARN(R"(Failed to fetch "{}", error: {})", url, resp.error());
         return std::nullopt;
     }
 
-    return resp.body;
+    return resp->body;
 }

@@ -13,21 +13,21 @@
 #include "interfaces/http_client.h"
 
 // ---------------------------------------------------------------------------
-// HttpClient — concrete IHttpSender that wraps cpp-httplib.
+// HttplibHttpClient — concrete HttpClient that wraps cpp-httplib.
 //
 // Construct with an address family and optional network interface; use
-// send() to issue arbitrary requests.  get_text() is a static convenience
+// send() to issue arbitrary requests.  get_body() is a static convenience
 // for one-shot GET calls (e.g. external-IP discovery).
 // ---------------------------------------------------------------------------
-class HttpClient final : public IHttpSender {
+class HttplibHttpClient final : public HttpClient {
 public:
-    explicit HttpClient(address_family af, std::optional<std::string> interface = std::nullopt);
+    explicit HttplibHttpClient(address_family af, std::optional<std::string> interface = std::nullopt);
 
-    ~HttpClient() override = default;
+    ~HttplibHttpClient() override = default;
 
     void set_address_family(address_family af) override;
 
-    HttpResponse send(const http_request &req) override;
+    HttpResponse send(const http_request &req) const override;
 
     // One-shot GET — returns the raw response body on success.
     static std::optional<std::string>

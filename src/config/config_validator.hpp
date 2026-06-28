@@ -60,6 +60,12 @@ namespace detail {
     }
 
     inline void validate_resolver_address(const std::string &address) {
+        // DoH address — starts with https://, skip IP validation.
+        if (address.starts_with("https://")) {
+            return;
+        }
+
+        // Plain DNS address — must be a valid IP.
 #if defined(HAVE_RES_NQUERY)
 #if defined(HAVE_IPV6_RESOLVE_SUPPORT)
         if (!IPUtil::is_ipv4_address(address) && !IPUtil::is_ipv6_address(address)) {
@@ -173,10 +179,10 @@ public:
         if (cfg.resolver.use_custom_server) {
             if (!cfg.resolver.servers.empty()) {
                 for (const auto &server: cfg.resolver.servers) {
-                    detail::validate_resolver_address(server.ip_address);
+                    detail::validate_resolver_address(server.address);
                 }
-            } else if (!cfg.resolver.ip_address.empty()) {
-                detail::validate_resolver_address(cfg.resolver.ip_address);
+            } else if (!cfg.resolver.address.empty()) {
+                detail::validate_resolver_address(cfg.resolver.address);
             }
         }
 #endif

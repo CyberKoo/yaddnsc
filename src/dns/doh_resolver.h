@@ -1,0 +1,42 @@
+//
+// Created by Kotarou on 2026/6/28.
+//
+
+#ifndef YADDNSC_DOH_RESOLVER_H
+#define YADDNSC_DOH_RESOLVER_H
+
+#include <cstdint>
+#include <memory>
+#include <string>
+#include <vector>
+
+#include "resolver_base.h"
+#include "type.h"
+
+class HttpClient;
+
+// ---------------------------------------------------------------------------
+// DohResolver — DNS-over-HTTPS (RFC 8484) resolver.
+//
+// Uses the existing HttplibHttpClient wrapper (not cpp-httplib directly) to send
+// DNS queries as HTTPS POST requests with Content-Type: application/dns-message
+// to the well-known /dns-query endpoint.
+//
+// Input:  DnsServer{ip_address, port} — same config struct used by DnsResolver.
+//         The HTTPS URL is derived as  https://{ip_address}/dns-query
+// Output: Raw DNS response bytes (wire format), ready for DnsRecordParser.
+// ---------------------------------------------------------------------------
+class DohResolver final : public ResolverBase {
+public:
+    explicit DohResolver(std::unique_ptr<HttpClient> http_client, std::string server);
+
+    ~DohResolver() override;
+
+    [[nodiscard]] std::vector<uint8_t> query(const std::string &host, dns_type type) const override;
+
+private:
+    class Impl;
+    std::unique_ptr<Impl> impl_;
+};
+
+#endif // YADDNSC_DOH_RESOLVER_H

@@ -12,39 +12,39 @@
 
 #include <spdlog/spdlog.h>
 
-#include "driver_ver.h"
 #include "fmt.hpp"
+#include "driver_ver.h"
 #include "interfaces/driver.h"
 #include "exception/bad_driver_exception.h"
 
 // Internal implementation
 class DriverManager::Impl {
 public:
-    class Driver;
+    class DriverModule;
 
     ~Impl() = default;
 
     static std::string_view get_driver_name(std::string_view);
 
-    void register_driver(Driver, std::string_view);
+    void register_driver(DriverModule, std::string_view);
 
     void unload_driver(const std::string &name);
 
 public:
-    std::map<std::string, Driver> driver_map_;
+    std::map<std::string, DriverModule> driver_map_;
 };
 
-// Driver RAII class
-class DriverManager::Impl::Driver final {
+// RAII wrapper for a loaded driver and its shared-library handle.
+class DriverManager::Impl::DriverModule final {
     [[maybe_unused, no_unique_address]] NoCopy _nc_;
 
 public:
     // Custom deleter that calls destroy() inside the driver .so,
     // ensuring allocation and deallocation stay in the same module.
     struct DriverDeleter {
-        void (*destroy_)(IDriver *) = nullptr;
+        void (*destroy_)(Driver *) = nullptr;
 
-        void operator()(IDriver *p) const noexcept {
+        void operator()(Driver *p) const noexcept {
             if (destroy_ && p) {
                 destroy_(p);
             }
@@ -58,16 +58,16 @@ public:
         }
     };
 
-    using driver_ptr = std::unique_ptr<IDriver, DriverDeleter>;
+    using driver_ptr = std::unique_ptr<Driver, DriverDeleter>;
 
     using handle_ptr = std::unique_ptr<void, HandleCloser>;
 
-    Driver(Driver &&) = default;
+    DriverModule(DriverModule &&) = default;
 
-    Driver &operator=(Driver &&) = default;
+    DriverModule &operator=(DriverModule &&) = default;
 
-    explicit Driver(const std::string &path) : handle_{dlopen(path.c_str(), RTLD_NOW)},
-                                               driver_(nullptr, DriverDeleter{}) {
+    explicit DriverModule(const std::string &path) : handle_{dlopen(path.c_str(), RTLD_NOW)},
+                                                     driver_(nullptr, DriverDeleter{}) {
         if (handle_ == nullptr) {
             SPDLOG_CRITICAL("Unable to load driver {}, error: {}", get_driver_name(path), dlerror());
             throw BadDriverException(fmt::format("Failed to load driver: {}", dlerror()));
@@ -75,15 +75,15 @@ public:
         SPDLOG_TRACE("Opened shared library '{}' (handle: {})", get_driver_name(path),
                      static_cast<const void *>(handle_.get()));
 
-        auto create_func = resolve_symbol<IDriver*()>(handle_, "create");
-        auto destroy_func = resolve_symbol<void(IDriver *)>(handle_, "destroy");
+        auto create_func = resolve_symbol<Driver*()>(handle_, "create");
+        auto destroy_func = resolve_symbol<void(Driver *)>(handle_, "destroy");
 
         driver_ = driver_ptr(create_func(), DriverDeleter{destroy_func});
     }
 
 private:
     // Resolve a symbol from a shared library and check for errors.
-    // Signature is a function type, e.g. IDriver*() or void(IDriver*).
+    // Signature is a function type, e.g. Driver*() or void(Driver*).
     template<typename Signature>
         requires std::is_function_v<Signature>
     static Signature *resolve_symbol(const handle_ptr &handle, const char *name) {
@@ -98,11 +98,11 @@ private:
     }
 
 public:
-    [[nodiscard]] const IDriver &get() const {
+    [[nodiscard]] const Driver &get() const {
         return *driver_;
     }
 
-    ~Driver() = default;
+    ~DriverModule() = default;
 
 private:
     handle_ptr handle_;
@@ -112,7 +112,7 @@ private:
 
 DriverManager::~DriverManager() = default;
 
-const IDriver &DriverManager::get_driver(const std::string &name) const {
+const Driver &DriverManager::get_driver(const std::string &name) const {
     const auto &driver_map = impl_->driver_map_;
     if (const auto it = driver_map.find(name); it != driver_map.end()) {
         SPDLOG_TRACE("Driver '{}' found in registry", name);
@@ -140,7 +140,7 @@ void DriverManager::load_driver(const std::string &path) const {
         throw BadDriverException(fmt::format("Driver library '{}' not found at {}", lib_name, path));
     }
 
-    impl_->register_driver(Impl::Driver(path), Impl::get_driver_name(path));
+    impl_->register_driver(Impl::DriverModule(path), Impl::get_driver_name(path));
 }
 
 void DriverManager::unload_driver(const std::string &name) {
@@ -155,7 +155,7 @@ std::string_view DriverManager::Impl::get_driver_name(std::string_view path) {
     return path.substr(pos + 1);
 }
 
-void DriverManager::Impl::register_driver(Driver driver_res, std::string_view driver_lib_name) {
+void DriverManager::Impl::register_driver(DriverModule driver_res, std::string_view driver_lib_name) {
     auto &driver = driver_res.get();
 
     // validate driver ABI version
@@ -163,22 +163,23 @@ void DriverManager::Impl::register_driver(Driver driver_res, std::string_view dr
         SPDLOG_CRITICAL("Failed to load driver '{}' [ABI: {}] - version mismatch: got {}, expected {}",
                         driver_lib_name, DRV_VERSION, driver.get_driver_version(), DRV_VERSION);
 
-        throw BadDriverException(fmt::format("Driver {} ABI version mismatch: got {}, expected {}",
-                                             driver_lib_name, driver.get_driver_version(), DRV_VERSION));
+        throw BadDriverException(
+            fmt::format("Driver {} ABI version mismatch: got {}, expected {}",
+                        driver_lib_name, driver.get_driver_version(), DRV_VERSION
+            )
+        );
     }
 
-    const auto detail = driver.get_detail();
-    const auto driver_name = std::string(detail.name);
+    const auto [name, description, author, version] = driver.get_detail();
+    const auto driver_name = std::string(name);
 
-    const auto [_, inserted] = driver_map_.emplace(driver_name, std::move(driver_res));
-    if (!inserted) {
+    if (const auto [_, inserted] = driver_map_.emplace(driver_name, std::move(driver_res)); !inserted) {
         SPDLOG_WARN("Driver '{}' ({}) is already loaded, skipped", driver_name, driver_lib_name);
         return;
     }
 
     SPDLOG_INFO("Loaded driver '{}' ({})", driver_name, driver_lib_name);
-    SPDLOG_DEBUG("Driver {} ({}), developed by {}, version: {}",
-                 driver_name, detail.description, detail.author, detail.version);
+    SPDLOG_DEBUG("Driver {} ({}), developed by {}, version: {}", driver_name, description, author, version);
 }
 
 void DriverManager::Impl::unload_driver(const std::string &name) {

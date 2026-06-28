@@ -15,7 +15,7 @@
   - `url` — obtain the IP from an external HTTP service (e.g. `https://ifconfig.me`)
 - **Per-subdomain update interval** — each subdomain can override the domain-level update interval.
 - **IPv4 and IPv6 support** — configure A and AAAA records independently.
-- **Custom DNS resolver** — optionally use specific DNS servers for record lookups instead of the system resolver. Supports multiple servers with **concurrent query** and automatic fallback (fires all configured resolvers in parallel and takes the fastest response).
+- **Custom DNS resolver** — optionally use specific DNS servers for record lookups instead of the system resolver. Supports both **traditional DNS** (plain IP + port) and **DNS-over-HTTPS (DoH)** (full HTTPS URL, e.g. `https://1.1.1.1/dns-query`). Multiple servers are queried **concurrently** with automatic fallback (fires all configured resolvers in parallel and takes the fastest response).
 - **Forced update scheduling** — periodically force-update DNS records even when the IP hasn't changed.
 - **Graceful shutdown** — handles SIGINT/SIGTERM via a dedicated signal-handling thread with a stop_token.
 - **Thread-pool based concurrency** — subdomain updates are dispatched to a BS::thread_pool for parallel execution.
@@ -30,36 +30,70 @@ flowchart TB
 CLI parsing · Load config · Init"]
     mgr["Manager
 Load drivers · Validate config
-Build min-heap of SubdomainEntries
-Owns BS::thread_pool"]
-    sched["Scheduler (single thread)
-Pop due entries → detach_task to pool
+Install signal handler"]
+    run["Manager::run()
+Resize thread pool
+Build min-heap schedule"]
+    sched["Scheduler loop (single thread, inline)
+Pop due entries → detach_task(updater.process)
 Re-queue with next deadline
 Sleep until nearest deadline
 On stop: pool.wait()"]
+    signal["Signal thread (jthread)
+sigwait(SIGINT/SIGTERM)
+→ stop_source.request_stop()
+→ notify scheduler"]
     pool["BS::thread_pool
 Parallel workers"]
-    updaterA["Updater (task A)
-Get IP → DNS lookup → Compare → Update"]
-    updaterB["Updater (task B)
-Get IP → DNS lookup → Compare → Update"]
+    updaterA["Updater::process() (task A)
+1. Get driver from DriverManager
+2. Get local IP (interface or URL)
+3. DNS lookup (DnsResolver / DohResolver)
+4. Compare; skip if unchanged
+5. Create HttplibHttpClient
+6. driver.execute()"]
+    updaterB["Updater::process() (task B)
+same as task A…"]
     driver["Driver Plugin (.so)
 execute (default: generate_request
-→ IHttpSender::send → check_response)
+→ HttpClient::send → check_response)
 HTTP → DNS provider API"]
+    net["NetworkManager
+Interface IP detection"]
+    dns["ResolverBase
+DnsResolver (UDP/TCP)
+DohResolver (HTTPS POST)"]
 
     main --> mgr
-    mgr --> sched
+    mgr --> run
+    run --> sched
+    mgr -.-> signal
+    signal -.->|stop_token| sched
     sched --> pool
     pool --> updaterA
     pool --> updaterB
     updaterA --> driver
     updaterB --> driver
+    updaterA -.-> net
+    updaterB -.-> net
+    updaterA -.-> dns
+    updaterB -.-> dns
 ```
 
-**Thread model:** A single scheduler thread maintains a min-heap of `SubdomainEntry` items ordered by deadline. When a subdomain is due, the scheduler pops it, submits the work (IP detection, DNS comparison, HTTP update) to the shared thread pool, and re-queues the entry with its next deadline. The scheduler sleeps on a condition variable until the nearest deadline or a stop request. On shutdown it drains all in-flight pool tasks before returning.
+**Thread model:** A single scheduler thread (inline in `Manager::run()`) maintains a min-heap of `SubdomainEntry` items ordered by deadline. When a subdomain is due, the scheduler pops it, submits `Updater::process(task)` to the shared thread pool, and re-queues the entry with its next deadline. The scheduler sleeps on a condition variable until the nearest deadline or a stop request. On shutdown it drains all in-flight pool tasks before returning.
 
-**HTTP abstraction layer:** All provider API communication flows through the `IHttpSender` interface. The concrete implementation — `HttpClient` — wraps [cpp-httplib](https://github.com/yhirose/cpp-httplib) internally and keeps `httplib` types out of all public headers. The core binds the correct network interface and address family from the per-subdomain config, then injects the sender into each driver call.
+**Signal handling:** A dedicated `std::jthread` waits on `sigwait()` for `SIGINT`/`SIGTERM`. When a signal arrives, it calls `stop_source.request_stop()`, which triggers a `std::stop_callback` that notifies the scheduler's condition variable, waking the loop so it can break out and drain the pool.
+
+**Updater::process()** (runs in a pool thread) does the following for each subdomain:
+
+1. **Resolve the driver** — look up the driver plugin by name from `DriverManager`.
+2. **Get local IP** — read from a network interface (`NetworkManager`) or fetch from an external URL.
+3. **DNS lookup** — query the current DNS record using `DnsResolver` (UDP/TCP) or `DohResolver` (HTTPS POST, RFC 8484).
+4. **Compare** — skip the update if unchanged (unless `force_update` is set).
+5. **Create `HttplibHttpClient`** — a per-task HTTP client bound to the configured network interface and address family.
+6. **Call `driver.execute()`** — delegates to the driver plugin, which calls `generate_request()` → `HttpClient::send()` → `check_response()`.
+
+**HTTP abstraction layer:** All provider API communication flows through the `HttpClient` interface. The concrete implementation — `HttplibHttpClient` — wraps [cpp-httplib](https://github.com/yhirose/cpp-httplib) internally. It is created per-task inside `Updater::process()`, bound to the correct interface and address family from the subdomain config.
 
 ## Build Requirements
 
@@ -100,7 +134,7 @@ make -j$(nproc)
 | `YADDNSC_LOGGING_PATTERN`     | `[%D %T.%e] [%^%8l%$] [%8!t] [%15!s:%-4#] %v` | Logging pattern passed to spdlog::set_pattern()                   |
 | `YADDNSC_MIN_UPDATE_INTERVAL` | 60                                            | Minimum allowed update interval in seconds (must not be negative) |
 
-Third-party dependencies (glaze, spdlog, cpp-httplib, cxxopts, BS::thread_pool, fmt) are fetched automatically via CPM.cmake.
+Third-party dependencies (glaze, spdlog, cpp-httplib, cxxopts, BS::thread_pool, fmt, magic_enum) are fetched automatically via CPM.cmake.
 
 ## Configuration
 
@@ -122,11 +156,11 @@ A template configuration is available at `config.example.json`.
   },
   "resolver": {
     "use_custom_server": false,
-    "ipaddress": "1.1.1.1",
+    "address": "1.1.1.1",
     "port": 53,
     "servers": [
-      { "ipaddress": "1.1.1.1", "port": 53 },
-      { "ipaddress": "8.8.8.8", "port": 53 }
+      { "address": "1.1.1.1", "port": 53 },
+      { "address": "8.8.8.8", "port": 53 }
     ]
   },
   "domains": [
@@ -172,6 +206,17 @@ A template configuration is available at `config.example.json`.
 }
 ```
 
+> **DoH example:** To use DNS-over-HTTPS, set the server address to a full HTTPS URL including the path:
+>
+> ```json
+> "servers": [
+>   { "address": "https://1.1.1.1/dns-query" },
+>   { "address": "https://cloudflare-dns.com/dns-query" }
+> ]
+> ```
+>
+> The address must start with `https://` and include the complete path (typically `/dns-query` per RFC 8484). The code does **not** append `/dns-query` automatically. The `port` field is ignored for DoH.
+
 ### Configuration Reference
 
 #### Top-level
@@ -192,16 +237,25 @@ A template configuration is available at `config.example.json`.
 
 #### `resolver` object
 
-| Field               | Type        | Description                                                                                                                                                                                               |
-|---------------------|-------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `use_custom_server` | boolean     | If true, use the specified DNS server(s) instead of system                                                                                                                                                |
-| `ipaddress`         | string      | DNS server IP address (legacy — used only when `servers` is empty)                                                                                                                                        |
-| `port`              | integer     | DNS server port, typically 53 (legacy — used only when `servers` is empty)                                                                                                                                |
-| `servers`           | DnsServer[] | List of DNS servers for redundancy. When multiple servers are configured, all queries are fired **concurrently** and the fastest successful response is used. If all servers fail, errors are propagated. |
+| Field               | Type        | Description                                                                                                                                                                                                                                                                                    |
+|---------------------|-------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `use_custom_server` | boolean     | If true, use the specified DNS server(s) instead of system                                                                                                                                                                                                                                     |
+| `address`           | string      | DNS server address (legacy — used only when `servers` is empty). For traditional DNS, use a plain IP address. For **DoH**, use the full HTTPS URL including the path (e.g. `https://1.1.1.1/dns-query`).                                                                                       |
+| `port`              | integer     | DNS server port, typically 53 (legacy — used only when `servers` is empty). Ignored when `address` is a full HTTPS URL.                                                                                                                                                                        |
+| `servers`           | DnsServer[] | List of DNS servers for redundancy. Each entry has an `address` field (string) and a `port` field (integer, default 53). When multiple servers are configured, all queries are fired **concurrently** and the fastest successful response is used. If all servers fail, errors are propagated. |
 
-When the `servers` array is present and non-empty, `ipaddress` and `port` are ignored. On platforms without `res_nquery()` support (e.g. some musl builds), custom servers cannot be configured and the system resolver is always used.
+Each `DnsServer` entry in the `servers` array has the following structure:
 
-> **IPv6 note:** Write the address **without** brackets, e.g. `"2606:4700:4700::1111"`. Brackets are used for URI literals (`[::1]:53`) but `inet_pton()` — which validates and parses the address — expects a plain address.
+| Field     | Type    | Description                                                                                                                                                                                               |
+|-----------|---------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `address` | string  | For **traditional DNS**: a plain IP address (e.g. `1.1.1.1`). For **DNS-over-HTTPS (DoH)**: a full HTTPS URL **including the path**, e.g. `https://1.1.1.1/dns-query`. The `https://` prefix is required. |
+| `port`    | integer | DNS server port, typically 53. **Ignored for DoH** (HTTPS uses port 443 by default).                                                                                                                      |
+
+> **DoH note:** When the `address` starts with `https://`, it is treated as a DNS-over-HTTPS resolver. The address must be a complete URL with the full path — `/dns-query` is the standard DoH endpoint per RFC 8484, but any custom path is supported. The code does **not** append `/dns-query` automatically.
+
+When the `servers` array is present and non-empty, `address` and `port` are ignored. On platforms without `res_nquery()` support (e.g. some musl builds), custom servers cannot be configured and the system resolver is always used.
+
+> **IPv6 note:** For traditional DNS, write the address **without** brackets, e.g. `"2606:4700:4700::1111"`. Brackets are used for URI literals (`[::1]:53`) but `inet_pton()` — which validates and parses the address — expects a plain address.
 
 #### `domains[]` object
 
@@ -340,7 +394,7 @@ sudo systemctl enable --now yaddnsc
 Drivers are shared libraries loaded at runtime. To write one:
 
 1. Include `driver/base_driver.h` and inherit from `BaseDriver`.
-2. Implement the `IDriver` interface:
+2. Implement the `Driver` interface:
    - `generate_request(config, ctx)` → construct a `driver_request` (URL, HTTP method, headers, body)
    - `check_response(response)` → validate the API response body
    - `get_detail()` → return driver metadata (name, description, author, version)
@@ -360,7 +414,7 @@ Drivers use `CORE_LOG_*` macros for logging — these delegate to the core execu
 
 - `config` — the driver configuration (a JSON string, typically parsed with `parse_config<T>()`).
 - `ctx` — an `UpdateContext` with runtime information (IP address, record type, domain, subdomain, FQDN).
-- `http` — an `IHttpSender` reference for making HTTP requests.
+- `http` — a `HttpClient` reference for making HTTP requests.
 
 The default implementation in `BaseDriver` reproduces the original three-step behaviour:
 
@@ -372,54 +426,55 @@ generate_request(config, ctx)
 
 For simple drivers this is sufficient — just implement `generate_request()` and `check_response()`, and the default `execute()` is inherited automatically.
 
-The `IHttpSender` is initialised by the core with the correct address family (IPv4/IPv6) and network interface from the per-subdomain configuration. Drivers that override `execute()` can call `set_address_family()` to switch between calls when needed.
+The `HttpClient` is initialised by the core with the correct address family (IPv4/IPv6) and network interface from the per-subdomain configuration. Drivers that override `execute()` can call `set_address_family()` to switch between calls when needed.
 
-### Multi-step workflows with `IHttpSender`
+### Multi-step workflows with `HttpClient`
 
 Drivers that need multiple HTTP interactions (e.g. authenticate first, then query a resource, then update) can override `execute()` and call `http.send()` multiple times:
 
 ```
 bool MyDriver::execute(const driver_config_type &config,
                        const UpdateContext &ctx,
-                       IHttpSender &http) override {
+                       HttpClient &http) override {
     // Step 1: fetch authentication token
     http.set_address_family(address_family::IPV4);
     auto auth_resp = http.send(build_auth_request(config));
-    if (!auth_resp.success) return false;
-    auto token = extract_token(auth_resp.body);
+    if (!auth_resp) return false;
+    auto token = extract_token(auth_resp->body);
 
     // Step 2: query record id
     auto list_resp = http.send(build_list_request(token, ctx));
-    if (!list_resp.success) return false;
-    auto record_id = extract_record_id(list_resp.body);
+    if (!list_resp) return false;
+    auto record_id = extract_record_id(list_resp->body);
 
     // Step 3: perform the update
     auto update_req = build_update_request(token, record_id, ctx);
     auto update_resp = http.send(update_req);
-    if (!update_resp.success) return false;
-    return check_response(update_resp.body);
+    if (!update_resp) return false;
+    return check_response(update_resp->body);
 }
 ```
 
-The `IHttpSender` interface provides:
+The `HttpClient` interface provides:
 
 ```cpp
-class IHttpSender {
+class HttpClient {
 public:
     virtual void set_address_family(address_family af) = 0;
-    virtual HttpResponse send(const http_request &req) = 0;
+    virtual HttpResponse send(const http_request &req) const = 0;
+    static std::string params_to_query_string(const http_param_type &params);
 };
 ```
 
-`HttpResponse` contains the full HTTP result:
+`HttpResponse` is a type alias for `std::expected<HttpResponseData, std::string>`. Check it with implicit boolean conversion (success) or use `error()` to retrieve the error string:
 
-| Field             | Type                           | Description                          |
-|-------------------|--------------------------------|--------------------------------------|
-| `success`         | `bool`                         | Whether the request was sent         |
-| `status_code`     | `int`                          | HTTP status code (e.g. 200, 404)     |
-| `headers`         | `multimap<string, string>`     | Response headers                     |
-| `body`            | `string`                       | Response body                        |
-| `error_message`   | `string`                       | Transport-level error description    |
+| Expression          | Description                                 |
+|---------------------|---------------------------------------------|
+| `if (resp)`         | Returns `true` if the request was sent      |
+| `resp->status_code` | HTTP status code (e.g. 200, 404)            |
+| `resp->headers`     | `multimap<string, string>` response headers |
+| `resp->body`        | `string` response body                      |
+| `resp.error()`      | `string` transport-level error description  |
 
 The network interface is always bound by the core and is not configurable from the driver. Address family can be switched between calls via `set_address_family()`.
 

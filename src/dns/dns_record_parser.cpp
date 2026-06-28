@@ -12,8 +12,8 @@
 
 #include <spdlog/spdlog.h>
 
-#include "exception/dns_lookup_exception.h"
 #include "fmt.hpp"
+#include "exception/dns_lookup_exception.h"
 
 DnsRecordParser::DnsRecordParser(const data_type *data, const size_t size) {
     if (ns_initparse(data, static_cast<int>(size), &message_) != 0) {

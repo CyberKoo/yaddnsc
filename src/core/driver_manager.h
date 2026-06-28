@@ -7,12 +7,12 @@
 
 #include <memory>
 #include <string>
-#include <string_view>
 #include <vector>
+#include <string_view>
 
 #include "mixin.h"
 
-class IDriver;
+class Driver;
 
 class DriverManager final {
 public:
@@ -26,7 +26,7 @@ public:
 
     [[nodiscard]] std::vector<std::string_view> get_loaded_drivers() const;
 
-    [[nodiscard]] const IDriver &get_driver(const std::string &name) const;
+    [[nodiscard]] const Driver &get_driver(const std::string &name) const;
 
 private:
     [[maybe_unused, no_unique_address]] NoCopy _nc_;

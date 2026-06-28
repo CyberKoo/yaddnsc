@@ -5,6 +5,7 @@
 #ifndef YADDNSC_HTTP_CLIENT_INTERFACE_H
 #define YADDNSC_HTTP_CLIENT_INTERFACE_H
 
+#include <expected>
 #include <map>
 #include <string>
 
@@ -13,21 +14,23 @@
 #include "http_types.h"
 #include "yaddnsc_export.h"
 
-struct HttpResponse final {
-    bool success{false};
-    int status_code{0};
-    std::multimap<std::string, std::string> headers;
+// HTTP response data — status code, body and headers from a received
+// response.  Does NOT imply business success; check status_code separately.
+struct HttpResponseData final {
+    int status_code;
     std::string body;
-    std::string error_message;
+    std::multimap<std::string, std::string> headers;
 };
 
-class YADDNSC_EXPORT IHttpSender {
+using HttpResponse = std::expected<HttpResponseData, std::string>;
+
+class YADDNSC_EXPORT HttpClient {
 public:
-    virtual ~IHttpSender() = default;
+    virtual ~HttpClient() = default;
 
     virtual void set_address_family(address_family af) = 0;
 
-    virtual HttpResponse send(const http_request &req) = 0;
+    virtual HttpResponse send(const http_request &req) const = 0;
 
     // Form-encode a parameter map into application/x-www-form-urlencoded string.
     static std::string params_to_query_string(const http_param_type &params);

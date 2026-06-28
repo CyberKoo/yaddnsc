@@ -20,6 +20,8 @@ struct std::formatter<http_request> {
     template<>
     struct fmt::formatter<http_request> {
 
+
+
 #endif
 
     static std::string_view to_string(const http_method_type type) {
@@ -71,23 +73,17 @@ struct std::formatter<http_request> {
 #else
         auto format(const http_request &request, FormatContext &ctx) const -> decltype(ctx.out()) {
 #endif
-        std::string body_type = "none";
-        std::string body;
-
-        if (request.body.has_value()) {
-            body_type = "string";
-            body = request.body.value();
-        }
+        const auto &body = request.body.value_or("");
 
 #ifdef YADDNSC_USE_STD_FORMAT
         return std::format_to(ctx.out(),
-                              R"(http_request(url="{}", body_type="{}", body="{}", content_type="{}", request_method="{}", header="{}"))",
-                              request.url, body_type, body, request.content_type, to_string(request.request_method),
+                              R"(http_request(url="{}", body="{}", content_type="{}", request_method="{}", header="{}"))",
+                              request.url, body, request.content_type, to_string(request.request_method),
                               format_map(request.header.begin(), request.header.end()));
 #else
         return fmt::format_to(ctx.out(),
-                              R"(http_request(url="{}", body_type="{}", body="{}", content_type="{}", request_method="{}", header="{}"))",
-                              request.url, body_type, body, request.content_type, to_string(request.request_method),
+                              R"(http_request(url="{}", body="{}", content_type="{}", request_method="{}", header="{}"))",
+                              request.url, body, request.content_type, to_string(request.request_method),
                               format_map(request.header.begin(), request.header.end()));
 #endif
     }

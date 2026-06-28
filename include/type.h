@@ -23,8 +23,8 @@ enum class dns_error {
     NX_DOMAIN, RETRY, NODATA, PARSE, UNKNOWN
 };
 
-struct DnsServer {
-    std::string ip_address;
+struct dns_server {
+    std::string address;
     uint16_t port{53};
 };
 

@@ -15,25 +15,25 @@
 #include "driver/exceptions.h"
 #include "http_type_formatter.hpp"
 
-class BaseDriver : public IDriver {
+class BaseDriver : public Driver {
 public:
     [[nodiscard]] uint32_t get_driver_version() const final {
         return DRV_VERSION;
     }
 
-    // Default execute: generate_request -> send via IHttpSender -> check_response.
+    // Default execute: generate_request -> send via HttpClient -> check_response.
     // Matches the original three-step behavior in Updater::process().
-    bool execute(const driver_config_type &config, const UpdateContext &ctx, IHttpSender &http) const override {
+    bool execute(const driver_config_type &config, const UpdateContext &ctx, HttpClient &http) const override {
         const auto request = generate_request(config, ctx);
         CORE_LOG_DEBUG("Received DNS record update request from driver {}, {}", get_detail().name, request);
 
         const auto response = http.send(request);
-        if (!response.success) {
-            CORE_LOG_WARN("Update for {} failed (HTTP error: {})", ctx.fqdn, response.error_message);
+        if (!response) {
+            CORE_LOG_WARN("Update for {} failed (HTTP error: {})", ctx.fqdn, response.error());
             return false;
         }
 
-        if (!check_response(response.body)) {
+        if (!check_response(response->body)) {
             CORE_LOG_WARN("Update domain {} failed (driver rejected the response)", ctx.fqdn);
             return false;
         }
@@ -56,6 +56,6 @@ protected:
     }
 };
 
-extern "C" IDriver *create();
+extern "C" Driver *create();
 
 #endif //YADDNSC_DRIVER_BASE_DRIVER_H

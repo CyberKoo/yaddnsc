@@ -18,14 +18,19 @@
 #include <BS_thread_pool.hpp>
 #include <spdlog/spdlog.h>
 
-#include "config/config_validator.hpp"
-#include "driver_manager.h"
+#include "uri.h"
 #include "fmt.hpp"
-#include "min_update_interval.h"
-#include "network/network_manager.h"
-#include "update_task.h"
 #include "updater.h"
+#include "update_task.h"
+#include "driver_manager.h"
 #include "util/algorithm.h"
+#include "dns/dns_resolver.h"
+#include "dns/doh_resolver.h"
+#include "dns/resolver_base.h"
+#include "min_update_interval.h"
+#include "network/http_client.h"
+#include "network/network_manager.h"
+#include "config/config_validator.hpp"
 
 // ---------------------------------------------------------------------------
 // Manager::Impl — owns the shared thread pool, the scheduling data structures,
@@ -36,39 +41,64 @@ public:
     explicit Impl(Config::config config) : config_(std::move(config)) {
         // Build the list of DNS servers from config, preserving backward
         // compatibility with the legacy single-server format.
+        std::vector<dns_server> dns_servers;
         if (config_.resolver.use_custom_server) {
             if (!config_.resolver.servers.empty()) {
-                dns_servers_ = config_.resolver.servers;
-            } else if (!config_.resolver.ip_address.empty()) {
+                dns_servers = config_.resolver.servers;
+            } else if (!config_.resolver.address.empty()) {
                 // Legacy single-server format.
-                dns_servers_.push_back(
-                    DnsServer{config_.resolver.ip_address, config_.resolver.port});
+                dns_servers.push_back({config_.resolver.address, config_.resolver.port});
             }
         }
 
-        // Wire up the Updater with the dependency references.
-        updater_ = std::make_unique<Updater>(driver_manager_, network_manager_, dns_servers_);
+        // Build resolver objects from server configurations.
+        // Each address is parsed as a URI to determine the protocol:
+        //   https://...  → DohResolver (DNS-over-HTTPS, with a default HttplibHttpClient)
+        //   otherwise    → DnsResolver (traditional UDP/TCP DNS)
+        for (const auto &server: dns_servers) {
+            std::string schema;
+
+            try {
+                const auto uri = Uri::parse(server.address);
+                schema = std::string(uri.get_schema());
+            } catch (const std::exception &) {
+                // Not a valid URI — treat as plain DNS server address.
+            }
+
+            if (schema == "https") {
+                auto http_client = std::make_unique<HttplibHttpClient>(address_family::UNSPECIFIED);
+                resolvers_.push_back(std::make_shared<DohResolver>(std::move(http_client), server.address));
+            } else {
+                resolvers_.push_back(std::make_shared<DnsResolver>(server));
+            }
+        }
 
         // Log configured custom resolver(s) — once at startup.
-        if (!dns_servers_.empty()) {
-            if (dns_servers_.size() > 1) {
-                SPDLOG_INFO("Configured {} custom resolver(s) with fallback", dns_servers_.size());
-                for (const auto &server: dns_servers_) {
-                    if (IPUtil::is_ipv4_address(server.ip_address)) {
-                        SPDLOG_INFO("  {}:{}", server.ip_address, server.port);
+        if (!dns_servers.empty()) {
+            if (dns_servers.size() > 1) {
+                SPDLOG_INFO("Configured {} custom resolver(s) with fallback", dns_servers.size());
+                for (const auto &server: dns_servers) {
+                    if (IPUtil::is_ipv4_address(server.address)) {
+                        SPDLOG_INFO("  {}:{}", server.address, server.port);
+                    } else if (IPUtil::is_ipv6_address(server.address)) {
+                        SPDLOG_INFO("  [{}]:{}", server.address, server.port);
                     } else {
-                        SPDLOG_INFO("  [{}]:{}", server.ip_address, server.port);
+                        SPDLOG_INFO("  {}", server.address);
                     }
                 }
             } else {
-                const auto &server = dns_servers_.front();
-                if (IPUtil::is_ipv4_address(server.ip_address)) {
-                    SPDLOG_INFO("Custom resolver: {}:{}", server.ip_address, server.port);
+                const auto &server = dns_servers.front();
+                if (IPUtil::is_ipv4_address(server.address)) {
+                    SPDLOG_INFO("Custom resolver: {}:{}", server.address, server.port);
+                } else if (IPUtil::is_ipv6_address(server.address)) {
+                    SPDLOG_INFO("Custom resolver: [{}]:{}", server.address, server.port);
                 } else {
-                    SPDLOG_INFO("Custom resolver: [{}]:{}", server.ip_address, server.port);
+                    SPDLOG_INFO("Custom DoH resolver: {}", server.address);
                 }
             }
         }
+
+        updater_ = std::make_unique<Updater>(driver_manager_, network_manager_, resolvers_);
     }
 
     ~Impl() {
@@ -325,9 +355,7 @@ private:
     std::jthread signal_thread_;
 
     // ---- scheduling state --------------------------------------------------
-    std::priority_queue<SubdomainEntry,
-        std::vector<SubdomainEntry>,
-        std::greater<> > schedule_;
+    std::priority_queue<SubdomainEntry, std::vector<SubdomainEntry>, std::greater<> > schedule_;
     std::vector<DomainState> domain_states_;
 
     // ---- synchronisation for scheduler sleep -------------------------------
@@ -336,7 +364,7 @@ private:
 
     // ---- config & derived values -------------------------------------------
     Config::config config_;
-    std::vector<DnsServer> dns_servers_;
+    std::vector<std::shared_ptr<ResolverBase> > resolvers_;
 };
 
 // ---------------------------------------------------------------------------

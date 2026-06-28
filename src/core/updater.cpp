@@ -10,6 +10,7 @@
 #include <spdlog/spdlog.h>
 
 #include "dns/dns.h"
+#include "dns/resolver_base.h"
 #include "driver_manager.h"
 #include "fmt.hpp"
 #include "interfaces/driver.h"
@@ -25,8 +26,9 @@
 // ---------------------------------------------------------------------------
 class Updater::Impl {
 public:
-    explicit Impl(DriverManager &driver_manager, NetworkManager &network_manager, std::vector<DnsServer> dns_servers)
-        : driver_manager_(driver_manager), network_manager_(network_manager), dns_servers_(std::move(dns_servers)) {
+    explicit Impl(DriverManager &driver_manager, NetworkManager &network_manager,
+                  const std::vector<std::shared_ptr<ResolverBase> > &resolvers) : driver_manager_(driver_manager),
+        network_manager_(network_manager), resolvers_(resolvers) {
     }
 
     void process(const UpdateTask &task) const;
@@ -47,7 +49,7 @@ private:
 private:
     DriverManager &driver_manager_;
     NetworkManager &network_manager_;
-    const std::vector<DnsServer> dns_servers_;
+    const std::vector<std::shared_ptr<ResolverBase> > resolvers_;
 
     static constexpr int RESOLVER_RETRY = 5;
     static constexpr int RESOLVER_RETRY_BACKOFF = 1000;
@@ -57,8 +59,9 @@ private:
 // Public API
 // ---------------------------------------------------------------------------
 
-Updater::Updater(DriverManager &driver_manager, NetworkManager &network_manager, std::vector<DnsServer> dns_servers)
-    : impl_(std::make_unique<Impl>(driver_manager, network_manager, std::move(dns_servers))) {
+Updater::Updater(DriverManager &driver_manager, NetworkManager &network_manager,
+                 const std::vector<std::shared_ptr<ResolverBase> > &resolvers)
+    : impl_(std::make_unique<Impl>(driver_manager, network_manager, resolvers)) {
 }
 
 Updater::~Updater() = default;
@@ -114,9 +117,9 @@ void Updater::Impl::process(const UpdateTask &task) const {
     const auto parameters = build_driver_parameters(task);
     const auto ctx = build_update_context(task, *local_ip, rd_type);
 
-    // --- Step 5: delegate to driver via IHttpSender -------------------------
+    // --- Step 5: delegate to driver via HttpClient --------------------------
 
-    HttpClient http_sender{address_family::UNSPECIFIED, task.subdomain.interface};
+    HttplibHttpClient http_sender{address_family::UNSPECIFIED, task.subdomain.interface};
     if (!driver.execute(parameters, ctx, http_sender)) {
         return;
     }
@@ -132,7 +135,7 @@ Updater::Impl::dns_lookup(const std::string &host, dns_type type) const {
     try {
         return Util::retry_on_exception<std::string, DnsLookupException>(
             [&] {
-                const auto dns_answer = DNS::resolve(host, type, dns_servers_);
+                const auto dns_answer = DNS::resolve(host, type, resolvers_);
                 if (dns_answer.empty()) {
                     throw DnsLookupException(
                         fmt::format(R"(DNS lookup for domain "{}" returned no records)", host),

@@ -14,20 +14,22 @@
 
 class DriverManager;
 class NetworkManager;
+class ResolverBase;
 
 // ---------------------------------------------------------------------------
 // Updater — stateful executor that processes a single UpdateTask.
 //
 // The Updater holds non-owning references to the DriverManager and
-// NetworkManager (both initialised before any call to process()), and a
-// list of pre-resolved DnsServer entries.
+// NetworkManager (both initialized before any call to process()), and pre-
+// built ResolverBase instances used for DNS resolution.
 //
 // process() is thread-safe: it is marked const, owns no mutable state, and
 // may be called concurrently from multiple pool threads.
 // ---------------------------------------------------------------------------
 class Updater {
 public:
-    Updater(DriverManager &driver_manager, NetworkManager &network_manager, std::vector<DnsServer> dns_servers);
+    Updater(DriverManager &driver_manager, NetworkManager &network_manager,
+            const std::vector<std::shared_ptr<ResolverBase> > &resolvers);
 
     ~Updater();
 

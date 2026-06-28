@@ -26,9 +26,9 @@ namespace Config {
 
     struct resolver_config {
         bool use_custom_server{false};
-        std::string ip_address;
+        std::string address;
         unsigned short port{53};
-        std::vector<DnsServer> servers;
+        std::vector<dns_server> servers;
     };
 
     struct subdomain_config {

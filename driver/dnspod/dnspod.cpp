@@ -53,7 +53,7 @@ driver_request DNSPodDriver::generate_request(const driver_config_type &config, 
 
     driver_request request{};
     request.url = cfg.global ? API_URL_GLOBAL : API_URL_CN;
-    request.body = IHttpSender::params_to_query_string(driver_param_type{
+    request.body = HttpClient::params_to_query_string(driver_param_type{
         {"login_token", cfg.login_token},
         {"domain_id", cfg.domain_id},
         {"record_id", cfg.record_id},

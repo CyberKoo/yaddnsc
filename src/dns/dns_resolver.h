@@ -5,29 +5,22 @@
 #ifndef YADDNSC_DNS_DNS_RESOLVER_H
 #define YADDNSC_DNS_DNS_RESOLVER_H
 
-#include <vector>
 #include <memory>
-#include <cstdint>
+#include <string>
+#include <optional>
 
+#include "resolver_base.h"
 #include "type.h"
 
-class DnsResolver {
+class DnsResolver final : public ResolverBase {
 public:
     explicit DnsResolver();
 
-    explicit DnsResolver(std::vector<DnsServer> servers);
+    explicit DnsResolver(std::optional<dns_server> server);
 
-    ~DnsResolver();
+    ~DnsResolver() override;
 
-    DnsResolver(const DnsResolver &) = delete;
-
-    DnsResolver &operator=(const DnsResolver &) = delete;
-
-    DnsResolver(DnsResolver &&) = delete;
-
-    DnsResolver &operator=(DnsResolver &&) = delete;
-
-    [[nodiscard]] std::vector<uint8_t> query(const std::string &host, dns_type type) const;
+    [[nodiscard]] std::vector<uint8_t> query(const std::string &host, dns_type type) const override;
 
 private:
     class Impl;

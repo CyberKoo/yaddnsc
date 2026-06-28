@@ -32,26 +32,26 @@ struct UpdateContext final {
     std::string fqdn;
 };
 
-class IDriver {
+class Driver {
 public:
     // Default construct
-    IDriver() = default;
+    Driver() = default;
 
     // deconstruct
-    virtual ~IDriver() = default;
+    virtual ~Driver() = default;
 
     // delete copy and move constructors and assign operators
     // Copy construct
-    IDriver(IDriver const &) = delete;
+    Driver(Driver const &) = delete;
 
     // Move construct
-    IDriver(IDriver &&) = delete;
+    Driver(Driver &&) = delete;
 
     // Copy assign
-    IDriver &operator=(IDriver const &) = delete;
+    Driver &operator=(Driver const &) = delete;
 
     // Move assign
-    IDriver &operator=(IDriver &&) = delete;
+    Driver &operator=(Driver &&) = delete;
 
 public:
     [[nodiscard]] virtual driver_request generate_request(
@@ -64,7 +64,7 @@ public:
     [[nodiscard]] virtual uint32_t get_driver_version() const = 0;
 
     [[nodiscard]] virtual bool execute(
-        const driver_config_type &config, const UpdateContext &ctx, IHttpSender &http) const = 0;
+        const driver_config_type &config, const UpdateContext &ctx, HttpClient &http) const = 0;
 };
 
 #endif //YADDNSC_DRIVER_INTERFACE_H

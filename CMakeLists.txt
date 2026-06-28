@@ -118,7 +118,7 @@ add_compile_definitions(SPDLOG_ACTIVE_LEVEL=SPDLOG_LEVEL_DEBUG)
 # cpp-httplib – HTTP client/server
 # ---------------------------------------------------------------------------
 CPMAddPackage(
-        URI "gh:yhirose/cpp-httplib@0.47.0"
+        URI "gh:yhirose/cpp-httplib@0.48.0"
         OPTIONS "HTTPLIB_REQUIRE_OPENSSL ON"
         "HTTPLIB_USE_ZLIB_IF_AVAILABLE ON"
         "HTTPLIB_USE_BROTLI_IF_AVAILABLE ON"
@@ -177,7 +177,7 @@ set(HttpClient src/network/http_client.cpp)
 set(DriverManager src/core/driver_manager.cpp)
 set(NetworkManager src/network/network_manager.cpp)
 set(CoreLogger src/core/core_logger.cpp)
-set(DNS src/dns/dns.cpp src/dns/dns_resolver.cpp src/dns/dns_record_parser.cpp)
+set(DNS src/dns/dns.cpp src/dns/dns_resolver.cpp src/dns/dns_record_parser.cpp src/dns/doh_resolver.cpp)
 
 # ==============================================================================
 # Main executable
