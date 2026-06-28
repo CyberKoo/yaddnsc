@@ -5,6 +5,7 @@
 
 #include <sys/socket.h>
 
+#include <ranges>
 #include <utility>
 #include <optional>
 #include <filesystem>

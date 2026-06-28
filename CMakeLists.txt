@@ -103,7 +103,7 @@ if (HAVE_STD_FORMAT)
     set(SPDLOG_USE_STD_FORMAT ON)
 else ()
     message(STATUS "Using external fmt library")
-    CPMAddPackage("gh:fmtlib/fmt@12.2.0")
+    CPMAddPackage("gh:fmtlib/fmt#12.2.0")
     set(SPDLOG_FMT_EXTERNAL ON)
 endif ()
 
