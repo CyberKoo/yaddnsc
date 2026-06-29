@@ -16,7 +16,7 @@ public:
 
     [[nodiscard]] DriverDetail get_detail() const override;
 
-    [[nodiscard]] bool check_response(std::string_view response) const override;
+    [[nodiscard]] bool check_response(const HttpResponseData &response) const override;
 };
 
 #endif //YADDNSC_DRV_SIMPLE_SIMPLE_H

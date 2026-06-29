@@ -14,7 +14,7 @@ public:
     [[nodiscard]] driver_request generate_request(
         const driver_config_type &config, const UpdateContext &ctx) const override;
 
-    [[nodiscard]] bool check_response(std::string_view response) const override;
+    [[nodiscard]] bool check_response(const HttpResponseData &response) const override;
 
     [[nodiscard]] DriverDetail get_detail() const override;
 };

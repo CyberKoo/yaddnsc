@@ -7,12 +7,12 @@
 #include <cxxopts.hpp>
 #include <spdlog/spdlog.h>
 
-#include "config/config.h"
+#include "version.h"
 #include "core/manager.h"
+#include "config/config.h"
+#include "logging_pattern.h"
 #include "exception/base_exception.h"
 #include "exception/config_verification_exception.h"
-#include "logging_pattern.h"
-#include "version.h"
 
 namespace {
     void block_signals() {

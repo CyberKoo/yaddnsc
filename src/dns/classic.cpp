@@ -1,7 +1,7 @@
 //
 // Created by Kotarou on 2026/6/17.
 //
-#include "system.h"
+#include "classic.h"
 
 #include <netdb.h>
 #include <resolv.h>
@@ -176,7 +176,7 @@ namespace {
     }
 }
 
-class DnsResolver::Impl {
+class ClassicResolver::Impl {
 public:
     explicit Impl(std::optional<dns_server_type> server)
         : server_(std::move(server)) {
@@ -218,15 +218,19 @@ private:
     [[maybe_unused, no_unique_address]] NoMove _nm_;
 };
 
-DnsResolver::DnsResolver() : DnsResolver(std::optional<dns_server_type>{}) {
+ClassicResolver::ClassicResolver() : ClassicResolver(std::optional<dns_server_type>{}) {
 }
 
-DnsResolver::DnsResolver(std::optional<dns_server_type> server)
+ClassicResolver::ClassicResolver(std::optional<dns_server_type> server)
     : impl_(std::make_unique<Impl>(std::move(server))) {
 }
 
-DnsResolver::~DnsResolver() = default;
+ClassicResolver::~ClassicResolver() = default;
 
-std::vector<uint8_t> DnsResolver::query(const std::string &host, dns_type type) const {
+std::vector<uint8_t> ClassicResolver::query(const std::string &host, dns_type type) const {
     return impl_->query(host, type);
+}
+
+std::string_view ClassicResolver::get_type() const noexcept {
+    return "Classic resolver";
 }

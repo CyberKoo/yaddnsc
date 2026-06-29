@@ -57,7 +57,7 @@ public:
     [[nodiscard]] virtual driver_request generate_request(
         const driver_config_type &config, const UpdateContext &ctx) const = 0;
 
-    [[nodiscard]] virtual bool check_response(std::string_view response) const = 0;
+    [[nodiscard]] virtual bool check_response(const HttpResponseData &response) const = 0;
 
     [[nodiscard]] virtual DriverDetail get_detail() const = 0;
 

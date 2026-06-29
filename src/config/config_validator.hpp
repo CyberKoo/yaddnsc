@@ -61,23 +61,20 @@ namespace detail {
     }
 
     inline void validate_resolver_address(const std::string &address) {
-        const auto lower = address | std::views::transform([](unsigned char c) {
-            return std::tolower(c);
-        }) | std::ranges::to<std::string>();
-
-        // DoH address — starts with https://, skip IP validation.
-        if (lower.starts_with("https://")) {
+        const auto uri = Uri::parse(address);
+        // DoH / DoT address — starts with https or tls, skip IP validation.
+        if (uri.get_schema() =="https" || uri.get_schema() == "tls") {
             return;
         }
 
         // Plain DNS address — must be a valid IP.
 #if defined(HAVE_RES_NQUERY)
 #if defined(HAVE_IPV6_RESOLVE_SUPPORT)
-        if (!InetAddress::parse(lower)) {
+        if (!InetAddress::parse(address)) {
             throw ConfigVerificationException(fmt::format("Invalid resolver address {}", address));
         }
 #else
-        if (!Inet4Address::parse(lower)) {
+        if (!Inet4Address::parse(address)) {
             throw ConfigVerificationException(
                 fmt::format(R"(Invalid resolver address "{}". Only IPv4 is supported on this platform.)", address)
             );

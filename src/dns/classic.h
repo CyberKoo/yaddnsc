@@ -2,8 +2,8 @@
 // Created by Kotarou on 2026/6/17.
 //
 
-#ifndef YADDNSC_DNS_SYSTEM_H
-#define YADDNSC_DNS_SYSTEM_H
+#ifndef YADDNSC_DNS_CLASSIC_H
+#define YADDNSC_DNS_CLASSIC_H
 
 #include <memory>
 #include <string>
@@ -12,15 +12,17 @@
 #include "base.h"
 #include "type.h"
 
-class DnsResolver final : public ResolverBase {
+class ClassicResolver final : public ResolverBase {
 public:
-    explicit DnsResolver();
+    explicit ClassicResolver();
 
-    explicit DnsResolver(std::optional<dns_server_type> server);
+    explicit ClassicResolver(std::optional<dns_server_type> server);
 
-    ~DnsResolver() override;
+    ~ClassicResolver() override;
 
     [[nodiscard]] std::vector<uint8_t> query(const std::string &host, dns_type type) const override;
+
+    [[nodiscard]] std::string_view get_type() const noexcept override;
 
 private:
     class Impl;

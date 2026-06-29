@@ -10,6 +10,7 @@
 #include <string_view>
 
 #include "fmt.hpp"
+#include "network/inet_address.h"
 
 namespace {
     /// Parse a host:port authority string into host and port.
@@ -152,6 +153,13 @@ Uri Uri::parse(std::string_view uri) {
         }
     );
 
+    // Pre-compute the bracketed form so get_host_bracketed() is O(1).
+    if (Inet6Address::parse(result.host_)) {
+        result.host_bracketed_ = std::string{'['} + result.host_ + ']';
+    } else {
+        result.host_bracketed_ = result.host_;
+    }
+
     // -------- default port ------------------------------------------------
     // Only apply well-known defaults when a scheme was explicitly given.
     // Bare host:port inputs keep whatever port was (or was not) specified.
@@ -192,6 +200,7 @@ Uri Uri::parse(std::string_view uri) {
 int Uri::default_port_for(std::string_view scheme) noexcept {
     if (scheme == "http") return 80;
     if (scheme == "https") return 443;
+    if (scheme == "tls") return 853;
     return 0;
 }
 
@@ -199,14 +208,18 @@ int Uri::default_port_for(std::string_view scheme) noexcept {
 // Accessors
 // ---------------------------------------------------------------------------
 
-std::string_view Uri::get_query_string() const { return query_string_; }
-std::string_view Uri::get_path() const { return path_; }
-std::string_view Uri::get_schema() const { return schema_; }
-std::string_view Uri::get_host() const { return host_; }
-std::string_view Uri::get_raw_uri() const { return raw_uri_; }
-std::string_view Uri::get_body() const { return body_; }
+std::string_view Uri::get_query_string() const noexcept { return query_string_; }
+std::string_view Uri::get_path() const noexcept { return path_; }
+std::string_view Uri::get_schema() const noexcept { return schema_; }
+std::string_view Uri::get_host() const noexcept { return host_; }
 
-int Uri::get_port() const {
+std::string_view Uri::get_host_literal() const noexcept {
+    return host_bracketed_;
+}
+std::string_view Uri::get_raw_uri() const noexcept { return raw_uri_; }
+std::string_view Uri::get_body() const noexcept { return body_; }
+
+int Uri::get_port() const noexcept {
     // port_ is always populated after parse() — either explicitly set or
     // filled in by the default-port logic above — so value() is safe here.
     return *port_;

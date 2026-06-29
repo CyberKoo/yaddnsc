@@ -6,6 +6,7 @@
 #define YADDNSC_DNS_BASE_H
 
 #include <string>
+#include <string_view>
 #include <vector>
 #include <cstdint>
 
@@ -23,6 +24,8 @@ public:
     virtual ~ResolverBase() = default;
 
     [[nodiscard]] virtual std::vector<uint8_t> query(const std::string &host, dns_type type) const = 0;
+
+    [[nodiscard]] virtual std::string_view get_type() const noexcept = 0;
 
 private:
     [[maybe_unused, no_unique_address]] NoCopy _nc_;

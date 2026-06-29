@@ -16,7 +16,7 @@
 #include "fmt.hpp"
 #include "types.h"
 #include "parser.h"
-#include "system.h"
+#include "classic.h"
 #include "util/retry_util.h"
 #include "exception/dns_lookup_exception.h"
 
@@ -40,7 +40,7 @@ public:
                 const std::vector<std::string> dns_answer = [&] {
                     if (resolvers_.empty()) {
                         SPDLOG_TRACE(R"(Using default system resolver for "{}")", host);
-                        const DnsResolver resolver;
+                        const ClassicResolver resolver;
                         auto raw_response = resolver.query(host, type);
                         auto records = DnsRecordParser::parse_all(raw_response.data(), raw_response.size(), host);
                         if (!records.empty()) {

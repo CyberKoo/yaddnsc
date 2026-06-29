@@ -13,7 +13,7 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra")
 
 # Clang 19.x needs -fexperimental-library for std::stop_token, std::jthread, etc.
 if (CMAKE_CXX_COMPILER_ID STREQUAL "Clang" AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL "19" AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS "20")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fexperimental-library")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fexperimental-library")
 endif ()
 
 set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -ggdb -gdwarf-3 -Wall")
@@ -24,7 +24,7 @@ set(CMAKE_POLICY_DEFAULT_CMP0077 NEW)
 
 # default to release if not specified
 if (NOT CMAKE_BUILD_TYPE)
-    set(CMAKE_BUILD_TYPE Release)
+  set(CMAKE_BUILD_TYPE Release)
 endif ()
 
 # ==============================================================================
@@ -37,14 +37,14 @@ include(FeatureCheck)
 # ==============================================================================
 # LTO is incompatible with musl (auto-detected in FeatureCheck)
 if (NOT LIBC_MUSL)
-    set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -flto=auto")
+  set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -flto=auto")
 endif ()
 
 # Strip symbols in Release builds
 if (APPLE)
-    set(CMAKE_EXE_LINKER_FLAGS_RELEASE "${CMAKE_EXE_LINKER_FLAGS_RELEASE} -Wl,-S")
+  set(CMAKE_EXE_LINKER_FLAGS_RELEASE "${CMAKE_EXE_LINKER_FLAGS_RELEASE} -Wl,-S")
 else ()
-    set(CMAKE_EXE_LINKER_FLAGS_RELEASE "${CMAKE_EXE_LINKER_FLAGS_RELEASE} -Wl,-s")
+  set(CMAKE_EXE_LINKER_FLAGS_RELEASE "${CMAKE_EXE_LINKER_FLAGS_RELEASE} -Wl,-s")
 endif ()
 
 # ==============================================================================
@@ -58,8 +58,8 @@ set(YADDNSC_RELEASE_INFO RELEASE)
 set(YADDNSC_DRV_VERSION "1100000")
 
 if (YADDNSC_DEVELOPMENT)
-    include(GitVersion)
-    set(YADDNSC_RELEASE_INFO ${GIT_VERSION})
+  include(GitVersion)
+  set(YADDNSC_RELEASE_INFO ${GIT_VERSION})
 endif ()
 
 # ==============================================================================
@@ -69,8 +69,11 @@ set(YADDNSC_LOGGING_PATTERN "[%D %T.%e] [%^%8l%$] [%8!t] [%15!s:%-4#] %v" CACHE 
         "Logging pattern passed to spdlog::set_pattern()")
 
 set(YADDNSC_MIN_UPDATE_INTERVAL 60 CACHE STRING "Minimum allowed update interval (seconds)")
+
+option(DNS_MKQUERY_USE_MANUAL "Use manual DNS query builder instead of system res_mkquery" OFF)
+
 if (YADDNSC_MIN_UPDATE_INTERVAL LESS 0)
-    message(FATAL_ERROR "YADDNSC_MIN_UPDATE_INTERVAL must not be negative, got ${YADDNSC_MIN_UPDATE_INTERVAL}")
+  message(FATAL_ERROR "YADDNSC_MIN_UPDATE_INTERVAL must not be negative, got ${YADDNSC_MIN_UPDATE_INTERVAL}")
 endif ()
 
 # ==============================================================================
@@ -81,6 +84,7 @@ configure_file("${CMAKE_SOURCE_DIR}/src/template/driver_ver.h.in" "${CMAKE_BINAR
 configure_file("${CMAKE_SOURCE_DIR}/src/template/config_cmake.h.in" "${CMAKE_BINARY_DIR}/generated/config_cmake.h" @ONLY)
 configure_file("${CMAKE_SOURCE_DIR}/src/template/logging_pattern.h.in" "${CMAKE_BINARY_DIR}/generated/logging_pattern.h" @ONLY)
 configure_file("${CMAKE_SOURCE_DIR}/src/template/min_update_interval.h.in" "${CMAKE_BINARY_DIR}/generated/min_update_interval.h" @ONLY)
+configure_file("${CMAKE_SOURCE_DIR}/src/template/dns_mkquery_config.h.in" "${CMAKE_BINARY_DIR}/generated/dns_mkquery_config.h" @ONLY)
 
 # ==============================================================================
 # Dependencies (via CPM.cmake)
@@ -98,13 +102,13 @@ CPMAddPackage("gh:stephenberry/glaze@7.8.2")
 # fmt / std::format  (conditional)
 # ---------------------------------------------------------------------------
 if (HAVE_STD_FORMAT)
-    message(STATUS "Using native std::format")
-    add_compile_definitions(YADDNSC_USE_STD_FORMAT)
-    set(SPDLOG_USE_STD_FORMAT ON)
+  message(STATUS "Using native std::format")
+  add_compile_definitions(YADDNSC_USE_STD_FORMAT)
+  set(SPDLOG_USE_STD_FORMAT ON)
 else ()
-    message(STATUS "Using external fmt library")
-    CPMAddPackage("gh:fmtlib/fmt#12.2.0")
-    set(SPDLOG_FMT_EXTERNAL ON)
+  message(STATUS "Using external fmt library")
+  CPMAddPackage("gh:fmtlib/fmt#12.2.0")
+  set(SPDLOG_FMT_EXTERNAL ON)
 endif ()
 
 # ---------------------------------------------------------------------------
@@ -148,8 +152,8 @@ CPMAddPackage(
         DOWNLOAD_ONLY YES
 )
 if (thread-pool_ADDED)
-    add_library(BS_thread_pool INTERFACE)
-    target_include_directories(BS_thread_pool INTERFACE ${thread-pool_SOURCE_DIR}/include)
+  add_library(BS_thread_pool INTERFACE)
+  target_include_directories(BS_thread_pool INTERFACE ${thread-pool_SOURCE_DIR}/include)
 endif ()
 
 # ==============================================================================
@@ -162,7 +166,7 @@ include_directories(${CMAKE_BINARY_DIR}/generated/)
 # Glaze include path — propagated to all subdirectories (including drivers)
 # so they can consume glaze headers without linking the library.
 if (glaze_ADDED)
-    include_directories(SYSTEM ${glaze_SOURCE_DIR}/include)
+  include_directories(SYSTEM ${glaze_SOURCE_DIR}/include)
 endif ()
 
 # ==============================================================================
@@ -177,7 +181,7 @@ set(HttpClient src/network/http_client.cpp)
 set(InetAddress src/network/inet_address.cpp)
 set(DriverManager src/core/driver_manager.cpp)
 set(NetworkManager src/network/network_manager.cpp)
-set(DNS src/dns/types.cpp src/dns/system.cpp src/dns/parser.cpp src/dns/doh.cpp src/dns/multi_resolver.cpp)
+set(DNS src/dns/types.cpp src/dns/classic.cpp src/dns/parser.cpp src/dns/doh.cpp src/dns/dot.cpp src/dns/dns_mkquery.cpp src/dns/multi_resolver.cpp)
 
 # ==============================================================================
 # Main executable
@@ -200,7 +204,7 @@ target_link_libraries(yaddnsc PRIVATE BS_thread_pool magic_enum httplib spdlog::
 add_library(yaddnsc_fmt INTERFACE)
 target_include_directories(yaddnsc_fmt INTERFACE ${CMAKE_SOURCE_DIR}/include)
 if (NOT HAVE_STD_FORMAT)
-    target_link_libraries(yaddnsc_fmt INTERFACE fmt::fmt)
+  target_link_libraries(yaddnsc_fmt INTERFACE fmt::fmt)
 endif ()
 target_link_libraries(yaddnsc PRIVATE yaddnsc_fmt)
 
@@ -208,7 +212,18 @@ target_link_libraries(yaddnsc PRIVATE yaddnsc_fmt)
 # resolv is linux-specific, not present on BSDs
 find_library(RESOLV resolv)
 if (RESOLV)
-    target_link_libraries(yaddnsc PRIVATE ${RESOLV})
+  target_link_libraries(yaddnsc PRIVATE ${RESOLV})
+endif ()
+
+# ==============================================================================
+# Build configuration summary
+# ==============================================================================
+message(STATUS "Minimum update interval: ${YADDNSC_MIN_UPDATE_INTERVAL}s")
+
+if (DNS_MKQUERY_USE_MANUAL)
+  message(STATUS "DNS query builder: manual (no libresolv)")
+else()
+  message(STATUS "DNS query builder: system (res_mkquery)")
 endif ()
 
 # ==============================================================================

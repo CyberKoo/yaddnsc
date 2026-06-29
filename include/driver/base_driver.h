@@ -33,8 +33,8 @@ public:
             return false;
         }
 
-        if (!check_response(response->body)) {
-            CORE_LOG_WARN("Update domain {} failed (driver rejected the response)", ctx.fqdn);
+        if (!check_response(*response)) {
+            CORE_LOG_WARN("Update for {} failed: driver rejected", ctx.fqdn);
             return false;
         }
 

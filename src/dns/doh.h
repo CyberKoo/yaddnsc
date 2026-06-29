@@ -22,7 +22,7 @@ class HttpClient;
 // DNS queries as HTTPS POST requests with Content-Type: application/dns-message
 // to the well-known /dns-query endpoint.
 //
-// Input:  DnsServer{ip_address, port} — same config struct used by DnsResolver.
+// Input:  DnsServer{ip_address, port} — same config struct used by ClassicResolver.
 //         The HTTPS URL is derived as  https://{ip_address}/dns-query
 // Output: Raw DNS response bytes (wire format), ready for DnsRecordParser.
 // ---------------------------------------------------------------------------
@@ -33,6 +33,8 @@ public:
     ~DohResolver() override;
 
     [[nodiscard]] std::vector<uint8_t> query(const std::string &host, dns_type type) const override;
+
+    [[nodiscard]] std::string_view get_type() const noexcept override;
 
 private:
     class Impl;

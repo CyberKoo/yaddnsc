@@ -28,10 +28,10 @@ driver_request CloudflareDriver::generate_request(const driver_config_type &conf
     return request;
 }
 
-bool CloudflareDriver::check_response(std::string_view response) const {
-    CORE_LOG_TRACE("Got {} from server.", response);
+bool CloudflareDriver::check_response(const HttpResponseData &response) const {
+    CORE_LOG_TRACE("Got {} from server.", response.body);
 
-    auto result = glz::read_json<CloudflareResponse>(response);
+    auto result = glz::read_json<CloudflareResponse>(response.body);
     if (!result) {
         CORE_LOG_ERROR("Failed to parse Cloudflare API response");
         return false;

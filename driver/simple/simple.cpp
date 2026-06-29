@@ -60,7 +60,13 @@ DriverDetail SimpleDriver::get_detail() const {
     };
 }
 
-bool SimpleDriver::check_response(std::string_view response) const {
-    CORE_LOG_DEBUG("Response: {}", response);
-    return !response.empty();
+bool SimpleDriver::check_response(const HttpResponseData &response) const {
+    CORE_LOG_DEBUG("Status: {}, Response: {}", response.status_code, response.body);
+
+    if (response.status_code >= 300) {
+        CORE_LOG_ERROR("HTTP request failed with status code {}", response.status_code);
+        return false;
+    }
+
+    return !response.body.empty();
 }

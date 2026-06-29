@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.28...3.31 FATAL_ERROR)
+cmake_minimum_required(VERSION 3.22...3.31 FATAL_ERROR)
 project(drivers)
 
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/objs/driver)

@@ -287,9 +287,9 @@ HttpResponse PersistentHttpClient::send(const http_request &req) const {
         return std::unexpected(error_str);
     }
 
-    SPDLOG_DEBUG("Received {} response from {}://{} (status {}, {} bytes)",
+    SPDLOG_DEBUG("Received {} response from {}://{}{} (status {}, {} bytes)",
                  magic_enum::enum_name(req.request_method),
-                 uri.get_schema(), uri.get_host(), result->status, result->body.size()
+                 uri.get_schema(), uri.get_host(), path, result->status, result->body.size()
     );
 
     return HttpResponseData{

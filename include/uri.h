@@ -13,19 +13,23 @@ class Uri {
 public:
     static Uri parse(std::string_view uri);
 
-    [[nodiscard]] std::string_view get_query_string() const;
+    [[nodiscard]] std::string_view get_query_string() const noexcept;
 
-    [[nodiscard]] std::string_view get_path() const;
+    [[nodiscard]] std::string_view get_path() const noexcept;
 
-    [[nodiscard]] std::string_view get_schema() const;
+    [[nodiscard]] std::string_view get_schema() const noexcept;
 
-    [[nodiscard]] std::string_view get_host() const;
+    [[nodiscard]] std::string_view get_host() const noexcept;
 
-    [[nodiscard]] int get_port() const;
+    /// Return the host as an RFC 3986 IP-literal.
+    /// IPv6 addresses are wrapped in `[]`; IPv4 and hostnames are unchanged.
+    [[nodiscard]] std::string_view get_host_literal() const noexcept;
 
-    [[nodiscard]] std::string_view get_body() const;
+    [[nodiscard]] int get_port() const noexcept;
 
-    [[nodiscard]] std::string_view get_raw_uri() const;
+    [[nodiscard]] std::string_view get_body() const noexcept;
+
+    [[nodiscard]] std::string_view get_raw_uri() const noexcept;
 
 private:
     Uri() = default;
@@ -37,6 +41,7 @@ private:
     std::string path_;
     std::string schema_;
     std::string host_;
+    std::string host_bracketed_;
     std::string raw_uri_;
     std::string body_;
     std::optional<int> port_;     // nullopt = not explicitly set
