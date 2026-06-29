@@ -63,7 +63,7 @@ namespace detail {
     inline void validate_resolver_address(const std::string &address) {
         const auto uri = Uri::parse(address);
         // DoH / DoT address — starts with https or tls, skip IP validation.
-        if (uri.get_schema() =="https" || uri.get_schema() == "tls") {
+        if (uri.get_schema() == "https" || uri.get_schema() == "tls") {
             return;
         }
 

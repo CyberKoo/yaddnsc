@@ -33,11 +33,13 @@ public:
     [[nodiscard]] uint64_t get_id() const noexcept { return id_; }
 
 protected:
-    ResolverBase() : id_(next_id_.fetch_add(1, std::memory_order_relaxed)) {}
+    ResolverBase() : id_(next_id_.fetch_add(1, std::memory_order_relaxed)) {
+    }
 
     // For anonymous/temporary resolvers that should not consume an ID from the
     // global counter (e.g. the fallback system resolver in MultiResolver).
-    explicit ResolverBase(std::nullptr_t) : id_(0) {}
+    explicit ResolverBase(std::nullptr_t) : id_(0) {
+    }
 
 private:
     [[maybe_unused, no_unique_address]] NoCopy _nc_;

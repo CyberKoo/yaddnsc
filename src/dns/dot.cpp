@@ -26,76 +26,74 @@
 #include "exception/dns_lookup_exception.h"
 
 namespace {
+    // ── RAII wrappers for OpenSSL resources ──
 
-// ── RAII wrappers for OpenSSL resources ──
+    struct SSLContextDeleter {
+        void operator()(SSL_CTX *ctx) const { SSL_CTX_free(ctx); }
+    };
 
-struct SSLContextDeleter {
-    void operator()(SSL_CTX *ctx) const { SSL_CTX_free(ctx); }
-};
+    struct BIODeleter {
+        void operator()(BIO *bio) const { BIO_free_all(bio); }
+    };
 
-struct BIODeleter {
-    void operator()(BIO *bio) const { BIO_free_all(bio); }
-};
+    using SslCtxPtr = std::unique_ptr<SSL_CTX, SSLContextDeleter>;
+    using BioPtr = std::unique_ptr<BIO, BIODeleter>;
 
-using SslCtxPtr = std::unique_ptr<SSL_CTX, SSLContextDeleter>;
-using BioPtr = std::unique_ptr<BIO, BIODeleter>;
+    // ── helpers ──
 
-// ── helpers ──
-
-uint16_t read_uint16_be(const uint8_t *buf) {
-    return (static_cast<uint16_t>(buf[0]) << 8) | static_cast<uint16_t>(buf[1]);
-}
-
-[[noreturn]] void throw_ssl_error(const std::string &context) {
-    std::string msg = context + " [";
-
-    unsigned long err;
-    int first = 1;
-    while ((err = ERR_get_error()) != 0) {
-        if (!first) msg += "; ";
-        first = 0;
-
-        char buf[256];
-        ERR_error_string_n(err, buf, sizeof(buf));
-        msg += buf;
+    uint16_t read_uint16_be(const uint8_t *buf) {
+        return (static_cast<uint16_t>(buf[0]) << 8) | static_cast<uint16_t>(buf[1]);
     }
-    msg += "]";
 
-    throw DnsLookupException(msg, dns_error_type::CONNECTION);
-}
+    [[noreturn]] void throw_ssl_error(const std::string &context) {
+        std::string msg = context + " [";
 
-// Read exactly n bytes from a BIO.  Returns false on EOF / error.
-bool bio_read_exact(BIO *bio, uint8_t *buf, size_t n) {
-    while (n > 0) {
-        const int rc = BIO_read(bio, buf, static_cast<int>(n));
-        if (rc <= 0) {
-            if (BIO_should_retry(bio)) {
-                continue;
-            }
-            return false;
+        unsigned long err;
+        int first = 1;
+        while ((err = ERR_get_error()) != 0) {
+            if (!first) msg += "; ";
+            first = 0;
+
+            char buf[256];
+            ERR_error_string_n(err, buf, sizeof(buf));
+            msg += buf;
         }
-        buf += rc;
-        n -= static_cast<size_t>(rc);
-    }
-    return true;
-}
+        msg += "]";
 
-// Send all bytes over BIO.
-bool bio_send_all(BIO *bio, const uint8_t *data, size_t n) {
-    while (n > 0) {
-        const int rc = BIO_write(bio, data, static_cast<int>(n));
-        if (rc <= 0) {
-            if (BIO_should_retry(bio)) {
-                continue;
+        throw DnsLookupException(msg, dns_error_type::CONNECTION);
+    }
+
+    // Read exactly n bytes from a BIO.  Returns false on EOF / error.
+    bool bio_read_exact(BIO *bio, uint8_t *buf, size_t n) {
+        while (n > 0) {
+            const int rc = BIO_read(bio, buf, static_cast<int>(n));
+            if (rc <= 0) {
+                if (BIO_should_retry(bio)) {
+                    continue;
+                }
+                return false;
             }
-            return false;
+            buf += rc;
+            n -= static_cast<size_t>(rc);
         }
-        data += rc;
-        n -= static_cast<size_t>(rc);
+        return true;
     }
-    return true;
-}
 
+    // Send all bytes over BIO.
+    bool bio_send_all(BIO *bio, const uint8_t *data, size_t n) {
+        while (n > 0) {
+            const int rc = BIO_write(bio, data, static_cast<int>(n));
+            if (rc <= 0) {
+                if (BIO_should_retry(bio)) {
+                    continue;
+                }
+                return false;
+            }
+            data += rc;
+            n -= static_cast<size_t>(rc);
+        }
+        return true;
+    }
 } // anonymous namespace
 
 // ===========================================================================
@@ -280,7 +278,7 @@ private:
 
             struct timeval tv;
             const auto remaining_ms = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - now);
-            tv.tv_sec  = static_cast<time_t>(remaining_ms.count() / 1000);
+            tv.tv_sec = static_cast<time_t>(remaining_ms.count() / 1000);
             tv.tv_usec = static_cast<suseconds_t>((remaining_ms.count() % 1000) * 1000);
 
             fd_set read_fds, write_fds;

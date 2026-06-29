@@ -27,12 +27,13 @@ class MultiResolver {
 public:
     MultiResolver();
 
-    explicit MultiResolver(std::vector<std::shared_ptr<ResolverBase>> resolvers,
+    explicit MultiResolver(std::vector<std::shared_ptr<ResolverBase> > resolvers,
                            Config::resolver_strategy strategy = Config::resolver_strategy::CONCURRENT);
 
     ~MultiResolver();
 
     MultiResolver(MultiResolver &&) noexcept;
+
     MultiResolver &operator=(MultiResolver &&) noexcept;
 
     [[nodiscard]] std::optional<std::string>

@@ -158,7 +158,9 @@ std::optional<InetAddress> Updater::Impl::get_ip_address(const Config::subdomain
         return std::nullopt;
     }
 
-    auto body = TransientHttpClient::get_body(config.ip_source_param, {.address_family = address_family, .interface = config.interface});
+    auto body = TransientHttpClient::get_body(config.ip_source_param, {
+                                                  .address_family = address_family, .interface = config.interface
+                                              });
     if (!body) {
         return std::nullopt;
     }

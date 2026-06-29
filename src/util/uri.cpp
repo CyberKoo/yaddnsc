@@ -223,6 +223,7 @@ std::string Uri::get_origin() const {
     }
     return schema_ + "://" + host_bracketed_ + ":" + std::to_string(*port_);
 }
+
 std::string_view Uri::get_body() const noexcept { return body_; }
 
 int Uri::get_port() const noexcept {

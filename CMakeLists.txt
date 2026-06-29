@@ -181,13 +181,16 @@ set(HttpClient src/network/http_client.cpp)
 set(InetAddress src/network/inet_address.cpp)
 set(DriverManager src/core/driver_manager.cpp)
 set(NetworkManager src/network/network_manager.cpp)
-set(DNS src/dns/types.cpp src/dns/classic.cpp src/dns/parser.cpp src/dns/doh.cpp src/dns/dot.cpp src/dns/dns_mkquery.cpp src/dns/multi_resolver.cpp)
+set(DriverLoader src/core/driver_loader.cpp)
+set(SignalHandler src/core/signal_handler.cpp)
+set(Scheduler src/core/scheduler.cpp)
+set(DNS src/dns/types.cpp src/dns/classic.cpp src/dns/parser.cpp src/dns/doh.cpp src/dns/dot.cpp src/dns/dns_mkquery.cpp src/dns/multi_resolver.cpp src/dns/resolver_factory.cpp)
 
 # ==============================================================================
 # Main executable
 # ==============================================================================
-add_executable(yaddnsc src/main.cpp src/util/string_util.cpp ${DNS} ${Config} ${DriverManager} ${URI}
-        ${Updater} ${Manager} ${HttpClient} ${NetworkManager} ${CoreLogger} ${InetAddress}
+add_executable(yaddnsc src/main.cpp src/util/string_util.cpp ${DNS} ${Config} ${DriverManager} ${DriverLoader} ${URI}
+        ${Updater} ${Manager} ${SignalHandler} ${Scheduler} ${HttpClient} ${NetworkManager} ${CoreLogger} ${InetAddress}
 )
 
 # Hide all symbols at compile time; only YADDNSC_EXPORT-marked functions
