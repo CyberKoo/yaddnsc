@@ -114,18 +114,20 @@ private:
     };
 
     static bool is_retryable(dns_error_type error) {
-        return error == dns_error_type::RETRY || error == dns_error_type::UNKNOWN || error == dns_error_type::CONNECTION;
+        return error == dns_error_type::RETRY || error == dns_error_type::UNKNOWN || error ==
+               dns_error_type::CONNECTION;
     }
 
-    static void query_resolver(const ResolverBase &resolver, const std::string &host, dns_type type, int resolver_id,
+    static void query_resolver(const ResolverBase &resolver, const std::string &host, dns_type type,
                                const std::shared_ptr<ConcurrentState> &state) {
+        const auto id = resolver.get_id();
         try {
             auto raw_response = resolver.query(host, type);
             auto records = DnsRecordParser::parse_all(raw_response.data(), raw_response.size(), host);
 
             std::lock_guard lock(state->mtx);
             if (!state->has_result && !state->has_nxdomain && !records.empty()) {
-                SPDLOG_DEBUG(R"(Resolver #{} returned {} record(s) for "{}")", resolver_id, records.size(), host);
+                SPDLOG_DEBUG(R"(Resolver #{} returned {} record(s) for "{}")", id, records.size(), host);
                 state->result = std::move(records);
                 state->has_result = true;
                 state->cv.notify_one();
@@ -134,14 +136,14 @@ private:
             std::lock_guard lock(state->mtx);
 
             if (e.get_error() == dns_error_type::NX_DOMAIN) {
-                SPDLOG_DEBUG(R"(Resolver #{} returned NXDOMAIN for "{}")", resolver_id, host);
+                SPDLOG_DEBUG(R"(Resolver #{} returned NXDOMAIN for "{}")", id, host);
                 state->has_nxdomain = true;
                 state->definitive_error = e;
                 state->cv.notify_one();
                 return;
             }
 
-            SPDLOG_TRACE(R"(Resolver #{} failed for "{}": {})", resolver_id, host, DNS::error_to_str(e.get_error()));
+            SPDLOG_TRACE(R"(Resolver #{} failed for "{}": {})", id, host, DNS::error_to_str(e.get_error()));
 
             if (is_retryable(e.get_error())) {
                 state->transient_error = e;
@@ -151,10 +153,10 @@ private:
         } catch (...) {
             {
                 std::lock_guard lock(state->mtx);
-                SPDLOG_TRACE(R"(Resolver #{} threw an unknown exception for "{}")", resolver_id, host);
+                SPDLOG_TRACE(R"(Resolver #{} threw an unknown exception for "{}")", id, host);
                 if (!state->definitive_error.has_value()) {
                     state->definitive_error = DnsLookupException(
-                        fmt::format(R"(Resolver #{} threw an unknown exception for "{}")", resolver_id, host),
+                        fmt::format(R"(Resolver #{} threw an unknown exception for "{}")", id, host),
                         dns_error_type::UNKNOWN);
                 }
             }
@@ -175,23 +177,24 @@ private:
                 dns_error_type::NODATA);
 
             for (size_t i = 0; i < resolvers_.size(); ++i) {
-                SPDLOG_DEBUG(R"(Fallback resolver #{}: trying "{}")", i, host);
+                const auto id = resolvers_[i]->get_id();
+                SPDLOG_DEBUG(R"(Fallback resolver #{}: trying "{}")", id, host);
                 try {
                     auto raw_response = resolvers_[i]->query(host, type);
                     auto result = DnsRecordParser::parse_all(raw_response.data(), raw_response.size(), host);
 
                     if (!result.empty()) {
                         SPDLOG_DEBUG(R"(Fallback resolver #{} returned {} record(s) for "{}": {})",
-                                     i, result.size(), host, fmt::join(result, ", "));
+                                     id, result.size(), host, fmt::join(result, ", "));
                         return result;
                     }
 
-                    SPDLOG_TRACE(R"(Fallback resolver #{} returned no records for "{}")", i, host);
+                    SPDLOG_DEBUG(R"(Fallback resolver #{} returned no records for "{}")", id, host);
                     last_error = DnsLookupException(
                         fmt::format(R"(DNS lookup for domain "{}" returned no records)", host),
                         dns_error_type::NODATA);
                 } catch (const DnsLookupException &e) {
-                    SPDLOG_TRACE(R"(Fallback resolver #{} failed for "{}": {})", i, host,
+                    SPDLOG_DEBUG(R"(Fallback resolver #{} failed for "{}": {})", id, host,
                                  DNS::error_to_str(e.get_error()));
 
                     if (e.get_error() == dns_error_type::NX_DOMAIN) {
@@ -204,13 +207,13 @@ private:
                         throw;
                     }
 
-                    SPDLOG_TRACE(R"(Fallback: resolver #{} returned a retryable error, moving to next)", i);
+                    SPDLOG_DEBUG(R"(Fallback resolver #{} returned a retryable error, moving to next)", id);
                 }
             }
 
             if (resolvers_.size() > 1) {
-                SPDLOG_ERROR(R"(All {} fallback resolver(s) failed for domain "{}", last error: {})",
-                             resolvers_.size(), host, DNS::error_to_str(last_error.get_error()));
+                SPDLOG_ERROR(R"(All {} fallback resolver(s) failed for domain "{}", last error: {})", resolvers_.size(),
+                             host, DNS::error_to_str(last_error.get_error()));
             }
 
             throw last_error;
@@ -224,9 +227,9 @@ private:
             state->total = static_cast<int>(resolvers_.size());
 
             for (size_t i = 0; i < resolvers_.size(); ++i) {
-                SPDLOG_TRACE(R"(Launching concurrent resolver #{} for "{}")", i, host);
-                std::thread([resolver = resolvers_[i], host, type, state, i] {
-                    query_resolver(*resolver, host, type, static_cast<int>(i), state);
+                SPDLOG_TRACE(R"(Launching concurrent resolver #{} for "{}")", resolvers_[i]->get_id(), host);
+                std::thread([resolver = resolvers_[i], host, type, state] {
+                    query_resolver(*resolver, host, type, state);
                 }).detach();
             }
 

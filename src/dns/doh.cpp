@@ -25,8 +25,8 @@ constexpr auto DOH_CONTENT_TYPE = "application/dns-message";
 
 class DohResolver::Impl {
 public:
-  explicit Impl(std::unique_ptr<HttpClient> http_client, std::string server)
-      : server_(std::move(server)), http_client_(std::move(http_client)) {}
+  explicit Impl(std::unique_ptr<HttpClient> http_client, std::string server, uint64_t id)
+      : server_(std::move(server)), http_client_(std::move(http_client)), id_(id) {}
 
   [[nodiscard]] std::vector<uint8_t> query(const std::string &host,
                                            dns_type type) const {
@@ -37,7 +37,7 @@ public:
           dns_error_type::UNKNOWN);
     }
 
-    SPDLOG_DEBUG(R"(DoH lookup for domain "{}" (type {}))", host, ns_type);
+    SPDLOG_DEBUG(R"(Resolver #{} lookup for domain "{}" (type {}))", id_, host, ns_type);
 
     const auto query_bytes = dns_mkquery(host, ns_type);
 
@@ -68,7 +68,7 @@ public:
           is_transient ? dns_error_type::UNKNOWN : dns_error_type::NODATA);
     }
 
-    SPDLOG_DEBUG(R"(DoH query to "{}" succeeded ({} bytes) for "{}")", req.url,
+    SPDLOG_DEBUG(R"(Resolver #{} DoH query to "{}" succeeded ({} bytes) for "{}")", id_, req.url,
                  response->body.size(), host);
 
     return {response->body.begin(), response->body.end()};
@@ -77,6 +77,7 @@ public:
 private:
   const std::string server_;
   std::unique_ptr<HttpClient> http_client_;
+  const uint64_t id_;
 };
 
 // ===========================================================================
@@ -85,7 +86,7 @@ private:
 
 DohResolver::DohResolver(std::unique_ptr<HttpClient> http_client,
                          std::string server)
-    : impl_(std::make_unique<Impl>(std::move(http_client), std::move(server))) {
+    : impl_(std::make_unique<Impl>(std::move(http_client), std::move(server), get_id())) {
 }
 
 DohResolver::~DohResolver() = default;
@@ -96,5 +97,5 @@ std::vector<uint8_t> DohResolver::query(const std::string &host,
 }
 
 std::string_view DohResolver::get_type() const noexcept {
-  return "DNS-Over-HTTPS resolver";
+  return "DNS-Over-HTTPS";
 }

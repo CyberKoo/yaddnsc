@@ -16,8 +16,7 @@ namespace {
     /// Parse a host:port authority string into host and port.
     ///
     /// Expects a view that contains only the authority portion (no path/query).
-    /// Handles IPv6 literals (`[::1]` / `[::1]:53`), bare IPv6 (`::1`,
-    /// `2001:db8::1`), host:port, and plain hostname/IPv4.
+    /// Handles IPv6 literals (`[::1]` / `[::1]:53`), bare IPv6 (`::1`, `2001:db8::1`), host:port, and plain hostname/IPv4.
     void parse_authority(std::string_view auth, std::string &host_out, std::optional<int> &port_out,
                          std::string_view raw_uri_hint) {
         if (auth.empty()) {
@@ -47,8 +46,8 @@ namespace {
             return;
         }
 
-        // Bare IPv6 with two or more colons (e.g. ::1, 2001:db8::1)
-        if (std::ranges::count(auth, ':') >= 2) {
+        // Bare IPv6 (e.g. ::1, 2001:db8::1)
+        if (Inet6Address::parse(auth)) {
             host_out.assign(auth);
             return;
         }
@@ -60,8 +59,7 @@ namespace {
             auto const port_str = auth.substr(colon + 1);
             if (!port_str.empty()) {
                 int v{};
-                if (auto [p, ec] = std::from_chars(
-                        port_str.data(), port_str.data() + port_str.size(), v);
+                if (auto [p, ec] = std::from_chars(port_str.data(), port_str.data() + port_str.size(), v);
                     ec == std::errc()) {
                     port_out.emplace(v);
                 }
@@ -216,7 +214,15 @@ std::string_view Uri::get_host() const noexcept { return host_; }
 std::string_view Uri::get_host_literal() const noexcept {
     return host_bracketed_;
 }
+
 std::string_view Uri::get_raw_uri() const noexcept { return raw_uri_; }
+
+std::string Uri::get_origin() const {
+    if (schema_.empty()) {
+        return host_bracketed_ + ":" + std::to_string(*port_);
+    }
+    return schema_ + "://" + host_bracketed_ + ":" + std::to_string(*port_);
+}
 std::string_view Uri::get_body() const noexcept { return body_; }
 
 int Uri::get_port() const noexcept {

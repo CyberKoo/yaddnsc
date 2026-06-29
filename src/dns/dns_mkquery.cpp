@@ -23,7 +23,7 @@
 // ===========================================================================
 
 std::vector<uint8_t> dns_mkquery(const std::string &host, int ns_type) {
-  if constexpr (DNS_MKQUERY_USE_MANUAL) {
+  if constexpr (YADDNSC_MANUAL_MKQUERY) {
     return dns_mkquery_manual(host, ns_type);
   } else {
     return dns_mkquery_system(host, ns_type);

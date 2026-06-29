@@ -13,7 +13,7 @@
 // dns_mkquery — build a raw DNS query packet (wire format, RFC 1035).
 //
 // Dispatches to either the system res_mkquery or the manual builder
-// based on the CMake option DNS_MKQUERY_USE_MANUAL.
+// based on the CMake option YADDNSC_MANUAL_MKQUERY.
 //
 // Parameters:
 //   host    — The domain name to query (e.g. "example.com").

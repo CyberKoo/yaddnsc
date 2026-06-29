@@ -46,7 +46,7 @@ namespace {
             res_ninit(&state);
         }
 
-        ~ResolverContext() { nclose_or_ndestroy(&state); }
+        ~ResolverContext() { destroy(&state); }
 
         int query(const char *name, int type, unsigned char *buf, int len) {
             return res_nquery(&state, name, ns_c_in, type, buf, len);
@@ -67,7 +67,7 @@ namespace {
         [[maybe_unused, no_unique_address]] NoCopy _nc_;
         [[maybe_unused, no_unique_address]] NoMove _nm_;
 
-        static void nclose_or_ndestroy(struct __res_state *s) {
+        static void destroy(struct __res_state *s) {
 #if defined(HAVE_RES_NDESTROY)
             res_ndestroy(s);
 #else
@@ -178,13 +178,13 @@ namespace {
 
 class ClassicResolver::Impl {
 public:
-    explicit Impl(std::optional<dns_server_type> server)
-        : server_(std::move(server)) {
+    explicit Impl(std::optional<dns_server_type> server, uint64_t id)
+        : server_(std::move(server)), id_(id) {
 #if !defined(HAVE_RES_NQUERY)
         if (server_.has_value()) {
             SPDLOG_WARN("Custom resolver defined, but res_nquery() is not supported "
                 "on this platform; the option will be ignored. "
-                "Consider using a DoH (https://...) resolver address instead.");
+                "Consider using a DoH/DoT resolver instead.");
             server_.reset();
         }
 #endif
@@ -193,19 +193,18 @@ public:
     ~Impl() = default;
 
     std::vector<uint8_t> query(const std::string &host_str, dns_type type) const {
-        SPDLOG_TRACE(R"(DNS lookup for "{}")", host_str);
+        SPDLOG_TRACE(R"(Resolver #{} DNS lookup for "{}")", id_, host_str);
 
         const auto ns_type = DNS::to_ns_type(type);
 
         // No custom resolver — use the default system resolver.
         if (!server_.has_value()) {
-            SPDLOG_TRACE(R"(Using default system resolver for "{}")", host_str);
             ResolverContext ctx;
             return do_query(ctx, host_str, ns_type);
         }
 
         // Use the single custom resolver.
-        SPDLOG_TRACE(R"(Resolving "{}" via custom resolver)", host_str);
+        SPDLOG_DEBUG(R"(Resolver #{} Resolving "{}" (type {}))", id_, host_str, ns_type);
         ResolverContext ctx;
         ctx.set_nameserver(*server_);
         return do_query(ctx, host_str, ns_type);
@@ -213,16 +212,18 @@ public:
 
 private:
     std::optional<dns_server_type> server_;
+    uint64_t id_;
 
     [[maybe_unused, no_unique_address]] NoCopy _nc_;
     [[maybe_unused, no_unique_address]] NoMove _nm_;
 };
 
-ClassicResolver::ClassicResolver() : ClassicResolver(std::optional<dns_server_type>{}) {
+ClassicResolver::ClassicResolver()
+    : ResolverBase(nullptr), impl_(std::make_unique<Impl>(std::nullopt, get_id())) {
 }
 
 ClassicResolver::ClassicResolver(std::optional<dns_server_type> server)
-    : impl_(std::make_unique<Impl>(std::move(server))) {
+    : impl_(std::make_unique<Impl>(std::move(server), get_id())) {
 }
 
 ClassicResolver::~ClassicResolver() = default;
@@ -232,5 +233,5 @@ std::vector<uint8_t> ClassicResolver::query(const std::string &host, dns_type ty
 }
 
 std::string_view ClassicResolver::get_type() const noexcept {
-    return "Classic resolver";
+    return "Classic";
 }

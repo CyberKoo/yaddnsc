@@ -31,6 +31,9 @@ public:
 
     [[nodiscard]] std::string_view get_raw_uri() const noexcept;
 
+    /// Return the origin (schema://host_literal:port).
+    [[nodiscard]] std::string get_origin() const;
+
 private:
     Uri() = default;
 

@@ -11,6 +11,8 @@
 #include <string>
 #include <vector>
 
+#include <sys/select.h>
+
 #include <openssl/bio.h>
 #include <openssl/err.h>
 #include <openssl/ssl.h>
@@ -102,8 +104,8 @@ bool bio_send_all(BIO *bio, const uint8_t *data, size_t n) {
 
 class DotResolver::Impl {
 public:
-    explicit Impl(std::string server, uint16_t port)
-        : server_(std::move(server)), port_(port) {
+    explicit Impl(std::string server, uint16_t port, uint64_t id)
+        : server_(std::move(server)), port_(port), id_(id) {
     }
 
     [[nodiscard]] std::vector<uint8_t> query(const std::string &host, dns_type type) const {
@@ -115,14 +117,14 @@ public:
             );
         }
 
-        SPDLOG_DEBUG(R"(DoT lookup for domain "{}" (type {}))", host, ns_type);
+        SPDLOG_DEBUG(R"(Resolver #{} lookup for domain "{}" (type {}))", id_, host, ns_type);
 
         // ---- 1. Build the raw DNS query packet ----
         const auto query_bytes = dns_mkquery(host, ns_type);
 
         // ---- 2. Build the wire format (2-byte length prefix + DNS message) ----
         uint8_t len_buf[2];
-        len_buf[0] = static_cast<uint8_t>((query_bytes.size() >> 8) & 0xFF);
+        len_buf[0] = static_cast<uint8_t>(query_bytes.size() >> 8 & 0xFF);
         len_buf[1] = static_cast<uint8_t>(query_bytes.size() & 0xFF);
 
         std::vector<uint8_t> wire;
@@ -184,8 +186,8 @@ public:
         }
 
         last_use_ = std::chrono::steady_clock::now();
-        SPDLOG_DEBUG(R"(DoT: query to "{}" succeeded ({} bytes) for "{}")",
-                     target, response.size(), host);
+        SPDLOG_DEBUG(R"(Resolver #{} DoT: query to "{}" succeeded ({} bytes) for "{}")",
+                     id_, target, response.size(), host);
 
         return response;
     }
@@ -249,9 +251,60 @@ private:
             throw_ssl_error(fmt::format("BIO_set_conn_hostname({})", target));
         }
 
-        if (BIO_do_connect(bio.get()) != 1) {
-            throw_ssl_error(fmt::format(R"(DoT: connect/handshake failed for "{}")", target));
+        // ---- Non-blocking connect with 1-second timeout ----
+        BIO_set_nbio(bio.get(), 1);
+
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(1);
+
+        for (;;) {
+            const int ret = BIO_do_connect(bio.get());
+            if (ret == 1) break;
+
+            if (!BIO_should_retry(bio.get())) {
+                throw_ssl_error(fmt::format(R"(DoT: connect/handshake failed for "{}")", target));
+            }
+
+            const auto now = std::chrono::steady_clock::now();
+            if (now >= deadline) {
+                throw DnsLookupException(
+                    fmt::format(R"(DoT: connection timeout (1s) for "{}")", target),
+                    dns_error_type::CONNECTION);
+            }
+
+            const int fd = BIO_get_fd(bio.get(), nullptr);
+            if (fd == -1) {
+                throw DnsLookupException(
+                    fmt::format(R"(DoT: failed to get socket fd for "{}")", target),
+                    dns_error_type::CONNECTION);
+            }
+
+            struct timeval tv;
+            const auto remaining_ms = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - now);
+            tv.tv_sec  = static_cast<time_t>(remaining_ms.count() / 1000);
+            tv.tv_usec = static_cast<suseconds_t>((remaining_ms.count() % 1000) * 1000);
+
+            fd_set read_fds, write_fds;
+            FD_ZERO(&read_fds);
+            FD_ZERO(&write_fds);
+
+            if (BIO_should_read(bio.get()))
+                FD_SET(fd, &read_fds);
+            else
+                FD_SET(fd, &write_fds);
+
+            const int sel_ret = select(fd + 1, &read_fds, &write_fds, nullptr, &tv);
+            if (sel_ret <= 0) {
+                if (sel_ret == 0) {
+                    throw DnsLookupException(
+                        fmt::format(R"(DoT: connection timeout (1s) for "{}")", target),
+                        dns_error_type::CONNECTION);
+                }
+                throw_ssl_error(fmt::format(R"(DoT: select() failed for "{}")", target));
+            }
         }
+
+        // Restore blocking mode for regular I/O.
+        BIO_set_nbio(bio.get(), 0);
 
         SSL *connected_ssl = nullptr;
         BIO_get_ssl(bio.get(), &connected_ssl);
@@ -285,6 +338,7 @@ private:
 
     const std::string server_;
     const uint16_t port_;
+    const uint64_t id_;
 
     // ---- mutable: shared state protected by mutex_ ----
     mutable std::mutex mutex_;
@@ -297,7 +351,7 @@ private:
 // ===========================================================================
 
 DotResolver::DotResolver(std::string server, uint16_t port)
-    : impl_(std::make_unique<Impl>(std::move(server), port)) {
+    : impl_(std::make_unique<Impl>(std::move(server), port, get_id())) {
 }
 
 DotResolver::~DotResolver() = default;
@@ -307,5 +361,5 @@ std::vector<uint8_t> DotResolver::query(const std::string &host, dns_type type) 
 }
 
 std::string_view DotResolver::get_type() const noexcept {
-    return "DNS-Over-TLS resolver";
+    return "DNS-Over-TLS";
 }

@@ -15,7 +15,7 @@
   - `url` — obtain the IP from an external HTTP service (e.g. `https://ifconfig.me`)
 - **Per-subdomain update interval** — each subdomain can override the domain-level update interval.
 - **IPv4 and IPv6 support** — configure A and AAAA records independently.
-- **Custom DNS resolver** — optionally use specific DNS servers for record lookups instead of the system resolver. Supports both **traditional DNS** (plain IP + port) and **DNS-over-HTTPS (DoH)** (full HTTPS URL, e.g. `https://1.1.1.1/dns-query`). Multiple servers are queried using a configurable strategy — **fallback** (try the first available resolver, then the next on failure) or **concurrent** (fire all configured resolvers in parallel and take the fastest successful response).
+- **Custom DNS resolver** — optionally use specific DNS servers for record lookups instead of the system resolver. Supports **traditional DNS** (plain IP + port), **DNS-over-HTTPS (DoH)** (full HTTPS URL, e.g. `https://1.1.1.1/dns-query`), and **DNS-over-TLS (DoT)** (TLS URI with `tls://` schema, e.g. `tls://1.1.1.1`). Multiple servers are queried using a configurable strategy — **fallback** (try the first available resolver, then the next on failure) or **concurrent** (fire all configured resolvers in parallel and take the fastest successful response).
 - **Forced update scheduling** — periodically force-update DNS records even when the IP hasn't changed.
 - **Graceful shutdown** — handles SIGINT/SIGTERM via a dedicated signal-handling thread with a stop_token.
 - **Thread-pool based concurrency** — subdomain updates are dispatched to a BS::thread_pool for parallel execution.
@@ -62,8 +62,9 @@ HTTP → DNS provider API"]
 Interface IP detection"]
     dns["MultiResolver
 ResolverBase
-├─ DnsResolver (UDP/TCP)
-└─ DohResolver (HTTPS POST)"]
+├─ ClassicResolver (UDP/TCP)
+├─ DohResolver (HTTPS POST)
+└─ DotResolver (TLS)"]
 
     main --> mgr
     mgr --> run
@@ -89,7 +90,7 @@ ResolverBase
 
 1. **Resolve the driver** — look up the driver plugin by name from `DriverManager`.
 2. **Get local IP** — read from a network interface (`NetworkManager`) or fetch from an external URL.
-3. **DNS lookup** — query the current DNS record using `DnsResolver` (UDP/TCP) or `DohResolver` (HTTPS POST, RFC 8484).
+3. **DNS lookup** — query the current DNS record using `ClassicResolver` (UDP/TCP), `DohResolver` (HTTPS POST, RFC 8484), or `DotResolver` (TLS, RFC 7858).
 4. **Compare** — skip the update if unchanged (unless `force_update` is set).
 5. **Create `TransientHttpClient`** — a per-task HTTP client that creates a new httplib::Client on every `send()` call.
 6. **Call `driver.execute()`** — delegates to the driver plugin, which calls `generate_request()` → `HttpClient::send()` → `check_response()`.
@@ -134,6 +135,7 @@ make -j$(nproc)
 | `CMAKE_BUILD_TYPE`            | Release                                       | Set to `Debug` for debug builds                                   |
 | `YADDNSC_LOGGING_PATTERN`     | `[%D %T.%e] [%^%8l%$] [%8!t] [%15!s:%-4#] %v` | Logging pattern passed to spdlog::set_pattern()                   |
 | `YADDNSC_MIN_UPDATE_INTERVAL` | 60                                            | Minimum allowed update interval in seconds (must not be negative) |
+| `YADDNSC_MANUAL_MKQUERY`      | OFF                                          | Use a self-contained manual DNS query builder instead of system `res_mkquery()`. Useful when the system stub is incomplete or undesirable (e.g. to avoid EDNS0 records from resolver config). |
 
 Third-party dependencies (glaze, spdlog, cpp-httplib, cxxopts, BS::thread_pool, fmt, magic_enum) are fetched automatically via CPM.cmake.
 
@@ -242,8 +244,8 @@ A template configuration is available at `config.example.json`.
 | Field               | Type        | Description                                                                                                                                                                                              |
 |---------------------|-------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `use_custom_server` | boolean     | If true, use the specified DNS server(s) instead of system                                                                                                                                               |
-| `address`           | string      | DNS server address (legacy — used only when `servers` is empty). For traditional DNS, use a plain IP address. For **DoH**, use the full HTTPS URL including the path (e.g. `https://1.1.1.1/dns-query`). |
-| `port`              | integer     | DNS server port, typically 53 (legacy — used only when `servers` is empty). Ignored when `address` is a full HTTPS URL.                                                                                  |
+| `address`           | string      | DNS server address (legacy — used only when `servers` is empty). For traditional DNS, use a plain IP address. For **DoH**, use the full HTTPS URL including the path (e.g. `https://1.1.1.1/dns-query`). For **DoT**, use a `tls://` URI (e.g. `tls://1.1.1.1`). |
+| `port`              | integer     | DNS server port, typically 53 (legacy — used only when `servers` is empty). Ignored when `address` is an HTTPS URL or `tls://` URI.                                                                                  |
 | `servers`           | DnsServer[] | List of DNS servers for redundancy. Each entry has an `address` field (string) and a `port` field (integer, default 53).                                                                                 |
 | `strategy`          | string      | Resolver query strategy: `"concurrent"` (default — fire all queries in parallel, take the fastest success) or `"fallback"` (try the first resolver, then the next on failure).                           |
 
@@ -251,10 +253,10 @@ Each `DnsServer` entry in the `servers` array has the following structure:
 
 | Field     | Type    | Description                                                                                                                                                                                               |
 |-----------|---------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `address` | string  | For **traditional DNS**: a plain IP address (e.g. `1.1.1.1`). For **DNS-over-HTTPS (DoH)**: a full HTTPS URL **including the path**, e.g. `https://1.1.1.1/dns-query`. The `https://` prefix is required. |
-| `port`    | integer | DNS server port, typically 53. **Ignored for DoH** (HTTPS uses port 443 by default).                                                                                                                      |
+| `address` | string  | For **traditional DNS**: a plain IP address (e.g. `1.1.1.1`). For **DNS-over-HTTPS (DoH)**: a full HTTPS URL **including the path**, e.g. `https://1.1.1.1/dns-query`. The `https://` prefix is required. For **DNS-over-TLS (DoT)**: a `tls://` URI (e.g. `tls://1.1.1.1`). |
+| `port`    | integer | DNS server port, typically 53. **Ignored for DoH** (HTTPS uses port 443 by default) and **DoT** (TLS uses port 853 by default).                                                                                                                      |
 
-> **DoH note:** When the `address` starts with `https://`, it is treated as a DNS-over-HTTPS resolver. The address must be a complete URL with the full path — `/dns-query` is the standard DoH endpoint per RFC 8484, but any custom path is supported. The code does **not** append `/dns-query` automatically.
+> **DoH / DoT note:** When the `address` starts with `https://`, it is treated as a DNS-over-HTTPS resolver. The address must be a complete URL with the full path — `/dns-query` is the standard DoH endpoint per RFC 8484, but any custom path is supported. The code does **not** append `/dns-query` automatically. When the `address` starts with `tls://`, it is treated as a DNS-over-TLS resolver (RFC 7858). If no port is specified, 853 is used as the default.
 
 When the `servers` array is present and non-empty, `address` and `port` are ignored. On platforms without `res_nquery()` support (e.g. some musl builds), custom servers cannot be configured and the system resolver is always used.
 

@@ -9,6 +9,6 @@
 
 // Whether to use the self-contained manual DNS query builder instead of
 // the system's res_mkquery().  0 = res_mkquery (default), 1 = manual.
-#cmakedefine01 DNS_MKQUERY_USE_MANUAL
+#cmakedefine01 YADDNSC_MANUAL_MKQUERY
 
 #endif // YADDNSC_DNS_MKQUERY_CONFIG_H

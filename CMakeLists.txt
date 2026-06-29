@@ -70,7 +70,7 @@ set(YADDNSC_LOGGING_PATTERN "[%D %T.%e] [%^%8l%$] [%8!t] [%15!s:%-4#] %v" CACHE 
 
 set(YADDNSC_MIN_UPDATE_INTERVAL 60 CACHE STRING "Minimum allowed update interval (seconds)")
 
-option(DNS_MKQUERY_USE_MANUAL "Use manual DNS query builder instead of system res_mkquery" OFF)
+option(YADDNSC_MANUAL_MKQUERY "Use manual DNS query builder instead of system res_mkquery" OFF)
 
 if (YADDNSC_MIN_UPDATE_INTERVAL LESS 0)
   message(FATAL_ERROR "YADDNSC_MIN_UPDATE_INTERVAL must not be negative, got ${YADDNSC_MIN_UPDATE_INTERVAL}")
@@ -220,7 +220,7 @@ endif ()
 # ==============================================================================
 message(STATUS "Minimum update interval: ${YADDNSC_MIN_UPDATE_INTERVAL}s")
 
-if (DNS_MKQUERY_USE_MANUAL)
+if (YADDNSC_MANUAL_MKQUERY)
   message(STATUS "DNS query builder: manual (no libresolv)")
 else()
   message(STATUS "DNS query builder: system (res_mkquery)")
