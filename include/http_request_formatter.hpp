@@ -67,7 +67,7 @@ struct fmt::formatter<http_request> {
         return fmt::format_to(ctx.out(),
                               R"(http_request(url="{}", body="{}", content_type="{}", request_method="{}", header="{}"))",
                               request.url, body, request.content_type, to_string(request.request_method),
-                              format_map(request.header.begin(), request.header.end()));
+                              format_map(request.headers.begin(), request.headers.end()));
     }
 };
 

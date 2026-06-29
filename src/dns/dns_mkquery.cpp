@@ -46,14 +46,15 @@ std::vector<uint8_t> dns_mkquery_system(const std::string &host, int ns_type) {
     static std::mutex res_mutex;
     {
         std::lock_guard lock(res_mutex);
-        len = res_mkquery(ns_o_query, host.c_str(), ns_c_in, ns_type, nullptr, 0,
-                          nullptr, buf.data(), static_cast<int>(buf.size()));
+        len = res_mkquery(ns_o_query, host.c_str(), ns_c_in, ns_type, nullptr, 0, nullptr, buf.data(),
+                          static_cast<int>(buf.size()));
     }
 
     if (len < 0) {
         throw DnsLookupException(
             fmt::format(R"(Failed to construct DNS query packet for "{}")", host),
-            dns_error_type::UNKNOWN);
+            dns_error_type::UNKNOWN
+        );
     }
 
     buf.resize(static_cast<size_t>(len));

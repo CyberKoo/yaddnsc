@@ -19,7 +19,7 @@ driver_request CloudflareDriver::generate_request(const driver_config_type &conf
     auto cfg = parse_config<CloudflareParams>(config);
 
     driver_request request{};
-    request.header.insert({"Authorization", fmt::format("Bearer {}", cfg.token)});
+    request.headers.insert({"Authorization", fmt::format("Bearer {}", cfg.token)});
     request.url = fmt::format(API_URL, fmt::arg("ZONE_ID", cfg.zone_id), fmt::arg("RECORD_ID", cfg.record_id));
     request.body = generate_body(cfg, ctx);
     request.content_type = "application/json";

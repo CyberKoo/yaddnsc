@@ -156,16 +156,12 @@ namespace {
             buffer.resize(buffer_size);
 
             SPDLOG_TRACE(R"(Sending DNS query for "{}" (buffer size: {}))", host_str, buffer_size);
-            received_size = ctx.query(host_str.c_str(), ns_type,
-                                      buffer.data(), buffer_size);
+            received_size = ctx.query(host_str.c_str(), ns_type, buffer.data(), buffer_size);
             if (received_size < 0) {
                 auto error_type = get_dns_lookup_err(h_errno);
                 SPDLOG_DEBUG(R"(DNS query failed for "{}": {})", host_str, DNS::error_to_str(error_type));
-                throw DnsLookupException(
-                    fmt::format(
-                        R"(DNS lookup failed for domain "{}", error: {})",
-                        host_str, DNS::error_to_str(error_type)), error_type
-                );
+                throw DnsLookupException(fmt::format(R"(DNS lookup failed for domain "{}", error: {})", host_str,
+                                                     DNS::error_to_str(error_type)), error_type);
             }
             SPDLOG_TRACE(R"(DNS query received: {} bytes (buffer size: {}))", received_size, buffer_size);
         } while (received_size >= buffer_size);
@@ -178,8 +174,7 @@ namespace {
 
 class ClassicResolver::Impl {
 public:
-    explicit Impl(std::optional<dns_server_type> server, uint64_t id)
-        : server_(std::move(server)), id_(id) {
+    explicit Impl(std::optional<dns_server_type> server, uint64_t id) : id_(id), server_(std::move(server)) {
 #if !defined(HAVE_RES_NQUERY)
         if (server_.has_value()) {
             SPDLOG_WARN("Custom resolver defined, but res_nquery() is not supported "
@@ -211,8 +206,8 @@ public:
     }
 
 private:
-    std::optional<dns_server_type> server_;
     uint64_t id_;
+    std::optional<dns_server_type> server_;
 
     [[maybe_unused, no_unique_address]] NoCopy _nc_;
     [[maybe_unused, no_unique_address]] NoMove _nm_;

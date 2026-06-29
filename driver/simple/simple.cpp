@@ -46,7 +46,7 @@ driver_request SimpleDriver::generate_request(const driver_config_type &config, 
         .url = std::move(url),
         .content_type = std::string{},
         .request_method = driver_http_method_type::GET,
-        .header = {},
+        .headers = {},
         .body = std::nullopt
     };
 }

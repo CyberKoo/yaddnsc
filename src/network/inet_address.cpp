@@ -8,8 +8,9 @@
 #include <netinet/in.h>
 #include <sys/socket.h>
 
-#include <algorithm>
 #include <span>
+#include <cstdlib>
+#include <algorithm>
 
 // ===========================================================================
 // Inet4Address
@@ -20,7 +21,7 @@ std::optional<Inet4Address> Inet4Address::parse(std::string_view addr) {
         return std::nullopt;
     }
 
-    auto s = std::string(addr);
+    const auto s = std::string(addr);
 
     in_addr in{};
     if (inet_pton(AF_INET, s.c_str(), &in) != 1) {
@@ -161,9 +162,7 @@ std::string InetAddress::to_string() const {
 
 std::array<uint8_t, 16> InetAddress::get_address() const {
     std::array<uint8_t, 16> result{};
-    std::visit([&result](const auto &a) {
-        std::ranges::copy(a.addr(), result.begin());
-    }, addr_);
+    std::visit([&result](const auto &a) { std::ranges::copy(a.addr(), result.begin()); }, addr_);
     return result;
 }
 

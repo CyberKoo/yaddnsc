@@ -18,59 +18,9 @@
 #include "fmt.hpp"
 #include "version.h"
 #include "http_types.h"
+#include "util/cert_util.h"
 
 namespace {
-    std::optional<std::string> get_system_ca_path() {
-        static const std::optional<std::string> system_ca_path = []() -> std::optional<std::string> {
-            constexpr std::string_view search_paths[]{
-                // Local CA file
-                "./ca.pem",
-                // Debian/Ubuntu/Gentoo etc.
-                "/etc/ssl/certs/ca-certificates.crt",
-                // CentOS/RHEL 7
-                "/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem",
-                // OpenSUSE
-                "/etc/ssl/ca-bundle.pem",
-                // macOS via Homebrew
-                "/usr/local/etc/openssl/cert.pem",
-                // macOS via Homebrew (Apple Silicon)
-                "/opt/homebrew/etc/openssl/cert.pem",
-                // Fedora/RHEL 6
-                "/etc/pki/tls/certs/ca-bundle.crt",
-                // OpenELEC
-                "/etc/pki/tls/cacert.pem",
-                // OpenWRT
-                "/etc/ssl/cert.pem",
-                // FreeBSD (ca_root_nss package)
-                "/usr/local/share/certs/ca-root-nss.crt",
-                // FreeBSD/OpenSSL
-                "/etc/ssl/cert.pem",
-                // OpenBSD
-                "/etc/ssl/cert.pem",
-                // NetBSD (pkgsrc)
-                "/etc/openssl/certs/ca-certificates.crt",
-                // NetBSD/OpenSSL
-                "/etc/openssl/cert.pem",
-            };
-
-            SPDLOG_DEBUG("Looking for CA bundle...");
-
-            const auto it = std::ranges::find_if(search_paths, [](std::string_view p) {
-                return std::filesystem::exists(p) && !std::filesystem::is_directory(p);
-            });
-
-            if (it != std::end(search_paths)) {
-                SPDLOG_DEBUG("Found CA bundle at {}", *it);
-                return std::string(*it);
-            }
-
-            SPDLOG_WARN("CA bundle not found, server certificate verification will be disabled.");
-            return std::nullopt;
-        }();
-
-        return system_ca_path;
-    }
-
     std::string build_request(const Uri &uri) {
         if (uri.get_query_string().empty()) {
             return std::string(uri.get_path());
@@ -132,7 +82,7 @@ namespace {
                 ca_path = opts.ca_cert_path;
             } else {
                 // fall back to auto-detection
-                ca_path = get_system_ca_path();
+                ca_path = CertUtil::get_system_ca_path();
             }
 
             if (ca_path.has_value()) {
@@ -210,13 +160,13 @@ HttpResponse TransientHttpClient::send(const http_request &req) const {
 
     SPDLOG_DEBUG("Sending {} request to {}://{}{} ({} header(s), {} bytes body)",
                  magic_enum::enum_name(req.request_method), uri.get_schema(), uri.get_host(), build_request(uri),
-                 req.header.size(), req.body ? req.body->size() : 0
+                 req.headers.size(), req.body ? req.body->size() : 0
     );
 
     auto client = httplib::Client(build_base_url(uri));
     apply_options(client, uri, opts_);
 
-    httplib::Headers headers{req.header.begin(), req.header.end()};
+    httplib::Headers headers{req.headers.begin(), req.headers.end()};
     const auto path = build_request(uri);
 
     const auto result = INVOKERS[std::to_underlying(req.request_method)](
@@ -273,9 +223,9 @@ HttpResponse PersistentHttpClient::send(const http_request &req) const {
 
     SPDLOG_DEBUG("Sending {} request to {}://{}{} ({} header(s), {} bytes body)",
                  magic_enum::enum_name(req.request_method), uri.get_schema(), uri.get_host(), path,
-                 req.header.size(), req.body ? req.body->size() : 0);
+                 req.headers.size(), req.body ? req.body->size() : 0);
 
-    httplib::Headers headers{req.header.begin(), req.header.end()};
+    httplib::Headers headers{req.headers.begin(), req.headers.end()};
 
     const auto result = INVOKERS[std::to_underlying(req.request_method)](
         *client_, path.c_str(), headers, req.body, req.content_type.data()

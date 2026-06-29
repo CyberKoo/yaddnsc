@@ -4,6 +4,7 @@
 #include "uri.h"
 
 #include <string>
+#include <unordered_map>
 #include <charconv>
 #include <optional>
 #include <algorithm>
@@ -13,6 +14,21 @@
 #include "network/inet_address.h"
 
 namespace {
+    /// Known scheme-to-default-port mappings.
+    const std::unordered_map<std::string_view, int> known_ports = {
+        {"http", 80}, {"https", 443}, {"tls", 853},
+    };
+
+    int lookup_default_port(std::string_view scheme) noexcept {
+        auto it = known_ports.find(scheme);
+        return it != known_ports.end() ? it->second : 0;
+    }
+
+    bool is_default_port(std::string_view scheme, int port) noexcept {
+        auto it = known_ports.find(scheme);
+        return it != known_ports.end() && it->second == port;
+    }
+
     /// Parse a host:port authority string into host and port.
     ///
     /// Expects a view that contains only the authority portion (no path/query).
@@ -196,10 +212,7 @@ Uri Uri::parse(std::string_view uri) {
 // ---------------------------------------------------------------------------
 
 int Uri::default_port_for(std::string_view scheme) noexcept {
-    if (scheme == "http") return 80;
-    if (scheme == "https") return 443;
-    if (scheme == "tls") return 853;
-    return 0;
+    return lookup_default_port(scheme);
 }
 
 // ---------------------------------------------------------------------------
@@ -219,7 +232,13 @@ std::string_view Uri::get_raw_uri() const noexcept { return raw_uri_; }
 
 std::string Uri::get_origin() const {
     if (schema_.empty()) {
-        return host_bracketed_ + ":" + std::to_string(*port_);
+        if (*port_ != 0) {
+            return host_bracketed_ + ":" + std::to_string(*port_);
+        }
+        return host_bracketed_;
+    }
+    if (is_default_port(schema_, *port_)) {
+        return schema_ + "://" + host_bracketed_;
     }
     return schema_ + "://" + host_bracketed_ + ":" + std::to_string(*port_);
 }

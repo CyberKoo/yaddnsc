@@ -178,7 +178,7 @@ private:
 
             for (size_t i = 0; i < resolvers_.size(); ++i) {
                 const auto id = resolvers_[i]->get_id();
-                SPDLOG_DEBUG(R"(Fallback resolver #{}: trying "{}")", id, host);
+                // SPDLOG_DEBUG(R"(Fallback resolver #{}: trying "{}")", id, host);
                 try {
                     auto raw_response = resolvers_[i]->query(host, type);
                     auto result = DnsRecordParser::parse_all(raw_response.data(), raw_response.size(), host);

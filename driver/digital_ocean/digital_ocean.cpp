@@ -20,7 +20,7 @@ driver_request DigitalOceanDriver::generate_request(const driver_config_type &co
     auto cfg = parse_config<DigitalOceanParams>(config);
 
     driver_request request{};
-    request.header.insert({"Authorization", fmt::format("Bearer {}", cfg.token)});
+    request.headers.insert({"Authorization", fmt::format("Bearer {}", cfg.token)});
     request.url = fmt::format(API_URL, fmt::arg("DOMAIN", ctx.domain), fmt::arg("RECORD_ID", cfg.record_id));
     auto request_body = DigitalOceanBody{.data = ctx.ip_addr};
     request.body = glz::write_json(request_body).value_or("{}");

@@ -8,8 +8,8 @@
 #include <sys/socket.h>
 #include <arpa/nameser.h>
 
-#include <cstring>
 #include <vector>
+#include <cstring>
 
 #include <spdlog/spdlog.h>
 #include <magic_enum/magic_enum.hpp>
@@ -22,8 +22,8 @@ DnsRecordParser::DnsRecordParser(const data_type *data, const size_t size) {
         throw DnsLookupException("Failed to parse DNS response message", dns_error_type::PARSE);
     }
 
-    SPDLOG_TRACE(R"(DNS record parser initialised (message size: {}, answer count: {}))",
-                 size, ns_msg_count(message_, ns_s_an));
+    SPDLOG_TRACE(R"(DNS record parser initialised (message size: {}, answer count: {}))", size,
+                 ns_msg_count(message_, ns_s_an));
 }
 
 size_t DnsRecordParser::record_count() const noexcept {
@@ -106,8 +106,9 @@ std::string DnsRecordParser::parse_txt_record(const data_type *rdata, int rdlen)
 
     auto length = *rdata;
     if (rdlen < 1 + length) {
-        throw DnsLookupException(fmt::format("Invalid TXT record: declared length {} exceeds remaining data length {}",
-                                             length, rdlen - 1));
+        throw DnsLookupException(
+            fmt::format("Invalid TXT record: declared length {} exceeds remaining data length {}", length, rdlen - 1)
+        );
     }
 
     return {reinterpret_cast<const char *>(rdata + 1), length};

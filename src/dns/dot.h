@@ -5,10 +5,10 @@
 #ifndef YADDNSC_DNS_DOT_H
 #define YADDNSC_DNS_DOT_H
 
-#include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
+#include <cstdint>
 
 #include "base.h"
 #include "type.h"

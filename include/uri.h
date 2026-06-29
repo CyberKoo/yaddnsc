@@ -31,7 +31,8 @@ public:
 
     [[nodiscard]] std::string_view get_raw_uri() const noexcept;
 
-    /// Return the origin (schema://host_literal:port).
+    /// Return the origin (schema://host_literal), omitting the port when it matches
+    /// the well-known default for the scheme (e.g. 443 for https).
     [[nodiscard]] std::string get_origin() const;
 
 private:

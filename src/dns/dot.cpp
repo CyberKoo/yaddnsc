@@ -20,6 +20,7 @@
 
 #include "types.h"
 #include "fmt.hpp"
+#include "util/cert_util.h"
 #include "dns_mkquery.h"
 #include "util/validation.h"
 #include "network/inet_address.h"
@@ -102,8 +103,7 @@ namespace {
 
 class DotResolver::Impl {
 public:
-    explicit Impl(std::string server, uint16_t port, uint64_t id)
-        : server_(std::move(server)), port_(port), id_(id) {
+    explicit Impl(std::string server, uint16_t port, uint64_t id) : id_(id), server_(std::move(server)), port_(port) {
     }
 
     [[nodiscard]] std::vector<uint8_t> query(const std::string &host, dns_type type) const {
@@ -132,8 +132,7 @@ public:
 
         // ---- 3. Send & receive with connection reuse + auto-reconnect ----
         // The entire I/O is under the mutex so that only one thread touches
-        // the shared BIO at a time.  Contention is negligible compared to
-        // network round-trip time.
+        // the shared BIO at a time.  Contention is negligible compared to network round-trip time.
         std::lock_guard lock(mutex_);
 
         const auto target = fmt::format("{}:{}", server_, port_);
@@ -184,8 +183,8 @@ public:
         }
 
         last_use_ = std::chrono::steady_clock::now();
-        SPDLOG_DEBUG(R"(Resolver #{} DoT: query to "{}" succeeded ({} bytes) for "{}")",
-                     id_, target, response.size(), host);
+        SPDLOG_DEBUG(R"(Resolver #{} DoT: query to "{}" succeeded ({} bytes) for "{}")", id_, target, response.size(),
+                     host);
 
         return response;
     }
@@ -210,9 +209,22 @@ private:
         }
 
         SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER, nullptr);
+
+        // Try OpenSSL's built-in default CA paths first.
         if (SSL_CTX_set_default_verify_paths(ctx) != 1) {
-            SSL_CTX_free(ctx);
-            throw_ssl_error("SSL_CTX_set_default_verify_paths");
+            SPDLOG_DEBUG("SSL_CTX_set_default_verify_paths failed, falling back to cert_util");
+            // Fall back to our own CA bundle discovery.
+            const auto ca_path = CertUtil::get_system_ca_path();
+            if (ca_path.has_value()) {
+                if (SSL_CTX_load_verify_locations(ctx, ca_path->c_str(), nullptr) != 1) {
+                    SSL_CTX_free(ctx);
+                    throw_ssl_error(fmt::format("SSL_CTX_load_verify_locations({})", *ca_path));
+                }
+                SPDLOG_DEBUG("Loaded CA bundle from {}", *ca_path);
+            } else {
+                SSL_CTX_free(ctx);
+                throw_ssl_error("SSL_CTX_set_default_verify_paths and cert_util both failed");
+            }
         }
 
         SSL_CTX_set_mode(ctx, SSL_MODE_AUTO_RETRY);
@@ -306,8 +318,8 @@ private:
 
         SSL *connected_ssl = nullptr;
         BIO_get_ssl(bio.get(), &connected_ssl);
-        SPDLOG_TRACE(R"dot(DoT TLS connection established to "{}" (tls_version: {})))dot",
-                     target, connected_ssl ? SSL_get_version(connected_ssl) : "?");
+        SPDLOG_TRACE(R"(DoT TLS connection established to "{}" (tls_version: {})))", target,
+                     connected_ssl ? SSL_get_version(connected_ssl) : "?");
 
         return bio;
     }
@@ -334,9 +346,9 @@ private:
         return persistent_bio_.get();
     }
 
+    const uint64_t id_;
     const std::string server_;
     const uint16_t port_;
-    const uint64_t id_;
 
     // ---- mutable: shared state protected by mutex_ ----
     mutable std::mutex mutex_;
@@ -348,8 +360,8 @@ private:
 //  DotResolver  —  public API
 // ===========================================================================
 
-DotResolver::DotResolver(std::string server, uint16_t port)
-    : impl_(std::make_unique<Impl>(std::move(server), port, get_id())) {
+DotResolver::DotResolver(std::string server, uint16_t port) : impl_(
+    std::make_unique<Impl>(std::move(server), port, get_id())) {
 }
 
 DotResolver::~DotResolver() = default;

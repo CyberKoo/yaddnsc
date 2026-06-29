@@ -19,7 +19,7 @@ struct http_request {
     std::string url;
     std::string content_type;
     http_method_type request_method;
-    http_param_type header{};
+    http_param_type headers{};
     std::optional<std::string> body{};
 };
 
