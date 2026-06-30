@@ -90,6 +90,7 @@ set(YADDNSC_LOGGING_PATTERN "[%D %T.%e] [%^%8l%$] [%8!t] [%15!s:%-4#] %v" CACHE 
 set(YADDNSC_MIN_UPDATE_INTERVAL 60 CACHE STRING "Minimum allowed update interval (seconds)")
 
 option(YADDNSC_MANUAL_MKQUERY "Use manual DNS query builder instead of system res_mkquery" OFF)
+option(YADDNSC_USE_SYSTEM_SPDLOG "Use spdlog from the system instead of the bundled CPM version" OFF)
 
 if (YADDNSC_MIN_UPDATE_INTERVAL LESS 0)
   message(FATAL_ERROR "YADDNSC_MIN_UPDATE_INTERVAL must not be negative, got ${YADDNSC_MIN_UPDATE_INTERVAL}")
@@ -123,9 +124,16 @@ CPMAddPackage("gh:stephenberry/glaze@7.8.2")
 if (HAVE_STD_FORMAT)
   message(STATUS "Using native std::format")
   add_compile_definitions(YADDNSC_USE_STD_FORMAT)
-  set(SPDLOG_USE_STD_FORMAT ON)
+  # SPDLOG_USE_STD_FORMAT is only meaningful when building spdlog from source,
+  # so skip it when using system spdlog (it was already configured at build time).
+  if (NOT YADDNSC_USE_SYSTEM_SPDLOG)
+    set(SPDLOG_USE_STD_FORMAT ON)
+  endif ()
+elseif (YADDNSC_USE_SYSTEM_SPDLOG)
+  message(STATUS "Using system fmt library (find_package)")
+  find_package(fmt REQUIRED)
 else ()
-  message(STATUS "Using external fmt library")
+  message(STATUS "Using external fmt library via CPM")
   CPMAddPackage("gh:fmtlib/fmt#12.2.0")
   set(SPDLOG_FMT_EXTERNAL ON)
 endif ()
@@ -133,8 +141,13 @@ endif ()
 # ---------------------------------------------------------------------------
 # spdlog – logging library
 # ---------------------------------------------------------------------------
-CPMAddPackage("gh:gabime/spdlog@1.17.0")
-set_target_properties(spdlog PROPERTIES POSITION_INDEPENDENT_CODE ON)
+if (YADDNSC_USE_SYSTEM_SPDLOG)
+  find_package(spdlog REQUIRED)
+  message(STATUS "Using system spdlog (${spdlog_VERSION})")
+else ()
+  CPMAddPackage("gh:gabime/spdlog@1.17.0")
+  set_target_properties(spdlog PROPERTIES POSITION_INDEPENDENT_CODE ON)
+endif ()
 add_compile_definitions(SPDLOG_ACTIVE_LEVEL=SPDLOG_LEVEL_DEBUG)
 
 # ---------------------------------------------------------------------------
@@ -239,6 +252,12 @@ endif ()
 # Build configuration summary
 # ==============================================================================
 message(STATUS "Minimum update interval: ${YADDNSC_MIN_UPDATE_INTERVAL}s")
+
+if (YADDNSC_USE_SYSTEM_SPDLOG)
+  message(STATUS "spdlog: system package")
+else ()
+  message(STATUS "spdlog: bundled (CPM)")
+endif ()
 
 if (YADDNSC_MANUAL_MKQUERY)
   message(STATUS "DNS query builder: manual (no libresolv)")

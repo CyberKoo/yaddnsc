@@ -11,6 +11,7 @@
 #include <arpa/nameser.h>
 
 #include <memory>
+#include <mutex>
 #include <optional>
 
 #include <spdlog/spdlog.h>
@@ -177,9 +178,12 @@ public:
     explicit Impl(std::optional<dns_server_type> server, uint64_t id) : id_(id), server_(std::move(server)) {
 #if !defined(HAVE_RES_NQUERY)
         if (server_.has_value()) {
-            SPDLOG_WARN("Custom resolver defined, but res_nquery() is not supported "
-                "on this platform; the option will be ignored. "
-                "Consider using a DoH/DoT resolver instead.");
+            static std::once_flag flag;
+            std::call_once(flag, [&] {
+                SPDLOG_WARN("A custom resolver was configured, but res_nquery() is not available "
+                    "on this platform. The setting will be ignored. "
+                    "Consider using a DoH/DoT resolver instead.");
+            });
             server_.reset();
         }
 #endif
