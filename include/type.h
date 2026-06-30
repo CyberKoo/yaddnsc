@@ -14,12 +14,16 @@ enum class dns_record_type {
 };
 
 enum class dns_lookup_error_type {
-    NX_DOMAIN, RETRY, NODATA, PARSE, UNKNOWN
+    NX_DOMAIN, RETRY, NODATA, PARSE, CONNECTION, UNKNOWN
 };
 
 struct dns_server {
     std::string ip_address;
     unsigned short port;
+};
+
+enum class dns_protocol_type {
+    SYSTEM, DOT, DOH
 };
 
 #endif //YADDNSC_TYPE_H

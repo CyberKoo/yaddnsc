@@ -10,6 +10,7 @@
 #include <nlohmann/json_fwd.hpp>
 
 enum class dns_record_type;
+enum class dns_protocol_type;
 enum class ip_version_type;
 
 namespace Config {
@@ -26,6 +27,7 @@ namespace Config {
         bool use_custom_server;
         std::string ip_address;
         unsigned short port;
+        dns_protocol_type protocol;
     };
 
     struct subdomain_config {
@@ -65,6 +67,8 @@ namespace Config {
     void from_json(const nlohmann::json &, domain_config &);
 
     void from_json(const nlohmann::json &, ip_source_type &);
+
+    void from_json(const nlohmann::json &, dns_protocol_type &);
 
     config load_config(std::string_view config_path);
 }

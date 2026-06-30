@@ -5,6 +5,7 @@
 #include "worker.h"
 
 #include <thread>
+#include <algorithm>
 
 #include <httplib.h>
 #include <fmt/format.h>
@@ -12,6 +13,9 @@
 #include <BS_thread_pool.hpp>
 
 #include "dns.h"
+#include "dns_parser.h"
+#include "doh_resolver.h"
+#include "dot_resolver.h"
 #include "uri.h"
 #include "util.h"
 #include "config.h"
@@ -27,7 +31,8 @@
 class Worker::Impl {
 public:
     explicit Impl(const Config::domain_config &domain_config, const Config::resolver_config &resolver_config)
-        : dns_server_(get_dns_server(resolver_config)), worker_config_(domain_config) {
+        : dns_server_(get_dns_server(resolver_config)), protocol_(resolver_config.protocol),
+          worker_config_(domain_config) {
     }
 
     ~Impl() = default;
@@ -64,6 +69,7 @@ public:
 
 public:
     const std::optional<dns_server> dns_server_;
+    const dns_protocol_type protocol_;
 
     const Config::domain_config &worker_config_;
 
@@ -151,6 +157,72 @@ void Worker::run() const {
 }
 
 std::optional<std::string> Worker::Impl::dns_lookup(std::string_view host, dns_record_type type) const {
+    const auto ns_type = dns_type_to_ns_type(type);
+
+    // DoT resolver — build raw query, send via TLS, parse response
+    if (protocol_ == dns_protocol_type::DOT) {
+        try {
+            return Util::retry_on_exception<std::string, DnsLookupException>(
+                [&] {
+                    const auto &addr = dns_server_->ip_address;
+                    DotResolver resolver(addr, dns_server_->port);
+                    auto raw = resolver.query(std::string(host), ns_type);
+                    auto parsed = parse_dns_response(raw.data(), raw.size());
+                    if (parsed.empty()) {
+                        throw DnsLookupException("DoT returned no answers", dns_lookup_error_type::NODATA);
+                    }
+                    if (parsed.size() > 1) {
+                        SPDLOG_WARN(R"(Domain "{}" resolved more than one address (count: {}))", host,
+                                    parsed.size());
+                    }
+                    return parsed.front();
+                }, RESOLVER_RETRY,
+                std::optional<std::function<bool(const DnsLookupException &)>>(
+                    [](const DnsLookupException &e) {
+                        return e.get_error() == dns_lookup_error_type::RETRY ||
+                               e.get_error() == dns_lookup_error_type::CONNECTION;
+                    }),
+                RESOLVER_RETRY_BACKOFF
+            );
+        } catch (DnsLookupException &e) {
+            SPDLOG_WARN("DoT lookup for domain {} type: {} failed after {} retries. Error: {}", host,
+                        to_string(type), RESOLVER_RETRY, DNS::error_to_str(e.get_error()));
+        }
+        return std::nullopt;
+    }
+
+    // DoH resolver — build raw query, send via HTTPS, parse response
+    if (protocol_ == dns_protocol_type::DOH) {
+        try {
+            return Util::retry_on_exception<std::string, DnsLookupException>(
+                [&] {
+                    DohResolver resolver(dns_server_->ip_address);
+                    auto raw = resolver.query(std::string(host), ns_type);
+                    auto parsed = parse_dns_response(raw.data(), raw.size());
+                    if (parsed.empty()) {
+                        throw DnsLookupException("DoH returned no answers", dns_lookup_error_type::NODATA);
+                    }
+                    if (parsed.size() > 1) {
+                        SPDLOG_WARN(R"(Domain "{}" resolved more than one address (count: {}))", host,
+                                    parsed.size());
+                    }
+                    return parsed.front();
+                }, RESOLVER_RETRY,
+                std::optional<std::function<bool(const DnsLookupException &)>>(
+                    [](const DnsLookupException &e) {
+                        return e.get_error() == dns_lookup_error_type::RETRY ||
+                               e.get_error() == dns_lookup_error_type::CONNECTION;
+                    }),
+                RESOLVER_RETRY_BACKOFF
+            );
+        } catch (DnsLookupException &e) {
+            SPDLOG_WARN("DoH lookup for domain {} type: {} failed after {} retries. Error: {}", host,
+                        to_string(type), RESOLVER_RETRY, DNS::error_to_str(e.get_error()));
+        }
+        return std::nullopt;
+    }
+
+    // Classic (SYSTEM) resolver — use existing DNS::resolve()
     try {
         return Util::retry_on_exception<std::string, DnsLookupException>(
             [&] {
@@ -248,12 +320,12 @@ std::optional<std::string> Worker::Impl::get_ip_address(const Config::subdomain_
         if (ip_type == ip_version_type::IPV6) {
             // filter out local link
             if (!config.allow_local_link) {
-                std::erase_if(addresses, &is_ipv6_la);
+                addresses.erase(std::remove_if(addresses.begin(), addresses.end(), &is_ipv6_la), addresses.end());
             }
 
             // filter out ula
             if (!config.allow_ula) {
-                std::erase_if(addresses, &is_ipv6_ula);
+                addresses.erase(std::remove_if(addresses.begin(), addresses.end(), &is_ipv6_ula), addresses.end());
             }
         }
 

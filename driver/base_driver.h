@@ -22,14 +22,14 @@ class BaseDriver : public IDriver {
 public:
     void check_required_params(const driver_config_type &config) const {
         for (auto &name: required_param_) {
-            if (!config.contains(name)) {
+            if (config.find(name) == config.end()) {
                 throw MissingRequiredParamException(fmt::format("Missing required parameter \"{}\"", name));
             }
         }
     }
 
     static std::optional<std::string> get_optional(const driver_config_type &config, std::string_view name) {
-        if (config.contains(name.data())) {
+        if (config.find(name.data()) != config.end()) {
             return {config.at(name.data())};
         }
 
@@ -39,7 +39,7 @@ public:
     static std::string vformat(std::string_view format, const std::vector<std::string_view> &args) {
         std::vector<fmt::basic_format_arg<fmt::format_context> > fmt_args;
 
-        std::ranges::transform(args, std::back_inserter(fmt_args), [](std::string_view arg) {
+        std::transform(args.begin(), args.end(), std::back_inserter(fmt_args), [](std::string_view arg) {
             return fmt::detail::make_arg<fmt::format_context>(arg);
         });
 

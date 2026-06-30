@@ -19,12 +19,12 @@ namespace Util {
         return static_cast<std::underlying_type_t<Enumeration>>(value);
     }
 
-    template<typename T> requires (std::is_trivial_v<T> && !std::is_pointer_v<T>)
+    template<typename T, typename = std::enable_if_t<std::is_trivial_v<T> && !std::is_pointer_v<T>>>
     size_t sizeof_obj(const T &obj) {
         return sizeof(obj);
     }
 
-    template<class R, class E> requires std::is_base_of_v<YaddnscException, E>
+    template<class R, class E, typename = std::enable_if_t<std::is_base_of_v<YaddnscException, E>>>
     R retry_on_exception(const std::function<R()> &func, const unsigned retry,
                          const std::optional<std::function<bool(const E &)> > &e_filter = std::nullopt,
                          unsigned long backoff = 500) {

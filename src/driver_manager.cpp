@@ -90,7 +90,7 @@ private:
 DriverManager::~DriverManager() = default;
 
 std::unique_ptr<IDriver> &DriverManager::get_driver(std::string_view name) const {
-    if (impl_->driver_map_.contains(name.data())) {
+    if (impl_->driver_map_.find(name.data()) != impl_->driver_map_.end()) {
         return impl_->driver_map_.at(name.data()).get();
     }
 
@@ -131,7 +131,7 @@ std::string_view DriverManager::Impl::get_driver_name(std::string_view path) {
 
 bool DriverManager::Impl::is_driver_loaded(std::string_view driver_path) const {
     auto driver_name = get_driver_name(driver_path);
-    if (std::ranges::find(loaded_lib_, driver_name) != loaded_lib_.end()) {
+    if (std::find(loaded_lib_.begin(), loaded_lib_.end(), driver_name) != loaded_lib_.end()) {
         return true;
     }
 

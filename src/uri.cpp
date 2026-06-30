@@ -18,7 +18,7 @@ Uri Uri::parse(std::string_view uri) {
     result.raw_uri_ = uri;
 
     // get query start
-    auto query_start = std::ranges::find(uri, '?');
+    auto query_start = std::find(uri.begin(), uri.end(), '?');
 
     // schema
     auto schema_start = uri.begin();
@@ -29,8 +29,8 @@ Uri Uri::parse(std::string_view uri) {
         if (port.length() > 3 && port.substr(0, 3) == "://") {
             result.schema_ = std::string(schema_start, schema_end);
 
-            std::ranges::transform(
-                result.schema_, result.schema_.begin(),
+            std::transform(
+                result.schema_.begin(), result.schema_.end(), result.schema_.begin(),
                 [](unsigned char c) { return std::tolower(c); }
             );
 

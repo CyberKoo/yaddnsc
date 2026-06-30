@@ -16,7 +16,7 @@ void StringUtil::to_lower(std::string &_str) {
 // from https://stackoverflow.com/questions/216823/whats-the-best-way-to-trim-stdstring
 // trim from start (in place)
 void StringUtil::ltrim(std::string &s) {
-    s.erase(s.begin(), std::ranges::find_if(s, [](int ch) {
+    s.erase(s.begin(), std::find_if(s.begin(), s.end(), [](int ch) {
         return !std::isspace(ch);
     }));
 }

@@ -6,7 +6,7 @@ list(APPEND CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/cmake)
 option("LIBC_MUSL" "OFF")
 option("NO_RTTI" "OFF")
 
-set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra")
@@ -17,32 +17,32 @@ set(CMAKE_POLICY_DEFAULT_CMP0077 NEW)
 
 # yaddnsc version
 set(YADDNSC_VERSION_MAJOR 0)
-set(YADDNSC_VERSION_MINOR 2)
+set(YADDNSC_VERSION_MINOR 3)
 set(YADDNSC_VERSION_PATCH 0)
-set(YADDNSC_DEVELOPMENT ON)
+set(YADDNSC_DEVELOPMENT OFF)
 set(YADDNSC_RELEASE_INFO RELEASE)
 set(YADDNSC_DRV_VERSION "1000000")
 
 if (YADDNSC_DEVELOPMENT)
-    include(GitVersion)
-    set(YADDNSC_RELEASE_INFO ${GIT_VERSION})
+  include(GitVersion)
+  set(YADDNSC_RELEASE_INFO ${GIT_VERSION})
 endif ()
 
 # if not musl add lto flag to release target
 if (NOT LIBC_MUSL)
-    set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -flto=auto")
+  set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -flto=auto")
 endif ()
 
 # disable rtti
 if (NO_RTTI)
-    message(STATUS "RTTI disabled")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-rtti")
-    add_compile_definitions(CXXOPTS_NO_RTTI)
+  message(STATUS "RTTI disabled")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-rtti")
+  add_compile_definitions(CXXOPTS_NO_RTTI)
 endif ()
 
 # set default build target to release
 if (NOT CMAKE_BUILD_TYPE)
-    set(CMAKE_BUILD_TYPE Release)
+  set(CMAKE_BUILD_TYPE Release)
 endif ()
 
 # include headers
@@ -58,6 +58,7 @@ find_package(OpenSSL REQUIRED)
 include(CheckSymbolExists)
 include(CheckStructHasMember)
 check_symbol_exists(res_nquery "netinet/in.h;resolv.h" HAVE_RES_NQUERY)
+check_symbol_exists(res_mkquery "netinet/in.h;resolv.h" HAVE_RES_MKQUERY)
 check_symbol_exists(res_setservers "netinet/in.h;resolv.h" HAVE_RES_SETSERVERS)
 check_symbol_exists(res_ndestroy "netinet/in.h;resolv.h" HAVE_RES_NDESTROY)
 check_struct_has_member("struct __res_state" _u._ext.nsaddrs "netinet/in.h;resolv.h" HAVE_RES_STATE_EXT_NSADDRS LANGUAGE C)
@@ -97,7 +98,14 @@ add_subdirectory(deps/cxxopts EXCLUDE_FROM_ALL)
 ## submodules ##
 
 ### source code
-set(DNS src/dns.cpp src/dns.h)
+set(DNS
+    src/dns.cpp src/dns.h
+    src/dns_mkquery.cpp src/dns_mkquery.h
+    src/dns_parser.cpp src/dns_parser.h
+    src/doh_resolver.cpp src/doh_resolver.h
+    src/dot_resolver.cpp src/dot_resolver.h
+    src/cert_util.cpp include/cert_util.h
+)
 set(URI src/uri.cpp include/uri.h)
 set(Config src/config.cpp src/config.h)
 set(Worker src/worker.cpp src/worker.h)
@@ -128,7 +136,7 @@ target_link_libraries(yaddnsc PRIVATE httplib spdlog::spdlog fmt::fmt OpenSSL::S
 # libresolv is needed on linux, but not on BSDs, so only link it if we can find it
 find_library(RESOLV resolv)
 if (RESOLV)
-    target_link_libraries(yaddnsc PRIVATE ${RESOLV})
+  target_link_libraries(yaddnsc PRIVATE ${RESOLV})
 endif ()
 
 # external drivers

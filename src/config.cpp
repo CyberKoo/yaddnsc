@@ -36,7 +36,19 @@ void Config::from_json(const nlohmann::json &j, config &config) {
 void Config::from_json(const nlohmann::json &j, resolver_config &resolver) {
     j.at("use_custom_server").get_to(resolver.use_custom_server);
     j.at("ipaddress").get_to(resolver.ip_address);
-    j.at("port").get_to(resolver.port);
+    resolver.port = get_optional<unsigned short>(j, "port").value_or(53);
+    resolver.protocol = get_optional<dns_protocol_type>(j, "protocol").value_or(dns_protocol_type::SYSTEM);
+
+    // Auto-detect protocol from the address URL if not explicitly set
+    if (resolver.protocol == dns_protocol_type::SYSTEM && resolver.use_custom_server) {
+        const auto &addr = resolver.ip_address;
+        if (addr.find("https://") == 0) {
+            resolver.protocol = dns_protocol_type::DOH;
+        } else if (addr.find("tls://") == 0) {
+            resolver.protocol = dns_protocol_type::DOT;
+            resolver.ip_address = addr.substr(6);
+        }
+    }
 }
 
 void Config::from_json(const nlohmann::json &j, subdomain_config &subdomain) {
@@ -59,8 +71,23 @@ void Config::from_json(const nlohmann::json &j, domain_config &domain) {
     j.at("subdomains").get_to(domain.subdomains);
 }
 
+void from_json(const nlohmann::json &j, dns_protocol_type &e) {
+static const std::pair<dns_protocol_type, nlohmann::json> m[] = {
+    {dns_protocol_type::SYSTEM, "system"},
+    {dns_protocol_type::DOT,    "dot"},
+    {dns_protocol_type::DOH,    "doh"},
+};
+
+auto it = std::find_if(std::begin(m), std::end(m),
+                       [&j](const std::pair<dns_protocol_type, nlohmann::json> &ej_pair) -> bool {
+                           return ej_pair.second == j;
+                       });
+
+e = ((it != std::end(m)) ? it : std::begin(m))->first;
+}
+
 void Config::from_json(const nlohmann::json &j, ip_source_type &e) {
-    static const std::pair<ip_source_type, nlohmann::json> m[] = {
+static const std::pair<ip_source_type, nlohmann::json> m[] = {
             {ip_source_type::INTERFACE, "interface"},
             {ip_source_type::URL,       "url"}
     };

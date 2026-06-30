@@ -19,6 +19,7 @@
 #include "ip_util.h"
 #include "network_util.h"
 #include "driver_manager.h"
+#include "type.h"
 
 #include "exception/config_verification_exception.h"
 
@@ -34,7 +35,7 @@ public:
         std::unordered_set<T> seen;
 
         auto end = std::remove_if(vec.begin(), vec.end(), [&seen](const T &value) {
-            if (seen.contains(value))
+            if (seen.find(value) != seen.end())
                 return true;
 
             seen.insert(value);
@@ -81,7 +82,7 @@ void Manager::validate_config() const {
 
     for (const auto &domain: impl_->config_.domains) {
         // check drivers
-        if (std::ranges::find(drivers, domain.driver) == drivers.end()) {
+        if (std::find(drivers.begin(), drivers.end(), domain.driver) == drivers.end()) {
             throw ConfigVerificationException(fmt::format("Driver {} not found", domain.driver));
         }
 
@@ -109,23 +110,37 @@ void Manager::validate_config() const {
         }
     }
 
-#ifdef HAVE_RES_NQUERY
     // check resolver
     if (impl_->config_.resolver.use_custom_server) {
         auto &address = impl_->config_.resolver.ip_address;
+        const auto protocol = impl_->config_.resolver.protocol;
+
+        if (protocol == dns_protocol_type::DOH) {
+            // DoH uses a URL — validate it has a scheme
+            if (address.find("https://") != 0) {
+                throw ConfigVerificationException(
+                    fmt::format(R"(DoH resolver URL must start with https://, got "{}")", address));
+            }
+        } else if (protocol == dns_protocol_type::DOT) {
+            // DoT uses hostname or IP — just log (resolved at connect time)
+            SPDLOG_DEBUG(R"(DoT resolver address: "{}")", address);
+        } else {
+            // Classic (SYSTEM) resolver — validate IP address
+#ifdef HAVE_RES_NQUERY
 #ifdef HAVE_IPV6_RESOLVE_SUPPORT
-        if (!IPUtil::is_ipv4_address(address) && !IPUtil::is_ipv6_address(address)) {
-            throw ConfigVerificationException(fmt::format("Invalid resolver address {}", address));
-        }
+            if (!IPUtil::is_ipv4_address(address) && !IPUtil::is_ipv6_address(address)) {
+                throw ConfigVerificationException(fmt::format("Invalid resolver address {}", address));
+            }
 #else
-        if (!IPUtil::is_ipv4_address(address)) {
-            throw ConfigVerificationException(
+            if (!IPUtil::is_ipv4_address(address)) {
+                throw ConfigVerificationException(
                     fmt::format(R"(Invalid resolver address "{}". Only IPv4 is supported on your platform.)",
                                 address));
+            }
+#endif
+#endif
         }
-#endif
     }
-#endif
 }
 
 void Manager::load_drivers() const {
@@ -156,17 +171,26 @@ void Manager::run() const {
     SPDLOG_INFO("All available interfaces: {}", fmt::join(interfaces, ", "));
 
     if (impl_->config_.resolver.use_custom_server) {
+        const auto protocol = impl_->config_.resolver.protocol;
+        const auto &addr = impl_->config_.resolver.ip_address;
+        const auto port = impl_->config_.resolver.port;
+
+        if (protocol == dns_protocol_type::DOH) {
+            SPDLOG_INFO(R"(Use DoH resolver: "{}")", addr);
+        } else if (protocol == dns_protocol_type::DOT) {
+            SPDLOG_INFO(R"(Use DoT resolver: "{}:{}")", addr, port);
+        } else {
 #ifdef HAVE_RES_NQUERY
-        const auto &ip_addr = impl_->config_.resolver.ip_address;
-        if (IPUtil::is_ipv4_address(ip_addr)) {
-            SPDLOG_INFO(R"(Use custom resolver "{}:{}")", ip_addr, impl_->config_.resolver.port);
-        } else if (ip_addr.front() != '[' && ip_addr.back() != ']') {
-            SPDLOG_INFO(R"(Use custom resolver "[{}]:{}")", ip_addr, impl_->config_.resolver.port);
-        }
+            if (IPUtil::is_ipv4_address(addr)) {
+                SPDLOG_INFO(R"(Use custom resolver "{}:{}")", addr, port);
+            } else if (addr.front() != '[' && addr.back() != ']') {
+                SPDLOG_INFO(R"(Use custom resolver "[{}]:{}")", addr, port);
+            }
 #else
-        SPDLOG_WARN(
+            SPDLOG_WARN(
                 "Custom resolver defined, but res_nquery not support on your platform, this option will be ignored");
 #endif
+        }
     }
 
     // set worker concurrency level

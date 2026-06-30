@@ -1,0 +1,50 @@
+{
+    "driver": {
+        "driver_dir": "./driver",
+        "auto_discover": false,
+        "load": ["simple.so"]
+    },
+    "resolver": {
+        "use_custom_server": false,
+        "strategy": "concurrent",
+        "servers": [
+            {
+                "address": "1.1.1.1",
+                "port": 53
+            },
+            {
+                "address": "8.8.8.8",
+                "port": 53
+            },
+            {
+                "address": "2606:4700:4700::1111",
+                "port": 53
+            },
+            {
+                "address": "https://1.1.1.1/dns-query"
+            }
+        ]
+    },
+    "domains": [
+        {
+            "name": "example.com",
+            "update_interval": 60,
+            "force_update": 0,
+            "driver": "simple",
+            "subdomains": [
+                {
+                    "name": "www",
+                    "type": "a",
+                    "ip_source": "url",
+                    "ip_type": "ipv4",
+                    "ip_source_param": "https://api.ipify.org/",
+                    "driver_param": {
+                        "record_id": "123456789",
+                        "token": "your-token-here",
+                        "url": "https://example.com/update"
+                    }
+                }
+            ]
+        }
+    ]
+}
