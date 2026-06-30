@@ -2,23 +2,19 @@
 // Created by Kotarou on 2022/4/5.
 //
 #include <csignal>
-#include <iostream>
+#include <cstdlib>
 
-#include <cxxopts.hpp>
 #include <spdlog/spdlog.h>
 
-#include "version.h"
-#include "core/manager.h"
+#include "cli/cli.h"
 #include "config/config.h"
+#include "core/manager.h"
 #include "logging_pattern.h"
 #include "exception/base_exception.h"
 #include "exception/config_verification_exception.h"
 
 namespace {
     void block_signals() {
-        // Block SIGINT and SIGTERM in all threads so they can be handled by
-        // a dedicated sigwait() thread inside Manager::run() instead of the
-        // default handler (which would kill the process immediately).
         sigset_t sigset;
         sigemptyset(&sigset);
         sigaddset(&sigset, SIGINT);
@@ -30,74 +26,36 @@ namespace {
 int main(int argc, char *argv[]) {
     block_signals();
 
-    // CLI parsing.
-    std::string config_path = "config.json";
-    cxxopts::Options options("yaddnsc", "Yet another DDNS client");
-    options.add_options()
-            ("v,verbose", "Enable verbose mode")
-            ("c,config", "Config file path", cxxopts::value(config_path)->default_value("config.json"))
-            ("t,test", "Test configuration file and exit")
-            ("V,version", "Print version")
-            ("h,help", "Print usage");
+    const auto outcome = cli::parse_and_dispatch(argc, argv);
+    if (!outcome.should_run) {
+        return outcome.exit_code;
+    }
+
+    // ── RUN flow ──────────────────────────────────────────────────────────
+
+    // Global logging initialisation.
+    spdlog::set_pattern(YADDNSC_LOGGING_PATTERN);
+    spdlog::set_level(outcome.verbose ? spdlog::level::debug : spdlog::level::info);
+    if (outcome.verbose) {
+        SPDLOG_DEBUG("Verbose mode enabled");
+    }
 
     try {
-        bool test_config = false;
-        const auto result = options.parse(argc, argv);
-        if (result.count("help")) {
-            std::cout << options.help() << std::endl;
-            return 0;
-        }
-
-        if (result.count("version")) {
-            std::cout << yaddnsc::get_full_version() << std::endl;
-            return 0;
-        }
-
-        if (result.count("test")) {
-            test_config = true;
-        }
-
-        // Logging.
-        spdlog::set_pattern(YADDNSC_LOGGING_PATTERN);
-        if (test_config || result["verbose"].as<bool>()) {
-            spdlog::set_level(spdlog::level::debug);
-            SPDLOG_DEBUG("Verbose mode enabled");
-        } else {
-            spdlog::set_level(spdlog::level::info);
-        }
-
-        auto config = Config::load_config(config_path);
-
+        auto config = Config::load_config(outcome.config_path);
         Manager manager(std::move(config));
-
-        // Load all drivers.
         manager.load_drivers();
-
-        // Validate the config file.
         manager.validate_config();
 
-        if (test_config) {
-            SPDLOG_INFO("Configuration file test passed");
-            return 0;
-        }
-
-        // Install a signal-handling thread that catches SIGINT/SIGTERM
-        // and requests a graceful shutdown.
         manager.install_signal_handler();
-
-        // Main event loop (single scheduler thread + shared thread pool).
         manager.run();
-
-        return 0;
-    } catch (ConfigVerificationException &e) {
+        return EXIT_SUCCESS;
+    } catch (const ConfigVerificationException &e) {
         SPDLOG_CRITICAL(e.what());
-    } catch (YaddnscException &) {
-        SPDLOG_CRITICAL("Program crashed due to an unrecoverable error.");
-    } catch (cxxopts::exceptions::exception &e) {
-        SPDLOG_CRITICAL(e.what());
-    } catch (std::exception &e) {
+    } catch (const YaddnscException &) {
+        SPDLOG_CRITICAL("Fatal error: unrecoverable exception.");
+    } catch (const std::exception &e) {
         SPDLOG_CRITICAL("Unhandled exception. Error: {}", e.what());
     }
 
-    return -1;
+    return EXIT_FAILURE;
 }

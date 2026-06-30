@@ -104,7 +104,7 @@ ResolverBase
 |---------|----------|
 | CMake   | 3.28     |
 | C++ 编译器 | 支持 C++23 |
-| OpenSSL | 任意较新版本   |
+| OpenSSL | 3.0+ |
 | Zlib    | 任意较新版本   |
 
 yaddnsc 仅支持 POSIX 系统。支持的编译器：GCC 14+、Clang 18+、Apple Clang 15+
@@ -127,6 +127,29 @@ make -j$(nproc)
 # 驱动模块位于 build/objs/driver/*.so
 ```
 
+### 平台注意事项
+
+**编译器版本不满足要求**
+
+当前分支需要 **GCC 14+** 或 **Clang 18+**（C++23）。如果工具链版本过低，
+请使用 `v0.x`（legacy）分支：
+
+|                | master（当前分支）       | v0.x（legacy）         |
+|----------------|----------------------|-----------------------|
+| C++ 标准        | C++23                | C++17                 |
+| 编译器          | GCC 14+ / Clang 18+  | GCC 9+ / Clang 10+    |
+| CMake          | 3.28+                | 3.14+                 |
+| OpenSSL        | 3.0+                 | 1.1.x                 |
+
+legacy 分支处于维护模式，不会添加新功能，但会修复关键 bug。该分支也支持
+DoT/DoH 解析器。
+
+**Alpine Linux**
+
+musl 提供的是降级版的经典 `resolv` stub，缺少现代特性，且与 glibc 的
+解析器相比存在性能瓶颈和功能限制。强烈建议在 Alpine 上将解析器配置为
+使用 **DoT**（DNS over TLS）或 **DoH**（DNS over HTTPS），而非系统解析器。
+
 ### CMake 选项
 
 | 选项                            | 默认值                                           | 说明                              |
@@ -136,7 +159,7 @@ make -j$(nproc)
 | `YADDNSC_MIN_UPDATE_INTERVAL` | 60                                            | 最小允许的更新间隔（秒），不能为负数              |
 | `YADDNSC_MANUAL_MKQUERY`      | OFF                                          | 使用自包含的手动 DNS 查询构建器代替系统 `res_mkquery()`。当系统 stub 实现不完整或不理想时启用（例如避免解析器配置中的 EDNS0 记录）。 |
 
-第三方依赖（glaze、spdlog、cpp-httplib、cxxopts、BS::thread_pool、fmt、magic_enum）通过 CPM.cmake 自动下载。
+第三方依赖（glaze、spdlog、cpp-httplib、CLI11、BS::thread_pool、fmt、magic_enum）通过 CPM.cmake 自动下载。
 
 ## 配置文件说明
 
@@ -362,34 +385,56 @@ API 端点：
 ## 使用方法
 
 ```bash
-# 使用默认配置路径
-yaddnsc
+# 运行 DDNS 客户端（默认配置文件：./config.json）
+yaddnsc run
 
-# 指定配置文件
-yaddnsc -c /etc/yaddnsc/config.json
+# 指定配置文件并启用详细日志
+yaddnsc -c /etc/yaddnsc/config.json -v run
 
-# 启用详细日志（调试模式）
-yaddnsc -v
+# 验证配置文件
+yaddnsc config test
 
-# 测试配置文件并退出
-yaddnsc -t
+# 打印解析后的配置 JSON
+yaddnsc config show
+
+# 列出已加载的驱动
+yaddnsc driver list
+
+# 查看驱动详情
+yaddnsc driver info <name>
+
+# 列出网络接口
+yaddnsc interface list
+
+# 查看指定接口的 IP 地址
+yaddnsc interface ip <name>
+
+# DNS 解析主机名
+yaddnsc dns resolve <hostname> [--type A|AAAA|TXT|SOA]
+
+# 查看 DNS 解析器配置
+yaddnsc dns resolver
 
 # 打印版本号
-yaddnsc -V
+yaddnsc --version
 
 # 打印帮助信息
-yaddnsc -h
+yaddnsc --help
+yaddnsc <subcommand> --help
 ```
 
 ### Systemd 服务
 
-项目提供了 systemd 服务文件 `yaddnsc.service`：
+项目提供了 systemd 服务文件 `yaddnsc.service`，集成了启动前配置验证（`config test`）、
+安全加固（DynamicUser、ProtectSystem、ProtectHome），并支持通过 `/etc/default/yaddnsc`
+覆盖配置路径等环境变量：
 
 ```bash
 sudo cp yaddnsc /opt/yaddnsc/
 sudo mkdir -p /etc/yaddnsc/
 sudo cp config.json /etc/yaddnsc/
 sudo cp yaddnsc.service /etc/systemd/system/
+sudo systemctl daemon-reload
 sudo systemctl enable --now yaddnsc
 ```
 
@@ -489,7 +534,7 @@ public:
 | [glaze](https://github.com/stephenberry/glaze)              | JSON 序列化/反射                 | CPM.cmake |
 | [spdlog](https://github.com/gabime/spdlog)                  | 日志记录                        | CPM.cmake |
 | [cpp-httplib](https://github.com/yhirose/cpp-httplib)       | HTTP 客户端                    | CPM.cmake |
-| [cxxopts](https://github.com/jarro2783/cxxopts)             | 命令行参数解析                     | CPM.cmake |
+| [CLI11](https://github.com/CLIUtils/CLI11)                   | 命令行参数解析                     | CPM.cmake |
 | [BS::thread_pool](https://github.com/bshoshany/thread-pool) | 线程池                         | CPM.cmake |
 | [fmt](https://github.com/fmtlib/fmt)                        | 字符串格式化（std::format 不可用时的回退） | CPM.cmake |
 | [magic_enum](https://github.com/Neargye/magic_enum)         | 静态枚举反射                      | CPM.cmake |

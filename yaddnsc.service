@@ -1,15 +1,26 @@
 [Unit]
-Description=Yet another dynamic DNS client
-Wants=network-online.target
+Description=Yet Another Dynamic DNS Client — multi-driver DDNS updater
+Requires=network-online.target
 After=network.target network-online.target
 
 [Service]
 Type=simple
-User=nobody
-#EnvironmentFile=/etc/default/yaddnsc
-ExecStart=/opt/yaddnsc/yaddnsc -c /etc/yaddnsc/config.json
-Restart=always
+DynamicUser=yes
+Environment=YADDNSC_CONFIG=/etc/yaddnsc/config.json
+EnvironmentFile=-/etc/default/yaddnsc
+ExecStartPre=/opt/yaddnsc/yaddnsc -c ${YADDNSC_CONFIG} config test
+ExecStart=/opt/yaddnsc/yaddnsc -c ${YADDNSC_CONFIG} run
+Restart=on-failure
 RestartSec=3
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+CapabilityBoundingSet=
+
+StandardOutput=journal
+StandardError=journal
 
 [Install]
 WantedBy=multi-user.target

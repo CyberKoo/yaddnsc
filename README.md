@@ -105,7 +105,7 @@ ResolverBase
 |-----------------|--------------------|
 | CMake           | 3.28               |
 | C++ Compiler    | C++23 capable      |
-| OpenSSL         | Any recent version |
+| OpenSSL         | 3.0+               |
 | Zlib            | Any recent version |
 
 yaddnsc is POSIX-only. Supported compilers: GCC 14+, Clang 18+, Apple Clang 15+
@@ -128,6 +128,31 @@ make -j$(nproc)
 # Driver modules will be at build/objs/driver/*.so
 ```
 
+### Platform Notes
+
+**Insufficient GCC/Clang version**
+
+This branch requires **GCC 14+** or **Clang 18+** (C++23). If your toolchain
+is older, use the `v0.x` (legacy) branch instead:
+
+|                | master (this branch) | v0.x (legacy)         |
+|----------------|----------------------|-----------------------|
+| C++ Standard   | C++23                | C++17                 |
+| Compiler       | GCC 14+ / Clang 18+  | GCC 9+ / Clang 10+    |
+| CMake          | 3.28+                | 3.14+                 |
+| OpenSSL        | 3.0+                 | 1.1.x                 |
+
+The legacy branch is in maintenance mode — it will not receive new features
+but will get critical bug fixes. DoT/DoH resolvers are also available there.
+
+**Alpine Linux**
+
+musl ships a downgraded, classic-style `resolv` stub. It lacks modern
+features and may suffer from performance issues and limitations compared to
+glibc's resolver. On Alpine, it is strongly recommended to configure the
+resolver to use **DoT** (DNS over TLS) or **DoH** (DNS over HTTPS) instead
+of the system resolver.
+
 ### CMake Options
 
 | Option                        | Default                                       | Description                                                       |
@@ -137,7 +162,7 @@ make -j$(nproc)
 | `YADDNSC_MIN_UPDATE_INTERVAL` | 60                                            | Minimum allowed update interval in seconds (must not be negative) |
 | `YADDNSC_MANUAL_MKQUERY`      | OFF                                          | Use a self-contained manual DNS query builder instead of system `res_mkquery()`. Useful when the system stub is incomplete or undesirable (e.g. to avoid EDNS0 records from resolver config). |
 
-Third-party dependencies (glaze, spdlog, cpp-httplib, cxxopts, BS::thread_pool, fmt, magic_enum) are fetched automatically via CPM.cmake.
+Third-party dependencies (glaze, spdlog, cpp-httplib, CLI11, BS::thread_pool, fmt, magic_enum) are fetched automatically via CPM.cmake.
 
 ## Configuration
 
@@ -363,34 +388,57 @@ A successful response is any non-empty body.
 ## Usage
 
 ```bash
-# Basic usage with default config path
-yaddnsc
+# Run the DDNS client (default config path: ./config.json)
+yaddnsc run
 
-# Specify a config file
-yaddnsc -c /etc/yaddnsc/config.json
+# Run with a specific config file and verbose logging
+yaddnsc -c /etc/yaddnsc/config.json -v run
 
-# Enable verbose (debug) logging
-yaddnsc -v
+# Validate configuration and exit
+yaddnsc config test
 
-# Test configuration and exit
-yaddnsc -t
+# Print resolved configuration as JSON
+yaddnsc config show
+
+# List loaded drivers
+yaddnsc driver list
+
+# Show driver details
+yaddnsc driver info <name>
+
+# List network interfaces
+yaddnsc interface list
+
+# Show IP addresses of a specific interface
+yaddnsc interface ip <name>
+
+# DNS resolve a hostname
+yaddnsc dns resolve <hostname> [--type A|AAAA|TXT|SOA]
+
+# Show configured DNS resolver details
+yaddnsc dns resolver
 
 # Print version
-yaddnsc -V
+yaddnsc --version
 
 # Print help
-yaddnsc -h
+yaddnsc --help
+yaddnsc <subcommand> --help
 ```
 
 ### Systemd Service
 
-A sample systemd service file is provided at `yaddnsc.service`:
+A sample systemd service file is provided at `yaddnsc.service`, with integrated
+configuration validation (`config test`) before every start, security hardening
+(DynamicUser, ProtectSystem, ProtectHome), and optional overrides via
+`/etc/default/yaddnsc`:
 
 ```bash
 sudo cp yaddnsc /opt/yaddnsc/
 sudo mkdir -p /etc/yaddnsc/
 sudo cp config.json /etc/yaddnsc/
 sudo cp yaddnsc.service /etc/systemd/system/
+sudo systemctl daemon-reload
 sudo systemctl enable --now yaddnsc
 ```
 
@@ -490,7 +538,7 @@ The network interface and address family are always bound at construction time v
 | [glaze](https://github.com/stephenberry/glaze)              | JSON serialization/reflection                  | CPM.cmake    |
 | [spdlog](https://github.com/gabime/spdlog)                  | Logging                                        | CPM.cmake    |
 | [cpp-httplib](https://github.com/yhirose/cpp-httplib)       | HTTP client                                    | CPM.cmake    |
-| [cxxopts](https://github.com/jarro2783/cxxopts)             | CLI option parsing                             | CPM.cmake    |
+| [CLI11](https://github.com/CLIUtils/CLI11)                   | CLI option parsing                             | CPM.cmake    |
 | [BS::thread_pool](https://github.com/bshoshany/thread-pool) | Thread pool                                    | CPM.cmake    |
 | [fmt](https://github.com/fmtlib/fmt)                        | String formatting (fallback if no std::format) | CPM.cmake    |
 | [magic_enum](https://github.com/Neargye/magic_enum)         | Static enum reflection                         | CPM.cmake    |
