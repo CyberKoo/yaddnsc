@@ -31,7 +31,7 @@ public:
     void process(const UpdateTask &task) const;
 
 private:
-    [[nodiscard]] std::optional<std::string>
+    [[nodiscard]] std::vector<std::string>
     dns_lookup(const std::string &host, dns_type type) const;
 
     [[nodiscard]] std::optional<InetAddress> get_ip_address(const Config::subdomain_config &config) const;
@@ -87,16 +87,17 @@ void Updater::Impl::process(const UpdateTask &task) const {
     // --- Step 2: skip if unchanged (unless force_update) --------------------
 
     if (!task.force_update) {
-        const auto record = dns_lookup(task.fqdn, task.subdomain.type);
+        const auto records = dns_lookup(task.fqdn, task.subdomain.type);
 
-        if (record.has_value()) {
-            if (record.value() == local_ip->to_string()) {
+        if (!records.empty()) {
+            const auto &first = records.front();
+            if (first == local_ip->to_string()) {
                 SPDLOG_DEBUG("Domain: {}, type: {}, current {}, new {}, skipping update",
-                             task.fqdn, rd_type, record.value(), local_ip->to_string());
+                             task.fqdn, rd_type, first, local_ip->to_string());
                 return;
             }
 
-            SPDLOG_INFO(R"(Update needed, local IP "{}" != DNS record "{}")", local_ip->to_string(), record.value());
+            SPDLOG_INFO(R"(Update needed, local IP "{}" != DNS record "{}")", local_ip->to_string(), first);
         }
     } else {
         SPDLOG_INFO("Force update triggered for {}", task.fqdn);
@@ -120,7 +121,7 @@ void Updater::Impl::process(const UpdateTask &task) const {
 // ---------------------------------------------------------------------------
 // dns_lookup — resolve a DNS name with retries.
 // ---------------------------------------------------------------------------
-std::optional<std::string>
+std::vector<std::string>
 Updater::Impl::dns_lookup(const std::string &host, dns_type type) const {
     return resolver_pool_.resolve(host, type);
 }

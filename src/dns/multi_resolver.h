@@ -8,7 +8,6 @@
 #include <memory>
 #include <string>
 #include <vector>
-#include <optional>
 
 #include "type.h"
 #include "config/config.h"
@@ -36,7 +35,7 @@ public:
 
     MultiResolver &operator=(MultiResolver &&) noexcept;
 
-    [[nodiscard]] std::optional<std::string>
+    [[nodiscard]] std::vector<std::string>
     resolve(const std::string &host, dns_type type, int max_retries = 5, int backoff_ms = 1000) const;
 
 private:

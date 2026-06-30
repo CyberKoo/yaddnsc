@@ -11,6 +11,7 @@
 
 #include <magic_enum/magic_enum.hpp>
 
+#include "fmt.hpp"
 #include "uri.h"
 #include "config/config.h"
 #include "dns/multi_resolver.h"
@@ -69,7 +70,7 @@ namespace cli {
         auto resolver = DnsResolverFactory::create(config);
         auto dns_result = resolver.resolve(host, *type);
 
-        if (!dns_result.has_value()) {
+        if (dns_result.empty()) {
             std::println("DNS lookup for {} ({}) failed: no records found", host, type_str);
             return EXIT_SUCCESS;
         }
@@ -77,7 +78,7 @@ namespace cli {
         std::println("DNS lookup result:\n"
                      "  Host:  {}\n"
                      "  Type:  {}\n"
-                     "  Value: {}", host, type_str, *dns_result
+                     "  Value: {}", host, type_str, fmt::join(dns_result, ", ")
         );
         return EXIT_SUCCESS;
     }

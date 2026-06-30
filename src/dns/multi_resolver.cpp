@@ -32,11 +32,11 @@ public:
         : resolvers_(std::move(resolvers)), strategy_(strategy) {
     }
 
-    [[nodiscard]] std::optional<std::string>
+    [[nodiscard]] std::vector<std::string>
     resolve(const std::string &host, dns_type type, int max_retries, int backoff_ms) const {
         unsigned actual_retries = 0;
-        auto result = Util::retry_on_exception<std::string, DnsLookupException>(
-            [&]() -> std::string {
+        auto result = Util::retry_on_exception<std::vector<std::string>, DnsLookupException>(
+            [&]() -> std::vector<std::string> {
                 const std::vector<std::string> dns_answer = [&] {
                     if (resolvers_.empty()) {
                         SPDLOG_TRACE(R"(Using default system resolver for "{}")", host);
@@ -79,7 +79,7 @@ public:
                                 dns_answer.size());
                 }
 
-                return dns_answer.front();
+                return dns_answer;
             },
             max_retries,
             [](const DnsLookupException &e) { return e.get_error() == dns_error_type::RETRY; },
@@ -90,7 +90,7 @@ public:
         if (!result) {
             SPDLOG_WARN(R"(DNS lookup for domain "{}" type: {} failed after {} retries. Error: {})", host,
                         magic_enum::enum_name(type), actual_retries, DNS::error_to_str(result.error().get_error()));
-            return std::nullopt;
+            return {};
         }
 
         return std::move(*result);
@@ -176,16 +176,16 @@ private:
                 fmt::format(R"(DNS lookup for domain "{}" returned no records)", host),
                 dns_error_type::NODATA);
 
-            for (size_t i = 0; i < resolvers_.size(); ++i) {
-                const auto id = resolvers_[i]->get_id();
+            for (const auto &resolver: resolvers_) {
+                const auto id = resolver->get_id();
                 // SPDLOG_DEBUG(R"(Fallback resolver #{}: trying "{}")", id, host);
                 try {
-                    auto raw_response = resolvers_[i]->query(host, type);
+                    auto raw_response = resolver->query(host, type);
                     auto result = DnsRecordParser::parse_all(raw_response.data(), raw_response.size(), host);
 
                     if (!result.empty()) {
-                        SPDLOG_DEBUG(R"(Fallback resolver #{} returned {} record(s) for "{}": {})",
-                                     id, result.size(), host, fmt::join(result, ", "));
+                        SPDLOG_DEBUG(R"(Fallback resolver #{} returned {} record(s) for "{}": {})", id, result.size(),
+                                     host, fmt::join(result, ", "));
                         return result;
                     }
 
@@ -226,9 +226,9 @@ private:
             auto state = std::make_shared<ConcurrentState>();
             state->total = static_cast<int>(resolvers_.size());
 
-            for (size_t i = 0; i < resolvers_.size(); ++i) {
+            for (const auto &i: resolvers_) {
                 SPDLOG_TRACE(R"(Launching concurrent resolver #{} for "{}")", resolvers_[i]->get_id(), host);
-                std::thread([resolver = resolvers_[i], host, type, state] {
+                std::thread([resolver = i, host, type, state] {
                     query_resolver(*resolver, host, type, state);
                 }).detach();
             }
@@ -297,7 +297,7 @@ MultiResolver::MultiResolver(MultiResolver &&) noexcept = default;
 
 MultiResolver &MultiResolver::operator=(MultiResolver &&) noexcept = default;
 
-std::optional<std::string>
+std::vector<std::string>
 MultiResolver::resolve(const std::string &host, dns_type type, int max_retries, int backoff_ms) const {
     return impl_->resolve(host, type, max_retries, backoff_ms);
 }
