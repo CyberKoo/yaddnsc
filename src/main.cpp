@@ -24,25 +24,25 @@ namespace {
 }
 
 int main(int argc, char *argv[]) {
-    block_signals();
-
     const auto outcome = cli::parse_and_dispatch(argc, argv);
+
+    // Global logging initialisation.
+    spdlog::set_pattern(YADDNSC_LOGGING_PATTERN);
+    spdlog::set_level(outcome.verbose ? spdlog::level::debug : spdlog::level::info);
+
     if (!outcome.should_run) {
         return outcome.exit_code;
     }
 
     // ── RUN flow ──────────────────────────────────────────────────────────
-
-    // Global logging initialisation.
-    spdlog::set_pattern(YADDNSC_LOGGING_PATTERN);
-    spdlog::set_level(outcome.verbose ? spdlog::level::debug : spdlog::level::info);
     if (outcome.verbose) {
         SPDLOG_DEBUG("Verbose mode enabled");
     }
 
+    block_signals();
     try {
         auto config = Config::load_config(outcome.config_path);
-        Manager manager(std::move(config));
+        const Manager manager(std::move(config));
         manager.load_drivers();
         manager.validate_config();
 

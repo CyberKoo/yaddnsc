@@ -370,6 +370,4 @@ std::vector<uint8_t> DotResolver::query(const std::string &host, dns_type type) 
     return impl_->query(host, type);
 }
 
-std::string_view DotResolver::get_type() const noexcept {
-    return "DNS-Over-TLS";
-}
+

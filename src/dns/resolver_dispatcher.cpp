@@ -2,7 +2,7 @@
 // Created by Kotarou on 2026/6/28.
 //
 
-#include "multi_resolver.h"
+#include "resolver_dispatcher.h"
 
 #include <mutex>
 #include <thread>
@@ -21,16 +21,18 @@
 #include "exception/dns_lookup_exception.h"
 
 // ===========================================================================
-//  MultiResolver::Impl  —  private implementation (full details hidden here)
+//  ResolverDispatcher::Impl  —  private implementation
 // ===========================================================================
 
-class MultiResolver::Impl {
+class ResolverDispatcher::Impl {
 public:
     Impl() = default;
 
     Impl(std::vector<std::shared_ptr<ResolverBase> > resolvers, Config::resolver_strategy strategy)
         : resolvers_(std::move(resolvers)), strategy_(strategy) {
     }
+
+    ~Impl() = default;
 
     [[nodiscard]] std::vector<std::string>
     resolve(const std::string &host, dns_type type, int max_retries, int backoff_ms) const {
@@ -40,8 +42,15 @@ public:
                 const std::vector<std::string> dns_answer = [&] {
                     if (resolvers_.empty()) {
                         SPDLOG_TRACE(R"(Using default system resolver for "{}")", host);
-                        const ClassicResolver resolver;
-                        auto raw_response = resolver.query(host, type);
+                        // Lazily initialize the fallback resolver so it is reused
+                        // across retries instead of being recreated every attempt.
+                        {
+                            std::lock_guard lock(fallback_mtx_);
+                            if (!fallback_resolver_) {
+                                fallback_resolver_.emplace();
+                            }
+                        }
+                        auto raw_response = fallback_resolver_->query(host, type);
                         auto records = DnsRecordParser::parse_all(raw_response.data(), raw_response.size(), host);
                         if (!records.empty()) {
                             SPDLOG_DEBUG(R"(DNS lookup for "{}" returned {} record(s): {})", host, records.size(),
@@ -57,8 +66,8 @@ public:
                         auto raw = resolvers_[0]->query(host, type);
                         auto records = DnsRecordParser::parse_all(raw.data(), raw.size(), host);
                         if (!records.empty()) {
-                            SPDLOG_DEBUG(R"(DNS lookup for "{}" returned {} record(s): {})",
-                                         host, records.size(), fmt::join(records, ", "));
+                            SPDLOG_DEBUG(R"(DNS lookup for "{}" returned {} record(s): {})", host, records.size(),
+                                         fmt::join(records, ", "));
                         } else {
                             SPDLOG_DEBUG(R"(DNS lookup for "{}" returned no records)", host);
                         }
@@ -126,7 +135,7 @@ private:
             auto records = DnsRecordParser::parse_all(raw_response.data(), raw_response.size(), host);
 
             std::lock_guard lock(state->mtx);
-            if (!state->has_result && !state->has_nxdomain && !records.empty()) {
+            if (!state->has_result && !records.empty()) {
                 SPDLOG_DEBUG(R"(Resolver #{} returned {} record(s) for "{}")", id, records.size(), host);
                 state->result = std::move(records);
                 state->has_result = true;
@@ -139,16 +148,14 @@ private:
                 SPDLOG_DEBUG(R"(Resolver #{} returned NXDOMAIN for "{}")", id, host);
                 state->has_nxdomain = true;
                 state->definitive_error = e;
-                state->cv.notify_one();
-                return;
-            }
+            } else {
+                SPDLOG_TRACE(R"(Resolver #{} failed for "{}": {})", id, host, DNS::error_to_str(e.get_error()));
 
-            SPDLOG_TRACE(R"(Resolver #{} failed for "{}": {})", id, host, DNS::error_to_str(e.get_error()));
-
-            if (is_retryable(e.get_error())) {
-                state->transient_error = e;
-            } else if (!state->definitive_error.has_value()) {
-                state->definitive_error = e;
+                if (is_retryable(e.get_error())) {
+                    state->transient_error = e;
+                } else if (!state->definitive_error.has_value()) {
+                    state->definitive_error = e;
+                }
             }
         } catch (...) {
             {
@@ -178,7 +185,6 @@ private:
 
             for (const auto &resolver: resolvers_) {
                 const auto id = resolver->get_id();
-                // SPDLOG_DEBUG(R"(Fallback resolver #{}: trying "{}")", id, host);
                 try {
                     auto raw_response = resolver->query(host, type);
                     auto result = DnsRecordParser::parse_all(raw_response.data(), raw_response.size(), host);
@@ -219,52 +225,69 @@ private:
             throw last_error;
         };
 
-        // ── Concurrent: fire all, take fastest ──
+        // ── Concurrent: fire in batches of 3, take fastest valid ──
         auto concurrent = [&]() -> std::vector<std::string> {
-            SPDLOG_DEBUG(R"(Concurrent mode: firing {} resolver(s) concurrently for "{}")", resolvers_.size(), host);
+            constexpr size_t BATCH_SIZE = 3;
+            const auto total = resolvers_.size();
+            SPDLOG_DEBUG(R"(Concurrent mode: {} resolver(s) for "{}", {} per batch)", total, host, BATCH_SIZE);
 
-            auto state = std::make_shared<ConcurrentState>();
-            state->total = static_cast<int>(resolvers_.size());
+            DnsLookupException last_error(
+                fmt::format(R"(DNS lookup for domain "{}" returned no records)", host),
+                dns_error_type::NODATA);
 
-            for (const auto &i: resolvers_) {
-                SPDLOG_TRACE(R"(Launching concurrent resolver #{} for "{}")", resolvers_[i]->get_id(), host);
-                std::thread([resolver = i, host, type, state] {
-                    query_resolver(*resolver, host, type, state);
-                }).detach();
+            for (size_t offset = 0; offset < total; offset += BATCH_SIZE) {
+                const auto batch_end = std::min(offset + BATCH_SIZE, total);
+                const auto batch_count = static_cast<int>(batch_end - offset);
+
+                auto state = std::make_shared<ConcurrentState>();
+                state->total = batch_count;
+
+                SPDLOG_DEBUG(R"(Launching batch of {} resolver(s) ({}-{}) for "{}")",
+                             batch_count, offset, batch_end - 1, host);
+
+                for (size_t i = offset; i < batch_end; ++i) {
+                    SPDLOG_TRACE(R"(Batched concurrent resolver #{} for "{}")", resolvers_[i]->get_id(), host);
+                    std::thread([resolver = resolvers_[i], host, type, state] {
+                        query_resolver(*resolver, host, type, state);
+                    }).detach();
+                }
+
+                // Wait for the fastest valid result or all threads to finish.
+                {
+                    std::unique_lock lock(state->mtx);
+                    state->cv.wait(lock, [&state] {
+                        return state->has_result || state->completed == state->total;
+                    });
+                }
+
+                // Fastest resolver returned a valid result — take it.
+                if (state->has_result) {
+                    SPDLOG_DEBUG(R"(DNS lookup for "{}" returned {} record(s): {})", host, state->result.size(),
+                                 fmt::join(state->result, ", "));
+                    return std::move(state->result);
+                }
+
+                // All resolvers in the batch finished without a valid result.
+                if (state->has_nxdomain) {
+                    throw *state->definitive_error;
+                }
+
+                if (state->definitive_error.has_value()) {
+                    last_error = *state->definitive_error;
+                    if (!is_retryable(last_error.get_error())) {
+                        throw last_error;
+                    }
+                } else if (state->transient_error.has_value()) {
+                    last_error = *state->transient_error;
+                }
             }
 
-            {
-                std::unique_lock lock(state->mtx);
-                state->cv.wait(lock, [&state] {
-                    return state->has_result || state->has_nxdomain || state->completed == state->total;
-                });
-            }
-
-            if (state->has_result) {
-                SPDLOG_DEBUG(R"(DNS lookup for "{}" returned {} record(s): {})", host, state->result.size(),
-                             fmt::join(state->result, ", "));
-                return std::move(state->result);
-            }
-
-            if (state->has_nxdomain) {
-                throw *state->definitive_error;
-            }
-
-            if (state->definitive_error.has_value()) {
-                throw state->definitive_error.value();
-            }
-
-            auto last_err = state->transient_error.value_or(
-                DnsLookupException(
-                    fmt::format(R"(DNS lookup for domain "{}" returned no records)", host),
-                    dns_error_type::NODATA));
-
-            if (state->total > 1) {
+            if (total > 1) {
                 SPDLOG_ERROR(R"(All {} resolver(s) failed for domain "{}", last error: {})",
-                             state->total, host, DNS::error_to_str(last_err.get_error()));
+                             total, host, DNS::error_to_str(last_error.get_error()));
             }
 
-            throw last_err;
+            throw last_error;
         };
 
         // ── Dispatch ──
@@ -276,28 +299,35 @@ private:
         return concurrent();
     }
 
+    // ── Fallback resolver (used when resolvers_ is empty) ──
+    // Initialised lazily so that the ClassicResolver (and its underlying
+    // res_ninit) is constructed at most once, even when retries occur.
+    mutable std::mutex fallback_mtx_;
+    mutable std::optional<ClassicResolver> fallback_resolver_;
+
     std::vector<std::shared_ptr<ResolverBase> > resolvers_;
     Config::resolver_strategy strategy_{Config::resolver_strategy::CONCURRENT};
 };
 
 // ===========================================================================
-//  MultiResolver public API — thin delegation to Impl
+//  ResolverDispatcher public API — thin delegation to Impl
 // ===========================================================================
 
-MultiResolver::MultiResolver() : impl_(std::make_unique<Impl>()) {
+ResolverDispatcher::ResolverDispatcher() : impl_(std::make_unique<Impl>()) {
 }
 
-MultiResolver::MultiResolver(std::vector<std::shared_ptr<ResolverBase> > resolvers, Config::resolver_strategy strategy)
+ResolverDispatcher::ResolverDispatcher(std::vector<std::shared_ptr<ResolverBase> > resolvers,
+                                       Config::resolver_strategy strategy)
     : impl_(std::make_unique<Impl>(std::move(resolvers), strategy)) {
 }
 
-MultiResolver::~MultiResolver() = default;
+ResolverDispatcher::~ResolverDispatcher() = default;
 
-MultiResolver::MultiResolver(MultiResolver &&) noexcept = default;
+ResolverDispatcher::ResolverDispatcher(ResolverDispatcher &&) noexcept = default;
 
-MultiResolver &MultiResolver::operator=(MultiResolver &&) noexcept = default;
+ResolverDispatcher &ResolverDispatcher::operator=(ResolverDispatcher &&) noexcept = default;
 
 std::vector<std::string>
-MultiResolver::resolve(const std::string &host, dns_type type, int max_retries, int backoff_ms) const {
+ResolverDispatcher::resolve(const std::string &host, dns_type type, int max_retries, int backoff_ms) const {
     return impl_->resolve(host, type, max_retries, backoff_ms);
 }

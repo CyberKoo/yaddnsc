@@ -14,17 +14,29 @@
 #include "type.h"
 #include "mixin.h"
 
+// ── Tag type for anonymous/temporary resolvers ──
+//
+// Resolvers constructed with this tag get id_ = 0 instead of consuming an
+// increment from the global counter. Used for the fallback system resolver
+// in ClassicResolver's default constructor (a single-use query helper).
+struct AnonymousIdTag {
+};
+
 // ---------------------------------------------------------------------------
 // ResolverBase — common interface for all DNS resolvers.
 //
-// Provides the shared contract (query + non-copyable/non-movable semantics)
-// so that callers can work with any resolver type polymorphically.
-// Each resolver carries a stable numeric id (auto-incremented from a static
-// atomic counter) for unambiguous log references.
+// Provides the shared contract (query + non-copyable semantics) so that
+// callers can work with any resolver type polymorphically.  Each resolver
+// carries a stable numeric id (auto-incremented from a static atomic
+// counter) for unambiguous log references.
 // ---------------------------------------------------------------------------
 class ResolverBase {
 public:
     virtual ~ResolverBase() = default;
+
+    ResolverBase(ResolverBase &&) noexcept = default;
+
+    ResolverBase &operator=(ResolverBase &&) noexcept = default;
 
     [[nodiscard]] virtual std::vector<uint8_t> query(const std::string &host, dns_type type) const = 0;
 
@@ -38,16 +50,15 @@ protected:
 
     // For anonymous/temporary resolvers that should not consume an ID from the
     // global counter (e.g. the fallback system resolver in MultiResolver).
-    explicit ResolverBase(std::nullptr_t) : id_(0) {
+    explicit ResolverBase(AnonymousIdTag) : id_(0) {
     }
 
 private:
-    [[maybe_unused, no_unique_address]] NoCopy _nc_;
-    [[maybe_unused, no_unique_address]] NoMove _nm_;
-
     uint64_t id_;
 
     inline static std::atomic<uint64_t> next_id_{0};
+
+    [[maybe_unused, no_unique_address]] NoCopy _nc_;
 };
 
 #endif // YADDNSC_DNS_BASE_H

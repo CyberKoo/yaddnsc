@@ -16,7 +16,7 @@
 #include "network/http_client.h"
 #include "config/config.h"
 
-MultiResolver DnsResolverFactory::create(const Config::config &config) {
+ResolverDispatcher DnsResolverFactory::create(const Config::config &config) {
     // Build the list of DNS servers from config, preserving backward
     // compatibility with the legacy single-server format.
     std::vector<dns_server_type> dns_servers;
@@ -64,5 +64,5 @@ MultiResolver DnsResolverFactory::create(const Config::config &config) {
         );
     }
 
-    return MultiResolver(std::move(resolvers), config.resolver.strategy);
+    return ResolverDispatcher(std::move(resolvers), config.resolver.strategy);
 }

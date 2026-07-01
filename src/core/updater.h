@@ -13,13 +13,13 @@
 
 class DriverManager;
 class NetworkManager;
-class MultiResolver;
+class ResolverDispatcher;
 
 // ---------------------------------------------------------------------------
 // Updater — stateful executor that processes a single UpdateTask.
 //
 // Holds non-owning references to the DriverManager, NetworkManager, and
-// MultiResolver (all initialized before any call to process()).
+// ResolverDispatcher (all initialized before any call to process()).
 //
 // process() is thread-safe: it is marked const, owns no mutable state, and
 // may be called concurrently from multiple pool threads.
@@ -27,7 +27,7 @@ class MultiResolver;
 class Updater {
 public:
     Updater(const DriverManager &driver_manager, const NetworkManager &network_manager,
-            const MultiResolver &resolver_pool);
+            const ResolverDispatcher &resolver_pool);
 
     ~Updater();
 

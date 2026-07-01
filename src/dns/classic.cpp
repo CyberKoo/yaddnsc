@@ -217,8 +217,8 @@ private:
     [[maybe_unused, no_unique_address]] NoMove _nm_;
 };
 
-ClassicResolver::ClassicResolver()
-    : ResolverBase(nullptr), impl_(std::make_unique<Impl>(std::nullopt, get_id())) {
+ClassicResolver::ClassicResolver() : ResolverBase(AnonymousIdTag{}),
+                                     impl_(std::make_unique<Impl>(std::nullopt, get_id())) {
 }
 
 ClassicResolver::ClassicResolver(std::optional<dns_server_type> server)
@@ -229,8 +229,4 @@ ClassicResolver::~ClassicResolver() = default;
 
 std::vector<uint8_t> ClassicResolver::query(const std::string &host, dns_type type) const {
     return impl_->query(host, type);
-}
-
-std::string_view ClassicResolver::get_type() const noexcept {
-    return "Classic";
 }

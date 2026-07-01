@@ -94,7 +94,3 @@ DohResolver::~DohResolver() = default;
 std::vector<uint8_t> DohResolver::query(const std::string &host, dns_type type) const {
     return impl_->query(host, type);
 }
-
-std::string_view DohResolver::get_type() const noexcept {
-    return "DNS-Over-HTTPS";
-}

@@ -34,11 +34,12 @@ public:
 
     [[nodiscard]] std::vector<uint8_t> query(const std::string &host, dns_type type) const override;
 
-    [[nodiscard]] std::string_view get_type() const noexcept override;
+    [[nodiscard]] std::string_view get_type() const noexcept override { return TYPE; }
 
 private:
     class Impl;
     std::unique_ptr<Impl> impl_;
+    static constexpr std::string_view TYPE = "DNS-Over-HTTPS";
 };
 
 #endif // YADDNSC_DNS_DOH_H

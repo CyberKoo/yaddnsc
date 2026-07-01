@@ -14,7 +14,7 @@
 #include "fmt.hpp"
 #include "uri.h"
 #include "config/config.h"
-#include "dns/multi_resolver.h"
+#include "dns/resolver_dispatcher.h"
 #include "dns/resolver_factory.h"
 #include "type.h"
 

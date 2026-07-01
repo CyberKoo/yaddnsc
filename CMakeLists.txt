@@ -226,7 +226,7 @@ set(DriverManager src/core/driver_manager.cpp)
 set(SignalHandler src/core/signal_handler.cpp)
 set(NetworkManager src/network/network_manager.cpp)
 set(CLI src/cli/cli.cpp src/cli/driver.cpp src/cli/interface.cpp src/cli/dns.cpp src/cli/config.cpp)
-set(DNS src/dns/types.cpp src/dns/classic.cpp src/dns/parser.cpp src/dns/doh.cpp src/dns/dot.cpp src/dns/dns_mkquery.cpp src/dns/multi_resolver.cpp src/dns/resolver_factory.cpp)
+set(DNS src/dns/types.cpp src/dns/classic.cpp src/dns/parser.cpp src/dns/doh.cpp src/dns/dot.cpp src/dns/dns_mkquery.cpp src/dns/resolver_dispatcher.cpp src/dns/resolver_factory.cpp)
 
 # ==============================================================================
 # Main executable

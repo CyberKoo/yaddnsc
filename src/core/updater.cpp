@@ -8,7 +8,7 @@
 #include <magic_enum/magic_enum.hpp>
 
 #include "dns/types.h"
-#include "dns/multi_resolver.h"
+#include "dns/resolver_dispatcher.h"
 #include "driver_manager.h"
 #include "interfaces/driver.h"
 #include "interfaces/http_client.h"
@@ -23,9 +23,9 @@
 class Updater::Impl {
 public:
     explicit Impl(const DriverManager &driver_manager, const NetworkManager &network_manager,
-                  const MultiResolver &resolver_pool) : driver_manager_(driver_manager),
+                  const ResolverDispatcher &resolver_dispatcher) : driver_manager_(driver_manager),
                                                         network_manager_(network_manager),
-                                                        resolver_pool_(resolver_pool) {
+                                                        dispatcher_(resolver_dispatcher) {
     }
 
     void process(const UpdateTask &task) const;
@@ -45,7 +45,7 @@ private:
 private:
     const DriverManager &driver_manager_;
     const NetworkManager &network_manager_;
-    const MultiResolver &resolver_pool_;
+    const ResolverDispatcher &dispatcher_;
 };
 
 // ---------------------------------------------------------------------------
@@ -53,8 +53,8 @@ private:
 // ---------------------------------------------------------------------------
 
 Updater::Updater(const DriverManager &driver_manager, const NetworkManager &network_manager,
-                 const MultiResolver &resolver_pool)
-    : impl_(std::make_unique<Impl>(driver_manager, network_manager, resolver_pool)) {
+                 const ResolverDispatcher &resolver_dispatcher)
+    : impl_(std::make_unique<Impl>(driver_manager, network_manager, resolver_dispatcher)) {
 }
 
 Updater::~Updater() = default;
@@ -123,7 +123,7 @@ void Updater::Impl::process(const UpdateTask &task) const {
 // ---------------------------------------------------------------------------
 std::vector<std::string>
 Updater::Impl::dns_lookup(const std::string &host, dns_type type) const {
-    return resolver_pool_.resolve(host, type);
+    return dispatcher_.resolve(host, type);
 }
 
 // ---------------------------------------------------------------------------

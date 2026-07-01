@@ -10,7 +10,7 @@
 #include <spdlog/spdlog.h>
 
 #include "dns/resolver_factory.h"
-#include "dns/multi_resolver.h"
+#include "dns/resolver_dispatcher.h"
 #include "updater.h"
 #include "driver_loader.h"
 #include "scheduler.h"
@@ -24,7 +24,7 @@
 // Manager::Impl — orchestrates the lifecycle of all subsystem components.
 //
 // Responsibilities:
-//   • Construct and wire up DriverManager, NetworkManager, MultiResolver,
+//   • Construct and wire up DriverManager, NetworkManager, ResolverDispatcher,
 //     Updater, Scheduler, and SignalHandler.
 //   • Delegate driver loading to DriverLoader.
 //   • Delegate config validation to ConfigValidator.
@@ -36,8 +36,8 @@ class Manager::Impl {
 public:
     explicit Impl(Config::config config)
         : config_(std::move(config))
-          , resolver_pool_(DnsResolverFactory::create(config_))
-          , updater_(driver_manager_, network_manager_, resolver_pool_)
+          , dispatcher_(DnsResolverFactory::create(config_))
+          , updater_(driver_manager_, network_manager_, dispatcher_)
           , scheduler_(config_, updater_) {
     }
 
@@ -64,11 +64,11 @@ public:
 
 private:
     // IMPORTANT: destruction order is the reverse of declaration order.
-    // config_ is declared first because it's needed by resolver_pool_'s constructor.
+    // config_ is declared first because it's needed by dispatcher_'s constructor.
     Config::config config_;
     DriverManager driver_manager_;
     NetworkManager network_manager_;
-    MultiResolver resolver_pool_;
+    ResolverDispatcher dispatcher_;
     Updater updater_;
     Scheduler scheduler_;
     SignalHandler signal_handler_;

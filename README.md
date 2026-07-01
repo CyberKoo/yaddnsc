@@ -48,7 +48,7 @@ Parallel workers"]
     updaterA["Updater::process() (task A)
 1. Get driver from DriverManager
 2. Get local IP (interface or URL)
-3. DNS lookup (MultiResolver)
+3. DNS lookup (ResolverDispatcher)
 4. Compare; skip if unchanged
 5. Create TransientHttpClient
 6. driver.execute()"]
@@ -60,7 +60,7 @@ execute (default: generate_request
 HTTP → DNS provider API"]
     net["NetworkManager
 Interface IP detection"]
-    dns["MultiResolver
+    dns["ResolverDispatcher
 ResolverBase
 ├─ ClassicResolver (UDP/TCP)
 ├─ DohResolver (HTTPS POST)
@@ -161,6 +161,7 @@ of the system resolver.
 | `YADDNSC_LOGGING_PATTERN`     | `[%D %T.%e] [%^%8l%$] [%8!t] [%15!s:%-4#] %v` | Logging pattern passed to spdlog::set_pattern()                   |
 | `YADDNSC_MIN_UPDATE_INTERVAL` | 60                                            | Minimum allowed update interval in seconds (must not be negative) |
 | `YADDNSC_MANUAL_MKQUERY`      | OFF                                          | Use a self-contained manual DNS query builder instead of system `res_mkquery()`. Useful when the system stub is incomplete or undesirable (e.g. to avoid EDNS0 records from resolver config). |
+| `YADDNSC_USE_SYSTEM_SPDLOG`   | OFF                                          | Use spdlog from the system package instead of the bundled CPM-downloaded version. When enabled, also uses the system fmt library. |
 
 Third-party dependencies (glaze, spdlog, cpp-httplib, CLI11, BS::thread_pool, fmt, magic_enum) are fetched automatically via CPM.cmake.
 
@@ -201,8 +202,8 @@ A template configuration is available at `config.example.json`.
           "name": "home",
           "type": "aaaa",
           "interface": "eth0",
-          "ip_source": "interface",
           "ip_type": "ipv6",
+          "ip_source": "interface",
           "ip_source_param": "",
           "allow_ula": false,
           "allow_local_link": false,
@@ -216,8 +217,8 @@ A template configuration is available at `config.example.json`.
         {
           "name": "home",
           "type": "a",
-          "ip_source": "url",
           "ip_type": "ipv4",
+          "ip_source": "url",
           "ip_source_param": "https://ipv4.example.com/",
           "allow_ula": false,
           "allow_local_link": false,
@@ -278,7 +279,7 @@ Each `DnsServer` entry in the `servers` array has the following structure:
 
 | Field     | Type    | Description                                                                                                                                                                                               |
 |-----------|---------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `address` | string  | For **traditional DNS**: a plain IP address (e.g. `1.1.1.1`). For **DNS-over-HTTPS (DoH)**: a full HTTPS URL **including the path**, e.g. `https://1.1.1.1/dns-query`. The `https://` prefix is required. For **DNS-over-TLS (DoT)**: a `tls://` URI (e.g. `tls://1.1.1.1`). |
+| `address` / `ipaddress` | string  | For **traditional DNS**: a plain IP address (e.g. `1.1.1.1`). For **DNS-over-HTTPS (DoH)**: a full HTTPS URL **including the path**, e.g. `https://1.1.1.1/dns-query`. The `https://` prefix is required. For **DNS-over-TLS (DoT)**: a `tls://` URI (e.g. `tls://1.1.1.1`). The field can also be written as `ipaddress` for compatibility. |
 | `port`    | integer | DNS server port, typically 53. **Ignored for DoH** (HTTPS uses port 443 by default) and **DoT** (TLS uses port 853 by default).                                                                                                                      |
 
 > **DoH / DoT note:** When the `address` starts with `https://`, it is treated as a DNS-over-HTTPS resolver. The address must be a complete URL with the full path — `/dns-query` is the standard DoH endpoint per RFC 8484, but any custom path is supported. The code does **not** append `/dns-query` automatically. When the `address` starts with `tls://`, it is treated as a DNS-over-TLS resolver (RFC 7858). If no port is specified, 853 is used as the default.
