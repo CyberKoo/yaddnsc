@@ -78,7 +78,7 @@ namespace cli {
         std::println("DNS lookup result:\n"
                      "  Host:  {}\n"
                      "  Type:  {}\n"
-                     "  Value: {}", host, type_str, fmt::join(dns_result, ", ")
+                     "  Value: {}", host, type_str, fmt::format("{}", fmt::join(dns_result, ", "))
         );
         return EXIT_SUCCESS;
     }

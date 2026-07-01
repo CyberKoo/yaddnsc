@@ -59,6 +59,14 @@ if (NOT LIBC_MUSL)
   set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -flto=auto")
 endif ()
 
+# On musl, res_mkquery / libresolv is not available (musl's resolv.h is
+# a stub), so the manual DNS query builder must be used by default.
+if (LIBC_MUSL AND NOT DEFINED YADDNSC_MANUAL_MKQUERY)
+  set(YADDNSC_MANUAL_MKQUERY ON CACHE BOOL
+      "Use manual DNS query builder instead of system res_mkquery" FORCE)
+  message(STATUS "musl detected — YADDNSC_MANUAL_MKQUERY defaulting to ON")
+endif ()
+
 # Strip symbols in Release builds
 if (APPLE)
   set(CMAKE_EXE_LINKER_FLAGS_RELEASE "${CMAKE_EXE_LINKER_FLAGS_RELEASE} -Wl,-S")
@@ -121,17 +129,22 @@ CPMAddPackage("gh:stephenberry/glaze@7.8.2")
 # ---------------------------------------------------------------------------
 # fmt / std::format  (conditional)
 # ---------------------------------------------------------------------------
-if (HAVE_STD_FORMAT)
+if (YADDNSC_USE_SYSTEM_SPDLOG)
+  # System spdlog links against libfmt internally, so we must use the system
+  # fmt library too.  std::format (C++23) is deliberately NOT used here because
+  # mixing it with libfmt's type system (join_view, etc.) causes silent
+  # incompatibilities and build failures.
+  if (HAVE_STD_FORMAT)
+    message(STATUS "Using system fmt (std::format is available but disabled — "
+                   "system spdlog requires libfmt)")
+  else ()
+    message(STATUS "Using system fmt library")
+  endif ()
+  find_package(fmt REQUIRED)
+elseif (HAVE_STD_FORMAT)
   message(STATUS "Using native std::format")
   add_compile_definitions(YADDNSC_USE_STD_FORMAT)
-  # SPDLOG_USE_STD_FORMAT is only meaningful when building spdlog from source,
-  # so skip it when using system spdlog (it was already configured at build time).
-  if (NOT YADDNSC_USE_SYSTEM_SPDLOG)
-    set(SPDLOG_USE_STD_FORMAT ON)
-  endif ()
-elseif (YADDNSC_USE_SYSTEM_SPDLOG)
-  message(STATUS "Using system fmt library (find_package)")
-  find_package(fmt REQUIRED)
+  set(SPDLOG_USE_STD_FORMAT ON)
 else ()
   message(STATUS "Using external fmt library via CPM")
   CPMAddPackage("gh:fmtlib/fmt#12.2.0")
@@ -212,15 +225,15 @@ set(InetAddress src/network/inet_address.cpp)
 set(DriverManager src/core/driver_manager.cpp)
 set(SignalHandler src/core/signal_handler.cpp)
 set(NetworkManager src/network/network_manager.cpp)
-set(DNS src/dns/types.cpp src/dns/classic.cpp src/dns/parser.cpp src/dns/doh.cpp src/dns/dot.cpp src/dns/dns_mkquery.cpp src/dns/multi_resolver.cpp src/dns/resolver_factory.cpp)
 set(CLI src/cli/cli.cpp src/cli/driver.cpp src/cli/interface.cpp src/cli/dns.cpp src/cli/config.cpp)
+set(DNS src/dns/types.cpp src/dns/classic.cpp src/dns/parser.cpp src/dns/doh.cpp src/dns/dot.cpp src/dns/dns_mkquery.cpp src/dns/multi_resolver.cpp src/dns/resolver_factory.cpp)
 
 # ==============================================================================
 # Main executable
 # ==============================================================================
 add_executable(yaddnsc src/main.cpp src/util/string_util.cpp ${CertUtil} ${DNS} ${Config} ${DriverManager}
-        ${DriverLoader} ${URI} ${Updater} ${Manager} ${SignalHandler} ${Scheduler} ${HttpClient} ${NetworkManager}
-        ${CoreLogger} ${InetAddress} ${CLI}
+        ${DriverLoader} ${URI} ${Updater} ${Manager} ${SignalHandler} ${Scheduler} ${HttpClient}
+        ${NetworkManager} ${CoreLogger} ${InetAddress} ${CLI}
 )
 
 # Hide all symbols at compile time; only YADDNSC_EXPORT-marked functions
