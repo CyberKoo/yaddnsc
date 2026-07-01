@@ -5,10 +5,11 @@
 #ifndef YADDNSC_UTIL_CACHE_H
 #define YADDNSC_UTIL_CACHE_H
 
+#include <mutex>
 #include <chrono>
 #include <concepts>
-#include <mutex>
 #include <optional>
+#include <functional>
 #include <type_traits>
 #include <unordered_map>
 

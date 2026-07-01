@@ -7,6 +7,7 @@
 #include <map>
 #include <ranges>
 #include <stdexcept>
+#include <algorithm>
 
 #include "fmt.hpp"
 #include "utils/cache.h"
