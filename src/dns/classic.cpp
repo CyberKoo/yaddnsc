@@ -21,7 +21,7 @@
 #include "mixin.h"
 #include "config_cmake.h"
 #include "network/inet_address.h"
-#include "exception/dns_lookup_exception.h"
+#include "exceptions/dns_lookup_exception.h"
 
 // only for musl
 #ifndef NETDB_INTERNAL
@@ -161,8 +161,10 @@ namespace {
             if (received_size < 0) {
                 auto error_type = get_dns_lookup_err(h_errno);
                 SPDLOG_DEBUG(R"(DNS query failed for "{}": {})", host_str, DNS::error_to_str(error_type));
-                throw DnsLookupException(fmt::format(R"(DNS lookup failed for domain "{}", error: {})", host_str,
-                                                     DNS::error_to_str(error_type)), error_type);
+                throw DnsLookupException(
+                    fmt::format(R"(DNS lookup failed for domain "{}", error: {})", host_str,
+                                DNS::error_to_str(error_type)), error_type
+                );
             }
             SPDLOG_TRACE(R"(DNS query received: {} bytes (buffer size: {}))", received_size, buffer_size);
         } while (received_size >= buffer_size);
@@ -191,7 +193,7 @@ public:
 
     ~Impl() = default;
 
-    std::vector<uint8_t> query(const std::string &host_str, dns_type type) const {
+    [[nodiscard]] std::vector<uint8_t> query(const std::string &host_str, dns_type type) const {
         SPDLOG_TRACE(R"(Resolver #{} DNS lookup for "{}")", id_, host_str);
 
         const auto ns_type = DNS::to_ns_type(type);

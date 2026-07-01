@@ -18,7 +18,7 @@
 #include "fmt.hpp"
 #include "version.h"
 #include "http_types.h"
-#include "util/cert_util.h"
+#include "utils/cert_util.h"
 
 namespace {
     std::string build_request(const Uri &uri) {
@@ -82,7 +82,7 @@ namespace {
                 ca_path = opts.ca_cert_path;
             } else {
                 // fall back to auto-detection
-                ca_path = CertUtil::get_system_ca_path();
+                ca_path = Utils::Cert::get_system_ca_path();
             }
 
             if (ca_path.has_value()) {
@@ -93,12 +93,11 @@ namespace {
 
         // --- Outbound interface ----------------------------------------------
         if (opts.interface.has_value() && !opts.interface->empty()) {
-            client.set_interface(opts.interface->c_str());
+            client.set_interface(*opts.interface);
         }
 
         // --- Address family --------------------------------------------------
-        const auto af = opts.address_family.value_or(address_family_type::UNSPECIFIED);
-        switch (af) {
+        switch (opts.address_family.value_or(address_family_type::UNSPECIFIED)) {
             case address_family_type::IPV4:
                 client.set_address_family(AF_INET);
                 break;

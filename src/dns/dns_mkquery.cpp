@@ -15,7 +15,7 @@
 #include <vector>
 
 #include "dns_mkquery_config.h"
-#include "exception/dns_lookup_exception.h"
+#include "exceptions/dns_lookup_exception.h"
 #include "fmt.hpp"
 
 // ===========================================================================

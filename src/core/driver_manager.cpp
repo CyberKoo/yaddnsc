@@ -15,7 +15,7 @@
 #include "fmt.hpp"
 #include "driver_ver.h"
 #include "interfaces/driver.h"
-#include "exception/bad_driver_exception.h"
+#include "exceptions/bad_driver_exception.h"
 
 // Internal implementation
 class DriverManager::Impl {

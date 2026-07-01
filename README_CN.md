@@ -118,7 +118,7 @@ cmake .. -DCMAKE_BUILD_TYPE=Release
 make -j$(nproc)
 
 # 主程序位于 build/objs/yaddnsc
-# 驱动模块位于 build/objs/driver/*.so
+# 驱动模块位于 build/objs/drivers/*.so
 ```
 
 ### 平台注意事项
@@ -437,7 +437,7 @@ sudo systemctl enable --now yaddnsc
 
 驱动是运行时加载的共享库。编写自定义驱动的步骤：
 
-1. 包含 `driver/base_driver.h`，继承 `BaseDriver` 类。
+1. 包含 `drivers/base_driver.h`，继承 `BaseDriver` 类。
 2. 实现 `Driver` 接口的纯虚方法：
    - `generate_request(config, ctx)` → 构造 `driver_request`（URL、HTTP 方法、请求头、请求体）
    - `check_response(response)` → 验证 API 响应体

@@ -107,12 +107,12 @@ endif ()
 # ==============================================================================
 # Generated headers (all configure_file calls, after all variables are defined)
 # ==============================================================================
-configure_file("${CMAKE_SOURCE_DIR}/src/template/version.h.in" "${CMAKE_BINARY_DIR}/generated/version.h" @ONLY)
-configure_file("${CMAKE_SOURCE_DIR}/src/template/driver_ver.h.in" "${CMAKE_BINARY_DIR}/generated/driver_ver.h" @ONLY)
-configure_file("${CMAKE_SOURCE_DIR}/src/template/config_cmake.h.in" "${CMAKE_BINARY_DIR}/generated/config_cmake.h" @ONLY)
-configure_file("${CMAKE_SOURCE_DIR}/src/template/logging_pattern.h.in" "${CMAKE_BINARY_DIR}/generated/logging_pattern.h" @ONLY)
-configure_file("${CMAKE_SOURCE_DIR}/src/template/min_update_interval.h.in" "${CMAKE_BINARY_DIR}/generated/min_update_interval.h" @ONLY)
-configure_file("${CMAKE_SOURCE_DIR}/src/template/dns_mkquery_config.h.in" "${CMAKE_BINARY_DIR}/generated/dns_mkquery_config.h" @ONLY)
+configure_file("${CMAKE_SOURCE_DIR}/src/templates/version.h.in" "${CMAKE_BINARY_DIR}/generated/version.h" @ONLY)
+configure_file("${CMAKE_SOURCE_DIR}/src/templates/driver_ver.h.in" "${CMAKE_BINARY_DIR}/generated/driver_ver.h" @ONLY)
+configure_file("${CMAKE_SOURCE_DIR}/src/templates/config_cmake.h.in" "${CMAKE_BINARY_DIR}/generated/config_cmake.h" @ONLY)
+configure_file("${CMAKE_SOURCE_DIR}/src/templates/logging_pattern.h.in" "${CMAKE_BINARY_DIR}/generated/logging_pattern.h" @ONLY)
+configure_file("${CMAKE_SOURCE_DIR}/src/templates/min_update_interval.h.in" "${CMAKE_BINARY_DIR}/generated/min_update_interval.h" @ONLY)
+configure_file("${CMAKE_SOURCE_DIR}/src/templates/dns_mkquery_config.h.in" "${CMAKE_BINARY_DIR}/generated/dns_mkquery_config.h" @ONLY)
 
 # ==============================================================================
 # Dependencies (via CPM.cmake)
@@ -212,16 +212,17 @@ endif ()
 # ==============================================================================
 # Source files
 # ==============================================================================
-set(URI src/util/uri.cpp)
+set(URI src/utils/uri.cpp)
 set(Config src/config/config.cpp)
 set(Updater src/core/updater.cpp)
 set(Manager src/core/manager.cpp)
-set(CertUtil src/util/cert_util.cpp)
+set(CertUtil src/utils/cert_util.cpp)
 set(Scheduler src/core/scheduler.cpp)
 set(CoreLogger src/core/core_logger.cpp)
 set(HttpClient src/network/http_client.cpp)
 set(DriverLoader src/core/driver_loader.cpp)
 set(InetAddress src/network/inet_address.cpp)
+set(IfaceEnumerator src/utils/iface_enumerator.cpp)
 set(InterfaceUtil src/ip_source/iface_util.cpp)
 set(InterfaceIpSource src/ip_source/iface.cpp)
 set(HttpIpSource src/ip_source/http.cpp)
@@ -234,10 +235,10 @@ set(DNS src/dns/types.cpp src/dns/classic.cpp src/dns/parser.cpp src/dns/doh.cpp
 # ==============================================================================
 # Main executable
 # ==============================================================================
-add_executable(yaddnsc src/main.cpp src/util/string_util.cpp ${CertUtil} ${DNS} ${Config} ${DriverManager}
+add_executable(yaddnsc src/main.cpp src/utils/string_util.cpp ${CertUtil} ${DNS} ${Config} ${DriverManager}
         ${DriverLoader} ${URI} ${Updater} ${Manager} ${SignalHandler} ${Scheduler} ${HttpClient}
         ${CoreLogger} ${InetAddress} ${CLI}
-        ${InterfaceUtil} ${InterfaceIpSource} ${HttpIpSource} ${IpSourceFactory}
+        ${IfaceEnumerator} ${InterfaceUtil} ${InterfaceIpSource} ${HttpIpSource} ${IpSourceFactory}
 )
 
 # Hide all symbols at compile time; only YADDNSC_EXPORT-marked functions
@@ -285,4 +286,4 @@ endif ()
 # ==============================================================================
 # Driver modules
 # ==============================================================================
-add_subdirectory(${PROJECT_SOURCE_DIR}/driver/)
+add_subdirectory(${PROJECT_SOURCE_DIR}/drivers/)

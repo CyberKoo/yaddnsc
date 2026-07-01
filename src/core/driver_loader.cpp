@@ -10,7 +10,7 @@
 
 #include "config/config.h"
 #include "driver_manager.h"
-#include "util/algorithm.h"
+#include "utils/algorithm.h"
 
 void DriverLoader::load(DriverManager &driver_manager, const Config::config &config) {
     if (config.driver.auto_discover) {
@@ -38,7 +38,7 @@ void DriverLoader::load(DriverManager &driver_manager, const Config::config &con
     } else {
         // Manual load list
         auto load = config.driver.load;
-        Util::dedupe(load);
+        Utils::dedupe(load);
 
         const auto base_dir = std::filesystem::path(config.driver.driver_dir);
         for (const auto &driver: load) {

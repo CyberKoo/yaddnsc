@@ -20,11 +20,11 @@
 
 #include "types.h"
 #include "fmt.hpp"
-#include "util/cert_util.h"
+#include "utils/cert_util.h"
 #include "dns_mkquery.h"
-#include "util/validation.h"
+#include "utils/validation.h"
 #include "network/inet_address.h"
-#include "exception/dns_lookup_exception.h"
+#include "exceptions/dns_lookup_exception.h"
 
 namespace {
     // ── RAII wrappers for OpenSSL resources ──
@@ -214,7 +214,7 @@ private:
         if (SSL_CTX_set_default_verify_paths(ctx) != 1) {
             SPDLOG_DEBUG("SSL_CTX_set_default_verify_paths failed, falling back to cert_util");
             // Fall back to our own CA bundle discovery.
-            const auto ca_path = CertUtil::get_system_ca_path();
+            const auto ca_path = Utils::Cert::get_system_ca_path();
             if (ca_path.has_value()) {
                 if (SSL_CTX_load_verify_locations(ctx, ca_path->c_str(), nullptr) != 1) {
                     SSL_CTX_free(ctx);
@@ -241,7 +241,7 @@ private:
         }
 
         bool is_ip = InetAddress::parse(server).has_value();
-        if (!is_ip && !Util::is_valid_domain(server)) {
+        if (!is_ip && !Utils::is_valid_domain(server)) {
             throw DnsLookupException(
                 fmt::format(R"msg(Invalid DoT server: "{}" (not a valid IP or domain name))msg", server),
                 dns_error_type::CONNECTION);

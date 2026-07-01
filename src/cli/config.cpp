@@ -13,8 +13,8 @@
 #include "config/config.h"
 #include "core/manager.h"
 #include "logging_pattern.h"
-#include "exception/config_verification_exception.h"
-#include "exception/base_exception.h"
+#include "exceptions/config_verification_exception.h"
+#include "exceptions/base_exception.h"
 
 namespace cli {
 

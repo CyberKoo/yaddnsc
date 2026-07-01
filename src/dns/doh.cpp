@@ -13,7 +13,7 @@
 #include "types.h"
 #include "http_types.h"
 #include "network/http_client.h"
-#include "exception/dns_lookup_exception.h"
+#include "exceptions/dns_lookup_exception.h"
 
 namespace {
     constexpr auto DOH_CONTENT_TYPE = "application/dns-message";

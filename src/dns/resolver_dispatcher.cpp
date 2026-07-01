@@ -17,8 +17,8 @@
 #include "types.h"
 #include "parser.h"
 #include "classic.h"
-#include "util/retry_util.h"
-#include "exception/dns_lookup_exception.h"
+#include "utils/retry_util.h"
+#include "exceptions/dns_lookup_exception.h"
 
 // ===========================================================================
 //  ResolverDispatcher::Impl  —  private implementation
@@ -37,7 +37,7 @@ public:
     [[nodiscard]] std::vector<std::string>
     resolve(const std::string &host, dns_type type, int max_retries, int backoff_ms) const {
         unsigned actual_retries = 0;
-        auto result = Util::retry_on_exception<std::vector<std::string>, DnsLookupException>(
+        auto result = Utils::Retry::retry_on_exception<std::vector<std::string>, DnsLookupException>(
             [&]() -> std::vector<std::string> {
                 const std::vector<std::string> dns_answer = [&] {
                     if (resolvers_.empty()) {

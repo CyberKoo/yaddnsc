@@ -21,13 +21,13 @@
 // ---------------------------------------------------------------------------
 class InterfaceIpSource final : public IpSourceBase {
 public:
-    InterfaceIpSource(std::string interface_name, address_family_type af);
+    InterfaceIpSource(std::string interface_name, address_family_type address_family);
 
     [[nodiscard]] std::vector<InetAddress> resolve() const override;
 
 private:
     std::string interface_name_;
-    address_family_type af_;
+    address_family_type address_family_;
 };
 
 #endif // YADDNSC_INTERFACE_IP_SOURCE_H

@@ -119,7 +119,7 @@ cmake .. -DCMAKE_BUILD_TYPE=Release
 make -j$(nproc)
 
 # The main binary will be at build/objs/yaddnsc
-# Driver modules will be at build/objs/driver/*.so
+# Driver modules will be at build/objs/drivers/*.so
 ```
 
 ### Platform Notes
@@ -441,7 +441,7 @@ sudo systemctl enable --now yaddnsc
 
 Drivers are shared libraries loaded at runtime. To write one:
 
-1. Include `driver/base_driver.h` and inherit from `BaseDriver`.
+1. Include `drivers/base_driver.h` and inherit from `BaseDriver`.
 2. Implement the `Driver` interface:
    - `generate_request(config, ctx)` → construct a `driver_request` (URL, HTTP method, headers, body)
    - `check_response(response)` → validate the API response body

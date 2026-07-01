@@ -21,14 +21,14 @@
 // ---------------------------------------------------------------------------
 class HttpIpSource final : public IpSourceBase {
 public:
-    explicit HttpIpSource(std::string url, address_family_type af = address_family_type::UNSPECIFIED,
+    explicit HttpIpSource(std::string url, address_family_type address_family = address_family_type::UNSPECIFIED,
                           std::string bind_interface = {});
 
     [[nodiscard]] std::vector<InetAddress> resolve() const override;
 
 private:
     std::string url_;
-    address_family_type af_;
+    address_family_type address_family_;
     std::string bind_interface_;
 };
 

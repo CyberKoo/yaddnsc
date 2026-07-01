@@ -10,14 +10,14 @@
 #include "network/inet_address.h"
 #include "string_util.h"
 
-HttpIpSource::HttpIpSource(std::string url, address_family_type af, std::string bind_interface)
-    : url_(std::move(url)), af_(af), bind_interface_(std::move(bind_interface)) {
+HttpIpSource::HttpIpSource(std::string url, address_family_type address_family, std::string bind_interface)
+    : url_(std::move(url)), address_family_(address_family), bind_interface_(std::move(bind_interface)) {
 }
 
 std::vector<InetAddress> HttpIpSource::resolve() const {
     HttpClientOptions opts{
-        .address_family = af_,
-        .interface = bind_interface_.empty() ? std::nullopt : std::optional<std::string>(bind_interface_),
+        .address_family = address_family_,
+        .interface = bind_interface_.empty() ? std::nullopt : std::optional(bind_interface_),
     };
 
     auto body = TransientHttpClient::get_body(url_, opts);

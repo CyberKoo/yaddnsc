@@ -16,7 +16,7 @@
 #include "config_cmake.h"
 #include "network/inet_address.h"
 #include "core/driver_manager.h"
-#include "exception/config_verification_exception.h"
+#include "exceptions/config_verification_exception.h"
 
 class DriverManager;
 
