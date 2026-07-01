@@ -5,7 +5,6 @@
 #ifndef YADDNSC_CONFIG_CONFIG_H
 #define YADDNSC_CONFIG_CONFIG_H
 
-#include <optional>
 #include <vector>
 #include <string>
 
@@ -15,7 +14,7 @@
 
 namespace Config {
     enum class ip_source_type {
-        INTERFACE, URL
+        INTERFACE, HTTP
     };
 
     enum class resolver_strategy {
@@ -39,7 +38,7 @@ namespace Config {
     struct subdomain_config {
         std::string name;
         dns_type type{};
-        std::optional<std::string> interface;
+        std::string interface;
         address_family_type ip_type{address_family_type::UNSPECIFIED};
         ip_source_type ip_source{};
         std::string ip_source_param;

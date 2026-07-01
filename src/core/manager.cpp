@@ -9,23 +9,24 @@
 
 #include <spdlog/spdlog.h>
 
-#include "dns/resolver_factory.h"
-#include "dns/resolver_dispatcher.h"
 #include "updater.h"
-#include "driver_loader.h"
 #include "scheduler.h"
+#include "driver_loader.h"
 #include "signal_handler.h"
 #include "driver_manager.h"
-#include "network/network_manager.h"
-#include "config/config_validator.hpp"
+#include "ip_source/factory.h"
 #include "min_update_interval.h"
+#include "ip_source/iface_util.h"
+#include "dns/resolver_factory.h"
+#include "dns/resolver_dispatcher.h"
+#include "config/config_validator.hpp"
 
 // ---------------------------------------------------------------------------
 // Manager::Impl — orchestrates the lifecycle of all subsystem components.
 //
 // Responsibilities:
-//   • Construct and wire up DriverManager, NetworkManager, ResolverDispatcher,
-//     Updater, Scheduler, and SignalHandler.
+//   • Construct and wire up DriverManager, ResolverDispatcher, Updater,
+//     Scheduler, and SignalHandler.
 //   • Delegate driver loading to DriverLoader.
 //   • Delegate config validation to ConfigValidator.
 //   • Delegate signal-handler installation to SignalHandler (bridge its
@@ -37,7 +38,7 @@ public:
     explicit Impl(Config::config config)
         : config_(std::move(config))
           , dispatcher_(DnsResolverFactory::create(config_))
-          , updater_(driver_manager_, network_manager_, dispatcher_)
+          , updater_(driver_manager_, dispatcher_)
           , scheduler_(config_, updater_) {
     }
 
@@ -46,7 +47,8 @@ public:
     }
 
     void validate_config() const {
-        const ConfigValidator<YADDNSC_MIN_UPDATE_INTERVAL> validator(driver_manager_, network_manager_);
+        const auto interfaces = InterfaceUtil::get_interfaces();
+        const ConfigValidator<YADDNSC_MIN_UPDATE_INTERVAL> validator(driver_manager_, interfaces);
         validator.validate(config_);
     }
 
@@ -56,7 +58,7 @@ public:
     }
 
     void run() {
-        const auto interfaces = network_manager_.get_interfaces();
+        const auto interfaces = InterfaceUtil::get_interfaces();
         SPDLOG_INFO("All available interfaces: {}", fmt::join(interfaces, ", "));
 
         scheduler_.run();
@@ -67,7 +69,6 @@ private:
     // config_ is declared first because it's needed by dispatcher_'s constructor.
     Config::config config_;
     DriverManager driver_manager_;
-    NetworkManager network_manager_;
     ResolverDispatcher dispatcher_;
     Updater updater_;
     Scheduler scheduler_;

@@ -44,12 +44,11 @@ public:
                         SPDLOG_TRACE(R"(Using default system resolver for "{}")", host);
                         // Lazily initialize the fallback resolver so it is reused
                         // across retries instead of being recreated every attempt.
-                        {
-                            std::lock_guard lock(fallback_mtx_);
-                            if (!fallback_resolver_) {
-                                fallback_resolver_.emplace();
-                            }
-                        }
+                        // std::call_once ensures exactly one thread runs the
+                        // construction; after that, all threads query safely.
+                        std::call_once(fallback_init_flag_, [this] {
+                            fallback_resolver_.emplace();
+                        });
                         auto raw_response = fallback_resolver_->query(host, type);
                         auto records = DnsRecordParser::parse_all(raw_response.data(), raw_response.size(), host);
                         if (!records.empty()) {
@@ -300,9 +299,10 @@ private:
     }
 
     // ── Fallback resolver (used when resolvers_ is empty) ──
-    // Initialised lazily so that the ClassicResolver (and its underlying
-    // res_ninit) is constructed at most once, even when retries occur.
-    mutable std::mutex fallback_mtx_;
+    // Initialised lazily (via std::call_once) so that the ClassicResolver
+    // (and its underlying res_ninit) is constructed exactly once, even
+    // when retries occur or multiple threads call resolve() concurrently.
+    mutable std::once_flag fallback_init_flag_;
     mutable std::optional<ClassicResolver> fallback_resolver_;
 
     std::vector<std::shared_ptr<ResolverBase> > resolvers_;

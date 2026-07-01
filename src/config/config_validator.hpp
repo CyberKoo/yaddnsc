@@ -16,11 +16,9 @@
 #include "config_cmake.h"
 #include "network/inet_address.h"
 #include "core/driver_manager.h"
-#include "network/network_manager.h"
 #include "exception/config_verification_exception.h"
 
 class DriverManager;
-class NetworkManager;
 
 // ---------------------------------------------------------------------------
 // Internal helpers (hidden in detail namespace)
@@ -32,10 +30,18 @@ namespace detail {
 
     inline void validate_ip_source(const Config::domain_config &domain, const Config::subdomain_config &subdomain) {
         auto fqdn = fqdn_for(domain, subdomain);
-        if (subdomain.ip_source == Config::ip_source_type::URL) {
+
+        // Both HTTP and INTERFACE sources require a non-empty interface name.
+        if (subdomain.interface.empty()) {
+            throw ConfigVerificationException(
+                fmt::format("Subdomain {} requires a network interface (field 'interface' is empty or missing)", fqdn)
+            );
+        }
+
+        if (subdomain.ip_source == Config::ip_source_type::HTTP) {
             if (subdomain.ip_source_param.empty()) {
                 throw ConfigVerificationException(
-                    fmt::format("Subdomain {} uses url IP source but ip_source param is empty", fqdn)
+                    fmt::format("Subdomain {} uses HTTP IP source but ip_source_param is empty", fqdn)
                 );
             }
 
@@ -51,12 +57,6 @@ namespace detail {
                 );
             }
             return;
-        }
-
-        if (!subdomain.interface.has_value()) {
-            throw ConfigVerificationException(
-                fmt::format("Subdomain {} uses interface IP source but interface is empty", fqdn)
-            );
         }
     }
 
@@ -89,8 +89,8 @@ namespace detail {
 // before the scheduler starts.
 //
 // The MinUpdateInterval template parameter controls the minimum allowed update
-// interval (in seconds).  The DriverManager and NetworkManager are injected at
-// construction time and must outlive the validator.
+// interval (in seconds).  Interface names are injected as a vector so that the
+// validator can check that every referenced interface exists on the system.
 //
 // Each check throws ConfigVerificationException on failure, so a single call
 // to validate() either returns normally (all checks pass) or throws at the
@@ -99,13 +99,12 @@ namespace detail {
 template<int UpdateInterval>
 class ConfigValidator {
 public:
-    ConfigValidator(const DriverManager &driver_manager, const NetworkManager &network_manager)
-        : driver_manager_(driver_manager), network_manager_(network_manager) {
+    ConfigValidator(const DriverManager &driver_manager, std::vector<std::string> interfaces)
+        : driver_manager_(driver_manager), interfaces_(std::move(interfaces)) {
     }
 
     void validate(const Config::config &cfg) const {
         const auto drivers = driver_manager_.get_loaded_drivers();
-        const auto interfaces = network_manager_.get_interfaces();
 
         for (const auto &[name, update_interval, force_update, driver, subdomains]: cfg.domains) {
             // --- Check domain name is not empty. ---------------------------------
@@ -142,8 +141,6 @@ public:
             }
 
             // --- Check that every referenced interface exists. -------------------
-            // Build a domain_config once so we don't copy the subdomains vector
-            // on every iteration of the inner loop.
             const Config::domain_config domain{name, update_interval, force_update, driver, subdomains};
             for (const auto &subdomain: subdomains) {
                 if (subdomain.name.empty()) {
@@ -162,14 +159,12 @@ public:
                     );
                 }
 
-                if (subdomain.interface.has_value()) {
-                    if (std::ranges::find(interfaces, *subdomain.interface) == interfaces.end()) {
-                        auto available = fmt::format("{}", fmt::join(interfaces, ", "));
-                        throw ConfigVerificationException(
-                            fmt::format("Interface {} not found, available interfaces: {}", *subdomain.interface,
-                                        available)
-                        );
-                    }
+                if (std::ranges::find(interfaces_, subdomain.interface) == interfaces_.end()) {
+                    auto available = fmt::format("{}", fmt::join(interfaces_, ", "));
+                    throw ConfigVerificationException(
+                        fmt::format("Interface {} not found, available interfaces: {}", subdomain.interface,
+                                    available)
+                    );
                 }
             }
         }
@@ -190,7 +185,7 @@ public:
 
 private:
     const DriverManager &driver_manager_;
-    const NetworkManager &network_manager_;
+    const std::vector<std::string> interfaces_;
 
     [[maybe_unused, no_unique_address]] NoCopy _nc_;
     [[maybe_unused, no_unique_address]] NoMove _nm_;

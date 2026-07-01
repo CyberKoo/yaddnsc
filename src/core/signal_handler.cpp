@@ -12,17 +12,10 @@
 SignalHandler::SignalHandler() = default;
 
 SignalHandler::~SignalHandler() {
-    // If the signal thread was started but is still blocked on sigwait()
-    // (e.g. install() was called but run() never ran, or an exception
-    // escaped the scheduler), send SIGTERM to wake it up so that ~jthread()
-    // can join cleanly instead of hanging.
-    //
-    // In normal operation the signal thread has already exited by this
-    // point (it called request_stop() and returned), so the kill() is
-    // harmless — SIGTERM is blocked in all thread masks and nobody is
-    // waiting on sigwait for it, so it is simply discarded.
+    // If the signal thread is still blocked on sigwait(), send SIGINT
+    // to wake it up so jthread can join cleanly on destruction.
     if (signal_thread_.joinable()) {
-        kill(getpid(), SIGTERM);
+        kill(getpid(), SIGINT);
     }
 }
 

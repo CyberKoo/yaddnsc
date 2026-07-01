@@ -12,7 +12,7 @@
   - [Simple](https://github.com/Kotarou/yaddnsc) — a generic HTTP driver with URL template substitution for custom API endpoints
 - **Flexible IP source configuration** — per-subdomain, choose:
   - `interface` — obtain the IP from a local network interface
-  - `url` — obtain the IP from an external HTTP service (e.g. `https://ifconfig.me`)
+  - `http` — obtain the IP from an external HTTP service (e.g. `https://ifconfig.me`)
 - **Per-subdomain update interval** — each subdomain can override the domain-level update interval.
 - **IPv4 and IPv6 support** — configure A and AAAA records independently.
 - **Custom DNS resolver** — optionally use specific DNS servers for record lookups instead of the system resolver. Supports **traditional DNS** (plain IP + port), **DNS-over-HTTPS (DoH)** (full HTTPS URL, e.g. `https://1.1.1.1/dns-query`), and **DNS-over-TLS (DoT)** (TLS URI with `tls://` schema, e.g. `tls://1.1.1.1`). Multiple servers are queried using a configurable strategy — **fallback** (try the first available resolver, then the next on failure) or **concurrent** (fire all configured resolvers in parallel and take the fastest successful response).
@@ -47,7 +47,7 @@ sigwait(SIGINT/SIGTERM)
 Parallel workers"]
     updaterA["Updater::process() (task A)
 1. Get driver from DriverManager
-2. Get local IP (interface or URL)
+2. Get local IP (interface or HTTP)
 3. DNS lookup (ResolverDispatcher)
 4. Compare; skip if unchanged
 5. Create TransientHttpClient
@@ -58,8 +58,6 @@ same as task A…"]
 execute (default: generate_request
 → HttpClient::send → check_response)
 HTTP → DNS provider API"]
-    net["NetworkManager
-Interface IP detection"]
     dns["ResolverDispatcher
 ResolverBase
 ├─ ClassicResolver (UDP/TCP)
@@ -76,10 +74,6 @@ ResolverBase
     pool --> updaterB
     updaterA --> driver
     updaterB --> driver
-    updaterA -.-> net
-    updaterB -.-> net
-    updaterA -.-> dns
-    updaterB -.-> dns
 ```
 
 **Thread model:** A single scheduler thread (inline in `Manager::run()`) maintains a min-heap of `SubdomainEntry` items ordered by deadline. When a subdomain is due, the scheduler pops it, submits `Updater::process(task)` to the shared thread pool, and re-queues the entry with its next deadline. The scheduler sleeps on a condition variable until the nearest deadline or a stop request. On shutdown it drains all in-flight pool tasks before returning.
@@ -89,7 +83,7 @@ ResolverBase
 **Updater::process()** (runs in a pool thread) does the following for each subdomain:
 
 1. **Resolve the driver** — look up the driver plugin by name from `DriverManager`.
-2. **Get local IP** — read from a network interface (`NetworkManager`) or fetch from an external URL.
+2. **Get local IP** — resolve via the IP source abstraction (`IpSourceBase`), which either reads from a local network interface (`InterfaceIpSource`) or fetches from an external URL (`HttpIpSource`). Delegates creation to `IpSourceFactory` based on per-subdomain configuration.
 3. **DNS lookup** — query the current DNS record using `ClassicResolver` (UDP/TCP), `DohResolver` (HTTPS POST, RFC 8484), or `DotResolver` (TLS, RFC 7858).
 4. **Compare** — skip the update if unchanged (unless `force_update` is set).
 5. **Create `TransientHttpClient`** — a per-task HTTP client that creates a new httplib::Client on every `send()` call.
@@ -218,7 +212,7 @@ A template configuration is available at `config.example.json`.
           "name": "home",
           "type": "a",
           "ip_type": "ipv4",
-          "ip_source": "url",
+          "ip_source": "http",
           "ip_source_param": "https://ipv4.example.com/",
           "allow_ula": false,
           "allow_local_link": false,
@@ -303,17 +297,17 @@ When the `servers` array is present and non-empty, `address` and `port` are igno
 | Field              | Type    | Description                                                                                                          |
 |--------------------|---------|----------------------------------------------------------------------------------------------------------------------|
 | `name`             | string  | Subdomain name (e.g. `home` for `home.example.com`)                                                                  |
-| `type`             | string  | DNS record type: `"a"`, `"aaaa"`, `"txt"`, or `"soa"`                                                                |
-| `interface`        | string  | Network interface name (e.g. `eth0`). Required when `ip_source` is `"interface"`; can be omitted when using `"url"`. |
-| `ip_type`          | string  | IP version: `"ipv4"`, `"ipv6"`, or `"unspecified"`                                                                   |
-| `ip_source`        | string  | IP source: `"interface"` (read from a local NIC) or `"url"` (fetch from HTTP)                                        |
-| `ip_source_param`  | string  | For `"url"` source: the HTTP(S) URL. For `"interface"` source: currently unused.                                     |
+| `type`             | string  | DNS record type: `"a"`, `"aaaa"`, `"txt"`, or `"soa"`. Determines address family automatically (A → IPv4, AAAA → IPv6). |
+| `interface`        | string  | Network interface name (e.g. `eth0`). Required for both `"interface"` and `"http"` IP sources. |
+| `ip_type`          | string  | **Deprecated — ignored.** Address family is now derived from `type` (A → IPv4, AAAA → IPv6). |
+| `ip_source`        | string  | IP source: `"interface"` (read from a local NIC) or `"http"` (fetch from HTTP; `"url"` is also accepted for backward compatibility) |
+| `ip_source_param`  | string  | The HTTP(S) URL when `ip_source` is `"http"`. Ignored for `"interface"` source.                                        |
 | `allow_ula`        | boolean | When using IPv6 interface source, allow Unique Local Addresses (default: false)                                      |
 | `allow_local_link` | boolean | When using IPv6 interface source, allow link-local addresses (default: false)                                        |
 | `update_interval`  | int     | Per-subdomain update interval in seconds (optional). 0 or omitted = inherit from `domain.update_interval`.           |
 | `driver_param`     | object  | Driver-specific parameters (key-value map)                                                                           |
 
-> **Note:** The `interface` field is optional. When `ip_source` is `"url"`, you may omit `interface` entirely — no network interface binding will be used for the HTTP request. When `ip_source` is `"interface"`, `interface` is required.
+> **Note:** The `interface` field is **required** for both IP source types. When `ip_source` is `"interface"`, the IP is read directly from the NIC. When `ip_source` is `"http"`, the HTTP request to fetch the IP is bound to that interface.
 
 ## Driver Parameters
 

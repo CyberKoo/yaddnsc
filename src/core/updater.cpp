@@ -13,38 +13,46 @@
 #include "interfaces/driver.h"
 #include "interfaces/http_client.h"
 #include "network/http_client.h"
-#include "network/inet_address.h"
-#include "string_util.h"
-#include "network/network_manager.h"
+#include "ip_source/base.h"
+#include "ip_source/factory.h"
+
+namespace {
+
+// Filter out link-local and ULA addresses for AAAA candidates.
+void filter_ipv6_candidates(std::vector<InetAddress> &candidates, const Config::subdomain_config &config) {
+    if (!config.allow_local_link) {
+        std::erase_if(candidates, [](const InetAddress &a) { return a.is_link_local(); });
+    }
+    if (!config.allow_ula) {
+        std::erase_if(candidates, [](const InetAddress &a) { return a.is_ula(); });
+    }
+}
+
+} // anonymous namespace
 
 // ---------------------------------------------------------------------------
 // Updater::Impl — all private helpers live here.
 // ---------------------------------------------------------------------------
 class Updater::Impl {
 public:
-    explicit Impl(const DriverManager &driver_manager, const NetworkManager &network_manager,
-                  const ResolverDispatcher &resolver_dispatcher) : driver_manager_(driver_manager),
-                                                        network_manager_(network_manager),
-                                                        dispatcher_(resolver_dispatcher) {
+    explicit Impl(const DriverManager &driver_manager, const ResolverDispatcher &resolver_dispatcher)
+        : driver_manager_(driver_manager), dispatcher_(resolver_dispatcher) {
     }
 
     void process(const UpdateTask &task) const;
 
 private:
-    [[nodiscard]] std::vector<std::string>
-    dns_lookup(const std::string &host, dns_type type) const;
+    [[nodiscard]] std::vector<std::string> dns_lookup(const std::string &host, dns_type type) const;
 
-    [[nodiscard]] std::optional<InetAddress> get_ip_address(const Config::subdomain_config &config) const;
+    [[nodiscard]] std::optional<InetAddress> resolve_local_address(const Config::subdomain_config &config) const;
 
-    [[nodiscard]] static driver_config_type
-    build_driver_parameters(const UpdateTask &task);
+    [[nodiscard]] static driver_config_type build_driver_parameters(const UpdateTask &task);
 
     [[nodiscard]] static UpdateContext
     build_update_context(const UpdateTask &task, const InetAddress &ip_addr, std::string_view rd_type);
 
 private:
     const DriverManager &driver_manager_;
-    const NetworkManager &network_manager_;
     const ResolverDispatcher &dispatcher_;
 };
 
@@ -52,9 +60,8 @@ private:
 // Public API
 // ---------------------------------------------------------------------------
 
-Updater::Updater(const DriverManager &driver_manager, const NetworkManager &network_manager,
-                 const ResolverDispatcher &resolver_dispatcher)
-    : impl_(std::make_unique<Impl>(driver_manager, network_manager, resolver_dispatcher)) {
+Updater::Updater(const DriverManager &driver_manager, const ResolverDispatcher &resolver_dispatcher)
+    : impl_(std::make_unique<Impl>(driver_manager, resolver_dispatcher)) {
 }
 
 Updater::~Updater() = default;
@@ -78,7 +85,7 @@ void Updater::Impl::process(const UpdateTask &task) const {
 
     // --- Step 1: local IP ---------------------------------------------------
 
-    const auto local_ip = get_ip_address(task.subdomain);
+    const auto local_ip = resolve_local_address(task.subdomain);
     if (!local_ip) {
         SPDLOG_WARN("No valid IP address found for {}, skipping the update", task.fqdn);
         return;
@@ -92,8 +99,8 @@ void Updater::Impl::process(const UpdateTask &task) const {
         if (!records.empty()) {
             const auto &first = records.front();
             if (first == local_ip->to_string()) {
-                SPDLOG_DEBUG("Domain: {}, type: {}, current {}, new {}, skipping update",
-                             task.fqdn, rd_type, first, local_ip->to_string());
+                SPDLOG_DEBUG("Domain: {}, type: {}, current {}, new {}, skipping update", task.fqdn, rd_type, first,
+                             local_ip->to_string());
                 return;
             }
 
@@ -127,48 +134,29 @@ Updater::Impl::dns_lookup(const std::string &host, dns_type type) const {
 }
 
 // ---------------------------------------------------------------------------
-// get_ip_address — obtain the local IP from an interface or a URL.
+// resolve_local_address — resolve via IpSourceBase, then pick the first
+//                         candidate that passes policy filters.
 // ---------------------------------------------------------------------------
-std::optional<InetAddress> Updater::Impl::get_ip_address(const Config::subdomain_config &config) const {
-    auto address_family = DNS::dns2ip(config.type);
-    if (config.ip_source == Config::ip_source_type::INTERFACE) {
-        auto addresses = network_manager_.get_interface_ip_addresses(*config.interface);
+std::optional<InetAddress> Updater::Impl::resolve_local_address(const Config::subdomain_config &config) const {
+    auto ip_source = IpSourceFactory::create(config);
+    auto candidates = ip_source->resolve();
 
-        // Filter by address family.
-        if (address_family != address_family_type::UNSPECIFIED) {
-            std::erase_if(addresses, [af = address_family](const InetAddress &addr) {
-                return addr.get_family() != af;
-            });
-        }
-
-        if (address_family == address_family_type::IPV6) {
-            // Filter out link-local addresses unless explicitly allowed.
-            if (!config.allow_local_link) {
-                std::erase_if(addresses, [](const InetAddress &addr) { return addr.is_link_local(); });
-            }
-
-            // Filter out unique-local addresses unless explicitly allowed.
-            if (!config.allow_ula) {
-                std::erase_if(addresses, [](const InetAddress &addr) { return addr.is_ula(); });
-            }
-        }
-
-        if (!addresses.empty()) {
-            return std::move(addresses.front());
-        }
+    if (candidates.empty()) {
+        SPDLOG_DEBUG("No IP addresses resolved for {}", config.name);
         return std::nullopt;
     }
 
-    auto body = TransientHttpClient::get_body(config.ip_source_param, {
-                                                  .address_family = address_family, .interface = config.interface
-                                              });
-    if (!body) {
-        return std::nullopt;
+    // Only AAAA records need link-local / ULA filtering.
+    if (config.type == dns_type::AAAA) {
+        filter_ipv6_candidates(candidates, config);
+
+        if (candidates.empty()) {
+            SPDLOG_DEBUG("All IPv6 candidates filtered out for {}", config.name);
+            return std::nullopt;
+        }
     }
 
-    StringUtil::trim(*body);
-    SPDLOG_DEBUG("HTTP response: {}", *body);
-    return InetAddress::parse(*body);
+    return candidates.front();
 }
 
 // ---------------------------------------------------------------------------

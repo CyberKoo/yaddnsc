@@ -222,9 +222,12 @@ set(CoreLogger src/core/core_logger.cpp)
 set(HttpClient src/network/http_client.cpp)
 set(DriverLoader src/core/driver_loader.cpp)
 set(InetAddress src/network/inet_address.cpp)
+set(InterfaceUtil src/ip_source/iface_util.cpp)
+set(InterfaceIpSource src/ip_source/iface.cpp)
+set(HttpIpSource src/ip_source/http.cpp)
+set(IpSourceFactory src/ip_source/factory.cpp)
 set(DriverManager src/core/driver_manager.cpp)
 set(SignalHandler src/core/signal_handler.cpp)
-set(NetworkManager src/network/network_manager.cpp)
 set(CLI src/cli/cli.cpp src/cli/driver.cpp src/cli/interface.cpp src/cli/dns.cpp src/cli/config.cpp)
 set(DNS src/dns/types.cpp src/dns/classic.cpp src/dns/parser.cpp src/dns/doh.cpp src/dns/dot.cpp src/dns/dns_mkquery.cpp src/dns/resolver_dispatcher.cpp src/dns/resolver_factory.cpp)
 
@@ -233,7 +236,8 @@ set(DNS src/dns/types.cpp src/dns/classic.cpp src/dns/parser.cpp src/dns/doh.cpp
 # ==============================================================================
 add_executable(yaddnsc src/main.cpp src/util/string_util.cpp ${CertUtil} ${DNS} ${Config} ${DriverManager}
         ${DriverLoader} ${URI} ${Updater} ${Manager} ${SignalHandler} ${Scheduler} ${HttpClient}
-        ${NetworkManager} ${CoreLogger} ${InetAddress} ${CLI}
+        ${CoreLogger} ${InetAddress} ${CLI}
+        ${InterfaceUtil} ${InterfaceIpSource} ${HttpIpSource} ${IpSourceFactory}
 )
 
 # Hide all symbols at compile time; only YADDNSC_EXPORT-marked functions

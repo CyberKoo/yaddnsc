@@ -95,7 +95,8 @@ struct glz::meta<Config::ip_source_type> {
     using enum Config::ip_source_type;
     static constexpr auto value = enumerate(
         "interface", INTERFACE,
-        "url", URL
+        "http", HTTP,
+        "url", HTTP  // backward compatibility
     );
 };
 

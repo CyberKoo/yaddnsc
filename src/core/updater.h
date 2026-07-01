@@ -12,22 +12,20 @@
 #include "mixin.h"
 
 class DriverManager;
-class NetworkManager;
 class ResolverDispatcher;
 
 // ---------------------------------------------------------------------------
 // Updater — stateful executor that processes a single UpdateTask.
 //
-// Holds non-owning references to the DriverManager, NetworkManager, and
-// ResolverDispatcher (all initialized before any call to process()).
+// Holds non-owning references to the DriverManager and ResolverDispatcher
+// (all initialized before any call to process()).
 //
 // process() is thread-safe: it is marked const, owns no mutable state, and
 // may be called concurrently from multiple pool threads.
 // ---------------------------------------------------------------------------
 class Updater {
 public:
-    Updater(const DriverManager &driver_manager, const NetworkManager &network_manager,
-            const ResolverDispatcher &resolver_pool);
+    Updater(const DriverManager &driver_manager, const ResolverDispatcher &resolver_pool);
 
     ~Updater();
 

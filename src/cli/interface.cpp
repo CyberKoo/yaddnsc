@@ -8,7 +8,7 @@
 #include <print>
 #include <memory>
 
-#include "network/network_manager.h"
+#include "ip_source/iface_util.h"
 #include "network/inet_address.h"
 
 namespace cli {
@@ -44,8 +44,7 @@ namespace cli {
     // ── Executors ─────────────────────────────────────────────────────────
 
     int execute_interface_list() {
-        NetworkManager manager;
-        const auto interfaces = manager.get_interfaces();
+        const auto interfaces = InterfaceUtil::get_interfaces();
         if (interfaces.empty()) {
             std::println("No network interfaces found.");
             return EXIT_SUCCESS;
@@ -53,7 +52,7 @@ namespace cli {
 
         std::println("Network interfaces ({}):", interfaces.size());
         for (const auto &name: interfaces) {
-            const auto addrs = manager.get_interface_ip_addresses(name);
+            const auto addrs = InterfaceUtil::get_addresses(name);
             std::print("  {}", name);
             if (!addrs.empty()) {
                 std::print(" (");
@@ -69,9 +68,8 @@ namespace cli {
     }
 
     int execute_interface_ip(const std::string &interface_name) {
-        NetworkManager manager;
         try {
-            const auto addrs = manager.get_interface_ip_addresses(interface_name);
+            const auto addrs = InterfaceUtil::get_addresses(interface_name);
             std::println("Interface: {}", interface_name);
             for (const auto &addr: addrs) {
                 std::println("  {} ({})", addr.to_string(),
