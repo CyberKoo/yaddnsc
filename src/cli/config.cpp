@@ -17,7 +17,6 @@
 #include "exceptions/base_exception.h"
 
 namespace cli {
-
     void register_config_subcommand(CLI::App &app, const std::string &config_path, int &exit_code) {
         auto *cfg = app.add_subcommand("config", "Configuration management");
         cfg->require_subcommand(1);
@@ -68,5 +67,4 @@ namespace cli {
         }
         return EXIT_FAILURE;
     }
-
 } // namespace cli

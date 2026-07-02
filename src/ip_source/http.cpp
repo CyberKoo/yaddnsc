@@ -6,9 +6,9 @@
 
 #include <spdlog/spdlog.h>
 
+#include "string_util.h"
 #include "network/http_client.h"
 #include "network/inet_address.h"
-#include "string_util.h"
 
 HttpIpSource::HttpIpSource(std::string url, address_family_type address_family, std::string bind_interface)
     : url_(std::move(url)), address_family_(address_family), bind_interface_(std::move(bind_interface)) {
@@ -27,11 +27,11 @@ std::vector<InetAddress> HttpIpSource::resolve() const {
     }
 
     StringUtil::trim(*body);
-    SPDLOG_DEBUG("HTTP response from {}: {}", url_, *body);
 
     auto addr = InetAddress::parse(*body);
     if (!addr) {
         return {};
     }
+    SPDLOG_DEBUG("Resolved IP from HTTP: {}", *body);
     return {*std::move(addr)};
 }

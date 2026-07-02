@@ -21,7 +21,6 @@ class InetAddress;
 // Thread-safe: all public functions are guarded by an internal mutex.
 // ---------------------------------------------------------------------------
 namespace InterfaceUtil {
-
     // Returns a list of all network interface names that have at least one
     // IPv4 or IPv6 address.
     [[nodiscard]] std::vector<std::string> get_interfaces();
@@ -29,7 +28,6 @@ namespace InterfaceUtil {
     // Returns all IP addresses (v4 and v6) assigned to a given interface.
     // Throws std::runtime_error if the interface does not exist.
     [[nodiscard]] std::vector<InetAddress> get_addresses(const std::string &interface_name);
-
 } // namespace InterfaceUtil
 
 #endif // YADDNSC_INTERFACE_UTIL_H

@@ -5,11 +5,10 @@
 #ifndef YADDNSC_IP_SOURCE_BASE_H
 #define YADDNSC_IP_SOURCE_BASE_H
 
-#include <optional>
 #include <vector>
 
-#include "network/inet_address.h"
 #include "mixin.h"
+#include "network/inet_address.h"
 
 // ---------------------------------------------------------------------------
 // IpSourceBase — abstract interface for obtaining a local IP address.
@@ -25,7 +24,9 @@ public:
     virtual ~IpSourceBase() = default;
 
     IpSourceBase() = default;
+
     IpSourceBase(IpSourceBase &&) noexcept = default;
+
     IpSourceBase &operator=(IpSourceBase &&) noexcept = default;
 
     // Resolve the local IP address(es).

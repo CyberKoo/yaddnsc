@@ -6,8 +6,9 @@
 
 #include <arpa/nameser.h>
 
-#include <chrono>
+#include <span>
 #include <mutex>
+#include <chrono>
 #include <string>
 #include <vector>
 
@@ -42,7 +43,7 @@ namespace {
 
     // ── helpers ──
 
-    uint16_t read_uint16_be(const uint8_t *buf) {
+    constexpr uint16_t read_uint16_be(const uint8_t *buf) noexcept {
         return (static_cast<uint16_t>(buf[0]) << 8) | static_cast<uint16_t>(buf[1]);
     }
 
@@ -65,33 +66,31 @@ namespace {
     }
 
     // Read exactly n bytes from a BIO.  Returns false on EOF / error.
-    bool bio_read_exact(BIO *bio, uint8_t *buf, size_t n) {
-        while (n > 0) {
-            const int rc = BIO_read(bio, buf, static_cast<int>(n));
-            if (rc <= 0) {
-                if (BIO_should_retry(bio)) {
+    bool bio_read_exact(BIO *bio, std::span<uint8_t> buf) {
+        while (!buf.empty()) {
+            const int rc = BIO_read(bio, buf.data(), static_cast<int>(buf.size()));
+            if (rc <= 0) [[unlikely]] {
+                if (BIO_should_retry(bio)) [[likely]] {
                     continue;
                 }
                 return false;
             }
-            buf += rc;
-            n -= static_cast<size_t>(rc);
+            buf = buf.subspan(rc);
         }
         return true;
     }
 
     // Send all bytes over BIO.
-    bool bio_send_all(BIO *bio, const uint8_t *data, size_t n) {
-        while (n > 0) {
-            const int rc = BIO_write(bio, data, static_cast<int>(n));
-            if (rc <= 0) {
-                if (BIO_should_retry(bio)) {
+    bool bio_send_all(BIO *bio, std::span<const uint8_t> data) {
+        while (!data.empty()) {
+            const int rc = BIO_write(bio, data.data(), static_cast<int>(data.size()));
+            if (rc <= 0) [[unlikely]] {
+                if (BIO_should_retry(bio)) [[likely]] {
                     continue;
                 }
                 return false;
             }
-            data += rc;
-            n -= static_cast<size_t>(rc);
+            data = data.subspan(rc);
         }
         return true;
     }
@@ -139,11 +138,11 @@ public:
 
         // Send with one reconnect on failure.
         auto *bio = ensure_connection();
-        if (!bio_send_all(bio, wire.data(), wire.size())) {
+        if (!bio_send_all(bio, std::span{wire})) {
             SPDLOG_DEBUG(R"(DoT: connection to "{}" lost while sending, reconnecting)", target);
             persistent_bio_.reset();
             bio = ensure_connection();
-            if (!bio_send_all(bio, wire.data(), wire.size())) {
+            if (!bio_send_all(bio, std::span{wire})) {
                 persistent_bio_.reset();
                 throw DnsLookupException(
                     fmt::format(R"(DoT: failed to send query to "{}" after reconnect)", target),
@@ -156,7 +155,7 @@ public:
 
         // ---- 4. Read response ----
         uint8_t resp_len_buf[2];
-        if (!bio_read_exact(bio, resp_len_buf, 2)) {
+        if (!bio_read_exact(bio, resp_len_buf)) {
             persistent_bio_.reset();
             throw DnsLookupException(
                 fmt::format(R"(DoT: failed to read response length from "{}")", target),
@@ -174,7 +173,7 @@ public:
         }
 
         std::vector<uint8_t> response(resp_len);
-        if (!bio_read_exact(bio, response.data(), resp_len)) {
+        if (!bio_read_exact(bio, std::span{response})) {
             persistent_bio_.reset();
             throw DnsLookupException(
                 fmt::format(R"(DoT: failed to read response body from "{}")", target),
@@ -214,14 +213,14 @@ private:
         if (SSL_CTX_set_default_verify_paths(ctx) != 1) {
             SPDLOG_DEBUG("SSL_CTX_set_default_verify_paths failed, falling back to cert_util");
             // Fall back to our own CA bundle discovery.
-            const auto ca_path = Utils::Cert::get_system_ca_path();
-            if (ca_path.has_value()) {
-                if (SSL_CTX_load_verify_locations(ctx, ca_path->c_str(), nullptr) != 1) {
-                    SSL_CTX_free(ctx);
-                    throw_ssl_error(fmt::format("SSL_CTX_load_verify_locations({})", *ca_path));
-                }
-                SPDLOG_DEBUG("Loaded CA bundle from {}", *ca_path);
-            } else {
+            if (!Utils::Cert::get_system_ca_path()
+                .and_then([ctx](const auto &path) -> std::optional<std::string> {
+                    if (SSL_CTX_load_verify_locations(ctx, path.c_str(), nullptr) != 1) {
+                        return std::nullopt;
+                    }
+                    SPDLOG_DEBUG("Loaded CA bundle from {}", path);
+                    return path;
+                })) {
                 SSL_CTX_free(ctx);
                 throw_ssl_error("SSL_CTX_set_default_verify_paths and cert_util both failed");
             }
@@ -241,7 +240,7 @@ private:
         }
 
         bool is_ip = InetAddress::parse(server).has_value();
-        if (!is_ip && !Utils::is_valid_domain(server)) {
+        if (!is_ip && !Util::is_valid_domain(server)) {
             throw DnsLookupException(
                 fmt::format(R"msg(Invalid DoT server: "{}" (not a valid IP or domain name))msg", server),
                 dns_error_type::CONNECTION);
@@ -288,10 +287,11 @@ private:
                     dns_error_type::CONNECTION);
             }
 
-            struct timeval tv;
             const auto remaining_ms = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - now);
-            tv.tv_sec = static_cast<time_t>(remaining_ms.count() / 1000);
-            tv.tv_usec = static_cast<suseconds_t>((remaining_ms.count() % 1000) * 1000);
+            timeval tv{
+                .tv_sec = remaining_ms.count() / 1000,
+                .tv_usec = (remaining_ms.count() % 1000) * 1000
+            };
 
             fd_set read_fds, write_fds;
             FD_ZERO(&read_fds);
@@ -307,7 +307,8 @@ private:
                 if (sel_ret == 0) {
                     throw DnsLookupException(
                         fmt::format(R"(DoT: connection timeout (1s) for "{}")", target),
-                        dns_error_type::CONNECTION);
+                        dns_error_type::CONNECTION
+                    );
                 }
                 throw_ssl_error(fmt::format(R"(DoT: select() failed for "{}")", target));
             }
@@ -333,7 +334,7 @@ private:
 
         if (persistent_bio_) {
             const auto idle = std::chrono::duration_cast<std::chrono::seconds>(now - last_use_);
-            if (idle < IDLE_TIMEOUT) {
+            if (idle < IDLE_TIMEOUT) [[likely]] {
                 return persistent_bio_.get();
             }
             SPDLOG_TRACE(R"(DoT: idle timeout ({}s) for "{}":{} , reconnecting)", idle.count(), server_, port_);
@@ -369,5 +370,3 @@ DotResolver::~DotResolver() = default;
 std::vector<uint8_t> DotResolver::query(const std::string &host, dns_type type) const {
     return impl_->query(host, type);
 }
-
-

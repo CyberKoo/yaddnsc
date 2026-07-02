@@ -14,7 +14,6 @@
 #include "interfaces/driver.h"
 
 namespace cli {
-
     // ── Option storage (owned by the callback lambda via shared_ptr) ──────
 
     namespace {
@@ -86,5 +85,4 @@ namespace cli {
         }
         return EXIT_SUCCESS;
     }
-
 } // namespace cli

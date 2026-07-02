@@ -17,17 +17,15 @@
 #include "ip_source/factory.h"
 
 namespace {
-
-// Filter out link-local and ULA addresses for AAAA candidates.
-void filter_ipv6_candidates(std::vector<InetAddress> &candidates, const Config::subdomain_config &config) {
-    if (!config.allow_local_link) {
-        std::erase_if(candidates, [](const InetAddress &a) { return a.is_link_local(); });
+    // Filter out link-local and ULA addresses for AAAA candidates.
+    void filter_ipv6_candidates(std::vector<InetAddress> &candidates, const Config::subdomain_config &config) {
+        if (!config.allow_local_link) {
+            std::erase_if(candidates, [](const InetAddress &a) { return a.is_link_local(); });
+        }
+        if (!config.allow_ula) {
+            std::erase_if(candidates, [](const InetAddress &a) { return a.is_ula(); });
+        }
     }
-    if (!config.allow_ula) {
-        std::erase_if(candidates, [](const InetAddress &a) { return a.is_ula(); });
-    }
-}
-
 } // anonymous namespace
 
 // ---------------------------------------------------------------------------

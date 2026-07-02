@@ -21,7 +21,6 @@
 //  ===========================================================================
 
 namespace {
-
     void
     register_commands(CLI::App &app, std::string &config_path, bool &verbose, bool &run_requested, int &exit_code) {
         app.set_version_flag("--version", yaddnsc::get_full_version(), "Print version information");
@@ -42,7 +41,6 @@ namespace {
         cli::register_dns_subcommand(app, config_path, exit_code);
         cli::register_config_subcommand(app, config_path, exit_code);
     }
-
 } // anonymous namespace
 
 

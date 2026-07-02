@@ -70,9 +70,9 @@ namespace {
 
         static void destroy(struct __res_state *s) {
 #if defined(HAVE_RES_NDESTROY)
-            res_ndestroy(s);
+        res_ndestroy (s);
 #else
-            res_nclose(s);
+        res_nclose (s);
 #endif
         }
 
@@ -86,16 +86,16 @@ namespace {
             state._u._ext.nscount = 1;
 
 #if defined(HAVE_RES_STATE_EXT_NSADDRS)  // glibc
-            // Release any previously allocated IPv6 address structures to prevent memory leaks.
-            // res_nclose() frees the internal nsaddrs array but keeps the state alive.
-            res_nclose(&state);
-            // Re-set counters because res_nclose() zeroed them.
-            state.nscount = 1;
-            state._u._ext.nscount = 1;
-            state._u._ext.nscount6 = 1;
-            state._u._ext.nsmap[0] = MAXNS + 1;
-            auto *sa6 = state._u._ext.nsaddrs[0];
-            if (sa6 == nullptr) {
+        // Release any previously allocated IPv6 address structures to prevent memory leaks.
+        // res_nclose() frees the internal nsaddrs array but keeps the state alive.
+        res_nclose (&state);
+        // Re-set counters because res_nclose() zeroed them.
+        state.nscount=1;
+        state._u._ext.nscount=1;
+        state._u._ext.nscount6=1;
+        state._u._ext.nsmap [0] = MAXNS+ 1;
+        auto *sa6 = state._u._ext.nsaddrs[0];
+            if (sa6== nullptr) {
                 // Memory allocated here will be freed in res_nclose() later.
                 sa6 = ccalloc<sockaddr_in6>(1);
                 if (sa6 == nullptr) {
@@ -104,15 +104,15 @@ namespace {
                 state._u._ext.nsaddrs[0] = sa6;
             }
 
-            sa6->sin6_port = htons(server.port);
-            sa6->sin6_family = AF_INET6;
-            inet_pton(AF_INET6, server.address.c_str(), &sa6->sin6_addr);
+        sa6->sin6_port= htons(server.port);
+        sa6->sin6_family= AF_INET6;
+        inet_pton(AF_INET6, server.address.c_str (), &sa6->sin6_addr);
 #elif defined(HAVE_RES_SETSERVERS)  // BSD/macOS
-            res_sockaddr_union sau{};
-            sau.sin6.sin6_port = htons(server.port);
-            sau.sin6.sin6_family = AF_INET6;
-            inet_pton(AF_INET6, server.address.c_str(), &sau.sin6.sin6_addr);
-            res_setservers(&state, &sau, 1);
+        res_sockaddr_union sau{};
+        sau.sin6.sin6_port= htons(server.port);
+        sau.sin6.sin6_family= AF_INET6;
+        inet_pton(AF_INET6, server.address.c_str (), &sau.sin6.sin6_addr);
+        res_setservers (&state, &sau, 1);
 #endif
         }
 

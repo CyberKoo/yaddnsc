@@ -17,9 +17,8 @@
 // ---------------------------------------------------------------------------
 
 namespace cli {
-
     struct CliOutcome {
-        bool should_run = false;   // true  → main() enters the Manager flow
+        bool should_run = false; // true  → main() enters the Manager flow
         int exit_code = 0;
         bool exit_early = false;
 
@@ -32,7 +31,6 @@ namespace cli {
     // Never throws — errors and --help/--version are communicated via
     // exit_early / exit_code.
     [[nodiscard]] CliOutcome parse_and_dispatch(int argc, char *argv[]);
-
 } // namespace cli
 
 #endif // YADDNSC_CLI_CLI_H
