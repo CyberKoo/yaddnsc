@@ -10,6 +10,7 @@
 
 #include "http.h"
 #include "iface.h"
+#include "mdns.h"
 #include "fmt.hpp"
 #include "dns/types.h"
 #include "config/config.h"
@@ -23,6 +24,9 @@ std::unique_ptr<IpSourceBase> IpSourceFactory::create(const Config::subdomain_co
 
         case Config::ip_source_type::HTTP:
             return std::make_unique<HttpIpSource>(cfg.ip_source_param, address_family, cfg.interface);
+
+        case Config::ip_source_type::MDNS:
+            return std::make_unique<MdnsIpSource>(cfg.ip_source_param, cfg.type, cfg.interface);
     }
 
     throw std::runtime_error(

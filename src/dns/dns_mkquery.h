@@ -6,6 +6,7 @@
 #define YADDNSC_DNS_MKQUERY_H
 
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -51,5 +52,28 @@
 // Parameters and return are identical to dns_mkquery().
 // ---------------------------------------------------------------------------
 [[nodiscard]] std::vector<uint8_t> dns_mkquery_system(const std::string &host, int ns_type);
+
+// ---------------------------------------------------------------------------
+// dns_mkquery_mdns — build an mDNS query packet (RFC 6762).
+//
+// Constructs a DNS wire-format query suitable for multicast DNS.  Differs
+// from dns_mkquery_manual in three ways:
+//   1. Transaction ID is set to 0 (RFC 6762 §18.1).
+//   2. Flags are set to 0x0000 — no RD, no RA, standard query.
+//   3. QCLASS carries the QU (unicast-response) bit (0x8001) so that the
+//      responder sends a unicast reply instead of multicasting it (RFC 6762
+//      §18.3).
+//
+// Parameters:
+//   host        — The mDNS hostname to query (e.g. "printer.local").
+//   ns_type     — The DNS record type (ns_t_a, ns_t_aaaa, etc.).
+//   unicast_rsp — When true (default), set the QU bit in QCLASS; when false,
+//                 the responder will multicast its reply.
+//
+// Returns:
+//   A buffer containing the raw mDNS query packet bytes.
+// ---------------------------------------------------------------------------
+[[nodiscard]] std::vector<uint8_t> dns_mkquery_mdns(const std::string &host, int ns_type,
+                                                    bool unicast_rsp = true);
 
 #endif // YADDNSC_DNS_MKQUERY_H

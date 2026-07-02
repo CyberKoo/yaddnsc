@@ -14,7 +14,7 @@
 
 namespace Config {
     enum class ip_source_type {
-        INTERFACE, HTTP
+        INTERFACE, HTTP, MDNS
     };
 
     enum class resolver_strategy {

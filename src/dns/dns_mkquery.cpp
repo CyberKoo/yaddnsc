@@ -118,3 +118,30 @@ std::vector<uint8_t> dns_mkquery_manual(const std::string &host, int ns_type) {
 
     return w.finish();
 }
+
+// ===========================================================================
+//  dns_mkquery_mdns  —  mDNS query builder (RFC 6762)
+// ===========================================================================
+
+std::vector<uint8_t> dns_mkquery_mdns(const std::string &host, int ns_type, bool unicast_rsp) {
+    constexpr uint16_t QCLASS_IN = 0x0001;
+    constexpr uint16_t QU_BIT = 0x8000;
+
+    QueryWriter w;
+    // ---- Header (12 bytes) ----
+    w.write_uint16(0); // Transaction ID = 0 (RFC 6762 §18.1)
+    w.write_uint16(0x0000); // Flags = 0: standard query, no RD (RFC 6762 §18.1)
+    w.write_uint16(1); // QDCOUNT = 1 question
+    w.write_uint16(0); // ANCOUNT = 0
+    w.write_uint16(0); // NSCOUNT = 0
+    w.write_uint16(0); // ARCOUNT = 0
+
+    // ---- Question ----
+    w.encode_domain_name(host); // QNAME
+    w.write_uint16(static_cast<uint16_t>(ns_type)); // QTYPE
+
+    // QCLASS: IN with optional QU (unicast-response) bit (RFC 6762 §18.3)
+    w.write_uint16(unicast_rsp ? (QCLASS_IN | QU_BIT) : QCLASS_IN);
+
+    return w.finish();
+}

@@ -226,6 +226,7 @@ set(IfaceEnumerator src/utils/iface_enumerator.cpp)
 set(InterfaceUtil src/ip_source/iface_util.cpp)
 set(InterfaceIpSource src/ip_source/iface.cpp)
 set(HttpIpSource src/ip_source/http.cpp)
+set(MdnsIpSource src/ip_source/mdns.cpp)
 set(IpSourceFactory src/ip_source/factory.cpp)
 set(DriverManager src/core/driver_manager.cpp)
 set(SignalHandler src/core/signal_handler.cpp)
@@ -239,6 +240,7 @@ add_executable(yaddnsc src/main.cpp src/utils/string_util.cpp ${CertUtil} ${DNS}
         ${DriverLoader} ${URI} ${Updater} ${Manager} ${SignalHandler} ${Scheduler} ${HttpClient}
         ${CoreLogger} ${InetAddress} ${CLI}
         ${IfaceEnumerator} ${InterfaceUtil} ${InterfaceIpSource} ${HttpIpSource} ${IpSourceFactory}
+        ${MdnsIpSource}
 )
 
 # Hide all symbols at compile time; only YADDNSC_EXPORT-marked functions

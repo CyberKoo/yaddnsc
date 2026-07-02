@@ -13,9 +13,10 @@
 // ---------------------------------------------------------------------------
 // IpSourceBase — abstract interface for obtaining a local IP address.
 //
-// Two concrete implementations exist:
+// Three concrete implementations exist:
 //   • InterfaceIpSource — reads addresses from a local network interface
 //   • HttpIpSource      — fetches the address from an external HTTP service
+//   • MdnsIpSource      — discovers a LAN device via mDNS multicast
 //
 // Thread-safe: resolve() is const and does not mutate shared state.
 // ---------------------------------------------------------------------------

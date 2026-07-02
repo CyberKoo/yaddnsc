@@ -13,6 +13,7 @@
 #include "config.h"
 #include "mixin.h"
 #include "dns/types.h"
+#include "utils/validation.h"
 #include "config_cmake.h"
 #include "network/inet_address.h"
 #include "core/driver_manager.h"
@@ -31,10 +32,10 @@ namespace detail {
     inline void validate_ip_source(const Config::domain_config &domain, const Config::subdomain_config &subdomain) {
         auto fqdn = fqdn_for(domain, subdomain);
 
-        // Both HTTP and INTERFACE sources require a non-empty interface name.
-        if (subdomain.interface.empty()) {
+        // Only the INTERFACE source strictly requires a network interface name.
+        if (subdomain.ip_source == Config::ip_source_type::INTERFACE && subdomain.interface.empty()) {
             throw ConfigVerificationException(
-                fmt::format("Subdomain {} requires a network interface (field 'interface' is empty or missing)", fqdn)
+                fmt::format("Subdomain {} uses interface IP source but 'interface' field is empty", fqdn)
             );
         }
 
@@ -54,6 +55,37 @@ namespace detail {
                 throw ConfigVerificationException(
                     fmt::format("Subdomain {} has invalid ip_source_param '{}': {}", fqdn, subdomain.ip_source_param,
                                 e.what())
+                );
+            }
+            return;
+        }
+
+        if (subdomain.ip_source == Config::ip_source_type::MDNS) {
+            if (subdomain.ip_source_param.empty()) {
+                throw ConfigVerificationException(
+                    fmt::format("Subdomain {} uses mDNS IP source but ip_source_param is empty", fqdn)
+                );
+            }
+
+            if (!Utils::is_valid_domain(subdomain.ip_source_param)) {
+                throw ConfigVerificationException(
+                    fmt::format("Subdomain {} has invalid domain name '{}' for mDNS IP source",
+                                fqdn, subdomain.ip_source_param)
+                );
+            }
+
+            // mDNS uses the .local TLD (RFC 6762 §3).
+            const auto &param = subdomain.ip_source_param;
+            if (!param.ends_with(".local") && !param.ends_with(".local.")) {
+                throw ConfigVerificationException(
+                    fmt::format("Subdomain {} uses mDNS IP source but domain '{}' does not end with '.local' (RFC 6762)",
+                                fqdn, subdomain.ip_source_param)
+                );
+            }
+
+            if (subdomain.type != dns_type::A && subdomain.type != dns_type::AAAA) {
+                throw ConfigVerificationException(
+                    fmt::format("Subdomain {} uses mDNS IP source but type must be 'a' or 'aaaa'", fqdn)
                 );
             }
             return;
@@ -159,7 +191,8 @@ public:
                     );
                 }
 
-                if (std::ranges::find(interfaces_, subdomain.interface) == interfaces_.end()) {
+                if (!subdomain.interface.empty() &&
+                    std::ranges::find(interfaces_, subdomain.interface) == interfaces_.end()) {
                     auto available = fmt::format("{}", fmt::join(interfaces_, ", "));
                     throw ConfigVerificationException(
                         fmt::format("Interface {} not found, available interfaces: {}", subdomain.interface,

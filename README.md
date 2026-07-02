@@ -13,6 +13,7 @@
 - **Flexible IP source configuration** — per-subdomain, choose:
   - `interface` — obtain the IP from a local network interface
   - `http` — obtain the IP from an external HTTP service (e.g. `https://ifconfig.me`)
+  - `mdns` — discover a LAN device's IP address via mDNS (RFC 6762, e.g. `printer.local`)
 - **Per-subdomain update interval** — each subdomain can override the domain-level update interval.
 - **IPv4 and IPv6 support** — configure A and AAAA records independently.
 - **Custom DNS resolver** — optionally use specific DNS servers for record lookups instead of the system resolver. Supports **traditional DNS** (plain IP + port), **DNS-over-HTTPS (DoH)** (full HTTPS URL, e.g. `https://1.1.1.1/dns-query`), and **DNS-over-TLS (DoT)** (TLS URI with `tls://` schema, e.g. `tls://1.1.1.1`). Multiple servers are queried using a configurable strategy — **fallback** (try the first available resolver, then the next on failure) or **concurrent** (fire all configured resolvers in parallel and take the fastest successful response).
@@ -298,16 +299,16 @@ When the `servers` array is present and non-empty, `address` and `port` are igno
 |--------------------|---------|----------------------------------------------------------------------------------------------------------------------|
 | `name`             | string  | Subdomain name (e.g. `home` for `home.example.com`)                                                                  |
 | `type`             | string  | DNS record type: `"a"`, `"aaaa"`, `"txt"`, or `"soa"`. Determines address family automatically (A → IPv4, AAAA → IPv6). |
-| `interface`        | string  | Network interface name (e.g. `eth0`). Required for both `"interface"` and `"http"` IP sources. |
+| `interface`        | string  | Network interface name (e.g. `eth0`). Required for `"interface"` and `"http"` IP sources; optional for `"mdns"`. |
 | `ip_type`          | string  | **Deprecated — ignored.** Address family is now derived from `type` (A → IPv4, AAAA → IPv6). |
-| `ip_source`        | string  | IP source: `"interface"` (read from a local NIC) or `"http"` (fetch from HTTP; `"url"` is also accepted for backward compatibility) |
-| `ip_source_param`  | string  | The HTTP(S) URL when `ip_source` is `"http"`. Ignored for `"interface"` source.                                        |
+| `ip_source`        | string  | IP source: `"interface"` (read from a local NIC), `"http"` (fetch from HTTP), or `"mdns"` (discover via mDNS / RFC 6762). `"url"` is also accepted as a backward-compatible alias for `"http"`. |
+| `ip_source_param`  | string  | The HTTP(S) URL when `ip_source` is `"http"`, or the mDNS hostname (e.g. `"printer.local"`) when `ip_source` is `"mdns"`. Ignored for `"interface"` source. |
 | `allow_ula`        | boolean | When using IPv6 interface source, allow Unique Local Addresses (default: false)                                      |
 | `allow_local_link` | boolean | When using IPv6 interface source, allow link-local addresses (default: false)                                        |
 | `update_interval`  | int     | Per-subdomain update interval in seconds (optional). 0 or omitted = inherit from `domain.update_interval`.           |
 | `driver_param`     | object  | Driver-specific parameters (key-value map)                                                                           |
 
-> **Note:** The `interface` field is **required** for both IP source types. When `ip_source` is `"interface"`, the IP is read directly from the NIC. When `ip_source` is `"http"`, the HTTP request to fetch the IP is bound to that interface.
+> **Note:** The `interface` field is **required** for `"interface"` and `"http"` sources, and **optional** for `"mdns"`. When `ip_source` is `"interface"`, the IP is read directly from the NIC. When `ip_source` is `"http"`, the HTTP request to fetch the IP is bound to that interface. When `ip_source` is `"mdns"`, the mDNS query is sent on that interface (if specified) or on the default route otherwise.
 
 ## Driver Parameters
 
