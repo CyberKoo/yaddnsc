@@ -240,7 +240,7 @@ private:
         }
 
         bool is_ip = InetAddress::parse(server).has_value();
-        if (!is_ip && !Util::is_valid_domain(server)) {
+        if (!is_ip && !Utils::is_valid_domain(server)) {
             throw DnsLookupException(
                 fmt::format(R"msg(Invalid DoT server: "{}" (not a valid IP or domain name))msg", server),
                 dns_error_type::CONNECTION);
@@ -289,8 +289,8 @@ private:
 
             const auto remaining_ms = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - now);
             timeval tv{
-                .tv_sec = remaining_ms.count() / 1000,
-                .tv_usec = (remaining_ms.count() % 1000) * 1000
+                .tv_sec = static_cast<time_t>(remaining_ms.count() / 1000),
+                .tv_usec = static_cast<suseconds_t>((remaining_ms.count() % 1000) * 1000)
             };
 
             fd_set read_fds, write_fds;
