@@ -11,7 +11,7 @@
 #include "ip_source/iface_util.h"
 #include "network/inet_address.h"
 
-namespace cli {
+namespace Cli {
     // ── Option storage (owned by the callback lambda via shared_ptr) ──────
 
     namespace {
@@ -72,7 +72,7 @@ namespace cli {
             std::println("Interface: {}", interface_name);
             for (const auto &addr: addrs) {
                 std::println("  {} ({})", addr.to_string(),
-                             addr.get_family() == address_family_type::IPV4 ? "IPv4" : "IPv6");
+                             addr.get_family() == AddressFamily::IPV4 ? "IPv4" : "IPv6");
             }
         } catch (const std::exception &e) {
             std::println(std::cerr, "Error: {}", e.what());
@@ -80,4 +80,4 @@ namespace cli {
         }
         return EXIT_SUCCESS;
     }
-} // namespace cli
+} // namespace Cli

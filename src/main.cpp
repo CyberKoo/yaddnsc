@@ -7,11 +7,11 @@
 #include <spdlog/spdlog.h>
 
 #include "cli/cli.h"
-#include "config/config.h"
 #include "core/manager.h"
+#include "config/config.h"
 #include "logging_pattern.h"
-#include "exceptions/base_exception.h"
-#include "exceptions/config_verification_exception.h"
+#include "exception/base.h"
+#include "exception/config_verification.h"
 
 namespace {
     void block_signals() {
@@ -24,7 +24,7 @@ namespace {
 }
 
 int main(int argc, char *argv[]) {
-    const auto outcome = cli::parse_and_dispatch(argc, argv);
+    const auto outcome = Cli::parse_and_dispatch(argc, argv);
 
     // Global logging initialisation.
     spdlog::set_pattern(YADDNSC_LOGGING_PATTERN);

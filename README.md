@@ -33,13 +33,15 @@ CLI parsing · Load config · Init"]
 Load drivers · Validate config
 Install signal handler"]
     run["Manager::run()
-Resize thread pool
-Build min-heap schedule"]
-    sched["Scheduler loop (single thread, inline)
+Print interfaces
+→ Scheduler::run()"]
+    sched["Scheduler
+Resize thread pool · Build min-heap schedule
+Event loop (single thread, inline)
 Pop due entries → detach_task(updater.process)
 Re-queue with next deadline
 Sleep until nearest deadline
-On stop: pool.wait()"]
+On stop: break loop (pool drained in destructor)"]
     signal["Signal thread (jthread)
 sigwait(SIGINT/SIGTERM)
 → stop_source.request_stop()
@@ -77,9 +79,9 @@ ResolverBase
     updaterB --> driver
 ```
 
-**Thread model:** A single scheduler thread (inline in `Manager::run()`) maintains a min-heap of `SubdomainEntry` items ordered by deadline. When a subdomain is due, the scheduler pops it, submits `Updater::process(task)` to the shared thread pool, and re-queues the entry with its next deadline. The scheduler sleeps on a condition variable until the nearest deadline or a stop request. On shutdown it drains all in-flight pool tasks before returning.
+**Thread model:** A single scheduler thread (inline in `Scheduler::run()`, called from `Manager::run()`) maintains a min-heap of `SubdomainEntry` items ordered by deadline. When a subdomain is due, the scheduler pops it, submits `Updater::process(task)` to the shared thread pool, and re-queues the entry with its next deadline. The scheduler sleeps on a condition variable until the nearest deadline or a stop request. On shutdown the heap is discarded and the pool is drained in the `Scheduler` destructor before the program exits.
 
-**Signal handling:** A dedicated `std::jthread` waits on `sigwait()` for `SIGINT`/`SIGTERM`. When a signal arrives, it calls `stop_source.request_stop()`, which triggers a `std::stop_callback` that notifies the scheduler's condition variable, waking the loop so it can break out and drain the pool.
+**Signal handling:** A dedicated `std::jthread` waits on `sigwait()` for `SIGINT`/`SIGTERM`. When a signal arrives, it calls `stop_source.request_stop()`, which triggers a `std::stop_callback` that notifies the scheduler's condition variable, waking the loop so it can break out. Pending pool tasks are drained in the `Scheduler` destructor before the program exits.
 
 **Updater::process()** (runs in a pool thread) does the following for each subdomain:
 
@@ -90,7 +92,7 @@ ResolverBase
 5. **Create `TransientHttpClient`** — a per-task HTTP client that creates a new httplib::Client on every `send()` call.
 6. **Call `driver.execute()`** — delegates to the driver plugin, which calls `generate_request()` → `HttpClient::send()` → `check_response()`.
 
-**HTTP abstraction layer:** All provider API communication flows through the `HttpClient` interface. Two concrete implementations exist: `TransientHttpClient` creates a fresh [cpp-httplib](https://github.com/yhirose/cpp-httplib) client per request (used by the updater), while `PersistentHttpClient` reuses a single connection across multiple calls (used internally by the DoH resolver). Address family and network interface are configured per-subdomain via `HttpClientOptions`.
+**HTTP abstraction layer:** All provider API communication flows through the `HttpClient` interface. Two concrete implementations exist: `TransientHttpClient` creates a fresh [cpp-httplib](https://github.com/yhirose/cpp-httplib) client per request (used by the updater for driver execution), while `PersistentHttpClient` reuses a single connection across multiple calls (used internally by the DoH resolver). Address family and network interface are configured per-use via `HttpClientOptions`.
 
 ## Build Requirements
 
@@ -103,7 +105,7 @@ ResolverBase
 | OpenSSL         | 3.0+               |
 | Zlib            | Any recent version |
 
-yaddnsc is POSIX-only. Supported compilers: GCC 14+, Clang 18+, Apple Clang 15+
+yaddnsc is POSIX-only. Supported compilers: GCC 14+, Clang 18+, Apple Clang 15+.
 
 ### Building
 
@@ -120,33 +122,14 @@ cmake .. -DCMAKE_BUILD_TYPE=Release
 make -j$(nproc)
 
 # The main binary will be at build/objs/yaddnsc
-# Driver modules will be at build/objs/drivers/*.so
+# Driver modules will be at build/objs/driver/*.so
 ```
 
 ### Platform Notes
 
-**Insufficient GCC/Clang version**
+**Legacy devices** — If your toolchain is older (GCC < 14 or Clang < 18), use the `v0.x` (legacy) branch (C++17, CMake 3.14+, OpenSSL 1.1.x). It is in maintenance mode and will not receive new features but will get critical bug fixes. DoT/DoH resolvers are also available there.
 
-This branch requires **GCC 14+** or **Clang 18+** (C++23). If your toolchain
-is older, use the `v0.x` (legacy) branch instead:
-
-|                | master (this branch) | v0.x (legacy)         |
-|----------------|----------------------|-----------------------|
-| C++ Standard   | C++23                | C++17                 |
-| Compiler       | GCC 14+ / Clang 18+  | GCC 9+ / Clang 10+    |
-| CMake          | 3.28+                | 3.14+                 |
-| OpenSSL        | 3.0+                 | 1.1.x                 |
-
-The legacy branch is in maintenance mode — it will not receive new features
-but will get critical bug fixes. DoT/DoH resolvers are also available there.
-
-**Alpine Linux**
-
-musl ships a downgraded, classic-style `resolv` stub. It lacks modern
-features and may suffer from performance issues and limitations compared to
-glibc's resolver. On Alpine, it is strongly recommended to configure the
-resolver to use **DoT** (DNS over TLS) or **DoH** (DNS over HTTPS) instead
-of the system resolver.
+**Alpine Linux** — musl ships a downgraded, classic-style `resolv` stub. It lacks modern features and may suffer from performance issues and limitations compared to glibc's resolver. On Alpine, it is strongly recommended to configure the resolver to use **DoT** (DNS over TLS) or **DoH** (DNS over HTTPS) instead of the system resolver.
 
 ### CMake Options
 
@@ -197,9 +180,7 @@ A template configuration is available at `config.example.json`.
           "name": "home",
           "type": "aaaa",
           "interface": "eth0",
-          "ip_type": "ipv6",
           "ip_source": "interface",
-          "ip_source_param": "",
           "allow_ula": false,
           "allow_local_link": false,
           "update_interval": 600,
@@ -212,7 +193,6 @@ A template configuration is available at `config.example.json`.
         {
           "name": "home",
           "type": "a",
-          "ip_type": "ipv4",
           "ip_source": "http",
           "ip_source_param": "https://ipv4.example.com/",
           "allow_ula": false,
@@ -291,7 +271,7 @@ When the `servers` array is present and non-empty, the legacy `address` and `por
 | `update_interval`  | int     | Per-subdomain update interval in seconds (optional). 0 or omitted = inherit from `domain.update_interval`.           |
 | `driver_param`     | object  | Driver-specific parameters (key-value map)                                                                           |
 
-> **Note:** The `interface` field is **required** for `"interface"` and `"http"` sources, and **optional** for `"mdns"`. When `ip_source` is `"interface"`, the IP is read directly from the NIC. When `ip_source` is `"http"`, the HTTP request to fetch the IP is bound to that interface. When `ip_source` is `"mdns"`, the mDNS query is sent on that interface (if specified) or on the default route otherwise.
+> **Note:** The `interface` field is **required** only for the `"interface"` IP source. For `"http"` and `"mdns"` sources it is **optional** — when specified, the HTTP request or mDNS query is bound to that interface; when omitted, the system's default route is used.
 
 ## IP Source
 
@@ -331,7 +311,7 @@ Fetches the IP address from an external HTTP(S) service that returns the client'
 
 | Field              | Required | Description                                              |
 |--------------------|----------|----------------------------------------------------------|
-| `interface`        | Yes      | Network interface to bind the HTTP request to.           |
+| `interface`        | No       | Network interface to bind the HTTP request to. If omitted, uses the default route. |
 | `ip_source_param`  | Yes      | HTTP(S) URL that returns the IP address in the response body. |
 
 ### `mdns` — Discover via mDNS (RFC 6762)
@@ -362,7 +342,7 @@ Discovers the IP address of a LAN device by sending a multicast DNS query for a 
 | `interface`        | No       | Network interface to send the mDNS query on. If omitted, uses the default route. |
 | `ip_source_param`  | Yes      | The mDNS hostname to query. Must end with `.local` (or `.local.`) as per RFC 6762 §3. |
 
-> **Note for Linux users:** mDNS resolution requires multicast networking support on the client. Ensure `avahi-daemon` is installed and running, or `systemd-resolved` has mDNS support enabled (set `MulticastDNS=yes` in `resolved.conf`). Without one of these, mDNS queries may fail.
+> **Platform notes:** The client sends raw mDNS queries directly via UDP multicast — no system mDNS daemon is required on the client machine for outgoing queries. The **target device** must be running an mDNS responder to reply (e.g. Avahi or systemd-resolved with mDNS enabled on Linux; mDNSResponder on macOS; most embedded devices have this built in). Tested on Linux, macOS, and FreeBSD.
 
 ## DNS Resolver
 
@@ -596,9 +576,9 @@ sudo systemctl enable --now yaddnsc
 
 Drivers are shared libraries loaded at runtime. To write one:
 
-1. Include `drivers/base_driver.h` and inherit from `BaseDriver`.
+1. Include `driver/base_driver.h` and inherit from `BaseDriver`.
 2. Implement the `Driver` interface:
-   - `generate_request(config, ctx)` → construct a `driver_request` (URL, HTTP method, headers, body)
+   - `generate_request(config, ctx)` → construct a `DriverRequest` (URL, HTTP method, headers, body)
    - `check_response(response)` → validate the API response body
    - `get_detail()` → return driver metadata (name, description, author, version)
    - `get_driver_version()` → return the ABI version constant (implemented as `final` in `BaseDriver` — no need to override)
@@ -629,14 +609,14 @@ generate_request(config, ctx)
 
 For simple drivers this is sufficient — just implement `generate_request()` and `check_response()`, and the default `execute()` is inherited automatically.
 
-The `HttpClient` is initialized by the core with the correct address family (IPv4/IPv6) and network interface from the per-subdomain configuration, passed via `HttpClientOptions` at construction time. Drivers that override `execute()` receive the pre-configured client and can use it directly.
+The `HttpClient` is constructed per-update by the updater as a default-constructed `TransientHttpClient`. Drivers that override `execute()` receive this client and can use it directly. If address family or network interface binding is needed, construct the `TransientHttpClient` (or `PersistentHttpClient`) with a custom `HttpClientOptions` inside the override.
 
 ### Multi-step workflows with `HttpClient`
 
 Drivers that need multiple HTTP interactions (e.g. authenticate first, then query a resource, then update) can override `execute()` and call `http.send()` multiple times:
 
 ```
-bool MyDriver::execute(const driver_config_type &config,
+bool MyDriver::execute(const DriverConfig &config,
                        const UpdateContext &ctx,
                        HttpClient &http) override {
     // Step 1: fetch authentication token
@@ -662,14 +642,12 @@ The `HttpClient` interface provides:
 ```cpp
 class HttpClient {
 public:
-    virtual HttpResponse send(const http_request &req) const = 0;
-    static std::string params_to_query_string(const http_param_type &params);
+    virtual HttpResponse send(const HttpRequest &req) const = 0;
+    static std::string params_to_query_string(const HttpParams &params);
 };
 ```
 
-Address family and network interface are not configurable at the interface level; instead, they are passed via `HttpClientOptions` when constructing concrete implementations (`TransientHttpClient` / `PersistentHttpClient`). The updater binds these options from the per-subdomain configuration at construction time.
-
-`HttpResponse` is a type alias for `std::expected<HttpResponseData, std::string>`. Check it with implicit boolean conversion (success) or use `error()` to retrieve the error string:
+`HttpResult` is a type alias for `std::expected<HttpResponse, std::string>`. Check it with implicit boolean conversion (success) or use `error()` to retrieve the error string:
 
 | Expression          | Description                                 |
 |---------------------|---------------------------------------------|
@@ -678,8 +656,6 @@ Address family and network interface are not configurable at the interface level
 | `resp->headers`     | `multimap<string, string>` response headers |
 | `resp->body`        | `string` response body                      |
 | `resp.error()`      | `string` transport-level error description  |
-
-The network interface and address family are always bound at construction time via `HttpClientOptions` and are not configurable from the driver.
 
 ## Dependencies
 

@@ -10,10 +10,10 @@
 #include <CLI/CLI.hpp>
 
 #include "version.h"
-#include "cli/dns.h"
-#include "cli/driver.h"
-#include "cli/config.h"
-#include "cli/interface.h"
+#include "dns.h"
+#include "driver.h"
+#include "config.h"
+#include "interface.h"
 
 
 // ===========================================================================
@@ -36,10 +36,10 @@ namespace {
         }
 
         // Delegate to subcommand-specific registrations.
-        cli::register_driver_subcommand(app, config_path, exit_code);
-        cli::register_interface_subcommand(app, exit_code);
-        cli::register_dns_subcommand(app, config_path, exit_code);
-        cli::register_config_subcommand(app, config_path, exit_code);
+        Cli::register_driver_subcommand(app, config_path, exit_code);
+        Cli::register_interface_subcommand(app, exit_code);
+        Cli::register_dns_subcommand(app, config_path, exit_code);
+        Cli::register_config_subcommand(app, config_path, exit_code);
     }
 } // anonymous namespace
 
@@ -48,7 +48,7 @@ namespace {
 //  parse_and_dispatch — parse argv, non-RUN commands handled in callbacks
 //  ===========================================================================
 
-cli::CliOutcome cli::parse_and_dispatch(int argc, char *argv[]) {
+Cli::CliOutcome Cli::parse_and_dispatch(int argc, char *argv[]) {
     std::string config_path = "config.json";
     bool verbose = false;
     bool run_requested = false;

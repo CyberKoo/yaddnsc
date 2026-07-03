@@ -20,9 +20,9 @@
 #include <spdlog/spdlog.h>
 
 #include "fmt.hpp"
-#include "dns/parser.h"
-#include "dns/types.h"
-#include "dns/mkquery.h"
+#include "dns/util.h"
+#include "dns/proto/parser.h"
+#include "dns/proto/mkquery.h"
 #include "network/inet_address.h"
 
 // ===========================================================================
@@ -62,12 +62,12 @@ namespace {
 //  MdnsIpSource — public API
 // ===========================================================================
 
-MdnsIpSource::MdnsIpSource(std::string hostname, dns_type type, std::string interface)
+MdnsIpSource::MdnsIpSource(std::string hostname, DNS::Type type, std::string interface)
     : hostname_(std::move(hostname)), type_(type), interface_(std::move(interface)) {
 }
 
 std::vector<InetAddress> MdnsIpSource::resolve() const {
-    const bool is_ipv6 = (type_ == dns_type::AAAA);
+    const bool is_ipv6 = (type_ == DNS::Type::AAAA);
     const int af = is_ipv6 ? AF_INET6 : AF_INET;
     const char *mcast_group = is_ipv6 ? MDNS_IPV6_GROUP : MDNS_IPV4_GROUP;
 
@@ -258,7 +258,7 @@ std::vector<InetAddress> MdnsIpSource::resolve() const {
     // ── 7. Parse the response ───────────────────────────────────────────────
     std::vector<std::string> raw_records;
     try {
-        raw_records = DnsRecordParser::parse_all(recv_buf.data(), static_cast<size_t>(recv_len), hostname_);
+        raw_records = DNS::DnsRecordParser::parse_all(recv_buf.data(), static_cast<size_t>(recv_len), hostname_);
     } catch (const std::exception &e) {
         SPDLOG_DEBUG(R"(mDNS: failed to parse response for "{}": {})", hostname_, e.what());
         return {};
@@ -275,17 +275,18 @@ std::vector<InetAddress> MdnsIpSource::resolve() const {
 
     for (const auto &rec: raw_records) {
         // We already know the query type (A / AAAA), so parse accordingly.
-        if (type_ == dns_type::A) {
+        if (type_ == DNS::Type::A) {
             if (auto v4 = Inet4Address::parse(rec)) {
                 SPDLOG_DEBUG(R"(mDNS: resolved "{}" → {})", hostname_, rec);
-                results.push_back(*v4);  // implicit → InetAddress
+                results.push_back(*v4); // implicit → InetAddress
             } else {
                 SPDLOG_DEBUG(R"(mDNS: skipping non-A record "{}" for "{}")", rec, hostname_);
             }
-        } else {  // dns_type::AAAA
+        } else {
+            // DNS::Type::AAAA
             if (auto v6 = Inet6Address::parse(rec)) {
-                SPDLOG_DEBUG(R"(mDNS: resolved "{}" → {})", hostname_, rec);
-                results.push_back(*v6);  // implicit → InetAddress
+                SPDLOG_DEBUG(R"(mDNS: resolved "{}" → "{}")", hostname_, rec);
+                results.push_back(*v6); // implicit → InetAddress
             } else {
                 SPDLOG_DEBUG(R"(mDNS: skipping non-AAAA record "{}" for "{}")", rec, hostname_);
             }

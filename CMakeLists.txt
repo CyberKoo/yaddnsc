@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.28...3.31 FATAL_ERROR)
-project(yaddnsc)
+project(yaddnsc VERSION 1.0.0)
 
 list(APPEND CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/cmake)
 
@@ -9,12 +9,11 @@ list(APPEND CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/cmake)
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra")
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+set(CMAKE_POLICY_DEFAULT_CMP0077 NEW)
 
-# Clang 19.x needs -fexperimental-library for std::stop_token, std::jthread, etc.
-if (CMAKE_CXX_COMPILER_ID STREQUAL "Clang" AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL "19" AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS "20")
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fexperimental-library")
-endif ()
+# default to release if not specified
+set(CMAKE_BUILD_TYPE "Release" CACHE STRING "Build type")
 
 # ==============================================================================
 # Compiler version requirements
@@ -35,17 +34,6 @@ else ()
   message(FATAL_ERROR "Unsupported compiler: ${CMAKE_CXX_COMPILER_ID}. yaddnsc requires GCC 14+, Clang 18+, or AppleClang 15+.")
 endif ()
 
-set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -ggdb -gdwarf-3 -Wall")
-set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/objs/lib)
-set(EXECUTABLE_OUTPUT_PATH ${CMAKE_BINARY_DIR}/objs)
-set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
-set(CMAKE_POLICY_DEFAULT_CMP0077 NEW)
-
-# default to release if not specified
-if (NOT CMAKE_BUILD_TYPE)
-  set(CMAKE_BUILD_TYPE Release)
-endif ()
-
 # ==============================================================================
 # Feature detection
 # ==============================================================================
@@ -54,11 +42,6 @@ include(FeatureCheck)
 # ==============================================================================
 # Release build flags
 # ==============================================================================
-# LTO is incompatible with musl (auto-detected in FeatureCheck)
-if (NOT LIBC_MUSL)
-  set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -flto=auto")
-endif ()
-
 # On musl, res_mkquery / libresolv is not available (musl's resolv.h is
 # a stub), so the manual DNS query builder must be used by default.
 if (LIBC_MUSL AND NOT DEFINED YADDNSC_MANUAL_MKQUERY)
@@ -67,19 +50,12 @@ if (LIBC_MUSL AND NOT DEFINED YADDNSC_MANUAL_MKQUERY)
   message(STATUS "musl detected — YADDNSC_MANUAL_MKQUERY defaulting to ON")
 endif ()
 
-# Strip symbols in Release builds
-if (APPLE)
-  set(CMAKE_EXE_LINKER_FLAGS_RELEASE "${CMAKE_EXE_LINKER_FLAGS_RELEASE} -Wl,-S")
-else ()
-  set(CMAKE_EXE_LINKER_FLAGS_RELEASE "${CMAKE_EXE_LINKER_FLAGS_RELEASE} -Wl,-s")
-endif ()
-
 # ==============================================================================
 # Version info
 # ==============================================================================
-set(YADDNSC_VERSION_MAJOR 1)
-set(YADDNSC_VERSION_MINOR 0)
-set(YADDNSC_VERSION_PATCH 0)
+# Version is now managed by project(yaddnsc VERSION 1.0.0).
+# The version.h.in template uses @PROJECT_VERSION_MAJOR@ etc. directly,
+# so no YADDNSC_VERSION_* aliases are needed here.
 set(YADDNSC_DEVELOPMENT ON)
 set(YADDNSC_RELEASE_INFO RELEASE)
 set(YADDNSC_DRV_VERSION "1100000")
@@ -107,12 +83,12 @@ endif ()
 # ==============================================================================
 # Generated headers (all configure_file calls, after all variables are defined)
 # ==============================================================================
-configure_file("${CMAKE_SOURCE_DIR}/src/templates/version.h.in" "${CMAKE_BINARY_DIR}/generated/version.h" @ONLY)
-configure_file("${CMAKE_SOURCE_DIR}/src/templates/driver_ver.h.in" "${CMAKE_BINARY_DIR}/generated/driver_ver.h" @ONLY)
-configure_file("${CMAKE_SOURCE_DIR}/src/templates/config_cmake.h.in" "${CMAKE_BINARY_DIR}/generated/config_cmake.h" @ONLY)
-configure_file("${CMAKE_SOURCE_DIR}/src/templates/logging_pattern.h.in" "${CMAKE_BINARY_DIR}/generated/logging_pattern.h" @ONLY)
-configure_file("${CMAKE_SOURCE_DIR}/src/templates/min_update_interval.h.in" "${CMAKE_BINARY_DIR}/generated/min_update_interval.h" @ONLY)
-configure_file("${CMAKE_SOURCE_DIR}/src/templates/mkquery_config.h.in" "${CMAKE_BINARY_DIR}/generated/mkquery_config.h" @ONLY)
+configure_file("${CMAKE_SOURCE_DIR}/src/template/version.h.in" "${CMAKE_BINARY_DIR}/generated/version.h" @ONLY)
+configure_file("${CMAKE_SOURCE_DIR}/src/template/driver_ver.h.in" "${CMAKE_BINARY_DIR}/generated/driver_ver.h" @ONLY)
+configure_file("${CMAKE_SOURCE_DIR}/src/template/config_cmake.h.in" "${CMAKE_BINARY_DIR}/generated/config_cmake.h" @ONLY)
+configure_file("${CMAKE_SOURCE_DIR}/src/template/logging_pattern.h.in" "${CMAKE_BINARY_DIR}/generated/logging_pattern.h" @ONLY)
+configure_file("${CMAKE_SOURCE_DIR}/src/template/min_update_interval.h.in" "${CMAKE_BINARY_DIR}/generated/min_update_interval.h" @ONLY)
+configure_file("${CMAKE_SOURCE_DIR}/src/template/mkquery_config.h.in" "${CMAKE_BINARY_DIR}/generated/mkquery_config.h" @ONLY)
 
 # ==============================================================================
 # Dependencies (via CPM.cmake)
@@ -143,8 +119,8 @@ if (YADDNSC_USE_SYSTEM_SPDLOG)
   find_package(fmt REQUIRED)
 elseif (HAVE_STD_FORMAT)
   message(STATUS "Using native std::format")
-  add_compile_definitions(YADDNSC_USE_STD_FORMAT)
   set(SPDLOG_USE_STD_FORMAT ON)
+  set(YADDNSC_USE_STD_FORMAT ON)
 else ()
   message(STATUS "Using external fmt library via CPM")
   CPMAddPackage("gh:fmtlib/fmt#12.2.0")
@@ -161,7 +137,6 @@ else ()
   CPMAddPackage("gh:gabime/spdlog@1.17.0")
   set_target_properties(spdlog PROPERTIES POSITION_INDEPENDENT_CODE ON)
 endif ()
-add_compile_definitions(SPDLOG_ACTIVE_LEVEL=SPDLOG_LEVEL_DEBUG)
 
 # ---------------------------------------------------------------------------
 # cpp-httplib – HTTP client/server
@@ -172,7 +147,6 @@ CPMAddPackage(
         "HTTPLIB_USE_ZLIB_IF_AVAILABLE ON"
         "HTTPLIB_USE_BROTLI_IF_AVAILABLE ON"
 )
-add_compile_definitions(CPPHTTPLIB_OPENSSL_SUPPORT)
 
 # ---------------------------------------------------------------------------
 # CLI11 – command line parser
@@ -197,58 +171,110 @@ if (thread-pool_ADDED)
 endif ()
 
 # ==============================================================================
-# Include paths (inherited by driver subdirectory)
-# ==============================================================================
-include_directories(${PROJECT_SOURCE_DIR}/include/)
-include_directories(${PROJECT_SOURCE_DIR}/src/)
-include_directories(${CMAKE_BINARY_DIR}/generated/)
-
-# Glaze include path — propagated to all subdirectories (including drivers)
-# so they can consume glaze headers without linking the library.
-if (glaze_ADDED)
-  include_directories(SYSTEM ${glaze_SOURCE_DIR}/include)
-endif ()
-
-# ==============================================================================
-# Source files
-# ==============================================================================
-set(URI src/utils/uri.cpp)
-set(Config src/config/config.cpp)
-set(Updater src/core/updater.cpp)
-set(Manager src/core/manager.cpp)
-set(CertUtil src/utils/cert_util.cpp)
-set(Scheduler src/core/scheduler.cpp)
-set(CoreLogger src/core/core_logger.cpp)
-set(HttpClient src/network/http_client.cpp)
-set(DriverLoader src/core/driver_loader.cpp)
-set(InetAddress src/network/inet_address.cpp)
-set(IfaceEnumerator src/utils/iface_enumerator.cpp)
-set(InterfaceUtil src/ip_source/iface_util.cpp)
-set(InterfaceIpSource src/ip_source/iface.cpp)
-set(HttpIpSource src/ip_source/http.cpp)
-set(MdnsIpSource src/ip_source/mdns.cpp)
-set(IpSourceFactory src/ip_source/factory.cpp)
-set(DriverManager src/core/driver_manager.cpp)
-set(SignalHandler src/core/signal_handler.cpp)
-set(CLI src/cli/cli.cpp src/cli/driver.cpp src/cli/interface.cpp src/cli/dns.cpp src/cli/config.cpp)
-set(DNS src/dns/types.cpp src/dns/classic.cpp src/dns/parser.cpp src/dns/doh.cpp src/dns/dot.cpp src/dns/mkquery.cpp src/dns/resolver_dispatcher.cpp src/dns/resolver_factory.cpp)
-
-# ==============================================================================
 # Main executable
 # ==============================================================================
-add_executable(yaddnsc src/main.cpp src/utils/string_util.cpp ${CertUtil} ${DNS} ${Config} ${DriverManager}
-        ${DriverLoader} ${URI} ${Updater} ${Manager} ${SignalHandler} ${Scheduler} ${HttpClient}
-        ${CoreLogger} ${InetAddress} ${CLI}
-        ${IfaceEnumerator} ${InterfaceUtil} ${InterfaceIpSource} ${HttpIpSource} ${IpSourceFactory}
-        ${MdnsIpSource}
+add_executable(yaddnsc
+        # entry
+        src/main.cpp
+        # config
+        src/config/config.cpp
+        # core
+        src/core/updater.cpp
+        src/core/manager.cpp
+        src/core/driver_manager.cpp
+        src/core/driver_loader.cpp
+        src/core/scheduler.cpp
+        src/core/core_logger.cpp
+        src/core/signal_handler.cpp
+        # util
+        src/util/uri.cpp
+        src/util/cert_util.cpp
+        # network
+        src/network/http_client.cpp
+        src/network/inet_address.cpp
+        src/network/net_devices.cpp
+        # cli
+        src/cli/cli.cpp
+        src/cli/driver.cpp
+        src/cli/interface.cpp
+        src/cli/dns.cpp
+        src/cli/config.cpp
+        # dns
+        src/dns/util.cpp
+        src/dns/proto/parser.cpp
+        src/dns/proto/mkquery.cpp
+        src/dns/resolver/classic.cpp
+        src/dns/resolver/doh.cpp
+        src/dns/resolver/dot.cpp
+        src/dns/dispatcher.cpp
+        src/dns/factory.cpp
+        # ip_source
+        src/ip_source/iface_util.cpp
+        src/ip_source/iface.cpp
+        src/ip_source/http.cpp
+        src/ip_source/mdns.cpp
+        src/ip_source/factory.cpp
 )
 
-# Hide all symbols at compile time; only YADDNSC_EXPORT-marked functions
-# have STV_DEFAULT visibility.
-# --export-dynamic puts them into .dynsym so dlsym can find them, while
-# STV_HIDDEN symbols stay in .dynsym but are invisible to dlsym.
-target_compile_options(yaddnsc PRIVATE -fvisibility=hidden)
+# ---------------------------------------------------------------------------
+# Compiler options
+# ---------------------------------------------------------------------------
+target_compile_options(yaddnsc PRIVATE
+    -Wall -Wextra
+    # Hide all symbols at compile time; only YADDNSC_EXPORT-marked functions
+    # have STV_DEFAULT visibility.
+    -fvisibility=hidden
+    # Clang 19.x needs -fexperimental-library for std::stop_token, std::jthread, etc.
+    $<$<AND:$<CXX_COMPILER_ID:Clang>,$<VERSION_GREATER_EQUAL:$<CXX_COMPILER_VERSION>,19>,$<VERSION_LESS:$<CXX_COMPILER_VERSION>,20>>:-fexperimental-library>
+    # Debug symbols
+    $<$<CONFIG:Debug>:-ggdb -gdwarf-3>
+)
+
+# ---------------------------------------------------------------------------
+# Include directories
+# ---------------------------------------------------------------------------
+target_include_directories(yaddnsc PRIVATE
+    ${PROJECT_SOURCE_DIR}/include
+    ${PROJECT_SOURCE_DIR}/src
+    ${CMAKE_BINARY_DIR}/generated
+)
+
+if (glaze_ADDED)
+  target_include_directories(yaddnsc SYSTEM PRIVATE ${glaze_SOURCE_DIR}/include)
+endif ()
+
+# ---------------------------------------------------------------------------
+# Compile definitions
+# ---------------------------------------------------------------------------
+target_compile_definitions(yaddnsc PRIVATE
+    SPDLOG_ACTIVE_LEVEL=SPDLOG_LEVEL_DEBUG
+    CPPHTTPLIB_OPENSSL_SUPPORT
+    $<$<BOOL:${YADDNSC_USE_STD_FORMAT}>:YADDNSC_USE_STD_FORMAT>
+)
+
+# ---------------------------------------------------------------------------
+# Linker options
+# ---------------------------------------------------------------------------
+# Strip symbols in Release builds
+target_link_options(yaddnsc PRIVATE
+    $<$<CONFIG:Release>:$<$<PLATFORM_ID:Darwin>:-Wl,-S>>
+    $<$<CONFIG:Release>:$<$<NOT:$<PLATFORM_ID:Darwin>>:-Wl,-s>>
+)
+
+# ---------------------------------------------------------------------------
+# Target properties
+# ---------------------------------------------------------------------------
+# LTO is incompatible with musl (auto-detected in FeatureCheck)
+if (NOT LIBC_MUSL)
+  set_target_properties(yaddnsc PROPERTIES INTERPROCEDURAL_OPTIMIZATION TRUE)
+endif ()
+
+# --export-dynamic puts exported symbols into .dynsym so dlsym can find them
 set_target_properties(yaddnsc PROPERTIES ENABLE_EXPORTS ON)
+
+# ---------------------------------------------------------------------------
+# Link libraries
+# ---------------------------------------------------------------------------
 target_link_libraries(yaddnsc PRIVATE BS_thread_pool magic_enum httplib spdlog::spdlog OpenSSL::SSL OpenSSL::Crypto
         CLI11::CLI11 glaze::glaze ${CMAKE_DL_LIBS}
 )
@@ -260,7 +286,6 @@ if (NOT HAVE_STD_FORMAT)
   target_link_libraries(yaddnsc_fmt INTERFACE fmt::fmt)
 endif ()
 target_link_libraries(yaddnsc PRIVATE yaddnsc_fmt)
-
 
 # resolv is linux-specific, not present on BSDs
 find_library(RESOLV resolv)
@@ -288,4 +313,4 @@ endif ()
 # ==============================================================================
 # Driver modules
 # ==============================================================================
-add_subdirectory(${PROJECT_SOURCE_DIR}/drivers/)
+add_subdirectory(${PROJECT_SOURCE_DIR}/driver/)

@@ -14,11 +14,11 @@
 #include "fmt.hpp"
 #include "uri.h"
 #include "config/config.h"
-#include "dns/resolver_dispatcher.h"
-#include "dns/resolver_factory.h"
-#include "type.h"
+#include "dns/dispatcher.h"
+#include "dns/factory.h"
+#include "dns_type.h"
 
-namespace cli {
+namespace Cli {
     // ── Option storage (owned by the callback lambda via shared_ptr) ──────
 
     namespace {
@@ -53,10 +53,10 @@ namespace cli {
     // ── Executors ─────────────────────────────────────────────────────────
 
     int execute_dns_resolve(const std::string &config_path, const std::string &host, const std::string &type_str) {
-        auto type = magic_enum::enum_cast<dns_type>(type_str, magic_enum::case_insensitive);
+        auto type = magic_enum::enum_cast<DNS::Type>(type_str, magic_enum::case_insensitive);
         if (!type.has_value()) {
             std::print(std::cerr, "Error: unknown record type '{}'.\nValid types: ", type_str);
-            const auto names = magic_enum::enum_names<dns_type>();
+            const auto names = magic_enum::enum_names<DNS::Type>();
             for (auto it = names.begin(); it != names.end(); ++it) {
                 if (it != names.begin()) { std::print(std::cerr, ", "); }
                 std::print(std::cerr, "{}", *it);
@@ -114,4 +114,4 @@ namespace cli {
 
         return EXIT_SUCCESS;
     }
-} // namespace cli
+} // namespace Cli

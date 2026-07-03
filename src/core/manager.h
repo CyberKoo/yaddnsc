@@ -12,7 +12,7 @@
 
 class Manager {
 public:
-    explicit Manager(Config::config config);
+    explicit Manager(Config::AppConfig config);
 
     ~Manager();
 

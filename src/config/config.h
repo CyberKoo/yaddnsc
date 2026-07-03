@@ -10,37 +10,38 @@
 
 #include <glaze/glaze.hpp>
 
-#include "type.h"
+#include "dns_type.h"
+#include "address_family.h"
 
 namespace Config {
-    enum class ip_source_type {
+    enum class IpSource {
         INTERFACE, HTTP, MDNS
     };
 
-    enum class resolver_strategy {
+    enum class ResolverStrategy {
         FALLBACK, CONCURRENT
     };
 
-    struct driver_config {
+    struct DriverConfig {
         std::string driver_dir;
         bool auto_discover{false};
         std::vector<std::string> load;
     };
 
-    struct resolver_config {
+    struct ResolverConfig {
         bool use_custom_server{false};
         std::string address;
         unsigned short port{53};
-        std::vector<dns_server_type> servers;
-        resolver_strategy strategy{resolver_strategy::CONCURRENT};
+        std::vector<DNS::Server> servers;
+        ResolverStrategy strategy{ResolverStrategy::CONCURRENT};
     };
 
-    struct subdomain_config {
+    struct SubdomainConfig {
         std::string name;
-        dns_type type{};
+        DNS::Type type{};
         std::string interface;
-        address_family_type ip_type{address_family_type::UNSPECIFIED};
-        ip_source_type ip_source{};
+        AddressFamily ip_type{AddressFamily::UNSPECIFIED};
+        IpSource ip_source{};
         std::string ip_source_param;
         bool allow_ula{false};
         bool allow_local_link{false};
@@ -48,21 +49,21 @@ namespace Config {
         glz::generic driver_param;
     };
 
-    struct domain_config {
+    struct DomainConfig {
         std::string name;
         int update_interval{};
         int force_update{};
         std::string driver;
-        std::vector<subdomain_config> subdomains;
+        std::vector<SubdomainConfig> subdomains;
     };
 
-    struct config {
-        driver_config driver;
-        resolver_config resolver;
-        std::vector<domain_config> domains;
+    struct AppConfig {
+        DriverConfig driver;
+        ResolverConfig resolver;
+        std::vector<DomainConfig> domains;
     };
 
-    config load_config(const std::string &config_path);
+    AppConfig load_config(const std::string &config_path);
 }
 
 #endif //YADDNSC_CONFIG_CONFIG_H

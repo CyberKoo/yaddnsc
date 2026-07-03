@@ -17,8 +17,8 @@
 #include "uri.h"
 #include "fmt.hpp"
 #include "version.h"
-#include "http_types.h"
-#include "utils/cert_util.h"
+#include "http_type.h"
+#include "util/cert_util.h"
 
 namespace {
     std::string build_request(const Uri &uri) {
@@ -34,7 +34,7 @@ namespace {
     }
 
     // -----------------------------------------------------------------------
-    // Dispatch: http_method_type -> httplib callable
+    // Dispatch: HttpMethod -> httplib callable
     // -----------------------------------------------------------------------
 
     using Invoker = httplib::Result (*)(httplib::Client &, const char *, const httplib::Headers &,
@@ -97,11 +97,11 @@ namespace {
         }
 
         // --- Address family --------------------------------------------------
-        switch (opts.address_family.value_or(address_family_type::UNSPECIFIED)) {
-            case address_family_type::IPV4:
+        switch (opts.address_family.value_or(AddressFamily::UNSPECIFIED)) {
+            case AddressFamily::IPV4:
                 client.set_address_family(AF_INET);
                 break;
-            case address_family_type::IPV6:
+            case AddressFamily::IPV6:
                 client.set_address_family(AF_INET6);
                 break;
             default:
@@ -137,7 +137,7 @@ namespace {
 // HttpClient (static)
 // ---------------------------------------------------------------------------
 
-std::string HttpClient::params_to_query_string(const http_param_type &params) {
+std::string HttpClient::params_to_query_string(const HttpParams &params) {
     auto encoded = params | std::views::transform([](const auto &p) {
         return fmt::format("{}={}",
                            httplib::encode_query_component(p.first),
@@ -154,11 +154,11 @@ std::string HttpClient::params_to_query_string(const http_param_type &params) {
 TransientHttpClient::TransientHttpClient(HttpClientOptions opts) : opts_(std::move(opts)) {
 }
 
-HttpResponse TransientHttpClient::send(const http_request &req) const {
+HttpResult TransientHttpClient::send(const HttpRequest &req) const {
     const auto uri = Uri::parse(req.url);
 
     SPDLOG_DEBUG("Sending {} request to {}://{}{} ({} header(s), {} bytes body)",
-                 magic_enum::enum_name(req.request_method), uri.get_schema(), uri.get_host(), build_request(uri),
+                 magic_enum::enum_name(req.method), uri.get_schema(), uri.get_host(), build_request(uri),
                  req.headers.size(), req.body ? req.body->size() : 0
     );
 
@@ -168,7 +168,7 @@ HttpResponse TransientHttpClient::send(const http_request &req) const {
     httplib::Headers headers{req.headers.begin(), req.headers.end()};
     const auto path = build_request(uri);
 
-    const auto result = INVOKERS[std::to_underlying(req.request_method)](
+    const auto result = INVOKERS[std::to_underlying(req.method)](
         client, path.c_str(), headers, req.body, req.content_type.data()
     );
 
@@ -178,11 +178,11 @@ HttpResponse TransientHttpClient::send(const http_request &req) const {
         return std::unexpected(error_str);
     }
 
-    SPDLOG_DEBUG("Received {} response from {}://{}{} (status {}, {} bytes)", magic_enum::enum_name(req.request_method),
+    SPDLOG_DEBUG("Received {} response from {}://{}{} (status {}, {} bytes)", magic_enum::enum_name(req.method),
                  uri.get_schema(), uri.get_host(), path, result->status, result->body.size()
     );
 
-    return HttpResponseData{
+    return HttpResponse{
         .status_code = result->status, .body = result->body,
         .headers = {result->headers.begin(), result->headers.end()},
     };
@@ -190,9 +190,9 @@ HttpResponse TransientHttpClient::send(const http_request &req) const {
 
 // One-shot GET — convenience.
 std::optional<std::string> TransientHttpClient::get_body(std::string_view url, const HttpClientOptions &opts) {
-    http_request req;
+    HttpRequest req;
     req.url = url;
-    req.request_method = http_method_type::GET;
+    req.method = HttpMethod::GET;
 
     TransientHttpClient client(opts);
     auto resp = client.send(req);
@@ -216,17 +216,17 @@ PersistentHttpClient::PersistentHttpClient(const Uri &uri, HttpClientOptions opt
 
 PersistentHttpClient::~PersistentHttpClient() = default;
 
-HttpResponse PersistentHttpClient::send(const http_request &req) const {
+HttpResult PersistentHttpClient::send(const HttpRequest &req) const {
     const auto uri = Uri::parse(req.url);
     const auto path = build_request(uri);
 
     SPDLOG_DEBUG("Sending {} request to {}://{}{} ({} header(s), {} bytes body)",
-                 magic_enum::enum_name(req.request_method), uri.get_schema(), uri.get_host(), path,
+                 magic_enum::enum_name(req.method), uri.get_schema(), uri.get_host(), path,
                  req.headers.size(), req.body ? req.body->size() : 0);
 
     httplib::Headers headers{req.headers.begin(), req.headers.end()};
 
-    const auto result = INVOKERS[std::to_underlying(req.request_method)](
+    const auto result = INVOKERS[std::to_underlying(req.method)](
         *client_, path.c_str(), headers, req.body, req.content_type.data()
     );
 
@@ -237,11 +237,11 @@ HttpResponse PersistentHttpClient::send(const http_request &req) const {
     }
 
     SPDLOG_DEBUG("Received {} response from {}://{}{} (status {}, {} bytes)",
-                 magic_enum::enum_name(req.request_method),
+                 magic_enum::enum_name(req.method),
                  uri.get_schema(), uri.get_host(), path, result->status, result->body.size()
     );
 
-    return HttpResponseData{
+    return HttpResponse{
         .status_code = result->status, .body = result->body,
         .headers = {result->headers.begin(), result->headers.end()},
     };

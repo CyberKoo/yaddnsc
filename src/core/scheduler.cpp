@@ -24,7 +24,7 @@
 // ---------------------------------------------------------------------------
 class Scheduler::Impl {
 public:
-    explicit Impl(const Config::config &config, Updater &updater) : updater_(updater), config_(config) {
+    explicit Impl(const Config::AppConfig &config, Updater &updater) : updater_(updater), config_(config) {
     }
 
     ~Impl() {
@@ -76,7 +76,8 @@ public:
                         } catch (const std::exception &e) {
                             SPDLOG_ERROR("Unhandled exception during update for {}: {}", task.fqdn, e.what());
                         }
-                    });
+                    }
+                );
 
                 // Re-schedule this entry for the next interval.
                 entry.deadline = now + std::chrono::seconds(entry.update_interval);
@@ -182,14 +183,14 @@ private:
 
     // ---- injected dependencies ---------------------------------------------
     Updater &updater_;
-    const Config::config &config_;
+    const Config::AppConfig &config_;
 };
 
 // ---------------------------------------------------------------------------
 // Scheduler public API — thin delegation to Impl
 // ---------------------------------------------------------------------------
 
-Scheduler::Scheduler(const Config::config &config, Updater &updater)
+Scheduler::Scheduler(const Config::AppConfig &config, Updater &updater)
     : impl_(std::make_unique<Impl>(config, updater)) {
 }
 

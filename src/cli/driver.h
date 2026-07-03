@@ -9,7 +9,7 @@
 
 #include <CLI/CLI.hpp>
 
-namespace cli {
+namespace Cli {
     // Load drivers from config and print a summary of every loaded driver.
     int execute_driver_list(const std::string &config_path);
 
@@ -19,6 +19,6 @@ namespace cli {
     // Register the "driver" subcommand tree on the given CLI::App.
     // Owns its own option storage internally.
     void register_driver_subcommand(CLI::App &app, const std::string &config_path, int &exit_code);
-}
+} // namespace Cli
 
 #endif // YADDNSC_CLI_DRIVER_H

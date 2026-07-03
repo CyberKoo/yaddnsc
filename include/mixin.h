@@ -12,9 +12,11 @@ struct NoCopy {
     NoCopy() = default;
 
     NoCopy(const NoCopy &) = delete;
+
     NoCopy &operator=(const NoCopy &) = delete;
 
     NoCopy(NoCopy &&) = default;
+
     NoCopy &operator=(NoCopy &&) = default;
 };
 
@@ -22,9 +24,11 @@ struct NoMove {
     NoMove() = default;
 
     NoMove(NoMove &&) = delete;
+
     NoMove &operator=(NoMove &&) = delete;
 
     NoMove(const NoMove &) = default;
+
     NoMove &operator=(const NoMove &) = default;
 };
 

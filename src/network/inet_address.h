@@ -13,7 +13,7 @@
 #include <optional>
 #include <string_view>
 
-#include "type.h"
+#include "address_family.h"
 
 // ---------------------------------------------------------------------------
 // Inet4Address — lightweight IPv4 address value type.
@@ -38,19 +38,19 @@ public:
 
     // ---- accessors ---------------------------------------------------------
 
-    static constexpr address_family_type get_family() noexcept { return address_family_type::IPV4; }
+    static constexpr AddressFamily get_family() noexcept { return AddressFamily::IPV4; }
 
-    std::string to_string() const;
+    [[nodiscard]] std::string to_string() const;
 
-    constexpr const addr_type &get_address() const noexcept { return addr_; }
+    [[nodiscard]] constexpr const addr_type &get_address() const noexcept { return addr_; }
 
     // ---- classification ----------------------------------------------------
 
-    constexpr bool is_loopback() const noexcept { return addr_[0] == 127; }
+    [[nodiscard]] constexpr bool is_loopback() const noexcept { return addr_[0] == 127; }
 
-    constexpr bool is_multicast() const noexcept { return (addr_[0] & 0xf0) == 0xe0; }
+    [[nodiscard]] constexpr bool is_multicast() const noexcept { return (addr_[0] & 0xf0) == 0xe0; }
 
-    constexpr bool is_unspecified() const noexcept {
+    [[nodiscard]] constexpr bool is_unspecified() const noexcept {
         static constexpr addr_type zero{};
         return addr_ == zero;
     }
@@ -61,9 +61,9 @@ public:
 
     // ---- direct access -----------------------------------------------------
 
-    constexpr const uint8_t *data() const noexcept { return addr_.data(); }
+    [[nodiscard]] constexpr const uint8_t *data() const noexcept { return addr_.data(); }
 
-    constexpr const addr_type &addr() const noexcept { return addr_; }
+    [[nodiscard]] constexpr const addr_type &addr() const noexcept { return addr_; }
 
 private:
     addr_type addr_{};
@@ -93,35 +93,39 @@ public:
 
     // ---- accessors ---------------------------------------------------------
 
-    static constexpr address_family_type get_family() noexcept { return address_family_type::IPV6; }
+    static constexpr AddressFamily get_family() noexcept { return AddressFamily::IPV6; }
 
-    std::string to_string() const;
+    [[nodiscard]] std::string to_string() const;
 
-    constexpr const addr_type &get_address() const noexcept { return addr_; }
+    [[nodiscard]] constexpr const addr_type &get_address() const noexcept { return addr_; }
 
     // ---- classification ----------------------------------------------------
 
-    constexpr bool is_loopback() const noexcept {
+    [[nodiscard]] constexpr bool is_loopback() const noexcept {
         static constexpr addr_type loopback{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1};
         return addr_ == loopback;
     }
 
-    constexpr bool is_multicast() const noexcept { return addr_[0] == 0xff; }
+    [[nodiscard]] constexpr bool is_multicast() const noexcept { return addr_[0] == 0xff; }
 
-    constexpr bool is_unspecified() const noexcept {
+    [[nodiscard]] constexpr bool is_unspecified() const noexcept {
         static constexpr addr_type zero{};
         return addr_ == zero;
     }
 
-    constexpr bool is_link_local() const noexcept { return addr_[0] == 0xfe && (addr_[1] & 0xc0) == 0x80; }
+    [[nodiscard]] constexpr bool is_link_local() const noexcept {
+        return addr_[0] == 0xfe && (addr_[1] & 0xc0) == 0x80;
+    }
 
-    constexpr bool is_site_local() const noexcept { return addr_[0] == 0xfe && (addr_[1] & 0xc0) == 0xc0; }
+    [[nodiscard]] constexpr bool is_site_local() const noexcept {
+        return addr_[0] == 0xfe && (addr_[1] & 0xc0) == 0xc0;
+    }
 
-    constexpr bool is_ula() const noexcept { return (addr_[0] & 0xfe) == 0xfc; }
+    [[nodiscard]] constexpr bool is_ula() const noexcept { return (addr_[0] & 0xfe) == 0xfc; }
 
     // ---- scope ID ----------------------------------------------------------
 
-    uint32_t get_scope_id() const noexcept { return scope_id_; }
+    [[nodiscard]] uint32_t get_scope_id() const noexcept { return scope_id_; }
     void set_scope_id(uint32_t id) noexcept { scope_id_ = id; }
 
     // ---- equality ----------------------------------------------------------
@@ -130,9 +134,9 @@ public:
 
     // ---- direct access -----------------------------------------------------
 
-    constexpr const uint8_t *data() const noexcept { return addr_.data(); }
+    [[nodiscard]] constexpr const uint8_t *data() const noexcept { return addr_.data(); }
 
-    constexpr const addr_type &addr() const noexcept { return addr_; }
+    [[nodiscard]] constexpr const addr_type &addr() const noexcept { return addr_; }
 
 private:
     addr_type addr_{};
@@ -154,11 +158,11 @@ public:
 
     // implicit conversions from concrete types
     // NOLINTNEXTLINE(google-explicit-constructor)
-    InetAddress(Inet4Address v4) noexcept : addr_(std::move(v4)) {
+    InetAddress(Inet4Address v4) noexcept : addr_(v4) {
     }
 
     // NOLINTNEXTLINE(google-explicit-constructor)
-    InetAddress(Inet6Address v6) noexcept : addr_(std::move(v6)) {
+    InetAddress(Inet6Address v6) noexcept : addr_(v6) {
     }
 
     // ---- factory methods ---------------------------------------------------
@@ -173,36 +177,36 @@ public:
 
     // ---- accessors ---------------------------------------------------------
 
-    address_family_type get_family() const noexcept;
+    [[nodiscard]] AddressFamily get_family() const noexcept;
 
-    std::string to_string() const;
+    [[nodiscard]] std::string to_string() const;
 
     /// Returns 16 bytes; IPv4 addresses are zero-padded to fill the array.
-    std::array<uint8_t, 16> get_address() const;
+    [[nodiscard]] std::array<uint8_t, 16> get_address() const;
 
     // ---- classification ----------------------------------------------------
 
-    bool is_loopback() const;
+    [[nodiscard]] bool is_loopback() const;
 
-    bool is_multicast() const;
+    [[nodiscard]] bool is_multicast() const;
 
-    bool is_unspecified() const;
+    [[nodiscard]] bool is_unspecified() const;
 
     // ---- IPv6-specific (returns false for IPv4) ----------------------------
 
-    bool is_link_local() const noexcept;
+    [[nodiscard]] bool is_link_local() const noexcept;
 
-    bool is_site_local() const noexcept;
+    [[nodiscard]] bool is_site_local() const noexcept;
 
-    bool is_ula() const noexcept;
+    [[nodiscard]] bool is_ula() const noexcept;
 
-    uint32_t get_scope_id() const noexcept;
+    [[nodiscard]] uint32_t get_scope_id() const noexcept;
 
     // ---- type-safe access --------------------------------------------------
 
-    const Inet4Address *as_v4() const noexcept { return std::get_if<Inet4Address>(&addr_); }
+    [[nodiscard]] const Inet4Address *as_v4() const noexcept { return std::get_if<Inet4Address>(&addr_); }
 
-    const Inet6Address *as_v6() const noexcept { return std::get_if<Inet6Address>(&addr_); }
+    [[nodiscard]] const Inet6Address *as_v6() const noexcept { return std::get_if<Inet6Address>(&addr_); }
 
     // ---- equality ----------------------------------------------------------
 

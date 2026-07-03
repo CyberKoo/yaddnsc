@@ -9,7 +9,7 @@
 
 #include <CLI/CLI.hpp>
 
-namespace cli {
+namespace Cli {
     // Load and print the configuration as JSON.
     int execute_config_show(const std::string &config_path);
 
@@ -21,6 +21,6 @@ namespace cli {
     void register_config_subcommand(CLI::App &app,
                                     const std::string &config_path,
                                     int &exit_code);
-}
+} // namespace Cli
 
 #endif // YADDNSC_CLI_CONFIG_H

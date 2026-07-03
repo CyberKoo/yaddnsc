@@ -14,8 +14,8 @@
 
 #include "fmt.hpp"
 #include "driver_ver.h"
-#include "interfaces/driver.h"
-#include "exceptions/bad_driver_exception.h"
+#include "interface/driver.h"
+#include "exception/bad_driver.h"
 
 // Internal implementation
 class DriverManager::Impl {
@@ -58,9 +58,9 @@ public:
         }
     };
 
-    using driver_ptr = std::unique_ptr<Driver, DriverDeleter>;
+    using DriverPtr = std::unique_ptr<Driver, DriverDeleter>;
 
-    using handle_ptr = std::unique_ptr<void, HandleCloser>;
+    using HandlePtr = std::unique_ptr<void, HandleCloser>;
 
     DriverModule(DriverModule &&) = default;
 
@@ -78,15 +78,14 @@ public:
         auto create_func = resolve_symbol<Driver*()>(handle_, "create");
         auto destroy_func = resolve_symbol<void(Driver *)>(handle_, "destroy");
 
-        driver_ = driver_ptr(create_func(), DriverDeleter{destroy_func});
+        driver_ = DriverPtr(create_func(), DriverDeleter{destroy_func});
     }
 
 private:
     // Resolve a symbol from a shared library and check for errors.
     // Signature is a function type, e.g. Driver*() or void(Driver*).
-    template<typename Signature>
-        requires std::is_function_v<Signature>
-    static Signature *resolve_symbol(const handle_ptr &handle, const char *name) {
+    template<typename Signature> requires std::is_function_v<Signature>
+    static Signature *resolve_symbol(const HandlePtr &handle, const char *name) {
         dlerror(); // clear previous errors before calling dlsym
         auto sym = reinterpret_cast<Signature *>(dlsym(handle.get(), name));
         if (const auto error = dlerror()) {
@@ -105,9 +104,9 @@ public:
     ~DriverModule() = default;
 
 private:
-    handle_ptr handle_;
+    HandlePtr handle_;
 
-    driver_ptr driver_;
+    DriverPtr driver_;
 };
 
 DriverManager::~DriverManager() = default;

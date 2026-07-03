@@ -9,7 +9,7 @@
 
 #include <CLI/CLI.hpp>
 
-namespace cli {
+namespace Cli {
     // List all network interfaces and their addresses.
     int execute_interface_list();
 
@@ -19,6 +19,6 @@ namespace cli {
     // Register the "interface" subcommand tree on the given CLI::App.
     // Owns its own option storage internally.
     void register_interface_subcommand(CLI::App &app, int &exit_code);
-}
+} // namespace Cli
 
 #endif // YADDNSC_CLI_INTERFACE_H

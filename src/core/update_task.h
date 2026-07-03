@@ -15,7 +15,7 @@
 //              that the Updater should carry out.
 // ---------------------------------------------------------------------------
 struct UpdateTask {
-    Config::subdomain_config subdomain;
+    Config::SubdomainConfig subdomain;
     std::string domain_name;
     std::string driver_name;
     std::string fqdn;
@@ -27,9 +27,9 @@ struct UpdateTask {
 // ---------------------------------------------------------------------------
 struct SubdomainEntry {
     std::chrono::steady_clock::time_point deadline;
-    int update_interval;
-    int force_update_interval;
-    size_t domain_idx; // index into Manager::Impl::domain_states_
+    int update_interval{};
+    int force_update_interval{};
+    size_t domain_idx{}; // index into Manager::Impl::domain_states_
     UpdateTask task;
 
     // std::priority_queue is a max-heap by default, so we invert the comparison.

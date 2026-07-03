@@ -1,0 +1,25 @@
+//
+// Created by Kotarou on 2026/6/29.
+//
+
+#ifndef YADDNSC_DNS_FACTORY_H
+#define YADDNSC_DNS_FACTORY_H
+
+#include "dispatcher.h"
+
+namespace Config {
+    struct AppConfig;
+}
+
+// ---------------------------------------------------------------------------
+// DnsResolverFactory — constructs a ResolverDispatcher from application
+//                      config.
+//
+// Extracted from Manager::Impl to isolate URI-parsing and resolver-type
+// selection logic into a single, independently testable component.
+// ---------------------------------------------------------------------------
+namespace DnsResolverFactory {
+    ResolverDispatcher create(const Config::AppConfig &config);
+}
+
+#endif // YADDNSC_DNS_FACTORY_H

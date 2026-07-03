@@ -14,11 +14,11 @@
 // IpSourceFactory — constructs the appropriate IpSourceBase implementation from a
 //                   subdomain configuration.
 //
-// Eliminates the need for callers (e.g. Updater) to branch on ip_source_type
+// Eliminates the need for callers (e.g. Updater) to branch on Config::IpSource
 // or know about concrete IpSourceBase classes.
 // ---------------------------------------------------------------------------
 namespace IpSourceFactory {
-    [[nodiscard]] std::unique_ptr<IpSourceBase> create(const Config::subdomain_config &cfg);
+    [[nodiscard]] std::unique_ptr<IpSourceBase> create(const Config::SubdomainConfig &cfg);
 }
 
 #endif // YADDNSC_IP_SOURCE_FACTORY_H

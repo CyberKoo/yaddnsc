@@ -8,7 +8,7 @@
 #include <string>
 
 #include "base.h"
-#include "type.h"
+#include "address_family.h"
 
 // ---------------------------------------------------------------------------
 // HttpIpSource — fetches the local IP address from an external HTTP service.
@@ -21,14 +21,14 @@
 // ---------------------------------------------------------------------------
 class HttpIpSource final : public IpSourceBase {
 public:
-    explicit HttpIpSource(std::string url, address_family_type address_family = address_family_type::UNSPECIFIED,
+    explicit HttpIpSource(std::string url, AddressFamily address_family = AddressFamily::UNSPECIFIED,
                           std::string bind_interface = {});
 
     [[nodiscard]] std::vector<InetAddress> resolve() const override;
 
 private:
     std::string url_;
-    address_family_type address_family_;
+    AddressFamily address_family_;
     std::string bind_interface_;
 };
 

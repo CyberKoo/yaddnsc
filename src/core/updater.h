@@ -7,7 +7,7 @@
 
 #include <memory>
 
-#include "type.h"
+#include "dns/util.h"
 #include "update_task.h"
 #include "mixin.h"
 

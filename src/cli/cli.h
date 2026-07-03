@@ -8,7 +8,7 @@
 #include <string>
 
 // ---------------------------------------------------------------------------
-// cli::parse_and_dispatch — parse argv, dispatch non-RUN commands internally,
+// Cli::parse_and_dispatch — parse argv, dispatch non-RUN commands internally,
 //                           and tell the caller whether to enter the Manager
 //                           RUN loop.
 //
@@ -16,7 +16,7 @@
 // inside the CLI layer.  The caller only needs to check should_run.
 // ---------------------------------------------------------------------------
 
-namespace cli {
+namespace Cli {
     struct CliOutcome {
         bool should_run = false; // true  → main() enters the Manager flow
         int exit_code = 0;
@@ -31,6 +31,6 @@ namespace cli {
     // Never throws — errors and --help/--version are communicated via
     // exit_early / exit_code.
     [[nodiscard]] CliOutcome parse_and_dispatch(int argc, char *argv[]);
-} // namespace cli
+} // namespace Cli
 
 #endif // YADDNSC_CLI_CLI_H

@@ -11,15 +11,15 @@
 
 #include "updater.h"
 #include "scheduler.h"
+#include "dns/factory.h"
 #include "driver_loader.h"
+#include "dns/dispatcher.h"
 #include "signal_handler.h"
 #include "driver_manager.h"
 #include "ip_source/factory.h"
+#include "config/validator.hpp"
 #include "min_update_interval.h"
 #include "ip_source/iface_util.h"
-#include "dns/resolver_factory.h"
-#include "dns/resolver_dispatcher.h"
-#include "config/config_validator.hpp"
 
 // ---------------------------------------------------------------------------
 // Manager::Impl — orchestrates the lifecycle of all subsystem components.
@@ -35,11 +35,9 @@
 // ---------------------------------------------------------------------------
 class Manager::Impl {
 public:
-    explicit Impl(Config::config config)
-        : config_(std::move(config))
-          , dispatcher_(DnsResolverFactory::create(config_))
-          , updater_(driver_manager_, dispatcher_)
-          , scheduler_(config_, updater_) {
+    explicit Impl(Config::AppConfig config)
+        : config_(std::move(config)), dispatcher_(DnsResolverFactory::create(config_)),
+          updater_(driver_manager_, dispatcher_), scheduler_(config_, updater_) {
     }
 
     void load_drivers() {
@@ -67,7 +65,7 @@ public:
 private:
     // IMPORTANT: destruction order is the reverse of declaration order.
     // config_ is declared first because it's needed by dispatcher_'s constructor.
-    Config::config config_;
+    Config::AppConfig config_;
     DriverManager driver_manager_;
     ResolverDispatcher dispatcher_;
     Updater updater_;
@@ -79,7 +77,7 @@ private:
 // Manager public API
 // ---------------------------------------------------------------------------
 
-Manager::Manager(Config::config config) : impl_(std::make_unique<Impl>(std::move(config))) {
+Manager::Manager(Config::AppConfig config) : impl_(std::make_unique<Impl>(std::move(config))) {
 }
 
 Manager::~Manager() = default;

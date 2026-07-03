@@ -10,9 +10,9 @@
 
 #include "config/config.h"
 #include "driver_manager.h"
-#include "utils/algorithm.h"
+#include "util/algorithm.h"
 
-void DriverLoader::load(DriverManager &driver_manager, const Config::config &config) {
+void DriverLoader::load(DriverManager &driver_manager, const Config::AppConfig &config) {
     if (config.driver.auto_discover) {
         // Auto-discover all .so files in driver_dir; manual load list is ignored
         if (!config.driver.load.empty()) {

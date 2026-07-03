@@ -13,10 +13,10 @@
 #include "config/config.h"
 #include "core/manager.h"
 #include "logging_pattern.h"
-#include "exceptions/config_verification_exception.h"
-#include "exceptions/base_exception.h"
+#include "exception/config_verification.h"
+#include "exception/base.h"
 
-namespace cli {
+namespace Cli {
     void register_config_subcommand(CLI::App &app, const std::string &config_path, int &exit_code) {
         auto *cfg = app.add_subcommand("config", "Configuration management");
         cfg->require_subcommand(1);
@@ -67,4 +67,4 @@ namespace cli {
         }
         return EXIT_FAILURE;
     }
-} // namespace cli
+} // namespace Cli

@@ -11,7 +11,7 @@
 #include "mixin.h"
 
 namespace Config {
-    struct config;
+    struct AppConfig;
 }
 
 class Updater;
@@ -29,7 +29,7 @@ class Updater;
 // ---------------------------------------------------------------------------
 class Scheduler {
 public:
-    explicit Scheduler(const Config::config &config, Updater &updater);
+    explicit Scheduler(const Config::AppConfig &config, Updater &updater);
 
     ~Scheduler();
 

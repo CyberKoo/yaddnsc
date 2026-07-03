@@ -6,7 +6,7 @@
 #define YADDNSC_CORE_DRIVER_LOADER_H
 
 namespace Config {
-    struct config;
+    struct AppConfig;
 }
 
 class DriverManager;
@@ -18,7 +18,7 @@ class DriverManager;
 // the scheduler and signal-handling concerns.
 // ---------------------------------------------------------------------------
 struct DriverLoader {
-    static void load(DriverManager &driver_manager, const Config::config &config);
+    static void load(DriverManager &driver_manager, const Config::AppConfig &config);
 };
 
 #endif // YADDNSC_CORE_DRIVER_LOADER_H

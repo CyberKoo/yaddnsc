@@ -124,12 +124,12 @@ std::optional<InetAddress> InetAddress::parse(std::string_view addr) {
 
     // Try IPv4 first (cheaper).
     if (auto v4 = Inet4Address::parse(addr)) {
-        return InetAddress{std::move(*v4)};
+        return InetAddress{*v4};
     }
 
     // Then try IPv6.
     if (auto v6 = Inet6Address::parse(addr)) {
-        return InetAddress{std::move(*v6)};
+        return InetAddress{*v6};
     }
 
     return std::nullopt;
@@ -152,7 +152,7 @@ std::optional<InetAddress> InetAddress::from_bytes(std::span<const uint8_t> byte
     }
 }
 
-address_family_type InetAddress::get_family() const noexcept {
+AddressFamily InetAddress::get_family() const noexcept {
     return std::visit([](const auto &a) { return a.get_family(); }, addr_);
 }
 

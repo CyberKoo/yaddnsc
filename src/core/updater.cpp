@@ -7,18 +7,18 @@
 #include <spdlog/spdlog.h>
 #include <magic_enum/magic_enum.hpp>
 
-#include "dns/types.h"
-#include "dns/resolver_dispatcher.h"
+#include "dns/util.h"
+#include "dns/dispatcher.h"
 #include "driver_manager.h"
-#include "interfaces/driver.h"
-#include "interfaces/http_client.h"
+#include "interface/driver.h"
+#include "interface/http_client.h"
 #include "network/http_client.h"
 #include "ip_source/base.h"
 #include "ip_source/factory.h"
 
 namespace {
     // Filter out link-local and ULA addresses for AAAA candidates.
-    void filter_ipv6_candidates(std::vector<InetAddress> &candidates, const Config::subdomain_config &config) {
+    void filter_ipv6_candidates(std::vector<InetAddress> &candidates, const Config::SubdomainConfig &config) {
         if (!config.allow_local_link) {
             std::erase_if(candidates, [](const InetAddress &a) { return a.is_link_local(); });
         }
@@ -40,11 +40,11 @@ public:
     void process(const UpdateTask &task) const;
 
 private:
-    [[nodiscard]] std::vector<std::string> dns_lookup(const std::string &host, dns_type type) const;
+    [[nodiscard]] std::vector<std::string> dns_lookup(const std::string &host, DNS::Type type) const;
 
-    [[nodiscard]] std::optional<InetAddress> resolve_local_address(const Config::subdomain_config &config) const;
+    [[nodiscard]] static std::optional<InetAddress> resolve_local_address(const Config::SubdomainConfig &config) ;
 
-    [[nodiscard]] static driver_config_type build_driver_parameters(const UpdateTask &task);
+    [[nodiscard]] static DriverConfig build_driver_parameters(const UpdateTask &task);
 
     [[nodiscard]] static UpdateContext
     build_update_context(const UpdateTask &task, const InetAddress &ip_addr, std::string_view rd_type);
@@ -127,7 +127,7 @@ void Updater::Impl::process(const UpdateTask &task) const {
 // dns_lookup — resolve a DNS name with retries.
 // ---------------------------------------------------------------------------
 std::vector<std::string>
-Updater::Impl::dns_lookup(const std::string &host, dns_type type) const {
+Updater::Impl::dns_lookup(const std::string &host, DNS::Type type) const {
     return dispatcher_.resolve(host, type);
 }
 
@@ -135,7 +135,7 @@ Updater::Impl::dns_lookup(const std::string &host, dns_type type) const {
 // resolve_local_address — resolve via IpSourceBase, then pick the first
 //                         candidate that passes policy filters.
 // ---------------------------------------------------------------------------
-std::optional<InetAddress> Updater::Impl::resolve_local_address(const Config::subdomain_config &config) const {
+std::optional<InetAddress> Updater::Impl::resolve_local_address(const Config::SubdomainConfig &config) {
     auto ip_source = IpSourceFactory::create(config);
     auto candidates = ip_source->resolve();
 
@@ -144,7 +144,7 @@ std::optional<InetAddress> Updater::Impl::resolve_local_address(const Config::su
     }
 
     // Only AAAA records need link-local / ULA filtering.
-    if (config.type == dns_type::AAAA) {
+    if (config.type == DNS::Type::AAAA) {
         filter_ipv6_candidates(candidates, config);
 
         if (candidates.empty()) {
@@ -158,7 +158,7 @@ std::optional<InetAddress> Updater::Impl::resolve_local_address(const Config::su
 // ---------------------------------------------------------------------------
 // build_driver_parameters — serialize subdomain.driver_param to JSON string.
 // ---------------------------------------------------------------------------
-driver_config_type Updater::Impl::build_driver_parameters(const UpdateTask &task) {
+DriverConfig Updater::Impl::build_driver_parameters(const UpdateTask &task) {
     return task.subdomain.driver_param.dump().value_or("{}");
 }
 

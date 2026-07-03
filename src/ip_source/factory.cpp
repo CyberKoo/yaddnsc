@@ -12,20 +12,20 @@
 #include "iface.h"
 #include "mdns.h"
 #include "fmt.hpp"
-#include "dns/types.h"
+#include "dns/util.h"
 #include "config/config.h"
 
-std::unique_ptr<IpSourceBase> IpSourceFactory::create(const Config::subdomain_config &cfg) {
-    auto address_family = DNS::dns2ip(cfg.type);
+std::unique_ptr<IpSourceBase> IpSourceFactory::create(const Config::SubdomainConfig &cfg) {
+    auto address_family = DNS::type_to_family(cfg.type);
 
     switch (cfg.ip_source) {
-        case Config::ip_source_type::INTERFACE:
+        case Config::IpSource::INTERFACE:
             return std::make_unique<InterfaceIpSource>(cfg.interface, address_family);
 
-        case Config::ip_source_type::HTTP:
+        case Config::IpSource::HTTP:
             return std::make_unique<HttpIpSource>(cfg.ip_source_param, address_family, cfg.interface);
 
-        case Config::ip_source_type::MDNS:
+        case Config::IpSource::MDNS:
             return std::make_unique<MdnsIpSource>(cfg.ip_source_param, cfg.type, cfg.interface);
     }
 

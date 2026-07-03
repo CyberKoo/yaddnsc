@@ -12,8 +12,8 @@
 #include <optional>
 #include <string_view>
 
-#include "type.h"
-#include "interfaces/http_client.h"
+#include "address_family.h"
+#include "interface/http_client.h"
 
 class Uri;
 
@@ -27,7 +27,7 @@ namespace httplib {
 // Every field is optional; unset fields fall back to a sensible default.
 // ---------------------------------------------------------------------------
 struct HttpClientOptions {
-    std::optional<address_family_type> address_family{};
+    std::optional<AddressFamily> address_family{};
     std::optional<std::string> interface{};
     std::optional<std::string> ca_cert_path{};
     std::optional<bool> verify_server_cert{};
@@ -52,7 +52,7 @@ public:
 
     ~TransientHttpClient() override = default;
 
-    HttpResponse send(const http_request &req) const override;
+    [[nodiscard]] HttpResult send(const HttpRequest &req) const override;
 
     // One-shot GET — returns the raw response body on success.
     static std::optional<std::string>
@@ -77,7 +77,7 @@ public:
 
     ~PersistentHttpClient() override;
 
-    HttpResponse send(const http_request &req) const override;
+    [[nodiscard]] HttpResult send(const HttpRequest &req) const override;
 
 private:
     std::unique_ptr<httplib::Client> client_;
