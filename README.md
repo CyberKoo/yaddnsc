@@ -16,7 +16,7 @@
   - `mdns` — discover a LAN device's IP address via mDNS (RFC 6762, e.g. `printer.local`)
 - **Per-subdomain update interval** — each subdomain can override the domain-level update interval.
 - **IPv4 and IPv6 support** — configure A and AAAA records independently.
-- **Custom DNS resolver** — optionally use specific DNS servers for record lookups instead of the system resolver. Supports **traditional DNS** (plain IP + port), **DNS-over-HTTPS (DoH)** (full HTTPS URL, e.g. `https://1.1.1.1/dns-query`), and **DNS-over-TLS (DoT)** (TLS URI with `tls://` schema, e.g. `tls://1.1.1.1`). Multiple servers are queried using a configurable strategy — **fallback** (try the first available resolver, then the next on failure) or **concurrent** (fire all configured resolvers in parallel and take the fastest successful response).
+- **Custom DNS resolver** — optionally use specific DNS servers for record lookups instead of the system resolver. Supports traditional DNS, DNS-over-HTTPS (DoH), and DNS-over-TLS (DoT) with configurable query strategies. See [DNS Resolver](#dns-resolver) for details.
 - **Forced update scheduling** — periodically force-update DNS records even when the IP hasn't changed.
 - **Graceful shutdown** — handles SIGINT/SIGTERM via a dedicated signal-handling thread with a stop_token.
 - **Thread-pool based concurrency** — subdomain updates are dispatched to a BS::thread_pool for parallel execution.
@@ -48,7 +48,7 @@ sigwait(SIGINT/SIGTERM)
 Parallel workers"]
     updaterA["Updater::process() (task A)
 1. Get driver from DriverManager
-2. Get local IP (interface or HTTP)
+2. Get local IP (interface, HTTP or mDNS)
 3. DNS lookup (ResolverDispatcher)
 4. Compare; skip if unchanged
 5. Create TransientHttpClient
@@ -84,7 +84,7 @@ ResolverBase
 **Updater::process()** (runs in a pool thread) does the following for each subdomain:
 
 1. **Resolve the driver** — look up the driver plugin by name from `DriverManager`.
-2. **Get local IP** — resolve via the IP source abstraction (`IpSourceBase`), which either reads from a local network interface (`InterfaceIpSource`) or fetches from an external URL (`HttpIpSource`). Delegates creation to `IpSourceFactory` based on per-subdomain configuration.
+2. **Get local IP** — resolve via the IP source abstraction (`IpSourceBase`), which reads from a local network interface (`InterfaceIpSource`), fetches from an external URL (`HttpIpSource`), or discovers a LAN device via mDNS (`MdnsIpSource`). Delegates creation to `IpSourceFactory` based on per-subdomain configuration.
 3. **DNS lookup** — query the current DNS record using `ClassicResolver` (UDP/TCP), `DohResolver` (HTTPS POST, RFC 8484), or `DotResolver` (TLS, RFC 7858).
 4. **Compare** — skip the update if unchanged (unless `force_update` is set).
 5. **Create `TransientHttpClient`** — a per-task HTTP client that creates a new httplib::Client on every `send()` call.
@@ -229,19 +229,6 @@ A template configuration is available at `config.example.json`.
 }
 ```
 
-> **DoH example:** To use DNS-over-HTTPS, set the server address to a full HTTPS URL including the path:
->
-> ```json
-> {
->   "servers": [
->     { "address": "https://1.1.1.1/dns-query" },
->     { "address": "https://cloudflare-dns.com/dns-query" }
->   ]
-> }
-> ```
->
-> The address must start with `https://` and include the complete path (typically `/dns-query` per RFC 8484). The code does **not** append `/dns-query` automatically. The `port` field is ignored for DoH.
-
 ### Configuration Reference
 
 #### Top-level
@@ -265,23 +252,19 @@ A template configuration is available at `config.example.json`.
 | Field               | Type        | Description                                                                                                                                                                                              |
 |---------------------|-------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `use_custom_server` | boolean     | If true, use the specified DNS server(s) instead of system                                                                                                                                               |
-| `address`           | string      | DNS server address (legacy — used only when `servers` is empty). For traditional DNS, use a plain IP address. For **DoH**, use the full HTTPS URL including the path (e.g. `https://1.1.1.1/dns-query`). For **DoT**, use a `tls://` URI (e.g. `tls://1.1.1.1`). |
-| `port`              | integer     | DNS server port, typically 53 (legacy — used only when `servers` is empty). Ignored when `address` is an HTTPS URL or `tls://` URI.                                                                                  |
-| `servers`           | DnsServer[] | List of DNS servers for redundancy. Each entry has an `address` field (string) and a `port` field (integer, default 53).                                                                                 |
-| `strategy`          | string      | Resolver query strategy: `"concurrent"` (default — fire all queries in parallel, take the fastest success) or `"fallback"` (try the first resolver, then the next on failure).                           |
+| `address`           | string      | DNS server address (legacy — used only when `servers` is empty). See [DNS Resolver](#dns-resolver) for supported formats. |
+| `port`              | integer     | DNS server port, typically 53 (legacy — used only when `servers` is empty). Ignored for DoH/DoT.                                         |
+| `servers`           | DnsServer[] | List of DNS servers. See [DNS Resolver](#dns-resolver) for supported address formats and per-type port behaviour.                                          |
+| `strategy`          | string      | Query strategy: `"concurrent"` (default) or `"fallback"`. See [DNS Resolver](#dns-resolver).                                        |
 
 Each `DnsServer` entry in the `servers` array has the following structure:
 
 | Field     | Type    | Description                                                                                                                                                                                               |
 |-----------|---------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `address` / `ipaddress` | string  | For **traditional DNS**: a plain IP address (e.g. `1.1.1.1`). For **DNS-over-HTTPS (DoH)**: a full HTTPS URL **including the path**, e.g. `https://1.1.1.1/dns-query`. The `https://` prefix is required. For **DNS-over-TLS (DoT)**: a `tls://` URI (e.g. `tls://1.1.1.1`). The field can also be written as `ipaddress` for compatibility. |
-| `port`    | integer | DNS server port, typically 53. **Ignored for DoH** (HTTPS uses port 443 by default) and **DoT** (TLS uses port 853 by default).                                                                                                                      |
+| `address` / `ipaddress` | string  | DNS server address. Format depends on resolver type — see [DNS Resolver](#dns-resolver). Also accepted as `ipaddress` for compatibility. |
+| `port`    | integer | DNS server port, typically 53. Ignored for DoH/DoT — see [DNS Resolver](#dns-resolver).                                       |
 
-> **DoH / DoT note:** When the `address` starts with `https://`, it is treated as a DNS-over-HTTPS resolver. The address must be a complete URL with the full path — `/dns-query` is the standard DoH endpoint per RFC 8484, but any custom path is supported. The code does **not** append `/dns-query` automatically. When the `address` starts with `tls://`, it is treated as a DNS-over-TLS resolver (RFC 7858). If no port is specified, 853 is used as the default.
-
-When the `servers` array is present and non-empty, `address` and `port` are ignored. On platforms without `res_nquery()` support (e.g. some musl builds), custom servers cannot be configured and the system resolver is always used.
-
-> **IPv6 note:** For traditional DNS, write the address **without** brackets, e.g. `"2606:4700:4700::1111"`. Brackets are used for URI literals (`[::1]:53`) but `inet_pton()` — which validates and parses the address — expects a plain address.
+When the `servers` array is present and non-empty, the legacy `address` and `port` fields are ignored. On platforms without `res_nquery()` support (e.g. some musl builds), custom servers cannot be configured and the system resolver is always used.
 
 #### `domains[]` object
 
@@ -299,16 +282,187 @@ When the `servers` array is present and non-empty, `address` and `port` are igno
 |--------------------|---------|----------------------------------------------------------------------------------------------------------------------|
 | `name`             | string  | Subdomain name (e.g. `home` for `home.example.com`)                                                                  |
 | `type`             | string  | DNS record type: `"a"`, `"aaaa"`, `"txt"`, or `"soa"`. Determines address family automatically (A → IPv4, AAAA → IPv6). |
-| `interface`        | string  | Network interface name (e.g. `eth0`). Required for `"interface"` and `"http"` IP sources; optional for `"mdns"`. |
+| `interface`        | string  | Network interface name (e.g. `eth0`). See [IP Source](#ip-source) for per-source requirements. |
 | `ip_type`          | string  | **Deprecated — ignored.** Address family is now derived from `type` (A → IPv4, AAAA → IPv6). |
-| `ip_source`        | string  | IP source: `"interface"` (read from a local NIC), `"http"` (fetch from HTTP), or `"mdns"` (discover via mDNS / RFC 6762). `"url"` is also accepted as a backward-compatible alias for `"http"`. |
-| `ip_source_param`  | string  | The HTTP(S) URL when `ip_source` is `"http"`, or the mDNS hostname (e.g. `"printer.local"`) when `ip_source` is `"mdns"`. Ignored for `"interface"` source. |
+| `ip_source`        | string  | IP source strategy: `"interface"`, `"http"` (or alias `"url"`), or `"mdns"`. See [IP Source](#ip-source) for details. |
+| `ip_source_param`  | string  | Source-specific parameter (URL for `"http"`, mDNS hostname for `"mdns"`). See [IP Source](#ip-source) for details. Ignored for `"interface"`. |
 | `allow_ula`        | boolean | When using IPv6 interface source, allow Unique Local Addresses (default: false)                                      |
 | `allow_local_link` | boolean | When using IPv6 interface source, allow link-local addresses (default: false)                                        |
 | `update_interval`  | int     | Per-subdomain update interval in seconds (optional). 0 or omitted = inherit from `domain.update_interval`.           |
 | `driver_param`     | object  | Driver-specific parameters (key-value map)                                                                           |
 
 > **Note:** The `interface` field is **required** for `"interface"` and `"http"` sources, and **optional** for `"mdns"`. When `ip_source` is `"interface"`, the IP is read directly from the NIC. When `ip_source` is `"http"`, the HTTP request to fetch the IP is bound to that interface. When `ip_source` is `"mdns"`, the mDNS query is sent on that interface (if specified) or on the default route otherwise.
+
+## IP Source
+
+The `ip_source` field in a `subdomains[]` entry determines how yaddnsc discovers the IP address to update. Three sources are supported:
+
+### `interface` — Read from a local network interface
+
+Reads the IP address directly from a specified local network interface (NIC). This is ideal for devices with a static local address or when you want to report the address bound to a specific interface.
+
+```json
+{
+    "name": "home",
+    "type": "a",
+    "interface": "eth0",
+    "ip_source": "interface"
+}
+```
+
+| Field       | Required | Description                                          |
+|-------------|----------|------------------------------------------------------|
+| `interface` | Yes      | Network interface name to read the IP from (e.g. `eth0`, `wlan0`). |
+| `ip_source_param` | No | Ignored for this source.                             |
+
+### `http` — Fetch from an HTTP(S) endpoint
+
+Fetches the IP address from an external HTTP(S) service that returns the client's IP in the response body (e.g. `https://api.ipify.org`). The HTTP request is bound to the specified network interface.
+
+```json
+{
+    "name": "home",
+    "type": "a",
+    "interface": "eth0",
+    "ip_source": "http",
+    "ip_source_param": "https://api.ipify.org"
+}
+```
+
+| Field              | Required | Description                                              |
+|--------------------|----------|----------------------------------------------------------|
+| `interface`        | Yes      | Network interface to bind the HTTP request to.           |
+| `ip_source_param`  | Yes      | HTTP(S) URL that returns the IP address in the response body. |
+
+### `mdns` — Discover via mDNS (RFC 6762)
+
+Discovers the IP address of a LAN device by sending a multicast DNS query for a `.local` hostname (e.g. `printer.local`). This is useful for detecting the address of devices on the local network, such as printers, NAS, or IoT devices.
+
+```json
+{
+    "name": "printer",
+    "type": "a",
+    "ip_source": "mdns",
+    "ip_source_param": "printer.local"
+}
+```
+
+```json
+{
+    "name": "nas",
+    "type": "aaaa",
+    "interface": "eth0",
+    "ip_source": "mdns",
+    "ip_source_param": "nas.local"
+}
+```
+
+| Field              | Required | Description                                              |
+|--------------------|----------|----------------------------------------------------------|
+| `interface`        | No       | Network interface to send the mDNS query on. If omitted, uses the default route. |
+| `ip_source_param`  | Yes      | The mDNS hostname to query. Must end with `.local` (or `.local.`) as per RFC 6762 §3. |
+
+> **Note for Linux users:** mDNS resolution requires multicast networking support on the client. Ensure `avahi-daemon` is installed and running, or `systemd-resolved` has mDNS support enabled (set `MulticastDNS=yes` in `resolved.conf`). Without one of these, mDNS queries may fail.
+
+## DNS Resolver
+
+yaddnsc can use custom DNS servers for record lookups instead of the system resolver. Configure the `resolver` object at the top level of your configuration file.
+
+### Resolver Types
+
+Three resolver types are supported, auto-detected from the address format:
+
+#### Traditional DNS (UDP/TCP)
+
+Uses standard DNS over UDP (or TCP for large responses) on a given IP and port.
+
+```json
+{
+  "resolver": {
+    "use_custom_server": true,
+    "servers": [
+      { "address": "1.1.1.1", "port": 53 },
+      { "address": "8.8.8.8", "port": 53 }
+    ]
+  }
+}
+```
+
+| Field     | Description                                                              |
+|-----------|--------------------------------------------------------------------------|
+| `address` | Plain IP address (e.g. `"1.1.1.1"`). Use **without** brackets for IPv6. |
+| `port`    | UDP/TCP port, typically 53.                                              |
+
+> **IPv6 note:** Write IPv6 addresses without brackets, e.g. `"2606:4700:4700::1111"`. Brackets are used for URI literals (`[::1]:53`), but `inet_pton()` expects a plain address.
+
+#### DNS-over-HTTPS (DoH)
+
+Encrypts DNS queries via HTTPS POST (RFC 8484).
+
+```json
+{
+  "resolver": {
+    "use_custom_server": true,
+    "servers": [
+      { "address": "https://1.1.1.1/dns-query" },
+      { "address": "https://cloudflare-dns.com/dns-query" }
+    ]
+  }
+}
+```
+
+| Field     | Description                                                                                         |
+|-----------|-----------------------------------------------------------------------------------------------------|
+| `address` | Full HTTPS URL **including the path** (e.g. `"https://1.1.1.1/dns-query"`). Must start with `https://`. |
+| `port`    | Ignored — HTTPS uses port 443 by default.                                                           |
+
+> The address must be a complete URL with the full path. The code does **not** append `/dns-query` automatically.
+
+#### DNS-over-TLS (DoT)
+
+Encrypts DNS queries via TLS (RFC 7858).
+
+```json
+{
+  "resolver": {
+    "use_custom_server": true,
+    "servers": [
+      { "address": "tls://1.1.1.1" }
+    ]
+  }
+}
+```
+
+| Field     | Description                                                              |
+|-----------|--------------------------------------------------------------------------|
+| `address` | `tls://` URI (e.g. `"tls://1.1.1.1"`).                                  |
+| `port`    | Ignored — TLS uses port 853 by default.                                  |
+
+### Query Strategy
+
+The `strategy` field controls how multiple DNS servers are queried:
+
+| Strategy     | Behaviour                                                                 |
+|--------------|---------------------------------------------------------------------------|
+| `concurrent` | **(Default)** Fire resolvers in batches of 3 in parallel and return the fastest successful response. |
+| `fallback`   | Try the first resolver; if it fails, try the next one in order.           |
+
+```json
+{
+  "resolver": {
+    "use_custom_server": true,
+    "strategy": "fallback",
+    "servers": [
+      { "address": "https://1.1.1.1/dns-query" },
+      { "address": "tls://1.1.1.1" }
+    ]
+  }
+}
+```
+
+### Platform Notes
+
+Custom DNS servers rely on `res_nquery()`. On platforms without this function (e.g. some musl-based builds), the system resolver is always used and custom server configuration is ignored.
 
 ## Driver Parameters
 
