@@ -140,7 +140,6 @@ std::optional<InetAddress> Updater::Impl::resolve_local_address(const Config::su
     auto candidates = ip_source->resolve();
 
     if (candidates.empty()) {
-        SPDLOG_DEBUG("No IP addresses resolved for {}", config.name);
         return std::nullopt;
     }
 
@@ -149,7 +148,6 @@ std::optional<InetAddress> Updater::Impl::resolve_local_address(const Config::su
         filter_ipv6_candidates(candidates, config);
 
         if (candidates.empty()) {
-            SPDLOG_DEBUG("All IPv6 candidates filtered out for {}", config.name);
             return std::nullopt;
         }
     }

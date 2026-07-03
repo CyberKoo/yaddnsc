@@ -140,20 +140,54 @@ std::vector<InetAddress> MdnsIpSource::resolve() const {
         }
     }
 
-    // ── 3. Join the multicast group (required on FreeBSD/BSD) ────────────────
-    // Without this, the kernel won't deliver multicast packets to our socket.
+    // ── 3. Set multicast socket options (required on FreeBSD/BSD) ────────────
+    unsigned int if_index = 0;
+    if (!interface_.empty()) {
+        if_index = ::if_nametoindex(interface_.c_str());
+        if (if_index == 0) {
+            SPDLOG_WARN(R"(mDNS: if_nametoindex("{}") failed for "{}")", interface_, hostname_);
+        }
+    }
+
     if (is_ipv6) {
+        // Set the outgoing interface for IPv6 multicast (FreeBSD needs this to
+        // route the sendto() to the correct interface; 0 = system default).
+        if (setsockopt(sockfd, IPPROTO_IPV6, IPV6_MULTICAST_IF,
+                       &if_index, sizeof(if_index)) < 0) {
+            SPDLOG_WARN(R"(mDNS: IPV6_MULTICAST_IF failed for "{}": {})", hostname_, std::strerror(errno));
+        }
+
+        // Explicit hop-limit for multicast packets (default is 1 on most
+        // systems, but being explicit avoids surprises on FreeBSD).
+        int hops = 255;
+        if (setsockopt(sockfd, IPPROTO_IPV6, IPV6_MULTICAST_HOPS, &hops, sizeof(hops)) < 0) {
+            SPDLOG_WARN(R"(mDNS: IPV6_MULTICAST_HOPS failed for "{}": {})", hostname_, std::strerror(errno));
+        }
+
+        // Join the multicast group so the kernel delivers responses.
         ipv6_mreq mreq6{};
         inet_pton(AF_INET6, mcast_group, &mreq6.ipv6mr_multiaddr);
-        if (!interface_.empty()) {
-            mreq6.ipv6mr_interface = ::if_nametoindex(interface_.c_str());
-        } else {
-            mreq6.ipv6mr_interface = 0;  // default interface
-        }
+        mreq6.ipv6mr_interface = if_index;
         if (setsockopt(sockfd, IPPROTO_IPV6, IPV6_JOIN_GROUP, &mreq6, sizeof(mreq6)) < 0) {
             SPDLOG_WARN(R"(mDNS: IPV6_JOIN_GROUP failed for "{}": {})", hostname_, std::strerror(errno));
         }
     } else {
+        // Set the outgoing interface for IPv4 multicast (optional on most
+        // systems, but good practice when pinned to a specific interface).
+        if (if_index > 0) {
+            if (setsockopt(sockfd, IPPROTO_IP, IP_MULTICAST_IF,
+                           &if_index, sizeof(if_index)) < 0) {
+                SPDLOG_WARN(R"(mDNS: IP_MULTICAST_IF failed for "{}": {})", hostname_, std::strerror(errno));
+            }
+        }
+
+        // Explicit TTL for multicast packets.
+        int ttl = 255;
+        if (setsockopt(sockfd, IPPROTO_IP, IP_MULTICAST_TTL, &ttl, sizeof(ttl)) < 0) {
+            SPDLOG_WARN(R"(mDNS: IP_MULTICAST_TTL failed for "{}": {})", hostname_, std::strerror(errno));
+        }
+
+        // Join the multicast group so the kernel delivers responses.
         ip_mreq mreq{};
         mreq.imr_multiaddr.s_addr = inet_addr(MDNS_IPV4_GROUP);
         // Socket is already bound to the desired interface via IP_BOUND_IF or
