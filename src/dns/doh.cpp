@@ -2,7 +2,6 @@
 // Created by Kotarou on 2026/6/28.
 //
 #include "doh.h"
-#include "dns_mkquery.h"
 
 #include <resolv.h>
 #include <arpa/nameser.h>
@@ -11,6 +10,7 @@
 
 #include "fmt.hpp"
 #include "types.h"
+#include "mkquery.h"
 #include "http_types.h"
 #include "network/http_client.h"
 #include "exceptions/dns_lookup_exception.h"
@@ -39,7 +39,7 @@ public:
 
         SPDLOG_DEBUG(R"(Resolver #{} lookup for domain "{}" (type {}))", id_, host, ns_type);
 
-        const auto query_bytes = dns_mkquery(host, ns_type);
+        const auto query_bytes = DNS::mkquery(host, ns_type);
 
         http_request req{
             .url = server_,

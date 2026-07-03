@@ -22,7 +22,7 @@
 #include "fmt.hpp"
 #include "dns/parser.h"
 #include "dns/types.h"
-#include "dns/dns_mkquery.h"
+#include "dns/mkquery.h"
 #include "network/inet_address.h"
 
 // ===========================================================================
@@ -76,7 +76,7 @@ std::vector<InetAddress> MdnsIpSource::resolve() const {
 
     // ── 1. Build the mDNS query packet ──────────────────────────────────────
     const auto ns_type = DNS::to_ns_type(type_);
-    const auto query_pkt = dns_mkquery_mdns(hostname_, ns_type, true);
+    const auto query_pkt = DNS::mkquery_mdns(hostname_, ns_type, true);
 
     // ── 2. Create the socket ────────────────────────────────────────────────
     const int sockfd = ::socket(af, SOCK_DGRAM, 0);
@@ -140,7 +140,31 @@ std::vector<InetAddress> MdnsIpSource::resolve() const {
         }
     }
 
-    // ── 3. Send the query to the multicast group ────────────────────────────
+    // ── 3. Join the multicast group (required on FreeBSD/BSD) ────────────────
+    // Without this, the kernel won't deliver multicast packets to our socket.
+    if (is_ipv6) {
+        ipv6_mreq mreq6{};
+        inet_pton(AF_INET6, mcast_group, &mreq6.ipv6mr_multiaddr);
+        if (!interface_.empty()) {
+            mreq6.ipv6mr_interface = ::if_nametoindex(interface_.c_str());
+        } else {
+            mreq6.ipv6mr_interface = 0;  // default interface
+        }
+        if (setsockopt(sockfd, IPPROTO_IPV6, IPV6_JOIN_GROUP, &mreq6, sizeof(mreq6)) < 0) {
+            SPDLOG_WARN(R"(mDNS: IPV6_JOIN_GROUP failed for "{}": {})", hostname_, std::strerror(errno));
+        }
+    } else {
+        ip_mreq mreq{};
+        mreq.imr_multiaddr.s_addr = inet_addr(MDNS_IPV4_GROUP);
+        // Socket is already bound to the desired interface via IP_BOUND_IF or
+        // SO_BINDTODEVICE above, so INADDR_ANY lets the kernel pick the right one.
+        mreq.imr_interface.s_addr = htonl(INADDR_ANY);
+        if (setsockopt(sockfd, IPPROTO_IP, IP_ADD_MEMBERSHIP, &mreq, sizeof(mreq)) < 0) {
+            SPDLOG_WARN(R"(mDNS: IP_ADD_MEMBERSHIP failed for "{}": {})", hostname_, std::strerror(errno));
+        }
+    }
+
+    // ── 4. Send the query to the multicast group ────────────────────────────
     union {
         sockaddr_in v4;
         sockaddr_in6 v6;
@@ -170,7 +194,7 @@ std::vector<InetAddress> MdnsIpSource::resolve() const {
 
     SPDLOG_TRACE(R"(mDNS: sent {} bytes for "{}")", sent, hostname_);
 
-    // ── 4. Wait for a response (with timeout) ───────────────────────────────
+    // ── 5. Wait for a response (with timeout) ───────────────────────────────
     fd_set read_fds;
     FD_ZERO(&read_fds);
     FD_SET(sockfd, &read_fds);
@@ -186,7 +210,7 @@ std::vector<InetAddress> MdnsIpSource::resolve() const {
         return {};
     }
 
-    // ── 5. Receive the response ─────────────────────────────────────────────
+    // ── 6. Receive the response ─────────────────────────────────────────────
     std::vector<uint8_t> recv_buf(2048);
     const auto recv_len = recvfrom(sockfd, recv_buf.data(), recv_buf.size(), 0, nullptr, nullptr);
 
@@ -197,7 +221,7 @@ std::vector<InetAddress> MdnsIpSource::resolve() const {
 
     SPDLOG_TRACE(R"(mDNS: received {} bytes for "{}")", recv_len, hostname_);
 
-    // ── 6. Parse the response ───────────────────────────────────────────────
+    // ── 7. Parse the response ───────────────────────────────────────────────
     std::vector<std::string> raw_records;
     try {
         raw_records = DnsRecordParser::parse_all(recv_buf.data(), static_cast<size_t>(recv_len), hostname_);
@@ -211,7 +235,7 @@ std::vector<InetAddress> MdnsIpSource::resolve() const {
         return {};
     }
 
-    // ── 7. Convert string addresses to InetAddress ──────────────────────────
+    // ── 8. Convert string addresses to InetAddress ──────────────────────────
     std::vector<InetAddress> results;
     results.reserve(raw_records.size());
 

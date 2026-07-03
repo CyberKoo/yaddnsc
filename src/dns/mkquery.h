@@ -2,16 +2,18 @@
 // Created by Kotarou on 2026/6/29.
 //
 
-#ifndef YADDNSC_DNS_MKQUERY_H
-#define YADDNSC_DNS_MKQUERY_H
+#ifndef YADDNSC_MKQUERY_H
+#define YADDNSC_MKQUERY_H
 
 #include <cstdint>
 #include <optional>
 #include <string>
 #include <vector>
 
+namespace DNS {
+
 // ---------------------------------------------------------------------------
-// dns_mkquery — build a raw DNS query packet (wire format, RFC 1035).
+// mkquery — build a raw DNS query packet (wire format, RFC 1035).
 //
 // Dispatches to either the system res_mkquery or the manual builder
 // based on the CMake option YADDNSC_MANUAL_MKQUERY.
@@ -27,10 +29,10 @@
 // Throws:
 //   DnsLookupException if the query packet cannot be constructed.
 // ---------------------------------------------------------------------------
-[[nodiscard]] std::vector<uint8_t> dns_mkquery(const std::string &host, int ns_type);
+[[nodiscard]] std::vector<uint8_t> mkquery(const std::string &host, int ns_type);
 
 // ---------------------------------------------------------------------------
-// dns_mkquery_manual — build a raw DNS query packet without libresolv.
+// mkquery_manual — build a raw DNS query packet without libresolv.
 //
 // A self-contained implementation that constructs the DNS wire-format query
 // packet manually, without relying on res_mkquery() or any system resolver
@@ -38,26 +40,26 @@
 // control over the packet contents (e.g. no EDNS0 interference from
 // /etc/resolv.conf).
 //
-// Parameters and return are identical to dns_mkquery().
+// Parameters and return are identical to mkquery().
 // ---------------------------------------------------------------------------
-[[nodiscard]] std::vector<uint8_t> dns_mkquery_manual(const std::string &host, int ns_type);
+[[nodiscard]] std::vector<uint8_t> mkquery_manual(const std::string &host, int ns_type);
 
 // ---------------------------------------------------------------------------
-// dns_mkquery_system — build a raw DNS query packet via libresolv.
+// mkquery_system — build a raw DNS query packet via libresolv.
 //
 // Delegates packet construction to the system's res_mkquery(), which handles
 // label encoding, random transaction IDs, and may append EDNS0 records based
 // on the system resolver configuration (/etc/resolv.conf).
 //
-// Parameters and return are identical to dns_mkquery().
+// Parameters and return are identical to mkquery().
 // ---------------------------------------------------------------------------
-[[nodiscard]] std::vector<uint8_t> dns_mkquery_system(const std::string &host, int ns_type);
+[[nodiscard]] std::vector<uint8_t> mkquery_system(const std::string &host, int ns_type);
 
 // ---------------------------------------------------------------------------
-// dns_mkquery_mdns — build an mDNS query packet (RFC 6762).
+// mkquery_mdns — build an mDNS query packet (RFC 6762).
 //
 // Constructs a DNS wire-format query suitable for multicast DNS.  Differs
-// from dns_mkquery_manual in three ways:
+// from mkquery_manual in three ways:
 //   1. Transaction ID is set to 0 (RFC 6762 §18.1).
 //   2. Flags are set to 0x0000 — no RD, no RA, standard query.
 //   3. QCLASS carries the QU (unicast-response) bit (0x8001) so that the
@@ -73,7 +75,9 @@
 // Returns:
 //   A buffer containing the raw mDNS query packet bytes.
 // ---------------------------------------------------------------------------
-[[nodiscard]] std::vector<uint8_t> dns_mkquery_mdns(const std::string &host, int ns_type,
-                                                    bool unicast_rsp = true);
+[[nodiscard]] std::vector<uint8_t> mkquery_mdns(const std::string &host, int ns_type,
+                                                bool unicast_rsp = true);
 
-#endif // YADDNSC_DNS_MKQUERY_H
+} // namespace DNS
+
+#endif // YADDNSC_MKQUERY_H

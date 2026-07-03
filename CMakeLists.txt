@@ -112,7 +112,7 @@ configure_file("${CMAKE_SOURCE_DIR}/src/templates/driver_ver.h.in" "${CMAKE_BINA
 configure_file("${CMAKE_SOURCE_DIR}/src/templates/config_cmake.h.in" "${CMAKE_BINARY_DIR}/generated/config_cmake.h" @ONLY)
 configure_file("${CMAKE_SOURCE_DIR}/src/templates/logging_pattern.h.in" "${CMAKE_BINARY_DIR}/generated/logging_pattern.h" @ONLY)
 configure_file("${CMAKE_SOURCE_DIR}/src/templates/min_update_interval.h.in" "${CMAKE_BINARY_DIR}/generated/min_update_interval.h" @ONLY)
-configure_file("${CMAKE_SOURCE_DIR}/src/templates/dns_mkquery_config.h.in" "${CMAKE_BINARY_DIR}/generated/dns_mkquery_config.h" @ONLY)
+configure_file("${CMAKE_SOURCE_DIR}/src/templates/mkquery_config.h.in" "${CMAKE_BINARY_DIR}/generated/mkquery_config.h" @ONLY)
 
 # ==============================================================================
 # Dependencies (via CPM.cmake)
@@ -231,7 +231,7 @@ set(IpSourceFactory src/ip_source/factory.cpp)
 set(DriverManager src/core/driver_manager.cpp)
 set(SignalHandler src/core/signal_handler.cpp)
 set(CLI src/cli/cli.cpp src/cli/driver.cpp src/cli/interface.cpp src/cli/dns.cpp src/cli/config.cpp)
-set(DNS src/dns/types.cpp src/dns/classic.cpp src/dns/parser.cpp src/dns/doh.cpp src/dns/dot.cpp src/dns/dns_mkquery.cpp src/dns/resolver_dispatcher.cpp src/dns/resolver_factory.cpp)
+set(DNS src/dns/types.cpp src/dns/classic.cpp src/dns/parser.cpp src/dns/doh.cpp src/dns/dot.cpp src/dns/mkquery.cpp src/dns/resolver_dispatcher.cpp src/dns/resolver_factory.cpp)
 
 # ==============================================================================
 # Main executable

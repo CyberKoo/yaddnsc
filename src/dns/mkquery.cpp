@@ -2,7 +2,7 @@
 // Created by Kotarou on 2026/6/29.
 //
 
-#include "dns_mkquery.h"
+#include "mkquery.h"
 
 #include <arpa/nameser.h>
 #include <resolv.h>
@@ -14,27 +14,29 @@
 #include <string>
 #include <vector>
 
-#include "dns_mkquery_config.h"
-#include "exceptions/dns_lookup_exception.h"
 #include "fmt.hpp"
+#include "mkquery_config.h"
+#include "exceptions/dns_lookup_exception.h"
+
+namespace DNS {
 
 // ===========================================================================
-//  dns_mkquery  —  compile-time dispatch
+//  mkquery  —  compile-time dispatch
 // ===========================================================================
 
-std::vector<uint8_t> dns_mkquery(const std::string &host, int ns_type) {
+std::vector<uint8_t> mkquery(const std::string &host, int ns_type) {
     if constexpr (YADDNSC_MANUAL_MKQUERY) {
-        return dns_mkquery_manual(host, ns_type);
+        return mkquery_manual(host, ns_type);
     } else {
-        return dns_mkquery_system(host, ns_type);
+        return mkquery_system(host, ns_type);
     }
 }
 
 // ===========================================================================
-//  dns_mkquery_system  —  system res_mkquery wrapper
+//  mkquery_system  —  system res_mkquery wrapper
 // ===========================================================================
 
-std::vector<uint8_t> dns_mkquery_system(const std::string &host, int ns_type) {
+std::vector<uint8_t> mkquery_system(const std::string &host, int ns_type) {
     // res_mkquery may append EDNS0 records from the system resolver config
     // (e.g. /etc/resolv.conf), so allocate a generous buffer.
     static constexpr size_t BUFFER_SIZE = 4096;
@@ -62,7 +64,7 @@ std::vector<uint8_t> dns_mkquery_system(const std::string &host, int ns_type) {
 }
 
 // ===========================================================================
-//  dns_mkquery_manual  —  hand-rolled DNS query builder (no libresolv)
+//  mkquery_manual  —  hand-rolled DNS query builder (no libresolv)
 // ===========================================================================
 
 namespace {
@@ -98,7 +100,7 @@ namespace {
     };
 } // anonymous namespace
 
-std::vector<uint8_t> dns_mkquery_manual(const std::string &host, int ns_type) {
+std::vector<uint8_t> mkquery_manual(const std::string &host, int ns_type) {
     static std::random_device rd;
     const auto id = static_cast<uint16_t>(rd() & 0xFFFF);
 
@@ -120,10 +122,10 @@ std::vector<uint8_t> dns_mkquery_manual(const std::string &host, int ns_type) {
 }
 
 // ===========================================================================
-//  dns_mkquery_mdns  —  mDNS query builder (RFC 6762)
+//  mkquery_mdns  —  mDNS query builder (RFC 6762)
 // ===========================================================================
 
-std::vector<uint8_t> dns_mkquery_mdns(const std::string &host, int ns_type, bool unicast_rsp) {
+std::vector<uint8_t> mkquery_mdns(const std::string &host, int ns_type, bool unicast_rsp) {
     constexpr uint16_t QCLASS_IN = 0x0001;
     constexpr uint16_t QU_BIT = 0x8000;
 
@@ -145,3 +147,5 @@ std::vector<uint8_t> dns_mkquery_mdns(const std::string &host, int ns_type, bool
 
     return w.finish();
 }
+
+} // namespace DNS

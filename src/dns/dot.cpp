@@ -21,8 +21,8 @@
 
 #include "types.h"
 #include "fmt.hpp"
+#include "mkquery.h"
 #include "utils/cert_util.h"
-#include "dns_mkquery.h"
 #include "utils/validation.h"
 #include "network/inet_address.h"
 #include "exceptions/dns_lookup_exception.h"
@@ -117,7 +117,7 @@ public:
         SPDLOG_DEBUG(R"(Resolver #{} lookup for domain "{}" (type {}))", id_, host, ns_type);
 
         // ---- 1. Build the raw DNS query packet ----
-        const auto query_bytes = dns_mkquery(host, ns_type);
+        const auto query_bytes = DNS::mkquery(host, ns_type);
 
         // ---- 2. Build the wire format (2-byte length prefix + DNS message) ----
         uint8_t len_buf[2];
