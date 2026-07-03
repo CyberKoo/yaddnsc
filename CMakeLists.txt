@@ -279,9 +279,12 @@ target_link_libraries(yaddnsc PRIVATE BS_thread_pool magic_enum httplib spdlog::
         CLI11::CLI11 glaze::glaze ${CMAKE_DL_LIBS}
 )
 
-# interface target: wraps fmt so consumers always get the right dep regardless of HAVE_STD_FORMAT
+# interface target: wraps fmt so consumers always get the right dep and define regardless of HAVE_STD_FORMAT
 add_library(yaddnsc_fmt INTERFACE)
 target_include_directories(yaddnsc_fmt INTERFACE ${CMAKE_SOURCE_DIR}/include)
+target_compile_definitions(yaddnsc_fmt INTERFACE
+    $<$<BOOL:${YADDNSC_USE_STD_FORMAT}>:YADDNSC_USE_STD_FORMAT>
+)
 if (NOT HAVE_STD_FORMAT)
   target_link_libraries(yaddnsc_fmt INTERFACE fmt::fmt)
 endif ()
