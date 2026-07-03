@@ -13,7 +13,9 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_POLICY_DEFAULT_CMP0077 NEW)
 
 # default to release if not specified
-set(CMAKE_BUILD_TYPE "Release" CACHE STRING "Build type")
+if (NOT CMAKE_BUILD_TYPE)
+  set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
+endif ()
 
 # ==============================================================================
 # Compiler version requirements
@@ -312,6 +314,13 @@ if (YADDNSC_MANUAL_MKQUERY)
 else ()
   message(STATUS "DNS query builder: system (res_mkquery)")
 endif ()
+
+# ==============================================================================
+# Output directory
+# ==============================================================================
+set_target_properties(yaddnsc PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/objs"
+)
 
 # ==============================================================================
 # Driver modules
