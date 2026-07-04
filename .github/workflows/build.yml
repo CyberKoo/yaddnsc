@@ -27,13 +27,11 @@ jobs:
         uses: actions/checkout@v7
       - name: Install dependencies
         run: sudo apt update; sudo apt install -y libssl-dev zlib1g zlib1g-dev
-      - name: Create build directory
-        run: mkdir build
       - name: Build
         env:
           CC: gcc-14
           CXX: g++-14
-        run: cd build && cmake ../ -DCMAKE_BUILD_TYPE=Debug && make -s -j 2
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Debug && make -s -C build -j$(nproc)
   linux-arm64:
     runs-on: ubuntu-24.04-arm
     steps:
@@ -41,13 +39,21 @@ jobs:
         uses: actions/checkout@v7
       - name: Install dependencies
         run: sudo apt update; sudo apt install -y libssl-dev zlib1g zlib1g-dev
-      - name: Create build directory
-        run: mkdir build
       - name: Build
         env:
           CC: gcc-14
           CXX: g++-14
-        run: cd build && cmake ../ -DCMAKE_BUILD_TYPE=Debug && make -s -j 2
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Debug && make -s -C build -j$(nproc)
+  linux-amd64-musl:
+    runs-on: ubuntu-24.04
+    container: alpine:3
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+      - name: Install dependencies
+        run: apk add --no-cache build-base git cmake openssl-dev zlib-dev
+      - name: Build
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Debug && make -s -C build -j$(nproc)
   macos-arm64:
     runs-on: macos-26
     steps:
@@ -55,7 +61,5 @@ jobs:
         uses: actions/checkout@v7
       - name: Install dependencies
         run: brew update; brew install openssl@3
-      - name: Create build directory
-        run: mkdir build
       - name: Build
-        run: cd build && cmake ../ -DOPENSSL_ROOT_DIR=/opt/homebrew/opt/openssl@3/ -DCMAKE_BUILD_TYPE=Debug && make -s -j 2
+        run: cmake -B build -DOPENSSL_ROOT_DIR=/opt/homebrew/opt/openssl@3/ -DCMAKE_BUILD_TYPE=Debug && make -s -C build -j$(nproc)

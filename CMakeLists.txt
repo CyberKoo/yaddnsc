@@ -66,13 +66,8 @@ set(YADDNSC_ABI_VERSION_MAJOR 1)
 set(YADDNSC_ABI_VERSION_MINOR 0)
 set(YADDNSC_ABI_VERSION_PATCH 0)
 
-set(YADDNSC_DEVELOPMENT ON)
-set(YADDNSC_RELEASE_INFO RELEASE)
-
-if (YADDNSC_DEVELOPMENT)
-  include(GitVersion)
-  set(YADDNSC_RELEASE_INFO ${GIT_VERSION})
-endif ()
+option(YADDNSC_DEVELOPMENT "Development mode (embed git version info)" ON)
+include(ReleaseInfo)
 
 # ==============================================================================
 # User options (cache variables, overridable via -D)

@@ -215,7 +215,20 @@ A template configuration is available at `config.example.json`.
 |---------------------|-------------|-----------------------------------------------------------------------------------------------------------------------------------------------|
 | `use_custom_server` | boolean     | If true, use the specified DNS server(s) instead of system                                                                                    |
 | `servers`           | object[]    | List of DNS servers. See [DNS Resolver](#dns-resolver) for supported address formats.                                                         |
-| `strategy`          | string      | Query strategy: `"concurrent"` (default) or `"fallback"`. See [DNS Resolver](#dns-resolver).                                                  |
+| `address`           | string      | **Deprecated, will be removed in a future release.** DNS server address specified directly at the resolver level. Use `servers` instead. |
+| `ipaddress`         | string      | **Deprecated, will be removed in a future release.** Alias for `address`. Use `servers` instead. |
+| `port`              | int         | **Deprecated, will be removed in a future release.** Port for use with `address` (default: 53). Use `servers` instead. |
+| `strategy`          | string      | Query strategy: `"concurrent"` (default) or `"fallback"`. See [DNS Resolver](#dns-resolver). |
+
+#### `DnsServer` object
+
+| Field        | Type   | Description                                                    |
+|--------------|--------|----------------------------------------------------------------|
+| `address`    | string | DNS server address.                                            |
+| `ipaddress`  | string | **Deprecated, will be removed in a future release.** Alias for `address`. |
+| `port`       | int    | Port number (default: 53).                                     |
+
+> See [DNS Resolver](#dns-resolver) for supported `address` formats (traditional DNS, DoH, DoT).
 
 #### `domains[]` object
 
@@ -234,7 +247,7 @@ A template configuration is available at `config.example.json`.
 | `name`             | string  | Subdomain name (e.g. `home` for `home.example.com`)                                                                  |
 | `type`             | string  | DNS record type: `"a"`, `"aaaa"`, `"txt"`, or `"soa"`. Determines address family automatically (A → IPv4, AAAA → IPv6). |
 | `interface`        | string  | Network interface name (e.g. `eth0`). Required for `"interface"` IP source; optional for others.                     |
-| `ip_source`        | string  | IP source strategy: `"interface"`, `"http"` (or alias `"url"`), or `"mdns"`. See [IP Source](#ip-source) for details. |
+| `ip_source`        | string  | IP source strategy: `"interface"`, `"http"`, or `"mdns"`. `"url"` is the old name for `"http"` (deprecated, will be removed in a future release). See [IP Source](#ip-source) for details. |
 | `ip_source_param`  | string  | Source-specific parameter (URL for `"http"`, mDNS hostname for `"mdns"`). Ignored for `"interface"`.                  |
 | `allow_ula`        | boolean | When using IPv6 interface source, allow Unique Local Addresses (default: false)                                      |
 | `allow_local_link` | boolean | When using IPv6 interface source, allow link-local addresses (default: false)                                        |
