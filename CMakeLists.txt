@@ -85,6 +85,8 @@ if (YADDNSC_MIN_UPDATE_INTERVAL LESS 0)
 endif ()
 
 # ==============================================================================
+include(GNUInstallDirs)
+
 # Generated headers (all configure_file calls, after all variables are defined)
 # ==============================================================================
 configure_file("${CMAKE_SOURCE_DIR}/src/template/version.h.in" "${CMAKE_BINARY_DIR}/generated/version.h" @ONLY)
@@ -93,6 +95,7 @@ configure_file("${CMAKE_SOURCE_DIR}/src/template/config_cmake.h.in" "${CMAKE_BIN
 configure_file("${CMAKE_SOURCE_DIR}/src/template/logging_pattern.h.in" "${CMAKE_BINARY_DIR}/generated/logging_pattern.h" @ONLY)
 configure_file("${CMAKE_SOURCE_DIR}/src/template/min_update_interval.h.in" "${CMAKE_BINARY_DIR}/generated/min_update_interval.h" @ONLY)
 configure_file("${CMAKE_SOURCE_DIR}/src/template/mkquery_config.h.in" "${CMAKE_BINARY_DIR}/generated/mkquery_config.h" @ONLY)
+configure_file("${CMAKE_SOURCE_DIR}/src/template/config.json.in" "${CMAKE_BINARY_DIR}/generated/config.json" @ONLY)
 
 # ==============================================================================
 # Dependencies (via CPM.cmake)
@@ -321,13 +324,42 @@ else ()
 endif ()
 
 # ==============================================================================
-# Output directory
-# ==============================================================================
-set_target_properties(yaddnsc PROPERTIES
-    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/objs"
-)
-
-# ==============================================================================
 # Driver modules
 # ==============================================================================
 add_subdirectory(${PROJECT_SOURCE_DIR}/driver/)
+
+# ==============================================================================
+# Install rules
+# ==============================================================================
+install(TARGETS yaddnsc RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+
+# Default configuration file
+install(FILES ${CMAKE_BINARY_DIR}/generated/config.json
+        DESTINATION ${CMAKE_INSTALL_SYSCONFDIR}/yaddnsc)
+
+# System config directory for yaddnsc
+set(YADDNSC_SYSCONF_DIR "${CMAKE_INSTALL_FULL_SYSCONFDIR}/yaddnsc")
+
+# systemd service (optional — only installed if systemd is detected)
+find_package(PkgConfig QUIET)
+if(PkgConfig_FOUND)
+  pkg_check_modules(SYSTEMD systemd QUIET)
+  if(SYSTEMD_FOUND)
+    pkg_get_variable(SYSTEMD_UNIT_DIR systemd systemdsystemunitdir)
+
+    configure_file(
+      "${CMAKE_SOURCE_DIR}/src/template/yaddnsc.service.in"
+      "${CMAKE_BINARY_DIR}/generated/yaddnsc.service"
+      @ONLY
+    )
+    install(FILES "${CMAKE_BINARY_DIR}/generated/yaddnsc.service"
+            DESTINATION "${SYSTEMD_UNIT_DIR}")
+
+    message(STATUS "systemd detected — installing service to ${SYSTEMD_UNIT_DIR}")
+  endif()
+endif()
+
+# ==============================================================================
+# Packaging (DEB via CPack)
+# ==============================================================================
+include(Packaging)

@@ -17,6 +17,8 @@
 
 #cmakedefine STATIC_COMPILE
 
+#define YADDNSC_DEFAULT_DRIVER_DIR "@CMAKE_INSTALL_FULL_LIBDIR@/yaddnsc/drivers"
+
 #if defined(HAVE_RES_STATE_EXT_NSADDRS) || defined(HAVE_RES_SETSERVERS)
 #define HAVE_IPV6_RESOLVE_SUPPORT 1
 #endif

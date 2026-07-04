@@ -26,7 +26,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
       - name: Install dependencies
-        run: sudo apt update; sudo apt install -y libssl-dev zlib1g zlib1g-dev
+        run: sudo apt update; sudo apt install -y libssl-dev zlib1g zlib1g-dev pkg-config
       - name: Build
         env:
           CC: gcc-14
@@ -38,7 +38,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
       - name: Install dependencies
-        run: sudo apt update; sudo apt install -y libssl-dev zlib1g zlib1g-dev
+        run: sudo apt update; sudo apt install -y libssl-dev zlib1g zlib1g-dev pkg-config
       - name: Build
         env:
           CC: gcc-14
@@ -51,7 +51,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
       - name: Install dependencies
-        run: apk add --no-cache build-base git cmake openssl-dev zlib-dev
+        run: apk add --no-cache build-base git cmake openssl-dev zlib-dev pkgconfig
       - name: Build
         run: cmake -B build -DCMAKE_BUILD_TYPE=Debug && make -s -C build -j$(nproc)
   macos-arm64:
@@ -60,6 +60,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
       - name: Install dependencies
-        run: brew update; brew install openssl@3
+        run: brew update; brew install openssl@3 pkg-config
       - name: Build
         run: cmake -B build -DOPENSSL_ROOT_DIR=/opt/homebrew/opt/openssl@3/ -DCMAKE_BUILD_TYPE=Debug && make -s -C build -j$(nproc)

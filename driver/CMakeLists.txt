@@ -1,8 +1,6 @@
 cmake_minimum_required(VERSION 3.22...3.31 FATAL_ERROR)
 project(drivers)
 
-set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/objs/driver)
-
 add_custom_target(drivers)
 
 # On macOS the linker requires exported symbols from shared modules to be
@@ -51,5 +49,8 @@ foreach (DIR_NAME ${DRIVER_DIRS})
 
         # Aggregate all drivers under the top-level 'drivers' target
         add_dependencies(drivers ${DRIVER_NAME})
+
+        # Install driver shared library
+        install(TARGETS ${DRIVER_NAME} LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}/yaddnsc/drivers)
     endif ()
 endforeach ()

@@ -5,6 +5,7 @@
 #ifndef YADDNSC_CONFIG_CONFIG_H
 #define YADDNSC_CONFIG_CONFIG_H
 
+#include <optional>
 #include <vector>
 #include <string>
 
@@ -23,7 +24,7 @@ namespace Config {
     };
 
     struct DriverConfig {
-        std::string driver_dir;
+        std::optional<std::string> driver_dir;
         bool auto_discover{false};
         std::vector<std::string> load;
     };

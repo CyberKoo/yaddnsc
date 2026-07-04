@@ -84,23 +84,26 @@ Check response"]
 | CMake           | 3.28                                               |
 | C++ Compiler    | C++23 capable (GCC 14+, Clang 18+, Apple Clang 15+) |
 | OpenSSL         | 3.0+                                               |
+| pkg-config      | Any (required on Linux; optional on macOS)         |
 
 ### Building
 
 ```bash
 # Install system dependencies (Debian/Ubuntu)
-sudo apt install libssl-dev build-essential cmake
+sudo apt install libssl-dev build-essential cmake pkg-config
 
 # Install system dependencies (macOS)
-brew install openssl@3 cmake
+brew install openssl@3 cmake pkg-config
 
 # Build
-mkdir build && cd build
-cmake .. -DCMAKE_BUILD_TYPE=Release
-make -j$(nproc)
+cmake -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build -j$(nproc)
 
-# The main binary will be at build/objs/yaddnsc
-# Driver modules will be at build/objs/driver/*.so
+# Install to a staging directory
+cmake --install build --prefix /usr --sysconfdir /etc
+
+# Or install system-wide (DESTDIR support for packages)
+sudo cmake --install build
 ```
 
 ### Platform Notes
@@ -122,6 +125,31 @@ Unit tests are blocked by the tight coupling between core components — the IP 
 | `YADDNSC_MIN_UPDATE_INTERVAL` | 60                                            | Minimum allowed update interval in seconds                         |
 | `YADDNSC_MANUAL_MKQUERY`      | OFF                                           | Use a custom DNS query builder instead of system `res_mkquery()`   |
 | `YADDNSC_USE_SYSTEM_SPDLOG`   | OFF                                           | Use system spdlog instead of the bundled CPM-downloaded version    |
+| `YADDNSC_ENABLE_DEB`          | OFF                                           | Enable DEB package generation via CPack                            |
+
+#### Building a DEB package
+
+```bash
+# Build locally
+cmake -B build -DCMAKE_BUILD_TYPE=Release -DYADDNSC_ENABLE_DEB=ON
+cmake --build build -j$(nproc)
+cpack --config build/CPackConfig.cmake -G DEB
+
+# Or use the Docker-based DEB builder (recommended for CI)
+./docker/build-deb.sh          # builds for Ubuntu 24.04
+./docker/build-deb.sh 24.04 26.04  # builds for multiple versions
+```
+
+#### Docker (multi-stage build)
+
+A multi-stage Dockerfile (`Dockerfile`) is provided for building and running yaddnsc on Alpine Linux:
+
+```bash
+docker build -t yaddnsc .
+docker run yaddnsc --help
+```
+
+The Docker build produces a minimal runtime image with only the required shared libraries (OpenSSL, zlib, brotli, libstdc++), a non-root user, and the binary pre-configured with a default config.
 
 Third-party dependencies are fetched automatically via CPM.cmake.
 
@@ -129,7 +157,7 @@ Third-party dependencies are fetched automatically via CPM.cmake.
 
 yaddnsc uses a JSON configuration file. By default it looks for `./config.json`, or you can specify a custom path with the `-c` flag.
 
-A template configuration is available at `config.example.json`.
+A template configuration is generated at build time from `src/template/config.json.in` and installed to the system config directory (`${sysconfdir}/yaddnsc/config.json`).
 
 ### Example Configuration
 
@@ -205,8 +233,8 @@ A template configuration is available at `config.example.json`.
 
 | Field           | Type     | Description                                                                            |
 |-----------------|----------|----------------------------------------------------------------------------------------|
-| `driver_dir`    | string   | Directory containing driver `.so` files                                                |
-| `auto_discover` | boolean  | If true, automatically loads all `.so` files in `driver_dir` (ignores `load` list)     |
+| `driver_dir`    | string   | Directory containing driver `.so` files. **Optional** — when omitted, defaults to `${libdir}/yaddnsc/drivers` (e.g. `/usr/lib/yaddnsc/drivers`) |
+| `auto_discover` | boolean  | If true, automatically loads all `.so` files in `driver_dir` (ignores `load` list). Default: `true` |
 | `load`          | string[] | List of driver shared library filenames to load (ignored when `auto_discover` is true) |
 
 #### `resolver` object
@@ -489,16 +517,22 @@ yaddnsc <subcommand> --help
 
 ### Systemd Service
 
-A sample systemd service file is provided at `yaddnsc.service`, with integrated configuration validation (`config test`) before every start, security hardening (DynamicUser, ProtectSystem, ProtectHome), and optional overrides via `/etc/default/yaddnsc`:
+A systemd service file is provided (generated at build time from `src/template/yaddnsc.service.in`) and installed automatically by `cmake --install` when systemd is detected. It features configuration validation (`config test`) before every start, security hardening (DynamicUser, ProtectSystem, ProtectHome), and optional overrides via an environment file in the system config directory:
 
 ```bash
-sudo cp yaddnsc /opt/yaddnsc/
-sudo mkdir -p /etc/yaddnsc/
-sudo cp config.json /etc/yaddnsc/
-sudo cp yaddnsc.service /etc/systemd/system/
+# Install normally — the service is placed automatically
+sudo cmake --install build
+
+# Enable and start the service
 sudo systemctl daemon-reload
 sudo systemctl enable --now yaddnsc
+
+# Optional: override config path
+sudo mkdir -p /etc/yaddnsc/default
+echo 'YADDNSC_CONFIG=/custom/path/config.json' | sudo tee /etc/yaddnsc/default/yaddnsc
 ```
+
+> **Note:** The service file uses `cmake`-substituted paths at build time, so the binary, config, and environment file locations are determined by the `CMAKE_INSTALL_BINDIR` and `CMAKE_INSTALL_SYSCONFDIR` variables passed during configuration.
 
 ## Writing a Custom Driver
 

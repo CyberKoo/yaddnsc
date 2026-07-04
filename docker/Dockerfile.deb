@@ -1,0 +1,71 @@
+# yaddnsc DEB package builder
+#
+# Usage:
+#   docker build -f docker/Dockerfile.deb \
+#       --build-arg UBUNTU_VERSION=24.04 \
+#       -o deb-out .
+#
+#   docker build -f docker/Dockerfile.deb \
+#       --build-arg UBUNTU_VERSION=26.04 \
+#       -o deb-out .
+
+ARG UBUNTU_VERSION=24.04
+
+FROM ubuntu:${UBUNTU_VERSION} AS builder
+
+ARG UBUNTU_VERSION
+ARG DEBIAN_FRONTEND=noninteractive
+
+# Install toolchain and build dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        build-essential \
+        cmake \
+        git \
+        pkg-config \
+        libssl-dev \
+        libspdlog-dev \
+        libfmt-dev \
+        ca-certificates \
+        file \
+    && rm -rf /var/lib/apt/lists/*
+
+# Ubuntu 24.04 ships GCC 13 by default; yaddnsc requires GCC 14+.
+# Install gcc-14/g++-14 from the universe repo.
+RUN if [ "${UBUNTU_VERSION}" = "24.04" ]; then \
+        apt-get update && apt-get install -y --no-install-recommends \
+            gcc-14 g++-14 \
+        && rm -rf /var/lib/apt/lists/*; \
+    fi
+
+WORKDIR /src
+
+# Copy project source
+COPY . .
+
+# Configure with system dependencies (no bundled CPM deps for a clean package)
+# Explicitly set CC/CXX so CMake picks up the right compiler version.
+RUN if [ "${UBUNTU_VERSION}" = "24.04" ]; then \
+        cmake -B build -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX=/usr \
+            -DYADDNSC_USE_SYSTEM_SPDLOG=ON \
+            -DYADDNSC_ENABLE_DEB=ON \
+            -DCMAKE_C_COMPILER=gcc-14 \
+            -DCMAKE_CXX_COMPILER=g++-14; \
+    else \
+        cmake -B build -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX=/usr \
+            -DYADDNSC_USE_SYSTEM_SPDLOG=ON \
+            -DYADDNSC_ENABLE_DEB=ON; \
+    fi
+
+# Build
+RUN cmake --build build -j "$(nproc)"
+
+# Generate DEB package
+RUN cpack --config build/CPackConfig.cmake -G DEB
+
+# Output the .deb
+RUN mkdir -p /deb-out && mv yaddnsc_*.deb /deb-out/
+
+FROM scratch AS export
+COPY --from=builder /deb-out /

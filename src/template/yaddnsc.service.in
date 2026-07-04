@@ -6,10 +6,10 @@ After=network.target network-online.target
 [Service]
 Type=simple
 DynamicUser=yes
-Environment=YADDNSC_CONFIG=/etc/yaddnsc/config.json
-EnvironmentFile=-/etc/default/yaddnsc
-ExecStartPre=/opt/yaddnsc/yaddnsc -c ${YADDNSC_CONFIG} config test
-ExecStart=/opt/yaddnsc/yaddnsc -c ${YADDNSC_CONFIG} run
+Environment=YADDNSC_CONFIG=@YADDNSC_SYSCONF_DIR@/config.json
+EnvironmentFile=-@YADDNSC_SYSCONF_DIR@/default/yaddnsc
+ExecStartPre=@CMAKE_INSTALL_FULL_BINDIR@/yaddnsc -c ${YADDNSC_CONFIG} config test
+ExecStart=@CMAKE_INSTALL_FULL_BINDIR@/yaddnsc -c ${YADDNSC_CONFIG} run
 Restart=on-failure
 RestartSec=3
 
