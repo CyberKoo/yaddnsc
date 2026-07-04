@@ -24,18 +24,14 @@ class Updater;
 // shared thread pool via the Updater, re-queues them with their next
 // deadline, and sleeps until the nearest future deadline.
 //
-// Extracted from Manager::Impl to isolate scheduling logic from the rest
-// of the orchestration layer.
+// The stop_source is injected at construction time (typically from
+// SignalHandler).  The event loop exits when a stop is requested.
 // ---------------------------------------------------------------------------
 class Scheduler {
 public:
-    explicit Scheduler(const Config::AppConfig &config, Updater &updater);
+    explicit Scheduler(const Config::AppConfig &config, Updater &updater, std::stop_source stop_source);
 
     ~Scheduler();
-
-    // Inject a stop_source (typically from SignalHandler) so that the
-    // event loop exits when a shutdown signal arrives.
-    void set_stop_source(std::stop_source ss);
 
     // Run the scheduler loop.  Blocks until a stop is requested.
     void run();

@@ -192,7 +192,7 @@ add_executable(yaddnsc
         src/core/driver_loader.cpp
         src/core/scheduler.cpp
         src/core/core_logger.cpp
-        src/core/signal_handler.cpp
+        src/core/signal_watcher.cpp
         # network
         src/network/http_client.cpp
         src/network/inet_address.cpp

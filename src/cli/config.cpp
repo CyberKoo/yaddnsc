@@ -52,7 +52,10 @@ namespace Cli {
             spdlog::set_pattern(YADDNSC_LOGGING_PATTERN);
 
             auto config = Config::load_config(config_path);
-            Manager manager(std::move(config));
+            // The config test subcommand never calls Manager::run(), so the
+            // Scheduler event loop never starts and the stop_source is unused.
+            // A default-constructed (still stoppable) stop_source is fine.
+            const Manager manager(std::move(config), std::stop_source{});
             manager.load_drivers();
             manager.validate_config();
 

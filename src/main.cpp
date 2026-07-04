@@ -1,27 +1,17 @@
 //
 // Created by Kotarou on 2022/4/5.
 //
-#include <csignal>
 #include <cstdlib>
 
 #include <spdlog/spdlog.h>
 
 #include "cli/cli.h"
 #include "core/manager.h"
+#include "core/signal_watcher.h"
 #include "config/config.h"
 #include "logging_pattern.h"
 #include "exception/base.h"
 #include "exception/config_verification.h"
-
-namespace {
-    void block_signals() {
-        sigset_t sigset;
-        sigemptyset(&sigset);
-        sigaddset(&sigset, SIGINT);
-        sigaddset(&sigset, SIGTERM);
-        pthread_sigmask(SIG_BLOCK, &sigset, nullptr);
-    }
-}
 
 int main(int argc, char *argv[]) {
     const auto outcome = Cli::parse_and_dispatch(argc, argv);
@@ -39,14 +29,15 @@ int main(int argc, char *argv[]) {
         SPDLOG_DEBUG("Verbose mode enabled");
     }
 
-    block_signals();
+    SignalWatcher::install();
     try {
         auto config = Config::load_config(outcome.config_path);
-        const Manager manager(std::move(config));
+
+        SignalWatcher signal_watcher;
+
+        Manager manager(std::move(config), signal_watcher.get_stop_source());
         manager.load_drivers();
         manager.validate_config();
-
-        manager.install_signal_handler();
         manager.run();
         return EXIT_SUCCESS;
     } catch (const ConfigVerificationException &e) {

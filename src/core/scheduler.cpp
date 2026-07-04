@@ -24,11 +24,9 @@
 // ---------------------------------------------------------------------------
 
 struct Scheduler::Impl {
-    explicit Impl(const Config::AppConfig &config, Updater &updater);
+    explicit Impl(const Config::AppConfig &config, Updater &updater, std::stop_source stop_source);
 
     ~Impl();
-
-    void set_stop_source(std::stop_source ss);
 
     void run();
 
@@ -49,7 +47,7 @@ struct Scheduler::Impl {
     // ---- thread pool -------------------------------------------------------
     BS::thread_pool<> pool_;
 
-    // ---- stop source (injected by SignalHandler) ---------------------------
+    // ---- stop source (injected at construction) ----------------------------
     std::stop_source stop_source_;
 
     // ---- injected dependencies ---------------------------------------------
@@ -57,7 +55,11 @@ struct Scheduler::Impl {
     const Config::AppConfig &config_;
 };
 
-Scheduler::Impl::Impl(const Config::AppConfig &config, Updater &updater) : updater_(updater), config_(config) {
+Scheduler::Impl::Impl(const Config::AppConfig &config, Updater &updater,
+                      std::stop_source stop_source)
+    : stop_source_(std::move(stop_source)),
+      updater_(updater),
+      config_(config) {
 }
 
 Scheduler::Impl::~Impl() {
@@ -66,10 +68,6 @@ Scheduler::Impl::~Impl() {
         SPDLOG_INFO("Waiting for {} pending task(s) to complete...", pool_.get_tasks_queued());
         pool_.wait();
     }
-}
-
-void Scheduler::Impl::set_stop_source(std::stop_source ss) {
-    stop_source_ = std::move(ss);
 }
 
 void Scheduler::Impl::run() {
@@ -198,15 +196,12 @@ unsigned int Scheduler::Impl::estimated_pool_size() const {
 // Scheduler public API — thin delegation to Impl
 // ---------------------------------------------------------------------------
 
-Scheduler::Scheduler(const Config::AppConfig &config, Updater &updater)
-    : impl_(std::make_unique<Impl>(config, updater)) {
+Scheduler::Scheduler(const Config::AppConfig &config, Updater &updater,
+                     std::stop_source stop_source)
+    : impl_(std::make_unique<Impl>(config, updater, std::move(stop_source))) {
 }
 
 Scheduler::~Scheduler() = default;
-
-void Scheduler::set_stop_source(std::stop_source ss) {
-    impl_->set_stop_source(std::move(ss));
-}
 
 void Scheduler::run() {
     impl_->run();

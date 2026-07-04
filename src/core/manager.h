@@ -6,13 +6,14 @@
 #define YADDNSC_CORE_MANAGER_H
 
 #include <memory>
+#include <stop_token>
 
 #include "config/config.h"
 #include "mixin.h"
 
 class Manager {
 public:
-    explicit Manager(Config::AppConfig config);
+    explicit Manager(Config::AppConfig config, std::stop_source stop_source);
 
     ~Manager();
 
@@ -20,15 +21,7 @@ public:
 
     void validate_config() const;
 
-    // Install a signal-handling thread that catches SIGINT/SIGTERM via
-    // sigwait() and requests graceful shutdown.  Must be called after
-    // validate_config() and before run().  Signals must have been
-    // blocked in the main thread (with pthread_sigmask) before the
-    // Manager was constructed so that all threads inherit the mask.
-    void install_signal_handler() const;
-
-    // Run the scheduler loop.  Uses the stop_source set up by
-    // install_signal_handler().  Blocks until a stop is requested.
+    // Run the scheduler loop.  Blocks until a stop is requested.
     void run() const;
 
 private:
