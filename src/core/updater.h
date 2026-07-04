@@ -30,7 +30,7 @@ public:
 
     // Process one update task.  Never throws — all errors and outcomes are
     // logged internally via SPDLOG.
-    void process(const UpdateTask &task) const;
+    void process(const UpdateTask &task) const noexcept;
 
 private:
     struct Impl;

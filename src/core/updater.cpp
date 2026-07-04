@@ -55,7 +55,7 @@ Updater::Impl::Impl(const DriverManager &driver_manager, const ResolverDispatche
 }
 
 void Updater::Impl::process(const UpdateTask &task) const {
-    auto rd_type_name = magic_enum::enum_name(task.subdomain.type);
+    auto rd_type_name = magic_enum::enum_name(task.config.type);
     const auto rd_type = rd_type_name.empty() ? "UNKNOWN" : rd_type_name;
 
     // --- Step 0: resolve driver ------------------------------------------------
@@ -66,7 +66,7 @@ void Updater::Impl::process(const UpdateTask &task) const {
 
     // --- Step 1: local IP ---------------------------------------------------
 
-    const auto local_ip = resolve_local_address(task.subdomain);
+    const auto local_ip = resolve_local_address(task.config);
     if (!local_ip) {
         SPDLOG_WARN("No valid IP address found for {}, skipping the update", task.fqdn);
         return;
@@ -75,7 +75,7 @@ void Updater::Impl::process(const UpdateTask &task) const {
     // --- Step 2: skip if unchanged (unless force_update) --------------------
 
     if (!task.force_update) {
-        const auto records = dns_lookup(task.fqdn, task.subdomain.type);
+        const auto records = dns_lookup(task.fqdn, task.config.type);
 
         if (!records.empty()) {
             const auto &first = records.front();
@@ -132,7 +132,7 @@ std::optional<InetAddress> Updater::Impl::resolve_local_address(const Config::Su
 }
 
 DriverConfig Updater::Impl::build_driver_parameters(const UpdateTask &task) {
-    return task.subdomain.driver_param.dump().value_or("{}");
+    return task.config.driver_param.dump().value_or("{}");
 }
 
 UpdateContext
@@ -141,7 +141,7 @@ Updater::Impl::build_update_context(const UpdateTask &task, const InetAddress &i
         .ip_addr = ip_addr.to_string(),
         .rd_type = std::string(rd_type),
         .domain = task.domain_name,
-        .subdomain = task.subdomain.name,
+        .subdomain = task.config.name,
         .fqdn = task.fqdn,
     };
 }
@@ -156,6 +156,12 @@ Updater::Updater(const DriverManager &driver_manager, const ResolverDispatcher &
 
 Updater::~Updater() = default;
 
-void Updater::process(const UpdateTask &task) const {
-    impl_->process(task);
+void Updater::process(const UpdateTask &task) const noexcept {
+    try {
+        impl_->process(task);
+    } catch (const std::exception &e) {
+        SPDLOG_ERROR("Unhandled exception during update for {}: {}", task.fqdn, e.what());
+    } catch (...) {
+        SPDLOG_ERROR("Unknown non-standard exception during update for {}", task.fqdn);
+    }
 }

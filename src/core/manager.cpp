@@ -5,12 +5,15 @@
 #include "manager.h"
 
 #include <memory>
+#include <thread>
 #include <utility>
 
 #include <spdlog/spdlog.h>
+#include <BS_thread_pool.hpp>
 
 #include "updater.h"
 #include "scheduler.h"
+#include "update_task.h"
 #include "dns/factory.h"
 #include "driver_loader.h"
 #include "dns/dispatcher.h"
@@ -19,6 +22,27 @@
 #include "config/validator.hpp"
 #include "min_update_interval.h"
 #include "ip_source/iface_util.h"
+
+namespace {
+    unsigned int estimate_pool_size(const Config::AppConfig &config) {
+        unsigned int total_subdomains = 0;
+        const auto thread_count = std::thread::hardware_concurrency();
+
+        for (const auto &domain: config.domains) {
+            total_subdomains += static_cast<unsigned int>(domain.subdomains.size());
+        }
+
+        if (total_subdomains < 2 || thread_count < 2) {
+            return 2;
+        }
+
+        if (total_subdomains < thread_count) {
+            return total_subdomains;
+        }
+
+        return thread_count;
+    }
+} // anonymous namespace
 
 // ---------------------------------------------------------------------------
 // Manager::Impl — orchestrates the lifecycle of all subsystem components.
@@ -39,14 +63,18 @@ struct Manager::Impl {
     DriverManager driver_manager_;
     ResolverDispatcher dispatcher_;
     Updater updater_;
+    BS::thread_pool<> thread_pool_;
     Scheduler scheduler_;
+    std::stop_source stop_source_;
 };
 
 Manager::Impl::Impl(Config::AppConfig config, std::stop_source stop_source)
     : config_(std::move(config)),
       dispatcher_(DnsResolverFactory::create(config_)),
       updater_(driver_manager_, dispatcher_),
-      scheduler_(config_, updater_, std::move(stop_source)) {
+      thread_pool_(estimate_pool_size(config_)),
+      scheduler_(config_, stop_source.get_token()),
+      stop_source_(std::move(stop_source)) {
 }
 
 void Manager::Impl::load_drivers() {
@@ -63,7 +91,20 @@ void Manager::Impl::run() {
     const auto interfaces = InterfaceUtil::get_interfaces();
     SPDLOG_INFO("All available interfaces: {}", fmt::join(interfaces, ", "));
 
-    scheduler_.run();
+    while (!stop_source_.stop_requested()) {
+        auto tasks = scheduler_.pop_all_due();
+
+        for (auto &task: tasks) {
+            thread_pool_.detach_task([this, t = std::move(task)] { updater_.process(t); });
+        }
+
+        if (!scheduler_.wait_for_next()) {
+            break;
+        }
+    }
+
+    thread_pool_.wait();
+    SPDLOG_INFO("DDNS updater stopped");
 }
 
 // ---------------------------------------------------------------------------

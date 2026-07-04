@@ -81,6 +81,12 @@ void SignalWatcher::signal_loop(std::stop_token st) {
         int sig;
         sigwait(&sigset, &sig);
 
+        // If stop was requested (e.g. from the destructor's wake-up SIGINT),
+        // exit immediately without counting the wake-up signal.
+        if (st.stop_requested()) {
+            break;
+        }
+
         if (sig == SIGINT) {
             ++sigint_count;
 
