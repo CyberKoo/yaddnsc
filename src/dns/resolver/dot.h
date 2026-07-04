@@ -11,7 +11,6 @@
 #include <cstdint>
 
 #include "base.h"
-#include "dns/util.h"
 
 // ---------------------------------------------------------------------------
 // DotResolver — DNS-over-TLS (RFC 7858) resolver.
@@ -34,7 +33,7 @@ public:
     [[nodiscard]] std::string_view get_type() const noexcept override { return TYPE; }
 
 private:
-    class Impl;
+    struct Impl;
     std::unique_ptr<Impl> impl_;
     static constexpr std::string_view TYPE = "DNS-Over-TLS";
 };

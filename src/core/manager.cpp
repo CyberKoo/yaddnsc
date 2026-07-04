@@ -23,46 +23,19 @@
 
 // ---------------------------------------------------------------------------
 // Manager::Impl — orchestrates the lifecycle of all subsystem components.
-//
-// Responsibilities:
-//   • Construct and wire up DriverManager, ResolverDispatcher, Updater,
-//     Scheduler, and SignalHandler.
-//   • Delegate driver loading to DriverLoader.
-//   • Delegate config validation to ConfigValidator.
-//   • Delegate signal-handler installation to SignalHandler (bridge its
-//     stop_source into the Scheduler).
-//   • Delegate the main event loop to Scheduler::run().
 // ---------------------------------------------------------------------------
-class Manager::Impl {
-public:
-    explicit Impl(Config::AppConfig config)
-        : config_(std::move(config)), dispatcher_(DnsResolverFactory::create(config_)),
-          updater_(driver_manager_, dispatcher_), scheduler_(config_, updater_) {
-    }
 
-    void load_drivers() {
-        DriverLoader::load(driver_manager_, config_);
-    }
+struct Manager::Impl {
+    explicit Impl(Config::AppConfig config);
 
-    void validate_config() const {
-        const auto interfaces = InterfaceUtil::get_interfaces();
-        const ConfigValidator<YADDNSC_MIN_UPDATE_INTERVAL> validator(driver_manager_, interfaces);
-        validator.validate(config_);
-    }
+    void load_drivers();
 
-    void install_signal_handler() {
-        signal_handler_.install();
-        scheduler_.set_stop_source(signal_handler_.get_stop_source());
-    }
+    void validate_config() const;
 
-    void run() {
-        const auto interfaces = InterfaceUtil::get_interfaces();
-        SPDLOG_INFO("All available interfaces: {}", fmt::join(interfaces, ", "));
+    void install_signal_handler();
 
-        scheduler_.run();
-    }
+    void run();
 
-private:
     // IMPORTANT: destruction order is the reverse of declaration order.
     // config_ is declared first because it's needed by dispatcher_'s constructor.
     Config::AppConfig config_;
@@ -72,6 +45,35 @@ private:
     Scheduler scheduler_;
     SignalHandler signal_handler_;
 };
+
+Manager::Impl::Impl(Config::AppConfig config)
+    : config_(std::move(config)),
+      dispatcher_(DnsResolverFactory::create(config_)),
+      updater_(driver_manager_, dispatcher_),
+      scheduler_(config_, updater_) {
+}
+
+void Manager::Impl::load_drivers() {
+    DriverLoader::load(driver_manager_, config_);
+}
+
+void Manager::Impl::validate_config() const {
+    const auto interfaces = InterfaceUtil::get_interfaces();
+    const ConfigValidator<YADDNSC_MIN_UPDATE_INTERVAL> validator(driver_manager_, interfaces);
+    validator.validate(config_);
+}
+
+void Manager::Impl::install_signal_handler() {
+    signal_handler_.install();
+    scheduler_.set_stop_source(signal_handler_.get_stop_source());
+}
+
+void Manager::Impl::run() {
+    const auto interfaces = InterfaceUtil::get_interfaces();
+    SPDLOG_INFO("All available interfaces: {}", fmt::join(interfaces, ", "));
+
+    scheduler_.run();
+}
 
 // ---------------------------------------------------------------------------
 // Manager public API

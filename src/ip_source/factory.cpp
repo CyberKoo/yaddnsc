@@ -12,7 +12,7 @@
 #include "iface.h"
 #include "mdns.h"
 #include "fmt.hpp"
-#include "dns/util.h"
+#include "dns/util.hpp"
 #include "config/config.h"
 
 std::unique_ptr<IpSourceBase> IpSourceFactory::create(const Config::SubdomainConfig &cfg) {

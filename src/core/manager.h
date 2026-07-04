@@ -32,12 +32,12 @@ public:
     void run() const;
 
 private:
-    [[maybe_unused, no_unique_address]] NoCopy _nc_;
-    [[maybe_unused, no_unique_address]] NoMove _nm_;
-
-    class Impl;
+    struct Impl;
 
     std::unique_ptr<Impl> impl_;
+
+    [[maybe_unused, no_unique_address]] NoCopy _nc_;
+    [[maybe_unused, no_unique_address]] NoMove _nm_;
 };
 
 #endif //YADDNSC_CORE_MANAGER_H

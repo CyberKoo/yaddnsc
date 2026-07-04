@@ -23,8 +23,6 @@ class ResolverBase;
 // ---------------------------------------------------------------------------
 class ResolverDispatcher {
 public:
-    ResolverDispatcher();
-
     explicit ResolverDispatcher(std::vector<std::shared_ptr<ResolverBase> > resolvers,
                                 Config::ResolverStrategy strategy = Config::ResolverStrategy::CONCURRENT);
 
@@ -38,7 +36,7 @@ public:
     resolve(const std::string &host, DNS::Type type, int max_retries = 5, int backoff_ms = 1000) const;
 
 private:
-    class Impl;
+    struct Impl;
     std::unique_ptr<Impl> impl_;
 };
 

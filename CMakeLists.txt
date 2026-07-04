@@ -195,13 +195,11 @@ add_executable(yaddnsc
         src/core/scheduler.cpp
         src/core/core_logger.cpp
         src/core/signal_handler.cpp
-        # util
-        src/util/uri.cpp
-        src/util/cert_util.cpp
         # network
         src/network/http_client.cpp
         src/network/inet_address.cpp
         src/network/net_devices.cpp
+        src/network/uri.cpp
         # cli
         src/cli/cli.cpp
         src/cli/driver.cpp
@@ -209,7 +207,7 @@ add_executable(yaddnsc
         src/cli/dns.cpp
         src/cli/config.cpp
         # dns
-        src/dns/util.cpp
+        src/dns/error.cpp
         src/dns/proto/parser.cpp
         src/dns/proto/mkquery.cpp
         src/dns/resolver/classic.cpp

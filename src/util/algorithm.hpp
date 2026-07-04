@@ -6,16 +6,27 @@
 #define YADDNSC_UTIL_ALGORITHM_H
 
 #include <vector>
-#include <type_traits>
+#include <cstddef>
+#include <concepts>
 #include <unordered_set>
 
 namespace Utils {
     template<typename T>
-    void dedupe(std::vector<T> &vec) {
+    concept Hashable = requires(T t) {
+        { std::hash<T>{}(t) } -> std::convertible_to<std::size_t>;
+    };
+
+    template<Hashable T>
+    std::size_t dedupe(std::vector<T> &vec) {
         std::unordered_set<T> seen;
+        seen.reserve(vec.size());
+
+        const auto before = vec.size();
         std::erase_if(vec, [&seen](const T &value) {
             return !seen.insert(value).second;
         });
+
+        return before - vec.size();
     }
 }
 

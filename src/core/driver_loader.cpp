@@ -10,7 +10,7 @@
 
 #include "config/config.h"
 #include "driver_manager.h"
-#include "util/algorithm.h"
+#include "util/algorithm.hpp"
 
 void DriverLoader::load(DriverManager &driver_manager, const Config::AppConfig &config) {
     if (config.driver.auto_discover) {

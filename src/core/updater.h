@@ -7,10 +7,9 @@
 
 #include <memory>
 
-#include "dns/util.h"
-#include "update_task.h"
 #include "mixin.h"
 
+struct UpdateTask;
 class DriverManager;
 class ResolverDispatcher;
 
@@ -34,7 +33,7 @@ public:
     void process(const UpdateTask &task) const;
 
 private:
-    class Impl;
+    struct Impl;
     std::unique_ptr<Impl> impl_;
 
     [[maybe_unused, no_unique_address]] NoCopy _nc_;

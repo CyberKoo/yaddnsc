@@ -18,7 +18,8 @@
 
 #include "fmt.hpp"
 #include "mixin.h"
-#include "dns/util.h"
+#include "dns_error.h"
+#include "dns/util.hpp"
 #include "config_cmake.h"
 #include "network/inet_address.h"
 #include "exception/dns_lookup.h"
@@ -175,49 +176,56 @@ namespace {
     }
 }
 
-class ClassicResolver::Impl {
-public:
-    explicit Impl(std::optional<DNS::Server> server, uint64_t id) : id_(id), server_(std::move(server)) {
-#if !defined(HAVE_RES_NQUERY)
-        if (server_.has_value()) {
-            static std::once_flag flag;
-            std::call_once(flag, [&] {
-                SPDLOG_WARN("A custom resolver was configured, but res_nquery() is not available "
-                    "on this platform. The setting will be ignored. "
-                    "Consider using a DoH/DoT resolver instead.");
-            });
-            server_.reset();
-        }
-#endif
-    }
+// ===========================================================================
+//  ClassicResolver::Impl  —  private implementation
+// ===========================================================================
+
+struct ClassicResolver::Impl {
+    explicit Impl(std::optional<DNS::Server> server, uint64_t id);
 
     ~Impl() = default;
 
-    [[nodiscard]] std::vector<uint8_t> query(const std::string &host_str, DNS::Type type) const {
-        SPDLOG_TRACE(R"(Resolver #{} DNS lookup for "{}")", id_, host_str);
+    [[nodiscard]] std::vector<uint8_t> query(const std::string &host_str, DNS::Type type) const;
 
-        const auto ns_type = DNS::to_ns_type(type);
+    uint64_t id_;
+    std::optional<DNS::Server> server_;
+};
 
-        // No custom resolver — use the default system resolver.
-        if (!server_.has_value()) {
-            ResolverContext ctx;
-            return do_query(ctx, host_str, ns_type);
-        }
+ClassicResolver::Impl::Impl(std::optional<DNS::Server> server, uint64_t id) : id_(id), server_(std::move(server)) {
+#if !defined(HAVE_RES_NQUERY)
+    if (server_.has_value()) {
+        static std::once_flag flag;
+        std::call_once(flag, [&] {
+            SPDLOG_WARN("A custom resolver was configured, but res_nquery() is not available "
+                "on this platform. The setting will be ignored. "
+                "Consider using a DoH/DoT resolver instead.");
+        });
+        server_.reset();
+    }
+#endif
+}
 
-        // Use the single custom resolver.
-        SPDLOG_DEBUG(R"(Resolver #{} Resolving "{}" (type {}))", id_, host_str, ns_type);
+std::vector<uint8_t> ClassicResolver::Impl::query(const std::string &host_str, DNS::Type type) const {
+    SPDLOG_TRACE(R"(Resolver #{} DNS lookup for "{}")", id_, host_str);
+
+    const auto ns_type = DNS::to_ns_type(type);
+
+    // No custom resolver — use the default system resolver.
+    if (!server_.has_value()) {
         ResolverContext ctx;
-        ctx.set_nameserver(*server_);
         return do_query(ctx, host_str, ns_type);
     }
 
-private:
-    uint64_t id_;
-    std::optional<DNS::Server> server_;
+    // Use the single custom resolver.
+    SPDLOG_DEBUG(R"(Resolver #{} Resolving "{}" (type {}))", id_, host_str, ns_type);
+    ResolverContext ctx;
+    ctx.set_nameserver(*server_);
+    return do_query(ctx, host_str, ns_type);
+}
 
-    [[maybe_unused, no_unique_address]] NoCopy _nc_;
-    [[maybe_unused, no_unique_address]] NoMove _nm_;
-};
+// ===========================================================================
+//  ClassicResolver  —  public API
+// ===========================================================================
 
 ClassicResolver::ClassicResolver()
     : ResolverBase(AnonymousIdTag{}), impl_(std::make_unique<Impl>(std::nullopt, get_id())) {

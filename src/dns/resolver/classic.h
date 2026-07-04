@@ -9,7 +9,7 @@
 #include <string>
 #include <optional>
 
-#include "dns/util.h"
+#include "dns_type.h"
 #include "base.h"
 
 class ClassicResolver final : public ResolverBase {
@@ -25,7 +25,7 @@ public:
     [[nodiscard]] std::string_view get_type() const noexcept override { return TYPE; }
 
 private:
-    class Impl;
+    struct Impl;
     std::unique_ptr<Impl> impl_;
     static constexpr std::string_view TYPE = "Classic";
 };

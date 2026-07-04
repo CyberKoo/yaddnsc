@@ -18,7 +18,7 @@
 #include "fmt.hpp"
 #include "version.h"
 #include "http_type.h"
-#include "util/cert_util.h"
+#include "util/cert_util.hpp"
 
 namespace {
     std::string build_request(const Uri &uri) {

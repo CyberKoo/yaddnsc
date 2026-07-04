@@ -2,18 +2,24 @@
 // Created by Kotarou on 2026/6/30.
 //
 
-#include "cert_util.h"
+#ifndef YADDNSC_UTIL_CERT_UTIL_HPP
+#define YADDNSC_UTIL_CERT_UTIL_HPP
 
-#include <ranges>
-#include <filesystem>
+#include <algorithm>
+#include <optional>
+#include <string>
 #include <string_view>
+#include <filesystem>
 
 #include <spdlog/spdlog.h>
 
 namespace Utils::Cert {
-    std::optional<std::string> get_system_ca_path() {
+    // Search well-known system locations for a CA certificate bundle file.
+    // Returns the path to the first found bundle, or std::nullopt if none were
+    // found. The result is cached after the first invocation.
+    inline std::optional<std::string> get_system_ca_path() {
         static const std::optional<std::string> system_ca_path = []() -> std::optional<std::string> {
-            constexpr std::string_view search_paths[]{
+            static constexpr std::string_view search_paths[]{
                 // Local CA file
                 "./ca.pem",
                 // Debian/Ubuntu/Gentoo etc.
@@ -47,7 +53,7 @@ namespace Utils::Cert {
             SPDLOG_DEBUG("Looking for CA bundle...");
 
             const auto it = std::ranges::find_if(search_paths, [](std::string_view p) {
-                return std::filesystem::exists(p) && !std::filesystem::is_directory(p);
+                return std::filesystem::is_regular_file(p);
             });
 
             if (it != std::end(search_paths)) {
@@ -62,3 +68,5 @@ namespace Utils::Cert {
         return system_ca_path;
     }
 } // namespace Utils::Cert
+
+#endif // YADDNSC_UTIL_CERT_UTIL_HPP

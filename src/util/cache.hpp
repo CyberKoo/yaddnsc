@@ -37,15 +37,7 @@ namespace Utils::Cache {
          */
         std::optional<Value> get(const Key &key) {
             std::lock_guard lock(mutex_);
-            auto it = map_.find(key);
-            if (it == map_.end()) {
-                return std::nullopt;
-            }
-            if (expired(it->second)) {
-                map_.erase(it);
-                return std::nullopt;
-            }
-            return it->second.value;
+            return do_get(key);
         }
 
         /**
@@ -53,14 +45,15 @@ namespace Utils::Cache {
          */
         void set(const Key &key, Value value) {
             std::lock_guard lock(mutex_);
-            map_[key] = Entry{Clock::now(), std::move(value)};
+            map_.insert_or_assign(key, Entry{Clock::now(), std::move(value)});
         }
 
         /**
          * Returns true if the key exists and is not expired.
          */
         bool contains(const Key &key) {
-            return get(key).has_value();
+            std::lock_guard lock(mutex_);
+            return do_get(key).has_value();
         }
 
         /**
@@ -91,12 +84,13 @@ namespace Utils::Cache {
             requires std::same_as<std::invoke_result_t<Fn>, Value>
         Value get_or_compute(const Key &key, Fn &&factory) {
             std::lock_guard lock(mutex_);
-            auto it = map_.find(key);
-            if (it != map_.end() && !expired(it->second)) {
-                return it->second.value;
+
+            if (auto cached = do_get(key)) {
+                return *std::move(cached);
             }
-            map_[key] = Entry{Clock::now(), std::invoke(std::forward<Fn>(factory))};
-            return map_[key].value;
+
+            auto [it, _] = map_.try_emplace(key, Clock::now(), std::invoke(std::forward<Fn>(factory)));
+            return it->second.value;
         }
 
         /**
@@ -115,18 +109,46 @@ namespace Utils::Cache {
             }
         }
 
+        /**
+         * Return the number of entries in the cache.
+         */
+        [[nodiscard]] std::size_t size() const {
+            std::lock_guard lock(mutex_);
+            return map_.size();
+        }
+
+        /**
+         * Returns true if the cache contains no entries.
+         */
+        [[nodiscard]] bool empty() const {
+            std::lock_guard lock(mutex_);
+            return map_.empty();
+        }
+
     private:
         struct Entry {
             Clock::time_point timestamp;
             Value value;
         };
 
+        // Internal helper: caller must already hold mutex_.
+        std::optional<Value> do_get(const Key &key) {
+            auto it = map_.find(key);
+            if (it == map_.end() || expired(it->second)) {
+                if (it != map_.end()) {
+                    map_.erase(it);
+                }
+                return std::nullopt;
+            }
+            return it->second.value;
+        }
+
         bool expired(const Entry &entry) const {
             return (Clock::now() - entry.timestamp) >= ttl_;
         }
 
         std::chrono::nanoseconds ttl_;
-        std::mutex mutex_;
+        mutable std::mutex mutex_;
         std::unordered_map<Key, Entry> map_;
     };
 } // namespace Utils::Cache

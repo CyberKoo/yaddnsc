@@ -7,7 +7,7 @@
 #include <spdlog/spdlog.h>
 #include <magic_enum/magic_enum.hpp>
 
-#include "dns/util.h"
+#include "update_task.h"
 #include "dns/dispatcher.h"
 #include "driver_manager.h"
 #include "interface/driver.h"
@@ -28,49 +28,32 @@ namespace {
     }
 } // anonymous namespace
 
-// ---------------------------------------------------------------------------
-// Updater::Impl — all private helpers live here.
-// ---------------------------------------------------------------------------
-class Updater::Impl {
-public:
-    explicit Impl(const DriverManager &driver_manager, const ResolverDispatcher &resolver_dispatcher)
-        : driver_manager_(driver_manager), dispatcher_(resolver_dispatcher) {
-    }
+// ===========================================================================
+//  Updater::Impl  —  all private helpers live here.
+// ===========================================================================
+
+struct Updater::Impl {
+    explicit Impl(const DriverManager &driver_manager, const ResolverDispatcher &resolver_dispatcher);
 
     void process(const UpdateTask &task) const;
 
-private:
     [[nodiscard]] std::vector<std::string> dns_lookup(const std::string &host, DNS::Type type) const;
 
-    [[nodiscard]] static std::optional<InetAddress> resolve_local_address(const Config::SubdomainConfig &config) ;
+    [[nodiscard]] static std::optional<InetAddress> resolve_local_address(const Config::SubdomainConfig &config);
 
     [[nodiscard]] static DriverConfig build_driver_parameters(const UpdateTask &task);
 
     [[nodiscard]] static UpdateContext
     build_update_context(const UpdateTask &task, const InetAddress &ip_addr, std::string_view rd_type);
 
-private:
     const DriverManager &driver_manager_;
     const ResolverDispatcher &dispatcher_;
 };
 
-// ---------------------------------------------------------------------------
-// Public API
-// ---------------------------------------------------------------------------
-
-Updater::Updater(const DriverManager &driver_manager, const ResolverDispatcher &resolver_dispatcher)
-    : impl_(std::make_unique<Impl>(driver_manager, resolver_dispatcher)) {
+Updater::Impl::Impl(const DriverManager &driver_manager, const ResolverDispatcher &resolver_dispatcher)
+    : driver_manager_(driver_manager), dispatcher_(resolver_dispatcher) {
 }
 
-Updater::~Updater() = default;
-
-void Updater::process(const UpdateTask &task) const {
-    impl_->process(task);
-}
-
-// ---------------------------------------------------------------------------
-// process() — the full update pipeline for one (sub)domain.
-// ---------------------------------------------------------------------------
 void Updater::Impl::process(const UpdateTask &task) const {
     auto rd_type_name = magic_enum::enum_name(task.subdomain.type);
     const auto rd_type = rd_type_name.empty() ? "UNKNOWN" : rd_type_name;
@@ -123,18 +106,11 @@ void Updater::Impl::process(const UpdateTask &task) const {
     SPDLOG_INFO("Update {}, type: {}, to {}", task.fqdn, rd_type, local_ip->to_string());
 }
 
-// ---------------------------------------------------------------------------
-// dns_lookup — resolve a DNS name with retries.
-// ---------------------------------------------------------------------------
 std::vector<std::string>
 Updater::Impl::dns_lookup(const std::string &host, DNS::Type type) const {
     return dispatcher_.resolve(host, type);
 }
 
-// ---------------------------------------------------------------------------
-// resolve_local_address — resolve via IpSourceBase, then pick the first
-//                         candidate that passes policy filters.
-// ---------------------------------------------------------------------------
 std::optional<InetAddress> Updater::Impl::resolve_local_address(const Config::SubdomainConfig &config) {
     auto ip_source = IpSourceFactory::create(config);
     auto candidates = ip_source->resolve();
@@ -155,17 +131,10 @@ std::optional<InetAddress> Updater::Impl::resolve_local_address(const Config::Su
     return candidates.front();
 }
 
-// ---------------------------------------------------------------------------
-// build_driver_parameters — serialize subdomain.driver_param to JSON string.
-// ---------------------------------------------------------------------------
 DriverConfig Updater::Impl::build_driver_parameters(const UpdateTask &task) {
     return task.subdomain.driver_param.dump().value_or("{}");
 }
 
-// ---------------------------------------------------------------------------
-// build_driver_context — assemble the runtime UpdateContext from the task and
-//                        the resolved IP / record type.
-// ---------------------------------------------------------------------------
 UpdateContext
 Updater::Impl::build_update_context(const UpdateTask &task, const InetAddress &ip_addr, std::string_view rd_type) {
     return {
@@ -175,4 +144,18 @@ Updater::Impl::build_update_context(const UpdateTask &task, const InetAddress &i
         .subdomain = task.subdomain.name,
         .fqdn = task.fqdn,
     };
+}
+
+// ===========================================================================
+//  Updater public API — thin delegation to Impl
+// ===========================================================================
+
+Updater::Updater(const DriverManager &driver_manager, const ResolverDispatcher &resolver_pool)
+    : impl_(std::make_unique<Impl>(driver_manager, resolver_pool)) {
+}
+
+Updater::~Updater() = default;
+
+void Updater::process(const UpdateTask &task) const {
+    impl_->process(task);
 }

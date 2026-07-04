@@ -12,7 +12,7 @@
 #include <string_view>
 
 #include "mixin.h"
-#include "dns/util.h"
+#include "dns_type.h"
 
 
 // ---------------------------------------------------------------------------

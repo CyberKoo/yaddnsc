@@ -20,7 +20,7 @@
 #include <spdlog/spdlog.h>
 
 #include "fmt.hpp"
-#include "dns/util.h"
+#include "dns/util.hpp"
 #include "dns/proto/parser.h"
 #include "dns/proto/mkquery.h"
 #include "network/inet_address.h"

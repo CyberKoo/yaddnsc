@@ -10,7 +10,7 @@
 #include <algorithm>
 
 #include "fmt.hpp"
-#include "util/cache.h"
+#include "util/cache.hpp"
 #include "network/net_devices.h"
 #include "network/inet_address.h"
 
