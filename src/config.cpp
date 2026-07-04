@@ -37,17 +37,23 @@ void Config::from_json(const nlohmann::json &j, resolver_config &resolver) {
     j.at("use_custom_server").get_to(resolver.use_custom_server);
     j.at("ipaddress").get_to(resolver.ip_address);
     resolver.port = get_optional<unsigned short>(j, "port").value_or(53);
-    resolver.protocol = get_optional<dns_protocol_type>(j, "protocol").value_or(dns_protocol_type::SYSTEM);
+    // Parse for backward compatibility only; value is ignored
+    // Protocol is always auto-detected from the address prefix
+    get_optional<dns_protocol_type>(j, "protocol");
 
-    // Auto-detect protocol from the address URL if not explicitly set
-    if (resolver.protocol == dns_protocol_type::SYSTEM && resolver.use_custom_server) {
+    // Auto-detect protocol from the address URL
+    if (resolver.use_custom_server) {
         const auto &addr = resolver.ip_address;
         if (addr.find("https://") == 0) {
             resolver.protocol = dns_protocol_type::DOH;
         } else if (addr.find("tls://") == 0) {
             resolver.protocol = dns_protocol_type::DOT;
             resolver.ip_address = addr.substr(6);
+        } else {
+            resolver.protocol = dns_protocol_type::SYSTEM;
         }
+    } else {
+        resolver.protocol = dns_protocol_type::SYSTEM;
     }
 }
 

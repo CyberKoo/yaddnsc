@@ -38,15 +38,33 @@
 
 yaddnsc 仅支持 POSIX 系统。支持的编译器：GCC 9+、Clang 10+
 
-### 编译方法
+### 获取源码
+
+克隆仓库并初始化所有子模块依赖：
+
+```bash
+# 方式一：一步到位，克隆时同时拉取子模块
+git clone --recursive -b v0.x https://github.com/Kotarou/yaddnsc.git
+
+# 方式二：先克隆，再单独初始化子模块
+git clone -b v0.x https://github.com/Kotarou/yaddnsc.git
+cd yaddnsc
+git submodule update --init --recursive --depth 1 --single-branch
+```
+
+> `--depth 1 --single-branch` 使用浅克隆，大幅减少下载量和磁盘占用。
+
+如果已经拉取了源码，在切换分支或拉取上游更新后，需要同步子模块到最新状态：
+
+```bash
+git submodule update --recursive --depth 1 --single-branch
+```
+
+### 编译
 
 ```bash
 # 安装系统依赖（Ubuntu 20.04）
 sudo apt install libssl-dev zlib1g-dev build-essential cmake
-
-# 克隆仓库（包含子模块）
-git clone --recursive -b v0.x https://github.com/Kotarou/yaddnsc.git
-cd yaddnsc
 
 # 编译
 mkdir build && cd build
@@ -65,7 +83,7 @@ make -j$(nproc)
 | `LIBC_MUSL`        | OFF    | 启用 musl 特定的兼容处理                |
 | `NO_RTTI`          | OFF    | 禁用 RTTI 以减小二进制体积（`-fno-rtti`） |
 
-第三方依赖（spdlog、cpp-httplib v0.14.3、cxxopts、BS::thread_pool、fmt、nlohmann_json）以 **git 子模块** 方式管理（而非通过 CPM 获取）。
+第三方依赖（spdlog、cpp-httplib v0.14.3、cxxopts、BS::thread_pool、fmt、nlohmann_json）以 **git 子模块** 方式管理。
 
 ### 驱动插件 ABI 兼容性
 
@@ -135,15 +153,15 @@ yaddnsc 使用 JSON 格式的配置文件。默认查找当前目录下的 `./co
 }
 ```
 
-> **DoH 示例：** 要使用 DNS-over-HTTPS，将 `ipaddress` 设置为完整的 HTTPS URL：
+> **DoH 示例：** 使用 DNS-over-HTTPS 时，`ipaddress` 填写完整的 HTTPS URL，端口由 URI 决定（默认 443），`port` 字段会被忽略：
 > ```json
-> { "ipaddress": "https://1.1.1.1/dns-query", "port": 443 }
+> { "ipaddress": "https://1.1.1.1/dns-query" }
 > ```
-> 地址必须以 `https://` 开头并包含完整路径（通常为 `/dns-query`）。协议会根据地址前缀自动识别，因此无需显式设置 `"protocol": "doh"`。
+> 地址必须以 `https://` 开头并包含完整路径（通常为 `/dns-query`）。协议会根据地址前缀自动识别，无需显式设置 `"protocol": "doh"`。
 
-> **DoT 示例：** 要使用 DNS-over-TLS，使用 `tls://` 前缀：
+> **DoT 示例：** 使用 DNS-over-TLS 时，`ipaddress` 使用 `tls://` 前缀，并通过 `port` 指定端口（默认为 853）：
 > ```json
-> { "ipaddress": "tls://1.1.1.1" }
+> { "ipaddress": "tls://1.1.1.1", "port": 853 }
 > ```
 
 ### 配置字段参考
@@ -170,7 +188,7 @@ yaddnsc 使用 JSON 格式的配置文件。默认查找当前目录下的 `./co
 | `use_custom_server` | boolean | 为 true 时使用指定的 DNS 服务器，否则使用系统默认                    |
 | `ipaddress`        | string  | DNS 服务器地址：纯 IP（如 `1.1.1.1`）、DoH 的 HTTPS URL 或 `tls://` URI |
 | `port`             | integer | DNS 端口，默认 53（可选）                                      |
-| `protocol`         | string  | DNS 协议：`"system"`（默认）、`"doh"` 或 `"dot"`（可选；未设置时根据地址自动识别） |
+| `protocol`         | string  | 已废弃，仅保留解析兼容。协议会从 `ipaddress` 前缀自动识别（`https://` → DoH，`tls://` → DoT），无需手动设置。 |
 
 #### `domains[]` 对象
 

@@ -38,15 +38,33 @@
 
 yaddnsc is POSIX-only. Supported compilers: GCC 9+, Clang 10+
 
+### Getting the Source
+
+Clone the repository and initialize all submodule dependencies:
+
+```bash
+# Option A: Clone with submodules in one step
+git clone --recursive -b v0.x https://github.com/Kotarou/yaddnsc.git
+
+# Option B: Clone first, then initialize submodules separately
+git clone -b v0.x https://github.com/Kotarou/yaddnsc.git
+cd yaddnsc
+git submodule update --init --recursive --depth 1 --single-branch
+```
+
+> `--depth 1 --single-branch` performs a shallow clone, significantly reducing download size and disk usage.
+
+If you already have the source and need to pull the latest submodule commits (e.g., after switching branches or pulling upstream changes):
+
+```bash
+git submodule update --recursive --depth 1 --single-branch
+```
+
 ### Building
 
 ```bash
 # Install system dependencies (Ubuntu 20.04)
 sudo apt install libssl-dev zlib1g-dev build-essential cmake
-
-# Clone with submodules
-git clone --recursive -b v0.x https://github.com/Kotarou/yaddnsc.git
-cd yaddnsc
 
 # Build
 mkdir build && cd build
@@ -65,7 +83,7 @@ make -j$(nproc)
 | `LIBC_MUSL`                   | OFF     | Enable musl-specific workarounds                               |
 | `NO_RTTI`                     | OFF     | Disable RTTI for a smaller binary (`-fno-rtti`)                |
 
-Third-party dependencies (spdlog, cpp-httplib v0.14.3, cxxopts, BS::thread_pool, fmt, nlohmann_json) are included as **git submodules** (not fetched via CPM).
+Third-party dependencies (spdlog, cpp-httplib v0.14.3, cxxopts, BS::thread_pool, fmt, nlohmann_json) are included as **git submodules**.
 
 ### Driver Plugin ABI Compatibility
 
@@ -137,14 +155,15 @@ yaddnsc uses a JSON configuration file. By default it looks for `./config.json`,
 
 > **DoH example:** To use DNS-over-HTTPS, set `ipaddress` to a full HTTPS URL:
 > ```json
-> { "ipaddress": "https://1.1.1.1/dns-query", "port": 443 }
+> { "ipaddress": "https://1.1.1.1/dns-query" }
 > ```
-> The address must start with `https://` and include the complete path (typically `/dns-query`). The protocol is auto-detected from the prefix, so you can omit `"protocol": "doh"`.
+> DoH uses the port from the URI (443); the `port` field is ignored. The address must start with `https://` and include the complete path (typically `/dns-query`). The protocol is auto-detected from the prefix, so you can omit `"protocol": "doh"`.
 
 > **DoT example:** To use DNS-over-TLS, use the `tls://` prefix:
 > ```json
-> { "ipaddress": "tls://1.1.1.1" }
+> { "ipaddress": "tls://1.1.1.1", "port": 853 }
 > ```
+> DoT uses the `port` field, which must be set to 853.
 
 ### Configuration Reference
 
@@ -170,7 +189,7 @@ yaddnsc uses a JSON configuration file. By default it looks for `./config.json`,
 | `use_custom_server` | boolean | If true, use the specified DNS server instead of the system default                                         |
 | `ipaddress`         | string  | DNS server address: plain IP (e.g. `1.1.1.1`), DoH HTTPS URL, or `tls://` URI for DoT                      |
 | `port`              | integer | DNS server port, defaults to 53 (optional)                                                                  |
-| `protocol`          | string  | DNS protocol: `"system"` (default), `"doh"`, or `"dot"` (optional; auto-detected from address if omitted)  |
+| `protocol`          | string  | **Deprecated.** Kept for compatibility. Protocol is auto-detected from the `ipaddress` prefix (`https://` → DoH, `tls://` → DoT); manual setting is unnecessary. |
 
 #### `domains[]` object
 

@@ -1,18 +1,30 @@
 [submodule "deps/cxxopts"]
 	path = deps/cxxopts
 	url = https://github.com/jarro2783/cxxopts.git
+	shallow = true
+	single-branch = true
 [submodule "deps/spdlog"]
 	path = deps/spdlog
 	url = https://github.com/gabime/spdlog.git
+	shallow = true
+	single-branch = true
 [submodule "deps/fmt"]
 	path = deps/fmt
 	url = https://github.com/fmtlib/fmt.git
+	shallow = true
+	single-branch = true
 [submodule "deps/nlohmann_json"]
 	path = deps/nlohmann_json
 	url = https://github.com/nlohmann/json.git
+	shallow = true
+	single-branch = true
 [submodule "deps/cpp-httplib"]
 	path = deps/cpp-httplib
 	url = https://github.com/yhirose/cpp-httplib.git
+	shallow = true
+	single-branch = true
 [submodule "deps/thread-pool"]
 	path = deps/thread-pool
 	url = https://github.com/bshoshany/thread-pool.git
+	shallow = true
+	single-branch = true

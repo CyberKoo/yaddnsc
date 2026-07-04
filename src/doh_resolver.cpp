@@ -38,7 +38,6 @@ public:
         auto &client = get_http_client(uri);
 
         httplib::Headers headers = {
-            {"Content-Type", DOH_CONTENT_TYPE},
             {"Accept", DOH_CONTENT_TYPE}
         };
 
@@ -50,7 +49,7 @@ public:
         SPDLOG_TRACE(R"(DoH POST {} ({} bytes))", server_url_, query_bytes.size());
 
         auto body = std::string(reinterpret_cast<const char *>(query_bytes.data()), query_bytes.size());
-        auto response = client.Post(path.c_str(), headers, body.data(), body.size(), DOH_CONTENT_TYPE);
+        auto response = client.Post(path, headers, body, DOH_CONTENT_TYPE);
 
         if (!response) {
             throw DnsLookupException(
@@ -77,7 +76,8 @@ private:
         if (!http_client_) {
             SPDLOG_DEBUG(R"(DoH: connecting to "{}:{}{}")", uri.get_host(), uri.get_port(), uri.get_path());
 
-            auto client = std::make_unique<httplib::Client>(uri.get_host().data(), uri.get_port());
+            auto client = std::make_unique<httplib::Client>(
+                fmt::format("{}://{}:{}", uri.get_schema(), uri.get_host(), uri.get_port()));
             client->set_connection_timeout(std::chrono::seconds(10));
             client->set_read_timeout(std::chrono::seconds(10));
             client->set_follow_location(true);
