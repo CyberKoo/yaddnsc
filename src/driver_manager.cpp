@@ -49,6 +49,18 @@ public:
 
     using handle_ptr = std::unique_ptr<void, handle_closer>;
 
+    struct DestroyDeleter {
+        constexpr void operator()(IDriver *ptr) const noexcept {
+            if (ptr != nullptr && destroy != nullptr) {
+                destroy(ptr);
+            }
+        }
+
+        void (*destroy)(IDriver *){nullptr};
+    };
+
+    using DriverPtr = std::unique_ptr<IDriver, DestroyDeleter>;
+
     Driver(Driver &&) = default;
 
     Driver &operator=(Driver &&) = default;
@@ -65,15 +77,22 @@ public:
         // load create function
         auto create_func = reinterpret_cast<std::add_pointer_t<IDriver *()>>(dlsym(handle_.get(), "create"));
         if (const auto error = dlerror()) {
-            SPDLOG_CRITICAL("Failed to create driver instance, error: {}", error);
+            SPDLOG_CRITICAL("Failed to find create function, error: {}", error);
             throw BadDriverException("dlsym error");
         }
 
-        driver_ = std::unique_ptr<IDriver>(create_func());
+        // load destroy function
+        auto destroy_func = reinterpret_cast<void (*)(IDriver *)>(dlsym(handle_.get(), "destroy"));
+        if (const auto error = dlerror()) {
+            SPDLOG_CRITICAL("Failed to find destroy function, error: {}", error);
+            throw BadDriverException("dlsym error");
+        }
+
+        driver_ = DriverPtr(create_func(), DestroyDeleter{destroy_func});
     }
 
-    std::unique_ptr<IDriver> &get() {
-        return driver_;
+    IDriver *get() const {
+        return driver_.get();
     }
 
     ~Driver() override {
@@ -84,12 +103,12 @@ public:
 private:
     handle_ptr handle_;
 
-    std::unique_ptr<IDriver> driver_;
+    DriverPtr driver_{nullptr, DestroyDeleter{}};
 };
 
 DriverManager::~DriverManager() = default;
 
-std::unique_ptr<IDriver> &DriverManager::get_driver(std::string_view name) const {
+IDriver *DriverManager::get_driver(std::string_view name) const {
     if (impl_->driver_map_.find(name.data()) != impl_->driver_map_.end()) {
         return impl_->driver_map_.at(name.data()).get();
     }
@@ -139,7 +158,7 @@ bool DriverManager::Impl::is_driver_loaded(std::string_view driver_path) const {
 }
 
 void DriverManager::Impl::register_driver(Driver driver_res, std::string_view driver_lib_name) {
-    auto &driver = driver_res.get();
+    auto *driver = driver_res.get();
 
     // validate driver ABI version
     if (driver->get_driver_version().compare(DRV_VERSION) != 0) {

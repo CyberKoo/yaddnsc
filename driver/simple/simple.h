@@ -23,8 +23,4 @@ private:
     static std::map<std::string, std::string> get_format_params(const driver_config_type &config);
 };
 
-extern "C" inline IDriver *create() {
-    return new SimpleDriver;
-}
-
 #endif //YADDNSC_SIMPLE_H

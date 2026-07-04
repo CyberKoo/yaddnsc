@@ -20,8 +20,4 @@ public:
     [[nodiscard]] driver_detail get_detail() const override;
 };
 
-extern "C" inline IDriver *create() {
-    return new DigitalOceanDriver;
-}
-
 #endif //YADDNSC_DIGITAL_OCEAN_H

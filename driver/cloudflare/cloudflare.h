@@ -23,8 +23,4 @@ private:
     static std::string generate_body(const driver_config_type &);
 };
 
-extern "C" inline IDriver *create() {
-    return new CloudflareDriver;
-}
-
 #endif //YADDNSC_CLOUDFLARE_H

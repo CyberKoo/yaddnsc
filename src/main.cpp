@@ -1,6 +1,7 @@
 //
 // Created by Kotarou on 2022/4/5.
 //
+#include <cstdint>
 #include <iostream>
 
 #include <cxxopts.hpp>

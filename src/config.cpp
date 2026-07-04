@@ -108,8 +108,8 @@ NLOHMANN_JSON_SERIALIZE_ENUM(dns_record_type, {
 })
 
 NLOHMANN_JSON_SERIALIZE_ENUM(ip_version_type, {
-    { ip_version_type::IPV6, "ipv4" },
-    { ip_version_type::IPV4, "ipv6" },
+    { ip_version_type::IPV4, "ipv4" },
+    { ip_version_type::IPV6, "ipv6" },
     { ip_version_type::UNSPECIFIED, "unspecified" },
 })
 

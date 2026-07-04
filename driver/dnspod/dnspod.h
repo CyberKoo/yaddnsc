@@ -18,8 +18,4 @@ public:
     [[nodiscard]] driver_detail get_detail() const override;
 };
 
-extern "C" inline IDriver *create() {
-    return new DNSPodDriver;
-}
-
 #endif //YADDNSC_DNSPOD_H

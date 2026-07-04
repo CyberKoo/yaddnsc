@@ -31,7 +31,7 @@ public:
     }
 
 private:
-    dns_lookup_error_type error;
+    dns_lookup_error_type error = dns_lookup_error_type::UNKNOWN;
 };
 
 

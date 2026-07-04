@@ -106,8 +106,8 @@ struct fmt::formatter<driver_request> {
             buf.append("; ");
         }
 
-        if (!buf.empty() && buf.size() >= 2) {
-            buf.erase(buf.end() - 2);
+        if (buf.size() >= 2) {
+            buf.erase(buf.end() - 2, buf.end());
         }
 
         return buf;
@@ -154,6 +154,10 @@ void Worker::run() const {
         thread_pool.detach_task([_impl_ptr = impl_.get()] { _impl_ptr->run_scheduled_tasks(); });
         context.condition_.wait_for(lock, update_interval, [&context]() { return context.terminate_; });
     }
+
+    // Wait for all pending thread-pool tasks to complete before the worker exits.
+    // This prevents use-after-free when the Worker object is later destroyed.
+    thread_pool.wait();
 }
 
 std::optional<std::string> Worker::Impl::dns_lookup(std::string_view host, dns_record_type type) const {
@@ -247,9 +251,14 @@ std::optional<std::string> Worker::Impl::dns_lookup(std::string_view host, dns_r
 }
 
 void Worker::Impl::run_scheduled_tasks() {
+    // If the program is terminating, bail out immediately to avoid needless work.
+    if (Context::getInstance().terminate_) {
+        return;
+    }
+
     try {
         auto &context = Context::getInstance();
-        auto &driver = context.driver_manager_->get_driver(worker_config_.driver);
+        auto *driver = context.driver_manager_->get_driver(worker_config_.driver);
         bool force_update = is_forced_update();
         SPDLOG_DEBUG("Update counter: {}, estimated elapsed time {} seconds, force update: {}", force_update_counter_,
                      force_update_counter_ * worker_config_.update_interval, force_update);

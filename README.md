@@ -1,29 +1,29 @@
 # yaddnsc — Yet Another Dynamic DNS Client (legacy branch)
 
-**yaddnsc** is a Dynamic DNS (DDNS) client that monitors your local IP addresses and automatically updates DNS records on supported DNS providers when changes are detected. It is designed to be lightweight, modular, and extensible through a plugin-based driver system.
+**yaddnsc** is a Dynamic DNS (DDNS) client that monitors your local IP addresses and automatically updates DNS records with supported providers when changes are detected. It is designed to be lightweight, modular, and extensible through a plugin-based driver system.
 
-> **This is the `legacy` branch**, backported specifically for older systems.
-> - C++ standard has been lowered to **C++17** — compiles out of the box on **Ubuntu 20.04** with GCC 9 and OpenSSL 1.1.x (native packages, no PPA required).
-> - ABI compatible with **v0.x driver plugins** — your existing `.so` drivers will work without recompilation.
-> - **Maintenance mode** — this branch will not receive new feature backports. It will only receive critical bug fixes. **New features and better performance are available on the `master` branch (v1.x).**
-> - DoH (DNS-over-HTTPS) and DoT (DNS-over-TLS) resolver support has been backported from the master branch.
+> **This is the `legacy` branch**, backported for older systems.
+> - C++ standard lowered to **C++17** — compiles out of the box on **Ubuntu 20.04** with GCC 9 and OpenSSL 1.1.x (native packages, no PPA required).
+> - **ABI-compatible** with **v0.x driver plugins** — existing `.so` drivers work without recompilation.
+> - **Maintenance-only** — this branch will no longer receive new features; only critical bug fixes will be addressed. **For new features and better performance, switch to the `master` branch (v1.x).**
+> - Resolver support for DoH (DNS-over-HTTPS) and DoT (DNS-over-TLS) has been backported from the master branch.
 
 ## Features
 
-- **Multi-domain, multi-subdomain management** — manage multiple domains and subdomains from a single configuration file.
-- **Pluggable driver architecture** — drivers are loaded as shared libraries (`.so`) at runtime via `dlopen`. Built-in drivers:
+- **Multi-domain and multi-subdomain management** — manage multiple domains and subdomains from a single configuration file.
+- **Pluggable driver architecture** — drivers are loaded as shared libraries (`.so`) at runtime via `dlopen`. Built-in drivers include:
   - [Cloudflare](https://www.cloudflare.com/) — updates DNS records via the Cloudflare API v4
   - [DigitalOcean](https://www.digitalocean.com/) — updates DNS records via the DigitalOcean API v2
   - [DNSPod](https://www.dnspod.com/) — updates DNS records via DNSPod API (supports both China and Global endpoints)
   - [Simple](https://github.com/Kotarou/yaddnsc) — a generic HTTP driver with URL template substitution for custom API endpoints
-- **Flexible IP source configuration** — per-subdomain, choose:
+- **Flexible IP source configuration** — each subdomain can choose between:
   - `interface` — obtain the IP from a local network interface
   - `url` — obtain the IP from an external HTTP service (e.g. `https://ifconfig.me`)
 - **IPv4 and IPv6 support** — configure A and AAAA records independently.
-- **Custom DNS resolver** — optionally use a specific DNS server instead of the system resolver. Supports **traditional DNS** (plain IP + port), **DNS-over-HTTPS (DoH)** (full HTTPS URL, e.g. `https://1.1.1.1/dns-query`), and **DNS-over-TLS (DoT)** (TLS URI with `tls://` schema, e.g. `tls://1.1.1.1`). Protocol is auto-detected from the address prefix.
+- **Custom DNS resolver** — optionally use a specific DNS server instead of the system resolver. Supports **traditional DNS** (plain IP + port), **DNS-over-HTTPS (DoH)** (full HTTPS URL, e.g. `https://1.1.1.1/dns-query`), and **DNS-over-TLS (DoT)** (TLS URI with `tls://` scheme, e.g. `tls://1.1.1.1`). The protocol is auto-detected from the address prefix.
 - **Forced update scheduling** — periodically force-update DNS records even when the IP hasn't changed.
 - **Graceful shutdown** — handles SIGINT/SIGTERM via a dedicated signal-handling thread.
-- **Thread-pool based concurrency** — subdomain updates are dispatched to a thread pool for parallel execution.
+- **Thread-pool-based concurrency** — subdomain updates are dispatched to a thread pool for parallel execution.
 
 ## Build Requirements
 
@@ -59,11 +59,11 @@ make -j$(nproc)
 
 ### CMake Options
 
-| Option                        | Default                                       | Description                                                       |
-|-------------------------------|-----------------------------------------------|-------------------------------------------------------------------|
-| `CMAKE_BUILD_TYPE`            | Release                                       | Set to `Debug` for debug builds                                   |
-| `LIBC_MUSL`                   | OFF                                           | Enable musl-specific workarounds                                  |
-| `NO_RTTI`                     | OFF                                           | Disable RTTI for a smaller binary (`-fno-rtti`)                   |
+| Option                        | Default | Description                                                    |
+|-------------------------------|---------|----------------------------------------------------------------|
+| `CMAKE_BUILD_TYPE`            | Release | Set to `Debug` for debug builds                                |
+| `LIBC_MUSL`                   | OFF     | Enable musl-specific workarounds                               |
+| `NO_RTTI`                     | OFF     | Disable RTTI for a smaller binary (`-fno-rtti`)                |
 
 Third-party dependencies (spdlog, cpp-httplib v0.14.3, cxxopts, BS::thread_pool, fmt, nlohmann_json) are included as **git submodules** (not fetched via CPM).
 
@@ -139,9 +139,9 @@ yaddnsc uses a JSON configuration file. By default it looks for `./config.json`,
 > ```json
 > { "ipaddress": "https://1.1.1.1/dns-query", "port": 443 }
 > ```
-> The address must start with `https://` and include the complete path (typically `/dns-query`). Protocol is auto-detected from the prefix, so you can omit `"protocol": "doh"`.
+> The address must start with `https://` and include the complete path (typically `/dns-query`). The protocol is auto-detected from the prefix, so you can omit `"protocol": "doh"`.
 
-> **DoT example:** To use DNS-over-TLS, use `tls://` prefix:
+> **DoT example:** To use DNS-over-TLS, use the `tls://` prefix:
 > ```json
 > { "ipaddress": "tls://1.1.1.1" }
 > ```
@@ -167,10 +167,10 @@ yaddnsc uses a JSON configuration file. By default it looks for `./config.json`,
 
 | Field               | Type    | Description                                                                                                 |
 |---------------------|---------|-------------------------------------------------------------------------------------------------------------|
-| `use_custom_server` | boolean | If true, use the specified DNS server instead of system                                                     |
-| `ipaddress`         | string  | DNS server address. Plain IP (e.g. `1.1.1.1`), HTTPS URL for DoH (e.g. `https://1.1.1.1/dns-query`), or `tls://` URI for DoT |
-| `port`              | integer | DNS server port, default 53 (optional)                                                                      |
-| `protocol`          | string  | DNS protocol: `"system"` (default), `"doh"`, or `"dot"` (optional, auto-detected from address if omitted)  |
+| `use_custom_server` | boolean | If true, use the specified DNS server instead of the system default                                         |
+| `ipaddress`         | string  | DNS server address: plain IP (e.g. `1.1.1.1`), DoH HTTPS URL, or `tls://` URI for DoT                      |
+| `port`              | integer | DNS server port, defaults to 53 (optional)                                                                  |
+| `protocol`          | string  | DNS protocol: `"system"` (default), `"doh"`, or `"dot"` (optional; auto-detected from address if omitted)  |
 
 #### `domains[]` object
 
@@ -192,11 +192,11 @@ yaddnsc uses a JSON configuration file. By default it looks for `./config.json`,
 | `ip_type`          | string  | IP version: `"ipv4"`, `"ipv6"`, or `"unspecified"` (optional, default: `"unspecified"`)          |
 | `ip_source`        | string  | IP source: `"interface"` (from local network interface) or `"url"` (from external HTTP service)  |
 | `ip_source_param`  | string  | HTTP(S) URL when `ip_source` is `"url"` (e.g. `https://api.ipify.org/`)                          |
-| `allow_ula`        | boolean | Allow unique local addresses (IPv6 only), default `false` (optional)                             |
-| `allow_local_link` | boolean | Allow link-local addresses (IPv6 only), default `false` (optional)                               |
+| `allow_ula`        | boolean | Allow unique local addresses (IPv6 only), defaults to `false` (optional)                         |
+| `allow_local_link` | boolean | Allow link-local addresses (IPv6 only), defaults to `false` (optional)                           |
 | `driver_param`     | object  | Driver-specific parameters (key-value pairs)                                                     |
 
-> **Note:** `interface` is always required, even when `ip_source` is `"url"`. In that case it is still passed to the HTTP client for socket binding. Set it to `""` if interface binding is not needed.
+> **Note:** `interface` is always required. When `ip_source` is `"url"`, it is still passed to the HTTP client for socket binding. Set it to `""` if interface binding is not needed.
 
 ## Writing Custom Drivers
 
@@ -218,7 +218,7 @@ public:
 ```
 
 - `generate_request(config)` — receives the `driver_param` map from the subdomain config and returns a `driver_request` struct (URL, body, content type, HTTP method, headers).
-- `check_response(response)` — receives the raw HTTP response body string, returns `true` if the update was successful.
+- `check_response(response)` — receives the raw HTTP response body string; returns `true` if the update was successful.
 - `get_detail()` — returns driver metadata (name, description, author, version).
 - `get_driver_version()` — returns the ABI version constant. `BaseDriver` provides a `final` implementation; do not override.
 
@@ -257,7 +257,7 @@ target_link_libraries(cloudflare PRIVATE yaddnsc_lib)
 The `master` branch (v1.x) offers:
 - **C++23** with modern standard library features
 - **Significantly better performance** through a rewritten scheduler and optimized HTTP layer
-- **New driver architecture** with `HttpClient` abstraction, multi-step workflow support, and glaze-based config parsing
+- **New driver architecture** with an `HttpClient` abstraction, multi-step workflow support, and glaze-based config parsing
 - **New features** not available in this legacy branch
 
 Switch to `master` if your system can meet the build requirements (GCC 14+, CMake 3.28+).

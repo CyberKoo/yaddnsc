@@ -76,6 +76,8 @@ namespace {
     uint16_t random_id() {
         static std::mt19937 rng{std::random_device{}()};
         static std::uniform_int_distribution<uint16_t> dist;
+        static std::mutex rng_mtx;
+        std::lock_guard lock(rng_mtx);
         return dist(rng);
     }
 

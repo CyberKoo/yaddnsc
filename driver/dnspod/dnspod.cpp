@@ -66,3 +66,17 @@ driver_detail DNSPodDriver::get_detail() const {
         .version = "1.0.0"
     };
 }
+
+#if defined(_MSC_VER)
+#define DRIVER_EXPORT __declspec(dllexport)
+#else
+#define DRIVER_EXPORT __attribute__((visibility("default")))
+#endif
+
+extern "C" DRIVER_EXPORT IDriver *create() {
+    return new DNSPodDriver;
+}
+
+extern "C" DRIVER_EXPORT void destroy(IDriver *driver) {
+    delete driver;
+}
