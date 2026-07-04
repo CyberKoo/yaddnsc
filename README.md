@@ -517,7 +517,7 @@ yaddnsc <subcommand> --help
 
 ### Systemd Service
 
-A systemd service file is provided (generated at build time from `src/template/yaddnsc.service.in`) and installed automatically by `cmake --install` when systemd is detected. It features configuration validation (`config test`) before every start, security hardening (DynamicUser, ProtectSystem, ProtectHome), and optional overrides via an environment file in the system config directory:
+A systemd service file is provided (generated at build time from `template/deb/yaddnsc.service.in`) and installed automatically by `cmake --install` when systemd is detected. It features configuration validation (`config test`) before every start, security hardening (DynamicUser, ProtectSystem, ProtectHome), and optional overrides via an environment file in the system config directory:
 
 ```bash
 # Install normally — the service is placed automatically

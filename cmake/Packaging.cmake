@@ -74,6 +74,26 @@ set(CPACK_DEBIAN_PACKAGE_DEPENDS
     "libstdc++6 (>= 14)")
 
 # ---------------------------------------------------------------------------
+# DEB conffiles — mark /etc/yaddnsc/config.json so dpkg never silently
+# overwrites a user-modified config on upgrade/reinstall.
+# We ship the conffiles list via CPACK_DEBIAN_PACKAGE_CONTROL_EXTRA because
+# CMake 4.x (Ubuntu 26.04) no longer supports CPACK_DEBIAN_PACKAGE_CONFFILES.
+# ---------------------------------------------------------------------------
+set(YADDNSC_DEB_CONFFILES "${CMAKE_BINARY_DIR}/generated/conffiles")
+
+configure_file(
+  "${CMAKE_SOURCE_DIR}/template/deb/deb-conffiles.in"
+  "${YADDNSC_DEB_CONFFILES}"
+  @ONLY
+)
+
+# CPack copies the extra file into the control archive using its original
+# basename, so the generated file must be named "conffiles".
+set(CPACK_DEBIAN_PACKAGE_CONTROL_EXTRA
+    "${YADDNSC_DEB_CONFFILES}"
+)
+
+# ---------------------------------------------------------------------------
 # Generator — currently only DEB
 # ---------------------------------------------------------------------------
 set(CPACK_GENERATOR "DEB")

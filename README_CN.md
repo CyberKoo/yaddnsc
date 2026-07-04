@@ -520,7 +520,7 @@ yaddnsc <subcommand> --help
 
 ### Systemd 服务
 
-systemd 服务文件在构建时由 `src/template/yaddnsc.service.in` 生成，当检测到系统安装了 systemd 时由 `cmake --install` 自动安装。它集成了启动前配置验证（`config test`）、安全加固（DynamicUser、ProtectSystem、ProtectHome），并支持通过系统配置目录下的环境文件覆盖配置路径等环境变量：
+systemd 服务文件在构建时由 `template/deb/yaddnsc.service.in` 生成，当检测到系统安装了 systemd 时由 `cmake --install` 自动安装。它集成了启动前配置验证（`config test`）、安全加固（DynamicUser、ProtectSystem、ProtectHome），并支持通过系统配置目录下的环境文件覆盖配置路径等环境变量：
 
 ```bash
 # 正常安装 — 服务文件会自动放置

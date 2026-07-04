@@ -25,6 +25,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         libssl-dev \
         libspdlog-dev \
         libfmt-dev \
+        libsystemd-dev \
+        zlib1g-dev \
+        libbrotli-dev \
         ca-certificates \
         file \
     && rm -rf /var/lib/apt/lists/*
