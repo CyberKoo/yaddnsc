@@ -6,7 +6,7 @@
 #define YADDNSC_DRV_CLOUDFLARE_CLOUDFLARE_H
 
 #include "config.hpp"
-#include "driver/base_driver.h"
+#include "driver/base.h"
 
 class CloudflareDriver final : public BaseDriver {
 public:

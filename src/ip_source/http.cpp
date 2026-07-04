@@ -20,7 +20,7 @@ std::vector<InetAddress> HttpIpSource::resolve() const {
         .interface = bind_interface_.empty() ? std::nullopt : std::optional(bind_interface_),
     };
 
-    auto body = TransientHttpClient::get_body(url_, opts);
+    const auto body = TransientHttpClient::get_body(url_, opts);
     if (!body) {
         SPDLOG_DEBUG(R"(Failed to fetch IP from "{}")", url_);
         return {};
@@ -30,6 +30,6 @@ std::vector<InetAddress> HttpIpSource::resolve() const {
     if (!addr) {
         return {};
     }
-    SPDLOG_DEBUG("Resolved IP from HTTP: {}", *body);
+    SPDLOG_DEBUG("Resolved IP from HTTP: {}", addr->to_string());
     return {*std::move(addr)};
 }

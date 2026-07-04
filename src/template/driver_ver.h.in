@@ -7,8 +7,12 @@
 #ifndef YADDNSC_DRIVER_VER_H
 #define YADDNSC_DRIVER_VER_H
 
-#include <cstdint>
+#include "interface/abi_version.h"
 
-constexpr uint32_t DRV_VERSION = @YADDNSC_DRV_VERSION@;
+constexpr auto DRV_ABI_VERSION = AbiVersion{
+    .major = @YADDNSC_ABI_VERSION_MAJOR@,
+    .minor = @YADDNSC_ABI_VERSION_MINOR@,
+    .patch = @YADDNSC_ABI_VERSION_PATCH@,
+};
 
 #endif // YADDNSC_DRIVER_VER_H

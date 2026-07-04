@@ -58,9 +58,16 @@ endif ()
 # Version is now managed by project(yaddnsc VERSION 1.0.0).
 # The version.h.in template uses @PROJECT_VERSION_MAJOR@ etc. directly,
 # so no YADDNSC_VERSION_* aliases are needed here.
+# ABI version — semantic version for driver compatibility.
+#   major — breaking ABI change (virtual function removed or signature changed)
+#   minor — backward-compatible ABI extension (new virtual function appended)
+#   patch — no ABI change, only implementation changes
+set(YADDNSC_ABI_VERSION_MAJOR 1)
+set(YADDNSC_ABI_VERSION_MINOR 0)
+set(YADDNSC_ABI_VERSION_PATCH 0)
+
 set(YADDNSC_DEVELOPMENT ON)
 set(YADDNSC_RELEASE_INFO RELEASE)
-set(YADDNSC_DRV_VERSION "1100000")
 
 if (YADDNSC_DEVELOPMENT)
   include(GitVersion)
@@ -271,8 +278,13 @@ if (NOT LIBC_MUSL)
   set_target_properties(yaddnsc PROPERTIES INTERPROCEDURAL_OPTIMIZATION TRUE)
 endif ()
 
-# --export-dynamic puts exported symbols into .dynsym so dlsym can find them
+# --export-dynamic puts exported symbols into .dynsym so dlsym / dlopen can find them.
+# ENABLE_EXPORTS requests this from CMake, but CMake 4.x + AppleClang may not emit
+# the flag correctly, so we add -rdynamic explicitly on all non-Windows platforms.
 set_target_properties(yaddnsc PROPERTIES ENABLE_EXPORTS ON)
+target_link_options(yaddnsc PRIVATE
+    $<$<NOT:$<PLATFORM_ID:Windows>>:-rdynamic>
+)
 
 # ---------------------------------------------------------------------------
 # Link libraries

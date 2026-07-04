@@ -78,20 +78,18 @@ SIGINT/SIGTERM → 通知调度器"]
 
 ### 前置依赖
 
-| 工具/库       | 最低版本     |
-|------------|----------|
-| CMake      | 3.28     |
-| C++ 编译器   | 支持 C++23 |
-| OpenSSL    | 3.0+     |
-| Zlib       | 任意较新版本  |
-
-yaddnsc 仅支持 POSIX 系统。支持的编译器：GCC 14+、Clang 18+、Apple Clang 15+。
+| 工具/库       | 最低版本                                         |
+|------------|------------------------------------------------|
+| 操作系统       | POSIX（Linux、macOS、*BSD）                        |
+| CMake      | 3.28                                           |
+| C++ 编译器    | 支持 C++23（GCC 14+、Clang 18+、Apple Clang 15+） |
+| OpenSSL    | 3.0+                                           |
 
 ### 编译方法
 
 ```bash
 # 安装系统依赖（Debian/Ubuntu）
-sudo apt install libssl-dev zlib1g-dev build-essential cmake
+sudo apt install libssl-dev build-essential cmake
 
 # 安装系统依赖（macOS）
 brew install openssl@3 cmake
@@ -501,11 +499,26 @@ sudo systemctl enable --now yaddnsc
    - `generate_request(config, ctx)` — 构造 `DriverRequest`（URL、HTTP 方法、请求头、请求体）
    - `check_response(response)` — 验证 API 响应体
    - `get_detail()` — 返回驱动元信息（名称、描述、作者、版本）
-   - `get_driver_version()` — 返回 ABI 版本常量（`BaseDriver` 中已实现为 `final`，无需覆盖）
+   - `get_abi_version()` — ABI 版本检查（`BaseDriver` 中已实现为 `final`，无需覆盖）
    - `execute(config, ctx, http)` — 执行完整的更新流程（`BaseDriver` 提供默认实现，多步骤工作流可覆盖）
 3. 在实现文件末尾使用 `DEFINE_DRIVER_FACTORY(YourDriverClass)` 宏导出 `create()` 和 `destroy()` 工厂函数。
-4. 将驱动编译为 `MODULE` 库（位置无关代码，不添加 `lib` 前缀）。
-5. 将生成的 `.so` 文件放到驱动目录，并在配置的 `load` 列表中添加该驱动。
+
+> **关于自定义（第三方）驱动的建议**
+>
+> **始终将自定义驱动与 yaddnsc 源码树一同编译**，不要独立构建。
+> 即便使用了语义化 ABI 版本号，不同编译器、工具链或构建配置之间的
+> ABI 兼容性仍然很脆弱——主程序在加载驱动时会进行 ABI 版本检查，
+> 如果驱动基于不同版本的 `Driver` 接口编译，会被拒绝加载。
+> 将自定义驱动的源代码放入 `driver/` 目录并一起重新编译，
+> 可以确保驱动始终与主程序的 ABI 保持一致。
+>
+> `driver/` 下的 CMakeLists.txt 提供了可直接参考的模板，
+> 每个子目录会自动被发现并参与构建。
+
+如果仍需独立编译为共享库，请确保：
+- 编译器和 C++ 标准与 yaddnsc 一致（C++23，GCC 14+ 或 Clang 18+）。
+- 使用相同的 `AbiVersion`（由生成的 `driver_ver.h` 定义）。
+- 编译为 `MODULE` 库（位置无关代码，不添加 `lib` 前缀）。
 
 ## 依赖项
 
@@ -519,7 +532,6 @@ sudo systemctl enable --now yaddnsc
 | [fmt](https://github.com/fmtlib/fmt)                        | 字符串格式化（std::format 不可用时的回退） | CPM.cmake |
 | [magic_enum](https://github.com/Neargye/magic_enum)         | 静态枚举反射                      | CPM.cmake |
 | OpenSSL                                                     | TLS 支持                      | 系统库       |
-| Zlib                                                        | 压缩                          | 系统库       |
 
 ## 许可证
 

@@ -14,6 +14,7 @@
 
 #include "fmt.hpp"
 #include "driver_ver.h"
+#include "driver/magic.h"
 #include "interface/driver.h"
 #include "exception/bad_driver.h"
 
@@ -75,6 +76,15 @@ public:
         SPDLOG_TRACE("Opened shared library '{}' (handle: {})", get_driver_name(path),
                      static_cast<const void *>(handle_.get()));
 
+        // verify magic before doing anything else
+        auto magic_func = resolve_symbol<uint64_t()>(handle_, "yaddnsc_drv_magic");
+        if (magic_func() != YADDNSC_DRIVER_MAGIC) {
+            SPDLOG_CRITICAL("Driver '{}' failed magic verification: not a yaddnsc driver", get_driver_name(path));
+            throw BadDriverException(
+                fmt::format("Driver '{}' is not a valid yaddnsc driver (magic mismatch)", get_driver_name(path))
+            );
+        }
+
         auto create_func = resolve_symbol<Driver*()>(handle_, "create");
         auto destroy_func = resolve_symbol<void(Driver *)>(handle_, "destroy");
 
@@ -91,6 +101,10 @@ private:
         if (const auto error = dlerror()) {
             SPDLOG_CRITICAL("Failed to resolve symbol '{}', error: {}", name, error);
             throw BadDriverException(fmt::format("Failed to resolve symbol '{}' in driver: {}", name, error));
+        }
+        if (!sym) {
+            SPDLOG_CRITICAL("Symbol '{}' resolved to null", name);
+            throw BadDriverException(fmt::format("Symbol '{}' resolved to null in driver", name));
         }
         SPDLOG_TRACE("Resolved symbol '{}' at {}", name, static_cast<const void *>(sym));
         return sym;
@@ -159,13 +173,25 @@ void DriverManager::Impl::register_driver(DriverModule driver_res, std::string_v
     auto &driver = driver_res.get();
 
     // validate driver ABI version
-    if (driver.get_driver_version() != DRV_VERSION) {
-        SPDLOG_CRITICAL("Failed to load driver '{}' [ABI: {}] - version mismatch: got {}, expected {}", driver_lib_name,
-                        DRV_VERSION, driver.get_driver_version(), DRV_VERSION);
+    const auto got = driver.get_abi_version();
+    constexpr auto required = DRV_ABI_VERSION;
+    if (!got.is_compatible_with(required)) {
+        SPDLOG_CRITICAL(
+            "Failed to load driver '{}' [ABI {}.{}.{}] - incompatible with host [ABI {}.{}.{}]: "
+            "need major=={}, minor>={}, patch>={}",
+            driver_lib_name,
+            got.major, got.minor, got.patch,
+            required.major, required.minor, required.patch,
+            required.major, required.minor, required.patch
+        );
 
         throw BadDriverException(
-            fmt::format("Driver {} ABI version mismatch: got {}, expected {}", driver_lib_name,
-                        driver.get_driver_version(), DRV_VERSION
+            fmt::format("Driver {} ABI {}.{}.{} incompatible with host {}.{}.{}: "
+                        "need major=={}, minor>={}, patch>={}",
+                        driver_lib_name,
+                        got.major, got.minor, got.patch,
+                        required.major, required.minor, required.patch,
+                        required.major, required.minor, required.patch
             )
         );
     }

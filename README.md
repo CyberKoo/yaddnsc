@@ -78,20 +78,18 @@ Check response"]
 
 ### Prerequisites
 
-| Tool / Library  | Minimum Version    |
-|-----------------|--------------------|
-| CMake           | 3.28               |
-| C++ Compiler    | C++23 capable      |
-| OpenSSL         | 3.0+               |
-| Zlib            | Any recent version |
-
-yaddnsc is POSIX-only. Supported compilers: GCC 14+, Clang 18+, Apple Clang 15+.
+| Tool / Library  | Minimum Version                                    |
+|-----------------|----------------------------------------------------|
+| OS              | POSIX (Linux, macOS, *BSD)                         |
+| CMake           | 3.28                                               |
+| C++ Compiler    | C++23 capable (GCC 14+, Clang 18+, Apple Clang 15+) |
+| OpenSSL         | 3.0+                                               |
 
 ### Building
 
 ```bash
 # Install system dependencies (Debian/Ubuntu)
-sudo apt install libssl-dev zlib1g-dev build-essential cmake
+sudo apt install libssl-dev build-essential cmake
 
 # Install system dependencies (macOS)
 brew install openssl@3 cmake
@@ -498,10 +496,28 @@ Drivers are shared libraries loaded at runtime. To write one:
    - `generate_request(config, ctx)` — construct a `DriverRequest` (URL, HTTP method, headers, body)
    - `check_response(response)` — validate the API response body
    - `get_detail()` — return driver metadata (name, description, author, version)
+   - `get_abi_version()` — ABI version check (already `final` in `BaseDriver`, no override needed)
    - `execute(config, ctx, http)` — drive the full update workflow (default provided by `BaseDriver`, override for multi-step workflows)
 3. Use the `DEFINE_DRIVER_FACTORY(YourDriverClass)` macro at the bottom of the implementation file to export the `create()` and `destroy()` factory functions.
-4. Build as a `MODULE` library (position-independent code, no `lib` prefix).
-5. Place the resulting `.so` in the driver directory and add it to the `load` list in the config.
+
+> **Recommendation for custom (third-party) drivers**
+>
+> Always compile your custom driver **together with the yaddnsc source tree**
+> rather than as a standalone build.  Even with semantic ABI versioning,
+> ABI compatibility across different compilers, toolchains, or build
+> configurations is fragile — the host performs a version check at runtime
+> and will reject drivers built against a different version of the `Driver`
+> interface.  Adding your driver's source to the `driver/` directory and
+> rebuilding ensures it is always in sync with the host ABI.
+>
+> The driver CMakeLists.txt under `driver/` provides a working template.
+> Each driver subdirectory is automatically discovered and built.
+
+If you do build as a standalone shared library, make sure:
+- The compiler and C++ standard match the yaddnsc build (C++23, GCC 14+
+  or Clang 18+).
+- The same `AbiVersion` is used (defined by the generated `driver_ver.h`).
+- Build as a `MODULE` library (position-independent code, no `lib` prefix).
 
 ## Dependencies
 
@@ -515,7 +531,6 @@ Drivers are shared libraries loaded at runtime. To write one:
 | [fmt](https://github.com/fmtlib/fmt)                        | String formatting (fallback if no std::format) | CPM.cmake    |
 | [magic_enum](https://github.com/Neargye/magic_enum)         | Static enum reflection                         | CPM.cmake    |
 | OpenSSL                                                     | TLS support                                    | System       |
-| Zlib                                                        | Compression                                    | System       |
 
 ## License
 

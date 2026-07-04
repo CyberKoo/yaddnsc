@@ -9,6 +9,7 @@
 #include <string_view>
 
 #include "http_type.h"
+#include "abi_version.h"
 #include "http_client.h"
 
 using DriverConfig = std::string;
@@ -62,7 +63,7 @@ public:
 
     [[nodiscard]] virtual DriverDetail get_detail() const = 0;
 
-    [[nodiscard]] virtual uint32_t get_driver_version() const = 0;
+    [[nodiscard]] virtual AbiVersion get_abi_version() const = 0;
 
     [[nodiscard]] virtual bool execute(
         const DriverConfig &config, const UpdateContext &ctx, HttpClient &http) const = 0;

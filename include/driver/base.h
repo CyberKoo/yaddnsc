@@ -2,8 +2,8 @@
 // Created by Kotarou on 2022/4/5.
 //
 
-#ifndef YADDNSC_DRIVER_BASE_DRIVER_H
-#define YADDNSC_DRIVER_BASE_DRIVER_H
+#ifndef YADDNSC_DRIVER_BASE_H
+#define YADDNSC_DRIVER_BASE_H
 
 #include <glaze/glaze.hpp>
 
@@ -17,8 +17,8 @@
 
 class BaseDriver : public Driver {
 public:
-    [[nodiscard]] uint32_t get_driver_version() const final {
-        return DRV_VERSION;
+    [[nodiscard]] AbiVersion get_abi_version() const final {
+        return DRV_ABI_VERSION;
     }
 
     // Default execute: generate_request -> send via HttpClient -> check_response.
@@ -58,4 +58,4 @@ protected:
 
 extern "C" Driver *create();
 
-#endif //YADDNSC_DRIVER_BASE_DRIVER_H
+#endif //YADDNSC_DRIVER_BASE_H

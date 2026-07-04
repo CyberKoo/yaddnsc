@@ -8,7 +8,7 @@
 
 #include "fmt.hpp"
 #include "string_util.hpp"
-#include "driver/driver_factory.h"
+#include "driver/factory.h"
 #include "interface/core_logger.h"
 
 DEFINE_DRIVER_FACTORY (SimpleDriver)
