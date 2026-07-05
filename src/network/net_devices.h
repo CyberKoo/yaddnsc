@@ -9,6 +9,8 @@
 #include <string>
 #include <vector>
 
+#include <sys/socket.h>
+
 #include "inet_address.h"
 
 // ---------------------------------------------------------------------------
@@ -45,6 +47,36 @@ namespace NetDevices {
     /// Returns an empty vector if the interface does not exist or has no IPv4
     /// addresses.  Never throws.
     [[nodiscard]] std::vector<Ipv4Subnet> get_ipv4_subnets(const std::string &iface_name);
+
+    // -----------------------------------------------------------------------
+    //  Default interface discovery
+    // -----------------------------------------------------------------------
+
+    /// Find the first non-loopback, non-tunnel, up interface whose address
+    /// matches the given address family and return its numeric index.
+    /// Pass AF_UNSPEC to accept any address family.
+    /// Skips loopback (IFF_LOOPBACK) and point-to-point (IFF_POINTOPOINT)
+    /// interfaces so that "<default>" picks a physical (or bridged) NIC.
+    /// Returns 0 if no suitable interface is found — never throws.
+    [[nodiscard]] unsigned int find_default_interface_index(int address_family = AF_UNSPEC);
+
+    // -----------------------------------------------------------------------
+    //  Interface name / index conversion
+    // -----------------------------------------------------------------------
+
+    /// Convert interface name to numeric index (wrapper around if_nametoindex).
+    /// Returns 0 if the name does not exist.
+    [[nodiscard]] unsigned int name_to_index(const std::string &name);
+
+    /// Convert numeric index to interface name (wrapper around if_indextoname).
+    /// Returns an empty string if the index does not correspond to any interface.
+    [[nodiscard]] std::string index_to_name(unsigned int index);
+
+    // -----------------------------------------------------------------------
+    //  Socket binding to a specific interface
+    // -----------------------------------------------------------------------
+
+
 
 } // namespace NetDevices
 

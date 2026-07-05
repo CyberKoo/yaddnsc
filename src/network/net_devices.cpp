@@ -4,12 +4,14 @@
 
 #include "net_devices.h"
 
+#include <net/if.h>
 #include <ifaddrs.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
 
-#include <memory>
+#include <span>
 #include <ranges>
+#include <memory>
 #include <stdexcept>
 
 // ===========================================================================
@@ -18,22 +20,15 @@
 
 namespace {
     /// RAII deleter for the getifaddrs() linked list.
-    struct IfAddrDeleter {
-        void operator()(ifaddrs *ptr) const noexcept {
-            if (ptr) {
-                freeifaddrs(ptr);
-            }
-        }
-    };
+    using IfAddrPtr = std::unique_ptr<ifaddrs, decltype(&freeifaddrs)>;
 
-    using IfAddrPtr = std::unique_ptr<ifaddrs, IfAddrDeleter>;
-
-    IfAddrPtr query_ifaddrs() {
+    [[nodiscard]] IfAddrPtr query_ifaddrs() {
         ifaddrs *ifa = nullptr;
         if (getifaddrs(&ifa) == -1) {
             throw std::runtime_error("getifaddrs() failed");
         }
-        return IfAddrPtr(ifa);
+
+        return {ifa, &freeifaddrs};
     }
 } // anonymous namespace
 
@@ -56,11 +51,11 @@ namespace NetDevices {
             if (family == AF_INET) {
                 const auto *in = reinterpret_cast<const sockaddr_in *>(ifa->ifa_addr);
                 Inet4Address::addr_type arr{};
-                std::ranges::copy(
+                auto bytes = std::span{
                     reinterpret_cast<const uint8_t *>(&in->sin_addr.s_addr),
-                    reinterpret_cast<const uint8_t *>(&in->sin_addr.s_addr) + Inet4Address::ADDR_LEN,
-                    arr.begin()
-                );
+                    Inet4Address::ADDR_LEN
+                };
+                std::ranges::copy(bytes, arr.begin());
                 result[ifa->ifa_name].emplace_back(Inet4Address::from_bytes(arr));
             } else if (family == AF_INET6) {
                 const auto *in6 = reinterpret_cast<const sockaddr_in6 *>(ifa->ifa_addr);
@@ -77,12 +72,7 @@ namespace NetDevices {
 
     std::vector<Ipv4Subnet> get_ipv4_subnets(const std::string &iface_name) {
         std::vector<Ipv4Subnet> result;
-
-        ifaddrs *raw = nullptr;
-        if (getifaddrs(&raw) == -1) {
-            return result;
-        }
-        IfAddrPtr ifaddrs(raw);
+        auto ifaddrs = query_ifaddrs();
 
         for (auto *ifa = ifaddrs.get(); ifa != nullptr; ifa = ifa->ifa_next) {
             if (ifa->ifa_addr == nullptr || ifa->ifa_netmask == nullptr) continue;
@@ -92,22 +82,53 @@ namespace NetDevices {
             const auto *mask = reinterpret_cast<const sockaddr_in *>(ifa->ifa_netmask);
 
             Inet4Address::addr_type addr_arr{};
-            std::ranges::copy(
-                reinterpret_cast<const uint8_t *>(&in->sin_addr.s_addr),
-                reinterpret_cast<const uint8_t *>(&in->sin_addr.s_addr) + Inet4Address::ADDR_LEN,
-                addr_arr.begin()
-            );
+            auto addr_bytes = std::span{
+                reinterpret_cast<const uint8_t *>(&in->sin_addr.s_addr), Inet4Address::ADDR_LEN
+            };
+            std::ranges::copy(addr_bytes, addr_arr.begin());
 
             Inet4Address::addr_type mask_arr{};
-            std::ranges::copy(
-                reinterpret_cast<const uint8_t *>(&mask->sin_addr.s_addr),
-                reinterpret_cast<const uint8_t *>(&mask->sin_addr.s_addr) + Inet4Address::ADDR_LEN,
-                mask_arr.begin()
-            );
+            auto mask_bytes = std::span{
+                reinterpret_cast<const uint8_t *>(&mask->sin_addr.s_addr), Inet4Address::ADDR_LEN
+            };
+            std::ranges::copy(mask_bytes, mask_arr.begin());
 
             result.push_back({Inet4Address::from_bytes(addr_arr), Inet4Address::from_bytes(mask_arr)});
         }
 
         return result;
+    }
+
+    unsigned int find_default_interface_index(int address_family) {
+        auto ifaddrs = query_ifaddrs();
+
+        for (auto *ifa = ifaddrs.get(); ifa != nullptr; ifa = ifa->ifa_next) {
+            if (!ifa->ifa_addr) {
+                continue;
+            }
+            if (address_family != AF_UNSPEC && ifa->ifa_addr->sa_family != address_family) {
+                continue;
+            }
+            if ((ifa->ifa_flags & IFF_UP) == 0 ||
+                (ifa->ifa_flags & IFF_LOOPBACK) != 0 ||
+                (ifa->ifa_flags & IFF_POINTOPOINT) != 0) {
+                continue;
+            }
+            auto index = if_nametoindex(ifa->ifa_name);
+            if (index > 0) {
+                return index;
+            }
+        }
+
+        return 0;
+    }
+
+    unsigned int name_to_index(const std::string &name) {
+        return ::if_nametoindex(name.c_str());
+    }
+
+    std::string index_to_name(unsigned int index) {
+        char buf[IF_NAMESIZE]{};
+        return ::if_indextoname(index, buf) ? buf : std::string{};
     }
 } // namespace NetDevices

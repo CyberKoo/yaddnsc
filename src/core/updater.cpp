@@ -102,23 +102,28 @@ Updater::Impl::dns_lookup(const std::string &host, DNS::Type type) const {
 }
 
 std::optional<InetAddress> Updater::Impl::resolve_local_address(const Config::SubdomainConfig &config) {
-    auto ip_source = IpSourceFactory::create(config);
-    auto candidates = ip_source->resolve();
-
-    if (candidates.empty()) {
-        return std::nullopt;
-    }
-
-    // Only AAAA records need link-local / ULA filtering.
-    if (config.type == DNS::Type::AAAA) {
-        filter_ipv6_candidates(candidates, config);
+    try {
+        auto ip_source = IpSourceFactory::create(config);
+        auto candidates = ip_source->resolve();
 
         if (candidates.empty()) {
             return std::nullopt;
         }
-    }
 
-    return candidates.front();
+        // Only AAAA records need link-local / ULA filtering.
+        if (config.type == DNS::Type::AAAA) {
+            filter_ipv6_candidates(candidates, config);
+
+            if (candidates.empty()) {
+                return std::nullopt;
+            }
+        }
+
+        return candidates.front();
+    } catch (const std::exception &e) {
+        SPDLOG_WARN(R"(IP source resolution failed: {})", e.what());
+        return std::nullopt;
+    }
 }
 
 DriverConfig Updater::Impl::build_driver_parameters(const UpdateTask &task) {
