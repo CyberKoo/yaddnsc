@@ -122,7 +122,8 @@ struct fmt::formatter<driver_request> {
         std::string body_type;
         std::string body;
 
-        std::visit([&]<typename T>(const T &body_) {
+        std::visit([&](const auto &body_) {
+                       using T = std::decay_t<decltype(body_)>;
                        if constexpr (std::is_same_v<T, driver_param_type>) {
                            body_type = "map";
                            body = format_map(body_.begin(), body_.end());
@@ -357,7 +358,8 @@ Worker::Impl::do_http_request(const driver_request &request, ip_version_type ver
     auto post = [&client](auto... args) { return client.Post(std::move(args)...); };
     auto put = [&client](auto... args) { return client.Put(std::move(args)...); };
     auto requester_factory = [&](const auto &request_method) {
-        return [&]<typename T>(const T &body) {
+        return [&](const auto &body) {
+            using T = std::decay_t<decltype(body)>;
             if constexpr (std::is_same_v<T, driver_param_type>)
                 return request_method(path.c_str(), headers, body);
             else if constexpr (std::is_same_v<T, std::string>)

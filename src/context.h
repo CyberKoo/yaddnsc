@@ -22,7 +22,7 @@ public:
 
     ~Context() override;
 
-    std::unique_ptr<DriverManager> driver_manager_{};
+    std::unique_ptr<DriverManager> driver_manager_;
 
     std::string config_path_{};
 

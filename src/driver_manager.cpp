@@ -8,13 +8,13 @@
 
 #include <string>
 #include <algorithm>
-#include <filesystem>
 
 #include <fmt/format.h>
 #include <spdlog/spdlog.h>
 
 #include "IDriver.h"
 #include "driver_ver.h"
+#include "filesystem.h"
 #include "logging_pattern.h"
 #include "exception/bad_driver_exception.h"
 
@@ -50,13 +50,19 @@ public:
     using handle_ptr = std::unique_ptr<void, handle_closer>;
 
     struct DestroyDeleter {
-        constexpr void operator()(IDriver *ptr) const noexcept {
+        DestroyDeleter() noexcept : destroy(nullptr) {
+        }
+
+        explicit DestroyDeleter(void (*d)(IDriver *)) noexcept : destroy(d) {
+        }
+
+        void operator()(IDriver *ptr) const noexcept {
             if (ptr != nullptr && destroy != nullptr) {
                 destroy(ptr);
             }
         }
 
-        void (*destroy)(IDriver *){nullptr};
+        void (*destroy)(IDriver *);
     };
 
     using DriverPtr = std::unique_ptr<IDriver, DestroyDeleter>;
@@ -73,6 +79,19 @@ public:
 
         // reset error message pointer
         dlerror();
+
+        // Check for yaddnsc_drv_magic — this symbol is only exported by drivers
+        // compiled against the new ABI (master branch). If present, this driver
+        // uses an incompatible ABI and will crash if we try to use it.
+        if (dlsym(handle_.get(), "yaddnsc_drv_magic")) {
+            SPDLOG_CRITICAL("Driver '{}' was compiled for a newer version of yaddnsc and is not compatible with this version.",
+                            get_driver_name(path));
+            throw BadDriverException(
+                fmt::format("Driver '{}' was compiled for a newer version of yaddnsc (yaddnsc_drv_magic found). "
+                            "This version does not support it. Please use a driver compiled for this version.",
+                            get_driver_name(path))
+            );
+        }
 
         // load create function
         auto create_func = reinterpret_cast<std::add_pointer_t<IDriver *()>>(dlsym(handle_.get(), "create"));
@@ -131,7 +150,7 @@ void DriverManager::load_driver(std::string_view path) const {
     auto driver_lib_name = impl_->get_driver_name(path);
     SPDLOG_DEBUG("Trying to load driver {}", driver_lib_name);
 
-    if (std::filesystem::exists(path)) {
+    if (fs::exists(path)) {
         if (!impl_->is_driver_loaded(path)) {
             impl_->register_driver(Impl::Driver(path), driver_lib_name);
         } else {

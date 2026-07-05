@@ -15,7 +15,7 @@
   - [Cloudflare](https://www.cloudflare.com/) — 通过 Cloudflare API v4 更新 DNS 记录
   - [DigitalOcean](https://www.digitalocean.com/) — 通过 DigitalOcean API v2 更新 DNS 记录
   - [DNSPod](https://www.dnspod.com/) — 通过 DNSPod API 更新 DNS 记录（同时支持国内和国际端点）
-  - [Simple](https://github.com/Kotarou/yaddnsc) — 通用 HTTP 驱动，支持 URL 模板替换，适用于自定义 API 端点
+  - [Simple](https://github.com/CyberKoo/yaddnsc) — 通用 HTTP 驱动，支持 URL 模板替换，适用于自定义 API 端点
 - **灵活的 IP 获取方式** — 每个子域名可独立选择：
   - `interface` — 从本地网络接口获取 IP 地址
   - `url` — 从外部 HTTP 服务获取 IP 地址（如 `https://ifconfig.me`）
@@ -25,9 +25,7 @@
 - **优雅退出** — 通过专用信号处理线程处理 SIGINT/SIGTERM 信号。
 - **基于线程池的并发处理** — 子域名更新任务通过线程池并行执行。
 
-## 构建要求
-
-### 前置依赖
+## 前置依赖
 
 | 工具/库      | 最低版本    |
 |------------|-----------|
@@ -36,34 +34,47 @@
 | OpenSSL    | 1.1.x     |
 | Zlib       | 任意较新版本  |
 
-yaddnsc 仅支持 POSIX 系统。支持的编译器：GCC 9+、Clang 10+
+### 发行版兼容性
 
-### 获取源码
+下表列出了满足以上依赖要求的最低发行版版本：
+
+| 发行版 | 最低版本 | 说明 |
+|---|---|---|
+| Ubuntu | 18.04 (Bionic) | 需通过 pip 安装 CMake ≥ 3.14。GCC 7 需要 `stdc++fs`（CMakeLists 已自动处理）。 |
+| Debian | 10 (Buster) | 需通过 pip 安装 CMake（系统源为 3.13）。GCC 8 + OpenSSL 1.1.1。 |
+| RHEL / CentOS / Rocky / Alma | 8 | 需从 AppStream 安装 `gcc-toolset-10` 或更新版本（GCC 9+）。CMake 3.20+。OpenSSL 1.1.1。<br>**RHEL 7** 的 OpenSSL 1.0.2 不兼容（需要 OpenSSL ≥ 1.1.1）。<br>**RHEL 9** 的 OpenSSL 3.0 兼容。 |
+| Fedora | 30 | GCC 9 + CMake 3.14 + OpenSSL 1.1.1。 |
+| openSUSE / SLES | Leap 15.2 / SLES 15 SP2 | GCC 9 + CMake 3.16 + OpenSSL 1.1.1。<br>Leap ≤ 15.1 / SLES 15 SP1 的 GCC 7 不兼容。 |
+| Alpine Linux | 3.11 | GCC 9.2 + CMake 3.15 + OpenSSL 1.1.1d。<br>musl 自动检测（LTO 自动禁用）。<br>Alpine 3.10（GCC 8.3）理论可行但不推荐。 |
+
+## 获取源码
 
 克隆仓库并初始化所有子模块依赖：
 
 ```bash
 # 方式一：一步到位，克隆时同时拉取子模块
-git clone --recursive -b v0.x https://github.com/Kotarou/yaddnsc.git
+git clone --recursive -b v0.x https://github.com/CyberKoo/yaddnsc.git
 
 # 方式二：先克隆，再单独初始化子模块
-git clone -b v0.x https://github.com/Kotarou/yaddnsc.git
+git clone -b v0.x https://github.com/CyberKoo/yaddnsc.git
 cd yaddnsc
-git submodule update --init --recursive --depth 1 --single-branch
+git submodule update --init --recursive --depth 1
 ```
 
-> `--depth 1 --single-branch` 使用浅克隆，大幅减少下载量和磁盘占用。
+> `--depth 1` 使用浅克隆，大幅减少下载量和磁盘占用。
 
 如果已经拉取了源码，在切换分支或拉取上游更新后，需要同步子模块到最新状态：
 
 ```bash
-git submodule update --recursive --depth 1 --single-branch
+git submodule update --recursive --depth 1
 ```
 
-### 编译
+## 编译
+
+> **Ubuntu 20.04**（系统源可直接满足依赖）：
 
 ```bash
-# 安装系统依赖（Ubuntu 20.04）
+# 安装系统依赖
 sudo apt install libssl-dev zlib1g-dev build-essential cmake
 
 # 编译
@@ -75,17 +86,37 @@ make -j$(nproc)
 # 驱动模块位于 build/objs/driver/*.so
 ```
 
+> **Ubuntu 18.04**（系统 CMake 3.10 版本过低，需通过 pip 安装新版 CMake）：
+
+```bash
+# 安装系统依赖
+sudo apt install build-essential libssl-dev zlib1g-dev python3-pip cmake git
+
+# 通过 pip 安装新版 CMake（3.14+）
+pip3 install --upgrade pip
+pip install --user "cmake<3.24"
+
+# 编译
+mkdir build && cd build
+~/.local/bin/cmake .. -DCMAKE_BUILD_TYPE=Release
+make -j$(nproc)
+
+# 主程序位于 build/objs/yaddnsc
+# 驱动模块位于 build/objs/driver/*.so
+```
+
+
 ### CMake 选项
 
 | 选项                  | 默认值    | 说明                              |
 |---------------------|--------|---------------------------------|
 | `CMAKE_BUILD_TYPE` | Release | 设为 `Debug` 生成调试版本               |
-| `LIBC_MUSL`        | OFF    | 启用 musl 特定的兼容处理                |
+| `LIBC_MUSL`                   | 自动检测  | 启用 musl 特定兼容处理（auto-detected；可通过 `-DLIBC_MUSL=ON/OFF` 手动覆盖） |
 | `NO_RTTI`          | OFF    | 禁用 RTTI 以减小二进制体积（`-fno-rtti`） |
 
 第三方依赖（spdlog、cpp-httplib v0.14.3、cxxopts、BS::thread_pool、fmt、nlohmann_json）以 **git 子模块** 方式管理。
 
-### 驱动插件 ABI 兼容性
+## 驱动插件 ABI 兼容性
 
 为 **yaddnsc v0.x** 编译的驱动与此 legacy 分支二进制兼容。驱动 ABI 版本号（`DRV_VERSION`）保持不变，仍为 `"1000000"`。将现有的 `.so` 文件放入驱动目录即可直接使用，无需重新编译。
 
@@ -270,17 +301,23 @@ target_link_libraries(cloudflare PRIVATE yaddnsc_lib)
 
 ## 升级到 v1.x
 
-`master` 分支（v1.x）提供：
-- **C++23** 标准及其现代标准库特性
-- **显著更佳的性能** — 重写的调度器和优化的 HTTP 层
-- **全新的驱动架构** — 支持 `HttpClient` 抽象、多步骤工作流和 glaze 配置解析
-- **新功能** — legacy 分支不提供的新特性
+> **警告：** `master` 分支（v1.x）正处于活跃开发阶段，v1 ABI 尚未最终确定，可能发生显著变化——每次更新后驱动**必须**重新编译。
 
-如果你的系统满足构建要求（GCC 14+、CMake 3.28+），建议切换至 `master` 分支。
+`master` 分支（v1.x）是完全重写的版本，主要改进包括：
+
+- **C++23** — 现代化的标准库特性、更优的性能、更少的外部依赖
+- **mDNS IP 源** — 通过 mDNS（RFC 6762）发现局域网设备地址，例如 `printer.local`
+- **交互式 CLI** — 诊断子命令，可运行时检测驱动、网络接口、DNS 解析和配置
+- **重构的构建系统** — 支持安装规则、DEB 打包和 Docker 容器化
+- **ABI 版本化与驱动魔法校验** — 实现前向兼容版本管理，旧版 v0.x 的 `.so` 驱动**不兼容**
+- **解析器身份标识系统** — 稳定的数值 ID，便于日志交叉引用
+- **改进的 DoT 健壮性** — 支持非阻塞连接和可配置超时
+
+如果系统满足构建要求（GCC 14+、Clang 18+、AppleClang 15+、CMake 3.28+），建议切换至 `master` 分支。
 
 ## 依赖项
 
-此分支使用 **git 子模块**管理依赖（而非 CPM）。
+此分支使用 **git 子模块**管理依赖。
 
 | 库                                                              | 用途            | 管理方式      |
 |---------------------------------------------------------------|---------------|-----------|

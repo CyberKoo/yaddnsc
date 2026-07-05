@@ -6,12 +6,12 @@
 
 #include <fstream>
 #include <optional>
-#include <filesystem>
 
 #include <fmt/format.h>
 #include <nlohmann/json.hpp>
 
 #include "type.h"
+#include "filesystem.h"
 
 template<typename T>
 std::optional<T> get_optional(const nlohmann::json &j, const std::string &key) {
@@ -120,7 +120,7 @@ NLOHMANN_JSON_SERIALIZE_ENUM(ip_version_type, {
 })
 
 Config::config Config::load_config(std::string_view config_path) {
-    if (!std::filesystem::exists(config_path)) {
+    if (!fs::exists(config_path)) {
         throw std::runtime_error(fmt::format("config {} not exists", config_path));
     }
 

@@ -3,7 +3,21 @@ project(yaddnsc)
 
 list(APPEND CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/cmake)
 
-option("LIBC_MUSL" "OFF")
+# Auto-detect musl (LTO is incompatible with musl).
+# The option() default is computed at configure time;
+# manual override via -DLIBC_MUSL=ON/OFF is always respected.
+set(_LIBC_MUSL_DEFAULT OFF)
+execute_process(
+    COMMAND sh -c "ldd --version 2>&1"
+    OUTPUT_VARIABLE _LDD_OUTPUT
+    ERROR_QUIET
+)
+if(_LDD_OUTPUT MATCHES "musl")
+  set(_LIBC_MUSL_DEFAULT ON)
+  message(STATUS "musl detected — LTO will be disabled")
+endif()
+option(LIBC_MUSL "Enable musl-specific workarounds" ${_LIBC_MUSL_DEFAULT})
+
 option("NO_RTTI" "OFF")
 
 set(CMAKE_CXX_STANDARD 17)
@@ -64,6 +78,39 @@ check_symbol_exists(res_setservers "netinet/in.h;resolv.h" HAVE_RES_SETSERVERS)
 check_symbol_exists(res_ndestroy "netinet/in.h;resolv.h" HAVE_RES_NDESTROY)
 check_struct_has_member("struct __res_state" _u._ext.nsaddrs "netinet/in.h;resolv.h" HAVE_RES_STATE_EXT_NSADDRS LANGUAGE C)
 
+# check filesystem support
+include(CheckCXXSourceCompiles)
+set(CMAKE_REQUIRED_FLAGS "-std=c++17")
+check_cxx_source_compiles("
+#include <filesystem>
+int main() { std::filesystem::exists(\"\"); return 0; }
+" HAVE_STD_FILESYSTEM)
+
+if (NOT HAVE_STD_FILESYSTEM)
+  # try with -lstdc++fs (GCC 7/8)
+  set(CMAKE_REQUIRED_LIBRARIES "stdc++fs")
+  check_cxx_source_compiles("
+#include <filesystem>
+int main() { std::filesystem::exists(\"\"); return 0; }
+" HAVE_STD_FILESYSTEM_LINKFS)
+  if (HAVE_STD_FILESYSTEM_LINKFS)
+    set(HAVE_STD_FILESYSTEM ON)
+    set(FILESYSTEM_LIBRARIES "stdc++fs")
+  else ()
+    # try experimental/filesystem with -lstdc++fs (GCC 7)
+    check_cxx_source_compiles("
+#include <experimental/filesystem>
+int main() { std::experimental::filesystem::exists(\"\"); return 0; }
+" HAVE_EXPERIMENTAL_FILESYSTEM)
+    if (HAVE_EXPERIMENTAL_FILESYSTEM)
+      set(FILESYSTEM_LIBRARIES "stdc++fs")
+    endif ()
+  endif ()
+  set(CMAKE_REQUIRED_LIBRARIES "")
+endif ()
+
+set(CMAKE_REQUIRED_FLAGS "")
+
 # generate header file for .h.in file
 include_directories(${CMAKE_BINARY_DIR}/generated/)
 configure_file("${CMAKE_SOURCE_DIR}/include/version.h.in" "${CMAKE_BINARY_DIR}/generated/version.h" @ONLY)
@@ -115,7 +162,7 @@ set(Context src/context.cpp src/context.h)
 set(Manager src/manager.cpp src/manager.h)
 set(HttpClient src/httpclient.cpp include/httpclient.h)
 set(DriverManager src/driver_manager.cpp src/driver_manager.h)
-set(SignalHandler src/signal_handler.cpp src/signal_handler.h)
+set(SignalWatcher src/signal_watcher.cpp src/signal_watcher.h)
 
 # library
 add_library(string_util STATIC src/string_util.cpp include/string_util.h)
@@ -125,14 +172,14 @@ set_target_properties(network_util PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 # main executable
 add_executable(yaddnsc src/main.cpp ${DNS} ${Context} ${Config} ${DriverManager} ${URI} ${Worker} ${Manager} ${IPUtil}
-        ${HttpClient} ${SignalHandler})
+        ${HttpClient} ${SignalWatcher})
 
 # link internal libraries
 target_link_libraries(yaddnsc PRIVATE string_util network_util)
 
 # link third party libraries
 target_link_libraries(yaddnsc PRIVATE httplib spdlog::spdlog fmt::fmt OpenSSL::SSL OpenSSL::Crypto ZLIB::ZLIB
-        cxxopts::cxxopts nlohmann_json::nlohmann_json ${CMAKE_DL_LIBS})
+        cxxopts::cxxopts nlohmann_json::nlohmann_json ${CMAKE_DL_LIBS} ${FILESYSTEM_LIBRARIES})
 
 # libresolv is needed on linux, but not on BSDs, so only link it if we can find it
 find_library(RESOLV resolv)

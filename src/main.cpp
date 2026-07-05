@@ -11,28 +11,15 @@
 #include "context.h"
 #include "manager.h"
 #include "version.h"
-#include "signal_handler.h"
+#include "signal_watcher.h"
 #include "logging_pattern.h"
 
 #include "exception/base_exception.h"
 #include "exception/config_verification_exception.h"
 
-void gracefully_quit() {
-    auto &context = Context::getInstance();
-    SPDLOG_INFO("Received exit signal, quiting...");
-    context.terminate_ = true;
-    context.condition_.notify_all();
-}
-
 int main(int argc, char *argv[]) {
-    // blocked signals, will be process by signal handling thread
-    sigset_t sigset = SignalHandler::block_signal({SIGINT, SIGTERM});
-    SignalHandler::register_handler(SIGINT, &gracefully_quit);
-    SignalHandler::register_handler(SIGTERM, &gracefully_quit);
-
-    // signal handling thread
-    auto sig_thread = std::thread(SignalHandler::handler_thread, &sigset);
-    sig_thread.detach();
+    SignalWatcher::install();
+    SignalWatcher signal_watcher;
 
     auto &context = Context::getInstance();
     cxxopts::Options options("yaddnsc", "Yet another DDNS client");

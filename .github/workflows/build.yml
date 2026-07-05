@@ -1,6 +1,23 @@
 name: GitHub auto build
 
-on: [push, pull_request]
+on:
+  push:
+    branches: [master, dev, v0.x]
+    paths-ignore:
+      - "**.md"
+      - ".gitignore"
+      - "LICENSE"
+      - ".github/**"
+  pull_request:
+    branches: [master, dev, v0.x]
+    paths-ignore:
+      - "**.md"
+      - ".gitignore"
+      - "LICENSE"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   linux-amd64:

@@ -4,9 +4,9 @@
 
 #include "cert_util.h"
 
-#include <filesystem>
-
 #include <spdlog/spdlog.h>
+
+#include "filesystem.h"
 
 std::string_view get_system_ca_path() {
     static std::string_view ca_path = []() -> std::string_view {
@@ -24,7 +24,7 @@ std::string_view get_system_ca_path() {
 
         SPDLOG_DEBUG("Looking for CA bundle...");
         for (const auto &search: SEARCH_PATH) {
-            if (std::filesystem::exists(search) && !std::filesystem::is_directory(search)) {
+            if (fs::exists(search) && !fs::is_directory(search)) {
                 SPDLOG_DEBUG("Found CA bundle at {}", search);
                 return search;
             }

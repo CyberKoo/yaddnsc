@@ -6,7 +6,6 @@
 
 #include <thread>
 #include <algorithm>
-#include <filesystem>
 #include <unordered_set>
 
 #include <fmt/core.h>
@@ -14,13 +13,13 @@
 #include <config_cmake.h>
 
 #include "dns.h"
+#include "type.h"
 #include "worker.h"
 #include "context.h"
 #include "ip_util.h"
+#include "filesystem.h"
 #include "network_util.h"
 #include "driver_manager.h"
-#include "type.h"
-
 #include "exception/config_verification_exception.h"
 
 class Manager::Impl {
@@ -152,9 +151,9 @@ void Manager::load_drivers() const {
     impl_->dedupe(load);
 
     // load drivers
-    auto base_dir = std::filesystem::path(impl_->config_.driver.driver_dir);
+    auto base_dir = fs::path(impl_->config_.driver.driver_dir);
     for (auto &driver: load) {
-        auto driver_full_path = base_dir.empty() ? std::filesystem::path(driver) : base_dir / driver;
+        auto driver_full_path = base_dir.empty() ? fs::path(driver) : base_dir / driver;
         driver_manager->load_driver(driver_full_path.string());
     }
 }
