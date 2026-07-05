@@ -4,7 +4,7 @@
 #   YADDNSC_DEVELOPMENT  — option() set in CMakeLists.txt; OFF forces RELEASE.
 #
 # Output variable:
-#   YADDNSC_RELEASE_INFO — either a git describe string (dev) or "RELEASE".
+#   YADDNSC_RELEASE_INFO — "RELEASE" or a git describe string (e.g. main~gabc1234).
 #
 # Strategy:
 #   - In a git clone with a tag matching v${PROJECT_VERSION} or ${PROJECT_VERSION}
@@ -14,21 +14,12 @@
 #   - If Git is not installed but .git exists → RELEASE (fail-safe)
 
 if (YADDNSC_DEVELOPMENT AND EXISTS "${CMAKE_SOURCE_DIR}/.git")
-  find_package(Git QUIET)
-  if (Git_FOUND)
-    execute_process(COMMAND ${GIT_EXECUTABLE} describe --exact-match --tags HEAD
-        OUTPUT_VARIABLE GIT_TAG
-        OUTPUT_STRIP_TRAILING_WHITESPACE
-        ERROR_QUIET)
-    if (GIT_TAG MATCHES "^v?${PROJECT_VERSION}$")
-      set(YADDNSC_RELEASE_INFO RELEASE)
+    include(GitVersion)
+    if (GIT_ON_TAG)
+        set(YADDNSC_RELEASE_INFO RELEASE)
     else ()
-      include(GitVersion)
-      set(YADDNSC_RELEASE_INFO ${GIT_VERSION})
+        set(YADDNSC_RELEASE_INFO ${GIT_DESCRIBE})
     endif ()
-  else ()
-    set(YADDNSC_RELEASE_INFO RELEASE)
-  endif ()
 else ()
-  set(YADDNSC_RELEASE_INFO RELEASE)
+    set(YADDNSC_RELEASE_INFO RELEASE)
 endif ()

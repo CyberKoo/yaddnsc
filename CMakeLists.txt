@@ -95,7 +95,6 @@ configure_file("${CMAKE_SOURCE_DIR}/template/headers/config_cmake.h.in" "${CMAKE
 configure_file("${CMAKE_SOURCE_DIR}/template/headers/logging_pattern.h.in" "${CMAKE_BINARY_DIR}/generated/logging_pattern.h" @ONLY)
 configure_file("${CMAKE_SOURCE_DIR}/template/headers/min_update_interval.h.in" "${CMAKE_BINARY_DIR}/generated/min_update_interval.h" @ONLY)
 configure_file("${CMAKE_SOURCE_DIR}/template/headers/mkquery_config.h.in" "${CMAKE_BINARY_DIR}/generated/mkquery_config.h" @ONLY)
-configure_file("${CMAKE_SOURCE_DIR}/template/deb/config.json.in" "${CMAKE_BINARY_DIR}/generated/config.json" @ONLY)
 
 # ==============================================================================
 # Dependencies (via CPM.cmake)

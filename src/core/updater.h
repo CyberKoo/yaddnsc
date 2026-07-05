@@ -9,28 +9,30 @@
 
 #include "mixin.h"
 
+class Driver;
+class HttpClient;
 struct UpdateTask;
-class DriverManager;
 class ResolverDispatcher;
 
 // ---------------------------------------------------------------------------
-// Updater — stateful executor that processes a single UpdateTask.
+// Updater — executor that processes a single UpdateTask.
 //
-// Holds non-owning references to the DriverManager and ResolverDispatcher
-// (all initialized before any call to process()).
+// Holds a non-owning reference to the ResolverDispatcher (initialized before
+// any call to process()). The Driver is pre-resolved by the caller and passed
+// directly into process(), eliminating the need for runtime string lookups.
 //
 // process() is thread-safe: it is marked const, owns no mutable state, and
 // may be called concurrently from multiple pool threads.
 // ---------------------------------------------------------------------------
 class Updater {
 public:
-    Updater(const DriverManager &driver_manager, const ResolverDispatcher &resolver_pool);
+    explicit Updater(const ResolverDispatcher &resolver_pool);
 
     ~Updater();
 
-    // Process one update task.  Never throws — all errors and outcomes are
-    // logged internally via SPDLOG.
-    void process(const UpdateTask &task) const noexcept;
+    // Process with an externally-provided HttpClient (e.g. a mock in tests).
+    // Never throws — all errors and outcomes are logged internally via SPDLOG.
+    void process(const UpdateTask &task, const Driver &driver, HttpClient &http_client) const noexcept;
 
 private:
     struct Impl;

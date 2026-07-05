@@ -8,7 +8,7 @@ Type=simple
 DynamicUser=yes
 Environment=YADDNSC_CONFIG=@YADDNSC_SYSCONF_DIR@/config.json
 EnvironmentFile=-@YADDNSC_SYSCONF_DIR@/default/yaddnsc
-ExecStartPre=@CMAKE_INSTALL_FULL_BINDIR@/yaddnsc -c ${YADDNSC_CONFIG} config test
+ExecStartPre=@CMAKE_INSTALL_FULL_BINDIR@/yaddnsc -c ${YADDNSC_CONFIG} config test >/dev/null 2>/dev/null
 ExecStart=@CMAKE_INSTALL_FULL_BINDIR@/yaddnsc -c ${YADDNSC_CONFIG} run
 Restart=on-failure
 RestartSec=3

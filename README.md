@@ -30,16 +30,17 @@
 ```mermaid
 flowchart TB
     main["main.cpp
-CLI parsing · Load config · Init"]
+CLI parsing · Load config · Init
+Create SignalWatcher"]
     mgr["Manager
 Load drivers · Validate config
-Install signal handler"]
+Orchestrate update loop
+(owns thread pool)"]
     sched["Scheduler
-Pop due entries → dispatch update
-Re-queue with next deadline
-Sleep until nearest deadline"]
-    signal["Signal thread
-SIGINT/SIGTERM → notify scheduler"]
+Timer queue
+pop_all_due() · wait_for_next()"]
+    watcher["SignalWatcher
+SIGINT/SIGTERM → request_stop()"]
     updaterA["Updater (task A)
 1. Get driver plugin
 2. Get local IP
@@ -61,11 +62,12 @@ Send HTTP
 Check response"]
 
     main --> mgr
+    main -.-> watcher
     mgr --> sched
-    mgr -.-> signal
-    signal -.->|stop| sched
-    sched --> updaterA
-    sched --> updaterB
+    mgr -.->|pool| updaterA
+    mgr -.->|pool| updaterB
+    watcher -.->|stop| mgr
+    watcher -.->|stop| sched
     updaterA --> ip
     updaterA --> dns
     updaterA --> driver
@@ -157,7 +159,7 @@ Third-party dependencies are fetched automatically via CPM.cmake.
 
 yaddnsc uses a JSON configuration file. By default it looks for `./config.json`, or you can specify a custom path with the `-c` flag.
 
-A template configuration is generated at build time from `src/template/config.json.in` and installed to the system config directory (`${sysconfdir}/yaddnsc/config.json`).
+A template configuration is generated at build time from `template/deb/yaddnsc_config.json` and installed to the system config directory (`${sysconfdir}/yaddnsc/config.json`).
 
 ### Example Configuration
 
@@ -538,7 +540,7 @@ echo 'YADDNSC_CONFIG=/custom/path/config.json' | sudo tee /etc/yaddnsc/default/y
 
 Drivers are shared libraries loaded at runtime. To write one:
 
-1. Include `driver/base_driver.h` and inherit from `BaseDriver`.
+1. Include `driver/base.h` and inherit from `BaseDriver`.
 2. Implement the `Driver` interface:
    - `generate_request(config, ctx)` — construct a `DriverRequest` (URL, HTTP method, headers, body)
    - `check_response(response)` — validate the API response body

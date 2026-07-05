@@ -73,3 +73,5 @@ fabric.properties
 
 # User-specific config (see config.example.json)
 config.json
+
+!template/config.json

@@ -9,7 +9,6 @@
 
 #include "update_task.h"
 #include "dns/dispatcher.h"
-#include "driver_manager.h"
 #include "interface/driver.h"
 #include "interface/http_client.h"
 #include "network/http_client.h"
@@ -33,9 +32,9 @@ namespace {
 // ===========================================================================
 
 struct Updater::Impl {
-    explicit Impl(const DriverManager &driver_manager, const ResolverDispatcher &resolver_dispatcher);
+    explicit Impl(const ResolverDispatcher &resolver_dispatcher);
 
-    void process(const UpdateTask &task) const;
+    void process(const UpdateTask &task, const Driver &driver, HttpClient &http_client) const;
 
     [[nodiscard]] std::vector<std::string> dns_lookup(const std::string &host, DNS::Type type) const;
 
@@ -46,23 +45,15 @@ struct Updater::Impl {
     [[nodiscard]] static UpdateContext
     build_update_context(const UpdateTask &task, const InetAddress &ip_addr, std::string_view rd_type);
 
-    const DriverManager &driver_manager_;
     const ResolverDispatcher &dispatcher_;
 };
 
-Updater::Impl::Impl(const DriverManager &driver_manager, const ResolverDispatcher &resolver_dispatcher)
-    : driver_manager_(driver_manager), dispatcher_(resolver_dispatcher) {
+Updater::Impl::Impl(const ResolverDispatcher &resolver_dispatcher) : dispatcher_(resolver_dispatcher) {
 }
 
-void Updater::Impl::process(const UpdateTask &task) const {
+void Updater::Impl::process(const UpdateTask &task, const Driver &driver, HttpClient &http_client) const {
     auto rd_type_name = magic_enum::enum_name(task.config.type);
     const auto rd_type = rd_type_name.empty() ? "UNKNOWN" : rd_type_name;
-
-    // --- Step 0: resolve driver ------------------------------------------------
-    // The driver is guaranteed to exist: ConfigValidator already verified that every
-    // domain's driver was loaded before the scheduler started.
-
-    auto &driver = driver_manager_.get_driver(task.driver_name);
 
     // --- Step 1: local IP ---------------------------------------------------
 
@@ -98,7 +89,6 @@ void Updater::Impl::process(const UpdateTask &task) const {
 
     // --- Step 5: delegate to driver via HttpClient --------------------------
 
-    TransientHttpClient http_client{};
     if (!driver.execute(parameters, ctx, http_client)) {
         return;
     }
@@ -150,15 +140,14 @@ Updater::Impl::build_update_context(const UpdateTask &task, const InetAddress &i
 //  Updater public API — thin delegation to Impl
 // ===========================================================================
 
-Updater::Updater(const DriverManager &driver_manager, const ResolverDispatcher &resolver_pool)
-    : impl_(std::make_unique<Impl>(driver_manager, resolver_pool)) {
+Updater::Updater(const ResolverDispatcher &resolver_pool) : impl_(std::make_unique<Impl>(resolver_pool)) {
 }
 
 Updater::~Updater() = default;
 
-void Updater::process(const UpdateTask &task) const noexcept {
+void Updater::process(const UpdateTask &task, const Driver &driver, HttpClient &http_client) const noexcept {
     try {
-        impl_->process(task);
+        impl_->process(task, driver, http_client);
     } catch (const std::exception &e) {
         SPDLOG_ERROR("Unhandled exception during update for {}: {}", task.fqdn, e.what());
     } catch (...) {

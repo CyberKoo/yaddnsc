@@ -21,6 +21,7 @@
 #include "ip_source/factory.h"
 #include "config/validator.hpp"
 #include "min_update_interval.h"
+#include "network/http_client.h"
 #include "ip_source/iface_util.h"
 
 namespace {
@@ -71,7 +72,7 @@ struct Manager::Impl {
 Manager::Impl::Impl(Config::AppConfig config, std::stop_source stop_source)
     : config_(std::move(config)),
       dispatcher_(DnsResolverFactory::create(config_)),
-      updater_(driver_manager_, dispatcher_),
+      updater_(dispatcher_),
       thread_pool_(estimate_pool_size(config_)),
       scheduler_(config_, stop_source.get_token()),
       stop_source_(std::move(stop_source)) {
@@ -95,7 +96,12 @@ void Manager::Impl::run() {
         auto tasks = scheduler_.pop_all_due();
 
         for (auto &task: tasks) {
-            thread_pool_.detach_task([this, t = std::move(task)] { updater_.process(t); });
+            auto driver = &driver_manager_.get_driver(task.driver_name);
+            thread_pool_.detach_task(
+                [this, driver, t = std::move(task)] {
+                    TransientHttpClient http_client{};
+                    updater_.process(t, *driver, http_client);
+                });
         }
 
         if (!scheduler_.wait_for_next()) {
@@ -104,7 +110,7 @@ void Manager::Impl::run() {
     }
 
     thread_pool_.wait();
-    SPDLOG_INFO("DDNS updater stopped");
+    SPDLOG_INFO("All tasks drained, shutting down");
 }
 
 // ---------------------------------------------------------------------------
