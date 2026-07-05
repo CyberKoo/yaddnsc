@@ -93,6 +93,9 @@ public:
             );
         }
 
+        // clear any error from the magic check above before looking up symbols
+        dlerror();
+
         // load create function
         auto create_func = reinterpret_cast<std::add_pointer_t<IDriver *()>>(dlsym(handle_.get(), "create"));
         if (const auto error = dlerror()) {
@@ -110,7 +113,7 @@ public:
         driver_ = DriverPtr(create_func(), DestroyDeleter{destroy_func});
     }
 
-    IDriver *get() const {
+    [[nodiscard]] IDriver *get() const {
         return driver_.get();
     }
 
