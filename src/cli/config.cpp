@@ -29,8 +29,10 @@ namespace Cli {
 
         auto *test = cfg->add_subcommand("test", "Validate configuration file and exit");
         test->alias("t");
-        test->callback([&config_path, &exit_code] {
-            exit_code = execute_config_test(config_path);
+        bool quiet = false;
+        test->add_flag("-q,--quiet", quiet, "Suppress success message");
+        test->callback([&config_path, &exit_code, &quiet] {
+            exit_code = execute_config_test(config_path, quiet);
         });
     }
 
@@ -47,20 +49,25 @@ namespace Cli {
         return EXIT_SUCCESS;
     }
 
-    int execute_config_test(const std::string &config_path) {
-        try {
-            spdlog::set_pattern(YADDNSC_LOGGING_PATTERN);
+    int execute_config_test(const std::string &config_path, bool quiet) {
+            try {
+                if (quiet) {
+                    spdlog::set_level(spdlog::level::off);
+                }
+                spdlog::set_pattern(YADDNSC_LOGGING_PATTERN);
 
-            auto config = Config::load_config(config_path);
-            // The config test subcommand never calls Manager::run(), so the
-            // Scheduler event loop never starts and the stop_source is unused.
-            // A default-constructed (still stoppable) stop_source is fine.
-            const Manager manager(std::move(config), std::stop_source{});
-            manager.load_drivers();
-            manager.validate_config();
+                auto config = Config::load_config(config_path);
+                // The config test subcommand never calls Manager::run(), so the
+                // Scheduler event loop never starts and the stop_source is unused.
+                // A default-constructed (still stoppable) stop_source is fine.
+                const Manager manager(std::move(config), std::stop_source{});
+                manager.load_drivers();
+                manager.validate_config();
 
-            std::println("Configuration file test passed");
-            return EXIT_SUCCESS;
+                if (!quiet) {
+                    std::println("Configuration file test passed");
+                }
+                return EXIT_SUCCESS;
         } catch (const ConfigVerificationException &e) {
             std::println(std::cerr, "Configuration verification failed: {}", e.what());
         } catch (const YaddnscException &) {
