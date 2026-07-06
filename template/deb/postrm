@@ -1,0 +1,10 @@
+#!/bin/sh
+set -e
+
+# postrm — yaddnsc systemd service maintainer script
+#
+# Matches the dh_installsystemd autoscript template (postrm-systemd).
+
+if [ "$1" = "purge" ]; then
+    deb-systemd-helper purge yaddnsc.service >/dev/null 2>&1 || true
+fi

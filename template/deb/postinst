@@ -1,0 +1,26 @@
+#!/bin/sh
+set -e
+
+# postinst — yaddnsc systemd service maintainer script
+#
+# On upgrade, dpkg overwrites the unit file under /lib/systemd/system/,
+# so we must run daemon-reload to inform systemd of the change.
+#
+# The deb-systemd-helper calls below match the autoscript template that
+# dh_installsystemd (debhelper) injects into DEBIAN/postinst.  The
+# explicit daemon-reload is added because CPack does not use the
+# dh_systemd_start path that normally carries that responsibility.
+
+if [ "$1" = "configure" ] || [ "$1" = "abort-upgrade" ] || \
+   [ "$1" = "abort-deconfigure" ] || [ "$1" = "abort-remove" ] ; then
+
+    systemctl --system daemon-reload >/dev/null 2>&1 || true
+
+    deb-systemd-helper unmask yaddnsc.service >/dev/null 2>&1 || true
+
+    if deb-systemd-helper --quiet was-enabled yaddnsc.service; then
+        deb-systemd-helper enable yaddnsc.service >/dev/null 2>&1 || true
+    else
+        deb-systemd-helper update-state yaddnsc.service >/dev/null 2>&1 || true
+    fi
+fi

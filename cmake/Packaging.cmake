@@ -68,7 +68,12 @@ set(CPACK_DEBIAN_PACKAGE_DEPENDS "libstdc++6 (>= 14)")
 # ---------------------------------------------------------------------------
 # CPack copies the extra file into the control archive using its original
 # basename, so the generated file must be named "conffiles".
-set(CPACK_DEBIAN_PACKAGE_CONTROL_EXTRA "${CMAKE_SOURCE_DIR}/template/deb/conffiles")
+set(CPACK_DEBIAN_PACKAGE_CONTROL_EXTRA
+        "${CMAKE_SOURCE_DIR}/template/deb/conffiles"
+        "${CMAKE_SOURCE_DIR}/template/deb/postinst"
+        "${CMAKE_SOURCE_DIR}/template/deb/postrm"
+        "${CMAKE_SOURCE_DIR}/template/deb/prerm"
+)
 
 # ---------------------------------------------------------------------------
 # Generator — currently only DEB

@@ -1,0 +1,15 @@
+#!/bin/sh
+set -e
+
+# prerm — yaddnsc systemd service maintainer script
+#
+# Stops the service on removal/upgrade via deb-systemd-invoke,
+# matching the behaviour of dh_systemd_start / dh_installsystemd.
+
+case "$1" in
+    remove|deconfigure)
+        if [ -d /run/systemd/system ]; then
+            deb-systemd-invoke stop yaddnsc.service >/dev/null 2>&1 || true
+        fi
+        ;;
+esac
