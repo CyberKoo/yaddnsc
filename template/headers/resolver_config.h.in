@@ -9,7 +9,7 @@
 
 // Whether to use the built-in DNS stack instead of the system libresolv.
 //   0 = system libresolv (res_mkquery / res_nquery), 1 = built-in.
-#cmakedefine01 YADDNSC_NATIVE_DNS
+#cmakedefine01 YADDNSC_USE_NATIVE_DNS
 
 // Default DNS server address and port when none is configured.
 #define YADDNSC_DEFAULT_DNS_SERVER "@YADDNSC_DEFAULT_DNS_SERVER@"

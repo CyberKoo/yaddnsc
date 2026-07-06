@@ -24,7 +24,7 @@ namespace DNS {
     // ===========================================================================
 
     std::vector<std::uint8_t> mkquery(const std::string &host, int ns_type) {
-        if constexpr (YADDNSC_NATIVE_DNS) {
+        if constexpr (YADDNSC_USE_NATIVE_DNS) {
             return mkquery_manual(host, ns_type);
         } else {
             return mkquery_system(host, ns_type);

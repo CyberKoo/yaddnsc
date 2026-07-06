@@ -14,7 +14,7 @@ namespace DNS {
     /// Build a raw DNS query packet (wire format, RFC 1035).
     ///
     /// Dispatches to either the system res_mkquery or the manual builder
-    /// based on the CMake option YADDNSC_NATIVE_DNS.
+    /// based on the CMake option YADDNSC_USE_NATIVE_DNS.
     ///
     /// @param host     The domain name to query (e.g. "example.com").
     /// @param ns_type  The DNS record type as an <arpa/nameser.h> ns_t_* constant

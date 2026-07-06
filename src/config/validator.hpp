@@ -103,7 +103,7 @@ namespace detail {
         }
 
         // Plain DNS address — must be a valid IP.
-#if defined(HAVE_IPV6_RESOLVE_SUPPORT) || defined(YADDNSC_NATIVE_DNS)
+#if defined(HAVE_IPV6_RESOLVE_SUPPORT) || defined(YADDNSC_USE_NATIVE_DNS)
         if (!InetAddress::parse(address)) {
             throw ConfigVerificationException(fmt::format("Invalid resolver address {}", address));
         }

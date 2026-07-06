@@ -39,7 +39,7 @@ namespace Cli {
             std::println("  {:<20} C++{}", "C++ standard:", __cplusplus / 100 % 100);
 
             std::println("  {:<20} {}", "DNS resolver:",
-                         YADDNSC_NATIVE_DNS ? "Native" : "System (libresolv)");
+                         YADDNSC_USE_NATIVE_DNS ? "Native" : "System (libresolv)");
 
             std::println("  {:<20} {}:{}", "Default DNS:",
                          YADDNSC_DEFAULT_DNS_SERVER, YADDNSC_DEFAULT_DNS_PORT);

@@ -46,10 +46,10 @@ include(FeatureCheck)
 # ==============================================================================
 # On musl, libresolv is not available (musl's resolv.h is a stub), so the
 # built-in DNS stack must be used by default.
-if (LIBC_MUSL AND NOT DEFINED YADDNSC_NATIVE_DNS)
-  set(YADDNSC_NATIVE_DNS ON CACHE BOOL
-      "Use built-in DNS stack instead of system libresolv" FORCE)
-  message(STATUS "musl detected — YADDNSC_NATIVE_DNS defaulting to ON")
+if (LIBC_MUSL AND NOT DEFINED YADDNSC_USE_NATIVE_DNS)
+  set(YADDNSC_USE_NATIVE_DNS ON CACHE BOOL
+            "Use built-in DNS stack instead of system libresolv" FORCE)
+  message(STATUS "musl detected — YADDNSC_USE_NATIVE_DNS defaulting to ON")
 endif ()
 
 # ==============================================================================
@@ -72,16 +72,13 @@ include(ReleaseInfo)
 # ==============================================================================
 # User options (cache variables, overridable via -D)
 # ==============================================================================
-set(YADDNSC_LOGGING_PATTERN "[%D %T.%e] [%^%8l%$] [%8!t] [%15!s:%-4#] %v" CACHE STRING
-        "Logging pattern passed to spdlog::set_pattern()")
-
+set(YADDNSC_LOGGING_PATTERN "[%D %T.%e] [%^%8l%$] [%8!t] [%15!s:%-4#] %v" CACHE STRING "Logging pattern passed to spdlog::set_pattern()")
 set(YADDNSC_MIN_UPDATE_INTERVAL 60 CACHE STRING "Minimum allowed update interval (seconds)")
-
-option(YADDNSC_NATIVE_DNS "Use built-in DNS stack instead of system libresolv" OFF)
-option(YADDNSC_USE_SYSTEM_SPDLOG "Use spdlog from the system instead of the bundled CPM version" OFF)
-
 set(YADDNSC_DEFAULT_DNS_SERVER "1.1.1.1" CACHE STRING "Default DNS server address when none is configured")
 set(YADDNSC_DEFAULT_DNS_PORT 53 CACHE STRING "Default DNS server port when none is configured")
+
+option(YADDNSC_USE_NATIVE_DNS "Use built-in DNS stack instead of system libresolv" OFF)
+option(YADDNSC_USE_SYSTEM_SPDLOG "Use spdlog from the system instead of the bundled CPM version" OFF)
 
 if (YADDNSC_MIN_UPDATE_INTERVAL LESS 0)
   message(FATAL_ERROR "YADDNSC_MIN_UPDATE_INTERVAL must not be negative, got ${YADDNSC_MIN_UPDATE_INTERVAL}")
@@ -121,7 +118,7 @@ if (YADDNSC_USE_SYSTEM_SPDLOG)
   # incompatibilities and build failures.
   if (HAVE_STD_FORMAT)
     message(STATUS "Using system fmt (std::format is available but disabled — "
-                   "system spdlog requires libfmt)")
+                "system spdlog requires libfmt)")
   else ()
     message(STATUS "Using system fmt library")
   endif ()
@@ -226,7 +223,7 @@ add_executable(yaddnsc
 )
 
 # Compile only the selected resolver implementation.
-if (YADDNSC_NATIVE_DNS)
+if (YADDNSC_USE_NATIVE_DNS)
   target_sources(yaddnsc PRIVATE src/dns/resolver/classic_native.cpp)
 else ()
   target_sources(yaddnsc PRIVATE src/dns/resolver/classic_system.cpp)
@@ -236,23 +233,23 @@ endif ()
 # Compiler options
 # ---------------------------------------------------------------------------
 target_compile_options(yaddnsc PRIVATE
-    -Wall -Wextra
-    # Hide all symbols at compile time; only YADDNSC_EXPORT-marked functions
-    # have STV_DEFAULT visibility.
-    -fvisibility=hidden
-    # Clang 19.x needs -fexperimental-library for std::stop_token, std::jthread, etc.
-    $<$<AND:$<CXX_COMPILER_ID:Clang>,$<VERSION_GREATER_EQUAL:$<CXX_COMPILER_VERSION>,19>,$<VERSION_LESS:$<CXX_COMPILER_VERSION>,20>>:-fexperimental-library>
-    # Debug symbols
-    $<$<CONFIG:Debug>:-ggdb -gdwarf-3>
+        -Wall -Wextra
+        # Hide all symbols at compile time; only YADDNSC_EXPORT-marked functions
+        # have STV_DEFAULT visibility.
+        -fvisibility=hidden
+        # Clang 19.x needs -fexperimental-library for std::stop_token, std::jthread, etc.
+        $<$<AND:$<CXX_COMPILER_ID:Clang>,$<VERSION_GREATER_EQUAL:$<CXX_COMPILER_VERSION>,19>,$<VERSION_LESS:$<CXX_COMPILER_VERSION>,20>>:-fexperimental-library>
+        # Debug symbols
+        $<$<CONFIG:Debug>:-ggdb -gdwarf-3>
 )
 
 # ---------------------------------------------------------------------------
 # Include directories
 # ---------------------------------------------------------------------------
 target_include_directories(yaddnsc PRIVATE
-    ${PROJECT_SOURCE_DIR}/include
-    ${PROJECT_SOURCE_DIR}/src
-    ${CMAKE_BINARY_DIR}/generated
+        ${PROJECT_SOURCE_DIR}/include
+        ${PROJECT_SOURCE_DIR}/src
+        ${CMAKE_BINARY_DIR}/generated
 )
 
 if (glaze_ADDED)
@@ -263,10 +260,10 @@ endif ()
 # Compile definitions
 # ---------------------------------------------------------------------------
 target_compile_definitions(yaddnsc PRIVATE
-    SPDLOG_ACTIVE_LEVEL=SPDLOG_LEVEL_DEBUG
-    CPPHTTPLIB_OPENSSL_SUPPORT
-    $<$<BOOL:${YADDNSC_USE_STD_FORMAT}>:YADDNSC_USE_STD_FORMAT>
-    $<$<BOOL:${YADDNSC_USE_SYSTEM_SPDLOG}>:YADDNSC_USE_SYSTEM_SPDLOG>
+        SPDLOG_ACTIVE_LEVEL=SPDLOG_LEVEL_DEBUG
+        CPPHTTPLIB_OPENSSL_SUPPORT
+        $<$<BOOL:${YADDNSC_USE_STD_FORMAT}>:YADDNSC_USE_STD_FORMAT>
+        $<$<BOOL:${YADDNSC_USE_SYSTEM_SPDLOG}>:YADDNSC_USE_SYSTEM_SPDLOG>
 )
 
 # ---------------------------------------------------------------------------
@@ -274,8 +271,8 @@ target_compile_definitions(yaddnsc PRIVATE
 # ---------------------------------------------------------------------------
 # Strip symbols in Release builds
 target_link_options(yaddnsc PRIVATE
-    $<$<CONFIG:Release>:$<$<PLATFORM_ID:Darwin>:-Wl,-S>>
-    $<$<CONFIG:Release>:$<$<NOT:$<PLATFORM_ID:Darwin>>:-Wl,-s>>
+        $<$<CONFIG:Release>:$<$<PLATFORM_ID:Darwin>:-Wl,-S>>
+        $<$<CONFIG:Release>:$<$<NOT:$<PLATFORM_ID:Darwin>>:-Wl,-s>>
 )
 
 # ---------------------------------------------------------------------------
@@ -291,7 +288,7 @@ endif ()
 # the flag correctly, so we add -rdynamic explicitly on all non-Windows platforms.
 set_target_properties(yaddnsc PROPERTIES ENABLE_EXPORTS ON)
 target_link_options(yaddnsc PRIVATE
-    $<$<NOT:$<PLATFORM_ID:Windows>>:-rdynamic>
+        $<$<NOT:$<PLATFORM_ID:Windows>>:-rdynamic>
 )
 
 # ---------------------------------------------------------------------------
@@ -305,7 +302,7 @@ target_link_libraries(yaddnsc PRIVATE BS_thread_pool magic_enum httplib spdlog::
 add_library(yaddnsc_fmt INTERFACE)
 target_include_directories(yaddnsc_fmt INTERFACE ${CMAKE_SOURCE_DIR}/include)
 target_compile_definitions(yaddnsc_fmt INTERFACE
-    $<$<BOOL:${YADDNSC_USE_STD_FORMAT}>:YADDNSC_USE_STD_FORMAT>
+        $<$<BOOL:${YADDNSC_USE_STD_FORMAT}>:YADDNSC_USE_STD_FORMAT>
 )
 if (NOT HAVE_STD_FORMAT)
   target_link_libraries(yaddnsc_fmt INTERFACE fmt::fmt)
@@ -331,8 +328,8 @@ else ()
   message(STATUS "spdlog: bundled (CPM)")
 endif ()
 
-if (YADDNSC_NATIVE_DNS)
-  message(STATUS "DNS stack: built-in (no libresolv)")
+if (YADDNSC_USE_NATIVE_DNS)
+  message(STATUS "DNS stack: built-in (parsing: libresolv)")
 else ()
   message(STATUS "DNS stack: system (libresolv)")
 endif ()
@@ -373,11 +370,11 @@ if (YADDNSC_BUILD_DOCS)
   endif ()
 
   doxygen_add_docs(doxygen
-        ${PROJECT_SOURCE_DIR}/README.md
-        ${PROJECT_SOURCE_DIR}/README_CN.md
-        ${PROJECT_SOURCE_DIR}/include
-        ${PROJECT_SOURCE_DIR}/src
-        COMMENT "Generate Doxygen API documentation"
+            ${PROJECT_SOURCE_DIR}/README.md
+            ${PROJECT_SOURCE_DIR}/README_CN.md
+            ${PROJECT_SOURCE_DIR}/include
+            ${PROJECT_SOURCE_DIR}/src
+            COMMENT "Generate Doxygen API documentation"
     )
 
   message(STATUS "Doxygen: enabled — use 'make doxygen' to build")
