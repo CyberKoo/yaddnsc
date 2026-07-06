@@ -52,7 +52,6 @@ std::vector<uint8_t> DohResolver::Impl::query(const std::string &host, DNS::Type
     const auto query_bytes = DNS::mkquery(host, ns_type);
 
     HttpRequest req{
-        .url = server_,
         .content_type = DOH_CONTENT_TYPE,
         .method = HttpMethod::POST,
         .headers = {{"Accept", DOH_CONTENT_TYPE}},
@@ -61,11 +60,11 @@ std::vector<uint8_t> DohResolver::Impl::query(const std::string &host, DNS::Type
 
     SPDLOG_TRACE(R"(DoH POST {}  ({} bytes))", server_, query_bytes.size());
 
-    const auto response = http_client_->send(req);
+    const auto response = http_client_->exchange(server_, req);
 
     if (!response) {
         throw DnsLookupException(
-            fmt::format(R"(DoH query to "{}" failed: {})", req.url, response.error()),
+            fmt::format(R"(DoH query to "{}" failed: {})", server_, response.error()),
             DNS::Error::CONNECTION
         );
     }
@@ -75,7 +74,7 @@ std::vector<uint8_t> DohResolver::Impl::query(const std::string &host, DNS::Type
         // 5xx: server errors are transient (may succeed on another server or retry)
         const auto is_transient = response->status_code >= 500;
         throw DnsLookupException(
-            fmt::format(R"(DoH server "{}" returned HTTP status {})", req.url, response->status_code),
+            fmt::format(R"(DoH server "{}" returned HTTP status {})", server_, response->status_code),
             is_transient ? DNS::Error::UNKNOWN : DNS::Error::NODATA);
     }
 

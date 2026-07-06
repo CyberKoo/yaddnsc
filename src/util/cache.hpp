@@ -6,6 +6,8 @@
 #define YADDNSC_UTIL_CACHE_H
 
 #include <mutex>
+#include <future>
+#include <memory>
 #include <chrono>
 #include <concepts>
 #include <optional>
@@ -57,7 +59,11 @@ namespace Utils::Cache {
         }
 
         /**
-         * Remove a single entry.
+         * Remove a single entry from the cache.
+         *
+         * If a computation for this key is already in flight it is
+         * allowed to finish; its result will still be stored so that
+         * waiters do not recompute unnecessarily.
          */
         void remove(const Key &key) {
             std::lock_guard lock(mutex_);
@@ -65,7 +71,10 @@ namespace Utils::Cache {
         }
 
         /**
-         * Remove all entries.
+         * Remove all entries from the cache.
+         *
+         * In-flight computations are not interrupted, but they will
+         * still receive the same thundering-herd deduplication.
          */
         void clear() {
             std::lock_guard lock(mutex_);
@@ -76,21 +85,54 @@ namespace Utils::Cache {
          * Return the cached value for `key`, or compute-and-cache it
          * via the provided factory if absent / expired.
          *
-         * Thread-safe: the entire check-then-compute sequence is atomic
-         * under a single lock acquisition, avoiding the TOCTOU race that
-         * a separate get() + set() pair would have.
+         * The factory runs **outside** the internal mutex, so heavy
+         * computations do not block other cache operations.
+         *
+         * If multiple threads miss the same key simultaneously, only
+         * one thread invokes the factory; the others block on a
+         * shared_future and receive the same result once it is ready
+         * (thundering-herd protection).
          */
         template<std::invocable<> Fn>
             requires std::same_as<std::invoke_result_t<Fn>, Value>
         Value get_or_compute(const Key &key, Fn &&factory) {
-            std::lock_guard lock(mutex_);
+            std::unique_lock lock(mutex_);
 
+            // Fast path: value is already cached and fresh
             if (auto cached = do_get(key)) {
                 return *std::move(cached);
             }
 
-            auto [it, _] = map_.try_emplace(key, Clock::now(), std::invoke(std::forward<Fn>(factory)));
-            return it->second.value;
+            // Another thread is already computing this key — wait for it
+            if (auto it = pending_.find(key); it != pending_.end()) {
+                auto future = it->second;
+                lock.unlock();
+                return future.get();
+            }
+
+            // We are responsible for computing the value
+            auto promise = std::make_shared<std::promise<Value>>();
+            auto shared_future = promise->get_future().share();
+            pending_[key] = shared_future;
+            lock.unlock();
+
+            // Compute outside the mutex — other cache operations are not blocked
+            try {
+                Value value = std::invoke(std::forward<Fn>(factory));
+                promise->set_value(value);
+
+                // Store the computed result back into the cache
+                lock.lock();
+                pending_.erase(key);
+                map_.insert_or_assign(key, Entry{Clock::now(), std::move(value)});
+                return value;
+            } catch (...) {
+                // Propagate the exception to all waiters
+                promise->set_exception(std::current_exception());
+                lock.lock();
+                pending_.erase(key);
+                throw;
+            }
         }
 
         /**
@@ -150,6 +192,7 @@ namespace Utils::Cache {
         std::chrono::nanoseconds ttl_;
         mutable std::mutex mutex_;
         std::unordered_map<Key, Entry> map_;
+        std::unordered_map<Key, std::shared_future<Value>> pending_;
     };
 } // namespace Utils::Cache
 

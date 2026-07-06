@@ -69,8 +69,8 @@ struct std::formatter<HttpRequest> {
 
         return fmt::format_to(
             ctx.out(),
-            R"(HttpRequest(url="{}", body="{}", content_type="{}", method="{}", header="{}"))",
-            request.url, body, request.content_type, to_string(request.method),
+            R"(HttpRequest(body="{}", content_type="{}", method="{}", header="{}"))",
+            body, request.content_type, to_string(request.method),
             format_map(request.headers.begin(), request.headers.end())
         );
     }

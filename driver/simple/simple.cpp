@@ -13,7 +13,7 @@
 
 DEFINE_DRIVER_FACTORY (SimpleDriver)
 
-DriverRequest SimpleDriver::generate_request(const DriverConfig &config, const UpdateContext &ctx) const {
+DriverRequestContext SimpleDriver::generate_request(const DriverConfig &config, const DriverUpdateParams &ctx) const {
     auto full = parse_config<glz::generic>(config);
     if (!full.is_object() || !full.contains("url") || !full["url"].is_string()) {
         throw ParamParseException(fmt::format("Missing required parameter \"url\" in driver config"));
@@ -42,10 +42,12 @@ DriverRequest SimpleDriver::generate_request(const DriverConfig &config, const U
 
     return {
         .url = std::move(url),
-        .content_type = std::string{},
-        .method = DriverHttpMethod::GET,
-        .headers = {},
-        .body = std::nullopt
+        .request = {
+            .content_type = std::string{},
+            .method = DriverHttpMethod::GET,
+            .headers = {},
+            .body = std::nullopt,
+        }
     };
 }
 

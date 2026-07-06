@@ -42,7 +42,7 @@ struct Updater::Impl {
 
     [[nodiscard]] static DriverConfig build_driver_parameters(const UpdateTask &task);
 
-    [[nodiscard]] static UpdateContext
+    [[nodiscard]] static DriverUpdateParams
     build_update_context(const UpdateTask &task, const InetAddress &ip_addr, std::string_view rd_type);
 
     const ResolverDispatcher &dispatcher_;
@@ -71,29 +71,28 @@ void Updater::Impl::process(const UpdateTask &task, const Driver &driver, HttpCl
         if (!records.empty()) {
             const auto &first = records.front();
             if (first == local_ip->to_string()) {
-                SPDLOG_DEBUG("Domain: {}, type: {}, current {}, new {}, skipping update", task.fqdn, rd_type, first,
-                             local_ip->to_string());
+                SPDLOG_DEBUG("Domain {} ({}) unchanged ({}), skipping update", task.fqdn, rd_type, first);
                 return;
             }
 
-            SPDLOG_INFO(R"(Update needed, local IP "{}" != DNS record "{}")", local_ip->to_string(), first);
+            SPDLOG_DEBUG("Domain {} ({}) will be updated to {} (was {})", task.fqdn, rd_type, local_ip->to_string(), first);
         }
     } else {
         SPDLOG_INFO("Force update triggered for {}", task.fqdn);
     }
 
-    // --- Step 4: build parameters & generate request ------------------------
+    // --- Step 3: build parameters & generate request ------------------------
 
     const auto parameters = build_driver_parameters(task);
     const auto ctx = build_update_context(task, *local_ip, rd_type);
 
-    // --- Step 5: delegate to driver via HttpClient --------------------------
+    // --- Step 4: delegate to driver via HttpClient --------------------------
 
     if (!driver.execute(parameters, ctx, http_client)) {
         return;
     }
 
-    SPDLOG_INFO("Update {}, type: {}, to {}", task.fqdn, rd_type, local_ip->to_string());
+    SPDLOG_INFO("Domain {} ({}) updated to {}", task.fqdn, rd_type, local_ip->to_string());
 }
 
 std::vector<std::string>
@@ -130,7 +129,7 @@ DriverConfig Updater::Impl::build_driver_parameters(const UpdateTask &task) {
     return task.config.driver_param.dump().value_or("{}");
 }
 
-UpdateContext
+DriverUpdateParams
 Updater::Impl::build_update_context(const UpdateTask &task, const InetAddress &ip_addr, std::string_view rd_type) {
     return {
         .ip_addr = ip_addr.to_string(),

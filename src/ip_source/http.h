@@ -5,17 +5,21 @@
 #ifndef YADDNSC_HTTP_IP_SOURCE_H
 #define YADDNSC_HTTP_IP_SOURCE_H
 
+#include <memory>
 #include <string>
 
 #include "base.h"
 #include "address_family.h"
 
+class PersistentHttpClient;
+
 // ---------------------------------------------------------------------------
 // HttpIpSource — fetches the local IP address from an external HTTP service.
 //
-// Uses TransientHttpClient to perform a one-shot GET request and parses the
-// response body as an IP address.  The address family and outbound interface
-// binding are passed through to the underlying HTTP client.
+// Uses PersistentHttpClient to maintain a keep-alive connection across
+// resolve() calls, which is more efficient than opening a new connection
+// each time.  The address family and outbound interface binding are passed
+// through to the underlying HTTP client.
 //
 // resolve() returns 0 or 1 addresses.
 // ---------------------------------------------------------------------------
@@ -24,12 +28,15 @@ public:
     explicit HttpIpSource(std::string url, AddressFamily address_family = AddressFamily::UNSPECIFIED,
                           std::string bind_interface = {});
 
+    ~HttpIpSource() override;
+
     [[nodiscard]] std::vector<InetAddress> resolve() const override;
 
 private:
     std::string url_;
     AddressFamily address_family_;
     std::string bind_interface_;
+    std::unique_ptr<PersistentHttpClient> client_;
 };
 
 #endif // YADDNSC_HTTP_IP_SOURCE_H

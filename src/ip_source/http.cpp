@@ -9,24 +9,32 @@
 #include "string_util.hpp"
 #include "network/http_client.h"
 #include "network/inet_address.h"
+#include "uri.h"
+
+HttpIpSource::~HttpIpSource() = default;
 
 HttpIpSource::HttpIpSource(std::string url, AddressFamily address_family, std::string bind_interface)
     : url_(std::move(url)), address_family_(address_family), bind_interface_(std::move(bind_interface)) {
-}
-
-std::vector<InetAddress> HttpIpSource::resolve() const {
     HttpClientOptions opts{
         .address_family = address_family_,
         .interface = bind_interface_.empty() ? std::nullopt : std::optional(bind_interface_),
     };
 
-    const auto body = TransientHttpClient::get_body(url_, opts);
-    if (!body) {
+    auto uri = Uri::parse(url_);
+    client_ = std::make_unique<PersistentHttpClient>(uri, std::move(opts));
+}
+
+std::vector<InetAddress> HttpIpSource::resolve() const {
+    HttpRequest req;
+    req.method = HttpMethod::GET;
+
+    auto resp = client_->exchange(url_, req);
+    if (!resp) {
         SPDLOG_DEBUG(R"(Failed to fetch IP from "{}")", url_);
         return {};
     }
 
-    auto addr = InetAddress::parse(StringUtil::trim(*body));
+    auto addr = InetAddress::parse(StringUtil::trim(resp->body));
     if (!addr) {
         return {};
     }

@@ -45,14 +45,15 @@ namespace {
 
 DEFINE_DRIVER_FACTORY (DNSPodDriver)
 
-DriverRequest DNSPodDriver::generate_request(const DriverConfig &config, const UpdateContext &ctx) const {
+DriverRequestContext DNSPodDriver::generate_request(const DriverConfig &config, const DriverUpdateParams &ctx) const {
     auto cfg = parse_config<DNSPodParams>(config);
 
     // record_line: optional, with dynamic default based on global flag
     auto record_line = cfg.record_line.value_or(cfg.global ? "default" : "默认");
 
+    auto url = std::string(cfg.global ? API_URL_GLOBAL : API_URL_CN);
+
     DriverRequest request{};
-    request.url = cfg.global ? API_URL_GLOBAL : API_URL_CN;
     request.body = HttpClient::params_to_query_string(DriverParams{
         {"login_token", cfg.login_token},
         {"domain_id", cfg.domain_id},
@@ -67,7 +68,7 @@ DriverRequest DNSPodDriver::generate_request(const DriverConfig &config, const U
     request.content_type = "application/x-www-form-urlencoded";
     request.method = DriverHttpMethod::POST;
 
-    return request;
+    return {std::move(url), std::move(request)};
 }
 
 bool DNSPodDriver::check_response(const HttpResponse &response) const {

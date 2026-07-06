@@ -235,8 +235,8 @@ std::vector<InetAddress> MdnsIpSource::resolve() const {
         if_index = NetDevices::find_default_interface_index(AF_INET6);
         if (if_index > 0) {
             auto if_name = NetDevices::index_to_name(if_index);
-            SPDLOG_DEBUG(R"(mDNS: auto-selected interface "{}" (index {}) for "{}")", if_name.empty() ? "?" : if_name,
-                         if_index, hostname_);
+            SPDLOG_DEBUG(R"(mDNS: auto-selected interface "{}" for "{}" (type AAAA))", if_name.empty() ? "?" : if_name,
+                         hostname_);
         }
     }
 

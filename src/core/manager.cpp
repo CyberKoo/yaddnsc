@@ -41,7 +41,7 @@ namespace {
             return total_subdomains;
         }
 
-        return thread_count;
+        return std::min(thread_count, 4U);
     }
 } // anonymous namespace
 

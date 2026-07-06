@@ -43,20 +43,15 @@ struct HttpClientOptions {
 // on every send() call.
 //
 // Construct with HttpClientOptions (all fields optional); use
-// send() to issue arbitrary requests.  get_body() is a static convenience
-// for one-shot GET calls (e.g. external-IP discovery).
-// ---------------------------------------------------------------------------
+// send() to issue arbitrary requests.
+// --------------------------------------------------------------------------
 class TransientHttpClient final : public HttpClient {
 public:
     explicit TransientHttpClient(HttpClientOptions opts = {});
 
     ~TransientHttpClient() override = default;
 
-    [[nodiscard]] HttpResult send(const HttpRequest &req) const override;
-
-    // One-shot GET — returns the raw response body on success.
-    static std::optional<std::string>
-    get_body(std::string_view url, const HttpClientOptions &opts = {});
+    [[nodiscard]] HttpResult exchange(std::string_view url, const HttpRequest &req) const override;
 
 private:
     HttpClientOptions opts_;
@@ -77,7 +72,7 @@ public:
 
     ~PersistentHttpClient() override;
 
-    [[nodiscard]] HttpResult send(const HttpRequest &req) const override;
+    [[nodiscard]] HttpResult exchange(std::string_view url, const HttpRequest &req) const override;
 
 private:
     std::unique_ptr<httplib::Client> client_;

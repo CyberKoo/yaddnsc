@@ -12,14 +12,14 @@ class CloudflareDriver final : public BaseDriver {
 public:
     ~CloudflareDriver() override = default;
 
-    [[nodiscard]] DriverRequest generate_request(const DriverConfig &config, const UpdateContext &ctx) const override;
+    [[nodiscard]] DriverRequestContext generate_request(const DriverConfig &config, const DriverUpdateParams &ctx) const override;
 
     [[nodiscard]] bool check_response(const HttpResponse &response) const override;
 
     [[nodiscard]] DriverDetail get_detail() const override;
 
 private:
-    static std::string generate_body(const CloudflareParams &cfg, const UpdateContext &ctx);
+    static std::string generate_body(const CloudflareParams &cfg, const DriverUpdateParams &ctx);
 };
 
 #endif //YADDNSC_DRV_CLOUDFLARE_CLOUDFLARE_H

@@ -11,7 +11,7 @@ class SimpleDriver final : public BaseDriver {
 public:
     ~SimpleDriver() override = default;
 
-    [[nodiscard]] DriverRequest generate_request(const DriverConfig &config, const UpdateContext &ctx) const override;
+    [[nodiscard]] DriverRequestContext generate_request(const DriverConfig &config, const DriverUpdateParams &ctx) const override;
 
     [[nodiscard]] DriverDetail get_detail() const override;
 

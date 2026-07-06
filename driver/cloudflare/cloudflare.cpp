@@ -15,17 +15,18 @@ namespace {
 
 DEFINE_DRIVER_FACTORY(CloudflareDriver)
 
-DriverRequest CloudflareDriver::generate_request(const DriverConfig &config, const UpdateContext &ctx) const {
+DriverRequestContext CloudflareDriver::generate_request(const DriverConfig &config, const DriverUpdateParams &ctx) const {
     auto cfg = parse_config<CloudflareParams>(config);
+
+    auto url = fmt::format(API_URL, fmt::arg("ZONE_ID", cfg.zone_id), fmt::arg("RECORD_ID", cfg.record_id));
 
     DriverRequest request{};
     request.headers.insert({"Authorization", fmt::format("Bearer {}", cfg.token)});
-    request.url = fmt::format(API_URL, fmt::arg("ZONE_ID", cfg.zone_id), fmt::arg("RECORD_ID", cfg.record_id));
     request.body = generate_body(cfg, ctx);
     request.content_type = "application/json";
     request.method = DriverHttpMethod::PUT;
 
-    return request;
+    return {std::move(url), std::move(request)};
 }
 
 bool CloudflareDriver::check_response(const HttpResponse &response) const {
@@ -67,7 +68,7 @@ DriverDetail CloudflareDriver::get_detail() const {
     };
 }
 
-std::string CloudflareDriver::generate_body(const CloudflareParams &cfg, const UpdateContext &ctx) {
+std::string CloudflareDriver::generate_body(const CloudflareParams &cfg, const DriverUpdateParams &ctx) {
     auto body = CloudflareRequestBody{
         .type = ctx.rd_type,
         .name = ctx.subdomain,

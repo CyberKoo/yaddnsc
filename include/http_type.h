@@ -7,6 +7,7 @@
 
 #include <map>
 #include <string>
+#include <expected>
 #include <optional>
 
 using HttpParams = std::multimap<std::string, std::string>;
@@ -16,11 +17,19 @@ enum class HttpMethod {
 };
 
 struct HttpRequest {
-    std::string url;
     std::string content_type;
     HttpMethod method;
     HttpParams headers{};
     std::optional<std::string> body{};
 };
+
+// HTTP response — status code, body and headers from a received response.
+struct HttpResponse {
+    int status_code;
+    std::string body;
+    std::multimap<std::string, std::string> headers;
+};
+
+using HttpResult = std::expected<HttpResponse, std::string>;
 
 #endif //YADDNSC_HTTP_TYPE_H

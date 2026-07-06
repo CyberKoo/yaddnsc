@@ -16,18 +16,19 @@ namespace {
 
 DEFINE_DRIVER_FACTORY(DigitalOceanDriver)
 
-DriverRequest DigitalOceanDriver::generate_request(const DriverConfig &config, const UpdateContext &ctx) const {
+DriverRequestContext DigitalOceanDriver::generate_request(const DriverConfig &config, const DriverUpdateParams &ctx) const {
     auto cfg = parse_config<DigitalOceanParams>(config);
+
+    auto url = fmt::format(API_URL, fmt::arg("DOMAIN", ctx.domain), fmt::arg("RECORD_ID", cfg.record_id));
 
     DriverRequest request{};
     request.headers.insert({"Authorization", fmt::format("Bearer {}", cfg.token)});
-    request.url = fmt::format(API_URL, fmt::arg("DOMAIN", ctx.domain), fmt::arg("RECORD_ID", cfg.record_id));
     auto request_body = DigitalOceanBody{.data = ctx.ip_addr};
     request.body = glz::write_json(request_body).value_or("{}");
     request.content_type = "application/json";
     request.method = DriverHttpMethod::PUT;
 
-    return request;
+    return {std::move(url), std::move(request)};
 }
 
 bool DigitalOceanDriver::check_response(const HttpResponse &response) const {

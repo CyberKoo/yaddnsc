@@ -37,39 +37,30 @@ namespace {
     // Dispatch: HttpMethod -> httplib callable
     // -----------------------------------------------------------------------
 
-    using Invoker = httplib::Result (*)(httplib::Client &, const char *, const httplib::Headers &,
-                                        const std::optional<std::string> &, const char *);
+    [[nodiscard]] httplib::Result dispatch(httplib::Client &client, const char *path,
+                                           const HttpRequest &req) {
+        httplib::Headers headers{req.headers.begin(), req.headers.end()};
 
-    constexpr Invoker INVOKERS[]{
-        [](httplib::Client &c, const char *p, const httplib::Headers &h, const std::optional<std::string> &,
-           const char *) -> httplib::Result {
-            return c.Get(p, h);
-        },
-        [](httplib::Client &c, const char *p, const httplib::Headers &h, const std::optional<std::string> &b,
-           const char *ct) -> httplib::Result {
-            return c.Post(p, h, b.value_or(""), ct);
-        },
-        [](httplib::Client &c, const char *p, const httplib::Headers &h, const std::optional<std::string> &b,
-           const char *ct) -> httplib::Result {
-            return c.Put(p, h, b.value_or(""), ct);
-        },
-        [](httplib::Client &c, const char *p, const httplib::Headers &h, const std::optional<std::string> &,
-           const char *) -> httplib::Result {
-            return c.Delete(p, h);
-        },
-        [](httplib::Client &c, const char *p, const httplib::Headers &h, const std::optional<std::string> &b,
-           const char *ct) -> httplib::Result {
-            return c.Patch(p, h, b.value_or(""), ct);
-        },
-        [](httplib::Client &c, const char *p, const httplib::Headers &h, const std::optional<std::string> &,
-           const char *) -> httplib::Result {
-            return c.Head(p, h);
-        },
-        [](httplib::Client &c, const char *p, const httplib::Headers &h, const std::optional<std::string> &,
-           const char *) -> httplib::Result {
-            return c.Options(p, h);
-        },
-    };
+        switch (req.method) {
+            using enum HttpMethod;
+        case GET:
+            return client.Get(path, headers);
+        case POST:
+            return client.Post(path, headers, req.body.value_or(""), req.content_type);
+        case PUT:
+            return client.Put(path, headers, req.body.value_or(""), req.content_type);
+        case DEL:
+            return client.Delete(path, headers);
+        case PATCH:
+            return client.Patch(path, headers, req.body.value_or(""), req.content_type);
+        case HEAD:
+            return client.Head(path, headers);
+        case OPTIONS:
+            return client.Options(path, headers);
+        }
+
+        std::unreachable();
+    }
 
     // Apply all configured (or defaulted) options from HttpClientOptions onto
     // a freshly created httplib::Client.
@@ -131,6 +122,36 @@ namespace {
 
         client.set_default_headers(std::move(default_headers));
     }
+
+    // -----------------------------------------------------------------------
+    // do_exchange — shared by TransientHttpClient and PersistentHttpClient
+    // -----------------------------------------------------------------------
+
+    [[nodiscard]] HttpResult do_exchange(httplib::Client &client, std::string_view url,
+                                          const HttpRequest &req) {
+        const auto uri = Uri::parse(url);
+        const auto path = build_request(uri);
+
+        SPDLOG_DEBUG("Sending {} request to {}://{}{} ({} header(s), {} bytes body)",
+                     magic_enum::enum_name(req.method), uri.get_schema(), uri.get_host(), path,
+                     req.headers.size(), req.body ? req.body->size() : 0);
+
+        const auto result = dispatch(client, path.c_str(), req);
+
+        if (!result) {
+            auto error_str = httplib::to_string(result.error());
+            SPDLOG_DEBUG("HTTP request to {}://{}{} failed: {}", uri.get_schema(), uri.get_host(), path, error_str);
+            return std::unexpected(error_str);
+        }
+
+        SPDLOG_DEBUG("Received {} response from {}://{}{} (status {}, {} bytes)",
+                     magic_enum::enum_name(req.method),uri.get_schema(), uri.get_host(), path, result->status, result->body.size());
+
+        return HttpResponse{
+            .status_code = result->status, .body = result->body,
+            .headers = {result->headers.begin(), result->headers.end()},
+        };
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -147,55 +168,12 @@ std::string HttpClient::params_to_query_string(const HttpParams &params) {
     return fmt::format("{}", fmt::join(encoded, "&"));
 }
 
-// ---------------------------------------------------------------------------
-// TransientHttpClient
-// ---------------------------------------------------------------------------
-
-TransientHttpClient::TransientHttpClient(HttpClientOptions opts) : opts_(std::move(opts)) {
-}
-
-HttpResult TransientHttpClient::send(const HttpRequest &req) const {
-    const auto uri = Uri::parse(req.url);
-
-    SPDLOG_DEBUG("Sending {} request to {}://{}{} ({} header(s), {} bytes body)",
-                 magic_enum::enum_name(req.method), uri.get_schema(), uri.get_host(), build_request(uri),
-                 req.headers.size(), req.body ? req.body->size() : 0
-    );
-
-    auto client = httplib::Client(build_base_url(uri));
-    apply_options(client, uri, opts_);
-
-    httplib::Headers headers{req.headers.begin(), req.headers.end()};
-    const auto path = build_request(uri);
-
-    const auto result = INVOKERS[std::to_underlying(req.method)](
-        client, path.c_str(), headers, req.body, req.content_type.data()
-    );
-
-    if (!result) {
-        auto error_str = httplib::to_string(result.error());
-        SPDLOG_DEBUG("HTTP request to {}://{}{} failed: {}", uri.get_schema(), uri.get_host(), path, error_str);
-        return std::unexpected(error_str);
-    }
-
-    SPDLOG_DEBUG("Received {} response from {}://{}{} (status {}, {} bytes)", magic_enum::enum_name(req.method),
-                 uri.get_schema(), uri.get_host(), path, result->status, result->body.size()
-    );
-
-    return HttpResponse{
-        .status_code = result->status, .body = result->body,
-        .headers = {result->headers.begin(), result->headers.end()},
-    };
-}
-
-// One-shot GET — convenience.
-std::optional<std::string> TransientHttpClient::get_body(std::string_view url, const HttpClientOptions &opts) {
+// One-shot GET — convenience, uses the instance's configured options.
+std::optional<std::string> HttpClient::get_body(std::string_view url) const {
     HttpRequest req;
-    req.url = url;
     req.method = HttpMethod::GET;
 
-    TransientHttpClient client(opts);
-    auto resp = client.send(req);
+    auto resp = exchange(url, req);
 
     if (!resp) {
         SPDLOG_DEBUG(R"(Failed to fetch "{}", error: {})", url, resp.error());
@@ -203,6 +181,20 @@ std::optional<std::string> TransientHttpClient::get_body(std::string_view url, c
     }
 
     return resp->body;
+}
+
+// ---------------------------------------------------------------------------
+// TransientHttpClient
+// ---------------------------------------------------------------------------
+
+TransientHttpClient::TransientHttpClient(HttpClientOptions opts) : opts_(std::move(opts)) {
+}
+
+HttpResult TransientHttpClient::exchange(std::string_view url, const HttpRequest &req) const {
+    const auto uri = Uri::parse(url);
+    auto client = httplib::Client(build_base_url(uri));
+    apply_options(client, uri, opts_);
+    return do_exchange(client, url, req);
 }
 
 // ---------------------------------------------------------------------------
@@ -216,33 +208,6 @@ PersistentHttpClient::PersistentHttpClient(const Uri &uri, HttpClientOptions opt
 
 PersistentHttpClient::~PersistentHttpClient() = default;
 
-HttpResult PersistentHttpClient::send(const HttpRequest &req) const {
-    const auto uri = Uri::parse(req.url);
-    const auto path = build_request(uri);
-
-    SPDLOG_DEBUG("Sending {} request to {}://{}{} ({} header(s), {} bytes body)",
-                 magic_enum::enum_name(req.method), uri.get_schema(), uri.get_host(), path,
-                 req.headers.size(), req.body ? req.body->size() : 0);
-
-    httplib::Headers headers{req.headers.begin(), req.headers.end()};
-
-    const auto result = INVOKERS[std::to_underlying(req.method)](
-        *client_, path.c_str(), headers, req.body, req.content_type.data()
-    );
-
-    if (!result) {
-        auto error_str = httplib::to_string(result.error());
-        SPDLOG_DEBUG("HTTP request to {}://{}{} failed: {}", uri.get_schema(), uri.get_host(), path, error_str);
-        return std::unexpected(error_str);
-    }
-
-    SPDLOG_DEBUG("Received {} response from {}://{}{} (status {}, {} bytes)",
-                 magic_enum::enum_name(req.method),
-                 uri.get_schema(), uri.get_host(), path, result->status, result->body.size()
-    );
-
-    return HttpResponse{
-        .status_code = result->status, .body = result->body,
-        .headers = {result->headers.begin(), result->headers.end()},
-    };
+HttpResult PersistentHttpClient::exchange(std::string_view url, const HttpRequest &req) const {
+    return do_exchange(*client_, url, req);
 }

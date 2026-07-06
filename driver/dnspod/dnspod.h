@@ -9,7 +9,7 @@
 
 class DNSPodDriver final : public BaseDriver {
 public:
-    [[nodiscard]] DriverRequest generate_request(const DriverConfig &config, const UpdateContext &ctx) const override;
+    [[nodiscard]] DriverRequestContext generate_request(const DriverConfig &config, const DriverUpdateParams &ctx) const override;
 
     [[nodiscard]] bool check_response(const HttpResponse &response) const override;
 

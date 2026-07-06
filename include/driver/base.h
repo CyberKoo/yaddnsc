@@ -21,20 +21,21 @@ public:
         return DRV_ABI_VERSION;
     }
 
-    // Default execute: generate_request -> send via HttpClient -> check_response.
+    // Default execute: generate_request -> exchange via HttpClient -> check_response.
     // Matches the original three-step behavior in Updater::process().
-    bool execute(const DriverConfig &config, const UpdateContext &ctx, HttpClient &http) const override {
-        const auto request = generate_request(config, ctx);
-        CORE_LOG_DEBUG("Received DNS record update request from driver {}, {}", get_detail().name, request);
+    bool execute(const DriverConfig &config, const DriverUpdateParams &ctx, HttpClient &http) const override {
+        const auto [url, request] = generate_request(config, ctx);
+        CORE_LOG_DEBUG("Domain {} ({}) received DNS record update request from driver {}, {}", ctx.fqdn, ctx.rd_type,
+                       get_detail().name, request);
 
-        const auto response = http.send(request);
+        const auto response = http.exchange(url, request);
         if (!response) {
-            CORE_LOG_WARN("Update for {} failed (HTTP error: {})", ctx.fqdn, response.error());
+            CORE_LOG_WARN("Domain {} ({}) update failed (HTTP error: {})", ctx.fqdn, ctx.rd_type, response.error());
             return false;
         }
 
         if (!check_response(*response)) {
-            CORE_LOG_WARN("Update for {} failed: driver rejected", ctx.fqdn);
+            CORE_LOG_WARN("Domain {} ({}) update rejected by upstream", ctx.fqdn, ctx.rd_type);
             return false;
         }
 
