@@ -13,6 +13,7 @@
 #include "dns/util.hpp"
 #include "http_type.h"
 #include "dns/proto/mkquery.h"
+#include "dns/validator.h"
 #include "network/http_client.h"
 #include "exception/dns_lookup.h"
 
@@ -39,7 +40,7 @@ DohResolver::Impl::Impl(std::unique_ptr<HttpClient> http_client, std::string ser
 }
 
 std::vector<std::uint8_t> DohResolver::Impl::query(const std::string &host, DNS::Type type) const {
-    const auto ns_type = DNS::to_ns_type(type);
+    const auto ns_type = DNS::Util::to_ns_type(type);
     if (ns_type == ns_t_invalid) {
         throw DnsLookupException(
             fmt::format(R"(Unsupported DNS::Type for DoH query: "{}")", host),
@@ -56,7 +57,6 @@ std::vector<std::uint8_t> DohResolver::Impl::query(const std::string &host, DNS:
         .method = HttpMethod::POST,
         .headers = {{"Accept", DOH_CONTENT_TYPE}},
         // DNS wire format is binary; std::string is used here as a byte container
-        // (the HTTP client interface carries text-oriented body for JSON drivers),
         // not as a null-terminated C-string.
         .body = std::string(reinterpret_cast<const char *>(query_bytes.data()), query_bytes.size())
     };
@@ -104,10 +104,15 @@ std::vector<std::uint8_t> DohResolver::Impl::query(const std::string &host, DNS:
             DNS::Error::PARSE);
     }
 
+    // Response body is DNS wire-format binary stored in std::string (see above).
+    const auto *body_data = reinterpret_cast<const std::uint8_t *>(response->body.data());
+
+    // Validate DNS response header (RFC 8484 §5.1 / RFC 1035 §4.1.1).
+    DNS::Validator::validate_response(query_bytes, std::span(body_data, response->body.size()));
+
     SPDLOG_DEBUG(R"(Resolver #{} query for "{}" succeeded ({} bytes))", id_, host, response->body.size());
 
-    // Response body is DNS wire-format binary stored in std::string (see above).
-    return std::vector<std::uint8_t>(response->body.begin(), response->body.end());
+    return {body_data, body_data + response->body.size()};
 }
 
 // ===========================================================================

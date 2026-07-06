@@ -325,7 +325,7 @@ namespace {
         SPDLOG_DEBUG(R"(mDNS: resolving "{}" (type {}) on interface "{}")", hostname, std::is_same_v<Tag,
                      Ipv6Tag> ? "AAAA" : "A", iface_label);
 
-        const auto query_pkt = DNS::mkquery_mdns(hostname, DNS::to_ns_type(type), true);
+        const auto query_pkt = DNS::mkquery_mdns(hostname, DNS::Util::to_ns_type(type), true);
         Socket sock(af, SOCK_DGRAM);
 
         // ── Socket options ──────────────────────────────────────────────────

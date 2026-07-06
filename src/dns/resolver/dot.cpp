@@ -27,6 +27,7 @@
 #include "fmt.hpp"
 #include "dns_error.h"
 #include "dns/util.hpp"
+#include "dns/validator.h"
 #include "util/cert_util.hpp"
 #include "util/validation.hpp"
 #include "dns/proto/mkquery.h"
@@ -54,12 +55,6 @@ namespace {
     /// I/O timeout for send/recv on the established TLS connection.
     /// Prevents indefinite blocking when the server hangs mid-query.
     static constexpr timeval IO_TIMEOUT_TV{5, 0};  // 5 seconds
-
-    /// Read a 16-bit big-endian value from a raw buffer.
-    /// Correct on any platform (no alignment concerns).
-    [[nodiscard]] constexpr std::uint16_t read_uint16_be(const std::uint8_t *buf) noexcept {
-        return (static_cast<std::uint16_t>(buf[0]) << 8) | static_cast<std::uint16_t>(buf[1]);
-    }
 
     // ── Error handling ──
 
@@ -159,7 +154,7 @@ DotResolver::Impl::Impl(std::string server, std::uint16_t port, std::uint64_t id
 }
 
 std::vector<std::uint8_t> DotResolver::Impl::query(const std::string &host, DNS::Type type) const {
-    const auto ns_type = DNS::to_ns_type(type);
+    const auto ns_type = DNS::Util::to_ns_type(type);
     if (ns_type == ns_t_invalid) {
         throw DnsLookupException(
             fmt::format(R"(Unsupported DNS::Type for DoT query: "{}")", host),
@@ -213,7 +208,7 @@ std::vector<std::uint8_t> DotResolver::Impl::query(const std::string &host, DNS:
         );
     }
 
-    const std::uint16_t resp_len = read_uint16_be(resp_len_buf);
+    const std::uint16_t resp_len = DNS::Util::read_u16_be(resp_len_buf);
     if (resp_len == 0) {
         persistent_bio_.reset();
         throw DnsLookupException(
@@ -230,6 +225,9 @@ std::vector<std::uint8_t> DotResolver::Impl::query(const std::string &host, DNS:
             DNS::Error::CONNECTION
         );
     }
+
+    // Validate DNS response header (RFC 1035 §4.1.1).
+    DNS::Validator::validate_response(query_bytes, response);
 
     last_use_ = std::chrono::steady_clock::now();
     SPDLOG_DEBUG(R"(Resolver #{} DoT: query to "{}" succeeded ({} bytes) for "{}")", id_, target, response.size(),
@@ -280,7 +278,7 @@ auto DotResolver::Impl::connect(SSL_CTX *ctx, const std::string &server, std::ui
     if (!is_ip && !Utils::is_valid_domain(server)) {
         throw DnsLookupException(
             fmt::format(R"(Invalid DoT server: "{}" (not a valid IP or domain name))", server),
-            DNS::Error::CONNECTION);
+            DNS::Error::CONFIG);
     }
 
     SSL *ssl = nullptr;

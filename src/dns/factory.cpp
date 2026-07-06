@@ -37,8 +37,6 @@ ResolverDispatcher DnsResolverFactory::create(const Config::AppConfig &config) {
     // Ensure at least one DNS server is available.
     if (dns_servers.empty()) {
         dns_servers.push_back({YADDNSC_DEFAULT_DNS_SERVER, YADDNSC_DEFAULT_DNS_PORT});
-        SPDLOG_INFO("No DNS server configured, using default {}:{}", YADDNSC_DEFAULT_DNS_SERVER,
-                     YADDNSC_DEFAULT_DNS_PORT);
     }
 
     // Build resolver objects from server configurations.
@@ -51,7 +49,8 @@ ResolverDispatcher DnsResolverFactory::create(const Config::AppConfig &config) {
         const auto uri = Uri::parse(server.address);
         if (uri.get_schema() == "https") {
             auto opts = HttpClientOptions{
-                .connection_timeout = std::chrono::seconds(1), .read_timeout = std::chrono::seconds(5)
+                .connection_timeout = std::chrono::seconds(1), .read_timeout = std::chrono::seconds(5),
+                .follow_location = false
             };
             auto http_client = std::make_unique<PersistentHttpClient>(uri, opts);
             auto resolver = std::make_shared<DohResolver>(std::move(http_client), server.address);

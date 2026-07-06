@@ -20,7 +20,7 @@
 // ===========================================================================
 
 std::unique_ptr<IpSourceBase> IpSourceFactory::create(const Config::SubdomainConfig &cfg) {
-    auto address_family = DNS::type_to_family(cfg.type);
+    auto address_family = DNS::Util::type_to_family(cfg.type);
 
     switch (cfg.ip_source) {
         case Config::IpSource::INTERFACE:

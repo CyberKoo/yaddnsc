@@ -4,6 +4,7 @@
 #include "network/socket_addr.h"
 
 #include <arpa/inet.h>
+#include <netinet/in.h>
 
 #include <cstring>
 #include <utility>
@@ -85,7 +86,7 @@ std::optional<InetAddress> SocketAddr::address() const {
             if (sin6->sin6_scope_id != 0) {
                 v6.set_scope_id(sin6->sin6_scope_id);
             }
-            return InetAddress{std::move(v6)};
+            return InetAddress{v6};
         }
         default:
             return std::nullopt;

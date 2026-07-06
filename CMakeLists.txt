@@ -46,10 +46,10 @@ include(FeatureCheck)
 # ==============================================================================
 # On musl, libresolv is not available (musl's resolv.h is a stub), so the
 # built-in DNS stack must be used by default.
-if (LIBC_MUSL AND NOT DEFINED YADDNSC_USE_NATIVE_DNS)
-  set(YADDNSC_USE_NATIVE_DNS ON CACHE BOOL
-            "Use built-in DNS stack instead of system libresolv" FORCE)
-  message(STATUS "musl detected — YADDNSC_USE_NATIVE_DNS defaulting to ON")
+if (LIBC_MUSL AND NOT DEFINED YADDNSC_NATIVE_DNS)
+  set(YADDNSC_NATIVE_DNS ON CACHE BOOL
+      "Use built-in DNS stack instead of system libresolv" FORCE)
+  message(STATUS "musl detected — YADDNSC_NATIVE_DNS defaulting to ON")
 endif ()
 
 # ==============================================================================
@@ -83,6 +83,12 @@ option(YADDNSC_USE_SYSTEM_SPDLOG "Use spdlog from the system instead of the bund
 if (YADDNSC_MIN_UPDATE_INTERVAL LESS 0)
   message(FATAL_ERROR "YADDNSC_MIN_UPDATE_INTERVAL must not be negative, got ${YADDNSC_MIN_UPDATE_INTERVAL}")
 endif ()
+
+# ---------------------------------------------------------------------------
+# Validate YADDNSC_DEFAULT_DNS_SERVER — must be a valid IPv4 or IPv6 address
+# ---------------------------------------------------------------------------
+include(ValidateIpAddress)
+validate_ip_address("${YADDNSC_DEFAULT_DNS_SERVER}" "YADDNSC_DEFAULT_DNS_SERVER")
 
 # ==============================================================================
 include(GNUInstallDirs)
@@ -208,6 +214,7 @@ add_executable(yaddnsc
         src/cli/info.cpp
         # dns
         src/dns/error.cpp
+        src/dns/validator.cpp
         src/dns/proto/parser.cpp
         src/dns/proto/mkquery.cpp
         src/dns/resolver/doh.cpp
@@ -339,48 +346,7 @@ message(STATUS "Default DNS server: ${YADDNSC_DEFAULT_DNS_SERVER}:${YADDNSC_DEFA
 # ==============================================================================
 # Documentation — Doxygen
 # ==============================================================================
-option(YADDNSC_BUILD_DOCS "Build Doxygen API documentation" OFF)
-
-if (YADDNSC_BUILD_DOCS)
-  find_package(Doxygen REQUIRED)
-
-  set(DOXYGEN_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/docs)
-  set(DOXYGEN_GENERATE_HTML YES)
-  set(DOXYGEN_GENERATE_LATEX NO)
-  set(DOXYGEN_USE_MDFILE_AS_MAINPAGE ${PROJECT_SOURCE_DIR}/README.md)
-  set(DOXYGEN_STRIP_FROM_PATH ${PROJECT_SOURCE_DIR})
-  set(DOXYGEN_EXTRACT_ALL NO)
-  set(DOXYGEN_SOURCE_BROWSER YES)
-  set(DOXYGEN_HTML_DYNAMIC_SECTIONS YES)
-  set(DOXYGEN_DOT_IMAGE_FORMAT svg)
-  set(DOXYGEN_INTERACTIVE_SVG YES)
-  set(DOXYGEN_COLLABORATION_GRAPH YES)
-  set(DOXYGEN_INCLUDE_GRAPH YES)
-  set(DOXYGEN_INCLUDED_BY_GRAPH YES)
-  set(DOXYGEN_CALL_GRAPH NO)
-  set(DOXYGEN_CALLER_GRAPH NO)
-  # Generate graphviz diagrams only if dot is available
-  find_program(DOXYGEN_DOT_PATH dot)
-  if (DOXYGEN_DOT_PATH)
-    set(DOXYGEN_HAVE_DOT YES)
-    message(STATUS "Doxygen: graphviz dot found at ${DOXYGEN_DOT_PATH}")
-  else ()
-    set(DOXYGEN_HAVE_DOT NO)
-    message(STATUS "Doxygen: graphviz dot not found — diagrams disabled")
-  endif ()
-
-  doxygen_add_docs(doxygen
-            ${PROJECT_SOURCE_DIR}/README.md
-            ${PROJECT_SOURCE_DIR}/README_CN.md
-            ${PROJECT_SOURCE_DIR}/include
-            ${PROJECT_SOURCE_DIR}/src
-            COMMENT "Generate Doxygen API documentation"
-    )
-
-  message(STATUS "Doxygen: enabled — use 'make doxygen' to build")
-else ()
-  message(STATUS "Doxygen: disabled (use -DYADDNSC_BUILD_DOCS=ON to enable)")
-endif ()
+include(Doxygen)
 
 # ==============================================================================
 # Driver modules

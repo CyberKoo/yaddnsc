@@ -19,6 +19,8 @@ std::string_view DNS::error_to_str(Error error) {
             return "DNS record parse error (PARSE)";
         case Error::CONNECTION:
             return "connection error (CONNECTION)";
+        case Error::CONFIG:
+            return "configuration error (CONFIG)";
         default:
             return "unknown DNS error";
     }

@@ -17,6 +17,7 @@
 #include <spdlog/spdlog.h>
 
 #include "fmt.hpp"
+#include "uri.h"
 #include "mixin.h"
 #include "dns_error.h"
 #include "dns/util.hpp"
@@ -197,18 +198,20 @@ struct ClassicResolver::Impl {
 
     std::uint64_t id_;
     DNS::Server server_;
+    Uri uri_;
 };
 
-ClassicResolver::Impl::Impl(DNS::Server server, std::uint64_t id) : id_(id), server_(std::move(server)) {
+ClassicResolver::Impl::Impl(DNS::Server server, std::uint64_t id)
+    : id_(id), server_(std::move(server)), uri_(Uri::parse(server_.address)) {
 }
 
 std::vector<std::uint8_t> ClassicResolver::Impl::query(const std::string &host_str, DNS::Type type) const {
     SPDLOG_TRACE(R"(Resolver #{} DNS lookup for "{}")", id_, host_str);
 
-    const auto ns_type = DNS::to_ns_type(type);
+    const auto ns_type = DNS::Util::to_ns_type(type);
 
     SPDLOG_DEBUG(R"(Resolver #{} Resolving "{}" (type {}) via {}:{})", id_, host_str, ns_type,
-                 server_.address, server_.port);
+                 uri_.get_host_literal(), server_.port);
     ResolverContext ctx;
     ctx.set_nameserver(server_);
     return do_query(ctx, host_str, ns_type);

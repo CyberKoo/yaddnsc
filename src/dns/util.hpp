@@ -7,11 +7,25 @@
 
 #include <arpa/nameser.h>
 
+#include <cstddef>
+#include <cstdint>
+#include <span>
+
 #include "dns_type.h"
 #include "address_family.h"
 
 /// DNS utility — compile-time type conversion helpers.
-namespace DNS {
+namespace DNS::Util {
+
+    /// Read a 16-bit big-endian value from a raw pointer.
+    [[nodiscard]] constexpr std::uint16_t read_u16_be(const std::uint8_t *buf) noexcept {
+        return (static_cast<std::uint16_t>(buf[0]) << 8) | buf[1];
+    }
+
+    /// Read a 16-bit big-endian value from a span at the given offset.
+    [[nodiscard]] inline std::uint16_t read_u16_be(std::span<const std::uint8_t> buf, std::size_t offset) noexcept {
+        return read_u16_be(buf.data() + offset);
+    }
 
     /// Convert DNS record type to address family (A → IPV4, AAAA → IPV6).
     /// @param type  The DNS record type.

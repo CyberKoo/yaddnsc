@@ -12,9 +12,12 @@
 
 #include <spdlog/spdlog.h>
 
+#include "uri.h"
 #include "fmt.hpp"
+#include "uri.h"
 #include "dns_error.h"
 #include "dns/util.hpp"
+#include "dns/validator.h"
 #include "dns/proto/mkquery.h"
 #include "network/inet_address.h"
 #include "network/socket.h"
@@ -23,8 +26,8 @@
 
 namespace {
     // ── Constants ──
-    constexpr int UDP_TIMEOUT_SEC = 5;
-    constexpr int TCP_CONNECT_TIMEOUT_SEC = 5;
+    constexpr int UDP_TIMEOUT_SEC = 1;
+    constexpr int TCP_CONNECT_TIMEOUT_SEC = 1;
     constexpr int MAX_DNS_PACKET_SIZE = 4096;
 
     // ── Build SocketAddr from DNS::Server ──
@@ -38,16 +41,16 @@ namespace {
         if (!parsed) {
             throw DnsLookupException(
                 fmt::format(R"(Invalid DNS server address "{}" — must be an IP address)", server.address),
-                DNS::Error::PARSE
+                DNS::Error::CONFIG
             );
         }
 
         auto sa = SocketAddr::from_inet(*parsed, server.port);
         if (!sa) {
             throw DnsLookupException(
-                fmt::format(R"(Failed to build socket address for "{}")", server.address),
-                DNS::Error::PARSE
-            );
+                    fmt::format(R"(Failed to build socket address for "{}")", server.address),
+                    DNS::Error::CONFIG
+                );
         }
 
         AddrResult result;
@@ -150,33 +153,7 @@ namespace {
         return response.size() >= 3 && (response[2] & 0x02) != 0;
     }
 
-    // ── Validate DNS response against the original query ──
-    void validate_response(const std::vector<std::uint8_t> &response,
-                           const std::vector<std::uint8_t> &query) {
-        // Minimum DNS header size per RFC 1035 §4.1.1.
-        if (response.size() < 12) {
-            throw DnsLookupException(
-                fmt::format("DNS response too short: {} bytes (minimum 12)", response.size()),
-                DNS::Error::PARSE
-            );
-        }
 
-        // QR bit (bit 7 of byte 2) must be set for a response.
-        if ((response[2] & 0x80) == 0) {
-            throw DnsLookupException(
-                "DNS response has QR=0 (not a response)",
-                DNS::Error::PARSE
-            );
-        }
-
-        // Transaction ID must match the one in the outgoing query.
-        if (response[0] != query[0] || response[1] != query[1]) {
-            throw DnsLookupException(
-                "DNS response transaction ID mismatch",
-                DNS::Error::PARSE
-            );
-        }
-    }
 } // anonymous namespace
 
 // ===========================================================================
@@ -192,32 +169,33 @@ struct ClassicResolver::Impl {
 
     std::uint64_t id_;
     DNS::Server server_;
+    Uri uri_;
     AddrResult addr_;
 };
 
 ClassicResolver::Impl::Impl(DNS::Server server, std::uint64_t id)
-    : id_(id), server_(std::move(server)), addr_(make_addr(server_)) {
+    : id_(id), server_(std::move(server)), uri_(Uri::parse(server_.address)), addr_(make_addr(server_)) {
 }
 
 std::vector<std::uint8_t> ClassicResolver::Impl::query(const std::string &host_str, DNS::Type type) const {
     SPDLOG_TRACE(R"(Resolver #{} DNS lookup for "{}")", id_, host_str);
 
-    const auto ns_type = DNS::to_ns_type(type);
+    const auto ns_type = DNS::Util::to_ns_type(type);
     SPDLOG_DEBUG(R"(Resolver #{} Resolving "{}" (type {}) via {}:{})", id_, host_str, ns_type,
-                 server_.address, server_.port);
+                 uri_.get_host_literal(), server_.port);
 
     // Build query packet using mkquery_manual.
     auto query_packet = DNS::mkquery_manual(host_str, ns_type);
 
     // Try UDP first.
     auto response = query_udp(addr_, query_packet);
-    validate_response(response, query_packet);
+    DNS::Validator::validate_response(query_packet, response);
 
     // Fall back to TCP if response is truncated.
     if (is_truncated(response)) {
         SPDLOG_TRACE(R"(Resolver #{} UDP response truncated for "{}", falling back to TCP)", id_, host_str);
         response = query_tcp(addr_, query_packet);
-        validate_response(response, query_packet);
+        DNS::Validator::validate_response(query_packet, response);
     }
 
     return response;

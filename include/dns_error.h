@@ -21,6 +21,7 @@ namespace DNS {
         NODATA,     ///< Domain exists but no records of the requested type
         PARSE,      ///< Failed to parse DNS response
         CONNECTION, ///< Connection to DNS server failed
+        CONFIG,     ///< Invalid configuration
         UNKNOWN     ///< Unrecognised or uncategorised error
     };
 

@@ -116,7 +116,7 @@ ResolverDispatcher::Impl::resolve_single(const std::string &host, DNS::Type type
             return answer;
         },
         max_retries,
-        [](const DnsLookupException &e) { return e.get_error() == DNS::Error::RETRY; },
+        [](const DnsLookupException &e) { return is_retryable(e.get_error()); },
         backoff_ms,
         &actual_retries
     );
