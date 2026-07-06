@@ -18,7 +18,6 @@
 #include "util/retry_util.hpp"
 #include "dns/proto/parser.h"
 #include "dns/resolver/base.h"
-#include "dns/resolver/classic.h"
 #include "exception/dns_lookup.h"
 
 // ===========================================================================
@@ -42,10 +41,6 @@ struct ResolverDispatcher::Impl {
     /// Perform a single query attempt using either the system fallback or the sole configured resolver.
     [[nodiscard]] std::vector<std::string>
     resolve_single_attempt(const std::string &host, DNS::Type type) const;
-
-    /// Query the system resolver (fallback when no custom resolvers are configured).
-    [[nodiscard]] std::vector<std::string>
-    resolve_system(const std::string &host, DNS::Type type) const;
 
     // ── Shared state for concurrent queries ──
     struct ConcurrentState {
@@ -78,14 +73,7 @@ struct ResolverDispatcher::Impl {
     [[nodiscard]] std::vector<std::string>
     resolve_concurrent(const std::string &host, DNS::Type type) const;
 
-    // ── Fallback resolver (used when resolvers_ is empty) ──
-    // Initialised lazily (via std::call_once) so that the ClassicResolver
-    // (and its underlying res_ninit) is constructed exactly once, even
-    // when retries occur or multiple threads call resolve() concurrently.
-    mutable std::once_flag fallback_init_flag_;
-    mutable std::optional<ClassicResolver> fallback_resolver_;
-
-    /// Configured resolver backends (may be empty for system fallback only).
+    /// Configured resolver backends (guaranteed non-empty by factory).
     std::vector<std::shared_ptr<ResolverBase> > resolvers_;
     /// Dispatch strategy: FALLBACK (sequential) or CONCURRENT (batched).
     Config::ResolverStrategy strategy_{Config::ResolverStrategy::CONCURRENT};
@@ -97,10 +85,10 @@ struct ResolverDispatcher::Impl {
 
 std::vector<std::string>
 ResolverDispatcher::Impl::resolve(const std::string &host, DNS::Type type, int max_retries, int backoff_ms) const {
-    // Retry is only applied in single-resolver modes (empty → system fallback, or exactly one resolver).
+    // Retry is only applied in single-resolver modes (exactly one resolver).
     // Multi-resolver mode (size > 1) runs without retry — the redundancy of multiple resolvers
     // provides fault tolerance, and retrying the entire multi-resolver round is not desired.
-    if (resolvers_.size() <= 1) {
+    if (resolvers_.size() == 1) {
         return resolve_single(host, type, max_retries, backoff_ms);
     }
 
@@ -144,34 +132,9 @@ ResolverDispatcher::Impl::resolve_single(const std::string &host, DNS::Type type
 
 std::vector<std::string>
 ResolverDispatcher::Impl::resolve_single_attempt(const std::string &host, DNS::Type type) const {
-    if (resolvers_.empty()) {
-        return resolve_system(host, type);
-    }
-
-    SPDLOG_DEBUG(R"(Using single resolver for "{}")", host);
+    SPDLOG_DEBUG(R"(Using resolver for "{}")", host);
     auto raw = resolvers_[0]->query(host, type);
     auto records = DNS::DnsRecordParser::parse_all(raw.data(), raw.size(), host);
-    if (!records.empty()) {
-        SPDLOG_DEBUG(R"(DNS lookup for "{}" returned {} record(s): {})", host, records.size(),
-                     fmt::join(records, ", "));
-    } else {
-        SPDLOG_DEBUG(R"(DNS lookup for "{}" returned no records)", host);
-    }
-    return records;
-}
-
-std::vector<std::string>
-ResolverDispatcher::Impl::resolve_system(const std::string &host, DNS::Type type) const {
-    SPDLOG_TRACE(R"(Using default system resolver for "{}")", host);
-    // Lazily initialize the fallback resolver so it is reused
-    // across retries instead of being recreated every attempt.
-    // std::call_once ensures exactly one thread runs the
-    // construction; after that, all threads query safely.
-    std::call_once(fallback_init_flag_, [this] {
-        fallback_resolver_.emplace();
-    });
-    auto raw_response = fallback_resolver_->query(host, type);
-    auto records = DNS::DnsRecordParser::parse_all(raw_response.data(), raw_response.size(), host);
     if (!records.empty()) {
         SPDLOG_DEBUG(R"(DNS lookup for "{}" returned {} record(s): {})", host, records.size(),
                      fmt::join(records, ", "));

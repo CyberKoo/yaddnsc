@@ -14,14 +14,14 @@ namespace DNS {
     /// Build a raw DNS query packet (wire format, RFC 1035).
     ///
     /// Dispatches to either the system res_mkquery or the manual builder
-    /// based on the CMake option YADDNSC_MANUAL_MKQUERY.
+    /// based on the CMake option YADDNSC_NATIVE_DNS.
     ///
     /// @param host     The domain name to query (e.g. "example.com").
     /// @param ns_type  The DNS record type as an <arpa/nameser.h> ns_t_* constant
     ///                 (e.g. ns_t_a, ns_t_aaaa, ns_t_txt).
     /// @return         A buffer containing the raw DNS query packet bytes.
     /// @throws DnsLookupException  If the query packet cannot be constructed.
-    [[nodiscard]] std::vector<uint8_t> mkquery(const std::string &host, int ns_type);
+    [[nodiscard]] std::vector<std::uint8_t> mkquery(const std::string &host, int ns_type);
 
     /// Build a raw DNS query packet without libresolv.
     ///
@@ -34,7 +34,7 @@ namespace DNS {
     /// @param host     The domain name to query.
     /// @param ns_type  The DNS record type as an ns_t_* constant.
     /// @return         A buffer containing the raw DNS query packet bytes.
-    [[nodiscard]] std::vector<uint8_t> mkquery_manual(const std::string &host, int ns_type);
+    [[nodiscard]] std::vector<std::uint8_t> mkquery_manual(const std::string &host, int ns_type);
 
     /// Build a raw DNS query packet via libresolv.
     ///
@@ -45,7 +45,7 @@ namespace DNS {
     /// @param host     The domain name to query.
     /// @param ns_type  The DNS record type as an ns_t_* constant.
     /// @return         A buffer containing the raw DNS query packet bytes.
-    [[nodiscard]] std::vector<uint8_t> mkquery_system(const std::string &host, int ns_type);
+    [[nodiscard]] std::vector<std::uint8_t> mkquery_system(const std::string &host, int ns_type);
 
     /// Build an mDNS query packet (RFC 6762).
     ///
@@ -61,7 +61,7 @@ namespace DNS {
     /// @param unicast_rsp  When true (default), set the QU bit in QCLASS; when false,
     ///                     the responder will multicast its reply.
     /// @return             A buffer containing the raw mDNS query packet bytes.
-    [[nodiscard]] std::vector<uint8_t> mkquery_mdns(const std::string &host, int ns_type, bool unicast_rsp = true);
+    [[nodiscard]] std::vector<std::uint8_t> mkquery_mdns(const std::string &host, int ns_type, bool unicast_rsp = true);
 } // namespace DNS
 
 #endif // YADDNSC_MKQUERY_H

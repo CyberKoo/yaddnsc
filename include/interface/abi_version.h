@@ -19,9 +19,9 @@
 ///     e.g. new virtual function appended)
 ///   - driver's patch >= host's required patch (implementation change only)
 struct AbiVersion final {
-    uint16_t major; ///< Breaking ABI version — must match the host exactly
-    uint16_t minor; ///< Backward-compatible ABI extension level
-    uint16_t patch; ///< Implementation-only change level
+    std::uint16_t major; ///< Breaking ABI version — must match the host exactly
+    std::uint16_t minor; ///< Backward-compatible ABI extension level
+    std::uint16_t patch; ///< Implementation-only change level
 
     /// Check whether this version is compatible with a required version.
     /// @param required  The minimum ABI version required by the host.

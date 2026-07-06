@@ -25,11 +25,11 @@ public:
     /// Construct with server address and optional port.
     /// @param server  Server hostname or IP address.
     /// @param port    TLS port (default: 853).
-    explicit DotResolver(std::string server, uint16_t port = 853);
+    explicit DotResolver(std::string server, std::uint16_t port = 853);
 
     ~DotResolver() override;
 
-    [[nodiscard]] std::vector<uint8_t> query(const std::string &host, DNS::Type type) const override;
+    [[nodiscard]] std::vector<std::uint8_t> query(const std::string &host, DNS::Type type) const override;
 
     [[nodiscard]] std::string_view get_type() const noexcept override { return TYPE; }
 

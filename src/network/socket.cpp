@@ -1,0 +1,531 @@
+//
+// Created by Kotarou on 2026/7/6.
+//
+#include "network/socket.h"
+
+#include <unistd.h>
+#include <fcntl.h>
+#include <poll.h>
+#include <netinet/in.h>
+
+#include <cerrno>
+#include <cstdint>
+#include <utility>
+
+#include "config_cmake.h"
+#include "exception/socket.h"
+
+// ===========================================================================
+//  SIGPIPE suppression strategy
+//
+//  When HAVE_MSG_NOSIGNAL is set (detected by CMake), we use MSG_NOSIGNAL
+//  on every send/sendto call — this is the cleanest per-call mechanism and
+//  is available on Linux.
+//
+//  On platforms that lack MSG_NOSIGNAL (macOS, iOS, some BSDs), we fall
+//  back to the SO_NOSIGPIPE socket option set once during construction.
+// ===========================================================================
+
+#ifdef HAVE_MSG_NOSIGNAL
+constexpr int YADDNSC_NO_SIGPIPE = MSG_NOSIGNAL;
+#else
+constexpr int YADDNSC_NO_SIGPIPE = 0;
+#endif
+
+// ===========================================================================
+//  Local helpers
+// ===========================================================================
+
+namespace {
+    /// Loop helper for send/sendto.
+    ///
+    /// For stream sockets (@p stream == true): retries on EINTR and short writes
+    /// until all bytes are transferred (TCP semantics).
+    /// For datagram sockets (@p stream == false): single-shot send with EINTR
+    /// retry only (UDP semantics).
+    ///
+    /// @return  @p len on success (stream), or the number of bytes sent (datagram),
+    ///          -1 on error (errno set).
+    template<typename Fn>
+    ssize_t send_loop(const void *data, size_t len, bool stream, Fn &&fn) {
+        auto *buf = static_cast<const std::uint8_t *>(data);
+        if (!stream) {
+            // Datagram — single-shot (send either succeeds fully or fails).
+            ssize_t n;
+            do {
+                n = fn(buf, len);
+            } while (n < 0 && errno == EINTR);
+            return n;
+        }
+        // Stream — loop on short writes.
+        size_t total = 0;
+        while (total < len) {
+            ssize_t n;
+            do {
+                n = fn(buf + total, len - total);
+            } while (n < 0 && errno == EINTR);
+            if (n < 0) {
+                return -1;
+            }
+            total += static_cast<size_t>(n);
+        }
+        return static_cast<ssize_t>(len);
+    }
+
+    /// RAII guard that restores the original fcntl flags on destruction.
+    /// Used by connect() to ensure O_NONBLOCK is reverted on any exception path.
+    class FcntlGuard {
+    public:
+        FcntlGuard(int fd, int saved_flags) noexcept : fd_(fd), saved_flags_(saved_flags) {
+        }
+
+        FcntlGuard(const FcntlGuard &) = delete;
+
+        FcntlGuard &operator=(const FcntlGuard &) = delete;
+
+        /// Restore flags and mark as disarmed.
+        /// @return true on success, false if fcntl failed.
+        [[nodiscard]] bool restore() noexcept {
+            if (fd_ < 0) return true;
+            int rc = ::fcntl(fd_, F_SETFL, saved_flags_);
+            fd_ = -1;
+            return rc == 0;
+        }
+
+        void disarm() noexcept { fd_ = -1; }
+
+        ~FcntlGuard() {
+            (void) restore(); // best-effort on exception unwind
+        }
+
+    private:
+        int fd_;
+        int saved_flags_;
+    };
+
+    /// Shared implementation for all recv_from overloads.
+    [[nodiscard]] ssize_t recv_from_impl(int fd, std::span<std::byte> buf, int flags, SocketAddr *src) noexcept {
+        ssize_t n;
+        do {
+            n = ::recvfrom(
+                fd, buf.data(), buf.size(), flags,
+                src ? src->raw_mut() : nullptr, src ? src->raw_len_ptr() : nullptr
+            );
+        } while (n < 0 && errno == EINTR);
+        return n;
+    }
+} // anonymous namespace
+
+// ===========================================================================
+//  Construction / destruction / move
+// ===========================================================================
+
+Socket::Socket(int domain, int type, int protocol)
+    : type_(type) {
+    fd_ = ::socket(domain, type, protocol);
+    if (fd_ < 0) {
+        throw SocketException(errno, "socket");
+    }
+
+    // Set FD_CLOEXEC to prevent fd leaks to child processes across
+    // fork()+exec().  On Linux, prefer socket(AF_*, SOCK_* | SOCK_CLOEXEC, *)
+    // for an atomic operation that avoids this TOCTOU race.
+    {
+        int fd_flags = ::fcntl(fd_, F_GETFD);
+        if (fd_flags >= 0) {
+            ::fcntl(fd_, F_SETFD, fd_flags | FD_CLOEXEC);
+        }
+        // If fcntl fails we continue — the socket is still usable.
+    }
+
+#ifndef HAVE_MSG_NOSIGNAL
+    // Best-effort suppression of SIGPIPE on platforms without MSG_NOSIGNAL.
+    // SO_NOSIGPIPE is supported on macOS / FreeBSD / other BSDs.
+    int yes = 1;
+    (void) ::setsockopt(fd_, SOL_SOCKET, SO_NOSIGPIPE, &yes, sizeof(yes));
+#endif
+}
+
+Socket::~Socket() {
+    close();
+}
+
+Socket::Socket(Socket &&other) noexcept : fd_(std::exchange(other.fd_, -1)), type_(other.type_) {
+    other.type_ = -1;
+}
+
+Socket &Socket::operator=(Socket &&other) noexcept {
+    if (this != &other) {
+        close();
+        fd_ = std::exchange(other.fd_, -1);
+        type_ = std::exchange(other.type_, -1);
+    }
+    return *this;
+}
+
+// ===========================================================================
+//  Options
+// ===========================================================================
+
+void Socket::set_option_raw(int level, int optname, const void *val, socklen_t len) {
+    if (::setsockopt(fd_, level, optname, val, len) < 0) {
+        throw SocketException(errno, "setsockopt");
+    }
+}
+
+int Socket::try_set_option_raw(int level, int optname, const void *val, socklen_t len) noexcept {
+    if (::setsockopt(fd_, level, optname, val, len) == 0) {
+        return 0;
+    }
+    return errno;
+}
+
+void Socket::set_nonblocking(bool enable) {
+    int flags = ::fcntl(fd_, F_GETFL, 0);
+    if (flags < 0) {
+        throw SocketException(errno, "fcntl(F_GETFL)");
+    }
+
+    if (enable) {
+        flags |= O_NONBLOCK;
+    } else {
+        flags &= ~O_NONBLOCK;
+    }
+
+    if (::fcntl(fd_, F_SETFL, flags) < 0) {
+        throw SocketException(errno, "fcntl(F_SETFL)");
+    }
+}
+
+void Socket::set_reuseaddr(bool enable) {
+    int val = enable ? 1 : 0;
+    set_option(SOL_SOCKET, SO_REUSEADDR, val);
+}
+
+void Socket::set_broadcast(bool enable) {
+    int val = enable ? 1 : 0;
+    set_option(SOL_SOCKET, SO_BROADCAST, val);
+}
+
+void Socket::set_keepalive(bool enable) {
+    int val = enable ? 1 : 0;
+    set_option(SOL_SOCKET, SO_KEEPALIVE, val);
+}
+
+void Socket::set_linger(bool enable, int timeout_sec) {
+    linger l{};
+    l.l_onoff = enable ? 1 : 0;
+    l.l_linger = static_cast<int>(timeout_sec);
+    set_option(SOL_SOCKET, SO_LINGER, l);
+}
+
+void Socket::set_ipv6_only(bool enable) {
+    int val = enable ? 1 : 0;
+    set_option(IPPROTO_IPV6, IPV6_V6ONLY, val);
+}
+
+void Socket::set_reuseport([[maybe_unused]] bool enable) {
+#ifdef SO_REUSEPORT
+    int val = enable ? 1 : 0;
+    set_option(SOL_SOCKET, SO_REUSEPORT, val);
+#else
+    throw SocketException(ENOPROTOOPT, "setsockopt(SO_REUSEPORT)");
+#endif
+}
+
+// ===========================================================================
+//  Address binding
+// ===========================================================================
+
+void Socket::bind(const SocketAddr &addr) {
+    if (::bind(fd_, addr.raw(), addr.raw_len()) < 0) {
+        throw SocketException(errno, "bind");
+    }
+}
+
+SocketAddr Socket::get_sockname() const {
+    SocketAddr result;
+    if (::getsockname(fd_, result.raw_mut(), result.raw_len_ptr()) < 0) {
+        throw SocketException(errno, "getsockname");
+    }
+    return result;
+}
+
+SocketAddr Socket::get_peername() const {
+    SocketAddr result;
+    if (::getpeername(fd_, result.raw_mut(), result.raw_len_ptr()) < 0) {
+        throw SocketException(errno, "getpeername");
+    }
+    return result;
+}
+
+// ===========================================================================
+//  Connection
+// ===========================================================================
+
+void Socket::connect(const SocketAddr &addr, int timeout_sec) {
+    if (timeout_sec < 0) {
+        // Blocking connect (with EINTR retry).
+        int rc;
+        do {
+            rc = ::connect(fd_, addr.raw(), addr.raw_len());
+        } while (rc < 0 && errno == EINTR);
+        if (rc < 0) {
+            throw SocketException(errno, "connect");
+        }
+        return;
+    }
+
+    // Non-blocking connect with poll() timeout.
+    // Save original fcntl flags and set O_NONBLOCK; restore on any exit path.
+    int orig_flags = ::fcntl(fd_, F_GETFL, 0);
+    if (orig_flags < 0) {
+        throw SocketException(errno, "fcntl(F_GETFL)");
+    }
+    if (::fcntl(fd_, F_SETFL, orig_flags | O_NONBLOCK) < 0) {
+        throw SocketException(errno, "fcntl(F_SETFL)");
+    }
+    FcntlGuard guard(fd_, orig_flags);
+
+    int rc;
+    do {
+        rc = ::connect(fd_, addr.raw(), addr.raw_len());
+    } while (rc < 0 && errno == EINTR);
+
+    if (rc == 0) {
+        // Connected immediately — restore flags.
+        if (!guard.restore()) {
+            throw SocketException(errno, "fcntl(F_SETFL) restore after immediate connect");
+        }
+        return;
+    }
+
+    if (errno != EINPROGRESS) {
+        throw SocketException(errno, "connect");
+    }
+
+    // Wait for connection to complete.
+    pollfd pfd{};
+    pfd.fd = fd_;
+    pfd.events = POLLOUT;
+
+    do {
+        rc = ::poll(&pfd, 1, timeout_sec * 1000);
+    } while (rc < 0 && errno == EINTR);
+
+    if (rc <= 0) {
+        if (rc == 0) {
+            throw SocketException(ETIMEDOUT, "connect (timeout)");
+        }
+        throw SocketException(errno, "poll");
+    }
+
+    // Check socket error status.
+    int error = 0;
+    socklen_t elen = sizeof(error);
+    if (::getsockopt(fd_, SOL_SOCKET, SO_ERROR, &error, &elen) < 0) {
+        throw SocketException(errno, "getsockopt(SO_ERROR)");
+    }
+    if (error != 0) {
+        throw SocketException(error, "connect");
+    }
+
+    // Restore original flags.
+    if (!guard.restore()) {
+        throw SocketException(errno, "fcntl(F_SETFL) restore after connect");
+    }
+}
+
+// ===========================================================================
+//  Listening + accept
+// ===========================================================================
+
+void Socket::listen(int backlog) {
+    if (::listen(fd_, backlog) < 0) {
+        throw SocketException(errno, "listen");
+    }
+}
+
+Socket Socket::accept(SocketAddr *addr) {
+    int client_fd;
+    if (addr) {
+        do {
+            client_fd = ::accept(fd_, addr->raw_mut(), addr->raw_len_ptr());
+        } while (client_fd < 0 && errno == EINTR);
+    } else {
+        do {
+            client_fd = ::accept(fd_, nullptr, nullptr);
+        } while (client_fd < 0 && errno == EINTR);
+    }
+
+    if (client_fd < 0) {
+        throw SocketException(errno, "accept");
+    }
+
+    // Set FD_CLOEXEC (portable POSIX approach; accept4() is Linux-specific).
+    //
+    // WARNING: There is a TOCTOU race between accept() and fcntl() above:
+    // in a multi-threaded process, another thread could fork()+exec() before
+    // FD_CLOEXEC is set, leaking this descriptor to the child.  This is an
+    // inherent limitation of the POSIX accept() API.  On Linux, accept4()
+    // with SOCK_CLOEXEC avoids the race entirely but is non-portable.
+    {
+        int fd_flags = ::fcntl(client_fd, F_GETFD);
+        if (fd_flags >= 0) {
+            ::fcntl(client_fd, F_SETFD, fd_flags | FD_CLOEXEC);
+        }
+    }
+
+    Socket client;
+    client.fd_ = client_fd;
+    client.type_ = type_;
+    return client;
+}
+
+// ===========================================================================
+//  I/O  —  all take std::span, return ssize_t, no exceptions
+// ===========================================================================
+
+ssize_t Socket::send(std::span<const std::byte> data) {
+    return send_loop(
+        data.data(), data.size(), type_ == SOCK_STREAM,
+        [this](const std::uint8_t *ptr, size_t chunk) {
+            return ::send(fd_, ptr, chunk, YADDNSC_NO_SIGPIPE);
+        }
+    );
+}
+
+ssize_t Socket::send(std::span<const std::byte> data, int flags) {
+    return send_loop(
+        data.data(), data.size(), type_ == SOCK_STREAM,
+        [this, flags](const std::uint8_t *ptr, size_t chunk) {
+            return ::send(fd_, ptr, chunk, flags | YADDNSC_NO_SIGPIPE);
+        }
+    );
+}
+
+ssize_t Socket::send_to(std::span<const std::byte> data, const SocketAddr &dest) {
+    return send_loop(
+        data.data(), data.size(), type_ == SOCK_STREAM,
+        [this, &dest](const std::uint8_t *ptr, size_t chunk) {
+            return ::sendto(fd_, ptr, chunk, YADDNSC_NO_SIGPIPE, dest.raw(), dest.raw_len());
+        }
+    );
+}
+
+ssize_t Socket::send_to(std::span<const std::byte> data, const SocketAddr &dest, int flags) {
+    return send_loop(
+        data.data(), data.size(), type_ == SOCK_STREAM,
+        [this, &dest, flags](const std::uint8_t *ptr, size_t chunk) {
+            return ::sendto(fd_, ptr, chunk, flags | YADDNSC_NO_SIGPIPE, dest.raw(), dest.raw_len());
+        }
+    );
+}
+
+ssize_t Socket::recv(std::span<std::byte> buf) {
+    ssize_t n;
+    do {
+        n = ::recv(fd_, buf.data(), buf.size(), 0);
+    } while (n < 0 && errno == EINTR);
+    return n;
+}
+
+ssize_t Socket::recv(std::span<std::byte> buf, int flags) {
+    ssize_t n;
+    do {
+        n = ::recv(fd_, buf.data(), buf.size(), flags);
+    } while (n < 0 && errno == EINTR);
+    return n;
+}
+
+ssize_t Socket::recv_from(std::span<std::byte> buf, SocketAddr *src) {
+    return recv_from_impl(fd_, buf, 0, src);
+}
+
+ssize_t Socket::recv_from(std::span<std::byte> buf, int flags, SocketAddr *src) {
+    return recv_from_impl(fd_, buf, flags, src);
+}
+
+ssize_t Socket::recv_exact(std::span<std::byte> buf) {
+    return recv_exact(buf, 0);
+}
+
+ssize_t Socket::recv_exact(std::span<std::byte> buf, int flags) {
+    // For stream sockets, use MSG_WAITALL so the kernel blocks until all
+    // requested bytes arrive (or an error/EOF occurs).  This reduces
+    // user-space looping overhead.  For non-stream sockets the flag is
+    // ignored and the manual loop acts as fallback.
+    const int effective_flags = (type_ == SOCK_STREAM) ? (flags | MSG_WAITALL) : flags;
+
+    size_t total = 0;
+    while (total < buf.size()) {
+        ssize_t n;
+        do {
+            n = ::recv(fd_, buf.data() + total, buf.size() - total, effective_flags);
+        } while (n < 0 && errno == EINTR);
+
+        if (n < 0) {
+            return -1; // errno is set
+        }
+        if (n == 0) {
+            return static_cast<ssize_t>(total); // peer closed early
+        }
+        total += static_cast<size_t>(n);
+    }
+    return static_cast<ssize_t>(buf.size());
+}
+
+ssize_t Socket::sendmsg(const msghdr *msg, int flags) {
+    ssize_t n;
+    do {
+        n = ::sendmsg(fd_, msg, flags | YADDNSC_NO_SIGPIPE);
+    } while (n < 0 && errno == EINTR);
+    return n;
+}
+
+ssize_t Socket::recvmsg(msghdr *msg, int flags) {
+    ssize_t n;
+    do {
+        n = ::recvmsg(fd_, msg, flags);
+    } while (n < 0 && errno == EINTR);
+    return n;
+}
+
+// ===========================================================================
+//  Control
+// ===========================================================================
+
+void Socket::shutdown(int how) noexcept {
+    if (fd_ < 0) {
+        return; // already closed — no-op.
+    }
+    (void) ::shutdown(fd_, how); // silently ignore — socket may already be shut down.
+}
+
+void Socket::close() noexcept {
+    if (fd_ < 0) {
+        return;
+    }
+    int fd = fd_;
+    fd_ = -1; // mark closed immediately to prevent double-close
+    // Per POSIX, the state of the fd after close() returns EINTR is
+    // unspecified.  Retrying close() risks closing a different fd that
+    // another thread may have opened in the meantime.  Call exactly once.
+    (void) ::close(fd);
+}
+
+int Socket::wait_for(short events, int timeout_ms) {
+    pollfd pfd{};
+    pfd.fd = fd_;
+    pfd.events = events;
+
+    int rc;
+    do {
+        rc = ::poll(&pfd, 1, timeout_ms);
+    } while (rc < 0 && errno == EINTR);
+
+    if (rc < 0) {
+        throw SocketException(errno, "wait_for");
+    }
+    return rc;
+}

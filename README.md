@@ -112,7 +112,7 @@ sudo cmake --install build
 
 **Legacy devices** — If your toolchain is older (GCC < 14 or Clang < 18), use the `v0.x` (legacy) branch (C++17, CMake 3.14+, OpenSSL 1.1.x). Maintenance-only; feature development happens on master.
 
-**Alpine Linux** — musl's resolver is limited. Configure DoT or DoH instead of the system resolver for better results.
+**Alpine Linux (musl)** — `YADDNSC_USE_NATIVE_DNS` defaults to ON on musl (musl's resolver is limited — no reentrant `res_nquery`).
 
 ### Testing
 
@@ -125,7 +125,9 @@ Unit tests are blocked by the tight coupling between core components — the IP 
 | `CMAKE_BUILD_TYPE`            | Release                                       | Set to `Debug` for debug builds                                   |
 | `YADDNSC_LOGGING_PATTERN`     | `[%D %T.%e] [%^%8l%$] [%8!t] [%15!s:%-4#] %v` | Logging pattern passed to spdlog                                   |
 | `YADDNSC_MIN_UPDATE_INTERVAL` | 60                                            | Minimum allowed update interval in seconds                         |
-| `YADDNSC_MANUAL_MKQUERY`      | OFF                                           | Use a custom DNS query builder instead of system `res_mkquery()`   |
+| `YADDNSC_USE_NATIVE_DNS`      | OFF                                           | Use built-in DNS query/resolver (libresolv still used for parsing) |
+| `YADDNSC_DEFAULT_DNS_SERVER`  | 1.1.1.1                                       | Default DNS server address when none is configured                 |
+| `YADDNSC_DEFAULT_DNS_PORT`    | 53                                            | Default DNS server port when none is configured                    |
 | `YADDNSC_USE_SYSTEM_SPDLOG`   | OFF                                           | Use system spdlog instead of the bundled CPM-downloaded version    |
 | `YADDNSC_BUILD_DOCS`          | OFF                                           | Build Doxygen API documentation from source comments               |
 | `YADDNSC_ENABLE_DEB`          | OFF                                           | Enable DEB package generation via CPack                            |
@@ -353,13 +355,15 @@ Discovers the IP address of a LAN device by sending a multicast DNS query for a 
 
 ## DNS Resolver
 
-yaddnsc can use custom DNS servers for record lookups instead of the system resolver. Configure the `resolver` object at the top level of your configuration file.
+yaddnsc can use custom DNS servers for record lookups instead of the system resolver. Configure the `resolver` object at the top level of your configuration file. If no custom servers are configured, the built-in defaults (`1.1.1.1:53`) are used automatically.
 
 Three resolver types are supported, auto-detected from the address format:
 
 ### Traditional DNS (UDP/TCP)
 
-Uses standard DNS over UDP (or TCP for large responses) on a given IP and port.
+Uses standard DNS over UDP (or TCP for large responses) on a given IP and port. The underlying implementation is selectable at compile time:
+- `YADDNSC_USE_NATIVE_DNS=OFF` (default) — uses system libresolv (`res_nquery`/`res_mkquery`)
+- `YADDNSC_USE_NATIVE_DNS=ON` — uses a built-in raw UDP/TCP implementation
 
 ```json
 {
@@ -525,6 +529,9 @@ yaddnsc dns resolve <hostname> [--type A|AAAA|TXT|SOA]
 
 # Show configured DNS resolver details
 yaddnsc dns resolver
+
+# Show build configuration
+yaddnsc info
 
 # Print version
 yaddnsc --version

@@ -11,6 +11,7 @@
 #include <span>
 #include <cstdlib>
 #include <algorithm>
+#include <cstdint>
 
 // ===========================================================================
 // Inet4Address
@@ -29,7 +30,7 @@ std::optional<Inet4Address> Inet4Address::parse(std::string_view addr) {
     }
 
     Inet4Address result;
-    const auto *src = reinterpret_cast<const uint8_t *>(&in.s_addr);
+    const auto *src = reinterpret_cast<const std::uint8_t *>(&in.s_addr);
     std::ranges::copy(src, src + ADDR_LEN, result.addr_.begin());
     return result;
 }
@@ -64,7 +65,7 @@ std::optional<Inet6Address> Inet6Address::parse(std::string_view addr) {
     auto s = std::string(addr);
 
     // Extract scope ID if present ("fe80::1%eth0").
-    uint32_t scope_id = 0;
+    std::uint32_t scope_id = 0;
     if (s.contains('%')) {
         auto pct = s.find('%');
         auto scope_str = s.substr(pct + 1);
@@ -74,7 +75,7 @@ std::optional<Inet6Address> Inet6Address::parse(std::string_view addr) {
             char *end = nullptr;
             auto val = strtoul(scope_str.c_str(), &end, 10);
             if (end != scope_str.c_str() && *end == '\0') {
-                scope_id = static_cast<uint32_t>(val);
+                scope_id = static_cast<std::uint32_t>(val);
             }
         }
     }
@@ -135,7 +136,7 @@ std::optional<InetAddress> InetAddress::parse(std::string_view addr) {
     return std::nullopt;
 }
 
-std::optional<InetAddress> InetAddress::from_bytes(std::span<const uint8_t> bytes) {
+std::optional<InetAddress> InetAddress::from_bytes(std::span<const std::uint8_t> bytes) {
     switch (bytes.size()) {
         case 4: {
             Inet4Address::addr_type arr{};
@@ -160,8 +161,8 @@ std::string InetAddress::to_string() const {
     return std::visit([](const auto &a) { return a.to_string(); }, addr_);
 }
 
-std::array<uint8_t, 16> InetAddress::get_address() const {
-    std::array<uint8_t, 16> result{};
+std::array<std::uint8_t, 16> InetAddress::get_address() const {
+    std::array<std::uint8_t, 16> result{};
     std::visit([&result](const auto &a) { std::ranges::copy(a.addr(), result.begin()); }, addr_);
     return result;
 }
@@ -193,7 +194,7 @@ bool InetAddress::is_ula() const noexcept {
     return v6 && v6->is_ula();
 }
 
-uint32_t InetAddress::get_scope_id() const noexcept {
+std::uint32_t InetAddress::get_scope_id() const noexcept {
     auto *v6 = as_v6();
     return v6 ? v6->get_scope_id() : 0;
 }

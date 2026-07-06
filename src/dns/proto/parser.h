@@ -21,7 +21,7 @@ namespace DNS {
 /// common record types.
 class DnsRecordParser {
 public:
-    using data_type = uint8_t;
+    using data_type = std::uint8_t;
 
     /// Construct a parser from a raw DNS response buffer.
     /// @param data  Pointer to the raw packet bytes.

@@ -16,23 +16,21 @@ class HttpClient;
 
 /// DohResolver — DNS-over-HTTPS (RFC 8484) resolver.
 ///
-/// Uses the existing TransientHttpClient wrapper to send
-/// DNS queries as HTTPS POST requests with Content-Type: application/dns-message
-/// to the well-known /dns-query endpoint.
-///
-/// Input:  DnsServer{ip_address, port} — same config struct used by ClassicResolver.
-///         The HTTPS URL is derived as  https://{ip_address}/dns-query
-/// Output: Raw DNS response bytes (wire format), ready for DnsRecordParser.
+/// Sends DNS queries as HTTPS POST requests with Content-Type:
+/// application/dns-message and returns the raw DNS wire-format response.
 class DohResolver final : public ResolverBase {
 public:
-    /// Construct with an HTTP client and server address.
-    /// @param http_client  HTTP client for sending DoH requests.
-    /// @param server       Server hostname or IP address.
+    /// Construct with an HTTP client and a DoH server URL.
+    /// @param http_client  HTTP client for sending requests.
+    ///                     Should have redirect-following enabled for
+    ///                     robustness against endpoint migrations.
+    /// @param server       Full DoH server URL
+    ///                     (e.g. "https://dns.google/dns-query").
     explicit DohResolver(std::unique_ptr<HttpClient> http_client, std::string server);
 
     ~DohResolver() override;
 
-    [[nodiscard]] std::vector<uint8_t> query(const std::string &host, DNS::Type type) const override;
+    std::vector<std::uint8_t> query(const std::string &host, DNS::Type type) const override;
 
     [[nodiscard]] std::string_view get_type() const noexcept override { return TYPE; }
 

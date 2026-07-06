@@ -13,6 +13,7 @@
 #include <ranges>
 #include <memory>
 #include <stdexcept>
+#include <cstdint>
 
 // ===========================================================================
 // Internal helpers
@@ -52,7 +53,7 @@ namespace NetDevices {
                 const auto *in = reinterpret_cast<const sockaddr_in *>(ifa->ifa_addr);
                 Inet4Address::addr_type arr{};
                 auto bytes = std::span{
-                    reinterpret_cast<const uint8_t *>(&in->sin_addr.s_addr),
+                    reinterpret_cast<const std::uint8_t *>(&in->sin_addr.s_addr),
                     Inet4Address::ADDR_LEN
                 };
                 std::ranges::copy(bytes, arr.begin());
@@ -83,13 +84,13 @@ namespace NetDevices {
 
             Inet4Address::addr_type addr_arr{};
             auto addr_bytes = std::span{
-                reinterpret_cast<const uint8_t *>(&in->sin_addr.s_addr), Inet4Address::ADDR_LEN
+                reinterpret_cast<const std::uint8_t *>(&in->sin_addr.s_addr), Inet4Address::ADDR_LEN
             };
             std::ranges::copy(addr_bytes, addr_arr.begin());
 
             Inet4Address::addr_type mask_arr{};
             auto mask_bytes = std::span{
-                reinterpret_cast<const uint8_t *>(&mask->sin_addr.s_addr), Inet4Address::ADDR_LEN
+                reinterpret_cast<const std::uint8_t *>(&mask->sin_addr.s_addr), Inet4Address::ADDR_LEN
             };
             std::ranges::copy(mask_bytes, mask_arr.begin());
 

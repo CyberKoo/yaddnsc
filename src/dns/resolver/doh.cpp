@@ -25,20 +25,20 @@ namespace {
 // ===========================================================================
 
 struct DohResolver::Impl {
-    explicit Impl(std::unique_ptr<HttpClient> http_client, std::string server, uint64_t id);
+    explicit Impl(std::unique_ptr<HttpClient> http_client, std::string server, std::uint64_t id);
 
-    [[nodiscard]] std::vector<uint8_t> query(const std::string &host, DNS::Type type) const;
+    [[nodiscard]] std::vector<std::uint8_t> query(const std::string &host, DNS::Type type) const;
 
-    const uint64_t id_;
+    const std::uint64_t id_;
     const std::string server_;
     std::unique_ptr<HttpClient> http_client_;
 };
 
-DohResolver::Impl::Impl(std::unique_ptr<HttpClient> http_client, std::string server, uint64_t id) : id_(id),
+DohResolver::Impl::Impl(std::unique_ptr<HttpClient> http_client, std::string server, std::uint64_t id) : id_(id),
     server_(std::move(server)), http_client_(std::move(http_client)) {
 }
 
-std::vector<uint8_t> DohResolver::Impl::query(const std::string &host, DNS::Type type) const {
+std::vector<std::uint8_t> DohResolver::Impl::query(const std::string &host, DNS::Type type) const {
     const auto ns_type = DNS::to_ns_type(type);
     if (ns_type == ns_t_invalid) {
         throw DnsLookupException(
@@ -55,7 +55,10 @@ std::vector<uint8_t> DohResolver::Impl::query(const std::string &host, DNS::Type
         .content_type = DOH_CONTENT_TYPE,
         .method = HttpMethod::POST,
         .headers = {{"Accept", DOH_CONTENT_TYPE}},
-        .body = std::string(query_bytes.begin(), query_bytes.end())
+        // DNS wire format is binary; std::string is used here as a byte container
+        // (the HTTP client interface carries text-oriented body for JSON drivers),
+        // not as a null-terminated C-string.
+        .body = std::string(reinterpret_cast<const char *>(query_bytes.data()), query_bytes.size())
     };
 
     SPDLOG_TRACE(R"(DoH POST {}  ({} bytes))", server_, query_bytes.size());
@@ -70,17 +73,41 @@ std::vector<uint8_t> DohResolver::Impl::query(const std::string &host, DNS::Type
     }
 
     if (response->status_code != 200) {
-        // 4xx: client errors are definitive (no point retrying)
-        // 5xx: server errors are transient (may succeed on another server or retry)
-        const auto is_transient = response->status_code >= 500;
+        // HTTP errors don't carry DNS semantics — do NOT map 4xx to NODATA.
+        // 4xx: our request was rejected (permanent, no point retrying).
+        // 5xx: server-side transient failure (retry may succeed).
+        const auto ec = response->status_code >= 500 ? DNS::Error::RETRY : DNS::Error::UNKNOWN;
         throw DnsLookupException(
             fmt::format(R"(DoH server "{}" returned HTTP status {})", server_, response->status_code),
-            is_transient ? DNS::Error::UNKNOWN : DNS::Error::NODATA);
+            ec);
+    }
+
+    // Validate Content-Type per RFC 8484 §6.
+    {
+        bool valid_ct = false;
+        auto range = response->headers.equal_range("Content-Type");
+        for (auto it = range.first; it != range.second && !valid_ct; ++it) {
+            valid_ct = it->second.find("application/dns-message") != std::string::npos;
+        }
+        if (!valid_ct) {
+            throw DnsLookupException(
+                fmt::format(R"(DoH server "{}" returned unexpected Content-Type)", server_),
+                DNS::Error::PARSE);
+        }
+    }
+
+    // Reject oversized responses to guard against OOM.
+    static constexpr size_t MAX_DNS_RESPONSE_SIZE = 65536;  // 64 KiB
+    if (response->body.size() > MAX_DNS_RESPONSE_SIZE) {
+        throw DnsLookupException(
+            fmt::format(R"(DoH server "{}" returned oversized response: {} bytes)", server_, response->body.size()),
+            DNS::Error::PARSE);
     }
 
     SPDLOG_DEBUG(R"(Resolver #{} query for "{}" succeeded ({} bytes))", id_, host, response->body.size());
 
-    return {response->body.begin(), response->body.end()};
+    // Response body is DNS wire-format binary stored in std::string (see above).
+    return std::vector<std::uint8_t>(response->body.begin(), response->body.end());
 }
 
 // ===========================================================================
@@ -93,6 +120,6 @@ DohResolver::DohResolver(std::unique_ptr<HttpClient> http_client, std::string se
 
 DohResolver::~DohResolver() = default;
 
-std::vector<uint8_t> DohResolver::query(const std::string &host, DNS::Type type) const {
+std::vector<std::uint8_t> DohResolver::query(const std::string &host, DNS::Type type) const {
     return impl_->query(host, type);
 }

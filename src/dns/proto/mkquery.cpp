@@ -15,7 +15,7 @@
 #include <cstdlib>
 
 #include "fmt.hpp"
-#include "mkquery_config.h"
+#include "resolver_config.h"
 #include "exception/dns_lookup.h"
 
 namespace DNS {
@@ -23,8 +23,8 @@ namespace DNS {
     //  mkquery  —  compile-time dispatch
     // ===========================================================================
 
-    std::vector<uint8_t> mkquery(const std::string &host, int ns_type) {
-        if constexpr (YADDNSC_MANUAL_MKQUERY) {
+    std::vector<std::uint8_t> mkquery(const std::string &host, int ns_type) {
+        if constexpr (YADDNSC_NATIVE_DNS) {
             return mkquery_manual(host, ns_type);
         } else {
             return mkquery_system(host, ns_type);
@@ -35,11 +35,11 @@ namespace DNS {
     //  mkquery_system  —  system res_mkquery wrapper
     // ===========================================================================
 
-    std::vector<uint8_t> mkquery_system(const std::string &host, int ns_type) {
+    std::vector<std::uint8_t> mkquery_system(const std::string &host, int ns_type) {
         // res_mkquery may append EDNS0 records from the system resolver config
         // (e.g. /etc/resolv.conf), so allocate a generous buffer.
         static constexpr size_t BUFFER_SIZE = 4096;
-        std::vector<uint8_t> buf(BUFFER_SIZE);
+        std::vector<std::uint8_t> buf(BUFFER_SIZE);
 
         // res_mkquery reads/writes the process-global _res state (e.g. _res.id),
         // so it must be serialized.
@@ -68,13 +68,13 @@ namespace DNS {
 
     namespace {
         struct QueryWriter {
-            std::vector<uint8_t> buf;
+            std::vector<std::uint8_t> buf;
 
             QueryWriter() { buf.reserve(512); }
 
-            void write_uint16(uint16_t v) {
-                buf.push_back(static_cast<uint8_t>(v >> 8));
-                buf.push_back(static_cast<uint8_t>(v & 0xFF));
+            void write_uint16(std::uint16_t v) {
+                buf.push_back(static_cast<std::uint8_t>(v >> 8));
+                buf.push_back(static_cast<std::uint8_t>(v & 0xFF));
             }
 
             // Encode a domain name into DNS label sequence (RFC 1035 §4.1.2).
@@ -85,23 +85,23 @@ namespace DNS {
                     if (dot == std::string::npos) {
                         dot = name.size();
                     }
-                    const auto label_len = static_cast<uint8_t>(dot - pos);
+                    const auto label_len = static_cast<std::uint8_t>(dot - pos);
                     buf.push_back(label_len);
                     for (size_t i = 0; i < label_len; ++i) {
-                        buf.push_back(static_cast<uint8_t>(name[pos + i]));
+                        buf.push_back(static_cast<std::uint8_t>(name[pos + i]));
                     }
                     pos = dot + 1;
                 }
                 buf.push_back(0); // root label (terminator)
             }
 
-            std::vector<uint8_t> finish() { return std::move(buf); }
+            std::vector<std::uint8_t> finish() { return std::move(buf); }
         };
     } // anonymous namespace
 
-    std::vector<uint8_t> mkquery_manual(const std::string &host, int ns_type) {
+    std::vector<std::uint8_t> mkquery_manual(const std::string &host, int ns_type) {
         static std::random_device rd;
-        const auto id = static_cast<uint16_t>(rd() & 0xFFFF);
+        const auto id = static_cast<std::uint16_t>(rd() & 0xFFFF);
 
         QueryWriter w;
         // ---- Header (12 bytes) ----
@@ -114,7 +114,7 @@ namespace DNS {
 
         // ---- Question ----
         w.encode_domain_name(host); // QNAME
-        w.write_uint16(static_cast<uint16_t>(ns_type)); // QTYPE
+        w.write_uint16(static_cast<std::uint16_t>(ns_type)); // QTYPE
         w.write_uint16(1); // QCLASS = IN (Internet)
 
         return w.finish();
@@ -124,9 +124,9 @@ namespace DNS {
     //  mkquery_mdns  —  mDNS query builder (RFC 6762)
     // ===========================================================================
 
-    std::vector<uint8_t> mkquery_mdns(const std::string &host, int ns_type, bool unicast_rsp) {
-        constexpr uint16_t QCLASS_IN = 0x0001;
-        constexpr uint16_t QU_BIT = 0x8000;
+    std::vector<std::uint8_t> mkquery_mdns(const std::string &host, int ns_type, bool unicast_rsp) {
+        constexpr std::uint16_t QCLASS_IN = 0x0001;
+		constexpr std::uint16_t QU_BIT = 0x8000;
 
         QueryWriter w;
         // ---- Header (12 bytes) ----
@@ -139,7 +139,7 @@ namespace DNS {
 
         // ---- Question ----
         w.encode_domain_name(host); // QNAME
-        w.write_uint16(static_cast<uint16_t>(ns_type)); // QTYPE
+        w.write_uint16(static_cast<std::uint16_t>(ns_type)); // QTYPE
 
         // QCLASS: IN with optional QU (unicast-response) bit (RFC 6762 §18.3)
         w.write_uint16(unicast_rsp ? (QCLASS_IN | QU_BIT) : QCLASS_IN);

@@ -9,12 +9,12 @@
 
 #include <CLI/CLI.hpp>
 
-#include "version.h"
+#include "info.h"
 #include "dns.h"
 #include "driver.h"
 #include "config.h"
+#include "version.h"
 #include "interface.h"
-
 
 // ===========================================================================
 //  CLI11 registration — each subcommand registers its own options
@@ -40,6 +40,7 @@ namespace {
         Cli::register_interface_subcommand(app, exit_code);
         Cli::register_dns_subcommand(app, config_path, exit_code);
         Cli::register_config_subcommand(app, config_path, exit_code);
+        Cli::register_info_subcommand(app, exit_code);
     }
 } // anonymous namespace
 

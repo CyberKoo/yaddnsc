@@ -14,6 +14,7 @@
 #include "mixin.h"
 
 #include "config_cmake.h"
+#include "resolver_config.h"
 #include "util/validation.hpp"
 #include "network/inet_address.h"
 #include "core/driver_manager.h"
@@ -102,8 +103,7 @@ namespace detail {
         }
 
         // Plain DNS address — must be a valid IP.
-#if defined(HAVE_RES_NQUERY)
-#if defined(HAVE_IPV6_RESOLVE_SUPPORT)
+#if defined(HAVE_IPV6_RESOLVE_SUPPORT) || defined(YADDNSC_NATIVE_DNS)
         if (!InetAddress::parse(address)) {
             throw ConfigVerificationException(fmt::format("Invalid resolver address {}", address));
         }
@@ -113,7 +113,6 @@ namespace detail {
                 fmt::format(R"(Invalid resolver address "{}". Only IPv4 is supported on this platform.)", address)
             );
         }
-#endif
 #endif
     }
 } // namespace detail

@@ -96,22 +96,24 @@ namespace {
 
 #if defined(HAVE_RES_STATE_EXT_NSADDRS)  // glibc
             // Release any previously allocated IPv6 address structures to prevent memory leaks.
-            // res_nclose() frees the internal nsaddrs array but keeps the state alive.
-            res_nclose(&state);
-            // Re-set counters because res_nclose() zeroed them.
+            // Manually free each entry instead of calling res_nclose() — nsaddrs may be an
+            // inline array (glibc ≥ 2.34) or a pointer (older glibc); manual per-entry
+            // cleanup works for both layouts.
+            for (int i = 0; i < MAXNS; ++i) {
+                free(state._u._ext.nsaddrs[i]);
+                state._u._ext.nsaddrs[i] = nullptr;
+            }
+
             state.nscount = 1;
             state._u._ext.nscount = 1;
             state._u._ext.nscount6 = 1;
             state._u._ext.nsmap[0] = MAXNS + 1;
-            auto *sa6 = state._u._ext.nsaddrs[0];
+
+            auto *sa6 = ccalloc<struct sockaddr_in6>(1);
             if (sa6 == nullptr) {
-                // Memory allocated here will be freed in res_nclose() later.
-                sa6 = ccalloc<sockaddr_in6>(1);
-                if (sa6 == nullptr) {
-                    throw std::bad_alloc();
-                }
-                state._u._ext.nsaddrs[0] = sa6;
+                throw std::bad_alloc();
             }
+            state._u._ext.nsaddrs[0] = sa6;
 
             sa6->sin6_port = htons(server.port);
             sa6->sin6_family = AF_INET6;
@@ -154,10 +156,10 @@ namespace {
     }
 
     // ── Single query execution against one nameserver ──
-    std::vector<uint8_t> do_query(ResolverContext &ctx, const std::string &host_str, int ns_type) {
+    std::vector<std::uint8_t> do_query(ResolverContext &ctx, const std::string &host_str, int ns_type) {
         int buffer_size = MAXIMUM_UDP_SIZE;
         int received_size = 0;
-        std::vector<uint8_t> buffer;
+        std::vector<std::uint8_t> buffer;
 
         do {
             buffer_size = received_size + buffer_size;
@@ -187,45 +189,28 @@ namespace {
 // ===========================================================================
 
 struct ClassicResolver::Impl {
-    explicit Impl(std::optional<DNS::Server> server, uint64_t id);
+    explicit Impl(DNS::Server server, std::uint64_t id);
 
     ~Impl() = default;
 
-    [[nodiscard]] std::vector<uint8_t> query(const std::string &host_str, DNS::Type type) const;
+    [[nodiscard]] std::vector<std::uint8_t> query(const std::string &host_str, DNS::Type type) const;
 
-    uint64_t id_;
-    std::optional<DNS::Server> server_;
+    std::uint64_t id_;
+    DNS::Server server_;
 };
 
-ClassicResolver::Impl::Impl(std::optional<DNS::Server> server, uint64_t id) : id_(id), server_(std::move(server)) {
-#if !defined(HAVE_RES_NQUERY)
-    if (server_.has_value()) {
-        static std::once_flag flag;
-        std::call_once(flag, [&] {
-            SPDLOG_WARN("A custom resolver was configured, but res_nquery() is not available "
-                "on this platform. The setting will be ignored. "
-                "Consider using a DoH/DoT resolver instead.");
-        });
-        server_.reset();
-    }
-#endif
+ClassicResolver::Impl::Impl(DNS::Server server, std::uint64_t id) : id_(id), server_(std::move(server)) {
 }
 
-std::vector<uint8_t> ClassicResolver::Impl::query(const std::string &host_str, DNS::Type type) const {
+std::vector<std::uint8_t> ClassicResolver::Impl::query(const std::string &host_str, DNS::Type type) const {
     SPDLOG_TRACE(R"(Resolver #{} DNS lookup for "{}")", id_, host_str);
 
     const auto ns_type = DNS::to_ns_type(type);
 
-    // No custom resolver — use the default system resolver.
-    if (!server_.has_value()) {
-        ResolverContext ctx;
-        return do_query(ctx, host_str, ns_type);
-    }
-
-    // Use the single custom resolver.
-    SPDLOG_DEBUG(R"(Resolver #{} Resolving "{}" (type {}))", id_, host_str, ns_type);
+    SPDLOG_DEBUG(R"(Resolver #{} Resolving "{}" (type {}) via {}:{})", id_, host_str, ns_type,
+                 server_.address, server_.port);
     ResolverContext ctx;
-    ctx.set_nameserver(*server_);
+    ctx.set_nameserver(server_);
     return do_query(ctx, host_str, ns_type);
 }
 
@@ -233,16 +218,12 @@ std::vector<uint8_t> ClassicResolver::Impl::query(const std::string &host_str, D
 //  ClassicResolver  —  public API
 // ===========================================================================
 
-ClassicResolver::ClassicResolver()
-    : ResolverBase(AnonymousIdTag{}), impl_(std::make_unique<Impl>(std::nullopt, get_id())) {
-}
-
-ClassicResolver::ClassicResolver(std::optional<DNS::Server> server)
+ClassicResolver::ClassicResolver(DNS::Server server)
     : impl_(std::make_unique<Impl>(std::move(server), get_id())) {
 }
 
 ClassicResolver::~ClassicResolver() = default;
 
-std::vector<uint8_t> ClassicResolver::query(const std::string &host, DNS::Type type) const {
+std::vector<std::uint8_t> ClassicResolver::query(const std::string &host, DNS::Type type) const {
     return impl_->query(host, type);
 }

@@ -11,6 +11,7 @@
 
 #include "uri.h"
 #include "config/config.h"
+#include "resolver_config.h"
 #include "dns/resolver/doh.h"
 #include "dns/resolver/dot.h"
 #include "network/http_client.h"
@@ -31,6 +32,13 @@ ResolverDispatcher DnsResolverFactory::create(const Config::AppConfig &config) {
             // Legacy single-server format.
             dns_servers.push_back({config.resolver.address, config.resolver.port});
         }
+    }
+
+    // Ensure at least one DNS server is available.
+    if (dns_servers.empty()) {
+        dns_servers.push_back({YADDNSC_DEFAULT_DNS_SERVER, YADDNSC_DEFAULT_DNS_PORT});
+        SPDLOG_INFO("No DNS server configured, using default {}:{}", YADDNSC_DEFAULT_DNS_SERVER,
+                     YADDNSC_DEFAULT_DNS_PORT);
     }
 
     // Build resolver objects from server configurations.

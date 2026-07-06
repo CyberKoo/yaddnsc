@@ -9,16 +9,13 @@
 #include <net/if.h>
 #include <netinet/in.h>
 #include <poll.h>
-#include <sys/socket.h>
-#include <unistd.h>
 
+#include <array>
 #include <bit>
-#include <cstdint>
-#include <cerrno>
-#include <cstring>
-#include <optional>
-#include <stdexcept>
 #include <vector>
+#include <cstdint>
+#include <stdexcept>
+#include <type_traits>
 
 #include <spdlog/spdlog.h>
 
@@ -28,13 +25,28 @@
 #include "dns/proto/mkquery.h"
 #include "network/inet_address.h"
 #include "network/net_devices.h"
+#include "network/socket.h"
 
 // ===========================================================================
 //  mDNS well-known constants (RFC 6762)
 // ===========================================================================
 
 namespace {
-    constexpr uint16_t MDNS_PORT = 5353;
+    constexpr std::uint16_t MDNS_PORT = 5353;
+
+    /// Thread-safe wrapper around strerror_r.
+    /// Returns a std::string so the caller never needs to worry about buffer lifetime.
+    [[nodiscard]] inline std::string errno_str(int err = errno) {
+        std::array<char, 256> buf{};
+#if defined(__GLIBC__)
+        // GNU version returns char* (may or may not point to buf).
+        return strerror_r(err, buf.data(), buf.size());
+#else
+        // POSIX / XSI version returns int, result always written to buf.
+        strerror_r(err, buf.data(), buf.size());
+        return std::string{buf.data()};
+#endif
+    }
 
     // IPv4 multicast group
     constexpr auto MDNS_IPV4_GROUP = "224.0.0.251";
@@ -45,100 +57,321 @@ namespace {
     // How long to wait for a response (milliseconds).
     constexpr auto MDNS_TIMEOUT_MS = 500;
 
-    inline const sockaddr_storage MDNS_IPV4_DEST = [] {
+    inline const SocketAddr MDNS_IPV4_DEST = [] {
         sockaddr_storage d{};
         auto &v4 = *reinterpret_cast<sockaddr_in *>(&d);
         v4.sin_family = AF_INET;
         v4.sin_port = htons(MDNS_PORT);
-        inet_pton(AF_INET, MDNS_IPV4_GROUP, &v4.sin_addr);
-        return d;
+        if (inet_pton(AF_INET, MDNS_IPV4_GROUP, &v4.sin_addr) != 1) {
+            throw std::logic_error("mDNS: inet_pton failed for hardcoded IPv4 multicast group");
+        }
+        return SocketAddr::from_raw(reinterpret_cast<const sockaddr *>(&d), sizeof(v4));
     }();
 
-    inline const sockaddr_storage MDNS_IPV6_DEST = [] {
+    inline const SocketAddr MDNS_IPV6_DEST = [] {
         sockaddr_storage d{};
         auto &v6 = *reinterpret_cast<sockaddr_in6 *>(&d);
         v6.sin6_family = AF_INET6;
         v6.sin6_port = htons(MDNS_PORT);
-        inet_pton(AF_INET6, MDNS_IPV6_GROUP, &v6.sin6_addr);
-        return d;
+        if (inet_pton(AF_INET6, MDNS_IPV6_GROUP, &v6.sin6_addr) != 1) {
+            throw std::logic_error("mDNS: inet_pton failed for hardcoded IPv6 multicast group");
+        }
+        return SocketAddr::from_raw(reinterpret_cast<const sockaddr *>(&d), sizeof(v6));
     }();
 
-    // RAII wrapper that closes the fd on scope exit.
-    struct ScopedFd {
-        int fd_;
+    // Pre-computed ephemeral bind addresses (INADDR_ANY:0 / in6addr_any:0).
+    inline const SocketAddr MDNS_IPV4_BIND = [] {
+        sockaddr_in bind{};
+        bind.sin_family = AF_INET;
+        bind.sin_addr.s_addr = INADDR_ANY;
+        return SocketAddr::from_raw(reinterpret_cast<const sockaddr *>(&bind), sizeof(bind));
+    }();
 
-        explicit ScopedFd(int f) : fd_(f) {
-        }
+    inline const SocketAddr MDNS_IPV6_BIND = [] {
+        sockaddr_in6 bind{};
+        bind.sin6_family = AF_INET6;
+        bind.sin6_addr = in6addr_any;
+        return SocketAddr::from_raw(reinterpret_cast<const sockaddr *>(&bind), sizeof(bind));
+    }();
 
-        ~ScopedFd() {
-            if (fd_ >= 0) ::close(fd_);
-        }
+    // ===========================================================================
+    //  Tag types for compile-time v4/v6 dispatch
+    // ===========================================================================
 
-        ScopedFd(const ScopedFd &) = delete;
-
-        ScopedFd &operator=(const ScopedFd &) = delete;
+    struct Ipv4Tag {
     };
 
-    // RAII wrapper that joins the multicast group on construction and
-    // leaves it on destruction. Must be destroyed *before* ScopedFd
-    // (i.e., declared after it).
-    struct ScopedMembership {
-        int fd_;
-        bool is_ipv6_;
-        unsigned int if_index_;
-        std::string label_;
-        std::optional<in_addr> iface_addr_;
+    struct Ipv6Tag {
+    };
 
-        explicit ScopedMembership(int fd, bool is_ipv6, unsigned int if_index, std::string label,
-                                  std::optional<in_addr> iface_addr = std::nullopt) : fd_(fd), is_ipv6_(is_ipv6),
-            if_index_(if_index), label_(std::move(label)), iface_addr_(iface_addr) {
-            if (is_ipv6_) {
-                ipv6_mreq mreq6{};
-                inet_pton(AF_INET6, MDNS_IPV6_GROUP, &mreq6.ipv6mr_multiaddr);
-                mreq6.ipv6mr_interface = if_index_;
-                if (setsockopt(fd_, IPPROTO_IPV6, IPV6_JOIN_GROUP, &mreq6, sizeof(mreq6)) < 0) {
-                    throw std::runtime_error(
-                        fmt::format(R"(mDNS: IPV6_JOIN_GROUP failed for "{}": {})", label_, std::strerror(errno))
+    template<typename T>
+    concept IpVersionTag = std::is_same_v<T, Ipv4Tag> || std::is_same_v<T, Ipv6Tag>;
+
+    /// Forward declaration — see definition in Helper functions.
+    in_addr pick_ipv4_interface_addr(const std::string &interface);
+
+    // ===========================================================================
+    //  ScopedMembership<Tag> — RAII multicast group join / leave
+    // ===========================================================================
+
+    template<IpVersionTag Tag>
+    struct ScopedMembership {
+        using mreq_type = std::conditional_t<std::is_same_v<Tag, Ipv6Tag>, ipv6_mreq, ip_mreq>;
+
+        int fd_;
+        mreq_type mreq_;
+
+        explicit ScopedMembership(int fd, unsigned int if_index, const std::string &hostname,
+                                  const std::string &interface) : fd_(fd) {
+            if constexpr (std::is_same_v<Tag, Ipv6Tag>) {
+                if (inet_pton(AF_INET6, MDNS_IPV6_GROUP, &mreq_.ipv6mr_multiaddr) != 1) {
+                    throw std::logic_error("mDNS: inet_pton failed for hardcoded IPv6 multicast group");
+                }
+                mreq_.ipv6mr_interface = if_index;
+                if (setsockopt(fd, IPPROTO_IPV6, IPV6_JOIN_GROUP, &mreq_, sizeof(mreq_)) < 0) {
+                    throw std::runtime_error(fmt::format(
+                            R"(mDNS: IPV6_JOIN_GROUP failed for "{}": {})", hostname, errno_str())
                     );
                 }
             } else {
-                ip_mreq mreq{};
-                inet_pton(AF_INET, MDNS_IPV4_GROUP, &mreq.imr_multiaddr);
-                if (iface_addr_.has_value()) {
-                    mreq.imr_interface = *iface_addr_;
-                } else {
-                    mreq.imr_interface.s_addr = htonl(INADDR_ANY);
+                if (inet_pton(AF_INET, MDNS_IPV4_GROUP, &mreq_.imr_multiaddr) != 1) {
+                    throw std::logic_error("mDNS: inet_pton failed for hardcoded IPv4 multicast group");
                 }
-                if (setsockopt(fd_, IPPROTO_IP, IP_ADD_MEMBERSHIP, &mreq, sizeof(mreq)) < 0) {
-                    throw std::runtime_error(
-                        fmt::format(R"(mDNS: IP_ADD_MEMBERSHIP failed for "{}": {})", label_, std::strerror(errno))
+                mreq_.imr_interface = pick_ipv4_interface_addr(interface);
+                if (setsockopt(fd, IPPROTO_IP, IP_ADD_MEMBERSHIP, &mreq_, sizeof(mreq_)) < 0) {
+                    throw std::runtime_error(fmt::format(
+                            R"(mDNS: IP_ADD_MEMBERSHIP failed for "{}": {})", hostname, errno_str())
                     );
                 }
             }
         }
 
         ~ScopedMembership() {
-            if (is_ipv6_) {
-                ipv6_mreq mreq6{};
-                inet_pton(AF_INET6, MDNS_IPV6_GROUP, &mreq6.ipv6mr_multiaddr);
-                mreq6.ipv6mr_interface = if_index_;
-                setsockopt(fd_, IPPROTO_IPV6, IPV6_LEAVE_GROUP, &mreq6, sizeof(mreq6));
+            int ret;
+            if constexpr (std::is_same_v<Tag, Ipv6Tag>) {
+                ret = setsockopt(fd_, IPPROTO_IPV6, IPV6_LEAVE_GROUP, &mreq_, sizeof(mreq_));
             } else {
-                ip_mreq mreq{};
-                inet_pton(AF_INET, MDNS_IPV4_GROUP, &mreq.imr_multiaddr);
-                if (iface_addr_.has_value()) {
-                    mreq.imr_interface = *iface_addr_;
-                } else {
-                    mreq.imr_interface.s_addr = htonl(INADDR_ANY);
-                }
-                setsockopt(fd_, IPPROTO_IP, IP_DROP_MEMBERSHIP, &mreq, sizeof(mreq));
+                ret = setsockopt(fd_, IPPROTO_IP, IP_DROP_MEMBERSHIP, &mreq_, sizeof(mreq_));
+            }
+            if (ret < 0) {
+                SPDLOG_WARN(R"(mDNS: {}_LEAVE_GROUP failed: {})",
+                            std::is_same_v<Tag, Ipv6Tag> ? "IPV6" : "IP", errno_str());
             }
         }
 
         ScopedMembership(const ScopedMembership &) = delete;
 
         ScopedMembership &operator=(const ScopedMembership &) = delete;
+
+        ScopedMembership(ScopedMembership &&) = default;
+
+        ScopedMembership &operator=(ScopedMembership &&) = default;
     };
+
+    // ===========================================================================
+    //  Helper functions
+    // ===========================================================================
+
+    /// Pick the IPv4 interface address for IGMP membership.
+    /// Returns INADDR_ANY if the interface has no IPv4 address or is empty.
+    in_addr pick_ipv4_interface_addr(const std::string &interface) {
+        if (!interface.empty()) {
+            auto subnets = NetDevices::get_ipv4_subnets(interface);
+            if (!subnets.empty()) {
+                const auto &addr_bytes = subnets[0].address.addr();
+                return std::bit_cast<in_addr>(addr_bytes);
+            }
+            SPDLOG_WARN(
+                R"(mDNS: no IPv4 address found for interface "{}", falling back to INADDR_ANY)", interface
+            );
+        }
+        in_addr addr{};
+        addr.s_addr = htonl(INADDR_ANY);
+        return addr;
+    }
+
+    template<IpVersionTag Tag>
+    unsigned int setup_multicast_options(Socket &sock, const std::string &hostname, const std::string &interface) {
+        // ── Bind ────────────────────────────────────────────────────────────
+        if constexpr (std::is_same_v<Tag, Ipv6Tag>) {
+            if (auto err = sock.try_set_option(IPPROTO_IPV6, IPV6_V6ONLY, 1)) {
+                SPDLOG_WARN(R"(mDNS: IPV6_V6ONLY failed for "{}": {})", hostname, errno_str(err));
+            }
+        }
+
+        sock.bind(std::is_same_v<Tag, Ipv6Tag> ? MDNS_IPV6_BIND : MDNS_IPV4_BIND);
+
+        // ── Multicast options ──────────────────────────────────────────────
+        unsigned int if_index = 0;
+        if (!interface.empty()) {
+            if_index = NetDevices::name_to_index(interface);
+            if (if_index == 0) {
+                SPDLOG_WARN(R"(mDNS: interface "{}" not found for "{}")", interface, hostname);
+            }
+        } else if constexpr (std::is_same_v<Tag, Ipv6Tag>) {
+            if_index = NetDevices::find_default_interface_index(AF_INET6);
+            if (if_index > 0) {
+                auto if_name = NetDevices::index_to_name(if_index);
+                SPDLOG_DEBUG(R"(mDNS: auto-selected interface "{}" for "{}" (type AAAA))",
+                             if_name.empty() ? "?" : if_name, hostname);
+            }
+        }
+
+        if constexpr (std::is_same_v<Tag, Ipv6Tag>) {
+            if (if_index > 0) {
+                if (auto err = sock.try_set_option(IPPROTO_IPV6, IPV6_MULTICAST_IF, if_index)) {
+                    SPDLOG_WARN(R"(mDNS: IPV6_MULTICAST_IF failed for "{}": {})", hostname, errno_str(err));
+                }
+            }
+            if (auto err = sock.try_set_option(IPPROTO_IPV6, IPV6_MULTICAST_HOPS, 255)) {
+                SPDLOG_WARN(R"(mDNS: IPV6_MULTICAST_HOPS failed for "{}": {})", hostname, errno_str(err));
+            }
+        } else {
+            if (if_index > 0) {
+#if defined(__linux__)
+                ip_mreqn mreqn{};
+                mreqn.imr_ifindex = static_cast<int>(if_index);
+                if (auto err = sock.try_set_option(IPPROTO_IP, IP_MULTICAST_IF, mreqn)) {
+                    SPDLOG_WARN(R"(mDNS: IP_MULTICAST_IF failed for "{}": {})", hostname, errno_str(err));
+                }
+#else
+                // macOS / BSD: IP_MULTICAST_IF expects struct in_addr (interface
+                // address), not an interface index.
+                auto ipv4_addr = pick_ipv4_interface_addr(interface);
+                if (auto err = sock.try_set_option(IPPROTO_IP, IP_MULTICAST_IF, ipv4_addr)) {
+                    SPDLOG_WARN(R"(mDNS: IP_MULTICAST_IF failed for "{}": {})", hostname, errno_str(err));
+                }
+#endif
+            }
+            if (auto err = sock.try_set_option(IPPROTO_IP, IP_MULTICAST_TTL, 255)) {
+                SPDLOG_WARN(R"(mDNS: IP_MULTICAST_TTL failed for "{}": {})", hostname, errno_str(err));
+            }
+        }
+
+        return if_index;
+    }
+
+    /// Shared helper: poll, receive, validate port, parse DNS response.
+    /// Throws std::runtime_error on any failure.
+    std::vector<InetAddress> recv_and_parse(Socket &sock, DNS::Type type, const std::string &hostname) {
+        int ready = sock.wait_for(POLLIN, MDNS_TIMEOUT_MS);
+        if (ready <= 0) {
+            throw std::runtime_error(
+                fmt::format(R"(mDNS: no response for "{}" within {}ms)", hostname, MDNS_TIMEOUT_MS)
+            );
+        }
+
+        std::vector<std::uint8_t> recv_buf(2048);
+        SocketAddr src_addr;
+        auto buf = std::as_writable_bytes(std::span{recv_buf});
+        ssize_t recv_len = sock.recv_from(buf, &src_addr);
+        if (recv_len < 0) {
+            throw std::runtime_error(
+                fmt::format(R"(mDNS: recvfrom() failed for "{}": {})", hostname, errno_str())
+            );
+        }
+
+        // if (src_addr.port() != MDNS_PORT) {
+        //     // RFC 6762 §6.7: unicast responses MAY be sent from ephemeral ports.
+        //     // Treat this as a warning, not a hard error.
+        //     SPDLOG_WARN(R"(mDNS: response for "{}" came from non-standard port {} (expected 5353); "
+        //                 R"(RFC 6762 §6.7 permits ephemeral-source unicast replies)", hostname, src_addr.port());
+        // }
+
+        SPDLOG_TRACE(R"(mDNS: received {} bytes for "{}")", recv_len, hostname);
+
+        auto raw_records = DNS::DnsRecordParser::parse_all(recv_buf.data(), recv_len, hostname);
+        if (raw_records.empty()) {
+            throw std::runtime_error(fmt::format(R"(mDNS: no records in response for "{}")", hostname));
+        }
+
+        std::vector<InetAddress> results;
+        results.reserve(raw_records.size());
+        for (const auto &rec: raw_records) {
+            if (type == DNS::Type::A) {
+                if (auto v4 = Inet4Address::parse(rec)) {
+                    SPDLOG_DEBUG(R"(mDNS: resolved "{}" → {})", hostname, rec);
+                    results.emplace_back(*v4);
+                } else {
+                    SPDLOG_DEBUG(R"(mDNS: skipping non-A record "{}" for "{}")", rec, hostname);
+                }
+            } else {
+                if (auto v6 = Inet6Address::parse(rec)) {
+                    SPDLOG_DEBUG(R"(mDNS: resolved "{}" → "{}")", hostname, rec);
+                    results.emplace_back(*v6);
+                } else {
+                    SPDLOG_DEBUG(R"(mDNS: skipping non-AAAA record "{}" for "{}")", rec, hostname);
+                }
+            }
+        }
+
+        if (results.empty()) {
+            throw std::runtime_error(fmt::format(R"(mDNS: no address records for "{}")", hostname));
+        }
+
+        return results;
+    }
+
+    // ===========================================================================
+    //  resolve_mdns<Tag>()  —  one instantiation per address family
+    // ===========================================================================
+
+    template<IpVersionTag Tag>
+    std::vector<InetAddress> resolve_mdns(const std::string &hostname, DNS::Type type, const std::string &interface) {
+        constexpr int af = std::is_same_v<Tag, Ipv6Tag> ? AF_INET6 : AF_INET;
+        constexpr const auto &dest_addr = std::is_same_v<Tag, Ipv6Tag> ? MDNS_IPV6_DEST : MDNS_IPV4_DEST;
+
+        const auto &iface_label = interface.empty() ? "<default>" : interface;
+        SPDLOG_DEBUG(R"(mDNS: resolving "{}" (type {}) on interface "{}")", hostname, std::is_same_v<Tag,
+                     Ipv6Tag> ? "AAAA" : "A", iface_label);
+
+        const auto query_pkt = DNS::mkquery_mdns(hostname, DNS::to_ns_type(type), true);
+        Socket sock(af, SOCK_DGRAM);
+
+        // ── Socket options ──────────────────────────────────────────────────
+        if (auto err = sock.try_set_option(SOL_SOCKET, SO_REUSEADDR, 1)) {
+            SPDLOG_WARN(R"(mDNS: setsockopt(SOL_SOCKET, SO_REUSEADDR) failed for "{}": {})", hostname,
+                        errno_str(err));
+        }
+
+        if (!interface.empty()) {
+#if defined(SO_BINDTODEVICE)
+            if (auto err = sock.try_set_option_raw(SOL_SOCKET, SO_BINDTODEVICE, interface.c_str(), interface.size())) {
+                SPDLOG_WARN(R"(mDNS: setsockopt(SOL_SOCKET, SO_BINDTODEVICE) failed for "{}": {})", hostname,
+                            errno_str(err));
+            }
+#elif defined(IP_BOUND_IF)
+            unsigned int idx = NetDevices::name_to_index(interface);
+            if (idx > 0) {
+                constexpr int ip_level = std::is_same_v<Tag, Ipv6Tag> ? IPPROTO_IPV6 : IPPROTO_IP;
+                constexpr int opt_name = std::is_same_v<Tag, Ipv6Tag> ? IPV6_BOUND_IF : IP_BOUND_IF;
+                if (auto err = sock.try_set_option(ip_level, opt_name, idx)) {
+                    SPDLOG_WARN(R"(mDNS: setsockopt bound-if failed for "{}": {})", hostname, errno_str(err));
+                }
+            } else {
+                SPDLOG_WARN(R"(mDNS: interface "{}" not found for "{}")", interface, hostname);
+            }
+#endif
+        }
+
+        // ── Bind + multicast options ────────────────────────────────────────
+        unsigned int if_index = setup_multicast_options<Tag>(sock, hostname, interface);
+
+        // ── Join multicast group ──────────────────────────────────────────
+        ScopedMembership<Tag> membership{sock.native_handle(), if_index, hostname, interface};
+
+        // ── Send query ──────────────────────────────────────────────────────
+        auto data = std::as_bytes(std::span{query_pkt});
+        if (sock.send_to(data, dest_addr) < 0) {
+            throw std::runtime_error(
+                fmt::format(R"(mDNS: sendto() failed for "{}": {})", hostname, errno_str()));
+        }
+
+        SPDLOG_TRACE(R"(mDNS: sent {} bytes for "{}")", query_pkt.size(), hostname);
+
+        // ── Receive & parse ─────────────────────────────────────────────────
+        return recv_and_parse(sock, type, hostname);
+    }
 } // anonymous namespace
 
 // ===========================================================================
@@ -150,254 +383,9 @@ MdnsIpSource::MdnsIpSource(std::string hostname, DNS::Type type, std::string int
 }
 
 std::vector<InetAddress> MdnsIpSource::resolve() const {
-    const bool is_ipv6 = (type_ == DNS::Type::AAAA);
-    const int af = is_ipv6 ? AF_INET6 : AF_INET;
-
-    const auto &iface_label = interface_.empty() ? "<default>" : interface_;
-    SPDLOG_DEBUG(R"(mDNS: resolving "{}" (type {}) on interface "{}")", hostname_, is_ipv6 ? "AAAA" : "A", iface_label);
-
-    // ── 1. Build the mDNS query packet ──────────────────────────────────────
-    const auto query_pkt = DNS::mkquery_mdns(hostname_, DNS::to_ns_type(type_), true);
-
-    // ── 2. Create the socket ────────────────────────────────────────────────
-    const int sockfd = ::socket(af, SOCK_DGRAM, 0);
-    if (sockfd < 0) {
-        throw std::runtime_error(
-            fmt::format(R"(mDNS: socket() failed for "{}": {})", hostname_, std::strerror(errno))
-        );
-    }
-    ScopedFd guard{sockfd};
-
-    // Allow multiple listeners on the same port (RFC 6762 §15.1).
-    int reuse = 1;
-    if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse)) < 0) {
-        SPDLOG_WARN(R"(mDNS: setsockopt(SO_REUSEADDR) failed for "{}": {})", hostname_, std::strerror(errno));
+    if (type_ == DNS::Type::AAAA) {
+        return resolve_mdns<Ipv6Tag>(hostname_, type_, interface_);
     }
 
-    // Bind the socket to the requested interface.
-    if (!interface_.empty()) {
-#if defined(SO_BINDTODEVICE)
-        if (setsockopt(sockfd, SOL_SOCKET, SO_BINDTODEVICE, interface_.c_str(), interface_.size()) < 0) {
-            SPDLOG_WARN(R"(mDNS: setsockopt(SO_BINDTODEVICE, "{}") failed for "{}": {})", interface_, hostname_,
-                        std::strerror(errno));
-        }
-#elif defined(IP_BOUND_IF)
-        unsigned int idx = NetDevices::name_to_index(interface_);
-        if (idx > 0) {
-            int ip_level = is_ipv6 ? IPPROTO_IPV6 : IPPROTO_IP;
-            int opt_name = is_ipv6 ? IPV6_BOUND_IF : IP_BOUND_IF;
-            if (setsockopt(sockfd, ip_level, opt_name, &idx, sizeof(idx)) < 0) {
-                SPDLOG_WARN(R"(mDNS: setsockopt bound-if failed for "{}": {})", hostname_, std::strerror(errno));
-            }
-        } else {
-            SPDLOG_WARN(R"(mDNS: interface "{}" not found for "{}")", interface_, hostname_);
-        }
-#endif
-    }
-
-    // Bind ephemeral port — mDNS responses come back to this port.
-    // For IPv6, also request v6-only to avoid v4-mapped addresses.
-    if (is_ipv6) {
-        int v6only = 1;
-        if (setsockopt(sockfd, IPPROTO_IPV6, IPV6_V6ONLY, &v6only, sizeof(v6only)) < 0) {
-            SPDLOG_WARN(R"(mDNS: IPV6_V6ONLY failed for "{}": {})", hostname_, std::strerror(errno));
-        }
-
-        sockaddr_in6 bind_addr{};
-        bind_addr.sin6_family = AF_INET6;
-        bind_addr.sin6_addr = in6addr_any;
-        bind_addr.sin6_port = 0;
-        if (bind(sockfd, reinterpret_cast<sockaddr *>(&bind_addr), sizeof(bind_addr)) < 0) {
-            throw std::runtime_error(
-                fmt::format(R"(mDNS: bind() failed for "{}": {})", hostname_, std::strerror(errno))
-            );
-        }
-    } else {
-        sockaddr_in bind_addr{};
-        bind_addr.sin_family = AF_INET;
-        bind_addr.sin_addr.s_addr = INADDR_ANY;
-        bind_addr.sin_port = 0;
-        if (bind(sockfd, reinterpret_cast<sockaddr *>(&bind_addr), sizeof(bind_addr)) < 0) {
-            throw std::runtime_error(
-                fmt::format(R"(mDNS: bind() failed for "{}": {})", hostname_, std::strerror(errno))
-            );
-        }
-    }
-
-    // ── 3. Set multicast socket options (required on FreeBSD/BSD) ────────────
-    unsigned int if_index = 0;
-    if (!interface_.empty()) {
-        if_index = NetDevices::name_to_index(interface_);
-        if (if_index == 0) {
-            SPDLOG_WARN(R"(mDNS: interface "{}" not found for "{}")", interface_, hostname_);
-        }
-    } else if (is_ipv6) {
-        if_index = NetDevices::find_default_interface_index(AF_INET6);
-        if (if_index > 0) {
-            auto if_name = NetDevices::index_to_name(if_index);
-            SPDLOG_DEBUG(R"(mDNS: auto-selected interface "{}" for "{}" (type AAAA))", if_name.empty() ? "?" : if_name,
-                         hostname_);
-        }
-    }
-
-    if (is_ipv6) {
-        // Set the outgoing interface for IPv6 multicast (FreeBSD needs this to
-        // route the sendto() to the correct interface).  When no specific
-        // interface was requested, leave the kernel default alone — passing 0
-        // as the index can fail on macOS with EINVAL.
-        if (if_index > 0) {
-            if (setsockopt(sockfd, IPPROTO_IPV6, IPV6_MULTICAST_IF, &if_index, sizeof(if_index)) < 0) {
-                SPDLOG_WARN(R"(mDNS: IPV6_MULTICAST_IF failed for "{}": {})", hostname_, std::strerror(errno));
-            }
-        }
-
-        // Explicit hop-limit for multicast packets (default is 1 on most
-        // systems, but being explicit avoids surprises on FreeBSD).
-        int hops = 255;
-        if (setsockopt(sockfd, IPPROTO_IPV6, IPV6_MULTICAST_HOPS, &hops, sizeof(hops)) < 0) {
-            SPDLOG_WARN(R"(mDNS: IPV6_MULTICAST_HOPS failed for "{}": {})", hostname_, std::strerror(errno));
-        }
-    } else {
-        // Set the outgoing interface for IPv4 multicast (optional on most
-        // systems, but good practice when pinned to a specific interface).
-        if (if_index > 0) {
-#if defined(__linux__)
-            // Linux: IP_MULTICAST_IF expects struct ip_mreqn (with imr_ifindex).
-            struct ip_mreqn mreqn{};
-            mreqn.imr_ifindex = static_cast<int>(if_index);
-            if (setsockopt(sockfd, IPPROTO_IP, IP_MULTICAST_IF, &mreqn, sizeof(mreqn)) < 0) {
-                SPDLOG_WARN(R"(mDNS: IP_MULTICAST_IF failed for "{}": {})", hostname_, std::strerror(errno));
-            }
-#else
-            // macOS/BSD: IP_MULTICAST_IF expects unsigned int interface index.
-            if (setsockopt(sockfd, IPPROTO_IP, IP_MULTICAST_IF, &if_index, sizeof(if_index)) < 0) {
-                SPDLOG_WARN(R"(mDNS: IP_MULTICAST_IF failed for "{}": {})", hostname_, std::strerror(errno));
-            }
-#endif
-        }
-
-        // Explicit TTL for multicast packets.
-        int ttl = 255;
-        if (setsockopt(sockfd, IPPROTO_IP, IP_MULTICAST_TTL, &ttl, sizeof(ttl)) < 0) {
-            SPDLOG_WARN(R"(mDNS: IP_MULTICAST_TTL failed for "{}": {})", hostname_, std::strerror(errno));
-        }
-    }
-
-    // Resolve the local interface address for IPv4 multicast membership.
-    // Done here so ScopedMembership focuses only on join/leave (SRP).
-    // std::nullopt ⇒ INADDR_ANY (when no interface was requested).
-    std::optional<in_addr> iface_addr;
-    if (!is_ipv6 && !interface_.empty()) {
-        auto subnets = NetDevices::get_ipv4_subnets(interface_);
-        if (!subnets.empty()) {
-            const auto &addr_bytes = subnets[0].address.addr();
-            iface_addr = std::bit_cast<in_addr>(addr_bytes);
-        } else {
-            SPDLOG_WARN(R"(mDNS: no IPv4 address found for interface "{}" for "{}", falling back to INADDR_ANY)",
-                        interface_, hostname_);
-        }
-    }
-
-    // RAII join/leave (destroyed before ScopedFd, so fd is still valid).
-    ScopedMembership membership{sockfd, is_ipv6, if_index, hostname_, iface_addr};
-
-    // ── 4. Send the query to the multicast group ────────────────────────────
-    const auto &dest = is_ipv6 ? MDNS_IPV6_DEST : MDNS_IPV4_DEST;
-    socklen_t dest_len = is_ipv6 ? sizeof(sockaddr_in6) : sizeof(sockaddr_in);
-
-    const auto sent = sendto(sockfd, query_pkt.data(), query_pkt.size(), 0,
-                             reinterpret_cast<const sockaddr *>(&dest), dest_len);
-
-    if (sent < 0) {
-        throw std::runtime_error(
-            fmt::format(R"(mDNS: sendto() failed for "{}": {})", hostname_, std::strerror(errno))
-        );
-    }
-
-    SPDLOG_TRACE(R"(mDNS: sent {} bytes for "{}")", sent, hostname_);
-
-    // ── 5. Wait for a response (with timeout) ───────────────────────────────
-    pollfd pfd{};
-    pfd.fd = sockfd;
-    pfd.events = POLLIN;
-
-    const int ready = poll(&pfd, 1, MDNS_TIMEOUT_MS);
-    if (ready <= 0) {
-        SPDLOG_DEBUG(R"(mDNS: no response for "{}" within {}ms)", hostname_, MDNS_TIMEOUT_MS);
-        return {};
-    }
-
-    // ── 6. Receive the response ─────────────────────────────────────────────
-    std::vector<uint8_t> recv_buf(2048);
-
-    sockaddr_storage src_addr{};
-    socklen_t src_len = sizeof(src_addr);
-    const auto recv_len = recvfrom(sockfd, recv_buf.data(), recv_buf.size(), 0,
-                                   reinterpret_cast<sockaddr *>(&src_addr), &src_len);
-
-    if (recv_len < 0) {
-        throw std::runtime_error(
-            fmt::format(R"(mDNS: recvfrom() failed for "{}": {})", hostname_, std::strerror(errno))
-        );
-    }
-
-    // Verify the response came from the mDNS port (5353).
-    // This filters out unrelated multicast traffic that may arrive
-    // on the same socket (e.g. from other services on the same group).
-    uint16_t src_port = 0;
-    if (src_addr.ss_family == AF_INET) {
-        src_port = ntohs(reinterpret_cast<sockaddr_in *>(&src_addr)->sin_port);
-    } else if (src_addr.ss_family == AF_INET6) {
-        src_port = ntohs(reinterpret_cast<sockaddr_in6 *>(&src_addr)->sin6_port);
-    }
-    if (src_port != MDNS_PORT) {
-        SPDLOG_WARN(R"(mDNS: received response for "{}" from non-mDNS port {}, ignoring)", hostname_, src_port);
-        return {};
-    }
-
-    SPDLOG_TRACE(R"(mDNS: received {} bytes for "{}")", recv_len, hostname_);
-
-    // ── 7. Parse the response ───────────────────────────────────────────────
-    std::vector<std::string> raw_records;
-    try {
-        raw_records = DNS::DnsRecordParser::parse_all(recv_buf.data(), static_cast<size_t>(recv_len), hostname_);
-    } catch (const std::exception &e) {
-        SPDLOG_DEBUG(R"(mDNS: failed to parse response for "{}": {})", hostname_, e.what());
-        return {};
-    }
-
-    if (raw_records.empty()) {
-        SPDLOG_DEBUG(R"(mDNS: no records in response for "{}")", hostname_);
-        return {};
-    }
-
-    // ── 8. Convert string addresses to InetAddress ──────────────────────────
-    std::vector<InetAddress> results;
-    results.reserve(raw_records.size());
-
-    for (const auto &rec: raw_records) {
-        // We already know the query type (A / AAAA), so parse accordingly.
-        if (type_ == DNS::Type::A) {
-            if (auto v4 = Inet4Address::parse(rec)) {
-                SPDLOG_DEBUG(R"(mDNS: resolved "{}" → {})", hostname_, rec);
-                results.emplace_back(*v4); // implicit → InetAddress
-            } else {
-                SPDLOG_DEBUG(R"(mDNS: skipping non-A record "{}" for "{}")", rec, hostname_);
-            }
-        } else {
-            // DNS::Type::AAAA
-            if (auto v6 = Inet6Address::parse(rec)) {
-                SPDLOG_DEBUG(R"(mDNS: resolved "{}" → "{}")", hostname_, rec);
-                results.emplace_back(*v6); // implicit → InetAddress
-            } else {
-                SPDLOG_DEBUG(R"(mDNS: skipping non-AAAA record "{}" for "{}")", rec, hostname_);
-            }
-        }
-    }
-
-    if (results.empty()) {
-        SPDLOG_DEBUG(R"(mDNS: no address records for "{}")", hostname_);
-    }
-
-    return results;
+    return resolve_mdns<Ipv4Tag>(hostname_, type_, interface_);
 }

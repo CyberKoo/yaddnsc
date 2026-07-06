@@ -66,7 +66,7 @@ namespace StringUtil {
     template<MutableCharBuffer T>
     void to_lower(T &buf) noexcept {
         std::ranges::transform(buf, buf.begin(), [&](char c) noexcept {
-            return detail::lower_table[static_cast<uint8_t>(c)];
+            return detail::lower_table[static_cast<std::uint8_t>(c)];
         });
     }
 
@@ -75,7 +75,7 @@ namespace StringUtil {
     template<MutableCharBuffer T>
     void to_upper(T &buf) noexcept {
         std::ranges::transform(buf, buf.begin(), [&](char c) noexcept {
-            return detail::upper_table[static_cast<uint8_t>(c)];
+            return detail::upper_table[static_cast<std::uint8_t>(c)];
         });
     }
 

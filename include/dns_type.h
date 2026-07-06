@@ -21,7 +21,7 @@ namespace DNS {
     /// A DNS server endpoint.
     struct Server {
         std::string address; ///< Hostname or IP address of the DNS server
-        uint16_t port{53};   ///< UDP/TCP port (default: 53)
+        std::uint16_t port{53};   ///< UDP/TCP port (default: 53)
     };
 }
 

@@ -11,6 +11,6 @@
 ///
 /// The host checks this via `yaddnsc_drv_magic()` before calling `create()`
 /// to reject unrelated .so files.
-constexpr uint64_t YADDNSC_DRIVER_MAGIC = 0x5941444E53430000ULL; // "YADDNSC\0\0"
+constexpr std::uint64_t YADDNSC_DRIVER_MAGIC = 0x5941444E53430000ULL; // "YADDNSC\0\0"
 
 #endif //YADDNSC_DRIVER_MAGIC_H

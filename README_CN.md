@@ -18,7 +18,7 @@
   - `mdns` — 通过 mDNS（RFC 6762）发现局域网设备的 IP 地址（如 `printer.local`）
 - **子域名级更新间隔** — 每个子域名可单独设置更新间隔，未设置时继承域名级别的配置。
 - **IPv4 和 IPv6 支持** — 可独立配置 A 和 AAAA 记录。
-- **自定义 DNS 解析器** — 可选使用特定 DNS 服务器代替系统默认解析器。支持**传统 DNS**、**DNS-over-HTTPS (DoH)** 和 **DNS-over-TLS (DoT)**，并提供可配置的查询策略。详见 [DNS 解析器](#dns-解析器)。
+- **自定义 DNS 解析器** — 可选使用特定 DNS 服务器代替系统解析器。支持**传统 DNS**、**DNS-over-HTTPS (DoH)** 和 **DNS-over-TLS (DoT)**，并提供可配置的查询策略。详见 [DNS 解析器](#dns-解析器)。
 - **强制更新调度** — 即使 IP 未发生变化，也可按设定周期强制更新 DNS 记录。
 - **优雅退出** — 通过专用信号处理线程捕获 SIGINT/SIGTERM，使用 stop_token 安全停止所有任务。
 - **线程池并发** — 子域名更新任务通过线程池并行执行。
@@ -111,7 +111,7 @@ sudo cmake --install build
 
 **老旧设备** — 如果工具链版本过低（GCC < 14 或 Clang < 18），请使用 `v0.x` 分支（C++17、CMake 3.14+、OpenSSL 1.1.x）。该分支仅维护 bug 修复，新功能在 master 上开发。
 
-**Alpine Linux** — musl 的解析器功能有限，建议配置 DoT 或 DoH 以获得更好的解析效果。
+**Alpine Linux (musl)** — `YADDNSC_USE_NATIVE_DNS` 在 musl 上默认启用（musl 的解析器功能有限，不支持可重入的 `res_nquery`）。
 
 ### 测试
 
@@ -124,7 +124,9 @@ sudo cmake --install build
 | `CMAKE_BUILD_TYPE`            | Release                                       | 设为 `Debug` 可生成调试版本             |
 | `YADDNSC_LOGGING_PATTERN`     | `[%D %T.%e] [%^%8l%$] [%8!t] [%15!s:%-4#] %v` | 日志格式，传递给 spdlog                |
 | `YADDNSC_MIN_UPDATE_INTERVAL` | 60                                            | 最小允许的更新间隔（秒）                    |
-| `YADDNSC_MANUAL_MKQUERY`      | OFF                                           | 使用自建 DNS 查询构建器代替系统 res_mkquery() |
+| `YADDNSC_USE_NATIVE_DNS`      | OFF                                           | 使用内置 DNS 查询/解析器（libresolv 仍用于解析） |
+| `YADDNSC_DEFAULT_DNS_SERVER`  | 1.1.1.1                                       | 未配置时的默认 DNS 服务器地址              |
+| `YADDNSC_DEFAULT_DNS_PORT`    | 53                                            | 未配置时的默认 DNS 服务器端口              |
 | `YADDNSC_USE_SYSTEM_SPDLOG`   | OFF                                           | 使用系统 spdlog 代替 CPM 下载的版本         |
 | `YADDNSC_BUILD_DOCS`          | OFF                                           | 从源码注释构建 Doxygen API 文档             |
 | `YADDNSC_ENABLE_DEB`          | OFF                                           | 启用 CPack DEB 包生成                |

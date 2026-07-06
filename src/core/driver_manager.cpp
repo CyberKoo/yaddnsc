@@ -10,6 +10,8 @@
 #include <filesystem>
 #include <type_traits>
 
+#include <cstdint>
+
 #include <spdlog/spdlog.h>
 
 #include "fmt.hpp"
@@ -112,7 +114,7 @@ DriverManager::Impl::DriverModule::DriverModule(const std::string &path) : handl
                  static_cast<const void *>(handle_.get()));
 
     // verify magic before doing anything else
-    auto magic_func = resolve_symbol<uint64_t()>(handle_, "yaddnsc_drv_magic");
+    auto magic_func = resolve_symbol<std::uint64_t()>(handle_, "yaddnsc_drv_magic");
     if (magic_func() != YADDNSC_DRIVER_MAGIC) {
         SPDLOG_CRITICAL("Driver '{}' failed magic verification: not a yaddnsc driver", get_driver_name(path));
         throw BadDriverException(

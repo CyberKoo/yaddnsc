@@ -40,13 +40,13 @@ public:
     /// @param host  Hostname to look up.
     /// @param type  Record type (A, AAAA, etc.).
     /// @return      Raw DNS response packet bytes (wire format).
-    [[nodiscard]] virtual std::vector<uint8_t> query(const std::string &host, DNS::Type type) const = 0;
+    [[nodiscard]] virtual std::vector<std::uint8_t> query(const std::string &host, DNS::Type type) const = 0;
 
     /// Return a human-readable resolver type name (e.g. "Classic", "DNS-Over-HTTPS").
     [[nodiscard]] virtual std::string_view get_type() const noexcept = 0;
 
     /// Return the stable unique identifier for this resolver instance.
-    [[nodiscard]] uint64_t get_id() const noexcept { return id_; }
+    [[nodiscard]] std::uint64_t get_id() const noexcept { return id_; }
 
 protected:
     /// Construct with a new auto-incremented ID.
@@ -58,9 +58,9 @@ protected:
     }
 
 private:
-    uint64_t id_;
+    std::uint64_t id_;
 
-    inline static std::atomic<uint64_t> next_id_{0};
+    inline static std::atomic<std::uint64_t> next_id_{0};
 
     [[maybe_unused, no_unique_address]] NoCopy _nc_;
 };

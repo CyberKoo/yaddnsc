@@ -11,6 +11,10 @@ check_symbol_exists(res_setservers "netinet/in.h;resolv.h" HAVE_RES_SETSERVERS)
 check_symbol_exists(res_ndestroy "netinet/in.h;resolv.h" HAVE_RES_NDESTROY)
 check_struct_has_member("struct __res_state" _u._ext.nsaddrs "netinet/in.h;resolv.h" HAVE_RES_STATE_EXT_NSADDRS LANGUAGE C)
 
+# --- socket feature checks -------------------------------------------------
+
+check_symbol_exists(MSG_NOSIGNAL "sys/socket.h" HAVE_MSG_NOSIGNAL)
+
 # --- std::format availability ------------------------------------------------
 
 check_cxx_source_compiles(

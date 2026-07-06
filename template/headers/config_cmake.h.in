@@ -7,6 +7,8 @@
 #ifndef YADDNSC_CONFIG_CMAKE_H
 #define YADDNSC_CONFIG_CMAKE_H
 
+#cmakedefine HAVE_MSG_NOSIGNAL
+
 #cmakedefine HAVE_RES_NQUERY
 
 #cmakedefine HAVE_RES_STATE_EXT_NSADDRS

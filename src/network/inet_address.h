@@ -21,7 +21,7 @@
 class Inet4Address {
 public:
     static constexpr size_t ADDR_LEN = 4;
-    using addr_type = std::array<uint8_t, ADDR_LEN>;
+    using addr_type = std::array<std::uint8_t, ADDR_LEN>;
 
     /// Default-constructs 0.0.0.0 (unspecified).
     Inet4Address() noexcept = default;
@@ -61,7 +61,7 @@ public:
 
     // ---- direct access -----------------------------------------------------
 
-    [[nodiscard]] constexpr const uint8_t *data() const noexcept { return addr_.data(); }
+    [[nodiscard]] constexpr const std::uint8_t *data() const noexcept { return addr_.data(); }
 
     [[nodiscard]] constexpr const addr_type &addr() const noexcept { return addr_; }
 
@@ -75,7 +75,7 @@ private:
 class Inet6Address {
 public:
     static constexpr size_t ADDR_LEN = 16;
-    using addr_type = std::array<uint8_t, ADDR_LEN>;
+    using addr_type = std::array<std::uint8_t, ADDR_LEN>;
 
     /// Default-constructs :: (unspecified).
     Inet6Address() noexcept = default;
@@ -125,8 +125,8 @@ public:
 
     // ---- scope ID ----------------------------------------------------------
 
-    [[nodiscard]] uint32_t get_scope_id() const noexcept { return scope_id_; }
-    void set_scope_id(uint32_t id) noexcept { scope_id_ = id; }
+    [[nodiscard]] std::uint32_t get_scope_id() const noexcept { return scope_id_; }
+    void set_scope_id(std::uint32_t id) noexcept { scope_id_ = id; }
 
     // ---- equality ----------------------------------------------------------
 
@@ -134,13 +134,13 @@ public:
 
     // ---- direct access -----------------------------------------------------
 
-    [[nodiscard]] constexpr const uint8_t *data() const noexcept { return addr_.data(); }
+    [[nodiscard]] constexpr const std::uint8_t *data() const noexcept { return addr_.data(); }
 
     [[nodiscard]] constexpr const addr_type &addr() const noexcept { return addr_; }
 
 private:
     addr_type addr_{};
-    uint32_t scope_id_{0};
+    std::uint32_t scope_id_{0};
 };
 
 // ---------------------------------------------------------------------------
@@ -173,7 +173,7 @@ public:
 
     /// Parse from an opaque byte buffer.  `len` must be 4 (IPv4) or 16 (IPv6);
     /// returns std::nullopt otherwise.
-    static std::optional<InetAddress> from_bytes(std::span<const uint8_t> bytes);
+    [[nodiscard]] static std::optional<InetAddress> from_bytes(std::span<const std::uint8_t> bytes);
 
     // ---- accessors ---------------------------------------------------------
 
@@ -182,7 +182,7 @@ public:
     [[nodiscard]] std::string to_string() const;
 
     /// Returns 16 bytes; IPv4 addresses are zero-padded to fill the array.
-    [[nodiscard]] std::array<uint8_t, 16> get_address() const;
+    [[nodiscard]] std::array<std::uint8_t, 16> get_address() const;
 
     // ---- classification ----------------------------------------------------
 
@@ -200,7 +200,7 @@ public:
 
     [[nodiscard]] bool is_ula() const noexcept;
 
-    [[nodiscard]] uint32_t get_scope_id() const noexcept;
+    [[nodiscard]] std::uint32_t get_scope_id() const noexcept;
 
     // ---- type-safe access --------------------------------------------------
 

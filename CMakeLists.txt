@@ -44,12 +44,12 @@ include(FeatureCheck)
 # ==============================================================================
 # Release build flags
 # ==============================================================================
-# On musl, res_mkquery / libresolv is not available (musl's resolv.h is
-# a stub), so the manual DNS query builder must be used by default.
-if (LIBC_MUSL AND NOT DEFINED YADDNSC_MANUAL_MKQUERY)
-  set(YADDNSC_MANUAL_MKQUERY ON CACHE BOOL
-      "Use manual DNS query builder instead of system res_mkquery" FORCE)
-  message(STATUS "musl detected — YADDNSC_MANUAL_MKQUERY defaulting to ON")
+# On musl, libresolv is not available (musl's resolv.h is a stub), so the
+# built-in DNS stack must be used by default.
+if (LIBC_MUSL AND NOT DEFINED YADDNSC_NATIVE_DNS)
+  set(YADDNSC_NATIVE_DNS ON CACHE BOOL
+      "Use built-in DNS stack instead of system libresolv" FORCE)
+  message(STATUS "musl detected — YADDNSC_NATIVE_DNS defaulting to ON")
 endif ()
 
 # ==============================================================================
@@ -77,8 +77,11 @@ set(YADDNSC_LOGGING_PATTERN "[%D %T.%e] [%^%8l%$] [%8!t] [%15!s:%-4#] %v" CACHE 
 
 set(YADDNSC_MIN_UPDATE_INTERVAL 60 CACHE STRING "Minimum allowed update interval (seconds)")
 
-option(YADDNSC_MANUAL_MKQUERY "Use manual DNS query builder instead of system res_mkquery" OFF)
+option(YADDNSC_NATIVE_DNS "Use built-in DNS stack instead of system libresolv" OFF)
 option(YADDNSC_USE_SYSTEM_SPDLOG "Use spdlog from the system instead of the bundled CPM version" OFF)
+
+set(YADDNSC_DEFAULT_DNS_SERVER "1.1.1.1" CACHE STRING "Default DNS server address when none is configured")
+set(YADDNSC_DEFAULT_DNS_PORT 53 CACHE STRING "Default DNS server port when none is configured")
 
 if (YADDNSC_MIN_UPDATE_INTERVAL LESS 0)
   message(FATAL_ERROR "YADDNSC_MIN_UPDATE_INTERVAL must not be negative, got ${YADDNSC_MIN_UPDATE_INTERVAL}")
@@ -94,7 +97,7 @@ configure_file("${CMAKE_SOURCE_DIR}/template/headers/driver_ver.h.in" "${CMAKE_B
 configure_file("${CMAKE_SOURCE_DIR}/template/headers/config_cmake.h.in" "${CMAKE_BINARY_DIR}/generated/config_cmake.h" @ONLY)
 configure_file("${CMAKE_SOURCE_DIR}/template/headers/logging_pattern.h.in" "${CMAKE_BINARY_DIR}/generated/logging_pattern.h" @ONLY)
 configure_file("${CMAKE_SOURCE_DIR}/template/headers/min_update_interval.h.in" "${CMAKE_BINARY_DIR}/generated/min_update_interval.h" @ONLY)
-configure_file("${CMAKE_SOURCE_DIR}/template/headers/mkquery_config.h.in" "${CMAKE_BINARY_DIR}/generated/mkquery_config.h" @ONLY)
+configure_file("${CMAKE_SOURCE_DIR}/template/headers/resolver_config.h.in" "${CMAKE_BINARY_DIR}/generated/resolver_config.h" @ONLY)
 
 # ==============================================================================
 # Dependencies (via CPM.cmake)
@@ -196,6 +199,8 @@ add_executable(yaddnsc
         src/network/http_client.cpp
         src/network/inet_address.cpp
         src/network/net_devices.cpp
+        src/network/socket.cpp
+        src/network/socket_addr.cpp
         src/network/uri.cpp
         # cli
         src/cli/cli.cpp
@@ -203,11 +208,11 @@ add_executable(yaddnsc
         src/cli/interface.cpp
         src/cli/dns.cpp
         src/cli/config.cpp
+        src/cli/info.cpp
         # dns
         src/dns/error.cpp
         src/dns/proto/parser.cpp
         src/dns/proto/mkquery.cpp
-        src/dns/resolver/classic.cpp
         src/dns/resolver/doh.cpp
         src/dns/resolver/dot.cpp
         src/dns/dispatcher.cpp
@@ -219,6 +224,13 @@ add_executable(yaddnsc
         src/ip_source/mdns.cpp
         src/ip_source/factory.cpp
 )
+
+# Compile only the selected resolver implementation.
+if (YADDNSC_NATIVE_DNS)
+  target_sources(yaddnsc PRIVATE src/dns/resolver/classic_native.cpp)
+else ()
+  target_sources(yaddnsc PRIVATE src/dns/resolver/classic_system.cpp)
+endif ()
 
 # ---------------------------------------------------------------------------
 # Compiler options
@@ -254,6 +266,7 @@ target_compile_definitions(yaddnsc PRIVATE
     SPDLOG_ACTIVE_LEVEL=SPDLOG_LEVEL_DEBUG
     CPPHTTPLIB_OPENSSL_SUPPORT
     $<$<BOOL:${YADDNSC_USE_STD_FORMAT}>:YADDNSC_USE_STD_FORMAT>
+    $<$<BOOL:${YADDNSC_USE_SYSTEM_SPDLOG}>:YADDNSC_USE_SYSTEM_SPDLOG>
 )
 
 # ---------------------------------------------------------------------------
@@ -299,7 +312,9 @@ if (NOT HAVE_STD_FORMAT)
 endif ()
 target_link_libraries(yaddnsc PRIVATE yaddnsc_fmt)
 
-# resolv is linux-specific, not present on BSDs
+# resolv is linux-specific, not present on BSDs.
+# Required by DnsRecordParser (ns_initparse / ns_parserr) regardless of the
+# resolver transport implementation.
 find_library(RESOLV resolv)
 if (RESOLV)
   target_link_libraries(yaddnsc PRIVATE ${RESOLV})
@@ -316,11 +331,13 @@ else ()
   message(STATUS "spdlog: bundled (CPM)")
 endif ()
 
-if (YADDNSC_MANUAL_MKQUERY)
-  message(STATUS "DNS query builder: manual (no libresolv)")
+if (YADDNSC_NATIVE_DNS)
+  message(STATUS "DNS stack: built-in (no libresolv)")
 else ()
-  message(STATUS "DNS query builder: system (res_mkquery)")
+  message(STATUS "DNS stack: system (libresolv)")
 endif ()
+
+message(STATUS "Default DNS server: ${YADDNSC_DEFAULT_DNS_SERVER}:${YADDNSC_DEFAULT_DNS_PORT}")
 
 # ==============================================================================
 # Documentation — Doxygen
@@ -328,34 +345,34 @@ endif ()
 option(YADDNSC_BUILD_DOCS "Build Doxygen API documentation" OFF)
 
 if (YADDNSC_BUILD_DOCS)
-    find_package(Doxygen REQUIRED)
+  find_package(Doxygen REQUIRED)
 
-    set(DOXYGEN_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/docs)
-    set(DOXYGEN_GENERATE_HTML YES)
-    set(DOXYGEN_GENERATE_LATEX NO)
-    set(DOXYGEN_USE_MDFILE_AS_MAINPAGE ${PROJECT_SOURCE_DIR}/README.md)
-    set(DOXYGEN_STRIP_FROM_PATH ${PROJECT_SOURCE_DIR})
-    set(DOXYGEN_EXTRACT_ALL NO)
-    set(DOXYGEN_SOURCE_BROWSER YES)
-    set(DOXYGEN_HTML_DYNAMIC_SECTIONS YES)
-    set(DOXYGEN_DOT_IMAGE_FORMAT svg)
-    set(DOXYGEN_INTERACTIVE_SVG YES)
-    set(DOXYGEN_COLLABORATION_GRAPH YES)
-    set(DOXYGEN_INCLUDE_GRAPH YES)
-    set(DOXYGEN_INCLUDED_BY_GRAPH YES)
-    set(DOXYGEN_CALL_GRAPH NO)
-    set(DOXYGEN_CALLER_GRAPH NO)
-    # Generate graphviz diagrams only if dot is available
-    find_program(DOXYGEN_DOT_PATH dot)
-    if (DOXYGEN_DOT_PATH)
-        set(DOXYGEN_HAVE_DOT YES)
-        message(STATUS "Doxygen: graphviz dot found at ${DOXYGEN_DOT_PATH}")
-    else ()
-        set(DOXYGEN_HAVE_DOT NO)
-        message(STATUS "Doxygen: graphviz dot not found — diagrams disabled")
-    endif ()
+  set(DOXYGEN_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/docs)
+  set(DOXYGEN_GENERATE_HTML YES)
+  set(DOXYGEN_GENERATE_LATEX NO)
+  set(DOXYGEN_USE_MDFILE_AS_MAINPAGE ${PROJECT_SOURCE_DIR}/README.md)
+  set(DOXYGEN_STRIP_FROM_PATH ${PROJECT_SOURCE_DIR})
+  set(DOXYGEN_EXTRACT_ALL NO)
+  set(DOXYGEN_SOURCE_BROWSER YES)
+  set(DOXYGEN_HTML_DYNAMIC_SECTIONS YES)
+  set(DOXYGEN_DOT_IMAGE_FORMAT svg)
+  set(DOXYGEN_INTERACTIVE_SVG YES)
+  set(DOXYGEN_COLLABORATION_GRAPH YES)
+  set(DOXYGEN_INCLUDE_GRAPH YES)
+  set(DOXYGEN_INCLUDED_BY_GRAPH YES)
+  set(DOXYGEN_CALL_GRAPH NO)
+  set(DOXYGEN_CALLER_GRAPH NO)
+  # Generate graphviz diagrams only if dot is available
+  find_program(DOXYGEN_DOT_PATH dot)
+  if (DOXYGEN_DOT_PATH)
+    set(DOXYGEN_HAVE_DOT YES)
+    message(STATUS "Doxygen: graphviz dot found at ${DOXYGEN_DOT_PATH}")
+  else ()
+    set(DOXYGEN_HAVE_DOT NO)
+    message(STATUS "Doxygen: graphviz dot not found — diagrams disabled")
+  endif ()
 
-    doxygen_add_docs(doxygen
+  doxygen_add_docs(doxygen
         ${PROJECT_SOURCE_DIR}/README.md
         ${PROJECT_SOURCE_DIR}/README_CN.md
         ${PROJECT_SOURCE_DIR}/include
@@ -363,9 +380,9 @@ if (YADDNSC_BUILD_DOCS)
         COMMENT "Generate Doxygen API documentation"
     )
 
-    message(STATUS "Doxygen: enabled — use 'make doxygen' to build")
+  message(STATUS "Doxygen: enabled — use 'make doxygen' to build")
 else ()
-    message(STATUS "Doxygen: disabled (use -DYADDNSC_BUILD_DOCS=ON to enable)")
+  message(STATUS "Doxygen: disabled (use -DYADDNSC_BUILD_DOCS=ON to enable)")
 endif ()
 
 # ==============================================================================
