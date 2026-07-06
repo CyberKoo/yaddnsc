@@ -48,12 +48,12 @@ namespace {
 
         ResolverContext() {
             res_ninit(&state);
-            // Set 1-second per-attempt timeout, no retries.
-            // res_nquery() will wait at most retrans seconds for each attempt
-            // and perform retry+1 attempts total.
+            // Set 1-second per-attempt timeout with 1 retry (2 attempts
+            // total), for a maximum total timeout of ~2 seconds.
+            // retry=0 leads to immediate failure when the first UDP packet
+            // is dropped; at least 1 retry is needed for reliability.
             state.retrans = 1;
-            state.retry = 0;
-            state.options |= RES_TIMEOUT;
+            state.retry = 1;
         }
 
         ~ResolverContext() { destroy(&state); }

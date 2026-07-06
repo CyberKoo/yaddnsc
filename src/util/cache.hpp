@@ -123,7 +123,7 @@ namespace Utils::Cache {
                 // Store the computed result back into the cache
                 lock.lock();
                 pending_.erase(key);
-                map_.insert_or_assign(key, Entry{Clock::now(), std::move(value)});
+                map_.insert_or_assign(key, Entry{Clock::now(), value});
                 return value;
             } catch (...) {
                 // Propagate the exception to all waiters
