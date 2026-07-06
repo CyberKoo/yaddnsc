@@ -1,3 +1,7 @@
+//
+// Created by Kotarou on 2022/4/6.
+//
+
 #include "config.h"
 #include "parser.hpp" // IWYU pragma: keep
 
@@ -6,6 +10,10 @@
 #include <glaze/glaze.hpp>
 
 #include "fmt.hpp"
+
+// ===========================================================================
+// Config::load_config — read and parse the JSON configuration file.
+// ===========================================================================
 
 Config::AppConfig Config::load_config(const std::string &config_path) {
     if (!std::filesystem::exists(config_path)) {

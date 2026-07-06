@@ -8,13 +8,15 @@
 #include <string>
 #include <glaze/glaze.hpp>
 
+/// DigitalOcean API driver configuration parameters.
 struct DigitalOceanParams {
-    std::string record_id;
-    std::string token;
+    std::string record_id; ///< DigitalOcean DNS record ID
+    std::string token;     ///< DigitalOcean personal access token
 };
 
+/// DigitalOcean API request body for DNS record updates.
 struct DigitalOceanBody {
-    std::string data;
+    std::string data; ///< Record value (IP address)
 };
 
 template<>

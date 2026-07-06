@@ -9,6 +9,7 @@
 
 #include "config.h"
 
+/// glz::meta specialisation for Config::DriverConfig JSON mapping.
 template<>
 struct glz::meta<Config::DriverConfig> {
     using T = Config::DriverConfig;
@@ -19,6 +20,8 @@ struct glz::meta<Config::DriverConfig> {
     );
 };
 
+/// glz::meta specialisation for DNS::Server JSON mapping.
+/// Supports both "address" and "ipaddress" keys for backward compatibility.
 template<>
 struct glz::meta<DNS::Server> {
     using T = DNS::Server;
@@ -29,6 +32,7 @@ struct glz::meta<DNS::Server> {
     );
 };
 
+/// glz::meta specialisation for Config::ResolverConfig JSON mapping.
 template<>
 struct glz::meta<Config::ResolverConfig> {
     using T = Config::ResolverConfig;
@@ -42,6 +46,7 @@ struct glz::meta<Config::ResolverConfig> {
     );
 };
 
+/// glz::meta specialisation for Config::ResolverStrategy enum JSON mapping.
 template<>
 struct glz::meta<Config::ResolverStrategy> {
     using enum Config::ResolverStrategy;
@@ -51,6 +56,7 @@ struct glz::meta<Config::ResolverStrategy> {
     );
 };
 
+/// glz::meta specialisation for Config::SubdomainConfig JSON mapping.
 template<>
 struct glz::meta<Config::SubdomainConfig> {
     using T = Config::SubdomainConfig;
@@ -68,6 +74,7 @@ struct glz::meta<Config::SubdomainConfig> {
     );
 };
 
+/// glz::meta specialisation for Config::DomainConfig JSON mapping.
 template<>
 struct glz::meta<Config::DomainConfig> {
     using T = Config::DomainConfig;
@@ -80,6 +87,7 @@ struct glz::meta<Config::DomainConfig> {
     );
 };
 
+/// glz::meta specialisation for Config::AppConfig (top-level) JSON mapping.
 template<>
 struct glz::meta<Config::AppConfig> {
     using T = Config::AppConfig;
@@ -90,6 +98,8 @@ struct glz::meta<Config::AppConfig> {
     );
 };
 
+/// glz::meta specialisation for Config::IpSource enum JSON mapping.
+/// Supports both "interface", "http" / "url", and "mdns".
 template<>
 struct glz::meta<Config::IpSource> {
     using enum Config::IpSource;
@@ -101,6 +111,7 @@ struct glz::meta<Config::IpSource> {
     );
 };
 
+/// glz::meta specialisation for DNS::Type enum JSON mapping.
 template<>
 struct glz::meta<DNS::Type> {
     using enum DNS::Type;
@@ -112,6 +123,7 @@ struct glz::meta<DNS::Type> {
     );
 };
 
+/// glz::meta specialisation for AddressFamily enum JSON mapping.
 template<>
 struct glz::meta<AddressFamily> {
     using enum AddressFamily;

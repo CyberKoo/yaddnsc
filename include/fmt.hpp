@@ -5,10 +5,8 @@
 #ifndef YADDNSC_FMT_H
 #define YADDNSC_FMT_H
 
-// ---------------------------------------------------------------------------
-// Polyfill: bridges std::format and the external fmt library so that the rest
-// of the codebase can always use `fmt::format(...)`, `fmt::join(...)`, etc.
-// ---------------------------------------------------------------------------
+/// Polyfill: bridges std::format and the external fmt library so that the rest
+/// of the codebase can always use `fmt::format(...)`, `fmt::join(...)`, etc.
 
 #ifdef YADDNSC_USE_STD_FORMAT
 
@@ -22,13 +20,12 @@
 #include <unordered_map>
 
 namespace fmt {
-    // --- named_arg type -----------------------------------------------------
-
+    /// A named argument for fmt::format, stored as a string value.
     struct named_arg_t {
-        std::string_view name;
-        std::string value;
+        std::string_view name;  ///< Argument name (used in format string as {name})
+        std::string value;      ///< Stringified argument value
 
-        // Convert any value to string for storage
+        /// Convert any value to string for storage.
         template<typename T>
         static named_arg_t create(std::string_view name, T &&val) {
             if constexpr (std::constructible_from<std::string, T>) {
@@ -39,8 +36,7 @@ namespace fmt {
         }
     };
 
-    // --- arg() API (identical to the real fmt library) ---------------------
-
+    /// Create a named argument (identical to the real fmt library API).
     template<typename T>
     named_arg_t arg(std::string_view name, T &&value) {
         return named_arg_t::create(name, std::forward<T>(value));
@@ -48,14 +44,14 @@ namespace fmt {
 
     // --- basic formatting ---------------------------------------------------
 
-    // For regular (positional) arguments: delegate to std::format.
+    /// Format with positional arguments — delegates to std::format.
     template<typename... Args>
         requires (!(std::same_as<std::decay_t<Args>, named_arg_t> || ...))
     std::string format(std::format_string<Args...> fmt, Args &&... args) {
         return std::format(fmt, std::forward<Args>(args)...);
     }
 
-    // For named arguments (at least one): replace {KEY} with corresponding value.
+    /// Format with named arguments — replaces {KEY} with corresponding values.
     template<typename First, typename... Rest>
         requires std::same_as<std::decay_t<First>, named_arg_t> &&
                  (std::same_as<std::decay_t<Rest>, named_arg_t> && ...)
@@ -89,8 +85,7 @@ namespace fmt {
         return std::make_format_args(std::forward<Args>(args)...);
     }
 
-    // --- join (no std equivalent) -------------------------------------------
-
+    /// Join a range of elements with a separator (no std equivalent in C++20).
     template<std::ranges::input_range Range>
     std::string join(Range &&range, std::string_view sep) {
         std::string result;
@@ -99,7 +94,6 @@ namespace fmt {
             if (!first) {
                 result += sep;
             }
-            // Convert whatever the range yields to a string_view.
             result.append(std::data(item), std::size(item));
             first = false;
         }

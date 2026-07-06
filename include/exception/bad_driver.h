@@ -7,6 +7,8 @@
 
 #include "base.h"
 
+/// Thrown when a loaded shared library is not a valid yaddnsc driver
+/// (e.g. magic number mismatch or missing entry points).
 class BadDriverException : public YaddnscException {
 public:
     using YaddnscException::YaddnscException;

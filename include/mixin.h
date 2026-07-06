@@ -5,9 +5,10 @@
 #ifndef YADDNSC_CORE_MIXIN_H
 #define YADDNSC_CORE_MIXIN_H
 
-// Tag types that disable copy/move semantics via [[no_unique_address]] members.
-// Zero overhead — the tags carry no data, [[no_unique_address]] elides them.
+/// Tag types that disable copy/move semantics via [[no_unique_address]] members.
+/// Zero overhead — the tags carry no data, [[no_unique_address]] elides them.
 
+/// Disables copy construction/assignment; move semantics are preserved.
 struct NoCopy {
     NoCopy() = default;
 
@@ -20,6 +21,7 @@ struct NoCopy {
     NoCopy &operator=(NoCopy &&) = default;
 };
 
+/// Disables move construction/assignment; copy semantics are preserved.
 struct NoMove {
     NoMove() = default;
 

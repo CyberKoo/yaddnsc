@@ -7,15 +7,23 @@
 
 #include "driver/base.h"
 
+/// DNSPod API driver for DNS record updates.
+///
+/// Implements the DNSPod API for updating DNS records via their
+/// Record.Modify endpoint.
 class DNSPodDriver final : public BaseDriver {
 public:
+    /// Build the API request from config and update params.
     [[nodiscard]] DriverRequestContext generate_request(const DriverConfig &config, const DriverUpdateParams &ctx) const override;
 
+    /// Validate the DNSPod API response.
     [[nodiscard]] bool check_response(const HttpResponse &response) const override;
 
+    /// Return static metadata about this driver.
     [[nodiscard]] DriverDetail get_detail() const override;
 
 private:
+    /// Convert a DNSPod error code to a human-readable description.
     [[nodiscard]] static std::string_view describe_error_code(std::string_view code);
 };
 

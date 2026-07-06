@@ -9,13 +9,14 @@
 #include <string>
 #include <glaze/glaze.hpp>
 
+/// DNSPod API driver configuration parameters.
 struct DNSPodParams {
-    std::string domain_id;
-    std::string record_id;
-    std::string login_token;
-    std::optional<std::string> record_line;
-    std::string record_line_id{"0"};
-    bool global{false};
+    std::string domain_id;                    ///< DNSPod domain ID
+    std::string record_id;                    ///< DNS record ID to update
+    std::string login_token;                  ///< DNSPod API login token
+    std::optional<std::string> record_line;   ///< Record line (e.g. "默认", "电信")
+    std::string record_line_id{"0"};          ///< Record line ID (default: "0")
+    bool global{false};                       ///< Whether the record is global (load balancing)
 };
 
 template<>

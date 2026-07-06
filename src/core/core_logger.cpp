@@ -6,6 +6,13 @@
 
 #include <spdlog/spdlog.h>
 
+// ===========================================================================
+// CoreLogger — thin wrappers around spdlog that resolve at dlopen time.
+//
+// Each _impl function forwards to spdlog::log() with source location info
+// captured by the CORE_LOG_* macros in interface/core_logger.h.
+// ===========================================================================
+
 namespace CoreLogger {
     void trace_impl(std::string_view msg, const char *file, int line, const char *func) {
         spdlog::log(spdlog::source_loc{file, line, func}, spdlog::level::trace, "{}", msg);

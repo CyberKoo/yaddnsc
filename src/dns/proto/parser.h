@@ -14,18 +14,36 @@
 
 namespace DNS {
 
+/// Parser for raw DNS response packets (wire format, RFC 1035).
+///
+/// Parses DNS answer records from a raw packet buffer returned by
+/// a resolver query.  Supports A, AAAA, TXT, MX, CNAME, and other
+/// common record types.
 class DnsRecordParser {
 public:
     using data_type = uint8_t;
 
+    /// Construct a parser from a raw DNS response buffer.
+    /// @param data  Pointer to the raw packet bytes.
+    /// @param size  Total size of the packet in bytes.
     explicit DnsRecordParser(const data_type *data, size_t size);
 
+    /// Return the number of answer records in the parsed response.
     [[nodiscard]] size_t record_count() const noexcept;
 
+    /// Parse a single answer record at the given index.
+    /// @param index  Zero-based index into the answer section.
+    /// @return       The record value as a string (IP, hostname, text, etc.).
     [[nodiscard]] std::string parse_record(size_t index) const;
 
-    // Convenience: parse all answer records and return as a vector.
-    // This is the preferred entry point for most callers.
+    /// Convenience: parse all answer records and return as a vector.
+    ///
+    /// This is the preferred entry point for most callers.
+    ///
+    /// @param data  Pointer to the raw packet bytes.
+    /// @param size  Total size of the packet in bytes.
+    /// @param host  Optional hostname for sanity checking (CNAME chain detection).
+    /// @return      List of parsed record values.
     [[nodiscard]] static std::vector<std::string>
     parse_all(const data_type *data, size_t size, const std::string &host = {});
 

@@ -12,10 +12,9 @@
 #include <optional>
 #include <string_view>
 
+#include "uri.h"
 #include "address_family.h"
 #include "interface/http_client.h"
-
-class Uri;
 
 namespace httplib {
     class Client;
@@ -75,6 +74,7 @@ public:
     [[nodiscard]] HttpResult exchange(std::string_view url, const HttpRequest &req) const override;
 
 private:
+    Uri uri_;
     std::unique_ptr<httplib::Client> client_;
 };
 

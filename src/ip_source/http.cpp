@@ -11,6 +11,10 @@
 #include "network/inet_address.h"
 #include "uri.h"
 
+// ===========================================================================
+// HttpIpSource — fetch public IP from an external HTTP service.
+// ===========================================================================
+
 HttpIpSource::~HttpIpSource() = default;
 
 HttpIpSource::HttpIpSource(std::string url, AddressFamily address_family, std::string bind_interface)
@@ -23,6 +27,10 @@ HttpIpSource::HttpIpSource(std::string url, AddressFamily address_family, std::s
     auto uri = Uri::parse(url_);
     client_ = std::make_unique<PersistentHttpClient>(uri, std::move(opts));
 }
+
+// ---------------------------------------------------------------------------
+// HttpIpSource::resolve — send GET request and parse the response body as an IP.
+// ---------------------------------------------------------------------------
 
 std::vector<InetAddress> HttpIpSource::resolve() const {
     HttpRequest req;

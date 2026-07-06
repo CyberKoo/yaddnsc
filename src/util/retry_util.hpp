@@ -16,10 +16,30 @@
 
 namespace Utils::Retry {
     namespace detail {
+        /// Concept for a predicate that can filter exceptions.
         template<typename Pred, typename E>
         concept invocable_pred_for = std::predicate<Pred, const E &>;
     }
 
+    /// Retry a callable on a specific exception type with backoff.
+    ///
+    /// Catches exceptions of type `E` (which must inherit from YaddnscException)
+    /// and retries the function up to `retry` times with linear backoff.
+    /// An optional predicate can be provided to filter which exceptions trigger
+    /// a retry vs. being propagated immediately.
+    ///
+    /// @tparam R       Success return type of the callable.
+    /// @tparam E       Exception type to catch (must inherit from YaddnscException).
+    /// @tparam Fn      Callable type returning std::expected<R, E>.
+    /// @tparam Pred    Predicate type `bool(const E&)`, or std::nullopt_t to retry all.
+    ///
+    /// @param func           The callable to invoke and retry.
+    /// @param retry          Maximum number of retries before giving up.
+    /// @param e_filter       Optional predicate: return true to retry, false to propagate.
+    /// @param backoff        Base backoff interval in milliseconds (multiplied by retry count).
+    /// @param actual_retries Optional output: the number of retries actually performed.
+    ///
+    /// @return  std::expected<R, E> — the result on success, or the last exception.
     template<class R, class E, std::invocable<> Fn, typename Pred = std::nullopt_t>
         requires std::is_base_of_v<YaddnscException, E> &&
                  (std::same_as<Pred, std::nullopt_t> || detail::invocable_pred_for<Pred, E>)

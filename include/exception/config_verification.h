@@ -7,6 +7,10 @@
 
 #include "base.h"
 
+/// Thrown when the configuration fails pre-flight validation.
+///
+/// The message contains a human-readable description of the first violated
+/// constraint.
 class ConfigVerificationException : public YaddnscException {
 public:
     using YaddnscException::YaddnscException;

@@ -8,20 +8,22 @@
 #include <string>
 #include <glaze/glaze.hpp>
 
+/// Cloudflare API driver configuration parameters.
 struct CloudflareParams {
-    std::string zone_id;
-    std::string record_id;
-    std::string token;
-    std::optional<int> ttl{30};
-    std::optional<bool> proxied{false};
+    std::string zone_id;               ///< Cloudflare Zone ID
+    std::string record_id;             ///< DNS Record ID to update
+    std::string token;                 ///< Cloudflare API token
+    std::optional<int> ttl{30};        ///< DNS record TTL in seconds (default: 30, auto)
+    std::optional<bool> proxied{false}; ///< Whether the record is proxied through Cloudflare
 };
 
+/// Cloudflare API request body for DNS record updates.
 struct CloudflareRequestBody {
-    std::string type;
-    std::string name;
-    std::string content;
-    int ttl;
-    bool proxied;
+    std::string type;    ///< DNS record type (A, AAAA, TXT, etc.)
+    std::string name;    ///< Full domain name
+    std::string content; ///< Record value (IP address, etc.)
+    int ttl;             ///< Time-to-live in seconds
+    bool proxied;        ///< Whether proxied through Cloudflare
 };
 
 template<>

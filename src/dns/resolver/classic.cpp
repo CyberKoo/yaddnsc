@@ -48,6 +48,12 @@ namespace {
 
         ResolverContext() {
             res_ninit(&state);
+            // Set 1-second per-attempt timeout, no retries.
+            // res_nquery() will wait at most retrans seconds for each attempt
+            // and perform retry+1 attempts total.
+            state.retrans = 1;
+            state.retry = 0;
+            state.options |= RES_TIMEOUT;
         }
 
         ~ResolverContext() { destroy(&state); }

@@ -16,6 +16,10 @@
 #include "network/http_client.h"
 #include "dns/resolver/classic.h"
 
+// ===========================================================================
+// DnsResolverFactory::create — build a ResolverDispatcher from app config.
+// ===========================================================================
+
 ResolverDispatcher DnsResolverFactory::create(const Config::AppConfig &config) {
     // Build the list of DNS servers from config, preserving backward
     // compatibility with the legacy single-server format.

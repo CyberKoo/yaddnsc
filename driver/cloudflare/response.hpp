@@ -11,42 +11,47 @@
 
 #include <glaze/glaze.hpp>
 
+/// Cloudflare API error source location.
 struct CloudflareSource {
-    std::string pointer;
+    std::string pointer; ///< JSON pointer to the source of the error
 };
 
+/// Cloudflare API error detail.
 struct CloudflareErrorDetail {
-    int64_t code = 0;
-    std::string message;
-    std::optional<std::string> documentation_url;
-    std::optional<CloudflareSource> source;
+    int64_t code = 0;                              ///< Error code
+    std::string message;                           ///< Error message
+    std::optional<std::string> documentation_url;  ///< Link to documentation
+    std::optional<CloudflareSource> source;        ///< Error source location
 };
 
+/// Cloudflare API informational message.
 struct CloudflareMessage {
-    int64_t code = 0;
-    std::string message;
-    std::optional<std::string> documentation_url;
-    std::optional<CloudflareSource> source;
+    int64_t code = 0;                              ///< Message code
+    std::string message;                           ///< Message text
+    std::optional<std::string> documentation_url;  ///< Link to documentation
+    std::optional<CloudflareSource> source;        ///< Message source location
 };
 
+/// Cloudflare DNS record as returned by the API.
 struct CloudflareDnsRecord {
-    std::string id;
-    std::string name;
-    std::string type;
-    std::string content;
-    int64_t ttl = 0;
-    bool proxied = false;
-    bool proxiable = false;
-    std::optional<bool> private_routing;
-    std::optional<std::string> comment;
-    std::optional<std::vector<std::string> > tags;
+    std::string id;                                    ///< Record ID
+    std::string name;                                  ///< Domain name
+    std::string type;                                  ///< Record type (A, AAAA, etc.)
+    std::string content;                               ///< Record value
+    int64_t ttl = 0;                                   ///< TTL in seconds
+    bool proxied = false;                              ///< Whether proxied through Cloudflare
+    bool proxiable = false;                            ///< Whether the record can be proxied
+    std::optional<bool> private_routing;               ///< Whether Cloudflare Tunnel is used
+    std::optional<std::string> comment;                ///< Record comment
+    std::optional<std::vector<std::string>> tags;      ///< Record tags
 };
 
+/// Top-level Cloudflare API response.
 struct CloudflareResponse {
-    bool success = false;
-    std::vector<CloudflareErrorDetail> errors;
-    std::vector<CloudflareMessage> messages;
-    std::optional<CloudflareDnsRecord> result;
+    bool success = false;                          ///< Whether the API call succeeded
+    std::vector<CloudflareErrorDetail> errors;     ///< Error details
+    std::vector<CloudflareMessage> messages;       ///< Informational messages
+    std::optional<CloudflareDnsRecord> result;     ///< DNS record data (present on success)
 };
 
 template<>

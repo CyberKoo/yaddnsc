@@ -1,6 +1,7 @@
 //
 // Created by Kotarou on 2022/4/5.
 //
+
 #include <cstdlib>
 
 #include <spdlog/spdlog.h>
@@ -12,6 +13,19 @@
 #include "logging_pattern.h"
 #include "exception/base.h"
 #include "exception/config_verification.h"
+
+// ===========================================================================
+// main — DDNS client entry point.
+//
+// Flow:
+//   1. Parse CLI arguments via Cli::parse_and_dispatch().
+//   2. If the command is RUN, load config, set up the signal watcher,
+//      build the Manager, and enter the scheduler loop.
+//   3. Non-RUN commands (driver list, dns resolve, etc.) are handled
+//      entirely within the CLI layer and exit before reaching this code.
+//
+// All exceptions are caught at this top level and logged as fatal errors.
+// ===========================================================================
 
 int main(int argc, char *argv[]) {
     const auto outcome = Cli::parse_and_dispatch(argc, argv);

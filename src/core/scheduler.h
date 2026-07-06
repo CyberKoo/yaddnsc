@@ -17,35 +17,39 @@ namespace Config {
 
 struct UpdateTask;
 
-// ---------------------------------------------------------------------------
-// Scheduler — pure timer queue for periodic DDNS update tasks.
-//
-// Maintains a min-heap of internal nodes sorted by deadline.
-//   - build_initial_schedule()  populates the heap from the config.
-//   - pop_all_due()             returns tasks whose deadline has passed,
-//                               and automatically re-queues each one with
-//                               its next deadline.
-//   - wait_for_next()           blocks until the nearest deadline or stop.
-//
-// Holds no reference to the Updater or any thread pool — the caller
-// (Manager) is responsible for executing the returned tasks.
-// ---------------------------------------------------------------------------
+/// Scheduler — pure timer queue for periodic DDNS update tasks.
+///
+/// Maintains a min-heap of internal nodes sorted by deadline.
+///   - Constructor populates the heap from the config.
+///   - pop_all_due()  returns tasks whose deadline has passed,
+///                    and automatically re-queues each one with
+///                    its next deadline.
+///   - wait_for_next() blocks until the nearest deadline or stop.
+///
+/// Holds no reference to the Updater or any thread pool — the caller
+/// (Manager) is responsible for executing the returned tasks.
 class Scheduler {
 public:
+    /// Construct and populate the schedule from config.
+    /// @param config      Application config with domain/subdomain definitions.
+    /// @param stop_token  Token used to wake the scheduler on shutdown.
     explicit Scheduler(const Config::AppConfig &config, std::stop_token stop_token);
 
     ~Scheduler();
 
-    // Return all tasks whose deadline has passed.  Each returned task is
-    // automatically re-queued with its next deadline internally.
-    // force_update is evaluated before returning.
+    /// Return all tasks whose deadline has passed.
+    ///
+    /// Each returned task is automatically re-queued with its next deadline
+    /// internally. The force_update flag is evaluated before returning.
+    /// @return  A vector of tasks ready to execute.
     [[nodiscard]] std::vector<UpdateTask> pop_all_due();
 
-    // Block until the nearest task deadline is reached or stop is
-    // requested.  Returns false if stop was requested.
+    /// Block until the nearest task deadline is reached or stop is requested.
+    /// @return false if stop was requested (caller should exit the loop).
     bool wait_for_next();
 
-    // True if there are any pending tasks in the heap.
+    /// Check if there are any pending tasks in the heap.
+    /// @return true if at least one task is scheduled.
     [[nodiscard]] bool has_pending() const;
 
 private:

@@ -5,11 +5,11 @@
 #ifndef YADDNSC_ADDRESS_FAMILY_H
 #define YADDNSC_ADDRESS_FAMILY_H
 
-// ---------------------------------------------------------------------------
-// AddressFamily — protocol family for IP address selection.
-// ---------------------------------------------------------------------------
+/// Protocol family for IP address selection.
 enum class AddressFamily {
-    UNSPECIFIED, IPV4, IPV6
+    UNSPECIFIED, ///< No preference; use any available address
+    IPV4,        ///< IPv4 only
+    IPV6         ///< IPv6 only
 };
 
 #endif //YADDNSC_ADDRESS_FAMILY_H

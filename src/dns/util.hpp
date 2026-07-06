@@ -10,12 +10,12 @@
 #include "dns_type.h"
 #include "address_family.h"
 
-// ---------------------------------------------------------------------------
-// DNS utility — compile-time type conversion helpers.
-// ---------------------------------------------------------------------------
+/// DNS utility — compile-time type conversion helpers.
 namespace DNS {
 
     /// Convert DNS record type to address family (A → IPV4, AAAA → IPV6).
+    /// @param type  The DNS record type.
+    /// @return      The corresponding AddressFamily, or UNSPECIFIED for non-address types.
     constexpr AddressFamily type_to_family(Type type) noexcept {
         switch (type) {
             case Type::A:    return AddressFamily::IPV4;
@@ -24,7 +24,9 @@ namespace DNS {
         }
     }
 
-    /// Convert to the corresponding <arpa/nameser.h> ns_t_* constant.
+    /// Convert DNS record type to the corresponding `<arpa/nameser.h>` ns_t_* constant.
+    /// @param type  The DNS record type.
+    /// @return      The ns_t_* constant for use with libresolv, or ns_t_invalid.
     constexpr int to_ns_type(Type type) noexcept {
         switch (type) {
             case Type::A:    return ns_t_a;

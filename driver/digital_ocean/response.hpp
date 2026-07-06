@@ -11,28 +11,31 @@
 
 #include <glaze/glaze.hpp>
 
-// Success: { "domain_record": { ... } }
+/// DigitalOcean DNS domain record as returned by the API.
+/// Success response shape: { "domain_record": { ... } }
 struct DigitalOceanDomainRecord {
-    std::string data;
-    std::optional<int64_t> flags;
-    int64_t id = 0;
-    std::string name;
-    std::optional<int64_t> port;
-    std::optional<int64_t> priority;
-    std::optional<std::string> tag;
-    int64_t ttl = 0;
-    std::string type;
-    std::optional<int64_t> weight;
+    std::string data;                ///< Record value
+    std::optional<int64_t> flags;    ///< Flags (for certain record types)
+    int64_t id = 0;                  ///< Record ID
+    std::string name;                ///< Domain name
+    std::optional<int64_t> port;     ///< Port (for SRV records)
+    std::optional<int64_t> priority; ///< Priority (for MX/SRV records)
+    std::optional<std::string> tag;  ///< Tag
+    int64_t ttl = 0;                 ///< TTL in seconds
+    std::string type;                ///< Record type
+    std::optional<int64_t> weight;   ///< Weight (for SRV records)
 };
 
+/// DigitalOcean success response wrapper.
 struct DigitalOceanDomainResponse {
     DigitalOceanDomainRecord domain_record;
 };
 
-// Error: { "id": "...", "message": "..." }
+/// DigitalOcean error response.
+/// Error shape: { "id": "...", "message": "..." }
 struct DigitalOceanErrorResponse {
-    std::string id;
-    std::string message;
+    std::string id;      ///< Error identifier
+    std::string message; ///< Error description
 };
 
 template<>

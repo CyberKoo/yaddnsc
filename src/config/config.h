@@ -14,56 +14,70 @@
 #include "dns_type.h"
 #include "address_family.h"
 
+/// Configuration data types.
 namespace Config {
+    /// Available IP address source backends.
     enum class IpSource {
-        INTERFACE, HTTP, MDNS
+        INTERFACE, ///< Read IP from a local network interface
+        HTTP,      ///< Query an external HTTP endpoint for the public IP
+        MDNS       ///< Resolve via mDNS (RFC 6762, .local domain)
     };
 
+    /// DNS resolution strategy used by ResolverDispatcher.
     enum class ResolverStrategy {
-        FALLBACK, CONCURRENT
+        FALLBACK,   ///< Try resolvers sequentially until one succeeds
+        CONCURRENT  ///< Query all resolvers concurrently and take the first result
     };
 
+    /// Driver loading configuration.
     struct DriverConfig {
-        std::optional<std::string> driver_dir;
-        bool auto_discover{false};
-        std::vector<std::string> load;
+        std::optional<std::string> driver_dir; ///< Custom directory to search for driver .so files
+        bool auto_discover{false};              ///< Automatically discover drivers in the driver directory
+        std::vector<std::string> load;          ///< Explicit list of driver names/paths to load
     };
 
+    /// DNS resolver configuration.
     struct ResolverConfig {
-        bool use_custom_server{false};
-        std::string address;
-        unsigned short port{53};
-        std::vector<DNS::Server> servers;
-        ResolverStrategy strategy{ResolverStrategy::CONCURRENT};
+        bool use_custom_server{false};               ///< Use custom DNS servers instead of system defaults
+        std::string address;                         ///< Single custom resolver address (backward-compatible)
+        unsigned short port{53};                     ///< Port for the single address (default: 53)
+        std::vector<DNS::Server> servers;            ///< List of custom resolver servers
+        ResolverStrategy strategy{ResolverStrategy::CONCURRENT}; ///< Resolution strategy
     };
 
+    /// Per-subdomain configuration from the config file.
     struct SubdomainConfig {
-        std::string name;
-        DNS::Type type{};
-        std::string interface;
-        AddressFamily ip_type{AddressFamily::UNSPECIFIED};
-        IpSource ip_source{};
-        std::string ip_source_param;
-        bool allow_ula{false};
-        bool allow_local_link{false};
-        int update_interval{}; // 0 = inherit from domain
-        glz::generic driver_param;
+        std::string name;                    ///< Subdomain label (e.g. "www", "@" for apex)
+        DNS::Type type{};                    ///< DNS record type to update
+        std::string interface;               ///< Network interface name (for INTERFACE IP source)
+        AddressFamily ip_type{AddressFamily::UNSPECIFIED}; ///< Preferred address family
+        IpSource ip_source{};                ///< IP source backend
+        std::string ip_source_param;         ///< Parameter passed to the IP source (URL, mDNS hostname, etc.)
+        bool allow_ula{false};               ///< Allow Unique Local Address (ULA, fc00::/7)
+        bool allow_local_link{false};        ///< Allow link-local addresses (fe80::/10)
+        int update_interval{};               ///< Per-subdomain override of the domain update interval (0 = inherit)
+        glz::generic driver_param;           ///< Driver-specific JSON configuration
     };
 
+    /// Per-domain configuration from the config file.
     struct DomainConfig {
-        std::string name;
-        int update_interval{};
-        int force_update{};
-        std::string driver;
-        std::vector<SubdomainConfig> subdomains;
+        std::string name;                      ///< Domain name (e.g. "example.com")
+        int update_interval{};                 ///< Update interval in seconds
+        int force_update{};                    ///< Force-update interval in seconds (0 = disabled)
+        std::string driver;                    ///< Name of the driver plugin to use
+        std::vector<SubdomainConfig> subdomains; ///< Subdomains to update
     };
 
+    /// Top-level application configuration.
     struct AppConfig {
-        DriverConfig driver;
-        ResolverConfig resolver;
-        std::vector<DomainConfig> domains;
+        DriverConfig driver;               ///< Driver loading configuration
+        ResolverConfig resolver;           ///< DNS resolver configuration
+        std::vector<DomainConfig> domains; ///< Domains to manage
     };
 
+    /// Load the application configuration from a JSON file.
+    /// @param config_path  Path to the JSON configuration file.
+    /// @return             Parsed AppConfig struct.
     AppConfig load_config(const std::string &config_path);
 }
 

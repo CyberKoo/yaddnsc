@@ -11,21 +11,24 @@
 
 #include <glaze/glaze.hpp>
 
+/// DNSPod API response status information.
 struct DnsPodStatus {
-    std::string code;
-    std::string message;
-    std::string created_at;
+    std::string code;       ///< Status code (e.g. "1" for success)
+    std::string message;    ///< Status message
+    std::string created_at; ///< Timestamp of the operation
 };
 
+/// DNSPod DNS record as returned by the API.
 struct DnsPodRecord {
-    int64_t id{};
-    std::string name;
-    std::string value;
+    int64_t id{};     ///< Record ID
+    std::string name; ///< Domain name
+    std::string value; ///< Record value
 };
 
+/// Top-level DNSPod API response.
 struct DnsPodResponse {
-    std::optional<DnsPodStatus> status;
-    std::optional<DnsPodRecord> record;
+    std::optional<DnsPodStatus> status; ///< Response status
+    std::optional<DnsPodRecord> record; ///< DNS record data (present on success)
 };
 
 template<>

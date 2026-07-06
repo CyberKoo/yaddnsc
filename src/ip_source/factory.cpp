@@ -15,6 +15,10 @@
 #include "dns/util.hpp"
 #include "config/config.h"
 
+// ===========================================================================
+// IpSourceFactory::create — build the correct IP source from subdomain config.
+// ===========================================================================
+
 std::unique_ptr<IpSourceBase> IpSourceFactory::create(const Config::SubdomainConfig &cfg) {
     auto address_family = DNS::type_to_family(cfg.type);
 

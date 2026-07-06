@@ -19,11 +19,13 @@
 namespace StringUtil {
     // ── Concepts ──────────────────────────────────────────────────────────────────
 
-    /// Any contiguous char buffer that can be mutated (std::string, std::pmr::string, std::vector<char>, etc.)
+    /// Any contiguous char buffer that can be mutated (std::string, std::pmr::string, std::vector<char>, etc.).
+    /// @tparam T  Type satisfying contiguous_range with char value_type.
     template<typename T>
     concept MutableCharBuffer = std::ranges::contiguous_range<T> && std::same_as<std::ranges::range_value_t<T>, char>;
 
-    /// Any type that can be viewed as a string_view (const char*, std::string, std::string_view, etc.)
+    /// Any type that can be viewed as a string_view (const char*, std::string, std::string_view, etc.).
+    /// @tparam T  Type constructible to std::string_view from const T&.
     template<typename T>
     concept StringViewable = std::is_constructible_v<std::string_view, const T &>;
 
@@ -45,7 +47,8 @@ namespace StringUtil {
             return table;
         }();
 
-        // Fixed: check member access `v.first` / `v.second` and string_view constructibility
+        /// A range of pairs whose first and second elements are string-viewable.
+        /// @tparam T  Input range with .first and .second members satisfying StringViewable.
         template<typename T>
         concept PairViewable =
                 std::ranges::input_range<const T> &&
@@ -58,6 +61,8 @@ namespace StringUtil {
 
     // ── In-place case conversion ──────────────────────────────────────────────────
 
+    /// Convert all characters in a mutable buffer to lowercase in place.
+    /// @tparam T  A MutableCharBuffer type (e.g. std::string&).
     template<MutableCharBuffer T>
     void to_lower(T &buf) noexcept {
         std::ranges::transform(buf, buf.begin(), [&](char c) noexcept {
@@ -65,6 +70,8 @@ namespace StringUtil {
         });
     }
 
+    /// Convert all characters in a mutable buffer to uppercase in place.
+    /// @tparam T  A MutableCharBuffer type (e.g. std::string&).
     template<MutableCharBuffer T>
     void to_upper(T &buf) noexcept {
         std::ranges::transform(buf, buf.begin(), [&](char c) noexcept {
@@ -74,6 +81,9 @@ namespace StringUtil {
 
     // ── Copying case conversion ───────────────────────────────────────────────────
 
+    /// Return a lowercased copy of a string-like value.
+    /// @tparam T  A StringViewable type.
+    /// @return    A new std::string with all characters lowered.
     template<StringViewable T>
     std::string to_lower_copy(T &&str) {
         std::string new_str(std::forward<T>(str));
@@ -81,6 +91,9 @@ namespace StringUtil {
         return new_str;
     }
 
+    /// Return an uppercased copy of a string-like value.
+    /// @tparam T  A StringViewable type.
+    /// @return    A new std::string with all characters uppered.
     template<StringViewable T>
     std::string to_upper_copy(T &&str) {
         std::string new_str(std::forward<T>(str));
@@ -90,11 +103,16 @@ namespace StringUtil {
 
     // ── In-place reversal ─────────────────────────────────────────────────────────
 
+    /// Reverse a mutable character buffer in place.
+    /// @tparam T  A MutableCharBuffer type.
     template<MutableCharBuffer T>
     void reverse(T &buf) noexcept {
         std::ranges::reverse(buf);
     }
 
+    /// Return a reversed copy of a string-like value.
+    /// @tparam T  A StringViewable type.
+    /// @return    A new std::string with the characters in reverse order.
     template<StringViewable T>
     std::string reverse_copy(T &&str) {
         std::string_view sv(std::forward<T>(str));
@@ -103,6 +121,8 @@ namespace StringUtil {
 
     // ── View-based trimming ───────────────────────────────────────────────────────
 
+    /// Remove leading whitespace from a string view.
+    /// @return  A substring view with leading whitespace removed.
     inline std::string_view ltrim(const std::string_view sv) noexcept {
         const auto it = std::ranges::find_if(sv, [](unsigned char ch) noexcept {
             return !std::isspace(ch);
@@ -110,6 +130,8 @@ namespace StringUtil {
         return sv.substr(static_cast<size_t>(std::distance(sv.begin(), it)));
     }
 
+    /// Remove trailing whitespace from a string view.
+    /// @return  A substring view with trailing whitespace removed.
     inline std::string_view rtrim(const std::string_view sv) noexcept {
         const auto it = std::ranges::find_if(
             sv | std::views::reverse,
@@ -120,22 +142,30 @@ namespace StringUtil {
         return sv.substr(0, static_cast<size_t>(std::distance(sv.begin(), it.base())));
     }
 
+    /// Remove leading and trailing whitespace from a string view.
+    /// @return  A substring view with both ends trimmed.
     inline std::string_view trim(const std::string_view sv) noexcept {
         return ltrim(rtrim(sv));
     }
 
     // ── Copying trimming (convenience wrappers) ───────────────────────────────────
 
+    /// Return a left-trimmed copy of a string-like value.
+    /// @tparam T  A StringViewable type.
     template<StringViewable T>
     std::string ltrim_copy(T &&str) {
         return std::string(ltrim(std::string_view(std::forward<T>(str))));
     }
 
+    /// Return a right-trimmed copy of a string-like value.
+    /// @tparam T  A StringViewable type.
     template<StringViewable T>
     std::string rtrim_copy(T &&str) {
         return std::string(rtrim(std::string_view(std::forward<T>(str))));
     }
 
+    /// Return a fully trimmed copy of a string-like value.
+    /// @tparam T  A StringViewable type.
     template<StringViewable T>
     std::string trim_copy(T &&str) {
         return std::string(trim(std::string_view(std::forward<T>(str))));
@@ -143,6 +173,11 @@ namespace StringUtil {
 
     // ── Replace (pair list) ───────────────────────────────────────────────────────
 
+    /// Replace occurrences of multiple target strings in place.
+    /// Each target is replaced only once (the first match) per entry in the list.
+    /// @tparam R  A PairViewable range (range of {target, replacement} pairs).
+    /// @param str          The string to modify in place.
+    /// @param replace_list List of {target, replacement} pairs to apply sequentially.
     template<detail::PairViewable R>
     void replace(std::string &str, const R &replace_list) {
         for (const auto &[target, new_content]: replace_list) {
@@ -180,6 +215,11 @@ namespace StringUtil {
         }
     }
 
+    /// Return a copy of the string with the first occurrence of each target replaced.
+    /// @tparam R  A PairViewable range.
+    /// @param str          The input string to transform.
+    /// @param replace_list List of {target, replacement} pairs to apply sequentially.
+    /// @return             A new string with replacements applied.
     template<detail::PairViewable R>
     std::string replace_copy(std::string_view str, const R &replace_list) {
         auto s = std::string(str);
@@ -189,6 +229,16 @@ namespace StringUtil {
 
     // ── Replace (single target/replacement) ───────────────────────────────────────
 
+    /// Replace all occurrences of `target` with `replacement` in place.
+    ///
+    /// For equal-length strings, performs an in-place overwrite with no allocation.
+    /// For unequal-length strings, builds a new string with a single allocation.
+    ///
+    /// @tparam S          A StringViewable target type.
+    /// @tparam T          A StringViewable replacement type.
+    /// @param str         The string to modify in place.
+    /// @param target      The substring to search for.
+    /// @param replacement The string to replace each match with.
     template<StringViewable S, StringViewable T>
     void replace_all(std::string &str, S &&target, T &&replacement) {
         const std::string_view ts(std::forward<S>(target));
@@ -228,6 +278,13 @@ namespace StringUtil {
         str.swap(result);
     }
 
+    /// Replace the first occurrence of `target` with `replacement` in place.
+    /// @tparam S          A StringViewable target type.
+    /// @tparam T          A StringViewable replacement type.
+    /// @param str         The string to modify in place.
+    /// @param target      The substring to search for.
+    /// @param replacement The string to replace the first match with.
+    /// @return            true if a replacement was made, false if target was not found.
     template<StringViewable S, StringViewable T>
     bool replace_first(std::string &str, S &&target, T &&replacement) {
         const std::string_view ts(std::forward<S>(target));
@@ -241,6 +298,13 @@ namespace StringUtil {
         return true;
     }
 
+    /// Return a copy with all occurrences of `target` replaced by `replacement`.
+    /// @tparam S          A StringViewable target type.
+    /// @tparam T          A StringViewable replacement type.
+    /// @param str         The input string to transform.
+    /// @param target      The substring to search for.
+    /// @param replacement The string to replace each match with.
+    /// @return            A new string with all replacements applied.
     template<StringViewable S, StringViewable T>
     std::string replace_all_copy(std::string_view str, S &&target, T &&replacement) {
         auto s = std::string(str);
@@ -252,6 +316,10 @@ namespace StringUtil {
 
     /// Splits a string-like value by `delim`. Empty parts are skipped.
     /// Delimiter must not be empty; asserts in debug builds.
+    /// @tparam T     A StringViewable type.
+    /// @param str    The string to split.
+    /// @param delim  The delimiter string (default: single space).
+    /// @return       A vector of non-empty substrings.
     template<StringViewable T>
     std::vector<std::string> split(T &&str, const std::string_view delim = " ") {
         assert(!delim.empty() && "delimiter must not be empty"); // undefined behavior with views::split
@@ -273,6 +341,10 @@ namespace StringUtil {
 
     /// Joins a range of string-like values with `delim` between them.
     /// Constraint strengthened to forward_range to allow two-pass algorithm.
+    /// @tparam R     A forward range whose value type is StringViewable.
+    /// @param parts  The range of string-like values to join.
+    /// @param delim  The delimiter to insert between elements.
+    /// @return       A concatenated string with delimiters.
     template<std::ranges::forward_range R> requires StringViewable<std::ranges::range_value_t<R> >
     std::string join(R &&parts, const std::string_view delim) {
         size_t total = 0;
@@ -297,12 +369,25 @@ namespace StringUtil {
 
     // ── Query functions ───────────────────────────────────────────────────────────
 
+    /// Check if a string contains a substring.
+    /// @tparam T  A StringViewable type (the haystack).
+    /// @tparam U  A StringViewable type (the needle).
+    /// @param str  The string to search in.
+    /// @param sub  The substring to search for.
+    /// @return     true if `sub` is found within `str`.
     template<StringViewable T, StringViewable U>
     constexpr bool contains(T &&str, U &&sub) noexcept {
         return std::string_view(std::forward<T>(str))
                .find(std::string_view(std::forward<U>(sub))) != std::string_view::npos;
     }
 
+    /// Count the number of (non-overlapping) occurrences of `sub` in `str`.
+    /// An empty `sub` returns 0.
+    /// @tparam T  A StringViewable type (the haystack).
+    /// @tparam U  A StringViewable type (the needle).
+    /// @param str  The string to search in.
+    /// @param sub  The substring to count.
+    /// @return     The number of occurrences.
     template<StringViewable T, StringViewable U>
     constexpr size_t count(T &&str, U &&sub) noexcept {
         const std::string_view sv(std::forward<T>(str));
@@ -320,6 +405,11 @@ namespace StringUtil {
 
     // ── String → bool ─────────────────────────────────────────────────────────────
 
+    /// Convert a string representation of a boolean to bool.
+    /// Recognises "1", "on"/"ON", "yes"/"YES", "true"/"TRUE" as true;
+    /// everything else is false.
+    /// @tparam T  A StringViewable type.
+    /// @return     The boolean value.
     template<StringViewable T>
     constexpr bool str_to_bool(T &&str) noexcept {
         const std::string_view s(std::forward<T>(str));

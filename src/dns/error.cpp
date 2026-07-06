@@ -3,6 +3,10 @@
 //
 #include "dns_error.h"
 
+// ===========================================================================
+// DNS::error_to_str — convert DNS::Error enum to a human-readable string.
+// ===========================================================================
+
 std::string_view DNS::error_to_str(Error error) {
     switch (error) {
         case Error::NX_DOMAIN:

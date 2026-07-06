@@ -8,17 +8,20 @@
 #include <cstdint>
 #include <string>
 
-// ---------------------------------------------------------------------------
-// DNS — shared types used across config and DNS layers.
-// ---------------------------------------------------------------------------
+/// Shared types used across config and DNS layers.
 namespace DNS {
+    /// DNS record types supported by the updater.
     enum class Type {
-        A, AAAA, TXT, SOA
+        A,    ///< IPv4 address record
+        AAAA, ///< IPv6 address record
+        TXT,  ///< Text record
+        SOA   ///< Start of Authority record
     };
 
+    /// A DNS server endpoint.
     struct Server {
-        std::string address;
-        uint16_t port{53};
+        std::string address; ///< Hostname or IP address of the DNS server
+        uint16_t port{53};   ///< UDP/TCP port (default: 53)
     };
 }
 

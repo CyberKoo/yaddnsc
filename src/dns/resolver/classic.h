@@ -12,10 +12,16 @@
 #include "dns_type.h"
 #include "base.h"
 
+/// ClassicResolver — DNS resolver using the system libresolv (res_query).
+///
+/// Queries the system-configured DNS servers (or a custom server) via
+/// the traditional res_query() API.
 class ClassicResolver final : public ResolverBase {
 public:
+    /// Construct with system default resolver configuration.
     explicit ClassicResolver();
 
+    /// Construct with a custom DNS server.
     explicit ClassicResolver(std::optional<DNS::Server> server);
 
     ~ClassicResolver() override;

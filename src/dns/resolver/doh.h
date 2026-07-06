@@ -14,19 +14,20 @@
 
 class HttpClient;
 
-// ---------------------------------------------------------------------------
-// DohResolver — DNS-over-HTTPS (RFC 8484) resolver.
-//
-// Uses the existing TransientHttpClient wrapper (not cpp-httplib directly) to send
-// DNS queries as HTTPS POST requests with Content-Type: application/dns-message
-// to the well-known /dns-query endpoint.
-//
-// Input:  DnsServer{ip_address, port} — same config struct used by ClassicResolver.
-//         The HTTPS URL is derived as  https://{ip_address}/dns-query
-// Output: Raw DNS response bytes (wire format), ready for DnsRecordParser.
-// ---------------------------------------------------------------------------
+/// DohResolver — DNS-over-HTTPS (RFC 8484) resolver.
+///
+/// Uses the existing TransientHttpClient wrapper to send
+/// DNS queries as HTTPS POST requests with Content-Type: application/dns-message
+/// to the well-known /dns-query endpoint.
+///
+/// Input:  DnsServer{ip_address, port} — same config struct used by ClassicResolver.
+///         The HTTPS URL is derived as  https://{ip_address}/dns-query
+/// Output: Raw DNS response bytes (wire format), ready for DnsRecordParser.
 class DohResolver final : public ResolverBase {
 public:
+    /// Construct with an HTTP client and server address.
+    /// @param http_client  HTTP client for sending DoH requests.
+    /// @param server       Server hostname or IP address.
     explicit DohResolver(std::unique_ptr<HttpClient> http_client, std::string server);
 
     ~DohResolver() override;

@@ -7,6 +7,11 @@
 
 #include "exception/driver.h"
 
+/// Thrown when a driver's JSON configuration cannot be parsed or is missing
+/// required fields.
+///
+/// The message contains the glaze-formatted error describing which field
+/// is missing or malformed.
 class ParamParseException : public DriverException {
 public:
     using DriverException::DriverException;

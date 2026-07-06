@@ -23,10 +23,10 @@
 // ===========================================================================
 
 struct DriverManager::Impl {
-    // RAII wrapper for a loaded driver and its shared-library handle.
+    /// RAII wrapper for a loaded driver and its shared-library handle.
     struct DriverModule final {
-        // Custom deleter that calls destroy() inside the driver .so,
-        // ensuring allocation and deallocation stay in the same module.
+        /// Custom deleter that calls destroy() inside the driver .so,
+        /// ensuring allocation and deallocation stay in the same module.
         struct DriverDeleter {
             void (*destroy_)(Driver *) = nullptr;
 
@@ -37,7 +37,7 @@ struct DriverManager::Impl {
             }
         };
 
-        // RAII wrapper for dlopen handle.
+        /// RAII wrapper for dlopen handle.
         struct HandleCloser {
             static constexpr void operator()(void *ptr) noexcept {
                 if (ptr) { dlclose(ptr); }
@@ -51,14 +51,16 @@ struct DriverManager::Impl {
 
         DriverModule &operator=(DriverModule &&) = default;
 
+        /// Open the shared library and resolve driver symbols.
         explicit DriverModule(const std::string &path);
 
+        /// Return a const reference to the loaded Driver instance.
         [[nodiscard]] const Driver &get() const;
 
         ~DriverModule() = default;
 
-        // Resolve a symbol from a shared library and check for errors.
-        // Signature is a function type, e.g. Driver*() or void(Driver*).
+        /// Resolve a symbol from a shared library and check for errors.
+        /// Signature is a function type, e.g. Driver*() or void(Driver*).
         template<typename Signature> requires std::is_function_v<Signature>
         static Signature *resolve_symbol(const HandlePtr &handle, const char *name) {
             dlerror(); // clear previous errors before calling dlsym
@@ -75,18 +77,24 @@ struct DriverManager::Impl {
             return sym;
         }
 
+        /// dlopen handle for the shared library.
         HandlePtr handle_;
+        /// Wrapped Driver instance with module-aware deleter.
         DriverPtr driver_;
     };
 
     ~Impl() = default;
 
+    /// Extract the file name from a path (e.g. "/usr/lib/drv.so" → "drv.so").
     static std::string_view get_driver_name(std::string_view path);
 
+    /// Validate, register, and store a loaded driver module.
     void register_driver(DriverModule driver_res, std::string_view driver_lib_name);
 
+    /// Unload a previously registered driver by name.
     void unload_driver(const std::string &name);
 
+    /// Map of driver name → DriverModule (owns the .so handle and Driver).
     std::map<std::string, DriverModule> driver_map_;
 };
 

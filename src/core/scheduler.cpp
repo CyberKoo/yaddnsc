@@ -19,10 +19,10 @@
 #include "config/config.h"
 
 // ---------------------------------------------------------------------------
-// SubdomainEntry — a single node in the scheduling min-heap.
+// ScheduleEntry — a single node in the scheduling min-heap.
 // Kept private inside the .cpp; never exposed to callers.
 // ---------------------------------------------------------------------------
-struct SubdomainEntry {
+struct ScheduleEntry {
     std::chrono::steady_clock::time_point deadline;
     int update_interval{};
     int force_update_interval{};
@@ -30,7 +30,7 @@ struct SubdomainEntry {
     UpdateTask task;
 
     // std::priority_queue is a max-heap by default, so we invert the comparison.
-    bool operator>(const SubdomainEntry &other) const {
+    bool operator>(const ScheduleEntry &other) const {
         return deadline > other.deadline;
     }
 };
@@ -42,9 +42,7 @@ struct SubdomainEntry {
 struct Scheduler::Impl {
     Impl(Config::AppConfig config, std::stop_token stop_token);
 
-    void build_initial_schedule();
-
-    static bool check_force_update(SubdomainEntry &entry, std::chrono::steady_clock::time_point now);
+    static bool check_force_update(ScheduleEntry &entry, std::chrono::steady_clock::time_point now);
 
     std::vector<UpdateTask> pop_all_due();
 
@@ -59,7 +57,7 @@ struct Scheduler::Impl {
     std::stop_token stop_token_;
 
     // ---- scheduling state --------------------------------------------------
-    std::priority_queue<SubdomainEntry, std::vector<SubdomainEntry>, std::greater<> > heap_;
+    std::priority_queue<ScheduleEntry, std::vector<ScheduleEntry>, std::greater<> > heap_;
 
     // ---- synchronisation ---------------------------------------------------
     mutable std::mutex mtx_;
@@ -70,16 +68,12 @@ struct Scheduler::Impl {
 Scheduler::Impl::Impl(Config::AppConfig config, std::stop_token stop_token)
     : config_(std::move(config)), stop_token_(std::move(stop_token)),
       stop_cb_(stop_token_, [this] { cv_.notify_all(); }) {
-    build_initial_schedule();
-}
-
-void Scheduler::Impl::build_initial_schedule() {
     for (const auto &[name, update_interval, force_update, driver, subdomains]: config_.domains) {
         for (const auto &subdomain: subdomains) {
             const auto fqdn = fmt::format("{}.{}", subdomain.name, name);
             const auto effective_interval = subdomain.update_interval > 0 ? subdomain.update_interval : update_interval;
 
-            heap_.push(SubdomainEntry{
+            heap_.push(ScheduleEntry{
                 .deadline = std::chrono::steady_clock::now(),
                 .update_interval = effective_interval,
                 .force_update_interval = force_update,
@@ -98,7 +92,7 @@ void Scheduler::Impl::build_initial_schedule() {
     SPDLOG_INFO("Scheduler initialised with {} tasks", heap_.size());
 }
 
-bool Scheduler::Impl::check_force_update(SubdomainEntry &entry, std::chrono::steady_clock::time_point now) {
+bool Scheduler::Impl::check_force_update(ScheduleEntry &entry, std::chrono::steady_clock::time_point now) {
     if (entry.force_update_interval <= 0) {
         return false;
     }

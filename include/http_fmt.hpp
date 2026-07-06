@@ -8,10 +8,8 @@
 #include "fmt.hpp"
 #include "http_type.h"
 
-// ---------------------------------------------------------------------------
-// fmt / std::format formatter for HttpRequest
-// (also covers DriverRequest, which is a type alias for HttpRequest)
-// ---------------------------------------------------------------------------
+/// fmt / std::format formatter for HttpRequest
+/// (also covers DriverRequest, which is a type alias for HttpRequest).
 
 #ifdef YADDNSC_USE_STD_FORMAT
 template<>
@@ -24,6 +22,7 @@ struct std::formatter<HttpRequest> {
 
 #endif
 
+    /// Convert an HttpMethod enum value to its string representation.
     static std::string_view to_string(const HttpMethod type) {
         switch (type) {
             case HttpMethod::GET:
@@ -41,6 +40,10 @@ struct std::formatter<HttpRequest> {
         }
     }
 
+    /// Format a key-value map range into a human-readable string.
+    /// @param first  Iterator to the first key-value pair.
+    /// @param last   Past-the-end iterator.
+    /// @return       String like "key1=val1; key2=val2".
     template<typename Iter>
     [[nodiscard]] static std::string format_map(Iter first, Iter last) {
         std::string buf;

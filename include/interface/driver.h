@@ -12,51 +12,56 @@
 #include "http_client.h"
 #include "http_type.h"
 
+/// Opaque driver configuration string (raw JSON).
 using DriverConfig = std::string;
+
+/// HTTP parameter map used in driver requests.
 using DriverParams = HttpParams;
+
+/// HTTP method alias for driver use.
 using DriverHttpMethod = HttpMethod;
+
+/// HTTP request alias for driver use.
 using DriverRequest = HttpRequest;
 
-// ---------------------------------------------------------------------------
-//  Driver detail — static metadata exposed by each driver
-// ---------------------------------------------------------------------------
-
+/// Static metadata exposed by each driver.
 struct DriverDetail final {
-    const std::string_view name;
-    const std::string_view description;
-    const std::string_view author;
-    const std::string_view version;
+    const std::string_view name;        ///< Driver display name, e.g. "cloudflare"
+    const std::string_view description; ///< Human-readable description of what this driver does
+    const std::string_view author;      ///< Driver author name / handle
+    const std::string_view version;     ///< Driver version (semver string)
 };
 
-// ---------------------------------------------------------------------------
-//  DriverRequestContext — the result of a driver's request generation
-// ---------------------------------------------------------------------------
-
-// Combined result from generate_request — the URL is passed separately
-// to HttpClient::exchange(), not embedded in HttpRequest.
+/// Combined result from a driver's request generation.
+///
+/// The URL is passed separately to HttpClient::exchange(), not embedded
+/// in HttpRequest.
 struct DriverRequestContext {
-    std::string url;
-    HttpRequest request;
+    std::string url;     ///< Target URL for the API call
+    HttpRequest request; ///< HTTP request body, headers, and method
 };
 
-// ---------------------------------------------------------------------------
-//  DriverUpdateParams — per-update parameters consumed by drivers
-// ---------------------------------------------------------------------------
-
-// Immutable after construction; create via aggregate / designated init only.
-// Populated by the updater from the current task + resolved IP address.
+/// Per-update parameters consumed by drivers.
+///
+/// Immutable after construction; created via aggregate/designated init only.
+/// Populated by the updater from the current task + resolved IP address.
 struct DriverUpdateParams final {
-    const std::string ip_addr;
-    const std::string rd_type;
-    const std::string domain;
-    const std::string subdomain;
-    const std::string fqdn;
+    const std::string ip_addr;   ///< Resolved IP address to update
+    const std::string rd_type;   ///< DNS record type as string (e.g. "A", "AAAA")
+    const std::string domain;    ///< Parent domain name
+    const std::string subdomain; ///< Subdomain label (may be "@" or empty for apex)
+    const std::string fqdn;      ///< Fully qualified domain name (subdomain.domain)
 };
 
-// ---------------------------------------------------------------------------
-//  Driver interface — every DNS backend must implement this
-// ---------------------------------------------------------------------------
-
+/// Driver interface — every DNS backend must implement this.
+///
+/// A driver encapsulates the logic to:
+///   1. Build an API request from config and update params (`generate_request`).
+///   2. Validate the upstream response (`check_response`).
+///   3. (Optionally) orchestrate the full HTTP flow (`execute`).
+///
+/// Implementations should inherit from BaseDriver which provides a default
+/// `execute()` and `get_abi_version()`.
 class Driver {
 public:
     Driver() = default;
@@ -67,16 +72,30 @@ public:
     Driver(Driver &&) = delete;
     Driver &operator=(Driver &&) = delete;
 
+    /// Build the API request for a DNS record update.
+    /// @param config  Driver-specific JSON configuration string.
+    /// @param ctx     Per-update parameters (IP, domain, etc.).
+    /// @return        URL + HttpRequest ready to be sent via HttpClient.
     [[nodiscard]] virtual DriverRequestContext generate_request(
         const DriverConfig &config, const DriverUpdateParams &ctx
     ) const = 0;
 
+    /// Validate the upstream API response.
+    /// @param response  The HTTP response received from the API server.
+    /// @return true if the update was accepted by the upstream service.
     [[nodiscard]] virtual bool check_response(const HttpResponse &response) const = 0;
 
+    /// Return static metadata about this driver.
     [[nodiscard]] virtual DriverDetail get_detail() const = 0;
 
+    /// Return the ABI version of this driver plugin.
     [[nodiscard]] virtual AbiVersion get_abi_version() const = 0;
 
+    /// Execute a full update cycle: generate request → exchange → check response.
+    ///
+    /// The default implementation in BaseDriver is sufficient for most drivers.
+    /// Override only if the driver requires custom HTTP handling (e.g. multiple
+    /// round trips, session tokens, etc.).
     [[nodiscard]] virtual bool execute(
         const DriverConfig &config, const DriverUpdateParams &ctx, HttpClient &http
     ) const = 0;

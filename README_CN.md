@@ -126,6 +126,7 @@ sudo cmake --install build
 | `YADDNSC_MIN_UPDATE_INTERVAL` | 60                                            | 最小允许的更新间隔（秒）                    |
 | `YADDNSC_MANUAL_MKQUERY`      | OFF                                           | 使用自建 DNS 查询构建器代替系统 res_mkquery() |
 | `YADDNSC_USE_SYSTEM_SPDLOG`   | OFF                                           | 使用系统 spdlog 代替 CPM 下载的版本         |
+| `YADDNSC_BUILD_DOCS`          | OFF                                           | 从源码注释构建 Doxygen API 文档             |
 | `YADDNSC_ENABLE_DEB`          | OFF                                           | 启用 CPack DEB 包生成                |
 
 #### 构建 DEB 包
@@ -151,6 +152,18 @@ docker run yaddnsc --help
 ```
 
 Docker 构建生成一个极小化的运行时镜像，仅包含所需的共享库（OpenSSL、zlib、brotli、libstdc++），以非 root 用户运行，并预置默认配置文件。
+
+#### Doxygen API 文档
+
+可通过 Doxygen 从源码注释生成 API 文档：
+
+```bash
+cmake -B build -DCMAKE_BUILD_TYPE=Release -DYADDNSC_BUILD_DOCS=ON
+cmake --build build -j$(nproc)
+make -C build doxygen   # 在 build/docs/ 生成 HTML 文档
+```
+
+需要安装 `doxygen`，可选安装 `graphviz`（用于生成图表）。
 
 第三方依赖通过 CPM.cmake 自动下载。
 
@@ -490,6 +503,10 @@ yaddnsc -c /etc/yaddnsc/config.json -v run
 # 验证配置文件
 yaddnsc config test
 
+# 静默验证（仅通过退出码判断）
+yaddnsc config test -q
+yaddnsc config test --quiet
+
 # 打印解析后的配置 JSON
 yaddnsc config show
 
@@ -544,7 +561,7 @@ echo 'YADDNSC_CONFIG=/custom/path/config.json' | sudo tee /etc/yaddnsc/default/y
 
 1. 包含 `driver/base.h`，继承 `BaseDriver` 类。
 2. 实现 `Driver` 接口的纯虚方法：
-   - `generate_request(config, ctx)` — 构造 `DriverRequest`（URL、HTTP 方法、请求头、请求体）
+   - `generate_request(config, ctx)` — 构造 `DriverRequestContext`（包含 URL 及 `DriverRequest`：HTTP 方法、请求头、请求体）
    - `check_response(response)` — 验证 API 响应体
    - `get_detail()` — 返回驱动元信息（名称、描述、作者、版本）
    - `get_abi_version()` — ABI 版本检查（`BaseDriver` 中已实现为 `final`，无需覆盖）

@@ -14,24 +14,33 @@ class HttpClient;
 struct UpdateTask;
 class ResolverDispatcher;
 
-// ---------------------------------------------------------------------------
-// Updater — executor that processes a single UpdateTask.
-//
-// Holds a non-owning reference to the ResolverDispatcher (initialized before
-// any call to process()). The Driver is pre-resolved by the caller and passed
-// directly into process(), eliminating the need for runtime string lookups.
-//
-// process() is thread-safe: it is marked const, owns no mutable state, and
-// may be called concurrently from multiple pool threads.
-// ---------------------------------------------------------------------------
+/// Updater — executor that processes a single UpdateTask.
+///
+/// Holds a non-owning reference to the ResolverDispatcher (initialised before
+/// any call to process()). The Driver is pre-resolved by the caller and passed
+/// directly into process(), eliminating the need for runtime string lookups.
+///
+/// @note process() is thread-safe: it is marked const, owns no mutable state,
+///       and may be called concurrently from multiple pool threads.
 class Updater {
 public:
+    /// Construct with a reference to the resolver dispatcher.
+    /// @param resolver_pool  Resolver used to look up current DNS records.
     explicit Updater(const ResolverDispatcher &resolver_pool);
 
     ~Updater();
 
-    // Process with an externally-provided HttpClient (e.g. a mock in tests).
-    // Never throws — all errors and outcomes are logged internally via SPDLOG.
+    /// Execute a single update task using the given driver and HTTP client.
+    ///
+    /// Steps:
+    ///   1. Optionally resolve the current DNS record for comparison.
+    ///   2. If the IP has changed (or force_update is set), invoke the driver.
+    ///
+    /// @param task         The update task describing what to update.
+    /// @param driver       The driver plugin to use.
+    /// @param http_client  HTTP client for the upstream API call.
+    ///
+    /// @note Never throws — all errors and outcomes are logged internally.
     void process(const UpdateTask &task, const Driver &driver, HttpClient &http_client) const noexcept;
 
 private:

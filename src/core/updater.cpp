@@ -34,17 +34,24 @@ namespace {
 struct Updater::Impl {
     explicit Impl(const ResolverDispatcher &resolver_dispatcher);
 
+    /// Execute a single update task: resolve local IP, compare with DNS
+    /// record, and invoke the driver if the IP has changed.
     void process(const UpdateTask &task, const Driver &driver, HttpClient &http_client) const;
 
+    /// Perform a DNS lookup for the given host and record type.
     [[nodiscard]] std::vector<std::string> dns_lookup(const std::string &host, DNS::Type type) const;
 
+    /// Resolve the local IP address from the configured IP source.
     [[nodiscard]] static std::optional<InetAddress> resolve_local_address(const Config::SubdomainConfig &config);
 
+    /// Build the driver configuration string from the update task.
     [[nodiscard]] static DriverConfig build_driver_parameters(const UpdateTask &task);
 
+    /// Build the per-update parameter struct for the driver.
     [[nodiscard]] static DriverUpdateParams
     build_update_context(const UpdateTask &task, const InetAddress &ip_addr, std::string_view rd_type);
 
+    /// Non-owning reference to the resolver dispatcher (owned by Manager::Impl).
     const ResolverDispatcher &dispatcher_;
 };
 

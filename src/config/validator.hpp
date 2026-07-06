@@ -19,14 +19,15 @@
 #include "core/driver_manager.h"
 #include "exception/config_verification.h"
 
-// ---------------------------------------------------------------------------
-// Internal helpers (hidden in detail namespace)
-// ---------------------------------------------------------------------------
+/// Internal helpers (hidden in detail namespace).
 namespace detail {
+    /// Build the FQDN for a subdomain within a domain.
     inline std::string fqdn_for(const Config::DomainConfig &domain, const Config::SubdomainConfig &subdomain) {
         return fmt::format("{}.{}", subdomain.name, domain.name);
     }
 
+    /// Validate IP source configuration for a subdomain.
+    /// @throws ConfigVerificationException  On any violated constraint.
     inline void validate_ip_source(const Config::DomainConfig &domain, const Config::SubdomainConfig &subdomain) {
         auto fqdn = fqdn_for(domain, subdomain);
 
@@ -91,6 +92,8 @@ namespace detail {
         }
     }
 
+    /// Validate a DNS resolver address string.
+    /// @throws ConfigVerificationException  If the address is not a valid DoH/DoT URI or IP.
     inline void validate_resolver_address(const std::string &address) {
         const auto uri = Uri::parse(address);
         // DoH / DoT address — starts with https or tls, skip IP validation.
@@ -115,25 +118,27 @@ namespace detail {
     }
 } // namespace detail
 
-// ---------------------------------------------------------------------------
-// ConfigValidator — performs all pre-flight checks on the parsed configuration
-// before the scheduler starts.
-//
-// The MinUpdateInterval template parameter controls the minimum allowed update
-// interval (in seconds).  Interface names are injected as a vector so that the
-// validator can check that every referenced interface exists on the system.
-//
-// Each check throws ConfigVerificationException on failure, so a single call
-// to validate() either returns normally (all checks pass) or throws at the
-// first violated constraint.
-// ---------------------------------------------------------------------------
+/// ConfigValidator — performs all pre-flight checks on the parsed configuration
+/// before the scheduler starts.
+///
+/// @tparam MinUpdateInterval  The minimum allowed update interval in seconds.
+///
+/// Each check throws ConfigVerificationException on failure, so a single call
+/// to validate() either returns normally (all checks pass) or throws at the
+/// first violated constraint.
 template<int UpdateInterval>
 class ConfigValidator {
 public:
+    /// Construct with the loaded driver manager and available interfaces.
+    /// @param driver_manager  Manager with all loaded driver plugins.
+    /// @param interfaces      List of network interface names on the system.
     ConfigValidator(const DriverManager &driver_manager, std::vector<std::string> interfaces)
         : driver_manager_(driver_manager), interfaces_(std::move(interfaces)) {
     }
 
+    /// Run all validation checks against the application configuration.
+    /// @param cfg  The parsed application configuration.
+    /// @throws ConfigVerificationException  On the first violated constraint.
     void validate(const Config::AppConfig &cfg) const {
         const auto drivers = driver_manager_.get_loaded_drivers();
 

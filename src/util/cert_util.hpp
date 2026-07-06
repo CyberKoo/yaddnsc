@@ -14,9 +14,12 @@
 #include <spdlog/spdlog.h>
 
 namespace Utils::Cert {
-    // Search well-known system locations for a CA certificate bundle file.
-    // Returns the path to the first found bundle, or std::nullopt if none were
-    // found. The result is cached after the first invocation.
+    /// Search well-known system locations for a CA certificate bundle file.
+    ///
+    /// Returns the path to the first found bundle, or std::nullopt if none were
+    /// found. The result is cached after the first invocation.
+    ///
+    /// @return  Path to a CA bundle file, or std::nullopt.
     inline std::optional<std::string> get_system_ca_path() {
         static const std::optional<std::string> system_ca_path = []() -> std::optional<std::string> {
             static constexpr std::string_view search_paths[]{

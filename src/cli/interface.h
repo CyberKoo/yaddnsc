@@ -10,14 +10,14 @@
 #include <CLI/CLI.hpp>
 
 namespace Cli {
-    // List all network interfaces and their addresses.
+    /// List all network interfaces and their addresses.
     int execute_interface_list();
 
-    // Show IP addresses for a specific interface.
+    /// Show IP addresses for a specific interface.
     int execute_interface_ip(const std::string &interface_name);
 
-    // Register the "interface" subcommand tree on the given CLI::App.
-    // Owns its own option storage internally.
+    /// Register the "interface" subcommand tree on the given CLI::App.
+    /// Owns its own option storage internally.
     void register_interface_subcommand(CLI::App &app, int &exit_code);
 } // namespace Cli
 

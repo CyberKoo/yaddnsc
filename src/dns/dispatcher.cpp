@@ -49,18 +49,18 @@ struct ResolverDispatcher::Impl {
 
     // ── Shared state for concurrent queries ──
     struct ConcurrentState {
-        std::mutex mtx;
-        std::condition_variable cv;
+        std::mutex mtx;                            ///< Guards result/error flags.
+        std::condition_variable cv;                ///< Notified when a resolver completes.
 
-        std::vector<std::string> result;
-        bool has_result = false;
+        std::vector<std::string> result;           ///< Valid result from the fastest resolver.
+        bool has_result = false;                   ///< True once a resolver returns a valid answer.
 
-        bool has_nxdomain = false;
-        std::optional<DnsLookupException> definitive_error;
-        std::optional<DnsLookupException> transient_error;
+        bool has_nxdomain = false;                 ///< True if any resolver returned NXDOMAIN.
+        std::optional<DnsLookupException> definitive_error;  ///< Non-retryable error from any resolver.
+        std::optional<DnsLookupException> transient_error;   ///< Retryable error from any resolver.
 
-        int completed = 0;
-        int total = 0;
+        int completed = 0;                         ///< Number of resolvers that finished.
+        int total = 0;                             ///< Total resolvers in this batch.
     };
 
     static bool is_retryable(DNS::Error error);
@@ -85,7 +85,9 @@ struct ResolverDispatcher::Impl {
     mutable std::once_flag fallback_init_flag_;
     mutable std::optional<ClassicResolver> fallback_resolver_;
 
+    /// Configured resolver backends (may be empty for system fallback only).
     std::vector<std::shared_ptr<ResolverBase> > resolvers_;
+    /// Dispatch strategy: FALLBACK (sequential) or CONCURRENT (batched).
     Config::ResolverStrategy strategy_{Config::ResolverStrategy::CONCURRENT};
 };
 

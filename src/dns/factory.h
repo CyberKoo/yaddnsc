@@ -11,14 +11,14 @@ namespace Config {
     struct AppConfig;
 }
 
-// ---------------------------------------------------------------------------
-// DnsResolverFactory — constructs a ResolverDispatcher from application
-//                      config.
-//
-// Extracted from Manager::Impl to isolate URI-parsing and resolver-type
-// selection logic into a single, independently testable component.
-// ---------------------------------------------------------------------------
+/// DnsResolverFactory — constructs a ResolverDispatcher from application config.
+///
+/// Extracted from Manager::Impl to isolate URI-parsing and resolver-type
+/// selection logic into a single, independently testable component.
 namespace DnsResolverFactory {
+    /// Build a fully-configured ResolverDispatcher from application config.
+    /// @param config  Application configuration with resolver settings.
+    /// @return        A ResolverDispatcher ready for use.
     ResolverDispatcher create(const Config::AppConfig &config);
 }
 

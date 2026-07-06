@@ -127,9 +127,8 @@ namespace {
     // do_exchange — shared by TransientHttpClient and PersistentHttpClient
     // -----------------------------------------------------------------------
 
-    [[nodiscard]] HttpResult do_exchange(httplib::Client &client, std::string_view url,
+    [[nodiscard]] HttpResult do_exchange(httplib::Client &client, const Uri &uri,
                                           const HttpRequest &req) {
-        const auto uri = Uri::parse(url);
         const auto path = build_request(uri);
 
         SPDLOG_DEBUG("Sending {} request to {}://{}{} ({} header(s), {} bytes body)",
@@ -194,20 +193,21 @@ HttpResult TransientHttpClient::exchange(std::string_view url, const HttpRequest
     const auto uri = Uri::parse(url);
     auto client = httplib::Client(build_base_url(uri));
     apply_options(client, uri, opts_);
-    return do_exchange(client, url, req);
+    return do_exchange(client, uri, req);
 }
 
 // ---------------------------------------------------------------------------
 // PersistentHttpClient
 // ---------------------------------------------------------------------------
 
-PersistentHttpClient::PersistentHttpClient(const Uri &uri, HttpClientOptions opts) : client_(
-    std::make_unique<httplib::Client>(build_base_url(uri))) {
+PersistentHttpClient::PersistentHttpClient(const Uri &uri, HttpClientOptions opts)
+    : uri_(uri),
+      client_(std::make_unique<httplib::Client>(build_base_url(uri))) {
     apply_options(*client_, uri, opts);
 }
 
 PersistentHttpClient::~PersistentHttpClient() = default;
 
-HttpResult PersistentHttpClient::exchange(std::string_view url, const HttpRequest &req) const {
-    return do_exchange(*client_, url, req);
+HttpResult PersistentHttpClient::exchange(std::string_view /*url*/, const HttpRequest &req) const {
+    return do_exchange(*client_, uri_, req);
 }

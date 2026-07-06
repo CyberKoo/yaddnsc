@@ -127,6 +127,7 @@ Unit tests are blocked by the tight coupling between core components — the IP 
 | `YADDNSC_MIN_UPDATE_INTERVAL` | 60                                            | Minimum allowed update interval in seconds                         |
 | `YADDNSC_MANUAL_MKQUERY`      | OFF                                           | Use a custom DNS query builder instead of system `res_mkquery()`   |
 | `YADDNSC_USE_SYSTEM_SPDLOG`   | OFF                                           | Use system spdlog instead of the bundled CPM-downloaded version    |
+| `YADDNSC_BUILD_DOCS`          | OFF                                           | Build Doxygen API documentation from source comments               |
 | `YADDNSC_ENABLE_DEB`          | OFF                                           | Enable DEB package generation via CPack                            |
 
 #### Building a DEB package
@@ -152,6 +153,18 @@ docker run yaddnsc --help
 ```
 
 The Docker build produces a minimal runtime image with only the required shared libraries (OpenSSL, zlib, brotli, libstdc++), a non-root user, and the binary pre-configured with a default config.
+
+#### Doxygen API Documentation
+
+API documentation can be generated from source comments using Doxygen:
+
+```bash
+cmake -B build -DCMAKE_BUILD_TYPE=Release -DYADDNSC_BUILD_DOCS=ON
+cmake --build build -j$(nproc)
+make -C build doxygen   # generates HTML docs in build/docs/
+```
+
+Requires `doxygen` and optionally `graphviz` (for diagrams).
 
 Third-party dependencies are fetched automatically via CPM.cmake.
 
@@ -488,6 +501,10 @@ yaddnsc -c /etc/yaddnsc/config.json -v run
 # Validate configuration and exit
 yaddnsc config test
 
+# Validate configuration quietly (exit code only)
+yaddnsc config test -q
+yaddnsc config test --quiet
+
 # Print resolved configuration as JSON
 yaddnsc config show
 
@@ -542,7 +559,7 @@ Drivers are shared libraries loaded at runtime. To write one:
 
 1. Include `driver/base.h` and inherit from `BaseDriver`.
 2. Implement the `Driver` interface:
-   - `generate_request(config, ctx)` — construct a `DriverRequest` (URL, HTTP method, headers, body)
+   - `generate_request(config, ctx)` — construct a `DriverRequestContext` (containing URL and `DriverRequest` with HTTP method, headers, body)
    - `check_response(response)` — validate the API response body
    - `get_detail()` — return driver metadata (name, description, author, version)
    - `get_abi_version()` — ABI version check (already `final` in `BaseDriver`, no override needed)
