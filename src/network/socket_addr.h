@@ -5,9 +5,9 @@
 #ifndef YADDNSC_NETWORK_SOCKET_ADDR_H
 #define YADDNSC_NETWORK_SOCKET_ADDR_H
 
+#include <string>
 #include <cstdint>
 #include <optional>
-#include <string>
 
 #include <sys/socket.h>
 

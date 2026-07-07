@@ -3,7 +3,6 @@
 //
 #include "dns/validator.h"
 
-#include <cstring>
 #include <cstdint>
 #include <string>
 #include <span>
@@ -15,6 +14,9 @@
 #include "exception/dns_lookup.h"
 
 namespace {
+
+    // ── Constants ──
+    constexpr size_t DNS_HEADER_SIZE = 12;
 
     // ── Low-level DNS wire-format helpers ──
 
@@ -93,12 +95,13 @@ namespace {
             );
         }
 
-        constexpr size_t header_size = 12;
-        const auto req_qs_len = req_qs_end - header_size;
-        const auto rsp_qs_len = rsp_qs_end - header_size;
+        const auto req_qs_len = req_qs_end - DNS_HEADER_SIZE;
+        const auto rsp_qs_len = rsp_qs_end - DNS_HEADER_SIZE;
 
         if (req_qs_len == rsp_qs_len &&
-            std::memcmp(request.data() + header_size, response.data() + header_size, req_qs_len) == 0) {
+            std::ranges::equal(
+                std::span(request).subspan(DNS_HEADER_SIZE, req_qs_len),
+                std::span(response).subspan(DNS_HEADER_SIZE, rsp_qs_len))) {
             return;
         }
 

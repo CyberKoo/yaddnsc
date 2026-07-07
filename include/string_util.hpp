@@ -14,7 +14,7 @@
 #include <concepts>
 #include <algorithm>
 #include <string_view>
-#include <cassert>
+#include <stdexcept>
 
 namespace StringUtil {
     // ── Concepts ──────────────────────────────────────────────────────────────────
@@ -126,11 +126,11 @@ namespace StringUtil {
     inline std::string_view ltrim(const std::string_view sv) noexcept {
         const auto it = std::ranges::find_if(sv, [](unsigned char ch) noexcept {
             return !std::isspace(ch);
-        });
-        return sv.substr(static_cast<size_t>(std::distance(sv.begin(), it)));
-    }
+                    });
+                    return sv.substr(static_cast<size_t>(std::distance(sv.begin(), it)));
+                }
 
-    /// Remove trailing whitespace from a string view.
+                /// Remove trailing whitespace from a string view.
     /// @return  A substring view with trailing whitespace removed.
     inline std::string_view rtrim(const std::string_view sv) noexcept {
         const auto it = std::ranges::find_if(
@@ -322,7 +322,9 @@ namespace StringUtil {
     /// @return       A vector of non-empty substrings.
     template<StringViewable T>
     std::vector<std::string> split(T &&str, const std::string_view delim = " ") {
-        assert(!delim.empty() && "delimiter must not be empty"); // undefined behavior with views::split
+        if (delim.empty()) {
+            throw std::invalid_argument("delimiter must not be empty");
+        }
         const std::string_view sv(std::forward<T>(str));
         std::vector<std::string> output;
 

@@ -6,9 +6,10 @@
 #define YADDNSC_EXCEPTION_SOCKET_H
 
 #include <cerrno>
-#include <cstring>
+#include <cerrno>
 #include <string>
 #include <string_view>
+#include <system_error>
 
 #include "base.h"
 
@@ -54,7 +55,7 @@ private:
             msg += context;
             msg += ": ";
         }
-        msg += std::strerror(errnum);
+        msg += std::error_code{errnum, std::generic_category()}.message();
         return msg;
     }
 };

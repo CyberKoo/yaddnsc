@@ -23,6 +23,8 @@ namespace {
         {"http", 80}, {"https", 443}, {"tls", 853},
     };
 
+    constexpr auto HEX_CHARS = std::to_array("0123456789ABCDEF");
+
     int lookup_default_port(std::string_view scheme) noexcept {
         auto it = known_ports.find(scheme);
         return it != known_ports.end() ? it->second : 0;
@@ -302,8 +304,6 @@ std::vector<std::pair<std::string, std::string>> Uri::get_query_params(bool plus
 // ---------------------------------------------------------------------------
 
 std::string Uri::url_encode(std::string_view input) noexcept {
-    static constexpr auto hex_chars = std::to_array("0123456789ABCDEF");
-
     std::string result;
     result.reserve(input.size() * 3);
 
@@ -314,8 +314,8 @@ std::string Uri::url_encode(std::string_view input) noexcept {
             result += c;
         } else {
             result += '%';
-            result += hex_chars[uc >> 4];
-            result += hex_chars[uc & 0xF];
+            result += HEX_CHARS[uc >> 4];
+            result += HEX_CHARS[uc & 0xF];
         }
     }
 

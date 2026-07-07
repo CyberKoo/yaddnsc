@@ -16,6 +16,7 @@
 #include <cstdint>
 #include <stdexcept>
 #include <type_traits>
+#include <system_error>
 
 #include <spdlog/spdlog.h>
 
@@ -27,34 +28,14 @@
 #include "network/net_devices.h"
 #include "network/socket.h"
 
-// ===========================================================================
-//  mDNS well-known constants (RFC 6762)
-// ===========================================================================
-
 namespace {
+    // ===========================================================================
+    //  Constants
+    // ===========================================================================
+
     constexpr std::uint16_t MDNS_PORT = 5353;
-
-    /// Thread-safe wrapper around strerror_r.
-    /// Returns a std::string so the caller never needs to worry about buffer lifetime.
-    [[nodiscard]] inline std::string errno_str(int err = errno) {
-        std::array<char, 256> buf{};
-#if defined(__GLIBC__)
-        // GNU version returns char* (may or may not point to buf).
-        return strerror_r(err, buf.data(), buf.size());
-#else
-        // POSIX / XSI version returns int, result always written to buf.
-        strerror_r(err, buf.data(), buf.size());
-        return std::string{buf.data()};
-#endif
-    }
-
-    // IPv4 multicast group
     constexpr auto MDNS_IPV4_GROUP = "224.0.0.251";
-
-    // IPv6 multicast group
     constexpr auto MDNS_IPV6_GROUP = "ff02::fb";
-
-    // How long to wait for a response (milliseconds).
     constexpr auto MDNS_TIMEOUT_MS = 500;
 
     inline const SocketAddr MDNS_IPV4_DEST = [] {
@@ -79,7 +60,6 @@ namespace {
         return SocketAddr::from_raw(reinterpret_cast<const sockaddr *>(&d), sizeof(v6));
     }();
 
-    // Pre-computed ephemeral bind addresses (INADDR_ANY:0 / in6addr_any:0).
     inline const SocketAddr MDNS_IPV4_BIND = [] {
         sockaddr_in bind{};
         bind.sin_family = AF_INET;
@@ -93,6 +73,14 @@ namespace {
         bind.sin6_addr = in6addr_any;
         return SocketAddr::from_raw(reinterpret_cast<const sockaddr *>(&bind), sizeof(bind));
     }();
+
+    // ===========================================================================
+    //  Utility functions
+    // ===========================================================================
+
+    [[nodiscard]] inline std::string errno_str(int err = errno) {
+        return std::error_code{err, std::generic_category()}.message();
+    }
 
     // ===========================================================================
     //  Tag types for compile-time v4/v6 dispatch
@@ -130,7 +118,7 @@ namespace {
                 mreq_.ipv6mr_interface = if_index;
                 if (setsockopt(fd, IPPROTO_IPV6, IPV6_JOIN_GROUP, &mreq_, sizeof(mreq_)) < 0) {
                     throw std::runtime_error(fmt::format(
-                            R"(mDNS: IPV6_JOIN_GROUP failed for "{}": {})", hostname, errno_str())
+                            R"(mDNS IPV6_JOIN_GROUP failed for "{}": {})", hostname, errno_str())
                     );
                 }
             } else {
@@ -140,7 +128,7 @@ namespace {
                 mreq_.imr_interface = pick_ipv4_interface_addr(interface);
                 if (setsockopt(fd, IPPROTO_IP, IP_ADD_MEMBERSHIP, &mreq_, sizeof(mreq_)) < 0) {
                     throw std::runtime_error(fmt::format(
-                            R"(mDNS: IP_ADD_MEMBERSHIP failed for "{}": {})", hostname, errno_str())
+                            R"(mDNS IP_ADD_MEMBERSHIP failed for "{}": {})", hostname, errno_str())
                     );
                 }
             }
@@ -154,7 +142,7 @@ namespace {
                 ret = setsockopt(fd_, IPPROTO_IP, IP_DROP_MEMBERSHIP, &mreq_, sizeof(mreq_));
             }
             if (ret < 0) {
-                SPDLOG_WARN(R"(mDNS: {}_LEAVE_GROUP failed: {})",
+                SPDLOG_WARN(R"(mDNS {}_LEAVE_GROUP failed: {})",
                             std::is_same_v<Tag, Ipv6Tag> ? "IPV6" : "IP", errno_str());
             }
         }
@@ -182,7 +170,7 @@ namespace {
                 return std::bit_cast<in_addr>(addr_bytes);
             }
             SPDLOG_WARN(
-                R"(mDNS: no IPv4 address found for interface "{}", falling back to INADDR_ANY)", interface
+                R"(mDNS no IPv4 address found for interface "{}", falling back to INADDR_ANY)", interface
             );
         }
         in_addr addr{};
@@ -195,7 +183,7 @@ namespace {
         // ── Bind ────────────────────────────────────────────────────────────
         if constexpr (std::is_same_v<Tag, Ipv6Tag>) {
             if (auto err = sock.try_set_option(IPPROTO_IPV6, IPV6_V6ONLY, 1)) {
-                SPDLOG_WARN(R"(mDNS: IPV6_V6ONLY failed for "{}": {})", hostname, errno_str(err));
+                SPDLOG_WARN(R"(mDNS IPV6_V6ONLY failed for "{}": {})", hostname, errno_str(err));
             }
         }
 
@@ -206,13 +194,13 @@ namespace {
         if (!interface.empty()) {
             if_index = NetDevices::name_to_index(interface);
             if (if_index == 0) {
-                SPDLOG_WARN(R"(mDNS: interface "{}" not found for "{}")", interface, hostname);
+                SPDLOG_WARN(R"(mDNS interface "{}" not found for "{}")", interface, hostname);
             }
         } else if constexpr (std::is_same_v<Tag, Ipv6Tag>) {
             if_index = NetDevices::find_default_interface_index(AF_INET6);
             if (if_index > 0) {
                 auto if_name = NetDevices::index_to_name(if_index);
-                SPDLOG_DEBUG(R"(mDNS: auto-selected interface "{}" for "{}" (type AAAA))",
+                SPDLOG_DEBUG(R"(mDNS auto-selected interface "{}" for "{}" (type AAAA))",
                              if_name.empty() ? "?" : if_name, hostname);
             }
         }
@@ -220,11 +208,11 @@ namespace {
         if constexpr (std::is_same_v<Tag, Ipv6Tag>) {
             if (if_index > 0) {
                 if (auto err = sock.try_set_option(IPPROTO_IPV6, IPV6_MULTICAST_IF, if_index)) {
-                    SPDLOG_WARN(R"(mDNS: IPV6_MULTICAST_IF failed for "{}": {})", hostname, errno_str(err));
+                    SPDLOG_WARN(R"(mDNS IPV6_MULTICAST_IF failed for "{}": {})", hostname, errno_str(err));
                 }
             }
             if (auto err = sock.try_set_option(IPPROTO_IPV6, IPV6_MULTICAST_HOPS, 255)) {
-                SPDLOG_WARN(R"(mDNS: IPV6_MULTICAST_HOPS failed for "{}": {})", hostname, errno_str(err));
+                SPDLOG_WARN(R"(mDNS IPV6_MULTICAST_HOPS failed for "{}": {})", hostname, errno_str(err));
             }
         } else {
             if (if_index > 0) {
@@ -232,19 +220,19 @@ namespace {
                 ip_mreqn mreqn{};
                 mreqn.imr_ifindex = static_cast<int>(if_index);
                 if (auto err = sock.try_set_option(IPPROTO_IP, IP_MULTICAST_IF, mreqn)) {
-                    SPDLOG_WARN(R"(mDNS: IP_MULTICAST_IF failed for "{}": {})", hostname, errno_str(err));
+                    SPDLOG_WARN(R"(mDNS IP_MULTICAST_IF failed for "{}": {})", hostname, errno_str(err));
                 }
 #else
                 // macOS / BSD: IP_MULTICAST_IF expects struct in_addr (interface
                 // address), not an interface index.
                 auto ipv4_addr = pick_ipv4_interface_addr(interface);
                 if (auto err = sock.try_set_option(IPPROTO_IP, IP_MULTICAST_IF, ipv4_addr)) {
-                    SPDLOG_WARN(R"(mDNS: IP_MULTICAST_IF failed for "{}": {})", hostname, errno_str(err));
+                    SPDLOG_WARN(R"(mDNS IP_MULTICAST_IF failed for "{}": {})", hostname, errno_str(err));
                 }
 #endif
             }
             if (auto err = sock.try_set_option(IPPROTO_IP, IP_MULTICAST_TTL, 255)) {
-                SPDLOG_WARN(R"(mDNS: IP_MULTICAST_TTL failed for "{}": {})", hostname, errno_str(err));
+                SPDLOG_WARN(R"(mDNS IP_MULTICAST_TTL failed for "{}": {})", hostname, errno_str(err));
             }
         }
 
@@ -257,7 +245,7 @@ namespace {
         int ready = sock.wait_for(POLLIN, MDNS_TIMEOUT_MS);
         if (ready <= 0) {
             throw std::runtime_error(
-                fmt::format(R"(mDNS: no response for "{}" within {}ms)", hostname, MDNS_TIMEOUT_MS)
+                fmt::format(R"(mDNS no response for "{}" within {}ms)", hostname, MDNS_TIMEOUT_MS)
             );
         }
 
@@ -267,22 +255,22 @@ namespace {
         ssize_t recv_len = sock.recv_from(buf, &src_addr);
         if (recv_len < 0) {
             throw std::runtime_error(
-                fmt::format(R"(mDNS: recvfrom() failed for "{}": {})", hostname, errno_str())
+                fmt::format(R"(mDNS recvfrom() failed for "{}": {})", hostname, errno_str())
             );
         }
 
         // if (src_addr.port() != MDNS_PORT) {
         //     // RFC 6762 §6.7: unicast responses MAY be sent from ephemeral ports.
         //     // Treat this as a warning, not a hard error.
-        //     SPDLOG_WARN(R"(mDNS: response for "{}" came from non-standard port {} (expected 5353); "
+        //     SPDLOG_WARN(R"(mDNS response for "{}" came from non-standard port {} (expected 5353); "
         //                 R"(RFC 6762 §6.7 permits ephemeral-source unicast replies)", hostname, src_addr.port());
         // }
 
-        SPDLOG_TRACE(R"(mDNS: received {} bytes for "{}")", recv_len, hostname);
+        SPDLOG_TRACE(R"(mDNS received {} bytes for "{}")", recv_len, hostname);
 
         auto raw_records = DNS::DnsRecordParser::parse_all(recv_buf.data(), recv_len, hostname);
         if (raw_records.empty()) {
-            throw std::runtime_error(fmt::format(R"(mDNS: no records in response for "{}")", hostname));
+            throw std::runtime_error(fmt::format(R"(mDNS no records in response for "{}")", hostname));
         }
 
         std::vector<InetAddress> results;
@@ -290,23 +278,23 @@ namespace {
         for (const auto &rec: raw_records) {
             if (type == DNS::Type::A) {
                 if (auto v4 = Inet4Address::parse(rec)) {
-                    SPDLOG_DEBUG(R"(mDNS: resolved "{}" → {})", hostname, rec);
+                    SPDLOG_DEBUG(R"(mDNS resolved "{}" → {})", hostname, rec);
                     results.emplace_back(*v4);
                 } else {
-                    SPDLOG_DEBUG(R"(mDNS: skipping non-A record "{}" for "{}")", rec, hostname);
+                    SPDLOG_DEBUG(R"(mDNS skipping non-A record "{}" for "{}")", rec, hostname);
                 }
             } else {
                 if (auto v6 = Inet6Address::parse(rec)) {
-                    SPDLOG_DEBUG(R"(mDNS: resolved "{}" → "{}")", hostname, rec);
+                    SPDLOG_DEBUG(R"(mDNS resolved "{}" → "{}")", hostname, rec);
                     results.emplace_back(*v6);
                 } else {
-                    SPDLOG_DEBUG(R"(mDNS: skipping non-AAAA record "{}" for "{}")", rec, hostname);
+                    SPDLOG_DEBUG(R"(mDNS skipping non-AAAA record "{}" for "{}")", rec, hostname);
                 }
             }
         }
 
         if (results.empty()) {
-            throw std::runtime_error(fmt::format(R"(mDNS: no address records for "{}")", hostname));
+            throw std::runtime_error(fmt::format(R"(mDNS no address records for "{}")", hostname));
         }
 
         return results;
@@ -322,7 +310,7 @@ namespace {
         constexpr const auto &dest_addr = std::is_same_v<Tag, Ipv6Tag> ? MDNS_IPV6_DEST : MDNS_IPV4_DEST;
 
         const auto &iface_label = interface.empty() ? "<default>" : interface;
-        SPDLOG_DEBUG(R"(mDNS: resolving "{}" (type {}) on interface "{}")", hostname, std::is_same_v<Tag,
+        SPDLOG_DEBUG(R"(mDNS resolving "{}" (type {}) on interface "{}")", hostname, std::is_same_v<Tag,
                      Ipv6Tag> ? "AAAA" : "A", iface_label);
 
         const auto query_pkt = DNS::mkquery_mdns(hostname, DNS::Util::to_ns_type(type), true);
@@ -330,14 +318,14 @@ namespace {
 
         // ── Socket options ──────────────────────────────────────────────────
         if (auto err = sock.try_set_option(SOL_SOCKET, SO_REUSEADDR, 1)) {
-            SPDLOG_WARN(R"(mDNS: setsockopt(SOL_SOCKET, SO_REUSEADDR) failed for "{}": {})", hostname,
+            SPDLOG_WARN(R"(mDNS setsockopt(SOL_SOCKET, SO_REUSEADDR) failed for "{}": {})", hostname,
                         errno_str(err));
         }
 
         if (!interface.empty()) {
 #if defined(SO_BINDTODEVICE)
             if (auto err = sock.try_set_option_raw(SOL_SOCKET, SO_BINDTODEVICE, interface.c_str(), interface.size())) {
-                SPDLOG_WARN(R"(mDNS: setsockopt(SOL_SOCKET, SO_BINDTODEVICE) failed for "{}": {})", hostname,
+                SPDLOG_WARN(R"(mDNS setsockopt(SOL_SOCKET, SO_BINDTODEVICE) failed for "{}": {})", hostname,
                             errno_str(err));
             }
 #elif defined(IP_BOUND_IF)
@@ -346,10 +334,10 @@ namespace {
                 constexpr int ip_level = std::is_same_v<Tag, Ipv6Tag> ? IPPROTO_IPV6 : IPPROTO_IP;
                 constexpr int opt_name = std::is_same_v<Tag, Ipv6Tag> ? IPV6_BOUND_IF : IP_BOUND_IF;
                 if (auto err = sock.try_set_option(ip_level, opt_name, idx)) {
-                    SPDLOG_WARN(R"(mDNS: setsockopt bound-if failed for "{}": {})", hostname, errno_str(err));
+                    SPDLOG_WARN(R"(mDNS setsockopt bound-if failed for "{}": {})", hostname, errno_str(err));
                 }
             } else {
-                SPDLOG_WARN(R"(mDNS: interface "{}" not found for "{}")", interface, hostname);
+                SPDLOG_WARN(R"(mDNS interface "{}" not found for "{}")", interface, hostname);
             }
 #endif
         }
@@ -364,10 +352,10 @@ namespace {
         auto data = std::as_bytes(std::span{query_pkt});
         if (sock.send_to(data, dest_addr) < 0) {
             throw std::runtime_error(
-                fmt::format(R"(mDNS: sendto() failed for "{}": {})", hostname, errno_str()));
+                fmt::format(R"(mDNS sendto() failed for "{}": {})", hostname, errno_str()));
         }
 
-        SPDLOG_TRACE(R"(mDNS: sent {} bytes for "{}")", query_pkt.size(), hostname);
+        SPDLOG_TRACE(R"(mDNS sent {} bytes for "{}")", query_pkt.size(), hostname);
 
         // ── Receive & parse ─────────────────────────────────────────────────
         return recv_and_parse(sock, type, hostname);

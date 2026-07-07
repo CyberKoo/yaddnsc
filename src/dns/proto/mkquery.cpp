@@ -19,6 +19,16 @@
 #include "exception/dns_lookup.h"
 
 namespace DNS {
+
+    namespace {
+        // Buffer size for res_mkquery — must be large enough to accommodate EDNS0 records.
+        constexpr size_t MKQUERY_BUFFER_SIZE = 4096;
+
+        // DNS class IN and QU (unicast-response) bit for mDNS.
+        constexpr std::uint16_t QCLASS_IN = 0x0001;
+        constexpr std::uint16_t QU_BIT = 0x8000;
+    } // anonymous namespace
+
     // ===========================================================================
     //  mkquery  —  compile-time dispatch
     // ===========================================================================
@@ -38,8 +48,7 @@ namespace DNS {
     std::vector<std::uint8_t> mkquery_system(const std::string &host, int ns_type) {
         // res_mkquery may append EDNS0 records from the system resolver config
         // (e.g. /etc/resolv.conf), so allocate a generous buffer.
-        static constexpr size_t BUFFER_SIZE = 4096;
-        std::vector<std::uint8_t> buf(BUFFER_SIZE);
+        std::vector<std::uint8_t> buf(MKQUERY_BUFFER_SIZE);
 
         // res_mkquery reads/writes the process-global _res state (e.g. _res.id),
         // so it must be serialized.
@@ -125,8 +134,6 @@ namespace DNS {
     // ===========================================================================
 
     std::vector<std::uint8_t> mkquery_mdns(const std::string &host, int ns_type, bool unicast_rsp) {
-        constexpr std::uint16_t QCLASS_IN = 0x0001;
-		constexpr std::uint16_t QU_BIT = 0x8000;
 
         QueryWriter w;
         // ---- Header (12 bytes) ----

@@ -25,24 +25,10 @@
 // ===========================================================================
 
 struct ResolverDispatcher::Impl {
-    Impl(std::vector<std::shared_ptr<ResolverBase> > resolvers, Config::ResolverStrategy strategy)
-        : resolvers_(std::move(resolvers)), strategy_(strategy) {
-    }
+    // ── Constants ──
+    static constexpr size_t MAX_CONCURRENT_RESOLVERS = 3;
 
-    ~Impl() = default;
-
-    [[nodiscard]] std::vector<std::string>
-    resolve(const std::string &host, DNS::Type type, int max_retries, int backoff_ms) const;
-
-    /// Run a single resolver (or the system fallback) with retry logic.
-    [[nodiscard]] std::vector<std::string>
-    resolve_single(const std::string &host, DNS::Type type, int max_retries, int backoff_ms) const;
-
-    /// Perform a single query attempt using either the system fallback or the sole configured resolver.
-    [[nodiscard]] std::vector<std::string>
-    resolve_single_attempt(const std::string &host, DNS::Type type) const;
-
-    // ── Shared state for concurrent queries ──
+    // ── Types ──
     struct ConcurrentState {
         std::mutex mtx;                            ///< Guards result/error flags.
         std::condition_variable cv;                ///< Notified when a resolver completes.
@@ -58,24 +44,39 @@ struct ResolverDispatcher::Impl {
         int total = 0;                             ///< Total resolvers in this batch.
     };
 
+    // ── Static functions ──
     static bool is_retryable(DNS::Error error);
 
     static void query_resolver(const ResolverBase &resolver, const std::string &host, DNS::Type type,
                                const std::shared_ptr<ConcurrentState> &state);
 
+    // ── Constructor / Destructor ──
+    Impl(std::vector<std::shared_ptr<ResolverBase> > resolvers, Config::ResolverStrategy strategy)
+        : resolvers_(std::move(resolvers)), strategy_(strategy) {
+    }
+
+    ~Impl() = default;
+
+    // ── Member functions ──
+    [[nodiscard]] std::vector<std::string>
+    resolve(const std::string &host, DNS::Type type, int max_retries, int backoff_ms) const;
+
+    [[nodiscard]] std::vector<std::string>
+    resolve_single(const std::string &host, DNS::Type type, int max_retries, int backoff_ms) const;
+
+    [[nodiscard]] std::vector<std::string>
+    resolve_single_attempt(const std::string &host, DNS::Type type) const;
+
     [[nodiscard]] std::vector<std::string> resolve_multi(const std::string &host, DNS::Type type) const;
 
-    /// Sequential fallback: try each resolver one by one until one succeeds.
     [[nodiscard]] std::vector<std::string>
     resolve_fallback(const std::string &host, DNS::Type type) const;
 
-    /// Concurrent mode: fire resolvers in batches of 3, take the fastest valid response.
     [[nodiscard]] std::vector<std::string>
     resolve_concurrent(const std::string &host, DNS::Type type) const;
 
-    /// Configured resolver backends (guaranteed non-empty by factory).
+    // ── Data members ──
     std::vector<std::shared_ptr<ResolverBase> > resolvers_;
-    /// Dispatch strategy: FALLBACK (sequential) or CONCURRENT (batched).
     Config::ResolverStrategy strategy_{Config::ResolverStrategy::CONCURRENT};
 };
 
@@ -263,17 +264,16 @@ ResolverDispatcher::Impl::resolve_fallback(const std::string &host, DNS::Type ty
 
 std::vector<std::string>
 ResolverDispatcher::Impl::resolve_concurrent(const std::string &host, DNS::Type type) const {
-    constexpr size_t BATCH_SIZE = 3;
     const auto total = resolvers_.size();
-    SPDLOG_DEBUG(R"(Concurrent mode: {} resolver(s) for "{}", {} per batch)", total, host, BATCH_SIZE);
+    SPDLOG_DEBUG(R"(Concurrent mode: {} resolver(s) for "{}", {} per batch)", total, host, MAX_CONCURRENT_RESOLVERS);
 
     DnsLookupException last_error(
         fmt::format(R"(DNS lookup for domain "{}" returned no records)", host),
         DNS::Error::NODATA
     );
 
-    for (size_t offset = 0; offset < total; offset += BATCH_SIZE) {
-        const auto batch_end = std::min(offset + BATCH_SIZE, total);
+    for (size_t offset = 0; offset < total; offset += MAX_CONCURRENT_RESOLVERS) {
+        const auto batch_end = std::min(offset + MAX_CONCURRENT_RESOLVERS, total);
         const auto batch_count = static_cast<int>(batch_end - offset);
 
         auto state = std::make_shared<ConcurrentState>();

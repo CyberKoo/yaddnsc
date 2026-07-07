@@ -9,9 +9,10 @@
 #include <sys/socket.h>
 
 #include <span>
-#include <cstdlib>
 #include <algorithm>
 #include <cstdint>
+#include <charconv>
+#include <array>
 
 // ===========================================================================
 // Inet4Address
@@ -46,11 +47,11 @@ Inet4Address Inet4Address::from_array(const addr_type &addr) {
 }
 
 std::string Inet4Address::to_string() const {
-    char buf[INET_ADDRSTRLEN];
-    if (inet_ntop(AF_INET, addr_.data(), buf, sizeof(buf)) == nullptr) {
+    std::array<char, INET_ADDRSTRLEN> buf{};
+    if (inet_ntop(AF_INET, addr_.data(), buf.data(), buf.size()) == nullptr) {
         return "<invalid>";
     }
-    return buf;
+    return buf.data();
 }
 
 // ===========================================================================
@@ -72,9 +73,9 @@ std::optional<Inet6Address> Inet6Address::parse(std::string_view addr) {
         s.resize(pct);
 
         if (!scope_str.empty()) {
-            char *end = nullptr;
-            auto val = strtoul(scope_str.c_str(), &end, 10);
-            if (end != scope_str.c_str() && *end == '\0') {
+            unsigned long val = 0;
+            auto [ptr, ec] = std::from_chars(scope_str.data(), scope_str.data() + scope_str.size(), val);
+            if (ec == std::errc{} && ptr == scope_str.data() + scope_str.size()) {
                 scope_id = static_cast<std::uint32_t>(val);
             }
         }
@@ -102,16 +103,16 @@ Inet6Address Inet6Address::from_array(const addr_type &addr) {
 }
 
 std::string Inet6Address::to_string() const {
-    char buf[INET6_ADDRSTRLEN];
-    if (inet_ntop(AF_INET6, addr_.data(), buf, sizeof(buf)) == nullptr) {
+    std::array<char, INET6_ADDRSTRLEN> buf{};
+    if (inet_ntop(AF_INET6, addr_.data(), buf.data(), buf.size()) == nullptr) {
         return "<invalid>";
     }
 
     if (scope_id_ > 0) {
-        return std::string(buf) + "%" + std::to_string(scope_id_);
+        return std::string(buf.data()) + "%" + std::to_string(scope_id_);
     }
 
-    return buf;
+    return buf.data();
 }
 
 // ===========================================================================

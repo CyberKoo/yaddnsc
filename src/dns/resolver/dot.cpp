@@ -54,7 +54,7 @@ namespace {
 
     /// I/O timeout for send/recv on the established TLS connection.
     /// Prevents indefinite blocking when the server hangs mid-query.
-    static constexpr timeval IO_TIMEOUT_TV{5, 0};  // 5 seconds
+    static constexpr timeval IO_TIMEOUT_TV{5, 0}; // 5 seconds
 
     // ── Error handling ──
 
@@ -118,39 +118,35 @@ namespace {
 // ===========================================================================
 
 struct DotResolver::Impl {
-    explicit Impl(std::string server, std::uint16_t port, std::uint64_t id);
-
-    [[nodiscard]] std::vector<std::uint8_t> query(const std::string &host, DNS::Type type) const;
-
-    // Idle timeout — if a connection has been unused for longer than this,
-    // it will be closed and re-established on the next query.
+    // ── Constants ──
     static constexpr auto IDLE_TIMEOUT = 30s;
+    static constexpr auto CONNECT_TIMEOUT = 1s;
+    static constexpr unsigned char ALPN_DOT[] = {3, 'd', 'o', 't'};
 
-    // ── SSL_CTX shared across all DotResolver instances ──
+    // ── Static functions ──
     static SslCtxPtr create_ssl_ctx();
 
-    // Open and return a new TLS connection to the DoT server.
-    // Ownership stays in the returned BioPtr; the caller must not free it.
     static BioPtr connect(SSL_CTX *ctx, const std::string &server, std::uint16_t port);
 
-    // Ensure a usable connection exists.  Returns the cached BIO if it is
-    // still fresh, or establishes a new one if none exists or the idle
-    // timeout has expired.
-    // Caller must hold mutex_.
+    // ── Constructor ──
+    explicit Impl(std::string server, std::uint16_t port, std::uint64_t id);
+
+    // ── Member functions ──
+    [[nodiscard]] std::vector<std::uint8_t> query(const std::string &host, DNS::Type type) const;
+
     BIO *ensure_connection() const;
 
+    // ── Data members ──
     const std::uint64_t id_;
     const std::string server_;
     const std::uint16_t port_;
-
-    // ---- mutable: shared state protected by mutex_ ----
     mutable std::mutex mutex_;
     mutable BioPtr persistent_bio_;
     mutable std::chrono::steady_clock::time_point last_use_;
 };
 
-DotResolver::Impl::Impl(std::string server, std::uint16_t port, std::uint64_t id) : id_(id), server_(std::move(server)), port_(port),
-    last_use_(std::chrono::steady_clock::now()) {
+DotResolver::Impl::Impl(std::string server, std::uint16_t port, std::uint64_t id) : id_(id), server_(std::move(server)),
+    port_(port), last_use_(std::chrono::steady_clock::now()) {
 }
 
 std::vector<std::uint8_t> DotResolver::Impl::query(const std::string &host, DNS::Type type) const {
@@ -184,26 +180,26 @@ std::vector<std::uint8_t> DotResolver::Impl::query(const std::string &host, DNS:
     // Send with one reconnect on failure.
     auto *bio = ensure_connection();
     if (!bio_send_all(bio, std::span{wire})) {
-        SPDLOG_DEBUG(R"(DoT: connection to "{}" lost while sending, reconnecting)", target);
+        SPDLOG_DEBUG(R"(DoT connection to "{}" lost while sending, reconnecting)", target);
         persistent_bio_.reset();
         bio = ensure_connection();
         if (!bio_send_all(bio, std::span{wire})) {
             persistent_bio_.reset();
             throw DnsLookupException(
-                fmt::format(R"(DoT: failed to send query to "{}" after reconnect)", target),
+                fmt::format(R"(DoT failed to send query to "{}" after reconnect)", target),
                 DNS::Error::CONNECTION
             );
         }
     }
 
-    SPDLOG_TRACE(R"(DoT: sent {} bytes to "{}")", wire.size(), target);
+    SPDLOG_TRACE(R"(DoT sent {} bytes to "{}")", wire.size(), target);
 
     // ---- 4. Read response ----
     std::uint8_t resp_len_buf[2]{};
     if (!bio_read_exact(bio, resp_len_buf)) {
         persistent_bio_.reset();
         throw DnsLookupException(
-            fmt::format(R"(DoT: failed to read response length from "{}")", target),
+            fmt::format(R"(DoT failed to read response length from "{}")", target),
             DNS::Error::CONNECTION
         );
     }
@@ -212,7 +208,7 @@ std::vector<std::uint8_t> DotResolver::Impl::query(const std::string &host, DNS:
     if (resp_len == 0) {
         persistent_bio_.reset();
         throw DnsLookupException(
-            fmt::format(R"(DoT: server "{}" returned zero-length response)", target),
+            fmt::format(R"(DoT server "{}" returned zero-length response)", target),
             DNS::Error::PARSE
         );
     }
@@ -221,7 +217,7 @@ std::vector<std::uint8_t> DotResolver::Impl::query(const std::string &host, DNS:
     if (!bio_read_exact(bio, std::span{response})) {
         persistent_bio_.reset();
         throw DnsLookupException(
-            fmt::format(R"(DoT: failed to read response body from "{}")", target),
+            fmt::format(R"(DoT failed to read response body from "{}")", target),
             DNS::Error::CONNECTION
         );
     }
@@ -230,7 +226,7 @@ std::vector<std::uint8_t> DotResolver::Impl::query(const std::string &host, DNS:
     DNS::Validator::validate_response(query_bytes, response);
 
     last_use_ = std::chrono::steady_clock::now();
-    SPDLOG_DEBUG(R"(Resolver #{} DoT: query to "{}" succeeded ({} bytes) for "{}")", id_, target, response.size(),
+    SPDLOG_DEBUG(R"(Resolver #{} DoT query to "{}" succeeded ({} bytes) for "{}")", id_, target, response.size(),
                  host);
 
     return response;
@@ -289,8 +285,7 @@ auto DotResolver::Impl::connect(SSL_CTX *ctx, const std::string &server, std::ui
             SSL_set1_host(ssl, server.c_str());
         }
         // RFC 7858 §3.2: advertise the "dot" ALPN protocol.
-        static constexpr unsigned char alpn_dot[] = {3, 'd', 'o', 't'};
-        SSL_set_alpn_protos(ssl, alpn_dot, sizeof(alpn_dot));
+        SSL_set_alpn_protos(ssl, ALPN_DOT, sizeof(ALPN_DOT));
     }
 
     const auto target = fmt::format("{}:{}", server, port);
@@ -301,27 +296,27 @@ auto DotResolver::Impl::connect(SSL_CTX *ctx, const std::string &server, std::ui
     // ---- Non-blocking connect with 1-second timeout ----
     BIO_set_nbio(bio.get(), 1);
 
-    const auto deadline = std::chrono::steady_clock::now() + 1s;
+    const auto deadline = std::chrono::steady_clock::now() + CONNECT_TIMEOUT;
 
     for (;;) {
         const int ret = BIO_do_connect(bio.get());
         if (ret == 1) break;
 
         if (!BIO_should_retry(bio.get())) {
-            throw_ssl_error(fmt::format(R"(DoT: connect/handshake failed for "{}")", target));
+            throw_ssl_error(fmt::format(R"(DoT connect/handshake failed for "{}")", target));
         }
 
         const auto now = std::chrono::steady_clock::now();
         if (now >= deadline) {
             throw DnsLookupException(
-                fmt::format(R"(DoT: connection timeout (1s) for "{}")", target),
+                fmt::format(R"(DoT connection timeout ({}s) for "{}")", CONNECT_TIMEOUT.count(), target),
                 DNS::Error::CONNECTION);
         }
 
         const int fd = BIO_get_fd(bio.get(), nullptr);
         if (fd == -1) {
             throw DnsLookupException(
-                fmt::format(R"(DoT: failed to get socket fd for "{}")", target),
+                fmt::format(R"(DoT failed to get socket fd for "{}")", target),
                 DNS::Error::CONNECTION
             );
         }
@@ -339,11 +334,11 @@ auto DotResolver::Impl::connect(SSL_CTX *ctx, const std::string &server, std::ui
         if (poll_ret <= 0) {
             if (poll_ret == 0) {
                 throw DnsLookupException(
-                    fmt::format(R"(DoT: connection timeout (1s) for "{}")", target),
+                    fmt::format(R"(DoT connection timeout ({}s) for "{}")", CONNECT_TIMEOUT.count(), target),
                     DNS::Error::CONNECTION
                 );
             }
-            throw_ssl_error(fmt::format(R"(DoT: poll() failed for "{}")", target));
+            throw_ssl_error(fmt::format(R"(DoT poll() failed for "{}")", target));
         }
     }
 
@@ -378,7 +373,7 @@ BIO *DotResolver::Impl::ensure_connection() const {
             if (fd != -1) {
                 pollfd pfd{.fd = fd, .events = POLLIN, .revents = 0};
                 if (poll(&pfd, 1, 0) > 0) {
-                    SPDLOG_TRACE(R"(DoT: server closed connection to "{}:{}", reconnecting)", server_, port_);
+                    SPDLOG_TRACE(R"(DoT server closed connection to "{}:{}", reconnecting)", server_, port_);
                     persistent_bio_.reset();
                 }
             }
@@ -387,7 +382,7 @@ BIO *DotResolver::Impl::ensure_connection() const {
             }
         }
         if (persistent_bio_) {
-            SPDLOG_TRACE(R"(DoT: idle timeout ({}s) for "{}:{}", reconnecting)", idle.count(), server_, port_);
+            SPDLOG_TRACE(R"(DoT idle timeout ({}s) for "{}:{}", reconnecting)", idle.count(), server_, port_);
             persistent_bio_.reset();
         }
     }

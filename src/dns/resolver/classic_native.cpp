@@ -14,7 +14,6 @@
 
 #include "uri.h"
 #include "fmt.hpp"
-#include "uri.h"
 #include "dns_error.h"
 #include "dns/util.hpp"
 #include "dns/validator.h"
@@ -70,7 +69,7 @@ namespace {
             );
         }
         throw DnsLookupException(
-            std::string(context) + ": " + e.what(),
+            fmt::format("{} {}", context, e.what()),
             DNS::Error::CONNECTION
         );
     }
@@ -112,7 +111,7 @@ namespace {
             // Send: 2-byte big-endian length prefix + query packet (RFC 1035 §4.2.2).
             const std::uint16_t be_len = htons(static_cast<std::uint16_t>(query_packet.size()));
             std::vector<std::uint8_t> tcp_query(sizeof(be_len));
-            std::memcpy(tcp_query.data(), &be_len, sizeof(be_len));
+            std::ranges::copy_n(reinterpret_cast<const std::uint8_t*>(&be_len), sizeof(be_len), tcp_query.begin());
             tcp_query.insert(tcp_query.end(), query_packet.begin(), query_packet.end());
 
             auto data = std::as_bytes(std::span{tcp_query});

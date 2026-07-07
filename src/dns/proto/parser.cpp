@@ -9,7 +9,8 @@
 #include <arpa/nameser.h>
 
 #include <vector>
-#include <cstring>
+#include <system_error>
+#include <array>
 
 #include <spdlog/spdlog.h>
 #include <magic_enum/magic_enum.hpp>
@@ -34,7 +35,7 @@ std::string DNS::DnsRecordParser::parse_record(size_t index) const {
     ns_rr dns_resource{};
     if (ns_parserr(&message_, ns_s_an, static_cast<int>(index), &dns_resource)) {
         throw DnsLookupException(
-            fmt::format("An error occurred when parsing DNS resource at index {}, detail: {}", index, strerror(errno)),
+            fmt::format("An error occurred when parsing DNS resource at index {}, detail: {}", index, std::error_code{errno, std::generic_category()}.message()),
             Error::PARSE);
     }
 
@@ -88,15 +89,15 @@ std::string DNS::DnsRecordParser::parse_record(size_t index) const {
 }
 
 std::string DNS::DnsRecordParser::parse_a_record(const data_type *rdata) {
-    char address_buffer[INET_ADDRSTRLEN] = {};
-    inet_ntop(AF_INET, rdata, address_buffer, INET_ADDRSTRLEN);
-    return address_buffer;
+    std::array<char, INET_ADDRSTRLEN> address_buffer{};
+    inet_ntop(AF_INET, rdata, address_buffer.data(), address_buffer.size());
+    return address_buffer.data();
 }
 
 std::string DNS::DnsRecordParser::parse_aaaa_record(const data_type *rdata) {
-    char address_buffer[INET6_ADDRSTRLEN] = {};
-    inet_ntop(AF_INET6, rdata, address_buffer, INET6_ADDRSTRLEN);
-    return address_buffer;
+    std::array<char, INET6_ADDRSTRLEN> address_buffer{};
+    inet_ntop(AF_INET6, rdata, address_buffer.data(), address_buffer.size());
+    return address_buffer.data();
 }
 
 std::string DNS::DnsRecordParser::parse_txt_record(const data_type *rdata, int rdlen) {

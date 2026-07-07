@@ -26,10 +26,16 @@ namespace {
 // ===========================================================================
 
 struct DohResolver::Impl {
+    // ── Constants ──
+    static constexpr size_t MAX_DNS_RESPONSE_SIZE = 65536;
+
+    // ── Constructor ──
     explicit Impl(std::unique_ptr<HttpClient> http_client, std::string server, std::uint64_t id);
 
+    // ── Member functions ──
     [[nodiscard]] std::vector<std::uint8_t> query(const std::string &host, DNS::Type type) const;
 
+    // ── Data members ──
     const std::uint64_t id_;
     const std::string server_;
     std::unique_ptr<HttpClient> http_client_;
@@ -97,7 +103,6 @@ std::vector<std::uint8_t> DohResolver::Impl::query(const std::string &host, DNS:
     }
 
     // Reject oversized responses to guard against OOM.
-    static constexpr size_t MAX_DNS_RESPONSE_SIZE = 65536;  // 64 KiB
     if (response->body.size() > MAX_DNS_RESPONSE_SIZE) {
         throw DnsLookupException(
             fmt::format(R"(DoH server "{}" returned oversized response: {} bytes)", server_, response->body.size()),
