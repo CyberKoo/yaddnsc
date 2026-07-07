@@ -234,8 +234,7 @@ add_executable(yaddnsc
         # dns
         src/dns/error.cpp
         src/dns/validator.cpp
-        src/dns/proto/parser.cpp
-        src/dns/proto/mkquery.cpp
+        src/dns/wire/query.cpp
         src/dns/resolver/doh.cpp
         src/dns/resolver/dot.cpp
         src/dns/dispatcher.cpp
@@ -253,6 +252,13 @@ if (YADDNSC_USE_NATIVE_DNS)
   target_sources(yaddnsc PRIVATE src/dns/resolver/classic_native.cpp)
 else ()
   target_sources(yaddnsc PRIVATE src/dns/resolver/classic_system.cpp)
+endif ()
+
+# Compile only the selected parser implementation.
+if (YADDNSC_USE_NATIVE_DNS)
+  target_sources(yaddnsc PRIVATE src/dns/parser/parser_native.cpp)
+else ()
+  target_sources(yaddnsc PRIVATE src/dns/parser/parser_system.cpp)
 endif ()
 
 # ---------------------------------------------------------------------------
@@ -394,7 +400,7 @@ else ()
 endif ()
 
 if (YADDNSC_USE_NATIVE_DNS)
-  message(STATUS "DNS stack: built-in (parsing: libresolv)")
+  message(STATUS "DNS stack: built-in (no libresolv)")
 else ()
   message(STATUS "DNS stack: system (libresolv)")
 endif ()

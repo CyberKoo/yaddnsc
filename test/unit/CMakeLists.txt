@@ -11,7 +11,13 @@
 # ==============================================================================
 
 function(add_unit_test name)
-    add_executable(test_${name} ${name}.cpp ${ARGN})
+    cmake_parse_arguments(UT "" "SOURCE" "" ${ARGN})
+    if (UT_SOURCE)
+        set(test_source ${UT_SOURCE})
+    else ()
+        set(test_source ${name}.cpp)
+    endif ()
+    add_executable(test_${name} ${test_source} ${UT_UNPARSED_ARGUMENTS})
     target_link_libraries(test_${name} PRIVATE
         test_support
         GTest::gtest_main
@@ -89,14 +95,24 @@ find_library(RESOLV resolv)
 
 # mkquery_test — tests mkquery_manual and mkquery_mdns (pure logic in mkquery.cpp)
 # mkquery.cpp also defines mkquery_system() which calls res_mkquery → needs libresolv
-add_unit_test(mkquery ${PROJECT_SOURCE_DIR}/src/dns/proto/mkquery.cpp)
+add_unit_test(mkquery ${PROJECT_SOURCE_DIR}/src/dns/wire/query.cpp)
 if (RESOLV)
   target_link_libraries(test_mkquery PRIVATE ${RESOLV})
 endif ()
 
-# dns_parser_test — tests DnsRecordParser (pure parsing logic in parser.cpp)
-# parser.cpp uses ns_initparse / ns_parserr from libresolv
-add_unit_test(dns_parser ${PROJECT_SOURCE_DIR}/src/dns/proto/parser.cpp)
+# dns_parser_system — tests DnsParser (system backend, libresolv-based)
+# parser_system.cpp uses ns_initparse / ns_parserr from libresolv
+add_unit_test(dns_parser_system SOURCE dns_parser.cpp
+    ${PROJECT_SOURCE_DIR}/src/dns/parser/parser_system.cpp)
 if (RESOLV)
-  target_link_libraries(test_dns_parser PRIVATE ${RESOLV})
+  target_link_libraries(test_dns_parser_system PRIVATE ${RESOLV})
 endif ()
+
+# dns_parser_native — tests DnsParser (self-contained backend, no libresolv)
+# parser_native.cpp implements the full DNS wire-format parser without system libraries.
+# The test file dns_parser.cpp includes dns/parser/parser.h which conditionally
+# selects the parser backend via YADDNSC_USE_NATIVE_DNS.  We override it per-target
+# so this test always exercises the native path regardless of the project default.
+add_unit_test(dns_parser_native SOURCE dns_parser.cpp
+    ${PROJECT_SOURCE_DIR}/src/dns/parser/parser_native.cpp)
+target_compile_definitions(test_dns_parser_native PRIVATE YADDNSC_USE_NATIVE_DNS=1)

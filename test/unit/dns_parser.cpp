@@ -1,8 +1,8 @@
 //
-// Unit tests for dns/proto/parser.h / parser.cpp — DNS response packet parsing.
+// Unit tests for dns/parser/parser_system.h / parser_system.cpp — DNS response packet parsing.
 //
 // Constructs valid DNS wire-format response packets byte-by-byte and verifies
-// that DnsRecordParser correctly extracts A, AAAA, TXT, CNAME, and MX records.
+// that DnsParser correctly extracts A, AAAA, TXT, CNAME, and MX records.
 //
 // DNS header layout (RFC 1035 §4.1.1):
 //   Byte 0-1:   Transaction ID
@@ -23,8 +23,8 @@
 
 #include <gtest/gtest.h>
 
-#include "dns/proto/parser.h"
-#include "dns/proto/mkquery.h"
+#include "dns/wire/query.h"
+#include "dns/parser/parser.h"
 #include "exception/dns_lookup.h"
 
 // ===========================================================================
@@ -32,7 +32,6 @@
 // ===========================================================================
 
 namespace {
-
     /// We'll construct DNS response packets using manual byte layout.
     /// All values are in network byte order (big-endian).
 
@@ -59,7 +58,7 @@ namespace {
             }
             pos = dot + 1;
         }
-        buf.push_back(0);  // root label
+        buf.push_back(0); // root label
         ++written;
         return written;
     }
@@ -69,37 +68,43 @@ namespace {
     /// @param answer_ip IPv4 address bytes (4 bytes).
     /// @param ttl       TTL in seconds (default: 300).
     /// @return          Complete DNS response packet bytes.
-    std::vector<std::uint8_t> make_a_response(std::uint16_t txid,
-                                               std::array<std::uint8_t, 4> answer_ip,
-                                               std::uint32_t ttl = 300) {
+    std::vector<std::uint8_t> make_a_response(std::uint16_t txid, std::array<std::uint8_t, 4> answer_ip,
+                                              std::uint32_t ttl = 300) {
         std::vector<std::uint8_t> buf;
 
         // ---- Header (12 bytes) ----
         buf.resize(12, 0);
         write_u16_be(buf, 0, txid);
-        buf[2] = 0x81; buf[3] = 0x80;  // Flags: QR=1, RD=1, RA=1
-        write_u16_be(buf, 4, 1);         // QDCOUNT = 1
-        write_u16_be(buf, 6, 1);         // ANCOUNT = 1
+        buf[2] = 0x81;
+        buf[3] = 0x80; // Flags: QR=1, RD=1, RA=1
+        write_u16_be(buf, 4, 1); // QDCOUNT = 1
+        write_u16_be(buf, 6, 1); // ANCOUNT = 1
         // NSCOUNT = 0, ARCOUNT = 0 (already zero)
 
         // ---- Question section: "example.com" type A ----
         encode_name(buf, "example.com");
-        buf.push_back(0x00); buf.push_back(0x01);  // QTYPE = A
-        buf.push_back(0x00); buf.push_back(0x01);  // QCLASS = IN
+        buf.push_back(0x00);
+        buf.push_back(0x01); // QTYPE = A
+        buf.push_back(0x00);
+        buf.push_back(0x01); // QCLASS = IN
 
         // ---- Answer section: A record ----
         // Name compression pointer to "example.com" in the question section.
         // The question QNAME starts at offset 12.
-        buf.push_back(0xC0); buf.push_back(0x0C);  // compression: pointer to offset 12
-        buf.push_back(0x00); buf.push_back(0x01);  // TYPE = A
-        buf.push_back(0x00); buf.push_back(0x01);  // CLASS = IN
+        buf.push_back(0xC0);
+        buf.push_back(0x0C); // compression: pointer to offset 12
+        buf.push_back(0x00);
+        buf.push_back(0x01); // TYPE = A
+        buf.push_back(0x00);
+        buf.push_back(0x01); // CLASS = IN
         // TTL (4 bytes, big-endian)
         buf.push_back(static_cast<std::uint8_t>(ttl >> 24));
         buf.push_back(static_cast<std::uint8_t>(ttl >> 16));
         buf.push_back(static_cast<std::uint8_t>(ttl >> 8));
         buf.push_back(static_cast<std::uint8_t>(ttl & 0xFF));
         // RDLENGTH = 4
-        buf.push_back(0x00); buf.push_back(0x04);
+        buf.push_back(0x00);
+        buf.push_back(0x04);
         // RDATA = IPv4 address
         buf.push_back(answer_ip[0]);
         buf.push_back(answer_ip[1]);
@@ -111,31 +116,38 @@ namespace {
 
     /// Build a minimal DNS response with a single AAAA record.
     std::vector<std::uint8_t> make_aaaa_response(std::uint16_t txid,
-                                                  std::array<std::uint8_t, 16> answer_ip,
-                                                  std::uint32_t ttl = 300) {
+                                                 std::array<std::uint8_t, 16> answer_ip,
+                                                 std::uint32_t ttl = 300) {
         std::vector<std::uint8_t> buf;
 
         buf.resize(12, 0);
         write_u16_be(buf, 0, txid);
-        buf[2] = 0x81; buf[3] = 0x80;
-        write_u16_be(buf, 4, 1);  // QDCOUNT
-        write_u16_be(buf, 6, 1);  // ANCOUNT
+        buf[2] = 0x81;
+        buf[3] = 0x80;
+        write_u16_be(buf, 4, 1); // QDCOUNT
+        write_u16_be(buf, 6, 1); // ANCOUNT
 
         // Question
         encode_name(buf, "example.com");
-        buf.push_back(0x00); buf.push_back(0x1C);  // QTYPE = AAAA
-        buf.push_back(0x00); buf.push_back(0x01);
+        buf.push_back(0x00);
+        buf.push_back(0x1C); // QTYPE = AAAA
+        buf.push_back(0x00);
+        buf.push_back(0x01);
 
         // Answer: AAAA
-        buf.push_back(0xC0); buf.push_back(0x0C);
-        buf.push_back(0x00); buf.push_back(0x1C);  // TYPE = AAAA
-        buf.push_back(0x00); buf.push_back(0x01);
+        buf.push_back(0xC0);
+        buf.push_back(0x0C);
+        buf.push_back(0x00);
+        buf.push_back(0x1C); // TYPE = AAAA
+        buf.push_back(0x00);
+        buf.push_back(0x01);
         buf.push_back(static_cast<std::uint8_t>(ttl >> 24));
         buf.push_back(static_cast<std::uint8_t>(ttl >> 16));
         buf.push_back(static_cast<std::uint8_t>(ttl >> 8));
         buf.push_back(static_cast<std::uint8_t>(ttl & 0xFF));
-        buf.push_back(0x00); buf.push_back(0x10);  // RDLENGTH = 16
-        for (auto byte : answer_ip) {
+        buf.push_back(0x00);
+        buf.push_back(0x10); // RDLENGTH = 16
+        for (auto byte: answer_ip) {
             buf.push_back(byte);
         }
 
@@ -143,25 +155,30 @@ namespace {
     }
 
     /// Build a DNS response with a single TXT record.
-    std::vector<std::uint8_t> make_txt_response(std::uint16_t txid,
-                                                 std::string_view txt_value,
-                                                 std::uint32_t ttl = 300) {
+    std::vector<std::uint8_t>
+    make_txt_response(std::uint16_t txid, std::string_view txt_value, std::uint32_t ttl = 300) {
         std::vector<std::uint8_t> buf;
 
         buf.resize(12, 0);
         write_u16_be(buf, 0, txid);
-        buf[2] = 0x81; buf[3] = 0x80;
+        buf[2] = 0x81;
+        buf[3] = 0x80;
         write_u16_be(buf, 4, 1);
         write_u16_be(buf, 6, 1);
 
         encode_name(buf, "example.com");
-        buf.push_back(0x00); buf.push_back(0x10);  // QTYPE = TXT
-        buf.push_back(0x00); buf.push_back(0x01);
+        buf.push_back(0x00);
+        buf.push_back(0x10); // QTYPE = TXT
+        buf.push_back(0x00);
+        buf.push_back(0x01);
 
         // Answer: TXT
-        buf.push_back(0xC0); buf.push_back(0x0C);
-        buf.push_back(0x00); buf.push_back(0x10);  // TYPE = TXT
-        buf.push_back(0x00); buf.push_back(0x01);
+        buf.push_back(0xC0);
+        buf.push_back(0x0C);
+        buf.push_back(0x00);
+        buf.push_back(0x10); // TYPE = TXT
+        buf.push_back(0x00);
+        buf.push_back(0x01);
         buf.push_back(static_cast<std::uint8_t>(ttl >> 24));
         buf.push_back(static_cast<std::uint8_t>(ttl >> 16));
         buf.push_back(static_cast<std::uint8_t>(ttl >> 8));
@@ -173,7 +190,7 @@ namespace {
         buf.push_back(static_cast<std::uint8_t>(rdlength >> 8));
         buf.push_back(static_cast<std::uint8_t>(rdlength & 0xFF));
         buf.push_back(txt_len);
-        for (auto ch : txt_value) {
+        for (auto ch: txt_value) {
             buf.push_back(static_cast<std::uint8_t>(ch));
         }
 
@@ -181,29 +198,38 @@ namespace {
     }
 
     /// Build a DNS response with a CNAME record.
-    std::vector<std::uint8_t> make_cname_response(std::uint16_t txid,
-                                                   std::string_view cname_target) {
+    std::vector<std::uint8_t> make_cname_response(std::uint16_t txid, std::string_view cname_target) {
         std::vector<std::uint8_t> buf;
 
         buf.resize(12, 0);
         write_u16_be(buf, 0, txid);
-        buf[2] = 0x81; buf[3] = 0x80;
+        buf[2] = 0x81;
+        buf[3] = 0x80;
         write_u16_be(buf, 4, 1);
         write_u16_be(buf, 6, 1);
 
         encode_name(buf, "www.example.com");
-        buf.push_back(0x00); buf.push_back(0x01);  // QTYPE = A
-        buf.push_back(0x00); buf.push_back(0x01);
+        buf.push_back(0x00);
+        buf.push_back(0x01); // QTYPE = A
+        buf.push_back(0x00);
+        buf.push_back(0x01);
 
         // Answer: CNAME
-        buf.push_back(0xC0); buf.push_back(0x0C);  // pointer to QNAME
-        buf.push_back(0x00); buf.push_back(0x05);  // TYPE = CNAME
-        buf.push_back(0x00); buf.push_back(0x01);  // CLASS = IN
+        buf.push_back(0xC0);
+        buf.push_back(0x0C); // pointer to QNAME
+        buf.push_back(0x00);
+        buf.push_back(0x05); // TYPE = CNAME
+        buf.push_back(0x00);
+        buf.push_back(0x01); // CLASS = IN
         // TTL = 300
-        buf.push_back(0x00); buf.push_back(0x00); buf.push_back(0x01); buf.push_back(0x2C);
+        buf.push_back(0x00);
+        buf.push_back(0x00);
+        buf.push_back(0x01);
+        buf.push_back(0x2C);
         // RDLENGTH placeholder (will update after encoding target)
         size_t rdlength_offset = buf.size();
-        buf.push_back(0x00); buf.push_back(0x00);
+        buf.push_back(0x00);
+        buf.push_back(0x00);
         // RDATA: compressed domain name
         size_t rdata_start = buf.size();
         encode_name(buf, cname_target);
@@ -213,7 +239,6 @@ namespace {
 
         return buf;
     }
-
 } // anonymous namespace
 
 // ===========================================================================
@@ -222,7 +247,7 @@ namespace {
 
 TEST(DnsParserTest, ParseSingleARecord) {
     auto response = make_a_response(0x1234, {192, 168, 1, 1});
-    auto records = DNS::DnsRecordParser::parse_all(response.data(), response.size());
+    auto records = DNS::DnsParser::parse_all(response.data(), response.size());
 
     ASSERT_EQ(records.size(), 1U);
     EXPECT_EQ(records[0], "192.168.1.1");
@@ -230,7 +255,7 @@ TEST(DnsParserTest, ParseSingleARecord) {
 
 TEST(DnsParserTest, ParseLoopbackRecord) {
     auto response = make_a_response(0x5678, {127, 0, 0, 1});
-    auto records = DNS::DnsRecordParser::parse_all(response.data(), response.size());
+    auto records = DNS::DnsParser::parse_all(response.data(), response.size());
 
     ASSERT_EQ(records.size(), 1U);
     EXPECT_EQ(records[0], "127.0.0.1");
@@ -238,7 +263,7 @@ TEST(DnsParserTest, ParseLoopbackRecord) {
 
 TEST(DnsParserTest, ParseDnsServerRecord) {
     auto response = make_a_response(0x9ABC, {8, 8, 8, 8});
-    auto records = DNS::DnsRecordParser::parse_all(response.data(), response.size());
+    auto records = DNS::DnsParser::parse_all(response.data(), response.size());
 
     ASSERT_EQ(records.size(), 1U);
     EXPECT_EQ(records[0], "8.8.8.8");
@@ -249,13 +274,17 @@ TEST(DnsParserTest, ParseDnsServerRecord) {
 // ===========================================================================
 
 TEST(DnsParserTest, ParseSingleAaaaRecord) {
-    auto response = make_aaaa_response(0x1234, {0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0,
-                                                 0, 0, 0, 0, 0, 0, 0, 1});  // 2001:db8::1
-    auto records = DNS::DnsRecordParser::parse_all(response.data(), response.size());
+    auto response = make_aaaa_response(
+        0x1234, {
+            0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 1
+        }
+    ); // 2001:db8::1
+    auto records = DNS::DnsParser::parse_all(response.data(), response.size());
 
     ASSERT_EQ(records.size(), 1U);
     // inet_ntop may format as "2001:db8::1" or "2001:db8:0:0:0:0:0:1"
-    auto s = records[0];
+    const auto &s = records[0];
     EXPECT_FALSE(s.empty());
     EXPECT_TRUE(s.find("2001") != std::string::npos);
     EXPECT_TRUE(s.find("db8") != std::string::npos || s.find("0db8") != std::string::npos);
@@ -263,9 +292,13 @@ TEST(DnsParserTest, ParseSingleAaaaRecord) {
 }
 
 TEST(DnsParserTest, ParseLoopbackAaaa) {
-    auto response = make_aaaa_response(0x1234, {0, 0, 0, 0, 0, 0, 0, 0,
-                                                 0, 0, 0, 0, 0, 0, 0, 1});  // ::1
-    auto records = DNS::DnsRecordParser::parse_all(response.data(), response.size());
+    auto response = make_aaaa_response(
+        0x1234, {
+            0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 1
+        }
+    ); // ::1
+    auto records = DNS::DnsParser::parse_all(response.data(), response.size());
 
     ASSERT_EQ(records.size(), 1U);
     EXPECT_EQ(records[0], "::1");
@@ -277,7 +310,7 @@ TEST(DnsParserTest, ParseLoopbackAaaa) {
 
 TEST(DnsParserTest, ParseTxtRecord) {
     auto response = make_txt_response(0x1234, "hello=world");
-    auto records = DNS::DnsRecordParser::parse_all(response.data(), response.size());
+    auto records = DNS::DnsParser::parse_all(response.data(), response.size());
 
     ASSERT_EQ(records.size(), 1U);
     EXPECT_EQ(records[0], "hello=world");
@@ -285,7 +318,7 @@ TEST(DnsParserTest, ParseTxtRecord) {
 
 TEST(DnsParserTest, ParseEmptyTxtRecord) {
     auto response = make_txt_response(0x1234, "");
-    auto records = DNS::DnsRecordParser::parse_all(response.data(), response.size());
+    auto records = DNS::DnsParser::parse_all(response.data(), response.size());
 
     ASSERT_EQ(records.size(), 1U);
     EXPECT_TRUE(records[0].empty());
@@ -297,7 +330,7 @@ TEST(DnsParserTest, ParseEmptyTxtRecord) {
 
 TEST(DnsParserTest, ParseCnameRecord) {
     auto response = make_cname_response(0x1234, "target.example.com");
-    auto records = DNS::DnsRecordParser::parse_all(response.data(), response.size());
+    auto records = DNS::DnsParser::parse_all(response.data(), response.size());
 
     ASSERT_EQ(records.size(), 1U);
     EXPECT_EQ(records[0], "target.example.com");
@@ -315,34 +348,57 @@ TEST(DnsParserTest, RecordCount_ReturnsCorrectCount) {
 
     buf.resize(12, 0);
     write_u16_be(buf, 0, 0x1234);
-    buf[2] = 0x81; buf[3] = 0x80;
-    write_u16_be(buf, 4, 1);  // QDCOUNT
-    write_u16_be(buf, 6, 2);  // ANCOUNT = 2
+    buf[2] = 0x81;
+    buf[3] = 0x80;
+    write_u16_be(buf, 4, 1); // QDCOUNT
+    write_u16_be(buf, 6, 2); // ANCOUNT = 2
 
     encode_name(buf, "example.com");
-    buf.push_back(0x00); buf.push_back(0x01);
-    buf.push_back(0x00); buf.push_back(0x01);
+    buf.push_back(0x00);
+    buf.push_back(0x01);
+    buf.push_back(0x00);
+    buf.push_back(0x01);
 
     // Answer 1: 10.0.0.1
-    buf.push_back(0xC0); buf.push_back(0x0C);
-    buf.push_back(0x00); buf.push_back(0x01);
-    buf.push_back(0x00); buf.push_back(0x01);
-    buf.push_back(0x00); buf.push_back(0x00); buf.push_back(0x01); buf.push_back(0x2C);  // TTL = 300
-    buf.push_back(0x00); buf.push_back(0x04);
-    buf.push_back(10); buf.push_back(0); buf.push_back(0); buf.push_back(1);
+    buf.push_back(0xC0);
+    buf.push_back(0x0C);
+    buf.push_back(0x00);
+    buf.push_back(0x01);
+    buf.push_back(0x00);
+    buf.push_back(0x01);
+    buf.push_back(0x00);
+    buf.push_back(0x00);
+    buf.push_back(0x01);
+    buf.push_back(0x2C); // TTL = 300
+    buf.push_back(0x00);
+    buf.push_back(0x04);
+    buf.push_back(10);
+    buf.push_back(0);
+    buf.push_back(0);
+    buf.push_back(1);
 
     // Answer 2: 10.0.0.2
-    buf.push_back(0xC0); buf.push_back(0x0C);
-    buf.push_back(0x00); buf.push_back(0x01);
-    buf.push_back(0x00); buf.push_back(0x01);
-    buf.push_back(0x00); buf.push_back(0x00); buf.push_back(0x01); buf.push_back(0x2C);
-    buf.push_back(0x00); buf.push_back(0x04);
-    buf.push_back(10); buf.push_back(0); buf.push_back(0); buf.push_back(2);
+    buf.push_back(0xC0);
+    buf.push_back(0x0C);
+    buf.push_back(0x00);
+    buf.push_back(0x01);
+    buf.push_back(0x00);
+    buf.push_back(0x01);
+    buf.push_back(0x00);
+    buf.push_back(0x00);
+    buf.push_back(0x01);
+    buf.push_back(0x2C);
+    buf.push_back(0x00);
+    buf.push_back(0x04);
+    buf.push_back(10);
+    buf.push_back(0);
+    buf.push_back(0);
+    buf.push_back(2);
 
-    DNS::DnsRecordParser parser(buf.data(), buf.size());
+    DNS::DnsParser parser(buf.data(), buf.size());
     EXPECT_EQ(parser.record_count(), 2U);
 
-    auto records = DNS::DnsRecordParser::parse_all(buf.data(), buf.size());
+    auto records = DNS::DnsParser::parse_all(buf.data(), buf.size());
     ASSERT_EQ(records.size(), 2U);
     EXPECT_EQ(records[0], "10.0.0.1");
     EXPECT_EQ(records[1], "10.0.0.2");
@@ -354,11 +410,9 @@ TEST(DnsParserTest, RecordCount_ReturnsCorrectCount) {
 
 TEST(DnsParserTest, InvalidPacket_ThrowsDnsLookupException) {
     std::vector<std::uint8_t> garbage = {0, 1, 2, 3, 4, 5};
-    EXPECT_THROW(DNS::DnsRecordParser(garbage.data(), garbage.size()), DnsLookupException);
+    EXPECT_THROW(DNS::DnsParser(garbage.data(), garbage.size()), DnsLookupException);
 }
 
 TEST(DnsParserTest, EmptyBuffer_Throws) {
-    EXPECT_THROW(DNS::DnsRecordParser(nullptr, 0), DnsLookupException);
+    EXPECT_THROW(DNS::DnsParser(nullptr, 0), DnsLookupException);
 }
-
-

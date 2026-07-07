@@ -1,7 +1,7 @@
 //
 // Created by Kotarou on 2026/6/17.
 //
-#include "parser.h"
+#include "dns/parser/parser_system.h"
 
 #include <arpa/inet.h>
 #include <netinet/in.h>
@@ -18,7 +18,7 @@
 #include "fmt.hpp"
 #include "exception/dns_lookup.h"
 
-DNS::DnsRecordParser::DnsRecordParser(const data_type *data, const size_t size) {
+DNS::DnsParser::DnsParser(const data_type *data, const size_t size) {
     if (ns_initparse(data, static_cast<int>(size), &message_) != 0) {
         throw DnsLookupException("Failed to parse DNS response message", Error::PARSE);
     }
@@ -27,11 +27,11 @@ DNS::DnsRecordParser::DnsRecordParser(const data_type *data, const size_t size) 
                  ns_msg_count(message_, ns_s_an));
 }
 
-size_t DNS::DnsRecordParser::record_count() const noexcept {
+size_t DNS::DnsParser::record_count() const noexcept {
     return static_cast<size_t>(ns_msg_count(message_, ns_s_an));
 }
 
-std::string DNS::DnsRecordParser::parse_record(size_t index) const {
+std::string DNS::DnsParser::parse_record(size_t index) const {
     ns_rr dns_resource{};
     if (ns_parserr(&message_, ns_s_an, static_cast<int>(index), &dns_resource)) {
         throw DnsLookupException(
@@ -88,19 +88,19 @@ std::string DNS::DnsRecordParser::parse_record(size_t index) const {
     return value;
 }
 
-std::string DNS::DnsRecordParser::parse_a_record(const data_type *rdata) {
+std::string DNS::DnsParser::parse_a_record(const data_type *rdata) {
     std::array<char, INET_ADDRSTRLEN> address_buffer{};
     inet_ntop(AF_INET, rdata, address_buffer.data(), address_buffer.size());
     return address_buffer.data();
 }
 
-std::string DNS::DnsRecordParser::parse_aaaa_record(const data_type *rdata) {
+std::string DNS::DnsParser::parse_aaaa_record(const data_type *rdata) {
     std::array<char, INET6_ADDRSTRLEN> address_buffer{};
     inet_ntop(AF_INET6, rdata, address_buffer.data(), address_buffer.size());
     return address_buffer.data();
 }
 
-std::string DNS::DnsRecordParser::parse_txt_record(const data_type *rdata, int rdlen) {
+std::string DNS::DnsParser::parse_txt_record(const data_type *rdata, int rdlen) {
     // <character-string>: length (1 octet), string
     if (rdlen < 1) {
         throw DnsLookupException("Invalid TXT record (no data)");
@@ -116,7 +116,7 @@ std::string DNS::DnsRecordParser::parse_txt_record(const data_type *rdata, int r
     return {reinterpret_cast<const char *>(rdata + 1), length};
 }
 
-std::string DNS::DnsRecordParser::parse_domain_name_record(const data_type *msg_base, const data_type *msg_end,
+std::string DNS::DnsParser::parse_domain_name_record(const data_type *msg_base, const data_type *msg_end,
                                                            const data_type *rdata) {
     // <domain-name> (compressed)
     char nsname[NS_MAXDNAME];
@@ -127,7 +127,7 @@ std::string DNS::DnsRecordParser::parse_domain_name_record(const data_type *msg_
     return nsname;
 }
 
-std::string DNS::DnsRecordParser::parse_mx_record(const data_type *msg_base, const data_type *msg_end,
+std::string DNS::DnsParser::parse_mx_record(const data_type *msg_base, const data_type *msg_end,
                                                   const data_type *rdata) {
     // MX: preference (2 octets), <domain-name> (compressed)
     char nsname[NS_MAXDNAME];
@@ -139,8 +139,8 @@ std::string DNS::DnsRecordParser::parse_mx_record(const data_type *msg_base, con
 }
 
 std::vector<std::string>
-DNS::DnsRecordParser::parse_all(const data_type *data, size_t size, [[maybe_unused]] const std::string &host) {
-    DnsRecordParser parser(data, size);
+DNS::DnsParser::parse_all(const data_type *data, size_t size, [[maybe_unused]] const std::string &host) {
+    DnsParser parser(data, size);
     std::vector<std::string> result;
     result.reserve(parser.record_count());
 

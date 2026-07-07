@@ -15,7 +15,7 @@
 #include "fmt.hpp"
 #include "dns_error.h"
 #include "util/retry_util.hpp"
-#include "dns/proto/parser.h"
+#include "dns/parser/parser.h"
 #include "dns/resolver/base.h"
 #include "exception/dns_lookup.h"
 
@@ -134,7 +134,7 @@ std::vector<std::string>
 ResolverDispatcher::Impl::resolve_single_attempt(const std::string &host, DNS::Type type) const {
     SPDLOG_DEBUG(R"(Using resolver for "{}")", host);
     auto raw = resolvers_[0]->query(host, type);
-    auto records = DNS::DnsRecordParser::parse_all(raw.data(), raw.size(), host);
+    auto records = DNS::DnsParser::parse_all(raw.data(), raw.size(), host);
     if (!records.empty()) {
         SPDLOG_DEBUG(R"(DNS lookup for "{}" returned {} record(s): {})", host, records.size(),
                      fmt::join(records, ", "));
@@ -153,7 +153,7 @@ void ResolverDispatcher::Impl::query_resolver(const ResolverBase &resolver, cons
     const auto id = resolver.get_id();
     try {
         auto raw_response = resolver.query(host, type);
-        auto records = DNS::DnsRecordParser::parse_all(raw_response.data(), raw_response.size(), host);
+        auto records = DNS::DnsParser::parse_all(raw_response.data(), raw_response.size(), host);
 
         std::lock_guard lock(state->mtx);
         if (!state->has_result && !records.empty()) {
@@ -218,7 +218,7 @@ ResolverDispatcher::Impl::resolve_fallback(const std::string &host, DNS::Type ty
         const auto id = resolver->get_id();
         try {
             auto raw_response = resolver->query(host, type);
-            auto result = DNS::DnsRecordParser::parse_all(raw_response.data(), raw_response.size(), host);
+            auto result = DNS::DnsParser::parse_all(raw_response.data(), raw_response.size(), host);
 
             if (!result.empty()) {
                 SPDLOG_DEBUG(

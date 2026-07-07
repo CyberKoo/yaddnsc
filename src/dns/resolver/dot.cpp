@@ -30,7 +30,7 @@
 #include "dns/validator.h"
 #include "util/cert_util.hpp"
 #include "util/validation.hpp"
-#include "dns/proto/mkquery.h"
+#include "dns/wire/query.h"
 #include "network/inet_address.h"
 #include "exception/dns_lookup.h"
 

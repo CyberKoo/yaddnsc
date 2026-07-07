@@ -2,7 +2,7 @@
 // Created by Kotarou on 2026/6/29.
 //
 
-#include "mkquery.h"
+#include "dns/wire/query.h"
 
 #include <arpa/nameser.h>
 #include <resolv.h>
@@ -35,7 +35,7 @@ namespace DNS {
 
     std::vector<std::uint8_t> mkquery(const std::string &host, int ns_type) {
         if constexpr (YADDNSC_USE_NATIVE_DNS) {
-            return mkquery_manual(host, ns_type);
+            return mkquery_native(host, ns_type);
         } else {
             return mkquery_system(host, ns_type);
         }
@@ -72,7 +72,7 @@ namespace DNS {
     }
 
     // ===========================================================================
-    //  mkquery_manual  —  hand-rolled DNS query builder (no libresolv)
+    //  mkquery_native  —  hand-rolled DNS query builder (no libresolv)
     // ===========================================================================
 
     namespace {
@@ -108,7 +108,7 @@ namespace DNS {
         };
     } // anonymous namespace
 
-    std::vector<std::uint8_t> mkquery_manual(const std::string &host, int ns_type) {
+    std::vector<std::uint8_t> mkquery_native(const std::string &host, int ns_type) {
         static std::random_device rd;
         const auto id = static_cast<std::uint16_t>(rd() & 0xFFFF);
 

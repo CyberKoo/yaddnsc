@@ -23,32 +23,35 @@ namespace Cli {
 
     namespace {
         struct DnsOpts {
+            std::string config_path = "config.json";
             std::string dns_host;
             std::string dns_type = "A";
         };
     }
 
-    void register_dns_subcommand(CLI::App &app, const std::string &config_path, int &exit_code) {
-        auto opts = std::make_shared<DnsOpts>();
+        void register_dns_subcommand(CLI::App &app, int &exit_code) {
+            auto opts = std::make_shared<DnsOpts>();
 
-        auto *dns = app.add_subcommand("dns", "DNS lookup and diagnostics");
-        dns->require_subcommand(1);
+            auto *dns = app.add_subcommand("dns", "DNS lookup and diagnostics");
+            dns->require_subcommand(1);
+            dns->add_option("-c,--config", opts->config_path, "Config file path")
+                ->default_str("config.json")->check(CLI::ExistingFile);
 
-        auto *resolve = dns->add_subcommand("resolve", "Resolve a hostname");
-        resolve->alias("r");
-        resolve->add_option("hostname", opts->dns_host, "Hostname to resolve (e.g. example.com)")->required();
-        resolve->add_option("--type", opts->dns_type, "Record type (A, AAAA, TXT, SOA)")
-                ->default_str("A")
-                ->check(CLI::IsMember(std::vector<std::string>{"A", "AAAA", "TXT", "SOA"}));
-        resolve->callback([&config_path, &exit_code, opts] {
-            exit_code = execute_dns_resolve(config_path, opts->dns_host, opts->dns_type);
-        });
+            auto *resolve = dns->add_subcommand("resolve", "Resolve a hostname");
+            resolve->alias("r");
+            resolve->add_option("hostname", opts->dns_host, "Hostname to resolve (e.g. example.com)")->required();
+            resolve->add_option("--type", opts->dns_type, "Record type (A, AAAA, TXT, SOA)")
+                    ->default_str("A")
+                    ->check(CLI::IsMember(std::vector<std::string>{"A", "AAAA", "TXT", "SOA"}));
+            resolve->callback([&exit_code, opts] {
+                exit_code = execute_dns_resolve(opts->config_path, opts->dns_host, opts->dns_type);
+            });
 
-        auto *resolver = dns->add_subcommand("resolver", "Show configured resolver details");
-        resolver->callback([&config_path, &exit_code] {
-            exit_code = execute_dns_resolver(config_path);
-        });
-    }
+            auto *resolver = dns->add_subcommand("resolver", "Show configured resolver details");
+            resolver->callback([&exit_code, opts] {
+                exit_code = execute_dns_resolver(opts->config_path);
+            });
+        }
 
     // ── Executors ─────────────────────────────────────────────────────────
 

@@ -2,8 +2,8 @@
 // Created by Kotarou on 2026/6/17.
 //
 
-#ifndef YADDNSC_DNS_PARSER_H
-#define YADDNSC_DNS_PARSER_H
+#ifndef YADDNSC_DNS_PARSER_SYSTEM_H
+#define YADDNSC_DNS_PARSER_SYSTEM_H
 
 #include <string>
 #include <vector>
@@ -19,14 +19,18 @@ namespace DNS {
 /// Parses DNS answer records from a raw packet buffer returned by
 /// a resolver query.  Supports A, AAAA, TXT, MX, CNAME, and other
 /// common record types.
-class DnsRecordParser {
+///
+/// @note Uses libresolv (ns_initparse / ns_parserr) internally.
+///       For a self-contained alternative without libresolv,
+///       see DnsParser (<dns/parser/parser_native.h>).
+class DnsParser {
 public:
     using data_type = std::uint8_t;
 
     /// Construct a parser from a raw DNS response buffer.
     /// @param data  Pointer to the raw packet bytes.
     /// @param size  Total size of the packet in bytes.
-    explicit DnsRecordParser(const data_type *data, size_t size);
+    explicit DnsParser(const data_type *data, size_t size);
 
     /// Return the number of answer records in the parsed response.
     [[nodiscard]] size_t record_count() const noexcept;
@@ -63,4 +67,4 @@ private:
 
 } // namespace DNS
 
-#endif // YADDNSC_DNS_PARSER_H
+#endif // YADDNSC_DNS_PARSER_SYSTEM_H

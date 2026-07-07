@@ -124,11 +124,11 @@ All formatting is enforced by **clang-format** (`BasedOnStyle: Chromium`). Namin
 
 | Element | Convention |
 |---------|------------|
+| Constants | `UPPER_SNAKE_CASE` |
 | Functions | `snake_case` |
 | Classes | `PascalCase` |
 | Class member variables | `snake_case_` (trailing underscore) |
-| Constants | `UPPER_SNAKE_CASE` |
-| Pure data structs (POD, no invariants) | `snake_case` (no trailing underscore) |
+| Pure data struct member variables (POD, no invariants) | `snake_case` (no trailing underscore) |
 
 - Always add `[[nodiscard]]` where ignoring the return value is a bug.
 - Use trailing return type syntax only when necessary (e.g., dependent return types in templates).

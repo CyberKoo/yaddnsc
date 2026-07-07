@@ -18,27 +18,30 @@ namespace Cli {
 
     namespace {
         struct DriverOpts {
+            std::string config_path = "config.json";
             std::string driver_name;
         };
     }
 
-    void register_driver_subcommand(CLI::App &app, const std::string &config_path, int &exit_code) {
-        auto opts = std::make_shared<DriverOpts>();
+        void register_driver_subcommand(CLI::App &app, int &exit_code) {
+            auto opts = std::make_shared<DriverOpts>();
 
-        auto *driver = app.add_subcommand("driver", "Manage DDNS driver modules");
-        driver->require_subcommand(1);
+            auto *driver = app.add_subcommand("driver", "Manage DDNS driver modules");
+            driver->require_subcommand(1);
+            driver->add_option("-c,--config", opts->config_path, "Config file path")
+                ->default_str("config.json")->check(CLI::ExistingFile);
 
-        auto *list = driver->add_subcommand("list", "List all loaded drivers");
-        list->callback([&config_path, &exit_code] {
-            exit_code = execute_driver_list(config_path);
-        });
+            auto *list = driver->add_subcommand("list", "List all loaded drivers");
+            list->callback([&exit_code, opts] {
+                exit_code = execute_driver_list(opts->config_path);
+            });
 
-        auto *info = driver->add_subcommand("info", "Show detailed information about a driver");
-        info->add_option("name", opts->driver_name, "Driver name (e.g. simple, cloudflare)")->required();
-        info->callback([&config_path, &exit_code, opts] {
-            exit_code = execute_driver_info(config_path, opts->driver_name);
-        });
-    }
+            auto *info = driver->add_subcommand("info", "Show detailed information about a driver");
+            info->add_option("name", opts->driver_name, "Driver name (e.g. simple, cloudflare)")->required();
+            info->callback([&exit_code, opts] {
+                exit_code = execute_driver_info(opts->config_path, opts->driver_name);
+            });
+        }
 
     // ── Executors ─────────────────────────────────────────────────────────
 

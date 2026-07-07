@@ -2,8 +2,8 @@
 // Created by Kotarou on 2026/6/29.
 //
 
-#ifndef YADDNSC_MKQUERY_H
-#define YADDNSC_MKQUERY_H
+#ifndef YADDNSC_DNS_WIRE_QUERY_H
+#define YADDNSC_DNS_WIRE_QUERY_H
 
 #include <string>
 #include <vector>
@@ -26,15 +26,14 @@ namespace DNS {
     /// Build a raw DNS query packet without libresolv.
     ///
     /// A self-contained implementation that constructs the DNS wire-format query
-    /// packet manually, without relying on res_mkquery() or any system resolver
-    /// library.  Useful when libresolv is unavailable or when you want full
-    /// control over the packet contents (e.g. no EDNS0 interference from
-    /// /etc/resolv.conf).
+    /// packet without relying on res_mkquery() or any system resolver library.
+    /// Useful when libresolv is unavailable or when you want full control over
+    /// the packet contents (e.g. no EDNS0 interference from /etc/resolv.conf).
     ///
     /// @param host     The domain name to query.
     /// @param ns_type  The DNS record type as an ns_t_* constant.
     /// @return         A buffer containing the raw DNS query packet bytes.
-    [[nodiscard]] std::vector<std::uint8_t> mkquery_manual(const std::string &host, int ns_type);
+    [[nodiscard]] std::vector<std::uint8_t> mkquery_native(const std::string &host, int ns_type);
 
     /// Build a raw DNS query packet via libresolv.
     ///
@@ -50,7 +49,7 @@ namespace DNS {
     /// Build an mDNS query packet (RFC 6762).
     ///
     /// Constructs a DNS wire-format query suitable for multicast DNS.  Differs
-    /// from mkquery_manual in three ways:
+    /// from mkquery_native in three ways:
     ///   1. Transaction ID is set to 0 (RFC 6762 §18.1).
     ///   2. Flags are set to 0x0000 — no RD, no RA, standard query.
     ///   3. QCLASS carries the QU (unicast-response) bit (0x8001) so that the
@@ -64,4 +63,4 @@ namespace DNS {
     [[nodiscard]] std::vector<std::uint8_t> mkquery_mdns(const std::string &host, int ns_type, bool unicast_rsp = true);
 } // namespace DNS
 
-#endif // YADDNSC_MKQUERY_H
+#endif // YADDNSC_DNS_WIRE_QUERY_H

@@ -22,24 +22,25 @@
 
 namespace {
     void
-    register_commands(CLI::App &app, std::string &config_path, bool &verbose, bool &run_requested, int &exit_code) {
-        app.set_version_flag("--version", yaddnsc::get_full_version(), "Print version information");
-        app.add_option("-c,--config", config_path, "Config file path")
-                ->default_str("config.json")->check(CLI::ExistingFile)->force_callback();
-        app.add_flag("-v,--verbose", verbose, "Enable verbose (debug) logging");
+    register_commands(CLI::App &app, std::string &run_config_path, bool &run_verbose, bool &run_requested, int &exit_code) {
+        app.set_version_flag("-v,--version", yaddnsc::get_full_version(), "Print version information");
 
-        // run
+        // run  — owns its own -c,--config and -d,--debug options
         {
             auto *run = app.add_subcommand("run", "Run the DDNS client");
-            run->alias("r");
+
+            run->add_option("-c,--config", run_config_path, "Config file path")
+                ->default_str("config.json")->check(CLI::ExistingFile);
+            run->add_flag("-d,--debug", run_verbose, "Enable verbose (debug) logging");
             run->callback([&run_requested] { run_requested = true; });
         }
 
         // Delegate to subcommand-specific registrations.
-        Cli::register_driver_subcommand(app, config_path, exit_code);
+        // Subcommands that need a config file own their own -c option internally.
+        Cli::register_driver_subcommand(app, exit_code);
         Cli::register_interface_subcommand(app, exit_code);
-        Cli::register_dns_subcommand(app, config_path, exit_code);
-        Cli::register_config_subcommand(app, config_path, exit_code);
+        Cli::register_dns_subcommand(app, exit_code);
+        Cli::register_config_subcommand(app, exit_code);
         Cli::register_info_subcommand(app, exit_code);
     }
 } // anonymous namespace

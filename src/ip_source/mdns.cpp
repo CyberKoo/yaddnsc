@@ -21,8 +21,8 @@
 
 #include "fmt.hpp"
 #include "dns/util.hpp"
-#include "dns/proto/parser.h"
-#include "dns/proto/mkquery.h"
+#include "dns/parser/parser.h"
+#include "dns/wire/query.h"
 #include "network/inet_address.h"
 #include "network/net_devices.h"
 #include "network/socket.h"
@@ -269,7 +269,7 @@ namespace {
 
         SPDLOG_TRACE(R"(mDNS received {} bytes for "{}")", recv_len, hostname);
 
-        auto raw_records = DNS::DnsRecordParser::parse_all(recv_buf.data(), static_cast<size_t>(recv_len), hostname);
+        auto raw_records = DNS::DnsParser::parse_all(recv_buf.data(), static_cast<size_t>(recv_len), hostname);
         if (raw_records.empty()) {
             throw std::runtime_error(fmt::format(R"(mDNS no records in response for "{}")", hostname));
         }

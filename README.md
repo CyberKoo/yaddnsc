@@ -1,5 +1,7 @@
 # yaddnsc — Yet Another Dynamic DNS Client
 
+[![codecov](https://codecov.io/gh/Kotarou/yaddnsc/branch/master/graph/badge.svg)](https://codecov.io/gh/Kotarou/yaddnsc)
+
 > **⚠️ Warning:** The `master` branch (v1.x) is under heavy development. The v1 ABI has not yet been finalized and may change significantly — plugins **must** be recompiled after each update.
 
 **yaddnsc** is a modern Dynamic DNS (DDNS) client that monitors your local IP addresses and automatically updates DNS records on supported DNS providers when changes are detected. It is designed to be lightweight, modular, and extensible through a plugin-based driver system.
@@ -112,24 +114,33 @@ sudo cmake --install build
 
 **Legacy devices** — If your toolchain is older (GCC < 14 or Clang < 18), use the `v0.x` (legacy) branch (C++17, CMake 3.14+, OpenSSL 1.1.x). Maintenance-only; feature development happens on master.
 
-**Alpine Linux (musl)** — `YADDNSC_USE_NATIVE_DNS` defaults to ON on musl (musl's resolver is limited — no reentrant `res_nquery`).
+**Alpine Linux (musl)** — `YADDNSC_USE_NATIVE_DNS` defaults to ON on musl (musl's system resolver is limited — no reentrant `res_nquery`). Note that the native resolver/parser is currently [experimental]; if stability issues arise, set `-DYADDNSC_USE_NATIVE_DNS=OFF` to fall back to libresolv.
 
 ### Testing
 
-Unit tests are blocked by the tight coupling between core components — the IP source, DNS resolver, driver, and scheduler are all wired together without injectable interfaces. A core refactoring is planned to decouple these dependencies, after which unit tests will be introduced.
+Unit tests are available for utility, DNS protocol, validation, and configuration components.
+Tests are gated by the `YADDNSC_BUILD_TESTS` CMake option (default: OFF). To build and run tests:
+
+```bash
+cmake -B build -DCMAKE_BUILD_TYPE=Debug -DYADDNSC_BUILD_TESTS=ON
+cmake --build build -j$(nproc)
+ctest --test-dir build --output-on-failure
+```
+
+Integration tests for the core orchestration components (Manager, Scheduler, Updater) are planned after a planned refactoring decouples these with injectable interfaces.
 
 ### CMake Options
 
 | Option                        | Default                                       | Description                                                       |
 |-------------------------------|-----------------------------------------------|-------------------------------------------------------------------|
 | `CMAKE_BUILD_TYPE`            | Release                                       | Set to `Debug` for debug builds                                   |
-| `YADDNSC_LOGGING_PATTERN`     | `[%D %T.%e] [%^%8l%$] [%8!t] [%15!s:%-4#] %v` | Logging pattern passed to spdlog                                   |
 | `YADDNSC_MIN_UPDATE_INTERVAL` | 60                                            | Minimum allowed update interval in seconds                         |
-| `YADDNSC_USE_NATIVE_DNS`      | OFF                                           | Use built-in DNS query/resolver (libresolv still used for parsing) |
+| `YADDNSC_USE_NATIVE_DNS`      | OFF                                           | [Experimental] Use built-in DNS query and parser (no libresolv). Will become default once stabilized. Long-term goal: eliminate libresolv entirely. |
 | `YADDNSC_DEFAULT_DNS_SERVER`  | 1.1.1.1                                       | Default DNS server address when none is configured                 |
 | `YADDNSC_DEFAULT_DNS_PORT`    | 53                                            | Default DNS server port when none is configured                    |
 | `YADDNSC_USE_SYSTEM_SPDLOG`   | OFF                                           | Use system spdlog instead of the bundled CPM-downloaded version    |
 | `YADDNSC_BUILD_DOCS`          | OFF                                           | Build Doxygen API documentation from source comments               |
+| `YADDNSC_BUILD_TESTS`         | OFF                                           | Build unit tests (requires GoogleTest, fetched via CPM.cmake)      |
 | `YADDNSC_ENABLE_DEB`          | OFF                                           | Enable DEB package generation via CPack                            |
 
 #### Building a DEB package
@@ -362,8 +373,12 @@ Three resolver types are supported, auto-detected from the address format:
 ### Traditional DNS (UDP/TCP)
 
 Uses standard DNS over UDP (or TCP for large responses) on a given IP and port. The underlying implementation is selectable at compile time:
-- `YADDNSC_USE_NATIVE_DNS=OFF` (default) — uses system libresolv (`res_nquery`/`res_mkquery`)
-- `YADDNSC_USE_NATIVE_DNS=ON` — uses a built-in raw UDP/TCP implementation
+- `YADDNSC_USE_NATIVE_DNS=OFF` (default) — uses system libresolv for transport (`res_nquery`)
+- `YADDNSC_USE_NATIVE_DNS=ON` — uses a built-in raw UDP/TCP implementation (no libresolv — **experimental**)
+
+> **Experimental status:** The native resolver/parser (`ON`) is still being hardened. It will become the default once stabilized. The long-term goal is to eliminate the libresolv dependency entirely.
+
+DNS packet parsing is fully self-contained in both modes — no dependency on libresolv's `ns_initparse`/`ns_parserr`.
 
 ```json
 {
@@ -500,7 +515,7 @@ A successful response is any non-empty body.
 yaddnsc run
 
 # Run with a specific config file and verbose logging
-yaddnsc -c /etc/yaddnsc/config.json -v run
+yaddnsc run -c /etc/yaddnsc/config.json -d
 
 # Validate configuration and exit
 yaddnsc config test

@@ -2,7 +2,7 @@
 // Unit tests for dns/proto/mkquery.h / mkquery.cpp — DNS query packet construction.
 //
 // Tests:
-//   - mkquery_manual constructs a valid RFC 1035 query packet.
+//   - mkquery_native constructs a valid RFC 1035 query packet.
 //   - mkquery_mdns constructs a valid RFC 6762 mDNS query packet.
 //   - Packet field verification at known byte offsets.
 // =============================================================================
@@ -14,7 +14,7 @@
 
 #include <gtest/gtest.h>
 
-#include "dns/proto/mkquery.h"
+#include "dns/wire/query.h"
 #include "address_family.h"
 
 // ===========================================================================
@@ -23,7 +23,7 @@
 
 namespace {
 
-    /// Verify the DNS header structure for a standard query (mkquery_manual).
+    /// Verify the DNS header structure for a standard query (mkquery_native).
     void expect_standard_query_header(const std::vector<std::uint8_t> &packet, bool has_random_txid) {
         ASSERT_GE(packet.size(), 12U) << "Packet must have at least a 12-byte header";
 
@@ -126,11 +126,11 @@ namespace {
 } // anonymous namespace
 
 // ===========================================================================
-// mkquery_manual — standard DNS query
+// mkquery_native — standard DNS query
 // ===========================================================================
 
 TEST(MkqueryManualTest, BuildsExampleCom_A) {
-    auto packet = DNS::mkquery_manual("example.com", ns_t_a);
+    auto packet = DNS::mkquery_native("example.com", ns_t_a);
 
     expect_standard_query_header(packet, true);
     expect_qname_example_com(packet, 12);
@@ -148,7 +148,7 @@ TEST(MkqueryManualTest, BuildsExampleCom_A) {
 }
 
 TEST(MkqueryManualTest, BuildsGoogleCom_AAAA) {
-    auto packet = DNS::mkquery_manual("google.com", ns_t_aaaa);
+    auto packet = DNS::mkquery_native("google.com", ns_t_aaaa);
 
     expect_standard_query_header(packet, true);
 
@@ -177,13 +177,13 @@ TEST(MkqueryManualTest, BuildsGoogleCom_AAAA) {
 }
 
 TEST(MkqueryManualTest, TotalPacketSize) {
-    auto packet = DNS::mkquery_manual("example.com", ns_t_a);
+    auto packet = DNS::mkquery_native("example.com", ns_t_a);
     // header(12) + QNAME(\x07example\x03com\x00 = 13) + QTYPE(2) + QCLASS(2) = 29
     EXPECT_EQ(packet.size(), 29U);
 }
 
 TEST(MkqueryManualTest, BuildsDeepSubdomain) {
-    auto packet = DNS::mkquery_manual("a.b.c.example.com", ns_t_a);
+    auto packet = DNS::mkquery_native("a.b.c.example.com", ns_t_a);
 
     expect_standard_query_header(packet, true);
 
@@ -306,7 +306,7 @@ TEST(MkqueryMdnsTest, AaaaRecordType) {
 // ===========================================================================
 
 TEST(MkqueryTest, DispatchReturnsNonEmpty) {
-    // mkquery() dispatches to mkquery_manual or mkquery_system based on
+    // mkquery() dispatches to mkquery_native or mkquery_system based on
     // YADDNSC_USE_NATIVE_DNS. Both should return a non-empty packet.
     auto packet = DNS::mkquery("example.com", ns_t_a);
     EXPECT_GT(packet.size(), 12U);

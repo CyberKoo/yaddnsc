@@ -17,7 +17,7 @@
 #include "dns_error.h"
 #include "dns/util.hpp"
 #include "dns/validator.h"
-#include "dns/proto/mkquery.h"
+#include "dns/wire/query.h"
 #include "network/inet_address.h"
 #include "network/socket.h"
 #include "exception/socket.h"
@@ -184,7 +184,7 @@ std::vector<std::uint8_t> ClassicResolver::Impl::query(const std::string &host_s
                  uri_.get_host_literal(), server_.port);
 
     // Build query packet using mkquery_manual.
-    auto query_packet = DNS::mkquery_manual(host_str, ns_type_val);
+    auto query_packet = DNS::mkquery_native(host_str, ns_type_val);
 
     // Try UDP first.
     auto response = query_udp(addr_, query_packet);

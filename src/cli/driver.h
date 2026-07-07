@@ -17,8 +17,8 @@ namespace Cli {
     int execute_driver_info(const std::string &config_path, const std::string &driver_name);
 
     /// Register the "driver" subcommand tree on the given CLI::App.
-    /// Owns its own option storage internally.
-    void register_driver_subcommand(CLI::App &app, const std::string &config_path, int &exit_code);
+    /// Owns its own option storage and -c,--config flag internally.
+    void register_driver_subcommand(CLI::App &app, int &exit_code);
 } // namespace Cli
 
 #endif // YADDNSC_CLI_DRIVER_H

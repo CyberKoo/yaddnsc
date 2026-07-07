@@ -12,7 +12,7 @@
 #include "dns_error.h"
 #include "dns/util.hpp"
 #include "http_type.h"
-#include "dns/proto/mkquery.h"
+#include "dns/wire/query.h"
 #include "dns/validator.h"
 #include "network/http_client.h"
 #include "exception/dns_lookup.h"
