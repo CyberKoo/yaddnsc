@@ -56,8 +56,8 @@ int main(int argc, char *argv[]) {
         return EXIT_SUCCESS;
     } catch (const ConfigVerificationException &e) {
         SPDLOG_CRITICAL(e.what());
-    } catch (const YaddnscException &) {
-        SPDLOG_CRITICAL("Fatal error: unrecoverable exception.");
+    } catch (const YaddnscException &e) {
+        SPDLOG_CRITICAL("Fatal error {}: {}", e.get_name(), e.what());
     } catch (const std::exception &e) {
         SPDLOG_CRITICAL("Unhandled exception. Error: {}", e.what());
     }

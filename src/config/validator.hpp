@@ -206,7 +206,7 @@ public:
         }
 
         // --- Validate custom resolver address(es). --------------------------------
-#if defined(HAVE_RES_NQUERY)
+#if defined(HAVE_RES_NQUERY) || defined(YADDNSC_USE_NATIVE_DNS)
         if (cfg.resolver.use_custom_server) {
             if (!cfg.resolver.servers.empty()) {
                 for (const auto &server: cfg.resolver.servers) {

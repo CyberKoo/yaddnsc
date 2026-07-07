@@ -4,6 +4,8 @@
 #include "classic.h"
 
 #include <arpa/inet.h>
+#include <poll.h>
+#include <sys/socket.h>
 
 #include <memory>
 #include <string>
@@ -60,7 +62,8 @@ namespace {
 
     // ── Translate SocketException to DnsLookupException ──
     [[noreturn]] void rethrow_socket(const SocketException &e, const char *context) {
-        // SO_RCVTIMEO expiry yields EAGAIN (EWOULDBLOCK); connect() timeout yields ETIMEDOUT.
+        // poll() timeout yields ETIMEDOUT (Socket::wait_for / Socket::connect).
+        // A signal-interrupted recv could yield EAGAIN.
         // Both should be classified as RETRY so callers can implement back-off logic.
         if (e.get_errno() == ETIMEDOUT || e.get_errno() == EAGAIN) {
             throw DnsLookupException(
@@ -78,23 +81,30 @@ namespace {
     std::vector<std::uint8_t> query_udp(const AddrResult &addr, const std::vector<std::uint8_t> &query_packet) {
         try {
             Socket sock(addr.family, SOCK_DGRAM);
-            sock.set_option(SOL_SOCKET, SO_RCVTIMEO, timeval{UDP_TIMEOUT_SEC, 0});
 
             auto data = std::as_bytes(std::span{query_packet});
-            if (sock.send_to(data, addr.addr) != static_cast<ssize_t>(data.size())) {
-                throw SocketException(errno, "sendto");
+            if (auto sent = sock.send_to(data, addr.addr);
+                sent != static_cast<ssize_t>(data.size())) {
+                int saved_errno = errno;
+                throw SocketException(saved_errno, "sendto");
+            }
+
+            // Use poll() for receive timeout instead of SO_RCVTIMEO.
+            if (sock.wait_for(POLLIN, UDP_TIMEOUT_SEC * 1000) == 0) {
+                throw SocketException(ETIMEDOUT, "UDP query recvfrom");
             }
 
             std::vector<std::uint8_t> response(MAX_DNS_PACKET_SIZE);
             auto buf = std::as_writable_bytes(std::span{response});
             auto received = sock.recv_from(buf);
             if (received < 0) {
-                throw SocketException(errno, "recvfrom");
+                int saved_errno = errno;
+                throw SocketException(saved_errno, "recvfrom");
             }
             response.resize(static_cast<size_t>(received));
             return response;
         } catch (const SocketException &e) {
-            rethrow_socket(e, "UDP query");
+            rethrow_socket(e, "DNS lookup");
         }
     }
 
@@ -103,10 +113,8 @@ namespace {
         try {
             Socket sock(addr.family, SOCK_STREAM);
 
-            // Non-blocking connect with poll timeout.
+            // Non-blocking connect with poll() timeout (connect already uses poll internally).
             sock.connect(addr.addr, TCP_CONNECT_TIMEOUT_SEC);
-
-            sock.set_option(SOL_SOCKET, SO_RCVTIMEO, timeval{TCP_CONNECT_TIMEOUT_SEC, 0});
 
             // Send: 2-byte big-endian length prefix + query packet (RFC 1035 §4.2.2).
             const std::uint16_t be_len = htons(static_cast<std::uint16_t>(query_packet.size()));
@@ -116,14 +124,38 @@ namespace {
 
             auto data = std::as_bytes(std::span{tcp_query});
             if (sock.send(data) < 0) {
-                throw SocketException(errno, "send");
+                int saved_errno = errno;
+                throw SocketException(saved_errno, "send");
             }
+
+            // Receive with per-chunk poll() timeout, replacing SO_RCVTIMEO.
+            const int timeout_ms = TCP_CONNECT_TIMEOUT_SEC * 1000;
+            auto recv_with_timeout = [&sock](std::span<std::byte> buf) -> ssize_t {
+                if (sock.wait_for(POLLIN, timeout_ms) == 0) {
+                    // poll() timed out — no data within the deadline.
+                    throw SocketException(ETIMEDOUT, "recv");
+                }
+                auto n = sock.recv(buf);
+                if (n == 0) {
+                    // Peer closed the connection.
+                    throw SocketException(ECONNRESET, "recv");
+                }
+                return n;   // n < 0 carries errno to the caller
+            };
 
             // Receive: 2-byte big-endian length prefix.
             std::uint16_t be_rsp_len = 0;
             auto len_buf = std::as_writable_bytes(std::span{&be_rsp_len, 1});
-            if (sock.recv_exact(len_buf) < 0) {
-                throw SocketException(errno, "recv");
+            {
+                size_t total = 0;
+                while (total < len_buf.size()) {
+                    auto n = recv_with_timeout(len_buf.subspan(total));
+                    if (n < 0) {
+                        int saved_errno = errno;
+                        throw SocketException(saved_errno, "recv");
+                    }
+                    total += static_cast<size_t>(n);
+                }
             }
 
             const size_t rsp_len = ntohs(be_rsp_len);
@@ -137,12 +169,20 @@ namespace {
             // Receive response body.
             std::vector<std::uint8_t> response(rsp_len);
             auto rsp_buf = std::as_writable_bytes(std::span{response});
-            if (sock.recv_exact(rsp_buf) < 0) {
-                throw SocketException(errno, "recv");
+            {
+                size_t total = 0;
+                while (total < rsp_buf.size()) {
+                    auto n = recv_with_timeout(rsp_buf.subspan(total));
+                    if (n < 0) {
+                        int saved_errno = errno;
+                        throw SocketException(saved_errno, "recv");
+                    }
+                    total += static_cast<size_t>(n);
+                }
             }
             return response;
         } catch (const SocketException &e) {
-            rethrow_socket(e, "TCP query");
+            rethrow_socket(e, "DNS lookup");
         }
     }
 
