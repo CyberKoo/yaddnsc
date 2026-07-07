@@ -12,26 +12,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_POLICY_DEFAULT_CMP0077 NEW)
 
-# ==============================================================================
-# Clang-Tidy (static analysis)
-# ==============================================================================
-# Find the clang-tidy executable on the system
-find_program(CLANG_TIDY_EXE NAMES "clang-tidy")
-
-if(CLANG_TIDY_EXE)
-    message(STATUS "Clang-Tidy found: ${CLANG_TIDY_EXE}")
-
-    # Only run clang-tidy with Clang as the compiler to avoid parsing
-    # incompatibilities between clang-tidy's clang frontend and GCC's
-    # standard library headers (e.g. C++23 std::expected).
-    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-        set(CMAKE_CXX_CLANG_TIDY "${CLANG_TIDY_EXE}")
-    else()
-        message(STATUS "Clang-Tidy skipped (compiler is ${CMAKE_CXX_COMPILER_ID}, not Clang)")
-    endif()
-else()
-    message(WARNING "Clang-Tidy not found! Static analysis will be skipped.")
-endif()
+include(ClangTidy)
 
 # ==============================================================================
 # Build type configuration
@@ -76,6 +57,8 @@ endif ()
 # Feature detection
 # ==============================================================================
 include(FeatureCheck)
+
+include(SanitizerCheck)
 
 # ==============================================================================
 # Release build flags
@@ -295,14 +278,18 @@ target_compile_options(yaddnsc PRIVATE
         $<$<CONFIG:Sanitizer>:-fsanitize-address-use-after-scope>
 )
 
-# Extra sanitizer flags that are unsupported on musl:
-#   -fsanitize=integer       (unrecognized argument on musl)
-#   -fsanitize-address-use-after-return=always (not supported on musl)
-if(NOT LIBC_MUSL)
+# Extra sanitizer flags that may be unsupported on some platforms
+# (musl, ARM64, or GCC builds without the full UBSan suite).
+# Each flag is tested at configure time via check_cxx_compiler_flag.
+if(HAVE_SANITIZE_INTEGER)
     target_compile_options(yaddnsc PRIVATE
             $<$<CONFIG:Debug>:-fsanitize=integer>
-            $<$<CONFIG:Debug>:-fsanitize-address-use-after-return=always>
             $<$<CONFIG:Sanitizer>:-fsanitize=integer>
+    )
+endif()
+if(HAVE_ASAN_USE_AFTER_RETURN)
+    target_compile_options(yaddnsc PRIVATE
+            $<$<CONFIG:Debug>:-fsanitize-address-use-after-return=always>
             $<$<CONFIG:Sanitizer>:-fsanitize-address-use-after-return=always>
     )
 endif()
@@ -313,8 +300,8 @@ target_link_options(yaddnsc PRIVATE
         $<$<CONFIG:Sanitizer>:-fsanitize=address,undefined,bounds,null,alignment>
 )
 
-# Extra linker sanitizer flags (unsupported on musl)
-if(NOT LIBC_MUSL)
+# Extra linker sanitizer flags (only if the compiler supports them)
+if(HAVE_SANITIZE_INTEGER)
     target_link_options(yaddnsc PRIVATE
             $<$<CONFIG:Debug>:-fsanitize=integer>
             $<$<CONFIG:Sanitizer>:-fsanitize=integer>
