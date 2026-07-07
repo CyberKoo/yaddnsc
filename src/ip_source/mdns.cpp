@@ -50,9 +50,15 @@ namespace {
     inline const SocketAddr MDNS_IPV4_DEST = SocketAddr::from_inet(MDNS_IPV4_GROUP_INET, MDNS_PORT).value();
     inline const SocketAddr MDNS_IPV6_DEST = SocketAddr::from_inet(MDNS_IPV6_GROUP_INET, MDNS_PORT).value();
 
-    /// Bind-on-any addresses (INADDR_ANY / in6addr_any, port = MDNS_PORT).
-    inline const SocketAddr MDNS_IPV4_BIND = SocketAddr::from_inet(Inet4Address{}, MDNS_PORT).value();
-    inline const SocketAddr MDNS_IPV6_BIND = SocketAddr::from_inet(Inet6Address{}, MDNS_PORT).value();
+    /// Bind-on-any addresses (INADDR_ANY / in6addr_any, port = 0 = ephemeral).
+    ///
+    /// yaddnsc acts as a one-shot mDNS querier (RFC 6762 §5.1).  Per the RFC,
+    /// one-shot queries "MUST NOT be sent using UDP source port 5353", since
+    /// source port 5353 signals a fully compliant continuous querier (§5.2).
+    /// Using an ephemeral port also avoids conflicts with other processes
+    /// already listening on port 5353 (e.g. avahi-daemon or systemd-resolved).
+    inline const SocketAddr MDNS_IPV4_BIND = SocketAddr::from_inet(Inet4Address{}, 0).value();
+    inline const SocketAddr MDNS_IPV6_BIND = SocketAddr::from_inet(Inet6Address{}, 0).value();
 
     // ===========================================================================
     //  Utility functions
