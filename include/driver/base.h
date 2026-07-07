@@ -12,6 +12,8 @@
 #include "interface/http_client.h"
 
 #include "driver_ver.h"
+// IWYU pragma: keep
+// NOLINTNEXTLINE(misc-include-cleaner) — needed for fmt::format and formatter<HttpRequest> in execute()
 #include "http_fmt.hpp"
 #include "exceptions.h"
 
@@ -31,7 +33,8 @@
 class BaseDriver : public Driver {
 public:
     /// Return the ABI version compiled into this driver plugin.
-    [[nodiscard]] AbiVersion get_abi_version() const final {
+    /// @note Cannot throw — returns only a compile-time constant.
+    [[nodiscard]] AbiVersion get_abi_version() const noexcept final {
         return DRV_ABI_VERSION;
     }
 

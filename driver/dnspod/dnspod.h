@@ -20,7 +20,7 @@ public:
     [[nodiscard]] bool check_response(const HttpResponse &response) const override;
 
     /// Return static metadata about this driver.
-    [[nodiscard]] DriverDetail get_detail() const override;
+    [[nodiscard]] DriverDetail get_detail() const noexcept override;
 
 private:
     /// Convert a DNSPod error code to a human-readable description.

@@ -13,7 +13,7 @@ class BadDriverException : public YaddnscException {
 public:
     using YaddnscException::YaddnscException;
 
-    [[nodiscard]] std::string_view get_name() const override {
+    [[nodiscard]] std::string_view get_name() const noexcept override {
         return "BadDriverException";
     }
 };

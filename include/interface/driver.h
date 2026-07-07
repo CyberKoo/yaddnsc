@@ -86,10 +86,12 @@ public:
     [[nodiscard]] virtual bool check_response(const HttpResponse &response) const = 0;
 
     /// Return static metadata about this driver.
-    [[nodiscard]] virtual DriverDetail get_detail() const = 0;
+    /// @note Cannot throw — returns only compile-time-known data.
+    [[nodiscard]] virtual DriverDetail get_detail() const noexcept = 0;
 
     /// Return the ABI version of this driver plugin.
-    [[nodiscard]] virtual AbiVersion get_abi_version() const = 0;
+    /// @note Cannot throw — returns only compile-time-known data.
+    [[nodiscard]] virtual AbiVersion get_abi_version() const noexcept = 0;
 
     /// Execute a full update cycle: generate request → exchange → check response.
     ///

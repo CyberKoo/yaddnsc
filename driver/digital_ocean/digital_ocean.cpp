@@ -53,7 +53,7 @@ bool DigitalOceanDriver::check_response(const HttpResponse &response) const {
     return false;
 }
 
-DriverDetail DigitalOceanDriver::get_detail() const {
+DriverDetail DigitalOceanDriver::get_detail() const noexcept {
     return {
         .name = "digital_ocean",
         .description = "Updates DNS records via the DigitalOcean API",

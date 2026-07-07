@@ -14,7 +14,6 @@
 
 #include "fmt.hpp"
 #include "dns_error.h"
-#include "dns/util.hpp"
 #include "util/retry_util.hpp"
 #include "dns/proto/parser.h"
 #include "dns/resolver/base.h"
@@ -116,9 +115,9 @@ ResolverDispatcher::Impl::resolve_single(const std::string &host, DNS::Type type
 
             return answer;
         },
-        max_retries,
+        static_cast<unsigned>(max_retries),
         [](const DnsLookupException &e) { return is_retryable(e.get_error()); },
-        backoff_ms,
+        static_cast<unsigned long>(backoff_ms),
         &actual_retries
     );
 

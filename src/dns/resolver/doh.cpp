@@ -46,17 +46,17 @@ DohResolver::Impl::Impl(std::unique_ptr<HttpClient> http_client, std::string ser
 }
 
 std::vector<std::uint8_t> DohResolver::Impl::query(const std::string &host, DNS::Type type) const {
-    const auto ns_type = DNS::Util::to_ns_type(type);
-    if (ns_type == ns_t_invalid) {
+    const auto ns_type_val = DNS::Util::to_ns_type(type);
+    if (ns_type_val == ns_t_invalid) {
         throw DnsLookupException(
             fmt::format(R"(Unsupported DNS::Type for DoH query: "{}")", host),
             DNS::Error::UNKNOWN
         );
     }
 
-    SPDLOG_DEBUG(R"(Resolver #{} lookup for domain "{}" (type {}))", id_, host, ns_type);
+    SPDLOG_DEBUG(R"(Resolver #{} lookup for domain "{}" (type {}))", id_, host, ns_type_val);
 
-    const auto query_bytes = DNS::mkquery(host, ns_type);
+    const auto query_bytes = DNS::mkquery(host, ns_type_val);
 
     HttpRequest req{
         .content_type = DOH_CONTENT_TYPE,

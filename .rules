@@ -1,0 +1,420 @@
+# C++ Project Rules & Guidelines
+
+## Language Standard
+- Use **C++20** features exclusively whenever possible.
+- Use **C++23** features where applicable and beneficial, provided they are supported by GCC 14, Clang 18, and Apple Clang 15.
+
+## Compiler & Build
+- Target compilers: **GCC 14+**, **Clang 18+**, **Apple Clang 15+**.
+- Use **CMake** as the build system, minimum version **3.20**.
+- Use **CPM.cmake** (v0.40+) for dependency management. Declare dependencies using `CPMAddPackage` with explicit, immutable Git hashes (`GIT_TAG`). Do not use floating branches or mutable tags.
+- Document the rationale for using CPM in the project build documentation. Be aware of CPM's limitations (no binary caching, no transitive dependency resolution, no centralized security advisory registry) and mitigate them by keeping the dependency set small and performing periodic manual vulnerability reviews.
+- Commit the dependency script to version control and review any dependency additions or version changes in pull requests.
+- Compile with `-std=c++20` or `-std=c++23` as appropriate.
+
+### Compiler Warnings
+Enable strict warnings (GCC/Clang): `-Wall -Wextra -Wpedantic -Wshadow -Wconversion -Wsign-conversion -Werror`
+
+### Sanitizers
+- **Debug builds**: Enable sanitizers with `-fsanitize=address,undefined,integer,bounds,null,alignment`, plus `-fsanitize-address-use-after-return=always` and `-fsanitize-address-use-after-scope`.
+- Set runtime options:
+  ```bash
+  export ASAN_OPTIONS=detect_stack_use_after_return=1:strict_string_checks=1:detect_invalid_pointer_pairs=2
+  ```
+- Maintain a dedicated **CI sanitizer build** (e.g., `-DCMAKE_BUILD_TYPE=Sanitizer`) for automated testing.
+- **Do not use Address Sanitizer in Release builds** due to significant performance overhead (2–5× slowdown, increased memory usage).
+
+## Code Reuse & Component Selection
+**Reuse existing, proven foundation components** whenever they satisfy requirements. Do not reinvent logging, error handling, configuration management, threading primitives, or platform abstraction layers.
+
+### Reuse Protocol
+1. **Search the existing codebase** for similar functionality before implementing anything new.
+2. **Evaluate the existing component** against current requirements. If close but missing a capability, extend it in a backward-compatible manner.
+3. **Document the decision** if you choose not to reuse an existing component, explaining why it was insufficient.
+
+### Components That Must Be Reused
+| Category | Requirement |
+|----------|-------------|
+| **Logging** | Use the project's centralized logging facade. No `std::cout`/`printf` or ad-hoc loggers. |
+| **Error/Result types** | Use project-wide `Result<T, E>`, `ErrorOr<T>`, or `std::expected<T, E>` consistently. |
+| **Configuration** | Use the established configuration subsystem. Do not parse env vars or config files independently. |
+| **Platform abstraction** | Use existing platform detection macros and OS-abstraction utilities. No `#ifdef` blocks in new code. |
+| **String utilities** | Use shared `trim`, `split`, `join`, case conversion from the project's string library. |
+| **Numeric types** | Use `std::uint8_t`, `std::int32_t`, etc. consistently. Avoid unqualified `int`/`long`/`unsigned`. Use project-standard safe arithmetic wrappers and checked facilities where they exist. |
+
+### Contribution & Duplication Rules
+- Improve reused components in place; ensure all existing callers still compile and pass tests.
+- Do not pull in third-party libraries that duplicate functionality of existing dependencies. Review the dependency graph before adding new libraries.
+
+## Tooling
+- **clang-format**: Enforces code style. Configuration:
+  ```yaml
+  BasedOnStyle: Chromium
+  ColumnLimit: 120
+  IncludeBlocks: Regroup
+  SortIncludes: CaseSensitive
+  ```
+- **clang-tidy**: Enforces naming conventions, modern C++ usage, and bug-prone patterns (see `.clang-tidy`). Must enable these use-after-move/free checks for **all build types** (static analysis, zero runtime overhead):
+  - `bugprone-use-after-move`
+  - `clang-analyzer-cplusplus.Move`
+  - `clang-analyzer-cplusplus.InnerPointer`
+
+## Headers & Include Management
+- Include order is enforced by clang-format (`IncludeBlocks: Regroup`).
+- Minimize `#include` dependencies: forward-declare types where possible.
+- Always include what you use (IWYU): do not rely on transitive includes.
+- File conventions:
+  - **`.h`**: Pure interface declarations (no inline or template implementations).
+  - **`.hpp`**: Headers with template implementations, inline functions, or any implementation details.
+  - **`.cpp`**: Non-template implementation files.
+- Never place `using namespace` directives in header files at global scope.
+
+## Memory Management
+
+### Core Rules
+- **Never** use raw `new` or `delete` outside permitted contexts.
+- Use `std::unique_ptr` for exclusive ownership, `std::shared_ptr` for shared ownership.
+- Prefer `std::make_unique` and `std::make_shared` for creating smart pointers.
+- Raw pointers (`T*`) and `std::reference_wrapper<T>` are for non-owning observers only.
+- Avoid `std::weak_ptr` unless needed for breaking cyclic dependencies.
+- A moved-from object **must not be accessed** except for destruction or reassignment.
+
+### Exemptions for Raw `new`/`delete`
+The prohibition does **not apply** to:
+
+1. **Dynamic plugin/driver factory entry points** — C ABI-compatible factory functions (`extern "C"` linkage, invoked via `dlsym`) where C++ smart pointers cannot cross library boundaries safely due to ABI instability.
+2. **External dynamic library loading code** — `dlopen`/`dlsym`/`dlclose` wrappers, C-style ABI interactions, and adapter layers bridging C APIs to C++ internals.
+
+**Justification**: Dynamic plugin systems require ABI stability across compilers and standard library versions. Smart pointers do not guarantee stable ABIs. Raw `new`/`delete` usage is strictly confined to boundary-crossing factory functions. All internal code must use smart pointers.
+
+## Ownership & Resource Management
+- Follow **RAII** for all resources (file handles, locks, sockets, GPU resources, etc.).
+- Document ownership transfer in function signatures:
+  - `std::unique_ptr<T>`: function takes ownership.
+  - `const std::shared_ptr<T>&`: function shares ownership.
+  - `T&` or `T*`: function does not take ownership.
+- Returning a reference/pointer to a local object is a compile-time error (`-Wreturn-stack-address` + `-Werror`).
+
+## Error Handling
+- Use **exceptions** for exceptional conditions only, not normal control flow.
+- Use the project-wide error/result type consistently. Do not introduce per-module wrappers.
+- Mark functions that cannot fail as `noexcept`.
+- Destructors must never throw (always implicitly or explicitly `noexcept`).
+- Avoid C-style error codes (`int` return, `errno`).
+- Guarantee at least **basic exception safety** (invariants preserved, no leaks). Strive for **strong exception safety** (commit-or-rollback) using **Copy-and-Swap**:
+  ```cpp
+  class Resource {
+  public:
+      void swap(Resource& other) noexcept { /* member-wise swap */ }
+      Resource& operator=(const Resource& other) {
+          Resource temp(other); // may throw
+          swap(temp);           // never throws
+          return *this;
+      }
+  };
+  ```
+
+## Const Correctness
+- Mark member functions `const` if they do not mutate observable state. Use `mutable` only for caching/synchronization.
+- Prefer `const` references for read-only parameters and `const` iterators (`cbegin()`, `cend()`).
+- Declare immutable variables `const` or `constexpr` by default.
+
+## Coding Style & Formatting
+All formatting is enforced by **clang-format** (`BasedOnStyle: Chromium`). Naming conventions enforced by **clang-tidy**:
+
+| Element | Convention |
+|---------|------------|
+| Functions | `snake_case` |
+| Classes | `PascalCase` |
+| Class member variables | `snake_case_` (trailing underscore) |
+| Constants | `UPPER_SNAKE_CASE` |
+| Pure data structs (POD, no invariants) | `snake_case` (no trailing underscore) |
+
+- Always add `[[nodiscard]]` where ignoring the return value is a bug.
+- Use trailing return type syntax only when necessary (e.g., dependent return types in templates).
+
+## Classes & Structs
+- Use `struct` for passive data carriers (POD, public members, no invariants).
+- Use `class` for types with invariants or private members.
+- Follow the **Rule of 0** by default. If you define any of the five special member functions, explicitly define or delete all five.
+- Mark single-argument constructors `explicit` unless implicit conversion is genuinely intended and documented.
+- Use **PIMPL** to reduce compile-time dependencies for public-facing classes.
+- Use **CRTP** sparingly; prefer concepts-based polymorphism.
+
+## Enums
+- Always use `enum class`. Avoid plain `enum`.
+- Use **magic_enum** for reflection (name/enum conversion, iteration).
+- Use the project's **fmt polyfill** for compile-time checked formatting of enum values. Do not use raw `std::format` or `fmt::format` directly.
+- Use **spdlog** for logging enum values directly (`logger->info("state: {}", state)`).
+- Use `std::to_underlying` (C++23) for underlying integer conversions when explicitly needed.
+- Custom formatter specializations for enums go through the fmt polyfill's extension mechanism in a shared, project-wide header.
+
+## Templates & Concepts
+- Use **C++20 concepts** instead of SFINAE.
+- Avoid `std::enable_if`; use `if constexpr` or concepts.
+- Prefer `requires` clauses for template constraints.
+
+## Standard Library Usage
+- Prefer `std::span<T>` over `const std::vector<T>&` for read-only contiguous data.
+- Use `std::string_view` for read-only string parameters (see String Handling section for details).
+- Prefer `std::optional<T>` over sentinel values (`-1`, `nullptr`).
+- Use `std::variant<Ts...>` for type-safe unions instead of C unions or `void*`.
+- Use range-based `for` loops and `<algorithm>`/`<ranges>` over explicit index-based loops.
+- Use `std::chrono` for all time operations; avoid C-style time functions.
+
+## String Handling
+
+### Parameter Selection
+| Use Case | Recommended Type | Rationale |
+|----------|-----------------|-----------|
+| Read-only operations | `std::string_view` | Zero overhead, flexible |
+| One-time C API call | Accept `std::string_view`, copy internally | Convenient, cost acceptable |
+| Frequent C API calls | `const std::string&` | Caller manages null-termination |
+| Need ownership/mutation | `std::string` | Clear ownership semantics |
+| C library interfaces | `const std::string&` | Guaranteed null-termination |
+
+### Key Rules
+- `string_view::data()` is **not guaranteed null-terminated**. Only use when the API explicitly accepts non-null-terminated buffers.
+- When calling C functions requiring null-termination, explicitly convert to `std::string`.
+- Avoid `const char*` except when interfacing with C libraries.
+- Reuse existing string utility functions (`trim`, `split`, `join`, etc.).
+
+### Performance Patterns
+```cpp
+// Read-only: zero overhead
+[[nodiscard]] size_t count_words(std::string_view text) {
+    return std::ranges::count(text, ' ') + 1;
+}
+
+// C library interaction: explicit cost
+[[nodiscard]] bool open_file(const std::string& path) {
+    return ::open(path.c_str(), O_RDONLY) >= 0;
+}
+[[nodiscard]] bool open_file(std::string_view path) {
+    return open_file(std::string(path));  // Explicit copy
+}
+
+// Caching for repeated calls
+class FileHandler {
+    std::string path_;
+public:
+    explicit FileHandler(std::string_view path) : path_(path) {}
+    void open() { ::open(path_.c_str(), O_RDONLY); }
+};
+
+// Lazy copy with null-termination check
+[[nodiscard]] const char* get_c_str_or_copy(std::string_view sv, std::string& buffer) {
+    if (!sv.empty() && sv.data()[sv.size()] == '\0') return sv.data();
+    buffer = sv;
+    return buffer.c_str();
+}
+```
+
+## Lambda Expressions
+- Prefer explicit captures over `[=]` or `[&]` defaults.
+- Keep lambdas short (<10 lines). Extract longer ones into named functions.
+- Mark lambdas `noexcept` when they cannot throw.
+- Avoid recursive lambdas; use `std::function` or named function objects.
+
+## Concurrency
+- Protect shared data with `std::mutex`, `std::shared_mutex`, or lock-free atomics.
+- Avoid global mutable state. Prefer dependency injection and `std::call_once` for thread-safe singletons.
+- Document thread-safety guarantees for all public interfaces.
+
+## Security
+- Validate and sanitize all external inputs at system boundaries.
+- Use `std::span`, `std::string_view`, and bounds-checked containers to prevent buffer overflows.
+- Use brace initialization `{}` to prevent narrowing conversions.
+- Avoid undefined behavior: defer to the C++ standard, not observed platform behavior.
+- Integrate static analysis tools (Coverity, SonarQube) into CI for all build types.
+
+## Testing
+- Use the project's established framework (**GoogleTest**, **Catch2**, or **doctest**). Do not introduce a different one.
+- Maintain minimum **80% line coverage** (track with `lcov`/`gcov` or equivalent).
+- Naming: `TEST(ClassName, MethodName_Scenario_ExpectedBehavior)`.
+- Use mock objects for external dependencies; prefer virtual interface-based mocking.
+- Write integration tests for component interactions and benchmarks for critical paths.
+- Tests are part of the build; a failing test is a build failure in CI.
+
+## Logging
+- Use the project's centralized logging facade exclusively. No `std::cout`, `printf`, or ad-hoc loggers.
+- Production logs must be machine-parseable (e.g., JSON lines) with timestamp, severity, source location, and unique message identifier.
+- Do not log sensitive data (passwords, tokens, PII) unless explicitly scrubbed.
+
+## Documentation
+- Use Doxygen-style `/** ... */` or `///` comments for public API.
+- Document preconditions, postconditions, and thread-safety guarantees.
+- Add `// TODO(username): description` for planned improvements.
+
+## Performance Optimization
+- Write for clarity first. Optimize only after profiling identifies a bottleneck.
+- Leverage move semantics and RVO/NRVO. Do not `std::move` on return values.
+- Be aware of SSO in `std::string` and `std::function`.
+- Use `reserve()` when final container size is known.
+- Place micro-benchmarks in a dedicated suite; track historical performance in CI.
+
+## Cross-Platform Development
+- Reuse the project's platform abstraction layer. Isolate platform-specific code in designated implementation files, not public headers.
+- Prefer the C++ standard library and `std::filesystem` over platform-specific APIs.
+- Test on all target platforms in CI before merging.
+
+## Version Control & Collaboration
+- Follow **Semantic Versioning** (`MAJOR.MINOR.PATCH`).
+- Use **Conventional Commits** (`feat:`, `fix:`, `docs:`, `refactor:`, `test:`, `chore:`).
+- Prefer small, focused PRs (<400 lines). Link to issue tracker tickets.
+- Squash-and-merge to mainline for a linear, bisectable history.
+
+## Documentation Maintenance
+
+- When adding, removing, or modifying features, APIs, dependencies, or build steps, **update all relevant `README*.md` files** to reflect the current state.
+- If the project maintains multiple language versions of README (e.g., `README.md`, `README.zh-CN.md`), **all language versions must be updated simultaneously** and kept in sync. A discrepancy between language versions is considered a documentation bug.
+- This includes (but is not limited to):
+  - Build prerequisites and instructions
+  - Dependency lists and versions
+  - API usage examples
+  - Configuration options and environment variables
+  - Test and benchmark commands
+- Review README accuracy and cross-language consistency as part of the **Code Review Checklist**.
+
+## Code Review Checklist
+Every code review must verify the following:
+- [ ] No raw `new` or `delete` outside permitted contexts.
+- [ ] All resources managed via RAII.
+- [ ] Exception safety guarantees are met.
+- [ ] Thread-safety is documented and verified.
+- [ ] No use-after-move or dangling references.
+- [ ] Interfaces follow const-correctness.
+- [ ] Input validation is performed on external data.
+- [ ] Existing project infrastructure components are reused where applicable; no duplicate implementations of logging, error handling, configuration, threading, or string utilities.
+- [ ] New third-party dependencies do not duplicate functionality already provided by existing dependencies.
+- [ ] Unit tests cover new/modified functionality and pass.
+- [ ] Relevant README.md files are updated and accurate.
+- [ ] All language versions of README*.md are updated and in sync.
+
+## Examples
+
+### Memory Management
+```cpp
+// BAD: Raw memory management
+int* calculateSum(int* a, int* b) {
+    int* result = new int(0);
+    *result = *a + *b;
+    return result;
+}
+
+// GOOD: Value semantics
+[[nodiscard]] int calculateSum(int a, int b) const {
+    return a + b;
+}
+
+// BAD: Manual buffer
+class Buffer {
+    char* data_;
+    size_t size_;
+public:
+    Buffer(size_t s) : data_(new char[s]), size_(s) {}
+    ~Buffer() { delete[] data_; }
+};
+
+// GOOD: RAII with standard containers
+class Buffer {
+    std::vector<char> data_;
+public:
+    explicit Buffer(size_t size) : data_(size) {}
+};
+```
+
+### Error Handling
+```cpp
+// BAD: C-style
+int divide(int a, int b, int* result) {
+    if (b == 0) return -1;
+    *result = a / b;
+    return 0;
+}
+
+// GOOD: std::expected (C++23)
+enum class MathError { DivisionByZero };
+[[nodiscard]] std::expected<int, MathError> divide(int a, int b) noexcept {
+    if (b == 0) return std::unexpected(MathError::DivisionByZero);
+    return a / b;
+}
+```
+
+### Code Reuse
+```cpp
+// BAD: Reimplementing string splitting
+std::vector<std::string> split(const std::string& str, char delim) { /* ... */ }
+
+// GOOD: Using project infrastructure
+#include "project/strings/string_utils.h"
+void process_items(std::string_view input) {
+    auto tokens = strings::split(input, ',');
+    for (auto token : tokens) process(strings::trim(token));
+}
+
+// BAD: Ad-hoc logging
+void handle_request(const Request& req) {
+    std::cout << "Processing: " << req.id() << std::endl;
+}
+
+// GOOD: Project logging facade
+void handle_request(const Request& req) {
+    LOG_INFO("Processing request: {}", req.id());
+}
+```
+
+### Move Semantics & Lifetime
+```cpp
+// BAD: Use-after-move
+auto other = std::move(data);
+std::cout << data.size();
+
+// GOOD: Reassign before reuse
+auto other = std::move(data);
+data = {4, 5, 6};
+std::cout << data.size();
+
+// BAD: Dangling reference (-Wreturn-stack-address)
+const std::string& get_name() {
+    std::string local = "temp";
+    return local;
+}
+
+// GOOD: Return by value (NRVO applies)
+std::string get_name() {
+    std::string local = "temp";
+    return local;
+}
+```
+
+### String Safety
+```cpp
+// BAD: Unsafe string_view with C functions
+void call_open(std::string_view filename) {
+    FILE* f = std::fopen(filename.data(), "r");  // May not be null-terminated
+}
+
+// GOOD: Explicit conversion
+void call_open(std::string_view filename) {
+    std::string str(filename);
+    FILE* f = std::fopen(str.c_str(), "r");
+}
+
+// GOOD: API signals null-termination requirement
+void call_open(const std::string& filename) {
+    FILE* f = std::fopen(filename.c_str(), "r");
+}
+
+// GOOD: Caching for repeated use
+class ConfigParser {
+    std::string config_path_;
+public:
+    explicit ConfigParser(std::string_view path) : config_path_(path) {}
+    void load() {
+        FILE* f = std::fopen(config_path_.c_str(), "r");
+        // ... multiple operations using config_path_.c_str()
+        std::fclose(f);
+    }
+};
+```

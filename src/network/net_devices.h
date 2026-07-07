@@ -66,7 +66,7 @@ namespace NetDevices {
 
     /// Convert interface name to numeric index (wrapper around if_nametoindex).
     /// Returns 0 if the name does not exist.
-    [[nodiscard]] unsigned int name_to_index(const std::string &name);
+    [[nodiscard]] unsigned int name_to_index(const std::string &name) noexcept;
 
     /// Convert numeric index to interface name (wrapper around if_indextoname).
     /// Returns an empty string if the index does not correspond to any interface.

@@ -51,7 +51,7 @@ DriverRequestContext SimpleDriver::generate_request(const DriverConfig &config, 
     };
 }
 
-DriverDetail SimpleDriver::get_detail() const {
+DriverDetail SimpleDriver::get_detail() const noexcept {
     return {
         .name = "simple",
         .description = "Generic HTTP driver with URL template substitution",

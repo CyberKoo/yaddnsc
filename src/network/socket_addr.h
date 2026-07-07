@@ -41,7 +41,7 @@ public:
     [[nodiscard]] std::uint16_t port() const noexcept;
 
     /// Parse the address portion as an InetAddress.
-    [[nodiscard]] std::optional<InetAddress> address() const;
+    [[nodiscard]] std::optional<InetAddress> address() const noexcept;
 
     /// Human-readable "addr:port" string.
     [[nodiscard]] std::string to_string() const;

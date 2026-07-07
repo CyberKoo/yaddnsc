@@ -167,20 +167,20 @@ Socket &Socket::operator=(Socket &&other) noexcept {
 //  Options
 // ===========================================================================
 
-void Socket::set_option_raw(int level, int optname, const void *val, socklen_t len) {
+void Socket::set_option_raw(int level, int optname, const void *val, socklen_t len) const {
     if (::setsockopt(fd_, level, optname, val, len) < 0) {
         throw SocketException(errno, "setsockopt");
     }
 }
 
-int Socket::try_set_option_raw(int level, int optname, const void *val, socklen_t len) noexcept {
+int Socket::try_set_option_raw(int level, int optname, const void *val, socklen_t len) const noexcept {
     if (::setsockopt(fd_, level, optname, val, len) == 0) {
         return 0;
     }
     return errno;
 }
 
-void Socket::set_nonblocking(bool enable) {
+void Socket::set_nonblocking(bool enable) const {
     int flags = ::fcntl(fd_, F_GETFL, 0);
     if (flags < 0) {
         throw SocketException(errno, "fcntl(F_GETFL)");
@@ -197,34 +197,34 @@ void Socket::set_nonblocking(bool enable) {
     }
 }
 
-void Socket::set_reuseaddr(bool enable) {
+void Socket::set_reuseaddr(bool enable) const {
     int val = enable ? 1 : 0;
     set_option(SOL_SOCKET, SO_REUSEADDR, val);
 }
 
-void Socket::set_broadcast(bool enable) {
+void Socket::set_broadcast(bool enable) const {
     int val = enable ? 1 : 0;
     set_option(SOL_SOCKET, SO_BROADCAST, val);
 }
 
-void Socket::set_keepalive(bool enable) {
+void Socket::set_keepalive(bool enable) const {
     int val = enable ? 1 : 0;
     set_option(SOL_SOCKET, SO_KEEPALIVE, val);
 }
 
-void Socket::set_linger(bool enable, int timeout_sec) {
+void Socket::set_linger(bool enable, int timeout_sec) const {
     linger l{};
     l.l_onoff = enable ? 1 : 0;
     l.l_linger = static_cast<int>(timeout_sec);
     set_option(SOL_SOCKET, SO_LINGER, l);
 }
 
-void Socket::set_ipv6_only(bool enable) {
+void Socket::set_ipv6_only(bool enable) const {
     int val = enable ? 1 : 0;
     set_option(IPPROTO_IPV6, IPV6_V6ONLY, val);
 }
 
-void Socket::set_reuseport([[maybe_unused]] bool enable) {
+void Socket::set_reuseport([[maybe_unused]] bool enable) const {
 #ifdef SO_REUSEPORT
     int val = enable ? 1 : 0;
     set_option(SOL_SOCKET, SO_REUSEPORT, val);
@@ -237,7 +237,7 @@ void Socket::set_reuseport([[maybe_unused]] bool enable) {
 //  Address binding
 // ===========================================================================
 
-void Socket::bind(const SocketAddr &addr) {
+void Socket::bind(const SocketAddr &addr) const {
     if (::bind(fd_, addr.raw(), addr.raw_len()) < 0) {
         throw SocketException(errno, "bind");
     }
@@ -263,6 +263,7 @@ SocketAddr Socket::get_peername() const {
 //  Connection
 // ===========================================================================
 
+// NOLINTNEXTLINE(readability-make-member-function-const) — see declaration for rationale
 void Socket::connect(const SocketAddr &addr, int timeout_sec) {
     if (timeout_sec < 0) {
         // Blocking connect (with EINTR retry).
@@ -340,13 +341,13 @@ void Socket::connect(const SocketAddr &addr, int timeout_sec) {
 //  Listening + accept
 // ===========================================================================
 
-void Socket::listen(int backlog) {
+void Socket::listen(int backlog) const {
     if (::listen(fd_, backlog) < 0) {
         throw SocketException(errno, "listen");
     }
 }
 
-Socket Socket::accept(SocketAddr *addr) {
+Socket Socket::accept(SocketAddr *addr) const {
     int client_fd;
     if (addr) {
         do {
@@ -386,7 +387,7 @@ Socket Socket::accept(SocketAddr *addr) {
 //  I/O  —  all take std::span, return ssize_t, no exceptions
 // ===========================================================================
 
-ssize_t Socket::send(std::span<const std::byte> data) {
+ssize_t Socket::send(std::span<const std::byte> data) const {
     return send_loop(
         data.data(), data.size(), type_ == SOCK_STREAM,
         [this](const std::uint8_t *ptr, size_t chunk) {
@@ -395,7 +396,7 @@ ssize_t Socket::send(std::span<const std::byte> data) {
     );
 }
 
-ssize_t Socket::send(std::span<const std::byte> data, int flags) {
+ssize_t Socket::send(std::span<const std::byte> data, int flags) const {
     return send_loop(
         data.data(), data.size(), type_ == SOCK_STREAM,
         [this, flags](const std::uint8_t *ptr, size_t chunk) {
@@ -404,7 +405,7 @@ ssize_t Socket::send(std::span<const std::byte> data, int flags) {
     );
 }
 
-ssize_t Socket::send_to(std::span<const std::byte> data, const SocketAddr &dest) {
+ssize_t Socket::send_to(std::span<const std::byte> data, const SocketAddr &dest) const {
     return send_loop(
         data.data(), data.size(), type_ == SOCK_STREAM,
         [this, &dest](const std::uint8_t *ptr, size_t chunk) {
@@ -413,7 +414,7 @@ ssize_t Socket::send_to(std::span<const std::byte> data, const SocketAddr &dest)
     );
 }
 
-ssize_t Socket::send_to(std::span<const std::byte> data, const SocketAddr &dest, int flags) {
+ssize_t Socket::send_to(std::span<const std::byte> data, const SocketAddr &dest, int flags) const {
     return send_loop(
         data.data(), data.size(), type_ == SOCK_STREAM,
         [this, &dest, flags](const std::uint8_t *ptr, size_t chunk) {
@@ -422,7 +423,7 @@ ssize_t Socket::send_to(std::span<const std::byte> data, const SocketAddr &dest,
     );
 }
 
-ssize_t Socket::recv(std::span<std::byte> buf) {
+ssize_t Socket::recv(std::span<std::byte> buf) const {
     ssize_t n;
     do {
         n = ::recv(fd_, buf.data(), buf.size(), 0);
@@ -430,7 +431,7 @@ ssize_t Socket::recv(std::span<std::byte> buf) {
     return n;
 }
 
-ssize_t Socket::recv(std::span<std::byte> buf, int flags) {
+ssize_t Socket::recv(std::span<std::byte> buf, int flags) const {
     ssize_t n;
     do {
         n = ::recv(fd_, buf.data(), buf.size(), flags);
@@ -438,19 +439,19 @@ ssize_t Socket::recv(std::span<std::byte> buf, int flags) {
     return n;
 }
 
-ssize_t Socket::recv_from(std::span<std::byte> buf, SocketAddr *src) {
+ssize_t Socket::recv_from(std::span<std::byte> buf, SocketAddr *src) const {
     return recv_from_impl(fd_, buf, 0, src);
 }
 
-ssize_t Socket::recv_from(std::span<std::byte> buf, int flags, SocketAddr *src) {
+ssize_t Socket::recv_from(std::span<std::byte> buf, int flags, SocketAddr *src) const {
     return recv_from_impl(fd_, buf, flags, src);
 }
 
-ssize_t Socket::recv_exact(std::span<std::byte> buf) {
+ssize_t Socket::recv_exact(std::span<std::byte> buf) const {
     return recv_exact(buf, 0);
 }
 
-ssize_t Socket::recv_exact(std::span<std::byte> buf, int flags) {
+ssize_t Socket::recv_exact(std::span<std::byte> buf, int flags) const {
     // For stream sockets, use MSG_WAITALL so the kernel blocks until all
     // requested bytes arrive (or an error/EOF occurs).  This reduces
     // user-space looping overhead.  For non-stream sockets the flag is
@@ -475,7 +476,7 @@ ssize_t Socket::recv_exact(std::span<std::byte> buf, int flags) {
     return static_cast<ssize_t>(buf.size());
 }
 
-ssize_t Socket::sendmsg(const msghdr *msg, int flags) {
+ssize_t Socket::sendmsg(const msghdr *msg, int flags) const {
     ssize_t n;
     do {
         n = ::sendmsg(fd_, msg, flags | YADDNSC_NO_SIGPIPE);
@@ -483,7 +484,7 @@ ssize_t Socket::sendmsg(const msghdr *msg, int flags) {
     return n;
 }
 
-ssize_t Socket::recvmsg(msghdr *msg, int flags) {
+ssize_t Socket::recvmsg(msghdr *msg, int flags) const {
     ssize_t n;
     do {
         n = ::recvmsg(fd_, msg, flags);
@@ -495,6 +496,7 @@ ssize_t Socket::recvmsg(msghdr *msg, int flags) {
 //  Control
 // ===========================================================================
 
+// NOLINTNEXTLINE(readability-make-member-function-const) — see declaration for rationale
 void Socket::shutdown(int how) noexcept {
     if (fd_ < 0) {
         return; // already closed — no-op.
@@ -514,7 +516,7 @@ void Socket::close() noexcept {
     (void) ::close(fd);
 }
 
-int Socket::wait_for(short events, int timeout_ms) {
+int Socket::wait_for(short events, int timeout_ms) const {
     pollfd pfd{};
     pfd.fd = fd_;
     pfd.events = events;

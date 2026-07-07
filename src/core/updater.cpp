@@ -10,8 +10,6 @@
 #include "update_task.h"
 #include "dns/dispatcher.h"
 #include "interface/driver.h"
-#include "interface/http_client.h"
-#include "network/http_client.h"
 #include "ip_source/base.h"
 #include "ip_source/factory.h"
 

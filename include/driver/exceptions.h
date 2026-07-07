@@ -16,7 +16,7 @@ class ParamParseException : public DriverException {
 public:
     using DriverException::DriverException;
 
-    [[nodiscard]] std::string_view get_name() const override {
+    [[nodiscard]] std::string_view get_name() const noexcept override {
         return "ParamParseException";
     }
 };

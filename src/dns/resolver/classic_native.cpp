@@ -179,12 +179,12 @@ ClassicResolver::Impl::Impl(DNS::Server server, std::uint64_t id)
 std::vector<std::uint8_t> ClassicResolver::Impl::query(const std::string &host_str, DNS::Type type) const {
     SPDLOG_TRACE(R"(Resolver #{} DNS lookup for "{}")", id_, host_str);
 
-    const auto ns_type = DNS::Util::to_ns_type(type);
-    SPDLOG_DEBUG(R"(Resolver #{} Resolving "{}" (type {}) via {}:{})", id_, host_str, ns_type,
+    const auto ns_type_val = DNS::Util::to_ns_type(type);
+    SPDLOG_DEBUG(R"(Resolver #{} Resolving "{}" (type {}) via {}:{})", id_, host_str, ns_type_val,
                  uri_.get_host_literal(), server_.port);
 
     // Build query packet using mkquery_manual.
-    auto query_packet = DNS::mkquery_manual(host_str, ns_type);
+    auto query_packet = DNS::mkquery_manual(host_str, ns_type_val);
 
     // Try UDP first.
     auto response = query_udp(addr_, query_packet);

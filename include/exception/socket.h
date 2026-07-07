@@ -5,8 +5,6 @@
 #ifndef YADDNSC_EXCEPTION_SOCKET_H
 #define YADDNSC_EXCEPTION_SOCKET_H
 
-#include <cerrno>
-#include <cerrno>
 #include <string>
 #include <string_view>
 #include <system_error>

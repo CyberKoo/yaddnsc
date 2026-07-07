@@ -6,7 +6,7 @@
 
 #include <unordered_map>
 
-#include "fmt.hpp"
+#include "fmt.hpp"  // IWYU pragma: keep — needed by CORE_LOG_* macros
 #include "config.hpp"
 #include "response.hpp"
 #include "driver/factory.h"
@@ -102,7 +102,7 @@ bool DNSPodDriver::check_response(const HttpResponse &response) const {
     return false;
 }
 
-DriverDetail DNSPodDriver::get_detail() const {
+DriverDetail DNSPodDriver::get_detail() const noexcept {
     return {
         .name = "dnspod",
         .description = "Updates DNS records via the DNSPod API",

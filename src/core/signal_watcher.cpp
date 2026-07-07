@@ -42,7 +42,8 @@ SignalWatcher::SignalWatcher() {
         throw std::logic_error("SignalWatcher: only one instance allowed");
     }
 
-    signal_thread_ = std::jthread([this](std::stop_token st) { signal_loop(std::move(st)); });
+    // NOLINTNEXTLINE(performance-unnecessary-value-param)
+    signal_thread_ = std::jthread([this](std::stop_token st) { signal_loop(st); });
 }
 
 SignalWatcher::~SignalWatcher() {
@@ -61,6 +62,7 @@ std::stop_source SignalWatcher::get_stop_source() noexcept {
 
 // ===== private methods ======================================================
 
+// NOLINTNEXTLINE(performance-unnecessary-value-param) — std::stop_token must be by-value for jthread
 void SignalWatcher::signal_loop(std::stop_token st) {
     sigset_t sigset;
     sigemptyset(&sigset);

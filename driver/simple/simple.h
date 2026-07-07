@@ -20,7 +20,7 @@ public:
     [[nodiscard]] DriverRequestContext generate_request(const DriverConfig &config, const DriverUpdateParams &ctx) const override;
 
     /// Return static metadata about this driver.
-    [[nodiscard]] DriverDetail get_detail() const override;
+    [[nodiscard]] DriverDetail get_detail() const noexcept override;
 
     /// Validate the response — returns true for 2xx status codes.
     [[nodiscard]] bool check_response(const HttpResponse &response) const override;

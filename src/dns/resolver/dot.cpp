@@ -54,7 +54,7 @@ namespace {
 
     /// I/O timeout for send/recv on the established TLS connection.
     /// Prevents indefinite blocking when the server hangs mid-query.
-    static constexpr timeval IO_TIMEOUT_TV{5, 0}; // 5 seconds
+    constexpr timeval IO_TIMEOUT_TV{5, 0}; // 5 seconds
 
     // ── Error handling ──
 
@@ -92,7 +92,7 @@ namespace {
                 }
                 return false;
             }
-            buf = buf.subspan(rc);
+            buf = buf.subspan(static_cast<size_t>(rc));
         }
         return true;
     }
@@ -107,7 +107,7 @@ namespace {
                 }
                 return false;
             }
-            data = data.subspan(rc);
+            data = data.subspan(static_cast<size_t>(rc));
         }
         return true;
     }
@@ -150,18 +150,18 @@ DotResolver::Impl::Impl(std::string server, std::uint16_t port, std::uint64_t id
 }
 
 std::vector<std::uint8_t> DotResolver::Impl::query(const std::string &host, DNS::Type type) const {
-    const auto ns_type = DNS::Util::to_ns_type(type);
-    if (ns_type == ns_t_invalid) {
+    const auto ns_type_val = DNS::Util::to_ns_type(type);
+    if (ns_type_val == ns_t_invalid) {
         throw DnsLookupException(
             fmt::format(R"(Unsupported DNS::Type for DoT query: "{}")", host),
             DNS::Error::UNKNOWN
         );
     }
 
-    SPDLOG_DEBUG(R"(Resolver #{} lookup for domain "{}" (type {}))", id_, host, ns_type);
+    SPDLOG_DEBUG(R"(Resolver #{} lookup for domain "{}" (type {}))", id_, host, ns_type_val);
 
     // ---- 1. Build the raw DNS query packet ----
-    const auto query_bytes = DNS::mkquery(host, ns_type);
+    const auto query_bytes = DNS::mkquery(host, ns_type_val);
 
     // ---- 2. Build the wire format (2-byte length prefix + DNS message) ----
     std::vector<std::uint8_t> wire;
@@ -299,7 +299,7 @@ auto DotResolver::Impl::connect(SSL_CTX *ctx, const std::string &server, std::ui
     const auto deadline = std::chrono::steady_clock::now() + CONNECT_TIMEOUT;
 
     for (;;) {
-        const int ret = BIO_do_connect(bio.get());
+        const auto ret = BIO_do_connect(bio.get());
         if (ret == 1) break;
 
         if (!BIO_should_retry(bio.get())) {
@@ -313,7 +313,7 @@ auto DotResolver::Impl::connect(SSL_CTX *ctx, const std::string &server, std::ui
                 DNS::Error::CONNECTION);
         }
 
-        const int fd = BIO_get_fd(bio.get(), nullptr);
+        const auto fd = BIO_get_fd(bio.get(), nullptr);
         if (fd == -1) {
             throw DnsLookupException(
                 fmt::format(R"(DoT failed to get socket fd for "{}")", target),
@@ -325,7 +325,7 @@ auto DotResolver::Impl::connect(SSL_CTX *ctx, const std::string &server, std::ui
 
         // Wait for the socket to become readable/writable via poll().
         pollfd pfd{
-            .fd = fd,
+            .fd = static_cast<int>(fd),
             .events = static_cast<int16_t>(BIO_should_read(bio.get()) ? POLLIN : POLLOUT),
             .revents = 0,
         };
@@ -347,7 +347,7 @@ auto DotResolver::Impl::connect(SSL_CTX *ctx, const std::string &server, std::ui
 
     // Set I/O timeouts on the underlying socket so send/recv don't block forever.
     {
-        const int fd = BIO_get_fd(bio.get(), nullptr);
+        const int fd = static_cast<int>(BIO_get_fd(bio.get(), nullptr));
         if (fd != -1) {
             setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &IO_TIMEOUT_TV, sizeof(IO_TIMEOUT_TV));
             setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &IO_TIMEOUT_TV, sizeof(IO_TIMEOUT_TV));
@@ -369,7 +369,7 @@ BIO *DotResolver::Impl::ensure_connection() const {
         const auto idle = std::chrono::duration_cast<std::chrono::seconds>(now - last_use_);
         if (idle < IDLE_TIMEOUT) [[likely]] {
             // Quick health check: detect server-side close / RST
-            const int fd = BIO_get_fd(persistent_bio_.get(), nullptr);
+            const int fd = static_cast<int>(BIO_get_fd(persistent_bio_.get(), nullptr));
             if (fd != -1) {
                 pollfd pfd{.fd = fd, .events = POLLIN, .revents = 0};
                 if (poll(&pfd, 1, 0) > 0) {

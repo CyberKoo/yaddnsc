@@ -20,7 +20,7 @@
 //   • DNS::Type::A    → IPv4 multicast to 224.0.0.251:5353
 //   • DNS::Type::AAAA → IPv6 multicast to ff02::fb:5353
 //
-// resolve() returns 0 or more InetAddress(es).  The caller (Updater) applies
+// resolve() returns one or more InetAddress(es), or throws on failure.  The caller (Updater) applies
 // further filtering (link-local, ULA, etc.) via filter_ipv6_candidates().
 //
 // Thread-safe: resolve() is const and opens/closes its own socket per call.

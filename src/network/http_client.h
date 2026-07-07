@@ -67,7 +67,7 @@ private:
 // ---------------------------------------------------------------------------
 class PersistentHttpClient final : public HttpClient {
 public:
-    explicit PersistentHttpClient(const Uri &uri, HttpClientOptions opts = {});
+    explicit PersistentHttpClient(const Uri &uri, const HttpClientOptions &opts = {});
 
     ~PersistentHttpClient() override;
 

@@ -18,7 +18,7 @@ public:
     using std::runtime_error::runtime_error;
 
     /// Return the concrete exception type name (e.g. "BadDriverException").
-    [[nodiscard]] virtual std::string_view get_name() const = 0;
+    [[nodiscard]] virtual std::string_view get_name() const noexcept = 0;
 };
 
 #endif //YADDNSC_EXCEPTION_BASE_H

@@ -12,7 +12,38 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_POLICY_DEFAULT_CMP0077 NEW)
 
-# default to release if not specified
+# ==============================================================================
+# Clang-Tidy (static analysis)
+# ==============================================================================
+# Find the clang-tidy executable on the system
+find_program(CLANG_TIDY_EXE NAMES "clang-tidy")
+
+if(CLANG_TIDY_EXE)
+    message(STATUS "Clang-Tidy found: ${CLANG_TIDY_EXE}")
+
+    # Set the global variable for C++ code
+    # This automatically picks up a .clang-tidy configuration file in your project root
+    set(CMAKE_CXX_CLANG_TIDY "${CLANG_TIDY_EXE}")
+else()
+    message(WARNING "Clang-Tidy not found! Static analysis will be skipped.")
+endif()
+
+# ==============================================================================
+# Build type configuration
+# ==============================================================================
+
+# Support for dedicated Sanitizer build type (used in CI for UBSan/ASan testing).
+# Usage: cmake -B build -DCMAKE_BUILD_TYPE=Sanitizer
+set(CMAKE_CXX_FLAGS_SANITIZER
+    "-O1 -ggdb -gdwarf-3 -fno-omit-frame-pointer"
+    CACHE STRING "Flags used by the Sanitizer build type." FORCE)
+set(CMAKE_C_FLAGS_SANITIZER
+    "-O1 -ggdb -gdwarf-3 -fno-omit-frame-pointer"
+    CACHE STRING "Flags used by the Sanitizer build type." FORCE)
+set(CMAKE_EXE_LINKER_FLAGS_SANITIZER "" CACHE STRING "" FORCE)
+set(CMAKE_SHARED_LINKER_FLAGS_SANITIZER "" CACHE STRING "" FORCE)
+
+# Default to release if not specified
 if (NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
 endif ()
@@ -240,14 +271,24 @@ endif ()
 # Compiler options
 # ---------------------------------------------------------------------------
 target_compile_options(yaddnsc PRIVATE
-        -Wall -Wextra
+        # Strict warning flags (guidelines: -Wall -Wextra -Wpedantic -Wshadow
+        # -Wconversion -Wsign-conversion -Werror)
+        -Wall -Wextra -Wpedantic -Wshadow -Wconversion -Wsign-conversion -Werror
         # Hide all symbols at compile time; only YADDNSC_EXPORT-marked functions
         # have STV_DEFAULT visibility.
         -fvisibility=hidden
         # Clang 19.x needs -fexperimental-library for std::stop_token, std::jthread, etc.
         $<$<AND:$<CXX_COMPILER_ID:Clang>,$<VERSION_GREATER_EQUAL:$<CXX_COMPILER_VERSION>,19>,$<VERSION_LESS:$<CXX_COMPILER_VERSION>,20>>:-fexperimental-library>
-        # Debug symbols
-        $<$<CONFIG:Debug>:-ggdb -gdwarf-3>
+        # Debug symbols & sanitizer
+        $<$<CONFIG:Debug>:-ggdb -gdwarf-3 -fsanitize=address,undefined,integer,bounds,null,alignment -fsanitize-address-use-after-return=always -fsanitize-address-use-after-scope -fno-omit-frame-pointer>
+        # Dedicated Sanitizer build (for CI): full sanitizer suite at -O1
+        $<$<CONFIG:Sanitizer>:-fsanitize=address,undefined,integer,bounds,null,alignment -fsanitize-address-use-after-return=always -fsanitize-address-use-after-scope>
+)
+
+# Linker options for sanitizer (debug and Sanitizer builds)
+target_link_options(yaddnsc PRIVATE
+        $<$<CONFIG:Debug>:-fsanitize=address,undefined,integer,bounds,null,alignment>
+        $<$<CONFIG:Sanitizer>:-fsanitize=address,undefined,integer,bounds,null,alignment>
 )
 
 # ---------------------------------------------------------------------------

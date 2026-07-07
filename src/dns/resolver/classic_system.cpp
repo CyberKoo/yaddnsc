@@ -39,6 +39,7 @@ namespace {
 
     template<typename T>
     T *ccalloc(size_t count) {
+        // NOLINTNEXTLINE(cppcoreguidelines-owning-memory,cppcoreguidelines-no-malloc) — glibc res_state internals require raw C memory
         return static_cast<T *>(calloc(count, sizeof(T)));
     }
 
@@ -100,10 +101,14 @@ namespace {
             // Manually free each entry instead of calling res_nclose() — nsaddrs may be an
             // inline array (glibc ≥ 2.34) or a pointer (older glibc); manual per-entry
             // cleanup works for both layouts.
+            // NOLINTBEGIN(cppcoreguidelines-owning-memory,cppcoreguidelines-no-malloc,modernize-loop-convert)
+            // — 'nsaddr' is a macro from resolv.h expanding to 'nsaddr_list[0]', range-for impossible
             for (int i = 0; i < MAXNS; ++i) {
+                // NOLINTNEXTLINE(cppcoreguidelines-owning-memory,cppcoreguidelines-no-malloc)
                 free(state._u._ext.nsaddrs[i]);
                 state._u._ext.nsaddrs[i] = nullptr;
             }
+            // NOLINTEND(cppcoreguidelines-owning-memory,cppcoreguidelines-no-malloc,modernize-loop-convert)
 
             state.nscount = 1;
             state._u._ext.nscount = 1;
@@ -141,6 +146,7 @@ namespace {
 #endif
     };
 
+    // NOLINTNEXTLINE(readability-convert-member-functions-to-static) — free function in anonymous namespace, false positive
     DNS::Error get_dns_lookup_err(int error) {
         switch (error) {
             case HOST_NOT_FOUND:
@@ -164,7 +170,7 @@ namespace {
 
         do {
             buffer_size = received_size + buffer_size;
-            buffer.resize(buffer_size);
+            buffer.resize(static_cast<size_t>(buffer_size));
 
             SPDLOG_TRACE(R"(Sending DNS query for "{}" (buffer size: {}))", host_str, buffer_size);
             received_size = ctx.query(host_str.c_str(), ns_type, buffer.data(), buffer_size);
@@ -208,13 +214,13 @@ ClassicResolver::Impl::Impl(DNS::Server server, std::uint64_t id)
 std::vector<std::uint8_t> ClassicResolver::Impl::query(const std::string &host_str, DNS::Type type) const {
     SPDLOG_TRACE(R"(Resolver #{} DNS lookup for "{}")", id_, host_str);
 
-    const auto ns_type = DNS::Util::to_ns_type(type);
+    const auto ns_type_val = DNS::Util::to_ns_type(type);
 
-    SPDLOG_DEBUG(R"(Resolver #{} Resolving "{}" (type {}) via {}:{})", id_, host_str, ns_type,
+    SPDLOG_DEBUG(R"(Resolver #{} Resolving "{}" (type {}) via {}:{})", id_, host_str, ns_type_val,
                  uri_.get_host_literal(), server_.port);
     ResolverContext ctx;
     ctx.set_nameserver(server_);
-    return do_query(ctx, host_str, ns_type);
+    return do_query(ctx, host_str, ns_type_val);
 }
 
 // ===========================================================================

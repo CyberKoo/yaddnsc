@@ -8,7 +8,6 @@
 #include <ranges>
 #include <utility>
 #include <optional>
-#include <filesystem>
 
 #include <httplib.h>
 #include <spdlog/spdlog.h>
@@ -200,7 +199,7 @@ HttpResult TransientHttpClient::exchange(std::string_view url, const HttpRequest
 // PersistentHttpClient
 // ---------------------------------------------------------------------------
 
-PersistentHttpClient::PersistentHttpClient(const Uri &uri, HttpClientOptions opts)
+PersistentHttpClient::PersistentHttpClient(const Uri &uri, const HttpClientOptions &opts)
     : uri_(uri),
       client_(std::make_unique<httplib::Client>(build_base_url(uri))) {
     apply_options(*client_, uri, opts);

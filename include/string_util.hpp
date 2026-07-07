@@ -35,14 +35,14 @@ namespace StringUtil {
         // Single definition to avoid repeated instantiation in each template
         inline constexpr std::array<char, 256> lower_table = []() noexcept {
             std::array<char, 256> table{};
-            for (int i = 0; i < 256; ++i)
+            for (size_t i = 0; i < 256; ++i)
                 table[i] = (i >= 'A' && i <= 'Z') ? static_cast<char>(i + 32) : static_cast<char>(i);
             return table;
         }();
 
         inline constexpr std::array<char, 256> upper_table = []() noexcept {
             std::array<char, 256> table{};
-            for (int i = 0; i < 256; ++i)
+            for (size_t i = 0; i < 256; ++i)
                 table[i] = (i >= 'a' && i <= 'z') ? static_cast<char>(i - 32) : static_cast<char>(i);
             return table;
         }();

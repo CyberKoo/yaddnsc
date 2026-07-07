@@ -18,7 +18,6 @@
 #include "driver_loader.h"
 #include "dns/dispatcher.h"
 #include "driver_manager.h"
-#include "ip_source/factory.h"
 #include "config/validator.hpp"
 #include "min_update_interval.h"
 #include "network/http_client.h"

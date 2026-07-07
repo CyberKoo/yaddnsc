@@ -5,8 +5,7 @@
 #ifndef YADDNSC_CONFIG_VALIDATOR_HPP
 #define YADDNSC_CONFIG_VALIDATOR_HPP
 
-#include <ranges>
-#include <cctype>
+
 
 #include "uri.h"
 #include "fmt.hpp"

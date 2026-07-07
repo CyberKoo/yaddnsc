@@ -10,7 +10,6 @@
 #include <sys/socket.h>
 
 #include <span>
-#include <ranges>
 #include <memory>
 #include <stdexcept>
 #include <cstdint>
@@ -124,7 +123,7 @@ namespace NetDevices {
         return 0;
     }
 
-    unsigned int name_to_index(const std::string &name) {
+    unsigned int name_to_index(const std::string &name) noexcept {
         return ::if_nametoindex(name.c_str());
     }
 

@@ -7,7 +7,6 @@
 #include <netinet/in.h>
 
 #include <cstdint>
-#include <utility>
 #include <algorithm>
 
 #include "network/inet_address.h"
@@ -46,7 +45,7 @@ std::optional<SocketAddr> SocketAddr::from_inet(const InetAddress &addr, std::ui
 SocketAddr SocketAddr::from_raw(const sockaddr *addr, socklen_t len) {
     SocketAddr result;
     if (addr && len > 0 && static_cast<size_t>(len) <= sizeof(result.storage_)) {
-        std::ranges::copy_n(reinterpret_cast<const std::uint8_t *>(addr), static_cast<size_t>(len),
+        std::ranges::copy_n(reinterpret_cast<const std::uint8_t *>(addr), static_cast<std::ptrdiff_t>(len),
                             reinterpret_cast<std::uint8_t *>(&result.storage_));
         result.len_ = len;
     }
@@ -68,7 +67,7 @@ std::uint16_t SocketAddr::port() const noexcept {
     }
 }
 
-std::optional<InetAddress> SocketAddr::address() const {
+std::optional<InetAddress> SocketAddr::address() const noexcept {
     switch (storage_.ss_family) {
         case AF_INET: {
             const auto &sin = reinterpret_cast<const sockaddr_in *>(&storage_);

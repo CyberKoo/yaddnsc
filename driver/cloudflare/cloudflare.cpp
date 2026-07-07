@@ -59,7 +59,7 @@ bool CloudflareDriver::check_response(const HttpResponse &response) const {
     return true;
 }
 
-DriverDetail CloudflareDriver::get_detail() const {
+DriverDetail CloudflareDriver::get_detail() const noexcept {
     return {
         .name = "cloudflare",
         .description = "Updates DNS records via the Cloudflare API",

@@ -5,7 +5,6 @@
 #include "iface_util.h"
 
 #include <map>
-#include <ranges>
 #include <stdexcept>
 #include <algorithm>
 

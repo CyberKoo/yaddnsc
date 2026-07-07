@@ -5,7 +5,7 @@
 #ifndef YADDNSC_DRIVER_FACTORY_H
 #define YADDNSC_DRIVER_FACTORY_H
 
-#include "magic.h"
+#include "magic.h"  // IWYU pragma: keep — used by DEFINE_DRIVER_FACTORY macro at expansion time
 #include "yaddnsc_export.h"
 
 /// Define the three C entry points required by every yaddnsc driver shared
@@ -23,11 +23,11 @@
 /// @endcode
 #define DEFINE_DRIVER_FACTORY(DriverClass)                    \
 extern "C" YADDNSC_EXPORT Driver* create() {                  \
-    return new DriverClass();                                 \
+    return new DriverClass(); /* NOLINT(cppcoreguidelines-owning-memory) */ \
 }                                                             \
                                                               \
 extern "C" YADDNSC_EXPORT void destroy(Driver* p) {           \
-    delete p;                                                 \
+    delete p; /* NOLINT(cppcoreguidelines-owning-memory) */   \
 }                                                             \
                                                               \
 extern "C" YADDNSC_EXPORT std::uint64_t yaddnsc_drv_magic() { \

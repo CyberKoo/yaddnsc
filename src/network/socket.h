@@ -41,7 +41,7 @@ public:
     // ---- Options: generic setsockopt / getsockopt (type-safe) -------------
 
     template<typename T>
-    void set_option(int level, int optname, const T &val) {
+    void set_option(int level, int optname, const T &val) const {
         if (::setsockopt(fd_, level, optname, &val, sizeof(val)) < 0) {
             throw SocketException(errno, "setsockopt");
         }
@@ -49,7 +49,7 @@ public:
 
     /// Non-throwing variant — returns 0 on success, errno on failure.
     template<typename T>
-    int try_set_option(int level, int optname, const T &val) noexcept {
+    int try_set_option(int level, int optname, const T &val) const noexcept {
         if (::setsockopt(fd_, level, optname, &val, sizeof(val)) == 0) {
             return 0;
         }
@@ -57,11 +57,11 @@ public:
     }
 
     /// Raw setsockopt for variable-length values (e.g. SO_BINDTODEVICE).
-    void set_option_raw(int level, int optname, const void *val, socklen_t len);
+    void set_option_raw(int level, int optname, const void *val, socklen_t len) const;
 
     /// Non-throwing variant of set_option_raw.
     /// @return 0 on success, errno on failure.
-    int try_set_option_raw(int level, int optname, const void *val, socklen_t len) noexcept;
+    int try_set_option_raw(int level, int optname, const void *val, socklen_t len) const noexcept;
 
     template<typename T>
     void get_option(int level, int optname, T &val) const {
@@ -83,32 +83,32 @@ public:
     }
 
     /// Toggle O_NONBLOCK via fcntl (not setsockopt).
-    void set_nonblocking(bool enable);
+    void set_nonblocking(bool enable) const;
 
     // ---- Convenience options (all POSIX portable) -------------------------
 
     /// Enable/disable SO_REUSEADDR.
-    void set_reuseaddr(bool enable);
+    void set_reuseaddr(bool enable) const;
 
     /// Enable/disable SO_REUSEPORT (Linux 3.9+, BSD).
     /// Throws SocketException(ENOPROTOOPT) on platforms that don't support it.
-    void set_reuseport(bool enable);
+    void set_reuseport(bool enable) const;
 
     /// Enable/disable SO_BROADCAST (UDP only).
-    void set_broadcast(bool enable);
+    void set_broadcast(bool enable) const;
 
     /// Enable/disable TCP keep-alive probes.
-    void set_keepalive(bool enable);
+    void set_keepalive(bool enable) const;
 
     /// Enable/disable SO_LINGER with the given timeout (seconds).
-    void set_linger(bool enable, int timeout_sec = 0);
+    void set_linger(bool enable, int timeout_sec = 0) const;
 
     /// Enable/disable IPV6_V6ONLY (RFC 3493).
-    void set_ipv6_only(bool enable);
+    void set_ipv6_only(bool enable) const;
 
     // ---- Address binding: accept SocketAddr instead of raw sockaddr -------
 
-    void bind(const SocketAddr &addr);
+    void bind(const SocketAddr &addr) const;
 
     [[nodiscard]] SocketAddr get_sockname() const;
 
@@ -119,11 +119,12 @@ public:
     /// Non-blocking connect with poll() timeout.
     /// @param addr         Target address.
     /// @param timeout_sec  Timeout in seconds (0 = no wait, negative = block).
+    /// NOLINTNEXTLINE(readability-make-member-function-const) — semantically mutates TCP connection state
     void connect(const SocketAddr &addr, int timeout_sec = -1);
 
     // ---- Listening + accept (server) ---------------------------------------
 
-    void listen(int backlog = SOMAXCONN);
+    void listen(int backlog = SOMAXCONN) const;
 
     /// Accept an incoming connection.
     ///
@@ -140,7 +141,7 @@ public:
     ///
     /// @param addr  Optional buffer to receive the peer address.
     /// @return      A new Socket representing the accepted connection.
-    Socket accept(SocketAddr *addr = nullptr);
+    Socket accept(SocketAddr *addr = nullptr) const;
 
     // ---- I/O (all return ssize_t, no exceptions) ---------------------------
     //
@@ -152,43 +153,44 @@ public:
 
     /// Send all bytes in @p data (loops internally on short writes).
     /// @return  data.size() on success, -1 on error (errno set).
-    [[nodiscard]] ssize_t send(std::span<const std::byte> data);
-    [[nodiscard]] ssize_t send(std::span<const std::byte> data, int flags);
+    [[nodiscard]] ssize_t send(std::span<const std::byte> data) const;
+    [[nodiscard]] ssize_t send(std::span<const std::byte> data, int flags) const;
 
-    [[nodiscard]] ssize_t send_to(std::span<const std::byte> data, const SocketAddr &dest);
-    [[nodiscard]] ssize_t send_to(std::span<const std::byte> data, const SocketAddr &dest, int flags);
+    [[nodiscard]] ssize_t send_to(std::span<const std::byte> data, const SocketAddr &dest) const;
+    [[nodiscard]] ssize_t send_to(std::span<const std::byte> data, const SocketAddr &dest, int flags) const;
 
     /// Receive up to buf.size() bytes.
     ///
     /// For stream sockets (TCP), a single call may return fewer bytes than
     /// requested — the caller should loop if a complete message is expected.
     /// @see recv_exact
-    [[nodiscard]] ssize_t recv(std::span<std::byte> buf);
-    [[nodiscard]] ssize_t recv(std::span<std::byte> buf, int flags);
+    [[nodiscard]] ssize_t recv(std::span<std::byte> buf) const;
+    [[nodiscard]] ssize_t recv(std::span<std::byte> buf, int flags) const;
 
-    [[nodiscard]] ssize_t recv_from(std::span<std::byte> buf, SocketAddr *src = nullptr);
-    [[nodiscard]] ssize_t recv_from(std::span<std::byte> buf, int flags, SocketAddr *src = nullptr);
+    [[nodiscard]] ssize_t recv_from(std::span<std::byte> buf, SocketAddr *src = nullptr) const;
+    [[nodiscard]] ssize_t recv_from(std::span<std::byte> buf, int flags, SocketAddr *src = nullptr) const;
 
     /// Receive exactly buf.size() bytes (stream sockets only).
     /// Internally loops until all bytes are obtained.
     /// @return  buf.size() on success.
     ///          A non-negative value less than buf.size() means the peer closed early.
     ///          -1 on error (errno set).
-    [[nodiscard]] ssize_t recv_exact(std::span<std::byte> buf);
-    [[nodiscard]] ssize_t recv_exact(std::span<std::byte> buf, int flags);
+    [[nodiscard]] ssize_t recv_exact(std::span<std::byte> buf) const;
+    [[nodiscard]] ssize_t recv_exact(std::span<std::byte> buf, int flags) const;
 
     /// Send a scatter/gather message (vectored I/O).
     /// @return bytes sent on success, -1 on error (errno set).
-    [[nodiscard]] ssize_t sendmsg(const struct msghdr *msg, int flags = 0);
+    [[nodiscard]] ssize_t sendmsg(const struct msghdr *msg, int flags = 0) const;
 
     /// Receive a scatter/gather message (vectored I/O).
     /// @return bytes received on success, 0 on peer close, -1 on error (errno set).
-    [[nodiscard]] ssize_t recvmsg(struct msghdr *msg, int flags = 0);
+    [[nodiscard]] ssize_t recvmsg(struct msghdr *msg, int flags = 0) const;
 
     // ---- Control -----------------------------------------------------------
 
     /// Shut down one or both directions (SHUT_RD, SHUT_WR, SHUT_RDWR).
     /// No-op if the socket is already closed (or already shut down).
+    /// NOLINTNEXTLINE(readability-make-member-function-const) — semantically mutates TCP connection state
     void shutdown(int how) noexcept;
 
     /// Shutdown only the read side (SHUT_RD).
@@ -206,7 +208,7 @@ public:
     /// Wait for socket readiness via poll().
     /// @return  1 on ready, 0 on timeout (timeout_ms = 0 returns immediately).
     /// @throws  SocketException on error.
-    [[nodiscard]] int wait_for(short events, int timeout_ms);
+    [[nodiscard]] int wait_for(short events, int timeout_ms) const;
 
     // ---- Accessors ---------------------------------------------------------
 
