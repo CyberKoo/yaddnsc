@@ -3,10 +3,11 @@
 //
 #include "dns/validator.h"
 
-#include <cstdint>
-#include <string>
 #include <span>
+#include <string>
 #include <vector>
+#include <cstdint>
+#include <algorithm>
 
 #include "fmt.hpp"
 #include "dns_error.h"
