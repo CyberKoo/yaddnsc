@@ -4,14 +4,15 @@
 #include "dns/parser/parser_native.h"
 
 #include <arpa/inet.h>
+#include <sys/socket.h>
 
 #include <array>
 #include <limits>
 #include <ranges>
 #include <string>
+#include <vector>
 #include <system_error>
 #include <unordered_set>
-#include <vector>
 
 #include <spdlog/spdlog.h>
 #include <magic_enum/magic_enum.hpp>
@@ -464,8 +465,10 @@ DNS::DnsParser::parse_message(const data_type *data, size_t size) {
     m.additionals.reserve(m.arcount);
     for (uint16_t i = 0; i < m.arcount; ++i) {
         auto rr = parse_rr();
-        // Check for EDNS0 OPT pseudo-record.
-        if (rr.type == OPT_RR_TYPE && rr.qclass > 0) {
+        // Check for EDNS0 OPT pseudo-record (RFC 6891 §6.1).
+        // The NAME must be the root label (0x00), and CLASS must carry a
+        // non-zero UDP payload size.
+        if (rr.type == OPT_RR_TYPE && rr.name.size() == OPT_NAME_SIZE && rr.qclass > 0) {
             m.edns = parse_edns(rr);
         }
         m.additionals.push_back(std::move(rr));
