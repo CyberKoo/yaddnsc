@@ -21,9 +21,14 @@ find_program(CLANG_TIDY_EXE NAMES "clang-tidy")
 if(CLANG_TIDY_EXE)
     message(STATUS "Clang-Tidy found: ${CLANG_TIDY_EXE}")
 
-    # Set the global variable for C++ code
-    # This automatically picks up a .clang-tidy configuration file in your project root
-    set(CMAKE_CXX_CLANG_TIDY "${CLANG_TIDY_EXE}")
+    # Only run clang-tidy with Clang as the compiler to avoid parsing
+    # incompatibilities between clang-tidy's clang frontend and GCC's
+    # standard library headers (e.g. C++23 std::expected).
+    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+        set(CMAKE_CXX_CLANG_TIDY "${CLANG_TIDY_EXE}")
+    else()
+        message(STATUS "Clang-Tidy skipped (compiler is ${CMAKE_CXX_COMPILER_ID}, not Clang)")
+    endif()
 else()
     message(WARNING "Clang-Tidy not found! Static analysis will be skipped.")
 endif()
@@ -279,17 +284,42 @@ target_compile_options(yaddnsc PRIVATE
         -fvisibility=hidden
         # Clang 19.x needs -fexperimental-library for std::stop_token, std::jthread, etc.
         $<$<AND:$<CXX_COMPILER_ID:Clang>,$<VERSION_GREATER_EQUAL:$<CXX_COMPILER_VERSION>,19>,$<VERSION_LESS:$<CXX_COMPILER_VERSION>,20>>:-fexperimental-library>
-        # Debug symbols & sanitizer
-        $<$<CONFIG:Debug>:-ggdb -gdwarf-3 -fsanitize=address,undefined,integer,bounds,null,alignment -fsanitize-address-use-after-return=always -fsanitize-address-use-after-scope -fno-omit-frame-pointer>
-        # Dedicated Sanitizer build (for CI): full sanitizer suite at -O1
-        $<$<CONFIG:Sanitizer>:-fsanitize=address,undefined,integer,bounds,null,alignment -fsanitize-address-use-after-return=always -fsanitize-address-use-after-scope>
+        # Debug symbols
+        $<$<CONFIG:Debug>:-ggdb>
+        $<$<CONFIG:Debug>:-gdwarf-3>
+        $<$<CONFIG:Debug>:-fno-omit-frame-pointer>
+        # Sanitizer flags (common — available on all platforms)
+        $<$<CONFIG:Debug>:-fsanitize=address,undefined,bounds,null,alignment>
+        $<$<CONFIG:Debug>:-fsanitize-address-use-after-scope>
+        $<$<CONFIG:Sanitizer>:-fsanitize=address,undefined,bounds,null,alignment>
+        $<$<CONFIG:Sanitizer>:-fsanitize-address-use-after-scope>
 )
+
+# Extra sanitizer flags that are unsupported on musl:
+#   -fsanitize=integer       (unrecognized argument on musl)
+#   -fsanitize-address-use-after-return=always (not supported on musl)
+if(NOT LIBC_MUSL)
+    target_compile_options(yaddnsc PRIVATE
+            $<$<CONFIG:Debug>:-fsanitize=integer>
+            $<$<CONFIG:Debug>:-fsanitize-address-use-after-return=always>
+            $<$<CONFIG:Sanitizer>:-fsanitize=integer>
+            $<$<CONFIG:Sanitizer>:-fsanitize-address-use-after-return=always>
+    )
+endif()
 
 # Linker options for sanitizer (debug and Sanitizer builds)
 target_link_options(yaddnsc PRIVATE
-        $<$<CONFIG:Debug>:-fsanitize=address,undefined,integer,bounds,null,alignment>
-        $<$<CONFIG:Sanitizer>:-fsanitize=address,undefined,integer,bounds,null,alignment>
+        $<$<CONFIG:Debug>:-fsanitize=address,undefined,bounds,null,alignment>
+        $<$<CONFIG:Sanitizer>:-fsanitize=address,undefined,bounds,null,alignment>
 )
+
+# Extra linker sanitizer flags (unsupported on musl)
+if(NOT LIBC_MUSL)
+    target_link_options(yaddnsc PRIVATE
+            $<$<CONFIG:Debug>:-fsanitize=integer>
+            $<$<CONFIG:Sanitizer>:-fsanitize=integer>
+    )
+endif()
 
 # ---------------------------------------------------------------------------
 # Include directories
