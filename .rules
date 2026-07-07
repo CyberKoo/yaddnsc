@@ -2,10 +2,10 @@
 
 ## Language Standard
 - Use **C++20** features exclusively whenever possible.
-- Use **C++23** features where applicable and beneficial, provided they are supported by GCC 14, Clang 18, and Apple Clang 15.
+- Use **C++23** features where applicable and beneficial, provided they are supported by GCC 14, Clang 19, and Apple Clang 15.
 
 ## Compiler & Build
-- Target compilers: **GCC 14+**, **Clang 18+**, **Apple Clang 15+**.
+- Target compilers: **GCC 14+**, **Clang 19+**, **Apple Clang 15+**.
 - Use **CMake** as the build system, minimum version **3.20**.
 - Use **CPM.cmake** (v0.40+) for dependency management. Declare dependencies using `CPMAddPackage` with explicit, immutable Git hashes (`GIT_TAG`). Do not use floating branches or mutable tags.
 - Document the rationale for using CPM in the project build documentation. Be aware of CPM's limitations (no binary caching, no transitive dependency resolution, no centralized security advisory registry) and mitigate them by keeping the dependency set small and performing periodic manual vulnerability reviews.

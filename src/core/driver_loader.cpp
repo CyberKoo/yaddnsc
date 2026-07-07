@@ -14,7 +14,7 @@
 #include "util/algorithm.hpp"
 
 namespace {
-    constexpr std::filesystem::path default_driver_dir() {
+    std::filesystem::path default_driver_dir() {
         return {YADDNSC_DEFAULT_DRIVER_DIR};
     }
 

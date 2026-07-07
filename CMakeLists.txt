@@ -18,17 +18,6 @@ include(ClangTidy)
 # Build type configuration
 # ==============================================================================
 
-# Support for dedicated Sanitizer build type (used in CI for UBSan/ASan testing).
-# Usage: cmake -B build -DCMAKE_BUILD_TYPE=Sanitizer
-set(CMAKE_CXX_FLAGS_SANITIZER
-    "-O1 -ggdb -gdwarf-3 -fno-omit-frame-pointer"
-    CACHE STRING "Flags used by the Sanitizer build type." FORCE)
-set(CMAKE_C_FLAGS_SANITIZER
-    "-O1 -ggdb -gdwarf-3 -fno-omit-frame-pointer"
-    CACHE STRING "Flags used by the Sanitizer build type." FORCE)
-set(CMAKE_EXE_LINKER_FLAGS_SANITIZER "" CACHE STRING "" FORCE)
-set(CMAKE_SHARED_LINKER_FLAGS_SANITIZER "" CACHE STRING "" FORCE)
-
 # Default to release if not specified
 if (NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
@@ -42,15 +31,15 @@ if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     message(FATAL_ERROR "GCC ${CMAKE_CXX_COMPILER_VERSION} is too old. yaddnsc requires GCC 14+ (C++23).")
   endif ()
 elseif (CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
-  if (CMAKE_CXX_COMPILER_VERSION VERSION_LESS "18")
-    message(FATAL_ERROR "Clang ${CMAKE_CXX_COMPILER_VERSION} is too old. yaddnsc requires Clang 18+ (C++23).")
-  endif ()
+	  if (CMAKE_CXX_COMPILER_VERSION VERSION_LESS "19")
+	    message(FATAL_ERROR "Clang ${CMAKE_CXX_COMPILER_VERSION} is too old. yaddnsc requires Clang 19+ (C++23 + libc++ experimental features).")
+	  endif ()
 elseif (CMAKE_CXX_COMPILER_ID STREQUAL "AppleClang")
   if (CMAKE_CXX_COMPILER_VERSION VERSION_LESS "15")
     message(FATAL_ERROR "AppleClang ${CMAKE_CXX_COMPILER_VERSION} is too old. yaddnsc requires AppleClang 15+ (C++23).")
   endif ()
 else ()
-  message(FATAL_ERROR "Unsupported compiler: ${CMAKE_CXX_COMPILER_ID}. yaddnsc requires GCC 14+, Clang 18+, or AppleClang 15+.")
+  message(FATAL_ERROR "Unsupported compiler: ${CMAKE_CXX_COMPILER_ID}. yaddnsc requires GCC 14+, Clang 19+, or AppleClang 15+.")
 endif ()
 
 # ==============================================================================
@@ -58,7 +47,7 @@ endif ()
 # ==============================================================================
 include(FeatureCheck)
 
-include(SanitizerCheck)
+include(Sanitizer)
 
 # ==============================================================================
 # Release build flags
@@ -98,6 +87,10 @@ set(YADDNSC_DEFAULT_DNS_PORT 53 CACHE STRING "Default DNS server port when none 
 
 option(YADDNSC_USE_NATIVE_DNS "Use built-in DNS stack instead of system libresolv" OFF)
 option(YADDNSC_USE_SYSTEM_SPDLOG "Use spdlog from the system instead of the bundled CPM version" OFF)
+
+# Debug-mode sanitizers can be disabled by downstream CI jobs (e.g., coverage)
+# that need to combine Debug with incompatible flags like --coverage.
+option(YADDNSC_SANITIZE_DEBUG "Enable sanitizers in Debug builds" ON)
 
 if (YADDNSC_MIN_UPDATE_INTERVAL LESS 0)
   message(FATAL_ERROR "YADDNSC_MIN_UPDATE_INTERVAL must not be negative, got ${YADDNSC_MIN_UPDATE_INTERVAL}")
@@ -277,42 +270,10 @@ target_compile_options(yaddnsc PRIVATE
         $<$<CONFIG:Debug>:-ggdb>
         $<$<CONFIG:Debug>:-gdwarf-3>
         $<$<CONFIG:Debug>:-fno-omit-frame-pointer>
-        # Sanitizer flags (common — available on all platforms)
-        $<$<CONFIG:Debug>:-fsanitize=address,undefined,bounds,null,alignment>
-        $<$<CONFIG:Debug>:-fsanitize-address-use-after-scope>
-        $<$<CONFIG:Sanitizer>:-fsanitize=address,undefined,bounds,null,alignment>
-        $<$<CONFIG:Sanitizer>:-fsanitize-address-use-after-scope>
 )
 
-# Extra sanitizer flags that may be unsupported on some platforms
-# (musl, ARM64, or GCC builds without the full UBSan suite).
-# Each flag is tested at configure time via check_cxx_compiler_flag.
-if(HAVE_SANITIZE_INTEGER)
-    target_compile_options(yaddnsc PRIVATE
-            $<$<CONFIG:Debug>:-fsanitize=integer>
-            $<$<CONFIG:Sanitizer>:-fsanitize=integer>
-    )
-endif()
-if(HAVE_ASAN_USE_AFTER_RETURN)
-    target_compile_options(yaddnsc PRIVATE
-            $<$<CONFIG:Debug>:-fsanitize-address-use-after-return=always>
-            $<$<CONFIG:Sanitizer>:-fsanitize-address-use-after-return=always>
-    )
-endif()
-
-# Linker options for sanitizer (debug and Sanitizer builds)
-target_link_options(yaddnsc PRIVATE
-        $<$<CONFIG:Debug>:-fsanitize=address,undefined,bounds,null,alignment>
-        $<$<CONFIG:Sanitizer>:-fsanitize=address,undefined,bounds,null,alignment>
-)
-
-# Extra linker sanitizer flags (only if the compiler supports them)
-if(HAVE_SANITIZE_INTEGER)
-    target_link_options(yaddnsc PRIVATE
-            $<$<CONFIG:Debug>:-fsanitize=integer>
-            $<$<CONFIG:Sanitizer>:-fsanitize=integer>
-    )
-endif()
+# Sanitizer flags applied via cmake/SanitizerCheck.cmake
+add_sanitizer_flags(yaddnsc)
 
 # ---------------------------------------------------------------------------
 # Include directories
@@ -424,8 +385,8 @@ option(YADDNSC_BUILD_TESTS "Build unit and integration tests" OFF)
 mark_as_advanced(YADDNSC_BUILD_TESTS)
 
 if (YADDNSC_BUILD_TESTS)
-    enable_testing()
-    add_subdirectory(test)
+  enable_testing()
+  add_subdirectory(test)
 endif ()
 
 # ==============================================================================

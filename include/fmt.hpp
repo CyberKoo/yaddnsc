@@ -28,7 +28,7 @@ namespace fmt {
         /// Convert any value to string for storage.
         template<typename T>
         static named_arg_t create(std::string_view name, T &&val) {
-            if constexpr (std::constructible_from<std::string, T>) {
+            if constexpr (std::constructible_from<std::string, T> && !std::is_arithmetic_v<std::decay_t<T>>) {
                 return {name, std::string(std::forward<T>(val))};
             } else {
                 return {name, std::format("{}", std::forward<T>(val))};

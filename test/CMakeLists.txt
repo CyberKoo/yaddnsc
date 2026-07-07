@@ -16,7 +16,7 @@
 include(${CMAKE_SOURCE_DIR}/cmake/CPM.cmake)
 
 # ---------------------------------------------------------------------------
-# GoogleTest  (v1.15.2 — compatible with C++23, includes gmock)
+# GoogleTest  (v1.17.0 — compatible with C++23, includes gmock)
 # ---------------------------------------------------------------------------
 # Use the same URI shorthand format as other project dependencies.
 CPMAddPackage(
@@ -28,6 +28,12 @@ CPMAddPackage(
 if (googletest_ADDED)
     # GoogleTest targets are already defined by the CPM fetch above.
     message(STATUS "GoogleTest v${googletest_VERSION} loaded for test targets")
+
+    # Mark GTest/GMock as SYSTEM to suppress clang-tidy false positives
+    # (e.g. bugprone-suspicious-include on gtest-all.cc / gmock-all.cc).
+    foreach(tgt gtest gtest_main gmock gmock_main)
+      set_target_properties(${tgt} PROPERTIES SYSTEM TRUE)
+    endforeach()
 endif ()
 
 # ---------------------------------------------------------------------------
