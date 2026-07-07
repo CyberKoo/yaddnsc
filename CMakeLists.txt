@@ -412,6 +412,17 @@ include(Doxygen)
 add_subdirectory(${PROJECT_SOURCE_DIR}/driver/)
 
 # ==============================================================================
+# Tests — GoogleTest via CPM, gated by option
+# ==============================================================================
+option(YADDNSC_BUILD_TESTS "Build unit and integration tests" ON)
+mark_as_advanced(YADDNSC_BUILD_TESTS)
+
+if (YADDNSC_BUILD_TESTS)
+    enable_testing()
+    add_subdirectory(test)
+endif ()
+
+# ==============================================================================
 # Install rules & packaging
 # ==============================================================================
 include(InstallRules)

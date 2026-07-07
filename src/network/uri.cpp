@@ -179,10 +179,10 @@ Uri Uri::parse(std::string_view uri) {
     }
 
     // -------- path --------------------------------------------------------
-    if (path_pos != std::string_view::npos) {
+    if (path_pos != std::string_view::npos &&
+        (query_pos == std::string_view::npos || path_pos < query_pos)) {
         // Path runs from the first '/' up to (but not including) '?'.
-        // If a pathological '?' appears before '/', ignore it.
-        auto const path_end = (query_pos != std::string_view::npos && query_pos > path_pos)
+        auto const path_end = (query_pos != std::string_view::npos)
                                   ? query_pos
                                   : uri.size();
         result.path_ = std::string(uri.substr(path_pos, path_end - path_pos));

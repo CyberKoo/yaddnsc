@@ -43,7 +43,7 @@ public:
     }
 
 private:
-    DNS::Error error_; ///< Categorised DNS error code
+    DNS::Error error_{DNS::Error::UNKNOWN}; ///< Categorised DNS error code
 };
 
 
