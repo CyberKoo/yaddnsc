@@ -1,10 +1,9 @@
 //
-// Unit tests for dns/proto/mkquery.h / mkquery.cpp — DNS query packet construction.
+// Unit tests for dns/wire/query.h — DNS query packet construction.
 //
 // Tests:
 //   - mkquery_native constructs a valid RFC 1035 query packet.
-//   - mkquery_mdns constructs a valid RFC 6762 mDNS query packet.
-//   - Packet field verification at known byte offsets.
+//   - mkquery dispatch returns a non-empty packet.
 // =============================================================================
 
 #include <vector>
@@ -54,31 +53,6 @@ namespace {
         EXPECT_EQ(packet[11], 0x00);
     }
 
-    /// Verify the DNS header for an mDNS query (txid=0, flags=0x0000).
-    void expect_mdns_query_header(const std::vector<std::uint8_t> &packet) {
-        ASSERT_GE(packet.size(), 12U);
-
-        // TXID = 0 (RFC 6762 §18.1)
-        EXPECT_EQ(packet[0], 0x00);
-        EXPECT_EQ(packet[1], 0x00);
-
-        // Flags = 0x0000 (standard query, no RD — RFC 6762 §18.1)
-        EXPECT_EQ(packet[2], 0x00);
-        EXPECT_EQ(packet[3], 0x00);
-
-        // QDCOUNT = 1
-        EXPECT_EQ(packet[4], 0x00);
-        EXPECT_EQ(packet[5], 0x01);
-
-        // ANCOUNT = NSCOUNT = ARCOUNT = 0
-        EXPECT_EQ(packet[6], 0x00);
-        EXPECT_EQ(packet[7], 0x00);
-        EXPECT_EQ(packet[8], 0x00);
-        EXPECT_EQ(packet[9], 0x00);
-        EXPECT_EQ(packet[10], 0x00);
-        EXPECT_EQ(packet[11], 0x00);
-    }
-
     /// Verify that the QNAME at offset 12 encodes "example.com" correctly.
     void expect_qname_example_com(const std::vector<std::uint8_t> &packet, size_t offset = 12) {
         // \x07example\x03com\x00
@@ -96,19 +70,6 @@ namespace {
         EXPECT_EQ(packet[offset + 10], 'o');
         EXPECT_EQ(packet[offset + 11], 'm');
         EXPECT_EQ(packet[offset + 12], 0);  // root label
-    }
-
-    /// Verify that a single-label QNAME encodes "local" correctly.
-    void expect_qname_local(const std::vector<std::uint8_t> &packet, size_t offset = 12) {
-        // \x05local\x00
-        ASSERT_GE(packet.size(), offset + 7);
-        EXPECT_EQ(packet[offset + 0], 5);
-        EXPECT_EQ(packet[offset + 1], 'l');
-        EXPECT_EQ(packet[offset + 2], 'o');
-        EXPECT_EQ(packet[offset + 3], 'c');
-        EXPECT_EQ(packet[offset + 4], 'a');
-        EXPECT_EQ(packet[offset + 5], 'l');
-        EXPECT_EQ(packet[offset + 6], 0);
     }
 
     /// Compute QNAME length from the encoded form (sum of label lengths + labels + root).
@@ -130,7 +91,7 @@ namespace {
 // ===========================================================================
 
 TEST(MkqueryManualTest, BuildsExampleCom_A) {
-    auto packet = DNS::mkquery_native("example.com", ns_t_a);
+    auto packet = DNS::mkquery_native("example.com", DNS::RecordType::A);
 
     expect_standard_query_header(packet, true);
     expect_qname_example_com(packet, 12);
@@ -148,7 +109,7 @@ TEST(MkqueryManualTest, BuildsExampleCom_A) {
 }
 
 TEST(MkqueryManualTest, BuildsGoogleCom_AAAA) {
-    auto packet = DNS::mkquery_native("google.com", ns_t_aaaa);
+    auto packet = DNS::mkquery_native("google.com", DNS::RecordType::AAAA);
 
     expect_standard_query_header(packet, true);
 
@@ -177,13 +138,13 @@ TEST(MkqueryManualTest, BuildsGoogleCom_AAAA) {
 }
 
 TEST(MkqueryManualTest, TotalPacketSize) {
-    auto packet = DNS::mkquery_native("example.com", ns_t_a);
+    auto packet = DNS::mkquery_native("example.com", DNS::RecordType::A);
     // header(12) + QNAME(\x07example\x03com\x00 = 13) + QTYPE(2) + QCLASS(2) = 29
     EXPECT_EQ(packet.size(), 29U);
 }
 
 TEST(MkqueryManualTest, BuildsDeepSubdomain) {
-    auto packet = DNS::mkquery_native("a.b.c.example.com", ns_t_a);
+    auto packet = DNS::mkquery_native("a.b.c.example.com", DNS::RecordType::A);
 
     expect_standard_query_header(packet, true);
 
@@ -220,94 +181,12 @@ TEST(MkqueryManualTest, BuildsDeepSubdomain) {
 }
 
 // ===========================================================================
-// mkquery_mdns — mDNS query (RFC 6762)
-// ===========================================================================
-
-TEST(MkqueryMdnsTest, BasicQuery) {
-    auto packet = DNS::mkquery_mdns("my-printer.local", ns_t_a);
-
-    expect_mdns_query_header(packet);
-
-    // QNAME: \x0Amy-printer\x05local\x00 = 10 + 5 + 1 = 16 bytes
-    ASSERT_GE(packet.size(), 12 + 16 + 4);
-    EXPECT_EQ(packet[12], 10);
-    EXPECT_EQ(packet[13], 'm');
-    EXPECT_EQ(packet[14], 'y');
-    EXPECT_EQ(packet[15], '-');
-    EXPECT_EQ(packet[16], 'p');
-    EXPECT_EQ(packet[17], 'r');
-    EXPECT_EQ(packet[18], 'i');
-    EXPECT_EQ(packet[19], 'n');
-    EXPECT_EQ(packet[20], 't');
-    EXPECT_EQ(packet[21], 'e');
-    EXPECT_EQ(packet[22], 'r');
-    EXPECT_EQ(packet[23], 5);
-    EXPECT_EQ(packet[24], 'l');
-    EXPECT_EQ(packet[25], 'o');
-    EXPECT_EQ(packet[26], 'c');
-    EXPECT_EQ(packet[27], 'a');
-    EXPECT_EQ(packet[28], 'l');
-    EXPECT_EQ(packet[29], 0);
-
-    // QTYPE = A (0x0001)
-    EXPECT_EQ(packet[30], 0x00);
-    EXPECT_EQ(packet[31], 0x01);
-
-    // QCLASS = IN | QU = 0x8001 (unicast-response bit set)
-    EXPECT_EQ(packet[32], 0x80);
-    EXPECT_EQ(packet[33], 0x01);
-}
-
-TEST(MkqueryMdnsTest, UnicastResponseFalse) {
-    // When unicast_rsp=false, the QU bit should NOT be set.
-    // Use "local" (single label) so expect_qname_local can verify it.
-    auto packet = DNS::mkquery_mdns("local", ns_t_aaaa, false);
-
-    expect_mdns_query_header(packet);
-    expect_qname_local(packet, 12);
-
-    size_t qname_len = encoded_qname_length(packet, 12);
-    size_t qclass_offset = 12 + qname_len + 2;  // QTYPE is after QNAME
-
-    // QCLASS = IN only (0x0001), no QU bit
-    EXPECT_EQ(packet[qclass_offset], 0x00);
-    EXPECT_EQ(packet[qclass_offset + 1], 0x01);
-}
-
-TEST(MkqueryMdnsTest, UnicastResponseTrue) {
-    // When unicast_rsp=true, the QU bit should be set.
-    // Use "local" (single label) so expect_qname_local can verify it.
-    auto packet = DNS::mkquery_mdns("local", ns_t_aaaa, true);
-
-    expect_mdns_query_header(packet);
-    expect_qname_local(packet, 12);
-
-    size_t qname_len = encoded_qname_length(packet, 12);
-    size_t qclass_offset = 12 + qname_len + 2;
-
-    // QCLASS = IN | QU = 0x8001
-    EXPECT_EQ(packet[qclass_offset], 0x80);
-    EXPECT_EQ(packet[qclass_offset + 1], 0x01);
-}
-
-TEST(MkqueryMdnsTest, AaaaRecordType) {
-    auto packet = DNS::mkquery_mdns("host.local", ns_t_aaaa);
-
-    size_t qname_len = encoded_qname_length(packet, 12);
-    size_t qtype_offset = 12 + qname_len;
-
-    // QTYPE = AAAA (28) → 0x001C
-    EXPECT_EQ(packet[qtype_offset], 0x00);
-    EXPECT_EQ(packet[qtype_offset + 1], 0x1C);
-}
-
-// ===========================================================================
 // mkquery — compile-time dispatch wrapper
 // ===========================================================================
 
 TEST(MkqueryTest, DispatchReturnsNonEmpty) {
     // mkquery() dispatches to mkquery_native or mkquery_system based on
     // YADDNSC_USE_NATIVE_DNS. Both should return a non-empty packet.
-    auto packet = DNS::mkquery("example.com", ns_t_a);
+    auto packet = DNS::mkquery("example.com", DNS::RecordType::A);
     EXPECT_GT(packet.size(), 12U);
 }

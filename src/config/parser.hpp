@@ -20,11 +20,11 @@ struct glz::meta<Config::DriverConfig> {
     );
 };
 
-/// glz::meta specialisation for DNS::Server JSON mapping.
+/// glz::meta specialisation for DnsServer JSON mapping.
 /// Supports both "address" and "ipaddress" keys for backward compatibility.
 template<>
-struct glz::meta<DNS::Server> {
-    using T = DNS::Server;
+struct glz::meta<DnsServer> {
+    using T = DnsServer;
     static constexpr auto value = object(
         "address", &T::address,
         "ipaddress", &T::address,
@@ -111,15 +111,14 @@ struct glz::meta<Config::IpSource> {
     );
 };
 
-/// glz::meta specialisation for DNS::Type enum JSON mapping.
+/// glz::meta specialisation for RecordKind enum JSON mapping.
 template<>
-struct glz::meta<DNS::Type> {
-    using enum DNS::Type;
+struct glz::meta<RecordKind> {
+    using enum RecordKind;
     static constexpr auto value = enumerate(
         "a", A,
         "aaaa", AAAA,
-        "txt", TXT,
-        "soa", SOA
+        "txt", TXT
     );
 };
 

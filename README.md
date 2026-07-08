@@ -135,7 +135,7 @@ Integration tests for the core orchestration components (Manager, Scheduler, Upd
 |-------------------------------|-----------------------------------------------|-------------------------------------------------------------------|
 | `CMAKE_BUILD_TYPE`            | Release                                       | Set to `Debug` for debug builds                                   |
 | `YADDNSC_MIN_UPDATE_INTERVAL` | 60                                            | Minimum allowed update interval in seconds                         |
-| `YADDNSC_USE_NATIVE_DNS`      | OFF                                           | [Experimental] Use built-in DNS query and parser (no libresolv). Will become default once stabilized. Long-term goal: eliminate libresolv entirely. |
+| `YADDNSC_USE_NATIVE_DNS`      | OFF                                           | [Experimental] Use built-in DNS query and parser (no libresolv). Will default to ON once stable, and eventually the system libresolv path will be removed for better portability.
 | `YADDNSC_DEFAULT_DNS_SERVER`  | 1.1.1.1                                       | Default DNS server address when none is configured                 |
 | `YADDNSC_DEFAULT_DNS_PORT`    | 53                                            | Default DNS server port when none is configured                    |
 | `YADDNSC_USE_SYSTEM_SPDLOG`   | OFF                                           | Use system spdlog instead of the bundled CPM-downloaded version    |
@@ -376,9 +376,9 @@ Uses standard DNS over UDP (or TCP for large responses) on a given IP and port. 
 - `YADDNSC_USE_NATIVE_DNS=OFF` (default) — uses system libresolv for transport (`res_nquery`)
 - `YADDNSC_USE_NATIVE_DNS=ON` — uses a built-in raw UDP/TCP implementation (no libresolv — **experimental**)
 
-> **Experimental status:** The native resolver/parser (`ON`) is still being hardened. It will become the default once stabilized. The long-term goal is to eliminate the libresolv dependency entirely.
+> **Experimental status:** The native resolver/parser (`ON`) is still being hardened. It will become the default once stabilized, and eventually the system libresolv path will be removed. The goal is better portability across platforms and full control over the transport layer.
 
-DNS packet parsing is fully self-contained in both modes — no dependency on libresolv's `ns_initparse`/`ns_parserr`.
+When `YADDNSC_USE_NATIVE_DNS=ON`, DNS packet parsing is fully self-contained (no libresolv). In the default `OFF` mode, both the resolver and parser depend on libresolv (`res_nquery` / `ns_initparse`).
 
 ```json
 {

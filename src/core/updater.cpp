@@ -23,6 +23,10 @@ namespace {
             std::erase_if(candidates, [](const InetAddress &a) { return a.is_ula(); });
         }
     }
+
+    std::unique_ptr<IpSourceBase> default_ip_source_factory(const Config::SubdomainConfig &cfg) {
+        return IpSourceFactory::create(cfg);
+    }
 } // anonymous namespace
 
 // ===========================================================================
@@ -30,17 +34,19 @@ namespace {
 // ===========================================================================
 
 struct Updater::Impl {
-    explicit Impl(const ResolverDispatcher &resolver_dispatcher);
+    using IpSourceFactoryFunc = std::function<std::unique_ptr<IpSourceBase>(const Config::SubdomainConfig &)>;
+
+    explicit Impl(const ResolverDispatcher &resolver_dispatcher, IpSourceFactoryFunc factory);
 
     /// Execute a single update task: resolve local IP, compare with DNS
     /// record, and invoke the driver if the IP has changed.
     void process(const UpdateTask &task, const Driver &driver, HttpClient &http_client) const;
 
     /// Perform a DNS lookup for the given host and record type.
-    [[nodiscard]] std::vector<std::string> dns_lookup(const std::string &host, DNS::Type type) const;
+    [[nodiscard]] std::vector<std::string> dns_lookup(const std::string &host, RecordKind type) const;
 
     /// Resolve the local IP address from the configured IP source.
-    [[nodiscard]] static std::optional<InetAddress> resolve_local_address(const Config::SubdomainConfig &config);
+    [[nodiscard]] std::optional<InetAddress> resolve_local_address(const Config::SubdomainConfig &config) const;
 
     /// Build the driver configuration string from the update task.
     [[nodiscard]] static DriverConfig build_driver_parameters(const UpdateTask &task);
@@ -51,9 +57,13 @@ struct Updater::Impl {
 
     /// Non-owning reference to the resolver dispatcher (owned by Manager::Impl).
     const ResolverDispatcher &dispatcher_;
+
+    /// IP source factory (injectable for testing).
+    IpSourceFactoryFunc ip_factory_;
 };
 
-Updater::Impl::Impl(const ResolverDispatcher &resolver_dispatcher) : dispatcher_(resolver_dispatcher) {
+Updater::Impl::Impl(const ResolverDispatcher &resolver_dispatcher, IpSourceFactoryFunc factory)
+    : dispatcher_(resolver_dispatcher), ip_factory_(std::move(factory)) {
 }
 
 void Updater::Impl::process(const UpdateTask &task, const Driver &driver, HttpClient &http_client) const {
@@ -101,13 +111,13 @@ void Updater::Impl::process(const UpdateTask &task, const Driver &driver, HttpCl
 }
 
 std::vector<std::string>
-Updater::Impl::dns_lookup(const std::string &host, DNS::Type type) const {
+Updater::Impl::dns_lookup(const std::string &host, RecordKind type) const {
     return dispatcher_.resolve(host, type);
 }
 
-std::optional<InetAddress> Updater::Impl::resolve_local_address(const Config::SubdomainConfig &config) {
+std::optional<InetAddress> Updater::Impl::resolve_local_address(const Config::SubdomainConfig &config) const {
     try {
-        auto ip_source = IpSourceFactory::create(config);
+        auto ip_source = ip_factory_(config);
         auto candidates = ip_source->resolve();
 
         if (candidates.empty()) {
@@ -115,7 +125,7 @@ std::optional<InetAddress> Updater::Impl::resolve_local_address(const Config::Su
         }
 
         // Only AAAA records need link-local / ULA filtering.
-        if (config.type == DNS::Type::AAAA) {
+        if (config.type == RecordKind::AAAA) {
             filter_ipv6_candidates(candidates, config);
 
             if (candidates.empty()) {
@@ -149,7 +159,12 @@ Updater::Impl::build_update_context(const UpdateTask &task, const InetAddress &i
 //  Updater public API — thin delegation to Impl
 // ===========================================================================
 
-Updater::Updater(const ResolverDispatcher &resolver_pool) : impl_(std::make_unique<Impl>(resolver_pool)) {
+Updater::Updater(const ResolverDispatcher &resolver_pool)
+    : Updater(resolver_pool, default_ip_source_factory) {
+}
+
+Updater::Updater(const ResolverDispatcher &resolver_pool, IpSourceFactory ip_factory)
+    : impl_(std::make_unique<Impl>(resolver_pool, std::move(ip_factory))) {
 }
 
 Updater::~Updater() = default;

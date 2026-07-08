@@ -34,6 +34,7 @@ struct HttpClientOptions {
     std::optional<std::chrono::seconds> read_timeout{};
     std::optional<std::chrono::seconds> write_timeout{};
     std::optional<bool> follow_location{};
+    std::optional<bool> keep_alive{};
     std::optional<std::multimap<std::string, std::string> > default_headers{};
 };
 

@@ -206,9 +206,14 @@ public:
     void close() noexcept;
 
     /// Wait for socket readiness via poll().
+    /// When @p cancel_fd >= 0, also monitors that fd for cancellation.
+    /// If the cancel fd becomes readable, throws SocketException(ECANCELED).
+    /// @param events     Events to poll for (POLLIN, POLLOUT, etc.).
+    /// @param timeout_ms Timeout in milliseconds.
+    /// @param cancel_fd  Optional fd to monitor for cancellation signal.
     /// @return  1 on ready, 0 on timeout (timeout_ms = 0 returns immediately).
-    /// @throws  SocketException on error.
-    [[nodiscard]] int wait_for(short events, int timeout_ms) const;
+    /// @throws  SocketException on error or cancellation.
+    [[nodiscard]] int wait_for(short events, int timeout_ms, int cancel_fd = -1) const;
 
     // ---- Accessors ---------------------------------------------------------
 

@@ -3,9 +3,6 @@
 //
 #include "doh.h"
 
-#include <resolv.h>
-#include <arpa/nameser.h>
-
 #include <spdlog/spdlog.h>
 
 #include "fmt.hpp"
@@ -16,6 +13,7 @@
 #include "dns/validator.h"
 #include "network/http_client.h"
 #include "exception/dns_lookup.h"
+#include "dns/resolver_registry.h"
 
 namespace {
     constexpr auto DOH_CONTENT_TYPE = "application/dns-message";
@@ -33,7 +31,8 @@ struct DohResolver::Impl {
     explicit Impl(std::unique_ptr<HttpClient> http_client, std::string server, std::uint64_t id);
 
     // ── Member functions ──
-    [[nodiscard]] std::vector<std::uint8_t> query(const std::string &host, DNS::Type type) const;
+    [[nodiscard]] std::expected<std::vector<std::uint8_t>, DnsLookupException>
+    query(const std::string &host, RecordKind type, int cancel_fd = -1) const;
 
     // ── Data members ──
     const std::uint64_t id_;
@@ -45,18 +44,21 @@ DohResolver::Impl::Impl(std::unique_ptr<HttpClient> http_client, std::string ser
     server_(std::move(server)), http_client_(std::move(http_client)) {
 }
 
-std::vector<std::uint8_t> DohResolver::Impl::query(const std::string &host, DNS::Type type) const {
-    const auto ns_type_val = DNS::Util::to_ns_type(type);
-    if (ns_type_val == ns_t_invalid) {
-        throw DnsLookupException(
-            fmt::format(R"(Unsupported DNS::Type for DoH query: "{}")", host),
-            DNS::Error::UNKNOWN
-        );
-    }
+std::expected<std::vector<std::uint8_t>, DnsLookupException> DohResolver::Impl::query(const std::string &host, RecordKind type,
+                                                                                            [[maybe_unused]] int cancel_fd) const {
+    try {
+        // NOT IMPLEMENTED: DoH does not support cancellation via pipe fd.
+    // The underlying HttpClient (httplib::Client) does not expose
+    // its socket for poll() multiplexing.  To add support, the
+    // HttpClient interface and/or exchange() method would need a
+    // cancel_fd parameter that gets poll()-ed alongside the HTTP
+    // socket during the request lifecycle.
+    // See: dot.cpp (same limitation), classic_native.cpp (reference impl).
+    const auto record_type = DNS::Util::type_to_record_type(type);
 
-    SPDLOG_DEBUG(R"(Resolver #{} lookup for domain "{}" (type {}))", id_, host, ns_type_val);
+    SPDLOG_DEBUG(R"(Resolver #{} lookup for domain "{}" (type {}))", id_, host, static_cast<std::uint16_t>(record_type));
 
-    const auto query_bytes = DNS::mkquery(host, ns_type_val);
+    const auto query_bytes = DNS::mkquery(host, record_type);
 
     HttpRequest req{
         .content_type = DOH_CONTENT_TYPE,
@@ -74,7 +76,7 @@ std::vector<std::uint8_t> DohResolver::Impl::query(const std::string &host, DNS:
     if (!response) {
         throw DnsLookupException(
             fmt::format(R"(DoH query to "{}" failed: {})", server_, response.error()),
-            DNS::Error::CONNECTION
+            DnsError::CONNECTION
         );
     }
 
@@ -82,7 +84,9 @@ std::vector<std::uint8_t> DohResolver::Impl::query(const std::string &host, DNS:
         // HTTP errors don't carry DNS semantics — do NOT map 4xx to NODATA.
         // 4xx: our request was rejected (permanent, no point retrying).
         // 5xx: server-side transient failure (retry may succeed).
-        const auto ec = response->status_code >= 500 ? DNS::Error::RETRY : DNS::Error::UNKNOWN;
+        const auto ec = response->status_code >= 500
+                            ? DnsError::RETRY
+                            : DnsError::SERVER_REFUSED;
         throw DnsLookupException(
             fmt::format(R"(DoH server "{}" returned HTTP status {})", server_, response->status_code),
             ec);
@@ -98,7 +102,7 @@ std::vector<std::uint8_t> DohResolver::Impl::query(const std::string &host, DNS:
         if (!valid_ct) {
             throw DnsLookupException(
                 fmt::format(R"(DoH server "{}" returned unexpected Content-Type)", server_),
-                DNS::Error::PARSE);
+                DnsError::PARSE);
         }
     }
 
@@ -106,7 +110,7 @@ std::vector<std::uint8_t> DohResolver::Impl::query(const std::string &host, DNS:
     if (response->body.size() > MAX_DNS_RESPONSE_SIZE) {
         throw DnsLookupException(
             fmt::format(R"(DoH server "{}" returned oversized response: {} bytes)", server_, response->body.size()),
-            DNS::Error::PARSE);
+            DnsError::PARSE);
     }
 
     // Response body is DNS wire-format binary stored in std::string (see above).
@@ -117,7 +121,10 @@ std::vector<std::uint8_t> DohResolver::Impl::query(const std::string &host, DNS:
 
     SPDLOG_DEBUG(R"(Resolver #{} query for "{}" succeeded ({} bytes))", id_, host, response->body.size());
 
-    return {body_data, body_data + response->body.size()};
+    return std::vector<std::uint8_t>(body_data, body_data + response->body.size());
+    } catch (const DnsLookupException &e) {
+        return std::unexpected(e);
+    }
 }
 
 // ===========================================================================
@@ -130,6 +137,27 @@ DohResolver::DohResolver(std::unique_ptr<HttpClient> http_client, std::string se
 
 DohResolver::~DohResolver() = default;
 
-std::vector<std::uint8_t> DohResolver::query(const std::string &host, DNS::Type type) const {
-    return impl_->query(host, type);
+std::expected<std::vector<std::uint8_t>, DnsLookupException> DohResolver::query(const std::string &host, RecordKind type,
+                                                                                   int cancel_fd) const noexcept {
+    return impl_->query(host, type, cancel_fd);
+}
+
+// ===========================================================================
+//  Self-registration
+// ===========================================================================
+
+namespace {
+[[maybe_unused]] DnsResolverRegistry::Registrar _doh(
+    "https",
+    [](const DnsServer &server) -> std::shared_ptr<ResolverBase> {
+        auto uri = Uri::parse(server.address);
+        auto opts = HttpClientOptions{
+            .connection_timeout = std::chrono::seconds(1),
+            .read_timeout = std::chrono::seconds(5),
+            .follow_location = false
+        };
+        auto http_client = std::make_unique<PersistentHttpClient>(uri, opts);
+        return std::make_shared<DohResolver>(std::move(http_client), server.address);
+    }
+);
 }

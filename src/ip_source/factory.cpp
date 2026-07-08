@@ -12,15 +12,30 @@
 #include "iface.h"
 #include "mdns.h"
 #include "fmt.hpp"
-#include "dns/util.hpp"
+#include "address_family.h"
+#include "dns_type.h"
 #include "config/config.h"
+
+namespace {
+
+/// Convert RecordKind to the corresponding address family.
+/// Used to select the appropriate IP source (IPv4-only / IPv6-only).
+constexpr AddressFamily type_to_family(RecordKind type) noexcept {
+    switch (type) {
+        case RecordKind::A:    return AddressFamily::IPV4;
+        case RecordKind::AAAA: return AddressFamily::IPV6;
+        default:              return AddressFamily::UNSPECIFIED;
+    }
+}
+
+} // anonymous namespace
 
 // ===========================================================================
 // IpSourceFactory::create — build the correct IP source from subdomain config.
 // ===========================================================================
 
 std::unique_ptr<IpSourceBase> IpSourceFactory::create(const Config::SubdomainConfig &cfg) {
-    auto address_family = DNS::Util::type_to_family(cfg.type);
+    auto address_family = type_to_family(cfg.type);
 
     switch (cfg.ip_source) {
         case Config::IpSource::INTERFACE:

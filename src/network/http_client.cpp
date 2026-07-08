@@ -109,6 +109,11 @@ namespace {
         // --- Redirects -------------------------------------------------------
         client.set_follow_location(opts.follow_location.value_or(true));
 
+        // --- Keep-Alive ------------------------------------------------------
+        if (opts.keep_alive.has_value()) {
+            client.set_keep_alive(*opts.keep_alive);
+        }
+
         // --- Headers ---------------------------------------------------------
         httplib::Headers default_headers;
         default_headers.emplace("User-Agent", yaddnsc::get_full_version());
@@ -203,6 +208,10 @@ PersistentHttpClient::PersistentHttpClient(const Uri &uri, const HttpClientOptio
     : uri_(uri),
       client_(std::make_unique<httplib::Client>(build_base_url(uri))) {
     apply_options(*client_, uri, opts);
+
+    // Keep-alive is ON by default for persistent connections (reused client).
+    // Set to false to explicitly disable.
+    client_->set_keep_alive(opts.keep_alive.value_or(true));
 }
 
 PersistentHttpClient::~PersistentHttpClient() = default;

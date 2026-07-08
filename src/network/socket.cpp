@@ -95,7 +95,7 @@ namespace {
         void disarm() noexcept { fd_ = -1; }
 
         ~FcntlGuard() {
-            (void) restore(); // best-effort on exception unwind
+            [[maybe_unused]] auto _ = restore(); // best-effort on exception unwind
         }
 
     private:
@@ -142,7 +142,7 @@ Socket::Socket(int domain, int type, int protocol)
     // Best-effort suppression of SIGPIPE on platforms without MSG_NOSIGNAL.
     // SO_NOSIGPIPE is supported on macOS / FreeBSD / other BSDs.
     int yes = 1;
-    (void) ::setsockopt(fd_, SOL_SOCKET, SO_NOSIGPIPE, &yes, sizeof(yes));
+    ::setsockopt(fd_, SOL_SOCKET, SO_NOSIGPIPE, &yes, sizeof(yes));
 #endif
 }
 
@@ -501,7 +501,7 @@ void Socket::shutdown(int how) noexcept {
     if (fd_ < 0) {
         return; // already closed — no-op.
     }
-    (void) ::shutdown(fd_, how); // silently ignore — socket may already be shut down.
+    ::shutdown(fd_, how); // silently ignore — socket may already be shut down.
 }
 
 void Socket::close() noexcept {
@@ -513,21 +513,35 @@ void Socket::close() noexcept {
     // Per POSIX, the state of the fd after close() returns EINTR is
     // unspecified.  Retrying close() risks closing a different fd that
     // another thread may have opened in the meantime.  Call exactly once.
-    (void) ::close(fd);
+    [[maybe_unused]] auto _ = ::close(fd);
 }
 
-int Socket::wait_for(short events, int timeout_ms) const {
-    pollfd pfd{};
-    pfd.fd = fd_;
-    pfd.events = events;
+int Socket::wait_for(short events, int timeout_ms, int cancel_fd) const {
+    pollfd pfds[2];
+    pfds[0] = {fd_, events, 0};
+
+    auto nfds = static_cast<nfds_t>(1);
+    if (cancel_fd >= 0) {
+        pfds[1] = {cancel_fd, POLLIN, 0};
+        nfds = static_cast<nfds_t>(2);
+    }
 
     int rc;
     do {
-        rc = ::poll(&pfd, 1, timeout_ms);
+        rc = ::poll(pfds, nfds, timeout_ms);
     } while (rc < 0 && errno == EINTR);
 
     if (rc < 0) {
         throw SocketException(errno, "wait_for");
     }
-    return rc;
+
+    // Check cancellation before normal readiness.
+    if (nfds > 1 && (pfds[1].revents & POLLIN)) {
+        // Drain the cancellation fd (pipe or eventfd) before throwing.
+        std::uint64_t val = 0;
+        [[maybe_unused]] auto _ = ::read(cancel_fd, &val, sizeof(val));
+        throw SocketException(ECANCELED, "cancelled");
+    }
+
+    return (pfds[0].revents & events) ? 1 : 0;
 }

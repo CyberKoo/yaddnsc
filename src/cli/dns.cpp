@@ -40,9 +40,9 @@ namespace Cli {
             auto *resolve = dns->add_subcommand("resolve", "Resolve a hostname");
             resolve->alias("r");
             resolve->add_option("hostname", opts->dns_host, "Hostname to resolve (e.g. example.com)")->required();
-            resolve->add_option("--type", opts->dns_type, "Record type (A, AAAA, TXT, SOA)")
+            resolve->add_option("--type", opts->dns_type, "Record type (A, AAAA, TXT)")
                     ->default_str("A")
-                    ->check(CLI::IsMember(std::vector<std::string>{"A", "AAAA", "TXT", "SOA"}));
+                    ->check(CLI::IsMember(std::vector<std::string>{"A", "AAAA", "TXT"}));
             resolve->callback([&exit_code, opts] {
                 exit_code = execute_dns_resolve(opts->config_path, opts->dns_host, opts->dns_type);
             });
@@ -56,10 +56,10 @@ namespace Cli {
     // ── Executors ─────────────────────────────────────────────────────────
 
     int execute_dns_resolve(const std::string &config_path, const std::string &host, const std::string &type_str) {
-        auto type = magic_enum::enum_cast<DNS::Type>(type_str, magic_enum::case_insensitive);
+        auto type = magic_enum::enum_cast<RecordKind>(type_str, magic_enum::case_insensitive);
         if (!type.has_value()) {
             std::print(std::cerr, "Error: unknown record type '{}'.\nValid types: ", type_str);
-            const auto names = magic_enum::enum_names<DNS::Type>();
+            const auto names = magic_enum::enum_names<RecordKind>();
             for (auto it = names.begin(); it != names.end(); ++it) {
                 if (it != names.begin()) { std::print(std::cerr, ", "); }
                 std::print(std::cerr, "{}", *it);

@@ -84,7 +84,7 @@ namespace detail {
                 );
             }
 
-            if (subdomain.type != DNS::Type::A && subdomain.type != DNS::Type::AAAA) {
+            if (subdomain.type != RecordKind::A && subdomain.type != RecordKind::AAAA) {
                 throw ConfigVerificationException(
                     fmt::format("Subdomain {} uses mDNS IP source but type must be 'a' or 'aaaa'", fqdn)
                 );

@@ -41,14 +41,14 @@ namespace Config {
         bool use_custom_server{false};               ///< Use custom DNS servers instead of system defaults
         std::string address;                         ///< Single custom resolver address (backward-compatible)
         unsigned short port{53};                     ///< Port for the single address (default: 53)
-        std::vector<DNS::Server> servers;            ///< List of custom resolver servers
+        std::vector<DnsServer> servers;            ///< List of custom resolver servers
         ResolverStrategy strategy{ResolverStrategy::CONCURRENT}; ///< Resolution strategy
     };
 
     /// Per-subdomain configuration from the config file.
     struct SubdomainConfig {
         std::string name;                    ///< Subdomain label (e.g. "www", "@" for apex)
-        DNS::Type type{};                    ///< DNS record type to update
+        RecordKind type{};                    ///< DNS record type to update
         std::string interface;               ///< Network interface name (for INTERFACE IP source)
         AddressFamily ip_type{AddressFamily::UNSPECIFIED}; ///< Preferred address family
         IpSource ip_source{};                ///< IP source backend

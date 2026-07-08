@@ -16,6 +16,9 @@ namespace DNS {
 // DNS wire-format type constants (RFC 1035, RFC 6891)
 // =============================================================================
 
+/// Size of the DNS header in wire format (RFC 1035 §4.1.1).
+constexpr size_t HEADER_SIZE = 12;
+
 /// DNS record types.
 enum class RecordType : std::uint16_t {
     A     = 1,
@@ -58,14 +61,14 @@ enum class Rcode : std::uint8_t {
 // =============================================================================
 
 /// A single DNS question section entry.
-struct DnsQuestion {
+struct Question {
     std::string qname;
     std::uint16_t qtype;
     std::uint16_t qclass;
 };
 
 /// A single DNS resource record (answer, authority, or additional).
-struct DnsResourceRecord {
+struct ResourceRecord {
     std::string name;
     std::uint16_t type;
     std::uint16_t qclass;
@@ -102,7 +105,6 @@ struct ParsedMessage {
     bool tc;
     bool rd;
     bool ra;
-    std::uint8_t rcode;  // Combined RCODE (header + EDNS0 extended)
 
     std::uint16_t qdcount;
     std::uint16_t ancount;
@@ -110,13 +112,32 @@ struct ParsedMessage {
     std::uint16_t arcount;
 
     // ── Sections ──
-    std::vector<DnsQuestion> questions;
-    std::vector<DnsResourceRecord> answers;
-    std::vector<DnsResourceRecord> authorities;
-    std::vector<DnsResourceRecord> additionals;
+    std::vector<Question> questions;
+    std::vector<ResourceRecord> answers;
+    std::vector<ResourceRecord> authorities;
+    std::vector<ResourceRecord> additionals;
 
     // ── EDNS0 ──
     std::optional<EdnsInfo> edns;
+
+    Rcode rcode{Rcode::NOERROR};
+};
+
+/// Structured result from RecordParser::parse_response, preserving RCODE
+/// and the original ResourceRecord answers.
+///
+/// Dispatcher uses rcode for semantic decisions; callers that need the
+/// full wire-format RDATA (TTL, type, raw bytes) use this directly.
+struct ParsedResponse {
+    Rcode rcode{Rcode::NOERROR};
+    std::vector<ResourceRecord> answers;
+};
+
+/// Convenience result from RecordParser::parse_strings, with
+/// pre-formatted string values (IPs, hostnames, text, etc.).
+struct FormattedResponse {
+    Rcode rcode{Rcode::NOERROR};
+    std::vector<std::string> records;
 };
 
 }  // namespace DNS

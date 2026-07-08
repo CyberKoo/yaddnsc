@@ -131,6 +131,8 @@ All formatting is enforced by **clang-format** (`BasedOnStyle: Chromium`). Namin
 | Pure data struct member variables (POD, no invariants) | `snake_case` (no trailing underscore) |
 
 - Always add `[[nodiscard]]` where ignoring the return value is a bug.
+- Use `[[maybe_unused]]` (C++17 attribute) instead of C-style `(void)` casts for deliberately discarding a return value. This applies to both local variables and function parameters.
+- Do not suppress the return value of functions that are not `[[nodiscard]]` — the compiler will not warn, so the suppression is noise.
 - Use trailing return type syntax only when necessary (e.g., dependent return types in templates).
 
 ## Classes & Structs
@@ -288,6 +290,7 @@ Every code review must verify the following:
 - [ ] Existing project infrastructure components are reused where applicable; no duplicate implementations of logging, error handling, configuration, threading, or string utilities.
 - [ ] New third-party dependencies do not duplicate functionality already provided by existing dependencies.
 - [ ] Unit tests cover new/modified functionality and pass.
+- [ ] No C-style `(void)` casts are used; use `[[maybe_unused]]` instead. Do not suppress return values of non-`[[nodiscard]]` functions.
 - [ ] Relevant README.md files are updated and accurate.
 - [ ] All language versions of README*.md are updated and in sync.
 

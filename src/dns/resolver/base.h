@@ -6,6 +6,7 @@
 #define YADDNSC_DNS_BASE_H
 
 #include <atomic>
+#include <expected>
 #include <string>
 #include <vector>
 #include <cstdint>
@@ -13,6 +14,7 @@
 
 #include "mixin.h"
 #include "dns_type.h"
+#include "exception/dns_lookup.h"
 
 /// ResolverBase — common interface for all DNS resolvers.
 ///
@@ -22,14 +24,6 @@
 /// counter) for unambiguous log references.
 class ResolverBase {
 public:
-    /// Tag type for anonymous/temporary resolvers.
-    ///
-    /// Resolvers constructed with this tag get id_ = 0 instead of consuming an
-    /// increment from the global counter. Used for the fallback system resolver
-    /// in ClassicResolver's default constructor (a single-use query helper).
-    struct AnonymousIdTag {
-    };
-
     virtual ~ResolverBase() = default;
 
     ResolverBase(ResolverBase &&) noexcept = default;
@@ -37,10 +31,24 @@ public:
     ResolverBase &operator=(ResolverBase &&) noexcept = default;
 
     /// Perform a DNS query and return the raw response packet.
-    /// @param host  Hostname to look up.
-    /// @param type  Record type (A, AAAA, etc.).
-    /// @return      Raw DNS response packet bytes (wire format).
-    [[nodiscard]] virtual std::vector<std::uint8_t> query(const std::string &host, DNS::Type type) const = 0;
+    ///
+    /// @param host      Hostname to look up.
+    /// @param type      Record type (A, AAAA, etc.).
+    /// @param cancel_fd Optional fd to monitor for cancellation.
+    ///                  Pass -1 (default) for no cancellation support.
+    ///
+    /// @attention cancel_fd is currently NOT supported by DohResolver or
+    ///            DotResolver.  Only ClassicResolver correctly monitors
+    ///            the fd and aborts on cancellation.  See the individual
+    ///            resolver documentation for details.
+    ///
+    /// @return  Raw DNS response packet bytes on success, or a DnsLookupException
+    ///          describing the failure (transport error, NXDOMAIN, timeout, etc.).
+    ///          Callers must check the error code via error().get_error() to
+    ///          distinguish transient errors (RETRY, CONNECTION) from permanent
+    ///          ones (NX_DOMAIN, NODATA).
+    [[nodiscard]] virtual std::expected<std::vector<std::uint8_t>, DnsLookupException>
+    query(const std::string &host, RecordKind type, int cancel_fd = -1) const noexcept = 0;
 
     /// Return a human-readable resolver type name (e.g. "Classic", "DNS-Over-HTTPS").
     [[nodiscard]] virtual std::string_view get_type() const noexcept = 0;
@@ -51,10 +59,6 @@ public:
 protected:
     /// Construct with a new auto-incremented ID.
     ResolverBase() : id_(next_id_.fetch_add(1, std::memory_order_relaxed)) {
-    }
-
-    /// Construct an anonymous resolver with id_ = 0.
-    explicit ResolverBase(AnonymousIdTag) : id_(0) {
     }
 
 private:

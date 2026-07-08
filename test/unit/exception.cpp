@@ -90,31 +90,31 @@ TEST(ExceptionTest, ConfigVerificationException_IsYaddnscException) {
 TEST(ExceptionTest, DnsLookupException_DefaultConstructor) {
     DnsLookupException exc("dns error");
     EXPECT_EQ(exc.get_name(), "DnsLookupException");
-    EXPECT_EQ(exc.get_error(), DNS::Error::UNKNOWN);
+    EXPECT_EQ(exc.get_error(), DnsError::UNKNOWN);
 }
 
 TEST(ExceptionTest, DnsLookupException_WithErrorCode) {
-    DnsLookupException exc("nxdomain", DNS::Error::NX_DOMAIN);
-    EXPECT_EQ(exc.get_error(), DNS::Error::NX_DOMAIN);
+    DnsLookupException exc("nxdomain", DnsError::NX_DOMAIN);
+    EXPECT_EQ(exc.get_error(), DnsError::NX_DOMAIN);
     EXPECT_EQ(std::string_view(exc.what()), "nxdomain");
 }
 
 TEST(ExceptionTest, DnsLookupException_WithErrorCode_Retry) {
-    DnsLookupException exc("timeout", DNS::Error::RETRY);
-    EXPECT_EQ(exc.get_error(), DNS::Error::RETRY);
+    DnsLookupException exc("timeout", DnsError::RETRY);
+    EXPECT_EQ(exc.get_error(), DnsError::RETRY);
 }
 
 TEST(ExceptionTest, DnsLookupException_WrapYaddnscException) {
     BadDriverException inner("inner");
-    DnsLookupException wrapped(std::move(inner), DNS::Error::CONNECTION);
-    EXPECT_EQ(wrapped.get_error(), DNS::Error::CONNECTION);
+    DnsLookupException wrapped(std::move(inner), DnsError::CONNECTION);
+    EXPECT_EQ(wrapped.get_error(), DnsError::CONNECTION);
     EXPECT_EQ(std::string_view(wrapped.what()), "inner");
 }
 
 TEST(ExceptionTest, DnsLookupException_WrapConstYaddnscException) {
     const BadDriverException inner("inner");
-    DnsLookupException wrapped(inner, DNS::Error::CONFIG);
-    EXPECT_EQ(wrapped.get_error(), DNS::Error::CONFIG);
+    DnsLookupException wrapped(inner, DnsError::CONFIG);
+    EXPECT_EQ(wrapped.get_error(), DnsError::CONFIG);
 }
 
 // ── SocketException ──────────────────────────────────────────────────────────

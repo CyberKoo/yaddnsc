@@ -5,12 +5,15 @@
 #ifndef YADDNSC_DNS_PARSER_SYSTEM_H
 #define YADDNSC_DNS_PARSER_SYSTEM_H
 
+#include <cstdint>
+#include <span>
 #include <string>
 #include <vector>
-#include <cstdint>
 #include <string_view>
 
 #include <arpa/nameser.h>
+
+#include "dns/types.h"
 
 namespace DNS {
 
@@ -20,17 +23,13 @@ namespace DNS {
 /// a resolver query.  Supports A, AAAA, TXT, MX, CNAME, and other
 /// common record types.
 ///
-/// @note Uses libresolv (ns_initparse / ns_parserr) internally.
-///       For a self-contained alternative without libresolv,
-///       see DnsParser (<dns/parser/parser_native.h>).
-class DnsParser {
+/// @note Stable default (libresolv).  See parser_native for the experimental
+///       self-contained alternative (no libresolv).
+class RecordParser {
 public:
-    using data_type = std::uint8_t;
-
     /// Construct a parser from a raw DNS response buffer.
-    /// @param data  Pointer to the raw packet bytes.
-    /// @param size  Total size of the packet in bytes.
-    explicit DnsParser(const data_type *data, size_t size);
+    /// @param data  Span covering the raw packet bytes.
+    explicit RecordParser(std::span<const std::uint8_t> data);
 
     /// Return the number of answer records in the parsed response.
     [[nodiscard]] size_t record_count() const noexcept;
@@ -40,27 +39,42 @@ public:
     /// @return       The record value as a string (IP, hostname, text, etc.).
     [[nodiscard]] std::string parse_record(size_t index) const;
 
-    /// Convenience: parse all answer records and return as a vector.
+    /// Parse a raw DNS response and return the full ParsedResponse with
+    /// original ResourceRecord answers (raw RDATA, TTL, type).
     ///
-    /// This is the preferred entry point for most callers.
-    ///
-    /// @param data  Pointer to the raw packet bytes.
-    /// @param size  Total size of the packet in bytes.
+    /// @param data  Span covering the raw packet bytes.
     /// @param host  Optional hostname for sanity checking (CNAME chain detection).
-    /// @return      List of parsed record values.
-    [[nodiscard]] static std::vector<std::string>
-    parse_all(const data_type *data, size_t size, const std::string &host = {});
+    /// @return      Structured result with RCODE and raw answer records.
+    [[nodiscard]] static ParsedResponse
+    parse_response(std::span<const std::uint8_t> data, const std::string &host = {});
+
+    /// Convenience: parse all answer records and return pre-formatted
+    /// string values (IPs, hostnames, text, etc.).
+    ///
+    /// @param data  Span covering the raw packet bytes.
+    /// @param host  Optional hostname for sanity checking (CNAME chain detection).
+    /// @return      Structured result with RCODE and pre-formatted record values.
+    [[nodiscard]] static FormattedResponse
+    parse_strings(std::span<const std::uint8_t> data, const std::string &host = {});
+
+    /// Return the RCODE from the parsed DNS header.
+    [[nodiscard]] std::uint8_t rcode() const noexcept {
+        return rcode_;
+    }
 
 private:
-    static std::string parse_a_record(const data_type *);
+    static std::string parse_a_record(std::span<const std::uint8_t> rdata);
 
-    static std::string parse_aaaa_record(const data_type *);
+    static std::string parse_aaaa_record(std::span<const std::uint8_t> rdata);
 
-    static std::string parse_txt_record(const data_type *, int);
+    static std::string parse_txt_record(std::span<const std::uint8_t> rdata);
 
-    static std::string parse_domain_name_record(const data_type *, const data_type *, const data_type *);
+    static std::string parse_domain_name_record(std::span<const std::uint8_t> msg, const std::uint8_t *rdata);
 
-    static std::string parse_mx_record(const data_type *, const data_type *, const data_type *);
+    static std::string parse_mx_record(std::span<const std::uint8_t> msg, const std::uint8_t *rdata);
+
+    /// RCODE extracted from the raw DNS header.
+    std::uint8_t rcode_{0};
 
     mutable ns_msg message_{};
 };

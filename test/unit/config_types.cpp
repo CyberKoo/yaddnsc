@@ -118,7 +118,7 @@ TEST(ConfigResolverConfigTest, AggregateInit) {
 TEST(ConfigSubdomainConfigTest, DefaultValues) {
     Config::SubdomainConfig cfg{};
     EXPECT_TRUE(cfg.name.empty());
-    EXPECT_EQ(cfg.type, DNS::Type::A);
+    EXPECT_EQ(cfg.type, RecordKind::A);
     EXPECT_TRUE(cfg.interface.empty());
     EXPECT_EQ(cfg.ip_type, AddressFamily::UNSPECIFIED);
     EXPECT_EQ(cfg.ip_source, Config::IpSource::INTERFACE);
@@ -131,7 +131,7 @@ TEST(ConfigSubdomainConfigTest, DefaultValues) {
 TEST(ConfigSubdomainConfigTest, AggregateInit) {
     Config::SubdomainConfig cfg{
         .name = "www",
-        .type = DNS::Type::AAAA,
+        .type = RecordKind::AAAA,
         .interface = "eth0",
         .ip_type = AddressFamily::IPV6,
         .ip_source = Config::IpSource::MDNS,
@@ -141,7 +141,7 @@ TEST(ConfigSubdomainConfigTest, AggregateInit) {
         .update_interval = 60,
     };
     EXPECT_EQ(cfg.name, "www");
-    EXPECT_EQ(cfg.type, DNS::Type::AAAA);
+    EXPECT_EQ(cfg.type, RecordKind::AAAA);
     EXPECT_EQ(cfg.interface, "eth0");
     EXPECT_EQ(cfg.ip_type, AddressFamily::IPV6);
     EXPECT_EQ(cfg.ip_source, Config::IpSource::MDNS);
@@ -167,7 +167,7 @@ TEST(ConfigDomainConfigTest, DefaultValues) {
 TEST(ConfigDomainConfigTest, AggregateInit) {
     Config::SubdomainConfig sub{
         .name = "@",
-        .type = DNS::Type::A,
+        .type = RecordKind::A,
     };
 
     Config::DomainConfig cfg{

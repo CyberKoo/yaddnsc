@@ -228,10 +228,12 @@ add_executable(yaddnsc
         src/dns/error.cpp
         src/dns/validator.cpp
         src/dns/wire/query.cpp
+        src/dns/wire/builder.cpp
         src/dns/resolver/doh.cpp
         src/dns/resolver/dot.cpp
         src/dns/dispatcher.cpp
         src/dns/factory.cpp
+        src/dns/resolver_registry.cpp
         # ip_source
         src/ip_source/iface_util.cpp
         src/ip_source/iface.cpp
@@ -313,6 +315,11 @@ target_link_options(yaddnsc PRIVATE
 # LTO is incompatible with musl (auto-detected in FeatureCheck)
 if (NOT LIBC_MUSL)
   set_target_properties(yaddnsc PROPERTIES INTERPROCEDURAL_OPTIMIZATION TRUE)
+  # Suppress LTO ODR false positive between DNS::Rcode (dns/types.h)
+  # and __ns_rtype (<arpa/nameser.h>) — the two enums share enumerator
+  # names (NOERROR, SERVFAIL, NXDOMAIN …) with identical values, causing
+  # GCC LTO to incorrectly flag them as an ODR violation.
+  target_link_options(yaddnsc PRIVATE -Wno-odr)
 endif ()
 
 # --export-dynamic puts exported symbols into .dynsym so dlsym / dlopen can find them.

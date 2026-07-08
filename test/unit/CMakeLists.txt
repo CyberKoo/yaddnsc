@@ -93,9 +93,13 @@ add_unit_test(socket_addr ${PROJECT_SOURCE_DIR}/src/network/socket_addr.cpp)
 
 find_library(RESOLV resolv)
 
-# mkquery_test — tests mkquery_manual and mkquery_mdns (pure logic in mkquery.cpp)
-# mkquery.cpp also defines mkquery_system() which calls res_mkquery → needs libresolv
-add_unit_test(mkquery ${PROJECT_SOURCE_DIR}/src/dns/wire/query.cpp)
+# builder_test — tests QueryBuilder (pure logic in builder.cpp, no libresolv)
+add_unit_test(builder ${PROJECT_SOURCE_DIR}/src/dns/wire/builder.cpp)
+
+# mkquery_test — tests mkquery_native (uses QueryBuilder) and mkquery_system (uses libresolv)
+# query.cpp depends on builder.cpp for QueryBuilder
+add_unit_test(mkquery ${PROJECT_SOURCE_DIR}/src/dns/wire/query.cpp
+    ${PROJECT_SOURCE_DIR}/src/dns/wire/builder.cpp)
 if (RESOLV)
   target_link_libraries(test_mkquery PRIVATE ${RESOLV})
 endif ()

@@ -22,6 +22,7 @@
 #include "fmt.hpp"
 #include "dns/util.hpp"
 #include "dns/parser/parser.h"
+#include "dns/wire/builder.h"
 #include "dns/wire/query.h"
 #include "network/inet_address.h"
 #include "network/net_devices.h"
@@ -247,7 +248,7 @@ namespace {
 
     /// Shared helper: poll, receive, parse DNS response.
     /// Throws std::runtime_error on any failure.
-    std::vector<InetAddress> recv_and_parse(Socket &sock, DNS::Type type, const std::string &hostname) {
+    std::vector<InetAddress> recv_and_parse(Socket &sock, RecordKind type, const std::string &hostname) {
         int ready = sock.wait_for(POLLIN, MDNS_TIMEOUT_MS);
         if (ready <= 0) {
             throw std::runtime_error(
@@ -269,15 +270,15 @@ namespace {
 
         SPDLOG_TRACE(R"(mDNS received {} bytes for "{}")", recv_len, hostname);
 
-        auto raw_records = DNS::DnsParser::parse_all(recv_buf.data(), static_cast<size_t>(recv_len), hostname);
-        if (raw_records.empty()) {
+        auto parsed = DNS::RecordParser::parse_strings(std::span{recv_buf.data(), static_cast<size_t>(recv_len)}, hostname);
+        if (parsed.records.empty()) {
             throw std::runtime_error(fmt::format(R"(mDNS no records in response for "{}")", hostname));
         }
 
         std::vector<InetAddress> results;
-        results.reserve(raw_records.size());
-        for (const auto &rec: raw_records) {
-            if (type == DNS::Type::A) {
+        results.reserve(parsed.records.size());
+        for (const auto &rec: parsed.records) {
+            if (type == RecordKind::A) {
                 if (auto v4 = Inet4Address::parse(rec)) {
                     SPDLOG_DEBUG(R"(mDNS resolved "{}" → {})", hostname, rec);
                     results.emplace_back(*v4);
@@ -306,7 +307,7 @@ namespace {
     // ===========================================================================
 
     template<IpVersionTag Tag>
-    std::vector<InetAddress> resolve_mdns(const std::string &hostname, DNS::Type type, const std::string &interface) {
+    std::vector<InetAddress> resolve_mdns(const std::string &hostname, RecordKind type, const std::string &interface) {
         constexpr int af = std::is_same_v<Tag, Ipv6Tag> ? AF_INET6 : AF_INET;
         const auto &dest_addr = std::is_same_v<Tag, Ipv6Tag> ? MDNS_IPV6_DEST : MDNS_IPV4_DEST;
 
@@ -314,7 +315,16 @@ namespace {
         SPDLOG_DEBUG(R"(mDNS resolving "{}" (type {}) on interface "{}")", hostname, std::is_same_v<Tag,
                      Ipv6Tag> ? "AAAA" : "A", iface_label);
 
-        const auto query_pkt = DNS::mkquery_mdns(hostname, DNS::Util::to_ns_type(type), true);
+        // Build mDNS query directly via QueryBuilder.
+        // mDNS specifics (RFC 6762): TXID=0, RD=0, QCLASS carries QU bit (0x8000).
+        constexpr std::uint16_t QU_BIT = 0x8000;
+        const auto query_pkt = DNS::QueryBuilder{}
+            .id(0)
+            .rd(false)
+            .add_question_raw_qclass(hostname,
+                DNS::Util::type_to_record_type(type),
+                static_cast<std::uint16_t>(DNS::RecordClass::IN) | QU_BIT)
+            .build();
         Socket sock(af, SOCK_DGRAM);
 
         // ── Socket options ──────────────────────────────────────────────────
@@ -347,11 +357,20 @@ namespace {
             } else {
                 SPDLOG_WARN(R"(mDNS interface "{}" not found for "{}")", interface, hostname);
             }
+#elif defined(__FreeBSD__)
+            // FreeBSD does not have SO_BINDTODEVICE or IP_BOUND_IF.
+            // IP_MULTICAST_IF/IPV6_MULTICAST_IF (set in setup_multicast_output_opts)
+            // and the multicast group join are sufficient for mDNS.
+            SPDLOG_DEBUG(R"(mDNS interface "{}" will be used via multicast options for "{}")", interface,
+                         hostname);
 #else
             // Platform does not support per-interface binding (no SO_BINDTODEVICE,
             // no IP_BOUND_IF). The interface constraint is silently ignored.
-            SPDLOG_WARN(R"(mDNS interface binding not supported on this platform, ignoring interface "{}" for "{}")",
-                        interface, hostname);
+            static bool warned = false;  // NOLINT(cert-err58-cpp)
+            if (!warned) {
+                SPDLOG_WARN(R"(mDNS interface binding not supported on this platform, interface setting will be ignored)");
+                warned = true;
+            }
 #endif
         }
 
@@ -380,12 +399,12 @@ namespace {
 //  MdnsIpSource — public API
 // ===========================================================================
 
-MdnsIpSource::MdnsIpSource(std::string hostname, DNS::Type type, std::string interface)
+MdnsIpSource::MdnsIpSource(std::string hostname, RecordKind type, std::string interface)
     : hostname_(std::move(hostname)), type_(type), interface_(std::move(interface)) {
 }
 
 std::vector<InetAddress> MdnsIpSource::resolve() const {
-    if (type_ == DNS::Type::AAAA) {
+    if (type_ == RecordKind::AAAA) {
         return resolve_mdns<Ipv6Tag>(hostname_, type_, interface_);
     }
 

@@ -1,11 +1,11 @@
 //
 // Created by Kotarou on 2026/7/7.
 //
-// Unit tests for dns_type.h — DNS::Type enum and DNS::Server struct.
+// Unit tests for dns_type.h — RecordKind enum and DnsServer struct.
 //
 // Verifies:
-//   - All DNS::Type enumerator values exist.
-//   - DNS::Server aggregate initialisation and defaults.
+//   - All RecordKind enumerator values exist.
+//   - DnsServer aggregate initialisation and defaults.
 // =============================================================================
 
 #include <type_traits>
@@ -14,48 +14,43 @@
 
 #include "dns_type.h"
 
-// ── DNS::Type ────────────────────────────────────────────────────────────────
+// ── RecordKind ─────────────────────────────────────────────────────
 
-TEST(DnsTypeTest, EnumeratorValues_Defined) {
-    EXPECT_EQ(static_cast<int>(DNS::Type::A), 0);
-    EXPECT_EQ(static_cast<int>(DNS::Type::AAAA), 1);
-    EXPECT_EQ(static_cast<int>(DNS::Type::TXT), 2);
-    EXPECT_EQ(static_cast<int>(DNS::Type::SOA), 3);
+TEST(RecordKindTest, EnumeratorValues_Defined) {
+    EXPECT_EQ(static_cast<int>(RecordKind::A), 0);
+    EXPECT_EQ(static_cast<int>(RecordKind::AAAA), 1);
+    EXPECT_EQ(static_cast<int>(RecordKind::TXT), 2);
 }
 
-TEST(DnsTypeTest, IsEnumClass) {
-    EXPECT_TRUE((std::is_enum_v<DNS::Type>));
-    EXPECT_FALSE((std::is_convertible_v<DNS::Type, int>));
+TEST(RecordKindTest, IsEnumClass) {
+    EXPECT_TRUE((std::is_enum_v<RecordKind>));
+    EXPECT_FALSE((std::is_convertible_v<RecordKind, int>));
 }
 
-TEST(DnsTypeTest, DefaultValue_IsA) {
-    DNS::Type t{};
-    EXPECT_EQ(t, DNS::Type::A);
+TEST(RecordKindTest, DefaultValue_IsA) {
+    RecordKind t{};
+    EXPECT_EQ(t, RecordKind::A);
 }
 
-// ── DNS::Server ──────────────────────────────────────────────────────────────
+// ── DnsServer ──────────────────────────────────────────────────────
 
 TEST(DnsServerTest, DefaultPort_Is53) {
-    DNS::Server srv;
+    DnsServer srv;
     EXPECT_EQ(srv.port, 53);
     EXPECT_TRUE(srv.address.empty());
 }
 
 TEST(DnsServerTest, AggregateInit) {
-    DNS::Server srv{.address = "1.1.1.1", .port = 853};
+    DnsServer srv{.address = "1.1.1.1", .port = 853};
     EXPECT_EQ(srv.address, "1.1.1.1");
     EXPECT_EQ(srv.port, 853);
 }
 
 TEST(DnsServerTest, PartialAggregateInit) {
-    DNS::Server srv{.address = "8.8.8.8"};  // port defaults to 53
+    DnsServer srv{.address = "8.8.8.8"};  // port defaults to 53
     EXPECT_EQ(srv.address, "8.8.8.8");
     EXPECT_EQ(srv.port, 53);
 }
 
-// DNS::Server contains std::string, so it is NOT trivially copyable.
+// DnsServer contains std::string, so it is NOT trivially copyable.
 // This is expected and correct — std::string manages heap-allocated memory.
-
-TEST(DnsServerTest, AddressFamily_A) {
-    EXPECT_EQ(static_cast<int>(DNS::Type::A), 0);
-}

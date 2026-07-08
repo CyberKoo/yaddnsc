@@ -5,14 +5,20 @@
 #ifndef YADDNSC_CORE_UPDATER_H
 #define YADDNSC_CORE_UPDATER_H
 
+#include <functional>
 #include <memory>
 
 #include "mixin.h"
 
 class Driver;
 class HttpClient;
+class IpSourceBase;
 struct UpdateTask;
 class ResolverDispatcher;
+
+namespace Config {
+    struct SubdomainConfig;
+}
 
 /// Updater — executor that processes a single UpdateTask.
 ///
@@ -24,9 +30,17 @@ class ResolverDispatcher;
 ///       and may be called concurrently from multiple pool threads.
 class Updater {
 public:
+    /// Factory type for creating IP source instances.
+    using IpSourceFactory = std::function<std::unique_ptr<IpSourceBase>(const Config::SubdomainConfig &)>;
+
     /// Construct with a reference to the resolver dispatcher.
     /// @param resolver_pool  Resolver used to look up current DNS records.
     explicit Updater(const ResolverDispatcher &resolver_pool);
+
+    /// Construct with injected IP source factory (for testing).
+    /// @param resolver_pool  Resolver used to look up current DNS records.
+    /// @param ip_factory     Factory that creates IpSourceBase instances on demand.
+    Updater(const ResolverDispatcher &resolver_pool, IpSourceFactory ip_factory);
 
     ~Updater();
 

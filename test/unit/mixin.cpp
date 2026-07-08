@@ -38,14 +38,12 @@ TEST(NoCopyTest, MoveAssignment_Allowed) {
 }
 
 TEST(NoCopyTest, CanDefaultConstruct) {
-    NoCopy nc;
-    (void)nc;
+    [[maybe_unused]] NoCopy nc;
 }
 
 TEST(NoCopyTest, CanMoveConstruct) {
     NoCopy nc1;
-    NoCopy nc2(std::move(nc1));
-    (void)nc2;
+    [[maybe_unused]] NoCopy nc2(std::move(nc1));
 }
 
 TEST(NoCopyTest, CanMoveAssign) {
@@ -75,14 +73,12 @@ TEST(NoMoveTest, CopyAssignment_Allowed) {
 }
 
 TEST(NoMoveTest, CanDefaultConstruct) {
-    NoMove nm;
-    (void)nm;
+    [[maybe_unused]] NoMove nm;
 }
 
 TEST(NoMoveTest, CanCopyConstruct) {
     NoMove nm1;
-    NoMove nm2(nm1);
-    (void)nm2;
+    [[maybe_unused]] NoMove nm2(nm1);
 }
 
 TEST(NoMoveTest, CanCopyAssign) {
@@ -106,8 +102,7 @@ TEST(MixinCombinedTest, BothCopyAndMove_Deleted) {
 }
 
 TEST(MixinCombinedTest, Both_CanDefaultConstruct) {
-    BothMixins bm;
-    (void)bm;
+    [[maybe_unused]] BothMixins bm;
 }
 
 // SFINAE-friendly: the tags carry [[no_unique_address]] and add no size overhead.

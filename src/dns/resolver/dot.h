@@ -5,6 +5,7 @@
 #ifndef YADDNSC_DNS_DOT_H
 #define YADDNSC_DNS_DOT_H
 
+#include <expected>
 #include <memory>
 #include <string>
 #include <vector>
@@ -20,6 +21,11 @@
 ///
 /// Input:  Server hostname/IP and port (default 853).
 /// Output: Raw DNS response bytes (wire format), ready for DnsRecordParser.
+///
+/// @attention Currently, when cancel_fd is signalled, the in-flight query is
+///            aborted with a CANCELLED error (via poll() on both the TLS socket
+///            and the cancel fd).  This is a best-effort mechanism — the query
+///            may have already been sent and the server may still process it.
 class DotResolver final : public ResolverBase {
 public:
     /// Construct with server address and optional port.
@@ -29,7 +35,8 @@ public:
 
     ~DotResolver() override;
 
-    [[nodiscard]] std::vector<std::uint8_t> query(const std::string &host, DNS::Type type) const override;
+    [[nodiscard]] std::expected<std::vector<std::uint8_t>, DnsLookupException>
+    query(const std::string &host, RecordKind type, int cancel_fd = -1) const noexcept override;
 
     [[nodiscard]] std::string_view get_type() const noexcept override { return TYPE; }
 

@@ -5,6 +5,7 @@
 #ifndef YADDNSC_DNS_CLASSIC_H
 #define YADDNSC_DNS_CLASSIC_H
 
+#include <expected>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -24,11 +25,12 @@ class ClassicResolver final : public ResolverBase {
 public:
     /// Construct with a DNS server.
     /// @param server  DNS server address and port.
-    explicit ClassicResolver(DNS::Server server);
+    explicit ClassicResolver(DnsServer server);
 
     ~ClassicResolver() override;
 
-    [[nodiscard]] std::vector<std::uint8_t> query(const std::string &host, DNS::Type type) const override;
+    [[nodiscard]] std::expected<std::vector<std::uint8_t>, DnsLookupException>
+    query(const std::string &host, RecordKind type, int cancel_fd = -1) const noexcept override;
 
     [[nodiscard]] std::string_view get_type() const noexcept override { return TYPE; }
 

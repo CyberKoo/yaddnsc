@@ -3,24 +3,32 @@
 //
 #include "dns_error.h"
 
+#include <utility>
+
 // ===========================================================================
-// DNS::error_to_str — convert DNS::Error enum to a human-readable string.
+// error_to_str — convert DnsError enum to a human-readable string.
 // ===========================================================================
 
-std::string_view DNS::error_to_str(Error error) {
+std::string_view error_to_str(DnsError error) {
     switch (error) {
-        case Error::NX_DOMAIN:
+        case DnsError::NX_DOMAIN:
             return "no such domain (NXDOMAIN)";
-        case Error::RETRY:
+        case DnsError::RETRY:
             return "retry (TRY_AGAIN)";
-        case Error::NODATA:
+        case DnsError::NODATA:
             return "no data (NO_DATA)";
-        case Error::PARSE:
+        case DnsError::PARSE:
             return "DNS record parse error (PARSE)";
-        case Error::CONNECTION:
+        case DnsError::CONNECTION:
             return "connection error (CONNECTION)";
-        case Error::CONFIG:
+        case DnsError::CONFIG:
             return "configuration error (CONFIG)";
+        case DnsError::CANCELLED:
+            return "cancelled (CANCELLED)";
+        case DnsError::SERVER_REFUSED:
+            return "server refused query (REFUSED)";
+        case DnsError::UNKNOWN:
+            return "unknown DNS error";
         default:
             return "unknown DNS error";
     }

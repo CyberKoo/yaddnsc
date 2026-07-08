@@ -26,17 +26,17 @@ jobs:
             - name: Checkout
               uses: actions/checkout@v7
             - name: Install dependencies
-              run: sudo apt update; sudo apt install -y libssl-dev zlib1g zlib1g-dev pkg-config
+              run: sudo apt update; sudo apt install -y ninja-build libssl-dev zlib1g zlib1g-dev pkg-config
             - name: Configure
               env:
                   CC: gcc-14
                   CXX: g++-14
-              run: cmake -B build -DCMAKE_BUILD_TYPE=Debug -DYADDNSC_BUILD_TESTS=ON
+              run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DYADDNSC_BUILD_TESTS=ON
             - name: Build
               env:
                   CC: gcc-14
                   CXX: g++-14
-              run: make -s -C build -j$(nproc)
+              run: ninja -C build -j$(nproc)
             - name: Test
               env:
                   CC: gcc-14
@@ -48,17 +48,17 @@ jobs:
             - name: Checkout
               uses: actions/checkout@v7
             - name: Install dependencies
-              run: sudo apt update; sudo apt install -y libssl-dev zlib1g zlib1g-dev pkg-config
+              run: sudo apt update; sudo apt install -y ninja-build libssl-dev zlib1g zlib1g-dev pkg-config
             - name: Configure
               env:
                   CC: gcc-14
                   CXX: g++-14
-              run: cmake -B build -DCMAKE_BUILD_TYPE=Debug -DYADDNSC_BUILD_TESTS=ON
+              run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DYADDNSC_BUILD_TESTS=ON
             - name: Build
               env:
                   CC: gcc-14
                   CXX: g++-14
-              run: make -s -C build -j$(nproc)
+              run: ninja -C build -j$(nproc)
             - name: Test
               env:
                   CC: gcc-14
@@ -71,11 +71,11 @@ jobs:
             - name: Checkout
               uses: actions/checkout@v7
             - name: Install dependencies
-              run: apk add --no-cache build-base git cmake openssl-dev zlib-dev pkgconfig
+              run: apk add --no-cache build-base git cmake samurai openssl-dev zlib-dev pkgconfig
             - name: Configure
-              run: cmake -B build -DCMAKE_BUILD_TYPE=Debug -DYADDNSC_BUILD_TESTS=ON
+              run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DYADDNSC_BUILD_TESTS=ON
             - name: Build
-              run: make -s -C build -j$(nproc)
+              run: ninja -C build -j$(nproc)
             - name: Test
               run: ctest --test-dir build --output-on-failure -j$(nproc)
     macos-arm64:
@@ -84,11 +84,11 @@ jobs:
             - name: Checkout
               uses: actions/checkout@v7
             - name: Install dependencies
-              run: brew update; brew install openssl@3 pkg-config
+              run: brew update; brew install ninja openssl@3 pkg-config
             - name: Configure
-              run: cmake -B build -DOPENSSL_ROOT_DIR=/opt/homebrew/opt/openssl@3/ -DCMAKE_BUILD_TYPE=Debug -DYADDNSC_BUILD_TESTS=ON
+              run: cmake -B build -G Ninja -DOPENSSL_ROOT_DIR=/opt/homebrew/opt/openssl@3/ -DCMAKE_BUILD_TYPE=Debug -DYADDNSC_BUILD_TESTS=ON
             - name: Build
-              run: make -s -C build -j$(nproc)
+              run: ninja -C build -j$(nproc)
             - name: Test
               run: ctest --test-dir build --output-on-failure -j$(nproc)
 
@@ -112,17 +112,17 @@ jobs:
             - name: Install dependencies
               run: |
                   sudo apt update
-                  sudo apt install -y libssl-dev zlib1g zlib1g-dev pkg-config ${{ matrix.config.apt_deps }}
+                  sudo apt install -y ninja-build libssl-dev zlib1g zlib1g-dev pkg-config ${{ matrix.config.apt_deps }}
             - name: Configure
               env:
                   CC: gcc-14
                   CXX: g++-14
-              run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DYADDNSC_BUILD_TESTS=OFF ${{ matrix.config.cmake_flags }}
+              run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DYADDNSC_BUILD_TESTS=OFF ${{ matrix.config.cmake_flags }}
             - name: Build
               env:
                   CC: gcc-14
                   CXX: g++-14
-              run: make -s -C build -j$(nproc)
+              run: ninja -C build -j$(nproc)
 
     linux-amd64-sanitizer:
         runs-on: ubuntu-24.04
@@ -132,17 +132,17 @@ jobs:
             - name: Checkout
               uses: actions/checkout@v7
             - name: Install dependencies
-              run: sudo apt update; sudo apt install -y libssl-dev zlib1g zlib1g-dev pkg-config
+              run: sudo apt update; sudo apt install -y ninja-build libssl-dev zlib1g zlib1g-dev pkg-config
             - name: Configure
               env:
                   CC: gcc-14
                   CXX: g++-14
-              run: cmake -B build -DCMAKE_BUILD_TYPE=Sanitizer -DYADDNSC_BUILD_TESTS=ON
+              run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Sanitizer -DYADDNSC_BUILD_TESTS=ON
             - name: Build
               env:
                   CC: gcc-14
                   CXX: g++-14
-              run: make -s -C build -j$(nproc)
+              run: ninja -C build -j$(nproc)
             - name: Test
               env:
                   CC: gcc-14
@@ -155,13 +155,13 @@ jobs:
             - name: Checkout
               uses: actions/checkout@v7
             - name: Install dependencies
-              run: sudo apt update; sudo apt install -y clang-19 clang-tidy-19 libc++-19-dev libc++abi-19-dev libssl-dev zlib1g zlib1g-dev pkg-config
+              run: sudo apt update; sudo apt install -y ninja-build clang-19 clang-tidy-19 libc++-19-dev libc++abi-19-dev libssl-dev zlib1g zlib1g-dev pkg-config
             - name: Configure
               env:
                   CC: clang-19
                   CXX: clang++-19
               run: >-
-                  cmake -B build -DCMAKE_BUILD_TYPE=Debug -DYADDNSC_BUILD_TESTS=ON
+                  cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DYADDNSC_BUILD_TESTS=ON
                   -DCMAKE_CXX_FLAGS="-stdlib=libc++"
                   -DCMAKE_EXE_LINKER_FLAGS="-stdlib=libc++"
                   -DCMAKE_SHARED_LINKER_FLAGS="-stdlib=libc++"
@@ -170,7 +170,7 @@ jobs:
               env:
                   CC: clang-19
                   CXX: clang++-19
-              run: make -s -C build -j$(nproc)
+              run: ninja -C build -j$(nproc)
             - name: Test
               env:
                   CC: clang-19
@@ -182,13 +182,13 @@ jobs:
         steps:
             - uses: actions/checkout@v7
             - name: Install dependencies
-              run: sudo apt update; sudo apt install -y gcc-14 g++-14 libssl-dev zlib1g zlib1g-dev pkg-config lcov
+              run: sudo apt update; sudo apt install -y ninja-build gcc-14 g++-14 libssl-dev zlib1g zlib1g-dev pkg-config lcov
             - name: Configure
               env:
                   CC: gcc-14
                   CXX: g++-14
               run: >-
-                  cmake -B build -DCMAKE_BUILD_TYPE=Debug -DYADDNSC_SANITIZE_DEBUG=OFF
+                  cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DYADDNSC_SANITIZE_DEBUG=OFF
                   -DYADDNSC_BUILD_TESTS=ON
                   -DCMAKE_CXX_FLAGS="--coverage -O0"
                   -DCMAKE_EXE_LINKER_FLAGS="--coverage"
@@ -196,7 +196,7 @@ jobs:
               env:
                   CC: gcc-14
                   CXX: g++-14
-              run: make -s -C build -j$(nproc)
+              run: ninja -C build -j$(nproc)
             - name: Test
               env:
                   CC: gcc-14

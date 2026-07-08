@@ -10,12 +10,9 @@
 #include <spdlog/spdlog.h>
 
 #include "uri.h"
-#include "config/config.h"
 #include "resolver_config.h"
-#include "dns/resolver/doh.h"
-#include "dns/resolver/dot.h"
-#include "network/http_client.h"
-#include "dns/resolver/classic.h"
+#include "dns/resolver_registry.h"
+#include "dns/resolver/base.h"
 
 // ===========================================================================
 // DnsResolverFactory::create — build a ResolverDispatcher from app config.
@@ -24,7 +21,7 @@
 ResolverDispatcher DnsResolverFactory::create(const Config::AppConfig &config) {
     // Build the list of DNS servers from config, preserving backward
     // compatibility with the legacy single-server format.
-    std::vector<DNS::Server> dns_servers;
+    std::vector<DnsServer> dns_servers;
     if (config.resolver.use_custom_server) {
         if (!config.resolver.servers.empty()) {
             dns_servers = config.resolver.servers;
@@ -40,32 +37,17 @@ ResolverDispatcher DnsResolverFactory::create(const Config::AppConfig &config) {
     }
 
     // Build resolver objects from server configurations.
-    // Each address is parsed as a URI to determine the protocol:
-    //   https://...  → DohResolver (DNS-over-HTTPS, with a default
-    //   PersistentHttpClient) tls://...    → DotResolver (DNS-over-TLS)
-    //   otherwise    → ClassicResolver (traditional UDP/TCP DNS)
+    // Each resolver registers itself via DnsResolverRegistry, keyed by
+    // URI schema (https → DohResolver, tls → DotResolver, "" → ClassicResolver).
     std::vector<std::shared_ptr<ResolverBase> > resolvers;
     for (const auto &server: dns_servers) {
+        auto resolver = DnsResolverRegistry::create(server);
         const auto uri = Uri::parse(server.address);
-        if (uri.get_schema() == "https") {
-            auto opts = HttpClientOptions{
-                .connection_timeout = std::chrono::seconds(1), .read_timeout = std::chrono::seconds(5),
-                .follow_location = false
-            };
-            auto http_client = std::make_unique<PersistentHttpClient>(uri, opts);
-            auto resolver = std::make_shared<DohResolver>(std::move(http_client), server.address);
-            SPDLOG_INFO("DNS resolver #{}: {} ({})", resolver->get_id(), uri.get_origin(), resolver->get_type());
-            resolvers.push_back(std::move(resolver));
-        } else if (uri.get_schema() == "tls") {
-            auto resolver = std::make_shared<DotResolver>(std::string(uri.get_host()), uri.get_port());
-            SPDLOG_INFO("DNS resolver #{}: {} ({})", resolver->get_id(), uri.get_origin(), resolver->get_type());
-            resolvers.push_back(std::move(resolver));
-        } else {
-            auto resolver = std::make_shared<ClassicResolver>(server);
-            SPDLOG_INFO("DNS resolver #{}: {}:{} ({})", resolver->get_id(), uri.get_host_literal(), server.port,
-                        resolver->get_type());
-            resolvers.push_back(std::move(resolver));
-        }
+        SPDLOG_INFO("DNS resolver #{}: {} ({})",
+                    resolver->get_id(),
+                    uri.get_schema().empty() ? uri.get_host_literal() : uri.get_origin(),
+                    resolver->get_type());
+        resolvers.push_back(std::move(resolver));
     }
 
     // Log configured custom resolver count and strategy — once at startup.

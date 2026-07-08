@@ -5,6 +5,7 @@
 #ifndef YADDNSC_DNS_DOH_H
 #define YADDNSC_DNS_DOH_H
 
+#include <expected>
 #include <memory>
 #include <string>
 #include <vector>
@@ -18,6 +19,12 @@ class HttpClient;
 ///
 /// Sends DNS queries as HTTPS POST requests with Content-Type:
 /// application/dns-message and returns the raw DNS wire-format response.
+///
+/// @attention cancel_fd is NOT supported.  The `cancel_fd` parameter of
+///            query() is currently ignored — the underlying HttpClient
+///            does not expose an fd for poll() integration.  Calling
+///            query() with a valid cancel_fd will not abort the request.
+///            DoH queries always run to completion (success or timeout).
 class DohResolver final : public ResolverBase {
 public:
     /// Construct with an HTTP client and a DoH server URL.
@@ -30,7 +37,8 @@ public:
 
     ~DohResolver() override;
 
-    std::vector<std::uint8_t> query(const std::string &host, DNS::Type type) const override;
+    [[nodiscard]] std::expected<std::vector<std::uint8_t>, DnsLookupException>
+    query(const std::string &host, RecordKind type, int cancel_fd = -1) const noexcept override;
 
     [[nodiscard]] std::string_view get_type() const noexcept override { return TYPE; }
 

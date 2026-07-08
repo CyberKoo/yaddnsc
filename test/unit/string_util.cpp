@@ -202,8 +202,7 @@ TEST(StringUtilReplaceTest, ReplaceCopy_ReturnsNewString) {
         std::vector<std::pair<std::string, std::string>>{{"world", "there"}});
     EXPECT_EQ(result, "hello there");
     // Original unchanged
-    std::string_view original = "hello world";
-    (void)original;
+    [[maybe_unused]] std::string_view original = "hello world";
 }
 
 // ===========================================================================

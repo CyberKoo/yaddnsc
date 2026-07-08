@@ -1,6 +1,10 @@
 //
 // Created by Kotarou on 2026/6/17.
 //
+// NOTE: Stable default (libresolv).  See classic_native for the experimental
+// self-contained alternative (no libresolv).
+// May be removed once native resolver is stable.
+//
 #include "classic.h"
 
 #include <netdb.h>
@@ -24,6 +28,7 @@
 #include "config_cmake.h"
 #include "network/inet_address.h"
 #include "exception/dns_lookup.h"
+#include "dns/resolver_registry.h"
 
 // only for musl
 #ifndef NETDB_INTERNAL
@@ -64,7 +69,7 @@ namespace {
             return res_nquery(&state, name, ns_c_in, type, buf, len);
         }
 
-        void set_nameserver(const DNS::Server &server) {
+        void set_nameserver(const DnsServer &server) {
             if (Inet4Address::parse(server.address)) {
                 state.nscount = 1;
                 state.nsaddr_list[0].sin_family = AF_INET;
@@ -87,7 +92,7 @@ namespace {
 #endif
         }
 
-        void set_ipv6_nameserver(const DNS::Server &server) {
+        void set_ipv6_nameserver(const DnsServer &server) {
             // zero out settings from resolv.conf
             for (int i = 0; i < state.nscount; ++i) {
                 state.nsaddr_list[i] = {};
@@ -140,30 +145,31 @@ namespace {
             return res_query(name, ns_c_in, type, buf, len);
         }
 
-        void set_nameserver([[maybe_unused]] const DNS::Server &server) {
+        void set_nameserver([[maybe_unused]] const DnsServer &server) {
             // Custom DNS server not supported without res_ninit
         }
 #endif
     };
 
     // NOLINTNEXTLINE(readability-convert-member-functions-to-static) — free function in anonymous namespace, false positive
-    DNS::Error get_dns_lookup_err(int error) {
+    DnsError get_dns_lookup_err(int error) {
         switch (error) {
             case HOST_NOT_FOUND:
-                return DNS::Error::NX_DOMAIN;
+                return DnsError::NX_DOMAIN;
             case NO_DATA:
-                return DNS::Error::NODATA;
+                return DnsError::NODATA;
             case NETDB_SUCCESS:
-                return DNS::Error::UNKNOWN;
+                return DnsError::UNKNOWN;
             case TRY_AGAIN:
-                return DNS::Error::RETRY;
+                return DnsError::RETRY;
             default:
-                return DNS::Error::UNKNOWN;
+                return DnsError::UNKNOWN;
         }
     }
 
     // ── Single query execution against one nameserver ──
-    std::vector<std::uint8_t> do_query(ResolverContext &ctx, const std::string &host_str, int ns_type) {
+    std::vector<std::uint8_t> do_query(ResolverContext &ctx, const std::string &host_str, int ns_type,
+                                       std::uint64_t resolver_id) {
         int buffer_size = MAXIMUM_UDP_SIZE;
         int received_size = 0;
         std::vector<std::uint8_t> buffer;
@@ -176,10 +182,11 @@ namespace {
             received_size = ctx.query(host_str.c_str(), ns_type, buffer.data(), buffer_size);
             if (received_size < 0) {
                 auto error_type = get_dns_lookup_err(h_errno);
-                SPDLOG_DEBUG(R"(DNS query failed for "{}": {})", host_str, DNS::error_to_str(error_type));
-                throw DnsLookupException(
-                    fmt::format(R"(DNS lookup failed for domain "{}", error: {})", host_str,
-                                DNS::error_to_str(error_type)), error_type
+                SPDLOG_DEBUG(R"(Resolver #{} DNS query failed for "{}": {})", resolver_id, host_str,
+                             error_to_str(error_type));
+                                             throw DnsLookupException(
+                                                 fmt::format(R"(DNS lookup failed for domain "{}", error: {})", host_str,
+                                                             error_to_str(error_type)), error_type
                 );
             }
             SPDLOG_TRACE(R"(DNS query received: {} bytes (buffer size: {}))", received_size, buffer_size);
@@ -196,43 +203,65 @@ namespace {
 // ===========================================================================
 
 struct ClassicResolver::Impl {
-    explicit Impl(DNS::Server server, std::uint64_t id);
+    explicit Impl(DnsServer server, std::uint64_t id);
 
     ~Impl() = default;
 
-    [[nodiscard]] std::vector<std::uint8_t> query(const std::string &host_str, DNS::Type type) const;
+    [[nodiscard]] std::expected<std::vector<std::uint8_t>, DnsLookupException>
+    query(const std::string &host_str, RecordKind type, int cancel_fd = -1) const;
 
     std::uint64_t id_;
-    DNS::Server server_;
+    DnsServer server_;
     Uri uri_;
 };
 
-ClassicResolver::Impl::Impl(DNS::Server server, std::uint64_t id)
+ClassicResolver::Impl::Impl(DnsServer server, std::uint64_t id)
     : id_(id), server_(std::move(server)), uri_(Uri::parse(server_.address)) {
 }
 
-std::vector<std::uint8_t> ClassicResolver::Impl::query(const std::string &host_str, DNS::Type type) const {
-    SPDLOG_TRACE(R"(Resolver #{} DNS lookup for "{}")", id_, host_str);
+std::expected<std::vector<std::uint8_t>, DnsLookupException> ClassicResolver::Impl::query(const std::string &host_str, RecordKind type,
+                                                                                              [[maybe_unused]] int cancel_fd) const {
+    try {
+        SPDLOG_TRACE(R"(Resolver #{} DNS lookup for "{}")", id_, host_str);
 
-    const auto ns_type_val = DNS::Util::to_ns_type(type);
+        // Convert to int for res_nquery (RecordType shares numeric values with ns_t_* per RFC 1035).
+        const auto record_type = DNS::Util::type_to_record_type(type);
+        const int ns_type_val = static_cast<int>(record_type);
 
-    SPDLOG_DEBUG(R"(Resolver #{} Resolving "{}" (type {}) via {}:{})", id_, host_str, ns_type_val,
-                 uri_.get_host_literal(), server_.port);
-    ResolverContext ctx;
-    ctx.set_nameserver(server_);
-    return do_query(ctx, host_str, ns_type_val);
+        SPDLOG_DEBUG(R"(Resolver #{} Resolving "{}" (type {}) via {}:{})", id_, host_str, ns_type_val,
+                     uri_.get_host_literal(), server_.port);
+        ResolverContext ctx;
+        ctx.set_nameserver(server_);
+        return do_query(ctx, host_str, ns_type_val, id_);
+    } catch (const DnsLookupException &e) {
+        return std::unexpected(e);
+    }
 }
 
 // ===========================================================================
 //  ClassicResolver  —  public API
 // ===========================================================================
 
-ClassicResolver::ClassicResolver(DNS::Server server)
+ClassicResolver::ClassicResolver(DnsServer server)
     : impl_(std::make_unique<Impl>(std::move(server), get_id())) {
 }
 
 ClassicResolver::~ClassicResolver() = default;
 
-std::vector<std::uint8_t> ClassicResolver::query(const std::string &host, DNS::Type type) const {
-    return impl_->query(host, type);
+std::expected<std::vector<std::uint8_t>, DnsLookupException> ClassicResolver::query(const std::string &host, RecordKind type,
+                                                                                       int cancel_fd) const noexcept {
+    return impl_->query(host, type, cancel_fd);
+}
+
+// ===========================================================================
+//  Self-registration
+// ===========================================================================
+
+namespace {
+[[maybe_unused]] DnsResolverRegistry::Registrar _classic(
+    "",
+    [](const DnsServer &server) -> std::shared_ptr<ResolverBase> {
+        return std::make_shared<ClassicResolver>(server);
+    }
+);
 }

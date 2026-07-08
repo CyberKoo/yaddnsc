@@ -5,6 +5,7 @@
 #ifndef YADDNSC_DNS_DISPATCHER_H
 #define YADDNSC_DNS_DISPATCHER_H
 
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
@@ -44,7 +45,7 @@ public:
     /// @param backoff_ms   Base backoff interval in milliseconds.
     /// @return             List of resolved IP address strings.
     [[nodiscard]] std::vector<std::string>
-    resolve(const std::string &host, DNS::Type type, int max_retries = 5, int backoff_ms = 1000) const;
+    resolve(const std::string &host, RecordKind type, std::uint32_t max_retries = 5, std::uint32_t backoff_ms = 1000) const;
 
 private:
     struct Impl;

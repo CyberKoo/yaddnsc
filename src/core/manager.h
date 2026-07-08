@@ -5,11 +5,15 @@
 #ifndef YADDNSC_CORE_MANAGER_H
 #define YADDNSC_CORE_MANAGER_H
 
+#include <functional>
 #include <memory>
 #include <stop_token>
 
 #include "config/config.h"
 #include "mixin.h"
+
+class HttpClient;
+class ResolverDispatcher;
 
 /// Top-level orchestrator for the DDNS client lifecycle.
 ///
@@ -24,6 +28,14 @@ public:
     /// @param config        Parsed application configuration.
     /// @param stop_source   Shared stop source (typically from SignalWatcher).
     explicit Manager(Config::AppConfig config, std::stop_source stop_source);
+
+    /// Construct with injected dependencies (for testing).
+    /// @param config        Parsed application configuration.
+    /// @param stop_source   Shared stop source.
+    /// @param dispatcher    Pre-configured resolver dispatcher (mock or real).
+    /// @param http_factory  Factory that creates HttpClient instances on demand.
+    Manager(Config::AppConfig config, std::stop_source stop_source,
+            ResolverDispatcher dispatcher, std::function<std::unique_ptr<HttpClient>()> http_factory);
 
     ~Manager();
 

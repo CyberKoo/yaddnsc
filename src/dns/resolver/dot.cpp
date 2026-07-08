@@ -2,9 +2,7 @@
 // Created by Kotarou on 2026/6/29.
 //
 
-#include "dns/resolver/dot.h"
-
-#include <arpa/nameser.h>
+#include "dot.h"
 
 #include <span>
 #include <mutex>
@@ -17,7 +15,6 @@
 #include <poll.h>
 
 #include <sys/socket.h>
-#include <sys/time.h>
 
 #include <openssl/bio.h>
 #include <openssl/err.h>
@@ -27,12 +24,15 @@
 #include "fmt.hpp"
 #include "dns_error.h"
 #include "dns/util.hpp"
+#include "util/bytes.hpp"
 #include "dns/validator.h"
 #include "util/cert_util.hpp"
 #include "util/validation.hpp"
 #include "dns/wire/query.h"
 #include "network/inet_address.h"
 #include "exception/dns_lookup.h"
+#include "uri.h"
+#include "dns/resolver_registry.h"
 
 namespace {
     using namespace std::chrono_literals;
@@ -50,13 +50,75 @@ namespace {
     using SslCtxPtr = std::unique_ptr<SSL_CTX, SSLContextDeleter>;
     using BioPtr = std::unique_ptr<BIO, BIODeleter>;
 
-    // ── Helpers ──
+    // ── I/O timeout for poll() on the established TLS connection. ──
+    constexpr int IO_TIMEOUT_MS = 5000;
 
-    /// I/O timeout for send/recv on the established TLS connection.
-    /// Prevents indefinite blocking when the server hangs mid-query.
-    constexpr timeval IO_TIMEOUT_TV{5, 0}; // 5 seconds
+    // ── poll() helper for BIO I/O ──
 
-    // ── Error handling ──
+    enum class PollEvent { READ, WRITE };
+
+    /// Wait for a BIO's underlying socket to become ready.
+    /// Returns false on timeout.  Throws DnsLookupException on cancellation.
+    [[nodiscard]] bool poll_bio(BIO *bio, PollEvent event, int timeout_ms, int cancel_fd) {
+        const int fd = static_cast<int>(BIO_get_fd(bio, nullptr));
+        if (fd < 0) return false;
+
+        pollfd fds[2] = {};
+        fds[0].fd = fd;
+        fds[0].events = static_cast<int16_t>(event == PollEvent::READ ? POLLIN : POLLOUT);
+
+        int nfds = 1;
+        if (cancel_fd >= 0) {
+            fds[1].fd = cancel_fd;
+            fds[1].events = POLLIN;
+            nfds = 2;
+        }
+
+        const int ret = ::poll(fds, static_cast<nfds_t>(nfds), timeout_ms);
+        if (ret <= 0) return false;  // timeout or error
+
+        if (nfds == 2 && (fds[1].revents & POLLIN)) {
+            throw DnsLookupException("DoT query cancelled", DnsError::CANCELLED);
+        }
+
+        return (fds[0].revents & fds[0].events) != 0;
+    }
+
+    // Read exactly n bytes from a BIO using poll() for timeout.
+    [[nodiscard]] bool bio_read_exact(BIO *bio, std::span<std::uint8_t> buf, int cancel_fd) {
+        while (!buf.empty()) {
+            if (!poll_bio(bio, PollEvent::READ, IO_TIMEOUT_MS, cancel_fd)) {
+                return false;
+            }
+            BIO_clear_retry_flags(bio);
+            const int rc = BIO_read(bio, buf.data(), static_cast<int>(buf.size()));
+            if (rc > 0) {
+                buf = buf.subspan(static_cast<size_t>(rc));
+            } else if (!BIO_should_retry(bio)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    // Send all bytes over BIO using poll() for timeout.
+    [[nodiscard]] bool bio_send_all(BIO *bio, std::span<const std::uint8_t> data, int cancel_fd) {
+        while (!data.empty()) {
+            if (!poll_bio(bio, PollEvent::WRITE, IO_TIMEOUT_MS, cancel_fd)) {
+                return false;
+            }
+            BIO_clear_retry_flags(bio);
+            const int rc = BIO_write(bio, data.data(), static_cast<int>(data.size()));
+            if (rc > 0) {
+                data = data.subspan(static_cast<size_t>(rc));
+            } else if (!BIO_should_retry(bio)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    // ── OpenSSL error handling ──
 
     [[noreturn]]
     void throw_ssl_error(std::string_view context, const std::source_location &loc = std::source_location::current()) {
@@ -79,37 +141,7 @@ namespace {
 
         msg += fmt::format(" (at {}:{}:{})", loc.file_name(), loc.line(), loc.column());
 
-        throw DnsLookupException(msg, DNS::Error::CONNECTION);
-    }
-
-    // Read exactly n bytes from a BIO.  Returns false on EOF / error.
-    [[nodiscard]] bool bio_read_exact(BIO *bio, std::span<std::uint8_t> buf) noexcept {
-        while (!buf.empty()) {
-            const int rc = BIO_read(bio, buf.data(), static_cast<int>(buf.size()));
-            if (rc <= 0) [[unlikely]] {
-                if (BIO_should_retry(bio)) [[likely]] {
-                    continue;
-                }
-                return false;
-            }
-            buf = buf.subspan(static_cast<size_t>(rc));
-        }
-        return true;
-    }
-
-    // Send all bytes over BIO.
-    [[nodiscard]] bool bio_send_all(BIO *bio, std::span<const std::uint8_t> data) noexcept {
-        while (!data.empty()) {
-            const int rc = BIO_write(bio, data.data(), static_cast<int>(data.size()));
-            if (rc <= 0) [[unlikely]] {
-                if (BIO_should_retry(bio)) [[likely]] {
-                    continue;
-                }
-                return false;
-            }
-            data = data.subspan(static_cast<size_t>(rc));
-        }
-        return true;
+        throw DnsLookupException(msg, DnsError::CONNECTION);
     }
 } // anonymous namespace
 
@@ -132,7 +164,8 @@ struct DotResolver::Impl {
     explicit Impl(std::string server, std::uint16_t port, std::uint64_t id);
 
     // ── Member functions ──
-    [[nodiscard]] std::vector<std::uint8_t> query(const std::string &host, DNS::Type type) const;
+    [[nodiscard]] std::expected<std::vector<std::uint8_t>, DnsLookupException>
+    query(const std::string &host, RecordKind type, int cancel_fd = -1) const;
 
     BIO *ensure_connection() const;
 
@@ -149,19 +182,15 @@ DotResolver::Impl::Impl(std::string server, std::uint16_t port, std::uint64_t id
     port_(port), last_use_(std::chrono::steady_clock::now()) {
 }
 
-std::vector<std::uint8_t> DotResolver::Impl::query(const std::string &host, DNS::Type type) const {
-    const auto ns_type_val = DNS::Util::to_ns_type(type);
-    if (ns_type_val == ns_t_invalid) {
-        throw DnsLookupException(
-            fmt::format(R"(Unsupported DNS::Type for DoT query: "{}")", host),
-            DNS::Error::UNKNOWN
-        );
-    }
+std::expected<std::vector<std::uint8_t>, DnsLookupException> DotResolver::Impl::query(const std::string &host, RecordKind type,
+                                                                                            int cancel_fd) const {
+    try {
+        const auto record_type = DNS::Util::type_to_record_type(type);
 
-    SPDLOG_DEBUG(R"(Resolver #{} lookup for domain "{}" (type {}))", id_, host, ns_type_val);
+    SPDLOG_DEBUG(R"(Resolver #{} lookup for domain "{}" (type {}))", id_, host, static_cast<std::uint16_t>(record_type));
 
     // ---- 1. Build the raw DNS query packet ----
-    const auto query_bytes = DNS::mkquery(host, ns_type_val);
+    const auto query_bytes = DNS::mkquery(host, record_type);
 
     // ---- 2. Build the wire format (2-byte length prefix + DNS message) ----
     std::vector<std::uint8_t> wire;
@@ -179,15 +208,15 @@ std::vector<std::uint8_t> DotResolver::Impl::query(const std::string &host, DNS:
 
     // Send with one reconnect on failure.
     auto *bio = ensure_connection();
-    if (!bio_send_all(bio, std::span{wire})) {
+    if (!bio_send_all(bio, std::span{wire}, cancel_fd)) {
         SPDLOG_DEBUG(R"(DoT connection to "{}" lost while sending, reconnecting)", target);
         persistent_bio_.reset();
         bio = ensure_connection();
-        if (!bio_send_all(bio, std::span{wire})) {
+        if (!bio_send_all(bio, std::span{wire}, cancel_fd)) {
             persistent_bio_.reset();
             throw DnsLookupException(
                 fmt::format(R"(DoT failed to send query to "{}" after reconnect)", target),
-                DNS::Error::CONNECTION
+                DnsError::CONNECTION
             );
         }
     }
@@ -196,29 +225,29 @@ std::vector<std::uint8_t> DotResolver::Impl::query(const std::string &host, DNS:
 
     // ---- 4. Read response ----
     std::uint8_t resp_len_buf[2]{};
-    if (!bio_read_exact(bio, resp_len_buf)) {
+    if (!bio_read_exact(bio, resp_len_buf, cancel_fd)) {
         persistent_bio_.reset();
         throw DnsLookupException(
             fmt::format(R"(DoT failed to read response length from "{}")", target),
-            DNS::Error::CONNECTION
+            DnsError::CONNECTION
         );
     }
 
-    const std::uint16_t resp_len = DNS::Util::read_u16_be(resp_len_buf);
+    const std::uint16_t resp_len = Utils::Bytes::read_u16_be(resp_len_buf);
     if (resp_len == 0) {
         persistent_bio_.reset();
         throw DnsLookupException(
             fmt::format(R"(DoT server "{}" returned zero-length response)", target),
-            DNS::Error::PARSE
+            DnsError::PARSE
         );
     }
 
     std::vector<std::uint8_t> response(resp_len);
-    if (!bio_read_exact(bio, std::span{response})) {
+    if (!bio_read_exact(bio, std::span{response}, cancel_fd)) {
         persistent_bio_.reset();
         throw DnsLookupException(
             fmt::format(R"(DoT failed to read response body from "{}")", target),
-            DNS::Error::CONNECTION
+            DnsError::CONNECTION
         );
     }
 
@@ -230,6 +259,9 @@ std::vector<std::uint8_t> DotResolver::Impl::query(const std::string &host, DNS:
                  host);
 
     return response;
+    } catch (const DnsLookupException &e) {
+        return std::unexpected(e);
+    }
 }
 
 auto DotResolver::Impl::create_ssl_ctx() -> SslCtxPtr {
@@ -274,7 +306,7 @@ auto DotResolver::Impl::connect(SSL_CTX *ctx, const std::string &server, std::ui
     if (!is_ip && !Utils::is_valid_domain(server)) {
         throw DnsLookupException(
             fmt::format(R"(Invalid DoT server: "{}" (not a valid IP or domain name))", server),
-            DNS::Error::CONFIG);
+            DnsError::CONFIG);
     }
 
     SSL *ssl = nullptr;
@@ -310,14 +342,14 @@ auto DotResolver::Impl::connect(SSL_CTX *ctx, const std::string &server, std::ui
         if (now >= deadline) {
             throw DnsLookupException(
                 fmt::format(R"(DoT connection timeout ({}s) for "{}")", CONNECT_TIMEOUT.count(), target),
-                DNS::Error::CONNECTION);
+                DnsError::CONNECTION);
         }
 
         const auto fd = BIO_get_fd(bio.get(), nullptr);
         if (fd == -1) {
             throw DnsLookupException(
                 fmt::format(R"(DoT failed to get socket fd for "{}")", target),
-                DNS::Error::CONNECTION
+                DnsError::CONNECTION
             );
         }
 
@@ -335,24 +367,15 @@ auto DotResolver::Impl::connect(SSL_CTX *ctx, const std::string &server, std::ui
             if (poll_ret == 0) {
                 throw DnsLookupException(
                     fmt::format(R"(DoT connection timeout ({}s) for "{}")", CONNECT_TIMEOUT.count(), target),
-                    DNS::Error::CONNECTION
+                    DnsError::CONNECTION
                 );
             }
             throw_ssl_error(fmt::format(R"(DoT poll() failed for "{}")", target));
         }
     }
 
-    // Restore blocking mode for regular I/O.
-    BIO_set_nbio(bio.get(), 0);
-
-    // Set I/O timeouts on the underlying socket so send/recv don't block forever.
-    {
-        const int fd = static_cast<int>(BIO_get_fd(bio.get(), nullptr));
-        if (fd != -1) {
-            setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &IO_TIMEOUT_TV, sizeof(IO_TIMEOUT_TV));
-            setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &IO_TIMEOUT_TV, sizeof(IO_TIMEOUT_TV));
-        }
-    }
+    // Keep non-blocking mode for data I/O (poll()-based send/recv
+    // with timeout and optional cancel_fd support).
 
     SSL *connected_ssl = nullptr;
     BIO_get_ssl(bio.get(), &connected_ssl);
@@ -403,6 +426,21 @@ DotResolver::DotResolver(std::string server, std::uint16_t port) : impl_(
 
 DotResolver::~DotResolver() = default;
 
-std::vector<std::uint8_t> DotResolver::query(const std::string &host, DNS::Type type) const {
-    return impl_->query(host, type);
+std::expected<std::vector<std::uint8_t>, DnsLookupException> DotResolver::query(const std::string &host, RecordKind type,
+                                                                                   int cancel_fd) const noexcept {
+    return impl_->query(host, type, cancel_fd);
+}
+
+// ===========================================================================
+//  Self-registration
+// ===========================================================================
+
+namespace {
+[[maybe_unused]] DnsResolverRegistry::Registrar _dot(
+    "tls",
+    [](const DnsServer &server) -> std::shared_ptr<ResolverBase> {
+        auto uri = Uri::parse(server.address);
+        return std::make_shared<DotResolver>(std::string(uri.get_host()), uri.get_port());
+    }
+);
 }

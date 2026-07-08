@@ -145,7 +145,7 @@ TEST(DnsValidatorTest, ResponseTooShort_Throws) {
             try {
                 DNS::Validator::validate_response(query, short_response);
             } catch (const DnsLookupException &e) {
-                EXPECT_EQ(e.get_error(), DNS::Error::PARSE);
+                EXPECT_EQ(e.get_error(), DnsError::PARSE);
                 throw;
             }
         },
@@ -166,7 +166,7 @@ TEST(DnsValidatorTest, QrBitNotSet_Throws) {
             try {
                 DNS::Validator::validate_response(query, response);
             } catch (const DnsLookupException &e) {
-                EXPECT_EQ(e.get_error(), DNS::Error::PARSE);
+                EXPECT_EQ(e.get_error(), DnsError::PARSE);
                 throw;
             }
         },
@@ -187,7 +187,7 @@ TEST(DnsValidatorTest, TxidMismatch_Throws) {
             try {
                 DNS::Validator::validate_response(query, response);
             } catch (const DnsLookupException &e) {
-                EXPECT_EQ(e.get_error(), DNS::Error::PARSE);
+                EXPECT_EQ(e.get_error(), DnsError::PARSE);
                 throw;
             }
         },
@@ -212,7 +212,7 @@ TEST(DnsValidatorTest, QdcountNotOne_Throws) {
             try {
                 DNS::Validator::validate_response(query, response);
             } catch (const DnsLookupException &e) {
-                EXPECT_EQ(e.get_error(), DNS::Error::PARSE);
+                EXPECT_EQ(e.get_error(), DnsError::PARSE);
                 throw;
             }
         },
@@ -238,7 +238,7 @@ TEST(DnsValidatorTest, QuestionEchoMismatch_Throws) {
             try {
                 DNS::Validator::validate_response(query, response);
             } catch (const DnsLookupException &e) {
-                EXPECT_EQ(e.get_error(), DNS::Error::PARSE);
+                EXPECT_EQ(e.get_error(), DnsError::PARSE);
                 throw;
             }
         },
@@ -260,7 +260,7 @@ TEST(DnsValidatorTest, Txid_FirstByteMatches_SecondByteMismatch_Throws) {
             try {
                 DNS::Validator::validate_response(query, response);
             } catch (const DnsLookupException &e) {
-                EXPECT_EQ(e.get_error(), DNS::Error::PARSE);
+                EXPECT_EQ(e.get_error(), DnsError::PARSE);
                 EXPECT_NE(std::string_view(e.what()).find("transaction ID"),
                           std::string_view::npos);
                 throw;
@@ -291,7 +291,7 @@ TEST(DnsValidatorTest, TruncatedResponse_NoRoomForQtypeQclass) {
             try {
                 DNS::Validator::validate_response(query, response);
             } catch (const DnsLookupException &e) {
-                EXPECT_EQ(e.get_error(), DNS::Error::PARSE);
+                EXPECT_EQ(e.get_error(), DnsError::PARSE);
                 // Should be the "malformed question section" message
                 EXPECT_NE(std::string_view(e.what()).find("malformed"),
                           std::string_view::npos);
@@ -333,7 +333,7 @@ TEST(DnsValidatorTest, QuestionSectionEcho_ParseableButDifferent_Throws) {
             try {
                 DNS::Validator::validate_response(query, response);
             } catch (const DnsLookupException &e) {
-                EXPECT_EQ(e.get_error(), DNS::Error::PARSE);
+                EXPECT_EQ(e.get_error(), DnsError::PARSE);
                 // Verify it's the "section mismatch" message, not "malformed"
                 EXPECT_NE(std::string_view(e.what()).find("does not match"),
                           std::string_view::npos);
@@ -412,7 +412,7 @@ TEST(DnsValidatorTest, QuestionSection_CompressionPointer_Skipped) {
             try {
                 DNS::Validator::validate_response(request, response);
             } catch (const DnsLookupException &e) {
-                EXPECT_EQ(e.get_error(), DNS::Error::PARSE);
+                EXPECT_EQ(e.get_error(), DnsError::PARSE);
                 throw;
             }
         },

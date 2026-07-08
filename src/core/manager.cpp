@@ -42,6 +42,10 @@ namespace {
 
         return std::min(thread_count, 4U);
     }
+
+    std::unique_ptr<HttpClient> default_http_client_factory() {
+        return std::make_unique<TransientHttpClient>();
+    }
 } // anonymous namespace
 
 // ---------------------------------------------------------------------------
@@ -50,6 +54,9 @@ namespace {
 
 struct Manager::Impl {
     explicit Impl(Config::AppConfig config, std::stop_source stop_source);
+
+    Impl(Config::AppConfig config, std::stop_source stop_source,
+        ResolverDispatcher dispatcher, std::function<std::unique_ptr<HttpClient>()> http_factory);
 
     void load_drivers();
 
@@ -66,6 +73,7 @@ struct Manager::Impl {
     BS::thread_pool<> thread_pool_;
     Scheduler scheduler_;
     std::stop_source stop_source_;
+    std::function<std::unique_ptr<HttpClient>()> http_client_factory_;
 };
 
 Manager::Impl::Impl(Config::AppConfig config, std::stop_source stop_source)
@@ -74,7 +82,19 @@ Manager::Impl::Impl(Config::AppConfig config, std::stop_source stop_source)
       updater_(dispatcher_),
       thread_pool_(estimate_pool_size(config_)),
       scheduler_(config_, stop_source.get_token()),
-      stop_source_(std::move(stop_source)) {
+      stop_source_(std::move(stop_source)),
+      http_client_factory_(default_http_client_factory) {
+}
+
+Manager::Impl::Impl(Config::AppConfig config, std::stop_source stop_source,
+                    ResolverDispatcher dispatcher, std::function<std::unique_ptr<HttpClient>()> http_factory)
+    : config_(std::move(config)),
+      dispatcher_(std::move(dispatcher)),
+      updater_(dispatcher_),
+      thread_pool_(estimate_pool_size(config_)),
+      scheduler_(config_, stop_source.get_token()),
+      stop_source_(std::move(stop_source)),
+      http_client_factory_(std::move(http_factory)) {
 }
 
 void Manager::Impl::load_drivers() {
@@ -98,8 +118,8 @@ void Manager::Impl::run() {
             auto driver = &driver_manager_.get_driver(task.driver_name);
             thread_pool_.detach_task(
                 [this, driver, t = std::move(task)] {
-                    TransientHttpClient http_client{};
-                    updater_.process(t, *driver, http_client);
+                    auto http_client = http_client_factory_();
+                    updater_.process(t, *driver, *http_client);
                 });
         }
 
@@ -118,6 +138,13 @@ void Manager::Impl::run() {
 
 Manager::Manager(Config::AppConfig config, std::stop_source stop_source)
     : impl_(std::make_unique<Impl>(std::move(config), std::move(stop_source))) {
+}
+
+Manager::Manager(Config::AppConfig config, std::stop_source stop_source,
+                 ResolverDispatcher dispatcher,
+                 std::function<std::unique_ptr<HttpClient>()> http_factory)
+    : impl_(std::make_unique<Impl>(std::move(config), std::move(stop_source),
+                                    std::move(dispatcher), std::move(http_factory))) {
 }
 
 Manager::~Manager() = default;
