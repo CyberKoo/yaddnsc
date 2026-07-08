@@ -5,6 +5,7 @@
 #include "updater.h"
 
 #include <spdlog/spdlog.h>
+#include <glaze/json/generic.hpp>
 #include <magic_enum/magic_enum.hpp>
 
 #include "update_task.h"

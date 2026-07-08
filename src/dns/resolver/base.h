@@ -13,7 +13,7 @@
 #include <string_view>
 
 #include "mixin.h"
-#include "dns_type.h"
+#include "record_kind.h"
 #include "exception/dns_lookup.h"
 
 /// ResolverBase — common interface for all DNS resolvers.

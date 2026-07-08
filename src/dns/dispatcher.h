@@ -10,7 +10,8 @@
 #include <string>
 #include <vector>
 
-#include "config/config.h"
+#include "record_kind.h"
+#include "config/dns_config.h"
 
 class ResolverBase;
 

@@ -11,6 +11,7 @@
 
 #include "uri.h"
 #include "resolver_config.h"
+#include "config/config.h"
 #include "dns/resolver_registry.h"
 #include "dns/resolver/base.h"
 
@@ -21,7 +22,7 @@
 ResolverDispatcher DnsResolverFactory::create(const Config::AppConfig &config) {
     // Build the list of DNS servers from config, preserving backward
     // compatibility with the legacy single-server format.
-    std::vector<DnsServer> dns_servers;
+    std::vector<Config::DnsServer> dns_servers;
     if (config.resolver.use_custom_server) {
         if (!config.resolver.servers.empty()) {
             dns_servers = config.resolver.servers;

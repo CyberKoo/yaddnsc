@@ -69,7 +69,7 @@ namespace {
             return res_nquery(&state, name, ns_c_in, type, buf, len);
         }
 
-        void set_nameserver(const DnsServer &server) {
+        void set_nameserver(const Config::DnsServer &server) {
             if (Inet4Address::parse(server.address)) {
                 state.nscount = 1;
                 state.nsaddr_list[0].sin_family = AF_INET;
@@ -92,7 +92,7 @@ namespace {
 #endif
         }
 
-        void set_ipv6_nameserver(const DnsServer &server) {
+        void set_ipv6_nameserver(const Config::DnsServer &server) {
             // zero out settings from resolv.conf
             for (int i = 0; i < state.nscount; ++i) {
                 state.nsaddr_list[i] = {};
@@ -145,7 +145,7 @@ namespace {
             return res_query(name, ns_c_in, type, buf, len);
         }
 
-        void set_nameserver([[maybe_unused]] const DnsServer &server) {
+        void set_nameserver([[maybe_unused]] const Config::DnsServer &server) {
             // Custom DNS server not supported without res_ninit
         }
 #endif
@@ -203,7 +203,7 @@ namespace {
 // ===========================================================================
 
 struct ClassicResolver::Impl {
-    explicit Impl(DnsServer server, std::uint64_t id);
+    explicit Impl(Config::DnsServer server, std::uint64_t id);
 
     ~Impl() = default;
 
@@ -211,11 +211,11 @@ struct ClassicResolver::Impl {
     query(const std::string &host_str, RecordKind type, int cancel_fd = -1) const;
 
     std::uint64_t id_;
-    DnsServer server_;
+    Config::DnsServer server_;
     Uri uri_;
 };
 
-ClassicResolver::Impl::Impl(DnsServer server, std::uint64_t id)
+ClassicResolver::Impl::Impl(Config::DnsServer server, std::uint64_t id)
     : id_(id), server_(std::move(server)), uri_(Uri::parse(server_.address)) {
 }
 
@@ -242,7 +242,7 @@ std::expected<std::vector<std::uint8_t>, DnsLookupException> ClassicResolver::Im
 //  ClassicResolver  —  public API
 // ===========================================================================
 
-ClassicResolver::ClassicResolver(DnsServer server)
+ClassicResolver::ClassicResolver(Config::DnsServer server)
     : impl_(std::make_unique<Impl>(std::move(server), get_id())) {
 }
 
@@ -260,7 +260,7 @@ std::expected<std::vector<std::uint8_t>, DnsLookupException> ClassicResolver::qu
 namespace {
 [[maybe_unused]] DnsResolverRegistry::Registrar _classic(
     "",
-    [](const DnsServer &server) -> std::shared_ptr<ResolverBase> {
+    [](const Config::DnsServer &server) -> std::shared_ptr<ResolverBase> {
         return std::make_shared<ClassicResolver>(server);
     }
 );

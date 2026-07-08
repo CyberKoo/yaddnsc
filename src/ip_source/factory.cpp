@@ -13,7 +13,7 @@
 #include "mdns.h"
 #include "fmt.hpp"
 #include "address_family.h"
-#include "dns_type.h"
+#include "record_kind.h"
 #include "config/config.h"
 
 namespace {

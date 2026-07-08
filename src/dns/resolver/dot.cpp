@@ -438,7 +438,7 @@ std::expected<std::vector<std::uint8_t>, DnsLookupException> DotResolver::query(
 namespace {
 [[maybe_unused]] DnsResolverRegistry::Registrar _dot(
     "tls",
-    [](const DnsServer &server) -> std::shared_ptr<ResolverBase> {
+    [](const Config::DnsServer &server) -> std::shared_ptr<ResolverBase> {
         auto uri = Uri::parse(server.address);
         return std::make_shared<DotResolver>(std::string(uri.get_host()), uri.get_port());
     }

@@ -9,10 +9,12 @@
 #include <vector>
 #include <string>
 
-#include <glaze/glaze.hpp>
+#include <glaze/json/generic_fwd.hpp>
 
-#include "dns_type.h"
+#include "record_kind.h"
 #include "address_family.h"
+
+#include "dns_config.h"
 
 /// Configuration data types.
 namespace Config {
@@ -21,12 +23,6 @@ namespace Config {
         INTERFACE, ///< Read IP from a local network interface
         HTTP,      ///< Query an external HTTP endpoint for the public IP
         MDNS       ///< Resolve via mDNS (RFC 6762, .local domain)
-    };
-
-    /// DNS resolution strategy used by ResolverDispatcher.
-    enum class ResolverStrategy {
-        FALLBACK,   ///< Try resolvers sequentially until one succeeds
-        CONCURRENT  ///< Query all resolvers concurrently and take the first result
     };
 
     /// Driver loading configuration.

@@ -7,7 +7,7 @@
 
 #include <utility>
 
-#include "dns_type.h"
+#include "record_kind.h"
 #include "dns/types.h"
 
 /// DNS utility — compile-time type conversion helpers.

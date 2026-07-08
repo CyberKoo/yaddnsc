@@ -14,7 +14,7 @@
 #include <gtest/gtest.h>
 
 #include "config/config.h"
-#include "dns_type.h"
+#include "record_kind.h"
 #include "address_family.h"
 
 // ===========================================================================

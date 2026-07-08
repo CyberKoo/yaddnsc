@@ -8,7 +8,7 @@
 #include <string>
 
 #include "base.h"
-#include "dns_type.h"
+#include "record_kind.h"
 
 // ---------------------------------------------------------------------------
 // MdnsIpSource — discovers a LAN device's IP address via mDNS (RFC 6762).

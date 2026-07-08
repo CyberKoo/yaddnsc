@@ -16,7 +16,7 @@
 #include "config/config.h"
 #include "dns/dispatcher.h"
 #include "dns/factory.h"
-#include "dns_type.h"
+#include "record_kind.h"
 
 namespace Cli {
     // ── Option storage (owned by the callback lambda via shared_ptr) ──────

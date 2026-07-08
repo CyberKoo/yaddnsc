@@ -9,7 +9,7 @@
 #include <memory>
 #include <string_view>
 
-#include "dns_type.h"
+#include "config/dns_config.h"
 
 class ResolverBase;
 
@@ -38,7 +38,7 @@ class ResolverBase;
 namespace DnsResolverRegistry {
 
 /// Factory function type: receives a DNS server config and returns a resolver.
-using FactoryFn = std::function<std::shared_ptr<ResolverBase>(const DnsServer&)>;
+using FactoryFn = std::function<std::shared_ptr<ResolverBase>(const Config::DnsServer&)>;
 
 /// Register a factory for the given URI schema.
 /// @param schema   URI schema (e.g. "https", "tls"). Empty string is the
@@ -54,7 +54,7 @@ void register_factory(std::string_view schema, FactoryFn factory);
 /// @param server  DNS server address and port.
 /// @return        A new resolver instance.
 /// @throws DnsLookupException  If no factory is registered for the schema.
-[[nodiscard]] std::shared_ptr<ResolverBase> create(const DnsServer& server);
+[[nodiscard]] std::shared_ptr<ResolverBase> create(const Config::DnsServer& server);
 
 /// RAII helper for static registration.
 ///

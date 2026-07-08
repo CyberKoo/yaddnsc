@@ -15,7 +15,7 @@
 
 #include "dns/util.hpp"
 #include "util/bytes.hpp"
-#include "dns_type.h"
+#include "record_kind.h"
 
 // ── read_u16_be ──────────────────────────────────────────────────────────────
 

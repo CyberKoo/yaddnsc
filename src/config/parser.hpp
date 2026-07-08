@@ -23,8 +23,8 @@ struct glz::meta<Config::DriverConfig> {
 /// glz::meta specialisation for DnsServer JSON mapping.
 /// Supports both "address" and "ipaddress" keys for backward compatibility.
 template<>
-struct glz::meta<DnsServer> {
-    using T = DnsServer;
+struct glz::meta<Config::DnsServer> {
+    using T = Config::DnsServer;
     static constexpr auto value = object(
         "address", &T::address,
         "ipaddress", &T::address,

@@ -31,7 +31,7 @@ void register_factory(std::string_view schema, FactoryFn factory) {
     factories()[std::string(schema)] = std::move(factory);
 }
 
-std::shared_ptr<ResolverBase> create(const DnsServer &server) {
+std::shared_ptr<ResolverBase> create(const Config::DnsServer &server) {
     auto uri = Uri::parse(server.address);
     auto schema = std::string(uri.get_schema());
 

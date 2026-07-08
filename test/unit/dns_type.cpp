@@ -1,7 +1,7 @@
 //
 // Created by Kotarou on 2026/7/7.
 //
-// Unit tests for dns_type.h — RecordKind enum and DnsServer struct.
+// Unit tests for record_kind.h and Config::DnsServer.
 //
 // Verifies:
 //   - All RecordKind enumerator values exist.
@@ -12,7 +12,8 @@
 
 #include <gtest/gtest.h>
 
-#include "dns_type.h"
+#include "record_kind.h"
+#include "config/config.h"
 
 // ── RecordKind ─────────────────────────────────────────────────────
 
@@ -35,19 +36,19 @@ TEST(RecordKindTest, DefaultValue_IsA) {
 // ── DnsServer ──────────────────────────────────────────────────────
 
 TEST(DnsServerTest, DefaultPort_Is53) {
-    DnsServer srv;
+    Config::DnsServer srv;
     EXPECT_EQ(srv.port, 53);
     EXPECT_TRUE(srv.address.empty());
 }
 
 TEST(DnsServerTest, AggregateInit) {
-    DnsServer srv{.address = "1.1.1.1", .port = 853};
+    Config::DnsServer srv{.address = "1.1.1.1", .port = 853};
     EXPECT_EQ(srv.address, "1.1.1.1");
     EXPECT_EQ(srv.port, 853);
 }
 
 TEST(DnsServerTest, PartialAggregateInit) {
-    DnsServer srv{.address = "8.8.8.8"};  // port defaults to 53
+    Config::DnsServer srv{.address = "8.8.8.8"};  // port defaults to 53
     EXPECT_EQ(srv.address, "8.8.8.8");
     EXPECT_EQ(srv.port, 53);
 }

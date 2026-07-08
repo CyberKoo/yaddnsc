@@ -42,7 +42,7 @@ namespace {
         int family{AF_UNSPEC};
     };
 
-    [[nodiscard]] AddrResult make_addr(const DnsServer &server) {
+    [[nodiscard]] AddrResult make_addr(const Config::DnsServer &server) {
         auto parsed = InetAddress::parse(server.address);
         if (!parsed) {
             throw DnsLookupException(
@@ -213,7 +213,7 @@ namespace {
 // ===========================================================================
 
 struct ClassicResolver::Impl {
-    explicit Impl(DnsServer server, std::uint64_t id);
+    explicit Impl(Config::DnsServer server, std::uint64_t id);
 
     ~Impl() = default;
 
@@ -221,12 +221,12 @@ struct ClassicResolver::Impl {
     query(const std::string &host_str, RecordKind type, int cancel_fd = -1) const;
 
     std::uint64_t id_;
-    DnsServer server_;
+    Config::DnsServer server_;
     Uri uri_;
     AddrResult addr_;
 };
 
-ClassicResolver::Impl::Impl(DnsServer server, std::uint64_t id)
+ClassicResolver::Impl::Impl(Config::DnsServer server, std::uint64_t id)
     : id_(id), server_(std::move(server)), uri_(Uri::parse(server_.address)), addr_(make_addr(server_)) {
 }
 
@@ -259,7 +259,7 @@ std::expected<std::vector<std::uint8_t>, DnsLookupException> ClassicResolver::Im
     }
 }
 
-ClassicResolver::ClassicResolver(DnsServer server)
+ClassicResolver::ClassicResolver(Config::DnsServer server)
     : impl_(std::make_unique<Impl>(std::move(server), get_id())) {
 }
 
@@ -277,7 +277,7 @@ std::expected<std::vector<std::uint8_t>, DnsLookupException> ClassicResolver::qu
 namespace {
 [[maybe_unused]] DnsResolverRegistry::Registrar _classic(
     "",
-    [](const DnsServer &server) -> std::shared_ptr<ResolverBase> {
+    [](const Config::DnsServer &server) -> std::shared_ptr<ResolverBase> {
         return std::make_shared<ClassicResolver>(server);
     }
 );

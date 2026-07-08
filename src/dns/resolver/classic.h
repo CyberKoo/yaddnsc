@@ -10,7 +10,8 @@
 #include <memory>
 #include <string>
 
-#include "dns_type.h"
+#include "record_kind.h"
+#include "config/dns_config.h"
 #include "base.h"
 
 /// ClassicResolver — traditional UDP/TCP DNS resolver.
@@ -25,7 +26,7 @@ class ClassicResolver final : public ResolverBase {
 public:
     /// Construct with a DNS server.
     /// @param server  DNS server address and port.
-    explicit ClassicResolver(DnsServer server);
+    explicit ClassicResolver(Config::DnsServer server);
 
     ~ClassicResolver() override;
 

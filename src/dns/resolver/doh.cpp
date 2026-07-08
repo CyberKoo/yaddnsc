@@ -149,7 +149,7 @@ std::expected<std::vector<std::uint8_t>, DnsLookupException> DohResolver::query(
 namespace {
 [[maybe_unused]] DnsResolverRegistry::Registrar _doh(
     "https",
-    [](const DnsServer &server) -> std::shared_ptr<ResolverBase> {
+    [](const Config::DnsServer &server) -> std::shared_ptr<ResolverBase> {
         auto uri = Uri::parse(server.address);
         auto opts = HttpClientOptions{
             .connection_timeout = std::chrono::seconds(1),
