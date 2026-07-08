@@ -1,0 +1,198 @@
+name: Nightly — full build matrix
+
+on:
+    schedule:
+        # Daily at 00:00 UTC — only runs if there were commits in 24h.
+        - cron: "0 0 * * *"
+    workflow_dispatch:
+        # Manual trigger — runs unconditionally.
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.ref }}
+    cancel-in-progress: true
+
+jobs:
+    # ── Gate: check if full builds are needed ─────────────────────────
+    should_run:
+        runs-on: ubuntu-24.04
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+        outputs:
+            result: ${{ steps.check.outputs.result }}
+        steps:
+            - name: Checkout with full history
+              uses: actions/checkout@v7
+              with:
+                  fetch-depth: 0
+            - name: Check for recent commits
+              id: check
+              run: |
+                  if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+                      echo "result=true" >> "$GITHUB_OUTPUT"
+                      echo "Manual trigger — running all builds"
+                  else
+                      SINCE="$(date -d '24 hours ago' --iso-8601=seconds)"
+                      COUNT=$(git log --since="$SINCE" --oneline 2>/dev/null | wc -l)
+                      if [ "$COUNT" -gt 0 ]; then
+                          echo "result=true" >> "$GITHUB_OUTPUT"
+                          echo "Found $COUNT new commit(s) since $SINCE — running all builds"
+                      else
+                          echo "result=false" >> "$GITHUB_OUTPUT"
+                          echo "No new commits since $SINCE — skipping"
+                      fi
+                  fi
+
+    # ── Build matrix ──────────────────────────────────────────────────
+    linux-arm64:
+        needs: [should_run]
+        if: needs.should_run.outputs.result == 'true'
+        runs-on: ubuntu-24.04-arm
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v7
+            - name: Install dependencies
+              run: sudo apt update; sudo apt install -y ninja-build libssl-dev zlib1g zlib1g-dev pkg-config
+            - name: Configure
+              env:
+                  CC: gcc-14
+                  CXX: g++-14
+              run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DYADDNSC_BUILD_TESTS=ON
+            - name: Build
+              env:
+                  CC: gcc-14
+                  CXX: g++-14
+              run: ninja -C build -j$(nproc)
+            - name: Test
+              env:
+                  CC: gcc-14
+                  CXX: g++-14
+              run: ctest --test-dir build --output-on-failure -j$(nproc)
+
+    linux-amd64-feature-flags:
+        needs: [should_run]
+        if: needs.should_run.outputs.result == 'true'
+        runs-on: ubuntu-24.04
+        strategy:
+            matrix:
+                config:
+                    - name: release
+                      cmake_flags: ""
+                      apt_deps: ""
+                    - name: native-dns
+                      cmake_flags: "-DYADDNSC_USE_NATIVE_DNS=ON"
+                      apt_deps: ""
+                    - name: system-spdlog
+                      cmake_flags: "-DYADDNSC_USE_SYSTEM_SPDLOG=ON"
+                      apt_deps: "libspdlog-dev"
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v7
+            - name: Install dependencies
+              run: |
+                  sudo apt update
+                  sudo apt install -y ninja-build libssl-dev zlib1g zlib1g-dev pkg-config ${{ matrix.config.apt_deps }}
+            - name: Configure
+              env:
+                  CC: gcc-14
+                  CXX: g++-14
+              run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DYADDNSC_BUILD_TESTS=OFF ${{ matrix.config.cmake_flags }}
+            - name: Build
+              env:
+                  CC: gcc-14
+                  CXX: g++-14
+              run: ninja -C build -j$(nproc)
+
+    linux-amd64-sanitizer:
+        needs: [should_run]
+        if: needs.should_run.outputs.result == 'true'
+        runs-on: ubuntu-24.04
+        env:
+            ASAN_OPTIONS: detect_stack_use_after_return=1:strict_string_checks=1:detect_invalid_pointer_pairs=2
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v7
+            - name: Install dependencies
+              run: sudo apt update; sudo apt install -y ninja-build libssl-dev zlib1g zlib1g-dev pkg-config
+            - name: Configure
+              env:
+                  CC: gcc-14
+                  CXX: g++-14
+              run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Sanitizer -DYADDNSC_BUILD_TESTS=ON
+            - name: Build
+              env:
+                  CC: gcc-14
+                  CXX: g++-14
+              run: ninja -C build -j$(nproc)
+            - name: Test
+              env:
+                  CC: gcc-14
+                  CXX: g++-14
+              run: ctest --test-dir build --output-on-failure -j$(nproc)
+
+    linux-amd64-clang:
+        needs: [should_run]
+        if: needs.should_run.outputs.result == 'true'
+        runs-on: ubuntu-24.04
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v7
+            - name: Install dependencies
+              run: sudo apt update; sudo apt install -y ninja-build clang-19 clang-tidy-19 libc++-19-dev libc++abi-19-dev libssl-dev zlib1g zlib1g-dev pkg-config
+            - name: Configure
+              env:
+                  CC: clang-19
+                  CXX: clang++-19
+              run: >-
+                  cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DYADDNSC_BUILD_TESTS=ON
+                  -DCMAKE_CXX_FLAGS="-stdlib=libc++"
+                  -DCMAKE_EXE_LINKER_FLAGS="-stdlib=libc++"
+                  -DCMAKE_SHARED_LINKER_FLAGS="-stdlib=libc++"
+                  -DCMAKE_MODULE_LINKER_FLAGS="-stdlib=libc++"
+            - name: Build
+              env:
+                  CC: clang-19
+                  CXX: clang++-19
+              run: ninja -C build -j$(nproc)
+            - name: Test
+              env:
+                  CC: clang-19
+                  CXX: clang++-19
+              run: ctest --test-dir build --output-on-failure -j$(nproc)
+
+    coverage:
+        needs: [should_run]
+        if: needs.should_run.outputs.result == 'true'
+        runs-on: ubuntu-24.04
+        steps:
+            - uses: actions/checkout@v7
+            - name: Install dependencies
+              run: sudo apt update; sudo apt install -y ninja-build gcc-14 g++-14 libssl-dev zlib1g zlib1g-dev pkg-config lcov
+            - name: Configure
+              env:
+                  CC: gcc-14
+                  CXX: g++-14
+              run: >-
+                  cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DYADDNSC_SANITIZE_DEBUG=OFF
+                  -DYADDNSC_BUILD_TESTS=ON
+                  -DCMAKE_CXX_FLAGS="--coverage -O0 -fprofile-update=atomic"
+                  -DCMAKE_EXE_LINKER_FLAGS="--coverage -fprofile-update=atomic"
+            - name: Build
+              env:
+                  CC: gcc-14
+                  CXX: g++-14
+              run: ninja -C build -j$(nproc)
+            - name: Test
+              env:
+                  CC: gcc-14
+                  CXX: g++-14
+              run: ctest --test-dir build --output-on-failure -j$(nproc)
+            - name: Generate coverage report
+              run: |
+                  lcov --capture --directory build --gcov-tool gcov-14 --output-file coverage.info --ignore-errors mismatch,negative
+                  lcov --remove coverage.info '/usr/*' '*/test/*' '*/googletest*' '*/spdlog*' '*/glaze*' '*/magic_enum*' --output-file coverage.info --ignore-errors mismatch,negative,unused
+                  lcov --list coverage.info
+            - name: Upload coverage reports to Codecov
+              uses: codecov/codecov-action@v5
+              with:
+                  files: coverage.info
+                  token: ${{ secrets.CODECOV_TOKEN }}
+                  fail_ci_if_error: true
