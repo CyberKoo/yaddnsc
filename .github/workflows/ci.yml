@@ -88,9 +88,9 @@ jobs:
             - name: Configure
               run: cmake -B build -G Ninja -DOPENSSL_ROOT_DIR=/opt/homebrew/opt/openssl@3/ -DCMAKE_BUILD_TYPE=Debug -DYADDNSC_BUILD_TESTS=ON
             - name: Build
-              run: ninja -C build -j$(nproc)
+              run: ninja -C build -j$(getconf _NPROCESSORS_ONLN)
             - name: Test
-              run: ctest --test-dir build --output-on-failure -j$(nproc)
+              run: ctest --test-dir build --output-on-failure -j$(getconf _NPROCESSORS_ONLN)
 
     linux-amd64-feature-flags:
         runs-on: ubuntu-24.04
