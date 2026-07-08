@@ -25,12 +25,12 @@ namespace {
 
     constexpr auto HEX_CHARS = std::to_array("0123456789ABCDEF");
 
-    int lookup_default_port(std::string_view scheme) noexcept {
+    [[nodiscard]] int lookup_default_port(std::string_view scheme) noexcept {
         auto it = known_ports.find(scheme);
         return it != known_ports.end() ? it->second : 0;
     }
 
-    bool is_default_port(std::string_view scheme, int port) noexcept {
+    [[nodiscard]] bool is_default_port(std::string_view scheme, int port) noexcept {
         auto it = known_ports.find(scheme);
         return it != known_ports.end() && it->second == port;
     }

@@ -7,57 +7,56 @@
 #include <memory>
 #include <vector>
 
-#include <spdlog/spdlog.h>
-
-#include "uri.h"
 #include "config/config.h"
 #include "config/dns_config.h"
-#include "resolver_config.h"
-#include "dns/resolver_registry.h"
 #include "dns/resolver/base.h"
+#include "dns/resolver_registry.h"
+
+#include "resolver_config.h"
+#include "uri.h"
+
+#include <spdlog/spdlog.h>
 
 // ===========================================================================
 // DnsResolverFactory::create — build a ResolverDispatcher from app config.
 // ===========================================================================
 
-ResolverDispatcher DnsResolverFactory::create(const Config::AppConfig &config) {
-    // Build the list of DNS servers from config, preserving backward
-    // compatibility with the legacy single-server format.
-    std::vector<Config::DnsServer> dns_servers;
-    if (config.resolver.use_custom_server) {
-        if (!config.resolver.servers.empty()) {
-            dns_servers = config.resolver.servers;
-        } else if (!config.resolver.address.empty()) {
-            // Legacy single-server format.
-            dns_servers.push_back({config.resolver.address, config.resolver.port});
-        }
+ResolverDispatcher DnsResolverFactory::create(const Config::AppConfig& config)
+{
+  // Build the list of DNS servers from config, preserving backward
+  // compatibility with the legacy single-server format.
+  std::vector<Config::DnsServer> dns_servers;
+  if (config.resolver.use_custom_server) {
+    if (!config.resolver.servers.empty()) {
+      dns_servers = config.resolver.servers;
+    } else if (!config.resolver.address.empty()) {
+      // Legacy single-server format.
+      dns_servers.push_back({config.resolver.address, config.resolver.port});
     }
+  }
 
-    // Ensure at least one DNS server is available.
-    if (dns_servers.empty()) {
-        dns_servers.push_back({YADDNSC_DEFAULT_DNS_SERVER, YADDNSC_DEFAULT_DNS_PORT});
-    }
+  // Ensure at least one DNS server is available.
+  if (dns_servers.empty()) {
+    dns_servers.push_back({YADDNSC_DEFAULT_DNS_SERVER, YADDNSC_DEFAULT_DNS_PORT});
+  }
 
-    // Build resolver objects from server configurations.
-    // Each resolver registers itself via DnsResolverRegistry, keyed by
-    // URI schema (https → DohResolver, tls → DotResolver, "" → ClassicResolver).
-    std::vector<std::shared_ptr<ResolverBase> > resolvers;
-    for (const auto &server: dns_servers) {
-        auto resolver = DnsResolverRegistry::create(server);
-        const auto uri = Uri::parse(server.address);
-        SPDLOG_INFO("DNS resolver #{}: {} ({})",
-                    resolver->get_id(),
-                    uri.get_schema().empty() ? uri.get_host_literal() : uri.get_origin(),
-                    resolver->get_type());
-        resolvers.push_back(std::move(resolver));
-    }
+  // Build resolver objects from server configurations.
+  // Each resolver registers itself via DnsResolverRegistry, keyed by
+  // URI schema (https → DohResolver, tls → DotResolver, "" → ClassicResolver).
+  std::vector<std::shared_ptr<ResolverBase>> resolvers;
+  for (const auto& server : dns_servers) {
+    auto resolver = DnsResolverRegistry::create(server);
+    const auto uri = Uri::parse(server.address);
+    SPDLOG_INFO("DNS resolver #{}: {} ({})", resolver->get_id(),
+                uri.get_schema().empty() ? uri.get_host_literal() : uri.get_origin(), resolver->get_type());
+    resolvers.push_back(std::move(resolver));
+  }
 
-    // Log configured custom resolver count and strategy — once at startup.
-    if (dns_servers.size() > 1) {
-        SPDLOG_INFO("Configured {} custom resolver(s) in {} mode", dns_servers.size(),
-                    config.resolver.strategy == Config::ResolverStrategy::FALLBACK ? "fallback" : "concurrent"
-        );
-    }
+  // Log configured custom resolver count and strategy — once at startup.
+  if (dns_servers.size() > 1) {
+    SPDLOG_INFO("Configured {} custom resolver(s) in {} mode", dns_servers.size(),
+                config.resolver.strategy == Config::ResolverStrategy::FALLBACK ? "fallback" : "concurrent");
+  }
 
-    return ResolverDispatcher(std::move(resolvers), config.resolver.strategy);
+  return ResolverDispatcher(std::move(resolvers), config.resolver.strategy);
 }

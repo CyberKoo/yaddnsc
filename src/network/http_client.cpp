@@ -20,7 +20,7 @@
 #include "util/cert_util.hpp"
 
 namespace {
-    std::string build_request(const Uri &uri) {
+    [[nodiscard]] std::string build_request(const Uri &uri) {
         if (uri.get_query_string().empty()) {
             return std::string(uri.get_path());
         }
@@ -28,7 +28,7 @@ namespace {
         return fmt::format("{}?{}", uri.get_path(), uri.get_query_string());
     }
 
-    std::string build_base_url(const Uri &uri) {
+    [[nodiscard]] std::string build_base_url(const Uri &uri) {
         return fmt::format("{}://{}:{}", uri.get_schema(), uri.get_host(), uri.get_port());
     }
 
@@ -37,7 +37,7 @@ namespace {
     // -----------------------------------------------------------------------
 
     [[nodiscard]] httplib::Result dispatch(httplib::Client &client, const char *path,
-                                           const HttpRequest &req) {
+                                           const HttpRequest &req) noexcept {
         httplib::Headers headers{req.headers.begin(), req.headers.end()};
 
         switch (req.method) {
@@ -132,7 +132,7 @@ namespace {
     // -----------------------------------------------------------------------
 
     [[nodiscard]] HttpResult do_exchange(httplib::Client &client, const Uri &uri,
-                                          const HttpRequest &req) {
+                                          const HttpRequest &req) noexcept {
         const auto path = build_request(uri);
 
         SPDLOG_DEBUG("Sending {} request to {}://{}{} ({} header(s), {} bytes body)",

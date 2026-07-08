@@ -47,7 +47,7 @@ namespace {
     /// @return  @p len on success (stream), or the number of bytes sent (datagram),
     ///          -1 on error (errno set).
     template<typename Fn>
-    ssize_t send_loop(const void *data, size_t len, bool stream, Fn &&fn) {
+    [[nodiscard]] ssize_t send_loop(const void *data, size_t len, bool stream, Fn &&fn) {
         auto *buf = static_cast<const std::uint8_t *>(data);
         if (!stream) {
             // Datagram — single-shot (send either succeeds fully or fails).

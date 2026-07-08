@@ -43,7 +43,8 @@ public:
     [[nodiscard]] std::string_view get_host_literal() const noexcept;
 
     /// Return the port number.
-    /// @return The port if explicitly set in the URI, or -1 if absent.
+    /// @return The port if explicitly set in the URI, or 0 if absent
+    ///         (including when no well-known default exists for the scheme).
     [[nodiscard]] int get_port() const noexcept;
 
     /// Return the path component.

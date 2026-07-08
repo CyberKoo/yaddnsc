@@ -26,6 +26,10 @@
 ///            aborted with a CANCELLED error (via poll() on both the TLS socket
 ///            and the cancel fd).  This is a best-effort mechanism — the query
 ///            may have already been sent and the server may still process it.
+///
+/// @note Thread-safe: query() acquires an internal mutex around the persistent
+///       TLS connection (OpenSSL BIO).  Distinct DotResolver objects are
+///       independent.
 class DotResolver final : public ResolverBase {
 public:
     /// Construct with server address and optional port.

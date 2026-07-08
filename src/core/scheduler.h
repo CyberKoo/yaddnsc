@@ -28,6 +28,10 @@ struct UpdateTask;
 ///
 /// Holds no reference to the Updater or any thread pool — the caller
 /// (Manager) is responsible for executing the returned tasks.
+///
+/// @note Thread-safe: all public methods acquire an internal mutex.
+///       wait_for_next() and pop_all_due() must not be called concurrently
+///       (the caller's loop owns the scheduling sequence).
 class Scheduler {
 public:
     /// Construct and populate the schedule from config.
@@ -46,7 +50,7 @@ public:
 
     /// Block until the nearest task deadline is reached or stop is requested.
     /// @return false if stop was requested (caller should exit the loop).
-    bool wait_for_next();
+    [[nodiscard]] bool wait_for_next();
 
     /// Check if there are any pending tasks in the heap.
     /// @return true if at least one task is scheduled.

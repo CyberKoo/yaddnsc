@@ -9,16 +9,17 @@
 
 #include <CLI/CLI.hpp>
 
-namespace Cli {
-    /// List all network interfaces and their addresses.
-    int execute_interface_list();
+namespace Cli
+{
+/// List all network interfaces and their addresses.
+[[nodiscard]] int execute_interface_list();
 
-    /// Show IP addresses for a specific interface.
-    int execute_interface_ip(const std::string &interface_name);
+/// Show IP addresses for a specific interface.
+[[nodiscard]] int execute_interface_ip(const std::string& interface_name);
 
-    /// Register the "interface" subcommand tree on the given CLI::App.
-    /// Owns its own option storage internally.
-    void register_interface_subcommand(CLI::App &app, int &exit_code);
-} // namespace Cli
+/// Register the "interface" subcommand tree on the given CLI::App.
+/// Owns its own option storage internally.
+void register_interface_subcommand(CLI::App& app, int& exit_code);
+}  // namespace Cli
 
-#endif // YADDNSC_CLI_INTERFACE_H
+#endif  // YADDNSC_CLI_INTERFACE_H

@@ -18,6 +18,10 @@ class Driver;
 ///
 /// Handles dlopen/dlclose, maps driver names to Driver instances, and
 /// provides lookup by name for the updater and CLI components.
+///
+/// @note Not thread-safe: the driver map is populated during initialisation
+///       and read-only during the run loop.  Callers must serialise calls to
+///       load_driver() / unload_driver() with any concurrent access.
 class DriverManager final {
 public:
     DriverManager();

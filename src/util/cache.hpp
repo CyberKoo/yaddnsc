@@ -5,188 +5,206 @@
 #ifndef YADDNSC_UTIL_CACHE_H
 #define YADDNSC_UTIL_CACHE_H
 
-#include <mutex>
+#include <chrono>
+#include <functional>
 #include <future>
 #include <memory>
-#include <chrono>
-#include <concepts>
+#include <mutex>
 #include <optional>
-#include <functional>
 #include <type_traits>
 #include <unordered_map>
 
-namespace Utils::Cache {
-    /// A generic thread-safe TTL (time-to-live) cache.
-    ///
-    /// Supports get/set/contains/remove/clear with automatic expiry.
-    /// The get_or_compute() method provides thundering-herd protection:
-    /// only one thread computes the value for a given key while others
-    /// wait on a shared_future.
-    ///
-    /// @tparam Key   The key type (must be equality-comparable and hashable).
-    /// @tparam Value The value type (must be copy-constructible).
-    template<typename Key, typename Value> requires std::equality_comparable<Key> && std::copy_constructible<Value>
-    class TtlCache {
-    public:
-        using Clock = std::chrono::steady_clock;
+#include <concepts>
 
-        /// Construct with a TTL duration.
-        /// @param ttl  How long an entry remains valid after insertion.
-        explicit TtlCache(std::chrono::nanoseconds ttl) : ttl_(ttl) {
-        }
+namespace Utils::Cache
+{
+/// A generic thread-safe TTL (time-to-live) cache.
+///
+/// Supports get/set/contains/remove/clear with automatic expiry.
+/// The get_or_compute() method provides thundering-herd protection:
+/// only one thread computes the value for a given key while others
+/// wait on a shared_future.
+///
+/// @tparam Key   The key type (must be equality-comparable and hashable).
+/// @tparam Value The value type (must be copy-constructible).
+template<typename Key, typename Value>
+  requires std::equality_comparable<Key> && std::copy_constructible<Value>
+class TtlCache
+{
+public:
+  using Clock = std::chrono::steady_clock;
 
-        /// Retrieve a value by key.
-        /// @param key  The lookup key.
-        /// @return     The cached value, or std::nullopt if missing or expired.
-        std::optional<Value> get(const Key &key) {
-            std::lock_guard lock(mutex_);
-            return do_get(key);
-        }
+  /// Construct with a TTL duration.
+  /// @param ttl  How long an entry remains valid after insertion.
+  explicit TtlCache(std::chrono::nanoseconds ttl) : ttl_(ttl)
+  {
+  }
 
-        /// Store a value under the given key, resetting its TTL.
-        /// @param key    The cache key.
-        /// @param value  The value to cache.
-        void set(const Key &key, Value value) {
-            std::lock_guard lock(mutex_);
-            map_.insert_or_assign(key, Entry{Clock::now(), std::move(value)});
-        }
+  /// Retrieve a value by key.
+  /// @param key  The lookup key.
+  /// @return     The cached value, or std::nullopt if missing or expired.
+  [[nodiscard]] std::optional<Value> get(const Key& key)
+  {
+    std::lock_guard lock(mutex_);
+    return do_get(key);
+  }
 
-        /// Check whether a key exists and is not expired.
-        /// @return  true if the key is present and fresh.
-        bool contains(const Key &key) {
-            std::lock_guard lock(mutex_);
-            return do_get(key).has_value();
-        }
+  /// Store a value under the given key, resetting its TTL.
+  /// @param key    The cache key.
+  /// @param value  The value to cache.
+  void set(const Key& key, Value value)
+  {
+    std::lock_guard lock(mutex_);
+    map_.insert_or_assign(key, Entry{Clock::now(), std::move(value)});
+  }
 
-        /// Remove a single entry from the cache.
-        ///
-        /// If a computation for this key is already in flight it is
-        /// allowed to finish; its result will still be stored so that
-        /// waiters do not recompute unnecessarily.
-        void remove(const Key &key) {
-            std::lock_guard lock(mutex_);
-            map_.erase(key);
-        }
+  /// Check whether a key exists and is not expired.
+  /// @return  true if the key is present and fresh.
+  [[nodiscard]] bool contains(const Key& key)
+  {
+    std::lock_guard lock(mutex_);
+    return do_get(key).has_value();
+  }
 
-        /// Remove all entries from the cache.
-        ///
-        /// In-flight computations are not interrupted, but they will
-        /// still receive the same thundering-herd deduplication.
-        void clear() {
-            std::lock_guard lock(mutex_);
-            map_.clear();
-        }
+  /// Remove a single entry from the cache.
+  ///
+  /// If a computation for this key is already in flight it is
+  /// allowed to finish; its result will still be stored so that
+  /// waiters do not recompute unnecessarily.
+  void remove(const Key& key)
+  {
+    std::lock_guard lock(mutex_);
+    map_.erase(key);
+  }
 
-        /// Return the cached value for `key`, or compute-and-cache it
-        /// via the provided factory if absent / expired.
-        ///
-        /// The factory runs **outside** the internal mutex, so heavy
-        /// computations do not block other cache operations.
-        ///
-        /// If multiple threads miss the same key simultaneously, only
-        /// one thread invokes the factory; the others block on a
-        /// shared_future and receive the same result once it is ready
-        /// (thundering-herd protection).
-        ///
-        /// @tparam Fn  Invocable returning Value.
-        /// @param key       The cache key.
-        /// @param factory   Factory function to compute the value if not cached.
-        /// @return          The cached or freshly computed value.
-        template<std::invocable<> Fn>
-            requires std::same_as<std::invoke_result_t<Fn>, Value>
-        Value get_or_compute(const Key &key, Fn &&factory) {
-            std::unique_lock lock(mutex_);
+  /// Remove all entries from the cache.
+  ///
+  /// In-flight computations are not interrupted, but they will
+  /// still receive the same thundering-herd deduplication.
+  void clear()
+  {
+    std::lock_guard lock(mutex_);
+    map_.clear();
+  }
 
-            // Fast path: value is already cached and fresh
-            if (auto cached = do_get(key)) {
-                return *std::move(cached);
-            }
+  /// Return the cached value for `key`, or compute-and-cache it
+  /// via the provided factory if absent / expired.
+  ///
+  /// The factory runs **outside** the internal mutex, so heavy
+  /// computations do not block other cache operations.
+  ///
+  /// If multiple threads miss the same key simultaneously, only
+  /// one thread invokes the factory; the others block on a
+  /// shared_future and receive the same result once it is ready
+  /// (thundering-herd protection).
+  ///
+  /// @tparam Fn  Invocable returning Value.
+  /// @param key       The cache key.
+  /// @param factory   Factory function to compute the value if not cached.
+  /// @return          The cached or freshly computed value.
+  template<std::invocable<> Fn>
+    requires std::same_as<std::invoke_result_t<Fn>, Value>
+  Value get_or_compute(const Key& key, Fn&& factory)
+  {
+    std::unique_lock lock(mutex_);
 
-            // Another thread is already computing this key — wait for it
-            if (auto it = pending_.find(key); it != pending_.end()) {
-                auto future = it->second;
-                lock.unlock();
-                return future.get();
-            }
+    // Fast path: value is already cached and fresh
+    if (auto cached = do_get(key)) {
+      return *std::move(cached);
+    }
 
-            // We are responsible for computing the value
-            auto promise = std::make_shared<std::promise<Value>>();
-            auto shared_future = promise->get_future().share();
-            pending_[key] = shared_future;
-            lock.unlock();
+    // Another thread is already computing this key — wait for it
+    if (auto it = pending_.find(key); it != pending_.end()) {
+      auto future = it->second;
+      lock.unlock();
+      return future.get();
+    }
 
-            // Compute outside the mutex — other cache operations are not blocked
-            try {
-                Value value = std::invoke(std::forward<Fn>(factory));
-                promise->set_value(value);
+    // We are responsible for computing the value
+    auto promise = std::make_shared<std::promise<Value>>();
+    auto shared_future = promise->get_future().share();
+    pending_[key] = shared_future;
+    lock.unlock();
 
-                // Store the computed result back into the cache
-                lock.lock();
-                pending_.erase(key);
-                map_.insert_or_assign(key, Entry{Clock::now(), value});
-                return value;
-            } catch (...) {
-                // Propagate the exception to all waiters
-                promise->set_exception(std::current_exception());
-                lock.lock();
-                pending_.erase(key);
-                throw;
-            }
-        }
+    // Compute outside the mutex — other cache operations are not blocked
+    try {
+      Value value = std::invoke(std::forward<Fn>(factory));
+      promise->set_value(value);
 
-        /// Invalidate all entries matching a predicate.
-        /// @tparam Pred  Predicate `bool(const Key &, const Value &)`.
-        template<typename Pred> requires std::predicate<Pred, const Key &, const Value &>
-        void invalidate_if(Pred &&pred) {
-            std::lock_guard lock(mutex_);
-            for (auto it = map_.begin(); it != map_.end();) {
-                if (pred(it->first, it->second.value)) {
-                    it = map_.erase(it);
-                } else {
-                    ++it;
-                }
-            }
-        }
+      // Store the computed result back into the cache
+      lock.lock();
+      pending_.erase(key);
+      map_.insert_or_assign(key, Entry{Clock::now(), value});
+      return value;
+    } catch (...) {
+      // Propagate the exception to all waiters
+      promise->set_exception(std::current_exception());
+      lock.lock();
+      pending_.erase(key);
+      throw;
+    }
+  }
 
-        /// Return the number of entries in the cache.
-        [[nodiscard]] std::size_t size() const {
-            std::lock_guard lock(mutex_);
-            return map_.size();
-        }
+  /// Invalidate all entries matching a predicate.
+  /// @tparam Pred  Predicate `bool(const Key &, const Value &)`.
+  template<typename Pred>
+    requires std::predicate<Pred, const Key&, const Value&>
+  void invalidate_if(Pred&& pred)
+  {
+    std::lock_guard lock(mutex_);
+    for (auto it = map_.begin(); it != map_.end();) {
+      if (pred(it->first, it->second.value)) {
+        it = map_.erase(it);
+      } else {
+        ++it;
+      }
+    }
+  }
 
-        /// Check if the cache contains no entries.
-        [[nodiscard]] bool empty() const {
-            std::lock_guard lock(mutex_);
-            return map_.empty();
-        }
+  /// Return the number of entries in the cache.
+  [[nodiscard]] std::size_t size() const
+  {
+    std::lock_guard lock(mutex_);
+    return map_.size();
+  }
 
-    private:
-        struct Entry {
-            Clock::time_point timestamp;
-            Value value;
-        };
+  /// Check if the cache contains no entries.
+  [[nodiscard]] bool empty() const
+  {
+    std::lock_guard lock(mutex_);
+    return map_.empty();
+  }
 
-        // Internal helper: caller must already hold mutex_.
-        std::optional<Value> do_get(const Key &key) {
-            auto it = map_.find(key);
-            if (it == map_.end() || expired(it->second)) {
-                if (it != map_.end()) {
-                    map_.erase(it);
-                }
-                return std::nullopt;
-            }
-            return it->second.value;
-        }
+private:
+  struct Entry
+  {
+    Clock::time_point timestamp;
+    Value value;
+  };
 
-        bool expired(const Entry &entry) const {
-            return (Clock::now() - entry.timestamp) >= ttl_;
-        }
+  // Internal helper: caller must already hold mutex_.
+  [[nodiscard]] std::optional<Value> do_get(const Key& key)
+  {
+    auto it = map_.find(key);
+    if (it == map_.end() || expired(it->second)) {
+      if (it != map_.end()) {
+        map_.erase(it);
+      }
+      return std::nullopt;
+    }
+    return it->second.value;
+  }
 
-        std::chrono::nanoseconds ttl_;
-        mutable std::mutex mutex_;
-        std::unordered_map<Key, Entry> map_;
-        std::unordered_map<Key, std::shared_future<Value>> pending_;
-    };
-} // namespace Utils::Cache
+  bool expired(const Entry& entry) const
+  {
+    return (Clock::now() - entry.timestamp) >= ttl_;
+  }
 
-#endif // YADDNSC_UTIL_CACHE_H
+  std::chrono::nanoseconds ttl_;
+  mutable std::mutex mutex_;
+  std::unordered_map<Key, Entry> map_;
+  std::unordered_map<Key, std::shared_future<Value>> pending_;
+};
+}  // namespace Utils::Cache
+
+#endif  // YADDNSC_UTIL_CACHE_H

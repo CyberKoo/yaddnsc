@@ -106,7 +106,7 @@ namespace NetDevices {
             if (!ifa->ifa_addr) {
                 continue;
             }
-            if (address_family != AF_UNSPEC && ifa->ifa_addr->sa_family != address_family) {
+            if (address_family != AF_UNSPEC && static_cast<int>(ifa->ifa_addr->sa_family) != address_family) {
                 continue;
             }
             if ((ifa->ifa_flags & IFF_UP) == 0 ||

@@ -35,7 +35,7 @@ public:
     /// Form-encode a parameter map into application/x-www-form-urlencoded string.
     /// @param params  Key-value pairs to encode.
     /// @return        URL-encoded query string (e.g. "key1=val1&key2=val2").
-    static std::string params_to_query_string(const HttpParams &params);
+    [[nodiscard]] static std::string params_to_query_string(const HttpParams &params);
 
 private:
     [[maybe_unused, no_unique_address]] NoCopy _nc_;

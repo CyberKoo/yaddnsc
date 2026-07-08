@@ -8,128 +8,133 @@
 #include <thread>
 #include <utility>
 
-#include <spdlog/spdlog.h>
-#include <BS_thread_pool.hpp>
+#include "config/validator.hpp"
+#include "dns/dispatcher.h"
+#include "dns/factory.h"
+#include "ip_source/iface_util.h"
+#include "network/http_client.h"
 
-#include "updater.h"
+#include "driver_loader.h"
+#include "driver_manager.h"
+#include "min_update_interval.h"
 #include "scheduler.h"
 #include "update_task.h"
-#include "dns/factory.h"
-#include "driver_loader.h"
-#include "dns/dispatcher.h"
-#include "driver_manager.h"
-#include "config/validator.hpp"
-#include "min_update_interval.h"
-#include "network/http_client.h"
-#include "ip_source/iface_util.h"
+#include "updater.h"
 
-namespace {
-    unsigned int estimate_pool_size(const Config::AppConfig &config) {
-        unsigned int total_subdomains = 0;
-        const auto thread_count = std::thread::hardware_concurrency();
+#include <BS_thread_pool.hpp>
+#include <spdlog/spdlog.h>
 
-        for (const auto &domain: config.domains) {
-            total_subdomains += static_cast<unsigned int>(domain.subdomains.size());
-        }
+namespace
+{
+unsigned int estimate_pool_size(const Config::AppConfig& config)
+{
+  unsigned int total_subdomains = 0;
+  const auto thread_count = std::thread::hardware_concurrency();
 
-        if (total_subdomains < 2 || thread_count < 2) {
-            return 2;
-        }
+  for (const auto& domain : config.domains) {
+    total_subdomains += static_cast<unsigned int>(domain.subdomains.size());
+  }
 
-        if (total_subdomains < thread_count) {
-            return total_subdomains;
-        }
+  if (total_subdomains < 2 || thread_count < 2) {
+    return 2;
+  }
 
-        return std::min(thread_count, 4U);
-    }
+  if (total_subdomains < thread_count) {
+    return total_subdomains;
+  }
 
-    std::unique_ptr<HttpClient> default_http_client_factory() {
-        return std::make_unique<TransientHttpClient>();
-    }
-} // anonymous namespace
+  return std::min(thread_count, 4U);
+}
+
+std::unique_ptr<HttpClient> default_http_client_factory()
+{
+  return std::make_unique<TransientHttpClient>();
+}
+}  // anonymous namespace
 
 // ---------------------------------------------------------------------------
 // Manager::Impl — orchestrates the lifecycle of all subsystem components.
 // ---------------------------------------------------------------------------
 
-struct Manager::Impl {
-    explicit Impl(Config::AppConfig config, std::stop_source stop_source);
+struct Manager::Impl
+{
+  explicit Impl(Config::AppConfig config, std::stop_source stop_source);
 
-    Impl(Config::AppConfig config, std::stop_source stop_source,
-        ResolverDispatcher dispatcher, std::function<std::unique_ptr<HttpClient>()> http_factory);
+  Impl(Config::AppConfig config,
+       std::stop_source stop_source,
+       ResolverDispatcher dispatcher,
+       std::function<std::unique_ptr<HttpClient>()> http_factory);
 
-    void load_drivers();
+  void load_drivers();
 
-    void validate_config() const;
+  void validate_config() const;
 
-    void run();
+  void run();
 
-    // IMPORTANT: destruction order is the reverse of declaration order.
-    // config_ is declared first because it's needed by dispatcher_'s constructor.
-    Config::AppConfig config_;
-    DriverManager driver_manager_;
-    ResolverDispatcher dispatcher_;
-    Updater updater_;
-    BS::thread_pool<> thread_pool_;
-    Scheduler scheduler_;
-    std::stop_source stop_source_;
-    std::function<std::unique_ptr<HttpClient>()> http_client_factory_;
+  // IMPORTANT: destruction order is the reverse of declaration order.
+  // config_ is declared first because it's needed by dispatcher_'s constructor.
+  Config::AppConfig config_;
+  DriverManager driver_manager_;
+  ResolverDispatcher dispatcher_;
+  Updater updater_;
+  BS::thread_pool<> thread_pool_;
+  Scheduler scheduler_;
+  std::stop_source stop_source_;
+  std::function<std::unique_ptr<HttpClient>()> http_client_factory_;
 };
 
 Manager::Impl::Impl(Config::AppConfig config, std::stop_source stop_source)
-    : config_(std::move(config)),
-      dispatcher_(DnsResolverFactory::create(config_)),
-      updater_(dispatcher_),
-      thread_pool_(estimate_pool_size(config_)),
-      scheduler_(config_, stop_source.get_token()),
-      stop_source_(std::move(stop_source)),
-      http_client_factory_(default_http_client_factory) {
+    : config_(std::move(config)), dispatcher_(DnsResolverFactory::create(config_)), updater_(dispatcher_),
+      thread_pool_(estimate_pool_size(config_)), scheduler_(config_, stop_source.get_token()),
+      stop_source_(std::move(stop_source)), http_client_factory_(default_http_client_factory)
+{
 }
 
-Manager::Impl::Impl(Config::AppConfig config, std::stop_source stop_source,
-                    ResolverDispatcher dispatcher, std::function<std::unique_ptr<HttpClient>()> http_factory)
-    : config_(std::move(config)),
-      dispatcher_(std::move(dispatcher)),
-      updater_(dispatcher_),
-      thread_pool_(estimate_pool_size(config_)),
-      scheduler_(config_, stop_source.get_token()),
-      stop_source_(std::move(stop_source)),
-      http_client_factory_(std::move(http_factory)) {
+Manager::Impl::Impl(Config::AppConfig config,
+                    std::stop_source stop_source,
+                    ResolverDispatcher dispatcher,
+                    std::function<std::unique_ptr<HttpClient>()> http_factory)
+    : config_(std::move(config)), dispatcher_(std::move(dispatcher)), updater_(dispatcher_),
+      thread_pool_(estimate_pool_size(config_)), scheduler_(config_, stop_source.get_token()),
+      stop_source_(std::move(stop_source)), http_client_factory_(std::move(http_factory))
+{
 }
 
-void Manager::Impl::load_drivers() {
-    DriverLoader::load(driver_manager_, config_);
+void Manager::Impl::load_drivers()
+{
+  DriverLoader::load(driver_manager_, config_);
 }
 
-void Manager::Impl::validate_config() const {
-    const auto interfaces = InterfaceUtil::get_interfaces();
-    const ConfigValidator<YADDNSC_MIN_UPDATE_INTERVAL> validator(driver_manager_, interfaces);
-    validator.validate(config_);
+void Manager::Impl::validate_config() const
+{
+  const auto interfaces = InterfaceUtil::get_interfaces();
+  const ConfigValidator<YADDNSC_MIN_UPDATE_INTERVAL> validator(driver_manager_, interfaces);
+  validator.validate(config_);
 }
 
-void Manager::Impl::run() {
-    const auto interfaces = InterfaceUtil::get_interfaces();
-    SPDLOG_INFO("All available interfaces: {}", fmt::join(interfaces, ", "));
+void Manager::Impl::run()
+{
+  const auto interfaces = InterfaceUtil::get_interfaces();
+  SPDLOG_INFO("All available interfaces: {}", fmt::join(interfaces, ", "));
 
-    while (!stop_source_.stop_requested()) {
-        auto tasks = scheduler_.pop_all_due();
+  while (!stop_source_.stop_requested()) {
+    auto tasks = scheduler_.pop_all_due();
 
-        for (auto &task: tasks) {
-            auto driver = &driver_manager_.get_driver(task.driver_name);
-            thread_pool_.detach_task(
-                [this, driver, t = std::move(task)] {
-                    auto http_client = http_client_factory_();
-                    updater_.process(t, *driver, *http_client);
-                });
-        }
-
-        if (!scheduler_.wait_for_next()) {
-            break;
-        }
+    for (auto& task : tasks) {
+      auto driver = &driver_manager_.get_driver(task.driver_name);
+      thread_pool_.detach_task([this, driver, t = std::move(task)] {
+        auto http_client = http_client_factory_();
+        updater_.process(t, *driver, *http_client);
+      });
     }
 
-    thread_pool_.wait();
-    SPDLOG_INFO("All tasks drained, shutting down");
+    if (!scheduler_.wait_for_next()) {
+      break;
+    }
+  }
+
+  thread_pool_.wait();
+  SPDLOG_INFO("All tasks drained, shutting down");
 }
 
 // ---------------------------------------------------------------------------
@@ -137,18 +142,34 @@ void Manager::Impl::run() {
 // ---------------------------------------------------------------------------
 
 Manager::Manager(Config::AppConfig config, std::stop_source stop_source)
-    : impl_(std::make_unique<Impl>(std::move(config), std::move(stop_source))) {
+    : impl_(std::make_unique<Impl>(std::move(config), std::move(stop_source)))
+{
 }
 
-Manager::Manager(Config::AppConfig config, std::stop_source stop_source,
-                 ResolverDispatcher dispatcher, std::function<std::unique_ptr<HttpClient>()> http_factory)
-    : impl_(std::make_unique<Impl>(std::move(config), std::move(stop_source), std::move(dispatcher), std::move(http_factory))) {
+Manager::Manager(Config::AppConfig config,
+                 std::stop_source stop_source,
+                 ResolverDispatcher dispatcher,
+                 std::function<std::unique_ptr<HttpClient>()> http_factory)
+    : impl_(std::make_unique<Impl>(std::move(config),
+                                   std::move(stop_source),
+                                   std::move(dispatcher),
+                                   std::move(http_factory)))
+{
 }
 
 Manager::~Manager() = default;
 
-void Manager::load_drivers() const { impl_->load_drivers(); }
+void Manager::load_drivers() const
+{
+  impl_->load_drivers();
+}
 
-void Manager::validate_config() const { impl_->validate_config(); }
+void Manager::validate_config() const
+{
+  impl_->validate_config();
+}
 
-void Manager::run() const { impl_->run(); }
+void Manager::run() const
+{
+  impl_->run();
+}

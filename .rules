@@ -64,8 +64,15 @@ Enable strict warnings (GCC/Clang): `-Wall -Wextra -Wpedantic -Wshadow -Wconvers
 - Minimize `#include` dependencies: forward-declare types where possible.
 - Always include what you use (IWYU): do not rely on transitive includes.
 - File conventions:
-  - **`.h`**: Pure interface declarations (no inline or template implementations).
-  - **`.hpp`**: Headers with template implementations, inline functions, or any implementation details.
+  - **`.h`**: Interface declarations with limited inline implementations.
+    Permitted inline content:
+    - Pure getters (single `return` statement, `constexpr` or not).
+    - Template methods ≤10 lines (excluding signature, blank lines, and braces).
+    - Classification predicates (`is_*()`, `has_*()`) that are single expressions.
+    - Factory methods that are single-expression returns (e.g. `from_array` delegating to `from_bytes`).
+    - Type alias / tag / convenience wrappers (e.g. `using`, `visit()` forwarding to `std::visit`).
+  - **`.hpp`**: Headers with template implementations exceeding the `.h` limits, non-trivial inline
+    functions, or any detailed implementation logic that does not fit the `.h` criteria above.
   - **`.cpp`**: Non-template implementation files.
 - Never place `using namespace` directives in header files at global scope.
 

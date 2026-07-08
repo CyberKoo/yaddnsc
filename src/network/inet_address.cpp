@@ -36,13 +36,13 @@ std::optional<Inet4Address> Inet4Address::parse(std::string_view addr) {
     return result;
 }
 
-Inet4Address Inet4Address::from_bytes(const addr_type &bytes) {
+Inet4Address Inet4Address::from_bytes(const addr_type &bytes) noexcept {
     Inet4Address result;
     result.addr_ = bytes;
     return result;
 }
 
-Inet4Address Inet4Address::from_array(const addr_type &addr) {
+Inet4Address Inet4Address::from_array(const addr_type &addr) noexcept {
     return from_bytes(addr);
 }
 
@@ -92,13 +92,13 @@ std::optional<Inet6Address> Inet6Address::parse(std::string_view addr) {
     return result;
 }
 
-Inet6Address Inet6Address::from_bytes(const addr_type &bytes) {
+Inet6Address Inet6Address::from_bytes(const addr_type &bytes) noexcept {
     Inet6Address result;
     result.addr_ = bytes;
     return result;
 }
 
-Inet6Address Inet6Address::from_array(const addr_type &addr) {
+Inet6Address Inet6Address::from_array(const addr_type &addr) noexcept {
     return from_bytes(addr);
 }
 
