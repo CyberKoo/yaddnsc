@@ -38,7 +38,7 @@ namespace Config {
         std::string address;                         ///< Single custom resolver address (backward-compatible)
         unsigned short port{53};                     ///< Port for the single address (default: 53)
         std::vector<DnsServer> servers;            ///< List of custom resolver servers
-        ResolverStrategy strategy{ResolverStrategy::CONCURRENT}; ///< Resolution strategy
+        ResolverStrategy strategy{ResolverStrategy::CONCURRENT}; ///< Domain Resolve strategy
     };
 
     /// Per-subdomain configuration from the config file.

@@ -10,8 +10,9 @@
 #include <spdlog/spdlog.h>
 
 #include "uri.h"
-#include "resolver_config.h"
 #include "config/config.h"
+#include "config/dns_config.h"
+#include "resolver_config.h"
 #include "dns/resolver_registry.h"
 #include "dns/resolver/base.h"
 

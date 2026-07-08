@@ -1,6 +1,6 @@
 # yaddnsc — Yet Another Dynamic DNS Client
 
-[![codecov](https://codecov.io/gh/Kotarou/yaddnsc/branch/master/graph/badge.svg)](https://codecov.io/gh/Kotarou/yaddnsc)
+[![codecov](https://codecov.io/github/CyberKoo/yaddnsc/graph/badge.svg?token=OA6OJQ3MN6)](https://codecov.io/github/CyberKoo/yaddnsc)
 
 > **⚠️ 注意：** `master` 分支（v1.x）正在积极开发中，v1 ABI 尚未最终确定，可能会有较大改动，每次更新后插件**必须**重新编译。
 

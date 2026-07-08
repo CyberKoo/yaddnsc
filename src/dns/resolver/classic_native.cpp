@@ -265,8 +265,8 @@ ClassicResolver::ClassicResolver(Config::DnsServer server)
 
 ClassicResolver::~ClassicResolver() = default;
 
-std::expected<std::vector<std::uint8_t>, DnsLookupException> ClassicResolver::query(const std::string &host, RecordKind type,
-                                                                                       int cancel_fd) const noexcept {
+std::expected<std::vector<std::uint8_t>, DnsLookupException> ClassicResolver::query(
+    const std::string &host, RecordKind type, int cancel_fd) const noexcept {
     return impl_->query(host, type, cancel_fd);
 }
 

@@ -44,16 +44,12 @@ DohResolver::Impl::Impl(std::unique_ptr<HttpClient> http_client, std::string ser
     server_(std::move(server)), http_client_(std::move(http_client)) {
 }
 
-std::expected<std::vector<std::uint8_t>, DnsLookupException> DohResolver::Impl::query(const std::string &host, RecordKind type,
-                                                                                            [[maybe_unused]] int cancel_fd) const {
+std::expected<std::vector<std::uint8_t>, DnsLookupException> DohResolver::Impl::query(
+    const std::string &host, RecordKind type, [[maybe_unused]] int cancel_fd) const {
     try {
-        // NOT IMPLEMENTED: DoH does not support cancellation via pipe fd.
-    // The underlying HttpClient (httplib::Client) does not expose
-    // its socket for poll() multiplexing.  To add support, the
-    // HttpClient interface and/or exchange() method would need a
-    // cancel_fd parameter that gets poll()-ed alongside the HTTP
-    // socket during the request lifecycle.
-    // See: dot.cpp (same limitation), classic_native.cpp (reference impl).
+    // NOT IMPLEMENTED: httplib::Client provides no cancellation API.
+    // To add support, HttpClient must provide its own cancellation mechanism.
+    // See: classic_native.cpp (reference impl).
     const auto record_type = DNS::Util::type_to_record_type(type);
 
     SPDLOG_DEBUG(R"(Resolver #{} lookup for domain "{}" (type {}))", id_, host, static_cast<std::uint16_t>(record_type));

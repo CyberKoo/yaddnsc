@@ -141,10 +141,8 @@ Manager::Manager(Config::AppConfig config, std::stop_source stop_source)
 }
 
 Manager::Manager(Config::AppConfig config, std::stop_source stop_source,
-                 ResolverDispatcher dispatcher,
-                 std::function<std::unique_ptr<HttpClient>()> http_factory)
-    : impl_(std::make_unique<Impl>(std::move(config), std::move(stop_source),
-                                    std::move(dispatcher), std::move(http_factory))) {
+                 ResolverDispatcher dispatcher, std::function<std::unique_ptr<HttpClient>()> http_factory)
+    : impl_(std::make_unique<Impl>(std::move(config), std::move(stop_source), std::move(dispatcher), std::move(http_factory))) {
 }
 
 Manager::~Manager() = default;

@@ -205,8 +205,7 @@ HttpResult TransientHttpClient::exchange(std::string_view url, const HttpRequest
 // ---------------------------------------------------------------------------
 
 PersistentHttpClient::PersistentHttpClient(const Uri &uri, const HttpClientOptions &opts)
-    : uri_(uri),
-      client_(std::make_unique<httplib::Client>(build_base_url(uri))) {
+    : uri_(uri), client_(std::make_unique<httplib::Client>(build_base_url(uri))) {
     apply_options(*client_, uri, opts);
 
     // Keep-alive is ON by default for persistent connections (reused client).
