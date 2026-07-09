@@ -19,8 +19,7 @@
 /// @throws DnsLookupException with Error::PARSE on any failure.
 namespace DNS {
     namespace Validator {
-        void validate_response(std::span<const std::uint8_t> request,
-                               std::span<const std::uint8_t> response);
+        void validate_response(std::span<const std::uint8_t> request, std::span<const std::uint8_t> response);
     } // namespace Validator
 } // namespace DNS
 

@@ -21,26 +21,25 @@ class PersistentHttpClient;
 /// through to the underlying HTTP client.
 ///
 /// resolve() returns 0 or 1 addresses.
-class HttpIpSource final : public IpSourceBase
-{
+class HttpIpSource final : public IpSourceBase {
 public:
-  /// Construct with an HTTP URL and optional filtering parameters.
-  /// @param url              URL of the HTTP IP detection service.
-  /// @param address_family   Preferred address family for the connection.
-  /// @param bind_interface   Outbound network interface to bind to (empty = any).
-  explicit HttpIpSource(std::string url,
-                        AddressFamily address_family = AddressFamily::UNSPECIFIED,
-                        std::string bind_interface = {});
+    /// Construct with an HTTP URL and optional filtering parameters.
+    /// @param url              URL of the HTTP IP detection service.
+    /// @param address_family   Preferred address family for the connection.
+    /// @param bind_interface   Outbound network interface to bind to (empty = any).
+    explicit HttpIpSource(std::string url,
+                          AddressFamily address_family = AddressFamily::UNSPECIFIED,
+                          std::string bind_interface = {});
 
-  ~HttpIpSource() override;
+    ~HttpIpSource() override;
 
-  [[nodiscard]] std::vector<InetAddress> resolve() const override;
+    [[nodiscard]] std::vector<InetAddress> resolve() const override;
 
 private:
-  std::string url_;
-  AddressFamily address_family_;
-  std::string bind_interface_;
-  std::unique_ptr<PersistentHttpClient> client_;
+    std::string url_;
+    AddressFamily address_family_;
+    std::string bind_interface_;
+    std::unique_ptr<PersistentHttpClient> client_;
 };
 
 #endif  // YADDNSC_HTTP_IP_SOURCE_H

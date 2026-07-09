@@ -16,7 +16,6 @@
 #include "util/bytes.hpp"
 
 namespace {
-
     // ── Low-level DNS wire-format helpers ──
 
     /// Skip a DNS wire-format name (QNAME) starting at @p offset.
@@ -109,7 +108,6 @@ namespace {
             DnsError::PARSE
         );
     }
-
 } // anonymous namespace
 
 // ===========================================================================
@@ -118,8 +116,7 @@ namespace {
 
 namespace DNS {
     namespace Validator {
-        void validate_response(std::span<const std::uint8_t> request,
-                               std::span<const std::uint8_t> response) {
+        void validate_response(std::span<const std::uint8_t> request, std::span<const std::uint8_t> response) {
             check_min_header_size(response);
             check_qr_bit(response);
             check_txid(request, response);

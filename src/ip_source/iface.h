@@ -17,19 +17,18 @@
 /// can apply policy filters.
 ///
 /// @note Thread-safe: the underlying InterfaceUtil uses a mutex-guarded cache.
-class InterfaceIpSource final : public IpSourceBase
-{
+class InterfaceIpSource final : public IpSourceBase {
 public:
-  /// Construct with the interface name and preferred address family.
-  /// @param interface_name  Name of the network interface (e.g. "eth0", "en0").
-  /// @param address_family  Preferred address family (IPV4, IPV6, or UNSPECIFIED).
-  InterfaceIpSource(std::string interface_name, AddressFamily address_family);
+    /// Construct with the interface name and preferred address family.
+    /// @param interface_name  Name of the network interface (e.g. "eth0", "en0").
+    /// @param address_family  Preferred address family (IPV4, IPV6, or UNSPECIFIED).
+    InterfaceIpSource(std::string interface_name, AddressFamily address_family);
 
-  [[nodiscard]] std::vector<InetAddress> resolve() const override;
+    [[nodiscard]] std::vector<InetAddress> resolve() const override;
 
 private:
-  std::string interface_name_;
-  AddressFamily address_family_;
+    std::string interface_name_;
+    AddressFamily address_family_;
 };
 
 #endif  // YADDNSC_INTERFACE_IP_SOURCE_H

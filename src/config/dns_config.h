@@ -12,14 +12,14 @@
 namespace Config {
     /// DNS server endpoint (configuration value object).
     struct DnsServer {
-        std::string address;  ///< Hostname or IP address of the DNS server
-        std::uint16_t port{53};  ///< UDP/TCP port (default: 53)
+        std::string address; ///< Hostname or IP address of the DNS server
+        std::uint16_t port{53}; ///< UDP/TCP port (default: 53)
     };
 
     /// DNS resolution strategy used by ResolverDispatcher.
     enum class ResolverStrategy {
-        FALLBACK,   ///< Try resolvers sequentially until one succeeds
-        CONCURRENT  ///< Query all resolvers concurrently and take the first result
+        FALLBACK, ///< Try resolvers sequentially until one succeeds
+        CONCURRENT ///< Query all resolvers concurrently and take the first result
     };
 }
 

@@ -65,11 +65,15 @@ struct DriverUpdateParams final {
 class Driver {
 public:
     Driver() = default;
+
     virtual ~Driver() = default;
 
     Driver(const Driver &) = delete;
+
     Driver &operator=(const Driver &) = delete;
+
     Driver(Driver &&) = delete;
+
     Driver &operator=(Driver &&) = delete;
 
     /// Build the API request for a DNS record update.

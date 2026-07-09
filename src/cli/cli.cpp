@@ -20,66 +20,60 @@
 //  CLI11 registration — each subcommand registers its own options
 //  ===========================================================================
 
-namespace
-{
-void register_commands(CLI::App& app,
-                       std::string& run_config_path,
-                       bool& run_verbose,
-                       bool& run_requested,
-                       int& exit_code)
-{
-  app.set_version_flag("-v,--version", yaddnsc::get_full_version(), "Print version information");
+namespace {
+    void register_commands(CLI::App &app, std::string &run_config_path, bool &run_verbose, bool &run_requested,
+                           int &exit_code) {
+                app.set_version_flag("-v,--version", std::string(YADDNSC::get_full_version()), "Print version information");
 
-  // run  — owns its own -c,--config and -d,--debug options
-  {
-    auto* run = app.add_subcommand("run", "Run the DDNS client");
+        // run  — owns its own -c,--config and -d,--debug options
+        {
+            auto *run = app.add_subcommand("run", "Run the DDNS client");
 
-    run->add_option("-c,--config", run_config_path, "Config file path")
-        ->default_str("config.json")
-        ->check(CLI::ExistingFile);
-    run->add_flag("-d,--debug", run_verbose, "Enable verbose (debug) logging");
-    run->callback([&run_requested] { run_requested = true; });
-  }
+            run->add_option("-c,--config", run_config_path, "Config file path")
+                    ->default_str("config.json")
+                    ->check(CLI::ExistingFile);
+            run->add_flag("-d,--debug", run_verbose, "Enable verbose (debug) logging");
+            run->callback([&run_requested] { run_requested = true; });
+        }
 
-  // Delegate to subcommand-specific registrations.
-  // Subcommands that need a config file own their own -c option internally.
-  Cli::register_driver_subcommand(app, exit_code);
-  Cli::register_interface_subcommand(app, exit_code);
-  Cli::register_dns_subcommand(app, exit_code);
-  Cli::register_config_subcommand(app, exit_code);
-  Cli::register_info_subcommand(app, exit_code);
-}
-}  // anonymous namespace
+        // Delegate to subcommand-specific registrations.
+        // Subcommands that need a config file own their own -c option internally.
+        Cli::register_driver_subcommand(app, exit_code);
+        Cli::register_interface_subcommand(app, exit_code);
+        Cli::register_dns_subcommand(app, exit_code);
+        Cli::register_config_subcommand(app, exit_code);
+        Cli::register_info_subcommand(app, exit_code);
+    }
+} // anonymous namespace
 
 // ===========================================================================
 //  parse_and_dispatch — parse argv, non-RUN commands handled in callbacks
 //  ===========================================================================
 
-Cli::CliOutcome Cli::parse_and_dispatch(int argc, char* argv[])
-{
-  std::string config_path = "config.json";
-  bool verbose = false;
-  bool run_requested = false;
-  int exit_code = EXIT_SUCCESS;
+Cli::CliOutcome Cli::parse_and_dispatch(int argc, char *argv[]) {
+    std::string config_path = "config.json";
+    bool verbose = false;
+    bool run_requested = false;
+    int exit_code = EXIT_SUCCESS;
 
-  CLI::App app{"Yet another DDNS client"};
-  register_commands(app, config_path, verbose, run_requested, exit_code);
+    CLI::App app{"Yet another DDNS client"};
+    register_commands(app, config_path, verbose, run_requested, exit_code);
 
-  try {
-    app.parse(argc, argv);
-  } catch (const CLI::ParseError& e) {
-    return {.exit_code = app.exit(e), .exit_early = true};
-  }
-
-  if (!run_requested) {
-    // If no subcommand was given at all (e.g. plain "./yaddnsc" with no
-    // subcommand and no parse error), print an error and exit with failure.
-    if (app.get_subcommands().empty()) {
-      std::println(std::cerr, "Error: no subcommand specified. Use --help to see available commands.");
-      return {.exit_code = EXIT_FAILURE, .exit_early = true};
+    try {
+        app.parse(argc, argv);
+    } catch (const CLI::ParseError &e) {
+        return {.exit_code = app.exit(e), .exit_early = true};
     }
-    return {.exit_code = exit_code, .exit_early = true};
-  }
 
-  return {.should_run = true, .config_path = std::move(config_path), .verbose = verbose};
+    if (!run_requested) {
+        // If no subcommand was given at all (e.g. plain "./yaddnsc" with no
+        // subcommand and no parse error), print an error and exit with failure.
+        if (app.get_subcommands().empty()) {
+            std::println(std::cerr, "Error: no subcommand specified. Use --help to see available commands.");
+            return {.exit_code = EXIT_FAILURE, .exit_early = true};
+        }
+        return {.exit_code = exit_code, .exit_early = true};
+    }
+
+    return {.should_run = true, .config_path = std::move(config_path), .verbose = verbose};
 }

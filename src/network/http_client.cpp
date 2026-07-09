@@ -36,26 +36,25 @@ namespace {
     // Dispatch: HttpMethod -> httplib callable
     // -----------------------------------------------------------------------
 
-    [[nodiscard]] httplib::Result dispatch(httplib::Client &client, const char *path,
-                                           const HttpRequest &req) noexcept {
+    [[nodiscard]] httplib::Result dispatch(httplib::Client &client, const char *path, const HttpRequest &req) noexcept {
         httplib::Headers headers{req.headers.begin(), req.headers.end()};
 
         switch (req.method) {
-            using enum HttpMethod;
-        case GET:
-            return client.Get(path, headers);
-        case POST:
-            return client.Post(path, headers, req.body.value_or(""), req.content_type);
-        case PUT:
-            return client.Put(path, headers, req.body.value_or(""), req.content_type);
-        case DEL:
-            return client.Delete(path, headers);
-        case PATCH:
-            return client.Patch(path, headers, req.body.value_or(""), req.content_type);
-        case HEAD:
-            return client.Head(path, headers);
-        case OPTIONS:
-            return client.Options(path, headers);
+                using enum HttpMethod;
+            case GET:
+                return client.Get(path, headers);
+            case POST:
+                return client.Post(path, headers, req.body.value_or(""), req.content_type);
+            case PUT:
+                return client.Put(path, headers, req.body.value_or(""), req.content_type);
+            case DEL:
+                return client.Delete(path, headers);
+            case PATCH:
+                return client.Patch(path, headers, req.body.value_or(""), req.content_type);
+            case HEAD:
+                return client.Head(path, headers);
+            case OPTIONS:
+                return client.Options(path, headers);
         }
 
         std::unreachable();
@@ -116,7 +115,7 @@ namespace {
 
         // --- Headers ---------------------------------------------------------
         httplib::Headers default_headers;
-        default_headers.emplace("User-Agent", yaddnsc::get_full_version());
+        default_headers.emplace("User-Agent", YADDNSC::get_full_version());
 
         if (opts.default_headers.has_value()) {
             for (const auto &[k, v]: *opts.default_headers) {
@@ -132,7 +131,7 @@ namespace {
     // -----------------------------------------------------------------------
 
     [[nodiscard]] HttpResult do_exchange(httplib::Client &client, const Uri &uri,
-                                          const HttpRequest &req) noexcept {
+                                         const HttpRequest &req) noexcept {
         const auto path = build_request(uri);
 
         SPDLOG_DEBUG("Sending {} request to {}://{}{} ({} header(s), {} bytes body)",
@@ -148,7 +147,8 @@ namespace {
         }
 
         SPDLOG_DEBUG("Received {} response from {}://{}{} (status {}, {} bytes)",
-                     magic_enum::enum_name(req.method),uri.get_schema(), uri.get_host(), path, result->status, result->body.size());
+                     magic_enum::enum_name(req.method), uri.get_schema(), uri.get_host(), path, result->status,
+                     result->body.size());
 
         return HttpResponse{
             .status_code = result->status, .body = result->body,
@@ -204,8 +204,8 @@ HttpResult TransientHttpClient::exchange(std::string_view url, const HttpRequest
 // PersistentHttpClient
 // ---------------------------------------------------------------------------
 
-PersistentHttpClient::PersistentHttpClient(const Uri &uri, const HttpClientOptions &opts)
-    : uri_(uri), client_(std::make_unique<httplib::Client>(build_base_url(uri))) {
+PersistentHttpClient::PersistentHttpClient(const Uri &uri, const HttpClientOptions &opts) : uri_(uri),
+    client_(std::make_unique<httplib::Client>(build_base_url(uri))) {
     apply_options(*client_, uri, opts);
 
     // Keep-alive is ON by default for persistent connections (reused client).

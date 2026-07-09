@@ -17,9 +17,13 @@
 
 namespace CoreLogger {
     YADDNSC_EXPORT void trace_impl(std::string_view msg, const char *file, int line, const char *func);
+
     YADDNSC_EXPORT void debug_impl(std::string_view msg, const char *file, int line, const char *func);
+
     YADDNSC_EXPORT void info_impl(std::string_view msg, const char *file, int line, const char *func);
+
     YADDNSC_EXPORT void warn_impl(std::string_view msg, const char *file, int line, const char *func);
+
     YADDNSC_EXPORT void error_impl(std::string_view msg, const char *file, int line, const char *func);
 }
 

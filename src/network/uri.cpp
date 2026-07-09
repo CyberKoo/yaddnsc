@@ -247,8 +247,8 @@ std::string Uri::get_origin() const {
     return schema_ + "://" + host_bracketed_ + ":" + std::to_string(*port_);
 }
 
-std::vector<std::pair<std::string, std::string>> Uri::get_query_params(bool plus_to_space) const {
-    std::vector<std::pair<std::string, std::string>> params;
+std::vector<std::pair<std::string, std::string> > Uri::get_query_params(bool plus_to_space) const {
+    std::vector<std::pair<std::string, std::string> > params;
 
     if (query_string_.empty()) {
         return params;
@@ -307,7 +307,7 @@ std::string Uri::url_encode(std::string_view input) noexcept {
     std::string result;
     result.reserve(input.size() * 3);
 
-    for (auto const c : input) {
+    for (auto const c: input) {
         auto const uc = static_cast<unsigned char>(c);
         if (std::isalnum(uc) || uc == '-' || uc == '.' || uc == '_' || uc == '~') {
             // unreserved character (RFC 3986 §2.3)

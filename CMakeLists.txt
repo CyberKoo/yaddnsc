@@ -103,11 +103,19 @@ include(ValidateIpAddress)
 validate_ip_address("${YADDNSC_DEFAULT_DNS_SERVER}" "YADDNSC_DEFAULT_DNS_SERVER")
 
 # ==============================================================================
+# Build ID — compiler identity fields used by build_id.hpp
+# ==============================================================================
+set(YADDNSC_COMPILER_ID "${CMAKE_CXX_COMPILER_ID}")
+set(YADDNSC_COMPILER_VERSION "${CMAKE_CXX_COMPILER_VERSION}")
+set(YADDNSC_BUILD_ID_STR "${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION} ${CMAKE_BUILD_TYPE}")
+
+# ==============================================================================
 include(GNUInstallDirs)
 
 # Generated headers (all configure_file calls, after all variables are defined)
 # ==============================================================================
 configure_file("${CMAKE_SOURCE_DIR}/template/headers/version.h.in" "${CMAKE_BINARY_DIR}/generated/version.h" @ONLY)
+configure_file("${CMAKE_SOURCE_DIR}/template/headers/build_id.hpp.in" "${CMAKE_BINARY_DIR}/generated/build_id.hpp" @ONLY)
 configure_file("${CMAKE_SOURCE_DIR}/template/headers/driver_ver.h.in" "${CMAKE_BINARY_DIR}/generated/driver_ver.h" @ONLY)
 configure_file("${CMAKE_SOURCE_DIR}/template/headers/config_cmake.h.in" "${CMAKE_BINARY_DIR}/generated/config_cmake.h" @ONLY)
 configure_file("${CMAKE_SOURCE_DIR}/template/headers/logging_pattern.h.in" "${CMAKE_BINARY_DIR}/generated/logging_pattern.h" @ONLY)

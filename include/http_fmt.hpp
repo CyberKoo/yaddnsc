@@ -18,8 +18,6 @@ struct std::formatter<HttpRequest> {
     template<>
     struct fmt::formatter<HttpRequest> {
 
-
-
 #endif
 
     /// Convert an HttpMethod enum value to its string representation.

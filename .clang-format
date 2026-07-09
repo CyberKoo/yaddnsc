@@ -10,35 +10,16 @@ Standard: c++20
 ColumnLimit: 120
 
 # Indentation settings
-IndentWidth: 2
-TabWidth: 2
+IndentWidth: 4
+TabWidth: 4
 UseTab: Never
 
 # Brace wrapping style
-# Functions/classes/namespaces: Allman style (brace on new line)
-# Control statements (if/for/while): K&R style (brace on same line)
-BreakBeforeBraces: Custom
-BraceWrapping:
-    AfterCaseLabel: false
-    AfterClass: true
-    AfterControlStatement: Never
-    AfterEnum: true
-    AfterFunction: true
-    AfterNamespace: true
-    AfterStruct: true
-    AfterUnion: true
-    AfterExternBlock: true
-    BeforeCatch: false
-    BeforeElse: false
-    BeforeLambdaBody: false
-    BeforeWhile: false
-    IndentBraces: false
-    SplitEmptyFunction: true
-    SplitEmptyRecord: true
-    SplitEmptyNamespace: true
+# CLion style: brace on same line (Attach) for all constructs
+BreakBeforeBraces: Attach
 
 # Line break settings
-AllowShortFunctionsOnASingleLine: None
+AllowShortFunctionsOnASingleLine: Inline
 AllowShortIfStatementsOnASingleLine: Never
 AllowShortLoopsOnASingleLine: false
 AllowShortBlocksOnASingleLine: Never
@@ -104,7 +85,7 @@ AlignOperands: true
 AlignTrailingComments: true
 
 # Access modifier offset
-AccessModifierOffset: -2
+AccessModifierOffset: -4
 
 # Constructor initializer list formatting
 BreakConstructorInitializers: BeforeColon

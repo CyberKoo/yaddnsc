@@ -9,25 +9,25 @@
 
 #include <string_view>
 
-namespace yaddnsc {
-    constexpr auto YADDNSC_VERSION_MAJOR = "@PROJECT_VERSION_MAJOR@";
+namespace YADDNSC {
+    constexpr std::string_view YADDNSC_VERSION_MAJOR = "@PROJECT_VERSION_MAJOR@";
 
-    constexpr auto YADDNSC_VERSION_MINOR = "@PROJECT_VERSION_MINOR@";
+    constexpr std::string_view YADDNSC_VERSION_MINOR = "@PROJECT_VERSION_MINOR@";
 
-    constexpr auto YADDNSC_VERSION_PATCH = "@PROJECT_VERSION_PATCH@";
+    constexpr std::string_view YADDNSC_VERSION_PATCH = "@PROJECT_VERSION_PATCH@";
 
-    constexpr auto YADDNSC_RELEASE_INFO = "@YADDNSC_RELEASE_INFO@";
+    constexpr std::string_view YADDNSC_RELEASE_INFO = "@YADDNSC_RELEASE_INFO@";
 
-    constexpr auto get_full_version() {
+    [[nodiscard]] constexpr std::string_view get_full_version() {
         return "yaddnsc/@PROJECT_VERSION_MAJOR@.@PROJECT_VERSION_MINOR@.@PROJECT_VERSION_PATCH@-@YADDNSC_RELEASE_INFO@";
     }
 
-    constexpr auto get_short_version() {
+    [[nodiscard]] constexpr std::string_view get_short_version() {
         return "@PROJECT_VERSION_MAJOR@.@PROJECT_VERSION_MINOR@.@PROJECT_VERSION_PATCH@-@YADDNSC_RELEASE_INFO@";
     }
 
-    constexpr auto get_version() {
+    [[nodiscard]] constexpr std::string_view get_version() {
         return "@PROJECT_VERSION_MAJOR@.@PROJECT_VERSION_MINOR@.@PROJECT_VERSION_PATCH@";
     }
-}
+}  // namespace YADDNSC
 #endif // YADDNSC_VERSION_H

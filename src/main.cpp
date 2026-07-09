@@ -31,7 +31,7 @@ int main(int argc, char *argv[]) {
     const auto outcome = Cli::parse_and_dispatch(argc, argv);
 
     // Global logging initialisation.
-    spdlog::set_pattern(YADDNSC_LOGGING_PATTERN);
+    spdlog::set_pattern(std::string{YADDNSC_LOGGING_PATTERN});
     spdlog::set_level(outcome.verbose ? spdlog::level::debug : spdlog::level::info);
 
     if (!outcome.should_run) {

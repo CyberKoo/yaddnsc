@@ -5,8 +5,6 @@
 #ifndef YADDNSC_CONFIG_VALIDATOR_HPP
 #define YADDNSC_CONFIG_VALIDATOR_HPP
 
-
-
 #include "uri.h"
 #include "fmt.hpp"
 #include "config.h"

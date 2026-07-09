@@ -126,11 +126,11 @@ namespace StringUtil {
     inline std::string_view ltrim(const std::string_view sv) noexcept {
         const auto it = std::ranges::find_if(sv, [](unsigned char ch) noexcept {
             return !std::isspace(ch);
-                    });
-                    return sv.substr(static_cast<size_t>(std::distance(sv.begin(), it)));
-                }
+        });
+        return sv.substr(static_cast<size_t>(std::distance(sv.begin(), it)));
+    }
 
-                /// Remove trailing whitespace from a string view.
+    /// Remove trailing whitespace from a string view.
     /// @return  A substring view with trailing whitespace removed.
     inline std::string_view rtrim(const std::string_view sv) noexcept {
         const auto it = std::ranges::find_if(
