@@ -92,11 +92,9 @@ namespace {
         dlerror(); // clear previous errors before calling dlsym
         auto sym = reinterpret_cast<Signature *>(dlsym(handle.get(), name));
         if (const auto error = dlerror()) {
-            SPDLOG_CRITICAL("Failed to resolve symbol '{}', error: {}", name, error);
             throw BadDriverException(fmt::format("Failed to resolve symbol '{}' in driver: {}", name, error));
         }
         if (!sym) {
-            SPDLOG_CRITICAL("Symbol '{}' resolved to null", name);
             throw BadDriverException(fmt::format("Symbol '{}' resolved to null in driver", name));
         }
         SPDLOG_TRACE("Resolved symbol '{}' at {}", name, static_cast<const void *>(sym));
@@ -115,7 +113,6 @@ namespace {
     DriverModule::HandlePtr DriverModule::open_handle(const std::string &path) {
         auto handle = HandlePtr(dlopen(path.c_str(), RTLD_NOW));
         if (handle == nullptr) {
-            SPDLOG_CRITICAL("Unable to load driver {}, error: {}", get_driver_name(path), dlerror());
             throw BadDriverException(fmt::format("Failed to load driver: {}", dlerror()));
         }
         SPDLOG_TRACE("Opened shared library '{}' (handle: {})", get_driver_name(path),
@@ -126,7 +123,6 @@ namespace {
     void DriverModule::verify_magic(const HandlePtr &handle, std::string_view driver_name) {
         auto magic_func = resolve_symbol<std::uint64_t()>(handle, "yaddnsc_drv_magic");
         if (magic_func() != YADDNSC_DRIVER_MAGIC) {
-            SPDLOG_CRITICAL("Driver '{}' failed magic verification: not a yaddnsc driver", driver_name);
             throw BadDriverException(
                 fmt::format("Driver '{}' is not a valid yaddnsc driver (magic mismatch)", driver_name)
             );
@@ -138,10 +134,6 @@ namespace {
         const auto drv_hash = drv_hash_func();
         constexpr auto host_hash = BuildId::COMPILER_ID_HASH;
         if (drv_hash != host_hash) {
-            SPDLOG_CRITICAL(
-                "Driver '{}' failed compiler identity check: driver hash 0x{:016X} != host hash 0x{:016X}. "
-                "The driver was built with a different compiler, ABI, or flags.",
-                driver_name, drv_hash, host_hash);
             throw BadDriverException(
                 fmt::format("Driver '{}' compiler identity mismatch: 0x{:016X} != 0x{:016X}. "
                             "Rebuild the driver with the same toolchain and flags as the host.",
@@ -189,12 +181,6 @@ void DriverManager::Impl::register_driver(DriverModule driver_res, std::string_v
     const auto got = driver.get_abi_version();
     constexpr auto required = DRV_ABI_VERSION;
     if (!got.is_compatible_with(required)) {
-        SPDLOG_CRITICAL(
-            "Failed to load driver '{}' [ABI {}.{}.{}] - incompatible with host [ABI {}.{}.{}]: "
-            "need major=={}, minor>={}, patch>={}",
-            driver_lib_name, got.major, got.minor, got.patch, required.major, required.minor, required.patch,
-            required.major, required.minor, required.patch);
-
         throw BadDriverException(
             fmt::format("Driver {} ABI {}.{}.{} incompatible with host {}.{}.{}: "
                         "need major=={}, minor>={}, patch>={}",
@@ -218,7 +204,6 @@ void DriverManager::Impl::register_driver(DriverModule driver_res, std::string_v
 void DriverManager::Impl::unload_driver(const std::string &name) {
     const auto it = driver_map_.find(name);
     if (it == driver_map_.end()) {
-        SPDLOG_CRITICAL("Driver '{}' not found, cannot unload", name);
         throw BadDriverException(fmt::format("Driver '{}' is not loaded, cannot unload", name));
     }
 
@@ -242,7 +227,6 @@ const Driver &DriverManager::get_driver(const std::string &name) const {
         return it->second.get();
     }
 
-    SPDLOG_CRITICAL("Driver {} not found", name);
     throw BadDriverException(fmt::format("Driver '{}' is not loaded", name));
 }
 
@@ -257,7 +241,6 @@ std::vector<std::string_view> DriverManager::get_loaded_drivers() const {
 void DriverManager::load_driver(const std::string &path) const {
     if (!std::filesystem::exists(path)) {
         const auto lib_name = get_driver_name(path);
-        SPDLOG_CRITICAL("Failed to load driver {}, file {} not found", lib_name, path);
         throw BadDriverException(fmt::format("Driver library '{}' not found at {}", lib_name, path));
     }
 
