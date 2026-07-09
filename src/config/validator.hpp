@@ -130,7 +130,7 @@ public:
     /// Construct with the loaded driver manager and available interfaces.
     /// @param driver_manager  Manager with all loaded driver plugins.
     /// @param interfaces      List of network interface names on the system.
-    ConfigValidator(const DriverManager &driver_manager, std::vector<std::string> interfaces)
+    ConfigValidator(const DriverManagerBase &driver_manager, std::vector<std::string> interfaces)
         : driver_manager_(driver_manager), interfaces_(std::move(interfaces)) {
     }
 
@@ -220,7 +220,7 @@ public:
     }
 
 private:
-    const DriverManager &driver_manager_;
+    const DriverManagerBase &driver_manager_;
     const std::vector<std::string> interfaces_;
 
     [[maybe_unused, no_unique_address]] NoCopy _nc_;

@@ -23,14 +23,12 @@
 namespace {
 
     /// Verify the DNS header structure for a standard query (mkquery_native).
-    void expect_standard_query_header(const std::vector<std::uint8_t> &packet, bool has_random_txid) {
+    ///
+    /// Verifies all fixed header fields. The TXID is random and may be any
+    /// 16-bit value (including 0x0000), so it is not asserted here.
+    /// Randomness is validated in TxidRandomness below.
+    void expect_standard_query_header(const std::vector<std::uint8_t> &packet) {
         ASSERT_GE(packet.size(), 12U) << "Packet must have at least a 12-byte header";
-
-        if (has_random_txid) {
-            // Transaction ID is random — we can only verify it's non-zero
-            // (extremely unlikely to be zero with a proper random device)
-            EXPECT_NE(packet[0], 0) << "TXID high byte should not be 0";
-        }
 
         // Flags: bytes 2-3 = 0x0100 (standard query, RD=1)
         EXPECT_EQ(packet[2], 0x01) << "Flags high byte: standard query with RD";
@@ -93,7 +91,7 @@ namespace {
 TEST(MkqueryManualTest, BuildsExampleCom_A) {
     auto packet = DNS::mkquery_native("example.com", DNS::RecordType::A);
 
-    expect_standard_query_header(packet, true);
+    expect_standard_query_header(packet);
     expect_qname_example_com(packet, 12);
 
     // QTYPE (after QNAME end): ns_t_a = 1 → 0x0001
@@ -111,7 +109,7 @@ TEST(MkqueryManualTest, BuildsExampleCom_A) {
 TEST(MkqueryManualTest, BuildsGoogleCom_AAAA) {
     auto packet = DNS::mkquery_native("google.com", DNS::RecordType::AAAA);
 
-    expect_standard_query_header(packet, true);
+    expect_standard_query_header(packet);
 
     // QNAME: \x06google\x03com\x00
     ASSERT_GE(packet.size(), 12 + 11);
@@ -146,7 +144,7 @@ TEST(MkqueryManualTest, TotalPacketSize) {
 TEST(MkqueryManualTest, BuildsDeepSubdomain) {
     auto packet = DNS::mkquery_native("a.b.c.example.com", DNS::RecordType::A);
 
-    expect_standard_query_header(packet, true);
+    expect_standard_query_header(packet);
 
     // QNAME: \x01a\x01b\x01c\x07example\x03com\x00 = 1+1+1+7+3+1 = 14 bytes content + 6 label bytes
     // Actually: \x01 a \x01 b \x01 c \x07 e x a m p l e \x03 c o m \x00
@@ -178,6 +176,21 @@ TEST(MkqueryManualTest, BuildsDeepSubdomain) {
     // QCLASS = IN
     EXPECT_EQ(packet[33], 0x00);
     EXPECT_EQ(packet[34], 0x01);
+}
+
+TEST(MkqueryManualTest, TxidRandomness) {
+    // TXID must be random — two consecutive calls should produce different IDs.
+    // The probability of colliding is 1/65536 per pair, negligible for 1 trial.
+    auto packet1 = DNS::mkquery_native("example.com", DNS::RecordType::A);
+    auto packet2 = DNS::mkquery_native("google.com", DNS::RecordType::AAAA);
+
+    ASSERT_GE(packet1.size(), 2U);
+    ASSERT_GE(packet2.size(), 2U);
+
+    auto txid1 = (static_cast<std::uint16_t>(packet1[0]) << 8) | packet1[1];
+    auto txid2 = (static_cast<std::uint16_t>(packet2[0]) << 8) | packet2[1];
+
+    EXPECT_NE(txid1, txid2) << "Consecutive mkquery_native() calls must produce different TXIDs";
 }
 
 // ===========================================================================

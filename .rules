@@ -1,16 +1,16 @@
 # C++ Project Rules & Guidelines
 
 ## Language Standard
-- Use **C++20** features exclusively whenever possible.
-- Use **C++23** features where applicable and beneficial, provided they are supported by GCC 14, Clang 19, and Apple Clang 15.
+- Use **C++23** features wherever applicable. Fall back to **C++20** only when
+  a required C++23 feature is not yet available in the supported compilers
+  (GCC 14+, Clang 19+, AppleClang 15+).
 
 ## Compiler & Build
 - Target compilers: **GCC 14+**, **Clang 19+**, **Apple Clang 15+**.
-- Use **CMake** as the build system, minimum version **3.20**.
+- Use **CMake** as the build system, minimum version **3.28**.
 - Use **CPM.cmake** (v0.40+) for dependency management. Declare dependencies using `CPMAddPackage` with explicit, immutable Git hashes (`GIT_TAG`). Do not use floating branches or mutable tags.
 - Document the rationale for using CPM in the project build documentation. Be aware of CPM's limitations (no binary caching, no transitive dependency resolution, no centralized security advisory registry) and mitigate them by keeping the dependency set small and performing periodic manual vulnerability reviews.
 - Commit the dependency script to version control and review any dependency additions or version changes in pull requests.
-- Compile with `-std=c++20` or `-std=c++23` as appropriate.
 
 ### Compiler Warnings
 Enable strict warnings (GCC/Clang): `-Wall -Wextra -Wpedantic -Wshadow -Wconversion -Wsign-conversion -Werror`
@@ -36,7 +36,7 @@ Enable strict warnings (GCC/Clang): `-Wall -Wextra -Wpedantic -Wshadow -Wconvers
 | Category | Requirement |
 |----------|-------------|
 | **Logging** | Use the project's centralized logging facade. No `std::cout`/`printf` or ad-hoc loggers. |
-| **Error/Result types** | Use project-wide `Result<T, E>`, `ErrorOr<T>`, or `std::expected<T, E>` consistently. |
+| **Error/Result types** | Use `std::expected<T, E>` consistently. Do not introduce per-module error wrappers. |
 | **Configuration** | Use the established configuration subsystem. Do not parse env vars or config files independently. |
 | **Platform abstraction** | Use existing platform detection macros and OS-abstraction utilities. No `#ifdef` blocks in new code. |
 | **String utilities** | Use shared `trim`, `split`, `join`, case conversion from the project's string library. |
@@ -61,6 +61,19 @@ Enable strict warnings (GCC/Clang): `-Wall -Wextra -Wpedantic -Wshadow -Wconvers
 
 ## Headers & Include Management
 - Include order is enforced by clang-format (`IncludeBlocks: Regroup`).
+- Include syntax:
+  - Project headers (from `include/`, `src/`, and `generated/`): always use `#include "..."`.
+  - Third-party library headers and standard library headers: always use `#include <...>`.
+- Include path conventions:
+  - A `.cpp` file should include its own `.h` header using the bare filename
+    (e.g. `#include "dispatcher.h"` for `dispatcher.cpp`). This is automatically
+    placed first by clang-format.
+  - All other project headers must use the full path relative to the project's
+    `include/` or `src/` base directory (e.g. `#include "dns/types.h"`,
+    `#include "exception/dns_lookup.h"`).
+  - Do **NOT** use `../` relative paths to reach other modules.
+  - Generated headers (from `generated/`) are referenced by their flat filename
+    (e.g. `#include "config_cmake.h"`) since there is no name overlap.
 - Minimize `#include` dependencies: forward-declare types where possible.
 - Always include what you use (IWYU): do not rely on transitive includes.
 - File conventions:
@@ -235,10 +248,10 @@ public:
 - Use `std::span`, `std::string_view`, and bounds-checked containers to prevent buffer overflows.
 - Use brace initialization `{}` to prevent narrowing conversions.
 - Avoid undefined behavior: defer to the C++ standard, not observed platform behavior.
-- Integrate static analysis tools (Coverity, SonarQube) into CI for all build types.
+- Consider integrating static analysis tools (Coverity, SonarQube) into CI for additional assurance.
 
 ## Testing
-- Use the project's established framework (**GoogleTest**, **Catch2**, or **doctest**). Do not introduce a different one.
+- Use **GoogleTest** as the testing framework. Do not introduce alternatives.
 - Maintain minimum **80% line coverage** (track with `lcov`/`gcov` or equivalent).
 - Naming: `TEST(ClassName, MethodName_Scenario_ExpectedBehavior)`.
 - Use mock objects for external dependencies; prefer virtual interface-based mocking.
@@ -247,7 +260,7 @@ public:
 
 ## Logging
 - Use the project's centralized logging facade exclusively. No `std::cout`, `printf`, or ad-hoc loggers.
-- Production logs must be machine-parseable (e.g., JSON lines) with timestamp, severity, source location, and unique message identifier.
+- Production logs include timestamp, severity, source location, and message via spdlog.
 - Do not log sensitive data (passwords, tokens, PII) unless explicitly scrubbed.
 
 ## Documentation

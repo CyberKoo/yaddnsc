@@ -315,6 +315,93 @@ TEST(DnsValidatorTest, TooShort_ReportedBeforeOtherChecks) {
 }
 
 // ===========================================================================
+// question_section_end — short query (< 12 bytes) on request
+// ===========================================================================
+
+TEST(DnsValidatorTest, ShortQuery_QuestionSectionEnd_ReturnsZero) {
+    // The query is not checked for minimum size before question_section_end.
+    // A query < 12 bytes causes question_section_end to return 0 (msg.size() < 12)
+    // and check_question_echo throws "malformed question section".
+    // Must have matching TXID bytes to pass check_txid.
+    std::vector<std::uint8_t> short_query{0x12, 0x34, 0x00};  // 3 bytes, TXID matches response
+    auto response = make_valid_response();
+
+    EXPECT_THROW(
+        {
+            try {
+                DNS::Validator::validate_response(short_query, response);
+            } catch (const DnsLookupException &e) {
+                EXPECT_EQ(e.get_error(), DnsError::PARSE);
+                throw;
+            }
+        },
+        DnsLookupException
+    );
+}
+
+// ===========================================================================
+// question_section_end — response QDCOUNT == 0
+// ===========================================================================
+
+TEST(DnsValidatorTest, ResponseQdcountZero_QuestionSectionEnd_ReturnsZero) {
+    // QDCOUNT = 0 in the response causes question_section_end to return 0
+    // (read_u16_be(msg, 4) == 0).  However, check_qdcount runs FIRST and
+    // throws for QDCOUNT != 1.  We need the query to have QDCOUNT = 0 instead,
+    // since the query never goes through check_qdcount.
+    std::vector<std::uint8_t> query = make_query_example();
+    // Set QDCOUNT = 0 on the query
+    query[4] = 0;
+    query[5] = 0;
+
+    auto response = make_valid_response();
+
+    EXPECT_THROW(
+        {
+            try {
+                DNS::Validator::validate_response(query, response);
+            } catch (const DnsLookupException &e) {
+                EXPECT_EQ(e.get_error(), DnsError::PARSE);
+                EXPECT_NE(std::string_view(e.what()).find("malformed"),
+                          std::string_view::npos);
+                throw;
+            }
+        },
+        DnsLookupException
+    );
+}
+
+// ===========================================================================
+// check_question_echo — rsp_qs_end == 0 (skip_name returns 0)
+// ===========================================================================
+
+TEST(DnsValidatorTest, ResponseMalformedQname_SkipName_ReturnsZero) {
+    // Build a response where the QNAME has a label length that exceeds
+    // the buffer, causing skip_name to return 0.
+    // Set msg[12] = 100 (label length 100) but the message is only 29 bytes.
+    // skip_name will compute offset = 12 + 1 + 100 = 113 > 29, exit the
+    // while loop, and return 0.
+    auto query = make_query_example();
+    auto response = make_valid_response();
+
+    // Make the first label length 100 (way beyond the buffer)
+    response[12] = 100;
+
+    EXPECT_THROW(
+        {
+            try {
+                DNS::Validator::validate_response(query, response);
+            } catch (const DnsLookupException &e) {
+                EXPECT_EQ(e.get_error(), DnsError::PARSE);
+                EXPECT_NE(std::string_view(e.what()).find("malformed"),
+                          std::string_view::npos);
+                throw;
+            }
+        },
+        DnsLookupException
+    );
+}
+
+// ===========================================================================
 // check_question_echo — second throw path (both parseable but different)
 // ===========================================================================
 

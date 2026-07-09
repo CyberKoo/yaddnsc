@@ -48,11 +48,26 @@ add_unit_test(dns_util)
 # exception tests need exc headers only (compile-time check)
 add_unit_test(exception)
 
+# record_kind — simple enum, header-only
+add_unit_test(record_kind)
+
+# driver_magic — compile-time constant check, header-only
+add_unit_test(driver_magic)
+
 # fmt polyfill — header-only, conditional compilation
 add_unit_test(fmt_polyfill)
 
 # TtlCache — header-only template, needs pthread for std::thread
 add_unit_test(cache)
+
+# bytes — big-endian read helpers, header-only
+add_unit_test(bytes)
+
+# random — thread-local RNG engine, header-only
+add_unit_test(random)
+
+# fd — RAII UniqueFd wrapper + make_pipe, header-only (POSIX)
+add_unit_test(fd)
 
 # ============================================================================
 #  Tests requiring test_support .cpp files
@@ -79,6 +94,21 @@ add_unit_test(string_util)
 
 # config_types — header-only struct/enum tests, no .cpp needed
 add_unit_test(config_types)
+
+# config_parser — glaze-based JSON config parsing, uses parser.hpp
+add_unit_test(config_parser)
+
+# config_validator — config validation detail functions
+add_unit_test(config_validator)
+
+# retry_util — retry_on_error with backoff, header-only template
+add_unit_test(retry_util)
+
+# resolver_base — ResolverBase interface test, header-only
+add_unit_test(resolver_base)
+
+# driver_exceptions — ParamParseException hierarchy test, header-only
+add_unit_test(driver_exceptions)
 
 # ============================================================================
 #  Tests needing an extra .cpp source (but no external link deps)
@@ -114,9 +144,6 @@ endif ()
 
 # dns_parser_native — tests DnsParser (self-contained backend, no libresolv)
 # parser_native.cpp implements the full DNS wire-format parser without system libraries.
-# The test file dns_parser.cpp includes dns/parser/parser.h which conditionally
-# selects the parser backend via YADDNSC_USE_NATIVE_DNS.  We override it per-target
-# so this test always exercises the native path regardless of the project default.
-add_unit_test(dns_parser_native SOURCE dns_parser.cpp
+add_unit_test(dns_parser_native SOURCE dns_parser.cpp dns_parser_native.cpp
     ${PROJECT_SOURCE_DIR}/src/dns/parser/parser_native.cpp)
 target_compile_definitions(test_dns_parser_native PRIVATE YADDNSC_USE_NATIVE_DNS=1)

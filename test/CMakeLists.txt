@@ -53,6 +53,7 @@ add_library(test_support STATIC
 target_include_directories(test_support PUBLIC
     ${PROJECT_SOURCE_DIR}/include
     ${PROJECT_SOURCE_DIR}/src
+    ${PROJECT_SOURCE_DIR}/test
     ${PROJECT_BINARY_DIR}/generated
 )
 
