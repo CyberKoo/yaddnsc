@@ -59,11 +59,14 @@ struct ResolverDispatcher::Impl {
 
     /// Query a single resolver, parse the response, and classify the result.
     /// Handles transport errors, parse exceptions, and all RCODE values uniformly.
-    [[nodiscard]] static std::expected<std::vector<std::string>, DnsLookupException> try_query_resolver(
-        const ResolverBase &resolver, const std::string &host, RecordKind type, int cancel_fd = -1) noexcept;
+    [[nodiscard]] static std::expected<std::vector<std::string>, DnsLookupException>
+    try_resolve(const ResolverBase &resolver, const std::string &host, RecordKind type, int cancel_fd = -1) noexcept;
 
-    static void query_resolver(const ResolverBase &resolver, const std::string &host, RecordKind type,
-                               const std::shared_ptr<ConcurrentState> &state, int cancel_fd);
+    static void dispatch_query(const ResolverBase &resolver,
+                               const std::string &host,
+                               RecordKind type,
+                               const std::shared_ptr<ConcurrentState> &state,
+                               int cancel_fd);
 
     // ── Constructor / Destructor ──
     Impl(std::vector<std::shared_ptr<ResolverBase> > resolvers, Config::ResolverStrategy strategy)
@@ -73,11 +76,15 @@ struct ResolverDispatcher::Impl {
     ~Impl() = default;
 
     // ── Member functions ──
-    [[nodiscard]] std::vector<std::string> resolve(const std::string &host, RecordKind type, std::uint32_t max_retries,
+    [[nodiscard]] std::vector<std::string> resolve(const std::string &host,
+                                                   RecordKind type,
+                                                   std::uint32_t max_retries,
                                                    std::uint32_t backoff_ms) const;
 
-    [[nodiscard]] std::vector<std::string> resolve_single(const std::string &host, RecordKind type,
-                                                          std::uint32_t max_retries, std::uint32_t backoff_ms) const;
+    [[nodiscard]] std::vector<std::string> resolve_single(const std::string &host,
+                                                          RecordKind type,
+                                                          std::uint32_t max_retries,
+                                                          std::uint32_t backoff_ms) const;
 
     [[nodiscard]] std::vector<std::string> resolve_multi(const std::string &host, RecordKind type) const;
 
@@ -94,8 +101,10 @@ struct ResolverDispatcher::Impl {
 //  ResolverDispatcher::Impl  —  implementations
 // ===========================================================================
 
-std::vector<std::string> ResolverDispatcher::Impl::resolve(const std::string &host, RecordKind type,
-                                                           std::uint32_t max_retries, std::uint32_t backoff_ms) const {
+std::vector<std::string> ResolverDispatcher::Impl::resolve(const std::string &host,
+                                                           RecordKind type,
+                                                           std::uint32_t max_retries,
+                                                           std::uint32_t backoff_ms) const {
     // Retry is only applied in single-resolver modes (exactly one resolver).
     // Multi-resolver mode (size > 1) runs without retry — the redundancy of multiple resolvers
     // provides fault tolerance, and retrying the entire multi-resolver round is not desired.
@@ -106,13 +115,14 @@ std::vector<std::string> ResolverDispatcher::Impl::resolve(const std::string &ho
     return resolve_multi(host, type);
 }
 
-std::vector<std::string> ResolverDispatcher::Impl::resolve_single(const std::string &host, RecordKind type,
+std::vector<std::string> ResolverDispatcher::Impl::resolve_single(const std::string &host,
+                                                                  RecordKind type,
                                                                   std::uint32_t max_retries,
                                                                   std::uint32_t backoff_ms) const {
     unsigned actual_retries = 0;
     auto result = Utils::Retry::retry_on_error<std::vector<std::string>, DnsLookupException>(
         [&]() -> std::expected<std::vector<std::string>, DnsLookupException> {
-            return try_query_resolver(*resolvers_[0], host, type);
+            return try_resolve(*resolvers_[0], host, type);
         },
         static_cast<unsigned>(max_retries), [](const DnsLookupException &e) { return is_retryable(e.get_error()); },
         static_cast<unsigned long>(backoff_ms), &actual_retries);
@@ -137,8 +147,11 @@ std::vector<std::string> ResolverDispatcher::Impl::resolve_single(const std::str
     return std::move(*result);
 }
 
-std::expected<std::vector<std::string>, DnsLookupException> ResolverDispatcher::Impl::try_query_resolver(
-    const ResolverBase &resolver, const std::string &host, RecordKind type, int cancel_fd) noexcept {
+std::expected<std::vector<std::string>, DnsLookupException> ResolverDispatcher::Impl::try_resolve(
+    const ResolverBase &resolver,
+    const std::string &host,
+    RecordKind type,
+    int cancel_fd) noexcept {
     // ── 1. Query the resolver (transport layer) ──
     auto raw = resolver.query(host, type, cancel_fd);
     if (!raw) {
@@ -160,39 +173,26 @@ std::expected<std::vector<std::string>, DnsLookupException> ResolverDispatcher::
                 return std::move(parsed.records);
             }
             // NODATA — domain exists but no records of the requested type.
-            return std::unexpected(
-                DnsLookupException(
-                    fmt::format(R"(DNS lookup for domain "{}" returned no records)", host),
-                    DnsError::NODATA)
-            );
+            return std::unexpected(DnsLookupException(
+                fmt::format(R"(DNS lookup for domain "{}" returned no records)", host), DnsError::NODATA));
 
         case DNS::Rcode::NXDOMAIN:
             return std::unexpected(
-                DnsLookupException(
-                    fmt::format(R"(Domain "{}" does not exist (NXDOMAIN))", host), DnsError::NX_DOMAIN)
-            );
+                DnsLookupException(fmt::format(R"(Domain "{}" does not exist (NXDOMAIN))", host), DnsError::NX_DOMAIN));
 
         case DNS::Rcode::SERVFAIL:
             return std::unexpected(
-                DnsLookupException(
-                    fmt::format(R"(DNS server returned SERVFAIL for "{}")", host), DnsError::RETRY)
-            );
+                DnsLookupException(fmt::format(R"(DNS server returned SERVFAIL for "{}")", host), DnsError::RETRY));
 
         case DNS::Rcode::REFUSED:
-            return std::unexpected(
-                DnsLookupException(
-                    fmt::format(R"(DNS server refused query for "{}")", host),
-                    DnsError::SERVER_REFUSED
-                )
-            );
+            return std::unexpected(DnsLookupException(fmt::format(R"(DNS server refused query for "{}")", host),
+                                                      DnsError::SERVER_REFUSED));
 
         default:
             // FORMERR, NOTIMP, YXDOMAIN, etc.
             return std::unexpected(DnsLookupException(
-                    fmt::format(R"(DNS lookup for "{}" returned RCODE {})", host, magic_enum::enum_name(parsed.rcode)),
-                    DnsError::UNKNOWN
-                )
-            );
+                fmt::format(R"(DNS lookup for "{}" returned RCODE {})", host, magic_enum::enum_name(parsed.rcode)),
+                DnsError::UNKNOWN));
     }
 }
 
@@ -200,10 +200,13 @@ bool ResolverDispatcher::Impl::is_retryable(DnsError error) {
     return error == DnsError::RETRY || error == DnsError::UNKNOWN || error == DnsError::CONNECTION;
 }
 
-void ResolverDispatcher::Impl::query_resolver(const ResolverBase &resolver, const std::string &host, RecordKind type,
-                                              const std::shared_ptr<ConcurrentState> &state, int cancel_fd) {
+void ResolverDispatcher::Impl::dispatch_query(const ResolverBase &resolver,
+                                              const std::string &host,
+                                              RecordKind type,
+                                              const std::shared_ptr<ConcurrentState> &state,
+                                              int cancel_fd) {
     const auto id = resolver.get_id();
-    auto result = try_query_resolver(resolver, host, type, cancel_fd);
+    auto result = try_resolve(resolver, host, type, cancel_fd);
 
     if (result) {
         // Fastest resolver returned a valid result — signal success.
@@ -257,8 +260,8 @@ void ResolverDispatcher::Impl::query_resolver(const ResolverBase &resolver, cons
 
             case DnsError::SERVER_REFUSED:
                 SPDLOG_TRACE(R"(Resolver #{} refused query for "{}")", id, host);
-                if (!state->definitive_error.has_value() || state->definitive_error->get_error() !=
-                    DnsError::NX_DOMAIN) {
+                if (!state->definitive_error.has_value() ||
+                    state->definitive_error->get_error() != DnsError::NX_DOMAIN) {
                     state->definitive_error = error;
                 }
                 break;
@@ -307,7 +310,7 @@ std::vector<std::string> ResolverDispatcher::Impl::resolve_fallback(const std::s
         const auto &resolver = resolvers_[idx];
         const auto id = resolver->get_id();
 
-        auto result = try_query_resolver(*resolver, host, type);
+        auto result = try_resolve(*resolver, host, type);
 
         if (result) {
             SPDLOG_DEBUG(R"(Fallback resolver #{} returned {} record(s) for "{}": {})", id, result->size(), host,
@@ -377,14 +380,21 @@ std::vector<std::string> ResolverDispatcher::Impl::resolve_concurrent(const std:
         for (size_t i = offset; i < batch_end; ++i) {
             SPDLOG_TRACE(R"(Batched concurrent resolver #{} for "{}")", resolvers_[i]->get_id(), host);
             std::thread([resolver = resolvers_[i], host, type, state, cancel_fd = state->cancel_fd.get()] {
-                query_resolver(*resolver, host, type, state, cancel_fd);
+                dispatch_query(*resolver, host, type, state, cancel_fd);
             }).detach();
         }
 
         // Wait for the fastest valid result or all threads to finish.
+        std::vector<std::string> batch_result;
+        bool has_result = false;
         {
             std::unique_lock lock(state->mtx);
             state->cv.wait(lock, [&state] { return state->has_result || state->completed == state->total; });
+
+            if (state->has_result) {
+                has_result = true;
+                batch_result = std::move(state->result);
+            }
         }
 
         // Close pipe fds after the batch completes (all threads are done).
@@ -394,10 +404,10 @@ std::vector<std::string> ResolverDispatcher::Impl::resolve_concurrent(const std:
         state->cancel_notify_fd.reset();
 
         // Fastest resolver returned a valid result — take it.
-        if (state->has_result) {
-            SPDLOG_DEBUG(R"(DNS lookup for "{}" returned {} record(s): {})", host, state->result.size(),
-                         fmt::join(state->result, ", "));
-            return std::move(state->result);
+        if (has_result) {
+            SPDLOG_DEBUG(R"(DNS lookup for "{}" returned {} record(s): {})", host, batch_result.size(),
+                         fmt::join(batch_result, ", "));
+            return batch_result;
         }
 
         // All resolvers in the batch finished without a valid result.

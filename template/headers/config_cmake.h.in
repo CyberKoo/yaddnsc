@@ -19,6 +19,8 @@
 
 #cmakedefine STATIC_COMPILE
 
+#cmakedefine YADDNSC_LIBC_MUSL
+
 #define YADDNSC_DEFAULT_DRIVER_DIR "@CMAKE_INSTALL_FULL_LIBDIR@/yaddnsc/drivers"
 
 #if defined(HAVE_RES_STATE_EXT_NSADDRS) || defined(HAVE_RES_SETSERVERS)

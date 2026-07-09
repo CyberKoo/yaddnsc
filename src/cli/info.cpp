@@ -20,6 +20,7 @@ namespace Cli {
             std::println("Build configuration:");
             std::println("  {:<20} {}", "Version:", YADDNSC::get_full_version());
             std::println("  {:<20} {}", "Build ID:", BuildId::full_id());
+            std::println("  {:<20} {}", "C library:", BuildId::LIBC_TYPE);
             if (BuildId::GLIBCXX_CXX11_ABI) {
                 std::println("  {:<20} {} (_GLIBCXX_USE_CXX11_ABI=1)", "Compiler ABI:", BuildId::COMPILER_ABI);
             } else {

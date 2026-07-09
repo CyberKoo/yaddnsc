@@ -11,6 +11,8 @@
 
 #include <version>  // _LIBCPP_VERSION / __GLIBCXX__
 
+#include "config_cmake.h"  // YADDNSC_LIBC_MUSL
+
 namespace BuildId {
 
 // ── FNV-1a 64-bit helpers ─────────────────────────────────────────────
@@ -47,6 +49,13 @@ constexpr std::string_view COMPILER_ID       = "@YADDNSC_COMPILER_ID@";
 constexpr std::string_view COMPILER_VERSION  = "@YADDNSC_COMPILER_VERSION@";
 constexpr std::string_view BUILD_TYPE        = "@CMAKE_BUILD_TYPE@";
 
+// Detected at CMake configure time (via config_cmake.h)
+#ifdef YADDNSC_LIBC_MUSL
+constexpr std::string_view LIBC_TYPE         = "musl";
+#else
+constexpr std::string_view LIBC_TYPE         = "glibc";
+#endif
+
 // Detected at C++ compile time
 #if defined(_LIBCPP_VERSION)
 constexpr std::string_view COMPILER_ABI      = "libc++";
@@ -67,7 +76,7 @@ constexpr bool            GLIBCXX_CXX11_ABI  = false;
 /// FNV-1a 64-bit hash of compiler identity fields.
 /// Fast O(1) comparison for driver loader validation.
 constexpr std::uint64_t COMPILER_ID_HASH =
-    fnv1a_64_sep(COMPILER_ID, COMPILER_VERSION, COMPILER_ABI, GLIBCXX_CXX11_ABI ? "1" : "0");
+    fnv1a_64_sep(COMPILER_ID, COMPILER_VERSION, COMPILER_ABI, GLIBCXX_CXX11_ABI ? "1" : "0", BUILD_TYPE, LIBC_TYPE);
 
 /// Human-readable build ID string, e.g. "yaddnsc GNU 15.2.0 Release".
 [[nodiscard]] constexpr const char* full_id() noexcept {

@@ -30,6 +30,8 @@
 - **Forced update scheduling** — periodically force-update DNS records even when the IP hasn't changed.
 - **Graceful shutdown** — handles SIGINT/SIGTERM.
 - **Thread-pool-based concurrency** — subdomain updates are dispatched to a thread pool for parallel execution.
+- **Build identity verification** — a compiler identity hash (FNV-1a 64-bit) is embedded in both the host binary and every driver plugin at compile time, preventing ABI mismatches from incompatible toolchains. The `yaddnsc info` CLI command displays the full build configuration.
+- **Configuration validation on startup** — the loaded drivers and network interfaces are validated against the configuration before the update loop begins, catching misconfigurations early.
 - **C++23** — better performance, safer and more reliable code, fewer external dependencies.
 - **Cross-platform** — supports POSIX platforms including Linux (glibc), Linux (musl), macOS, and FreeBSD. CI builds on Linux (glibc) and macOS (arm64).
 
@@ -41,7 +43,7 @@ flowchart TB
 CLI parsing · Load config · Init
 Create SignalWatcher"]
     mgr["Manager
-Load drivers · Validate config
+Load & verify drivers · Validate config
 Orchestrate update loop
 (owns thread pool)"]
     sched["Scheduler
@@ -92,7 +94,7 @@ Check response"]
 |-----------------|----------------------------------------------------|
 | OS              | POSIX (Linux, macOS, *BSD)                         |
 | CMake           | 3.28                                               |
-| C++ Compiler    | C++23 capable (GCC 14+, Clang 18+, Apple Clang 15+) |
+| C++ Compiler    | C++23 capable (GCC 14+, Clang 19+, Apple Clang 15+) |
 | OpenSSL         | 3.0+                                               |
 | pkg-config      | Any (required on Linux; optional on macOS)         |
 
@@ -118,7 +120,7 @@ sudo cmake --install build
 
 ### Platform Notes
 
-**Legacy devices** — If your toolchain is older (GCC < 14 or Clang < 18), use the `v0.x` (legacy) branch (C++17, CMake 3.14+, OpenSSL 1.1.x). Maintenance-only; feature development happens on master.
+**Legacy devices** — If your toolchain is older (GCC < 14 or Clang < 19), use the `v0.x` (legacy) branch (C++17, CMake 3.14+, OpenSSL 1.1.x). Maintenance-only; feature development happens on master.
 
 **Alpine Linux (musl)** — `YADDNSC_USE_NATIVE_DNS` defaults to ON on musl (musl's system resolver is limited — no reentrant `res_nquery`). Note that the native resolver/parser is currently [experimental]; if stability issues arise, set `-DYADDNSC_USE_NATIVE_DNS=OFF` to fall back to libresolv.
 
@@ -186,6 +188,107 @@ make -C build doxygen   # generates HTML docs in build/docs/
 Requires `doxygen` and optionally `graphviz` (for diagrams).
 
 Third-party dependencies are fetched automatically via CPM.cmake.
+
+## Driver ABI Verification
+
+yaddnsc loads driver plugins as shared libraries (`.so`) at runtime via `dlopen`.
+Because C++ has no stable ABI across compilers, the same code compiled with
+different toolchains can produce incompatible binaries. To catch such mismatches
+early, every driver undergoes a three-layer verification before its code is ever
+executed.
+
+### Build ID (Compiler Fingerprint)
+
+At CMake configure time, the build system captures the compiler identity and
+embeds it into every compiled translation unit via a generated header
+(`build_id.hpp`, from `template/headers/build_id.hpp.in`):
+
+- **Compiler identity fields**: `COMPILER_ID`, `COMPILER_VERSION`, `BUILD_TYPE`,
+  the detected C++ standard library (`COMPILER_ABI` — `libc++` or `libstdc++`),
+  and the C standard library (`LIBC_TYPE` — `glibc` or `musl`).
+- **FNV-1a 64-bit hash** (`COMPILER_ID_HASH`): A compile-time hash of all
+  compiler identity fields combined, used for fast ABI compatibility checks.
+- **Human-readable build ID string** (`full_id()`), e.g. `"GNU 14.2.0 Release"`.
+
+The `DEFINE_DRIVER_FACTORY` macro (used in every driver, see
+[Writing a Custom Driver](#writing-a-custom-driver)) automatically exports the
+hash and build ID string from the driver `.so`, so they can be checked by the
+host at load time.
+
+### Three-Layer Load-Time Verification
+
+When the host loads a driver `.so` via `dlopen`, it performs the following
+checks in order, before any driver code is executed:
+
+1. **Magic check** — Calls `yaddnsc_drv_magic()` and verifies the returned
+   constant matches `YADDNSC_DRIVER_MAGIC` (`0x5941444E53430000ULL`).
+   This confirms the `.so` is indeed a yaddnsc driver, not an arbitrary shared
+   library.
+
+2. **Compiler identity check** — Calls `yaddnsc_drv_compiler_id_hash()` and
+   compares the returned value with the host's `BuildId::COMPILER_ID_HASH`.
+   A mismatch means the driver was compiled with a different toolchain
+   (different compiler vendor, version, or C++ standard library ABI flag).
+   The driver is rejected with a clear error message:
+   ```
+   Driver 'cloudflare.so' compiler identity mismatch: 0xABCD… != 0x1234…
+   Rebuild the driver with the same toolchain and flags as the host.
+   ```
+
+3. **ABI version check** — After the driver is instantiated, its
+   `get_abi_version()` is compared against the host's `DRV_ABI_VERSION`.
+   This ensures the virtual function table layout of the `Driver` interface
+   is compatible.
+
+This layered design catches ABI issues at load time, before any DNS update
+operation is attempted.
+
+### Inspecting Build Configuration
+
+The `yaddnsc info` CLI command displays the current binary's build configuration,
+including the compiler identity hash, ABI variant, and C++ standard level:
+
+```bash
+$ yaddnsc info
+Build configuration:
+  Version              v1.0.0
+  Build ID             GNU 14.2.0 Release
+  C library            glibc
+  Compiler ABI         libstdc++ (_GLIBCXX_USE_CXX11_ABI=1)
+  Compiler ID hash     0xABCDEF0123456789
+  C++ standard         C++23
+  DNS resolver         System (libresolv)
+  Default DNS          1.1.1.1:53
+  Min update interval  60s
+  Format library       std::format
+  spdlog               bundled
+```
+
+### Building Drivers from Source
+
+The safest way to avoid ABI mismatches is to compile your driver together with
+the yaddnsc source tree. The `driver/` CMakeLists.txt automatically discovers
+subdirectories and builds everything with the same compiler flags and settings
+as the host binary:
+
+```bash
+# Add your driver source to driver/<your_driver>/
+# Then rebuild:
+cmake -B build
+cmake --build build -j$(nproc)
+```
+
+If you must build as a standalone shared library, ensure:
+- The compiler, version, and C++ standard (C++23, GCC 14+, Clang 19+,
+  Apple Clang 15+) match the host build exactly.
+- The same `AbiVersion` is used (defined by the generated `driver_ver.h`).
+- The `DEFINE_DRIVER_FACTORY` macro derives the compiler identity hash
+  automatically — as long as the same toolchain is used, it will match.
+- Build as a `MODULE` library (position-independent code, no `lib` prefix).
+
+> **Note:** Even with matching compiler identity, minor version differences
+> or different `_GLIBCXX_USE_CXX11_ABI` settings can still produce incompatible
+> binaries. When in doubt, always build from source.
 
 ## Configuration
 
@@ -551,7 +654,7 @@ yaddnsc dns resolve <hostname> [--type A|AAAA|TXT|SOA]
 # Show configured DNS resolver details
 yaddnsc dns resolver
 
-# Show build configuration
+# Show build configuration (version, compiler, ABI, ID hash, etc.)
 yaddnsc info
 
 # Print version
@@ -592,26 +695,19 @@ Drivers are shared libraries loaded at runtime. To write one:
    - `get_detail()` — return driver metadata (name, description, author, version)
    - `get_abi_version()` — ABI version check (already `final` in `BaseDriver`, no override needed)
    - `execute(config, ctx, http)` — drive the full update workflow (default provided by `BaseDriver`, override for multi-step workflows)
-3. Use the `DEFINE_DRIVER_FACTORY(YourDriverClass)` macro at the bottom of the implementation file to export the `create()` and `destroy()` factory functions.
+3. Use the `DEFINE_DRIVER_FACTORY(YourDriverClass)` macro at the bottom of the
+   implementation file. This macro exports five C entry points required by the
+   host's load-time verification (see [Driver ABI Verification](#driver-abi-verification)):
+   - `create()` / `destroy()` — standard factory functions
+   - `yaddnsc_drv_magic()` — driver magic constant
+   - `yaddnsc_drv_compiler_id_hash()` — FNV-1a 64-bit compiler identity hash
+   - `yaddnsc_drv_build_id_str()` — human-readable build ID string
 
-> **Recommendation for custom (third-party) drivers**
->
-> Always compile your custom driver **together with the yaddnsc source tree**
-> rather than as a standalone build.  Even with semantic ABI versioning,
-> ABI compatibility across different compilers, toolchains, or build
-> configurations is fragile — the host performs a version check at runtime
-> and will reject drivers built against a different version of the `Driver`
-> interface.  Adding your driver's source to the `driver/` directory and
-> rebuilding ensures it is always in sync with the host ABI.
->
-> The driver CMakeLists.txt under `driver/` provides a working template.
-> Each driver subdirectory is automatically discovered and built.
-
-If you do build as a standalone shared library, make sure:
-- The compiler and C++ standard match the yaddnsc build (C++23, GCC 14+
-  or Clang 18+).
-- The same `AbiVersion` is used (defined by the generated `driver_ver.h`).
-- Build as a `MODULE` library (position-independent code, no `lib` prefix).
+> **Recommendation:** Compile your custom driver **together with the yaddnsc
+> source tree** rather than as a standalone build.  The `driver/` CMakeLists.txt
+> automatically discovers subdirectories and builds with the same flags as the
+> host, guaranteeing ABI compatibility.  See
+> [Building Drivers from Source](#building-drivers-from-source) for details.
 
 ## Dependencies
 

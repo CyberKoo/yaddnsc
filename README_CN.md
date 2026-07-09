@@ -30,6 +30,8 @@
 - **强制更新调度** — 即使 IP 未发生变化，也可按设定周期强制更新 DNS 记录。
 - **优雅退出** — 通过专用信号处理线程捕获 SIGINT/SIGTERM，使用 stop_token 安全停止所有任务。
 - **线程池并发** — 子域名更新任务通过线程池并行执行。
+- **构建身份验证** — 编译时在主程序和每个驱动插件中都嵌入了编译器身份哈希（FNV-1a 64位），防止因工具链不兼容导致的 ABI 不匹配。使用 `yaddnsc info` CLI 命令可查看完整的构建配置信息。
+- **启动时配置验证** — 在更新循环开始之前，验证已加载的驱动和网络接口是否与配置匹配，提前发现配置错误。
 - **C++23 标准** — 性能更好、代码更安全可靠、减少外部依赖。
 - **跨平台** — 支持 POSIX 平台，包括 Linux (glibc)、Linux (musl)、macOS、FreeBSD 等。CI 编译通过 Linux (glibc) 和 macOS (arm64)。
 
@@ -41,7 +43,7 @@ flowchart TB
 命令行解析 · 加载配置 · 初始化
 创建 SignalWatcher"]
     mgr["Manager
-加载驱动 · 验证配置
+加载并验证驱动 · 验证配置
 运行调度循环（拥有线程池）"]
     sched["Scheduler
 定时器队列
@@ -91,7 +93,7 @@ SIGINT/SIGTERM → request_stop()"]
 |------------|------------------------------------------------|
 | 操作系统       | POSIX（Linux、macOS、*BSD）                        |
 | CMake      | 3.28                                           |
-| C++ 编译器    | 支持 C++23（GCC 14+、Clang 18+、Apple Clang 15+） |
+| C++ 编译器    | 支持 C++23（GCC 14+、Clang 19+、Apple Clang 15+） |
 | OpenSSL    | 3.0+                                           |
 | pkg-config | 任意版本（Linux 必需，macOS 可选）                     |
 
@@ -117,7 +119,7 @@ sudo cmake --install build
 
 ### 平台注意事项
 
-**老旧设备** — 如果工具链版本过低（GCC < 14 或 Clang < 18），请使用 `v0.x` 分支（C++17、CMake 3.14+、OpenSSL 1.1.x）。该分支仅维护 bug 修复，新功能在 master 上开发。
+**老旧设备** — 如果工具链版本过低（GCC < 14 或 Clang < 19），请使用 `v0.x` 分支（C++17、CMake 3.14+、OpenSSL 1.1.x）。该分支仅维护 bug 修复，新功能在 master 上开发。
 
 **Alpine Linux (musl)** — `YADDNSC_USE_NATIVE_DNS` 在 musl 上默认启用（musl 的系统解析器功能有限，不支持可重入的 `res_nquery`）。注意：内置 resolver/parser 目前为 [实验性]；如遇到稳定性问题，可设置 `-DYADDNSC_USE_NATIVE_DNS=OFF` 回退到 libresolv。
 
@@ -185,6 +187,100 @@ make -C build doxygen   # 在 build/docs/ 生成 HTML 文档
 需要安装 `doxygen`，可选安装 `graphviz`（用于生成图表）。
 
 第三方依赖通过 CPM.cmake 自动下载。
+
+## 驱动 ABI 验证
+
+yaddnsc 通过 `dlopen` 在运行时以共享库（`.so`）形式加载驱动插件。
+由于 C++ 在不同编译器之间没有稳定的 ABI，同一份代码使用不同的工具链
+编译可能产生不兼容的二进制文件。为了尽早捕获这类不匹配，每个驱动在
+执行任何代码之前都要经过三层验证。
+
+### 构建 ID（编译器指纹）
+
+在 CMake 配置阶段，构建系统自动捕获编译器身份信息，并通过生成的头文件
+（`build_id.hpp`，由 `template/headers/build_id.hpp.in` 生成）将其嵌入到
+每个编译单元中：
+
+- **编译器身份字段**：`COMPILER_ID`、`COMPILER_VERSION`、`BUILD_TYPE`，
+  检测到的 C++ 标准库（`COMPILER_ABI` — `libc++` 或 `libstdc++`），
+  以及 C 标准库（`LIBC_TYPE` — `glibc` 或 `musl`）。
+- **FNV-1a 64 位哈希**（`COMPILER_ID_HASH`）：所有编译器身份字段组合的
+  编译期哈希，用于快速 ABI 兼容性检查。
+- **人类可读的构建 ID 字符串**（`full_id()`），例如 `"GNU 14.2.0 Release"`。
+
+每个驱动中的 `DEFINE_DRIVER_FACTORY` 宏（详见
+[编写自定义驱动](#编写自定义驱动)）会自动从驱动 `.so` 中导出哈希和构建
+ID 字符串，供主程序在加载时检查。
+
+### 三层加载时验证
+
+当主程序通过 `dlopen` 加载驱动 `.so` 时，按顺序执行以下检查，所有检查
+均在执行任何驱动代码之前完成：
+
+1. **魔法值检查** — 调用 `yaddnsc_drv_magic()` 并验证返回值与
+   `YADDNSC_DRIVER_MAGIC`（`0x5941444E53430000ULL`）匹配。这确认了
+   `.so` 确实是 yaddnsc 驱动，而非任意共享库。
+
+2. **编译器身份检查** — 调用 `yaddnsc_drv_compiler_id_hash()` 并将返回
+   值与主程序的 `BuildId::COMPILER_ID_HASH` 比较。不匹配意味着驱动使用
+   不同的工具链（不同的编译器厂商、版本或 C++ 标准库 ABI 标志）编译，
+   将被拒绝加载并给出明确的错误提示：
+   ```
+   Driver 'cloudflare.so' compiler identity mismatch: 0xABCD… != 0x1234…
+   Rebuild the driver with the same toolchain and flags as the host.
+   ```
+
+3. **ABI 版本检查** — 驱动实例化后，比较其 `get_abi_version()` 与主程序
+   的 `DRV_ABI_VERSION`，确保 `Driver` 接口的虚函数表布局兼容。
+
+这种分层设计在加载阶段就能捕获 ABI 问题，避免在执行 DNS 更新操作时才
+暴露错误。
+
+### 查看构建配置
+
+使用 `yaddnsc info` CLI 命令可以查看当前二进制文件的完整构建配置，包括
+编译器身份哈希、ABI 变体和 C++ 标准级别：
+
+```bash
+$ yaddnsc info
+Build configuration:
+  Version              v1.0.0
+  Build ID             GNU 14.2.0 Release
+  C library            glibc
+  Compiler ABI         libstdc++ (_GLIBCXX_USE_CXX11_ABI=1)
+  Compiler ID hash     0xABCDEF0123456789
+  C++ standard         C++23
+  DNS resolver         System (libresolv)
+  Default DNS          1.1.1.1:53
+  Min update interval  60s
+  Format library       std::format
+  spdlog               bundled
+```
+
+### 从源码编译驱动
+
+避免 ABI 不匹配的最安全方法是将驱动与 yaddnsc 源码树一同编译。`driver/`
+下的 CMakeLists.txt 会自动发现子目录，并使用与主程序相同的编译器标志
+构建设置进行编译：
+
+```bash
+# 将驱动源码放入 driver/<your_driver>/
+# 然后重新编译：
+cmake -B build
+cmake --build build -j$(nproc)
+```
+
+如果仍需独立编译为共享库，请确保：
+- 编译器、版本和 C++ 标准（C++23，GCC 14+，Clang 19+，Apple Clang 15+）
+  与主程序的构建完全一致。
+- 使用相同的 `AbiVersion`（由生成的 `driver_ver.h` 定义）。
+- `DEFINE_DRIVER_FACTORY` 宏会自动推导编译器身份哈希——只要使用相同的
+  工具链，哈希就会匹配。
+- 编译为 `MODULE` 库（位置无关代码，不添加 `lib` 前缀）。
+
+> **注意：** 即使编译器身份哈希匹配，微小的版本差异或不同的
+> `_GLIBCXX_USE_CXX11_ABI` 设置仍可能产生不兼容的二进制文件。
+> 如有疑问，请始终从源码编译。
 
 ## 配置文件说明
 
@@ -553,6 +649,9 @@ yaddnsc dns resolve <hostname> [--type A|AAAA|TXT|SOA]
 # 查看 DNS 解析器配置
 yaddnsc dns resolver
 
+# 查看构建配置（版本、编译器、ABI、ID 哈希等）
+yaddnsc info
+
 # 打印版本号
 yaddnsc --version
 
@@ -591,24 +690,17 @@ echo 'YADDNSC_CONFIG=/custom/path/config.json' | sudo tee /etc/yaddnsc/default/y
    - `get_detail()` — 返回驱动元信息（名称、描述、作者、版本）
    - `get_abi_version()` — ABI 版本检查（`BaseDriver` 中已实现为 `final`，无需覆盖）
    - `execute(config, ctx, http)` — 执行完整的更新流程（`BaseDriver` 提供默认实现，多步骤工作流可覆盖）
-3. 在实现文件末尾使用 `DEFINE_DRIVER_FACTORY(YourDriverClass)` 宏导出 `create()` 和 `destroy()` 工厂函数。
+3. 在实现文件末尾使用 `DEFINE_DRIVER_FACTORY(YourDriverClass)` 宏。
+   该宏导出五个 C 入口点，供主程序在加载时进行身份验证
+   （详见[驱动 ABI 验证](#驱动-abi-验证)）：
+   - `create()` / `destroy()` — 标准工厂函数
+   - `yaddnsc_drv_magic()` — 驱动魔法常量
+   - `yaddnsc_drv_compiler_id_hash()` — FNV-1a 64 位编译器身份哈希
+   - `yaddnsc_drv_build_id_str()` — 人类可读的构建 ID 字符串
 
-> **关于自定义（第三方）驱动的建议**
->
-> **始终将自定义驱动与 yaddnsc 源码树一同编译**，不要独立构建。
-> 即便使用了语义化 ABI 版本号，不同编译器、工具链或构建配置之间的
-> ABI 兼容性仍然很脆弱——主程序在加载驱动时会进行 ABI 版本检查，
-> 如果驱动基于不同版本的 `Driver` 接口编译，会被拒绝加载。
-> 将自定义驱动的源代码放入 `driver/` 目录并一起重新编译，
-> 可以确保驱动始终与主程序的 ABI 保持一致。
->
-> `driver/` 下的 CMakeLists.txt 提供了可直接参考的模板，
-> 每个子目录会自动被发现并参与构建。
-
-如果仍需独立编译为共享库，请确保：
-- 编译器和 C++ 标准与 yaddnsc 一致（C++23，GCC 14+ 或 Clang 18+）。
-- 使用相同的 `AbiVersion`（由生成的 `driver_ver.h` 定义）。
-- 编译为 `MODULE` 库（位置无关代码，不添加 `lib` 前缀）。
+> **建议：** 将自定义驱动**与 yaddnsc 源码树一同编译**，不要独立构建。
+> `driver/` 下的 CMakeLists.txt 会自动发现子目录，并使用与主程序相同的
+> 标志进行编译，从而保证 ABI 兼容。详见[从源码编译驱动](#从源码编译驱动)。
 
 ## 依赖项
 
