@@ -1,15 +1,30 @@
 //
 // Created by Kotarou on 2026/6/17.
 //
+// ── System DNS parser (libresolv) ──
+//
+// ⚠  This is the legacy system DNS parser based on libresolv.  It is
+//    superseded by the native parser (parser_native, no libresolv
+//    dependency).
+//
+//    This header is in maintenance-only mode:
+//      • Only compilation fixes and bug fixes will be applied here.
+//      • No new features, improvements, or refactoring will be added.
+//      • New functionality should go to the native parser.
+//
+//    This header will be removed once the native parser is stable.
+//
+//
+//
 
 #ifndef YADDNSC_DNS_PARSER_SYSTEM_H
 #define YADDNSC_DNS_PARSER_SYSTEM_H
 
-#include <cstdint>
 #include <span>
 #include <string>
-#include <string_view>
 #include <vector>
+#include <cstdint>
+#include <string_view>
 
 // ---------------------------------------------------------------------------
 // <arpa/nameser.h> defines preprocessor macros NOERROR, SERVFAIL, NXDOMAIN,
@@ -56,8 +71,9 @@ namespace DNS {
     /// a resolver query.  Supports A, AAAA, TXT, MX, CNAME, and other
     /// common record types.
     ///
-    /// @note Stable default (libresolv).  See parser_native for the experimental
-    ///       self-contained alternative (no libresolv).
+    /// @note  This class is in maintenance-only mode.
+    ///        Only compilation fixes and bug fixes will be applied here;
+    ///        no new features, improvements, or refactoring will be added.
     class RecordParser {
     public:
         /// Construct a parser from a raw DNS response buffer.

@@ -114,14 +114,30 @@ namespace {
         } while (n < 0 && errno == EINTR);
         return n;
     }
+
+    /// Translate errno to ConnectError.
+    [[nodiscard]] ConnectError to_connect_error(int errnum) noexcept {
+        switch (errnum) {
+            case ETIMEDOUT:
+                return ConnectError::TimedOut;
+            case ECONNREFUSED:
+                return ConnectError::Refused;
+            case ENETUNREACH:
+            case EHOSTUNREACH:
+                return ConnectError::Unreachable;
+            case ECANCELED:
+                return ConnectError::Cancelled;
+            default:
+                return ConnectError::Internal;
+        }
+    }
 } // anonymous namespace
 
 // ===========================================================================
 //  Construction / destruction / move
 // ===========================================================================
 
-Socket::Socket(int domain, int type, int protocol)
-    : type_(type) {
+Socket::Socket(int domain, int type, int protocol) : type_(type) {
     fd_ = ::socket(domain, type, protocol);
     if (fd_ < 0) {
         throw SocketException(errno, "socket");
@@ -264,7 +280,7 @@ SocketAddr Socket::get_peername() const {
 // ===========================================================================
 
 // NOLINTNEXTLINE(readability-make-member-function-const) — see declaration for rationale
-void Socket::connect(const SocketAddr &addr, int timeout_sec) {
+std::expected<void, ConnectError> Socket::connect(const SocketAddr &addr, int timeout_sec) {
     if (timeout_sec < 0) {
         // Blocking connect (with EINTR retry).
         int rc;
@@ -272,19 +288,19 @@ void Socket::connect(const SocketAddr &addr, int timeout_sec) {
             rc = ::connect(fd_, addr.raw(), addr.raw_len());
         } while (rc < 0 && errno == EINTR);
         if (rc < 0) {
-            throw SocketException(errno, "connect");
+            return std::unexpected(to_connect_error(errno));
         }
-        return;
+        return {};
     }
 
     // Non-blocking connect with poll() timeout.
     // Save original fcntl flags and set O_NONBLOCK; restore on any exit path.
     int orig_flags = ::fcntl(fd_, F_GETFL, 0);
     if (orig_flags < 0) {
-        throw SocketException(errno, "fcntl(F_GETFL)");
+        return std::unexpected(ConnectError::Internal);
     }
     if (::fcntl(fd_, F_SETFL, orig_flags | O_NONBLOCK) < 0) {
-        throw SocketException(errno, "fcntl(F_SETFL)");
+        return std::unexpected(ConnectError::Internal);
     }
     FcntlGuard guard(fd_, orig_flags);
 
@@ -294,15 +310,13 @@ void Socket::connect(const SocketAddr &addr, int timeout_sec) {
     } while (rc < 0 && errno == EINTR);
 
     if (rc == 0) {
-        // Connected immediately — restore flags.
-        if (!guard.restore()) {
-            throw SocketException(errno, "fcntl(F_SETFL) restore after immediate connect");
-        }
-        return;
+        // Connected immediately.
+        guard.disarm();
+        return {};
     }
 
     if (errno != EINPROGRESS) {
-        throw SocketException(errno, "connect");
+        return std::unexpected(to_connect_error(errno));
     }
 
     // Wait for connection to complete.
@@ -316,25 +330,27 @@ void Socket::connect(const SocketAddr &addr, int timeout_sec) {
 
     if (rc <= 0) {
         if (rc == 0) {
-            throw SocketException(ETIMEDOUT, "connect (timeout)");
+            return std::unexpected(ConnectError::TimedOut);
         }
-        throw SocketException(errno, "poll");
+        return std::unexpected(ConnectError::Internal);
     }
 
     // Check socket error status.
     int error = 0;
     socklen_t elen = sizeof(error);
     if (::getsockopt(fd_, SOL_SOCKET, SO_ERROR, &error, &elen) < 0) {
-        throw SocketException(errno, "getsockopt(SO_ERROR)");
+        return std::unexpected(ConnectError::Internal);
     }
     if (error != 0) {
-        throw SocketException(error, "connect");
+        return std::unexpected(to_connect_error(error));
     }
 
     // Restore original flags.
     if (!guard.restore()) {
-        throw SocketException(errno, "fcntl(F_SETFL) restore after connect");
+        return std::unexpected(ConnectError::Internal);
     }
+
+    return {};
 }
 
 // ===========================================================================

@@ -56,7 +56,7 @@ namespace Cli {
             if (quiet) {
                 spdlog::set_level(spdlog::level::off);
             }
-                        spdlog::set_pattern(std::string{YADDNSC_LOGGING_PATTERN});
+            spdlog::set_pattern(std::string{YADDNSC_LOGGING_PATTERN});
 
             auto config = Config::load_config(config_path);
             // The config test subcommand never calls Manager::run(), so the
@@ -72,8 +72,8 @@ namespace Cli {
             return EXIT_SUCCESS;
         } catch (const ConfigVerificationException &e) {
             std::println(std::cerr, "Configuration verification failed: {}", e.what());
-        } catch (const YaddnscException &) {
-            std::println(std::cerr, "Fatal error: unrecoverable exception.");
+        } catch (const YaddnscException &e) {
+            std::println(std::cerr, "Fatal error: unrecoverable exception: {}", e.what());
         } catch (const std::exception &e) {
             std::println(std::cerr, "Failed to validate configuration: {}", e.what());
         }

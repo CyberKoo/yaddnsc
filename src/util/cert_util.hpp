@@ -20,7 +20,7 @@ namespace Utils::Cert {
     /// found. The result is cached after the first invocation.
     ///
     /// @return  Path to a CA bundle file, or std::nullopt.
-    [[nodiscard]] inline std::optional<std::string> get_system_ca_path() {
+    [[nodiscard]] inline std::optional<std::string> get_system_ca_path() noexcept {
         static const std::optional<std::string> system_ca_path = []() -> std::optional<std::string> {
             static constexpr std::string_view SEARCH_PATHS[]{
                 // Local CA file
@@ -55,14 +55,19 @@ namespace Utils::Cert {
 
             SPDLOG_DEBUG("Looking for CA bundle...");
 
-            const auto it =
-                    std::ranges::find_if(SEARCH_PATHS, [](std::string_view p) {
-                        return std::filesystem::is_regular_file(p);
-                    });
+            try {
+                const auto it =
+                        std::ranges::find_if(SEARCH_PATHS, [](std::string_view p) {
+                            return std::filesystem::is_regular_file(p);
+                        });
 
-            if (it != std::end(SEARCH_PATHS)) {
-                SPDLOG_DEBUG("Found CA bundle at {}", *it);
-                return std::string(*it);
+                if (it != std::end(SEARCH_PATHS)) {
+                    SPDLOG_DEBUG("Found CA bundle at {}", *it);
+                    return std::string(*it);
+                }
+            } catch (const std::filesystem::filesystem_error &e) {
+                SPDLOG_ERROR("Failed to search for CA bundle: {}", e.what());
+                return std::nullopt;
             }
 
             SPDLOG_WARN("CA bundle not found, server certificate verification will be disabled.");

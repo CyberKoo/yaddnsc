@@ -37,7 +37,7 @@ class ResolverBase;
 /// @endcode
 namespace DnsResolverRegistry {
     /// Factory function type: receives a DNS server config and returns a resolver.
-    using FactoryFn = std::function<std::shared_ptr<ResolverBase>(const Config::DnsServer &)>;
+    using FactoryFn = std::function<std::unique_ptr<ResolverBase>(const Config::DnsServer &)>;
 
     /// Register a factory for the given URI schema.
     /// @param schema   URI schema (e.g. "https", "tls"). Empty string is the
@@ -53,7 +53,7 @@ namespace DnsResolverRegistry {
     /// @param server  DNS server address and port.
     /// @return        A new resolver instance.
     /// @throws DnsLookupException  If no factory is registered for the schema.
-    [[nodiscard]] std::shared_ptr<ResolverBase> create(const Config::DnsServer &server);
+    [[nodiscard]] std::unique_ptr<ResolverBase> create(const Config::DnsServer &server);
 
     /// RAII helper for static registration.
     ///

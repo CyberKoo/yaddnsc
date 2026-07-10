@@ -94,8 +94,18 @@ namespace detail {
     /// @throws ConfigVerificationException  If the address is not a valid DoH/DoT URI or IP.
     inline void validate_resolver_address(const std::string &address) {
         const auto uri = Uri::parse(address);
-        // DoH / DoT address — starts with https or tls, skip IP validation.
+        // DoH / DoT address — starts with https or tls.
         if (uri.get_schema() == "https" || uri.get_schema() == "tls") {
+            if (uri.get_host().empty()) {
+                throw ConfigVerificationException(
+                    fmt::format(R"(DoH/DoT resolver address "{}" has an empty host)", address)
+                );
+            }
+            if (uri.get_port() == 0) {
+                throw ConfigVerificationException(
+                    fmt::format(R"(DoH/DoT resolver address "{}" has port 0)", address)
+                );
+            }
             return;
         }
 
@@ -117,7 +127,7 @@ namespace detail {
 /// ConfigValidator — performs all pre-flight checks on the parsed configuration
 /// before the scheduler starts.
 ///
-/// @tparam MinUpdateInterval  The minimum allowed update interval in seconds.
+/// @tparam UpdateInterval  The minimum allowed update interval in seconds.
 ///
 /// Each check throws ConfigVerificationException on failure, so a single call
 /// to validate() either returns normally (all checks pass) or throws at the

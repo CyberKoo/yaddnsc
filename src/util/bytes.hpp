@@ -9,7 +9,7 @@
 #include <cstdint>
 #include <span>
 
-/// Big-endian byte-order read helpers.
+/// Big-endian byte-order helpers.
 namespace Utils::Bytes {
     /// Read a 16-bit big-endian value from a raw pointer.
     [[nodiscard]] constexpr std::uint16_t read_u16_be(const std::uint8_t *buf) noexcept {
@@ -42,6 +42,22 @@ namespace Utils::Bytes {
     /// Read a 32-bit big-endian value from a span at the given offset.
     [[nodiscard]] inline std::uint32_t read_u32_be(std::span<const std::uint8_t> buf, std::size_t offset) noexcept {
         return read_u32_be(buf.data() + offset);
+    }
+
+    /// Write a 16-bit big-endian value to a raw pointer.
+    inline void write_u16_be(std::uint8_t *buf, std::uint16_t value) noexcept {
+        buf[0] = static_cast<std::uint8_t>(value >> 8);
+        buf[1] = static_cast<std::uint8_t>(value);
+    }
+
+    /// Write a 16-bit big-endian value to the start of a span.
+    inline void write_u16_be(std::span<std::uint8_t> buf, std::uint16_t value) noexcept {
+        write_u16_be(buf.data(), value);
+    }
+
+    /// Write a 16-bit big-endian value to a span at the given offset.
+    inline void write_u16_be(std::span<std::uint8_t> buf, std::size_t offset, std::uint16_t value) noexcept {
+        write_u16_be(buf.subspan(offset), value);
     }
 } // namespace Utils::Bytes
 

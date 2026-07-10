@@ -42,13 +42,12 @@ ResolverDispatcher DnsResolverFactory::create(const Config::AppConfig &config) {
     // Build resolver objects from server configurations.
     // Each resolver registers itself via DnsResolverRegistry, keyed by
     // URI schema (https → DohResolver, tls → DotResolver, "" → ClassicResolver).
-    std::vector<std::shared_ptr<ResolverBase> > resolvers;
+    std::vector<std::unique_ptr<ResolverBase> > resolvers;
     for (const auto &server: dns_servers) {
-        auto resolver = DnsResolverRegistry::create(server);
+        resolvers.push_back(DnsResolverRegistry::create(server));
         const auto uri = Uri::parse(server.address);
-        SPDLOG_INFO("DNS resolver #{}: {} ({})", resolver->get_id(),
-                    uri.get_schema().empty() ? uri.get_host_literal() : uri.get_origin(), resolver->get_type());
-        resolvers.push_back(std::move(resolver));
+        SPDLOG_INFO("DNS resolver #{}: {} ({})", resolvers.back()->get_id(),
+                    uri.get_schema().empty() ? uri.get_host_literal() : uri.get_origin(), resolvers.back()->get_type());
     }
 
     // Log configured custom resolver count and strategy — once at startup.

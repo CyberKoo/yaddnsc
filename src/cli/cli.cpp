@@ -6,6 +6,7 @@
 
 #include <cstdlib>
 #include <iostream>
+#include <print>
 
 #include <CLI/CLI.hpp>
 
@@ -23,7 +24,7 @@
 namespace {
     void register_commands(CLI::App &app, std::string &run_config_path, bool &run_verbose, bool &run_requested,
                            int &exit_code) {
-                app.set_version_flag("-v,--version", std::string(YADDNSC::get_full_version()), "Print version information");
+        app.set_version_flag("-v,--version", std::string(YADDNSC::get_full_version()), "Print version information");
 
         // run  — owns its own -c,--config and -d,--debug options
         {
@@ -63,6 +64,9 @@ Cli::CliOutcome Cli::parse_and_dispatch(int argc, char *argv[]) {
         app.parse(argc, argv);
     } catch (const CLI::ParseError &e) {
         return {.exit_code = app.exit(e), .exit_early = true};
+    } catch (const std::exception &e) {
+        std::println(std::cerr, "Error: {}", e.what());
+        return {.exit_code = EXIT_FAILURE, .exit_early = true};
     }
 
     if (!run_requested) {

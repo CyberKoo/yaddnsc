@@ -20,13 +20,13 @@
 
 class TestResolver final : public ResolverBase {
 public:
-    [[nodiscard]] std::expected<std::vector<std::uint8_t>, DnsLookupException>
-    query(const std::string &host, RecordKind type, int cancel_fd = -1) const noexcept override {
+    [[nodiscard]] std::expected<std::vector<std::uint8_t>, DnsErrorInfo>
+    query(const std::string &host, RecordKind type, int cancel_fd = -1) const override {
         // Return a minimal "success" packet (just host bytes for identification).
         if (type == RecordKind::A) {
             return std::vector<std::uint8_t>{192, 168, 1, 1};
         }
-        return std::unexpected(DnsLookupException("not found", DnsError::NX_DOMAIN));
+        return std::unexpected(DnsErrorInfo{DnsError::NX_DOMAIN, "not found"});
     }
 
     [[nodiscard]] std::string_view get_type() const noexcept override {
@@ -109,7 +109,7 @@ TEST(ResolverBaseTest, Query_Failure_ReturnsError) {
     auto result = resolver.query("example.com", RecordKind::AAAA);
 
     ASSERT_FALSE(result.has_value());
-    EXPECT_EQ(result.error().get_error(), DnsError::NX_DOMAIN);
+    EXPECT_EQ(result.error().code, DnsError::NX_DOMAIN);
 }
 
 TEST(ResolverBaseTest, Query_AcceptsOptionalCancelFd) {

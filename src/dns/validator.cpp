@@ -4,6 +4,7 @@
 #include "dns/validator.h"
 #include "dns/types.h"
 
+#include <expected>
 #include <span>
 #include <string>
 #include <cstdint>
@@ -45,52 +46,54 @@ namespace {
         return off + 4; // skip QTYPE + QCLASS
     }
 
-    // ── Individual validation checks ──
+    // ── Individual validation checks (all return expected) ──
 
-    void check_min_header_size(std::span<const std::uint8_t> response) {
-        if (response.size() >= 12) return;
-        throw DnsLookupException(
-            fmt::format("DNS response too short: {} bytes (minimum 12)", response.size()),
-            DnsError::PARSE
-        );
+    [[nodiscard]] std::expected<void, DnsErrorInfo> check_min_header_size(std::span<const std::uint8_t> response) {
+        if (response.size() >= 12) return {};
+        return std::unexpected(DnsErrorInfo{
+            DnsError::PARSE,
+            fmt::format("DNS response too short: {} bytes (minimum 12)", response.size())
+        });
     }
 
-    void check_qr_bit(std::span<const std::uint8_t> response) {
-        if ((response[2] & 0x80) != 0) return;
-        throw DnsLookupException(
-            "DNS response has QR=0 (not a response)",
-            DnsError::PARSE
-        );
+    [[nodiscard]] std::expected<void, DnsErrorInfo> check_qr_bit(std::span<const std::uint8_t> response) {
+        if ((response[2] & 0x80) != 0) return {};
+        return std::unexpected(DnsErrorInfo{
+            DnsError::PARSE,
+            "DNS response has QR=0 (not a response)"
+        });
     }
 
-    void check_txid(std::span<const std::uint8_t> request,
-                    std::span<const std::uint8_t> response) {
-        if (response[0] == request[0] && response[1] == request[1]) return;
-        throw DnsLookupException(
-            "DNS response transaction ID mismatch",
-            DnsError::PARSE
-        );
+    [[nodiscard]] std::expected<void, DnsErrorInfo> check_txid(
+        std::span<const std::uint8_t> request,
+        std::span<const std::uint8_t> response) {
+        if (response[0] == request[0] && response[1] == request[1]) return {};
+        return std::unexpected(DnsErrorInfo{
+            DnsError::PARSE,
+            "DNS response transaction ID mismatch"
+        });
     }
 
-    void check_qdcount(std::span<const std::uint8_t> response) {
+    [[nodiscard]] std::expected<void, DnsErrorInfo> check_qdcount(std::span<const std::uint8_t> response) {
         const auto qdcount = Utils::Bytes::read_u16_be(response, 4);
-        if (qdcount == 1) return;
-        throw DnsLookupException(
-            fmt::format("DNS response QDCOUNT is {} (expected 1)", qdcount),
-            DnsError::PARSE
-        );
+        if (qdcount == 1) return {};
+        return std::unexpected(DnsErrorInfo{
+            DnsError::PARSE,
+            fmt::format("DNS response QDCOUNT is {} (expected 1)", qdcount)
+        });
     }
 
-    void check_question_echo(std::span<const std::uint8_t> request,
-                             std::span<const std::uint8_t> response) {
+    [[nodiscard]] std::expected<void, DnsErrorInfo> check_question_echo(
+        std::span<const std::uint8_t> request,
+        std::span<const std::uint8_t> response) {
         const auto req_qs_end = question_section_end(request);
         const auto rsp_qs_end = question_section_end(response);
 
         if (req_qs_end == 0 || rsp_qs_end == 0) {
-            throw DnsLookupException(
-                "DNS response has malformed question section",
-                DnsError::PARSE
-            );
+            return std::unexpected(DnsErrorInfo{
+                DnsError::PARSE,
+                "DNS response has malformed question section"
+            });
         }
 
         const auto req_qs_len = req_qs_end - DNS::HEADER_SIZE;
@@ -100,13 +103,13 @@ namespace {
             std::ranges::equal(
                 std::span(request).subspan(DNS::HEADER_SIZE, req_qs_len),
                 std::span(response).subspan(DNS::HEADER_SIZE, rsp_qs_len))) {
-            return;
+            return {};
         }
 
-        throw DnsLookupException(
-            "DNS response question section does not match the query",
-            DnsError::PARSE
-        );
+        return std::unexpected(DnsErrorInfo{
+            DnsError::PARSE,
+            "DNS response question section does not match the query"
+        });
     }
 } // anonymous namespace
 
@@ -114,14 +117,21 @@ namespace {
 //  Public API — orchestrator
 // ===========================================================================
 
-namespace DNS {
-    namespace Validator {
-        void validate_response(std::span<const std::uint8_t> request, std::span<const std::uint8_t> response) {
-            check_min_header_size(response);
-            check_qr_bit(response);
-            check_txid(request, response);
-            check_qdcount(response);
-            check_question_echo(request, response);
-        }
-    } // namespace Validator
+namespace DNS::Validator {
+    std::expected<void, DnsErrorInfo> validate_response(
+        std::span<const std::uint8_t> request, std::span<const std::uint8_t> response) {
+        auto result = check_min_header_size(response);
+        if (!result) return result;
+
+        result = check_qr_bit(response);
+        if (!result) return result;
+
+        result = check_txid(request, response);
+        if (!result) return result;
+
+        result = check_qdcount(response);
+        if (!result) return result;
+
+        return check_question_echo(request, response);
+    }
 } // namespace DNS

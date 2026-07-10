@@ -6,6 +6,7 @@
 #define YADDNSC_NETWORK_SOCKET_H
 
 #include <cstddef>
+#include <expected>
 #include <span>
 
 #include "exception/socket.h"
@@ -21,12 +22,22 @@
 // Policy on exceptions:
 //   - Constructor:  throws SocketException on failure (cannot return error code).
 //   - I/O (send/recv families):  return ssize_t, do NOT throw.
-//   - Setup/control (bind, listen, connect, options):  throw SocketException.
+//   - connect():  returns std::expected<void, ConnectError>, does NOT throw.
+//   - Other setup/control (bind, listen, options):  throw SocketException.
 //   - Destructor and close():  noexcept (errors silently ignored).
 //
 // Thread-safety: a single Socket object must not be used from multiple threads
 // simultaneously.  Distinct Socket objects are independent.
 // ---------------------------------------------------------------------------
+/// Errors that can occur during connect().
+enum class ConnectError {
+    TimedOut,    ///< Connection timed out (ETIMEDOUT).
+    Refused,     ///< Connection refused (ECONNREFUSED).
+    Unreachable, ///< Network or host unreachable (ENETUNREACH, EHOSTUNREACH).
+    Cancelled,   ///< Operation cancelled via cancel_fd (ECANCELED).
+    Internal,    ///< Internal OS error (fcntl, poll, getsockopt, etc.).
+};
+
 class Socket {
 public:
     /// Open a new socket.
@@ -117,11 +128,19 @@ public:
 
     // ---- Connection (client) -----------------------------------------------
 
-    /// Non-blocking connect with poll() timeout.
+    /// Connect to a remote address.
+    ///
+    /// When @p timeout_sec < 0, performs a blocking connect (with EINTR retry).
+    /// When @p timeout_sec >= 0, performs a non-blocking connect with poll()
+    /// timeout and restores the original fcntl flags on return.
+    ///
+    /// Does NOT throw.  Returns OK or a descriptive ConnectError.
+    ///
     /// @param addr         Target address.
     /// @param timeout_sec  Timeout in seconds (0 = no wait, negative = block).
+    /// @return             std::expected<void, ConnectError>.
     /// NOLINTNEXTLINE(readability-make-member-function-const) — semantically mutates TCP connection state
-    void connect(const SocketAddr &addr, int timeout_sec = -1);
+    [[nodiscard]] std::expected<void, ConnectError> connect(const SocketAddr &addr, int timeout_sec = -1);
 
     // ---- Listening + accept (server) ---------------------------------------
 

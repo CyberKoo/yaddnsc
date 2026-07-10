@@ -17,7 +17,7 @@
 
 namespace {
     // Filter out link-local and ULA addresses for AAAA candidates.
-    void filter_ipv6_candidates(std::vector<InetAddress> &candidates, const Config::SubdomainConfig &config) {
+    void filter_ipv6_candidates(std::vector<InetAddress> &candidates, const Config::SubdomainConfig &config) noexcept {
         if (!config.allow_local_link) {
             std::erase_if(candidates, [](const InetAddress &a) { return a.is_link_local(); });
         }
@@ -114,32 +114,33 @@ void Updater::Impl::process(const UpdateTask &task, const Driver &driver, HttpCl
 }
 
 std::vector<std::string> Updater::Impl::dns_lookup(const std::string &host, RecordKind type) const {
-    return dispatcher_.resolve(host, type);
+    auto result = dispatcher_.resolve(host, type);
+    if (!result) {
+        SPDLOG_DEBUG(R"(DNS lookup for "{}" failed: {} ({})", host, result.error().message,
+                     error_to_str(result.error().code));
+    }
+    // Keep backward-compatible return type: callers check .empty().
+    return result.value_or(std::vector<std::string>{});
 }
 
 std::optional<InetAddress> Updater::Impl::resolve_local_address(const Config::SubdomainConfig &config) const {
-    try {
-        auto ip_source = ip_factory_(config);
-        auto candidates = ip_source->resolve();
+    auto ip_source = ip_factory_(config);
+    auto candidates = ip_source->resolve();
+
+    if (candidates.empty()) {
+        return std::nullopt;
+    }
+
+    // Only AAAA records need link-local / ULA filtering.
+    if (config.type == RecordKind::AAAA) {
+        filter_ipv6_candidates(candidates, config);
 
         if (candidates.empty()) {
             return std::nullopt;
         }
-
-        // Only AAAA records need link-local / ULA filtering.
-        if (config.type == RecordKind::AAAA) {
-            filter_ipv6_candidates(candidates, config);
-
-            if (candidates.empty()) {
-                return std::nullopt;
-            }
-        }
-
-        return candidates.front();
-    } catch (const std::exception &e) {
-        SPDLOG_WARN(R"(IP source resolution failed: {})", e.what());
-        return std::nullopt;
     }
+
+    return candidates.front();
 }
 
 DriverConfig Updater::Impl::build_driver_parameters(const UpdateTask &task) {

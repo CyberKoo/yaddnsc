@@ -10,9 +10,10 @@
 #include <memory>
 #include <string>
 
+#include "base.h"
 #include "record_kind.h"
 #include "config/dns_config.h"
-#include "base.h"
+#include "dns/dns_error_info.h"
 
 /// ClassicResolver — traditional UDP/TCP DNS resolver.
 ///
@@ -30,8 +31,8 @@ public:
 
     ~ClassicResolver() override;
 
-    [[nodiscard]] std::expected<std::vector<std::uint8_t>, DnsLookupException>
-    query(const std::string &host, RecordKind type, int cancel_fd = -1) const noexcept override;
+    [[nodiscard]] std::expected<std::vector<std::uint8_t>, DnsErrorInfo>
+    query(const std::string &host, RecordKind type, int cancel_fd = -1) const override;
 
     [[nodiscard]] std::string_view get_type() const noexcept override { return TYPE; }
 

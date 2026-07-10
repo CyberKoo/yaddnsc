@@ -12,10 +12,10 @@
 #include "dns/dispatcher.h"
 #include "dns/factory.h"
 
-#include "record_kind.h"
 #include "uri.h"
-
 #include "fmt.hpp"
+#include "record_kind.h"
+
 #include <magic_enum/magic_enum.hpp>
 #include <print>
 
@@ -73,8 +73,14 @@ namespace Cli {
         auto resolver = DnsResolverFactory::create(config);
         auto dns_result = resolver.resolve(host, *type);
 
-        if (dns_result.empty()) {
-            std::println("DNS lookup for {} ({}) failed: no records found", host, type_str);
+        if (!dns_result) {
+            const auto &err = dns_result.error();
+            std::println("DNS lookup for {} ({}) failed: {}", host, type_str, err.message);
+            return EXIT_SUCCESS;
+        }
+
+        if (dns_result->empty()) {
+            std::println("DNS lookup for {} ({}) returned no records", host, type_str);
             return EXIT_SUCCESS;
         }
 
@@ -83,7 +89,7 @@ namespace Cli {
             "  Host:  {}\n"
             "  Type:  {}\n"
             "  Value: {}",
-            host, type_str, fmt::format("{}", fmt::join(dns_result, ", ")));
+            host, type_str, fmt::format("{}", fmt::join(*dns_result, ", ")));
         return EXIT_SUCCESS;
     }
 

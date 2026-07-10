@@ -6,12 +6,14 @@
 #define YADDNSC_DNS_DISPATCHER_H
 
 #include <cstdint>
+#include <expected>
 #include <memory>
 #include <string>
 #include <vector>
 
 #include "config/dns_config.h"
 
+#include "dns/dns_error_info.h"
 #include "record_kind.h"
 
 class ResolverBase;
@@ -27,7 +29,7 @@ public:
     /// Construct with a list of resolver backends and a dispatch strategy.
     /// @param resolvers  Vector of resolver backends to query.
     /// @param strategy   Dispatch strategy (fallback or concurrent).
-    explicit ResolverDispatcher(std::vector<std::shared_ptr<ResolverBase> > resolvers,
+    explicit ResolverDispatcher(std::vector<std::unique_ptr<ResolverBase> > resolvers,
                                 Config::ResolverStrategy strategy = Config::ResolverStrategy::CONCURRENT);
 
     ~ResolverDispatcher();
@@ -45,10 +47,13 @@ public:
     /// @param type         DNS record type (A or AAAA).
     /// @param max_retries  Maximum number of retries on transient errors.
     /// @param backoff_ms   Base backoff interval in milliseconds.
-    /// @return             List of resolved IP address strings.
-    [[nodiscard]] std::vector<std::string> resolve(const std::string &host, RecordKind type,
-                                                   std::uint32_t max_retries = 5,
-                                                   std::uint32_t backoff_ms = 1000) const;
+    /// @return             Resolved IP strings on success, or a DnsErrorInfo
+    ///                     describing the failure.  Callers should check the
+    ///                     error code to distinguish transient (RETRY, CONNECTION)
+    ///                     from permanent errors (NX_DOMAIN, NODATA, PARSE, CONFIG).
+    [[nodiscard]] std::expected<std::vector<std::string>, DnsErrorInfo>
+    resolve(const std::string &host, RecordKind type, std::uint32_t max_retries = 5,
+            std::uint32_t backoff_ms = 1000) const;
 
 private:
     struct Impl;

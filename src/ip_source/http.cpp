@@ -9,7 +9,10 @@
 
 #include "uri.h"
 
+#include <stdexcept>
+
 #include "string_util.hpp"
+#include "fmt.hpp"
 #include <spdlog/spdlog.h>
 
 // ===========================================================================
@@ -39,13 +42,14 @@ std::vector<InetAddress> HttpIpSource::resolve() const {
 
     auto resp = client_->exchange(url_, req);
     if (!resp) {
-        SPDLOG_DEBUG(R"(Failed to fetch IP from "{}")", url_);
-        return {};
+        throw std::runtime_error(
+            fmt::format(R"(HTTP IP source "{}" did not return a valid response: {})", url_, resp.error()));
     }
 
     auto addr = InetAddress::parse(StringUtil::trim(resp->body));
     if (!addr) {
-        return {};
+        throw std::runtime_error(
+            fmt::format(R"(HTTP IP source "{}" did not return a valid message)", url_));
     }
     SPDLOG_DEBUG("Resolved IP from HTTP: {}", addr->to_string());
     return {*std::move(addr)};

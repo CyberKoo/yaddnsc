@@ -50,6 +50,23 @@ public:
     ///   1. Optionally resolve the current DNS record for comparison.
     ///   2. If the IP has changed (or force_update is set), invoke the driver.
     ///
+    /// Exception handling architecture:
+    ///   ┌─────────────────────────────────────────────────────────────┐
+    ///   │ Updater::process() noexcept  ←  catch-all (log + swallow)  │
+    ///   │   └── Impl::process()         ←  no try-catch              │
+    ///   │         └── resolve_local_address()  ←  no try-catch       │
+    ///   │               └── ip_source->resolve()  ←  throws on err   │
+    ///   └─────────────────────────────────────────────────────────────┘
+    ///
+    /// IpSourceBase implementations throw std::runtime_error on failure.
+    /// The exception aborts the current resolution operation and propagates
+    /// uncaught through the intermediate layers (Impl::process and
+    /// resolve_local_address have no try-catch).  It is caught only at this
+    /// noexcept boundary, where it is logged via SPDLOG_ERROR and swallowed.
+    /// There is no retry, fallback, or error-type branching in any catch
+    /// block — the catch is a pure observation point per the project's error
+    /// handling guideline.
+    ///
     /// @param task         The update task describing what to update.
     /// @param driver       The driver plugin to use.
     /// @param http_client  HTTP client for the upstream API call.

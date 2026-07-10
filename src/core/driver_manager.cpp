@@ -11,8 +11,9 @@
 
 #include "build_id.hpp"
 #include "driver/magic.h"
-#include "exception/bad_driver.h"
 #include "interface/driver.h"
+#include "exception/bad_driver.h"
+#include "exception/driver_not_found.h"
 
 #include "driver_ver.h"
 
@@ -204,7 +205,7 @@ void DriverManager::Impl::register_driver(DriverModule driver_res, std::string_v
 void DriverManager::Impl::unload_driver(const std::string &name) {
     const auto it = driver_map_.find(name);
     if (it == driver_map_.end()) {
-        throw BadDriverException(fmt::format("Driver '{}' is not loaded, cannot unload", name));
+        throw DriverNotFoundException(fmt::format("Driver '{}' is not loaded, cannot unload", name));
     }
 
     driver_map_.erase(it);
@@ -227,13 +228,15 @@ const Driver &DriverManager::get_driver(const std::string &name) const {
         return it->second.get();
     }
 
-    throw BadDriverException(fmt::format("Driver '{}' is not loaded", name));
+    throw DriverNotFoundException(fmt::format("Driver '{}' is not loaded", name));
 }
 
 std::vector<std::string_view> DriverManager::get_loaded_drivers() const {
     std::vector<std::string_view> loaded_drivers;
-    std::ranges::transform(impl_->driver_map_, std::back_inserter(loaded_drivers),
-                           [](const auto &kv) -> std::string_view { return kv.first; });
+    std::ranges::transform(
+        impl_->driver_map_, std::back_inserter(loaded_drivers),
+        [](const auto &kv) -> std::string_view { return kv.first; }
+    );
 
     return loaded_drivers;
 }

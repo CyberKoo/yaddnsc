@@ -43,7 +43,8 @@ struct ScheduleEntry {
 struct Scheduler::Impl {
     Impl(Config::AppConfig config, std::stop_token stop_token);
 
-    [[nodiscard]] static bool check_force_update(ScheduleEntry &entry, std::chrono::steady_clock::time_point now);
+    [[nodiscard]]
+    static bool check_force_update(ScheduleEntry &entry, std::chrono::steady_clock::time_point now) noexcept;
 
     std::vector<UpdateTask> pop_all_due();
 
@@ -93,7 +94,7 @@ Scheduler::Impl::Impl(Config::AppConfig config, std::stop_token stop_token)
     SPDLOG_INFO("Scheduler initialised with {} tasks", heap_.size());
 }
 
-bool Scheduler::Impl::check_force_update(ScheduleEntry &entry, std::chrono::steady_clock::time_point now) {
+bool Scheduler::Impl::check_force_update(ScheduleEntry &entry, std::chrono::steady_clock::time_point now) noexcept {
     if (entry.force_update_interval <= 0) {
         return false;
     }

@@ -1,9 +1,20 @@
 //
 // Created by Kotarou on 2026/6/17.
 //
-// NOTE: Stable default (libresolv).  See classic_native for the experimental
-// self-contained alternative (no libresolv).
-// May be removed once native resolver is stable.
+// ── Classic system resolver (libresolv) ──
+//
+// ⚠  This is the legacy system resolver based on libresolv.  It is
+//    superseded by the native resolver (classic_native, no libresolv
+//    dependency).
+//
+//    This file is in maintenance-only mode:
+//      • Only compilation fixes and bug fixes will be applied here.
+//      • No new features, improvements, or refactoring will be added.
+//      • New functionality should go to the native resolver.
+//
+//    This file will be removed once the native resolver is stable.
+//
+//
 //
 #include <memory>
 #include <mutex>
@@ -15,6 +26,7 @@
 #include "network/inet_address.h"
 
 #include "classic.h"
+#include "dns/dns_error_info.h"
 #include "config_cmake.h"
 #include "dns_error.h"
 #include "mixin.h"
@@ -208,7 +220,7 @@ struct ClassicResolver::Impl {
 
     ~Impl() = default;
 
-    [[nodiscard]] std::expected<std::vector<std::uint8_t>, DnsLookupException> query(
+    [[nodiscard]] std::expected<std::vector<std::uint8_t>, DnsErrorInfo> query(
         const std::string &host_str, RecordKind type, int cancel_fd = -1) const;
 
     std::uint64_t id_;
@@ -220,7 +232,7 @@ ClassicResolver::Impl::Impl(Config::DnsServer server, std::uint64_t id)
     : id_(id), server_(std::move(server)), uri_(Uri::parse(server_.address)) {
 }
 
-std::expected<std::vector<std::uint8_t>, DnsLookupException>
+std::expected<std::vector<std::uint8_t>, DnsErrorInfo>
 ClassicResolver::Impl::query(const std::string &host_str, RecordKind type, [[maybe_unused]] int cancel_fd) const {
     try {
         SPDLOG_TRACE(R"(Resolver #{} DNS lookup for "{}")", id_, host_str);
@@ -235,7 +247,7 @@ ClassicResolver::Impl::query(const std::string &host_str, RecordKind type, [[may
         ctx.set_nameserver(server_);
         return do_query(ctx, host_str, ns_type_val, id_);
     } catch (const DnsLookupException &e) {
-        return std::unexpected(e);
+        return std::unexpected(DnsErrorInfo{e.get_error(), e.what()});
     }
 }
 
@@ -249,8 +261,8 @@ ClassicResolver::ClassicResolver(Config::DnsServer server) : impl_(
 
 ClassicResolver::~ClassicResolver() = default;
 
-std::expected<std::vector<std::uint8_t>, DnsLookupException> ClassicResolver::query(
-    const std::string &host, RecordKind type, int cancel_fd) const noexcept {
+std::expected<std::vector<std::uint8_t>, DnsErrorInfo> ClassicResolver::query(
+    const std::string &host, RecordKind type, int cancel_fd) const {
     return impl_->query(host, type, cancel_fd);
 }
 
@@ -260,7 +272,7 @@ std::expected<std::vector<std::uint8_t>, DnsLookupException> ClassicResolver::qu
 
 namespace {
     [[maybe_unused]] DnsResolverRegistry::Registrar _classic(
-        "", [](const Config::DnsServer &server)-> std::shared_ptr<ResolverBase> {
-            return std::make_shared<ClassicResolver>(server);
+        "", [](const Config::DnsServer &server) -> std::unique_ptr<ResolverBase> {
+            return std::make_unique<ClassicResolver>(server);
         });
 } // namespace

@@ -23,6 +23,7 @@
 // =============================================================================
 
 #include <array>
+#include <expected>
 #include <vector>
 #include <cstdint>
 #include <span>
@@ -30,7 +31,6 @@
 #include <gtest/gtest.h>
 
 #include "dns/validator.h"
-#include "exception/dns_lookup.h"
 #include "dns_error.h"
 
 // ===========================================================================
@@ -119,87 +119,89 @@ namespace {
         return buf;
     }
 
+    /// Helper: assert that validate_response succeeds.
+    void expect_valid(std::span<const std::uint8_t> query,
+                      std::span<const std::uint8_t> response) {
+        auto result = DNS::Validator::validate_response(query, response);
+        EXPECT_TRUE(result.has_value()) << "expected valid, got: "
+            << (result.has_value() ? "" : result.error().message);
+    }
+
+    /// Helper: assert that validate_response fails with PARSE error.
+    void expect_parse_error(std::span<const std::uint8_t> query,
+                            std::span<const std::uint8_t> response) {
+        auto result = DNS::Validator::validate_response(query, response);
+        EXPECT_FALSE(result.has_value());
+        if (!result.has_value()) {
+            EXPECT_EQ(result.error().code, DnsError::PARSE);
+        }
+    }
+
+    /// Helper: assert that validate_response fails with PARSE error
+    /// and error message contains the given substring.
+    void expect_parse_error_msg(std::span<const std::uint8_t> query,
+                                std::span<const std::uint8_t> response,
+                                std::string_view expected_substr) {
+        auto result = DNS::Validator::validate_response(query, response);
+        EXPECT_FALSE(result.has_value());
+        if (!result.has_value()) {
+            EXPECT_EQ(result.error().code, DnsError::PARSE);
+            EXPECT_NE(result.error().message.find(expected_substr),
+                      std::string_view::npos);
+        }
+    }
+
 } // anonymous namespace
 
 // ===========================================================================
 // Happy path
 // ===========================================================================
 
-TEST(DnsValidatorTest, ValidResponse_DoesNotThrow) {
+TEST(DnsValidatorTest, ValidResponse_Succeeds) {
     auto query = make_query_example(0x1234);
     auto response = make_valid_response(0x1234);
 
-    EXPECT_NO_THROW(DNS::Validator::validate_response(query, response));
+    expect_valid(query, response);
 }
 
 // ===========================================================================
 // check_min_header_size
 // ===========================================================================
 
-TEST(DnsValidatorTest, ResponseTooShort_Throws) {
+TEST(DnsValidatorTest, ResponseTooShort_ReturnsParseError) {
     auto query = make_query_example();
     std::vector<std::uint8_t> short_response(11, 0);  // less than 12 bytes
 
-    EXPECT_THROW(
-        {
-            try {
-                DNS::Validator::validate_response(query, short_response);
-            } catch (const DnsLookupException &e) {
-                EXPECT_EQ(e.get_error(), DnsError::PARSE);
-                throw;
-            }
-        },
-        DnsLookupException
-    );
+    expect_parse_error(query, short_response);
 }
 
 // ===========================================================================
 // check_qr_bit
 // ===========================================================================
 
-TEST(DnsValidatorTest, QrBitNotSet_Throws) {
+TEST(DnsValidatorTest, QrBitNotSet_ReturnsParseError) {
     auto query = make_query_example();
     auto response = make_query_example();  // This is a query, not a response
 
-    EXPECT_THROW(
-        {
-            try {
-                DNS::Validator::validate_response(query, response);
-            } catch (const DnsLookupException &e) {
-                EXPECT_EQ(e.get_error(), DnsError::PARSE);
-                throw;
-            }
-        },
-        DnsLookupException
-    );
+    expect_parse_error(query, response);
 }
 
 // ===========================================================================
 // check_txid
 // ===========================================================================
 
-TEST(DnsValidatorTest, TxidMismatch_Throws) {
+TEST(DnsValidatorTest, TxidMismatch_ReturnsParseError) {
     auto query = make_query_example(0x1234);
     auto response = make_valid_response(0x5678);  // different TXID
 
-    EXPECT_THROW(
-        {
-            try {
-                DNS::Validator::validate_response(query, response);
-            } catch (const DnsLookupException &e) {
-                EXPECT_EQ(e.get_error(), DnsError::PARSE);
-                throw;
-            }
-        },
-        DnsLookupException
-    );
+    expect_parse_error(query, response);
 }
 
 // ===========================================================================
 // check_qdcount
 // ===========================================================================
 
-TEST(DnsValidatorTest, QdcountNotOne_Throws) {
+TEST(DnsValidatorTest, QdcountNotOne_ReturnsParseError) {
     auto query = make_query_example();
     auto response = make_valid_response();
 
@@ -207,24 +209,14 @@ TEST(DnsValidatorTest, QdcountNotOne_Throws) {
     response[4] = 0;
     response[5] = 0;
 
-    EXPECT_THROW(
-        {
-            try {
-                DNS::Validator::validate_response(query, response);
-            } catch (const DnsLookupException &e) {
-                EXPECT_EQ(e.get_error(), DnsError::PARSE);
-                throw;
-            }
-        },
-        DnsLookupException
-    );
+    expect_parse_error(query, response);
 }
 
 // ===========================================================================
 // check_question_echo
 // ===========================================================================
 
-TEST(DnsValidatorTest, QuestionEchoMismatch_Throws) {
+TEST(DnsValidatorTest, QuestionEchoMismatch_ReturnsParseError) {
     auto query = make_query_example();
     auto response = make_valid_response();
 
@@ -233,41 +225,19 @@ TEST(DnsValidatorTest, QuestionEchoMismatch_Throws) {
     // DNS header is 12 bytes (per RFC 1035 §4.1.1).
     response[12] = 8;  // was 7 — now a different QNAME
 
-    EXPECT_THROW(
-        {
-            try {
-                DNS::Validator::validate_response(query, response);
-            } catch (const DnsLookupException &e) {
-                EXPECT_EQ(e.get_error(), DnsError::PARSE);
-                throw;
-            }
-        },
-        DnsLookupException
-    );
+    expect_parse_error(query, response);
 }
 
 // ===========================================================================
 // check_txid — second byte mismatch (first byte matches)
 // ===========================================================================
 
-TEST(DnsValidatorTest, Txid_FirstByteMatches_SecondByteMismatch_Throws) {
+TEST(DnsValidatorTest, Txid_FirstByteMatches_SecondByteMismatch_ReturnsParseError) {
     auto query = make_query_example(0x1234);
     // Response TXID: first byte matches (0x12), second byte doesn't (0xFF vs 0x34)
     auto response = make_valid_response(0x12FF);
 
-    EXPECT_THROW(
-        {
-            try {
-                DNS::Validator::validate_response(query, response);
-            } catch (const DnsLookupException &e) {
-                EXPECT_EQ(e.get_error(), DnsError::PARSE);
-                EXPECT_NE(std::string_view(e.what()).find("transaction ID"),
-                          std::string_view::npos);
-                throw;
-            }
-        },
-        DnsLookupException
-    );
+    expect_parse_error_msg(query, response, "transaction ID");
 }
 
 // ===========================================================================
@@ -275,31 +245,13 @@ TEST(DnsValidatorTest, Txid_FirstByteMatches_SecondByteMismatch_Throws) {
 // ===========================================================================
 
 TEST(DnsValidatorTest, TruncatedResponse_NoRoomForQtypeQclass) {
-    // Build a response where the QNAME parses successfully but the buffer
-    // ends before QTYPE+QCLASS (4 bytes needed after the name).
-    // A valid QNAME for "example.com" is 13 bytes (\x07example\x03com\x00).
-    // The header is 12 bytes. 12 + 13 = 25. We need 25 + 4 = 29 for QTYPE+QCLASS.
-    // Create a 28-byte response: 25 + 3 bytes of partial data.
     auto query = make_query_example();
     auto response = make_valid_response();
 
     // Truncate to drop the last byte (now 28 bytes total: header + QNAME + QTYPE + 1 byte of QCLASS)
     response.resize(28);
 
-    EXPECT_THROW(
-        {
-            try {
-                DNS::Validator::validate_response(query, response);
-            } catch (const DnsLookupException &e) {
-                EXPECT_EQ(e.get_error(), DnsError::PARSE);
-                // Should be the "malformed question section" message
-                EXPECT_NE(std::string_view(e.what()).find("malformed"),
-                          std::string_view::npos);
-                throw;
-            }
-        },
-        DnsLookupException
-    );
+    expect_parse_error_msg(query, response, "malformed");
 }
 
 // ===========================================================================
@@ -311,7 +263,7 @@ TEST(DnsValidatorTest, TooShort_ReportedBeforeOtherChecks) {
     std::vector<std::uint8_t> too_short(5, 0);
 
     // Should fail at "too short" before checking any other field.
-    EXPECT_THROW(DNS::Validator::validate_response(query, too_short), DnsLookupException);
+    expect_parse_error(query, too_short);
 }
 
 // ===========================================================================
@@ -319,24 +271,10 @@ TEST(DnsValidatorTest, TooShort_ReportedBeforeOtherChecks) {
 // ===========================================================================
 
 TEST(DnsValidatorTest, ShortQuery_QuestionSectionEnd_ReturnsZero) {
-    // The query is not checked for minimum size before question_section_end.
-    // A query < 12 bytes causes question_section_end to return 0 (msg.size() < 12)
-    // and check_question_echo throws "malformed question section".
-    // Must have matching TXID bytes to pass check_txid.
     std::vector<std::uint8_t> short_query{0x12, 0x34, 0x00};  // 3 bytes, TXID matches response
     auto response = make_valid_response();
 
-    EXPECT_THROW(
-        {
-            try {
-                DNS::Validator::validate_response(short_query, response);
-            } catch (const DnsLookupException &e) {
-                EXPECT_EQ(e.get_error(), DnsError::PARSE);
-                throw;
-            }
-        },
-        DnsLookupException
-    );
+    expect_parse_error(short_query, response);
 }
 
 // ===========================================================================
@@ -344,10 +282,6 @@ TEST(DnsValidatorTest, ShortQuery_QuestionSectionEnd_ReturnsZero) {
 // ===========================================================================
 
 TEST(DnsValidatorTest, ResponseQdcountZero_QuestionSectionEnd_ReturnsZero) {
-    // QDCOUNT = 0 in the response causes question_section_end to return 0
-    // (read_u16_be(msg, 4) == 0).  However, check_qdcount runs FIRST and
-    // throws for QDCOUNT != 1.  We need the query to have QDCOUNT = 0 instead,
-    // since the query never goes through check_qdcount.
     std::vector<std::uint8_t> query = make_query_example();
     // Set QDCOUNT = 0 on the query
     query[4] = 0;
@@ -355,19 +289,7 @@ TEST(DnsValidatorTest, ResponseQdcountZero_QuestionSectionEnd_ReturnsZero) {
 
     auto response = make_valid_response();
 
-    EXPECT_THROW(
-        {
-            try {
-                DNS::Validator::validate_response(query, response);
-            } catch (const DnsLookupException &e) {
-                EXPECT_EQ(e.get_error(), DnsError::PARSE);
-                EXPECT_NE(std::string_view(e.what()).find("malformed"),
-                          std::string_view::npos);
-                throw;
-            }
-        },
-        DnsLookupException
-    );
+    expect_parse_error_msg(query, response, "malformed");
 }
 
 // ===========================================================================
@@ -375,60 +297,27 @@ TEST(DnsValidatorTest, ResponseQdcountZero_QuestionSectionEnd_ReturnsZero) {
 // ===========================================================================
 
 TEST(DnsValidatorTest, ResponseMalformedQname_SkipName_ReturnsZero) {
-    // Build a response where the QNAME has a label length that exceeds
-    // the buffer, causing skip_name to return 0.
-    // Set msg[12] = 100 (label length 100) but the message is only 29 bytes.
-    // skip_name will compute offset = 12 + 1 + 100 = 113 > 29, exit the
-    // while loop, and return 0.
     auto query = make_query_example();
     auto response = make_valid_response();
 
     // Make the first label length 100 (way beyond the buffer)
     response[12] = 100;
 
-    EXPECT_THROW(
-        {
-            try {
-                DNS::Validator::validate_response(query, response);
-            } catch (const DnsLookupException &e) {
-                EXPECT_EQ(e.get_error(), DnsError::PARSE);
-                EXPECT_NE(std::string_view(e.what()).find("malformed"),
-                          std::string_view::npos);
-                throw;
-            }
-        },
-        DnsLookupException
-    );
+    expect_parse_error_msg(query, response, "malformed");
 }
 
 // ===========================================================================
 // check_question_echo — second throw path (both parseable but different)
 // ===========================================================================
 
-TEST(DnsValidatorTest, QuestionSectionEcho_ParseableButDifferent_Throws) {
+TEST(DnsValidatorTest, QuestionSectionEcho_ParseableButDifferent_ReturnsParseError) {
     auto query = make_query_example();
     auto response = make_valid_response();
 
     // Change one byte inside the QNAME but keep label structure valid.
-    // response[13] is the first byte of "example" (response[12]=7, response[13..19]="example")
-    // Changing response[13] from 'e' to 'f' makes the name "fxample" (still 7 chars).
     response[13] = 'f';  // was 'e'
 
-    // Both question sections are well-formed but differ → second throw path.
-    EXPECT_THROW(
-        {
-            try {
-                DNS::Validator::validate_response(query, response);
-            } catch (const DnsLookupException &e) {
-                EXPECT_EQ(e.get_error(), DnsError::PARSE);
-                // Verify it's the "section mismatch" message, not "malformed"
-                EXPECT_NE(std::string_view(e.what()).find("does not match"),
-                          std::string_view::npos);
-                throw;
-            }
-        },
-        DnsLookupException
-    );
+    expect_parse_error_msg(query, response, "does not match");
 }
 
 // ===========================================================================
@@ -488,21 +377,10 @@ TEST(DnsValidatorTest, QuestionSection_CompressionPointer_Skipped) {
     response[40] = 0;
 
     // The request must have the same QNAME uncompressed.
-    // Build a matching request with the standard format.
     auto request = make_query_example();
 
     // The overall validation will fail because the raw question section bytes
     // differ (compressed vs uncompressed). But skip_name's compression pointer
     // branch is exercised during the parsing.
-    EXPECT_THROW(
-        {
-            try {
-                DNS::Validator::validate_response(request, response);
-            } catch (const DnsLookupException &e) {
-                EXPECT_EQ(e.get_error(), DnsError::PARSE);
-                throw;
-            }
-        },
-        DnsLookupException
-    );
+    expect_parse_error(request, response);
 }

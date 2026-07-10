@@ -32,6 +32,7 @@ public:
 
     /// Unload a previously loaded driver by name.
     /// @param name  Driver name (as returned by DriverDetail::name).
+    /// @throws DriverNotFoundException  If no driver with that name is loaded.
     virtual void unload_driver(const std::string &name) = 0;
 
     /// Return the names of all currently loaded drivers.
@@ -40,7 +41,7 @@ public:
     /// Look up a loaded driver by name.
     /// @param name  Driver name to look up.
     /// @return      Reference to the Driver instance.
-    /// @throws BadDriverException  If no driver with that name is loaded.
+    /// @throws DriverNotFoundException  If no driver with that name is loaded.
     [[nodiscard]] virtual const Driver &get_driver(const std::string &name) const = 0;
 
 protected:
@@ -73,6 +74,7 @@ public:
 
     /// Unload a previously loaded driver by name.
     /// @param name  Driver name (as returned by DriverDetail::name).
+    /// @throws DriverNotFoundException  If no driver with that name is loaded.
     void unload_driver(const std::string &name) override;
 
     /// Return the names of all currently loaded drivers.
@@ -81,7 +83,7 @@ public:
     /// Look up a loaded driver by name.
     /// @param name  Driver name to look up.
     /// @return      Reference to the Driver instance.
-    /// @throws BadDriverException  If no driver with that name is loaded.
+    /// @throws DriverNotFoundException  If no driver with that name is loaded.
     [[nodiscard]] const Driver &get_driver(const std::string &name) const override;
 
 private:

@@ -12,6 +12,7 @@
 #include <cstdint>
 
 #include "base.h"
+#include "dns/dns_error_info.h"
 
 /// DotResolver — DNS-over-TLS (RFC 7858) resolver.
 ///
@@ -39,8 +40,8 @@ public:
 
     ~DotResolver() override;
 
-    [[nodiscard]] std::expected<std::vector<std::uint8_t>, DnsLookupException>
-    query(const std::string &host, RecordKind type, int cancel_fd = -1) const noexcept override;
+    [[nodiscard]] std::expected<std::vector<std::uint8_t>, DnsErrorInfo>
+    query(const std::string &host, RecordKind type, int cancel_fd = -1) const override;
 
     [[nodiscard]] std::string_view get_type() const noexcept override { return TYPE; }
 

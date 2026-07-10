@@ -116,12 +116,19 @@ The prohibition does **not apply** to:
 - Returning a reference/pointer to a local object is a compile-time error (`-Wreturn-stack-address` + `-Werror`).
 
 ## Error Handling
-- Use **exceptions** for exceptional conditions only, not normal control flow.
-- Use the project-wide error/result type consistently. Do not introduce per-module wrappers.
+
+### Core Principles
+- Use `std::expected<T, E>` for errors where the caller can meaningfully continue
+  (retry, fallback to another backend, etc.).
+- Use **exceptions** only when the current call chain must terminate immediately
+  and the caller cannot meaningfully continue — the exception is a terminate
+  signal, not a value-passing mechanism.
 - Mark functions that cannot fail as `noexcept`.
 - Destructors must never throw (always implicitly or explicitly `noexcept`).
 - Avoid C-style error codes (`int` return, `errno`).
-- Guarantee at least **basic exception safety** (invariants preserved, no leaks). Strive for **strong exception safety** (commit-or-rollback) using **Copy-and-Swap**:
+- Guarantee at least **basic exception safety** (invariants preserved, no leaks).
+  Strive for **strong exception safety** (commit-or-rollback) using
+  **Copy-and-Swap**:
   ```cpp
   class Resource {
   public:
@@ -133,6 +140,139 @@ The prohibition does **not apply** to:
       }
   };
   ```
+
+### Function Design: Expected vs. Throwing
+
+The fundamental rule is: **functions that can fail in ways the caller should handle must return `std::expected`. Functions that only fail when the program cannot proceed may throw.**
+
+The root cause of misuse is almost always in the **function's design**, not in how callers handle it. A function that throws for retryable I/O errors is incorrectly designed; wrapping it in try-catch at the call site papers over the problem rather than fixing it.
+
+```cpp
+// BAD: Function throws for expected/retryable errors
+void send(const Packet& p);  // throws on timeout, checksum error — caller might want to retry
+
+// GOOD: Function returns expected for recoverable errors
+[[nodiscard]] std::expected<void, SendError> send(const Packet& p) noexcept;
+```
+
+### Exception Discipline
+
+**Do NOT use exceptions as flow control.** An exception means the current operation has failed and cannot proceed. Functions that encounter errors the caller could meaningfully handle (retry, fallback, etc.) must use `std::expected`, not throw.
+
+**`catch` blocks are permitted only for the following purposes:**
+
+1. **Logging** — record the error and (optionally) rethrow or terminate. Only rethrow when this is not the final termination point for the exception.
+2. **Error translation at module boundaries** — convert an exception into a `std::expected` error value (`catch → return std::unexpected(...)`). This is appropriate when internal functions legitimately throw (operations that cannot proceed) and the public API boundary uses `std::expected`.
+3. **Resource cleanup in exception-safe code** — ensure invariants are restored when an operation fails partway through (see strong exception safety example below).
+
+**A `catch` block MUST NOT contain business flow control logic:**
+- No retry loops.
+- No fallback to alternative backends.
+- No conditional branching that selects among different recovery strategies.
+
+If the caller needs to decide among recovery strategies, those decisions must be expressed using `std::expected` and normal value-driven code, not exceptions.
+
+### Catch Block Rules in Detail
+
+**What IS allowed in a catch block:**
+
+1. **Logging** (with optional rethrow):
+   ```cpp
+   try {
+       process();
+   } catch (const std::exception& e) {
+       LOG_WARN("Inner failed: {}", e.what());
+       throw;  // propagate — not the final termination point
+   }
+   ```
+
+2. **Error translation at module boundaries** — mapping exception types to error codes:
+   ```cpp
+   Expected<Response> resolve(const Query& q) {
+       try {
+           auto result = do_resolve(q);
+           return result;
+       } catch (const TimeoutError& e) {
+           return std::unexpected(ResolveError::TIMEOUT);
+       } catch (const FormatError& e) {
+           return std::unexpected(ResolveError::INVALID_RESPONSE);
+       } catch (const NetworkError& e) {
+           return std::unexpected(ResolveError::NETWORK_FAILURE);
+       }
+   }
+   ```
+   This is a static mapping of exception type → error code. It does not select recovery strategies; it merely translates the error representation. Multiple error categories at a single translation boundary are acceptable.
+
+3. **Logging at the final termination point** (no rethrow):
+   ```cpp
+   void handle_request() {
+       try {
+           process();
+       } catch (const std::exception& e) {
+           LOG_ERROR("Fatal: {}", e.what());  // terminate — no rethrow
+       }
+   }
+   ```
+
+4. **Strong exception safety rollback** — restoring invariants when an operation fails:
+   ```cpp
+   void transfer(Account& from, Account& to, Money amount) {
+       auto snapshot_from = from;
+       auto snapshot_to = to;
+       from.withdraw(amount);
+       try {
+           to.deposit(amount);
+       } catch (...) {
+           from = snapshot_from;   // rollback, nothrow
+           to = snapshot_to;       // rollback, nothrow
+           throw;
+       }
+   }
+   ```
+
+**What is NOT allowed in a catch block:**
+- Retry the failed operation.
+- Call an alternative backend or fallback function.
+- Branch on error type to choose among different recovery strategies.
+- Any logic that constitutes "what to do next" beyond logging, translating the error, or restoring invariants.
+
+### Deep Call Chain Boundary Translation
+
+When internal functions form a deep call chain where converting every level to `std::expected` would produce excessive mechanical propagation boilerplate with no logic gain, internal functions may throw (for legitimate terminate conditions), and a single catch at the module's public API boundary performs error translation.
+
+The decision to use this pattern should be based on a holistic judgment of **error-type homogeneity** and **propagation mechanical overhead**, not a fixed depth threshold. A shallow chain with heterogeneous error types may warrant `std::expected` throughout, while a deep chain with uniform fatal errors may justify a single boundary translation.
+
+This pattern must satisfy **all** of the following conditions:
+1. The catch block performs **only error translation** — no retry, no fallback, no flow control.
+2. The catch site is the **module's public API boundary**, not an internal function.
+3. The internal functions that throw do so only for **legitimate terminate conditions** (operations that cannot proceed), not for errors the caller should handle.
+4. The mechanical overhead of per-level `std::expected` propagation is **genuinely excessive** relative to the logic gain it provides.
+
+```cpp
+// DNS wire-format parser (RecordParser).
+// Internal functions (decompress_name, parse_message, etc.) form
+// a deep chain. All errors are fatal parse failures (malformed
+// data where continuation is impossible). Converting every level
+// to expected would add substantial mechanical propagation with
+// no logic gain. Internal functions throw, public API translates.
+FormattedResponse parse_strings(...) {
+    try {
+        // ... internal parser functions may throw on fatal errors ...
+        return result;
+    } catch (const DnsLookupException& e) {
+        return std::unexpected(DnsErrorInfo{e.get_error(), e.what()});
+    }
+}
+```
+
+If internal error types diverge or become recoverable, the internal functions should be converted to native `std::expected` to eliminate the translation boundary.
+
+### Decision Table
+| Scenario | Mechanism | Rationale |
+|----------|-----------|-----------|
+| Caller can retry the same or fall back to another backend | `std::expected<T, E>` | Error is a value; the caller decides what to do next. |
+| Caller cannot proceed (precondition violated, resource unavailable) | `throw` | The operation is aborted; no recovery at this layer. |
+| Module boundary: internal throw + public `std::expected` API | Internal `throw` + outermost `catch` for error translation | The public contract uses `expected`, but internal fatal errors use exceptions. Catch only at the boundary, only for translation. |
 
 ## Const Correctness
 - Mark member functions `const` if they do not mutate observable state. Use `mutable` only for caching/synchronization.
@@ -311,6 +451,8 @@ Every code review must verify the following:
 - [ ] New third-party dependencies do not duplicate functionality already provided by existing dependencies.
 - [ ] Unit tests cover new/modified functionality and pass.
 - [ ] No C-style `(void)` casts are used; use `[[maybe_unused]]` instead. Do not suppress return values of non-`[[nodiscard]]` functions.
+- [ ] `catch` blocks contain **no business flow control logic** (no retry, no fallback, no branching on error type for recovery strategy selection). Error translation (exception type → error code) is permitted at module boundaries.
+- [ ] If a `catch` block performs error translation (`return std::unexpected(...)`), verify it is at a module boundary and the catch performs no logic beyond translation.
 - [ ] Relevant README.md files are updated and accurate.
 - [ ] All language versions of README*.md are updated and in sync.
 
@@ -361,6 +503,80 @@ enum class MathError { DivisionByZero };
 [[nodiscard]] std::expected<int, MathError> divide(int a, int b) noexcept {
     if (b == 0) return std::unexpected(MathError::DivisionByZero);
     return a / b;
+}
+
+// BAD: Function design — throws for retryable I/O errors
+// The root problem is that send() and read() throw for errors the
+// caller should handle (timeout, transient failure). Fix the functions,
+// not the call site.
+void send(const Packet&);     // throws on timeout — should return expected
+void read(Response&);         // throws on checksum error — should return expected
+
+try {
+    send(pkt);
+    read(rsp);
+} catch (const DnsLookupException& e) {
+    return std::unexpected(e);
+}
+// ✗ Wrong: The functions themselves are incorrectly designed.
+//   The try-catch papers over the design problem.
+
+// GOOD: Functions return expected — no throw/catch needed
+[[nodiscard]] std::expected<void, SendError> send(const Packet&) noexcept;
+[[nodiscard]] std::expected<Response, ReadError> read() noexcept;
+
+auto s = send(pkt);
+if (!s) return std::unexpected(s.error());
+
+auto rsp = read();
+if (!rsp) return std::unexpected(std::move(rsp.error()));
+
+return std::move(*rsp);
+
+// GOOD: catch only logs at termination point — no rethrow
+void handle_request() {
+    try {
+        process();  // throws on precondition failure — cannot proceed
+    } catch (const std::exception& e) {
+        LOG_ERROR("Fatal: {}", e.what());
+    }
+}
+
+// GOOD: catch logs and propagates — not the final termination point
+void inner() {
+    try {
+        process();
+    } catch (const std::exception& e) {
+        LOG_WARN("Inner failed: {}", e.what());
+        throw;
+    }
+}
+
+// GOOD: Strong exception safety with rollback
+void transfer(Account& from, Account& to, Money amount) {
+    auto snapshot_from = from;
+    auto snapshot_to = to;
+    from.withdraw(amount);
+    try {
+        to.deposit(amount);
+    } catch (...) {
+        from = snapshot_from;   // rollback, nothrow
+        to = snapshot_to;       // rollback, nothrow
+        throw;
+    }
+}
+
+// GOOD: Error translation at module boundary — multiple error categories
+[[nodiscard]] std::expected<Response, ResolveError> resolve(const Query& q) {
+    try {
+        return do_resolve(q);
+    } catch (const TimeoutError& e) {
+        return std::unexpected(ResolveError::TIMEOUT);
+    } catch (const FormatError& e) {
+        return std::unexpected(ResolveError::INVALID_RESPONSE);
+    } catch (const NetworkError& e) {
+        return std::unexpected(ResolveError::NETWORK_FAILURE);
+    }
 }
 ```
 

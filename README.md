@@ -25,6 +25,7 @@
   - `http` — obtain the IP from an external HTTP service (e.g. `https://ifconfig.me`)
   - `mdns` — discover a LAN device's IP address via mDNS (RFC 6762, e.g. `printer.local`)
 - **Per-subdomain update interval** — each subdomain can override the domain-level update interval.
+- **Cooperative request cancellation** — DNS lookups and HTTP requests are cancellable mid-flight. When a faster resolver answers first or the dispatcher shuts down, pending requests are interrupted immediately rather than waiting for timeout.
 - **IPv4 and IPv6 support** — configure A and AAAA records independently.
 - **Custom DNS resolver** — optionally use specific DNS servers instead of the system resolver. Supports **traditional DNS**, **DNS-over-HTTPS (DoH)**, and **DNS-over-TLS (DoT)** with configurable query strategies.
 - **Forced update scheduling** — periodically force-update DNS records even when the IP hasn't changed.
@@ -503,7 +504,8 @@ When `YADDNSC_USE_NATIVE_DNS=ON`, DNS packet parsing is fully self-contained (no
 
 ### DNS-over-HTTPS (DoH)
 
-Encrypts DNS queries via HTTPS POST (RFC 8484).
+- **RFC 8484** — DNS queries via HTTPS POST; the address must be a complete HTTPS URL including path (e.g. `https://1.1.1.1/dns-query`)
+- Cooperative request cancellation
 
 ```json
 {
@@ -519,7 +521,11 @@ Encrypts DNS queries via HTTPS POST (RFC 8484).
 
 ### DNS-over-TLS (DoT)
 
-Encrypts DNS queries via TLS (RFC 7858).
+- **RFC 7858** — DNS queries via TLS; the address is in `tls://` URI format
+- **RFC 7830** — EDNS(0) padding
+- **RFC 6066** — TLS SNI extension
+- **RFC 7301** — TLS ALPN extension
+- Cooperative request cancellation
 
 ```json
 {
@@ -720,6 +726,7 @@ Drivers are shared libraries loaded at runtime. To write one:
 | [BS::thread_pool](https://github.com/bshoshany/thread-pool) | Thread pool                                    | CPM.cmake    |
 | [fmt](https://github.com/fmtlib/fmt)                        | String formatting (fallback if no std::format) | CPM.cmake    |
 | [magic_enum](https://github.com/Neargye/magic_enum)         | Static enum reflection                         | CPM.cmake    |
+| [picohttpparser](https://github.com/h2o/picohttpparser)     | HTTP request/response parsing (cpp-httplib lacks request cancellation) | CPM.cmake    |
 | OpenSSL                                                     | TLS support                                    | System       |
 
 ## License

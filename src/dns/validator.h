@@ -5,7 +5,10 @@
 #define YADDNSC_DNS_VALIDATOR_H
 
 #include <cstdint>
+#include <expected>
 #include <span>
+
+#include "dns/dns_error_info.h"
 
 /// Validate a DNS response against its request.
 ///
@@ -16,11 +19,10 @@
 ///   4. QDCOUNT == 1
 ///   5. Question section is echoed verbatim (RFC 1035 §4.1.2)
 ///
-/// @throws DnsLookupException with Error::PARSE on any failure.
-namespace DNS {
-    namespace Validator {
-        void validate_response(std::span<const std::uint8_t> request, std::span<const std::uint8_t> response);
-    } // namespace Validator
+/// @return  std::expected<void, DnsErrorInfo> — success or a PARSE error.
+namespace DNS::Validator {
+    [[nodiscard]] std::expected<void, DnsErrorInfo> validate_response(
+        std::span<const std::uint8_t> request, std::span<const std::uint8_t> response);
 } // namespace DNS
 
 #endif // YADDNSC_DNS_VALIDATOR_H

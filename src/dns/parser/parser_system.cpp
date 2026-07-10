@@ -1,9 +1,20 @@
 //
 // Created by Kotarou on 2026/6/17.
 //
-// NOTE: Stable default (libresolv).  See parser_native for the experimental
-// self-contained alternative (no libresolv).
-// May be removed once native parser is stable.
+// ── System DNS parser (libresolv) ──
+//
+// ⚠  This is the legacy system DNS parser based on libresolv.  It is
+//    superseded by the native parser (parser_native, no libresolv
+//    dependency).
+//
+//    This file is in maintenance-only mode:
+//      • Only compilation fixes and bug fixes will be applied here.
+//      • No new features, improvements, or refactoring will be added.
+//      • New functionality should go to the native parser.
+//
+//    This file will be removed once the native parser is stable.
+//
+//
 //
 #include "dns/parser/parser_system.h"
 

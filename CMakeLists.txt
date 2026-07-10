@@ -191,6 +191,15 @@ CPMAddPackage("gh:CLIUtils/CLI11@2.6.2")
 CPMAddPackage("gh:Neargye/magic_enum@0.9.8")
 
 # ---------------------------------------------------------------------------
+# picohttpparser – HTTP request/response parser (C library)
+# ---------------------------------------------------------------------------
+CPMAddPackage("gh:h2o/picohttpparser@1.2")
+if (picohttpparser_ADDED)
+  add_library(picohttpparser STATIC ${picohttpparser_SOURCE_DIR}/picohttpparser.c)
+  target_include_directories(picohttpparser PUBLIC ${picohttpparser_SOURCE_DIR})
+endif ()
+
+# ---------------------------------------------------------------------------
 # BS::thread_pool – header-only, no CMakeLists.txt
 # ---------------------------------------------------------------------------
 CPMAddPackage(
@@ -225,6 +234,7 @@ add_executable(yaddnsc
         src/network/socket.cpp
         src/network/socket_addr.cpp
         src/network/uri.cpp
+        src/network/tls_connection.cpp
         # cli
         src/cli/cli.cpp
         src/cli/driver.cpp
@@ -239,8 +249,7 @@ add_executable(yaddnsc
         src/dns/wire/builder.cpp
         src/dns/resolver/doh.cpp
         src/dns/resolver/dot.cpp
-        src/dns/dispatcher.cpp
-        src/dns/factory.cpp
+       	src/dns/factory.cpp
         src/dns/resolver_registry.cpp
         # ip_source
         src/ip_source/iface_util.cpp
@@ -248,19 +257,18 @@ add_executable(yaddnsc
         src/ip_source/http.cpp
         src/ip_source/mdns.cpp
         src/ip_source/factory.cpp
+        # util
+        src/util/http_parser.cpp
 )
 
 # Compile only the selected resolver implementation.
 if (YADDNSC_USE_NATIVE_DNS)
   target_sources(yaddnsc PRIVATE src/dns/resolver/classic_native.cpp)
+  target_sources(yaddnsc PRIVATE src/dns/parser/parser_native.cpp)
+  target_sources(yaddnsc PRIVATE src/dns/dispatcher.cpp)
 else ()
   target_sources(yaddnsc PRIVATE src/dns/resolver/classic_system.cpp)
-endif ()
-
-# Compile only the selected parser implementation.
-if (YADDNSC_USE_NATIVE_DNS)
-  target_sources(yaddnsc PRIVATE src/dns/parser/parser_native.cpp)
-else ()
+  target_sources(yaddnsc PRIVATE src/dns/dispatcher_system.cpp)
   target_sources(yaddnsc PRIVATE src/dns/parser/parser_system.cpp)
 endif ()
 
@@ -293,10 +301,6 @@ target_include_directories(yaddnsc PRIVATE
         ${PROJECT_SOURCE_DIR}/src
         ${CMAKE_BINARY_DIR}/generated
 )
-
-if (glaze_ADDED)
-  target_include_directories(yaddnsc SYSTEM PRIVATE ${glaze_SOURCE_DIR}/include)
-endif ()
 
 # ---------------------------------------------------------------------------
 # Compile definitions
@@ -342,7 +346,7 @@ target_link_options(yaddnsc PRIVATE
 # Link libraries
 # ---------------------------------------------------------------------------
 target_link_libraries(yaddnsc PRIVATE BS_thread_pool magic_enum httplib spdlog::spdlog OpenSSL::SSL OpenSSL::Crypto
-        CLI11::CLI11 glaze::glaze ${CMAKE_DL_LIBS}
+        CLI11::CLI11 glaze::glaze picohttpparser ${CMAKE_DL_LIBS}
 )
 
 # interface target: wraps fmt so consumers always get the right dep and define regardless of HAVE_STD_FORMAT

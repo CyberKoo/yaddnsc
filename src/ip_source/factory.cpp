@@ -4,7 +4,7 @@
 
 #include "factory.h"
 
-#include <stdexcept>
+#include <utility>
 
 #include "config/config.h"
 
@@ -13,9 +13,6 @@
 #include "iface.h"
 #include "mdns.h"
 #include "record_kind.h"
-
-#include "fmt.hpp"
-#include <magic_enum/magic_enum.hpp>
 
 namespace {
     /// Convert RecordKind to the corresponding address family.
@@ -50,5 +47,5 @@ std::unique_ptr<IpSourceBase> IpSourceFactory::create(const Config::SubdomainCon
             return std::make_unique<MdnsIpSource>(cfg.ip_source_param, cfg.type, cfg.interface);
     }
 
-    throw std::runtime_error(fmt::format("Unsupported IP source type: {}", magic_enum::enum_name(cfg.ip_source)));
+    std::unreachable();
 }

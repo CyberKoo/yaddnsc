@@ -16,21 +16,22 @@
 
 #include "driver_loader.h"
 #include "driver_manager.h"
-#include "min_update_interval.h"
 #include "scheduler.h"
-#include "update_task.h"
 #include "updater.h"
+#include "update_task.h"
+#include "min_update_interval.h"
+#include "exception/driver_not_found.h"
 
 #include <BS_thread_pool.hpp>
 #include <spdlog/spdlog.h>
 
 namespace {
-    unsigned int estimate_pool_size(const Config::AppConfig &config) {
-        unsigned int total_subdomains = 0;
+    std::uint32_t estimate_pool_size(const Config::AppConfig &config) noexcept {
+        std::uint32_t total_subdomains = 0;
         const auto thread_count = std::thread::hardware_concurrency();
 
         for (const auto &domain: config.domains) {
-            total_subdomains += static_cast<unsigned int>(domain.subdomains.size());
+            total_subdomains += static_cast<std::uint32_t>(domain.subdomains.size());
         }
 
         if (total_subdomains < 2 || thread_count < 2) {
@@ -108,11 +109,16 @@ void Manager::Impl::run() {
         auto tasks = scheduler_.pop_all_due();
 
         for (auto &task: tasks) {
-            auto driver = &driver_manager_.get_driver(task.driver_name);
-            thread_pool_.detach_task([this, driver, t = std::move(task)] {
-                auto http_client = http_client_factory_();
-                updater_.process(t, *driver, *http_client);
-            });
+            try {
+                auto driver = &driver_manager_.get_driver(task.driver_name);
+                thread_pool_.detach_task([this, driver, t = std::move(task)] {
+                    auto http_client = http_client_factory_();
+                    updater_.process(t, *driver, *http_client);
+                });
+            } catch (const DriverNotFoundException &e) {
+                SPDLOG_ERROR("Driver '{}' not found for task '{}', skipping: {}", task.driver_name, task.fqdn,
+                             e.what());
+            }
         }
 
         if (!scheduler_.wait_for_next()) {

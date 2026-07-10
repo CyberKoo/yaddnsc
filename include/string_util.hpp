@@ -101,6 +101,36 @@ namespace StringUtil {
         return new_str;
     }
 
+    // ── Case-insensitive comparison ──────────────────────────────────────────────
+
+    /// Case-insensitive string equality using the compile-time lower_table.
+    /// Zero allocation — compares through the lookup table in place.
+    [[nodiscard]] inline bool iequals(std::string_view a, std::string_view b) noexcept {
+        if (a.size() != b.size()) return false;
+        for (size_t i = 0; i < a.size(); ++i) {
+            const auto ca = detail::lower_table[static_cast<std::uint8_t>(a[i])];
+            const auto cb = detail::lower_table[static_cast<std::uint8_t>(b[i])];
+            if (ca != cb) return false;
+        }
+        return true;
+    }
+
+    /// Case-insensitive substring search using the compile-time lower_table.
+    /// Zero allocation.
+    [[nodiscard]] inline bool icontains(std::string_view haystack, std::string_view needle) noexcept {
+        if (needle.size() > haystack.size()) return false;
+        for (size_t start = 0; start <= haystack.size() - needle.size(); ++start) {
+            bool match = true;
+            for (size_t i = 0; i < needle.size(); ++i) {
+                const auto h = detail::lower_table[static_cast<std::uint8_t>(haystack[start + i])];
+                const auto n = detail::lower_table[static_cast<std::uint8_t>(needle[i])];
+                if (h != n) { match = false; break; }
+            }
+            if (match) return true;
+        }
+        return false;
+    }
+
     // ── In-place reversal ─────────────────────────────────────────────────────────
 
     /// Reverse a mutable character buffer in place.

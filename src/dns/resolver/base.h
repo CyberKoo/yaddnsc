@@ -14,7 +14,7 @@
 
 #include "mixin.h"
 #include "record_kind.h"
-#include "exception/dns_lookup.h"
+#include "dns/dns_error_info.h"
 
 /// ResolverBase — common interface for all DNS resolvers.
 ///
@@ -37,18 +37,16 @@ public:
     /// @param cancel_fd Optional fd to monitor for cancellation.
     ///                  Pass -1 (default) for no cancellation support.
     ///
-    /// @attention cancel_fd is currently NOT supported by DohResolver or
-    ///            DotResolver.  Only ClassicResolver correctly monitors
-    ///            the fd and aborts on cancellation.  See the individual
-    ///            resolver documentation for details.
+    /// @note cancel_fd is supported by all resolvers: DohResolver, DotResolver,
+    ///       and ClassicResolver all monitor the fd and abort on cancellation.
     ///
-    /// @return  Raw DNS response packet bytes on success, or a DnsLookupException
+    /// @return  Raw DNS response packet bytes on success, or a DnsErrorInfo
     ///          describing the failure (transport error, NXDOMAIN, timeout, etc.).
-    ///          Callers must check the error code via error().get_error() to
+    ///          Callers must check the error code via error().code to
     ///          distinguish transient errors (RETRY, CONNECTION) from permanent
     ///          ones (NX_DOMAIN, NODATA).
-    [[nodiscard]] virtual std::expected<std::vector<std::uint8_t>, DnsLookupException>
-    query(const std::string &host, RecordKind type, int cancel_fd = -1) const noexcept = 0;
+    [[nodiscard]] virtual std::expected<std::vector<std::uint8_t>, DnsErrorInfo>
+    query(const std::string &host, RecordKind type, int cancel_fd = -1) const = 0;
 
     /// Return a human-readable resolver type name (e.g. "Classic", "DNS-Over-HTTPS").
     [[nodiscard]] virtual std::string_view get_type() const noexcept = 0;
