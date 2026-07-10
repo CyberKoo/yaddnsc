@@ -47,6 +47,9 @@ endif ()
 # ==============================================================================
 include(FeatureCheck)
 
+# Propagate to the CMake variable expected by config_cmake.h.in (#cmakedefine YADDNSC_LIBC_MUSL)
+set(YADDNSC_LIBC_MUSL ${LIBC_MUSL})
+
 include(Sanitizer)
 
 # ==============================================================================
