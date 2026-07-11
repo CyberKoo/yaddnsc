@@ -37,11 +37,11 @@ void BIODeleter::operator()(BIO *bio) const noexcept {
 }
 
 // ===========================================================================
-//  Format the OpenSSL error stack and throw TlsException
+//  Format the OpenSSL error stack and log + return IoStatus::ERROR
 // ===========================================================================
 
 namespace {
-    void throw_ssl_error(std::string_view context, const std::source_location &loc = std::source_location::current()) {
+    TlsConnection::IoStatus log_ssl_error(std::string_view context) {
         std::string msg;
         msg.reserve(256);
         msg += context;
@@ -60,9 +60,8 @@ namespace {
         }
         msg += "]";
 
-        msg += fmt::format(" (at {}:{}:{})", loc.file_name(), loc.line(), loc.column());
-
-        throw TlsException(msg);
+        SPDLOG_ERROR("TLS error: {}", msg);
+        return TlsConnection::IoStatus::ERROR;
     }
 } // anonymous namespace
 
@@ -92,7 +91,7 @@ TlsConnection &TlsConnection::operator=(TlsConnection &&) noexcept = default;
 //  Lifecycle
 // ===========================================================================
 
-void TlsConnection::connect() {
+std::expected<void, TlsConnection::IoStatus> TlsConnection::connect() {
     close();
 
     // Resolve the SSL_CTX: custom factory or shared default.
@@ -102,34 +101,38 @@ void TlsConnection::connect() {
             custom_ctx_ = context_factory_();
         }
         ctx = custom_ctx_.get();
+        if (!ctx) {
+            return std::unexpected(IoStatus::ERROR);
+        }
     } else {
         ctx = get_shared_ssl_ctx();
+        if (!ctx) {
+            return std::unexpected(IoStatus::ERROR);
+        }
     }
 
     BioPtr bio(BIO_new_ssl_connect(ctx));
     if (!bio) {
-        throw_ssl_error("BIO_new_ssl_connect");
+        return std::unexpected(log_ssl_error("BIO_new_ssl_connect"));
     }
+
+    const auto target = fmt::format("{}:{}", server_, port_);
 
     BIO_get_ssl(bio.get(), &ssl_);
     if (ssl_) {
-        // SNI and certificate hostname verification — always the same value.
-        // sni_hostname_ overrides server_ when set, otherwise server_ is used
-        // for both purposes (even when it is an IP address).
         const std::string &effective_hostname = sni_hostname_.has_value() ? *sni_hostname_ : server_;
         SSL_set_tlsext_host_name(ssl_, effective_hostname.c_str());
         SSL_set1_host(ssl_, effective_hostname.c_str());
 
         if (!alpn_proto_.empty()) {
             if (SSL_set_alpn_protos(ssl_, alpn_proto_.data(), static_cast<unsigned>(alpn_proto_.size())) != 0) {
-                throw_ssl_error("SSL_set_alpn_protos");
+                return std::unexpected(log_ssl_error("SSL_set_alpn_protos"));
             }
         }
     }
 
-    const auto target = fmt::format("{}:{}", server_, port_);
     if (BIO_set_conn_hostname(bio.get(), target.c_str()) != 1) {
-        throw_ssl_error(fmt::format("BIO_set_conn_hostname({})", target));
+        return std::unexpected(log_ssl_error(fmt::format("BIO_set_conn_hostname({})", target)));
     }
 
     // Non-blocking connect with timeout.
@@ -143,19 +146,18 @@ void TlsConnection::connect() {
             break;
 
         if (!BIO_should_retry(bio.get())) {
-            throw_ssl_error(fmt::format(R"(TLS connect/handshake failed for "{}")", target));
+            return std::unexpected(log_ssl_error(fmt::format(R"(TLS connect/handshake failed for "{}")", target)));
         }
 
         const auto now = std::chrono::steady_clock::now();
         if (now >= deadline) {
-            throw TlsException(
-                fmt::format(R"(TLS connection timeout ({}ms) for "{}")", connect_timeout_.count(), target));
+            return std::unexpected(IoStatus::TIMEOUT);
         }
 
         const auto fd_raw = BIO_get_fd(bio.get(), nullptr);
         const int fd = static_cast<int>(fd_raw);
         if (fd == -1) {
-            throw TlsException(fmt::format(R"(TLS failed to get socket fd for "{}")", target));
+            return std::unexpected(IoStatus::ERROR);
         }
 
         const auto remaining_ms = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - now);
@@ -169,14 +171,12 @@ void TlsConnection::connect() {
         const int poll_ret = poll(&pfd, 1, static_cast<int>(remaining_ms.count()));
         if (poll_ret <= 0) {
             if (poll_ret == 0) {
-                throw TlsException(
-                    fmt::format(R"(TLS connection timeout ({}ms) for "{}")", connect_timeout_.count(), target));
+                return std::unexpected(IoStatus::TIMEOUT);
             }
             if (errno == EINTR) {
                 continue;
             }
-            throw TlsException(
-                fmt::format(R"(TLS poll() failed for "{}": {})", target, std::strerror(errno)));
+            return std::unexpected(IoStatus::ERROR);
         }
     }
 
@@ -198,6 +198,7 @@ void TlsConnection::connect() {
                  connected_ssl ? SSL_get_version(connected_ssl) : "?");
 
     bio_ = std::move(bio);
+    return {};
 }
 
 void TlsConnection::close() noexcept {
@@ -238,9 +239,9 @@ bool TlsConnection::is_healthy() const noexcept {
 //  I/O
 // ===========================================================================
 
-TlsConnection::IoStatus TlsConnection::send_all(std::span<const std::uint8_t> data, int cancel_fd) {
+std::expected<void, TlsConnection::IoStatus> TlsConnection::send_all(std::span<const std::uint8_t> data, int cancel_fd) {
     if (!bio_)
-        return IoStatus::ERROR;
+        return std::unexpected(IoStatus::ERROR);
 
     while (!data.empty()) {
         // Determine poll direction from OpenSSL's retry flags — a TLS
@@ -252,22 +253,22 @@ TlsConnection::IoStatus TlsConnection::send_all(std::span<const std::uint8_t> da
 
         const auto status = poll_bio(bio_.get(), event, cancel_fd);
         if (status != IoStatus::OK)
-            return status;
+            return std::unexpected(status);
 
         BIO_clear_retry_flags(bio_.get());
         const int rc = BIO_write(bio_.get(), data.data(), static_cast<int>(data.size()));
         if (rc > 0) {
             data = data.subspan(static_cast<size_t>(rc));
         } else if (!BIO_should_retry(bio_.get())) {
-            return IoStatus::ERROR;
+            return std::unexpected(IoStatus::ERROR);
         }
     }
-    return IoStatus::OK;
+    return {};
 }
 
-TlsConnection::IoStatus TlsConnection::read_exact(std::span<std::uint8_t> buf, int cancel_fd) {
+std::expected<void, TlsConnection::IoStatus> TlsConnection::read_exact(std::span<std::uint8_t> buf, int cancel_fd) {
     if (!bio_)
-        return IoStatus::ERROR;
+        return std::unexpected(IoStatus::ERROR);
 
     while (!buf.empty()) {
         // Determine poll direction from OpenSSL's retry flags — a TLS
@@ -279,22 +280,22 @@ TlsConnection::IoStatus TlsConnection::read_exact(std::span<std::uint8_t> buf, i
 
         const auto status = poll_bio(bio_.get(), event, cancel_fd);
         if (status != IoStatus::OK)
-            return status;
+            return std::unexpected(status);
 
         BIO_clear_retry_flags(bio_.get());
         const int rc = BIO_read(bio_.get(), buf.data(), static_cast<int>(buf.size()));
         if (rc > 0) {
             buf = buf.subspan(static_cast<size_t>(rc));
         } else if (!BIO_should_retry(bio_.get())) {
-            return IoStatus::ERROR;
+            return std::unexpected(IoStatus::ERROR);
         }
     }
-    return IoStatus::OK;
+    return {};
 }
 
-TlsConnection::IoStatus TlsConnection::shutdown() {
+std::expected<void, TlsConnection::IoStatus> TlsConnection::shutdown() {
     if (!ssl_)
-        return IoStatus::ERROR;
+        return std::unexpected(IoStatus::ERROR);
 
     for (int attempt = 0;; ++attempt) {
         if (attempt > 0) {
@@ -306,17 +307,17 @@ TlsConnection::IoStatus TlsConnection::shutdown() {
 
             const auto status = poll_bio(bio_.get(), event, -1);
             if (status != IoStatus::OK)
-                return status;
+                return std::unexpected(status);
         }
 
         BIO_clear_retry_flags(bio_.get());
         const int ret = SSL_shutdown(ssl_);
         if (ret == 1 || ret == 0)
-            return IoStatus::OK;
+            return {};
 
         const int err = SSL_get_error(ssl_, ret);
         if (err != SSL_ERROR_WANT_READ && err != SSL_ERROR_WANT_WRITE)
-            return IoStatus::ERROR;
+            return std::unexpected(IoStatus::ERROR);
     }
 }
 
@@ -396,13 +397,19 @@ TlsConnection::IoStatus TlsConnection::poll_bio(BIO *bio, PollEvent event, int c
 
 SslCtxPtr TlsConnection::create_default_ssl_ctx() {
     SslCtxPtr ctx(SSL_CTX_new(TLS_client_method()));
-    if (!ctx)
-        throw_ssl_error("SSL_CTX_new");
+    if (!ctx) {
+        log_ssl_error("SSL_CTX_new");
+        return nullptr;
+    }
 
-    if (SSL_CTX_set_min_proto_version(ctx.get(), TLS1_2_VERSION) != 1)
-        throw_ssl_error("SSL_CTX_set_min_proto_version");
-    if (SSL_CTX_set_max_proto_version(ctx.get(), TLS1_3_VERSION) != 1)
-        throw_ssl_error("SSL_CTX_set_max_proto_version");
+    if (SSL_CTX_set_min_proto_version(ctx.get(), TLS1_2_VERSION) != 1) {
+        log_ssl_error("SSL_CTX_set_min_proto_version");
+        return nullptr;
+    }
+    if (SSL_CTX_set_max_proto_version(ctx.get(), TLS1_3_VERSION) != 1) {
+        log_ssl_error("SSL_CTX_set_max_proto_version");
+        return nullptr;
+    }
 
     SSL_CTX_set_verify(ctx.get(), SSL_VERIFY_PEER, nullptr);
 
@@ -416,7 +423,8 @@ SslCtxPtr TlsConnection::create_default_ssl_ctx() {
                 SPDLOG_DEBUG("Loaded CA bundle from {}", path);
                 return path;
             })) {
-            throw_ssl_error("SSL_CTX_set_default_verify_paths and cert_util both failed");
+            log_ssl_error("SSL_CTX_set_default_verify_paths and cert_util both failed");
+            return nullptr;
         }
     }
 

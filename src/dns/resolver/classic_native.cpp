@@ -99,18 +99,16 @@ namespace {
             });
         }
 
-        // wait_for may throw SocketException on timeout/cancellation —
-        // catch at this I/O boundary and translate to expected.
-        try {
-            if (sock.wait_for(POLLIN, UDP_TIMEOUT_SEC * 1000, cancel_fd) == 0) {
-                return std::unexpected(DnsErrorInfo{
-                    DnsError::RETRY,
-                    fmt::format(R"(Resolver #{} UDP query timed out)", resolver_id)
-                });
-            }
-        } catch (const SocketException &e) {
-            const auto ec = classify_socket_error(e.get_errno());
-            return std::unexpected(DnsErrorInfo{ec, socket_error_msg(resolver_id, "UDP wait_for", e.get_errno())});
+        auto wait_res = sock.wait_for(POLLIN, UDP_TIMEOUT_SEC * 1000, cancel_fd);
+        if (!wait_res) {
+            const auto ec = classify_socket_error(wait_res.error());
+            return std::unexpected(DnsErrorInfo{ec, socket_error_msg(resolver_id, "UDP wait_for", wait_res.error())});
+        }
+        if (*wait_res == 0) {
+            return std::unexpected(DnsErrorInfo{
+                DnsError::RETRY,
+                fmt::format(R"(Resolver #{} UDP query timed out)", resolver_id)
+            });
         }
 
         std::vector<std::uint8_t> response(MAX_DNS_PACKET_SIZE);
@@ -154,7 +152,7 @@ namespace {
         // Enable TCP_NODELAY to disable Nagle's algorithm — DNS queries are
         // typically small and latency-sensitive; batching via Nagle adds
         // unnecessary delay.
-        sock.set_option(IPPROTO_TCP, TCP_NODELAY, 1);
+        sock.set_option(IPPROTO_TCP, TCP_NODELAY, 1).value();
 
         // Send: 2-byte big-endian length prefix + query packet (RFC 1035 §4.2.2).
         const std::uint16_t be_len = htons(static_cast<std::uint16_t>(query_packet.size()));
@@ -171,20 +169,18 @@ namespace {
         }
 
         // Receive helper: wait with poll, then recv.
-        // May throw SocketException on timeout/cancellation — caught below.
-        // Returns bytes read on success, or error on failure.
         auto recv_with_timeout = [&sock, cancel_fd, resolver_id](std::span<std::byte> buf)
             -> std::expected<size_t, DnsErrorInfo> {
-            try {
-                if (sock.wait_for(POLLIN, TCP_CONNECT_TIMEOUT_SEC * 1000, cancel_fd) == 0) {
-                    return std::unexpected(DnsErrorInfo{
-                        DnsError::RETRY,
-                        fmt::format(R"(Resolver #{} TCP recv timed out)", resolver_id)
-                    });
-                }
-            } catch (const SocketException &e) {
-                const auto ec = classify_socket_error(e.get_errno());
-                return std::unexpected(DnsErrorInfo{ec, socket_error_msg(resolver_id, "TCP wait_for", e.get_errno())});
+            auto wait_res = sock.wait_for(POLLIN, TCP_CONNECT_TIMEOUT_SEC * 1000, cancel_fd);
+            if (!wait_res) {
+                const auto ec = classify_socket_error(wait_res.error());
+                return std::unexpected(DnsErrorInfo{ec, socket_error_msg(resolver_id, "TCP wait_for", wait_res.error())});
+            }
+            if (*wait_res == 0) {
+                return std::unexpected(DnsErrorInfo{
+                    DnsError::RETRY,
+                    fmt::format(R"(Resolver #{} TCP recv timed out)", resolver_id)
+                });
             }
 
             auto n = sock.recv(buf);

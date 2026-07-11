@@ -104,18 +104,18 @@ namespace {
                 auto *v6_dest = reinterpret_cast<std::uint8_t *>(&mreq_.ipv6mr_multiaddr);
                 std::ranges::copy_n(MDNS_IPV6_GROUP_INET.data(), sizeof(mreq_.ipv6mr_multiaddr), v6_dest);
                 mreq_.ipv6mr_interface = if_index;
-                if (auto err = sock_.try_set_option(IPPROTO_IPV6, IPV6_JOIN_GROUP, mreq_)) {
+                if (auto res = sock_.set_option(IPPROTO_IPV6, IPV6_JOIN_GROUP, mreq_); !res) {
                     throw std::runtime_error(fmt::format(R"(mDNS IPV6_JOIN_GROUP failed for "{}": {})", hostname,
-                                                         errno_str(err)));
+                                                         errno_str(res.error())));
                 }
             } else {
                 // Bridge: copy Inet4Address bytes → POSIX in_addr.
                 auto *v4_dest = reinterpret_cast<std::uint8_t *>(&mreq_.imr_multiaddr);
                 std::ranges::copy_n(MDNS_IPV4_GROUP_INET.data(), sizeof(mreq_.imr_multiaddr), v4_dest);
                 mreq_.imr_interface = pick_ipv4_interface_addr(interface);
-                if (auto err = sock_.try_set_option(IPPROTO_IP, IP_ADD_MEMBERSHIP, mreq_)) {
+                if (auto res = sock_.set_option(IPPROTO_IP, IP_ADD_MEMBERSHIP, mreq_); !res) {
                     throw std::runtime_error(
-                        fmt::format(R"(mDNS IP_ADD_MEMBERSHIP failed for "{}": {})", hostname, errno_str(err)));
+                        fmt::format(R"(mDNS IP_ADD_MEMBERSHIP failed for "{}": {})", hostname, errno_str(res.error())));
                 }
             }
         }
@@ -128,10 +128,10 @@ namespace {
             }
             constexpr auto level = std::is_same_v<Tag, Ipv6Tag> ? IPPROTO_IPV6 : IPPROTO_IP;
             constexpr auto leave_opt = std::is_same_v<Tag, Ipv6Tag> ? IPV6_LEAVE_GROUP : IP_DROP_MEMBERSHIP;
-            if (auto err = sock_.try_set_option(level, leave_opt, mreq_)) {
+            if (auto res = sock_.set_option(level, leave_opt, mreq_); !res) {
                 SPDLOG_WARN(R"(mDNS {} failed: {})",
                             std::is_same_v<Tag, Ipv6Tag> ? "IPV6_LEAVE_GROUP" : "IP_DROP_MEMBERSHIP",
-                            errno_str(err));
+                            errno_str(res.error()));
             }
         }
 
@@ -171,11 +171,13 @@ namespace {
     template<IpVersionTag Tag>
     void bind_socket(Socket &sock, const std::string &hostname) {
         if constexpr (std::is_same_v<Tag, Ipv6Tag>) {
-            if (auto err = sock.try_set_option(IPPROTO_IPV6, IPV6_V6ONLY, 1)) {
-                SPDLOG_WARN(R"(mDNS IPV6_V6ONLY failed for "{}": {})", hostname, errno_str(err));
+            if (auto res = sock.set_option(IPPROTO_IPV6, IPV6_V6ONLY, 1); !res) {
+                SPDLOG_WARN(R"(mDNS IPV6_V6ONLY failed for "{}": {})", hostname, errno_str(res.error()));
             }
         }
-        sock.bind(std::is_same_v<Tag, Ipv6Tag> ? MDNS_IPV6_BIND : MDNS_IPV4_BIND);
+        if (auto res = sock.bind(std::is_same_v<Tag, Ipv6Tag> ? MDNS_IPV6_BIND : MDNS_IPV4_BIND); !res) {
+            throw std::runtime_error(fmt::format(R"(mDNS bind failed for "{}": {})", hostname, errno_str(res.error())));
+        }
     }
 
     /// Resolve the multicast interface index.
@@ -210,32 +212,32 @@ namespace {
                                      const std::string &hostname) {
         if constexpr (std::is_same_v<Tag, Ipv6Tag>) {
             if (if_index > 0) {
-                if (auto err = sock.try_set_option(IPPROTO_IPV6, IPV6_MULTICAST_IF, if_index)) {
-                    SPDLOG_WARN(R"(mDNS IPV6_MULTICAST_IF failed for "{}": {})", hostname, errno_str(err));
+                if (auto res = sock.set_option(IPPROTO_IPV6, IPV6_MULTICAST_IF, if_index); !res) {
+                    SPDLOG_WARN(R"(mDNS IPV6_MULTICAST_IF failed for "{}": {})", hostname, errno_str(res.error()));
                 }
             }
-            if (auto err = sock.try_set_option(IPPROTO_IPV6, IPV6_MULTICAST_HOPS, 255)) {
-                SPDLOG_WARN(R"(mDNS IPV6_MULTICAST_HOPS failed for "{}": {})", hostname, errno_str(err));
+            if (auto res = sock.set_option(IPPROTO_IPV6, IPV6_MULTICAST_HOPS, 255); !res) {
+                SPDLOG_WARN(R"(mDNS IPV6_MULTICAST_HOPS failed for "{}": {})", hostname, errno_str(res.error()));
             }
         } else {
             if (if_index > 0) {
 #if defined(__linux__)
                 ip_mreqn mreqn{};
                 mreqn.imr_ifindex = static_cast<int>(if_index);
-                if (auto err = sock.try_set_option(IPPROTO_IP, IP_MULTICAST_IF, mreqn)) {
-                    SPDLOG_WARN(R"(mDNS IP_MULTICAST_IF failed for "{}": {})", hostname, errno_str(err));
+                if (auto res = sock.set_option(IPPROTO_IP, IP_MULTICAST_IF, mreqn); !res) {
+                    SPDLOG_WARN(R"(mDNS IP_MULTICAST_IF failed for "{}": {})", hostname, errno_str(res.error()));
                 }
 #else
                 // macOS / BSD: IP_MULTICAST_IF expects struct in_addr (interface
                 // address), not an interface index.
                 auto ipv4_addr = pick_ipv4_interface_addr(interface);
-                if (auto err = sock.try_set_option(IPPROTO_IP, IP_MULTICAST_IF, ipv4_addr)) {
-                    SPDLOG_WARN(R"(mDNS IP_MULTICAST_IF failed for "{}": {})", hostname, errno_str(err));
+                if (auto res = sock.set_option(IPPROTO_IP, IP_MULTICAST_IF, ipv4_addr); !res) {
+                    SPDLOG_WARN(R"(mDNS IP_MULTICAST_IF failed for "{}": {})", hostname, errno_str(res.error()));
                 }
 #endif
             }
-            if (auto err = sock.try_set_option(IPPROTO_IP, IP_MULTICAST_TTL, 255)) {
-                SPDLOG_WARN(R"(mDNS IP_MULTICAST_TTL failed for "{}": {})", hostname, errno_str(err));
+            if (auto res = sock.set_option(IPPROTO_IP, IP_MULTICAST_TTL, 255); !res) {
+                SPDLOG_WARN(R"(mDNS IP_MULTICAST_TTL failed for "{}": {})", hostname, errno_str(res.error()));
             }
         }
     }
@@ -252,8 +254,11 @@ namespace {
     /// Shared helper: poll, receive, parse DNS response.
 /// Throws std::runtime_error on any failure.
     [[nodiscard]] std::vector<InetAddress> recv_and_parse(Socket &sock, RecordKind type, const std::string &hostname) {
-        int ready = sock.wait_for(POLLIN, MDNS_TIMEOUT_MS);
-        if (ready <= 0) {
+        auto wait_res = sock.wait_for(POLLIN, MDNS_TIMEOUT_MS);
+        if (!wait_res) {
+            throw std::runtime_error(fmt::format(R"(mDNS wait_for failed for "{}": {})", hostname, errno_str(wait_res.error())));
+        }
+        if (*wait_res == 0) {
             throw std::runtime_error(fmt::format(R"(mDNS no response for "{}" within {}ms)", hostname,
                                                  MDNS_TIMEOUT_MS));
         }
@@ -330,29 +335,29 @@ namespace {
         Socket sock(af, SOCK_DGRAM);
 
         // ── Socket options ──────────────────────────────────────────────────
-        if (auto err = sock.try_set_option(SOL_SOCKET, SO_REUSEADDR, 1)) {
-            SPDLOG_WARN(R"(mDNS setsockopt(SOL_SOCKET, SO_REUSEADDR) failed for "{}": {})", hostname, errno_str(err));
+        if (auto res = sock.set_option(SOL_SOCKET, SO_REUSEADDR, 1); !res) {
+            SPDLOG_WARN(R"(mDNS setsockopt(SOL_SOCKET, SO_REUSEADDR) failed for "{}": {})", hostname, errno_str(res.error()));
         }
 
         // SO_REUSEPORT allows co-existence with other mDNS responders (e.g. avahi-daemon).
-        if (auto err = sock.try_set_option(SOL_SOCKET, SO_REUSEPORT, 1)) {
-            SPDLOG_DEBUG(R"(mDNS setsockopt(SOL_SOCKET, SO_REUSEPORT) failed for "{}": {})", hostname, errno_str(err));
+        if (auto res = sock.set_option(SOL_SOCKET, SO_REUSEPORT, 1); !res) {
+            SPDLOG_DEBUG(R"(mDNS setsockopt(SOL_SOCKET, SO_REUSEPORT) failed for "{}": {})", hostname, errno_str(res.error()));
         }
 
         if (!interface.empty()) {
 #if defined(SO_BINDTODEVICE)
-            if (auto err = sock.try_set_option_raw(SOL_SOCKET, SO_BINDTODEVICE, interface.c_str(),
-                                                   static_cast<socklen_t>(interface.size() + 1))) {
+            if (auto res = sock.set_option_raw(SOL_SOCKET, SO_BINDTODEVICE, interface.c_str(),
+                                                   static_cast<socklen_t>(interface.size() + 1)); !res) {
                 SPDLOG_WARN(R"(mDNS setsockopt(SOL_SOCKET, SO_BINDTODEVICE) failed for "{}": {})", hostname,
-                            errno_str(err));
+                            errno_str(res.error()));
             }
 #elif defined(IP_BOUND_IF)
             unsigned int idx = NetDevices::name_to_index(interface);
             if (idx > 0) {
                 constexpr int ip_level = std::is_same_v<Tag, Ipv6Tag> ? IPPROTO_IPV6 : IPPROTO_IP;
                 constexpr int opt_name = std::is_same_v<Tag, Ipv6Tag> ? IPV6_BOUND_IF : IP_BOUND_IF;
-                if (auto err = sock.try_set_option(ip_level, opt_name, idx)) {
-                    SPDLOG_WARN(R"(mDNS setsockopt bound-if failed for "{}": {})", hostname, errno_str(err));
+                if (auto res = sock.set_option(ip_level, opt_name, idx); !res) {
+                    SPDLOG_WARN(R"(mDNS setsockopt bound-if failed for "{}": {})", hostname, errno_str(res.error()));
                 }
             } else {
                 SPDLOG_WARN(R"(mDNS interface "{}" not found for "{}")", interface, hostname);

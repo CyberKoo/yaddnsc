@@ -98,8 +98,8 @@ public:
     /// Open (or re-establish) the TLS connection.
     ///
     /// If already connected, the old connection is closed first.
-    /// @throws TlsException on failure.
-    void connect();
+    /// @return  std::expected<void, IoStatus> — empty on success, error on failure.
+    [[nodiscard]] std::expected<void, IoStatus> connect();
 
     /// Close the connection.
     void close() noexcept;
@@ -125,8 +125,8 @@ public:
     /// @param cancel_fd Optional file descriptor for cancellation.  When it
     ///                  becomes readable, the operation is aborted and
     ///                  @c IoStatus::CANCELLED is returned.
-    /// @return          @c IoStatus::OK on success.
-    [[nodiscard]] IoStatus send_all(std::span<const std::uint8_t> data, int cancel_fd = -1);
+    /// @return          std::expected<void, IoStatus> — empty on success, error code on failure.
+    [[nodiscard]] std::expected<void, IoStatus> send_all(std::span<const std::uint8_t> data, int cancel_fd = -1);
 
     /// Read exactly `buf.size()` bytes.
     ///
@@ -134,8 +134,8 @@ public:
     /// @param cancel_fd Optional file descriptor for cancellation.  When it
     ///                  becomes readable, the operation is aborted and
     ///                  @c IoStatus::CANCELLED is returned.
-    /// @return          @c IoStatus::OK on success.
-    [[nodiscard]] IoStatus read_exact(std::span<std::uint8_t> buf, int cancel_fd = -1);
+    /// @return          std::expected<void, IoStatus> — empty on success, error code on failure.
+    [[nodiscard]] std::expected<void, IoStatus> read_exact(std::span<std::uint8_t> buf, int cancel_fd = -1);
 
     /// Read at least one byte (partial read).
     ///
@@ -160,7 +160,8 @@ public:
     /// reading may continue (the peer may still send a response before
     /// its own close_notify).  Callers should finish reading the response
     /// and then call @c close().
-    [[nodiscard]] IoStatus shutdown();
+    /// @return  std::expected<void, IoStatus> — empty on success, error code on failure.
+    [[nodiscard]] std::expected<void, IoStatus> shutdown();
 
     // ── SNI / certificate hostname ──
 

@@ -175,12 +175,12 @@ protected:
 
 			// ---- Create responder socket ---------------------------------------
 			responder_sock_ = std::make_unique<Socket>(AF_INET, SOCK_DGRAM);
-        responder_sock_->set_reuseaddr(true);
-        responder_sock_->set_option(SOL_SOCKET, SO_REUSEPORT, 1);
+        responder_sock_->set_reuseaddr(true).value();
+        responder_sock_->set_option(SOL_SOCKET, SO_REUSEPORT, 1).value();
 
         auto bind_addr = SocketAddr::from_inet(Inet4Address{}, 5353);
         ASSERT_TRUE(bind_addr.has_value());
-        responder_sock_->bind(*bind_addr);
+        responder_sock_->bind(*bind_addr).value();
 
         // Join multicast group 224.0.0.251 on the default interface.
         auto mcast_addr = Inet4Address::parse("224.0.0.251");
@@ -191,7 +191,7 @@ protected:
         auto *dest = reinterpret_cast<std::uint8_t *>(&mreq_.imr_multiaddr);
         std::ranges::copy_n(mcast_addr->data(), sizeof(mreq_.imr_multiaddr), dest);
         mreq_.imr_interface.s_addr = INADDR_ANY;
-        responder_sock_->set_option(IPPROTO_IP, IP_ADD_MEMBERSHIP, mreq_);
+        responder_sock_->set_option(IPPROTO_IP, IP_ADD_MEMBERSHIP, mreq_).value();
 
         // ---- Start responder thread ----------------------------------------
         stop_flag_.store(false);
@@ -208,7 +208,7 @@ protected:
         }
         if (responder_sock_) {
             // Leave multicast group.
-            [[maybe_unused]] auto _ = responder_sock_->try_set_option(IPPROTO_IP, IP_DROP_MEMBERSHIP, mreq_);
+            (void)responder_sock_->set_option(IPPROTO_IP, IP_DROP_MEMBERSHIP, mreq_);
             responder_sock_->close();
         }
         responder_sock_.reset();
@@ -223,8 +223,8 @@ private:
     void responder_loop() {
         // Poll with a short timeout so we can check the stop flag.
         while (!stop_flag_.load()) {
-            auto ready = responder_sock_->wait_for(POLLIN, 100);
-            if (ready <= 0) {
+            auto wait_res = responder_sock_->wait_for(POLLIN, 100);
+            if (!wait_res || *wait_res == 0) {
                 continue;
             }
 

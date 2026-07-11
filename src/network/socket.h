@@ -5,11 +5,11 @@
 #ifndef YADDNSC_NETWORK_SOCKET_H
 #define YADDNSC_NETWORK_SOCKET_H
 
+#include <cerrno>
 #include <cstddef>
 #include <expected>
 #include <span>
 
-#include "exception/socket.h"
 #include "network/socket_addr.h"
 
 #include "mixin.h"
@@ -23,7 +23,10 @@
 //   - Constructor:  throws SocketException on failure (cannot return error code).
 //   - I/O (send/recv families):  return ssize_t, do NOT throw.
 //   - connect():  returns std::expected<void, ConnectError>, does NOT throw.
-//   - Other setup/control (bind, listen, options):  throw SocketException.
+//   - Options (set_option/get_option and convenience methods):  return std::expected<void, int>, do NOT throw.
+//   - accept:  returns std::expected<Socket, int>, does NOT throw.
+//   - Setup/control (bind, set_nonblocking, wait_for):  return std::expected<void, int> or std::expected<int, int>, do NOT throw.
+//   - listen:  throw SocketException.
 //   - Destructor and close():  noexcept (errors silently ignored).
 //
 // Thread-safety: a single Socket object must not be used from multiple threads
@@ -52,75 +55,58 @@ public:
 
     // ---- Options: generic setsockopt / getsockopt (type-safe) -------------
 
+    /// Set a socket option.
+    /// @return std::expected<void, int> — empty on success, errno on failure.
     template<typename T>
-    void set_option(int level, int optname, const T &val) const {
-        if (::setsockopt(fd_, level, optname, &val, sizeof(val)) < 0) {
-            throw SocketException(errno, "setsockopt");
-        }
-    }
-
-    /// Non-throwing variant — returns 0 on success, errno on failure.
-    template<typename T>
-    [[nodiscard]] int try_set_option(int level, int optname, const T &val) const noexcept {
+    [[nodiscard]] std::expected<void, int> set_option(int level, int optname, const T &val) const noexcept {
         if (::setsockopt(fd_, level, optname, &val, sizeof(val)) == 0) {
-            return 0;
+            return {};
         }
-        return errno;
+        return std::unexpected(errno);
     }
 
     /// Raw setsockopt for variable-length values (e.g. SO_BINDTODEVICE).
-    void set_option_raw(int level, int optname, const void *val, socklen_t len) const;
+    [[nodiscard]] std::expected<void, int> set_option_raw(
+        int level, int optname, const void *val, socklen_t len) const noexcept;
 
-    /// Non-throwing variant of set_option_raw.
-    /// @return 0 on success, errno on failure.
-    [[nodiscard]] int try_set_option_raw(int level, int optname, const void *val, socklen_t len) const noexcept;
-
+    /// Get a socket option.
+    /// @return std::expected<void, int> — empty on success, errno on failure.
     template<typename T>
-    void get_option(int level, int optname, T &val) const {
-        socklen_t len = sizeof(val);
-        if (::getsockopt(fd_, level, optname, &val, &len) < 0) {
-            throw SocketException(errno, "getsockopt");
-        }
-    }
-
-    /// Non-throwing variant of get_option.
-    /// @return 0 on success, errno on failure.
-    template<typename T>
-    [[nodiscard]] int try_get_option(int level, int optname, T &val) const noexcept {
+    [[nodiscard]] std::expected<void, int> get_option(int level, int optname, T &val) const noexcept {
         socklen_t len = sizeof(val);
         if (::getsockopt(fd_, level, optname, &val, &len) == 0) {
-            return 0;
+            return {};
         }
-        return errno;
+        return std::unexpected(errno);
     }
 
     /// Toggle O_NONBLOCK via fcntl (not setsockopt).
-    void set_nonblocking(bool enable) const;
+    [[nodiscard]] std::expected<void, int> set_nonblocking(bool enable) const noexcept;
 
     // ---- Convenience options (all POSIX portable) -------------------------
 
     /// Enable/disable SO_REUSEADDR.
-    void set_reuseaddr(bool enable) const;
+    [[nodiscard]] std::expected<void, int> set_reuseaddr(bool enable) const noexcept;
 
     /// Enable/disable SO_REUSEPORT (Linux 3.9+, BSD).
-    /// Throws SocketException(ENOPROTOOPT) on platforms that don't support it.
-    void set_reuseport(bool enable) const;
+    /// Returns ENOPROTOOPT on platforms that don't support it.
+    [[nodiscard]] std::expected<void, int> set_reuseport(bool enable) const noexcept;
 
     /// Enable/disable SO_BROADCAST (UDP only).
-    void set_broadcast(bool enable) const;
+    [[nodiscard]] std::expected<void, int> set_broadcast(bool enable) const noexcept;
 
     /// Enable/disable TCP keep-alive probes.
-    void set_keepalive(bool enable) const;
+    [[nodiscard]] std::expected<void, int> set_keepalive(bool enable) const noexcept;
 
     /// Enable/disable SO_LINGER with the given timeout (seconds).
-    void set_linger(bool enable, int timeout_sec = 0) const;
+    [[nodiscard]] std::expected<void, int> set_linger(bool enable, int timeout_sec = 0) const noexcept;
 
     /// Enable/disable IPV6_V6ONLY (RFC 3493).
-    void set_ipv6_only(bool enable) const;
+    [[nodiscard]] std::expected<void, int> set_ipv6_only(bool enable) const noexcept;
 
     // ---- Address binding: accept SocketAddr instead of raw sockaddr -------
 
-    void bind(const SocketAddr &addr) const;
+    [[nodiscard]] std::expected<void, int> bind(const SocketAddr &addr) const noexcept;
 
     [[nodiscard]] SocketAddr get_sockname() const;
 
@@ -160,8 +146,9 @@ public:
     ///          accept4() on platforms that support it (Linux 2.6.28+).
     ///
     /// @param addr  Optional buffer to receive the peer address.
-    /// @return      A new Socket representing the accepted connection.
-    [[nodiscard]] Socket accept(SocketAddr *addr = nullptr) const;
+    /// @return      A new Socket representing the accepted connection, or
+    ///              std::unexpected(errno) on failure (including EAGAIN).
+    [[nodiscard]] std::expected<Socket, int> accept(SocketAddr *addr = nullptr) const noexcept;
 
     // ---- I/O (all return ssize_t, no exceptions) ---------------------------
     //
@@ -238,13 +225,13 @@ public:
 
     /// Wait for socket readiness via poll().
     /// When @p cancel_fd >= 0, also monitors that fd for cancellation.
-    /// If the cancel fd becomes readable, throws SocketException(ECANCELED).
+    /// If the cancel fd becomes readable, returns std::unexpected(ECANCELED).
     /// @param events     Events to poll for (POLLIN, POLLOUT, etc.).
     /// @param timeout_ms Timeout in milliseconds.
     /// @param cancel_fd  Optional fd to monitor for cancellation signal.
-    /// @return  1 on ready, 0 on timeout (timeout_ms = 0 returns immediately).
-    /// @throws  SocketException on error or cancellation.
-    [[nodiscard]] int wait_for(short events, int timeout_ms, int cancel_fd = -1) const;
+    /// @return  1 on ready, 0 on timeout (timeout_ms = 0 returns immediately),
+    ///          or std::unexpected(errno) / std::unexpected(ECANCELED).
+    [[nodiscard]] std::expected<int, int> wait_for(short events, int timeout_ms, int cancel_fd = -1) const noexcept;
 
     // ---- Accessors ---------------------------------------------------------
 

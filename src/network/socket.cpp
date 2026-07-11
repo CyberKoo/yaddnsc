@@ -9,6 +9,7 @@
 #include <netinet/in.h>
 
 #include <cerrno>
+#include <concepts>
 #include <cstdint>
 #include <utility>
 
@@ -47,6 +48,9 @@ namespace {
     /// @return  @p len on success (stream), or the number of bytes sent (datagram),
     ///          -1 on error (errno set).
     template<typename Fn>
+        requires requires(Fn f, const std::uint8_t *p, size_t s) {
+            { f(p, s) } -> std::convertible_to<ssize_t>;
+        }
     [[nodiscard]] ssize_t send_loop(const void *data, size_t len, bool stream, Fn &&fn) {
         auto *buf = static_cast<const std::uint8_t *>(data);
         if (!stream) {
@@ -80,8 +84,10 @@ namespace {
         }
 
         FcntlGuard(const FcntlGuard &) = delete;
+        FcntlGuard(FcntlGuard &&) = delete;
 
         FcntlGuard &operator=(const FcntlGuard &) = delete;
+        FcntlGuard &operator=(FcntlGuard &&) = delete;
 
         /// Restore flags and mark as disarmed.
         /// @return true on success, false if fcntl failed.
@@ -183,23 +189,17 @@ Socket &Socket::operator=(Socket &&other) noexcept {
 //  Options
 // ===========================================================================
 
-void Socket::set_option_raw(int level, int optname, const void *val, socklen_t len) const {
-    if (::setsockopt(fd_, level, optname, val, len) < 0) {
-        throw SocketException(errno, "setsockopt");
-    }
-}
-
-int Socket::try_set_option_raw(int level, int optname, const void *val, socklen_t len) const noexcept {
+std::expected<void, int> Socket::set_option_raw(int level, int optname, const void *val, socklen_t len) const noexcept {
     if (::setsockopt(fd_, level, optname, val, len) == 0) {
-        return 0;
+        return {};
     }
-    return errno;
+    return std::unexpected(errno);
 }
 
-void Socket::set_nonblocking(bool enable) const {
+std::expected<void, int> Socket::set_nonblocking(bool enable) const noexcept {
     int flags = ::fcntl(fd_, F_GETFL, 0);
     if (flags < 0) {
-        throw SocketException(errno, "fcntl(F_GETFL)");
+        return std::unexpected(errno);
     }
 
     if (enable) {
@@ -209,43 +209,44 @@ void Socket::set_nonblocking(bool enable) const {
     }
 
     if (::fcntl(fd_, F_SETFL, flags) < 0) {
-        throw SocketException(errno, "fcntl(F_SETFL)");
+        return std::unexpected(errno);
     }
+    return {};
 }
 
-void Socket::set_reuseaddr(bool enable) const {
+std::expected<void, int> Socket::set_reuseaddr(bool enable) const noexcept {
     int val = enable ? 1 : 0;
-    set_option(SOL_SOCKET, SO_REUSEADDR, val);
+    return set_option(SOL_SOCKET, SO_REUSEADDR, val);
 }
 
-void Socket::set_broadcast(bool enable) const {
+std::expected<void, int> Socket::set_broadcast(bool enable) const noexcept {
     int val = enable ? 1 : 0;
-    set_option(SOL_SOCKET, SO_BROADCAST, val);
+    return set_option(SOL_SOCKET, SO_BROADCAST, val);
 }
 
-void Socket::set_keepalive(bool enable) const {
+std::expected<void, int> Socket::set_keepalive(bool enable) const noexcept {
     int val = enable ? 1 : 0;
-    set_option(SOL_SOCKET, SO_KEEPALIVE, val);
+    return set_option(SOL_SOCKET, SO_KEEPALIVE, val);
 }
 
-void Socket::set_linger(bool enable, int timeout_sec) const {
+std::expected<void, int> Socket::set_linger(bool enable, int timeout_sec) const noexcept {
     linger l{};
     l.l_onoff = enable ? 1 : 0;
     l.l_linger = static_cast<int>(timeout_sec);
-    set_option(SOL_SOCKET, SO_LINGER, l);
+    return set_option(SOL_SOCKET, SO_LINGER, l);
 }
 
-void Socket::set_ipv6_only(bool enable) const {
+std::expected<void, int> Socket::set_ipv6_only(bool enable) const noexcept {
     int val = enable ? 1 : 0;
-    set_option(IPPROTO_IPV6, IPV6_V6ONLY, val);
+    return set_option(IPPROTO_IPV6, IPV6_V6ONLY, val);
 }
 
-void Socket::set_reuseport([[maybe_unused]] bool enable) const {
+std::expected<void, int> Socket::set_reuseport([[maybe_unused]] bool enable) const noexcept {
 #ifdef SO_REUSEPORT
     int val = enable ? 1 : 0;
-    set_option(SOL_SOCKET, SO_REUSEPORT, val);
+    return set_option(SOL_SOCKET, SO_REUSEPORT, val);
 #else
-    throw SocketException(ENOPROTOOPT, "setsockopt(SO_REUSEPORT)");
+    return std::unexpected(ENOPROTOOPT);
 #endif
 }
 
@@ -253,10 +254,11 @@ void Socket::set_reuseport([[maybe_unused]] bool enable) const {
 //  Address binding
 // ===========================================================================
 
-void Socket::bind(const SocketAddr &addr) const {
+std::expected<void, int> Socket::bind(const SocketAddr &addr) const noexcept {
     if (::bind(fd_, addr.raw(), addr.raw_len()) < 0) {
-        throw SocketException(errno, "bind");
+        return std::unexpected(errno);
     }
+    return {};
 }
 
 SocketAddr Socket::get_sockname() const {
@@ -310,8 +312,10 @@ std::expected<void, ConnectError> Socket::connect(const SocketAddr &addr, int ti
     } while (rc < 0 && errno == EINTR);
 
     if (rc == 0) {
-        // Connected immediately.
-        guard.disarm();
+        // Connected immediately — restore original flags.
+        if (!guard.restore()) {
+            return std::unexpected(ConnectError::INTERNAL);
+        }
         return {};
     }
 
@@ -363,7 +367,7 @@ void Socket::listen(int backlog) const {
     }
 }
 
-Socket Socket::accept(SocketAddr *addr) const {
+std::expected<Socket, int> Socket::accept(SocketAddr *addr) const noexcept {
     int client_fd;
     if (addr) {
         do {
@@ -376,7 +380,7 @@ Socket Socket::accept(SocketAddr *addr) const {
     }
 
     if (client_fd < 0) {
-        throw SocketException(errno, "accept");
+        return std::unexpected(errno);
     }
 
     // Set FD_CLOEXEC (portable POSIX approach; accept4() is Linux-specific).
@@ -468,11 +472,22 @@ ssize_t Socket::recv_exact(std::span<std::byte> buf) const {
 }
 
 ssize_t Socket::recv_exact(std::span<std::byte> buf, int flags) const {
-    // For stream sockets, use MSG_WAITALL so the kernel blocks until all
+    if (type_ != SOCK_STREAM) {
+        // Datagram socket — single recv() call preserves datagram
+        // boundaries.  A loop would merge subsequent datagrams into one
+        // buffer, which is always wrong.
+        ssize_t n;
+        do {
+            n = ::recv(fd_, buf.data(), buf.size(), flags);
+        } while (n < 0 && errno == EINTR);
+        return n;
+    }
+
+    // Stream socket — use MSG_WAITALL so the kernel blocks until all
     // requested bytes arrive (or an error/EOF occurs).  This reduces
-    // user-space looping overhead.  For non-stream sockets the flag is
-    // ignored and the manual loop acts as fallback.
-    const int effective_flags = (type_ == SOCK_STREAM) ? (flags | MSG_WAITALL) : flags;
+    // user-space looping overhead.  The manual loop handles any
+    // remaining short-read edge cases.
+    const int effective_flags = flags | MSG_WAITALL;
 
     size_t total = 0;
     while (total < buf.size()) {
@@ -532,7 +547,7 @@ void Socket::close() noexcept {
     [[maybe_unused]] auto _ = ::close(fd);
 }
 
-int Socket::wait_for(short events, int timeout_ms, int cancel_fd) const {
+std::expected<int, int> Socket::wait_for(short events, int timeout_ms, int cancel_fd) const noexcept {
     pollfd pfds[2];
     pfds[0] = {fd_, events, 0};
 
@@ -548,15 +563,15 @@ int Socket::wait_for(short events, int timeout_ms, int cancel_fd) const {
     } while (rc < 0 && errno == EINTR);
 
     if (rc < 0) {
-        throw SocketException(errno, "wait_for");
+        return std::unexpected(errno);
     }
 
     // Check cancellation before normal readiness.
     if (nfds > 1 && (pfds[1].revents & POLLIN)) {
-        // Drain the cancellation fd (pipe or eventfd) before throwing.
+        // Drain the cancellation fd (pipe or eventfd) before returning.
         std::uint64_t val = 0;
         [[maybe_unused]] auto _ = ::read(cancel_fd, &val, sizeof(val));
-        throw SocketException(ECANCELED, "cancelled");
+        return std::unexpected(ECANCELED);
     }
 
     return (pfds[0].revents & events) ? 1 : 0;

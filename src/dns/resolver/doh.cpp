@@ -62,14 +62,13 @@ struct DohResolver::Impl {
 
     // ── Private helpers ──
     /// Ensure a persistent TLS connection exists (create or reuse).
-    /// @throws  TlsException on connection failure.
-    void ensure_connection() const;
+    /// @return  std::expected<void, DnsErrorInfo> — empty on success, error on failure.
+    [[nodiscard]] std::expected<void, DnsErrorInfo> ensure_connection() const;
 
     [[nodiscard]] std::vector<std::uint8_t> build_http_request(std::span<const std::uint8_t> dns_body) const;
 
     /// Send the HTTP request with one automatic reconnect.
     /// @return  std::expected on success or I/O error (timeout, cancellation).
-    /// @throws  TlsException from ensure_connection.
     [[nodiscard]]
     std::expected<void, DnsErrorInfo> send_request(std::span<const std::uint8_t> request, int cancel_fd) const;
 
@@ -197,29 +196,29 @@ std::vector<std::uint8_t> DohResolver::Impl::build_http_request(std::span<const 
 //
 //  Retry with reconnection is handled at the query() level.
 //  Returns std::expected for I/O errors (cancellation, send failure).
-//  TlsException from ensure_connection propagates.
 // ---------------------------------------------------------------------------
 
 std::expected<void, DnsErrorInfo> DohResolver::Impl::send_request(
     std::span<const std::uint8_t> request, int cancel_fd) const {
-    // ensure_connection may throw TlsException.
-    ensure_connection();
-    const auto status = persistent_conn_->send_all(request, cancel_fd);
+    if (auto res = ensure_connection(); !res) {
+        return std::unexpected(std::move(res.error()));
+    }
+    auto status = persistent_conn_->send_all(request, cancel_fd);
 
-    if (status == TlsConnection::IoStatus::CANCELLED) {
+    if (!status) {
+        if (status.error() == TlsConnection::IoStatus::CANCELLED) {
+            persistent_conn_->close();
+            return std::unexpected(DnsErrorInfo{DnsError::CANCELLED, "DoH query cancelled"});
+        }
         persistent_conn_->close();
-        return std::unexpected(DnsErrorInfo{DnsError::CANCELLED, "DoH query cancelled"});
-    }
-    if (status == TlsConnection::IoStatus::OK) {
-        SPDLOG_TRACE(R"(DoH sent {} bytes to "{}":{}")", request.size(), server_, port_);
-        return {};
+        return std::unexpected(DnsErrorInfo{
+            DnsError::CONNECTION,
+            fmt::format(R"(DoH failed to send request to "{}":{})", server_, port_)
+        });
     }
 
-    persistent_conn_->close();
-    return std::unexpected(DnsErrorInfo{
-        DnsError::CONNECTION,
-        fmt::format(R"(DoH failed to send request to "{}":{}")", server_, port_)
-    });
+    SPDLOG_TRACE(R"(DoH sent {} bytes to "{}":{})", request.size(), server_, port_);
+    return {};
 }
 
 // ---------------------------------------------------------------------------
@@ -274,11 +273,11 @@ std::expected<std::vector<std::uint8_t>, DnsErrorInfo> DohResolver::Impl::read_r
                     const auto remaining = info.content_length - body_buffered;
                     auto read_status = persistent_conn_->read_exact(std::span(dst, remaining), cancel_fd);
 
-                    if (read_status == TlsConnection::IoStatus::CANCELLED) {
-                        persistent_conn_->close();
-                        return std::unexpected(DnsErrorInfo{DnsError::CANCELLED, "DoH query cancelled"});
-                    }
-                    if (read_status != TlsConnection::IoStatus::OK) {
+                    if (!read_status) {
+                        if (read_status.error() == TlsConnection::IoStatus::CANCELLED) {
+                            persistent_conn_->close();
+                            return std::unexpected(DnsErrorInfo{DnsError::CANCELLED, "DoH query cancelled"});
+                        }
                         persistent_conn_->close();
                         return std::unexpected(DnsErrorInfo{
                             DnsError::CONNECTION,
@@ -312,10 +311,10 @@ std::expected<std::vector<std::uint8_t>, DnsErrorInfo> DohResolver::Impl::read_r
                         need -= take;
                     } else {
                         auto status = persistent_conn_->read_exact(dst, cancel_fd);
-                        if (status == TlsConnection::IoStatus::CANCELLED) {
-                            return std::unexpected(DnsErrorInfo{DnsError::CANCELLED, "DoH query cancelled"});
-                        }
-                        if (status != TlsConnection::IoStatus::OK) {
+                        if (!status) {
+                            if (status.error() == TlsConnection::IoStatus::CANCELLED) {
+                                return std::unexpected(DnsErrorInfo{DnsError::CANCELLED, "DoH query cancelled"});
+                            }
                             persistent_conn_->close();
                             return std::unexpected(DnsErrorInfo{
                                 DnsError::CONNECTION,
@@ -456,17 +455,17 @@ std::expected<std::vector<std::uint8_t>, DnsErrorInfo> DohResolver::Impl::read_r
 // ---------------------------------------------------------------------------
 //  ensure_connection  —  manage connection reuse with idle timeout
 //
-//  Throws TlsException on connection failure.
+//  Returns std::expected<void, DnsErrorInfo> — empty on success, error on failure.
 // ---------------------------------------------------------------------------
 
-void DohResolver::Impl::ensure_connection() const {
+std::expected<void, DnsErrorInfo> DohResolver::Impl::ensure_connection() const {
     const auto now = std::chrono::steady_clock::now();
 
     if (persistent_conn_ && persistent_conn_->is_connected()) {
         const auto idle = std::chrono::duration_cast<std::chrono::seconds>(now - last_use_);
         if (idle < IDLE_TIMEOUT) [[likely]] {
             if (persistent_conn_->is_healthy()) [[likely]] {
-                return;
+                return {};
             }
             SPDLOG_TRACE(R"(DoH server closed connection to "{}":{}", reconnecting)", server_, port_);
             persistent_conn_->close();
@@ -482,8 +481,18 @@ void DohResolver::Impl::ensure_connection() const {
         );
     }
 
-    persistent_conn_->connect();
+    auto result = persistent_conn_->connect();
+    if (!result) {
+        if (result.error() == TlsConnection::IoStatus::TIMEOUT) {
+            return std::unexpected(DnsErrorInfo{DnsError::RETRY,
+                fmt::format(R"(DoH connection timeout to "{}":{})", server_, port_)});
+        }
+        return std::unexpected(DnsErrorInfo{DnsError::CONNECTION,
+            fmt::format(R"(DoH connection failed to "{}":{})", server_, port_)});
+    }
+
     last_use_ = now;
+    return {};
 }
 
 // ===========================================================================

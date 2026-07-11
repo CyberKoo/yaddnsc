@@ -75,7 +75,8 @@ TEST(RetryTest, Success_AfterRetry) {
     auto result = Utils::Retry::retry_on_error<int, TestError>(
         [&flaky]() { return flaky(); },
         5,
-        retry_all);
+        retry_all,
+        1);
 
     ASSERT_TRUE(result.has_value());
     EXPECT_EQ(*result, 99);
@@ -90,7 +91,8 @@ TEST(RetryTest, ExhaustRetries_ReturnsLastError) {
     auto result = Utils::Retry::retry_on_error<int, TestError>(
         [&flaky]() { return flaky(); },
         3,
-        retry_all);
+        retry_all,
+        1);
 
     ASSERT_FALSE(result.has_value());
     EXPECT_EQ(result.error(), TestError::TRANSIENT);
@@ -118,7 +120,8 @@ TEST(RetryTest, ExactlyEnoughRetries) {
     auto result = Utils::Retry::retry_on_error<int, TestError>(
         [&flaky]() { return flaky(); },
         3,
-        retry_all);
+        retry_all,
+        1);
 
     ASSERT_TRUE(result.has_value());
     EXPECT_EQ(*result, 77);
@@ -150,7 +153,8 @@ TEST(RetryTest, Predicate_TransientErrors_AreRetried) {
                        : std::expected<int, TestError>(42);
         },
         5,
-        [](const TestError& e) { return e == TestError::TRANSIENT; });
+        [](const TestError& e) { return e == TestError::TRANSIENT; },
+        1);
 
     ASSERT_TRUE(result.has_value());
     EXPECT_EQ(*result, 42);

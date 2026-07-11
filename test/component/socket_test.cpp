@@ -53,10 +53,10 @@ TEST(SocketTest, TcpEchoOnLoopback) {
 
     // Server: create, bind, listen.
     Socket server(AF_INET, SOCK_STREAM);
-    server.set_reuseaddr(true);
+    server.set_reuseaddr(true).value();
     auto server_addr = SocketAddr::from_inet(*loopback, 0);
     ASSERT_TRUE(server_addr.has_value());
-    server.bind(*server_addr);
+    server.bind(*server_addr).value();
     server.listen(1);
 
     // Retrieve the actual port assigned by the kernel.
@@ -75,7 +75,8 @@ TEST(SocketTest, TcpEchoOnLoopback) {
     // Server: accept the connection.
     SocketAddr peer_addr;
     auto accepted = server.accept(&peer_addr);
-    EXPECT_GE(accepted.native_handle(), 0);
+    ASSERT_TRUE(accepted.has_value());
+    EXPECT_GE(accepted->native_handle(), 0);
     EXPECT_EQ(peer_addr.family(), AF_INET);
 
     // Send data from client to server.
@@ -87,7 +88,7 @@ TEST(SocketTest, TcpEchoOnLoopback) {
 
     // Receive on server side.
     std::array<std::byte, 64> recv_buf{};
-    auto received = accepted.recv(std::span<std::byte>{recv_buf});
+    auto received = accepted->recv(std::span<std::byte>{recv_buf});
     EXPECT_EQ(received, static_cast<ssize_t>(message.size()));
     EXPECT_EQ(
         std::string(reinterpret_cast<const char *>(recv_buf.data()),
@@ -102,7 +103,7 @@ TEST(SocketTest, TcpConnectRefused) {
     ASSERT_TRUE(loopback.has_value());
 
     Socket sock(AF_INET, SOCK_STREAM);
-    sock.set_nonblocking(true);
+    sock.set_nonblocking(true).value();
     auto target = SocketAddr::from_inet(*loopback, 1);
     ASSERT_TRUE(target.has_value());
 
@@ -121,7 +122,7 @@ TEST(SocketTest, TcpConnectRefused) {
 
 TEST(SocketTest, NonBlockingFlag) {
     Socket sock(AF_INET, SOCK_STREAM);
-    sock.set_nonblocking(true);
+    sock.set_nonblocking(true).value();
 
     // Try connect to an unused port; should fail immediately with EINPROGRESS
     // or EAGAIN in non-blocking mode, not hang.
@@ -149,7 +150,7 @@ TEST(SocketTest, UdpSendRecvOnLoopback) {
     // Bind server to a random port.
     auto server_addr = SocketAddr::from_inet(*loopback, 0);
     ASSERT_TRUE(server_addr.has_value());
-    server.bind(*server_addr);
+    server.bind(*server_addr).value();
     auto server_port = server.get_sockname().port();
     ASSERT_GT(server_port, 0);
 
