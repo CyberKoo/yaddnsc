@@ -40,13 +40,18 @@ public:
 
     /// Resolve a hostname using the configured strategy and backends.
     ///
-    /// On transient errors (timeout, NXDOMAIN retryable), automatically retries
-    /// up to `max_retries` times with exponential-like backoff.
+    /// Retry behaviour depends on the dispatch strategy:
+    ///   - Single resolver: retries up to `max_retries` times with
+    ///     exponential-like backoff on transient errors.
+    ///   - Multiple resolvers (fallback / concurrent): no per-query retries;
+    ///     fault tolerance is provided by resolver redundancy.
     ///
     /// @param host         Hostname to resolve.
     /// @param type         DNS record type (A or AAAA).
-    /// @param max_retries  Maximum number of retries on transient errors.
-    /// @param backoff_ms   Base backoff interval in milliseconds.
+    /// @param max_retries  Maximum number of retries on transient errors
+    ///                     (single-resolver mode only; ignored in multi-resolver mode).
+    /// @param backoff_ms   Base backoff interval in milliseconds
+    ///                     (single-resolver mode only).
     /// @return             Resolved IP strings on success, or a DnsErrorInfo
     ///                     describing the failure.  Callers should check the
     ///                     error code to distinguish transient (RETRY, CONNECTION)

@@ -39,14 +39,14 @@ public:
     ~SignalWatcher();
 
     /// Install the signal-watching infrastructure.
-  ///
-  /// Blocks SIGINT/SIGTERM on the calling thread so that the watcher
-  /// thread can catch them via sigwait().  Must be called before any
-  /// threads are created, and before any SignalWatcher construction.
+    ///
+    /// Blocks SIGINT/SIGTERM on the calling thread so that the watcher
+    /// thread can catch them via sigwait().  Must be called before any
+    /// threads are created, and before any SignalWatcher construction.
     static void install();
 
     /// Return a shared handle to the internal stop state.
-  /// Copying is cheap — the copy refers to the same underlying state.
+    /// Copying is cheap — the copy refers to the same underlying state.
     [[nodiscard]] std::stop_source get_stop_source() noexcept;
 
 private:

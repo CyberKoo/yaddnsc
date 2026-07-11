@@ -41,7 +41,7 @@ struct Updater::Impl {
     explicit Impl(const ResolverDispatcher &resolver_dispatcher, IpSourceFactoryFunc factory);
 
     /// Execute a single update task: resolve local IP, compare with DNS
-  /// record, and invoke the driver if the IP has changed.
+    /// record, and invoke the driver if the IP has changed.
     void process(const UpdateTask &task, const Driver &driver, HttpClient &http_client) const;
 
     /// Perform a DNS lookup for the given host and record type.

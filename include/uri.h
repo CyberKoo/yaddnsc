@@ -94,7 +94,7 @@ public:
 private:
     Uri() = default;
 
-    /// Return the well-known default port for a given scheme, or -1 if unknown.
+    /// Return the well-known default port for a given scheme, or 0 if unknown.
     static int default_port_for(std::string_view scheme) noexcept;
 
     std::string schema_;

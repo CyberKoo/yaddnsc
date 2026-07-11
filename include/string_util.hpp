@@ -93,7 +93,7 @@ namespace StringUtil {
 
     /// Return an uppercased copy of a string-like value.
     /// @tparam T  A StringViewable type.
-    /// @return    A new std::string with all characters uppered.
+    /// @return    A new std::string with all characters uppercased.
     template<StringViewable T>
     std::string to_upper_copy(T &&str) {
         std::string new_str(std::forward<T>(str));

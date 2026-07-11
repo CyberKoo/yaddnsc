@@ -11,10 +11,10 @@
 
 namespace Cli {
     /// Resolve a hostname using the configured resolver and print the results.
-/// @param config_path  Path to the JSON config file.
-/// @param host         Hostname to resolve.
-/// @param type_str     DNS record type string (e.g. "a", "aaaa").
-/// @return             EXIT_SUCCESS or EXIT_FAILURE.
+    /// @param config_path  Path to the JSON config file.
+    /// @param host         Hostname to resolve.
+    /// @param type_str     DNS record type string (e.g. "a", "aaaa").
+    /// @return             EXIT_SUCCESS or EXIT_FAILURE.
     [[nodiscard]] int execute_dns_resolve(const std::string &config_path, const std::string &host,
                                           const std::string &type_str);
 
@@ -22,7 +22,7 @@ namespace Cli {
     [[nodiscard]] int execute_dns_resolver(const std::string &config_path);
 
     /// Register the "dns" subcommand tree on the given CLI::App.
-/// Owns its own option storage and -c,--config flag internally.
+    /// Owns its own option storage and -c,--config flag internally.
     void register_dns_subcommand(CLI::App &app, int &exit_code);
 } // namespace Cli
 

@@ -1,18 +1,16 @@
 //
 // Created by Kotarou on 2026/6/28.
 //
-// ── Legacy dispatcher (system libresolv variant) ──
+// ── System dispatcher (libresolv-based variant) ──
 //
-// ⚠  This is the legacy system dispatcher based on libresolv.  It is
-//    superseded by the native dispatcher (YADDNSC_USE_NATIVE_DNS).
+//    This is the default dispatcher implementation using the system's
+//    libresolv (res_nquery / res_query).  It is the default because
+//    YADDNSC_USE_NATIVE_DNS defaults to OFF in CMakeLists.txt.
 //
-//    This file is in maintenance-only mode:
-//      • Only compilation fixes and bug fixes will be applied here.
-//      • No new features, improvements, or refactoring will be added.
-//      • New functionality should go to the native dispatcher.
-//
-//    This file will be removed once the native dispatcher becomes the
-//    default.
+//    A self-contained native dispatcher (YADDNSC_USE_NATIVE_DNS) is
+//    available and recommended for musl targets (auto-detected) and
+//    for environments where libresolv is not available or undesirable.
+//    See dispatcher.cpp for the native variant.
 //
 //
 //

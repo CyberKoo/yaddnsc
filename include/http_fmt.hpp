@@ -33,8 +33,13 @@ struct std::formatter<HttpRequest> {
                 return "PATCH";
             case HttpMethod::DEL:
                 return "DELETE";
-            default:
-                return "UNKNOWN";
+            case HttpMethod::HEAD:
+                return "HEAD";
+            case HttpMethod::OPTIONS:
+                return "OPTIONS";
+        }
+
+        std::unreachable();
         }
     }
 
