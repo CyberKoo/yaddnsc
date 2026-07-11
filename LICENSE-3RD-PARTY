@@ -28,6 +28,10 @@ The following libraries are licensed under the MIT License:
   - BS::thread_pool 5.1.0     https://github.com/bshoshany/thread-pool
     Copyright (c) 2021-2026 Barak Shoshany
 
+  - picohttpparser 1.2        https://github.com/h2o/picohttpparser
+    Copyright (c) 2009-2014 Kazuho Oku, Tokuhiro Matsuno, Daisuke Murase,
+                          Shigeo Mitsunari
+
 Permission is hereby granted, free of charge, to any person obtaining a copy of
 this software and associated documentation files (the "Software"), to deal in
 the Software without restriction, including without limitation the rights to

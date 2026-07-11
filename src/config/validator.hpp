@@ -14,7 +14,6 @@
 #include "resolver_config.h"
 #include "util/validation.hpp"
 #include "network/inet_address.h"
-#include "core/driver_manager.h"
 #include "exception/config_verification.h"
 
 /// Internal helpers (hidden in detail namespace).
@@ -135,18 +134,18 @@ namespace detail {
 template<int UpdateInterval>
 class ConfigValidator {
 public:
-    /// Construct with the loaded driver manager and available interfaces.
-    /// @param driver_manager  Manager with all loaded driver plugins.
+    /// Construct with loaded driver names and available interfaces.
+    /// @param loaded_drivers  Names of currently loaded driver plugins.
     /// @param interfaces      List of network interface names on the system.
-    ConfigValidator(const DriverManagerBase &driver_manager, std::vector<std::string> interfaces)
-        : driver_manager_(driver_manager), interfaces_(std::move(interfaces)) {
+    ConfigValidator(std::vector<std::string_view> loaded_drivers, std::vector<std::string> interfaces)
+        : loaded_drivers_(std::move(loaded_drivers)), interfaces_(std::move(interfaces)) {
     }
 
     /// Run all validation checks against the application configuration.
     /// @param cfg  The parsed application configuration.
     /// @throws ConfigVerificationException  On the first violated constraint.
     void validate(const Config::AppConfig &cfg) const {
-        const auto drivers = driver_manager_.get_loaded_drivers();
+        const auto &drivers = loaded_drivers_;
 
         for (const auto &[name, update_interval, force_update, driver, subdomains]: cfg.domains) {
             // --- Check domain name is not empty. ---------------------------------
@@ -228,7 +227,7 @@ public:
     }
 
 private:
-    const DriverManagerBase &driver_manager_;
+    const std::vector<std::string_view> loaded_drivers_;
     const std::vector<std::string> interfaces_;
 
     [[maybe_unused, no_unique_address]] NoCopy _nc_;

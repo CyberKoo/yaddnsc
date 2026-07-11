@@ -97,7 +97,7 @@ void Manager::Impl::load_drivers() {
 
 void Manager::Impl::validate_config() const {
     const auto interfaces = InterfaceUtil::get_interfaces();
-    const ConfigValidator<YADDNSC_MIN_UPDATE_INTERVAL> validator(driver_manager_, interfaces);
+    const ConfigValidator<YADDNSC_MIN_UPDATE_INTERVAL> validator(driver_manager_.get_loaded_drivers(), interfaces);
     validator.validate(config_);
 }
 

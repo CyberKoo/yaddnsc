@@ -40,7 +40,6 @@ struct std::formatter<HttpRequest> {
         }
 
         std::unreachable();
-        }
     }
 
     /// Format a key-value map range into a human-readable string.

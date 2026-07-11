@@ -7,11 +7,15 @@
 #include <cstdlib>
 
 #include "config/config.h"
-#include "core/manager.h"
+#include "config/validator.hpp"
+#include "core/driver_loader.h"
+#include "core/driver_manager.h"
+#include "ip_source/iface_util.h"
 #include "exception/base.h"
 #include "exception/config_verification.h"
 
 #include "logging_pattern.h"
+#include "min_update_interval.h"
 
 #include <glaze/glaze.hpp>
 #include <print>
@@ -59,12 +63,12 @@ namespace Cli {
             spdlog::set_pattern(std::string{YADDNSC_LOGGING_PATTERN});
 
             auto config = Config::load_config(config_path);
-            // The config test subcommand never calls Manager::run(), so the
-            // Scheduler event loop never starts and the stop_source is unused.
-            // A default-constructed (still stoppable) stop_source is fine.
-            const Manager manager(std::move(config), std::stop_source{});
-            manager.load_drivers();
-            manager.validate_config();
+            DriverManager driver_manager;
+            DriverLoader::load(driver_manager, config);
+            const auto interfaces = InterfaceUtil::get_interfaces();
+            const ConfigValidator<YADDNSC_MIN_UPDATE_INTERVAL> validator(
+                driver_manager.get_loaded_drivers(), interfaces);
+            validator.validate(config);
 
             if (!quiet) {
                 std::println("Configuration file test passed");

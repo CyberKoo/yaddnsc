@@ -1,12 +1,6 @@
 //
 // Unit tests for config/validator.hpp — ConfigValidator + detail functions.
 //
-// This test targets the pure-logic detail functions in the detail namespace.
-// Full ConfigValidator::validate() requires a DriverManager instance with
-// loaded drivers, which is not available in the pure-unit-test layer
-// (requires dlopen).  Those integration-level tests belong in test/driver/
-// or test/integration/ once the infrastructure is set up.
-//
 // Verified:
 //   - detail::fqdn_for — correct FQDN construction.
 //   - detail::validate_ip_source — all four IP source branches:
@@ -27,7 +21,6 @@
 #include <gtest/gtest.h>
 
 #include "config/validator.hpp"
-#include "mocks/mock_driver_manager.h"
 #include "network/net_devices.h"
 
 // ===========================================================================
@@ -272,7 +265,7 @@ TEST(ConfigValidatorDetailTest, ValidateResolverAddress_Hostname_Throws) {
 }
 
 // ===========================================================================
-// ConfigValidator::validate()  —  parameterized tests with MockDriverManager
+// ConfigValidator::validate()  —  parameterized tests
 // ===========================================================================
 
 using Validator60 = ConfigValidator<60>;
@@ -627,35 +620,22 @@ class ConfigValidatorValidateTest : public ::testing::TestWithParam<ValidateCase
 
 TEST_P(ConfigValidatorValidateTest, Validate) {
     const auto& param = GetParam();
-
-    MockDriverManager mock;
-    if (param.loaded_drivers.empty()) {
-        EXPECT_CALL(mock, get_loaded_drivers())
-            .WillOnce(testing::Return(std::vector<std::string_view>{}));
-    } else if (param.should_throw) {
-        EXPECT_CALL(mock, get_loaded_drivers())
-            .WillOnce(testing::Return(param.loaded_drivers));
-    } else {
-        EXPECT_CALL(mock, get_loaded_drivers())
-            .WillRepeatedly(testing::Return(param.loaded_drivers));
-    }
-
     auto cfg = param.build();
 
     if (param.should_throw) {
         if (param.min_interval == 60) {
-            Validator60 v(mock, param.interfaces);
+            Validator60 v(param.loaded_drivers, param.interfaces);
             EXPECT_THROW(v.validate(cfg), ConfigVerificationException);
         } else {
-            Validator300 v(mock, param.interfaces);
+            Validator300 v(param.loaded_drivers, param.interfaces);
             EXPECT_THROW(v.validate(cfg), ConfigVerificationException);
         }
     } else {
         if (param.min_interval == 60) {
-            Validator60 v(mock, param.interfaces);
+            Validator60 v(param.loaded_drivers, param.interfaces);
             EXPECT_NO_THROW(v.validate(cfg));
         } else {
-            Validator300 v(mock, param.interfaces);
+            Validator300 v(param.loaded_drivers, param.interfaces);
             EXPECT_NO_THROW(v.validate(cfg));
         }
     }
