@@ -18,6 +18,8 @@
 
 #include "fmt.hpp"
 #include <openssl/err.h>
+#include <netinet/in.h>
+#include <netinet/tcp.h>
 #include <poll.h>
 #include <spdlog/spdlog.h>
 #include <sys/socket.h>
@@ -175,6 +177,18 @@ void TlsConnection::connect() {
             }
             throw TlsException(
                 fmt::format(R"(TLS poll() failed for "{}": {})", target, std::strerror(errno)));
+        }
+    }
+
+    // Enable TCP_NODELAY to disable Nagle's algorithm — TLS handshakes and
+    // DNS queries are latency-sensitive; Nagle's algorithm can delay small
+    // packets, increasing response time.
+    const auto fd_raw = BIO_get_fd(bio.get(), nullptr);
+    if (fd_raw >= 0) {
+        const int fd = static_cast<int>(fd_raw);
+        const int one = 1;
+        if (::setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one)) < 0) {
+            SPDLOG_WARN(R"(Failed to set TCP_NODELAY on TLS socket to "{}": {})", target, std::strerror(errno));
         }
     }
 

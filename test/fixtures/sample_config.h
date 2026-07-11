@@ -121,6 +121,24 @@ inline constexpr std::string_view ALL_SUBDOMAIN_FIELDS = R"({
     ]
 })";
 
+// ── Config with force_update = 0 (force update disabled) ─────────────────────
+
+inline constexpr std::string_view NO_FORCE_UPDATE_CONFIG = R"({
+    "driver": { "auto_discover": true },
+    "resolver": { "use_custom_server": false },
+    "domains": [
+        {
+            "name": "example.com",
+            "update_interval": 300,
+            "force_update": 0,
+            "driver": "cloudflare",
+            "subdomains": [
+                {"name": "@", "type": "a", "ip_source": "http", "ip_source_param": "https://api.ipify.org"}
+            ]
+        }
+    ]
+})";
+
 // ── Config with empty domain list (no error but no work to do) ───────────────
 
 inline constexpr std::string_view EMPTY_DOMAINS_CONFIG = R"({

@@ -1,0 +1,33 @@
+{
+  "driver": {
+    "driver_dir": "__DRIVER_DIR__",
+    "auto_discover": true,
+    "load": []
+  },
+  "resolver": {
+    "use_custom_server": true,
+    "servers": [
+      {"address": "tls://127.0.0.1", "port": 1853}
+    ]
+  },
+  "domains": [
+    {
+      "name": "yaddnsc.test",
+      "update_interval": 5,
+      "force_update": 5,
+      "driver": "simple",
+      "subdomains": [
+        {
+          "name": "http",
+          "type": "a",
+          "ip_source": "http",
+          "ip_type": "ipv4",
+          "ip_source_param": "http://127.0.0.1:8080/myip",
+          "driver_param": {
+            "url": "http://127.0.0.1:8080/update?ip={ip_addr}&domain={domain}&source=http&resolver=dot"
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -1,128 +1,63 @@
 # ==============================================================================
-# Unit tests — zero-change component tests
+# Unit tests — pure logic, no I/O
 #
-# Each add_unit_test call creates:
-#   - An executable target  test_<name>
-#   - A CTest test          test_<name>
+# All tests in this directory exercise only in-memory logic:
+#   - header-only template instantiations
+#   - value-type constructors / accessors / predicates
+#   - pure-algorithm functions (string split/trim, bytes, base64, etc.)
+#   - compile-time constant / trait checks
 #
-# Helper macro: add_unit_test(<name> [extra_sources ...])
-#   <name>           — test file stem (test/unit/<name>.cpp is auto-found)
-#   extra_sources    — additional .cpp files required by the test
+# Tests that require real I/O (loopback sockets, filesystem, network) belong
+# in ../component/ instead.
 # ==============================================================================
 
-function(add_unit_test name)
-    cmake_parse_arguments(UT "" "SOURCE" "" ${ARGN})
-    if (UT_SOURCE)
-        set(test_source ${UT_SOURCE})
-    else ()
-        set(test_source ${name}.cpp)
-    endif ()
-    add_executable(test_${name} ${test_source} ${UT_UNPARSED_ARGUMENTS})
-    target_link_libraries(test_${name} PRIVATE
-        test_support
-        GTest::gtest_main
-        glaze::glaze
-        spdlog::spdlog
-        magic_enum
-    )
-    target_include_directories(test_${name} PRIVATE
-        ${PROJECT_SOURCE_DIR}/include
-        ${PROJECT_SOURCE_DIR}/src
-        ${PROJECT_SOURCE_DIR}/test
-        ${PROJECT_BINARY_DIR}/generated
-    )
-    add_test(NAME test_${name} COMMAND test_${name})
-endfunction()
+# The add_unit_test macro is inherited from ../CMakeLists.txt.
+# Each call creates:
+#   - An executable target  test_<name>
+#   - A CTest test          test_<name>
 
 # ============================================================================
-#  Pure header-only / no .cpp dependencies
+#  util/  —  algorithms, containers, formatting, platform wrappers
 # ============================================================================
 
-add_unit_test(mixin)
-add_unit_test(address_family)
-add_unit_test(dns_type)
-add_unit_test(http_type)
-add_unit_test(algorithm)
-add_unit_test(validation)
-add_unit_test(dns_util)
-
-# exception tests need exc headers only (compile-time check)
-add_unit_test(exception)
-
-# record_kind — simple enum, header-only
-add_unit_test(record_kind)
-
-# driver_magic — compile-time constant check, header-only
-add_unit_test(driver_magic)
-
-# fmt polyfill — header-only, conditional compilation
-add_unit_test(fmt_polyfill)
-
-# TtlCache — header-only template, needs pthread for std::thread
-add_unit_test(cache)
-
-# bytes — big-endian read helpers, header-only
-add_unit_test(bytes)
-
-# random — thread-local RNG engine, header-only
-add_unit_test(random)
-
-# fd — RAII UniqueFd wrapper + make_pipe, header-only (POSIX)
-add_unit_test(fd)
+add_unit_test(algorithm     SOURCE util/algorithm_test.cpp)
+add_unit_test(bytes         SOURCE util/bytes_test.cpp)
+add_unit_test(cache         SOURCE util/cache_test.cpp)
+add_unit_test(fd            SOURCE util/fd_test.cpp)
+add_unit_test(fmt_polyfill  SOURCE util/fmt_polyfill_test.cpp)
+add_unit_test(mixin         SOURCE util/mixin_test.cpp)
+add_unit_test(random        SOURCE util/random_test.cpp)
+add_unit_test(retry_util    SOURCE util/retry_util_test.cpp)
+add_unit_test(string_util   SOURCE util/string_util_test.cpp)
+add_unit_test(validation    SOURCE util/validation_test.cpp)
 
 # ============================================================================
-#  Tests requiring test_support .cpp files
+#  common/  —  cross-module base types (address_family, exceptions, etc.)
 # ============================================================================
 
-# dns_error_test — uses dns/error.cpp (already in test_support)
-add_unit_test(dns_error)
-
-# inet_address_test — uses inet_address.cpp (already in test_support)
-add_unit_test(inet_address)
-
-# uri_test — uses uri.cpp + inet_address.cpp (both in test_support)
-add_unit_test(uri)
-
-# dns_validator_test — uses dns/validator.cpp + dns/error.cpp (in test_support)
-add_unit_test(dns_validator)
+add_unit_test(address_family SOURCE common/address_family_test.cpp)
+add_unit_test(exception      SOURCE common/exception_test.cpp)
+add_unit_test(http_type      SOURCE common/http_type_test.cpp)
+add_unit_test(resolver_base  SOURCE common/resolver_base_test.cpp)
 
 # ============================================================================
-#  Header-only tests (no extra .cpp dependencies)
+#  config/  —  configuration parsing, types, and validation
 # ============================================================================
 
-# string_util — inline template functions, no .cpp needed
-add_unit_test(string_util)
-
-# config_types — header-only struct/enum tests, no .cpp needed
-add_unit_test(config_types)
-
-# config_parser — glaze-based JSON config parsing, uses parser.hpp
-add_unit_test(config_parser)
-
-# config_validator — config validation detail functions
-add_unit_test(config_validator)
-
-# retry_util — retry_on_error with backoff, header-only template
-add_unit_test(retry_util)
-
-# resolver_base — ResolverBase interface test, header-only
-add_unit_test(resolver_base)
-
-# driver_exceptions — ParamParseException hierarchy test, header-only
-add_unit_test(driver_exceptions)
+add_unit_test(config_parser     SOURCE config/config_parser_test.cpp)
+add_unit_test(config_types      SOURCE config/config_types_test.cpp)
+add_unit_test(config_validator  SOURCE config/config_validator_test.cpp
+    ${PROJECT_SOURCE_DIR}/src/network/net_devices.cpp)
 
 # ============================================================================
-#  Tests needing an extra .cpp source (but no external link deps)
+#  core/  —  scheduler (pure timer queue), updater (ResolverDispatcher)
 # ============================================================================
 
-# scheduler — pure timer-queue logic, needs scheduler.cpp for the impl
-add_unit_test(scheduler ${PROJECT_SOURCE_DIR}/src/core/scheduler.cpp)
+add_unit_test(scheduler SOURCE core/scheduler_test.cpp
+    ${PROJECT_SOURCE_DIR}/src/core/scheduler.cpp)
 
-# updater — needs dispatcher.cpp (ResolverDispatcher) + native DNS parser + updater.cpp
-# + inet_address.cpp (in test_support)
-# updater — needs dispatcher.cpp (ResolverDispatcher) + native DNS parser + updater.cpp
-# + the full IP-source dependency chain (factory, iface, http, mdns, network, http_client, builder).
-add_unit_test(updater
+# updater — requires the full DNS + IP-source dependency chain
+add_unit_test(updater SOURCE core/updater_test.cpp
     ${PROJECT_SOURCE_DIR}/src/dns/dispatcher.cpp
     ${PROJECT_SOURCE_DIR}/src/dns/parser/parser_native.cpp
     ${PROJECT_SOURCE_DIR}/src/core/updater.cpp
@@ -136,28 +71,34 @@ add_unit_test(updater
     ${PROJECT_SOURCE_DIR}/src/network/net_devices.cpp
     ${PROJECT_SOURCE_DIR}/src/network/http_client.cpp
     ${PROJECT_SOURCE_DIR}/src/dns/wire/builder.cpp)
-
-# updater — needs dispatcher.cpp (ResolverDispatcher) + native DNS parser + updater.cpp
 target_link_libraries(test_updater PRIVATE GTest::gmock glaze::glaze httplib::httplib)
 target_compile_definitions(test_updater PRIVATE YADDNSC_USE_NATIVE_DNS=1)
-add_unit_test(socket_addr ${PROJECT_SOURCE_DIR}/src/network/socket_addr.cpp)
 
 # ============================================================================
-#  ResolverDispatcher — native backend (jthread-based, YADDNSC_USE_NATIVE_DNS=1)
+#  dns/  —  DNS protocol types, parser, dispatchers, wire-format builders
 # ============================================================================
 
-add_unit_test(dispatcher
+# dns_error — uses dns/error.cpp (already in test_support)
+add_unit_test(dns_error    SOURCE dns/dns_error_test.cpp)
+add_unit_test(dns_type     SOURCE dns/dns_type_test.cpp)
+add_unit_test(dns_util     SOURCE dns/dns_util_test.cpp)
+add_unit_test(record_kind  SOURCE dns/record_kind_test.cpp)
+
+# dns_validator — uses dns/validator.cpp + dns/error.cpp (in test_support)
+add_unit_test(dns_validator SOURCE dns/dns_validator_test.cpp)
+
+# ResolverDispatcher — native backend (jthread-based, YADDNSC_USE_NATIVE_DNS=1)
+add_unit_test(dispatcher SOURCE dns/dispatcher_test.cpp
     ${PROJECT_SOURCE_DIR}/src/dns/dispatcher.cpp
     ${PROJECT_SOURCE_DIR}/src/dns/parser/parser_native.cpp
     ${PROJECT_SOURCE_DIR}/src/dns/error.cpp)
 target_link_libraries(test_dispatcher PRIVATE GTest::gmock)
 target_compile_definitions(test_dispatcher PRIVATE YADDNSC_USE_NATIVE_DNS=1)
 
-# ============================================================================
-#  ResolverDispatcher — legacy system backend (libresolv, default)
-# ============================================================================
+# ResolverDispatcher — legacy system backend (libresolv, default)
+find_library(RESOLV resolv)
 
-add_unit_test(dispatcher_system
+add_unit_test(dispatcher_system SOURCE dns/dispatcher_system_test.cpp
     ${PROJECT_SOURCE_DIR}/src/dns/dispatcher_system.cpp
     ${PROJECT_SOURCE_DIR}/src/dns/parser/parser_system.cpp
     ${PROJECT_SOURCE_DIR}/src/dns/error.cpp)
@@ -166,33 +107,53 @@ if (RESOLV)
   target_link_libraries(test_dispatcher_system PRIVATE ${RESOLV})
 endif ()
 
-# ============================================================================
-#  Tests needing libresolv (for DNS wire-format construction / parsing)
-# ============================================================================
+# wire-format builders and queries
+add_unit_test(builder SOURCE dns/builder_test.cpp
+    ${PROJECT_SOURCE_DIR}/src/dns/wire/builder.cpp)
 
-find_library(RESOLV resolv)
-
-# builder_test — tests QueryBuilder (pure logic in builder.cpp, no libresolv)
-add_unit_test(builder ${PROJECT_SOURCE_DIR}/src/dns/wire/builder.cpp)
-
-# mkquery_test — tests mkquery_native (uses QueryBuilder) and mkquery_system (uses libresolv)
-# query.cpp depends on builder.cpp for QueryBuilder
-add_unit_test(mkquery ${PROJECT_SOURCE_DIR}/src/dns/wire/query.cpp
+# mkquery — tests both native and system query construction
+add_unit_test(mkquery SOURCE dns/mkquery_test.cpp
+    ${PROJECT_SOURCE_DIR}/src/dns/wire/query.cpp
     ${PROJECT_SOURCE_DIR}/src/dns/wire/builder.cpp)
 if (RESOLV)
   target_link_libraries(test_mkquery PRIVATE ${RESOLV})
 endif ()
 
-# dns_parser_system — tests DnsParser (system backend, libresolv-based)
-# parser_system.cpp uses ns_initparse / ns_parserr from libresolv
-add_unit_test(dns_parser_system SOURCE dns_parser.cpp
+# RecordParser — system backend (libresolv-based)
+add_unit_test(dns_parser_system SOURCE dns/parser_test.cpp
     ${PROJECT_SOURCE_DIR}/src/dns/parser/parser_system.cpp)
 if (RESOLV)
   target_link_libraries(test_dns_parser_system PRIVATE ${RESOLV})
 endif ()
 
-# dns_parser_native — tests DnsParser (self-contained backend, no libresolv)
-# parser_native.cpp implements the full DNS wire-format parser without system libraries.
-add_unit_test(dns_parser_native SOURCE dns_parser.cpp dns_parser_native.cpp
+# RecordParser — native backend (self-contained, no libresolv)
+add_unit_test(dns_parser_native SOURCE dns/parser_test.cpp dns/parser_native_test.cpp
     ${PROJECT_SOURCE_DIR}/src/dns/parser/parser_native.cpp)
 target_compile_definitions(test_dns_parser_native PRIVATE YADDNSC_USE_NATIVE_DNS=1)
+
+# ============================================================================
+#  network/  —  network address/path/URI parsing (pure logic, no I/O)
+# ============================================================================
+
+# inet_address — uses inet_address.cpp (already in test_support)
+add_unit_test(inet_address SOURCE network/inet_address_test.cpp)
+
+# socket_addr — value-type wrapper around sockaddr_storage
+add_unit_test(socket_addr SOURCE network/socket_addr_test.cpp
+    ${PROJECT_SOURCE_DIR}/src/network/socket_addr.cpp)
+
+# URI parsing — uses uri.cpp + inet_address.cpp (in test_support)
+add_unit_test(uri_parse SOURCE network/uri_parse_test.cpp)
+add_unit_test(uri_query SOURCE network/uri_query_test.cpp)
+add_unit_test(uri_encode SOURCE network/uri_encode_test.cpp)
+add_unit_test(uri_edge   SOURCE network/uri_edge_test.cpp)
+
+# ============================================================================
+#  ip_source/  —  IP-source abstraction (header-only tests only)
+# ============================================================================
+
+# driver_magic — compile-time constant check, header-only
+add_unit_test(driver_magic SOURCE ip_source/driver_magic_test.cpp)
+
+# driver_exceptions — ParamParseException hierarchy test, header-only
+add_unit_test(driver_exceptions SOURCE ip_source/driver_exceptions_test.cpp)

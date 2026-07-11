@@ -22,7 +22,9 @@ public:
     virtual ~HttpClient() = default;
 
     /// Perform an HTTP exchange and return the response or an error message.
-    /// @param url   Target URL.
+    /// @param url   Target URL.  May be empty when an implementation (e.g.
+    ///              PersistentHttpClient) already knows the target and
+    ///              falls back to its construction-time URI.
     /// @param req   Request details (method, headers, body, content type).
     /// @return      HttpResponse on success, or an error string on failure.
     [[nodiscard]] virtual HttpResult exchange(std::string_view url, const HttpRequest &req) const = 0;

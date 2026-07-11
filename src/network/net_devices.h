@@ -70,6 +70,11 @@ namespace NetDevices {
     /// Convert numeric index to interface name (wrapper around if_indextoname).
     /// Returns an empty string if the index does not correspond to any interface.
     [[nodiscard]] std::string index_to_name(unsigned int index);
+
+    /// Return the name of the loopback interface (e.g. "lo" on Linux, "lo0" on
+    /// FreeBSD/macOS) by scanning getifaddrs() for the IFF_LOOPBACK flag.
+    /// @return  Loopback interface name, or empty string if none is found.
+    [[nodiscard]] std::string loopback_name();
 } // namespace NetDevices
 
 #endif  // YADDNSC_NETWORK_NET_DEVICES_H

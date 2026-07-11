@@ -59,11 +59,16 @@ private:
 };
 
 // ---------------------------------------------------------------------------
-// PersistentHttpClient — HttpClient that owns a single httplib::Client
-// instance for the lifetime of the object.
+// PersistentHttpClient — HttpClient that reuses a single TCP connection.
 //
-// Construct with a Uri and HttpClientOptions; the underlying httplib::Client
-// is built once in the constructor and reused across all send() calls.
+// The underlying httplib::Client is created once in the constructor and
+// reused across all exchange() calls, which allows TCP keep-alive to be
+// effective.  The connection is fixed to the host + port from the
+// construction-time Uri; only the path component is taken from the `url`
+// parameter of exchange().  This makes the interface contract consistent
+// with TransientHttpClient — both implementations derive the request
+// target from the `url` parameter.
+//
 // This is more efficient than TransientHttpClient when making multiple
 // requests to the same host.
 //

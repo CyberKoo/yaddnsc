@@ -1,0 +1,33 @@
+{
+  "driver": {
+    "driver_dir": "__DRIVER_DIR__",
+    "auto_discover": true,
+    "load": []
+  },
+  "resolver": {
+    "use_custom_server": true,
+    "servers": [
+      {"address": "127.0.0.1", "port": 15353}
+    ]
+  },
+  "domains": [
+    {
+      "name": "yaddnsc.test",
+      "update_interval": 5,
+      "force_update": 5,
+      "driver": "simple",
+      "subdomains": [
+        {
+          "name": "iface",
+          "type": "a",
+          "ip_source": "interface",
+          "ip_type": "ipv4",
+          "interface": "lo",
+          "driver_param": {
+            "url": "http://127.0.0.1:8080/update?ip={ip_addr}&domain={domain}&source=iface&resolver=classic"
+          }
+        }
+      ]
+    }
+  ]
+}

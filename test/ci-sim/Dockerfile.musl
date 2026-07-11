@@ -1,0 +1,40 @@
+# yaddnsc CI simulation — linux-amd64-musl (Alpine, musl libc)
+#
+# Usage:
+#   docker build -f test/ci-sim/Dockerfile.musl -t yaddnsc-ci-musl .
+#   docker run --rm yaddnsc-ci-musl
+# ==============================================================================
+
+FROM alpine:3
+
+ENV CC=gcc
+ENV CXX=g++
+
+# ── CI dependencies (matches ci.yml linux-amd64-musl) ──
+RUN apk add --no-cache \
+    build-base \
+    git \
+    cmake \
+    samurai \
+    openssl-dev \
+    zlib-dev \
+    pkgconfig \
+    ca-certificates-bundle
+
+WORKDIR /src
+
+# Copy source, excluding local build artifacts
+COPY . .
+RUN rm -rf build build-* build-coverage cmake-build-debug .cache
+
+# ── Build + test (single step) ──
+RUN echo "=== linux-amd64-musl configure ===" \
+    && cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DYADDNSC_BUILD_TESTS=ON \
+    && echo "=== linux-amd64-musl build ===" \
+    && ninja -C build -j$(nproc) \
+    && echo "=== linux-amd64-musl test ===" \
+    && ctest --test-dir build --output-on-failure -j$(nproc)
+
+RUN echo "============================================" \
+    && echo "  ALL CI STEPS PASSED (linux-amd64-musl)" \
+    && echo "============================================"

@@ -215,6 +215,21 @@ PersistentHttpClient::PersistentHttpClient(const Uri &uri, const HttpClientOptio
 
 PersistentHttpClient::~PersistentHttpClient() = default;
 
-HttpResult PersistentHttpClient::exchange(std::string_view /*url*/, const HttpRequest &req) const {
-    return do_exchange(*client_, uri_, req);
+HttpResult PersistentHttpClient::exchange(std::string_view url, const HttpRequest &req) const {
+    // PersistentHttpClient keeps a persistent connection to the host from
+    // the construction-time Uri.  The `url` parameter provides the request
+    // path — only the path+query portion is extracted and sent through the
+    // existing connection.  The host and port from `url` (if any) are
+    // ignored, which is fine because the caller already knows it's talking
+    // to a fixed host.  If the caller wants to talk to a different host,
+    // it should create a new PersistentHttpClient.
+    //
+    // When `url` is empty, the original construction-time path is used.
+    //
+    // This ensures that the `url` parameter has consistent semantics with
+    // TransientHttpClient: both implementations derive the request target
+    // from it, and helpers like get_body() work correctly regardless of
+    // which implementation is behind the HttpClient& reference.
+    auto target = url.empty() ? uri_ : Uri::parse(url);
+    return do_exchange(*client_, target, req);
 }

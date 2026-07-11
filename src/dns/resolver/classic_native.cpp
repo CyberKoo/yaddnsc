@@ -30,9 +30,10 @@
 
 #include "fmt.hpp"
 #include <arpa/inet.h>
+#include <netinet/in.h>
+#include <netinet/tcp.h>
 #include <poll.h>
 #include <spdlog/spdlog.h>
-#include <sys/socket.h>
 
 namespace {
     // ── Constants ──
@@ -149,6 +150,11 @@ namespace {
             }
             return std::unexpected(DnsErrorInfo{ec, fmt::format(R"(Resolver #{} TCP connect failed)", resolver_id)});
         }
+
+        // Enable TCP_NODELAY to disable Nagle's algorithm — DNS queries are
+        // typically small and latency-sensitive; batching via Nagle adds
+        // unnecessary delay.
+        sock.set_option(IPPROTO_TCP, TCP_NODELAY, 1);
 
         // Send: 2-byte big-endian length prefix + query packet (RFC 1035 §4.2.2).
         const std::uint16_t be_len = htons(static_cast<std::uint16_t>(query_packet.size()));

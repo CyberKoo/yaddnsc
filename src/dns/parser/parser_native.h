@@ -82,7 +82,8 @@ namespace DNS {
         std::span<const std::uint8_t> wire_;
 
         // ── Internal parsing (fully self-contained, no libresolv) ──
-        [[nodiscard]] static ParsedMessage parse_message(std::span<const std::uint8_t> data);
+        [[nodiscard]] static ParsedMessage parse_message(std::span<const std::uint8_t> data,
+                                                             bool copy_rdata = true);
 
         // ── Name decompression (RFC 1035 §4.1.4) ──
         // Returns the decompressed name and advances `offset` past the wire-format name.

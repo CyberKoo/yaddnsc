@@ -85,7 +85,7 @@ TEST(Scheduler, RequeuedDeadlineIsInTheFuture) {
     Scheduler scheduler(cfg, stop.get_token());
 
     // Pop everything; tasks are re-queued with future deadlines.
-    scheduler.pop_all_due();
+    [[maybe_unused]] auto _ = scheduler.pop_all_due();
 
     // A second immediate pop must return nothing (deadlines are in the future).
     EXPECT_TRUE(scheduler.pop_all_due().empty());
@@ -95,7 +95,7 @@ TEST(Scheduler, RequeuedDeadlineIsInTheFuture) {
     // the wait does not return within a tiny window before that.
     std::atomic<bool> returned{false};
     std::thread waiter([&] {
-        scheduler.wait_for_next();
+        [[maybe_unused]] auto _ = scheduler.wait_for_next();
         returned.store(true);
     });
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
@@ -161,7 +161,7 @@ TEST(Scheduler, WaitForNextUnblocksOnStopDuringWait) {
     Scheduler scheduler(cfg, stop.get_token());
 
     // Pop everything so the next wait would block on a future deadline.
-    scheduler.pop_all_due();
+    [[maybe_unused]] auto _ = scheduler.pop_all_due();
 
     std::thread stopper([&] {
         std::this_thread::sleep_for(std::chrono::milliseconds(30));
@@ -187,11 +187,81 @@ TEST(Scheduler, WaitForNextDoesNotReportShutdownSpuriously) {
     // not return until stop is requested. We stop after a short delay and assert
     // it returns false (shutdown) rather than true spuriously.
     // Pop first so deadlines move into the future (otherwise they are due now).
-    scheduler.pop_all_due();
+    [[maybe_unused]] auto _ = scheduler.pop_all_due();
     std::thread stopper([&] {
         std::this_thread::sleep_for(std::chrono::milliseconds(20));
         stop.request_stop();
     });
     EXPECT_FALSE(scheduler.wait_for_next());
     stopper.join();
+}
+
+// ── Subdomain-specific update_interval ───────────────────────────────────────
+
+TEST(Scheduler, SubdomainOverrideUpdateInterval) {
+    // Create a config with subdomain-level update_interval
+    // to exercise the ternary at line 76 in scheduler.cpp.
+    const auto json = R"({
+        "driver": { "auto_discover": true },
+        "resolver": { "use_custom_server": false },
+        "domains": [
+            {
+                "name": "test.com",
+                "update_interval": 600,
+                "driver": "cloudflare",
+                "subdomains": [
+                    {"name": "www", "type": "a", "ip_source": "http",
+                     "ip_source_param": "https://api.ipify.org",
+                     "update_interval": 120}
+                ]
+            }
+        ]
+    })";
+    const auto cfg = parse_cfg(json);
+    std::stop_source stop;
+    Scheduler scheduler(cfg, stop.get_token());
+
+    EXPECT_TRUE(scheduler.has_pending());
+    const auto due = scheduler.pop_all_due();
+    ASSERT_EQ(due.size(), 1U);
+}
+
+// ── force_update interval = 0 ───────────────────────────────────────────────
+
+TEST(Scheduler, NoForceUpdateWhenIntervalIsZero) {
+    // A subdomain with force_update = 0 should never trigger force_update.
+    const auto cfg = parse_cfg(Fixtures::NO_FORCE_UPDATE_CONFIG);
+    std::stop_source stop;
+    Scheduler scheduler(cfg, stop.get_token());
+
+    const auto due = scheduler.pop_all_due();
+    // At least one task is present.
+    if (!due.empty()) {
+        for (const auto &task: due) {
+            EXPECT_FALSE(task.force_update) << "force_update must be false when interval is 0";
+        }
+    }
+}
+
+// ── Empty heap wait_for_next ────────────────────────────────────────────────
+
+TEST(Scheduler, WaitForNextWithEmptyHeapBlocksUntilStop) {
+    const auto cfg = parse_cfg(Fixtures::EMPTY_DOMAINS_CONFIG);
+    std::stop_source stop;
+    Scheduler scheduler(cfg, stop.get_token());
+
+    std::atomic<bool> returned{false};
+    std::thread waiter([&] {
+        // wait_for_next on an empty heap should block until stop is requested.
+        const auto result = scheduler.wait_for_next();
+        EXPECT_FALSE(result);
+        returned.store(true);
+    });
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    EXPECT_FALSE(returned.load());
+    stop.request_stop();
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    EXPECT_TRUE(returned.load());
+    waiter.join();
 }

@@ -188,7 +188,7 @@ jobs:
             - name: Generate coverage report
               run: |
                   lcov --capture --directory build --gcov-tool gcov-14 --output-file coverage.info --ignore-errors mismatch,negative
-                  lcov --remove coverage.info '/usr/*' '*/test/*' '*/googletest*' '*/spdlog*' '*/glaze*' '*/magic_enum*' --output-file coverage.info --ignore-errors mismatch,negative,unused
+                  lcov --remove coverage.info '/usr/*' '*/test/*' '*/googletest*' '*/benchmark*' '*/spdlog*' '*/glaze*' '*/magic_enum*' --output-file coverage.info --ignore-errors mismatch,negative,unused
                   lcov --list coverage.info
             - name: Upload coverage reports to Codecov
               uses: codecov/codecov-action@v5

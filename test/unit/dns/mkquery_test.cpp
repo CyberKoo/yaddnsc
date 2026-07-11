@@ -205,3 +205,5 @@ TEST(MkqueryTest, DispatchReturnsNonEmpty) {
     auto packet = DNS::mkquery("example.com", DNS::RecordType::A);
     EXPECT_GT(packet.size(), 12U);
 }
+
+

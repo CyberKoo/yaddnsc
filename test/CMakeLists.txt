@@ -4,11 +4,19 @@
 # Hierarchy:
 #   test/
 #     CMakeLists.txt       ←  this file — loads GoogleTest, defines test_support
-#     unit/CMakeLists.txt  ←  unit-test targets (pure logic, no I/O)
-#     mocks/               ←  mock class headers (used by unit/ and driver/ tests)
+#                                 and the add_unit_test helper
+#     unit/                ←  unit-test targets (pure logic, no I/O)
+#       common/            ←  cross-module base types
+#       config/            ←  configuration tests
+#       core/              ←  core logic tests (scheduler, updater)
+#       dns/               ←  DNS protocol tests
+#       ip_source/         ←  IP-source abstraction tests (header-only)
+#       network/           ←  network address/path/URI tests
+#       util/              ←  utility tests (string, algorithm, etc.)
+#     component/           ←  component tests (real I/O on loopback)
+#     mocks/               ←  mock class headers
 #     fixtures/            ←  shared test-data builders
-#     integration/         ←  integration tests (real I/O in a controlled env)
-#     driver/              ←  driver-specific tests (no dlopen required)
+#     integration/         ←  integration tests (real I/O in controlled env)
 #     perf/                ←  micro-benchmarks (Google Benchmark)
 # ==============================================================================
 
@@ -44,6 +52,27 @@ if (googletest_ADDED)
 endif ()
 
 # ---------------------------------------------------------------------------
+# Google Benchmark  (v1.9.5 — micro-benchmark support)
+# ---------------------------------------------------------------------------
+# Used by test/perf/ benchmarks.  Suppress its own test suite to avoid
+# a nested GoogleTest build that would conflict with the one above.
+CPMAddPackage(
+    URI "gh:google/benchmark@1.9.5"
+    OPTIONS "BENCHMARK_ENABLE_TESTING OFF"
+            "BENCHMARK_ENABLE_INSTALL OFF"
+)
+
+# Google Benchmark's own library must be compiled with optimisations for
+# meaningful timing results, even when the parent project is Debug.
+if(benchmark_ADDED)
+  foreach(tgt benchmark benchmark_main)
+    target_compile_options(${tgt} PRIVATE
+          $<$<NOT:$<CONFIG:Release>>:-O2 -DNDEBUG>
+        )
+  endforeach()
+endif()
+
+# ---------------------------------------------------------------------------
 # test_support  —  static library of production .cpp files needed by tests.
 #
 # These source files have ZERO project-internal dependencies that would
@@ -76,16 +105,54 @@ target_link_libraries(test_support PUBLIC
     GTest::gtest
 )
 
+# ============================================================================
+# Helper macro  add_unit_test(<name> [SOURCE <source>] [extra_sources ...])
+#
+# Creates:
+#   - An executable target  test_<name>
+#   - A CTest test          test_<name>
+#
+#   <name>           — test target name (test_<name>)
+#   SOURCE <source>  — explicit test source path (default: ${name}.cpp)
+#   extra_sources    — additional .cpp files required by the test
+# ============================================================================
+function(add_unit_test name)
+    cmake_parse_arguments(UT "" "SOURCE" "" ${ARGN})
+    if (UT_SOURCE)
+        set(test_source ${UT_SOURCE})
+    else ()
+        set(test_source ${name}.cpp)
+    endif ()
+    add_executable(test_${name} ${test_source} ${UT_UNPARSED_ARGUMENTS})
+    target_link_libraries(test_${name} PRIVATE
+        test_support
+        GTest::gtest_main
+        glaze::glaze
+        spdlog::spdlog
+        magic_enum
+    )
+    target_include_directories(test_${name} PRIVATE
+        ${PROJECT_SOURCE_DIR}/include
+        ${PROJECT_SOURCE_DIR}/src
+        ${PROJECT_SOURCE_DIR}/test
+        ${PROJECT_BINARY_DIR}/generated
+    )
+    add_test(NAME test_${name} COMMAND test_${name})
+endfunction()
+
 # ---------------------------------------------------------------------------
 # Subdirectories
 # ---------------------------------------------------------------------------
 add_subdirectory(unit)
+add_subdirectory(component)
+
+# Performance benchmarks (require Google Benchmark)
+if(benchmark_ADDED)
+  add_subdirectory(perf EXCLUDE_FROM_ALL)
+endif()
 
 # Integration tests (optional, require controlled I/O environment)
 # add_subdirectory(integration)
 
 # Driver-specific tests (require driver source files, no dlopen)
 # add_subdirectory(driver)
-
-# Performance benchmarks (require Google Benchmark)
-# add_subdirectory(perf)

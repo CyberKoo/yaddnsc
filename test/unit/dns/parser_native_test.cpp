@@ -778,3 +778,88 @@ TEST(DnsParserTest, AuthorityRecords_AnswerStillWorks) {
     EXPECT_EQ(parsed.records[0], "1.2.3.4");
     EXPECT_EQ(parsed.rcode, DNS::Rcode::NOERROR);
 }
+
+// ===========================================================================
+// decompress_name error paths
+// ===========================================================================
+
+TEST(DnsParserTest, DecompressName_PastWireEnd_Throws) {
+    // A pointer that jumps beyond the wire length.
+    std::vector<std::uint8_t> buf;
+    buf.resize(12, 0);
+    write_u16_be(buf, 0, 0x1234);
+    buf[2] = 0x81;
+    buf[3] = 0x80;
+    write_u16_be(buf, 4, 1);
+    write_u16_be(buf, 6, 1);
+    // Encode a question with a name that contains a pointer to past wire end.
+    // QNAME: pointer 0xC0 0xFF (offset 255, beyond packet)
+    buf.push_back(0xC0);
+    buf.push_back(0xFF);
+    buf.push_back(0x00);
+    buf.push_back(0x01);
+    buf.push_back(0x00);
+    buf.push_back(0x01);
+    // Answer with pointer to the same broken QNAME pointer.
+    buf.push_back(0xC0);
+    buf.push_back(0x0C);
+    buf.push_back(0x00);
+    buf.push_back(0x01);
+    buf.push_back(0x00);
+    buf.push_back(0x01);
+    buf.push_back(0x00);
+    buf.push_back(0x00);
+    buf.push_back(0x01);
+    buf.push_back(0x2C);
+    buf.push_back(0x00);
+    buf.push_back(0x04);
+    buf.push_back(0xC0);
+    buf.push_back(0x00);
+    buf.push_back(0x02);
+    buf.push_back(0x01);
+    EXPECT_THROW(static_cast<void>(DNS::RecordParser::parse_strings(buf)), DnsLookupException);
+}
+
+// ===========================================================================
+// Multiple TXT segments
+// ===========================================================================
+
+TEST(DnsParserTest, MultiSegmentTxtRecord) {
+    std::vector<std::uint8_t> buf;
+    buf.resize(12, 0);
+    write_u16_be(buf, 0, 0x1234);
+    buf[2] = 0x81;
+    buf[3] = 0x80;
+    write_u16_be(buf, 4, 1);
+    write_u16_be(buf, 6, 1);
+    encode_name(buf, "example.com");
+    buf.push_back(0x00);
+    buf.push_back(0x10);
+    buf.push_back(0x00);
+    buf.push_back(0x01);
+    buf.push_back(0xC0);
+    buf.push_back(0x0C);
+    buf.push_back(0x00);
+    buf.push_back(0x10);
+    buf.push_back(0x00);
+    buf.push_back(0x01);
+    buf.push_back(0x00);
+    buf.push_back(0x00);
+    buf.push_back(0x01);
+    buf.push_back(0x2C);
+    // RDATA: two character-strings: "hello" + "world"
+    uint16_t rdlen = 1 + 5 + 1 + 5;
+    buf.push_back(static_cast<uint8_t>(rdlen >> 8));
+    buf.push_back(static_cast<uint8_t>(rdlen & 0xFF));
+    // "hello"
+    buf.push_back(5);
+    buf.push_back('h'); buf.push_back('e'); buf.push_back('l'); buf.push_back('l'); buf.push_back('o');
+    // "world"
+    buf.push_back(5);
+    buf.push_back('w'); buf.push_back('o'); buf.push_back('r'); buf.push_back('l'); buf.push_back('d');
+    auto parsed = DNS::RecordParser::parse_strings(buf);
+    ASSERT_EQ(parsed.records.size(), 1U);
+    EXPECT_EQ(parsed.records[0], "hello world");
+}
+
+

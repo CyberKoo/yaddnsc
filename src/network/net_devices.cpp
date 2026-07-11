@@ -131,4 +131,14 @@ namespace NetDevices {
         char buf[IF_NAMESIZE]{};
         return ::if_indextoname(index, buf) ? buf : std::string{};
     }
+
+    std::string loopback_name() {
+        auto ifaddrs = query_ifaddrs();
+        for (auto *ifa = ifaddrs.get(); ifa != nullptr; ifa = ifa->ifa_next) {
+            if ((ifa->ifa_flags & IFF_LOOPBACK) != 0) {
+                return ifa->ifa_name;
+            }
+        }
+        return {};
+    }
 } // namespace NetDevices

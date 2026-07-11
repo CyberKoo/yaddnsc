@@ -14,16 +14,21 @@
 //       .local suffix, non-A/AAAA type).
 //   - detail::validate_resolver_address — DoH/DoT URIs, plain IPs,
 //       invalid addresses.
+//   - ConfigValidator::validate — parameterized tests covering driver
+//       availability, update intervals, resolver addresses, and interface
+//       existence checks.
 // =============================================================================
 
 #include <string>
 #include <string_view>
+#include <vector>
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
 #include "config/validator.hpp"
 #include "mocks/mock_driver_manager.h"
+#include "network/net_devices.h"
 
 // ===========================================================================
 // detail::fqdn_for
@@ -60,9 +65,6 @@ TEST(ConfigValidatorDetailTest, FqdnFor_DeepSubdomain) {
 // resolution.  IP resolution requires real network interfaces or mocks.
 
 TEST(ConfigValidatorDetailTest, ValidateIpSource_Interface_WithInterface_Ok) {
-    // SubdomainConfig fields in declaration order:
-    //   name, type, interface, ip_type, ip_source, ip_source_param,
-    //   allow_ula, allow_local_link, update_interval, driver_param
     Config::SubdomainConfig sub{
         .name = "www",
         .type = RecordKind::A,
@@ -166,7 +168,7 @@ TEST(ConfigValidatorDetailTest, ValidateIpSource_Mdns_ValidLocalDomain_Ok) {
     EXPECT_NO_THROW(detail::validate_ip_source(domain, sub));
 }
 
-TEST(ConfigValidatorDetailTest, ValidateIpSource_Mdns_TrailingDot_Accepted) {
+TEST(ConfigValidatorDetailTest, ValidateIpSource_Mdns_TrailingDot_Ok) {
     Config::SubdomainConfig sub{
         .name = "printer",
         .type = RecordKind::AAAA,
@@ -240,19 +242,19 @@ TEST(ConfigValidatorDetailTest, ValidateIpSource_Mdns_TxtType_Throws) {
 // detail::validate_resolver_address
 // ===========================================================================
 
-TEST(ConfigValidatorDetailTest, ValidateResolverAddress_DoH_Accepted) {
+TEST(ConfigValidatorDetailTest, ValidateResolverAddress_DoH_Ok) {
     EXPECT_NO_THROW(detail::validate_resolver_address("https://dns.cloudflare.com/dns-query"));
 }
 
-TEST(ConfigValidatorDetailTest, ValidateResolverAddress_DoT_Accepted) {
+TEST(ConfigValidatorDetailTest, ValidateResolverAddress_DoT_Ok) {
     EXPECT_NO_THROW(detail::validate_resolver_address("tls://1.1.1.1:853"));
 }
 
-TEST(ConfigValidatorDetailTest, ValidateResolverAddress_IPv4_Accepted) {
+TEST(ConfigValidatorDetailTest, ValidateResolverAddress_IPv4_Ok) {
     EXPECT_NO_THROW(detail::validate_resolver_address("8.8.8.8"));
 }
 
-TEST(ConfigValidatorDetailTest, ValidateResolverAddress_IPv6_Accepted) {
+TEST(ConfigValidatorDetailTest, ValidateResolverAddress_IPv6_Ok) {
     EXPECT_NO_THROW(detail::validate_resolver_address("::1"));
     EXPECT_NO_THROW(detail::validate_resolver_address("2001:db8::1"));
 }
@@ -266,15 +268,15 @@ TEST(ConfigValidatorDetailTest, ValidateResolverAddress_EmptyString_Throws) {
 }
 
 TEST(ConfigValidatorDetailTest, ValidateResolverAddress_Hostname_Throws) {
-    // Plain hostnames (without a URI scheme) are not valid resolver addresses.
     EXPECT_THROW(detail::validate_resolver_address("resolver.example.com"), ConfigVerificationException);
 }
 
 // ===========================================================================
-// ConfigValidator::validate()  —  integration with MockDriverManager
+// ConfigValidator::validate()  —  parameterized tests with MockDriverManager
 // ===========================================================================
 
 using Validator60 = ConfigValidator<60>;
+using Validator300 = ConfigValidator<300>;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -300,32 +302,23 @@ static Config::AppConfig make_domain_config(
                     .interface = "",
                     .ip_type = AddressFamily::UNSPECIFIED,
                     .ip_source = Config::IpSource::HTTP,
-                                    .ip_source_param = "https://api.ipify.org",
-                                }
-                            }},
-                        }},
-                    };
+                    .ip_source_param = "https://api.ipify.org",
                 }
-
-                // ── Happy path ───────────────────────────────────────────────────────────────
-
-TEST(ConfigValidatorValidateTest, ValidConfig_DoesNotThrow) {
-    MockDriverManager mock;
-    EXPECT_CALL(mock, get_loaded_drivers())
-        .WillOnce(testing::Return(std::vector<std::string_view>{"test_driver"}));
-
-    ConfigValidator<60> validator(mock, {});
-    auto cfg = make_domain_config();
-
-    EXPECT_NO_THROW(validator.validate(cfg));
+            }},
+        }},
+    };
 }
 
-TEST(ConfigValidatorValidateTest, MultipleDomains_AllValid) {
-    MockDriverManager mock;
-    EXPECT_CALL(mock, get_loaded_drivers())
-        .WillRepeatedly(testing::Return(std::vector<std::string_view>{"drv1", "drv2"}));
+// ── Config builder functions for parameterized test cases ───────────────────
 
-    Config::AppConfig cfg{
+namespace {
+
+Config::AppConfig build_default() {
+    return make_domain_config();
+}
+
+Config::AppConfig build_multi_domain() {
+    return Config::AppConfig{
         .driver = {},
         .resolver = {},
         .domains = {
@@ -359,56 +352,14 @@ TEST(ConfigValidatorValidateTest, MultipleDomains_AllValid) {
             },
         },
     };
-
-    ConfigValidator<60> validator(mock, {});
-    EXPECT_NO_THROW(validator.validate(cfg));
 }
 
-// ── Driver not loaded ─────────────────────────────────────────────────────────
-
-TEST(ConfigValidatorValidateTest, DriverNotFound_Throws) {
-    MockDriverManager mock;
-    EXPECT_CALL(mock, get_loaded_drivers())
-        .WillOnce(testing::Return(std::vector<std::string_view>{"some_other_driver"}));
-
-    ConfigValidator<60> validator(mock, {});
-    auto cfg = make_domain_config();
-
-    EXPECT_THROW(validator.validate(cfg), ConfigVerificationException);
+Config::AppConfig build_empty_domain_name() {
+    return make_domain_config("");
 }
 
-TEST(ConfigValidatorValidateTest, NoDriversLoaded_Throws) {
-    MockDriverManager mock;
-    EXPECT_CALL(mock, get_loaded_drivers())
-        .WillOnce(testing::Return(std::vector<std::string_view>{}));
-
-    ConfigValidator<60> validator(mock, {});
-    auto cfg = make_domain_config();
-
-    EXPECT_THROW(validator.validate(cfg), ConfigVerificationException);
-}
-
-// ── Empty domain name ─────────────────────────────────────────────────────────
-
-TEST(ConfigValidatorValidateTest, EmptyDomainName_Throws) {
-    MockDriverManager mock;
-    EXPECT_CALL(mock, get_loaded_drivers())
-        .WillOnce(testing::Return(std::vector<std::string_view>{"test_driver"}));
-
-    ConfigValidator<60> validator(mock, {});
-    auto cfg = make_domain_config("");
-
-    EXPECT_THROW(validator.validate(cfg), ConfigVerificationException);
-}
-
-// ── Empty subdomains ──────────────────────────────────────────────────────────
-
-TEST(ConfigValidatorValidateTest, NoSubdomains_Throws) {
-    MockDriverManager mock;
-    EXPECT_CALL(mock, get_loaded_drivers())
-        .WillOnce(testing::Return(std::vector<std::string_view>{"test_driver"}));
-
-    Config::AppConfig cfg{
+Config::AppConfig build_no_subdomains() {
+    return Config::AppConfig{
         .driver = {},
         .resolver = {},
         .domains = {{
@@ -419,56 +370,18 @@ TEST(ConfigValidatorValidateTest, NoSubdomains_Throws) {
             .subdomains = {},
         }},
     };
-
-    ConfigValidator<60> validator(mock, {});
-    EXPECT_THROW(validator.validate(cfg), ConfigVerificationException);
 }
 
-// ── Empty subdomain name ──────────────────────────────────────────────────────
-
-TEST(ConfigValidatorValidateTest, EmptySubdomainName_Throws) {
-    MockDriverManager mock;
-    EXPECT_CALL(mock, get_loaded_drivers())
-        .WillOnce(testing::Return(std::vector<std::string_view>{"test_driver"}));
-
-    auto cfg = make_domain_config("example.com", 300, "test_driver", "");
-
-    ConfigValidator<60> validator(mock, {});
-    EXPECT_THROW(validator.validate(cfg), ConfigVerificationException);
+Config::AppConfig build_empty_subdomain_name() {
+    return make_domain_config("example.com", 300, "test_driver", "");
 }
 
-// ── Update interval too low ───────────────────────────────────────────────────
-
-TEST(ConfigValidatorValidateTest, UpdateIntervalBelowMinimum_Throws) {
-    MockDriverManager mock;
-    EXPECT_CALL(mock, get_loaded_drivers())
-        .WillOnce(testing::Return(std::vector<std::string_view>{"test_driver"}));
-
-    // Use ConfigValidator<300> so interval 60 is below minimum.
-    ConfigValidator<300> validator(mock, {});
-    auto cfg = make_domain_config("example.com", 60);
-
-    EXPECT_THROW(validator.validate(cfg), ConfigVerificationException);
+Config::AppConfig build_low_update_interval() {
+    return make_domain_config("example.com", 60);
 }
 
-TEST(ConfigValidatorValidateTest, UpdateIntervalAtMinimum_Ok) {
-    MockDriverManager mock;
-    EXPECT_CALL(mock, get_loaded_drivers())
-        .WillOnce(testing::Return(std::vector<std::string_view>{"test_driver"}));
-
-    // Use ConfigValidator<60> so interval 60 is exactly the minimum.
-    ConfigValidator<60> validator(mock, {});
-    auto cfg = make_domain_config("example.com", 60);
-
-    EXPECT_NO_THROW(validator.validate(cfg));
-}
-
-TEST(ConfigValidatorValidateTest, SubdomainUpdateIntervalBelowMinimum_Throws) {
-    MockDriverManager mock;
-    EXPECT_CALL(mock, get_loaded_drivers())
-        .WillOnce(testing::Return(std::vector<std::string_view>{"test_driver"}));
-
-    Config::AppConfig cfg{
+Config::AppConfig build_subdomain_low_interval() {
+    return Config::AppConfig{
         .driver = {},
         .resolver = {},
         .domains = {{
@@ -486,22 +399,15 @@ TEST(ConfigValidatorValidateTest, SubdomainUpdateIntervalBelowMinimum_Throws) {
                     .ip_source_param = "https://api.ipify.org",
                     .allow_ula = false,
                     .allow_local_link = false,
-                    .update_interval = 10,  // below minimum 60
+                    .update_interval = 10,
                 }
             }},
         }},
     };
-
-    ConfigValidator<60> validator(mock, {});
-    EXPECT_THROW(validator.validate(cfg), ConfigVerificationException);
 }
 
-TEST(ConfigValidatorValidateTest, SubdomainUpdateIntervalAtMinimum_Ok) {
-    MockDriverManager mock;
-    EXPECT_CALL(mock, get_loaded_drivers())
-        .WillOnce(testing::Return(std::vector<std::string_view>{"test_driver"}));
-
-    Config::AppConfig cfg{
+Config::AppConfig build_subdomain_ok_interval() {
+    return Config::AppConfig{
         .driver = {},
         .resolver = {},
         .domains = {{
@@ -519,30 +425,21 @@ TEST(ConfigValidatorValidateTest, SubdomainUpdateIntervalAtMinimum_Ok) {
                     .ip_source_param = "https://api.ipify.org",
                     .allow_ula = false,
                     .allow_local_link = false,
-                    .update_interval = 120,  // above minimum 60
+                    .update_interval = 120,
                 }
             }},
         }},
     };
-
-    ConfigValidator<60> validator(mock, {});
-    EXPECT_NO_THROW(validator.validate(cfg));
 }
 
-// ── Force-update interval ─────────────────────────────────────────────────────
-
-TEST(ConfigValidatorValidateTest, ForceUpdateLessThanUpdate_Throws) {
-    MockDriverManager mock;
-    EXPECT_CALL(mock, get_loaded_drivers())
-        .WillOnce(testing::Return(std::vector<std::string_view>{"test_driver"}));
-
-    Config::AppConfig cfg{
+Config::AppConfig build_force_update_less_than_update() {
+    return Config::AppConfig{
         .driver = {},
         .resolver = {},
         .domains = {{
             .name = "example.com",
             .update_interval = 300,
-            .force_update = 30,  // < 300
+            .force_update = 30,
             .driver = "test_driver",
             .subdomains = {{
                 Config::SubdomainConfig{
@@ -554,17 +451,10 @@ TEST(ConfigValidatorValidateTest, ForceUpdateLessThanUpdate_Throws) {
             }},
         }},
     };
-
-    ConfigValidator<60> validator(mock, {});
-    EXPECT_THROW(validator.validate(cfg), ConfigVerificationException);
 }
 
-TEST(ConfigValidatorValidateTest, ForceUpdateDisabled_DoesNotThrow) {
-    MockDriverManager mock;
-    EXPECT_CALL(mock, get_loaded_drivers())
-        .WillOnce(testing::Return(std::vector<std::string_view>{"test_driver"}));
-
-    Config::AppConfig cfg{
+Config::AppConfig build_force_update_disabled() {
+    return Config::AppConfig{
         .driver = {},
         .resolver = {},
         .domains = {{
@@ -582,19 +472,10 @@ TEST(ConfigValidatorValidateTest, ForceUpdateDisabled_DoesNotThrow) {
             }},
         }},
     };
-
-    ConfigValidator<60> validator(mock, {});
-    EXPECT_NO_THROW(validator.validate(cfg));
 }
 
-// ── Resolver address validation ───────────────────────────────────────────────
-
-TEST(ConfigValidatorValidateTest, CustomResolver_ValidDoH_Ok) {
-    MockDriverManager mock;
-    EXPECT_CALL(mock, get_loaded_drivers())
-        .WillRepeatedly(testing::Return(std::vector<std::string_view>{"test_driver"}));
-
-    Config::AppConfig cfg{
+Config::AppConfig build_custom_resolver_doh() {
+    return Config::AppConfig{
         .driver = {},
         .resolver = {
             .use_custom_server = true,
@@ -617,17 +498,10 @@ TEST(ConfigValidatorValidateTest, CustomResolver_ValidDoH_Ok) {
             }},
         }},
     };
-
-    ConfigValidator<60> validator(mock, {});
-    EXPECT_NO_THROW(validator.validate(cfg));
 }
 
-TEST(ConfigValidatorValidateTest, CustomResolver_ValidIPv4_Ok) {
-    MockDriverManager mock;
-    EXPECT_CALL(mock, get_loaded_drivers())
-        .WillRepeatedly(testing::Return(std::vector<std::string_view>{"test_driver"}));
-
-    Config::AppConfig cfg{
+Config::AppConfig build_custom_resolver_ipv4() {
+    return Config::AppConfig{
         .driver = {},
         .resolver = {
             .use_custom_server = true,
@@ -649,17 +523,10 @@ TEST(ConfigValidatorValidateTest, CustomResolver_ValidIPv4_Ok) {
             }},
         }},
     };
-
-    ConfigValidator<60> validator(mock, {});
-    EXPECT_NO_THROW(validator.validate(cfg));
 }
 
-TEST(ConfigValidatorValidateTest, CustomResolver_InvalidAddress_Throws) {
-    MockDriverManager mock;
-    EXPECT_CALL(mock, get_loaded_drivers())
-        .WillRepeatedly(testing::Return(std::vector<std::string_view>{"test_driver"}));
-
-    Config::AppConfig cfg{
+Config::AppConfig build_custom_resolver_invalid() {
+    return Config::AppConfig{
         .driver = {},
         .resolver = {
             .use_custom_server = true,
@@ -681,19 +548,10 @@ TEST(ConfigValidatorValidateTest, CustomResolver_InvalidAddress_Throws) {
             }},
         }},
     };
-
-    ConfigValidator<60> validator(mock, {});
-    EXPECT_THROW(validator.validate(cfg), ConfigVerificationException);
 }
 
-// ── Interface existence check ─────────────────────────────────────────────────
-
-TEST(ConfigValidatorValidateTest, ReferencedInterfaceExists_Ok) {
-    MockDriverManager mock;
-    EXPECT_CALL(mock, get_loaded_drivers())
-        .WillOnce(testing::Return(std::vector<std::string_view>{"test_driver"}));
-
-    Config::AppConfig cfg{
+Config::AppConfig build_interface_exists() {
+    return Config::AppConfig{
         .driver = {},
         .resolver = {},
         .domains = {{
@@ -713,17 +571,10 @@ TEST(ConfigValidatorValidateTest, ReferencedInterfaceExists_Ok) {
             }},
         }},
     };
-
-    ConfigValidator<60> validator(mock, {"eth0", "lo"});
-    EXPECT_NO_THROW(validator.validate(cfg));
 }
 
-TEST(ConfigValidatorValidateTest, ReferencedInterfaceNotFound_Throws) {
-    MockDriverManager mock;
-    EXPECT_CALL(mock, get_loaded_drivers())
-        .WillOnce(testing::Return(std::vector<std::string_view>{"test_driver"}));
-
-    Config::AppConfig cfg{
+Config::AppConfig build_interface_not_found() {
+    return Config::AppConfig{
         .driver = {},
         .resolver = {},
         .domains = {{
@@ -743,7 +594,99 @@ TEST(ConfigValidatorValidateTest, ReferencedInterfaceNotFound_Throws) {
             }},
         }},
     };
-
-    ConfigValidator<60> validator(mock, {"lo", "eth1"});  // eth0 not in list
-    EXPECT_THROW(validator.validate(cfg), ConfigVerificationException);
 }
+
+} // anonymous namespace
+
+// ── Helpers for building interface lists ────────────────────────────────────
+
+namespace {
+    /// Return the given list of interfaces plus the platform's loopback name.
+    /// This avoids hardcoding "lo" or "lo0".
+    [[nodiscard]] std::vector<std::string> ifaces(std::initializer_list<std::string> list) {
+        std::vector<std::string> result;
+        result.reserve(list.size() + 1);
+        result.push_back(NetDevices::loopback_name());
+        result.insert(result.end(), list.begin(), list.end());
+        return result;
+    }
+} // anonymous namespace
+
+// ── Parameterized test case definition ─────────────────────────────────────
+
+struct ValidateCase {
+    const char* name;
+    std::vector<std::string_view> loaded_drivers;  // matches DriverManagerBase::get_loaded_drivers()
+    std::vector<std::string> interfaces;           // matches ConfigValidator constructor
+    int min_interval;
+    bool should_throw;
+    Config::AppConfig (*build)();
+};
+
+class ConfigValidatorValidateTest : public ::testing::TestWithParam<ValidateCase> {};
+
+TEST_P(ConfigValidatorValidateTest, Validate) {
+    const auto& param = GetParam();
+
+    MockDriverManager mock;
+    if (param.loaded_drivers.empty()) {
+        EXPECT_CALL(mock, get_loaded_drivers())
+            .WillOnce(testing::Return(std::vector<std::string_view>{}));
+    } else if (param.should_throw) {
+        EXPECT_CALL(mock, get_loaded_drivers())
+            .WillOnce(testing::Return(param.loaded_drivers));
+    } else {
+        EXPECT_CALL(mock, get_loaded_drivers())
+            .WillRepeatedly(testing::Return(param.loaded_drivers));
+    }
+
+    auto cfg = param.build();
+
+    if (param.should_throw) {
+        if (param.min_interval == 60) {
+            Validator60 v(mock, param.interfaces);
+            EXPECT_THROW(v.validate(cfg), ConfigVerificationException);
+        } else {
+            Validator300 v(mock, param.interfaces);
+            EXPECT_THROW(v.validate(cfg), ConfigVerificationException);
+        }
+    } else {
+        if (param.min_interval == 60) {
+            Validator60 v(mock, param.interfaces);
+            EXPECT_NO_THROW(v.validate(cfg));
+        } else {
+            Validator300 v(mock, param.interfaces);
+            EXPECT_NO_THROW(v.validate(cfg));
+        }
+    }
+}
+
+// ── Test cases ─────────────────────────────────────────────────────────────
+
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    ConfigValidatorValidateTest,
+    ::testing::Values(
+        ValidateCase{"ValidConfig",                {"test_driver"},        {},  60, false, &build_default},
+        ValidateCase{"MultipleDomains",            {"drv1", "drv2"},       {},  60, false, &build_multi_domain},
+        ValidateCase{"DriverNotFound",             {"some_other_driver"},  {},  60, true,  &build_default},
+        ValidateCase{"NoDriversLoaded",            {},                     {},  60, true,  &build_default},
+        ValidateCase{"EmptyDomainName",            {"test_driver"},        {},  60, true,  &build_empty_domain_name},
+        ValidateCase{"NoSubdomains",               {"test_driver"},        {},  60, true,  &build_no_subdomains},
+        ValidateCase{"EmptySubdomainName",         {"test_driver"},        {},  60, true,  &build_empty_subdomain_name},
+        ValidateCase{"UpdateIntervalBelowMinimum", {"test_driver"},        {}, 300, true,  &build_low_update_interval},
+        ValidateCase{"UpdateIntervalAtMinimum",    {"test_driver"},        {},  60, false, &build_low_update_interval},
+        ValidateCase{"SubdomainIntervalBelowMin",  {"test_driver"},        {},  60, true,  &build_subdomain_low_interval},
+        ValidateCase{"SubdomainIntervalAtMin",     {"test_driver"},        {},  60, false, &build_subdomain_ok_interval},
+        ValidateCase{"ForceUpdateLessThanUpdate",  {"test_driver"},        {},  60, true,  &build_force_update_less_than_update},
+        ValidateCase{"ForceUpdateDisabled",        {"test_driver"},        {},  60, false, &build_force_update_disabled},
+        ValidateCase{"CustomResolverDoH",          {"test_driver"},        {},  60, false, &build_custom_resolver_doh},
+        ValidateCase{"CustomResolverIPv4",         {"test_driver"},        {},  60, false, &build_custom_resolver_ipv4},
+        ValidateCase{"CustomResolverInvalid",      {"test_driver"},        {},  60, true,  &build_custom_resolver_invalid},
+        ValidateCase{"InterfaceExists",            {"test_driver"},  ifaces({"eth0"}),                  60, false, &build_interface_exists},
+        ValidateCase{"InterfaceNotFound",          {"test_driver"},  ifaces({"eth1"}),                  60, true,  &build_interface_not_found}
+    ),
+    [](const ::testing::TestParamInfo<ValidateCase>& info) {
+        return std::string(info.param.name);
+    }
+);
