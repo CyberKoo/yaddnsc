@@ -66,7 +66,11 @@ TEST(InterfaceIpSourceTest, Resolve_Loopback_FilterIpv6) {
 
 TEST(InterfaceIpSourceTest, Resolve_NonExistentInterface_Throws) {
     InterfaceIpSource src("nonexistent999", AddressFamily::UNSPECIFIED);
-    EXPECT_THROW(src.resolve(), std::runtime_error);
+    EXPECT_THROW(
+        {
+            [[maybe_unused]] auto _ = src.resolve();
+        },
+        std::runtime_error);
 }
 
 // ===========================================================================

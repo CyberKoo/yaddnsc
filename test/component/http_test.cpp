@@ -235,5 +235,9 @@ TEST_F(HttpServerFixture, HttpIpSource_ThrowsOnNonIpBody) {
     auto url = fmt::format("http://127.0.0.1:{}/not-an-ip", port());
 
     HttpIpSource ip_source(url, AddressFamily::UNSPECIFIED);
-    EXPECT_THROW(ip_source.resolve(), std::runtime_error);
+    EXPECT_THROW(
+        {
+            [[maybe_unused]] auto _ = ip_source.resolve();
+        },
+        std::runtime_error);
 }

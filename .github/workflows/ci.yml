@@ -1,4 +1,4 @@
-name: CI — tests & benchmarks
+name: CI tests
 
 on:
     push:

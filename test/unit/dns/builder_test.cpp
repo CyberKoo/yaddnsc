@@ -390,7 +390,11 @@ TEST(QueryBuilderTest, EdnsWithOptions) {
 
 TEST(QueryBuilderTest, ThrowsOnEmptyQuestion) {
     DNS::QueryBuilder builder;
-    EXPECT_THROW(builder.build(), DnsPacketException);
+    EXPECT_THROW(
+        {
+            [[maybe_unused]] auto _ = builder.build();
+        },
+        DnsPacketException);
 }
 
 TEST(QueryBuilderTest, ThrowsOnLabelTooLong) {
@@ -398,7 +402,11 @@ TEST(QueryBuilderTest, ThrowsOnLabelTooLong) {
     std::string long_label(64, 'a');
     DNS::QueryBuilder builder;
     builder.add_question(long_label, DNS::RecordType::A);
-    EXPECT_THROW(builder.build(), DnsPacketException);
+    EXPECT_THROW(
+        {
+            [[maybe_unused]] auto _ = builder.build();
+        },
+        DnsPacketException);
 }
 
 TEST(QueryBuilderTest, AcceptsLabelLength63) {
@@ -406,7 +414,10 @@ TEST(QueryBuilderTest, AcceptsLabelLength63) {
     std::string max_label(63, 'a');
     DNS::QueryBuilder builder;
     builder.add_question(max_label + ".com", DNS::RecordType::A);
-    EXPECT_NO_THROW(builder.build());
+    EXPECT_NO_THROW(
+        {
+            [[maybe_unused]] auto _ = builder.build();
+        });
 }
 
 TEST(QueryBuilderTest, ThrowsOnNameTooLong) {
@@ -418,7 +429,11 @@ TEST(QueryBuilderTest, ThrowsOnNameTooLong) {
     }
     DNS::QueryBuilder builder;
     builder.add_question(long_name, DNS::RecordType::A);
-    EXPECT_THROW(builder.build(), DnsPacketException);
+    EXPECT_THROW(
+        {
+            [[maybe_unused]] auto _ = builder.build();
+        },
+        DnsPacketException);
 }
 
 TEST(QueryBuilderTest, AcceptsMaxNameLength) {
@@ -434,28 +449,42 @@ TEST(QueryBuilderTest, AcceptsMaxNameLength) {
 
     DNS::QueryBuilder builder;
     builder.add_question(max_name, DNS::RecordType::A);
-    EXPECT_NO_THROW(builder.build());
+    EXPECT_NO_THROW(
+        {
+            [[maybe_unused]] auto _ = builder.build();
+        });
 }
 
 TEST(QueryBuilderTest, ThrowsOnEdnsVersionNonZero) {
     DNS::QueryBuilder builder;
     builder.add_question("example.com", DNS::RecordType::A);
     builder.add_edns(4096, 1, false);
-    EXPECT_THROW(builder.build(), DnsPacketException);
+    EXPECT_THROW(
+        {
+            [[maybe_unused]] auto _ = builder.build();
+        },
+        DnsPacketException);
 }
 
 TEST(QueryBuilderTest, ThrowsOnEdnsPayloadTooSmall) {
     DNS::QueryBuilder builder;
     builder.add_question("example.com", DNS::RecordType::A);
     builder.add_edns(511, 0, false);
-    EXPECT_THROW(builder.build(), DnsPacketException);
+    EXPECT_THROW(
+        {
+            [[maybe_unused]] auto _ = builder.build();
+        },
+        DnsPacketException);
 }
 
 TEST(QueryBuilderTest, AcceptsEdnsPayload512) {
     DNS::QueryBuilder builder;
     builder.add_question("example.com", DNS::RecordType::A);
     builder.add_edns(512, 0, false);
-    EXPECT_NO_THROW(builder.build());
+    EXPECT_NO_THROW(
+        {
+            [[maybe_unused]] auto _ = builder.build();
+        });
 }
 
 // ===========================================================================
@@ -465,7 +494,7 @@ TEST(QueryBuilderTest, AcceptsEdnsPayload512) {
 TEST(QueryBuilderTest, ExceptionMessageContainsRelevantInfo) {
     DNS::QueryBuilder empty;
     try {
-        empty.build();
+        [[maybe_unused]] auto _ = empty.build();
         FAIL() << "Expected DnsPacketException";
     } catch (const DnsPacketException& e) {
         EXPECT_NE(std::string_view(e.what()).find("question"), std::string_view::npos);
@@ -475,7 +504,7 @@ TEST(QueryBuilderTest, ExceptionMessageContainsRelevantInfo) {
 TEST(QueryBuilderTest, ExceptionGetName) {
     DNS::QueryBuilder empty;
     try {
-        empty.build();
+        [[maybe_unused]] auto _ = empty.build();
     } catch (const DnsPacketException& e) {
         EXPECT_EQ(e.get_name(), "DnsPacketException");
     }
