@@ -136,8 +136,7 @@ std::expected<std::vector<std::uint8_t>, DnsErrorInfo> DotResolver::Impl::query(
             }
 
             last_use_ = std::chrono::steady_clock::now();
-            SPDLOG_DEBUG(R"(Resolver #{} DoT query to "{}":{} succeeded ({} bytes) for "{}")", id_, server_, port_,
-                         response->size(), host);
+            SPDLOG_DEBUG(R"(Resolver #{} query succeeded ({} bytes) for "{}")", id_, response->size(), host);
 
             return std::move(*response);
         }
