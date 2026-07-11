@@ -54,6 +54,13 @@ namespace {
             const int rc = BIO_read(bio, buf, static_cast<int>(n));
             if (rc <= 0) {
                 if (BIO_should_retry(bio)) {
+                    // If OpenSSL already has decrypted data buffered, skip the
+                    // select() poll and retry the read immediately.
+                    SSL *ssl = nullptr;
+                    BIO_get_ssl(bio, &ssl);
+                    if (ssl && SSL_pending(ssl) > 0) {
+                        continue;
+                    }
                     fd_set fds;
                     FD_ZERO(&fds);
                     const int fd = BIO_get_fd(bio, nullptr);
