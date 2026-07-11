@@ -31,11 +31,11 @@
 // ---------------------------------------------------------------------------
 /// Errors that can occur during connect().
 enum class ConnectError {
-    TimedOut,    ///< Connection timed out (ETIMEDOUT).
-    Refused,     ///< Connection refused (ECONNREFUSED).
-    Unreachable, ///< Network or host unreachable (ENETUNREACH, EHOSTUNREACH).
-    Cancelled,   ///< Operation cancelled via cancel_fd (ECANCELED).
-    Internal,    ///< Internal OS error (fcntl, poll, getsockopt, etc.).
+    TIMED_OUT,    ///< Connection timed out (ETIMEDOUT).
+    REFUSED,      ///< Connection refused (ECONNREFUSED).
+    UNREACHABLE,  ///< Network or host unreachable (ENETUNREACH, EHOSTUNREACH).
+    CANCELLED,    ///< Operation cancelled via cancel_fd (ECANCELED).
+    INTERNAL,     ///< Internal OS error (fcntl, poll, getsockopt, etc.).
 };
 
 class Socket {
@@ -258,7 +258,7 @@ public:
     }
 
 private:
-    [[maybe_unused, no_unique_address]] NoCopy _nc_;
+    [[maybe_unused, no_unique_address]] NoCopy no_copy_;
     int fd_{-1};
     int type_{-1};
 

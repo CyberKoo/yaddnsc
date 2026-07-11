@@ -23,10 +23,10 @@ struct ResponseInfo {
 
 /// Errors that can occur during HTTP response header parsing.
 enum class HttpError {
-    Incomplete,          ///< More data is needed (picohttpparser returned -2).
-    ParseFailed,         ///< Malformed HTTP response (picohttpparser returned -1).
-    ContentTypeMismatch, ///< Content-Type does not contain @p expected_content_type.
-    BodyTooLarge,        ///< Content-Length exceeds @p max_body_size.
+    INCOMPLETE,            ///< More data is needed (picohttpparser returned -2).
+    PARSE_FAILED,          ///< Malformed HTTP response (picohttpparser returned -1).
+    CONTENT_TYPE_MISMATCH, ///< Content-Type does not contain @p expected_content_type.
+    BODY_TOO_LARGE,        ///< Content-Length exceeds @p max_body_size.
 };
 
 /// Parse an HTTP response header block using picohttpparser.

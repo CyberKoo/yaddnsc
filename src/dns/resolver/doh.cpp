@@ -411,7 +411,7 @@ std::expected<std::vector<std::uint8_t>, DnsErrorInfo> DohResolver::Impl::read_r
         }
 
         // Parse failed or needs more data — distinguish by error type.
-        if (result.error() != Utils::Http::HttpError::Incomplete) {
+        if (result.error() != Utils::Http::HttpError::INCOMPLETE) {
             persistent_conn_->close();
             return std::unexpected(DnsErrorInfo{
                 DnsError::PARSE,

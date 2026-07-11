@@ -111,8 +111,8 @@ TEST(SocketTest, TcpConnectRefused) {
     // On Linux a connection to a closed port is immediately refused; on FreeBSD
     // the non-blocking connect returns EINPROGRESS and poll() with timeout 0 may
     // time out before the RST arrives.  Both outcomes are valid.
-    EXPECT_TRUE(result.error() == ConnectError::Refused ||
-                result.error() == ConnectError::TimedOut);
+    EXPECT_TRUE(result.error() == ConnectError::REFUSED ||
+                result.error() == ConnectError::TIMED_OUT);
 }
 
 // ===========================================================================

@@ -95,8 +95,8 @@ namespace {
         }
 
     private:
-        [[maybe_unused, no_unique_address]] NoCopy _nc_;
-        [[maybe_unused, no_unique_address]] NoMove _nm_;
+        [[maybe_unused, no_unique_address]] NoCopy no_copy_;
+        [[maybe_unused, no_unique_address]] NoMove no_move_;
 
         static void destroy(struct __res_state *s) {
 #if defined(HAVE_RES_NDESTROY)

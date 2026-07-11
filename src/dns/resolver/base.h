@@ -64,7 +64,7 @@ private:
 
     inline static std::atomic<std::uint64_t> next_id_{0};
 
-    [[maybe_unused, no_unique_address]] NoCopy _nc_;
+    [[maybe_unused, no_unique_address]] NoCopy no_copy_;
 };
 
 #endif // YADDNSC_DNS_BASE_H

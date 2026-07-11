@@ -138,10 +138,10 @@ namespace {
         if (!conn) {
             DnsError ec;
             switch (conn.error()) {
-                case ConnectError::TimedOut:
+                case ConnectError::TIMED_OUT:
                     ec = DnsError::RETRY;
                     break;
-                case ConnectError::Cancelled:
+                case ConnectError::CANCELLED:
                     ec = DnsError::CANCELLED;
                     break;
                 default:

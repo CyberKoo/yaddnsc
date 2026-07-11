@@ -119,16 +119,16 @@ namespace {
     [[nodiscard]] ConnectError to_connect_error(int errnum) noexcept {
         switch (errnum) {
             case ETIMEDOUT:
-                return ConnectError::TimedOut;
+                return ConnectError::TIMED_OUT;
             case ECONNREFUSED:
-                return ConnectError::Refused;
+                return ConnectError::REFUSED;
             case ENETUNREACH:
             case EHOSTUNREACH:
-                return ConnectError::Unreachable;
+                return ConnectError::UNREACHABLE;
             case ECANCELED:
-                return ConnectError::Cancelled;
+                return ConnectError::CANCELLED;
             default:
-                return ConnectError::Internal;
+                return ConnectError::INTERNAL;
         }
     }
 } // anonymous namespace
@@ -297,10 +297,10 @@ std::expected<void, ConnectError> Socket::connect(const SocketAddr &addr, int ti
     // Save original fcntl flags and set O_NONBLOCK; restore on any exit path.
     int orig_flags = ::fcntl(fd_, F_GETFL, 0);
     if (orig_flags < 0) {
-        return std::unexpected(ConnectError::Internal);
+        return std::unexpected(ConnectError::INTERNAL);
     }
     if (::fcntl(fd_, F_SETFL, orig_flags | O_NONBLOCK) < 0) {
-        return std::unexpected(ConnectError::Internal);
+        return std::unexpected(ConnectError::INTERNAL);
     }
     FcntlGuard guard(fd_, orig_flags);
 
@@ -330,16 +330,16 @@ std::expected<void, ConnectError> Socket::connect(const SocketAddr &addr, int ti
 
     if (rc <= 0) {
         if (rc == 0) {
-            return std::unexpected(ConnectError::TimedOut);
+            return std::unexpected(ConnectError::TIMED_OUT);
         }
-        return std::unexpected(ConnectError::Internal);
+        return std::unexpected(ConnectError::INTERNAL);
     }
 
     // Check socket error status.
     int error = 0;
     socklen_t elen = sizeof(error);
     if (::getsockopt(fd_, SOL_SOCKET, SO_ERROR, &error, &elen) < 0) {
-        return std::unexpected(ConnectError::Internal);
+        return std::unexpected(ConnectError::INTERNAL);
     }
     if (error != 0) {
         return std::unexpected(to_connect_error(error));
@@ -347,7 +347,7 @@ std::expected<void, ConnectError> Socket::connect(const SocketAddr &addr, int ti
 
     // Restore original flags.
     if (!guard.restore()) {
-        return std::unexpected(ConnectError::Internal);
+        return std::unexpected(ConnectError::INTERNAL);
     }
 
     return {};

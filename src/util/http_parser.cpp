@@ -27,10 +27,10 @@ namespace Utils::Http {
                                             headers, &num_headers, 0);
 
         if (pret == -2) {
-            return std::unexpected(HttpError::Incomplete);
+            return std::unexpected(HttpError::INCOMPLETE);
         }
         if (pret == -1) {
-            return std::unexpected(HttpError::ParseFailed);
+            return std::unexpected(HttpError::PARSE_FAILED);
         }
 
         // Headers parsed successfully.
@@ -49,7 +49,7 @@ namespace Utils::Http {
                 try {
                     content_length = std::stoul(std::string(hvalue));
                 } catch (const std::exception &) {
-                    return std::unexpected(HttpError::ParseFailed);
+                    return std::unexpected(HttpError::PARSE_FAILED);
                 }
                 has_content_length = true;
             } else if (StringUtil::iequals(hname, "content-type") && !valid_content_type) {
@@ -64,11 +64,11 @@ namespace Utils::Http {
         }
 
         if (!valid_content_type) {
-            return std::unexpected(HttpError::ContentTypeMismatch);
+            return std::unexpected(HttpError::CONTENT_TYPE_MISMATCH);
         }
 
         if (has_content_length && content_length > max_body_size) {
-            return std::unexpected(HttpError::BodyTooLarge);
+            return std::unexpected(HttpError::BODY_TOO_LARGE);
         }
 
         return ResponseInfo{

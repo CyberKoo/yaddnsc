@@ -48,10 +48,11 @@ protected:
     DriverManagerBase() = default;
 
 private:
-    [[maybe_unused, no_unique_address]] NoCopy _nc_;
-    [[maybe_unused, no_unique_address]] NoMove _nm_;
+    [[maybe_unused, no_unique_address]] NoCopy no_copy_;
+    [[maybe_unused, no_unique_address]] NoMove no_move_;
 };
 
+#endif //YADDNSC_CORE_DRIVER_MANAGER_H
 /// Manages the lifecycle of loaded driver plugins.
 ///
 /// Handles dlopen/dlclose, maps driver names to Driver instances, and

@@ -64,7 +64,7 @@ public:
     [[nodiscard]] virtual std::vector<InetAddress> resolve() const = 0;
 
 private:
-    [[maybe_unused, no_unique_address]] NoCopy _nc_;
+    [[maybe_unused, no_unique_address]] NoCopy no_copy_;
 };
 
 #endif  // YADDNSC_IP_SOURCE_BASE_H
