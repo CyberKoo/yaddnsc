@@ -183,9 +183,8 @@ public:
     [[nodiscard]] SSL *native_ssl() const noexcept { return ssl_; }
 
 private:
-    enum class PollEvent { READ, WRITE };
-
-    [[nodiscard]] IoStatus poll_bio(BIO *bio, PollEvent event, int cancel_fd);
+    [[nodiscard]] IoStatus poll_bio(BIO *bio, short default_events, int cancel_fd,
+                                    std::chrono::milliseconds timeout);
 
     [[nodiscard]] static SslCtxPtr create_default_ssl_ctx();
 

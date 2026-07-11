@@ -294,7 +294,7 @@ std::expected<std::vector<std::uint8_t>, DnsErrorInfo> DotResolver::Impl::read_r
     }
 
     // Read response body.
-    std::vector<std::uint8_t> response(resp_len);
+    std::vector<std::uint8_t> response(resp_len, 0);
     status = persistent_conn_->read_exact(std::span{response}, cancel_fd);
     if (!status) {
         if (status.error() == TlsConnection::IoStatus::CANCELLED) {

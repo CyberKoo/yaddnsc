@@ -83,9 +83,33 @@ TlsConnection::TlsConnection(std::string server, std::uint16_t port, std::chrono
 
 TlsConnection::~TlsConnection() = default;
 
-TlsConnection::TlsConnection(TlsConnection &&) noexcept = default;
+TlsConnection::TlsConnection(TlsConnection &&other) noexcept
+    : server_(std::move(other.server_)),
+      port_(other.port_),
+      connect_timeout_(other.connect_timeout_),
+      sni_hostname_(std::move(other.sni_hostname_)),
+      alpn_proto_(std::move(other.alpn_proto_)),
+      context_factory_(std::move(other.context_factory_)),
+      io_timeout_ms_(other.io_timeout_ms_),
+      custom_ctx_(std::move(other.custom_ctx_)),
+      bio_(std::move(other.bio_)),
+      ssl_(std::exchange(other.ssl_, nullptr)) {}
 
-TlsConnection &TlsConnection::operator=(TlsConnection &&) noexcept = default;
+TlsConnection &TlsConnection::operator=(TlsConnection &&other) noexcept {
+    if (this == &other)
+        return *this;
+    server_ = std::move(other.server_);
+    port_ = other.port_;
+    connect_timeout_ = other.connect_timeout_;
+    sni_hostname_ = std::move(other.sni_hostname_);
+    alpn_proto_ = std::move(other.alpn_proto_);
+    context_factory_ = std::move(other.context_factory_);
+    io_timeout_ms_ = other.io_timeout_ms_;
+    custom_ctx_ = std::move(other.custom_ctx_);
+    bio_ = std::move(other.bio_);
+    ssl_ = std::exchange(other.ssl_, nullptr);
+    return *this;
+}
 
 // ===========================================================================
 //  Lifecycle
@@ -146,6 +170,12 @@ std::expected<void, TlsConnection::IoStatus> TlsConnection::connect() {
     const auto deadline = std::chrono::steady_clock::now() + connect_timeout_;
 
     for (;;) {
+        // Clear retry flags before each attempt so that BIO_should_retry
+        // reflects the result of this call, not a stale value from a prior
+        // iteration.  (OpenSSL internally clears flags for ssl BIO in
+        // non-blocking mode, but being explicit here is defensive.)
+        BIO_clear_retry_flags(bio.get());
+
         const auto ret = BIO_do_connect(bio.get());
         if (ret == 1)
             break;
@@ -161,30 +191,14 @@ std::expected<void, TlsConnection::IoStatus> TlsConnection::connect() {
             return std::unexpected(IoStatus::TIMEOUT);
         }
 
-        const auto fd_raw = BIO_get_fd(bio.get(), nullptr);
-        const int fd = static_cast<int>(fd_raw);
-        if (fd == -1) {
-            ssl_ = nullptr;
-            return std::unexpected(IoStatus::ERROR);
-        }
-
         const auto remaining_ms = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - now);
 
-        pollfd pfd{
-            .fd = fd,
-            .events = static_cast<int16_t>(BIO_should_read(bio.get()) ? POLLIN : POLLOUT),
-            .revents = 0,
-        };
-
-        const int poll_ret = poll(&pfd, 1, static_cast<int>(remaining_ms.count()));
-        if (poll_ret <= 0) {
-            if (poll_ret == 0) {
-                ssl_ = nullptr;
-                return std::unexpected(IoStatus::TIMEOUT);
-            }
-            if (errno == EINTR) {
-                continue;
-            }
+        const auto pstatus = poll_bio(bio.get(), POLLOUT, -1, remaining_ms);
+        if (pstatus == IoStatus::TIMEOUT) {
+            ssl_ = nullptr;
+            return std::unexpected(IoStatus::TIMEOUT);
+        }
+        if (pstatus != IoStatus::OK) {
             ssl_ = nullptr;
             return std::unexpected(IoStatus::ERROR);
         }
@@ -254,14 +268,7 @@ std::expected<void, TlsConnection::IoStatus> TlsConnection::send_all(std::span<c
         return std::unexpected(IoStatus::ERROR);
 
     while (!data.empty()) {
-        // Determine poll direction from OpenSSL's retry flags — a TLS
-        // renegotiation or key update may require reading during a write.
-        auto event = PollEvent::WRITE;
-        if (BIO_should_retry(bio_.get())) {
-            event = BIO_should_read(bio_.get()) ? PollEvent::READ : PollEvent::WRITE;
-        }
-
-        const auto status = poll_bio(bio_.get(), event, cancel_fd);
+        const auto status = poll_bio(bio_.get(), POLLOUT, cancel_fd, io_timeout_ms_);
         if (status != IoStatus::OK)
             return std::unexpected(status);
 
@@ -281,16 +288,15 @@ std::expected<void, TlsConnection::IoStatus> TlsConnection::read_exact(std::span
         return std::unexpected(IoStatus::ERROR);
 
     while (!buf.empty()) {
-        // Determine poll direction from OpenSSL's retry flags — a TLS
-        // renegotiation or key update may require writing during a read.
-        auto event = PollEvent::READ;
-        if (BIO_should_retry(bio_.get())) {
-            event = BIO_should_write(bio_.get()) ? PollEvent::WRITE : PollEvent::READ;
+        // If OpenSSL already has decrypted data buffered in its internal
+        // read buffer (e.g. from a previous SSL_read that consumed a large
+        // TLS record), skip the poll — the data is already available at the
+        // SSL layer and the raw socket may have nothing new to read.
+        if (!ssl_ || SSL_pending(ssl_) == 0) {
+            const auto status = poll_bio(bio_.get(), POLLIN, cancel_fd, io_timeout_ms_);
+            if (status != IoStatus::OK)
+                return std::unexpected(status);
         }
-
-        const auto status = poll_bio(bio_.get(), event, cancel_fd);
-        if (status != IoStatus::OK)
-            return std::unexpected(status);
 
         BIO_clear_retry_flags(bio_.get());
         const int rc = BIO_read(bio_.get(), buf.data(), static_cast<int>(buf.size()));
@@ -309,13 +315,7 @@ std::expected<void, TlsConnection::IoStatus> TlsConnection::shutdown() {
 
     for (int attempt = 0;; ++attempt) {
         if (attempt > 0) {
-            // On retry, determine poll direction from retry flags.
-            auto event = PollEvent::READ;
-            if (BIO_should_retry(bio_.get())) {
-                event = BIO_should_read(bio_.get()) ? PollEvent::READ : PollEvent::WRITE;
-            }
-
-            const auto status = poll_bio(bio_.get(), event, -1);
+            const auto status = poll_bio(bio_.get(), POLLIN, -1, io_timeout_ms_);
             if (status != IoStatus::OK)
                 return std::unexpected(status);
         }
@@ -336,14 +336,12 @@ std::expected<size_t, TlsConnection::IoStatus> TlsConnection::read_some(std::spa
         return std::unexpected(IoStatus::ERROR);
 
     for (;;) {
-        auto event = PollEvent::READ;
-        if (BIO_should_retry(bio_.get())) {
-            event = BIO_should_write(bio_.get()) ? PollEvent::WRITE : PollEvent::READ;
+        // Same as read_exact: skip poll when buffered data already exists.
+        if (!ssl_ || SSL_pending(ssl_) == 0) {
+            const auto status = poll_bio(bio_.get(), POLLIN, cancel_fd, io_timeout_ms_);
+            if (status != IoStatus::OK)
+                return std::unexpected(status);
         }
-
-        const auto status = poll_bio(bio_.get(), event, cancel_fd);
-        if (status != IoStatus::OK)
-            return std::unexpected(status);
 
         BIO_clear_retry_flags(bio_.get());
         const int rc = BIO_read(bio_.get(), buf.data(), static_cast<int>(buf.size()));
@@ -373,14 +371,28 @@ void TlsConnection::set_sni_hostname(std::string hostname) {
 //  Internals
 // ===========================================================================
 
-TlsConnection::IoStatus TlsConnection::poll_bio(BIO *bio, PollEvent event, int cancel_fd) {
+TlsConnection::IoStatus TlsConnection::poll_bio(BIO *bio, short default_events, int cancel_fd,
+                                                  std::chrono::milliseconds timeout) {
     const int fd = static_cast<int>(BIO_get_fd(bio, nullptr));
     if (fd < 0)
         return IoStatus::ERROR;
 
+    // Combine BIO's need flags with the caller's default:
+    // - If OpenSSL has pending handshake/renegotiation work, it tells us
+    //   which direction(s) it needs via BIO_should_read / BIO_should_write.
+    // - On the first call (no retry flags set), these return false, so we
+    //   fall back to the caller's default (POLLIN for reads, POLLOUT for writes).
+    short events = 0;
+    if (BIO_should_read(bio))
+        events |= POLLIN;
+    if (BIO_should_write(bio))
+        events |= POLLOUT;
+    if (events == 0)
+        events = default_events;
+
     pollfd fds[2] = {};
     fds[0].fd = fd;
-    fds[0].events = static_cast<int16_t>(event == PollEvent::READ ? POLLIN : POLLOUT);
+    fds[0].events = events;
 
     int nfds = 1;
     if (cancel_fd >= 0) {
@@ -391,7 +403,7 @@ TlsConnection::IoStatus TlsConnection::poll_bio(BIO *bio, PollEvent event, int c
 
     int ret;
     do {
-        ret = ::poll(fds, static_cast<nfds_t>(nfds), static_cast<int>(io_timeout_ms_.count()));
+        ret = ::poll(fds, static_cast<nfds_t>(nfds), static_cast<int>(timeout.count()));
     } while (ret < 0 && errno == EINTR);
     if (ret == 0)
         return IoStatus::TIMEOUT;
@@ -402,7 +414,20 @@ TlsConnection::IoStatus TlsConnection::poll_bio(BIO *bio, PollEvent event, int c
         return IoStatus::CANCELLED;
     }
 
-    return (fds[0].revents & fds[0].events) != 0 ? IoStatus::OK : IoStatus::ERROR;
+    // Requested events ready → OK (even if POLLHUP is also set, data is still
+    // readable/writable). Let the subsequent BIO_read/BIO_write handle any
+    // underlying connection issues, which gives us a more accurate error.
+    if (fds[0].revents & fds[0].events) {
+        return IoStatus::OK;
+    }
+
+    // Pure error/hangup with no data ready → ERROR.
+    if (fds[0].revents & (POLLERR | POLLHUP | POLLNVAL)) {
+        return IoStatus::ERROR;
+    }
+
+    // poll() returned but no matching event — should not normally happen.
+    return IoStatus::ERROR;
 }
 
 SslCtxPtr TlsConnection::create_default_ssl_ctx() {
