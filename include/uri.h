@@ -16,6 +16,10 @@
 /// Parses a URI string into its components (scheme, host, port, path,
 /// query string) and provides helpers for percent-encoding/decoding,
 /// origin computation, and query-string parameter extraction.
+///
+/// Memory model: only raw_uri_ owns a string buffer; all other string-like
+/// fields are Slice offsets into it.  getters return string_views pointing
+/// into raw_uri_ — they are valid for the lifetime of the Uri object.
 class Uri {
 public:
     /// Parse a URI from its string representation.
@@ -50,6 +54,7 @@ public:
     /// Return the path component.
     /// e.g. for "https://example.com/api/v1" -> "/api/v1"
     /// @return The URI path, or empty string if not present.
+    ///         For scheme URIs with an empty path, returns "/".
     [[nodiscard]] std::string_view get_path() const noexcept;
 
     /// Return the query string (without the leading '?').
@@ -94,17 +99,40 @@ public:
 private:
     Uri() = default;
 
+    /// Offset-based slice into raw_uri_.
+    struct Slice {
+        std::size_t pos = 0;
+        std::size_t len = 0;
+
+        [[nodiscard]] std::string_view view(const std::string &s) const noexcept {
+            return std::string_view(s).substr(pos, len);
+        }
+        [[nodiscard]] bool empty() const noexcept { return len == 0; }
+        void assign(std::size_t p, std::size_t l) noexcept { pos = p; len = l; }
+    };
+
+    [[nodiscard]] std::string_view view(const Slice &s) const noexcept {
+        return s.view(raw_uri_);
+    }
+
     /// Return the well-known default port for a given scheme, or 0 if unknown.
     static int default_port_for(std::string_view scheme) noexcept;
 
-    std::string schema_;
-    std::string host_;
-    std::string host_bracketed_;
-    std::optional<int> port_;       // std::nullopt = not explicitly set in URI
-    std::string path_;
-    std::string query_string_;
-    std::string body_;
-    std::string raw_uri_;
+    /// Parse a host:port authority string into host slice and port.
+    static void parse_authority(std::string_view auth, Slice &host_out,
+                                std::optional<int> &port_out, bool &is_ipv6_out,
+                                std::size_t auth_raw_offset,
+                                std::string_view raw_uri_hint);
+
+    std::string raw_uri_;                     ///< sole string buffer owner
+    Slice schema_;
+    Slice host_;
+    bool is_ipv6_ = false;
+    std::optional<int> port_;                 ///< always populated after parse()
+    Slice path_;
+    Slice query_string_;
+    Slice body_;
+    mutable std::string host_bracketed_cache_;  ///< lazy "[host]" for IPv6
 };
 
 #endif //YADDNSC_URI_H
