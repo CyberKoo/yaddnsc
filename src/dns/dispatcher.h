@@ -57,8 +57,8 @@ public:
     ///                     error code to distinguish transient (RETRY, CONNECTION)
     ///                     from permanent errors (NX_DOMAIN, NODATA, PARSE, CONFIG).
     [[nodiscard]] std::expected<std::vector<std::string>, DnsErrorInfo>
-    resolve(const std::string &host, RecordKind type, std::uint32_t max_retries = 5,
-            std::uint32_t backoff_ms = 1000) const;
+    resolve(const std::string &host, RecordKind type, std::uint32_t max_retries = 1,
+            std::uint32_t backoff_ms = 50) const;
 
 private:
     struct Impl;

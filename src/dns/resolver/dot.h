@@ -36,7 +36,8 @@ public:
     /// Construct with server address and optional port.
     /// @param server  Server hostname or IP address.
     /// @param port    TLS port (default: 853).
-    explicit DotResolver(std::string server, std::uint16_t port = 853);
+    /// @param label   Display label (e.g. "dot.pub:853" or "tls://dot.pub"), used in log/error messages.
+    explicit DotResolver(std::string server, std::uint16_t port, std::string label);
 
     ~DotResolver() override;
 

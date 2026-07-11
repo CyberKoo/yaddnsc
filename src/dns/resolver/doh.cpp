@@ -54,7 +54,7 @@ struct DohResolver::Impl {
     static constexpr unsigned char ALPN_HTTP[] = {8, 'h', 't', 't', 'p', '/', '1', '.', '1'};
 
     // ── Constructor ──
-    explicit Impl(std::string server, std::uint16_t port, std::string path, std::uint64_t id);
+    explicit Impl(std::string server, std::uint16_t port, std::string path, std::uint64_t id, std::string label);
 
     // ── Public member functions ──
     [[nodiscard]] std::expected<std::vector<std::uint8_t>, DnsErrorInfo>
@@ -83,14 +83,15 @@ struct DohResolver::Impl {
     const std::uint16_t port_;
     const std::string path_;
     const std::string host_header_;
+    const std::string label_;   // display label for log / error messages
     mutable std::mutex mutex_;
     mutable std::unique_ptr<TlsConnection> persistent_conn_;
     mutable std::chrono::steady_clock::time_point last_use_;
 };
 
-DohResolver::Impl::Impl(std::string server, std::uint16_t port, std::string path, std::uint64_t id)
+DohResolver::Impl::Impl(std::string server, std::uint16_t port, std::string path, std::uint64_t id, std::string label)
     : id_(id), server_(std::move(server)), port_(port), path_(std::move(path)),
-      host_header_(build_host_header(server_, port_)), last_use_(std::chrono::steady_clock::now()) {
+      host_header_(build_host_header(server_, port_)), label_(std::move(label)), last_use_(std::chrono::steady_clock::now()) {
 }
 
 // ===========================================================================
@@ -118,7 +119,7 @@ std::expected<std::vector<std::uint8_t>, DnsErrorInfo> DohResolver::Impl::query(
             std::lock_guard lock(mutex_);
 
             if (attempt == 1) {
-                SPDLOG_DEBUG(R"(DoH connection to "{}":{}" failed, reconnecting)", server_, port_);
+                SPDLOG_DEBUG(R"(Connection to "{}" failed, reconnecting)", label_);
                 persistent_conn_->close();
             }
 
@@ -157,7 +158,7 @@ std::expected<std::vector<std::uint8_t>, DnsErrorInfo> DohResolver::Impl::query(
     } catch (const std::exception &e) {
         return std::unexpected(DnsErrorInfo{
             DnsError::UNKNOWN,
-            fmt::format(R"(DoH query for "{}" failed: {})", host, e.what())
+            fmt::format(R"(Query for "{}" failed: {})", host, e.what())
         });
     }
 }
@@ -207,16 +208,16 @@ std::expected<void, DnsErrorInfo> DohResolver::Impl::send_request(
     if (!status) {
         if (status.error() == TlsConnection::IoStatus::CANCELLED) {
             persistent_conn_->close();
-            return std::unexpected(DnsErrorInfo{DnsError::CANCELLED, "DoH query cancelled"});
+            return std::unexpected(DnsErrorInfo{DnsError::CANCELLED, "Query cancelled"});
         }
         persistent_conn_->close();
         return std::unexpected(DnsErrorInfo{
             DnsError::CONNECTION,
-            fmt::format(R"(DoH failed to send request to "{}":{})", server_, port_)
+            fmt::format(R"(Failed to send request to "{}")", label_)
         });
     }
 
-    SPDLOG_TRACE(R"(DoH sent {} bytes to "{}":{})", request.size(), server_, port_);
+    SPDLOG_TRACE(R"(Sent {} bytes to "{}")", request.size(), label_);
     return {};
 }
 
@@ -250,7 +251,7 @@ std::expected<std::vector<std::uint8_t>, DnsErrorInfo> DohResolver::Impl::read_r
                 persistent_conn_->close();
                 return std::unexpected(DnsErrorInfo{
                     ec,
-                    fmt::format(R"(DoH server "{}":{} returned HTTP status {})", server_, port_, info.status_code)
+                    fmt::format(R"(Server "{}" returned HTTP status {})", label_, info.status_code)
                 });
             }
 
@@ -275,12 +276,12 @@ std::expected<std::vector<std::uint8_t>, DnsErrorInfo> DohResolver::Impl::read_r
                     if (!read_status) {
                         if (read_status.error() == TlsConnection::IoStatus::CANCELLED) {
                             persistent_conn_->close();
-                            return std::unexpected(DnsErrorInfo{DnsError::CANCELLED, "DoH query cancelled"});
+                            return std::unexpected(DnsErrorInfo{DnsError::CANCELLED, "Query cancelled"});
                         }
                         persistent_conn_->close();
                         return std::unexpected(DnsErrorInfo{
                             DnsError::CONNECTION,
-                            fmt::format(R"(DoH failed to read response body from "{}":{}")", server_, port_)
+                            fmt::format(R"(Failed to read response body from "{}")", label_)
                         });
                     }
                 }
@@ -312,12 +313,12 @@ std::expected<std::vector<std::uint8_t>, DnsErrorInfo> DohResolver::Impl::read_r
                         auto status = persistent_conn_->read_exact(dst, cancel_fd);
                         if (!status) {
                             if (status.error() == TlsConnection::IoStatus::CANCELLED) {
-                                return std::unexpected(DnsErrorInfo{DnsError::CANCELLED, "DoH query cancelled"});
+                                return std::unexpected(DnsErrorInfo{DnsError::CANCELLED, "Query cancelled"});
                             }
                             persistent_conn_->close();
                             return std::unexpected(DnsErrorInfo{
                                 DnsError::CONNECTION,
-                                fmt::format(R"(DoH failed to read chunked body from "{}":{}")", server_, port_)
+                                fmt::format(R"(Failed to read chunked body from "{}")", label_)
                             });
                         }
                         need = 0;
@@ -369,7 +370,7 @@ std::expected<std::vector<std::uint8_t>, DnsErrorInfo> DohResolver::Impl::read_r
                     persistent_conn_->close();
                     return std::unexpected(DnsErrorInfo{
                         DnsError::PARSE,
-                        fmt::format(R"(DoH server "{}":{} returned invalid chunk size)", server_, port_)
+                        fmt::format(R"(Server "{}" returned invalid chunk size)", label_)
                     });
                 }
 
@@ -383,7 +384,7 @@ std::expected<std::vector<std::uint8_t>, DnsErrorInfo> DohResolver::Impl::read_r
                     persistent_conn_->close();
                     return std::unexpected(DnsErrorInfo{
                         DnsError::PARSE,
-                        fmt::format(R"(DoH chunked response from "{}":{} exceeds maximum size)", server_, port_)
+                        fmt::format(R"(Chunked response from "{}" exceeds maximum size)", label_)
                     });
                 }
 
@@ -413,7 +414,7 @@ std::expected<std::vector<std::uint8_t>, DnsErrorInfo> DohResolver::Impl::read_r
             persistent_conn_->close();
             return std::unexpected(DnsErrorInfo{
                 DnsError::PARSE,
-                fmt::format(R"(DoH server "{}":{} returned malformed HTTP response)", server_, port_)
+                fmt::format(R"(Server "{}" returned malformed HTTP response)", label_)
             });
         }
 
@@ -422,7 +423,7 @@ std::expected<std::vector<std::uint8_t>, DnsErrorInfo> DohResolver::Impl::read_r
             persistent_conn_->close();
             return std::unexpected(DnsErrorInfo{
                 DnsError::PARSE,
-                fmt::format(R"(DoH server "{}":{} response headers exceed maximum size)", server_, port_)
+                fmt::format(R"(Server "{}" response headers exceed maximum size)", label_)
             });
         }
 
@@ -438,12 +439,12 @@ std::expected<std::vector<std::uint8_t>, DnsErrorInfo> DohResolver::Impl::read_r
         if (!read_result) {
             if (read_result.error() == TlsConnection::IoStatus::CANCELLED) {
                 persistent_conn_->close();
-                return std::unexpected(DnsErrorInfo{DnsError::CANCELLED, "DoH query cancelled"});
+                return std::unexpected(DnsErrorInfo{DnsError::CANCELLED, "Query cancelled"});
             }
             persistent_conn_->close();
             return std::unexpected(DnsErrorInfo{
                 DnsError::CONNECTION,
-                fmt::format(R"(DoH failed to read response from "{}":{}")", server_, port_)
+                fmt::format(R"(Failed to read response from "{}")", label_)
             });
         }
 
@@ -466,10 +467,10 @@ std::expected<void, DnsErrorInfo> DohResolver::Impl::ensure_connection() const {
             if (persistent_conn_->is_healthy()) [[likely]] {
                 return {};
             }
-            SPDLOG_TRACE(R"(DoH server closed connection to "{}":{}", reconnecting)", server_, port_);
+            SPDLOG_TRACE(R"(Server closed connection to "{}", reconnecting)", label_);
             persistent_conn_->close();
         } else {
-            SPDLOG_TRACE(R"(DoH idle timeout ({}s) for "{}":{}", reconnecting)", idle.count(), server_, port_);
+            SPDLOG_TRACE(R"(Idle timeout ({}s) for "{}", reconnecting)", idle.count(), label_);
             persistent_conn_->close();
         }
     }
@@ -484,10 +485,10 @@ std::expected<void, DnsErrorInfo> DohResolver::Impl::ensure_connection() const {
     if (!result) {
         if (result.error() == TlsConnection::IoStatus::TIMEOUT) {
             return std::unexpected(DnsErrorInfo{DnsError::RETRY,
-                fmt::format(R"(DoH connection timeout to "{}":{})", server_, port_)});
+                fmt::format(R"(Connection to "{}" timed out)", label_)});
         }
         return std::unexpected(DnsErrorInfo{DnsError::CONNECTION,
-            fmt::format(R"(DoH connection failed to "{}":{})", server_, port_)});
+            fmt::format(R"(Connection to "{}" failed)", label_)});
     }
 
     last_use_ = now;
@@ -498,8 +499,8 @@ std::expected<void, DnsErrorInfo> DohResolver::Impl::ensure_connection() const {
 //  DohResolver  —  public API
 // ===========================================================================
 
-DohResolver::DohResolver(std::string host, std::uint16_t port, std::string path)
-    : impl_(std::make_unique<Impl>(std::move(host), port, std::move(path), get_id())) {
+DohResolver::DohResolver(std::string host, std::uint16_t port, std::string path, std::string label)
+    : impl_(std::make_unique<Impl>(std::move(host), port, std::move(path), get_id(), std::move(label))) {
 }
 
 DohResolver::~DohResolver() = default;
@@ -524,6 +525,6 @@ namespace {
             if (path.empty()) {
                 path = "/";
             }
-            return std::make_unique<DohResolver>(std::move(host), port, std::move(path));
+            return std::make_unique<DohResolver>(std::move(host), port, std::move(path), std::string(uri.get_origin()));
         });
 } // namespace

@@ -81,7 +81,7 @@ namespace {
     }
 
     [[nodiscard]] std::string socket_error_msg(std::uint64_t resolver_id, const char *context, int errnum) {
-        return fmt::format(R"(Resolver #{} DNS lookup: {} {})", resolver_id, context, std::strerror(errnum));
+        return fmt::format(R"(Resolver #{} {}: {})", resolver_id, context, std::strerror(errnum));
     }
 
     // ── UDP query ──
@@ -187,7 +187,7 @@ namespace {
             if (n == 0) {
                 return std::unexpected(DnsErrorInfo{
                     DnsError::CONNECTION,
-                    fmt::format(R"(Resolver #{} TCP connection closed by peer)", resolver_id)
+                    fmt::format(R"(Resolver #{} TCP connection reset by peer)", resolver_id)
                 });
             }
             if (n < 0) {

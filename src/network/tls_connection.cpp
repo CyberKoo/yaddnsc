@@ -118,6 +118,9 @@ std::expected<void, TlsConnection::IoStatus> TlsConnection::connect() {
 
     const auto target = fmt::format("{}:{}", server_, port_);
 
+    // ssl_ borrows from `bio` below.  If any error path is taken after this
+    // point, ssl_ must be reset to nullptr before returning, otherwise it
+    // becomes a dangling pointer when the local `bio` is destroyed.
     BIO_get_ssl(bio.get(), &ssl_);
     if (ssl_) {
         const std::string &effective_hostname = sni_hostname_.has_value() ? *sni_hostname_ : server_;
@@ -126,12 +129,14 @@ std::expected<void, TlsConnection::IoStatus> TlsConnection::connect() {
 
         if (!alpn_proto_.empty()) {
             if (SSL_set_alpn_protos(ssl_, alpn_proto_.data(), static_cast<unsigned>(alpn_proto_.size())) != 0) {
+                ssl_ = nullptr;
                 return std::unexpected(log_ssl_error("SSL_set_alpn_protos"));
             }
         }
     }
 
     if (BIO_set_conn_hostname(bio.get(), target.c_str()) != 1) {
+        ssl_ = nullptr;
         return std::unexpected(log_ssl_error(fmt::format("BIO_set_conn_hostname({})", target)));
     }
 
@@ -146,17 +151,20 @@ std::expected<void, TlsConnection::IoStatus> TlsConnection::connect() {
             break;
 
         if (!BIO_should_retry(bio.get())) {
+            ssl_ = nullptr;
             return std::unexpected(log_ssl_error(fmt::format(R"(TLS connect/handshake failed for "{}")", target)));
         }
 
         const auto now = std::chrono::steady_clock::now();
         if (now >= deadline) {
+            ssl_ = nullptr;
             return std::unexpected(IoStatus::TIMEOUT);
         }
 
         const auto fd_raw = BIO_get_fd(bio.get(), nullptr);
         const int fd = static_cast<int>(fd_raw);
         if (fd == -1) {
+            ssl_ = nullptr;
             return std::unexpected(IoStatus::ERROR);
         }
 
@@ -171,11 +179,13 @@ std::expected<void, TlsConnection::IoStatus> TlsConnection::connect() {
         const int poll_ret = poll(&pfd, 1, static_cast<int>(remaining_ms.count()));
         if (poll_ret <= 0) {
             if (poll_ret == 0) {
+                ssl_ = nullptr;
                 return std::unexpected(IoStatus::TIMEOUT);
             }
             if (errno == EINTR) {
                 continue;
             }
+            ssl_ = nullptr;
             return std::unexpected(IoStatus::ERROR);
         }
     }

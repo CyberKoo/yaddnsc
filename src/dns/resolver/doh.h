@@ -26,10 +26,11 @@
 class DohResolver final : public ResolverBase {
 public:
     /// Construct with server hostname, port, and URL path.
-    /// @param host  DoH server hostname or IP.
-    /// @param port  TLS port (typically 443).
-    /// @param path  URL path (e.g. "/dns-query").
-    explicit DohResolver(std::string host, std::uint16_t port, std::string path);
+    /// @param host    DoH server hostname or IP.
+    /// @param port    TLS port (typically 443).
+    /// @param path    URL path (e.g. "/dns-query").
+    /// @param label   Display label (e.g. "dns.google:443" or "https://dns.google"), used in log/error messages.
+    explicit DohResolver(std::string host, std::uint16_t port, std::string path, std::string label);
 
     ~DohResolver() override;
 
