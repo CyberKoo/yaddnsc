@@ -12,6 +12,13 @@
 #     perf/                ←  micro-benchmarks (Google Benchmark)
 # ==============================================================================
 
+# Clang 19.x needs -fexperimental-library for std::stop_token, std::jthread, etc.
+# Test targets compile production source files directly (e.g. scheduler.cpp)
+# that depend on these headers, so the flag must apply at the test level too.
+if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang" AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 19 AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 20)
+    add_compile_options(-fexperimental-library)
+endif()
+
 # Re-use the project's CPM.cmake for GoogleTest.
 include(${CMAKE_SOURCE_DIR}/cmake/CPM.cmake)
 

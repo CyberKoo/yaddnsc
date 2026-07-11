@@ -75,11 +75,22 @@ Scheduler::Impl::Impl(Config::AppConfig config, std::stop_token stop_token)
             const auto fqdn = fmt::format("{}.{}", subdomain.name, name);
             const auto effective_interval = subdomain.update_interval > 0 ? subdomain.update_interval : update_interval;
 
+            const auto now = std::chrono::steady_clock::now();
+
+            // Initialise last_force_update far enough in the past so that the
+            // first pop_all_due() call always triggers force_update when the
+            // interval is positive. Using {} (epoch) would make the elapsed
+            // time depend on system uptime, which on a fresh CI runner can be
+            // shorter than the force_update_interval.
+            const auto force_update_past = force_update > 0
+                ? now - std::chrono::seconds(force_update)
+                : std::chrono::steady_clock::time_point{};
+
             heap_.push(ScheduleEntry{
-                .deadline = std::chrono::steady_clock::now(),
+                .deadline = now,
                 .update_interval = effective_interval,
                 .force_update_interval = force_update,
-                .last_force_update = {},
+                .last_force_update = force_update_past,
                 .task = {
                     .config = subdomain,
                     .domain_name = name,
