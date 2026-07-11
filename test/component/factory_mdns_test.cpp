@@ -12,6 +12,7 @@
 
 #include <array>
 #include <atomic>
+#include <cerrno>
 #include <chrono>
 #include <cstdint>
 #include <cstring>
@@ -42,6 +43,26 @@
 
 namespace {
     const std::string LOOPBACK = NetDevices::loopback_name();
+
+    /// Quick probe to check whether UDP multicast sending to 224.0.0.251:5353
+    /// works on this system.  macOS CI runners often lack a multicast route,
+    /// causing sendto() to fail with EHOSTUNREACH / ENETUNREACH.
+    [[nodiscard]] bool multicast_available() {
+        Socket sock(AF_INET, SOCK_DGRAM);
+        auto dest = SocketAddr::from_inet(Inet4Address::parse("224.0.0.251").value(), 5353);
+        if (!dest) {
+            return false;
+        }
+        std::byte payload{0};
+        auto ret = sock.send_to(std::span(&payload, 1), *dest);
+        if (ret >= 0) {
+            return true;
+        }
+        // ENETUNREACH / EHOSTUNREACH are the expected failures when there is no
+        // multicast route.  Any other error is unexpected but we treat it as
+        // "not available" to stay safe.
+        return false;
+    }
 } // anonymous namespace
 
 using namespace std::chrono_literals;
@@ -146,9 +167,14 @@ TEST(IpSourceFactoryTest, UnknownType_FallsBackToUnspecified) {
 
 class MdnsTest : public ::testing::Test {
 protected:
-    void SetUp() override {
-        // ---- Create responder socket ---------------------------------------
-        responder_sock_ = std::make_unique<Socket>(AF_INET, SOCK_DGRAM);
+		void SetUp() override {
+			// ---- Check multicast availability ----------------------------------
+			if (!multicast_available()) {
+				GTEST_SKIP() << "mDNS multicast not available on this system";
+			}
+
+			// ---- Create responder socket ---------------------------------------
+			responder_sock_ = std::make_unique<Socket>(AF_INET, SOCK_DGRAM);
         responder_sock_->set_reuseaddr(true);
         responder_sock_->set_option(SOL_SOCKET, SO_REUSEPORT, 1);
 
