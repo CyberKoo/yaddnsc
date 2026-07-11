@@ -83,6 +83,11 @@ namespace DNS {
     // ===========================================================================
 
     std::vector<std::uint8_t> mkquery_native(const std::string &host, RecordType type) {
-        return QueryBuilder{}.add_question(host, type).build();
+        // EDNS0 (RFC 6891): declare UDP payload size 1232 (RFC 9267).
+        // DO bit not set — DNSSEC not requested.
+        return QueryBuilder{}
+            .add_question(host, type)
+            .add_edns(/*udp_payload_size=*/1232)
+            .build();
     }
 } // namespace DNS

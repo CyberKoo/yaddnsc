@@ -34,7 +34,7 @@
 - **Build identity verification** — a compiler identity hash (FNV-1a 64-bit) is embedded in both the host binary and every driver plugin at compile time, preventing ABI mismatches from incompatible toolchains. The `yaddnsc info` CLI command displays the full build configuration.
 - **Configuration validation on startup** — the loaded drivers and network interfaces are validated against the configuration before the update loop begins, catching misconfigurations early.
 - **C++23** — better performance, safer and more reliable code, fewer external dependencies.
-- **Cross-platform** — supports POSIX platforms including Linux (glibc), Linux (musl), macOS, and FreeBSD. CI builds on Linux (glibc) and macOS (arm64).
+- **Cross-platform** — runs on all major POSIX platforms: Linux (glibc and musl), macOS, and FreeBSD. Continuously validated via CI on Linux (glibc) and macOS (arm64).
 
 ## Architecture Overview
 
@@ -131,6 +131,9 @@ Unit tests are available for utility, DNS protocol, validation, and configuratio
 Tests are gated by the `YADDNSC_BUILD_TESTS` CMake option (default: OFF). To build and run tests:
 
 ```bash
+# Enable ASan-friendly options for local debugging (optional but recommended)
+export ASAN_OPTIONS=detect_stack_use_after_return=1:strict_string_checks=1:detect_invalid_pointer_pairs=2
+
 cmake -B build -DCMAKE_BUILD_TYPE=Debug -DYADDNSC_BUILD_TESTS=ON
 cmake --build build -j$(nproc)
 ctest --test-dir build --output-on-failure
@@ -188,7 +191,40 @@ make -C build doxygen   # generates HTML docs in build/docs/
 
 Requires `doxygen` and optionally `graphviz` (for diagrams).
 
-Third-party dependencies are fetched automatically via CPM.cmake.
+Third-party dependencies are fetched automatically via [CPM.cmake](https://github.com/cpm-cmake/CPM.cmake) (v0.40+). Each dependency is pinned to an explicit, immutable version tag (e.g. `@2.6.2`) so builds are reproducible; floating branches or mutable tags are never used.
+
+> **Why CPM?** CPM wraps CMake's `FetchContent` and lets us pin every third-party
+> library to a fixed version with a single declarative call, avoiding a system-wide
+> install step and keeping the dependency set small and auditable.
+>
+> **Known limitations** (mitigated by keeping the dependency set small and performing
+> periodic manual vulnerability reviews):
+> - No binary caching — every clean build recompiles dependencies.
+> - No transitive dependency resolution — versions must be declared explicitly.
+> - No centralized security advisory registry — CVEs are tracked manually.
+
+### Debug sanitizers
+
+Debug builds enable AddressSanitizer + UndefinedBehaviorSanitizer by default
+(gated by `YADDNSC_SANITIZE_DEBUG`, default ON). To get the most out of ASan during
+local debugging, export the following before running the binary:
+
+```bash
+export ASAN_OPTIONS=detect_stack_use_after_return=1:strict_string_checks=1:detect_invalid_pointer_pairs=2
+```
+
+The full sanitizer combination (integer, bounds, null, alignment, plus aggressive
+use-after-return/use-after-scope modes) is **not** applied to Debug builds — it is
+reserved for the dedicated `Sanitizer` build type used in CI for periodic deep
+testing, since it is extremely expensive and triggers many false positives against
+STL internals.
+
+### Conversion warning gate
+
+The `-Wconversion` and `-Wsign-conversion` warnings conflict heavily with the
+standard library and common idioms, so they are **not** enabled on every local
+build. They run only as a dedicated CI job (`conversion-gate`) to catch narrowing
+bugs before merge while keeping developer velocity high.
 
 ## Driver ABI Verification
 

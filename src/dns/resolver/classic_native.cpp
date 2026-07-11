@@ -238,7 +238,7 @@ namespace {
     // ── Check TC (Truncation) bit in DNS header ──
     [[nodiscard]] bool is_truncated(const std::vector<std::uint8_t> &response) {
         // TC is bit 2 of the second byte in the flags field (byte 2 of the header, 0-indexed).
-        return response.size() >= 3 && (response[2] & 0x02) != 0;
+        return response.size() >= DNS::HEADER_SIZE && (response[2] & 0x02) != 0;
     }
 } // anonymous namespace
 

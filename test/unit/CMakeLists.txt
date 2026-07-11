@@ -28,6 +28,7 @@ function(add_unit_test name)
     target_include_directories(test_${name} PRIVATE
         ${PROJECT_SOURCE_DIR}/include
         ${PROJECT_SOURCE_DIR}/src
+        ${PROJECT_SOURCE_DIR}/test
         ${PROJECT_BINARY_DIR}/generated
     )
     add_test(NAME test_${name} COMMAND test_${name})
@@ -114,8 +115,56 @@ add_unit_test(driver_exceptions)
 #  Tests needing an extra .cpp source (but no external link deps)
 # ============================================================================
 
-# socket_addr_test — uses socket_addr.cpp (depends on inet_address, in test_support)
+# scheduler — pure timer-queue logic, needs scheduler.cpp for the impl
+add_unit_test(scheduler ${PROJECT_SOURCE_DIR}/src/core/scheduler.cpp)
+
+# updater — needs dispatcher.cpp (ResolverDispatcher) + native DNS parser + updater.cpp
+# + inet_address.cpp (in test_support)
+# updater — needs dispatcher.cpp (ResolverDispatcher) + native DNS parser + updater.cpp
+# + the full IP-source dependency chain (factory, iface, http, mdns, network, http_client, builder).
+add_unit_test(updater
+    ${PROJECT_SOURCE_DIR}/src/dns/dispatcher.cpp
+    ${PROJECT_SOURCE_DIR}/src/dns/parser/parser_native.cpp
+    ${PROJECT_SOURCE_DIR}/src/core/updater.cpp
+    ${PROJECT_SOURCE_DIR}/src/ip_source/factory.cpp
+    ${PROJECT_SOURCE_DIR}/src/ip_source/iface.cpp
+    ${PROJECT_SOURCE_DIR}/src/ip_source/http.cpp
+    ${PROJECT_SOURCE_DIR}/src/ip_source/mdns.cpp
+    ${PROJECT_SOURCE_DIR}/src/ip_source/iface_util.cpp
+    ${PROJECT_SOURCE_DIR}/src/network/socket.cpp
+    ${PROJECT_SOURCE_DIR}/src/network/socket_addr.cpp
+    ${PROJECT_SOURCE_DIR}/src/network/net_devices.cpp
+    ${PROJECT_SOURCE_DIR}/src/network/http_client.cpp
+    ${PROJECT_SOURCE_DIR}/src/dns/wire/builder.cpp)
+
+# updater — needs dispatcher.cpp (ResolverDispatcher) + native DNS parser + updater.cpp
+target_link_libraries(test_updater PRIVATE GTest::gmock glaze::glaze httplib::httplib)
+target_compile_definitions(test_updater PRIVATE YADDNSC_USE_NATIVE_DNS=1)
 add_unit_test(socket_addr ${PROJECT_SOURCE_DIR}/src/network/socket_addr.cpp)
+
+# ============================================================================
+#  ResolverDispatcher — native backend (jthread-based, YADDNSC_USE_NATIVE_DNS=1)
+# ============================================================================
+
+add_unit_test(dispatcher
+    ${PROJECT_SOURCE_DIR}/src/dns/dispatcher.cpp
+    ${PROJECT_SOURCE_DIR}/src/dns/parser/parser_native.cpp
+    ${PROJECT_SOURCE_DIR}/src/dns/error.cpp)
+target_link_libraries(test_dispatcher PRIVATE GTest::gmock)
+target_compile_definitions(test_dispatcher PRIVATE YADDNSC_USE_NATIVE_DNS=1)
+
+# ============================================================================
+#  ResolverDispatcher — legacy system backend (libresolv, default)
+# ============================================================================
+
+add_unit_test(dispatcher_system
+    ${PROJECT_SOURCE_DIR}/src/dns/dispatcher_system.cpp
+    ${PROJECT_SOURCE_DIR}/src/dns/parser/parser_system.cpp
+    ${PROJECT_SOURCE_DIR}/src/dns/error.cpp)
+target_link_libraries(test_dispatcher_system PRIVATE GTest::gmock)
+if (RESOLV)
+  target_link_libraries(test_dispatcher_system PRIVATE ${RESOLV})
+endif ()
 
 # ============================================================================
 #  Tests needing libresolv (for DNS wire-format construction / parsing)

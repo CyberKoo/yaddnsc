@@ -34,7 +34,7 @@
 - **构建身份验证** — 编译时在主程序和每个驱动插件中都嵌入了编译器身份哈希（FNV-1a 64位），防止因工具链不兼容导致的 ABI 不匹配。使用 `yaddnsc info` CLI 命令可查看完整的构建配置信息。
 - **启动时配置验证** — 在更新循环开始之前，验证已加载的驱动和网络接口是否与配置匹配，提前发现配置错误。
 - **C++23 标准** — 性能更好、代码更安全可靠、减少外部依赖。
-- **跨平台** — 支持 POSIX 平台，包括 Linux (glibc)、Linux (musl)、macOS、FreeBSD 等。CI 编译通过 Linux (glibc) 和 macOS (arm64)。
+- **跨平台** — 全面兼容主流 POSIX 环境：Linux（glibc 与 musl 双 C 运行时）、macOS、FreeBSD。持续集成在 Linux (glibc) 与 macOS (arm64) 上执行全量测试验证。
 
 ## 架构概览
 
@@ -130,6 +130,9 @@ sudo cmake --install build
 测试由 `YADDNSC_BUILD_TESTS` CMake 选项控制（默认：OFF）。构建并运行测试：
 
 ```bash
+# 启用对本地调试友好的 ASan 选项（可选但推荐）
+export ASAN_OPTIONS=detect_stack_use_after_return=1:strict_string_checks=1:detect_invalid_pointer_pairs=2
+
 cmake -B build -DCMAKE_BUILD_TYPE=Debug -DYADDNSC_BUILD_TESTS=ON
 cmake --build build -j$(nproc)
 ctest --test-dir build --output-on-failure
@@ -187,7 +190,28 @@ make -C build doxygen   # 在 build/docs/ 生成 HTML 文档
 
 需要安装 `doxygen`，可选安装 `graphviz`（用于生成图表）。
 
-第三方依赖通过 CPM.cmake 自动下载。
+第三方依赖通过 [CPM.cmake](https://github.com/cpm-cmake/CPM.cmake)（v0.40+）自动下载。每个依赖都固定到明确的、不可变的版本标签（例如 `@2.6.2`），以保证构建可复现；从不使用浮动分支或可变的标签。
+
+> **为什么使用 CPM？** CPM 封装了 CMake 的 `FetchContent`，让我们只需一行声明式调用即可将每个第三方库固定到指定版本，避免了系统级安装步骤，并使依赖集保持精简、可审计。
+>
+> **已知局限性**（通过保持依赖集精简并定期进行人工漏洞审查来规避）：
+> - 无二进制缓存 —— 每次全新构建都会重新编译依赖。
+> - 无传递依赖解析 —— 版本必须显式声明。
+> - 无集中式安全公告注册表 —— CVE 需人工跟踪。
+
+### Debug 构建的 Sanitizer
+
+Debug 构建默认启用 AddressSanitizer + UndefinedBehaviorSanitizer（由 `YADDNSC_SANITIZE_DEBUG` 控制，默认 ON）。为了在本地调试时充分发挥 ASan 的作用，运行二进制前请导出以下环境变量：
+
+```bash
+export ASAN_OPTIONS=detect_stack_use_after_return=1:strict_string_checks=1:detect_invalid_pointer_pairs=2
+```
+
+完整的 Sanitizer 组合（integer、bounds、null、alignment，以及激进的 use-after-return/use-after-scope 模式）**不会**应用于 Debug 构建 —— 它保留给 CI 中用于周期性深度测试的专用 `Sanitizer` 构建类型，因为该组合开销极大，且会对 STL 内部实现产生大量误报。
+
+### 转换警告门（Conversion warning gate）
+
+`-Wconversion` 与 `-Wsign-conversion` 警告与标准库及常见惯用法冲突严重，因此**不会**在每次本地构建中启用。它们仅作为专用的 CI 作业（`conversion-gate`）运行，用于在合并前捕获窄化（narrowing）错误，同时保持较高的开发效率。
 
 ## 驱动 ABI 验证
 

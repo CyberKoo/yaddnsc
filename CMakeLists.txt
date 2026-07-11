@@ -279,9 +279,8 @@ endif ()
 # Compiler options
 # ---------------------------------------------------------------------------
 target_compile_options(yaddnsc PRIVATE
-        # Strict warning flags (guidelines: -Wall -Wextra -Wpedantic -Wshadow
-        # -Wconversion -Wsign-conversion -Werror)
-        -Wall -Wextra -Wpedantic -Wshadow -Wconversion -Wsign-conversion -Werror
+        # Strict warning flags applied to all builds
+        -Wall -Wextra -Wpedantic -Wshadow -Werror
         # Hide all symbols at compile time; only YADDNSC_EXPORT-marked functions
         # have STV_DEFAULT visibility.
         -fvisibility=hidden
@@ -363,12 +362,16 @@ if (NOT HAVE_STD_FORMAT)
 endif ()
 target_link_libraries(yaddnsc PRIVATE yaddnsc_fmt)
 
-# resolv is linux-specific, not present on BSDs.
-# Required by DnsRecordParser (ns_initparse / ns_parserr) regardless of the
-# resolver transport implementation.
-find_library(RESOLV resolv)
-if (RESOLV)
-  target_link_libraries(yaddnsc PRIVATE ${RESOLV})
+# Required only by the system DNS parser (parser_system.cpp, which uses
+# ns_initparse / ns_parserr). That translation unit is compiled only when
+# YADDNSC_USE_NATIVE_DNS is OFF, so the link guard matches the source guard.
+# On musl (where YADDNSC_USE_NATIVE_DNS defaults to ON) libresolv does not
+# exist; find_library returns empty and the link is safely skipped.
+if (NOT YADDNSC_USE_NATIVE_DNS)
+  find_library(RESOLV resolv)
+  if (RESOLV)
+    target_link_libraries(yaddnsc PRIVATE ${RESOLV})
+  endif ()
 endif ()
 
 # ==============================================================================

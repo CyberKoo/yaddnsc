@@ -81,64 +81,74 @@ set(CMAKE_SHARED_LINKER_FLAGS_SANITIZER "" CACHE STRING "" FORCE)
 # ==============================================================================
 
 function(add_sanitizer_flags TARGET)
-  # Compile options: address + undefined (portable to all supported compilers)
+  # ------------------------------------------------------------------------
+  # Debug builds: address + undefined only (guidelines).
+  # This is the fast, low-false-positive combination used during development.
+  # Gated by YADDNSC_SANITIZE_DEBUG so coverage builds can opt out.
+  # ------------------------------------------------------------------------
   if(YADDNSC_SANITIZE_DEBUG)
     target_compile_options(${TARGET} PRIVATE
       $<$<CONFIG:Debug>:-fsanitize=address,undefined>
-      $<$<CONFIG:Debug>:-fsanitize-address-use-after-scope>
+    )
+    target_link_options(${TARGET} PRIVATE
+      $<$<CONFIG:Debug>:-fsanitize=address,undefined>
     )
   endif()
+
+  # ------------------------------------------------------------------------
+  # Sanitizer build type (CI): full combination.
+  # address,undefined plus integer,bounds,null,alignment and the aggressive
+  # use-after-return / use-after-scope modes. This is extremely expensive and
+  # triggers many false positives against STL internals, so it runs only as a
+  # dedicated CI sanitizer job (e.g. -DCMAKE_BUILD_TYPE=Sanitizer) for periodic
+  # deep testing — never on developer Debug builds.
+  # ------------------------------------------------------------------------
   target_compile_options(${TARGET} PRIVATE
     $<$<CONFIG:Sanitizer>:-fsanitize=address,undefined>
     $<$<CONFIG:Sanitizer>:-fsanitize-address-use-after-scope>
   )
-
-  # Compile options: Clang-only flags (bounds, null, alignment) — feature-detected
-  foreach(san bounds null alignment)
-    if(HAVE_SANITIZE_${san})
-      target_compile_options(${TARGET} PRIVATE
-        $<$<OR:$<CONFIG:Debug>,$<CONFIG:Sanitizer>>:-fsanitize=${san}>
-      )
-    endif()
-  endforeach()
-
-  # Compile options: integer (may be unsupported)
-  if(HAVE_SANITIZE_INTEGER)
-    target_compile_options(${TARGET} PRIVATE
-      $<$<OR:$<CONFIG:Debug>,$<CONFIG:Sanitizer>>:-fsanitize=integer>
-    )
-  endif()
-
-  # Compile options: use-after-return (may be unsupported)
-  if(HAVE_ASAN_USE_AFTER_RETURN)
-    target_compile_options(${TARGET} PRIVATE
-      $<$<OR:$<CONFIG:Debug>,$<CONFIG:Sanitizer>>:-fsanitize-address-use-after-return=always>
-    )
-  endif()
-
-  # Linker options: address + undefined (portable)
-  if(YADDNSC_SANITIZE_DEBUG)
-    target_link_options(${TARGET} PRIVATE
-      $<$<CONFIG:Debug>:-fsanitize=address,undefined>
-    )
-  endif()
   target_link_options(${TARGET} PRIVATE
     $<$<CONFIG:Sanitizer>:-fsanitize=address,undefined>
   )
 
-  # Linker options: Clang-only flags (bounds, null, alignment) — feature-detected
+  # Compile options: Clang-only flags (bounds, null, alignment) — feature-detected,
+  # Sanitizer build type only.
   foreach(san bounds null alignment)
     if(HAVE_SANITIZE_${san})
-      target_link_options(${TARGET} PRIVATE
-        $<$<OR:$<CONFIG:Debug>,$<CONFIG:Sanitizer>>:-fsanitize=${san}>
+      target_compile_options(${TARGET} PRIVATE
+        $<$<CONFIG:Sanitizer>:-fsanitize=${san}>
       )
     endif()
   endforeach()
 
-  # Linker options: integer (only if the compiler supports it)
+  # Compile options: integer (may be unsupported), Sanitizer build type only.
+  if(HAVE_SANITIZE_INTEGER)
+    target_compile_options(${TARGET} PRIVATE
+      $<$<CONFIG:Sanitizer>:-fsanitize=integer>
+    )
+  endif()
+
+  # Compile options: use-after-return (may be unsupported), Sanitizer build type only.
+  if(HAVE_ASAN_USE_AFTER_RETURN)
+    target_compile_options(${TARGET} PRIVATE
+      $<$<CONFIG:Sanitizer>:-fsanitize-address-use-after-return=always>
+    )
+  endif()
+
+  # Linker options: Clang-only flags (bounds, null, alignment) — feature-detected,
+  # Sanitizer build type only.
+  foreach(san bounds null alignment)
+    if(HAVE_SANITIZE_${san})
+      target_link_options(${TARGET} PRIVATE
+        $<$<CONFIG:Sanitizer>:-fsanitize=${san}>
+      )
+    endif()
+  endforeach()
+
+  # Linker options: integer (only if the compiler supports it), Sanitizer build type only.
   if(HAVE_SANITIZE_INTEGER)
     target_link_options(${TARGET} PRIVATE
-      $<$<OR:$<CONFIG:Debug>,$<CONFIG:Sanitizer>>:-fsanitize=integer>
+      $<$<CONFIG:Sanitizer>:-fsanitize=integer>
     )
   endif()
 endfunction()

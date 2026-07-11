@@ -26,9 +26,18 @@ public:
 
     MOCK_METHOD(AbiVersion, get_abi_version, (), (const, noexcept, override));
 
-    MOCK_METHOD(bool, execute,
-                (const DriverConfig& config, const DriverUpdateParams& ctx, HttpClient& http),
-                (const, override));
+    // Default execute models BaseDriver: generate_request -> http.exchange ->
+    // check_response. Tests that only set expectations on check_response/exchange
+    // get realistic behaviour for free; tests that need custom execute logic can
+    // override this with ON_CALL/EXPECT_CALL.
+    bool execute(const DriverConfig& config, const DriverUpdateParams& ctx, HttpClient& http) const override {
+        const auto [url, request] = generate_request(config, ctx);
+        const auto response = http.exchange(url, request);
+        if (!response) {
+            return false;
+        }
+        return check_response(*response);
+    }
 };
 
 // ── Helper: create a DriverDetail with the given name ─────────────────────────

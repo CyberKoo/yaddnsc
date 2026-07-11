@@ -46,9 +46,9 @@ namespace {
         EXPECT_EQ(packet[8], 0x00);
         EXPECT_EQ(packet[9], 0x00);
 
-        // ARCOUNT = 0 (bytes 10-11)
+        // ARCOUNT = 1 (bytes 10-11) — EDNS0 OPT pseudo-record is appended.
         EXPECT_EQ(packet[10], 0x00);
-        EXPECT_EQ(packet[11], 0x00);
+        EXPECT_EQ(packet[11], 0x01);
     }
 
     /// Verify that the QNAME at offset 12 encodes "example.com" correctly.
@@ -137,8 +137,10 @@ TEST(MkqueryManualTest, BuildsGoogleCom_AAAA) {
 
 TEST(MkqueryManualTest, TotalPacketSize) {
     auto packet = DNS::mkquery_native("example.com", DNS::RecordType::A);
-    // header(12) + QNAME(\x07example\x03com\x00 = 13) + QTYPE(2) + QCLASS(2) = 29
-    EXPECT_EQ(packet.size(), 29U);
+    // header(12) + QNAME(\x07example\x03com\x00 = 13) + QTYPE(2) + QCLASS(2)
+    //   = 29, plus EDNS0 OPT pseudo-record (root name 1 + type 2 + class 2
+    //   + TTL 4 + rdlength 2 + rdata 0 = 11) = 40.
+    EXPECT_EQ(packet.size(), 40U);
 }
 
 TEST(MkqueryManualTest, BuildsDeepSubdomain) {

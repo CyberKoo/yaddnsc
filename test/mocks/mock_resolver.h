@@ -17,7 +17,7 @@
 
 class MockResolver : public ResolverBase {
 public:
-    MOCK_METHOD(std::expected<std::vector<std::uint8_t>, DnsErrorInfo>,
+    MOCK_METHOD((std::expected<std::vector<std::uint8_t>, DnsErrorInfo>),
                 query,
                 (const std::string& host, RecordKind type, int cancel_fd),
                 (const, override));

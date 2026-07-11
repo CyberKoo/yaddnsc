@@ -8,20 +8,28 @@
 ## Compiler & Build
 - Target compilers: **GCC 14+**, **Clang 19+**, **Apple Clang 15+**.
 - Use **CMake** as the build system, minimum version **3.28**.
-- Use **CPM.cmake** (v0.40+) for dependency management. Declare dependencies using `CPMAddPackage` with explicit, immutable Git hashes (`GIT_TAG`). Do not use floating branches or mutable tags.
+- Use **CPM.cmake** (v0.40+) for dependency management. Declare dependencies using `CPMAddPackage` with an explicit, immutable pin:
+  - Prefer a **version tag** (e.g., `@2.6.2`) when the upstream project publishes version releases.
+  - Fall back to a **full Git commit hash** (`GIT_TAG` with the complete SHA) only when the project does not publish version tags.
+  - Do **not** use floating branches or mutable tags (e.g., `main`, `latest`, `v1`).
+  Example:
+  ```cmake
+  CPMAddPackage("gh:CLIUtils/CLI11@2.6.2")
+  CPMAddPackage("gh:Neargye/magic_enum@0.9.8")
+  ```
 - Document the rationale for using CPM in the project build documentation. Be aware of CPM's limitations (no binary caching, no transitive dependency resolution, no centralized security advisory registry) and mitigate them by keeping the dependency set small and performing periodic manual vulnerability reviews.
 - Commit the dependency script to version control and review any dependency additions or version changes in pull requests.
 
 ### Compiler Warnings
-Enable strict warnings (GCC/Clang): `-Wall -Wextra -Wpedantic -Wshadow -Wconversion -Wsign-conversion -Werror`
+- Base strict warning set for **all** builds (GCC/Clang): `-Wall -Wextra -Wpedantic -Wshadow -Werror`.
+- **Conversion warning gate** (`-Wconversion -Wsign-conversion`): these conflict heavily with the standard library and common idioms, so they are **not** forced on every local build. They run as a **dedicated CI job** (e.g., a `ConversionGate` build) to keep developer velocity while still catching narrowing bugs before merge.
 
 ### Sanitizers
-- **Debug builds**: Enable sanitizers with `-fsanitize=address,undefined,integer,bounds,null,alignment`, plus `-fsanitize-address-use-after-return=always` and `-fsanitize-address-use-after-scope`.
-- Set runtime options:
+- **Default Debug builds**: enable `-fsanitize=address,undefined` for fast, low-false-positive coverage during development. Set:
   ```bash
   export ASAN_OPTIONS=detect_stack_use_after_return=1:strict_string_checks=1:detect_invalid_pointer_pairs=2
   ```
-- Maintain a dedicated **CI sanitizer build** (e.g., `-DCMAKE_BUILD_TYPE=Sanitizer`) for automated testing.
+- **Full sanitizer combo** (`address,undefined,integer,bounds,null,alignment` plus `-fsanitize-address-use-after-return=always` and `-fsanitize-address-use-after-scope`) is extremely expensive and triggers many false positives against STL internals. It is **not** forced on developer debug builds. Run it only as a **dedicated CI sanitizer job** (e.g., `-DCMAKE_BUILD_TYPE=Sanitizer`) for periodic deep testing.
 - **Do not use Address Sanitizer in Release builds** due to significant performance overhead (2–5× slowdown, increased memory usage).
 
 ## Code Reuse & Component Selection
@@ -40,7 +48,7 @@ Enable strict warnings (GCC/Clang): `-Wall -Wextra -Wpedantic -Wshadow -Wconvers
 | **Configuration** | Use the established configuration subsystem. Do not parse env vars or config files independently. |
 | **Platform abstraction** | Use existing platform detection macros and OS-abstraction utilities. No `#ifdef` blocks in new code. |
 | **String utilities** | Use shared `trim`, `split`, `join`, case conversion from the project's string library. |
-| **Numeric types** | Use `std::uint8_t`, `std::int32_t`, etc. consistently. Avoid unqualified `int`/`long`/`unsigned`. Use project-standard safe arithmetic wrappers and checked facilities where they exist. |
+| **Numeric types** | Use fixed-width types (`std::uint8_t`, `std::int32_t`, etc.) at API boundaries, for serialization, and for persistent storage. Local transient counters/indices where overflow is impossible may use plain `int`. Use project-standard safe arithmetic wrappers where they exist. |
 
 ### Contribution & Duplication Rules
 - Improve reused components in place; ensure all existing callers still compile and pass tests.
@@ -62,8 +70,8 @@ Enable strict warnings (GCC/Clang): `-Wall -Wextra -Wpedantic -Wshadow -Wconvers
 ## Headers & Include Management
 - Include order is enforced by clang-format (`IncludeBlocks: Regroup`).
 - Include syntax:
-  - Project headers (from `include/`, `src/`, and `generated/`): always use `#include "..."`.
-  - Third-party library headers and standard library headers: always use `#include <...>`.
+  - Project headers (from `include/`, `src/`, and `generated/`) always use `#include "..."`.
+  - Third-party library headers and standard library headers always use `#include <...>`.
 - Include path conventions:
   - A `.cpp` file should include its own `.h` header using the bare filename
     (e.g. `#include "dispatcher.h"` for `dispatcher.cpp`). This is automatically
@@ -72,26 +80,31 @@ Enable strict warnings (GCC/Clang): `-Wall -Wextra -Wpedantic -Wshadow -Wconvers
     `include/` or `src/` base directory (e.g. `#include "dns/types.h"`,
     `#include "exception/dns_lookup.h"`).
   - Do **NOT** use `../` relative paths to reach other modules.
-  - Generated headers (from `generated/`) are referenced by their flat filename
-    (e.g. `#include "config_cmake.h"`) since there is no name overlap.
+  - Generated headers (from `generated/`): the `generated/` directory is added to the
+    compiler's include root, so they are referenced by their flat filename
+    (e.g. `#include "config_cmake.h"`). Do not use relative sub-paths to reach them.
+    If a name collision ever occurs, rename the generator output; never work around it
+    with a relative path.
 - Minimize `#include` dependencies: forward-declare types where possible.
 - Always include what you use (IWYU): do not rely on transitive includes.
 - File conventions:
   - **`.h`**: Interface declarations with limited inline implementations.
     Permitted inline content:
     - Pure getters (single `return` statement, `constexpr` or not).
-    - Template methods ≤10 lines (excluding signature, blank lines, and braces).
+    - Template methods ≤10 lines (excluding signature, blank lines, and lone brace lines).
     - Classification predicates (`is_*()`, `has_*()`) that are single expressions.
     - Factory methods that are single-expression returns (e.g. `from_array` delegating to `from_bytes`).
     - Type alias / tag / convenience wrappers (e.g. `using`, `visit()` forwarding to `std::visit`).
   - **`.hpp`**: Headers with template implementations exceeding the `.h` limits, non-trivial inline
     functions, or any detailed implementation logic that does not fit the `.h` criteria above.
   - **`.cpp`**: Non-template implementation files.
-- Never place `using namespace` directives in header files at global scope.
+- Never place `using namespace` directives in header files at global or namespace scope.
+  Function-body-local `using namespace std::string_literals;` is permitted in `.cpp` files
+  and tolerated inside `.h`/`.hpp` function bodies, but should be avoided in headers when practical.
 
-## Memory Management
+## Memory & Resource Management
 
-### Core Rules
+### Allocation Rules (Memory)
 - **Never** use raw `new` or `delete` outside permitted contexts.
 - Use `std::unique_ptr` for exclusive ownership, `std::shared_ptr` for shared ownership.
 - Prefer `std::make_unique` and `std::make_shared` for creating smart pointers.
@@ -99,16 +112,17 @@ Enable strict warnings (GCC/Clang): `-Wall -Wextra -Wpedantic -Wshadow -Wconvers
 - Avoid `std::weak_ptr` unless needed for breaking cyclic dependencies.
 - A moved-from object **must not be accessed** except for destruction or reassignment.
 
-### Exemptions for Raw `new`/`delete`
+#### Exemptions for Raw `new`/`delete`
 The prohibition does **not apply** to:
-
 1. **Dynamic plugin/driver factory entry points** — C ABI-compatible factory functions (`extern "C"` linkage, invoked via `dlsym`) where C++ smart pointers cannot cross library boundaries safely due to ABI instability.
 2. **External dynamic library loading code** — `dlopen`/`dlsym`/`dlclose` wrappers, C-style ABI interactions, and adapter layers bridging C APIs to C++ internals.
 
 **Justification**: Dynamic plugin systems require ABI stability across compilers and standard library versions. Smart pointers do not guarantee stable ABIs. Raw `new`/`delete` usage is strictly confined to boundary-crossing factory functions. All internal code must use smart pointers.
 
-## Ownership & Resource Management
-- Follow **RAII** for all resources (file handles, locks, sockets, GPU resources, etc.).
+**Ownership handoff**: Within an exemption, the factory may return a raw `T*` allocated with `new`. The internal caller that receives it must immediately wrap it in `std::unique_ptr<T>` (or equivalent RAII owner) at the call site; no other `.cpp` file may ever write a manual `delete`.
+
+### RAII & Ownership Conventions (Resources)
+- Follow **RAII** for **all** resources (file handles, locks, sockets, GPU resources, memory — see Allocation Rules above).
 - Document ownership transfer in function signatures:
   - `std::unique_ptr<T>`: function takes ownership.
   - `const std::shared_ptr<T>&`: function shares ownership.
@@ -117,18 +131,21 @@ The prohibition does **not apply** to:
 
 ## Error Handling
 
+> **Core Principles (authoritative)** — The rules below are the single source of truth.
+> Subsequent subsections only clarify or provide lookup tables; they do not restate these.
+
 ### Core Principles
-- Use `std::expected<T, E>` for errors where the caller can meaningfully continue
-  (retry, fallback to another backend, etc.).
-- Use **exceptions** only when the current call chain must terminate immediately
-  and the caller cannot meaningfully continue — the exception is a terminate
-  signal, not a value-passing mechanism.
-- Mark functions that cannot fail as `noexcept`.
+- Use `std::expected<T, E>` for errors where the caller can meaningfully continue (retry, fallback to another backend, etc.).
+- Use **exceptions** only when the current call chain must terminate immediately and the caller cannot meaningfully continue — the exception is a terminate signal, not a value-passing mechanism.
+- Mark functions that **truly cannot fail** as `noexcept`.
+  - **Boundary rule**: A function that returns `std::expected` but internally performs heap allocation
+    (e.g., constructing `std::string`/`std::vector`, inserting into a map) must **NOT** be marked
+    `noexcept`. An OOM there would invoke `std::terminate`, defeating the graceful-failure intent of
+    `expected`. Mark `noexcept` only when the function does no allocation and makes no fallible system call.
 - Destructors must never throw (always implicitly or explicitly `noexcept`).
 - Avoid C-style error codes (`int` return, `errno`).
 - Guarantee at least **basic exception safety** (invariants preserved, no leaks).
-  Strive for **strong exception safety** (commit-or-rollback) using
-  **Copy-and-Swap**:
+  Strive for **strong exception safety** (commit-or-rollback) using **Copy-and-Swap**:
   ```cpp
   class Resource {
   public:
@@ -142,7 +159,6 @@ The prohibition does **not apply** to:
   ```
 
 ### Function Design: Expected vs. Throwing
-
 The fundamental rule is: **functions that can fail in ways the caller should handle must return `std::expected`. Functions that only fail when the program cannot proceed may throw.**
 
 The root cause of misuse is almost always in the **function's design**, not in how callers handle it. A function that throws for retryable I/O errors is incorrectly designed; wrapping it in try-catch at the call site papers over the problem rather than fixing it.
@@ -155,129 +171,43 @@ void send(const Packet& p);  // throws on timeout, checksum error — caller mig
 [[nodiscard]] std::expected<void, SendError> send(const Packet& p) noexcept;
 ```
 
-### Exception Discipline
+(See `Core Principles` for the `noexcept` allocation boundary note above.)
 
-**Do NOT use exceptions as flow control.** An exception means the current operation has failed and cannot proceed. Functions that encounter errors the caller could meaningfully handle (retry, fallback, etc.) must use `std::expected`, not throw.
+### Exception Discipline & Catch Block Rules
+**Do NOT use exceptions as flow control.** An exception means the current operation has failed and cannot proceed. Functions that encounter errors the caller could meaningfully handle must use `std::expected`, not throw.
 
-**`catch` blocks are permitted only for the following purposes:**
-
-1. **Logging** — record the error and (optionally) rethrow or terminate. Only rethrow when this is not the final termination point for the exception.
-2. **Error translation at module boundaries** — convert an exception into a `std::expected` error value (`catch → return std::unexpected(...)`). This is appropriate when internal functions legitimately throw (operations that cannot proceed) and the public API boundary uses `std::expected`.
-3. **Resource cleanup in exception-safe code** — ensure invariants are restored when an operation fails partway through (see strong exception safety example below).
+**`catch` blocks are permitted only for:**
+1. **Logging** — record the error and (optionally) rethrow or terminate. Only rethrow when this is not the final termination point.
+2. **Error translation at module boundaries** — convert an exception into a `std::expected` error value (`catch → return std::unexpected(...)`). Static mapping of exception type → error code is allowed; it does not select recovery strategies.
+3. **Resource cleanup / rollback in exception-safe code** — restore invariants when an operation fails partway through (see strong exception safety example in `Core Principles`).
+4. **Logging at the final termination point** (no rethrow).
 
 **A `catch` block MUST NOT contain business flow control logic:**
 - No retry loops.
 - No fallback to alternative backends.
 - No conditional branching that selects among different recovery strategies.
 
-If the caller needs to decide among recovery strategies, those decisions must be expressed using `std::expected` and normal value-driven code, not exceptions.
-
-### Catch Block Rules in Detail
-
-**What IS allowed in a catch block:**
-
-1. **Logging** (with optional rethrow):
-   ```cpp
-   try {
-       process();
-   } catch (const std::exception& e) {
-       LOG_WARN("Inner failed: {}", e.what());
-       throw;  // propagate — not the final termination point
-   }
-   ```
-
-2. **Error translation at module boundaries** — mapping exception types to error codes:
-   ```cpp
-   Expected<Response> resolve(const Query& q) {
-       try {
-           auto result = do_resolve(q);
-           return result;
-       } catch (const TimeoutError& e) {
-           return std::unexpected(ResolveError::TIMEOUT);
-       } catch (const FormatError& e) {
-           return std::unexpected(ResolveError::INVALID_RESPONSE);
-       } catch (const NetworkError& e) {
-           return std::unexpected(ResolveError::NETWORK_FAILURE);
-       }
-   }
-   ```
-   This is a static mapping of exception type → error code. It does not select recovery strategies; it merely translates the error representation. Multiple error categories at a single translation boundary are acceptable.
-
-3. **Logging at the final termination point** (no rethrow):
-   ```cpp
-   void handle_request() {
-       try {
-           process();
-       } catch (const std::exception& e) {
-           LOG_ERROR("Fatal: {}", e.what());  // terminate — no rethrow
-       }
-   }
-   ```
-
-4. **Strong exception safety rollback** — restoring invariants when an operation fails:
-   ```cpp
-   void transfer(Account& from, Account& to, Money amount) {
-       auto snapshot_from = from;
-       auto snapshot_to = to;
-       from.withdraw(amount);
-       try {
-           to.deposit(amount);
-       } catch (...) {
-           from = snapshot_from;   // rollback, nothrow
-           to = snapshot_to;       // rollback, nothrow
-           throw;
-       }
-   }
-   ```
-
-**What is NOT allowed in a catch block:**
-- Retry the failed operation.
-- Call an alternative backend or fallback function.
-- Branch on error type to choose among different recovery strategies.
-- Any logic that constitutes "what to do next" beyond logging, translating the error, or restoring invariants.
-
-### Deep Call Chain Boundary Translation
-
-When internal functions form a deep call chain where converting every level to `std::expected` would produce excessive mechanical propagation boilerplate with no logic gain, internal functions may throw (for legitimate terminate conditions), and a single catch at the module's public API boundary performs error translation.
-
-The decision to use this pattern should be based on a holistic judgment of **error-type homogeneity** and **propagation mechanical overhead**, not a fixed depth threshold. A shallow chain with heterogeneous error types may warrant `std::expected` throughout, while a deep chain with uniform fatal errors may justify a single boundary translation.
-
-This pattern must satisfy **all** of the following conditions:
-1. The catch block performs **only error translation** — no retry, no fallback, no flow control.
+#### Deep Call Chain Boundary Translation (permitted pattern)
+When internal functions form a deep chain where converting every level to `std::expected` adds excessive mechanical propagation with no logic gain, internal functions may throw (for legitimate terminate conditions), and a single catch at the module's public API boundary performs error translation. This pattern must satisfy **all** of:
+1. The catch performs **only error translation** — no retry, no fallback, no flow control.
 2. The catch site is the **module's public API boundary**, not an internal function.
-3. The internal functions that throw do so only for **legitimate terminate conditions** (operations that cannot proceed), not for errors the caller should handle.
-4. The mechanical overhead of per-level `std::expected` propagation is **genuinely excessive** relative to the logic gain it provides.
+3. Internal functions throw only for **legitimate terminate conditions**, not for caller-handled errors.
+4. The mechanical overhead of per-level `std::expected` propagation is **genuinely excessive** relative to logic gain.
 
-```cpp
-// DNS wire-format parser (RecordParser).
-// Internal functions (decompress_name, parse_message, etc.) form
-// a deep chain. All errors are fatal parse failures (malformed
-// data where continuation is impossible). Converting every level
-// to expected would add substantial mechanical propagation with
-// no logic gain. Internal functions throw, public API translates.
-FormattedResponse parse_strings(...) {
-    try {
-        // ... internal parser functions may throw on fatal errors ...
-        return result;
-    } catch (const DnsLookupException& e) {
-        return std::unexpected(DnsErrorInfo{e.get_error(), e.what()});
-    }
-}
-```
-
-If internal error types diverge or become recoverable, the internal functions should be converted to native `std::expected` to eliminate the translation boundary.
+If internal error types diverge or become recoverable, convert the internals to native `std::expected`.
 
 ### Decision Table
 | Scenario | Mechanism | Rationale |
 |----------|-----------|-----------|
 | Caller can retry the same or fall back to another backend | `std::expected<T, E>` | Error is a value; the caller decides what to do next. |
 | Caller cannot proceed (precondition violated, resource unavailable) | `throw` | The operation is aborted; no recovery at this layer. |
-| Module boundary: internal throw + public `std::expected` API | Internal `throw` + outermost `catch` for error translation | The public contract uses `expected`, but internal fatal errors use exceptions. Catch only at the boundary, only for translation. |
+| Module boundary: internal throw + public `std::expected` API | Internal `throw` + outermost `catch` for error translation | Public contract uses `expected`, but internal fatal errors use exceptions. Catch only at the boundary, only for translation. |
 
 ## Const Correctness
 - Mark member functions `const` if they do not mutate observable state. Use `mutable` only for caching/synchronization.
 - Prefer `const` references for read-only parameters and `const` iterators (`cbegin()`, `cend()`).
 - Declare immutable variables `const` or `constexpr` by default.
+- Mark functions that cannot fail as `noexcept` per the boundary rule in `Error Handling → Core Principles`.
 
 ## Coding Style & Formatting
 All formatting is enforced by **clang-format** (`BasedOnStyle: Chromium`). Naming conventions enforced by **clang-tidy**:
@@ -294,20 +224,20 @@ All formatting is enforced by **clang-format** (`BasedOnStyle: Chromium`). Namin
 - Use `[[maybe_unused]]` (C++17 attribute) instead of C-style `(void)` casts for deliberately discarding a return value. This applies to both local variables and function parameters.
 - Do not suppress the return value of functions that are not `[[nodiscard]]` — the compiler will not warn, so the suppression is noise.
 - Use trailing return type syntax only when necessary (e.g., dependent return types in templates).
+- When crossing fixed-width integer types (e.g., `std::uint8_t` argument passed to an `int` parameter, or comparison with `std::size_t`), use an explicit `static_cast`. Do not silence with local `#pragma GCC diagnostic` blocks.
 
 ## Classes & Structs
 - Use `struct` for passive data carriers (POD, public members, no invariants).
 - Use `class` for types with invariants or private members.
 - Follow the **Rule of 0** by default. If you define any of the five special member functions, explicitly define or delete all five.
 - Mark single-argument constructors `explicit` unless implicit conversion is genuinely intended and documented.
-- Use **PIMPL** to reduce compile-time dependencies for public-facing classes.
+- **Consider PIMPL** for stable public-facing APIs whose implementation changes frequently, to reduce compile-time dependencies. Note: a PIMPL class necessarily defines a destructor (and possibly move operations) for its incomplete-type `std::unique_ptr` member; this is a deliberate, localized exception to the Rule of 0 — disable copying unless explicitly required.
 - Use **CRTP** sparingly; prefer concepts-based polymorphism.
 
 ## Enums
 - Always use `enum class`. Avoid plain `enum`.
 - Use **magic_enum** for reflection (name/enum conversion, iteration).
-- Use the project's **fmt polyfill** for compile-time checked formatting of enum values. Do not use raw `std::format` or `fmt::format` directly.
-- Use **spdlog** for logging enum values directly (`logger->info("state: {}", state)`).
+- Use the project's **fmt polyfill** for compile-time checked formatting of enum values. Do not use raw `std::format` or `fmt::format` directly. All enum `fmt::formatter` specializations are registered through the polyfill's shared, project-wide header; once registered there, **spdlog can log the enum directly** (`logger->info("state: {}", state)`). An enum not registered in the polyfill must not be logged.
 - Use `std::to_underlying` (C++23) for underlying integer conversions when explicitly needed.
 - Custom formatter specializations for enums go through the fmt polyfill's extension mechanism in a shared, project-wide header.
 
@@ -318,7 +248,7 @@ All formatting is enforced by **clang-format** (`BasedOnStyle: Chromium`). Namin
 
 ## Standard Library Usage
 - Prefer `std::span<T>` over `const std::vector<T>&` for read-only contiguous data.
-- Use `std::string_view` for read-only string parameters (see String Handling section for details).
+- Use `std::string_view` for read-only string parameters (see `String Handling` section for the full selection table and C-API safety rules).
 - Prefer `std::optional<T>` over sentinel values (`-1`, `nullptr`).
 - Use `std::variant<Ts...>` for type-safe unions instead of C unions or `void*`.
 - Use range-based `for` loops and `<algorithm>`/`<ranges>` over explicit index-based loops.
@@ -380,7 +310,7 @@ public:
 
 ## Concurrency
 - Protect shared data with `std::mutex`, `std::shared_mutex`, or lock-free atomics.
-- Avoid global mutable state. Prefer dependency injection and `std::call_once` for thread-safe singletons.
+- Avoid global mutable state. Prefer dependency injection. If a thread-safe singleton is unavoidable, use the Meyers `call_once`/`constinit` pattern — never a bare mutable global variable.
 - Document thread-safety guarantees for all public interfaces.
 
 ## Security
@@ -391,14 +321,15 @@ public:
 - Consider integrating static analysis tools (Coverity, SonarQube) into CI for additional assurance.
 
 ## Testing
-- Use **GoogleTest** as the testing framework. Do not introduce alternatives.
-- Maintain minimum **80% line coverage** (track with `lcov`/`gcov` or equivalent).
+- Use **GoogleTest** (with **GoogleMock** as the sole mocking framework) as the testing framework. Do not introduce alternatives.
+- Maintain minimum **80% line coverage** (track with `lcov`/`gcov` or equivalent); prioritize branch coverage on critical paths.
 - Naming: `TEST(ClassName, MethodName_Scenario_ExpectedBehavior)`.
 - Use mock objects for external dependencies; prefer virtual interface-based mocking.
 - Write integration tests for component interactions and benchmarks for critical paths.
 - Tests are part of the build; a failing test is a build failure in CI.
 
 ## Logging
+*(Reuse requirement is stated in `Components That Must Be Reused`. This section covers only logging-specific conventions.)*
 - Use the project's centralized logging facade exclusively. No `std::cout`, `printf`, or ad-hoc loggers.
 - Production logs include timestamp, severity, source location, and message via spdlog.
 - Do not log sensitive data (passwords, tokens, PII) unless explicitly scrubbed.
@@ -418,7 +349,7 @@ public:
 ## Cross-Platform Development
 - Reuse the project's platform abstraction layer. Isolate platform-specific code in designated implementation files, not public headers.
 - Prefer the C++ standard library and `std::filesystem` over platform-specific APIs.
-- Test on all target platforms in CI before merging.
+- Test on all target platforms in CI (maintain an explicit platform matrix) before merging.
 
 ## Version Control & Collaboration
 - Follow **Semantic Versioning** (`MAJOR.MINOR.PATCH`).
@@ -440,7 +371,7 @@ public:
 
 ## Code Review Checklist
 Every code review must verify the following:
-- [ ] No raw `new` or `delete` outside permitted contexts.
+- [ ] No raw `new` or `delete` outside permitted contexts (ABI boundary factories / `dlopen` layers only).
 - [ ] All resources managed via RAII.
 - [ ] Exception safety guarantees are met.
 - [ ] Thread-safety is documented and verified.
@@ -453,6 +384,7 @@ Every code review must verify the following:
 - [ ] No C-style `(void)` casts are used; use `[[maybe_unused]]` instead. Do not suppress return values of non-`[[nodiscard]]` functions.
 - [ ] `catch` blocks contain **no business flow control logic** (no retry, no fallback, no branching on error type for recovery strategy selection). Error translation (exception type → error code) is permitted at module boundaries.
 - [ ] If a `catch` block performs error translation (`return std::unexpected(...)`), verify it is at a module boundary and the catch performs no logic beyond translation.
+- [ ] Functions returning `expected` that may allocate are **not** marked `noexcept`.
 - [ ] Relevant README.md files are updated and accurate.
 - [ ] All language versions of README*.md are updated and in sync.
 
@@ -498,7 +430,7 @@ int divide(int a, int b, int* result) {
     return 0;
 }
 
-// GOOD: std::expected (C++23)
+// GOOD: std::expected (C++23) — no allocation, safe to mark noexcept
 enum class MathError { DivisionByZero };
 [[nodiscard]] std::expected<int, MathError> divide(int a, int b) noexcept {
     if (b == 0) return std::unexpected(MathError::DivisionByZero);
