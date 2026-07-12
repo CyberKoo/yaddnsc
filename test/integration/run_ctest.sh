@@ -141,6 +141,13 @@ for i in $(seq 1 30); do
     sleep 1
 done
 
+# Determine the loopback interface name.
+# Linux uses "lo", macOS/BSD uses "lo0".
+case "$(uname -s)" in
+    Darwin|*BSD) LOOPBACK_IFACE="lo0" ;;
+    *)           LOOPBACK_IFACE="lo" ;;
+esac
+
 # ---------------------------------------------------------------------------
 # 5. Run test scenarios
 # ---------------------------------------------------------------------------
@@ -154,19 +161,29 @@ run_scenario() {
     echo ""
     echo "=== Scenario: ${name} ==="
 
-    local tmpfile yaddnsc_out
-    tmpfile=$(mktemp /tmp/yaddnsc-test-XXXXXX.json)
-    yaddnsc_out=$(mktemp /tmp/yaddnsc-output-XXXXXX.txt)
-    sed "s|__DRIVER_DIR__|${DRIVER_DIR}|g" "${config}" > "${tmpfile}"
+    local tmpfile tmpfile_base yaddnsc_out yaddnsc_out_base
+    tmpfile_base=$(mktemp /tmp/yaddnsc-test-XXXXXX)
+    tmpfile="${tmpfile_base}.json"
+    mv "${tmpfile_base}" "${tmpfile}"
+    yaddnsc_out_base=$(mktemp /tmp/yaddnsc-output-XXXXXX)
+    yaddnsc_out="${yaddnsc_out_base}.txt"
+    mv "${yaddnsc_out_base}" "${yaddnsc_out}"
+    sed -e "s|__DRIVER_DIR__|${DRIVER_DIR}|g" \
+        -e "s|\"interface\": \"lo\"|\"interface\": \"${LOOPBACK_IFACE}\"|g" "${config}" > "${tmpfile}"
 
     # Reset sim logs
     curl -sf "http://127.0.0.1:${SIM_API_PORT:-8080}/reset" > /dev/null 2>&1 || true
 
-    # Run yaddnsc (capture all output for resolver verification)
+    # Run yaddnsc with a 2-second total timeout.
+    # 1s for the update cycle, then SIGTERM + 1s grace before SIGKILL.
     "${YADDNSC_BIN}" run -c "${tmpfile}" -d > "${yaddnsc_out}" 2>&1 &
     local pid=$!
-    sleep 2
+    sleep 1
     kill "${pid}" 2>/dev/null || true
+    sleep 1
+    if kill -0 "${pid}" 2>/dev/null; then
+        kill -9 "${pid}" 2>/dev/null || true
+    fi
     wait "${pid}" 2>/dev/null || true
     echo "  yaddnsc exited"
 

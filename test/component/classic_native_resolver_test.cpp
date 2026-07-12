@@ -160,7 +160,7 @@ void start_dns_server() {
 
     struct sockaddr_in addr = {};
     addr.sin_family = AF_INET;
-    addr.sin_port = ::htons(static_cast<std::uint16_t>(DNS_PORT));
+    addr.sin_port = htons(static_cast<std::uint16_t>(DNS_PORT));
     ::inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
 
     bool ready = false;

@@ -3,7 +3,8 @@
 //
 // Tests:
 //   - mkquery_native constructs a valid RFC 1035 query packet.
-//   - mkquery dispatch returns a non-empty packet.
+//   - mkquery dispatch with fallback returns a non-empty packet.
+//   - QueryBuilder for custom query construction.
 // =============================================================================
 
 #include <vector>
@@ -14,6 +15,7 @@
 #include <gtest/gtest.h>
 
 #include "dns/wire/query.h"
+#include "dns/wire/builder.h"
 #include "address_family.h"
 
 // ===========================================================================
@@ -88,7 +90,7 @@ namespace {
 // mkquery_native — standard DNS query
 // ===========================================================================
 
-TEST(MkqueryManualTest, BuildsExampleCom_A) {
+TEST(MkqueryNativeTest, BuildsExampleCom_A) {
     auto packet = DNS::mkquery_native("example.com", DNS::RecordType::A);
 
     expect_standard_query_header(packet);
@@ -106,7 +108,7 @@ TEST(MkqueryManualTest, BuildsExampleCom_A) {
     EXPECT_EQ(packet[qtype_offset + 3], 0x01);
 }
 
-TEST(MkqueryManualTest, BuildsGoogleCom_AAAA) {
+TEST(MkqueryNativeTest, BuildsGoogleCom_AAAA) {
     auto packet = DNS::mkquery_native("google.com", DNS::RecordType::AAAA);
 
     expect_standard_query_header(packet);
@@ -135,7 +137,7 @@ TEST(MkqueryManualTest, BuildsGoogleCom_AAAA) {
     EXPECT_EQ(packet[27], 0x01);
 }
 
-TEST(MkqueryManualTest, TotalPacketSize) {
+TEST(MkqueryNativeTest, TotalPacketSize) {
     auto packet = DNS::mkquery_native("example.com", DNS::RecordType::A);
     // header(12) + QNAME(\x07example\x03com\x00 = 13) + QTYPE(2) + QCLASS(2)
     //   = 29, plus EDNS0 OPT pseudo-record (root name 1 + type 2 + class 2
@@ -143,14 +145,12 @@ TEST(MkqueryManualTest, TotalPacketSize) {
     EXPECT_EQ(packet.size(), 40U);
 }
 
-TEST(MkqueryManualTest, BuildsDeepSubdomain) {
+TEST(MkqueryNativeTest, BuildsDeepSubdomain) {
     auto packet = DNS::mkquery_native("a.b.c.example.com", DNS::RecordType::A);
 
     expect_standard_query_header(packet);
 
-    // QNAME: \x01a\x01b\x01c\x07example\x03com\x00 = 1+1+1+7+3+1 = 14 bytes content + 6 label bytes
-    // Actually: \x01 a \x01 b \x01 c \x07 e x a m p l e \x03 c o m \x00
-    // Labels: 1, 1, 1, 7, 3, 0 → total 1+1+1+1+1+7+1+3+1+0 = 17 bytes of QNAME
+    // QNAME: \x01a\x01b\x01c\x07example\x03com\x00
     ASSERT_GE(packet.size(), 12 + 17 + 4);
     EXPECT_EQ(packet[12], 1);
     EXPECT_EQ(packet[13], 'a');
@@ -180,7 +180,7 @@ TEST(MkqueryManualTest, BuildsDeepSubdomain) {
     EXPECT_EQ(packet[34], 0x01);
 }
 
-TEST(MkqueryManualTest, TxidRandomness) {
+TEST(MkqueryNativeTest, TxidRandomness) {
     // TXID must be random — two consecutive calls should produce different IDs.
     // The probability of colliding is 1/65536 per pair, negligible for 1 trial.
     auto packet1 = DNS::mkquery_native("example.com", DNS::RecordType::A);
@@ -196,14 +196,47 @@ TEST(MkqueryManualTest, TxidRandomness) {
 }
 
 // ===========================================================================
-// mkquery — compile-time dispatch wrapper
+// mkquery — dispatch with fallback
 // ===========================================================================
 
 TEST(MkqueryTest, DispatchReturnsNonEmpty) {
-    // mkquery() dispatches to mkquery_native or mkquery_system based on
-    // YADDNSC_USE_NATIVE_DNS. Both should return a non-empty packet.
+    // mkquery() dispatches to mkquery_system (libresolv) or mkquery_native
+    // based on YADDNSC_USE_NATIVE_DNS, with fallback to native on failure.
     auto packet = DNS::mkquery("example.com", DNS::RecordType::A);
     EXPECT_GT(packet.size(), 12U);
 }
 
+// ===========================================================================
+// QueryBuilder — direct construction
+// ===========================================================================
 
+TEST(QueryBuilderTest, WithoutEdns_HasNoAdditionalSection) {
+    auto packet = DNS::QueryBuilder{}
+        .add_question("example.com", DNS::RecordType::A)
+        .build();
+
+    ASSERT_GE(packet.size(), 12U);
+    EXPECT_EQ(packet[2], 0x01);  // standard query, RD=1
+    EXPECT_EQ(packet[3], 0x00);
+
+    // QDCOUNT = 1
+    EXPECT_EQ(packet[4], 0x00);
+    EXPECT_EQ(packet[5], 0x01);
+
+    // ARCOUNT = 0 (no EDNS0)
+    EXPECT_EQ(packet[10], 0x00);
+    EXPECT_EQ(packet[11], 0x00);
+
+    // Bare question section: 12 + 13 + 4 = 29 bytes
+    EXPECT_EQ(packet.size(), 29U);
+}
+
+TEST(QueryBuilderTest, WithEdns_HasAdditionalSection) {
+    auto packet = DNS::QueryBuilder{}
+        .add_question("example.com", DNS::RecordType::A)
+        .add_edns(4096)
+        .build();
+
+    expect_standard_query_header(packet);  // ARCOUNT = 1 implies EDNS0
+    EXPECT_EQ(packet.size(), 40U);
+}

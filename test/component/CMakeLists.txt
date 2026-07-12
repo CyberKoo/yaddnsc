@@ -100,3 +100,9 @@ target_compile_definitions(test_classic_native_resolver PRIVATE
     YADDNSC_USE_NATIVE_DNS=1
     TEST_DATA_DIR="${PROJECT_SOURCE_DIR}/test/component"
 )
+
+# query.cpp may reference res_mkquery (→ res_9_mkquery on macOS).
+find_library(RESOLV resolv)
+if (RESOLV)
+  target_link_libraries(test_classic_native_resolver PRIVATE ${RESOLV})
+endif ()

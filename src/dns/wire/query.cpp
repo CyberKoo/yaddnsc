@@ -18,6 +18,7 @@
 #include "fmt.hpp"
 #include <arpa/nameser.h>
 #include <resolv.h>
+#include <spdlog/spdlog.h>
 
 namespace DNS {
     namespace {
@@ -38,15 +39,29 @@ namespace DNS {
     } // anonymous namespace
 
     // ===========================================================================
-    //  mkquery  —  compile-time dispatch
-    //  mkquery_native (EXPERIMENTAL) vs mkquery_system (default).
+    //  mkquery  —  dispatch with fallback
+    //
+    //  When YADDNSC_USE_NATIVE_DNS=1 the system path is skipped at compile time.
+    //  Otherwise mkquery_system() is tried first; if it fails (libresolv not
+    //  available or a runtime error), the native builder is used as fallback
+    //  and a one-time warning is logged.
     // ===========================================================================
 
     std::vector<std::uint8_t> mkquery(const std::string &host, RecordType type) {
         if constexpr (YADDNSC_USE_NATIVE_DNS) {
             return mkquery_native(host, type);
-        } else {
+        }
+
+        // System path — try libresolv first, fall back to native on failure.
+        try {
             return mkquery_system(host, type);
+        } catch (const DnsLookupException &e) {
+            static bool warned = false;
+            if (!warned) {
+                SPDLOG_WARN(R"(libresolv query failed, falling back to native builder: {})", e.what());
+                warned = true;
+            }
+            return mkquery_native(host, type);
         }
     }
 
