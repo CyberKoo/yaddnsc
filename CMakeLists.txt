@@ -56,13 +56,9 @@ include(Sanitizer)
 # ==============================================================================
 # Release build flags
 # ==============================================================================
-# On musl, libresolv is not available (musl's resolv.h is a stub), so the
-# built-in DNS stack must be used by default.
-if (LIBC_MUSL AND NOT DEFINED YADDNSC_USE_NATIVE_DNS)
-  set(YADDNSC_USE_NATIVE_DNS ON CACHE BOOL
-      "Use built-in DNS stack instead of system libresolv" FORCE)
-  message(STATUS "musl detected — YADDNSC_USE_NATIVE_DNS defaulting to ON")
-endif ()
+# Native DNS is the default on all platforms. The built-in stack provides
+# better portability and full control over the transport layer.
+# Set YADDNSC_USE_NATIVE_DNS=OFF to fall back to system libresolv.
 
 # ==============================================================================
 # Version info
@@ -89,7 +85,7 @@ set(YADDNSC_MIN_UPDATE_INTERVAL 60 CACHE STRING "Minimum allowed update interval
 set(YADDNSC_DEFAULT_DNS_SERVER "1.1.1.1" CACHE STRING "Default DNS server address when none is configured")
 set(YADDNSC_DEFAULT_DNS_PORT 53 CACHE STRING "Default DNS server port when none is configured")
 
-option(YADDNSC_USE_NATIVE_DNS "Use built-in DNS stack instead of system libresolv" OFF)
+option(YADDNSC_USE_NATIVE_DNS "Use built-in DNS stack instead of system libresolv" ON)
 option(YADDNSC_USE_SYSTEM_SPDLOG "Use spdlog from the system instead of the bundled CPM version" OFF)
 
 # Debug-mode sanitizers can be disabled by downstream CI jobs (e.g., coverage)

@@ -1,21 +1,22 @@
 //
 // Created by Kotarou on 2026/6/17.
 //
-// ── Classic system resolver (libresolv) ──
+// ── Classic system resolver (libresolv) [DEPRECATED] ──
 //
-// ⚠  This is the legacy system resolver based on libresolv.  It is
-//    superseded by the native resolver (classic_native, no libresolv
-//    dependency).
+// ╔════════════════════════════════════════════════════════════════════╗
+// ║  DEPRECATED — will be removed before the 1.0.0 release.          ║
+// ║                                                                  ║
+// ║  This is the legacy system resolver based on libresolv.  It is   ║
+// ║  superseded by the native resolver (classic_native, no libresolv ║
+// ║  dependency), which is now the default.                          ║
+// ║                                                                  ║
+// ║  Only compilation fixes will be applied here.  No new features,  ║
+// ║  improvements, or refactoring.                                   ║
+// ╚════════════════════════════════════════════════════════════════════╝
 //
-//    This file is in maintenance-only mode:
-//      • Only compilation fixes and bug fixes will be applied here.
-//      • No new features, improvements, or refactoring will be added.
-//      • New functionality should go to the native resolver.
 //
-//    This file will be removed once the native resolver is stable.
-//
-//
-//
+#pragma message("YADDNSC: system libresolv resolver implementation is DEPRECATED and will be removed before 1.0.0")
+
 #include <memory>
 #include <mutex>
 #include <optional>

@@ -1,8 +1,8 @@
 //
 // Created by Kotarou on 2026/7/6.
 //
-// EXPERIMENTAL: self-contained UDP/TCP resolver (no libresolv).
-// Not enabled by default — use classic_system for production.
+// Self-contained UDP/TCP resolver (no libresolv).
+// This is now the default resolver backend.
 //
 #include <cerrno>
 #include <cstdint>

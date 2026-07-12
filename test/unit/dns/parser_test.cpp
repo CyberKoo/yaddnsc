@@ -1,10 +1,12 @@
 //
-// Unit tests for dns/parser/parser_system.h / parser_system.cpp — DNS response packet parsing.
+// Unit tests for dns/parser/parser_system.h / parser_system.cpp [DEPRECATED] —
+// DNS response packet parsing using the libresolv-based backend.
+//
+// These tests will be removed before the 1.0.0 release, together with the
+// system parser backend.  The native parser (parser_native) is the default.
 //
 // Constructs valid DNS wire-format response packets byte-by-byte and verifies
 // that RecordParser correctly extracts A, AAAA, TXT, CNAME, NS record types.
-//
-// These tests work with both the native (built-in) and system (libresolv) parser backends.
 // =============================================================================
 
 #include <vector>

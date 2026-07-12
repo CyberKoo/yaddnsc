@@ -1,21 +1,22 @@
 //
 // Created by Kotarou on 2026/6/17.
 //
-// ── System DNS parser (libresolv) ──
+// ── System DNS parser (libresolv) [DEPRECATED] ──
 //
-// ⚠  This is the legacy system DNS parser based on libresolv.  It is
-//    superseded by the native parser (parser_native, no libresolv
-//    dependency).
+// ╔════════════════════════════════════════════════════════════════════╗
+// ║  DEPRECATED — will be removed before the 1.0.0 release.          ║
+// ║                                                                  ║
+// ║  This is the legacy system DNS parser based on libresolv.  It is ║
+// ║  superseded by the native parser (parser_native, no libresolv    ║
+// ║  dependency), which is now the default.                          ║
+// ║                                                                  ║
+// ║  Only compilation fixes will be applied here.  No new features,  ║
+// ║  improvements, or refactoring.                                   ║
+// ╚════════════════════════════════════════════════════════════════════╝
 //
-//    This file is in maintenance-only mode:
-//      • Only compilation fixes and bug fixes will be applied here.
-//      • No new features, improvements, or refactoring will be added.
-//      • New functionality should go to the native parser.
 //
-//    This file will be removed once the native parser is stable.
-//
-//
-//
+#pragma message("YADDNSC: system libresolv parser implementation is DEPRECATED and will be removed before 1.0.0")
+
 #include "dns/parser/parser_system.h"
 
 #include <array>

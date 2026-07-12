@@ -3,8 +3,8 @@
 //
 // This header is included by two translation units that compile against
 // different DNS backends:
-//   - test/unit/dispatcher.cpp        (YADDNSC_USE_NATIVE_DNS=1, jthread-based)
-//   - test/unit/dispatcher_system.cpp (default, libresolv-based legacy backend)
+//   - test/unit/dispatcher.cpp        (YADDNSC_USE_NATIVE_DNS=1, jthread-based, default)
+//   - test/unit/dispatcher_system.cpp (libresolv-based legacy backend, DEPRECATED)
 //
 // The two backends share identical dispatch *logic* but diverge in how they
 // report failures when no definitive error is present:

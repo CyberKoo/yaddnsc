@@ -1,8 +1,8 @@
 //
 // Created by Kotarou on 2026/7/7.
 //
-// EXPERIMENTAL: self-contained DNS parser (no libresolv).
-// Not enabled by default — use parser_system for production.
+// Self-contained DNS parser (no libresolv).
+// This is now the default parser backend.
 //
 
 #ifndef YADDNSC_DNS_PARSER_NATIVE_H

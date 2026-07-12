@@ -1,19 +1,18 @@
 //
 // Created by Kotarou on 2026/6/17.
 //
-// ── System DNS parser (libresolv) ──
+// ── System DNS parser (libresolv) [DEPRECATED] ──
 //
-// ⚠  This is the legacy system DNS parser based on libresolv.  It is
-//    superseded by the native parser (parser_native, no libresolv
-//    dependency).
-//
-//    This header is in maintenance-only mode:
-//      • Only compilation fixes and bug fixes will be applied here.
-//      • No new features, improvements, or refactoring will be added.
-//      • New functionality should go to the native parser.
-//
-//    This header will be removed once the native parser is stable.
-//
+// ╔════════════════════════════════════════════════════════════════════╗
+// ║  DEPRECATED — will be removed before the 1.0.0 release.          ║
+// ║                                                                  ║
+// ║  This is the legacy system DNS parser based on libresolv.  It is ║
+// ║  superseded by the native parser (parser_native, no libresolv    ║
+// ║  dependency), which is now the default.                          ║
+// ║                                                                  ║
+// ║  Only compilation fixes will be applied here.  No new features,  ║
+// ║  improvements, or refactoring.                                   ║
+// ╚════════════════════════════════════════════════════════════════════╝
 //
 //
 
@@ -71,9 +70,9 @@ namespace DNS {
     /// a resolver query.  Supports A, AAAA, TXT, MX, CNAME, and other
     /// common record types.
     ///
-    /// @note  This class is in maintenance-only mode.
-    ///        Only compilation fixes and bug fixes will be applied here;
-    ///        no new features, improvements, or refactoring will be added.
+    /// @note  This class is **deprecated** and will be removed before
+    ///        the 1.0.0 release.  Only the native parser (parser_native)
+    ///        will be available going forward.
     class RecordParser {
     public:
         /// Construct a parser from a raw DNS response buffer.

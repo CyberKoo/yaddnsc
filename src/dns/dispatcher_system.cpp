@@ -1,19 +1,25 @@
 //
 // Created by Kotarou on 2026/6/28.
 //
-// ── System dispatcher (libresolv-based variant) ──
+// ── System dispatcher (libresolv-based variant) [DEPRECATED] ──
 //
-//    This is the default dispatcher implementation using the system's
-//    libresolv (res_nquery / res_query).  It is the default because
-//    YADDNSC_USE_NATIVE_DNS defaults to OFF in CMakeLists.txt.
+// ╔════════════════════════════════════════════════════════════════════╗
+// ║  DEPRECATED — will be removed before the 1.0.0 release.          ║
+// ║                                                                  ║
+// ║  This is the legacy dispatcher implementation using the system's ║
+// ║  libresolv (res_nquery / res_query).  It is compiled only when   ║
+// ║  YADDNSC_USE_NATIVE_DNS=OFF.                                     ║
+// ║                                                                  ║
+// ║  The default (YADDNSC_USE_NATIVE_DNS=ON) uses the built-in       ║
+// ║  native dispatcher (dispatcher.cpp) instead, which provides      ║
+// ║  better portability and full control over the transport layer.   ║
+// ╚════════════════════════════════════════════════════════════════════╝
 //
-//    A self-contained native dispatcher (YADDNSC_USE_NATIVE_DNS) is
-//    available and recommended for musl targets (auto-detected) and
-//    for environments where libresolv is not available or undesirable.
-//    See dispatcher.cpp for the native variant.
 //
 //
 //
+
+#pragma message("YADDNSC: system libresolv dispatcher implementation is DEPRECATED and will be removed before 1.0.0")
 
 #include "dispatcher.h"
 

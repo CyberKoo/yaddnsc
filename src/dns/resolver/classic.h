@@ -19,8 +19,10 @@
 ///
 /// Queries a DNS server via the traditional UDP/TCP protocol.
 /// The underlying implementation is selected at compile time:
-///   - YADDNSC_USE_NATIVE_DNS=0 → system libresolv (res_nquery / res_query)
-///   - YADDNSC_USE_NATIVE_DNS=1 → built-in raw UDP/TCP (no libresolv)
+///   - YADDNSC_USE_NATIVE_DNS=1 (default) → built-in raw UDP/TCP (no libresolv)
+///   - YADDNSC_USE_NATIVE_DNS=0 → system libresolv (res_nquery / res_query) [DEPRECATED]
+///
+/// The system libresolv backend will be removed before the 1.0.0 release.
 ///
 /// Always requires an explicit DNS server — no default constructor.
 class ClassicResolver final : public ResolverBase {

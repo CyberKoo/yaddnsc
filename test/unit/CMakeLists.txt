@@ -95,7 +95,7 @@ add_unit_test(dispatcher SOURCE dns/dispatcher_test.cpp
 target_link_libraries(test_dispatcher PRIVATE GTest::gmock)
 target_compile_definitions(test_dispatcher PRIVATE YADDNSC_USE_NATIVE_DNS=1)
 
-# ResolverDispatcher — legacy system backend (libresolv, default)
+# ResolverDispatcher — legacy system backend (libresolv) [DEPRECATED, will be removed before 1.0.0]
 find_library(RESOLV resolv)
 
 add_unit_test(dispatcher_system SOURCE dns/dispatcher_system_test.cpp

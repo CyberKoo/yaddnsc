@@ -54,7 +54,10 @@ namespace DNS {
 
         // System path — try libresolv first, fall back to native on failure.
         try {
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
             return mkquery_system(host, type);
+#pragma GCC diagnostic pop
         } catch (const DnsLookupException &e) {
             static bool warned = false;
             if (!warned) {
@@ -66,10 +69,15 @@ namespace DNS {
     }
 
     // ===========================================================================
-    //  mkquery_system  —  system res_mkquery wrapper
+    //  mkquery_system  —  system res_mkquery wrapper [DEPRECATED]
+    //
+    //  Will be removed before the 1.0.0 release.  Use mkquery_native() instead.
     // ===========================================================================
 
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
     std::vector<std::uint8_t> mkquery_system(const std::string &host, RecordType type) {
+#pragma GCC diagnostic pop
         // res_mkquery may append EDNS0 records from the system resolver config
         // (e.g. /etc/resolv.conf), so allocate a generous buffer.
         std::vector<std::uint8_t> buf(MKQUERY_BUFFER_SIZE);
