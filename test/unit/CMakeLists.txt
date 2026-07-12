@@ -99,15 +99,9 @@ target_compile_definitions(test_dispatcher PRIVATE YADDNSC_USE_NATIVE_DNS=1)
 add_unit_test(builder SOURCE dns/builder_test.cpp
     ${PROJECT_SOURCE_DIR}/src/dns/wire/builder.cpp)
 
-# mkquery — tests both native and system query construction
+# build_query tests
 add_unit_test(mkquery SOURCE dns/mkquery_test.cpp
-    ${PROJECT_SOURCE_DIR}/src/dns/wire/query.cpp
     ${PROJECT_SOURCE_DIR}/src/dns/wire/builder.cpp)
-# query.cpp may reference res_mkquery (→ res_9_mkquery on macOS).
-find_library(MKQUERY_RESOLV resolv)
-if (MKQUERY_RESOLV)
-  target_link_libraries(test_mkquery PRIVATE ${MKQUERY_RESOLV})
-endif ()
 
 # RecordParser — native backend (self-contained, no libresolv)
 add_unit_test(dns_parser_native SOURCE dns/parser_test.cpp dns/parser_native_test.cpp

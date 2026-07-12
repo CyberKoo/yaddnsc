@@ -21,7 +21,6 @@ import sys
 
 DEFAULT_RECORDS = {
     "yaddnsc.test": {"A": "198.51.100.42", "AAAA": "2001:db8::42"},
-    "test.local": {"A": "198.51.100.4"},
 }
 
 # Hostnames that trigger special behaviour.

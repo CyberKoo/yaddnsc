@@ -313,7 +313,6 @@ target_link_libraries(yaddnsc_cli PRIVATE yaddnsc_compile_config)
 add_library(yaddnsc_dns OBJECT
     src/dns/error.cpp
     src/dns/validator.cpp
-    src/dns/wire/query.cpp
     src/dns/wire/builder.cpp
     src/dns/resolver/doh.cpp
     src/dns/resolver/dot.cpp

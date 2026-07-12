@@ -23,7 +23,7 @@
           "ip_source": "mdns",
           "ip_type": "ipv4",
           "interface": "lo",
-          "ip_source_param": "test.local",
+          "ip_source_param": "yaddnsc-mdns-test.local",
           "driver_param": {
             "url": "http://127.0.0.1:8080/update?ip={ip_addr}&domain={domain}&source=mdns&resolver=doh"
           }

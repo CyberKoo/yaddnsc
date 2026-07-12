@@ -7,14 +7,11 @@
 //   - QueryBuilder for custom query construction.
 // =============================================================================
 
-#include <vector>
 #include <cstdint>
-
-#include <arpa/nameser.h>
 
 #include <gtest/gtest.h>
 
-#include "dns/wire/query.h"
+#include "dns/wire/query_util.h"
 #include "dns/wire/builder.h"
 #include "address_family.h"
 
@@ -87,11 +84,11 @@ namespace {
 } // anonymous namespace
 
 // ===========================================================================
-// mkquery_native — standard DNS query
+// build_query — standard DNS query
 // ===========================================================================
 
-TEST(MkqueryNativeTest, BuildsExampleCom_A) {
-    auto packet = DNS::mkquery_native("example.com", DNS::RecordType::A);
+TEST(BuildQueryTest, BuildsExampleCom_A) {
+    auto packet = DNS::build_query("example.com", DNS::RecordType::A);
 
     expect_standard_query_header(packet);
     expect_qname_example_com(packet, 12);
@@ -108,8 +105,8 @@ TEST(MkqueryNativeTest, BuildsExampleCom_A) {
     EXPECT_EQ(packet[qtype_offset + 3], 0x01);
 }
 
-TEST(MkqueryNativeTest, BuildsGoogleCom_AAAA) {
-    auto packet = DNS::mkquery_native("google.com", DNS::RecordType::AAAA);
+TEST(BuildQueryTest, BuildsGoogleCom_AAAA) {
+    auto packet = DNS::build_query("google.com", DNS::RecordType::AAAA);
 
     expect_standard_query_header(packet);
 
@@ -137,16 +134,16 @@ TEST(MkqueryNativeTest, BuildsGoogleCom_AAAA) {
     EXPECT_EQ(packet[27], 0x01);
 }
 
-TEST(MkqueryNativeTest, TotalPacketSize) {
-    auto packet = DNS::mkquery_native("example.com", DNS::RecordType::A);
+TEST(BuildQueryTest, TotalPacketSize) {
+    auto packet = DNS::build_query("example.com", DNS::RecordType::A);
     // header(12) + QNAME(\x07example\x03com\x00 = 13) + QTYPE(2) + QCLASS(2)
     //   = 29, plus EDNS0 OPT pseudo-record (root name 1 + type 2 + class 2
     //   + TTL 4 + rdlength 2 + rdata 0 = 11) = 40.
     EXPECT_EQ(packet.size(), 40U);
 }
 
-TEST(MkqueryNativeTest, BuildsDeepSubdomain) {
-    auto packet = DNS::mkquery_native("a.b.c.example.com", DNS::RecordType::A);
+TEST(BuildQueryTest, BuildsDeepSubdomain) {
+    auto packet = DNS::build_query("a.b.c.example.com", DNS::RecordType::A);
 
     expect_standard_query_header(packet);
 
@@ -180,11 +177,11 @@ TEST(MkqueryNativeTest, BuildsDeepSubdomain) {
     EXPECT_EQ(packet[34], 0x01);
 }
 
-TEST(MkqueryNativeTest, TxidRandomness) {
+TEST(BuildQueryTest, TxidRandomness) {
     // TXID must be random — two consecutive calls should produce different IDs.
     // The probability of colliding is 1/65536 per pair, negligible for 1 trial.
-    auto packet1 = DNS::mkquery_native("example.com", DNS::RecordType::A);
-    auto packet2 = DNS::mkquery_native("google.com", DNS::RecordType::AAAA);
+    auto packet1 = DNS::build_query("example.com", DNS::RecordType::A);
+    auto packet2 = DNS::build_query("google.com", DNS::RecordType::AAAA);
 
     ASSERT_GE(packet1.size(), 2U);
     ASSERT_GE(packet2.size(), 2U);
@@ -196,13 +193,11 @@ TEST(MkqueryNativeTest, TxidRandomness) {
 }
 
 // ===========================================================================
-// mkquery — dispatch with fallback
+// build_query — dispatch (always native after query.h removal)
 // ===========================================================================
 
-TEST(MkqueryTest, DispatchReturnsNonEmpty) {
-    // mkquery() dispatches to mkquery_system (libresolv) or mkquery_native
-    // based on YADDNSC_USE_NATIVE_DNS, with fallback to native on failure.
-    auto packet = DNS::mkquery("example.com", DNS::RecordType::A);
+TEST(BuildQueryTest, ReturnsNonEmpty) {
+    auto packet = DNS::build_query("example.com", DNS::RecordType::A);
     EXPECT_GT(packet.size(), 12U);
 }
 

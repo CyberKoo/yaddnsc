@@ -24,6 +24,8 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include "util/random.hpp"
+
 #include "config/config.h"
 #include "ip_source/base.h"
 #include "ip_source/factory.h"
@@ -43,6 +45,33 @@
 
 namespace {
     const std::string LOOPBACK = NetDevices::loopback_name();
+
+    /// Generate a random UUID v4 string (e.g. "a1b2c3d4-e5f6-4789-abcd-ef1234567890").
+    /// Each call produces a unique hostname, ensuring mDNS queries from this test
+    /// are not answered by other mDNS responders on the network (e.g. avahi-daemon,
+    /// systemd-resolved).
+    [[nodiscard]] std::string generate_uuid() {
+        auto &eng = Utils::Random::engine();
+        std::uniform_int_distribution<int> hex_dist(0, 15);
+        std::uniform_int_distribution<int> variant_dist(0, 3);
+
+        const char *hex_chars = "0123456789abcdef";
+        // UUID format: 8-4-4-4-12 = 36 chars
+        std::string uuid(36, '\0');
+        for (int i = 0; i < 36; ++i) {
+            if (i == 8 || i == 13 || i == 18 || i == 23) {
+                uuid[i] = '-';
+            } else if (i == 14) {
+                uuid[i] = '4';  // Version 4
+            } else if (i == 19) {
+                // Variant: 10xx -> 8, 9, a, or b
+                uuid[i] = hex_chars[8 + variant_dist(eng)];
+            } else {
+                uuid[i] = hex_chars[hex_dist(eng)];
+            }
+        }
+        return uuid;
+    }
 
     /// Quick probe to check whether UDP multicast sending to 224.0.0.251:5353
     /// works on this system.  macOS CI runners often lack a multicast route,
@@ -163,18 +192,26 @@ TEST(IpSourceFactoryTest, UnknownType_FallsBackToUnspecified) {
 // When it receives a DNS query, it responds with a crafted A record.
 // The MdnsIpSource resolves the hostname via mDNS and should get
 // the IP we sent back.
+//
+// Uses a random UUID hostname per test run to prevent other mDNS
+// responders (avahi-daemon, systemd-resolved) from answering our queries.
 // ===========================================================================
 
 class MdnsTest : public ::testing::Test {
 protected:
-		void SetUp() override {
-			// ---- Check multicast availability ----------------------------------
-			if (!multicast_available()) {
-				GTEST_SKIP() << "mDNS multicast not available on this system";
-			}
+    void SetUp() override {
+        // ---- Check multicast availability ----------------------------------
+        if (!multicast_available()) {
+            GTEST_SKIP() << "mDNS multicast not available on this system";
+        }
 
-			// ---- Create responder socket ---------------------------------------
-			responder_sock_ = std::make_unique<Socket>(AF_INET, SOCK_DGRAM);
+        // ---- Generate unique hostname per test run -------------------------
+        // A random UUID prevents other mDNS responders from answering our
+        // query and causing flaky failures.
+        test_hostname_ = generate_uuid() + ".local";
+
+        // ---- Create responder socket ---------------------------------------
+        responder_sock_ = std::make_unique<Socket>(AF_INET, SOCK_DGRAM);
         responder_sock_->set_reuseaddr(true).value();
         responder_sock_->set_option(SOL_SOCKET, SO_REUSEPORT, 1).value();
 
@@ -218,6 +255,8 @@ protected:
     [[nodiscard]] int query_count() const {
         return query_count_.load();
     }
+
+    std::string test_hostname_;  // Random UUID hostname for this test run
 
 private:
     void responder_loop() {
@@ -304,7 +343,7 @@ private:
 };
 
 TEST_F(MdnsTest, ResolveMdns_A_Record) {
-    MdnsIpSource source("test.local", RecordKind::A, "");
+    MdnsIpSource source(test_hostname_, RecordKind::A, "");
     auto addrs = source.resolve();
 
     ASSERT_EQ(addrs.size(), 1U);
@@ -322,7 +361,7 @@ TEST_F(MdnsTest, Factory_CreateMdnsSource_ResolvesViaMulticast) {
     cfg.name = "test";
     cfg.type = RecordKind::A;
     cfg.ip_source = Config::IpSource::MDNS;
-    cfg.ip_source_param = "test.local";
+    cfg.ip_source_param = test_hostname_;
     cfg.interface = "";
 
     auto source = IpSourceFactory::create(cfg);

@@ -16,7 +16,7 @@
 #include "dns/parser/parser.h"
 #include "dns/util.hpp"
 #include "dns/wire/builder.h"
-#include "dns/wire/query.h"
+
 #include "network/inet_address.h"
 #include "network/net_devices.h"
 #include "network/socket.h"
@@ -96,17 +96,14 @@ namespace {
         mreq_type mreq_{};
 
         /// @param sock  The multicast socket. Must outlive this object.
-        explicit ScopedMembership(Socket &sock, unsigned int if_index, const std::string &hostname,
-                                  const std::string &interface)
-            : sock_(sock) {
+        explicit ScopedMembership(Socket &sock, unsigned int if_index, const std::string &interface) : sock_(sock) {
             if constexpr (std::is_same_v<Tag, Ipv6Tag>) {
                 // Bridge: copy Inet6Address bytes → POSIX in6_addr.
                 auto *v6_dest = reinterpret_cast<std::uint8_t *>(&mreq_.ipv6mr_multiaddr);
                 std::ranges::copy_n(MDNS_IPV6_GROUP_INET.data(), sizeof(mreq_.ipv6mr_multiaddr), v6_dest);
                 mreq_.ipv6mr_interface = if_index;
                 if (auto res = sock_.set_option(IPPROTO_IPV6, IPV6_JOIN_GROUP, mreq_); !res) {
-                    throw std::runtime_error(fmt::format(R"(mDNS IPV6_JOIN_GROUP failed for "{}": {})", hostname,
-                                                         errno_str(res.error())));
+                    throw std::runtime_error(fmt::format(R"(mDNS IPV6_JOIN_GROUP failed: {})", errno_str(res.error())));
                 }
             } else {
                 // Bridge: copy Inet4Address bytes → POSIX in_addr.
@@ -115,7 +112,8 @@ namespace {
                 mreq_.imr_interface = pick_ipv4_interface_addr(interface);
                 if (auto res = sock_.set_option(IPPROTO_IP, IP_ADD_MEMBERSHIP, mreq_); !res) {
                     throw std::runtime_error(
-                        fmt::format(R"(mDNS IP_ADD_MEMBERSHIP failed for "{}": {})", hostname, errno_str(res.error())));
+                        fmt::format(R"(mDNS IP_ADD_MEMBERSHIP failed: {})", errno_str(res.error()))
+                    );
                 }
             }
         }
@@ -176,7 +174,7 @@ namespace {
             }
         }
         if (auto res = sock.bind(std::is_same_v<Tag, Ipv6Tag> ? MDNS_IPV6_BIND : MDNS_IPV4_BIND); !res) {
-            throw std::runtime_error(fmt::format(R"(mDNS bind failed for "{}": {})", hostname, errno_str(res.error())));
+            throw std::runtime_error(fmt::format(R"(mDNS bind failed: {})", errno_str(res.error())));
         }
     }
 
@@ -256,10 +254,10 @@ namespace {
     [[nodiscard]] std::vector<InetAddress> recv_and_parse(Socket &sock, RecordKind type, const std::string &hostname) {
         auto wait_res = sock.wait_for(POLLIN, MDNS_TIMEOUT_MS);
         if (!wait_res) {
-            throw std::runtime_error(fmt::format(R"(mDNS wait_for failed for "{}": {})", hostname, errno_str(wait_res.error())));
+            throw std::runtime_error(fmt::format(R"(mDNS wait_for failed: {})", errno_str(wait_res.error())));
         }
         if (*wait_res == 0) {
-            throw std::runtime_error(fmt::format(R"(mDNS no response for "{}" within {}ms)", hostname,
+            throw std::runtime_error(fmt::format(R"(mDNS no response within {}ms)",
                                                  MDNS_TIMEOUT_MS));
         }
 
@@ -270,7 +268,7 @@ namespace {
         ssize_t recv_len = sock.recv_from(buf, &src_addr);
         if (recv_len < 0) {
             int e = errno;
-            throw std::runtime_error(fmt::format(R"(mDNS recvfrom() failed for "{}": {})", hostname, errno_str(e)));
+            throw std::runtime_error(fmt::format(R"(mDNS recvfrom() failed: {})", errno_str(e)));
         }
 
         SPDLOG_TRACE(R"(mDNS received {} bytes for "{}")", recv_len, hostname);
@@ -278,7 +276,7 @@ namespace {
         auto parsed = DNS::RecordParser::parse_strings(std::span{recv_buf.data(), static_cast<size_t>(recv_len)},
                                                        hostname);
         if (parsed.records.empty()) {
-            throw std::runtime_error(fmt::format(R"(mDNS no records in response for "{}")", hostname));
+            throw std::runtime_error("mDNS no records in response");
         }
 
         std::vector<InetAddress> results;
@@ -302,7 +300,7 @@ namespace {
         }
 
         if (results.empty()) {
-            throw std::runtime_error(fmt::format(R"(mDNS no address records for "{}")", hostname));
+            throw std::runtime_error("mDNS no address records");
         }
 
         return results;
@@ -383,13 +381,13 @@ namespace {
         unsigned int if_index = setup_multicast_options<Tag>(sock, hostname, interface);
 
         // ── Join multicast group ──────────────────────────────────────────
-        ScopedMembership<Tag> membership{sock, if_index, hostname, interface};
+        ScopedMembership<Tag> membership{sock, if_index, interface};
 
         // ── Send query ──────────────────────────────────────────────────────
         auto data = std::as_bytes(std::span{query_pkt});
         if (sock.send_to(data, dest_addr) < 0) {
             int e = errno;
-            throw std::runtime_error(fmt::format(R"(mDNS sendto() failed for "{}": {})", hostname, errno_str(e)));
+            throw std::runtime_error(fmt::format(R"(mDNS sendto() failed: {})", errno_str(e)));
         }
 
         SPDLOG_TRACE(R"(mDNS sent {} bytes for "{}")", query_pkt.size(), hostname);

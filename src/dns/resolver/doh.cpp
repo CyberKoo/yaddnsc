@@ -13,7 +13,7 @@
 
 #include "dns/util.hpp"
 #include "dns/validator.h"
-#include "dns/wire/query.h"
+#include "dns/wire/query_util.h"
 #include "dns/dns_error_info.h"
 #include "exception/dns_lookup.h"
 #include "exception/tls.h"
@@ -110,7 +110,7 @@ std::expected<std::vector<std::uint8_t>, DnsErrorInfo> DohResolver::Impl::query(
                      static_cast<std::uint16_t>(record_type));
 
         // ---- 1. Build the raw DNS query packet ----
-        const auto query_bytes = DNS::mkquery(host, record_type);
+        const auto query_bytes = DNS::build_query(host, record_type);
 
         // ---- 2. Build HTTP POST request (RFC 8484) ----
         const auto http_request = build_http_request(query_bytes);

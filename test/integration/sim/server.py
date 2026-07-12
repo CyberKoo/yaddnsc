@@ -48,7 +48,6 @@ DNS_RESPONSES: dict[str, dict[str, str]] = {
     "yaddnsc.test": {"A": "198.51.100.1", "AAAA": "2001:db8::1"},
     "http.yaddnsc.test": {"A": "198.51.100.2"},
     "iface.yaddnsc.test": {"A": "198.51.100.1"},
-    "test.local": {"A": "198.51.100.4"},
     "ip": {"A": "198.51.100.3"},
 }
 

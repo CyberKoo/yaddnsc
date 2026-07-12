@@ -15,7 +15,7 @@
 ## Features
 
 - **Multi-domain, multi-subdomain management** — manage multiple domains and subdomains from a single configuration file.
-- **Pluggable driver architecture** — drivers are loaded as shared libraries (`.so`) at runtime. Built-in drivers include:
+- **Pluggable driver architecture** — drivers are loaded as shared libraries (`.so`) at runtime. Bundled drivers include:
   - [Cloudflare](https://www.cloudflare.com/) — updates DNS records via the Cloudflare API v4
   - [DigitalOcean](https://www.digitalocean.com/) — updates DNS records via the DigitalOcean API v2
   - [DNSPod](https://www.dnspod.com/) — updates DNS records via DNSPod API (supports both China and Global endpoints)
@@ -127,7 +127,7 @@ sudo cmake --install build
 
 **Legacy devices** — If your toolchain is older (GCC < 14 or Clang < 19), use the `v0.x` (legacy) branch (C++17, CMake 3.14+, OpenSSL 1.1.x). Maintenance-only; feature development happens on master.
 
-**Alpine Linux (musl)** — The native DNS stack is recommended on musl (musl's system resolver is limited — no reentrant `res_nquery`). It is now the default on all platforms. If you encounter issues, set `-DYADDNSC_USE_NATIVE_DNS=OFF` to fall back to libresolv.
+**Alpine Linux (musl)** — musl lacks the reentrant `res_n*` resolver family; the native DNS stack (now the default on all platforms) handles this correctly. To fall back to libresolv, set `-DYADDNSC_USE_NATIVE_DNS=OFF`.
 
 ### Testing
 

@@ -92,7 +92,6 @@ add_unit_test(classic_native_resolver SOURCE classic_native_resolver_test.cpp
     ${PROJECT_SOURCE_DIR}/src/dns/error.cpp
     ${PROJECT_SOURCE_DIR}/src/network/socket.cpp
     ${PROJECT_SOURCE_DIR}/src/network/socket_addr.cpp
-    ${PROJECT_SOURCE_DIR}/src/dns/wire/query.cpp
     ${PROJECT_SOURCE_DIR}/src/dns/wire/builder.cpp
     ${PROJECT_SOURCE_DIR}/src/network/inet_address.cpp
     ${PROJECT_SOURCE_DIR}/src/network/uri.cpp)
@@ -100,9 +99,3 @@ target_compile_definitions(test_classic_native_resolver PRIVATE
     YADDNSC_USE_NATIVE_DNS=1
     TEST_DATA_DIR="${PROJECT_SOURCE_DIR}/test/component"
 )
-
-# query.cpp may reference res_mkquery (→ res_9_mkquery on macOS).
-find_library(RESOLV resolv)
-if (RESOLV)
-  target_link_libraries(test_classic_native_resolver PRIVATE ${RESOLV})
-endif ()

@@ -175,7 +175,7 @@ void Updater::process(const UpdateTask &task, const Driver &driver, HttpClient &
     try {
         impl_->process(task, driver, http_client);
     } catch (const std::exception &e) {
-        SPDLOG_ERROR("Unhandled exception during update for {}: {}", task.fqdn, e.what());
+        SPDLOG_ERROR("Unhandled exception during update of {}. {}", task.fqdn, e.what());
     } catch (...) {
         SPDLOG_ERROR("Unknown non-standard exception during update for {}", task.fqdn);
     }

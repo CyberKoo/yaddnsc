@@ -15,7 +15,7 @@
 ## 功能特性
 
 - **多域名、多子域名管理** — 单个配置文件即可管理多个域名及其子域名。
-- **插件化驱动架构** — 驱动以共享库（`.so`）形式在运行时通过 `dlopen` 动态加载。内置驱动包括：
+- **插件化驱动架构** — 驱动以共享库（`.so`）形式在运行时通过 `dlopen` 动态加载。随附驱动包括：
   - [Cloudflare](https://www.cloudflare.com/) — 通过 Cloudflare API v4 更新 DNS 记录
   - [DigitalOcean](https://www.digitalocean.com/) — 通过 DigitalOcean API v2 更新 DNS 记录
   - [DNSPod](https://www.dnspod.com/) — 通过 DNSPod API 更新 DNS 记录（同时支持国内和国际端点）
@@ -126,7 +126,7 @@ sudo cmake --install build
 
 **老旧设备** — 如果工具链版本过低（GCC < 14 或 Clang < 19），请使用 `v0.x` 分支（C++17、CMake 3.14+、OpenSSL 1.1.x）。该分支仅维护 bug 修复，新功能在 master 上开发。
 
-**Alpine Linux (musl)** — 推荐在 musl 上使用内置 DNS 栈（musl 的系统解析器功能有限，不支持可重入的 `res_nquery`）。内置 DNS 栈现已在所有平台上默认启用。如遇到问题，可设置 `-DYADDNSC_USE_NATIVE_DNS=OFF` 回退到 libresolv。
+**Alpine Linux (musl)** — musl 缺少可重入的 `res_n*` 解析器函数族；内置 DNS 栈（现已默认启用）对此处理正确。如需回退到 libresolv，设置 `-DYADDNSC_USE_NATIVE_DNS=OFF`。
 
 ### 测试
 

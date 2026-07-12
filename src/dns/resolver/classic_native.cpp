@@ -16,7 +16,7 @@
 #include "dns/resolver_registry.h"
 #include "dns/util.hpp"
 #include "dns/validator.h"
-#include "dns/wire/query.h"
+#include "dns/wire/query_util.h"
 #include "dns/dns_error_info.h"
 #include "exception/dns_lookup.h"
 #include "exception/dns_packet.h"
@@ -281,7 +281,7 @@ ClassicResolver::Impl::query(const std::string &host_str, RecordKind type,
         );
 
         // Build query packet using the native wire-format builder.
-        auto query_packet = DNS::mkquery_native(host_str, record_type);
+        auto query_packet = DNS::build_query(host_str, record_type);
 
         // Try UDP first.
         // query_udp returns std::expected for I/O errors.  Socket constructor
