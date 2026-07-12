@@ -35,7 +35,8 @@ public:
     ~DohResolver() override;
 
     [[nodiscard]] std::expected<std::vector<std::uint8_t>, DnsErrorInfo>
-    query(const std::string &host, RecordKind type, int cancel_fd = -1) const override;
+    query(const std::string &host, RecordKind type,
+          const Utils::CancellationToken &cancel_token) const override;
 
     [[nodiscard]] std::string_view get_type() const noexcept override { return TYPE; }
 

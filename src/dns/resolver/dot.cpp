@@ -51,7 +51,8 @@ struct DotResolver::Impl {
 
     // ── Public member functions ──
     [[nodiscard]] std::expected<std::vector<std::uint8_t>, DnsErrorInfo> query(
-        const std::string &host, RecordKind type, int cancel_fd = -1) const;
+        const std::string &host, RecordKind type,
+        const Utils::CancellationToken &cancel_token) const;
 
     // ── Private helpers ──
     /// Ensure a persistent TLS connection exists (create or reuse).
@@ -66,12 +67,14 @@ struct DotResolver::Impl {
 
     /// Send the wire-format query with one automatic reconnect.
     /// @return  std::expected on success or I/O error (timeout, cancellation).
-    [[nodiscard]] std::expected<void, DnsErrorInfo> send_query(std::span<const std::uint8_t> wire, int cancel_fd) const;
+    [[nodiscard]] std::expected<void, DnsErrorInfo> send_query(std::span<const std::uint8_t> wire,
+                                                             const Utils::CancellationToken &cancel_token) const;
 
     /// Read the response (2-byte length prefix + DNS message).
     /// @return  Parsed DNS response on success, or an I/O/parse error.
     ///          Does NOT throw.
-    [[nodiscard]] std::expected<std::vector<std::uint8_t>, DnsErrorInfo> read_response(int cancel_fd) const;
+    [[nodiscard]] std::expected<std::vector<std::uint8_t>, DnsErrorInfo> read_response(
+        const Utils::CancellationToken &cancel_token) const;
 
     // ── Data members ──
     const std::uint64_t id_;
@@ -89,7 +92,8 @@ DotResolver::Impl::Impl(std::string server, std::uint16_t port, std::uint64_t id
 }
 
 std::expected<std::vector<std::uint8_t>, DnsErrorInfo> DotResolver::Impl::query(
-    const std::string &host, RecordKind type, int cancel_fd) const {
+    const std::string &host, RecordKind type,
+    const Utils::CancellationToken &cancel_token) const {
     try {
         const auto record_type = DNS::Util::type_to_record_type(type);
 
@@ -112,18 +116,22 @@ std::expected<std::vector<std::uint8_t>, DnsErrorInfo> DotResolver::Impl::query(
                 SPDLOG_DEBUG(R"(Connection to "{}" failed, reconnecting)", label_);
                 // No graceful TLS shutdown needed — we are about to reconnect.
                 // The connection may already be in an inconsistent state (e.g.
-                // connect timed out mid-handshake, leaving ssl_ dangling).
+                // connect timed out mid-handshake).
                 // Just close and let ensure_connection() rebuild from scratch.
                 persistent_conn_->close();
             }
 
-            auto send_result = send_query(wire, cancel_fd);
+            auto send_result = send_query(wire, cancel_token);
             if (!send_result) {
+                // CANCELLED should not be retried — abort immediately.
+                if (send_result.error().code == DnsError::CANCELLED) {
+                    return std::unexpected(std::move(send_result.error()));
+                }
                 if (attempt < MAX_ATTEMPTS - 1) continue;
                 return std::unexpected(std::move(send_result.error()));
             }
 
-            auto response = read_response(cancel_fd);
+            auto response = read_response(cancel_token);
             if (!response) {
                 // CANCELLED should not be retried — abort immediately.
                 if (response.error().code == DnsError::CANCELLED) {
@@ -229,11 +237,12 @@ std::vector<std::uint8_t> DotResolver::Impl::build_wire_format(const std::vector
 // ---------------------------------------------------------------------------
 
 std::expected<void, DnsErrorInfo> DotResolver::Impl::send_query(
-    std::span<const std::uint8_t> wire, int cancel_fd) const {
+    std::span<const std::uint8_t> wire,
+    const Utils::CancellationToken &cancel_token) const {
     if (auto res = ensure_connection(); !res) {
         return std::unexpected(std::move(res.error()));
     }
-    auto status = persistent_conn_->send_all(wire, cancel_fd);
+    auto status = persistent_conn_->send_all(wire, cancel_token);
 
     if (!status) {
         if (status.error() == TlsConnection::IoStatus::CANCELLED) {
@@ -264,10 +273,11 @@ std::expected<void, DnsErrorInfo> DotResolver::Impl::send_query(
 //  next query and reconnect if needed.
 // ---------------------------------------------------------------------------
 
-std::expected<std::vector<std::uint8_t>, DnsErrorInfo> DotResolver::Impl::read_response(int cancel_fd) const {
+std::expected<std::vector<std::uint8_t>, DnsErrorInfo> DotResolver::Impl::read_response(
+    const Utils::CancellationToken &cancel_token) const {
     // Read 2-byte response length prefix (big-endian).
     std::array<std::uint8_t, 2> length_buffer{};
-    auto status = persistent_conn_->read_exact(length_buffer, cancel_fd);
+    auto status = persistent_conn_->read_exact(length_buffer, cancel_token);
     if (!status) {
         if (status.error() == TlsConnection::IoStatus::CANCELLED) {
             return std::unexpected(DnsErrorInfo{DnsError::CANCELLED, "Query cancelled"});
@@ -295,7 +305,7 @@ std::expected<std::vector<std::uint8_t>, DnsErrorInfo> DotResolver::Impl::read_r
 
     // Read response body.
     std::vector<std::uint8_t> response(resp_len, 0);
-    status = persistent_conn_->read_exact(std::span{response}, cancel_fd);
+    status = persistent_conn_->read_exact(std::span{response}, cancel_token);
     if (!status) {
         if (status.error() == TlsConnection::IoStatus::CANCELLED) {
             return std::unexpected(DnsErrorInfo{DnsError::CANCELLED, "Query cancelled"});
@@ -336,9 +346,9 @@ std::expected<void, DnsErrorInfo> DotResolver::Impl::ensure_connection() const {
     }
 
     if (!persistent_conn_) {
-        persistent_conn_ = std::make_unique<TlsConnection>(server_, port_, CONNECT_TIMEOUT,
-                                                           std::nullopt,
-                                                           std::span<const unsigned char>(ALPN_DOT));
+        persistent_conn_ = std::make_unique<TlsConnection>(
+            server_, port_, TlsOptions{.alpn_proto = ALPN_DOT, .connect_timeout = CONNECT_TIMEOUT}
+        );
     }
 
     auto connect_result = persistent_conn_->connect();
@@ -377,8 +387,9 @@ DotResolver::DotResolver(std::string server, std::uint16_t port, std::string lab
 DotResolver::~DotResolver() = default;
 
 std::expected<std::vector<std::uint8_t>, DnsErrorInfo> DotResolver::query(
-    const std::string &host, RecordKind type, int cancel_fd) const {
-    return impl_->query(host, type, cancel_fd);
+    const std::string &host, RecordKind type,
+    const Utils::CancellationToken &cancel_token) const {
+    return impl_->query(host, type, cancel_token);
 }
 
 // ===========================================================================

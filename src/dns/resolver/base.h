@@ -16,6 +16,12 @@
 #include "record_kind.h"
 #include "dns/dns_error_info.h"
 
+// ── Forward declarations ──
+
+namespace Utils {
+class CancellationToken;
+}
+
 /// ResolverBase — common interface for all DNS resolvers.
 ///
 /// Provides the shared contract (query + non-copyable semantics) so that
@@ -32,13 +38,11 @@ public:
 
     /// Perform a DNS query and return the raw response packet.
     ///
-    /// @param host      Hostname to look up.
-    /// @param type      Record type (A, AAAA, etc.).
-    /// @param cancel_fd Optional fd to monitor for cancellation.
-    ///                  Pass -1 (default) for no cancellation support.
-    ///
-    /// @note cancel_fd is supported by all resolvers: DohResolver, DotResolver,
-    ///       and ClassicResolver all monitor the fd and abort on cancellation.
+    /// @param host         Hostname to look up.
+    /// @param type         Record type (A, AAAA, etc.).
+    /// @param cancel_token Optional cancellation token.  All resolver types
+    ///                     (DohResolver, DotResolver, ClassicResolver) monitor
+    ///                     the token and abort the query on cancellation.
     ///
     /// @return  Raw DNS response packet bytes on success, or a DnsErrorInfo
     ///          describing the failure (transport error, NXDOMAIN, timeout, etc.).
@@ -46,7 +50,8 @@ public:
     ///          distinguish transient errors (RETRY, CONNECTION) from permanent
     ///          ones (NX_DOMAIN, NODATA).
     [[nodiscard]] virtual std::expected<std::vector<std::uint8_t>, DnsErrorInfo>
-    query(const std::string &host, RecordKind type, int cancel_fd = -1) const = 0;
+    query(const std::string &host, RecordKind type,
+          const Utils::CancellationToken &cancel_token) const = 0;
 
     /// Return a human-readable resolver type name (e.g. "Classic", "DNS-Over-HTTPS").
     [[nodiscard]] virtual std::string_view get_type() const noexcept = 0;

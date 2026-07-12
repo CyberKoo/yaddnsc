@@ -14,12 +14,13 @@
 #include <gmock/gmock.h>
 
 #include "dns/resolver/base.h"
+#include "util/cancellation_token.hpp"
 
 class MockResolver : public ResolverBase {
 public:
     MOCK_METHOD((std::expected<std::vector<std::uint8_t>, DnsErrorInfo>),
                 query,
-                (const std::string& host, RecordKind type, int cancel_fd),
+                (const std::string& host, RecordKind type, const Utils::CancellationToken& cancel_token),
                 (const, override));
 
     MOCK_METHOD(std::string_view, get_type, (), (const, noexcept, override));

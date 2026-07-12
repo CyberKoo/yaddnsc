@@ -221,7 +221,7 @@ struct ClassicResolver::Impl {
     ~Impl() = default;
 
     [[nodiscard]] std::expected<std::vector<std::uint8_t>, DnsErrorInfo> query(
-        const std::string &host_str, RecordKind type, int cancel_fd = -1) const;
+        const std::string &host_str, RecordKind type, const Utils::CancellationToken &cancel_token) const;
 
     std::uint64_t id_;
     Config::DnsServer server_;
@@ -233,7 +233,8 @@ ClassicResolver::Impl::Impl(Config::DnsServer server, std::uint64_t id)
 }
 
 std::expected<std::vector<std::uint8_t>, DnsErrorInfo>
-ClassicResolver::Impl::query(const std::string &host_str, RecordKind type, [[maybe_unused]] int cancel_fd) const {
+ClassicResolver::Impl::query(const std::string &host_str, RecordKind type,
+                             [[maybe_unused]] const Utils::CancellationToken &cancel_token) const {
     try {
         SPDLOG_TRACE(R"(Resolver #{} DNS lookup for "{}")", id_, host_str);
 
@@ -262,8 +263,8 @@ ClassicResolver::ClassicResolver(Config::DnsServer server) : impl_(
 ClassicResolver::~ClassicResolver() = default;
 
 std::expected<std::vector<std::uint8_t>, DnsErrorInfo> ClassicResolver::query(
-    const std::string &host, RecordKind type, int cancel_fd) const {
-    return impl_->query(host, type, cancel_fd);
+    const std::string &host, RecordKind type, const Utils::CancellationToken &cancel_token) const {
+    return impl_->query(host, type, cancel_token);
 }
 
 // ===========================================================================

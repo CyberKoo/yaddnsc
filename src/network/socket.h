@@ -14,6 +14,12 @@
 
 #include "mixin.h"
 
+// ── Forward declarations ──
+
+namespace Utils {
+class CancellationToken;
+}
+
 #include <sys/socket.h>
 
 // ---------------------------------------------------------------------------
@@ -37,7 +43,7 @@ enum class ConnectError {
     TIMED_OUT,    ///< Connection timed out (ETIMEDOUT).
     REFUSED,      ///< Connection refused (ECONNREFUSED).
     UNREACHABLE,  ///< Network or host unreachable (ENETUNREACH, EHOSTUNREACH).
-    CANCELLED,    ///< Operation cancelled via cancel_fd (ECANCELED).
+    CANCELLED,    ///< Operation cancelled via CancellationToken (ECANCELED).
     INTERNAL,     ///< Internal OS error (fcntl, poll, getsockopt, etc.).
 };
 
@@ -223,15 +229,17 @@ public:
     /// Close the socket (idempotent; safe to call multiple times).
     void close() noexcept;
 
-    /// Wait for socket readiness via poll().
-    /// When @p cancel_fd >= 0, also monitors that fd for cancellation.
-    /// If the cancel fd becomes readable, returns std::unexpected(ECANCELED).
-    /// @param events     Events to poll for (POLLIN, POLLOUT, etc.).
-    /// @param timeout_ms Timeout in milliseconds.
-    /// @param cancel_fd  Optional fd to monitor for cancellation signal.
-    /// @return  1 on ready, 0 on timeout (timeout_ms = 0 returns immediately),
-    ///          or std::unexpected(errno) / std::unexpected(ECANCELED).
-    [[nodiscard]] std::expected<int, int> wait_for(short events, int timeout_ms, int cancel_fd = -1) const noexcept;
+    /// Wait for socket readiness via poll() (no cancellation support).
+    /// @return  1 on ready, 0 on timeout, or std::unexpected(errno).
+    [[nodiscard]] std::expected<int, int> wait_for(short events, int timeout_ms) const noexcept;
+
+    /// Wait for socket readiness via poll() with optional cancellation.
+    /// @param cancel_token  When active, also monitors this fd for cancellation.
+    ///                      If triggered, returns std::unexpected(ECANCELED).
+    /// @return  1 on ready, 0 on timeout, std::unexpected(errno),
+    ///          or std::unexpected(ECANCELED).
+    [[nodiscard]] std::expected<int, int> wait_for(short events, int timeout_ms,
+                                                   const Utils::CancellationToken &cancel_token) const noexcept;
 
     // ---- Accessors ---------------------------------------------------------
 

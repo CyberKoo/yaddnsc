@@ -3,6 +3,8 @@
 //
 #include "network/socket.h"
 
+#include "util/cancellation_token.hpp"
+
 #include <unistd.h>
 #include <fcntl.h>
 #include <poll.h>
@@ -547,12 +549,19 @@ void Socket::close() noexcept {
     [[maybe_unused]] auto _ = ::close(fd);
 }
 
-std::expected<int, int> Socket::wait_for(short events, int timeout_ms, int cancel_fd) const noexcept {
+std::expected<int, int> Socket::wait_for(short events, int timeout_ms) const noexcept {
+    return wait_for(events, timeout_ms, {});
+}
+
+std::expected<int, int> Socket::wait_for(short events, int timeout_ms,
+                                         const Utils::CancellationToken &cancel_token) const noexcept {
+    const int cancel_fd = cancel_token.native_handle();
+
     pollfd pfds[2];
     pfds[0] = {fd_, events, 0};
 
     auto nfds = static_cast<nfds_t>(1);
-    if (cancel_fd >= 0) {
+    if (cancel_token) {
         pfds[1] = {cancel_fd, POLLIN, 0};
         nfds = static_cast<nfds_t>(2);
     }
@@ -567,10 +576,8 @@ std::expected<int, int> Socket::wait_for(short events, int timeout_ms, int cance
     }
 
     // Check cancellation before normal readiness.
-    if (nfds > 1 && (pfds[1].revents & POLLIN)) {
-        // Drain the cancellation fd (pipe or eventfd) before returning.
-        std::uint64_t val = 0;
-        [[maybe_unused]] auto _ = ::read(cancel_fd, &val, sizeof(val));
+    if (cancel_token && (pfds[1].revents & POLLIN)) {
+        cancel_token.drain();
         return std::unexpected(ECANCELED);
     }
 

@@ -22,6 +22,7 @@
 #include "dns/resolver/base.h"
 #include "dns/dns_error_info.h"
 #include "exception/dns_lookup.h"
+#include "util/cancellation_token.hpp"
 #include "util/fd.hpp"
 #include "util/random.hpp"
 #include "util/retry_util.hpp"
@@ -51,10 +52,11 @@ namespace {
     ///        Unexpected exceptions from the resolver/parser layer are caught here
     ///        to prevent std::terminate — this is NOT catch-to-convert for flow control.
     [[nodiscard]] std::expected<std::vector<std::string>, DnsErrorInfo>
-    try_resolve(const ResolverBase &resolver, const std::string &host, RecordKind type, int cancel_fd = -1) {
+    try_resolve(const ResolverBase &resolver, const std::string &host, RecordKind type,
+                const Utils::CancellationToken &cancel_token) {
         try {
             // ── 1. Query the resolver (transport layer) ──
-            auto raw = resolver.query(host, type, cancel_fd);
+            auto raw = resolver.query(host, type, cancel_token);
             if (!raw) {
                 return std::unexpected(std::move(raw.error()));
             }
@@ -209,7 +211,7 @@ SingleResolverRunner::run(const std::string &host, RecordKind type, std::uint32_
     unsigned actual_retries = 0;
     auto result = Utils::Retry::retry_on_error<std::vector<std::string>, DnsErrorInfo>(
         [this, &host, &type]() -> std::expected<std::vector<std::string>, DnsErrorInfo> {
-            return try_resolve(resolver_, host, type);
+            return try_resolve(resolver_, host, type, {});
         },
         max_retries, [](const DnsErrorInfo &e) { return is_retryable(e.code); },
         backoff_ms, &actual_retries);
@@ -256,7 +258,7 @@ FallbackRunner::run(const std::string &host, RecordKind type) const {
         const auto &resolver = resolvers_[idx];
         const auto id = resolver->get_id();
 
-        auto result = try_resolve(*resolver, host, type);
+        auto result = try_resolve(*resolver, host, type, {});
         if (result) {
             if (result->size() > 1) {
                 SPDLOG_WARN(R"(Resolver #{} Domain "{}" resolved to more than one address (count: {}))", id, host,
@@ -363,7 +365,7 @@ void BatchRunner::resolve_one(const std::stop_token &st, const ResolverBase &res
     std::stop_callback cb(st, [&write] {
         if (write) [[likely]] {
             alignas(std::uint64_t) char buf[8] = {};
-            std::ignore = ::write(write.get(), buf, sizeof(buf));
+            [[maybe_unused]] auto _ = ::write(write.get(), buf, sizeof(buf));
         }
     });
 
@@ -371,7 +373,8 @@ void BatchRunner::resolve_one(const std::stop_token &st, const ResolverBase &res
         return;
     }
 
-    auto result = try_resolve(resolver, host_, type_, read.get());
+    Utils::CancellationToken cancel_token(read.get());
+    auto result = try_resolve(resolver, host_, type_, cancel_token);
     const auto id = resolver.get_id();
 
     if (result) {

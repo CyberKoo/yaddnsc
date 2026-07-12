@@ -58,7 +58,8 @@ struct DohResolver::Impl {
 
     // ── Public member functions ──
     [[nodiscard]] std::expected<std::vector<std::uint8_t>, DnsErrorInfo>
-    query(const std::string &host, RecordKind type, int cancel_fd = -1) const;
+    query(const std::string &host, RecordKind type,
+          const Utils::CancellationToken &cancel_token) const;
 
     // ── Private helpers ──
     /// Ensure a persistent TLS connection exists (create or reuse).
@@ -69,13 +70,14 @@ struct DohResolver::Impl {
 
     /// Send the HTTP request with one automatic reconnect.
     /// @return  std::expected on success or I/O error (timeout, cancellation).
-    [[nodiscard]]
-    std::expected<void, DnsErrorInfo> send_request(std::span<const std::uint8_t> request, int cancel_fd) const;
+    [[nodiscard]] std::expected<void, DnsErrorInfo> send_request(
+        std::span<const std::uint8_t> request, const Utils::CancellationToken &cancel_token) const;
 
     /// Read and parse the HTTP response.
     /// @return  DNS response body on success, or an I/O/parse error.
     ///          Does NOT throw.
-    [[nodiscard]] std::expected<std::vector<std::uint8_t>, DnsErrorInfo> read_response(int cancel_fd) const;
+    [[nodiscard]] std::expected<std::vector<std::uint8_t>, DnsErrorInfo> read_response(
+        const Utils::CancellationToken &cancel_token) const;
 
     // ── Data members ──
     const std::uint64_t id_;
@@ -99,7 +101,8 @@ DohResolver::Impl::Impl(std::string server, std::uint16_t port, std::string path
 // ===========================================================================
 
 std::expected<std::vector<std::uint8_t>, DnsErrorInfo> DohResolver::Impl::query(
-    const std::string &host, RecordKind type, int cancel_fd) const {
+    const std::string &host, RecordKind type,
+    const Utils::CancellationToken &cancel_token) const {
     try {
         const auto record_type = DNS::Util::type_to_record_type(type);
 
@@ -123,13 +126,17 @@ std::expected<std::vector<std::uint8_t>, DnsErrorInfo> DohResolver::Impl::query(
                 persistent_conn_->close();
             }
 
-            auto send_result = send_request(http_request, cancel_fd);
+            auto send_result = send_request(http_request, cancel_token);
             if (!send_result) {
+                // CANCELLED should not be retried — abort immediately.
+                if (send_result.error().code == DnsError::CANCELLED) {
+                    return std::unexpected(std::move(send_result.error()));
+                }
                 if (attempt < MAX_ATTEMPTS - 1) continue;
                 return std::unexpected(std::move(send_result.error()));
             }
 
-            auto response = read_response(cancel_fd);
+            auto response = read_response(cancel_token);
             if (!response) {
                 // CANCELLED should not be retried — abort immediately.
                 if (response.error().code == DnsError::CANCELLED) {
@@ -199,11 +206,12 @@ std::vector<std::uint8_t> DohResolver::Impl::build_http_request(std::span<const 
 // ---------------------------------------------------------------------------
 
 std::expected<void, DnsErrorInfo> DohResolver::Impl::send_request(
-    std::span<const std::uint8_t> request, int cancel_fd) const {
+    std::span<const std::uint8_t> request,
+    const Utils::CancellationToken &cancel_token) const {
     if (auto res = ensure_connection(); !res) {
         return std::unexpected(std::move(res.error()));
     }
-    auto status = persistent_conn_->send_all(request, cancel_fd);
+    auto status = persistent_conn_->send_all(request, cancel_token);
 
     if (!status) {
         if (status.error() == TlsConnection::IoStatus::CANCELLED) {
@@ -229,7 +237,8 @@ std::expected<void, DnsErrorInfo> DohResolver::Impl::send_request(
 //  conditions.  Does NOT throw.
 // ---------------------------------------------------------------------------
 
-std::expected<std::vector<std::uint8_t>, DnsErrorInfo> DohResolver::Impl::read_response(int cancel_fd) const {
+std::expected<std::vector<std::uint8_t>, DnsErrorInfo> DohResolver::Impl::read_response(
+    const Utils::CancellationToken &cancel_token) const {
     constexpr size_t INITIAL_BUF_SIZE = 4096;
     constexpr size_t MAX_HEADER_SIZE = 8192;
     constexpr size_t MAX_BODY_SIZE = 65536;
@@ -271,7 +280,7 @@ std::expected<std::vector<std::uint8_t>, DnsErrorInfo> DohResolver::Impl::read_r
                     body.resize(info.content_length);
                     auto *dst = body.data() + body_buffered;
                     const auto remaining = info.content_length - body_buffered;
-                    auto read_status = persistent_conn_->read_exact(std::span(dst, remaining), cancel_fd);
+                    auto read_status = persistent_conn_->read_exact(std::span(dst, remaining), cancel_token);
 
                     if (!read_status) {
                         if (read_status.error() == TlsConnection::IoStatus::CANCELLED) {
@@ -310,7 +319,7 @@ std::expected<std::vector<std::uint8_t>, DnsErrorInfo> DohResolver::Impl::read_r
                         dst = dst.subspan(take);
                         need -= take;
                     } else {
-                        auto status = persistent_conn_->read_exact(dst, cancel_fd);
+                        auto status = persistent_conn_->read_exact(dst, cancel_token);
                         if (!status) {
                             if (status.error() == TlsConnection::IoStatus::CANCELLED) {
                                 return std::unexpected(DnsErrorInfo{DnsError::CANCELLED, "Query cancelled"});
@@ -434,7 +443,7 @@ std::expected<std::vector<std::uint8_t>, DnsErrorInfo> DohResolver::Impl::read_r
         auto *read_ptr = reinterpret_cast<std::uint8_t *>(buf.data() + total_read);
         const auto read_capacity = buf.size() - total_read;
 
-        auto read_result = persistent_conn_->read_some(std::span<std::uint8_t>(read_ptr, read_capacity), cancel_fd);
+        auto read_result = persistent_conn_->read_some(std::span<std::uint8_t>(read_ptr, read_capacity), cancel_token);
 
         if (!read_result) {
             if (read_result.error() == TlsConnection::IoStatus::CANCELLED) {
@@ -477,7 +486,7 @@ std::expected<void, DnsErrorInfo> DohResolver::Impl::ensure_connection() const {
 
     if (!persistent_conn_) {
         persistent_conn_ = std::make_unique<TlsConnection>(
-            server_, port_, CONNECT_TIMEOUT, std::nullopt, std::span<const unsigned char>(ALPN_HTTP)
+            server_, port_, TlsOptions{.alpn_proto = ALPN_HTTP, .connect_timeout = CONNECT_TIMEOUT}
         );
     }
 
@@ -506,8 +515,9 @@ DohResolver::DohResolver(std::string host, std::uint16_t port, std::string path,
 DohResolver::~DohResolver() = default;
 
 std::expected<std::vector<std::uint8_t>, DnsErrorInfo>
-DohResolver::query(const std::string &host, RecordKind type, int cancel_fd) const {
-    return impl_->query(host, type, cancel_fd);
+DohResolver::query(const std::string &host, RecordKind type,
+                   const Utils::CancellationToken &cancel_token) const {
+    return impl_->query(host, type, cancel_token);
 }
 
 // ===========================================================================

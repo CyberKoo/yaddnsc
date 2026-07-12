@@ -64,7 +64,7 @@ std::string DNS::RecordParser::decompress_name(const std::span<const std::uint8_
     // a simple linear scan is both simpler and faster than a hash set.
     const auto wire_len = wire.size();
     std::array<size_t, MAX_POINTER_DEPTH> visited{};
-    int visited_count = 0;
+    size_t visited_count = 0;
     std::string result;
     result.reserve(NAME_MAX_BYTES);
 
@@ -101,7 +101,7 @@ std::string DNS::RecordParser::decompress_name(const std::span<const std::uint8_
             }
 
             // Linear scan of visited offsets (max 16 iterations, no allocation).
-            for (int i = 0; i < visited_count; ++i) {
+            for (size_t i = 0; i < visited_count; ++i) {
                 if (visited[i] == ptr_offset) {
                     throw DnsLookupException(
                         fmt::format("DNS name decompression: repeated pointer to offset {} (cycle)", ptr_offset),

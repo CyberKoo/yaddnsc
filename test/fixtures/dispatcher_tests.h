@@ -302,11 +302,13 @@ public:
         : succeed_(succeed), poll_ms_(poll_ms) {}
 
     [[nodiscard]] std::expected<std::vector<std::uint8_t>, DnsErrorInfo>
-    query(const std::string &, RecordKind, int cancel_fd) const override {
-        if (cancel_fd >= 0) {
+    query(const std::string &, RecordKind, const Utils::CancellationToken &cancel_token) const override {
+        if (cancel_token) {
+            const int cancel_fd = cancel_token.native_handle();
             ::pollfd pfd{cancel_fd, POLLIN, 0};
             const int r = ::poll(&pfd, 1, poll_ms_);
             if (r > 0) {
+                cancel_token.drain();
                 return std::unexpected(DnsErrorInfo{DnsError::CANCELLED, "cancelled by winner"});
             }
         }
@@ -511,7 +513,8 @@ TEST(DispatcherSingle, MultipleRecords_ReturnsAll) {
 TEST(DispatcherSingle, ThrowsDnsLookupException_TranslatedToParse) {
     auto r = make_mock();
     ON_CALL(*r, query(_, _, _))
-        .WillByDefault([](const std::string &, RecordKind, int) -> std::expected<std::vector<std::uint8_t>, DnsErrorInfo> {
+        .WillByDefault([](const std::string &, RecordKind,
+                          const Utils::CancellationToken &) -> std::expected<std::vector<std::uint8_t>, DnsErrorInfo> {
             throw DnsLookupException("parse boom", DnsError::PARSE);
         });
     std::vector<std::unique_ptr<ResolverBase>> resolvers;
@@ -526,7 +529,8 @@ TEST(DispatcherSingle, ThrowsDnsLookupException_TranslatedToParse) {
 TEST(DispatcherSingle, ThrowsStdException_TranslatedToUnknown) {
     auto r = make_mock();
     ON_CALL(*r, query(_, _, _))
-        .WillByDefault([](const std::string &, RecordKind, int) -> std::expected<std::vector<std::uint8_t>, DnsErrorInfo> {
+        .WillByDefault([](const std::string &, RecordKind,
+                          const Utils::CancellationToken &) -> std::expected<std::vector<std::uint8_t>, DnsErrorInfo> {
             throw std::runtime_error("transport boom");
         });
     std::vector<std::unique_ptr<ResolverBase>> resolvers;

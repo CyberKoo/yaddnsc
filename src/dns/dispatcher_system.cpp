@@ -29,6 +29,7 @@
 #include "dns/resolver/base.h"
 #include "dns/dns_error_info.h"
 #include "exception/dns_lookup.h"
+#include "util/cancellation_token.hpp"
 #include "util/fd.hpp"
 #include "util/random.hpp"
 #include "util/retry_util.hpp"
@@ -64,8 +65,7 @@ struct ResolverDispatcher::Impl {
         int completed = 0; ///< Number of resolvers that finished.
         int total = 0; ///< Total resolvers in this batch.
 
-        Utils::UniqueFd cancel_fd; ///< Read end of cancel pipe.
-        Utils::UniqueFd cancel_notify_fd; ///< Write end of cancel pipe.
+        Utils::CancellationSource cancel_source; ///< Cancellation pipe for this batch.
     };
 
     // ── Static functions ──
@@ -74,10 +74,12 @@ struct ResolverDispatcher::Impl {
     /// Query a single resolver, parse the response, and classify the result.
     /// Handles transport errors, parse exceptions, and all RCODE values uniformly.
     [[nodiscard]] static std::expected<std::vector<std::string>, DnsErrorInfo>
-    try_resolve(const ResolverBase &resolver, const std::string &host, RecordKind type, int cancel_fd = -1);
+    try_resolve(const ResolverBase &resolver, const std::string &host, RecordKind type,
+                const Utils::CancellationToken &cancel_token);
 
     static void dispatch_query(const ResolverBase &resolver, const std::string &host, RecordKind type,
-                               const std::shared_ptr<ConcurrentState> &state, int cancel_fd);
+                               const std::shared_ptr<ConcurrentState> &state,
+                               const Utils::CancellationToken &cancel_token);
 
     // ── Constructor / Destructor ──
     Impl(std::vector<std::unique_ptr<ResolverBase> > resolvers, Config::ResolverStrategy strategy)
@@ -144,7 +146,7 @@ std::vector<std::string> ResolverDispatcher::Impl::resolve_single(const std::str
     unsigned actual_retries = 0;
     auto result = Utils::Retry::retry_on_error<std::vector<std::string>, DnsErrorInfo>(
         [&]() -> std::expected<std::vector<std::string>, DnsErrorInfo> {
-            return try_resolve(*resolvers_[0], host, type);
+            return try_resolve(*resolvers_[0], host, type, {});
         },
         static_cast<unsigned>(max_retries), [](const DnsErrorInfo &e) { return is_retryable(e.code); },
         static_cast<unsigned long>(backoff_ms), &actual_retries);
@@ -173,9 +175,9 @@ std::expected<std::vector<std::string>, DnsErrorInfo> ResolverDispatcher::Impl::
     const ResolverBase &resolver,
     const std::string &host,
     RecordKind type,
-    int cancel_fd) {
+    const Utils::CancellationToken &cancel_token) {
     // ── 1. Query the resolver (transport layer) ──
-    auto raw = resolver.query(host, type, cancel_fd);
+    auto raw = resolver.query(host, type, cancel_token);
     if (!raw) {
         return std::unexpected(std::move(raw.error()));
     }
@@ -231,9 +233,10 @@ bool ResolverDispatcher::Impl::is_retryable(DnsError error) {
 }
 
 void ResolverDispatcher::Impl::dispatch_query(const ResolverBase &resolver, const std::string &host, RecordKind type,
-                                              const std::shared_ptr<ConcurrentState> &state, int cancel_fd) {
+                                              const std::shared_ptr<ConcurrentState> &state,
+                                              const Utils::CancellationToken &cancel_token) {
     const auto id = resolver.get_id();
-    auto result = try_resolve(resolver, host, type, cancel_fd);
+    auto result = try_resolve(resolver, host, type, cancel_token);
 
     if (result) {
         // Fastest resolver returned a valid result — signal success.
@@ -245,10 +248,7 @@ void ResolverDispatcher::Impl::dispatch_query(const ResolverBase &resolver, cons
             state->result = std::move(*result);
             state->has_result = true;
 
-            if (state->cancel_notify_fd) {
-                alignas(std::uint64_t) char buf[8] = {};
-                std::ignore = write(state->cancel_notify_fd.get(), buf, sizeof(buf));
-            }
+            state->cancel_source.trigger();
 
             state->cv.notify_one();
         }
@@ -337,7 +337,7 @@ std::vector<std::string> ResolverDispatcher::Impl::resolve_fallback(const std::s
         const auto &resolver = resolvers_[idx];
         const auto id = resolver->get_id();
 
-        auto result = try_resolve(*resolver, host, type);
+        auto result = try_resolve(*resolver, host, type, {});
 
         if (result) {
             SPDLOG_DEBUG(R"(Fallback resolver #{} returned {} record(s) for "{}": {})", id, result->size(), host,
@@ -392,19 +392,18 @@ std::vector<std::string> ResolverDispatcher::Impl::resolve_concurrent(const std:
         auto state = std::make_shared<ConcurrentState>();
         state->total = batch_count;
 
-        // Create cancellation pipe for this batch.
+        // Create cancellation source for this batch.
         if (batch_count > 1) {
-            auto [read_end, write_end] = Utils::make_pipe();
-            state->cancel_fd = std::move(read_end);
-            state->cancel_notify_fd = std::move(write_end);
+            state->cancel_source = {};  // Re-constructs with a fresh pipe.
         }
 
         SPDLOG_DEBUG(R"(Launching batch of {} resolver(s) ({}-{}) for "{}")", batch_count, offset, batch_end - 1, host);
 
         for (size_t i = offset; i < batch_end; ++i) {
             SPDLOG_TRACE(R"(Batched concurrent resolver #{} for "{}")", resolvers_[i]->get_id(), host);
-            std::thread([resolver = resolvers_[i], host, type, state, cancel_fd = state->cancel_fd.get()] {
-                dispatch_query(*resolver, host, type, state, cancel_fd);
+            auto cancel_token = state->cancel_source.token();
+            std::thread([resolver = resolvers_[i], host, type, state, cancel_token] {
+                dispatch_query(*resolver, host, type, state, cancel_token);
             }).detach();
         }
 
@@ -421,11 +420,8 @@ std::vector<std::string> ResolverDispatcher::Impl::resolve_concurrent(const std:
             }
         }
 
-        // Close pipe fds after the batch completes (all threads are done).
-        // Explicit reset() at the same point as the original ::close() to
-        // preserve timing.  The UniqueFd destructor is the safety net.
-        state->cancel_fd.reset();
-        state->cancel_notify_fd.reset();
+        // Destroy the cancellation source for this batch (closes the pipe fds).
+        state->cancel_source = {};
 
         // Fastest resolver returned a valid result — take it.
         if (has_result) {

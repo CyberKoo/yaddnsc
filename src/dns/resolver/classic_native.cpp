@@ -86,7 +86,8 @@ namespace {
 
     // ── UDP query ──
     [[nodiscard]] std::expected<std::vector<std::uint8_t>, DnsErrorInfo> query_udp(
-        const AddrResult &addr, std::span<const uint8_t> query_packet, int cancel_fd, std::uint64_t resolver_id) {
+        const AddrResult &addr, std::span<const uint8_t> query_packet,
+        const Utils::CancellationToken &cancel_token, std::uint64_t resolver_id) {
         // Socket constructor may throw SocketException on OS resource
         // exhaustion — let it propagate.
         Socket sock(addr.family, SOCK_DGRAM);
@@ -99,7 +100,7 @@ namespace {
             });
         }
 
-        auto wait_res = sock.wait_for(POLLIN, UDP_TIMEOUT_SEC * 1000, cancel_fd);
+        auto wait_res = sock.wait_for(POLLIN, UDP_TIMEOUT_SEC * 1000, cancel_token);
         if (!wait_res) {
             const auto ec = classify_socket_error(wait_res.error());
             return std::unexpected(DnsErrorInfo{ec, socket_error_msg(resolver_id, "UDP wait_for", wait_res.error())});
@@ -126,7 +127,8 @@ namespace {
 
     // ── TCP query (fallback for truncated responses) ──
     [[nodiscard]] std::expected<std::vector<std::uint8_t>, DnsErrorInfo> query_tcp(
-        const AddrResult &addr, std::span<const uint8_t> query_packet, int cancel_fd, std::uint64_t resolver_id) {
+        const AddrResult &addr, std::span<const uint8_t> query_packet,
+        const Utils::CancellationToken &cancel_token, std::uint64_t resolver_id) {
         // Socket constructor may throw SocketException on OS resource
         // exhaustion — let it propagate.
         Socket sock(addr.family, SOCK_STREAM);
@@ -169,9 +171,9 @@ namespace {
         }
 
         // Receive helper: wait with poll, then recv.
-        auto recv_with_timeout = [&sock, cancel_fd, resolver_id](std::span<std::byte> buf)
+        auto recv_with_timeout = [&sock, &cancel_token, resolver_id](std::span<std::byte> buf)
             -> std::expected<size_t, DnsErrorInfo> {
-            auto wait_res = sock.wait_for(POLLIN, TCP_CONNECT_TIMEOUT_SEC * 1000, cancel_fd);
+            auto wait_res = sock.wait_for(POLLIN, TCP_CONNECT_TIMEOUT_SEC * 1000, cancel_token);
             if (!wait_res) {
                 const auto ec = classify_socket_error(wait_res.error());
                 return std::unexpected(DnsErrorInfo{ec, socket_error_msg(resolver_id, "TCP wait_for", wait_res.error())});
@@ -254,7 +256,8 @@ struct ClassicResolver::Impl {
     ~Impl() = default;
 
     [[nodiscard]] std::expected<std::vector<std::uint8_t>, DnsErrorInfo>
-    query(const std::string &host_str, RecordKind type, int cancel_fd = -1) const;
+    query(const std::string &host_str, RecordKind type,
+          const Utils::CancellationToken &cancel_token) const;
 
     std::uint64_t id_;
     Config::DnsServer server_;
@@ -267,7 +270,8 @@ ClassicResolver::Impl::Impl(Config::DnsServer server, std::uint64_t id)
 }
 
 std::expected<std::vector<std::uint8_t>, DnsErrorInfo>
-ClassicResolver::Impl::query(const std::string &host_str, RecordKind type, int cancel_fd) const {
+ClassicResolver::Impl::query(const std::string &host_str, RecordKind type,
+                             const Utils::CancellationToken &cancel_token) const {
     try {
         SPDLOG_TRACE(R"(Resolver #{} DNS lookup for "{}")", id_, host_str);
 
@@ -282,7 +286,7 @@ ClassicResolver::Impl::query(const std::string &host_str, RecordKind type, int c
         // Try UDP first.
         // query_udp returns std::expected for I/O errors.  Socket constructor
         // failure may throw SocketException (OS resource exhaustion).
-        auto response = query_udp(addr_, query_packet, cancel_fd, id_);
+        auto response = query_udp(addr_, query_packet, cancel_token, id_);
         if (!response) {
             return std::unexpected(std::move(response.error()));
         }
@@ -300,7 +304,7 @@ ClassicResolver::Impl::query(const std::string &host_str, RecordKind type, int c
         // Fall back to TCP if response is truncated.
         if (is_truncated(resp_data)) {
             SPDLOG_TRACE(R"(Resolver #{} UDP response truncated for "{}", falling back to TCP)", id_, host_str);
-            auto tcp_response = query_tcp(addr_, query_packet, cancel_fd, id_);
+            auto tcp_response = query_tcp(addr_, query_packet, cancel_token, id_);
             if (!tcp_response) {
                 return std::unexpected(std::move(tcp_response.error()));
             }
@@ -343,8 +347,8 @@ ClassicResolver::ClassicResolver(Config::DnsServer server) : impl_(
 ClassicResolver::~ClassicResolver() = default;
 
 std::expected<std::vector<std::uint8_t>, DnsErrorInfo> ClassicResolver::query(
-    const std::string &host, RecordKind type, int cancel_fd) const {
-    return impl_->query(host, type, cancel_fd);
+    const std::string &host, RecordKind type, const Utils::CancellationToken &cancel_token) const {
+    return impl_->query(host, type, cancel_token);
 }
 
 // ===========================================================================

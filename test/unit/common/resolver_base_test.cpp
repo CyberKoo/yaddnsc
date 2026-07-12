@@ -15,13 +15,15 @@
 #include <gtest/gtest.h>
 
 #include "dns/resolver/base.h"
+#include "util/cancellation_token.hpp"
 
 // ── Concrete subclass for testing ─────────────────────────────────────────────
 
 class TestResolver final : public ResolverBase {
 public:
     [[nodiscard]] std::expected<std::vector<std::uint8_t>, DnsErrorInfo>
-    query(const std::string &host, RecordKind type, int cancel_fd = -1) const override {
+    query(const std::string &host, RecordKind type,
+          const Utils::CancellationToken &cancel_token) const override {
         // Return a minimal "success" packet (just host bytes for identification).
         if (type == RecordKind::A) {
             return std::vector<std::uint8_t>{192, 168, 1, 1};
@@ -94,7 +96,7 @@ TEST(ResolverBaseTest, GetId_AutoIncrements) {
 
 TEST(ResolverBaseTest, Query_Success_ReturnsExpectedBytes) {
     TestResolver resolver;
-    auto result = resolver.query("example.com", RecordKind::A);
+    auto result = resolver.query("example.com", RecordKind::A, {});
 
     ASSERT_TRUE(result.has_value());
     ASSERT_EQ(result->size(), 4U);
@@ -106,7 +108,7 @@ TEST(ResolverBaseTest, Query_Success_ReturnsExpectedBytes) {
 
 TEST(ResolverBaseTest, Query_Failure_ReturnsError) {
     TestResolver resolver;
-    auto result = resolver.query("example.com", RecordKind::AAAA);
+    auto result = resolver.query("example.com", RecordKind::AAAA, {});
 
     ASSERT_FALSE(result.has_value());
     EXPECT_EQ(result.error().code, DnsError::NX_DOMAIN);
@@ -114,8 +116,8 @@ TEST(ResolverBaseTest, Query_Failure_ReturnsError) {
 
 TEST(ResolverBaseTest, Query_AcceptsOptionalCancelFd) {
     TestResolver resolver;
-    // Default cancel_fd = -1 should not affect the result.
-    auto result = resolver.query("example.com", RecordKind::A, -1);
+    // Default cancel_token should not affect the result.
+    auto result = resolver.query("example.com", RecordKind::A, {});
     ASSERT_TRUE(result.has_value());
 }
 
@@ -146,6 +148,6 @@ TEST(ResolverBaseTest, PolymorphicDispatch) {
     EXPECT_EQ(resolver->get_type(), "TestResolver");
     EXPECT_GE(resolver->get_id(), 0U);
 
-    auto result = resolver->query("example.com", RecordKind::A);
+    auto result = resolver->query("example.com", RecordKind::A, {});
     ASSERT_TRUE(result.has_value());
 }
