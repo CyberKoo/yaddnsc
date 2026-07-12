@@ -167,8 +167,7 @@ jobs:
             - name: Install dependencies
               run: |
                   sudo apt update
-                  sudo apt install -y cmake git ninja-build gcc-14 g++-14 libssl-dev \
-                      zlib1g zlib1g-dev pkg-config python3-venv lcov curl
+                  sudo apt install -y cmake git ninja-build gcc-14 g++-14 libssl-dev zlib1g zlib1g-dev pkg-config python3-venv lcov curl
             - name: Configure
               env:
                   CC: gcc-14

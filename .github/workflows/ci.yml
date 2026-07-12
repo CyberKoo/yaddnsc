@@ -26,8 +26,7 @@ jobs:
             - name: Checkout
               uses: actions/checkout@v7
             - name: Install dependencies
-              run: sudo apt update; sudo apt install -y cmake git ninja-build gcc-14 g++-14 \
-                  libssl-dev zlib1g zlib1g-dev pkg-config python3-venv curl
+              run: sudo apt update; sudo apt install -y cmake git ninja-build gcc-14 g++-14 libssl-dev zlib1g zlib1g-dev pkg-config python3-venv curl
             - name: Configure
               env:
                   CC: gcc-14
@@ -93,8 +92,7 @@ jobs:
             - name: Checkout
               uses: actions/checkout@v7
             - name: Install dependencies
-              run: sudo apt update; sudo apt install -y cmake git ninja-build gcc-14 g++-14 \
-                  libssl-dev zlib1g zlib1g-dev pkg-config
+              run: sudo apt update; sudo apt install -y cmake git ninja-build gcc-14 g++-14 libssl-dev zlib1g zlib1g-dev pkg-config
             - name: Configure
               run: >-
                   cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DYADDNSC_BUILD_TESTS=ON
@@ -118,8 +116,7 @@ jobs:
             - name: Checkout
               uses: actions/checkout@v7
             - name: Install dependencies
-              run: sudo apt update; sudo apt install -y cmake git ninja-build gcc-14 g++-14 \
-                  libssl-dev zlib1g zlib1g-dev pkg-config
+              run: sudo apt update; sudo apt install -y cmake git ninja-build gcc-14 g++-14 libssl-dev zlib1g zlib1g-dev pkg-config
             - name: Configure
               run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DYADDNSC_BUILD_TESTS=ON
             - name: Build benchmarks
