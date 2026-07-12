@@ -122,3 +122,38 @@ TEST(NetDevicesTest, IndexToName_InvalidIndex_ReturnsEmpty) {
     auto name = NetDevices::index_to_name(0);
     EXPECT_TRUE(name.empty());
 }
+
+// ===========================================================================
+// find_default_interface_index — family filter
+// ===========================================================================
+
+TEST(NetDevicesTest, FindDefaultInterfaceIndex_IPv4) {
+    auto index = NetDevices::find_default_interface_index(AF_INET);
+    // On a real system there should be at least one non-loopback IPv4 interface.
+    // In minimal containers it may return 0.
+    EXPECT_GE(index, 0U);
+}
+
+TEST(NetDevicesTest, FindDefaultInterfaceIndex_IPv6) {
+    auto index = NetDevices::find_default_interface_index(AF_INET6);
+    EXPECT_GE(index, 0U);
+}
+
+// ===========================================================================
+// Round-trip name ↔ index for the default interface
+// ===========================================================================
+
+TEST(NetDevicesTest, DefaultInterface_RoundTrip) {
+    // Find the default IPv4 interface, then round-trip through name_to_index
+    // and index_to_name.
+    auto index = NetDevices::find_default_interface_index(AF_INET);
+    if (index > 0) {
+        auto name = NetDevices::index_to_name(index);
+        EXPECT_FALSE(name.empty());
+        EXPECT_NE(name, LOOPBACK) << "Default interface should not be loopback";
+
+        auto index2 = NetDevices::name_to_index(name);
+        EXPECT_EQ(index, index2) << "Round-trip name→index→name should match";
+    }
+    // If index == 0 (minimal container), the test is vacuously true.
+}

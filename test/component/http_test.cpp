@@ -8,6 +8,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <map>
 #include <memory>
 #include <string>
 #include <thread>
@@ -33,33 +34,57 @@ protected:
     void SetUp() override {
         server_ = std::make_unique<httplib::Server>();
 
-        // Register a handler that returns a fixed IP address.
+        // Regular IP endpoint.
         server_->Get("/ip", [&](const httplib::Request & /*req*/, httplib::Response &resp) {
             resp.set_content("198.51.100.42", "text/plain");
             server_hit_count_.fetch_add(1, std::memory_order_relaxed);
         });
 
-        // Register a JSON endpoint.
+        // JSON endpoints.
         server_->Post("/update", [&](const httplib::Request & /*req*/, httplib::Response &resp) {
             resp.set_content(R"({"status":"ok"})", "application/json");
             server_hit_count_.fetch_add(1, std::memory_order_relaxed);
         });
 
-        // Register a PUT endpoint.
         server_->Put("/update", [&](const httplib::Request & /*req*/, httplib::Response &resp) {
             resp.set_content(R"({"status":"updated"})", "application/json");
             server_hit_count_.fetch_add(1, std::memory_order_relaxed);
         });
 
-        // Register a DELETE endpoint.
         server_->Delete("/resource", [&](const httplib::Request & /*req*/, httplib::Response &resp) {
             resp.status = 204;
             server_hit_count_.fetch_add(1, std::memory_order_relaxed);
         });
 
-        // Register a plain-text endpoint for HttpIpSource error path (non-IP body).
+        // Non-IP body (error path for HttpIpSource).
         server_->Get("/not-an-ip", [&](const httplib::Request & /*req*/, httplib::Response &resp) {
             resp.set_content("this is not an ip address", "text/plain");
+            server_hit_count_.fetch_add(1, std::memory_order_relaxed);
+        });
+
+        // OPTIONS endpoint.
+        server_->Options("/options", [&](const httplib::Request & /*req*/, httplib::Response &resp) {
+            resp.status = 204;
+            resp.set_header("Allow", "GET, POST, OPTIONS");
+            server_hit_count_.fetch_add(1, std::memory_order_relaxed);
+        });
+
+        // PATCH endpoint.
+        server_->Patch("/patch", [&](const httplib::Request & /*req*/, httplib::Response &resp) {
+            resp.status = 200;
+            resp.set_content(R"({"patched":true})", "application/json");
+            server_hit_count_.fetch_add(1, std::memory_order_relaxed);
+        });
+
+        // Custom-header echo endpoint: returns the value of X-Custom header.
+        server_->Get("/custom-headers", [&](const httplib::Request &req, httplib::Response &resp) {
+            auto it = req.headers.find("X-Custom");
+            if (it != req.headers.end()) {
+                resp.set_content(it->second, "text/plain");
+            } else {
+                resp.status = 400;
+                resp.set_content("missing", "text/plain");
+            }
             server_hit_count_.fetch_add(1, std::memory_order_relaxed);
         });
 
@@ -235,6 +260,191 @@ TEST_F(HttpServerFixture, HttpIpSource_ThrowsOnNonIpBody) {
     auto url = fmt::format("http://127.0.0.1:{}/not-an-ip", port());
 
     HttpIpSource ip_source(url, AddressFamily::UNSPECIFIED);
+    EXPECT_THROW(
+        {
+            [[maybe_unused]] auto _ = ip_source.resolve();
+        },
+        std::runtime_error);
+}
+
+// ===========================================================================
+// Additional HTTP methods — HEAD, OPTIONS, PATCH
+// ===========================================================================
+
+TEST_F(HttpServerFixture, TransientHttpClient_Head) {
+    auto before = hit_count();
+    TransientHttpClient client;
+    auto url = fmt::format("http://127.0.0.1:{}/ip", port());
+
+    HttpRequest req;
+    req.method = HttpMethod::HEAD;
+
+    auto result = client.exchange(url, req);
+    ASSERT_TRUE(result.has_value()) << "HEAD failed: " << result.error();
+    EXPECT_EQ(result->status_code, 200);
+    EXPECT_EQ(hit_count(), before + 1);
+}
+
+TEST_F(HttpServerFixture, TransientHttpClient_Options) {
+    auto before = hit_count();
+    TransientHttpClient client;
+    auto url = fmt::format("http://127.0.0.1:{}/options", port());
+
+    HttpRequest req;
+    req.method = HttpMethod::OPTIONS;
+
+    auto result = client.exchange(url, req);
+    ASSERT_TRUE(result.has_value()) << "OPTIONS failed: " << result.error();
+    EXPECT_EQ(result->status_code, 204);
+    EXPECT_EQ(hit_count(), before + 1);
+}
+
+TEST_F(HttpServerFixture, TransientHttpClient_Patch) {
+    auto before = hit_count();
+    TransientHttpClient client;
+    auto url = fmt::format("http://127.0.0.1:{}/patch", port());
+
+    HttpRequest req;
+    req.method = HttpMethod::PATCH;
+    req.body = R"({"key":"value"})";
+    req.content_type = "application/json";
+
+    auto result = client.exchange(url, req);
+    ASSERT_TRUE(result.has_value()) << "PATCH failed: " << result.error();
+    EXPECT_EQ(result->status_code, 200);
+    EXPECT_EQ(hit_count(), before + 1);
+}
+
+// ===========================================================================
+// HttpClient::get_body — convenience helper
+// ===========================================================================
+
+TEST_F(HttpServerFixture, TransientHttpClient_GetBody) {
+    auto url = fmt::format("http://127.0.0.1:{}/ip", port());
+
+    TransientHttpClient client;
+    auto body = client.get_body(url);
+    ASSERT_TRUE(body.has_value());
+    EXPECT_EQ(*body, "198.51.100.42");
+}
+
+TEST_F(HttpServerFixture, TransientHttpClient_GetBody_ConnectionRefused) {
+    TransientHttpClient client;
+    auto body = client.get_body("http://127.0.0.1:1/nonexistent");
+    // Connection refused should return std::nullopt.
+    EXPECT_FALSE(body.has_value());
+}
+
+TEST_F(HttpServerFixture, PersistentHttpClient_GetBody) {
+    auto uri = Uri::parse(fmt::format("http://127.0.0.1:{}/ip", port()));
+    PersistentHttpClient client(uri);
+
+    auto body = client.get_body("");
+    ASSERT_TRUE(body.has_value());
+    EXPECT_EQ(*body, "198.51.100.42");
+}
+
+// ===========================================================================
+// TransientHttpClient with custom HttpClientOptions (apply_options branches)
+// ===========================================================================
+
+TEST_F(HttpServerFixture, TransientHttpClient_WithCustomOptions) {
+    HttpClientOptions opts;
+    opts.address_family = AddressFamily::IPV4;
+    opts.write_timeout = std::chrono::seconds(3);
+    opts.keep_alive = true;
+    std::multimap<std::string, std::string> custom_headers = {{"X-Custom", "test-value"}};
+    opts.default_headers = std::move(custom_headers);
+
+    auto before = hit_count();
+    TransientHttpClient client(opts);
+    auto url = fmt::format("http://127.0.0.1:{}/custom-headers", port());
+
+    HttpRequest req;
+    req.method = HttpMethod::GET;
+
+    auto result = client.exchange(url, req);
+    ASSERT_TRUE(result.has_value()) << "custom options request failed: " << result.error();
+    EXPECT_EQ(result->status_code, 200);
+    EXPECT_EQ(result->body, "test-value");
+    EXPECT_EQ(hit_count(), before + 1);
+}
+
+TEST_F(HttpServerFixture, TransientHttpClient_InterfaceBinding) {
+    // Bind to the loopback interface explicitly.
+    HttpClientOptions opts;
+    opts.interface = "lo";
+
+    TransientHttpClient client(opts);
+    auto url = fmt::format("http://127.0.0.1:{}/ip", port());
+
+    HttpRequest req;
+    req.method = HttpMethod::GET;
+
+    auto result = client.exchange(url, req);
+    ASSERT_TRUE(result.has_value()) << "interface bind request failed: " << result.error();
+    EXPECT_EQ(result->status_code, 200);
+    EXPECT_EQ(result->body, "198.51.100.42");
+}
+
+// ===========================================================================
+// PersistentHttpClient with non-empty URL in exchange
+// ===========================================================================
+
+TEST_F(HttpServerFixture, PersistentHttpClient_ExchangeWithUrl) {
+    auto base_uri = Uri::parse(fmt::format("http://127.0.0.1:{}", port()));
+    PersistentHttpClient client(base_uri);
+
+    HttpRequest req;
+    req.method = HttpMethod::GET;
+
+    // Pass a full URL; PersistentHttpClient should extract the path.
+    auto result = client.exchange(fmt::format("http://127.0.0.1:{}/ip", port()), req);
+    ASSERT_TRUE(result.has_value()) << "Persistent GET failed: " << result.error();
+    EXPECT_EQ(result->status_code, 200);
+    EXPECT_EQ(result->body, "198.51.100.42");
+}
+
+// ===========================================================================
+// Connection timeout — short timeout to an unresponsive port
+// ===========================================================================
+
+TEST_F(HttpServerFixture, TransientHttpClient_ConnectionTimeout) {
+    HttpClientOptions opts;
+    opts.connection_timeout = std::chrono::seconds(1);
+
+    TransientHttpClient client(opts);
+    // Port 1 is not open; connection should fail quickly.
+    auto url = "http://127.0.0.1:1/nonexistent";
+
+    HttpRequest req;
+    req.method = HttpMethod::GET;
+
+    auto result = client.exchange(url, req);
+    EXPECT_FALSE(result.has_value());
+    EXPECT_FALSE(result.error().empty());
+}
+
+// ===========================================================================
+// HttpIpSource — with bind interface
+// ===========================================================================
+
+TEST_F(HttpServerFixture, HttpIpSource_WithBindInterface) {
+    // HttpIpSource with an explicit bind interface ("lo" on Linux).
+    auto url = fmt::format("http://127.0.0.1:{}/ip", port());
+    HttpIpSource ip_source(url, AddressFamily::UNSPECIFIED, "lo");
+    auto addrs = ip_source.resolve();
+    ASSERT_EQ(addrs.size(), 1U);
+    EXPECT_EQ(addrs[0].to_string(), "198.51.100.42");
+}
+
+// ===========================================================================
+// HttpIpSource — connection failure (throws on HTTP error)
+// ===========================================================================
+
+TEST_F(HttpServerFixture, HttpIpSource_ConnectionFailure_Throws) {
+    // Connect to port with nothing listening to trigger HTTP client error.
+    HttpIpSource ip_source("http://127.0.0.1:1/nonexistent", AddressFamily::UNSPECIFIED);
     EXPECT_THROW(
         {
             [[maybe_unused]] auto _ = ip_source.resolve();

@@ -63,7 +63,7 @@ TEST(RandomEngineTest, ReasonableDistribution) {
     auto& eng = Utils::Random::engine();
     std::set<std::uint32_t> seen;
     for (int i = 0; i < 1000; ++i) {
-        seen.insert(eng());
+        seen.insert(static_cast<std::uint32_t>(eng()));
     }
     // With 1000 draws from a 32-bit space, virtually all values are
     // unique, but we just check at least 990 to avoid flakiness.

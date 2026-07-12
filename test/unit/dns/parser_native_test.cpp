@@ -862,4 +862,232 @@ TEST(DnsParserTest, MultiSegmentTxtRecord) {
     EXPECT_EQ(parsed.records[0], "hello world");
 }
 
+// ===========================================================================
+// parse_response / parse_strings with non-NOERROR rcode
+// ===========================================================================
+
+TEST(DnsParserTest, ParseResponse_Servfail_ReturnsEmpty) {
+    // SERVFAIL (rcode=2) — parse_response should return empty answers.
+    std::vector<std::uint8_t> buf;
+    buf.resize(12, 0);
+    write_u16_be(buf, 0, 0x1234);
+    buf[2] = 0x81;  // QR=1, OPCODE=0, AA=0, TC=0, RD=1
+    buf[3] = 0x82;  // RA=1, rcode=2 (SERVFAIL)
+    write_u16_be(buf, 4, 1);  // QDCOUNT=1
+    write_u16_be(buf, 6, 0);  // ANCOUNT=0
+    write_u16_be(buf, 8, 0);  // NSCOUNT=0
+    write_u16_be(buf, 10, 0); // ARCOUNT=0
+    encode_name(buf, "example.com");
+    buf.push_back(0x00);
+    buf.push_back(0x01);
+    buf.push_back(0x00);
+    buf.push_back(0x01);
+
+    auto parsed = DNS::RecordParser::parse_response(buf);
+    EXPECT_EQ(parsed.rcode, DNS::Rcode::SERVFAIL);
+    EXPECT_TRUE(parsed.answers.empty());
+}
+
+TEST(DnsParserTest, ParseStrings_Nxdomain_ReturnsEmpty) {
+    // NXDOMAIN (rcode=3) — parse_strings should return no records.
+    std::vector<std::uint8_t> buf;
+    buf.resize(12, 0);
+    write_u16_be(buf, 0, 0x5678);
+    buf[2] = 0x81;
+    buf[3] = 0x83;  // rcode=3 (NXDOMAIN)
+    write_u16_be(buf, 4, 1);
+    write_u16_be(buf, 6, 0);
+    write_u16_be(buf, 8, 0);
+    write_u16_be(buf, 10, 0);
+    encode_name(buf, "example.com");
+    buf.push_back(0x00);
+    buf.push_back(0x01);
+    buf.push_back(0x00);
+    buf.push_back(0x01);
+
+    auto parsed = DNS::RecordParser::parse_strings(buf);
+    EXPECT_EQ(parsed.rcode, DNS::Rcode::NXDOMAIN);
+    EXPECT_TRUE(parsed.records.empty());
+}
+
+// ===========================================================================
+// Flag parsing
+// ===========================================================================
+
+TEST(DnsParserTest, ParsesTcFlag) {
+    // TC (truncation) flag set.
+    std::vector<std::uint8_t> buf;
+    buf.resize(12, 0);
+    write_u16_be(buf, 0, 0x1234);
+    buf[2] = 0x81 | 0x02;  // QR=1, TC=1, RD=1
+    buf[3] = 0x80;          // RA=1, rcode=0
+    write_u16_be(buf, 4, 1);
+    write_u16_be(buf, 6, 0);
+    encode_name(buf, "example.com");
+    buf.push_back(0x00);
+    buf.push_back(0x01);
+    buf.push_back(0x00);
+    buf.push_back(0x01);
+
+    DNS::RecordParser parser(buf);
+    EXPECT_TRUE(parser.message().tc);
+    EXPECT_FALSE(parser.message().aa);  // AA not set
+    EXPECT_TRUE(parser.message().rd);
+    EXPECT_TRUE(parser.message().ra);
+    EXPECT_EQ(parser.message().rcode, DNS::Rcode::NOERROR);
+}
+
+TEST(DnsParserTest, ParsesAaFlag) {
+    // AA (authoritative answer) flag set.
+    std::vector<std::uint8_t> buf;
+    buf.resize(12, 0);
+    write_u16_be(buf, 0, 0x9ABC);
+    buf[2] = 0x85;  // QR=1, AA=1, RD=1
+    buf[3] = 0x80;
+    write_u16_be(buf, 4, 1);
+    write_u16_be(buf, 6, 0);
+    encode_name(buf, "example.com");
+    buf.push_back(0x00);
+    buf.push_back(0x01);
+    buf.push_back(0x00);
+    buf.push_back(0x01);
+
+    DNS::RecordParser parser(buf);
+    EXPECT_TRUE(parser.message().aa);
+    EXPECT_FALSE(parser.message().tc);
+}
+
+// ===========================================================================
+// parse_record out-of-bounds
+// ===========================================================================
+
+TEST(DnsParserTest, ParseRecord_OutOfBounds_Throws) {
+    std::vector<std::uint8_t> buf;
+    buf.resize(12, 0);
+    write_u16_be(buf, 0, 0x1234);
+    buf[2] = 0x81;
+    buf[3] = 0x80;
+    write_u16_be(buf, 4, 1);
+    write_u16_be(buf, 6, 1);
+    encode_name(buf, "example.com");
+    buf.push_back(0x00);
+    buf.push_back(0x01);
+    buf.push_back(0x00);
+    buf.push_back(0x01);
+    // Answer: A record for example.com
+    buf.push_back(0xC0);
+    buf.push_back(0x0C);
+    buf.push_back(0x00);
+    buf.push_back(0x01);
+    buf.push_back(0x00);
+    buf.push_back(0x01);
+    buf.push_back(0x00);
+    buf.push_back(0x00);
+    buf.push_back(0x01);
+    buf.push_back(0x2C);
+    buf.push_back(0x00);
+    buf.push_back(0x04);
+    buf.push_back(0xC0);
+    buf.push_back(0x00);
+    buf.push_back(0x02);
+    buf.push_back(0x01);
+
+    DNS::RecordParser parser(buf);
+    // Valid index 0 should work.
+    EXPECT_NO_THROW(static_cast<void>(parser.parse_record(0)));
+    // Index 1 is out of bounds (ancount = 1).
+    EXPECT_THROW(static_cast<void>(parser.parse_record(1)), DnsLookupException);
+}
+
+// ===========================================================================
+// decompress_name — mixed label + pointer
+// ===========================================================================
+
+TEST(DnsParserTest, DecompressName_MixedLabelAndPointer) {
+    // QNAME uses inline label for first component, then pointer to a
+    // base name elsewhere in the packet.
+    std::vector<std::uint8_t> buf;
+    buf.resize(12, 0);
+    write_u16_be(buf, 0, 0x1234);
+    buf[2] = 0x81;
+    buf[3] = 0x80;
+    write_u16_be(buf, 4, 1);
+    write_u16_be(buf, 6, 0);
+    // Encode "sub" + pointer (0xC022) to "example.com" at offset 22.
+    // Offset 12: label_len=3, "sub"
+    buf.push_back(3);
+    buf.push_back('s'); buf.push_back('u'); buf.push_back('b');
+    // Pointer to offset 22
+    buf.push_back(0xC0);
+    buf.push_back(22);
+    // QTYPE + QCLASS
+    buf.push_back(0x00); buf.push_back(0x01);
+    buf.push_back(0x00); buf.push_back(0x01);
+    // Base name "example.com" at offset 22
+    // Ensure we reach offset 22
+    while (buf.size() < 22) buf.push_back(0x00);
+    buf.push_back(7);
+    buf.push_back('e'); buf.push_back('x'); buf.push_back('a'); buf.push_back('m');
+    buf.push_back('p'); buf.push_back('l'); buf.push_back('e');
+    buf.push_back(3);
+    buf.push_back('c'); buf.push_back('o'); buf.push_back('m');
+    buf.push_back(0);
+
+    DNS::RecordParser parser(buf);
+    EXPECT_EQ(parser.message().questions.size(), 1U);
+    EXPECT_EQ(parser.message().questions[0].qname, "sub.example.com");
+}
+
+// ===========================================================================
+// Zero-count edge cases
+// ===========================================================================
+
+TEST(DnsParserTest, ZeroQuestionCount_DoesNotCrash) {
+    // QDCOUNT=0, ANCOUNT=0 — valid response with no questions or answers.
+    std::vector<std::uint8_t> buf;
+    buf.resize(12, 0);
+    write_u16_be(buf, 0, 0x1234);
+    buf[2] = 0x80;  // QR=1
+    buf[3] = 0x80;
+    write_u16_be(buf, 4, 0);  // QDCOUNT=0
+    write_u16_be(buf, 6, 0);  // ANCOUNT=0
+    write_u16_be(buf, 8, 0);  // NSCOUNT=0
+    write_u16_be(buf, 10, 0); // ARCOUNT=0
+
+    DNS::RecordParser parser(buf);
+    EXPECT_TRUE(parser.message().questions.empty());
+    EXPECT_TRUE(parser.message().answers.empty());
+}
+
+TEST(DnsParserTest, ZeroAnswerCount_ReturnsEmptyResults) {
+    // Valid header, one question, zero answers — parse_strings returns nothing.
+    std::vector<std::uint8_t> buf;
+    buf.resize(12, 0);
+    write_u16_be(buf, 0, 0x1234);
+    buf[2] = 0x81;
+    buf[3] = 0x80;
+    write_u16_be(buf, 4, 1);  // QDCOUNT=1
+    write_u16_be(buf, 6, 0);  // ANCOUNT=0
+    write_u16_be(buf, 8, 0);
+    write_u16_be(buf, 10, 0);
+    encode_name(buf, "example.com");
+    buf.push_back(0x00); buf.push_back(0x01);
+    buf.push_back(0x00); buf.push_back(0x01);
+
+    auto parsed = DNS::RecordParser::parse_strings(buf);
+    EXPECT_TRUE(parsed.records.empty());
+    EXPECT_EQ(parsed.rcode, DNS::Rcode::NOERROR);
+}
+
+// ===========================================================================
+// parse_response with NOERROR but actual answers
+// ===========================================================================
+
+TEST(DnsParserTest, ParseResponse_NoerrorWithAnswers) {
+    auto response = make_ptr_response(0x1234, "target.example.com");
+    auto parsed = DNS::RecordParser::parse_response(response);
+    ASSERT_EQ(parsed.answers.size(), 1U);
+    EXPECT_EQ(parsed.rcode, DNS::Rcode::NOERROR);
+}
+
 

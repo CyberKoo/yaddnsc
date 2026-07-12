@@ -244,7 +244,7 @@ private:
             // Copy the query's TXID, set QR+RA flags, ANCOUNT=1.
             auto query = std::span<const std::uint8_t>(recv_buf.data(), static_cast<size_t>(n));
             std::vector<std::uint8_t> resp;
-            resp.reserve(n + 16);
+            resp.reserve(static_cast<size_t>(n) + 16);
 
             // Header (copies query's TXID).
             resp.push_back(query[0]);
@@ -265,11 +265,11 @@ private:
             // Find the end of the QNAME (root label 0x00).
             size_t qname_end = 12;
             while (qname_end < query.size() && query[qname_end] != 0) {
-                qname_end += 1 + query[qname_end];
+                qname_end += size_t{1} + query[qname_end];
             }
             qname_end += 1; // skip the root label
             // Copy QNAME + QTYPE + QCLASS (4 bytes after QNAME)
-            resp.insert(resp.end(), query.begin() + 12, query.begin() + qname_end + 4);
+            resp.insert(resp.end(), query.begin() + 12, query.begin() + static_cast<std::ptrdiff_t>(qname_end) + 4);
 
             // Answer section: name pointer (0xC0 0x0C = compressed name),
             // TYPE A (1), CLASS IN (1), TTL 60, RDLENGTH 4, IP 198.51.100.7.

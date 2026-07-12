@@ -295,6 +295,45 @@ TEST(Updater, KeepsLinkLocalForAaaaWhenAllowed) {
 
 // ── IP source throws → swallowed at noexcept boundary ─────────────────────────
 
+// ── AAAA + ULA filtering ─────────────────────────────────────────────────────
+
+TEST(Updater, FiltersUlaForAaaaWhenNotAllowed) {
+    auto cfg = parse_cfg(Fixtures::FULL_CONFIG);
+    auto task = make_task(cfg, 0, 1);
+
+    // Only a ULA candidate is available; it must be filtered out.
+    auto ip = std::make_shared<FakeIpSource>(std::vector<InetAddress>{
+        Inet6Address::from_bytes({0xfc, 0x00, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x01})});
+    auto dispatcher = make_dispatcher(std::make_unique<FixedAResolver>());
+    Updater updater(dispatcher, FakeIpSourceFactory(ip));
+
+    MockDriver driver;
+    MockHttpClient http;
+    EXPECT_CALL(driver, generate_request).Times(0);
+    EXPECT_CALL(http, exchange).Times(0);
+
+    updater.process(task, driver, http);
+}
+
+TEST(Updater, KeepsUlaForAaaaWhenAllowed) {
+    auto cfg = parse_cfg(Fixtures::FULL_CONFIG);
+    auto task = make_task(cfg, 0, 1);
+    task.config.allow_ula = true; // override
+
+    auto ip = std::make_shared<FakeIpSource>(std::vector<InetAddress>{
+        Inet6Address::from_bytes({0xfc, 0x00, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x01})});
+    auto dispatcher = make_dispatcher(std::make_unique<FixedAResolver>());
+    Updater updater(dispatcher, FakeIpSourceFactory(ip));
+
+    MockDriver driver;
+    MockHttpClient http;
+    EXPECT_CALL(http, exchange).WillOnce(Return(ok_response()));
+    EXPECT_CALL(driver, generate_request).WillOnce(Return(DriverRequestContext{.url = "https://api.example.com/update", .request = {}}));
+    EXPECT_CALL(driver, check_response).WillOnce(Return(true));
+
+    updater.process(task, driver, http);
+}
+
 TEST(Updater, NoThrowWhenIpSourceThrows) {
     auto cfg = parse_cfg(Fixtures::FULL_CONFIG);
     auto task = make_task(cfg);

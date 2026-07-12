@@ -3,6 +3,7 @@
 //
 // =============================================================================
 
+#include <algorithm>
 #include <memory>
 #include <string>
 #include <vector>
@@ -10,6 +11,7 @@
 #include <gtest/gtest.h>
 
 #include "ip_source/iface.h"
+#include "ip_source/iface_util.h"
 #include "network/inet_address.h"
 #include "network/net_devices.h"
 #include "address_family.h"
@@ -71,6 +73,19 @@ TEST(InterfaceIpSourceTest, Resolve_NonExistentInterface_Throws) {
             [[maybe_unused]] auto _ = src.resolve();
         },
         std::runtime_error);
+}
+
+// ===========================================================================
+// InterfaceUtil — get_interfaces
+// ===========================================================================
+
+TEST(InterfaceIpSourceTest, GetInterfaces_ReturnsNonEmpty) {
+    auto interfaces = InterfaceUtil::get_interfaces();
+    EXPECT_FALSE(interfaces.empty());
+
+    // The loopback interface should be present on any POSIX system.
+    auto it = std::ranges::find(interfaces, LOOPBACK);
+    EXPECT_NE(it, interfaces.end()) << "Loopback interface '" << LOOPBACK << "' not found";
 }
 
 // ===========================================================================
