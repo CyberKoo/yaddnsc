@@ -258,7 +258,7 @@ When the host loads a driver `.so` via `dlopen`, it performs the following
 checks in order, before any driver code is executed:
 
 1. **Magic check** — Calls `yaddnsc_drv_magic()` and verifies the returned
-   constant matches `YADDNSC_DRIVER_MAGIC` (`0x5941444E53430000ULL`).
+   constant matches `YADDNSC_DRIVER_MAGIC` (`0x594144444E534300ULL`).
    This confirms the `.so` is indeed a yaddnsc driver, not an arbitrary shared
    library.
 

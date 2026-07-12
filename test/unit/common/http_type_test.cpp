@@ -108,14 +108,14 @@ TEST(HttpResponseTest, AggregateInit) {
 }
 
 TEST(HttpResponseTest, SupportsNonOkStatus) {
-    HttpResponse resp{.status_code = 404, .body = "Not Found"};
+    HttpResponse resp{.status_code = 404, .body = "Not Found", .headers = {}};
     EXPECT_EQ(resp.status_code, 404);
 }
 
 // ── HttpResult ───────────────────────────────────────────────────────────────
 
 TEST(HttpResultTest, Success_ContainsResponse) {
-    HttpResponse resp{.status_code = 200, .body = "OK"};
+    HttpResponse resp{.status_code = 200, .body = "OK", .headers = {}};
     HttpResult result(std::move(resp));
     ASSERT_TRUE(result.has_value());
     EXPECT_EQ(result->status_code, 200);

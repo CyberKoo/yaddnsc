@@ -105,6 +105,27 @@ target_link_libraries(test_support PUBLIC
     GTest::gtest
 )
 
+# ---------------------------------------------------------------------------
+# yaddnsc_test_config  —  light-weight compile config for test targets.
+# Unlike yaddnsc_compile_config, this does NOT propagate -Werror or other
+# strict compile options, so pre-existing test warnings don't block CI.
+# ---------------------------------------------------------------------------
+add_library(yaddnsc_test_config INTERFACE)
+target_include_directories(yaddnsc_test_config INTERFACE
+    ${PROJECT_SOURCE_DIR}/include
+    ${PROJECT_SOURCE_DIR}/src
+    ${PROJECT_BINARY_DIR}/generated
+)
+target_compile_definitions(yaddnsc_test_config INTERFACE
+    SPDLOG_ACTIVE_LEVEL=SPDLOG_LEVEL_DEBUG
+    $<$<BOOL:${YADDNSC_USE_STD_FORMAT}>:YADDNSC_USE_STD_FORMAT>
+)
+target_link_libraries(yaddnsc_test_config INTERFACE
+    glaze::glaze
+    spdlog::spdlog
+    magic_enum
+)
+
 # ============================================================================
 # Helper macro  add_unit_test(<name> [SOURCE <source>] [extra_sources ...])
 #
@@ -126,16 +147,11 @@ function(add_unit_test name)
     add_executable(test_${name} ${test_source} ${UT_UNPARSED_ARGUMENTS})
     target_link_libraries(test_${name} PRIVATE
         test_support
+        yaddnsc_test_config
         GTest::gtest_main
-        glaze::glaze
-        spdlog::spdlog
-        magic_enum
     )
     target_include_directories(test_${name} PRIVATE
-        ${PROJECT_SOURCE_DIR}/include
-        ${PROJECT_SOURCE_DIR}/src
         ${PROJECT_SOURCE_DIR}/test
-        ${PROJECT_BINARY_DIR}/generated
     )
     add_test(NAME test_${name} COMMAND test_${name})
 endfunction()

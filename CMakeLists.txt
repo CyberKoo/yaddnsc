@@ -18,9 +18,10 @@ include(ClangTidy)
 # Build type configuration
 # ==============================================================================
 
-# Default to release if not specified
+# Default to Debug for developer experience (debug symbols, sanitizers).
+# Use -DCMAKE_BUILD_TYPE=Release for optimized production builds.
 if (NOT CMAKE_BUILD_TYPE)
-  set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
+  set(CMAKE_BUILD_TYPE Debug CACHE STRING "Build type" FORCE)
 endif ()
 
 # ==============================================================================
@@ -31,9 +32,9 @@ if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     message(FATAL_ERROR "GCC ${CMAKE_CXX_COMPILER_VERSION} is too old. yaddnsc requires GCC 14+ (C++23).")
   endif ()
 elseif (CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
-	  if (CMAKE_CXX_COMPILER_VERSION VERSION_LESS "19")
-	    message(FATAL_ERROR "Clang ${CMAKE_CXX_COMPILER_VERSION} is too old. yaddnsc requires Clang 19+ (C++23 + libc++ experimental features).")
-	  endif ()
+  if (CMAKE_CXX_COMPILER_VERSION VERSION_LESS "19")
+    message(FATAL_ERROR "Clang ${CMAKE_CXX_COMPILER_VERSION} is too old. yaddnsc requires Clang 19+ (C++23 + libc++ experimental features).")
+  endif ()
 elseif (CMAKE_CXX_COMPILER_ID STREQUAL "AppleClang")
   if (CMAKE_CXX_COMPILER_VERSION VERSION_LESS "15")
     message(FATAL_ERROR "AppleClang ${CMAKE_CXX_COMPILER_VERSION} is too old. yaddnsc requires AppleClang 15+ (C++23).")
@@ -57,10 +58,10 @@ include(Sanitizer)
 # ==============================================================================
 # On musl, libresolv is not available (musl's resolv.h is a stub), so the
 # built-in DNS stack must be used by default.
-if (LIBC_MUSL AND NOT DEFINED YADDNSC_NATIVE_DNS)
-  set(YADDNSC_NATIVE_DNS ON CACHE BOOL
+if (LIBC_MUSL AND NOT DEFINED YADDNSC_USE_NATIVE_DNS)
+  set(YADDNSC_USE_NATIVE_DNS ON CACHE BOOL
       "Use built-in DNS stack instead of system libresolv" FORCE)
-  message(STATUS "musl detected — YADDNSC_NATIVE_DNS defaulting to ON")
+  message(STATUS "musl detected — YADDNSC_USE_NATIVE_DNS defaulting to ON")
 endif ()
 
 # ==============================================================================
@@ -215,104 +216,169 @@ if (thread-pool_ADDED)
 endif ()
 
 # ==============================================================================
-# Main executable
+# Common compile configuration (shared across all OBJECT libs + main exe)
 # ==============================================================================
-add_executable(yaddnsc
-        # entry
-        src/main.cpp
-        # config
-        src/config/config.cpp
-        # core
-        src/core/updater.cpp
-        src/core/manager.cpp
-        src/core/driver_manager.cpp
-        src/core/driver_loader.cpp
-        src/core/scheduler.cpp
-        src/core/core_logger.cpp
-        src/core/signal_watcher.cpp
-        # network
-        src/network/http_client.cpp
-        src/network/inet_address.cpp
-        src/network/net_devices.cpp
-        src/network/socket.cpp
-        src/network/socket_addr.cpp
-        src/network/uri.cpp
-        src/network/tls_connection.cpp
-        # cli
-        src/cli/cli.cpp
-        src/cli/driver.cpp
-        src/cli/interface.cpp
-        src/cli/dns.cpp
-        src/cli/config.cpp
-        src/cli/info.cpp
-        # dns
-        src/dns/error.cpp
-        src/dns/validator.cpp
-        src/dns/wire/query.cpp
-        src/dns/wire/builder.cpp
-        src/dns/resolver/doh.cpp
-        src/dns/resolver/dot.cpp
-       	src/dns/factory.cpp
-        src/dns/resolver_registry.cpp
-        # ip_source
-        src/ip_source/iface_util.cpp
-        src/ip_source/iface.cpp
-        src/ip_source/http.cpp
-        src/ip_source/mdns.cpp
-        src/ip_source/factory.cpp
-        # util
-        src/util/http_parser.cpp
+
+# interface target: wraps fmt so consumers always get the right dep and define
+add_library(yaddnsc_fmt INTERFACE)
+target_include_directories(yaddnsc_fmt INTERFACE ${CMAKE_SOURCE_DIR}/include)
+target_compile_definitions(yaddnsc_fmt INTERFACE
+        $<$<BOOL:${YADDNSC_USE_STD_FORMAT}>:YADDNSC_USE_STD_FORMAT>
 )
+if (NOT HAVE_STD_FORMAT)
+  target_link_libraries(yaddnsc_fmt INTERFACE fmt::fmt)
+endif ()
+
+add_library(yaddnsc_compile_config INTERFACE)
+
+target_compile_options(yaddnsc_compile_config INTERFACE
+    -Wall -Wextra -Wpedantic -Wshadow -Werror
+    -fvisibility=hidden
+    $<$<AND:$<CXX_COMPILER_ID:Clang>,$<VERSION_GREATER_EQUAL:$<CXX_COMPILER_VERSION>,19>,$<VERSION_LESS:$<CXX_COMPILER_VERSION>,20>>:-fexperimental-library>
+    $<$<CONFIG:Debug>:-ggdb>
+    $<$<CONFIG:Debug>:-gdwarf-3>
+    $<$<CONFIG:Debug>:-fno-omit-frame-pointer>
+)
+
+target_include_directories(yaddnsc_compile_config INTERFACE
+    ${PROJECT_SOURCE_DIR}/include
+    ${PROJECT_SOURCE_DIR}/src
+    ${CMAKE_BINARY_DIR}/generated
+)
+
+target_compile_definitions(yaddnsc_compile_config INTERFACE
+    SPDLOG_ACTIVE_LEVEL=SPDLOG_LEVEL_DEBUG
+    CPPHTTPLIB_OPENSSL_SUPPORT
+    $<$<BOOL:${YADDNSC_USE_STD_FORMAT}>:YADDNSC_USE_STD_FORMAT>
+    $<$<BOOL:${YADDNSC_USE_SYSTEM_SPDLOG}>:YADDNSC_USE_SYSTEM_SPDLOG>
+)
+
+# Common third-party dependencies for include path propagation.
+# OBJECT libraries need these to resolve #include directives at compile time.
+# The actual link step still happens on the executable via its own
+# target_link_libraries call below.
+target_link_libraries(yaddnsc_compile_config INTERFACE
+    spdlog::spdlog
+    glaze::glaze
+    magic_enum
+    OpenSSL::SSL
+    OpenSSL::Crypto
+    CLI11::CLI11
+    httplib
+    BS_thread_pool
+    picohttpparser
+    yaddnsc_fmt
+)
+
+# ==============================================================================
+# OBJECT libraries — each module compiles separately, all .o linked into main exe.
+# Using OBJECT libraries avoids the static archive dead-stripping problem:
+#   - registration via static initialization registers correctly
+#   - -rdynamic exports work naturally
+# ==============================================================================
+
+add_library(yaddnsc_config OBJECT
+    src/config/config.cpp
+)
+target_link_libraries(yaddnsc_config PRIVATE yaddnsc_compile_config)
+
+add_library(yaddnsc_core OBJECT
+    src/core/updater.cpp
+    src/core/manager.cpp
+    src/core/driver_manager.cpp
+    src/core/driver_loader.cpp
+    src/core/scheduler.cpp
+    src/core/core_logger.cpp
+    src/core/signal_watcher.cpp
+)
+target_link_libraries(yaddnsc_core PRIVATE yaddnsc_compile_config)
+
+add_library(yaddnsc_network OBJECT
+    src/network/http_client.cpp
+    src/network/inet_address.cpp
+    src/network/net_devices.cpp
+    src/network/socket.cpp
+    src/network/socket_addr.cpp
+    src/network/uri.cpp
+    src/network/tls_connection.cpp
+)
+target_link_libraries(yaddnsc_network PRIVATE yaddnsc_compile_config)
+
+add_library(yaddnsc_cli OBJECT
+    src/cli/cli.cpp
+    src/cli/driver.cpp
+    src/cli/interface.cpp
+    src/cli/dns.cpp
+    src/cli/config.cpp
+    src/cli/info.cpp
+)
+target_link_libraries(yaddnsc_cli PRIVATE yaddnsc_compile_config)
+
+add_library(yaddnsc_dns OBJECT
+    src/dns/error.cpp
+    src/dns/validator.cpp
+    src/dns/wire/query.cpp
+    src/dns/wire/builder.cpp
+    src/dns/resolver/doh.cpp
+    src/dns/resolver/dot.cpp
+    src/dns/factory.cpp
+    src/dns/resolver_registry.cpp
+)
+target_link_libraries(yaddnsc_dns PRIVATE yaddnsc_compile_config)
+
+add_library(yaddnsc_ip_source OBJECT
+    src/ip_source/iface_util.cpp
+    src/ip_source/iface.cpp
+    src/ip_source/http.cpp
+    src/ip_source/mdns.cpp
+    src/ip_source/factory.cpp
+)
+target_link_libraries(yaddnsc_ip_source PRIVATE yaddnsc_compile_config)
+
+add_library(yaddnsc_util OBJECT
+    src/util/http_parser.cpp
+)
+target_link_libraries(yaddnsc_util PRIVATE yaddnsc_compile_config)
 
 # Compile only the selected resolver implementation.
 if (YADDNSC_USE_NATIVE_DNS)
-  target_sources(yaddnsc PRIVATE src/dns/resolver/classic_native.cpp)
-  target_sources(yaddnsc PRIVATE src/dns/parser/parser_native.cpp)
-  target_sources(yaddnsc PRIVATE src/dns/dispatcher.cpp)
+  target_sources(yaddnsc_dns PRIVATE
+      src/dns/resolver/classic_native.cpp
+      src/dns/parser/parser_native.cpp
+      src/dns/dispatcher.cpp
+  )
 else ()
-  target_sources(yaddnsc PRIVATE src/dns/resolver/classic_system.cpp)
-  target_sources(yaddnsc PRIVATE src/dns/dispatcher_system.cpp)
-  target_sources(yaddnsc PRIVATE src/dns/parser/parser_system.cpp)
+  target_sources(yaddnsc_dns PRIVATE
+      src/dns/resolver/classic_system.cpp
+      src/dns/parser/parser_system.cpp
+      src/dns/dispatcher_system.cpp
+  )
 endif ()
 
-# ---------------------------------------------------------------------------
-# Compiler options
-# ---------------------------------------------------------------------------
-target_compile_options(yaddnsc PRIVATE
-        # Strict warning flags applied to all builds
-        -Wall -Wextra -Wpedantic -Wshadow -Werror
-        # Hide all symbols at compile time; only YADDNSC_EXPORT-marked functions
-        # have STV_DEFAULT visibility.
-        -fvisibility=hidden
-        # Clang 19.x needs -fexperimental-library for std::stop_token, std::jthread, etc.
-        $<$<AND:$<CXX_COMPILER_ID:Clang>,$<VERSION_GREATER_EQUAL:$<CXX_COMPILER_VERSION>,19>,$<VERSION_LESS:$<CXX_COMPILER_VERSION>,20>>:-fexperimental-library>
-        # Debug symbols
-        $<$<CONFIG:Debug>:-ggdb>
-        $<$<CONFIG:Debug>:-gdwarf-3>
-        $<$<CONFIG:Debug>:-fno-omit-frame-pointer>
+# Sanitizer compile flags on all OBJECT libraries (link flags are a no-op on OBJECT libs
+# and only matter on the final executable, where add_sanitizer_flags is called again).
+foreach(tgt yaddnsc_config yaddnsc_core yaddnsc_network yaddnsc_cli yaddnsc_dns yaddnsc_ip_source yaddnsc_util)
+  add_sanitizer_flags(${tgt})
+endforeach()
+
+# ==============================================================================
+# Main executable — only main.cpp + OBJECT library .o files
+# ==============================================================================
+add_executable(yaddnsc
+    src/main.cpp
+    $<TARGET_OBJECTS:yaddnsc_config>
+    $<TARGET_OBJECTS:yaddnsc_core>
+    $<TARGET_OBJECTS:yaddnsc_network>
+    $<TARGET_OBJECTS:yaddnsc_cli>
+    $<TARGET_OBJECTS:yaddnsc_dns>
+    $<TARGET_OBJECTS:yaddnsc_ip_source>
+    $<TARGET_OBJECTS:yaddnsc_util>
 )
 
-# Sanitizer flags applied via cmake/SanitizerCheck.cmake
+target_link_libraries(yaddnsc PRIVATE yaddnsc_compile_config)
+
+# Sanitizer flags for main.cpp and link flags
 add_sanitizer_flags(yaddnsc)
-
-# ---------------------------------------------------------------------------
-# Include directories
-# ---------------------------------------------------------------------------
-target_include_directories(yaddnsc PRIVATE
-        ${PROJECT_SOURCE_DIR}/include
-        ${PROJECT_SOURCE_DIR}/src
-        ${CMAKE_BINARY_DIR}/generated
-)
-
-# ---------------------------------------------------------------------------
-# Compile definitions
-# ---------------------------------------------------------------------------
-target_compile_definitions(yaddnsc PRIVATE
-        SPDLOG_ACTIVE_LEVEL=SPDLOG_LEVEL_DEBUG
-        CPPHTTPLIB_OPENSSL_SUPPORT
-        $<$<BOOL:${YADDNSC_USE_STD_FORMAT}>:YADDNSC_USE_STD_FORMAT>
-        $<$<BOOL:${YADDNSC_USE_SYSTEM_SPDLOG}>:YADDNSC_USE_SYSTEM_SPDLOG>
-)
 
 # ---------------------------------------------------------------------------
 # Linker options
@@ -350,17 +416,6 @@ target_link_options(yaddnsc PRIVATE
 target_link_libraries(yaddnsc PRIVATE BS_thread_pool magic_enum httplib spdlog::spdlog OpenSSL::SSL OpenSSL::Crypto
         CLI11::CLI11 glaze::glaze picohttpparser ${CMAKE_DL_LIBS}
 )
-
-# interface target: wraps fmt so consumers always get the right dep and define regardless of HAVE_STD_FORMAT
-add_library(yaddnsc_fmt INTERFACE)
-target_include_directories(yaddnsc_fmt INTERFACE ${CMAKE_SOURCE_DIR}/include)
-target_compile_definitions(yaddnsc_fmt INTERFACE
-        $<$<BOOL:${YADDNSC_USE_STD_FORMAT}>:YADDNSC_USE_STD_FORMAT>
-)
-if (NOT HAVE_STD_FORMAT)
-  target_link_libraries(yaddnsc_fmt INTERFACE fmt::fmt)
-endif ()
-target_link_libraries(yaddnsc PRIVATE yaddnsc_fmt)
 
 # Required only by the system DNS parser (parser_system.cpp, which uses
 # ns_initparse / ns_parserr). That translation unit is compiled only when

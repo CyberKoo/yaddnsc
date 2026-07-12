@@ -29,6 +29,7 @@ check_cxx_source_compiles(
     "
     HAVE_STD_FORMAT
 )
+set(HAVE_STD_FORMAT "${HAVE_STD_FORMAT}" CACHE INTERNAL "Compiler supports std::format")
 
 # --- libc detection (musl vs glibc) -------------------------------------------
 # LTO is incompatible with musl, so we need to know which libc is in use.

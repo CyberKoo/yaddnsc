@@ -19,18 +19,16 @@ foreach (DIR_NAME ${DRIVER_DIRS})
     set_target_properties(${DRIVER_NAME} PROPERTIES PREFIX "" OUTPUT_NAME "${DRIVER_NAME}")
 
     # -----------------------------------------------------------------------
-    # Compiler options
+    # Common project settings (compile options, include dirs, compile defs,
+    # and third-party include paths) — inherited from the main project.
     # -----------------------------------------------------------------------
-    target_compile_options(${DRIVER_NAME} PRIVATE
-                -Wall -Wextra -Wpedantic -Wshadow -Wnon-virtual-dtor -Werror
-                # Hide all symbols by default; only YADDNSC_EXPORT-marked functions
-                # have STV_DEFAULT visibility.
-                -fvisibility=hidden
-                # Debug symbols
-                $<$<CONFIG:Debug>:-ggdb -gdwarf-3>
-                # Clang 19.x needs -fexperimental-library for std::stop_token, std::jthread, etc.
-                $<$<AND:$<CXX_COMPILER_ID:Clang>,$<VERSION_GREATER_EQUAL:$<CXX_COMPILER_VERSION>,19>,$<VERSION_LESS:$<CXX_COMPILER_VERSION>,20>>:-fexperimental-library>
-        )
+    target_link_libraries(${DRIVER_NAME} PRIVATE yaddnsc_compile_config)
+
+    # Driver-specific extra compile options
+    target_compile_options(${DRIVER_NAME} PRIVATE -Wnon-virtual-dtor)
+
+    # Sanitizer instrumentation (must match the main executable's flags)
+    add_sanitizer_flags(${DRIVER_NAME})
 
     # -----------------------------------------------------------------------
     # Linker options
@@ -52,19 +50,6 @@ foreach (DIR_NAME ${DRIVER_DIRS})
     if (NOT LIBC_MUSL)
       set_target_properties(${DRIVER_NAME} PROPERTIES INTERPROCEDURAL_OPTIMIZATION TRUE)
     endif ()
-
-    # -----------------------------------------------------------------------
-    # Include directories
-    # -----------------------------------------------------------------------
-    target_include_directories(${DRIVER_NAME} PRIVATE ${CMAKE_SOURCE_DIR}/include ${CMAKE_BINARY_DIR}/generated/)
-    if (glaze_ADDED)
-      target_include_directories(${DRIVER_NAME} SYSTEM PRIVATE ${glaze_SOURCE_DIR}/include)
-    endif ()
-
-    # -----------------------------------------------------------------------
-    # Link libraries
-    # -----------------------------------------------------------------------
-    target_link_libraries(${DRIVER_NAME} PRIVATE yaddnsc_fmt)
 
     # -----------------------------------------------------------------------
     # Aggregate all drivers under the top-level 'drivers' target

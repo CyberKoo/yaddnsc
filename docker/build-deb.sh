@@ -74,7 +74,7 @@ for UBUNTU_VERSION in "$@"; do
     [[ -n "${CMAKE_EXTRA_ARGS}" ]] && echo " Extra: ${CMAKE_EXTRA_ARGS}"
     echo "=========================================="
 
-    docker build -f "${SCRIPT_DIR}/docker/Dockerfile.deb" \
+    docker build -f "${SCRIPT_DIR}/docker/Dockerfile.ubuntu" \
         --build-arg "UBUNTU_VERSION=${UBUNTU_VERSION}" \
         --build-arg "YADDNSC_USE_NATIVE_DNS=${YADDNSC_USE_NATIVE_DNS}" \
         --build-arg "YADDNSC_USE_SYSTEM_SPDLOG=${YADDNSC_USE_SYSTEM_SPDLOG}" \

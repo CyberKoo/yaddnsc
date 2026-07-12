@@ -243,7 +243,7 @@ ID 字符串，供主程序在加载时检查。
 均在执行任何驱动代码之前完成：
 
 1. **魔法值检查** — 调用 `yaddnsc_drv_magic()` 并验证返回值与
-   `YADDNSC_DRIVER_MAGIC`（`0x5941444E53430000ULL`）匹配。这确认了
+   `YADDNSC_DRIVER_MAGIC`（`0x594144444E534300ULL`）匹配。这确认了
    `.so` 确实是 yaddnsc 驱动，而非任意共享库。
 
 2. **编译器身份检查** — 调用 `yaddnsc_drv_compiler_id_hash()` 并将返回
