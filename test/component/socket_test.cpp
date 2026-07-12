@@ -360,8 +360,10 @@ TEST(SocketTest, RecvExactOnDatagram) {
 // ===========================================================================
 
 TEST(SocketTest, WaitForReady) {
-    // A fresh TCP socket should be writable immediately.
-    Socket sock(AF_INET, SOCK_STREAM);
+    // A fresh UDP socket should be writable immediately.
+    // TCP is not used here because on macOS/BSD an unconnected TCP socket
+    // may not signal POLLOUT, whereas UDP always does.
+    Socket sock(AF_INET, SOCK_DGRAM);
     auto result = sock.wait_for(POLLOUT, 0);
     ASSERT_TRUE(result.has_value()) << "wait_for failed: " << result.error();
     EXPECT_EQ(*result, 1);

@@ -10,6 +10,7 @@
 #include <chrono>
 #include <map>
 #include <memory>
+#include <net/if.h>
 #include <string>
 #include <thread>
 
@@ -24,6 +25,20 @@
 #include "fmt.hpp"
 
 using namespace std::chrono_literals;
+
+// ===========================================================================
+// Helpers
+// ===========================================================================
+
+namespace {
+    /// Find the loopback interface name at runtime.
+    /// Linux uses "lo", macOS/BSD uses "lo0".
+    [[nodiscard]] std::string loopback_interface_name() {
+        if (::if_nametoindex("lo") != 0) return "lo";
+        if (::if_nametoindex("lo0") != 0) return "lo0";
+        return {};
+    }
+} // anonymous namespace
 
 // ===========================================================================
 // Fixture: local HTTP server
@@ -372,8 +387,11 @@ TEST_F(HttpServerFixture, TransientHttpClient_WithCustomOptions) {
 
 TEST_F(HttpServerFixture, TransientHttpClient_InterfaceBinding) {
     // Bind to the loopback interface explicitly.
+    auto lo = loopback_interface_name();
+    ASSERT_FALSE(lo.empty()) << "no loopback interface found";
+
     HttpClientOptions opts;
-    opts.interface = "lo";
+    opts.interface = std::move(lo);
 
     TransientHttpClient client(opts);
     auto url = fmt::format("http://127.0.0.1:{}/ip", port());
@@ -430,9 +448,12 @@ TEST_F(HttpServerFixture, TransientHttpClient_ConnectionTimeout) {
 // ===========================================================================
 
 TEST_F(HttpServerFixture, HttpIpSource_WithBindInterface) {
-    // HttpIpSource with an explicit bind interface ("lo" on Linux).
+    // HttpIpSource with an explicit bind interface.
+    auto lo = loopback_interface_name();
+    ASSERT_FALSE(lo.empty()) << "no loopback interface found";
+
     auto url = fmt::format("http://127.0.0.1:{}/ip", port());
-    HttpIpSource ip_source(url, AddressFamily::UNSPECIFIED, "lo");
+    HttpIpSource ip_source(url, AddressFamily::UNSPECIFIED, lo);
     auto addrs = ip_source.resolve();
     ASSERT_EQ(addrs.size(), 1U);
     EXPECT_EQ(addrs[0].to_string(), "198.51.100.42");
