@@ -164,8 +164,10 @@ public:
 private:
     void resolve_one(const std::stop_token &st, const ResolverBase &resolver);
 
-    /// If this is the last thread to finish, wake up future.get() with an
-    /// empty result.  Safe to call multiple times — future_error is caught.
+    /// Signal completion by setting the promise to an empty vector when the
+    /// last in-flight resolver finishes (prev reaches batch_count_ - 1).
+    /// Safe to call multiple times — future_error is caught if the promise
+    /// was already satisfied by set_promise_value().
     void signal_completion(int prev) noexcept;
 
     /// Set the promise value, catching future_error if another thread
@@ -481,9 +483,16 @@ struct ResolverDispatcher::Impl {
 
     ~Impl();
 
+    /// Resolve a hostname with retry support (single-resolver mode only).
+    /// For multi-resolver mode, delegates to resolve_multi() without retry
+    /// — resolver redundancy provides fault tolerance.
+    /// @return  Resolved addresses on success, or a categorised error on failure.
     [[nodiscard]] std::expected<std::vector<std::string>, DnsErrorInfo>
     resolve(const std::string &host, RecordKind type, std::uint32_t max_retries, std::uint32_t backoff_ms) const;
 
+    /// Resolve a hostname across multiple resolvers (fallback or concurrent).
+    /// Dispatches to FallbackRunner or ConcurrentRunner based on the strategy.
+    /// @return  Resolved addresses on success, or a categorised error on failure.
     [[nodiscard]] std::expected<std::vector<std::string>, DnsErrorInfo>
     resolve_multi(const std::string &host, RecordKind type) const;
 

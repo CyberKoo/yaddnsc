@@ -525,6 +525,9 @@ DohResolver::query(const std::string &host, RecordKind type,
 // ===========================================================================
 
 namespace {
+    // DoH resolver: port is read from the URI only; server.port is intentionally
+    // ignored because the URI already specifies the port (e.g. https://1.1.1.1:1443/dns-query).
+    // If no port is present in the URI, the default is 443.
     [[maybe_unused]] DnsResolverRegistry::Registrar _doh(
         "https",
         [](const Config::DnsServer &server) -> std::unique_ptr<ResolverBase> {

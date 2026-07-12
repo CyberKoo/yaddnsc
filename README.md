@@ -424,11 +424,12 @@ A template configuration is generated at build time from `template/deb/yaddnsc_c
 
 #### `DnsServer` object
 
-| Field        | Type   | Description                                                    |
-|--------------|--------|----------------------------------------------------------------|
-| `address`    | string | DNS server address.                                            |
-| `ipaddress`  | string | **Deprecated, will be removed in a future release.** Alias for `address`. |
-| `port`       | int    | Port number (default: 53).                                     |
+| Field        | Type   | Description                                                                                           |
+|--------------|--------|-------------------------------------------------------------------------------------------------------|
+| `address`    | string | DNS server address.                                                                                   |
+| `ipaddress`  | string | **Deprecated, will be removed in a future release.** Alias for `address`.                              |
+| `port`       | int    | Port number (default: 53). **Only used by the traditional DNS resolver.** DoH/DoT resolvers ignore this
+field and read the port from the `address` URI instead.                                            |
 
 > See [DNS Resolver](#dns-resolver) for supported `address` formats (traditional DNS, DoH, DoT).
 
@@ -542,6 +543,7 @@ When `YADDNSC_USE_NATIVE_DNS=ON`, DNS packet parsing is fully self-contained (no
 
 - **RFC 8484** — DNS queries via HTTPS POST; the address must be a complete HTTPS URL including path (e.g. `https://1.1.1.1/dns-query`)
 - Cooperative request cancellation
+- **Port in URI** — The DoH resolver reads the port from the URI (e.g. `https://1.1.1.1:1443/dns-query`). The `port` field in the DnsServer object is **ignored**. If no port is specified in the URI, the default is `443`.
 
 ```json
 {
@@ -562,13 +564,14 @@ When `YADDNSC_USE_NATIVE_DNS=ON`, DNS packet parsing is fully self-contained (no
 - **RFC 6066** — TLS SNI extension
 - **RFC 7301** — TLS ALPN extension
 - Cooperative request cancellation
+- **Port in URI** — The DoT resolver reads the port from the URI (e.g. `tls://1.1.1.1:853`). The `port` field in the DnsServer object is **ignored**. If no port is specified in the URI, the default is `853`.
 
 ```json
 {
   "resolver": {
     "use_custom_server": true,
     "servers": [
-      { "address": "tls://1.1.1.1" }
+      { "address": "tls://1.1.1.1:853" }
     ]
   }
 }

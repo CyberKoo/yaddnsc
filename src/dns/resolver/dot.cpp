@@ -397,6 +397,9 @@ std::expected<std::vector<std::uint8_t>, DnsErrorInfo> DotResolver::query(
 // ===========================================================================
 
 namespace {
+    // DoT resolver: port is read from the URI only; server.port is intentionally
+    // ignored because the URI already specifies the port (e.g. tls://1.1.1.1:853).
+    // If no port is present in the URI, the default is 853.
     [[maybe_unused]] DnsResolverRegistry::Registrar _dot(
         "tls",
         [](const Config::DnsServer &server) -> std::unique_ptr<ResolverBase> {

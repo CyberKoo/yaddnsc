@@ -1,23 +1,24 @@
 #!/usr/bin/env python3
-"""Integration test simulation server.
+"""Integration test simulation server — fully async.
 
 Handles DNS (UDP 53), mDNS (UDP 5353), DoT (TCP 853),
 DoH (TCP 443), and a dummy HTTP API (TCP 8080) that
 records update requests from yaddnsc's simple driver.
+
+All I/O runs in a single asyncio event loop — no threads.
 """
 
 import asyncio
-import http.server
 import json
 import logging
 import os
-import select
 import socket
 import ssl
 import struct
-import threading
 import time
 from pathlib import Path
+
+from aiohttp import web
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -45,16 +46,19 @@ log = logging.getLogger("sim")
 # DNS response table: hostname -> { record_type -> ip }
 DNS_RESPONSES: dict[str, dict[str, str]] = {
     "yaddnsc.test": {"A": "198.51.100.1", "AAAA": "2001:db8::1"},
+    "http.yaddnsc.test": {"A": "198.51.100.2"},
+    "iface.yaddnsc.test": {"A": "198.51.100.1"},
     "test.local": {"A": "198.51.100.4"},
     "ip": {"A": "198.51.100.3"},
 }
 
 update_requests: list[dict] = []
-_update_lock = threading.Lock()
+_update_lock = asyncio.Lock()
 
 # ---------------------------------------------------------------------------
 # DNS wire-format helpers  (RFC 1035)
 # ---------------------------------------------------------------------------
+
 
 def make_dns_header(ident: int, qr: int, rcode: int = 0,
                     qdcount: int = 1, ancount: int = 1) -> bytes:
@@ -155,63 +159,93 @@ def build_dns_response(ident: int, qname: str, qtype_str: str,
     return header + question + answer
 
 
+def resolve(qname: str, qtype_str: str) -> str | None:
+    """Look up a DNS name, returning rdata or None for NXDOMAIN."""
+    resp_table = DNS_RESPONSES.get(qname, {})
+    rdata = resp_table.get(qtype_str)
+    if not rdata and qtype_str == "A":
+        rdata = "198.51.100.1"
+    return rdata
+
+
 # ---------------------------------------------------------------------------
-# DNS / mDNS (UDP)
+# DNS / mDNS (UDP) — asyncio DatagramProtocol
 # ---------------------------------------------------------------------------
 
-def run_udp_dns_server(host: str, port: int, is_mdns: bool = False):
-    """Thread-based UDP DNS responder for a single port."""
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
-    try:
-        sock.bind((host, port))
-    except OSError as e:
-        log.error("DNS/%s bind to %s:%d failed: %s", "mDNS" if is_mdns else "UDP", host, port, e)
-        sock.close()
-        return
-    if is_mdns:
-        try:
-            mreq = struct.pack("4sl", socket.inet_aton(MDNS_ADDR), socket.INADDR_ANY)
-            sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, mreq)
-        except OSError as e:
-            log.error("mDNS join multicast group failed: %s", e)
-            sock.close()
-            return
 
-    log.info("DNS/%s listening on %s:%d", "mDNS" if is_mdns else "UDP", host, port)
+class DNSProtocol(asyncio.DatagramProtocol):
+    """Asynchronous UDP DNS responder (also handles mDNS)."""
 
-    while True:
+    def __init__(self, is_mdns: bool = False) -> None:
+        self.is_mdns = is_mdns
+        self.transport: asyncio.DatagramTransport | None = None
+
+    def connection_made(self, transport: asyncio.DatagramTransport) -> None:
+        self.transport = transport
+        # Nothing extra needed; multicast membership is set up on the socket
+        # before it is passed to create_datagram_endpoint.
+
+    def datagram_received(self, data: bytes, addr: tuple[str, int]) -> None:
         try:
-            data, addr = sock.recvfrom(512)
             ident, qname, qtype_str = parse_dns_query(data)
             if not qname:
-                continue
-            log.debug("DNS query: %s %s from %s", qtype_str, qname, addr)
+                return
+            log.debug("DNS/%s query: %s %s from %s",
+                       "mDNS" if self.is_mdns else "UDP", qtype_str, qname, addr)
 
-            resp_table = DNS_RESPONSES.get(qname, {})
-            rdata = resp_table.get(qtype_str)
-            if not rdata and qtype_str == "A":
-                rdata = "198.51.100.1"
-
+            rdata = resolve(qname, qtype_str)
             if rdata:
                 response = build_dns_response(ident, qname, qtype_str, rdata)
-                sock.sendto(response, addr)
-                log.debug("DNS response: %s -> %s", qname, rdata)
+                self.transport.sendto(response, addr)
+                log.debug("DNS/%s response: %s -> %s",
+                           "mDNS" if self.is_mdns else "UDP", qname, rdata)
             else:
                 header = make_dns_header(ident, qr=1, rcode=3, ancount=0)
                 question = encode_name(qname) + struct.pack("!HH",
                     1 if qtype_str == "A" else 28, 1)
-                sock.sendto(header + question, addr)
+                self.transport.sendto(header + question, addr)
         except Exception as e:
-            log.warning("DNS error: %s", e)
+            log.warning("DNS/%s error: %s",
+                        "mDNS" if self.is_mdns else "UDP", e)
+
+    def error_received(self, exc: Exception) -> None:
+        log.error("DNS/%s socket error: %s",
+                  "mDNS" if self.is_mdns else "UDP", exc)
+
+
+async def create_udp_endpoint(host: str, port: int, is_mdns: bool = False) -> None:
+    """Create a UDP datagram endpoint for DNS or mDNS.
+
+    The socket is created manually before passing it to asyncio so that
+    SO_REUSEADDR and multicast membership (for mDNS) can be set upfront.
+    """
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    # NOTE: SO_REUSEPORT is intentionally omitted — it is unnecessary on
+    # loopback and can cause duplicate-delivery on some platforms.
+    sock.setblocking(False)
+    sock.bind((host, port))
+
+    if is_mdns:
+        mreq = struct.pack("4sl", socket.inet_aton(MDNS_ADDR), socket.INADDR_ANY)
+        sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, mreq)
+        log.info("mDNS listening on %s:%d (multicast %s)", host, port, MDNS_ADDR)
+    else:
+        log.info("DNS/UDP listening on %s:%d", host, port)
+
+    loop = asyncio.get_running_loop()
+    await loop.create_datagram_endpoint(
+        lambda: DNSProtocol(is_mdns),
+        sock=sock,
+    )
 
 
 # ---------------------------------------------------------------------------
-# DoT (TCP + TLS)
+# DoT (TCP + TLS) — asyncio Stream-based
 # ---------------------------------------------------------------------------
 
-async def handle_dot_client(reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
+
+async def handle_dot_client(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
     """Handle a single DoT connection."""
     try:
         data = await reader.readexactly(2)
@@ -221,9 +255,13 @@ async def handle_dot_client(reader: asyncio.StreamReader, writer: asyncio.Stream
         ident, qname, qtype_str = parse_dns_query(query)
         log.debug("DoT query: %s %s", qtype_str, qname)
 
-        resp_table = DNS_RESPONSES.get(qname, {})
-        rdata = resp_table.get(qtype_str, "198.51.100.1")
-        response = build_dns_response(ident, qname, qtype_str, rdata)
+        rdata = resolve(qname, qtype_str)
+        if rdata:
+            response = build_dns_response(ident, qname, qtype_str, rdata)
+        else:
+            response = make_dns_header(ident, qr=1, rcode=3, ancount=0)
+            response += encode_name(qname) + struct.pack("!HH",
+                1 if qtype_str == "A" else 28, 1)
 
         writer.write(struct.pack("!H", len(response)) + response)
         await writer.drain()
@@ -233,11 +271,14 @@ async def handle_dot_client(reader: asyncio.StreamReader, writer: asyncio.Stream
         log.warning("DoT error: %s", e)
     finally:
         writer.close()
+        try:
+            await writer.wait_closed()
+        except (BrokenPipeError, ConnectionResetError):
+            pass
 
 
-async def tcp_dns_server(host: str, port: int, ssl_context: ssl.SSLContext | None = None):
-    """Start TCP DNS server (for DoT when SSL context is provided)."""
-    loop = asyncio.get_running_loop()
+async def run_dot(host: str, port: int, ssl_context: ssl.SSLContext | None = None) -> None:
+    """Serve DoT (TCP DNS with TLS)."""
     server = await asyncio.start_server(
         handle_dot_client, host, port, ssl=ssl_context,
         reuse_address=True, reuse_port=True,
@@ -248,132 +289,136 @@ async def tcp_dns_server(host: str, port: int, ssl_context: ssl.SSLContext | Non
         await server.serve_forever()
 
 
-def tcp_dns_server_wrapper(host: str, port: int, ssl_context: ssl.SSLContext | None = None):
-    """Thread wrapper for async TCP DNS server."""
-    asyncio.run(tcp_dns_server(host, port, ssl_context))
-
-
 # ---------------------------------------------------------------------------
-# DoH (HTTP + TLS)
+# DoH (HTTP + TLS) — aiohttp
 # ---------------------------------------------------------------------------
 
-class DohHandler(http.server.BaseHTTPRequestHandler):
+
+async def doh_handler(request: web.Request) -> web.Response:
     """DNS-over-HTTPS handler (RFC 8484)."""
+    body = await request.read()
+    if len(body) == 0:
+        return web.Response(status=400)
 
-    def do_POST(self):
-        length = int(self.headers.get("Content-Length", 0))
-        if length == 0:
-            self.send_error(400)
-            return
-        body = self.rfile.read(length)
-        ident, qname, qtype_str = parse_dns_query(body)
-        log.debug("DoH POST: %s %s", qtype_str, qname)
+    ident, qname, qtype_str = parse_dns_query(body)
+    log.debug("DoH POST: %s %s", qtype_str, qname)
 
-        resp_table = DNS_RESPONSES.get(qname, {})
-        rdata = resp_table.get(qtype_str, "198.51.100.1")
+    rdata = resolve(qname, qtype_str)
+    if rdata:
         response = build_dns_response(ident, qname, qtype_str, rdata)
-
-        self.send_response(200)
-        self.send_header("Content-Type", "application/dns-message")
-        self.send_header("Content-Length", str(len(response)))
-        self.end_headers()
-        self.wfile.write(response)
-
-    def do_GET(self):
-        self.send_error(405)  # Method Not Allowed
-
-    # Suppress default logging
-    def log_message(self, format, *args):
-        log.debug("DoH: %s", format % args)
+    else:
+        response = make_dns_header(ident, qr=1, rcode=3, ancount=0)
+        response += encode_name(qname) + struct.pack("!HH",
+            1 if qtype_str == "A" else 28, 1)
+    return web.Response(
+        body=response,
+        content_type="application/dns-message",
+    )
 
 
-def run_doh_server(host: str, port: int, ssl_context: ssl.SSLContext):
-    """Run DoH server in a background thread."""
-    server = http.server.HTTPServer((host, port), DohHandler)
-    server.socket = ssl_context.wrap_socket(server.socket, server_side=True)
+async def run_doh(host: str, port: int, ssl_context: ssl.SSLContext) -> None:
+    """Serve DoH via aiohttp."""
+    app = web.Application()
+    app.router.add_post("/dns-query", doh_handler)
+    # Also accept POST on any path (backward compat with previous impl)
+    app.router.add_post("/{tail:.*}", doh_handler)
+
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, host, port, ssl_context=ssl_context)
+    await site.start()
     log.info("DoH listening on %s:%d", host, port)
-    server.serve_forever()
+
+    # Run forever
+    await asyncio.Event().wait()
 
 
 # ---------------------------------------------------------------------------
-# Dummy API  (records update requests)
+# Dummy API (aiohttp) — records update requests from yaddnsc
 # ---------------------------------------------------------------------------
 
-class ApiHandler(http.server.BaseHTTPRequestHandler):
-    """Dummy API that records update requests from yaddnsc."""
 
-    def do_GET(self):
-        if self.path == "/health":
-            self._json(200, {"status": "ok"})
-        elif self.path == "/logs":
-            with _update_lock:
-                self._json(200, list(update_requests))
-        elif self.path == "/myip":
-            # Returns a fixed IP for HttpIpSource testing
-            self.send_response(200)
-            self.send_header("Content-Type", "text/plain")
-            self.send_header("Content-Length", str(len("198.51.100.1")))
-            self.end_headers()
-            self.wfile.write(b"198.51.100.1")
-        elif self.path == "/reset":
-            with _update_lock:
-                update_requests.clear()
-            self._json(200, {"reset": True})
-        elif self.path.startswith("/update"):
-            self._record_request("GET")
-            # Return success — simple driver expects 2xx + non-empty body
-            self._json(200, {"success": True})
-        else:
-            self.send_error(404)
-
-    def do_POST(self):
-        if self.path.startswith("/update"):
-            body = self.rfile.read(int(self.headers.get("Content-Length", 0)))
-            with _update_lock:
-                update_requests.append({
-                    "method": "POST",
-                    "path": self.path,
-                    "body": body.decode(),
-                    "headers": dict(self.headers),
-                    "time": time.time(),
-                })
-            self._json(200, {"success": True})
-        else:
-            self.send_error(404)
-
-    def _record_request(self, method: str):
-        with _update_lock:
-            update_requests.append({
-                "method": method,
-                "path": self.path,
-                "headers": dict(self.headers),
-                "time": time.time(),
-            })
-
-    def _json(self, status: int, data: dict):
-        body = json.dumps(data).encode()
-        self.send_response(status)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
-
-    def log_message(self, format, *args):
-        log.debug("API: %s", format % args)
+async def api_health(request: web.Request) -> web.Response:
+    return web.json_response({"status": "ok"})
 
 
-def run_api_server(host: str, port: int):
-    """Run dummy API server in background thread."""
-    server = http.server.HTTPServer((host, port), ApiHandler)
+async def api_logs(request: web.Request) -> web.Response:
+    async with _update_lock:
+        return web.json_response(list(update_requests))
+
+
+async def api_myip(request: web.Request) -> web.Response:
+    return web.Response(
+        text="198.51.100.1",
+        content_type="text/plain",
+    )
+
+
+async def api_reset(request: web.Request) -> web.Response:
+    async with _update_lock:
+        update_requests.clear()
+    return web.json_response({"reset": True})
+
+
+async def api_update_get(request: web.Request) -> web.Response:
+    async with _update_lock:
+        update_requests.append({
+            "method": "GET",
+            "path": str(request.rel_url),
+            "headers": dict(request.headers),
+            "time": time.time(),
+        })
+    return web.json_response({"success": True})
+
+
+async def api_update_post(request: web.Request) -> web.Response:
+    body = await request.read()
+    async with _update_lock:
+        update_requests.append({
+            "method": "POST",
+            "path": str(request.rel_url),
+            "body": body.decode(),
+            "headers": dict(request.headers),
+            "time": time.time(),
+        })
+    return web.json_response({"success": True})
+
+
+def build_api_app() -> web.Application:
+    """Build the dummy API aiohttp application."""
+    app = web.Application()
+
+    app.router.add_get("/health", api_health)
+    app.router.add_get("/logs", api_logs)
+    app.router.add_get("/myip", api_myip)
+    app.router.add_get("/reset", api_reset)
+    app.router.add_get("/update", api_update_get)
+    app.router.add_get("/update/{tail:.*}", api_update_get)
+    app.router.add_post("/update", api_update_post)
+    app.router.add_post("/update/{tail:.*}", api_update_post)
+
+    return app
+
+
+async def run_api(host: str, port: int) -> None:
+    """Serve dummy API via aiohttp."""
+    app = build_api_app()
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, host, port)
+    await site.start()
     log.info("Dummy API listening on %s:%d", host, port)
-    server.serve_forever()
+
+    # Run forever
+    await asyncio.Event().wait()
 
 
 # ---------------------------------------------------------------------------
 # TLS certificate generation
 # ---------------------------------------------------------------------------
 
-def ensure_certificates():
+
+def ensure_certificates() -> None:
     """Generate self-signed cert if not present."""
     if CERT_FILE.exists() and KEY_FILE.exists():
         return
@@ -402,25 +447,28 @@ def create_ssl_context() -> ssl.SSLContext:
 # Main
 # ---------------------------------------------------------------------------
 
-async def main():
+
+async def main() -> None:
     ensure_certificates()
     ssl_ctx = create_ssl_context()
 
-    # Start background thread servers
-    threads = [
-        threading.Thread(target=run_api_server, args=(DNS_HOST, API_PORT), daemon=True),
-        threading.Thread(target=run_doh_server, args=(DNS_HOST, DOH_PORT, ssl_ctx), daemon=True),
-        threading.Thread(target=run_udp_dns_server, args=(DNS_HOST, DNS_PORT), daemon=True),
-        threading.Thread(target=run_udp_dns_server, args=(DNS_HOST, MDNS_PORT, True), daemon=True),
-        threading.Thread(target=tcp_dns_server_wrapper, args=(DNS_HOST, DOT_PORT, ssl_ctx), daemon=True),
-    ]
-    for t in threads:
-        t.start()
+    # Start all servers concurrently in the same event loop.
+    servers = await asyncio.gather(
+        create_udp_endpoint(DNS_HOST, DNS_PORT),
+        create_udp_endpoint(DNS_HOST, MDNS_PORT, is_mdns=True),
+        run_dot(DNS_HOST, DOT_PORT, ssl_ctx),
+        run_doh(DNS_HOST, DOH_PORT, ssl_ctx),
+        run_api(DNS_HOST, API_PORT),
+        return_exceptions=True,
+    )
 
-    log.info("All servers started. Ready for test.")
-    # Keep running
-    while True:
-        await asyncio.sleep(3600)
+    # Log any startup failure
+    for s in servers:
+        if isinstance(s, Exception):
+            log.error("Server failed to start: %s", s)
+
+    # Keep running indefinitely (run_forever servers never return)
+    await asyncio.Event().wait()
 
 
 if __name__ == "__main__":

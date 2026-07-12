@@ -62,7 +62,7 @@ RUN echo "=== [5/4] benchmark build ===" \
 
 # ── [4/4] integration test: end-to-end scenarios ──
 RUN echo "=== [6/4] integration test ===" \
-    && bash test/integration/run_ci.sh
+    && ctest --test-dir build -R integration --output-on-failure
 
 RUN echo "============================================" \
     && echo "  ALL CI STEPS PASSED (linux-amd64)" \

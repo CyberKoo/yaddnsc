@@ -33,6 +33,12 @@ namespace {
 // IpSourceFactory::create — build the correct IP source from subdomain config.
 // ===========================================================================
 
+/// Build the correct IP source from the subdomain configuration.
+///
+/// Dispatches to InterfaceIpSource, HttpIpSource, or MdnsIpSource
+/// based on Config::IpSource.
+/// @param cfg  The subdomain configuration record.
+/// @return     A unique pointer to the concrete IP source implementation.
 std::unique_ptr<IpSourceBase> IpSourceFactory::create(const Config::SubdomainConfig &cfg) {
     auto address_family = type_to_family(cfg.type);
 

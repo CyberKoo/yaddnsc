@@ -7,7 +7,7 @@
   "resolver": {
     "use_custom_server": true,
     "servers": [
-      {"address": "tls://127.0.0.1:1853", "port": 1853}
+      {"address": "https://127.0.0.1:1443/dns-query", "port": 1443}
     ]
   },
   "domains": [
@@ -18,13 +18,13 @@
       "driver": "simple",
       "subdomains": [
         {
-          "name": "http",
+          "name": "iface",
           "type": "a",
-          "ip_source": "http",
+          "ip_source": "interface",
           "ip_type": "ipv4",
-          "ip_source_param": "http://127.0.0.1:8080/myip",
+          "interface": "lo",
           "driver_param": {
-            "url": "http://127.0.0.1:8080/update?ip={ip_addr}&domain={domain}&source=http&resolver=dot"
+            "url": "http://127.0.0.1:8080/update?ip={ip_addr}&domain={domain}&source=iface&resolver=doh"
           }
         }
       ]

@@ -64,10 +64,19 @@ struct std::formatter<HttpRequest> {
         return buf;
     }
 
+    /// Parse the format specification.
+    /// HttpRequest accepts no custom format options, so this always
+    /// returns the end-of-spec iterator.
+    /// @return  Iterator past the format spec (always ctx.begin()).
     static constexpr auto parse(format_parse_context &ctx) -> decltype(ctx.begin()) {
         return ctx.begin();
     }
 
+    /// Format an HttpRequest into the output context.
+    /// Renders as: HttpRequest(body="...", content_type="...", method="...", header="...")
+    /// @param request  The HTTP request to format.
+    /// @param ctx      The format output context.
+    /// @return         Iterator past the last written character.
     template<typename FormatContext>
     auto format(const HttpRequest &request, FormatContext &ctx) const -> decltype(ctx.out()) {
         const auto &body = request.body.value_or("");

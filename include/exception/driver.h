@@ -11,6 +11,10 @@
 ///
 /// Specialised subclasses (e.g. ParamParseException) provide more granular
 /// error types.
+///
+/// @note  This class remains abstract (pure virtual get_name() inherited from
+///        YaddnscException).  Every concrete driver exception must override
+///        get_name().  Do not instantiate DriverException directly.
 class DriverException : public YaddnscException {
 public:
     using YaddnscException::YaddnscException;

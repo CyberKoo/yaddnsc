@@ -78,3 +78,25 @@ add_unit_test(factory_mdns SOURCE factory_mdns_test.cpp
     ${PROJECT_SOURCE_DIR}/src/dns/wire/builder.cpp)
 target_link_libraries(test_factory_mdns PRIVATE GTest::gmock glaze::glaze httplib::httplib)
 target_compile_definitions(test_factory_mdns PRIVATE YADDNSC_USE_NATIVE_DNS=1)
+
+# ============================================================================
+#  ClassicResolver (native UDP/TCP backend)
+#
+# Starts a Python DNS server (dns_server.py) on loopback, then queries it
+# using the ClassicResolver.  Verifies A/AAAA resolution and error handling.
+# ============================================================================
+
+add_unit_test(classic_native_resolver SOURCE classic_native_resolver_test.cpp
+    ${PROJECT_SOURCE_DIR}/src/dns/resolver/classic_native.cpp
+    ${PROJECT_SOURCE_DIR}/src/dns/resolver_registry.cpp
+    ${PROJECT_SOURCE_DIR}/src/dns/error.cpp
+    ${PROJECT_SOURCE_DIR}/src/network/socket.cpp
+    ${PROJECT_SOURCE_DIR}/src/network/socket_addr.cpp
+    ${PROJECT_SOURCE_DIR}/src/dns/wire/query.cpp
+    ${PROJECT_SOURCE_DIR}/src/dns/wire/builder.cpp
+    ${PROJECT_SOURCE_DIR}/src/network/inet_address.cpp
+    ${PROJECT_SOURCE_DIR}/src/network/uri.cpp)
+target_compile_definitions(test_classic_native_resolver PRIVATE
+    YADDNSC_USE_NATIVE_DNS=1
+    TEST_DATA_DIR="${PROJECT_SOURCE_DIR}/test/component"
+)

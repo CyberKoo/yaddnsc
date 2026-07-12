@@ -51,6 +51,10 @@ struct ResolverDispatcher::Impl {
     static constexpr size_t MAX_CONCURRENT_RESOLVERS = 3;
 
     // ── Types ──
+    /// Shared state for a batch of concurrent resolver queries.
+    ///
+    /// All field accesses are guarded by mtx. The main thread waits on cv
+    /// until completed == total or a definitive result/error is available.
     struct ConcurrentState {
         std::mutex mtx; ///< Guards result/error flags.
         std::condition_variable cv; ///< Notified when a resolver completes.

@@ -154,6 +154,9 @@ function(add_unit_test name)
         ${PROJECT_SOURCE_DIR}/test
     )
     add_test(NAME test_${name} COMMAND test_${name})
+
+    # Collect all test targets for the top-level test-build convenience target.
+    set_property(GLOBAL APPEND PROPERTY YADDNSC_TEST_TARGETS test_${name})
 endfunction()
 
 # ---------------------------------------------------------------------------
@@ -167,8 +170,19 @@ if(benchmark_ADDED)
   add_subdirectory(perf EXCLUDE_FROM_ALL)
 endif()
 
-# Integration tests (optional, require controlled I/O environment)
-# add_subdirectory(integration)
+# Integration tests (optional, require Python3 + loopback network)
+add_subdirectory(integration)
 
 # Driver-specific tests (require driver source files, no dlopen)
 # add_subdirectory(driver)
+
+# ============================================================================
+# tests  —  top-level convenience target to build all test executables
+#           without building the main yaddnsc binary.
+#
+# Usage:
+#   ninja -C build tests
+#   ctest --test-dir build
+# ============================================================================
+get_property(all_test_targets GLOBAL PROPERTY YADDNSC_TEST_TARGETS)
+add_custom_target(tests DEPENDS ${all_test_targets})

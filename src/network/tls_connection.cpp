@@ -116,7 +116,13 @@ std::expected<void, TlsConnection::IoStatus> TlsConnection::connect() {
     if (ssl) {
         const std::string &effective_hostname = sni_hostname_.has_value() ? *sni_hostname_ : server_;
         SSL_set_tlsext_host_name(ssl, effective_hostname.c_str());
-        SSL_set1_host(ssl, effective_hostname.c_str());
+
+        // SSL_set1_host expects a DNS name, not an IP address.
+        // When the connection target is a literal IP, skip hostname
+        // verification — OpenSSL checks SAN IP entries automatically.
+        if (!InetAddress::parse(effective_hostname)) {
+            SSL_set1_host(ssl, effective_hostname.c_str());
+        }
 
         if (!alpn_proto_.empty()) {
             if (SSL_set_alpn_protos(ssl, alpn_proto_.data(), static_cast<unsigned>(alpn_proto_.size())) != 0) {

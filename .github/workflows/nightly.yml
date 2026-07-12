@@ -165,7 +165,10 @@ jobs:
         steps:
             - uses: actions/checkout@v7
             - name: Install dependencies
-              run: sudo apt update; sudo apt install -y ninja-build gcc-14 g++-14 libssl-dev zlib1g zlib1g-dev pkg-config lcov
+              run: |
+                  sudo apt update
+                  sudo apt install -y cmake git ninja-build gcc-14 g++-14 libssl-dev \
+                      zlib1g zlib1g-dev pkg-config python3-venv lcov curl
             - name: Configure
               env:
                   CC: gcc-14
@@ -187,9 +190,15 @@ jobs:
               run: ctest --test-dir build --output-on-failure -j$(nproc)
             - name: Generate coverage report
               run: |
-                  lcov --capture --directory build --gcov-tool gcov-14 --output-file coverage.info --ignore-errors mismatch,negative
-                  lcov --remove coverage.info '/usr/*' '*/test/*' '*/googletest*' '*/benchmark*' '*/spdlog*' '*/glaze*' '*/magic_enum*' --output-file coverage.info --ignore-errors mismatch,negative,unused
-                  lcov --list coverage.info
+                  python3 -m venv /tmp/cov-venv
+                  source /tmp/cov-venv/bin/activate
+                  pip install -q fastcov
+                  fastcov -g gcov-14 -d build \
+                      -i "src/" "include/" "driver/" \
+                      -e "test/" "_deps/" "/usr/" "*/generated/" \
+                         "*/classic_system*" "*/parser_system*" "*/dispatcher_system*" \
+                      -o coverage.info --lcov
+                  lcov --list coverage.info --ignore-errors inconsistent
             - name: Upload coverage reports to Codecov
               uses: codecov/codecov-action@v5
               with:

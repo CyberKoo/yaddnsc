@@ -148,7 +148,7 @@ namespace {
     // ===========================================================================
 
     /// Pick the IPv4 interface address for IGMP membership.
-/// Returns INADDR_ANY if the interface has no IPv4 address or is empty.
+    /// Returns INADDR_ANY if the interface has no IPv4 address or is empty.
     [[nodiscard]] in_addr pick_ipv4_interface_addr(const std::string &interface) {
         if (!interface.empty()) {
             auto subnets = NetDevices::get_ipv4_subnets(interface);
@@ -252,7 +252,7 @@ namespace {
     }
 
     /// Shared helper: poll, receive, parse DNS response.
-/// Throws std::runtime_error on any failure.
+    /// Throws std::runtime_error on any failure.
     [[nodiscard]] std::vector<InetAddress> recv_and_parse(Socket &sock, RecordKind type, const std::string &hostname) {
         auto wait_res = sock.wait_for(POLLIN, MDNS_TIMEOUT_MS);
         if (!wait_res) {

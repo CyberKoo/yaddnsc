@@ -107,7 +107,15 @@ namespace DNS {
         // EDNS0 OPT record constants (RFC 6891).
         constexpr std::uint16_t OPT_RR_TYPE = 41;
 
-        /// Build the 16-bit DNS header flags field.
+        /// Build the 16-bit DNS header flags field (RFC 1035 §4.1.1).
+        /// @param qr      QR flag (0 = query, 1 = response).
+        /// @param opcode  Operation code (4 bits, typically 0 = QUERY).
+        /// @param aa      Authoritative Answer flag.
+        /// @param tc      Truncation flag.
+        /// @param rd      Recursion Desired flag.
+        /// @param ra      Recursion Available flag.
+        /// @param rcode   Response code (4 bits, 0 = NOERROR).
+        /// @return        The packed 16-bit flags field value.
         [[nodiscard]] std::uint16_t
         build_flags(bool qr, std::uint8_t opcode, bool aa, bool tc, bool rd, bool ra, std::uint8_t rcode) noexcept {
             return static_cast<std::uint16_t>((qr ? FLAG_QR : 0) | (static_cast<std::uint16_t>(opcode & 0x0F) << 11) | (

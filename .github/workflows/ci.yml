@@ -26,7 +26,8 @@ jobs:
             - name: Checkout
               uses: actions/checkout@v7
             - name: Install dependencies
-              run: sudo apt update; sudo apt install -y ninja-build libssl-dev zlib1g zlib1g-dev pkg-config
+              run: sudo apt update; sudo apt install -y cmake git ninja-build gcc-14 g++-14 \
+                  libssl-dev zlib1g zlib1g-dev pkg-config python3-venv curl
             - name: Configure
               env:
                   CC: gcc-14
@@ -64,7 +65,7 @@ jobs:
             - name: Checkout
               uses: actions/checkout@v7
             - name: Install dependencies
-              run: brew update; brew install ninja openssl@3 pkg-config
+              run: brew update; brew install cmake git ninja openssl@3 pkg-config
             - name: Configure
               run: cmake -B build -G Ninja -DOPENSSL_ROOT_DIR=/opt/homebrew/opt/openssl@3/ -DCMAKE_BUILD_TYPE=Debug -DYADDNSC_BUILD_TESTS=ON
             - name: Build
@@ -72,29 +73,7 @@ jobs:
             - name: Test
               run: ctest --test-dir build --output-on-failure -j$(getconf _NPROCESSORS_ONLN)
 
-    # ----------------------------------------------------------------------
-    # Integration test — end-to-end DNS → resolve → update flow
-    #
-    # Starts a Python simulation server for DNS/HTTP, runs yaddnsc with
-    # a test config, and validates that the simple driver sends the
-    # expected update request.
-    # ----------------------------------------------------------------------
-    integration:
-        runs-on: ubuntu-24.04
-        steps:
-            - name: Checkout
-              uses: actions/checkout@v7
-            - name: Install dependencies
-              run: |
-                  sudo apt update
-                  sudo apt install -y ninja-build libssl-dev zlib1g zlib1g-dev pkg-config python3-venv
-            - name: Install toolchain (GCC 14)
-              run: sudo apt install -y gcc-14 g++-14
-            - name: Run integration test
-              env:
-                  CC: gcc-14
-                  CXX: g++-14
-              run: test/integration/run_ci.sh
+
 
     # ----------------------------------------------------------------------
     # Conversion warning gate.
@@ -114,7 +93,8 @@ jobs:
             - name: Checkout
               uses: actions/checkout@v7
             - name: Install dependencies
-              run: sudo apt update; sudo apt install -y ninja-build libssl-dev zlib1g zlib1g-dev pkg-config
+              run: sudo apt update; sudo apt install -y cmake git ninja-build gcc-14 g++-14 \
+                  libssl-dev zlib1g zlib1g-dev pkg-config
             - name: Configure
               run: >-
                   cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DYADDNSC_BUILD_TESTS=ON
@@ -138,7 +118,8 @@ jobs:
             - name: Checkout
               uses: actions/checkout@v7
             - name: Install dependencies
-              run: sudo apt update; sudo apt install -y ninja-build libssl-dev zlib1g zlib1g-dev pkg-config
+              run: sudo apt update; sudo apt install -y cmake git ninja-build gcc-14 g++-14 \
+                  libssl-dev zlib1g zlib1g-dev pkg-config
             - name: Configure
               run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DYADDNSC_BUILD_TESTS=ON
             - name: Build benchmarks
