@@ -108,7 +108,11 @@ sudo apt install libssl-dev build-essential cmake pkg-config
 # Install system dependencies (macOS)
 brew install openssl@3 cmake pkg-config
 
-# Build
+# Default build (Debug — includes debug symbols and sanitizers)
+cmake -B build
+cmake --build build -j$(nproc)
+
+# Optimized production build
 cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j$(nproc)
 
@@ -134,7 +138,7 @@ Tests are gated by the `YADDNSC_BUILD_TESTS` CMake option (default: OFF). To bui
 # Enable ASan-friendly options for local debugging (optional but recommended)
 export ASAN_OPTIONS=detect_stack_use_after_return=1:strict_string_checks=1:detect_invalid_pointer_pairs=2
 
-cmake -B build -DCMAKE_BUILD_TYPE=Debug -DYADDNSC_BUILD_TESTS=ON
+cmake -B build -DYADDNSC_BUILD_TESTS=ON
 cmake --build build -j$(nproc)
 ctest --test-dir build --output-on-failure
 ```
@@ -145,7 +149,7 @@ Integration tests for the core orchestration components (Manager, Scheduler, Upd
 
 | Option                        | Default                                       | Description                                                       |
 |-------------------------------|-----------------------------------------------|-------------------------------------------------------------------|
-| `CMAKE_BUILD_TYPE`            | Release                                       | Set to `Debug` for debug builds                                   |
+| `CMAKE_BUILD_TYPE`            | Debug                                         | Set to `Release` for optimized production builds                   |
 | `YADDNSC_MIN_UPDATE_INTERVAL` | 60                                            | Minimum allowed update interval in seconds                         |
 | `YADDNSC_USE_NATIVE_DNS`      | ON                                            | Use built-in DNS query and parser (no libresolv) for better portability. Set to OFF to fall back to system libresolv (DEPRECATED — will be removed before 1.0.0).
 | `YADDNSC_DEFAULT_DNS_SERVER`  | 1.1.1.1                                       | Default DNS server address when none is configured                 |

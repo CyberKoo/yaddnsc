@@ -107,7 +107,11 @@ sudo apt install libssl-dev build-essential cmake pkg-config
 # 安装系统依赖（macOS）
 brew install openssl@3 cmake pkg-config
 
-# 编译
+# 默认编译（Debug — 包含调试符号和 sanitizer）
+cmake -B build
+cmake --build build -j$(nproc)
+
+# 优化后的发布编译
 cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j$(nproc)
 
@@ -133,7 +137,7 @@ sudo cmake --install build
 # 启用对本地调试友好的 ASan 选项（可选但推荐）
 export ASAN_OPTIONS=detect_stack_use_after_return=1:strict_string_checks=1:detect_invalid_pointer_pairs=2
 
-cmake -B build -DCMAKE_BUILD_TYPE=Debug -DYADDNSC_BUILD_TESTS=ON
+cmake -B build -DYADDNSC_BUILD_TESTS=ON
 cmake --build build -j$(nproc)
 ctest --test-dir build --output-on-failure
 ```
@@ -144,7 +148,7 @@ ctest --test-dir build --output-on-failure
 
 | 选项                            | 默认值                                           | 说明                             |
 |-------------------------------|-----------------------------------------------|--------------------------------|
-| `CMAKE_BUILD_TYPE`            | Release                                       | 设为 `Debug` 可生成调试版本             |
+| `CMAKE_BUILD_TYPE`            | Debug                                         | 设为 `Release` 可生成优化后的发布版本             |
 | `YADDNSC_MIN_UPDATE_INTERVAL` | 60                                            | 最小允许的更新间隔（秒）                    |
 | `YADDNSC_USE_NATIVE_DNS`      | ON                                            | 使用内置 DNS 查询和解析器（不依赖 libresolv）以获得更好的可移植性。设置为 OFF 可回退到系统 libresolv（已弃用，将在 1.0.0 之前移除）。
 | `YADDNSC_DEFAULT_DNS_SERVER`  | 1.1.1.1                                       | 未配置时的默认 DNS 服务器地址              |

@@ -95,18 +95,6 @@ add_unit_test(dispatcher SOURCE dns/dispatcher_test.cpp
 target_link_libraries(test_dispatcher PRIVATE GTest::gmock)
 target_compile_definitions(test_dispatcher PRIVATE YADDNSC_USE_NATIVE_DNS=1)
 
-# ResolverDispatcher — legacy system backend (libresolv) [DEPRECATED, will be removed before 1.0.0]
-find_library(RESOLV resolv)
-
-add_unit_test(dispatcher_system SOURCE dns/dispatcher_system_test.cpp
-    ${PROJECT_SOURCE_DIR}/src/dns/dispatcher_system.cpp
-    ${PROJECT_SOURCE_DIR}/src/dns/parser/parser_system.cpp
-    ${PROJECT_SOURCE_DIR}/src/dns/error.cpp)
-target_link_libraries(test_dispatcher_system PRIVATE GTest::gmock)
-if (RESOLV)
-  target_link_libraries(test_dispatcher_system PRIVATE ${RESOLV})
-endif ()
-
 # wire-format builders and queries
 add_unit_test(builder SOURCE dns/builder_test.cpp
     ${PROJECT_SOURCE_DIR}/src/dns/wire/builder.cpp)
@@ -115,15 +103,10 @@ add_unit_test(builder SOURCE dns/builder_test.cpp
 add_unit_test(mkquery SOURCE dns/mkquery_test.cpp
     ${PROJECT_SOURCE_DIR}/src/dns/wire/query.cpp
     ${PROJECT_SOURCE_DIR}/src/dns/wire/builder.cpp)
-if (RESOLV)
-  target_link_libraries(test_mkquery PRIVATE ${RESOLV})
-endif ()
-
-# RecordParser — system backend (libresolv-based)
-add_unit_test(dns_parser_system SOURCE dns/parser_test.cpp
-    ${PROJECT_SOURCE_DIR}/src/dns/parser/parser_system.cpp)
-if (RESOLV)
-  target_link_libraries(test_dns_parser_system PRIVATE ${RESOLV})
+# query.cpp may reference res_mkquery (→ res_9_mkquery on macOS).
+find_library(MKQUERY_RESOLV resolv)
+if (MKQUERY_RESOLV)
+  target_link_libraries(test_mkquery PRIVATE ${MKQUERY_RESOLV})
 endif ()
 
 # RecordParser — native backend (self-contained, no libresolv)

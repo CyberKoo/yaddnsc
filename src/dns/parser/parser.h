@@ -13,6 +13,8 @@
 //
 // Both expose the same core API under DNS::RecordParser.
 
+#include "resolver_config.h"
+
 #if YADDNSC_USE_NATIVE_DNS
 #  include "dns/parser/parser_native.h"
 #else
