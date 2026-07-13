@@ -356,8 +356,8 @@ TEST(QueryBuilderTest, EdnsWithoutDnssec) {
 
 TEST(QueryBuilderTest, EdnsWithOptions) {
     std::vector<DNS::EdnsOption> opts = {
-        {1, {0x00, 0x08}},                         // ECS option (code=8 → actually 8, but let's test code=1 with data)
-        {2, {0xAA, 0xBB, 0xCC}},                   // code=2, 3 bytes
+        {1, {0x00, 0x08}},                         // code=1, 2 bytes of data
+        {2, {0xAA, 0xBB, 0xCC}},                   // code=2, 3 bytes of data
     };
 
     auto packet = DNS::QueryBuilder{}
@@ -437,9 +437,9 @@ TEST(QueryBuilderTest, ThrowsOnNameTooLong) {
 }
 
 TEST(QueryBuilderTest, AcceptsMaxNameLength) {
-    // Build a name that's exactly 255 octets when encoded.
-    // 4 labels: 62+62+62+61 chars + 3 dots = 250.
-    // label_count = 4, so encoded = 250 + 4 + 1 = 255.
+    // Build a name whose encoded form fits within the 255-octet limit.
+    // Label data: 62+62+62+61 = 247 bytes; 3 dots in the string form.
+    // Encoded: 247 (data) + 4 (length bytes) + 1 (terminator) = 252.
     std::string max_name;
     max_name.append(62, 'a'); max_name += '.';
     max_name.append(62, 'a'); max_name += '.';
@@ -508,4 +508,58 @@ TEST(QueryBuilderTest, ExceptionGetName) {
     } catch (const DnsPacketException& e) {
         EXPECT_EQ(e.get_name(), "DnsPacketException");
     }
+}
+
+// ===========================================================================
+//  RCODE
+// ===========================================================================
+
+TEST(QueryBuilderTest, RcodeSetsHeaderBits) {
+    auto packet = DNS::QueryBuilder{}
+        .id(0)
+        .rd(false)
+        .rcode(DNS::Rcode::REFUSED)
+        .add_question("example.com", DNS::RecordType::A)
+        .build();
+
+    // RCODE = 5 (REFUSED) in the low 4 bits of the flags word
+    EXPECT_EQ(read_u16(packet, 2), 0x0005);
+}
+
+TEST(QueryBuilderTest, RcodeNxdomain) {
+    auto packet = DNS::QueryBuilder{}
+        .id(0)
+        .rd(false)
+        .rcode(DNS::Rcode::NXDOMAIN)
+        .add_question("example.com", DNS::RecordType::A)
+        .build();
+
+    EXPECT_EQ(read_u16(packet, 2), 0x0003);
+}
+
+// ===========================================================================
+//  EDNS0 — default / empty options
+// ===========================================================================
+
+TEST(QueryBuilderTest, EdnsDefaultOptions) {
+    // add_edns with no options argument uses the default std::span{}
+    auto packet = DNS::QueryBuilder{}
+        .add_question("example.com", DNS::RecordType::A)
+        .add_edns(4096)
+        .build();
+
+    size_t opt_offset = 29;
+    // RDLENGTH should be 0 (no options)
+    EXPECT_EQ(read_u16(packet, opt_offset + 9), 0);
+}
+
+TEST(QueryBuilderTest, EdnsEmptyExplicitOptions) {
+    std::vector<DNS::EdnsOption> empty_opts;
+    auto packet = DNS::QueryBuilder{}
+        .add_question("example.com", DNS::RecordType::A)
+        .add_edns(4096, 0, false, empty_opts)
+        .build();
+
+    size_t opt_offset = 29;
+    EXPECT_EQ(read_u16(packet, opt_offset + 9), 0);
 }

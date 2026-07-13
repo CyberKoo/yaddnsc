@@ -42,12 +42,12 @@ namespace DNS {
     class QueryBuilder {
     public:
         /// Default-construct with sensible query defaults:
-        ///   - ID: random (std::random_device)
+        ///   - ID: random (thread-local MT19937 from Utils::Random::engine)
         ///   - QR: 0 (query)
         ///   - OPCODE: 0 (standard query)
         ///   - RD: true (recursion desired)
         ///   - All other flags: false
-        QueryBuilder() noexcept;
+        QueryBuilder();
 
         // ── Header flags ──────────────────────────────────────────────
 
@@ -71,6 +71,9 @@ namespace DNS {
 
         /// RA — Recursion Available.
         QueryBuilder &ra(bool v) noexcept;
+
+        /// RCODE — response code (default: NOERROR).
+        QueryBuilder &rcode(Rcode v) noexcept;
 
         // ── Question section ──────────────────────────────────────────
 
@@ -135,7 +138,7 @@ namespace DNS {
         bool tc_;
         bool rd_;
         bool ra_;
-        std::uint8_t rcode_; // only meaningful for responses
+        Rcode rcode_{Rcode::NOERROR};
 
         std::vector<PendingQuestion> questions_;
         std::optional<EdnsConfig> edns_;

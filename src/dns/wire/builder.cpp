@@ -4,7 +4,7 @@
 
 #include "dns/wire/builder.h"
 
-#include <random>
+#include "util/random.hpp"
 
 #include "exception/dns_packet.h"
 
@@ -47,14 +47,12 @@ namespace DNS {
                 }
 
                 // Pre-compute the total encoded length to validate early.
-                // Encoded name = sum(label_len + 1) per label + 1 (terminating zero).
-                // This equals name.size() + label_count + 1.
-                size_t label_count = 1;
-                for (auto c: name) {
-                    if (c == '.')
-                        ++label_count;
-                }
-                const size_t encoded_size = name.size() + label_count + 1;
+                // Encoded size = sum(label_len + 1) per label + 1 (terminating zero).
+                // For names without a trailing dot this equals name.size() + 2;
+                // for names with a trailing dot it equals name.size() + 1 (the trailing
+                // dot is consumed and its length byte coincides with the terminator).
+                const bool trailing_dot = name.back() == '.';
+                const size_t encoded_size = name.size() + (trailing_dot ? 1 : 2);
                 if (encoded_size > 255) {
                     throw DnsPacketException(
                         fmt::format("Domain name \"{}\" is too long ({} octets, max 255)", name, encoded_size)
@@ -128,11 +126,9 @@ namespace DNS {
     //  QueryBuilder  —  public fluent builder
     // ===========================================================================
 
-    QueryBuilder::QueryBuilder() noexcept : id_([] {
-                                                static std::random_device rd;
-                                                return static_cast<std::uint16_t>(rd() & 0xFFFF);
-                                            }()), qr_(false), opcode_(0), aa_(false), tc_(false), rd_(true), ra_(false),
-                                            rcode_(0) {
+    QueryBuilder::QueryBuilder() : id_(0), qr_(false), opcode_(0), aa_(false), tc_(false), rd_(true), ra_(false) {
+        auto &eng = Utils::Random::engine();
+        id_ = static_cast<std::uint16_t>(eng() & 0xFFFF);
     }
 
     QueryBuilder &QueryBuilder::id(std::uint16_t id) noexcept {
@@ -167,6 +163,11 @@ namespace DNS {
 
     QueryBuilder &QueryBuilder::ra(bool v) noexcept {
         ra_ = v;
+        return *this;
+    }
+
+    QueryBuilder &QueryBuilder::rcode(Rcode v) noexcept {
+        rcode_ = v;
         return *this;
     }
 
@@ -212,7 +213,7 @@ namespace DNS {
 
         // ---- Header (12 bytes) ----
         w.write_uint16(id_);
-        w.write_uint16(build_flags(qr_, opcode_, aa_, tc_, rd_, ra_, rcode_));
+        w.write_uint16(build_flags(qr_, opcode_, aa_, tc_, rd_, ra_, std::to_underlying(rcode_)));
         w.write_uint16(qdcount);
         w.write_uint16(0); // ANCOUNT
         w.write_uint16(0); // NSCOUNT

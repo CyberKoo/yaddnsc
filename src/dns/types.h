@@ -30,6 +30,7 @@ namespace DNS {
         OPT = 41, // EDNS0 (RFC 6891)
         PTR = 12,
         SRV = 33,
+        ANY = 255, // QTYPE * (RFC 1035 §3.2.3)
     };
 
     /// DNS class codes.
