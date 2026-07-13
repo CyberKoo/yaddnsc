@@ -8,6 +8,8 @@
 
 #include "exception/dns_packet.h"
 
+#include <utility>
+
 #include "fmt.hpp"
 
 namespace DNS {
