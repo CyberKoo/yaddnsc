@@ -37,6 +37,9 @@
 # *.iml
 # *.ipr
 
+# Generated CA bundle (integration test)
+ca.pem
+
 # CMake
 cmake-build-*/
 
