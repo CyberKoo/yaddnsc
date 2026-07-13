@@ -11,6 +11,8 @@
 #include <optional>
 #include <string_view>
 
+#include "yaddnsc_export.h"
+
 /// A URI parser and builder conforming to RFC 3986.
 ///
 /// Parses a URI string into its components (scheme, host, port, path,
@@ -85,9 +87,15 @@ public:
     [[nodiscard]] std::string_view get_raw_uri() const noexcept;
 
     /// Percent-encode a string per RFC 3986 §2.1.
+    ///
     /// Unreserved characters (A-Z, a-z, 0-9, '-', '.', '_', '~') are passed through;
     /// all other bytes are encoded as "%XX" (uppercase hex).
-    [[nodiscard]] static std::string url_encode(std::string_view input) noexcept;
+    ///
+    /// When @p encode_slash is false, '/' is preserved instead of being encoded as
+    /// "%2F".  This is needed for the canonical URI in AWS SigV4 signing, where
+    /// each path segment is encoded separately and '/' is the segment delimiter.
+    [[nodiscard]] static YADDNSC_EXPORT std::string url_encode(std::string_view input,
+                                                 bool encode_slash = true) noexcept;
 
     /// Percent-decode a string per RFC 3986 §2.1.
     /// Each "%XX" sequence is replaced with the corresponding byte.

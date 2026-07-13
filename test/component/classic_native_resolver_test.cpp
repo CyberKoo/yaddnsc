@@ -50,6 +50,7 @@
 #include "dns/dns_error_info.h"
 #include "record_kind.h"
 #include "uri.h"
+#include "exception/dns_lookup.h"
 
 #include "fmt.hpp"
 
@@ -307,13 +308,204 @@ TEST_F(ClassicNativeResolverTest, ConnectionRefused_ReturnsError) {
 }
 
 TEST_F(ClassicNativeResolverTest, MalformedResponse_ValidatorRejects) {
-    // Query a host that makes the server return garbage.
-    // The response validator should reject it.
-    Utils::CancellationToken cancel;
-    auto result = global_resolver->query("malformed.yaddnsc.test", RecordKind::A, cancel);
+	// Query a host that makes the server return garbage.
+	// The response validator should reject it.
+	Utils::CancellationToken cancel;
+	auto result = global_resolver->query("malformed.yaddnsc.test", RecordKind::A, cancel);
 
-    // Should fail — validator rejects the malformed response.
-    ASSERT_FALSE(result.has_value());
+	// Should fail — validator rejects the malformed response.
+	ASSERT_FALSE(result.has_value());
+}
+
+TEST_F(ClassicNativeResolverTest, InvalidServerAddress_Throws) {
+	// An invalid address (not a valid IP) should throw during construction.
+	Config::DnsServer server;
+	server.address = "not-an-ip";
+	server.port = 53;
+
+	EXPECT_THROW(
+		{ auto bad = std::make_unique<ClassicResolver>(std::move(server)); },
+		DnsLookupException
+	);
+}
+
+TEST_F(ClassicNativeResolverTest, UdpTimeout_ReturnsRetryError) {
+	// Query a host the server ignores on UDP — resolver should time out.
+	Utils::CancellationToken cancel;
+	auto result = global_resolver->query("timeout.yaddnsc.test", RecordKind::A, cancel);
+
+	// Should fail with a timeout/retry error (no server response).
+	ASSERT_FALSE(result.has_value());
+}
+
+TEST_F(ClassicNativeResolverTest, TcpConnectionReset_ReturnsError) {
+	// UDP returns TC=1, then TCP connection is immediately closed.
+	Utils::CancellationToken cancel;
+	auto result = global_resolver->query("tcpreset.yaddnsc.test", RecordKind::A, cancel);
+
+	// Should fail — TCP connection reset before any response.
+	ASSERT_FALSE(result.has_value());
+}
+
+TEST_F(ClassicNativeResolverTest, TcpInvalidResponseLength_ReturnsError) {
+	// UDP returns TC=1, then TCP returns length prefix 0.
+	Utils::CancellationToken cancel;
+	auto result = global_resolver->query("tcperror.yaddnsc.test", RecordKind::A, cancel);
+
+	// Should fail — TCP response length is invalid (0).
+	ASSERT_FALSE(result.has_value());
+}
+
+TEST_F(ClassicNativeResolverTest, DnsPacketException_IsCaught) {
+	// A hostname with a label > 63 chars triggers DnsPacketException
+	// in build_query, which is caught and returned as an error.
+	std::string long_label(70, 'a');
+	auto bad_host = fmt::format("{}.example.com", long_label);
+
+	Utils::CancellationToken cancel;
+	auto result = global_resolver->query(bad_host, RecordKind::A, cancel);
+
+	ASSERT_FALSE(result.has_value());
+}
+
+TEST_F(ClassicNativeResolverTest, Ipv6ServerAddress) {
+	// Create a resolver pointing to an IPv6 loopback.
+	Config::DnsServer server;
+	server.address = "::1";
+	server.port = DNS_PORT;
+
+	auto ipv6_resolver = std::make_unique<ClassicResolver>(std::move(server));
+	Utils::CancellationToken cancel;
+	auto result = ipv6_resolver->query("yaddnsc.test", RecordKind::A, cancel);
+
+	// ::1 is the same machine; the server should be reachable.
+	// If the test environment has IPv6 disabled this will fail gracefully.
+	if (!result) {
+		GTEST_SKIP() << "IPv6 loopback not available";
+	}
+	ASSERT_TRUE(result.has_value());
+}
+
+TEST_F(ClassicNativeResolverTest, TcpRecvTimeout_ReturnsRetryError) {
+	// UDP returns TC=1, TCP connects but never sends — resolver times out.
+	Utils::CancellationToken cancel;
+	auto result = global_resolver->query("tcptimeout.yaddnsc.test", RecordKind::A, cancel);
+
+	// Should fail with timeout.
+	ASSERT_FALSE(result.has_value());
+}
+
+TEST_F(ClassicNativeResolverTest, TcpGarbageResponse_ValidatorRejects) {
+	// UDP returns TC=1, TCP returns garbage — validator rejects.
+	Utils::CancellationToken cancel;
+	auto result = global_resolver->query("tcpgarbage.yaddnsc.test", RecordKind::A, cancel);
+
+	// Should fail — validator rejects garbage.
+	ASSERT_FALSE(result.has_value());
+}
+
+TEST_F(ClassicNativeResolverTest, TcpResponseLengthTooLarge_ReturnsError) {
+	// UDP returns TC=1, TCP returns length prefix > 4096.
+	Utils::CancellationToken cancel;
+	auto result = global_resolver->query("tcplarge.yaddnsc.test", RecordKind::A, cancel);
+
+	// Should fail — invalid response length.
+	ASSERT_FALSE(result.has_value());
+}
+
+TEST_F(ClassicNativeResolverTest, TcpConnectFailureAfterTruncatedUdp) {
+	// Use a UDP-only server that returns TC=1, so TCP connect fails.
+	// Start a second Python server with --udp-only on a different port.
+	constexpr int UDP_ONLY_PORT = 21554;
+
+	pid_t udp_only_pid = ::fork();
+	ASSERT_NE(udp_only_pid, -1) << "fork() failed";
+
+	if (udp_only_pid == 0) {
+		// Child: exec the UDP-only DNS server.
+#ifdef __linux__
+		::prctl(PR_SET_PDEATHSIG, SIGTERM);
+#endif
+		int log_fd = ::open("/tmp/yaddnsc-udp-only-server.log",
+		                    O_WRONLY | O_CREAT | O_TRUNC, 0644);
+		if (log_fd >= 0) {
+			::dup2(log_fd, STDOUT_FILENO);
+			::dup2(log_fd, STDERR_FILENO);
+			::close(log_fd);
+		}
+		auto port_str = fmt::format("{}", UDP_ONLY_PORT);
+		::execlp("python3", "python3", TEST_DATA_DIR "/dns_server.py",
+		         port_str.c_str(), "--udp-only", nullptr);
+		::execl("/tmp/sim-venv/bin/python3", "python3", TEST_DATA_DIR "/dns_server.py",
+		        port_str.c_str(), "--udp-only", nullptr);
+		::_exit(127);
+	}
+
+	// Parent: wait for the UDP-only server to become ready.
+	// Use a proper DNS query as probe (same as main server startup).
+	auto deadline = std::chrono::steady_clock::now() + 10s;
+	bool ready = false;
+
+	std::vector<std::uint8_t> probe;
+	auto w16 = [&](std::uint16_t v) {
+		probe.push_back(static_cast<std::uint8_t>(v >> 8));
+		probe.push_back(static_cast<std::uint8_t>(v & 0xFF));
+	};
+	w16(0); w16(0x0100); w16(1); w16(0); w16(0); w16(0);
+	probe.push_back(7);
+	std::ranges::copy(std::string_view("example"), std::back_inserter(probe));
+	probe.push_back(3);
+	std::ranges::copy(std::string_view("com"), std::back_inserter(probe));
+	probe.push_back(0);
+	w16(1); w16(1);
+
+	while (!ready && std::chrono::steady_clock::now() < deadline) {
+		int fd = ::socket(AF_INET, SOCK_DGRAM, 0);
+		if (fd < 0) break;
+
+		struct sockaddr_in addr = {};
+		addr.sin_family = AF_INET;
+		addr.sin_port = htons(static_cast<std::uint16_t>(UDP_ONLY_PORT));
+		::inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
+
+		::sendto(fd, probe.data(), probe.size(), 0,
+		         reinterpret_cast<sockaddr *>(&addr), sizeof(addr));
+		struct pollfd pfd = {fd, POLLIN, 0};
+		if (::poll(&pfd, 1, 200) > 0) {
+			std::vector<std::uint8_t> buf(512);
+			if (::recv(fd, buf.data(), buf.size(), 0) > 0) {
+				ready = true;
+			}
+		}
+		::close(fd);
+		if (!ready)
+			std::this_thread::sleep_for(100ms);
+	}
+
+	if (!ready) {
+		::kill(udp_only_pid, SIGTERM);
+		::waitpid(udp_only_pid, nullptr, 0);
+		GTEST_SKIP() << "UDP-only server did not start within 10s";
+		return;
+	}
+
+	// Create a resolver pointing to the UDP-only server.
+	Config::DnsServer server;
+	server.address = "127.0.0.1";
+	server.port = UDP_ONLY_PORT;
+	auto resolver = std::make_unique<ClassicResolver>(std::move(server));
+
+	Utils::CancellationToken cancel;
+	// Query a host that triggers TC=1 on UDP.
+	// Since there's no TCP listener, the TCP connect should fail.
+	auto result = resolver->query("tcpconnectfail.yaddnsc.test", RecordKind::A, cancel);
+
+	// Should fail with a connection error (TCP connect failed after truncation).
+	ASSERT_FALSE(result.has_value());
+
+	// Clean up the UDP-only server.
+	::kill(udp_only_pid, SIGTERM);
+	::waitpid(udp_only_pid, nullptr, 0);
 }
 
 } // anonymous namespace

@@ -86,7 +86,11 @@ void DriverLoader::load(DriverManager &driver_manager, const Config::AppConfig &
         load_manual(driver_manager, config);
     }
 
-    if (driver_manager.get_loaded_drivers().empty()) {
+    const auto loaded = driver_manager.get_loaded_drivers();
+
+    if (loaded.empty()) {
         SPDLOG_WARN("No drivers were loaded, DDNS updates will not be performed");
+    } else {
+        SPDLOG_INFO("Loaded {} driver(s)", loaded.size());
     }
 }

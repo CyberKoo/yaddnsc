@@ -26,6 +26,13 @@ DEFAULT_RECORDS = {
 # Hostnames that trigger special behaviour.
 TRUNCATE_HOST = "truncate.yaddnsc.test"
 MALFORMED_HOST = "malformed.yaddnsc.test"
+TIMEOUT_HOST = "timeout.yaddnsc.test"      # UDP: no response (triggers timeout)
+TCP_ERROR_HOST = "tcperror.yaddnsc.test"   # UDP: TC=1, TCP: invalid length (0)
+TCP_RESET_HOST = "tcpreset.yaddnsc.test"   # UDP: TC=1, TCP: close immediately
+TCP_TIMEOUT_HOST = "tcptimeout.yaddnsc.test"  # UDP: TC=1, TCP: accept but hang
+TCP_GARBAGE_HOST = "tcpgarbage.yaddnsc.test"  # UDP: TC=1, TCP: garbage response
+TCP_LARGE_HOST = "tcplarge.yaddnsc.test"     # UDP: TC=1, TCP: length > 4096
+TCP_CONNECT_FAIL_HOST = "tcpconnectfail.yaddnsc.test"  # UDP: TC=1, TCP: no listener
 
 HOST = "127.0.0.1"
 TYPE_MAP = {1: "A", 28: "AAAA"}
@@ -100,9 +107,24 @@ def build_aaaa_record(ip: str, ttl: int = 60) -> bytes:
 
 
 def build_response(ident: int, question: bytes, qname: str, qtype_str: str,
-                   records: dict, is_udp: bool = True) -> bytes:
-    """Build a DNS response with QR=1, RA=1."""
+                   records: dict, is_udp: bool = True) -> bytes | None:
+    """Build a DNS response with QR=1, RA=1.
+    
+    Returns None when the caller should silently drop the query (no response).
+    """
     rdata = records.get(qname, {}).get(qtype_str)
+
+    # ── Timeout host: no response on UDP (triggers resolver timeout) ─────
+    if qname == TIMEOUT_HOST and is_udp:
+        return None
+
+    # ── TCP error hosts: TC=1 on UDP to force TCP fallback ───────────────
+    if qname in (TCP_ERROR_HOST, TCP_RESET_HOST, TCP_TIMEOUT_HOST,
+                 TCP_GARBAGE_HOST, TCP_LARGE_HOST, TCP_CONNECT_FAIL_HOST) and is_udp:
+        # Return truncated response (TC=1) — triggers TCP fallback.
+        flags = 0x8380
+        header = struct.pack("!HHHHHH", ident, flags, 1, 0, 0, 0)
+        return header + question
 
     if qname == TRUNCATE_HOST and is_udp:
         # Return truncated response (TC=1) on UDP — triggers TCP fallback.
@@ -167,7 +189,8 @@ class DNSProtocol(asyncio.DatagramProtocol):
                 return
             response = build_response(ident, question, qname, qtype_str,
                                       self.records, is_udp=True)
-            self.transport.sendto(response, addr)
+            if response is not None:
+                self.transport.sendto(response, addr)
         except Exception:
             pass
 
@@ -205,11 +228,42 @@ async def handle_tcp_client(reader: asyncio.StreamReader,
         data = await reader.readexactly(msg_len)
 
         ident, qname, qtype_str, question = parse_query(data)
+
+        # ── TCP error hosts ──────────────────────────────────────────────
+        if qname == TCP_RESET_HOST:
+            # Close immediately — resolver sees connection reset.
+            return
+
+        if qname == TCP_TIMEOUT_HOST:
+            # Accept connection but never respond — resolver times out and closes.
+            await asyncio.sleep(30)  # Much longer than resolver's 1s TCP timeout
+            return
+
+        if qname == TCP_ERROR_HOST:
+            # Send invalid length prefix (0) — resolver rejects.
+            writer.write(struct.pack("!H", 0))
+            await writer.drain()
+            return
+
+        if qname == TCP_LARGE_HOST:
+            # Send length prefix > 4096 — resolver rejects.
+            writer.write(struct.pack("!H", 5000))
+            await writer.drain()
+            return
+
+        if qname == TCP_GARBAGE_HOST:
+            # Send garbage — validator rejects the TCP response.
+            writer.write(struct.pack("!H", 16) + b"\x00" * 16)
+            await writer.drain()
+            return
+
+        # ── Normal TCP response ──────────────────────────────────────────
         response = build_response(ident, question, qname, qtype_str,
                                   records, is_udp=False)
 
-        writer.write(struct.pack("!H", len(response)) + response)
-        await writer.drain()
+        if response is not None:
+            writer.write(struct.pack("!H", len(response)) + response)
+            await writer.drain()
     except asyncio.IncompleteReadError:
         pass
     except Exception:
@@ -240,6 +294,7 @@ async def run_tcp(host: str, port: int, records: dict) -> None:
 
 async def main() -> None:
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 15353
+    udp_only = "--udp-only" in sys.argv
     records = DEFAULT_RECORDS
     shutdown_event = asyncio.Event()
 
@@ -250,9 +305,11 @@ async def main() -> None:
     for sig in (signal.SIGTERM, signal.SIGINT):
         loop.add_signal_handler(sig, handle_sig)
 
-    # Start UDP and TCP servers concurrently.
+    # Start UDP (always) and TCP (unless --udp-only).
     udp_transport = await create_udp_endpoint(HOST, port, records)
-    tcp_task = asyncio.create_task(run_tcp(HOST, port, records))
+    tcp_task = None
+    if not udp_only:
+        tcp_task = asyncio.create_task(run_tcp(HOST, port, records))
 
     print(f"READY port={port}", flush=True)
 
@@ -260,11 +317,12 @@ async def main() -> None:
 
     # Graceful shutdown.
     udp_transport.close()
-    tcp_task.cancel()
-    try:
-        await tcp_task
-    except asyncio.CancelledError:
-        pass
+    if tcp_task is not None:
+        tcp_task.cancel()
+        try:
+            await tcp_task
+        except asyncio.CancelledError:
+            pass
 
 
 if __name__ == "__main__":

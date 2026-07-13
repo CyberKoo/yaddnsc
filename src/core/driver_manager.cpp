@@ -198,8 +198,8 @@ void DriverManager::Impl::register_driver(DriverModule driver_res, std::string_v
         return;
     }
 
-    SPDLOG_INFO("Loaded driver '{}' ({})", driver_name, driver_lib_name);
-    SPDLOG_DEBUG("Driver {} ({}), developed by {}, version: {}", driver_name, description, author, version);
+    SPDLOG_DEBUG("Loaded driver '{}' ({})", driver_name, driver_lib_name);
+    SPDLOG_TRACE("Driver {} ({}), developed by {}, version: {}", driver_name, description, author, version);
 }
 
 void DriverManager::Impl::unload_driver(const std::string &name) {

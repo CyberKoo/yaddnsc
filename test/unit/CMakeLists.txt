@@ -31,6 +31,11 @@ add_unit_test(retry_util    SOURCE util/retry_util_test.cpp)
 add_unit_test(string_util   SOURCE util/string_util_test.cpp)
 add_unit_test(validation    SOURCE util/validation_test.cpp)
 
+# signing — cryptographic primitives (SHA, HMAC, Base64, hex)
+add_unit_test(signing SOURCE util/signing_test.cpp
+    ${PROJECT_SOURCE_DIR}/src/util/signing.cpp)
+target_link_libraries(test_signing PRIVATE OpenSSL::Crypto)
+
 # ============================================================================
 #  common/  —  cross-module base types (address_family, exceptions, etc.)
 # ============================================================================
@@ -49,12 +54,34 @@ add_unit_test(config_types      SOURCE config/config_types_test.cpp)
 add_unit_test(config_validator  SOURCE config/config_validator_test.cpp
     ${PROJECT_SOURCE_DIR}/src/network/net_devices.cpp)
 
+# config_loader — JSON config file parsing
+add_unit_test(config_loader SOURCE config/config_loader_test.cpp
+    ${PROJECT_SOURCE_DIR}/src/config/config.cpp)
+
+# ============================================================================
+#  util/  —  http parser (zero-coverage rescue)
+# ============================================================================
+
+add_unit_test(http_parser SOURCE util/http_parser_test.cpp
+    ${PROJECT_SOURCE_DIR}/src/util/http_parser.cpp)
+target_link_libraries(test_http_parser PRIVATE picohttpparser)
+
 # ============================================================================
 #  core/  —  scheduler (pure timer queue), updater (ResolverDispatcher)
 # ============================================================================
 
 add_unit_test(scheduler SOURCE core/scheduler_test.cpp
     ${PROJECT_SOURCE_DIR}/src/core/scheduler.cpp)
+
+# driver_loader + driver_manager — dlopen-based driver loading
+add_unit_test(driver_loader SOURCE core/driver_loader_test.cpp
+    ${PROJECT_SOURCE_DIR}/src/core/driver_loader.cpp
+    ${PROJECT_SOURCE_DIR}/src/core/driver_manager.cpp
+    ${PROJECT_SOURCE_DIR}/src/core/core_logger.cpp)
+target_compile_definitions(test_driver_loader PRIVATE
+    TEST_DRIVER_DIR="${CMAKE_BINARY_DIR}/driver")
+target_link_libraries(test_driver_loader PRIVATE ${CMAKE_DL_LIBS})
+target_link_options(test_driver_loader PRIVATE -rdynamic)
 
 # updater — requires the full DNS + IP-source dependency chain
 add_unit_test(updater SOURCE core/updater_test.cpp
@@ -94,6 +121,21 @@ add_unit_test(dispatcher SOURCE dns/dispatcher_test.cpp
     ${PROJECT_SOURCE_DIR}/src/dns/error.cpp)
 target_link_libraries(test_dispatcher PRIVATE GTest::gmock)
 target_compile_definitions(test_dispatcher PRIVATE YADDNSC_USE_NATIVE_DNS=1)
+
+# resolver_registry — factory registry for DNS resolver providers
+add_unit_test(resolver_registry SOURCE dns/resolver_registry_test.cpp
+    ${PROJECT_SOURCE_DIR}/src/dns/resolver_registry.cpp
+    ${PROJECT_SOURCE_DIR}/src/network/uri.cpp)
+
+# factory — DnsResolverFactory::create (config → ResolverDispatcher)
+add_unit_test(factory SOURCE dns/factory_test.cpp
+    ${PROJECT_SOURCE_DIR}/src/dns/factory.cpp
+    ${PROJECT_SOURCE_DIR}/src/dns/resolver_registry.cpp
+    ${PROJECT_SOURCE_DIR}/src/dns/dispatcher.cpp
+    ${PROJECT_SOURCE_DIR}/src/dns/parser/parser_native.cpp
+    ${PROJECT_SOURCE_DIR}/src/dns/error.cpp)
+target_link_libraries(test_factory PRIVATE GTest::gmock)
+target_compile_definitions(test_factory PRIVATE YADDNSC_USE_NATIVE_DNS=1)
 
 # wire-format builders and queries
 add_unit_test(builder SOURCE dns/builder_test.cpp

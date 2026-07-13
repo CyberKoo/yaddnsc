@@ -15,11 +15,7 @@
 ## Features
 
 - **Multi-domain, multi-subdomain management** — manage multiple domains and subdomains from a single configuration file.
-- **Pluggable driver architecture** — drivers are loaded as shared libraries (`.so`) at runtime. Bundled drivers include:
-  - [Cloudflare](https://www.cloudflare.com/) — updates DNS records via the Cloudflare API v4
-  - [DigitalOcean](https://www.digitalocean.com/) — updates DNS records via the DigitalOcean API v2
-  - [DNSPod](https://www.dnspod.com/) — updates DNS records via DNSPod API (supports both China and Global endpoints)
-  - [Simple](https://github.com/Kotarou/yaddnsc) — a generic HTTP driver with URL template substitution for custom API endpoints
+- **Pluggable driver architecture** — drivers are loaded as shared libraries (`.so`) at runtime. See [DRIVERS.md](DRIVERS.md) for the list of bundled drivers, their parameters, and how to write custom ones
 - **Flexible IP source configuration** — each subdomain can choose from:
   - `interface` — obtain the IP from a local network interface
   - `http` — obtain the IP from an external HTTP service (e.g. `https://ifconfig.me`)
@@ -603,66 +599,7 @@ The `strategy` field controls how multiple DNS servers are queried:
 
 ## Driver Parameters
 
-Each driver requires specific parameters in `driver_param`.
-
-### Cloudflare (`cloudflare.so`)
-
-| Parameter   | Required | Description                                      |
-|-------------|----------|--------------------------------------------------|
-| `zone_id`   | Yes      | Cloudflare Zone ID                               |
-| `record_id` | Yes      | Cloudflare DNS Record ID                         |
-| `token`     | Yes      | Cloudflare API Token (needs DNS:Edit permission) |
-| `proxied`   | No       | Whether the record is proxied through Cloudflare |
-| `ttl`       | No       | TTL in seconds (default: 30)                     |
-
-### DigitalOcean (`digital_ocean.so`)
-
-| Parameter   | Required | Description                          |
-|-------------|----------|--------------------------------------|
-| `record_id` | Yes      | DigitalOcean DNS Record ID           |
-| `token`     | Yes      | DigitalOcean Personal Access Token   |
-
-### DNSPod (`dnspod.so`)
-
-| Parameter        | Required | Description                                                           |
-|------------------|----------|-----------------------------------------------------------------------|
-| `domain_id`      | Yes      | DNSPod Domain ID                                                      |
-| `record_id`      | Yes      | DNSPod Record ID                                                      |
-| `login_token`    | Yes      | DNSPod API login token (ID,Token format)                              |
-| `global`         | No       | Use global API endpoint (`true`) or China endpoint (`false`, default) |
-| `record_line`    | No       | Record line (e.g. `"默认"` for default, `"default"` for global)         |
-| `record_line_id` | No       | Record line ID (default: `"0"`)                                       |
-
-### Simple (`simple.so`)
-
-A generic HTTP GET driver for custom APIs. The driver treats the `url` as a template and substitutes `{key}` placeholders with values from the configuration and runtime context.
-
-| Parameter | Required | Description                                                                                                              |
-|-----------|----------|--------------------------------------------------------------------------------------------------------------------------|
-| `url`     | Yes      | HTTP(S) URL template with `{key}` placeholders. All other `driver_param` keys are available for substitution as `{key}`. |
-
-**Available substitution variables:**
-
-| Variable      | Source         | Description                                |
-|---------------|----------------|--------------------------------------------|
-| `{ip_addr}`   | Runtime        | The detected IP address                    |
-| `{rd_type}`   | Runtime        | DNS record type (A, AAAA)                  |
-| `{domain}`    | Runtime        | Domain name                                |
-| `{subdomain}` | Runtime        | Subdomain name                             |
-| `{fqdn}`      | Runtime        | Full domain name                           |
-| `{any_key}`   | `driver_param` | Any key from `driver_param` (except `url`) |
-
-Example:
-```json
-{
-  "driver_param": {
-    "url": "https://api.example.com/update?ip={ip_addr}&type={rd_type}&domain={domain}",
-    "key": "my-secret-key"
-  }
-}
-```
-
-A successful response is any non-empty body.
+See [DRIVERS.md](DRIVERS.md) for the complete reference of all bundled driver parameters, including configuration tables, available substitution variables, and usage examples.
 
 ## Usage
 

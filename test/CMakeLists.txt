@@ -174,7 +174,7 @@ endif()
 add_subdirectory(integration)
 
 # Driver-specific tests (require driver source files, no dlopen)
-# add_subdirectory(driver)
+add_subdirectory(driver)
 
 # ============================================================================
 # tests  —  top-level convenience target to build all test executables
@@ -185,4 +185,7 @@ add_subdirectory(integration)
 #   ctest --test-dir build
 # ============================================================================
 get_property(all_test_targets GLOBAL PROPERTY YADDNSC_TEST_TARGETS)
-add_custom_target(tests DEPENDS ${all_test_targets})
+
+# The 'tests' target also needs yaddnsc (for integration tests) and the driver
+# shared libraries (for driver_loader tests) to be built.
+add_custom_target(tests DEPENDS ${all_test_targets} yaddnsc drivers)

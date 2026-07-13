@@ -344,7 +344,7 @@ std::vector<std::pair<std::string, std::string> > Uri::get_query_params(bool plu
 // Static utilities
 // ---------------------------------------------------------------------------
 
-std::string Uri::url_encode(std::string_view input) noexcept {
+std::string Uri::url_encode(std::string_view input, bool encode_slash) noexcept {
     std::string result;
     result.reserve(input.size() * 3);
 
@@ -352,6 +352,8 @@ std::string Uri::url_encode(std::string_view input) noexcept {
         auto const uc = static_cast<unsigned char>(c);
         if (std::isalnum(uc) || uc == '-' || uc == '.' || uc == '_' || uc == '~') {
             // unreserved character (RFC 3986 §2.3)
+            result += c;
+        } else if (c == '/' && !encode_slash) {
             result += c;
         } else {
             result += '%';

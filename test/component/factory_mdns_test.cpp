@@ -251,7 +251,7 @@ protected:
         responder_sock_.reset();
     }
 
-    /// Check how many queries the responder received.
+    /// Check how many matching queries the responder received.
     [[nodiscard]] int query_count() const {
         return query_count_.load();
     }
@@ -259,6 +259,39 @@ protected:
     std::string test_hostname_;  // Random UUID hostname for this test run
 
 private:
+    /// Encode a dot-separated hostname into DNS label format
+    /// (e.g. "foo.local" -> "\x03foo\x05local\x00").
+    [[nodiscard]] static std::vector<std::uint8_t> encode_dns_name(
+        std::string_view name) {
+        std::vector<std::uint8_t> encoded;
+        size_t start = 0;
+        while (start < name.size()) {
+            auto dot = name.find('.', start);
+            auto len = (dot == std::string_view::npos)
+                           ? name.size() - start
+                           : dot - start;
+            encoded.push_back(static_cast<std::uint8_t>(len));
+            for (size_t i = 0; i < len; ++i) {
+                encoded.push_back(static_cast<std::uint8_t>(name[start + i]));
+            }
+            start = (dot == std::string_view::npos) ? name.size() : dot + 1;
+        }
+        encoded.push_back(0);  // root label
+        return encoded;
+    }
+
+    /// Check whether the QNAME in a DNS query (starting at offset 12) matches
+    /// the given encoded hostname.
+    [[nodiscard]] static bool qname_matches(
+        std::span<const std::uint8_t> query,
+        const std::vector<std::uint8_t>& encoded_hostname) {
+        if (query.size() < 12 + encoded_hostname.size()) {
+            return false;
+        }
+        return std::ranges::equal(
+            encoded_hostname,
+            query.subspan(12, encoded_hostname.size()));
+    }
     void responder_loop() {
         // Poll with a short timeout so we can check the stop flag.
         while (!stop_flag_.load()) {
@@ -277,11 +310,20 @@ private:
             if (n <= 0) {
                 continue;
             }
+
+            // Only process queries matching our test hostname.
+            // This prevents stale multicast packets from other processes
+            // (avahi-daemon, systemd-resolved, or previous test runs) from
+            // inflating query_count_ and causing flaky failures.
+            auto query = std::span<const std::uint8_t>(recv_buf.data(), static_cast<size_t>(n));
+            auto encoded = encode_dns_name(test_hostname_);
+            if (!qname_matches(query, encoded)) {
+                continue;
+            }
             query_count_.fetch_add(1);
 
             // Build a crafted DNS response.
             // Copy the query's TXID, set QR+RA flags, ANCOUNT=1.
-            auto query = std::span<const std::uint8_t>(recv_buf.data(), static_cast<size_t>(n));
             std::vector<std::uint8_t> resp;
             resp.reserve(static_cast<size_t>(n) + 16);
 

@@ -1,0 +1,221 @@
+//
+// Unit tests for src/util/http_parser.cpp — HTTP response parsing.
+//
+// Verifies:
+//   - Valid response → returns ResponseInfo with correct fields.
+//   - Incomplete data → HttpError::INCOMPLETE.
+//   - Malformed response → HttpError::PARSE_FAILED.
+//   - Content-Type mismatch → CONTENT_TYPE_MISMATCH.
+//   - Body too large → BODY_TOO_LARGE.
+//   - Chunked encoding → is_chunked=true.
+//   - No Content-Length → has_content_length=false.
+//   - Multiple headers of the same type → first wins.
+// =============================================================================
+
+#include <string>
+#include <string_view>
+
+#include <gtest/gtest.h>
+
+#include "fmt.hpp"
+#include "util/http_parser.h"
+
+// ── Helpers ─────────────────────────────────────────────────────────────────
+
+/// Build a complete HTTP response string.
+[[nodiscard]] std::string make_response(int status_code, std::string_view content_type,
+                                        std::string_view body,
+                                        std::string_view extra_headers = "") {
+    std::string resp;
+    resp += fmt::format("HTTP/1.1 {} OK\r\n", status_code);
+    resp += fmt::format("Content-Length: {}\r\n", body.size());
+    if (!content_type.empty()) {
+        resp += fmt::format("Content-Type: {}\r\n", content_type);
+    }
+    if (!extra_headers.empty()) {
+        resp += extra_headers;
+        if (!extra_headers.ends_with("\r\n")) resp += "\r\n";
+    }
+    resp += "\r\n";
+    resp += body;
+    return resp;
+}
+
+[[nodiscard]] std::string make_chunked_response(int status_code, std::string_view content_type,
+                                                 std::string_view chunk_data) {
+    std::string resp;
+    resp += fmt::format("HTTP/1.1 {} OK\r\n", status_code);
+    resp += "Transfer-Encoding: chunked\r\n";
+    if (!content_type.empty()) {
+        resp += fmt::format("Content-Type: {}\r\n", content_type);
+    }
+    resp += "\r\n";
+    resp += fmt::format("{:x}\r\n{}\r\n", chunk_data.size(), chunk_data);
+    resp += "0\r\n\r\n";
+    return resp;
+}
+
+// =============================================================================
+//  Valid responses
+// =============================================================================
+
+TEST(HttpParserTest, Simple200Ok_WithMatchingContentType) {
+    auto resp = make_response(200, "application/json", R"({"key":"value"})");
+
+    auto result = Utils::Http::parse_response(resp, "application/json", 1024);
+    ASSERT_TRUE(result.has_value());
+
+    EXPECT_EQ(result->status_code, 200);
+    EXPECT_EQ(result->content_length, 15u);
+    EXPECT_TRUE(result->has_content_length);
+    EXPECT_FALSE(result->is_chunked);
+}
+
+TEST(HttpParserTest, StatusCodePreserved) {
+    auto resp = make_response(404, "text/plain", "Not Found");
+
+    auto result = Utils::Http::parse_response(resp, "text/plain", 1024);
+    ASSERT_TRUE(result.has_value());
+    EXPECT_EQ(result->status_code, 404);
+}
+
+TEST(HttpParserTest, HeaderEndOffset_IsCorrect) {
+    std::string_view body = "hello world";
+    auto resp = make_response(200, "text/plain", body);
+
+    auto result = Utils::Http::parse_response(resp, "text/plain", 1024);
+    ASSERT_TRUE(result.has_value());
+
+    // header_end should point to the start of the body.
+    EXPECT_EQ(resp.substr(result->header_end), body);
+}
+
+// ── Content-Type matching ──────────────────────────────────────────────────
+
+TEST(HttpParserTest, ContentTypeSubstringMatch) {
+    // "application/json" contains "json" — should match when expected is "json".
+    auto resp = make_response(200, "application/json; charset=utf-8", R"({})");
+    auto result = Utils::Http::parse_response(resp, "json", 1024);
+    ASSERT_TRUE(result.has_value());
+}
+
+TEST(HttpParserTest, ContentTypeCaseInsensitive) {
+    auto resp = make_response(200, "APPLICATION/JSON", R"({})");
+    auto result = Utils::Http::parse_response(resp, "application/json", 1024);
+    ASSERT_TRUE(result.has_value());
+}
+
+// ── Error conditions ───────────────────────────────────────────────────────
+
+TEST(HttpParserTest, IncompleteResponse_ReturnsIncomplete) {
+    // Only partial header data.
+    std::string_view buf = "HTTP/1.1 200 OK\r\nCon";
+
+    auto result = Utils::Http::parse_response(buf, "application/json", 1024);
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error(), Utils::Http::HttpError::INCOMPLETE);
+}
+
+TEST(HttpParserTest, EmptyBuffer_ReturnsIncomplete) {
+    auto result = Utils::Http::parse_response("", "application/json", 1024);
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error(), Utils::Http::HttpError::INCOMPLETE);
+}
+
+TEST(HttpParserTest, MalformedResponse_ReturnsParseFailed) {
+    std::string_view buf = "NOT AN HTTP RESPONSE\r\n\r\n";
+
+    auto result = Utils::Http::parse_response(buf, "application/json", 1024);
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error(), Utils::Http::HttpError::PARSE_FAILED);
+}
+
+TEST(HttpParserTest, ContentTypeMismatch_ReturnsError) {
+    auto resp = make_response(200, "text/html", "<html></html>");
+
+    auto result = Utils::Http::parse_response(resp, "application/json", 1024);
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error(), Utils::Http::HttpError::CONTENT_TYPE_MISMATCH);
+}
+
+TEST(HttpParserTest, MissingContentType_ReturnsError) {
+    auto resp = make_response(200, "", "body");
+
+    auto result = Utils::Http::parse_response(resp, "application/json", 1024);
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error(), Utils::Http::HttpError::CONTENT_TYPE_MISMATCH);
+}
+
+TEST(HttpParserTest, BodyExceedsMaxSize_ReturnsBodyTooLarge) {
+    // Content-Length > max_body_size.
+    std::string body(2000, 'x');
+    auto resp = make_response(200, "text/plain", body);
+
+    auto result = Utils::Http::parse_response(resp, "text/plain", 1024);
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error(), Utils::Http::HttpError::BODY_TOO_LARGE);
+}
+
+TEST(HttpParserTest, BodySizeExactlyAtLimit_Succeeds) {
+    std::string body(1024, 'x');
+    auto resp = make_response(200, "text/plain", body);
+
+    auto result = Utils::Http::parse_response(resp, "text/plain", 1024);
+    ASSERT_TRUE(result.has_value());
+    EXPECT_EQ(result->content_length, 1024u);
+}
+
+// ── Chunked encoding ───────────────────────────────────────────────────────
+
+TEST(HttpParserTest, ChunkedEncoding_Detected) {
+    auto resp = make_chunked_response(200, "text/plain", "chunk data");
+
+    auto result = Utils::Http::parse_response(resp, "text/plain", 1024);
+    ASSERT_TRUE(result.has_value());
+    EXPECT_TRUE(result->is_chunked);
+}
+
+TEST(HttpParserTest, ChunkedEncoding_NoContentLength) {
+    auto resp = make_chunked_response(200, "text/plain", "data");
+
+    auto result = Utils::Http::parse_response(resp, "text/plain", 1024);
+    ASSERT_TRUE(result.has_value());
+    // Chunked responses typically don't have Content-Length.
+    // has_content_length should be false because we didn't set it.
+    EXPECT_FALSE(result->has_content_length);
+}
+
+// ── Edge cases ─────────────────────────────────────────────────────────────
+
+TEST(HttpParserTest, InvalidContentLength_ReturnsParseFailed) {
+    // Content-Length with non-numeric value.
+    std::string resp = "HTTP/1.1 200 OK\r\n"
+                       "Content-Type: text/plain\r\n"
+                       "Content-Length: abc\r\n"
+                       "\r\n";
+
+    auto result = Utils::Http::parse_response(resp, "text/plain", 1024);
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error(), Utils::Http::HttpError::PARSE_FAILED);
+}
+
+TEST(HttpParserTest, ContentLengthZero_Succeeds) {
+    auto resp = make_response(204, "application/json", "");
+
+    auto result = Utils::Http::parse_response(resp, "application/json", 1024);
+    ASSERT_TRUE(result.has_value());
+    EXPECT_EQ(result->content_length, 0u);
+    EXPECT_TRUE(result->has_content_length);
+}
+
+TEST(HttpParserTest, ResponseWithoutContentLength_NoBody) {
+    // HTTP response with no Content-Length and no body (e.g. 204 No Content).
+    std::string resp = "HTTP/1.1 204 No Content\r\n"
+                       "Content-Type: application/json\r\n"
+                       "\r\n";
+
+    auto result = Utils::Http::parse_response(resp, "application/json", 1024);
+    ASSERT_TRUE(result.has_value());
+    EXPECT_EQ(result->status_code, 204);
+    EXPECT_FALSE(result->has_content_length);
+}

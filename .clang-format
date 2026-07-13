@@ -60,16 +60,16 @@ IncludeCategories:
     - Regex: "^<c.+>$"
       Priority: 15
       SortPriority: 15
-    # Third-party library headers
-    - Regex: "^<(?!c)[^/]+>$"
+    # Third-party library headers (including path-based, e.g. <libxml/parser.h>)
+    - Regex: "^<.+>$"
       Priority: 20
       SortPriority: 20
     # Project internal headers (with path)
     - Regex: '^".+/'
       Priority: 30
       SortPriority: 30
-    # Project internal headers (local)
-    - Regex: '^".+\.h"$'
+    # Project internal headers (local, no path)
+    - Regex: '^"[^/]+\.(h|hpp)"$'
       Priority: 40
       SortPriority: 40
 

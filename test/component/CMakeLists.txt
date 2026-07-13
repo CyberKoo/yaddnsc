@@ -99,3 +99,54 @@ target_compile_definitions(test_classic_native_resolver PRIVATE
     YADDNSC_USE_NATIVE_DNS=1
     TEST_DATA_DIR="${PROJECT_SOURCE_DIR}/test/component"
 )
+
+# ============================================================================
+#  TlsConnection  (loopback TLS echo server via Python + OpenSSL)
+#
+# Starts a Python TLS echo server with a self-signed cert, then exercises
+# TlsConnection::connect/send_all/read_exact/shutdown/is_healthy.
+# ============================================================================
+
+add_unit_test(tls_connection SOURCE tls_connection_test.cpp
+    ${PROJECT_SOURCE_DIR}/src/network/tls_connection.cpp)
+target_link_libraries(test_tls_connection PRIVATE OpenSSL::SSL OpenSSL::Crypto)
+target_compile_definitions(test_tls_connection PRIVATE
+    TEST_DATA_DIR="${PROJECT_SOURCE_DIR}/test/component"
+)
+
+# ============================================================================
+#  DotResolver  (DoT — DNS-over-TLS via Python DoT server)
+#
+# Starts a Python TLS + DNS server on loopback with a self-signed cert,
+# then exercises DotResolver::query() for A/AAAA records, error handling,
+# and edge cases (timeout, malformed, zero-length responses).
+# ============================================================================
+
+add_unit_test(dot_resolver SOURCE dot_resolver_test.cpp
+    ${PROJECT_SOURCE_DIR}/src/dns/resolver/dot.cpp
+    ${PROJECT_SOURCE_DIR}/src/dns/resolver_registry.cpp
+    ${PROJECT_SOURCE_DIR}/src/dns/wire/builder.cpp
+    ${PROJECT_SOURCE_DIR}/src/network/tls_connection.cpp)
+target_link_libraries(test_dot_resolver PRIVATE OpenSSL::SSL OpenSSL::Crypto)
+target_compile_definitions(test_dot_resolver PRIVATE
+    TEST_DATA_DIR="${PROJECT_SOURCE_DIR}/test/component"
+)
+
+# ============================================================================
+#  DohResolver  (DoH — DNS-over-HTTPS via Python DoH server)
+#
+# Starts a Python TLS + HTTP server on loopback with a self-signed cert,
+# then exercises DohResolver::query() for A/AAAA records, HTTP error
+# handling (404, 500), wrong Content-Type, and timeouts.
+# ============================================================================
+
+add_unit_test(doh_resolver SOURCE doh_resolver_test.cpp
+    ${PROJECT_SOURCE_DIR}/src/dns/resolver/doh.cpp
+    ${PROJECT_SOURCE_DIR}/src/dns/resolver_registry.cpp
+    ${PROJECT_SOURCE_DIR}/src/dns/wire/builder.cpp
+    ${PROJECT_SOURCE_DIR}/src/network/tls_connection.cpp
+    ${PROJECT_SOURCE_DIR}/src/util/http_parser.cpp)
+target_link_libraries(test_doh_resolver PRIVATE OpenSSL::SSL OpenSSL::Crypto picohttpparser)
+target_compile_definitions(test_doh_resolver PRIVATE
+    TEST_DATA_DIR="${PROJECT_SOURCE_DIR}/test/component"
+)

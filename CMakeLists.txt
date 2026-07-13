@@ -338,8 +338,10 @@ target_link_libraries(yaddnsc_ip_source PRIVATE yaddnsc_compile_config)
 
 add_library(yaddnsc_util OBJECT
     src/util/http_parser.cpp
+    src/util/signing.cpp
 )
 target_link_libraries(yaddnsc_util PRIVATE yaddnsc_compile_config)
+target_link_libraries(yaddnsc_util PUBLIC OpenSSL::Crypto)
 
 # Compile only the selected resolver implementation.
 if (YADDNSC_USE_NATIVE_DNS)
