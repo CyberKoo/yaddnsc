@@ -38,6 +38,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         libsystemd-dev \
         zlib1g-dev \
         libbrotli-dev \
+        libxml2-dev \
         ca-certificates \
         file \
     && rm -rf /var/lib/apt/lists/*
