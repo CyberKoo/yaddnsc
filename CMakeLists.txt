@@ -234,6 +234,12 @@ target_compile_options(yaddnsc_compile_config INTERFACE
     $<$<CONFIG:Debug>:-ggdb>
     $<$<CONFIG:Debug>:-gdwarf-3>
     $<$<CONFIG:Debug>:-fno-omit-frame-pointer>
+    # GCC 14 with -O1 (Sanitizer build type) produces false-positive
+    # -Wmaybe-uninitialized warnings in <regex> internals (std::function
+    # move constructor in std::__detail::_State). -Wall enables this
+    # warning, and -Werror promotes it to a hard error.  Suppress it
+    # for Sanitizer builds where -O1 is required for instrumentation.
+    $<$<CONFIG:Sanitizer>:-Wno-maybe-uninitialized>
 )
 
 target_include_directories(yaddnsc_compile_config INTERFACE
