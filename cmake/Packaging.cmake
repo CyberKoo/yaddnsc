@@ -4,8 +4,8 @@
 # Controlled by the YADDNSC_ENABLE_DEB option.
 #
 # On a tagged release, the package version matches PROJECT_VERSION.
-# On a development commit, git describe info is appended
-# so the package is clearly distinguishable (e.g. 1.0.0~gabc1234).
+# On a pre-release tag, the pre-release suffix is appended (e.g. 1.0.0~alpha.1).
+# On a development commit, git describe info is appended (e.g. 1.0.0~gabc1234).
 
 option(YADDNSC_ENABLE_DEB "Enable DEB package generation (CPack)" OFF)
 
@@ -20,7 +20,10 @@ set(PACKAGE_VERSION "${PROJECT_VERSION}")
 
 if (YADDNSC_DEVELOPMENT AND EXISTS "${CMAKE_SOURCE_DIR}/.git")
     include(GitVersion)
-    if (NOT GIT_ON_TAG)
+    if (GIT_ON_TAG AND GIT_PRERELEASE)
+        # Pre-release tag — append suffix for correct ordering (e.g. 1.0.0~alpha.1)
+        set(PACKAGE_VERSION "${PROJECT_VERSION}~${GIT_PRERELEASE}")
+    elseif (NOT GIT_ON_TAG)
         # Strip the "-dirty" suffix — inside a Docker build the working tree is
         # always "dirty" due to file metadata changes from COPY, which is meaningless.
         set(PACKAGE_VERSION "${PROJECT_VERSION}~${GIT_DESCRIBE_CLEAN}")

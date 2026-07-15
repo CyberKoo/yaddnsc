@@ -2,7 +2,10 @@
 #
 # Output variables:
 #   GIT_AVAILABLE      — TRUE if Git was found and git info was retrieved
-#   GIT_ON_TAG         — TRUE if HEAD exactly matches v${PROJECT_VERSION} or ${PROJECT_VERSION}
+#   GIT_ON_TAG         — TRUE if HEAD exactly matches v${PROJECT_VERSION} or ${PROJECT_VERSION};
+#                        also TRUE for pre-release tags (e.g. v1.0.0-alpha.1)
+#   GIT_PRERELEASE     — pre-release suffix when on a pre-release tag
+#                        (e.g. "alpha.1"), empty string for a plain release tag
 #   GIT_DESCRIBE       — cleaned describe string (e.g. "main~gabc1234-dirty"), or "unknown"
 #   GIT_DESCRIBE_CLEAN — same as GIT_DESCRIBE but with "-dirty" stripped
 #   GIT_DIRTY          — TRUE if the working tree has uncommitted changes
@@ -15,6 +18,7 @@ find_package(Git QUIET)
 if (NOT Git_FOUND)
     set(GIT_AVAILABLE FALSE)
     set(GIT_ON_TAG FALSE)
+    set(GIT_PRERELEASE "")
     set(GIT_DESCRIBE "unknown")
     set(GIT_DESCRIBE_CLEAN "unknown")
     set(GIT_DIRTY FALSE)
@@ -23,14 +27,22 @@ if (NOT Git_FOUND)
 endif ()
 
 # Check if HEAD is on an exact version tag
+# Release tag:   v1.0.0 or 1.0.0  → GIT_ON_TAG=TRUE, GIT_PRERELEASE=""
+# Pre-release:   v1.0.0-alpha.1   → GIT_ON_TAG=TRUE, GIT_PRERELEASE="alpha.1"
+# No matching tag                 → GIT_ON_TAG=FALSE
 execute_process(COMMAND ${GIT_EXECUTABLE} -C ${CMAKE_SOURCE_DIR} describe --exact-match --tags HEAD
         OUTPUT_VARIABLE GIT_EXACT_TAG
         OUTPUT_STRIP_TRAILING_WHITESPACE
         ERROR_QUIET)
 if (GIT_EXACT_TAG MATCHES "^v?${PROJECT_VERSION}$")
     set(GIT_ON_TAG TRUE)
+    set(GIT_PRERELEASE "")
+elseif (GIT_EXACT_TAG MATCHES "^v?${PROJECT_VERSION}-(.+)$")
+    set(GIT_ON_TAG TRUE)
+    set(GIT_PRERELEASE "${CMAKE_MATCH_1}")
 else ()
     set(GIT_ON_TAG FALSE)
+    set(GIT_PRERELEASE "")
 endif ()
 
 # Get describe string for dev builds — e.g. "heads/main-0-gabc1234-dirty"
