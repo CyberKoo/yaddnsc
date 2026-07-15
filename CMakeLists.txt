@@ -395,9 +395,14 @@ target_link_options(yaddnsc PRIVATE
 # ---------------------------------------------------------------------------
 # Target properties
 # ---------------------------------------------------------------------------
-# LTO is incompatible with musl (auto-detected in FeatureCheck)
+# LTO is incompatible with musl (auto-detected in FeatureCheck).
+# LTO is limited to Release builds only:
+#   - Debug (-O0):  no meaningful optimization, adds link-time overhead.
+#   - Sanitizer (-O1): small optimization gain, but can interfere with
+#     ASan backtraces and UBSan diagnostics.
 if (NOT LIBC_MUSL)
-  set_target_properties(yaddnsc PROPERTIES INTERPROCEDURAL_OPTIMIZATION TRUE)
+  set_target_properties(yaddnsc PROPERTIES INTERPROCEDURAL_OPTIMIZATION
+      $<$<CONFIG:Release>:TRUE>)
   # Suppress LTO ODR false positive between DNS::Rcode (dns/types.h)
   # and __ns_rtype (<arpa/nameser.h>) — the two enums share enumerator
   # names (NOERROR, SERVFAIL, NXDOMAIN …) with identical values, causing
