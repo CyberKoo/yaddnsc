@@ -225,3 +225,44 @@ TEST(HttpExchangeTest, SuccessfulExchange_ReturnsResponse) {
     EXPECT_EQ(result->body, std::vector<std::uint8_t>({'h', 'e', 'l', 'l', 'o'}));
     EXPECT_TRUE(stream.was_sent());
 }
+
+// ── Header parsing errors ────────────────────────────────────────────────
+
+TEST(HttpExchangeTest, ReadHeadersTooLarge_ReturnsError) {
+    // Build a response with a single huge header that exceeds 8192 bytes
+    // but has no terminating \r\n\r\n, so headers are never complete.
+    std::string raw = "HTTP/1.1 200 OK\r\n";
+    raw += "X-Padding: ";
+    raw += std::string(8192, 'A');
+    raw += "\r\n";
+    // No \r\n\r\n — headers never complete.
+
+    auto data = std::vector<std::uint8_t>(raw.begin(), raw.end());
+    MockStream stream(data);
+
+    HttpRequest req;
+    req.method = HttpMethod::GET;
+
+    Utils::CancellationToken cancel;
+    auto result = Http::exchange(stream, "/", req, "host", "agent", cancel);
+
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error(), Http::Error::HEADERS_TOO_LARGE);
+}
+
+TEST(HttpExchangeTest, ReadHeaderParseFailed_ReturnsError) {
+    // A status line with an invalid Content-Length value causes
+    // parse_response to throw, resulting in HEADER_PARSE_FAILED.
+    std::string raw = "HTTP/1.1 200 OK\r\nContent-Length: abc\r\n\r\n";
+    auto data = std::vector<std::uint8_t>(raw.begin(), raw.end());
+    MockStream stream(data);
+
+    HttpRequest req;
+    req.method = HttpMethod::GET;
+
+    Utils::CancellationToken cancel;
+    auto result = Http::exchange(stream, "/", req, "host", "agent", cancel);
+
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error(), Http::Error::HEADER_PARSE_FAILED);
+}

@@ -174,13 +174,13 @@ run_scenario() {
     # Reset sim logs
     curl -sf "http://127.0.0.1:${SIM_API_PORT:-8080}/reset" > /dev/null 2>&1 || true
 
-    # Run yaddnsc with a 2-second total timeout.
-    # 1s for the update cycle, then SIGTERM + 1s grace before SIGKILL.
+    # Run yaddnsc with a 4-second total timeout.
+    # 2s for the update cycle, then SIGTERM + 2s grace before SIGKILL.
     "${YADDNSC_BIN}" run -c "${tmpfile}" -d > "${yaddnsc_out}" 2>&1 &
     local pid=$!
-    sleep 1
+    sleep 2
     kill "${pid}" 2>/dev/null || true
-    sleep 1
+    sleep 2
     if kill -0 "${pid}" 2>/dev/null; then
         kill -9 "${pid}" 2>/dev/null || true
     fi

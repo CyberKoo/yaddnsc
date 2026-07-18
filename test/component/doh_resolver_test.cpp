@@ -350,4 +350,15 @@ TEST_F(DohResolverTest, Ipv6Address_FormatsHostHeader) {
         << dns_error_name(result.error().code);
 }
 
+TEST_F(DohResolverTest, MalformedHeader_ReturnsParseError) {
+    // Triggers Http::Error::HEADER_PARSE_FAILED, which to_dns_error()
+    // maps to DnsError::PARSE via its default case.
+    DohResolver resolver("127.0.0.1", DOH_PORT, "/dns-query", "test-doh-malformed-header");
+    Utils::CancellationToken cancel;
+    auto result = resolver.query("doh-malformed-header.yaddnsc.test", RecordKind::A, cancel);
+
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error().code, DnsError::PARSE);
+}
+
 } // anonymous namespace

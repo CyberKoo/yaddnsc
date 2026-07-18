@@ -36,6 +36,7 @@ HTTP_500_HOST = "doh-500.yaddnsc.test"
 MALFORMED_HOST = "doh-malformed.yaddnsc.test"
 CHUNKED_HOST = "doh-chunked.yaddnsc.test"
 INVALID_DNS_HOST = "doh-invalid-dns.yaddnsc.test"
+MALFORMED_HEADER_HOST = "doh-malformed-header.yaddnsc.test"
 
 TYPE_MAP = {1: "A", 28: "AAAA"}
 
@@ -238,6 +239,19 @@ async def handle_doh_client(reader: asyncio.StreamReader,
             # The DoH resolver's DNS validator will reject this.
             dns_body = b"\x00" * 12  # Header only, no matching question
             writer.write(build_http_response(200, "application/dns-message", dns_body))
+            await writer.drain()
+            return
+
+        if qname == MALFORMED_HEADER_HOST:
+            # Invalid Content-Length value — causes parse_response to return
+            # HEADER_PARSE_FAILED, which to_dns_error maps to PARSE.
+            resp = (
+                b"HTTP/1.1 200 OK\r\n"
+                b"Content-Type: application/dns-message\r\n"
+                b"Content-Length: abc\r\n"
+                b"\r\n"
+            )
+            writer.write(resp)
             await writer.drain()
             return
 

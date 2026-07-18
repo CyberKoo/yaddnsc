@@ -8,6 +8,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <cstdlib>
 #include <map>
 #include <memory>
 #include <net/if.h>
@@ -128,6 +129,65 @@ private:
     std::unique_ptr<httplib::Server> server_;
     std::thread server_thread_;
     int port_ = 0;
+    std::atomic<int> server_hit_count_{0};
+};
+
+// ===========================================================================
+// Fixture: local HTTPS server
+// ===========================================================================
+
+class HttpsServerFixture : public ::testing::Test {
+protected:
+    void SetUp() override {
+        // Generate a self-signed certificate with CA:TRUE.
+        char dir_template[] = "/tmp/yaddnsc_https_test_XXXXXX";
+        auto *dir = ::mkdtemp(dir_template);
+        ASSERT_NE(dir, nullptr) << "mkdtemp failed";
+
+        cert_path_ = std::string(dir) + "/cert.pem";
+        key_path_ = std::string(dir) + "/key.pem";
+
+        auto cmd = fmt::format(
+            "openssl req -x509 -newkey rsa:2048 -keyout {} -out {} -days 1 -nodes "
+            "-subj /CN=127.0.0.1 -addext subjectAltName=IP:127.0.0.1 "
+            "-addext basicConstraints=critical,CA:TRUE 2>/dev/null",
+            key_path_, cert_path_);
+
+        int ret = ::system(cmd.c_str());
+        ASSERT_EQ(ret, 0) << "Failed to generate TLS certificate (openssl returned " << ret << ")";
+
+        server_ = std::make_unique<httplib::SSLServer>(cert_path_.c_str(), key_path_.c_str());
+        ASSERT_TRUE(server_->is_valid()) << "Failed to create SSLServer";
+
+        server_->Get("/ip", [&](const httplib::Request & /*req*/, httplib::Response &resp) {
+            resp.set_content("198.51.100.42", "text/plain");
+            server_hit_count_.fetch_add(1, std::memory_order_relaxed);
+        });
+
+        port_ = server_->bind_to_any_port("127.0.0.1");
+        ASSERT_GT(port_, 0) << "Failed to bind HTTPS server to 127.0.0.1";
+
+        server_thread_ = std::thread([this] { server_->listen_after_bind(); });
+        std::this_thread::sleep_for(20ms);
+    }
+
+    void TearDown() override {
+        server_->stop();
+        if (server_thread_.joinable()) {
+            server_thread_.join();
+        }
+    }
+
+    [[nodiscard]] int port() const { return port_; }
+    [[nodiscard]] int hit_count() const { return server_hit_count_.load(); }
+    [[nodiscard]] const std::string &cert_path() const { return cert_path_; }
+
+private:
+    std::unique_ptr<httplib::SSLServer> server_;
+    std::thread server_thread_;
+    int port_ = 0;
+    std::string cert_path_;
+    std::string key_path_;
     std::atomic<int> server_hit_count_{0};
 };
 
@@ -471,4 +531,26 @@ TEST_F(HttpServerFixture, HttpIpSource_ConnectionFailure_Throws) {
             [[maybe_unused]] auto _ = ip_source.resolve();
         },
         std::runtime_error);
+}
+
+// ===========================================================================
+// TransientHttpClient — HTTPS
+// ===========================================================================
+
+TEST_F(HttpsServerFixture, TransientHttpClient_Get_Https) {
+    HttpClientOptions opts;
+    opts.ca_cert_path = cert_path();
+    opts.verify_server_cert = true;
+    opts.connection_timeout = std::chrono::seconds(3);
+
+    TransientHttpClient client(opts);
+    auto url = fmt::format("https://127.0.0.1:{}/ip", port());
+
+    HttpRequest req;
+    req.method = HttpMethod::GET;
+
+    auto result = client.exchange(url, req);
+    ASSERT_TRUE(result.has_value()) << "HTTPS request failed: " << result.error();
+    EXPECT_EQ(result->status_code, 200);
+    EXPECT_EQ(result->body, "198.51.100.42");
 }

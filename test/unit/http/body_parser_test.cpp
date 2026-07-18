@@ -7,6 +7,7 @@
 
 #include <cstdint>
 #include <cstring>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -37,6 +38,10 @@ public:
 
     BufferStream(std::string_view sv) : data_(sv.begin(), sv.end()), pos_(0) {}
 
+    void set_read_exact_error(Transport::IoError err) noexcept {
+        read_exact_error_ = err;
+    }
+
     [[nodiscard]] std::expected<size_t, Transport::IoError> read_some(
         std::span<std::uint8_t> buf,
         const Utils::CancellationToken & /*cancel_token*/) override {
@@ -51,6 +56,9 @@ public:
     [[nodiscard]] std::expected<void, Transport::IoError> read_exact(
         std::span<std::uint8_t> buf,
         const Utils::CancellationToken & /*cancel_token*/) override {
+        if (read_exact_error_.has_value()) {
+            return std::unexpected(*read_exact_error_);
+        }
         const size_t avail = data_.size() - pos_;
         if (avail < buf.size()) {
             return std::unexpected(Transport::IoError::CONNECTION_FAILED);
@@ -70,6 +78,7 @@ public:
 private:
     std::vector<std::uint8_t> data_;
     size_t pos_;
+    std::optional<Transport::IoError> read_exact_error_;
 };
 
 // =============================================================================
@@ -291,6 +300,22 @@ TEST(HttpBodyParserTest, ContentLength_TransportFailure) {
                                   65536, cancel);
     ASSERT_FALSE(result.has_value());
     EXPECT_EQ(result.error(), Http::Error::CONNECTION_FAILED);
+}
+
+TEST(HttpBodyParserTest, ContentLength_TransportCancelled) {
+    // Body needs more data than the transport provides; return CANCELLED.
+    auto raw = make_headers(200, "Content-Length: 64\r\n") + std::string(16, '\x05');
+    auto p = make_parsed(raw);
+
+    BufferStream stream(std::vector<std::uint8_t>(8, '\x06'));  // too short
+    stream.set_read_exact_error(Transport::IoError::CANCELLED);
+    Utils::CancellationToken cancel;
+
+    auto result = Http::read_body(stream, p.headers,
+                                  std::span(raw.data(), raw.size()),
+                                  65536, cancel);
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error(), Http::Error::CANCELLED);
 }
 
 TEST(HttpBodyParserTest, Chunked_BodyTooLarge) {

@@ -60,7 +60,8 @@ void generate_cert() {
 
     auto cmd = fmt::format(
         "openssl req -x509 -newkey rsa:2048 -keyout {} -out {} -days 1 -nodes "
-        "-subj /CN=127.0.0.1 -addext subjectAltName=IP:127.0.0.1 2>/dev/null",
+        "-subj /CN=127.0.0.1 -addext subjectAltName=IP:127.0.0.1 "
+        "-addext basicConstraints=critical,CA:TRUE 2>/dev/null",
         key_path, cert_path);
 
     int ret = ::system(cmd.c_str());
@@ -321,6 +322,49 @@ TEST_F(TlsConnectionTest, CustomSniHostname) {
     TlsConnection conn("127.0.0.1", TLS_PORT, opts, make_test_ssl_ctx);
     auto r = conn.connect();
     EXPECT_TRUE(conn.is_healthy());
+}
+
+TEST_F(TlsConnectionTest, ConnectWithSystemCaBundle) {
+    // Use the default SSL context (create_default_ssl_ctx) with
+    // CA verification, pointing SSL_CERT_FILE at the server's cert.
+    const auto *old_env = std::getenv("SSL_CERT_FILE");
+    ::setenv("SSL_CERT_FILE", cert_path.c_str(), 1);
+
+    TlsOptions opts;
+    opts.connect_timeout = 5s;
+    opts.read_timeout = 5s;
+    opts.write_timeout = 5s;
+
+    // No custom factory — uses real create_default_ssl_ctx().
+    TlsConnection conn("127.0.0.1", TLS_PORT, opts);
+    auto cr = conn.connect();
+    ASSERT_TRUE(cr.has_value()) << "TLS connect with default SSL_CTX failed";
+    EXPECT_TRUE(conn.is_healthy());
+
+    // Send + receive.
+    std::string payload = "Hello CA!";
+    std::vector<std::uint8_t> send_buf;
+    uint32_t be_len = htonl(static_cast<uint32_t>(payload.size()));
+    send_buf.insert(send_buf.end(),
+                    reinterpret_cast<std::uint8_t *>(&be_len),
+                    reinterpret_cast<std::uint8_t *>(&be_len) + 4);
+    send_buf.insert(send_buf.end(), payload.begin(), payload.end());
+
+    Utils::CancellationToken cancel;
+    auto sr = conn.send_all(send_buf, cancel);
+    ASSERT_TRUE(sr.has_value()) << "send_all failed";
+
+    std::vector<std::uint8_t> recv_buf(send_buf.size());
+    auto rr = conn.read_exact(recv_buf, cancel);
+    ASSERT_TRUE(rr.has_value()) << "read_exact failed";
+    EXPECT_EQ(recv_buf, send_buf);
+
+    // Restore env var.
+    if (old_env) {
+        ::setenv("SSL_CERT_FILE", old_env, 1);
+    } else {
+        ::unsetenv("SSL_CERT_FILE");
+    }
 }
 
 } // anonymous namespace
