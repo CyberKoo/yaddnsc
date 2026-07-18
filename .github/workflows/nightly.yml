@@ -77,9 +77,6 @@ jobs:
                     - name: release
                       cmake_flags: ""
                       apt_deps: ""
-                    - name: native-dns
-                      cmake_flags: "-DYADDNSC_USE_NATIVE_DNS=ON"
-                      apt_deps: ""
                     - name: system-spdlog
                       cmake_flags: "-DYADDNSC_USE_SYSTEM_SPDLOG=ON"
                       apt_deps: "libspdlog-dev"

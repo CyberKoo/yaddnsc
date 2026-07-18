@@ -116,7 +116,9 @@ protected:
     }
 
     void TearDown() override {
-        server_->stop();
+        if (server_) {
+            server_->stop();
+        }
         if (server_thread_.joinable()) {
             server_thread_.join();
         }
@@ -172,7 +174,9 @@ protected:
     }
 
     void TearDown() override {
-        server_->stop();
+        if (server_) {
+            server_->stop();
+        }
         if (server_thread_.joinable()) {
             server_thread_.join();
         }
