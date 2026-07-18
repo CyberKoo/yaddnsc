@@ -5,7 +5,6 @@
 #ifndef YADDNSC_HTTP_HEADER_PARSER_H
 #define YADDNSC_HTTP_HEADER_PARSER_H
 
-#include <cstddef>
 #include <expected>
 #include <string_view>
 
@@ -22,10 +21,9 @@ namespace Http {
 ///                               exceeding this trigger BODY_TOO_LARGE.
 ///
 /// @return  ResponseHeaders on success, or an Error describing the failure.
-[[nodiscard]] std::expected<ResponseHeaders, Error> parse_response(
-    std::string_view buf,
-    std::string_view expected_content_type,
-    size_t max_body_size);
+[[nodiscard]] std::expected<ResponseHeaders, Error> parse_response(std::string_view buf,
+                                                                   std::string_view expected_content_type,
+                                                                   size_t max_body_size);
 
 }  // namespace Http
 

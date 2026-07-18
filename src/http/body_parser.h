@@ -5,15 +5,13 @@
 #ifndef YADDNSC_HTTP_BODY_PARSER_H
 #define YADDNSC_HTTP_BODY_PARSER_H
 
-#include <cstddef>
-#include <cstdint>
-#include <expected>
 #include <span>
 #include <vector>
+#include <cstdint>
+#include <expected>
 
 #include "http/types.h"
 #include "network/transport/stream.h"
-#include "util/cancellation_token.hpp"
 
 namespace Http {
 
@@ -33,12 +31,11 @@ namespace Http {
 /// @param cancel_token     Cancellation signal forwarded to transport reads.
 ///
 /// @return  The decoded response body, or an Error describing the failure.
-[[nodiscard]] std::expected<std::vector<std::uint8_t>, Error> read_body(
-    Transport::Stream &stream,
-    const ResponseHeaders &headers,
-    std::span<const char> header_buf,
-    size_t max_body_size,
-    const Utils::CancellationToken &cancel_token);
+[[nodiscard]] std::expected<std::vector<std::uint8_t>, Error> read_body(Transport::Stream& stream,
+                                                                        const ResponseHeaders& headers,
+                                                                        std::span<const char> header_buf,
+                                                                        size_t max_body_size,
+                                                                        const Utils::CancellationToken& cancel_token);
 
 }  // namespace Http
 

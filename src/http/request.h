@@ -6,7 +6,6 @@
 #define YADDNSC_HTTP_REQUEST_H
 
 #include <cstdint>
-#include <span>
 #include <string_view>
 #include <vector>
 
@@ -23,11 +22,10 @@ namespace Http {
 /// @param user_agent     User-Agent header value.
 ///
 /// @return  The complete HTTP/1.1 request as a byte vector.
-[[nodiscard]] std::vector<std::uint8_t> build_request(
-    const HttpRequest &req,
-    std::string_view path,
-    std::string_view host_header,
-    std::string_view user_agent);
+[[nodiscard]] std::vector<std::uint8_t> build_request(const HttpRequest& req,
+                                                      std::string_view path,
+                                                      std::string_view host_header,
+                                                      std::string_view user_agent);
 
 }  // namespace Http
 

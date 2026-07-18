@@ -5,13 +5,13 @@
 #ifndef YADDNSC_HTTP_H
 #define YADDNSC_HTTP_H
 
-#include <cstddef>
 #include <expected>
 #include <string_view>
 
 #include "http/types.h"
-#include "http_type.h"
 #include "network/transport/stream.h"
+
+#include "http_type.h"
 
 namespace Utils {
 class CancellationToken;
@@ -42,13 +42,12 @@ namespace Http {
 /// **Not thread-safe.** The @p stream must not be shared across threads
 /// without external synchronization.  This function modifies @p stream
 /// (sends then reads) and is itself not reentrant.
-[[nodiscard]] std::expected<Response, Error> exchange(
-    Transport::Stream &stream,
-    std::string_view path,
-    const HttpRequest &req,
-    std::string_view host_header,
-    std::string_view user_agent,
-    const Utils::CancellationToken &cancel_token);
+[[nodiscard]] std::expected<Response, Error> exchange(Transport::Stream& stream,
+                                                      std::string_view path,
+                                                      const HttpRequest& req,
+                                                      std::string_view host_header,
+                                                      std::string_view user_agent,
+                                                      const Utils::CancellationToken& cancel_token);
 
 }  // namespace Http
 
