@@ -120,6 +120,22 @@ target_compile_definitions(test_tls_connection PRIVATE
 )
 
 # ============================================================================
+#  TlsStream  (TLS read/write stream adapter)
+#
+#  Starts a Python TLS echo server on loopback, then exercises
+#  TlsStream::send_all / read_some / read_exact and its error
+#  mapping (CANCELLED via CancellationSource).
+# ============================================================================
+
+add_unit_test(tls_stream SOURCE tls_stream_test.cpp
+    ${PROJECT_SOURCE_DIR}/src/network/transport/tls_stream.cpp
+    ${PROJECT_SOURCE_DIR}/src/network/tls_connection.cpp)
+target_link_libraries(test_tls_stream PRIVATE OpenSSL::SSL OpenSSL::Crypto)
+target_compile_definitions(test_tls_stream PRIVATE
+    TEST_DATA_DIR="${PROJECT_SOURCE_DIR}/test/component"
+)
+
+# ============================================================================
 #  DotResolver  (DoT — DNS-over-TLS via Python DoT server)
 #
 # Starts a Python TLS + DNS server on loopback with a self-signed cert,
@@ -151,8 +167,16 @@ add_unit_test(doh_resolver SOURCE doh_resolver_test.cpp
     ${PROJECT_SOURCE_DIR}/src/dns/resolver_registry.cpp
     ${PROJECT_SOURCE_DIR}/src/dns/wire/builder.cpp
     ${PROJECT_SOURCE_DIR}/src/network/tls_connection.cpp
+<<<<<<< Updated upstream
     ${PROJECT_SOURCE_DIR}/src/util/http_parser.cpp
     ${PROJECT_SOURCE_DIR}/src/util/cert_util.cpp)
+=======
+    ${PROJECT_SOURCE_DIR}/src/network/transport/tls_stream.cpp
+    ${PROJECT_SOURCE_DIR}/src/http/header_parser.cpp
+    ${PROJECT_SOURCE_DIR}/src/http/body_parser.cpp
+    ${PROJECT_SOURCE_DIR}/src/http/request.cpp
+    ${PROJECT_SOURCE_DIR}/src/http/http.cpp)
+>>>>>>> Stashed changes
 target_link_libraries(test_doh_resolver PRIVATE OpenSSL::SSL OpenSSL::Crypto picohttpparser)
 target_compile_definitions(test_doh_resolver PRIVATE
     TEST_DATA_DIR="${PROJECT_SOURCE_DIR}/test/component"

@@ -1,7 +1,7 @@
 //
 // Created by Kotarou on 2026/7/10.
 //
-#include "http_parser.h"
+#include "header_parser.h"
 
 #include <algorithm>
 #include <cstdint>
@@ -13,8 +13,9 @@
 
 #include "string_util.hpp"
 
-namespace Utils::Http {
-    std::expected<ResponseInfo, HttpError> parse_response(std::string_view buf, std::string_view expected_content_type,
+namespace Http {
+    std::expected<ResponseHeaders, Error> parse_response(std::string_view buf,
+                                                          std::string_view expected_content_type,
                                                           size_t max_body_size) {
         int minor_version;
         int status_code;
@@ -27,10 +28,10 @@ namespace Utils::Http {
                                             headers, &num_headers, 0);
 
         if (pret == -2) {
-            return std::unexpected(HttpError::INCOMPLETE);
+            return std::unexpected(Error::INCOMPLETE);
         }
         if (pret == -1) {
-            return std::unexpected(HttpError::PARSE_FAILED);
+            return std::unexpected(Error::HEADER_PARSE_FAILED);
         }
 
         // Headers parsed successfully.
@@ -49,7 +50,7 @@ namespace Utils::Http {
                 try {
                     content_length = std::stoul(std::string(hvalue));
                 } catch (const std::exception &) {
-                    return std::unexpected(HttpError::PARSE_FAILED);
+                    return std::unexpected(Error::HEADER_PARSE_FAILED);
                 }
                 has_content_length = true;
             } else if (StringUtil::iequals(hname, "content-type") && !valid_content_type) {
@@ -63,15 +64,15 @@ namespace Utils::Http {
             }
         }
 
-        if (!valid_content_type) {
-            return std::unexpected(HttpError::CONTENT_TYPE_MISMATCH);
+        if (!valid_content_type && !expected_content_type.empty()) {
+            return std::unexpected(Error::CONTENT_TYPE_MISMATCH);
         }
 
         if (has_content_length && content_length > max_body_size) {
-            return std::unexpected(HttpError::BODY_TOO_LARGE);
+            return std::unexpected(Error::BODY_TOO_LARGE);
         }
 
-        return ResponseInfo{
+        return ResponseHeaders{
             .status_code = status_code,
             .content_length = content_length,
             .header_end = header_end,
@@ -79,4 +80,4 @@ namespace Utils::Http {
             .is_chunked = is_chunked,
         };
     }
-} // namespace Utils::Http
+} // namespace Http

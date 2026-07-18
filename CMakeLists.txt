@@ -295,6 +295,15 @@ add_library(yaddnsc_core OBJECT
 )
 target_link_libraries(yaddnsc_core PRIVATE yaddnsc_compile_config)
 
+add_library(yaddnsc_http OBJECT
+    src/http/header_parser.cpp
+    src/http/body_parser.cpp
+    src/http/request.cpp
+    src/http/http.cpp
+)
+target_link_libraries(yaddnsc_http PRIVATE yaddnsc_compile_config)
+target_link_libraries(yaddnsc_http PRIVATE picohttpparser magic_enum)
+
 add_library(yaddnsc_network OBJECT
     src/network/http_client.cpp
     src/network/inet_address.cpp
@@ -303,6 +312,7 @@ add_library(yaddnsc_network OBJECT
     src/network/socket_addr.cpp
     src/network/uri.cpp
     src/network/tls_connection.cpp
+    src/network/transport/tls_stream.cpp
 )
 target_link_libraries(yaddnsc_network PRIVATE yaddnsc_compile_config)
 
@@ -337,7 +347,6 @@ add_library(yaddnsc_ip_source OBJECT
 target_link_libraries(yaddnsc_ip_source PRIVATE yaddnsc_compile_config)
 
 add_library(yaddnsc_util OBJECT
-    src/util/http_parser.cpp
     src/util/signing.cpp
     src/util/cert_util.cpp
 )
@@ -361,7 +370,7 @@ endif ()
 
 # Sanitizer compile flags on all OBJECT libraries (link flags are a no-op on OBJECT libs
 # and only matter on the final executable, where add_sanitizer_flags is called again).
-foreach(tgt yaddnsc_config yaddnsc_core yaddnsc_network yaddnsc_cli yaddnsc_dns yaddnsc_ip_source yaddnsc_util)
+foreach(tgt yaddnsc_config yaddnsc_core yaddnsc_http yaddnsc_network yaddnsc_cli yaddnsc_dns yaddnsc_ip_source yaddnsc_util)
   add_sanitizer_flags(${tgt})
 endforeach()
 
@@ -372,6 +381,7 @@ add_executable(yaddnsc
     src/main.cpp
     $<TARGET_OBJECTS:yaddnsc_config>
     $<TARGET_OBJECTS:yaddnsc_core>
+    $<TARGET_OBJECTS:yaddnsc_http>
     $<TARGET_OBJECTS:yaddnsc_network>
     $<TARGET_OBJECTS:yaddnsc_cli>
     $<TARGET_OBJECTS:yaddnsc_dns>

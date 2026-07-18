@@ -59,12 +59,27 @@ add_unit_test(config_loader SOURCE config/config_loader_test.cpp
     ${PROJECT_SOURCE_DIR}/src/config/config.cpp)
 
 # ============================================================================
-#  util/  —  http parser (zero-coverage rescue)
+#  http/  —  header parser, body parser
 # ============================================================================
 
-add_unit_test(http_parser SOURCE util/http_parser_test.cpp
-    ${PROJECT_SOURCE_DIR}/src/util/http_parser.cpp)
-target_link_libraries(test_http_parser PRIVATE picohttpparser)
+add_unit_test(http_header_parser SOURCE http/header_parser_test.cpp
+    ${PROJECT_SOURCE_DIR}/src/http/header_parser.cpp)
+target_link_libraries(test_http_header_parser PRIVATE picohttpparser)
+
+add_unit_test(http_body_parser SOURCE http/body_parser_test.cpp
+    ${PROJECT_SOURCE_DIR}/src/http/body_parser.cpp
+    ${PROJECT_SOURCE_DIR}/src/http/header_parser.cpp)
+target_link_libraries(test_http_body_parser PRIVATE picohttpparser)
+
+add_unit_test(http_request SOURCE http/request_test.cpp
+    ${PROJECT_SOURCE_DIR}/src/http/request.cpp)
+
+add_unit_test(http_exchange SOURCE http/exchange_test.cpp
+    ${PROJECT_SOURCE_DIR}/src/http/http.cpp
+    ${PROJECT_SOURCE_DIR}/src/http/header_parser.cpp
+    ${PROJECT_SOURCE_DIR}/src/http/body_parser.cpp
+    ${PROJECT_SOURCE_DIR}/src/http/request.cpp)
+target_link_libraries(test_http_exchange PRIVATE picohttpparser)
 
 # ============================================================================
 #  core/  —  scheduler (pure timer queue), updater (ResolverDispatcher)
