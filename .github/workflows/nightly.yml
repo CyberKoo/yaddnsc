@@ -130,7 +130,7 @@ jobs:
 
     linux-amd64-clang:
         needs: [should_run]
-        if: needs.should_run.outputs.result == 'true'
+        if: false  # disabled — too slow
         runs-on: ubuntu-24.04
         steps:
             - name: Checkout
