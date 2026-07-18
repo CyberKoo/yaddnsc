@@ -98,8 +98,9 @@ add_unit_test(updater SOURCE core/updater_test.cpp
     ${PROJECT_SOURCE_DIR}/src/network/socket_addr.cpp
     ${PROJECT_SOURCE_DIR}/src/network/net_devices.cpp
     ${PROJECT_SOURCE_DIR}/src/network/http_client.cpp
+    ${PROJECT_SOURCE_DIR}/src/util/cert_util.cpp
     ${PROJECT_SOURCE_DIR}/src/dns/wire/builder.cpp)
-target_link_libraries(test_updater PRIVATE GTest::gmock glaze::glaze httplib::httplib)
+target_link_libraries(test_updater PRIVATE GTest::gmock glaze::glaze httplib::httplib OpenSSL::Crypto)
 target_compile_definitions(test_updater PRIVATE YADDNSC_USE_NATIVE_DNS=1)
 
 # ============================================================================

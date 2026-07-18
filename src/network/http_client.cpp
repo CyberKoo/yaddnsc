@@ -17,7 +17,7 @@
 #include "fmt.hpp"
 #include "version.h"
 #include "http_type.h"
-#include "util/cert_util.hpp"
+#include "util/cert_util.h"
 
 namespace {
     [[nodiscard]] std::string build_request(const Uri &uri) {
@@ -71,7 +71,7 @@ namespace {
                 ca_path = opts.ca_cert_path;
             } else {
                 // fall back to auto-detection
-                ca_path = Utils::Cert::get_system_ca_path();
+                ca_path = Utils::Cert::discover_ca_bundle();
             }
 
             if (ca_path.has_value()) {

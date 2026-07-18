@@ -17,7 +17,7 @@
 
 #include "exception/tls.h"
 #include "network/inet_address.h"
-#include "util/cert_util.hpp"
+#include "util/cert_util.h"
 #include "util/validation.hpp"
 
 #include "fmt.hpp"
@@ -456,19 +456,17 @@ SslCtxPtr TlsConnection::create_default_ssl_ctx() {
 
     SSL_CTX_set_verify(ctx.get(), SSL_VERIFY_PEER, nullptr);
 
-    if (SSL_CTX_set_default_verify_paths(ctx.get()) != 1) {
-        SPDLOG_DEBUG("SSL_CTX_set_default_verify_paths failed, falling back to cert_util");
-        if (!Utils::Cert::get_system_ca_path().and_then(
-            [raw = ctx.get()](const auto &path) -> std::optional<std::string> {
-                if (SSL_CTX_load_verify_locations(raw, path.c_str(), nullptr) != 1) {
-                    return std::nullopt;
-                }
-                SPDLOG_DEBUG("Loaded CA bundle from {}", path);
-                return path;
-            })) {
-            [[maybe_unused]] auto _ = log_ssl_error("SSL_CTX_set_default_verify_paths and cert_util both failed");
+    // Four-tier discovery: SSL_CERT_FILE → ./ca.pem → OpenSSL default → hardcoded paths
+    if (auto ca_path = Utils::Cert::discover_ca_bundle(); ca_path) {
+        if (SSL_CTX_load_verify_locations(ctx.get(), ca_path->c_str(), nullptr) != 1) {
+            [[maybe_unused]] auto _ = log_ssl_error(fmt::format("Failed to load CA bundle from {}", *ca_path));
             return nullptr;
         }
+        SPDLOG_DEBUG("Loaded CA bundle from {}", *ca_path);
+    } else if (SSL_CTX_set_default_verify_paths(ctx.get()) != 1) {
+        // Final fallback: try OpenSSL set_default_verify_paths (handles CA-directory-only systems)
+        [[maybe_unused]] auto _ = log_ssl_error("discover_ca_bundle and set_default_verify_paths both failed");
+        return nullptr;
     }
 
     return ctx;

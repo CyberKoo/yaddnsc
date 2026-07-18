@@ -597,6 +597,27 @@ The `strategy` field controls how multiple DNS servers are queried:
 }
 ```
 
+## CA Certificate Discovery
+
+yaddnsc uses a four-tier automatic discovery chain to locate a CA certificate bundle for TLS connections (Drivers, DoH, DoT, HTTP IP sources).
+
+The first bundle found is cached and reused for the lifetime of the process.
+
+| Priority | Mechanism | Typical use case |
+|----------|-----------|------------------|
+| 1 | **`SSL_CERT_FILE`** environment variable | Container environments, system-wide override |
+| 2 | **`./ca.pem`** in the working directory | Development & testing (just drop a file) |
+| 3 | **OpenSSL default path** (`X509_get_default_cert_file`) | Standard system installations |
+| 4 | **Well-known hardcoded paths** (14 paths across Linux, macOS, √BSD) | Non-standard installations, cross-platform portability |
+
+```bash
+# Use a custom CA bundle (overrides all auto-detection)
+export SSL_CERT_FILE=/etc/my-ca-bundle.crt
+yaddnsc run
+```
+
+> **Note:** `SSL_CERT_DIR` is **not** supported. On systems where CA certificates are stored in a directory (hash-symlink format), point `SSL_CERT_FILE` to a combined bundle file instead.
+
 ## Driver Parameters
 
 See [DRIVERS.md](DRIVERS.md) for the complete reference of all bundled driver parameters, including configuration tables, available substitution variables, and usage examples.
