@@ -16,18 +16,18 @@ namespace Utils {
 class CancellationToken;
 }
 
-class TlsConnection;
+class TlsConnectionBase;
 
 namespace Transport {
 
-/// Stream adapter that wraps a TlsConnection.
+/// Stream adapter that wraps a TlsConnection (or any TlsConnectionBase).
 ///
-/// Maps TlsConnection::IoStatus to Transport::IoError so that
+/// Maps TlsConnectionBase::IoStatus to Transport::IoError so that
 /// transport-agnostic protocol readers can operate over TLS without
 /// depending on TlsConnection directly.
 class TlsStream final : public Stream {
 public:
-    explicit TlsStream(TlsConnection &conn) noexcept : conn_(conn) {}
+    explicit TlsStream(TlsConnectionBase &conn) noexcept : conn_(conn) {}
 
     [[nodiscard]] std::expected<size_t, IoError> read_some(
         std::span<std::uint8_t> buf,
@@ -42,7 +42,7 @@ public:
         const Utils::CancellationToken &cancel_token) override;
 
 private:
-    TlsConnection &conn_;
+    TlsConnectionBase &conn_;
 };
 
 }  // namespace Transport

@@ -167,6 +167,29 @@ add_unit_test(dns_parser_native SOURCE dns/parser_test.cpp dns/parser_native_tes
     ${PROJECT_SOURCE_DIR}/src/dns/parser/parser_native.cpp)
 target_compile_definitions(test_dns_parser_native PRIVATE YADDNSC_USE_NATIVE_DNS=1)
 
+# DotResolver mock tests — TLS error paths via MockTlsConnection
+add_unit_test(dot_resolver_mock SOURCE dns/dot_resolver_mock_test.cpp
+    ${PROJECT_SOURCE_DIR}/src/dns/resolver/dot.cpp
+    ${PROJECT_SOURCE_DIR}/src/dns/resolver_registry.cpp
+    ${PROJECT_SOURCE_DIR}/src/dns/wire/builder.cpp
+    ${PROJECT_SOURCE_DIR}/src/network/tls_connection.cpp
+    ${PROJECT_SOURCE_DIR}/src/util/cert_util.cpp)
+target_link_libraries(test_dot_resolver_mock PRIVATE OpenSSL::SSL OpenSSL::Crypto)
+
+# DohResolver mock tests — TLS + HTTP error paths via MockTlsConnection
+add_unit_test(doh_resolver_mock SOURCE dns/doh_resolver_mock_test.cpp
+    ${PROJECT_SOURCE_DIR}/src/dns/resolver/doh.cpp
+    ${PROJECT_SOURCE_DIR}/src/dns/resolver_registry.cpp
+    ${PROJECT_SOURCE_DIR}/src/dns/wire/builder.cpp
+    ${PROJECT_SOURCE_DIR}/src/network/tls_connection.cpp
+    ${PROJECT_SOURCE_DIR}/src/network/transport/tls_stream.cpp
+    ${PROJECT_SOURCE_DIR}/src/http/header_parser.cpp
+    ${PROJECT_SOURCE_DIR}/src/http/body_parser.cpp
+    ${PROJECT_SOURCE_DIR}/src/http/request.cpp
+    ${PROJECT_SOURCE_DIR}/src/http/http.cpp
+    ${PROJECT_SOURCE_DIR}/src/util/cert_util.cpp)
+target_link_libraries(test_doh_resolver_mock PRIVATE OpenSSL::SSL OpenSSL::Crypto picohttpparser)
+
 # ============================================================================
 #  network/  —  network address/path/URI parsing (pure logic, no I/O)
 # ============================================================================
@@ -183,6 +206,16 @@ add_unit_test(uri_parse SOURCE network/uri_parse_test.cpp)
 add_unit_test(uri_query SOURCE network/uri_query_test.cpp)
 add_unit_test(uri_encode SOURCE network/uri_encode_test.cpp)
 add_unit_test(uri_edge   SOURCE network/uri_edge_test.cpp)
+
+# socket_mock — MockSocket basic tests
+add_unit_test(socket_mock SOURCE network/socket_mock_test.cpp)
+
+# tls_stream — TlsConnectionBase→IoError mapping via MockTlsConnection
+add_unit_test(tls_stream_mock SOURCE network/tls_stream_test.cpp
+    ${PROJECT_SOURCE_DIR}/src/network/transport/tls_stream.cpp
+    ${PROJECT_SOURCE_DIR}/src/network/tls_connection.cpp
+    ${PROJECT_SOURCE_DIR}/src/util/cert_util.cpp)
+target_link_libraries(test_tls_stream_mock PRIVATE OpenSSL::SSL OpenSSL::Crypto)
 
 # ============================================================================
 #  ip_source/  —  IP-source abstraction (header-only tests only)

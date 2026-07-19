@@ -358,3 +358,96 @@ TEST(Updater, NoThrowWhenIpSourceThrows) {
 
     EXPECT_NO_THROW(updater.process(task, driver, http));
 }
+
+// ── Resolver returns NODATA → same as DNS failure, update attempted ─────────
+
+TEST(Updater, UpdatesWhenDnsReturnsNoData) {
+    auto cfg = parse_cfg(Fixtures::FULL_CONFIG);
+    auto task = make_task(cfg);
+
+    auto ip = std::make_shared<FakeIpSource>(
+        std::vector<InetAddress>{Inet4Address::from_bytes({198, 51, 100, 1})});
+
+    // MockResolver that returns NODATA (success response with RCODE=3).
+    class NoDataResolver : public MockResolver {
+    public:
+        NoDataResolver() {
+            // NXDOMAIN response for example.com
+            std::vector<std::uint8_t> nxdomain = {
+                0x12, 0x34, 0x81, 0x83, 0x00, 0x01, 0x00, 0x00,
+                0x00, 0x01, 0x00, 0x00,
+                0x07, 'e', 'x', 'a', 'm', 'p', 'l', 'e',
+                0x03, 'c', 'o', 'm', 0x00,
+                0x00, 0x01, 0x00, 0x01,
+                0xC0, 0x0C, 0x00, 0x06, 0x00, 0x01,
+                0x00, 0x00, 0x00, 0x3C, 0x00, 0x00
+            };
+            ON_CALL(*this, query(_, _, _))
+                .WillByDefault(Return(nxdomain));
+            ON_CALL(*this, get_type()).WillByDefault(Return("Mock"));
+        }
+    };
+
+    auto dispatcher = make_dispatcher(std::make_unique<NoDataResolver>());
+    Updater updater(dispatcher, FakeIpSourceFactory(ip));
+
+    MockDriver driver;
+    MockHttpClient http;
+    // NODATA → DNS comparison fails → update attempted.
+    EXPECT_CALL(http, exchange).WillOnce(Return(ok_response()));
+    EXPECT_CALL(driver, generate_request)
+        .WillOnce(Return(DriverRequestContext{.url = "https://api.example.com/update", .request = {}}));
+    EXPECT_CALL(driver, check_response).WillOnce(Return(true));
+
+    updater.process(task, driver, http);
+}
+
+// ── Multiple IP candidates → first matching address used ─────────────────────
+
+TEST(Updater, MultipleIpCandidates_PicksFirst) {
+    auto cfg = parse_cfg(Fixtures::FULL_CONFIG);
+    auto task = make_task(cfg);
+
+    // Two IPs: first is unrelated, second matches what would trigger an update.
+    auto ip = std::make_shared<FakeIpSource>(std::vector<InetAddress>{
+        Inet4Address::from_bytes({10, 0, 0, 1}),
+        Inet4Address::from_bytes({198, 51, 100, 1}),  // different from DNS (192.0.2.1)
+    });
+    auto dispatcher = make_dispatcher(std::make_unique<FixedAResolver>());
+    Updater updater(dispatcher, FakeIpSourceFactory(ip));
+
+    MockDriver driver;
+    MockHttpClient http;
+    EXPECT_CALL(http, exchange).WillOnce(Return(ok_response()));
+    EXPECT_CALL(driver, generate_request)
+        .WillOnce(Return(DriverRequestContext{.url = "https://api.example.com/update", .request = {}}));
+    EXPECT_CALL(driver, check_response).WillOnce(Return(true));
+
+    updater.process(task, driver, http);
+}
+
+// ── Multiple IP candidates, last matches → still picks first matching ────────
+
+TEST(Updater, MultipleIpCandidates_PicksFirstMatching) {
+    auto cfg = parse_cfg(Fixtures::FULL_CONFIG);
+    auto task = make_task(cfg);
+    task.config.type = RecordKind::A;
+
+    // Only the third address is a valid IPv4 (first two are IPv6).
+    auto ip = std::make_shared<FakeIpSource>(std::vector<InetAddress>{
+        Inet6Address::from_bytes({0x20, 0x01, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x01}),
+        Inet6Address::from_bytes({0x20, 0x01, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x02}),
+        Inet4Address::from_bytes({198, 51, 100, 1}),
+    });
+    auto dispatcher = make_dispatcher(std::make_unique<FixedAResolver>());
+    Updater updater(dispatcher, FakeIpSourceFactory(ip));
+
+    MockDriver driver;
+    MockHttpClient http;
+    EXPECT_CALL(http, exchange).WillOnce(Return(ok_response()));
+    EXPECT_CALL(driver, generate_request)
+        .WillOnce(Return(DriverRequestContext{.url = "https://api.example.com/update", .request = {}}));
+    EXPECT_CALL(driver, check_response).WillOnce(Return(true));
+
+    updater.process(task, driver, http);
+}

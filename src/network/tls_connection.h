@@ -65,6 +65,84 @@ struct TlsOptions {
     std::chrono::milliseconds write_timeout{1500};
 };
 
+// ── TlsConnectionBase ──
+
+/// Abstract base class for TLS connections.
+///
+/// Defines the interface used by all TLS-dependent components
+/// (DohResolver, DotResolver, TlsStream).  The concrete @ref TlsConnection
+/// implements this over OpenSSL BIO.
+///
+/// @note The @c IoStatus enum is defined here and inherited by
+///       @ref TlsConnection, so all existing references to
+///       @c TlsConnection::IoStatus remain valid.
+///
+/// Thread safety: distinct objects are independent. A single object is
+/// **not** thread-safe; external synchronisation is required if shared
+/// across threads.
+class TlsConnectionBase {
+public:
+    /// Result of an I/O operation.
+    enum class IoStatus {
+        OK,        ///< Operation completed successfully.
+        TIMEOUT,   ///< poll() timed out without completing the I/O.
+        ERROR,     ///< Non-recoverable I/O error (connection lost, SSL fatal, etc.).
+        CANCELLED  ///< Cancel fd was signalled (caller should abort).
+    };
+
+    virtual ~TlsConnectionBase() = default;
+
+    TlsConnectionBase() = default;
+    TlsConnectionBase(TlsConnectionBase &&) noexcept = default;
+    TlsConnectionBase &operator=(TlsConnectionBase &&) noexcept = default;
+    TlsConnectionBase(const TlsConnectionBase &) = delete;
+    TlsConnectionBase &operator=(const TlsConnectionBase &) = delete;
+
+    // ── Lifecycle ──
+
+    /// Open (or re-establish) the TLS connection.
+    /// @return  std::expected<void, IoStatus> — empty on success, error on failure.
+    [[nodiscard]] virtual std::expected<void, IoStatus> connect() = 0;
+
+    /// Close the connection.
+    virtual void close() noexcept = 0;
+
+    /// Whether the connection has been established.
+    [[nodiscard]] virtual bool is_connected() const noexcept = 0;
+
+    /// Quick health check — returns false if the peer has closed the connection.
+    [[nodiscard]] virtual bool is_healthy() const noexcept = 0;
+
+    // ── I/O (all variants accept an optional cancellation token) ──
+
+    /// Send all bytes in @p data.
+    [[nodiscard]] virtual std::expected<void, IoStatus> send_all(
+        std::span<const std::uint8_t> data,
+        const Utils::CancellationToken &cancel_token) = 0;
+
+    /// Read exactly @p buf.size() bytes.
+    [[nodiscard]] virtual std::expected<void, IoStatus> read_exact(
+        std::span<std::uint8_t> buf,
+        const Utils::CancellationToken &cancel_token) = 0;
+
+    /// Read at least one byte (partial read).
+    [[nodiscard]] virtual std::expected<size_t, IoStatus> read_some(
+        std::span<std::uint8_t> buf,
+        const Utils::CancellationToken &cancel_token) = 0;
+
+    // ── TLS protocol helpers ──
+
+    /// Send a TLS close_notify alert (half-close the write direction).
+    [[nodiscard]] virtual std::expected<void, IoStatus> shutdown() = 0;
+
+    /// The ALPN protocol negotiated during the TLS handshake.
+    /// Returns an empty string if no ALPN was negotiated.
+    [[nodiscard]] virtual std::string negotiated_alpn() const noexcept = 0;
+
+    /// Override the hostname used for both TLS SNI and certificate verification.
+    virtual void set_sni_hostname(std::string hostname) = 0;
+};
+
 // ── TlsConnection ──
 
 /// A stateful TLS connection over OpenSSL BIO.
@@ -80,16 +158,8 @@ struct TlsOptions {
 /// Thread safety: distinct `TlsConnection` objects are independent. A single
 /// object is **not** thread-safe; external synchronisation is required if
 /// shared across threads.
-class TlsConnection {
+class TlsConnection : public TlsConnectionBase {
 public:
-    /// Result of an I/O operation.
-    enum class IoStatus {
-        OK, ///< Operation completed successfully.
-        TIMEOUT, ///< poll() timed out without completing the I/O.
-        ERROR, ///< Non-recoverable I/O error (connection lost, SSL fatal, etc.).
-        CANCELLED ///< Cancel fd was signalled (caller should abort).
-    };
-
     /// Factory for creating a custom SSL_CTX.
     ///
     /// The returned context is cached inside the connection and reused on
@@ -109,7 +179,7 @@ public:
     /// @throws TlsException on invalid server address.
     TlsConnection(std::string server, std::uint16_t port, TlsOptions opts = {}, ContextFactory context_factory = {});
 
-    ~TlsConnection();
+    ~TlsConnection() override;
 
     TlsConnection(TlsConnection &&) noexcept = default;
 
@@ -125,18 +195,18 @@ public:
     ///
     /// If already connected, the old connection is closed first.
     /// @return  std::expected<void, IoStatus> — empty on success, error on failure.
-    [[nodiscard]] std::expected<void, IoStatus> connect();
+    [[nodiscard]] std::expected<void, IoStatus> connect() override;
 
     /// Close the connection.
-    void close() noexcept;
+    void close() noexcept override;
 
     /// Whether the underlying BIO is currently valid.
-    [[nodiscard]] bool is_connected() const noexcept { return bio_ != nullptr; }
+    [[nodiscard]] bool is_connected() const noexcept override { return bio_ != nullptr; }
 
     /// Quick health check — returns false if the peer has closed the connection.
     /// Correctly handles pending application data (does not treat buffered
     /// readable data as a closed connection).
-    [[nodiscard]] bool is_healthy() const noexcept;
+    [[nodiscard]] bool is_healthy() const noexcept override;
 
     /// Set the timeout for read operations (including shutdown).
     /// The default is 5 seconds.  Pass 0ms for fully non-blocking behaviour.
@@ -155,7 +225,7 @@ public:
     /// @param cancel_token  When active, the operation is aborted and
     ///                      @c IoStatus::CANCELLED is returned on trigger.
     [[nodiscard]] std::expected<void, IoStatus> send_all(std::span<const std::uint8_t> data,
-                                                         const Utils::CancellationToken &cancel_token);
+                                                         const Utils::CancellationToken &cancel_token) override;
 
     /// Read exactly `buf.size()` bytes (no cancellation support).
     [[nodiscard]] std::expected<void, IoStatus> read_exact(std::span<std::uint8_t> buf);
@@ -164,7 +234,7 @@ public:
     /// @param cancel_token  When active, the operation is aborted and
     ///                      @c IoStatus::CANCELLED is returned on trigger.
     [[nodiscard]] std::expected<void, IoStatus> read_exact(std::span<std::uint8_t> buf,
-                                                           const Utils::CancellationToken &cancel_token);
+                                                           const Utils::CancellationToken &cancel_token) override;
 
     /// Read at least one byte (partial read, no cancellation support).
     /// Returns the number of bytes actually read, which may be less than
@@ -174,13 +244,13 @@ public:
 
     /// Read at least one byte with optional cancellation support.
     [[nodiscard]] std::expected<size_t, IoStatus> read_some(std::span<std::uint8_t> buf,
-                                                            const Utils::CancellationToken &cancel_token);
+                                                            const Utils::CancellationToken &cancel_token) override;
 
     // ── TLS protocol helpers ──
 
     /// The ALPN protocol negotiated during the TLS handshake.
     /// Returns an empty string if no ALPN was negotiated.
-    [[nodiscard]] std::string negotiated_alpn() const noexcept;
+    [[nodiscard]] std::string negotiated_alpn() const noexcept override;
 
     /// Send a TLS close_notify alert (half-close the write direction).
     ///
@@ -189,7 +259,7 @@ public:
     /// its own close_notify).  Callers should finish reading the response
     /// and then call @c close().
     /// @return  std::expected<void, IoStatus> — empty on success, error code on failure.
-    [[nodiscard]] std::expected<void, IoStatus> shutdown();
+    [[nodiscard]] std::expected<void, IoStatus> shutdown() override;
 
     // ── SNI / certificate hostname ──
 
@@ -200,7 +270,7 @@ public:
     /// constructor) is used for both purposes: it is sent as SNI and
     /// verified against the peer certificate.  Call this before
     /// @c connect() to override both with a different hostname.
-    void set_sni_hostname(std::string hostname);
+    void set_sni_hostname(std::string hostname) override;
 
     // ── Raw access ──
 

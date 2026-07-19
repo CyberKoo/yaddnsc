@@ -75,6 +75,57 @@ namespace {
 }  // anonymous namespace
 
 // ===========================================================================
+//  Header flag combinations
+// ===========================================================================
+
+TEST(QueryBuilderTest, AaFlag) {
+    auto packet = DNS::QueryBuilder{}
+        .aa(true)
+        .rd(false)
+        .add_question("example.com", DNS::RecordType::A)
+        .build();
+
+    // AA = bit 10 -> 0x0400
+    EXPECT_EQ(read_u16(packet, 2), 0x0400);
+}
+
+TEST(QueryBuilderTest, TcFlag) {
+    auto packet = DNS::QueryBuilder{}
+        .tc(true)
+        .rd(false)
+        .add_question("example.com", DNS::RecordType::A)
+        .build();
+
+    // TC = bit 9 -> 0x0200
+    EXPECT_EQ(read_u16(packet, 2), 0x0200);
+}
+
+TEST(QueryBuilderTest, RaFlag) {
+    auto packet = DNS::QueryBuilder{}
+        .ra(true)
+        .rd(false)
+        .add_question("example.com", DNS::RecordType::A)
+        .build();
+
+    // RA = bit 7 -> 0x0080
+    EXPECT_EQ(read_u16(packet, 2), 0x0080);
+}
+
+TEST(QueryBuilderTest, AllFlagsOff) {
+    auto packet = DNS::QueryBuilder{}
+        .qr(false)
+        .aa(false)
+        .tc(false)
+        .rd(false)
+        .ra(false)
+        .add_question("example.com", DNS::RecordType::A)
+        .build();
+
+    // All flags off -> 0x0000
+    EXPECT_EQ(read_u16(packet, 2), 0x0000);
+}
+
+// ===========================================================================
 //  Default / basic queries
 // ===========================================================================
 

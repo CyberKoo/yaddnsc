@@ -19,6 +19,7 @@
 #include "http/body_parser.h"
 #include "http/header_parser.h"
 #include "http/types.h"
+#include "mocks/mock_stream.h"
 #include "network/transport/stream.h"
 #include "util/cancellation_token.hpp"
 
@@ -109,6 +110,30 @@ struct ParsedResponse {
 }
 
 } // anonymous namespace
+
+// =============================================================================
+//  No body (no Content-Length, not chunked)
+// =============================================================================
+
+TEST(HttpBodyParserTest, NoContentLengthNotChunked_ReturnsEmpty) {
+    // Response with neither Content-Length nor Transfer-Encoding: chunked
+    // means there is no body.
+    std::string raw = "HTTP/1.1 204 No Content\r\n"
+                      "Content-Type: application/dns-message\r\n"
+                      "\r\n";
+    auto p = make_parsed(raw);
+    ASSERT_FALSE(p.headers.has_content_length);
+    ASSERT_FALSE(p.headers.is_chunked);
+
+    BufferStream stream(std::vector<std::uint8_t>{});
+    Utils::CancellationToken cancel;
+
+    auto result = Http::read_body(stream, p.headers,
+                                  std::span(raw.data(), raw.size()),
+                                  65536, cancel);
+    ASSERT_TRUE(result.has_value());
+    EXPECT_TRUE(result->empty());
+}
 
 // =============================================================================
 //  Content-Length body reading
@@ -318,6 +343,83 @@ TEST(HttpBodyParserTest, ContentLength_TransportCancelled) {
     EXPECT_EQ(result.error(), Http::Error::CANCELLED);
 }
 
+TEST(HttpBodyParserTest, ContentLength_TransportTimeout) {
+    // Body needs more data; transport returns TIMEOUT.
+    auto raw = make_headers(200, "Content-Length: 64\r\n") + std::string(16, '\x05');
+    auto p = make_parsed(raw);
+
+    BufferStream stream(std::vector<std::uint8_t>(8, '\x06'));
+    stream.set_read_exact_error(Transport::IoError::TIMEOUT);
+    Utils::CancellationToken cancel;
+
+    auto result = Http::read_body(stream, p.headers,
+                                  std::span(raw.data(), raw.size()),
+                                  65536, cancel);
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error(), Http::Error::TIMEOUT);
+}
+
+// =============================================================================
+//  Chunked body — error paths
+// =============================================================================
+
+TEST(HttpBodyParserTest, Chunked_TransportTimeout) {
+    // Chunked body read: header only in buffer, chunk data comes from
+    // transport, which returns TIMEOUT.
+    auto raw_headers = make_headers(200, "Transfer-Encoding: chunked\r\n");
+    auto p = make_parsed(raw_headers);
+    // header_end should be right after the \r\n\r\n
+    ASSERT_GT(p.headers.header_end, 0U);
+
+    // Only pass the header bytes (no body/chunk data) so the code
+    // falls through to the transport read.
+    auto header_span = std::span(raw_headers.data(), p.headers.header_end);
+
+    MockStream stream;
+    stream.set_read_error(Transport::IoError::TIMEOUT);
+    Utils::CancellationToken cancel;
+
+    auto result = Http::read_body(stream, p.headers,
+                                  header_span, 65536, cancel);
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error(), Http::Error::TIMEOUT);
+}
+
+TEST(HttpBodyParserTest, Chunked_TransportCancelled) {
+    // Chunked body read: header only in buffer, chunk data comes from
+    // transport, which returns CANCELLED.
+    auto raw_headers = make_headers(200, "Transfer-Encoding: chunked\r\n");
+    auto p = make_parsed(raw_headers);
+
+    auto header_span = std::span(raw_headers.data(), p.headers.header_end);
+
+    MockStream stream;
+    stream.set_read_error(Transport::IoError::CANCELLED);
+    Utils::CancellationToken cancel;
+
+    auto result = Http::read_body(stream, p.headers,
+                                  header_span, 65536, cancel);
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error(), Http::Error::CANCELLED);
+}
+
+TEST(HttpBodyParserTest, Chunked_TransportConnectionFailed) {
+    // Chunked body read: only the header is in the buffer;
+    // transport returns CONNECTION_FAILED.
+    auto raw = make_headers(200, "Transfer-Encoding: chunked\r\n");
+    auto p = make_parsed(raw);
+
+    MockStream stream;
+    stream.set_read_error(Transport::IoError::CONNECTION_FAILED);
+    Utils::CancellationToken cancel;
+
+    auto result = Http::read_body(stream, p.headers,
+                                  std::span(raw.data(), raw.size()),
+                                  65536, cancel);
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error(), Http::Error::CONNECTION_FAILED);
+}
+
 TEST(HttpBodyParserTest, Chunked_BodyTooLarge) {
     // Each chunk is small, but cumulative exceeds max.
     auto raw = make_headers(200, "Transfer-Encoding: chunked\r\n")
@@ -334,4 +436,25 @@ TEST(HttpBodyParserTest, Chunked_BodyTooLarge) {
                                   300, cancel);
     ASSERT_FALSE(result.has_value());
     EXPECT_EQ(result.error(), Http::Error::BODY_TOO_LARGE);
+}
+
+TEST(HttpBodyParserTest, Chunked_EofBeforeTerminator) {
+    // The transport stream ends (read_some returns 0) before the chunk terminator
+    // is received.  The only data is in the header buffer (header_end points past
+    // \r\n\r\n).  The code reads from the transport, gets 0 bytes (EOF),
+    // and returns CONNECTION_FAILED.
+    auto raw = make_headers(200, "Transfer-Encoding: chunked\r\n");
+    auto p = make_parsed(raw);
+
+    // Pass only header bytes — transport has no data.
+    auto header_span = std::span(raw.data(), p.headers.header_end);
+
+    MockStream stream;
+    // No data set, so read_some returns 0 (EOF).
+    Utils::CancellationToken cancel;
+
+    auto result = Http::read_body(stream, p.headers,
+                                  header_span, 65536, cancel);
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error(), Http::Error::CONNECTION_FAILED);
 }

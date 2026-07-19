@@ -14,12 +14,14 @@
 #include "base.h"
 #include "dns/dns_error_info.h"
 
+class TlsConnectionBase;
+
 /// DohResolver — DNS-over-HTTPS (RFC 8484) resolver.
 ///
-/// Uses a raw TLS socket (via OpenSSL BIO) to send DNS queries to a
+/// Uses a TLS connection (via TlsConnectionBase) to send DNS queries to a
 /// DNS-over-HTTPS server.  Queries are sent as HTTP POST requests with
 /// Content-Type: application/dns-message and responses are parsed with
-/// picohttpparser.  Supports cancellation via cancel_fd.
+/// picohttpparser.  Supports cancellation via CancellationToken.
 ///
 /// @note Thread-safe: query() acquires an internal mutex around the
 ///       persistent TLS connection.
@@ -31,6 +33,15 @@ public:
     /// @param path    URL path (e.g. "/dns-query").
     /// @param label   Display label (e.g. "dns.google:443" or "https://dns.google"), used in log/error messages.
     explicit DohResolver(std::string host, std::uint16_t port, std::string path, std::string label);
+
+    /// Testing constructor: inject a mock TlsConnectionBase.
+    /// @param host    DoH server hostname or IP.
+    /// @param port    TLS port.
+    /// @param path    URL path.
+    /// @param label   Display label.
+    /// @param conn    Mock TLS connection (takes ownership).
+    DohResolver(std::string host, std::uint16_t port, std::string path, std::string label,
+                std::unique_ptr<TlsConnectionBase> conn);
 
     ~DohResolver() override;
 

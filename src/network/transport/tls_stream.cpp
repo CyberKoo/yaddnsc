@@ -13,9 +13,9 @@ std::expected<size_t, IoError> TlsStream::read_some(
     auto result = conn_.read_some(buf, cancel_token);
     if (!result) {
         switch (result.error()) {
-        case TlsConnection::IoStatus::TIMEOUT:
+        case TlsConnectionBase::IoStatus::TIMEOUT:
             return std::unexpected(IoError::TIMEOUT);
-        case TlsConnection::IoStatus::CANCELLED:
+        case TlsConnectionBase::IoStatus::CANCELLED:
             return std::unexpected(IoError::CANCELLED);
         default:
             return std::unexpected(IoError::CONNECTION_FAILED);
@@ -30,9 +30,9 @@ std::expected<void, IoError> TlsStream::read_exact(
     auto result = conn_.read_exact(buf, cancel_token);
     if (!result) {
         switch (result.error()) {
-        case TlsConnection::IoStatus::TIMEOUT:
+        case TlsConnectionBase::IoStatus::TIMEOUT:
             return std::unexpected(IoError::TIMEOUT);
-        case TlsConnection::IoStatus::CANCELLED:
+        case TlsConnectionBase::IoStatus::CANCELLED:
             return std::unexpected(IoError::CANCELLED);
         default:
             return std::unexpected(IoError::CONNECTION_FAILED);
@@ -47,9 +47,9 @@ std::expected<void, IoError> TlsStream::send_all(
     auto result = conn_.send_all(data, cancel_token);
     if (!result) {
         switch (result.error()) {
-        case TlsConnection::IoStatus::TIMEOUT:
+        case TlsConnectionBase::IoStatus::TIMEOUT:
             return std::unexpected(IoError::TIMEOUT);
-        case TlsConnection::IoStatus::CANCELLED:
+        case TlsConnectionBase::IoStatus::CANCELLED:
             return std::unexpected(IoError::CANCELLED);
         default:
             return std::unexpected(IoError::CONNECTION_FAILED);

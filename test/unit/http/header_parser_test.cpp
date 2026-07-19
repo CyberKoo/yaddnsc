@@ -219,3 +219,71 @@ TEST(HttpHeaderParserTest, ResponseWithoutContentLength_NoBody) {
     EXPECT_EQ(result->status_code, 204);
     EXPECT_FALSE(result->has_content_length);
 }
+
+// ── Edge cases ────────────────────────────────────────────────────────────
+
+TEST(HttpHeaderParserTest, EmptyExpectedContentType_SkipsTypeCheck) {
+    // When expected_content_type is empty, any content-type (or none) is accepted.
+    std::string resp = "HTTP/1.1 200 OK\r\n"
+                       "\r\n"
+                       "body";
+
+    auto result = Http::parse_response(resp, "", 1024);
+    ASSERT_TRUE(result.has_value());
+    EXPECT_EQ(result->status_code, 200);
+}
+
+TEST(HttpHeaderParserTest, MultipleContentLength_FirstWins) {
+    // When multiple Content-Length headers are present, the first one is used.
+    std::string resp = "HTTP/1.1 200 OK\r\n"
+                       "Content-Type: text/plain\r\n"
+                       "Content-Length: 5\r\n"
+                       "Content-Length: 999\r\n"
+                       "\r\n"
+                       "hello";
+
+    auto result = Http::parse_response(resp, "text/plain", 1024);
+    ASSERT_TRUE(result.has_value());
+    EXPECT_EQ(result->content_length, 5u);
+    EXPECT_TRUE(result->has_content_length);
+}
+
+TEST(HttpHeaderParserTest, TransferEncodingChunkedWithGzip) {
+    // Transfer-Encoding: gzip, chunked (comma-separated, chunked last).
+    std::string resp = "HTTP/1.1 200 OK\r\n"
+                       "Content-Type: text/plain\r\n"
+                       "Transfer-Encoding: gzip, chunked\r\n"
+                       "\r\n";
+
+    auto result = Http::parse_response(resp, "text/plain", 1024);
+    ASSERT_TRUE(result.has_value());
+    EXPECT_TRUE(result->is_chunked);
+    EXPECT_FALSE(result->has_content_length);
+}
+
+TEST(HttpHeaderParserTest, ContentLengthWithLeadingZeros) {
+    // Content-Length with leading zeros should still parse correctly.
+    std::string resp = "HTTP/1.1 200 OK\r\n"
+                       "Content-Type: text/plain\r\n"
+                       "Content-Length: 0015\r\n"
+                       "\r\n"
+                       "hello world!!!";
+
+    auto result = Http::parse_response(resp, "text/plain", 1024);
+    ASSERT_TRUE(result.has_value());
+    EXPECT_EQ(result->content_length, 15u);
+    EXPECT_TRUE(result->has_content_length);
+}
+
+TEST(HttpHeaderParserTest, ContentTypeWithoutExpected_NoMismatch) {
+    // If expected_content_type is empty, any content-type is accepted.
+    std::string resp = "HTTP/1.1 200 OK\r\n"
+                       "Content-Type: application/xml\r\n"
+                       "Content-Length: 4\r\n"
+                       "\r\n"
+                       "body";
+
+    auto result = Http::parse_response(resp, "", 1024);
+    ASSERT_TRUE(result.has_value());
+    EXPECT_EQ(result->status_code, 200);
+}

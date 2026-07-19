@@ -70,7 +70,8 @@ struct DohResolver::Impl {
     static constexpr unsigned char ALPN_HTTP[] = {8, 'h', 't', 't', 'p', '/', '1', '.', '1'};
 
     // ── Constructor ──
-    explicit Impl(std::string server, std::uint16_t port, std::string path, std::uint64_t id, std::string label);
+    explicit Impl(std::string server, std::uint16_t port, std::string path, std::uint64_t id, std::string label,
+                  std::unique_ptr<TlsConnectionBase> conn = nullptr);
 
     // ── Public member functions ──
     [[nodiscard]] std::expected<std::vector<std::uint8_t>, DnsErrorInfo>
@@ -83,20 +84,23 @@ struct DohResolver::Impl {
     [[nodiscard]] std::expected<void, DnsErrorInfo> ensure_connection() const;
 
     // ── Data members ──
-    const std::uint64_t id_;
     const std::string server_;
     const std::uint16_t port_;
     const std::string path_;
     const std::string host_header_;
     const std::string label_;   // display label for log / error messages
+    const std::uint64_t id_;
     mutable std::mutex mutex_;
-    mutable std::unique_ptr<TlsConnection> persistent_conn_;
+    mutable std::unique_ptr<TlsConnectionBase> persistent_conn_;
     mutable std::chrono::steady_clock::time_point last_use_;
 };
 
-DohResolver::Impl::Impl(std::string server, std::uint16_t port, std::string path, std::uint64_t id, std::string label)
-    : id_(id), server_(std::move(server)), port_(port), path_(std::move(path)),
-      host_header_(build_host_header(server_, port_)), label_(std::move(label)), last_use_(std::chrono::steady_clock::now()) {
+DohResolver::Impl::Impl(std::string server, std::uint16_t port, std::string path, std::uint64_t id, std::string label,
+                        std::unique_ptr<TlsConnectionBase> conn)
+    : server_(std::move(server)), port_(port), path_(std::move(path)),
+      host_header_(build_host_header(server_, port_)), label_(std::move(label)), id_(id),
+      persistent_conn_(std::move(conn)),
+      last_use_(std::chrono::steady_clock::now()) {
 }
 
 // ===========================================================================
@@ -238,6 +242,11 @@ std::expected<void, DnsErrorInfo> DohResolver::Impl::ensure_connection() const {
 
 DohResolver::DohResolver(std::string host, std::uint16_t port, std::string path, std::string label)
     : impl_(std::make_unique<Impl>(std::move(host), port, std::move(path), get_id(), std::move(label))) {
+}
+
+DohResolver::DohResolver(std::string host, std::uint16_t port, std::string path, std::string label,
+                         std::unique_ptr<TlsConnectionBase> conn)
+    : impl_(std::make_unique<Impl>(std::move(host), port, std::move(path), get_id(), std::move(label), std::move(conn))) {
 }
 
 DohResolver::~DohResolver() = default;

@@ -270,3 +270,42 @@ TEST(HttpRequestTest, UserAgentCrlf_IsStripped) {
     EXPECT_TRUE(not_contains(sv, "\r\nX-Injected:"));
     EXPECT_TRUE(contains(sv, "User-Agent: agent/1X-Injected: true\r\n"));
 }
+
+// ── CR only (no LF) — sanitize_crlf handles solitary \r ───────────────────
+
+TEST(HttpRequestTest, PathCrOnly_IsStripped) {
+    HttpRequest req;
+    req.method = HttpMethod::GET;
+
+    // Only CR, no LF — the other branch of sanitize_crlf.
+    auto wire = Http::build_request(req, "/path\rX-Injected: true", "h.net", "a/1");
+    std::string_view sv(reinterpret_cast<const char*>(wire.data()), wire.size());
+
+    EXPECT_TRUE(not_contains(sv, "\rX-Injected:"));
+    EXPECT_TRUE(contains(sv, "GET /pathX-Injected: true HTTP/1.1\r\n"));
+}
+
+// ── LF only (no CR) — sanitize_crlf handles solitary \n ───────────────────
+
+TEST(HttpRequestTest, PathLfOnly_IsStripped) {
+    HttpRequest req;
+    req.method = HttpMethod::GET;
+
+    auto wire = Http::build_request(req, "/path\nX-Injected: true", "h.net", "a/1");
+    std::string_view sv(reinterpret_cast<const char*>(wire.data()), wire.size());
+
+    EXPECT_TRUE(not_contains(sv, "\nX-Injected:"));
+    EXPECT_TRUE(contains(sv, "GET /pathX-Injected: true HTTP/1.1\r\n"));
+}
+
+// ── Multiple CRLF pairs ───────────────────────────────────────────────────
+
+TEST(HttpRequestTest, PathMultipleCrlf_Stripped) {
+    HttpRequest req;
+    req.method = HttpMethod::GET;
+
+    auto wire = Http::build_request(req, "/a\r\n/b\r\n/c", "h.net", "a/1");
+    std::string_view sv(reinterpret_cast<const char*>(wire.data()), wire.size());
+
+    EXPECT_TRUE(contains(sv, "GET /a/b/c HTTP/1.1\r\n"));
+}

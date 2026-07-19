@@ -23,6 +23,91 @@ class CancellationToken;
 #include <sys/socket.h>
 
 // ---------------------------------------------------------------------------
+// ConnectError — errors that can occur during connect().
+// ---------------------------------------------------------------------------
+enum class ConnectError {
+    TIMED_OUT,    ///< Connection timed out (ETIMEDOUT).
+    REFUSED,      ///< Connection refused (ECONNREFUSED).
+    UNREACHABLE,  ///< Network or host unreachable (ENETUNREACH, EHOSTUNREACH).
+    CANCELLED,    ///< Operation cancelled via CancellationToken (ECANCELED).
+    INTERNAL,     ///< Internal OS error (fcntl, poll, getsockopt, etc.).
+};
+
+// ---------------------------------------------------------------------------
+// SocketBase — abstract interface for POSIX socket operations.
+//
+// Template methods (set_option<T>, get_option<T>) are non-virtual and
+// delegate to the virtual set_option_raw / a non-virtual implementation.
+// Only the I/O and control methods needed for mocking are pure virtual.
+// ---------------------------------------------------------------------------
+class SocketBase {
+public:
+    virtual ~SocketBase() = default;
+
+    SocketBase() = default;
+    SocketBase(SocketBase &&) noexcept = default;
+    SocketBase &operator=(SocketBase &&) noexcept = default;
+    SocketBase(const SocketBase &) = delete;
+    SocketBase &operator=(const SocketBase &) = delete;
+
+    // ---- Options (non-virtual template delegates to virtual raw) ---------
+
+    template<typename T>
+    [[nodiscard]] std::expected<void, int> set_option(int level, int optname, const T &val) const noexcept {
+        return set_option_raw(level, optname, &val, sizeof(val));
+    }
+
+    /// Raw setsockopt for variable-length values (e.g. SO_BINDTODEVICE).
+    [[nodiscard]] virtual std::expected<void, int> set_option_raw(
+        int level, int optname, const void *val, socklen_t len) const noexcept = 0;
+
+    template<typename T>
+    [[nodiscard]] std::expected<void, int> get_option(int level, int optname, T &val) const noexcept {
+        socklen_t len = sizeof(val);
+        if (::getsockopt(native_handle(), level, optname, &val, &len) == 0) {
+            return {};
+        }
+        return std::unexpected(errno);
+    }
+
+    [[nodiscard]] virtual std::expected<void, int> set_nonblocking(bool enable) const noexcept = 0;
+
+    // ---- Connection (client) -----------------------------------------------
+
+    [[nodiscard]] virtual std::expected<void, ConnectError> connect(
+        const SocketAddr &addr, int timeout_sec = -1) = 0;
+
+    // ---- I/O (all return ssize_t, no exceptions) ---------------------------
+
+    [[nodiscard]] virtual ssize_t send(std::span<const std::byte> data) const = 0;
+    [[nodiscard]] virtual ssize_t send(std::span<const std::byte> data, int flags) const = 0;
+    [[nodiscard]] virtual ssize_t send_to(std::span<const std::byte> data, const SocketAddr &dest) const = 0;
+    [[nodiscard]] virtual ssize_t send_to(std::span<const std::byte> data, const SocketAddr &dest, int flags) const = 0;
+
+    [[nodiscard]] virtual ssize_t recv(std::span<std::byte> buf) const = 0;
+    [[nodiscard]] virtual ssize_t recv(std::span<std::byte> buf, int flags) const = 0;
+    [[nodiscard]] virtual ssize_t recv_from(std::span<std::byte> buf, SocketAddr *src = nullptr) const = 0;
+    [[nodiscard]] virtual ssize_t recv_from(std::span<std::byte> buf, int flags, SocketAddr *src = nullptr) const = 0;
+
+    [[nodiscard]] virtual ssize_t recv_exact(std::span<std::byte> buf) const = 0;
+    [[nodiscard]] virtual ssize_t recv_exact(std::span<std::byte> buf, int flags) const = 0;
+
+    // ---- Control -----------------------------------------------------------
+
+    virtual void shutdown(int how) noexcept = 0;
+    virtual void close() noexcept = 0;
+
+    [[nodiscard]] virtual std::expected<int, int> wait_for(short events, int timeout_ms) const noexcept = 0;
+    [[nodiscard]] virtual std::expected<int, int> wait_for(short events, int timeout_ms,
+                                                           const Utils::CancellationToken &cancel_token) const noexcept = 0;
+
+    // ---- Accessors ---------------------------------------------------------
+
+    [[nodiscard]] virtual int native_handle() const noexcept = 0;
+    [[nodiscard]] virtual bool is_closed() const noexcept = 0;
+};
+
+// ---------------------------------------------------------------------------
 // Socket — POSIX socket RAII wrapper.
 //
 // Policy on exceptions:
@@ -38,76 +123,37 @@ class CancellationToken;
 // Thread-safety: a single Socket object must not be used from multiple threads
 // simultaneously.  Distinct Socket objects are independent.
 // ---------------------------------------------------------------------------
-/// Errors that can occur during connect().
-enum class ConnectError {
-    TIMED_OUT,    ///< Connection timed out (ETIMEDOUT).
-    REFUSED,      ///< Connection refused (ECONNREFUSED).
-    UNREACHABLE,  ///< Network or host unreachable (ENETUNREACH, EHOSTUNREACH).
-    CANCELLED,    ///< Operation cancelled via CancellationToken (ECANCELED).
-    INTERNAL,     ///< Internal OS error (fcntl, poll, getsockopt, etc.).
-};
-
-class Socket {
+class Socket : public SocketBase {
 public:
     /// Open a new socket.
     /// @throws SocketException on failure.
     explicit Socket(int domain, int type, int protocol = 0);
 
-    ~Socket();
+    ~Socket() override;
 
     Socket(Socket &&other) noexcept;
 
     Socket &operator=(Socket &&other) noexcept;
 
-    // ---- Options: generic setsockopt / getsockopt (type-safe) -------------
+    // ---- Options: inherited (set_option<T> via SocketBase) ----------------
 
-    /// Set a socket option.
-    /// @return std::expected<void, int> — empty on success, errno on failure.
-    template<typename T>
-    [[nodiscard]] std::expected<void, int> set_option(int level, int optname, const T &val) const noexcept {
-        if (::setsockopt(fd_, level, optname, &val, sizeof(val)) == 0) {
-            return {};
-        }
-        return std::unexpected(errno);
-    }
-
-    /// Raw setsockopt for variable-length values (e.g. SO_BINDTODEVICE).
     [[nodiscard]] std::expected<void, int> set_option_raw(
-        int level, int optname, const void *val, socklen_t len) const noexcept;
+        int level, int optname, const void *val, socklen_t len) const noexcept override;
 
-    /// Get a socket option.
-    /// @return std::expected<void, int> — empty on success, errno on failure.
-    template<typename T>
-    [[nodiscard]] std::expected<void, int> get_option(int level, int optname, T &val) const noexcept {
-        socklen_t len = sizeof(val);
-        if (::getsockopt(fd_, level, optname, &val, &len) == 0) {
-            return {};
-        }
-        return std::unexpected(errno);
-    }
-
-    /// Toggle O_NONBLOCK via fcntl (not setsockopt).
-    [[nodiscard]] std::expected<void, int> set_nonblocking(bool enable) const noexcept;
+    [[nodiscard]] std::expected<void, int> set_nonblocking(bool enable) const noexcept override;
 
     // ---- Convenience options (all POSIX portable) -------------------------
 
-    /// Enable/disable SO_REUSEADDR.
     [[nodiscard]] std::expected<void, int> set_reuseaddr(bool enable) const noexcept;
 
-    /// Enable/disable SO_REUSEPORT (Linux 3.9+, BSD).
-    /// Returns ENOPROTOOPT on platforms that don't support it.
     [[nodiscard]] std::expected<void, int> set_reuseport(bool enable) const noexcept;
 
-    /// Enable/disable SO_BROADCAST (UDP only).
     [[nodiscard]] std::expected<void, int> set_broadcast(bool enable) const noexcept;
 
-    /// Enable/disable TCP keep-alive probes.
     [[nodiscard]] std::expected<void, int> set_keepalive(bool enable) const noexcept;
 
-    /// Enable/disable SO_LINGER with the given timeout (seconds).
     [[nodiscard]] std::expected<void, int> set_linger(bool enable, int timeout_sec = 0) const noexcept;
 
-    /// Enable/disable IPV6_V6ONLY (RFC 3493).
     [[nodiscard]] std::expected<void, int> set_ipv6_only(bool enable) const noexcept;
 
     // ---- Address binding: accept SocketAddr instead of raw sockaddr -------
@@ -120,135 +166,73 @@ public:
 
     // ---- Connection (client) -----------------------------------------------
 
-    /// Connect to a remote address.
-    ///
-    /// When @p timeout_sec < 0, performs a blocking connect (with EINTR retry).
-    /// When @p timeout_sec >= 0, performs a non-blocking connect with poll()
-    /// timeout and restores the original fcntl flags on return.
-    ///
-    /// Does NOT throw.  Returns OK or a descriptive ConnectError.
-    ///
-    /// @param addr         Target address.
-    /// @param timeout_sec  Timeout in seconds (0 = no wait, negative = block).
-    /// @return             std::expected<void, ConnectError>.
-    /// NOLINTNEXTLINE(readability-make-member-function-const) — semantically mutates TCP connection state
-    [[nodiscard]] std::expected<void, ConnectError> connect(const SocketAddr &addr, int timeout_sec = -1);
+    [[nodiscard]] std::expected<void, ConnectError> connect(
+        const SocketAddr &addr, int timeout_sec = -1) override;
 
     // ---- Listening + accept (server) ---------------------------------------
 
     void listen(int backlog = SOMAXCONN) const;
 
-    /// Accept an incoming connection.
-    ///
-    /// @note On Linux, the accepted socket does NOT inherit O_NONBLOCK from the
-    ///       listening socket.  If the listener is in non-blocking mode, set
-    ///       O_NONBLOCK on the returned socket explicitly via set_nonblocking().
-    ///
-    /// @warning There is a TOCTOU (time-of-check-time-of-use) race between
-    ///          accept() returning and fcntl(FD_CLOEXEC) being set on the new
-    ///          descriptor.  In multi-threaded programs this can leak the fd to
-    ///          child processes across fork() + exec().  The portable POSIX
-    ///          accept() API cannot atomically set CLOEXEC; consider using
-    ///          accept4() on platforms that support it (Linux 2.6.28+).
-    ///
-    /// @param addr  Optional buffer to receive the peer address.
-    /// @return      A new Socket representing the accepted connection, or
-    ///              std::unexpected(errno) on failure (including EAGAIN).
     [[nodiscard]] std::expected<Socket, int> accept(SocketAddr *addr = nullptr) const noexcept;
 
     // ---- I/O (all return ssize_t, no exceptions) ---------------------------
-    //
-    //  Return value convention:
-    //      > 0      — bytes transferred
-    //        0      — peer closed (TCP only)
-    //      < 0      — error, check errno
-    //
 
-    /// Send all bytes in @p data (loops internally on short writes).
-    /// @return  data.size() on success, -1 on error (errno set).
-    [[nodiscard]] ssize_t send(std::span<const std::byte> data) const;
+    [[nodiscard]] ssize_t send(std::span<const std::byte> data) const override;
 
-    [[nodiscard]] ssize_t send(std::span<const std::byte> data, int flags) const;
+    [[nodiscard]] ssize_t send(std::span<const std::byte> data, int flags) const override;
 
-    [[nodiscard]] ssize_t send_to(std::span<const std::byte> data, const SocketAddr &dest) const;
+    [[nodiscard]] ssize_t send_to(std::span<const std::byte> data, const SocketAddr &dest) const override;
 
-    [[nodiscard]] ssize_t send_to(std::span<const std::byte> data, const SocketAddr &dest, int flags) const;
+    [[nodiscard]] ssize_t send_to(std::span<const std::byte> data, const SocketAddr &dest, int flags) const override;
 
-    /// Receive up to buf.size() bytes.
-    ///
-    /// For stream sockets (TCP), a single call may return fewer bytes than
-    /// requested — the caller should loop if a complete message is expected.
-    /// @see recv_exact
-    [[nodiscard]] ssize_t recv(std::span<std::byte> buf) const;
+    [[nodiscard]] ssize_t recv(std::span<std::byte> buf) const override;
 
-    [[nodiscard]] ssize_t recv(std::span<std::byte> buf, int flags) const;
+    [[nodiscard]] ssize_t recv(std::span<std::byte> buf, int flags) const override;
 
-    [[nodiscard]] ssize_t recv_from(std::span<std::byte> buf, SocketAddr *src = nullptr) const;
+    [[nodiscard]] ssize_t recv_from(std::span<std::byte> buf, SocketAddr *src = nullptr) const override;
 
-    [[nodiscard]] ssize_t recv_from(std::span<std::byte> buf, int flags, SocketAddr *src = nullptr) const;
+    [[nodiscard]] ssize_t recv_from(std::span<std::byte> buf, int flags, SocketAddr *src = nullptr) const override;
 
-    /// Receive exactly buf.size() bytes (stream sockets only).
-    /// Internally loops until all bytes are obtained.
-    /// @return  buf.size() on success.
-    ///          A non-negative value less than buf.size() means the peer closed early.
-    ///          -1 on error (errno set).
-    [[nodiscard]] ssize_t recv_exact(std::span<std::byte> buf) const;
+    [[nodiscard]] ssize_t recv_exact(std::span<std::byte> buf) const override;
 
-    [[nodiscard]] ssize_t recv_exact(std::span<std::byte> buf, int flags) const;
+    [[nodiscard]] ssize_t recv_exact(std::span<std::byte> buf, int flags) const override;
 
     /// Send a scatter/gather message (vectored I/O).
-    /// @return bytes sent on success, -1 on error (errno set).
     [[nodiscard]] ssize_t sendmsg(const struct msghdr *msg, int flags = 0) const;
 
     /// Receive a scatter/gather message (vectored I/O).
-    /// @return bytes received on success, 0 on peer close, -1 on error (errno set).
     [[nodiscard]] ssize_t recvmsg(struct msghdr *msg, int flags = 0) const;
 
     // ---- Control -----------------------------------------------------------
 
-    /// Shut down one or both directions (SHUT_RD, SHUT_WR, SHUT_RDWR).
-    /// No-op if the socket is already closed (or already shut down).
-    /// NOLINTNEXTLINE(readability-make-member-function-const) — semantically mutates TCP connection state
-    void shutdown(int how) noexcept;
+    void shutdown(int how) noexcept override;
 
-    /// Shutdown only the read side (SHUT_RD).
     void shutdown_read() noexcept {
         shutdown(SHUT_RD);
     }
 
-    /// Shutdown only the write side (SHUT_WR).
     void shutdown_write() noexcept {
         shutdown(SHUT_WR);
     }
 
-    /// Shutdown both read and write (SHUT_RDWR).
     void shutdown_both() noexcept {
         shutdown(SHUT_RDWR);
     }
 
-    /// Close the socket (idempotent; safe to call multiple times).
-    void close() noexcept;
+    void close() noexcept override;
 
-    /// Wait for socket readiness via poll() (no cancellation support).
-    /// @return  1 on ready, 0 on timeout, or std::unexpected(errno).
-    [[nodiscard]] std::expected<int, int> wait_for(short events, int timeout_ms) const noexcept;
+    [[nodiscard]] std::expected<int, int> wait_for(short events, int timeout_ms) const noexcept override;
 
-    /// Wait for socket readiness via poll() with optional cancellation.
-    /// @param cancel_token  When active, also monitors this fd for cancellation.
-    ///                      If triggered, returns std::unexpected(ECANCELED).
-    /// @return  1 on ready, 0 on timeout, std::unexpected(errno),
-    ///          or std::unexpected(ECANCELED).
     [[nodiscard]] std::expected<int, int> wait_for(short events, int timeout_ms,
-                                                   const Utils::CancellationToken &cancel_token) const noexcept;
+                                                   const Utils::CancellationToken &cancel_token) const noexcept override;
 
     // ---- Accessors ---------------------------------------------------------
 
-    [[nodiscard]] int native_handle() const noexcept {
+    [[nodiscard]] int native_handle() const noexcept override {
         return fd_;
     }
 
-    /// True after close(), or if the socket was default-constructed / moved-from.
-    [[nodiscard]] bool is_closed() const noexcept {
+    [[nodiscard]] bool is_closed() const noexcept override {
         return fd_ < 0;
     }
 
@@ -259,6 +243,7 @@ private:
 
     /// Private default constructor — only used by accept().
     Socket() noexcept = default;
+    friend std::expected<Socket, int> Socket::accept(SocketAddr *) const noexcept;
 };
 
 #endif  // YADDNSC_NETWORK_SOCKET_H

@@ -47,7 +47,8 @@ struct DotResolver::Impl {
     static constexpr unsigned char ALPN_DOT[] = {3, 'd', 'o', 't'};
 
     // ── Constructor ──
-    explicit Impl(std::string server, std::uint16_t port, std::uint64_t id, std::string label);
+    explicit Impl(std::string server, std::uint16_t port, std::uint64_t id, std::string label,
+                  std::unique_ptr<TlsConnectionBase> conn = nullptr);
 
     // ── Public member functions ──
     [[nodiscard]] std::expected<std::vector<std::uint8_t>, DnsErrorInfo> query(
@@ -82,13 +83,16 @@ struct DotResolver::Impl {
     const std::uint16_t port_;
     const std::string label_;   // display label for log / error messages
     mutable std::mutex mutex_;
-    mutable std::unique_ptr<TlsConnection> persistent_conn_;
+    mutable std::unique_ptr<TlsConnectionBase> persistent_conn_;
     mutable std::chrono::steady_clock::time_point last_use_;
     mutable bool alpn_warned_{false};
 };
 
-DotResolver::Impl::Impl(std::string server, std::uint16_t port, std::uint64_t id, std::string label)
-    : id_(id), server_(std::move(server)), port_(port), label_(std::move(label)), last_use_(std::chrono::steady_clock::now()) {
+DotResolver::Impl::Impl(std::string server, std::uint16_t port, std::uint64_t id, std::string label,
+                        std::unique_ptr<TlsConnectionBase> conn)
+    : id_(id), server_(std::move(server)), port_(port), label_(std::move(label)),
+      persistent_conn_(std::move(conn)),
+      last_use_(std::chrono::steady_clock::now()) {
 }
 
 std::expected<std::vector<std::uint8_t>, DnsErrorInfo> DotResolver::Impl::query(
@@ -382,6 +386,11 @@ std::expected<void, DnsErrorInfo> DotResolver::Impl::ensure_connection() const {
 
 DotResolver::DotResolver(std::string server, std::uint16_t port, std::string label)
     : impl_(std::make_unique<Impl>(std::move(server), port, get_id(), std::move(label))) {
+}
+
+DotResolver::DotResolver(std::string server, std::uint16_t port, std::string label,
+                        std::unique_ptr<TlsConnectionBase> conn)
+    : impl_(std::make_unique<Impl>(std::move(server), port, get_id(), std::move(label), std::move(conn))) {
 }
 
 DotResolver::~DotResolver() = default;

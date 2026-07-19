@@ -264,6 +264,21 @@ TEST(ConfigValidatorDetailTest, ValidateResolverAddress_Hostname_Throws) {
     EXPECT_THROW(detail::validate_resolver_address("resolver.example.com"), ConfigVerificationException);
 }
 
+TEST(ConfigValidatorDetailTest, ValidateResolverAddress_DoHEmptyHost_Throws) {
+    // DoH URI with empty host: "https:///dns-query"
+    EXPECT_THROW(detail::validate_resolver_address("https:///dns-query"), ConfigVerificationException);
+}
+
+TEST(ConfigValidatorDetailTest, ValidateResolverAddress_DoTPortZero_Throws) {
+    // DoT URI with port 0
+    EXPECT_THROW(detail::validate_resolver_address("tls://1.1.1.1:0"), ConfigVerificationException);
+}
+
+TEST(ConfigValidatorDetailTest, ValidateResolverAddress_DoHEmptyPort_Throws) {
+    // DoH URI with port 0
+    EXPECT_THROW(detail::validate_resolver_address("https://dns.example.com:0/dns-query"), ConfigVerificationException);
+}
+
 // ===========================================================================
 // ConfigValidator::validate()  —  parameterized tests
 // ===========================================================================
@@ -589,6 +604,51 @@ Config::AppConfig build_interface_not_found() {
     };
 }
 
+Config::AppConfig build_force_update_greater_than_update() {
+    return Config::AppConfig{
+        .driver = {},
+        .resolver = {},
+        .domains = {{
+            .name = "example.com",
+            .update_interval = 300,
+            .force_update = 600,
+            .driver = "test_driver",
+            .subdomains = {{
+                Config::SubdomainConfig{
+                    .name = "www",
+                    .type = RecordKind::A,
+                    .ip_source = Config::IpSource::HTTP,
+                    .ip_source_param = "https://api.ipify.org",
+                },
+            }},
+        }},
+    };
+}
+
+Config::AppConfig build_subdomain_empty_interface_non_ip_source() {
+    // Subdomain with empty interface but ip_source != INTERFACE — should pass.
+    return Config::AppConfig{
+        .driver = {},
+        .resolver = {},
+        .domains = {{
+            .name = "example.com",
+            .update_interval = 300,
+            .force_update = 0,
+            .driver = "test_driver",
+            .subdomains = {{
+                Config::SubdomainConfig{
+                    .name = "www",
+                    .type = RecordKind::A,
+                    .interface = "",  // no interface needed for HTTP source
+                    .ip_type = AddressFamily::UNSPECIFIED,
+                    .ip_source = Config::IpSource::HTTP,
+                    .ip_source_param = "https://api.ipify.org",
+                }
+            }},
+        }},
+    };
+}
+
 } // anonymous namespace
 
 // ── Helpers for building interface lists ────────────────────────────────────
@@ -664,7 +724,9 @@ INSTANTIATE_TEST_SUITE_P(
         ValidateCase{"CustomResolverIPv4",         {"test_driver"},        {},  60, false, &build_custom_resolver_ipv4},
         ValidateCase{"CustomResolverInvalid",      {"test_driver"},        {},  60, true,  &build_custom_resolver_invalid},
         ValidateCase{"InterfaceExists",            {"test_driver"},  ifaces({"eth0"}),                  60, false, &build_interface_exists},
-        ValidateCase{"InterfaceNotFound",          {"test_driver"},  ifaces({"eth1"}),                  60, true,  &build_interface_not_found}
+        ValidateCase{"InterfaceNotFound",          {"test_driver"},  ifaces({"eth1"}),                  60, true,  &build_interface_not_found},
+        ValidateCase{"ForceUpdateGreaterThanUpdate",{"test_driver"},        {},  60, false, &build_force_update_greater_than_update},
+        ValidateCase{"SubdomainEmptyInterfaceNonIpSource",{"test_driver"},  {},  60, false, &build_subdomain_empty_interface_non_ip_source}
     ),
     [](const ::testing::TestParamInfo<ValidateCase>& info) {
         return std::string(info.param.name);
