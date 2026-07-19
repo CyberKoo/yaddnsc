@@ -8,6 +8,7 @@
 
 #include <cstdlib>
 #include <memory>
+#include <print>
 
 #include "config/config.h"
 #include "core/driver_loader.h"

@@ -7,6 +7,7 @@
 #include <CLI/CLI.hpp>
 
 #include <cstdlib>
+#include <print>
 
 #include "config/config.h"
 #include "config/validator.hpp"

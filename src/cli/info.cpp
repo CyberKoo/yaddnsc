@@ -7,6 +7,7 @@
 #include <CLI/CLI.hpp>
 
 #include <cstdlib>
+#include <print>
 
 #include "min_update_interval.h"
 #include "resolver_config.h"

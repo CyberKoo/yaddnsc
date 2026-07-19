@@ -243,7 +243,6 @@ private:
 
     /// Private default constructor — only used by accept().
     Socket() noexcept = default;
-    friend std::expected<Socket, int> Socket::accept(SocketAddr *) const noexcept;
 };
 
 #endif  // YADDNSC_NETWORK_SOCKET_H
