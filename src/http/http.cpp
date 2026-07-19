@@ -13,6 +13,7 @@
 #include "http/body_parser.h"
 #include "http/header_parser.h"
 #include "http/request.h"
+#include "network/transport/stream.h"
 
 namespace {
 

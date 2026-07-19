@@ -4,6 +4,8 @@
 
 #include "info.h"
 
+#include <CLI/CLI.hpp>
+
 #include <cstdlib>
 
 #include "min_update_interval.h"
@@ -11,7 +13,7 @@
 #include "version.h"
 #include "build_id.hpp"
 
-#include <print>
+
 
 namespace Cli {
     void register_info_subcommand(CLI::App &app, int &exit_code) {

@@ -7,9 +7,9 @@
 
 #include <memory>
 
-#include "config/config.h"
+namespace Config { struct SubdomainConfig; }
 
-#include "base.h"
+class IpSourceBase;
 
 /// IpSourceFactory — constructs the appropriate IpSourceBase implementation from a
 ///                   subdomain configuration.

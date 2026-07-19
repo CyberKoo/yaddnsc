@@ -4,6 +4,8 @@
 
 #include "config.h"
 
+#include <CLI/CLI.hpp>
+
 #include <cstdlib>
 
 #include "config/config.h"
@@ -18,7 +20,6 @@
 #include "min_update_interval.h"
 
 #include <glaze/glaze.hpp>
-#include <print>
 #include <spdlog/spdlog.h>
 
 namespace Cli {

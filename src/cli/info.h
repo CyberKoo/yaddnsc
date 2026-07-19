@@ -5,7 +5,7 @@
 #ifndef YADDNSC_CLI_INFO_H
 #define YADDNSC_CLI_INFO_H
 
-#include <CLI/CLI.hpp>
+namespace CLI { class App; }
 
 namespace Cli {
     /// Register the "info" subcommand on the given CLI::App.

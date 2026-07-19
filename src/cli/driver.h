@@ -7,7 +7,7 @@
 
 #include <string>
 
-#include <CLI/CLI.hpp>
+namespace CLI { class App; }
 
 namespace Cli {
     /// Load drivers from config and print a summary of every loaded driver.

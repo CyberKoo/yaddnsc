@@ -8,6 +8,7 @@
 #include <thread>
 #include <utility>
 
+#include "config/config.h"
 #include "config/validator.hpp"
 #include "dns/dispatcher.h"
 #include "dns/factory.h"
@@ -26,6 +27,10 @@
 #include <spdlog/spdlog.h>
 
 namespace {
+    inline constexpr auto default_http_client_factory = []() -> std::unique_ptr<HttpClient> {
+        return std::make_unique<TransientHttpClient>();
+    };
+
     std::uint32_t estimate_pool_size(const Config::AppConfig &config) noexcept {
         std::uint32_t total_subdomains = 0;
         const auto thread_count = std::thread::hardware_concurrency();
@@ -45,9 +50,6 @@ namespace {
         return std::min(thread_count, 4U);
     }
 
-    std::unique_ptr<HttpClient> default_http_client_factory() {
-        return std::make_unique<TransientHttpClient>();
-    }
 } // anonymous namespace
 
 // ---------------------------------------------------------------------------
@@ -58,7 +60,7 @@ struct Manager::Impl {
     explicit Impl(Config::AppConfig config, std::stop_source stop_source);
 
     Impl(Config::AppConfig config, std::stop_source stop_source, ResolverDispatcher dispatcher,
-         std::function<std::unique_ptr<HttpClient>()> http_factory);
+         HttpClientFactory http_factory);
 
     void load_drivers();
 
@@ -75,7 +77,7 @@ struct Manager::Impl {
     BS::thread_pool<> thread_pool_;
     Scheduler scheduler_;
     std::stop_source stop_source_;
-    std::function<std::unique_ptr<HttpClient>()> http_client_factory_;
+    HttpClientFactory http_client_factory_;
 };
 
 Manager::Impl::Impl(Config::AppConfig config, std::stop_source stop_source)
@@ -85,7 +87,7 @@ Manager::Impl::Impl(Config::AppConfig config, std::stop_source stop_source)
 }
 
 Manager::Impl::Impl(Config::AppConfig config, std::stop_source stop_source, ResolverDispatcher dispatcher,
-                    std::function<std::unique_ptr<HttpClient>()> http_factory)
+                    HttpClientFactory http_factory)
     : config_(std::move(config)), dispatcher_(std::move(dispatcher)), updater_(dispatcher_),
       thread_pool_(estimate_pool_size(config_)), scheduler_(config_, stop_source.get_token()),
       stop_source_(std::move(stop_source)), http_client_factory_(std::move(http_factory)) {
@@ -139,7 +141,7 @@ Manager::Manager(Config::AppConfig config, std::stop_source stop_source)
 }
 
 Manager::Manager(Config::AppConfig config, std::stop_source stop_source, ResolverDispatcher dispatcher,
-                 std::function<std::unique_ptr<HttpClient>()> http_factory)
+                 HttpClientFactory http_factory)
     : impl_(std::make_unique<Impl>(std::move(config), std::move(stop_source), std::move(dispatcher),
                                    std::move(http_factory))) {
 }

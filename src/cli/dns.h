@@ -7,7 +7,7 @@
 
 #include <string>
 
-#include <CLI/CLI.hpp>
+namespace CLI { class App; }
 
 namespace Cli {
     /// Resolve a hostname using the configured resolver and print the results.

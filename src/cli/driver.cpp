@@ -4,6 +4,8 @@
 
 #include "driver.h"
 
+#include <CLI/CLI.hpp>
+
 #include <cstdlib>
 #include <memory>
 
@@ -12,7 +14,7 @@
 #include "core/driver_manager.h"
 #include "interface/driver.h"
 
-#include <print>
+
 
 namespace Cli {
     // ── Option storage (owned by the callback lambda via shared_ptr) ──────

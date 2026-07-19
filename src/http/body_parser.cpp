@@ -8,8 +8,10 @@
 #include <cstdint>
 #include <span>
 #include <vector>
-
 #include <expected>
+
+#include "network/transport/stream.h"
+
 #include <picohttpparser.h>
 
 namespace Http {

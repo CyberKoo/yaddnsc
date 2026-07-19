@@ -7,7 +7,7 @@
 
 #include <string>
 
-#include <CLI/CLI.hpp>
+namespace CLI { class App; }
 
 namespace Cli {
     /// List all network interfaces and their addresses.

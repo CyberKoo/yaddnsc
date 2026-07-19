@@ -9,13 +9,11 @@
 #include <string_view>
 
 #include "http/types.h"
-#include "network/transport/stream.h"
-
 #include "http_type.h"
 
-namespace Utils {
-class CancellationToken;
-}
+namespace Transport { class Stream; }
+
+namespace Utils { class CancellationToken; }
 
 /// Transport-agnostic HTTP/1.1 client protocol implementation.
 ///

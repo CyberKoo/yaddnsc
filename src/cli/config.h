@@ -7,7 +7,7 @@
 
 #include <string>
 
-#include <CLI/CLI.hpp>
+namespace CLI { class App; }
 
 namespace Cli {
     /// Load and print the configuration as JSON.

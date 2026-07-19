@@ -11,7 +11,10 @@
 #include <expected>
 
 #include "http/types.h"
-#include "network/transport/stream.h"
+
+namespace Transport { class Stream; }
+
+namespace Utils { class CancellationToken; }
 
 namespace Http {
 

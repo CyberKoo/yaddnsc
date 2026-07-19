@@ -4,6 +4,8 @@
 
 #include "dns.h"
 
+#include <CLI/CLI.hpp>
+
 #include <cstdlib>
 #include <memory>
 #include <vector>
@@ -17,7 +19,6 @@
 #include "record_kind.h"
 
 #include <magic_enum/magic_enum.hpp>
-#include <print>
 
 namespace Cli {
     // ── Option storage (owned by the callback lambda via shared_ptr) ──────
