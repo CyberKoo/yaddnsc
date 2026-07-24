@@ -167,6 +167,8 @@ cpack --config build/CPackConfig.cmake -G DEB
 ./docker/build-deb.sh 24.04 26.04  # 为多个版本构建
 ```
 
+> **注意：** DEB 包中包含三种 shell 的补全文件：zsh（`_yaddnsc` → `/usr/share/zsh/vendor-completions/`）、bash（`yaddnsc` → `/usr/share/bash-completion/completions/`）和 fish（`yaddnsc.fish` → `/usr/share/fish/vendor_completions.d/`）。
+
 #### Docker（多阶段构建）
 
 项目提供了多阶段 Dockerfile（`Dockerfile`），用于在 Alpine Linux 上构建和运行 yaddnsc：
@@ -651,6 +653,18 @@ yaddnsc --version
 yaddnsc --help
 yaddnsc <subcommand> --help
 ```
+
+### Shell 自动补全
+
+**zsh**、**bash** 和 **fish** 的补全文件随包一同安装，通过 `cmake --install` 或 DEB 包安装时会自动部署。
+
+| Shell | DEB 安装路径 | 非 DEB 安装路径 | 重新加载命令 |
+|-------|-------------|----------------|-------------|
+| zsh   | `/usr/share/zsh/vendor-completions/_yaddnsc` | `share/zsh/site-functions/_yaddnsc` | `autoload -U compinit && compinit` |
+| bash  | `/usr/share/bash-completion/completions/yaddnsc` | (同上) | `. /usr/share/bash-completion/bash_completion` |
+| fish  | `/usr/share/fish/vendor_completions.d/yaddnsc.fish` | `share/fish/completions/yaddnsc.fish` | (下次启动 shell 时自动生效) |
+
+安装后重启 shell 即可使用补全功能。
 
 ### Systemd 服务
 

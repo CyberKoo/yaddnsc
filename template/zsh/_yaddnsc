@@ -1,0 +1,197 @@
+#compdef yaddnsc
+
+# Zsh completion for yaddnsc — Yet Another Dynamic DNS Client
+# https://github.com/CyberKoo/yaddnsc
+
+(( $+functions[_yaddnsc_commands] )) ||
+_yaddnsc_commands() {
+  local -a commands
+  commands=(
+    'run:Run the DDNS client'
+    'driver:Manage DDNS driver modules'
+    'interface:Query network interfaces'
+    'dns:DNS lookup and diagnostics'
+    'config:Configuration management'
+    'info:Show build configuration'
+  )
+  _describe -t commands 'yaddnsc command' commands
+}
+
+# ── Top-level dispatch ──────────────────────────────────────────────────────
+
+_yaddnsc() {
+  local curcontext="$curcontext" state state_descr line
+  typeset -A opt_args
+
+  _arguments -C \
+    '(-v --version)'{-v,--version}'[Print version information]' \
+    '(-): :->command' \
+    '(-)*:: :->option-or-argument'
+
+  case $state in
+    command)
+      _yaddnsc_commands
+      ;;
+    option-or-argument)
+      curcontext="${curcontext%:*:*}:_yaddnsc-$words[1]:"
+      case $words[1] in
+        run)                     _yaddnsc_run ;;
+        driver)                  _yaddnsc_driver ;;
+        interface|if|net)        _yaddnsc_interface ;;
+        dns)                     _yaddnsc_dns ;;
+        config)                  _yaddnsc_config ;;
+        info)                    _yaddnsc_info ;;
+      esac
+      ;;
+  esac
+}
+
+# ── Subcommand: run ─────────────────────────────────────────────────────────
+
+(( $+functions[_yaddnsc_run] )) ||
+_yaddnsc_run() {
+  _arguments \
+    '(-c --config)'{-c,--config}'[Path to configuration file]:config file:_files' \
+    '(-d --debug)'{-d,--debug}'[Enable verbose (debug) logging]'
+}
+
+# ── Subcommand: driver ──────────────────────────────────────────────────────
+
+(( $+functions[_yaddnsc_driver] )) ||
+_yaddnsc_driver() {
+  local curcontext="$curcontext" state state_descr line
+  typeset -A opt_args
+
+  _arguments -C \
+    '(-c --config)'{-c,--config}'[Path to configuration file]:config file:_files' \
+    '(-): :->driver-command' \
+    '(-)*:: :->option-or-argument'
+
+  case $state in
+    driver-command)
+      local -a subcommands
+      subcommands=(
+        'list:List all loaded drivers'
+        'info:Show detailed information about a driver'
+      )
+      _describe -t driver-subcommands 'driver subcommand' subcommands
+      ;;
+    option-or-argument)
+      case $words[2] in
+        info)
+          _arguments \
+            ':driver name:'
+          ;;
+      esac
+      ;;
+  esac
+}
+
+# ── Subcommand: interface (aliases: if, net) ────────────────────────────────
+
+(( $+functions[_yaddnsc_interface] )) ||
+_yaddnsc_interface() {
+  local curcontext="$curcontext" state state_descr line
+  typeset -A opt_args
+
+  _arguments -C \
+    '(-): :->iface-command' \
+    '(-)*:: :->option-or-argument'
+
+  case $state in
+    iface-command)
+      local -a subcommands
+      subcommands=(
+        'list:List all network interfaces'
+        'ip:Show IP addresses of a network interface'
+      )
+      _describe -t iface-subcommands 'interface subcommand' subcommands
+      ;;
+    option-or-argument)
+      case $words[2] in
+        ip)
+          _arguments \
+            ':interface name:'
+          ;;
+      esac
+      ;;
+  esac
+}
+
+# ── Subcommand: dns ─────────────────────────────────────────────────────────
+
+(( $+functions[_yaddnsc_dns] )) ||
+_yaddnsc_dns() {
+  local curcontext="$curcontext" state state_descr line
+  typeset -A opt_args
+
+  _arguments -C \
+    '(-c --config)'{-c,--config}'[Path to configuration file]:config file:_files' \
+    '(-): :->dns-command' \
+    '(-)*:: :->option-or-argument'
+
+  case $state in
+    dns-command)
+      local -a subcommands
+      subcommands=(
+        'resolve:Resolve a hostname'
+        'resolver:Show configured resolver details'
+      )
+      _describe -t dns-subcommands 'dns subcommand' subcommands
+      ;;
+    option-or-argument)
+      case $words[2] in
+        resolve|r)
+          _arguments \
+            '--type[DNS record type (A, AAAA, TXT)]:record type:(A AAAA TXT)' \
+            ':hostname:'
+          ;;
+      esac
+      ;;
+  esac
+}
+
+# ── Subcommand: config ──────────────────────────────────────────────────────
+
+(( $+functions[_yaddnsc_config] )) ||
+_yaddnsc_config() {
+  local curcontext="$curcontext" state state_descr line
+  typeset -A opt_args
+
+  _arguments -C \
+    '(-c --config)'{-c,--config}'[Path to configuration file]:config file:_files' \
+    '(-): :->config-command' \
+    '(-)*:: :->option-or-argument'
+
+  case $state in
+    config-command)
+      local -a subcommands
+      subcommands=(
+        'show:Print resolved configuration as JSON'
+        'test:Validate configuration file and exit'
+      )
+      _describe -t config-subcommands 'config subcommand' subcommands
+      ;;
+    option-or-argument)
+      case $words[2] in
+        show|s)
+          # No subcommand-specific arguments
+          ;;
+        test|t)
+          _arguments \
+            '(-q --quiet)'{-q,--quiet}'[Suppress success message]'
+          ;;
+      esac
+      ;;
+  esac
+}
+
+# ── Subcommand: info ────────────────────────────────────────────────────────
+
+(( $+functions[_yaddnsc_info] )) ||
+_yaddnsc_info() {
+  # No subcommand-specific arguments beyond global flags.
+  return 0
+}
+
+_yaddnsc "$@"

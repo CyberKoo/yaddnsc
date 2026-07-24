@@ -1,0 +1,116 @@
+# Bash completion for yaddnsc — Yet Another Dynamic DNS Client
+# https://github.com/CyberKoo/yaddnsc
+#
+# Install to /usr/share/bash-completion/completions/yaddnsc and
+# restart your shell (or run: source /usr/share/bash-completion/bash_completion).
+
+_yaddnsc()
+{
+    local cur prev words cword
+    _init_completion || return
+
+    # Handle option arguments right after the option flag
+    case $prev in
+        -c|--config)
+            _filedir
+            return
+            ;;
+        --type)
+            COMPREPLY=($(compgen -W 'A AAAA TXT' -- "$cur"))
+            return
+            ;;
+    esac
+
+    # Build non-option argument list to determine the current command depth.
+    # Walk through previous words, skip options and their values.
+    local -a args=()
+    local skip_next=0
+    for ((i = 1; i < cword; i++)); do
+        if ((skip_next)); then
+            skip_next=0
+            continue
+        fi
+        case "${words[i]}" in
+            -c|--config|--type)
+                skip_next=1
+                ;;
+            -d|--debug|-q|--quiet|-v|--version)
+                ;;
+            run|driver|interface|if|net|dns|config|info|list|ip|resolve|resolver|show|test|r|s|t)
+                args+=("${words[i]}")
+                ;;
+        esac
+    done
+
+    local level=${#args[@]}
+
+    case $level in
+        0)
+            # Top level — suggest subcommands and global options
+            COMPREPLY=($(compgen -W 'run driver interface dns config info -v --version' -- "$cur"))
+            ;;
+        1)
+            # Within a top-level subcommand
+            case ${args[0]} in
+                run)
+                    COMPREPLY=($(compgen -W '-c --config -d --debug' -- "$cur"))
+                    ;;
+                driver)
+                    COMPREPLY=($(compgen -W '-c --config list info' -- "$cur"))
+                    ;;
+                interface|if|net)
+                    COMPREPLY=($(compgen -W 'list ip' -- "$cur"))
+                    ;;
+                dns)
+                    COMPREPLY=($(compgen -W '-c --config resolve resolver' -- "$cur"))
+                    ;;
+                config)
+                    COMPREPLY=($(compgen -W '-c --config show test' -- "$cur"))
+                    ;;
+                info)
+                    # No subcommand-specific options
+                    ;;
+            esac
+            ;;
+        2)
+            # Within a sub-subcommand
+            case ${args[0]} in
+                driver)
+                    case ${args[1]} in
+                        list|info)
+                            COMPREPLY=($(compgen -W '-c --config' -- "$cur"))
+                            ;;
+                    esac
+                    ;;
+                interface|if|net)
+                    case ${args[1]} in
+                        ip)
+                            # Interface name — no dynamic completion here
+                            ;;
+                    esac
+                    ;;
+                dns)
+                    case ${args[1]} in
+                        resolve|r)
+                            COMPREPLY=($(compgen -W '-c --config --type' -- "$cur"))
+                            ;;
+                        resolver)
+                            COMPREPLY=($(compgen -W '-c --config' -- "$cur"))
+                            ;;
+                    esac
+                    ;;
+                config)
+                    case ${args[1]} in
+                        show|s)
+                            COMPREPLY=($(compgen -W '-c --config' -- "$cur"))
+                            ;;
+                        test|t)
+                            COMPREPLY=($(compgen -W '-c --config -q --quiet' -- "$cur"))
+                            ;;
+                    esac
+                    ;;
+            esac
+            ;;
+    esac
+} &&
+complete -F _yaddnsc yaddnsc

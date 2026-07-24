@@ -65,3 +65,42 @@ if (SYSTEMD_UNIT_DIR)
     )
     install(FILES "${CMAKE_BINARY_DIR}/generated/yaddnsc.service" DESTINATION "${SYSTEMD_UNIT_DIR}")
 endif ()
+
+# ==============================================================================
+# Shell completions (zsh, bash, fish)
+# ==============================================================================
+# Debian/Ubuntu packages use the vendor/site paths that are in the default
+# completion search path for each shell.
+
+# -- zsh --
+if (YADDNSC_ENABLE_DEB)
+    set(YADDNSC_ZSH_COMPLETION_DIR "share/zsh/vendor-completions")
+else ()
+    set(YADDNSC_ZSH_COMPLETION_DIR "share/zsh/site-functions")
+endif ()
+
+install(
+    FILES ${CMAKE_SOURCE_DIR}/template/zsh/_yaddnsc
+    DESTINATION ${YADDNSC_ZSH_COMPLETION_DIR}
+)
+
+# -- bash --
+# bash-completion (v2+) ships a default /usr/share/bash-completion/
+# layout that is the standard on all major distros, so the same path
+# works for both DEB and non-DEB builds.
+install(
+    FILES ${CMAKE_SOURCE_DIR}/template/bash/yaddnsc
+    DESTINATION "share/bash-completion/completions"
+)
+
+# -- fish --
+if (YADDNSC_ENABLE_DEB)
+    set(YADDNSC_FISH_COMPLETION_DIR "share/fish/vendor_completions.d")
+else ()
+    set(YADDNSC_FISH_COMPLETION_DIR "share/fish/completions")
+endif ()
+
+install(
+    FILES ${CMAKE_SOURCE_DIR}/template/fish/yaddnsc.fish
+    DESTINATION ${YADDNSC_FISH_COMPLETION_DIR}
+)

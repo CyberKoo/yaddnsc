@@ -168,6 +168,8 @@ cpack --config build/CPackConfig.cmake -G DEB
 ./docker/build-deb.sh 24.04 26.04  # builds for multiple versions
 ```
 
+> **Note:** The DEB package includes shell completion files for all three shells: zsh (`_yaddnsc` → `/usr/share/zsh/vendor-completions/`), bash (`yaddnsc` → `/usr/share/bash-completion/completions/`), and fish (`yaddnsc.fish` → `/usr/share/fish/vendor_completions.d/`).
+
 #### Docker (multi-stage build)
 
 A multi-stage Dockerfile (`Dockerfile`) is provided for building and running yaddnsc on Alpine Linux:
@@ -669,6 +671,18 @@ yaddnsc --version
 yaddnsc --help
 yaddnsc <subcommand> --help
 ```
+
+### Shell Completions
+
+Completion files for **zsh**, **bash**, and **fish** are included in the package and installed automatically by `cmake --install` or the DEB package.
+
+| Shell | DEB install path | Non-DEB install path | Reload command |
+|-------|------------------|---------------------|----------------|
+| zsh   | `/usr/share/zsh/vendor-completions/_yaddnsc` | `share/zsh/site-functions/_yaddnsc` | `autoload -U compinit && compinit` |
+| bash  | `/usr/share/bash-completion/completions/yaddnsc` | (same) | `. /usr/share/bash-completion/bash_completion` |
+| fish  | `/usr/share/fish/vendor_completions.d/yaddnsc.fish` | `share/fish/completions/yaddnsc.fish` | (automatic on next shell start) |
+
+After installing, restart your shell for the completions to take effect.
 
 ### Systemd Service
 
