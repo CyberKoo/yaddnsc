@@ -158,9 +158,9 @@ Updates DNS records via the [Linode API v4](https://techdocs.akamai.com/linode-a
 | `token`     | Yes      | Linode Personal Access Token                                                                                                     |
 | `domain_id` | Yes      | Linode Domain ID                                                                                                                 |
 | `record_id` | Yes      | DNS Record ID to update                                                                                                          |
-| `ttl_sec`   | No       | TTL in seconds (valid values: 300, 3600, 7200, 14400, 28800, 57600, 86400, 172800, 345600, 604800, 1209600, 2419200; other values are rounded to nearest) |
+| `ttl_sec`   | No       | TTL in seconds. The Linode API only accepts specific values (300, 3600, 7200, 14400, 28800, 57600, 86400, 172800, 345600, 604800, 1209600, 2419200); invalid values are rejected by the API |
 
-**Note:** TTL accepts only specific values (see table); other values are rounded to the nearest valid one.
+**Note:** The Linode API accepts only specific TTL values (see table); invalid values are rejected by the API.
 
 ## Namecheap (`namecheap.so`)
 
@@ -220,7 +220,7 @@ A generic HTTP GET driver for custom APIs. The driver treats the `url` as a temp
 | Variable      | Source         | Description                                |
 |---------------|----------------|--------------------------------------------|
 | `{ip_addr}`   | Runtime        | The detected IP address                    |
-| `{rd_type}`   | Runtime        | DNS record type (A, AAAA)                  |
+| `{rd_type}`   | Runtime        | DNS record type (A, AAAA, TXT)             |
 | `{domain}`    | Runtime        | Domain name                                |
 | `{subdomain}` | Runtime        | Subdomain name                             |
 | `{fqdn}`      | Runtime        | Full domain name                           |

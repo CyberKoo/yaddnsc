@@ -4,9 +4,9 @@
 [![CI](https://github.com/CyberKoo/yaddnsc/actions/workflows/ci.yml/badge.svg)](https://github.com/CyberKoo/yaddnsc/actions/workflows/ci.yml)
 [![C++23](https://img.shields.io/badge/C%2B%2B-23-blue.svg)](https://en.cppreference.com/w/cpp/23)
 [![codecov](https://codecov.io/github/CyberKoo/yaddnsc/graph/badge.svg?token=OA6OJQ3MN6)](https://codecov.io/github/CyberKoo/yaddnsc)
-[![Linux](https://img.shields.io/badge/Linux-glibc%20%7C%20musl-FCC624?logo=linux&logoColor=black)]()
-[![macOS](https://img.shields.io/badge/macOS-arm64-000000?logo=apple)]()
-[![FreeBSD](https://img.shields.io/badge/FreeBSD-supported-AB2B28?logo=freebsd)]()
+![Linux](https://img.shields.io/badge/Linux-glibc%20%7C%20musl-FCC624?logo=linux&logoColor=black)
+![macOS](https://img.shields.io/badge/macOS-arm64-000000?logo=apple)
+![FreeBSD](https://img.shields.io/badge/FreeBSD-supported-AB2B28?logo=freebsd)
 
 > **⚠️ 注意：** `master` 分支（v1.x）正在积极开发中，v1 ABI 尚未最终确定，可能会有较大改动，每次更新后插件**必须**重新编译。
 
@@ -15,7 +15,7 @@
 ## 功能特性
 
 - **多域名、多子域名管理** — 单个配置文件即可管理多个域名及其子域名。
-- **插件化驱动架构** — 驱动以共享库（`.so`）形式在运行时通过 `dlopen` 动态加载。详见 [DRIVERS_CN.md](DRIVERS_CN.md)，其中列出了所有随附驱动及其参数说明和自定义驱动的编写方法
+- **插件化驱动架构** — 驱动以共享库（`.so`）形式在运行时通过 `dlopen` 动态加载。详见 [DRIVERS_CN.md](DRIVERS_CN.md)，其中列出了所有随附驱动及其参数说明和自定义驱动的编写方法。
 - **灵活的 IP 来源配置** — 每个子域名可独立选择：
   - `interface` — 从本地网卡获取 IP 地址
   - `http` — 从外部 HTTP 服务获取 IP 地址（如 `https://ifconfig.me`）
@@ -23,7 +23,7 @@
 - **子域名级更新间隔** — 每个子域名可单独设置更新间隔，未设置时继承域名级别的配置。
 - **协作式请求取消** — DNS 查询和 HTTP 请求可在中途取消。当更快的解析器率先返回或分发器关闭时，无需等待超时即可立即中断挂起的请求。
 - **IPv4 和 IPv6 支持** — 可独立配置 A 和 AAAA 记录。
-- **自定义 DNS 解析器** — 可选使用特定 DNS 服务器代替系统解析器。支持**传统 DNS**、**DNS-over-HTTPS (DoH)** 和 **DNS-over-TLS (DoT)**，并提供可配置的查询策略。详见 [DNS 解析器](#dns-解析器)。
+- **自定义 DNS 解析器** — 记录查询使用固定的服务器列表：配置了自定义服务器就使用自定义的，否则使用内置默认（`1.1.1.1:53`）。支持**传统 DNS**、**DNS-over-HTTPS (DoH)** 和 **DNS-over-TLS (DoT)**，并提供可配置的查询策略。详见 [DNS 解析器](#dns-解析器)。
 - **强制更新调度** — 即使 IP 未发生变化，也可按设定周期强制更新 DNS 记录。
 - **优雅退出** — 通过专用信号处理线程捕获 SIGINT/SIGTERM，使用 stop_token 安全停止所有任务。
 - **线程池并发** — 子域名更新任务通过线程池并行执行。
@@ -80,6 +80,44 @@ SIGINT/SIGTERM → request_stop()"]
     updaterB --> ip
     updaterB --> dns
     updaterB --> driver
+```
+
+## 快速开始
+
+构建 yaddnsc，创建最小 `config.json`，然后验证并运行：
+
+```bash
+cmake -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build -j$(nproc)
+
+yaddnsc config test   # 验证 ./config.json
+yaddnsc run           # 启动更新循环
+```
+
+最小配置示例如下——完整字段参考见[配置文件说明](#配置文件说明)，各服务商的 `driver_param` 示例见 [DRIVERS_CN.md](DRIVERS_CN.md)：
+
+```json
+{
+  "driver": { "auto_discover": true },
+  "domains": [
+    {
+      "name": "example.com",
+      "update_interval": 300,
+      "driver": "simple",
+      "subdomains": [
+        {
+          "name": "home",
+          "type": "a",
+          "ip_source": "http",
+          "ip_source_param": "https://api.ipify.org",
+          "driver_param": {
+            "url": "https://your-api.example.com/update?ip={ip_addr}"
+          }
+        }
+      ]
+    }
+  ]
+}
 ```
 
 ## 构建要求
@@ -277,7 +315,7 @@ Build configuration:
   Compiler ABI         libstdc++ (_GLIBCXX_USE_CXX11_ABI=1)
   Compiler ID hash     0xABCDEF0123456789
   C++ standard         C++23
-  DNS resolver         System (libresolv)
+  DNS resolver         Native
   Default DNS          1.1.1.1:53
   Min update interval  60s
   Format library       std::format
@@ -328,7 +366,7 @@ yaddnsc 使用 JSON 格式的配置文件。默认查找 `./config.json`，可�
     ]
   },
   "resolver": {
-    "use_custom_server": false,
+    "use_custom_server": true,
     "strategy": "concurrent",
     "servers": [
       { "address": "1.1.1.1", "port": 53 },
@@ -397,12 +435,12 @@ yaddnsc 使用 JSON 格式的配置文件。默认查找 `./config.json`，可�
 
 | 字段                  | 类型          | 说明                                                                   |
 |---------------------|-------------|----------------------------------------------------------------------|
-| `use_custom_server` | boolean     | 为 true 时使用指定的 DNS 服务器                                            |
+| `use_custom_server` | boolean     | 为 true 时使用指定的 DNS 服务器；为 false 时使用内置默认服务器（`1.1.1.1:53`）             |
 | `servers`           | DnsServer[] | DNS 服务器列表。支持的地址格式及各类型详见 [DNS 解析器](#dns-解析器)                   |
 | `address`           | string      | **（已废弃，将在未来版本移除）** 直接在 resolver 级别指定 DNS 服务器地址。请改用 `servers`。 |
 | `ipaddress`         | string      | **（已废弃，将在未来版本移除）** `address` 的别名。请改用 `servers` 数组中的 `address`。  |
 | `port`              | int         | **（已废弃，将在未来版本移除）** 与 `address` 配合使用的端口号，默认 53。请改用 `servers`。 |
-| `strategy`          | string      | 查询策略：`"concurrent"`（默认）或 `"fallback"`。详见 [DNS 解析器](#dns-解析器）   |
+| `strategy`          | string      | 查询策略：`"concurrent"`（默认）或 `"fallback"`。详见 [DNS 解析器](#dns-解析器)。   |
 
 #### `DnsServer` 对象
 
@@ -429,7 +467,7 @@ yaddnsc 使用 JSON 格式的配置文件。默认查找 `./config.json`，可�
 | 字段                 | 类型      | 说明                                                                            |
 |--------------------|---------|-------------------------------------------------------------------------------|
 | `name`             | string  | 子域名名称（如 `home` 对应 `home.example.com`）                                         |
-| `type`             | string  | DNS 记录类型：`"a"`、`"aaaa"`、`"txt"` 或 `"soa"`。自动决定地址族（A → IPv4，AAAA → IPv6）。 |
+| `type`             | string  | DNS 记录类型：`"a"`、`"aaaa"` 或 `"txt"`。自动决定地址族（A → IPv4，AAAA → IPv6）。 |
 | `interface`        | string  | 网卡接口名称（如 `eth0`）。各来源对此字段的要求详见 [IP 来源说明](#ip-来源说明)。                     |
 | `ip_type`          | string  | **已废弃——被忽略。** 地址族现在由 `type` 自动推导（A → IPv4，AAAA → IPv6）。                    |
 | `ip_source`        | string  | IP 来源策略：`"interface"`、`"http"` 或 `"mdns"`。`"url"` 是 `"http"` 的旧名称（已废弃，将在未来版本移除）。详见 [IP 来源说明](#ip-来源说明）。 |
@@ -437,7 +475,7 @@ yaddnsc 使用 JSON 格式的配置文件。默认查找 `./config.json`，可�
 | `allow_ula`        | boolean | 使用 IPv6 接口来源时，是否允许唯一本地地址（ULA），默认 false                                        |
 | `allow_local_link` | boolean | 使用 IPv6 接口来源时，是否允许链路本地地址，默认 false                                             |
 | `update_interval`  | int     | 子域名级更新间隔，单位秒（可选）。0 或省略 = 继承自 `domain.update_interval`                         |
-| `driver_param`     | object  | 驱动特定参数（键值对）                                                                   |
+| `driver_param`     | object  | 驱动特定参数（键值对）。各驱动的参数说明见 [DRIVERS_CN.md](DRIVERS_CN.md)。                       |
 
 ## IP 来源说明
 
@@ -495,7 +533,7 @@ yaddnsc 使用 JSON 格式的配置文件。默认查找 `./config.json`，可�
 
 ## DNS 解析器
 
-yaddnsc 可使用自定义 DNS 服务器进行记录查询，而非使用系统默认解析器。在配置文件顶层配置 `resolver` 对象。
+yaddnsc 使用固定的 DNS 服务器列表进行记录查询。在配置文件顶层配置 `resolver` 对象可使用自定义服务器；未配置自定义服务器时，自动使用内置默认服务器（`1.1.1.1:53`）。
 
 ### 解析器类型
 
@@ -504,10 +542,8 @@ yaddnsc 可使用自定义 DNS 服务器进行记录查询，而非使用系统�
 #### 传统 DNS（UDP/TCP）
 
 通过 UDP（大响应时使用 TCP）在指定 IP 和端口上使用标准 DNS 协议。编译时可选择底层实现：
-- `YADDNSC_USE_NATIVE_DNS=ON`（默认）— 内置的 UDP/TCP 实现（不依赖 libresolv）
-- `YADDNSC_USE_NATIVE_DNS=OFF` — 使用系统 libresolv 进行传输（`res_nquery`；**已弃用**，将在 1.0.0 之前移除）
-
-使用 `YADDNSC_USE_NATIVE_DNS=ON`（默认）时，DNS 报文解析完全自实现（不依赖 libresolv）。关闭此选项时，resolver 和 parser 均依赖 libresolv（`res_nquery` / `ns_initparse`）。内置栈现已成为默认，提供更好的跨平台可移植性和对传输层的完全控制。系统 libresolv 后端已**弃用**，将在 1.0.0 版本发布前移除。
+- `YADDNSC_USE_NATIVE_DNS=ON`（默认）— 完全自实现的 UDP/TCP 传输和报文解析（不依赖 libresolv），提供更好的跨平台可移植性和对传输层的完全控制
+- `YADDNSC_USE_NATIVE_DNS=OFF` — 传输和解析均依赖系统 libresolv（`res_nquery` / `ns_initparse`；**已弃用**，将在 1.0.0 之前移除）
 
 ```json
 {
@@ -591,7 +627,7 @@ yaddnsc 使用三层自动发现链来定位 TLS 连接所需的 CA 证书包（
 |--------|------|----------|
 | 1 | **`SSL_CERT_FILE`** 环境变量 | 显式覆盖（容器、私有 CA）；启动时以 INFO 级别记录使用情况 |
 | 2 | **OpenSSL 默认路径**（`X509_get_default_cert_file`） | 标准系统安装 |
-| 3 | **硬编码路径列表**（14 条路径，覆盖 Linux、macOS、√BSD） | 非标准安装、跨平台移植性 |
+| 3 | **硬编码路径列表**（13 条路径，覆盖 Linux、macOS、*BSD） | 非标准安装、跨平台移植性 |
 
 ```bash
 # 使用自定义 CA 证书包（覆盖所有自动发现）
@@ -602,10 +638,6 @@ yaddnsc run
 > **注意：** 不支持 `SSL_CERT_DIR`。如果系统的 CA 证书以目录形式存放（hash 符号链接格式），请使用 `cat` 合并为一个 bundle 文件，再通过 `SSL_CERT_FILE` 指向该文件。
 
 > **安全说明：** 当无法发现任何 CA 证书包时，HTTP 客户端会保持服务器证书验证**开启**（fail-closed），并回退到 OpenSSL 的默认验证路径。如果系统没有信任库，TLS 握手将失败，而不会在无验证的情况下静默继续。如需连接使用私有或自签名证书的服务器，请将该 CA 证书加入上述任一发现层级可找到的证书包（例如通过 `SSL_CERT_FILE` 指定）。
-
-## 驱动参数说明
-
-详见 [DRIVERS_CN.md](DRIVERS_CN.md)，包含所有随附驱动的完整参数配置表、可用替换变量及使用示例。
 
 ## 使用方法
 
@@ -639,7 +671,7 @@ yaddnsc interface list
 yaddnsc interface ip <name>
 
 # DNS 解析主机名
-yaddnsc dns resolve <hostname> [--type A|AAAA|TXT|SOA]
+yaddnsc dns resolve <hostname> [--type A|AAAA|TXT]
 
 # 查看 DNS 解析器配置
 yaddnsc dns resolver
@@ -688,7 +720,7 @@ echo 'YADDNSC_CONFIG=/custom/path/config.json' | sudo tee /etc/yaddnsc/default/y
 
 ## 编写自定义驱动
 
-驱动是运行时加载的共享库。编写自定义驱动的步骤：
+驱动是运行时加载的共享库（随附驱动及其参数说明见 [DRIVERS_CN.md](DRIVERS_CN.md)）。编写自定义驱动的步骤：
 
 1. 包含 `driver/base.h`，继承 `BaseDriver` 类。
 2. 实现 `Driver` 接口的纯虚方法：

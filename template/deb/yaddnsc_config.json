@@ -33,8 +33,7 @@
         {
           "name": "www",
           "type": "a",
-          "ip_source": "url",
-          "ip_type": "ipv4",
+          "ip_source": "http",
           "ip_source_param": "https://api.ipify.org/",
           "driver_param": {
             "record_id": "123456789",

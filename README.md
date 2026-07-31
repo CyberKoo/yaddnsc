@@ -4,9 +4,9 @@
 [![CI](https://github.com/CyberKoo/yaddnsc/actions/workflows/ci.yml/badge.svg)](https://github.com/CyberKoo/yaddnsc/actions/workflows/ci.yml)
 [![C++23](https://img.shields.io/badge/C%2B%2B-23-blue.svg)](https://en.cppreference.com/w/cpp/23)
 [![codecov](https://codecov.io/github/CyberKoo/yaddnsc/graph/badge.svg?token=OA6OJQ3MN6)](https://codecov.io/github/CyberKoo/yaddnsc)
-[![Linux](https://img.shields.io/badge/Linux-glibc%20%7C%20musl-FCC624?logo=linux&logoColor=black)]()
-[![macOS](https://img.shields.io/badge/macOS-arm64-000000?logo=apple)]()
-[![FreeBSD](https://img.shields.io/badge/FreeBSD-supported-AB2B28?logo=freebsd)]()
+![Linux](https://img.shields.io/badge/Linux-glibc%20%7C%20musl-FCC624?logo=linux&logoColor=black)
+![macOS](https://img.shields.io/badge/macOS-arm64-000000?logo=apple)
+![FreeBSD](https://img.shields.io/badge/FreeBSD-supported-AB2B28?logo=freebsd)
 
 > **⚠️ Warning:** The `master` branch (v1.x) is under heavy development. The v1 ABI has not yet been finalized and may change significantly — plugins **must** be recompiled after each update.
 
@@ -15,7 +15,7 @@
 ## Features
 
 - **Multi-domain, multi-subdomain management** — manage multiple domains and subdomains from a single configuration file.
-- **Pluggable driver architecture** — drivers are loaded as shared libraries (`.so`) at runtime. See [DRIVERS.md](DRIVERS.md) for the list of bundled drivers, their parameters, and how to write custom ones
+- **Pluggable driver architecture** — drivers are loaded as shared libraries (`.so`) at runtime. See [DRIVERS.md](DRIVERS.md) for the list of bundled drivers, their parameters, and how to write custom ones.
 - **Flexible IP source configuration** — each subdomain can choose from:
   - `interface` — obtain the IP from a local network interface
   - `http` — obtain the IP from an external HTTP service (e.g. `https://ifconfig.me`)
@@ -23,7 +23,7 @@
 - **Per-subdomain update interval** — each subdomain can override the domain-level update interval.
 - **Cooperative request cancellation** — DNS lookups and HTTP requests are cancellable mid-flight. When a faster resolver answers first or the dispatcher shuts down, pending requests are interrupted immediately rather than waiting for timeout.
 - **IPv4 and IPv6 support** — configure A and AAAA records independently.
-- **Custom DNS resolver** — optionally use specific DNS servers instead of the system resolver. Supports **traditional DNS**, **DNS-over-HTTPS (DoH)**, and **DNS-over-TLS (DoT)** with configurable query strategies.
+- **Custom DNS resolver** — record lookups use a fixed server list: your custom servers when configured, otherwise the built-in default (`1.1.1.1:53`). Supports **traditional DNS**, **DNS-over-HTTPS (DoH)**, and **DNS-over-TLS (DoT)** with configurable query strategies.
 - **Forced update scheduling** — periodically force-update DNS records even when the IP hasn't changed.
 - **Graceful shutdown** — handles SIGINT/SIGTERM.
 - **Thread-pool-based concurrency** — subdomain updates are dispatched to a thread pool for parallel execution.
@@ -81,6 +81,44 @@ Check response"]
     updaterB --> ip
     updaterB --> dns
     updaterB --> driver
+```
+
+## Quick Start
+
+Build yaddnsc, create a minimal `config.json`, then validate and run:
+
+```bash
+cmake -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build -j$(nproc)
+
+yaddnsc config test   # validate ./config.json
+yaddnsc run           # start the update loop
+```
+
+A minimal configuration looks like this — see [Configuration](#configuration) for the full reference and [DRIVERS.md](DRIVERS.md) for provider-specific `driver_param` examples:
+
+```json
+{
+  "driver": { "auto_discover": true },
+  "domains": [
+    {
+      "name": "example.com",
+      "update_interval": 300,
+      "driver": "simple",
+      "subdomains": [
+        {
+          "name": "home",
+          "type": "a",
+          "ip_source": "http",
+          "ip_source_param": "https://api.ipify.org",
+          "driver_param": {
+            "url": "https://your-api.example.com/update?ip={ip_addr}"
+          }
+        }
+      ]
+    }
+  ]
+}
 ```
 
 ## Build Requirements
@@ -296,7 +334,7 @@ Build configuration:
   Compiler ABI         libstdc++ (_GLIBCXX_USE_CXX11_ABI=1)
   Compiler ID hash     0xABCDEF0123456789
   C++ standard         C++23
-  DNS resolver         System (libresolv)
+  DNS resolver         Native
   Default DNS          1.1.1.1:53
   Min update interval  60s
   Format library       std::format
@@ -348,7 +386,7 @@ A template configuration is generated at build time from `template/deb/yaddnsc_c
     ]
   },
   "resolver": {
-    "use_custom_server": false,
+    "use_custom_server": true,
     "strategy": "concurrent",
     "servers": [
       { "address": "1.1.1.1", "port": 53 },
@@ -417,7 +455,7 @@ A template configuration is generated at build time from `template/deb/yaddnsc_c
 
 | Field               | Type        | Description                                                                                                                                   |
 |---------------------|-------------|-----------------------------------------------------------------------------------------------------------------------------------------------|
-| `use_custom_server` | boolean     | If true, use the specified DNS server(s) instead of system                                                                                    |
+| `use_custom_server` | boolean     | If true, use the specified DNS server(s); if false, the built-in default (`1.1.1.1:53`) is used.                                            |
 | `servers`           | object[]    | List of DNS servers. See [DNS Resolver](#dns-resolver) for supported address formats.                                                         |
 | `address`           | string      | **Deprecated, will be removed in a future release.** DNS server address specified directly at the resolver level. Use `servers` instead. |
 | `ipaddress`         | string      | **Deprecated, will be removed in a future release.** Alias for `address`. Use `servers` instead. |
@@ -450,14 +488,15 @@ field and read the port from the `address` URI instead.                         
 | Field              | Type    | Description                                                                                                          |
 |--------------------|---------|----------------------------------------------------------------------------------------------------------------------|
 | `name`             | string  | Subdomain name (e.g. `home` for `home.example.com`)                                                                  |
-| `type`             | string  | DNS record type: `"a"`, `"aaaa"`, `"txt"`, or `"soa"`. Determines address family automatically (A → IPv4, AAAA → IPv6). |
+| `type`             | string  | DNS record type: `"a"`, `"aaaa"`, or `"txt"`. Determines address family automatically (A → IPv4, AAAA → IPv6). |
 | `interface`        | string  | Network interface name (e.g. `eth0`). Required for `"interface"` IP source; optional for others.                     |
+| `ip_type`          | string  | **Deprecated — ignored.** Address family is now derived from `type` (A → IPv4, AAAA → IPv6).                          |
 | `ip_source`        | string  | IP source strategy: `"interface"`, `"http"`, or `"mdns"`. `"url"` is the old name for `"http"` (deprecated, will be removed in a future release). See [IP Source](#ip-source) for details. |
 | `ip_source_param`  | string  | Source-specific parameter (URL for `"http"`, mDNS hostname for `"mdns"`). Ignored for `"interface"`.                  |
 | `allow_ula`        | boolean | When using IPv6 interface source, allow Unique Local Addresses (default: false)                                      |
 | `allow_local_link` | boolean | When using IPv6 interface source, allow link-local addresses (default: false)                                        |
 | `update_interval`  | int     | Per-subdomain update interval in seconds (optional). 0 or omitted = inherit from `domain.update_interval`.           |
-| `driver_param`     | object  | Driver-specific parameters (key-value map)                                                                           |
+| `driver_param`     | object  | Driver-specific parameters (key-value map). See [DRIVERS.md](DRIVERS.md) for per-driver parameter references.          |
 
 ## IP Source
 
@@ -515,17 +554,15 @@ Discovers the IP address of a LAN device by sending a multicast DNS query for a 
 
 ## DNS Resolver
 
-yaddnsc can use custom DNS servers for record lookups instead of the system resolver. Configure the `resolver` object at the top level of your configuration file. If no custom servers are configured, the built-in defaults (`1.1.1.1:53`) are used automatically.
+yaddnsc performs record lookups against a fixed DNS server list. Configure the `resolver` object at the top level of your configuration file to use custom servers; if none are configured, the built-in default (`1.1.1.1:53`) is used automatically.
 
 Three resolver types are supported, auto-detected from the address format:
 
 ### Traditional DNS (UDP/TCP)
 
 Uses standard DNS over UDP (or TCP for large responses) on a given IP and port. The underlying implementation is selectable at compile time:
-- `YADDNSC_USE_NATIVE_DNS=ON` (default) — built-in raw UDP/TCP implementation (no libresolv)
-- `YADDNSC_USE_NATIVE_DNS=OFF` — uses system libresolv for transport (`res_nquery`; **DEPRECATED** — will be removed before 1.0.0)
-
-When `YADDNSC_USE_NATIVE_DNS=ON` (the default), DNS packet parsing is fully self-contained (no libresolv). In the `OFF` mode, both the resolver and parser depend on libresolv (`res_nquery` / `ns_initparse`). The native stack is now the default, providing better portability across platforms and full control over the transport layer. The system libresolv backend is **deprecated** and will be removed before the 1.0.0 release.
+- `YADDNSC_USE_NATIVE_DNS=ON` (default) — fully self-contained UDP/TCP transport and packet parsing (no libresolv), providing better portability and full control over the transport layer
+- `YADDNSC_USE_NATIVE_DNS=OFF` — both transport and parsing depend on system libresolv (`res_nquery` / `ns_initparse`; **DEPRECATED** — will be removed before 1.0.0)
 
 ```json
 {
@@ -609,7 +646,7 @@ The first bundle found is cached and reused for the lifetime of the process.
 |----------|-----------|------------------|
 | 1 | **`SSL_CERT_FILE`** environment variable | Explicit override (containers, private CAs); its use is logged at INFO level at startup |
 | 2 | **OpenSSL default path** (`X509_get_default_cert_file`) | Standard system installations |
-| 3 | **Well-known hardcoded paths** (14 paths across Linux, macOS, √BSD) | Non-standard installations, cross-platform portability |
+| 3 | **Well-known hardcoded paths** (13 paths across Linux, macOS, *BSD) | Non-standard installations, cross-platform portability |
 
 ```bash
 # Use a custom CA bundle (overrides all auto-detection)
@@ -620,10 +657,6 @@ yaddnsc run
 > **Note:** `SSL_CERT_DIR` is **not** supported. On systems where CA certificates are stored in a directory (hash-symlink format), point `SSL_CERT_FILE` to a combined bundle file instead.
 
 > **Security:** When no CA bundle can be discovered, the HTTP client keeps server certificate verification **enabled** (fail-closed) and falls back to OpenSSL's default verify paths. If the system has no trust store, TLS handshakes fail rather than silently proceeding without verification. To connect to servers that use private or self-signed certificates, add the CA certificate to a bundle discoverable by one of the tiers above (e.g. via `SSL_CERT_FILE`).
-
-## Driver Parameters
-
-See [DRIVERS.md](DRIVERS.md) for the complete reference of all bundled driver parameters, including configuration tables, available substitution variables, and usage examples.
 
 ## Usage
 
@@ -657,7 +690,7 @@ yaddnsc interface list
 yaddnsc interface ip <name>
 
 # DNS resolve a hostname
-yaddnsc dns resolve <hostname> [--type A|AAAA|TXT|SOA]
+yaddnsc dns resolve <hostname> [--type A|AAAA|TXT]
 
 # Show configured DNS resolver details
 yaddnsc dns resolver
@@ -706,7 +739,7 @@ echo 'YADDNSC_CONFIG=/custom/path/config.json' | sudo tee /etc/yaddnsc/default/y
 
 ## Writing a Custom Driver
 
-Drivers are shared libraries loaded at runtime. To write one:
+Drivers are shared libraries loaded at runtime (for the bundled drivers and their parameters, see [DRIVERS.md](DRIVERS.md)). To write one:
 
 1. Include `driver/base.h` and inherit from `BaseDriver`.
 2. Implement the `Driver` interface:
