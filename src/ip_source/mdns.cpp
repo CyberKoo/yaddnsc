@@ -21,6 +21,8 @@
 #include "network/net_devices.h"
 #include "network/socket.h"
 
+#include "string_util.hpp"
+
 #include "fmt.hpp"
 #include <net/if.h>
 #include <netinet/in.h>
@@ -249,61 +251,114 @@ namespace {
         return if_index;
     }
 
+    // ===========================================================================
+    //  mDNS response validation
+    // ===========================================================================
+
+    /// Case-insensitive owner-name comparison for mDNS records, ignoring a
+    /// trailing dot (mDNS names are case-insensitive per RFC 6762 §6.1).
+    [[nodiscard]] bool name_matches(std::string_view record_name, std::string_view queried) noexcept {
+        if (!record_name.empty() && record_name.back() == '.') {
+            record_name.remove_suffix(1);
+        }
+        if (!queried.empty() && queried.back() == '.') {
+            queried.remove_suffix(1);
+        }
+        return StringUtil::iequals(record_name, queried);
+    }
+
     /// Shared helper: poll, receive, parse DNS response.
     /// Throws std::runtime_error on any failure.
     [[nodiscard]] std::vector<InetAddress> recv_and_parse(Socket &sock, RecordKind type, const std::string &hostname) {
-        auto wait_res = sock.wait_for(POLLIN, MDNS_TIMEOUT_MS);
-        if (!wait_res) {
-            throw std::runtime_error(fmt::format(R"(mDNS wait_for failed: {})", errno_str(wait_res.error())));
-        }
-        if (*wait_res == 0) {
-            throw std::runtime_error(fmt::format(R"(mDNS no response within {}ms)",
-                                                 MDNS_TIMEOUT_MS));
-        }
+        // mDNS responses MUST come from UDP source port 5353 (RFC 6762 §6),
+        // and only answers whose owner name matches the queried hostname are
+        // accepted.  Other datagrams (unrelated multicast traffic, forged
+        // replies) are discarded and the lookup keeps waiting until the
+        // deadline — a spoofed packet must not abort or pollute the query.
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(MDNS_TIMEOUT_MS);
 
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init): recv_buf is overwritten by recv_from().
-        std::array<std::uint8_t, MDNS_RECV_BUF_SIZE> recv_buf;
-        SocketAddr src_addr;
-        auto buf = std::as_writable_bytes(std::span{recv_buf});
-        ssize_t recv_len = sock.recv_from(buf, &src_addr);
-        if (recv_len < 0) {
-            int e = errno;
-            throw std::runtime_error(fmt::format(R"(mDNS recvfrom() failed: {})", errno_str(e)));
-        }
+        while (true) {
+            const auto now = std::chrono::steady_clock::now();
+            if (now >= deadline) {
+                throw std::runtime_error(
+                    fmt::format(R"(mDNS no valid response for "{}" within {}ms)", hostname, MDNS_TIMEOUT_MS));
+            }
+            const auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - now);
 
-        SPDLOG_TRACE(R"(mDNS received {} bytes for "{}")", recv_len, hostname);
+            auto wait_res = sock.wait_for(POLLIN, static_cast<int>(remaining.count()));
+            if (!wait_res) {
+                throw std::runtime_error(fmt::format(R"(mDNS wait_for failed: {})", errno_str(wait_res.error())));
+            }
+            if (*wait_res == 0) {
+                continue; // deadline re-checked at the top of the loop
+            }
 
-        auto parsed = DNS::RecordParser::parse_strings(std::span{recv_buf.data(), static_cast<size_t>(recv_len)},
-                                                       hostname);
-        if (parsed.records.empty()) {
-            throw std::runtime_error("mDNS no records in response");
-        }
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init): recv_buf is overwritten by recv_from().
+            std::array<std::uint8_t, MDNS_RECV_BUF_SIZE> recv_buf;
+            SocketAddr src_addr;
+            auto buf = std::as_writable_bytes(std::span{recv_buf});
+            ssize_t recv_len = sock.recv_from(buf, &src_addr);
+            if (recv_len < 0) {
+                int e = errno;
+                throw std::runtime_error(fmt::format(R"(mDNS recvfrom() failed: {})", errno_str(e)));
+            }
 
-        std::vector<InetAddress> results;
-        results.reserve(parsed.records.size());
-        for (const auto &rec: parsed.records) {
-            if (type == RecordKind::A) {
-                if (auto v4 = Inet4Address::parse(rec)) {
-                    SPDLOG_DEBUG(R"(mDNS resolved "{}" → {})", hostname, rec);
-                    results.emplace_back(*v4);
-                } else {
-                    SPDLOG_DEBUG(R"(mDNS skipping non-A record "{}" for "{}")", rec, hostname);
+            // Source check: responders always send from port 5353 (RFC 6762 §6).
+            if (src_addr.port() != MDNS_PORT) {
+                SPDLOG_TRACE(R"(mDNS discarding response from unexpected source port {} for "{}")",
+                             src_addr.port(), hostname);
+                continue;
+            }
+
+            SPDLOG_TRACE(R"(mDNS received {} bytes for "{}")", recv_len, hostname);
+
+            // Parse and filter: only answers owned by the queried hostname
+            // with the requested record type are accepted.
+            DNS::RecordParser parser(std::span{recv_buf.data(), static_cast<size_t>(recv_len)});
+            const auto &msg = parser.message();
+
+            std::vector<InetAddress> results;
+            results.reserve(msg.answers.size());
+            for (size_t i = 0; i < msg.answers.size(); ++i) {
+                const auto &rr = msg.answers[i];
+                if (!name_matches(rr.name, hostname)) {
+                    SPDLOG_TRACE(R"(mDNS skipping record "{}" for "{}" (owner mismatch))", rr.name, hostname);
+                    continue;
                 }
-            } else {
-                if (auto v6 = Inet6Address::parse(rec)) {
-                    SPDLOG_DEBUG(R"(mDNS resolved "{}" → "{}")", hostname, rec);
-                    results.emplace_back(*v6);
+                if (type == RecordKind::A && rr.type != static_cast<std::uint16_t>(DNS::RecordType::A)) {
+                    continue;
+                }
+                if (type == RecordKind::AAAA && rr.type != static_cast<std::uint16_t>(DNS::RecordType::AAAA)) {
+                    continue;
+                }
+
+                auto rec = parser.parse_record(i);
+                if (type == RecordKind::A) {
+                    if (auto v4 = Inet4Address::parse(rec)) {
+                        results.emplace_back(*v4);
+                    } else {
+                        SPDLOG_DEBUG(R"(mDNS skipping non-A record "{}" for "{}")", rec, hostname);
+                    }
                 } else {
-                    SPDLOG_DEBUG(R"(mDNS skipping non-AAAA record "{}" for "{}")", rec, hostname);
+                    if (auto v6 = Inet6Address::parse(rec)) {
+                        results.emplace_back(*v6);
+                    } else {
+                        SPDLOG_DEBUG(R"(mDNS skipping non-AAAA record "{}" for "{}")", rec, hostname);
+                    }
                 }
             }
-        }
 
-        if (results.empty()) {
-            throw std::runtime_error("mDNS no address records");
-        }
+            if (results.empty()) {
+                // E.g. another service's packet on the shared multicast group.
+                SPDLOG_TRACE(R"(mDNS no matching records in response for "{}")", hostname);
+                continue;
+            }
 
-        return results;
+            for (const auto &a: results) {
+                SPDLOG_DEBUG(R"(mDNS resolved "{}" → {})", hostname, a.to_string());
+            }
+            return results;
+        }
     }
 
     // ===========================================================================

@@ -243,12 +243,37 @@ protected:
         if (responder_thread_.joinable()) {
             responder_thread_.join();
         }
+        if (forger_thread_.joinable()) {
+            forger_thread_.join();
+        }
         if (responder_sock_) {
             // Leave multicast group.
             (void)responder_sock_->set_option(IPPROTO_IP, IP_DROP_MEMBERSHIP, mreq_);
             responder_sock_->close();
         }
+        if (forger_sock_) {
+            (void)forger_sock_->set_option(IPPROTO_IP, IP_DROP_MEMBERSHIP, mreq_);
+            forger_sock_->close();
+        }
         responder_sock_.reset();
+        forger_sock_.reset();
+    }
+
+    /// Start a second responder that answers from a NON-5353 source port
+    /// (an attacker-style forged reply).  Must be called from the test body
+    /// after SetUp.
+    void start_forger() {
+        forger_sock_ = std::make_unique<Socket>(AF_INET, SOCK_DGRAM);
+        forger_sock_->set_reuseaddr(true).value();
+        forger_sock_->set_option(SOL_SOCKET, SO_REUSEPORT, 1).value();
+
+        // Ephemeral port — deliberately NOT 5353 (RFC 6762 §6 violation).
+        auto forger_bind = SocketAddr::from_inet(Inet4Address{}, 0);
+        ASSERT_TRUE(forger_bind.has_value());
+        forger_sock_->bind(*forger_bind).value();
+
+        forger_sock_->set_option(IPPROTO_IP, IP_ADD_MEMBERSHIP, mreq_).value();
+        forger_thread_ = std::thread([this] { forger_loop(); });
     }
 
     /// Check how many matching queries the responder received.
@@ -257,6 +282,9 @@ protected:
     }
 
     std::string test_hostname_;  // Random UUID hostname for this test run
+
+    /// When true, the responder appends an unrelated A record to its reply.
+    std::atomic<bool> include_unrelated_record_{false};
 
 private:
     /// Encode a dot-separated hostname into DNS label format
@@ -292,6 +320,81 @@ private:
             encoded_hostname,
             query.subspan(12, encoded_hostname.size()));
     }
+
+    /// Build a crafted mDNS A-record response echoing the query's TXID and
+    /// question section.  Optionally appends an unrelated A record to test
+    /// owner-name filtering.
+    [[nodiscard]] std::vector<std::uint8_t> build_response(
+        std::span<const std::uint8_t> query,
+        std::uint8_t a, std::uint8_t b, std::uint8_t c, std::uint8_t d,
+        bool include_unrelated = false) const {
+        std::vector<std::uint8_t> resp;
+        resp.reserve(query.size() + 48);
+
+        // Header (copies query's TXID): QR=1, RA=1, QDCOUNT=1, ANCOUNT=1(+1).
+        resp.push_back(query[0]);
+        resp.push_back(query[1]);
+        resp.push_back(0x80);
+        resp.push_back(0x80);
+        resp.push_back(0x00);
+        resp.push_back(0x01);
+        resp.push_back(0x00);
+        resp.push_back(include_unrelated ? 0x02 : 0x01);
+        resp.push_back(0x00);
+        resp.push_back(0x00);
+        resp.push_back(0x00);
+        resp.push_back(0x00);
+
+        // Echo back the question section from the query (starts at offset 12).
+        size_t qname_end = 12;
+        while (qname_end < query.size() && query[qname_end] != 0) {
+            qname_end += size_t{1} + query[qname_end];
+        }
+        qname_end += 1; // skip the root label
+        resp.insert(resp.end(), query.begin() + 12,
+                    query.begin() + static_cast<std::ptrdiff_t>(qname_end) + 4);
+
+        // Answer 1: name pointer (0xC0 0x0C), TYPE A, CLASS IN, TTL 60, RDATA.
+        resp.push_back(0xC0);
+        resp.push_back(0x0C);
+        resp.push_back(0x00);
+        resp.push_back(0x01);
+        resp.push_back(0x00);
+        resp.push_back(0x01);
+        resp.push_back(0x00);
+        resp.push_back(0x00);
+        resp.push_back(0x00);
+        resp.push_back(0x3C);
+        resp.push_back(0x00);
+        resp.push_back(0x04);
+        resp.push_back(a);
+        resp.push_back(b);
+        resp.push_back(c);
+        resp.push_back(d);
+
+        if (include_unrelated) {
+            // Answer 2: fully encoded unrelated owner name + A record.
+            auto unrelated = encode_dns_name("unrelated-host.local");
+            resp.insert(resp.end(), unrelated.begin(), unrelated.end());
+            resp.push_back(0x00);
+            resp.push_back(0x01);
+            resp.push_back(0x00);
+            resp.push_back(0x01);
+            resp.push_back(0x00);
+            resp.push_back(0x00);
+            resp.push_back(0x00);
+            resp.push_back(0x3C);
+            resp.push_back(0x00);
+            resp.push_back(0x04);
+            resp.push_back(1);
+            resp.push_back(2);
+            resp.push_back(3);
+            resp.push_back(4);
+        }
+
+        return resp;
+    }
+
     void responder_loop() {
         // Poll with a short timeout so we can check the stop flag.
         while (!stop_flag_.load()) {
@@ -322,63 +425,49 @@ private:
             }
             query_count_.fetch_add(1);
 
-            // Build a crafted DNS response.
-            // Copy the query's TXID, set QR+RA flags, ANCOUNT=1.
-            std::vector<std::uint8_t> resp;
-            resp.reserve(static_cast<size_t>(n) + 16);
-
-            // Header (copies query's TXID).
-            resp.push_back(query[0]);
-            resp.push_back(query[1]);
-            resp.push_back(0x80);       // flags: QR=1
-            resp.push_back(0x80);       // flags: RA=1
-            // QDCOUNT = 1 (from query), ANCOUNT = 1, NS/AR = 0
-            resp.push_back(0x00);
-            resp.push_back(0x01);
-            resp.push_back(0x00);
-            resp.push_back(0x01);
-            resp.push_back(0x00);
-            resp.push_back(0x00);
-            resp.push_back(0x00);
-            resp.push_back(0x00);
-
-            // Echo back the question section from the query (starts at offset 12).
-            // Find the end of the QNAME (root label 0x00).
-            size_t qname_end = 12;
-            while (qname_end < query.size() && query[qname_end] != 0) {
-                qname_end += size_t{1} + query[qname_end];
-            }
-            qname_end += 1; // skip the root label
-            // Copy QNAME + QTYPE + QCLASS (4 bytes after QNAME)
-            resp.insert(resp.end(), query.begin() + 12, query.begin() + static_cast<std::ptrdiff_t>(qname_end) + 4);
-
-            // Answer section: name pointer (0xC0 0x0C = compressed name),
-            // TYPE A (1), CLASS IN (1), TTL 60, RDLENGTH 4, IP 198.51.100.7.
-            resp.push_back(0xC0);
-            resp.push_back(0x0C);
-            resp.push_back(0x00);
-            resp.push_back(0x01);  // TYPE A
-            resp.push_back(0x00);
-            resp.push_back(0x01);  // CLASS IN
-            resp.push_back(0x00);
-            resp.push_back(0x00);
-            resp.push_back(0x00);
-            resp.push_back(0x3C);  // TTL 60
-            resp.push_back(0x00);
-            resp.push_back(0x04);  // RDLENGTH 4
-            resp.push_back(198);
-            resp.push_back(51);
-            resp.push_back(100);
-            resp.push_back(7);
-
-            // Send the response back to the query's source address.
+            // Genuine response from port 5353 (RFC 6762 §6 compliance).
+            auto resp = build_response(query, 198, 51, 100, 7, include_unrelated_record_.load());
             auto data = std::as_bytes(std::span{resp});
             [[maybe_unused]] auto sent = responder_sock_->send_to(data, src_addr);
         }
     }
 
+    /// Attacker-style responder: answers matching queries from a NON-5353
+    /// source port with a forged IP (1.2.3.4).
+    void forger_loop() {
+        while (!stop_flag_.load()) {
+            auto wait_res = forger_sock_->wait_for(POLLIN, 100);
+            if (!wait_res || *wait_res == 0) {
+                continue;
+            }
+
+            std::array<std::uint8_t, 512> recv_buf{};
+            SocketAddr src_addr;
+            auto n = forger_sock_->recv_from(std::span<std::byte>{
+                reinterpret_cast<std::byte *>(recv_buf.data()), recv_buf.size()
+            }, 0, &src_addr);
+
+            if (n <= 0) {
+                continue;
+            }
+
+            auto query = std::span<const std::uint8_t>(recv_buf.data(), static_cast<size_t>(n));
+            auto encoded = encode_dns_name(test_hostname_);
+            if (!qname_matches(query, encoded)) {
+                continue;
+            }
+
+            // Forged reply from the ephemeral (non-5353) source port.
+            auto resp = build_response(query, 1, 2, 3, 4);
+            auto data = std::as_bytes(std::span{resp});
+            [[maybe_unused]] auto sent = forger_sock_->send_to(data, src_addr);
+        }
+    }
+
     std::unique_ptr<Socket> responder_sock_;
     std::thread responder_thread_;
+    std::unique_ptr<Socket> forger_sock_;
+    std::thread forger_thread_;
     std::atomic<bool> stop_flag_{false};
     std::atomic<int> query_count_{0};
     ip_mreq mreq_{};
@@ -410,6 +499,38 @@ TEST_F(MdnsTest, Factory_CreateMdnsSource_ResolvesViaMulticast) {
     ASSERT_NE(source, nullptr);
 
     auto addrs = source->resolve();
+    ASSERT_EQ(addrs.size(), 1U);
+    EXPECT_EQ(addrs[0].to_string(), "198.51.100.7");
+    EXPECT_EQ(query_count(), 1);
+}
+
+// ===========================================================================
+// mDNS — response validation (source port + record ownership)
+// ===========================================================================
+
+TEST_F(MdnsTest, ResolveMdns_IgnoresWrongSourcePort) {
+    // Regression: a forged reply from a non-5353 source port (RFC 6762 §6
+    // violation) must be discarded.  The forger answers the same query with
+    // IP 1.2.3.4; the genuine responder (port 5353) answers 198.51.100.7.
+    start_forger();
+
+    MdnsIpSource source(test_hostname_, RecordKind::A, "");
+    auto addrs = source.resolve();
+
+    ASSERT_EQ(addrs.size(), 1U);
+    EXPECT_EQ(addrs[0].to_string(), "198.51.100.7");
+    EXPECT_EQ(query_count(), 1);
+}
+
+TEST_F(MdnsTest, ResolveMdns_IgnoresUnrelatedRecords) {
+    // Regression: answers whose owner name does not match the queried
+    // hostname must be filtered out — a response may carry records for
+    // other services on the shared multicast group.
+    include_unrelated_record_.store(true);
+
+    MdnsIpSource source(test_hostname_, RecordKind::A, "");
+    auto addrs = source.resolve();
+
     ASSERT_EQ(addrs.size(), 1U);
     EXPECT_EQ(addrs[0].to_string(), "198.51.100.7");
     EXPECT_EQ(query_count(), 1);
