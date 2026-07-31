@@ -15,6 +15,7 @@
 
 #include "uri.h"
 #include "fmt.hpp"
+#include "http_fmt.hpp"
 #include "version.h"
 #include "http_type.h"
 #include "util/cert_util.h"
@@ -147,7 +148,8 @@ namespace {
         const auto path = build_request(uri);
 
         SPDLOG_DEBUG("Sending {} request to {}://{}{} ({} header(s), {} bytes body)",
-                     magic_enum::enum_name(req.method), uri.get_schema(), uri.get_host(), path,
+                     magic_enum::enum_name(req.method), uri.get_schema(), uri.get_host(),
+                     Utils::Redact::redact_url_query(path),
                      req.headers.size(), req.body ? req.body->size() : 0);
 
         const auto result = dispatch(client, path.c_str(), req);

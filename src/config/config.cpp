@@ -23,8 +23,10 @@ Config::AppConfig Config::load_config(const std::string &config_path) {
     AppConfig cfg{};
     std::string buffer;
     if (const auto ec = glz::read_file_json(cfg, config_path, buffer)) {
+        // Do not include the buffer contents in the error: the config file
+        // holds API credentials, and the message may end up in logs.
         throw std::runtime_error(
-            fmt::format("Failed to parse config file, error: \"{}\"", glz::format_error(ec, buffer))
+            fmt::format("Failed to parse config file \"{}\", error: \"{}\"", config_path, glz::format_error(ec))
         );
     }
 

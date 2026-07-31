@@ -144,6 +144,20 @@ TEST(BaseDriverTest, ParseConfig_TypeMismatch_ThrowsParamParseException) {
     );
 }
 
+TEST(BaseDriverTest, ParseConfig_Error_DoesNotLeakConfigContent) {
+    // Regression: the exception message must not contain the raw driver
+    // config JSON — it may hold API credentials and the message is logged.
+    const auto json = R"({"api_key":"supersecret789","endpoint":"https://e.com","broken")";
+    try {
+        [[maybe_unused]] auto _ = TestDriver::parse_config<TestConfig>(json);
+        FAIL() << "expected ParamParseException";
+    } catch (const ParamParseException &e) {
+        const std::string msg(e.what());
+        EXPECT_EQ(msg.find("supersecret789"), std::string::npos) << "message leaked api_key: " << msg;
+        EXPECT_EQ(msg.find("https://e.com"), std::string::npos) << "message leaked config content: " << msg;
+    }
+}
+
 TEST(BaseDriverTest, ParseConfig_ExtraKeysCausesError) {
     // glaze with error_on_missing_keys=true also rejects unknown/extra keys.
     auto json = R"({"api_key":"k","endpoint":"https://e.com","extra_field":"ignored"})";
@@ -182,4 +196,60 @@ TEST(BaseDriverTest, Execute_RequiresHttpClient) {
     // We cannot call execute() without an HttpClient instance in this test,
     // but we can verify the signature compiles and that the method exists.
     SUCCEED();
+}
+
+// ── Log redaction ─────────────────────────────────────────────────────────
+// The HttpRequest formatter (http_fmt.hpp) must never emit credentials in
+// plain text: header values, form/query parameters, and JSON keys are
+// redacted, while non-sensitive fields are preserved for debugging.
+
+TEST(BaseDriverTest, HttpRequestFormatter_RedactsAuthorizationHeader) {
+    HttpRequest req;
+    req.method = HttpMethod::POST;
+    req.headers.insert({"Authorization", "Bearer supersecret123"});
+
+    const auto s = fmt::format("{}", req);
+    EXPECT_EQ(s.find("supersecret123"), std::string::npos) << "Authorization leaked: " << s;
+    EXPECT_NE(s.find("***"), std::string::npos);
+}
+
+TEST(BaseDriverTest, HttpRequestFormatter_RedactsFormBodySecrets) {
+    HttpRequest req;
+    req.method = HttpMethod::POST;
+    req.content_type = "application/x-www-form-urlencoded";
+    req.body = "login_token=abc123,def456&domain_id=42&sub_domain=www";
+
+    const auto s = fmt::format("{}", req);
+    EXPECT_EQ(s.find("abc123,def456"), std::string::npos) << "login_token leaked: " << s;
+    EXPECT_NE(s.find("login_token=***"), std::string::npos);
+    // Non-sensitive fields are preserved for debugging.
+    EXPECT_NE(s.find("domain_id=42"), std::string::npos);
+    EXPECT_NE(s.find("sub_domain=www"), std::string::npos);
+}
+
+TEST(BaseDriverTest, HttpRequestFormatter_RedactsJsonBodySecrets) {
+    HttpRequest req;
+    req.method = HttpMethod::PUT;
+    req.content_type = "application/json";
+    req.body = R"({"type":"A","apiKey":"xyz789","ttl":30})";
+
+    const auto s = fmt::format("{}", req);
+    EXPECT_EQ(s.find("xyz789"), std::string::npos) << "apiKey leaked: " << s;
+    EXPECT_NE(s.find("apiKey"), std::string::npos);  // key name preserved, value redacted
+    EXPECT_NE(s.find("ttl\":30"), std::string::npos);
+}
+
+TEST(BaseDriverTest, RedactUrlQuery_RedactsSensitiveParams) {
+    // DuckDNS-style URL: the API token travels in the query string.
+    const auto s = Utils::Redact::redact_url_query(
+        "/update?domains=example.com&token=SECRETTOKEN&ip=1.2.3.4");
+    EXPECT_EQ(s.find("SECRETTOKEN"), std::string::npos) << "query token leaked: " << s;
+    EXPECT_NE(s.find("token=***"), std::string::npos);
+    EXPECT_NE(s.find("domains=example.com"), std::string::npos);
+    EXPECT_NE(s.find("ip=1.2.3.4"), std::string::npos);
+}
+
+TEST(BaseDriverTest, RedactBody_PreservesNonSensitive) {
+    const auto s = Utils::Redact::redact_body("domain_id=42&ttl=600&proxied=false");
+    EXPECT_EQ(s, "domain_id=42&ttl=600&proxied=false");
 }

@@ -80,7 +80,7 @@ protected:
             return value;
         }
 
-        throw ParamParseException(glz::format_error(ec, config));
+        throw ParamParseException(fmt::format("Driver configuration parse error: {}", glz::format_error(ec)));
     }
 };
 

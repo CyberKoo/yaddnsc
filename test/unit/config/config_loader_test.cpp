@@ -79,6 +79,23 @@ TEST(ConfigLoaderTest, InvalidJson_ThrowsRuntimeError) {
     std::filesystem::remove(path);
 }
 
+TEST(ConfigLoaderTest, InvalidJson_ErrorDoesNotLeakConfigContent) {
+    // Regression: the exception message must not contain the raw config
+    // file contents — they may hold API credentials and the message is
+    // logged as a fatal error.
+    auto path = write_temp_config(R"({"token": "supersecret456", "broken")");
+
+    try {
+        [[maybe_unused]] auto cfg = Config::load_config(path);
+        FAIL() << "expected std::runtime_error";
+    } catch (const std::runtime_error &e) {
+        const std::string msg(e.what());
+        EXPECT_EQ(msg.find("supersecret456"), std::string::npos) << "message leaked config content: " << msg;
+    }
+
+    std::filesystem::remove(path);
+}
+
 TEST(ConfigLoaderTest, EmptyFile_ThrowsRuntimeError) {
     auto path = write_temp_config("");
 
