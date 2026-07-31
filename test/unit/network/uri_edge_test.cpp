@@ -145,3 +145,40 @@ TEST(UriEdgeTest, HostPort_WithNonNumericPort) {
     EXPECT_EQ(uri.get_host(), "example.com");
     EXPECT_EQ(uri.get_port(), 80);
 }
+
+// ===========================================================================
+// Port range validation
+// ===========================================================================
+
+TEST(UriEdgeTest, HostPort_OutOfRangePort_Throws) {
+    // Regression: 99999 was previously accepted and silently truncated to
+    // 34463 by static_cast<uint16_t> at the call site.
+    EXPECT_THROW(Uri::parse("http://example.com:99999"), std::runtime_error);
+}
+
+TEST(UriEdgeTest, HostPort_NegativePort_Throws) {
+    EXPECT_THROW(Uri::parse("http://example.com:-1"), std::runtime_error);
+}
+
+TEST(UriEdgeTest, BracketIPv6_OutOfRangePort_Throws) {
+    EXPECT_THROW(Uri::parse("http://[::1]:70000"), std::runtime_error);
+}
+
+TEST(UriEdgeTest, HostPort_TrailingGarbage_FallsBackToDefault) {
+    // "8080x" must not be silently accepted as 8080; the port is treated
+    // as unspecified and the default is used (same as a non-numeric port).
+    auto uri = Uri::parse("http://example.com:8080x");
+    EXPECT_EQ(uri.get_host(), "example.com");
+    EXPECT_EQ(uri.get_port(), 80);
+}
+
+TEST(UriEdgeTest, HostPort_MaxPort_Accepted) {
+    auto uri = Uri::parse("http://example.com:65535");
+    EXPECT_EQ(uri.get_port(), 65535);
+}
+
+TEST(UriEdgeTest, HostPort_ZeroPort_Accepted) {
+    // Port 0 means "unspecified" throughout the code base.
+    auto uri = Uri::parse("http://example.com:0");
+    EXPECT_EQ(uri.get_port(), 0);
+}

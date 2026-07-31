@@ -178,11 +178,19 @@ void Uri::parse_authority(std::string_view auth, Slice &host_out, std::optional<
             auto const port_str = auth.substr(closing + 2);
             if (!port_str.empty()) {
                 int v{};
-                if (auto [p, ec] = std::from_chars(
-                        port_str.data(), port_str.data() + port_str.size(), v);
-                    ec == std::errc()) {
+                auto [p, ec] = std::from_chars(port_str.data(), port_str.data() + port_str.size(), v);
+                if (ec == std::errc() && p == port_str.data() + port_str.size()) {
+                    // A numeric port must be a legal TCP/UDP port; out-of-range
+                    // values were previously silently truncated by callers'
+                    // static_cast<uint16_t>, connecting to the wrong port.
+                    if (v < 0 || v > 65535) {
+                        throw std::runtime_error(
+                            fmt::format("Invalid port \"{}\" in URI (must be 0-65535)", port_str));
+                    }
                     port_out.emplace(v);
                 }
+                // Non-numeric / trailing garbage: port stays unspecified
+                // (callers fall back to the default) — same as before.
             }
         }
         return;
@@ -205,10 +213,16 @@ void Uri::parse_authority(std::string_view auth, Slice &host_out, std::optional<
         auto const port_str = auth.substr(colon + 1);
         if (!port_str.empty()) {
             int v{};
-            if (auto [p, ec] = std::from_chars(port_str.data(), port_str.data() + port_str.size(), v);
-                ec == std::errc()) {
+            auto [p, ec] = std::from_chars(port_str.data(), port_str.data() + port_str.size(), v);
+            if (ec == std::errc() && p == port_str.data() + port_str.size()) {
+                // See the IPv6 branch above: numeric ports must be 0-65535.
+                if (v < 0 || v > 65535) {
+                    throw std::runtime_error(
+                        fmt::format("Invalid port \"{}\" in URI (must be 0-65535)", port_str));
+                }
                 port_out.emplace(v);
             }
+            // Non-numeric / trailing garbage: port stays unspecified.
         }
         return;
     }
