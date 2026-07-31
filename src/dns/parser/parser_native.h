@@ -100,11 +100,14 @@ namespace DNS {
 
         [[nodiscard]] static std::string format_domain_name(std::span<const std::uint8_t> wire, size_t rdata_offset);
 
-        [[nodiscard]] static std::string format_mx(std::span<const std::uint8_t> wire, size_t rdata_offset);
+        [[nodiscard]] static std::string format_mx(std::span<const std::uint8_t> wire, size_t rdata_offset,
+                                                   size_t rdlen);
 
-        [[nodiscard]] static std::string format_soa(std::span<const std::uint8_t> wire, size_t rdata_offset);
+        [[nodiscard]] static std::string format_soa(std::span<const std::uint8_t> wire, size_t rdata_offset,
+                                                    size_t rdlen);
 
-        [[nodiscard]] static std::string format_srv(std::span<const std::uint8_t> wire, size_t rdata_offset);
+        [[nodiscard]] static std::string format_srv(std::span<const std::uint8_t> wire, size_t rdata_offset,
+                                                    size_t rdlen);
 
         [[nodiscard]] static std::string format_generic(std::span<const std::uint8_t> rdata);
 

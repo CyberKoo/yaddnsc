@@ -150,6 +150,15 @@ std::string DNS::RecordParser::decompress_name(const std::span<const std::uint8_
 
         result.append(reinterpret_cast<const char *>(wire.data() + current), label_len);
         current += label_len;
+
+        // RFC 1035 §2.3.4: an expanded name must not exceed 255 octets.
+        // Pointer chains could otherwise expand far beyond the limit.
+        if (result.size() > NAME_MAX_BYTES) {
+            throw DnsLookupException(
+                fmt::format("DNS name decompression: expanded name exceeds {} bytes", NAME_MAX_BYTES),
+                DnsError::PARSE
+            );
+        }
     }
 
     return result;
@@ -202,16 +211,28 @@ std::string DNS::RecordParser::format_domain_name(const std::span<const std::uin
     return decompress_name(wire, name_offset);
 }
 
-std::string DNS::RecordParser::format_mx(const std::span<const std::uint8_t> wire, size_t rdata_offset) {
+std::string DNS::RecordParser::format_mx(const std::span<const std::uint8_t> wire, size_t rdata_offset,
+                                         size_t rdlen) {
     // MX: preference (2 bytes) + domain-name (compressed).
-    const auto pref = Utils::Bytes::read_u16_be(wire.subspan(rdata_offset));
+    const auto rdata = wire.subspan(rdata_offset, rdlen);
+    const auto pref = Utils::Bytes::try_read_u16_be(rdata, 0);
+    if (!pref) [[unlikely]] {
+        throw DnsLookupException("Invalid MX record: preference missing", DnsError::PARSE);
+    }
     size_t name_offset = rdata_offset + 2;
     auto name = decompress_name(wire, name_offset);
-    return fmt::format("{} {}", pref, name);
+    // The name's wire representation must fit inside the RDATA; only a
+    // compression pointer may leave it (RFC 1035 §4.1.4).
+    if (name_offset > rdata_offset + rdlen) [[unlikely]] {
+        throw DnsLookupException("Invalid MX record: name extends past RDATA", DnsError::PARSE);
+    }
+    return fmt::format("{} {}", *pref, name);
 }
 
-std::string DNS::RecordParser::format_soa(const std::span<const std::uint8_t> wire, size_t rdata_offset) {
+std::string DNS::RecordParser::format_soa(const std::span<const std::uint8_t> wire, size_t rdata_offset,
+                                          size_t rdlen) {
     // SOA: MNAME (domain-name) + RNAME (domain-name) + 5 × uint32.
+    const auto rdata = wire.subspan(rdata_offset, rdlen);
 
     // Parse MNAME.
     size_t offset = rdata_offset;
@@ -220,30 +241,44 @@ std::string DNS::RecordParser::format_soa(const std::span<const std::uint8_t> wi
     // Parse RNAME.
     auto rname = decompress_name(wire, offset);
 
+    // The names' wire representation must fit inside the RDATA; only a
+    // compression pointer may leave it (RFC 1035 §4.1.4).
+    const auto consumed = offset - rdata_offset;
+    if (consumed > rdlen) [[unlikely]] {
+        throw DnsLookupException("Invalid SOA record: names extend past RDATA", DnsError::PARSE);
+    }
+    if (rdlen - consumed < 20) [[unlikely]] {
+        throw DnsLookupException("Invalid SOA record: RDATA truncated", DnsError::PARSE);
+    }
+
     // 5 × 32-bit integers (big-endian).
-    const auto serial = Utils::Bytes::read_u32_be(wire.subspan(offset));
-    offset += 4;
-    const auto refresh = Utils::Bytes::read_u32_be(wire.subspan(offset));
-    offset += 4;
-    const auto retry = Utils::Bytes::read_u32_be(wire.subspan(offset));
-    offset += 4;
-    const auto expire = Utils::Bytes::read_u32_be(wire.subspan(offset));
-    offset += 4;
-    const auto minimum = Utils::Bytes::read_u32_be(wire.subspan(offset));
+    const auto serial = Utils::Bytes::read_u32_be(rdata, consumed);
+    const auto refresh = Utils::Bytes::read_u32_be(rdata, consumed + 4);
+    const auto retry = Utils::Bytes::read_u32_be(rdata, consumed + 8);
+    const auto expire = Utils::Bytes::read_u32_be(rdata, consumed + 12);
+    const auto minimum = Utils::Bytes::read_u32_be(rdata, consumed + 16);
 
     return fmt::format("{} {} {} {} {} {} {}", mname, rname, serial, refresh, retry, expire, minimum);
 }
 
-std::string DNS::RecordParser::format_srv(const std::span<const std::uint8_t> wire, size_t rdata_offset) {
+std::string DNS::RecordParser::format_srv(const std::span<const std::uint8_t> wire, size_t rdata_offset,
+                                          size_t rdlen) {
     // SRV: priority (2) + weight (2) + port (2) + target (domain-name).
-    const auto priority = Utils::Bytes::read_u16_be(wire.subspan(rdata_offset));
-    const auto weight = Utils::Bytes::read_u16_be(wire.subspan(rdata_offset + 2));
-    const auto port = Utils::Bytes::read_u16_be(wire.subspan(rdata_offset + 4));
+    const auto rdata = wire.subspan(rdata_offset, rdlen);
+    const auto priority = Utils::Bytes::try_read_u16_be(rdata, 0);
+    const auto weight = Utils::Bytes::try_read_u16_be(rdata, 2);
+    const auto port = Utils::Bytes::try_read_u16_be(rdata, 4);
+    if (!priority || !weight || !port) [[unlikely]] {
+        throw DnsLookupException("Invalid SRV record: fixed fields missing", DnsError::PARSE);
+    }
 
     size_t offset = rdata_offset + 6;
     auto target = decompress_name(wire, offset);
+    if (offset > rdata_offset + rdlen) [[unlikely]] {
+        throw DnsLookupException("Invalid SRV record: target extends past RDATA", DnsError::PARSE);
+    }
 
-    return fmt::format("{} {} {} {}", priority, weight, port, target);
+    return fmt::format("{} {} {} {}", *priority, *weight, *port, target);
 }
 
 std::string DNS::RecordParser::format_generic(const std::span<const std::uint8_t> rdata) {
@@ -349,13 +384,31 @@ std::string DNS::RecordParser::rdata_to_string(const ResourceRecord &rr, const s
             return format_domain_name(wire, rr.rdata_offset);
 
         case static_cast<std::uint16_t>(RecordType::MX):
-            return format_mx(wire, rr.rdata_offset);
+            if (rdlen < 3) [[unlikely]] {
+                throw DnsLookupException(
+                    fmt::format("Invalid MX record RDATA length: {}", rdlen),
+                    DnsError::PARSE
+                );
+            }
+            return format_mx(wire, rr.rdata_offset, rdlen);
 
         case static_cast<std::uint16_t>(RecordType::SOA):
-            return format_soa(wire, rr.rdata_offset);
+            if (rdlen < 22) [[unlikely]] {
+                throw DnsLookupException(
+                    fmt::format("Invalid SOA record RDATA length: {}", rdlen),
+                    DnsError::PARSE
+                );
+            }
+            return format_soa(wire, rr.rdata_offset, rdlen);
 
         case static_cast<std::uint16_t>(RecordType::SRV):
-            return format_srv(wire, rr.rdata_offset);
+            if (rdlen < 7) [[unlikely]] {
+                throw DnsLookupException(
+                    fmt::format("Invalid SRV record RDATA length: {}", rdlen),
+                    DnsError::PARSE
+                );
+            }
+            return format_srv(wire, rr.rdata_offset, rdlen);
 
         default: {
             const auto type_name = magic_enum::enum_name(static_cast<RecordType>(rr.type));

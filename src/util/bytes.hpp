@@ -7,6 +7,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <span>
 
 /// Big-endian byte-order helpers.
@@ -41,6 +42,28 @@ namespace Utils::Bytes {
 
     /// Read a 32-bit big-endian value from a span at the given offset.
     [[nodiscard]] inline std::uint32_t read_u32_be(std::span<const std::uint8_t> buf, std::size_t offset) noexcept {
+        return read_u32_be(buf.data() + offset);
+    }
+
+    /// Read a 16-bit big-endian value at @p offset, verifying that the span
+    /// actually covers the value.
+    /// @return  std::nullopt when fewer than 2 bytes remain at @p offset.
+    [[nodiscard]] inline std::optional<std::uint16_t> try_read_u16_be(std::span<const std::uint8_t> buf,
+                                                                      std::size_t offset) noexcept {
+        if (offset > buf.size() || buf.size() - offset < 2) {
+            return std::nullopt;
+        }
+        return read_u16_be(buf.data() + offset);
+    }
+
+    /// Read a 32-bit big-endian value at @p offset, verifying that the span
+    /// actually covers the value.
+    /// @return  std::nullopt when fewer than 4 bytes remain at @p offset.
+    [[nodiscard]] inline std::optional<std::uint32_t> try_read_u32_be(std::span<const std::uint8_t> buf,
+                                                                      std::size_t offset) noexcept {
+        if (offset > buf.size() || buf.size() - offset < 4) {
+            return std::nullopt;
+        }
         return read_u32_be(buf.data() + offset);
     }
 

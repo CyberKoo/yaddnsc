@@ -210,6 +210,42 @@ namespace {
         return buf;
     }
 
+    /// Build a response with a single answer record of the given type and
+    /// raw RDATA bytes.  `declared_rdlen` overrides the RDLENGTH field
+    /// (defaults to the actual RDATA size) — used to build malformed records.
+    std::vector<std::uint8_t> make_response_with_rdata(std::uint16_t type,
+                                                       const std::vector<std::uint8_t> &rdata,
+                                                       std::size_t declared_rdlen = std::string::npos) {
+        std::vector<std::uint8_t> buf;
+        buf.resize(12, 0);
+        write_u16_be(buf, 0, 0x1234);
+        buf[2] = 0x81;
+        buf[3] = 0x80;
+        write_u16_be(buf, 4, 1);
+        write_u16_be(buf, 6, 1);
+        encode_name(buf, "example.com");
+        buf.push_back(0x00);
+        buf.push_back(0x01);
+        buf.push_back(0x00);
+        buf.push_back(0x01);
+        // Answer: name pointer + type + class + ttl + rdlength + rdata.
+        buf.push_back(0xC0);
+        buf.push_back(0x0C);
+        buf.push_back(static_cast<std::uint8_t>(type >> 8));
+        buf.push_back(static_cast<std::uint8_t>(type & 0xFF));
+        buf.push_back(0x00);
+        buf.push_back(0x01);
+        buf.push_back(0x00);
+        buf.push_back(0x00);
+        buf.push_back(0x01);
+        buf.push_back(0x2C);
+        const auto rdlen = declared_rdlen == std::string::npos ? rdata.size() : declared_rdlen;
+        buf.push_back(static_cast<std::uint8_t>(rdlen >> 8));
+        buf.push_back(static_cast<std::uint8_t>(rdlen & 0xFF));
+        buf.insert(buf.end(), rdata.begin(), rdata.end());
+        return buf;
+    }
+
     std::vector<std::uint8_t> make_authority_response(std::uint16_t txid, std::string_view ns_name,
                                                        std::string_view ns_target, std::uint32_t ttl = 300) {
         std::vector<std::uint8_t> buf;
@@ -575,6 +611,89 @@ TEST(DnsParserTest, QuestionSectionTruncated_Throws) {
     buf[3] = 0x80;
     write_u16_be(buf, 4, 1);
     write_u16_be(buf, 6, 0);
+    EXPECT_THROW((DNS::RecordParser{buf}), DnsLookupException);
+}
+
+// ===========================================================================
+// RDATA bounds enforcement
+// ===========================================================================
+
+TEST(DnsParserTest, ParseMxRecord_ShortRdata_Throws) {
+    // MX requires at least 2 (preference) + 1 (root label) bytes.
+    auto response = make_response_with_rdata(static_cast<std::uint16_t>(DNS::RecordType::MX), {0x00});
+    EXPECT_THROW((DNS::RecordParser::parse_strings(response)), DnsLookupException);
+}
+
+TEST(DnsParserTest, ParseSoaRecord_ShortRdata_Throws) {
+    // SOA requires 2 names + 20 bytes of integers.
+    auto response = make_response_with_rdata(static_cast<std::uint16_t>(DNS::RecordType::SOA), {0x00, 0x00});
+    EXPECT_THROW((DNS::RecordParser::parse_strings(response)), DnsLookupException);
+}
+
+TEST(DnsParserTest, ParseSrvRecord_ShortRdata_Throws) {
+    // SRV requires 6 fixed bytes + at least a root label.
+    auto response = make_response_with_rdata(static_cast<std::uint16_t>(DNS::RecordType::SRV), {0x00, 0x00});
+    EXPECT_THROW((DNS::RecordParser::parse_strings(response)), DnsLookupException);
+}
+
+TEST(DnsParserTest, ParseSoaRecord_NamesPastRdata_Throws) {
+    // RDATA declares 22 bytes, but the MNAME wire encoding is 28 bytes —
+    // the record's declared length does not match its content.
+    std::vector<std::uint8_t> mname;
+    encode_name(mname, "very-long-name.example.com");
+    auto response = make_response_with_rdata(static_cast<std::uint16_t>(DNS::RecordType::SOA), mname, 22);
+    EXPECT_THROW((DNS::RecordParser::parse_strings(response)), DnsLookupException);
+}
+
+TEST(DnsParserTest, DecompressName_ExpandedTooLong_Throws) {
+    // A pointer chain that expands past the RFC 1035 §2.3.4 255-octet limit.
+    std::vector<std::uint8_t> buf;
+    buf.resize(12, 0);
+    write_u16_be(buf, 0, 0x1234);
+    buf[2] = 0x81;
+    buf[3] = 0x80;
+    write_u16_be(buf, 4, 1);
+    write_u16_be(buf, 6, 1);
+    encode_name(buf, "example.com");
+    buf.push_back(0x00);
+    buf.push_back(0x01);
+    buf.push_back(0x00);
+    buf.push_back(0x01);
+
+    // Answer name: three 63-byte labels (189 chars), then a pointer to a
+    // second three-63-byte-label name at the end of the message.
+    const size_t name_start = buf.size();
+    for (int i = 0; i < 3; ++i) {
+        buf.push_back(63);
+        buf.insert(buf.end(), 63, static_cast<std::uint8_t>('a' + i));
+    }
+    buf.push_back(0xC0); // pointer placeholder (2 bytes)
+    buf.push_back(0x00);
+
+    // Rest of the answer record (parsing aborts before RDATA matters).
+    buf.push_back(0x00);
+    buf.push_back(0x01);
+    buf.push_back(0x00);
+    buf.push_back(0x01);
+    buf.push_back(0x00);
+    buf.push_back(0x00);
+    buf.push_back(0x01);
+    buf.push_back(0x2C);
+    buf.push_back(0x00);
+    buf.push_back(0x00);
+
+    // Target name: three 63-byte labels + root, at the end of the message.
+    const size_t target_pos = buf.size();
+    for (int i = 0; i < 3; ++i) {
+        buf.push_back(63);
+        buf.insert(buf.end(), 63, static_cast<std::uint8_t>('d' + i));
+    }
+    buf.push_back(0x00);
+
+    // Patch the pointer to the target position.
+    buf[name_start + 193] = static_cast<std::uint8_t>(target_pos >> 8);
+    buf[name_start + 194] = static_cast<std::uint8_t>(target_pos & 0xFF);
+
     EXPECT_THROW((DNS::RecordParser{buf}), DnsLookupException);
 }
 
