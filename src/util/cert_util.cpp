@@ -90,22 +90,18 @@ std::optional<std::string> get_system_ca_path() {
 
 std::optional<std::string> discover_ca_bundle() {
     static const std::optional<std::string> ca_bundle = []() -> std::optional<std::string> {
-        // Tier 1: SSL_CERT_FILE environment variable
+        // Tier 1: SSL_CERT_FILE environment variable (explicit override).
+        // Logged at INFO level because an env-var override of the trust anchor
+        // should be visible in the default log output.
         if (const auto *env = std::getenv("SSL_CERT_FILE"); env != nullptr && *env != '\0') {
             if (std::filesystem::is_regular_file(env)) {
-                SPDLOG_DEBUG("Found CA bundle via SSL_CERT_FILE: {}", env);
+                SPDLOG_INFO("Using CA bundle from SSL_CERT_FILE: {}", env);
                 return std::string(env);
             }
             SPDLOG_WARN("SSL_CERT_FILE points to non-existent file: {}", env);
         }
 
-        // Tier 2: Local ./ca.pem (dev/test override)
-        if (std::filesystem::is_regular_file("./ca.pem")) {
-            SPDLOG_DEBUG("Found CA bundle at ./ca.pem");
-            return "./ca.pem";
-        }
-
-        // Tier 3: OpenSSL default cert file path
+        // Tier 2: OpenSSL default cert file path
         if (const auto *default_path = X509_get_default_cert_file(); default_path != nullptr && *default_path != '\0') {
             if (std::filesystem::is_regular_file(default_path)) {
                 SPDLOG_DEBUG("Found CA bundle via OpenSSL default: {}", default_path);
@@ -113,7 +109,7 @@ std::optional<std::string> discover_ca_bundle() {
             }
         }
 
-        // Tier 4: Hardcoded system paths
+        // Tier 3: Hardcoded system paths
         const auto &hardcoded = get_hardcoded_paths();
         if (hardcoded) {
             SPDLOG_DEBUG("Found CA bundle at {}", *hardcoded);

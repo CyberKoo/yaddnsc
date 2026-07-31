@@ -601,16 +601,15 @@ The `strategy` field controls how multiple DNS servers are queried:
 
 ## CA Certificate Discovery
 
-yaddnsc uses a four-tier automatic discovery chain to locate a CA certificate bundle for TLS connections (Drivers, DoH, DoT, HTTP IP sources).
+yaddnsc uses a three-tier automatic discovery chain to locate a CA certificate bundle for TLS connections (Drivers, DoH, DoT, HTTP IP sources).
 
 The first bundle found is cached and reused for the lifetime of the process.
 
 | Priority | Mechanism | Typical use case |
 |----------|-----------|------------------|
-| 1 | **`SSL_CERT_FILE`** environment variable | Container environments, system-wide override |
-| 2 | **`./ca.pem`** in the working directory | Development & testing (just drop a file) |
-| 3 | **OpenSSL default path** (`X509_get_default_cert_file`) | Standard system installations |
-| 4 | **Well-known hardcoded paths** (14 paths across Linux, macOS, √BSD) | Non-standard installations, cross-platform portability |
+| 1 | **`SSL_CERT_FILE`** environment variable | Explicit override (containers, private CAs); its use is logged at INFO level at startup |
+| 2 | **OpenSSL default path** (`X509_get_default_cert_file`) | Standard system installations |
+| 3 | **Well-known hardcoded paths** (14 paths across Linux, macOS, √BSD) | Non-standard installations, cross-platform portability |
 
 ```bash
 # Use a custom CA bundle (overrides all auto-detection)

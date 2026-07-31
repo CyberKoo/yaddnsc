@@ -9,11 +9,10 @@
 #include <string>
 
 namespace Utils::Cert {
-    /// Four-tier CA bundle discovery:
-    ///   1. SSL_CERT_FILE environment variable
-    ///   2. Local ./ca.pem (dev/test override)
-    ///   3. OpenSSL default file path (X509_get_default_cert_file)
-    ///   4. Well-known hardcoded system paths
+    /// Three-tier CA bundle discovery:
+    ///   1. SSL_CERT_FILE environment variable (explicit override)
+    ///   2. OpenSSL default file path (X509_get_default_cert_file)
+    ///   3. Well-known hardcoded system paths
     ///
     /// The result is cached after the first invocation.
     ///
@@ -26,7 +25,7 @@ namespace Utils::Cert {
     /// found. The result is cached after the first invocation.
     ///
     /// @note  Consider using discover_ca_bundle() instead, which additionally
-    ///        checks SSL_CERT_FILE, ./ca.pem, and the OpenSSL default path.
+    ///        checks SSL_CERT_FILE and the OpenSSL default path.
     ///
     /// @return  Path to a CA bundle file, or std::nullopt.
     [[nodiscard]] std::optional<std::string> get_system_ca_path();

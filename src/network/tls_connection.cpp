@@ -22,6 +22,7 @@
 
 #include "fmt.hpp"
 #include <openssl/err.h>
+#include <openssl/x509_vfy.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <poll.h>
@@ -115,13 +116,32 @@ std::expected<void, TlsConnection::IoStatus> TlsConnection::connect() {
     BIO_get_ssl(bio.get(), &ssl);
     if (ssl) {
         const std::string &effective_hostname = sni_hostname_.has_value() ? *sni_hostname_ : server_;
-        SSL_set_tlsext_host_name(ssl, effective_hostname.c_str());
+        const bool is_ip = InetAddress::parse(effective_hostname).has_value();
 
-        // SSL_set1_host expects a DNS name, not an IP address.
-        // When the connection target is a literal IP, skip hostname
-        // verification — OpenSSL checks SAN IP entries automatically.
-        if (!InetAddress::parse(effective_hostname)) {
-            SSL_set1_host(ssl, effective_hostname.c_str());
+        if (!is_ip) {
+            // RFC 6066 §3: SNI MUST NOT contain an IP literal.
+            SSL_set_tlsext_host_name(ssl, effective_hostname.c_str());
+        }
+
+        // Bind the peer identity check to the connection target.
+        // Hostnames use SSL_set1_host; IP literals require
+        // X509_VERIFY_PARAM_set1_ip_asc so that the certificate's SAN IP
+        // entries are verified (OpenSSL does not do this automatically).
+        auto *verify_param = SSL_get0_param(ssl);
+        if (is_ip) {
+            // Strip the IPv6 scope id ("fe80::1%eth0") — it is not part
+            // of the address and X509_VERIFY_PARAM_set1_ip_asc rejects it.
+            const auto pct = effective_hostname.find('%');
+            const auto ip_literal = pct == std::string::npos
+                ? effective_hostname
+                : effective_hostname.substr(0, pct);
+            if (X509_VERIFY_PARAM_set1_ip_asc(verify_param, ip_literal.c_str()) != 1) {
+                return std::unexpected(log_ssl_error(
+                    fmt::format(R"(Failed to set IP verification for "{}")", effective_hostname)));
+            }
+        } else if (SSL_set1_host(ssl, effective_hostname.c_str()) != 1) {
+            return std::unexpected(log_ssl_error(
+                fmt::format(R"(Failed to set hostname verification for "{}")", effective_hostname)));
         }
 
         if (!alpn_proto_.empty()) {
@@ -456,7 +476,7 @@ SslCtxPtr TlsConnection::create_default_ssl_ctx() {
 
     SSL_CTX_set_verify(ctx.get(), SSL_VERIFY_PEER, nullptr);
 
-    // Four-tier discovery: SSL_CERT_FILE → ./ca.pem → OpenSSL default → hardcoded paths
+    // Three-tier discovery: SSL_CERT_FILE → OpenSSL default → hardcoded paths
     if (auto ca_path = Utils::Cert::discover_ca_bundle(); ca_path) {
         if (SSL_CTX_load_verify_locations(ctx.get(), ca_path->c_str(), nullptr) != 1) {
             [[maybe_unused]] auto _ = log_ssl_error(fmt::format("Failed to load CA bundle from {}", *ca_path));

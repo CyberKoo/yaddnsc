@@ -111,9 +111,8 @@ if [ ! -f "${CERT_FILE}" ]; then
         -addext "subjectAltName=DNS:sim,DNS:localhost,IP:127.0.0.1" 2>&1 | grep -v "^[.+*]"
 fi
 
-cp "${CERT_FILE}" "${BUILD_DIR}/ca.pem"
-export SSL_CERT_FILE="${BUILD_DIR}/ca.pem"
-echo "  Certificate: ${CERT_FILE} -> ${BUILD_DIR}/ca.pem"
+export SSL_CERT_FILE="${CERT_FILE}"
+echo "  Certificate: ${CERT_FILE}"
 
 # ---------------------------------------------------------------------------
 # 4. Start sim server

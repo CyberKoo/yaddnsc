@@ -5,7 +5,8 @@
 //   - discover_ca_bundle() returns a path or nullopt (never crashes)
 //   - SSL_CERT_FILE env var takes highest priority
 //   - When SSL_CERT_FILE points to a non-existent file, the function logs
-//     a warning and falls through to tiers 2-4
+//     a warning and falls through to the remaining discovery tiers
+//   - A local ./ca.pem in the working directory is NOT trusted
 //   - get_system_ca_path() returns a path or nullopt (legacy)
 //
 // Note: both functions cache their result in a function-local static,
@@ -20,12 +21,17 @@
 #include <cstdio>
 #include <string>
 
+#include <unistd.h>
+
 #include "util/cert_util.h"
 
 // ---------------------------------------------------------------------------
 // Test that discover_ca_bundle() falls through when SSL_CERT_FILE points to
 // a non-existent file.  The function should log a warning and continue to
-// tiers 2-4 (local ./ca.pem, OpenSSL default, hardcoded paths).
+// the remaining discovery tiers.
+//
+// Also verifies that a local ./ca.pem in the working directory is NOT
+// implicitly trusted (regression: the dev/test override was removed).
 //
 // This must be the FIRST discover_ca_bundle() call in the process.
 // ---------------------------------------------------------------------------
@@ -34,15 +40,25 @@ TEST(CertUtilTest, DiscoverCaBundle_EnvVarNotFound) {
     const auto *old_env = std::getenv("SSL_CERT_FILE");
     ASSERT_EQ(::setenv("SSL_CERT_FILE", "/tmp/yaddnsc_ca_nonexistent_XXXXXX", 1), 0);
 
-    // First call — should fall through to tiers 2-4.
+    // Place a ./ca.pem in the working directory — it must NOT be picked up.
+    constexpr const char *CWD_CA = "./ca.pem";
+    FILE *f = std::fopen(CWD_CA, "w");
+    ASSERT_NE(f, nullptr) << "failed to create ./ca.pem in the working directory";
+    std::fclose(f);
+
+    // First call — should fall through to the remaining discovery tiers.
     auto path = Utils::Cert::discover_ca_bundle();
     // The path may or may not have a value depending on whether any system
-    // CA bundle exists.  But it should not crash, and the non-existent env
-    // var path should NOT have been returned.
+    // CA bundle exists.  But it should not crash, the non-existent env
+    // var path should NOT have been returned, and ./ca.pem must never be
+    // implicitly trusted.
     if (path.has_value()) {
         EXPECT_NE(*path, "/tmp/yaddnsc_ca_nonexistent_XXXXXX");
+        EXPECT_NE(*path, CWD_CA);
         EXPECT_FALSE(path->empty());
     }
+
+    ::unlink(CWD_CA);
 
     // Restore.
     if (old_env) {

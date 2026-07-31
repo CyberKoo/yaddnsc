@@ -324,6 +324,34 @@ TEST_F(TlsConnectionTest, CustomSniHostname) {
     EXPECT_TRUE(conn.is_healthy());
 }
 
+TEST_F(TlsConnectionTest, ConnectToIp_WithMismatchedSan_ReturnsError) {
+    // Regression: when connecting to an IP literal, the peer certificate's
+    // SAN IP entries must be verified (X509_VERIFY_PARAM_set1_ip_asc).
+    // The test server's certificate has SAN IP:127.0.0.1; verifying against
+    // 127.0.0.2 must fail even though the chain itself is trusted.
+    //
+    // Before the fix, IP targets skipped identity verification entirely,
+    // so this connection succeeded (the vulnerability).
+    const auto *old_env = std::getenv("SSL_CERT_FILE");
+    ::setenv("SSL_CERT_FILE", cert_path.c_str(), 1);
+
+    TlsOptions opts;
+    opts.sni_hostname = "127.0.0.2";
+    opts.connect_timeout = 5s;
+
+    // No custom factory — uses the real default SSL_CTX (verification on).
+    TlsConnection conn("127.0.0.1", TLS_PORT, opts);
+    auto r = conn.connect();
+    EXPECT_FALSE(r.has_value()) << "certificate with mismatched SAN IP was accepted";
+
+    // Restore env var.
+    if (old_env) {
+        ::setenv("SSL_CERT_FILE", old_env, 1);
+    } else {
+        ::unsetenv("SSL_CERT_FILE");
+    }
+}
+
 TEST_F(TlsConnectionTest, ConnectWithSystemCaBundle) {
     // Use the default SSL context (create_default_ssl_ctx) with
     // CA verification, pointing SSL_CERT_FILE at the server's cert.
