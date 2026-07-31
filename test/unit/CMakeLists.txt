@@ -27,6 +27,7 @@ add_unit_test(fd            SOURCE util/fd_test.cpp)
 add_unit_test(fmt_polyfill  SOURCE util/fmt_polyfill_test.cpp)
 add_unit_test(mixin         SOURCE util/mixin_test.cpp)
 add_unit_test(random        SOURCE util/random_test.cpp)
+target_link_libraries(test_random PRIVATE OpenSSL::Crypto)
 add_unit_test(retry_util    SOURCE util/retry_util_test.cpp)
 add_unit_test(string_util   SOURCE util/string_util_test.cpp)
 add_unit_test(validation    SOURCE util/validation_test.cpp)
@@ -153,7 +154,7 @@ add_unit_test(dispatcher SOURCE dns/dispatcher_test.cpp
     ${PROJECT_SOURCE_DIR}/src/dns/dispatcher.cpp
     ${PROJECT_SOURCE_DIR}/src/dns/parser/parser_native.cpp
     ${PROJECT_SOURCE_DIR}/src/dns/error.cpp)
-target_link_libraries(test_dispatcher PRIVATE GTest::gmock)
+target_link_libraries(test_dispatcher PRIVATE GTest::gmock OpenSSL::Crypto)
 target_compile_definitions(test_dispatcher PRIVATE YADDNSC_USE_NATIVE_DNS=1)
 
 # resolver_registry — factory registry for DNS resolver providers
@@ -168,7 +169,7 @@ add_unit_test(factory SOURCE dns/factory_test.cpp
     ${PROJECT_SOURCE_DIR}/src/dns/dispatcher.cpp
     ${PROJECT_SOURCE_DIR}/src/dns/parser/parser_native.cpp
     ${PROJECT_SOURCE_DIR}/src/dns/error.cpp)
-target_link_libraries(test_factory PRIVATE GTest::gmock)
+target_link_libraries(test_factory PRIVATE GTest::gmock OpenSSL::Crypto)
 target_compile_definitions(test_factory PRIVATE YADDNSC_USE_NATIVE_DNS=1)
 
 # wire-format builders and queries
