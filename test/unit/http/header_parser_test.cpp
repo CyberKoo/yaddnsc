@@ -233,8 +233,9 @@ TEST(HttpHeaderParserTest, EmptyExpectedContentType_SkipsTypeCheck) {
     EXPECT_EQ(result->status_code, 200);
 }
 
-TEST(HttpHeaderParserTest, MultipleContentLength_FirstWins) {
-    // When multiple Content-Length headers are present, the first one is used.
+TEST(HttpHeaderParserTest, MultipleContentLength_DifferentValues_Rejected) {
+    // Regression: conflicting Content-Length values are an HTTP response
+    // smuggling vector — must be rejected, not silently taking the first.
     std::string resp = "HTTP/1.1 200 OK\r\n"
                        "Content-Type: text/plain\r\n"
                        "Content-Length: 5\r\n"
@@ -243,9 +244,75 @@ TEST(HttpHeaderParserTest, MultipleContentLength_FirstWins) {
                        "hello";
 
     auto result = Http::parse_response(resp, "text/plain", 1024);
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error(), Http::Error::HEADER_PARSE_FAILED);
+}
+
+TEST(HttpHeaderParserTest, MultipleContentLength_SameValue_Accepted) {
+    // RFC 7230 §3.3.2 tolerates identical repeated Content-Length values.
+    std::string resp = "HTTP/1.1 200 OK\r\n"
+                       "Content-Type: text/plain\r\n"
+                       "Content-Length: 5\r\n"
+                       "Content-Length: 5\r\n"
+                       "\r\n"
+                       "hello";
+
+    auto result = Http::parse_response(resp, "text/plain", 1024);
     ASSERT_TRUE(result.has_value());
     EXPECT_EQ(result->content_length, 5u);
     EXPECT_TRUE(result->has_content_length);
+}
+
+TEST(HttpHeaderParserTest, ContentLength_TrailingGarbage_Rejected) {
+    // "100evil" parses as 100 via from_chars unless the end of input is
+    // verified — must be rejected.
+    std::string resp = "HTTP/1.1 200 OK\r\n"
+                       "Content-Type: text/plain\r\n"
+                       "Content-Length: 100evil\r\n"
+                       "\r\n";
+
+    auto result = Http::parse_response(resp, "text/plain", 1024);
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error(), Http::Error::HEADER_PARSE_FAILED);
+}
+
+TEST(HttpHeaderParserTest, ContentLength_SurroundingWhitespace_Accepted) {
+    // Optional whitespace around the digits is legal HTTP; trim before parse.
+    std::string resp = "HTTP/1.1 200 OK\r\n"
+                       "Content-Type: text/plain\r\n"
+                       "Content-Length:   100   \r\n"
+                       "\r\n";
+
+    auto result = Http::parse_response(resp, "text/plain", 1024);
+    ASSERT_TRUE(result.has_value());
+    EXPECT_EQ(result->content_length, 100u);
+    EXPECT_TRUE(result->has_content_length);
+}
+
+TEST(HttpHeaderParserTest, ContentLengthAndChunked_Rejected) {
+    // RFC 7230 §3.3.3: Content-Length together with Transfer-Encoding is
+    // ambiguous framing — must be rejected, not silently preferring CL.
+    std::string resp = "HTTP/1.1 200 OK\r\n"
+                       "Content-Type: text/plain\r\n"
+                       "Content-Length: 5\r\n"
+                       "Transfer-Encoding: chunked\r\n"
+                       "\r\n";
+
+    auto result = Http::parse_response(resp, "text/plain", 1024);
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error(), Http::Error::HEADER_PARSE_FAILED);
+}
+
+TEST(HttpHeaderParserTest, TransferEncoding_NonChunked_Rejected) {
+    // Transfer-Encoding without a final chunked coding is unsupported.
+    std::string resp = "HTTP/1.1 200 OK\r\n"
+                       "Content-Type: text/plain\r\n"
+                       "Transfer-Encoding: gzip\r\n"
+                       "\r\n";
+
+    auto result = Http::parse_response(resp, "text/plain", 1024);
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error(), Http::Error::HEADER_PARSE_FAILED);
 }
 
 TEST(HttpHeaderParserTest, TransferEncodingChunkedWithGzip) {

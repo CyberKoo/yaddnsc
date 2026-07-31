@@ -38,6 +38,7 @@ std::expected<ResponseHeaders, Error> parse_response(std::string_view buf,
 
     size_t content_length = 0;
     bool has_content_length = false;
+    bool has_transfer_encoding = false;
     bool valid_content_type = false;
     bool is_chunked = false;
 
@@ -45,21 +46,50 @@ std::expected<ResponseHeaders, Error> parse_response(std::string_view buf,
         const auto hname = std::string_view(headers[i].name, headers[i].name_len);
         const auto hvalue = std::string_view(headers[i].value, headers[i].value_len);
 
-        if (StringUtil::iequals(hname, "content-length") && !has_content_length) {
-            auto [ptr, ec] = std::from_chars(hvalue.data(), hvalue.data() + hvalue.size(), content_length);
-            if (ec != std::errc()) {
+        if (StringUtil::iequals(hname, "content-length")) {
+            // RFC 7230 §3.3.2: Content-Length is a single decimal value.
+            // Tolerate optional whitespace around the digits, but reject
+            // anything else (e.g. "100evil" parses as 100 via from_chars
+            // unless the end of input is verified).
+            const auto trimmed = StringUtil::trim(hvalue);
+            if (trimmed.empty()) {
                 return std::unexpected(Error::HEADER_PARSE_FAILED);
             }
-            has_content_length = true;
+            size_t parsed = 0;
+            auto [ptr, ec] = std::from_chars(trimmed.data(), trimmed.data() + trimmed.size(), parsed);
+            if (ec != std::errc() || ptr != trimmed.data() + trimmed.size()) {
+                return std::unexpected(Error::HEADER_PARSE_FAILED);
+            }
+            if (!has_content_length) {
+                content_length = parsed;
+                has_content_length = true;
+            } else if (content_length != parsed) {
+                // Multiple Content-Length headers with conflicting values
+                // are an HTTP request/response smuggling vector.
+                return std::unexpected(Error::HEADER_PARSE_FAILED);
+            }
+            // Identical repeated values are tolerated (RFC 7230 §3.3.2).
         } else if (StringUtil::iequals(hname, "content-type")) {
             if (StringUtil::icontains(hvalue, expected_content_type)) {
                 valid_content_type = true;
             }
         } else if (StringUtil::iequals(hname, "transfer-encoding")) {
+            has_transfer_encoding = true;
             if (StringUtil::icontains(hvalue, "chunked")) {
                 is_chunked = true;
             }
         }
+    }
+
+    // RFC 7230 §3.3.3: Content-Length and Transfer-Encoding must not both
+    // be present — ambiguous framing is a smuggling vector.
+    if (has_content_length && has_transfer_encoding) {
+        return std::unexpected(Error::HEADER_PARSE_FAILED);
+    }
+
+    // Transfer-Encoding without a final chunked coding is unsupported.
+    if (has_transfer_encoding && !is_chunked) {
+        return std::unexpected(Error::HEADER_PARSE_FAILED);
     }
 
     if (!valid_content_type && !expected_content_type.empty()) {
