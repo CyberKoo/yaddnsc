@@ -10,6 +10,7 @@
 //   - Raw QCLASS (mDNS QU bit)
 // =============================================================================
 
+#include <algorithm>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -137,6 +138,26 @@ TEST(QueryBuilderTest, DefaultQueryHasRandomIdAndRd) {
     // Default: QR=0, OPCODE=0, RD=1 → flags = 0x0100
     expect_header(packet, read_u16(packet, 0), 0x0100, 1, 0, 0, 0);
     EXPECT_GT(packet.size(), 12U);
+}
+
+TEST(QueryBuilderTest, DefaultId_IsRandom) {
+    // Regression: the default transaction ID must be unpredictable
+    // (cryptographically secure).  All 64 IDs being equal is essentially
+    // impossible for a 16-bit space (collision probability ~2^-52), so
+    // this fails if the ID generator regresses to a constant or a weak
+    // single-value source.
+    std::vector<std::uint16_t> ids;
+    ids.reserve(64);
+    for (int i = 0; i < 64; ++i) {
+        auto packet = DNS::QueryBuilder{}
+            .add_question("example.com", DNS::RecordType::A)
+            .build();
+        ids.push_back(read_u16(packet, 0));
+    }
+
+    std::ranges::sort(ids);
+    const auto unique_count = std::ranges::unique(ids).begin() - ids.begin();
+    EXPECT_GT(unique_count, 1);
 }
 
 TEST(QueryBuilderTest, BuildsExampleComA) {

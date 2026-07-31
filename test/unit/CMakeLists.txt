@@ -157,10 +157,12 @@ target_compile_definitions(test_factory PRIVATE YADDNSC_USE_NATIVE_DNS=1)
 # wire-format builders and queries
 add_unit_test(builder SOURCE dns/builder_test.cpp
     ${PROJECT_SOURCE_DIR}/src/dns/wire/builder.cpp)
+target_link_libraries(test_builder PRIVATE OpenSSL::Crypto)
 
 # build_query tests
 add_unit_test(mkquery SOURCE dns/mkquery_test.cpp
     ${PROJECT_SOURCE_DIR}/src/dns/wire/builder.cpp)
+target_link_libraries(test_mkquery PRIVATE OpenSSL::Crypto)
 
 # RecordParser — native backend (self-contained, no libresolv)
 add_unit_test(dns_parser_native SOURCE dns/parser_test.cpp dns/parser_native_test.cpp

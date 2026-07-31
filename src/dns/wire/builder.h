@@ -42,7 +42,7 @@ namespace DNS {
     class QueryBuilder {
     public:
         /// Default-construct with sensible query defaults:
-        ///   - ID: random (thread-local MT19937 from Utils::Random::engine)
+        ///   - ID: random (cryptographically secure, from OpenSSL RAND_bytes)
         ///   - QR: 0 (query)
         ///   - OPCODE: 0 (standard query)
         ///   - RD: true (recursion desired)

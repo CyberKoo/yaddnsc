@@ -129,8 +129,9 @@ namespace DNS {
     // ===========================================================================
 
     QueryBuilder::QueryBuilder() : id_(0), qr_(false), opcode_(0), aa_(false), tc_(false), rd_(true), ra_(false) {
-        auto &eng = Utils::Random::engine();
-        id_ = static_cast<std::uint16_t>(eng() & 0xFFFF);
+        // Cryptographically secure random ID (unpredictable against
+        // response-spoofing attacks; see Utils::Random::crypto_u16).
+        id_ = Utils::Random::crypto_u16();
     }
 
     QueryBuilder &QueryBuilder::id(std::uint16_t id) noexcept {

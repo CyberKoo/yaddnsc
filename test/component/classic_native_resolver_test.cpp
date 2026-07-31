@@ -11,6 +11,7 @@
 // =============================================================================
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cstdint>
 #include <cstdlib>
@@ -18,6 +19,8 @@
 #include <deque>
 #include <iterator>
 #include <memory>
+#include <optional>
+#include <span>
 #include <string>
 #include <thread>
 #include <vector>
@@ -48,6 +51,11 @@
 #include "dns/resolver/classic.h"
 #include "dns/resolver_registry.h"
 #include "dns/dns_error_info.h"
+#include "dns/types.h"
+#include "dns/wire/builder.h"
+#include "network/inet_address.h"
+#include "network/socket.h"
+#include "network/socket_addr.h"
 #include "record_kind.h"
 #include "uri.h"
 #include "exception/dns_lookup.h"
@@ -506,6 +514,146 @@ TEST_F(ClassicNativeResolverTest, TcpConnectFailureAfterTruncatedUdp) {
 	// Clean up the UDP-only server.
 	::kill(udp_only_pid, SIGTERM);
 	::waitpid(udp_only_pid, nullptr, 0);
+}
+
+// ===========================================================================
+// Spoofed UDP response handling (source verification)
+// ===========================================================================
+
+/// Build a DNS response that echoes @p query (same ID and question) with a
+/// single A answer for @p ip.  Deliberately passes the ID/question
+/// validation so that only source verification can reject it.
+[[nodiscard]] std::vector<std::uint8_t> build_a_response(const std::vector<std::uint8_t> &query,
+                                                         std::string_view ip) {
+    auto resp = query;
+    resp[2] = 0x81; // QR | RD
+    resp[3] = 0x80; // RA
+    resp[6] = 0x00;
+    resp[7] = 0x01; // ANCOUNT = 1
+
+    // Skip the question section (QNAME + QTYPE + QCLASS).
+    std::size_t q_end = DNS::HEADER_SIZE;
+    while (q_end < resp.size() && resp[q_end] != 0) {
+        q_end += 1 + resp[q_end];
+    }
+    q_end += 5; // root label + QTYPE(2) + QCLASS(2)
+
+    // Drop the EDNS OPT record the query may carry (ARCOUNT=1): the client
+    // does not require it in the response, and it would shift the answer.
+    if (q_end + 11 <= resp.size() && resp[q_end] == 0x00 && resp[q_end + 1] == 0x00 &&
+        resp[q_end + 2] == 0x29) {
+        resp.resize(q_end);
+        resp[10] = 0x00;
+        resp[11] = 0x00; // ARCOUNT = 0
+    }
+
+    // Answer: name pointer to the question, type A, class IN, TTL, RDATA.
+    const std::array<std::uint8_t, 10> fixed = {
+        0xC0, 0x0C,         // name pointer (offset 12)
+        0x00, 0x01,         // TYPE = A
+        0x00, 0x01,         // CLASS = IN
+        0x00, 0x00, 0x00, 0x3C, // TTL = 60
+    };
+    resp.insert(resp.end(), fixed.begin(), fixed.end());
+
+    in_addr in{};
+    ::inet_pton(AF_INET, ip.data(), &in);
+    const auto *bytes = reinterpret_cast<const std::uint8_t *>(&in.s_addr);
+    resp.push_back(0x00);
+    resp.push_back(0x04); // RDLENGTH = 4
+    resp.insert(resp.end(), bytes, bytes + 4);
+    return resp;
+}
+
+TEST_F(ClassicNativeResolverTest, UdpResponseFromUnexpectedSource_IsDiscarded) {
+    // Regression: a UDP response from a source other than the configured
+    // resolver (IP + port) must be discarded.  The forged response echoes
+    // the query with a valid ID and question so it passes the ID/question
+    // validation — only source verification can reject it.
+    //
+    // Before the fix the first datagram to arrive was accepted, so the
+    // forged answer (1.2.3.4) won the race.
+
+    // Real resolver socket: 127.0.0.1 on an ephemeral port.
+    Socket server_sock(AF_INET, SOCK_DGRAM);
+    auto v4 = Inet4Address::parse("127.0.0.1");
+    ASSERT_TRUE(v4.has_value());
+    auto bind_addr = SocketAddr::from_inet(*v4, 0);
+    ASSERT_TRUE(bind_addr.has_value());
+    ASSERT_TRUE(server_sock.bind(*bind_addr).has_value());
+    const auto server_port = server_sock.get_sockname().port();
+
+    Config::DnsServer server;
+    server.address = "127.0.0.1";
+    server.port = server_port;
+    ClassicResolver resolver(std::move(server));
+
+    // Server thread: on query, send a forged response from a DIFFERENT
+    // source port first, then the genuine response from the real socket.
+    // Responses are built from the received query so the ID matches.
+    std::thread server_thread([&] {
+        std::array<std::uint8_t, 512> recv_buf{};
+        SocketAddr client_addr;
+        auto n = server_sock.recv_from(std::as_writable_bytes(std::span{recv_buf}), &client_addr);
+        if (n <= 0) {
+            return; // client query failed — the resolver will time out
+        }
+        const auto client_query = std::vector<std::uint8_t>(recv_buf.begin(), recv_buf.begin() + n);
+
+        // Forged response from an unrelated source port.  The kernel may
+        // hand out the server's own port again (SO_REUSEADDR), so retry
+        // until the ports differ.
+        std::optional<Socket> spoof_sock;
+        for (int attempt = 0; attempt < 8 && !spoof_sock.has_value(); ++attempt) {
+            Socket s(AF_INET, SOCK_DGRAM);
+            auto sb = SocketAddr::from_inet(*v4, 0);
+            if (!sb.has_value()) break;
+            if (s.bind(*sb).has_value() && s.get_sockname().port() != server_port) {
+                spoof_sock.emplace(std::move(s));
+            }
+        }
+        if (!spoof_sock.has_value()) {
+            return; // could not get a distinct source port
+        }
+
+        auto spoof_pkt = build_a_response(client_query, "1.2.3.4");
+        spoof_sock->send_to(std::as_bytes(std::span{spoof_pkt}), client_addr);
+
+        // Genuine response from the real server socket.
+        auto real_pkt = build_a_response(client_query, "198.51.100.42");
+        server_sock.send_to(std::as_bytes(std::span{real_pkt}), client_addr);
+    });
+
+    Utils::CancellationToken cancel;
+    auto result = resolver.query("spoof-test.example", RecordKind::A, cancel);
+    server_thread.join();
+
+    ASSERT_TRUE(result.has_value()) << "resolver query failed: " << result.error().message
+                                    << " (code " << static_cast<int>(result.error().code) << ")";
+
+    // ClassicResolver returns the raw DNS message.  Locate the A record in
+    // the answer section and compare the address bytes: the genuine
+    // response (198.51.100.42) must have won, not the forged one (1.2.3.4).
+    const auto &response = *result;
+    ASSERT_GE(response.size(), 12U);
+
+    // Skip the question section (QNAME + QTYPE + QCLASS).
+    std::size_t off = DNS::HEADER_SIZE;
+    while (off < response.size() && response[off] != 0) {
+        off += 1 + response[off];
+    }
+    off += 5; // root label + QTYPE(2) + QCLASS(2)
+
+    // Answer: name(2) + type(2) + class(2) + ttl(4) + rdlength(2) + rdata(4).
+    ASSERT_GE(response.size(), off + 16);
+    ASSERT_EQ(response[off + 2], 0x00);
+    ASSERT_EQ(response[off + 3], 0x01); // type = A
+    const auto rdlength = static_cast<std::uint16_t>((response[off + 10] << 8) | response[off + 11]);
+    ASSERT_EQ(rdlength, 4);
+
+    std::array<std::uint8_t, 4> ip_bytes{};
+    std::ranges::copy_n(response.begin() + static_cast<std::ptrdiff_t>(off + 12), 4, ip_bytes.begin());
+    EXPECT_EQ(ip_bytes, (std::array<std::uint8_t, 4>{198, 51, 100, 42}));
 }
 
 } // anonymous namespace

@@ -114,15 +114,32 @@ namespace {
 
         std::vector<std::uint8_t> response(MAX_DNS_PACKET_SIZE);
         auto buf = std::as_writable_bytes(std::span{response});
-        auto received = sock.recv_from(buf);
-        if (received < 0) {
-            return std::unexpected(DnsErrorInfo{
-                DnsError::CONNECTION,
-                fmt::format(R"(Resolver #{} UDP recvfrom failed: {})", resolver_id, std::strerror(errno))
-            });
+
+        // Loop: discard datagrams from unexpected sources and keep waiting.
+        // Standard resolvers always respond from the queried IP:port; anything
+        // else may be a spoofed response, and accepting it would let an
+        // attacker both forge answers and abort legitimate queries early.
+        for (;;) {
+            SocketAddr src_addr;
+            auto received = sock.recv_from(buf, &src_addr);
+            if (received < 0) {
+                return std::unexpected(DnsErrorInfo{
+                    DnsError::CONNECTION,
+                    fmt::format(R"(Resolver #{} UDP recvfrom failed: {})", resolver_id, std::strerror(errno))
+                });
+            }
+
+            if (src_addr.family() == addr.addr.family() &&
+                src_addr.port() == addr.addr.port() &&
+                src_addr.address().has_value() &&
+                *src_addr.address() == *addr.addr.address()) {
+                response.resize(static_cast<size_t>(received));
+                return response;
+            }
+
+            SPDLOG_TRACE(R"(Resolver #{} discarding UDP response from unexpected source "{}")", resolver_id,
+                         src_addr.to_string());
         }
-        response.resize(static_cast<size_t>(received));
-        return response;
     }
 
     // ── TCP query (fallback for truncated responses) ──

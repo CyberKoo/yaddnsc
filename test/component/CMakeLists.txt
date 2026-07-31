@@ -103,6 +103,7 @@ target_compile_definitions(test_classic_native_resolver PRIVATE
     YADDNSC_USE_NATIVE_DNS=1
     TEST_DATA_DIR="${PROJECT_SOURCE_DIR}/test/component"
 )
+target_link_libraries(test_classic_native_resolver PRIVATE OpenSSL::Crypto)
 
 # ============================================================================
 #  TlsConnection  (loopback TLS echo server via Python + OpenSSL)
