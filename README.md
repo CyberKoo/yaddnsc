@@ -620,6 +620,8 @@ yaddnsc run
 
 > **Note:** `SSL_CERT_DIR` is **not** supported. On systems where CA certificates are stored in a directory (hash-symlink format), point `SSL_CERT_FILE` to a combined bundle file instead.
 
+> **Security:** When no CA bundle can be discovered, the HTTP client keeps server certificate verification **enabled** (fail-closed) and falls back to OpenSSL's default verify paths. If the system has no trust store, TLS handshakes fail rather than silently proceeding without verification. To connect to servers that use private or self-signed certificates, add the CA certificate to a bundle discoverable by one of the tiers above (e.g. via `SSL_CERT_FILE`).
+
 ## Driver Parameters
 
 See [DRIVERS.md](DRIVERS.md) for the complete reference of all bundled driver parameters, including configuration tables, available substitution variables, and usage examples.

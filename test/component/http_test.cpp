@@ -558,3 +558,41 @@ TEST_F(HttpsServerFixture, TransientHttpClient_Get_Https) {
     EXPECT_EQ(result->status_code, 200);
     EXPECT_EQ(result->body, "198.51.100.42");
 }
+
+TEST_F(HttpsServerFixture, TransientHttpClient_Https_DefaultVerify_RejectsSelfSigned) {
+    // Contract test: server certificate verification must be ON by default.
+    // With no CA path configured, the self-signed test certificate must be
+    // rejected — the client must never silently fall back to unverified
+    // HTTPS when no CA bundle is found (fail-closed).
+    HttpClientOptions opts;
+    opts.connection_timeout = std::chrono::seconds(3);
+    opts.read_timeout = std::chrono::seconds(3);
+
+    TransientHttpClient client(opts);
+    auto url = fmt::format("https://127.0.0.1:{}/ip", port());
+
+    HttpRequest req;
+    req.method = HttpMethod::GET;
+
+    auto result = client.exchange(url, req);
+    ASSERT_FALSE(result.has_value()) << "Self-signed certificate was accepted without verification";
+}
+
+TEST_F(HttpsServerFixture, TransientHttpClient_Https_VerifyDisabled_AcceptsSelfSigned) {
+    // Explicit opt-out: verification disabled via configuration must still work.
+    HttpClientOptions opts;
+    opts.verify_server_cert = false;
+    opts.connection_timeout = std::chrono::seconds(3);
+    opts.read_timeout = std::chrono::seconds(3);
+
+    TransientHttpClient client(opts);
+    auto url = fmt::format("https://127.0.0.1:{}/ip", port());
+
+    HttpRequest req;
+    req.method = HttpMethod::GET;
+
+    auto result = client.exchange(url, req);
+    ASSERT_TRUE(result.has_value()) << "HTTPS request failed: " << result.error();
+    EXPECT_EQ(result->status_code, 200);
+    EXPECT_EQ(result->body, "198.51.100.42");
+}

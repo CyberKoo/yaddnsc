@@ -74,10 +74,22 @@ namespace {
                 ca_path = Utils::Cert::discover_ca_bundle();
             }
 
+            const bool verify = opts.verify_server_cert.value_or(true);
+
             if (ca_path.has_value()) {
                 client.set_ca_cert_path(*ca_path);
-                client.enable_server_certificate_verification(opts.verify_server_cert.value_or(true));
+            } else if (verify) {
+                // Fail-closed: keep verification enabled even when no CA bundle
+                // could be discovered.  httplib falls back to the OpenSSL default
+                // verify paths (SSL_CTX_set_default_verify_paths); if the system
+                // has no trust store the handshake fails instead of silently
+                // proceeding without certificate verification.
+                SPDLOG_WARN("No CA bundle found; relying on OpenSSL default verify paths (fail-closed)");
             }
+
+            // Always set the verification policy explicitly: httplib defaults
+            // to verification OFF, so skipping this call would silently disable it.
+            client.enable_server_certificate_verification(verify);
         }
 
         // --- Outbound interface ----------------------------------------------
