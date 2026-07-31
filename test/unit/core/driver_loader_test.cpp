@@ -9,6 +9,9 @@
 // containing built .so driver files (typically ${CMAKE_BINARY_DIR}/driver).
 // =============================================================================
 
+#include <cstdio>
+#include <cstdlib>
+#include <filesystem>
 #include <string>
 #include <vector>
 #include <string_view>
@@ -129,4 +132,60 @@ TEST(DriverLoaderTest, LoadByAbsolutePath) {
     EXPECT_NO_THROW({ DriverLoader::load(mgr, cfg); });
     ASSERT_EQ(mgr.get_loaded_drivers().size(), 1u);
     EXPECT_EQ(mgr.get_loaded_drivers()[0], "simple");
+}
+
+// ===========================================================================
+// Auto-discovery resilience (foreign/broken libraries are skipped)
+// ===========================================================================
+
+TEST(DriverLoaderTest, AutoDiscover_SkipsBadLibraries) {
+    // Temp dir containing one good driver and two bad libraries:
+    //  - a text file named .so            (dlopen fails)
+    //  - a real shared library that is NOT a yaddnsc driver (dlopen
+    //    succeeds, magic/ABI verification fails)
+    char dir_template[] = "/tmp/yaddnsc_driver_test_XXXXXX";
+    auto *dir = ::mkdtemp(dir_template);
+    ASSERT_NE(dir, nullptr) << "mkdtemp failed";
+
+    std::filesystem::copy_file(std::string(TEST_DRIVER_DIR) + "/simple/simple.so",
+                               std::string(dir) + "/simple.so");
+    {
+        FILE *f = std::fopen((std::string(dir) + "/not_elf.so").c_str(), "w");
+        ASSERT_NE(f, nullptr);
+        std::fputs("this is not a shared library", f);
+        std::fclose(f);
+    }
+    std::filesystem::copy_file(BAD_DRIVER_FIXTURE, std::string(dir) + "/foreign.so");
+
+    DriverManager mgr;
+    Config::AppConfig cfg;
+    cfg.driver.auto_discover = true;
+    cfg.driver.driver_dir = dir;
+
+    // Before the fix, the foreign libraries aborted the whole load.
+    EXPECT_NO_THROW({ DriverLoader::load(mgr, cfg); });
+
+    auto loaded = mgr.get_loaded_drivers();
+    ASSERT_EQ(loaded.size(), 1u);
+    EXPECT_EQ(loaded[0], "simple");
+
+    std::filesystem::remove_all(dir);
+}
+
+TEST(DriverLoaderTest, AutoDiscover_AllBad_DoesNotThrow) {
+    char dir_template[] = "/tmp/yaddnsc_driver_test_XXXXXX";
+    auto *dir = ::mkdtemp(dir_template);
+    ASSERT_NE(dir, nullptr) << "mkdtemp failed";
+
+    std::filesystem::copy_file(BAD_DRIVER_FIXTURE, std::string(dir) + "/foreign.so");
+
+    DriverManager mgr;
+    Config::AppConfig cfg;
+    cfg.driver.auto_discover = true;
+    cfg.driver.driver_dir = dir;
+
+    EXPECT_NO_THROW({ DriverLoader::load(mgr, cfg); });
+    EXPECT_TRUE(mgr.get_loaded_drivers().empty());
+
+    std::filesystem::remove_all(dir);
 }

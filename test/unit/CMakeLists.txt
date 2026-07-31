@@ -89,15 +89,32 @@ add_unit_test(scheduler SOURCE core/scheduler_test.cpp
     ${PROJECT_SOURCE_DIR}/src/core/scheduler.cpp)
 
 # driver_loader + driver_manager — dlopen-based driver loading
-# FIXME: disabled — has issues
-# add_unit_test(driver_loader SOURCE core/driver_loader_test.cpp
-#     ${PROJECT_SOURCE_DIR}/src/core/driver_loader.cpp
-#     ${PROJECT_SOURCE_DIR}/src/core/driver_manager.cpp
-#     ${PROJECT_SOURCE_DIR}/src/core/core_logger.cpp)
-# target_compile_definitions(test_driver_loader PRIVATE
-#     TEST_DRIVER_DIR="${CMAKE_BINARY_DIR}/driver")
-# target_link_libraries(test_driver_loader PRIVATE ${CMAKE_DL_LIBS})
-# target_link_options(test_driver_loader PRIVATE -rdynamic)
+# Fixture: a shared library that is deliberately NOT a yaddnsc driver —
+# verifies that auto-discovery skips foreign libraries instead of aborting.
+# MODULE produces a .so on both Linux and macOS (SHARED would be .dylib).
+add_library(yaddnsc_bad_driver_fixture MODULE core/bad_driver_fixture.cpp)
+
+add_unit_test(driver_loader SOURCE core/driver_loader_test.cpp
+    ${PROJECT_SOURCE_DIR}/src/core/driver_loader.cpp
+    ${PROJECT_SOURCE_DIR}/src/core/driver_manager.cpp
+    ${PROJECT_SOURCE_DIR}/src/core/core_logger.cpp)
+set_target_properties(test_driver_loader PROPERTIES ENABLE_EXPORTS ON)
+# The loaded driver .so is built with sanitizers — the test binary must be
+# too, or ASan aborts with "runtime does not come first" at dlopen time.
+add_sanitizer_flags(test_driver_loader)
+
+# macOS + ASan + dlopen plugins: ASan's ODR checker reports the driver's
+# vtables as duplicate-registration conflicts (known false positive; the
+# plugin is a separate module by design).  Disable ODR detection for this
+# test only, keeping the rest of the recommended ASAN_OPTIONS.
+set_tests_properties(test_driver_loader PROPERTIES
+    ENVIRONMENT "ASAN_OPTIONS=detect_odr_violation=0:detect_stack_use_after_return=1:strict_string_checks=1:detect_invalid_pointer_pairs=2")
+target_compile_definitions(test_driver_loader PRIVATE
+    TEST_DRIVER_DIR="${CMAKE_BINARY_DIR}/driver"
+    BAD_DRIVER_FIXTURE="$<TARGET_FILE:yaddnsc_bad_driver_fixture>")
+target_link_libraries(test_driver_loader PRIVATE ${CMAKE_DL_LIBS})
+# simple.so must be built before the test runs (dlopen dependency).
+add_dependencies(test_driver_loader simple yaddnsc_bad_driver_fixture)
 
 # updater — requires the full DNS + IP-source dependency chain
 add_unit_test(updater SOURCE core/updater_test.cpp

@@ -7,6 +7,7 @@
 #include <filesystem>
 
 #include "config/config.h"
+#include "exception/bad_driver.h"
 #include "util/algorithm.hpp"
 
 #include "config_cmake.h"
@@ -59,10 +60,27 @@ namespace {
             return;
         }
 
-        for (const auto &entry: std::filesystem::directory_iterator(base_dir)) {
-            if (entry.is_regular_file() && entry.path().extension() == ".so") {
-                driver_manager.load_driver(entry.path().string());
+        // The directory contents are not under our control: a single
+        // unrelated or corrupted library (other plugins, partial copies) must
+        // not abort startup — skip it with a warning and keep going.
+        // Manual loads (load_manual) still fail fast: an explicitly
+        // configured driver that cannot load is a configuration error.
+        try {
+            for (const auto &entry: std::filesystem::directory_iterator(base_dir)) {
+                if (!entry.is_regular_file() || entry.path().extension() != ".so") {
+                    continue;
+                }
+                try {
+                    driver_manager.load_driver(entry.path().string());
+                } catch (const BadDriverException &e) {
+                    SPDLOG_WARN("Skipping invalid driver '{}': {}", entry.path().filename().string(), e.what());
+                } catch (const std::exception &e) {
+                    SPDLOG_WARN("Skipping driver '{}': {}", entry.path().filename().string(), e.what());
+                }
             }
+        } catch (const std::filesystem::filesystem_error &e) {
+            // Directory removed / permissions changed during iteration.
+            SPDLOG_WARN("Failed to iterate driver directory '{}': {}", base_dir.string(), e.what());
         }
     }
 
