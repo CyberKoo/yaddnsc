@@ -1,7 +1,7 @@
 # yaddnsc — Yet Another Dynamic DNS Client
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![CI](https://github.com/CyberKoo/yaddnsc/actions/workflows/ci.yml/badge.svg)](https://github.com/CyberKoo/yaddnsc/actions/workflows/ci.yml)
+[![CI](https://github.com/CyberKoo/yaddnsc/actions/workflows/ci.yml/badge.svg)](https://github.com/CyberKoo/yaddnsc)
 [![C++23](https://img.shields.io/badge/C%2B%2B-23-blue.svg)](https://en.cppreference.com/w/cpp/23)
 [![codecov](https://codecov.io/github/CyberKoo/yaddnsc/graph/badge.svg?token=OA6OJQ3MN6)](https://codecov.io/github/CyberKoo/yaddnsc)
 ![Linux](https://img.shields.io/badge/Linux-glibc%20%7C%20musl-FCC624?logo=linux&logoColor=black)
@@ -10,89 +10,62 @@
 
 > **⚠️ 注意：** `master` 分支（v1.x）正在积极开发中，v1 ABI 尚未最终确定，可能会有较大改动，每次更新后插件**必须**重新编译。
 
-**yaddnsc** 是一个基于 C++23 的现代动态 DNS（DDNS）客户端。它监控本机 IP 地址的变化，并通过插件式驱动架构自动更新 DNS 服务商上的域名解析记录。
+**yaddnsc** 是一个基于 C++23 的现代动态 DNS（DDNS）客户端。它监控本机 IP 地址的变化，并通过插件式驱动架构自动更新 DNS 服务商上的域名解析记录。内置 12 个 DNS 服务商驱动，设计轻量、模块化、易扩展。
+
+## 目录
+
+- [功能特性](#功能特性)
+- [安装](#安装)
+- [快速开始](#快速开始)
+- [使用方法](#使用方法)
+- [配置文件说明](#配置文件说明)
+- [IP 来源说明](#ip-来源说明)
+- [DNS 解析器](#dns-解析器)
+- [CA 证书自动发现](#ca-证书自动发现)
+- [构建要求](#构建要求)
+- [驱动 ABI 验证](#驱动-abi-验证)
+- [编写自定义驱动](#编写自定义驱动)
+- [依赖项](#依赖项)
+- [许可证](#许可证)
 
 ## 功能特性
 
-- **多域名、多子域名管理** — 单个配置文件即可管理多个域名及其子域名。
-- **插件化驱动架构** — 驱动以共享库（`.so`）形式在运行时通过 `dlopen` 动态加载。详见 [DRIVERS_CN.md](DRIVERS_CN.md)，其中列出了所有随附驱动及其参数说明和自定义驱动的编写方法。
+- **多域名、多子域名管理** — 单个配置文件即可管理多个域名及其子域名，并支持子域名级更新间隔。
+- **插件化驱动架构** — 驱动以共享库（`.so`）形式在运行时通过 `dlopen` 动态加载。内置 12 个 DNS 服务商驱动（Cloudflare、阿里云、DNSPod、Route 53 等）。随附驱动及参数说明见 [DRIVERS_CN.md](DRIVERS_CN.md)。
 - **灵活的 IP 来源配置** — 每个子域名可独立选择：
   - `interface` — 从本地网卡获取 IP 地址
   - `http` — 从外部 HTTP 服务获取 IP 地址（如 `https://ifconfig.me`）
   - `mdns` — 通过 mDNS（RFC 6762）发现局域网设备的 IP 地址（如 `printer.local`）
-- **子域名级更新间隔** — 每个子域名可单独设置更新间隔，未设置时继承域名级别的配置。
+- **灵活的更新调度** — 子域名级更新间隔，以及即使 IP 未变化也会周期性执行的强制更新。
 - **协作式请求取消** — DNS 查询和 HTTP 请求可在中途取消。当更快的解析器率先返回或分发器关闭时，无需等待超时即可立即中断挂起的请求。
 - **IPv4 和 IPv6 支持** — 可独立配置 A 和 AAAA 记录。
-- **自定义 DNS 解析器** — 记录查询使用固定的服务器列表：配置了自定义服务器就使用自定义的，否则使用内置默认（`1.1.1.1:53`）。支持**传统 DNS**、**DNS-over-HTTPS (DoH)** 和 **DNS-over-TLS (DoT)**，并提供可配置的查询策略。详见 [DNS 解析器](#dns-解析器)。
-- **强制更新调度** — 即使 IP 未发生变化，也可按设定周期强制更新 DNS 记录。
-- **优雅退出** — 通过专用信号处理线程捕获 SIGINT/SIGTERM，使用 stop_token 安全停止所有任务。
-- **线程池并发** — 子域名更新任务通过线程池并行执行。
-- **构建身份验证** — 编译时在主程序和每个驱动插件中都嵌入了编译器身份哈希（FNV-1a 64位），防止因工具链不兼容导致的 ABI 不匹配。使用 `yaddnsc info` CLI 命令可查看完整的构建配置信息。
+- **自定义 DNS 解析器** — 记录查询使用固定的服务器列表：配置了自定义服务器就使用自定义的，否则使用内置默认（`1.1.1.1:53`）。支持**传统 DNS**、**DNS-over-HTTPS (DoH)** 和 **DNS-over-TLS (DoT)**，并提供可配置的查询策略。
+- **优雅退出与线程池并发** — 通过 `stop_token` 安全处理 SIGINT/SIGTERM；子域名更新任务通过线程池并行执行。
 - **启动时配置验证** — 在更新循环开始之前，验证已加载的驱动和网络接口是否与配置匹配，提前发现配置错误。
-- **C++23 标准** — 性能更好、代码更安全可靠、减少外部依赖。
 - **跨平台** — 全面兼容主流 POSIX 环境：Linux（glibc 与 musl 双 C 运行时）、macOS、FreeBSD。持续集成在 Linux (glibc) 与 macOS (arm64) 上执行全量测试验证。
 
-## 架构概览
+## 安装
 
-```mermaid
-flowchart TB
-    main["main.cpp
-命令行解析 · 加载配置 · 初始化
-创建 SignalWatcher"]
-    mgr["Manager
-加载并验证驱动 · 验证配置
-运行调度循环（拥有线程池）"]
-    sched["Scheduler
-定时器队列
-pop_all_due() · wait_for_next()"]
-    watcher["SignalWatcher
-SIGINT/SIGTERM → request_stop()"]
-    updaterA["Updater (任务 A)
-1. 获取驱动
-2. 获取本地 IP
-3. DNS 查询，对比
-4. 执行驱动更新
-5. HTTP → DNS 服务商"]
-    updaterB["Updater (任务 B)
-同任务 A…"]
-    ip["IP 来源
-从以下来源读取：
-- 网卡接口
-- HTTP 端点
-- mDNS 查询"]
-    dns["DNS 解析器
-查询当前记录"]
-    driver["驱动插件
-构造请求
-发送 HTTP
-检查响应"]
+目前尚未发布预编译包，可自行从源码构建或构建 DEB 安装包：
 
-    main --> mgr
-    main -.-> watcher
-    mgr --> sched
-    mgr -.->|pool| updaterA
-    mgr -.->|pool| updaterB
-    watcher -.->|stop| mgr
-    watcher -.->|stop| sched
-    updaterA --> ip
-    updaterA --> dns
-    updaterA --> driver
-    updaterB --> ip
-    updaterB --> dns
-    updaterB --> driver
-```
+- **DEB 包（Debian/Ubuntu）** — 使用 `./docker/build-deb.sh` 构建可安装的 `.deb`（输出到 `deb-out/`），然后用 `sudo dpkg -i` 安装。详见[构建 DEB 包](#构建-deb-包)。
+- **Docker** — 项目提供多阶段 `Dockerfile`，可构建基于 Alpine 的极简运行时镜像。详见 [Docker（多阶段构建）](#docker（多阶段构建）)。
+- **从源码构建** — 参见[快速开始](#快速开始)。
 
 ## 快速开始
 
-构建 yaddnsc，创建最小 `config.json`，然后验证并运行：
+构建并安装 yaddnsc，创建最小 `config.json`，然后验证并运行：
 
 ```bash
 cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j$(nproc)
+sudo cmake --install build    # 安装二进制与驱动插件
 
-yaddnsc config test   # 验证 ./config.json
-yaddnsc run           # 启动更新循环
+yaddnsc config test           # 验证 ./config.json
+yaddnsc run                   # 启动更新循环
 ```
+
+> **注意：** 驱动插件默认从 `${libdir}/yaddnsc/drivers` 加载。如果跳过安装步骤，请在 `driver` 对象中把 `driver_dir` 指向构建产物目录（如 `build/driver/`），否则 `yaddnsc config test` 会报 `Driver ... not found`。
 
 最小配置示例如下——完整字段参考见[配置文件说明](#配置文件说明)，各服务商的 `driver_param` 示例见 [DRIVERS_CN.md](DRIVERS_CN.md)：
 
@@ -119,6 +92,375 @@ yaddnsc run           # 启动更新循环
   ]
 }
 ```
+
+## 使用方法
+
+```bash
+# 运行 DDNS 客户端（默认配置文件：./config.json）
+yaddnsc run
+
+# 指定配置文件并启用详细日志
+yaddnsc run -c /etc/yaddnsc/config.json -d
+
+# 验证配置文件
+yaddnsc config test
+
+# 静默验证（仅通过退出码判断）
+yaddnsc config test -q
+yaddnsc config test --quiet
+
+# 打印解析后的配置 JSON
+yaddnsc config show
+
+# 列出已加载的驱动
+yaddnsc driver list
+
+# 查看驱动详情
+yaddnsc driver info <name>
+
+# 列出网络接口
+yaddnsc interface list
+
+# 查看指定接口的 IP 地址
+yaddnsc interface ip <name>
+
+# DNS 解析主机名
+yaddnsc dns resolve <hostname> [--type A|AAAA|TXT]
+
+# 查看 DNS 解析器配置
+yaddnsc dns resolver
+
+# 查看构建配置（版本、编译器、ABI、ID 哈希等）
+yaddnsc info
+
+# 打印版本号
+yaddnsc --version
+
+# 打印帮助信息
+yaddnsc --help
+yaddnsc <subcommand> --help
+```
+
+### Shell 自动补全
+
+**zsh**、**bash** 和 **fish** 的补全文件随包一同安装，通过 `cmake --install` 或 DEB 包安装时会自动部署。
+
+| Shell | DEB 安装路径 | 非 DEB 安装路径 | 重新加载命令 |
+|-------|-------------|----------------|-------------|
+| zsh   | `/usr/share/zsh/vendor-completions/_yaddnsc` | `share/zsh/site-functions/_yaddnsc` | `autoload -U compinit && compinit` |
+| bash  | `/usr/share/bash-completion/completions/yaddnsc` | (同上) | `. /usr/share/bash-completion/bash_completion` |
+| fish  | `/usr/share/fish/vendor_completions.d/yaddnsc.fish` | `share/fish/completions/yaddnsc.fish` | (下次启动 shell 时自动生效) |
+
+安装后重启 shell 即可使用补全功能。
+
+### Systemd 服务
+
+systemd 服务文件在构建时由 `template/deb/yaddnsc.service.in` 生成，当检测到系统安装了 systemd 时由 `cmake --install` 自动安装。它集成了启动前配置验证（`config test`）、安全加固（DynamicUser、ProtectSystem、ProtectHome），并支持通过系统配置目录下的环境文件覆盖配置路径等环境变量：
+
+```bash
+# 正常安装 — 服务文件会自动放置
+sudo cmake --install build
+
+# 启用并启动服务
+sudo systemctl daemon-reload
+sudo systemctl enable --now yaddnsc
+
+# 可选：覆盖配置文件路径
+sudo mkdir -p /etc/yaddnsc/default
+echo 'YADDNSC_CONFIG=/custom/path/config.json' | sudo tee /etc/yaddnsc/default/yaddnsc
+```
+
+> **注意：** 服务文件在构建时使用 cmake 替换的路径，因此二进制文件、配置和环境文件的位置由配置时传递的 `CMAKE_INSTALL_BINDIR` 和 `CMAKE_INSTALL_SYSCONFDIR` 变量决定。
+
+## 配置文件说明
+
+yaddnsc 使用 JSON 格式的配置文件。默认查找 `./config.json`，可通过 `-c` 参数指定其他路径。
+
+模板配置文件在构建时由 `template/deb/yaddnsc_config.json` 生成，并安装到系统配置目录（`${sysconfdir}/yaddnsc/config.json`）。
+
+### 配置示例
+
+```json
+{
+  "driver": {
+    "driver_dir": "/opt/yaddnsc/drivers",
+    "auto_discover": false,
+    "load": [
+      "cloudflare.so",
+      "simple.so"
+    ]
+  },
+  "resolver": {
+    "use_custom_server": true,
+    "strategy": "concurrent",
+    "servers": [
+      { "address": "1.1.1.1", "port": 53 },
+      { "address": "8.8.8.8", "port": 53 }
+    ]
+  },
+  "domains": [
+    {
+      "name": "example.com",
+      "update_interval": 300,
+      "force_update": 0,
+      "driver": "cloudflare",
+      "subdomains": [
+        {
+          "name": "home",
+          "type": "aaaa",
+          "interface": "eth0",
+          "ip_source": "interface",
+          "allow_ula": false,
+          "allow_local_link": false,
+          "update_interval": 600,
+          "driver_param": {
+            "zone_id": "your-zone-id",
+            "record_id": "your-record-id",
+            "token": "your-api-token"
+          }
+        },
+        {
+          "name": "home",
+          "type": "a",
+          "ip_source": "http",
+          "ip_source_param": "https://ipv4.example.com/",
+          "allow_ula": false,
+          "allow_local_link": false,
+          "driver_param": {
+            "zone_id": "your-zone-id",
+            "record_id": "your-record-id",
+            "token": "your-api-token"
+          }
+        }
+      ]
+    }
+  ]
+}
+```
+
+### 配置字段参考
+
+#### 顶层字段
+
+| 字段        | 类型     | 说明               |
+|-----------|--------|------------------|
+| `driver`  | object | 驱动加载配置           |
+| `resolver`| object | 自定义 DNS 解析器设置（可选） |
+| `domains` | array  | 域名配置列表           |
+
+#### `driver` 对象
+
+| 字段              | 类型       | 说明                                                  |
+|-----------------|----------|-----------------------------------------------------|
+| `driver_dir`    | string   | 驱动 `.so` 文件所在目录。**可选** — 省略时默认为 `${libdir}/yaddnsc/drivers`（如 `/usr/lib/yaddnsc/drivers`） |
+| `auto_discover` | boolean  | 为 true 时自动加载 `driver_dir` 下所有 `.so` 文件（忽略 `load` 列表）。默认值: `false` |
+| `load`          | string[] | 需要加载的驱动共享库文件名列表（`auto_discover` 为 true 时忽略）         |
+
+#### `resolver` 对象
+
+| 字段                  | 类型          | 说明                                                                   |
+|---------------------|-------------|----------------------------------------------------------------------|
+| `use_custom_server` | boolean     | 为 true 时使用指定的 DNS 服务器；为 false 时使用内置默认服务器（`1.1.1.1:53`）             |
+| `servers`           | DnsServer[] | DNS 服务器列表。支持的地址格式及各类型详见 [DNS 解析器](#dns-解析器)                   |
+| `address`           | string      | **（已废弃，将在未来版本移除）** 直接在 resolver 级别指定 DNS 服务器地址。请改用 `servers`。 |
+| `ipaddress`         | string      | **（已废弃，将在未来版本移除）** `address` 的别名。请改用 `servers` 数组中的 `address`。  |
+| `port`              | int         | **（已废弃，将在未来版本移除）** 与 `address` 配合使用的端口号，默认 53。请改用 `servers`。 |
+| `strategy`          | string      | 查询策略：`"concurrent"`（默认）或 `"fallback"`。详见 [DNS 解析器](#dns-解析器)。   |
+
+#### `DnsServer` 对象
+
+| 字段          | 类型      | 说明                                                                                  |
+|-------------|---------|-------------------------------------------------------------------------------------|
+| `address`   | string  | DNS 服务器地址。                                                                         |
+| `ipaddress`  | string  | **（已废弃，将在未来版本移除）** `address` 的别名。                                                 |
+| `port`      | int     | 端口号，默认 53。**仅传统 DNS 解析器使用此字段。** DoH/DoT 解析器忽略此字段，端口需写在 `address` URI 中。 |
+
+> `address` 支持的格式详见 [DNS 解析器](#dns-解析器)（传统 DNS、DoH、DoT）。
+
+#### `domains[]` 对象
+
+| 字段                | 类型     | 说明                                             |
+|-------------------|--------|------------------------------------------------|
+| `name`            | string | 域名（如 `example.com`）                            |
+| `update_interval` | int    | 更新间隔，单位秒（必须 >= 编译期最小值，默认 60，见 `YADDNSC_MIN_UPDATE_INTERVAL`）。作为所有子域名的默认值。 |
+| `force_update`    | int    | 强制更新间隔，单位秒（0 表示禁用）。如设置，必须 >= `update_interval` |
+| `driver`          | string | 使用的驱动名称（必须与已加载的驱动匹配）                           |
+| `subdomains`      | array  | 需要管理的子域名记录列表                                   |
+
+#### `subdomains[]` 对象
+
+| 字段                 | 类型      | 说明                                                                            |
+|--------------------|---------|-------------------------------------------------------------------------------|
+| `name`             | string  | 子域名名称（如 `home` 对应 `home.example.com`）                                         |
+| `type`             | string  | DNS 记录类型：`"a"`、`"aaaa"` 或 `"txt"`。自动决定地址族（A → IPv4，AAAA → IPv6）。 |
+| `interface`        | string  | 网卡接口名称（如 `eth0`）。`"interface"` IP 来源必填，其他来源可选。                             |
+| `ip_type`          | string  | **已废弃——被忽略。** 地址族现在由 `type` 自动推导（A → IPv4，AAAA → IPv6）。                    |
+| `ip_source`        | string  | IP 来源策略：`"interface"`、`"http"` 或 `"mdns"`。`"url"` 是 `"http"` 的旧名称（已废弃，将在未来版本移除）。详见 [IP 来源说明](#ip-来源说明）。 |
+| `ip_source_param`  | string  | 来源相关参数（`"http"` 为 URL，`"mdns"` 为 mDNS 主机名）。`"interface"` 来源忽略此字段。           |
+| `allow_ula`        | boolean | 使用 IPv6 接口来源时，是否允许唯一本地地址（ULA），默认 false                                        |
+| `allow_local_link` | boolean | 使用 IPv6 接口来源时，是否允许链路本地地址，默认 false                                             |
+| `update_interval`  | int     | 子域名级更新间隔，单位秒（可选）。0 或省略 = 继承自 `domain.update_interval`                         |
+| `driver_param`     | object  | 驱动特定参数（键值对）。各驱动的参数说明见 [DRIVERS_CN.md](DRIVERS_CN.md)。                       |
+
+## IP 来源说明
+
+`subdomains[]` 中的 `ip_source` 字段决定了 yaddnsc 如何发现要更新的 IP 地址。支持三种来源：
+
+### `interface` — 从本地网卡读取
+
+直接从指定的本地网络接口（NIC）读取 IP 地址。适用于设备有固定本地地址，或需要报告特定网卡绑定的地址时。
+
+```json
+{
+    "name": "home",
+    "type": "a",
+    "interface": "eth0",
+    "ip_source": "interface"
+}
+```
+
+### `http` — 通过 HTTP(S) 端点获取
+
+通过向外部 HTTP(S) 服务发送请求来获取公网 IP，服务端在响应体中返回客户端的 IP 地址（例如 `https://api.ipify.org`）。HTTP 请求会绑定到指定的网卡。
+
+```json
+{
+    "name": "home",
+    "type": "a",
+    "interface": "eth0",
+    "ip_source": "http",
+    "ip_source_param": "https://api.ipify.org"
+}
+```
+
+### `mdns` — 通过 mDNS 发现（RFC 6762）
+
+通过发送多播 DNS 查询来发现局域网中某设备的 IP 地址，查询目标为 `.local` 主机名（如 `printer.local`）。适用于检测局域网设备（如打印机、NAS、IoT 设备）的地址。
+
+```json
+{
+    "name": "printer",
+    "type": "a",
+    "ip_source": "mdns",
+    "ip_source_param": "printer.local"
+}
+```
+
+```json
+{
+    "name": "nas",
+    "type": "aaaa",
+    "interface": "eth0",
+    "ip_source": "mdns",
+    "ip_source_param": "nas.local"
+}
+```
+
+## DNS 解析器
+
+yaddnsc 使用固定的 DNS 服务器列表进行记录查询。在配置文件顶层配置 `resolver` 对象可使用自定义服务器；未配置自定义服务器时，自动使用内置默认服务器（`1.1.1.1:53`）。
+
+支持三种解析器类型，根据地址格式自动识别：
+
+### 传统 DNS（UDP/TCP）
+
+通过 UDP（大响应时使用 TCP）在指定 IP 和端口上使用标准 DNS 协议。编译时可选择底层实现：
+- `YADDNSC_USE_NATIVE_DNS=ON`（默认）— 完全自实现的 UDP/TCP 传输和报文解析（不依赖 libresolv），提供更好的跨平台可移植性和对传输层的完全控制
+- `YADDNSC_USE_NATIVE_DNS=OFF` — 传输和解析均依赖系统 libresolv（`res_nquery` / `ns_initparse`；**已弃用**，将在 1.0.0 之前移除）
+
+```json
+{
+  "resolver": {
+    "use_custom_server": true,
+    "servers": [
+      { "address": "1.1.1.1", "port": 53 },
+      { "address": "8.8.8.8", "port": 53 }
+    ]
+  }
+}
+```
+
+### DNS-over-HTTPS (DoH)
+
+- **RFC 8484** — 通过 HTTPS POST 加密 DNS 查询，地址必须是完整的 HTTPS URL，包含路径（如 `https://1.1.1.1/dns-query`）
+- 协作式请求取消
+- **端口需写在 URI 中** — DoH 解析器从 URI 读取端口（如 `https://1.1.1.1:1443/dns-query`），`DnsServer` 对象的 `port` 字段**被忽略**。若 URI 未指定端口，默认使用 `443`。
+
+```json
+{
+  "resolver": {
+    "use_custom_server": true,
+    "servers": [
+      { "address": "https://1.1.1.1/dns-query" },
+      { "address": "https://cloudflare-dns.com/dns-query" }
+    ]
+  }
+}
+```
+
+### DNS-over-TLS (DoT)
+
+- **RFC 7858** — 通过 TLS 加密 DNS 查询，地址为 `tls://` URI 格式
+- **RFC 7830** — EDNS(0) padding
+- **RFC 6066** — TLS SNI 扩展
+- **RFC 7301** — TLS ALPN 扩展
+- 协作式请求取消
+- **端口需写在 URI 中** — DoT 解析器从 URI 读取端口（如 `tls://1.1.1.1:853`），`DnsServer` 对象的 `port` 字段**被忽略**。若 URI 未指定端口，默认使用 `853`。
+
+```json
+{
+  "resolver": {
+    "use_custom_server": true,
+    "servers": [
+      { "address": "tls://1.1.1.1:853" }
+    ]
+  }
+}
+```
+
+### 查询策略
+
+`strategy` 字段控制多个 DNS 服务器的查询方式：
+
+| 策略          | 行为                                        |
+|-------------|-------------------------------------------|
+| `concurrent` | **（默认）** 以每批 3 个并发查询，取最快成功响应。                |
+| `fallback`   | 依次尝试解析器，当前解析器失败时切换到下一个。                     |
+
+```json
+{
+  "resolver": {
+    "use_custom_server": true,
+    "strategy": "fallback",
+    "servers": [
+      { "address": "https://1.1.1.1/dns-query" },
+      { "address": "tls://1.1.1.1" }
+    ]
+  }
+}
+```
+
+## CA 证书自动发现
+
+yaddnsc 使用三层自动发现链来定位 TLS 连接所需的 CA 证书包（用于驱动 API、DoH、DoT 及 HTTP IP 来源）。
+
+首次找到的证书包会被缓存，在进程生命周期内重复使用。
+
+| 优先级 | 机制 | 典型场景 |
+|--------|------|----------|
+| 1 | **`SSL_CERT_FILE`** 环境变量 | 显式覆盖（容器、私有 CA）；启动时以 INFO 级别记录使用情况 |
+| 2 | **OpenSSL 默认路径**（`X509_get_default_cert_file`） | 标准系统安装 |
+| 3 | **硬编码路径列表**（13 条路径，覆盖 Linux、macOS、*BSD） | 非标准安装、跨平台移植性 |
+
+```bash
+# 使用自定义 CA 证书包（覆盖所有自动发现）
+export SSL_CERT_FILE=/etc/my-ca-bundle.crt
+yaddnsc run
+```
+
+> **注意：** 不支持 `SSL_CERT_DIR`。如果系统的 CA 证书以目录形式存放（hash 符号链接格式），请使用 `cat` 合并为一个 bundle 文件，再通过 `SSL_CERT_FILE` 指向该文件。
+
+> **安全说明：** 当无法发现任何 CA 证书包时，HTTP 客户端会保持服务器证书验证**开启**（fail-closed），并回退到 OpenSSL 的默认验证路径。如果系统没有信任库，TLS 握手将失败，而不会在无验证的情况下静默继续。如需连接使用私有或自签名证书的服务器，请将该 CA 证书加入上述任一发现层级可找到的证书包（例如通过 `SSL_CERT_FILE` 指定）。
 
 ## 构建要求
 
@@ -258,7 +600,7 @@ export ASAN_OPTIONS=detect_stack_use_after_return=1:strict_string_checks=1:detec
 yaddnsc 通过 `dlopen` 在运行时以共享库（`.so`）形式加载驱动插件。
 由于 C++ 在不同编译器之间没有稳定的 ABI，同一份代码使用不同的工具链
 编译可能产生不兼容的二进制文件。为了尽早捕获这类不匹配，每个驱动在
-执行任何代码之前都要经过三层验证。
+执行任何代码之前都要经过驱动加载校验。
 
 ### 构建 ID（编译器指纹）
 
@@ -277,7 +619,7 @@ yaddnsc 通过 `dlopen` 在运行时以共享库（`.so`）形式加载驱动插
 [编写自定义驱动](#编写自定义驱动)）会自动从驱动 `.so` 中导出哈希和构建
 ID 字符串，供主程序在加载时检查。
 
-### 三层加载时验证
+### 驱动加载校验
 
 当主程序通过 `dlopen` 加载驱动 `.so` 时，按顺序执行以下检查，所有检查
 均在执行任何驱动代码之前完成：
@@ -346,377 +688,6 @@ cmake --build build -j$(nproc)
 > **注意：** 即使编译器身份哈希匹配，微小的版本差异或不同的
 > `_GLIBCXX_USE_CXX11_ABI` 设置仍可能产生不兼容的二进制文件。
 > 如有疑问，请始终从源码编译。
-
-## 配置文件说明
-
-yaddnsc 使用 JSON 格式的配置文件。默认查找 `./config.json`，可通过 `-c` 参数指定其他路径。
-
-模板配置文件在构建时由 `template/deb/yaddnsc_config.json` 生成，并安装到系统配置目录（`${sysconfdir}/yaddnsc/config.json`）。
-
-### 配置示例
-
-```json
-{
-  "driver": {
-    "driver_dir": "/opt/yaddnsc/drivers",
-    "auto_discover": false,
-    "load": [
-      "cloudflare.so",
-      "simple.so"
-    ]
-  },
-  "resolver": {
-    "use_custom_server": true,
-    "strategy": "concurrent",
-    "servers": [
-      { "address": "1.1.1.1", "port": 53 },
-      { "address": "8.8.8.8", "port": 53 }
-    ]
-  },
-  "domains": [
-    {
-      "name": "example.com",
-      "update_interval": 300,
-      "force_update": 0,
-      "driver": "cloudflare",
-      "subdomains": [
-        {
-          "name": "home",
-          "type": "aaaa",
-          "interface": "eth0",
-          "ip_source": "interface",
-          "allow_ula": false,
-          "allow_local_link": false,
-          "update_interval": 600,
-          "driver_param": {
-            "zone_id": "your-zone-id",
-            "record_id": "your-record-id",
-            "token": "your-api-token"
-          }
-        },
-        {
-          "name": "home",
-          "type": "a",
-          "ip_source": "http",
-          "ip_source_param": "https://ipv4.example.com/",
-          "allow_ula": false,
-          "allow_local_link": false,
-          "driver_param": {
-            "zone_id": "your-zone-id",
-            "record_id": "your-record-id",
-            "token": "your-api-token"
-          }
-        }
-      ]
-    }
-  ]
-}
-```
-
-### 配置字段参考
-
-#### 顶层字段
-
-| 字段        | 类型     | 说明               |
-|-----------|--------|------------------|
-| `driver`  | object | 驱动加载配置           |
-| `resolver`| object | 自定义 DNS 解析器设置（可选） |
-| `domains` | array  | 域名配置列表           |
-
-#### `driver` 对象
-
-| 字段              | 类型       | 说明                                                  |
-|-----------------|----------|-----------------------------------------------------|
-| `driver_dir`    | string   | 驱动 `.so` 文件所在目录。**可选** — 省略时默认为 `${libdir}/yaddnsc/drivers`（如 `/usr/lib/yaddnsc/drivers`） |
-| `auto_discover` | boolean  | 为 true 时自动加载 `driver_dir` 下所有 `.so` 文件（忽略 `load` 列表）。默认值: `true` |
-| `load`          | string[] | 需要加载的驱动共享库文件名列表（`auto_discover` 为 true 时忽略）         |
-
-#### `resolver` 对象
-
-| 字段                  | 类型          | 说明                                                                   |
-|---------------------|-------------|----------------------------------------------------------------------|
-| `use_custom_server` | boolean     | 为 true 时使用指定的 DNS 服务器；为 false 时使用内置默认服务器（`1.1.1.1:53`）             |
-| `servers`           | DnsServer[] | DNS 服务器列表。支持的地址格式及各类型详见 [DNS 解析器](#dns-解析器)                   |
-| `address`           | string      | **（已废弃，将在未来版本移除）** 直接在 resolver 级别指定 DNS 服务器地址。请改用 `servers`。 |
-| `ipaddress`         | string      | **（已废弃，将在未来版本移除）** `address` 的别名。请改用 `servers` 数组中的 `address`。  |
-| `port`              | int         | **（已废弃，将在未来版本移除）** 与 `address` 配合使用的端口号，默认 53。请改用 `servers`。 |
-| `strategy`          | string      | 查询策略：`"concurrent"`（默认）或 `"fallback"`。详见 [DNS 解析器](#dns-解析器)。   |
-
-#### `DnsServer` 对象
-
-| 字段          | 类型      | 说明                                                                                  |
-|-------------|---------|-------------------------------------------------------------------------------------|
-| `address`   | string  | DNS 服务器地址。                                                                         |
-| `ipaddress`  | string  | **（已废弃，将在未来版本移除）** `address` 的别名。                                                 |
-| `port`      | int     | 端口号，默认 53。**仅传统 DNS 解析器使用此字段。** DoH/DoT 解析器忽略此字段，端口需写在 `address` URI 中。 |
-
-> `address` 支持的格式详见 [DNS 解析器](#dns-解析器)（传统 DNS、DoH、DoT）。
-
-#### `domains[]` 对象
-
-| 字段                | 类型     | 说明                                             |
-|-------------------|--------|------------------------------------------------|
-| `name`            | string | 域名（如 `example.com`）                            |
-| `update_interval` | int    | 更新间隔，单位秒（最小值为 60）。作为所有子域名的默认值。                 |
-| `force_update`    | int    | 强制更新间隔，单位秒（0 表示禁用）。如设置，必须 >= `update_interval` |
-| `driver`          | string | 使用的驱动名称（必须与已加载的驱动匹配）                           |
-| `subdomains`      | array  | 需要管理的子域名记录列表                                   |
-
-#### `subdomains[]` 对象
-
-| 字段                 | 类型      | 说明                                                                            |
-|--------------------|---------|-------------------------------------------------------------------------------|
-| `name`             | string  | 子域名名称（如 `home` 对应 `home.example.com`）                                         |
-| `type`             | string  | DNS 记录类型：`"a"`、`"aaaa"` 或 `"txt"`。自动决定地址族（A → IPv4，AAAA → IPv6）。 |
-| `interface`        | string  | 网卡接口名称（如 `eth0`）。各来源对此字段的要求详见 [IP 来源说明](#ip-来源说明)。                     |
-| `ip_type`          | string  | **已废弃——被忽略。** 地址族现在由 `type` 自动推导（A → IPv4，AAAA → IPv6）。                    |
-| `ip_source`        | string  | IP 来源策略：`"interface"`、`"http"` 或 `"mdns"`。`"url"` 是 `"http"` 的旧名称（已废弃，将在未来版本移除）。详见 [IP 来源说明](#ip-来源说明）。 |
-| `ip_source_param`  | string  | 来源相关参数（`"http"` 为 URL，`"mdns"` 为 mDNS 主机名）。详见 [IP 来源说明](#ip-来源说明)。       |
-| `allow_ula`        | boolean | 使用 IPv6 接口来源时，是否允许唯一本地地址（ULA），默认 false                                        |
-| `allow_local_link` | boolean | 使用 IPv6 接口来源时，是否允许链路本地地址，默认 false                                             |
-| `update_interval`  | int     | 子域名级更新间隔，单位秒（可选）。0 或省略 = 继承自 `domain.update_interval`                         |
-| `driver_param`     | object  | 驱动特定参数（键值对）。各驱动的参数说明见 [DRIVERS_CN.md](DRIVERS_CN.md)。                       |
-
-## IP 来源说明
-
-`subdomains[]` 中的 `ip_source` 字段决定了 yaddnsc 如何发现要更新的 IP 地址。支持三种来源：
-
-### `interface` — 从本地网卡读取
-
-直接从指定的本地网络接口（NIC）读取 IP 地址。适用于设备有固定本地地址，或需要报告特定网卡绑定的地址时。
-
-```json
-{
-    "name": "home",
-    "type": "a",
-    "interface": "eth0",
-    "ip_source": "interface"
-}
-```
-
-### `http` — 通过 HTTP(S) 端点获取
-
-通过向外部 HTTP(S) 服务发送请求来获取公网 IP，服务端在响应体中返回客户端的 IP 地址（例如 `https://api.ipify.org`）。HTTP 请求会绑定到指定的网卡。
-
-```json
-{
-    "name": "home",
-    "type": "a",
-    "interface": "eth0",
-    "ip_source": "http",
-    "ip_source_param": "https://api.ipify.org"
-}
-```
-
-### `mdns` — 通过 mDNS 发现（RFC 6762）
-
-通过发送多播 DNS 查询来发现局域网中某设备的 IP 地址，查询目标为 `.local` 主机名（如 `printer.local`）。适用于检测局域网设备（如打印机、NAS、IoT 设备）的地址。
-
-```json
-{
-    "name": "printer",
-    "type": "a",
-    "ip_source": "mdns",
-    "ip_source_param": "printer.local"
-}
-```
-
-```json
-{
-    "name": "nas",
-    "type": "aaaa",
-    "interface": "eth0",
-    "ip_source": "mdns",
-    "ip_source_param": "nas.local"
-}
-```
-
-## DNS 解析器
-
-yaddnsc 使用固定的 DNS 服务器列表进行记录查询。在配置文件顶层配置 `resolver` 对象可使用自定义服务器；未配置自定义服务器时，自动使用内置默认服务器（`1.1.1.1:53`）。
-
-### 解析器类型
-
-支持三种解析器类型，根据地址格式自动识别：
-
-#### 传统 DNS（UDP/TCP）
-
-通过 UDP（大响应时使用 TCP）在指定 IP 和端口上使用标准 DNS 协议。编译时可选择底层实现：
-- `YADDNSC_USE_NATIVE_DNS=ON`（默认）— 完全自实现的 UDP/TCP 传输和报文解析（不依赖 libresolv），提供更好的跨平台可移植性和对传输层的完全控制
-- `YADDNSC_USE_NATIVE_DNS=OFF` — 传输和解析均依赖系统 libresolv（`res_nquery` / `ns_initparse`；**已弃用**，将在 1.0.0 之前移除）
-
-```json
-{
-  "resolver": {
-    "use_custom_server": true,
-    "servers": [
-      { "address": "1.1.1.1", "port": 53 },
-      { "address": "8.8.8.8", "port": 53 }
-    ]
-  }
-}
-```
-
-#### DNS-over-HTTPS (DoH)
-
-- **RFC 8484** — 通过 HTTPS POST 加密 DNS 查询，地址必须是完整的 HTTPS URL，包含路径（如 `https://1.1.1.1/dns-query`）
-- 协作式请求取消
-- **端口需写在 URI 中** — DoH 解析器从 URI 读取端口（如 `https://1.1.1.1:1443/dns-query`），`DnsServer` 对象的 `port` 字段**被忽略**。若 URI 未指定端口，默认使用 `443`。
-
-```json
-{
-  "resolver": {
-    "use_custom_server": true,
-    "servers": [
-      { "address": "https://1.1.1.1/dns-query" },
-      { "address": "https://cloudflare-dns.com/dns-query" }
-    ]
-  }
-}
-```
-
-#### DNS-over-TLS (DoT)
-
-- **RFC 7858** — 通过 TLS 加密 DNS 查询，地址为 `tls://` URI 格式
-- **RFC 7830** — EDNS(0) padding
-- **RFC 6066** — TLS SNI 扩展
-- **RFC 7301** — TLS ALPN 扩展
-- 协作式请求取消
-- **端口需写在 URI 中** — DoT 解析器从 URI 读取端口（如 `tls://1.1.1.1:853`），`DnsServer` 对象的 `port` 字段**被忽略**。若 URI 未指定端口，默认使用 `853`。
-
-```json
-{
-  "resolver": {
-    "use_custom_server": true,
-    "servers": [
-      { "address": "tls://1.1.1.1:853" }
-    ]
-  }
-}
-```
-
-### 查询策略
-
-`strategy` 字段控制多个 DNS 服务器的查询方式：
-
-| 策略          | 行为                                        |
-|-------------|-------------------------------------------|
-| `concurrent` | **（默认）** 以每批 3 个并发查询，取最快成功响应。                |
-| `fallback`   | 依次尝试解析器，当前解析器失败时切换到下一个。                     |
-
-```json
-{
-  "resolver": {
-    "use_custom_server": true,
-    "strategy": "fallback",
-    "servers": [
-      { "address": "https://1.1.1.1/dns-query" },
-      { "address": "tls://1.1.1.1" }
-    ]
-  }
-}
-```
-
-## CA 证书自动发现
-
-yaddnsc 使用三层自动发现链来定位 TLS 连接所需的 CA 证书包（用于驱动 API、DoH、DoT 及 HTTP IP 来源）。
-
-首次找到的证书包会被缓存，在进程生命周期内重复使用。
-
-| 优先级 | 机制 | 典型场景 |
-|--------|------|----------|
-| 1 | **`SSL_CERT_FILE`** 环境变量 | 显式覆盖（容器、私有 CA）；启动时以 INFO 级别记录使用情况 |
-| 2 | **OpenSSL 默认路径**（`X509_get_default_cert_file`） | 标准系统安装 |
-| 3 | **硬编码路径列表**（13 条路径，覆盖 Linux、macOS、*BSD） | 非标准安装、跨平台移植性 |
-
-```bash
-# 使用自定义 CA 证书包（覆盖所有自动发现）
-export SSL_CERT_FILE=/etc/my-ca-bundle.crt
-yaddnsc run
-```
-
-> **注意：** 不支持 `SSL_CERT_DIR`。如果系统的 CA 证书以目录形式存放（hash 符号链接格式），请使用 `cat` 合并为一个 bundle 文件，再通过 `SSL_CERT_FILE` 指向该文件。
-
-> **安全说明：** 当无法发现任何 CA 证书包时，HTTP 客户端会保持服务器证书验证**开启**（fail-closed），并回退到 OpenSSL 的默认验证路径。如果系统没有信任库，TLS 握手将失败，而不会在无验证的情况下静默继续。如需连接使用私有或自签名证书的服务器，请将该 CA 证书加入上述任一发现层级可找到的证书包（例如通过 `SSL_CERT_FILE` 指定）。
-
-## 使用方法
-
-```bash
-# 运行 DDNS 客户端（默认配置文件：./config.json）
-yaddnsc run
-
-# 指定配置文件并启用详细日志
-yaddnsc run -c /etc/yaddnsc/config.json -d
-
-# 验证配置文件
-yaddnsc config test
-
-# 静默验证（仅通过退出码判断）
-yaddnsc config test -q
-yaddnsc config test --quiet
-
-# 打印解析后的配置 JSON
-yaddnsc config show
-
-# 列出已加载的驱动
-yaddnsc driver list
-
-# 查看驱动详情
-yaddnsc driver info <name>
-
-# 列出网络接口
-yaddnsc interface list
-
-# 查看指定接口的 IP 地址
-yaddnsc interface ip <name>
-
-# DNS 解析主机名
-yaddnsc dns resolve <hostname> [--type A|AAAA|TXT]
-
-# 查看 DNS 解析器配置
-yaddnsc dns resolver
-
-# 查看构建配置（版本、编译器、ABI、ID 哈希等）
-yaddnsc info
-
-# 打印版本号
-yaddnsc --version
-
-# 打印帮助信息
-yaddnsc --help
-yaddnsc <subcommand> --help
-```
-
-### Shell 自动补全
-
-**zsh**、**bash** 和 **fish** 的补全文件随包一同安装，通过 `cmake --install` 或 DEB 包安装时会自动部署。
-
-| Shell | DEB 安装路径 | 非 DEB 安装路径 | 重新加载命令 |
-|-------|-------------|----------------|-------------|
-| zsh   | `/usr/share/zsh/vendor-completions/_yaddnsc` | `share/zsh/site-functions/_yaddnsc` | `autoload -U compinit && compinit` |
-| bash  | `/usr/share/bash-completion/completions/yaddnsc` | (同上) | `. /usr/share/bash-completion/bash_completion` |
-| fish  | `/usr/share/fish/vendor_completions.d/yaddnsc.fish` | `share/fish/completions/yaddnsc.fish` | (下次启动 shell 时自动生效) |
-
-安装后重启 shell 即可使用补全功能。
-
-### Systemd 服务
-
-systemd 服务文件在构建时由 `template/deb/yaddnsc.service.in` 生成，当检测到系统安装了 systemd 时由 `cmake --install` 自动安装。它集成了启动前配置验证（`config test`）、安全加固（DynamicUser、ProtectSystem、ProtectHome），并支持通过系统配置目录下的环境文件覆盖配置路径等环境变量：
-
-```bash
-# 正常安装 — 服务文件会自动放置
-sudo cmake --install build
-
-# 启用并启动服务
-sudo systemctl daemon-reload
-sudo systemctl enable --now yaddnsc
-
-# 可选：覆盖配置文件路径
-sudo mkdir -p /etc/yaddnsc/default
-echo 'YADDNSC_CONFIG=/custom/path/config.json' | sudo tee /etc/yaddnsc/default/yaddnsc
-```
-
-> **注意：** 服务文件在构建时使用 cmake 替换的路径，因此二进制文件、配置和环境文件的位置由配置时传递的 `CMAKE_INSTALL_BINDIR` 和 `CMAKE_INSTALL_SYSCONFDIR` 变量决定。
 
 ## 编写自定义驱动
 
