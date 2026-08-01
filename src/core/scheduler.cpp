@@ -9,6 +9,7 @@
 #include <functional>
 #include <mutex>
 #include <queue>
+#include <stdexcept>
 #include <stop_token>
 #include <utility>
 
@@ -75,6 +76,16 @@ Scheduler::Impl::Impl(Config::AppConfig config, std::stop_token stop_token)
             const auto fqdn = fmt::format("{}.{}", subdomain.name, name);
             const auto effective_interval = subdomain.update_interval > 0 ? subdomain.update_interval : update_interval;
 
+            // A non-positive interval would re-queue the entry with deadline ==
+            // now forever, spinning pop_all_due() into a busy loop. ConfigValidator
+            // normally rejects this, but the scheduler must not rely on the caller
+            // invoking validate_config() (defence in depth).
+            if (effective_interval <= 0) {
+                throw std::invalid_argument(
+                    fmt::format("Update interval for {}.{} must be positive (got {})", subdomain.name, name,
+                                effective_interval));
+            }
+
             const auto now = std::chrono::steady_clock::now();
 
             // Initialise last_force_update far enough in the past so that the
@@ -136,7 +147,6 @@ std::vector<UpdateTask> Scheduler::Impl::pop_all_due() {
         entry.deadline = now + std::chrono::seconds(entry.update_interval);
         entry.task.force_update = false;
         heap_.push(std::move(entry));
-        cv_.notify_one();
     }
 
     return due;

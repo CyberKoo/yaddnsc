@@ -5,6 +5,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <stdexcept>
 #include <stop_token>
 #include <thread>
 #include <vector>
@@ -224,6 +225,30 @@ TEST(Scheduler, SubdomainOverrideUpdateInterval) {
     EXPECT_TRUE(scheduler.has_pending());
     const auto due = scheduler.pop_all_due();
     ASSERT_EQ(due.size(), 1U);
+}
+
+TEST(Scheduler, ZeroUpdateInterval_Throws) {
+    // A domain with update_interval = 0 and no subdomain override would
+    // re-queue the entry with deadline == now forever (busy loop). The
+    // constructor must reject it instead of relying on ConfigValidator.
+    const auto json = R"({
+        "driver": { "auto_discover": true },
+        "resolver": { "use_custom_server": false },
+        "domains": [
+            {
+                "name": "test.com",
+                "update_interval": 0,
+                "driver": "cloudflare",
+                "subdomains": [
+                    {"name": "www", "type": "a", "ip_source": "http",
+                     "ip_source_param": "https://api.ipify.org"}
+                ]
+            }
+        ]
+    })";
+    const auto cfg = parse_cfg(json);
+    std::stop_source stop;
+    EXPECT_THROW({ Scheduler scheduler(cfg, stop.get_token()); }, std::invalid_argument);
 }
 
 // ── force_update interval = 0 ───────────────────────────────────────────────
