@@ -26,7 +26,7 @@ public:
 
     /// Load a driver shared library from the given filesystem path.
     /// @param path  Path to the .so file to load.
-    virtual void load_driver(const std::string &path) const = 0;
+    virtual void load_driver(const std::string &path) = 0;
 
     /// Unload a previously loaded driver by name.
     /// @param name  Driver name (as returned by DriverDetail::name).
@@ -64,7 +64,7 @@ public:
 
     /// Load a driver shared library from the given filesystem path.
     /// @param path  Path to the .so file to load.
-    void load_driver(const std::string &path) const override;
+    void load_driver(const std::string &path) override;
 
     /// Unload a previously loaded driver by name.
     /// @param name  Driver name (as returned by DriverDetail::name).

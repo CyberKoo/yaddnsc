@@ -248,7 +248,7 @@ std::vector<std::string_view> DriverManager::get_loaded_drivers() const {
     return loaded_drivers;
 }
 
-void DriverManager::load_driver(const std::string &path) const {
+void DriverManager::load_driver(const std::string &path) {
     if (!std::filesystem::exists(path)) {
         const auto lib_name = get_driver_name(path);
         throw BadDriverException(fmt::format("Driver library '{}' not found at {}", lib_name, path));

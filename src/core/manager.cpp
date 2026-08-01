@@ -148,7 +148,7 @@ Manager::Manager(Config::AppConfig config, std::stop_source stop_source, Resolve
 
 Manager::~Manager() = default;
 
-void Manager::load_drivers() const {
+void Manager::load_drivers() {
     impl_->load_drivers();
 }
 
@@ -156,6 +156,6 @@ void Manager::validate_config() const {
     impl_->validate_config();
 }
 
-void Manager::run() const {
+void Manager::run() {
     impl_->run();
 }

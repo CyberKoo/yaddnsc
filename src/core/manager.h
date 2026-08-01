@@ -42,14 +42,14 @@ public:
     ~Manager();
 
     /// Load all driver shared libraries specified in the configuration.
-    void load_drivers() const;
+    void load_drivers();
 
     /// Run pre-flight validation on the loaded configuration.
     /// @throws ConfigVerificationException  On the first violated constraint.
     void validate_config() const;
 
     /// Run the scheduler loop.  Blocks until a stop is requested.
-    void run() const;
+    void run();
 
 private:
     struct Impl;

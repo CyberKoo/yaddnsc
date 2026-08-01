@@ -18,7 +18,7 @@
 
 class MockDriverManager : public DriverManagerBase {
 public:
-    MOCK_METHOD(void, load_driver, (const std::string& path), (const, override));
+    MOCK_METHOD(void, load_driver, (const std::string& path), (override));
     MOCK_METHOD(void, unload_driver, (const std::string& name), (override));
     MOCK_METHOD(std::vector<std::string_view>, get_loaded_drivers, (), (const, override));
     MOCK_METHOD(const Driver&, get_driver, (const std::string& name), (const, override));
