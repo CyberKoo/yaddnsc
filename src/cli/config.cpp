@@ -38,13 +38,15 @@ namespace Cli {
 
         auto *test = cfg->add_subcommand("test", "Validate configuration file and exit");
         test->alias("t");
-        bool quiet = false;
         auto test_path = std::make_shared<std::string>("config.json");
-        test->add_flag("-q,--quiet", quiet, "Suppress success message");
+        // The callback outlives this function (CLI11 defers execution until
+        // parse), so every captured value must be owned by a shared_ptr.
+        auto quiet = std::make_shared<bool>(false);
+        test->add_flag("-q,--quiet", *quiet, "Suppress success message");
         test->add_option("-c,--config", *test_path, "Config file path")
                 ->default_str("config.json")
                 ->check(CLI::ExistingFile);
-        test->callback([test_path, &exit_code, &quiet] { exit_code = execute_config_test(*test_path, quiet); });
+        test->callback([test_path, quiet, &exit_code] { exit_code = execute_config_test(*test_path, *quiet); });
     }
 
     // ── Executors ─────────────────────────────────────────────────────────
