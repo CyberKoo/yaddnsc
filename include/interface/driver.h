@@ -62,6 +62,17 @@ struct DriverUpdateParams final {
 ///
 /// Implementations should inherit from BaseDriver which provides a default
 /// `execute()` and `get_abi_version()`.
+///
+/// @par Thread safety
+/// A single Driver instance is shared by all update tasks: the Manager
+/// dispatches tasks onto a thread pool, so every virtual method may be called
+/// concurrently on the same instance from multiple worker threads.
+/// Implementations MUST be stateless or internally synchronised — no mutable
+/// member state, no shared mutable statics. Per-update state (session tokens,
+/// request bodies, …) must be derived from the parameters passed to each call
+/// or kept in the per-call HttpClient; it must never be stored in driver
+/// members. (All drivers shipped with yaddnsc are stateless and satisfy this
+/// contract.)
 class Driver {
 public:
     Driver() = default;
@@ -101,7 +112,8 @@ public:
     ///
     /// The default implementation in BaseDriver is sufficient for most drivers.
     /// Override only if the driver requires custom HTTP handling (e.g. multiple
-    /// round trips, session tokens, etc.).
+    /// round trips, session tokens, etc.). Overrides must uphold the class-level
+    /// thread-safety contract (see the class documentation).
     [[nodiscard]] virtual bool execute(
         const DriverConfig &config, const DriverUpdateParams &ctx, HttpClient &http
     ) const = 0;

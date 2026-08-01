@@ -26,6 +26,10 @@
 ///     built-in error reporting.
 ///   - Automatic ABI version reporting via `get_abi_version()`.
 ///
+/// BaseDriver itself is stateless; derived drivers must remain so to satisfy
+/// the thread-safety contract of Driver (a shared instance is called
+/// concurrently from multiple worker threads).
+///
 /// Driver plugins should inherit from this class and override:
 ///   - `generate_request()`  — build the API request from config + update params
 ///   - `check_response()`    — validate the upstream API response

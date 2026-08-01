@@ -24,8 +24,11 @@ namespace Config {
 /// any call to process()). The Driver is pre-resolved by the caller and passed
 /// directly into process(), eliminating the need for runtime string lookups.
 ///
-/// @note process() is thread-safe: it is marked const, owns no mutable state,
-///       and may be called concurrently from multiple pool threads.
+/// @note process() is thread-safe and may be called concurrently from multiple
+///       pool threads: the Updater itself owns no mutable state, the shared
+///       Driver is required to be thread-safe by its interface contract (see
+///       interface/driver.h), and the caller passes a fresh HttpClient per task
+///       that is never shared between concurrent calls.
 class Updater {
 public:
     /// Factory type for creating IP source instances.
