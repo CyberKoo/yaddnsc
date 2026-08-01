@@ -74,7 +74,19 @@ fabric.properties
 # Android studio 3.1+ serialized cache file
 .idea/caches/build_file_checksums.ser
 
-# User-specific config (see config.example.json)
+# Local, machine-specific configuration files.
+# yaddnsc looks for ./config.json by default (see README "Configuration");
+# the packaged config template is template/deb/yaddnsc_config.json.
 config.json
+config*.json
 
+# Exception: keep a template/config.json example tracked even though it matches
+# `config*.json` above (gitignore patterns match at any directory depth).
 !template/config.json
+
+# Editor/LSP tool caches (clangd, neocmakelsp, ...)
+.cache/
+
+# IDE settings - catch-all; the granular JetBrains rules above are kept for
+# reference and to stay in sync with the upstream template.
+.idea/
