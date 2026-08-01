@@ -135,13 +135,19 @@ std::vector<UpdateTask> Scheduler::Impl::pop_all_due() {
     std::lock_guard lock(mtx_);
     const auto now = std::chrono::steady_clock::now();
 
+    // Worst case every entry is due; reserving avoids reallocating (and
+    // re-copying the JSON-bearing SubdomainConfig of already-popped tasks)
+    // during catch-up bursts.
     std::vector<UpdateTask> due;
+    due.reserve(heap_.size());
     while (!heap_.empty() && now >= heap_.top().deadline) {
-        auto entry = heap_.top();
+        auto entry = heap_.top(); // priority_queue forces a copy of the top
         heap_.pop();
 
         entry.task.force_update = check_force_update(entry, now);
-        due.push_back(entry.task); // copy — entry stays intact for re-queue
+        // The entry is re-queued below with its task intact, so the caller
+        // receives a copy: the same task value must live in both places.
+        due.push_back(entry.task);
 
         // Re-queue the entry with its next deadline for the next cycle.
         entry.deadline = now + std::chrono::seconds(entry.update_interval);
