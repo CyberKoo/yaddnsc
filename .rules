@@ -353,7 +353,7 @@ public:
 
 ## Version Control & Collaboration
 - Follow **Semantic Versioning** (`MAJOR.MINOR.PATCH`).
-- Use **Conventional Commits** (`feat:`, `fix:`, `docs:`, `refactor:`, `test:`, `chore:`).
+- Use **`<Type>: <description>`** commit messages (`Fix:`, `Feat:`, `Docs:`, `Refactor:`, `Test:`, `Chore:`) with a capitalized imperative description, e.g. `Fix: Harden URI port parsing against malformed values`. No scope prefixes (e.g. `fix(core):` is not used in this repository).
 - Prefer small, focused PRs (<400 lines). Link to issue tracker tickets.
 - Squash-and-merge to mainline for a linear, bisectable history.
 
