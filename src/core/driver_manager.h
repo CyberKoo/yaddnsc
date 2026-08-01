@@ -34,7 +34,9 @@ public:
     virtual void unload_driver(const std::string &name) = 0;
 
     /// Return the names of all currently loaded drivers.
-    [[nodiscard]] virtual std::vector<std::string_view> get_loaded_drivers() const = 0;
+    /// @return  Owned copies of the driver names — safe to keep after the
+    ///          registry is modified (unlike string views into the registry).
+    [[nodiscard]] virtual std::vector<std::string> get_loaded_drivers() const = 0;
 
     /// Look up a loaded driver by name.
     /// @param name  Driver name to look up.
@@ -72,7 +74,9 @@ public:
     void unload_driver(const std::string &name) override;
 
     /// Return the names of all currently loaded drivers.
-    [[nodiscard]] std::vector<std::string_view> get_loaded_drivers() const override;
+    /// @return  Owned copies of the driver names — safe to keep after the
+    ///          registry is modified (unlike string views into the registry).
+    [[nodiscard]] std::vector<std::string> get_loaded_drivers() const override;
 
     /// Look up a loaded driver by name.
     /// @param name  Driver name to look up.

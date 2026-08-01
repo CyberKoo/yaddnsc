@@ -238,11 +238,12 @@ const Driver &DriverManager::get_driver(const std::string &name) const {
     throw DriverNotFoundException(fmt::format("Driver '{}' is not loaded", name));
 }
 
-std::vector<std::string_view> DriverManager::get_loaded_drivers() const {
-    std::vector<std::string_view> loaded_drivers;
+std::vector<std::string> DriverManager::get_loaded_drivers() const {
+    std::vector<std::string> loaded_drivers;
+    loaded_drivers.reserve(impl_->driver_map_.size());
     std::ranges::transform(
         impl_->driver_map_, std::back_inserter(loaded_drivers),
-        [](const auto &kv) -> std::string_view { return kv.first; }
+        [](const auto &kv) -> std::string { return kv.first; }
     );
 
     return loaded_drivers;

@@ -669,8 +669,8 @@ namespace {
 
 struct ValidateCase {
     const char* name;
-    std::vector<std::string_view> loaded_drivers;  // matches DriverManagerBase::get_loaded_drivers()
-    std::vector<std::string> interfaces;           // matches ConfigValidator constructor
+    std::vector<std::string> loaded_drivers;  // matches DriverManagerBase::get_loaded_drivers()
+    std::vector<std::string> interfaces;      // matches ConfigValidator constructor
     int min_interval;
     bool should_throw;
     Config::AppConfig (*build)();

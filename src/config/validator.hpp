@@ -135,9 +135,10 @@ template<int UpdateInterval>
 class ConfigValidator {
 public:
     /// Construct with loaded driver names and available interfaces.
-    /// @param loaded_drivers  Names of currently loaded driver plugins.
+    /// @param loaded_drivers  Names of currently loaded driver plugins (owned
+    ///                        copies, not views into the driver registry).
     /// @param interfaces      List of network interface names on the system.
-    ConfigValidator(std::vector<std::string_view> loaded_drivers, std::vector<std::string> interfaces)
+    ConfigValidator(std::vector<std::string> loaded_drivers, std::vector<std::string> interfaces)
         : loaded_drivers_(std::move(loaded_drivers)), interfaces_(std::move(interfaces)) {
     }
 
@@ -227,7 +228,7 @@ public:
     }
 
 private:
-    const std::vector<std::string_view> loaded_drivers_;
+    const std::vector<std::string> loaded_drivers_;
     const std::vector<std::string> interfaces_;
 
     [[maybe_unused, no_unique_address]] NoCopy no_copy_;
