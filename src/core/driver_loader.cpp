@@ -8,6 +8,7 @@
 
 #include "config/config.h"
 #include "exception/bad_driver.h"
+#include "exception/config_verification.h"
 #include "util/algorithm.hpp"
 
 #include "config_cmake.h"
@@ -25,7 +26,7 @@ namespace {
     [[nodiscard]] std::filesystem::path resolve_driver_base(const std::optional<std::string> &driver_dir) {
         if (driver_dir.has_value()) {
             if (driver_dir->empty()) {
-                throw std::invalid_argument("driver_dir is set but empty in configuration");
+                throw ConfigVerificationException("driver_dir is set but empty in configuration");
             }
             return {driver_dir.value()};
         }

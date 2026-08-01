@@ -22,6 +22,7 @@
 #include "core/driver_loader.h"
 #include "core/driver_manager.h"
 #include "exception/bad_driver.h"
+#include "exception/config_verification.h"
 #include "exception/driver_not_found.h"
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -72,6 +73,17 @@ TEST(DriverLoaderTest, LoadDriver_NotFound_Throws) {
 
     // The file doesn't exist — should throw BadDriverException.
     EXPECT_THROW({ DriverLoader::load(mgr, cfg); }, BadDriverException);
+}
+
+TEST(DriverLoaderTest, EmptyDriverDir_Throws) {
+    DriverManager mgr;
+    Config::AppConfig cfg;
+    cfg.driver.auto_discover = false;
+    // driver_dir is set but empty — a configuration error, not a driver error.
+    cfg.driver.driver_dir = "";
+    cfg.driver.load.push_back("simple/simple.so");
+
+    EXPECT_THROW({ DriverLoader::load(mgr, cfg); }, ConfigVerificationException);
 }
 
 TEST(DriverManagerTest, UnloadDriver) {
