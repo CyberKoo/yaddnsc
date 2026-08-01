@@ -44,9 +44,6 @@ struct Updater::Impl {
     /// record, and invoke the driver if the IP has changed.
     void process(const UpdateTask &task, const Driver &driver, HttpClient &http_client) const;
 
-    /// Perform a DNS lookup for the given host and record type.
-    [[nodiscard]] std::vector<std::string> dns_lookup(const std::string &host, RecordKind type) const;
-
     /// Resolve the local IP address from the configured IP source.
     [[nodiscard]] std::optional<InetAddress> resolve_local_address(const Config::SubdomainConfig &config) const;
 
@@ -83,10 +80,16 @@ void Updater::Impl::process(const UpdateTask &task, const Driver &driver, HttpCl
     // --- Step 2: skip if unchanged (unless force_update) --------------------
 
     if (!task.force_update) {
-        const auto records = dns_lookup(task.fqdn, task.subdomain_config().type);
+        const auto records = dispatcher_.resolve(task.fqdn, task.subdomain_config().type);
 
-        if (!records.empty()) {
-            const auto &first = records.front();
+        if (!records) {
+            // Cannot verify the current record (transient failure, NXDOMAIN,
+            // NODATA, ...) — proceed with the update anyway: pushing an
+            // unchanged record is harmless, while skipping a changed one is not.
+            SPDLOG_DEBUG(R"(DNS lookup for "{}" failed: {} ({}), proceeding with update)", task.fqdn,
+                         records.error().message, error_to_str(records.error().code));
+        } else if (!records->empty()) {
+            const auto &first = records->front();
             if (first == local_ip->to_string()) {
                 SPDLOG_DEBUG("Domain {} ({}) unchanged ({}), skipping update", task.fqdn, rd_type, first);
                 return;
@@ -111,16 +114,6 @@ void Updater::Impl::process(const UpdateTask &task, const Driver &driver, HttpCl
     }
 
     SPDLOG_INFO("Domain {} ({}) updated to {}", task.fqdn, rd_type, local_ip->to_string());
-}
-
-std::vector<std::string> Updater::Impl::dns_lookup(const std::string &host, RecordKind type) const {
-    auto result = dispatcher_.resolve(host, type);
-    if (!result) {
-        SPDLOG_DEBUG(R"(DNS lookup for "{}" failed: {} ({})", host, result.error().message,
-                     error_to_str(result.error().code));
-    }
-    // Keep backward-compatible return type: callers check .empty().
-    return result.value_or(std::vector<std::string>{});
 }
 
 std::optional<InetAddress> Updater::Impl::resolve_local_address(const Config::SubdomainConfig &config) const {
