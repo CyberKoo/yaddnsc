@@ -22,6 +22,51 @@ add_unit_test(cert_util_test SOURCE cert_util_test.cpp
     ${PROJECT_SOURCE_DIR}/src/util/cert_util.cpp)
 target_link_libraries(test_cert_util_test PRIVATE OpenSSL::Crypto)
 
+# cert_util env-var hit — SEPARATE binary because discover_ca_bundle() caches
+# its result on the first call in the process; the env-var-hit branch can only
+# be reached when the first call sees a valid SSL_CERT_FILE.
+add_unit_test(cert_util_override SOURCE cert_util_override_test.cpp
+    ${PROJECT_SOURCE_DIR}/src/util/cert_util.cpp)
+target_link_libraries(test_cert_util_override PRIVATE OpenSSL::Crypto)
+
+# ============================================================================
+#  CLI layer — parse_and_dispatch + subcommand executors
+#  (config show/test, driver list/info, dns resolve/resolver, interface, info)
+#
+#  Requires a built driver .so (simple) for the config-test executor and the
+#  driver subcommands; dns resolve uses a stub resolver (no network).
+# ============================================================================
+
+add_unit_test(cli SOURCE cli_test.cpp
+    ${PROJECT_SOURCE_DIR}/src/cli/cli.cpp
+    ${PROJECT_SOURCE_DIR}/src/cli/config.cpp
+    ${PROJECT_SOURCE_DIR}/src/cli/dns.cpp
+    ${PROJECT_SOURCE_DIR}/src/cli/driver.cpp
+    ${PROJECT_SOURCE_DIR}/src/cli/interface.cpp
+    ${PROJECT_SOURCE_DIR}/src/cli/info.cpp
+    ${PROJECT_SOURCE_DIR}/src/config/config.cpp
+    ${PROJECT_SOURCE_DIR}/src/core/driver_loader.cpp
+    ${PROJECT_SOURCE_DIR}/src/core/driver_manager.cpp
+    ${PROJECT_SOURCE_DIR}/src/core/core_logger.cpp
+    ${PROJECT_SOURCE_DIR}/src/dns/dispatcher.cpp
+    ${PROJECT_SOURCE_DIR}/src/dns/parser/parser_native.cpp
+    ${PROJECT_SOURCE_DIR}/src/dns/factory.cpp
+    ${PROJECT_SOURCE_DIR}/src/dns/resolver_registry.cpp
+    ${PROJECT_SOURCE_DIR}/src/ip_source/iface_util.cpp
+    ${PROJECT_SOURCE_DIR}/src/network/net_devices.cpp)
+target_link_libraries(test_cli PRIVATE GTest::gmock glaze::glaze CLI11::CLI11 OpenSSL::Crypto ${CMAKE_DL_LIBS})
+target_compile_definitions(test_cli PRIVATE
+    YADDNSC_USE_NATIVE_DNS=1
+    TEST_DRIVER_DIR="${CMAKE_BINARY_DIR}/driver")
+# The loaded driver .so resolves CoreLogger symbols from the host executable.
+set_target_properties(test_cli PROPERTIES ENABLE_EXPORTS ON)
+# The driver .so is built with sanitizers — the test binary must be too.
+add_sanitizer_flags(test_cli)
+# simple.so must be built before the test runs (dlopen dependency).
+add_dependencies(test_cli simple)
+set_tests_properties(test_cli PROPERTIES
+    ENVIRONMENT "ASAN_OPTIONS=detect_odr_violation=0:detect_stack_use_after_return=1:strict_string_checks=1:detect_invalid_pointer_pairs=2")
+
 # ============================================================================
 #  Socket RAII wrapper  (loopback UDP/TCP)
 # ============================================================================

@@ -163,6 +163,30 @@ TEST(NamecheapDriverTest, CheckResponse_Non200_ReturnsFalse) {
     EXPECT_FALSE(driver.check_response(resp));
 }
 
+TEST(NamecheapDriverTest, CheckResponse_ErrCountZero_WithoutIp_ReturnsTrue) {
+    // ErrCount=0 but no <IP> element — still a success (IP logging is best-effort).
+    NamecheapDriver driver;
+    auto xml = R"(<?xml version="1.0"?>
+<interface-response>
+  <ErrCount>0</ErrCount>
+  <Done>true</Done>
+</interface-response>)";
+    HttpResponse resp{200, xml, {}};
+    EXPECT_TRUE(driver.check_response(resp));
+}
+
+TEST(NamecheapDriverTest, CheckResponse_Error_WithoutErrorMessages_ReturnsFalse) {
+    // ErrCount>0 but no <errors> children — falls back to the count-only log.
+    NamecheapDriver driver;
+    auto xml = R"(<?xml version="1.0"?>
+<interface-response>
+  <ErrCount>1</ErrCount>
+  <Done>true</Done>
+</interface-response>)";
+    HttpResponse resp{200, xml, {}};
+    EXPECT_FALSE(driver.check_response(resp));
+}
+
 TEST(NamecheapDriverTest, FactoryCreateDestroy) { test_factory_create_destroy(); }
 TEST(NamecheapDriverTest, FactoryMagic) { test_factory_magic(); }
 TEST(NamecheapDriverTest, FactoryBuildId) { test_factory_build_id(); }

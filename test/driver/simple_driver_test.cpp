@@ -172,6 +172,28 @@ TEST(SimpleDriverTest, FactoryMagic) { test_factory_magic(); }
 TEST(SimpleDriverTest, FactoryBuildId) { test_factory_build_id(); }
 TEST(SimpleDriverTest, FactoryCompilerIdHash) { test_factory_compiler_id_hash(); }
 
+TEST(SimpleDriverTest, GenerateRequest_NonObjectConfig_ThrowsParamParseException) {
+    SimpleDriver driver;
+    // A JSON value that is not an object → rejected by generate_request.
+    DriverConfig config = R"("just a string")";
+    DriverUpdateParams ctx{
+        .ip_addr = "1.2.3.4", .rd_type = "A", .domain = "example.com",
+        .subdomain = "@", .fqdn = "example.com"
+    };
+    EXPECT_THROW({ driver.generate_request(config, ctx); }, ParamParseException);
+}
+
+TEST(SimpleDriverTest, GenerateRequest_NonStringUrl_ThrowsParamParseException) {
+    SimpleDriver driver;
+    // "url" present but not a string → rejected.
+    DriverConfig config = R"({"url": 12345})";
+    DriverUpdateParams ctx{
+        .ip_addr = "1.2.3.4", .rd_type = "A", .domain = "example.com",
+        .subdomain = "@", .fqdn = "example.com"
+    };
+    EXPECT_THROW({ driver.generate_request(config, ctx); }, ParamParseException);
+}
+
 TEST(SimpleDriverTest, GenerateRequest_NonStringConfigValue_IsSkipped) {
     SimpleDriver driver;
     // Non-string config values should be skipped during substitution.

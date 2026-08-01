@@ -255,6 +255,48 @@ TEST(Route53DriverTest, CheckResponse_Non200_EmptyBody_ReturnsFalse) {
     EXPECT_FALSE(driver.check_response(resp));
 }
 
+TEST(Route53DriverTest, GenerateRequest_EmptyFqdn_UsesDot) {
+    // ensure_trailing_dot("") returns "." — Route 53 requires a dot.
+    Route53Driver driver;
+    DriverConfig config = R"({
+        "access_key_id": "AKID123",
+        "secret_access_key": "secret456",
+        "hosted_zone_id": "ZONE1",
+        "region": "us-east-1",
+        "record_name": "test"
+    })";
+    DriverUpdateParams ctx{
+        .ip_addr = "1.2.3.4", .rd_type = "A",
+        .domain = "example.com", .subdomain = "", .fqdn = ""
+    };
+
+    auto result = driver.generate_request(config, ctx);
+    ASSERT_TRUE(result.request.body.has_value());
+    EXPECT_TRUE(result.request.body.value().find(">.<") != std::string::npos);
+}
+
+TEST(Route53DriverTest, GenerateRequest_FqdnWithTrailingDot_NotDuplicated) {
+    Route53Driver driver;
+    DriverConfig config = R"({
+        "access_key_id": "AKID123",
+        "secret_access_key": "secret456",
+        "hosted_zone_id": "ZONE1",
+        "region": "us-east-1",
+        "record_name": "test"
+    })";
+    DriverUpdateParams ctx{
+        .ip_addr = "1.2.3.4", .rd_type = "A",
+        .domain = "example.com", .subdomain = "www", .fqdn = "www.example.com."
+    };
+
+    auto result = driver.generate_request(config, ctx);
+    ASSERT_TRUE(result.request.body.has_value());
+    const auto &body = result.request.body.value();
+    // The trailing dot must not be doubled.
+    EXPECT_TRUE(body.find("www.example.com.<") != std::string::npos);
+    EXPECT_TRUE(body.find("www.example.com..<") == std::string::npos);
+}
+
 TEST(Route53DriverTest, CheckResponse_MalformedSuccessXml_ReturnsFalse) {
     Route53Driver driver;
     HttpResponse resp{200, "not valid xml at all", {}};

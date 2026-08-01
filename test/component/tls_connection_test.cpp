@@ -352,6 +352,84 @@ TEST_F(TlsConnectionTest, ConnectToIp_WithMismatchedSan_ReturnsError) {
     }
 }
 
+// ===========================================================================
+//  Handshake / context / cancellation error paths
+// ===========================================================================
+
+TEST_F(TlsConnectionTest, NullContextFactory_ReturnsError) {
+    // A custom context factory returning nullptr must surface as ERROR.
+    TlsConnection conn("127.0.0.1", TLS_PORT, TlsOptions{},
+                       []() -> SslCtxPtr { return nullptr; });
+    auto result = conn.connect();
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error(), TlsConnection::IoStatus::ERROR);
+}
+
+TEST_F(TlsConnectionTest, AlpnTooLong_ReturnsError) {
+    // An ALPN byte string longer than 255 bytes is rejected by OpenSSL.
+    std::vector<unsigned char> long_alpn(300, 'a');
+    TlsConnection conn("127.0.0.1", TLS_PORT,
+                       TlsOptions{.alpn_proto = long_alpn});
+    auto result = conn.connect();
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error(), TlsConnection::IoStatus::ERROR);
+}
+
+TEST_F(TlsConnectionTest, HandshakeWithPlainTcp_TimesOut) {
+    // A plain TCP server that accepts but never speaks TLS → the handshake
+    // must time out (not hang, not crash).
+    const int srv = ::socket(AF_INET, SOCK_STREAM, 0);
+    ASSERT_GE(srv, 0);
+    sockaddr_in addr{};
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    addr.sin_port = 0;
+    ASSERT_EQ(::bind(srv, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)), 0);
+    ASSERT_EQ(::listen(srv, 1), 0);
+    socklen_t len = sizeof(addr);
+    ASSERT_EQ(::getsockname(srv, reinterpret_cast<sockaddr *>(&addr), &len), 0);
+    const auto port = ntohs(addr.sin_port);
+
+    std::thread server_thread([srv] {
+        sockaddr_in client{};
+        socklen_t client_len = sizeof(client);
+        const int c = ::accept(srv, reinterpret_cast<sockaddr *>(&client), &client_len);
+        if (c >= 0) {
+            std::this_thread::sleep_for(std::chrono::seconds(2));
+            ::close(c);
+        }
+        ::close(srv);
+    });
+
+    TlsConnection conn("127.0.0.1", static_cast<std::uint16_t>(port),
+                       TlsOptions{.connect_timeout = 500ms});
+    auto result = conn.connect();
+    server_thread.join();
+
+    ASSERT_FALSE(result.has_value());
+    EXPECT_TRUE(result.error() == TlsConnection::IoStatus::TIMEOUT ||
+                result.error() == TlsConnection::IoStatus::ERROR);
+}
+
+TEST_F(TlsConnectionTest, ReadCancelled_ReturnsCancelled) {
+    // A read blocked waiting for data must abort with CANCELLED when the
+    // cancellation token fires.
+    TlsConnection conn("127.0.0.1", TLS_PORT, TlsOptions{.read_timeout = 10s});
+    ASSERT_TRUE(conn.connect().has_value());
+
+    Utils::CancellationSource source;
+    std::thread canceller([&source] {
+        std::this_thread::sleep_for(std::chrono::milliseconds(200));
+        source.trigger();
+    });
+    std::array<std::uint8_t, 16> buf{};
+    auto result = conn.read_exact(buf, source.token());
+    canceller.join();
+
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error(), TlsConnection::IoStatus::CANCELLED);
+}
+
 TEST_F(TlsConnectionTest, ConnectWithSystemCaBundle) {
     // Use the default SSL context (create_default_ssl_ctx) with
     // CA verification, pointing SSL_CERT_FILE at the server's cert.

@@ -17,6 +17,8 @@
 #include "network/socket.h"
 #include "network/socket_addr.h"
 #include "network/inet_address.h"
+#include "exception/socket.h"
+#include "util/cancellation_token.hpp"
 
 // ===========================================================================
 // Basic Socket operations
@@ -474,4 +476,270 @@ TEST(SocketTest, SendRecvWithFlags) {
     auto received = accepted.recv(std::span{buf}, 0);
     EXPECT_EQ(received, static_cast<ssize_t>(msg.size()));
     EXPECT_EQ(std::string(reinterpret_cast<const char *>(buf.data()), msg.size()), msg);
+}
+
+// ===========================================================================
+// Error paths — construction, close, bind/connect/listen/accept failures
+// ===========================================================================
+
+TEST(SocketTest, CreateSocket_InvalidProtocol_Throws) {
+    // socket(2) fails (EINVAL) for an unknown protocol → SocketException.
+    EXPECT_THROW(Socket(AF_INET, SOCK_STREAM, 0xFFFFFF), SocketException);
+}
+
+TEST(SocketTest, SelfMoveAssignment_IsNoOp) { // NOLINT(bugprone-use-after-move)
+    Socket sock(AF_INET, SOCK_STREAM);
+    const int fd = sock.native_handle();
+    sock = std::move(sock);  // NOLINT: intentional self-move — must be a no-op
+    EXPECT_EQ(sock.native_handle(), fd);
+    EXPECT_FALSE(sock.is_closed());
+}
+
+TEST(SocketTest, SetOption_OnClosedSocket_ReturnsError) {
+    Socket sock(AF_INET, SOCK_STREAM);
+    sock.close();
+    auto res = sock.set_reuseaddr(true);
+    ASSERT_FALSE(res.has_value());
+    EXPECT_EQ(res.error(), EBADF);
+}
+
+TEST(SocketTest, SetNonblocking_OnClosedSocket_ReturnsError) {
+    Socket sock(AF_INET, SOCK_STREAM);
+    sock.close();
+    auto res = sock.set_nonblocking(true);
+    ASSERT_FALSE(res.has_value());
+    EXPECT_EQ(res.error(), EBADF);
+}
+
+TEST(SocketTest, SetReusePort_Disable) {
+    Socket sock(AF_INET, SOCK_STREAM);
+    auto res = sock.set_reuseport(false);
+    // SO_REUSEPORT is supported on Linux 3.9+. On other platforms it may
+    // return ENOPROTOOPT — either outcome is valid.
+    if (!res) {
+        EXPECT_EQ(res.error(), ENOPROTOOPT);
+    }
+}
+
+TEST(SocketTest, Bind_TwiceSamePort_ReturnsError) {
+    auto loopback = InetAddress::parse("127.0.0.1");
+    ASSERT_TRUE(loopback.has_value());
+
+    Socket first(AF_INET, SOCK_STREAM);
+    auto addr = SocketAddr::from_inet(*loopback, 0);
+    ASSERT_TRUE(addr.has_value());
+    first.bind(*addr).value();
+    auto port = first.get_sockname().port();
+    ASSERT_GT(port, 0);
+
+    // Second bind to the same port without SO_REUSEADDR → EADDRINUSE.
+    auto target = SocketAddr::from_inet(*loopback, port);
+    ASSERT_TRUE(target.has_value());
+    Socket second(AF_INET, SOCK_STREAM);
+    auto res = second.bind(*target);
+    ASSERT_FALSE(res.has_value());
+    EXPECT_EQ(res.error(), EADDRINUSE);
+}
+
+TEST(SocketTest, Bind_OnClosedSocket_ReturnsError) {
+    auto loopback = InetAddress::parse("127.0.0.1");
+    ASSERT_TRUE(loopback.has_value());
+    auto addr = SocketAddr::from_inet(*loopback, 0);
+    ASSERT_TRUE(addr.has_value());
+
+    Socket sock(AF_INET, SOCK_STREAM);
+    sock.close();
+    auto res = sock.bind(*addr);
+    ASSERT_FALSE(res.has_value());
+    EXPECT_EQ(res.error(), EBADF);
+}
+
+TEST(SocketTest, GetSockname_OnClosedSocket_Throws) {
+    Socket sock(AF_INET, SOCK_STREAM);
+    sock.close();
+    EXPECT_THROW(sock.get_sockname(), SocketException);
+}
+
+TEST(SocketTest, GetPeername_Unconnected_Throws) {
+    Socket sock(AF_INET, SOCK_STREAM);
+    EXPECT_THROW(sock.get_peername(), SocketException);  // ENOTCONN
+}
+
+TEST(SocketTest, BlockingConnect_Refused) {
+    auto loopback = InetAddress::parse("127.0.0.1");
+    ASSERT_TRUE(loopback.has_value());
+
+    Socket sock(AF_INET, SOCK_STREAM);
+    auto target = SocketAddr::from_inet(*loopback, 1);  // nothing listening
+    ASSERT_TRUE(target.has_value());
+    auto res = sock.connect(*target);  // blocking connect
+    ASSERT_FALSE(res.has_value());
+    EXPECT_EQ(res.error(), ConnectError::REFUSED);
+}
+
+TEST(SocketTest, Connect_OnClosedSocket_ReturnsInternal) {
+    auto loopback = InetAddress::parse("127.0.0.1");
+    ASSERT_TRUE(loopback.has_value());
+
+    Socket sock(AF_INET, SOCK_STREAM);
+    sock.close();
+    auto target = SocketAddr::from_inet(*loopback, 1);
+    ASSERT_TRUE(target.has_value());
+    // Timed connect path: fcntl(F_GETFL) fails on the closed fd → INTERNAL.
+    auto res = sock.connect(*target, 5);
+    ASSERT_FALSE(res.has_value());
+    EXPECT_EQ(res.error(), ConnectError::INTERNAL);
+}
+
+TEST(SocketTest, Connect_UdpNonBlocking_ImmediateSuccess) {
+    // UDP connect() returns immediately even with a timeout — exercises the
+    // rc == 0 fast path in the non-blocking connect.
+    auto loopback = InetAddress::parse("127.0.0.1");
+    ASSERT_TRUE(loopback.has_value());
+
+    Socket udp(AF_INET, SOCK_DGRAM);
+    auto target = SocketAddr::from_inet(*loopback, 9);  // no listener needed for UDP
+    ASSERT_TRUE(target.has_value());
+    auto res = udp.connect(*target, 5);
+    EXPECT_TRUE(res.has_value());
+}
+
+TEST(SocketTest, Listen_OnDatagramSocket_Throws) {
+    Socket sock(AF_INET, SOCK_DGRAM);
+    EXPECT_THROW(sock.listen(1), SocketException);  // EOPNOTSUPP
+}
+
+TEST(SocketTest, Accept_OnUnlisteningSocket_ReturnsError) {
+    Socket sock(AF_INET, SOCK_STREAM);
+    auto res = sock.accept();
+    ASSERT_FALSE(res.has_value());  // EINVAL — not listening
+}
+
+// ===========================================================================
+// Error paths — I/O
+// ===========================================================================
+
+TEST(SocketTest, SendToClosedPeer_ReturnsMinusOne) {
+    // Stream send_loop returns -1 once the peer's FIN/RST is observed.
+    auto loopback = InetAddress::parse("127.0.0.1");
+    ASSERT_TRUE(loopback.has_value());
+
+    Socket server(AF_INET, SOCK_STREAM);
+    server.set_reuseaddr(true).value();
+    auto addr = SocketAddr::from_inet(*loopback, 0);
+    ASSERT_TRUE(addr.has_value());
+    server.bind(*addr).value();
+    server.listen(1);
+
+    auto port = server.get_sockname().port();
+    ASSERT_GT(port, 0);
+
+    auto client_target = SocketAddr::from_inet(*loopback, port);
+    ASSERT_TRUE(client_target.has_value());
+
+    Socket client(AF_INET, SOCK_STREAM);
+    ASSERT_TRUE(client.connect(*client_target).has_value());
+    Socket accepted = *server.accept();
+
+    // Close the peer (FIN, then RST on loopback).
+    accepted.shutdown_both();
+    accepted.close();
+
+    // TCP buffers may absorb the first writes — keep sending a large payload
+    // until the kernel reports the dead connection (EPIPE/ECONNRESET).
+    std::string payload(64 * 1024, 'x');
+    ssize_t last = 0;
+    for (int i = 0; i < 256 && last >= 0; ++i) {
+        last = client.send(std::as_bytes(std::span{payload}));
+    }
+    EXPECT_LT(last, 0);
+}
+
+TEST(SocketTest, RecvExact_NonBlockingNoData_ReturnsMinusOne) {
+    // Connected stream socket with no data and O_NONBLOCK → recv fails with
+    // EAGAIN → recv_exact returns -1.
+    auto loopback = InetAddress::parse("127.0.0.1");
+    ASSERT_TRUE(loopback.has_value());
+
+    Socket server(AF_INET, SOCK_STREAM);
+    server.set_reuseaddr(true).value();
+    auto addr = SocketAddr::from_inet(*loopback, 0);
+    ASSERT_TRUE(addr.has_value());
+    server.bind(*addr).value();
+    server.listen(1);
+
+    auto port = server.get_sockname().port();
+    ASSERT_GT(port, 0);
+
+    auto client_target = SocketAddr::from_inet(*loopback, port);
+    ASSERT_TRUE(client_target.has_value());
+
+    Socket client(AF_INET, SOCK_STREAM);
+    ASSERT_TRUE(client.connect(*client_target).has_value());
+    Socket accepted = *server.accept();  // keep the peer open, send nothing
+
+    client.set_nonblocking(true).value();
+    std::array<std::byte, 16> buf{};
+    EXPECT_EQ(client.recv_exact(std::span{buf}), -1);
+}
+
+TEST(SocketTest, RecvExact_PeerShutdown_ReturnsShortCount) {
+    // Peer sends 10 bytes then half-closes: recv_exact(100) must return the
+    // 10 bytes received so far (EOF path), not block for the remaining 90.
+    auto loopback = InetAddress::parse("127.0.0.1");
+    ASSERT_TRUE(loopback.has_value());
+
+    Socket server(AF_INET, SOCK_STREAM);
+    server.set_reuseaddr(true).value();
+    auto addr = SocketAddr::from_inet(*loopback, 0);
+    ASSERT_TRUE(addr.has_value());
+    server.bind(*addr).value();
+    server.listen(1);
+
+    auto port = server.get_sockname().port();
+    ASSERT_GT(port, 0);
+
+    auto client_target = SocketAddr::from_inet(*loopback, port);
+    ASSERT_TRUE(client_target.has_value());
+
+    Socket client(AF_INET, SOCK_STREAM);
+    ASSERT_TRUE(client.connect(*client_target).has_value());
+    Socket accepted = *server.accept();
+
+    const std::string msg = "0123456789";  // 10 bytes
+    ASSERT_EQ(accepted.send(std::as_bytes(std::span{msg})), static_cast<ssize_t>(msg.size()));
+    accepted.shutdown_write();  // EOF after the payload
+
+    std::array<std::byte, 100> buf{};
+    EXPECT_EQ(client.recv_exact(std::span{buf}), static_cast<ssize_t>(msg.size()));
+}
+
+// ===========================================================================
+// Error paths — wait_for
+// ===========================================================================
+
+TEST(SocketTest, WaitFor_OnClosedSocket_ReturnsNotReady) {
+    Socket sock(AF_INET, SOCK_STREAM);
+    sock.close();
+    // poll(2) silently ignores entries with fd == -1 → treated as not ready.
+    auto res = sock.wait_for(POLLIN, 0);
+    ASSERT_TRUE(res.has_value());
+    EXPECT_EQ(*res, 0);
+}
+
+TEST(SocketTest, WaitFor_WithTokenNotCancelled_ReturnsReady) {
+    Utils::CancellationSource source;
+    Socket sock(AF_INET, SOCK_DGRAM);
+    auto res = sock.wait_for(POLLOUT, 0, source.token());
+    ASSERT_TRUE(res.has_value());
+    EXPECT_EQ(*res, 1);
+}
+
+TEST(SocketTest, WaitFor_Cancelled_ReturnsECANCELED) {
+    Utils::CancellationSource source;
+    Socket sock(AF_INET, SOCK_STREAM);  // no data pending
+    source.trigger();
+    auto res = sock.wait_for(POLLIN, 1000, source.token());
+    ASSERT_FALSE(res.has_value());
+    EXPECT_EQ(res.error(), ECANCELED);
 }

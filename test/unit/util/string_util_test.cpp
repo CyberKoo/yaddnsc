@@ -483,3 +483,49 @@ TEST(StringUtilConstexprTest, StrToBool_Constexpr) {
     EXPECT_TRUE(t);
     EXPECT_FALSE(f);
 }
+
+// ===========================================================================
+//  Case-insensitive comparison / search — additional branches
+// ===========================================================================
+
+TEST(StringUtilCaseTest, IEquals_SameLengthDifferentChars_ReturnsFalse) {
+    EXPECT_FALSE(StringUtil::iequals("abc", "abd"));
+    EXPECT_FALSE(StringUtil::iequals("AbC", "aBd"));
+}
+
+TEST(StringUtilCaseTest, IEquals_True_And_LengthMismatch) {
+    EXPECT_TRUE(StringUtil::iequals("Hello", "hELLo"));
+    EXPECT_FALSE(StringUtil::iequals("abc", "abcd"));
+}
+
+TEST(StringUtilCaseTest, IContains_NeedsOffsetMatch) {
+    // The needle only matches at an offset — exercises the scan loop.
+    EXPECT_TRUE(StringUtil::icontains("xabc", "ABC"));
+    EXPECT_TRUE(StringUtil::icontains("prefix-Hello-suffix", "hello"));
+    EXPECT_FALSE(StringUtil::icontains("abcdef", "bcdx"));
+    EXPECT_FALSE(StringUtil::icontains("ab", "abc"));  // needle longer than haystack
+}
+
+// ===========================================================================
+//  replace / replace_all — aliasing + repeated replacement branches
+// ===========================================================================
+
+TEST(StringUtilReplaceTest, Replace_EqualLength_MultipleOccurrences) {
+    std::string s = "aaa bbb aaa";
+    using Pair = std::pair<std::string_view, std::string_view>;
+    StringUtil::replace(s, std::array<Pair, 1>{Pair{"aaa", "xxx"}});
+    EXPECT_EQ(s, "xxx bbb xxx");
+}
+
+TEST(StringUtilReplaceTest, Replace_ReplacementAliasesInput) {
+    // The replacement view points inside the string being modified.
+    std::string s = "abab";
+    StringUtil::replace_all(s, "ab", std::string_view(s.data(), 1));
+    EXPECT_EQ(s, "aa");
+}
+
+TEST(StringUtilReplaceAllTest, ReplaceAll_ReplacementAliasesInput) {
+    std::string s = "aaaa";
+    StringUtil::replace_all(s, "aa", std::string_view(s.data(), 1));
+    EXPECT_EQ(s, "aa");
+}

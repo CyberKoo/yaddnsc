@@ -33,6 +33,7 @@ TCP_TIMEOUT_HOST = "tcptimeout.yaddnsc.test"  # UDP: TC=1, TCP: accept but hang
 TCP_GARBAGE_HOST = "tcpgarbage.yaddnsc.test"  # UDP: TC=1, TCP: garbage response
 TCP_LARGE_HOST = "tcplarge.yaddnsc.test"     # UDP: TC=1, TCP: length > 4096
 TCP_CONNECT_FAIL_HOST = "tcpconnectfail.yaddnsc.test"  # UDP: TC=1, TCP: no listener
+TCP_BODYTRUNC_HOST = "tcpbodytrunc.yaddnsc.test"  # UDP: TC=1, TCP: length 100, only 10 bytes sent
 
 HOST = "127.0.0.1"
 TYPE_MAP = {1: "A", 28: "AAAA"}
@@ -120,7 +121,8 @@ def build_response(ident: int, question: bytes, qname: str, qtype_str: str,
 
     # ── TCP error hosts: TC=1 on UDP to force TCP fallback ───────────────
     if qname in (TCP_ERROR_HOST, TCP_RESET_HOST, TCP_TIMEOUT_HOST,
-                 TCP_GARBAGE_HOST, TCP_LARGE_HOST, TCP_CONNECT_FAIL_HOST) and is_udp:
+                 TCP_GARBAGE_HOST, TCP_LARGE_HOST, TCP_CONNECT_FAIL_HOST,
+                 TCP_BODYTRUNC_HOST) and is_udp:
         # Return truncated response (TC=1) — triggers TCP fallback.
         flags = 0x8380
         header = struct.pack("!HHHHHH", ident, flags, 1, 0, 0, 0)
@@ -254,6 +256,13 @@ async def handle_tcp_client(reader: asyncio.StreamReader,
         if qname == TCP_GARBAGE_HOST:
             # Send garbage — validator rejects the TCP response.
             writer.write(struct.pack("!H", 16) + b"\x00" * 16)
+            await writer.drain()
+            return
+
+        if qname == TCP_BODYTRUNC_HOST:
+            # Declare 100 bytes but send only 10, then close — the resolver
+            # sees EOF while reading the response body.
+            writer.write(struct.pack("!H", 100) + b"\x00" * 10)
             await writer.drain()
             return
 

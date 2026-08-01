@@ -25,23 +25,26 @@
 
 namespace Cli {
     void register_config_subcommand(CLI::App &app, int &exit_code) {
-        auto config_path = std::make_shared<std::string>("config.json");
-
         auto *cfg = app.add_subcommand("config", "Configuration management");
         cfg->require_subcommand(1);
-        cfg->add_option("-c,--config", *config_path, "Config file path")
-                ->default_str("config.json")
-                ->check(CLI::ExistingFile);
 
         auto *show = cfg->add_subcommand("show", "Print resolved configuration as JSON");
         show->alias("s");
-        show->callback([config_path, &exit_code] { exit_code = execute_config_show(*config_path); });
+        auto show_path = std::make_shared<std::string>("config.json");
+        show->add_option("-c,--config", *show_path, "Config file path")
+                ->default_str("config.json")
+                ->check(CLI::ExistingFile);
+        show->callback([show_path, &exit_code] { exit_code = execute_config_show(*show_path); });
 
         auto *test = cfg->add_subcommand("test", "Validate configuration file and exit");
         test->alias("t");
         bool quiet = false;
+        auto test_path = std::make_shared<std::string>("config.json");
         test->add_flag("-q,--quiet", quiet, "Suppress success message");
-        test->callback([config_path, &exit_code, &quiet] { exit_code = execute_config_test(*config_path, quiet); });
+        test->add_option("-c,--config", *test_path, "Config file path")
+                ->default_str("config.json")
+                ->check(CLI::ExistingFile);
+        test->callback([test_path, &exit_code, &quiet] { exit_code = execute_config_test(*test_path, quiet); });
     }
 
     // ── Executors ─────────────────────────────────────────────────────────

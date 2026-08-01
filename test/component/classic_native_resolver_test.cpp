@@ -656,4 +656,42 @@ TEST_F(ClassicNativeResolverTest, UdpResponseFromUnexpectedSource_IsDiscarded) {
     EXPECT_EQ(ip_bytes, (std::array<std::uint8_t, 4>{198, 51, 100, 42}));
 }
 
+// ===========================================================================
+// Cancellation + TCP body truncation
+// ===========================================================================
+
+TEST_F(ClassicNativeResolverTest, CancelledUdpQuery_ReturnsCancelledError) {
+    // Pre-triggered token: the UDP wait_for returns ECANCELED immediately.
+    Utils::CancellationSource source;
+    source.trigger();
+    auto result = global_resolver->query("yaddnsc.test", RecordKind::A, source.token());
+
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(static_cast<int>(result.error().code), static_cast<int>(DnsError::CANCELLED));
+}
+
+TEST_F(ClassicNativeResolverTest, CancelledTcpQuery_ReturnsCancelledError) {
+    // UDP returns TC=1 → resolver falls back to TCP; the TCP server accepts
+    // but never responds, so the cancel arrives while the TCP recv waits.
+    Utils::CancellationSource source;
+    std::thread canceller([&source] {
+        std::this_thread::sleep_for(std::chrono::milliseconds(200));
+        source.trigger();
+    });
+    auto result = global_resolver->query("tcptimeout.yaddnsc.test", RecordKind::A, source.token());
+    canceller.join();
+
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(static_cast<int>(result.error().code), static_cast<int>(DnsError::CANCELLED));
+}
+
+TEST_F(ClassicNativeResolverTest, TcpBodyTruncated_ReturnsConnectionError) {
+    // TCP declares 100 bytes but only sends 10 before closing — the resolver
+    // hits EOF while reading the response body.
+    Utils::CancellationToken cancel;
+    auto result = global_resolver->query("tcpbodytrunc.yaddnsc.test", RecordKind::A, cancel);
+
+    ASSERT_FALSE(result.has_value());
+}
+
 } // anonymous namespace

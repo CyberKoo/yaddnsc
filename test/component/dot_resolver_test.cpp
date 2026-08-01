@@ -258,6 +258,18 @@ TEST_F(DotResolverTest, ZeroLengthResponse_ReturnsParseError) {
     EXPECT_EQ(result.error().code, DnsError::PARSE);
 }
 
+TEST_F(DotResolverTest, OverlongLabel_ReturnsParseError) {
+    // A label > 63 octets makes packet construction throw DnsPacketException,
+    // which the resolver catches and maps to PARSE.
+    DotResolver resolver("127.0.0.1", DOT_PORT, "test-dot-overlong");
+    Utils::CancellationToken cancel;
+    std::string long_label(70, 'a');
+    auto result = resolver.query(long_label + ".example.com", RecordKind::A, cancel);
+
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error().code, DnsError::PARSE);
+}
+
 TEST_F(DotResolverTest, NonExistentDomain_FallsBackToDefault) {
     DotResolver resolver("127.0.0.1", DOT_PORT, "test-dot-nx");
     Utils::CancellationToken cancel;

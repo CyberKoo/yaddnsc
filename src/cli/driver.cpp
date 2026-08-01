@@ -18,30 +18,27 @@
 
 
 namespace Cli {
-    // ── Option storage (owned by the callback lambda via shared_ptr) ──────
-
-    namespace {
-        struct DriverOpts {
-            std::string config_path = "config.json";
-            std::string driver_name;
-        };
-    } // namespace
+    // ── Executors ─────────────────────────────────────────────────────────
 
     void register_driver_subcommand(CLI::App &app, int &exit_code) {
-        auto opts = std::make_shared<DriverOpts>();
-
         auto *driver = app.add_subcommand("driver", "Manage DDNS driver modules");
         driver->require_subcommand(1);
-        driver->add_option("-c,--config", opts->config_path, "Config file path")
-                ->default_str("config.json")
-                ->check(CLI::ExistingFile);
 
         auto *list = driver->add_subcommand("list", "List all loaded drivers");
-        list->callback([&exit_code, opts] { exit_code = execute_driver_list(opts->config_path); });
+        auto list_path = std::make_shared<std::string>("config.json");
+        list->add_option("-c,--config", *list_path, "Config file path")
+                ->default_str("config.json")
+                ->check(CLI::ExistingFile);
+        list->callback([&exit_code, list_path] { exit_code = execute_driver_list(*list_path); });
 
         auto *info = driver->add_subcommand("info", "Show detailed information about a driver");
-        info->add_option("name", opts->driver_name, "Driver name (e.g. simple, cloudflare)")->required();
-        info->callback([&exit_code, opts] { exit_code = execute_driver_info(opts->config_path, opts->driver_name); });
+        auto info_path = std::make_shared<std::string>("config.json");
+        info->add_option("-c,--config", *info_path, "Config file path")
+                ->default_str("config.json")
+                ->check(CLI::ExistingFile);
+        auto driver_name = std::make_shared<std::string>();
+        info->add_option("name", *driver_name, "Driver name (e.g. simple, cloudflare)")->required();
+        info->callback([&exit_code, info_path, driver_name] { exit_code = execute_driver_info(*info_path, *driver_name); });
     }
 
     // ── Executors ─────────────────────────────────────────────────────────

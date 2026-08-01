@@ -33,25 +33,29 @@ namespace Cli {
     } // namespace
 
     void register_dns_subcommand(CLI::App &app, int &exit_code) {
-        auto opts = std::make_shared<DnsOpts>();
-
         auto *dns = app.add_subcommand("dns", "DNS lookup and diagnostics");
         dns->require_subcommand(1);
-        dns->add_option("-c,--config", opts->config_path, "Config file path")
-                ->default_str("config.json")
-                ->check(CLI::ExistingFile);
 
         auto *resolve = dns->add_subcommand("resolve", "Resolve a hostname");
         resolve->alias("r");
-        resolve->add_option("hostname", opts->dns_host, "Hostname to resolve (e.g. example.com)")->required();
-        resolve->add_option("--type", opts->dns_type, "Record type (A, AAAA, TXT)")
+        auto resolve_opts = std::make_shared<DnsOpts>();
+        resolve->add_option("-c,--config", resolve_opts->config_path, "Config file path")
+                ->default_str("config.json")
+                ->check(CLI::ExistingFile);
+        resolve->add_option("hostname", resolve_opts->dns_host, "Hostname to resolve (e.g. example.com)")->required();
+        resolve->add_option("--type", resolve_opts->dns_type, "Record type (A, AAAA, TXT)")
                 ->default_str("A")
                 ->check(CLI::IsMember(std::vector<std::string>{"A", "AAAA", "TXT"}));
-        resolve->callback(
-            [&exit_code, opts] { exit_code = execute_dns_resolve(opts->config_path, opts->dns_host, opts->dns_type); });
+        resolve->callback([&exit_code, resolve_opts] {
+            exit_code = execute_dns_resolve(resolve_opts->config_path, resolve_opts->dns_host, resolve_opts->dns_type);
+        });
 
         auto *resolver = dns->add_subcommand("resolver", "Show configured resolver details");
-        resolver->callback([&exit_code, opts] { exit_code = execute_dns_resolver(opts->config_path); });
+        auto resolver_path = std::make_shared<std::string>("config.json");
+        resolver->add_option("-c,--config", *resolver_path, "Config file path")
+                ->default_str("config.json")
+                ->check(CLI::ExistingFile);
+        resolver->callback([&exit_code, resolver_path] { exit_code = execute_dns_resolver(*resolver_path); });
     }
 
     // ── Executors ─────────────────────────────────────────────────────────

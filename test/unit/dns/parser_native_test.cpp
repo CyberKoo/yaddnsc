@@ -1208,4 +1208,154 @@ TEST(DnsParserTest, ParseResponse_NoerrorWithAnswers) {
     EXPECT_EQ(parsed.rcode, DNS::Rcode::NOERROR);
 }
 
+// ===========================================================================
+// RDATA boundary errors — malformed MX/SOA/SRV wire data
+// ===========================================================================
+
+TEST(DnsParserTest, ParseMxRecord_NameExtendsPastRdata_Throws) {
+    // Preference(2) + label "abc" (5 bytes) — but RDLENGTH claims only 5,
+    // so the decoded name ends up past the declared RDATA boundary.
+    auto response = make_response_with_rdata(
+        static_cast<std::uint16_t>(DNS::RecordType::MX),
+        {0x00, 0x0A, 0x03, 'a', 'b', 'c', 0x00}, 5);
+    EXPECT_THROW((DNS::RecordParser::parse_strings(response)), DnsLookupException);
+}
+
+TEST(DnsParserTest, ParseSoaRecord_TruncatedRdata_Throws) {
+    // mname + rname (10 bytes) followed by only 12 bytes of the required
+    // 20 bytes of trailing integers → truncated SOA RDATA.
+    std::vector<std::uint8_t> rdata;
+    rdata.push_back(0x03); rdata.push_back('a'); rdata.push_back('b'); rdata.push_back('c'); rdata.push_back(0x00);
+    rdata.push_back(0x03); rdata.push_back('d'); rdata.push_back('e'); rdata.push_back('f'); rdata.push_back(0x00);
+    rdata.insert(rdata.end(), 12, 0x00);
+    auto response = make_response_with_rdata(
+        static_cast<std::uint16_t>(DNS::RecordType::SOA), rdata);
+    EXPECT_THROW((DNS::RecordParser::parse_strings(response)), DnsLookupException);
+}
+
+TEST(DnsParserTest, ParseSrvRecord_TargetExtendsPastRdata_Throws) {
+    // priority(2)+weight(2)+port(2)+target(5) = 11 bytes, RDLENGTH claims 7.
+    auto response = make_response_with_rdata(
+        static_cast<std::uint16_t>(DNS::RecordType::SRV),
+        {0x00, 0x0A, 0x00, 0x14, 0x1F, 0x90, 0x03, 's', 'r', 'v', 0x00}, 7);
+    EXPECT_THROW((DNS::RecordParser::parse_strings(response)), DnsLookupException);
+}
+
+// ===========================================================================
+// EDNS0 edge cases
+// ===========================================================================
+
+/// Build a response with a single OPT pseudo-record in the additional section.
+/// @param opt_name    Wire-format name for the OPT record.
+/// @param opt_rdata   OPT RDATA bytes (options).
+/// @param opt_ttl     OPT TTL field (carries extended RCODE / version / DO).
+std::vector<std::uint8_t> make_custom_edns_response(std::vector<std::uint8_t> opt_name,
+                                                     std::vector<std::uint8_t> opt_rdata,
+                                                     std::uint32_t opt_ttl) {
+    std::vector<std::uint8_t> buf;
+    buf.resize(12, 0);
+    write_u16_be(buf, 0, 0x1234);
+    buf[2] = 0x81;
+    buf[3] = 0x80;
+    write_u16_be(buf, 4, 1);
+    write_u16_be(buf, 6, 1);
+    write_u16_be(buf, 10, 1);
+    encode_name(buf, "example.com");
+    buf.push_back(0x00); buf.push_back(0x01);
+    buf.push_back(0x00); buf.push_back(0x01);
+    // Answer: A record 1.2.3.4.
+    buf.push_back(0xC0); buf.push_back(0x0C);
+    buf.push_back(0x00); buf.push_back(0x01);
+    buf.push_back(0x00); buf.push_back(0x01);
+    buf.push_back(0x00); buf.push_back(0x00); buf.push_back(0x01); buf.push_back(0x2C);
+    buf.push_back(0x00); buf.push_back(0x04);
+    buf.push_back(1); buf.push_back(2); buf.push_back(3); buf.push_back(4);
+    // Additional: OPT.
+    buf.insert(buf.end(), opt_name.begin(), opt_name.end());
+    buf.push_back(0x00); buf.push_back(0x29);       // type OPT (41)
+    buf.push_back(0x10); buf.push_back(0x00);       // class 4096 (UDP payload)
+    buf.push_back(static_cast<std::uint8_t>(opt_ttl >> 24));
+    buf.push_back(static_cast<std::uint8_t>(opt_ttl >> 16));
+    buf.push_back(static_cast<std::uint8_t>(opt_ttl >> 8));
+    buf.push_back(static_cast<std::uint8_t>(opt_ttl & 0xFF));
+    buf.push_back(static_cast<std::uint8_t>(opt_rdata.size() >> 8));
+    buf.push_back(static_cast<std::uint8_t>(opt_rdata.size() & 0xFF));
+    buf.insert(buf.end(), opt_rdata.begin(), opt_rdata.end());
+    return buf;
+}
+
+TEST(DnsParserTest, Edns0_TruncatedOption_Throws) {
+    // OPT option declares length 10 but the RDATA only has 4 bytes.
+    auto response = make_custom_edns_response(
+        {0x00}, {0x00, 0x01, 0x00, 0x0A}, 0x00000000);
+    EXPECT_THROW((DNS::RecordParser{response}), DnsLookupException);
+}
+
+TEST(DnsParserTest, Edns0_NonRootName_NotDetected) {
+    // An OPT-typed record with a non-root name is not EDNS0 (RFC 6891 §6.1).
+    auto response = make_custom_edns_response(
+        {0x03, 'w', 'w', 'w', 0x00}, {}, 0x00000000);
+    DNS::RecordParser parser(response);
+    EXPECT_FALSE(parser.edns().has_value());
+}
+
+TEST(DnsParserTest, Edns0_ExtendedRcode_Combined) {
+    // OPT TTL upper byte carries extended RCODE 1 → final RCODE = 0x10.
+    auto response = make_custom_edns_response(
+        {0x00}, {}, 0x01000000);
+    DNS::RecordParser parser(response);
+    ASSERT_TRUE(parser.edns().has_value());
+    EXPECT_EQ(static_cast<std::uint8_t>(parser.message().rcode), 0x10);
+}
+
+// ===========================================================================
+// Truncated header sections
+// ===========================================================================
+
+TEST(DnsParserTest, QuestionSection_TypeTruncated_Throws) {
+    // Question name parses (root label) but QTYPE/QCLASS are cut short.
+    std::vector<std::uint8_t> buf;
+    buf.resize(12, 0);
+    write_u16_be(buf, 0, 0x1234);
+    buf[2] = 0x81;
+    buf[3] = 0x80;
+    write_u16_be(buf, 4, 1);
+    buf.push_back(0x00);  // root name
+    buf.push_back(0x00);  // 1 byte of QTYPE only — 3 more required
+    EXPECT_THROW((DNS::RecordParser{buf}), DnsLookupException);
+}
+
+TEST(DnsParserTest, AnswerSection_HeaderTruncated_Throws) {
+    // Answer name parses (pointer) but the fixed RR header is cut short.
+    std::vector<std::uint8_t> buf;
+    buf.resize(12, 0);
+    write_u16_be(buf, 0, 0x1234);
+    buf[2] = 0x81;
+    buf[3] = 0x80;
+    write_u16_be(buf, 4, 1);
+    write_u16_be(buf, 6, 1);
+    encode_name(buf, "example.com");
+    buf.push_back(0x00); buf.push_back(0x01);
+    buf.push_back(0x00); buf.push_back(0x01);
+    buf.push_back(0xC0); buf.push_back(0x0C);  // answer name pointer
+    buf.push_back(0x00); buf.push_back(0x01);  // only TYPE — 10 more bytes required
+    EXPECT_THROW((DNS::RecordParser{buf}), DnsLookupException);
+}
+
+TEST(DnsParserTest, UnsupportedRecordType_ThrowsWithQuestionMark) {
+    // Type 0xFE is not in RecordType → magic_enum yields empty → "?" in the
+    // error message.
+    auto response = make_response_with_rdata(0x00FE, {0x01, 0x02, 0x03});
+    EXPECT_THROW(
+        {
+            try {
+                DNS::RecordParser::parse_strings(response);
+            } catch (const DnsLookupException &e) {
+                EXPECT_NE(std::string(e.what()).find("?"), std::string::npos);
+                throw;
+            }
+        },
+        DnsLookupException);
+}
+
 

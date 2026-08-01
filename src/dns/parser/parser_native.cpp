@@ -35,9 +35,6 @@ namespace {
     constexpr size_t QUESTION_FIXED_SIZE = 4; // QTYPE(2) + QCLASS(2)
     constexpr size_t RR_FIXED_SIZE = 10; // TYPE(2) + CLASS(2) + TTL(4) + RDLENGTH(2)
 
-    // EDNS0 constants
-    constexpr size_t OPT_NAME_SIZE = 1; // Root label (0x00)
-
     /// Flag bits in the DNS header's second flags byte (byte 3).
     /// QR=0x80 is in byte 2; AA, TC, RD are in byte 2; RA, Z, RCODE are in byte 3.
     constexpr uint8_t FLAGS_QR = 0x80; // byte 2
@@ -520,9 +517,9 @@ DNS::ParsedMessage DNS::RecordParser::parse_message(const std::span<const std::u
     for (uint16_t i = 0; i < m.arcount; ++i) {
         auto rr = parse_rr();
         // Check for EDNS0 OPT pseudo-record (RFC 6891 §6.1).
-        // The NAME must be the root label (0x00), and CLASS must carry a
-        // non-zero UDP payload size.
-        if (rr.type == static_cast<std::uint16_t>(RecordType::OPT) && rr.name.size() == OPT_NAME_SIZE && rr.qclass >
+        // The NAME must be the root label (0x00, which decompresses to an
+        // empty string), and CLASS must carry a non-zero UDP payload size.
+        if (rr.type == static_cast<std::uint16_t>(RecordType::OPT) && rr.name.empty() && rr.qclass >
             0) [[unlikely]] {
             m.edns = parse_edns(rr);
         }
