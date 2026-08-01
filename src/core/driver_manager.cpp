@@ -73,7 +73,7 @@ namespace {
 
         static void verify_compiler(const HandlePtr &handle, std::string_view driver_name);
 
-        [[nodiscard]] static DriverPtr create_driver(const HandlePtr &handle);
+        [[nodiscard]] static DriverPtr create_driver(const HandlePtr &handle, std::string_view driver_name);
 
         // ── Data members ──
         HandlePtr handle_;
@@ -108,7 +108,7 @@ namespace {
         const auto name = get_driver_name(path);
         verify_magic(handle_, name);
         verify_compiler(handle_, name);
-        driver_ = create_driver(handle_);
+        driver_ = create_driver(handle_, name);
     }
 
     DriverModule::HandlePtr DriverModule::open_handle(const std::string &path) {
@@ -143,10 +143,17 @@ namespace {
         }
     }
 
-    DriverModule::DriverPtr DriverModule::create_driver(const HandlePtr &handle) {
+    DriverModule::DriverPtr DriverModule::create_driver(const HandlePtr &handle, std::string_view driver_name) {
         auto create_func = resolve_symbol<Driver*()>(handle, "create");
         auto destroy_func = resolve_symbol<void(Driver *)>(handle, "destroy");
-        return DriverPtr(create_func(), DriverDeleter{destroy_func});
+        // Wrap the factory result immediately: from this point on the instance
+        // is owned by the unique_ptr and released via destroy().
+        auto driver = DriverPtr(create_func(), DriverDeleter{destroy_func});
+        if (!driver) {
+            throw BadDriverException(
+                fmt::format("Driver '{}' create() returned a null instance", driver_name));
+        }
+        return driver;
     }
 
     const Driver &DriverModule::get() const {

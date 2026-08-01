@@ -134,6 +134,26 @@ TEST(DriverLoaderTest, LoadByAbsolutePath) {
     EXPECT_EQ(mgr.get_loaded_drivers()[0], "simple");
 }
 
+TEST(DriverLoaderTest, DriverCreateReturnsNull_Rejected) {
+    DriverManager mgr;
+    Config::AppConfig cfg;
+    cfg.driver.auto_discover = false;
+    // The fixture passes magic + compiler verification, but its create()
+    // returns nullptr — must be rejected as a bad driver rather than
+    // dereferenced downstream.
+    cfg.driver.load.push_back(NULL_DRIVER_FIXTURE);
+
+    try {
+        DriverLoader::load(mgr, cfg);
+        FAIL() << "Expected BadDriverException";
+    } catch (const BadDriverException &e) {
+        // Assert the rejection comes from the null-instance guard, not from
+        // an earlier magic/compiler mismatch.
+        EXPECT_NE(std::string_view(e.what()).find("null instance"), std::string_view::npos);
+    }
+    EXPECT_TRUE(mgr.get_loaded_drivers().empty());
+}
+
 // ===========================================================================
 // Auto-discovery resilience (foreign/broken libraries are skipped)
 // ===========================================================================

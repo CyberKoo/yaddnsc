@@ -95,6 +95,14 @@ add_unit_test(scheduler SOURCE core/scheduler_test.cpp
 # MODULE produces a .so on both Linux and macOS (SHARED would be .dylib).
 add_library(yaddnsc_bad_driver_fixture MODULE core/bad_driver_fixture.cpp)
 
+# Fixture: a library that passes magic/compiler verification but whose
+# create() returns nullptr — exercises the null-instance guard in
+# DriverModule::create_driver. Must use the project compile config so the
+# compiler-identity hash matches the host's.
+add_library(yaddnsc_null_driver_fixture MODULE core/null_driver_fixture.cpp)
+target_link_libraries(yaddnsc_null_driver_fixture PRIVATE yaddnsc_compile_config)
+add_sanitizer_flags(yaddnsc_null_driver_fixture)
+
 add_unit_test(driver_loader SOURCE core/driver_loader_test.cpp
     ${PROJECT_SOURCE_DIR}/src/core/driver_loader.cpp
     ${PROJECT_SOURCE_DIR}/src/core/driver_manager.cpp
@@ -112,10 +120,11 @@ set_tests_properties(test_driver_loader PROPERTIES
     ENVIRONMENT "ASAN_OPTIONS=detect_odr_violation=0:detect_stack_use_after_return=1:strict_string_checks=1:detect_invalid_pointer_pairs=2")
 target_compile_definitions(test_driver_loader PRIVATE
     TEST_DRIVER_DIR="${CMAKE_BINARY_DIR}/driver"
-    BAD_DRIVER_FIXTURE="$<TARGET_FILE:yaddnsc_bad_driver_fixture>")
+    BAD_DRIVER_FIXTURE="$<TARGET_FILE:yaddnsc_bad_driver_fixture>"
+    NULL_DRIVER_FIXTURE="$<TARGET_FILE:yaddnsc_null_driver_fixture>")
 target_link_libraries(test_driver_loader PRIVATE ${CMAKE_DL_LIBS})
 # simple.so must be built before the test runs (dlopen dependency).
-add_dependencies(test_driver_loader simple yaddnsc_bad_driver_fixture)
+add_dependencies(test_driver_loader simple yaddnsc_bad_driver_fixture yaddnsc_null_driver_fixture)
 
 # updater — requires the full DNS + IP-source dependency chain
 add_unit_test(updater SOURCE core/updater_test.cpp
