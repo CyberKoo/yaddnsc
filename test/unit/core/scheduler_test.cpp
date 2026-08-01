@@ -5,6 +5,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <memory>
 #include <stdexcept>
 #include <stop_token>
 #include <thread>
@@ -13,7 +14,7 @@
 #include <gtest/gtest.h>
 
 #include "core/scheduler.h"
-#include "core/update_task.h"
+#include "core/update_task.hpp"
 
 #include "config/config.h"
 #include "config/parser.hpp"
@@ -22,18 +23,18 @@
 
 namespace {
 
-// Parse one of the fixture configs into an AppConfig for the scheduler.
-[[nodiscard]] Config::AppConfig parse_cfg(std::string_view json) {
-    Config::AppConfig cfg{};
-    const auto ec = glz::read<glz::opts{.error_on_missing_keys = false}>(cfg, json);
+// Parse one of the fixture configs into a shared AppConfig for the scheduler.
+[[nodiscard]] std::shared_ptr<Config::AppConfig> parse_cfg(std::string_view json) {
+    auto cfg = std::make_shared<Config::AppConfig>();
+    const auto ec = glz::read<glz::opts{.error_on_missing_keys = false}>(*cfg, json);
     EXPECT_EQ(ec, glz::error_code::none) << glz::format_error(ec, json);
     return cfg;
 }
 
 // Count every subdomain across all domains (== number of scheduled tasks).
-[[nodiscard]] std::size_t subdomain_count(const Config::AppConfig &cfg) {
+[[nodiscard]] std::size_t subdomain_count(const std::shared_ptr<Config::AppConfig> &cfg) {
     std::size_t n = 0;
-    for (const auto &domain: cfg.domains) {
+    for (const auto &domain: cfg->domains) {
         n += domain.subdomains.size();
     }
     return n;

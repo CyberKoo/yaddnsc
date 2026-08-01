@@ -16,7 +16,7 @@
 #include <glaze/glaze.hpp>
 
 #include "core/updater.h"
-#include "core/update_task.h"
+#include "core/update_task.hpp"
 #include "dns/dispatcher.h"
 
 #include "interface/driver.h"
@@ -70,22 +70,34 @@ private:
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
-[[nodiscard]] Config::AppConfig parse_cfg(std::string_view json) {
-    Config::AppConfig cfg{};
+[[nodiscard]] std::shared_ptr<const Config::AppConfig> parse_cfg(std::string_view json) {
+    auto cfg = Config::AppConfig{};
     const auto ec = glz::read<glz::opts{.error_on_missing_keys = false}>(cfg, json);
     EXPECT_EQ(ec, glz::error_code::none) << glz::format_error(ec, json);
-    return cfg;
+    return std::make_shared<const Config::AppConfig>(std::move(cfg));
 }
 
-// Build a single-subdomain task from the fixture config.
-[[nodiscard]] UpdateTask make_task(const Config::AppConfig &cfg, std::size_t domain_idx = 0,
+// Parse a config, apply a mutation before sharing it, and return the shared
+// handle. Used by tests that override a subdomain setting (the shared config
+// is const once handed out).
+template <typename Mutator>
+[[nodiscard]] std::shared_ptr<const Config::AppConfig> parse_cfg_mut(std::string_view json, Mutator mut) {
+    auto cfg = Config::AppConfig{};
+    const auto ec = glz::read<glz::opts{.error_on_missing_keys = false}>(cfg, json);
+    EXPECT_EQ(ec, glz::error_code::none) << glz::format_error(ec, json);
+    mut(cfg);
+    return std::make_shared<const Config::AppConfig>(std::move(cfg));
+}
+
+// Build a single-subdomain task from the shared fixture config.
+[[nodiscard]] UpdateTask make_task(const std::shared_ptr<const Config::AppConfig> &cfg, std::size_t domain_idx = 0,
                                    std::size_t sub_idx = 0) {
-    const auto &domain = cfg.domains[domain_idx];
+    const auto &domain = cfg->domains[domain_idx];
     const auto &sub = domain.subdomains[sub_idx];
     return UpdateTask{
-        .config = sub,
-        .domain_name = domain.name,
-        .driver_name = domain.driver,
+        .config = cfg,
+        .domain_index = domain_idx,
+        .subdomain_index = sub_idx,
         .fqdn = fmt::format("{}.{}", sub.name, domain.name),
         .force_update = false,
     };
@@ -275,9 +287,10 @@ TEST(Updater, FiltersLinkLocalForAaaaWhenNotAllowed) {
 }
 
 TEST(Updater, KeepsLinkLocalForAaaaWhenAllowed) {
-    auto cfg = parse_cfg(Fixtures::FULL_CONFIG);
-    auto task = make_task(cfg, 0, 1);
-    task.config.allow_local_link = true; // override
+    // The "www" subdomain is type AAAA, interface source, allow_local_link=false.
+    auto task = make_task(parse_cfg_mut(Fixtures::FULL_CONFIG, [](Config::AppConfig &cfg) {
+        cfg.domains[0].subdomains[1].allow_local_link = true; // override
+    }), 0, 1);
 
     auto ip = std::make_shared<FakeIpSource>(std::vector<InetAddress>{
         Inet6Address::from_bytes({0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x01})});
@@ -316,9 +329,9 @@ TEST(Updater, FiltersUlaForAaaaWhenNotAllowed) {
 }
 
 TEST(Updater, KeepsUlaForAaaaWhenAllowed) {
-    auto cfg = parse_cfg(Fixtures::FULL_CONFIG);
-    auto task = make_task(cfg, 0, 1);
-    task.config.allow_ula = true; // override
+    auto task = make_task(parse_cfg_mut(Fixtures::FULL_CONFIG, [](Config::AppConfig &cfg) {
+        cfg.domains[0].subdomains[1].allow_ula = true; // override
+    }), 0, 1);
 
     auto ip = std::make_shared<FakeIpSource>(std::vector<InetAddress>{
         Inet6Address::from_bytes({0xfc, 0x00, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x01})});
@@ -429,9 +442,9 @@ TEST(Updater, MultipleIpCandidates_PicksFirst) {
 // ── Multiple IP candidates, last matches → still picks first matching ────────
 
 TEST(Updater, MultipleIpCandidates_PicksFirstMatching) {
-    auto cfg = parse_cfg(Fixtures::FULL_CONFIG);
-    auto task = make_task(cfg);
-    task.config.type = RecordKind::A;
+    auto task = make_task(parse_cfg_mut(Fixtures::FULL_CONFIG, [](Config::AppConfig &cfg) {
+        cfg.domains[0].subdomains[0].type = RecordKind::A;
+    }));
 
     // Only the third address is a valid IPv4 (first two are IPv6).
     auto ip = std::make_shared<FakeIpSource>(std::vector<InetAddress>{

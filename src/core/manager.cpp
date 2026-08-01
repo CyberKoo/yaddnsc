@@ -19,7 +19,7 @@
 #include "driver_manager.h"
 #include "scheduler.h"
 #include "updater.h"
-#include "update_task.h"
+#include "update_task.hpp"
 #include "min_update_interval.h"
 #include "exception/driver_not_found.h"
 
@@ -70,7 +70,7 @@ struct Manager::Impl {
 
     // IMPORTANT: destruction order is the reverse of declaration order.
     // config_ is declared first because it's needed by dispatcher_'s constructor.
-    Config::AppConfig config_;
+    std::shared_ptr<const Config::AppConfig> config_;
     DriverManager driver_manager_;
     ResolverDispatcher dispatcher_;
     Updater updater_;
@@ -81,26 +81,28 @@ struct Manager::Impl {
 };
 
 Manager::Impl::Impl(Config::AppConfig config, std::stop_source stop_source)
-    : config_(std::move(config)), dispatcher_(DnsResolverFactory::create(config_)), updater_(dispatcher_),
-      thread_pool_(estimate_pool_size(config_)), scheduler_(config_, stop_source.get_token()),
+    : config_(std::make_shared<const Config::AppConfig>(std::move(config))),
+      dispatcher_(DnsResolverFactory::create(*config_)), updater_(dispatcher_),
+      thread_pool_(estimate_pool_size(*config_)), scheduler_(config_, stop_source.get_token()),
       stop_source_(std::move(stop_source)), http_client_factory_(default_http_client_factory) {
 }
 
 Manager::Impl::Impl(Config::AppConfig config, std::stop_source stop_source, ResolverDispatcher dispatcher,
                     HttpClientFactory http_factory)
-    : config_(std::move(config)), dispatcher_(std::move(dispatcher)), updater_(dispatcher_),
-      thread_pool_(estimate_pool_size(config_)), scheduler_(config_, stop_source.get_token()),
+    : config_(std::make_shared<const Config::AppConfig>(std::move(config))),
+      dispatcher_(std::move(dispatcher)), updater_(dispatcher_),
+      thread_pool_(estimate_pool_size(*config_)), scheduler_(config_, stop_source.get_token()),
       stop_source_(std::move(stop_source)), http_client_factory_(std::move(http_factory)) {
 }
 
 void Manager::Impl::load_drivers() {
-    DriverLoader::load(driver_manager_, config_);
+    DriverLoader::load(driver_manager_, *config_);
 }
 
 void Manager::Impl::validate_config() const {
     const auto interfaces = InterfaceUtil::get_interfaces();
     const ConfigValidator<YADDNSC_MIN_UPDATE_INTERVAL> validator(driver_manager_.get_loaded_drivers(), interfaces);
-    validator.validate(config_);
+    validator.validate(*config_);
 }
 
 void Manager::Impl::run() {
@@ -112,13 +114,13 @@ void Manager::Impl::run() {
 
         for (auto &task: tasks) {
             try {
-                auto driver = &driver_manager_.get_driver(task.driver_name);
+                auto driver = &driver_manager_.get_driver(std::string(task.driver_name()));
                 thread_pool_.detach_task([this, driver, t = std::move(task)] {
                     auto http_client = http_client_factory_();
                     updater_.process(t, *driver, *http_client);
                 });
             } catch (const DriverNotFoundException &e) {
-                SPDLOG_ERROR("Driver '{}' not found for task '{}', skipping: {}", task.driver_name, task.fqdn,
+                SPDLOG_ERROR("Driver '{}' not found for task '{}', skipping: {}", task.driver_name(), task.fqdn,
                              e.what());
             }
         }

@@ -6,6 +6,7 @@
 
 #include <chrono>
 #include <condition_variable>
+#include <cstddef>
 #include <functional>
 #include <mutex>
 #include <queue>
@@ -15,7 +16,7 @@
 
 #include "config/config.h"
 
-#include "update_task.h"
+#include "update_task.hpp"
 
 #include "fmt.hpp"
 #include <spdlog/spdlog.h>
@@ -42,7 +43,7 @@ struct ScheduleEntry {
 // ---------------------------------------------------------------------------
 
 struct Scheduler::Impl {
-    Impl(Config::AppConfig config, std::stop_token stop_token);
+    Impl(std::shared_ptr<const Config::AppConfig> config, std::stop_token stop_token);
 
     [[nodiscard]]
     static bool check_force_update(ScheduleEntry &entry, std::chrono::steady_clock::time_point now) noexcept;
@@ -54,7 +55,7 @@ struct Scheduler::Impl {
     [[nodiscard]] bool has_pending() const;
 
     // ---- config ------------------------------------------------------------
-    Config::AppConfig config_;
+    std::shared_ptr<const Config::AppConfig> config_;
 
     // ---- stop --------------------------------------------------------------
     std::stop_token stop_token_;
@@ -68,13 +69,16 @@ struct Scheduler::Impl {
     std::stop_callback<std::function<void()> > stop_cb_; // notifies cv_ when stop fires
 };
 
-Scheduler::Impl::Impl(Config::AppConfig config, std::stop_token stop_token)
+Scheduler::Impl::Impl(std::shared_ptr<const Config::AppConfig> config, std::stop_token stop_token)
     : config_(std::move(config)), stop_token_(std::move(stop_token)),
       stop_cb_(stop_token_, [this] { cv_.notify_all(); }) {
-    for (const auto &[name, update_interval, force_update, driver, subdomains]: config_.domains) {
-        for (const auto &subdomain: subdomains) {
-            const auto fqdn = fmt::format("{}.{}", subdomain.name, name);
-            const auto effective_interval = subdomain.update_interval > 0 ? subdomain.update_interval : update_interval;
+    for (std::size_t domain_idx = 0; domain_idx < config_->domains.size(); ++domain_idx) {
+        const auto &domain = config_->domains[domain_idx];
+        for (std::size_t subdomain_idx = 0; subdomain_idx < domain.subdomains.size(); ++subdomain_idx) {
+            const auto &subdomain = domain.subdomains[subdomain_idx];
+            const auto fqdn = fmt::format("{}.{}", subdomain.name, domain.name);
+            const auto effective_interval =
+                subdomain.update_interval > 0 ? subdomain.update_interval : domain.update_interval;
 
             // A non-positive interval would re-queue the entry with deadline ==
             // now forever, spinning pop_all_due() into a busy loop. ConfigValidator
@@ -82,7 +86,7 @@ Scheduler::Impl::Impl(Config::AppConfig config, std::stop_token stop_token)
             // invoking validate_config() (defence in depth).
             if (effective_interval <= 0) {
                 throw std::invalid_argument(
-                    fmt::format("Update interval for {}.{} must be positive (got {})", subdomain.name, name,
+                    fmt::format("Update interval for {}.{} must be positive (got {})", subdomain.name, domain.name,
                                 effective_interval));
             }
 
@@ -93,19 +97,19 @@ Scheduler::Impl::Impl(Config::AppConfig config, std::stop_token stop_token)
             // interval is positive. Using {} (epoch) would make the elapsed
             // time depend on system uptime, which on a fresh CI runner can be
             // shorter than the force_update_interval.
-            const auto force_update_past = force_update > 0
-                ? now - std::chrono::seconds(force_update)
+            const auto force_update_past = domain.force_update > 0
+                ? now - std::chrono::seconds(domain.force_update)
                 : std::chrono::steady_clock::time_point{};
 
             heap_.push(ScheduleEntry{
                 .deadline = now,
                 .update_interval = effective_interval,
-                .force_update_interval = force_update,
+                .force_update_interval = domain.force_update,
                 .last_force_update = force_update_past,
                 .task = {
-                    .config = subdomain,
-                    .domain_name = name,
-                    .driver_name = driver,
+                    .config = config_,
+                    .domain_index = domain_idx,
+                    .subdomain_index = subdomain_idx,
                     .fqdn = fqdn,
                     .force_update = false,
                 },
@@ -179,8 +183,8 @@ bool Scheduler::Impl::has_pending() const {
 // Scheduler public API — thin delegation to Impl
 // ---------------------------------------------------------------------------
 
-Scheduler::Scheduler(const Config::AppConfig &config, std::stop_token stop_token)
-    : impl_(std::make_unique<Impl>(config, std::move(stop_token))) {
+Scheduler::Scheduler(std::shared_ptr<const Config::AppConfig> config, std::stop_token stop_token)
+    : impl_(std::make_unique<Impl>(std::move(config), std::move(stop_token))) {
 }
 
 Scheduler::~Scheduler() = default;

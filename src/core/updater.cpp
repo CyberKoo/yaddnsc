@@ -9,7 +9,7 @@
 #include "ip_source/base.h"
 #include "ip_source/factory.h"
 
-#include "update_task.h"
+#include "update_task.hpp"
 
 #include <glaze/json/generic.hpp>
 #include <magic_enum/magic_enum.hpp>
@@ -69,12 +69,12 @@ Updater::Impl::Impl(const ResolverDispatcher &resolver_dispatcher, IpSourceFacto
 }
 
 void Updater::Impl::process(const UpdateTask &task, const Driver &driver, HttpClient &http_client) const {
-    auto rd_type_name = magic_enum::enum_name(task.config.type);
+    auto rd_type_name = magic_enum::enum_name(task.subdomain_config().type);
     const auto rd_type = rd_type_name.empty() ? "UNKNOWN" : rd_type_name;
 
     // --- Step 1: local IP ---------------------------------------------------
 
-    const auto local_ip = resolve_local_address(task.config);
+    const auto local_ip = resolve_local_address(task.subdomain_config());
     if (!local_ip) {
         SPDLOG_WARN("No valid IP address found for {}, skipping the update", task.fqdn);
         return;
@@ -83,7 +83,7 @@ void Updater::Impl::process(const UpdateTask &task, const Driver &driver, HttpCl
     // --- Step 2: skip if unchanged (unless force_update) --------------------
 
     if (!task.force_update) {
-        const auto records = dns_lookup(task.fqdn, task.config.type);
+        const auto records = dns_lookup(task.fqdn, task.subdomain_config().type);
 
         if (!records.empty()) {
             const auto &first = records.front();
@@ -144,7 +144,7 @@ std::optional<InetAddress> Updater::Impl::resolve_local_address(const Config::Su
 }
 
 DriverConfig Updater::Impl::build_driver_parameters(const UpdateTask &task) {
-    return task.config.driver_param.dump().value_or("{}");
+    return task.subdomain_config().driver_param.dump().value_or("{}");
 }
 
 DriverUpdateParams Updater::Impl::build_update_context(const UpdateTask &task, const InetAddress &ip_addr,
@@ -152,8 +152,8 @@ DriverUpdateParams Updater::Impl::build_update_context(const UpdateTask &task, c
     return {
         .ip_addr = ip_addr.to_string(),
         .rd_type = std::string(rd_type),
-        .domain = task.domain_name,
-        .subdomain = task.config.name,
+        .domain = std::string(task.domain_name()),
+        .subdomain = task.subdomain_config().name,
         .fqdn = task.fqdn,
     };
 }

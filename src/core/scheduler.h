@@ -32,10 +32,12 @@ struct UpdateTask;
 ///       (the caller's loop owns the scheduling sequence).
 class Scheduler {
 public:
-    /// Construct and populate the schedule from config.
-    /// @param config      Application config with domain/subdomain definitions.
+    /// Construct and populate the schedule from the application config.
+    /// @param config      Application config with domain/subdomain definitions;
+    ///                    shared with the caller so produced tasks reference the
+    ///                    config instead of copying it per subdomain.
     /// @param stop_token  Token used to wake the scheduler on shutdown.
-    explicit Scheduler(const Config::AppConfig &config, std::stop_token stop_token);
+    explicit Scheduler(std::shared_ptr<const Config::AppConfig> config, std::stop_token stop_token);
 
     ~Scheduler();
 
