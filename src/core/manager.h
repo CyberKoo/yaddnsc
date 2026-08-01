@@ -9,7 +9,6 @@
 #include <stop_token>
 #include <functional>
 
-#include "mixin.h"
 #include "config/config.h"
 
 class HttpClient;
@@ -56,9 +55,6 @@ private:
     struct Impl;
 
     std::unique_ptr<Impl> impl_;
-
-    [[maybe_unused, no_unique_address]] NoCopy no_copy_;
-    [[maybe_unused, no_unique_address]] NoMove no_move_;
 };
 
 #endif //YADDNSC_CORE_MANAGER_H

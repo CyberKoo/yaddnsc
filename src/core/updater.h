@@ -8,8 +8,6 @@
 #include <functional>
 #include <memory>
 
-#include "mixin.h"
-
 class Driver;
 class HttpClient;
 class IpSourceBase;
@@ -77,9 +75,6 @@ public:
 private:
     struct Impl;
     std::unique_ptr<Impl> impl_;
-
-    [[maybe_unused, no_unique_address]] NoCopy no_copy_;
-    [[maybe_unused, no_unique_address]] NoMove no_move_;
 };
 
 #endif // YADDNSC_CORE_UPDATER_H

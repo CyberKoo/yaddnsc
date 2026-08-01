@@ -10,8 +10,6 @@
 #include <vector>
 #include <string_view>
 
-#include "mixin.h"
-
 class Driver;
 
 /// Abstract interface for driver lifecycle management.
@@ -46,10 +44,6 @@ public:
 
 protected:
     DriverManagerBase() = default;
-
-private:
-    [[maybe_unused, no_unique_address]] NoCopy no_copy_;
-    [[maybe_unused, no_unique_address]] NoMove no_move_;
 };
 
 /// Manages the lifecycle of loaded driver plugins.

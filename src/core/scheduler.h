@@ -9,8 +9,6 @@
 #include <vector>
 #include <stop_token>
 
-#include "mixin.h"
-
 namespace Config {
     struct AppConfig;
 }
@@ -60,9 +58,6 @@ private:
     struct Impl;
 
     std::unique_ptr<Impl> impl_;
-
-    [[maybe_unused, no_unique_address]] NoCopy no_copy_;
-    [[maybe_unused, no_unique_address]] NoMove no_move_;
 };
 
 #endif // YADDNSC_CORE_SCHEDULER_H

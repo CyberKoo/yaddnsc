@@ -9,8 +9,6 @@
 #include <stop_token>
 #include <thread>
 
-#include "mixin.h"
-
 /// SignalWatcher — owns the signal-watching thread and its stop_source.
 ///
 /// Usage:
@@ -57,9 +55,6 @@ private:
 
     static std::atomic<bool> signals_blocked_;
     static std::atomic<bool> instance_created_;
-
-    [[maybe_unused, no_unique_address]] NoCopy no_copy_;
-    [[maybe_unused, no_unique_address]] NoMove no_move_;
 };
 
 #endif  // YADDNSC_CORE_SIGNAL_WATCHER_H
