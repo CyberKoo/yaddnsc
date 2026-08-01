@@ -23,8 +23,9 @@ void SignalWatcher::install() {
     sigemptyset(&sigset);
     sigaddset(&sigset, SIGINT);
     sigaddset(&sigset, SIGTERM);
+    sigaddset(&sigset, SIGUSR2); // reserved as the destructor's wake-up signal
     if (pthread_sigmask(SIG_BLOCK, &sigset, nullptr) != 0) {
-        SPDLOG_CRITICAL("Failed to block SIGINT/SIGTERM, errno: {}", errno);
+        SPDLOG_CRITICAL("Failed to block SIGINT/SIGTERM/SIGUSR2, errno: {}", errno);
         std::terminate();
     }
     signals_blocked_.store(true, std::memory_order_release);
@@ -47,13 +48,21 @@ SignalWatcher::SignalWatcher() {
 }
 
 SignalWatcher::~SignalWatcher() {
-    // If the signal thread is still blocked on sigwait(), mark the
-    // jthread's stop_token and then send SIGINT to wake it up so
-    // that ~jthread() can join cleanly.
     if (signal_thread_.joinable()) {
         signal_thread_.request_stop();
-        kill(getpid(), SIGINT);
+        // Wake the watcher thread out of sigwait() so that the join below
+        // completes promptly. The signal is process-directed: SIGUSR2 is
+        // blocked in every thread (install()) and appears only in the watcher
+        // thread's sigwait set, so it is either consumed there or stays
+        // pending until the next sigwait() — there is no path where the
+        // thread blocks forever. A stale pending SIGUSR2 is ignored by
+        // signal_loop(), so a later watcher is unaffected.
+        kill(getpid(), SIGUSR2);
+        signal_thread_.join();
     }
+    // Release the singleton guard so a new watcher can be created (e.g. in
+    // tests); the join above guarantees no watcher thread is still alive.
+    instance_created_.store(false, std::memory_order_release);
 }
 
 std::stop_source SignalWatcher::get_stop_source() noexcept {
@@ -68,6 +77,7 @@ void SignalWatcher::signal_loop(std::stop_token st) {
     sigemptyset(&sigset);
     sigaddset(&sigset, SIGINT);
     sigaddset(&sigset, SIGTERM);
+    sigaddset(&sigset, SIGUSR2); // destructor wake-up — ignored below
 
     auto request_stop = [this](std::string_view reason) {
         SPDLOG_INFO("{}", reason);
@@ -83,10 +93,16 @@ void SignalWatcher::signal_loop(std::stop_token st) {
         int sig;
         sigwait(&sigset, &sig);
 
-        // If stop was requested (e.g. from the destructor's wake-up SIGINT),
-        // exit immediately without counting the wake-up signal.
+        // Shutdown wins over any pending signal — exit immediately once stop
+        // has been requested (e.g. by the destructor's wake-up SIGUSR2).
         if (st.stop_requested()) {
             break;
+        }
+
+        if (sig == SIGUSR2) {
+            // Destructor wake-up (or a stale one from a previous watcher):
+            // never counted as a user signal, never acted upon.
+            continue;
         }
 
         if (sig == SIGINT) {
@@ -106,9 +122,8 @@ void SignalWatcher::signal_loop(std::stop_token st) {
                 // External SIGTERM — not triggered by our own escalation.
                 request_stop("Received SIGTERM, shutting down...");
             } else {
-                // SIGTERM when sigint_count > 0: from our escalation or from
-                // the destructor's wake-up — skip, the while-loop check above
-                // will see st.stop_requested() and exit.
+                // SIGTERM with sigint_count > 0: our own escalation signal —
+                // skip; the loop exits via the stop_requested() checks above.
                 SPDLOG_TRACE("SIGTERM suppressed during SIGINT escalation (sigint_count={})", sigint_count);
             }
         }

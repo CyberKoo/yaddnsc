@@ -89,6 +89,11 @@ target_link_libraries(test_http_exchange PRIVATE picohttpparser)
 add_unit_test(scheduler SOURCE core/scheduler_test.cpp
     ${PROJECT_SOURCE_DIR}/src/core/scheduler.cpp)
 
+# signal_watcher — install/construct/destroy lifecycle (signals are blocked
+# process-wide by install(), so this binary only runs these tests).
+add_unit_test(signal_watcher SOURCE core/signal_watcher_test.cpp
+    ${PROJECT_SOURCE_DIR}/src/core/signal_watcher.cpp)
+
 # driver_loader + driver_manager — dlopen-based driver loading
 # Fixture: a shared library that is deliberately NOT a yaddnsc driver —
 # verifies that auto-discovery skips foreign libraries instead of aborting.

@@ -27,9 +27,21 @@
 ///   - 3rd SIGINT -> kill(getpid(), SIGKILL) — hard kill.
 ///   - External SIGTERM (not from escalation) -> request_stop().
 ///
-/// On destruction, if the watcher thread is still blocked on sigwait(), it
-/// requests stop on the jthread's own stop_token and then sends SIGINT to
-/// wake it up so that ~jthread() can join cleanly.
+/// @par Signal contract
+/// install() blocks SIGINT, SIGTERM and SIGUSR2 on every thread for the rest
+/// of the process lifetime. SIGINT/SIGTERM are consumed by the watcher thread
+/// as described above. **SIGUSR2 is reserved as the destructor's internal
+/// wake-up signal**: the watcher never counts or acts on it, and no other
+/// component or third-party library may use it — a SIGUSR2 sent to the
+/// process is silently ignored. (SIGUSR2 was chosen over SIGINT/SIGTERM so
+/// the wake-up can never be mistaken for a user signal, and over SIGHUP/
+/// SIGUSR1 so the conventional "reload configuration" signal and the
+/// application-custom signal remain available.)
+///
+/// On destruction, requests stop on the watcher thread and sends a
+/// process-directed SIGUSR2 to wake it out of sigwait() so that the join
+/// completes promptly. The singleton guard is then released, allowing a new
+/// watcher to be created afterwards.
 class SignalWatcher {
 public:
     SignalWatcher();
@@ -38,9 +50,11 @@ public:
 
     /// Install the signal-watching infrastructure.
     ///
-    /// Blocks SIGINT/SIGTERM on the calling thread so that the watcher
-    /// thread can catch them via sigwait().  Must be called before any
-    /// threads are created, and before any SignalWatcher construction.
+    /// Blocks SIGINT/SIGTERM/SIGUSR2 on the calling thread so that the
+    /// watcher thread can catch them via sigwait().  Must be called before
+    /// any threads are created, and before any SignalWatcher construction.
+    /// See the class documentation for the full signal contract (in
+    /// particular: SIGUSR2 is reserved and must not be used elsewhere).
     static void install();
 
     /// Return a shared handle to the internal stop state.
