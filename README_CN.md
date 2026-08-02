@@ -534,6 +534,12 @@ ctest --test-dir build --output-on-failure
 | `YADDNSC_BUILD_TESTS`         | OFF                                           | 构建单元测试（需要 GoogleTest，通过 CPM.cmake 获取） |
 | `YADDNSC_ENABLE_DEB`          | OFF                                           | 启用 CPack DEB 包生成                |
 
+> **关于 `YADDNSC_USE_SYSTEM_SPDLOG` 的说明:** 在 Ubuntu 24.04 上，系统 spdlog
+> 会引入 fmt 9.1.0，其浮点格式化内部实现（`bigint`）会触发 GCC 14 的
+> `-Warray-bounds` 误报（fmtlib/fmt#3731，fmt 10 中已修复）。
+> 当检测到系统 fmt 版本低于 10 时，CMake 会将该警告降级为非致命
+> （`-Wno-error=array-bounds`），使 `-Werror` 构建仍能成功。
+
 #### 构建 DEB 包
 
 ```bash

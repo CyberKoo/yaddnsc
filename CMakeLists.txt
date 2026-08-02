@@ -242,6 +242,15 @@ target_compile_options(yaddnsc_compile_config INTERFACE
     $<$<CONFIG:Sanitizer>:-Wno-maybe-uninitialized>
 )
 
+# System fmt < 10 (Ubuntu 24.04 ships 9.1.0) hits a GCC 14 false-positive
+# -Warray-bounds inside fmt's bigint (dragon float formatting path,
+# fmtlib/fmt#3731, fixed in fmt 10). -Werror turns it into a hard error;
+# demote the warning for this combination only so real array-bounds bugs
+# in project code still surface as warnings.
+if (YADDNSC_USE_SYSTEM_SPDLOG AND fmt_VERSION VERSION_LESS 10)
+  target_compile_options(yaddnsc_compile_config INTERFACE -Wno-error=array-bounds)
+endif ()
+
 target_include_directories(yaddnsc_compile_config INTERFACE
     ${PROJECT_SOURCE_DIR}/include
     ${PROJECT_SOURCE_DIR}/src

@@ -535,6 +535,12 @@ Integration tests for the core orchestration components (Manager, Scheduler, Upd
 | `YADDNSC_BUILD_TESTS`         | OFF                                           | Build unit tests (requires GoogleTest, fetched via CPM.cmake)      |
 | `YADDNSC_ENABLE_DEB`          | OFF                                           | Enable DEB package generation via CPack                            |
 
+> **Note on `YADDNSC_USE_SYSTEM_SPDLOG`:** On Ubuntu 24.04 the system spdlog
+> pulls in fmt 9.1.0, whose float-formatting internals (`bigint`) trigger a
+> GCC 14 `-Warray-bounds` false positive (fmtlib/fmt#3731, fixed in fmt 10).
+> When a system fmt older than 10 is detected, CMake demotes this warning to
+> non-fatal (`-Wno-error=array-bounds`) so `-Werror` builds still succeed.
+
 #### Building a DEB package
 
 ```bash
