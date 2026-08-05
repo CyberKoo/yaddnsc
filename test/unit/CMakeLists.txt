@@ -135,7 +135,7 @@ add_dependencies(test_driver_loader simple yaddnsc_bad_driver_fixture yaddnsc_nu
 # updater — requires the full DNS + IP-source dependency chain
 add_unit_test(updater SOURCE core/updater_test.cpp
     ${PROJECT_SOURCE_DIR}/src/dns/dispatcher.cpp
-    ${PROJECT_SOURCE_DIR}/src/dns/parser/parser_native.cpp
+    ${PROJECT_SOURCE_DIR}/src/dns/parser.cpp
     ${PROJECT_SOURCE_DIR}/src/core/updater.cpp
     ${PROJECT_SOURCE_DIR}/src/ip_source/factory.cpp
     ${PROJECT_SOURCE_DIR}/src/ip_source/iface.cpp
@@ -149,7 +149,6 @@ add_unit_test(updater SOURCE core/updater_test.cpp
     ${PROJECT_SOURCE_DIR}/src/util/cert_util.cpp
     ${PROJECT_SOURCE_DIR}/src/dns/wire/builder.cpp)
 target_link_libraries(test_updater PRIVATE GTest::gmock glaze::glaze httplib::httplib OpenSSL::Crypto)
-target_compile_definitions(test_updater PRIVATE YADDNSC_USE_NATIVE_DNS=1)
 
 # ============================================================================
 #  dns/  —  DNS protocol types, parser, dispatchers, wire-format builders
@@ -164,13 +163,12 @@ add_unit_test(record_kind  SOURCE dns/record_kind_test.cpp)
 # dns_validator — uses dns/validator.cpp + dns/error.cpp (in test_support)
 add_unit_test(dns_validator SOURCE dns/dns_validator_test.cpp)
 
-# ResolverDispatcher — native backend (jthread-based, YADDNSC_USE_NATIVE_DNS=1)
+# ResolverDispatcher — jthread-based concurrent dispatch
 add_unit_test(dispatcher SOURCE dns/dispatcher_test.cpp
     ${PROJECT_SOURCE_DIR}/src/dns/dispatcher.cpp
-    ${PROJECT_SOURCE_DIR}/src/dns/parser/parser_native.cpp
+    ${PROJECT_SOURCE_DIR}/src/dns/parser.cpp
     ${PROJECT_SOURCE_DIR}/src/dns/error.cpp)
 target_link_libraries(test_dispatcher PRIVATE GTest::gmock OpenSSL::Crypto)
-target_compile_definitions(test_dispatcher PRIVATE YADDNSC_USE_NATIVE_DNS=1)
 
 # resolver_registry — factory registry for DNS resolver providers
 add_unit_test(resolver_registry SOURCE dns/resolver_registry_test.cpp
@@ -182,10 +180,9 @@ add_unit_test(factory SOURCE dns/factory_test.cpp
     ${PROJECT_SOURCE_DIR}/src/dns/factory.cpp
     ${PROJECT_SOURCE_DIR}/src/dns/resolver_registry.cpp
     ${PROJECT_SOURCE_DIR}/src/dns/dispatcher.cpp
-    ${PROJECT_SOURCE_DIR}/src/dns/parser/parser_native.cpp
+    ${PROJECT_SOURCE_DIR}/src/dns/parser.cpp
     ${PROJECT_SOURCE_DIR}/src/dns/error.cpp)
 target_link_libraries(test_factory PRIVATE GTest::gmock OpenSSL::Crypto)
-target_compile_definitions(test_factory PRIVATE YADDNSC_USE_NATIVE_DNS=1)
 
 # wire-format builders and queries
 add_unit_test(builder SOURCE dns/builder_test.cpp
@@ -197,10 +194,9 @@ add_unit_test(mkquery SOURCE dns/mkquery_test.cpp
     ${PROJECT_SOURCE_DIR}/src/dns/wire/builder.cpp)
 target_link_libraries(test_mkquery PRIVATE OpenSSL::Crypto)
 
-# RecordParser — native backend (self-contained, no libresolv)
-add_unit_test(dns_parser_native SOURCE dns/parser_test.cpp dns/parser_native_test.cpp
-    ${PROJECT_SOURCE_DIR}/src/dns/parser/parser_native.cpp)
-target_compile_definitions(test_dns_parser_native PRIVATE YADDNSC_USE_NATIVE_DNS=1)
+# RecordParser — self-contained wire-format parser (no libresolv)
+add_unit_test(dns_parser SOURCE dns/parser_test.cpp
+    ${PROJECT_SOURCE_DIR}/src/dns/parser.cpp)
 
 # DotResolver mock tests — TLS error paths via MockTlsConnection
 add_unit_test(dot_resolver_mock SOURCE dns/dot_resolver_mock_test.cpp

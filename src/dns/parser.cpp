@@ -1,10 +1,10 @@
 //
 // Created by Kotarou on 2026/7/7.
 //
-// EXPERIMENTAL: Self-contained DNS wire-format parser implementation.
-// See parser_native.h for details.
+// Self-contained DNS wire-format parser implementation.
+// See parser.h for details.
 //
-#include "dns/parser/parser_native.h"
+#include "parser.h"
 
 #include <array>
 #include <limits>

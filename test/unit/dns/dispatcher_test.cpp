@@ -1,5 +1,5 @@
 //
-// ResolverDispatcher unit tests — native backend (YADDNSC_USE_NATIVE_DNS=1).
+// ResolverDispatcher unit tests — jthread-based concurrent dispatch.
 //
 // Compiled with the jthread-based dispatcher.cpp.  See
 // test/fixtures/dispatcher_tests.h for the shared test bodies.
@@ -8,7 +8,7 @@
 #include "fixtures/dispatcher_tests.h"
 
 // ===========================================================================
-//  Additional branch coverage — fallback / concurrent edge cases (native only)
+//  Additional branch coverage — fallback / concurrent edge cases
 // ===========================================================================
 
 TEST(DispatcherFallback, MultiAddressResult_ReturnsAllRecords) {

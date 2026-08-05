@@ -6,7 +6,7 @@
 # ==============================================================================
 
 function(add_benchmark name)
-    cmake_parse_arguments(BENCH "NATIVE" "SOURCE" "SOURCES" ${ARGN})
+    cmake_parse_arguments(BENCH "" "SOURCE" "SOURCES" ${ARGN})
     if (BENCH_SOURCE)
         set(srcs ${BENCH_SOURCE})
     else ()
@@ -29,9 +29,6 @@ function(add_benchmark name)
         ${PROJECT_SOURCE_DIR}/src
         ${PROJECT_BINARY_DIR}/generated
     )
-    if (BENCH_NATIVE)
-        target_compile_definitions(bench_${name} PRIVATE YADDNSC_USE_NATIVE_DNS=1)
-    endif ()
 
     # Benchmarks must run with optimisations even in Debug builds, otherwise
     # the measured timings are meaningless (Google Benchmark prints a warning).
@@ -41,23 +38,13 @@ function(add_benchmark name)
 endfunction()
 
 # ============================================================================
-#  DNS parser benchmarks  (same test code, two backends)
+#  DNS parser benchmark
 # ============================================================================
 
-add_benchmark(dns_parser_native
+add_benchmark(dns_parser
     SOURCE dns_parser_bench.cpp
-    SOURCES ${PROJECT_SOURCE_DIR}/src/dns/parser/parser_native.cpp
-    NATIVE
+    SOURCES ${PROJECT_SOURCE_DIR}/src/dns/parser.cpp
 )
-
-find_library(PERF_RESOLV resolv)
-if (PERF_RESOLV)
-  add_benchmark(dns_parser_system
-      SOURCE dns_parser_bench.cpp
-      SOURCES ${PROJECT_SOURCE_DIR}/src/dns/parser/parser_system.cpp
-  )
-  target_link_libraries(bench_dns_parser_system PRIVATE ${PERF_RESOLV})
-endif ()
 
 # ============================================================================
 #  URI benchmarks  (Uri is in test_support)

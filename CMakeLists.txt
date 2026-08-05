@@ -56,9 +56,6 @@ include(Sanitizer)
 # ==============================================================================
 # Release build flags
 # ==============================================================================
-# Native DNS is the default on all platforms. The built-in stack provides
-# better portability and full control over the transport layer.
-# Set YADDNSC_USE_NATIVE_DNS=OFF to fall back to system libresolv.
 
 # ==============================================================================
 # Version info
@@ -85,7 +82,6 @@ set(YADDNSC_MIN_UPDATE_INTERVAL 60 CACHE STRING "Minimum allowed update interval
 set(YADDNSC_DEFAULT_DNS_SERVER "1.1.1.1" CACHE STRING "Default DNS server address when none is configured")
 set(YADDNSC_DEFAULT_DNS_PORT 53 CACHE STRING "Default DNS server port when none is configured")
 
-option(YADDNSC_USE_NATIVE_DNS "Use built-in DNS stack instead of system libresolv" ON)
 option(YADDNSC_USE_SYSTEM_SPDLOG "Use spdlog from the system instead of the bundled CPM version" OFF)
 
 # Debug-mode sanitizers can be disabled by downstream CI jobs (e.g., coverage)
@@ -362,20 +358,11 @@ add_library(yaddnsc_util OBJECT
 target_link_libraries(yaddnsc_util PRIVATE yaddnsc_compile_config)
 target_link_libraries(yaddnsc_util PUBLIC OpenSSL::Crypto)
 
-# Compile only the selected resolver implementation.
-if (YADDNSC_USE_NATIVE_DNS)
-  target_sources(yaddnsc_dns PRIVATE
-      src/dns/resolver/classic_native.cpp
-      src/dns/parser/parser_native.cpp
-      src/dns/dispatcher.cpp
-  )
-else ()
-  target_sources(yaddnsc_dns PRIVATE
-      src/dns/resolver/classic_system.cpp
-      src/dns/parser/parser_system.cpp
-      src/dns/dispatcher_system.cpp
-  )
-endif ()
+target_sources(yaddnsc_dns PRIVATE
+    src/dns/resolver/classic.cpp
+    src/dns/parser.cpp
+    src/dns/dispatcher.cpp
+)
 
 # Sanitizer compile flags on all OBJECT libraries (link flags are a no-op on OBJECT libs
 # and only matter on the final executable, where add_sanitizer_flags is called again).
@@ -423,11 +410,6 @@ target_link_options(yaddnsc PRIVATE
 if (NOT LIBC_MUSL)
   set_target_properties(yaddnsc PROPERTIES INTERPROCEDURAL_OPTIMIZATION
       $<$<CONFIG:Release>:TRUE>)
-  # Suppress LTO ODR false positive between DNS::Rcode (dns/types.h)
-  # and __ns_rtype (<arpa/nameser.h>) — the two enums share enumerator
-  # names (NOERROR, SERVFAIL, NXDOMAIN …) with identical values, causing
-  # GCC LTO to incorrectly flag them as an ODR violation.
-  target_link_options(yaddnsc PRIVATE -Wno-odr)
 endif ()
 
 # --export-dynamic puts exported symbols into .dynsym so dlsym / dlopen can find them.
@@ -445,18 +427,6 @@ target_link_libraries(yaddnsc PRIVATE BS_thread_pool magic_enum httplib spdlog::
         CLI11::CLI11 glaze::glaze picohttpparser ${CMAKE_DL_LIBS}
 )
 
-# Required only by the system DNS parser (parser_system.cpp, which uses
-# ns_initparse / ns_parserr). That translation unit is compiled only when
-# YADDNSC_USE_NATIVE_DNS is OFF, so the link guard matches the source guard.
-# On musl (where YADDNSC_USE_NATIVE_DNS defaults to ON) libresolv does not
-# exist; find_library returns empty and the link is safely skipped.
-if (NOT YADDNSC_USE_NATIVE_DNS)
-  find_library(RESOLV resolv)
-  if (RESOLV)
-    target_link_libraries(yaddnsc PRIVATE ${RESOLV})
-  endif ()
-endif ()
-
 # ==============================================================================
 # Build configuration summary
 # ==============================================================================
@@ -468,12 +438,7 @@ else ()
   message(STATUS "spdlog: bundled (CPM)")
 endif ()
 
-if (YADDNSC_USE_NATIVE_DNS)
-  message(STATUS "DNS stack: built-in (no libresolv)")
-else ()
-  message(DEPRECATION "YADDNSC_USE_NATIVE_DNS is OFF — system libresolv backend is DEPRECATED and will be removed before 1.0.0")
-  message(STATUS "DNS stack: system (libresolv) [DEPRECATED]")
-endif ()
+message(STATUS "DNS stack: built-in (no libresolv)")
 
 message(STATUS "Default DNS server: ${YADDNSC_DEFAULT_DNS_SERVER}:${YADDNSC_DEFAULT_DNS_PORT}")
 

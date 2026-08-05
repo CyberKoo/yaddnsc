@@ -13,7 +13,7 @@
 #include <utility>
 #include <vector>
 
-#include "dns/parser/parser.h"
+#include "dns/parser.h"
 #include "dns/util.hpp"
 #include "dns/wire/builder.h"
 

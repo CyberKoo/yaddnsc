@@ -49,14 +49,13 @@ add_unit_test(cli SOURCE cli_test.cpp
     ${PROJECT_SOURCE_DIR}/src/core/driver_manager.cpp
     ${PROJECT_SOURCE_DIR}/src/core/core_logger.cpp
     ${PROJECT_SOURCE_DIR}/src/dns/dispatcher.cpp
-    ${PROJECT_SOURCE_DIR}/src/dns/parser/parser_native.cpp
+    ${PROJECT_SOURCE_DIR}/src/dns/parser.cpp
     ${PROJECT_SOURCE_DIR}/src/dns/factory.cpp
     ${PROJECT_SOURCE_DIR}/src/dns/resolver_registry.cpp
     ${PROJECT_SOURCE_DIR}/src/ip_source/iface_util.cpp
     ${PROJECT_SOURCE_DIR}/src/network/net_devices.cpp)
 target_link_libraries(test_cli PRIVATE GTest::gmock glaze::glaze CLI11::CLI11 OpenSSL::Crypto ${CMAKE_DL_LIBS})
 target_compile_definitions(test_cli PRIVATE
-    YADDNSC_USE_NATIVE_DNS=1
     TEST_DRIVER_DIR="${CMAKE_BINARY_DIR}/driver")
 # The loaded driver .so resolves CoreLogger symbols from the host executable.
 set_target_properties(test_cli PROPERTIES ENABLE_EXPORTS ON)
@@ -112,7 +111,7 @@ target_link_libraries(test_http_test PRIVATE httplib::httplib OpenSSL::Crypto)
 
 add_unit_test(factory_mdns SOURCE factory_mdns_test.cpp
     ${PROJECT_SOURCE_DIR}/src/dns/dispatcher.cpp
-    ${PROJECT_SOURCE_DIR}/src/dns/parser/parser_native.cpp
+    ${PROJECT_SOURCE_DIR}/src/dns/parser.cpp
     ${PROJECT_SOURCE_DIR}/src/core/updater.cpp
     ${PROJECT_SOURCE_DIR}/src/ip_source/factory.cpp
     ${PROJECT_SOURCE_DIR}/src/ip_source/iface.cpp
@@ -126,17 +125,16 @@ add_unit_test(factory_mdns SOURCE factory_mdns_test.cpp
     ${PROJECT_SOURCE_DIR}/src/util/cert_util.cpp
     ${PROJECT_SOURCE_DIR}/src/dns/wire/builder.cpp)
 target_link_libraries(test_factory_mdns PRIVATE GTest::gmock glaze::glaze httplib::httplib OpenSSL::Crypto)
-target_compile_definitions(test_factory_mdns PRIVATE YADDNSC_USE_NATIVE_DNS=1)
 
 # ============================================================================
-#  ClassicResolver (native UDP/TCP backend)
+#  ClassicResolver (UDP/TCP backend)
 #
 # Starts a Python DNS server (dns_server.py) on loopback, then queries it
 # using the ClassicResolver.  Verifies A/AAAA resolution and error handling.
 # ============================================================================
 
-add_unit_test(classic_native_resolver SOURCE classic_native_resolver_test.cpp
-    ${PROJECT_SOURCE_DIR}/src/dns/resolver/classic_native.cpp
+add_unit_test(classic_resolver SOURCE classic_resolver_test.cpp
+    ${PROJECT_SOURCE_DIR}/src/dns/resolver/classic.cpp
     ${PROJECT_SOURCE_DIR}/src/dns/resolver_registry.cpp
     ${PROJECT_SOURCE_DIR}/src/dns/error.cpp
     ${PROJECT_SOURCE_DIR}/src/network/socket.cpp
@@ -144,11 +142,10 @@ add_unit_test(classic_native_resolver SOURCE classic_native_resolver_test.cpp
     ${PROJECT_SOURCE_DIR}/src/dns/wire/builder.cpp
     ${PROJECT_SOURCE_DIR}/src/network/inet_address.cpp
     ${PROJECT_SOURCE_DIR}/src/network/uri.cpp)
-target_compile_definitions(test_classic_native_resolver PRIVATE
-    YADDNSC_USE_NATIVE_DNS=1
+target_compile_definitions(test_classic_resolver PRIVATE
     TEST_DATA_DIR="${PROJECT_SOURCE_DIR}/test/component"
 )
-target_link_libraries(test_classic_native_resolver PRIVATE OpenSSL::Crypto)
+target_link_libraries(test_classic_resolver PRIVATE OpenSSL::Crypto)
 
 # ============================================================================
 #  TlsConnection  (loopback TLS echo server via Python + OpenSSL)

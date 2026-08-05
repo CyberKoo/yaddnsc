@@ -1,12 +1,11 @@
 //
 // Created by Kotarou on 2026/7/7.
 //
-// Self-contained DNS parser (no libresolv).
-// This is now the default parser backend.
+// Self-contained DNS wire-format parser (RFC 1035).
 //
 
-#ifndef YADDNSC_DNS_PARSER_NATIVE_H
-#define YADDNSC_DNS_PARSER_NATIVE_H
+#ifndef YADDNSC_DNS_PARSER_H
+#define YADDNSC_DNS_PARSER_H
 
 #include <cstdint>
 #include <span>
@@ -118,4 +117,4 @@ namespace DNS {
     };
 } // namespace DNS
 
-#endif  // YADDNSC_DNS_PARSER_NATIVE_H
+#endif  // YADDNSC_DNS_PARSER_H

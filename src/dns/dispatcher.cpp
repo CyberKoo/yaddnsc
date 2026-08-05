@@ -4,8 +4,6 @@
 // Native resolver dispatcher — jthread-based concurrent dispatch with
 // per-thread cancellation pipes and no shared mutable state.
 //
-// Compiled when YADDNSC_USE_NATIVE_DNS=1.
-//
 
 #include "dispatcher.h"
 
@@ -18,7 +16,7 @@
 #include <thread>
 #include <utility>
 
-#include "dns/parser/parser.h"
+#include "dns/parser.h"
 #include "dns/resolver/base.h"
 #include "dns/dns_error_info.h"
 #include "exception/dns_lookup.h"

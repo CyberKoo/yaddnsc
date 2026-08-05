@@ -10,8 +10,6 @@
 #include "config.h"
 #include "mixin.h"
 
-#include "config_cmake.h"
-#include "resolver_config.h"
 #include "util/validation.hpp"
 #include "network/inet_address.h"
 #include "exception/config_verification.h"
@@ -109,17 +107,9 @@ namespace detail {
         }
 
         // Plain DNS address — must be a valid IP.
-#if defined(HAVE_IPV6_RESOLVE_SUPPORT) || defined(YADDNSC_USE_NATIVE_DNS)
         if (!InetAddress::parse(address)) {
             throw ConfigVerificationException(fmt::format("Invalid resolver address {}", address));
         }
-#else
-        if (!Inet4Address::parse(address)) {
-            throw ConfigVerificationException(
-                fmt::format(R"(Invalid resolver address "{}". Only IPv4 is supported on this platform.)", address)
-            );
-        }
-#endif
     }
 } // namespace detail
 
@@ -214,7 +204,6 @@ public:
         }
 
         // --- Validate custom resolver address(es). --------------------------------
-#if defined(HAVE_RES_NQUERY) || defined(YADDNSC_USE_NATIVE_DNS)
         if (cfg.resolver.use_custom_server) {
             if (!cfg.resolver.servers.empty()) {
                 for (const auto &server: cfg.resolver.servers) {
@@ -224,7 +213,6 @@ public:
                 detail::validate_resolver_address(cfg.resolver.address);
             }
         }
-#endif
     }
 
 private:

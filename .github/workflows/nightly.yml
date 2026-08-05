@@ -192,7 +192,6 @@ jobs:
                   fastcov -g gcov-14 -d build \
                       -i "src/" "include/" "driver/" \
                       -e "test/" "_deps/" "/usr/" "*/generated/" \
-                         "*/classic_system*" "*/parser_system*" "*/dispatcher_system*" \
                       -o coverage.info --lcov
                   lcov --list coverage.info --ignore-errors inconsistent
             - name: Upload coverage reports to Codecov

@@ -364,9 +364,7 @@ yaddnsc 使用固定的 DNS 服务器列表进行记录查询。在配置文件�
 
 ### 传统 DNS（UDP/TCP）
 
-通过 UDP（大响应时使用 TCP）在指定 IP 和端口上使用标准 DNS 协议。编译时可选择底层实现：
-- `YADDNSC_USE_NATIVE_DNS=ON`（默认）— 完全自实现的 UDP/TCP 传输和报文解析（不依赖 libresolv），提供更好的跨平台可移植性和对传输层的完全控制
-- `YADDNSC_USE_NATIVE_DNS=OFF` — 传输和解析均依赖系统 libresolv（`res_nquery` / `ns_initparse`；**已弃用**，将在 1.0.0 之前移除）
+通过 UDP（大响应时使用 TCP）在指定 IP 和端口上使用标准 DNS 协议。内置栈提供完全自实现的 UDP/TCP 传输和报文解析（不依赖 libresolv），具有更好的跨平台可移植性和对传输层的完全控制。
 
 ```json
 {
@@ -502,7 +500,7 @@ sudo cmake --install build
 
 **老旧设备** — 如果工具链版本过低（GCC < 14 或 Clang < 19），请使用 `v0.x` 分支（C++17、CMake 3.14+、OpenSSL 1.1.x）。该分支仅维护 bug 修复，新功能在 master 上开发。
 
-**Alpine Linux (musl)** — musl 缺少可重入的 `res_n*` 解析器函数族；内置 DNS 栈（现已默认启用）对此处理正确。如需回退到 libresolv，设置 `-DYADDNSC_USE_NATIVE_DNS=OFF`。
+**Alpine Linux (musl)** — musl 缺少可重入的 `res_n*` 解析器函数族；内置 DNS 栈在所有平台上均能正确处理。
 
 ### 测试
 
@@ -526,7 +524,6 @@ ctest --test-dir build --output-on-failure
 |-------------------------------|-----------------------------------------------|--------------------------------|
 | `CMAKE_BUILD_TYPE`            | Debug                                         | 设为 `Release` 可生成优化后的发布版本             |
 | `YADDNSC_MIN_UPDATE_INTERVAL` | 60                                            | 最小允许的更新间隔（秒）                    |
-| `YADDNSC_USE_NATIVE_DNS`      | ON                                            | 使用内置 DNS 查询和解析器（不依赖 libresolv）以获得更好的可移植性。设置为 OFF 可回退到系统 libresolv（已弃用，将在 1.0.0 之前移除）。
 | `YADDNSC_DEFAULT_DNS_SERVER`  | 1.1.1.1                                       | 未配置时的默认 DNS 服务器地址              |
 | `YADDNSC_DEFAULT_DNS_PORT`    | 53                                            | 未配置时的默认 DNS 服务器端口              |
 | `YADDNSC_USE_SYSTEM_SPDLOG`   | OFF                                           | 使用系统 spdlog 代替 CPM 下载的版本         |

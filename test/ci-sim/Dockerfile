@@ -51,10 +51,10 @@ RUN echo "=== [4/4] conversion-gate configure ===" \
 
 # ── [3/4] benchmark: Release build + run ──
 RUN echo "=== [5/4] benchmark build ===" \
-    && ninja -C build -j$(nproc) bench_dns_parser_native bench_dns_parser_system \
+    && ninja -C build -j$(nproc) bench_dns_parser \
         bench_uri bench_string_util bench_inet_address bench_socket_addr bench_builder \
     && echo "=== [5/4] benchmark results ===" \
-    && for b in bench_dns_parser_native bench_dns_parser_system bench_uri \
+    && for b in bench_dns_parser bench_uri \
                bench_string_util bench_inet_address bench_socket_addr bench_builder; do \
            echo "--- $b ---"; \
            ./build/test/perf/$b --benchmark_format=console 2>&1 | tail -n +12; \

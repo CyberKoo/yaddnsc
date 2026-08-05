@@ -9,22 +9,10 @@
 
 #cmakedefine HAVE_MSG_NOSIGNAL
 
-#cmakedefine HAVE_RES_NQUERY
-
-#cmakedefine HAVE_RES_STATE_EXT_NSADDRS
-
-#cmakedefine HAVE_RES_SETSERVERS
-
-#cmakedefine HAVE_RES_NDESTROY
-
 #cmakedefine STATIC_COMPILE
 
 #cmakedefine YADDNSC_LIBC_MUSL
 
 #define YADDNSC_DEFAULT_DRIVER_DIR "@CMAKE_INSTALL_FULL_LIBDIR@/yaddnsc/drivers"
-
-#if defined(HAVE_RES_STATE_EXT_NSADDRS) || defined(HAVE_RES_SETSERVERS)
-#define HAVE_IPV6_RESOLVE_SUPPORT 1
-#endif
 
 #endif // YADDNSC_CONFIG_CMAKE_H

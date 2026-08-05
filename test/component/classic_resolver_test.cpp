@@ -1,5 +1,5 @@
 //
-// Component tests for ClassicResolver (native UDP/TCP backend).
+// Component tests for ClassicResolver (UDP/TCP backend).
 //
 // Starts a Python DNS server (dns_server.py) on a loopback port,
 // creates a ClassicResolver pointing to it, and verifies that

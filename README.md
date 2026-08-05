@@ -365,9 +365,7 @@ Three resolver types are supported, auto-detected from the address format:
 
 ### Traditional DNS (UDP/TCP)
 
-Uses standard DNS over UDP (or TCP for large responses) on a given IP and port. The underlying implementation is selectable at compile time:
-- `YADDNSC_USE_NATIVE_DNS=ON` (default) — fully self-contained UDP/TCP transport and packet parsing (no libresolv), providing better portability and full control over the transport layer
-- `YADDNSC_USE_NATIVE_DNS=OFF` — both transport and parsing depend on system libresolv (`res_nquery` / `ns_initparse`; **DEPRECATED** — will be removed before 1.0.0)
+Uses standard DNS over UDP (or TCP for large responses) on a given IP and port. The built-in stack provides a fully self-contained UDP/TCP transport and packet parsing (no libresolv), giving better portability and full control over the transport layer.
 
 ```json
 {
@@ -503,7 +501,7 @@ sudo cmake --install build
 
 **Legacy devices** — If your toolchain is older (GCC < 14 or Clang < 19), use the `v0.x` (legacy) branch (C++17, CMake 3.14+, OpenSSL 1.1.x). Maintenance-only; feature development happens on master.
 
-**Alpine Linux (musl)** — musl lacks the reentrant `res_n*` resolver family; the native DNS stack (now the default on all platforms) handles this correctly. To fall back to libresolv, set `-DYADDNSC_USE_NATIVE_DNS=OFF`.
+**Alpine Linux (musl)** — musl lacks the reentrant `res_n*` resolver family; the built-in DNS stack handles this correctly on all platforms.
 
 ### Testing
 
@@ -527,7 +525,6 @@ Integration tests for the core orchestration components (Manager, Scheduler, Upd
 |-------------------------------|-----------------------------------------------|-------------------------------------------------------------------|
 | `CMAKE_BUILD_TYPE`            | Debug                                         | Set to `Release` for optimized production builds                   |
 | `YADDNSC_MIN_UPDATE_INTERVAL` | 60                                            | Minimum allowed update interval in seconds                         |
-| `YADDNSC_USE_NATIVE_DNS`      | ON                                            | Use built-in DNS query and parser (no libresolv) for better portability. Set to OFF to fall back to system libresolv (DEPRECATED — will be removed before 1.0.0).
 | `YADDNSC_DEFAULT_DNS_SERVER`  | 1.1.1.1                                       | Default DNS server address when none is configured                 |
 | `YADDNSC_DEFAULT_DNS_PORT`    | 53                                            | Default DNS server port when none is configured                    |
 | `YADDNSC_USE_SYSTEM_SPDLOG`   | OFF                                           | Use system spdlog instead of the bundled CPM-downloaded version    |

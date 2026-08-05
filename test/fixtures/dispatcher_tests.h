@@ -1,20 +1,8 @@
 //
-// Shared unit tests for ResolverDispatcher (both backends).
+// Shared unit tests for ResolverDispatcher (native backend).
 //
-// This header is included by two translation units that compile against
-// different DNS backends:
-//   - test/unit/dispatcher.cpp        (YADDNSC_USE_NATIVE_DNS=1, jthread-based, default)
-//   - test/unit/dispatcher_system.cpp (libresolv-based legacy backend, DEPRECATED)
-//
-// The two backends share identical dispatch *logic* but diverge in how they
-// report failures when no definitive error is present:
-//   * Native backend  → returns std::unexpected<DnsErrorInfo> (error code kept).
-//   * System backend  → collapses single-resolver and all-retryable multi-
-//                       resolver failures into an expected holding an EMPTY
-//                       vector (the error code is lost — legacy quirk).
-//
-// The assertion helpers below branch on YADDNSC_NATIVE_DISPATCHER so the same
-// test bodies validate both behaviours without duplicating logic.
+// This header is included by test/unit/dns/dispatcher_test.cpp, which compiles
+// against the built-in native DNS backend (jthread-based, default).
 // =============================================================================
 
 #ifndef YADDNSC_TEST_FIXTURES_DISPATCHER_TESTS_H
@@ -39,12 +27,6 @@
 #include "exception/dns_lookup.h"
 #include "mocks/mock_resolver.h"
 #include "record_kind.h"
-
-#if YADDNSC_USE_NATIVE_DNS
-#  define YADDNSC_NATIVE_DISPATCHER 1
-#else
-#  define YADDNSC_NATIVE_DISPATCHER 0
-#endif
 
 namespace {
 
@@ -246,40 +228,27 @@ std::unique_ptr<::testing::NiceMock<MockResolver>> make_mock() {
     return r;
 }
 
-// ── Assertion helpers (branch on backend divergence) ─────────────────────────
+// ── Assertion helpers ────────────────────────────────────────────────────────
 //
 // NOTE: these use EXPECT_* (not ASSERT_*) so a failed precondition reports
 // without an early return from the helper. Dereferencing of the expected is
 // always guarded so a wrong-state result cannot crash the test.
 
 // Failure where every resolver returned only retryable/transient errors and no
-// definitive error was produced.
+// definitive error was produced.  The native backend reports this as
+// std::unexpected<DnsErrorInfo> (error code kept).
 void expect_transient_failure(const std::expected<std::vector<std::string>, DnsErrorInfo> &r) {
-#if YADDNSC_NATIVE_DISPATCHER
     EXPECT_FALSE(r.has_value());
-#else
-    EXPECT_TRUE(r.has_value());
-    if (r.has_value()) {
-        EXPECT_TRUE(r->empty());
-    }
-#endif
 }
 
 // Single-resolver failure (definitive or not). The native backend preserves the
-// error code; the legacy system backend collapses it to an empty-vector value.
+// error code.
 void expect_single_resolver_failure(const std::expected<std::vector<std::string>, DnsErrorInfo> &r,
                                     DnsError code) {
-#if YADDNSC_NATIVE_DISPATCHER
     EXPECT_FALSE(r.has_value());
     if (!r.has_value()) {
         EXPECT_EQ(r.error().code, code);
     }
-#else
-    EXPECT_TRUE(r.has_value());
-    if (r.has_value()) {
-        EXPECT_TRUE(r->empty());
-    }
-#endif
 }
 
 // Multi-resolver definitive failure — both backends report std::unexpected.
@@ -293,9 +262,9 @@ void expect_unexpected(const std::expected<std::vector<std::string>, DnsErrorInf
 // ── A resolver that blocks on cancel_fd until cancelled (or poll timeout) ─────
 //
 // Used to verify the concurrent pipeline's cancellation pipe wakes a slower
-// resolver once a faster one has already produced a result. Both backends pass
-// the cancellation read fd through to query(), so this exercises the real
-// cancellation path on each.
+// resolver once a faster one has already produced a result.  The cancellation
+// read fd is passed through to query(), so this exercises the real
+// cancellation path.
 class SlowCancellableResolver : public ResolverBase {
 public:
     explicit SlowCancellableResolver(bool succeed, int poll_ms = 3000)

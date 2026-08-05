@@ -1,5 +1,5 @@
 //
-// Benchmarks for DNS response packet parsing (native parser).
+// Benchmarks for DNS response packet parsing.
 //
 // Constructs wire-format DNS response packets for common record types
 // (A, AAAA, TXT, CNAME) and measures the throughput of RecordParser.
@@ -14,7 +14,7 @@
 #include <string>
 #include <vector>
 
-#include "dns/parser/parser.h"
+#include "dns/parser.h"
 
 // =============================================================================
 // Helpers — minimal DNS wire-format construction

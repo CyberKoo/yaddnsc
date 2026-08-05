@@ -2,7 +2,7 @@
 // Unit tests for dns/wire/query.h — DNS query packet construction.
 //
 // Tests:
-//   - mkquery_native constructs a valid RFC 1035 query packet.
+//   - mkquery constructs a valid RFC 1035 query packet.
 //   - mkquery dispatch with fallback returns a non-empty packet.
 //   - QueryBuilder for custom query construction.
 // =============================================================================
@@ -21,7 +21,7 @@
 
 namespace {
 
-    /// Verify the DNS header structure for a standard query (mkquery_native).
+    /// Verify the DNS header structure for a standard query (mkquery).
     ///
     /// Verifies all fixed header fields. The TXID is random and may be any
     /// 16-bit value (including 0x0000), so it is not asserted here.
@@ -189,11 +189,11 @@ TEST(BuildQueryTest, TxidRandomness) {
     auto txid1 = (static_cast<std::uint16_t>(packet1[0]) << 8) | packet1[1];
     auto txid2 = (static_cast<std::uint16_t>(packet2[0]) << 8) | packet2[1];
 
-    EXPECT_NE(txid1, txid2) << "Consecutive mkquery_native() calls must produce different TXIDs";
+    EXPECT_NE(txid1, txid2) << "Consecutive mkquery() calls must produce different TXIDs";
 }
 
 // ===========================================================================
-// build_query — dispatch (always native after query.h removal)
+// build_query — dispatch
 // ===========================================================================
 
 TEST(BuildQueryTest, ReturnsNonEmpty) {

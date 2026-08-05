@@ -2,8 +2,7 @@
 // Created by Kotarou on 2026/7/6.
 //
 // Self-contained UDP/TCP resolver (no libresolv).
-// This is now the default resolver backend.
-//
+
 #include <cerrno>
 #include <cstdint>
 #include <cstring>
@@ -297,7 +296,7 @@ ClassicResolver::Impl::query(const std::string &host_str, RecordKind type,
                      id_, host_str, static_cast<std::uint16_t>(record_type), uri_.get_host_literal(), server_.port
         );
 
-        // Build query packet using the native wire-format builder.
+        // Build query packet using the wire-format builder.
         auto query_packet = DNS::build_query(host_str, record_type);
 
         // Try UDP first.
