@@ -114,6 +114,18 @@ TEST(ConfigParserTest, FullConfig_ParsesAllFields) {
 // Backward-compatible keys
 // ===========================================================================
 
+TEST(ConfigParserTest, ShuffleStrategy_ParsesSuccessfully) {
+    constexpr std::string_view json = R"({
+        "driver": { "auto_discover": true },
+        "resolver": { "use_custom_server": true, "strategy": "shuffle",
+                      "servers": [{"address": "1.1.1.1"}] },
+        "domains": []
+    })";
+    auto result = parse_config(json);
+    ASSERT_TRUE(result.ok);
+    EXPECT_EQ(result.value.resolver.strategy, Config::ResolverStrategy::SHUFFLE);
+}
+
 TEST(ConfigParserTest, BackwardCompat_Keys_AreAccepted) {
     auto result = parse_config(Fixtures::BACKWARD_COMPAT_CONFIG);
     ASSERT_TRUE(result.ok);

@@ -5,6 +5,7 @@
 #include "factory.h"
 
 #include <memory>
+#include <utility>
 #include <vector>
 
 #include "config/config.h"
@@ -52,8 +53,19 @@ ResolverDispatcher DnsResolverFactory::create(const Config::AppConfig &config) {
 
     // Log configured custom resolver count and strategy — once at startup.
     if (dns_servers.size() > 1) {
+        const auto strategy_name = [](Config::ResolverStrategy strategy) {
+            switch (strategy) {
+                case Config::ResolverStrategy::FALLBACK:
+                    return "fallback";
+                case Config::ResolverStrategy::SHUFFLE:
+                    return "shuffle";
+                case Config::ResolverStrategy::CONCURRENT:
+                    return "concurrent";
+            }
+            std::unreachable();
+        };
         SPDLOG_INFO("Configured {} custom resolver(s) in {} mode", dns_servers.size(),
-                    config.resolver.strategy == Config::ResolverStrategy::FALLBACK ? "fallback" : "concurrent");
+                    strategy_name(config.resolver.strategy));
     }
 
     return ResolverDispatcher(std::move(resolvers), config.resolver.strategy);

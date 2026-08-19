@@ -265,7 +265,7 @@ A template configuration is generated at build time from `template/deb/yaddnsc_c
 | `address`           | string      | **Deprecated, will be removed in a future release.** DNS server address specified directly at the resolver level. Use `servers` instead. |
 | `ipaddress`         | string      | **Deprecated, will be removed in a future release.** Alias for `address`. Use `servers` instead. |
 | `port`              | int         | **Deprecated, will be removed in a future release.** Port for use with `address` (default: 53). Use `servers` instead. |
-| `strategy`          | string      | Query strategy: `"concurrent"` (default) or `"fallback"`. See [DNS Resolver](#dns-resolver). |
+| `strategy`          | string      | Query strategy: `"concurrent"` (default), `"fallback"`, or `"shuffle"`. See [DNS Resolver](#dns-resolver). |
 
 #### `DnsServer` object
 
@@ -292,7 +292,7 @@ field and read the port from the `address` URI instead.                         
 
 | Field              | Type    | Description                                                                                                          |
 |--------------------|---------|----------------------------------------------------------------------------------------------------------------------|
-| `name`             | string  | Subdomain name (e.g. `home` for `home.example.com`)                                                                  |
+| `name`             | string  | Subdomain name (e.g. `home` for `home.example.com`). Use `"@"` for the apex record (`example.com`).                  |
 | `type`             | string  | DNS record type: `"a"`, `"aaaa"`, or `"txt"`. Determines address family automatically (A → IPv4, AAAA → IPv6). |
 | `interface`        | string  | Network interface name (e.g. `eth0`). Required for `"interface"` IP source; optional for others.                     |
 | `ip_type`          | string  | **Deprecated — ignored.** Address family is now derived from `type` (A → IPv4, AAAA → IPv6).                          |
@@ -424,7 +424,8 @@ The `strategy` field controls how multiple DNS servers are queried:
 | Strategy     | Behaviour                                                                 |
 |--------------|---------------------------------------------------------------------------|
 | `concurrent` | **(Default)** Fire resolvers in batches of 3 in parallel and return the fastest successful response. |
-| `fallback`   | Try the first resolver; if it fails, try the next one in order.           |
+| `fallback`   | Try the first resolver; if it fails, try the next one in configured order. |
+| `shuffle`    | Same sequential fallback as `"fallback"`, but the resolver order is randomised on each query. |
 
 ```json
 {

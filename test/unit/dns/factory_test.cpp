@@ -125,3 +125,15 @@ TEST(DnsFactoryTest, CreateWithConcurrentStrategy) {
         auto dispatcher = DnsResolverFactory::create(cfg);
     });
 }
+
+TEST(DnsFactoryTest, CreateWithShuffleStrategy) {
+    Config::AppConfig cfg;
+    cfg.resolver.use_custom_server = true;
+    cfg.resolver.servers.push_back({"factorytest://dns1.example.com", 53});
+    cfg.resolver.servers.push_back({"factorytest://dns2.example.com", 53});
+    cfg.resolver.strategy = Config::ResolverStrategy::SHUFFLE;
+
+    EXPECT_NO_THROW({
+        auto dispatcher = DnsResolverFactory::create(cfg);
+    });
+}

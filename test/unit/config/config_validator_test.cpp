@@ -40,7 +40,15 @@ TEST(ConfigValidatorDetailTest, FqdnFor_ApexSubdomain) {
     Config::SubdomainConfig sub{.name = "@"};
 
     auto fqdn = detail::fqdn_for(domain, sub);
-    EXPECT_EQ(fqdn, "@.example.com");
+    EXPECT_EQ(fqdn, "example.com");
+}
+
+TEST(ConfigValidatorDetailTest, FqdnFor_EmptySubdomain) {
+    Config::DomainConfig domain{.name = "example.com"};
+    Config::SubdomainConfig sub{.name = ""};
+
+    auto fqdn = detail::fqdn_for(domain, sub);
+    EXPECT_EQ(fqdn, "example.com");
 }
 
 TEST(ConfigValidatorDetailTest, FqdnFor_DeepSubdomain) {

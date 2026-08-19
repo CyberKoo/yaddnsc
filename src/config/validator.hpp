@@ -8,6 +8,7 @@
 #include "uri.h"
 #include "fmt.hpp"
 #include "config.h"
+#include "fqdn.hpp"
 #include "mixin.h"
 
 #include "util/validation.hpp"
@@ -17,8 +18,9 @@
 /// Internal helpers (hidden in detail namespace).
 namespace detail {
     /// Build the FQDN for a subdomain within a domain.
+    /// Apex labels (`"@"` / empty) resolve to the bare domain name.
     inline std::string fqdn_for(const Config::DomainConfig &domain, const Config::SubdomainConfig &subdomain) {
-        return fmt::format("{}.{}", subdomain.name, domain.name);
+        return Config::make_fqdn(domain.name, subdomain.name);
     }
 
     /// Validate IP source configuration for a subdomain.

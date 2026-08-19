@@ -132,18 +132,21 @@ private:
 
 /// Sequential fallback across all resolvers.
 ///
-/// Iterates resolvers in random order and returns the first successful
-/// result.  On definitive errors (NXDOMAIN, PARSE, CONFIG) the iteration
-/// stops immediately and the error is propagated via std::expected.
+/// Iterates resolvers in configured order (or a shuffled order) and
+/// returns the first successful result.  On definitive errors (NXDOMAIN,
+/// PARSE, CONFIG) the iteration stops immediately and the error is
+/// propagated via std::expected.
 class FallbackRunner {
 public:
-    explicit FallbackRunner(const std::vector<std::unique_ptr<ResolverBase> > &resolvers);
+    explicit FallbackRunner(const std::vector<std::unique_ptr<ResolverBase> > &resolvers,
+                            bool shuffle = false);
 
     [[nodiscard]] std::expected<std::vector<std::string>, DnsErrorInfo> run(
         const std::string &host, RecordKind type) const;
 
 private:
     const std::vector<std::unique_ptr<ResolverBase> > &resolvers_;
+    bool shuffle_;
 };
 
 /// Executes one batch of concurrent resolver queries with cancellation pipes.
@@ -237,7 +240,8 @@ SingleResolverRunner::run(const std::string &host, RecordKind type, std::uint32_
 //  FallbackRunner  —  implementations
 // ===========================================================================
 
-FallbackRunner::FallbackRunner(const std::vector<std::unique_ptr<ResolverBase> > &resolvers) : resolvers_(resolvers) {
+FallbackRunner::FallbackRunner(const std::vector<std::unique_ptr<ResolverBase> > &resolvers, bool shuffle)
+    : resolvers_(resolvers), shuffle_(shuffle) {
 }
 
 std::expected<std::vector<std::string>, DnsErrorInfo>
@@ -247,12 +251,13 @@ FallbackRunner::run(const std::string &host, RecordKind type) const {
         fmt::format(R"(DNS lookup for domain "{}" returned no records)", host)
     };
 
-    // Shuffle access indices so concurrent queries spread across resolvers
-    // instead of all hammering resolvers_[0] first (thundering herd avoidance).
-    // Each query gets an independent random order.
+    // FALLBACK walks the configured order so the first server is the primary.
+    // SHUFFLE randomises the order per query to spread load.
     std::vector<size_t> indices(resolvers_.size());
     std::iota(indices.begin(), indices.end(), size_t{0});
-    std::shuffle(indices.begin(), indices.end(), Utils::Random::engine());
+    if (shuffle_) {
+        std::shuffle(indices.begin(), indices.end(), Utils::Random::engine());
+    }
 
     for (const auto idx: indices) {
         const auto &resolver = resolvers_[idx];
@@ -488,7 +493,7 @@ struct ResolverDispatcher::Impl {
     [[nodiscard]] std::expected<std::vector<std::string>, DnsErrorInfo>
     resolve(const std::string &host, RecordKind type, std::uint32_t max_retries, std::uint32_t backoff_ms) const;
 
-    /// Resolve a hostname across multiple resolvers (fallback or concurrent).
+    /// Resolve a hostname across multiple resolvers (fallback / shuffle / concurrent).
     /// Dispatches to FallbackRunner or ConcurrentRunner based on the strategy.
     /// @return  Resolved addresses on success, or a categorised error on failure.
     [[nodiscard]] std::expected<std::vector<std::string>, DnsErrorInfo>
@@ -525,8 +530,14 @@ ResolverDispatcher::Impl::resolve(const std::string &host, RecordKind type, std:
 std::expected<std::vector<std::string>, DnsErrorInfo>
 ResolverDispatcher::Impl::resolve_multi(const std::string &host, RecordKind type) const {
     if (strategy_ == Config::ResolverStrategy::FALLBACK) {
-        SPDLOG_DEBUG(R"(Fallback mode: trying {} resolver(s) sequentially for "{}")", resolvers_.size(), host);
-        FallbackRunner runner(resolvers_);
+        SPDLOG_DEBUG(R"(Fallback mode: trying {} resolver(s) in configured order for "{}")", resolvers_.size(), host);
+        FallbackRunner runner(resolvers_, false);
+        return runner.run(host, type);
+    }
+
+    if (strategy_ == Config::ResolverStrategy::SHUFFLE) {
+        SPDLOG_DEBUG(R"(Shuffle mode: trying {} resolver(s) in random order for "{}")", resolvers_.size(), host);
+        FallbackRunner runner(resolvers_, true);
         return runner.run(host, type);
     }
 

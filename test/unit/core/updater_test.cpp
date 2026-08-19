@@ -24,9 +24,8 @@
 #include "network/inet_address.h"
 
 #include "config/config.h"
+#include "config/fqdn.hpp"
 #include "config/parser.hpp"
-
-#include "fmt.hpp"
 
 #include "fixtures/sample_config.h"
 #include "mocks/mock_driver.h"
@@ -98,7 +97,7 @@ template <typename Mutator>
         .config = cfg,
         .domain_index = domain_idx,
         .subdomain_index = sub_idx,
-        .fqdn = fmt::format("{}.{}", sub.name, domain.name),
+        .fqdn = Config::make_fqdn(domain.name, sub.name),
         .force_update = false,
     };
 }

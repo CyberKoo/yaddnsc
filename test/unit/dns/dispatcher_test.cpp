@@ -27,6 +27,23 @@ TEST(DispatcherFallback, MultiAddressResult_ReturnsAllRecords) {
     EXPECT_EQ(result->size(), 2U);
 }
 
+TEST(DispatcherFallback, FirstResolverSucceeds_DoesNotQueryLater) {
+    // FALLBACK must honour configured order: a successful primary must not
+    // consult later resolvers. This would flake if the walk were shuffled.
+    auto r0 = make_mock();
+    auto r1 = make_mock();
+    EXPECT_CALL(*r0, query(_, _, _)).WillOnce(Return(ok_a()));
+    EXPECT_CALL(*r1, query(_, _, _)).Times(0);
+    std::vector<std::unique_ptr<ResolverBase>> resolvers;
+    resolvers.push_back(std::move(r0));
+    resolvers.push_back(std::move(r1));
+    ResolverDispatcher disp(std::move(resolvers), Config::ResolverStrategy::FALLBACK);
+
+    auto result = disp.resolve("example.com", RecordKind::A, 1, 1);
+    ASSERT_TRUE(result.has_value());
+    EXPECT_EQ((*result)[0], "192.168.1.1");
+}
+
 TEST(DispatcherFallback, ServerRefused_ThenSuccess) {
     // SERVER_REFUSED is retryable in fallback mode → try the next resolver.
     auto r0 = make_mock();
@@ -41,6 +58,49 @@ TEST(DispatcherFallback, ServerRefused_ThenSuccess) {
     auto result = disp.resolve("example.com", RecordKind::A, 1, 1);
     ASSERT_TRUE(result.has_value());
     EXPECT_EQ((*result)[0], "192.168.1.1");
+}
+
+TEST(DispatcherShuffle, AnySucceeds_ReturnsRecords) {
+    auto r0 = make_mock();
+    auto r1 = make_mock();
+    ON_CALL(*r0, query(_, _, _)).WillByDefault(Return(err(DnsError::RETRY, "r0")));
+    ON_CALL(*r1, query(_, _, _)).WillByDefault(Return(ok_a()));
+    std::vector<std::unique_ptr<ResolverBase>> resolvers;
+    resolvers.push_back(std::move(r0));
+    resolvers.push_back(std::move(r1));
+    ResolverDispatcher disp(std::move(resolvers), Config::ResolverStrategy::SHUFFLE);
+
+    auto result = disp.resolve("example.com", RecordKind::A, 1, 1);
+    ASSERT_TRUE(result.has_value());
+    EXPECT_EQ((*result)[0], "192.168.1.1");
+}
+
+TEST(DispatcherShuffle, NxDomain_StopsIteration) {
+    auto r0 = make_mock();
+    auto r1 = make_mock();
+    ON_CALL(*r0, query(_, _, _)).WillByDefault(Return(err(DnsError::RETRY, "r0")));
+    ON_CALL(*r1, query(_, _, _)).WillByDefault(Return(err(DnsError::NX_DOMAIN, "nxdomain")));
+    std::vector<std::unique_ptr<ResolverBase>> resolvers;
+    resolvers.push_back(std::move(r0));
+    resolvers.push_back(std::move(r1));
+    ResolverDispatcher disp(std::move(resolvers), Config::ResolverStrategy::SHUFFLE);
+
+    auto result = disp.resolve("example.com", RecordKind::A, 1, 1);
+    expect_unexpected(result, DnsError::NX_DOMAIN);
+}
+
+TEST(DispatcherShuffle, AllRetryable_ReturnsTransientFailure) {
+    auto r0 = make_mock();
+    auto r1 = make_mock();
+    ON_CALL(*r0, query(_, _, _)).WillByDefault(Return(err(DnsError::RETRY, "r0")));
+    ON_CALL(*r1, query(_, _, _)).WillByDefault(Return(err(DnsError::RETRY, "r1")));
+    std::vector<std::unique_ptr<ResolverBase>> resolvers;
+    resolvers.push_back(std::move(r0));
+    resolvers.push_back(std::move(r1));
+    ResolverDispatcher disp(std::move(resolvers), Config::ResolverStrategy::SHUFFLE);
+
+    auto result = disp.resolve("example.com", RecordKind::A, 1, 1);
+    expect_transient_failure(result);
 }
 
 TEST(DispatcherConcurrent, AllParseErrors_ReturnsParseError) {

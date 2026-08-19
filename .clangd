@@ -1,0 +1,10 @@
+# clangd does not recognize the GCC-specific C++ module scanning flags that
+# CMake injects into compile_commands.json for C++20+ targets (the project
+# does not use C++ modules). Strip them before the compile command is parsed.
+CompileFlags:
+  Remove:
+    - -fmodules-ts
+    - -fmodule-mapper=*
+    - -fdeps-format=*
+    - -fdeps-file=*
+    - -fdeps-target=*

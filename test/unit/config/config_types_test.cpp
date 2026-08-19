@@ -44,6 +44,7 @@ TEST(ConfigIpSourceTest, DefaultIsInterface) {
 TEST(ConfigResolverStrategyTest, EnumeratorValues_Defined) {
     EXPECT_EQ(static_cast<int>(Config::ResolverStrategy::FALLBACK), 0);
     EXPECT_EQ(static_cast<int>(Config::ResolverStrategy::CONCURRENT), 1);
+    EXPECT_EQ(static_cast<int>(Config::ResolverStrategy::SHUFFLE), 2);
 }
 
 TEST(ConfigResolverStrategyTest, IsEnumClass) {

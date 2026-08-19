@@ -15,6 +15,7 @@
 #include <utility>
 
 #include "config/config.h"
+#include "config/fqdn.hpp"
 
 #include "update_task.hpp"
 
@@ -76,7 +77,7 @@ Scheduler::Impl::Impl(std::shared_ptr<const Config::AppConfig> config, std::stop
         const auto &domain = config_->domains[domain_idx];
         for (std::size_t subdomain_idx = 0; subdomain_idx < domain.subdomains.size(); ++subdomain_idx) {
             const auto &subdomain = domain.subdomains[subdomain_idx];
-            const auto fqdn = fmt::format("{}.{}", subdomain.name, domain.name);
+            const auto fqdn = Config::make_fqdn(domain.name, subdomain.name);
             const auto effective_interval =
                 subdomain.update_interval > 0 ? subdomain.update_interval : domain.update_interval;
 

@@ -20,7 +20,8 @@ class ResolverBase;
 
 /// ResolverDispatcher — dispatches DNS queries across one or more backend
 ///                      resolvers using a configurable strategy (fallback /
-///                      concurrent), with automatic retry on transient errors.
+///                      shuffle / concurrent), with automatic retry on
+///                      transient errors.
 ///
 /// Eliminates the need to pass resolver vectors through every layer.
 /// @note Thread-safe: resolve() is const and does not mutate shared state.
@@ -28,7 +29,7 @@ class ResolverDispatcher {
 public:
     /// Construct with a list of resolver backends and a dispatch strategy.
     /// @param resolvers  Vector of resolver backends to query.
-    /// @param strategy   Dispatch strategy (fallback or concurrent).
+    /// @param strategy   Dispatch strategy (fallback, shuffle, or concurrent).
     explicit ResolverDispatcher(std::vector<std::unique_ptr<ResolverBase> > resolvers,
                                 Config::ResolverStrategy strategy = Config::ResolverStrategy::CONCURRENT);
 
@@ -43,7 +44,7 @@ public:
     /// Retry behaviour depends on the dispatch strategy:
     ///   - Single resolver: retries up to `max_retries` times with
     ///     exponential-like backoff on transient errors.
-    ///   - Multiple resolvers (fallback / concurrent): no per-query retries;
+    ///   - Multiple resolvers (fallback / shuffle / concurrent): no per-query retries;
     ///     fault tolerance is provided by resolver redundancy.
     ///
     /// @param host         Hostname to resolve.

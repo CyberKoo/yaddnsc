@@ -18,8 +18,9 @@ namespace Config {
 
     /// DNS resolution strategy used by ResolverDispatcher.
     enum class ResolverStrategy {
-        FALLBACK, ///< Try resolvers sequentially until one succeeds
-        CONCURRENT ///< Query all resolvers concurrently and take the first result
+        FALLBACK,   ///< Try resolvers in configured order until one succeeds
+        CONCURRENT, ///< Query resolvers concurrently and take the first result
+        SHUFFLE     ///< Try resolvers sequentially in random order until one succeeds
     };
 }
 

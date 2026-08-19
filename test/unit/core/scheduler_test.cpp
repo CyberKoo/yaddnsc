@@ -54,6 +54,31 @@ TEST(Scheduler, InitialisesOneTaskPerSubdomain) {
     EXPECT_EQ(due.size(), subdomain_count(cfg));
 }
 
+TEST(Scheduler, ApexSubdomainUsesBareDomainFqdn) {
+    // FULL_CONFIG's first subdomain is "@" (apex). The scheduled task must
+    // look up example.com, not the literal "@.example.com".
+    const auto cfg = parse_cfg(Fixtures::FULL_CONFIG);
+    std::stop_source stop;
+    Scheduler scheduler(cfg, stop.get_token());
+
+    const auto due = scheduler.pop_all_due();
+    ASSERT_EQ(due.size(), 2U);
+
+    bool found_apex = false;
+    bool found_www = false;
+    for (const auto &task: due) {
+        if (task.subdomain_config().name == "@") {
+            EXPECT_EQ(task.fqdn, "example.com");
+            found_apex = true;
+        } else if (task.subdomain_config().name == "www") {
+            EXPECT_EQ(task.fqdn, "www.example.com");
+            found_www = true;
+        }
+    }
+    EXPECT_TRUE(found_apex);
+    EXPECT_TRUE(found_www);
+}
+
 TEST(Scheduler, EmptyDomainListHasNoPendingTasks) {
     const auto cfg = parse_cfg(Fixtures::EMPTY_DOMAINS_CONFIG);
     std::stop_source stop;

@@ -52,7 +52,8 @@ struct glz::meta<Config::ResolverStrategy> {
     using enum Config::ResolverStrategy;
     static constexpr auto value = enumerate(
         "fallback", FALLBACK,
-        "concurrent", CONCURRENT
+        "concurrent", CONCURRENT,
+        "shuffle", SHUFFLE
     );
 };
 

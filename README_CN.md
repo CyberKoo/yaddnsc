@@ -265,7 +265,7 @@ yaddnsc 使用 JSON 格式的配置文件。默认查找 `./config.json`，可�
 | `address`           | string      | **（已废弃，将在未来版本移除）** 直接在 resolver 级别指定 DNS 服务器地址。请改用 `servers`。 |
 | `ipaddress`         | string      | **（已废弃，将在未来版本移除）** `address` 的别名。请改用 `servers` 数组中的 `address`。  |
 | `port`              | int         | **（已废弃，将在未来版本移除）** 与 `address` 配合使用的端口号，默认 53。请改用 `servers`。 |
-| `strategy`          | string      | 查询策略：`"concurrent"`（默认）或 `"fallback"`。详见 [DNS 解析器](#dns-解析器)。   |
+| `strategy`          | string      | 查询策略：`"concurrent"`（默认）、`"fallback"` 或 `"shuffle"`。详见 [DNS 解析器](#dns-解析器)。   |
 
 #### `DnsServer` 对象
 
@@ -291,7 +291,7 @@ yaddnsc 使用 JSON 格式的配置文件。默认查找 `./config.json`，可�
 
 | 字段                 | 类型      | 说明                                                                            |
 |--------------------|---------|-------------------------------------------------------------------------------|
-| `name`             | string  | 子域名名称（如 `home` 对应 `home.example.com`）                                         |
+| `name`             | string  | 子域名名称（如 `home` 对应 `home.example.com`）。apex 记录（`example.com` 本身）请填 `"@"`。 |
 | `type`             | string  | DNS 记录类型：`"a"`、`"aaaa"` 或 `"txt"`。自动决定地址族（A → IPv4，AAAA → IPv6）。 |
 | `interface`        | string  | 网卡接口名称（如 `eth0`）。`"interface"` IP 来源必填，其他来源可选。                             |
 | `ip_type`          | string  | **已废弃——被忽略。** 地址族现在由 `type` 自动推导（A → IPv4，AAAA → IPv6）。                    |
@@ -423,7 +423,8 @@ yaddnsc 使用固定的 DNS 服务器列表进行记录查询。在配置文件�
 | 策略          | 行为                                        |
 |-------------|-------------------------------------------|
 | `concurrent` | **（默认）** 以每批 3 个并发查询，取最快成功响应。                |
-| `fallback`   | 依次尝试解析器，当前解析器失败时切换到下一个。                     |
+| `fallback`   | 按配置顺序依次尝试解析器，当前解析器失败时切换到下一个。                     |
+| `shuffle`    | 与 `"fallback"` 相同的顺序回退，但每次查询会打乱解析器顺序。                     |
 
 ```json
 {
