@@ -48,7 +48,7 @@ TEST(PorkbunDriverTest, GenerateRequest_BasicARecord) {
               "https://api.porkbun.com/api/json/v3/dns/editByNameType/example.com/A/www");
 
     // Check method and content type
-    EXPECT_EQ(result.request.method, DriverHttpMethod::POST);
+    EXPECT_EQ(result.request.method, net::http::Method::POST);
     EXPECT_EQ(result.request.content_type, "application/json");
 
     // Check header auth
@@ -133,37 +133,37 @@ TEST(PorkbunDriverTest, GenerateRequest_MissingSecretApiKey_ThrowsParamParseExce
 
 TEST(PorkbunDriverTest, CheckResponse_Success_ReturnsTrue) {
     PorkbunDriver driver;
-    HttpResponse resp{200, R"({"status":"SUCCESS"})", {}};
+    net::http::Response resp{200, R"({"status":"SUCCESS"})", {}};
     EXPECT_TRUE(driver.check_response(resp));
 }
 
 TEST(PorkbunDriverTest, CheckResponse_SuccessWithMessage_ReturnsTrue) {
     PorkbunDriver driver;
-    HttpResponse resp{200, R"({"status":"SUCCESS","message":"Record updated successfully"})", {}};
+    net::http::Response resp{200, R"({"status":"SUCCESS","message":"Record updated successfully"})", {}};
     EXPECT_TRUE(driver.check_response(resp));
 }
 
 TEST(PorkbunDriverTest, CheckResponse_ErrorWithoutCode_ReturnsFalse) {
     PorkbunDriver driver;
-    HttpResponse resp{200, R"({"status":"ERROR","message":"Invalid API key"})", {}};
+    net::http::Response resp{200, R"({"status":"ERROR","message":"Invalid API key"})", {}};
     EXPECT_FALSE(driver.check_response(resp));
 }
 
 TEST(PorkbunDriverTest, CheckResponse_ErrorWithCode_ReturnsFalse) {
     PorkbunDriver driver;
-    HttpResponse resp{403, R"({"status":"ERROR","code":"ACCESS_DENIED","message":"Permission denied"})", {}};
+    net::http::Response resp{403, R"({"status":"ERROR","code":"ACCESS_DENIED","message":"Permission denied"})", {}};
     EXPECT_FALSE(driver.check_response(resp));
 }
 
 TEST(PorkbunDriverTest, CheckResponse_UnparseableBody_ReturnsFalse) {
     PorkbunDriver driver;
-    HttpResponse resp{200, "not-json", {}};
+    net::http::Response resp{200, "not-json", {}};
     EXPECT_FALSE(driver.check_response(resp));
 }
 
 TEST(PorkbunDriverTest, CheckResponse_EmptyBody_ReturnsFalse) {
     PorkbunDriver driver;
-    HttpResponse resp{200, "", {}};
+    net::http::Response resp{200, "", {}};
     EXPECT_FALSE(driver.check_response(resp));
 }
 
@@ -174,6 +174,6 @@ TEST(PorkbunDriverTest, FactoryCompilerIdHash) { test_factory_compiler_id_hash()
 
 TEST(PorkbunDriverTest, CheckResponse_ErrorWithoutMessageOrCode_ReturnsFalse) {
     PorkbunDriver driver;
-    HttpResponse resp{500, R"({"status":"ERROR"})", {}};
+    net::http::Response resp{500, R"({"status":"ERROR"})", {}};
     EXPECT_FALSE(driver.check_response(resp));
 }

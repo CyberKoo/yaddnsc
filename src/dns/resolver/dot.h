@@ -5,54 +5,49 @@
 #ifndef YADDNSC_DNS_DOT_H
 #define YADDNSC_DNS_DOT_H
 
+#include <cstdint>
 #include <expected>
 #include <memory>
 #include <string>
 #include <vector>
-#include <cstdint>
 
 #include "base.h"
 #include "dns/dns_error_info.h"
 
-class TlsConnectionBase;
+namespace Transport {
+class Stream;
+}
 
-/// DotResolver — DNS-over-TLS (RFC 7858) resolver.
+namespace Utils {
+class CancellationToken;
+}
+
+/// DotResolver — DNS-over-TLS (RFC 7858) resolver on Transport.
 ///
-/// Uses a TLS connection (via TlsConnectionBase) to send DNS queries to a
-/// DNS-over-TLS server on port 853 (default).  DNS messages are framed with a
-/// 2-byte big-endian length prefix as specified in RFC 7858 §3.3.
+/// Owns a persistent TLS stream to the DoT server; DNS messages are framed
+/// with a 2-byte big-endian length prefix (RFC 7858 §3.3).  Cancellation is
+/// bound at construction; query() takes no token.
 ///
-/// Input:  Server hostname/IP and port (default 853).
-/// Output: Raw DNS response bytes (wire format), ready for DnsRecordParser.
-///
-/// @attention Currently, when cancel_fd is signalled, the in-flight query is
-///            aborted with a CANCELLED error (via poll() on both the TLS socket
-///            and the cancel fd).  This is a best-effort mechanism — the query
-///            may have already been sent and the server may still process it.
-///
-/// @note Thread-safe: query() acquires an internal mutex around the persistent
-///       TLS connection.  Distinct DotResolver objects are independent.
+/// Thread-safe: query() acquires an internal mutex around the persistent
+/// stream.  Distinct DotResolver objects are independent.
 class DotResolver final : public ResolverBase {
 public:
     /// Construct with server address and optional port.
     /// @param server  Server hostname or IP address.
     /// @param port    TLS port (default: 853).
-    /// @param label   Display label (e.g. "dot.pub:853" or "tls://dot.pub"), used in log/error messages.
-    explicit DotResolver(std::string server, std::uint16_t port, std::string label);
+    /// @param label   Display label (e.g. "dot.pub:853"), used in log/error messages.
+    /// @param token   Cancellation token, bound for the resolver's lifetime.
+    explicit DotResolver(std::string server, std::uint16_t port, std::string label,
+                         Utils::CancellationToken token);
 
-    /// Testing constructor: inject a mock TlsConnectionBase.
-    /// @param server  Server hostname or IP address.
-    /// @param port    TLS port.
-    /// @param label   Display label.
-    /// @param conn    Mock TLS connection (takes ownership).
+    /// Testing constructor: inject a pre-built stream (fake or real).
     DotResolver(std::string server, std::uint16_t port, std::string label,
-                std::unique_ptr<TlsConnectionBase> conn);
+                std::unique_ptr<Transport::Stream> stream);
 
     ~DotResolver() override;
 
     [[nodiscard]] std::expected<std::vector<std::uint8_t>, DnsErrorInfo>
-    query(const std::string &host, RecordKind type,
-          const Utils::CancellationToken &cancel_token) const override;
+    query(const std::string &host, RecordKind type) const override;
 
     [[nodiscard]] std::string_view get_type() const noexcept override { return TYPE; }
 

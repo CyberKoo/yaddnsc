@@ -48,7 +48,7 @@ TEST(LinodeDriverTest, GenerateRequest_BasicARecord) {
               "https://api.linode.com/v4/domains/dom123/records/rec456");
 
     // Check method and content type
-    EXPECT_EQ(result.request.method, DriverHttpMethod::PUT);
+    EXPECT_EQ(result.request.method, net::http::Method::PUT);
     EXPECT_EQ(result.request.content_type, "application/json");
 
     // Check auth header
@@ -105,7 +105,7 @@ TEST(LinodeDriverTest, GenerateRequest_MissingDomainId_ThrowsParamParseException
 
 TEST(LinodeDriverTest, CheckResponse_200_ReturnsTrue) {
     LinodeDriver driver;
-    HttpResponse resp{200, R"({"id": 123, "type": "A", "name": "www", "target": "1.2.3.4", "ttl_sec": 300})", {}};
+    net::http::Response resp{200, R"({"id": 123, "type": "A", "name": "www", "target": "1.2.3.4", "ttl_sec": 300})", {}};
     EXPECT_TRUE(driver.check_response(resp));
 }
 
@@ -113,19 +113,19 @@ TEST(LinodeDriverTest, CheckResponse_200_EmptyBody_ReturnsTrue) {
     // Linode returns 200 on success even with minimal body;
     // our implementation checks HTTP 200 first.
     LinodeDriver driver;
-    HttpResponse resp{200, "", {}};
+    net::http::Response resp{200, "", {}};
     EXPECT_TRUE(driver.check_response(resp));
 }
 
 TEST(LinodeDriverTest, CheckResponse_Non200_WithErrorBody_ReturnsFalse) {
     LinodeDriver driver;
-    HttpResponse resp{400, R"({"errors": [{"field": "type", "reason": "Invalid record type"}]})", {}};
+    net::http::Response resp{400, R"({"errors": [{"field": "type", "reason": "Invalid record type"}]})", {}};
     EXPECT_FALSE(driver.check_response(resp));
 }
 
 TEST(LinodeDriverTest, CheckResponse_Non200_WithMultipleErrors_ReturnsFalse) {
     LinodeDriver driver;
-    HttpResponse resp{400, R"({
+    net::http::Response resp{400, R"({
         "errors": [
             {"field": "name", "reason": "Invalid name"},
             {"field": "target", "reason": "Invalid target"}
@@ -136,19 +136,19 @@ TEST(LinodeDriverTest, CheckResponse_Non200_WithMultipleErrors_ReturnsFalse) {
 
 TEST(LinodeDriverTest, CheckResponse_Non200_WithEmptyFieldError_ReturnsFalse) {
     LinodeDriver driver;
-    HttpResponse resp{400, R"({"errors": [{"field": "", "reason": "Rate limit exceeded"}]})", {}};
+    net::http::Response resp{400, R"({"errors": [{"field": "", "reason": "Rate limit exceeded"}]})", {}};
     EXPECT_FALSE(driver.check_response(resp));
 }
 
 TEST(LinodeDriverTest, CheckResponse_Non200_UnparseableBody_ReturnsFalse) {
     LinodeDriver driver;
-    HttpResponse resp{400, "not-json", {}};
+    net::http::Response resp{400, "not-json", {}};
     EXPECT_FALSE(driver.check_response(resp));
 }
 
 TEST(LinodeDriverTest, CheckResponse_Non200_EmptyBody_ReturnsFalse) {
     LinodeDriver driver;
-    HttpResponse resp{500, "", {}};
+    net::http::Response resp{500, "", {}};
     EXPECT_FALSE(driver.check_response(resp));
 }
 
@@ -159,11 +159,11 @@ TEST(LinodeDriverTest, FactoryCompilerIdHash) { test_factory_compiler_id_hash();
 
 TEST(LinodeDriverTest, CheckResponse_Non200_ErrorFieldEmpty_ReturnsFalse) {
     LinodeDriver driver;
-    HttpResponse resp{400, R"({"errors": [{"field": "type", "reason": "Invalid"}]})", {}};
+    net::http::Response resp{400, R"({"errors": [{"field": "type", "reason": "Invalid"}]})", {}};
     EXPECT_FALSE(driver.check_response(resp));
 }
 TEST(LinodeDriverTest, CheckResponse_Non200_NoErrorsKey_ReturnsFalse) {
     LinodeDriver driver;
-    HttpResponse resp{400, R"({"other": "data"})", {}};
+    net::http::Response resp{400, R"({"other": "data"})", {}};
     EXPECT_FALSE(driver.check_response(resp));
 }

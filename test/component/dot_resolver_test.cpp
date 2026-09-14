@@ -187,9 +187,8 @@ protected:
 // ===========================================================================
 
 TEST_F(DotResolverTest, Resolve_A_Record) {
-    DotResolver resolver("127.0.0.1", DOT_PORT, "test-dot");
-    Utils::CancellationToken cancel;
-    auto result = resolver.query("yaddnsc.test", RecordKind::A, cancel);
+    DotResolver resolver("127.0.0.1", DOT_PORT, "test-dot", Utils::CancellationToken{});
+    auto result = resolver.query("yaddnsc.test", RecordKind::A);
 
     ASSERT_TRUE(result.has_value()) << "DoT query failed: "
                                     << dns_error_name(result.error().code);
@@ -206,9 +205,8 @@ TEST_F(DotResolverTest, Resolve_A_Record) {
 }
 
 TEST_F(DotResolverTest, Resolve_AAAA_Record) {
-    DotResolver resolver("127.0.0.1", DOT_PORT, "test-dot");
-    Utils::CancellationToken cancel;
-    auto result = resolver.query("yaddnsc.test", RecordKind::AAAA, cancel);
+    DotResolver resolver("127.0.0.1", DOT_PORT, "test-dot", Utils::CancellationToken{});
+    auto result = resolver.query("yaddnsc.test", RecordKind::AAAA);
 
     ASSERT_TRUE(result.has_value()) << "DoT AAAA query failed: "
                                     << dns_error_name(result.error().code);
@@ -216,9 +214,8 @@ TEST_F(DotResolverTest, Resolve_AAAA_Record) {
 }
 
 TEST_F(DotResolverTest, ConnectToRefusedPort_ReturnsError) {
-    DotResolver resolver("127.0.0.1", 1, "test-dot-refused");
-    Utils::CancellationToken cancel;
-    auto result = resolver.query("yaddnsc.test", RecordKind::A, cancel);
+    DotResolver resolver("127.0.0.1", 1, "test-dot-refused", Utils::CancellationToken{});
+    auto result = resolver.query("yaddnsc.test", RecordKind::A);
 
     ASSERT_FALSE(result.has_value());
     EXPECT_TRUE(result.error().code == DnsError::CONNECTION ||
@@ -228,9 +225,8 @@ TEST_F(DotResolverTest, ConnectToRefusedPort_ReturnsError) {
 }
 
 TEST_F(DotResolverTest, TimeoutHost_ReturnsRetry) {
-    DotResolver resolver("127.0.0.1", DOT_PORT, "test-dot-timeout");
-    Utils::CancellationToken cancel;
-    auto result = resolver.query("dot-timeout.yaddnsc.test", RecordKind::A, cancel);
+    DotResolver resolver("127.0.0.1", DOT_PORT, "test-dot-timeout", Utils::CancellationToken{});
+    auto result = resolver.query("dot-timeout.yaddnsc.test", RecordKind::A);
 
     ASSERT_FALSE(result.has_value());
     EXPECT_TRUE(result.error().code == DnsError::RETRY ||
@@ -241,18 +237,16 @@ TEST_F(DotResolverTest, TimeoutHost_ReturnsRetry) {
 }
 
 TEST_F(DotResolverTest, MalformedResponse_ReturnsParseError) {
-    DotResolver resolver("127.0.0.1", DOT_PORT, "test-dot-malformed");
-    Utils::CancellationToken cancel;
-    auto result = resolver.query("dot-malformed.yaddnsc.test", RecordKind::A, cancel);
+    DotResolver resolver("127.0.0.1", DOT_PORT, "test-dot-malformed", Utils::CancellationToken{});
+    auto result = resolver.query("dot-malformed.yaddnsc.test", RecordKind::A);
 
     ASSERT_FALSE(result.has_value());
     EXPECT_EQ(result.error().code, DnsError::PARSE);
 }
 
 TEST_F(DotResolverTest, ZeroLengthResponse_ReturnsParseError) {
-    DotResolver resolver("127.0.0.1", DOT_PORT, "test-dot-zero");
-    Utils::CancellationToken cancel;
-    auto result = resolver.query("dot-zerolength.yaddnsc.test", RecordKind::A, cancel);
+    DotResolver resolver("127.0.0.1", DOT_PORT, "test-dot-zero", Utils::CancellationToken{});
+    auto result = resolver.query("dot-zerolength.yaddnsc.test", RecordKind::A);
 
     ASSERT_FALSE(result.has_value());
     EXPECT_EQ(result.error().code, DnsError::PARSE);
@@ -261,19 +255,17 @@ TEST_F(DotResolverTest, ZeroLengthResponse_ReturnsParseError) {
 TEST_F(DotResolverTest, OverlongLabel_ReturnsParseError) {
     // A label > 63 octets makes packet construction throw DnsPacketException,
     // which the resolver catches and maps to PARSE.
-    DotResolver resolver("127.0.0.1", DOT_PORT, "test-dot-overlong");
-    Utils::CancellationToken cancel;
+    DotResolver resolver("127.0.0.1", DOT_PORT, "test-dot-overlong", Utils::CancellationToken{});
     std::string long_label(70, 'a');
-    auto result = resolver.query(long_label + ".example.com", RecordKind::A, cancel);
+    auto result = resolver.query(long_label + ".example.com", RecordKind::A);
 
     ASSERT_FALSE(result.has_value());
     EXPECT_EQ(result.error().code, DnsError::PARSE);
 }
 
 TEST_F(DotResolverTest, NonExistentDomain_FallsBackToDefault) {
-    DotResolver resolver("127.0.0.1", DOT_PORT, "test-dot-nx");
-    Utils::CancellationToken cancel;
-    auto result = resolver.query("nonexistent.yaddnsc.test", RecordKind::A, cancel);
+    DotResolver resolver("127.0.0.1", DOT_PORT, "test-dot-nx", Utils::CancellationToken{});
+    auto result = resolver.query("nonexistent.yaddnsc.test", RecordKind::A);
 
     ASSERT_TRUE(result.has_value()) << "DoT query failed: "
                                     << dns_error_name(result.error().code);

@@ -42,7 +42,7 @@ TEST(DigitalOceanDriverTest, GenerateRequest_BasicARecord) {
               "https://api.digitalocean.com/v2/domains/example.com/records/123456");
 
     // Check method and content type
-    EXPECT_EQ(result.request.method, DriverHttpMethod::PUT);
+    EXPECT_EQ(result.request.method, net::http::Method::PUT);
     EXPECT_EQ(result.request.content_type, "application/json");
 
     // Check auth header
@@ -78,7 +78,7 @@ TEST(DigitalOceanDriverTest, GenerateRequest_MissingToken_ThrowsParamParseExcept
 
 TEST(DigitalOceanDriverTest, CheckResponse_Success_ReturnsTrue) {
     DigitalOceanDriver driver;
-    HttpResponse resp{200, R"({
+    net::http::Response resp{200, R"({
         "domain_record": {
             "id": 123456,
             "type": "A",
@@ -92,7 +92,7 @@ TEST(DigitalOceanDriverTest, CheckResponse_Success_ReturnsTrue) {
 
 TEST(DigitalOceanDriverTest, CheckResponse_SuccessWithAllFields_ReturnsTrue) {
     DigitalOceanDriver driver;
-    HttpResponse resp{200, R"({
+    net::http::Response resp{200, R"({
         "domain_record": {
             "id": 123456,
             "type": "AAAA",
@@ -111,7 +111,7 @@ TEST(DigitalOceanDriverTest, CheckResponse_SuccessWithAllFields_ReturnsTrue) {
 
 TEST(DigitalOceanDriverTest, CheckResponse_Error_ReturnsFalse) {
     DigitalOceanDriver driver;
-    HttpResponse resp{404, R"({
+    net::http::Response resp{404, R"({
         "id": "not_found",
         "message": "The resource you were accessing could not be found."
     })", {}};
@@ -120,20 +120,20 @@ TEST(DigitalOceanDriverTest, CheckResponse_Error_ReturnsFalse) {
 
 TEST(DigitalOceanDriverTest, CheckResponse_UnparseableBody_ReturnsFalse) {
     DigitalOceanDriver driver;
-    HttpResponse resp{200, "not-json", {}};
+    net::http::Response resp{200, "not-json", {}};
     EXPECT_FALSE(driver.check_response(resp));
 }
 
 TEST(DigitalOceanDriverTest, CheckResponse_EmptyBody_ReturnsFalse) {
     DigitalOceanDriver driver;
-    HttpResponse resp{200, "", {}};
+    net::http::Response resp{200, "", {}};
     EXPECT_FALSE(driver.check_response(resp));
 }
 
 TEST(DigitalOceanDriverTest, CheckResponse_UnknownShape_ReturnsFalse) {
     // Body that is valid JSON but doesn't match any known shape.
     DigitalOceanDriver driver;
-    HttpResponse resp{200, R"({"unknown_field": "value"})", {}};
+    net::http::Response resp{200, R"({"unknown_field": "value"})", {}};
     EXPECT_FALSE(driver.check_response(resp));
 }
 

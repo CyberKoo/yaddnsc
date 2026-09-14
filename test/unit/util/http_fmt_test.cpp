@@ -1,6 +1,6 @@
 //
 // Unit tests for include/http_fmt.hpp — log redaction helpers and the
-// HttpRequest formatter.
+// net::http::Request formatter.
 //
 // Verifies:
 //   - is_sensitive_param: exact matches, suffix fallbacks, case insensitivity.
@@ -8,7 +8,7 @@
 //   - is_key_start_char / is_key_char / is_key_position.
 //   - redact_body: form shape, JSON shape, all value terminators, edge cases.
 //   - redact_url_query.
-//   - HttpRequest fmt formatter: method mapping, header redaction, body redaction.
+//   - net::http::Request fmt formatter: method mapping, header redaction, body redaction.
 // =============================================================================
 
 #include <gtest/gtest.h>
@@ -18,7 +18,7 @@
 
 #include "fmt.hpp"
 #include "http_fmt.hpp"
-#include "http_type.h"
+#include "http_client/types.h"
 
 // ===========================================================================
 //  is_sensitive_param
@@ -209,12 +209,12 @@ TEST(HttpFmtTest, RedactUrlQuery_EmptyQuery) {
 }
 
 // ===========================================================================
-//  HttpRequest formatter
+//  net::http::Request formatter
 // ===========================================================================
 
 namespace {
-    [[nodiscard]] HttpRequest make_request(HttpMethod method, std::optional<std::string> body = std::nullopt) {
-        HttpRequest req;
+    [[nodiscard]] net::http::Request make_request(net::http::Method method, std::optional<std::string> body = std::nullopt) {
+        net::http::Request req;
         req.content_type = "application/json";
         req.method = method;
         req.headers.insert({"Host", "example.com"});
@@ -225,18 +225,18 @@ namespace {
 } // namespace
 
 TEST(HttpFmtTest, Format_AllMethods) {
-    // Every HttpMethod maps to its canonical string.
-    EXPECT_TRUE(fmt::format("{}", make_request(HttpMethod::GET)).find(R"(method="GET")") != std::string::npos);
-    EXPECT_TRUE(fmt::format("{}", make_request(HttpMethod::POST)).find(R"(method="POST")") != std::string::npos);
-    EXPECT_TRUE(fmt::format("{}", make_request(HttpMethod::PUT)).find(R"(method="PUT")") != std::string::npos);
-    EXPECT_TRUE(fmt::format("{}", make_request(HttpMethod::PATCH)).find(R"(method="PATCH")") != std::string::npos);
-    EXPECT_TRUE(fmt::format("{}", make_request(HttpMethod::DEL)).find(R"(method="DELETE")") != std::string::npos);
-    EXPECT_TRUE(fmt::format("{}", make_request(HttpMethod::HEAD)).find(R"(method="HEAD")") != std::string::npos);
-    EXPECT_TRUE(fmt::format("{}", make_request(HttpMethod::OPTIONS)).find(R"(method="OPTIONS")") != std::string::npos);
+    // Every Method maps to its canonical string.
+    EXPECT_TRUE(fmt::format("{}", make_request(net::http::Method::GET)).find(R"(method="GET")") != std::string::npos);
+    EXPECT_TRUE(fmt::format("{}", make_request(net::http::Method::POST)).find(R"(method="POST")") != std::string::npos);
+    EXPECT_TRUE(fmt::format("{}", make_request(net::http::Method::PUT)).find(R"(method="PUT")") != std::string::npos);
+    EXPECT_TRUE(fmt::format("{}", make_request(net::http::Method::PATCH)).find(R"(method="PATCH")") != std::string::npos);
+    EXPECT_TRUE(fmt::format("{}", make_request(net::http::Method::DEL)).find(R"(method="DELETE")") != std::string::npos);
+    EXPECT_TRUE(fmt::format("{}", make_request(net::http::Method::HEAD)).find(R"(method="HEAD")") != std::string::npos);
+    EXPECT_TRUE(fmt::format("{}", make_request(net::http::Method::OPTIONS)).find(R"(method="OPTIONS")") != std::string::npos);
 }
 
 TEST(HttpFmtTest, Format_RedactsSensitiveHeader) {
-    const auto out = fmt::format("{}", make_request(HttpMethod::POST, "{}"));
+    const auto out = fmt::format("{}", make_request(net::http::Method::POST, "{}"));
     EXPECT_TRUE(out.find("Authorization=***") != std::string::npos);
     EXPECT_TRUE(out.find("Bearer top-secret") == std::string::npos);
     // Non-sensitive headers pass through.
@@ -244,12 +244,12 @@ TEST(HttpFmtTest, Format_RedactsSensitiveHeader) {
 }
 
 TEST(HttpFmtTest, Format_RedactsSensitiveBody) {
-    const auto out = fmt::format("{}", make_request(HttpMethod::POST, R"({"token": "abc"})"));
+    const auto out = fmt::format("{}", make_request(net::http::Method::POST, R"({"token": "abc"})"));
     EXPECT_TRUE(out.find(R"("token": ***)") != std::string::npos);
     EXPECT_TRUE(out.find("abc") == std::string::npos);
 }
 
 TEST(HttpFmtTest, Format_EmptyBody) {
-    const auto out = fmt::format("{}", make_request(HttpMethod::GET));
+    const auto out = fmt::format("{}", make_request(net::http::Method::GET));
     EXPECT_TRUE(out.find(R"(body="")") != std::string::npos);
 }

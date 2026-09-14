@@ -20,7 +20,7 @@ class MockResolver : public ResolverBase {
 public:
     MOCK_METHOD((std::expected<std::vector<std::uint8_t>, DnsErrorInfo>),
                 query,
-                (const std::string& host, RecordKind type, const Utils::CancellationToken& cancel_token),
+                (const std::string& host, RecordKind type),
                 (const, override));
 
     MOCK_METHOD(std::string_view, get_type, (), (const, noexcept, override));

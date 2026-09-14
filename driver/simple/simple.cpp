@@ -43,10 +43,10 @@ DriverRequestContext SimpleDriver::generate_request(const DriverConfig &config, 
     return {
         .url = std::move(url),
         .request = {
-            .content_type = std::string{},
-            .method = DriverHttpMethod::GET,
+            .method = net::http::Method::GET,
             .headers = {},
             .body = std::nullopt,
+            .content_type = std::string{},
         }
     };
 }
@@ -60,11 +60,11 @@ DriverDetail SimpleDriver::get_detail() const noexcept {
     };
 }
 
-bool SimpleDriver::check_response(const HttpResponse &response) const {
-    CORE_LOG_DEBUG("Status: {}, Response: {}", response.status_code, StringUtil::trim(response.body));
+bool SimpleDriver::check_response(const net::http::Response &response) const {
+    CORE_LOG_DEBUG("Status: {}, Response: {}", response.status, StringUtil::trim(response.body));
 
-    if (response.status_code >= 300) {
-        CORE_LOG_ERROR("HTTP request failed with status code {}", response.status_code);
+    if (response.status >= 300) {
+        CORE_LOG_ERROR("HTTP request failed with status code {}", response.status);
         return false;
     }
 

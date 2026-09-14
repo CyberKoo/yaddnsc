@@ -26,12 +26,12 @@ DriverRequestContext DigitalOceanDriver::generate_request(const DriverConfig &co
     auto request_body = DigitalOceanBody{.data = ctx.ip_addr};
     request.body = glz::write_json(request_body).value_or("{}");
     request.content_type = "application/json";
-    request.method = DriverHttpMethod::PUT;
+    request.method = net::http::Method::PUT;
 
     return {std::move(url), std::move(request)};
 }
 
-bool DigitalOceanDriver::check_response(const HttpResponse &response) const {
+bool DigitalOceanDriver::check_response(const net::http::Response &response) const {
     CORE_LOG_TRACE("Got {} from server.", response.body);
 
     // Try success response: { "domain_record": { ... } }

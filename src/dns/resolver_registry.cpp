@@ -28,7 +28,8 @@ namespace DnsResolverRegistry {
         factories()[std::string(schema)] = std::move(factory);
     }
 
-    std::unique_ptr<ResolverBase> create(const Config::DnsServer &server) {
+    std::unique_ptr<ResolverBase> create(const Config::DnsServer &server,
+                                             const Utils::CancellationToken &token) {
         auto uri = Uri::parse(server.address);
         auto schema = std::string(uri.get_schema());
 
@@ -50,6 +51,6 @@ namespace DnsResolverRegistry {
             );
         }
 
-        return it->second(server);
+        return it->second(server, token);
     }
 } // namespace DnsResolverRegistry

@@ -1,598 +1,272 @@
 //
-// Integration tests for http_client and HttpIpSource using a local
-// cpp-httplib server on the loopback interface.
-//
-// No external network required — the server runs in-process on 127.0.0.1.
-//
+// Component tests for the net::http-backed HttpIpSource and the production
+// client wiring, over an in-process loopback HTTP server.
 // =============================================================================
 
-#include <atomic>
+#include <algorithm>
+#include <array>
 #include <chrono>
-#include <cstdlib>
+#include <cctype>
+#include <cstdint>
+#include <cstdio>
+#include <cstring>
 #include <map>
 #include <memory>
-#include <net/if.h>
+#include <span>
+#include <stdexcept>
 #include <string>
+#include <string_view>
 #include <thread>
+#include <utility>
+#include <vector>
 
-#include <httplib.h>
+#include <sys/socket.h>
+#include <unistd.h>
+#include <arpa/inet.h>
+
 #include <gtest/gtest.h>
 
+#include "http_client/client.h"
+#include "http_client/stream_factory.h"
 #include "ip_source/http.h"
-#include "network/http_client.h"
-#include "network/inet_address.h"
-#include "uri.h"
-
-#include "fmt.hpp"
 
 using namespace std::chrono_literals;
 
-// ===========================================================================
-// Helpers
-// ===========================================================================
-
 namespace {
-    /// Find the loopback interface name at runtime.
-    /// Linux uses "lo", macOS/BSD uses "lo0".
-    [[nodiscard]] std::string loopback_interface_name() {
-        if (::if_nametoindex("lo") != 0) return "lo";
-        if (::if_nametoindex("lo0") != 0) return "lo0";
-        return {};
+
+// ===========================================================================
+//  Minimal in-process HTTP/1.1 test server (thread-per-connection).
+// ===========================================================================
+
+struct HttpRequest {
+    std::string method;
+    std::string target;
+    std::map<std::string, std::string> headers;  // lowercased names
+    std::string body;
+};
+
+class HttpTestServer {
+public:
+    void start() {
+        listener_ = ::socket(AF_INET, SOCK_STREAM, 0);
+        ASSERT_GE(listener_, 0);
+
+        int one = 1;
+        ASSERT_EQ(::setsockopt(listener_, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one)), 0);
+
+        sockaddr_in addr{};
+        addr.sin_family = AF_INET;
+        addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+        addr.sin_port = 0;
+
+        ASSERT_EQ(::bind(listener_, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)), 0);
+        ASSERT_EQ(::listen(listener_, 8), 0);
+
+        socklen_t len = sizeof(addr);
+        ASSERT_EQ(::getsockname(listener_, reinterpret_cast<sockaddr *>(&addr), &len), 0);
+        port_ = ntohs(addr.sin_port);
+
+        running_ = true;
+        accept_thread_ = std::jthread([this] { accept_loop(); });
     }
-} // anonymous namespace
 
-// ===========================================================================
-// Fixture: local HTTP server
-// ===========================================================================
-
-class HttpServerFixture : public ::testing::Test {
-protected:
-    void SetUp() override {
-        server_ = std::make_unique<httplib::Server>();
-
-        // Regular IP endpoint.
-        server_->Get("/ip", [&](const httplib::Request & /*req*/, httplib::Response &resp) {
-            resp.set_content("198.51.100.42", "text/plain");
-            server_hit_count_.fetch_add(1, std::memory_order_relaxed);
-        });
-
-        // JSON endpoints.
-        server_->Post("/update", [&](const httplib::Request & /*req*/, httplib::Response &resp) {
-            resp.set_content(R"({"status":"ok"})", "application/json");
-            server_hit_count_.fetch_add(1, std::memory_order_relaxed);
-        });
-
-        server_->Put("/update", [&](const httplib::Request & /*req*/, httplib::Response &resp) {
-            resp.set_content(R"({"status":"updated"})", "application/json");
-            server_hit_count_.fetch_add(1, std::memory_order_relaxed);
-        });
-
-        server_->Delete("/resource", [&](const httplib::Request & /*req*/, httplib::Response &resp) {
-            resp.status = 204;
-            server_hit_count_.fetch_add(1, std::memory_order_relaxed);
-        });
-
-        // Non-IP body (error path for HttpIpSource).
-        server_->Get("/not-an-ip", [&](const httplib::Request & /*req*/, httplib::Response &resp) {
-            resp.set_content("this is not an ip address", "text/plain");
-            server_hit_count_.fetch_add(1, std::memory_order_relaxed);
-        });
-
-        // OPTIONS endpoint.
-        server_->Options("/options", [&](const httplib::Request & /*req*/, httplib::Response &resp) {
-            resp.status = 204;
-            resp.set_header("Allow", "GET, POST, OPTIONS");
-            server_hit_count_.fetch_add(1, std::memory_order_relaxed);
-        });
-
-        // PATCH endpoint.
-        server_->Patch("/patch", [&](const httplib::Request & /*req*/, httplib::Response &resp) {
-            resp.status = 200;
-            resp.set_content(R"({"patched":true})", "application/json");
-            server_hit_count_.fetch_add(1, std::memory_order_relaxed);
-        });
-
-        // Custom-header echo endpoint: returns the value of X-Custom header.
-        server_->Get("/custom-headers", [&](const httplib::Request &req, httplib::Response &resp) {
-            auto it = req.headers.find("X-Custom");
-            if (it != req.headers.end()) {
-                resp.set_content(it->second, "text/plain");
-            } else {
-                resp.status = 400;
-                resp.set_content("missing", "text/plain");
+    void stop() {
+        if (!running_) {
+            return;
+        }
+        running_ = false;
+        if (listener_ >= 0) {
+            const int wake = ::socket(AF_INET, SOCK_STREAM, 0);
+            if (wake >= 0) {
+                sockaddr_in addr{};
+                addr.sin_family = AF_INET;
+                addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+                addr.sin_port = htons(port_);
+                ::connect(wake, reinterpret_cast<sockaddr *>(&addr), sizeof(addr));
+                ::close(wake);
             }
-            server_hit_count_.fetch_add(1, std::memory_order_relaxed);
-        });
-
-        // Bind to a random port on loopback.
-        port_ = server_->bind_to_any_port("127.0.0.1");
-        ASSERT_GT(port_, 0) << "Failed to bind HTTP server to 127.0.0.1";
-
-        // Start the server listener loop in a background thread.
-        server_thread_ = std::thread([this] { server_->listen_after_bind(); });
-
-        // Give the server a moment to start accepting connections.
-        std::this_thread::sleep_for(20ms);
-    }
-
-    void TearDown() override {
-        if (server_) {
-            server_->stop();
-        }
-        if (server_thread_.joinable()) {
-            server_thread_.join();
+            ::close(listener_);
+            listener_ = -1;
         }
     }
 
-    [[nodiscard]] int port() const { return port_; }
-    [[nodiscard]] int hit_count() const { return server_hit_count_.load(); }
+    ~HttpTestServer() { stop(); }
+
+    [[nodiscard]] std::uint16_t port() const noexcept { return port_; }
+
+    [[nodiscard]] std::string base_url() const {
+        return "http://127.0.0.1:" + std::to_string(port_);
+    }
 
 private:
-    std::unique_ptr<httplib::Server> server_;
-    std::thread server_thread_;
-    int port_ = 0;
-    std::atomic<int> server_hit_count_{0};
+    [[nodiscard]] static std::string route(const HttpRequest &req) {
+        if (req.method == "GET" && req.target == "/ip") {
+            return response(200, "203.0.113.7");
+        }
+        if (req.method == "GET" && req.target == "/bad") {
+            return response(200, "not-an-ip-address");
+        }
+        if (req.method == "POST" && req.target == "/echo") {
+            return response(200, req.body);
+        }
+        return response(404, "no such route");
+    }
+
+    [[nodiscard]] static std::string response(const int status, const std::string &body) {
+        std::string out = "HTTP/1.1 " + std::to_string(status) +
+                          (status == 200 ? " OK\r\n" : " Not Found\r\n");
+        out += "Content-Length: " + std::to_string(body.size()) + "\r\n\r\n";
+        out += body;
+        return out;
+    }
+
+    void handle_connection(const int conn) const {
+        std::string pending;
+        std::array<char, 4096> buf{};
+        for (;;) {
+            auto header_end = pending.find("\r\n\r\n");
+            while (header_end == std::string::npos) {
+                const ssize_t n = ::recv(conn, buf.data(), buf.size(), 0);
+                if (n <= 0) {
+                    ::close(conn);
+                    return;
+                }
+                pending.append(buf.data(), static_cast<size_t>(n));
+                header_end = pending.find("\r\n\r\n");
+            }
+
+            HttpRequest req = parse_request(pending.substr(0, header_end));
+            const size_t content_length = req.headers.contains("content-length")
+                                              ? std::stoull(req.headers["content-length"])
+                                              : 0;
+            const size_t need = header_end + 4 + content_length;
+            while (pending.size() < need) {
+                const ssize_t n = ::recv(conn, buf.data(), buf.size(), 0);
+                if (n <= 0) {
+                    ::close(conn);
+                    return;
+                }
+                pending.append(buf.data(), static_cast<size_t>(n));
+            }
+            req.body = pending.substr(header_end + 4, content_length);
+            pending.erase(0, need);
+
+            const std::string out = route(req);
+            ssize_t sent = 0;
+            while (sent < static_cast<ssize_t>(out.size())) {
+                const ssize_t n = ::send(conn, out.data() + sent,
+                                         out.size() - static_cast<size_t>(sent), MSG_NOSIGNAL);
+                if (n <= 0) {
+                    ::close(conn);
+                    return;
+                }
+                sent += n;
+            }
+        }
+    }
+
+    [[nodiscard]] static HttpRequest parse_request(const std::string &header_block) {
+        HttpRequest req;
+        const auto first_line_end = header_block.find("\r\n");
+        const auto first_line = header_block.substr(0, first_line_end);
+
+        const auto sp1 = first_line.find(' ');
+        const auto sp2 = first_line.find(' ', sp1 + 1);
+        req.method = first_line.substr(0, sp1);
+        req.target = first_line.substr(sp1 + 1, sp2 - sp1 - 1);
+
+        size_t pos = first_line_end + 2;
+        while (pos < header_block.size()) {
+            const auto line_end = header_block.find("\r\n", pos);
+            if (line_end == std::string::npos || line_end == pos) {
+                break;
+            }
+            const auto colon = header_block.find(':', pos);
+            auto name = header_block.substr(pos, colon - pos);
+            auto value = header_block.substr(colon + 1, line_end - colon - 1);
+            std::transform(name.begin(), name.end(), name.begin(),
+                           [](const unsigned char c) { return static_cast<char>(std::tolower(c)); });
+            while (!value.empty() && value.front() == ' ') {
+                value.erase(value.begin());
+            }
+            req.headers[std::move(name)] = value;
+            pos = line_end + 2;
+        }
+        return req;
+    }
+
+    void accept_loop() {
+        while (running_) {
+            const int conn = ::accept(listener_, nullptr, nullptr);
+            if (conn < 0) {
+                break;
+            }
+            std::jthread([this, conn] { handle_connection(conn); }).detach();
+        }
+    }
+
+    int listener_ = -1;
+    std::uint16_t port_ = 0;
+    bool running_ = false;
+    std::jthread accept_thread_;
 };
 
 // ===========================================================================
-// Fixture: local HTTPS server
+//  Test fixture
 // ===========================================================================
 
-class HttpsServerFixture : public ::testing::Test {
+class HttpFixture : public ::testing::Test {
 protected:
-    void SetUp() override {
-        // Generate a self-signed certificate with CA:TRUE.
-        char dir_template[] = "/tmp/yaddnsc_https_test_XXXXXX";
-        auto *dir = ::mkdtemp(dir_template);
-        ASSERT_NE(dir, nullptr) << "mkdtemp failed";
+    static void SetUpTestSuite() { server_.start(); }
+    static void TearDownTestSuite() { server_.stop(); }
 
-        cert_path_ = std::string(dir) + "/cert.pem";
-        key_path_ = std::string(dir) + "/key.pem";
-
-        auto cmd = fmt::format(
-            "openssl req -x509 -newkey rsa:2048 -keyout {} -out {} -days 1 -nodes "
-            "-subj /CN=127.0.0.1 -addext subjectAltName=IP:127.0.0.1 "
-            "-addext basicConstraints=critical,CA:TRUE 2>/dev/null",
-            key_path_, cert_path_);
-
-        int ret = ::system(cmd.c_str());
-        ASSERT_EQ(ret, 0) << "Failed to generate TLS certificate (openssl returned " << ret << ")";
-
-        server_ = std::make_unique<httplib::SSLServer>(cert_path_.c_str(), key_path_.c_str());
-        ASSERT_TRUE(server_->is_valid()) << "Failed to create SSLServer";
-
-        server_->Get("/ip", [&](const httplib::Request & /*req*/, httplib::Response &resp) {
-            resp.set_content("198.51.100.42", "text/plain");
-            server_hit_count_.fetch_add(1, std::memory_order_relaxed);
-        });
-
-        port_ = server_->bind_to_any_port("127.0.0.1");
-        ASSERT_GT(port_, 0) << "Failed to bind HTTPS server to 127.0.0.1";
-
-        server_thread_ = std::thread([this] { server_->listen_after_bind(); });
-        std::this_thread::sleep_for(20ms);
-    }
-
-    void TearDown() override {
-        if (server_) {
-            server_->stop();
-        }
-        if (server_thread_.joinable()) {
-            server_thread_.join();
-        }
-    }
-
-    [[nodiscard]] int port() const { return port_; }
-    [[nodiscard]] int hit_count() const { return server_hit_count_.load(); }
-    [[nodiscard]] const std::string &cert_path() const { return cert_path_; }
-
-private:
-    std::unique_ptr<httplib::SSLServer> server_;
-    std::thread server_thread_;
-    int port_ = 0;
-    std::string cert_path_;
-    std::string key_path_;
-    std::atomic<int> server_hit_count_{0};
+    inline static HttpTestServer server_;
 };
 
-// ===========================================================================
-// TransientHttpClient — GET
-// ===========================================================================
+} // namespace
 
-TEST_F(HttpServerFixture, TransientHttpClient_Get) {
-    auto before = hit_count();
-    TransientHttpClient client;
-    auto url = fmt::format("http://127.0.0.1:{}/ip", port());
+// ── HttpIpSource ─────────────────────────────────────────────────────────────
 
-    HttpRequest req;
-    req.method = HttpMethod::GET;
-
-    auto result = client.exchange(url, req);
-    ASSERT_TRUE(result.has_value()) << "HTTP request failed: " << result.error();
-    EXPECT_EQ(result->status_code, 200);
-    EXPECT_EQ(result->body, "198.51.100.42");
-    EXPECT_EQ(hit_count(), before + 1);
+TEST_F(HttpFixture, HttpIpSource_ResolvesIpFromBody) {
+    const HttpIpSource source(server_.base_url() + "/ip");
+    const auto addresses = source.resolve();
+    ASSERT_EQ(addresses.size(), 1);
+    EXPECT_EQ(addresses.front().to_string(), "203.0.113.7");
 }
 
-TEST_F(HttpServerFixture, TransientHttpClient_Post) {
-    auto before = hit_count();
-    TransientHttpClient client;
-    auto url = fmt::format("http://127.0.0.1:{}/update", port());
-
-    HttpRequest req;
-    req.method = HttpMethod::POST;
-    req.body = R"({"domain":"example.com"})";
-    req.content_type = "application/json";
-
-    auto result = client.exchange(url, req);
-    ASSERT_TRUE(result.has_value()) << "HTTP request failed: " << result.error();
-    EXPECT_EQ(result->status_code, 200);
-    EXPECT_EQ(hit_count(), before + 1);
+TEST_F(HttpFixture, HttpIpSource_ThrowsOnUnparseableBody) {
+    const HttpIpSource source(server_.base_url() + "/bad");
+    EXPECT_THROW(std::ignore = source.resolve(), std::runtime_error);
 }
 
-// ===========================================================================
-// TransientHttpClient — error path
-// ===========================================================================
-
-TEST_F(HttpServerFixture, TransientHttpClient_ConnectionRefused) {
-    TransientHttpClient client;
-    // Port 1 — nothing listens there.
-    auto url = "http://127.0.0.1:1/nonexistent";
-
-    HttpRequest req;
-    req.method = HttpMethod::GET;
-
-    auto result = client.exchange(url, req);
-    // Should fail with an error string, not crash.
-    EXPECT_FALSE(result.has_value());
-    EXPECT_FALSE(result.error().empty());
+TEST_F(HttpFixture, HttpIpSource_ThrowsOnConnectionRefused) {
+    const HttpIpSource source("http://127.0.0.1:1/ip"); // nothing listens
+    EXPECT_THROW(std::ignore = source.resolve(), std::runtime_error);
 }
 
-// ===========================================================================
-// PersistentHttpClient — GET
-// ===========================================================================
+// ── Production client (transient, through the connection factory) ────────────
 
-TEST_F(HttpServerFixture, PersistentHttpClient_Get) {
-    auto before = hit_count();
-    // Include the path in the persistent base URI.
-    auto uri = Uri::parse(fmt::format("http://127.0.0.1:{}/ip", port()));
+TEST_F(HttpFixture, Client_GetRoundtrip) {
+    net::http::Client client({});
+    net::http::Request req{.method = net::http::Method::GET};
 
-    PersistentHttpClient client(uri);
-
-    HttpRequest req;
-    req.method = HttpMethod::GET;
-
-    auto result = client.exchange("", req);
-    ASSERT_TRUE(result.has_value()) << "HTTP request failed: " << result.error();
-    EXPECT_EQ(result->status_code, 200);
-    EXPECT_EQ(result->body, "198.51.100.42");
-    EXPECT_EQ(hit_count(), before + 1);
+    auto resp = client.exchange(server_.base_url() + "/ip", req);
+    ASSERT_TRUE(resp);
+    EXPECT_EQ(resp->status, 200);
+    EXPECT_EQ(resp->body_text(), "203.0.113.7");
 }
 
-// ===========================================================================
-// HttpIpSource — resolve IP from the server
-// ===========================================================================
-
-TEST_F(HttpServerFixture, HttpIpSource_Resolve) {
-    auto before = hit_count();
-    auto url = fmt::format("http://127.0.0.1:{}/ip", port());
-
-    HttpIpSource ip_source(url, AddressFamily::UNSPECIFIED);
-    auto addrs = ip_source.resolve();
-
-    ASSERT_EQ(addrs.size(), 1U);
-    EXPECT_EQ(addrs[0].to_string(), "198.51.100.42");
-    EXPECT_EQ(addrs[0].get_family(), AddressFamily::IPV4);
-    EXPECT_EQ(hit_count(), before + 1);
-}
-
-TEST_F(HttpServerFixture, HttpIpSource_Resolve_UnspecifiedPref) {
-    auto url = fmt::format("http://127.0.0.1:{}/ip", port());
-
-    // UNSPECIFIED falls back to AF_UNSPEC which prefers IPv4 on dual-stack hosts.
-    HttpIpSource ip_source(url, AddressFamily::UNSPECIFIED);
-    auto addrs = ip_source.resolve();
-
-    ASSERT_EQ(addrs.size(), 1U);
-    EXPECT_EQ(addrs[0].to_string(), "198.51.100.42");
-}
-
-// ===========================================================================
-// Additional HTTP methods
-// ===========================================================================
-
-TEST_F(HttpServerFixture, TransientHttpClient_Put) {
-    auto before = hit_count();
-    TransientHttpClient client;
-    auto url = fmt::format("http://127.0.0.1:{}/update", port());
-
-    HttpRequest req;
-    req.method = HttpMethod::PUT;
-    req.body = R"({"key":"value"})";
-    req.content_type = "application/json";
-
-    auto result = client.exchange(url, req);
-    ASSERT_TRUE(result.has_value()) << "HTTP PUT failed: " << result.error();
-    EXPECT_EQ(result->status_code, 200);
-    EXPECT_EQ(hit_count(), before + 1);
-}
-
-TEST_F(HttpServerFixture, TransientHttpClient_Delete) {
-    auto before = hit_count();
-    TransientHttpClient client;
-    auto url = fmt::format("http://127.0.0.1:{}/resource", port());
-
-    HttpRequest req;
-    req.method = HttpMethod::DEL;
-
-    auto result = client.exchange(url, req);
-    ASSERT_TRUE(result.has_value()) << "HTTP DELETE failed: " << result.error();
-    EXPECT_EQ(result->status_code, 204);
-    EXPECT_EQ(hit_count(), before + 1);
-}
-
-// ===========================================================================
-// HttpIpSource — error path (server returns non-IP body)
-// ===========================================================================
-
-TEST_F(HttpServerFixture, HttpIpSource_ThrowsOnNonIpBody) {
-    auto url = fmt::format("http://127.0.0.1:{}/not-an-ip", port());
-
-    HttpIpSource ip_source(url, AddressFamily::UNSPECIFIED);
-    EXPECT_THROW(
-        {
-            [[maybe_unused]] auto _ = ip_source.resolve();
-        },
-        std::runtime_error);
-}
-
-// ===========================================================================
-// Additional HTTP methods — HEAD, OPTIONS, PATCH
-// ===========================================================================
-
-TEST_F(HttpServerFixture, TransientHttpClient_Head) {
-    auto before = hit_count();
-    TransientHttpClient client;
-    auto url = fmt::format("http://127.0.0.1:{}/ip", port());
-
-    HttpRequest req;
-    req.method = HttpMethod::HEAD;
-
-    auto result = client.exchange(url, req);
-    ASSERT_TRUE(result.has_value()) << "HEAD failed: " << result.error();
-    EXPECT_EQ(result->status_code, 200);
-    EXPECT_EQ(hit_count(), before + 1);
-}
-
-TEST_F(HttpServerFixture, TransientHttpClient_Options) {
-    auto before = hit_count();
-    TransientHttpClient client;
-    auto url = fmt::format("http://127.0.0.1:{}/options", port());
-
-    HttpRequest req;
-    req.method = HttpMethod::OPTIONS;
-
-    auto result = client.exchange(url, req);
-    ASSERT_TRUE(result.has_value()) << "OPTIONS failed: " << result.error();
-    EXPECT_EQ(result->status_code, 204);
-    EXPECT_EQ(hit_count(), before + 1);
-}
-
-TEST_F(HttpServerFixture, TransientHttpClient_Patch) {
-    auto before = hit_count();
-    TransientHttpClient client;
-    auto url = fmt::format("http://127.0.0.1:{}/patch", port());
-
-    HttpRequest req;
-    req.method = HttpMethod::PATCH;
-    req.body = R"({"key":"value"})";
-    req.content_type = "application/json";
-
-    auto result = client.exchange(url, req);
-    ASSERT_TRUE(result.has_value()) << "PATCH failed: " << result.error();
-    EXPECT_EQ(result->status_code, 200);
-    EXPECT_EQ(hit_count(), before + 1);
-}
-
-// ===========================================================================
-// HttpClient::get_body — convenience helper
-// ===========================================================================
-
-TEST_F(HttpServerFixture, TransientHttpClient_GetBody) {
-    auto url = fmt::format("http://127.0.0.1:{}/ip", port());
-
-    TransientHttpClient client;
-    auto body = client.get_body(url);
-    ASSERT_TRUE(body.has_value());
-    EXPECT_EQ(*body, "198.51.100.42");
-}
-
-TEST_F(HttpServerFixture, TransientHttpClient_GetBody_ConnectionRefused) {
-    TransientHttpClient client;
-    auto body = client.get_body("http://127.0.0.1:1/nonexistent");
-    // Connection refused should return std::nullopt.
-    EXPECT_FALSE(body.has_value());
-}
-
-TEST_F(HttpServerFixture, PersistentHttpClient_GetBody) {
-    auto uri = Uri::parse(fmt::format("http://127.0.0.1:{}/ip", port()));
-    PersistentHttpClient client(uri);
-
-    auto body = client.get_body("");
-    ASSERT_TRUE(body.has_value());
-    EXPECT_EQ(*body, "198.51.100.42");
-}
-
-// ===========================================================================
-// TransientHttpClient with custom HttpClientOptions (apply_options branches)
-// ===========================================================================
-
-TEST_F(HttpServerFixture, TransientHttpClient_WithCustomOptions) {
-    HttpClientOptions opts;
-    opts.address_family = AddressFamily::IPV4;
-    opts.write_timeout = std::chrono::seconds(3);
-    opts.keep_alive = true;
-    std::multimap<std::string, std::string> custom_headers = {{"X-Custom", "test-value"}};
-    opts.default_headers = std::move(custom_headers);
-
-    auto before = hit_count();
-    TransientHttpClient client(opts);
-    auto url = fmt::format("http://127.0.0.1:{}/custom-headers", port());
-
-    HttpRequest req;
-    req.method = HttpMethod::GET;
-
-    auto result = client.exchange(url, req);
-    ASSERT_TRUE(result.has_value()) << "custom options request failed: " << result.error();
-    EXPECT_EQ(result->status_code, 200);
-    EXPECT_EQ(result->body, "test-value");
-    EXPECT_EQ(hit_count(), before + 1);
-}
-
-TEST_F(HttpServerFixture, TransientHttpClient_InterfaceBinding) {
-    // Bind to the loopback interface explicitly.
-    auto lo = loopback_interface_name();
-    ASSERT_FALSE(lo.empty()) << "no loopback interface found";
-
-    HttpClientOptions opts;
-    opts.interface = std::move(lo);
-
-    TransientHttpClient client(opts);
-    auto url = fmt::format("http://127.0.0.1:{}/ip", port());
-
-    HttpRequest req;
-    req.method = HttpMethod::GET;
-
-    auto result = client.exchange(url, req);
-    ASSERT_TRUE(result.has_value()) << "interface bind request failed: " << result.error();
-    EXPECT_EQ(result->status_code, 200);
-    EXPECT_EQ(result->body, "198.51.100.42");
-}
-
-// ===========================================================================
-// PersistentHttpClient with non-empty URL in exchange
-// ===========================================================================
-
-TEST_F(HttpServerFixture, PersistentHttpClient_ExchangeWithUrl) {
-    auto base_uri = Uri::parse(fmt::format("http://127.0.0.1:{}", port()));
-    PersistentHttpClient client(base_uri);
-
-    HttpRequest req;
-    req.method = HttpMethod::GET;
-
-    // Pass a full URL; PersistentHttpClient should extract the path.
-    auto result = client.exchange(fmt::format("http://127.0.0.1:{}/ip", port()), req);
-    ASSERT_TRUE(result.has_value()) << "Persistent GET failed: " << result.error();
-    EXPECT_EQ(result->status_code, 200);
-    EXPECT_EQ(result->body, "198.51.100.42");
-}
-
-// ===========================================================================
-// Connection timeout — short timeout to an unresponsive port
-// ===========================================================================
-
-TEST_F(HttpServerFixture, TransientHttpClient_ConnectionTimeout) {
-    HttpClientOptions opts;
-    opts.connection_timeout = std::chrono::seconds(1);
-
-    TransientHttpClient client(opts);
-    // Port 1 is not open; connection should fail quickly.
-    auto url = "http://127.0.0.1:1/nonexistent";
-
-    HttpRequest req;
-    req.method = HttpMethod::GET;
-
-    auto result = client.exchange(url, req);
-    EXPECT_FALSE(result.has_value());
-    EXPECT_FALSE(result.error().empty());
-}
-
-// ===========================================================================
-// HttpIpSource — with bind interface
-// ===========================================================================
-
-TEST_F(HttpServerFixture, HttpIpSource_WithBindInterface) {
-    // HttpIpSource with an explicit bind interface.
-    auto lo = loopback_interface_name();
-    ASSERT_FALSE(lo.empty()) << "no loopback interface found";
-
-    auto url = fmt::format("http://127.0.0.1:{}/ip", port());
-    HttpIpSource ip_source(url, AddressFamily::UNSPECIFIED, lo);
-    auto addrs = ip_source.resolve();
-    ASSERT_EQ(addrs.size(), 1U);
-    EXPECT_EQ(addrs[0].to_string(), "198.51.100.42");
-}
-
-// ===========================================================================
-// HttpIpSource — connection failure (throws on HTTP error)
-// ===========================================================================
-
-TEST_F(HttpServerFixture, HttpIpSource_ConnectionFailure_Throws) {
-    // Connect to port with nothing listening to trigger HTTP client error.
-    HttpIpSource ip_source("http://127.0.0.1:1/nonexistent", AddressFamily::UNSPECIFIED);
-    EXPECT_THROW(
-        {
-            [[maybe_unused]] auto _ = ip_source.resolve();
-        },
-        std::runtime_error);
-}
-
-// ===========================================================================
-// TransientHttpClient — HTTPS
-// ===========================================================================
-
-TEST_F(HttpsServerFixture, TransientHttpClient_Get_Https) {
-    HttpClientOptions opts;
-    opts.ca_cert_path = cert_path();
-    opts.verify_server_cert = true;
-    opts.connection_timeout = std::chrono::seconds(3);
-
-    TransientHttpClient client(opts);
-    auto url = fmt::format("https://127.0.0.1:{}/ip", port());
-
-    HttpRequest req;
-    req.method = HttpMethod::GET;
-
-    auto result = client.exchange(url, req);
-    ASSERT_TRUE(result.has_value()) << "HTTPS request failed: " << result.error();
-    EXPECT_EQ(result->status_code, 200);
-    EXPECT_EQ(result->body, "198.51.100.42");
-}
-
-TEST_F(HttpsServerFixture, TransientHttpClient_Https_DefaultVerify_RejectsSelfSigned) {
-    // Contract test: server certificate verification must be ON by default.
-    // With no CA path configured, the self-signed test certificate must be
-    // rejected — the client must never silently fall back to unverified
-    // HTTPS when no CA bundle is found (fail-closed).
-    HttpClientOptions opts;
-    opts.connection_timeout = std::chrono::seconds(3);
-    opts.read_timeout = std::chrono::seconds(3);
-
-    TransientHttpClient client(opts);
-    auto url = fmt::format("https://127.0.0.1:{}/ip", port());
-
-    HttpRequest req;
-    req.method = HttpMethod::GET;
-
-    auto result = client.exchange(url, req);
-    ASSERT_FALSE(result.has_value()) << "Self-signed certificate was accepted without verification";
-}
-
-TEST_F(HttpsServerFixture, TransientHttpClient_Https_VerifyDisabled_AcceptsSelfSigned) {
-    // Explicit opt-out: verification disabled via configuration must still work.
-    HttpClientOptions opts;
-    opts.verify_server_cert = false;
-    opts.connection_timeout = std::chrono::seconds(3);
-    opts.read_timeout = std::chrono::seconds(3);
-
-    TransientHttpClient client(opts);
-    auto url = fmt::format("https://127.0.0.1:{}/ip", port());
-
-    HttpRequest req;
-    req.method = HttpMethod::GET;
-
-    auto result = client.exchange(url, req);
-    ASSERT_TRUE(result.has_value()) << "HTTPS request failed: " << result.error();
-    EXPECT_EQ(result->status_code, 200);
-    EXPECT_EQ(result->body, "198.51.100.42");
+TEST_F(HttpFixture, Client_PostEchoesBinaryBody) {
+    net::http::Client client({});
+    const std::string payload{'a', '\0', 'b', '\0', 'c'}; // binary-safe
+    net::http::Request req{.method = net::http::Method::POST};
+    req.set_body(std::span(reinterpret_cast<const std::uint8_t *>(payload.data()), payload.size()));
+    req.content_type = "application/octet-stream";
+
+    auto resp = client.exchange(server_.base_url() + "/echo", req);
+    ASSERT_TRUE(resp);
+    EXPECT_EQ(resp->status, 200);
+    const auto echoed = resp->body_bytes();
+    ASSERT_EQ(echoed.size(), payload.size());
+    EXPECT_TRUE(std::equal(echoed.begin(), echoed.end(), payload.begin()));
 }

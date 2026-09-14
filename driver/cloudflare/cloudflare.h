@@ -20,7 +20,7 @@ public:
     [[nodiscard]] DriverRequestContext generate_request(const DriverConfig &config, const DriverUpdateParams &ctx) const override;
 
     /// Validate the Cloudflare API response.
-    [[nodiscard]] bool check_response(const HttpResponse &response) const override;
+    [[nodiscard]] bool check_response(const net::http::Response &response) const override;
 
     /// Return static metadata about this driver.
     [[nodiscard]] DriverDetail get_detail() const noexcept override;

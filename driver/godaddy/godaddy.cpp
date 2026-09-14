@@ -55,25 +55,25 @@ DriverRequestContext GoDaddyDriver::generate_request(const DriverConfig &config,
     request.headers.insert({"Authorization", fmt::format("sso-key {}:{}", cfg.key, cfg.secret)});
     request.body = std::move(body_json);
     request.content_type = "application/json";
-    request.method = DriverHttpMethod::PUT;
+    request.method = net::http::Method::PUT;
 
     return {std::move(url), std::move(request)};
 }
 
-bool GoDaddyDriver::check_response(const HttpResponse &response) const {
+bool GoDaddyDriver::check_response(const net::http::Response &response) const {
     CORE_LOG_TRACE("Got {} from server.", response.body);
 
     // GoDaddy returns 200 OK with an empty body on success.
-    if (response.status_code == 200) {
+    if (response.status == 200) {
         CORE_LOG_DEBUG("DNS record updated successfully");
         return true;
     }
 
     // Error responses typically include a JSON body with error details.
     if (!response.body.empty()) {
-        CORE_LOG_ERROR("GoDaddy API error (HTTP {}): {}", response.status_code, response.body);
+        CORE_LOG_ERROR("GoDaddy API error (HTTP {}): {}", response.status, response.body);
     } else {
-        CORE_LOG_ERROR("GoDaddy API request failed with HTTP status {}", response.status_code);
+        CORE_LOG_ERROR("GoDaddy API request failed with HTTP status {}", response.status);
     }
 
     return false;

@@ -11,6 +11,10 @@ namespace Config {
     struct AppConfig;
 }
 
+namespace Utils {
+class CancellationToken;
+}
+
 /// DnsResolverFactory — constructs a ResolverDispatcher from application config.
 ///
 /// Extracted from Manager::Impl to isolate URI-parsing and resolver-type
@@ -18,8 +22,9 @@ namespace Config {
 namespace DnsResolverFactory {
     /// Build a fully-configured ResolverDispatcher from application config.
     /// @param config  Application configuration with resolver settings.
+    /// @param token   Cancellation token bound into every created resolver.
     /// @return        A ResolverDispatcher ready for use.
-    [[nodiscard]] ResolverDispatcher create(const Config::AppConfig &config);
+    [[nodiscard]] ResolverDispatcher create(const Config::AppConfig &config, const Utils::CancellationToken &token);
 } // namespace DnsResolverFactory
 
 #endif  // YADDNSC_DNS_FACTORY_H

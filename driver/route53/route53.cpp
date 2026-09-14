@@ -137,7 +137,7 @@ DriverRequestContext Route53Driver::generate_request(const DriverConfig &config,
     DriverRequest request{};
     request.body = std::move(body);
     request.content_type = "application/xml";
-    request.method = DriverHttpMethod::POST;
+    request.method = net::http::Method::POST;
     request.headers.insert({"Host", std::string(R53_HOST)});
     request.headers.insert({"X-Amz-Date", std::move(amz_date)});
     request.headers.insert({"X-Amz-Content-SHA256", std::move(payload_hash)});
@@ -150,10 +150,10 @@ DriverRequestContext Route53Driver::generate_request(const DriverConfig &config,
 //  Route53Driver::check_response
 // =============================================================================
 
-bool Route53Driver::check_response(const HttpResponse &response) const {
+bool Route53Driver::check_response(const net::http::Response &response) const {
     CORE_LOG_TRACE("Got {} from server.", response.body);
 
-    if (response.status_code == 200) {
+    if (response.status == 200) {
         // Route 53 returns HTTP 200 with <ChangeResourceRecordSetsResponse> on success.
         xmlDocPtr doc = xmlReadMemory(response.body.data(),
                                       static_cast<int>(response.body.size()),
@@ -244,7 +244,7 @@ bool Route53Driver::check_response(const HttpResponse &response) const {
                     }
                 } else {
                     CORE_LOG_ERROR("Route 53 API error (HTTP {}): {}",
-                                   response.status_code, response.body);
+                                   response.status, response.body);
                 }
                 xmlXPathFreeObject(errors);
                 xmlXPathFreeContext(xpath_ctx);
@@ -252,11 +252,11 @@ bool Route53Driver::check_response(const HttpResponse &response) const {
             xmlFreeDoc(doc);
         } else {
             CORE_LOG_ERROR("Route 53 API error (HTTP {}): {}",
-                           response.status_code, response.body);
+                           response.status, response.body);
         }
     } else {
         CORE_LOG_ERROR("Route 53 API request failed with HTTP status {}",
-                       response.status_code);
+                       response.status);
     }
 
     return false;

@@ -157,7 +157,7 @@ DriverRequestContext AlibabaCloudDriver::generate_request(const DriverConfig &co
     DriverRequest request{};
     request.body = std::move(canonical_query);
     request.content_type = "application/x-www-form-urlencoded";
-    request.method = DriverHttpMethod::POST;
+    request.method = net::http::Method::POST;
 
     return {std::string(API_URL), std::move(request)};
 }
@@ -166,10 +166,10 @@ DriverRequestContext AlibabaCloudDriver::generate_request(const DriverConfig &co
 //  AlibabaCloudDriver::check_response
 // =============================================================================
 
-bool AlibabaCloudDriver::check_response(const HttpResponse &response) const {
+bool AlibabaCloudDriver::check_response(const net::http::Response &response) const {
     CORE_LOG_TRACE("Got {} from server.", response.body);
 
-    if (response.status_code == 200) {
+    if (response.status == 200) {
         // On success, Alibaba DNS returns JSON with RecordId.
         if (auto result = glz::read_json<AlibabaUpdateResponse>(response.body)) {
             CORE_LOG_DEBUG("DNS record updated successfully (RecordId: {})",
@@ -189,11 +189,11 @@ bool AlibabaCloudDriver::check_response(const HttpResponse &response) const {
                            result.value().message, result.value().code);
         } else {
             CORE_LOG_ERROR("Alibaba Cloud API error (HTTP {}): {}",
-                           response.status_code, response.body);
+                           response.status, response.body);
         }
     } else {
         CORE_LOG_ERROR("Alibaba Cloud API request failed with HTTP status {}",
-                       response.status_code);
+                       response.status);
     }
 
     return false;

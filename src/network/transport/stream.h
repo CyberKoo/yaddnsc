@@ -1,62 +1,52 @@
 //
-// Created by Kotarou on 2026/7/18.
+// Stream abstraction for Transport — a bidirectional byte stream over
+// an established connection (TLS or plain TCP).
 //
 
-#ifndef YADDNSC_NETWORK_TRANSPORT_STREAM_H
-#define YADDNSC_NETWORK_TRANSPORT_STREAM_H
+#ifndef YADDNSC_NET_TRANSPORT_STREAM_H
+#define YADDNSC_NET_TRANSPORT_STREAM_H
 
 #include <cstddef>
 #include <cstdint>
 #include <expected>
 #include <span>
 
-namespace Utils {
-class CancellationToken;
-}
+#include "network/transport/io_error.h"
 
 namespace Transport {
 
-/// Errors that can occur during I/O operations on a transport stream.
-enum class IoError {
-    TIMEOUT,             ///< poll() timed out without completing the I/O.
-    CANCELLED,           ///< Cancel fd was signalled (caller should abort).
-    CONNECTION_FAILED,   ///< Non-recoverable I/O error (connection lost, etc.).
-};
-
-/// Abstract bidirectional byte stream for transport-layer I/O.
+/// A bidirectional byte stream over an established connection.
 ///
-/// Implementations wrap TlsConnection, TcpSocket, QuicStream, etc.
-/// This allows protocol logic (HTTP, DNS over TCP, etc.) to be
-/// completely transport-agnostic.
+/// Lifecycle is owned by the implementation: ensure_connected() is
+/// idempotent — when already connected and healthy it is a no-op, otherwise
+/// the connection is (re)built internally (resolve -> interface bind ->
+/// cancellable connect -> TLS handshake).
 ///
-/// @par Thread Safety
-/// **Not thread-safe.** A Stream object must not be accessed concurrently
-/// from multiple threads unless the caller provides external synchronization
-/// (e.g. a mutex).  Each I/O operation mutates internal state (read/write
-/// positions, buffers), so sharing a Stream without locking is unsafe.
+/// Cancellation is bound at construction time and is never visible in any
+/// method signature.
+///
+/// Thread safety: **not thread-safe.** A single stream must not be used
+/// concurrently from multiple threads; see Session for synchronized reuse.
 class Stream {
 public:
     virtual ~Stream() = default;
 
-    /// Read at least one byte, up to @p buf.size().
-    /// @return  Number of bytes actually read on success, or an IoError.
-    [[nodiscard]] virtual std::expected<size_t, IoError> read_some(
-        std::span<std::uint8_t> buf,
-        const Utils::CancellationToken &cancel_token) = 0;
+    /// Ensure the connection is established and healthy. Idempotent.
+    [[nodiscard]] virtual std::expected<void, IoError> ensure_connected() = 0;
 
-    /// Read exactly @p buf.size() bytes.
-    /// @return  Empty on success, or an IoError.
-    [[nodiscard]] virtual std::expected<void, IoError> read_exact(
-        std::span<std::uint8_t> buf,
-        const Utils::CancellationToken &cancel_token) = 0;
+    /// Close the connection. No-op when not connected.
+    virtual void close() noexcept = 0;
 
-    /// Send all bytes in @p data.
-    /// @return  Empty on success, or an IoError.
-    [[nodiscard]] virtual std::expected<void, IoError> send_all(
-        std::span<const std::uint8_t> data,
-        const Utils::CancellationToken &cancel_token) = 0;
+    /// Read at least one byte, up to buf.size().
+    [[nodiscard]] virtual std::expected<size_t, IoError> read_some(std::span<std::uint8_t> buf) = 0;
+
+    /// Read exactly buf.size() bytes.
+    [[nodiscard]] virtual std::expected<void, IoError> read_exact(std::span<std::uint8_t> buf) = 0;
+
+    /// Send all bytes in data.
+    [[nodiscard]] virtual std::expected<void, IoError> send_all(std::span<const std::uint8_t> data) = 0;
 };
 
-}  // namespace Transport
+} // namespace Transport
 
-#endif  // YADDNSC_NETWORK_TRANSPORT_STREAM_H
+#endif // YADDNSC_NET_TRANSPORT_STREAM_H

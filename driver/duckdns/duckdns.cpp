@@ -31,12 +31,12 @@ DriverRequestContext DuckDnsDriver::generate_request(const DriverConfig &config,
     }
 
     DriverRequest request{};
-    request.method = DriverHttpMethod::GET;
+    request.method = net::http::Method::GET;
 
     return {std::move(url), std::move(request)};
 }
 
-bool DuckDnsDriver::check_response(const HttpResponse &response) const {
+bool DuckDnsDriver::check_response(const net::http::Response &response) const {
     CORE_LOG_TRACE("Got {} from server.", response.body);
 
     // DuckDNS returns:

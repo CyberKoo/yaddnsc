@@ -33,16 +33,16 @@ DriverRequestContext LinodeDriver::generate_request(const DriverConfig &config, 
     request.headers.insert({"Authorization", fmt::format("Bearer {}", cfg.token)});
     request.body = glz::write_json(body).value_or("{}");
     request.content_type = "application/json";
-    request.method = DriverHttpMethod::PUT;
+    request.method = net::http::Method::PUT;
 
     return {std::move(url), std::move(request)};
 }
 
-bool LinodeDriver::check_response(const HttpResponse &response) const {
+bool LinodeDriver::check_response(const net::http::Response &response) const {
     CORE_LOG_TRACE("Got {} from server.", response.body);
 
     // Linode returns 200 OK with the updated record object on success.
-    if (response.status_code == 200) {
+    if (response.status == 200) {
         CORE_LOG_DEBUG("DNS record updated successfully");
         return true;
     }
@@ -55,10 +55,10 @@ bool LinodeDriver::check_response(const HttpResponse &response) const {
                                err.reason);
             }
         } else {
-            CORE_LOG_ERROR("Linode API error (HTTP {}): {}", response.status_code, response.body);
+            CORE_LOG_ERROR("Linode API error (HTTP {}): {}", response.status, response.body);
         }
     } else {
-        CORE_LOG_ERROR("Linode API request failed with HTTP status {}", response.status_code);
+        CORE_LOG_ERROR("Linode API request failed with HTTP status {}", response.status);
     }
 
     return false;

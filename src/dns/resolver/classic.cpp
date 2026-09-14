@@ -22,6 +22,7 @@
 #include "exception/socket.h"
 #include "network/inet_address.h"
 #include "network/socket.h"
+#include "util/cancellation_token.hpp"
 
 #include "classic.h"
 #include "dns_error.h"
@@ -267,27 +268,27 @@ namespace {
 // ===========================================================================
 
 struct ClassicResolver::Impl {
-    explicit Impl(Config::DnsServer server, std::uint64_t id);
+    explicit Impl(Config::DnsServer server, std::uint64_t id, Utils::CancellationToken token);
 
     ~Impl() = default;
 
     [[nodiscard]] std::expected<std::vector<std::uint8_t>, DnsErrorInfo>
-    query(const std::string &host_str, RecordKind type,
-          const Utils::CancellationToken &cancel_token) const;
+    query(const std::string &host_str, RecordKind type) const;
 
     std::uint64_t id_;
     Config::DnsServer server_;
     Uri uri_;
     AddrResult addr_;
+    Utils::CancellationToken token_;
 };
 
-ClassicResolver::Impl::Impl(Config::DnsServer server, std::uint64_t id)
-    : id_(id), server_(std::move(server)), uri_(Uri::parse(server_.address)), addr_(make_addr(server_)) {
+ClassicResolver::Impl::Impl(Config::DnsServer server, std::uint64_t id, Utils::CancellationToken token)
+    : id_(id), server_(std::move(server)), uri_(Uri::parse(server_.address)), addr_(make_addr(server_)),
+      token_(std::move(token)) {
 }
 
 std::expected<std::vector<std::uint8_t>, DnsErrorInfo>
-ClassicResolver::Impl::query(const std::string &host_str, RecordKind type,
-                             const Utils::CancellationToken &cancel_token) const {
+ClassicResolver::Impl::query(const std::string &host_str, RecordKind type) const {
     try {
         SPDLOG_TRACE(R"(Resolver #{} DNS lookup for "{}")", id_, host_str);
 
@@ -302,7 +303,7 @@ ClassicResolver::Impl::query(const std::string &host_str, RecordKind type,
         // Try UDP first.
         // query_udp returns std::expected for I/O errors.  Socket constructor
         // failure may throw SocketException (OS resource exhaustion).
-        auto response = query_udp(addr_, query_packet, cancel_token, id_);
+        auto response = query_udp(addr_, query_packet, token_, id_);
         if (!response) {
             return std::unexpected(std::move(response.error()));
         }
@@ -320,7 +321,7 @@ ClassicResolver::Impl::query(const std::string &host_str, RecordKind type,
         // Fall back to TCP if response is truncated.
         if (is_truncated(resp_data)) {
             SPDLOG_TRACE(R"(Resolver #{} UDP response truncated for "{}", falling back to TCP)", id_, host_str);
-            auto tcp_response = query_tcp(addr_, query_packet, cancel_token, id_);
+            auto tcp_response = query_tcp(addr_, query_packet, token_, id_);
             if (!tcp_response) {
                 return std::unexpected(std::move(tcp_response.error()));
             }
@@ -356,15 +357,15 @@ ClassicResolver::Impl::query(const std::string &host_str, RecordKind type,
     }
 }
 
-ClassicResolver::ClassicResolver(Config::DnsServer server) : impl_(
-    std::make_unique<Impl>(std::move(server), get_id())) {
+ClassicResolver::ClassicResolver(Config::DnsServer server, Utils::CancellationToken token)
+    : impl_(std::make_unique<Impl>(std::move(server), get_id(), std::move(token))) {
 }
 
 ClassicResolver::~ClassicResolver() = default;
 
 std::expected<std::vector<std::uint8_t>, DnsErrorInfo> ClassicResolver::query(
-    const std::string &host, RecordKind type, const Utils::CancellationToken &cancel_token) const {
-    return impl_->query(host, type, cancel_token);
+    const std::string &host, RecordKind type) const {
+    return impl_->query(host, type);
 }
 
 // ===========================================================================
@@ -373,7 +374,7 @@ std::expected<std::vector<std::uint8_t>, DnsErrorInfo> ClassicResolver::query(
 
 namespace {
     [[maybe_unused]] DnsResolverRegistry::Registrar _classic(
-        "", [](const Config::DnsServer &server) -> std::unique_ptr<ResolverBase> {
-            return std::make_unique<ClassicResolver>(server);
+        "", [](const Config::DnsServer &server, const Utils::CancellationToken &token) -> std::unique_ptr<ResolverBase> {
+            return std::make_unique<ClassicResolver>(server, token);
         });
 } // namespace

@@ -14,6 +14,7 @@
 #include "config/config.h"
 #include "dns/dispatcher.h"
 #include "dns/factory.h"
+#include "util/cancellation_token.hpp"
 
 #include "uri.h"
 #include "fmt.hpp"
@@ -76,7 +77,7 @@ namespace Cli {
         }
 
         auto config = Config::load_config(config_path);
-        auto resolver = DnsResolverFactory::create(config);
+        auto resolver = DnsResolverFactory::create(config, {});
         auto dns_result = resolver.resolve(host, *type);
 
         if (!dns_result) {

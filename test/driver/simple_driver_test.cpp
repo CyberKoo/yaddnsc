@@ -47,7 +47,7 @@ TEST(SimpleDriverTest, GenerateRequest_BasicUrlTemplate) {
 
     auto result = driver.generate_request(config, ctx);
     EXPECT_EQ(result.url, "https://dns.example.com/update?ip=192.168.1.1&domain=www.example.com");
-    EXPECT_EQ(result.request.method, DriverHttpMethod::GET);
+    EXPECT_EQ(result.request.method, net::http::Method::GET);
     EXPECT_FALSE(result.request.body.has_value());
     EXPECT_TRUE(result.request.content_type.empty());
 }
@@ -130,40 +130,40 @@ TEST(SimpleDriverTest, GenerateRequest_EmptyConfig_ThrowsParamParseException) {
 
 TEST(SimpleDriverTest, CheckResponse_2xxWithBody_ReturnsTrue) {
     SimpleDriver driver;
-    HttpResponse resp{200, "update successful", {}};
+    net::http::Response resp{200, "update successful", {}};
     EXPECT_TRUE(driver.check_response(resp));
 
-    HttpResponse resp204{204, "", {}};
+    net::http::Response resp204{204, "", {}};
     EXPECT_FALSE(driver.check_response(resp204));  // empty body → false
 }
 
 TEST(SimpleDriverTest, CheckResponse_2xxWithEmptyBody_ReturnsFalse) {
     SimpleDriver driver;
-    HttpResponse resp{200, "", {}};
+    net::http::Response resp{200, "", {}};
     EXPECT_FALSE(driver.check_response(resp));
 }
 
 TEST(SimpleDriverTest, CheckResponse_3xx_ReturnsFalse) {
     SimpleDriver driver;
-    HttpResponse resp{301, "redirect", {}};
+    net::http::Response resp{301, "redirect", {}};
     EXPECT_FALSE(driver.check_response(resp));
 }
 
 TEST(SimpleDriverTest, CheckResponse_4xx_ReturnsFalse) {
     SimpleDriver driver;
-    HttpResponse resp{404, "not found", {}};
+    net::http::Response resp{404, "not found", {}};
     EXPECT_FALSE(driver.check_response(resp));
 }
 
 TEST(SimpleDriverTest, CheckResponse_5xx_ReturnsFalse) {
     SimpleDriver driver;
-    HttpResponse resp{500, "server error", {}};
+    net::http::Response resp{500, "server error", {}};
     EXPECT_FALSE(driver.check_response(resp));
 }
 
 TEST(SimpleDriverTest, CheckResponse_Non2xxWithEmptyBody_ReturnsFalse) {
     SimpleDriver driver;
-    HttpResponse resp{400, "", {}};
+    net::http::Response resp{400, "", {}};
     EXPECT_FALSE(driver.check_response(resp));
 }
 

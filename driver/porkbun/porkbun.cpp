@@ -40,12 +40,12 @@ DriverRequestContext PorkbunDriver::generate_request(const DriverConfig &config,
     request.headers.insert({"X-Secret-API-Key", cfg.secret_api_key});
     request.body = glz::write_json(body).value_or("{}");
     request.content_type = "application/json";
-    request.method = DriverHttpMethod::POST;
+    request.method = net::http::Method::POST;
 
     return {std::move(url), std::move(request)};
 }
 
-bool PorkbunDriver::check_response(const HttpResponse &response) const {
+bool PorkbunDriver::check_response(const net::http::Response &response) const {
     CORE_LOG_TRACE("Got {} from server.", response.body);
 
     auto result = glz::read_json<PorkbunResponse>(response.body);

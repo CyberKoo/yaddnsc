@@ -59,7 +59,7 @@ namespace {
     class StubResolver final : public ResolverBase {
     public:
         std::expected<std::vector<std::uint8_t>, DnsErrorInfo>
-        query(const std::string &, RecordKind type, const Utils::CancellationToken &) const override {
+        query(const std::string &, RecordKind type) const override {
             return g_stub_behavior(type);
         }
 
@@ -67,7 +67,7 @@ namespace {
     };
 
     [[maybe_unused]] DnsResolverRegistry::Registrar stub_registrar(
-        "", [](const Config::DnsServer &) { return std::make_unique<StubResolver>(); });
+        "", [](const Config::DnsServer &, const Utils::CancellationToken &) { return std::make_unique<StubResolver>(); });
 
     /// NOERROR response with zero answers (question: example.com A IN).
     [[nodiscard]] std::vector<std::uint8_t> empty_response() {

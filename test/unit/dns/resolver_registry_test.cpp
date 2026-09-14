@@ -35,7 +35,7 @@
 class TestResolver : public ResolverBase {
 public:
     [[nodiscard]] std::expected<std::vector<std::uint8_t>, DnsErrorInfo>
-    query(const std::string &, RecordKind, const Utils::CancellationToken &) const override {
+    query(const std::string &, RecordKind) const override {
         return std::vector<std::uint8_t>{};
     }
 
@@ -55,14 +55,14 @@ TEST(ResolverRegistryTest, AllScenarios_Ordered) {
     {
         auto server = make_server("unknown://resolver");
         EXPECT_THROW(
-            { [[maybe_unused]] auto r = DnsResolverRegistry::create(server); },
+            { [[maybe_unused]] auto r = DnsResolverRegistry::create(server, {}); },
             DnsLookupException
         );
     }
 
     // ── 2. Register a schema and create ──────────────────────────────────
     bool proto_called = false;
-    DnsResolverRegistry::register_factory("proto", [&proto_called](const Config::DnsServer &s) {
+    DnsResolverRegistry::register_factory("proto", [&proto_called](const Config::DnsServer &s, const Utils::CancellationToken &) {
         proto_called = true;
         EXPECT_EQ(s.address, "proto://host");
         EXPECT_EQ(s.port, 853);
@@ -71,7 +71,7 @@ TEST(ResolverRegistryTest, AllScenarios_Ordered) {
 
     {
         auto server = make_server("proto://host", 853);
-        auto resolver = DnsResolverRegistry::create(server);
+        auto resolver = DnsResolverRegistry::create(server, {});
         ASSERT_NE(resolver, nullptr);
         EXPECT_TRUE(proto_called);
         EXPECT_EQ(resolver->get_type(), "test");
@@ -81,7 +81,7 @@ TEST(ResolverRegistryTest, AllScenarios_Ordered) {
     {
         auto server = make_server("other://resolver");
         EXPECT_THROW(
-            { [[maybe_unused]] auto r = DnsResolverRegistry::create(server); },
+            { [[maybe_unused]] auto r = DnsResolverRegistry::create(server, {}); },
             DnsLookupException
         );
     }
@@ -91,14 +91,14 @@ TEST(ResolverRegistryTest, AllScenarios_Ordered) {
     {
         auto server = make_server("10.0.0.1");
         EXPECT_THROW(
-            { [[maybe_unused]] auto r = DnsResolverRegistry::create(server); },
+            { [[maybe_unused]] auto r = DnsResolverRegistry::create(server, {}); },
             DnsLookupException
         );
     }
 
     // ── 5. Register "" fallback → create with bare IP works ─────────────
     bool fallback_called = false;
-    DnsResolverRegistry::register_factory("", [&fallback_called](const Config::DnsServer &s) {
+    DnsResolverRegistry::register_factory("", [&fallback_called](const Config::DnsServer &s, const Utils::CancellationToken &) {
         fallback_called = true;
         EXPECT_EQ(s.address, "192.168.1.1");
         return std::make_unique<TestResolver>();
@@ -106,7 +106,7 @@ TEST(ResolverRegistryTest, AllScenarios_Ordered) {
 
     {
         auto server = make_server("192.168.1.1");
-        auto resolver = DnsResolverRegistry::create(server);
+        auto resolver = DnsResolverRegistry::create(server, {});
         ASSERT_NE(resolver, nullptr);
         EXPECT_TRUE(fallback_called);
         EXPECT_EQ(resolver->get_type(), "test");
@@ -116,22 +116,22 @@ TEST(ResolverRegistryTest, AllScenarios_Ordered) {
     {
         auto server = make_server("tls1://server");
         EXPECT_THROW(
-            { [[maybe_unused]] auto r = DnsResolverRegistry::create(server); },
+            { [[maybe_unused]] auto r = DnsResolverRegistry::create(server, {}); },
             DnsLookupException
         );
     }
 
     // ── 7. Multiple schemas resolve independently ────────────────────────
-    DnsResolverRegistry::register_factory("alpha", [](const Config::DnsServer &) {
+    DnsResolverRegistry::register_factory("alpha", [](const Config::DnsServer &, const Utils::CancellationToken &) {
         return std::make_unique<TestResolver>();
     });
-    DnsResolverRegistry::register_factory("beta", [](const Config::DnsServer &) {
+    DnsResolverRegistry::register_factory("beta", [](const Config::DnsServer &, const Utils::CancellationToken &) {
         return std::make_unique<TestResolver>();
     });
 
     {
-        auto ra = DnsResolverRegistry::create(make_server("alpha://srv"));
-        auto rb = DnsResolverRegistry::create(make_server("beta://srv"));
+        auto ra = DnsResolverRegistry::create(make_server("alpha://srv"), {});
+        auto rb = DnsResolverRegistry::create(make_server("beta://srv"), {});
         ASSERT_NE(ra, nullptr);
         ASSERT_NE(rb, nullptr);
     }
@@ -141,12 +141,12 @@ TEST(ResolverRegistryTest, AllScenarios_Ordered) {
 
 TEST(ResolverRegistryTest, Registrar_RegistersFactory) {
     {
-        DnsResolverRegistry::Registrar _reg("raii", [](const Config::DnsServer &) {
+        DnsResolverRegistry::Registrar _reg("raii", [](const Config::DnsServer &, const Utils::CancellationToken &) {
             return std::make_unique<TestResolver>();
         });
 
         auto server = make_server("raii://host");
-        auto resolver = DnsResolverRegistry::create(server);
+        auto resolver = DnsResolverRegistry::create(server, {});
         ASSERT_NE(resolver, nullptr);
     }
 }

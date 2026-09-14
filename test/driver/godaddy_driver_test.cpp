@@ -42,7 +42,7 @@ TEST(GoDaddyDriverTest, GenerateRequest_BasicARecord) {
               "https://api.godaddy.com/v1/domains/example.com/records/A/www");
 
     // Check method and content type
-    EXPECT_EQ(result.request.method, DriverHttpMethod::PUT);
+    EXPECT_EQ(result.request.method, net::http::Method::PUT);
     EXPECT_EQ(result.request.content_type, "application/json");
 
     // Check auth header (sso-key)
@@ -95,31 +95,31 @@ TEST(GoDaddyDriverTest, GenerateRequest_MissingSecret_ThrowsParamParseException)
 
 TEST(GoDaddyDriverTest, CheckResponse_200_ReturnsTrue) {
     GoDaddyDriver driver;
-    HttpResponse resp{200, "", {}};
+    net::http::Response resp{200, "", {}};
     EXPECT_TRUE(driver.check_response(resp));
 }
 
 TEST(GoDaddyDriverTest, CheckResponse_200_WithBody_ReturnsTrue) {
     GoDaddyDriver driver;
-    HttpResponse resp{200, "some body", {}};
+    net::http::Response resp{200, "some body", {}};
     EXPECT_TRUE(driver.check_response(resp));
 }
 
 TEST(GoDaddyDriverTest, CheckResponse_Non200_ReturnsFalse) {
     GoDaddyDriver driver;
-    HttpResponse resp{400, R"({"message":"Bad Request"})", {}};
+    net::http::Response resp{400, R"({"message":"Bad Request"})", {}};
     EXPECT_FALSE(driver.check_response(resp));
 }
 
 TEST(GoDaddyDriverTest, CheckResponse_Non200_EmptyBody_ReturnsFalse) {
     GoDaddyDriver driver;
-    HttpResponse resp{500, "", {}};
+    net::http::Response resp{500, "", {}};
     EXPECT_FALSE(driver.check_response(resp));
 }
 
 TEST(GoDaddyDriverTest, CheckResponse_Non200_WithBody_ReturnsFalse) {
     GoDaddyDriver driver;
-    HttpResponse resp{403, R"({"message":"Forbidden"})", {}};
+    net::http::Response resp{403, R"({"message":"Forbidden"})", {}};
     EXPECT_FALSE(driver.check_response(resp));
 }
 

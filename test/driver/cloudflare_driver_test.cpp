@@ -56,7 +56,7 @@ TEST(CloudflareDriverTest, GenerateRequest_BasicARecord) {
     EXPECT_EQ(result.url, "https://api.cloudflare.com/client/v4/zones/myzone/dns_records/rec123");
 
     // Check method and content type
-    EXPECT_EQ(result.request.method, DriverHttpMethod::PUT);
+    EXPECT_EQ(result.request.method, net::http::Method::PUT);
     EXPECT_EQ(result.request.content_type, "application/json");
 
     // Check auth header
@@ -119,27 +119,27 @@ TEST(CloudflareDriverTest, GenerateRequest_MissingToken_ThrowsParamParseExceptio
 TEST(CloudflareDriverTest, CheckResponse_Success_ReturnsTrue) {
     CloudflareDriver driver;
     auto body = make_success_response("A", "www.example.com", "1.2.3.4", 120, false);
-    HttpResponse resp{200, body, {}};
+    net::http::Response resp{200, body, {}};
     EXPECT_TRUE(driver.check_response(resp));
 }
 
 TEST(CloudflareDriverTest, CheckResponse_SuccessWithProxied_ReturnsTrue) {
     CloudflareDriver driver;
     auto body = make_success_response("A", "www.example.com", "1.2.3.4", 30, true);
-    HttpResponse resp{200, body, {}};
+    net::http::Response resp{200, body, {}};
     EXPECT_TRUE(driver.check_response(resp));
 }
 
 TEST(CloudflareDriverTest, CheckResponse_SuccessWithoutResult_ReturnsTrue) {
     // Cloudflare can return success=true with no result field for certain operations.
     CloudflareDriver driver;
-    HttpResponse resp{200, R"({"success":true,"errors":[],"messages":[]})", {}};
+    net::http::Response resp{200, R"({"success":true,"errors":[],"messages":[]})", {}};
     EXPECT_TRUE(driver.check_response(resp));
 }
 
 TEST(CloudflareDriverTest, CheckResponse_ErrorWithSource_ReturnsFalse) {
     CloudflareDriver driver;
-    HttpResponse resp{400, R"({
+    net::http::Response resp{400, R"({
         "success": false,
         "errors": [{"code": 7003, "message": "Could not find zone", "source": {"pointer": "/zone_id"}}],
         "messages": []
@@ -149,7 +149,7 @@ TEST(CloudflareDriverTest, CheckResponse_ErrorWithSource_ReturnsFalse) {
 
 TEST(CloudflareDriverTest, CheckResponse_ErrorWithoutSource_ReturnsFalse) {
     CloudflareDriver driver;
-    HttpResponse resp{400, R"({
+    net::http::Response resp{400, R"({
         "success": false,
         "errors": [{"code": 9003, "message": "Record not found"}],
         "messages": []
@@ -159,19 +159,19 @@ TEST(CloudflareDriverTest, CheckResponse_ErrorWithoutSource_ReturnsFalse) {
 
 TEST(CloudflareDriverTest, CheckResponse_UnparseableBody_ReturnsFalse) {
     CloudflareDriver driver;
-    HttpResponse resp{200, "not-json-at-all", {}};
+    net::http::Response resp{200, "not-json-at-all", {}};
     EXPECT_FALSE(driver.check_response(resp));
 }
 
 TEST(CloudflareDriverTest, CheckResponse_EmptyBody_ReturnsFalse) {
     CloudflareDriver driver;
-    HttpResponse resp{200, "", {}};
+    net::http::Response resp{200, "", {}};
     EXPECT_FALSE(driver.check_response(resp));
 }
 
 TEST(CloudflareDriverTest, CheckResponse_MultipleErrors_ReturnsFalse) {
     CloudflareDriver driver;
-    HttpResponse resp{400, R"({
+    net::http::Response resp{400, R"({
         "success": false,
         "errors": [
             {"code": 1001, "message": "First error"},

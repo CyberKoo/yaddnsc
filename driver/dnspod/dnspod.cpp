@@ -12,6 +12,7 @@
 #include "driver/factory.h"
 #include "interface/core_logger.h"
 #include "interface/http_client.h"
+#include "http_client/form_encode.h"
 
 namespace {
     constexpr std::string_view API_URL_CN = "https://dnsapi.cn/Record.Ddns";
@@ -54,7 +55,7 @@ DriverRequestContext DNSPodDriver::generate_request(const DriverConfig &config, 
     auto url = std::string(cfg.global ? API_URL_GLOBAL : API_URL_CN);
 
     DriverRequest request{};
-    request.body = HttpClient::params_to_query_string(DriverParams{
+    request.body = net::http::encode_form(DriverParams{
         {"login_token", cfg.login_token},
         {"domain_id", cfg.domain_id},
         {"record_id", cfg.record_id},
@@ -66,12 +67,12 @@ DriverRequestContext DNSPodDriver::generate_request(const DriverConfig &config, 
         {"format", "json"}
     });
     request.content_type = "application/x-www-form-urlencoded";
-    request.method = DriverHttpMethod::POST;
+    request.method = net::http::Method::POST;
 
     return {std::move(url), std::move(request)};
 }
 
-bool DNSPodDriver::check_response(const HttpResponse &response) const {
+bool DNSPodDriver::check_response(const net::http::Response &response) const {
     CORE_LOG_TRACE("Got {} from server.", response.body);
 
     auto result = glz::read_json<DnsPodResponse>(response.body);

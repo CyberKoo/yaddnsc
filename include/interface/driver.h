@@ -10,19 +10,16 @@
 
 #include "abi_version.h"
 #include "http_client.h"
-#include "http_type.h"
+#include "http_client/form_encode.h"
 
 /// Opaque driver configuration string (raw JSON).
 using DriverConfig = std::string;
 
 /// HTTP parameter map used in driver requests.
-using DriverParams = HttpParams;
-
-/// HTTP method alias for driver use.
-using DriverHttpMethod = HttpMethod;
+using DriverParams = std::multimap<std::string, std::string>;
 
 /// HTTP request alias for driver use.
-using DriverRequest = HttpRequest;
+using DriverRequest = net::http::Request;
 
 /// Static metadata exposed by each driver.
 struct DriverDetail final {
@@ -37,8 +34,8 @@ struct DriverDetail final {
 /// The URL is passed separately to HttpClient::exchange(), not embedded
 /// in HttpRequest.
 struct DriverRequestContext {
-    std::string url;     ///< Target URL for the API call
-    HttpRequest request; ///< HTTP request body, headers, and method
+    std::string url;       ///< Target URL for the API call
+    DriverRequest request; ///< HTTP request body, headers, and method
 };
 
 /// Per-update parameters consumed by drivers.
@@ -98,7 +95,7 @@ public:
     /// Validate the upstream API response.
     /// @param response  The HTTP response received from the API server.
     /// @return true if the update was accepted by the upstream service.
-    [[nodiscard]] virtual bool check_response(const HttpResponse &response) const = 0;
+    [[nodiscard]] virtual bool check_response(const net::http::Response &response) const = 0;
 
     /// Return static metadata about this driver.
     /// @note Cannot throw — returns only compile-time-known data.

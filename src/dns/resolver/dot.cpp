@@ -1,30 +1,35 @@
 //
 // Created by Kotarou on 2026/6/29.
 //
+// DNS-over-TLS resolver (RFC 7858) on Transport.
+//
 
 #include "dot.h"
 
+#include <algorithm>
+#include <array>
 #include <chrono>
 #include <cstdint>
 #include <mutex>
-#include "util/random.hpp"
 #include <span>
 #include <string>
-#include <algorithm>
-#include <array>
 #include <string_view>
+#include <utility>
 #include <vector>
 
-#include "exception/dns_lookup.h"
-#include "exception/dns_packet.h"
-#include "exception/tls.h"
+#include "util/random.hpp"
+
 #include "dns/dns_error_info.h"
 #include "dns/resolver_registry.h"
+#include "exception/dns_lookup.h"
+#include "exception/dns_packet.h"
 #include "dns/util.hpp"
 #include "dns/validator.h"
 #include "dns/wire/builder.h"
-#include "network/tls_connection.h"
+#include "network/transport/stream.h"
+#include "network/transport/tls_stream.h"
 #include "util/bytes.hpp"
+#include "util/cancellation_token.hpp"
 
 #include "dns_error.h"
 #include "uri.h"
@@ -34,7 +39,35 @@
 
 namespace {
     using namespace std::chrono_literals;
-} // anonymous namespace
+
+    /// Map a transport I/O error to DnsErrorInfo (post-connect I/O stage).
+    [[nodiscard]] DnsErrorInfo map_io_error(const Transport::IoError err, const std::string_view label,
+                                            const std::string_view stage) {
+        using enum Transport::IoError;
+        switch (err) {
+            case CANCELLED:
+                return {DnsError::CANCELLED, "Query cancelled"};
+            case TIMEOUT:
+            case CONNECTION_FAILED:
+                return {DnsError::CONNECTION, fmt::format(R"(Failed to {} from "{}")", stage, label)};
+        }
+        return {DnsError::CONNECTION, fmt::format(R"(Failed to {} from "{}")", stage, label)};
+    }
+
+    /// Map a connect-stage error.
+    [[nodiscard]] DnsErrorInfo map_connect_error(const Transport::IoError err, const std::string_view label) {
+        using enum Transport::IoError;
+        switch (err) {
+            case CANCELLED:
+                return {DnsError::CANCELLED, "Query cancelled"};
+            case TIMEOUT:
+                return {DnsError::RETRY, fmt::format(R"(Connection to "{}" timed out)", label)};
+            case CONNECTION_FAILED:
+                return {DnsError::CONNECTION, fmt::format(R"(Connection to "{}" failed)", label)};
+        }
+        return {DnsError::CONNECTION, fmt::format(R"(Connection to "{}" failed)", label)};
+    }
+} // namespace
 
 // ===========================================================================
 //  DotResolver::Impl  —  private implementation
@@ -42,23 +75,28 @@ namespace {
 
 struct DotResolver::Impl {
     // ── Constants ──
-    static constexpr auto IDLE_TIMEOUT = 30s;
     static constexpr auto CONNECT_TIMEOUT = 1s;
     static constexpr unsigned char ALPN_DOT[] = {3, 'd', 'o', 't'};
 
-    // ── Constructor ──
-    explicit Impl(std::string server, std::uint16_t port, std::uint64_t id, std::string label,
-                  std::unique_ptr<TlsConnectionBase> conn = nullptr);
+    /// Connection + TLS options for the DoT connection.
+    [[nodiscard]] static std::pair<Transport::Options, Transport::TlsOptions> make_tls_options() {
+        Transport::Options conn;
+        conn.connect_timeout = CONNECT_TIMEOUT;
+        Transport::TlsOptions tls;
+        tls.alpn_proto = ALPN_DOT;
+        return {conn, tls};
+    }
 
-    // ── Public member functions ──
-    [[nodiscard]] std::expected<std::vector<std::uint8_t>, DnsErrorInfo> query(
-        const std::string &host, RecordKind type,
-        const Utils::CancellationToken &cancel_token) const;
+    /// Production ctor: creates the TLS stream with the token bound.
+    Impl(std::string server, std::uint16_t port, std::uint64_t id, std::string label,
+         Utils::CancellationToken token);
 
-    // ── Private helpers ──
-    /// Ensure a persistent TLS connection exists (create or reuse).
-    /// @return  std::expected<void, DnsErrorInfo> — empty on success, error on failure.
-    [[nodiscard]] std::expected<void, DnsErrorInfo> ensure_connection() const;
+    /// Testing ctor: stream injected.
+    Impl(std::string server, std::uint16_t port, std::uint64_t id, std::string label,
+         std::unique_ptr<Transport::Stream> stream);
+
+    [[nodiscard]] std::expected<std::vector<std::uint8_t>, DnsErrorInfo>
+    query(const std::string &host, RecordKind type) const;
 
     /// Build a padded DNS query for DoT (RFC 7858 §3.5 / RFC 7830).
     /// @throws  DnsPacketException on invalid input (programming error).
@@ -66,16 +104,8 @@ struct DotResolver::Impl {
 
     [[nodiscard]] static std::vector<std::uint8_t> build_wire_format(const std::vector<std::uint8_t> &query_bytes);
 
-    /// Send the wire-format query with one automatic reconnect.
-    /// @return  std::expected on success or I/O error (timeout, cancellation).
-    [[nodiscard]] std::expected<void, DnsErrorInfo> send_query(std::span<const std::uint8_t> wire,
-                                                             const Utils::CancellationToken &cancel_token) const;
-
     /// Read the response (2-byte length prefix + DNS message).
-    /// @return  Parsed DNS response on success, or an I/O/parse error.
-    ///          Does NOT throw.
-    [[nodiscard]] std::expected<std::vector<std::uint8_t>, DnsErrorInfo> read_response(
-        const Utils::CancellationToken &cancel_token) const;
+    [[nodiscard]] std::expected<std::vector<std::uint8_t>, DnsErrorInfo> read_response() const;
 
     // ── Data members ──
     const std::uint64_t id_;
@@ -83,21 +113,23 @@ struct DotResolver::Impl {
     const std::uint16_t port_;
     const std::string label_;   // display label for log / error messages
     mutable std::mutex mutex_;
-    mutable std::unique_ptr<TlsConnectionBase> persistent_conn_;
-    mutable std::chrono::steady_clock::time_point last_use_;
-    mutable bool alpn_warned_{false};
+    mutable std::unique_ptr<Transport::Stream> stream_;
 };
 
-DotResolver::Impl::Impl(std::string server, std::uint16_t port, std::uint64_t id, std::string label,
-                        std::unique_ptr<TlsConnectionBase> conn)
+DotResolver::Impl::Impl(std::string server, const std::uint16_t port, const std::uint64_t id, std::string label,
+                        Utils::CancellationToken token)
     : id_(id), server_(std::move(server)), port_(port), label_(std::move(label)),
-      persistent_conn_(std::move(conn)),
-      last_use_(std::chrono::steady_clock::now()) {
+      stream_(std::make_unique<Transport::TlsStream>(server_, port_, make_tls_options().first,
+                                                     make_tls_options().second, std::move(token))) {
+}
+
+DotResolver::Impl::Impl(std::string server, const std::uint16_t port, const std::uint64_t id, std::string label,
+                        std::unique_ptr<Transport::Stream> stream)
+    : id_(id), server_(std::move(server)), port_(port), label_(std::move(label)), stream_(std::move(stream)) {
 }
 
 std::expected<std::vector<std::uint8_t>, DnsErrorInfo> DotResolver::Impl::query(
-    const std::string &host, RecordKind type,
-    const Utils::CancellationToken &cancel_token) const {
+    const std::string &host, RecordKind type) const {
     try {
         const auto record_type = DNS::Util::type_to_record_type(type);
 
@@ -110,7 +142,7 @@ std::expected<std::vector<std::uint8_t>, DnsErrorInfo> DotResolver::Impl::query(
         // ---- 2. Build DoT wire format (2-byte length prefix + DNS message) ----
         const auto wire = build_wire_format(query_bytes);
 
-        // ---- 3. I/O under mutex for shared connection -------
+        // ---- 3. I/O under mutex for the shared stream -------
         // Retry once with reconnection on transient I/O failure.
         constexpr int MAX_ATTEMPTS = 2;
         for (int attempt = 0; attempt < MAX_ATTEMPTS; ++attempt) {
@@ -118,30 +150,43 @@ std::expected<std::vector<std::uint8_t>, DnsErrorInfo> DotResolver::Impl::query(
 
             if (attempt == 1) {
                 SPDLOG_DEBUG(R"(Connection to "{}" failed, reconnecting)", label_);
-                // No graceful TLS shutdown needed — we are about to reconnect.
-                // The connection may already be in an inconsistent state (e.g.
-                // connect timed out mid-handshake).
-                // Just close and let ensure_connection() rebuild from scratch.
-                persistent_conn_->close();
+                stream_->close();
             }
 
-            auto send_result = send_query(wire, cancel_token);
-            if (!send_result) {
-                // CANCELLED should not be retried — abort immediately.
-                if (send_result.error().code == DnsError::CANCELLED) {
-                    return std::unexpected(std::move(send_result.error()));
+            // ensure_connected() is idempotent: healthy → no-op, stale → rebuild.
+            if (auto connected = stream_->ensure_connected(); !connected) {
+                stream_->close();
+                if (connected.error() == Transport::IoError::CANCELLED) {
+                    return std::unexpected(map_connect_error(connected.error(), label_));
                 }
-                if (attempt < MAX_ATTEMPTS - 1) continue;
-                return std::unexpected(std::move(send_result.error()));
+                if (attempt < MAX_ATTEMPTS - 1) {
+                    continue;
+                }
+                return std::unexpected(map_connect_error(connected.error(), label_));
             }
 
-            auto response = read_response(cancel_token);
+            if (auto sent = stream_->send_all(wire); !sent) {
+                stream_->close();
+                if (sent.error() == Transport::IoError::CANCELLED) {
+                    return std::unexpected(map_io_error(sent.error(), label_, "send query"));
+                }
+                if (attempt < MAX_ATTEMPTS - 1) {
+                    continue;
+                }
+                return std::unexpected(map_io_error(sent.error(), label_, "send query"));
+            }
+
+            SPDLOG_TRACE(R"(Sent {} bytes to "{}")", wire.size(), label_);
+
+            auto response = read_response();
             if (!response) {
-                // CANCELLED should not be retried — abort immediately.
+                stream_->close();
                 if (response.error().code == DnsError::CANCELLED) {
                     return std::unexpected(std::move(response.error()));
                 }
-                if (attempt < MAX_ATTEMPTS - 1) continue;
+                if (attempt < MAX_ATTEMPTS - 1) {
+                    continue;
+                }
                 return std::unexpected(std::move(response.error()));
             }
 
@@ -151,7 +196,6 @@ std::expected<std::vector<std::uint8_t>, DnsErrorInfo> DotResolver::Impl::query(
                 return std::unexpected(std::move(valid.error()));
             }
 
-            last_use_ = std::chrono::steady_clock::now();
             SPDLOG_DEBUG(R"(Resolver #{} query succeeded ({} bytes) for "{}")", id_, response->size(), host);
 
             return std::move(*response);
@@ -173,10 +217,6 @@ std::expected<std::vector<std::uint8_t>, DnsErrorInfo> DotResolver::Impl::query(
         });
     }
 }
-
-// ===========================================================================
-//  Helper implementations
-// ===========================================================================
 
 // ---------------------------------------------------------------------------
 //  build_padded_query  —  build DNS query with EDNS(0) padding (RFC 7830)
@@ -207,9 +247,6 @@ std::vector<std::uint8_t> DotResolver::Impl::build_padded_query(
     // Step 2: calculate padding length needed to reach the next block boundary.
     const size_t raw_size = base.size() + EDNS_PAD_OVERHEAD;
     const size_t pad_len = (raw_size % PAD_BLOCK == 0) ? PAD_BLOCK : PAD_BLOCK - raw_size % PAD_BLOCK;
-    // pad_len is guaranteed to be >= 1 because (PAD_BLOCK - raw_size % PAD_BLOCK)
-    // is in [1, PAD_BLOCK] when raw_size % PAD_BLOCK != 0, and we substitute
-    // PAD_BLOCK (>= 1) when the remainder is zero.
 
     // Step 3: rebuild with EDNS0 padding option (code 12, RFC 7830).
     // Padding bytes SHOULD be unpredictable (RFC 7830 §3).
@@ -235,61 +272,14 @@ std::vector<std::uint8_t> DotResolver::Impl::build_wire_format(const std::vector
 }
 
 // ---------------------------------------------------------------------------
-//  send_query  —  sends with one automatic reconnect + TLS close_notify
-//
-//  Returns std::expected for I/O errors (cancellation, send failure).
-// ---------------------------------------------------------------------------
-
-std::expected<void, DnsErrorInfo> DotResolver::Impl::send_query(
-    std::span<const std::uint8_t> wire,
-    const Utils::CancellationToken &cancel_token) const {
-    if (auto res = ensure_connection(); !res) {
-        return std::unexpected(std::move(res.error()));
-    }
-    auto status = persistent_conn_->send_all(wire, cancel_token);
-
-    if (!status) {
-        if (status.error() == TlsConnection::IoStatus::CANCELLED) {
-            [[maybe_unused]] const auto _ = persistent_conn_->shutdown();
-            persistent_conn_->close();
-            return std::unexpected(DnsErrorInfo{DnsError::CANCELLED, "Query cancelled"});
-        }
-        [[maybe_unused]] const auto _ = persistent_conn_->shutdown();
-        persistent_conn_->close();
-        return std::unexpected(DnsErrorInfo{
-            DnsError::CONNECTION,
-            fmt::format(R"(Failed to send query to "{}")", label_)
-        });
-    }
-
-    SPDLOG_TRACE(R"(Sent {} bytes to "{}")", wire.size(), label_);
-    return {};
-}
-
-// ---------------------------------------------------------------------------
 //  read_response  —  read 2-byte length prefix + body
-//
-//  Returns std::expected for all errors — I/O and parse errors are expected
-//  conditions.  Does NOT throw.
-//
-//  On error the connection is NOT closed here — the caller propagates the
-//  error and ensure_connection() will detect the stale state on the
-//  next query and reconnect if needed.
 // ---------------------------------------------------------------------------
 
-std::expected<std::vector<std::uint8_t>, DnsErrorInfo> DotResolver::Impl::read_response(
-    const Utils::CancellationToken &cancel_token) const {
+std::expected<std::vector<std::uint8_t>, DnsErrorInfo> DotResolver::Impl::read_response() const {
     // Read 2-byte response length prefix (big-endian).
     std::array<std::uint8_t, 2> length_buffer{};
-    auto status = persistent_conn_->read_exact(length_buffer, cancel_token);
-    if (!status) {
-        if (status.error() == TlsConnection::IoStatus::CANCELLED) {
-            return std::unexpected(DnsErrorInfo{DnsError::CANCELLED, "Query cancelled"});
-        }
-        return std::unexpected(DnsErrorInfo{
-            DnsError::CONNECTION,
-            fmt::format(R"(Failed to read response length from "{}")", label_)
-        });
+    if (auto status = stream_->read_exact(length_buffer); !status) {
+        return std::unexpected(map_io_error(status.error(), label_, "read response length"));
     }
 
     const auto resp_len = Utils::Bytes::read_u16_be(length_buffer);
@@ -309,96 +299,32 @@ std::expected<std::vector<std::uint8_t>, DnsErrorInfo> DotResolver::Impl::read_r
 
     // Read response body.
     std::vector<std::uint8_t> response(resp_len, 0);
-    status = persistent_conn_->read_exact(std::span{response}, cancel_token);
-    if (!status) {
-        if (status.error() == TlsConnection::IoStatus::CANCELLED) {
-            return std::unexpected(DnsErrorInfo{DnsError::CANCELLED, "Query cancelled"});
-        }
-        return std::unexpected(DnsErrorInfo{
-            DnsError::CONNECTION,
-            fmt::format(R"(Failed to read response body from "{}")", label_)
-        });
+    if (auto status = stream_->read_exact(std::span{response}); !status) {
+        return std::unexpected(map_io_error(status.error(), label_, "read response body"));
     }
 
     return response;
-}
-
-// ---------------------------------------------------------------------------
-//  ensure_connection  —  manage connection reuse + ALPN verification
-//
-//  Returns std::expected<void, DnsErrorInfo> — empty on success, error on failure.
-// ---------------------------------------------------------------------------
-
-std::expected<void, DnsErrorInfo> DotResolver::Impl::ensure_connection() const {
-    const auto now = std::chrono::steady_clock::now();
-
-    if (persistent_conn_ && persistent_conn_->is_connected()) {
-        const auto idle = std::chrono::duration_cast<std::chrono::seconds>(now - last_use_);
-        if (idle < IDLE_TIMEOUT) [[likely]] {
-            // Quick health check: detect server-side close / RST
-            if (persistent_conn_->is_healthy()) [[likely]] {
-                return {};
-            }
-            SPDLOG_TRACE(R"(Server closed connection to "{}", reconnecting)", label_);
-            [[maybe_unused]] auto _ = persistent_conn_->shutdown();
-            persistent_conn_->close();
-        } else {
-            SPDLOG_TRACE(R"(Idle timeout ({}s) for "{}", reconnecting)", idle.count(), label_);
-            [[maybe_unused]] auto _ = persistent_conn_->shutdown();
-            persistent_conn_->close();
-        }
-    }
-
-    if (!persistent_conn_) {
-        persistent_conn_ = std::make_unique<TlsConnection>(
-            server_, port_, TlsOptions{.alpn_proto = ALPN_DOT, .connect_timeout = CONNECT_TIMEOUT}
-        );
-    }
-
-    auto connect_result = persistent_conn_->connect();
-    if (!connect_result) {
-        if (connect_result.error() == TlsConnection::IoStatus::TIMEOUT) {
-            return std::unexpected(DnsErrorInfo{DnsError::RETRY,
-                fmt::format(R"(Connection to "{}" timed out)", label_)});
-        }
-        return std::unexpected(DnsErrorInfo{DnsError::CONNECTION,
-            fmt::format(R"(Connection to "{}" failed)", label_)});
-    }
-
-    // Verify ALPN: the server should have negotiated "dot" (3 bytes).
-    // Warn only once per server lifetime to avoid log spam on reconnect.
-    if (!alpn_warned_) {
-        const auto alpn = persistent_conn_->negotiated_alpn();
-        if (alpn != "dot") {
-            alpn_warned_ = true;
-            SPDLOG_WARN(R"(Server "{}" negotiated unexpected ALPN protocol "{}")",
-                        label_, alpn.empty() ? "(none)" : alpn);
-        }
-    }
-
-    last_use_ = now;
-    return {};
 }
 
 // ===========================================================================
 //  DotResolver  —  public API
 // ===========================================================================
 
-DotResolver::DotResolver(std::string server, std::uint16_t port, std::string label)
-    : impl_(std::make_unique<Impl>(std::move(server), port, get_id(), std::move(label))) {
+DotResolver::DotResolver(std::string server, const std::uint16_t port, std::string label,
+                         Utils::CancellationToken token)
+    : impl_(std::make_unique<Impl>(std::move(server), port, get_id(), std::move(label), std::move(token))) {
 }
 
-DotResolver::DotResolver(std::string server, std::uint16_t port, std::string label,
-                        std::unique_ptr<TlsConnectionBase> conn)
-    : impl_(std::make_unique<Impl>(std::move(server), port, get_id(), std::move(label), std::move(conn))) {
+DotResolver::DotResolver(std::string server, const std::uint16_t port, std::string label,
+                         std::unique_ptr<Transport::Stream> stream)
+    : impl_(std::make_unique<Impl>(std::move(server), port, get_id(), std::move(label), std::move(stream))) {
 }
 
 DotResolver::~DotResolver() = default;
 
-std::expected<std::vector<std::uint8_t>, DnsErrorInfo> DotResolver::query(
-    const std::string &host, RecordKind type,
-    const Utils::CancellationToken &cancel_token) const {
-    return impl_->query(host, type, cancel_token);
+std::expected<std::vector<std::uint8_t>, DnsErrorInfo>
+DotResolver::query(const std::string &host, RecordKind type) const {
+    return impl_->query(host, type);
 }
 
 // ===========================================================================
@@ -411,8 +337,10 @@ namespace {
     // If no port is present in the URI, the default is 853.
     [[maybe_unused]] DnsResolverRegistry::Registrar _dot(
         "tls",
-        [](const Config::DnsServer &server) -> std::unique_ptr<ResolverBase> {
+        [](const Config::DnsServer &server, const Utils::CancellationToken &token) -> std::unique_ptr<ResolverBase> {
             auto uri = Uri::parse(server.address);
-            return std::make_unique<DotResolver>(std::string(uri.get_host()), uri.get_port(), std::string(uri.get_origin()));
+            auto host = std::string(uri.get_host());
+            auto port = static_cast<std::uint16_t>(uri.get_port() != 0 ? uri.get_port() : 853);
+            return std::make_unique<DotResolver>(std::move(host), port, std::string(uri.get_origin()), token);
         });
 } // namespace

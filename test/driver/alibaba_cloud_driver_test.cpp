@@ -48,7 +48,7 @@ TEST(AlibabaCloudDriverTest, GenerateRequest_BasicARecord) {
     EXPECT_EQ(result.url, "https://alidns.aliyuncs.com/");
 
     // Check method and content type
-    EXPECT_EQ(result.request.method, DriverHttpMethod::POST);
+    EXPECT_EQ(result.request.method, net::http::Method::POST);
     EXPECT_EQ(result.request.content_type, "application/x-www-form-urlencoded");
 
     // Check body contains all required RPC parameters
@@ -133,13 +133,13 @@ TEST(AlibabaCloudDriverTest, GenerateRequest_MissingRecordId_ThrowsParamParseExc
 
 TEST(AlibabaCloudDriverTest, CheckResponse_200_WithRecordId_ReturnsTrue) {
     AlibabaCloudDriver driver;
-    HttpResponse resp{200, R"({"RequestId":"req123","RecordId":"rec456"})", {}};
+    net::http::Response resp{200, R"({"RequestId":"req123","RecordId":"rec456"})", {}};
     EXPECT_TRUE(driver.check_response(resp));
 }
 
 TEST(AlibabaCloudDriverTest, CheckResponse_200_UnparseableBody_ReturnsFalse) {
     AlibabaCloudDriver driver;
-    HttpResponse resp{200, "not-json", {}};
+    net::http::Response resp{200, "not-json", {}};
     EXPECT_FALSE(driver.check_response(resp));
 }
 
@@ -149,7 +149,7 @@ TEST(AlibabaCloudDriverTest, CheckResponse_200_UnexpectedShape_ReturnsFalse) {
     // However, Alibaba Cloud always returns RequestId+RecordId on success,
     // so this is not a realistic response.
     AlibabaCloudDriver driver;
-    HttpResponse resp{200, R"({})", {}};
+    net::http::Response resp{200, R"({})", {}};
     // {} parses to AlibabaUpdateResponse{request_id="", record_id=""},
     // which the driver considers successful (no error logged).
     EXPECT_TRUE(driver.check_response(resp));
@@ -157,19 +157,19 @@ TEST(AlibabaCloudDriverTest, CheckResponse_200_UnexpectedShape_ReturnsFalse) {
 
 TEST(AlibabaCloudDriverTest, CheckResponse_Non200_WithErrorBody_ReturnsFalse) {
     AlibabaCloudDriver driver;
-    HttpResponse resp{400, R"({"Code":"InvalidRecordId","Message":"The specified RecordId does not exist","RequestId":"req123"})", {}};
+    net::http::Response resp{400, R"({"Code":"InvalidRecordId","Message":"The specified RecordId does not exist","RequestId":"req123"})", {}};
     EXPECT_FALSE(driver.check_response(resp));
 }
 
 TEST(AlibabaCloudDriverTest, CheckResponse_Non200_UnparseableBody_ReturnsFalse) {
     AlibabaCloudDriver driver;
-    HttpResponse resp{400, "not-json", {}};
+    net::http::Response resp{400, "not-json", {}};
     EXPECT_FALSE(driver.check_response(resp));
 }
 
 TEST(AlibabaCloudDriverTest, CheckResponse_Non200_EmptyBody_ReturnsFalse) {
     AlibabaCloudDriver driver;
-    HttpResponse resp{500, "", {}};
+    net::http::Response resp{500, "", {}};
     EXPECT_FALSE(driver.check_response(resp));
 }
 

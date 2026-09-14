@@ -106,7 +106,7 @@ template <typename Mutator>
 class FixedAResolver : public MockResolver {
 public:
     FixedAResolver() {
-        ON_CALL(*this, query(_, _, _))
+        ON_CALL(*this, query(_, _))
             .WillByDefault(Return(std::vector<std::uint8_t>{
                 0x12, 0x34, 0x81, 0x80, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00,
                 0x07, 'e', 'x', 'a', 'm', 'p', 'l', 'e', 0x03, 'c', 'o', 'm', 0x00,
@@ -120,7 +120,7 @@ public:
 class FailingResolver : public MockResolver {
 public:
     FailingResolver() {
-        ON_CALL(*this, query(_, _, _))
+        ON_CALL(*this, query(_, _))
             .WillByDefault(Return(std::unexpected(DnsErrorInfo{
                 DnsError::NX_DOMAIN, "domain does not exist"})));
         ON_CALL(*this, get_type()).WillByDefault(Return("Mock"));
@@ -137,8 +137,8 @@ public:
 }
 
 // A successful HTTP exchange returning 200.
-HttpResult ok_response() {
-    return HttpResponse{.status_code = 200, .body = "ok"};
+std::expected<net::http::Response, net::http::Error> ok_response() {
+    return net::http::Response{.status = 200, .body = "ok"};
 }
 
 } // namespace
@@ -394,7 +394,7 @@ TEST(Updater, UpdatesWhenDnsReturnsNoData) {
                 0xC0, 0x0C, 0x00, 0x06, 0x00, 0x01,
                 0x00, 0x00, 0x00, 0x3C, 0x00, 0x00
             };
-            ON_CALL(*this, query(_, _, _))
+            ON_CALL(*this, query(_, _))
                 .WillByDefault(Return(nxdomain));
             ON_CALL(*this, get_type()).WillByDefault(Return("Mock"));
         }

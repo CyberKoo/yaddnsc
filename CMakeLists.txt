@@ -167,16 +167,6 @@ else ()
 endif ()
 
 # ---------------------------------------------------------------------------
-# cpp-httplib – HTTP client/server
-# ---------------------------------------------------------------------------
-CPMAddPackage(
-        URI "gh:yhirose/cpp-httplib@0.48.0"
-        OPTIONS "HTTPLIB_REQUIRE_OPENSSL ON"
-        "HTTPLIB_USE_ZLIB_IF_AVAILABLE ON"
-        "HTTPLIB_USE_BROTLI_IF_AVAILABLE ON"
-)
-
-# ---------------------------------------------------------------------------
 # CLI11 – command line parser
 # ---------------------------------------------------------------------------
 CPMAddPackage("gh:CLIUtils/CLI11@2.6.2")
@@ -255,7 +245,6 @@ target_include_directories(yaddnsc_compile_config INTERFACE
 
 target_compile_definitions(yaddnsc_compile_config INTERFACE
     SPDLOG_ACTIVE_LEVEL=SPDLOG_LEVEL_DEBUG
-    CPPHTTPLIB_OPENSSL_SUPPORT
     $<$<BOOL:${YADDNSC_USE_STD_FORMAT}>:YADDNSC_USE_STD_FORMAT>
     $<$<BOOL:${YADDNSC_USE_SYSTEM_SPDLOG}>:YADDNSC_USE_SYSTEM_SPDLOG>
 )
@@ -271,7 +260,6 @@ target_link_libraries(yaddnsc_compile_config INTERFACE
     OpenSSL::SSL
     OpenSSL::Crypto
     CLI11::CLI11
-    httplib
     BS_thread_pool
     picohttpparser
     yaddnsc_fmt
@@ -300,26 +288,37 @@ add_library(yaddnsc_core OBJECT
 )
 target_link_libraries(yaddnsc_core PRIVATE yaddnsc_compile_config)
 
-add_library(yaddnsc_http OBJECT
-    src/http/header_parser.cpp
-    src/http/body_parser.cpp
-    src/http/request.cpp
-    src/http/http.cpp
-)
-target_link_libraries(yaddnsc_http PRIVATE yaddnsc_compile_config)
-target_link_libraries(yaddnsc_http PRIVATE picohttpparser magic_enum)
-
 add_library(yaddnsc_network OBJECT
-    src/network/http_client.cpp
     src/network/inet_address.cpp
     src/network/net_devices.cpp
     src/network/socket.cpp
     src/network/socket_addr.cpp
     src/network/uri.cpp
-    src/network/tls_connection.cpp
-    src/network/transport/tls_stream.cpp
 )
 target_link_libraries(yaddnsc_network PRIVATE yaddnsc_compile_config)
+
+# Transport layer (net::transport) and the HTTP client domain (net::http).
+add_library(yaddnsc_net_transport OBJECT
+    src/network/transport/detail/socket_stream.cpp
+    src/network/transport/tls_stream.cpp
+    src/network/transport/tcp_stream.cpp
+)
+target_link_libraries(yaddnsc_net_transport PRIVATE yaddnsc_compile_config)
+
+# New HTTP client domain (net::http) — greenfield, see http_client_design.md.
+# Compiled during development; not linked into the main executable yet.
+add_library(yaddnsc_http_client OBJECT
+    src/http_client/form_encode.cpp
+    src/http_client/protocol/exchange.cpp
+    src/http_client/redirect.cpp
+    src/http_client/stream_factory.cpp
+    src/http_client/wire_request.cpp
+    src/http_client/session.cpp
+    src/http_client/client.cpp
+    src/http_client/persistent_client.cpp
+)
+target_link_libraries(yaddnsc_http_client PRIVATE yaddnsc_compile_config)
+target_link_libraries(yaddnsc_http_client PRIVATE picohttpparser)
 
 add_library(yaddnsc_cli OBJECT
     src/cli/cli.cpp
@@ -366,7 +365,7 @@ target_sources(yaddnsc_dns PRIVATE
 
 # Sanitizer compile flags on all OBJECT libraries (link flags are a no-op on OBJECT libs
 # and only matter on the final executable, where add_sanitizer_flags is called again).
-foreach(tgt yaddnsc_config yaddnsc_core yaddnsc_http yaddnsc_network yaddnsc_cli yaddnsc_dns yaddnsc_ip_source yaddnsc_util)
+foreach(tgt yaddnsc_config yaddnsc_core yaddnsc_network yaddnsc_net_transport yaddnsc_http_client yaddnsc_cli yaddnsc_dns yaddnsc_ip_source yaddnsc_util)
   add_sanitizer_flags(${tgt})
 endforeach()
 
@@ -377,8 +376,9 @@ add_executable(yaddnsc
     src/main.cpp
     $<TARGET_OBJECTS:yaddnsc_config>
     $<TARGET_OBJECTS:yaddnsc_core>
-    $<TARGET_OBJECTS:yaddnsc_http>
     $<TARGET_OBJECTS:yaddnsc_network>
+    $<TARGET_OBJECTS:yaddnsc_net_transport>
+    $<TARGET_OBJECTS:yaddnsc_http_client>
     $<TARGET_OBJECTS:yaddnsc_cli>
     $<TARGET_OBJECTS:yaddnsc_dns>
     $<TARGET_OBJECTS:yaddnsc_ip_source>
@@ -423,7 +423,7 @@ target_link_options(yaddnsc PRIVATE
 # ---------------------------------------------------------------------------
 # Link libraries
 # ---------------------------------------------------------------------------
-target_link_libraries(yaddnsc PRIVATE BS_thread_pool magic_enum httplib spdlog::spdlog OpenSSL::SSL OpenSSL::Crypto
+target_link_libraries(yaddnsc PRIVATE BS_thread_pool magic_enum spdlog::spdlog OpenSSL::SSL OpenSSL::Crypto
         CLI11::CLI11 glaze::glaze picohttpparser ${CMAKE_DL_LIBS}
 )
 

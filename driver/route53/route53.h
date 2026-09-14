@@ -28,7 +28,7 @@ public:
     ) const override;
 
     /// Validate the Route 53 API response (XML with libxml2).
-    [[nodiscard]] bool check_response(const HttpResponse &response) const override;
+    [[nodiscard]] bool check_response(const net::http::Response &response) const override;
 
     /// Return static metadata about this driver.
     [[nodiscard]] DriverDetail get_detail() const noexcept override;

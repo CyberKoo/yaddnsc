@@ -22,8 +22,7 @@
 class TestResolver final : public ResolverBase {
 public:
     [[nodiscard]] std::expected<std::vector<std::uint8_t>, DnsErrorInfo>
-    query([[maybe_unused]] const std::string &host, RecordKind type,
-          [[maybe_unused]] const Utils::CancellationToken &cancel_token) const override {
+    query([[maybe_unused]] const std::string &host, RecordKind type) const override {
         // Return a minimal "success" packet (just host bytes for identification).
         if (type == RecordKind::A) {
             return std::vector<std::uint8_t>{192, 168, 1, 1};
@@ -96,7 +95,7 @@ TEST(ResolverBaseTest, GetId_AutoIncrements) {
 
 TEST(ResolverBaseTest, Query_Success_ReturnsExpectedBytes) {
     TestResolver resolver;
-    auto result = resolver.query("example.com", RecordKind::A, {});
+    auto result = resolver.query("example.com", RecordKind::A);
 
     ASSERT_TRUE(result.has_value());
     ASSERT_EQ(result->size(), 4U);
@@ -108,16 +107,15 @@ TEST(ResolverBaseTest, Query_Success_ReturnsExpectedBytes) {
 
 TEST(ResolverBaseTest, Query_Failure_ReturnsError) {
     TestResolver resolver;
-    auto result = resolver.query("example.com", RecordKind::AAAA, {});
+    auto result = resolver.query("example.com", RecordKind::AAAA);
 
     ASSERT_FALSE(result.has_value());
     EXPECT_EQ(result.error().code, DnsError::NX_DOMAIN);
 }
 
-TEST(ResolverBaseTest, Query_AcceptsOptionalCancelFd) {
+TEST(ResolverBaseTest, Query_Success) {
     TestResolver resolver;
-    // Default cancel_token should not affect the result.
-    auto result = resolver.query("example.com", RecordKind::A, {});
+    auto result = resolver.query("example.com", RecordKind::A);
     ASSERT_TRUE(result.has_value());
 }
 
@@ -148,6 +146,6 @@ TEST(ResolverBaseTest, PolymorphicDispatch) {
     EXPECT_EQ(resolver->get_type(), "TestResolver");
     EXPECT_GE(resolver->get_id(), 0U);
 
-    auto result = resolver->query("example.com", RecordKind::A, {});
+    auto result = resolver->query("example.com", RecordKind::A);
     ASSERT_TRUE(result.has_value());
 }

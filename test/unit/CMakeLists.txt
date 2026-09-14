@@ -23,6 +23,7 @@
 add_unit_test(algorithm     SOURCE util/algorithm_test.cpp)
 add_unit_test(bytes         SOURCE util/bytes_test.cpp)
 add_unit_test(cache         SOURCE util/cache_test.cpp)
+add_unit_test(cancellation_token SOURCE util/cancellation_token_test.cpp)
 add_unit_test(fd            SOURCE util/fd_test.cpp)
 add_unit_test(fmt_polyfill  SOURCE util/fmt_polyfill_test.cpp)
 add_unit_test(http_fmt      SOURCE util/http_fmt_test.cpp)
@@ -44,7 +45,6 @@ target_link_libraries(test_signing PRIVATE OpenSSL::Crypto)
 
 add_unit_test(address_family SOURCE common/address_family_test.cpp)
 add_unit_test(exception      SOURCE common/exception_test.cpp)
-add_unit_test(http_type      SOURCE common/http_type_test.cpp)
 add_unit_test(resolver_base  SOURCE common/resolver_base_test.cpp)
 
 # ============================================================================
@@ -59,29 +59,6 @@ add_unit_test(config_validator  SOURCE config/config_validator_test.cpp
 # config_loader — JSON config file parsing
 add_unit_test(config_loader SOURCE config/config_loader_test.cpp
     ${PROJECT_SOURCE_DIR}/src/config/config.cpp)
-
-# ============================================================================
-#  http/  —  header parser, body parser
-# ============================================================================
-
-add_unit_test(http_header_parser SOURCE http/header_parser_test.cpp
-    ${PROJECT_SOURCE_DIR}/src/http/header_parser.cpp)
-target_link_libraries(test_http_header_parser PRIVATE picohttpparser)
-
-add_unit_test(http_body_parser SOURCE http/body_parser_test.cpp
-    ${PROJECT_SOURCE_DIR}/src/http/body_parser.cpp
-    ${PROJECT_SOURCE_DIR}/src/http/header_parser.cpp)
-target_link_libraries(test_http_body_parser PRIVATE picohttpparser)
-
-add_unit_test(http_request SOURCE http/request_test.cpp
-    ${PROJECT_SOURCE_DIR}/src/http/request.cpp)
-
-add_unit_test(http_exchange SOURCE http/exchange_test.cpp
-    ${PROJECT_SOURCE_DIR}/src/http/http.cpp
-    ${PROJECT_SOURCE_DIR}/src/http/header_parser.cpp
-    ${PROJECT_SOURCE_DIR}/src/http/body_parser.cpp
-    ${PROJECT_SOURCE_DIR}/src/http/request.cpp)
-target_link_libraries(test_http_exchange PRIVATE picohttpparser)
 
 # ============================================================================
 #  core/  —  scheduler (pure timer queue), updater (ResolverDispatcher)
@@ -145,10 +122,10 @@ add_unit_test(updater SOURCE core/updater_test.cpp
     ${PROJECT_SOURCE_DIR}/src/network/socket.cpp
     ${PROJECT_SOURCE_DIR}/src/network/socket_addr.cpp
     ${PROJECT_SOURCE_DIR}/src/network/net_devices.cpp
-    ${PROJECT_SOURCE_DIR}/src/network/http_client.cpp
     ${PROJECT_SOURCE_DIR}/src/util/cert_util.cpp
     ${PROJECT_SOURCE_DIR}/src/dns/wire/builder.cpp)
-target_link_libraries(test_updater PRIVATE GTest::gmock glaze::glaze httplib::httplib OpenSSL::Crypto)
+target_link_libraries(test_updater PRIVATE GTest::gmock glaze::glaze yaddnsc_http_client yaddnsc_net_transport OpenSSL::Crypto)
+add_sanitizer_flags(test_updater)
 
 # ============================================================================
 #  dns/  —  DNS protocol types, parser, dispatchers, wire-format builders
@@ -198,28 +175,23 @@ target_link_libraries(test_mkquery PRIVATE OpenSSL::Crypto)
 add_unit_test(dns_parser SOURCE dns/parser_test.cpp
     ${PROJECT_SOURCE_DIR}/src/dns/parser.cpp)
 
-# DotResolver mock tests — TLS error paths via MockTlsConnection
+# DotResolver mock tests — TLS error paths via a mocked net::transport::Stream
 add_unit_test(dot_resolver_mock SOURCE dns/dot_resolver_mock_test.cpp
     ${PROJECT_SOURCE_DIR}/src/dns/resolver/dot.cpp
     ${PROJECT_SOURCE_DIR}/src/dns/resolver_registry.cpp
     ${PROJECT_SOURCE_DIR}/src/dns/wire/builder.cpp
-    ${PROJECT_SOURCE_DIR}/src/network/tls_connection.cpp
     ${PROJECT_SOURCE_DIR}/src/util/cert_util.cpp)
-target_link_libraries(test_dot_resolver_mock PRIVATE OpenSSL::SSL OpenSSL::Crypto)
+target_link_libraries(test_dot_resolver_mock PRIVATE yaddnsc_net_transport OpenSSL::SSL OpenSSL::Crypto)
+add_sanitizer_flags(test_dot_resolver_mock)
 
-# DohResolver mock tests — TLS + HTTP error paths via MockTlsConnection
+# DohResolver mock tests — TLS + HTTP error paths via a mocked net::transport::Stream
 add_unit_test(doh_resolver_mock SOURCE dns/doh_resolver_mock_test.cpp
     ${PROJECT_SOURCE_DIR}/src/dns/resolver/doh.cpp
     ${PROJECT_SOURCE_DIR}/src/dns/resolver_registry.cpp
     ${PROJECT_SOURCE_DIR}/src/dns/wire/builder.cpp
-    ${PROJECT_SOURCE_DIR}/src/network/tls_connection.cpp
-    ${PROJECT_SOURCE_DIR}/src/network/transport/tls_stream.cpp
-    ${PROJECT_SOURCE_DIR}/src/http/header_parser.cpp
-    ${PROJECT_SOURCE_DIR}/src/http/body_parser.cpp
-    ${PROJECT_SOURCE_DIR}/src/http/request.cpp
-    ${PROJECT_SOURCE_DIR}/src/http/http.cpp
     ${PROJECT_SOURCE_DIR}/src/util/cert_util.cpp)
-target_link_libraries(test_doh_resolver_mock PRIVATE OpenSSL::SSL OpenSSL::Crypto picohttpparser)
+target_link_libraries(test_doh_resolver_mock PRIVATE yaddnsc_http_client yaddnsc_net_transport OpenSSL::SSL OpenSSL::Crypto picohttpparser)
+add_sanitizer_flags(test_doh_resolver_mock)
 
 # ============================================================================
 #  network/  —  network address/path/URI parsing (pure logic, no I/O)
@@ -241,12 +213,30 @@ add_unit_test(uri_edge   SOURCE network/uri_edge_test.cpp)
 # socket_mock — MockSocket basic tests
 add_unit_test(socket_mock SOURCE network/socket_mock_test.cpp)
 
-# tls_stream — TlsConnectionBase→IoError mapping via MockTlsConnection
-add_unit_test(tls_stream_mock SOURCE network/tls_stream_test.cpp
+# ============================================================================
+#  net/  —  net::transport, the redesigned transport layer (no network I/O)
+# ============================================================================
+
+add_unit_test(net_transport SOURCE net_transport/net_transport_test.cpp
+    ${PROJECT_SOURCE_DIR}/src/network/transport/detail/socket_stream.cpp
     ${PROJECT_SOURCE_DIR}/src/network/transport/tls_stream.cpp
-    ${PROJECT_SOURCE_DIR}/src/network/tls_connection.cpp
-    ${PROJECT_SOURCE_DIR}/src/util/cert_util.cpp)
-target_link_libraries(test_tls_stream_mock PRIVATE OpenSSL::SSL OpenSSL::Crypto)
+    ${PROJECT_SOURCE_DIR}/src/network/transport/tcp_stream.cpp
+    ${PROJECT_SOURCE_DIR}/src/util/cert_util.cpp
+    ${PROJECT_SOURCE_DIR}/src/network/inet_address.cpp)
+target_link_libraries(test_net_transport PRIVATE OpenSSL::SSL OpenSSL::Crypto)
+
+# ============================================================================
+#  http_client/  —  net::http domain: protocol, redirect, form encoding
+#  (scripted in-memory Stream, no network I/O)
+# ============================================================================
+
+add_unit_test(http_client SOURCE http_client/http_client_test.cpp
+    ${PROJECT_SOURCE_DIR}/src/http_client/protocol/exchange.cpp
+    ${PROJECT_SOURCE_DIR}/src/http_client/redirect.cpp
+    ${PROJECT_SOURCE_DIR}/src/http_client/form_encode.cpp
+    ${PROJECT_SOURCE_DIR}/src/network/uri.cpp
+    ${PROJECT_SOURCE_DIR}/src/network/inet_address.cpp)
+target_link_libraries(test_http_client PRIVATE picohttpparser)
 
 # ============================================================================
 #  ip_source/  —  IP-source abstraction (header-only tests only)

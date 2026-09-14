@@ -28,7 +28,7 @@
 class FactoryTestResolver : public ResolverBase {
 public:
     [[nodiscard]] std::expected<std::vector<std::uint8_t>, DnsErrorInfo>
-    query(const std::string &, RecordKind, const Utils::CancellationToken &) const override {
+    query(const std::string &, RecordKind) const override {
         return std::vector<std::uint8_t>{};
     }
     [[nodiscard]] std::string_view get_type() const noexcept override { return "factory_test"; }
@@ -39,13 +39,13 @@ public:
 namespace {
     [[maybe_unused]] DnsResolverRegistry::Registrar _factory_test_reg(
         "factorytest",
-        [](const Config::DnsServer &) -> std::unique_ptr<ResolverBase> {
+        [](const Config::DnsServer &, const Utils::CancellationToken &) -> std::unique_ptr<ResolverBase> {
             return std::make_unique<FactoryTestResolver>();
         }
     );
     [[maybe_unused]] DnsResolverRegistry::Registrar _factory_default_reg(
         "",
-        [](const Config::DnsServer &) -> std::unique_ptr<ResolverBase> {
+        [](const Config::DnsServer &, const Utils::CancellationToken &) -> std::unique_ptr<ResolverBase> {
             return std::make_unique<FactoryTestResolver>();
         }
     );
@@ -84,7 +84,7 @@ TEST(DnsFactoryTest, CreateWithCustomServers) {
     });
 
     EXPECT_NO_THROW({
-        auto dispatcher = DnsResolverFactory::create(cfg);
+        auto dispatcher = DnsResolverFactory::create(cfg, {});
     });
 }
 
@@ -92,7 +92,7 @@ TEST(DnsFactoryTest, CreateWithLegacySingleServer) {
     auto cfg = make_config_with_legacy_server("factorytest://dns.example.com", 5353);
 
     EXPECT_NO_THROW({
-        auto dispatcher = DnsResolverFactory::create(cfg);
+        auto dispatcher = DnsResolverFactory::create(cfg, {});
     });
 }
 
@@ -100,7 +100,7 @@ TEST(DnsFactoryTest, CreateWithoutCustomServer_UsesDefault) {
     auto cfg = make_config_no_custom_server();
 
     EXPECT_NO_THROW({
-        auto dispatcher = DnsResolverFactory::create(cfg);
+        auto dispatcher = DnsResolverFactory::create(cfg, {});
     });
 }
 
@@ -111,7 +111,7 @@ TEST(DnsFactoryTest, CreateWithMultipleServers_DoesNotThrow) {
     auto cfg = make_config_with_servers(std::move(servers));
 
     EXPECT_NO_THROW({
-        auto dispatcher = DnsResolverFactory::create(cfg);
+        auto dispatcher = DnsResolverFactory::create(cfg, {});
     });
 }
 
@@ -122,7 +122,7 @@ TEST(DnsFactoryTest, CreateWithConcurrentStrategy) {
     cfg.resolver.strategy = Config::ResolverStrategy::CONCURRENT;
 
     EXPECT_NO_THROW({
-        auto dispatcher = DnsResolverFactory::create(cfg);
+        auto dispatcher = DnsResolverFactory::create(cfg, {});
     });
 }
 
@@ -134,6 +134,6 @@ TEST(DnsFactoryTest, CreateWithShuffleStrategy) {
     cfg.resolver.strategy = Config::ResolverStrategy::SHUFFLE;
 
     EXPECT_NO_THROW({
-        auto dispatcher = DnsResolverFactory::create(cfg);
+        auto dispatcher = DnsResolverFactory::create(cfg, {});
     });
 }

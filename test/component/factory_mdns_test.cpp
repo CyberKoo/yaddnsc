@@ -24,6 +24,7 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include "util/cancellation_token.hpp"
 #include "util/random.hpp"
 
 #include "config/config.h"
@@ -107,7 +108,7 @@ TEST(IpSourceFactoryTest, CreateInterfaceSource_ResolvesLoopback) {
     cfg.ip_source = Config::IpSource::INTERFACE;
     cfg.interface = LOOPBACK;
 
-    auto source = IpSourceFactory::create(cfg);
+    auto source = IpSourceFactory::create(cfg, {});
     ASSERT_NE(source, nullptr);
 
     // resolve() must work using the real loopback interface.
@@ -125,7 +126,7 @@ TEST(IpSourceFactoryTest, CreateInterfaceSource_Ipv6) {
     cfg.ip_source = Config::IpSource::INTERFACE;
     cfg.interface = LOOPBACK;
 
-    auto source = IpSourceFactory::create(cfg);
+    auto source = IpSourceFactory::create(cfg, {});
     ASSERT_NE(source, nullptr);
     auto addrs = source->resolve();
 
@@ -148,7 +149,7 @@ TEST(IpSourceFactoryTest, CreateHttpSource_ConstructsSuccessfully) {
     cfg.ip_source = Config::IpSource::HTTP;
     cfg.ip_source_param = "http://127.0.0.1:1/ip";  // valid URL, no server needed for construction
 
-    auto source = IpSourceFactory::create(cfg);
+    auto source = IpSourceFactory::create(cfg, {});
     ASSERT_NE(source, nullptr);
     // Constructor succeeds — resolves via PersistentHttpClient.
     // resolve() would fail with connection refused, which is expected.
@@ -162,7 +163,7 @@ TEST(IpSourceFactoryTest, CreateHttpSource_WithIface_BindsToInterface) {
     cfg.ip_source_param = "http://127.0.0.1:1/ip";
     cfg.interface = LOOPBACK;
 
-    auto source = IpSourceFactory::create(cfg);
+    auto source = IpSourceFactory::create(cfg, {});
     ASSERT_NE(source, nullptr);
 }
 
@@ -177,7 +178,7 @@ TEST(IpSourceFactoryTest, UnknownType_FallsBackToUnspecified) {
     cfg.ip_source = Config::IpSource::INTERFACE;
     cfg.interface = LOOPBACK;
 
-    auto source = IpSourceFactory::create(cfg);
+    auto source = IpSourceFactory::create(cfg, {});
     ASSERT_NE(source, nullptr);
 
     // UNSPECIFIED returns all addresses on the interface.
@@ -495,7 +496,7 @@ TEST_F(MdnsTest, Factory_CreateMdnsSource_ResolvesViaMulticast) {
     cfg.ip_source_param = test_hostname_;
     cfg.interface = "";
 
-    auto source = IpSourceFactory::create(cfg);
+    auto source = IpSourceFactory::create(cfg, {});
     ASSERT_NE(source, nullptr);
 
     auto addrs = source->resolve();

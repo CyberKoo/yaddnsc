@@ -24,12 +24,12 @@ DriverRequestContext CloudflareDriver::generate_request(const DriverConfig &conf
     request.headers.insert({"Authorization", fmt::format("Bearer {}", cfg.token)});
     request.body = generate_body(cfg, ctx);
     request.content_type = "application/json";
-    request.method = DriverHttpMethod::PUT;
+    request.method = net::http::Method::PUT;
 
     return {std::move(url), std::move(request)};
 }
 
-bool CloudflareDriver::check_response(const HttpResponse &response) const {
+bool CloudflareDriver::check_response(const net::http::Response &response) const {
     CORE_LOG_TRACE("Got {} from server.", response.body);
 
     auto result = glz::read_json<CloudflareResponse>(response.body);

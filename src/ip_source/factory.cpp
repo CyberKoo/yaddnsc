@@ -39,7 +39,8 @@ namespace {
 /// based on Config::IpSource.
 /// @param cfg  The subdomain configuration record.
 /// @return     A unique pointer to the concrete IP source implementation.
-std::unique_ptr<IpSourceBase> IpSourceFactory::create(const Config::SubdomainConfig &cfg) {
+std::unique_ptr<IpSourceBase> IpSourceFactory::create(const Config::SubdomainConfig &cfg,
+                                                      const Utils::CancellationToken &token) {
     auto address_family = type_to_family(cfg.type);
 
     switch (cfg.ip_source) {
@@ -47,7 +48,7 @@ std::unique_ptr<IpSourceBase> IpSourceFactory::create(const Config::SubdomainCon
             return std::make_unique<InterfaceIpSource>(cfg.interface, address_family);
 
         case Config::IpSource::HTTP:
-            return std::make_unique<HttpIpSource>(cfg.ip_source_param, address_family, cfg.interface);
+            return std::make_unique<HttpIpSource>(cfg.ip_source_param, address_family, cfg.interface, token);
 
         case Config::IpSource::MDNS:
             return std::make_unique<MdnsIpSource>(cfg.ip_source_param, cfg.type, cfg.interface);

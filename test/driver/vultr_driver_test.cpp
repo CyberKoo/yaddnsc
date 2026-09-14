@@ -47,7 +47,7 @@ TEST(VultrDriverTest, GenerateRequest_BasicARecord) {
               "https://api.vultr.com/v2/domains/example.com/records/rec123");
 
     // Check method and content type
-    EXPECT_EQ(result.request.method, DriverHttpMethod::PATCH);
+    EXPECT_EQ(result.request.method, net::http::Method::PATCH);
     EXPECT_EQ(result.request.content_type, "application/json");
 
     // Check auth header
@@ -103,19 +103,19 @@ TEST(VultrDriverTest, GenerateRequest_MissingRecordId_ThrowsParamParseException)
 
 TEST(VultrDriverTest, CheckResponse_204_ReturnsTrue) {
     VultrDriver driver;
-    HttpResponse resp{204, "", {}};
+    net::http::Response resp{204, "", {}};
     EXPECT_TRUE(driver.check_response(resp));
 }
 
 TEST(VultrDriverTest, CheckResponse_Non204_WithErrorBody_ReturnsFalse) {
     VultrDriver driver;
-    HttpResponse resp{400, R"({"errors":[{"detail":"Invalid record ID"}]})", {}};
+    net::http::Response resp{400, R"({"errors":[{"detail":"Invalid record ID"}]})", {}};
     EXPECT_FALSE(driver.check_response(resp));
 }
 
 TEST(VultrDriverTest, CheckResponse_Non204_WithMultipleErrors_ReturnsFalse) {
     VultrDriver driver;
-    HttpResponse resp{400, R"({
+    net::http::Response resp{400, R"({
         "errors": [
             {"detail": "Invalid API key"},
             {"detail": "Rate limit exceeded"}
@@ -126,13 +126,13 @@ TEST(VultrDriverTest, CheckResponse_Non204_WithMultipleErrors_ReturnsFalse) {
 
 TEST(VultrDriverTest, CheckResponse_Non204_UnparseableBody_ReturnsFalse) {
     VultrDriver driver;
-    HttpResponse resp{400, "not-json", {}};
+    net::http::Response resp{400, "not-json", {}};
     EXPECT_FALSE(driver.check_response(resp));
 }
 
 TEST(VultrDriverTest, CheckResponse_Non204_EmptyBody_ReturnsFalse) {
     VultrDriver driver;
-    HttpResponse resp{500, "", {}};
+    net::http::Response resp{500, "", {}};
     EXPECT_FALSE(driver.check_response(resp));
 }
 
@@ -140,7 +140,7 @@ TEST(VultrDriverTest, CheckResponse_Non204_WithError_SuccessStatusFalse) {
     // Even with 200 status, Vultr returns 204 on success.
     // But 200 with empty body is not expected — treat as failure.
     VultrDriver driver;
-    HttpResponse resp{200, "something", {}};
+    net::http::Response resp{200, "something", {}};
     EXPECT_FALSE(driver.check_response(resp));
 }
 
@@ -151,6 +151,6 @@ TEST(VultrDriverTest, FactoryCompilerIdHash) { test_factory_compiler_id_hash(); 
 
 TEST(VultrDriverTest, CheckResponse_Non204_NoRelevantErrorKey_ReturnsFalse) {
     VultrDriver driver;
-    HttpResponse resp{400, R"({"some_other_key": "value"})", {}};
+    net::http::Response resp{400, R"({"some_other_key": "value"})", {}};
     EXPECT_FALSE(driver.check_response(resp));
 }

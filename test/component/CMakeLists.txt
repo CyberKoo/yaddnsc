@@ -97,10 +97,10 @@ add_unit_test(ip_source_test
 # ============================================================================
 
 add_unit_test(http_test
-    ${PROJECT_SOURCE_DIR}/src/network/http_client.cpp
     ${PROJECT_SOURCE_DIR}/src/ip_source/http.cpp
     ${PROJECT_SOURCE_DIR}/src/util/cert_util.cpp)
-target_link_libraries(test_http_test PRIVATE httplib::httplib OpenSSL::Crypto)
+target_link_libraries(test_http_test PRIVATE yaddnsc_http_client yaddnsc_net_transport OpenSSL::Crypto)
+add_sanitizer_flags(test_http_test)
 
 # ============================================================================
 #  mDNS responder + IpSourceFactory  (loopback multicast)
@@ -121,10 +121,15 @@ add_unit_test(factory_mdns SOURCE factory_mdns_test.cpp
     ${PROJECT_SOURCE_DIR}/src/network/socket.cpp
     ${PROJECT_SOURCE_DIR}/src/network/socket_addr.cpp
     ${PROJECT_SOURCE_DIR}/src/network/net_devices.cpp
-    ${PROJECT_SOURCE_DIR}/src/network/http_client.cpp
     ${PROJECT_SOURCE_DIR}/src/util/cert_util.cpp
     ${PROJECT_SOURCE_DIR}/src/dns/wire/builder.cpp)
-target_link_libraries(test_factory_mdns PRIVATE GTest::gmock glaze::glaze httplib::httplib OpenSSL::Crypto)
+target_link_libraries(test_factory_mdns PRIVATE GTest::gmock glaze::glaze yaddnsc_http_client yaddnsc_net_transport OpenSSL::Crypto)
+# Object libs carry sanitizer instrumentation — the test binary must link it too.
+add_sanitizer_flags(test_factory_mdns)
+# Both this test and integration_scenarios answer mDNS on 224.0.0.251:5353;
+# the sim server catch-alls unknown A queries with 198.51.100.1, so running
+# them concurrently makes the UUID-hostname assertions racy. Serialize them.
+set_tests_properties(test_factory_mdns PROPERTIES RESOURCE_LOCK "mdns-multicast")
 
 # ============================================================================
 #  ClassicResolver (UDP/TCP backend)
@@ -148,36 +153,43 @@ target_compile_definitions(test_classic_resolver PRIVATE
 target_link_libraries(test_classic_resolver PRIVATE OpenSSL::Crypto)
 
 # ============================================================================
-#  TlsConnection  (loopback TLS echo server via Python + OpenSSL)
+#  net::transport  (new transport layer — TcpStream + TlsStream)
 #
-# Starts a Python TLS echo server with a self-signed cert, then exercises
-# TlsConnection::connect/send_all/read_exact/shutdown/is_healthy.
+# TcpStream against an in-process loopback echo server; TlsStream against
+# the Python TLS echo server. Covers roundtrips, idempotent
+# ensure_connected(), verification modes, and cross-thread cancellation.
 # ============================================================================
 
-add_unit_test(tls_connection SOURCE tls_connection_test.cpp
-    ${PROJECT_SOURCE_DIR}/src/network/tls_connection.cpp
-    ${PROJECT_SOURCE_DIR}/src/util/cert_util.cpp)
-target_link_libraries(test_tls_connection PRIVATE OpenSSL::SSL OpenSSL::Crypto)
-target_compile_definitions(test_tls_connection PRIVATE
-    TEST_DATA_DIR="${PROJECT_SOURCE_DIR}/test/component"
-)
-
-# ============================================================================
-#  TlsStream  (TLS read/write stream adapter)
-#
-#  Starts a Python TLS echo server on loopback, then exercises
-#  TlsStream::send_all / read_some / read_exact and its error
-#  mapping (CANCELLED via CancellationSource).
-# ============================================================================
-
-add_unit_test(tls_stream SOURCE tls_stream_test.cpp
+add_unit_test(net_transport_component SOURCE net_transport_test.cpp
+    ${PROJECT_SOURCE_DIR}/src/network/transport/detail/socket_stream.cpp
     ${PROJECT_SOURCE_DIR}/src/network/transport/tls_stream.cpp
-    ${PROJECT_SOURCE_DIR}/src/network/tls_connection.cpp
-    ${PROJECT_SOURCE_DIR}/src/util/cert_util.cpp)
-target_link_libraries(test_tls_stream PRIVATE OpenSSL::SSL OpenSSL::Crypto)
-target_compile_definitions(test_tls_stream PRIVATE
+    ${PROJECT_SOURCE_DIR}/src/network/transport/tcp_stream.cpp
+    ${PROJECT_SOURCE_DIR}/src/util/cert_util.cpp
+    ${PROJECT_SOURCE_DIR}/src/network/inet_address.cpp)
+target_link_libraries(test_net_transport_component PRIVATE OpenSSL::SSL OpenSSL::Crypto)
+target_compile_definitions(test_net_transport_component PRIVATE
     TEST_DATA_DIR="${PROJECT_SOURCE_DIR}/test/component"
 )
+
+# ============================================================================
+#  net::http  (Client + Session over an in-process HTTP/1.1 server)
+# ============================================================================
+
+add_unit_test(net_http_client SOURCE net_http_client_test.cpp
+    ${PROJECT_SOURCE_DIR}/src/http_client/client.cpp
+    ${PROJECT_SOURCE_DIR}/src/http_client/persistent_client.cpp
+    ${PROJECT_SOURCE_DIR}/src/http_client/session.cpp
+    ${PROJECT_SOURCE_DIR}/src/http_client/redirect.cpp
+    ${PROJECT_SOURCE_DIR}/src/http_client/stream_factory.cpp
+    ${PROJECT_SOURCE_DIR}/src/http_client/wire_request.cpp
+    ${PROJECT_SOURCE_DIR}/src/http_client/protocol/exchange.cpp
+    ${PROJECT_SOURCE_DIR}/src/network/transport/detail/socket_stream.cpp
+    ${PROJECT_SOURCE_DIR}/src/network/transport/tcp_stream.cpp
+    ${PROJECT_SOURCE_DIR}/src/network/transport/tls_stream.cpp
+    ${PROJECT_SOURCE_DIR}/src/network/uri.cpp
+    ${PROJECT_SOURCE_DIR}/src/network/inet_address.cpp
+    ${PROJECT_SOURCE_DIR}/src/util/cert_util.cpp)
+target_link_libraries(test_net_http_client PRIVATE OpenSSL::SSL OpenSSL::Crypto picohttpparser)
 
 # ============================================================================
 #  DotResolver  (DoT — DNS-over-TLS via Python DoT server)
@@ -191,9 +203,9 @@ add_unit_test(dot_resolver SOURCE dot_resolver_test.cpp
     ${PROJECT_SOURCE_DIR}/src/dns/resolver/dot.cpp
     ${PROJECT_SOURCE_DIR}/src/dns/resolver_registry.cpp
     ${PROJECT_SOURCE_DIR}/src/dns/wire/builder.cpp
-    ${PROJECT_SOURCE_DIR}/src/network/tls_connection.cpp
     ${PROJECT_SOURCE_DIR}/src/util/cert_util.cpp)
-target_link_libraries(test_dot_resolver PRIVATE OpenSSL::SSL OpenSSL::Crypto)
+target_link_libraries(test_dot_resolver PRIVATE yaddnsc_net_transport OpenSSL::SSL OpenSSL::Crypto)
+add_sanitizer_flags(test_dot_resolver)
 target_compile_definitions(test_dot_resolver PRIVATE
     TEST_DATA_DIR="${PROJECT_SOURCE_DIR}/test/component"
 )
@@ -210,14 +222,9 @@ add_unit_test(doh_resolver SOURCE doh_resolver_test.cpp
     ${PROJECT_SOURCE_DIR}/src/dns/resolver/doh.cpp
     ${PROJECT_SOURCE_DIR}/src/dns/resolver_registry.cpp
     ${PROJECT_SOURCE_DIR}/src/dns/wire/builder.cpp
-    ${PROJECT_SOURCE_DIR}/src/network/tls_connection.cpp
-    ${PROJECT_SOURCE_DIR}/src/util/cert_util.cpp
-    ${PROJECT_SOURCE_DIR}/src/network/transport/tls_stream.cpp
-    ${PROJECT_SOURCE_DIR}/src/http/header_parser.cpp
-    ${PROJECT_SOURCE_DIR}/src/http/body_parser.cpp
-    ${PROJECT_SOURCE_DIR}/src/http/request.cpp
-    ${PROJECT_SOURCE_DIR}/src/http/http.cpp)
-target_link_libraries(test_doh_resolver PRIVATE OpenSSL::SSL OpenSSL::Crypto picohttpparser)
+    ${PROJECT_SOURCE_DIR}/src/util/cert_util.cpp)
+target_link_libraries(test_doh_resolver PRIVATE yaddnsc_http_client yaddnsc_net_transport OpenSSL::SSL OpenSSL::Crypto picohttpparser)
+add_sanitizer_flags(test_doh_resolver)
 target_compile_definitions(test_doh_resolver PRIVATE
     TEST_DATA_DIR="${PROJECT_SOURCE_DIR}/test/component"
 )

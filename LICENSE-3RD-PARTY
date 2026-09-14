@@ -19,9 +19,6 @@ The following libraries are licensed under the MIT License:
   - spdlog 1.17.0             https://github.com/gabime/spdlog
     Copyright (c) 2016 - present, Gabi Melman and spdlog contributors
 
-  - cpp-httplib 0.48.0        https://github.com/yhirose/cpp-httplib
-    Copyright (c) 2017 yhirose
-
   - magic_enum 0.9.8          https://github.com/Neargye/magic_enum
     Copyright (c) 2019 - 2026 Daniil Goncharov
 

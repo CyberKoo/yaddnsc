@@ -1,8 +1,5 @@
 //
 // MockHttpClient — GoogleMock-based mock for the HttpClient interface.
-//
-// Provides configurable expectations for exchange() and delegates to the
-// real get_body() and params_to_query_string() implementations.
 // =============================================================================
 
 #ifndef YADDNSC_TEST_MOCKS_MOCK_HTTP_CLIENT_H
@@ -16,12 +13,8 @@
 
 class MockHttpClient : public HttpClient {
 public:
-    MOCK_METHOD(HttpResult, exchange, (std::string_view url, const HttpRequest& req), (const, override));
-
-    // get_body() and params_to_query_string() are NOT virtual — they are
-    // implemented in the HttpClient base class using exchange().  Tests
-    // that need to verify get_body() calls should instead set expectations
-    // on exchange() and let the base implementation delegate.
+    MOCK_METHOD((std::expected<net::http::Response, net::http::Error>), exchange,
+                (std::string_view url, const net::http::Request& req), (const, override));
 };
 
 #endif // YADDNSC_TEST_MOCKS_MOCK_HTTP_CLIENT_H

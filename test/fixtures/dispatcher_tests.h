@@ -271,16 +271,10 @@ public:
         : succeed_(succeed), poll_ms_(poll_ms) {}
 
     [[nodiscard]] std::expected<std::vector<std::uint8_t>, DnsErrorInfo>
-    query(const std::string &, RecordKind, const Utils::CancellationToken &cancel_token) const override {
-        if (cancel_token) {
-            const int cancel_fd = cancel_token.native_handle();
-            ::pollfd pfd{cancel_fd, POLLIN, 0};
-            const int r = ::poll(&pfd, 1, poll_ms_);
-            if (r > 0) {
-                cancel_token.drain();
-                return std::unexpected(DnsErrorInfo{DnsError::CANCELLED, "cancelled by winner"});
-            }
-        }
+    query(const std::string &, RecordKind) const override {
+        // Simulates a slow upstream. Losers of a concurrent race are joined
+        // by the dispatcher, so this is a plain bounded sleep.
+        std::this_thread::sleep_for(std::chrono::milliseconds(poll_ms_));
         if (succeed_) {
             return ok_a();
         }
@@ -302,7 +296,7 @@ private:
 
 TEST(DispatcherSingle, Success_ReturnsResolvedAddress) {
     auto r = make_mock();
-    ON_CALL(*r, query(_, _, _)).WillByDefault(Return(ok_a()));
+    ON_CALL(*r, query(_, _)).WillByDefault(Return(ok_a()));
     std::vector<std::unique_ptr<ResolverBase>> resolvers;
     resolvers.push_back(std::move(r));
     ResolverDispatcher disp(std::move(resolvers), Config::ResolverStrategy::CONCURRENT);
@@ -315,7 +309,7 @@ TEST(DispatcherSingle, Success_ReturnsResolvedAddress) {
 
 TEST(DispatcherSingle, Aaaa_Success_ReturnsIpv6Address) {
     auto r = make_mock();
-    ON_CALL(*r, query(_, _, _)).WillByDefault(Return(ok_aaaa()));
+    ON_CALL(*r, query(_, _)).WillByDefault(Return(ok_aaaa()));
     std::vector<std::unique_ptr<ResolverBase>> resolvers;
     resolvers.push_back(std::move(r));
     ResolverDispatcher disp(std::move(resolvers), Config::ResolverStrategy::CONCURRENT);
@@ -328,7 +322,7 @@ TEST(DispatcherSingle, Aaaa_Success_ReturnsIpv6Address) {
 
 TEST(DispatcherSingle, RetriesOnTransientThenSucceeds) {
     auto r = make_mock();
-    EXPECT_CALL(*r, query(_, _, _))
+    EXPECT_CALL(*r, query(_, _))
         .WillOnce(Return(err(DnsError::RETRY, "t1")))
         .WillOnce(Return(err(DnsError::RETRY, "t2")))
         .WillOnce(Return(ok_a()));
@@ -343,7 +337,7 @@ TEST(DispatcherSingle, RetriesOnTransientThenSucceeds) {
 
 TEST(DispatcherSingle, ExhaustsRetries_ReturnsFailure) {
     auto r = make_mock();
-    EXPECT_CALL(*r, query(_, _, _))
+    EXPECT_CALL(*r, query(_, _))
         .Times(4) // 1 initial attempt + 3 retries (max_retries = 3)
         .WillRepeatedly(Return(err(DnsError::RETRY, "retry")));
     std::vector<std::unique_ptr<ResolverBase>> resolvers;
@@ -356,7 +350,7 @@ TEST(DispatcherSingle, ExhaustsRetries_ReturnsFailure) {
 
 TEST(DispatcherSingle, NxDomain_ReturnsFailure) {
     auto r = make_mock();
-    ON_CALL(*r, query(_, _, _)).WillByDefault(Return(err(DnsError::NX_DOMAIN, "nxdomain")));
+    ON_CALL(*r, query(_, _)).WillByDefault(Return(err(DnsError::NX_DOMAIN, "nxdomain")));
     std::vector<std::unique_ptr<ResolverBase>> resolvers;
     resolvers.push_back(std::move(r));
     ResolverDispatcher disp(std::move(resolvers), Config::ResolverStrategy::CONCURRENT);
@@ -367,7 +361,7 @@ TEST(DispatcherSingle, NxDomain_ReturnsFailure) {
 
 TEST(DispatcherSingle, Nodata_ReturnsFailure) {
     auto r = make_mock();
-    ON_CALL(*r, query(_, _, _)).WillByDefault(Return(err(DnsError::NODATA, "nodata")));
+    ON_CALL(*r, query(_, _)).WillByDefault(Return(err(DnsError::NODATA, "nodata")));
     std::vector<std::unique_ptr<ResolverBase>> resolvers;
     resolvers.push_back(std::move(r));
     ResolverDispatcher disp(std::move(resolvers), Config::ResolverStrategy::CONCURRENT);
@@ -378,7 +372,7 @@ TEST(DispatcherSingle, Nodata_ReturnsFailure) {
 
 TEST(DispatcherSingle, ParseError_ReturnsFailure) {
     auto r = make_mock();
-    ON_CALL(*r, query(_, _, _)).WillByDefault(Return(make_malformed_response()));
+    ON_CALL(*r, query(_, _)).WillByDefault(Return(make_malformed_response()));
     std::vector<std::unique_ptr<ResolverBase>> resolvers;
     resolvers.push_back(std::move(r));
     ResolverDispatcher disp(std::move(resolvers), Config::ResolverStrategy::CONCURRENT);
@@ -389,7 +383,7 @@ TEST(DispatcherSingle, ParseError_ReturnsFailure) {
 
 TEST(DispatcherSingle, ZeroRetries_AttemptsOnce) {
     auto r = make_mock();
-    EXPECT_CALL(*r, query(_, _, _))
+    EXPECT_CALL(*r, query(_, _))
         .Times(1)
         .WillRepeatedly(Return(err(DnsError::RETRY, "retry")));
     std::vector<std::unique_ptr<ResolverBase>> resolvers;
@@ -406,7 +400,7 @@ TEST(DispatcherSingle, ZeroRetries_AttemptsOnce) {
 
 TEST(DispatcherSingle, RcodeNxDomain_Classified) {
     auto r = make_mock();
-    ON_CALL(*r, query(_, _, _)).WillByDefault(Return(make_rcode_response(0x83)));
+    ON_CALL(*r, query(_, _)).WillByDefault(Return(make_rcode_response(0x83)));
     std::vector<std::unique_ptr<ResolverBase>> resolvers;
     resolvers.push_back(std::move(r));
     ResolverDispatcher disp(std::move(resolvers), Config::ResolverStrategy::CONCURRENT);
@@ -417,7 +411,7 @@ TEST(DispatcherSingle, RcodeNxDomain_Classified) {
 
 TEST(DispatcherSingle, RcodeServfail_IsRetryable) {
     auto r = make_mock();
-    ON_CALL(*r, query(_, _, _)).WillByDefault(Return(make_rcode_response(0x82)));
+    ON_CALL(*r, query(_, _)).WillByDefault(Return(make_rcode_response(0x82)));
     std::vector<std::unique_ptr<ResolverBase>> resolvers;
     resolvers.push_back(std::move(r));
     ResolverDispatcher disp(std::move(resolvers), Config::ResolverStrategy::CONCURRENT);
@@ -428,7 +422,7 @@ TEST(DispatcherSingle, RcodeServfail_IsRetryable) {
 
 TEST(DispatcherSingle, RcodeRefused_Classified) {
     auto r = make_mock();
-    ON_CALL(*r, query(_, _, _)).WillByDefault(Return(make_rcode_response(0x85)));
+    ON_CALL(*r, query(_, _)).WillByDefault(Return(make_rcode_response(0x85)));
     std::vector<std::unique_ptr<ResolverBase>> resolvers;
     resolvers.push_back(std::move(r));
     ResolverDispatcher disp(std::move(resolvers), Config::ResolverStrategy::CONCURRENT);
@@ -439,7 +433,7 @@ TEST(DispatcherSingle, RcodeRefused_Classified) {
 
 TEST(DispatcherSingle, RcodeNodata_Classified) {
     auto r = make_mock();
-    ON_CALL(*r, query(_, _, _)).WillByDefault(Return(make_rcode_response(0x80)));
+    ON_CALL(*r, query(_, _)).WillByDefault(Return(make_rcode_response(0x80)));
     std::vector<std::unique_ptr<ResolverBase>> resolvers;
     resolvers.push_back(std::move(r));
     ResolverDispatcher disp(std::move(resolvers), Config::ResolverStrategy::CONCURRENT);
@@ -450,7 +444,7 @@ TEST(DispatcherSingle, RcodeNodata_Classified) {
 
 TEST(DispatcherSingle, RcodeUnknown_DefaultBranch) {
     auto r = make_mock();
-    ON_CALL(*r, query(_, _, _)).WillByDefault(Return(make_rcode_response(0x86))); // NOTIMP
+    ON_CALL(*r, query(_, _)).WillByDefault(Return(make_rcode_response(0x86))); // NOTIMP
     std::vector<std::unique_ptr<ResolverBase>> resolvers;
     resolvers.push_back(std::move(r));
     ResolverDispatcher disp(std::move(resolvers), Config::ResolverStrategy::CONCURRENT);
@@ -461,7 +455,7 @@ TEST(DispatcherSingle, RcodeUnknown_DefaultBranch) {
 
 TEST(DispatcherSingle, MultipleRecords_ReturnsAll) {
     auto r = make_mock();
-    ON_CALL(*r, query(_, _, _)).WillByDefault(Return(make_multi_a_response(0x1234)));
+    ON_CALL(*r, query(_, _)).WillByDefault(Return(make_multi_a_response(0x1234)));
     std::vector<std::unique_ptr<ResolverBase>> resolvers;
     resolvers.push_back(std::move(r));
     ResolverDispatcher disp(std::move(resolvers), Config::ResolverStrategy::CONCURRENT);
@@ -481,9 +475,8 @@ TEST(DispatcherSingle, MultipleRecords_ReturnsAll) {
 // resolver-returned errors, not to exceptions).
 TEST(DispatcherSingle, ThrowsDnsLookupException_TranslatedToParse) {
     auto r = make_mock();
-    ON_CALL(*r, query(_, _, _))
-        .WillByDefault([](const std::string &, RecordKind,
-                          const Utils::CancellationToken &) -> std::expected<std::vector<std::uint8_t>, DnsErrorInfo> {
+    ON_CALL(*r, query(_, _))
+        .WillByDefault([](const std::string &, RecordKind) -> std::expected<std::vector<std::uint8_t>, DnsErrorInfo> {
             throw DnsLookupException("parse boom", DnsError::PARSE);
         });
     std::vector<std::unique_ptr<ResolverBase>> resolvers;
@@ -497,9 +490,8 @@ TEST(DispatcherSingle, ThrowsDnsLookupException_TranslatedToParse) {
 // A resolver that throws a generic std::exception — must be translated to UNKNOWN.
 TEST(DispatcherSingle, ThrowsStdException_TranslatedToUnknown) {
     auto r = make_mock();
-    ON_CALL(*r, query(_, _, _))
-        .WillByDefault([](const std::string &, RecordKind,
-                          const Utils::CancellationToken &) -> std::expected<std::vector<std::uint8_t>, DnsErrorInfo> {
+    ON_CALL(*r, query(_, _))
+        .WillByDefault([](const std::string &, RecordKind) -> std::expected<std::vector<std::uint8_t>, DnsErrorInfo> {
             throw std::runtime_error("transport boom");
         });
     std::vector<std::unique_ptr<ResolverBase>> resolvers;
@@ -517,8 +509,8 @@ TEST(DispatcherSingle, ThrowsStdException_TranslatedToUnknown) {
 TEST(DispatcherFallback, AnySucceeds_ReturnsRecords) {
     auto r0 = make_mock();
     auto r1 = make_mock();
-    ON_CALL(*r0, query(_, _, _)).WillByDefault(Return(err(DnsError::RETRY, "r0")));
-    ON_CALL(*r1, query(_, _, _)).WillByDefault(Return(ok_a()));
+    ON_CALL(*r0, query(_, _)).WillByDefault(Return(err(DnsError::RETRY, "r0")));
+    ON_CALL(*r1, query(_, _)).WillByDefault(Return(ok_a()));
     std::vector<std::unique_ptr<ResolverBase>> resolvers;
     resolvers.push_back(std::move(r0));
     resolvers.push_back(std::move(r1));
@@ -532,8 +524,8 @@ TEST(DispatcherFallback, AnySucceeds_ReturnsRecords) {
 TEST(DispatcherFallback, NxDomain_StopsIteration) {
     auto r0 = make_mock();
     auto r1 = make_mock();
-    ON_CALL(*r0, query(_, _, _)).WillByDefault(Return(err(DnsError::RETRY, "r0")));
-    ON_CALL(*r1, query(_, _, _)).WillByDefault(Return(err(DnsError::NX_DOMAIN, "nxdomain")));
+    ON_CALL(*r0, query(_, _)).WillByDefault(Return(err(DnsError::RETRY, "r0")));
+    ON_CALL(*r1, query(_, _)).WillByDefault(Return(err(DnsError::NX_DOMAIN, "nxdomain")));
     std::vector<std::unique_ptr<ResolverBase>> resolvers;
     resolvers.push_back(std::move(r0));
     resolvers.push_back(std::move(r1));
@@ -546,8 +538,8 @@ TEST(DispatcherFallback, NxDomain_StopsIteration) {
 TEST(DispatcherFallback, AllRetryable_ReturnsTransientFailure) {
     auto r0 = make_mock();
     auto r1 = make_mock();
-    ON_CALL(*r0, query(_, _, _)).WillByDefault(Return(err(DnsError::RETRY, "r0")));
-    ON_CALL(*r1, query(_, _, _)).WillByDefault(Return(err(DnsError::RETRY, "r1")));
+    ON_CALL(*r0, query(_, _)).WillByDefault(Return(err(DnsError::RETRY, "r0")));
+    ON_CALL(*r1, query(_, _)).WillByDefault(Return(err(DnsError::RETRY, "r1")));
     std::vector<std::unique_ptr<ResolverBase>> resolvers;
     resolvers.push_back(std::move(r0));
     resolvers.push_back(std::move(r1));
@@ -560,8 +552,8 @@ TEST(DispatcherFallback, AllRetryable_ReturnsTransientFailure) {
 TEST(DispatcherFallback, AllNodata_ReturnsTransientFailure) {
     auto r0 = make_mock();
     auto r1 = make_mock();
-    ON_CALL(*r0, query(_, _, _)).WillByDefault(Return(err(DnsError::NODATA, "nd0")));
-    ON_CALL(*r1, query(_, _, _)).WillByDefault(Return(err(DnsError::NODATA, "nd1")));
+    ON_CALL(*r0, query(_, _)).WillByDefault(Return(err(DnsError::NODATA, "nd0")));
+    ON_CALL(*r1, query(_, _)).WillByDefault(Return(err(DnsError::NODATA, "nd1")));
     std::vector<std::unique_ptr<ResolverBase>> resolvers;
     resolvers.push_back(std::move(r0));
     resolvers.push_back(std::move(r1));
@@ -579,9 +571,9 @@ TEST(DispatcherConcurrent, AnySucceeds_ReturnsRecords) {
     auto r0 = make_mock();
     auto r1 = make_mock();
     auto r2 = make_mock();
-    ON_CALL(*r0, query(_, _, _)).WillByDefault(Return(err(DnsError::RETRY, "r0")));
-    ON_CALL(*r1, query(_, _, _)).WillByDefault(Return(err(DnsError::RETRY, "r1")));
-    ON_CALL(*r2, query(_, _, _)).WillByDefault(Return(ok_a()));
+    ON_CALL(*r0, query(_, _)).WillByDefault(Return(err(DnsError::RETRY, "r0")));
+    ON_CALL(*r1, query(_, _)).WillByDefault(Return(err(DnsError::RETRY, "r1")));
+    ON_CALL(*r2, query(_, _)).WillByDefault(Return(ok_a()));
     std::vector<std::unique_ptr<ResolverBase>> resolvers;
     resolvers.push_back(std::move(r0));
     resolvers.push_back(std::move(r1));
@@ -597,9 +589,9 @@ TEST(DispatcherConcurrent, NxDomain_ReturnsNxDomain) {
     auto r0 = make_mock();
     auto r1 = make_mock();
     auto r2 = make_mock();
-    ON_CALL(*r0, query(_, _, _)).WillByDefault(Return(err(DnsError::RETRY, "r0")));
-    ON_CALL(*r1, query(_, _, _)).WillByDefault(Return(err(DnsError::RETRY, "r1")));
-    ON_CALL(*r2, query(_, _, _)).WillByDefault(Return(err(DnsError::NX_DOMAIN, "nxdomain")));
+    ON_CALL(*r0, query(_, _)).WillByDefault(Return(err(DnsError::RETRY, "r0")));
+    ON_CALL(*r1, query(_, _)).WillByDefault(Return(err(DnsError::RETRY, "r1")));
+    ON_CALL(*r2, query(_, _)).WillByDefault(Return(err(DnsError::NX_DOMAIN, "nxdomain")));
     std::vector<std::unique_ptr<ResolverBase>> resolvers;
     resolvers.push_back(std::move(r0));
     resolvers.push_back(std::move(r1));
@@ -614,9 +606,9 @@ TEST(DispatcherConcurrent, AllRetryable_ReturnsTransientFailure) {
     auto r0 = make_mock();
     auto r1 = make_mock();
     auto r2 = make_mock();
-    ON_CALL(*r0, query(_, _, _)).WillByDefault(Return(err(DnsError::RETRY, "r0")));
-    ON_CALL(*r1, query(_, _, _)).WillByDefault(Return(err(DnsError::RETRY, "r1")));
-    ON_CALL(*r2, query(_, _, _)).WillByDefault(Return(err(DnsError::RETRY, "r2")));
+    ON_CALL(*r0, query(_, _)).WillByDefault(Return(err(DnsError::RETRY, "r0")));
+    ON_CALL(*r1, query(_, _)).WillByDefault(Return(err(DnsError::RETRY, "r1")));
+    ON_CALL(*r2, query(_, _)).WillByDefault(Return(err(DnsError::RETRY, "r2")));
     std::vector<std::unique_ptr<ResolverBase>> resolvers;
     resolvers.push_back(std::move(r0));
     resolvers.push_back(std::move(r1));
@@ -646,7 +638,7 @@ TEST(DispatcherConcurrent, MoreThanMax_AllRetryable) {
     std::vector<std::unique_ptr<ResolverBase>> resolvers;
     for (int i = 0; i < 5; ++i) {
         auto r = make_mock();
-        ON_CALL(*r, query(_, _, _)).WillByDefault(Return(err(DnsError::RETRY, "r")));
+        ON_CALL(*r, query(_, _)).WillByDefault(Return(err(DnsError::RETRY, "r")));
         resolvers.push_back(std::move(r));
     }
     ResolverDispatcher disp(std::move(resolvers), Config::ResolverStrategy::CONCURRENT);
@@ -660,11 +652,11 @@ TEST(DispatcherConcurrent, MoreThanMax_OneSucceedsInLaterBatch) {
     std::vector<std::unique_ptr<ResolverBase>> resolvers;
     for (int i = 0; i < 3; ++i) {
         auto r = make_mock();
-        ON_CALL(*r, query(_, _, _)).WillByDefault(Return(err(DnsError::RETRY, "r")));
+        ON_CALL(*r, query(_, _)).WillByDefault(Return(err(DnsError::RETRY, "r")));
         resolvers.push_back(std::move(r));
     }
     auto winner = make_mock();
-    ON_CALL(*winner, query(_, _, _)).WillByDefault(Return(ok_a()));
+    ON_CALL(*winner, query(_, _)).WillByDefault(Return(ok_a()));
     resolvers.push_back(std::move(winner));
     ResolverDispatcher disp(std::move(resolvers), Config::ResolverStrategy::CONCURRENT);
 
@@ -681,7 +673,7 @@ TEST(DispatcherConcurrent, MoreThanMax_OneSucceedsInLaterBatch) {
 // path (with retry) is always taken.
 TEST(DispatcherStrategy, SingleResolverIgnoresStrategy) {
     auto r = make_mock();
-    EXPECT_CALL(*r, query(_, _, _))
+    EXPECT_CALL(*r, query(_, _))
         .WillOnce(Return(err(DnsError::RETRY, "t1")))
         .WillOnce(Return(ok_a()));
     std::vector<std::unique_ptr<ResolverBase>> resolvers;
@@ -695,7 +687,7 @@ TEST(DispatcherStrategy, SingleResolverIgnoresStrategy) {
 
 TEST(Dispatcher, MoveConstructible) {
     auto r = make_mock();
-    ON_CALL(*r, query(_, _, _)).WillByDefault(Return(ok_a()));
+    ON_CALL(*r, query(_, _)).WillByDefault(Return(ok_a()));
     std::vector<std::unique_ptr<ResolverBase>> resolvers;
     resolvers.push_back(std::move(r));
     ResolverDispatcher disp(std::move(resolvers), Config::ResolverStrategy::CONCURRENT);

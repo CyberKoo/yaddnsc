@@ -53,7 +53,8 @@ public:
 
         const auto response = http.exchange(url, request);
         if (!response) {
-            CORE_LOG_WARN("Domain {} ({}) update failed (HTTP error: {})", ctx.fqdn, ctx.rd_type, response.error());
+            CORE_LOG_WARN("Domain {} ({}) update failed (HTTP error: {})", ctx.fqdn, ctx.rd_type,
+                          response.error().message);
             return false;
         }
 

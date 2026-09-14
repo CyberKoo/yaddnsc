@@ -22,7 +22,8 @@
 // DnsResolverFactory::create — build a ResolverDispatcher from app config.
 // ===========================================================================
 
-ResolverDispatcher DnsResolverFactory::create(const Config::AppConfig &config) {
+ResolverDispatcher DnsResolverFactory::create(const Config::AppConfig &config,
+                                                          const Utils::CancellationToken &token) {
     // Build the list of DNS servers from config, preserving backward
     // compatibility with the legacy single-server format.
     std::vector<Config::DnsServer> dns_servers;
@@ -45,7 +46,7 @@ ResolverDispatcher DnsResolverFactory::create(const Config::AppConfig &config) {
     // URI schema (https → DohResolver, tls → DotResolver, "" → ClassicResolver).
     std::vector<std::unique_ptr<ResolverBase> > resolvers;
     for (const auto &server: dns_servers) {
-        resolvers.push_back(DnsResolverRegistry::create(server));
+        resolvers.push_back(DnsResolverRegistry::create(server, token));
         const auto uri = Uri::parse(server.address);
         SPDLOG_INFO("DNS resolver #{}: {} ({})", resolvers.back()->get_id(),
                     uri.get_schema().empty() ? uri.get_host_literal() : uri.get_origin(), resolvers.back()->get_type());

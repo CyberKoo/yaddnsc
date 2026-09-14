@@ -33,16 +33,16 @@ DriverRequestContext VultrDriver::generate_request(const DriverConfig &config, c
     request.headers.insert({"Authorization", fmt::format("Bearer {}", cfg.api_key)});
     request.body = glz::write_json(body).value_or("{}");
     request.content_type = "application/json";
-    request.method = DriverHttpMethod::PATCH;
+    request.method = net::http::Method::PATCH;
 
     return {std::move(url), std::move(request)};
 }
 
-bool VultrDriver::check_response(const HttpResponse &response) const {
+bool VultrDriver::check_response(const net::http::Response &response) const {
     CORE_LOG_TRACE("Got {} from server.", response.body);
 
     // Vultr returns 204 No Content with an empty body on success.
-    if (response.status_code == 204) {
+    if (response.status == 204) {
         CORE_LOG_DEBUG("DNS record updated successfully");
         return true;
     }
@@ -54,10 +54,10 @@ bool VultrDriver::check_response(const HttpResponse &response) const {
                 CORE_LOG_ERROR("Vultr API error: {}", err.detail);
             }
         } else {
-            CORE_LOG_ERROR("Vultr API error (HTTP {}): {}", response.status_code, response.body);
+            CORE_LOG_ERROR("Vultr API error (HTTP {}): {}", response.status, response.body);
         }
     } else {
-        CORE_LOG_ERROR("Vultr API request failed with HTTP status {}", response.status_code);
+        CORE_LOG_ERROR("Vultr API request failed with HTTP status {}", response.status);
     }
 
     return false;

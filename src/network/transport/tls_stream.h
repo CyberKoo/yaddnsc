@@ -1,50 +1,83 @@
 //
-// Created by Kotarou on 2026/7/18.
+// TlsStream — self-managing TLS byte stream (Transport).
+//
+// Evolved from src/network/tls_connection.* (BIO/poll/ssl-ctx internals
+// reused), with a redesigned surface: the CancellationToken is bound at
+// construction, lifecycle is owned by ensure_connected(), and no method
+// takes a token.
 //
 
-#ifndef YADDNSC_NETWORK_TRANSPORT_TLS_STREAM_H
-#define YADDNSC_NETWORK_TRANSPORT_TLS_STREAM_H
+#ifndef YADDNSC_NET_TRANSPORT_TLS_STREAM_H
+#define YADDNSC_NET_TRANSPORT_TLS_STREAM_H
 
-#include <cstddef>
+#include <chrono>
 #include <cstdint>
 #include <expected>
+#include <memory>
 #include <span>
+#include <string>
+#include <vector>
 
+#include <openssl/ssl.h>
+
+#include "network/transport/detail/socket_stream.h"
+#include "network/transport/io_error.h"
+#include "network/transport/options.h"
 #include "network/transport/stream.h"
 
-namespace Utils {
-class CancellationToken;
-}
-
-class TlsConnectionBase;
+namespace Utils { class CancellationToken; }
 
 namespace Transport {
 
-/// Stream adapter that wraps a TlsConnection (or any TlsConnectionBase).
+struct SslContextDeleter {
+    void operator()(SSL_CTX *ctx) const noexcept;
+};
+using SslCtxPtr = std::unique_ptr<SSL_CTX, SslContextDeleter>;
+
+/// A TLS byte stream over TCP.
 ///
-/// Maps TlsConnectionBase::IoStatus to Transport::IoError so that
-/// transport-agnostic protocol readers can operate over TLS without
-/// depending on TlsConnection directly.
+/// Owns the socket (via detail::SocketStream), the SSL_CTX (shared default
+/// or per-instance for custom CA / verification off) and the SSL session.
+/// Non-movable: hand out via std::unique_ptr.
 class TlsStream final : public Stream {
 public:
-    explicit TlsStream(TlsConnectionBase &conn) noexcept : conn_(conn) {}
+    /// @throws std::invalid_argument when host is neither a valid IP nor a
+    ///         valid domain name (validated eagerly, no I/O).
+    TlsStream(std::string host, std::uint16_t port, Options opts, TlsOptions tls_opts,
+              Utils::CancellationToken token);
 
-    [[nodiscard]] std::expected<size_t, IoError> read_some(
-        std::span<std::uint8_t> buf,
-        const Utils::CancellationToken &cancel_token) override;
+    ~TlsStream() override;
 
-    [[nodiscard]] std::expected<void, IoError> read_exact(
-        std::span<std::uint8_t> buf,
-        const Utils::CancellationToken &cancel_token) override;
+    TlsStream(const TlsStream &) = delete;
+    TlsStream &operator=(const TlsStream &) = delete;
 
-    [[nodiscard]] std::expected<void, IoError> send_all(
-        std::span<const std::uint8_t> data,
-        const Utils::CancellationToken &cancel_token) override;
+    [[nodiscard]] std::expected<void, IoError> ensure_connected() override;
+    void close() noexcept override;
+
+    [[nodiscard]] std::expected<size_t, IoError> read_some(std::span<std::uint8_t> buf) override;
+    [[nodiscard]] std::expected<void, IoError> read_exact(std::span<std::uint8_t> buf) override;
+    [[nodiscard]] std::expected<void, IoError> send_all(std::span<const std::uint8_t> data) override;
 
 private:
-    TlsConnectionBase &conn_;
+    [[nodiscard]] std::expected<void, IoError> connect(std::chrono::steady_clock::time_point deadline);
+    [[nodiscard]] std::expected<void, IoError> handshake(std::chrono::steady_clock::time_point deadline);
+    [[nodiscard]] bool is_healthy() const noexcept;
+
+    /// Single SSL_read attempt: poll-aware, returns bytes read (>= 1).
+    [[nodiscard]] std::expected<size_t, IoError> read_once(std::span<std::uint8_t> buf);
+
+    /// Active SSL_CTX: per-instance custom ctx when configured, otherwise
+    /// the shared default (verify-on, discovered CA).
+    [[nodiscard]] SSL_CTX *ssl_ctx() const noexcept;
+
+    detail::SocketStream socket_;
+    SslCtxPtr custom_ctx_;
+    SSL *ssl_ = nullptr;
+    Options opts_;
+    TlsOptions tls_opts_;
+    std::vector<unsigned char> alpn_proto_;
 };
 
-}  // namespace Transport
+} // namespace Transport
 
-#endif  // YADDNSC_NETWORK_TRANSPORT_TLS_STREAM_H
+#endif // YADDNSC_NET_TRANSPORT_TLS_STREAM_H

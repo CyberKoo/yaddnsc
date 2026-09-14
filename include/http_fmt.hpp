@@ -6,7 +6,8 @@
 #define YADDNSC_HTTP_FMT_H
 
 #include "fmt.hpp"
-#include "http_type.h"
+#include "http_client/protocol/wire.h"
+#include "http_client/types.h"
 
 #include <algorithm>
 #include <cctype>
@@ -172,39 +173,17 @@ namespace Utils::Redact {
 
 } // namespace Utils::Redact
 
-/// fmt / std::format formatter for HttpRequest
-/// (also covers DriverRequest, which is a type alias for HttpRequest).
+/// fmt / std::format formatter for net::http::Request
+/// (also covers DriverRequest, which is a type alias).
 
 #ifdef YADDNSC_USE_STD_FORMAT
 template<>
-struct std::formatter<HttpRequest> {
+struct std::formatter<net::http::Request> {
 #else
     template<>
-    struct fmt::formatter<HttpRequest> {
+    struct fmt::formatter<net::http::Request> {
 
 #endif
-
-    /// Convert an HttpMethod enum value to its string representation.
-    static std::string_view to_string(const HttpMethod type) {
-        switch (type) {
-            case HttpMethod::GET:
-                return "GET";
-            case HttpMethod::POST:
-                return "POST";
-            case HttpMethod::PUT:
-                return "PUT";
-            case HttpMethod::PATCH:
-                return "PATCH";
-            case HttpMethod::DEL:
-                return "DELETE";
-            case HttpMethod::HEAD:
-                return "HEAD";
-            case HttpMethod::OPTIONS:
-                return "OPTIONS";
-        }
-
-        std::unreachable();
-    }
 
     /// Format a key-value map range into a human-readable string, redacting
     /// credential-bearing header values.
@@ -230,27 +209,28 @@ struct std::formatter<HttpRequest> {
     }
 
     /// Parse the format specification.
-    /// HttpRequest accepts no custom format options, so this always
+    /// net::http::Request accepts no custom format options, so this always
     /// returns the end-of-spec iterator.
     /// @return  Iterator past the format spec (always ctx.begin()).
     static constexpr auto parse(format_parse_context &ctx) -> decltype(ctx.begin()) {
         return ctx.begin();
     }
 
-    /// Format an HttpRequest into the output context.
-    /// Renders as: HttpRequest(body="...", content_type="...", method="...", header="...")
+    /// Format a net::http::Request into the output context.
+    /// Renders as: Request(body="...", content_type="...", method="...", header="...")
     /// Sensitive header values and body/query parameters are redacted.
     /// @param request  The HTTP request to format.
     /// @param ctx      The format output context.
     /// @return         Iterator past the last written character.
     template<typename FormatContext>
-    auto format(const HttpRequest &request, FormatContext &ctx) const -> decltype(ctx.out()) {
+    auto format(const net::http::Request &request, FormatContext &ctx) const -> decltype(ctx.out()) {
         const auto &body = request.body.value_or("");
 
         return fmt::format_to(
             ctx.out(),
-            R"(HttpRequest(body="{}", content_type="{}", method="{}", header="{}"))",
-            Utils::Redact::redact_body(body), request.content_type, to_string(request.method),
+            R"(Request(body="{}", content_type="{}", method="{}", header="{}"))",
+            Utils::Redact::redact_body(body), request.content_type,
+            net::http::protocol::method_name(request.method),
             format_map(request.headers.begin(), request.headers.end())
         );
     }

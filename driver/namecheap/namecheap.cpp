@@ -47,7 +47,7 @@ DriverRequestContext NamecheapDriver::generate_request(const DriverConfig& confi
                            ctx.ip_addr);
 
     DriverRequest request{};
-    request.method = DriverHttpMethod::GET;
+    request.method = net::http::Method::GET;
 
     return {std::move(url), std::move(request)};
 }
@@ -56,7 +56,7 @@ DriverRequestContext NamecheapDriver::generate_request(const DriverConfig& confi
 //  NamecheapDriver::check_response
 // =============================================================================
 
-bool NamecheapDriver::check_response(const HttpResponse& response) const {
+bool NamecheapDriver::check_response(const net::http::Response& response) const {
     CORE_LOG_TRACE("Got {} from server.", response.body);
 
     // Parse the XML response with libxml2.

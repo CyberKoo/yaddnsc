@@ -47,7 +47,7 @@ TEST(DNSPodDriverTest, GenerateRequest_DefaultEndpointCn) {
 
     auto result = driver.generate_request(config, ctx);
     EXPECT_EQ(result.url, "https://dnsapi.cn/Record.Ddns");
-    EXPECT_EQ(result.request.method, DriverHttpMethod::POST);
+    EXPECT_EQ(result.request.method, net::http::Method::POST);
     EXPECT_EQ(result.request.content_type, "application/x-www-form-urlencoded");
 }
 
@@ -178,7 +178,7 @@ TEST(DNSPodDriverTest, GenerateRequest_MissingLoginToken_ThrowsParamParseExcepti
 
 TEST(DNSPodDriverTest, CheckResponse_StatusCode1WithRecord_ReturnsTrue) {
     DNSPodDriver driver;
-    HttpResponse resp{200, R"({
+    net::http::Response resp{200, R"({
         "status": {"code": "1", "message": "Action completed successfully", "created_at": "2024-01-01 00:00:00"},
         "record": {"id": 123, "name": "www.example.com", "value": "1.2.3.4"}
     })", {}};
@@ -187,7 +187,7 @@ TEST(DNSPodDriverTest, CheckResponse_StatusCode1WithRecord_ReturnsTrue) {
 
 TEST(DNSPodDriverTest, CheckResponse_StatusCode1NoRecord_ReturnsTrue) {
     DNSPodDriver driver;
-    HttpResponse resp{200, R"({
+    net::http::Response resp{200, R"({
         "status": {"code": "1", "message": "Action completed successfully", "created_at": "2024-01-01 00:00:00"}
     })", {}};
     EXPECT_TRUE(driver.check_response(resp));
@@ -195,7 +195,7 @@ TEST(DNSPodDriverTest, CheckResponse_StatusCode1NoRecord_ReturnsTrue) {
 
 TEST(DNSPodDriverTest, CheckResponse_ErrorStatusCode_ReturnsFalse) {
     DNSPodDriver driver;
-    HttpResponse resp{200, R"({
+    net::http::Response resp{200, R"({
         "status": {"code": "-1", "message": "Login fails", "created_at": "2024-01-01 00:00:00"}
     })", {}};
     EXPECT_FALSE(driver.check_response(resp));
@@ -203,19 +203,19 @@ TEST(DNSPodDriverTest, CheckResponse_ErrorStatusCode_ReturnsFalse) {
 
 TEST(DNSPodDriverTest, CheckResponse_MissingStatus_ReturnsFalse) {
     DNSPodDriver driver;
-    HttpResponse resp{200, R"({"record": {"id": 123, "name": "www", "value": "1.2.3.4"}})", {}};
+    net::http::Response resp{200, R"({"record": {"id": 123, "name": "www", "value": "1.2.3.4"}})", {}};
     EXPECT_FALSE(driver.check_response(resp));
 }
 
 TEST(DNSPodDriverTest, CheckResponse_UnparseableBody_ReturnsFalse) {
     DNSPodDriver driver;
-    HttpResponse resp{200, "not-json", {}};
+    net::http::Response resp{200, "not-json", {}};
     EXPECT_FALSE(driver.check_response(resp));
 }
 
 TEST(DNSPodDriverTest, CheckResponse_EmptyBody_ReturnsFalse) {
     DNSPodDriver driver;
-    HttpResponse resp{200, "", {}};
+    net::http::Response resp{200, "", {}};
     EXPECT_FALSE(driver.check_response(resp));
 }
 

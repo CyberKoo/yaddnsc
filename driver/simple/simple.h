@@ -23,7 +23,7 @@ public:
     [[nodiscard]] DriverDetail get_detail() const noexcept override;
 
     /// Validate the response — returns true for 2xx status codes.
-    [[nodiscard]] bool check_response(const HttpResponse &response) const override;
+    [[nodiscard]] bool check_response(const net::http::Response &response) const override;
 };
 
 #endif //YADDNSC_DRV_SIMPLE_SIMPLE_H

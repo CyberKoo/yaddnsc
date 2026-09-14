@@ -13,6 +13,10 @@
 
 class ResolverBase;
 
+namespace Utils {
+class CancellationToken;
+}
+
 /// ResolverRegistry — self-registering factory for DNS resolver types.
 ///
 /// Each resolver implementation registers its factory function via a
@@ -36,8 +40,10 @@ class ResolverBase;
 ///   auto resolver = DnsResolverRegistry::create(server);
 /// @endcode
 namespace DnsResolverRegistry {
-    /// Factory function type: receives a DNS server config and returns a resolver.
-    using FactoryFn = std::function<std::unique_ptr<ResolverBase>(const Config::DnsServer &)>;
+    /// Factory function type: receives a DNS server config + a cancellation
+    /// token (bound into the resolver at construction) and returns a resolver.
+    using FactoryFn = std::function<std::unique_ptr<ResolverBase>(const Config::DnsServer &,
+                                                                  const Utils::CancellationToken &)>;
 
     /// Register a factory for the given URI schema.
     /// @param schema   URI schema (e.g. "https", "tls"). Empty string is the
@@ -51,9 +57,11 @@ namespace DnsResolverRegistry {
     /// then dispatches to the registered factory.
     ///
     /// @param server  DNS server address and port.
+    /// @param token   Cancellation token bound into the created resolver.
     /// @return        A new resolver instance.
     /// @throws DnsLookupException  If no factory is registered for the schema.
-    [[nodiscard]] std::unique_ptr<ResolverBase> create(const Config::DnsServer &server);
+    [[nodiscard]] std::unique_ptr<ResolverBase> create(const Config::DnsServer &server,
+                                                       const Utils::CancellationToken &token);
 
     /// RAII helper for static registration.
     ///

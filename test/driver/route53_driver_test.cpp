@@ -83,7 +83,7 @@ TEST(Route53DriverTest, GenerateRequest_BasicARecord) {
               "https://route53.amazonaws.com/2013-04-01/hostedzone/Z3M79L5CQABCDE/rrset");
 
     // Check method and content type
-    EXPECT_EQ(result.request.method, DriverHttpMethod::POST);
+    EXPECT_EQ(result.request.method, net::http::Method::POST);
     EXPECT_EQ(result.request.content_type, "application/xml");
 
     // Check SigV4 headers are present (use find() — headers is multimap)
@@ -187,19 +187,19 @@ TEST(Route53DriverTest, GenerateRequest_MissingHostedZoneId_ThrowsParamParseExce
 
 TEST(Route53DriverTest, CheckResponse_PendingStatus_ReturnsTrue) {
     Route53Driver driver;
-    HttpResponse resp{200, make_success_xml("PENDING"), {}};
+    net::http::Response resp{200, make_success_xml("PENDING"), {}};
     EXPECT_TRUE(driver.check_response(resp));
 }
 
 TEST(Route53DriverTest, CheckResponse_InsyncStatus_ReturnsTrue) {
     Route53Driver driver;
-    HttpResponse resp{200, make_success_xml("INSYNC"), {}};
+    net::http::Response resp{200, make_success_xml("INSYNC"), {}};
     EXPECT_TRUE(driver.check_response(resp));
 }
 
 TEST(Route53DriverTest, CheckResponse_UnexpectedStatus_ReturnsFalse) {
     Route53Driver driver;
-    HttpResponse resp{200, make_success_xml("FAILED"), {}};
+    net::http::Response resp{200, make_success_xml("FAILED"), {}};
     EXPECT_FALSE(driver.check_response(resp));
 }
 
@@ -212,13 +212,13 @@ TEST(Route53DriverTest, CheckResponse_MissingStatus_ReturnsFalse) {
     <SubmittedAt>2024-01-01T00:00:00Z</SubmittedAt>
   </ChangeInfo>
 </ChangeResourceRecordSetsResponse>)";
-    HttpResponse resp{200, xml, {}};
+    net::http::Response resp{200, xml, {}};
     EXPECT_FALSE(driver.check_response(resp));
 }
 
 TEST(Route53DriverTest, CheckResponse_Non200_WithErrorXml_ReturnsFalse) {
     Route53Driver driver;
-    HttpResponse resp{400, make_error_xml("InvalidChangeBatch", "RRset with name www.example.com. and type A is not supported"), {}};
+    net::http::Response resp{400, make_error_xml("InvalidChangeBatch", "RRset with name www.example.com. and type A is not supported"), {}};
     EXPECT_FALSE(driver.check_response(resp));
 }
 
@@ -239,19 +239,19 @@ TEST(Route53DriverTest, CheckResponse_Non200_WithMultipleErrors_ReturnsFalse) {
   </Error>
   <RequestId>req456</RequestId>
 </ErrorResponse>)");
-    HttpResponse resp{403, xml, {}};
+    net::http::Response resp{403, xml, {}};
     EXPECT_FALSE(driver.check_response(resp));
 }
 
 TEST(Route53DriverTest, CheckResponse_Non200_UnparseableBody_ReturnsFalse) {
     Route53Driver driver;
-    HttpResponse resp{400, "not xml", {}};
+    net::http::Response resp{400, "not xml", {}};
     EXPECT_FALSE(driver.check_response(resp));
 }
 
 TEST(Route53DriverTest, CheckResponse_Non200_EmptyBody_ReturnsFalse) {
     Route53Driver driver;
-    HttpResponse resp{500, "", {}};
+    net::http::Response resp{500, "", {}};
     EXPECT_FALSE(driver.check_response(resp));
 }
 
@@ -299,7 +299,7 @@ TEST(Route53DriverTest, GenerateRequest_FqdnWithTrailingDot_NotDuplicated) {
 
 TEST(Route53DriverTest, CheckResponse_MalformedSuccessXml_ReturnsFalse) {
     Route53Driver driver;
-    HttpResponse resp{200, "not valid xml at all", {}};
+    net::http::Response resp{200, "not valid xml at all", {}};
     EXPECT_FALSE(driver.check_response(resp));
 }
 

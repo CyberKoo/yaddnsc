@@ -2,7 +2,9 @@
 // Created by Kotarou on 2026/6/28.
 //
 // Native resolver dispatcher — jthread-based concurrent dispatch with
-// per-thread cancellation pipes and no shared mutable state.
+// no shared mutable state. Cancellation lives inside each resolver (token
+// bound at construction); losers of a concurrent race simply finish on
+// their own timeouts.
 //
 
 #include "dispatcher.h"
@@ -21,7 +23,6 @@
 #include "dns/dns_error_info.h"
 #include "exception/dns_lookup.h"
 #include "util/cancellation_token.hpp"
-#include "util/fd.hpp"
 #include "util/random.hpp"
 #include "util/retry_util.hpp"
 
@@ -50,11 +51,10 @@ namespace {
     ///        Unexpected exceptions from the resolver/parser layer are caught here
     ///        to prevent std::terminate — this is NOT catch-to-convert for flow control.
     [[nodiscard]] std::expected<std::vector<std::string>, DnsErrorInfo>
-    try_resolve(const ResolverBase &resolver, const std::string &host, RecordKind type,
-                const Utils::CancellationToken &cancel_token) {
+    try_resolve(const ResolverBase &resolver, const std::string &host, RecordKind type) {
         try {
             // ── 1. Query the resolver (transport layer) ──
-            auto raw = resolver.query(host, type, cancel_token);
+            auto raw = resolver.query(host, type);
             if (!raw) {
                 return std::unexpected(std::move(raw.error()));
             }
@@ -163,7 +163,7 @@ public:
     run(std::span<const std::unique_ptr<ResolverBase>> batch);
 
 private:
-    void resolve_one(const std::stop_token &st, const ResolverBase &resolver);
+    void resolve_one(const ResolverBase &resolver);
 
     /// Signal completion by setting the promise to an empty vector when the
     /// last in-flight resolver finishes (prev reaches batch_count_ - 1).
@@ -214,7 +214,7 @@ SingleResolverRunner::run(const std::string &host, RecordKind type, std::uint32_
     unsigned actual_retries = 0;
     auto result = Utils::Retry::retry_on_error<std::vector<std::string>, DnsErrorInfo>(
         [this, &host, &type]() -> std::expected<std::vector<std::string>, DnsErrorInfo> {
-            return try_resolve(resolver_, host, type, {});
+            return try_resolve(resolver_, host, type);
         },
         max_retries, [](const DnsErrorInfo &e) { return is_retryable(e.code); },
         backoff_ms, &actual_retries);
@@ -263,7 +263,7 @@ FallbackRunner::run(const std::string &host, RecordKind type) const {
         const auto &resolver = resolvers_[idx];
         const auto id = resolver->get_id();
 
-        auto result = try_resolve(*resolver, host, type, {});
+        auto result = try_resolve(*resolver, host, type);
         if (result) {
             if (result->size() > 1) {
                 SPDLOG_WARN(R"(Resolver #{} Domain "{}" resolved to more than one address (count: {}))", id, host,
@@ -332,7 +332,7 @@ BatchRunner::run(std::span<const std::unique_ptr<ResolverBase>> batch) {
         threads.reserve(static_cast<size_t>(batch_count_));
 
         for (const auto &resolver: batch) {
-            threads.emplace_back(std::bind_front(&BatchRunner::resolve_one, this), std::ref(*resolver));
+            threads.emplace_back(&BatchRunner::resolve_one, this, std::ref(*resolver));
         }
 
         auto batch_result = future.get();
@@ -364,22 +364,8 @@ BatchRunner::run(std::span<const std::unique_ptr<ResolverBase>> batch) {
     });
 }
 
-void BatchRunner::resolve_one(const std::stop_token &st, const ResolverBase &resolver) {
-    auto [read, write] = Utils::make_pipe();
-
-    std::stop_callback cb(st, [&write] {
-        if (write) [[likely]] {
-            alignas(std::uint64_t) char buf[8] = {};
-            [[maybe_unused]] auto _ = ::write(write.get(), buf, sizeof(buf));
-        }
-    });
-
-    if (st.stop_requested()) {
-        return;
-    }
-
-    Utils::CancellationToken cancel_token(read.get());
-    auto result = try_resolve(resolver, host_, type_, cancel_token);
+void BatchRunner::resolve_one(const ResolverBase &resolver) {
+    auto result = try_resolve(resolver, host_, type_);
     const auto id = resolver.get_id();
 
     if (result) {

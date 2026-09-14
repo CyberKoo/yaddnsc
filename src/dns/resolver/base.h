@@ -38,11 +38,11 @@ public:
 
     /// Perform a DNS query and return the raw response packet.
     ///
-    /// @param host         Hostname to look up.
-    /// @param type         Record type (A, AAAA, etc.).
-    /// @param cancel_token Optional cancellation token.  All resolver types
-    ///                     (DohResolver, DotResolver, ClassicResolver) monitor
-    ///                     the token and abort the query on cancellation.
+    /// @param host  Hostname to look up.
+    /// @param type  Record type (A, AAAA, etc.).
+    ///
+    /// Cancellation is bound at resolver construction time; no token appears
+    /// in the query interface.
     ///
     /// @return  Raw DNS response packet bytes on success, or a DnsErrorInfo
     ///          describing the failure (transport error, NXDOMAIN, timeout, etc.).
@@ -50,8 +50,7 @@ public:
     ///          distinguish transient errors (RETRY, CONNECTION) from permanent
     ///          ones (NX_DOMAIN, NODATA).
     [[nodiscard]] virtual std::expected<std::vector<std::uint8_t>, DnsErrorInfo>
-    query(const std::string &host, RecordKind type,
-          const Utils::CancellationToken &cancel_token) const = 0;
+    query(const std::string &host, RecordKind type) const = 0;
 
     /// Return a human-readable resolver type name (e.g. "Classic", "DNS-Over-HTTPS").
     [[nodiscard]] virtual std::string_view get_type() const noexcept = 0;

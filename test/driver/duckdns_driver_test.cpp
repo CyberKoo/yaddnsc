@@ -39,7 +39,7 @@ TEST(DuckDnsDriverTest, GenerateRequest_BasicARecord) {
     auto result = driver.generate_request(config, ctx);
     EXPECT_EQ(result.url,
               "https://www.duckdns.org/update?domains=mydomain&token=my-token&ip=1.2.3.4");
-    EXPECT_EQ(result.request.method, DriverHttpMethod::GET);
+    EXPECT_EQ(result.request.method, net::http::Method::GET);
     EXPECT_FALSE(result.request.body.has_value());
 }
 
@@ -96,25 +96,25 @@ TEST(DuckDnsDriverTest, GenerateRequest_MissingToken_ThrowsParamParseException) 
 
 TEST(DuckDnsDriverTest, CheckResponse_OkBody_ReturnsTrue) {
     DuckDnsDriver driver;
-    HttpResponse resp{200, "OK", {}};
+    net::http::Response resp{200, "OK", {}};
     EXPECT_TRUE(driver.check_response(resp));
 }
 
 TEST(DuckDnsDriverTest, CheckResponse_VerboseOkBody_ReturnsTrue) {
     DuckDnsDriver driver;
-    HttpResponse resp{200, "OK\n127.0.0.1\nupdated successfully", {}};
+    net::http::Response resp{200, "OK\n127.0.0.1\nupdated successfully", {}};
     EXPECT_TRUE(driver.check_response(resp));
 }
 
 TEST(DuckDnsDriverTest, CheckResponse_KoBody_ReturnsFalse) {
     DuckDnsDriver driver;
-    HttpResponse resp{200, "KO", {}};
+    net::http::Response resp{200, "KO", {}};
     EXPECT_FALSE(driver.check_response(resp));
 }
 
 TEST(DuckDnsDriverTest, CheckResponse_EmptyBody_ReturnsFalse) {
     DuckDnsDriver driver;
-    HttpResponse resp{200, "", {}};
+    net::http::Response resp{200, "", {}};
     EXPECT_FALSE(driver.check_response(resp));
 }
 
@@ -122,13 +122,13 @@ TEST(DuckDnsDriverTest, CheckResponse_ErrorStatusWithOkBody_ReturnsTrue) {
     // DuckDNS check_response reads the body first, not the status code.
     // Even with a 500 status, a body starting with "OK" is treated as success.
     DuckDnsDriver driver;
-    HttpResponse resp{500, "OK", {}};
+    net::http::Response resp{500, "OK", {}};
     EXPECT_TRUE(driver.check_response(resp));
 }
 
 TEST(DuckDnsDriverTest, CheckResponse_ErrorStatusWithNonOkBody_ReturnsFalse) {
     DuckDnsDriver driver;
-    HttpResponse resp{500, "Internal Server Error", {}};
+    net::http::Response resp{500, "Internal Server Error", {}};
     EXPECT_FALSE(driver.check_response(resp));
 }
 

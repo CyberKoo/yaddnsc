@@ -9,6 +9,8 @@
 #include "ip_source/base.h"
 #include "ip_source/factory.h"
 
+#include "util/cancellation_token.hpp"
+
 #include "update_task.hpp"
 
 #include <glaze/json/generic.hpp>
@@ -27,7 +29,7 @@ namespace {
     }
 
     [[nodiscard]] std::unique_ptr<IpSourceBase> default_ip_source_factory(const Config::SubdomainConfig &cfg) {
-        return IpSourceFactory::create(cfg);
+        return IpSourceFactory::create(cfg, {});
     }
 } // anonymous namespace
 

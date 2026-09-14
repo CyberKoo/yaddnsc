@@ -34,9 +34,9 @@ public:
         return {.url = "https://example.com/update", .request = {}};
     }
 
-    [[nodiscard]] bool check_response(const HttpResponse &response) const override {
+    [[nodiscard]] bool check_response(const net::http::Response &response) const override {
         // Accept any 2xx response.
-        return response.status_code >= 200 && response.status_code < 300;
+        return response.status >= 200 && response.status < 300;
     }
 
     [[nodiscard]] DriverDetail get_detail() const noexcept override {
@@ -199,13 +199,13 @@ TEST(BaseDriverTest, Execute_RequiresHttpClient) {
 }
 
 // ── Log redaction ─────────────────────────────────────────────────────────
-// The HttpRequest formatter (http_fmt.hpp) must never emit credentials in
+// The net::http::Request formatter (http_fmt.hpp) must never emit credentials in
 // plain text: header values, form/query parameters, and JSON keys are
 // redacted, while non-sensitive fields are preserved for debugging.
 
-TEST(BaseDriverTest, HttpRequestFormatter_RedactsAuthorizationHeader) {
-    HttpRequest req;
-    req.method = HttpMethod::POST;
+TEST(BaseDriverTest, RequestFormatter_RedactsAuthorizationHeader) {
+    net::http::Request req;
+    req.method = net::http::Method::POST;
     req.headers.insert({"Authorization", "Bearer supersecret123"});
 
     const auto s = fmt::format("{}", req);
@@ -213,9 +213,9 @@ TEST(BaseDriverTest, HttpRequestFormatter_RedactsAuthorizationHeader) {
     EXPECT_NE(s.find("***"), std::string::npos);
 }
 
-TEST(BaseDriverTest, HttpRequestFormatter_RedactsFormBodySecrets) {
-    HttpRequest req;
-    req.method = HttpMethod::POST;
+TEST(BaseDriverTest, RequestFormatter_RedactsFormBodySecrets) {
+    net::http::Request req;
+    req.method = net::http::Method::POST;
     req.content_type = "application/x-www-form-urlencoded";
     req.body = "login_token=abc123,def456&domain_id=42&sub_domain=www";
 
@@ -227,9 +227,9 @@ TEST(BaseDriverTest, HttpRequestFormatter_RedactsFormBodySecrets) {
     EXPECT_NE(s.find("sub_domain=www"), std::string::npos);
 }
 
-TEST(BaseDriverTest, HttpRequestFormatter_RedactsJsonBodySecrets) {
-    HttpRequest req;
-    req.method = HttpMethod::PUT;
+TEST(BaseDriverTest, RequestFormatter_RedactsJsonBodySecrets) {
+    net::http::Request req;
+    req.method = net::http::Method::PUT;
     req.content_type = "application/json";
     req.body = R"({"type":"A","apiKey":"xyz789","ttl":30})";
 
