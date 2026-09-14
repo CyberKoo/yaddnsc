@@ -300,7 +300,7 @@ TEST_F(HttpClientTest, Get_ReturnsStatusHeadersBody) {
     auto resp = client.exchange(server_.base_url() + "/hello", req);
     ASSERT_TRUE(resp);
     EXPECT_EQ(resp->status, 200);
-    EXPECT_EQ(resp->body, "hello world");
+    EXPECT_EQ(resp->text(), "hello world");
     EXPECT_EQ(resp->headers.count("Content-Type"), 1);
 }
 
@@ -310,7 +310,7 @@ TEST_F(HttpClientTest, Get_QueryStringPreserved) {
 
     auto resp = client.exchange(server_.base_url() + "/query?a=1&b=two", req);
     ASSERT_TRUE(resp);
-    EXPECT_EQ(resp->body, "target=/query?a=1&b=two");
+    EXPECT_EQ(resp->text(), "target=/query?a=1&b=two");
 }
 
 TEST_F(HttpClientTest, Post_EchoesBody) {
@@ -325,7 +325,7 @@ TEST_F(HttpClientTest, Post_EchoesBody) {
     auto resp = client.exchange(server_.base_url() + "/echo", req);
     ASSERT_TRUE(resp);
     EXPECT_EQ(resp->status, 200);
-    EXPECT_EQ(resp->body, "payload-123");
+    EXPECT_EQ(resp->text(), "payload-123");
 }
 
 TEST_F(HttpClientTest, ChunkedResponse_Assembled) {
@@ -334,7 +334,7 @@ TEST_F(HttpClientTest, ChunkedResponse_Assembled) {
 
     auto resp = client.exchange(server_.base_url() + "/chunked", req);
     ASSERT_TRUE(resp);
-    EXPECT_EQ(resp->body, "part1-part2-part3");
+    EXPECT_EQ(resp->text(), "part1-part2-part3");
 }
 
 TEST_F(HttpClientTest, Redirect_IsFollowed) {
@@ -344,7 +344,7 @@ TEST_F(HttpClientTest, Redirect_IsFollowed) {
     auto resp = client.exchange(server_.base_url() + "/redirect", req);
     ASSERT_TRUE(resp);
     EXPECT_EQ(resp->status, 200);
-    EXPECT_EQ(resp->body, "hello world");
+    EXPECT_EQ(resp->text(), "hello world");
 }
 
 TEST_F(HttpClientTest, RedirectLoop_LimitExceeded) {
@@ -416,7 +416,7 @@ TEST_F(HttpClientTest, PersistentClient_ExchangesAgainstBaseOrigin) {
     auto resp = client.exchange("/hello", req);
     ASSERT_TRUE(resp);
     EXPECT_EQ(resp->status, 200);
-    EXPECT_EQ(resp->body_text(), "hello world");
+    EXPECT_EQ(resp->text(), "hello world");
 }
 
 TEST_F(HttpClientTest, PersistentClient_ReusesConnectionAcrossExchanges) {
@@ -438,7 +438,7 @@ TEST_F(HttpClientTest, PersistentClient_FollowsSameOriginRedirect) {
     auto resp = client.exchange("/redirect", req);
     ASSERT_TRUE(resp);
     EXPECT_EQ(resp->status, 200);
-    EXPECT_EQ(resp->body_text(), "hello world");
+    EXPECT_EQ(resp->text(), "hello world");
 }
 
 TEST_F(HttpClientTest, PersistentClient_InvalidBaseUrl_Throws) {
@@ -459,13 +459,13 @@ TEST_F(HttpClientTest, Session_ReusesConnectionAcrossExchanges) {
         .method = Method::GET, .target = "/hello", .headers = {{"Host", "127.0.0.1"}}};
     auto r1 = session.exchange(first);
     ASSERT_TRUE(r1);
-    EXPECT_EQ(r1->body, "hello world");
+    EXPECT_EQ(r1->text(), "hello world");
 
     net::http::protocol::WireRequest second{
         .method = Method::GET, .target = "/query?x=1", .headers = {{"Host", "127.0.0.1"}}};
     auto r2 = session.exchange(second);
     ASSERT_TRUE(r2);
-    EXPECT_EQ(r2->body, "target=/query?x=1");
+    EXPECT_EQ(r2->text(), "target=/query?x=1");
 }
 
 }  // namespace

@@ -167,11 +167,11 @@ DriverRequestContext AlibabaCloudDriver::generate_request(const DriverConfig &co
 // =============================================================================
 
 bool AlibabaCloudDriver::check_response(const net::http::Response &response) const {
-    CORE_LOG_TRACE("Got {} from server.", response.body);
+    CORE_LOG_TRACE("Got {} from server.", response.text());
 
     if (response.status == 200) {
         // On success, Alibaba DNS returns JSON with RecordId.
-        if (auto result = glz::read_json<AlibabaUpdateResponse>(response.body)) {
+        if (auto result = glz::read_json<AlibabaUpdateResponse>(response.text())) {
             CORE_LOG_DEBUG("DNS record updated successfully (RecordId: {})",
                            result.value().record_id);
             return true;
@@ -183,13 +183,13 @@ bool AlibabaCloudDriver::check_response(const net::http::Response &response) con
     }
 
     // Error responses include JSON with Code and Message.
-    if (!response.body.empty()) {
-        if (auto result = glz::read_json<AlibabaErrorResponse>(response.body)) {
+    if (!response.text().empty()) {
+        if (auto result = glz::read_json<AlibabaErrorResponse>(response.text())) {
             CORE_LOG_ERROR("Alibaba Cloud API error: {} ({})",
                            result.value().message, result.value().code);
         } else {
             CORE_LOG_ERROR("Alibaba Cloud API error (HTTP {}): {}",
-                           response.status, response.body);
+                           response.status, response.text());
         }
     } else {
         CORE_LOG_ERROR("Alibaba Cloud API request failed with HTTP status {}",

@@ -39,7 +39,7 @@ DriverRequestContext LinodeDriver::generate_request(const DriverConfig &config, 
 }
 
 bool LinodeDriver::check_response(const net::http::Response &response) const {
-    CORE_LOG_TRACE("Got {} from server.", response.body);
+    CORE_LOG_TRACE("Got {} from server.", response.text());
 
     // Linode returns 200 OK with the updated record object on success.
     if (response.status == 200) {
@@ -48,14 +48,14 @@ bool LinodeDriver::check_response(const net::http::Response &response) const {
     }
 
     // Error responses include a JSON body with error details.
-    if (!response.body.empty()) {
-        if (auto result = glz::read_json<LinodeErrorResponse>(response.body)) {
+    if (!response.text().empty()) {
+        if (auto result = glz::read_json<LinodeErrorResponse>(response.text())) {
             for (const auto &err : result.value().errors) {
                 CORE_LOG_ERROR("Linode API error{}: {}", err.field.empty() ? "" : fmt::format(" ({})", err.field),
                                err.reason);
             }
         } else {
-            CORE_LOG_ERROR("Linode API error (HTTP {}): {}", response.status, response.body);
+            CORE_LOG_ERROR("Linode API error (HTTP {}): {}", response.status, response.text());
         }
     } else {
         CORE_LOG_ERROR("Linode API request failed with HTTP status {}", response.status);

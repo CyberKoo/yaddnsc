@@ -63,11 +63,7 @@ std::expected<Response, Error> Client::exchange(const std::string_view url, cons
             if (eval.limit_reached) {
                 return std::unexpected(Error{ErrorCode::REDIRECT_LIMIT_EXCEEDED, "redirect limit exceeded"});
             }
-            return Response{
-                .status = raw->status,
-                .body = std::move(raw->body),
-                .headers = std::move(raw->headers),
-            };
+            return Response{raw->status, std::move(raw->body), std::move(raw->headers)};
         }
 
         // Follow the redirect: possibly a new origin, always a new target.

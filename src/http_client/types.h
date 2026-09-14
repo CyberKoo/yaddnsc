@@ -50,22 +50,34 @@ struct Request {
 
 /// An incoming HTTP response.
 ///
-/// The body is binary-safe raw bytes. Access it as text via body_text() or
-/// as bytes via body_bytes(), depending on what the caller expects.
-struct Response {
+/// The body is stored as raw octets (binary-safe) and is only ever exposed
+/// as views: text() for string payloads, bytes() for binary payloads.
+class Response {
+public:
+    Response(int status_code, std::string body, std::multimap<std::string, std::string> response_headers)
+        : status(status_code), headers(std::move(response_headers)), body_(std::move(body)) {
+    }
+
     int status;
-    std::string body; ///< Raw body bytes (binary-safe).
     std::multimap<std::string, std::string> headers;
 
     /// The body viewed as text (no encoding conversion is performed).
-    [[nodiscard]] std::string_view body_text() const noexcept {
-        return body;
+    [[nodiscard]] std::string_view text() const noexcept {
+        return body_;
     }
 
-    /// The body viewed as raw bytes.
-    [[nodiscard]] std::span<const std::uint8_t> body_bytes() const noexcept {
-        return {reinterpret_cast<const std::uint8_t *>(body.data()), body.size()};
+    /// The body viewed as raw octets.
+    [[nodiscard]] std::span<const std::uint8_t> bytes() const noexcept {
+        return {reinterpret_cast<const std::uint8_t *>(body_.data()), body_.size()};
     }
+
+    /// Body size in octets.
+    [[nodiscard]] std::size_t size() const noexcept {
+        return body_.size();
+    }
+
+private:
+    std::string body_; ///< Owning octets.
 };
 
 /// Size limits for a single exchange.

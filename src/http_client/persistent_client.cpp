@@ -96,11 +96,7 @@ std::expected<Response, Error> PersistentClient::exchange(const std::string_view
             if (eval.limit_reached) {
                 return std::unexpected(Error{ErrorCode::REDIRECT_LIMIT_EXCEEDED, "redirect limit exceeded"});
             }
-            return Response{
-                .status = raw->status,
-                .body = std::move(raw->body),
-                .headers = std::move(raw->headers),
-            };
+            return std::move(*raw);
         }
 
         auto& plan = *eval.plan;
@@ -118,7 +114,7 @@ std::expected<Response, Error> PersistentClient::exchange(const std::string_view
         }
 
         // Same origin: keep the connection and follow on it.
-        wire = std::move(plan.next);
+        wire = plan.next;
     }
 }
 

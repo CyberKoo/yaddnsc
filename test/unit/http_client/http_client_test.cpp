@@ -122,7 +122,7 @@ TEST(HttpClientExchange, FixedLengthBody) {
     auto resp = net::http::protocol::exchange(stream, make_get("/"), Limits{});
     ASSERT_TRUE(resp);
     EXPECT_EQ(resp->status, 200);
-    EXPECT_EQ(resp->body, "hello");
+    EXPECT_EQ(resp->text(), "hello");
     EXPECT_EQ(resp->headers.count("X-Custom"), 1);
 }
 
@@ -133,7 +133,7 @@ TEST(HttpClientExchange, SplitReadsAcrossHeadersAndBody) {
 
     auto resp = net::http::protocol::exchange(stream, make_get("/"), Limits{});
     ASSERT_TRUE(resp);
-    EXPECT_EQ(resp->body, "hello world");
+    EXPECT_EQ(resp->text(), "hello world");
 }
 
 TEST(HttpClientExchange, ChunkedBody) {
@@ -147,7 +147,7 @@ TEST(HttpClientExchange, ChunkedBody) {
 
     auto resp = net::http::protocol::exchange(stream, make_get("/"), Limits{});
     ASSERT_TRUE(resp);
-    EXPECT_EQ(resp->body, "hello world");
+    EXPECT_EQ(resp->text(), "hello world");
 }
 
 TEST(HttpClientExchange, CloseDelimitedBody) {
@@ -156,7 +156,7 @@ TEST(HttpClientExchange, CloseDelimitedBody) {
 
     auto resp = net::http::protocol::exchange(stream, make_get("/"), Limits{});
     ASSERT_TRUE(resp);
-    EXPECT_EQ(resp->body, "streamed body");
+    EXPECT_EQ(resp->text(), "streamed body");
 }
 
 TEST(HttpClientExchange, HeadResponseHasNoBody) {
@@ -168,7 +168,7 @@ TEST(HttpClientExchange, HeadResponseHasNoBody) {
     auto resp = net::http::protocol::exchange(stream, req, Limits{});
     ASSERT_TRUE(resp);
     EXPECT_EQ(resp->status, 200);
-    EXPECT_TRUE(resp->body.empty());
+    EXPECT_TRUE(resp->text().empty());
 }
 
 TEST(HttpClientExchange, RequestIsSerializedToStream) {

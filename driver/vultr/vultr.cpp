@@ -39,7 +39,7 @@ DriverRequestContext VultrDriver::generate_request(const DriverConfig &config, c
 }
 
 bool VultrDriver::check_response(const net::http::Response &response) const {
-    CORE_LOG_TRACE("Got {} from server.", response.body);
+    CORE_LOG_TRACE("Got {} from server.", response.text());
 
     // Vultr returns 204 No Content with an empty body on success.
     if (response.status == 204) {
@@ -48,13 +48,13 @@ bool VultrDriver::check_response(const net::http::Response &response) const {
     }
 
     // Error responses include a JSON body with error details.
-    if (!response.body.empty()) {
-        if (auto result = glz::read_json<VultrErrorResponse>(response.body)) {
+    if (!response.text().empty()) {
+        if (auto result = glz::read_json<VultrErrorResponse>(response.text())) {
             for (const auto &err : result.value().errors) {
                 CORE_LOG_ERROR("Vultr API error: {}", err.detail);
             }
         } else {
-            CORE_LOG_ERROR("Vultr API error (HTTP {}): {}", response.status, response.body);
+            CORE_LOG_ERROR("Vultr API error (HTTP {}): {}", response.status, response.text());
         }
     } else {
         CORE_LOG_ERROR("Vultr API request failed with HTTP status {}", response.status);

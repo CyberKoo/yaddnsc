@@ -61,12 +61,12 @@ DriverDetail SimpleDriver::get_detail() const noexcept {
 }
 
 bool SimpleDriver::check_response(const net::http::Response &response) const {
-    CORE_LOG_DEBUG("Status: {}, Response: {}", response.status, StringUtil::trim(response.body));
+    CORE_LOG_DEBUG("Status: {}, Response: {}", response.status, StringUtil::trim(response.text()));
 
     if (response.status >= 300) {
         CORE_LOG_ERROR("HTTP request failed with status code {}", response.status);
         return false;
     }
 
-    return !response.body.empty();
+    return !response.text().empty();
 }

@@ -32,10 +32,10 @@ DriverRequestContext DigitalOceanDriver::generate_request(const DriverConfig &co
 }
 
 bool DigitalOceanDriver::check_response(const net::http::Response &response) const {
-    CORE_LOG_TRACE("Got {} from server.", response.body);
+    CORE_LOG_TRACE("Got {} from server.", response.text());
 
     // Try success response: { "domain_record": { ... } }
-    if (auto result = glz::read_json<DigitalOceanDomainResponse>(response.body)) {
+    if (auto result = glz::read_json<DigitalOceanDomainResponse>(response.text())) {
         auto &record = result.value().domain_record;
         CORE_LOG_DEBUG("DNS record updated successfully: {} {} -> {} (TTL: {})", record.type, record.name, record.data,
                        record.ttl);
@@ -43,7 +43,7 @@ bool DigitalOceanDriver::check_response(const net::http::Response &response) con
     }
 
     // Try error response: { "id": "...", "message": "..." }
-    if (auto result = glz::read_json<DigitalOceanErrorResponse>(response.body)) {
+    if (auto result = glz::read_json<DigitalOceanErrorResponse>(response.text())) {
         auto &err = result.value();
         CORE_LOG_ERROR("DigitalOcean API error ({}): {}", err.id, err.message);
         return false;

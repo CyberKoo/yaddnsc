@@ -10,7 +10,9 @@
 #define YADDNSC_HTTP_CLIENT_PROTOCOL_EXCHANGE_H
 
 #include <map>
+#include <span>
 #include <string>
+#include <string_view>
 
 #include <expected>
 
@@ -27,6 +29,21 @@ struct RawResponse {
     int status;
     std::multimap<std::string, std::string> headers;
     std::string body;
+
+    /// The body viewed as text (no encoding conversion).
+    [[nodiscard]] std::string_view text() const noexcept {
+        return body;
+    }
+
+    /// The body viewed as raw octets.
+    [[nodiscard]] std::span<const std::uint8_t> bytes() const noexcept {
+        return {reinterpret_cast<const std::uint8_t *>(body.data()), body.size()};
+    }
+
+    /// Body size in octets.
+    [[nodiscard]] std::size_t size() const noexcept {
+        return body.size();
+    }
 };
 
 /// Map a transport-level I/O error to a domain error.

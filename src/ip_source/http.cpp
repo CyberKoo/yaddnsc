@@ -59,7 +59,7 @@ std::vector<InetAddress> HttpIpSource::resolve() const {
             fmt::format(R"(HTTP IP source "{}" did not return a valid response: {})", url_, resp.error().message));
     }
 
-    auto addr = InetAddress::parse(StringUtil::trim(resp->body));
+    auto addr = InetAddress::parse(StringUtil::trim(resp->text()));
     if (!addr) {
         throw std::runtime_error(fmt::format(R"(HTTP IP source "{}" did not return a valid message)", url_));
     }

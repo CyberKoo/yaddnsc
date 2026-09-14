@@ -46,7 +46,7 @@ struct ResolvedLocation {
                                            const std::uint16_t port,
                                            const std::string_view scheme) {
     const bool is_ipv6 = host.find(':') != std::string_view::npos;
-    const auto bracketed = is_ipv6 ? fmt::format("[{}]", host) : std::string(host);
+    auto bracketed = is_ipv6 ? fmt::format("[{}]", host) : std::string(host);
     if (port == default_port(scheme)) {
         return bracketed;
     }

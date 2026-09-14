@@ -37,20 +37,20 @@ DriverRequestContext DuckDnsDriver::generate_request(const DriverConfig &config,
 }
 
 bool DuckDnsDriver::check_response(const net::http::Response &response) const {
-    CORE_LOG_TRACE("Got {} from server.", response.body);
+    CORE_LOG_TRACE("Got {} from server.", response.text());
 
     // DuckDNS returns:
     //   "OK"           — success (non-verbose)
     //   "OK\n..."      — success (verbose mode)
     //   "KO"           — failure
-    if (response.body.starts_with("OK")) {
-        if (response.body.size() > 2) {
-            CORE_LOG_DEBUG("DNS record updated successfully: {}", response.body);
+    if (response.text().starts_with("OK")) {
+        if (response.text().size() > 2) {
+            CORE_LOG_DEBUG("DNS record updated successfully: {}", response.text());
         }
         return true;
     }
 
-    CORE_LOG_ERROR("DuckDNS API error: {}", response.body);
+    CORE_LOG_ERROR("DuckDNS API error: {}", response.text());
     return false;
 }
 

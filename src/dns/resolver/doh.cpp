@@ -205,8 +205,8 @@ std::expected<std::vector<std::uint8_t>, DnsErrorInfo> DohResolver::Impl::query(
             }
 
             // ---- 4. Validate the DNS response header (RFC 8484 §5.1 / RFC 1035 §4.1.1) ----
-            const auto *body_bytes = reinterpret_cast<const std::uint8_t *>(response->body.data());
-            const std::vector<std::uint8_t> body(body_bytes, body_bytes + response->body.size());
+            const auto octets = response->bytes();
+            const std::vector<std::uint8_t> body(octets.begin(), octets.end());
             auto valid = DNS::Validator::validate_response(query_bytes, body);
             if (!valid) {
                 return std::unexpected(std::move(valid.error()));

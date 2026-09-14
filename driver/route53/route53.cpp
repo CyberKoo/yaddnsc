@@ -151,12 +151,12 @@ DriverRequestContext Route53Driver::generate_request(const DriverConfig &config,
 // =============================================================================
 
 bool Route53Driver::check_response(const net::http::Response &response) const {
-    CORE_LOG_TRACE("Got {} from server.", response.body);
+    CORE_LOG_TRACE("Got {} from server.", response.text());
 
     if (response.status == 200) {
         // Route 53 returns HTTP 200 with <ChangeResourceRecordSetsResponse> on success.
-        xmlDocPtr doc = xmlReadMemory(response.body.data(),
-                                      static_cast<int>(response.body.size()),
+        xmlDocPtr doc = xmlReadMemory(response.text().data(),
+                                      static_cast<int>(response.text().size()),
                                       nullptr, nullptr, 0);
         if (!doc) {
             CORE_LOG_ERROR("Failed to parse Route 53 response XML");
@@ -210,9 +210,9 @@ bool Route53Driver::check_response(const net::http::Response &response) const {
     }
 
     // ── Error response: parse <ErrorResponse> XML ────────────────────────────
-    if (!response.body.empty()) {
-        xmlDocPtr doc = xmlReadMemory(response.body.data(),
-                                      static_cast<int>(response.body.size()),
+    if (!response.text().empty()) {
+        xmlDocPtr doc = xmlReadMemory(response.text().data(),
+                                      static_cast<int>(response.text().size()),
                                       nullptr, nullptr, 0);
         if (doc) {
             xmlXPathContextPtr xpath_ctx = xmlXPathNewContext(doc);
@@ -244,7 +244,7 @@ bool Route53Driver::check_response(const net::http::Response &response) const {
                     }
                 } else {
                     CORE_LOG_ERROR("Route 53 API error (HTTP {}): {}",
-                                   response.status, response.body);
+                                   response.status, response.text());
                 }
                 xmlXPathFreeObject(errors);
                 xmlXPathFreeContext(xpath_ctx);
@@ -252,7 +252,7 @@ bool Route53Driver::check_response(const net::http::Response &response) const {
             xmlFreeDoc(doc);
         } else {
             CORE_LOG_ERROR("Route 53 API error (HTTP {}): {}",
-                           response.status, response.body);
+                           response.status, response.text());
         }
     } else {
         CORE_LOG_ERROR("Route 53 API request failed with HTTP status {}",

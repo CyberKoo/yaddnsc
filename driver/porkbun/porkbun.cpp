@@ -46,9 +46,9 @@ DriverRequestContext PorkbunDriver::generate_request(const DriverConfig &config,
 }
 
 bool PorkbunDriver::check_response(const net::http::Response &response) const {
-    CORE_LOG_TRACE("Got {} from server.", response.body);
+    CORE_LOG_TRACE("Got {} from server.", response.text());
 
-    auto result = glz::read_json<PorkbunResponse>(response.body);
+    auto result = glz::read_json<PorkbunResponse>(response.text());
     if (!result) {
         CORE_LOG_ERROR("Failed to parse Porkbun API response");
         return false;

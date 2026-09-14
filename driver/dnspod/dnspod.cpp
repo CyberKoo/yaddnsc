@@ -73,9 +73,9 @@ DriverRequestContext DNSPodDriver::generate_request(const DriverConfig &config, 
 }
 
 bool DNSPodDriver::check_response(const net::http::Response &response) const {
-    CORE_LOG_TRACE("Got {} from server.", response.body);
+    CORE_LOG_TRACE("Got {} from server.", response.text());
 
-    auto result = glz::read_json<DnsPodResponse>(response.body);
+    auto result = glz::read_json<DnsPodResponse>(response.text());
     if (!result) {
         CORE_LOG_ERROR("Failed to parse DNSPod API response");
         return false;
@@ -83,7 +83,7 @@ bool DNSPodDriver::check_response(const net::http::Response &response) const {
 
     auto resp = result.value();
     if (!resp.status.has_value()) {
-        CORE_LOG_ERROR("Server returned an unknown error, raw response: {}", response.body);
+        CORE_LOG_ERROR("Server returned an unknown error, raw response: {}", response.text());
         return false;
     }
 

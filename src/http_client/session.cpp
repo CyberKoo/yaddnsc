@@ -68,11 +68,7 @@ std::expected<Response, Error> Session::exchange(const protocol::WireRequest& re
         }
     }
 
-    return Response{
-        .status = raw->status,
-        .body = std::move(raw->body),
-        .headers = std::move(raw->headers),
-    };
+    return Response{raw->status, std::move(raw->body), std::move(raw->headers)};
 }
 
 std::expected<protocol::RawResponse, Error> Session::do_exchange(const protocol::WireRequest& req) {

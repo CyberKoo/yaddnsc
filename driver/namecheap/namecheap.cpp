@@ -57,12 +57,12 @@ DriverRequestContext NamecheapDriver::generate_request(const DriverConfig& confi
 // =============================================================================
 
 bool NamecheapDriver::check_response(const net::http::Response& response) const {
-    CORE_LOG_TRACE("Got {} from server.", response.body);
+    CORE_LOG_TRACE("Got {} from server.", response.text());
 
     // Parse the XML response with libxml2.
     // All libxml2 resources are RAII-managed via xml_raii wrappers.
     xml_raii::unique_doc doc(
-        xmlReadMemory(response.body.data(), static_cast<int>(response.body.size()), nullptr, nullptr, 0));
+        xmlReadMemory(response.text().data(), static_cast<int>(response.text().size()), nullptr, nullptr, 0));
 
     if (!doc) {
         CORE_LOG_ERROR("Failed to parse Namecheap API response XML");

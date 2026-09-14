@@ -138,7 +138,7 @@ public:
 
 // A successful HTTP exchange returning 200.
 std::expected<net::http::Response, net::http::Error> ok_response() {
-    return net::http::Response{.status = 200, .body = "ok"};
+    return net::http::Response{200, "ok", {}};
 }
 
 } // namespace

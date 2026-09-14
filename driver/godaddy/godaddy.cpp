@@ -61,7 +61,7 @@ DriverRequestContext GoDaddyDriver::generate_request(const DriverConfig &config,
 }
 
 bool GoDaddyDriver::check_response(const net::http::Response &response) const {
-    CORE_LOG_TRACE("Got {} from server.", response.body);
+    CORE_LOG_TRACE("Got {} from server.", response.text());
 
     // GoDaddy returns 200 OK with an empty body on success.
     if (response.status == 200) {
@@ -70,8 +70,8 @@ bool GoDaddyDriver::check_response(const net::http::Response &response) const {
     }
 
     // Error responses typically include a JSON body with error details.
-    if (!response.body.empty()) {
-        CORE_LOG_ERROR("GoDaddy API error (HTTP {}): {}", response.status, response.body);
+    if (!response.text().empty()) {
+        CORE_LOG_ERROR("GoDaddy API error (HTTP {}): {}", response.status, response.text());
     } else {
         CORE_LOG_ERROR("GoDaddy API request failed with HTTP status {}", response.status);
     }

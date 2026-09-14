@@ -253,7 +253,7 @@ TEST_F(HttpFixture, Client_GetRoundtrip) {
     auto resp = client.exchange(server_.base_url() + "/ip", req);
     ASSERT_TRUE(resp);
     EXPECT_EQ(resp->status, 200);
-    EXPECT_EQ(resp->body_text(), "203.0.113.7");
+    EXPECT_EQ(resp->text(), "203.0.113.7");
 }
 
 TEST_F(HttpFixture, Client_PostEchoesBinaryBody) {
@@ -266,7 +266,7 @@ TEST_F(HttpFixture, Client_PostEchoesBinaryBody) {
     auto resp = client.exchange(server_.base_url() + "/echo", req);
     ASSERT_TRUE(resp);
     EXPECT_EQ(resp->status, 200);
-    const auto echoed = resp->body_bytes();
+    const auto echoed = resp->bytes();
     ASSERT_EQ(echoed.size(), payload.size());
     EXPECT_TRUE(std::equal(echoed.begin(), echoed.end(), payload.begin()));
 }
