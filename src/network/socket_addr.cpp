@@ -23,14 +23,14 @@ std::optional<SocketAddr> SocketAddr::from_inet(const InetAddress &addr, std::ui
             auto &sin = *reinterpret_cast<sockaddr_in *>(&result.storage_);
             sin.sin_family = AF_INET;
             sin.sin_port = htons(port);
-            std::ranges::copy_n(concrete.data(), 4, reinterpret_cast<std::uint8_t *>(&sin.sin_addr));
+            std::copy_n(concrete.data(), 4, reinterpret_cast<std::uint8_t *>(&sin.sin_addr));
             result.len_ = sizeof(sin);
         } else if constexpr (std::is_same_v<T, Inet6Address>) {
             auto &sin6 = *reinterpret_cast<sockaddr_in6 *>(&result.storage_);
             sin6.sin6_family = AF_INET6;
             sin6.sin6_port = htons(port);
             sin6.sin6_flowinfo = 0;
-            std::ranges::copy_n(concrete.data(), 16, reinterpret_cast<std::uint8_t *>(&sin6.sin6_addr));
+            std::copy_n(concrete.data(), 16, reinterpret_cast<std::uint8_t *>(&sin6.sin6_addr));
             sin6.sin6_scope_id = concrete.get_scope_id();
             result.len_ = sizeof(sin6);
         }
@@ -45,7 +45,7 @@ std::optional<SocketAddr> SocketAddr::from_inet(const InetAddress &addr, std::ui
 SocketAddr SocketAddr::from_raw(const sockaddr *addr, socklen_t len) noexcept {
     SocketAddr result;
     if (addr && len > 0 && static_cast<size_t>(len) <= sizeof(result.storage_)) {
-        std::ranges::copy_n(reinterpret_cast<const std::uint8_t *>(addr), static_cast<std::ptrdiff_t>(len),
+        std::copy_n(reinterpret_cast<const std::uint8_t *>(addr), static_cast<std::ptrdiff_t>(len),
                             reinterpret_cast<std::uint8_t *>(&result.storage_));
         result.len_ = len;
     }
@@ -72,13 +72,13 @@ std::optional<InetAddress> SocketAddr::address() const noexcept {
         case AF_INET: {
             const auto &sin = reinterpret_cast<const sockaddr_in *>(&storage_);
             Inet4Address::addr_type bytes{};
-            std::ranges::copy_n(reinterpret_cast<const std::uint8_t *>(&sin->sin_addr), 4, bytes.begin());
+            std::copy_n(reinterpret_cast<const std::uint8_t *>(&sin->sin_addr), 4, bytes.begin());
             return InetAddress{Inet4Address::from_bytes(bytes)};
         }
         case AF_INET6: {
             const auto &sin6 = reinterpret_cast<const sockaddr_in6 *>(&storage_);
             Inet6Address::addr_type bytes{};
-            std::ranges::copy_n(reinterpret_cast<const std::uint8_t *>(&sin6->sin6_addr), 16, bytes.begin());
+            std::copy_n(reinterpret_cast<const std::uint8_t *>(&sin6->sin6_addr), 16, bytes.begin());
             auto v6 = Inet6Address::from_bytes(bytes);
             if (sin6->sin6_scope_id != 0) {
                 v6.set_scope_id(sin6->sin6_scope_id);

@@ -10,6 +10,7 @@
 //
 // =============================================================================
 
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <cerrno>
@@ -227,7 +228,7 @@ protected:
         // Build ip_mreq: group address + INADDR_ANY interface.
         mreq_ = ip_mreq{};
         auto *dest = reinterpret_cast<std::uint8_t *>(&mreq_.imr_multiaddr);
-        std::ranges::copy_n(mcast_addr->data(), sizeof(mreq_.imr_multiaddr), dest);
+        std::copy_n(mcast_addr->data(), sizeof(mreq_.imr_multiaddr), dest);
         mreq_.imr_interface.s_addr = INADDR_ANY;
         responder_sock_->set_option(IPPROTO_IP, IP_ADD_MEMBERSHIP, mreq_).value();
 

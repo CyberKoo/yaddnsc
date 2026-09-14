@@ -635,7 +635,7 @@ TEST_F(ClassicNativeResolverTest, UdpResponseFromUnexpectedSource_IsDiscarded) {
     ASSERT_EQ(rdlength, 4);
 
     std::array<std::uint8_t, 4> ip_bytes{};
-    std::ranges::copy_n(response.begin() + static_cast<std::ptrdiff_t>(off + 12), 4, ip_bytes.begin());
+    std::copy_n(response.begin() + static_cast<std::ptrdiff_t>(off + 12), 4, ip_bytes.begin());
     EXPECT_EQ(ip_bytes, (std::array<std::uint8_t, 4>{198, 51, 100, 42}));
 }
 

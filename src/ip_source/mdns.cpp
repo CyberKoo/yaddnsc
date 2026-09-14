@@ -102,7 +102,7 @@ namespace {
             if constexpr (std::is_same_v<Tag, Ipv6Tag>) {
                 // Bridge: copy Inet6Address bytes → POSIX in6_addr.
                 auto *v6_dest = reinterpret_cast<std::uint8_t *>(&mreq_.ipv6mr_multiaddr);
-                std::ranges::copy_n(MDNS_IPV6_GROUP_INET.data(), sizeof(mreq_.ipv6mr_multiaddr), v6_dest);
+                std::copy_n(MDNS_IPV6_GROUP_INET.data(), sizeof(mreq_.ipv6mr_multiaddr), v6_dest);
                 mreq_.ipv6mr_interface = if_index;
                 if (auto res = sock_.set_option(IPPROTO_IPV6, IPV6_JOIN_GROUP, mreq_); !res) {
                     throw std::runtime_error(fmt::format(R"(mDNS IPV6_JOIN_GROUP failed: {})", errno_str(res.error())));
@@ -110,7 +110,7 @@ namespace {
             } else {
                 // Bridge: copy Inet4Address bytes → POSIX in_addr.
                 auto *v4_dest = reinterpret_cast<std::uint8_t *>(&mreq_.imr_multiaddr);
-                std::ranges::copy_n(MDNS_IPV4_GROUP_INET.data(), sizeof(mreq_.imr_multiaddr), v4_dest);
+                std::copy_n(MDNS_IPV4_GROUP_INET.data(), sizeof(mreq_.imr_multiaddr), v4_dest);
                 mreq_.imr_interface = pick_ipv4_interface_addr(interface);
                 if (auto res = sock_.set_option(IPPROTO_IP, IP_ADD_MEMBERSHIP, mreq_); !res) {
                     throw std::runtime_error(
@@ -157,7 +157,7 @@ namespace {
                 const auto &v4 = subnets[0].address;
                 in_addr addr{};
                 auto *addr_dest = reinterpret_cast<std::uint8_t *>(&addr);
-                std::ranges::copy_n(v4.data(), sizeof(addr), addr_dest);
+                std::copy_n(v4.data(), sizeof(addr), addr_dest);
                 return addr;
             }
             SPDLOG_WARN(R"(mDNS no IPv4 address found for interface "{}", falling back to INADDR_ANY)", interface);

@@ -9,11 +9,13 @@
 #define YADDNSC_TEST_FIXTURES_DISPATCHER_TESTS_H
 
 #include <array>
+#include <chrono>
 #include <cstdint>
 #include <expected>
 #include <poll.h>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <vector>
 
 #include <gmock/gmock.h>
