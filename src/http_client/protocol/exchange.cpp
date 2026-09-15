@@ -34,10 +34,13 @@ struct HeaderOutcome {
     bool ok = false;          ///< Headers fully parsed.
     bool incomplete = false;  ///< Need more bytes (-2).
     int status = 0;           ///< HTTP status code (valid when ok).
+    int minor_version = 1;    ///< HTTP/1.x minor version.
     size_t header_end = 0;    ///< Offset of body start (valid when ok).
     size_t content_length = 0;
     bool has_content_length = false;
     bool is_chunked = false;
+    bool connection_close = false;
+    bool connection_keep_alive = false;
     std::multimap<std::string, std::string> headers;
     Error error{ErrorCode::RESPONSE_PARSE_FAILED, {}};
 };
@@ -68,8 +71,14 @@ struct HeaderOutcome {
         return out;
     }
 
+    if (minor_version != 0 && minor_version != 1) {
+        out.error = {ErrorCode::RESPONSE_PARSE_FAILED, "unsupported HTTP version"};
+        return out;
+    }
+
     out.ok = true;
     out.status = status;
+    out.minor_version = minor_version;
     out.header_end = static_cast<size_t>(pret);
 
     bool has_transfer_encoding = false;
@@ -94,6 +103,9 @@ struct HeaderOutcome {
             }
             out.content_length = parsed;
             out.has_content_length = true;
+        } else if (StringUtil::iequals(name, "connection")) {
+            out.connection_close |= StringUtil::icontains(value, "close");
+            out.connection_keep_alive |= StringUtil::icontains(value, "keep-alive");
         } else if (StringUtil::iequals(name, "transfer-encoding")) {
             has_transfer_encoding = true;
             if (StringUtil::icontains(value, "chunked")) {
@@ -110,6 +122,11 @@ struct HeaderOutcome {
     if (out.has_content_length && has_transfer_encoding) {
         out.ok = false;
         out.error = {ErrorCode::RESPONSE_PARSE_FAILED, "response mixes Content-Length and Transfer-Encoding"};
+        return out;
+    }
+    if (out.minor_version == 0 && out.is_chunked) {
+        out.ok = false;
+        out.error = {ErrorCode::RESPONSE_PARSE_FAILED, "HTTP/1.0 response uses chunked encoding"};
         return out;
     }
     if (has_transfer_encoding && !out.is_chunked) {
@@ -130,14 +147,20 @@ struct HeaderOutcome {
 [[nodiscard]] std::expected<std::string, Error> read_fixed_body(Transport::Stream& stream,
                                                                 const size_t total,
                                                                 const std::string_view buffered,
-                                                                const WireRequest& req) {
+                                                                const WireRequest& req,
+                                                                std::string& pending) {
     std::string body;
     body.reserve(total);
-    body.assign(buffered.substr(0, std::min(buffered.size(), total)));
+    const auto available = std::min(buffered.size(), total);
+    body.assign(buffered.substr(0, available));
+    if (buffered.size() > available) {
+        pending.assign(buffered.substr(available));
+    }
 
     while (body.size() < total) {
         std::array<std::uint8_t, READ_CHUNK> buf{};
-        auto n = stream.read_some(buf);
+        const auto needed = std::min(buf.size(), total - body.size());
+        auto n = stream.read_some(std::span(buf.data(), needed));
         if (!n) {
             return std::unexpected(map_io_error(n.error(), context(req)));
         }
@@ -146,7 +169,6 @@ struct HeaderOutcome {
         }
         body.append(reinterpret_cast<const char*>(buf.data()), *n);
     }
-    body.resize(total);  // drop any over-read (pipelined) bytes
     return body;
 }
 
@@ -154,31 +176,34 @@ struct HeaderOutcome {
 [[nodiscard]] std::expected<std::string, Error> read_chunked_body(Transport::Stream& stream,
                                                                   const std::string_view buffered,
                                                                   const Limits& limits,
-                                                                  const WireRequest& req) {
+                                                                  const WireRequest& req,
+                                                                  std::string& pending) {
     std::vector<char> raw(buffered.begin(), buffered.end());
     std::string body;
 
     phr_chunked_decoder decoder{};
     decoder.consume_trailer = 1;
 
-    auto data_len = raw.size();
     for (;;) {
-        auto bufsz = data_len;
-        const auto ret = phr_decode_chunked(&decoder, raw.data(), &bufsz);
+        auto decoded_size = raw.size();
+        const auto ret = phr_decode_chunked(&decoder, raw.data(), &decoded_size);
         if (ret == -1) {
             return std::unexpected(Error{ErrorCode::RESPONSE_PARSE_FAILED, "malformed chunked body"});
         }
-        if (bufsz > 0) {
-            if (body.size() + bufsz > limits.max_body_bytes) {
+        if (decoded_size > 0) {
+            if (body.size() + decoded_size > limits.max_body_bytes) {
                 return std::unexpected(Error{ErrorCode::BODY_TOO_LARGE, "response body exceeds limit"});
             }
-            body.append(raw.data(), bufsz);
+            body.append(raw.data(), decoded_size);
         }
         if (ret >= 0) {
+            pending.assign(raw.data() + decoded_size, static_cast<size_t>(ret));
             return body;
         }
 
-        // Incomplete — read more raw chunk data.
+        // phr_decode_chunked has consumed all encoded bytes and retained its
+        // state internally; only newly received bytes belong in the next call.
+        raw.clear();
         std::array<std::uint8_t, READ_CHUNK> buf{};
         auto n = stream.read_some(buf);
         if (!n) {
@@ -188,7 +213,6 @@ struct HeaderOutcome {
             return std::unexpected(Error{ErrorCode::CONNECTION_LOST, "unexpected EOF inside chunked body"});
         }
         raw.assign(reinterpret_cast<const char*>(buf.data()), reinterpret_cast<const char*>(buf.data()) + *n);
-        data_len = raw.size();
     }
 }
 
@@ -235,7 +259,8 @@ Error map_io_error(const Transport::IoError err, const std::string_view stage) {
 
 std::expected<RawResponse, Error> exchange(Transport::Stream& stream,
                                            const WireRequest& req,
-                                           const Limits& limits) {
+                                           const Limits& limits,
+                                           std::string& pending) {
     // ── Send ──
     const auto wire = serialize(req);
     const auto* wire_bytes = reinterpret_cast<const std::uint8_t*>(wire.data());
@@ -244,46 +269,53 @@ std::expected<RawResponse, Error> exchange(Transport::Stream& stream,
     }
 
     // ── Read headers (incremental parse) ──
-    std::string buf;
-    buf.reserve(READ_CHUNK);
-    size_t total_read = 0;
+    std::string buf = std::move(pending);
+    pending.clear();
 
     HeaderOutcome headers;
     for (;;) {
-        headers = parse_headers(std::string_view(buf.data(), total_read), limits);
+        headers = parse_headers(buf, limits);
         if (headers.ok) {
+            // A 1xx response (except 101 Switching Protocols) is interim;
+            // consume it and parse the final response from the same stream.
+            if (headers.status >= 100 && headers.status < 200 && headers.status != 101) {
+                buf.erase(0, headers.header_end);
+                continue;
+            }
             break;
         }
         if (!headers.incomplete) {
             return std::unexpected(std::move(headers.error));
         }
-        if (total_read >= limits.max_header_bytes) {
+        if (buf.size() >= limits.max_header_bytes) {
             return std::unexpected(Error{ErrorCode::HEADERS_TOO_LARGE, "response headers exceed limit"});
         }
-        if (buf.size() < total_read + 1) {
-            buf.resize(std::min(buf.size() + READ_CHUNK, limits.max_header_bytes));
-        }
 
-        auto* read_ptr = reinterpret_cast<std::uint8_t*>(buf.data() + total_read);
-        const auto capacity = buf.size() - total_read;
-        auto n = stream.read_some(std::span(read_ptr, capacity));
+        std::array<std::uint8_t, READ_CHUNK> read_buf{};
+        const auto capacity = std::min(read_buf.size(), limits.max_header_bytes - buf.size());
+        auto n = stream.read_some(std::span(read_buf.data(), capacity));
         if (!n) {
             return std::unexpected(map_io_error(n.error(), context(req)));
         }
         if (*n == 0) {
             return std::unexpected(Error{ErrorCode::CONNECTION_LOST, "connection closed before response headers"});
         }
-        total_read += *n;
+        buf.append(reinterpret_cast<const char*>(read_buf.data()), *n);
     }
 
-    const auto buffered = std::string_view(buf).substr(headers.header_end, total_read - headers.header_end);
+    const auto buffered = std::string_view(buf).substr(headers.header_end);
 
     // ── Read body per framing ──
     std::expected<std::string, Error> body = std::string{};
-    if (headers.has_content_length) {
-        body = read_fixed_body(stream, headers.content_length, buffered, req);
+    const bool no_body = req.method == Method::HEAD || headers.status == 101 || headers.status == 204 ||
+                         headers.status == 304 || (headers.status >= 100 && headers.status < 200);
+    if (no_body) {
+        pending.assign(buffered);
+        body = std::string{};
+    } else if (headers.has_content_length) {
+        body = read_fixed_body(stream, headers.content_length, buffered, req, pending);
     } else if (headers.is_chunked) {
-        body = read_chunked_body(stream, buffered, limits, req);
+        body = read_chunked_body(stream, buffered, limits, req, pending);
     } else if (req.method != Method::HEAD) {
         body = read_until_eof(stream, buffered, limits, req);
     }
@@ -293,11 +325,27 @@ std::expected<RawResponse, Error> exchange(Transport::Stream& stream,
 
     SPDLOG_DEBUG("{} {} -> {} ({} bytes)", method_name(req.method), req.target, headers.status, body->size());
 
+    const bool request_closes = std::ranges::any_of(req.headers, [](const auto& header) {
+        return StringUtil::iequals(header.first, "connection") && StringUtil::icontains(header.second, "close");
+    });
+    const bool reusable = !request_closes && !headers.connection_close && headers.status != 101 &&
+                          (no_body || headers.has_content_length || headers.is_chunked) &&
+                          (headers.minor_version == 1 || headers.connection_keep_alive);
+
     return RawResponse{
         .status = headers.status,
+        .version = headers.minor_version == 0 ? HttpVersion::V1_0 : HttpVersion::V1_1,
+        .reusable = reusable,
         .headers = std::move(headers.headers),
         .body = std::move(*body),
     };
+}
+
+std::expected<RawResponse, Error> exchange(Transport::Stream& stream,
+                                           const WireRequest& req,
+                                           const Limits& limits) {
+    std::string pending;
+    return exchange(stream, req, limits, pending);
 }
 
 }  // namespace net::http::protocol

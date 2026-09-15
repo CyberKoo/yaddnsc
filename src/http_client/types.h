@@ -16,6 +16,12 @@
 
 namespace net::http {
 
+/// HTTP versions supported by the client.
+enum class HttpVersion {
+    V1_0,
+    V1_1,
+};
+
 /// HTTP request methods supported by the client.
 enum class Method {
     GET,
@@ -91,6 +97,11 @@ struct Limits {
 /// Embeds the transport options so everything is configured once, at
 /// construction.
 struct Options {
+    /// Protocol version emitted in requests. Responses may use either HTTP/1.0
+    /// or HTTP/1.1.
+    HttpVersion version{HttpVersion::V1_1};
+    /// Allow the connection to be reused when the peer also permits it.
+    bool keep_alive{true};
     Transport::Options transport;
     Transport::TlsOptions tls;
     std::string user_agent;

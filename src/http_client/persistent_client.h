@@ -29,7 +29,10 @@ class CancellationToken;
 
 namespace net::http {
 
-/// Persistent HTTP client: fixed origin, keep-alive connection.
+/// Persistent HTTP client: fixed origin, reusable HTTP/1.x connection.
+///
+/// HTTP/1.1 persists by default unless either side sends `Connection: close`.
+/// HTTP/1.0 persists only after explicit `Connection: keep-alive` negotiation.
 ///
 /// Also implements the HttpClient port: through the port, the `url`
 /// parameter of exchange() carries the same path semantics (the origin

@@ -55,24 +55,38 @@ std::expected<Response, Error> Session::exchange(const protocol::WireRequest& re
 
     auto raw = do_exchange(req);
     if (!raw) {
-        if (raw.error().code == ErrorCode::CONNECTION_LOST && is_idempotent(req.method)) {
-            // Rebuild the connection and retry once.
-            stream_.reset();
-            if (auto ready = ensure_stream(); !ready) {
-                return std::unexpected(std::move(ready.error()));
-            }
-            raw = do_exchange(req);
+        const auto should_retry = raw.error().code == ErrorCode::CONNECTION_LOST && is_idempotent(req.method);
+        // A failed exchange can leave unread bytes or a partially consumed
+        // response on the stream. Never issue another request on it.
+        stream_->close();
+        stream_.reset();
+        pending_.clear();
+
+        if (!should_retry) {
+            return std::unexpected(std::move(raw.error()));
         }
+        if (auto ready = ensure_stream(); !ready) {
+            return std::unexpected(std::move(ready.error()));
+        }
+        raw = do_exchange(req);
         if (!raw) {
+            stream_->close();
+            stream_.reset();
+            pending_.clear();
             return std::unexpected(std::move(raw.error()));
         }
     }
 
+    if (!raw->reusable) {
+        stream_->close();
+        stream_.reset();
+        pending_.clear();
+    }
     return Response{raw->status, std::move(raw->body), std::move(raw->headers)};
 }
 
 std::expected<protocol::RawResponse, Error> Session::do_exchange(const protocol::WireRequest& req) {
-    return protocol::exchange(*stream_, req, limits_);
+    return protocol::exchange(*stream_, req, limits_, pending_);
 }
 
 std::expected<void, Error> Session::ensure_stream() {
@@ -84,6 +98,7 @@ std::expected<void, Error> Session::ensure_stream() {
     }
     if (auto connected = stream_->ensure_connected(); !connected) {
         stream_.reset();
+        pending_.clear();
         return std::unexpected(map_connect_error(connected.error()));
     }
     return {};

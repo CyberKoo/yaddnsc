@@ -1,5 +1,5 @@
 //
-// Full HTTP/1.1 request-response exchange over a Transport::Stream.
+// Full HTTP/1.x request-response exchange over a Transport::Stream.
 //
 // The protocol layer is transport-agnostic and cancellation-agnostic:
 // cancellation surfaces as IoError::CANCELLED from the stream and is
@@ -27,6 +27,8 @@ namespace net::http::protocol {
 /// body as raw bytes.
 struct RawResponse {
     int status;
+    HttpVersion version{HttpVersion::V1_1};
+    bool reusable{false};
     std::multimap<std::string, std::string> headers;
     std::string body;
 
@@ -49,10 +51,19 @@ struct RawResponse {
 /// Map a transport-level I/O error to a domain error.
 [[nodiscard]] Error map_io_error(Transport::IoError err, std::string_view stage);
 
-/// Perform a complete request-response exchange.
+/// Perform a complete request-response exchange. The returned response records
+/// whether the peer permitted reusing the connection for another request.
 ///
 /// Does NOT connect: the caller owns lifecycle (Stream::ensure_connected /
 /// close). Safe to call on an already-connected stream only.
+[[nodiscard]] std::expected<RawResponse, Error> exchange(Transport::Stream& stream,
+                                                         const WireRequest& req,
+                                                         const Limits& limits,
+                                                         std::string& pending);
+
+/// One-shot convenience overload. Persistent callers must retain `pending`
+/// between exchanges so bytes read past one response remain available for the
+/// next response.
 [[nodiscard]] std::expected<RawResponse, Error> exchange(Transport::Stream& stream,
                                                          const WireRequest& req,
                                                          const Limits& limits);

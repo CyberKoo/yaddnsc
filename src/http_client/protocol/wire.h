@@ -21,6 +21,7 @@ namespace net::http::protocol {
 /// Fully-resolved HTTP/1.1 request, ready for serialization.
 struct WireRequest {
     Method method;
+    HttpVersion version{HttpVersion::V1_1};
     std::string target;                               ///< path + query, e.g. "/dns-query?x=1"
     std::multimap<std::string, std::string> headers;  ///< includes Host / UA / CL / CT
     std::optional<std::string> body;
@@ -48,7 +49,7 @@ struct WireRequest {
     return "GET";
 }
 
-/// Serialize to HTTP/1.1 wire format.
+/// Serialize to HTTP/1.0 or HTTP/1.1 wire format.
 [[nodiscard]] inline std::string serialize(const WireRequest& req) {
     std::string out;
     const size_t body_size = req.body.has_value() ? req.body->size() : 0;
@@ -57,7 +58,7 @@ struct WireRequest {
     out += method_name(req.method);
     out += ' ';
     out += req.target.empty() ? "/" : req.target;
-    out += " HTTP/1.1\r\n";
+    out += req.version == HttpVersion::V1_0 ? " HTTP/1.0\r\n" : " HTTP/1.1\r\n";
 
     for (const auto& [name, value] : req.headers) {
         out += name;

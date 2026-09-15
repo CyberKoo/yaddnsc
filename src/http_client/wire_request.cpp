@@ -40,11 +40,17 @@ protocol::WireRequest build_wire_request(const Request &req, const std::string_v
                                          const std::string_view host, const std::uint16_t port, const Options &opts) {
     protocol::WireRequest wire{
         .method = req.method,
+        .version = opts.version,
         .target = {},
         .headers = req.headers,
         .body = req.body,
     };
     wire.headers.emplace("Host", make_host_header(scheme, host, port));
+    if (opts.version == HttpVersion::V1_0) {
+        wire.headers.emplace("Connection", opts.keep_alive ? "keep-alive" : "close");
+    } else if (!opts.keep_alive) {
+        wire.headers.emplace("Connection", "close");
+    }
     if (!opts.user_agent.empty()) {
         wire.headers.emplace("User-Agent", opts.user_agent);
     }

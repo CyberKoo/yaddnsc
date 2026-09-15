@@ -121,6 +121,12 @@ TEST(HttpClientWire, EmptyTargetDefaultsToRoot) {
     EXPECT_TRUE(net::http::protocol::serialize(req).starts_with("GET / HTTP/1.1"));
 }
 
+TEST(HttpClientWire, SerializesHttp10Request) {
+    net::http::protocol::WireRequest req{
+        .method = Method::GET, .version = net::http::HttpVersion::V1_0, .target = "/legacy"};
+    EXPECT_TRUE(net::http::protocol::serialize(req).starts_with("GET /legacy HTTP/1.0"));
+}
+
 // ── exchange: body framing ───────────────────────────────────────────────────
 
 TEST(HttpClientExchange, FixedLengthBody) {
@@ -165,6 +171,56 @@ TEST(HttpClientExchange, CloseDelimitedBody) {
     auto resp = net::http::protocol::exchange(stream, make_get("/"), Limits{});
     ASSERT_TRUE(resp);
     EXPECT_EQ(resp->text(), "streamed body");
+    EXPECT_FALSE(resp->reusable);
+}
+
+TEST(HttpClientExchange, Http10KeepAliveWithContentLength_IsReusable) {
+    FakeStream stream;
+    stream.input = "HTTP/1.0 200 OK\r\nConnection: Keep-Alive\r\nContent-Length: 2\r\n\r\nok";
+
+    auto resp = net::http::protocol::exchange(stream, make_get("/"), Limits{});
+    ASSERT_TRUE(resp);
+    EXPECT_EQ(resp->version, net::http::HttpVersion::V1_0);
+    EXPECT_TRUE(resp->reusable);
+}
+
+TEST(HttpClientExchange, Http10WithoutKeepAlive_IsNotReusable) {
+    FakeStream stream;
+    stream.input = "HTTP/1.0 200 OK\r\nContent-Length: 2\r\n\r\nok";
+
+    auto resp = net::http::protocol::exchange(stream, make_get("/"), Limits{});
+    ASSERT_TRUE(resp);
+    EXPECT_FALSE(resp->reusable);
+}
+
+TEST(HttpClientExchange, NoBodyStatusPreservesNextResponse) {
+    FakeStream stream;
+    stream.input = "HTTP/1.1 204 No Content\r\n\r\nHTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok";
+    std::string pending;
+
+    auto first = net::http::protocol::exchange(stream, make_get("/first"), Limits{}, pending);
+    ASSERT_TRUE(first);
+    EXPECT_TRUE(first->text().empty());
+
+    auto second = net::http::protocol::exchange(stream, make_get("/second"), Limits{}, pending);
+    ASSERT_TRUE(second);
+    EXPECT_EQ(second->text(), "ok");
+}
+
+TEST(HttpClientExchange, ChunkedBodyPreservesNextResponse) {
+    FakeStream stream;
+    stream.input = "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n"
+                   "2\r\nok\r\n0\r\n\r\n"
+                   "HTTP/1.1 200 OK\r\nContent-Length: 3\r\n\r\ntwo";
+    std::string pending;
+
+    auto first = net::http::protocol::exchange(stream, make_get("/first"), Limits{}, pending);
+    ASSERT_TRUE(first);
+    EXPECT_EQ(first->text(), "ok");
+
+    auto second = net::http::protocol::exchange(stream, make_get("/second"), Limits{}, pending);
+    ASSERT_TRUE(second);
+    EXPECT_EQ(second->text(), "two");
 }
 
 TEST(HttpClientExchange, HeadResponseHasNoBody) {

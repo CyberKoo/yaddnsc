@@ -51,6 +51,7 @@ private:
     Limits limits_;
     std::mutex mutex_;
     std::unique_ptr<Transport::Stream> stream_;
+    std::string pending_;  ///< Bytes read past the current response boundary.
 };
 
 }  // namespace net::http

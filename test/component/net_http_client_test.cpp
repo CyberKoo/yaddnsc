@@ -47,6 +47,7 @@ namespace {
 struct HttpRequest {
     std::string method;
     std::string target;
+    std::string version;
     std::map<std::string, std::string> headers;  // lowercased names
     std::string body;
 };
@@ -116,9 +117,10 @@ private:
     [[nodiscard]] static std::string response(const int status,
                                               std::string reason,
                                               std::vector<std::pair<std::string, std::string>> headers,
-                                              const std::string& body) {
+                                              const std::string& body,
+                                              const std::string_view version = "HTTP/1.1") {
         headers.emplace_back("Content-Length", std::to_string(body.size()));
-        std::string out = fmt_line(status, std::move(reason));
+        std::string out = fmt_line(status, std::move(reason), version);
         for (const auto& [k, v] : headers) {
             out += k + ": " + v + "\r\n";
         }
@@ -127,8 +129,9 @@ private:
         return out;
     }
 
-    [[nodiscard]] static std::string fmt_line(const int status, std::string reason) {
-        return "HTTP/1.1 " + std::to_string(status) + " " + std::move(reason) + "\r\n";
+    [[nodiscard]] static std::string fmt_line(const int status, std::string reason,
+                                              const std::string_view version = "HTTP/1.1") {
+        return std::string(version) + " " + std::to_string(status) + " " + std::move(reason) + "\r\n";
     }
 
     [[nodiscard]] static std::string chunked_response(const std::vector<std::string>& chunks) {
@@ -158,6 +161,13 @@ private:
         }
         if (req.method == "GET" && req.target == "/chunked") {
             return chunked_response({"part1-", "part2-", "part3"});
+        }
+        if (req.method == "GET" && req.target == "/http10-keep-alive") {
+            if (req.version != "HTTP/1.0" || !req.headers.contains("connection") ||
+                req.headers.at("connection") != "keep-alive") {
+                return response(400, "Bad Request", {}, "missing HTTP/1.0 keep-alive");
+            }
+            return response(200, "OK", {{"Connection", "Keep-Alive"}}, "legacy", "HTTP/1.0");
         }
         if (req.method == "GET" && req.target == "/redirect") {
             return response(302, "Found", {{"Location", "/hello"}}, "");
@@ -231,6 +241,7 @@ private:
         const auto sp2 = first_line.find(' ', sp1 + 1);
         req.method = first_line.substr(0, sp1);
         req.target = first_line.substr(sp1 + 1, sp2 - sp1 - 1);
+        req.version = first_line.substr(sp2 + 1);
 
         size_t pos = first_line_end + 2;
         while (pos < header_block.size()) {
@@ -428,6 +439,22 @@ TEST_F(HttpClientTest, PersistentClient_ReusesConnectionAcrossExchanges) {
     ASSERT_TRUE(client.exchange("/query?x=1", req));
 
     // Both exchanges ran on ONE connection (keep-alive).
+    EXPECT_EQ(server_.connection_count(), before + 1);
+}
+
+TEST_F(HttpClientTest, PersistentClient_Http10KeepAlive_ReusesConnection) {
+    net::http::Options opts{.version = net::http::HttpVersion::V1_0};
+    net::http::PersistentClient client(server_.base_url(), opts);
+    net::http::Request req{.method = Method::GET};
+
+    const auto before = server_.connection_count();
+    auto first = client.exchange("/http10-keep-alive", req);
+    auto second = client.exchange("/http10-keep-alive", req);
+
+    ASSERT_TRUE(first);
+    ASSERT_TRUE(second);
+    EXPECT_EQ(first->text(), "legacy");
+    EXPECT_EQ(second->text(), "legacy");
     EXPECT_EQ(server_.connection_count(), before + 1);
 }
 

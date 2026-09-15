@@ -37,11 +37,9 @@ public:
     std::optional<IoError> fail_reads;
     std::optional<IoError> connect_error;
     std::string sent;
-    /// Max bytes returned per read_some call. Set this to one response's
-    /// length when a single stream serves several exchanges: a real
-    /// HTTP/1.1 server without pipelining never sends response N+1 before
-    /// receiving request N+1, and exchange() drops over-read pipelined
-    /// bytes by design.
+    /// Max bytes returned per read_some call. Useful to model a server that
+    /// does not make a subsequent response available before receiving the
+    /// next request.
     size_t max_chunk = 0;
 
     [[nodiscard]] std::expected<void, IoError> ensure_connected() override {
@@ -270,6 +268,16 @@ TEST(HttpWireRequest, BuildWireRequest_WithUserAgent) {
     EXPECT_EQ(wire.headers.find("User-Agent")->second, "yaddnsc-test");
 }
 
+TEST(HttpWireRequest, Http10EmitsExplicitConnectionPolicy) {
+    net::http::Options opts{.version = net::http::HttpVersion::V1_0};
+    auto keep_alive = net::http::build_wire_request(plain_get(), "http", "a.test", 80, opts);
+    EXPECT_EQ(keep_alive.headers.find("Connection")->second, "keep-alive");
+
+    opts.keep_alive = false;
+    auto close = net::http::build_wire_request(plain_get(), "http", "a.test", 80, opts);
+    EXPECT_EQ(close.headers.find("Connection")->second, "close");
+}
+
 TEST(HttpWireRequest, BuildWireRequest_BodyWithAndWithoutContentType) {
     net::http::Options opts;
 
@@ -359,6 +367,47 @@ TEST(HttpPersistentClient, AbsoluteUrl_ContributesOnlyPathAndQuery) {
 }
 
 // ── redirect handling ────────────────────────────────────────────────────────
+
+TEST(HttpPersistentClient, ConnectionClose_RebuildsSession) {
+    auto factory = std::make_shared<FakeFactory>();
+    factory->tcp_streams.push_back(
+        stream_responding("HTTP/1.1 200 OK\r\nConnection: close\r\nContent-Length: 3\r\n\r\none"));
+    factory->tcp_streams.push_back(ok_stream("two"));
+
+    const net::http::PersistentClient client("http://a.test", {}, factory);
+    auto first = client.exchange("/one", plain_get());
+    auto second = client.exchange("/two", plain_get());
+
+    ASSERT_TRUE(first);
+    ASSERT_TRUE(second);
+    EXPECT_EQ(first->text(), "one");
+    EXPECT_EQ(second->text(), "two");
+    EXPECT_EQ(factory->tcp_hosts.size(), 2);
+}
+
+TEST(HttpPersistentClient, Http10KeepAlive_ReusesSession) {
+    auto factory = std::make_shared<FakeFactory>();
+    auto stream = std::make_unique<FakeStream>();
+    auto* stream_ptr = stream.get();
+    stream->input = "HTTP/1.0 200 OK\r\nConnection: Keep-Alive\r\nContent-Length: 3\r\n\r\none"
+                    "HTTP/1.0 200 OK\r\nConnection: Keep-Alive\r\nContent-Length: 3\r\n\r\ntwo";
+    factory->tcp_streams.push_back(std::move(stream));
+
+    net::http::Options opts{.version = net::http::HttpVersion::V1_0};
+    const net::http::PersistentClient client("http://a.test", opts, factory);
+
+    auto first = client.exchange("/one", plain_get());
+    auto second = client.exchange("/two", plain_get());
+
+    ASSERT_TRUE(first);
+    ASSERT_TRUE(second);
+    EXPECT_EQ(first->text(), "one");
+    EXPECT_EQ(second->text(), "two");
+    ASSERT_EQ(factory->tcp_hosts.size(), 1);
+    EXPECT_TRUE(stream_ptr->sent.starts_with("GET /one HTTP/1.0\r\n"));
+    EXPECT_NE(stream_ptr->sent.find("Connection: keep-alive\r\n"), std::string::npos);
+    EXPECT_NE(stream_ptr->sent.find("GET /two HTTP/1.0\r\n"), std::string::npos);
+}
 
 TEST(HttpPersistentClient, SameOriginRedirect_FollowedOnSameConnection) {
     auto factory = std::make_shared<FakeFactory>();
