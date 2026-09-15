@@ -117,6 +117,7 @@ add_unit_test(factory_mdns SOURCE factory_mdns_test.cpp
     ${PROJECT_SOURCE_DIR}/src/ip_source/iface.cpp
     ${PROJECT_SOURCE_DIR}/src/ip_source/http.cpp
     ${PROJECT_SOURCE_DIR}/src/ip_source/mdns.cpp
+    ${PROJECT_SOURCE_DIR}/src/ip_source/mdns_response.cpp
     ${PROJECT_SOURCE_DIR}/src/ip_source/iface_util.cpp
     ${PROJECT_SOURCE_DIR}/src/network/socket.cpp
     ${PROJECT_SOURCE_DIR}/src/network/socket_addr.cpp

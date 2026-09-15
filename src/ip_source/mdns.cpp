@@ -13,10 +13,10 @@
 #include <utility>
 #include <vector>
 
-#include "dns/parser.h"
 #include "dns/util.hpp"
 #include "dns/wire/builder.h"
 
+#include "ip_source/mdns_response.h"
 #include "network/inet_address.h"
 #include "network/net_devices.h"
 #include "network/socket.h"
@@ -255,18 +255,6 @@ namespace {
     //  mDNS response validation
     // ===========================================================================
 
-    /// Case-insensitive owner-name comparison for mDNS records, ignoring a
-    /// trailing dot (mDNS names are case-insensitive per RFC 6762 §6.1).
-    [[nodiscard]] bool name_matches(std::string_view record_name, std::string_view queried) noexcept {
-        if (!record_name.empty() && record_name.back() == '.') {
-            record_name.remove_suffix(1);
-        }
-        if (!queried.empty() && queried.back() == '.') {
-            queried.remove_suffix(1);
-        }
-        return StringUtil::iequals(record_name, queried);
-    }
-
     /// Shared helper: poll, receive, parse DNS response.
     /// Throws std::runtime_error on any failure.
     [[nodiscard]] std::vector<InetAddress> recv_and_parse(Socket &sock, RecordKind type, const std::string &hostname) {
@@ -312,41 +300,10 @@ namespace {
 
             SPDLOG_TRACE(R"(mDNS received {} bytes for "{}")", recv_len, hostname);
 
-            // Parse and filter: only answers owned by the queried hostname
-            // with the requested record type are accepted.
-            DNS::RecordParser parser(std::span{recv_buf.data(), static_cast<size_t>(recv_len)});
-            const auto &msg = parser.message();
-
-            std::vector<InetAddress> results;
-            results.reserve(msg.answers.size());
-            for (size_t i = 0; i < msg.answers.size(); ++i) {
-                const auto &rr = msg.answers[i];
-                if (!name_matches(rr.name, hostname)) {
-                    SPDLOG_TRACE(R"(mDNS skipping record "{}" for "{}" (owner mismatch))", rr.name, hostname);
-                    continue;
-                }
-                if (type == RecordKind::A && rr.type != static_cast<std::uint16_t>(DNS::RecordType::A)) {
-                    continue;
-                }
-                if (type == RecordKind::AAAA && rr.type != static_cast<std::uint16_t>(DNS::RecordType::AAAA)) {
-                    continue;
-                }
-
-                auto rec = parser.parse_record(i);
-                if (type == RecordKind::A) {
-                    if (auto v4 = Inet4Address::parse(rec)) {
-                        results.emplace_back(*v4);
-                    } else {
-                        SPDLOG_DEBUG(R"(mDNS skipping non-A record "{}" for "{}")", rec, hostname);
-                    }
-                } else {
-                    if (auto v6 = Inet6Address::parse(rec)) {
-                        results.emplace_back(*v6);
-                    } else {
-                        SPDLOG_DEBUG(R"(mDNS skipping non-AAAA record "{}" for "{}")", rec, hostname);
-                    }
-                }
-            }
+            // Parse and filter only answers owned by the queried hostname
+            // with the requested record type.
+            auto results = Mdns::parse_response(
+                std::span{recv_buf.data(), static_cast<size_t>(recv_len)}, hostname, type);
 
             if (results.empty()) {
                 // E.g. another service's packet on the shared multicast group.

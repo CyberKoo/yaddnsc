@@ -162,6 +162,16 @@ TEST(DohResolverMockTest, ConnectCancelled_ReturnsCancelled) {
     EXPECT_EQ(result.error().code, DnsError::CANCELLED);
 }
 
+TEST(DohResolverMockTest, ConnectFailure_ReturnsConnection) {
+    auto mock = std::make_unique<MockStream>();
+    ON_CALL(*mock, ensure_connected()).WillByDefault(Return(std::unexpected(IoError::CONNECTION_FAILED)));
+    DohResolver resolver("127.0.0.1", 1443, "/dns-query", "mock:1443", std::move(mock));
+
+    const auto result = resolver.query("yaddnsc.test", RecordKind::A);
+    ASSERT_FALSE(result);
+    EXPECT_EQ(result.error().code, DnsError::CONNECTION);
+}
+
 // ---------------------------------------------------------------------------
 //  Exchange failure paths
 // ---------------------------------------------------------------------------
@@ -175,6 +185,17 @@ TEST(DohResolverMockTest, ExchangeCancelled_ReturnsCancelled) {
     auto result = resolver.query("yaddnsc.test", RecordKind::A);
     ASSERT_FALSE(result.has_value());
     EXPECT_EQ(result.error().code, DnsError::CANCELLED);
+}
+
+TEST(DohResolverMockTest, ExchangeTimeout_ReturnsConnection) {
+    auto mock = connected_mock();
+    ON_CALL(*mock, send_all(_)).WillByDefault(Return(std::expected<void, IoError>{}));
+    ON_CALL(*mock, read_some(_)).WillByDefault(Return(std::unexpected(IoError::TIMEOUT)));
+    DohResolver resolver("127.0.0.1", 1443, "/dns-query", "mock:1443", std::move(mock));
+
+    const auto result = resolver.query("yaddnsc.test", RecordKind::A);
+    ASSERT_FALSE(result);
+    EXPECT_EQ(result.error().code, DnsError::CONNECTION);
 }
 
 TEST(DohResolverMockTest, MalformedResponse_ReturnsParse) {
@@ -204,6 +225,17 @@ TEST(DohResolverMockTest, Status500_ReturnsRetry) {
     EXPECT_EQ(result.error().code, DnsError::RETRY);
 }
 
+TEST(DohResolverMockTest, Status204_ReturnsServerRefused) {
+    auto mock = connected_mock();
+    const auto body = make_dns_body(0x12, 0x34);
+    MockHttpPipe pipe(*mock, 204, body);
+    DohResolver resolver("127.0.0.1", 1443, "/dns-query", "mock:1443", std::move(mock));
+
+    const auto result = resolver.query("yaddnsc.test", RecordKind::A);
+    ASSERT_FALSE(result);
+    EXPECT_EQ(result.error().code, DnsError::SERVER_REFUSED);
+}
+
 TEST(DohResolverMockTest, Status404_ReturnsServerRefused) {
     auto mock = connected_mock();
     const auto body = make_dns_body(0x12, 0x34);
@@ -213,6 +245,18 @@ TEST(DohResolverMockTest, Status404_ReturnsServerRefused) {
     auto result = resolver.query("yaddnsc.test", RecordKind::A);
     ASSERT_FALSE(result.has_value());
     EXPECT_EQ(result.error().code, DnsError::SERVER_REFUSED);
+}
+
+TEST(DohResolverMockTest, RetryConnectionFailure_ReturnsConnection) {
+    auto mock = std::make_unique<MockStream>();
+    ON_CALL(*mock, ensure_connected()).WillByDefault(Return(std::expected<void, IoError>{}));
+    ON_CALL(*mock, send_all(_)).WillByDefault(Return(std::expected<void, IoError>{}));
+    ON_CALL(*mock, read_some(_)).WillByDefault(Return(std::unexpected(IoError::CONNECTION_FAILED)));
+    DohResolver resolver("127.0.0.1", 1443, "/dns-query", "mock:1443", std::move(mock));
+
+    const auto result = resolver.query("yaddnsc.test", RecordKind::A);
+    ASSERT_FALSE(result);
+    EXPECT_EQ(result.error().code, DnsError::CONNECTION);
 }
 
 // ---------------------------------------------------------------------------

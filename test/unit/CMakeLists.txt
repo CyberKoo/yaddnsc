@@ -118,6 +118,7 @@ add_unit_test(updater SOURCE core/updater_test.cpp
     ${PROJECT_SOURCE_DIR}/src/ip_source/iface.cpp
     ${PROJECT_SOURCE_DIR}/src/ip_source/http.cpp
     ${PROJECT_SOURCE_DIR}/src/ip_source/mdns.cpp
+    ${PROJECT_SOURCE_DIR}/src/ip_source/mdns_response.cpp
     ${PROJECT_SOURCE_DIR}/src/ip_source/iface_util.cpp
     ${PROJECT_SOURCE_DIR}/src/network/socket.cpp
     ${PROJECT_SOURCE_DIR}/src/network/socket_addr.cpp
@@ -238,9 +239,44 @@ add_unit_test(http_client SOURCE http_client/http_client_test.cpp
     ${PROJECT_SOURCE_DIR}/src/network/inet_address.cpp)
 target_link_libraries(test_http_client PRIVATE picohttpparser)
 
+# http_session — Session's persistent-connection policy (retry on connection
+# loss, scheme->factory pairing, connect-error mapping) via scripted fakes.
+add_unit_test(http_session SOURCE http_client/session_test.cpp
+    ${PROJECT_SOURCE_DIR}/src/http_client/session.cpp
+    ${PROJECT_SOURCE_DIR}/src/http_client/stream_factory.cpp
+    ${PROJECT_SOURCE_DIR}/src/http_client/protocol/exchange.cpp
+    ${PROJECT_SOURCE_DIR}/src/network/transport/tcp_stream.cpp
+    ${PROJECT_SOURCE_DIR}/src/network/transport/tls_stream.cpp
+    ${PROJECT_SOURCE_DIR}/src/network/transport/detail/socket_stream.cpp
+    ${PROJECT_SOURCE_DIR}/src/util/cert_util.cpp)
+target_link_libraries(test_http_session PRIVATE OpenSSL::SSL OpenSSL::Crypto picohttpparser)
+
+# http_persistent — PersistentClient target/redirect semantics + the shared
+# wire-request helpers, driven through a scripted in-memory StreamFactory.
+add_unit_test(http_persistent SOURCE http_client/persistent_client_test.cpp
+    ${PROJECT_SOURCE_DIR}/src/http_client/persistent_client.cpp
+    ${PROJECT_SOURCE_DIR}/src/http_client/client.cpp
+    ${PROJECT_SOURCE_DIR}/src/http_client/session.cpp
+    ${PROJECT_SOURCE_DIR}/src/http_client/stream_factory.cpp
+    ${PROJECT_SOURCE_DIR}/src/http_client/wire_request.cpp
+    ${PROJECT_SOURCE_DIR}/src/http_client/redirect.cpp
+    ${PROJECT_SOURCE_DIR}/src/http_client/protocol/exchange.cpp
+    ${PROJECT_SOURCE_DIR}/src/network/transport/tcp_stream.cpp
+    ${PROJECT_SOURCE_DIR}/src/network/transport/tls_stream.cpp
+    ${PROJECT_SOURCE_DIR}/src/network/transport/detail/socket_stream.cpp
+    ${PROJECT_SOURCE_DIR}/src/util/cert_util.cpp)
+target_link_libraries(test_http_persistent PRIVATE OpenSSL::SSL OpenSSL::Crypto picohttpparser)
+
 # ============================================================================
 #  ip_source/  —  IP-source abstraction (header-only tests only)
 # ============================================================================
+
+# mdns_response — datagram parsing/filtering is pure logic; multicast socket
+# lifecycle remains covered by the component test.
+add_unit_test(mdns_response SOURCE ip_source/mdns_response_test.cpp
+    ${PROJECT_SOURCE_DIR}/src/ip_source/mdns_response.cpp
+    ${PROJECT_SOURCE_DIR}/src/dns/parser.cpp
+    ${PROJECT_SOURCE_DIR}/src/network/inet_address.cpp)
 
 # driver_magic — compile-time constant check, header-only
 add_unit_test(driver_magic SOURCE ip_source/driver_magic_test.cpp)

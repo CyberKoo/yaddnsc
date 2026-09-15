@@ -40,6 +40,8 @@ public:
     std::string input;
     size_t chunk_size = 0;  // 0 → serve as much as fits
     std::optional<IoError> fail_reads;
+    std::optional<IoError> fail_writes;
+    bool return_zero_reads = false;
     std::string sent;
 
     [[nodiscard]] std::expected<void, IoError> ensure_connected() override { return {}; }
@@ -49,6 +51,9 @@ public:
     [[nodiscard]] std::expected<size_t, IoError> read_some(std::span<std::uint8_t> buf) override {
         if (fail_reads) {
             return std::unexpected(*fail_reads);
+        }
+        if (return_zero_reads) {
+            return 0;
         }
         if (pos_ >= input.size()) {
             return std::unexpected(IoError::CONNECTION_FAILED);  // EOF
@@ -75,6 +80,9 @@ public:
     }
 
     [[nodiscard]] std::expected<void, IoError> send_all(std::span<const std::uint8_t> data) override {
+        if (fail_writes) {
+            return std::unexpected(*fail_writes);
+        }
         sent.append(reinterpret_cast<const char*>(data.data()), data.size());
         return {};
     }
@@ -200,6 +208,20 @@ TEST(HttpClientExchange, MalformedHeaders_Fail) {
     EXPECT_EQ(resp.error().code, ErrorCode::RESPONSE_PARSE_FAILED);
 }
 
+TEST(HttpClientExchange, InvalidContentLengthAndTransferEncoding_Fail) {
+    for (const auto* response : {
+             "HTTP/1.1 200 OK\r\nContent-Length: no\r\n\r\n",
+             "HTTP/1.1 200 OK\r\nContent-Length: 1\r\nTransfer-Encoding: chunked\r\n\r\n",
+             "HTTP/1.1 200 OK\r\nTransfer-Encoding: gzip\r\n\r\n",
+         }) {
+        FakeStream stream;
+        stream.input = response;
+        const auto resp = net::http::protocol::exchange(stream, make_get("/"), Limits{});
+        ASSERT_FALSE(resp);
+        EXPECT_EQ(resp.error().code, ErrorCode::RESPONSE_PARSE_FAILED);
+    }
+}
+
 TEST(HttpClientExchange, ConflictingContentLength_Fails) {
     FakeStream stream;
     stream.input = "HTTP/1.1 200 OK\r\nContent-Length: 5\r\nContent-Length: 6\r\n\r\nhello!";
@@ -228,6 +250,34 @@ TEST(HttpClientExchange, HeadersExceedLimit) {
     auto resp = net::http::protocol::exchange(stream, make_get("/"), limits);
     ASSERT_FALSE(resp);
     EXPECT_EQ(resp.error().code, ErrorCode::HEADERS_TOO_LARGE);
+}
+
+TEST(HttpClientExchange, ChunkedErrorsAndLimits_Fail) {
+    FakeStream malformed;
+    malformed.input = "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\nnot-a-chunk\r\n";
+    auto resp = net::http::protocol::exchange(malformed, make_get("/"), Limits{});
+    ASSERT_FALSE(resp);
+    EXPECT_EQ(resp.error().code, ErrorCode::RESPONSE_PARSE_FAILED);
+
+    FakeStream too_large;
+    too_large.input = "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nhello\r\n0\r\n\r\n";
+    resp = net::http::protocol::exchange(too_large, make_get("/"), {.max_body_bytes = 4});
+    ASSERT_FALSE(resp);
+    EXPECT_EQ(resp.error().code, ErrorCode::BODY_TOO_LARGE);
+}
+
+TEST(HttpClientExchange, ZeroReadAndSendFailure_MapToConnectionErrors) {
+    FakeStream zero;
+    zero.return_zero_reads = true;
+    auto resp = net::http::protocol::exchange(zero, make_get("/"), Limits{});
+    ASSERT_FALSE(resp);
+    EXPECT_EQ(resp.error().code, ErrorCode::CONNECTION_LOST);
+
+    FakeStream send_failure;
+    send_failure.fail_writes = IoError::TIMEOUT;
+    resp = net::http::protocol::exchange(send_failure, make_get("/"), Limits{});
+    ASSERT_FALSE(resp);
+    EXPECT_EQ(resp.error().code, ErrorCode::TIMEOUT);
 }
 
 TEST(HttpClientExchange, CancelledStream_MapsToCancelled) {

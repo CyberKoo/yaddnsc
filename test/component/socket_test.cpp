@@ -327,6 +327,27 @@ TEST(SocketTest, RecvExactOnStream) {
     EXPECT_EQ(std::string(reinterpret_cast<const char *>(buf.data()), 100), payload);
 }
 
+TEST(SocketTest, UdpSendToAndRecvFrom_DefaultOverloads) {
+    Socket server(AF_INET, SOCK_DGRAM);
+    Socket client(AF_INET, SOCK_DGRAM);
+    const auto loopback = InetAddress::parse("127.0.0.1");
+    ASSERT_TRUE(loopback);
+    const auto bind_addr = SocketAddr::from_inet(*loopback, 0);
+    ASSERT_TRUE(bind_addr);
+    ASSERT_TRUE(server.bind(*bind_addr));
+    const auto target = SocketAddr::from_inet(*loopback, server.get_sockname().port());
+    ASSERT_TRUE(target);
+
+    const std::string message = "default overloads";
+    ASSERT_EQ(client.send_to(std::as_bytes(std::span{message}), *target), static_cast<ssize_t>(message.size()));
+    std::array<std::byte, 32> buffer{};
+    SocketAddr sender;
+    const auto received = server.recv_from(std::span{buffer}, &sender);
+    ASSERT_EQ(received, static_cast<ssize_t>(message.size()));
+    EXPECT_EQ(sender.family(), AF_INET);
+    EXPECT_EQ(std::string(reinterpret_cast<const char*>(buffer.data()), static_cast<size_t>(received)), message);
+}
+
 TEST(SocketTest, RecvExactOnDatagram) {
     // recv_exact on a DGRAM socket should perform a single recv() call
     // (not loop), preserving datagram boundaries.
@@ -443,6 +464,33 @@ TEST(SocketTest, GetPeerNameAfterConnect) {
 // ===========================================================================
 // send/recv with explicit flags
 // ===========================================================================
+
+TEST(SocketTest, SendMsgAndRecvMsg) {
+    auto loopback = InetAddress::parse("127.0.0.1");
+    ASSERT_TRUE(loopback);
+    Socket server(AF_INET, SOCK_STREAM);
+    const auto bind_addr = SocketAddr::from_inet(*loopback, 0);
+    ASSERT_TRUE(bind_addr);
+    ASSERT_TRUE(server.bind(*bind_addr));
+    server.listen(1);
+    const auto target = SocketAddr::from_inet(*loopback, server.get_sockname().port());
+    ASSERT_TRUE(target);
+
+    Socket client(AF_INET, SOCK_STREAM);
+    ASSERT_TRUE(client.connect(*target));
+    Socket accepted = *server.accept();
+
+    std::array<char, 2> first{'o', 'k'};
+    iovec send_iov{.iov_base = first.data(), .iov_len = first.size()};
+    msghdr send_msg{.msg_iov = &send_iov, .msg_iovlen = 1};
+    ASSERT_EQ(client.sendmsg(&send_msg, 0), 2);
+
+    std::array<char, 2> received{};
+    iovec recv_iov{.iov_base = received.data(), .iov_len = received.size()};
+    msghdr recv_msg{.msg_iov = &recv_iov, .msg_iovlen = 1};
+    ASSERT_EQ(accepted.recvmsg(&recv_msg, 0), 2);
+    EXPECT_EQ(std::string_view(received.data(), received.size()), "ok");
+}
 
 TEST(SocketTest, SendRecvWithFlags) {
     auto loopback = InetAddress::parse("127.0.0.1");

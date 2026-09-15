@@ -234,6 +234,76 @@ void stop_tls_server() {
     return out;
 }
 
+// ===========================================================================
+//  Server that accepts and immediately closes — the client sees EOF right
+//  after connect. Loops until stopped.
+// ===========================================================================
+
+class AcceptThenCloseServer {
+public:
+    void start() {
+        listener_ = ::socket(AF_INET, SOCK_STREAM, 0);
+        ASSERT_GE(listener_, 0);
+
+        int one = 1;
+        ASSERT_EQ(::setsockopt(listener_, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one)), 0);
+
+        sockaddr_in addr{};
+        addr.sin_family = AF_INET;
+        addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+        addr.sin_port = 0;
+        ASSERT_EQ(::bind(listener_, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)), 0);
+        ASSERT_EQ(::listen(listener_, 8), 0);
+
+        socklen_t len = sizeof(addr);
+        ASSERT_EQ(::getsockname(listener_, reinterpret_cast<sockaddr*>(&addr), &len), 0);
+        port_ = ntohs(addr.sin_port);
+
+        running_ = true;
+        accept_thread_ = std::jthread([this] { accept_loop(); });
+    }
+
+    void stop() {
+        if (!running_) {
+            return;
+        }
+        running_ = false;
+        if (listener_ >= 0) {
+            const int wake = ::socket(AF_INET, SOCK_STREAM, 0);
+            if (wake >= 0) {
+                sockaddr_in addr{};
+                addr.sin_family = AF_INET;
+                addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+                addr.sin_port = htons(port_);
+                ::connect(wake, reinterpret_cast<sockaddr*>(&addr), sizeof(addr));
+                ::close(wake);
+            }
+            ::close(listener_);
+            listener_ = -1;
+        }
+    }
+
+    ~AcceptThenCloseServer() { stop(); }
+
+    [[nodiscard]] std::uint16_t port() const noexcept { return port_; }
+
+private:
+    void accept_loop() {
+        while (running_) {
+            const int conn = ::accept(listener_, nullptr, nullptr);
+            if (conn < 0) {
+                break;
+            }
+            ::close(conn);  // immediate EOF for the client
+        }
+    }
+
+    int listener_ = -1;
+    std::uint16_t port_ = 0;
+    bool running_ = false;
+    std::jthread accept_thread_;
+};
+
 }  // namespace
 
 // ===========================================================================
@@ -381,4 +451,120 @@ TEST_F(NetTlsStreamTest, EnsureConnected_IsIdempotent) {
     std::vector<std::uint8_t> buf(4 + 5);
     ASSERT_TRUE(stream.read_exact(buf));
     EXPECT_EQ(str(std::vector<std::uint8_t>(buf.begin() + 4, buf.end())), "twice");
+}
+
+// ===========================================================================
+//  Additional TcpStream paths: EOF, reconnect, empty reads
+// ===========================================================================
+
+class NetTransportCloseTest : public ::testing::Test {
+protected:
+    static void SetUpTestSuite() { server_.start(); }
+
+    static void TearDownTestSuite() { server_.stop(); }
+
+    inline static AcceptThenCloseServer server_;
+};
+
+TEST_F(NetTransportCloseTest, TcpStream_PeerClose_ReadReturnsConnectionFailed) {
+    Transport::TcpStream stream("127.0.0.1", server_.port(), {}, {});
+    ASSERT_TRUE(stream.ensure_connected());  // accepted, then closed by the server
+
+    std::vector<std::uint8_t> buf(4);
+    const auto result = stream.read_some(buf);
+    ASSERT_FALSE(result);
+    EXPECT_EQ(result.error(), IoError::CONNECTION_FAILED);  // EOF
+}
+
+TEST_F(NetTransportCloseTest, TcpStream_UnhealthyPeer_EnsureConnectedReconnects) {
+    Transport::TcpStream stream("127.0.0.1", server_.port(), {}, {});
+    ASSERT_TRUE(stream.ensure_connected());
+
+    std::vector<std::uint8_t> buf(4);
+    ASSERT_FALSE(stream.read_some(buf));  // peer closed -> connection unhealthy
+
+    // is_connected() is still true, but the EOF health probe must force a
+    // reconnect — which the accept/close server satisfies again.
+    EXPECT_TRUE(stream.ensure_connected());
+}
+
+TEST_F(TcpStreamTest, ReadSome_EmptyBuffer_ReturnsZero) {
+    Transport::TcpStream stream("127.0.0.1", server_.port(), {}, {});
+    ASSERT_TRUE(stream.ensure_connected());
+
+    std::span<std::uint8_t> empty;
+    const auto n = stream.read_some(empty);
+    ASSERT_TRUE(n);
+    EXPECT_EQ(*n, 0);
+}
+
+// ===========================================================================
+//  Additional TlsStream paths: close_notify, buffered-data health, SNI/ALPN
+// ===========================================================================
+
+TEST_F(NetTlsStreamTest, ReadAfterServerClose_ReturnsConnectionFailed) {
+    // The Python echo server closes the connection right after echoing.
+    Transport::TlsStream stream("127.0.0.1", TLS_PORT, {}, {.verify_peer = false}, {});
+    ASSERT_TRUE(stream.ensure_connected());
+
+    ASSERT_TRUE(stream.send_all(framed("bye")));
+    std::vector<std::uint8_t> buf(4 + 3);
+    ASSERT_TRUE(stream.read_exact(buf));
+
+    // The peer sent close_notify: the next read must surface CONNECTION_FAILED
+    // (SSL_ERROR_ZERO_RETURN), not success.
+    std::vector<std::uint8_t> more(1);
+    const auto result = stream.read_some(more);
+    ASSERT_FALSE(result);
+    EXPECT_EQ(result.error(), IoError::CONNECTION_FAILED);
+}
+
+TEST_F(NetTlsStreamTest, EnsureConnected_WithBufferedData_StaysOnConnection) {
+    Transport::TlsStream stream("127.0.0.1", TLS_PORT, {}, {.verify_peer = false}, {});
+    ASSERT_TRUE(stream.ensure_connected());
+
+    // The server sends the whole frame (4-byte prefix + payload) in one TLS
+    // record and then closes. Reading only the prefix leaves decrypted bytes
+    // in OpenSSL's buffer — the health probe must treat the connection as
+    // alive (SSL_pending > 0) even though the socket already shows EOF.
+    ASSERT_TRUE(stream.send_all(framed("buffered")));
+    std::vector<std::uint8_t> prefix(4);
+    ASSERT_TRUE(stream.read_exact(prefix));
+
+    EXPECT_TRUE(stream.ensure_connected());
+}
+
+TEST_F(NetTlsStreamTest, SniHostname_SetsSniAndVerificationHost) {
+    // A DNS name (not an IP literal) drives the SNI + hostname-verification
+    // branches. Verification is disabled here — the server cert is for
+    // 127.0.0.1 — but SSL_set_tlsext_host_name / SSL_set1_host still run.
+    // The SNI name is never resolved: TCP still targets 127.0.0.1.
+    Transport::TlsStream stream("127.0.0.1", TLS_PORT, {}, {.sni_hostname = "dns.example.com", .verify_peer = false},
+                                 {});
+    ASSERT_TRUE(stream.ensure_connected());
+
+    ASSERT_TRUE(stream.send_all(framed("named")));
+    std::vector<std::uint8_t> buf(4 + 5);
+    ASSERT_TRUE(stream.read_exact(buf));
+    EXPECT_EQ(str(std::vector<std::uint8_t>(buf.begin() + 4, buf.end())), "named");
+}
+
+TEST_F(NetTlsStreamTest, ScopedIpv6Sni_StripScopeBeforeIpVerification) {
+    // A scoped IPv6 literal must have the "%zone" stripped before
+    // X509_VERIFY_PARAM_set1_ip_asc (it parses addresses, not scopes).
+    Transport::TlsStream stream("127.0.0.1", TLS_PORT, {}, {.sni_hostname = "fe80::1%eth0", .verify_peer = false},
+                                 {});
+    ASSERT_TRUE(stream.ensure_connected());
+}
+
+TEST_F(NetTlsStreamTest, AlpnProto_SentDuringHandshake) {
+    // Wire-format ALPN protocol list: one protocol "h2".
+    static constexpr unsigned char alpn[] = {2, 'h', '2'};
+    Transport::TlsStream stream("127.0.0.1", TLS_PORT, {}, {.alpn_proto = alpn, .verify_peer = false}, {});
+    ASSERT_TRUE(stream.ensure_connected());
+
+    ASSERT_TRUE(stream.send_all(framed("alpn")));
+    std::vector<std::uint8_t> buf(4 + 4);
+    ASSERT_TRUE(stream.read_exact(buf));
+    EXPECT_EQ(str(std::vector<std::uint8_t>(buf.begin() + 4, buf.end())), "alpn");
 }

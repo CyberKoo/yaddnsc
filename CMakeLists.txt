@@ -346,6 +346,7 @@ add_library(yaddnsc_ip_source OBJECT
     src/ip_source/iface.cpp
     src/ip_source/http.cpp
     src/ip_source/mdns.cpp
+    src/ip_source/mdns_response.cpp
     src/ip_source/factory.cpp
 )
 target_link_libraries(yaddnsc_ip_source PRIVATE yaddnsc_compile_config)

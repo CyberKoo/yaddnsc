@@ -11,9 +11,14 @@
 #include <chrono>
 #include <thread>
 
+#include <arpa/inet.h>
+#include <cerrno>
 #include <expected>
+#include <fcntl.h>
 #include <gtest/gtest.h>
+#include <netinet/in.h>
 #include <poll.h>
+#include <sys/socket.h>
 #include <unistd.h>
 
 #include "network/transport/detail/socket_stream.h"
@@ -143,4 +148,157 @@ TEST(NetTransportPollFd, ReadyFd_ReturnsOk) {
 
     const auto result = Transport::detail::poll_fd(read_end.get(), POLLIN, 100ms, token);
     EXPECT_TRUE(result);
+}
+
+// ── error paths that need no connection (no network I/O) ─────────────────────
+
+TEST(NetTransportErrorPaths, TcpStream_ReadSome_WithoutConnection_Fails) {
+    const Utils::CancellationToken token;
+    Transport::TcpStream stream("127.0.0.1", 80, {}, token);
+
+    std::uint8_t buf[4];
+    const auto result = stream.read_some(buf);
+    ASSERT_FALSE(result);
+    EXPECT_EQ(result.error(), IoError::CONNECTION_FAILED);
+}
+
+TEST(NetTransportErrorPaths, TcpStream_SendAll_WithoutConnection_Fails) {
+    const Utils::CancellationToken token;
+    Transport::TcpStream stream("127.0.0.1", 80, {}, token);
+
+    const std::uint8_t data[4] = {1, 2, 3, 4};
+    const auto result = stream.send_all(data);
+    ASSERT_FALSE(result);
+    EXPECT_EQ(result.error(), IoError::CONNECTION_FAILED);
+}
+
+TEST(NetTransportErrorPaths, TlsStream_ReadSome_WithoutHandshake_Fails) {
+    const Utils::CancellationToken token;
+    Transport::TlsStream stream("127.0.0.1", 443, {}, {}, token);
+
+    std::uint8_t buf[4];
+    const auto result = stream.read_some(buf);
+    ASSERT_FALSE(result);
+    EXPECT_EQ(result.error(), IoError::CONNECTION_FAILED);
+}
+
+TEST(NetTransportErrorPaths, TlsStream_SendAll_WithoutHandshake_Fails) {
+    const Utils::CancellationToken token;
+    Transport::TlsStream stream("127.0.0.1", 443, {}, {}, token);
+
+    const std::uint8_t data[4] = {1, 2, 3, 4};
+    const auto result = stream.send_all(data);
+    ASSERT_FALSE(result);
+    EXPECT_EQ(result.error(), IoError::CONNECTION_FAILED);
+}
+
+TEST(NetTransportErrorPaths, SocketStream_Poll_WithoutFd_Fails) {
+    const Utils::CancellationToken token;
+    const Transport::detail::SocketStream stream("127.0.0.1", 80, {}, token);
+
+    const auto result = stream.poll(POLLIN, 0ms);
+    ASSERT_FALSE(result);
+    EXPECT_EQ(result.error(), IoError::CONNECTION_FAILED);
+}
+
+TEST(NetTransportErrorPaths, SocketStream_Connect_PreTriggeredToken_Cancelled) {
+    Utils::CancellationSource source;
+    source.trigger();
+
+    Transport::detail::SocketStream stream("127.0.0.1", 80, {}, source.token());
+    const auto result = stream.connect();
+    ASSERT_FALSE(result);
+    EXPECT_EQ(result.error(), IoError::CANCELLED);
+}
+
+TEST(NetTransportErrorPaths, SocketStream_Connect_ZeroBudget_TimesOut) {
+    const Utils::CancellationToken token;
+    Transport::detail::SocketStream stream("127.0.0.1", 80, {.connect_timeout = 0ms}, token);
+
+    const auto result = stream.connect();
+    ASSERT_FALSE(result);
+    EXPECT_EQ(result.error(), IoError::TIMEOUT);
+}
+
+TEST(NetTransportErrorPaths, SocketStream_Connect_BogusInterface_Fails) {
+    const Utils::CancellationToken token;
+    Transport::detail::SocketStream stream("127.0.0.1", 80, {.interface = std::string("bogus0")}, token);
+
+    const auto result = stream.connect();
+    ASSERT_FALSE(result);
+    EXPECT_EQ(result.error(), IoError::CONNECTION_FAILED);
+}
+
+namespace {
+
+/// An ephemeral loopback port that is guaranteed to have no listener.
+[[nodiscard]] std::uint16_t closed_loopback_port() {
+    const int fd = ::socket(AF_INET, SOCK_STREAM, 0);
+    if (fd < 0) {
+        return 1;  // fall back to a port that is virtually always closed
+    }
+    sockaddr_in addr{};
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    addr.sin_port = 0;
+    if (::bind(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) != 0) {
+        ::close(fd);
+        return 1;
+    }
+    socklen_t len = sizeof(addr);
+    if (::getsockname(fd, reinterpret_cast<sockaddr*>(&addr), &len) != 0) {
+        ::close(fd);
+        return 1;
+    }
+    const auto port = ntohs(addr.sin_port);
+    ::close(fd);  // releasing the bound port leaves it closed
+    return port;
+}
+
+}  // namespace
+
+TEST(NetTransportErrorPaths, SocketStream_Connect_RefusedPort_Fails) {
+    const Utils::CancellationToken token;
+    Transport::detail::SocketStream stream("127.0.0.1", closed_loopback_port(), {}, token);
+
+    const auto result = stream.connect();
+    ASSERT_FALSE(result);
+    EXPECT_EQ(result.error(), IoError::CONNECTION_FAILED);
+}
+
+TEST(NetTransportErrorPaths, SocketStream_Connect_UnresolvableHost_Fails) {
+    const Utils::CancellationToken token;
+    // Syntactically valid (passes eager validation), guaranteed non-existent.
+    Transport::detail::SocketStream stream("no-such-host-yaddnsc.invalid", 443, {}, token);
+
+    const auto result = stream.connect();
+    ASSERT_FALSE(result);
+    EXPECT_EQ(result.error(), IoError::CONNECTION_FAILED);
+}
+
+TEST(NetTransportPollFd, AsyncError_WithoutRequestedEvent_ReturnsConnectionFailed) {
+    const Utils::CancellationToken token;
+
+    // Non-blocking connect to a closed port: the refused-port RST surfaces
+    // through poll as POLLERR. Passing events=0 keeps the readiness bitmask
+    // from matching, so the error-flag branch of poll_fd is exercised
+    // (connect_one asks for POLLOUT, which would mask it).
+    const int fd = ::socket(AF_INET, SOCK_STREAM, 0);
+    ASSERT_GE(fd, 0);
+    const int flags = ::fcntl(fd, F_GETFL, 0);
+    ASSERT_NE(flags, -1);
+    ASSERT_EQ(::fcntl(fd, F_SETFL, flags | O_NONBLOCK), 0);
+
+    sockaddr_in addr{};
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    addr.sin_port = htons(closed_loopback_port());
+    ASSERT_EQ(::connect(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)), -1);
+    ASSERT_EQ(errno, EINPROGRESS);
+
+    const auto result = Transport::detail::poll_fd(fd, 0, 2s, token);
+    ::close(fd);
+
+    ASSERT_FALSE(result);
+    EXPECT_EQ(result.error(), IoError::CONNECTION_FAILED);
 }

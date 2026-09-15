@@ -134,6 +134,22 @@ TEST(DriverLoaderTest, AutoDiscover_NonExistentDir_DoesNotThrow) {
     EXPECT_TRUE(mgr.get_loaded_drivers().empty());
 }
 
+TEST(DriverLoaderTest, AutoDiscover_FileInsteadOfDirectory_DoesNotThrow) {
+    char path_template[] = "/tmp/yaddnsc_driver_file_XXXXXX";
+    const auto fd = ::mkstemp(path_template);
+    ASSERT_GE(fd, 0) << "mkstemp failed";
+    ::close(fd);
+
+    DriverManager mgr;
+    Config::AppConfig cfg;
+    cfg.driver.auto_discover = true;
+    cfg.driver.driver_dir = path_template;
+    EXPECT_NO_THROW({ DriverLoader::load(mgr, cfg); });
+    EXPECT_TRUE(mgr.get_loaded_drivers().empty());
+
+    ::unlink(path_template);
+}
+
 TEST(DriverLoaderTest, LoadByAbsolutePath) {
     DriverManager mgr;
     Config::AppConfig cfg;
@@ -200,6 +216,32 @@ TEST(DriverLoaderTest, AutoDiscover_SkipsBadLibraries) {
     auto loaded = mgr.get_loaded_drivers();
     ASSERT_EQ(loaded.size(), 1u);
     EXPECT_EQ(loaded[0], "simple");
+
+    std::filesystem::remove_all(dir);
+}
+
+TEST(DriverLoaderTest, AutoDiscover_IgnoresNonSharedFiles) {
+    char dir_template[] = "/tmp/yaddnsc_driver_test_XXXXXX";
+    auto *dir = ::mkdtemp(dir_template);
+    ASSERT_NE(dir, nullptr) << "mkdtemp failed";
+
+    std::filesystem::copy_file(std::string(TEST_DRIVER_DIR) + "/simple/simple.so",
+                               std::string(dir) + "/simple.so");
+    {
+        FILE *f = std::fopen((std::string(dir) + "/README.txt").c_str(), "w");
+        ASSERT_NE(f, nullptr);
+        std::fputs("not a driver", f);
+        std::fclose(f);
+    }
+    std::filesystem::create_directory(std::string(dir) + "/nested.so");
+
+    DriverManager mgr;
+    Config::AppConfig cfg;
+    cfg.driver.auto_discover = true;
+    cfg.driver.driver_dir = dir;
+    EXPECT_NO_THROW({ DriverLoader::load(mgr, cfg); });
+    ASSERT_EQ(mgr.get_loaded_drivers().size(), 1u);
+    EXPECT_EQ(mgr.get_loaded_drivers()[0], "simple");
 
     std::filesystem::remove_all(dir);
 }
