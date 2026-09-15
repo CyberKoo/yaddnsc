@@ -1,34 +1,60 @@
-# Drivers
+# DNS Provider Drivers
 
-A **driver** is a runtime-loadable plugin (`.so` shared library) that translates
-a DNS update request into the specific HTTP calls expected by a particular
-provider's API. Every driver handles three responsibilities:
+This reference lists the bundled DNS provider drivers and the parameters they
+require. Select a provider, prepare its credentials, and copy its
+`driver_param` example into your configuration.
 
-1. **Request construction** — given an IP address and record metadata,
-   it assembles the correct URL, headers, body, and HTTP method.
-2. **Response validation** — it parses the provider's response, determines
-   success or failure, and logs detailed error information when something goes wrong.
-3. **Self-description** — each driver publishes its name, version, author,
-   and a description, allowing the application to report loaded plugins and
-   verify ABI compatibility at startup.
+For installation and general configuration, see [`README.md`](README.md). For
+custom driver development, see [`docs/custom-drivers.md`](docs/custom-drivers.md).
 
-Drivers are loaded at runtime via `dlopen(3)` — adding, removing, or updating
-a driver does not require recompiling the main binary, as long as the plugin
-ABI remains compatible.
+## Before You Start
+
+- Keep API tokens, keys, and passwords out of source control.
+- Grant only the permissions required to update the intended DNS records.
+- Restrict your configuration file, for example: `chmod 600 config.json`.
+- Validate it before starting: `yaddnsc config test`.
+
+| Configuration name | Library file |
+|---|---|
+| `alibaba_cloud` | `alibaba_cloud.so` |
+| `cloudflare` | `cloudflare.so` |
+| `digital_ocean` | `digital_ocean.so` |
+| `dnspod` | `dnspod.so` |
+| `duckdns` | `duckdns.so` |
+| `godaddy` | `godaddy.so` |
+| `linode` | `linode.so` |
+| `namecheap` | `namecheap.so` |
+| `porkbun` | `porkbun.so` |
+| `route53` | `route53.so` |
+| `simple` | `simple.so` |
+| `vultr` | `vultr.so` |
+
+## Support at a Glance
+
+Use this table to narrow the provider list before reading its parameter section.
+“Existing only” means the driver updates an existing record and does not create
+one. Provider APIs and account plans can impose additional limits.
+
+| Provider | Driver | A | AAAA | TXT | Record behaviour |
+|---|---|---:|---:|---:|---|
+| Alibaba Cloud | `alibaba_cloud` | Yes | Yes | — | Existing record |
+| Cloudflare | `cloudflare` | Yes | Yes | Yes | Existing record |
+| DigitalOcean | `digital_ocean` | Yes | Yes | — | Existing only |
+| DNSPod | `dnspod` | Yes | Yes | — | Existing record |
+| DuckDNS | `duckdns` | Yes | Yes | — | DuckDNS subdomain |
+| GoDaddy | `godaddy` | Yes | Yes | — | Existing record |
+| Linode | `linode` | Yes | Yes | — | Existing only |
+| Namecheap | `namecheap` | Yes | — | — | Existing record |
+| Porkbun | `porkbun` | Yes | Yes | — | Name and type lookup |
+| Route 53 | `route53` | Yes | Yes | — | Creates or updates |
+| Simple | `simple` | API-dependent | API-dependent | API-dependent | Custom HTTP API |
+| Vultr | `vultr` | Yes | Yes | — | Existing only |
 
 ## Parameters
 
-Each driver receives its provider-specific settings through a JSON sub-object
-named `driver_param`, placed inside a domain or subdomain configuration block.
-The available keys and their types vary by driver; the sections below document
-every bundled driver's parameters.
-
-Internally, the JSON is deserialised into a **strongly-typed C++ struct**
-using **glaze** (compile-time reflection, zero runtime overhead). If a required
-key is missing or has the wrong type, the application reports the exact field
-and exits with a clear diagnostic — no silent misconfiguration. Extra keys
-that a driver does not recognise are silently ignored, so multiple
-configurations can share common `driver_param` blocks without errors.
+Place provider-specific settings in the `driver_param` object of the domain or
+subdomain configuration. Required fields must be present and have the stated
+type; unknown fields are ignored.
 
 **Example — Cloudflare:**
 ```json
@@ -61,6 +87,9 @@ Below is the complete reference of every bundled driver and the parameters it ac
 
 ## Alibaba Cloud (`alibaba_cloud.so`)
 
+- Configuration name: `alibaba_cloud`
+- Supported records: A, AAAA
+
 Updates DNS records via the [Alibaba Cloud DNS UpdateDomainRecord API](https://www.alibabacloud.com/help/en/dns/api-alidns-2015-01-09-updatedomainrecord) using Alibaba Cloud RPC signature signing (HMAC-SHA1).
 
 - Supports **A (IPv4)** and **AAAA (IPv6)** records.
@@ -76,9 +105,12 @@ Updates DNS records via the [Alibaba Cloud DNS UpdateDomainRecord API](https://w
 
 ## Cloudflare (`cloudflare.so`)
 
+- Configuration name: `cloudflare`
+- Supported records: A, AAAA, TXT
+
 Updates DNS records via the [Cloudflare API v4](https://developers.cloudflare.com/api/).
 
-- Supports **A (IPv4)** and **AAAA (IPv6)** records.
+- Supports **A (IPv4)**, **AAAA (IPv6)**, and **TXT** records.
 
 | Parameter | Required | Description                                      |
 |-----------|----------|--------------------------------------------------|
@@ -92,6 +124,9 @@ Updates DNS records via the [Cloudflare API v4](https://developers.cloudflare.co
 
 ## DigitalOcean (`digital_ocean.so`)
 
+- Configuration name: `digital_ocean`
+- Supported records: A, AAAA
+
 Updates DNS records via the [DigitalOcean API v2](https://developers.digitalocean.com/documentation/v2/).
 
 - Supports **A (IPv4)** and **AAAA (IPv6)** records (updates existing records; cannot change record type).
@@ -104,6 +139,9 @@ Updates DNS records via the [DigitalOcean API v2](https://developers.digitalocea
 **Note:** No TTL configuration is exposed.
 
 ## DNSPod (`dnspod.so`)
+
+- Configuration name: `dnspod`
+- Supported records: A, AAAA
 
 Updates DNS records via the [DNSPod API](https://www.dnspod.com/docs/). Supports both China and Global endpoints.
 
@@ -122,6 +160,9 @@ Updates DNS records via the [DNSPod API](https://www.dnspod.com/docs/). Supports
 
 ## DuckDNS (`duckdns.so`)
 
+- Configuration name: `duckdns`
+- Supported records: A, AAAA
+
 A simple GET-based driver for the [DuckDNS](https://www.duckdns.org/) free dynamic DNS service. Updates A and AAAA records via a single HTTPS GET request.
 
 - Supports **A (IPv4)** and **AAAA (IPv6)** records.
@@ -134,6 +175,9 @@ A simple GET-based driver for the [DuckDNS](https://www.duckdns.org/) free dynam
 **Note:** This driver is specific to the DuckDNS service (`*.duckdns.org` domains). No TTL configuration is available.
 
 ## GoDaddy (`godaddy.so`)
+
+- Configuration name: `godaddy`
+- Supported records: A, AAAA
 
 Updates DNS records via the [GoDaddy Domains API v1](https://developer.godaddy.com/doc/endpoint/domains) using SSO key authentication.
 
@@ -148,6 +192,9 @@ Updates DNS records via the [GoDaddy Domains API v1](https://developer.godaddy.c
 **Note:** Authentication uses SSO key format `key:secret`. A successful update returns HTTP 200 with an empty body.
 
 ## Linode (`linode.so`)
+
+- Configuration name: `linode`
+- Supported records: A, AAAA
 
 Updates DNS records via the [Linode API v4](https://techdocs.akamai.com/linode-api/reference/put-domain-record) using Personal Access Token authentication.
 
@@ -164,6 +211,9 @@ Updates DNS records via the [Linode API v4](https://techdocs.akamai.com/linode-a
 
 ## Namecheap (`namecheap.so`)
 
+- Configuration name: `namecheap`
+- Supported records: A
+
 Updates DNS records via the [Namecheap Dynamic DNS API](https://www.namecheap.com/support/knowledgebase/article.aspx/29/11/how-to-configure-your-dns-dynamic-dns-update-url/) using a GET-based update endpoint.
 
 - Supports **A (IPv4) records only**. AAAA (IPv6) records are not supported by the upstream API.
@@ -175,6 +225,9 @@ Requires **libxml2** at build time. If libxml2 is not found, the driver is skipp
 | `password` | Yes      | Dynamic DNS password from Namecheap's Advanced DNS tab → Dynamic DNS section (not your account password) |
 
 ## Porkbun (`porkbun.so`)
+
+- Configuration name: `porkbun`
+- Supported records: A, AAAA
 
 Updates DNS records via the [Porkbun API v3](https://porkbun.com/api/json/v3/documentation) using API key + Secret key authentication.
 
@@ -189,6 +242,9 @@ Updates DNS records via the [Porkbun API v3](https://porkbun.com/api/json/v3/doc
 **Note:** The driver uses the `editByNameType` endpoint. If multiple records of the same type exist for the same subdomain, the update behaviour is undefined.
 
 ## Route 53 (`route53.so`)
+
+- Configuration name: `route53`
+- Supported records: A, AAAA
 
 Updates DNS records via the [AWS Route 53 ChangeResourceRecordSets API](https://docs.aws.amazon.com/Route53/latest/APIReference/API_ChangeResourceRecordSets.html) using SigV4 request signing.
 
@@ -208,6 +264,9 @@ Requires **libxml2** at build time. If libxml2 is not found, the driver is skipp
 **Note:** The driver uses the UPSERT action — it creates the record if it does not exist. The FQDN trailing dot is handled automatically.
 
 ## Simple (`simple.so`)
+
+- Configuration name: `simple`
+- Supported records: API-dependent
 
 A generic HTTP GET driver for custom APIs. The driver treats the `url` as a template and substitutes `{key}` placeholders with values from the configuration and runtime context.
 
@@ -236,9 +295,14 @@ Example:
 }
 ```
 
-A successful response is any non-empty body.
+A successful response is any non-empty body. The request method is always GET
+and this driver has no header configuration. Do not put long-lived credentials
+in the URL when an API offers a safer authentication mechanism.
 
 ## Vultr (`vultr.so`)
+
+- Configuration name: `vultr`
+- Supported records: A, AAAA
 
 Updates DNS records via the [Vultr API v2](https://www.vultr.com/api/#tag/dns) using Bearer token authentication.
 

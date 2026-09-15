@@ -1,27 +1,57 @@
-# 驱动
+# DNS 服务商驱动
 
-**驱动（Driver）** 是一个运行时动态加载的插件（`.so` 共享库），负责将 DNS 更新
-请求转换为特定服务商 API 所期望的 HTTP 调用。每个驱动承担三项职责：
+本参考列出项目内置的 DNS 服务商驱动及其所需参数。选择服务商、准备凭据，并将
+对应的 `driver_param` 示例复制到配置文件中。
 
-1. **请求构造** — 根据目标 IP 地址和记录元数据，组装正确的 URL、请求头、
-   请求体和 HTTP 方法。
-2. **响应验证** — 解析服务商的响应，判断成功或失败，并在出错时记录详细的
-   错误信息。
-3. **自我描述** — 每个驱动暴露其名称、版本、作者和描述信息，使应用能在启动时
-   列出已加载的插件并验证 ABI 兼容性。
+安装和通用配置请参阅 [`README_CN.md`](README_CN.md)；开发自定义驱动请参阅
+[`docs/custom-drivers.md`](docs/custom-drivers.md)。
 
-驱动在运行时通过 `dlopen(3)` 按需加载——添加、移除或更新驱动无需重新编译
-主程序，只要插件的 ABI 保持兼容即可。
+## 开始前
+
+- 不要把 API token、密钥或密码提交到源码仓库。
+- 只授予更新目标 DNS 记录所需的最小权限。
+- 限制配置文件访问权限，例如：`chmod 600 config.json`。
+- 启动前验证配置：`yaddnsc config test`。
+
+| 配置名称 | 驱动库文件 |
+|---|---|
+| `alibaba_cloud` | `alibaba_cloud.so` |
+| `cloudflare` | `cloudflare.so` |
+| `digital_ocean` | `digital_ocean.so` |
+| `dnspod` | `dnspod.so` |
+| `duckdns` | `duckdns.so` |
+| `godaddy` | `godaddy.so` |
+| `linode` | `linode.so` |
+| `namecheap` | `namecheap.so` |
+| `porkbun` | `porkbun.so` |
+| `route53` | `route53.so` |
+| `simple` | `simple.so` |
+| `vultr` | `vultr.so` |
+
+## 快速选择
+
+先通过此表缩小服务商范围，再阅读对应的参数章节。“仅已有记录”表示驱动只更新
+已有记录，不会创建记录。服务商 API 和账户套餐可能还有额外限制。
+
+| 服务商 | 驱动 | A | AAAA | TXT | 记录行为 |
+|---|---|---:|---:|---:|---|
+| Alibaba Cloud | `alibaba_cloud` | 是 | 是 | — | 更新已有记录 |
+| Cloudflare | `cloudflare` | 是 | 是 | 是 | 更新已有记录 |
+| DigitalOcean | `digital_ocean` | 是 | 是 | — | 仅已有记录 |
+| DNSPod | `dnspod` | 是 | 是 | — | 更新已有记录 |
+| DuckDNS | `duckdns` | 是 | 是 | — | DuckDNS 子域名 |
+| GoDaddy | `godaddy` | 是 | 是 | — | 更新已有记录 |
+| Linode | `linode` | 是 | 是 | — | 仅已有记录 |
+| Namecheap | `namecheap` | 是 | — | — | 更新已有记录 |
+| Porkbun | `porkbun` | 是 | 是 | — | 按名称和类型查找 |
+| Route 53 | `route53` | 是 | 是 | — | 创建或更新 |
+| Simple | `simple` | 取决于 API | 取决于 API | 取决于 API | 自定义 HTTP API |
+| Vultr | `vultr` | 是 | 是 | — | 仅已有记录 |
 
 ## 参数配置
 
-每个驱动通过配置中 `driver_param` 字段下的 JSON 子对象来接收其特有参数。
-可用的键和值类型因驱动而异；下文列出了每个随附驱动的完整参数说明。
-
-内部实现上，JSON 数据通过 **glaze**（编译期反射，零运行时开销）反序列化为
-**强类型的 C++ 结构体**。如果必填参数缺失或类型错误，应用会精确报告出错的
-字段并退出，附带清晰的诊断信息——不会发生静默配置错误。驱动不识别的额外键
-会被静默忽略，因此多个配置可以共享 `driver_param` 块而不会报错。
+将服务商专用设置放在 domain 或 subdomain 配置中的 `driver_param` 对象内。必填字段
+必须存在并使用规定类型；未知字段会被忽略。
 
 **示例（Cloudflare）：**
 ```json
@@ -54,6 +84,9 @@
 
 ## Alibaba Cloud（`alibaba_cloud.so`）
 
+- 配置名称：`alibaba_cloud`
+- 支持的记录：A、AAAA
+
 通过 [Alibaba Cloud DNS UpdateDomainRecord API](https://www.alibabacloud.com/help/en/dns/api-alidns-2015-01-09-updatedomainrecord) 更新 DNS 记录，使用阿里云 RPC 签名（HMAC-SHA1）。
 
 - 支持 **A（IPv4）** 和 **AAAA（IPv6）** 记录。
@@ -69,9 +102,12 @@
 
 ## Cloudflare（`cloudflare.so`）
 
+- 配置名称：`cloudflare`
+- 支持的记录：A、AAAA、TXT
+
 通过 [Cloudflare API v4](https://developers.cloudflare.com/api/) 更新 DNS 记录。
 
-- 支持 **A（IPv4）** 和 **AAAA（IPv6）** 记录。
+- 支持 **A（IPv4）**、**AAAA（IPv6）** 和 **TXT** 记录。
 
 | 参数          | 必需 | 说明                                   |
 |-------------|----|--------------------------------------|
@@ -85,6 +121,9 @@
 
 ## DigitalOcean（`digital_ocean.so`）
 
+- 配置名称：`digital_ocean`
+- 支持的记录：A、AAAA
+
 通过 [DigitalOcean API v2](https://developers.digitalocean.com/documentation/v2/) 更新 DNS 记录。
 
 - 支持 **A（IPv4）** 和 **AAAA（IPv6）** 记录（更新已有记录，无法更改记录类型）。
@@ -97,6 +136,9 @@
 **注意：** 不支持 TTL 配置。
 
 ## DNSPod（`dnspod.so`）
+
+- 配置名称：`dnspod`
+- 支持的记录：A、AAAA
 
 通过 [DNSPod API](https://www.dnspod.com/docs/) 更新 DNS 记录，同时支持国内和国际端点。
 
@@ -115,6 +157,9 @@
 
 ## DuckDNS（`duckdns.so`）
 
+- 配置名称：`duckdns`
+- 支持的记录：A、AAAA
+
 基于简单 GET 请求的 [DuckDNS](https://www.duckdns.org/) 免费动态 DNS 服务驱动。通过单个 HTTPS GET 请求更新 A 和 AAAA 记录。
 
 - 支持 **A（IPv4）** 和 **AAAA（IPv6）** 记录。
@@ -127,6 +172,9 @@
 **注意：** 该驱动仅适用于 DuckDNS 服务（`*.duckdns.org` 域名）。不支持 TTL 配置。
 
 ## GoDaddy（`godaddy.so`）
+
+- 配置名称：`godaddy`
+- 支持的记录：A、AAAA
 
 通过 [GoDaddy Domains API v1](https://developer.godaddy.com/doc/endpoint/domains) 更新 DNS 记录，使用 SSO key 认证。
 
@@ -141,6 +189,9 @@
 **注意：** 认证使用 SSO key 格式 `key:secret`。更新成功返回 HTTP 200，响应体为空。
 
 ## Linode（`linode.so`）
+
+- 配置名称：`linode`
+- 支持的记录：A、AAAA
 
 通过 [Linode API v4](https://techdocs.akamai.com/linode-api/reference/put-domain-record) 更新 DNS 记录，使用 Personal Access Token 认证。
 
@@ -157,6 +208,9 @@
 
 ## Namecheap（`namecheap.so`）
 
+- 配置名称：`namecheap`
+- 支持的记录：A
+
 通过 [Namecheap Dynamic DNS API](https://www.namecheap.com/support/knowledgebase/article.aspx/29/11/how-to-configure-your-dns-dynamic-dns-update-url/) 更新 DNS 记录，使用基于 GET 的更新端点。
 
 - **仅支持 A（IPv4）记录**。上游 API 不支持 AAAA（IPv6）记录。
@@ -168,6 +222,9 @@
 | `password` | 是   | Namecheap Dynamic DNS 密码（Advanced DNS → Dynamic DNS 中获取，不是账户密码） |
 
 ## Porkbun（`porkbun.so`）
+
+- 配置名称：`porkbun`
+- 支持的记录：A、AAAA
 
 通过 [Porkbun API v3](https://porkbun.com/api/json/v3/documentation) 更新 DNS 记录，使用 API key + Secret key 认证。
 
@@ -182,6 +239,9 @@
 **注意：** 该驱动使用 `editByNameType` 端点。如果同一子域名下存在多条相同类型的记录，更新行为未定义。
 
 ## Route 53（`route53.so`）
+
+- 配置名称：`route53`
+- 支持的记录：A、AAAA
 
 通过 [AWS Route 53 ChangeResourceRecordSets API](https://docs.aws.amazon.com/Route53/latest/APIReference/API_ChangeResourceRecordSets.html) 更新 DNS 记录，使用 SigV4 请求签名认证。
 
@@ -201,6 +261,9 @@
 **注意：** 该驱动使用 UPSERT 操作——如记录不存在则自动创建。FQDN 末尾的点会自动补全。
 
 ## Simple（`simple.so`）
+
+- 配置名称：`simple`
+- 支持的记录：取决于 API
 
 通用 HTTP GET 驱动，适用于自定义 API。将 `url` 视为模板，将 `{key}` 占位符替换为配置中的值和运行时上下文的值。
 
@@ -229,9 +292,13 @@
 }
 ```
 
-只要响应的 body 非空即视为成功。
+只要响应的 body 非空即视为成功。该驱动始终使用 GET 请求，且不支持请求头配置。
+如果 API 提供更安全的认证方式，请不要把长期有效的凭据放在 URL 中。
 
 ## Vultr（`vultr.so`）
+
+- 配置名称：`vultr`
+- 支持的记录：A、AAAA
 
 通过 [Vultr API v2](https://www.vultr.com/api/#tag/dns) 更新 DNS 记录，使用 Bearer token 认证。
 

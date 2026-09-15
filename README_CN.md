@@ -1,6 +1,6 @@
 # yaddnsc — Yet Another Dynamic DNS Client
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![许可证：MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![CI](https://github.com/CyberKoo/yaddnsc/actions/workflows/ci.yml/badge.svg)](https://github.com/CyberKoo/yaddnsc)
 [![C++23](https://img.shields.io/badge/C%2B%2B-23-blue.svg)](https://en.cppreference.com/w/cpp/23)
 [![codecov](https://codecov.io/github/CyberKoo/yaddnsc/graph/badge.svg?token=OA6OJQ3MN6)](https://codecov.io/github/CyberKoo/yaddnsc)
@@ -8,9 +8,12 @@
 ![macOS](https://img.shields.io/badge/macOS-arm64-000000?logo=apple)
 ![FreeBSD](https://img.shields.io/badge/FreeBSD-supported-AB2B28?logo=freebsd)
 
-> **⚠️ 注意：** `master` 分支（v1.x）正在积极开发中，v1 ABI 尚未最终确定，可能会有较大改动，每次更新后插件**必须**重新编译。
+> **状态：** `master` 是发布分支（当前为 `v1.0.0-alpha.2`）。`dev` 包含此发布
+> 之后的变更，`v0.x` 用于旧工具链维护。v1 仍是预发布软件；升级 build 或更换工具链
+> 后必须重新编译驱动插件。
 
-**yaddnsc** 是一个基于 C++23 的现代动态 DNS（DDNS）客户端。它监控本机 IP 地址的变化，并通过插件式驱动架构自动更新 DNS 服务商上的域名解析记录。内置 12 个 DNS 服务商驱动，设计轻量、模块化、易扩展。
+**yaddnsc** 监控本地或外部获取的 IP 地址，并在地址变化时更新 DNS 记录。它支持
+多域名、IPv4/IPv6 记录、多种 DNS 解析协议以及 12 个内置服务商驱动。
 
 ## 目录
 
@@ -18,56 +21,97 @@
 - [安装](#安装)
 - [快速开始](#快速开始)
 - [使用方法](#使用方法)
-- [配置文件说明](#配置文件说明)
-- [IP 来源说明](#ip-来源说明)
+- [配置文件](#配置文件)
+- [IP 来源](#ip-来源)
 - [DNS 解析器](#dns-解析器)
-- [CA 证书自动发现](#ca-证书自动发现)
-- [构建要求](#构建要求)
-- [驱动 ABI 验证](#驱动-abi-验证)
-- [编写自定义驱动](#编写自定义驱动)
-- [依赖项](#依赖项)
+- [TLS 和 CA 证书](#tls-和-ca-证书)
+- [生产部署](#生产部署)
+- [故障排查](#故障排查)
+- [开发者文档](#开发者文档)
 - [许可证](#许可证)
 
 ## 功能特性
 
-- **多域名、多子域名管理** — 单个配置文件即可管理多个域名及其子域名，并支持子域名级更新间隔。
-- **插件化驱动架构** — 驱动以共享库（`.so`）形式在运行时通过 `dlopen` 动态加载。内置 12 个 DNS 服务商驱动（Cloudflare、阿里云、DNSPod、Route 53 等）。随附驱动及参数说明见 [DRIVERS_CN.md](DRIVERS_CN.md)。
-- **灵活的 IP 来源配置** — 每个子域名可独立选择：
-  - `interface` — 从本地网卡获取 IP 地址
-  - `http` — 从外部 HTTP 服务获取 IP 地址（如 `https://ifconfig.me`）
-  - `mdns` — 通过 mDNS（RFC 6762）发现局域网设备的 IP 地址（如 `printer.local`）
-- **灵活的更新调度** — 子域名级更新间隔，以及即使 IP 未变化也会周期性执行的强制更新。
-- **协作式请求取消** — DNS 查询和 HTTP 请求可在中途取消。当更快的解析器率先返回或分发器关闭时，无需等待超时即可立即中断挂起的请求。
-- **IPv4 和 IPv6 支持** — 可独立配置 A 和 AAAA 记录。
-- **自定义 DNS 解析器** — 记录查询使用固定的服务器列表：配置了自定义服务器就使用自定义的，否则使用内置默认（`1.1.1.1:53`）。支持**传统 DNS**、**DNS-over-HTTPS (DoH)** 和 **DNS-over-TLS (DoT)**，并提供可配置的查询策略。
-- **优雅退出与线程池并发** — 通过 `stop_token` 安全处理 SIGINT/SIGTERM；子域名更新任务通过线程池并行执行。
-- **启动时配置验证** — 在更新循环开始之前，验证已加载的驱动和网络接口是否与配置匹配，提前发现配置错误。
-- **跨平台** — 全面兼容主流 POSIX 环境：Linux（glibc 与 musl 双 C 运行时）、macOS、FreeBSD。持续集成在 Linux (glibc) 与 macOS (arm64) 上执行全量测试验证。
+- 使用一个 JSON 配置管理多个域名和子域名。
+- 独立配置 A、AAAA 记录和更新间隔。
+- 从本地网卡、HTTP(S) 端点或 mDNS 获取地址。
+- 内置 12 个 DNS 服务商驱动。
+- 支持传统 DNS、DNS-over-HTTPS 和 DNS-over-TLS。
+- 支持并发、回退和随机顺序 DNS 查询策略。
+- 收到 SIGINT/SIGTERM 后优雅退出，并取消正在进行的网络请求。
+- 支持 Linux（glibc/musl）、macOS 和 FreeBSD。
+
+各服务商的具体参数和凭据要求见 [DRIVERS_CN.md](DRIVERS_CN.md)。
 
 ## 安装
 
-目前尚未发布预编译包，可自行从源码构建或构建 DEB 安装包：
+目前尚未发布预编译包。可以从源码构建、生成 Debian 软件包，或使用项目提供的
+Dockerfile。
 
-- **DEB 包（Debian/Ubuntu）** — 使用 `./docker/build-deb.sh` 构建可安装的 `.deb`（输出到 `deb-out/`），然后用 `sudo dpkg -i` 安装。详见[构建 DEB 包](#构建-deb-包)。
-- **Docker** — 项目提供多阶段 `Dockerfile`，可构建基于 Alpine 的极简运行时镜像。详见 [Docker（多阶段构建）](#docker（多阶段构建）)。
-- **从源码构建** — 参见[快速开始](#快速开始)。
+### 从源码构建
+
+需要 CMake 3.28+、OpenSSL 3.0+，以及支持 C++23 的编译器：GCC 14+、Clang 19+
+或 Apple Clang 15+。
+
+Debian/Ubuntu：
+
+```bash
+sudo apt install build-essential cmake pkg-config libssl-dev
+```
+
+macOS：
+
+```bash
+brew install cmake pkg-config openssl@3
+```
+
+构建并安装：
+
+```bash
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build --parallel
+sudo cmake --install build
+```
+
+默认情况下，二进制文件安装到所选前缀，驱动安装到
+`${libdir}/yaddnsc/drivers`，系统配置文件安装到
+`${sysconfdir}/yaddnsc/config.json`（通常是 `/etc/yaddnsc/config.json`）。如需更换
+前缀，请在配置阶段使用 `-DCMAKE_INSTALL_PREFIX=...`。
+
+### Debian 软件包
+
+```bash
+cmake -S . -B build \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DYADDNSC_ENABLE_DEB=ON
+cmake --build build --parallel
+cpack --config build/CPackConfig.cmake -G DEB
+```
+
+也可以使用 Docker 构建：
+
+```bash
+./docker/build-deb.sh
+```
+
+### Docker
+
+```bash
+docker build -t yaddnsc .
+docker run --rm yaddnsc --help
+```
 
 ## 快速开始
 
-构建并安装 yaddnsc，创建最小 `config.json`，然后验证并运行：
+创建 `config.json`，验证配置，然后运行客户端：
 
 ```bash
-cmake -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build -j$(nproc)
-sudo cmake --install build    # 安装二进制与驱动插件
-
-yaddnsc config test           # 验证 ./config.json
-yaddnsc run                   # 启动更新循环
+yaddnsc config test
+yaddnsc run
 ```
 
-> **注意：** 驱动插件默认从 `${libdir}/yaddnsc/drivers` 加载。如果跳过安装步骤，请在 `driver` 对象中把 `driver_dir` 指向构建产物目录（如 `build/driver/`），否则 `yaddnsc config test` 会报 `Driver ... not found`。
-
-最小配置示例如下——完整字段参考见[配置文件说明](#配置文件说明)，各服务商的 `driver_param` 示例见 [DRIVERS_CN.md](DRIVERS_CN.md)：
+下面是**配置结构示例**。其中 `simple` URL 是占位地址，必须替换为真正执行 DNS
+更新的 API 端点；按原样使用不会更新真实记录。
 
 ```json
 {
@@ -93,143 +137,75 @@ yaddnsc run                   # 启动更新循环
 }
 ```
 
+使用真实服务商时，请从 [DRIVERS_CN.md](DRIVERS_CN.md) 选择驱动并复制对应的
+`driver_param` 示例。启动更新循环前请先执行 `config test`。
+
 ## 使用方法
 
 ```bash
-# 运行 DDNS 客户端（默认配置文件：./config.json）
+# 使用 ./config.json 运行
 yaddnsc run
 
-# 指定配置文件并启用详细日志
+# 指定配置文件并启用调试日志
 yaddnsc run -c /etc/yaddnsc/config.json -d
 
-# 验证配置文件
-yaddnsc config test
-
-# 静默验证（仅通过退出码判断）
+# 验证配置；-q/--quiet 不显示成功提示
 yaddnsc config test -q
-yaddnsc config test --quiet
 
-# 打印解析后的配置 JSON
+# 查看配置、驱动、网卡或解析器信息
 yaddnsc config show
-
-# 列出已加载的驱动
 yaddnsc driver list
-
-# 查看驱动详情
 yaddnsc driver info <name>
-
-# 列出网络接口
 yaddnsc interface list
-
-# 查看指定接口的 IP 地址
 yaddnsc interface ip <name>
-
-# DNS 解析主机名
-yaddnsc dns resolve <hostname> [--type A|AAAA|TXT]
-
-# 查看 DNS 解析器配置
 yaddnsc dns resolver
 
-# 查看构建配置（版本、编译器、ABI、ID 哈希等）
+# 解析主机名
+yaddnsc dns resolve <hostname> --type A
+
 yaddnsc info
-
-# 打印版本号
 yaddnsc --version
-
-# 打印帮助信息
 yaddnsc --help
-yaddnsc <subcommand> --help
 ```
+
+命令失败时返回非零退出状态。诊断命令报告 DNS 查询失败，但不会启动更新循环。
 
 ### Shell 自动补全
 
-**zsh**、**bash** 和 **fish** 的补全文件随包一同安装，通过 `cmake --install` 或 DEB 包安装时会自动部署。
+安装软件包或执行 `cmake --install` 时会安装 bash、zsh 和 fish 补全文件。如果补全
+未立即生效，请重启 shell。
 
-| Shell | DEB 安装路径 | 非 DEB 安装路径 | 重新加载命令 |
-|-------|-------------|----------------|-------------|
-| zsh   | `/usr/share/zsh/vendor-completions/_yaddnsc` | `share/zsh/site-functions/_yaddnsc` | `autoload -U compinit && compinit` |
-| bash  | `/usr/share/bash-completion/completions/yaddnsc` | (同上) | `. /usr/share/bash-completion/bash_completion` |
-| fish  | `/usr/share/fish/vendor_completions.d/yaddnsc.fish` | `share/fish/completions/yaddnsc.fish` | (下次启动 shell 时自动生效) |
+## 配置文件
 
-安装后重启 shell 即可使用补全功能。
+yaddnsc 默认读取 `./config.json`。运行命令或诊断子命令可以使用 `-c` 指定其他文件。
 
-### Systemd 服务
-
-systemd 服务文件在构建时由 `template/deb/yaddnsc.service.in` 生成，当检测到系统安装了 systemd 时由 `cmake --install` 自动安装。它集成了启动前配置验证（`config test`）、安全加固（DynamicUser、ProtectSystem、ProtectHome），并支持通过系统配置目录下的环境文件覆盖配置路径等环境变量：
-
-```bash
-# 正常安装 — 服务文件会自动放置
-sudo cmake --install build
-
-# 启用并启动服务
-sudo systemctl daemon-reload
-sudo systemctl enable --now yaddnsc
-
-# 可选：覆盖配置文件路径
-sudo mkdir -p /etc/yaddnsc/default
-echo 'YADDNSC_CONFIG=/custom/path/config.json' | sudo tee /etc/yaddnsc/default/yaddnsc
-```
-
-> **注意：** 服务文件在构建时使用 cmake 替换的路径，因此二进制文件、配置和环境文件的位置由配置时传递的 `CMAKE_INSTALL_BINDIR` 和 `CMAKE_INSTALL_SYSCONFDIR` 变量决定。
-
-## 配置文件说明
-
-yaddnsc 使用 JSON 格式的配置文件。默认查找 `./config.json`，可通过 `-c` 参数指定其他路径。
-
-模板配置文件在构建时由 `template/deb/yaddnsc_config.json` 生成，并安装到系统配置目录（`${sysconfdir}/yaddnsc/config.json`）。
-
-### 配置示例
+### 基本结构
 
 ```json
 {
   "driver": {
     "driver_dir": "/opt/yaddnsc/drivers",
-    "auto_discover": false,
-    "load": [
-      "cloudflare.so",
-      "simple.so"
-    ]
+    "load": ["cloudflare.so"]
   },
   "resolver": {
     "use_custom_server": true,
-    "strategy": "concurrent",
-    "servers": [
-      { "address": "1.1.1.1", "port": 53 },
-      { "address": "8.8.8.8", "port": 53 }
-    ]
+    "servers": [{ "address": "1.1.1.1", "port": 53 }]
   },
   "domains": [
     {
       "name": "example.com",
       "update_interval": 300,
-      "force_update": 0,
       "driver": "cloudflare",
       "subdomains": [
         {
           "name": "home",
-          "type": "aaaa",
-          "interface": "eth0",
-          "ip_source": "interface",
-          "allow_ula": false,
-          "allow_local_link": false,
-          "update_interval": 600,
-          "driver_param": {
-            "zone_id": "your-zone-id",
-            "record_id": "your-record-id",
-            "token": "your-api-token"
-          }
-        },
-        {
-          "name": "home",
           "type": "a",
-          "ip_source": "http",
-          "ip_source_param": "https://ipv4.example.com/",
-          "allow_ula": false,
-          "allow_local_link": false,
+          "ip_source": "interface",
+          "interface": "eth0",
           "driver_param": {
-            "zone_id": "your-zone-id",
-            "record_id": "your-record-id",
-            "token": "your-api-token"
+            "zone_id": "replace-me",
+            "record_id": "replace-me",
+            "token": "replace-me"
           }
         }
       ]
@@ -238,498 +214,128 @@ yaddnsc 使用 JSON 格式的配置文件。默认查找 `./config.json`，可�
 }
 ```
 
-### 配置字段参考
+### 通用字段
 
-#### 顶层字段
+| 对象 | 字段 | 说明 |
+|---|---|---|
+| `driver` | `driver_dir` | 驱动库目录；省略时使用安装目录。 |
+| `driver` | `auto_discover` | 加载目录中的所有 `.so`；启用时忽略 `load`。 |
+| `driver` | `load` | 手动加载的驱动库名称。 |
+| `resolver` | `use_custom_server` | 使用配置的服务器，而不是构建时默认值。 |
+| `resolver` | `servers` | DNS 服务器列表，见 [DNS 解析器](#dns-解析器)。 |
+| `resolver` | `strategy` | `concurrent`、`fallback` 或 `shuffle`。 |
+| `domains[]` | `name` | 要管理的域名，例如 `example.com`。 |
+| `domains[]` | `update_interval` | 默认更新间隔（秒），必须满足构建时的最小值。 |
+| `domains[]` | `force_update` | 周期性强制更新间隔；`0` 表示关闭。 |
+| `domains[]` | `driver` | 已加载的驱动名称。 |
+| `domains[]` | `subdomains` | 此域名下需要管理的记录。 |
+| `subdomains[]` | `name` | 子域名标签；使用 `@` 表示根域名记录。 |
+| `subdomains[]` | `type` | 记录类型。DDNS 更新请使用 `a` 或 `aaaa`。`txt` 可用于 `dns resolve`，更新能力因驱动而异，目前仅 Cloudflare 驱动有明确文档说明。 |
+| `subdomains[]` | `ip_source` | `interface`、`http` 或 `mdns`。 |
+| `subdomains[]` | `ip_source_param` | `http` 使用 URL，`mdns` 使用主机名；`interface` 不使用。 |
+| `subdomains[]` | `interface` | 网卡名称；interface 来源必填，其他网络来源可选。 |
+| `subdomains[]` | `update_interval` | 单条记录的间隔；省略或为 `0` 时继承域名设置。 |
+| `subdomains[]` | `driver_param` | 服务商专用设置，见 [DRIVERS_CN.md](DRIVERS_CN.md)。 |
 
-| 字段        | 类型     | 说明               |
-|-----------|--------|------------------|
-| `driver`  | object | 驱动加载配置           |
-| `resolver`| object | 自定义 DNS 解析器设置（可选） |
-| `domains` | array  | 域名配置列表           |
+`allow_ula` 和 `allow_local_link` 控制 IPv6 interface 来源是否接受对应地址范围。
+新配置请使用上述字段；旧字段仅用于兼容。
 
-#### `driver` 对象
+不要把凭据提交到源码仓库，并限制配置文件权限：
 
-| 字段              | 类型       | 说明                                                  |
-|-----------------|----------|-----------------------------------------------------|
-| `driver_dir`    | string   | 驱动 `.so` 文件所在目录。**可选** — 省略时默认为 `${libdir}/yaddnsc/drivers`（如 `/usr/lib/yaddnsc/drivers`） |
-| `auto_discover` | boolean  | 为 true 时自动加载 `driver_dir` 下所有 `.so` 文件（忽略 `load` 列表）。默认值: `false` |
-| `load`          | string[] | 需要加载的驱动共享库文件名列表（`auto_discover` 为 true 时忽略）         |
-
-#### `resolver` 对象
-
-| 字段                  | 类型          | 说明                                                                   |
-|---------------------|-------------|----------------------------------------------------------------------|
-| `use_custom_server` | boolean     | 为 true 时使用指定的 DNS 服务器；为 false 时使用内置默认服务器（`1.1.1.1:53`）             |
-| `servers`           | DnsServer[] | DNS 服务器列表。支持的地址格式及各类型详见 [DNS 解析器](#dns-解析器)                   |
-| `address`           | string      | **（已废弃，将在未来版本移除）** 直接在 resolver 级别指定 DNS 服务器地址。请改用 `servers`。 |
-| `ipaddress`         | string      | **（已废弃，将在未来版本移除）** `address` 的别名。请改用 `servers` 数组中的 `address`。  |
-| `port`              | int         | **（已废弃，将在未来版本移除）** 与 `address` 配合使用的端口号，默认 53。请改用 `servers`。 |
-| `strategy`          | string      | 查询策略：`"concurrent"`（默认）、`"fallback"` 或 `"shuffle"`。详见 [DNS 解析器](#dns-解析器)。   |
-
-#### `DnsServer` 对象
-
-| 字段          | 类型      | 说明                                                                                  |
-|-------------|---------|-------------------------------------------------------------------------------------|
-| `address`   | string  | DNS 服务器地址。                                                                         |
-| `ipaddress`  | string  | **（已废弃，将在未来版本移除）** `address` 的别名。                                                 |
-| `port`      | int     | 端口号，默认 53。**仅传统 DNS 解析器使用此字段。** DoH/DoT 解析器忽略此字段，端口需写在 `address` URI 中。 |
-
-> `address` 支持的格式详见 [DNS 解析器](#dns-解析器)（传统 DNS、DoH、DoT）。
-
-#### `domains[]` 对象
-
-| 字段                | 类型     | 说明                                             |
-|-------------------|--------|------------------------------------------------|
-| `name`            | string | 域名（如 `example.com`）                            |
-| `update_interval` | int    | 更新间隔，单位秒（必须 >= 编译期最小值，默认 60，见 `YADDNSC_MIN_UPDATE_INTERVAL`）。作为所有子域名的默认值。 |
-| `force_update`    | int    | 强制更新间隔，单位秒（0 表示禁用）。如设置，必须 >= `update_interval` |
-| `driver`          | string | 使用的驱动名称（必须与已加载的驱动匹配）                           |
-| `subdomains`      | array  | 需要管理的子域名记录列表                                   |
-
-#### `subdomains[]` 对象
-
-| 字段                 | 类型      | 说明                                                                            |
-|--------------------|---------|-------------------------------------------------------------------------------|
-| `name`             | string  | 子域名名称（如 `home` 对应 `home.example.com`）。apex 记录（`example.com` 本身）请填 `"@"`。 |
-| `type`             | string  | DNS 记录类型：`"a"`、`"aaaa"` 或 `"txt"`。自动决定地址族（A → IPv4，AAAA → IPv6）。 |
-| `interface`        | string  | 网卡接口名称（如 `eth0`）。`"interface"` IP 来源必填，其他来源可选。                             |
-| `ip_type`          | string  | **已废弃——被忽略。** 地址族现在由 `type` 自动推导（A → IPv4，AAAA → IPv6）。                    |
-| `ip_source`        | string  | IP 来源策略：`"interface"`、`"http"` 或 `"mdns"`。`"url"` 是 `"http"` 的旧名称（已废弃，将在未来版本移除）。详见 [IP 来源说明](#ip-来源说明）。 |
-| `ip_source_param`  | string  | 来源相关参数（`"http"` 为 URL，`"mdns"` 为 mDNS 主机名）。`"interface"` 来源忽略此字段。           |
-| `allow_ula`        | boolean | 使用 IPv6 接口来源时，是否允许唯一本地地址（ULA），默认 false                                        |
-| `allow_local_link` | boolean | 使用 IPv6 接口来源时，是否允许链路本地地址，默认 false                                             |
-| `update_interval`  | int     | 子域名级更新间隔，单位秒（可选）。0 或省略 = 继承自 `domain.update_interval`                         |
-| `driver_param`     | object  | 驱动特定参数（键值对）。各驱动的参数说明见 [DRIVERS_CN.md](DRIVERS_CN.md)。                       |
-
-## IP 来源说明
-
-`subdomains[]` 中的 `ip_source` 字段决定了 yaddnsc 如何发现要更新的 IP 地址。支持三种来源：
-
-### `interface` — 从本地网卡读取
-
-直接从指定的本地网络接口（NIC）读取 IP 地址。适用于设备有固定本地地址，或需要报告特定网卡绑定的地址时。
-
-```json
-{
-    "name": "home",
-    "type": "a",
-    "interface": "eth0",
-    "ip_source": "interface"
-}
+```bash
+chmod 600 /etc/yaddnsc/config.json
 ```
 
-### `http` — 通过 HTTP(S) 端点获取
+使用服务商要求的最小权限。分享 `config show` 输出或日志前，请确认其中没有凭据。
 
-通过向外部 HTTP(S) 服务发送请求来获取公网 IP，服务端在响应体中返回客户端的 IP 地址（例如 `https://api.ipify.org`）。HTTP 请求会绑定到指定的网卡。
+## IP 来源
 
-```json
-{
-    "name": "home",
-    "type": "a",
-    "interface": "eth0",
-    "ip_source": "http",
-    "ip_source_param": "https://api.ipify.org"
-}
-```
+### `interface`
 
-### `mdns` — 通过 mDNS 发现（RFC 6762）
+从本地网卡读取地址。A 记录使用 IPv4，AAAA 记录使用 IPv6。网卡必须存在，并且服务
+进程有权限使用它。
 
-通过发送多播 DNS 查询来发现局域网中某设备的 IP 地址，查询目标为 `.local` 主机名（如 `printer.local`）。适用于检测局域网设备（如打印机、NAS、IoT 设备）的地址。
+### `http`
 
-```json
-{
-    "name": "printer",
-    "type": "a",
-    "ip_source": "mdns",
-    "ip_source_param": "printer.local"
-}
-```
+从响应正文为纯 IP 地址的 HTTP(S) 端点获取地址。推荐使用 HTTPS。可选的 `interface`
+控制出站网卡，但实际行为还受系统路由和权限影响。
 
-```json
-{
-    "name": "nas",
-    "type": "aaaa",
-    "interface": "eth0",
-    "ip_source": "mdns",
-    "ip_source_param": "nas.local"
-}
-```
+### `mdns`
+
+使用 multicast DNS 查询局域网中的 `.local` 主机名，例如 `printer.local`。它用于
+局域网设备，不是公网 DNS。容器、VPN、云主机或禁止 multicast 的网络可能无法使用；
+IPv6 mDNS 可能需要指定网卡。
 
 ## DNS 解析器
 
-yaddnsc 使用固定的 DNS 服务器列表进行记录查询。在配置文件顶层配置 `resolver` 对象可使用自定义服务器；未配置自定义服务器时，自动使用内置默认服务器（`1.1.1.1:53`）。
+启用 `use_custom_server` 时使用配置的服务器，否则使用构建时默认值，通常为
+`1.1.1.1:53`。维护者可以在配置构建时使用
+`-DYADDNSC_DEFAULT_DNS_SERVER=...` 和 `-DYADDNSC_DEFAULT_DNS_PORT=...` 修改默认值。
 
-支持三种解析器类型，根据地址格式自动识别：
+- **传统 DNS：** 使用 IP 地址和 `port`；UDP 失败或响应过大时使用 TCP。
+- **DoH：** 使用完整的 `https://host/path` 地址，例如
+  `https://1.1.1.1/dns-query`；端口从 URI 读取，默认 `443`。
+- **DoT：** 使用 `tls://host[:port]` 地址；端口从 URI 读取，默认 `853`。
 
-### 传统 DNS（UDP/TCP）
+DoH 和 DoT 会忽略 server 对象中的 `port` 字段。
 
-通过 UDP（大响应时使用 TCP）在指定 IP 和端口上使用标准 DNS 协议。内置栈提供完全自实现的 UDP/TCP 传输和报文解析（不依赖 libresolv），具有更好的跨平台可移植性和对传输层的完全控制。
+| 策略 | 行为 |
+|---|---|
+| `concurrent` | 并行查询解析器，并返回第一个成功结果。 |
+| `fallback` | 按配置顺序依次尝试。 |
+| `shuffle` | 每次随机化顺序后依次尝试。 |
 
-```json
-{
-  "resolver": {
-    "use_custom_server": true,
-    "servers": [
-      { "address": "1.1.1.1", "port": 53 },
-      { "address": "8.8.8.8", "port": 53 }
-    ]
-  }
-}
-```
+## TLS 和 CA 证书
 
-### DNS-over-HTTPS (DoH)
-
-- **RFC 8484** — 通过 HTTPS POST 加密 DNS 查询，地址必须是完整的 HTTPS URL，包含路径（如 `https://1.1.1.1/dns-query`）
-- 协作式请求取消
-- **端口需写在 URI 中** — DoH 解析器从 URI 读取端口（如 `https://1.1.1.1:1443/dns-query`），`DnsServer` 对象的 `port` 字段**被忽略**。若 URI 未指定端口，默认使用 `443`。
-
-```json
-{
-  "resolver": {
-    "use_custom_server": true,
-    "servers": [
-      { "address": "https://1.1.1.1/dns-query" },
-      { "address": "https://cloudflare-dns.com/dns-query" }
-    ]
-  }
-}
-```
-
-### DNS-over-TLS (DoT)
-
-- **RFC 7858** — 通过 TLS 加密 DNS 查询，地址为 `tls://` URI 格式
-- **RFC 7830** — EDNS(0) padding
-- **RFC 6066** — TLS SNI 扩展
-- **RFC 7301** — TLS ALPN 扩展
-- 协作式请求取消
-- **端口需写在 URI 中** — DoT 解析器从 URI 读取端口（如 `tls://1.1.1.1:853`），`DnsServer` 对象的 `port` 字段**被忽略**。若 URI 未指定端口，默认使用 `853`。
-
-```json
-{
-  "resolver": {
-    "use_custom_server": true,
-    "servers": [
-      { "address": "tls://1.1.1.1:853" }
-    ]
-  }
-}
-```
-
-### 查询策略
-
-`strategy` 字段控制多个 DNS 服务器的查询方式：
-
-| 策略          | 行为                                        |
-|-------------|-------------------------------------------|
-| `concurrent` | **（默认）** 以每批 3 个并发查询，取最快成功响应。                |
-| `fallback`   | 按配置顺序依次尝试解析器，当前解析器失败时切换到下一个。                     |
-| `shuffle`    | 与 `"fallback"` 相同的顺序回退，但每次查询会打乱解析器顺序。                     |
-
-```json
-{
-  "resolver": {
-    "use_custom_server": true,
-    "strategy": "fallback",
-    "servers": [
-      { "address": "https://1.1.1.1/dns-query" },
-      { "address": "tls://1.1.1.1" }
-    ]
-  }
-}
-```
-
-## CA 证书自动发现
-
-yaddnsc 使用三层自动发现链来定位 TLS 连接所需的 CA 证书包（用于驱动 API、DoH、DoT 及 HTTP IP 来源）。
-
-首次找到的证书包会被缓存，在进程生命周期内重复使用。
-
-| 优先级 | 机制 | 典型场景 |
-|--------|------|----------|
-| 1 | **`SSL_CERT_FILE`** 环境变量 | 显式覆盖（容器、私有 CA）；启动时以 INFO 级别记录使用情况 |
-| 2 | **OpenSSL 默认路径**（`X509_get_default_cert_file`） | 标准系统安装 |
-| 3 | **硬编码路径列表**（13 条路径，覆盖 Linux、macOS、*BSD） | 非标准安装、跨平台移植性 |
+TLS 证书校验默认开启。使用私有 CA bundle 时，在启动前设置 `SSL_CERT_FILE`：
 
 ```bash
-# 使用自定义 CA 证书包（覆盖所有自动发现）
-export SSL_CERT_FILE=/etc/my-ca-bundle.crt
+export SSL_CERT_FILE=/etc/ssl/private/company-ca-bundle.pem
+yaddnsc config test
 yaddnsc run
 ```
 
-> **注意：** 不支持 `SSL_CERT_DIR`。如果系统的 CA 证书以目录形式存放（hash 符号链接格式），请使用 `cat` 合并为一个 bundle 文件，再通过 `SSL_CERT_FILE` 指向该文件。
+证书包依次从 `SSL_CERT_FILE`、OpenSSL 默认路径和平台系统路径中选择，并在进程生命
+周期内缓存。如果没有信任库，证书校验仍保持开启，TLS 连接会安全失败。不支持
+`SSL_CERT_DIR`；请改用合并后的 PEM bundle。
 
-> **安全说明：** 当无法发现任何 CA 证书包时，HTTP 客户端会保持服务器证书验证**开启**（fail-closed），并回退到 OpenSSL 的默认验证路径。如果系统没有信任库，TLS 握手将失败，而不会在无验证的情况下静默继续。如需连接使用私有或自签名证书的服务器，请将该 CA 证书加入上述任一发现层级可找到的证书包（例如通过 `SSL_CERT_FILE` 指定）。
+## 生产部署
 
-## 构建要求
-
-### 前置依赖
-
-| 工具/库       | 最低版本                                         |
-|------------|------------------------------------------------|
-| 操作系统       | POSIX（Linux、macOS、*BSD）                        |
-| CMake      | 3.28                                           |
-| C++ 编译器    | 支持 C++23（GCC 14+、Clang 19+、Apple Clang 15+） |
-| OpenSSL    | 3.0+                                           |
-| pkg-config | 任意版本（Linux 必需，macOS 可选）                     |
-
-### 编译方法
+安装后，先验证配置，再启用服务。源码安装仅在配置阶段能找到 systemd 开发元数据时
+才会安装 systemd unit；Debian 软件包始终包含该 unit。
 
 ```bash
-# 安装系统依赖（Debian/Ubuntu）
-sudo apt install libssl-dev build-essential cmake pkg-config
-
-# 安装系统依赖（macOS）
-brew install openssl@3 cmake pkg-config
-
-# 默认编译（Debug — 包含调试符号和 sanitizer）
-cmake -B build
-cmake --build build -j$(nproc)
-
-# 优化后的发布编译
-cmake -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build -j$(nproc)
-
-# 安装到指定前缀目录
-cmake --install build --prefix /usr --sysconfdir /etc
-
-# 或安装到系统（DESTDIR 支持打包）
-sudo cmake --install build
+yaddnsc config test
+sudo systemctl daemon-reload
+sudo systemctl enable --now yaddnsc
+sudo systemctl status yaddnsc
+journalctl -u yaddnsc
 ```
 
-### 平台注意事项
+服务启动前会验证配置。安装后的系统配置通常位于 `/etc/yaddnsc/config.json`。如果软件
+包提供配置路径环境覆盖，请参考已安装的服务说明，并确保配置文件仅服务账号可读。
 
-**老旧设备** — 如果工具链版本过低（GCC < 14 或 Clang < 19），请使用 `v0.x` 分支（C++17、CMake 3.14+、OpenSSL 1.1.x）。该分支仅维护 bug 修复，新功能在 master 上开发。
+## 故障排查
 
-**Alpine Linux (musl)** — musl 缺少可重入的 `res_n*` 解析器函数族；内置 DNS 栈在所有平台上均能正确处理。
+| 现象 | 首先检查 |
+|---|---|
+| 找不到驱动 | 执行 `yaddnsc driver list`，检查 `driver_dir` 和安装结果。 |
+| 配置被拒绝 | 执行 `yaddnsc config test`，检查驱动名、记录类型和更新间隔。 |
+| DNS 查询失败 | 执行 `yaddnsc dns resolver`，检查服务器地址、端口和防火墙。 |
+| HTTP 来源失败 | 确认端点只返回 IP 地址，并检查 HTTPS 和路由。 |
+| TLS 校验失败 | 检查系统时间、CA bundle 和 `SSL_CERT_FILE`。 |
+| mDNS 无响应 | 检查 `.local` 名称、multicast、网卡、容器网络和防火墙。 |
+| systemd 启动失败 | 执行 `systemctl status yaddnsc` 和 `journalctl -u yaddnsc`。 |
+| ABI 不兼容 | 使用相同 yaddnsc/工具链重新编译或安装驱动。 |
 
-### 测试
+## 开发者文档
 
-单元测试适用于工具类、DNS 协议、校验和配置组件。
-测试由 `YADDNSC_BUILD_TESTS` CMake 选项控制（默认：OFF）。构建并运行测试：
-
-```bash
-# 启用对本地调试友好的 ASan 选项（可选但推荐）
-export ASAN_OPTIONS=detect_stack_use_after_return=1:strict_string_checks=1:detect_invalid_pointer_pairs=2
-
-cmake -B build -DYADDNSC_BUILD_TESTS=ON
-cmake --build build -j$(nproc)
-ctest --test-dir build --output-on-failure
-```
-
-核心编排组件（Manager、Scheduler、Updater）的集成测试计划在后续重构中解耦这些组件并引入可注入接口后添加。
-
-### CMake 选项
-
-| 选项                            | 默认值                                           | 说明                             |
-|-------------------------------|-----------------------------------------------|--------------------------------|
-| `CMAKE_BUILD_TYPE`            | Debug                                         | 设为 `Release` 可生成优化后的发布版本             |
-| `YADDNSC_MIN_UPDATE_INTERVAL` | 60                                            | 最小允许的更新间隔（秒）                    |
-| `YADDNSC_DEFAULT_DNS_SERVER`  | 1.1.1.1                                       | 未配置时的默认 DNS 服务器地址              |
-| `YADDNSC_DEFAULT_DNS_PORT`    | 53                                            | 未配置时的默认 DNS 服务器端口              |
-| `YADDNSC_USE_SYSTEM_SPDLOG`   | OFF                                           | 使用系统 spdlog 代替 CPM 下载的版本         |
-| `YADDNSC_BUILD_DOCS`          | OFF                                           | 从源码注释构建 Doxygen API 文档             |
-| `YADDNSC_BUILD_TESTS`         | OFF                                           | 构建单元测试（需要 GoogleTest，通过 CPM.cmake 获取） |
-| `YADDNSC_ENABLE_DEB`          | OFF                                           | 启用 CPack DEB 包生成                |
-
-> **关于 `YADDNSC_USE_SYSTEM_SPDLOG` 的说明:** 在 Ubuntu 24.04 上，系统 spdlog
-> 会引入 fmt 9.1.0，其浮点格式化内部实现（`bigint`）会触发 GCC 14 的
-> `-Warray-bounds` 误报（fmtlib/fmt#3731，fmt 10 中已修复）。
-> 当检测到系统 fmt 版本低于 10 时，CMake 会将该警告降级为非致命
-> （`-Wno-error=array-bounds`），使 `-Werror` 构建仍能成功。
-
-#### 构建 DEB 包
-
-```bash
-# 本地构建
-cmake -B build -DCMAKE_BUILD_TYPE=Release -DYADDNSC_ENABLE_DEB=ON
-cmake --build build -j$(nproc)
-cpack --config build/CPackConfig.cmake -G DEB
-
-# 或使用基于 Docker 的 DEB 构建工具（推荐用于 CI）
-./docker/build-deb.sh          # 为 Ubuntu 24.04 构建
-./docker/build-deb.sh 24.04 26.04  # 为多个版本构建
-```
-
-> **注意：** DEB 包中包含三种 shell 的补全文件：zsh（`_yaddnsc` → `/usr/share/zsh/vendor-completions/`）、bash（`yaddnsc` → `/usr/share/bash-completion/completions/`）和 fish（`yaddnsc.fish` → `/usr/share/fish/vendor_completions.d/`）。
-
-#### Docker（多阶段构建）
-
-项目提供了多阶段 Dockerfile（`Dockerfile`），用于在 Alpine Linux 上构建和运行 yaddnsc：
-
-```bash
-docker build -t yaddnsc .
-docker run yaddnsc --help
-```
-
-Docker 构建生成一个极小化的运行时镜像，仅包含所需的共享库（OpenSSL、zlib、brotli、libstdc++），以非 root 用户运行，并预置默认配置文件。
-
-#### Doxygen API 文档
-
-可通过 Doxygen 从源码注释生成 API 文档：
-
-```bash
-cmake -B build -DCMAKE_BUILD_TYPE=Release -DYADDNSC_BUILD_DOCS=ON
-cmake --build build -j$(nproc)
-make -C build doxygen   # 在 build/docs/ 生成 HTML 文档
-```
-
-需要安装 `doxygen`，可选安装 `graphviz`（用于生成图表）。
-
-第三方依赖通过 [CPM.cmake](https://github.com/cpm-cmake/CPM.cmake)（v0.40+）自动下载。每个依赖都固定到明确的、不可变的版本标签（例如 `@2.6.2`），以保证构建可复现；从不使用浮动分支或可变的标签。
-
-> **为什么使用 CPM？** CPM 封装了 CMake 的 `FetchContent`，让我们只需一行声明式调用即可将每个第三方库固定到指定版本，避免了系统级安装步骤，并使依赖集保持精简、可审计。
->
-> **已知局限性**（通过保持依赖集精简并定期进行人工漏洞审查来规避）：
-> - 无二进制缓存 —— 每次全新构建都会重新编译依赖。
-> - 无传递依赖解析 —— 版本必须显式声明。
-> - 无集中式安全公告注册表 —— CVE 需人工跟踪。
-
-### Debug 构建的 Sanitizer
-
-Debug 构建默认启用 AddressSanitizer + UndefinedBehaviorSanitizer（由 `YADDNSC_SANITIZE_DEBUG` 控制，默认 ON）。为了在本地调试时充分发挥 ASan 的作用，运行二进制前请导出以下环境变量：
-
-```bash
-export ASAN_OPTIONS=detect_stack_use_after_return=1:strict_string_checks=1:detect_invalid_pointer_pairs=2
-```
-
-完整的 Sanitizer 组合（integer、bounds、null、alignment，以及激进的 use-after-return/use-after-scope 模式）**不会**应用于 Debug 构建 —— 它保留给 CI 中用于周期性深度测试的专用 `Sanitizer` 构建类型，因为该组合开销极大，且会对 STL 内部实现产生大量误报。
-
-### 转换警告门（Conversion warning gate）
-
-`-Wconversion` 与 `-Wsign-conversion` 警告与标准库及常见惯用法冲突严重，因此**不会**在每次本地构建中启用。它们仅作为专用的 CI 作业（`conversion-gate`）运行，用于在合并前捕获窄化（narrowing）错误，同时保持较高的开发效率。
-
-## 驱动 ABI 验证
-
-yaddnsc 通过 `dlopen` 在运行时以共享库（`.so`）形式加载驱动插件。
-由于 C++ 在不同编译器之间没有稳定的 ABI，同一份代码使用不同的工具链
-编译可能产生不兼容的二进制文件。为了尽早捕获这类不匹配，每个驱动在
-执行任何代码之前都要经过驱动加载校验。
-
-### 构建 ID（编译器指纹）
-
-在 CMake 配置阶段，构建系统自动捕获编译器身份信息，并通过生成的头文件
-（`build_id.hpp`，由 `template/headers/build_id.hpp.in` 生成）将其嵌入到
-每个编译单元中：
-
-- **编译器身份字段**：`COMPILER_ID`、`COMPILER_VERSION`、`BUILD_TYPE`，
-  检测到的 C++ 标准库（`COMPILER_ABI` — `libc++` 或 `libstdc++`），
-  以及 C 标准库（`LIBC_TYPE` — `glibc` 或 `musl`）。
-- **FNV-1a 64 位哈希**（`COMPILER_ID_HASH`）：所有编译器身份字段组合的
-  编译期哈希，用于快速 ABI 兼容性检查。
-- **人类可读的构建 ID 字符串**（`full_id()`），例如 `"GNU 14.2.0 Release"`。
-
-每个驱动中的 `DEFINE_DRIVER_FACTORY` 宏（详见
-[编写自定义驱动](#编写自定义驱动)）会自动从驱动 `.so` 中导出哈希和构建
-ID 字符串，供主程序在加载时检查。
-
-### 驱动加载校验
-
-当主程序通过 `dlopen` 加载驱动 `.so` 时，按顺序执行以下检查，所有检查
-均在执行任何驱动代码之前完成：
-
-1. **魔法值检查** — 调用 `yaddnsc_drv_magic()` 并验证返回值与
-   `YADDNSC_DRIVER_MAGIC`（`0x594144444E534300ULL`）匹配。这确认了
-   `.so` 确实是 yaddnsc 驱动，而非任意共享库。
-
-2. **编译器身份检查** — 调用 `yaddnsc_drv_compiler_id_hash()` 并将返回
-   值与主程序的 `BuildId::COMPILER_ID_HASH` 比较。不匹配意味着驱动使用
-   不同的工具链（不同的编译器厂商、版本或 C++ 标准库 ABI 标志）编译，
-   将被拒绝加载并给出明确的错误提示：
-   ```
-   Driver 'cloudflare.so' compiler identity mismatch: 0xABCD… != 0x1234…
-   Rebuild the driver with the same toolchain and flags as the host.
-   ```
-
-3. **ABI 版本检查** — 驱动实例化后，比较其 `get_abi_version()` 与主程序
-   的 `DRV_ABI_VERSION`，确保 `Driver` 接口的虚函数表布局兼容。
-
-这种分层设计在加载阶段就能捕获 ABI 问题，避免在执行 DNS 更新操作时才
-暴露错误。
-
-### 查看构建配置
-
-使用 `yaddnsc info` CLI 命令可以查看当前二进制文件的完整构建配置，包括
-编译器身份哈希、ABI 变体和 C++ 标准级别：
-
-```bash
-$ yaddnsc info
-Build configuration:
-  Version              v1.0.0
-  Build ID             GNU 14.2.0 Release
-  C library            glibc
-  Compiler ABI         libstdc++ (_GLIBCXX_USE_CXX11_ABI=1)
-  Compiler ID hash     0xABCDEF0123456789
-  C++ standard         C++23
-  DNS resolver         Native
-  Default DNS          1.1.1.1:53
-  Min update interval  60s
-  Format library       std::format
-  spdlog               bundled
-```
-
-### 从源码编译驱动
-
-避免 ABI 不匹配的最安全方法是将驱动与 yaddnsc 源码树一同编译。`driver/`
-下的 CMakeLists.txt 会自动发现子目录，并使用与主程序相同的编译器标志
-构建设置进行编译：
-
-```bash
-# 将驱动源码放入 driver/<your_driver>/
-# 然后重新编译：
-cmake -B build
-cmake --build build -j$(nproc)
-```
-
-如果仍需独立编译为共享库，请确保：
-- 编译器、版本和 C++ 标准（C++23，GCC 14+，Clang 19+，Apple Clang 15+）
-  与主程序的构建完全一致。
-- 使用相同的 `AbiVersion`（由生成的 `driver_ver.h` 定义）。
-- `DEFINE_DRIVER_FACTORY` 宏会自动推导编译器身份哈希——只要使用相同的
-  工具链，哈希就会匹配。
-- 编译为 `MODULE` 库（位置无关代码，不添加 `lib` 前缀）。
-
-> **注意：** 即使编译器身份哈希匹配，微小的版本差异或不同的
-> `_GLIBCXX_USE_CXX11_ABI` 设置仍可能产生不兼容的二进制文件。
-> 如有疑问，请始终从源码编译。
-
-## 编写自定义驱动
-
-驱动是运行时加载的共享库（随附驱动及其参数说明见 [DRIVERS_CN.md](DRIVERS_CN.md)）。编写自定义驱动的步骤：
-
-1. 包含 `driver/base.h`，继承 `BaseDriver` 类。
-2. 实现 `Driver` 接口的纯虚方法：
-   - `generate_request(config, ctx)` — 构造 `DriverRequestContext`（包含 URL 及 `DriverRequest`：HTTP 方法、请求头、请求体）
-   - `check_response(response)` — 验证 API 响应体
-   - `get_detail()` — 返回驱动元信息（名称、描述、作者、版本）
-   - `get_abi_version()` — ABI 版本检查（`BaseDriver` 中已实现为 `final`，无需覆盖）
-   - `execute(config, ctx, http)` — 执行完整的更新流程（`BaseDriver` 提供默认实现，多步骤工作流可覆盖）
-3. 在实现文件末尾使用 `DEFINE_DRIVER_FACTORY(YourDriverClass)` 宏。
-   该宏导出五个 C 入口点，供主程序在加载时进行身份验证
-   （详见[驱动 ABI 验证](#驱动-abi-验证)）：
-   - `create()` / `destroy()` — 标准工厂函数
-   - `yaddnsc_drv_magic()` — 驱动魔法常量
-   - `yaddnsc_drv_compiler_id_hash()` — FNV-1a 64 位编译器身份哈希
-   - `yaddnsc_drv_build_id_str()` — 人类可读的构建 ID 字符串
-
-> **建议：** 将自定义驱动**与 yaddnsc 源码树一同编译**，不要独立构建。
-> `driver/` 下的 CMakeLists.txt 会自动发现子目录，并使用与主程序相同的
-> 标志进行编译，从而保证 ABI 兼容。详见[从源码编译驱动](#从源码编译驱动)。
-
-## 依赖项
-
-| 库                                                           | 用途                          | 管理方式      |
-|-------------------------------------------------------------|-----------------------------|-----------|
-| [glaze](https://github.com/stephenberry/glaze)              | JSON 序列化/反射                 | CPM.cmake |
-| [spdlog](https://github.com/gabime/spdlog)                  | 日志记录                        | CPM.cmake |
-| [cpp-httplib](https://github.com/yhirose/cpp-httplib)       | HTTP 客户端                    | CPM.cmake |
-| [CLI11](https://github.com/CLIUtils/CLI11)                   | 命令行参数解析                     | CPM.cmake |
-| [BS::thread_pool](https://github.com/bshoshany/thread-pool) | 线程池                         | CPM.cmake |
-| [fmt](https://github.com/fmtlib/fmt)                        | 字符串格式化（std::format 不可用时的回退） | CPM.cmake |
-| [magic_enum](https://github.com/Neargye/magic_enum)         | 静态枚举反射                      | CPM.cmake |
-| [picohttpparser](https://github.com/h2o/picohttpparser)     | HTTP 请求/响应解析（cpp-httplib 不支持请求取消） | CPM.cmake |
-| OpenSSL                                                     | TLS 支持                      | 系统库       |
+- [DNS 服务商驱动](DRIVERS_CN.md)
+- [自定义驱动和 ABI 兼容性](docs/custom-drivers.md)
+- [开发、测试和覆盖率](docs/development.md)
+- [架构说明](docs/architecture.md)
+- [文档地图](docs/README.md)
 
 ## 许可证
 
-本项目遵循 [LICENSE](LICENSE) 文件中的许可条款。
+本项目遵循 [LICENSE](LICENSE) 文件中规定的 MIT 许可证。

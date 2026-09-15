@@ -8,9 +8,14 @@
 ![macOS](https://img.shields.io/badge/macOS-arm64-000000?logo=apple)
 ![FreeBSD](https://img.shields.io/badge/FreeBSD-supported-AB2B28?logo=freebsd)
 
-> **⚠️ Warning:** The `master` branch (v1.x) is under heavy development. The v1 ABI has not yet been finalized and may change significantly — plugins **must** be recompiled after each update.
+> **Status:** `master` is the release branch (currently `v1.0.0-alpha.2`).
+> `dev` contains changes after that release, and `v0.x` is maintained for
+> legacy toolchains. v1 is pre-release software; rebuild driver plugins when
+> upgrading between builds or changing toolchains.
 
-**yaddnsc** is a modern Dynamic DNS (DDNS) client that monitors your local IP addresses and automatically updates DNS records on supported DNS providers when changes are detected. Written in C++23, it ships with drivers for 12 DNS providers and is designed to be lightweight, modular, and extensible through a plugin-based driver system.
+**yaddnsc** monitors local or externally discovered IP addresses and updates DNS
+records when they change. It supports multiple domains, IPv4/IPv6 records,
+several DNS resolver protocols, and 12 bundled provider drivers.
 
 ## Table of Contents
 
@@ -19,55 +24,98 @@
 - [Quick Start](#quick-start)
 - [Usage](#usage)
 - [Configuration](#configuration)
-- [IP Source](#ip-source)
+- [IP Sources](#ip-sources)
 - [DNS Resolver](#dns-resolver)
-- [CA Certificate Discovery](#ca-certificate-discovery)
-- [Build Requirements](#build-requirements)
-- [Driver ABI Verification](#driver-abi-verification)
-- [Writing a Custom Driver](#writing-a-custom-driver)
-- [Dependencies](#dependencies)
+- [TLS and CA Certificates](#tls-and-ca-certificates)
+- [Production Deployment](#production-deployment)
+- [Troubleshooting](#troubleshooting)
+- [Developer Documentation](#developer-documentation)
 - [License](#license)
 
 ## Features
 
-- **Multi-domain, multi-subdomain management** — manage multiple domains and subdomains from a single configuration file, with per-subdomain update intervals.
-- **Pluggable driver architecture** — drivers are loaded as shared libraries (`.so`) at runtime. Ships with drivers for 12 DNS providers (Cloudflare, Alibaba Cloud, DNSPod, Route 53, and more). See [DRIVERS.md](DRIVERS.md) for the bundled drivers and their parameters.
-- **Flexible IP source configuration** — each subdomain can choose from:
-  - `interface` — obtain the IP from a local network interface
-  - `http` — obtain the IP from an external HTTP service (e.g. `https://ifconfig.me`)
-  - `mdns` — discover a LAN device's IP address via mDNS (RFC 6762, e.g. `printer.local`)
-- **Flexible update scheduling** — per-subdomain update intervals, plus periodic forced updates even when the IP hasn't changed.
-- **Cooperative request cancellation** — DNS lookups and HTTP requests are cancellable mid-flight. When a faster resolver answers first or the dispatcher shuts down, pending requests are interrupted immediately rather than waiting for timeout.
-- **IPv4 and IPv6 support** — configure A and AAAA records independently.
-- **Custom DNS resolver** — record lookups use a fixed server list: your custom servers when configured, otherwise the built-in default (`1.1.1.1:53`). Supports **traditional DNS**, **DNS-over-HTTPS (DoH)**, and **DNS-over-TLS (DoT)** with configurable query strategies.
-- **Graceful shutdown and thread-pool concurrency** — SIGINT/SIGTERM handling via `stop_token`; subdomain updates are dispatched to a thread pool for parallel execution.
-- **Configuration validation on startup** — the loaded drivers and network interfaces are validated against the configuration before the update loop begins, catching misconfigurations early.
-- **Cross-platform** — runs on all major POSIX platforms: Linux (glibc and musl), macOS, and FreeBSD. Continuously validated via CI on Linux (glibc) and macOS (arm64).
+- Manage multiple domains and subdomains from one JSON configuration.
+- Configure independent A and AAAA records and update intervals.
+- Obtain addresses from a local interface, an HTTP(S) endpoint, or mDNS.
+- Update records through bundled drivers for 12 DNS providers.
+- Resolve records with traditional DNS, DNS-over-HTTPS, or DNS-over-TLS.
+- Choose concurrent, fallback, or shuffled DNS resolver strategies.
+- Stop cleanly on SIGINT/SIGTERM and cancel in-flight network operations.
+- Run on Linux (glibc/musl), macOS, and FreeBSD.
+
+Provider-specific parameters and credential requirements are documented in
+[DRIVERS.md](DRIVERS.md). 中文用户请参阅 [DRIVERS_CN.md](DRIVERS_CN.md)。
 
 ## Installation
 
-Pre-built packages are not published yet. Install from source, or build a DEB package yourself:
+Pre-built packages are not published yet. You can build from source, create a
+Debian package, or use the supplied Dockerfile.
 
-- **DEB package (Debian/Ubuntu)** — build an installable `.deb` with `./docker/build-deb.sh` (output in `deb-out/`), then install it with `sudo dpkg -i`. See [Building a DEB package](#building-a-deb-package).
-- **Docker** — a multi-stage `Dockerfile` produces a minimal Alpine-based runtime image. See [Docker (multi-stage build)](#docker-multi-stage-build).
-- **From source** — follow [Quick Start](#quick-start).
+### Build from source
+
+You need CMake 3.28+, OpenSSL 3.0+, and a C++23 compiler: GCC 14+, Clang
+19+, or Apple Clang 15+.
+
+Debian/Ubuntu prerequisites:
+
+```bash
+sudo apt install build-essential cmake pkg-config libssl-dev
+```
+
+macOS prerequisites:
+
+```bash
+brew install cmake pkg-config openssl@3
+```
+
+Build and install:
+
+```bash
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build --parallel
+sudo cmake --install build
+```
+
+The default install places the binary under the selected install prefix,
+drivers under `${libdir}/yaddnsc/drivers`, and the system configuration under
+`${sysconfdir}/yaddnsc/config.json` (normally `/etc/yaddnsc/config.json`).
+Use `-DCMAKE_INSTALL_PREFIX=...` at configure time for a different prefix.
+
+### Debian package
+
+```bash
+cmake -S . -B build \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DYADDNSC_ENABLE_DEB=ON
+cmake --build build --parallel
+cpack --config build/CPackConfig.cmake -G DEB
+```
+
+A Docker-based builder is also available:
+
+```bash
+./docker/build-deb.sh
+```
+
+### Docker
+
+```bash
+docker build -t yaddnsc .
+docker run --rm yaddnsc --help
+```
 
 ## Quick Start
 
-Build and install yaddnsc, create a minimal `config.json`, then validate and run:
+Create `config.json`, validate it, then run the client:
 
 ```bash
-cmake -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build -j$(nproc)
-sudo cmake --install build    # installs the binary and driver plugins
-
-yaddnsc config test           # validate ./config.json
-yaddnsc run                   # start the update loop
+yaddnsc config test
+yaddnsc run
 ```
 
-> **Note:** Driver plugins are loaded from `${libdir}/yaddnsc/drivers` by default. If you skip the install step, set `driver_dir` in the `driver` object to your build tree instead (e.g. `build/driver/`), otherwise `yaddnsc config test` fails with `Driver ... not found`.
-
-A minimal configuration looks like this — see [Configuration](#configuration) for the full reference and [DRIVERS.md](DRIVERS.md) for provider-specific `driver_param` examples:
+The following is a **configuration-shape example**. The `simple` URL is a
+placeholder and must be replaced with an API endpoint that actually performs
+the DNS update; it will not update a real record as written.
 
 ```json
 {
@@ -93,143 +141,79 @@ A minimal configuration looks like this — see [Configuration](#configuration) 
 }
 ```
 
+For a real provider, choose a driver from [DRIVERS.md](DRIVERS.md) and copy its
+`driver_param` example. Run `config test` before starting the update loop.
+
 ## Usage
 
 ```bash
-# Run the DDNS client (default config path: ./config.json)
+# Run with ./config.json
 yaddnsc run
 
-# Run with a specific config file and verbose logging
+# Run with a specific file and debug logging
 yaddnsc run -c /etc/yaddnsc/config.json -d
 
-# Validate configuration and exit
-yaddnsc config test
-
-# Validate configuration quietly (exit code only)
+# Validate configuration; -q/--quiet suppresses the success message
 yaddnsc config test -q
-yaddnsc config test --quiet
 
-# Print resolved configuration as JSON
+# Print configuration, drivers, interfaces, or resolver information
 yaddnsc config show
-
-# List loaded drivers
 yaddnsc driver list
-
-# Show driver details
 yaddnsc driver info <name>
-
-# List network interfaces
 yaddnsc interface list
-
-# Show IP addresses of a specific interface
 yaddnsc interface ip <name>
-
-# DNS resolve a hostname
-yaddnsc dns resolve <hostname> [--type A|AAAA|TXT]
-
-# Show configured DNS resolver details
 yaddnsc dns resolver
 
-# Show build configuration (version, compiler, ABI, ID hash, etc.)
+# Resolve a hostname
+yaddnsc dns resolve <hostname> --type A
+
 yaddnsc info
-
-# Print version
 yaddnsc --version
-
-# Print help
 yaddnsc --help
-yaddnsc <subcommand> --help
 ```
 
-### Shell Completions
+Commands that fail return a non-zero exit status. A DNS lookup that cannot
+resolve a record is reported by the diagnostic command and does not itself
+start the update loop.
 
-Completion files for **zsh**, **bash**, and **fish** are included in the package and installed automatically by `cmake --install` or the DEB package.
+### Shell completions
 
-| Shell | DEB install path | Non-DEB install path | Reload command |
-|-------|------------------|---------------------|----------------|
-| zsh   | `/usr/share/zsh/vendor-completions/_yaddnsc` | `share/zsh/site-functions/_yaddnsc` | `autoload -U compinit && compinit` |
-| bash  | `/usr/share/bash-completion/completions/yaddnsc` | (same) | `. /usr/share/bash-completion/bash_completion` |
-| fish  | `/usr/share/fish/vendor_completions.d/yaddnsc.fish` | `share/fish/completions/yaddnsc.fish` | (automatic on next shell start) |
-
-After installing, restart your shell for the completions to take effect.
-
-### Systemd Service
-
-A systemd service file is provided (generated at build time from `template/deb/yaddnsc.service.in`) and installed automatically by `cmake --install` when systemd is detected. It features configuration validation (`config test`) before every start, security hardening (DynamicUser, ProtectSystem, ProtectHome), and optional overrides via an environment file in the system config directory:
-
-```bash
-# Install normally — the service is placed automatically
-sudo cmake --install build
-
-# Enable and start the service
-sudo systemctl daemon-reload
-sudo systemctl enable --now yaddnsc
-
-# Optional: override config path
-sudo mkdir -p /etc/yaddnsc/default
-echo 'YADDNSC_CONFIG=/custom/path/config.json' | sudo tee /etc/yaddnsc/default/yaddnsc
-```
-
-> **Note:** The service file uses `cmake`-substituted paths at build time, so the binary, config, and environment file locations are determined by the `CMAKE_INSTALL_BINDIR` and `CMAKE_INSTALL_SYSCONFDIR` variables passed during configuration.
+Completion files for bash, zsh, and fish are installed with the package or
+`cmake --install`. Restart the shell after installation if completion is not
+available.
 
 ## Configuration
 
-yaddnsc uses a JSON configuration file. By default it looks for `./config.json`, or you can specify a custom path with the `-c` flag.
+yaddnsc reads `./config.json` by default. Use `-c` on `run` or on a diagnostic
+subcommand to select another file.
 
-A template configuration is generated at build time from `template/deb/yaddnsc_config.json` and installed to the system config directory (`${sysconfdir}/yaddnsc/config.json`).
-
-### Example Configuration
+### Minimal structure
 
 ```json
 {
   "driver": {
     "driver_dir": "/opt/yaddnsc/drivers",
-    "auto_discover": false,
-    "load": [
-      "cloudflare.so",
-      "simple.so"
-    ]
+    "load": ["cloudflare.so"]
   },
   "resolver": {
     "use_custom_server": true,
-    "strategy": "concurrent",
-    "servers": [
-      { "address": "1.1.1.1", "port": 53 },
-      { "address": "8.8.8.8", "port": 53 }
-    ]
+    "servers": [{ "address": "1.1.1.1", "port": 53 }]
   },
   "domains": [
     {
       "name": "example.com",
       "update_interval": 300,
-      "force_update": 0,
       "driver": "cloudflare",
       "subdomains": [
         {
           "name": "home",
-          "type": "aaaa",
-          "interface": "eth0",
-          "ip_source": "interface",
-          "allow_ula": false,
-          "allow_local_link": false,
-          "update_interval": 600,
-          "driver_param": {
-            "zone_id": "your-zone-id",
-            "record_id": "your-record-id",
-            "token": "your-api-token"
-          }
-        },
-        {
-          "name": "home",
           "type": "a",
-          "ip_source": "http",
-          "ip_source_param": "https://ipv4.example.com/",
-          "allow_ula": false,
-          "allow_local_link": false,
+          "ip_source": "interface",
+          "interface": "eth0",
           "driver_param": {
-            "zone_id": "your-zone-id",
-            "record_id": "your-record-id",
-            "token": "your-api-token"
+            "zone_id": "replace-me",
+            "record_id": "replace-me",
+            "token": "replace-me"
           }
         }
       ]
@@ -238,520 +222,144 @@ A template configuration is generated at build time from `template/deb/yaddnsc_c
 }
 ```
 
-### Configuration Reference
+### General fields
 
-#### Top-level
+| Object | Field | Description |
+|---|---|---|
+| `driver` | `driver_dir` | Directory containing driver libraries. Omitted uses the installed driver directory. |
+| `driver` | `auto_discover` | Load every `.so` in `driver_dir`; when true, `load` is ignored. |
+| `driver` | `load` | Driver library names to load manually. |
+| `resolver` | `use_custom_server` | Use configured servers instead of the build-time default. |
+| `resolver` | `servers` | DNS server list; see [DNS Resolver](#dns-resolver). |
+| `resolver` | `strategy` | `concurrent`, `fallback`, or `shuffle`. |
+| `domains[]` | `name` | Managed domain, such as `example.com`. |
+| `domains[]` | `update_interval` | Default update interval in seconds; must meet the configured minimum. |
+| `domains[]` | `force_update` | Periodic forced update interval; `0` disables it. |
+| `domains[]` | `driver` | Name of a loaded driver. |
+| `domains[]` | `subdomains` | Records managed under this domain. |
+| `subdomains[]` | `name` | Label, or `@` for the apex record. |
+| `subdomains[]` | `type` | Record type. Use `a` or `aaaa` for DDNS updates. `txt` is available to `dns resolve`, but update support is driver-specific and currently documented only for Cloudflare. |
+| `subdomains[]` | `ip_source` | `interface`, `http`, or `mdns`. |
+| `subdomains[]` | `ip_source_param` | URL for `http`, hostname for `mdns`; unused for `interface`. |
+| `subdomains[]` | `interface` | Interface name. Required by `interface` source and optional for network sources. |
+| `subdomains[]` | `update_interval` | Per-record interval; omitted or `0` inherits the domain interval. |
+| `subdomains[]` | `driver_param` | Provider-specific settings; see [DRIVERS.md](DRIVERS.md). |
 
-| Field      | Type     | Description                                   |
-|------------|----------|-----------------------------------------------|
-| `driver`   | object   | Driver loading configuration                  |
-| `resolver` | object   | Custom DNS resolver settings (optional)       |
-| `domains`  | array    | List of domain configurations                 |
+`allow_ula` and `allow_local_link` control whether IPv6 interface addresses in
+those address ranges are accepted. Deprecated compatibility fields may still be
+accepted; use the current fields above for new configurations.
 
-#### `driver` object
+Keep credentials out of source control and restrict the configuration file:
 
-| Field           | Type     | Description                                                                            |
-|-----------------|----------|----------------------------------------------------------------------------------------|
-| `driver_dir`    | string   | Directory containing driver `.so` files. **Optional** — when omitted, defaults to `${libdir}/yaddnsc/drivers` (e.g. `/usr/lib/yaddnsc/drivers`) |
-| `auto_discover` | boolean  | If true, automatically loads all `.so` files in `driver_dir` (ignores `load` list). Default: `false` |
-| `load`          | string[] | List of driver shared library filenames to load (ignored when `auto_discover` is true) |
-
-#### `resolver` object
-
-| Field               | Type        | Description                                                                                                                                   |
-|---------------------|-------------|-----------------------------------------------------------------------------------------------------------------------------------------------|
-| `use_custom_server` | boolean     | If true, use the specified DNS server(s); if false, the built-in default (`1.1.1.1:53`) is used.                                            |
-| `servers`           | DnsServer[] | List of DNS servers. See [DNS Resolver](#dns-resolver) for supported address formats.                                                         |
-| `address`           | string      | **Deprecated, will be removed in a future release.** DNS server address specified directly at the resolver level. Use `servers` instead. |
-| `ipaddress`         | string      | **Deprecated, will be removed in a future release.** Alias for `address`. Use `servers` instead. |
-| `port`              | int         | **Deprecated, will be removed in a future release.** Port for use with `address` (default: 53). Use `servers` instead. |
-| `strategy`          | string      | Query strategy: `"concurrent"` (default), `"fallback"`, or `"shuffle"`. See [DNS Resolver](#dns-resolver). |
-
-#### `DnsServer` object
-
-| Field        | Type   | Description                                                                                           |
-|--------------|--------|-------------------------------------------------------------------------------------------------------|
-| `address`    | string | DNS server address.                                                                                   |
-| `ipaddress`  | string | **Deprecated, will be removed in a future release.** Alias for `address`.                              |
-| `port`       | int    | Port number (default: 53). **Only used by the traditional DNS resolver.** DoH/DoT resolvers ignore this
-field and read the port from the `address` URI instead.                                            |
-
-> See [DNS Resolver](#dns-resolver) for supported `address` formats (traditional DNS, DoH, DoT).
-
-#### `domains[]` object
-
-| Field             | Type   | Description                                                                                 |
-|-------------------|--------|---------------------------------------------------------------------------------------------|
-| `name`            | string | Domain name (e.g. `example.com`)                                                            |
-| `update_interval` | int    | Interval in seconds between updates (must be >= the compile-time minimum, default 60 — see `YADDNSC_MIN_UPDATE_INTERVAL`). Used as default for all subdomains. |
-| `force_update`    | int    | Interval in seconds for forced updates (0 = disabled). Must be >= `update_interval` if set. |
-| `driver`          | string | Name of the driver to use (must match a loaded driver)                                      |
-| `subdomains`      | array  | List of subdomain records to manage                                                         |
-
-#### `subdomains[]` object
-
-| Field              | Type    | Description                                                                                                          |
-|--------------------|---------|----------------------------------------------------------------------------------------------------------------------|
-| `name`             | string  | Subdomain name (e.g. `home` for `home.example.com`). Use `"@"` for the apex record (`example.com`).                  |
-| `type`             | string  | DNS record type: `"a"`, `"aaaa"`, or `"txt"`. Determines address family automatically (A → IPv4, AAAA → IPv6). |
-| `interface`        | string  | Network interface name (e.g. `eth0`). Required for `"interface"` IP source; optional for others.                     |
-| `ip_type`          | string  | **Deprecated — ignored.** Address family is now derived from `type` (A → IPv4, AAAA → IPv6).                          |
-| `ip_source`        | string  | IP source strategy: `"interface"`, `"http"`, or `"mdns"`. `"url"` is the old name for `"http"` (deprecated, will be removed in a future release). See [IP Source](#ip-source) for details. |
-| `ip_source_param`  | string  | Source-specific parameter (URL for `"http"`, mDNS hostname for `"mdns"`). Ignored for `"interface"`.                  |
-| `allow_ula`        | boolean | When using IPv6 interface source, allow Unique Local Addresses (default: false)                                      |
-| `allow_local_link` | boolean | When using IPv6 interface source, allow link-local addresses (default: false)                                        |
-| `update_interval`  | int     | Per-subdomain update interval in seconds (optional). 0 or omitted = inherit from `domain.update_interval`.           |
-| `driver_param`     | object  | Driver-specific parameters (key-value map). See [DRIVERS.md](DRIVERS.md) for per-driver parameter references.          |
-
-## IP Source
-
-The `ip_source` field in a `subdomains[]` entry determines how yaddnsc discovers the IP address to update. Three sources are supported:
-
-### `interface` — Read from a local network interface
-
-Reads the IP address directly from a specified local network interface. Ideal for devices with a static local address or when you want to report the address bound to a specific interface.
-
-```json
-{
-    "name": "home",
-    "type": "a",
-    "interface": "eth0",
-    "ip_source": "interface"
-}
+```bash
+chmod 600 /etc/yaddnsc/config.json
 ```
 
-### `http` — Fetch from an HTTP(S) endpoint
+Use the minimum provider permissions necessary for DNS updates. Check before
+sharing the output of `config show` or logs because configuration values may
+contain credentials.
 
-Fetches the IP address from an external HTTP(S) service that returns the client's IP in the response body (e.g. `https://api.ipify.org`). The HTTP request can be bound to a specific interface.
+## IP Sources
 
-```json
-{
-    "name": "home",
-    "type": "a",
-    "interface": "eth0",
-    "ip_source": "http",
-    "ip_source_param": "https://api.ipify.org"
-}
-```
+### `interface`
 
-### `mdns` — Discover via mDNS (RFC 6762)
+Reads an address from a local network interface. A records use IPv4 and AAAA
+records use IPv6. The interface must exist and be usable by the service.
 
-Discovers the IP address of a LAN device by sending a multicast DNS query for a `.local` hostname (e.g. `printer.local`). Useful for detecting the address of devices on the local network such as printers, NAS, or IoT devices.
+### `http`
 
-```json
-{
-    "name": "printer",
-    "type": "a",
-    "ip_source": "mdns",
-    "ip_source_param": "printer.local"
-}
-```
+Fetches an address from an HTTP(S) endpoint whose response body is a plain IP
+address. HTTPS is recommended. The optional `interface` controls the outgoing
+network interface, subject to operating-system routing and permissions.
 
-```json
-{
-    "name": "nas",
-    "type": "aaaa",
-    "interface": "eth0",
-    "ip_source": "mdns",
-    "ip_source_param": "nas.local"
-}
-```
+### `mdns`
+
+Queries a local `.local` hostname using multicast DNS, for example
+`printer.local`. It is intended for LAN devices, not public DNS names. mDNS may
+not work in containers, VPNs, cloud hosts, or networks that block multicast;
+IPv6 mDNS may require an explicit interface.
 
 ## DNS Resolver
 
-yaddnsc performs record lookups against a fixed DNS server list. Configure the `resolver` object at the top level of your configuration file to use custom servers; if none are configured, the built-in default (`1.1.1.1:53`) is used automatically.
+The resolver uses configured servers when `use_custom_server` is enabled.
+Otherwise it uses the build-time default, normally `1.1.1.1:53`. Maintainers can
+change it with `-DYADDNSC_DEFAULT_DNS_SERVER=...` and
+`-DYADDNSC_DEFAULT_DNS_PORT=...` when configuring the build.
 
-Three resolver types are supported, auto-detected from the address format:
+- **Traditional DNS:** use an IP address and `port`; UDP is used with TCP
+  fallback for large responses.
+- **DoH:** use a complete `https://host/path` address, such as
+  `https://1.1.1.1/dns-query`. The port is read from the URI and defaults to
+  `443`.
+- **DoT:** use a `tls://host[:port]` address. The port is read from the URI and
+  defaults to `853`.
 
-### Traditional DNS (UDP/TCP)
+For DoH and DoT, the `port` field in the server object is ignored. The query
+strategy is:
 
-Uses standard DNS over UDP (or TCP for large responses) on a given IP and port. The built-in stack provides a fully self-contained UDP/TCP transport and packet parsing (no libresolv), giving better portability and full control over the transport layer.
+| Strategy | Behaviour |
+|---|---|
+| `concurrent` | Query resolver backends in parallel and use the first successful result. |
+| `fallback` | Try configured resolvers in order. |
+| `shuffle` | Try resolvers sequentially in a randomized order. |
 
-```json
-{
-  "resolver": {
-    "use_custom_server": true,
-    "servers": [
-      { "address": "1.1.1.1", "port": 53 },
-      { "address": "8.8.8.8", "port": 53 }
-    ]
-  }
-}
-```
+## TLS and CA Certificates
 
-### DNS-over-HTTPS (DoH)
-
-- **RFC 8484** — DNS queries via HTTPS POST; the address must be a complete HTTPS URL including path (e.g. `https://1.1.1.1/dns-query`)
-- Cooperative request cancellation
-- **Port in URI** — The DoH resolver reads the port from the URI (e.g. `https://1.1.1.1:1443/dns-query`). The `port` field in the DnsServer object is **ignored**. If no port is specified in the URI, the default is `443`.
-
-```json
-{
-  "resolver": {
-    "use_custom_server": true,
-    "servers": [
-      { "address": "https://1.1.1.1/dns-query" },
-      { "address": "https://cloudflare-dns.com/dns-query" }
-    ]
-  }
-}
-```
-
-### DNS-over-TLS (DoT)
-
-- **RFC 7858** — DNS queries via TLS; the address is in `tls://` URI format
-- **RFC 7830** — EDNS(0) padding
-- **RFC 6066** — TLS SNI extension
-- **RFC 7301** — TLS ALPN extension
-- Cooperative request cancellation
-- **Port in URI** — The DoT resolver reads the port from the URI (e.g. `tls://1.1.1.1:853`). The `port` field in the DnsServer object is **ignored**. If no port is specified in the URI, the default is `853`.
-
-```json
-{
-  "resolver": {
-    "use_custom_server": true,
-    "servers": [
-      { "address": "tls://1.1.1.1:853" }
-    ]
-  }
-}
-```
-
-### Query Strategy
-
-The `strategy` field controls how multiple DNS servers are queried:
-
-| Strategy     | Behaviour                                                                 |
-|--------------|---------------------------------------------------------------------------|
-| `concurrent` | **(Default)** Fire resolvers in batches of 3 in parallel and return the fastest successful response. |
-| `fallback`   | Try the first resolver; if it fails, try the next one in configured order. |
-| `shuffle`    | Same sequential fallback as `"fallback"`, but the resolver order is randomised on each query. |
-
-```json
-{
-  "resolver": {
-    "use_custom_server": true,
-    "strategy": "fallback",
-    "servers": [
-      { "address": "https://1.1.1.1/dns-query" },
-      { "address": "tls://1.1.1.1" }
-    ]
-  }
-}
-```
-
-## CA Certificate Discovery
-
-yaddnsc uses a three-tier automatic discovery chain to locate a CA certificate bundle for TLS connections (Drivers, DoH, DoT, HTTP IP sources).
-
-The first bundle found is cached and reused for the lifetime of the process.
-
-| Priority | Mechanism | Typical use case |
-|----------|-----------|------------------|
-| 1 | **`SSL_CERT_FILE`** environment variable | Explicit override (containers, private CAs); its use is logged at INFO level at startup |
-| 2 | **OpenSSL default path** (`X509_get_default_cert_file`) | Standard system installations |
-| 3 | **Well-known hardcoded paths** (13 paths across Linux, macOS, *BSD) | Non-standard installations, cross-platform portability |
+TLS certificate verification is enabled by default. To use a private CA bundle,
+set `SSL_CERT_FILE` before running yaddnsc:
 
 ```bash
-# Use a custom CA bundle (overrides all auto-detection)
-export SSL_CERT_FILE=/etc/my-ca-bundle.crt
+export SSL_CERT_FILE=/etc/ssl/private/company-ca-bundle.pem
+yaddnsc config test
 yaddnsc run
 ```
 
-> **Note:** `SSL_CERT_DIR` is **not** supported. On systems where CA certificates are stored in a directory (hash-symlink format), point `SSL_CERT_FILE` to a combined bundle file instead.
+The bundle is selected from `SSL_CERT_FILE`, the OpenSSL default path, or a
+platform system path, and is cached for the process lifetime. If no trust store
+is available, verification remains enabled and TLS connections fail safely.
+`SSL_CERT_DIR` is not supported; use a combined PEM bundle instead.
 
-> **Security:** When no CA bundle can be discovered, the HTTP client keeps server certificate verification **enabled** (fail-closed) and falls back to OpenSSL's default verify paths. If the system has no trust store, TLS handshakes fail rather than silently proceeding without verification. To connect to servers that use private or self-signed certificates, add the CA certificate to a bundle discoverable by one of the tiers above (e.g. via `SSL_CERT_FILE`).
+## Production Deployment
 
-## Build Requirements
-
-### Prerequisites
-
-| Tool / Library  | Minimum Version                                    |
-|-----------------|----------------------------------------------------|
-| OS              | POSIX (Linux, macOS, *BSD)                         |
-| CMake           | 3.28                                               |
-| C++ Compiler    | C++23 capable (GCC 14+, Clang 19+, Apple Clang 15+) |
-| OpenSSL         | 3.0+                                               |
-| pkg-config      | Any (required on Linux; optional on macOS)         |
-
-### Building
+After installation, verify the configuration before enabling the service. A
+systemd unit is installed only when systemd development metadata is available
+during a source install; Debian packages always include it.
 
 ```bash
-# Install system dependencies (Debian/Ubuntu)
-sudo apt install libssl-dev build-essential cmake pkg-config
-
-# Install system dependencies (macOS)
-brew install openssl@3 cmake pkg-config
-
-# Default build (Debug — includes debug symbols and sanitizers)
-cmake -B build
-cmake --build build -j$(nproc)
-
-# Optimized production build
-cmake -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build -j$(nproc)
-
-# Install to a staging directory
-cmake --install build --prefix /usr --sysconfdir /etc
-
-# Or install system-wide (DESTDIR support for packages)
-sudo cmake --install build
+yaddnsc config test
+sudo systemctl daemon-reload
+sudo systemctl enable --now yaddnsc
+sudo systemctl status yaddnsc
+journalctl -u yaddnsc
 ```
 
-### Platform Notes
+The service validates the configuration before starting. The installed system
+configuration is normally `/etc/yaddnsc/config.json`. If the package provides
+an environment override, use the installed service documentation and keep the
+configuration readable only by the service account.
 
-**Legacy devices** — If your toolchain is older (GCC < 14 or Clang < 19), use the `v0.x` (legacy) branch (C++17, CMake 3.14+, OpenSSL 1.1.x). Maintenance-only; feature development happens on master.
+## Troubleshooting
 
-**Alpine Linux (musl)** — musl lacks the reentrant `res_n*` resolver family; the built-in DNS stack handles this correctly on all platforms.
+| Symptom | First checks |
+|---|---|
+| Driver not found | Run `yaddnsc driver list`; check `driver_dir` and installation. |
+| Configuration rejected | Run `yaddnsc config test`; check driver name, record type, and intervals. |
+| DNS lookup fails | Run `yaddnsc dns resolver`; check server address, port, and firewall. |
+| HTTP source fails | Check that the endpoint returns only an IP address and that HTTPS/route access works. |
+| TLS verification fails | Check system time, CA bundle, and `SSL_CERT_FILE`. |
+| mDNS returns no answer | Check the `.local` name, multicast support, interface, container network, and firewall. |
+| systemd fails | Run `systemctl status yaddnsc` and `journalctl -u yaddnsc`. |
+| ABI mismatch | Rebuild or reinstall the driver with the same yaddnsc/toolchain build. |
 
-### Testing
+## Developer Documentation
 
-Unit tests are available for utility, DNS protocol, validation, and configuration components.
-Tests are gated by the `YADDNSC_BUILD_TESTS` CMake option (default: OFF). To build and run tests:
-
-```bash
-# Enable ASan-friendly options for local debugging (optional but recommended)
-export ASAN_OPTIONS=detect_stack_use_after_return=1:strict_string_checks=1:detect_invalid_pointer_pairs=2
-
-cmake -B build -DYADDNSC_BUILD_TESTS=ON
-cmake --build build -j$(nproc)
-ctest --test-dir build --output-on-failure
-```
-
-Integration tests for the core orchestration components (Manager, Scheduler, Updater) are planned after a planned refactoring decouples these with injectable interfaces.
-
-### CMake Options
-
-| Option                        | Default                                       | Description                                                       |
-|-------------------------------|-----------------------------------------------|-------------------------------------------------------------------|
-| `CMAKE_BUILD_TYPE`            | Debug                                         | Set to `Release` for optimized production builds                   |
-| `YADDNSC_MIN_UPDATE_INTERVAL` | 60                                            | Minimum allowed update interval in seconds                         |
-| `YADDNSC_DEFAULT_DNS_SERVER`  | 1.1.1.1                                       | Default DNS server address when none is configured                 |
-| `YADDNSC_DEFAULT_DNS_PORT`    | 53                                            | Default DNS server port when none is configured                    |
-| `YADDNSC_USE_SYSTEM_SPDLOG`   | OFF                                           | Use system spdlog instead of the bundled CPM-downloaded version    |
-| `YADDNSC_BUILD_DOCS`          | OFF                                           | Build Doxygen API documentation from source comments               |
-| `YADDNSC_BUILD_TESTS`         | OFF                                           | Build unit tests (requires GoogleTest, fetched via CPM.cmake)      |
-| `YADDNSC_ENABLE_DEB`          | OFF                                           | Enable DEB package generation via CPack                            |
-
-> **Note on `YADDNSC_USE_SYSTEM_SPDLOG`:** On Ubuntu 24.04 the system spdlog
-> pulls in fmt 9.1.0, whose float-formatting internals (`bigint`) trigger a
-> GCC 14 `-Warray-bounds` false positive (fmtlib/fmt#3731, fixed in fmt 10).
-> When a system fmt older than 10 is detected, CMake demotes this warning to
-> non-fatal (`-Wno-error=array-bounds`) so `-Werror` builds still succeed.
-
-#### Building a DEB package
-
-```bash
-# Build locally
-cmake -B build -DCMAKE_BUILD_TYPE=Release -DYADDNSC_ENABLE_DEB=ON
-cmake --build build -j$(nproc)
-cpack --config build/CPackConfig.cmake -G DEB
-
-# Or use the Docker-based DEB builder (recommended for CI)
-./docker/build-deb.sh          # builds for Ubuntu 24.04
-./docker/build-deb.sh 24.04 26.04  # builds for multiple versions
-```
-
-> **Note:** The DEB package includes shell completion files for all three shells: zsh (`_yaddnsc` → `/usr/share/zsh/vendor-completions/`), bash (`yaddnsc` → `/usr/share/bash-completion/completions/`), and fish (`yaddnsc.fish` → `/usr/share/fish/vendor_completions.d/`).
-
-#### Docker (multi-stage build)
-
-A multi-stage Dockerfile (`Dockerfile`) is provided for building and running yaddnsc on Alpine Linux:
-
-```bash
-docker build -t yaddnsc .
-docker run yaddnsc --help
-```
-
-The Docker build produces a minimal runtime image with only the required shared libraries (OpenSSL, zlib, brotli, libstdc++), a non-root user, and the binary pre-configured with a default config.
-
-#### Doxygen API Documentation
-
-API documentation can be generated from source comments using Doxygen:
-
-```bash
-cmake -B build -DCMAKE_BUILD_TYPE=Release -DYADDNSC_BUILD_DOCS=ON
-cmake --build build -j$(nproc)
-make -C build doxygen   # generates HTML docs in build/docs/
-```
-
-Requires `doxygen` and optionally `graphviz` (for diagrams).
-
-Third-party dependencies are fetched automatically via [CPM.cmake](https://github.com/cpm-cmake/CPM.cmake) (v0.40+). Each dependency is pinned to an explicit, immutable version tag (e.g. `@2.6.2`) so builds are reproducible; floating branches or mutable tags are never used.
-
-> **Why CPM?** CPM wraps CMake's `FetchContent` and lets us pin every third-party
-> library to a fixed version with a single declarative call, avoiding a system-wide
-> install step and keeping the dependency set small and auditable.
->
-> **Known limitations** (mitigated by keeping the dependency set small and performing
-> periodic manual vulnerability reviews):
-> - No binary caching — every clean build recompiles dependencies.
-> - No transitive dependency resolution — versions must be declared explicitly.
-> - No centralized security advisory registry — CVEs are tracked manually.
-
-### Debug sanitizers
-
-Debug builds enable AddressSanitizer + UndefinedBehaviorSanitizer by default
-(gated by `YADDNSC_SANITIZE_DEBUG`, default ON). To get the most out of ASan during
-local debugging, export the following before running the binary:
-
-```bash
-export ASAN_OPTIONS=detect_stack_use_after_return=1:strict_string_checks=1:detect_invalid_pointer_pairs=2
-```
-
-The full sanitizer combination (integer, bounds, null, alignment, plus aggressive
-use-after-return/use-after-scope modes) is **not** applied to Debug builds — it is
-reserved for the dedicated `Sanitizer` build type used in CI for periodic deep
-testing, since it is extremely expensive and triggers many false positives against
-STL internals.
-
-### Conversion warning gate
-
-The `-Wconversion` and `-Wsign-conversion` warnings conflict heavily with the
-standard library and common idioms, so they are **not** enabled on every local
-build. They run only as a dedicated CI job (`conversion-gate`) to catch narrowing
-bugs before merge while keeping developer velocity high.
-
-## Driver ABI Verification
-
-yaddnsc loads driver plugins as shared libraries (`.so`) at runtime via `dlopen`.
-Because C++ has no stable ABI across compilers, the same code compiled with
-different toolchains can produce incompatible binaries. To catch such mismatches
-early, every driver undergoes load-time verification before its code is ever
-executed.
-
-### Build ID (Compiler Fingerprint)
-
-At CMake configure time, the build system captures the compiler identity and
-embeds it into every compiled translation unit via a generated header
-(`build_id.hpp`, from `template/headers/build_id.hpp.in`):
-
-- **Compiler identity fields**: `COMPILER_ID`, `COMPILER_VERSION`, `BUILD_TYPE`,
-  the detected C++ standard library (`COMPILER_ABI` — `libc++` or `libstdc++`),
-  and the C standard library (`LIBC_TYPE` — `glibc` or `musl`).
-- **FNV-1a 64-bit hash** (`COMPILER_ID_HASH`): A compile-time hash of all
-  compiler identity fields combined, used for fast ABI compatibility checks.
-- **Human-readable build ID string** (`full_id()`), e.g. `"GNU 14.2.0 Release"`.
-
-The `DEFINE_DRIVER_FACTORY` macro (used in every driver, see
-[Writing a Custom Driver](#writing-a-custom-driver)) automatically exports the
-hash and build ID string from the driver `.so`, so they can be checked by the
-host at load time.
-
-### Driver Load Verification
-
-When the host loads a driver `.so` via `dlopen`, it performs the following
-checks in order, before any driver code is executed:
-
-1. **Magic check** — Calls `yaddnsc_drv_magic()` and verifies the returned
-   constant matches `YADDNSC_DRIVER_MAGIC` (`0x594144444E534300ULL`).
-   This confirms the `.so` is indeed a yaddnsc driver, not an arbitrary shared
-   library.
-
-2. **Compiler identity check** — Calls `yaddnsc_drv_compiler_id_hash()` and
-   compares the returned value with the host's `BuildId::COMPILER_ID_HASH`.
-   A mismatch means the driver was compiled with a different toolchain
-   (different compiler vendor, version, or C++ standard library ABI flag).
-   The driver is rejected with a clear error message:
-   ```
-   Driver 'cloudflare.so' compiler identity mismatch: 0xABCD… != 0x1234…
-   Rebuild the driver with the same toolchain and flags as the host.
-   ```
-
-3. **ABI version check** — After the driver is instantiated, its
-   `get_abi_version()` is compared against the host's `DRV_ABI_VERSION`.
-   This ensures the virtual function table layout of the `Driver` interface
-   is compatible.
-
-This layered design catches ABI issues at load time, before any DNS update
-operation is attempted.
-
-### Inspecting Build Configuration
-
-The `yaddnsc info` CLI command displays the current binary's build configuration,
-including the compiler identity hash, ABI variant, and C++ standard level:
-
-```bash
-$ yaddnsc info
-Build configuration:
-  Version              v1.0.0
-  Build ID             GNU 14.2.0 Release
-  C library            glibc
-  Compiler ABI         libstdc++ (_GLIBCXX_USE_CXX11_ABI=1)
-  Compiler ID hash     0xABCDEF0123456789
-  C++ standard         C++23
-  DNS resolver         Native
-  Default DNS          1.1.1.1:53
-  Min update interval  60s
-  Format library       std::format
-  spdlog               bundled
-```
-
-### Building Drivers from Source
-
-The safest way to avoid ABI mismatches is to compile your driver together with
-the yaddnsc source tree. The `driver/` CMakeLists.txt automatically discovers
-subdirectories and builds everything with the same compiler flags and settings
-as the host binary:
-
-```bash
-# Add your driver source to driver/<your_driver>/
-# Then rebuild:
-cmake -B build
-cmake --build build -j$(nproc)
-```
-
-If you must build as a standalone shared library, ensure:
-- The compiler, version, and C++ standard (C++23, GCC 14+, Clang 19+,
-  Apple Clang 15+) match the host build exactly.
-- The same `AbiVersion` is used (defined by the generated `driver_ver.h`).
-- The `DEFINE_DRIVER_FACTORY` macro derives the compiler identity hash
-  automatically — as long as the same toolchain is used, it will match.
-- Build as a `MODULE` library (position-independent code, no `lib` prefix).
-
-> **Note:** Even with matching compiler identity, minor version differences
-> or different `_GLIBCXX_USE_CXX11_ABI` settings can still produce incompatible
-> binaries. When in doubt, always build from source.
-
-## Writing a Custom Driver
-
-Drivers are shared libraries loaded at runtime (for the bundled drivers and their parameters, see [DRIVERS.md](DRIVERS.md)). To write one:
-
-1. Include `driver/base.h` and inherit from `BaseDriver`.
-2. Implement the `Driver` interface:
-   - `generate_request(config, ctx)` — construct a `DriverRequestContext` (containing URL and `DriverRequest` with HTTP method, headers, body)
-   - `check_response(response)` — validate the API response body
-   - `get_detail()` — return driver metadata (name, description, author, version)
-   - `get_abi_version()` — ABI version check (already `final` in `BaseDriver`, no override needed)
-   - `execute(config, ctx, http)` — drive the full update workflow (default provided by `BaseDriver`, override for multi-step workflows)
-3. Use the `DEFINE_DRIVER_FACTORY(YourDriverClass)` macro at the bottom of the
-   implementation file. This macro exports five C entry points required by the
-   host's load-time verification (see [Driver ABI Verification](#driver-abi-verification)):
-   - `create()` / `destroy()` — standard factory functions
-   - `yaddnsc_drv_magic()` — driver magic constant
-   - `yaddnsc_drv_compiler_id_hash()` — FNV-1a 64-bit compiler identity hash
-   - `yaddnsc_drv_build_id_str()` — human-readable build ID string
-
-> **Recommendation:** Compile your custom driver **together with the yaddnsc
-> source tree** rather than as a standalone build.  The `driver/` CMakeLists.txt
-> automatically discovers subdirectories and builds with the same flags as the
-> host, guaranteeing ABI compatibility.  See
-> [Building Drivers from Source](#building-drivers-from-source) for details.
-
-## Dependencies
-
-| Library                                                     | Purpose                                        | Management   |
-|-------------------------------------------------------------|------------------------------------------------|--------------|
-| [glaze](https://github.com/stephenberry/glaze)              | JSON serialization/reflection                  | CPM.cmake    |
-| [spdlog](https://github.com/gabime/spdlog)                  | Logging                                        | CPM.cmake    |
-| [cpp-httplib](https://github.com/yhirose/cpp-httplib)       | HTTP client                                    | CPM.cmake    |
-| [CLI11](https://github.com/CLIUtils/CLI11)                   | CLI option parsing                             | CPM.cmake    |
-| [BS::thread_pool](https://github.com/bshoshany/thread-pool) | Thread pool                                    | CPM.cmake    |
-| [fmt](https://github.com/fmtlib/fmt)                        | String formatting (fallback if no std::format) | CPM.cmake    |
-| [magic_enum](https://github.com/Neargye/magic_enum)         | Static enum reflection                         | CPM.cmake    |
-| [picohttpparser](https://github.com/h2o/picohttpparser)     | HTTP request/response parsing (cpp-httplib lacks request cancellation) | CPM.cmake    |
-| OpenSSL                                                     | TLS support                                    | System       |
+- [DNS provider drivers](DRIVERS.md)
+- [Custom drivers and ABI compatibility](docs/custom-drivers.md)
+- [Development, testing, and coverage](docs/development.md)
+- [Architecture notes](docs/architecture.md)
+- [Documentation map](docs/README.md)
 
 ## License
 
-This project is licensed under the terms specified in the [LICENSE](LICENSE) file.
+This project is licensed under the terms specified in the [LICENSE](LICENSE)
+file.
