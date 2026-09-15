@@ -12,9 +12,7 @@
 #include <thread>
 
 #include <arpa/inet.h>
-#include <cerrno>
 #include <expected>
-#include <fcntl.h>
 #include <gtest/gtest.h>
 #include <netinet/in.h>
 #include <poll.h>
@@ -276,28 +274,18 @@ TEST(NetTransportErrorPaths, SocketStream_Connect_UnresolvableHost_Fails) {
     EXPECT_EQ(result.error(), IoError::CONNECTION_FAILED);
 }
 
-TEST(NetTransportPollFd, AsyncError_WithoutRequestedEvent_ReturnsConnectionFailed) {
+TEST(NetTransportPollFd, ErrorFlagWithoutMatchingEvent_ReturnsConnectionFailed) {
     const Utils::CancellationToken token;
 
-    // Non-blocking connect to a closed port: the refused-port RST surfaces
-    // through poll as POLLERR. Passing events=0 keeps the readiness bitmask
-    // from matching, so the error-flag branch of poll_fd is exercised
-    // (connect_one asks for POLLOUT, which would mask it).
+    // Closed fds yield POLLNVAL, which does not overlap POLLIN, so poll_fd
+    // takes the error-flag path. Darwin's kqueue-backed poll() only registers
+    // a filter when POLLIN/POLLOUT is requested; events=0 never reports
+    // POLLERR/POLLNVAL (a TCP-RST + events=0 setup times out there).
     const int fd = ::socket(AF_INET, SOCK_STREAM, 0);
     ASSERT_GE(fd, 0);
-    const int flags = ::fcntl(fd, F_GETFL, 0);
-    ASSERT_NE(flags, -1);
-    ASSERT_EQ(::fcntl(fd, F_SETFL, flags | O_NONBLOCK), 0);
+    ASSERT_EQ(::close(fd), 0);
 
-    sockaddr_in addr{};
-    addr.sin_family = AF_INET;
-    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-    addr.sin_port = htons(closed_loopback_port());
-    ASSERT_EQ(::connect(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)), -1);
-    ASSERT_EQ(errno, EINPROGRESS);
-
-    const auto result = Transport::detail::poll_fd(fd, 0, 2s, token);
-    ::close(fd);
+    const auto result = Transport::detail::poll_fd(fd, POLLIN, 2s, token);
 
     ASSERT_FALSE(result);
     EXPECT_EQ(result.error(), IoError::CONNECTION_FAILED);
