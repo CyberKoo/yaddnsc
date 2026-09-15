@@ -3,13 +3,51 @@
 //
 #include "http_client/wire_request.h"
 
+#include <cctype>
 #include <utility>
 
 #include "uri.h"
-
+#include "string_util.hpp"
 #include "fmt.hpp"
 
 namespace net::http {
+
+namespace {
+
+[[nodiscard]] bool is_token(const std::string_view value) noexcept {
+    if (value.empty()) {
+        return false;
+    }
+    for (const auto ch : value) {
+        const auto c = static_cast<unsigned char>(ch);
+        if (std::isalnum(c) || ch == '!' || ch == '#' || ch == '$' || ch == '%' || ch == '&' || ch == '\'' ||
+            ch == '*' || ch == '+' || ch == '-' || ch == '.' || ch == '^' || ch == '_' || ch == '`' || ch == '|' ||
+            ch == '~') {
+            continue;
+        }
+        return false;
+    }
+    return true;
+}
+
+[[nodiscard]] bool is_field_value(const std::string_view value) noexcept {
+    for (const auto ch: value) {
+        const auto c = static_cast<unsigned char>(ch);
+        if (c != '\t' && (c < 0x20 || c == 0x7f)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+[[nodiscard]] bool is_managed_header(const std::string_view name) noexcept {
+    return StringUtil::iequals(name, "host") || StringUtil::iequals(name, "content-length") ||
+           StringUtil::iequals(name, "content-type") || StringUtil::iequals(name, "connection") ||
+           StringUtil::iequals(name, "transfer-encoding") || StringUtil::iequals(name, "trailer") ||
+           StringUtil::iequals(name, "upgrade");
+}
+
+} // namespace
 
 std::uint16_t default_port(const std::string_view scheme) noexcept {
     return scheme == "https" ? 443 : 80;
@@ -36,15 +74,39 @@ std::string make_target(const Uri &uri) {
     return target;
 }
 
+std::expected<void, Error> validate_request(const Request &req) {
+    for (const auto &[name, value]: req.headers) {
+        if (!is_token(name) || !is_field_value(value)) {
+            return std::unexpected(Error{ErrorCode::INVALID_REQUEST, "invalid HTTP request header"});
+        }
+        if (StringUtil::iequals(name, "upgrade")) {
+            return std::unexpected(Error{ErrorCode::UNSUPPORTED_PROTOCOL, "HTTP protocol upgrade is not supported"});
+        }
+        if (StringUtil::iequals(name, "transfer-encoding") || StringUtil::iequals(name, "trailer")) {
+            return std::unexpected(Error{ErrorCode::INVALID_REQUEST, "request transfer coding and trailers are not supported"});
+        }
+    }
+    if (!is_field_value(req.content_type)) {
+        return std::unexpected(Error{ErrorCode::INVALID_REQUEST, "invalid HTTP Content-Type"});
+    }
+    return {};
+}
+
 protocol::WireRequest build_wire_request(const Request &req, const std::string_view scheme,
                                          const std::string_view host, const std::uint16_t port, const Options &opts) {
     protocol::WireRequest wire{
         .method = req.method,
         .version = opts.version,
         .target = {},
-        .headers = req.headers,
+        .headers = {},
         .body = req.body,
     };
+    for (const auto &[name, value]: req.headers) {
+        if (!is_managed_header(name)) {
+            wire.headers.emplace(name, value);
+        }
+    }
+
     wire.headers.emplace("Host", make_host_header(scheme, host, port));
     if (opts.version == HttpVersion::V1_0) {
         wire.headers.emplace("Connection", opts.keep_alive ? "keep-alive" : "close");

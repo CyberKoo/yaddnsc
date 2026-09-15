@@ -71,6 +71,9 @@ Uri PersistentClient::current_uri(const std::string_view target) const {
 }
 
 std::expected<Response, Error> PersistentClient::exchange(const std::string_view url, const Request& req) const {
+    if (auto valid = validate_request(req); !valid) {
+        return std::unexpected(std::move(valid.error()));
+    }
     // Target semantics: a path ("/ip?x=1") is used verbatim; an absolute
     // http(s) URL contributes only its path+query — the origin always comes
     // from the base URL. (This is what makes the class usable through the

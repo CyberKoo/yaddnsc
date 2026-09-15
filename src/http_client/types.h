@@ -60,12 +60,16 @@ struct Request {
 /// as views: text() for string payloads, bytes() for binary payloads.
 class Response {
 public:
-    Response(int status_code, std::string body, std::multimap<std::string, std::string> response_headers)
-        : status(status_code), headers(std::move(response_headers)), body_(std::move(body)) {
+    Response(int status_code, std::string body, std::multimap<std::string, std::string> response_headers,
+             std::multimap<std::string, std::string> response_trailers = {})
+        : status(status_code), headers(std::move(response_headers)), trailers(std::move(response_trailers)),
+          body_(std::move(body)) {
     }
 
     int status;
     std::multimap<std::string, std::string> headers;
+    /// Trailer fields received after a chunked response body.
+    std::multimap<std::string, std::string> trailers;
 
     /// The body viewed as text (no encoding conversion is performed).
     [[nodiscard]] std::string_view text() const noexcept {

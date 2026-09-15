@@ -10,6 +10,7 @@
 #ifndef YADDNSC_HTTP_CLIENT_SESSION_H
 #define YADDNSC_HTTP_CLIENT_SESSION_H
 
+#include <chrono>
 #include <cstdint>
 #include <memory>
 #include <mutex>
@@ -52,6 +53,8 @@ private:
     std::mutex mutex_;
     std::unique_ptr<Transport::Stream> stream_;
     std::string pending_;  ///< Bytes read past the current response boundary.
+    std::optional<unsigned> keep_alive_remaining_;
+    std::optional<std::chrono::steady_clock::time_point> keep_alive_deadline_;
 };
 
 }  // namespace net::http

@@ -4,6 +4,7 @@
 #include "http_client/client.h"
 
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <utility>
 
@@ -31,16 +32,24 @@ Client::Client(Options opts, std::shared_ptr<StreamFactory> factory)
 }
 
 std::expected<Response, Error> Client::exchange(const std::string_view url, const Request& req) const {
-    auto uri = Uri::parse(url);
-    auto scheme = std::string(uri.get_schema());
-    if ((scheme != "http" && scheme != "https") || uri.get_host().empty()) {
+    if (auto valid = validate_request(req); !valid) {
+        return std::unexpected(std::move(valid.error()));
+    }
+    std::optional<Uri> parsed_uri;
+    try {
+        parsed_uri.emplace(Uri::parse(url));
+    } catch (const std::exception&) {
         return std::unexpected(Error{ErrorCode::INVALID_URL, fmt::format(R"(invalid URL: "{}")", url)});
     }
-    auto host = std::string(uri.get_host());
-    auto port = static_cast<std::uint16_t>(uri.get_port() > 0 ? uri.get_port() : default_port(scheme));
+    auto scheme = std::string(parsed_uri->get_schema());
+    if ((scheme != "http" && scheme != "https") || parsed_uri->get_host().empty()) {
+        return std::unexpected(Error{ErrorCode::INVALID_URL, fmt::format(R"(invalid URL: "{}")", url)});
+    }
+    auto host = std::string(parsed_uri->get_host());
+    auto port = static_cast<std::uint16_t>(parsed_uri->get_port() > 0 ? parsed_uri->get_port() : default_port(scheme));
 
     auto wire = build_wire_request(req, scheme, host, port, opts_);
-    wire.target = make_target(uri);
+    wire.target = make_target(*parsed_uri);
 
     for (int redirect_count = 0;; ++redirect_count) {
         // The scheme/transport pairing is decided HERE — https -> TLS,
@@ -58,12 +67,12 @@ std::expected<Response, Error> Client::exchange(const std::string_view url, cons
             return std::unexpected(std::move(raw.error()));
         }
 
-        auto eval = evaluate_redirect(raw->status, raw->headers, redirect_count, opts_, wire, uri);
+        auto eval = evaluate_redirect(raw->status, raw->headers, redirect_count, opts_, wire, *parsed_uri);
         if (!eval.plan.has_value()) {
             if (eval.limit_reached) {
                 return std::unexpected(Error{ErrorCode::REDIRECT_LIMIT_EXCEEDED, "redirect limit exceeded"});
             }
-            return Response{raw->status, std::move(raw->body), std::move(raw->headers)};
+            return Response{raw->status, std::move(raw->body), std::move(raw->headers), std::move(raw->trailers)};
         }
 
         // Follow the redirect: possibly a new origin, always a new target.
@@ -72,9 +81,13 @@ std::expected<Response, Error> Client::exchange(const std::string_view url, cons
         scheme = std::move(plan.scheme);
         host = std::move(plan.host);
         port = plan.port;
-        uri = Uri::parse(fmt::format("{}://{}:{}{}", scheme,
-                                     host.find(':') != std::string::npos ? fmt::format("[{}]", host) : host, port,
-                                     wire.target));
+        try {
+            parsed_uri.emplace(Uri::parse(fmt::format("{}://{}:{}{}", scheme,
+                                                       host.find(':') != std::string::npos ? fmt::format("[{}]", host) : host,
+                                                       port, wire.target)));
+        } catch (const std::exception&) {
+            return std::unexpected(Error{ErrorCode::INVALID_URL, "invalid redirect URL"});
+        }
     }
 }
 

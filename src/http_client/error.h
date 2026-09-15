@@ -25,6 +25,8 @@ enum class ErrorCode {
     BODY_TOO_LARGE,           ///< Response body exceeds the limit.
     REDIRECT_LIMIT_EXCEEDED,  ///< Too many redirects or a redirect loop.
     INVALID_URL,              ///< The request URL could not be parsed.
+    INVALID_REQUEST,          ///< Unsafe or malformed request target/header.
+    UNSUPPORTED_PROTOCOL,     ///< A protocol upgrade or unsupported HTTP feature.
 };
 
 /// Error value: a stable code plus a human-readable message.

@@ -10,6 +10,7 @@
 #define YADDNSC_HTTP_CLIENT_WIRE_REQUEST_H
 
 #include <cstdint>
+#include <expected>
 #include <string>
 #include <string_view>
 
@@ -29,8 +30,15 @@ namespace net::http {
 /// path + query for the request line ("/" when empty).
 [[nodiscard]] std::string make_target(const Uri &uri);
 
-/// Build the wire request: user headers + Host / User-Agent /
-/// Content-Length / Content-Type. The target is filled by the caller.
+/// Validate public request fields before serialisation. Header values cannot
+/// contain CR/LF and framing/routing headers are normalized by the builder.
+[[nodiscard]] std::expected<void, Error> validate_request(const Request &req);
+
+/// Build the wire request: user headers + normalized Host / Connection /
+/// User-Agent / Content-Length / Content-Type. The target is filled by the
+/// caller. User-supplied Host, Content-Length, Connection, Transfer-Encoding,
+/// Trailer, and Upgrade fields are discarded; this client owns framing and
+/// connection semantics.
 [[nodiscard]] protocol::WireRequest build_wire_request(const Request &req, std::string_view scheme,
                                                        std::string_view host, std::uint16_t port,
                                                        const Options &opts);

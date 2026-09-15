@@ -180,6 +180,7 @@ TEST(HttpRedirect, EnforcesLimitAndRejectsMalformedLocations) {
     EXPECT_TRUE(limited.limit_reached);
     EXPECT_FALSE(net::http::evaluate_redirect(302, location_headers("   "), 0, opts, request, current).plan);
     EXPECT_FALSE(net::http::evaluate_redirect(302, location_headers("http:///missing-host"), 0, opts, request, current).plan);
+    EXPECT_FALSE(net::http::evaluate_redirect(302, location_headers("http://[::1/malformed"), 0, opts, request, current).plan);
 }
 
 TEST(HttpRedirect, RewritesPostAndPreservesSafeHeadersForSameOrigin) {
@@ -200,6 +201,19 @@ TEST(HttpRedirect, RewritesPostAndPreservesSafeHeadersForSameOrigin) {
     EXPECT_EQ(plan.next.headers.count("Cookie"), 1);
     EXPECT_EQ(plan.next.headers.count("Content-Type"), 0);
     EXPECT_EQ(plan.next.headers.find("Host")->second, "example.test:8080");
+}
+
+TEST(HttpRedirect, NormalizesDotSegmentsAndDropsFragments) {
+    const auto request = redirect_request();
+    const auto current = Uri::parse("https://example.test/a/b/page?old=1");
+
+    const auto relative = net::http::evaluate_redirect(302, location_headers("../next#section"), 0, {}, request, current);
+    ASSERT_TRUE(relative.plan);
+    EXPECT_EQ(relative.plan->next.target, "/a/next");
+
+    const auto query = net::http::evaluate_redirect(302, location_headers("?new=1#section"), 0, {}, request, current);
+    ASSERT_TRUE(query.plan);
+    EXPECT_EQ(query.plan->next.target, "/a/b/page?new=1");
 }
 
 TEST(HttpRedirect, PreservesBodyButDropsCredentialsAcrossOrigins) {
@@ -276,6 +290,24 @@ TEST(HttpWireRequest, Http10EmitsExplicitConnectionPolicy) {
     opts.keep_alive = false;
     auto close = net::http::build_wire_request(plain_get(), "http", "a.test", 80, opts);
     EXPECT_EQ(close.headers.find("Connection")->second, "close");
+}
+
+TEST(HttpWireRequest, ValidationRejectsHeaderInjectionAndBuilderOwnsFraming) {
+    auto unsafe = plain_get();
+    unsafe.headers.emplace("X-Test", "safe\r\nInjected: yes");
+    ASSERT_FALSE(net::http::validate_request(unsafe));
+
+    auto managed = plain_get();
+    managed.headers.emplace("Host", "attacker.test");
+    managed.headers.emplace("Content-Length", "999");
+    managed.headers.emplace("Connection", "close");
+    managed.headers.emplace("Transfer-Encoding", "chunked");
+    const auto wire = net::http::build_wire_request(managed, "http", "a.test", 80, {});
+    EXPECT_EQ(wire.headers.count("Host"), 1);
+    EXPECT_EQ(wire.headers.find("Host")->second, "a.test");
+    EXPECT_EQ(wire.headers.count("Content-Length"), 0);
+    EXPECT_EQ(wire.headers.count("Connection"), 0);
+    EXPECT_EQ(wire.headers.count("Transfer-Encoding"), 0);
 }
 
 TEST(HttpWireRequest, BuildWireRequest_BodyWithAndWithoutContentType) {

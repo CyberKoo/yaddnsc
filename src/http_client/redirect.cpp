@@ -4,8 +4,10 @@
 #include "http_client/redirect.h"
 
 #include <algorithm>
+#include <exception>
 #include <string_view>
 #include <utility>
+#include <vector>
 
 #include "fmt.hpp"
 #include "string_util.hpp"
@@ -65,9 +67,53 @@ struct ResolvedLocation {
     return target;
 }
 
-/// Resolve a Location header value against the current URI (RFC 7231
-/// §7.1.2). Supports absolute, scheme-relative, root-relative and
-/// simple path-relative references (dot-segments are not normalized).
+/// RFC 3986 §5.2.4 dot-segment removal for an absolute request path.
+[[nodiscard]] std::string remove_dot_segments(const std::string_view path) {
+    std::vector<std::string_view> segments;
+    for (size_t begin = 0; begin <= path.size();) {
+        const auto end = path.find('/', begin);
+        const auto segment = path.substr(begin, end == std::string_view::npos ? end : end - begin);
+        if (segment == "..") {
+            if (!segments.empty()) {
+                segments.pop_back();
+            }
+        } else if (!segment.empty() && segment != ".") {
+            segments.push_back(segment);
+        }
+        if (end == std::string_view::npos) {
+            break;
+        }
+        begin = end + 1;
+    }
+
+    std::string result{"/"};
+    for (size_t i = 0; i < segments.size(); ++i) {
+        if (i > 0) {
+            result += '/';
+        }
+        result += segments[i];
+    }
+    if (path.ends_with('/') && !result.ends_with('/')) {
+        result += '/';
+    }
+    return result;
+}
+
+[[nodiscard]] std::string path_and_query(std::string_view reference) {
+    const auto fragment = reference.find('#');
+    reference = reference.substr(0, fragment);
+    const auto query = reference.find('?');
+    const auto path = reference.substr(0, query);
+    auto target = remove_dot_segments(path.empty() ? "/" : path);
+    if (query != std::string_view::npos) {
+        target += reference.substr(query);
+    }
+    return target;
+}
+
+/// Resolve a Location header value against the current URI (RFC 3986 §5.2).
+/// Supports absolute, scheme-relative, root-relative, path-relative, query-only,
+/// and fragment-only references. Fragments are never sent in a request target.
 [[nodiscard]] std::optional<ResolvedLocation> resolve_location(std::string_view location, const Uri& current_uri) {
     location = StringUtil::trim(location);
     if (location.empty()) {
@@ -79,27 +125,36 @@ struct ResolvedLocation {
     int raw_port = current_uri.get_port();
     std::string target;
 
-    if (location.starts_with("http://") || location.starts_with("https://") || location.starts_with("//")) {
-        // Absolute or scheme-relative reference. Uri::parse never fails;
-        // malformed input surfaces as empty scheme/host below.
-        const auto uri =
-            Uri::parse(location.starts_with("//") ? fmt::format("{}:{}", scheme, location) : std::string(location));
-        scheme = std::string(uri.get_schema());
-        host = std::string(uri.get_host());
-        raw_port = uri.get_port();
-        target = make_target(uri);
-    } else if (location.starts_with('/')) {
-        target = std::string(location);
-    } else {
-        // Path-relative: merge with the current path's directory.
-        auto base = std::string(current_uri.get_path());
-        const auto last_slash = base.rfind('/');
-        if (last_slash != std::string::npos) {
-            base.resize(last_slash + 1);
-        } else {
-            base += '/';
+    const auto scheme_separator = location.find(':');
+    const bool absolute = scheme_separator != std::string_view::npos &&
+                          location.substr(0, scheme_separator).find_first_of("/?#") == std::string_view::npos;
+    if (absolute || location.starts_with("//")) {
+        try {
+            const auto uri = Uri::parse(location.starts_with("//") ? fmt::format("{}:{}", scheme, location)
+                                                                   : std::string(location));
+            scheme = std::string(uri.get_schema());
+            host = std::string(uri.get_host());
+            raw_port = uri.get_port();
+            // Uri strips fragments; normalize the parsed path before sending it.
+            target = path_and_query(make_target(uri));
+        } catch (const std::exception&) {
+            return std::nullopt;
         }
-        target = base + std::string(location);
+    } else if (location.starts_with('/')) {
+        target = path_and_query(location);
+    } else if (location.starts_with('?')) {
+        target = remove_dot_segments(current_uri.get_path()) +
+                 std::string(location.substr(0, location.find('#')));
+    } else if (location.starts_with('#')) {
+        target = remove_dot_segments(current_uri.get_path());
+        if (const auto query = current_uri.get_query_string(); !query.empty()) {
+            target += '?';
+            target += query;
+        }
+    } else {
+        auto base = std::string(current_uri.get_path());
+        base.resize(base.rfind('/') + 1);
+        target = path_and_query(base + std::string(location));
     }
 
     if ((scheme != "http" && scheme != "https") || host.empty()) {
@@ -107,15 +162,8 @@ struct ResolvedLocation {
     }
 
     const auto port = static_cast<std::uint16_t>(raw_port > 0 ? raw_port : default_port(scheme));
-
-    ResolvedLocation resolved{
-        .scheme = scheme,
-        .host = host,
-        .port = port,
-        .target = std::move(target),
-        .host_header = make_host_header(host, port, scheme),
-    };
-    return resolved;
+    return ResolvedLocation{.scheme = scheme, .host = host, .port = port, .target = std::move(target),
+                            .host_header = make_host_header(host, port, scheme)};
 }
 
 /// Drop hop-specific / body headers before rebuilding the request.

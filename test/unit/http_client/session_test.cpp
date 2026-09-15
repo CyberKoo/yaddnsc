@@ -154,6 +154,34 @@ TEST(HttpSession, HttpScheme_UsesTcpFactory) {
     EXPECT_TRUE(factory->tls_hosts.empty());
 }
 
+TEST(HttpSession, KeepAliveMaxRebuildsBeforeTheNextExchange) {
+    auto factory = std::make_shared<FakeFactory>();
+    auto limited = std::make_unique<FakeStream>();
+    limited->input = "HTTP/1.0 200 OK\r\nConnection: keep-alive\r\nKeep-Alive: timeout=5, max=1\r\nContent-Length: 2\r\n\r\nok";
+    factory->tcp_streams.push_back(std::move(limited));
+    factory->tcp_streams.push_back(ok_stream());
+
+    auto session = make_session(factory, "http");
+    ASSERT_TRUE(session.exchange(get_request()));
+    ASSERT_TRUE(session.exchange(get_request()));
+    EXPECT_EQ(factory->tcp_hosts.size(), 2);
+}
+
+TEST(HttpSession, RepeatedKeepAliveMaxDoesNotResetTheConnectionCap) {
+    auto factory = std::make_shared<FakeFactory>();
+    auto limited = std::make_unique<FakeStream>();
+    limited->input = "HTTP/1.0 200 OK\r\nConnection: keep-alive\r\nKeep-Alive: max=2\r\nContent-Length: 2\r\n\r\nok"
+                     "HTTP/1.0 200 OK\r\nConnection: keep-alive\r\nKeep-Alive: max=2\r\nContent-Length: 2\r\n\r\nok";
+    factory->tcp_streams.push_back(std::move(limited));
+    factory->tcp_streams.push_back(ok_stream());
+
+    auto session = make_session(factory, "http");
+    ASSERT_TRUE(session.exchange(get_request()));
+    ASSERT_TRUE(session.exchange(get_request()));
+    ASSERT_TRUE(session.exchange(get_request()));
+    EXPECT_EQ(factory->tcp_hosts.size(), 2);
+}
+
 TEST(HttpSession, HttpsScheme_UsesTlsFactory) {
     auto factory = std::make_shared<FakeFactory>();
     factory->tls_streams.push_back(ok_stream());

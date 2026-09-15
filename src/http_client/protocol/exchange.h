@@ -29,7 +29,10 @@ struct RawResponse {
     int status;
     HttpVersion version{HttpVersion::V1_1};
     bool reusable{false};
+    std::optional<unsigned> keep_alive_max;
+    std::optional<unsigned> keep_alive_timeout;
     std::multimap<std::string, std::string> headers;
+    std::multimap<std::string, std::string> trailers;
     std::string body;
 
     /// The body viewed as text (no encoding conversion).

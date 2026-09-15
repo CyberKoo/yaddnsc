@@ -4,6 +4,8 @@
 //
 #include "http_client/session.h"
 
+#include <algorithm>
+#include <chrono>
 #include <utility>
 
 #include "network/transport/stream.h"
@@ -49,6 +51,13 @@ Session::Session(std::shared_ptr<StreamFactory> factory,
 std::expected<Response, Error> Session::exchange(const protocol::WireRequest& req) {
     std::lock_guard lock(mutex_);
 
+    if (stream_ && keep_alive_deadline_ && std::chrono::steady_clock::now() >= *keep_alive_deadline_) {
+        stream_->close();
+        stream_.reset();
+        pending_.clear();
+        keep_alive_remaining_.reset();
+        keep_alive_deadline_.reset();
+    }
     if (auto ready = ensure_stream(); !ready) {
         return std::unexpected(std::move(ready.error()));
     }
@@ -61,6 +70,8 @@ std::expected<Response, Error> Session::exchange(const protocol::WireRequest& re
         stream_->close();
         stream_.reset();
         pending_.clear();
+        keep_alive_remaining_.reset();
+        keep_alive_deadline_.reset();
 
         if (!should_retry) {
             return std::unexpected(std::move(raw.error()));
@@ -73,7 +84,28 @@ std::expected<Response, Error> Session::exchange(const protocol::WireRequest& re
             stream_->close();
             stream_.reset();
             pending_.clear();
+            keep_alive_remaining_.reset();
+            keep_alive_deadline_.reset();
             return std::unexpected(std::move(raw.error()));
+        }
+    }
+
+    if (raw->keep_alive_max) {
+        // `max` limits requests on this connection; a repeated header must
+        // not reset a cap already consumed by earlier exchanges.
+        keep_alive_remaining_ = keep_alive_remaining_
+                                    ? std::min(*keep_alive_remaining_, *raw->keep_alive_max)
+                                    : *raw->keep_alive_max;
+    }
+    if (raw->keep_alive_timeout) {
+        keep_alive_deadline_ = std::chrono::steady_clock::now() + std::chrono::seconds(*raw->keep_alive_timeout);
+    }
+    if (keep_alive_remaining_) {
+        if (*keep_alive_remaining_ > 0) {
+            --*keep_alive_remaining_;
+        }
+        if (*keep_alive_remaining_ == 0) {
+            raw->reusable = false;
         }
     }
 
@@ -81,8 +113,10 @@ std::expected<Response, Error> Session::exchange(const protocol::WireRequest& re
         stream_->close();
         stream_.reset();
         pending_.clear();
+        keep_alive_remaining_.reset();
+        keep_alive_deadline_.reset();
     }
-    return Response{raw->status, std::move(raw->body), std::move(raw->headers)};
+    return Response{raw->status, std::move(raw->body), std::move(raw->headers), std::move(raw->trailers)};
 }
 
 std::expected<protocol::RawResponse, Error> Session::do_exchange(const protocol::WireRequest& req) {
@@ -99,6 +133,8 @@ std::expected<void, Error> Session::ensure_stream() {
     if (auto connected = stream_->ensure_connected(); !connected) {
         stream_.reset();
         pending_.clear();
+        keep_alive_remaining_.reset();
+        keep_alive_deadline_.reset();
         return std::unexpected(map_connect_error(connected.error()));
     }
     return {};

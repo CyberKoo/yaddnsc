@@ -193,6 +193,78 @@ TEST(HttpClientExchange, Http10WithoutKeepAlive_IsNotReusable) {
     EXPECT_FALSE(resp->reusable);
 }
 
+TEST(HttpClientExchange, ConnectionTokensAreExact) {
+    FakeStream stream;
+    stream.input = "HTTP/1.1 200 OK\r\nConnection: X-close, upgradeable\r\nContent-Length: 2\r\n\r\nok";
+
+    auto resp = net::http::protocol::exchange(stream, make_get("/"), Limits{});
+    ASSERT_TRUE(resp);
+    EXPECT_TRUE(resp->reusable);
+
+    FakeStream closing;
+    closing.input = "HTTP/1.1 200 OK\r\nConnection: Foo, close\r\nContent-Length: 2\r\n\r\nok";
+    resp = net::http::protocol::exchange(closing, make_get("/"), Limits{});
+    ASSERT_TRUE(resp);
+    EXPECT_FALSE(resp->reusable);
+}
+
+TEST(HttpClientExchange, RejectsUnsafeWireFramingAndProtocolUpgrade) {
+    auto wire = make_get("/");
+    wire.headers.emplace("Content-Length", "1");
+    FakeStream mismatched_length;
+    auto resp = net::http::protocol::exchange(mismatched_length, wire, Limits{});
+    ASSERT_FALSE(resp);
+    EXPECT_EQ(resp.error().code, ErrorCode::INVALID_REQUEST);
+
+    wire = make_get("/");
+    wire.headers.emplace("Upgrade", "websocket");
+    FakeStream request_upgrade;
+    resp = net::http::protocol::exchange(request_upgrade, wire, Limits{});
+    ASSERT_FALSE(resp);
+    EXPECT_EQ(resp.error().code, ErrorCode::UNSUPPORTED_PROTOCOL);
+
+    FakeStream coding;
+    coding.input = "HTTP/1.1 200 OK\r\nTransfer-Encoding: gzip, chunked\r\n\r\n";
+    resp = net::http::protocol::exchange(coding, make_get("/"), Limits{});
+    ASSERT_FALSE(resp);
+    EXPECT_EQ(resp.error().code, ErrorCode::RESPONSE_PARSE_FAILED);
+
+    FakeStream upgrade;
+    upgrade.input = "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n";
+    resp = net::http::protocol::exchange(upgrade, make_get("/"), Limits{});
+    ASSERT_FALSE(resp);
+    EXPECT_EQ(resp.error().code, ErrorCode::UNSUPPORTED_PROTOCOL);
+}
+
+TEST(HttpClientExchange, ResetContentAndChunkedTrailersFollowFramingRules) {
+    FakeStream reset;
+    reset.input = "HTTP/1.1 205 Reset Content\r\nContent-Length: 1\r\n\r\nx";
+    auto resp = net::http::protocol::exchange(reset, make_get("/"), Limits{});
+    ASSERT_FALSE(resp);
+    EXPECT_EQ(resp.error().code, ErrorCode::RESPONSE_PARSE_FAILED);
+
+    FakeStream chunked;
+    chunked.input = "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n"
+                    "2\r\nok\r\n0\r\nChecksum: abc\r\n\r\n";
+    resp = net::http::protocol::exchange(chunked, make_get("/"), Limits{});
+    ASSERT_TRUE(resp);
+    EXPECT_EQ(resp->text(), "ok");
+    EXPECT_EQ(resp->trailers.find("Checksum")->second, "abc");
+
+    FakeStream forbidden;
+    forbidden.input = "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n"
+                      "0\r\nContent-Length: 1\r\n\r\n";
+    resp = net::http::protocol::exchange(forbidden, make_get("/"), Limits{});
+    ASSERT_FALSE(resp);
+    EXPECT_EQ(resp.error().code, ErrorCode::RESPONSE_PARSE_FAILED);
+
+    FakeStream reset_chunked;
+    reset_chunked.input = "HTTP/1.1 205 Reset Content\r\nTransfer-Encoding: chunked\r\n\r\n0\r\n\r\n";
+    resp = net::http::protocol::exchange(reset_chunked, make_get("/"), Limits{});
+    ASSERT_TRUE(resp);
+    EXPECT_TRUE(resp->text().empty());
+}
+
 TEST(HttpClientExchange, NoBodyStatusPreservesNextResponse) {
     FakeStream stream;
     stream.input = "HTTP/1.1 204 No Content\r\n\r\nHTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok";
@@ -237,7 +309,7 @@ TEST(HttpClientExchange, HeadResponseHasNoBody) {
 
 TEST(HttpClientExchange, RequestIsSerializedToStream) {
     FakeStream stream;
-    stream.input = "HTTP/1.1 204 No Content\r\nContent-Length: 0\r\n\r\n";
+    stream.input = "HTTP/1.1 204 No Content\r\n\r\n";
 
     net::http::protocol::WireRequest req{
         .method = Method::PUT,
