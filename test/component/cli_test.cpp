@@ -22,10 +22,12 @@
 #include <filesystem>
 #include <fstream>
 #include <functional>
+#include <iostream>
 #include <string>
 #include <string_view>
 #include <vector>
 
+#include <fcntl.h>
 #include <unistd.h>
 
 #include "cli/cli.h"
@@ -159,6 +161,64 @@ namespace {
                R"(","load":["definitely_missing_driver.so"]},"resolver":{"use_custom_server":false},"domains":[]})";
     }
 
+    /// Redirect stdout to a temp file so executor output can be asserted.
+    /// Restores stdout on destruction (or when str() is called).
+    class StdoutCapture {
+    public:
+        StdoutCapture() : path_(make_unique_path()) {
+            flush_out();
+            saved_fd_ = ::dup(STDOUT_FILENO);
+            file_fd_ = ::open(path_.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0600);
+            ::dup2(file_fd_, STDOUT_FILENO);
+        }
+
+        ~StdoutCapture() {
+            restore();
+            std::error_code ec;
+            std::filesystem::remove(path_, ec);
+        }
+
+        StdoutCapture(const StdoutCapture &) = delete;
+        StdoutCapture &operator=(const StdoutCapture &) = delete;
+
+        /// Restore stdout and return everything written so far.
+        [[nodiscard]] std::string str() {
+            restore();
+            std::ifstream in(path_);
+            return {std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()};
+        }
+
+    private:
+        // std::println writes to the stdio buffer while CLI11 and gtest use
+        // std::cout — both buffers must be drained around a redirect.
+        static void flush_out() {
+            std::cout.flush();
+            std::fflush(stdout);
+        }
+
+        void restore() {
+            if (saved_fd_ == -1) {
+                return;
+            }
+            flush_out();
+            ::dup2(saved_fd_, STDOUT_FILENO);
+            ::close(saved_fd_);
+            ::close(file_fd_);
+            saved_fd_ = -1;
+        }
+
+        [[nodiscard]] static std::filesystem::path make_unique_path() {
+            static std::atomic<unsigned> counter{0};
+            return std::filesystem::temp_directory_path() /
+                   ("yaddnsc_cli_out_" + std::to_string(::getpid()) + "_" +
+                    std::to_string(counter.fetch_add(1)) + ".txt");
+        }
+
+        std::filesystem::path path_;
+        int saved_fd_{-1};
+        int file_fd_{-1};
+    };
+
     constexpr std::string_view RESOLVER_DEFAULT = R"({"driver":{"auto_discover":false,"load":[]},"resolver":{"use_custom_server":false},"domains":[]})";
     constexpr std::string_view RESOLVER_URI_SERVERS = R"({"driver":{"auto_discover":false,"load":[]},"resolver":{"use_custom_server":true,"servers":[{"address":"https://1.1.1.1/dns-query","port":443}]},"domains":[]})";
     constexpr std::string_view RESOLVER_BARE_SERVERS = R"({"driver":{"auto_discover":false,"load":[]},"resolver":{"use_custom_server":true,"servers":[{"address":"8.8.8.8","port":53}]},"domains":[]})";
@@ -280,6 +340,60 @@ TEST(CliConfigTest, ExecuteShow_InvalidJson_Throws) {
 
 TEST(CliConfigTest, ExecuteShow_MissingFile_Throws) {
     EXPECT_THROW(Cli::execute_config_show("/nonexistent/yaddnsc_config.json"), std::runtime_error);
+}
+
+// Intentional change (registered in refactor/phase-0-baseline.md): config show
+// redacts sensitive driver_param fields by default. Rule: an object member is
+// sensitive when its lower-cased key contains "token", "password", "secret" or
+// "key"; the whole value is replaced with "***". Only fake placeholder values
+// are used here — real tokens must never appear in golden files.
+TEST(CliConfigTest, ExecuteShow_RedactsSensitiveDriverParams) {
+    const std::string config_json = R"({
+        "driver": {"auto_discover": false, "load": []},
+        "resolver": {"use_custom_server": false},
+        "domains": [{
+            "name": "example.com",
+            "update_interval": 300,
+            "driver": "simple",
+            "subdomains": [{
+                "name": "www",
+                "type": "a",
+                "ip_source": "http",
+                "ip_source_param": "https://api.ipify.org",
+                "driver_param": {
+                    "url": "https://example.com/update?token={token}",
+                    "api_token": "fake-token-0001",
+                    "Password": "fake-password-0002",
+                    "ttl": 600,
+                    "nested": {"secret_key": "fake-secret-0003", "record_id": "R123"},
+                    "list": [{"accessKey": "fake-key-0004"}, "plain-text"],
+                    "note": "not-a-secret"
+                }
+            }]
+        }]
+    })";
+    TempConfigFile cfg(config_json);
+
+    StdoutCapture capture;
+    EXPECT_EQ(Cli::execute_config_show(cfg.path()), EXIT_SUCCESS);
+    const std::string out = capture.str();
+
+    // Every sensitive value is replaced, whatever its original type or nesting.
+    EXPECT_NE(out.find(R"("api_token":"***")"), std::string::npos);
+    EXPECT_NE(out.find(R"("Password":"***")"), std::string::npos);
+    EXPECT_NE(out.find(R"("secret_key":"***")"), std::string::npos);
+    EXPECT_NE(out.find(R"("accessKey":"***")"), std::string::npos);
+
+    // No fake secret leaks anywhere in the output.
+    EXPECT_EQ(out.find("fake-"), std::string::npos);
+
+    // Non-sensitive fields and values survive untouched, including a template
+    // placeholder that merely mentions "token" in a *value* position.
+    EXPECT_NE(out.find(R"("note":"not-a-secret")"), std::string::npos);
+    EXPECT_NE(out.find(R"("record_id":"R123")"), std::string::npos);
+    EXPECT_NE(out.find(R"("ttl":600)"), std::string::npos);
+    EXPECT_NE(out.find("https://example.com/update?token={token}"), std::string::npos);
+    EXPECT_NE(out.find(R"("plain-text")"), std::string::npos);
 }
 
 TEST(CliConfigTest, ExecuteTest_ValidConfig_ReturnsZero) {
@@ -572,4 +686,31 @@ TEST(CliInfoTest, Parse_InfoSubcommand_ReturnsZero) {
 
     EXPECT_TRUE(outcome.exit_early);
     EXPECT_EQ(outcome.exit_code, EXIT_SUCCESS);
+}
+
+// Phase 0 baseline: `info` must keep printing these key fields.
+TEST(CliInfoTest, Info_PrintsKeyFields) {
+    auto argv = make_argv({"yaddnsc", "info"});
+
+    StdoutCapture capture;
+    const auto outcome = Cli::parse_and_dispatch(argv.argc(), argv.data());
+    const std::string out = capture.str();
+
+    EXPECT_EQ(outcome.exit_code, EXIT_SUCCESS);
+    EXPECT_NE(out.find("Version:"), std::string::npos);
+    EXPECT_NE(out.find("Build ID:"), std::string::npos);
+    EXPECT_NE(out.find("DNS resolver:"), std::string::npos);
+    EXPECT_NE(out.find("Min update interval:"), std::string::npos);
+}
+
+// Phase 0 baseline: -v/--version prints "yaddnsc/<version>" and exits zero.
+TEST(CliInfoTest, VersionFlag_PrintsProgramAndVersion) {
+    auto argv = make_argv({"yaddnsc", "--version"});
+
+    StdoutCapture capture;
+    const auto outcome = Cli::parse_and_dispatch(argv.argc(), argv.data());
+    const std::string out = capture.str();
+
+    EXPECT_EQ(outcome.exit_code, EXIT_SUCCESS);
+    EXPECT_NE(out.find("yaddnsc/"), std::string::npos);
 }

@@ -46,7 +46,8 @@ std::string encode_form_component(const std::string_view value) {
     std::string out;
     out.reserve(value.size());
 
-    for (const unsigned char c: value) {
+    for (const char raw : value) {
+        const auto c = static_cast<unsigned char>(raw);
         if (c == ' ') {
             out += '+';
         } else if (c == '+') {

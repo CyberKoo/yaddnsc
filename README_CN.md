@@ -246,7 +246,9 @@ yaddnsc 默认读取 `./config.json`。运行命令或诊断子命令可以使�
 chmod 600 /etc/yaddnsc/config.json
 ```
 
-使用服务商要求的最小权限。分享 `config show` 输出或日志前，请确认其中没有凭据。
+使用服务商要求的最小权限。`config show` 默认对敏感 `driver_param` 字段脱敏：键名
+（转小写后）包含 `token`、`password`、`secret` 或 `key` 的成员一律显示为 `"***"`。
+配置文件本身仍保存真实值——请按上文继续限制文件权限，分享日志前也请先检查。
 
 ## IP 来源
 

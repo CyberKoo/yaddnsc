@@ -133,6 +133,52 @@ add_sanitizer_flags(test_factory_mdns)
 set_tests_properties(test_factory_mdns PROPERTIES RESOURCE_LOCK "mdns-multicast")
 
 # ============================================================================
+#  Manager lifecycle  (observable shutdown sequence; Phase 0 §0.5)
+#
+#  Real Manager + real "simple" driver .so through the production dlopen path,
+#  with fake DNS (fixed wire response) and a blocking fake HttpClient.
+#  Locks: stop → no new dispatch → in-flight drained → run() returns →
+#  driver module unloaded only afterwards.
+# ============================================================================
+
+add_unit_test(manager_lifecycle SOURCE manager_lifecycle_test.cpp
+    ${PROJECT_SOURCE_DIR}/src/core/manager.cpp
+    ${PROJECT_SOURCE_DIR}/src/core/scheduler.cpp
+    ${PROJECT_SOURCE_DIR}/src/core/updater.cpp
+    ${PROJECT_SOURCE_DIR}/src/core/driver_loader.cpp
+    ${PROJECT_SOURCE_DIR}/src/core/driver_manager.cpp
+    ${PROJECT_SOURCE_DIR}/src/core/core_logger.cpp
+    ${PROJECT_SOURCE_DIR}/src/config/config.cpp
+    ${PROJECT_SOURCE_DIR}/src/dns/dispatcher.cpp
+    ${PROJECT_SOURCE_DIR}/src/dns/parser.cpp
+    ${PROJECT_SOURCE_DIR}/src/dns/factory.cpp
+    ${PROJECT_SOURCE_DIR}/src/dns/resolver_registry.cpp
+    ${PROJECT_SOURCE_DIR}/src/network/uri.cpp
+    ${PROJECT_SOURCE_DIR}/src/ip_source/factory.cpp
+    ${PROJECT_SOURCE_DIR}/src/ip_source/iface.cpp
+    ${PROJECT_SOURCE_DIR}/src/ip_source/http.cpp
+    ${PROJECT_SOURCE_DIR}/src/ip_source/mdns.cpp
+    ${PROJECT_SOURCE_DIR}/src/ip_source/mdns_response.cpp
+    ${PROJECT_SOURCE_DIR}/src/ip_source/iface_util.cpp
+    ${PROJECT_SOURCE_DIR}/src/network/socket.cpp
+    ${PROJECT_SOURCE_DIR}/src/network/socket_addr.cpp
+    ${PROJECT_SOURCE_DIR}/src/network/net_devices.cpp
+    ${PROJECT_SOURCE_DIR}/src/util/cert_util.cpp
+    ${PROJECT_SOURCE_DIR}/src/dns/wire/builder.cpp)
+target_link_libraries(test_manager_lifecycle PRIVATE
+    GTest::gmock glaze::glaze yaddnsc_http_client yaddnsc_net_transport OpenSSL::Crypto BS_thread_pool ${CMAKE_DL_LIBS})
+target_compile_definitions(test_manager_lifecycle PRIVATE
+    TEST_DRIVER_DIR="${CMAKE_BINARY_DIR}/driver")
+# The loaded driver .so resolves CoreLogger symbols from the host executable.
+set_target_properties(test_manager_lifecycle PROPERTIES ENABLE_EXPORTS ON)
+# The driver .so is built with sanitizers — the test binary must be too.
+add_sanitizer_flags(test_manager_lifecycle)
+# simple.so must be built before the test runs (dlopen dependency).
+add_dependencies(test_manager_lifecycle simple)
+set_tests_properties(test_manager_lifecycle PROPERTIES
+    ENVIRONMENT "ASAN_OPTIONS=detect_odr_violation=0:detect_stack_use_after_return=1:strict_string_checks=1:detect_invalid_pointer_pairs=2")
+
+# ============================================================================
 #  ClassicResolver (UDP/TCP backend)
 #
 # Starts a Python DNS server (dns_server.py) on loopback, then queries it

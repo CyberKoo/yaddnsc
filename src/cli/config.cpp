@@ -6,8 +6,11 @@
 
 #include <CLI/CLI.hpp>
 
+#include <algorithm>
+#include <cctype>
 #include <cstdlib>
 #include <print>
+#include <string_view>
 
 #include "config/config.h"
 #include "config/validator.hpp"
@@ -24,6 +27,38 @@
 #include <spdlog/spdlog.h>
 
 namespace Cli {
+
+namespace {
+    /// `config show` redaction rule (registered as an intentional change in
+    /// refactor/phase-0-baseline.md): an object member is sensitive when its
+    /// lower-cased key contains "token", "password", "secret" or "key".
+    /// The whole value is replaced with "***" regardless of its type.
+    /// Substring matching may over-redact (e.g. a key like "monkey"); that is
+    /// accepted for a diagnostic view — the config file keeps the real values.
+    [[nodiscard]] bool is_sensitive_key(std::string_view key) {
+        std::string lower(key.size(), '\0');
+        std::ranges::transform(key, lower.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        return lower.find("token") != std::string::npos || lower.find("password") != std::string::npos ||
+               lower.find("secret") != std::string::npos || lower.find("key") != std::string::npos;
+    }
+
+    void redact_sensitive_fields(glz::generic &value) {
+        if (value.is_object()) {
+            for (auto &entry: value.get_object()) {
+                if (is_sensitive_key(entry.first)) {
+                    entry.second = "***";
+                } else {
+                    redact_sensitive_fields(entry.second);
+                }
+            }
+        } else if (value.is_array()) {
+            for (auto &element: value.get_array()) {
+                redact_sensitive_fields(element);
+            }
+        }
+    }
+} // namespace
+
     void register_config_subcommand(CLI::App &app, int &exit_code) {
         auto *cfg = app.add_subcommand("config", "Configuration management");
         cfg->require_subcommand(1);
@@ -53,6 +88,11 @@ namespace Cli {
 
     int execute_config_show(const std::string &config_path) {
         auto config = Config::load_config(config_path);
+        for (auto &domain: config.domains) {
+            for (auto &subdomain: domain.subdomains) {
+                redact_sensitive_fields(subdomain.driver_param);
+            }
+        }
         std::string json;
         if (const auto ec = glz::write_json(config, json)) {
             std::println(std::cerr, "Failed to serialize config: {}", glz::format_error(ec));

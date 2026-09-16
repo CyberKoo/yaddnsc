@@ -166,8 +166,8 @@ std::expected<void, IoError> SocketStream::connect_one(const struct sockaddr* ad
 
 #ifdef SO_BINDTODEVICE
     if (opts_.interface.has_value() && !opts_.interface->empty()) {
-        if (::setsockopt(sock.get(), SOL_SOCKET, SO_BINDTODEVICE, opts_.interface->c_str(), opts_.interface->size()) !=
-            0) {
+        if (::setsockopt(sock.get(), SOL_SOCKET, SO_BINDTODEVICE, opts_.interface->c_str(),
+                         static_cast<socklen_t>(opts_.interface->size())) != 0) {
             SPDLOG_WARN(R"(Failed to bind socket to interface "{}": {})", *opts_.interface, std::strerror(errno));
             return std::unexpected(CONNECTION_FAILED);
         }

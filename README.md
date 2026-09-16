@@ -255,9 +255,11 @@ Keep credentials out of source control and restrict the configuration file:
 chmod 600 /etc/yaddnsc/config.json
 ```
 
-Use the minimum provider permissions necessary for DNS updates. Check before
-sharing the output of `config show` or logs because configuration values may
-contain credentials.
+Use the minimum provider permissions necessary for DNS updates. `config show`
+redacts sensitive `driver_param` fields by default: any member whose key
+(lower-cased) contains `token`, `password`, `secret` or `key` is printed as
+`"***"`. The configuration file itself still holds the real values — keep
+restricting it as shown above, and check logs before sharing them.
 
 ## IP Sources
 
