@@ -2,9 +2,10 @@
 // Unit tests for src/dns/factory.cpp — DnsResolverFactory.
 //
 // Verifies:
-//   - create() with custom server uses configured servers.
-//   - create() with legacy single-server format.
-//   - create() without custom server falls back to default.
+//   - create() with configured servers.
+//   - create() with an empty server list falls back to the built-in default.
+// (Legacy single-server folding now lives in the config normaliser and is
+// covered by normalizer_test.)
 // =============================================================================
 
 #include <memory>
@@ -14,8 +15,8 @@
 
 #include <gtest/gtest.h>
 
-#include "config/config.h"
 #include "config/dns_config.h"
+#include "domain/config/runtime_config.h"
 #include "dns/factory.h"
 #include "dns/resolver/base.h"
 #include "dns/resolver_registry.h"
@@ -51,56 +52,32 @@ namespace {
     );
 }
 
-// ── Helper to populate AppConfig fields ─────────────────────────────────────
+// ── Helper to populate resolver settings ────────────────────────────────────
 
-[[nodiscard]] Config::AppConfig make_config_with_servers(std::vector<Config::DnsServer> servers) {
-    Config::AppConfig cfg;
-    cfg.resolver.use_custom_server = true;
-    cfg.resolver.servers = std::move(servers);
-    cfg.resolver.strategy = Config::ResolverStrategy::FALLBACK;
-    return cfg;
-}
-
-[[nodiscard]] Config::AppConfig make_config_with_legacy_server(std::string_view address, std::uint16_t port) {
-    Config::AppConfig cfg;
-    cfg.resolver.use_custom_server = true;
-    cfg.resolver.address = std::string(address);
-    cfg.resolver.port = port;
-    cfg.resolver.strategy = Config::ResolverStrategy::FALLBACK;
-    return cfg;
-}
-
-[[nodiscard]] Config::AppConfig make_config_no_custom_server() {
-    Config::AppConfig cfg;
-    cfg.resolver.use_custom_server = false;
-    cfg.resolver.strategy = Config::ResolverStrategy::CONCURRENT;
-    return cfg;
+[[nodiscard]] domain::ResolverSettings make_settings(std::vector<Config::DnsServer> servers,
+                                                     Config::ResolverStrategy strategy) {
+    domain::ResolverSettings settings;
+    settings.servers = std::move(servers);
+    settings.strategy = strategy;
+    return settings;
 }
 
 TEST(DnsFactoryTest, CreateWithCustomServers) {
-    auto cfg = make_config_with_servers({
+    auto settings = make_settings({
         {"factorytest://dns1.example.com", 53},
         {"factorytest://dns2.example.com", 53},
-    });
+    }, Config::ResolverStrategy::FALLBACK);
 
     EXPECT_NO_THROW({
-        auto dispatcher = DnsResolverFactory::create(cfg, {});
-    });
-}
-
-TEST(DnsFactoryTest, CreateWithLegacySingleServer) {
-    auto cfg = make_config_with_legacy_server("factorytest://dns.example.com", 5353);
-
-    EXPECT_NO_THROW({
-        auto dispatcher = DnsResolverFactory::create(cfg, {});
+        auto dispatcher = DnsResolverFactory::create(settings, {});
     });
 }
 
-TEST(DnsFactoryTest, CreateWithoutCustomServer_UsesDefault) {
-    auto cfg = make_config_no_custom_server();
+TEST(DnsFactoryTest, CreateWithEmptyServerList_UsesDefault) {
+    const domain::ResolverSettings settings;
 
     EXPECT_NO_THROW({
-        auto dispatcher = DnsResolverFactory::create(cfg, {});
+        auto dispatcher = DnsResolverFactory::create(settings, {});
     });
 }
 
@@ -108,32 +85,29 @@ TEST(DnsFactoryTest, CreateWithMultipleServers_DoesNotThrow) {
     std::vector<Config::DnsServer> servers;
     servers.push_back({"factorytest://primary.example.com", 53});
     servers.push_back({"factorytest://secondary.example.com", 53});
-    auto cfg = make_config_with_servers(std::move(servers));
+    auto settings = make_settings(std::move(servers), Config::ResolverStrategy::FALLBACK);
 
     EXPECT_NO_THROW({
-        auto dispatcher = DnsResolverFactory::create(cfg, {});
+        auto dispatcher = DnsResolverFactory::create(settings, {});
     });
 }
 
 TEST(DnsFactoryTest, CreateWithConcurrentStrategy) {
-    Config::AppConfig cfg;
-    cfg.resolver.use_custom_server = true;
-    cfg.resolver.servers.push_back({"factorytest://dns.example.com", 53});
-    cfg.resolver.strategy = Config::ResolverStrategy::CONCURRENT;
+    auto settings = make_settings({{"factorytest://dns.example.com", 53}},
+                                  Config::ResolverStrategy::CONCURRENT);
 
     EXPECT_NO_THROW({
-        auto dispatcher = DnsResolverFactory::create(cfg, {});
+        auto dispatcher = DnsResolverFactory::create(settings, {});
     });
 }
 
 TEST(DnsFactoryTest, CreateWithShuffleStrategy) {
-    Config::AppConfig cfg;
-    cfg.resolver.use_custom_server = true;
-    cfg.resolver.servers.push_back({"factorytest://dns1.example.com", 53});
-    cfg.resolver.servers.push_back({"factorytest://dns2.example.com", 53});
-    cfg.resolver.strategy = Config::ResolverStrategy::SHUFFLE;
+    auto settings = make_settings({
+        {"factorytest://dns1.example.com", 53},
+        {"factorytest://dns2.example.com", 53},
+    }, Config::ResolverStrategy::SHUFFLE);
 
     EXPECT_NO_THROW({
-        auto dispatcher = DnsResolverFactory::create(cfg, {});
+        auto dispatcher = DnsResolverFactory::create(settings, {});
     });
 }

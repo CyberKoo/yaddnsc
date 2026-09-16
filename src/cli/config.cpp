@@ -13,6 +13,8 @@
 #include <string_view>
 
 #include "config/config.h"
+#include "config/normalizer.h"
+#include "config/static_validator.h"
 #include "config/validator.hpp"
 #include "core/driver_loader.h"
 #include "core/driver_manager.h"
@@ -21,7 +23,6 @@
 #include "exception/config_verification.h"
 
 #include "logging_pattern.h"
-#include "min_update_interval.h"
 
 #include <glaze/glaze.hpp>
 #include <spdlog/spdlog.h>
@@ -109,13 +110,21 @@ namespace {
             }
             spdlog::set_pattern(std::string{YADDNSC_LOGGING_PATTERN});
 
-            auto config = Config::load_config(config_path);
+            auto raw_config = Config::load_config(config_path);
+
+            // Static checks first (collected as values; report the first one
+            // with the same output shape as the legacy exception path).
+            auto config = Config::validate_and_normalize(raw_config);
+            if (!config.has_value()) {
+                std::println(std::cerr, "Configuration verification failed: {}", config.error().front().message);
+                return EXIT_FAILURE;
+            }
+
             DriverManager driver_manager;
-            DriverLoader::load(driver_manager, config);
+            DriverLoader::load(driver_manager, config->driver);
             const auto interfaces = InterfaceUtil::get_interfaces();
-            const ConfigValidator<YADDNSC_MIN_UPDATE_INTERVAL> validator(
-                driver_manager.get_loaded_drivers(), interfaces);
-            validator.validate(config);
+            const EnvironmentValidator validator(driver_manager.get_loaded_drivers(), interfaces);
+            validator.validate(*config);
 
             if (!quiet) {
                 std::println("Configuration file test passed");

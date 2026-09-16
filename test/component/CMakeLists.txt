@@ -45,6 +45,8 @@ add_unit_test(cli SOURCE cli_test.cpp
     ${PROJECT_SOURCE_DIR}/src/cli/interface.cpp
     ${PROJECT_SOURCE_DIR}/src/cli/info.cpp
     ${PROJECT_SOURCE_DIR}/src/config/config.cpp
+    ${PROJECT_SOURCE_DIR}/src/config/normalizer.cpp
+    ${PROJECT_SOURCE_DIR}/src/config/static_validator.cpp
     ${PROJECT_SOURCE_DIR}/src/core/driver_loader.cpp
     ${PROJECT_SOURCE_DIR}/src/core/driver_manager.cpp
     ${PROJECT_SOURCE_DIR}/src/core/core_logger.cpp
@@ -149,6 +151,7 @@ add_unit_test(manager_lifecycle SOURCE manager_lifecycle_test.cpp
     ${PROJECT_SOURCE_DIR}/src/core/driver_manager.cpp
     ${PROJECT_SOURCE_DIR}/src/core/core_logger.cpp
     ${PROJECT_SOURCE_DIR}/src/config/config.cpp
+    ${PROJECT_SOURCE_DIR}/src/config/normalizer.cpp
     ${PROJECT_SOURCE_DIR}/src/dns/dispatcher.cpp
     ${PROJECT_SOURCE_DIR}/src/dns/parser.cpp
     ${PROJECT_SOURCE_DIR}/src/dns/factory.cpp

@@ -10,24 +10,24 @@
 #include <string>
 #include <string_view>
 
-#include "config/config.h"
+#include "domain/config/runtime_config.h"
 
 /// UpdateTask — a self-contained value type describing one DNS record update
 ///              that the Updater should carry out.
 ///
-/// The task shares the application configuration via `shared_ptr` and
+/// The task shares the runtime configuration via `shared_ptr` and
 /// references the target domain/subdomain by index, so copying a task (which
 /// happens on every scheduler pop) is cheap: no per-task copy of the config,
 /// including its JSON driver parameters.
 struct UpdateTask {
-    std::shared_ptr<const Config::AppConfig> config;  ///< Shared application configuration
+    std::shared_ptr<const domain::RuntimeConfig> config;  ///< Shared runtime configuration
     std::size_t domain_index{};                        ///< Index into config->domains
     std::size_t subdomain_index{};                     ///< Index into domains[domain_index].subdomains
     std::string fqdn;                                  ///< Fully qualified domain name
     bool force_update{false};                          ///< Skip IP-change check; always send update
 
     /// The subdomain configuration this task updates.
-    [[nodiscard]] const Config::SubdomainConfig &subdomain_config() const {
+    [[nodiscard]] const domain::SubdomainConfig &subdomain_config() const {
         return config->domains[domain_index].subdomains[subdomain_index];
     }
 

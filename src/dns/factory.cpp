@@ -8,7 +8,7 @@
 #include <utility>
 #include <vector>
 
-#include "config/config.h"
+#include "domain/config/runtime_config.h"
 #include "config/dns_config.h"
 #include "dns/resolver/base.h"
 #include "dns/resolver_registry.h"
@@ -19,22 +19,14 @@
 #include <spdlog/spdlog.h>
 
 // ===========================================================================
-// DnsResolverFactory::create — build a ResolverDispatcher from app config.
+// DnsResolverFactory::create — build a ResolverDispatcher from resolver settings.
 // ===========================================================================
 
-ResolverDispatcher DnsResolverFactory::create(const Config::AppConfig &config,
+ResolverDispatcher DnsResolverFactory::create(const domain::ResolverSettings &settings,
                                                           const Utils::CancellationToken &token) {
-    // Build the list of DNS servers from config, preserving backward
-    // compatibility with the legacy single-server format.
-    std::vector<Config::DnsServer> dns_servers;
-    if (config.resolver.use_custom_server) {
-        if (!config.resolver.servers.empty()) {
-            dns_servers = config.resolver.servers;
-        } else if (!config.resolver.address.empty()) {
-            // Legacy single-server format.
-            dns_servers.push_back({config.resolver.address, config.resolver.port});
-        }
-    }
+    // The server list arrives already normalised (legacy single-server format
+    // folded in by the config normaliser).
+    std::vector<Config::DnsServer> dns_servers = settings.servers;
 
     // Ensure at least one DNS server is available.
     if (dns_servers.empty()) {
@@ -66,8 +58,8 @@ ResolverDispatcher DnsResolverFactory::create(const Config::AppConfig &config,
             std::unreachable();
         };
         SPDLOG_INFO("Configured {} custom resolver(s) in {} mode", dns_servers.size(),
-                    strategy_name(config.resolver.strategy));
+                    strategy_name(settings.strategy));
     }
 
-    return ResolverDispatcher(std::move(resolvers), config.resolver.strategy);
+    return ResolverDispatcher(std::move(resolvers), settings.strategy);
 }

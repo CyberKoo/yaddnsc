@@ -13,13 +13,12 @@
 
 #include "update_task.hpp"
 
-#include <glaze/json/generic.hpp>
 #include <magic_enum/magic_enum.hpp>
 #include <spdlog/spdlog.h>
 
 namespace {
     // Filter out link-local and ULA addresses for AAAA candidates.
-    void filter_ipv6_candidates(std::vector<InetAddress> &candidates, const Config::SubdomainConfig &config) noexcept {
+    void filter_ipv6_candidates(std::vector<InetAddress> &candidates, const domain::SubdomainConfig &config) noexcept {
         if (!config.allow_local_link) {
             std::erase_if(candidates, [](const InetAddress &a) { return a.is_link_local(); });
         }
@@ -28,7 +27,7 @@ namespace {
         }
     }
 
-    [[nodiscard]] std::unique_ptr<IpSourceBase> default_ip_source_factory(const Config::SubdomainConfig &cfg) {
+    [[nodiscard]] std::unique_ptr<IpSourceBase> default_ip_source_factory(const domain::SubdomainConfig &cfg) {
         return IpSourceFactory::create(cfg, {});
     }
 } // anonymous namespace
@@ -38,7 +37,7 @@ namespace {
 // ===========================================================================
 
 struct Updater::Impl {
-    using IpSourceFactoryFunc = std::function<std::unique_ptr<IpSourceBase>(const Config::SubdomainConfig &)>;
+    using IpSourceFactoryFunc = std::function<std::unique_ptr<IpSourceBase>(const domain::SubdomainConfig &)>;
 
     explicit Impl(const ResolverDispatcher &resolver_dispatcher, IpSourceFactoryFunc factory);
 
@@ -47,7 +46,7 @@ struct Updater::Impl {
     void process(const UpdateTask &task, const Driver &driver, HttpClient &http_client) const;
 
     /// Resolve the local IP address from the configured IP source.
-    [[nodiscard]] std::optional<InetAddress> resolve_local_address(const Config::SubdomainConfig &config) const;
+    [[nodiscard]] std::optional<InetAddress> resolve_local_address(const domain::SubdomainConfig &config) const;
 
     /// Build the driver configuration string from the update task.
     [[nodiscard]] static DriverConfig build_driver_parameters(const UpdateTask &task);
@@ -118,7 +117,7 @@ void Updater::Impl::process(const UpdateTask &task, const Driver &driver, HttpCl
     SPDLOG_INFO("Domain {} ({}) updated to {}", task.fqdn, rd_type, local_ip->to_string());
 }
 
-std::optional<InetAddress> Updater::Impl::resolve_local_address(const Config::SubdomainConfig &config) const {
+std::optional<InetAddress> Updater::Impl::resolve_local_address(const domain::SubdomainConfig &config) const {
     auto ip_source = ip_factory_(config);
     auto candidates = ip_source->resolve();
 
@@ -139,7 +138,8 @@ std::optional<InetAddress> Updater::Impl::resolve_local_address(const Config::Su
 }
 
 DriverConfig Updater::Impl::build_driver_parameters(const UpdateTask &task) {
-    return task.subdomain_config().driver_param.dump().value_or("{}");
+    // driver_param is opaque JSON text, dumped once during normalisation.
+    return task.subdomain_config().driver_param;
 }
 
 DriverUpdateParams Updater::Impl::build_update_context(const UpdateTask &task, const InetAddress &ip_addr,

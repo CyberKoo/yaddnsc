@@ -56,6 +56,16 @@ add_unit_test(config_types      SOURCE config/config_types_test.cpp)
 add_unit_test(config_validator  SOURCE config/config_validator_test.cpp
     ${PROJECT_SOURCE_DIR}/src/network/net_devices.cpp)
 
+# normalizer — raw AppConfig → domain::RuntimeConfig mapping
+add_unit_test(config_normalizer SOURCE config/normalizer_test.cpp
+    ${PROJECT_SOURCE_DIR}/src/config/normalizer.cpp)
+
+# static_validator — collect-all static checks (needs the normalizer for
+# validate_and_normalize; uri.cpp/inet_address.cpp come from test_support)
+add_unit_test(config_static_validator SOURCE config/static_validator_test.cpp
+    ${PROJECT_SOURCE_DIR}/src/config/normalizer.cpp
+    ${PROJECT_SOURCE_DIR}/src/config/static_validator.cpp)
+
 # config_loader — JSON config file parsing
 add_unit_test(config_loader SOURCE config/config_loader_test.cpp
     ${PROJECT_SOURCE_DIR}/src/config/config.cpp)
@@ -65,7 +75,8 @@ add_unit_test(config_loader SOURCE config/config_loader_test.cpp
 # ============================================================================
 
 add_unit_test(scheduler SOURCE core/scheduler_test.cpp
-    ${PROJECT_SOURCE_DIR}/src/core/scheduler.cpp)
+    ${PROJECT_SOURCE_DIR}/src/core/scheduler.cpp
+    ${PROJECT_SOURCE_DIR}/src/config/normalizer.cpp)
 
 # signal_watcher — install/construct/destroy lifecycle (signals are blocked
 # process-wide by install(), so this binary only runs these tests).
@@ -114,6 +125,7 @@ add_unit_test(updater SOURCE core/updater_test.cpp
     ${PROJECT_SOURCE_DIR}/src/dns/dispatcher.cpp
     ${PROJECT_SOURCE_DIR}/src/dns/parser.cpp
     ${PROJECT_SOURCE_DIR}/src/core/updater.cpp
+    ${PROJECT_SOURCE_DIR}/src/config/normalizer.cpp
     ${PROJECT_SOURCE_DIR}/src/ip_source/factory.cpp
     ${PROJECT_SOURCE_DIR}/src/ip_source/iface.cpp
     ${PROJECT_SOURCE_DIR}/src/ip_source/http.cpp

@@ -14,7 +14,7 @@ class InetAddress;
 ///                 and their IP addresses.
 ///
 /// Encapsulates the getifaddrs() call with a short-lived TTL cache so that
-/// multiple callers (InterfaceIpSource, ConfigValidator, CLI) share the same
+/// multiple callers (InterfaceIpSource, EnvironmentValidator, CLI) share the same
 /// snapshot without hammering the kernel.
 ///
 /// @note Thread-safe: all public functions are guarded by an internal mutex.

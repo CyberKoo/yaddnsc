@@ -17,22 +17,25 @@
 #include "core/update_task.hpp"
 
 #include "config/config.h"
+#include "config/normalizer.h"
 #include "config/parser.hpp"
 
 #include "fixtures/sample_config.h"
 
 namespace {
 
-// Parse one of the fixture configs into a shared AppConfig for the scheduler.
-[[nodiscard]] std::shared_ptr<Config::AppConfig> parse_cfg(std::string_view json) {
-    auto cfg = std::make_shared<Config::AppConfig>();
-    const auto ec = glz::read<glz::opts{.error_on_missing_keys = false}>(*cfg, json);
+// Parse one of the fixture configs and normalise it into a shared
+// RuntimeConfig for the scheduler (no static validation: fixture intervals
+// are deliberately below the production minimum).
+[[nodiscard]] std::shared_ptr<domain::RuntimeConfig> parse_cfg(std::string_view json) {
+    Config::AppConfig raw;
+    const auto ec = glz::read<glz::opts{.error_on_missing_keys = false}>(raw, json);
     EXPECT_EQ(ec, glz::error_code::none) << glz::format_error(ec, json);
-    return cfg;
+    return std::make_shared<domain::RuntimeConfig>(Config::normalize(raw));
 }
 
 // Count every subdomain across all domains (== number of scheduled tasks).
-[[nodiscard]] std::size_t subdomain_count(const std::shared_ptr<Config::AppConfig> &cfg) {
+[[nodiscard]] std::size_t subdomain_count(const std::shared_ptr<domain::RuntimeConfig> &cfg) {
     std::size_t n = 0;
     for (const auto &domain: cfg->domains) {
         n += domain.subdomains.size();
@@ -226,8 +229,8 @@ TEST(Scheduler, WaitForNextDoesNotReportShutdownSpuriously) {
 // ── Subdomain-specific update_interval ───────────────────────────────────────
 
 TEST(Scheduler, SubdomainOverrideUpdateInterval) {
-    // Create a config with subdomain-level update_interval
-    // to exercise the ternary at line 76 in scheduler.cpp.
+    // Create a config with subdomain-level update_interval; the normaliser
+    // folds the override into the effective interval the scheduler consumes.
     const auto json = R"({
         "driver": { "auto_discover": true },
         "resolver": { "use_custom_server": false },
@@ -256,7 +259,7 @@ TEST(Scheduler, SubdomainOverrideUpdateInterval) {
 TEST(Scheduler, ZeroUpdateInterval_Throws) {
     // A domain with update_interval = 0 and no subdomain override would
     // re-queue the entry with deadline == now forever (busy loop). The
-    // constructor must reject it instead of relying on ConfigValidator.
+    // constructor must reject it instead of relying on static validation.
     const auto json = R"({
         "driver": { "auto_discover": true },
         "resolver": { "use_custom_server": false },

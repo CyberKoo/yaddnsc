@@ -35,6 +35,7 @@
 #include "core/manager.h"
 
 #include "config/config.h"
+#include "config/normalizer.h"
 #include "config/parser.hpp"
 #include "dns/dispatcher.h"
 #include "interface/http_client.h"
@@ -129,11 +130,11 @@ private:
     return std::nullopt;
 }
 
-[[nodiscard]] Config::AppConfig parse_cfg(const std::string &json) {
+[[nodiscard]] domain::RuntimeConfig parse_cfg(const std::string &json) {
     Config::AppConfig cfg{};
     const auto ec = glz::read<glz::opts{.error_on_missing_keys = false}>(cfg, json);
     EXPECT_EQ(ec, glz::error_code::none) << glz::format_error(ec, json);
-    return cfg;
+    return Config::normalize(cfg);
 }
 
 // One subdomain on the real "simple" driver; update_interval is one hour, so

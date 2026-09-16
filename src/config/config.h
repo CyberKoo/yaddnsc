@@ -13,18 +13,16 @@
 
 #include "record_kind.h"
 #include "address_family.h"
+#include "ip_source_kind.h"
 
 #include "dns_config.h"
 
 /// Configuration data types.
+///
+/// This is the RAW JSON DTO (file format): it may carry Glaze types and
+/// legacy fields. The normalised, glaze-free runtime model consumed by the
+/// business layers lives in src/domain/config/runtime_config.h.
 namespace Config {
-    /// Available IP address source backends.
-    enum class IpSource {
-        INTERFACE, ///< Read IP from a local network interface
-        HTTP,      ///< Query an external HTTP endpoint for the public IP
-        MDNS       ///< Resolve via mDNS (RFC 6762, .local domain)
-    };
-
     /// Driver loading configuration.
     struct DriverConfig {
         std::optional<std::string> driver_dir; ///< Custom directory to search for driver .so files

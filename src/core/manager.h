@@ -9,7 +9,7 @@
 #include <stop_token>
 #include <functional>
 
-#include "config/config.h"
+#include "domain/config/runtime_config.h"
 
 class HttpClient;
 class ResolverDispatcher;
@@ -26,17 +26,17 @@ using HttpClientFactory = std::function<std::unique_ptr<HttpClient>()>;
 ///   3. run() — blocks until a stop is requested
 class Manager {
 public:
-    /// Construct the manager with the loaded config and a stop source.
-    /// @param config        Parsed application configuration.
+    /// Construct the manager with the runtime config and a stop source.
+    /// @param config        Normalised runtime configuration.
     /// @param stop_source   Shared stop source (typically from SignalWatcher).
-    explicit Manager(Config::AppConfig config, std::stop_source stop_source);
+    explicit Manager(domain::RuntimeConfig config, std::stop_source stop_source);
 
     /// Construct with injected dependencies (for testing).
-    /// @param config        Parsed application configuration.
+    /// @param config        Normalised runtime configuration.
     /// @param stop_source   Shared stop source.
     /// @param dispatcher    Pre-configured resolver dispatcher (mock or real).
     /// @param http_factory  Factory that creates HttpClient instances on demand.
-    Manager(Config::AppConfig config, std::stop_source stop_source,
+    Manager(domain::RuntimeConfig config, std::stop_source stop_source,
                 ResolverDispatcher dispatcher, HttpClientFactory http_factory);
 
     ~Manager();

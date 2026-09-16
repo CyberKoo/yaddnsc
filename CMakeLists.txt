@@ -274,6 +274,8 @@ target_link_libraries(yaddnsc_compile_config INTERFACE
 
 add_library(yaddnsc_config OBJECT
     src/config/config.cpp
+    src/config/normalizer.cpp
+    src/config/static_validator.cpp
 )
 target_link_libraries(yaddnsc_config PRIVATE yaddnsc_compile_config)
 

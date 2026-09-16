@@ -28,7 +28,7 @@
 #include "util/cancellation_token.hpp"
 #include "util/random.hpp"
 
-#include "config/config.h"
+#include "domain/config/runtime_config.h"
 #include "ip_source/base.h"
 #include "ip_source/factory.h"
 #include "ip_source/mdns.h"
@@ -103,7 +103,7 @@ using namespace std::chrono_literals;
 // ===========================================================================
 
 TEST(IpSourceFactoryTest, CreateInterfaceSource_ResolvesLoopback) {
-    Config::SubdomainConfig cfg;
+    domain::SubdomainConfig cfg;
     cfg.name = "test";
     cfg.type = RecordKind::A;
     cfg.ip_source = Config::IpSource::INTERFACE;
@@ -121,7 +121,7 @@ TEST(IpSourceFactoryTest, CreateInterfaceSource_ResolvesLoopback) {
 }
 
 TEST(IpSourceFactoryTest, CreateInterfaceSource_Ipv6) {
-    Config::SubdomainConfig cfg;
+    domain::SubdomainConfig cfg;
     cfg.name = "test";
     cfg.type = RecordKind::AAAA;
     cfg.ip_source = Config::IpSource::INTERFACE;
@@ -144,7 +144,7 @@ TEST(IpSourceFactoryTest, CreateInterfaceSource_Ipv6) {
 // ===========================================================================
 
 TEST(IpSourceFactoryTest, CreateHttpSource_ConstructsSuccessfully) {
-    Config::SubdomainConfig cfg;
+    domain::SubdomainConfig cfg;
     cfg.name = "test";
     cfg.type = RecordKind::A;
     cfg.ip_source = Config::IpSource::HTTP;
@@ -157,7 +157,7 @@ TEST(IpSourceFactoryTest, CreateHttpSource_ConstructsSuccessfully) {
 }
 
 TEST(IpSourceFactoryTest, CreateHttpSource_WithIface_BindsToInterface) {
-    Config::SubdomainConfig cfg;
+    domain::SubdomainConfig cfg;
     cfg.name = "test";
     cfg.type = RecordKind::A;
     cfg.ip_source = Config::IpSource::HTTP;
@@ -173,7 +173,7 @@ TEST(IpSourceFactoryTest, CreateHttpSource_WithIface_BindsToInterface) {
 // ===========================================================================
 
 TEST(IpSourceFactoryTest, UnknownType_FallsBackToUnspecified) {
-    Config::SubdomainConfig cfg;
+    domain::SubdomainConfig cfg;
     cfg.name = "test";
     cfg.type = RecordKind::TXT;       // not A or AAAA → UNSPECIFIED
     cfg.ip_source = Config::IpSource::INTERFACE;
@@ -490,7 +490,7 @@ TEST_F(MdnsTest, ResolveMdns_A_Record) {
 // ===========================================================================
 
 TEST_F(MdnsTest, Factory_CreateMdnsSource_ResolvesViaMulticast) {
-    Config::SubdomainConfig cfg;
+    domain::SubdomainConfig cfg;
     cfg.name = "test";
     cfg.type = RecordKind::A;
     cfg.ip_source = Config::IpSource::MDNS;

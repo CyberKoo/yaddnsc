@@ -8,7 +8,7 @@
 #include <thread>
 #include <utility>
 
-#include "config/config.h"
+#include "domain/config/runtime_config.h"
 #include "config/validator.hpp"
 #include "dns/dispatcher.h"
 #include "dns/factory.h"
@@ -25,19 +25,18 @@
 #include "scheduler.h"
 #include "updater.h"
 #include "update_task.hpp"
-#include "min_update_interval.h"
 #include "exception/driver_not_found.h"
 
 #include <BS_thread_pool.hpp>
 #include <spdlog/spdlog.h>
 
 namespace {
-    std::uint32_t estimate_pool_size(const Config::AppConfig &config) noexcept {
+    std::uint32_t estimate_pool_size(const domain::RuntimeConfig &config) noexcept {
         std::uint32_t total_subdomains = 0;
         const auto thread_count = std::thread::hardware_concurrency();
 
-        for (const auto &domain: config.domains) {
-            total_subdomains += static_cast<std::uint32_t>(domain.subdomains.size());
+        for (const auto &domain_config: config.domains) {
+            total_subdomains += static_cast<std::uint32_t>(domain_config.subdomains.size());
         }
 
         if (total_subdomains < 2 || thread_count < 2) {
@@ -58,9 +57,9 @@ namespace {
 // ---------------------------------------------------------------------------
 
 struct Manager::Impl {
-    explicit Impl(Config::AppConfig config, std::stop_source stop_source);
+    explicit Impl(domain::RuntimeConfig config, std::stop_source stop_source);
 
-    Impl(Config::AppConfig config, std::stop_source stop_source, ResolverDispatcher dispatcher,
+    Impl(domain::RuntimeConfig config, std::stop_source stop_source, ResolverDispatcher dispatcher,
          HttpClientFactory http_factory);
 
     void load_drivers();
@@ -73,7 +72,7 @@ struct Manager::Impl {
     // config_ is declared first because it's needed by dispatcher_'s constructor.
     // cancel_src_ is declared before every token consumer (updater_, the
     // factories) so it outlives them all.
-    std::shared_ptr<const Config::AppConfig> config_;
+    std::shared_ptr<const domain::RuntimeConfig> config_;
     std::shared_ptr<Utils::CancellationSource> cancel_src_;
     DriverManager driver_manager_;
     ResolverDispatcher dispatcher_;
@@ -89,14 +88,14 @@ namespace {
     /// IP-source factory bound to the manager's cancellation source: every
     /// HTTP IP source created from it is cancellable through the same token.
     [[nodiscard]] Updater::IpSourceFactory make_ip_source_factory(const std::shared_ptr<Utils::CancellationSource> &src) {
-        return [src](const Config::SubdomainConfig &cfg) { return IpSourceFactory::create(cfg, src->token()); };
+        return [src](const domain::SubdomainConfig &cfg) { return IpSourceFactory::create(cfg, src->token()); };
     }
 } // namespace
 
-Manager::Impl::Impl(Config::AppConfig config, std::stop_source stop_source)
-    : config_(std::make_shared<const Config::AppConfig>(std::move(config))),
+Manager::Impl::Impl(domain::RuntimeConfig config, std::stop_source stop_source)
+    : config_(std::make_shared<const domain::RuntimeConfig>(std::move(config))),
       cancel_src_(std::make_shared<Utils::CancellationSource>()),
-      dispatcher_(DnsResolverFactory::create(*config_, cancel_src_->token())), updater_(dispatcher_, make_ip_source_factory(cancel_src_)),
+      dispatcher_(DnsResolverFactory::create(config_->resolver, cancel_src_->token())), updater_(dispatcher_, make_ip_source_factory(cancel_src_)),
       thread_pool_(estimate_pool_size(*config_)), scheduler_(config_, stop_source.get_token()),
       stop_source_(std::move(stop_source)) {
     stop_cb_ = std::make_unique<std::stop_callback<std::function<void()>>>(
@@ -109,9 +108,9 @@ Manager::Impl::Impl(Config::AppConfig config, std::stop_source stop_source)
     };
 }
 
-Manager::Impl::Impl(Config::AppConfig config, std::stop_source stop_source, ResolverDispatcher dispatcher,
+Manager::Impl::Impl(domain::RuntimeConfig config, std::stop_source stop_source, ResolverDispatcher dispatcher,
                     HttpClientFactory http_factory)
-    : config_(std::make_shared<const Config::AppConfig>(std::move(config))),
+    : config_(std::make_shared<const domain::RuntimeConfig>(std::move(config))),
       cancel_src_(std::make_shared<Utils::CancellationSource>()),
       dispatcher_(std::move(dispatcher)), updater_(dispatcher_, make_ip_source_factory(cancel_src_)),
       thread_pool_(estimate_pool_size(*config_)), scheduler_(config_, stop_source.get_token()),
@@ -121,12 +120,12 @@ Manager::Impl::Impl(Config::AppConfig config, std::stop_source stop_source, Reso
 }
 
 void Manager::Impl::load_drivers() {
-    DriverLoader::load(driver_manager_, *config_);
+    DriverLoader::load(driver_manager_, config_->driver);
 }
 
 void Manager::Impl::validate_config() const {
     const auto interfaces = InterfaceUtil::get_interfaces();
-    const ConfigValidator<YADDNSC_MIN_UPDATE_INTERVAL> validator(driver_manager_.get_loaded_drivers(), interfaces);
+    const EnvironmentValidator validator(driver_manager_.get_loaded_drivers(), interfaces);
     validator.validate(*config_);
 }
 
@@ -163,11 +162,11 @@ void Manager::Impl::run() {
 // Manager public API
 // ---------------------------------------------------------------------------
 
-Manager::Manager(Config::AppConfig config, std::stop_source stop_source)
+Manager::Manager(domain::RuntimeConfig config, std::stop_source stop_source)
     : impl_(std::make_unique<Impl>(std::move(config), std::move(stop_source))) {
 }
 
-Manager::Manager(Config::AppConfig config, std::stop_source stop_source, ResolverDispatcher dispatcher,
+Manager::Manager(domain::RuntimeConfig config, std::stop_source stop_source, ResolverDispatcher dispatcher,
                  HttpClientFactory http_factory)
     : impl_(std::make_unique<Impl>(std::move(config), std::move(stop_source), std::move(dispatcher),
                                    std::move(http_factory))) {

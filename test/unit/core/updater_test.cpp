@@ -25,6 +25,7 @@
 
 #include "config/config.h"
 #include "config/fqdn.hpp"
+#include "config/normalizer.h"
 #include "config/parser.hpp"
 
 #include "fixtures/sample_config.h"
@@ -59,7 +60,7 @@ class FakeIpSourceFactory {
 public:
     explicit FakeIpSourceFactory(std::shared_ptr<FakeIpSource> src) : src_(std::move(src)) {}
 
-    std::unique_ptr<IpSourceBase> operator()(const Config::SubdomainConfig &) const {
+    std::unique_ptr<IpSourceBase> operator()(const domain::SubdomainConfig &) const {
         return std::make_unique<FakeIpSource>(*src_);
     }
 
@@ -69,27 +70,27 @@ private:
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
-[[nodiscard]] std::shared_ptr<const Config::AppConfig> parse_cfg(std::string_view json) {
+[[nodiscard]] std::shared_ptr<const domain::RuntimeConfig> parse_cfg(std::string_view json) {
     auto cfg = Config::AppConfig{};
     const auto ec = glz::read<glz::opts{.error_on_missing_keys = false}>(cfg, json);
     EXPECT_EQ(ec, glz::error_code::none) << glz::format_error(ec, json);
-    return std::make_shared<const Config::AppConfig>(std::move(cfg));
+    return std::make_shared<const domain::RuntimeConfig>(Config::normalize(cfg));
 }
 
-// Parse a config, apply a mutation before sharing it, and return the shared
-// handle. Used by tests that override a subdomain setting (the shared config
-// is const once handed out).
+// Parse a config, apply a mutation to the raw DTO before normalising, and
+// return the shared runtime config. Used by tests that override a subdomain
+// setting (the shared config is const once handed out).
 template <typename Mutator>
-[[nodiscard]] std::shared_ptr<const Config::AppConfig> parse_cfg_mut(std::string_view json, Mutator mut) {
+[[nodiscard]] std::shared_ptr<const domain::RuntimeConfig> parse_cfg_mut(std::string_view json, Mutator mut) {
     auto cfg = Config::AppConfig{};
     const auto ec = glz::read<glz::opts{.error_on_missing_keys = false}>(cfg, json);
     EXPECT_EQ(ec, glz::error_code::none) << glz::format_error(ec, json);
     mut(cfg);
-    return std::make_shared<const Config::AppConfig>(std::move(cfg));
+    return std::make_shared<const domain::RuntimeConfig>(Config::normalize(cfg));
 }
 
 // Build a single-subdomain task from the shared fixture config.
-[[nodiscard]] UpdateTask make_task(const std::shared_ptr<const Config::AppConfig> &cfg, std::size_t domain_idx = 0,
+[[nodiscard]] UpdateTask make_task(const std::shared_ptr<const domain::RuntimeConfig> &cfg, std::size_t domain_idx = 0,
                                    std::size_t sub_idx = 0) {
     const auto &domain = cfg->domains[domain_idx];
     const auto &sub = domain.subdomains[sub_idx];
@@ -357,7 +358,7 @@ TEST(Updater, NoThrowWhenIpSourceThrows) {
             throw std::runtime_error("interface not found");
         }
     };
-    auto factory = [](const Config::SubdomainConfig &) {
+    auto factory = [](const domain::SubdomainConfig &) {
         return std::make_unique<ThrowingIpSource>();
     };
 

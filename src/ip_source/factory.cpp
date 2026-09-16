@@ -6,7 +6,7 @@
 
 #include <utility>
 
-#include "config/config.h"
+#include "domain/config/runtime_config.h"
 
 #include "address_family.h"
 #include "http.h"
@@ -39,7 +39,7 @@ namespace {
 /// based on Config::IpSource.
 /// @param cfg  The subdomain configuration record.
 /// @return     A unique pointer to the concrete IP source implementation.
-std::unique_ptr<IpSourceBase> IpSourceFactory::create(const Config::SubdomainConfig &cfg,
+std::unique_ptr<IpSourceBase> IpSourceFactory::create(const domain::SubdomainConfig &cfg,
                                                       const Utils::CancellationToken &token) {
     auto address_family = type_to_family(cfg.type);
 

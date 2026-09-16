@@ -14,7 +14,7 @@ class IpSourceBase;
 struct UpdateTask;
 class ResolverDispatcher;
 
-namespace Config {
+namespace domain {
     struct SubdomainConfig;
 }
 
@@ -32,7 +32,7 @@ namespace Config {
 class Updater {
 public:
     /// Factory type for creating IP source instances.
-    using IpSourceFactory = std::function<std::unique_ptr<IpSourceBase>(const Config::SubdomainConfig &)>;
+    using IpSourceFactory = std::function<std::unique_ptr<IpSourceBase>(const domain::SubdomainConfig &)>;
 
     /// Construct with a reference to the resolver dispatcher.
     /// @param resolver_pool  Resolver used to look up current DNS records.

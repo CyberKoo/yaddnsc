@@ -6,7 +6,7 @@
 
 #include <filesystem>
 
-#include "config/config.h"
+#include "domain/config/runtime_config.h"
 #include "exception/bad_driver.h"
 #include "exception/config_verification.h"
 #include "util/algorithm.hpp"
@@ -23,12 +23,12 @@ namespace {
 
     // Resolve the base directory from the optional configuration.
     // Throws if driver_dir is set but empty; falls back to default_driver_dir() otherwise.
-    [[nodiscard]] std::filesystem::path resolve_driver_base(const std::optional<std::string> &driver_dir) {
+    [[nodiscard]] std::filesystem::path resolve_driver_base(const std::optional<std::filesystem::path> &driver_dir) {
         if (driver_dir.has_value()) {
             if (driver_dir->empty()) {
                 throw ConfigVerificationException("driver_dir is set but empty in configuration");
             }
-            return {driver_dir.value()};
+            return driver_dir.value();
         }
         return default_driver_dir();
     }
@@ -44,13 +44,13 @@ namespace {
         return p;
     }
 
-    void load_auto_discover(DriverManager &driver_manager, const Config::AppConfig &config) {
-        if (!config.driver.load.empty()) {
+    void load_auto_discover(DriverManager &driver_manager, const domain::DriverSettings &settings) {
+        if (!settings.load.empty()) {
             SPDLOG_WARN("auto_discover is enabled, ignoring manual load list with {} entry(ies)",
-                        config.driver.load.size());
+                        settings.load.size());
         }
 
-        const auto base_dir = resolve_driver_base(config.driver.driver_dir);
+        const auto base_dir = resolve_driver_base(settings.driver_dir);
 
         if (!std::filesystem::exists(base_dir)) {
             SPDLOG_WARN("auto_discover enabled but driver_dir '{}' does not exist", base_dir.string());
@@ -85,11 +85,11 @@ namespace {
         }
     }
 
-    void load_manual(DriverManager &driver_manager, const Config::AppConfig &config) {
-        auto load = config.driver.load;
+    void load_manual(DriverManager &driver_manager, const domain::DriverSettings &settings) {
+        auto load = settings.load;
         Utils::dedupe(load);
 
-        const auto base_dir = resolve_driver_base(config.driver.driver_dir);
+        const auto base_dir = resolve_driver_base(settings.driver_dir);
 
         for (const auto &driver: load) {
             const auto driver_full_path = resolve_driver_path(base_dir, driver);
@@ -98,11 +98,11 @@ namespace {
     }
 } // anonymous namespace
 
-void DriverLoader::load(DriverManager &driver_manager, const Config::AppConfig &config) {
-    if (config.driver.auto_discover) {
-        load_auto_discover(driver_manager, config);
+void DriverLoader::load(DriverManager &driver_manager, const domain::DriverSettings &settings) {
+    if (settings.auto_discover) {
+        load_auto_discover(driver_manager, settings);
     } else {
-        load_manual(driver_manager, config);
+        load_manual(driver_manager, settings);
     }
 
     const auto loaded = driver_manager.get_loaded_drivers();

@@ -7,7 +7,7 @@
 
 #include <memory>
 
-namespace Config { struct SubdomainConfig; }
+namespace domain { struct SubdomainConfig; }
 
 class IpSourceBase;
 
@@ -23,7 +23,7 @@ namespace IpSourceFactory {
     /// @param cfg    The subdomain configuration specifying the IP source type and params.
     /// @param token  Cancellation token (HTTP source only; inert for others).
     /// @return       A unique pointer to the appropriate IpSourceBase implementation.
-    [[nodiscard]] std::unique_ptr<IpSourceBase> create(const Config::SubdomainConfig &cfg,
+    [[nodiscard]] std::unique_ptr<IpSourceBase> create(const domain::SubdomainConfig &cfg,
                                                        const Utils::CancellationToken &token);
 } // namespace IpSourceFactory
 

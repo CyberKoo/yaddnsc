@@ -14,7 +14,7 @@ class Driver;
 
 /// Abstract interface for driver lifecycle management.
 ///
-/// Provides a test-friendly seam so that components like ConfigValidator
+/// Provides a test-friendly seam so that components like EnvironmentValidator
 /// can be tested with a MockDriverManager instead of a real (dlopen-based)
 /// DriverManager.
 ///

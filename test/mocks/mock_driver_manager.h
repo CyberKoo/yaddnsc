@@ -2,7 +2,7 @@
 // MockDriverManager — GoogleMock-based mock for the DriverManagerBase interface.
 //
 // Provides configurable expectations for all DriverManagerBase methods so
-// that ConfigValidator and other components can be tested without dlopen.
+// that EnvironmentValidator and other components can be tested without dlopen.
 // =============================================================================
 
 #ifndef YADDNSC_TEST_MOCKS_MOCK_DRIVER_MANAGER_H

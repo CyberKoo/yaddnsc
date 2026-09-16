@@ -10,6 +10,7 @@
 #include "core/manager.h"
 #include "core/signal_watcher.h"
 #include "config/config.h"
+#include "config/static_validator.h"
 #include "logging_pattern.h"
 #include "exception/base.h"
 #include "exception/config_verification.h"
@@ -45,11 +46,19 @@ int main(int argc, char *argv[]) {
 
     SignalWatcher::install();
     try {
-        auto config = Config::load_config(outcome.config_path);
+        const auto raw_config = Config::load_config(outcome.config_path);
+
+        // Static validation + normalisation: report the first error with the
+        // same output shape as the legacy ConfigVerificationException path.
+        auto config = Config::validate_and_normalize(raw_config);
+        if (!config.has_value()) {
+            SPDLOG_CRITICAL(config.error().front().message);
+            return EXIT_FAILURE;
+        }
 
         SignalWatcher signal_watcher;
 
-        Manager manager(std::move(config), signal_watcher.get_stop_source());
+        Manager manager(std::move(*config), signal_watcher.get_stop_source());
         manager.load_drivers();
         manager.validate_config();
         manager.run();

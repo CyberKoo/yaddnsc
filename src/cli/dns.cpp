@@ -12,6 +12,7 @@
 #include <vector>
 
 #include "config/config.h"
+#include "config/normalizer.h"
 #include "dns/dispatcher.h"
 #include "dns/factory.h"
 #include "util/cancellation_token.hpp"
@@ -77,7 +78,8 @@ namespace Cli {
         }
 
         auto config = Config::load_config(config_path);
-        auto resolver = DnsResolverFactory::create(config, {});
+        // Normalise only — this command deliberately performs no validation.
+        auto resolver = DnsResolverFactory::create(Config::normalize(config).resolver, {});
         auto dns_result = resolver.resolve(host, *type);
 
         if (!dns_result) {
