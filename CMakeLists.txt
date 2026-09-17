@@ -279,15 +279,28 @@ add_library(yaddnsc_config OBJECT
 )
 target_link_libraries(yaddnsc_config PRIVATE yaddnsc_compile_config)
 
+# Domain layer — pure rules and value types (no I/O, no threads, no clocks).
+add_library(yaddnsc_domain OBJECT
+    src/domain/update/schedule_queue.cpp
+)
+target_link_libraries(yaddnsc_domain PRIVATE yaddnsc_compile_config)
+
+# Application layer — use cases and scheduling loop over the ports.
+add_library(yaddnsc_application OBJECT
+    src/application/update_workflow.cpp
+    src/application/scheduler_runner.cpp
+    src/application/pool_task_executor.cpp
+)
+target_link_libraries(yaddnsc_application PRIVATE yaddnsc_compile_config)
+
 add_library(yaddnsc_core OBJECT
-    src/core/updater.cpp
     src/core/manager.cpp
     src/core/driver_manager.cpp
     src/core/driver_loader.cpp
-    src/core/scheduler.cpp
     src/core/core_logger.cpp
     src/core/signal_watcher.cpp
     src/core/spdlog_logger.cpp
+    src/core/steady_clock.cpp
     src/core/cpp_driver_gateway.cpp
 )
 target_link_libraries(yaddnsc_core PRIVATE yaddnsc_compile_config)
@@ -371,7 +384,7 @@ target_sources(yaddnsc_dns PRIVATE
 
 # Sanitizer compile flags on all OBJECT libraries (link flags are a no-op on OBJECT libs
 # and only matter on the final executable, where add_sanitizer_flags is called again).
-foreach(tgt yaddnsc_config yaddnsc_core yaddnsc_network yaddnsc_net_transport yaddnsc_http_client yaddnsc_cli yaddnsc_dns yaddnsc_ip_source yaddnsc_util)
+foreach(tgt yaddnsc_config yaddnsc_domain yaddnsc_application yaddnsc_core yaddnsc_network yaddnsc_net_transport yaddnsc_http_client yaddnsc_cli yaddnsc_dns yaddnsc_ip_source yaddnsc_util)
   add_sanitizer_flags(${tgt})
 endforeach()
 
@@ -381,6 +394,8 @@ endforeach()
 add_executable(yaddnsc
     src/main.cpp
     $<TARGET_OBJECTS:yaddnsc_config>
+    $<TARGET_OBJECTS:yaddnsc_domain>
+    $<TARGET_OBJECTS:yaddnsc_application>
     $<TARGET_OBJECTS:yaddnsc_core>
     $<TARGET_OBJECTS:yaddnsc_network>
     $<TARGET_OBJECTS:yaddnsc_net_transport>

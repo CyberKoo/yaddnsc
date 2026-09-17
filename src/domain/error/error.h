@@ -65,7 +65,17 @@ struct DriverError {
     int retry_after_seconds{0};
 };
 
-/// Skeleton (Phase 3): one update workflow result.
+/// One update-workflow failure (Phase 3).
+///
+/// Every expected failure of a single update cycle surfaces as this value:
+///   - SKIPPED_NO_ADDRESS — no usable local address (IP source failed, or no
+///     candidate survived the address policy); the cycle is skipped and the
+///     schedule carries on;
+///   - DRIVER_FAILED — the driver gateway rejected the update (message and,
+///     for RATE_LIMITED, retry_after_seconds are copied from DriverError;
+///     schedulers ignore retry_after unless Phase 0 approved rescheduling);
+///   - UNKNOWN — an unexpected exception escaped the workflow (the legacy
+///     catch-all boundary, now mapped to an error value).
 struct UpdateError {
     enum class Code { DRIVER_FAILED, SKIPPED_NO_ADDRESS, UNKNOWN };
     Code code;

@@ -15,7 +15,8 @@ namespace domain {
 
 /// Address selection policy for a subdomain update.
 ///
-/// Pure domain rules, moved verbatim from Updater (Phase 2). Deliberately NOT
+/// Pure domain rules, moved verbatim from the legacy Updater (Phase 2; the
+/// caller is now UpdateWorkflow). Deliberately NOT
 /// a general "prefer global unicast" ranking: only the legacy filtering rules
 /// exist here.
 struct AddressPolicy {

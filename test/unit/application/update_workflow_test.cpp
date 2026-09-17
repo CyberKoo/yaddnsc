@@ -1,14 +1,14 @@
 //
-// Updater unit tests — exercises the single-task update workflow against the
-// application ports: MockDnsResolverPort, MockIpSourcePort, MockDriverGateway
-// and a NullLogger.
+// UpdateWorkflow unit tests — exercises the single-task update workflow
+// against the application ports: MockDnsResolverPort, MockIpSourcePort,
+// MockDriverGateway and a NullLogger.
 //
 // Behaviour locked here (Phase 0 table):
-//   - IP unchanged            → driver not invoked
-//   - IP changed / DNS fails  → update attempted
-//   - force_update            → DNS comparison skipped
-//   - no candidate address    → update skipped
-//   - driver failure          → logged, never thrown (noexcept boundary)
+//   - IP unchanged            → driver not invoked        (SkipUnchanged)
+//   - IP changed / DNS fails  → update attempted          (UpdateChanged)
+//   - force_update            → DNS comparison skipped    (UpdateForced)
+//   - no candidate address    → update skipped            (SKIPPED_NO_ADDRESS)
+//   - driver failure          → UpdateError::DRIVER_FAILED, logged, never thrown
 // The AAAA link-local/ULA filtering rules live in domain::select_address and
 // are covered exhaustively by domain/address_policy_test.cpp; here only the
 // workflow wiring (subdomain flags → policy) is checked.
@@ -24,13 +24,13 @@
 
 #include <glaze/glaze.hpp>
 
-#include "core/updater.h"
-#include "core/update_task.hpp"
+#include "application/update_workflow.h"
 
+#include "domain/fqdn.h"
+#include "domain/update/update_task.h"
 #include "network/inet_address.h"
 
 #include "config/config.h"
-#include "config/fqdn.hpp"
 #include "config/normalizer.h"
 #include "config/parser.hpp"
 
@@ -65,15 +65,15 @@ template <typename Mutator>
 }
 
 // Build a single-subdomain task from the shared fixture config.
-[[nodiscard]] UpdateTask make_task(const std::shared_ptr<const domain::RuntimeConfig> &cfg, std::size_t domain_idx = 0,
-                                   std::size_t sub_idx = 0) {
+[[nodiscard]] domain::UpdateTask make_task(const std::shared_ptr<const domain::RuntimeConfig> &cfg,
+                                           std::size_t domain_idx = 0, std::size_t sub_idx = 0) {
     const auto &domain = cfg->domains[domain_idx];
     const auto &sub = domain.subdomains[sub_idx];
-    return UpdateTask{
+    return domain::UpdateTask{
         .config = cfg,
         .domain_index = domain_idx,
         .subdomain_index = sub_idx,
-        .fqdn = Config::make_fqdn(domain.name, sub.name),
+        .fqdn = domain::make_fqdn(domain.name, sub.name),
         .force_update = false,
     };
 }
@@ -97,7 +97,7 @@ struct Ports {
 
 // ── IP unchanged → driver not invoked ─────────────────────────────────────────
 
-TEST(Updater, SkipsUpdateWhenIpUnchanged) {
+TEST(UpdateWorkflow, SkipsUpdateWhenIpUnchanged) {
     auto cfg = parse_cfg(Fixtures::FULL_CONFIG);
     auto task = make_task(cfg);
 
@@ -106,13 +106,15 @@ TEST(Updater, SkipsUpdateWhenIpUnchanged) {
     EXPECT_CALL(ports.dns, resolve(task.fqdn, RecordKind::A)).WillOnce(Return(std::vector<std::string>{"192.0.2.1"}));
     EXPECT_CALL(ports.gateway, update(_, _)).Times(0);
 
-    const Updater updater(ports.dns, ports.ip_source, ports.gateway, ports.logger);
-    updater.process(task);
+    const UpdateWorkflow workflow(ports.dns, ports.ip_source, ports.gateway, ports.logger);
+    const auto outcome = workflow.run(task);
+    ASSERT_TRUE(outcome.has_value());
+    EXPECT_EQ(outcome->decision, domain::UpdateDecision::SkipUnchanged);
 }
 
 // ── IP changed → driver invoked with the mapped command ──────────────────────
 
-TEST(Updater, UpdatesWhenIpChanged) {
+TEST(UpdateWorkflow, UpdatesWhenIpChanged) {
     auto cfg = parse_cfg(Fixtures::FULL_CONFIG);
     auto task = make_task(cfg);
 
@@ -131,13 +133,15 @@ TEST(Updater, UpdatesWhenIpChanged) {
             return {};
         });
 
-    const Updater updater(ports.dns, ports.ip_source, ports.gateway, ports.logger);
-    updater.process(task);
+    const UpdateWorkflow workflow(ports.dns, ports.ip_source, ports.gateway, ports.logger);
+    const auto outcome = workflow.run(task);
+    ASSERT_TRUE(outcome.has_value());
+    EXPECT_EQ(outcome->decision, domain::UpdateDecision::UpdateChanged);
 }
 
 // ── force_update → DNS comparison skipped ─────────────────────────────────────
 
-TEST(Updater, ForceUpdateSkipsDnsComparison) {
+TEST(UpdateWorkflow, ForceUpdateSkipsDnsComparison) {
     auto cfg = parse_cfg(Fixtures::FULL_CONFIG);
     auto task = make_task(cfg);
     task.force_update = true;
@@ -149,13 +153,15 @@ TEST(Updater, ForceUpdateSkipsDnsComparison) {
     EXPECT_CALL(ports.dns, resolve(_, _)).Times(0);
     EXPECT_CALL(ports.gateway, update(_, _)).WillOnce(Return(std::expected<void, domain::DriverError>{}));
 
-    const Updater updater(ports.dns, ports.ip_source, ports.gateway, ports.logger);
-    updater.process(task);
+    const UpdateWorkflow workflow(ports.dns, ports.ip_source, ports.gateway, ports.logger);
+    const auto outcome = workflow.run(task);
+    ASSERT_TRUE(outcome.has_value());
+    EXPECT_EQ(outcome->decision, domain::UpdateDecision::UpdateForced);
 }
 
 // ── empty IP source → update skipped ──────────────────────────────────────────
 
-TEST(Updater, SkipsWhenIpSourceReturnsEmpty) {
+TEST(UpdateWorkflow, SkipsWhenIpSourceReturnsEmpty) {
     auto cfg = parse_cfg(Fixtures::FULL_CONFIG);
     auto task = make_task(cfg);
 
@@ -164,13 +170,15 @@ TEST(Updater, SkipsWhenIpSourceReturnsEmpty) {
     EXPECT_CALL(ports.dns, resolve(_, _)).Times(0);
     EXPECT_CALL(ports.gateway, update(_, _)).Times(0);
 
-    const Updater updater(ports.dns, ports.ip_source, ports.gateway, ports.logger);
-    updater.process(task);
+    const UpdateWorkflow workflow(ports.dns, ports.ip_source, ports.gateway, ports.logger);
+    const auto outcome = workflow.run(task);
+    ASSERT_FALSE(outcome.has_value());
+    EXPECT_EQ(outcome.error().code, domain::UpdateError::Code::SKIPPED_NO_ADDRESS);
 }
 
 // ── DNS lookup failure → still attempts update ────────────────────────────────
 
-TEST(Updater, UpdatesWhenDnsLookupFails) {
+TEST(UpdateWorkflow, UpdatesWhenDnsLookupFails) {
     auto cfg = parse_cfg(Fixtures::FULL_CONFIG);
     auto task = make_task(cfg);
 
@@ -180,13 +188,32 @@ TEST(Updater, UpdatesWhenDnsLookupFails) {
         .WillOnce(Return(std::unexpected(DnsErrorInfo{DnsError::NX_DOMAIN, "domain does not exist"})));
     EXPECT_CALL(ports.gateway, update(_, _)).WillOnce(Return(std::expected<void, domain::DriverError>{}));
 
-    const Updater updater(ports.dns, ports.ip_source, ports.gateway, ports.logger);
-    updater.process(task);
+    const UpdateWorkflow workflow(ports.dns, ports.ip_source, ports.gateway, ports.logger);
+    const auto outcome = workflow.run(task);
+    ASSERT_TRUE(outcome.has_value());
+    EXPECT_EQ(outcome->decision, domain::UpdateDecision::UpdateChanged);
 }
 
-// ── driver reports failure → logged, no throw (noexcept boundary) ─────────────
+// ── DNS success with zero records → still updates ────────────────────────────
 
-TEST(Updater, NoThrowWhenDriverReportsFailure) {
+TEST(UpdateWorkflow, UpdatesWhenDnsReturnsEmptyRecordList) {
+    auto cfg = parse_cfg(Fixtures::FULL_CONFIG);
+    auto task = make_task(cfg);
+
+    Ports ports;
+    EXPECT_CALL(ports.ip_source, resolve(_)).WillOnce(Return(one_v4(198, 51, 100, 1)));
+    EXPECT_CALL(ports.dns, resolve(_, _)).WillOnce(Return(std::vector<std::string>{}));
+    EXPECT_CALL(ports.gateway, update(_, _)).WillOnce(Return(std::expected<void, domain::DriverError>{}));
+
+    const UpdateWorkflow workflow(ports.dns, ports.ip_source, ports.gateway, ports.logger);
+    const auto outcome = workflow.run(task);
+    ASSERT_TRUE(outcome.has_value());
+    EXPECT_EQ(outcome->decision, domain::UpdateDecision::UpdateChanged);
+}
+
+// ── driver reports failure → DRIVER_FAILED error value, no throw ─────────────
+
+TEST(UpdateWorkflow, DriverFailureReturnsDriverFailed) {
     auto cfg = parse_cfg(Fixtures::FULL_CONFIG);
     auto task = make_task(cfg);
 
@@ -197,13 +224,39 @@ TEST(Updater, NoThrowWhenDriverReportsFailure) {
         .WillOnce(Return(std::unexpected(
             domain::DriverError{domain::DriverError::Code::UPDATE_FAILED, "upstream rejected"})));
 
-    const Updater updater(ports.dns, ports.ip_source, ports.gateway, ports.logger);
-    EXPECT_NO_THROW(updater.process(task));
+    const UpdateWorkflow workflow(ports.dns, ports.ip_source, ports.gateway, ports.logger);
+    const auto outcome = workflow.run(task);
+    ASSERT_FALSE(outcome.has_value());
+    EXPECT_EQ(outcome.error().code, domain::UpdateError::Code::DRIVER_FAILED);
+    EXPECT_EQ(outcome.error().message, "upstream rejected");
+    EXPECT_EQ(outcome.error().retry_after_seconds, 0);
 }
 
-// ── driver not found / driver exception → logged, no throw ────────────────────
+// ── rate-limited driver → retry_after carried (but never rescheduled here) ───
 
-TEST(Updater, NoThrowWhenDriverNotFound) {
+TEST(UpdateWorkflow, RateLimitedCarriesRetryAfterIntoUpdateError) {
+    auto cfg = parse_cfg(Fixtures::FULL_CONFIG);
+    auto task = make_task(cfg);
+
+    Ports ports;
+    EXPECT_CALL(ports.ip_source, resolve(_)).WillOnce(Return(one_v4(198, 51, 100, 1)));
+    EXPECT_CALL(ports.dns, resolve(_, _)).WillOnce(Return(std::vector<std::string>{"192.0.2.1"}));
+    EXPECT_CALL(ports.gateway, update(_, _))
+        .WillOnce(Return(std::unexpected(
+            domain::DriverError{domain::DriverError::Code::RATE_LIMITED, "slow down", 120})));
+
+    const UpdateWorkflow workflow(ports.dns, ports.ip_source, ports.gateway, ports.logger);
+    const auto outcome = workflow.run(task);
+    ASSERT_FALSE(outcome.has_value());
+    EXPECT_EQ(outcome.error().code, domain::UpdateError::Code::DRIVER_FAILED);
+    // Phase 0 did not approve RATE_LIMITED rescheduling: the value is carried
+    // for observability but the scheduler must ignore it.
+    EXPECT_EQ(outcome.error().retry_after_seconds, 120);
+}
+
+// ── driver not found / driver exception → DRIVER_FAILED, no throw ─────────────
+
+TEST(UpdateWorkflow, DriverNotFoundReturnsDriverFailed) {
     auto cfg = parse_cfg(Fixtures::FULL_CONFIG);
     auto task = make_task(cfg);
 
@@ -214,11 +267,13 @@ TEST(Updater, NoThrowWhenDriverNotFound) {
         .WillOnce(Return(std::unexpected(
             domain::DriverError{domain::DriverError::Code::NOT_FOUND, "driver not loaded"})));
 
-    const Updater updater(ports.dns, ports.ip_source, ports.gateway, ports.logger);
-    EXPECT_NO_THROW(updater.process(task));
+    const UpdateWorkflow workflow(ports.dns, ports.ip_source, ports.gateway, ports.logger);
+    const auto outcome = workflow.run(task);
+    ASSERT_FALSE(outcome.has_value());
+    EXPECT_EQ(outcome.error().code, domain::UpdateError::Code::DRIVER_FAILED);
 }
 
-TEST(Updater, NoThrowWhenDriverThrowsUnknown) {
+TEST(UpdateWorkflow, DriverUnknownErrorReturnsDriverFailed) {
     auto cfg = parse_cfg(Fixtures::FULL_CONFIG);
     auto task = make_task(cfg);
 
@@ -229,13 +284,15 @@ TEST(Updater, NoThrowWhenDriverThrowsUnknown) {
         .WillOnce(Return(std::unexpected(
             domain::DriverError{domain::DriverError::Code::UNKNOWN, "Driver configuration parse error: ..."})));
 
-    const Updater updater(ports.dns, ports.ip_source, ports.gateway, ports.logger);
-    EXPECT_NO_THROW(updater.process(task));
+    const UpdateWorkflow workflow(ports.dns, ports.ip_source, ports.gateway, ports.logger);
+    const auto outcome = workflow.run(task);
+    ASSERT_FALSE(outcome.has_value());
+    EXPECT_EQ(outcome.error().code, domain::UpdateError::Code::DRIVER_FAILED);
 }
 
 // ── AAAA policy wiring: link-local filtered unless allowed ────────────────────
 
-TEST(Updater, FiltersLinkLocalForAaaaWhenNotAllowed) {
+TEST(UpdateWorkflow, FiltersLinkLocalForAaaaWhenNotAllowed) {
     auto cfg = parse_cfg(Fixtures::FULL_CONFIG);
     // The "www" subdomain is type AAAA, interface source, allow_local_link=false.
     auto task = make_task(cfg, 0, 1);
@@ -245,11 +302,13 @@ TEST(Updater, FiltersLinkLocalForAaaaWhenNotAllowed) {
     EXPECT_CALL(ports.ip_source, resolve(_)).WillOnce(Return(std::vector<InetAddress>{link_local_v6()}));
     EXPECT_CALL(ports.gateway, update(_, _)).Times(0);
 
-    const Updater updater(ports.dns, ports.ip_source, ports.gateway, ports.logger);
-    updater.process(task);
+    const UpdateWorkflow workflow(ports.dns, ports.ip_source, ports.gateway, ports.logger);
+    const auto outcome = workflow.run(task);
+    ASSERT_FALSE(outcome.has_value());
+    EXPECT_EQ(outcome.error().code, domain::UpdateError::Code::SKIPPED_NO_ADDRESS);
 }
 
-TEST(Updater, KeepsLinkLocalForAaaaWhenAllowed) {
+TEST(UpdateWorkflow, KeepsLinkLocalForAaaaWhenAllowed) {
     auto task = make_task(parse_cfg_mut(Fixtures::FULL_CONFIG, [](Config::AppConfig &cfg) {
         cfg.domains[0].subdomains[1].allow_local_link = true; // override
     }), 0, 1);
@@ -264,15 +323,17 @@ TEST(Updater, KeepsLinkLocalForAaaaWhenAllowed) {
             return {};
         });
 
-    const Updater updater(ports.dns, ports.ip_source, ports.gateway, ports.logger);
-    updater.process(task);
+    const UpdateWorkflow workflow(ports.dns, ports.ip_source, ports.gateway, ports.logger);
+    const auto outcome = workflow.run(task);
+    ASSERT_TRUE(outcome.has_value());
+    EXPECT_EQ(outcome->decision, domain::UpdateDecision::UpdateChanged);
 }
 
 // ── IP source failure arrives as an error value → update skipped ─────────────
 // (The throwing-implementation → error-value conversion is the adapter's
 // contract, covered by ip_source/adapter_test.cpp.)
 
-TEST(Updater, SkipsWhenIpSourceFails) {
+TEST(UpdateWorkflow, SkipsWhenIpSourceFails) {
     auto cfg = parse_cfg(Fixtures::FULL_CONFIG);
     auto task = make_task(cfg);
 
@@ -283,13 +344,16 @@ TEST(Updater, SkipsWhenIpSourceFails) {
     EXPECT_CALL(ports.dns, resolve(_, _)).Times(0);
     EXPECT_CALL(ports.gateway, update(_, _)).Times(0);
 
-    const Updater updater(ports.dns, ports.ip_source, ports.gateway, ports.logger);
-    EXPECT_NO_THROW(updater.process(task));
+    const UpdateWorkflow workflow(ports.dns, ports.ip_source, ports.gateway, ports.logger);
+    const auto outcome = workflow.run(task);
+    ASSERT_FALSE(outcome.has_value());
+    EXPECT_EQ(outcome.error().code, domain::UpdateError::Code::SKIPPED_NO_ADDRESS);
+    EXPECT_EQ(outcome.error().message, "interface not found");
 }
 
 // ── Multiple IP candidates → first candidate used ────────────────────────────
 
-TEST(Updater, MultipleIpCandidates_PicksFirst) {
+TEST(UpdateWorkflow, MultipleIpCandidates_PicksFirst) {
     auto cfg = parse_cfg(Fixtures::FULL_CONFIG);
     auto task = make_task(cfg);
 
@@ -306,6 +370,8 @@ TEST(Updater, MultipleIpCandidates_PicksFirst) {
             return {};
         });
 
-    const Updater updater(ports.dns, ports.ip_source, ports.gateway, ports.logger);
-    updater.process(task);
+    const UpdateWorkflow workflow(ports.dns, ports.ip_source, ports.gateway, ports.logger);
+    const auto outcome = workflow.run(task);
+    ASSERT_TRUE(outcome.has_value());
+    EXPECT_EQ(outcome->decision, domain::UpdateDecision::UpdateChanged);
 }

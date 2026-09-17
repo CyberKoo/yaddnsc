@@ -1,6 +1,7 @@
 //
 // Unit tests for config/static_validator.h — validate_static +
-// validate_and_normalize, plus Config::make_fqdn.
+// validate_and_normalize, plus domain::make_fqdn (used by the validator for
+// its messages; moved from Config to the domain layer in Phase 3).
 //
 // Verified:
 //   - make_fqdn — correct FQDN construction (apex / empty / deep labels).
@@ -18,8 +19,8 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
-#include "config/fqdn.hpp"
 #include "config/static_validator.h"
+#include "domain/fqdn.h"
 #include "fmt.hpp"
 #include "min_update_interval.h"
 
@@ -70,23 +71,23 @@ template<typename Mutator>
 } // anonymous namespace
 
 // ===========================================================================
-// Config::make_fqdn
+// domain::make_fqdn
 // ===========================================================================
 
 TEST(MakeFqdnTest, SubdomainAndDomain) {
-    EXPECT_EQ(Config::make_fqdn("example.com", "www"), "www.example.com");
+    EXPECT_EQ(domain::make_fqdn("example.com", "www"), "www.example.com");
 }
 
 TEST(MakeFqdnTest, ApexSubdomain) {
-    EXPECT_EQ(Config::make_fqdn("example.com", "@"), "example.com");
+    EXPECT_EQ(domain::make_fqdn("example.com", "@"), "example.com");
 }
 
 TEST(MakeFqdnTest, EmptySubdomain) {
-    EXPECT_EQ(Config::make_fqdn("example.com", ""), "example.com");
+    EXPECT_EQ(domain::make_fqdn("example.com", ""), "example.com");
 }
 
 TEST(MakeFqdnTest, DeepSubdomain) {
-    EXPECT_EQ(Config::make_fqdn("example.com", "a.b.c"), "a.b.c.example.com");
+    EXPECT_EQ(domain::make_fqdn("example.com", "a.b.c"), "a.b.c.example.com");
 }
 
 // ===========================================================================

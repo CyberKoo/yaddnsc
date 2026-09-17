@@ -25,7 +25,8 @@ using HttpClientFactory = std::function<std::unique_ptr<HttpClient>()>;
 ///   - DriverNotFoundException  → NOT_FOUND
 ///   - execute() == false       → UPDATE_FAILED (the driver already logged why)
 ///   - any other exception      → UNKNOWN (e.g. ParamParseException, which
-///                                previously escaped to the Updater catch-all)
+///                                previously escaped to the legacy Updater
+///                                catch-all; now surfaced as an error value)
 ///
 /// Phase 4 replaces this adapter with the C-ABI plugin host without changing
 /// the port signature.

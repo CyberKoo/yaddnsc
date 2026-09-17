@@ -8,11 +8,11 @@
 #include <string>
 
 #include "fmt.hpp"
-#include "fqdn.hpp"
 #include "min_update_interval.h"
 #include "normalizer.h"
 #include "uri.h"
 
+#include "domain/fqdn.h"
 #include "network/inet_address.h"
 #include "util/validation.hpp"
 
@@ -28,7 +28,7 @@ namespace {
     /// of the legacy ConfigValidator ones.
     void validate_ip_source(std::vector<domain::ConfigError> &errors, const std::string &domain_name,
                             const SubdomainConfig &subdomain) {
-        const auto fqdn = make_fqdn(domain_name, subdomain.name);
+        const auto fqdn = domain::make_fqdn(domain_name, subdomain.name);
 
         // Only the INTERFACE source strictly requires a network interface name.
         if (subdomain.ip_source == IpSource::INTERFACE && subdomain.interface.empty()) {

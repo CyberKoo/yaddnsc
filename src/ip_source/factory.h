@@ -16,7 +16,7 @@ namespace Utils { class CancellationToken; }
 /// IpSourceFactory — constructs the appropriate IpSourceBase implementation from a
 ///                   subdomain configuration.
 ///
-/// Eliminates the need for callers (e.g. Updater) to branch on Config::IpSource
+/// Eliminates the need for callers (e.g. UpdateWorkflow) to branch on Config::IpSource
 /// or know about concrete IpSourceBase classes.
 namespace IpSourceFactory {
     /// Create an IP source from subdomain configuration.

@@ -58,6 +58,34 @@ add_unit_test(resolver_base  SOURCE common/resolver_base_test.cpp)
 # address_policy — domain::select_address (AAAA link-local/ULA rules)
 add_unit_test(address_policy SOURCE domain/address_policy_test.cpp)
 
+# update_decision — domain::decide_update pure decision table (header-only)
+add_unit_test(update_decision SOURCE domain/update_decision_test.cpp)
+
+# schedule_queue — domain::ScheduleQueue over injected (fake) time
+add_unit_test(schedule_queue SOURCE domain/schedule_queue_test.cpp)
+target_link_libraries(test_schedule_queue PRIVATE yaddnsc_prod_all glaze::glaze)
+add_sanitizer_flags(test_schedule_queue)
+
+# ============================================================================
+#  application/  —  update workflow, scheduler runner, task executor
+# ============================================================================
+
+# update_workflow — the update use case against port mocks
+add_unit_test(update_workflow SOURCE application/update_workflow_test.cpp)
+target_link_libraries(test_update_workflow PRIVATE yaddnsc_prod_all GTest::gmock glaze::glaze)
+add_sanitizer_flags(test_update_workflow)
+
+# scheduler_runner — the scheduling loop over FakeClock + recording executor
+add_unit_test(scheduler_runner SOURCE application/scheduler_runner_test.cpp)
+target_link_libraries(test_scheduler_runner PRIVATE yaddnsc_prod_all GTest::gmock glaze::glaze)
+add_sanitizer_flags(test_scheduler_runner)
+
+# pool_task_executor — pool-backed executor: drain, reject-after-shutdown,
+# same-module concurrency
+add_unit_test(pool_task_executor SOURCE application/pool_task_executor_test.cpp)
+target_link_libraries(test_pool_task_executor PRIVATE yaddnsc_prod_all GTest::gmock glaze::glaze)
+add_sanitizer_flags(test_pool_task_executor)
+
 # ============================================================================
 #  config/  —  configuration parsing, types, and validation
 # ============================================================================
@@ -82,12 +110,8 @@ add_unit_test(config_loader SOURCE config/config_loader_test.cpp
     ${PROJECT_SOURCE_DIR}/src/config/config.cpp)
 
 # ============================================================================
-#  core/  —  scheduler (pure timer queue), updater workflow, driver gateway
+#  core/  —  signal watcher, driver loading, driver gateway
 # ============================================================================
-
-add_unit_test(scheduler SOURCE core/scheduler_test.cpp
-    ${PROJECT_SOURCE_DIR}/src/core/scheduler.cpp
-    ${PROJECT_SOURCE_DIR}/src/config/normalizer.cpp)
 
 # signal_watcher — install/construct/destroy lifecycle (signals are blocked
 # process-wide by install(), so this binary only runs these tests).
@@ -131,10 +155,8 @@ target_link_libraries(test_driver_loader PRIVATE ${CMAKE_DL_LIBS})
 # simple.so must be built before the test runs (dlopen dependency).
 add_dependencies(test_driver_loader simple yaddnsc_bad_driver_fixture yaddnsc_null_driver_fixture)
 
-# updater — the update workflow against port mocks (Phase 2 port rewrite)
-add_unit_test(updater SOURCE core/updater_test.cpp)
-target_link_libraries(test_updater PRIVATE yaddnsc_prod_all GTest::gmock glaze::glaze)
-add_sanitizer_flags(test_updater)
+# updater — moved to application/update_workflow in Phase 3 (see
+# application/update_workflow_test.cpp).
 
 # cpp_driver_gateway — DriverGateway contract over the in-process C++ drivers
 add_unit_test(cpp_driver_gateway SOURCE core/cpp_driver_gateway_test.cpp)

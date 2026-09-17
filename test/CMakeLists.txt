@@ -142,7 +142,7 @@ target_link_libraries(yaddnsc_test_config INTERFACE
 # ---------------------------------------------------------------------------
 add_library(yaddnsc_prod_all INTERFACE)
 foreach(objlib
-        yaddnsc_config yaddnsc_core yaddnsc_network yaddnsc_net_transport
+        yaddnsc_config yaddnsc_domain yaddnsc_application yaddnsc_core yaddnsc_network yaddnsc_net_transport
         yaddnsc_http_client yaddnsc_cli yaddnsc_dns yaddnsc_ip_source yaddnsc_util)
     target_sources(yaddnsc_prod_all INTERFACE $<TARGET_OBJECTS:${objlib}>)
 endforeach()

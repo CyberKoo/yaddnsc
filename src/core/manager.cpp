@@ -9,6 +9,7 @@
 #include <utility>
 
 #include "domain/config/runtime_config.h"
+#include "domain/update/schedule_queue.h"
 #include "config/validator.hpp"
 #include "dns/dispatcher.h"
 #include "dns/factory.h"
@@ -19,15 +20,16 @@
 #include "util/cancellation_token.hpp"
 #include "version.h"
 
+#include "application/pool_task_executor.h"
+#include "application/scheduler_runner.h"
+#include "application/update_workflow.h"
+
 #include "driver_loader.h"
 #include "driver_manager.h"
-#include "scheduler.h"
 #include "spdlog_logger.h"
-#include "updater.h"
-#include "update_task.hpp"
+#include "steady_clock.h"
 
-#include <BS_thread_pool.hpp>
-#include <spdlog/spdlog.h>
+#include "fmt.hpp"
 
 namespace {
     std::uint32_t estimate_pool_size(const domain::RuntimeConfig &config) noexcept {
@@ -61,7 +63,10 @@ namespace {
 } // anonymous namespace
 
 // ---------------------------------------------------------------------------
-// Manager::Impl — orchestrates the lifecycle of all subsystem components.
+// Manager::Impl — composition root (Phase 3 shell): owns every component and
+// drives the explicit shutdown sequence; the update policy itself lives in
+// the domain/application components (ScheduleQueue, SchedulerRunner,
+// UpdateWorkflow, TaskExecutor).
 // ---------------------------------------------------------------------------
 
 struct Manager::Impl {
@@ -80,8 +85,10 @@ struct Manager::Impl {
     // config_ is declared first because it's needed by dispatcher_'s constructor.
     // cancel_src_ is declared before every token consumer (the IP source
     // adapter, the HTTP client factory inside driver_gateway_) so it outlives
-    // them all. thread_pool_ is declared after updater_ so the pool drains
-    // before the workflow and its ports are destroyed.
+    // them all. task_executor_ is declared after the components its tasks
+    // reference (workflow_, and transitively the ports) so its destructor
+    // drains the pool before any of them — and long before driver_manager_
+    // unloads the modules — can be destroyed.
     std::shared_ptr<const domain::RuntimeConfig> config_;
     std::shared_ptr<Utils::CancellationSource> cancel_src_;
     SpdlogLogger logger_;
@@ -89,9 +96,11 @@ struct Manager::Impl {
     ResolverDispatcher dispatcher_;
     IpSourceAdapter ip_source_;
     CppDriverGateway driver_gateway_;
-    Updater updater_;
-    BS::thread_pool<> thread_pool_;
-    Scheduler scheduler_;
+    UpdateWorkflow workflow_;
+    SteadyClock clock_;
+    domain::ScheduleQueue schedule_queue_;
+    PoolTaskExecutor task_executor_;
+    SchedulerRunner scheduler_runner_;
     std::stop_source stop_source_;
     std::unique_ptr<std::stop_callback<std::function<void()>>> stop_cb_;
 };
@@ -101,8 +110,9 @@ Manager::Impl::Impl(domain::RuntimeConfig config, std::stop_source stop_source)
       cancel_src_(std::make_shared<Utils::CancellationSource>()),
       dispatcher_(DnsResolverFactory::create(config_->resolver, cancel_src_->token(), ResolverCatalog::with_builtins())),
       ip_source_(cancel_src_->token()), driver_gateway_(driver_manager_, make_http_client_factory(cancel_src_)),
-      updater_(dispatcher_, ip_source_, driver_gateway_, logger_),
-      thread_pool_(estimate_pool_size(*config_)), scheduler_(config_, stop_source.get_token()),
+      workflow_(dispatcher_, ip_source_, driver_gateway_, logger_), clock_(),
+      schedule_queue_(config_, clock_.now()), task_executor_(estimate_pool_size(*config_), workflow_),
+      scheduler_runner_(schedule_queue_, clock_, task_executor_, stop_source.get_token(), logger_),
       stop_source_(std::move(stop_source)) {
     stop_cb_ = std::make_unique<std::stop_callback<std::function<void()>>>(
         stop_source_.get_token(), [src = cancel_src_] { src->trigger(); });
@@ -113,8 +123,9 @@ Manager::Impl::Impl(domain::RuntimeConfig config, std::stop_source stop_source, 
     : config_(std::make_shared<const domain::RuntimeConfig>(std::move(config))),
       cancel_src_(std::make_shared<Utils::CancellationSource>()), dispatcher_(std::move(dispatcher)),
       ip_source_(cancel_src_->token()), driver_gateway_(driver_manager_, std::move(http_factory)),
-      updater_(dispatcher_, ip_source_, driver_gateway_, logger_),
-      thread_pool_(estimate_pool_size(*config_)), scheduler_(config_, stop_source.get_token()),
+      workflow_(dispatcher_, ip_source_, driver_gateway_, logger_), clock_(),
+      schedule_queue_(config_, clock_.now()), task_executor_(estimate_pool_size(*config_), workflow_),
+      scheduler_runner_(schedule_queue_, clock_, task_executor_, stop_source.get_token(), logger_),
       stop_source_(std::move(stop_source)) {
     stop_cb_ = std::make_unique<std::stop_callback<std::function<void()>>>(
         stop_source_.get_token(), [src = cancel_src_] { src->trigger(); });
@@ -132,25 +143,21 @@ void Manager::Impl::validate_config() const {
 
 void Manager::Impl::run() {
     const auto interfaces = InterfaceUtil::get_interfaces();
-    SPDLOG_INFO("All available interfaces: {}", fmt::join(interfaces, ", "));
+    YLOG_INFO(logger_, "All available interfaces: {}", fmt::join(interfaces, ", "));
 
-    while (!stop_source_.stop_requested()) {
-        auto tasks = scheduler_.pop_all_due();
-
-        for (auto &task: tasks) {
-            // Driver resolution now happens inside the gateway, on the worker
-            // thread; a missing driver surfaces as DriverError::NOT_FOUND and
-            // is logged by the Updater with the legacy wording.
-            thread_pool_.detach_task([this, t = std::move(task)] { updater_.process(t); });
-        }
-
-        if (!scheduler_.wait_for_next()) {
-            break;
-        }
-    }
-
-    thread_pool_.wait();
-    SPDLOG_INFO("All tasks drained, shutting down");
+    // Explicit shutdown sequence (refactor/phase-3-scheduling-and-workflow.md
+    // §3.6), not just member declaration order:
+    //   1. stop is requested through stop_source_ (e.g. by SignalWatcher);
+    //   2. the runner stops popping new tasks and returns;
+    scheduler_runner_.run();
+    //   3. the executor stops accepting new tasks;
+    task_executor_.shutdown();
+    //   4. I/O cancellation fires via stop_cb_ (stop → CancellationSource),
+    //      aborting in-flight blocking I/O;
+    //   5. in-flight updates drain before any driver instance may be
+    //      destroyed or module unloaded.
+    task_executor_.wait_idle();
+    YLOG_INFO(logger_, "All tasks drained, shutting down");
 }
 
 // ---------------------------------------------------------------------------

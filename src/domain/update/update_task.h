@@ -1,9 +1,9 @@
 //
-// Created by Kotarou on 2026/6/18.
+// Created by Kotarou on 2026/9/17.
 //
 
-#ifndef YADDNSC_CORE_UPDATE_TASK_HPP
-#define YADDNSC_CORE_UPDATE_TASK_HPP
+#ifndef YADDNSC_DOMAIN_UPDATE_UPDATE_TASK_H
+#define YADDNSC_DOMAIN_UPDATE_UPDATE_TASK_H
 
 #include <cstddef>
 #include <memory>
@@ -12,22 +12,24 @@
 
 #include "domain/config/runtime_config.h"
 
+namespace domain {
+
 /// UpdateTask — a self-contained value type describing one DNS record update
-///              that the Updater should carry out.
+///              that the update workflow should carry out.
 ///
 /// The task shares the runtime configuration via `shared_ptr` and
 /// references the target domain/subdomain by index, so copying a task (which
-/// happens on every scheduler pop) is cheap: no per-task copy of the config,
+/// happens on every schedule pop) is cheap: no per-task copy of the config,
 /// including its JSON driver parameters.
 struct UpdateTask {
-    std::shared_ptr<const domain::RuntimeConfig> config;  ///< Shared runtime configuration
-    std::size_t domain_index{};                        ///< Index into config->domains
-    std::size_t subdomain_index{};                     ///< Index into domains[domain_index].subdomains
-    std::string fqdn;                                  ///< Fully qualified domain name
-    bool force_update{false};                          ///< Skip IP-change check; always send update
+    std::shared_ptr<const RuntimeConfig> config;  ///< Shared runtime configuration
+    std::size_t domain_index{};                   ///< Index into config->domains
+    std::size_t subdomain_index{};                ///< Index into domains[domain_index].subdomains
+    std::string fqdn;                             ///< Fully qualified domain name
+    bool force_update{false};                     ///< Skip IP-change check; always send update
 
     /// The subdomain configuration this task updates.
-    [[nodiscard]] const domain::SubdomainConfig &subdomain_config() const {
+    [[nodiscard]] const SubdomainConfig &subdomain_config() const {
         return config->domains[domain_index].subdomains[subdomain_index];
     }
 
@@ -42,4 +44,6 @@ struct UpdateTask {
     }
 };
 
-#endif //YADDNSC_CORE_UPDATE_TASK_HPP
+} // namespace domain
+
+#endif // YADDNSC_DOMAIN_UPDATE_UPDATE_TASK_H
