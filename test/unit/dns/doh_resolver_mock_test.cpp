@@ -90,7 +90,7 @@ public:
 class MockHttpPipe {
 public:
     MockHttpPipe(MockStream &mock, const int status, const std::vector<std::uint8_t> &body)
-        : status_(status), body_(body) {
+        : body_(body) {
         const auto headers = make_http_headers(status, status == 200 ? "OK" : "Error", body.size());
         script_.insert(script_.end(), headers.begin(), headers.end());
 
@@ -130,7 +130,6 @@ public:
     }
 
 private:
-    int status_;
     std::vector<std::uint8_t> body_;
     bool body_appended_ = false;
     std::vector<std::uint8_t> script_;

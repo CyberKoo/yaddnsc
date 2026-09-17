@@ -36,7 +36,7 @@ Result SimpleDriver::update(UpdateContext &context) {
     auto request = generate_request(params);
 
     return run_update(context, DRIVER_NAME, request,
-                      [this](const HttpResponse &response, const Services &services) {
+                      [](const HttpResponse &response, const Services &services) {
                           return check_response(response, services);
                       });
 }

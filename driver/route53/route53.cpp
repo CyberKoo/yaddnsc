@@ -155,7 +155,7 @@ Result Route53Driver::update(UpdateContext &context) {
     request.headers.push_back({"Authorization", std::move(authorization)});
 
     return run_update(context, DRIVER_NAME, request,
-                      [this](const HttpResponse &response, const Services &services) {
+                      [](const HttpResponse &response, const Services &services) {
                           return check_response(response, services);
                       });
 }

@@ -600,11 +600,16 @@ TEST_F(ClassicNativeResolverTest, UdpResponseFromUnexpectedSource_IsDiscarded) {
         }
 
         auto spoof_pkt = build_a_response(client_query, "1.2.3.4");
-        spoof_sock->send_to(std::as_bytes(std::span{spoof_pkt}), client_addr);
+        if (spoof_sock->send_to(std::as_bytes(std::span{spoof_pkt}), client_addr) < 0) {
+            // Best effort: without the forged packet the genuine response
+            // below still exercises the resolver path.
+        }
 
         // Genuine response from the real server socket.
         auto real_pkt = build_a_response(client_query, "198.51.100.42");
-        server_sock.send_to(std::as_bytes(std::span{real_pkt}), client_addr);
+        if (server_sock.send_to(std::as_bytes(std::span{real_pkt}), client_addr) < 0) {
+            return; // genuine response lost — the resolver will time out
+        }
     });
 
     auto result = resolver.query("spoof-test.example", RecordKind::A);
