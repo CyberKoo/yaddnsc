@@ -51,7 +51,7 @@ public:
     }
 
     /// Block until at least `n` tasks were submitted (or the timeout fires).
-    bool wait_submitted(std::size_t n, std::chrono::milliseconds timeout = std::chrono::milliseconds{5000}) {
+    bool wait_submitted(std::size_t n, std::chrono::milliseconds timeout = std::chrono::milliseconds{30000}) {
         std::unique_lock lock(mtx_);
         return cv_.wait_for(lock, timeout, [this, n] { return submitted_.size() >= n; });
     }

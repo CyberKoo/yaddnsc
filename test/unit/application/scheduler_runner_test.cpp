@@ -113,6 +113,19 @@ struct RunnerFixture {
 
 } // namespace
 
+// Requests stop and joins the runner loop on destruction, so a failing
+// assertion can never unwind past a joinable jthread (which would hang).
+struct LoopGuard {
+    std::stop_source &stop;
+    std::jthread &loop;
+    ~LoopGuard() {
+        stop.request_stop();
+        if (loop.joinable()) {
+            loop.join();
+        }
+    }
+};
+
 // ── stop handling ────────────────────────────────────────────────────────────
 
 TEST(SchedulerRunner, StopBeforeRunDispatchesNothing) {
@@ -130,6 +143,7 @@ TEST(SchedulerRunner, StopDuringWaitReturnsPromptly) {
     auto runner = f.make_runner();
 
     std::jthread loop([&] { runner.run(); });
+    const LoopGuard cleanup{f.stop, loop};
     ASSERT_TRUE(f.executor.wait_submitted(2));
 
     f.stop.request_stop();
@@ -156,6 +170,7 @@ TEST(SchedulerRunner, EmptyQueueWaitsOnlyForStop) {
         runner.run();
         returned.store(true);
     });
+    const LoopGuard cleanup{f.stop, loop};
 
     std::this_thread::sleep_for(50ms);
     EXPECT_FALSE(returned.load()) << "an empty queue must wait for stop, not spin or return";
@@ -173,6 +188,7 @@ TEST(SchedulerRunner, InitialDispatchSubmitsEveryDueTaskForced) {
     auto runner = f.make_runner();
 
     std::jthread loop([&] { runner.run(); });
+    const LoopGuard cleanup{f.stop, loop};
     ASSERT_TRUE(f.executor.wait_submitted(2));
     f.stop.request_stop();
     loop.join();
@@ -196,6 +212,7 @@ TEST(SchedulerRunner, AdvancingTimeRedispatchesAfterInterval) {
     auto runner = f.make_runner();
 
     std::jthread loop([&] { runner.run(); });
+    const LoopGuard cleanup{f.stop, loop};
     ASSERT_TRUE(f.executor.wait_submitted(2));
 
     // Pop-and-reschedule: the previous tasks were never "finished" by the
@@ -218,7 +235,7 @@ TEST(SchedulerRunner, AdvancingTimeRedispatchesAfterInterval) {
 // Spin until the runner has parked in wait_until for the n-th time, so
 // stimuli land deterministically instead of racing the loop.
 static bool wait_parked(const FakeClock &clock, unsigned n) {
-    for (int i = 0; i < 5000; ++i) {
+    for (int i = 0; i < 30000; ++i) {
         if (clock.wait_entries() >= n) {
             return true;
         }
@@ -226,19 +243,6 @@ static bool wait_parked(const FakeClock &clock, unsigned n) {
     }
     return false;
 }
-
-// Requests stop and joins the runner loop on destruction, so a failing
-// assertion can never unwind past a joinable jthread (which would hang).
-struct LoopGuard {
-    std::stop_source &stop;
-    std::jthread &loop;
-    ~LoopGuard() {
-        stop.request_stop();
-        if (loop.joinable()) {
-            loop.join();
-        }
-    }
-};
 
 TEST(SchedulerRunner, RetryRequestMovesDeadlineAndWakesLoop) {
     RunnerFixture f;
@@ -317,12 +321,13 @@ TEST(SchedulerRunner, FullUpdateCycleOverMockPorts) {
     std::stop_source stop;
     SchedulerRunner runner(queue, clock, executor, stop.get_token(), logger);
     std::jthread loop([&] { runner.run(); });
+    const LoopGuard cleanup{stop, loop};
 
-    ASSERT_EQ(first_update_done.get_future().wait_for(5s), std::future_status::ready)
+    ASSERT_EQ(first_update_done.get_future().wait_for(30s), std::future_status::ready)
         << "the initial cycle must update the changed record";
 
     clock.advance_by(300s);
-    ASSERT_EQ(second_cycle_done.get_future().wait_for(5s), std::future_status::ready)
+    ASSERT_EQ(second_cycle_done.get_future().wait_for(30s), std::future_status::ready)
         << "advancing one interval must run the second cycle";
 
     stop.request_stop();

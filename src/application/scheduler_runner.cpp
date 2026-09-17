@@ -36,10 +36,14 @@ void SchedulerRunner::run() {
             executor_.submit(std::move(task));
         }
 
-        const auto next = queue_.time_until_next(clock_.now());
+        // Read the clock once: with two reads a concurrent time jump (a fake
+        // clock advanced from another thread) could land between them and push
+        // the deadline past the very next due entry, parking the loop forever.
+        const auto now = clock_.now();
+        const auto next = queue_.time_until_next(now);
         // An empty queue waits only for stop — same as the legacy scheduler's
         // empty-heap wait.
-        const auto deadline = next ? clock_.now() + *next : domain::TimePoint::max();
+        const auto deadline = next ? now + *next : domain::TimePoint::max();
         if (!clock_.wait_until(deadline, stop_)) {
             break;
         }

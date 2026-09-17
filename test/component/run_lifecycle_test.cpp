@@ -68,6 +68,19 @@ using namespace std::chrono_literals;
 using ::testing::_;
 using ::testing::Return;
 
+// Requests stop and joins the runner thread on destruction, so a failing
+// assertion can never unwind past a joinable jthread (which would hang).
+struct RunnerGuard {
+    std::stop_source &stop;
+    std::jthread &runner;
+    ~RunnerGuard() {
+        stop.request_stop();
+        if (runner.joinable()) {
+            runner.join();
+        }
+    }
+};
+
 // ── Fake DNS: one A record (192.0.2.1) for any query ─────────────────────────
 
 class FixedAResolver : public MockResolver {
@@ -259,6 +272,7 @@ TEST(RunLifecycle, StopDrainsInFlightTaskBeforeReturning) {
         lifecycle.run();
         run_done.set_value();
     });
+    const RunnerGuard guard{stop_source, runner};
 
     // First task dispatched immediately (initial deadline == now) and parked.
     state->wait_entered();
@@ -309,6 +323,7 @@ TEST(RunLifecycle, StopBeforeRunDispatchesNothing) {
         lifecycle.run();
         run_done.set_value();
     });
+    const RunnerGuard guard{stop_source, runner};
 
     ASSERT_EQ(run_future.wait_for(10s), std::future_status::ready) << "run() blocked despite a pre-requested stop";
     EXPECT_EQ(state->calls.load(), 0);
@@ -335,6 +350,7 @@ TEST(RunLifecycle, StopCancelsIoAndDrainsExecutor) {
         lifecycle.run();
         run_done.set_value();
     });
+    const RunnerGuard guard{stop_source, runner};
 
     // Initial deadline == now: the first task is dispatched immediately, then
     // the runner parks on the fake clock one hour out.
@@ -396,6 +412,7 @@ TEST(RunLifecycle, RateLimitedTaskIsRescheduledAtRetryDeadline) {
         lifecycle.run();
         run_done.set_value();
     });
+    const RunnerGuard guard{stop_source, runner};
 
     // Initial deadline == now: the first task is dispatched immediately, then
     // the runner parks one hour out.
