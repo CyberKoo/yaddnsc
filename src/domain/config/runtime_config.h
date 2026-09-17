@@ -30,9 +30,9 @@ namespace domain {
 
 /// Driver loading settings (normalised view of the raw "driver" section).
 struct DriverSettings {
-    std::optional<std::filesystem::path> driver_dir; ///< Custom driver directory
+    std::optional<std::filesystem::path> driver_dir{}; ///< Custom driver directory
     bool auto_discover{false};                       ///< Discover all .so files in the directory
-    std::vector<std::string> load;                   ///< Explicit driver names/paths to load
+    std::vector<std::string> load{};                 ///< Explicit driver names/paths to load
 };
 
 /// DNS resolver settings with legacy fields already folded in.
@@ -40,38 +40,38 @@ struct DriverSettings {
 /// default server stays in the infrastructure factory (it is build-configured
 /// and logged at startup).
 struct ResolverSettings {
-    std::vector<Config::DnsServer> servers;                       ///< Normalised server list
+    std::vector<Config::DnsServer> servers{};                     ///< Normalised server list
     Config::ResolverStrategy strategy{Config::ResolverStrategy::CONCURRENT}; ///< Resolution strategy
 };
 
 /// Per-subdomain runtime configuration.
 struct SubdomainConfig {
-    std::string name;                    ///< Subdomain label (e.g. "www", "@" for apex)
+    std::string name{};                    ///< Subdomain label (e.g. "www", "@" for apex)
     RecordKind type{};                   ///< DNS record type to update
-    std::string interface;               ///< Network interface name (INTERFACE source / HTTP bind)
+    std::string interface{};               ///< Network interface name (INTERFACE source / HTTP bind)
     AddressFamily ip_type{AddressFamily::UNSPECIFIED}; ///< Preferred address family
     Config::IpSource ip_source{};        ///< IP source backend
-    std::string ip_source_param;         ///< IP source parameter (URL, mDNS hostname, ...)
+    std::string ip_source_param{};         ///< IP source parameter (URL, mDNS hostname, ...)
     bool allow_ula{false};               ///< Allow ULA (fc00::/7) for AAAA
     bool allow_local_link{false};        ///< Allow link-local (fe80::/10) for AAAA
     int update_interval{};               ///< EFFECTIVE interval (subdomain override or domain value)
-    std::string driver_param;            ///< Opaque JSON text for the driver (fields/values preserved)
+    std::string driver_param{};            ///< Opaque JSON text for the driver (fields/values preserved)
 };
 
 /// Per-domain runtime configuration.
 struct DomainConfig {
-    std::string name;                          ///< Domain name (e.g. "example.com")
+    std::string name{};                          ///< Domain name (e.g. "example.com")
     int update_interval{};                     ///< Domain-level update interval (seconds)
     int force_update{};                        ///< Force-update interval in seconds (0 = disabled)
-    std::string driver;                        ///< Name of the driver plugin to use
-    std::vector<SubdomainConfig> subdomains;   ///< Subdomains to update
+    std::string driver{};                        ///< Name of the driver plugin to use
+    std::vector<SubdomainConfig> subdomains{};   ///< Subdomains to update
 };
 
 /// Top-level runtime configuration.
 struct RuntimeConfig {
-    DriverSettings driver;               ///< Driver loading settings
-    ResolverSettings resolver;           ///< DNS resolver settings
-    std::vector<DomainConfig> domains;   ///< Domains to manage
+    DriverSettings driver{};               ///< Driver loading settings
+    ResolverSettings resolver{};           ///< DNS resolver settings
+    std::vector<DomainConfig> domains{};   ///< Domains to manage
 };
 
 } // namespace domain

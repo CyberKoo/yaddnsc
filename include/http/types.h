@@ -39,9 +39,9 @@ enum class Method {
 /// Use set_body() to attach text or binary payloads explicitly.
 struct Request {
     Method method;
-    std::multimap<std::string, std::string> headers;
-    std::optional<std::string> body;
-    std::string content_type;
+    std::multimap<std::string, std::string> headers{};
+    std::optional<std::string> body{};
+    std::string content_type{};
 
     /// Attach a text body (e.g. JSON, form-encoded data).
     void set_body(const std::string_view text) {
@@ -106,12 +106,12 @@ struct Options {
     HttpVersion version{HttpVersion::V1_1};
     /// Allow the connection to be reused when the peer also permits it.
     bool keep_alive{true};
-    Transport::Options transport;
-    Transport::TlsOptions tls;
-    std::string user_agent;
+    Transport::Options transport{};
+    Transport::TlsOptions tls{};
+    std::string user_agent{};
     bool follow_redirects{true};
     int max_redirects{10};
-    Limits limits;
+    Limits limits{};
 };
 
 }  // namespace net::http

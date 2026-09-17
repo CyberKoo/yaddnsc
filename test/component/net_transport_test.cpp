@@ -351,7 +351,7 @@ TEST_F(TcpStreamTest, ReadSome_ReturnsAvailableBytes) {
     auto n = stream.read_some(buf);
     ASSERT_TRUE(n);
     EXPECT_EQ(*n, 5);
-    EXPECT_EQ(str(std::vector<std::uint8_t>(buf.begin(), buf.begin() + *n)), "hello");
+    EXPECT_EQ(str(std::vector<std::uint8_t>(buf.begin(), buf.begin() + static_cast<std::ptrdiff_t>(*n))), "hello");
 }
 
 TEST_F(TcpStreamTest, ConnectionRefused_ReturnsConnectionFailed) {

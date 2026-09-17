@@ -70,85 +70,93 @@ set(CMAKE_EXE_LINKER_FLAGS_SANITIZER    "${CMAKE_EXE_LINKER_FLAGS_SANITIZER}"   
 set(CMAKE_SHARED_LINKER_FLAGS_SANITIZER "" CACHE STRING "" FORCE)
 
 # ==============================================================================
+# yaddnsc_sanitizers — sanitizer flags as a linkable interface target
+# ==============================================================================
+# Carries compile and link sanitizer flags based on build configuration
+# (Debug / Sanitizer) and the configure-time feature detection above.
+# Link it through add_sanitizer_flags(<target>).
+# ==============================================================================
+
+add_library(yaddnsc_sanitizers INTERFACE)
+
+# ------------------------------------------------------------------------
+# Debug builds: address + undefined only (guidelines).
+# This is the fast, low-false-positive combination used during development.
+# Gated by YADDNSC_SANITIZE_DEBUG so coverage builds can opt out.
+# NOTE: YADDNSC_SANITIZE_DEBUG must be defined before this file is included.
+# ------------------------------------------------------------------------
+if(YADDNSC_SANITIZE_DEBUG)
+  target_compile_options(yaddnsc_sanitizers INTERFACE
+    $<$<CONFIG:Debug>:-fsanitize=address,undefined>
+  )
+  target_link_options(yaddnsc_sanitizers INTERFACE
+    $<$<CONFIG:Debug>:-fsanitize=address,undefined>
+  )
+endif()
+
+# ------------------------------------------------------------------------
+# Sanitizer build type (CI): full combination.
+# address,undefined plus integer,bounds,null,alignment and the aggressive
+# use-after-return / use-after-scope modes. This is extremely expensive and
+# triggers many false positives against STL internals, so it runs only as a
+# dedicated CI sanitizer job (e.g. -DCMAKE_BUILD_TYPE=Sanitizer) for periodic
+# deep testing — never on developer Debug builds.
+# ------------------------------------------------------------------------
+target_compile_options(yaddnsc_sanitizers INTERFACE
+  $<$<CONFIG:Sanitizer>:-fsanitize=address,undefined>
+  $<$<CONFIG:Sanitizer>:-fsanitize-address-use-after-scope>
+)
+target_link_options(yaddnsc_sanitizers INTERFACE
+  $<$<CONFIG:Sanitizer>:-fsanitize=address,undefined>
+)
+
+# Compile options: Clang-only flags (bounds, null, alignment) — feature-detected,
+# Sanitizer build type only.
+foreach(san bounds null alignment)
+  if(HAVE_SANITIZE_${san})
+    target_compile_options(yaddnsc_sanitizers INTERFACE
+      $<$<CONFIG:Sanitizer>:-fsanitize=${san}>
+    )
+  endif()
+endforeach()
+
+# Compile options: integer (may be unsupported), Sanitizer build type only.
+if(HAVE_SANITIZE_INTEGER)
+  target_compile_options(yaddnsc_sanitizers INTERFACE
+    $<$<CONFIG:Sanitizer>:-fsanitize=integer>
+  )
+endif()
+
+# Compile options: use-after-return (may be unsupported), Sanitizer build type only.
+if(HAVE_ASAN_USE_AFTER_RETURN)
+  target_compile_options(yaddnsc_sanitizers INTERFACE
+    $<$<CONFIG:Sanitizer>:-fsanitize-address-use-after-return=always>
+  )
+endif()
+
+# Linker options: Clang-only flags (bounds, null, alignment) — feature-detected,
+# Sanitizer build type only.
+foreach(san bounds null alignment)
+  if(HAVE_SANITIZE_${san})
+    target_link_options(yaddnsc_sanitizers INTERFACE
+      $<$<CONFIG:Sanitizer>:-fsanitize=${san}>
+    )
+  endif()
+endforeach()
+
+# Linker options: integer (only if the compiler supports it), Sanitizer build type only.
+if(HAVE_SANITIZE_INTEGER)
+  target_link_options(yaddnsc_sanitizers INTERFACE
+    $<$<CONFIG:Sanitizer>:-fsanitize=integer>
+  )
+endif()
+
+# ==============================================================================
 # add_sanitizer_flags — apply sanitizer flags to a target
 # ==============================================================================
 # Usage: add_sanitizer_flags(yaddnsc)
-#
-# Applies compile and link sanitizer flags to the given target based on
-# build configuration (Debug / Sanitizer) and configure-time feature
-# detection.  Debug sanitizers are gated by the YADDNSC_SANITIZE_DEBUG
-# option so coverage builds can opt out.
 # ==============================================================================
 
 function(add_sanitizer_flags TARGET)
-  # ------------------------------------------------------------------------
-  # Debug builds: address + undefined only (guidelines).
-  # This is the fast, low-false-positive combination used during development.
-  # Gated by YADDNSC_SANITIZE_DEBUG so coverage builds can opt out.
-  # ------------------------------------------------------------------------
-  if(YADDNSC_SANITIZE_DEBUG)
-    target_compile_options(${TARGET} PRIVATE
-      $<$<CONFIG:Debug>:-fsanitize=address,undefined>
-    )
-    target_link_options(${TARGET} PRIVATE
-      $<$<CONFIG:Debug>:-fsanitize=address,undefined>
-    )
-  endif()
-
-  # ------------------------------------------------------------------------
-  # Sanitizer build type (CI): full combination.
-  # address,undefined plus integer,bounds,null,alignment and the aggressive
-  # use-after-return / use-after-scope modes. This is extremely expensive and
-  # triggers many false positives against STL internals, so it runs only as a
-  # dedicated CI sanitizer job (e.g. -DCMAKE_BUILD_TYPE=Sanitizer) for periodic
-  # deep testing — never on developer Debug builds.
-  # ------------------------------------------------------------------------
-  target_compile_options(${TARGET} PRIVATE
-    $<$<CONFIG:Sanitizer>:-fsanitize=address,undefined>
-    $<$<CONFIG:Sanitizer>:-fsanitize-address-use-after-scope>
-  )
-  target_link_options(${TARGET} PRIVATE
-    $<$<CONFIG:Sanitizer>:-fsanitize=address,undefined>
-  )
-
-  # Compile options: Clang-only flags (bounds, null, alignment) — feature-detected,
-  # Sanitizer build type only.
-  foreach(san bounds null alignment)
-    if(HAVE_SANITIZE_${san})
-      target_compile_options(${TARGET} PRIVATE
-        $<$<CONFIG:Sanitizer>:-fsanitize=${san}>
-      )
-    endif()
-  endforeach()
-
-  # Compile options: integer (may be unsupported), Sanitizer build type only.
-  if(HAVE_SANITIZE_INTEGER)
-    target_compile_options(${TARGET} PRIVATE
-      $<$<CONFIG:Sanitizer>:-fsanitize=integer>
-    )
-  endif()
-
-  # Compile options: use-after-return (may be unsupported), Sanitizer build type only.
-  if(HAVE_ASAN_USE_AFTER_RETURN)
-    target_compile_options(${TARGET} PRIVATE
-      $<$<CONFIG:Sanitizer>:-fsanitize-address-use-after-return=always>
-    )
-  endif()
-
-  # Linker options: Clang-only flags (bounds, null, alignment) — feature-detected,
-  # Sanitizer build type only.
-  foreach(san bounds null alignment)
-    if(HAVE_SANITIZE_${san})
-      target_link_options(${TARGET} PRIVATE
-        $<$<CONFIG:Sanitizer>:-fsanitize=${san}>
-      )
-    endif()
-  endforeach()
-
-  # Linker options: integer (only if the compiler supports it), Sanitizer build type only.
-  if(HAVE_SANITIZE_INTEGER)
-    target_link_options(${TARGET} PRIVATE
-      $<$<CONFIG:Sanitizer>:-fsanitize=integer>
-    )
-  endif()
+  target_link_libraries(${TARGET} PRIVATE yaddnsc_sanitizers)
 endfunction()

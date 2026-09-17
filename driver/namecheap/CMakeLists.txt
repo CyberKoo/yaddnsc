@@ -6,5 +6,5 @@ if(NOT LibXml2_FOUND)
 endif()
 
 add_library(namecheap MODULE namecheap.cpp)
-target_link_libraries(namecheap PRIVATE yaddnsc_sdk LibXml2::LibXml2)
+target_link_libraries(namecheap PRIVATE yaddnsc_plugin_sdk LibXml2::LibXml2)
 message(STATUS "libxml2 found — building namecheap driver")

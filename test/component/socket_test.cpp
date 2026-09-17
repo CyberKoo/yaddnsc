@@ -482,12 +482,16 @@ TEST(SocketTest, SendMsgAndRecvMsg) {
 
     std::array<char, 2> first{'o', 'k'};
     iovec send_iov{.iov_base = first.data(), .iov_len = first.size()};
-    msghdr send_msg{.msg_iov = &send_iov, .msg_iovlen = 1};
+    msghdr send_msg{};
+    send_msg.msg_iov = &send_iov;
+    send_msg.msg_iovlen = 1;
     ASSERT_EQ(client.sendmsg(&send_msg, 0), 2);
 
     std::array<char, 2> received{};
     iovec recv_iov{.iov_base = received.data(), .iov_len = received.size()};
-    msghdr recv_msg{.msg_iov = &recv_iov, .msg_iovlen = 1};
+    msghdr recv_msg{};
+    recv_msg.msg_iov = &recv_iov;
+    recv_msg.msg_iovlen = 1;
     ASSERT_EQ(accepted.recvmsg(&recv_msg, 0), 2);
     EXPECT_EQ(std::string_view(received.data(), received.size()), "ok");
 }
@@ -538,7 +542,10 @@ TEST(SocketTest, CreateSocket_InvalidProtocol_Throws) {
 TEST(SocketTest, SelfMoveAssignment_IsNoOp) { // NOLINT(bugprone-use-after-move)
     Socket sock(AF_INET, SOCK_STREAM);
     const int fd = sock.native_handle();
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wself-move"
     sock = std::move(sock);  // NOLINT: intentional self-move — must be a no-op
+#pragma GCC diagnostic pop
     EXPECT_EQ(sock.native_handle(), fd);
     EXPECT_FALSE(sock.is_closed());
 }
@@ -605,12 +612,12 @@ TEST(SocketTest, Bind_OnClosedSocket_ReturnsError) {
 TEST(SocketTest, GetSockname_OnClosedSocket_Throws) {
     Socket sock(AF_INET, SOCK_STREAM);
     sock.close();
-    EXPECT_THROW(sock.get_sockname(), SocketException);
+    EXPECT_THROW((void)sock.get_sockname(), SocketException);
 }
 
 TEST(SocketTest, GetPeername_Unconnected_Throws) {
     Socket sock(AF_INET, SOCK_STREAM);
-    EXPECT_THROW(sock.get_peername(), SocketException);  // ENOTCONN
+    EXPECT_THROW((void)sock.get_peername(), SocketException);  // ENOTCONN
 }
 
 TEST(SocketTest, BlockingConnect_Refused) {

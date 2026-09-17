@@ -5,9 +5,6 @@
 # them through their C entry points with FakeHostServices (abi_test_harness.h).
 # ==============================================================================
 
-# Signing implementation needed by signing-enabled drivers (Route53, AlibabaCloud)
-set(SIGNING_SRC ${PROJECT_SOURCE_DIR}/plugin_crypto/signing.cpp)
-
 # ---------------------------------------------------------------------------
 # Helper: add an ABI-style driver test target (v1 alpha plugin interface)
 #
@@ -25,7 +22,7 @@ function(add_abi_driver_test name driver_name)
         ${driver_dir}/${driver_name}.cpp
         ${ARGN}
     )
-    target_link_libraries(test_driver_${name} PRIVATE yaddnsc_sdk)
+    target_link_libraries(test_driver_${name} PRIVATE yaddnsc_plugin_sdk)
     target_include_directories(test_driver_${name} PRIVATE
         ${driver_dir}
         ${PROJECT_SOURCE_DIR}/plugin_crypto
@@ -48,8 +45,8 @@ add_abi_driver_test(vultr vultr)
 # ============================================================================
 # AlibabaCloudDriver  —  requires Signing::* implementation (+ OpenSSL)
 # ============================================================================
-add_abi_driver_test(alibaba_cloud alibaba_cloud ${SIGNING_SRC})
-target_link_libraries(test_driver_alibaba_cloud PRIVATE OpenSSL::Crypto)
+add_abi_driver_test(alibaba_cloud alibaba_cloud)
+target_link_libraries(test_driver_alibaba_cloud PRIVATE yaddnsc_plugin_crypto OpenSSL::Crypto)
 
 # ============================================================================
 # libxml2-based drivers  —  NamecheapDriver, Route53Driver
@@ -61,8 +58,8 @@ if(LibXml2_FOUND)
     target_link_libraries(test_driver_namecheap PRIVATE LibXml2::LibXml2)
 
     # Route53 — XML request body + XML response parsing + AWS SigV4 signing
-    add_abi_driver_test(route53 route53 ${SIGNING_SRC})
-    target_link_libraries(test_driver_route53 PRIVATE LibXml2::LibXml2 OpenSSL::Crypto)
+    add_abi_driver_test(route53 route53)
+    target_link_libraries(test_driver_route53 PRIVATE yaddnsc_plugin_crypto LibXml2::LibXml2 OpenSSL::Crypto)
 
     message(STATUS "libxml2 found — building namecheap and route53 driver tests")
 else()

@@ -51,6 +51,11 @@ include(FeatureCheck)
 # Propagate to the CMake variable expected by config_cmake.h.in (#cmakedefine YADDNSC_LIBC_MUSL)
 set(YADDNSC_LIBC_MUSL ${LIBC_MUSL})
 
+# Debug-mode sanitizers can be disabled by downstream CI jobs (e.g., coverage)
+# that need to combine Debug with incompatible flags like --coverage.
+# Defined before Sanitizer.cmake, which evaluates it at include time.
+option(YADDNSC_SANITIZE_DEBUG "Enable sanitizers in Debug builds" ON)
+
 include(Sanitizer)
 
 # ==============================================================================
@@ -76,10 +81,6 @@ set(YADDNSC_DEFAULT_DNS_SERVER "1.1.1.1" CACHE STRING "Default DNS server addres
 set(YADDNSC_DEFAULT_DNS_PORT 53 CACHE STRING "Default DNS server port when none is configured")
 
 option(YADDNSC_USE_SYSTEM_SPDLOG "Use spdlog from the system instead of the bundled CPM version" OFF)
-
-# Debug-mode sanitizers can be disabled by downstream CI jobs (e.g., coverage)
-# that need to combine Debug with incompatible flags like --coverage.
-option(YADDNSC_SANITIZE_DEBUG "Enable sanitizers in Debug builds" ON)
 
 if (YADDNSC_MIN_UPDATE_INTERVAL LESS 0)
   message(FATAL_ERROR "YADDNSC_MIN_UPDATE_INTERVAL must not be negative, got ${YADDNSC_MIN_UPDATE_INTERVAL}")
@@ -190,7 +191,7 @@ if (thread-pool_ADDED)
 endif ()
 
 # ==============================================================================
-# Common compile configuration (shared across all OBJECT libs + main exe)
+# Shared build configuration — three focused concerns
 # ==============================================================================
 
 # interface target: wraps fmt so consumers always get the right dep and define
@@ -203,15 +204,12 @@ if (NOT HAVE_STD_FORMAT)
   target_link_libraries(yaddnsc_fmt INTERFACE fmt::fmt)
 endif ()
 
-add_library(yaddnsc_compile_config INTERFACE)
-
-target_compile_options(yaddnsc_compile_config INTERFACE
+# ---------------------------------------------------------------------------
+# yaddnsc_warnings — strict warnings for production and test targets
+# ---------------------------------------------------------------------------
+add_library(yaddnsc_warnings INTERFACE)
+target_compile_options(yaddnsc_warnings INTERFACE
     -Wall -Wextra -Wpedantic -Wshadow -Werror
-    -fvisibility=hidden
-    $<$<AND:$<CXX_COMPILER_ID:Clang>,$<VERSION_GREATER_EQUAL:$<CXX_COMPILER_VERSION>,19>,$<VERSION_LESS:$<CXX_COMPILER_VERSION>,20>>:-fexperimental-library>
-    $<$<CONFIG:Debug>:-ggdb>
-    $<$<CONFIG:Debug>:-gdwarf-3>
-    $<$<CONFIG:Debug>:-fno-omit-frame-pointer>
     # GCC 14 with -O1 (Sanitizer build type) produces false-positive
     # -Wmaybe-uninitialized warnings in <regex> internals (std::function
     # move constructor in std::__detail::_State). -Wall enables this
@@ -226,107 +224,112 @@ target_compile_options(yaddnsc_compile_config INTERFACE
 # demote the warning for this combination only so real array-bounds bugs
 # in project code still surface as warnings.
 if (YADDNSC_USE_SYSTEM_SPDLOG AND fmt_VERSION VERSION_LESS 10)
-  target_compile_options(yaddnsc_compile_config INTERFACE -Wno-error=array-bounds)
+  target_compile_options(yaddnsc_warnings INTERFACE -Wno-error=array-bounds)
 endif ()
 
-target_include_directories(yaddnsc_compile_config INTERFACE
-    ${PROJECT_SOURCE_DIR}/include
-    ${PROJECT_SOURCE_DIR}/src
-    ${CMAKE_BINARY_DIR}/generated
+# ---------------------------------------------------------------------------
+# yaddnsc_build_options — language level, visibility, project-wide compile
+# definitions and the public include roots (include/ + generated headers)
+# ---------------------------------------------------------------------------
+add_library(yaddnsc_build_options INTERFACE)
+target_compile_options(yaddnsc_build_options INTERFACE
+    -fvisibility=hidden
+    $<$<AND:$<CXX_COMPILER_ID:Clang>,$<VERSION_GREATER_EQUAL:$<CXX_COMPILER_VERSION>,19>,$<VERSION_LESS:$<CXX_COMPILER_VERSION>,20>>:-fexperimental-library>
+    $<$<CONFIG:Debug>:-ggdb>
+    $<$<CONFIG:Debug>:-gdwarf-3>
+    $<$<CONFIG:Debug>:-fno-omit-frame-pointer>
 )
-
-target_compile_definitions(yaddnsc_compile_config INTERFACE
+target_compile_definitions(yaddnsc_build_options INTERFACE
     SPDLOG_ACTIVE_LEVEL=SPDLOG_LEVEL_DEBUG
     $<$<BOOL:${YADDNSC_USE_STD_FORMAT}>:YADDNSC_USE_STD_FORMAT>
     $<$<BOOL:${YADDNSC_USE_SYSTEM_SPDLOG}>:YADDNSC_USE_SYSTEM_SPDLOG>
 )
-
-# Common third-party dependencies for include path propagation.
-# OBJECT libraries need these to resolve #include directives at compile time.
-# The actual link step still happens on the executable via its own
-# target_link_libraries call below.
-target_link_libraries(yaddnsc_compile_config INTERFACE
-    spdlog::spdlog
-    glaze::glaze
-    magic_enum
-    OpenSSL::SSL
-    OpenSSL::Crypto
-    CLI11::CLI11
-    BS_thread_pool
-    picohttpparser
-    yaddnsc_fmt
+target_include_directories(yaddnsc_build_options INTERFACE
+    ${PROJECT_SOURCE_DIR}/include
+    ${CMAKE_BINARY_DIR}/generated
 )
 
+# ---------------------------------------------------------------------------
+# yaddnsc_sanitizers — per-build-type sanitizer flags (cmake/Sanitizer.cmake),
+# linked via add_sanitizer_flags(<target>).
+# ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# yaddnsc_internal_headers — the host-internal src/ include root.
+# Module headers reference each other through src/-rooted paths
+# (e.g. "network/inet_address.h"). PRIVATE to production targets; never
+# exposed to driver plugins.
+# ---------------------------------------------------------------------------
+add_library(yaddnsc_internal_headers INTERFACE)
+target_include_directories(yaddnsc_internal_headers INTERFACE ${PROJECT_SOURCE_DIR}/src)
+
+# Baseline shared by every production module target.
+function(yaddnsc_production_module TARGET)
+  target_link_libraries(${TARGET} PRIVATE
+      yaddnsc_warnings
+      yaddnsc_build_options
+      yaddnsc_internal_headers
+  )
+  add_sanitizer_flags(${TARGET})
+endfunction()
+
 # ==============================================================================
-# OBJECT libraries — each module compiles separately, all .o linked into main exe.
-# Using OBJECT libraries avoids the static archive dead-stripping problem so
-# registration via static initialization registers correctly.
+# Production module targets — static libraries with an explicit dependency
+# direction:
+#
+#   domain ← application ← infrastructure/adapters ← composition ← executable
+#
+# Inter-module links are PUBLIC so tests can link a single module and get
+# its transitive closure; third-party dependencies are PRIVATE to the
+# modules that actually use them. No static-initialization registration
+# exists anywhere in the tree, so plain static archives link correctly.
 # ==============================================================================
 
-add_library(yaddnsc_config OBJECT
-    src/config/config.cpp
-    src/config/normalizer.cpp
-    src/config/static_validator.cpp
+# Pure utilities (CA certificate discovery).
+add_library(yaddnsc_util STATIC
+    src/util/cert_util.cpp
 )
-target_link_libraries(yaddnsc_config PRIVATE yaddnsc_compile_config)
+yaddnsc_production_module(yaddnsc_util)
+target_link_libraries(yaddnsc_util PRIVATE OpenSSL::Crypto spdlog::spdlog yaddnsc_fmt)
 
 # Domain layer — pure rules and value types (no I/O, no threads, no clocks).
-add_library(yaddnsc_domain OBJECT
+# Also owns dns/error.cpp: DnsError is the port-level shared error vocabulary
+# (include/dns_error.h), so its stringification must be linkable by the
+# application layer without pulling in the DNS infrastructure stack.
+add_library(yaddnsc_domain STATIC
     src/domain/update/schedule_queue.cpp
+    src/dns/error.cpp
 )
-target_link_libraries(yaddnsc_domain PRIVATE yaddnsc_compile_config)
+yaddnsc_production_module(yaddnsc_domain)
+# Domain headers include the fmt facade; no third-party infrastructure.
+target_link_libraries(yaddnsc_domain PUBLIC yaddnsc_fmt)
 
-# Application layer — use cases and scheduling loop over the ports.
-add_library(yaddnsc_application OBJECT
-    src/application/update_workflow.cpp
-    src/application/scheduler_runner.cpp
-    src/application/pool_task_executor.cpp
-    src/application/run_lifecycle.cpp
-    src/application/diagnostics.cpp
-    src/application/environment_validator.cpp
-)
-target_link_libraries(yaddnsc_application PRIVATE yaddnsc_compile_config)
-
-add_library(yaddnsc_core OBJECT
-    src/core/driver_loader.cpp
-    src/core/signal_watcher.cpp
-    src/core/spdlog_logger.cpp
-    src/core/steady_clock.cpp
-)
-target_link_libraries(yaddnsc_core PRIVATE yaddnsc_compile_config)
-
-# Plugin host infrastructure — the v1 alpha C ABI loader, catalog, Host
-# Services and driver gateway.
-add_library(yaddnsc_plugin_host OBJECT
-    src/infrastructure/plugin/shared_library.cpp
-    src/infrastructure/plugin/plugin_loader.cpp
-    src/infrastructure/plugin/driver_catalog.cpp
-    src/infrastructure/plugin/host_services.cpp
-    src/infrastructure/plugin/abi_driver_gateway.cpp
-)
-target_link_libraries(yaddnsc_plugin_host PRIVATE yaddnsc_compile_config)
-
-add_library(yaddnsc_network OBJECT
+# Low-level network value types and wrappers (InetAddress, Socket, Uri).
+add_library(yaddnsc_network STATIC
     src/network/inet_address.cpp
     src/network/net_devices.cpp
     src/network/socket.cpp
     src/network/socket_addr.cpp
-    src/network/system_network_interfaces.cpp
     src/network/uri.cpp
 )
-target_link_libraries(yaddnsc_network PRIVATE yaddnsc_compile_config)
+yaddnsc_production_module(yaddnsc_network)
+target_link_libraries(yaddnsc_network PRIVATE spdlog::spdlog yaddnsc_fmt)
 
-# Transport layer (net::transport) and the HTTP client domain (net::http).
-add_library(yaddnsc_net_transport OBJECT
+# Transport layer (net::transport): TCP/TLS streams over OpenSSL.
+add_library(yaddnsc_net_transport STATIC
     src/network/transport/detail/socket_stream.cpp
     src/network/transport/tls_stream.cpp
     src/network/transport/tcp_stream.cpp
 )
-target_link_libraries(yaddnsc_net_transport PRIVATE yaddnsc_compile_config)
+yaddnsc_production_module(yaddnsc_net_transport)
+target_link_libraries(yaddnsc_net_transport
+    PUBLIC yaddnsc_network yaddnsc_util
+    PRIVATE OpenSSL::SSL OpenSSL::Crypto spdlog::spdlog yaddnsc_fmt
+)
 
-# HTTP client domain (net::http) — linked into the main executable and used
-# by drivers (via HttpClient), the HTTP IP source (PersistentClient) and DoH.
-add_library(yaddnsc_http_client OBJECT
+# HTTP client domain (net::http) — used by the HTTP IP source
+# (PersistentClient), DoH and the driver Host Services.
+add_library(yaddnsc_http_client STATIC
     src/http_client/protocol/exchange.cpp
     src/http_client/redirect.cpp
     src/http_client/stream_factory.cpp
@@ -335,33 +338,62 @@ add_library(yaddnsc_http_client OBJECT
     src/http_client/client.cpp
     src/http_client/persistent_client.cpp
 )
-target_link_libraries(yaddnsc_http_client PRIVATE yaddnsc_compile_config)
-target_link_libraries(yaddnsc_http_client PRIVATE picohttpparser)
-
-add_library(yaddnsc_cli OBJECT
-    src/cli/parser.cpp
-    src/cli/presenter.cpp
+yaddnsc_production_module(yaddnsc_http_client)
+target_link_libraries(yaddnsc_http_client
+    PUBLIC yaddnsc_net_transport
+    PRIVATE picohttpparser spdlog::spdlog yaddnsc_fmt
 )
-target_link_libraries(yaddnsc_cli PRIVATE yaddnsc_compile_config)
 
-# Composition root — assembles concrete dependencies and dispatches commands.
-add_library(yaddnsc_composition OBJECT
-    src/composition/bootstrap.cpp
+# Application layer — use cases and the scheduling loop over the ports.
+# Deliberately free of CLI11, OpenSSL, Glaze, spdlog and dlopen: logging
+# goes through the ports/log.h facade.
+add_library(yaddnsc_application STATIC
+    src/application/update_workflow.cpp
+    src/application/scheduler_runner.cpp
+    src/application/pool_task_executor.cpp
+    src/application/run_lifecycle.cpp
+    src/application/diagnostics.cpp
+    src/application/environment_validator.cpp
 )
-target_link_libraries(yaddnsc_composition PRIVATE yaddnsc_compile_config)
+yaddnsc_production_module(yaddnsc_application)
+target_link_libraries(yaddnsc_application
+    PUBLIC yaddnsc_domain yaddnsc_network yaddnsc_fmt BS_thread_pool
+    PRIVATE magic_enum
+)
 
-add_library(yaddnsc_dns OBJECT
-    src/dns/error.cpp
+# Configuration infrastructure — JSON parsing, normalization, validation.
+add_library(yaddnsc_config_infrastructure STATIC
+    src/config/config.cpp
+    src/config/normalizer.cpp
+    src/config/static_validator.cpp
+)
+yaddnsc_production_module(yaddnsc_config_infrastructure)
+# config/config.h exposes glaze types in its interface.
+target_link_libraries(yaddnsc_config_infrastructure
+    PUBLIC yaddnsc_domain yaddnsc_network glaze::glaze yaddnsc_fmt
+)
+
+# DNS infrastructure — wire format, parsers, classic/DoT/DoH resolvers.
+# (dns/error.cpp lives in yaddnsc_domain: DnsError is port-level vocabulary.)
+add_library(yaddnsc_dns_infrastructure STATIC
     src/dns/validator.cpp
     src/dns/wire/builder.cpp
     src/dns/resolver/doh.cpp
     src/dns/resolver/dot.cpp
+    src/dns/resolver/classic.cpp
     src/dns/factory.cpp
     src/dns/resolver_catalog.cpp
+    src/dns/parser.cpp
+    src/dns/dispatcher.cpp
 )
-target_link_libraries(yaddnsc_dns PRIVATE yaddnsc_compile_config)
+yaddnsc_production_module(yaddnsc_dns_infrastructure)
+target_link_libraries(yaddnsc_dns_infrastructure
+    PUBLIC yaddnsc_domain yaddnsc_network yaddnsc_http_client
+    PRIVATE spdlog::spdlog magic_enum OpenSSL::Crypto yaddnsc_fmt
+)
 
-add_library(yaddnsc_ip_source OBJECT
+# IP-source infrastructure — interface / HTTP / mDNS sources + factory.
+add_library(yaddnsc_ip_source_infrastructure STATIC
     src/ip_source/iface_util.cpp
     src/ip_source/iface.cpp
     src/ip_source/http.cpp
@@ -370,49 +402,92 @@ add_library(yaddnsc_ip_source OBJECT
     src/ip_source/factory.cpp
     src/ip_source/adapter.cpp
 )
-target_link_libraries(yaddnsc_ip_source PRIVATE yaddnsc_compile_config)
-
-add_library(yaddnsc_util OBJECT
-    src/util/cert_util.cpp
-)
-target_link_libraries(yaddnsc_util PRIVATE yaddnsc_compile_config)
-target_link_libraries(yaddnsc_util PUBLIC OpenSSL::Crypto)
-
-target_sources(yaddnsc_dns PRIVATE
-    src/dns/resolver/classic.cpp
-    src/dns/parser.cpp
-    src/dns/dispatcher.cpp
+yaddnsc_production_module(yaddnsc_ip_source_infrastructure)
+target_link_libraries(yaddnsc_ip_source_infrastructure
+    PUBLIC yaddnsc_network yaddnsc_dns_infrastructure
+    PRIVATE spdlog::spdlog yaddnsc_fmt
 )
 
-# Sanitizer compile flags on all OBJECT libraries (link flags are a no-op on OBJECT libs
-# and only matter on the final executable, where add_sanitizer_flags is called again).
-foreach(tgt yaddnsc_config yaddnsc_domain yaddnsc_application yaddnsc_core yaddnsc_plugin_host yaddnsc_network yaddnsc_net_transport yaddnsc_http_client yaddnsc_cli yaddnsc_composition yaddnsc_dns yaddnsc_ip_source yaddnsc_util)
-  add_sanitizer_flags(${tgt})
-endforeach()
+# Plugin host infrastructure — the v1 alpha C ABI loader, catalog, Host
+# Services and driver gateway.
+add_library(yaddnsc_plugin_infrastructure STATIC
+    src/infrastructure/plugin/shared_library.cpp
+    src/infrastructure/plugin/plugin_loader.cpp
+    src/infrastructure/plugin/driver_catalog.cpp
+    src/infrastructure/plugin/host_services.cpp
+    src/infrastructure/plugin/abi_driver_gateway.cpp
+)
+yaddnsc_production_module(yaddnsc_plugin_infrastructure)
+target_link_libraries(yaddnsc_plugin_infrastructure
+    PUBLIC yaddnsc_application
+    PRIVATE spdlog::spdlog yaddnsc_fmt ${CMAKE_DL_LIBS}
+)
+
+# Core adapters — concrete port implementations (logger, clock), the signal
+# watcher, the driver loader and the network-interfaces adapter (kept in
+# src/network/ but bound here: it implements an application port and uses
+# ip_source helpers, so it must not pull yaddnsc_network backwards).
+add_library(yaddnsc_core STATIC
+    src/core/driver_loader.cpp
+    src/core/signal_watcher.cpp
+    src/core/spdlog_logger.cpp
+    src/core/steady_clock.cpp
+    src/network/system_network_interfaces.cpp
+)
+yaddnsc_production_module(yaddnsc_core)
+target_link_libraries(yaddnsc_core
+    PUBLIC yaddnsc_plugin_infrastructure yaddnsc_ip_source_infrastructure
+    PRIVATE spdlog::spdlog yaddnsc_fmt
+)
+
+# CLI adapter — argument parsing and output presentation.
+add_library(yaddnsc_cli_adapter STATIC
+    src/cli/parser.cpp
+    src/cli/presenter.cpp
+)
+yaddnsc_production_module(yaddnsc_cli_adapter)
+target_link_libraries(yaddnsc_cli_adapter
+    PUBLIC yaddnsc_application yaddnsc_config_infrastructure
+    PRIVATE CLI11::CLI11 glaze::glaze magic_enum yaddnsc_fmt
+)
+
+# Composition root — assembles concrete dependencies and dispatches commands.
+add_library(yaddnsc_composition STATIC
+    src/composition/bootstrap.cpp
+)
+yaddnsc_production_module(yaddnsc_composition)
+target_link_libraries(yaddnsc_composition
+    PUBLIC
+        yaddnsc_domain
+        yaddnsc_application
+        yaddnsc_config_infrastructure
+        yaddnsc_dns_infrastructure
+        yaddnsc_ip_source_infrastructure
+        yaddnsc_plugin_infrastructure
+        yaddnsc_core
+        yaddnsc_network
+        yaddnsc_net_transport
+        yaddnsc_http_client
+        yaddnsc_util
+        yaddnsc_cli_adapter
+    PRIVATE spdlog::spdlog yaddnsc_fmt
+)
 
 # ==============================================================================
-# Main executable — only main.cpp + OBJECT library .o files
+# Main executable — main.cpp + the composition root (which pulls the whole
+# module graph transitively)
 # ==============================================================================
-add_executable(yaddnsc
-    src/main.cpp
-    $<TARGET_OBJECTS:yaddnsc_config>
-    $<TARGET_OBJECTS:yaddnsc_domain>
-    $<TARGET_OBJECTS:yaddnsc_application>
-    $<TARGET_OBJECTS:yaddnsc_core>
-    $<TARGET_OBJECTS:yaddnsc_plugin_host>
-    $<TARGET_OBJECTS:yaddnsc_network>
-    $<TARGET_OBJECTS:yaddnsc_net_transport>
-    $<TARGET_OBJECTS:yaddnsc_http_client>
-    $<TARGET_OBJECTS:yaddnsc_cli>
-    $<TARGET_OBJECTS:yaddnsc_composition>
-    $<TARGET_OBJECTS:yaddnsc_dns>
-    $<TARGET_OBJECTS:yaddnsc_ip_source>
-    $<TARGET_OBJECTS:yaddnsc_util>
+add_executable(yaddnsc src/main.cpp)
+target_link_libraries(yaddnsc PRIVATE
+    yaddnsc_warnings
+    yaddnsc_build_options
+    yaddnsc_internal_headers
+    yaddnsc_composition
+    yaddnsc_cli_adapter
+    spdlog::spdlog
 )
 
-target_link_libraries(yaddnsc PRIVATE yaddnsc_compile_config)
-
-# Sanitizer flags for main.cpp and link flags
+# Sanitizer flags for main.cpp and the link step
 add_sanitizer_flags(yaddnsc)
 
 # ---------------------------------------------------------------------------
@@ -440,12 +515,8 @@ endif ()
 # --export-dynamic is intentionally NOT set: driver plugins load through the
 # C ABI alone and must not resolve any host symbols.
 
-# ---------------------------------------------------------------------------
-# Link libraries
-# ---------------------------------------------------------------------------
-target_link_libraries(yaddnsc PRIVATE BS_thread_pool magic_enum spdlog::spdlog OpenSSL::SSL OpenSSL::Crypto
-        CLI11::CLI11 glaze::glaze picohttpparser ${CMAKE_DL_LIBS}
-)
+# Third-party link dependencies flow transitively from the module targets
+# (composition pulls the full module graph); nothing extra is linked here.
 
 # ==============================================================================
 # Build configuration summary
@@ -473,10 +544,10 @@ include(Doxygen)
 # SDK interface for driver plugins — the ONLY supported surface: the v1 alpha
 # C ABI plus the C++ helper layer (yaddnsc/sdk/*). Deliberately does NOT expose
 # the host's src/ include root or host-only dependencies.
-add_library(yaddnsc_sdk INTERFACE)
-target_include_directories(yaddnsc_sdk INTERFACE ${PROJECT_SOURCE_DIR}/include)
-target_link_libraries(yaddnsc_sdk INTERFACE glaze::glaze)
-target_compile_options(yaddnsc_sdk INTERFACE -Wall -Wextra -Wpedantic -Werror -fvisibility=hidden)
+add_library(yaddnsc_plugin_sdk INTERFACE)
+target_include_directories(yaddnsc_plugin_sdk INTERFACE ${PROJECT_SOURCE_DIR}/include)
+target_link_libraries(yaddnsc_plugin_sdk INTERFACE glaze::glaze)
+target_compile_options(yaddnsc_plugin_sdk INTERFACE -Wall -Wextra -Wpedantic -Werror -fvisibility=hidden)
 
 add_subdirectory(${PROJECT_SOURCE_DIR}/plugin_crypto/)
 add_subdirectory(${PROJECT_SOURCE_DIR}/driver/)

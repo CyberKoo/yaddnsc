@@ -10,8 +10,8 @@
 # Tests that require real I/O (loopback sockets, filesystem, network) belong
 # in ../component/ instead.
 #
-# Note: new and migrated targets link the production OBJECT libraries
-# via yaddnsc_prod_all (defined in ../CMakeLists.txt) instead of compiling
+# Note: test targets link the production module targets (directly or via
+# yaddnsc_prod_all, defined in ../CMakeLists.txt) instead of compiling
 # hand-picked production .cpp files.
 # ==============================================================================
 
@@ -38,11 +38,11 @@ add_unit_test(retry_util    SOURCE util/retry_util_test.cpp)
 add_unit_test(string_util   SOURCE util/string_util_test.cpp)
 add_unit_test(validation    SOURCE util/validation_test.cpp)
 
-# signing — cryptographic primitives (SHA, HMAC, Base64, hex)
-add_unit_test(signing SOURCE util/signing_test.cpp
-    ${PROJECT_SOURCE_DIR}/plugin_crypto/signing.cpp)
+# signing — cryptographic primitives (SHA, HMAC, Base64, hex) from the
+# plugin crypto library (also linked into signing-enabled drivers).
+add_unit_test(signing SOURCE util/signing_test.cpp)
 target_include_directories(test_signing PRIVATE ${PROJECT_SOURCE_DIR}/plugin_crypto)
-target_link_libraries(test_signing PRIVATE OpenSSL::Crypto)
+target_link_libraries(test_signing PRIVATE yaddnsc_plugin_crypto OpenSSL::Crypto)
 
 # ============================================================================
 #  common/  —  cross-module base types (address_family, exceptions, etc.)
@@ -64,8 +64,7 @@ add_unit_test(update_decision SOURCE domain/update_decision_test.cpp)
 
 # schedule_queue — domain::ScheduleQueue over injected (fake) time
 add_unit_test(schedule_queue SOURCE domain/schedule_queue_test.cpp)
-target_link_libraries(test_schedule_queue PRIVATE yaddnsc_prod_all glaze::glaze)
-add_sanitizer_flags(test_schedule_queue)
+target_link_libraries(test_schedule_queue PRIVATE yaddnsc_domain yaddnsc_config_infrastructure glaze::glaze)
 
 # ============================================================================
 #  application/  —  update workflow, scheduler runner, task executor
@@ -73,25 +72,21 @@ add_sanitizer_flags(test_schedule_queue)
 
 # update_workflow — the update use case against port mocks
 add_unit_test(update_workflow SOURCE application/update_workflow_test.cpp)
-target_link_libraries(test_update_workflow PRIVATE yaddnsc_prod_all GTest::gmock glaze::glaze)
-add_sanitizer_flags(test_update_workflow)
+target_link_libraries(test_update_workflow PRIVATE yaddnsc_application yaddnsc_config_infrastructure GTest::gmock glaze::glaze)
 
 # scheduler_runner — the scheduling loop over FakeClock + recording executor
 add_unit_test(scheduler_runner SOURCE application/scheduler_runner_test.cpp)
-target_link_libraries(test_scheduler_runner PRIVATE yaddnsc_prod_all GTest::gmock glaze::glaze)
-add_sanitizer_flags(test_scheduler_runner)
+target_link_libraries(test_scheduler_runner PRIVATE yaddnsc_application yaddnsc_config_infrastructure GTest::gmock glaze::glaze)
 
 # pool_task_executor — pool-backed executor: drain, reject-after-shutdown,
 # same-module concurrency
 add_unit_test(pool_task_executor SOURCE application/pool_task_executor_test.cpp)
-target_link_libraries(test_pool_task_executor PRIVATE yaddnsc_prod_all GTest::gmock glaze::glaze)
-add_sanitizer_flags(test_pool_task_executor)
+target_link_libraries(test_pool_task_executor PRIVATE yaddnsc_application yaddnsc_config_infrastructure GTest::gmock glaze::glaze)
 
 # environment_validator — driver-loaded / interface-exists checks against
 # fake catalog / interface ports
 add_unit_test(environment_validator SOURCE application/environment_validator_test.cpp)
-target_link_libraries(test_environment_validator PRIVATE yaddnsc_prod_all GTest::gmock glaze::glaze)
-add_sanitizer_flags(test_environment_validator)
+target_link_libraries(test_environment_validator PRIVATE yaddnsc_application GTest::gmock glaze::glaze)
 
 # ============================================================================
 #  config/  —  configuration parsing, types, and validation
@@ -101,18 +96,17 @@ add_unit_test(config_parser     SOURCE config/config_parser_test.cpp)
 add_unit_test(config_types      SOURCE config/config_types_test.cpp)
 
 # normalizer — raw AppConfig → domain::RuntimeConfig mapping
-add_unit_test(config_normalizer SOURCE config/normalizer_test.cpp
-    ${PROJECT_SOURCE_DIR}/src/config/normalizer.cpp)
+add_unit_test(config_normalizer SOURCE config/normalizer_test.cpp)
+target_link_libraries(test_config_normalizer PRIVATE yaddnsc_config_infrastructure)
 
 # static_validator — collect-all static checks (needs the normalizer for
 # validate_and_normalize; uri.cpp/inet_address.cpp come from test_support)
-add_unit_test(config_static_validator SOURCE config/static_validator_test.cpp
-    ${PROJECT_SOURCE_DIR}/src/config/normalizer.cpp
-    ${PROJECT_SOURCE_DIR}/src/config/static_validator.cpp)
+add_unit_test(config_static_validator SOURCE config/static_validator_test.cpp)
+target_link_libraries(test_config_static_validator PRIVATE yaddnsc_config_infrastructure)
 
 # config_loader — JSON config file parsing
-add_unit_test(config_loader SOURCE config/config_loader_test.cpp
-    ${PROJECT_SOURCE_DIR}/src/config/config.cpp)
+add_unit_test(config_loader SOURCE config/config_loader_test.cpp)
+target_link_libraries(test_config_loader PRIVATE yaddnsc_config_infrastructure)
 
 # ============================================================================
 #  core/  —  signal watcher, driver loading, driver gateway
@@ -120,8 +114,8 @@ add_unit_test(config_loader SOURCE config/config_loader_test.cpp
 
 # signal_watcher — install/construct/destroy lifecycle (signals are blocked
 # process-wide by install(), so this binary only runs these tests).
-add_unit_test(signal_watcher SOURCE core/signal_watcher_test.cpp
-    ${PROJECT_SOURCE_DIR}/src/core/signal_watcher.cpp)
+add_unit_test(signal_watcher SOURCE core/signal_watcher_test.cpp)
+target_link_libraries(test_signal_watcher PRIVATE yaddnsc_core)
 
 # driver_loader + driver_catalog — dlopen-based plugin loading
 # Fixture: a shared library that is deliberately NOT a yaddnsc driver —
@@ -131,9 +125,6 @@ add_library(yaddnsc_bad_driver_fixture MODULE core/bad_driver_fixture.cpp)
 
 add_unit_test(driver_loader SOURCE core/driver_loader_test.cpp)
 target_link_libraries(test_driver_loader PRIVATE yaddnsc_prod_all)
-# The loaded driver .so is built with sanitizers — the test binary must be
-# too, or ASan aborts with "runtime does not come first" at dlopen time.
-add_sanitizer_flags(test_driver_loader)
 
 # macOS + ASan + dlopen plugins: ASan's ODR checker reports the driver's
 # vtables as duplicate-registration conflicts (known false positive; the
@@ -165,48 +156,39 @@ add_unit_test(record_kind  SOURCE dns/record_kind_test.cpp)
 add_unit_test(dns_validator SOURCE dns/dns_validator_test.cpp)
 
 # ResolverDispatcher — jthread-based concurrent dispatch
-add_unit_test(dispatcher SOURCE dns/dispatcher_test.cpp
-    ${PROJECT_SOURCE_DIR}/src/dns/dispatcher.cpp
-    ${PROJECT_SOURCE_DIR}/src/dns/parser.cpp
-    ${PROJECT_SOURCE_DIR}/src/dns/error.cpp)
-target_link_libraries(test_dispatcher PRIVATE GTest::gmock OpenSSL::Crypto)
+add_unit_test(dispatcher SOURCE dns/dispatcher_test.cpp)
+target_link_libraries(test_dispatcher PRIVATE yaddnsc_dns_infrastructure GTest::gmock OpenSSL::Crypto)
 
 # resolver_catalog — instance-level schema→factory catalog (replaces the
 # global DnsResolverRegistry tests; construction-only for the built-ins,
 # no network I/O)
 add_unit_test(resolver_catalog SOURCE dns/resolver_catalog_test.cpp)
-target_link_libraries(test_resolver_catalog PRIVATE yaddnsc_prod_all)
-add_sanitizer_flags(test_resolver_catalog)
+target_link_libraries(test_resolver_catalog PRIVATE yaddnsc_dns_infrastructure)
 
 # factory — DnsResolverFactory::create (config → ResolverDispatcher) with an
 # injected stub catalog
 add_unit_test(factory SOURCE dns/factory_test.cpp)
 target_link_libraries(test_factory PRIVATE yaddnsc_prod_all)
-add_sanitizer_flags(test_factory)
 
 # wire-format builders and queries
-add_unit_test(builder SOURCE dns/builder_test.cpp
-    ${PROJECT_SOURCE_DIR}/src/dns/wire/builder.cpp)
-target_link_libraries(test_builder PRIVATE OpenSSL::Crypto)
+add_unit_test(builder SOURCE dns/builder_test.cpp)
+target_link_libraries(test_builder PRIVATE yaddnsc_dns_infrastructure OpenSSL::Crypto)
 
 # build_query tests
-add_unit_test(mkquery SOURCE dns/mkquery_test.cpp
-    ${PROJECT_SOURCE_DIR}/src/dns/wire/builder.cpp)
-target_link_libraries(test_mkquery PRIVATE OpenSSL::Crypto)
+add_unit_test(mkquery SOURCE dns/mkquery_test.cpp)
+target_link_libraries(test_mkquery PRIVATE yaddnsc_dns_infrastructure OpenSSL::Crypto)
 
 # RecordParser — self-contained wire-format parser (no libresolv)
-add_unit_test(dns_parser SOURCE dns/parser_test.cpp
-    ${PROJECT_SOURCE_DIR}/src/dns/parser.cpp)
+add_unit_test(dns_parser SOURCE dns/parser_test.cpp)
+target_link_libraries(test_dns_parser PRIVATE yaddnsc_dns_infrastructure)
 
 # DotResolver mock tests — TLS error paths via a mocked net::transport::Stream
 add_unit_test(dot_resolver_mock SOURCE dns/dot_resolver_mock_test.cpp)
 target_link_libraries(test_dot_resolver_mock PRIVATE yaddnsc_prod_all)
-add_sanitizer_flags(test_dot_resolver_mock)
 
 # DohResolver mock tests — TLS + HTTP error paths via a mocked net::transport::Stream
 add_unit_test(doh_resolver_mock SOURCE dns/doh_resolver_mock_test.cpp)
 target_link_libraries(test_doh_resolver_mock PRIVATE yaddnsc_prod_all)
-add_sanitizer_flags(test_doh_resolver_mock)
 
 # ============================================================================
 #  network/  —  network address/path/URI parsing (pure logic, no I/O)
@@ -216,8 +198,8 @@ add_sanitizer_flags(test_doh_resolver_mock)
 add_unit_test(inet_address SOURCE network/inet_address_test.cpp)
 
 # socket_addr — value-type wrapper around sockaddr_storage
-add_unit_test(socket_addr SOURCE network/socket_addr_test.cpp
-    ${PROJECT_SOURCE_DIR}/src/network/socket_addr.cpp)
+add_unit_test(socket_addr SOURCE network/socket_addr_test.cpp)
+target_link_libraries(test_socket_addr PRIVATE yaddnsc_network)
 
 # URI parsing — uses uri.cpp + inet_address.cpp (in test_support)
 add_unit_test(uri_parse SOURCE network/uri_parse_test.cpp)
@@ -232,53 +214,26 @@ add_unit_test(socket_mock SOURCE network/socket_mock_test.cpp)
 #  net/  —  net::transport, the redesigned transport layer (no network I/O)
 # ============================================================================
 
-add_unit_test(net_transport SOURCE net_transport/net_transport_test.cpp
-    ${PROJECT_SOURCE_DIR}/src/network/transport/detail/socket_stream.cpp
-    ${PROJECT_SOURCE_DIR}/src/network/transport/tls_stream.cpp
-    ${PROJECT_SOURCE_DIR}/src/network/transport/tcp_stream.cpp
-    ${PROJECT_SOURCE_DIR}/src/util/cert_util.cpp
-    ${PROJECT_SOURCE_DIR}/src/network/inet_address.cpp)
-target_link_libraries(test_net_transport PRIVATE OpenSSL::SSL OpenSSL::Crypto)
+add_unit_test(net_transport SOURCE net_transport/net_transport_test.cpp)
+target_link_libraries(test_net_transport PRIVATE yaddnsc_net_transport OpenSSL::SSL OpenSSL::Crypto)
 
 # ============================================================================
 #  http_client/  —  net::http domain: protocol, redirect
 #  (scripted in-memory Stream, no network I/O)
 # ============================================================================
 
-add_unit_test(http_client SOURCE http_client/http_client_test.cpp
-    ${PROJECT_SOURCE_DIR}/src/http_client/protocol/exchange.cpp
-    ${PROJECT_SOURCE_DIR}/src/http_client/redirect.cpp
-    ${PROJECT_SOURCE_DIR}/src/network/uri.cpp
-    ${PROJECT_SOURCE_DIR}/src/network/inet_address.cpp)
-target_link_libraries(test_http_client PRIVATE picohttpparser)
+add_unit_test(http_client SOURCE http_client/http_client_test.cpp)
+target_link_libraries(test_http_client PRIVATE yaddnsc_http_client picohttpparser)
 
 # http_session — Session's persistent-connection policy (retry on connection
 # loss, scheme->factory pairing, connect-error mapping) via scripted fakes.
-add_unit_test(http_session SOURCE http_client/session_test.cpp
-    ${PROJECT_SOURCE_DIR}/src/http_client/session.cpp
-    ${PROJECT_SOURCE_DIR}/src/http_client/stream_factory.cpp
-    ${PROJECT_SOURCE_DIR}/src/http_client/protocol/exchange.cpp
-    ${PROJECT_SOURCE_DIR}/src/network/transport/tcp_stream.cpp
-    ${PROJECT_SOURCE_DIR}/src/network/transport/tls_stream.cpp
-    ${PROJECT_SOURCE_DIR}/src/network/transport/detail/socket_stream.cpp
-    ${PROJECT_SOURCE_DIR}/src/util/cert_util.cpp)
-target_link_libraries(test_http_session PRIVATE OpenSSL::SSL OpenSSL::Crypto picohttpparser)
+add_unit_test(http_session SOURCE http_client/session_test.cpp)
+target_link_libraries(test_http_session PRIVATE yaddnsc_http_client OpenSSL::SSL OpenSSL::Crypto picohttpparser)
 
 # http_persistent — PersistentClient target/redirect semantics + the shared
 # wire-request helpers, driven through a scripted in-memory StreamFactory.
-add_unit_test(http_persistent SOURCE http_client/persistent_client_test.cpp
-    ${PROJECT_SOURCE_DIR}/src/http_client/persistent_client.cpp
-    ${PROJECT_SOURCE_DIR}/src/http_client/client.cpp
-    ${PROJECT_SOURCE_DIR}/src/http_client/session.cpp
-    ${PROJECT_SOURCE_DIR}/src/http_client/stream_factory.cpp
-    ${PROJECT_SOURCE_DIR}/src/http_client/wire_request.cpp
-    ${PROJECT_SOURCE_DIR}/src/http_client/redirect.cpp
-    ${PROJECT_SOURCE_DIR}/src/http_client/protocol/exchange.cpp
-    ${PROJECT_SOURCE_DIR}/src/network/transport/tcp_stream.cpp
-    ${PROJECT_SOURCE_DIR}/src/network/transport/tls_stream.cpp
-    ${PROJECT_SOURCE_DIR}/src/network/transport/detail/socket_stream.cpp
-    ${PROJECT_SOURCE_DIR}/src/util/cert_util.cpp)
-target_link_libraries(test_http_persistent PRIVATE OpenSSL::SSL OpenSSL::Crypto picohttpparser)
+add_unit_test(http_persistent SOURCE http_client/persistent_client_test.cpp)
+target_link_libraries(test_http_persistent PRIVATE yaddnsc_http_client OpenSSL::SSL OpenSSL::Crypto picohttpparser)
 
 # http_public_headers — the public HTTP/transport headers must be includable
 # in a translation unit WITHOUT the src/ include root.  Deliberately NOT
@@ -298,15 +253,12 @@ set_property(GLOBAL APPEND PROPERTY YADDNSC_TEST_TARGETS test_http_public_header
 
 # ip_source_adapter — IpSourcePort contract over the legacy throwing stack
 add_unit_test(ip_source_adapter SOURCE ip_source/adapter_test.cpp)
-target_link_libraries(test_ip_source_adapter PRIVATE yaddnsc_prod_all GTest::gmock)
-add_sanitizer_flags(test_ip_source_adapter)
+target_link_libraries(test_ip_source_adapter PRIVATE yaddnsc_ip_source_infrastructure GTest::gmock)
 
 # mdns_response — datagram parsing/filtering is pure logic; multicast socket
 # lifecycle remains covered by the component test.
-add_unit_test(mdns_response SOURCE ip_source/mdns_response_test.cpp
-    ${PROJECT_SOURCE_DIR}/src/ip_source/mdns_response.cpp
-    ${PROJECT_SOURCE_DIR}/src/dns/parser.cpp
-    ${PROJECT_SOURCE_DIR}/src/network/inet_address.cpp)
+add_unit_test(mdns_response SOURCE ip_source/mdns_response_test.cpp)
+target_link_libraries(test_mdns_response PRIVATE yaddnsc_ip_source_infrastructure)
 
 # driver_magic — the YADDNSC_DRIVER_MAGIC constant in the v1 alpha ABI header
 add_unit_test(driver_magic SOURCE ip_source/driver_magic_test.cpp)

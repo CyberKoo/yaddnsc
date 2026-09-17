@@ -128,3 +128,27 @@ jobs:
                       echo "=== $b ==="
                       ./build/test/perf/$b --benchmark_format=console 2>&1 | tail -n +12
                   done
+
+    # ----------------------------------------------------------------------
+    # Plugin contract — build the whiteboard test plugin and run the real
+    # dlopen / Host Services contract tests: ABI rejection matrix, plugin
+    # lifecycle, and the AbiDriverGateway (including same-module concurrency).
+    # Plugins resolve no host symbols (no CORE_LOG backfill; the
+    # architecture_guard test polices that boundary in the main jobs).
+    # ----------------------------------------------------------------------
+    plugin-contract:
+        runs-on: ubuntu-24.04
+        env:
+            CC: gcc-14
+            CXX: g++-14
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v7
+            - name: Install dependencies
+              run: sudo apt update; sudo apt install -y cmake git ninja-build gcc-14 g++-14 libssl-dev zlib1g zlib1g-dev pkg-config python3-venv
+            - name: Configure
+              run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DYADDNSC_BUILD_TESTS=ON
+            - name: Build plugin contract targets
+              run: ninja -C build -j$(nproc) test_plugin_abi_contract test_plugin_lifecycle test_abi_driver_gateway
+            - name: Run plugin contract tests
+              run: ctest --test-dir build --output-on-failure -R 'plugin_abi_contract|plugin_lifecycle|abi_driver_gateway'

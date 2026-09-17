@@ -13,7 +13,7 @@
 # ---------------------------------------------------------------------------
 add_library(yaddnsc_test_driver_plugin MODULE test_driver_plugin.cpp)
 set_target_properties(yaddnsc_test_driver_plugin PROPERTIES PREFIX "" OUTPUT_NAME "test_driver_plugin")
-target_link_libraries(yaddnsc_test_driver_plugin PRIVATE yaddnsc_sdk)
+target_link_libraries(yaddnsc_test_driver_plugin PRIVATE yaddnsc_plugin_sdk)
 add_sanitizer_flags(yaddnsc_test_driver_plugin)
 
 # ---------------------------------------------------------------------------
@@ -36,9 +36,6 @@ add_unit_test(abi_driver_gateway SOURCE abi_driver_gateway_test.cpp)
 
 foreach(test_target test_plugin_abi_contract test_plugin_lifecycle test_abi_driver_gateway)
     target_link_libraries(${test_target} PRIVATE yaddnsc_prod_all ${CMAKE_DL_LIBS})
-    # The loaded plugin .so is built with sanitizers — the test binary must be
-    # too, or ASan aborts with "runtime does not come first" at dlopen time.
-    add_sanitizer_flags(${test_target})
     # macOS + ASan + dlopen plugins: disable the ODR checker for the plugin's
     # vtables (same known false positive as test_driver_loader).
     set_tests_properties(${test_target} PROPERTIES

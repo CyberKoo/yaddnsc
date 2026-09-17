@@ -11,8 +11,8 @@
 # They are NOT "unit tests" — they validate that individual components
 # operate correctly against the real OS environment on loopback.
 #
-# Note: migrated targets link the production OBJECT libraries via
-# yaddnsc_prod_all (defined in ../CMakeLists.txt) instead of compiling
+# Note: test targets link the production module targets (directly or via
+# yaddnsc_prod_all, defined in ../CMakeLists.txt) instead of compiling
 # hand-picked production .cpp files.
 # ==============================================================================
 
@@ -22,16 +22,14 @@
 #  CA certificate path discovery  (filesystem access)
 # ============================================================================
 
-add_unit_test(cert_util_test SOURCE cert_util_test.cpp
-    ${PROJECT_SOURCE_DIR}/src/util/cert_util.cpp)
-target_link_libraries(test_cert_util_test PRIVATE OpenSSL::Crypto)
+add_unit_test(cert_util_test SOURCE cert_util_test.cpp)
+target_link_libraries(test_cert_util_test PRIVATE yaddnsc_util OpenSSL::Crypto)
 
 # cert_util env-var hit — SEPARATE binary because discover_ca_bundle() caches
 # its result on the first call in the process; the env-var-hit branch can only
 # be reached when the first call sees a valid SSL_CERT_FILE.
-add_unit_test(cert_util_override SOURCE cert_util_override_test.cpp
-    ${PROJECT_SOURCE_DIR}/src/util/cert_util.cpp)
-target_link_libraries(test_cert_util_override PRIVATE OpenSSL::Crypto)
+add_unit_test(cert_util_override SOURCE cert_util_override_test.cpp)
+target_link_libraries(test_cert_util_override PRIVATE yaddnsc_util OpenSSL::Crypto)
 
 # ============================================================================
 #  CLI layer + composition root — pure parser tests, presenter output,
@@ -47,10 +45,10 @@ target_link_libraries(test_cli PRIVATE yaddnsc_prod_all GTest::gmock)
 target_compile_definitions(test_cli PRIVATE
     TEST_DRIVER_DIR="${CMAKE_BINARY_DIR}/driver"
     YADDNSC_TEMPLATE_DIR="${PROJECT_SOURCE_DIR}/template")
-# The driver .so is built with sanitizers — the test binary must be too.
-add_sanitizer_flags(test_cli)
 # simple.so must be built before the test runs (dlopen dependency).
 add_dependencies(test_cli simple)
+# macOS + ASan + dlopen plugins: disable the ODR checker for the plugin's
+# vtables (same known false positive as test_driver_loader).
 set_tests_properties(test_cli PROPERTIES
     ENVIRONMENT "ASAN_OPTIONS=detect_odr_violation=0:detect_stack_use_after_return=1:strict_string_checks=1:detect_invalid_pointer_pairs=2")
 
@@ -58,37 +56,29 @@ set_tests_properties(test_cli PROPERTIES
 #  Socket RAII wrapper  (loopback UDP/TCP)
 # ============================================================================
 
-add_unit_test(socket_test
-    ${PROJECT_SOURCE_DIR}/src/network/socket.cpp
-    ${PROJECT_SOURCE_DIR}/src/network/socket_addr.cpp)
+add_unit_test(socket_test SOURCE socket_test.cpp)
+target_link_libraries(test_socket_test PRIVATE yaddnsc_network)
 
 # ============================================================================
 #  Network device enumeration  (loopback interface)
 # ============================================================================
 
-add_unit_test(net_devices_test
-    ${PROJECT_SOURCE_DIR}/src/network/net_devices.cpp
-    ${PROJECT_SOURCE_DIR}/src/network/socket_addr.cpp)
+add_unit_test(net_devices_test SOURCE net_devices_test.cpp)
+target_link_libraries(test_net_devices_test PRIVATE yaddnsc_network)
 
 # ============================================================================
 #  IP source — InterfaceIpSource  (loopback interface)
 # ============================================================================
 
-add_unit_test(ip_source_test
-    ${PROJECT_SOURCE_DIR}/src/ip_source/iface.cpp
-    ${PROJECT_SOURCE_DIR}/src/ip_source/iface_util.cpp
-    ${PROJECT_SOURCE_DIR}/src/network/net_devices.cpp
-    ${PROJECT_SOURCE_DIR}/src/network/socket_addr.cpp)
+add_unit_test(ip_source_test SOURCE ip_source_test.cpp)
+target_link_libraries(test_ip_source_test PRIVATE yaddnsc_ip_source_infrastructure)
 
 # ============================================================================
 #  HTTP client + HttpIpSource  (local HTTP server)
 # ============================================================================
 
-add_unit_test(http_test
-    ${PROJECT_SOURCE_DIR}/src/ip_source/http.cpp
-    ${PROJECT_SOURCE_DIR}/src/util/cert_util.cpp)
-target_link_libraries(test_http_test PRIVATE yaddnsc_http_client yaddnsc_net_transport OpenSSL::Crypto)
-add_sanitizer_flags(test_http_test)
+add_unit_test(http_test SOURCE http_test.cpp)
+target_link_libraries(test_http_test PRIVATE yaddnsc_ip_source_infrastructure OpenSSL::Crypto)
 
 # ============================================================================
 #  mDNS responder + IpSourceFactory  (loopback multicast)
@@ -97,23 +87,8 @@ add_sanitizer_flags(test_http_test)
 # and mDNS resolution independently of the update workflow.
 # ============================================================================
 
-add_unit_test(factory_mdns SOURCE factory_mdns_test.cpp
-    ${PROJECT_SOURCE_DIR}/src/dns/dispatcher.cpp
-    ${PROJECT_SOURCE_DIR}/src/dns/parser.cpp
-    ${PROJECT_SOURCE_DIR}/src/ip_source/factory.cpp
-    ${PROJECT_SOURCE_DIR}/src/ip_source/iface.cpp
-    ${PROJECT_SOURCE_DIR}/src/ip_source/http.cpp
-    ${PROJECT_SOURCE_DIR}/src/ip_source/mdns.cpp
-    ${PROJECT_SOURCE_DIR}/src/ip_source/mdns_response.cpp
-    ${PROJECT_SOURCE_DIR}/src/ip_source/iface_util.cpp
-    ${PROJECT_SOURCE_DIR}/src/network/socket.cpp
-    ${PROJECT_SOURCE_DIR}/src/network/socket_addr.cpp
-    ${PROJECT_SOURCE_DIR}/src/network/net_devices.cpp
-    ${PROJECT_SOURCE_DIR}/src/util/cert_util.cpp
-    ${PROJECT_SOURCE_DIR}/src/dns/wire/builder.cpp)
-target_link_libraries(test_factory_mdns PRIVATE GTest::gmock glaze::glaze yaddnsc_http_client yaddnsc_net_transport OpenSSL::Crypto)
-# Object libs carry sanitizer instrumentation — the test binary must link it too.
-add_sanitizer_flags(test_factory_mdns)
+add_unit_test(factory_mdns SOURCE factory_mdns_test.cpp)
+target_link_libraries(test_factory_mdns PRIVATE yaddnsc_ip_source_infrastructure GTest::gmock glaze::glaze OpenSSL::Crypto)
 # Both this test and integration_scenarios answer mDNS on 224.0.0.251:5353;
 # the sim server catch-alls unknown A queries with 198.51.100.1, so running
 # them concurrently makes the UUID-hostname assertions racy. Serialize them.
@@ -134,10 +109,10 @@ add_unit_test(run_lifecycle SOURCE run_lifecycle_test.cpp)
 target_link_libraries(test_run_lifecycle PRIVATE yaddnsc_prod_all GTest::gmock)
 target_compile_definitions(test_run_lifecycle PRIVATE
     TEST_DRIVER_DIR="${CMAKE_BINARY_DIR}/driver")
-# The driver .so is built with sanitizers — the test binary must be too.
-add_sanitizer_flags(test_run_lifecycle)
 # simple.so must be built before the test runs (dlopen dependency).
 add_dependencies(test_run_lifecycle simple)
+# macOS + ASan + dlopen plugins: disable the ODR checker for the plugin's
+# vtables (same known false positive as test_driver_loader).
 set_tests_properties(test_run_lifecycle PROPERTIES
     ENVIRONMENT "ASAN_OPTIONS=detect_odr_violation=0:detect_stack_use_after_return=1:strict_string_checks=1:detect_invalid_pointer_pairs=2")
 
@@ -150,7 +125,6 @@ set_tests_properties(test_run_lifecycle PROPERTIES
 
 add_unit_test(classic_resolver SOURCE classic_resolver_test.cpp)
 target_link_libraries(test_classic_resolver PRIVATE yaddnsc_prod_all)
-add_sanitizer_flags(test_classic_resolver)
 target_compile_definitions(test_classic_resolver PRIVATE
     TEST_DATA_DIR="${PROJECT_SOURCE_DIR}/test/component"
 )
@@ -163,13 +137,8 @@ target_compile_definitions(test_classic_resolver PRIVATE
 # ensure_connected(), verification modes, and cross-thread cancellation.
 # ============================================================================
 
-add_unit_test(net_transport_component SOURCE net_transport_test.cpp
-    ${PROJECT_SOURCE_DIR}/src/network/transport/detail/socket_stream.cpp
-    ${PROJECT_SOURCE_DIR}/src/network/transport/tls_stream.cpp
-    ${PROJECT_SOURCE_DIR}/src/network/transport/tcp_stream.cpp
-    ${PROJECT_SOURCE_DIR}/src/util/cert_util.cpp
-    ${PROJECT_SOURCE_DIR}/src/network/inet_address.cpp)
-target_link_libraries(test_net_transport_component PRIVATE OpenSSL::SSL OpenSSL::Crypto)
+add_unit_test(net_transport_component SOURCE net_transport_test.cpp)
+target_link_libraries(test_net_transport_component PRIVATE yaddnsc_net_transport OpenSSL::SSL OpenSSL::Crypto)
 target_compile_definitions(test_net_transport_component PRIVATE
     TEST_DATA_DIR="${PROJECT_SOURCE_DIR}/test/component"
 )
@@ -178,21 +147,8 @@ target_compile_definitions(test_net_transport_component PRIVATE
 #  net::http  (Client + Session over an in-process HTTP/1.1 server)
 # ============================================================================
 
-add_unit_test(net_http_client SOURCE net_http_client_test.cpp
-    ${PROJECT_SOURCE_DIR}/src/http_client/client.cpp
-    ${PROJECT_SOURCE_DIR}/src/http_client/persistent_client.cpp
-    ${PROJECT_SOURCE_DIR}/src/http_client/session.cpp
-    ${PROJECT_SOURCE_DIR}/src/http_client/redirect.cpp
-    ${PROJECT_SOURCE_DIR}/src/http_client/stream_factory.cpp
-    ${PROJECT_SOURCE_DIR}/src/http_client/wire_request.cpp
-    ${PROJECT_SOURCE_DIR}/src/http_client/protocol/exchange.cpp
-    ${PROJECT_SOURCE_DIR}/src/network/transport/detail/socket_stream.cpp
-    ${PROJECT_SOURCE_DIR}/src/network/transport/tcp_stream.cpp
-    ${PROJECT_SOURCE_DIR}/src/network/transport/tls_stream.cpp
-    ${PROJECT_SOURCE_DIR}/src/network/uri.cpp
-    ${PROJECT_SOURCE_DIR}/src/network/inet_address.cpp
-    ${PROJECT_SOURCE_DIR}/src/util/cert_util.cpp)
-target_link_libraries(test_net_http_client PRIVATE OpenSSL::SSL OpenSSL::Crypto picohttpparser)
+add_unit_test(net_http_client SOURCE net_http_client_test.cpp)
+target_link_libraries(test_net_http_client PRIVATE yaddnsc_http_client OpenSSL::SSL OpenSSL::Crypto picohttpparser)
 
 # ============================================================================
 #  DotResolver  (DoT — DNS-over-TLS via Python DoT server)
@@ -204,7 +160,6 @@ target_link_libraries(test_net_http_client PRIVATE OpenSSL::SSL OpenSSL::Crypto 
 
 add_unit_test(dot_resolver SOURCE dot_resolver_test.cpp)
 target_link_libraries(test_dot_resolver PRIVATE yaddnsc_prod_all)
-add_sanitizer_flags(test_dot_resolver)
 target_compile_definitions(test_dot_resolver PRIVATE
     TEST_DATA_DIR="${PROJECT_SOURCE_DIR}/test/component"
 )
@@ -219,7 +174,6 @@ target_compile_definitions(test_dot_resolver PRIVATE
 
 add_unit_test(doh_resolver SOURCE doh_resolver_test.cpp)
 target_link_libraries(test_doh_resolver PRIVATE yaddnsc_prod_all)
-add_sanitizer_flags(test_doh_resolver)
 target_compile_definitions(test_doh_resolver PRIVATE
     TEST_DATA_DIR="${PROJECT_SOURCE_DIR}/test/component"
 )

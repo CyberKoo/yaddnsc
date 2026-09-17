@@ -6,5 +6,5 @@ if(NOT LibXml2_FOUND)
 endif()
 
 add_library(route53 MODULE route53.cpp)
-target_link_libraries(route53 PRIVATE yaddnsc_sdk yaddnsc_plugin_crypto LibXml2::LibXml2)
+target_link_libraries(route53 PRIVATE yaddnsc_plugin_sdk yaddnsc_plugin_crypto LibXml2::LibXml2)
 message(STATUS "libxml2 found — building route53 driver")

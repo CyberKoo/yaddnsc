@@ -80,8 +80,13 @@ TEST(UniqueFdTest, SelfMoveAssignment_NoOp) {
     ASSERT_GE(raw, 0);
 
     Utils::UniqueFd fd(raw);
+    // Deliberate self-move to verify the no-op guard; suppress the warning
+    // that fires precisely because the test does this on purpose.
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wself-move"
     // NOLINTNEXTLINE(clang-analyzer-cplusplus.Move)
     fd = std::move(fd);
+#pragma GCC diagnostic pop
 
     EXPECT_TRUE(fd);
     EXPECT_EQ(fd.get(), raw);

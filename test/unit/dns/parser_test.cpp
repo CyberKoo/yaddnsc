@@ -435,7 +435,7 @@ namespace {
         return buf;
     }
 
-    std::vector<std::uint8_t> make_authority_response(std::uint16_t txid, std::string_view ns_name,
+    std::vector<std::uint8_t> make_authority_response(std::uint16_t txid, std::string_view /*ns_name*/,
                                                        std::string_view ns_target, std::uint32_t ttl = 300) {
         std::vector<std::uint8_t> buf;
         buf.resize(12, 0);
@@ -1058,19 +1058,19 @@ TEST(DnsParserTest, QuestionSectionTruncated_Throws) {
 TEST(DnsParserTest, ParseMxRecord_ShortRdata_Throws) {
     // MX requires at least 2 (preference) + 1 (root label) bytes.
     auto response = make_response_with_rdata(static_cast<std::uint16_t>(DNS::RecordType::MX), {0x00});
-    EXPECT_THROW((DNS::RecordParser::parse_strings(response)), DnsLookupException);
+    EXPECT_THROW((void)(DNS::RecordParser::parse_strings(response)), DnsLookupException);
 }
 
 TEST(DnsParserTest, ParseSoaRecord_ShortRdata_Throws) {
     // SOA requires 2 names + 20 bytes of integers.
     auto response = make_response_with_rdata(static_cast<std::uint16_t>(DNS::RecordType::SOA), {0x00, 0x00});
-    EXPECT_THROW((DNS::RecordParser::parse_strings(response)), DnsLookupException);
+    EXPECT_THROW((void)(DNS::RecordParser::parse_strings(response)), DnsLookupException);
 }
 
 TEST(DnsParserTest, ParseSrvRecord_ShortRdata_Throws) {
     // SRV requires 6 fixed bytes + at least a root label.
     auto response = make_response_with_rdata(static_cast<std::uint16_t>(DNS::RecordType::SRV), {0x00, 0x00});
-    EXPECT_THROW((DNS::RecordParser::parse_strings(response)), DnsLookupException);
+    EXPECT_THROW((void)(DNS::RecordParser::parse_strings(response)), DnsLookupException);
 }
 
 TEST(DnsParserTest, ParseSoaRecord_NamesPastRdata_Throws) {
@@ -1079,7 +1079,7 @@ TEST(DnsParserTest, ParseSoaRecord_NamesPastRdata_Throws) {
     std::vector<std::uint8_t> mname;
     encode_name(mname, "very-long-name.example.com");
     auto response = make_response_with_rdata(static_cast<std::uint16_t>(DNS::RecordType::SOA), mname, 22);
-    EXPECT_THROW((DNS::RecordParser::parse_strings(response)), DnsLookupException);
+    EXPECT_THROW((void)(DNS::RecordParser::parse_strings(response)), DnsLookupException);
 }
 
 TEST(DnsParserTest, DecompressName_ExpandedTooLong_Throws) {
@@ -1655,7 +1655,7 @@ TEST(DnsParserTest, ParseMxRecord_NameExtendsPastRdata_Throws) {
     auto response = make_response_with_rdata(
         static_cast<std::uint16_t>(DNS::RecordType::MX),
         {0x00, 0x0A, 0x03, 'a', 'b', 'c', 0x00}, 5);
-    EXPECT_THROW((DNS::RecordParser::parse_strings(response)), DnsLookupException);
+    EXPECT_THROW((void)(DNS::RecordParser::parse_strings(response)), DnsLookupException);
 }
 
 TEST(DnsParserTest, ParseSoaRecord_TruncatedRdata_Throws) {
@@ -1667,7 +1667,7 @@ TEST(DnsParserTest, ParseSoaRecord_TruncatedRdata_Throws) {
     rdata.insert(rdata.end(), 12, 0x00);
     auto response = make_response_with_rdata(
         static_cast<std::uint16_t>(DNS::RecordType::SOA), rdata);
-    EXPECT_THROW((DNS::RecordParser::parse_strings(response)), DnsLookupException);
+    EXPECT_THROW((void)(DNS::RecordParser::parse_strings(response)), DnsLookupException);
 }
 
 TEST(DnsParserTest, ParseSrvRecord_TargetExtendsPastRdata_Throws) {
@@ -1675,7 +1675,7 @@ TEST(DnsParserTest, ParseSrvRecord_TargetExtendsPastRdata_Throws) {
     auto response = make_response_with_rdata(
         static_cast<std::uint16_t>(DNS::RecordType::SRV),
         {0x00, 0x0A, 0x00, 0x14, 0x1F, 0x90, 0x03, 's', 'r', 'v', 0x00}, 7);
-    EXPECT_THROW((DNS::RecordParser::parse_strings(response)), DnsLookupException);
+    EXPECT_THROW((void)(DNS::RecordParser::parse_strings(response)), DnsLookupException);
 }
 
 // ===========================================================================
@@ -1786,7 +1786,7 @@ TEST(DnsParserTest, UnsupportedRecordType_ThrowsWithQuestionMark) {
     EXPECT_THROW(
         {
             try {
-                DNS::RecordParser::parse_strings(response);
+                (void)DNS::RecordParser::parse_strings(response);
             } catch (const DnsLookupException &e) {
                 EXPECT_NE(std::string(e.what()).find("?"), std::string::npos);
                 throw;

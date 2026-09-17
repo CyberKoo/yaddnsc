@@ -98,10 +98,8 @@ TEST(InterfaceIpSourceTest, Resolve_Loopback_Unspecified_ContainsBothFamilies) {
     ASSERT_FALSE(addrs.empty());
 
     bool has_v4 = false;
-    bool has_v6 = false;
     for (const auto &addr : addrs) {
         if (addr.get_family() == AddressFamily::IPV4) has_v4 = true;
-        if (addr.get_family() == AddressFamily::IPV6) has_v6 = true;
     }
 
     EXPECT_TRUE(has_v4) << "127.0.0.1";

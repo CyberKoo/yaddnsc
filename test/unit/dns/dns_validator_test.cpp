@@ -39,32 +39,6 @@
 
 namespace {
 
-    /// Build a minimal DNS query for "example.com" type A.
-    /// Returns 16 bytes: 12-byte header + 4-byte question.
-    std::array<std::uint8_t, 16> make_query(std::uint16_t txid = 0x1234) {
-        std::array<std::uint8_t, 16> buf{};
-
-        // Transaction ID
-        buf[0] = static_cast<std::uint8_t>(txid >> 8);
-        buf[1] = static_cast<std::uint8_t>(txid & 0xFF);
-
-        // Flags: standard query (0x0100 = recursive desired)
-        buf[2] = 0x01;
-        buf[3] = 0x00;
-
-        // QDCOUNT = 1
-        buf[4] = 0x00;
-        buf[5] = 0x01;
-
-        // Question: \x07example\x03com\x00
-        buf[12] = 7;
-        buf[13] = 'e';
-        buf[14] = 'x';
-        buf[15] = 'a';
-        // ... This gets complex. Let's use a simpler approach below.
-        return buf;
-    }
-
     /// Build a proper minimal query with \x07example\x03com\x00 QNAME.
     /// Total: 12 (header) + 13 (QNAME) + 4 (QTYPE+QCLASS) = 29 bytes.
     std::vector<std::uint8_t> make_query_example(std::uint16_t txid = 0x1234) {

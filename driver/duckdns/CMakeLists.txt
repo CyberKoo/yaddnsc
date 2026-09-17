@@ -1,2 +1,2 @@
 add_library(duckdns MODULE duckdns.cpp)
-target_link_libraries(duckdns PRIVATE yaddnsc_sdk)
+target_link_libraries(duckdns PRIVATE yaddnsc_plugin_sdk)

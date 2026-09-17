@@ -438,14 +438,6 @@ TEST(HttpClientExchange, ConnectionLost_MapsToConnectionLost) {
 
 namespace {
 
-std::pair<int, std::multimap<std::string, std::string>> redirect(const int status, std::string location) {
-    std::multimap<std::string, std::string> headers;
-    if (!location.empty()) {
-        headers.emplace("Location", std::move(location));
-    }
-    return {status, std::move(headers)};
-}
-
 net::http::protocol::WireRequest post_request() {
     net::http::protocol::WireRequest req{
         .method = Method::POST,

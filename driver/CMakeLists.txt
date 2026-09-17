@@ -5,14 +5,28 @@ cmake_minimum_required(VERSION 3.22...3.31 FATAL_ERROR)
 # ==============================================================================
 add_custom_target(drivers)
 
-# discover all driver subdirectories
-file(GLOB DRIVER_DIRS "./*" LIST_DIRECTORIES true)
-foreach (DIR_NAME ${DRIVER_DIRS})
-  if (IS_DIRECTORY ${DIR_NAME})
-    get_filename_component(DRIVER_NAME ${DIR_NAME} NAME)
+# The set of bundled drivers is an explicit, auditable list — no directory
+# globbing. Runtime auto-discovery (skipping foreign libraries in the driver
+# directory) is unaffected by this build-time list.
+set(YADDNSC_DRIVERS
+    alibaba_cloud
+    cloudflare
+    digital_ocean
+    dnspod
+    duckdns
+    godaddy
+    linode
+    namecheap
+    porkbun
+    route53
+    simple
+    vultr
+)
+
+foreach (DRIVER_NAME ${YADDNSC_DRIVERS})
     message(STATUS "Build driver ${DRIVER_NAME}")
 
-    add_subdirectory(${DIR_NAME})
+    add_subdirectory(${DRIVER_NAME})
 
     # Skip configuration if the subdirectory did not create a target
     # (e.g. optional dependency not found).
@@ -61,5 +75,4 @@ foreach (DIR_NAME ${DRIVER_DIRS})
       install(TARGETS ${DRIVER_NAME} LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}/yaddnsc/drivers)
 
     endif ()
-  endif ()
 endforeach ()

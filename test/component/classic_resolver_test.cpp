@@ -517,7 +517,7 @@ TEST_F(ClassicNativeResolverTest, TcpConnectFailureAfterTruncatedUdp) {
     // Skip the question section (QNAME + QTYPE + QCLASS).
     std::size_t q_end = DNS::HEADER_SIZE;
     while (q_end < resp.size() && resp[q_end] != 0) {
-        q_end += 1 + resp[q_end];
+        q_end += 1u + resp[q_end];
     }
     q_end += 5; // root label + QTYPE(2) + QCLASS(2)
 
@@ -622,7 +622,7 @@ TEST_F(ClassicNativeResolverTest, UdpResponseFromUnexpectedSource_IsDiscarded) {
     // Skip the question section (QNAME + QTYPE + QCLASS).
     std::size_t off = DNS::HEADER_SIZE;
     while (off < response.size() && response[off] != 0) {
-        off += 1 + response[off];
+        off += 1u + response[off];
     }
     off += 5; // root label + QTYPE(2) + QCLASS(2)
 

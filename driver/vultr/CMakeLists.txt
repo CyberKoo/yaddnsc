@@ -1,2 +1,2 @@
 add_library(vultr MODULE vultr.cpp)
-target_link_libraries(vultr PRIVATE yaddnsc_sdk)
+target_link_libraries(vultr PRIVATE yaddnsc_plugin_sdk)

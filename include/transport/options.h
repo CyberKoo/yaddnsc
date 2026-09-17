@@ -32,10 +32,10 @@ struct Options {
 
     /// Outbound interface name (SO_BINDTODEVICE, Linux only; ignored
     /// elsewhere).
-    std::optional<std::string> interface;
+    std::optional<std::string> interface{};
 
     /// Restrict name resolution to this address family.
-    std::optional<AddressFamily> address_family;
+    std::optional<AddressFamily> address_family{};
 };
 
 /// TLS-only options. Accepted exclusively by TlsStream / create_tls —
@@ -43,7 +43,7 @@ struct Options {
 struct TlsOptions {
     /// Override the hostname used for SNI and certificate verification.
     /// Default: the connection target host.
-    std::optional<std::string> sni_hostname;
+    std::optional<std::string> sni_hostname{};
 
     /// ALPN protocol bytes (e.g. {2, 'h', '2'}). The stream copies the
     /// bytes at construction.
@@ -54,7 +54,7 @@ struct TlsOptions {
 
     /// Explicit CA bundle path. Default: automatic discovery
     /// (Utils::Cert::discover_ca_bundle), then OpenSSL default paths.
-    std::optional<std::string> ca_bundle;
+    std::optional<std::string> ca_bundle{};
 };
 
 } // namespace Transport

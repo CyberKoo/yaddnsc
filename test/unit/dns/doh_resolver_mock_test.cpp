@@ -104,11 +104,11 @@ public:
                 // Lazily append the body once the query has been captured, so
                 // the response echoes the query's transaction ID.
                 if (!body_appended_ && !captured_.empty()) {
-                    auto body = body_;
+                    auto body_copy = body_;
                     const auto id = query_id();
-                    body[0] = id.first;
-                    body[1] = id.second;
-                    script_.insert(script_.end(), body.begin(), body.end());
+                    body_copy[0] = id.first;
+                    body_copy[1] = id.second;
+                    script_.insert(script_.end(), body_copy.begin(), body_copy.end());
                     body_appended_ = true;
                 }
                 if (pos_ >= script_.size()) {

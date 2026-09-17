@@ -24,6 +24,9 @@ function(add_benchmark name)
         magic_enum
         glaze::glaze
     )
+    # Production module targets are sanitizer-instrumented; benchmarks that
+    # link them need matching flags.
+    add_sanitizer_flags(bench_${name})
     target_include_directories(bench_${name} PRIVATE
         ${PROJECT_SOURCE_DIR}/include
         ${PROJECT_SOURCE_DIR}/src
@@ -41,10 +44,8 @@ endfunction()
 #  DNS parser benchmark
 # ============================================================================
 
-add_benchmark(dns_parser
-    SOURCE dns_parser_bench.cpp
-    SOURCES ${PROJECT_SOURCE_DIR}/src/dns/parser.cpp
-)
+add_benchmark(dns_parser)
+target_link_libraries(bench_dns_parser PRIVATE yaddnsc_dns_infrastructure)
 
 # ============================================================================
 #  URI benchmarks  (Uri is in test_support)
@@ -65,17 +66,15 @@ add_benchmark(string_util)
 add_benchmark(inet_address)
 
 # ============================================================================
-#  SocketAddr benchmarks  (needs socket_addr.cpp)
+#  SocketAddr benchmarks
 # ============================================================================
 
-add_benchmark(socket_addr
-    SOURCES ${PROJECT_SOURCE_DIR}/src/network/socket_addr.cpp
-)
+add_benchmark(socket_addr)
+target_link_libraries(bench_socket_addr PRIVATE yaddnsc_network)
 
 # ============================================================================
-#  DNS QueryBuilder benchmarks  (needs builder.cpp)
+#  DNS QueryBuilder benchmarks
 # ============================================================================
 
-add_benchmark(builder
-    SOURCES ${PROJECT_SOURCE_DIR}/src/dns/wire/builder.cpp
-)
+add_benchmark(builder)
+target_link_libraries(bench_builder PRIVATE yaddnsc_dns_infrastructure)

@@ -104,3 +104,22 @@ install(
     FILES ${CMAKE_SOURCE_DIR}/template/fish/yaddnsc.fish
     DESTINATION ${YADDNSC_FISH_COMPLETION_DIR}
 )
+
+# ==============================================================================
+# Plugin SDK — development files for third-party driver authors
+# ==============================================================================
+# Third-party drivers build without the host sources. Distribution choice:
+#   - SDK headers (the v1 alpha C ABI + C++ helper layer) install as headers;
+#   - yaddnsc_plugin_crypto ships AS SOURCE so the plugin compiles it with
+#     its own toolchain flags (PIC/sanitizer choices always match the plugin
+#     itself, never the host build).
+install(
+    DIRECTORY ${CMAKE_SOURCE_DIR}/include/yaddnsc/sdk
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/yaddnsc
+)
+install(
+    FILES
+        ${CMAKE_SOURCE_DIR}/plugin_crypto/signing.h
+        ${CMAKE_SOURCE_DIR}/plugin_crypto/signing.cpp
+    DESTINATION ${CMAKE_INSTALL_DATADIR}/yaddnsc/plugin-sdk/plugin_crypto
+)

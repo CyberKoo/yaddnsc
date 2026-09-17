@@ -33,12 +33,28 @@ cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --parallel
 ```
 
-The driver target links only `yaddnsc_sdk`:
+The driver target links only `yaddnsc_plugin_sdk`:
 
 ```cmake
 add_library(<name> MODULE <name>.cpp)
-target_link_libraries(<name> PRIVATE yaddnsc_sdk)
+target_link_libraries(<name> PRIVATE yaddnsc_plugin_sdk)
 ```
+
+## SDK distribution
+
+The SDK is installed alongside the host so third-party drivers can build
+without the host sources:
+
+- headers: `<prefix>/include/yaddnsc/sdk/` (the C ABI + C++ helper layer);
+- crypto helpers: `<prefix>/share/yaddnsc/plugin-sdk/plugin_crypto/`
+  (`signing.h` / `signing.cpp`) — shipped as source, so the plugin compiles
+  them with its own toolchain flags (PIC/sanitizer choices always match the
+  plugin itself, never the host build).
+
+The set of bundled drivers is an explicit, auditable list in
+`driver/CMakeLists.txt`; adding a new bundled driver means adding its
+directory to `YADDNSC_DRIVERS` there. Runtime auto-discovery (skipping
+foreign libraries in the driver directory) is unaffected.
 
 ## Driver responsibilities
 

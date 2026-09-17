@@ -1,2 +1,2 @@
 add_library(digital_ocean MODULE digital_ocean.cpp)
-target_link_libraries(digital_ocean PRIVATE yaddnsc_sdk)
+target_link_libraries(digital_ocean PRIVATE yaddnsc_plugin_sdk)

@@ -267,7 +267,7 @@ TEST(SigningTest, Iso8601_Timestamp_Format) {
     EXPECT_EQ(ts[8], 'T');
     EXPECT_EQ(ts[15], 'Z');
     // First 8 chars should be digits (date)
-    for (int i = 0; i < 8; ++i) {
+    for (std::size_t i = 0; i < 8; ++i) {
         EXPECT_GE(ts[i], '0');
         EXPECT_LE(ts[i], '9');
     }

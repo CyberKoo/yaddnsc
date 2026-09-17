@@ -8,7 +8,7 @@
 #     unit/                ←  unit-test targets (pure logic, no I/O)
 #       common/            ←  cross-module base types
 #       config/            ←  configuration tests
-#       core/              ←  core logic tests (scheduler, updater)
+#       core/              ←  core adapter tests (signal watcher, driver loader)
 #       dns/               ←  DNS protocol tests
 #       ip_source/         ←  IP-source abstraction tests (header-only)
 #       network/           ←  network address/path/URI tests
@@ -107,9 +107,10 @@ target_link_libraries(test_support PUBLIC
 )
 
 # ---------------------------------------------------------------------------
-# yaddnsc_test_config  —  light-weight compile config for test targets.
-# Unlike yaddnsc_compile_config, this does NOT propagate -Werror or other
-# strict compile options, so pre-existing test warnings don't block CI.
+# yaddnsc_test_config  —  compile config for test targets.
+# Test targets inherit the same strict warnings as production code
+# (via yaddnsc_warnings); pre-existing test warnings must be fixed,
+# not silenced.
 # ---------------------------------------------------------------------------
 add_library(yaddnsc_test_config INTERFACE)
 target_include_directories(yaddnsc_test_config INTERFACE
@@ -122,32 +123,38 @@ target_compile_definitions(yaddnsc_test_config INTERFACE
     $<$<BOOL:${YADDNSC_USE_STD_FORMAT}>:YADDNSC_USE_STD_FORMAT>
 )
 target_link_libraries(yaddnsc_test_config INTERFACE
+    yaddnsc_warnings
     glaze::glaze
     spdlog::spdlog
     magic_enum
 )
 
 # ---------------------------------------------------------------------------
-# yaddnsc_prod_all  —  the production OBJECT libraries plus their third-party
-# dependencies, bundled for test targets.
+# yaddnsc_prod_all  —  all production module targets, bundled for test
+# targets that exercise the full application stack.
 #
-# Architecture rule: new and migrated test targets link the production
-# targets instead of compiling hand-picked production .cpp files.
+# Architecture rule: test targets link the production module targets
+# instead of compiling hand-picked production .cpp files.
 #
-# The objects are attached as INTERFACE sources: linking an OBJECT library
-# transitively through an INTERFACE library would drop its object files
-# (they only attach to direct link dependencies), so $<TARGET_OBJECTS:...>
-# is forwarded explicitly.  Consumers get the full application stack and
-# must be given sanitizer link flags via add_sanitizer_flags().
+# The production modules are static libraries built with sanitizer
+# instrumentation, so consumers must be given sanitizer link flags —
+# add_unit_test does this unconditionally.
 # ---------------------------------------------------------------------------
 add_library(yaddnsc_prod_all INTERFACE)
-foreach(objlib
-        yaddnsc_config yaddnsc_domain yaddnsc_application yaddnsc_core yaddnsc_plugin_host yaddnsc_network yaddnsc_net_transport
-        yaddnsc_http_client yaddnsc_cli yaddnsc_composition yaddnsc_dns yaddnsc_ip_source yaddnsc_util)
-    target_sources(yaddnsc_prod_all INTERFACE $<TARGET_OBJECTS:${objlib}>)
-endforeach()
 target_link_libraries(yaddnsc_prod_all INTERFACE
-    BS_thread_pool CLI11::CLI11 OpenSSL::SSL OpenSSL::Crypto picohttpparser ${CMAKE_DL_LIBS}
+    yaddnsc_config_infrastructure
+    yaddnsc_domain
+    yaddnsc_application
+    yaddnsc_core
+    yaddnsc_plugin_infrastructure
+    yaddnsc_network
+    yaddnsc_net_transport
+    yaddnsc_http_client
+    yaddnsc_cli_adapter
+    yaddnsc_composition
+    yaddnsc_dns_infrastructure
+    yaddnsc_ip_source_infrastructure
+    yaddnsc_util
 )
 
 # ============================================================================
@@ -174,6 +181,10 @@ function(add_unit_test name)
         yaddnsc_test_config
         GTest::gtest_main
     )
+    # Production module targets are sanitizer-instrumented; every test binary
+    # gets matching flags so linking any of them (and dlopen'ing sanitized
+    # driver .so files) works uniformly.
+    add_sanitizer_flags(test_${name})
     target_include_directories(test_${name} PRIVATE
         ${PROJECT_SOURCE_DIR}/test
     )
@@ -202,6 +213,17 @@ add_subdirectory(driver)
 
 # Plugin contract tests (v1 alpha C ABI; dlopen a whiteboard test plugin)
 add_subdirectory(plugin)
+
+# ============================================================================
+# architecture_guard — static boundary checks (include hygiene for
+# domain/application, plugin surface purity, no host-symbol backfill).
+# Textual checks only; see cmake/ArchitectureGuard.cmake.
+# ============================================================================
+add_test(NAME architecture_guard
+    COMMAND ${CMAKE_COMMAND}
+        -DPROJECT_SOURCE_DIR=${PROJECT_SOURCE_DIR}
+        -P ${PROJECT_SOURCE_DIR}/cmake/ArchitectureGuard.cmake
+)
 
 # ============================================================================
 # tests  —  top-level convenience target to build all test executables

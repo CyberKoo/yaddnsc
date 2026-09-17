@@ -54,13 +54,13 @@ namespace {
     /// systemd-resolved).
     [[nodiscard]] std::string generate_uuid() {
         auto &eng = Utils::Random::engine();
-        std::uniform_int_distribution<int> hex_dist(0, 15);
-        std::uniform_int_distribution<int> variant_dist(0, 3);
+        std::uniform_int_distribution<std::size_t> hex_dist(0, 15);
+        std::uniform_int_distribution<std::size_t> variant_dist(0, 3);
 
         const char *hex_chars = "0123456789abcdef";
         // UUID format: 8-4-4-4-12 = 36 chars
         std::string uuid(36, '\0');
-        for (int i = 0; i < 36; ++i) {
+        for (std::size_t i = 0; i < 36; ++i) {
             if (i == 8 || i == 13 || i == 18 || i == 23) {
                 uuid[i] = '-';
             } else if (i == 14) {

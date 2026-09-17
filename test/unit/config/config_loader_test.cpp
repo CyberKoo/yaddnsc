@@ -30,8 +30,11 @@
     if (fd < 0) {
         throw std::runtime_error("Failed to create temp file");
     }
-    ::write(fd, content.data(), content.size());
+    const auto written = ::write(fd, content.data(), content.size());
     ::close(fd);
+    if (written < 0 || static_cast<size_t>(written) != content.size()) {
+        throw std::runtime_error("Failed to write temp config file");
+    }
     return template_path;
 }
 

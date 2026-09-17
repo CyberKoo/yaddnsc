@@ -75,6 +75,28 @@ licenses, and security advisories.
 
 ## CI and warning gates
 
-The repository also runs compiler/platform matrices and dedicated warning gates.
-Those workflow details belong to the CI configuration and are intentionally not
-part of the end-user README.
+The repository runs compiler/platform matrices and dedicated warning gates.
+End-user build instructions live in the README; this section documents what
+the workflows actually cover.
+
+`ci.yml` (push/PR):
+
+- `linux-amd64` — GCC Debug + full test suite (includes the plugin contract
+  tests and the `architecture_guard` boundary checks);
+- `linux-amd64-musl`, `macos-arm64` — platform matrix (glibc/musl/macOS);
+- `conversion-gate` (PR only) — `-Wconversion -Wsign-conversion` build;
+- `benchmark` (PR only) — Google Benchmark smoke run;
+- `plugin-contract` — builds the whiteboard test plugin and runs the dlopen /
+  Host Services ABI contract tests explicitly.
+
+`nightly.yml`:
+
+- `linux-arm64`, Release + `system-spdlog` feature flags, `Sanitizer` build
+  type (ASan/UBSan, never combined with Release), and coverage (trend
+  observation via Codecov, not a hard gate);
+- `linux-amd64-clang` is present but **disabled** (`if: false`) because it is
+  too slow — the platform matrix does NOT currently include Clang.
+
+Strict warnings (`-Wall -Wextra -Wpedantic -Wshadow -Werror`) apply to
+production targets and test targets alike; test warnings are fixed, not
+silenced.
