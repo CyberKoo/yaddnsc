@@ -10,6 +10,7 @@
 #ifndef YADDNSC_TEST_MOCKS_FAKE_TASK_EXECUTOR_H
 #define YADDNSC_TEST_MOCKS_FAKE_TASK_EXECUTOR_H
 
+#include <atomic>
 #include <chrono>
 #include <condition_variable>
 #include <cstddef>
@@ -33,7 +34,7 @@ public:
         return true;
     }
 
-    void wait_idle() override {}
+    void wait_idle() override { wait_idle_calls_.fetch_add(1); }
 
     void shutdown() override {
         std::lock_guard lock(mtx_);
@@ -56,11 +57,17 @@ public:
         return shutdown_;
     }
 
+    /// How often wait_idle() was called (the lifecycle drains exactly once).
+    [[nodiscard]] int wait_idle_calls() const {
+        return wait_idle_calls_.load();
+    }
+
 private:
     mutable std::mutex mtx_;
     std::condition_variable cv_;
     std::vector<domain::UpdateTask> submitted_;
     bool shutdown_{false};
+    std::atomic<int> wait_idle_calls_{0};
 };
 
 #endif // YADDNSC_TEST_MOCKS_FAKE_TASK_EXECUTOR_H

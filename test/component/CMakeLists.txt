@@ -34,19 +34,19 @@ add_unit_test(cert_util_override SOURCE cert_util_override_test.cpp
 target_link_libraries(test_cert_util_override PRIVATE OpenSSL::Crypto)
 
 # ============================================================================
-#  CLI layer — parse_and_dispatch + subcommand executors
-#  (config show/test, driver list/info, dns resolve/resolver, interface, info)
+#  CLI layer + composition root — pure parser tests, presenter output,
+#  diagnostics over fake ports, and Composition::dispatch golden paths
+#  (config show/test, driver list/info, dns resolver, interface, info)
 #
-#  Requires a built driver .so (simple) for the config-test executor and the
-#  driver subcommands; dns resolve uses a stub resolver (no network).
+#  Requires a built driver .so (simple) for the config-test and driver
+#  dispatch paths; dns resolve is exercised through port mocks (no network).
 # ============================================================================
 
 add_unit_test(cli SOURCE cli_test.cpp)
 target_link_libraries(test_cli PRIVATE yaddnsc_prod_all GTest::gmock)
 target_compile_definitions(test_cli PRIVATE
-    TEST_DRIVER_DIR="${CMAKE_BINARY_DIR}/driver")
-# The loaded driver .so resolves CoreLogger symbols from the host executable.
-set_target_properties(test_cli PROPERTIES ENABLE_EXPORTS ON)
+    TEST_DRIVER_DIR="${CMAKE_BINARY_DIR}/driver"
+    YADDNSC_TEMPLATE_DIR="${PROJECT_SOURCE_DIR}/template")
 # The driver .so is built with sanitizers — the test binary must be too.
 add_sanitizer_flags(test_cli)
 # simple.so must be built before the test runs (dlopen dependency).
@@ -120,25 +120,25 @@ add_sanitizer_flags(test_factory_mdns)
 set_tests_properties(test_factory_mdns PROPERTIES RESOURCE_LOCK "mdns-multicast")
 
 # ============================================================================
-#  Manager lifecycle  (observable shutdown sequence)
+#  RunLifecycle — the run command's lifecycle object (observable shutdown)
 #
-#  Real Manager + real "simple" driver .so through the production dlopen path,
-#  with fake DNS (fixed wire response) and a blocking fake HttpClient.
+#  Pure-fake shutdown-sequence tests (FakeClock + recording executor), plus
+#  the full run graph with the real "simple" driver .so through the
+#  production dlopen path, fake DNS (fixed wire response) and a blocking fake
+#  HttpClient.
 #  Locks: stop → no new dispatch → in-flight drained → run() returns →
 #  driver module unloaded only afterwards.
 # ============================================================================
 
-add_unit_test(manager_lifecycle SOURCE manager_lifecycle_test.cpp)
-target_link_libraries(test_manager_lifecycle PRIVATE yaddnsc_prod_all GTest::gmock)
-target_compile_definitions(test_manager_lifecycle PRIVATE
+add_unit_test(run_lifecycle SOURCE run_lifecycle_test.cpp)
+target_link_libraries(test_run_lifecycle PRIVATE yaddnsc_prod_all GTest::gmock)
+target_compile_definitions(test_run_lifecycle PRIVATE
     TEST_DRIVER_DIR="${CMAKE_BINARY_DIR}/driver")
-# The loaded driver .so resolves CoreLogger symbols from the host executable.
-set_target_properties(test_manager_lifecycle PROPERTIES ENABLE_EXPORTS ON)
 # The driver .so is built with sanitizers — the test binary must be too.
-add_sanitizer_flags(test_manager_lifecycle)
+add_sanitizer_flags(test_run_lifecycle)
 # simple.so must be built before the test runs (dlopen dependency).
-add_dependencies(test_manager_lifecycle simple)
-set_tests_properties(test_manager_lifecycle PROPERTIES
+add_dependencies(test_run_lifecycle simple)
+set_tests_properties(test_run_lifecycle PROPERTIES
     ENVIRONMENT "ASAN_OPTIONS=detect_odr_violation=0:detect_stack_use_after_return=1:strict_string_checks=1:detect_invalid_pointer_pairs=2")
 
 # ============================================================================

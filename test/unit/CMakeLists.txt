@@ -87,14 +87,18 @@ add_unit_test(pool_task_executor SOURCE application/pool_task_executor_test.cpp)
 target_link_libraries(test_pool_task_executor PRIVATE yaddnsc_prod_all GTest::gmock glaze::glaze)
 add_sanitizer_flags(test_pool_task_executor)
 
+# environment_validator — driver-loaded / interface-exists checks against
+# fake catalog / interface ports
+add_unit_test(environment_validator SOURCE application/environment_validator_test.cpp)
+target_link_libraries(test_environment_validator PRIVATE yaddnsc_prod_all GTest::gmock glaze::glaze)
+add_sanitizer_flags(test_environment_validator)
+
 # ============================================================================
 #  config/  —  configuration parsing, types, and validation
 # ============================================================================
 
 add_unit_test(config_parser     SOURCE config/config_parser_test.cpp)
 add_unit_test(config_types      SOURCE config/config_types_test.cpp)
-add_unit_test(config_validator  SOURCE config/config_validator_test.cpp
-    ${PROJECT_SOURCE_DIR}/src/network/net_devices.cpp)
 
 # normalizer — raw AppConfig → domain::RuntimeConfig mapping
 add_unit_test(config_normalizer SOURCE config/normalizer_test.cpp

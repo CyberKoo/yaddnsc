@@ -1,19 +1,22 @@
 //
-// Component test: Manager lifecycle — locks the observable shutdown sequence:
+// Component test: RunLifecycle — locks the observable shutdown sequence:
 //
 //   stop signal
 //   → scheduler stops dispatching new tasks
 //   → in-flight task finishes (or is cancelled) before run() returns
 //   → thread pool is drained before the driver module can be unloaded
 //
-// Uses a fake DNS resolver (fixed wire response), a blocking fake HttpClient
-// and the real "simple" driver .so loaded through the production dlopen path.
-// No real provider or network access is involved; the fake client intercepts
-// every exchange before any socket is opened.
+// Two levels of doubles:
+//   - FakeClock / FakeTaskExecutor / NullLogger / fake interfaces: the stop →
+//     cancel-I/O → shutdown → drain sequence without any real I/O;
+//   - the full run graph (real "simple" driver .so through the production
+//     dlopen path, fake DNS with a fixed wire response, blocking fake
+//     HttpClient): drain ordering with real plugins, exactly as the
+//     composition root wires it. No real provider or network access.
 //
-// This test intentionally does NOT use a fake clock: the initial deadline is
-// "now", the rescheduled deadline is one hour out, and blocking latches —
-// not sleeps — order the two threads.
+// The full-graph tests intentionally do NOT use a fake clock: the initial
+// deadline is "now", the rescheduled deadline is one hour out, and blocking
+// latches — not sleeps — order the threads.
 // =============================================================================
 
 #include <atomic>
@@ -32,7 +35,16 @@
 
 #include <glaze/glaze.hpp>
 
-#include "core/manager.h"
+#include "application/pool_task_executor.h"
+#include "application/run_lifecycle.h"
+#include "application/update_workflow.h"
+#include "core/driver_loader.h"
+#include "core/spdlog_logger.h"
+#include "core/steady_clock.h"
+#include "infrastructure/plugin/abi_driver_gateway.h"
+#include "infrastructure/plugin/driver_catalog.h"
+#include "ip_source/adapter.h"
+#include "network/system_network_interfaces.h"
 
 #include "config/config.h"
 #include "config/normalizer.h"
@@ -41,8 +53,13 @@
 #include "interface/http_client.h"
 #include "ip_source/iface.h"
 #include "ip_source/iface_util.h"
+#include "util/cancellation_token.hpp"
 
+#include "mocks/fake_clock.h"
+#include "mocks/fake_task_executor.h"
+#include "mocks/mock_ports.h"
 #include "mocks/mock_resolver.h"
+#include "mocks/null_logger.h"
 
 namespace {
 
@@ -150,12 +167,64 @@ private:
            R"(","driver_param":{"url":"http://127.0.0.1/update?ip={ip_addr}"}}]}]})";
 }
 
+/// The run graph, assembled exactly as the composition root does: catalog +
+/// loader, gateway over the injected HttpClient factory, workflow, executor.
+/// Construction order is the member declaration order (config first; the
+/// cancellation source before every token consumer).
+struct RunGraph {
+    RunGraph(domain::RuntimeConfig config, ResolverDispatcher dispatcher, HttpClientFactory http_factory)
+        : config_(std::make_shared<const domain::RuntimeConfig>(std::move(config))),
+          dispatcher_(std::move(dispatcher)),
+          ip_source_(cancel_src_->token()),
+          gateway_(catalog_, std::move(http_factory), cancel_src_->token(), logger_),
+          workflow_(dispatcher_, ip_source_, gateway_, logger_),
+          executor_(2, workflow_) {
+        DriverLoader::load(catalog_, config_->driver);
+    }
+
+    std::shared_ptr<const domain::RuntimeConfig> config_;
+    std::shared_ptr<Utils::CancellationSource> cancel_src_{std::make_shared<Utils::CancellationSource>()};
+    SpdlogLogger logger_;
+    DriverCatalog catalog_;
+    SteadyClock clock_;
+    SystemNetworkInterfaces interfaces_;
+    ResolverDispatcher dispatcher_;
+    IpSourceAdapter ip_source_;
+    AbiDriverGateway gateway_;
+    UpdateWorkflow workflow_;
+    PoolTaskExecutor executor_;
+};
+
+/// Minimal runtime config for the fake-graph tests: one domain, one
+/// subdomain, a one-hour interval (only the initial "now" dispatch fires).
+[[nodiscard]] domain::RuntimeConfig fake_graph_config() {
+    domain::RuntimeConfig config;
+    config.domains.push_back(domain::DomainConfig{
+        .name = "example.com",
+        .update_interval = 3600,
+        .force_update = 0,
+        .driver = "any",
+        .subdomains = {{
+            domain::SubdomainConfig{
+                .name = "www",
+                .type = RecordKind::A,
+                .ip_source = Config::IpSource::HTTP,
+                .ip_source_param = "https://api.ipify.org",
+                .update_interval = 3600,
+            },
+        }},
+    });
+    return config;
+}
+
+const domain::TimePoint T0{std::chrono::seconds{10000}};
+
 } // namespace
 
 // stop while one task is blocked in HTTP: run() must keep waiting until the
 // in-flight task finishes, return promptly afterwards (the next deadline is an
 // hour away), and never dispatch again.
-TEST(ManagerLifecycle, StopDrainsInFlightTaskBeforeReturning) {
+TEST(RunLifecycle, StopDrainsInFlightTaskBeforeReturning) {
     const auto interface_name = find_ipv4_interface();
     if (!interface_name) {
         GTEST_SKIP() << "no interface with an IPv4 address on this host";
@@ -165,13 +234,14 @@ TEST(ManagerLifecycle, StopDrainsInFlightTaskBeforeReturning) {
     auto state = std::make_shared<BlockingHttpState>();
     HttpClientFactory http_factory = [state] { return std::make_unique<BlockingHttpClient>(state); };
 
-    Manager manager(parse_cfg(lifecycle_config(*interface_name)), stop_source, make_dispatcher(), http_factory);
-    manager.load_drivers();
+    RunGraph graph(parse_cfg(lifecycle_config(*interface_name)), make_dispatcher(), http_factory);
+    RunLifecycle lifecycle(graph.config_, stop_source, graph.cancel_src_, graph.clock_, graph.executor_,
+                           graph.interfaces_, graph.logger_);
 
     std::promise<void> run_done;
     auto run_future = run_done.get_future();
     std::jthread runner([&] {
-        manager.run();
+        lifecycle.run();
         run_done.set_value();
     });
 
@@ -197,12 +267,12 @@ TEST(ManagerLifecycle, StopDrainsInFlightTaskBeforeReturning) {
     // The in-flight task ran to completion before run() returned.
     EXPECT_TRUE(state->completed.load());
 
-    // ~Manager() now unloads the driver module after the pool has drained;
-    // ASan/UBSan flag any use-after-dlclose in this ordering.
+    // Destroying the graph now unloads the driver module after the pool has
+    // drained; ASan/UBSan flag any use-after-dlclose in this ordering.
 }
 
 // stop requested before run(): no task is ever dispatched.
-TEST(ManagerLifecycle, StopBeforeRunDispatchesNothing) {
+TEST(RunLifecycle, StopBeforeRunDispatchesNothing) {
     const auto interface_name = find_ipv4_interface();
     if (!interface_name) {
         GTEST_SKIP() << "no interface with an IPv4 address on this host";
@@ -212,18 +282,79 @@ TEST(ManagerLifecycle, StopBeforeRunDispatchesNothing) {
     auto state = std::make_shared<BlockingHttpState>();
     HttpClientFactory http_factory = [state] { return std::make_unique<BlockingHttpClient>(state); };
 
-    Manager manager(parse_cfg(lifecycle_config(*interface_name)), stop_source, make_dispatcher(), http_factory);
-    manager.load_drivers();
+    RunGraph graph(parse_cfg(lifecycle_config(*interface_name)), make_dispatcher(), http_factory);
+    RunLifecycle lifecycle(graph.config_, stop_source, graph.cancel_src_, graph.clock_, graph.executor_,
+                           graph.interfaces_, graph.logger_);
 
     stop_source.request_stop();
 
     std::promise<void> run_done;
     auto run_future = run_done.get_future();
     std::jthread runner([&] {
-        manager.run();
+        lifecycle.run();
         run_done.set_value();
     });
 
     ASSERT_EQ(run_future.wait_for(10s), std::future_status::ready) << "run() blocked despite a pre-requested stop";
     EXPECT_EQ(state->calls.load(), 0);
+}
+
+// stop → I/O cancellation fires, the executor is shut down and drained, and
+// the runner never dispatches again — observed through pure port fakes.
+TEST(RunLifecycle, StopCancelsIoAndDrainsExecutor) {
+    auto config = std::make_shared<const domain::RuntimeConfig>(fake_graph_config());
+    auto cancel_src = std::make_shared<Utils::CancellationSource>();
+    NullLogger logger;
+    FakeClock clock{T0};
+    FakeTaskExecutor executor;
+    MockNetworkInterfaces interfaces;
+    ON_CALL(interfaces, names()).WillByDefault(Return(std::vector<std::string>{"lo"}));
+
+    std::stop_source stop_source;
+    RunLifecycle lifecycle(config, stop_source, cancel_src, clock, executor, interfaces, logger);
+
+    std::promise<void> run_done;
+    auto run_future = run_done.get_future();
+    std::jthread runner([&] {
+        lifecycle.run();
+        run_done.set_value();
+    });
+
+    // Initial deadline == now: the first task is dispatched immediately, then
+    // the runner parks on the fake clock one hour out.
+    ASSERT_TRUE(executor.wait_submitted(1));
+
+    stop_source.request_stop();
+
+    ASSERT_EQ(run_future.wait_for(10s), std::future_status::ready) << "run() did not return after stop";
+
+    // The stop → I/O-cancel binding fired.
+    EXPECT_TRUE(cancel_src->is_triggered());
+    // The executor was shut down (rejecting further submits) and drained once.
+    EXPECT_TRUE(executor.is_shutdown());
+    EXPECT_EQ(executor.wait_idle_calls(), 1);
+    // The one-hour-out reschedule never dispatched.
+    EXPECT_EQ(executor.submitted().size(), 1);
+}
+
+// A stop requested before run() still triggers I/O cancellation immediately
+// (the binding is established at construction).
+TEST(RunLifecycle, PreStopCancelsIoBeforeRun) {
+    auto config = std::make_shared<const domain::RuntimeConfig>(fake_graph_config());
+    auto cancel_src = std::make_shared<Utils::CancellationSource>();
+    NullLogger logger;
+    FakeClock clock{T0};
+    FakeTaskExecutor executor;
+    MockNetworkInterfaces interfaces;
+    ON_CALL(interfaces, names()).WillByDefault(Return(std::vector<std::string>{"lo"}));
+
+    std::stop_source stop_source;
+    RunLifecycle lifecycle(config, stop_source, cancel_src, clock, executor, interfaces, logger);
+
+    stop_source.request_stop();
+    EXPECT_TRUE(cancel_src->is_triggered());
+
+    lifecycle.run();
+    EXPECT_TRUE(executor.is_shutdown());
+    EXPECT_TRUE(executor.submitted().empty());
 }

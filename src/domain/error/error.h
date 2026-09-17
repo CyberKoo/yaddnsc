@@ -17,9 +17,10 @@
 /// parallel DnsError skeleton is defined here.
 namespace domain {
 
-/// Static configuration error (shape, values, field combinations).
-/// Environment failures (driver not loaded, interface missing) are validated
-/// separately and keep throwing ConfigVerificationException.
+/// Configuration error. `Code` covers both static checks (shape, values,
+/// field combinations) and environment checks (driver loaded, interface
+/// present); the environment checks are performed against ports by the
+/// application-level environment validator.
 struct ConfigError {
     enum class Code {
         EMPTY_DOMAIN_NAME,     ///< Domain name must not be empty
@@ -34,6 +35,8 @@ struct ConfigError {
         MDNS_NOT_LOCAL,        ///< mDNS param does not end with .local
         MDNS_BAD_RECORD_TYPE,  ///< mDNS source requires type a/aaaa
         INVALID_RESOLVER,      ///< Resolver address is not a valid IP/URI
+        DRIVER_NOT_FOUND,      ///< Referenced driver plugin is not loaded
+        INTERFACE_NOT_FOUND,   ///< Referenced network interface does not exist
     };
 
     Code code;

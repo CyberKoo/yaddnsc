@@ -281,11 +281,13 @@ add_library(yaddnsc_application OBJECT
     src/application/update_workflow.cpp
     src/application/scheduler_runner.cpp
     src/application/pool_task_executor.cpp
+    src/application/run_lifecycle.cpp
+    src/application/diagnostics.cpp
+    src/application/environment_validator.cpp
 )
 target_link_libraries(yaddnsc_application PRIVATE yaddnsc_compile_config)
 
 add_library(yaddnsc_core OBJECT
-    src/core/manager.cpp
     src/core/driver_loader.cpp
     src/core/signal_watcher.cpp
     src/core/spdlog_logger.cpp
@@ -309,6 +311,7 @@ add_library(yaddnsc_network OBJECT
     src/network/net_devices.cpp
     src/network/socket.cpp
     src/network/socket_addr.cpp
+    src/network/system_network_interfaces.cpp
     src/network/uri.cpp
 )
 target_link_libraries(yaddnsc_network PRIVATE yaddnsc_compile_config)
@@ -336,14 +339,16 @@ target_link_libraries(yaddnsc_http_client PRIVATE yaddnsc_compile_config)
 target_link_libraries(yaddnsc_http_client PRIVATE picohttpparser)
 
 add_library(yaddnsc_cli OBJECT
-    src/cli/cli.cpp
-    src/cli/driver.cpp
-    src/cli/interface.cpp
-    src/cli/dns.cpp
-    src/cli/config.cpp
-    src/cli/info.cpp
+    src/cli/parser.cpp
+    src/cli/presenter.cpp
 )
 target_link_libraries(yaddnsc_cli PRIVATE yaddnsc_compile_config)
+
+# Composition root — assembles concrete dependencies and dispatches commands.
+add_library(yaddnsc_composition OBJECT
+    src/composition/bootstrap.cpp
+)
+target_link_libraries(yaddnsc_composition PRIVATE yaddnsc_compile_config)
 
 add_library(yaddnsc_dns OBJECT
     src/dns/error.cpp
@@ -381,7 +386,7 @@ target_sources(yaddnsc_dns PRIVATE
 
 # Sanitizer compile flags on all OBJECT libraries (link flags are a no-op on OBJECT libs
 # and only matter on the final executable, where add_sanitizer_flags is called again).
-foreach(tgt yaddnsc_config yaddnsc_domain yaddnsc_application yaddnsc_core yaddnsc_plugin_host yaddnsc_network yaddnsc_net_transport yaddnsc_http_client yaddnsc_cli yaddnsc_dns yaddnsc_ip_source yaddnsc_util)
+foreach(tgt yaddnsc_config yaddnsc_domain yaddnsc_application yaddnsc_core yaddnsc_plugin_host yaddnsc_network yaddnsc_net_transport yaddnsc_http_client yaddnsc_cli yaddnsc_composition yaddnsc_dns yaddnsc_ip_source yaddnsc_util)
   add_sanitizer_flags(${tgt})
 endforeach()
 
@@ -399,6 +404,7 @@ add_executable(yaddnsc
     $<TARGET_OBJECTS:yaddnsc_net_transport>
     $<TARGET_OBJECTS:yaddnsc_http_client>
     $<TARGET_OBJECTS:yaddnsc_cli>
+    $<TARGET_OBJECTS:yaddnsc_composition>
     $<TARGET_OBJECTS:yaddnsc_dns>
     $<TARGET_OBJECTS:yaddnsc_ip_source>
     $<TARGET_OBJECTS:yaddnsc_util>

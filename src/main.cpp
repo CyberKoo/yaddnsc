@@ -6,63 +6,38 @@
 
 #include <spdlog/spdlog.h>
 
-#include "cli/cli.h"
-#include "core/manager.h"
-#include "core/signal_watcher.h"
-#include "config/config.h"
-#include "config/static_validator.h"
+#include "cli/parser.h"
+#include "composition/bootstrap.h"
 #include "logging_pattern.h"
 #include "exception/base.h"
 #include "exception/config_verification.h"
 
 // ===========================================================================
-// main — DDNS client entry point.
+// main — DDNS client entry point and top-level error boundary.
 //
 // Flow:
-//   1. Parse CLI arguments via Cli::parse_and_dispatch().
-//   2. If the command is RUN, load config, set up the signal watcher,
-//      build the Manager, and enter the scheduler loop.
-//   3. Non-RUN commands (driver list, dns resolve, etc.) are handled
-//      entirely within the CLI layer and exit before reaching this code.
-//
-// All exceptions are caught at this top level and logged as fatal errors.
+//   1. Parse argv into a Cli::Command (pure parsing — no side effects).
+//      --help/--version and parse errors are consumed by the parser.
+//   2. Install the logging pattern, then hand the command to the
+//      composition root (Composition::dispatch), the only place where
+//      concrete dependencies are assembled.
+//   3. Exceptions escaping the RUN path are caught here and logged as
+//      fatal errors; diagnostic commands map their own failures to
+//      stderr text and exit codes inside dispatch.
 // ===========================================================================
 
 int main(int argc, char *argv[]) {
-    const auto outcome = Cli::parse_and_dispatch(argc, argv);
+    const auto parsed = Cli::parse(argc, argv);
+    if (!parsed.command.has_value()) {
+        return parsed.exit_code;
+    }
 
-    // Global logging initialisation.
+    // Global logging pattern (levels are set per command: run -d, config
+    // test -q).
     spdlog::set_pattern(std::string{YADDNSC_LOGGING_PATTERN});
-    spdlog::set_level(outcome.verbose ? spdlog::level::debug : spdlog::level::info);
 
-    if (!outcome.should_run) {
-        return outcome.exit_code;
-    }
-
-    // ── RUN flow ──────────────────────────────────────────────────────────
-    if (outcome.verbose) {
-        SPDLOG_DEBUG("Verbose mode enabled");
-    }
-
-    SignalWatcher::install();
     try {
-        const auto raw_config = Config::load_config(outcome.config_path);
-
-        // Static validation + normalisation: report the first error with the
-        // same output shape as the legacy ConfigVerificationException path.
-        auto config = Config::validate_and_normalize(raw_config);
-        if (!config.has_value()) {
-            SPDLOG_CRITICAL(config.error().front().message);
-            return EXIT_FAILURE;
-        }
-
-        SignalWatcher signal_watcher;
-
-        Manager manager(std::move(*config), signal_watcher.get_stop_source());
-        manager.load_drivers();
-        manager.validate_config();
-        manager.run();
-        return EXIT_SUCCESS;
+        return Composition::dispatch(*parsed.command);
     } catch (const ConfigVerificationException &e) {
         SPDLOG_CRITICAL(e.what());
     } catch (const YaddnscException &e) {

@@ -77,3 +77,17 @@ const DriverDescriptor &DriverCatalog::get_descriptor(std::string_view name) con
     }
     throw DriverNotFoundException(fmt::format("Driver '{}' is not loaded", name));
 }
+
+std::vector<std::string> DriverCatalog::loaded_drivers() const {
+    return get_loaded_drivers();
+}
+
+DriverDescription DriverCatalog::describe(std::string_view name) const {
+    const auto &descriptor = get_descriptor(name);
+    return DriverDescription{
+        .name = descriptor.name,
+        .version = descriptor.version,
+        .author = descriptor.author,
+        .description = descriptor.description,
+    };
+}

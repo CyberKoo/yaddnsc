@@ -15,7 +15,7 @@
 /// @code
 ///   1. SignalWatcher::install();                   // once at process start
 ///   2. SignalWatcher watcher;                      // starts watching thread
-///   3. Manager manager(config, watcher.get_stop_source());
+///   3. hand watcher.get_stop_source() to the run lifecycle
 /// @endcode
 ///
 /// The constructor checks that install() was called beforehand and throws

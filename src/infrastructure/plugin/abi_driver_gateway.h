@@ -44,9 +44,9 @@ using HttpClientFactory = std::function<std::unique_ptr<HttpClient>()>;
 class AbiDriverGateway final : public DriverGateway {
 public:
     /// @param catalog       Loaded-plugin registry (non-owning; must outlive
-    ///                      the gateway — it does in Manager::Impl).
+    ///                      the gateway — it does in the composition root).
     /// @param http_factory  Factory creating one HttpClient per update call.
-    /// @param cancel_token  Manager-wide I/O cancellation signal.
+    /// @param cancel_token  Process-wide I/O cancellation signal.
     /// @param logger        Log port receiving plugin log records.
     AbiDriverGateway(const DriverCatalog &catalog, HttpClientFactory http_factory,
                      Utils::CancellationToken cancel_token, const Logger &logger);

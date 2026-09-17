@@ -13,16 +13,21 @@
 
 #include "plugin_loader.h"
 
+#include "application/ports/driver_catalog.h"
+
 /// DriverCatalog — name → loaded-plugin registry (replaces DriverManager).
 ///
 /// Modules are held through shared_ptr so that an in-flight update keeps its
 /// module alive (a lease) even if the entry is concurrently removed from the
 /// catalog.
 ///
+/// The application layer sees the catalog through the DriverCatalogPort
+/// interface (loaded_drivers / describe); load/unload stay on this class.
+///
 /// @note Not thread-safe for mutation, same as the legacy DriverManager: the
 ///       catalog is populated during initialisation and read-only during the
 ///       run loop.
-class DriverCatalog {
+class DriverCatalog : public DriverCatalogPort {
 public:
     /// Load a driver plugin from the given filesystem path.
     /// A duplicate driver name is skipped with a warning (kept behaviour).
@@ -43,6 +48,13 @@ public:
     /// Look up a loaded driver's descriptor.
     /// @throws DriverNotFoundException  If no driver with that name is loaded.
     [[nodiscard]] const DriverDescriptor &get_descriptor(std::string_view name) const;
+
+    /// DriverCatalogPort: names of all currently loaded drivers.
+    [[nodiscard]] std::vector<std::string> loaded_drivers() const override;
+
+    /// DriverCatalogPort: value-copy description of one loaded driver.
+    /// @throws DriverNotFoundException  If no driver with that name is loaded.
+    [[nodiscard]] DriverDescription describe(std::string_view name) const override;
 
 private:
     std::map<std::string, std::shared_ptr<const PluginModule>, std::less<>> modules_;
