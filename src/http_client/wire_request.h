@@ -14,10 +14,10 @@
 #include <string>
 #include <string_view>
 
-#include "http_client/error.h"
+#include "http/error.h"
 #include "network/transport/io_error.h"
 #include "http_client/protocol/wire.h"
-#include "http_client/types.h"
+#include "http/types.h"
 #include "uri.h"
 
 namespace net::http {

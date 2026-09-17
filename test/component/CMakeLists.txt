@@ -10,6 +10,10 @@
 # They do NOT require external network access or privileged operations.
 # They are NOT "unit tests" — they validate that individual components
 # operate correctly against the real OS environment on loopback.
+#
+# Phase 2 note: migrated targets link the production OBJECT libraries via
+# yaddnsc_prod_all (defined in ../CMakeLists.txt) instead of compiling
+# hand-picked production .cpp files.
 # ==============================================================================
 
 # The add_unit_test macro is inherited from ../CMakeLists.txt.
@@ -37,26 +41,8 @@ target_link_libraries(test_cert_util_override PRIVATE OpenSSL::Crypto)
 #  driver subcommands; dns resolve uses a stub resolver (no network).
 # ============================================================================
 
-add_unit_test(cli SOURCE cli_test.cpp
-    ${PROJECT_SOURCE_DIR}/src/cli/cli.cpp
-    ${PROJECT_SOURCE_DIR}/src/cli/config.cpp
-    ${PROJECT_SOURCE_DIR}/src/cli/dns.cpp
-    ${PROJECT_SOURCE_DIR}/src/cli/driver.cpp
-    ${PROJECT_SOURCE_DIR}/src/cli/interface.cpp
-    ${PROJECT_SOURCE_DIR}/src/cli/info.cpp
-    ${PROJECT_SOURCE_DIR}/src/config/config.cpp
-    ${PROJECT_SOURCE_DIR}/src/config/normalizer.cpp
-    ${PROJECT_SOURCE_DIR}/src/config/static_validator.cpp
-    ${PROJECT_SOURCE_DIR}/src/core/driver_loader.cpp
-    ${PROJECT_SOURCE_DIR}/src/core/driver_manager.cpp
-    ${PROJECT_SOURCE_DIR}/src/core/core_logger.cpp
-    ${PROJECT_SOURCE_DIR}/src/dns/dispatcher.cpp
-    ${PROJECT_SOURCE_DIR}/src/dns/parser.cpp
-    ${PROJECT_SOURCE_DIR}/src/dns/factory.cpp
-    ${PROJECT_SOURCE_DIR}/src/dns/resolver_registry.cpp
-    ${PROJECT_SOURCE_DIR}/src/ip_source/iface_util.cpp
-    ${PROJECT_SOURCE_DIR}/src/network/net_devices.cpp)
-target_link_libraries(test_cli PRIVATE GTest::gmock glaze::glaze CLI11::CLI11 OpenSSL::Crypto ${CMAKE_DL_LIBS})
+add_unit_test(cli SOURCE cli_test.cpp)
+target_link_libraries(test_cli PRIVATE yaddnsc_prod_all GTest::gmock)
 target_compile_definitions(test_cli PRIVATE
     TEST_DRIVER_DIR="${CMAKE_BINARY_DIR}/driver")
 # The loaded driver .so resolves CoreLogger symbols from the host executable.
@@ -107,14 +93,13 @@ add_sanitizer_flags(test_http_test)
 # ============================================================================
 #  mDNS responder + IpSourceFactory  (loopback multicast)
 #
-# Requires the full DNS + IP-source dependency chain (same as test_updater)
-# but tests factory creation and mDNS resolution independently.
+# Requires the DNS + IP-source dependency chain but tests factory creation
+# and mDNS resolution independently of the update workflow.
 # ============================================================================
 
 add_unit_test(factory_mdns SOURCE factory_mdns_test.cpp
     ${PROJECT_SOURCE_DIR}/src/dns/dispatcher.cpp
     ${PROJECT_SOURCE_DIR}/src/dns/parser.cpp
-    ${PROJECT_SOURCE_DIR}/src/core/updater.cpp
     ${PROJECT_SOURCE_DIR}/src/ip_source/factory.cpp
     ${PROJECT_SOURCE_DIR}/src/ip_source/iface.cpp
     ${PROJECT_SOURCE_DIR}/src/ip_source/http.cpp
@@ -143,33 +128,8 @@ set_tests_properties(test_factory_mdns PROPERTIES RESOURCE_LOCK "mdns-multicast"
 #  driver module unloaded only afterwards.
 # ============================================================================
 
-add_unit_test(manager_lifecycle SOURCE manager_lifecycle_test.cpp
-    ${PROJECT_SOURCE_DIR}/src/core/manager.cpp
-    ${PROJECT_SOURCE_DIR}/src/core/scheduler.cpp
-    ${PROJECT_SOURCE_DIR}/src/core/updater.cpp
-    ${PROJECT_SOURCE_DIR}/src/core/driver_loader.cpp
-    ${PROJECT_SOURCE_DIR}/src/core/driver_manager.cpp
-    ${PROJECT_SOURCE_DIR}/src/core/core_logger.cpp
-    ${PROJECT_SOURCE_DIR}/src/config/config.cpp
-    ${PROJECT_SOURCE_DIR}/src/config/normalizer.cpp
-    ${PROJECT_SOURCE_DIR}/src/dns/dispatcher.cpp
-    ${PROJECT_SOURCE_DIR}/src/dns/parser.cpp
-    ${PROJECT_SOURCE_DIR}/src/dns/factory.cpp
-    ${PROJECT_SOURCE_DIR}/src/dns/resolver_registry.cpp
-    ${PROJECT_SOURCE_DIR}/src/network/uri.cpp
-    ${PROJECT_SOURCE_DIR}/src/ip_source/factory.cpp
-    ${PROJECT_SOURCE_DIR}/src/ip_source/iface.cpp
-    ${PROJECT_SOURCE_DIR}/src/ip_source/http.cpp
-    ${PROJECT_SOURCE_DIR}/src/ip_source/mdns.cpp
-    ${PROJECT_SOURCE_DIR}/src/ip_source/mdns_response.cpp
-    ${PROJECT_SOURCE_DIR}/src/ip_source/iface_util.cpp
-    ${PROJECT_SOURCE_DIR}/src/network/socket.cpp
-    ${PROJECT_SOURCE_DIR}/src/network/socket_addr.cpp
-    ${PROJECT_SOURCE_DIR}/src/network/net_devices.cpp
-    ${PROJECT_SOURCE_DIR}/src/util/cert_util.cpp
-    ${PROJECT_SOURCE_DIR}/src/dns/wire/builder.cpp)
-target_link_libraries(test_manager_lifecycle PRIVATE
-    GTest::gmock glaze::glaze yaddnsc_http_client yaddnsc_net_transport OpenSSL::Crypto BS_thread_pool ${CMAKE_DL_LIBS})
+add_unit_test(manager_lifecycle SOURCE manager_lifecycle_test.cpp)
+target_link_libraries(test_manager_lifecycle PRIVATE yaddnsc_prod_all GTest::gmock)
 target_compile_definitions(test_manager_lifecycle PRIVATE
     TEST_DRIVER_DIR="${CMAKE_BINARY_DIR}/driver")
 # The loaded driver .so resolves CoreLogger symbols from the host executable.
@@ -188,19 +148,12 @@ set_tests_properties(test_manager_lifecycle PROPERTIES
 # using the ClassicResolver.  Verifies A/AAAA resolution and error handling.
 # ============================================================================
 
-add_unit_test(classic_resolver SOURCE classic_resolver_test.cpp
-    ${PROJECT_SOURCE_DIR}/src/dns/resolver/classic.cpp
-    ${PROJECT_SOURCE_DIR}/src/dns/resolver_registry.cpp
-    ${PROJECT_SOURCE_DIR}/src/dns/error.cpp
-    ${PROJECT_SOURCE_DIR}/src/network/socket.cpp
-    ${PROJECT_SOURCE_DIR}/src/network/socket_addr.cpp
-    ${PROJECT_SOURCE_DIR}/src/dns/wire/builder.cpp
-    ${PROJECT_SOURCE_DIR}/src/network/inet_address.cpp
-    ${PROJECT_SOURCE_DIR}/src/network/uri.cpp)
+add_unit_test(classic_resolver SOURCE classic_resolver_test.cpp)
+target_link_libraries(test_classic_resolver PRIVATE yaddnsc_prod_all)
+add_sanitizer_flags(test_classic_resolver)
 target_compile_definitions(test_classic_resolver PRIVATE
     TEST_DATA_DIR="${PROJECT_SOURCE_DIR}/test/component"
 )
-target_link_libraries(test_classic_resolver PRIVATE OpenSSL::Crypto)
 
 # ============================================================================
 #  net::transport  (new transport layer — TcpStream + TlsStream)
@@ -249,12 +202,8 @@ target_link_libraries(test_net_http_client PRIVATE OpenSSL::SSL OpenSSL::Crypto 
 # and edge cases (timeout, malformed, zero-length responses).
 # ============================================================================
 
-add_unit_test(dot_resolver SOURCE dot_resolver_test.cpp
-    ${PROJECT_SOURCE_DIR}/src/dns/resolver/dot.cpp
-    ${PROJECT_SOURCE_DIR}/src/dns/resolver_registry.cpp
-    ${PROJECT_SOURCE_DIR}/src/dns/wire/builder.cpp
-    ${PROJECT_SOURCE_DIR}/src/util/cert_util.cpp)
-target_link_libraries(test_dot_resolver PRIVATE yaddnsc_net_transport OpenSSL::SSL OpenSSL::Crypto)
+add_unit_test(dot_resolver SOURCE dot_resolver_test.cpp)
+target_link_libraries(test_dot_resolver PRIVATE yaddnsc_prod_all)
 add_sanitizer_flags(test_dot_resolver)
 target_compile_definitions(test_dot_resolver PRIVATE
     TEST_DATA_DIR="${PROJECT_SOURCE_DIR}/test/component"
@@ -268,12 +217,8 @@ target_compile_definitions(test_dot_resolver PRIVATE
 # handling (404, 500), wrong Content-Type, and timeouts.
 # ============================================================================
 
-add_unit_test(doh_resolver SOURCE doh_resolver_test.cpp
-    ${PROJECT_SOURCE_DIR}/src/dns/resolver/doh.cpp
-    ${PROJECT_SOURCE_DIR}/src/dns/resolver_registry.cpp
-    ${PROJECT_SOURCE_DIR}/src/dns/wire/builder.cpp
-    ${PROJECT_SOURCE_DIR}/src/util/cert_util.cpp)
-target_link_libraries(test_doh_resolver PRIVATE yaddnsc_http_client yaddnsc_net_transport OpenSSL::SSL OpenSSL::Crypto picohttpparser)
+add_unit_test(doh_resolver SOURCE doh_resolver_test.cpp)
+target_link_libraries(test_doh_resolver PRIVATE yaddnsc_prod_all)
 add_sanitizer_flags(test_doh_resolver)
 target_compile_definitions(test_doh_resolver PRIVATE
     TEST_DATA_DIR="${PROJECT_SOURCE_DIR}/test/component"

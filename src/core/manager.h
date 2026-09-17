@@ -7,15 +7,11 @@
 
 #include <memory>
 #include <stop_token>
-#include <functional>
 
+#include "cpp_driver_gateway.h"
 #include "domain/config/runtime_config.h"
 
-class HttpClient;
 class ResolverDispatcher;
-
-/// Factory type for creating HttpClient instances on demand.
-using HttpClientFactory = std::function<std::unique_ptr<HttpClient>()>;
 
 /// Top-level orchestrator for the DDNS client lifecycle.
 ///

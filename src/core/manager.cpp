@@ -12,10 +12,9 @@
 #include "config/validator.hpp"
 #include "dns/dispatcher.h"
 #include "dns/factory.h"
+#include "dns/resolver_catalog.h"
 #include "http_client/client.h"
-#include "http_client/stream_factory.h"
-#include "ip_source/base.h"
-#include "ip_source/factory.h"
+#include "ip_source/adapter.h"
 #include "ip_source/iface_util.h"
 #include "util/cancellation_token.hpp"
 #include "version.h"
@@ -23,9 +22,9 @@
 #include "driver_loader.h"
 #include "driver_manager.h"
 #include "scheduler.h"
+#include "spdlog_logger.h"
 #include "updater.h"
 #include "update_task.hpp"
-#include "exception/driver_not_found.h"
 
 #include <BS_thread_pool.hpp>
 #include <spdlog/spdlog.h>
@@ -50,6 +49,15 @@ namespace {
         return std::min(thread_count, 4U);
     }
 
+    /// HTTP client factory bound to the manager's cancellation source: every
+    /// client created from it is cancellable through the same token.
+    [[nodiscard]] HttpClientFactory make_http_client_factory(const std::shared_ptr<Utils::CancellationSource> &src) {
+        return [src] {
+            net::http::Options opts;
+            opts.user_agent = YADDNSC::get_full_version();
+            return std::make_unique<net::http::Client>(std::move(opts), src->token());
+        };
+    }
 } // anonymous namespace
 
 // ---------------------------------------------------------------------------
@@ -70,51 +78,44 @@ struct Manager::Impl {
 
     // IMPORTANT: destruction order is the reverse of declaration order.
     // config_ is declared first because it's needed by dispatcher_'s constructor.
-    // cancel_src_ is declared before every token consumer (updater_, the
-    // factories) so it outlives them all.
+    // cancel_src_ is declared before every token consumer (the IP source
+    // adapter, the HTTP client factory inside driver_gateway_) so it outlives
+    // them all. thread_pool_ is declared after updater_ so the pool drains
+    // before the workflow and its ports are destroyed.
     std::shared_ptr<const domain::RuntimeConfig> config_;
     std::shared_ptr<Utils::CancellationSource> cancel_src_;
+    SpdlogLogger logger_;
     DriverManager driver_manager_;
     ResolverDispatcher dispatcher_;
+    IpSourceAdapter ip_source_;
+    CppDriverGateway driver_gateway_;
     Updater updater_;
     BS::thread_pool<> thread_pool_;
     Scheduler scheduler_;
     std::stop_source stop_source_;
     std::unique_ptr<std::stop_callback<std::function<void()>>> stop_cb_;
-    HttpClientFactory http_client_factory_;
 };
-
-namespace {
-    /// IP-source factory bound to the manager's cancellation source: every
-    /// HTTP IP source created from it is cancellable through the same token.
-    [[nodiscard]] Updater::IpSourceFactory make_ip_source_factory(const std::shared_ptr<Utils::CancellationSource> &src) {
-        return [src](const domain::SubdomainConfig &cfg) { return IpSourceFactory::create(cfg, src->token()); };
-    }
-} // namespace
 
 Manager::Impl::Impl(domain::RuntimeConfig config, std::stop_source stop_source)
     : config_(std::make_shared<const domain::RuntimeConfig>(std::move(config))),
       cancel_src_(std::make_shared<Utils::CancellationSource>()),
-      dispatcher_(DnsResolverFactory::create(config_->resolver, cancel_src_->token())), updater_(dispatcher_, make_ip_source_factory(cancel_src_)),
+      dispatcher_(DnsResolverFactory::create(config_->resolver, cancel_src_->token(), ResolverCatalog::with_builtins())),
+      ip_source_(cancel_src_->token()), driver_gateway_(driver_manager_, make_http_client_factory(cancel_src_)),
+      updater_(dispatcher_, ip_source_, driver_gateway_, logger_),
       thread_pool_(estimate_pool_size(*config_)), scheduler_(config_, stop_source.get_token()),
       stop_source_(std::move(stop_source)) {
     stop_cb_ = std::make_unique<std::stop_callback<std::function<void()>>>(
         stop_source_.get_token(), [src = cancel_src_] { src->trigger(); });
-
-    http_client_factory_ = [src = cancel_src_] {
-        net::http::Options opts;
-        opts.user_agent = YADDNSC::get_full_version();
-        return std::make_unique<net::http::Client>(std::move(opts), src->token());
-    };
 }
 
 Manager::Impl::Impl(domain::RuntimeConfig config, std::stop_source stop_source, ResolverDispatcher dispatcher,
                     HttpClientFactory http_factory)
     : config_(std::make_shared<const domain::RuntimeConfig>(std::move(config))),
-      cancel_src_(std::make_shared<Utils::CancellationSource>()),
-      dispatcher_(std::move(dispatcher)), updater_(dispatcher_, make_ip_source_factory(cancel_src_)),
+      cancel_src_(std::make_shared<Utils::CancellationSource>()), dispatcher_(std::move(dispatcher)),
+      ip_source_(cancel_src_->token()), driver_gateway_(driver_manager_, std::move(http_factory)),
+      updater_(dispatcher_, ip_source_, driver_gateway_, logger_),
       thread_pool_(estimate_pool_size(*config_)), scheduler_(config_, stop_source.get_token()),
-      stop_source_(std::move(stop_source)), http_client_factory_(std::move(http_factory)) {
+      stop_source_(std::move(stop_source)) {
     stop_cb_ = std::make_unique<std::stop_callback<std::function<void()>>>(
         stop_source_.get_token(), [src = cancel_src_] { src->trigger(); });
 }
@@ -137,16 +138,10 @@ void Manager::Impl::run() {
         auto tasks = scheduler_.pop_all_due();
 
         for (auto &task: tasks) {
-            try {
-                auto driver = &driver_manager_.get_driver(std::string(task.driver_name()));
-                thread_pool_.detach_task([this, driver, t = std::move(task)] {
-                    auto http_client = http_client_factory_();
-                    updater_.process(t, *driver, *http_client);
-                });
-            } catch (const DriverNotFoundException &e) {
-                SPDLOG_ERROR("Driver '{}' not found for task '{}', skipping: {}", task.driver_name(), task.fqdn,
-                             e.what());
-            }
+            // Driver resolution now happens inside the gateway, on the worker
+            // thread; a missing driver surfaces as DriverError::NOT_FOUND and
+            // is logged by the Updater with the legacy wording.
+            thread_pool_.detach_task([this, t = std::move(task)] { updater_.process(t); });
         }
 
         if (!scheduler_.wait_for_next()) {

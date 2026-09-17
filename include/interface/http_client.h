@@ -9,8 +9,8 @@
 #include <string>
 #include <string_view>
 
-#include "http_client/error.h"
-#include "http_client/types.h"
+#include "http/error.h"
+#include "http/types.h"
 #include "mixin.h"
 #include "yaddnsc_export.h"
 

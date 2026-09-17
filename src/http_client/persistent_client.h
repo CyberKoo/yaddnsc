@@ -17,10 +17,10 @@
 
 #include "interface/http_client.h"
 
-#include "http_client/error.h"
+#include "http/error.h"
 #include "http_client/session.h"
 #include "http_client/stream_factory.h"
-#include "http_client/types.h"
+#include "http/types.h"
 #include "uri.h"
 
 namespace Utils {

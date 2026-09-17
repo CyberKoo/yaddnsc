@@ -126,6 +126,30 @@ target_link_libraries(yaddnsc_test_config INTERFACE
     magic_enum
 )
 
+# ---------------------------------------------------------------------------
+# yaddnsc_prod_all  —  the production OBJECT libraries plus their third-party
+# dependencies, bundled for test targets.
+#
+# Phase 2 rule (refactor/phase-2-ports-and-infrastructure.md): new and
+# migrated test targets link the production targets instead of compiling
+# hand-picked production .cpp files.
+#
+# The objects are attached as INTERFACE sources: linking an OBJECT library
+# transitively through an INTERFACE library would drop its object files
+# (they only attach to direct link dependencies), so $<TARGET_OBJECTS:...>
+# is forwarded explicitly.  Consumers get the full application stack and
+# must be given sanitizer link flags via add_sanitizer_flags().
+# ---------------------------------------------------------------------------
+add_library(yaddnsc_prod_all INTERFACE)
+foreach(objlib
+        yaddnsc_config yaddnsc_core yaddnsc_network yaddnsc_net_transport
+        yaddnsc_http_client yaddnsc_cli yaddnsc_dns yaddnsc_ip_source yaddnsc_util)
+    target_sources(yaddnsc_prod_all INTERFACE $<TARGET_OBJECTS:${objlib}>)
+endforeach()
+target_link_libraries(yaddnsc_prod_all INTERFACE
+    BS_thread_pool CLI11::CLI11 OpenSSL::SSL OpenSSL::Crypto picohttpparser ${CMAKE_DL_LIBS}
+)
+
 # ============================================================================
 # Helper macro  add_unit_test(<name> [SOURCE <source>] [extra_sources ...])
 #

@@ -41,7 +41,7 @@ namespace {
         // Subcommands that need a config file own their own -c option internally.
         Cli::register_driver_subcommand(app, exit_code);
         Cli::register_interface_subcommand(app, exit_code);
-        Cli::register_dns_subcommand(app, exit_code);
+        Cli::register_dns_subcommand(app, exit_code, ResolverCatalog::with_builtins());
         Cli::register_config_subcommand(app, exit_code);
         Cli::register_info_subcommand(app, exit_code);
     }

@@ -2,8 +2,8 @@
 // Public value types for the net::http client domain.
 //
 
-#ifndef YADDNSC_HTTP_CLIENT_TYPES_H
-#define YADDNSC_HTTP_CLIENT_TYPES_H
+#ifndef YADDNSC_HTTP_TYPES_H
+#define YADDNSC_HTTP_TYPES_H
 
 #include <cstddef>
 #include <map>
@@ -12,7 +12,7 @@
 #include <string>
 #include <string_view>
 
-#include "network/transport/options.h"
+#include "transport/options.h"
 
 namespace net::http {
 
@@ -116,4 +116,4 @@ struct Options {
 
 }  // namespace net::http
 
-#endif  // YADDNSC_HTTP_CLIENT_TYPES_H
+#endif  // YADDNSC_HTTP_TYPES_H

@@ -14,7 +14,7 @@
 #include <optional>
 #include <string>
 
-#include "http_client/types.h"
+#include "http/types.h"
 
 namespace net::http::protocol {
 

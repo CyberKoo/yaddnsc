@@ -1,11 +1,20 @@
 //
-// Updater unit tests — exercises the single-task update pipeline using injected
-// mocks: MockResolver (via ResolverDispatcher), a fake IpSourceBase, MockDriver,
-// and MockHttpClient.
+// Updater unit tests — exercises the single-task update workflow against the
+// application ports: MockDnsResolverPort, MockIpSourcePort, MockDriverGateway
+// and a NullLogger.
+//
+// Behaviour locked here (Phase 0 table):
+//   - IP unchanged            → driver not invoked
+//   - IP changed / DNS fails  → update attempted
+//   - force_update            → DNS comparison skipped
+//   - no candidate address    → update skipped
+//   - driver failure          → logged, never thrown (noexcept boundary)
+// The AAAA link-local/ULA filtering rules live in domain::select_address and
+// are covered exhaustively by domain/address_policy_test.cpp; here only the
+// workflow wiring (subdomain flags → policy) is checked.
 //
 
 #include <memory>
-#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -17,10 +26,7 @@
 
 #include "core/updater.h"
 #include "core/update_task.hpp"
-#include "dns/dispatcher.h"
 
-#include "interface/driver.h"
-#include "ip_source/base.h"
 #include "network/inet_address.h"
 
 #include "config/config.h"
@@ -29,44 +35,13 @@
 #include "config/parser.hpp"
 
 #include "fixtures/sample_config.h"
-#include "mocks/mock_driver.h"
-#include "mocks/mock_http_client.h"
-#include "mocks/mock_resolver.h"
+#include "mocks/mock_ports.h"
+#include "mocks/null_logger.h"
 
 namespace {
 
 using ::testing::_;
 using ::testing::Return;
-
-// ── Fake IP source ────────────────────────────────────────────────────────────
-
-class FakeIpSource : public IpSourceBase {
-public:
-    explicit FakeIpSource(std::vector<InetAddress> addrs)
-        : addrs_(std::make_shared<std::vector<InetAddress>>(std::move(addrs))) {}
-
-    // IpSourceBase is non-copyable (NoCopy), so provide a copy constructor
-    // that shares the underlying address list instead of copying the base.
-    FakeIpSource(const FakeIpSource &other) noexcept : addrs_(other.addrs_) {}
-
-    std::vector<InetAddress> resolve() const override { return *addrs_; }
-
-private:
-    std::shared_ptr<std::vector<InetAddress>> addrs_;
-};
-
-// Factory that returns the shared FakeIpSource regardless of config.
-class FakeIpSourceFactory {
-public:
-    explicit FakeIpSourceFactory(std::shared_ptr<FakeIpSource> src) : src_(std::move(src)) {}
-
-    std::unique_ptr<IpSourceBase> operator()(const domain::SubdomainConfig &) const {
-        return std::make_unique<FakeIpSource>(*src_);
-    }
-
-private:
-    std::shared_ptr<FakeIpSource> src_;
-};
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -103,44 +78,20 @@ template <typename Mutator>
     };
 }
 
-// A MockResolver that returns a fixed A record (192.0.2.1) for any query.
-class FixedAResolver : public MockResolver {
-public:
-    FixedAResolver() {
-        ON_CALL(*this, query(_, _))
-            .WillByDefault(Return(std::vector<std::uint8_t>{
-                0x12, 0x34, 0x81, 0x80, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00,
-                0x07, 'e', 'x', 'a', 'm', 'p', 'l', 'e', 0x03, 'c', 'o', 'm', 0x00,
-                0x00, 0x01, 0x00, 0x01, 0xC0, 0x0C, 0x00, 0x01, 0x00, 0x01,
-                0x00, 0x00, 0x01, 0x2C, 0x00, 0x04, 0xC0, 0x00, 0x02, 0x01}));
-        ON_CALL(*this, get_type()).WillByDefault(Return("Mock"));
-    }
-};
-
-// A MockResolver that always fails (NXDOMAIN-style error).
-class FailingResolver : public MockResolver {
-public:
-    FailingResolver() {
-        ON_CALL(*this, query(_, _))
-            .WillByDefault(Return(std::unexpected(DnsErrorInfo{
-                DnsError::NX_DOMAIN, "domain does not exist"})));
-        ON_CALL(*this, get_type()).WillByDefault(Return("Mock"));
-    }
-};
-
-// Build a ResolverDispatcher from a single resolver (takes ownership).
-// IMPORTANT: the returned dispatcher is stored by *non-owning reference* inside
-// Updater, so callers must keep the returned object alive for the whole test.
-[[nodiscard]] ResolverDispatcher make_dispatcher(std::unique_ptr<ResolverBase> resolver) {
-    std::vector<std::unique_ptr<ResolverBase>> resolvers;
-    resolvers.push_back(std::move(resolver));
-    return ResolverDispatcher(std::move(resolvers), Config::ResolverStrategy::CONCURRENT);
+[[nodiscard]] std::vector<InetAddress> one_v4(std::uint8_t a, std::uint8_t b, std::uint8_t c, std::uint8_t d) {
+    return {InetAddress{Inet4Address::from_bytes({a, b, c, d})}};
 }
 
-// A successful HTTP exchange returning 200.
-std::expected<net::http::Response, net::http::Error> ok_response() {
-    return net::http::Response{200, "ok", {}};
+[[nodiscard]] InetAddress link_local_v6() {
+    return InetAddress{Inet6Address::from_bytes({0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x01})};
 }
+
+struct Ports {
+    MockDnsResolverPort dns;
+    MockIpSourcePort ip_source;
+    MockDriverGateway gateway;
+    NullLogger logger;
+};
 
 } // namespace
 
@@ -150,38 +101,38 @@ TEST(Updater, SkipsUpdateWhenIpUnchanged) {
     auto cfg = parse_cfg(Fixtures::FULL_CONFIG);
     auto task = make_task(cfg);
 
-    auto ip = std::make_shared<FakeIpSource>(
-        std::vector<InetAddress>{Inet4Address::from_bytes({192, 0, 2, 1})});
-    auto dispatcher = make_dispatcher(std::make_unique<FixedAResolver>());
-    Updater updater(dispatcher, FakeIpSourceFactory(ip));
+    Ports ports;
+    EXPECT_CALL(ports.ip_source, resolve(_)).WillOnce(Return(one_v4(192, 0, 2, 1)));
+    EXPECT_CALL(ports.dns, resolve(task.fqdn, RecordKind::A)).WillOnce(Return(std::vector<std::string>{"192.0.2.1"}));
+    EXPECT_CALL(ports.gateway, update(_, _)).Times(0);
 
-    MockDriver driver;
-    MockHttpClient http;
-    EXPECT_CALL(driver, generate_request).Times(0);
-    EXPECT_CALL(http, exchange).Times(0);
-
-    updater.process(task, driver, http);
+    const Updater updater(ports.dns, ports.ip_source, ports.gateway, ports.logger);
+    updater.process(task);
 }
 
-// ── IP changed → driver invoked ───────────────────────────────────────────────
+// ── IP changed → driver invoked with the mapped command ──────────────────────
 
 TEST(Updater, UpdatesWhenIpChanged) {
     auto cfg = parse_cfg(Fixtures::FULL_CONFIG);
     auto task = make_task(cfg);
 
-    // Local IP differs from the DNS record (192.0.2.1), so an update is sent.
-    auto ip = std::make_shared<FakeIpSource>(
-        std::vector<InetAddress>{Inet4Address::from_bytes({198, 51, 100, 1})});
-    auto dispatcher = make_dispatcher(std::make_unique<FixedAResolver>());
-    Updater updater(dispatcher, FakeIpSourceFactory(ip));
+    Ports ports;
+    EXPECT_CALL(ports.ip_source, resolve(_)).WillOnce(Return(one_v4(198, 51, 100, 1)));
+    EXPECT_CALL(ports.dns, resolve(task.fqdn, RecordKind::A)).WillOnce(Return(std::vector<std::string>{"192.0.2.1"}));
+    EXPECT_CALL(ports.gateway, update("cloudflare", _))
+        .WillOnce([&task](std::string_view, const DriverUpdateCommand &cmd)
+                      -> std::expected<void, domain::DriverError> {
+            EXPECT_EQ(cmd.ip_addr, "198.51.100.1");
+            EXPECT_EQ(cmd.rd_type, "A");
+            EXPECT_EQ(cmd.domain, "example.com");
+            EXPECT_EQ(cmd.subdomain, "@");
+            EXPECT_EQ(cmd.fqdn, task.fqdn);
+            EXPECT_FALSE(cmd.driver_param.empty());
+            return {};
+        });
 
-    MockDriver driver;
-    MockHttpClient http;
-    EXPECT_CALL(http, exchange).WillOnce(Return(ok_response()));
-    EXPECT_CALL(driver, generate_request).WillOnce(Return(DriverRequestContext{.url = "https://api.example.com/update", .request = {}}));
-    EXPECT_CALL(driver, check_response).WillOnce(Return(true));
-
-    updater.process(task, driver, http);
+    const Updater updater(ports.dns, ports.ip_source, ports.gateway, ports.logger);
+    updater.process(task);
 }
 
 // ── force_update → DNS comparison skipped ─────────────────────────────────────
@@ -191,19 +142,15 @@ TEST(Updater, ForceUpdateSkipsDnsComparison) {
     auto task = make_task(cfg);
     task.force_update = true;
 
-    auto ip = std::make_shared<FakeIpSource>(
-        std::vector<InetAddress>{Inet4Address::from_bytes({192, 0, 2, 1})});
-    // Even though the IP equals the DNS record, force_update must still update.
-    auto dispatcher = make_dispatcher(std::make_unique<FixedAResolver>());
-    Updater updater(dispatcher, FakeIpSourceFactory(ip));
+    Ports ports;
+    EXPECT_CALL(ports.ip_source, resolve(_)).WillOnce(Return(one_v4(192, 0, 2, 1)));
+    // Even though the IP would equal the DNS record, force_update must still
+    // update — and must not even ask the resolver.
+    EXPECT_CALL(ports.dns, resolve(_, _)).Times(0);
+    EXPECT_CALL(ports.gateway, update(_, _)).WillOnce(Return(std::expected<void, domain::DriverError>{}));
 
-    MockDriver driver;
-    MockHttpClient http;
-    EXPECT_CALL(http, exchange).WillOnce(Return(ok_response()));
-    EXPECT_CALL(driver, generate_request).WillOnce(Return(DriverRequestContext{.url = "https://api.example.com/update", .request = {}}));
-    EXPECT_CALL(driver, check_response).WillOnce(Return(true));
-
-    updater.process(task, driver, http);
+    const Updater updater(ports.dns, ports.ip_source, ports.gateway, ports.logger);
+    updater.process(task);
 }
 
 // ── empty IP source → update skipped ──────────────────────────────────────────
@@ -212,16 +159,13 @@ TEST(Updater, SkipsWhenIpSourceReturnsEmpty) {
     auto cfg = parse_cfg(Fixtures::FULL_CONFIG);
     auto task = make_task(cfg);
 
-    auto ip = std::make_shared<FakeIpSource>(std::vector<InetAddress>{});
-    auto dispatcher = make_dispatcher(std::make_unique<FixedAResolver>());
-    Updater updater(dispatcher, FakeIpSourceFactory(ip));
+    Ports ports;
+    EXPECT_CALL(ports.ip_source, resolve(_)).WillOnce(Return(std::vector<InetAddress>{}));
+    EXPECT_CALL(ports.dns, resolve(_, _)).Times(0);
+    EXPECT_CALL(ports.gateway, update(_, _)).Times(0);
 
-    MockDriver driver;
-    MockHttpClient http;
-    EXPECT_CALL(driver, generate_request).Times(0);
-    EXPECT_CALL(http, exchange).Times(0);
-
-    updater.process(task, driver, http);
+    const Updater updater(ports.dns, ports.ip_source, ports.gateway, ports.logger);
+    updater.process(task);
 }
 
 // ── DNS lookup failure → still attempts update ────────────────────────────────
@@ -230,237 +174,138 @@ TEST(Updater, UpdatesWhenDnsLookupFails) {
     auto cfg = parse_cfg(Fixtures::FULL_CONFIG);
     auto task = make_task(cfg);
 
-    auto ip = std::make_shared<FakeIpSource>(
-        std::vector<InetAddress>{Inet4Address::from_bytes({198, 51, 100, 1})});
-    // Resolver fails → records empty → comparison skipped → update attempted.
-    auto dispatcher = make_dispatcher(std::make_unique<FailingResolver>());
-    Updater updater(dispatcher, FakeIpSourceFactory(ip));
+    Ports ports;
+    EXPECT_CALL(ports.ip_source, resolve(_)).WillOnce(Return(one_v4(198, 51, 100, 1)));
+    EXPECT_CALL(ports.dns, resolve(_, _))
+        .WillOnce(Return(std::unexpected(DnsErrorInfo{DnsError::NX_DOMAIN, "domain does not exist"})));
+    EXPECT_CALL(ports.gateway, update(_, _)).WillOnce(Return(std::expected<void, domain::DriverError>{}));
 
-    MockDriver driver;
-    MockHttpClient http;
-    EXPECT_CALL(http, exchange).WillOnce(Return(ok_response()));
-    EXPECT_CALL(driver, generate_request).WillOnce(Return(DriverRequestContext{.url = "https://api.example.com/update", .request = {}}));
-    EXPECT_CALL(driver, check_response).WillOnce(Return(true));
-
-    updater.process(task, driver, http);
+    const Updater updater(ports.dns, ports.ip_source, ports.gateway, ports.logger);
+    updater.process(task);
 }
 
-// ── driver.execute returns false → no throw (noexcept boundary) ───────────────
+// ── driver reports failure → logged, no throw (noexcept boundary) ─────────────
 
 TEST(Updater, NoThrowWhenDriverReportsFailure) {
     auto cfg = parse_cfg(Fixtures::FULL_CONFIG);
     auto task = make_task(cfg);
 
-    auto ip = std::make_shared<FakeIpSource>(
-        std::vector<InetAddress>{Inet4Address::from_bytes({198, 51, 100, 1})});
-    auto dispatcher = make_dispatcher(std::make_unique<FixedAResolver>());
-    Updater updater(dispatcher, FakeIpSourceFactory(ip));
+    Ports ports;
+    EXPECT_CALL(ports.ip_source, resolve(_)).WillOnce(Return(one_v4(198, 51, 100, 1)));
+    EXPECT_CALL(ports.dns, resolve(_, _)).WillOnce(Return(std::vector<std::string>{"192.0.2.1"}));
+    EXPECT_CALL(ports.gateway, update(_, _))
+        .WillOnce(Return(std::unexpected(
+            domain::DriverError{domain::DriverError::Code::UPDATE_FAILED, "upstream rejected"})));
 
-    MockDriver driver;
-    MockHttpClient http;
-    EXPECT_CALL(http, exchange).WillOnce(Return(ok_response()));
-    EXPECT_CALL(driver, generate_request).WillOnce(Return(DriverRequestContext{.url = "https://api.example.com/update", .request = {}}));
-    EXPECT_CALL(driver, check_response).WillOnce(Return(false));
-
-    EXPECT_NO_THROW(updater.process(task, driver, http));
+    const Updater updater(ports.dns, ports.ip_source, ports.gateway, ports.logger);
+    EXPECT_NO_THROW(updater.process(task));
 }
 
-// ── AAAA + link-local filtering ───────────────────────────────────────────────
+// ── driver not found / driver exception → logged, no throw ────────────────────
+
+TEST(Updater, NoThrowWhenDriverNotFound) {
+    auto cfg = parse_cfg(Fixtures::FULL_CONFIG);
+    auto task = make_task(cfg);
+
+    Ports ports;
+    EXPECT_CALL(ports.ip_source, resolve(_)).WillOnce(Return(one_v4(198, 51, 100, 1)));
+    EXPECT_CALL(ports.dns, resolve(_, _)).WillOnce(Return(std::vector<std::string>{"192.0.2.1"}));
+    EXPECT_CALL(ports.gateway, update(_, _))
+        .WillOnce(Return(std::unexpected(
+            domain::DriverError{domain::DriverError::Code::NOT_FOUND, "driver not loaded"})));
+
+    const Updater updater(ports.dns, ports.ip_source, ports.gateway, ports.logger);
+    EXPECT_NO_THROW(updater.process(task));
+}
+
+TEST(Updater, NoThrowWhenDriverThrowsUnknown) {
+    auto cfg = parse_cfg(Fixtures::FULL_CONFIG);
+    auto task = make_task(cfg);
+
+    Ports ports;
+    EXPECT_CALL(ports.ip_source, resolve(_)).WillOnce(Return(one_v4(198, 51, 100, 1)));
+    EXPECT_CALL(ports.dns, resolve(_, _)).WillOnce(Return(std::vector<std::string>{"192.0.2.1"}));
+    EXPECT_CALL(ports.gateway, update(_, _))
+        .WillOnce(Return(std::unexpected(
+            domain::DriverError{domain::DriverError::Code::UNKNOWN, "Driver configuration parse error: ..."})));
+
+    const Updater updater(ports.dns, ports.ip_source, ports.gateway, ports.logger);
+    EXPECT_NO_THROW(updater.process(task));
+}
+
+// ── AAAA policy wiring: link-local filtered unless allowed ────────────────────
 
 TEST(Updater, FiltersLinkLocalForAaaaWhenNotAllowed) {
     auto cfg = parse_cfg(Fixtures::FULL_CONFIG);
     // The "www" subdomain is type AAAA, interface source, allow_local_link=false.
     auto task = make_task(cfg, 0, 1);
 
+    Ports ports;
     // Only a link-local candidate is available; it must be filtered out.
-    auto ip = std::make_shared<FakeIpSource>(std::vector<InetAddress>{
-        Inet6Address::from_bytes({0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x01})});
-    auto dispatcher = make_dispatcher(std::make_unique<FixedAResolver>());
-    Updater updater(dispatcher, FakeIpSourceFactory(ip));
+    EXPECT_CALL(ports.ip_source, resolve(_)).WillOnce(Return(std::vector<InetAddress>{link_local_v6()}));
+    EXPECT_CALL(ports.gateway, update(_, _)).Times(0);
 
-    MockDriver driver;
-    MockHttpClient http;
-    EXPECT_CALL(driver, generate_request).Times(0);
-    EXPECT_CALL(http, exchange).Times(0);
-
-    updater.process(task, driver, http);
+    const Updater updater(ports.dns, ports.ip_source, ports.gateway, ports.logger);
+    updater.process(task);
 }
 
 TEST(Updater, KeepsLinkLocalForAaaaWhenAllowed) {
-    // The "www" subdomain is type AAAA, interface source, allow_local_link=false.
     auto task = make_task(parse_cfg_mut(Fixtures::FULL_CONFIG, [](Config::AppConfig &cfg) {
         cfg.domains[0].subdomains[1].allow_local_link = true; // override
     }), 0, 1);
 
-    auto ip = std::make_shared<FakeIpSource>(std::vector<InetAddress>{
-        Inet6Address::from_bytes({0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x01})});
-    auto dispatcher = make_dispatcher(std::make_unique<FixedAResolver>());
-    Updater updater(dispatcher, FakeIpSourceFactory(ip));
+    Ports ports;
+    EXPECT_CALL(ports.ip_source, resolve(_)).WillOnce(Return(std::vector<InetAddress>{link_local_v6()}));
+    EXPECT_CALL(ports.dns, resolve(_, _)).WillOnce(Return(std::vector<std::string>{"2001:db8::1"}));
+    EXPECT_CALL(ports.gateway, update(_, _))
+        .WillOnce([](std::string_view, const DriverUpdateCommand &cmd) -> std::expected<void, domain::DriverError> {
+            EXPECT_EQ(cmd.ip_addr, "fe80::1");
+            EXPECT_EQ(cmd.rd_type, "AAAA");
+            return {};
+        });
 
-    MockDriver driver;
-    MockHttpClient http;
-    EXPECT_CALL(http, exchange).WillOnce(Return(ok_response()));
-    EXPECT_CALL(driver, generate_request).WillOnce(Return(DriverRequestContext{.url = "https://api.example.com/update", .request = {}}));
-    EXPECT_CALL(driver, check_response).WillOnce(Return(true));
-
-    updater.process(task, driver, http);
+    const Updater updater(ports.dns, ports.ip_source, ports.gateway, ports.logger);
+    updater.process(task);
 }
 
-// ── IP source throws → swallowed at noexcept boundary ─────────────────────────
+// ── IP source failure arrives as an error value → update skipped ─────────────
+// (The throwing-implementation → error-value conversion is the adapter's
+// contract, covered by ip_source/adapter_test.cpp.)
 
-// ── AAAA + ULA filtering ─────────────────────────────────────────────────────
-
-TEST(Updater, FiltersUlaForAaaaWhenNotAllowed) {
-    auto cfg = parse_cfg(Fixtures::FULL_CONFIG);
-    auto task = make_task(cfg, 0, 1);
-
-    // Only a ULA candidate is available; it must be filtered out.
-    auto ip = std::make_shared<FakeIpSource>(std::vector<InetAddress>{
-        Inet6Address::from_bytes({0xfc, 0x00, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x01})});
-    auto dispatcher = make_dispatcher(std::make_unique<FixedAResolver>());
-    Updater updater(dispatcher, FakeIpSourceFactory(ip));
-
-    MockDriver driver;
-    MockHttpClient http;
-    EXPECT_CALL(driver, generate_request).Times(0);
-    EXPECT_CALL(http, exchange).Times(0);
-
-    updater.process(task, driver, http);
-}
-
-TEST(Updater, KeepsUlaForAaaaWhenAllowed) {
-    auto task = make_task(parse_cfg_mut(Fixtures::FULL_CONFIG, [](Config::AppConfig &cfg) {
-        cfg.domains[0].subdomains[1].allow_ula = true; // override
-    }), 0, 1);
-
-    auto ip = std::make_shared<FakeIpSource>(std::vector<InetAddress>{
-        Inet6Address::from_bytes({0xfc, 0x00, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x01})});
-    auto dispatcher = make_dispatcher(std::make_unique<FixedAResolver>());
-    Updater updater(dispatcher, FakeIpSourceFactory(ip));
-
-    MockDriver driver;
-    MockHttpClient http;
-    EXPECT_CALL(http, exchange).WillOnce(Return(ok_response()));
-    EXPECT_CALL(driver, generate_request).WillOnce(Return(DriverRequestContext{.url = "https://api.example.com/update", .request = {}}));
-    EXPECT_CALL(driver, check_response).WillOnce(Return(true));
-
-    updater.process(task, driver, http);
-}
-
-TEST(Updater, NoThrowWhenIpSourceThrows) {
+TEST(Updater, SkipsWhenIpSourceFails) {
     auto cfg = parse_cfg(Fixtures::FULL_CONFIG);
     auto task = make_task(cfg);
 
-    // A factory that returns a source which throws on resolve().
-    class ThrowingIpSource : public IpSourceBase {
-    public:
-        std::vector<InetAddress> resolve() const override {
-            throw std::runtime_error("interface not found");
-        }
-    };
-    auto factory = [](const domain::SubdomainConfig &) {
-        return std::make_unique<ThrowingIpSource>();
-    };
+    Ports ports;
+    EXPECT_CALL(ports.ip_source, resolve(_))
+        .WillOnce(Return(std::unexpected(
+            domain::IpSourceError{domain::IpSourceError::Code::UNAVAILABLE, "interface not found"})));
+    EXPECT_CALL(ports.dns, resolve(_, _)).Times(0);
+    EXPECT_CALL(ports.gateway, update(_, _)).Times(0);
 
-    auto dispatcher = make_dispatcher(std::make_unique<FixedAResolver>());
-    Updater updater(dispatcher, factory);
-
-    MockDriver driver;
-    MockHttpClient http;
-    EXPECT_CALL(driver, generate_request).Times(0);
-
-    EXPECT_NO_THROW(updater.process(task, driver, http));
+    const Updater updater(ports.dns, ports.ip_source, ports.gateway, ports.logger);
+    EXPECT_NO_THROW(updater.process(task));
 }
 
-// ── Resolver returns NODATA → same as DNS failure, update attempted ─────────
-
-TEST(Updater, UpdatesWhenDnsReturnsNoData) {
-    auto cfg = parse_cfg(Fixtures::FULL_CONFIG);
-    auto task = make_task(cfg);
-
-    auto ip = std::make_shared<FakeIpSource>(
-        std::vector<InetAddress>{Inet4Address::from_bytes({198, 51, 100, 1})});
-
-    // MockResolver that returns NODATA (success response with RCODE=3).
-    class NoDataResolver : public MockResolver {
-    public:
-        NoDataResolver() {
-            // NXDOMAIN response for example.com
-            std::vector<std::uint8_t> nxdomain = {
-                0x12, 0x34, 0x81, 0x83, 0x00, 0x01, 0x00, 0x00,
-                0x00, 0x01, 0x00, 0x00,
-                0x07, 'e', 'x', 'a', 'm', 'p', 'l', 'e',
-                0x03, 'c', 'o', 'm', 0x00,
-                0x00, 0x01, 0x00, 0x01,
-                0xC0, 0x0C, 0x00, 0x06, 0x00, 0x01,
-                0x00, 0x00, 0x00, 0x3C, 0x00, 0x00
-            };
-            ON_CALL(*this, query(_, _))
-                .WillByDefault(Return(nxdomain));
-            ON_CALL(*this, get_type()).WillByDefault(Return("Mock"));
-        }
-    };
-
-    auto dispatcher = make_dispatcher(std::make_unique<NoDataResolver>());
-    Updater updater(dispatcher, FakeIpSourceFactory(ip));
-
-    MockDriver driver;
-    MockHttpClient http;
-    // NODATA → DNS comparison fails → update attempted.
-    EXPECT_CALL(http, exchange).WillOnce(Return(ok_response()));
-    EXPECT_CALL(driver, generate_request)
-        .WillOnce(Return(DriverRequestContext{.url = "https://api.example.com/update", .request = {}}));
-    EXPECT_CALL(driver, check_response).WillOnce(Return(true));
-
-    updater.process(task, driver, http);
-}
-
-// ── Multiple IP candidates → first matching address used ─────────────────────
+// ── Multiple IP candidates → first candidate used ────────────────────────────
 
 TEST(Updater, MultipleIpCandidates_PicksFirst) {
     auto cfg = parse_cfg(Fixtures::FULL_CONFIG);
     auto task = make_task(cfg);
 
-    // Two IPs: first is unrelated, second matches what would trigger an update.
-    auto ip = std::make_shared<FakeIpSource>(std::vector<InetAddress>{
-        Inet4Address::from_bytes({10, 0, 0, 1}),
-        Inet4Address::from_bytes({198, 51, 100, 1}),  // different from DNS (192.0.2.1)
-    });
-    auto dispatcher = make_dispatcher(std::make_unique<FixedAResolver>());
-    Updater updater(dispatcher, FakeIpSourceFactory(ip));
+    Ports ports;
+    EXPECT_CALL(ports.ip_source, resolve(_))
+        .WillOnce(Return(std::vector<InetAddress>{
+            InetAddress{Inet4Address::from_bytes({10, 0, 0, 1})},
+            InetAddress{Inet4Address::from_bytes({198, 51, 100, 1})},
+        }));
+    EXPECT_CALL(ports.dns, resolve(_, _)).WillOnce(Return(std::vector<std::string>{"192.0.2.1"}));
+    EXPECT_CALL(ports.gateway, update(_, _))
+        .WillOnce([](std::string_view, const DriverUpdateCommand &cmd) -> std::expected<void, domain::DriverError> {
+            EXPECT_EQ(cmd.ip_addr, "10.0.0.1");
+            return {};
+        });
 
-    MockDriver driver;
-    MockHttpClient http;
-    EXPECT_CALL(http, exchange).WillOnce(Return(ok_response()));
-    EXPECT_CALL(driver, generate_request)
-        .WillOnce(Return(DriverRequestContext{.url = "https://api.example.com/update", .request = {}}));
-    EXPECT_CALL(driver, check_response).WillOnce(Return(true));
-
-    updater.process(task, driver, http);
-}
-
-// ── Multiple IP candidates, last matches → still picks first matching ────────
-
-TEST(Updater, MultipleIpCandidates_PicksFirstMatching) {
-    auto task = make_task(parse_cfg_mut(Fixtures::FULL_CONFIG, [](Config::AppConfig &cfg) {
-        cfg.domains[0].subdomains[0].type = RecordKind::A;
-    }));
-
-    // Only the third address is a valid IPv4 (first two are IPv6).
-    auto ip = std::make_shared<FakeIpSource>(std::vector<InetAddress>{
-        Inet6Address::from_bytes({0x20, 0x01, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x01}),
-        Inet6Address::from_bytes({0x20, 0x01, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x02}),
-        Inet4Address::from_bytes({198, 51, 100, 1}),
-    });
-    auto dispatcher = make_dispatcher(std::make_unique<FixedAResolver>());
-    Updater updater(dispatcher, FakeIpSourceFactory(ip));
-
-    MockDriver driver;
-    MockHttpClient http;
-    EXPECT_CALL(http, exchange).WillOnce(Return(ok_response()));
-    EXPECT_CALL(driver, generate_request)
-        .WillOnce(Return(DriverRequestContext{.url = "https://api.example.com/update", .request = {}}));
-    EXPECT_CALL(driver, check_response).WillOnce(Return(true));
-
-    updater.process(task, driver, http);
+    const Updater updater(ports.dns, ports.ip_source, ports.gateway, ports.logger);
+    updater.process(task);
 }

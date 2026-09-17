@@ -546,8 +546,23 @@ ResolverDispatcher::ResolverDispatcher(ResolverDispatcher &&) noexcept = default
 
 ResolverDispatcher &ResolverDispatcher::operator=(ResolverDispatcher &&) noexcept = default;
 
+namespace {
+    // Default retry policy for the DnsResolverPort entry point (single-resolver
+    // mode only; multi-resolver strategies ignore retries by design).
+    constexpr std::uint32_t DEFAULT_MAX_RETRIES = 1;
+    constexpr std::uint32_t DEFAULT_BACKOFF_MS = 50;
+} // namespace
+
 std::expected<std::vector<std::string>, DnsErrorInfo>
-ResolverDispatcher::resolve(const std::string &host, RecordKind type, std::uint32_t max_retries,
+ResolverDispatcher::resolve(std::string_view host, RecordKind type) const {
+    return resolve(host, type, DEFAULT_MAX_RETRIES, DEFAULT_BACKOFF_MS);
+}
+
+std::expected<std::vector<std::string>, DnsErrorInfo>
+ResolverDispatcher::resolve(std::string_view host, RecordKind type, std::uint32_t max_retries,
                             std::uint32_t backoff_ms) const {
-    return impl_->resolve(host, type, max_retries, backoff_ms);
+    // The strategy runners predate the port and still operate on std::string;
+    // the copy lives until the synchronous call returns, keeping the internal
+    // const std::string& references valid.
+    return impl_->resolve(std::string(host), type, max_retries, backoff_ms);
 }

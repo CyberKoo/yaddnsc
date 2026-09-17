@@ -5,7 +5,7 @@
 // mDNS test:   sets up a local multicast responder on loopback,
 //              resolves via MdnsIpSource, and verifies the result.
 //
-// These tests share the test_updater target's linker dependencies
+// These tests link the DNS + IP-source dependency chain directly
 // (socket, net_devices, builder, parser, etc.).
 //
 // =============================================================================

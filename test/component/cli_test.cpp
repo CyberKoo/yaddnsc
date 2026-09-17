@@ -16,6 +16,8 @@
 
 #include <gtest/gtest.h>
 
+#include <CLI/CLI.hpp>
+
 #include <atomic>
 #include <cstdio>
 #include <cstdlib>
@@ -42,7 +44,7 @@
 #include "dns/dns_error_info.h"
 #include "dns/factory.h"
 #include "dns/resolver/base.h"
-#include "dns/resolver_registry.h"
+#include "dns/resolver_catalog.h"
 #include "ip_source/iface_util.h"
 #include "record_kind.h"
 #include "util/cancellation_token.hpp"
@@ -51,7 +53,8 @@
 
 // ===========================================================================
 //  Stub resolver — replaces the real "" (classic) resolver so dns resolve
-//  runs entirely in-process.  Behaviour is switched per test.
+//  runs entirely in-process.  The stub catalog is injected into the executor
+//  / subcommand registration; behaviour is switched per test.
 // ===========================================================================
 
 namespace {
@@ -68,8 +71,13 @@ namespace {
         [[nodiscard]] std::string_view get_type() const noexcept override { return "Stub"; }
     };
 
-    [[maybe_unused]] DnsResolverRegistry::Registrar stub_registrar(
-        "", [](const Config::DnsServer &, const Utils::CancellationToken &) { return std::make_unique<StubResolver>(); });
+    /// An instance-level catalog with only the "" schema mapped to the stub.
+    [[nodiscard]] ResolverCatalog make_stub_catalog() {
+        ResolverCatalog catalog;
+        catalog.register_factory(
+            "", [](const Config::DnsServer &, const Utils::CancellationToken &) { return std::make_unique<StubResolver>(); });
+        return catalog;
+    }
 
     /// NOERROR response with zero answers (question: example.com A IN).
     [[nodiscard]] std::vector<std::uint8_t> empty_response() {
@@ -602,7 +610,7 @@ TEST(CliDnsTest, ExecuteResolver_LegacyServer_ReturnsZero) {
 
 TEST(CliDnsTest, ExecuteResolve_UnknownType_ReturnsFailure) {
     TempConfigFile cfg{std::string(RESOLVER_DEFAULT)};
-    EXPECT_EQ(Cli::execute_dns_resolve(cfg.path(), "example.com", "BOGUS"), EXIT_FAILURE);
+    EXPECT_EQ(Cli::execute_dns_resolve(cfg.path(), "example.com", "BOGUS", make_stub_catalog()), EXIT_FAILURE);
 }
 
 TEST(CliDnsTest, ExecuteResolve_Success_ReturnsZero) {
@@ -611,13 +619,13 @@ TEST(CliDnsTest, ExecuteResolve_Success_ReturnsZero) {
                                          std::end(Fixtures::DnsWire::SIMPLE_A_RESPONSE));
     };
     TempConfigFile cfg{std::string(RESOLVER_DEFAULT)};
-    EXPECT_EQ(Cli::execute_dns_resolve(cfg.path(), "example.com", "A"), EXIT_SUCCESS);
+    EXPECT_EQ(Cli::execute_dns_resolve(cfg.path(), "example.com", "A", make_stub_catalog()), EXIT_SUCCESS);
 }
 
 TEST(CliDnsTest, ExecuteResolve_NoRecords_ReturnsZero) {
     g_stub_behavior = [](RecordKind) -> StubResult { return empty_response(); };
     TempConfigFile cfg{std::string(RESOLVER_DEFAULT)};
-    EXPECT_EQ(Cli::execute_dns_resolve(cfg.path(), "example.com", "A"), EXIT_SUCCESS);
+    EXPECT_EQ(Cli::execute_dns_resolve(cfg.path(), "example.com", "A", make_stub_catalog()), EXIT_SUCCESS);
 }
 
 TEST(CliDnsTest, ExecuteResolve_Error_ReturnsZero) {
@@ -625,12 +633,30 @@ TEST(CliDnsTest, ExecuteResolve_Error_ReturnsZero) {
         return std::unexpected(DnsErrorInfo{DnsError::NX_DOMAIN, "Domain example.com does not exist (NXDOMAIN)"});
     };
     TempConfigFile cfg{std::string(RESOLVER_DEFAULT)};
-    EXPECT_EQ(Cli::execute_dns_resolve(cfg.path(), "example.com", "A"), EXIT_SUCCESS);
+    EXPECT_EQ(Cli::execute_dns_resolve(cfg.path(), "example.com", "A", make_stub_catalog()), EXIT_SUCCESS);
 }
 
 // ===========================================================================
-//  dns subcommand — end-to-end via parse_and_dispatch
+//  dns subcommand — end-to-end through the registered subcommand tree
+//
+//  These register the dns tree with the stub catalog on a local CLI::App
+//  (parse_and_dispatch would use the built-in catalog and hit the network).
 // ===========================================================================
+
+namespace {
+    struct DnsCliRun {
+        CLI::App app{"Yet another DDNS client"};
+        int exit_code = EXIT_FAILURE;
+
+        DnsCliRun() { Cli::register_dns_subcommand(app, exit_code, make_stub_catalog()); }
+
+        [[nodiscard]] int run(std::vector<std::string> args) {
+            auto argv = make_argv(std::move(args));
+            app.parse(argv.argc(), argv.data());
+            return exit_code;
+        }
+    };
+} // namespace
 
 TEST(CliDnsTest, Parse_ResolveSubcommand_ReturnsZero) {
     g_stub_behavior = [](RecordKind) -> StubResult {
@@ -638,11 +664,8 @@ TEST(CliDnsTest, Parse_ResolveSubcommand_ReturnsZero) {
                                          std::end(Fixtures::DnsWire::SIMPLE_A_RESPONSE));
     };
     TempConfigFile cfg{std::string(RESOLVER_DEFAULT)};
-    auto argv = make_argv({"yaddnsc", "dns", "resolve", "-c", cfg.path(), "example.com"});
-    const auto outcome = Cli::parse_and_dispatch(argv.argc(), argv.data());
-
-    EXPECT_TRUE(outcome.exit_early);
-    EXPECT_EQ(outcome.exit_code, EXIT_SUCCESS);
+    DnsCliRun cli;
+    EXPECT_EQ(cli.run({"yaddnsc", "dns", "resolve", "-c", cfg.path(), "example.com"}), EXIT_SUCCESS);
 }
 
 TEST(CliDnsTest, Parse_ResolveAlias_ReturnsZero) {
@@ -651,20 +674,15 @@ TEST(CliDnsTest, Parse_ResolveAlias_ReturnsZero) {
                                          std::end(Fixtures::DnsWire::SIMPLE_A_RESPONSE));
     };
     TempConfigFile cfg{std::string(RESOLVER_DEFAULT)};
-    auto argv = make_argv({"yaddnsc", "dns", "r", "-c", cfg.path(), "example.com", "--type", "AAAA"});
-    const auto outcome = Cli::parse_and_dispatch(argv.argc(), argv.data());
-
-    EXPECT_TRUE(outcome.exit_early);
-    EXPECT_EQ(outcome.exit_code, EXIT_SUCCESS);
+    DnsCliRun cli;
+    EXPECT_EQ(cli.run({"yaddnsc", "dns", "r", "-c", cfg.path(), "example.com", "--type", "AAAA"}), EXIT_SUCCESS);
 }
 
 TEST(CliDnsTest, Parse_ResolveInvalidType_Fails) {
     TempConfigFile cfg{std::string(RESOLVER_DEFAULT)};
-    auto argv = make_argv({"yaddnsc", "dns", "resolve", "-c", cfg.path(), "example.com", "--type", "BOGUS"});
-    const auto outcome = Cli::parse_and_dispatch(argv.argc(), argv.data());
-
-    EXPECT_TRUE(outcome.exit_early);
-    EXPECT_NE(outcome.exit_code, EXIT_SUCCESS);
+    DnsCliRun cli;
+    EXPECT_THROW((void) cli.run({"yaddnsc", "dns", "resolve", "-c", cfg.path(), "example.com", "--type", "BOGUS"}),
+                 CLI::ParseError);
 }
 
 TEST(CliDnsTest, Parse_ResolverSubcommand_ReturnsZero) {

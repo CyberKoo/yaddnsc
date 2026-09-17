@@ -49,7 +49,6 @@
 
 #include "config/dns_config.h"
 #include "dns/resolver/classic.h"
-#include "dns/resolver_registry.h"
 #include "dns/dns_error_info.h"
 #include "dns/types.h"
 #include "dns/wire/builder.h"

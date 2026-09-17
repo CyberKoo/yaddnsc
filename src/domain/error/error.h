@@ -49,11 +49,17 @@ struct IpSourceError {
     std::string message;
 };
 
-/// Skeleton (Phase 2/4): one driver update attempt failed.
+/// Driver update failure (one update attempt through the driver gateway).
 /// `retry_after_seconds` is only meaningful when the driver reported
 /// RATE_LIMITED; schedulers ignore it unless Phase 0 approved rescheduling.
 struct DriverError {
-    enum class Code { UPDATE_FAILED, RATE_LIMITED, CANCELLED, UNKNOWN };
+    enum class Code {
+        UPDATE_FAILED, ///< Driver executed but reported failure (e.g. upstream rejected)
+        NOT_FOUND,     ///< Referenced driver is not loaded
+        RATE_LIMITED,  ///< Upstream rate-limited the request (retry_after_seconds set)
+        CANCELLED,     ///< Aborted via cancellation
+        UNKNOWN,       ///< Any other failure (message carries details)
+    };
     Code code;
     std::string message;
     int retry_after_seconds{0};

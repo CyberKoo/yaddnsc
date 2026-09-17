@@ -5,8 +5,8 @@
 // alone are not an error protocol.
 //
 
-#ifndef YADDNSC_HTTP_CLIENT_ERROR_H
-#define YADDNSC_HTTP_CLIENT_ERROR_H
+#ifndef YADDNSC_HTTP_ERROR_H
+#define YADDNSC_HTTP_ERROR_H
 
 #include <string>
 
@@ -37,4 +37,4 @@ struct Error {
 
 }  // namespace net::http
 
-#endif  // YADDNSC_HTTP_CLIENT_ERROR_H
+#endif  // YADDNSC_HTTP_ERROR_H

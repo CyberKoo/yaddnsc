@@ -60,6 +60,27 @@ TEST(DispatcherFallback, ServerRefused_ThenSuccess) {
     EXPECT_EQ((*result)[0], "192.168.1.1");
 }
 
+// ===========================================================================
+//  DnsResolverPort entry point (2-arg resolve with default retry policy)
+// ===========================================================================
+
+TEST(DispatcherPort, TwoArgResolve_AppliesDefaultRetryPolicy) {
+    // The port entry point retries once by default (max_retries = 1): a single
+    // transient failure followed by success must still produce a result.
+    auto r = make_mock();
+    EXPECT_CALL(*r, query(_, _))
+        .WillOnce(Return(err(DnsError::RETRY, "t1")))
+        .WillOnce(Return(ok_a()));
+    std::vector<std::unique_ptr<ResolverBase>> resolvers;
+    resolvers.push_back(std::move(r));
+    ResolverDispatcher disp(std::move(resolvers), Config::ResolverStrategy::CONCURRENT);
+
+    const DnsResolverPort &port = disp; // call through the port interface
+    auto result = port.resolve("example.com", RecordKind::A);
+    ASSERT_TRUE(result.has_value());
+    EXPECT_EQ((*result)[0], "192.168.1.1");
+}
+
 TEST(DispatcherShuffle, AnySucceeds_ReturnsRecords) {
     auto r0 = make_mock();
     auto r1 = make_mock();

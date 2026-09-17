@@ -15,7 +15,6 @@
 #include <vector>
 
 #include "dns/dns_error_info.h"
-#include "dns/resolver_registry.h"
 #include "exception/dns_lookup.h"
 #include "dns/util.hpp"
 #include "dns/validator.h"
@@ -251,26 +250,3 @@ std::expected<std::vector<std::uint8_t>, DnsErrorInfo>
 DohResolver::query(const std::string &host, RecordKind type) const {
     return impl_->query(host, type);
 }
-
-// ===========================================================================
-//  Self-registration
-// ===========================================================================
-
-namespace {
-    // DoH resolver: port is read from the URI only; server.port is intentionally
-    // ignored because the URI already specifies the port (e.g. https://1.1.1.1:1443/dns-query).
-    // If no port is present in the URI, the default is 443.
-    [[maybe_unused]] DnsResolverRegistry::Registrar _doh(
-        "https",
-        [](const Config::DnsServer &server, const Utils::CancellationToken &token) -> std::unique_ptr<ResolverBase> {
-            auto uri = Uri::parse(server.address);
-            auto host = std::string(uri.get_host());
-            auto port = static_cast<std::uint16_t>(uri.get_port() != 0 ? uri.get_port() : 443);
-            auto path = std::string(uri.get_path());
-            if (path.empty()) {
-                path = "/";
-            }
-            return std::make_unique<DohResolver>(std::move(host), port, std::move(path),
-                                                 std::string(uri.get_origin()), token);
-        });
-} // namespace

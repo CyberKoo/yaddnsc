@@ -6,8 +6,8 @@
 // accepted only by TLS streams. Nothing is silently ignored.
 //
 
-#ifndef YADDNSC_TRANSPORT_OPTIONS_H
-#define YADDNSC_TRANSPORT_OPTIONS_H
+#ifndef YADDNSC_TRANSPORT_OPTIONS_PUBLIC_H
+#define YADDNSC_TRANSPORT_OPTIONS_PUBLIC_H
 
 #include <chrono>
 #include <optional>
@@ -59,4 +59,4 @@ struct TlsOptions {
 
 } // namespace Transport
 
-#endif // YADDNSC_TRANSPORT_OPTIONS_H
+#endif // YADDNSC_TRANSPORT_OPTIONS_PUBLIC_H

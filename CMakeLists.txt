@@ -287,6 +287,8 @@ add_library(yaddnsc_core OBJECT
     src/core/scheduler.cpp
     src/core/core_logger.cpp
     src/core/signal_watcher.cpp
+    src/core/spdlog_logger.cpp
+    src/core/cpp_driver_gateway.cpp
 )
 target_link_libraries(yaddnsc_core PRIVATE yaddnsc_compile_config)
 
@@ -307,8 +309,8 @@ add_library(yaddnsc_net_transport OBJECT
 )
 target_link_libraries(yaddnsc_net_transport PRIVATE yaddnsc_compile_config)
 
-# New HTTP client domain (net::http) — greenfield, see http_client_design.md.
-# Compiled during development; not linked into the main executable yet.
+# HTTP client domain (net::http) — linked into the main executable and used
+# by drivers (via HttpClient), the HTTP IP source (PersistentClient) and DoH.
 add_library(yaddnsc_http_client OBJECT
     src/http_client/form_encode.cpp
     src/http_client/protocol/exchange.cpp
@@ -339,7 +341,7 @@ add_library(yaddnsc_dns OBJECT
     src/dns/resolver/doh.cpp
     src/dns/resolver/dot.cpp
     src/dns/factory.cpp
-    src/dns/resolver_registry.cpp
+    src/dns/resolver_catalog.cpp
 )
 target_link_libraries(yaddnsc_dns PRIVATE yaddnsc_compile_config)
 
@@ -350,6 +352,7 @@ add_library(yaddnsc_ip_source OBJECT
     src/ip_source/mdns.cpp
     src/ip_source/mdns_response.cpp
     src/ip_source/factory.cpp
+    src/ip_source/adapter.cpp
 )
 target_link_libraries(yaddnsc_ip_source PRIVATE yaddnsc_compile_config)
 

@@ -16,9 +16,9 @@
 
 #include <expected>
 
-#include "http_client/error.h"
+#include "http/error.h"
 #include "http_client/protocol/wire.h"
-#include "http_client/types.h"
+#include "http/types.h"
 #include "network/transport/stream.h"
 
 namespace net::http::protocol {

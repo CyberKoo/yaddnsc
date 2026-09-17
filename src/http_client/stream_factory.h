@@ -13,7 +13,7 @@
 #include <memory>
 #include <string_view>
 
-#include "network/transport/options.h"
+#include "transport/options.h"
 #include "network/transport/stream.h"
 #include "util/cancellation_token.hpp"
 

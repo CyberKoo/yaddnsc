@@ -22,7 +22,7 @@
 
 #include "network/transport/detail/socket_stream.h"
 #include "network/transport/io_error.h"
-#include "network/transport/options.h"
+#include "transport/options.h"
 #include "network/transport/stream.h"
 
 namespace Utils { class CancellationToken; }

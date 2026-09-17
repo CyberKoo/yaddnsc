@@ -11,7 +11,7 @@
 #include "domain/config/runtime_config.h"
 #include "config/dns_config.h"
 #include "dns/resolver/base.h"
-#include "dns/resolver_registry.h"
+#include "dns/resolver_catalog.h"
 
 #include "resolver_config.h"
 #include "uri.h"
@@ -23,7 +23,8 @@
 // ===========================================================================
 
 ResolverDispatcher DnsResolverFactory::create(const domain::ResolverSettings &settings,
-                                                          const Utils::CancellationToken &token) {
+                                              const Utils::CancellationToken &token,
+                                              const ResolverCatalog &catalog) {
     // The server list arrives already normalised (legacy single-server format
     // folded in by the config normaliser).
     std::vector<Config::DnsServer> dns_servers = settings.servers;
@@ -33,12 +34,12 @@ ResolverDispatcher DnsResolverFactory::create(const domain::ResolverSettings &se
         dns_servers.push_back({YADDNSC_DEFAULT_DNS_SERVER, YADDNSC_DEFAULT_DNS_PORT});
     }
 
-    // Build resolver objects from server configurations.
-    // Each resolver registers itself via DnsResolverRegistry, keyed by
-    // URI schema (https → DohResolver, tls → DotResolver, "" → ClassicResolver).
+    // Build resolver objects from server configurations, dispatching on the
+    // URI schema via the catalog (https → DohResolver, tls → DotResolver,
+    // "" → ClassicResolver).
     std::vector<std::unique_ptr<ResolverBase> > resolvers;
     for (const auto &server: dns_servers) {
-        resolvers.push_back(DnsResolverRegistry::create(server, token));
+        resolvers.push_back(catalog.create(server, token));
         const auto uri = Uri::parse(server.address);
         SPDLOG_INFO("DNS resolver #{}: {} ({})", resolvers.back()->get_id(),
                     uri.get_schema().empty() ? uri.get_host_literal() : uri.get_origin(), resolvers.back()->get_type());

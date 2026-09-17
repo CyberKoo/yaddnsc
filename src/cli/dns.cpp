@@ -15,6 +15,7 @@
 #include "config/normalizer.h"
 #include "dns/dispatcher.h"
 #include "dns/factory.h"
+#include "dns/resolver_catalog.h"
 #include "util/cancellation_token.hpp"
 
 #include "uri.h"
@@ -34,7 +35,7 @@ namespace Cli {
         };
     } // namespace
 
-    void register_dns_subcommand(CLI::App &app, int &exit_code) {
+    void register_dns_subcommand(CLI::App &app, int &exit_code, ResolverCatalog catalog) {
         auto *dns = app.add_subcommand("dns", "DNS lookup and diagnostics");
         dns->require_subcommand(1);
 
@@ -48,8 +49,9 @@ namespace Cli {
         resolve->add_option("--type", resolve_opts->dns_type, "Record type (A, AAAA, TXT)")
                 ->default_str("A")
                 ->check(CLI::IsMember(std::vector<std::string>{"A", "AAAA", "TXT"}));
-        resolve->callback([&exit_code, resolve_opts] {
-            exit_code = execute_dns_resolve(resolve_opts->config_path, resolve_opts->dns_host, resolve_opts->dns_type);
+        resolve->callback([&exit_code, resolve_opts, catalog = std::move(catalog)] {
+            exit_code = execute_dns_resolve(resolve_opts->config_path, resolve_opts->dns_host,
+                                            resolve_opts->dns_type, catalog);
         });
 
         auto *resolver = dns->add_subcommand("resolver", "Show configured resolver details");
@@ -62,7 +64,8 @@ namespace Cli {
 
     // ── Executors ─────────────────────────────────────────────────────────
 
-    int execute_dns_resolve(const std::string &config_path, const std::string &host, const std::string &type_str) {
+    int execute_dns_resolve(const std::string &config_path, const std::string &host, const std::string &type_str,
+                            const ResolverCatalog &catalog) {
         auto type = magic_enum::enum_cast<RecordKind>(type_str, magic_enum::case_insensitive);
         if (!type.has_value()) {
             std::print(std::cerr, "Error: unknown record type '{}'.\nValid types: ", type_str);
@@ -79,7 +82,7 @@ namespace Cli {
 
         auto config = Config::load_config(config_path);
         // Normalise only — this command deliberately performs no validation.
-        auto resolver = DnsResolverFactory::create(Config::normalize(config).resolver, {});
+        auto resolver = DnsResolverFactory::create(Config::normalize(config).resolver, {}, catalog);
         auto dns_result = resolver.resolve(host, *type);
 
         if (!dns_result) {

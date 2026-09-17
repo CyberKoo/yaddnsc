@@ -5,79 +5,51 @@
 #ifndef YADDNSC_CORE_UPDATER_H
 #define YADDNSC_CORE_UPDATER_H
 
-#include <functional>
-#include <memory>
+#include "application/ports/dns_resolver.h"
+#include "application/ports/driver_gateway.h"
+#include "application/ports/ip_source.h"
+#include "application/ports/log.h"
 
-class Driver;
-class HttpClient;
-class IpSourceBase;
 struct UpdateTask;
-class ResolverDispatcher;
 
-namespace domain {
-    struct SubdomainConfig;
-}
-
-/// Updater — executor that processes a single UpdateTask.
+/// Updater — application workflow that processes a single UpdateTask.
 ///
-/// Holds a non-owning reference to the ResolverDispatcher (initialised before
-/// any call to process()). The Driver is pre-resolved by the caller and passed
-/// directly into process(), eliminating the need for runtime string lookups.
+/// Depends only on application ports: DnsResolverPort (verify current record),
+/// IpSourcePort (local address candidates), DriverGateway (perform the update)
+/// and Logger (diagnostics). No concrete resolver, IP source, driver, or HTTP
+/// types cross this boundary.
 ///
 /// @note process() is thread-safe and may be called concurrently from multiple
-///       pool threads: the Updater itself owns no mutable state, the shared
-///       Driver is required to be thread-safe by its interface contract (see
-///       interface/driver.h), and the caller passes a fresh HttpClient per task
-///       that is never shared between concurrent calls.
+///       pool threads: the Updater itself owns no mutable state and every port
+///       implementation is required to be thread-safe.
 class Updater {
 public:
-    /// Factory type for creating IP source instances.
-    using IpSourceFactory = std::function<std::unique_ptr<IpSourceBase>(const domain::SubdomainConfig &)>;
+    /// Construct with the workflow's ports (all non-owning; owned by Manager::Impl).
+    Updater(const DnsResolverPort &dns_resolver, const IpSourcePort &ip_source,
+            const DriverGateway &driver_gateway, const Logger &logger);
 
-    /// Construct with a reference to the resolver dispatcher.
-    /// @param resolver_pool  Resolver used to look up current DNS records.
-    explicit Updater(const ResolverDispatcher &resolver_pool);
-
-    /// Construct with injected IP source factory (for testing).
-    /// @param resolver_pool  Resolver used to look up current DNS records.
-    /// @param ip_factory     Factory that creates IpSourceBase instances on demand.
-    Updater(const ResolverDispatcher &resolver_pool, IpSourceFactory ip_factory);
-
-    ~Updater();
-
-    /// Execute a single update task using the given driver and HTTP client.
+    /// Execute a single update task.
     ///
     /// Steps:
-    ///   1. Optionally resolve the current DNS record for comparison.
-    ///   2. If the IP has changed (or force_update is set), invoke the driver.
+    ///   1. Resolve local address candidates via the IP source port and pick
+    ///      one with domain::select_address (AAAA link-local/ULA policy).
+    ///   2. Unless force_update, compare against the current DNS record and
+    ///      skip when unchanged. A failed lookup never blocks the update.
+    ///   3. Hand the update to the driver gateway and log the outcome.
     ///
-    /// Exception handling architecture:
-    ///   ┌─────────────────────────────────────────────────────────────┐
-    ///   │ Updater::process() noexcept  ←  catch-all (log + swallow)  │
-    ///   │   └── Impl::process()         ←  no try-catch              │
-    ///   │         └── resolve_local_address()  ←  no try-catch       │
-    ///   │               └── ip_source->resolve()  ←  throws on err   │
-    ///   └─────────────────────────────────────────────────────────────┘
-    ///
-    /// IpSourceBase implementations throw std::runtime_error on failure.
-    /// The exception aborts the current resolution operation and propagates
-    /// uncaught through the intermediate layers (Impl::process and
-    /// resolve_local_address have no try-catch).  It is caught only at this
-    /// noexcept boundary, where it is logged via SPDLOG_ERROR and swallowed.
-    /// There is no retry, fallback, or error-type branching in any catch
-    /// block — the catch is a pure observation point per the project's error
-    /// handling guideline.
-    ///
-    /// @param task         The update task describing what to update.
-    /// @param driver       The driver plugin to use.
-    /// @param http_client  HTTP client for the upstream API call.
+    /// Every expected failure arrives as an error value and is logged in
+    /// place; the noexcept catch-all below remains only as a defence against
+    /// unexpected exceptions (e.g. std::bad_alloc), mirroring the legacy
+    /// "log and swallow" boundary.
     ///
     /// @note Never throws — all errors and outcomes are logged internally.
-    void process(const UpdateTask &task, const Driver &driver, HttpClient &http_client) const noexcept;
+    void process(const UpdateTask &task) const noexcept;
 
 private:
-    struct Impl;
-    std::unique_ptr<Impl> impl_;
+    const DnsResolverPort &dns_resolver_;
+    const IpSourcePort &ip_source_;
+    const DriverGateway &driver_gateway_;
+    const Logger &logger_;
 };
 
 #endif // YADDNSC_CORE_UPDATER_H

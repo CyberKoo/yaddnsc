@@ -7,7 +7,7 @@
 
 #include "fmt.hpp"
 #include "http_client/protocol/wire.h"
-#include "http_client/types.h"
+#include "http/types.h"
 
 #include <algorithm>
 #include <cctype>

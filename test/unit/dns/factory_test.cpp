@@ -6,21 +6,25 @@
 //   - create() with an empty server list falls back to the built-in default.
 // (Legacy single-server folding now lives in the config normaliser and is
 // covered by normalizer_test.)
+//
+// The resolver catalog is injected per test — no global registry, so the
+// suite is parallel-safe.
 // =============================================================================
 
-#include <memory>
-#include <expected>
-#include <vector>
 #include <cstdint>
+#include <expected>
+#include <memory>
+#include <vector>
 
 #include <gtest/gtest.h>
 
 #include "config/dns_config.h"
 #include "domain/config/runtime_config.h"
+#include "dns/dns_error_info.h"
 #include "dns/factory.h"
 #include "dns/resolver/base.h"
-#include "dns/resolver_registry.h"
-#include "dns/dns_error_info.h"
+#include "dns/resolver_catalog.h"
+#include "exception/dns_lookup.h"
 #include "record_kind.h"
 #include "util/cancellation_token.hpp"
 
@@ -35,22 +39,20 @@ public:
     [[nodiscard]] std::string_view get_type() const noexcept override { return "factory_test"; }
 };
 
-// ── Register a test resolver factory ────────────────────────────────────────
+// ── Stub catalog: "factorytest" schema + "" fallback ────────────────────────
 
 namespace {
-    [[maybe_unused]] DnsResolverRegistry::Registrar _factory_test_reg(
-        "factorytest",
-        [](const Config::DnsServer &, const Utils::CancellationToken &) -> std::unique_ptr<ResolverBase> {
+    [[nodiscard]] ResolverCatalog make_stub_catalog() {
+        ResolverCatalog catalog;
+        const ResolverCatalog::FactoryFn factory = [](const Config::DnsServer &,
+                                                      const Utils::CancellationToken &) -> std::unique_ptr<ResolverBase> {
             return std::make_unique<FactoryTestResolver>();
-        }
-    );
-    [[maybe_unused]] DnsResolverRegistry::Registrar _factory_default_reg(
-        "",
-        [](const Config::DnsServer &, const Utils::CancellationToken &) -> std::unique_ptr<ResolverBase> {
-            return std::make_unique<FactoryTestResolver>();
-        }
-    );
-}
+        };
+        catalog.register_factory("factorytest", factory);
+        catalog.register_factory("", factory);
+        return catalog;
+    }
+} // namespace
 
 // ── Helper to populate resolver settings ────────────────────────────────────
 
@@ -69,7 +71,7 @@ TEST(DnsFactoryTest, CreateWithCustomServers) {
     }, Config::ResolverStrategy::FALLBACK);
 
     EXPECT_NO_THROW({
-        auto dispatcher = DnsResolverFactory::create(settings, {});
+        auto dispatcher = DnsResolverFactory::create(settings, {}, make_stub_catalog());
     });
 }
 
@@ -77,7 +79,7 @@ TEST(DnsFactoryTest, CreateWithEmptyServerList_UsesDefault) {
     const domain::ResolverSettings settings;
 
     EXPECT_NO_THROW({
-        auto dispatcher = DnsResolverFactory::create(settings, {});
+        auto dispatcher = DnsResolverFactory::create(settings, {}, make_stub_catalog());
     });
 }
 
@@ -88,7 +90,7 @@ TEST(DnsFactoryTest, CreateWithMultipleServers_DoesNotThrow) {
     auto settings = make_settings(std::move(servers), Config::ResolverStrategy::FALLBACK);
 
     EXPECT_NO_THROW({
-        auto dispatcher = DnsResolverFactory::create(settings, {});
+        auto dispatcher = DnsResolverFactory::create(settings, {}, make_stub_catalog());
     });
 }
 
@@ -97,7 +99,7 @@ TEST(DnsFactoryTest, CreateWithConcurrentStrategy) {
                                   Config::ResolverStrategy::CONCURRENT);
 
     EXPECT_NO_THROW({
-        auto dispatcher = DnsResolverFactory::create(settings, {});
+        auto dispatcher = DnsResolverFactory::create(settings, {}, make_stub_catalog());
     });
 }
 
@@ -108,6 +110,15 @@ TEST(DnsFactoryTest, CreateWithShuffleStrategy) {
     }, Config::ResolverStrategy::SHUFFLE);
 
     EXPECT_NO_THROW({
-        auto dispatcher = DnsResolverFactory::create(settings, {});
+        auto dispatcher = DnsResolverFactory::create(settings, {}, make_stub_catalog());
     });
+}
+
+TEST(DnsFactoryTest, UnknownSchemaThrows) {
+    auto settings = make_settings({{"nosuchproto://dns.example.com", 53}},
+                                  Config::ResolverStrategy::FALLBACK);
+
+    EXPECT_THROW({
+        auto dispatcher = DnsResolverFactory::create(settings, {}, make_stub_catalog());
+    }, DnsLookupException);
 }

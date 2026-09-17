@@ -13,7 +13,6 @@
 
 #include <expected>
 
-#include "dns/resolver_registry.h"
 #include "dns/util.hpp"
 #include "dns/validator.h"
 #include "dns/wire/query_util.h"
@@ -368,14 +367,3 @@ std::expected<std::vector<std::uint8_t>, DnsErrorInfo> ClassicResolver::query(
     const std::string &host, RecordKind type) const {
     return impl_->query(host, type);
 }
-
-// ===========================================================================
-//  Self-registration
-// ===========================================================================
-
-namespace {
-    [[maybe_unused]] DnsResolverRegistry::Registrar _classic(
-        "", [](const Config::DnsServer &server, const Utils::CancellationToken &token) -> std::unique_ptr<ResolverBase> {
-            return std::make_unique<ClassicResolver>(server, token);
-        });
-} // namespace

@@ -9,10 +9,12 @@
 #include <expected>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "config/dns_config.h"
 
+#include "application/ports/dns_resolver.h"
 #include "dns/dns_error_info.h"
 #include "record_kind.h"
 
@@ -23,9 +25,13 @@ class ResolverBase;
 ///                      shuffle / concurrent), with automatic retry on
 ///                      transient errors.
 ///
+/// Implements the application-facing DnsResolverPort: the two-argument
+/// resolve() override applies the default retry policy (1 retry, 50 ms base
+/// backoff, single-resolver mode only).
+///
 /// Eliminates the need to pass resolver vectors through every layer.
 /// @note Thread-safe: resolve() is const and does not mutate shared state.
-class ResolverDispatcher {
+class ResolverDispatcher : public DnsResolverPort {
 public:
     /// Construct with a list of resolver backends and a dispatch strategy.
     /// @param resolvers  Vector of resolver backends to query.
@@ -33,11 +39,16 @@ public:
     explicit ResolverDispatcher(std::vector<std::unique_ptr<ResolverBase> > resolvers,
                                 Config::ResolverStrategy strategy = Config::ResolverStrategy::CONCURRENT);
 
-    ~ResolverDispatcher();
+    ~ResolverDispatcher() override;
 
     ResolverDispatcher(ResolverDispatcher &&) noexcept;
 
     ResolverDispatcher &operator=(ResolverDispatcher &&) noexcept;
+
+    /// Resolve a hostname using the configured strategy and backends,
+    /// with the default retry policy (max_retries = 1, backoff_ms = 50).
+    [[nodiscard]] std::expected<std::vector<std::string>, DnsErrorInfo>
+    resolve(std::string_view host, RecordKind type) const override;
 
     /// Resolve a hostname using the configured strategy and backends.
     ///
@@ -58,8 +69,8 @@ public:
     ///                     error code to distinguish transient (RETRY, CONNECTION)
     ///                     from permanent errors (NX_DOMAIN, NODATA, PARSE, CONFIG).
     [[nodiscard]] std::expected<std::vector<std::string>, DnsErrorInfo>
-    resolve(const std::string &host, RecordKind type, std::uint32_t max_retries = 1,
-            std::uint32_t backoff_ms = 50) const;
+    resolve(std::string_view host, RecordKind type, std::uint32_t max_retries,
+            std::uint32_t backoff_ms) const;
 
 private:
     struct Impl;

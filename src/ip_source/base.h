@@ -24,13 +24,12 @@
 /// resolve() operation and propagates up the call stack.  This is a deliberate
 /// design choice over returning std::expected:
 ///
-///   • The caller (Updater) treats all IP source failures uniformly as "skip
-///     this update and retry on the next cycle".  It does not distinguish
-///     error types or attempt fallback logic.
-///   • Exceptions are caught only at the noexcept boundary in
-///     Updater::process(), which logs the error and continues with the next
-///     task.  No retry, no fallback, no branching on error type in the catch
-///     block.
+///   • The caller (IpSourceAdapter, behind the application-facing
+///     IpSourcePort) treats all IP source failures uniformly as "skip this
+///     update and retry on the next cycle".  It does not distinguish error
+///     types or attempt fallback logic.
+///   • Exceptions are caught at the adapter boundary, which converts them
+///     into domain::IpSourceError values; application code never sees them.
 ///   • This avoids coupling the caller to per-source error types while still
 ///     preserving diagnostic information via the exception message.
 ///

@@ -18,7 +18,7 @@
 
 #include "fmt.hpp"
 #include "http_fmt.hpp"
-#include "http_client/types.h"
+#include "http/types.h"
 
 // ===========================================================================
 //  is_sensitive_param

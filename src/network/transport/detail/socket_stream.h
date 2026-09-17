@@ -18,7 +18,7 @@
 #include <sys/socket.h>
 
 #include "network/transport/io_error.h"
-#include "network/transport/options.h"
+#include "transport/options.h"
 #include "util/cancellation_token.hpp"
 #include "util/fd.hpp"
 

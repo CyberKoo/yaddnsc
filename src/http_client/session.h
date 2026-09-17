@@ -18,10 +18,10 @@
 
 #include <expected>
 
-#include "http_client/error.h"
+#include "http/error.h"
 #include "http_client/protocol/exchange.h"
 #include "http_client/stream_factory.h"
-#include "http_client/types.h"
+#include "http/types.h"
 
 namespace net::http {
 
