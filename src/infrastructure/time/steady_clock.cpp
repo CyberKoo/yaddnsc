@@ -13,9 +13,16 @@ bool SteadyClock::wait_until(domain::TimePoint deadline, const std::stop_token &
         return false;
     }
 
+    // Registered BEFORE taking the mutex: an already-requested stop runs the
+    // callback inline here (not holding mtx_), avoiding self-deadlock. The
+    // callback takes mtx_ before notifying, closing the lost-wakeup window
+    // between the predicate check and blocking — a missed stop here could
+    // park an empty queue at TimePoint::max().
+    const std::stop_callback cb(stop, [this] {
+        { std::lock_guard lock(mtx_); }
+        cv_.notify_all();
+    });
     std::unique_lock lock(mtx_);
-    // Wakes every waiter as soon as stop fires; destroyed when the wait ends.
-    const std::stop_callback cb(stop, [this] { cv_.notify_all(); });
     const auto epoch = wake_epoch_;
     cv_.wait_until(lock, deadline, [this, &stop, epoch] {
         return stop.stop_requested() || wake_epoch_ != epoch;
