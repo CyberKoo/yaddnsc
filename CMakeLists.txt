@@ -319,6 +319,9 @@ target_link_libraries(yaddnsc_network_infrastructure
 )
 
 # Network transport infrastructure (net::transport): TCP/TLS streams over OpenSSL.
+# OpenSSL is PUBLIC: the public tls_stream.h includes <openssl/ssl.h>, so every
+# consumer needs the OpenSSL include path (Homebrew OpenSSL on macOS lives
+# outside the default search path).
 add_library(yaddnsc_network_transport STATIC
     src/infrastructure/network/transport/detail/socket_stream.cpp
     src/infrastructure/network/transport/tls_stream.cpp
@@ -326,8 +329,8 @@ add_library(yaddnsc_network_transport STATIC
 )
 yaddnsc_production_module(yaddnsc_network_transport)
 target_link_libraries(yaddnsc_network_transport
-    PUBLIC yaddnsc_network_infrastructure yaddnsc_tls_support
-    PRIVATE OpenSSL::SSL OpenSSL::Crypto spdlog::spdlog yaddnsc_fmt
+    PUBLIC yaddnsc_network_infrastructure yaddnsc_tls_support OpenSSL::SSL OpenSSL::Crypto
+    PRIVATE spdlog::spdlog yaddnsc_fmt
 )
 
 # HTTP client infrastructure (net::http) — used by the HTTP IP source
