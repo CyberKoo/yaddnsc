@@ -351,7 +351,7 @@ configuration readable only by the service account.
 | TLS verification fails | Check system time, CA bundle, and `SSL_CERT_FILE`. |
 | mDNS returns no answer | Check the `.local` name, multicast support, interface, container network, and firewall. |
 | systemd fails | Run `systemctl status yaddnsc` and `journalctl -u yaddnsc`. |
-| ABI mismatch | Rebuild or reinstall the driver with the same yaddnsc/toolchain build. |
+| ABI mismatch | Rebuild the driver against the current SDK — the host requires an exact `api_revision` match. |
 
 ## Developer Documentation
 

@@ -61,19 +61,32 @@ foreign libraries in the driver directory) is unaffected.
 A driver:
 
 - subclasses `yaddnsc::sdk::Driver` and implements `update(UpdateContext &)`;
-- parses its configuration with `parse_config<T>()` from `driver_param` JSON;
+- parses its configuration with `parse_config<T>()` from `driver_param` JSON —
+  Glaze is available privately to the plugin (it is part of
+  `yaddnsc_plugin_sdk`);
 - performs provider HTTP calls through the Host Services exchange
   (`UpdateContext::exchange`) — the host owns the actual HTTP client;
-- logs through the `YADDNSC_SDK_LOG_*` macros (source location is forwarded
-  to the host logger);
+- logs through the `YADDNSC_SDK_LOG_*` macros — the call site
+  (`file` / `line` / `function`) is forwarded through Host Services to the
+  host logger (`spdlog::source_loc`); there is no `-rdynamic` / `CORE_LOG`
+  symbol backfill;
 - reports outcomes as `yaddnsc::sdk::Error` values with the appropriate
   `YADDNSC_STATUS_*` code;
 - exports itself with
   `YADDNSC_DEFINE_DRIVER(YourDriver, "<name>", "<description>", "<author>", "<version>", YADDNSC_DRIVER_CAPABILITY_A | YADDNSC_DRIVER_CAPABILITY_AAAA)`.
 
 Each update call runs on a fresh driver instance (`create → update →
-destroy`), so instance state never leaks between updates. Use the existing
-drivers as examples and keep provider-specific credentials in `driver_param`.
+destroy`), so instance state never leaks between updates. **Different
+instances of the same module may update concurrently** (one subdomain per
+task), while a single instance is never used concurrently — keep instance
+state per-call and module state thread-safe. `create()` is not process-level
+one-time initialization.
+
+A plugin must not include host `src/` headers or legacy utility headers
+(`CORE_LOG`, `uri.h`, `fmt.hpp`, `string_util.hpp`, host `HttpClient`); the
+SDK surface (`yaddnsc/sdk/*`) plus privately linked third-party libraries is
+the whole contract. Use the bundled `driver/cloudflare/` as the reference
+implementation and keep provider-specific credentials in `driver_param`.
 Do not put credentials in source code or log messages — the SDK log helpers
 redact sensitive request fields by default.
 

@@ -328,7 +328,7 @@ journalctl -u yaddnsc
 | TLS 校验失败 | 检查系统时间、CA bundle 和 `SSL_CERT_FILE`。 |
 | mDNS 无响应 | 检查 `.local` 名称、multicast、网卡、容器网络和防火墙。 |
 | systemd 启动失败 | 执行 `systemctl status yaddnsc` 和 `journalctl -u yaddnsc`。 |
-| ABI 不兼容 | 使用相同 yaddnsc/工具链重新编译或安装驱动。 |
+| ABI 不兼容 | 使用当前 SDK 重新编译驱动——宿主要求 `api_revision` 精确匹配。 |
 
 ## 开发者文档
 
