@@ -25,14 +25,13 @@ struct TaskId {
     bool operator==(const TaskId &) const = default;
 };
 
-/// ScheduleQueue — pure timer queue for periodic DDNS update tasks
-/// (refactor/phase-3-scheduling-and-workflow.md §3.1).
+/// ScheduleQueue — pure timer queue for periodic DDNS update tasks.
 ///
 /// Every time value is injected by the caller; the queue never reads a clock,
 /// logs, or touches synchronisation primitives. It is NOT thread-safe: the
 /// owning scheduler runner drives it from a single sequence.
 ///
-/// Locked behaviours (Phase 0 table):
+/// Locked behaviours (legacy Scheduler semantics):
 ///   - pop-and-reschedule: pop_due() returns every due task and immediately
 ///     re-queues it with `now + update_interval` — it does not wait for the
 ///     task to finish.

@@ -63,13 +63,6 @@ include(Sanitizer)
 # Version is now managed by project(yaddnsc VERSION 1.0.0).
 # The version.h.in template uses @PROJECT_VERSION_MAJOR@ etc. directly,
 # so no YADDNSC_VERSION_* aliases are needed here.
-# ABI version — semantic version for driver compatibility.
-#   major — breaking ABI change (virtual function removed or signature changed)
-#   minor — backward-compatible ABI extension (new virtual function appended)
-#   patch — no ABI change, only implementation changes
-set(YADDNSC_ABI_VERSION_MAJOR 1)
-set(YADDNSC_ABI_VERSION_MINOR 0)
-set(YADDNSC_ABI_VERSION_PATCH 0)
 
 option(YADDNSC_DEVELOPMENT "Development mode (embed git version info)" ON)
 include(ReleaseInfo)
@@ -112,7 +105,6 @@ include(GNUInstallDirs)
 # ==============================================================================
 configure_file("${CMAKE_SOURCE_DIR}/template/headers/version.h.in" "${CMAKE_BINARY_DIR}/generated/version.h" @ONLY)
 configure_file("${CMAKE_SOURCE_DIR}/template/headers/build_id.hpp.in" "${CMAKE_BINARY_DIR}/generated/build_id.hpp" @ONLY)
-configure_file("${CMAKE_SOURCE_DIR}/template/headers/driver_ver.h.in" "${CMAKE_BINARY_DIR}/generated/driver_ver.h" @ONLY)
 configure_file("${CMAKE_SOURCE_DIR}/template/headers/config_cmake.h.in" "${CMAKE_BINARY_DIR}/generated/config_cmake.h" @ONLY)
 configure_file("${CMAKE_SOURCE_DIR}/template/headers/logging_pattern.h.in" "${CMAKE_BINARY_DIR}/generated/logging_pattern.h" @ONLY)
 configure_file("${CMAKE_SOURCE_DIR}/template/headers/min_update_interval.h.in" "${CMAKE_BINARY_DIR}/generated/min_update_interval.h" @ONLY)
@@ -267,9 +259,8 @@ target_link_libraries(yaddnsc_compile_config INTERFACE
 
 # ==============================================================================
 # OBJECT libraries — each module compiles separately, all .o linked into main exe.
-# Using OBJECT libraries avoids the static archive dead-stripping problem:
-#   - registration via static initialization registers correctly
-#   - -rdynamic exports work naturally
+# Using OBJECT libraries avoids the static archive dead-stripping problem so
+# registration via static initialization registers correctly.
 # ==============================================================================
 
 add_library(yaddnsc_config OBJECT
@@ -295,15 +286,23 @@ target_link_libraries(yaddnsc_application PRIVATE yaddnsc_compile_config)
 
 add_library(yaddnsc_core OBJECT
     src/core/manager.cpp
-    src/core/driver_manager.cpp
     src/core/driver_loader.cpp
-    src/core/core_logger.cpp
     src/core/signal_watcher.cpp
     src/core/spdlog_logger.cpp
     src/core/steady_clock.cpp
-    src/core/cpp_driver_gateway.cpp
 )
 target_link_libraries(yaddnsc_core PRIVATE yaddnsc_compile_config)
+
+# Plugin host infrastructure — the v1 alpha C ABI loader, catalog, Host
+# Services and driver gateway.
+add_library(yaddnsc_plugin_host OBJECT
+    src/infrastructure/plugin/shared_library.cpp
+    src/infrastructure/plugin/plugin_loader.cpp
+    src/infrastructure/plugin/driver_catalog.cpp
+    src/infrastructure/plugin/host_services.cpp
+    src/infrastructure/plugin/abi_driver_gateway.cpp
+)
+target_link_libraries(yaddnsc_plugin_host PRIVATE yaddnsc_compile_config)
 
 add_library(yaddnsc_network OBJECT
     src/network/inet_address.cpp
@@ -325,7 +324,6 @@ target_link_libraries(yaddnsc_net_transport PRIVATE yaddnsc_compile_config)
 # HTTP client domain (net::http) — linked into the main executable and used
 # by drivers (via HttpClient), the HTTP IP source (PersistentClient) and DoH.
 add_library(yaddnsc_http_client OBJECT
-    src/http_client/form_encode.cpp
     src/http_client/protocol/exchange.cpp
     src/http_client/redirect.cpp
     src/http_client/stream_factory.cpp
@@ -370,7 +368,6 @@ add_library(yaddnsc_ip_source OBJECT
 target_link_libraries(yaddnsc_ip_source PRIVATE yaddnsc_compile_config)
 
 add_library(yaddnsc_util OBJECT
-    src/util/signing.cpp
     src/util/cert_util.cpp
 )
 target_link_libraries(yaddnsc_util PRIVATE yaddnsc_compile_config)
@@ -384,7 +381,7 @@ target_sources(yaddnsc_dns PRIVATE
 
 # Sanitizer compile flags on all OBJECT libraries (link flags are a no-op on OBJECT libs
 # and only matter on the final executable, where add_sanitizer_flags is called again).
-foreach(tgt yaddnsc_config yaddnsc_domain yaddnsc_application yaddnsc_core yaddnsc_network yaddnsc_net_transport yaddnsc_http_client yaddnsc_cli yaddnsc_dns yaddnsc_ip_source yaddnsc_util)
+foreach(tgt yaddnsc_config yaddnsc_domain yaddnsc_application yaddnsc_core yaddnsc_plugin_host yaddnsc_network yaddnsc_net_transport yaddnsc_http_client yaddnsc_cli yaddnsc_dns yaddnsc_ip_source yaddnsc_util)
   add_sanitizer_flags(${tgt})
 endforeach()
 
@@ -397,6 +394,7 @@ add_executable(yaddnsc
     $<TARGET_OBJECTS:yaddnsc_domain>
     $<TARGET_OBJECTS:yaddnsc_application>
     $<TARGET_OBJECTS:yaddnsc_core>
+    $<TARGET_OBJECTS:yaddnsc_plugin_host>
     $<TARGET_OBJECTS:yaddnsc_network>
     $<TARGET_OBJECTS:yaddnsc_net_transport>
     $<TARGET_OBJECTS:yaddnsc_http_client>
@@ -433,13 +431,8 @@ if (NOT LIBC_MUSL)
       $<$<CONFIG:Release>:TRUE>)
 endif ()
 
-# --export-dynamic puts exported symbols into .dynsym so dlsym / dlopen can find them.
-# ENABLE_EXPORTS requests this from CMake, but CMake 4.x + AppleClang may not emit
-# the flag correctly, so we add -rdynamic explicitly on all non-Windows platforms.
-set_target_properties(yaddnsc PROPERTIES ENABLE_EXPORTS ON)
-target_link_options(yaddnsc PRIVATE
-        $<$<NOT:$<PLATFORM_ID:Windows>>:-rdynamic>
-)
+# --export-dynamic is intentionally NOT set: driver plugins load through the
+# C ABI alone and must not resolve any host symbols.
 
 # ---------------------------------------------------------------------------
 # Link libraries
@@ -471,6 +464,15 @@ include(Doxygen)
 # ==============================================================================
 # Driver modules
 # ==============================================================================
+# SDK interface for driver plugins — the ONLY supported surface: the v1 alpha
+# C ABI plus the C++ helper layer (yaddnsc/sdk/*). Deliberately does NOT expose
+# the host's src/ include root or host-only dependencies.
+add_library(yaddnsc_sdk INTERFACE)
+target_include_directories(yaddnsc_sdk INTERFACE ${PROJECT_SOURCE_DIR}/include)
+target_link_libraries(yaddnsc_sdk INTERFACE glaze::glaze)
+target_compile_options(yaddnsc_sdk INTERFACE -Wall -Wextra -Wpedantic -Werror -fvisibility=hidden)
+
+add_subdirectory(${PROJECT_SOURCE_DIR}/plugin_crypto/)
 add_subdirectory(${PROJECT_SOURCE_DIR}/driver/)
 
 # ==============================================================================

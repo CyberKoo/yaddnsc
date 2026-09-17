@@ -16,7 +16,6 @@
 #include <expected>
 #include <gtest/gtest.h>
 
-#include "http_client/form_encode.h"
 #include "http_client/protocol/exchange.h"
 #include "http_client/protocol/wire.h"
 #include "http_client/redirect.h"
@@ -540,22 +539,4 @@ TEST(HttpClientRedirect, LimitExceeded_ReportsLimit) {
     const auto eval = net::http::evaluate_redirect(302, {{"Location", "/loop"}}, 3, opts, post_request(), make_current_uri());
     EXPECT_FALSE(eval.plan.has_value());
     EXPECT_TRUE(eval.limit_reached);
-}
-
-// ── form encoding ────────────────────────────────────────────────────────────
-
-TEST(HttpClientFormEncode, Component_EncodesReservedAndSpace) {
-    EXPECT_EQ(net::http::encode_form_component("a b&c=d"), "a+b%26c%3Dd");
-    EXPECT_EQ(net::http::encode_form_component("~.-_"), "~.-_");
-    EXPECT_EQ(net::http::encode_form_component("100%"), "100%25");
-}
-
-TEST(HttpClientFormEncode, Component_EncodesUtf8Bytes) {
-    // 'é' = U+00E9 → UTF-8 0xC3 0xA9.
-    EXPECT_EQ(net::http::encode_form_component("café"), "caf%C3%A9");
-}
-
-TEST(HttpClientFormEncode, Form_JoinsPairs) {
-    const std::multimap<std::string, std::string> params{{"k1", "v 1"}, {"k2", "v&2"}};
-    EXPECT_EQ(net::http::encode_form(params), "k1=v+1&k2=v%262");
 }

@@ -1,7 +1,6 @@
 //
 // SchedulerRunner unit tests — the scheduling loop over a FakeClock and a
-// recording FakeTaskExecutor; no real waiting, no provider
-// (refactor/phase-3-scheduling-and-workflow.md §3.2).
+// recording FakeTaskExecutor; no real waiting, no provider.
 //
 // Locked behaviours:
 //   - every due task is submitted on each round (initial deadline == now);

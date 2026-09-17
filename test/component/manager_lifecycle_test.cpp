@@ -11,9 +11,9 @@
 // No real provider or network access is involved; the fake client intercepts
 // every exchange before any socket is opened.
 //
-// Per refactor/phase-0-baseline.md §0.5 this test intentionally does NOT use
-// a fake clock: the initial deadline is "now", the rescheduled deadline is one
-// hour out, and blocking latches — not sleeps — order the two threads.
+// This test intentionally does NOT use a fake clock: the initial deadline is
+// "now", the rescheduled deadline is one hour out, and blocking latches —
+// not sleeps — order the two threads.
 // =============================================================================
 
 #include <atomic>

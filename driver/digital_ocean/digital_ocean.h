@@ -5,24 +5,26 @@
 #ifndef YADDNSC_DRV_DIGITALOCEAN_DIGITALOCEAN_H
 #define YADDNSC_DRV_DIGITALOCEAN_DIGITALOCEAN_H
 
-#include "driver/base.h"
+#include <string>
+
+#include <yaddnsc/sdk/driver.hpp>
+
+#include "config.hpp"
 
 /// DigitalOcean API driver for DNS record updates.
 ///
 /// Implements the DigitalOcean API v2 for updating DNS records
 /// via their Domain Records endpoint.
-class DigitalOceanDriver final : public BaseDriver {
+class DigitalOceanDriver final : public yaddnsc::sdk::Driver {
 public:
     ~DigitalOceanDriver() override = default;
 
-    /// Build the API request from config and update params.
-    [[nodiscard]] DriverRequestContext generate_request(const DriverConfig &config, const DriverUpdateParams &ctx) const override;
+    /// Perform one update: generate-request → HTTP exchange → check-response.
+    yaddnsc::sdk::Result update(yaddnsc::sdk::UpdateContext &context) override;
 
+private:
     /// Validate the DigitalOcean API response.
-    [[nodiscard]] bool check_response(const net::http::Response &response) const override;
-
-    /// Return static metadata about this driver.
-    [[nodiscard]] DriverDetail get_detail() const noexcept override;
+    static bool check_response(const yaddnsc::sdk::HttpResponse &response, const yaddnsc::sdk::Services &services);
 };
 
 #endif //YADDNSC_DRV_DIGITALOCEAN_DIGITALOCEAN_H

@@ -9,17 +9,17 @@ namespace domain {
     struct DriverSettings;
 }
 
-class DriverManager;
+class DriverCatalog;
 
-/// DriverLoader — loads all configured DDNS driver shared libraries.
+/// DriverLoader — loads all configured DDNS driver plugin shared libraries.
 ///
 /// Extracted from Manager::Impl to keep driver-loading logic independent of
 /// the scheduler and signal-handling concerns.
 struct DriverLoader {
     /// Load all drivers specified in the driver settings.
-    /// @param driver_manager  The manager to register loaded drivers into.
+    /// @param driver_catalog  The catalog to register loaded drivers into.
     /// @param settings        Driver loading settings (directory, discovery, load list).
-    static void load(DriverManager &driver_manager, const domain::DriverSettings &settings);
+    static void load(DriverCatalog &driver_catalog, const domain::DriverSettings &settings);
 };
 
 #endif // YADDNSC_CORE_DRIVER_LOADER_H

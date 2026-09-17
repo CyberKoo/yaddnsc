@@ -5,7 +5,9 @@
 #ifndef YADDNSC_DRV_GODADDY_GODADDY_H
 #define YADDNSC_DRV_GODADDY_GODADDY_H
 
-#include "driver/base.h"
+#include <yaddnsc/sdk/driver.hpp>
+
+#include "config.hpp"
 
 /// GoDaddy API driver for DNS record updates.
 ///
@@ -13,18 +15,16 @@
 /// via their record replacement endpoint.
 ///
 /// API reference: https://developer.godaddy.com/doc/endpoint/domains
-class GoDaddyDriver final : public BaseDriver {
+class GoDaddyDriver final : public yaddnsc::sdk::Driver {
 public:
     ~GoDaddyDriver() override = default;
 
-    /// Build the API request from config and update params.
-    [[nodiscard]] DriverRequestContext generate_request(const DriverConfig &config, const DriverUpdateParams &ctx) const override;
+    /// Perform one update: generate-request → HTTP exchange → check-response.
+    yaddnsc::sdk::Result update(yaddnsc::sdk::UpdateContext &context) override;
 
+private:
     /// Validate the GoDaddy API response.
-    [[nodiscard]] bool check_response(const net::http::Response &response) const override;
-
-    /// Return static metadata about this driver.
-    [[nodiscard]] DriverDetail get_detail() const noexcept override;
+    static bool check_response(const yaddnsc::sdk::HttpResponse &response, const yaddnsc::sdk::Services &services);
 };
 
 #endif //YADDNSC_DRV_GODADDY_GODADDY_H

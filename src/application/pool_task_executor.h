@@ -15,7 +15,7 @@
 class UpdateWorkflow;
 
 /// PoolTaskExecutor — the TaskExecutor adapter that owns the application's
-/// only BS::thread_pool (refactor/phase-3-scheduling-and-workflow.md §3.5).
+/// only BS::thread_pool.
 ///
 /// Each submitted task runs the UpdateWorkflow on a pool thread. Work units
 /// capture nothing but the task value and the workflow reference — no raw

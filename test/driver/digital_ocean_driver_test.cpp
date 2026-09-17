@@ -1,84 +1,44 @@
 //
 // Unit tests for DigitalOceanDriver (driver/digital_ocean/)
 //
-// Verifies:
-//   - get_detail() returns expected metadata.
-//   - generate_request() builds correct DigitalOcean API URL and headers.
-//   - generate_request() produces valid JSON request body.
-//   - generate_request() with missing config throws ParamParseException.
-//   - check_response() returns true for valid domain_record response.
-//   - check_response() returns false for error response.
-//   - check_response() returns false for unparseable response.
+// Verifies (through the v1 alpha ABI entries and FakeHostServices):
+//   - descriptor returns expected metadata (name/version/author/capabilities).
+//   - update builds the correct DigitalOcean API URL, method, auth header, body.
+//   - update with missing config fields returns INVALID_CONFIG.
+//   - update succeeds for domain_record responses.
+//   - update returns UPSTREAM_REJECTED for error / unparseable responses.
 // =============================================================================
 
 #include <gtest/gtest.h>
 
-#include "digital_ocean.h"
-#include "config.hpp"
-#include "response.hpp"
-#include "factory_test_helpers.h"
+#include "abi_test_harness.h"
 
-TEST(DigitalOceanDriverTest, GetDetail_ReturnsExpectedMetadata) {
-    DigitalOceanDriver driver;
-    auto detail = driver.get_detail();
-    EXPECT_EQ(detail.name, "digital_ocean");
-    EXPECT_EQ(detail.description, "Updates DNS records via the DigitalOcean API");
-    EXPECT_EQ(detail.author, "Kotarou");
-    EXPECT_EQ(detail.version, "2.0.0");
+// ── Shared fixtures ──────────────────────────────────────────────────────────
+
+namespace {
+    constexpr std::string_view CONFIG = R"({"record_id": "123456", "token": "my-token"})";
+} // namespace
+
+// ── Tests ──────────────────────────────────────────────────────────────────
+
+TEST(DigitalOceanDriverTest, Descriptor_ReturnsExpectedMetadata) {
+    const yaddnsc_driver_descriptor *descriptor = nullptr;
+    ASSERT_EQ(yaddnsc_driver_get_descriptor(&descriptor), YADDNSC_STATUS_OK);
+    ASSERT_NE(descriptor, nullptr);
+    EXPECT_EQ(descriptor->magic, YADDNSC_DRIVER_MAGIC);
+    EXPECT_EQ(descriptor->api_revision, YADDNSC_DRIVER_API_REVISION);
+    EXPECT_EQ(std::string_view(descriptor->name.data, descriptor->name.size), "digital_ocean");
+    EXPECT_EQ(std::string_view(descriptor->description.data, descriptor->description.size),
+              "Updates DNS records via the DigitalOcean API");
+    EXPECT_EQ(std::string_view(descriptor->author.data, descriptor->author.size), "Kotarou");
+    EXPECT_EQ(std::string_view(descriptor->version.data, descriptor->version.size), "2.0.0");
+    EXPECT_NE(descriptor->capabilities & YADDNSC_DRIVER_CAPABILITY_A, 0u);
+    EXPECT_NE(descriptor->capabilities & YADDNSC_DRIVER_CAPABILITY_AAAA, 0u);
 }
 
-TEST(DigitalOceanDriverTest, GenerateRequest_BasicARecord) {
-    DigitalOceanDriver driver;
-    DriverConfig config = R"({"record_id": "123456", "token": "my-token"})";
-    DriverUpdateParams ctx{
-        .ip_addr = "1.2.3.4", .rd_type = "A",
-        .domain = "example.com", .subdomain = "www", .fqdn = "www.example.com"
-    };
-
-    auto result = driver.generate_request(config, ctx);
-
-    // Check URL
-    EXPECT_EQ(result.url,
-              "https://api.digitalocean.com/v2/domains/example.com/records/123456");
-
-    // Check method and content type
-    EXPECT_EQ(result.request.method, net::http::Method::PUT);
-    EXPECT_EQ(result.request.content_type, "application/json");
-
-    // Check auth header
-    auto auth_it = result.request.headers.find("Authorization");
-    ASSERT_NE(auth_it, result.request.headers.end());
-    EXPECT_EQ(auth_it->second, "Bearer my-token");
-
-    // Check body
-    ASSERT_TRUE(result.request.body.has_value());
-    auto &body = result.request.body.value();
-    EXPECT_TRUE(body.find(R"("data":"1.2.3.4")") != std::string::npos);
-}
-
-TEST(DigitalOceanDriverTest, GenerateRequest_MissingRecordId_ThrowsParamParseException) {
-    DigitalOceanDriver driver;
-    DriverConfig config = R"({"token": "my-token"})";
-    DriverUpdateParams ctx{
-        .ip_addr = "1.2.3.4", .rd_type = "A",
-        .domain = "example.com", .subdomain = "@", .fqdn = "example.com"
-    };
-    EXPECT_THROW({ driver.generate_request(config, ctx); }, ParamParseException);
-}
-
-TEST(DigitalOceanDriverTest, GenerateRequest_MissingToken_ThrowsParamParseException) {
-    DigitalOceanDriver driver;
-    DriverConfig config = R"({"record_id": "123"})";
-    DriverUpdateParams ctx{
-        .ip_addr = "1.2.3.4", .rd_type = "A",
-        .domain = "example.com", .subdomain = "@", .fqdn = "example.com"
-    };
-    EXPECT_THROW({ driver.generate_request(config, ctx); }, ParamParseException);
-}
-
-TEST(DigitalOceanDriverTest, CheckResponse_Success_ReturnsTrue) {
-    DigitalOceanDriver driver;
-    net::http::Response resp{200, R"({
+TEST(DigitalOceanDriverTest, Update_BasicARecord) {
+    FakeHostServices fake;
+    fake.queue_response(200, R"({
         "domain_record": {
             "id": 123456,
             "type": "A",
@@ -86,13 +46,36 @@ TEST(DigitalOceanDriverTest, CheckResponse_Success_ReturnsTrue) {
             "data": "1.2.3.4",
             "ttl": 300
         }
-    })", {}};
-    EXPECT_TRUE(driver.check_response(resp));
+    })");
+
+    const auto result = run_abi_update(fake, CONFIG, "1.2.3.4", "A", "example.com", "www", "www.example.com");
+    ASSERT_EQ(result.create_status, YADDNSC_STATUS_OK) << result.error_message;
+    ASSERT_EQ(result.status, YADDNSC_STATUS_OK) << result.error_message;
+
+    ASSERT_EQ(fake.requests.size(), 1u);
+    const auto &request = fake.requests[0];
+
+    // Check URL
+    EXPECT_EQ(request.url, "https://api.digitalocean.com/v2/domains/example.com/records/123456");
+
+    // Check method and content type
+    EXPECT_EQ(request.method, YADDNSC_HTTP_PUT);
+    EXPECT_EQ(request.content_type, "application/json");
+
+    // Check auth header
+    const auto auth = request.header("Authorization");
+    ASSERT_TRUE(auth.has_value());
+    EXPECT_EQ(*auth, "Bearer my-token");
+
+    // Check request body contains expected fields
+    ASSERT_TRUE(request.body.has_value());
+    const auto &body = *request.body;
+    EXPECT_TRUE(body.find(R"("data":"1.2.3.4")") != std::string::npos);
 }
 
-TEST(DigitalOceanDriverTest, CheckResponse_SuccessWithAllFields_ReturnsTrue) {
-    DigitalOceanDriver driver;
-    net::http::Response resp{200, R"({
+TEST(DigitalOceanDriverTest, Update_SuccessWithAllFields_ReturnsOk) {
+    FakeHostServices fake;
+    fake.queue_response(200, R"({
         "domain_record": {
             "id": 123456,
             "type": "AAAA",
@@ -105,39 +88,73 @@ TEST(DigitalOceanDriverTest, CheckResponse_SuccessWithAllFields_ReturnsTrue) {
             "flags": 0,
             "tag": null
         }
-    })", {}};
-    EXPECT_TRUE(driver.check_response(resp));
+    })");
+
+    const auto result = run_abi_update(fake, CONFIG, "::1", "AAAA", "example.com", "www", "www.example.com");
+    ASSERT_EQ(result.status, YADDNSC_STATUS_OK) << result.error_message;
 }
 
-TEST(DigitalOceanDriverTest, CheckResponse_Error_ReturnsFalse) {
-    DigitalOceanDriver driver;
-    net::http::Response resp{404, R"({
+TEST(DigitalOceanDriverTest, Update_MissingRecordId_ReturnsInvalidConfig) {
+    FakeHostServices fake;
+    const auto result = run_abi_update(fake, R"({"token": "my-token"})", "1.2.3.4", "A", "example.com", "@",
+                                       "example.com");
+    EXPECT_EQ(result.status, YADDNSC_STATUS_INVALID_CONFIG);
+    EXPECT_TRUE(result.error_message.starts_with("Driver configuration parse error:")) << result.error_message;
+    EXPECT_TRUE(fake.requests.empty());
+}
+
+TEST(DigitalOceanDriverTest, Update_MissingToken_ReturnsInvalidConfig) {
+    FakeHostServices fake;
+    const auto result = run_abi_update(fake, R"({"record_id": "123"})", "1.2.3.4", "A", "example.com", "@",
+                                       "example.com");
+    EXPECT_EQ(result.status, YADDNSC_STATUS_INVALID_CONFIG);
+    EXPECT_TRUE(result.error_message.starts_with("Driver configuration parse error:")) << result.error_message;
+    EXPECT_TRUE(fake.requests.empty());
+}
+
+TEST(DigitalOceanDriverTest, Update_ErrorResponse_ReturnsUpstreamRejected) {
+    FakeHostServices fake;
+    fake.queue_response(404, R"({
         "id": "not_found",
         "message": "The resource you were accessing could not be found."
-    })", {}};
-    EXPECT_FALSE(driver.check_response(resp));
+    })");
+
+    const auto result = run_abi_update(fake, CONFIG, "1.2.3.4", "A", "example.com", "www", "www.example.com");
+    EXPECT_EQ(result.status, YADDNSC_STATUS_UPSTREAM_REJECTED);
 }
 
-TEST(DigitalOceanDriverTest, CheckResponse_UnparseableBody_ReturnsFalse) {
-    DigitalOceanDriver driver;
-    net::http::Response resp{200, "not-json", {}};
-    EXPECT_FALSE(driver.check_response(resp));
+TEST(DigitalOceanDriverTest, Update_UnparseableBody_ReturnsUpstreamRejected) {
+    FakeHostServices fake;
+    fake.queue_response(200, "not-json");
+    const auto result = run_abi_update(fake, CONFIG, "1.2.3.4", "A", "example.com", "www", "www.example.com");
+    EXPECT_EQ(result.status, YADDNSC_STATUS_UPSTREAM_REJECTED);
 }
 
-TEST(DigitalOceanDriverTest, CheckResponse_EmptyBody_ReturnsFalse) {
-    DigitalOceanDriver driver;
-    net::http::Response resp{200, "", {}};
-    EXPECT_FALSE(driver.check_response(resp));
+TEST(DigitalOceanDriverTest, Update_EmptyBody_ReturnsUpstreamRejected) {
+    FakeHostServices fake;
+    fake.queue_response(200, "");
+    const auto result = run_abi_update(fake, CONFIG, "1.2.3.4", "A", "example.com", "www", "www.example.com");
+    EXPECT_EQ(result.status, YADDNSC_STATUS_UPSTREAM_REJECTED);
 }
 
-TEST(DigitalOceanDriverTest, CheckResponse_UnknownShape_ReturnsFalse) {
+TEST(DigitalOceanDriverTest, Update_UnknownShape_ReturnsUpstreamRejected) {
     // Body that is valid JSON but doesn't match any known shape.
-    DigitalOceanDriver driver;
-    net::http::Response resp{200, R"({"unknown_field": "value"})", {}};
-    EXPECT_FALSE(driver.check_response(resp));
+    FakeHostServices fake;
+    fake.queue_response(200, R"({"unknown_field": "value"})");
+    const auto result = run_abi_update(fake, CONFIG, "1.2.3.4", "A", "example.com", "www", "www.example.com");
+    EXPECT_EQ(result.status, YADDNSC_STATUS_UPSTREAM_REJECTED);
 }
 
-TEST(DigitalOceanDriverTest, FactoryCreateDestroy) { test_factory_create_destroy(); }
-TEST(DigitalOceanDriverTest, FactoryMagic) { test_factory_magic(); }
-TEST(DigitalOceanDriverTest, FactoryBuildId) { test_factory_build_id(); }
-TEST(DigitalOceanDriverTest, FactoryCompilerIdHash) { test_factory_compiler_id_hash(); }
+TEST(DigitalOceanDriverTest, Update_TransportError_PropagatesStatus) {
+    FakeHostServices fake;
+    fake.queue_error(YADDNSC_STATUS_NETWORK_ERROR, "connection refused");
+    const auto result = run_abi_update(fake, CONFIG, "1.2.3.4", "A", "example.com", "www", "www.example.com");
+    EXPECT_EQ(result.status, YADDNSC_STATUS_NETWORK_ERROR);
+    EXPECT_EQ(result.error_message, "connection refused");
+}
+
+TEST(DigitalOceanDriverTest, Entries_NullArgumentsRejected) {
+    EXPECT_EQ(yaddnsc_driver_get_descriptor(nullptr), YADDNSC_STATUS_INVALID_ARGUMENT);
+    EXPECT_EQ(yaddnsc_driver_update(nullptr, nullptr, nullptr), YADDNSC_STATUS_INVALID_ARGUMENT);
+    yaddnsc_driver_destroy(nullptr); // must be a no-op, must not crash
+}

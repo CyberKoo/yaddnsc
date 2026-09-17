@@ -1,138 +1,163 @@
 //
 // Unit tests for DuckDnsDriver (driver/duckdns/)
 //
-// Verifies:
-//   - get_detail() returns expected metadata.
-//   - generate_request() builds correct DuckDNS API URL.
-//   - generate_request() uses ipv6 param for AAAA records.
-//   - generate_request() appends verbose flag when configured.
-//   - generate_request() with missing token throws ParamParseException.
-//   - check_response() returns true for "OK" body.
-//   - check_response() returns true for verbose "OK\n..." body.
-//   - check_response() returns false for "KO".
-//   - check_response() returns false for empty body.
+// Verifies (through the v1 alpha ABI entries and FakeHostServices):
+//   - descriptor returns expected metadata (name/description/author/capabilities).
+//   - update builds the correct DuckDNS API URL (ip param for A records).
+//   - update uses the ipv6 param for AAAA records.
+//   - update appends &verbose=true only when verbose is enabled.
+//   - update with a missing token returns INVALID_CONFIG.
+//   - update succeeds for "OK" and verbose "OK\n..." bodies (even on HTTP 500).
+//   - update returns UPSTREAM_REJECTED for "KO", empty, or non-OK bodies.
 // =============================================================================
 
 #include <gtest/gtest.h>
 
-#include "duckdns.h"
-#include "config.hpp"
-#include "factory_test_helpers.h"
+#include "abi_test_harness.h"
 
-TEST(DuckDnsDriverTest, GetDetail_ReturnsExpectedMetadata) {
-    DuckDnsDriver driver;
-    auto detail = driver.get_detail();
-    EXPECT_EQ(detail.name, "duckdns");
-    EXPECT_EQ(detail.description, "Updates DNS records via the DuckDNS API");
-    EXPECT_EQ(detail.author, "Kotarou");
-    EXPECT_EQ(detail.version, "1.0.0");
+namespace {
+    constexpr std::string_view CONFIG = R"({"token": "my-token"})";
 }
 
-TEST(DuckDnsDriverTest, GenerateRequest_BasicARecord) {
-    DuckDnsDriver driver;
-    DriverConfig config = R"({"token": "my-token"})";
-    DriverUpdateParams ctx{
-        .ip_addr = "1.2.3.4", .rd_type = "A",
-        .domain = "duckdns.org", .subdomain = "mydomain", .fqdn = "mydomain.duckdns.org"
-    };
-
-    auto result = driver.generate_request(config, ctx);
-    EXPECT_EQ(result.url,
-              "https://www.duckdns.org/update?domains=mydomain&token=my-token&ip=1.2.3.4");
-    EXPECT_EQ(result.request.method, net::http::Method::GET);
-    EXPECT_FALSE(result.request.body.has_value());
+TEST(DuckDnsDriverTest, Descriptor_ReturnsExpectedMetadata) {
+    const yaddnsc_driver_descriptor *descriptor = nullptr;
+    ASSERT_EQ(yaddnsc_driver_get_descriptor(&descriptor), YADDNSC_STATUS_OK);
+    ASSERT_NE(descriptor, nullptr);
+    EXPECT_EQ(descriptor->magic, YADDNSC_DRIVER_MAGIC);
+    EXPECT_EQ(descriptor->api_revision, YADDNSC_DRIVER_API_REVISION);
+    EXPECT_EQ(std::string_view(descriptor->name.data, descriptor->name.size), "duckdns");
+    EXPECT_EQ(std::string_view(descriptor->description.data, descriptor->description.size),
+              "Updates DNS records via the DuckDNS API");
+    EXPECT_EQ(std::string_view(descriptor->author.data, descriptor->author.size), "Kotarou");
+    EXPECT_EQ(std::string_view(descriptor->version.data, descriptor->version.size), "1.0.0");
+    EXPECT_NE(descriptor->capabilities & YADDNSC_DRIVER_CAPABILITY_A, 0u);
+    EXPECT_NE(descriptor->capabilities & YADDNSC_DRIVER_CAPABILITY_AAAA, 0u);
 }
 
-TEST(DuckDnsDriverTest, GenerateRequest_AAAARecord_UsesIpv6Param) {
-    DuckDnsDriver driver;
-    DriverConfig config = R"({"token": "my-token"})";
-    DriverUpdateParams ctx{
-        .ip_addr = "::1", .rd_type = "AAAA",
-        .domain = "duckdns.org", .subdomain = "mydomain", .fqdn = "mydomain.duckdns.org"
-    };
+TEST(DuckDnsDriverTest, Update_BasicARecord) {
+    FakeHostServices fake;
+    fake.queue_response(200, "OK");
 
-    auto result = driver.generate_request(config, ctx);
-    EXPECT_TRUE(result.url.find("ipv6=%3A%3A1") != std::string_view::npos ||
-                result.url.find("ipv6=::1") != std::string_view::npos)
-        << "AAAA record should use ipv6 parameter, got URL: " << result.url;
+    const auto result = run_abi_update(fake, CONFIG, "1.2.3.4", "A", "duckdns.org", "mydomain",
+                                       "mydomain.duckdns.org");
+    ASSERT_EQ(result.create_status, YADDNSC_STATUS_OK) << result.error_message;
+    ASSERT_EQ(result.status, YADDNSC_STATUS_OK) << result.error_message;
+
+    ASSERT_EQ(fake.requests.size(), 1u);
+    const auto &request = fake.requests[0];
+
+    EXPECT_EQ(request.url, "https://www.duckdns.org/update?domains=mydomain&token=my-token&ip=1.2.3.4");
+    EXPECT_EQ(request.method, YADDNSC_HTTP_GET);
+    EXPECT_FALSE(request.body.has_value());
 }
 
-TEST(DuckDnsDriverTest, GenerateRequest_VerboseMode_AppendsVerboseFlag) {
-    DuckDnsDriver driver;
-    DriverConfig config = R"({"token": "my-token", "verbose": true})";
-    DriverUpdateParams ctx{
-        .ip_addr = "10.0.0.1", .rd_type = "A",
-        .domain = "duckdns.org", .subdomain = "test", .fqdn = "test.duckdns.org"
-    };
+TEST(DuckDnsDriverTest, Update_AAAARecord_UsesIpv6Param) {
+    FakeHostServices fake;
+    fake.queue_response(200, "OK");
 
-    auto result = driver.generate_request(config, ctx);
-    EXPECT_TRUE(result.url.find("&verbose=true") != std::string_view::npos)
-        << "Verbose mode should append &verbose=true, got URL: " << result.url;
+    const auto result = run_abi_update(fake, CONFIG, "::1", "AAAA", "duckdns.org", "mydomain",
+                                       "mydomain.duckdns.org");
+    ASSERT_EQ(result.status, YADDNSC_STATUS_OK) << result.error_message;
+
+    ASSERT_EQ(fake.requests.size(), 1u);
+    EXPECT_TRUE(fake.requests[0].url.find("ipv6=%3A%3A1") != std::string::npos ||
+                fake.requests[0].url.find("ipv6=::1") != std::string::npos)
+        << "AAAA record should use ipv6 parameter, got URL: " << fake.requests[0].url;
 }
 
-TEST(DuckDnsDriverTest, GenerateRequest_VerboseFalse_DoesNotAppendVerboseFlag) {
-    DuckDnsDriver driver;
-    DriverConfig config = R"({"token": "my-token", "verbose": false})";
-    DriverUpdateParams ctx{
-        .ip_addr = "10.0.0.1", .rd_type = "A",
-        .domain = "duckdns.org", .subdomain = "test", .fqdn = "test.duckdns.org"
-    };
+TEST(DuckDnsDriverTest, Update_VerboseMode_AppendsVerboseFlag) {
+    FakeHostServices fake;
+    fake.queue_response(200, "OK");
 
-    auto result = driver.generate_request(config, ctx);
-    EXPECT_TRUE(result.url.find("&verbose=true") == std::string_view::npos)
-        << "Verbose false should NOT append &verbose=true, got URL: " << result.url;
+    const auto result = run_abi_update(fake, R"({"token": "my-token", "verbose": true})", "10.0.0.1", "A",
+                                       "duckdns.org", "test", "test.duckdns.org");
+    ASSERT_EQ(result.status, YADDNSC_STATUS_OK) << result.error_message;
+
+    ASSERT_EQ(fake.requests.size(), 1u);
+    EXPECT_TRUE(fake.requests[0].url.find("&verbose=true") != std::string::npos)
+        << "Verbose mode should append &verbose=true, got URL: " << fake.requests[0].url;
 }
 
-TEST(DuckDnsDriverTest, GenerateRequest_MissingToken_ThrowsParamParseException) {
-    DuckDnsDriver driver;
-    DriverConfig config = R"({"not_token": "value"})";
-    DriverUpdateParams ctx{
-        .ip_addr = "1.2.3.4", .rd_type = "A",
-        .domain = "duckdns.org", .subdomain = "x", .fqdn = "x.duckdns.org"
-    };
+TEST(DuckDnsDriverTest, Update_VerboseFalse_DoesNotAppendVerboseFlag) {
+    FakeHostServices fake;
+    fake.queue_response(200, "OK");
 
-    EXPECT_THROW({ driver.generate_request(config, ctx); }, ParamParseException);
+    const auto result = run_abi_update(fake, R"({"token": "my-token", "verbose": false})", "10.0.0.1", "A",
+                                       "duckdns.org", "test", "test.duckdns.org");
+    ASSERT_EQ(result.status, YADDNSC_STATUS_OK) << result.error_message;
+
+    ASSERT_EQ(fake.requests.size(), 1u);
+    EXPECT_TRUE(fake.requests[0].url.find("&verbose=true") == std::string::npos)
+        << "Verbose false should NOT append &verbose=true, got URL: " << fake.requests[0].url;
 }
 
-TEST(DuckDnsDriverTest, CheckResponse_OkBody_ReturnsTrue) {
-    DuckDnsDriver driver;
-    net::http::Response resp{200, "OK", {}};
-    EXPECT_TRUE(driver.check_response(resp));
+TEST(DuckDnsDriverTest, Update_MissingToken_ReturnsInvalidConfig) {
+    FakeHostServices fake;
+    const auto result = run_abi_update(fake, R"({"not_token": "value"})", "1.2.3.4", "A", "duckdns.org", "x",
+                                       "x.duckdns.org");
+    EXPECT_EQ(result.status, YADDNSC_STATUS_INVALID_CONFIG);
+    EXPECT_TRUE(result.error_message.starts_with("Driver configuration parse error:")) << result.error_message;
+    EXPECT_TRUE(fake.requests.empty());
 }
 
-TEST(DuckDnsDriverTest, CheckResponse_VerboseOkBody_ReturnsTrue) {
-    DuckDnsDriver driver;
-    net::http::Response resp{200, "OK\n127.0.0.1\nupdated successfully", {}};
-    EXPECT_TRUE(driver.check_response(resp));
+TEST(DuckDnsDriverTest, Update_OkBody_ReturnsOk) {
+    FakeHostServices fake;
+    fake.queue_response(200, "OK");
+
+    const auto result = run_abi_update(fake, CONFIG, "1.2.3.4", "A", "duckdns.org", "mydomain",
+                                       "mydomain.duckdns.org");
+    EXPECT_EQ(result.status, YADDNSC_STATUS_OK) << result.error_message;
 }
 
-TEST(DuckDnsDriverTest, CheckResponse_KoBody_ReturnsFalse) {
-    DuckDnsDriver driver;
-    net::http::Response resp{200, "KO", {}};
-    EXPECT_FALSE(driver.check_response(resp));
+TEST(DuckDnsDriverTest, Update_VerboseOkBody_ReturnsOk) {
+    FakeHostServices fake;
+    fake.queue_response(200, "OK\n127.0.0.1\nupdated successfully");
+
+    const auto result = run_abi_update(fake, CONFIG, "1.2.3.4", "A", "duckdns.org", "mydomain",
+                                       "mydomain.duckdns.org");
+    EXPECT_EQ(result.status, YADDNSC_STATUS_OK) << result.error_message;
 }
 
-TEST(DuckDnsDriverTest, CheckResponse_EmptyBody_ReturnsFalse) {
-    DuckDnsDriver driver;
-    net::http::Response resp{200, "", {}};
-    EXPECT_FALSE(driver.check_response(resp));
+TEST(DuckDnsDriverTest, Update_KoBody_ReturnsUpstreamRejected) {
+    FakeHostServices fake;
+    fake.queue_response(200, "KO");
+
+    const auto result = run_abi_update(fake, CONFIG, "1.2.3.4", "A", "duckdns.org", "mydomain",
+                                       "mydomain.duckdns.org");
+    EXPECT_EQ(result.status, YADDNSC_STATUS_UPSTREAM_REJECTED);
 }
 
-TEST(DuckDnsDriverTest, CheckResponse_ErrorStatusWithOkBody_ReturnsTrue) {
+TEST(DuckDnsDriverTest, Update_EmptyBody_ReturnsUpstreamRejected) {
+    FakeHostServices fake;
+    fake.queue_response(200, "");
+
+    const auto result = run_abi_update(fake, CONFIG, "1.2.3.4", "A", "duckdns.org", "mydomain",
+                                       "mydomain.duckdns.org");
+    EXPECT_EQ(result.status, YADDNSC_STATUS_UPSTREAM_REJECTED);
+}
+
+TEST(DuckDnsDriverTest, Update_ErrorStatusWithOkBody_ReturnsOk) {
     // DuckDNS check_response reads the body first, not the status code.
     // Even with a 500 status, a body starting with "OK" is treated as success.
-    DuckDnsDriver driver;
-    net::http::Response resp{500, "OK", {}};
-    EXPECT_TRUE(driver.check_response(resp));
+    FakeHostServices fake;
+    fake.queue_response(500, "OK");
+
+    const auto result = run_abi_update(fake, CONFIG, "1.2.3.4", "A", "duckdns.org", "mydomain",
+                                       "mydomain.duckdns.org");
+    EXPECT_EQ(result.status, YADDNSC_STATUS_OK) << result.error_message;
 }
 
-TEST(DuckDnsDriverTest, CheckResponse_ErrorStatusWithNonOkBody_ReturnsFalse) {
-    DuckDnsDriver driver;
-    net::http::Response resp{500, "Internal Server Error", {}};
-    EXPECT_FALSE(driver.check_response(resp));
+TEST(DuckDnsDriverTest, Update_ErrorStatusWithNonOkBody_ReturnsUpstreamRejected) {
+    FakeHostServices fake;
+    fake.queue_response(500, "Internal Server Error");
+
+    const auto result = run_abi_update(fake, CONFIG, "1.2.3.4", "A", "duckdns.org", "mydomain",
+                                       "mydomain.duckdns.org");
+    EXPECT_EQ(result.status, YADDNSC_STATUS_UPSTREAM_REJECTED);
 }
 
-TEST(DuckDnsDriverTest, FactoryCreateDestroy) { test_factory_create_destroy(); }
-TEST(DuckDnsDriverTest, FactoryMagic) { test_factory_magic(); }
-TEST(DuckDnsDriverTest, FactoryBuildId) { test_factory_build_id(); }
-TEST(DuckDnsDriverTest, FactoryCompilerIdHash) { test_factory_compiler_id_hash(); }
+TEST(DuckDnsDriverTest, Entries_NullArgumentsRejected) {
+    EXPECT_EQ(yaddnsc_driver_get_descriptor(nullptr), YADDNSC_STATUS_INVALID_ARGUMENT);
+    EXPECT_EQ(yaddnsc_driver_update(nullptr, nullptr, nullptr), YADDNSC_STATUS_INVALID_ARGUMENT);
+    yaddnsc_driver_destroy(nullptr); // must be a no-op, must not crash
+}

@@ -21,10 +21,10 @@
 /// Result contract:
 ///   - success carries the record list (non-empty in practice today: a
 ///     NOERROR response with zero records is reported as DnsError::NODATA —
-///     Phase 0 behaviour, kept);
+///     legacy behaviour, kept);
 ///   - every failure is a structured DnsErrorInfo value, never an exception;
 ///   - workflows treat every failure uniformly as "cannot verify the current
-///     record → proceed with the update" (see the README behaviour table).
+///     record → proceed with the update".
 ///
 /// Cancellation is bound inside the infrastructure implementation at
 /// construction time (Utils::CancellationToken); the port itself stays

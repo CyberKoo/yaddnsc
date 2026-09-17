@@ -3,8 +3,7 @@
 //
 // This translation unit is compiled WITHOUT the src/ include root (see
 // test/unit/CMakeLists.txt): the headers below must resolve every dependency
-// from include/ and the generated headers alone (Phase 2 completion
-// criterion).
+// from include/ and the generated headers alone.
 // =============================================================================
 
 #include "http/error.h"

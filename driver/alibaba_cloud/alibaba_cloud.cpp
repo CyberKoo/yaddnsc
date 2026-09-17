@@ -14,13 +14,20 @@
 #include <string>
 #include <vector>
 
-#include "fmt.hpp"
-#include "signing.h"
-#include "uri.h"
+#include <yaddnsc/sdk/url_encode.hpp>
+
 #include "config.hpp"
 #include "response.hpp"
-#include "driver/factory.h"
-#include "interface/core_logger.h"
+#include "signing.h"
+
+namespace fmt = yaddnsc::sdk::fmt;
+using yaddnsc::sdk::Error;
+using yaddnsc::sdk::HttpRequest;
+using yaddnsc::sdk::HttpResponse;
+using yaddnsc::sdk::Method;
+using yaddnsc::sdk::Result;
+using yaddnsc::sdk::Services;
+using yaddnsc::sdk::UpdateContext;
 
 namespace {
 
@@ -31,6 +38,9 @@ namespace {
 
     /// API version for Alidns.
     constexpr std::string_view API_VERSION = "2015-01-09";
+
+    /// Driver name for request logging.
+    constexpr std::string_view DRIVER_NAME = "alibaba_cloud";
 
     /// Generate an ISO 8601 timestamp in Alibaba Cloud format: "YYYY-MM-DDTHH:MM:SSZ".
     [[nodiscard]] std::string alibaba_timestamp() noexcept {
@@ -69,9 +79,9 @@ namespace {
         for (const auto &[key, value] : params) {
             if (!first)
                 result += '&';
-            result += Uri::url_encode(key);
+            result += yaddnsc::sdk::url_encode(key);
             result += '=';
-            result += Uri::url_encode(value);
+            result += yaddnsc::sdk::url_encode(value);
             first = false;
         }
         return result;
@@ -87,8 +97,8 @@ namespace {
                                                 std::string_view http_method,
                                                 const std::string &canonical_query) {
         // Build string to sign.
-        auto encoded_path = Uri::url_encode("/");
-        auto encoded_query = Uri::url_encode(canonical_query);
+        auto encoded_path = yaddnsc::sdk::url_encode("/");
+        auto encoded_query = yaddnsc::sdk::url_encode(canonical_query);
         auto string_to_sign = fmt::format("{}&{}&{}", http_method, encoded_path, encoded_query);
 
         // HMAC-SHA1 with key = secret + "&".
@@ -103,20 +113,37 @@ namespace {
 
 } // anonymous namespace
 
-// =============================================================================
-//  Driver factory entry point
-// =============================================================================
+YADDNSC_DEFINE_DRIVER(AlibabaCloudDriver, "alibaba_cloud", "Updates DNS records via the Alibaba Cloud DNS API",
+                      "Kotarou", "1.0.0", YADDNSC_DRIVER_CAPABILITY_A | YADDNSC_DRIVER_CAPABILITY_AAAA)
 
-DEFINE_DRIVER_FACTORY(AlibabaCloudDriver)
+Result AlibabaCloudDriver::update(UpdateContext &context) {
+    const auto &params = context.request();
+    const auto cfg = parse_config<AlibabaParams>(params.driver_param_json);
 
-// =============================================================================
-//  AlibabaCloudDriver::generate_request
-// =============================================================================
+    HttpRequest request = generate_request(cfg, params);
 
-DriverRequestContext AlibabaCloudDriver::generate_request(const DriverConfig &config,
-                                                          const DriverUpdateParams &ctx) const {
-    auto cfg = parse_config<AlibabaParams>(config);
+    YADDNSC_SDK_LOG_DEBUG(context, "Domain {} ({}) received DNS record update request from driver {}, {}",
+                          params.fqdn, params.record_type, DRIVER_NAME, yaddnsc::sdk::format_request(request));
 
+    auto response = context.exchange(request);
+    if (!response) {
+        YADDNSC_SDK_LOG_WARN(context, "Domain {} ({}) update failed (HTTP error: {})", params.fqdn,
+                             params.record_type, response.error().message);
+        return std::unexpected(Error{response.error().status, response.error().message, 0});
+    }
+
+    if (!check_response(*response, context.services())) {
+        YADDNSC_SDK_LOG_WARN(context, "Domain {} ({}) update rejected by upstream", params.fqdn, params.record_type);
+        return std::unexpected(Error{YADDNSC_STATUS_UPSTREAM_REJECTED,
+                                     fmt::format("Domain {} ({}) update rejected by upstream", params.fqdn,
+                                                 params.record_type),
+                                     0});
+    }
+
+    return {};
+}
+
+HttpRequest AlibabaCloudDriver::generate_request(const AlibabaParams &cfg, const yaddnsc::sdk::UpdateRequest &ctx) {
     auto ttl = cfg.ttl.value_or(600);
 
     // Build the common parameters (all RPC requests include these).
@@ -133,8 +160,8 @@ DriverRequestContext AlibabaCloudDriver::generate_request(const DriverConfig &co
     // UpdateDomainRecord specific parameters.
     params.emplace_back("RecordId", cfg.record_id);
     params.emplace_back("RR", ctx.subdomain);
-    params.emplace_back("Type", ctx.rd_type);
-    params.emplace_back("Value", ctx.ip_addr);
+    params.emplace_back("Type", ctx.record_type);
+    params.emplace_back("Value", ctx.ip_address);
     params.emplace_back("TTL", std::to_string(ttl));
 
     // Sort by key name (required for Alibaba Cloud RPC signature).
@@ -151,63 +178,47 @@ DriverRequestContext AlibabaCloudDriver::generate_request(const DriverConfig &co
     // Append the signature (not URL-encoded again — it's already in canonical form).
     canonical_query += '&';
     canonical_query += "Signature=";
-    canonical_query += Uri::url_encode(signature);
+    canonical_query += yaddnsc::sdk::url_encode(signature);
 
     // Assemble the request.
-    DriverRequest request{};
+    HttpRequest request{};
+    request.url = std::string(API_URL);
     request.body = std::move(canonical_query);
     request.content_type = "application/x-www-form-urlencoded";
-    request.method = net::http::Method::POST;
+    request.method = Method::Post;
 
-    return {std::string(API_URL), std::move(request)};
+    return request;
 }
 
-// =============================================================================
-//  AlibabaCloudDriver::check_response
-// =============================================================================
+bool AlibabaCloudDriver::check_response(const HttpResponse &response, const Services &services) {
+    YADDNSC_SDK_LOG_TRACE(services, "Got {} from server.", response.body);
 
-bool AlibabaCloudDriver::check_response(const net::http::Response &response) const {
-    CORE_LOG_TRACE("Got {} from server.", response.text());
-
-    if (response.status == 200) {
+    if (response.status_code == 200) {
         // On success, Alibaba DNS returns JSON with RecordId.
-        if (auto result = glz::read_json<AlibabaUpdateResponse>(response.text())) {
-            CORE_LOG_DEBUG("DNS record updated successfully (RecordId: {})",
-                           result.value().record_id);
+        if (auto result = glz::read_json<AlibabaUpdateResponse>(response.body)) {
+            YADDNSC_SDK_LOG_DEBUG(services, "DNS record updated successfully (RecordId: {})",
+                                  result.value().record_id);
             return true;
         }
 
         // If we can't parse the expected success response, try error format.
-        CORE_LOG_ERROR("Failed to parse Alibaba Cloud API response");
+        YADDNSC_SDK_LOG_ERROR(services, "Failed to parse Alibaba Cloud API response");
         return false;
     }
 
     // Error responses include JSON with Code and Message.
-    if (!response.text().empty()) {
-        if (auto result = glz::read_json<AlibabaErrorResponse>(response.text())) {
-            CORE_LOG_ERROR("Alibaba Cloud API error: {} ({})",
-                           result.value().message, result.value().code);
+    if (!response.body.empty()) {
+        if (auto result = glz::read_json<AlibabaErrorResponse>(response.body)) {
+            YADDNSC_SDK_LOG_ERROR(services, "Alibaba Cloud API error: {} ({})",
+                                  result.value().message, result.value().code);
         } else {
-            CORE_LOG_ERROR("Alibaba Cloud API error (HTTP {}): {}",
-                           response.status, response.text());
+            YADDNSC_SDK_LOG_ERROR(services, "Alibaba Cloud API error (HTTP {}): {}",
+                                  response.status_code, response.body);
         }
     } else {
-        CORE_LOG_ERROR("Alibaba Cloud API request failed with HTTP status {}",
-                       response.status);
+        YADDNSC_SDK_LOG_ERROR(services, "Alibaba Cloud API request failed with HTTP status {}",
+                              response.status_code);
     }
 
     return false;
-}
-
-// =============================================================================
-//  AlibabaCloudDriver::get_detail
-// =============================================================================
-
-DriverDetail AlibabaCloudDriver::get_detail() const noexcept {
-    return {
-        .name = "alibaba_cloud",
-        .description = "Updates DNS records via the Alibaba Cloud DNS API",
-        .author = "Kotarou",
-        .version = "1.0.0"
-    };
 }

@@ -18,6 +18,7 @@
 #     fixtures/            ←  shared test-data builders
 #     integration/         ←  integration tests (real I/O in controlled env)
 #     perf/                ←  micro-benchmarks (Google Benchmark)
+#     plugin/              ←  v1 alpha plugin ABI contract tests (dlopen)
 # ==============================================================================
 
 # Clang 19.x needs -fexperimental-library for std::stop_token, std::jthread, etc.
@@ -130,9 +131,8 @@ target_link_libraries(yaddnsc_test_config INTERFACE
 # yaddnsc_prod_all  —  the production OBJECT libraries plus their third-party
 # dependencies, bundled for test targets.
 #
-# Phase 2 rule (refactor/phase-2-ports-and-infrastructure.md): new and
-# migrated test targets link the production targets instead of compiling
-# hand-picked production .cpp files.
+# Architecture rule: new and migrated test targets link the production
+# targets instead of compiling hand-picked production .cpp files.
 #
 # The objects are attached as INTERFACE sources: linking an OBJECT library
 # transitively through an INTERFACE library would drop its object files
@@ -142,7 +142,7 @@ target_link_libraries(yaddnsc_test_config INTERFACE
 # ---------------------------------------------------------------------------
 add_library(yaddnsc_prod_all INTERFACE)
 foreach(objlib
-        yaddnsc_config yaddnsc_domain yaddnsc_application yaddnsc_core yaddnsc_network yaddnsc_net_transport
+        yaddnsc_config yaddnsc_domain yaddnsc_application yaddnsc_core yaddnsc_plugin_host yaddnsc_network yaddnsc_net_transport
         yaddnsc_http_client yaddnsc_cli yaddnsc_dns yaddnsc_ip_source yaddnsc_util)
     target_sources(yaddnsc_prod_all INTERFACE $<TARGET_OBJECTS:${objlib}>)
 endforeach()
@@ -199,6 +199,9 @@ add_subdirectory(integration)
 
 # Driver-specific tests (require driver source files, no dlopen)
 add_subdirectory(driver)
+
+# Plugin contract tests (v1 alpha C ABI; dlopen a whiteboard test plugin)
+add_subdirectory(plugin)
 
 # ============================================================================
 # tests  —  top-level convenience target to build all test executables

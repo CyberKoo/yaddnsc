@@ -16,8 +16,7 @@
 #include <gtest/gtest.h>
 
 #include "exception/base.h"
-#include "exception/driver.h"
-#include "exception/bad_driver.h"
+#include "exception/plugin_load.h"
 #include "exception/config_verification.h"
 #include "exception/dns_lookup.h"
 #include "exception/socket.h"
@@ -29,42 +28,29 @@ TEST(ExceptionTest, YaddnscException_IsRuntimeError) {
     // YaddnscException is abstract (pure virtual get_name()), so we use a
     // concrete subclass to verify the inheritance chain.
     try {
-        throw BadDriverException("base error");
+        throw PluginLoadException("base error");
     } catch (const std::runtime_error &) {
         SUCCEED();
     } catch (...) {
-        FAIL() << "BadDriverException should be caught as std::runtime_error";
+        FAIL() << "PluginLoadException should be caught as std::runtime_error";
     }
 }
 
 TEST(ExceptionTest, YaddnscException_What_ReturnsMessage) {
-    BadDriverException exc("test message");
+    PluginLoadException exc("test message");
     EXPECT_EQ(std::string_view(exc.what()), "test message");
 }
 
-// ── DriverException ──────────────────────────────────────────────────────────
+// ── PluginLoadException ───────────────────────────────────────────────────────
 
-TEST(ExceptionTest, DriverException_IsYaddnscException) {
-    // DriverException is also abstract; use BadDriverException (a concrete subclass).
-    try {
-        throw BadDriverException("driver error");
-    } catch (const YaddnscException &) {
-        SUCCEED();
-    } catch (...) {
-        FAIL();
-    }
+TEST(ExceptionTest, PluginLoadException_GetName_ReturnsCorrectType) {
+    PluginLoadException exc("bad driver");
+    EXPECT_EQ(exc.get_name(), "PluginLoadException");
 }
 
-// ── BadDriverException ───────────────────────────────────────────────────────
-
-TEST(ExceptionTest, BadDriverException_GetName_ReturnsCorrectType) {
-    BadDriverException exc("bad driver");
-    EXPECT_EQ(exc.get_name(), "BadDriverException");
-}
-
-TEST(ExceptionTest, BadDriverException_CatchByYaddnscException) {
+TEST(ExceptionTest, PluginLoadException_CatchByYaddnscException) {
     try {
-        throw BadDriverException("bad driver");
+        throw PluginLoadException("bad driver");
     } catch (const YaddnscException &) {
         SUCCEED();
     }
@@ -105,14 +91,14 @@ TEST(ExceptionTest, DnsLookupException_WithErrorCode_Retry) {
 }
 
 TEST(ExceptionTest, DnsLookupException_WrapYaddnscException) {
-    BadDriverException inner("inner");
+    PluginLoadException inner("inner");
     DnsLookupException wrapped(std::move(inner), DnsError::CONNECTION);
     EXPECT_EQ(wrapped.get_error(), DnsError::CONNECTION);
     EXPECT_EQ(std::string_view(wrapped.what()), "inner");
 }
 
 TEST(ExceptionTest, DnsLookupException_WrapConstYaddnscException) {
-    const BadDriverException inner("inner");
+    const PluginLoadException inner("inner");
     DnsLookupException wrapped(inner, DnsError::CONFIG);
     EXPECT_EQ(wrapped.get_error(), DnsError::CONFIG);
 }
@@ -163,14 +149,14 @@ TEST(ExceptionTest, SocketException_IsYaddnscException) {
 
 TEST(ExceptionTest, InheritanceHierarchy) {
     // Compile-time check: all concrete exception types inherit from YaddnscException.
-    static_assert(std::is_base_of_v<YaddnscException, BadDriverException>);
+    static_assert(std::is_base_of_v<YaddnscException, PluginLoadException>);
     static_assert(std::is_base_of_v<YaddnscException, ConfigVerificationException>);
     static_assert(std::is_base_of_v<YaddnscException, DnsLookupException>);
     static_assert(std::is_base_of_v<YaddnscException, SocketException>);
 }
 
 TEST(ExceptionTest, AllExceptions_What_IsNonNull) {
-    BadDriverException bd("bd");
+    PluginLoadException bd("bd");
     ConfigVerificationException cv("cv");
     DnsLookupException dl("dl");
     SocketException sk("sk");

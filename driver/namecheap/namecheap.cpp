@@ -8,70 +8,107 @@
 #include <libxml/tree.h>
 #include <libxml/xpath.h>
 
-#include "driver/factory.h"
-#include "driver/xml_raii.hpp"
-#include "interface/core_logger.h"
+#include <yaddnsc/sdk/xml_raii.hpp>
 
 #include "config.hpp"
-#include "fmt.hpp"
+
+namespace fmt = yaddnsc::sdk::fmt;
+using yaddnsc::sdk::Error;
+using yaddnsc::sdk::HttpRequest;
+using yaddnsc::sdk::HttpResponse;
+using yaddnsc::sdk::Method;
+using yaddnsc::sdk::Result;
+using yaddnsc::sdk::Services;
+using yaddnsc::sdk::UpdateContext;
+using yaddnsc::sdk::UpdateRequest;
 
 namespace {
-constexpr std::string_view API_URL = "https://dynamicdns.park-your-domain.com/update";
-}  // anonymous namespace
+    constexpr std::string_view API_URL = "https://dynamicdns.park-your-domain.com/update";
+    constexpr std::string_view DRIVER_NAME = "namecheap";
+}
 
-DEFINE_DRIVER_FACTORY(NamecheapDriver)
+YADDNSC_DEFINE_DRIVER(NamecheapDriver, "namecheap", "Updates DNS records via the Namecheap Dynamic DNS API", "Kotarou",
+                      "1.0.0", YADDNSC_DRIVER_CAPABILITY_A)
+
+// =============================================================================
+//  NamecheapDriver::update
+// =============================================================================
+
+Result NamecheapDriver::update(UpdateContext &context) {
+    const auto &params = context.request();
+
+    // Namecheap DDNS only supports A records.
+    if (params.record_type == "AAAA") {
+        return std::unexpected(Error{YADDNSC_STATUS_UNSUPPORTED_RECORD,
+                                     fmt::format("Namecheap DDNS does not support AAAA (IPv6) records. "
+                                                 "Use an A record instead for domain '{}'.",
+                                                 params.fqdn),
+                                     0});
+    }
+
+    const auto cfg = parse_config<NamecheapParams>(params.driver_param_json);
+
+    auto request = generate_request(cfg, params);
+
+    YADDNSC_SDK_LOG_DEBUG(context, "Domain {} ({}) received DNS record update request from driver {}, {}",
+                          params.fqdn, params.record_type, DRIVER_NAME, yaddnsc::sdk::format_request(request));
+
+    auto response = context.exchange(request);
+    if (!response) {
+        YADDNSC_SDK_LOG_WARN(context, "Domain {} ({}) update failed (HTTP error: {})", params.fqdn,
+                             params.record_type, response.error().message);
+        return std::unexpected(Error{response.error().status, response.error().message, 0});
+    }
+
+    if (!check_response(*response, context.services())) {
+        YADDNSC_SDK_LOG_WARN(context, "Domain {} ({}) update rejected by upstream", params.fqdn, params.record_type);
+        return std::unexpected(Error{YADDNSC_STATUS_UPSTREAM_REJECTED,
+                                     fmt::format("Domain {} ({}) update rejected by upstream", params.fqdn,
+                                                 params.record_type),
+                                     0});
+    }
+
+    return {};
+}
 
 // =============================================================================
 //  NamecheapDriver::generate_request
 // =============================================================================
 
-DriverRequestContext NamecheapDriver::generate_request(const DriverConfig& config,
-                                                       const DriverUpdateParams& ctx) const {
-    // Namecheap DDNS only supports A records.
-    if (ctx.rd_type == "AAAA") {
-        throw ParamParseException(
-            fmt::format("Namecheap DDNS does not support AAAA (IPv6) records. "
-                        "Use an A record instead for domain '{}'.",
-                        ctx.fqdn));
-    }
-
-    auto cfg = parse_config<NamecheapParams>(config);
-
+HttpRequest NamecheapDriver::generate_request(const NamecheapParams &cfg, const UpdateRequest &params) {
     // Build URL:
     //   https://dynamicdns.park-your-domain.com/update
     //   ?host=HOST&domain=DOMAIN&password=PASS&ip=IP
     //
     // The `host` parameter uses the subdomain label directly.
     // For a bare-domain (apex) record the configuration should pass "@".
-    auto url = fmt::format("{}?host={}&domain={}&password={}&ip={}", API_URL, ctx.subdomain, ctx.domain, cfg.password,
-                           ctx.ip_addr);
-
-    DriverRequest request{};
-    request.method = net::http::Method::GET;
-
-    return {std::move(url), std::move(request)};
+    HttpRequest request{};
+    request.url = fmt::format("{}?host={}&domain={}&password={}&ip={}", API_URL, params.subdomain, params.domain,
+                              cfg.password, params.ip_address);
+    request.method = Method::Get;
+    return request;
 }
 
 // =============================================================================
 //  NamecheapDriver::check_response
 // =============================================================================
 
-bool NamecheapDriver::check_response(const net::http::Response& response) const {
-    CORE_LOG_TRACE("Got {} from server.", response.text());
+bool NamecheapDriver::check_response(const HttpResponse &response, const Services &services) {
+    YADDNSC_SDK_LOG_TRACE(services, "Got {} from server.", response.body);
 
     // Parse the XML response with libxml2.
     // All libxml2 resources are RAII-managed via xml_raii wrappers.
     xml_raii::unique_doc doc(
-        xmlReadMemory(response.text().data(), static_cast<int>(response.text().size()), nullptr, nullptr, 0));
+        xmlReadMemory(response.body.data(), static_cast<int>(response.body.size()), nullptr, nullptr, 0));
 
     if (!doc) {
-        CORE_LOG_ERROR("Failed to parse Namecheap API response XML");
+        YADDNSC_SDK_LOG_ERROR(services, "Failed to parse Namecheap API response XML");
         return false;
     }
 
     xml_raii::unique_xpath_ctx xpath_ctx(xmlXPathNewContext(doc.get()));
     if (!xpath_ctx) {
-        CORE_LOG_ERROR("Failed to create XPath context");
+        YADDNSC_SDK_LOG_ERROR(services, "Failed to create XPath context");
         return false;
     }
 
@@ -91,8 +128,8 @@ bool NamecheapDriver::check_response(const net::http::Response& response) const 
                 xml_raii::unique_xpath_obj ip_nodes(xmlXPathEvalExpression(BAD_CAST "//IP/text()", xpath_ctx.get()));
                 if (ip_nodes && ip_nodes->nodesetval && ip_nodes->nodesetval->nodeNr > 0) {
                     xmlChar* ip_text = xmlNodeGetContent(ip_nodes->nodesetval->nodeTab[0]);
-                    CORE_LOG_DEBUG("DNS record updated successfully to {}",
-                                   ip_text ? reinterpret_cast<const char*>(ip_text) : "unknown");
+                    YADDNSC_SDK_LOG_DEBUG(services, "DNS record updated successfully to {}",
+                                          ip_text ? reinterpret_cast<const char*>(ip_text) : "unknown");
                     xmlFree(ip_text);
                 }
                 success = true;
@@ -104,31 +141,20 @@ bool NamecheapDriver::check_response(const net::http::Response& response) const 
                 if (err_msg_nodes && err_msg_nodes->nodesetval) {
                     for (int i = 0; i < err_msg_nodes->nodesetval->nodeNr; ++i) {
                         xmlChar* err_text = xmlNodeGetContent(err_msg_nodes->nodesetval->nodeTab[i]);
-                        CORE_LOG_ERROR("Namecheap API error: {}",
-                                       err_text ? reinterpret_cast<const char*>(err_text) : "unknown");
+                        YADDNSC_SDK_LOG_ERROR(services, "Namecheap API error: {}",
+                                              err_text ? reinterpret_cast<const char*>(err_text) : "unknown");
                         xmlFree(err_text);
                     }
                 } else {
-                    CORE_LOG_ERROR("Namecheap API error (ErrCount: {})", count);
+                    YADDNSC_SDK_LOG_ERROR(services, "Namecheap API error (ErrCount: {})", count);
                 }
             }
 
             xmlFree(count_text);
         }
     } else {
-        CORE_LOG_ERROR("Namecheap API response missing <ErrCount> element");
+        YADDNSC_SDK_LOG_ERROR(services, "Namecheap API response missing <ErrCount> element");
     }
 
     return success;
-}
-
-// =============================================================================
-//  NamecheapDriver::get_detail
-// =============================================================================
-
-DriverDetail NamecheapDriver::get_detail() const noexcept {
-    return {.name = "namecheap",
-            .description = "Updates DNS records via the Namecheap Dynamic DNS API",
-            .author = "Kotarou",
-            .version = "1.0.0"};
 }

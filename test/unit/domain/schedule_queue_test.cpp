@@ -1,9 +1,8 @@
 //
 // ScheduleQueue unit tests — pure timer-queue logic over injected (fake)
-// time; no clock, no threads, no stop tokens
-// (refactor/phase-3-scheduling-and-workflow.md §3.1).
+// time; no clock, no threads, no stop tokens.
 //
-// Locked behaviours (Phase 0 table):
+// Locked behaviours (legacy Scheduler semantics):
 //   - one task per subdomain, first deadline == construction time
 //   - pop-and-reschedule: a popped task is immediately re-queued with
 //     now + update_interval (never waits for the task to finish)

@@ -7,12 +7,12 @@
 #include <filesystem>
 
 #include "domain/config/runtime_config.h"
-#include "exception/bad_driver.h"
 #include "exception/config_verification.h"
+#include "exception/plugin_load.h"
 #include "util/algorithm.hpp"
 
 #include "config_cmake.h"
-#include "driver_manager.h"
+#include "infrastructure/plugin/driver_catalog.h"
 
 #include <spdlog/spdlog.h>
 
@@ -44,7 +44,7 @@ namespace {
         return p;
     }
 
-    void load_auto_discover(DriverManager &driver_manager, const domain::DriverSettings &settings) {
+    void load_auto_discover(DriverCatalog &driver_catalog, const domain::DriverSettings &settings) {
         if (!settings.load.empty()) {
             SPDLOG_WARN("auto_discover is enabled, ignoring manual load list with {} entry(ies)",
                         settings.load.size());
@@ -72,8 +72,8 @@ namespace {
                     continue;
                 }
                 try {
-                    driver_manager.load_driver(entry.path().string());
-                } catch (const BadDriverException &e) {
+                    driver_catalog.load_driver(entry.path().string());
+                } catch (const PluginLoadException &e) {
                     SPDLOG_WARN("Skipping invalid driver '{}': {}", entry.path().filename().string(), e.what());
                 } catch (const std::exception &e) {
                     SPDLOG_WARN("Skipping driver '{}': {}", entry.path().filename().string(), e.what());
@@ -85,7 +85,7 @@ namespace {
         }
     }
 
-    void load_manual(DriverManager &driver_manager, const domain::DriverSettings &settings) {
+    void load_manual(DriverCatalog &driver_catalog, const domain::DriverSettings &settings) {
         auto load = settings.load;
         Utils::dedupe(load);
 
@@ -93,19 +93,19 @@ namespace {
 
         for (const auto &driver: load) {
             const auto driver_full_path = resolve_driver_path(base_dir, driver);
-            driver_manager.load_driver(driver_full_path.string());
+            driver_catalog.load_driver(driver_full_path.string());
         }
     }
 } // anonymous namespace
 
-void DriverLoader::load(DriverManager &driver_manager, const domain::DriverSettings &settings) {
+void DriverLoader::load(DriverCatalog &driver_catalog, const domain::DriverSettings &settings) {
     if (settings.auto_discover) {
-        load_auto_discover(driver_manager, settings);
+        load_auto_discover(driver_catalog, settings);
     } else {
-        load_manual(driver_manager, settings);
+        load_manual(driver_catalog, settings);
     }
 
-    const auto loaded = driver_manager.get_loaded_drivers();
+    const auto loaded = driver_catalog.get_loaded_drivers();
 
     if (loaded.empty()) {
         SPDLOG_WARN("No drivers were loaded, DDNS updates will not be performed");

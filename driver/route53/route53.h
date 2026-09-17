@@ -5,7 +5,12 @@
 #ifndef YADDNSC_DRV_ROUTE53_ROUTE53_H
 #define YADDNSC_DRV_ROUTE53_ROUTE53_H
 
-#include "driver/base.h"
+#include <string>
+#include <string_view>
+
+#include <yaddnsc/sdk/driver.hpp>
+
+#include "config.hpp"
 
 /// AWS Route 53 DNS driver for updating A and AAAA records.
 ///
@@ -18,22 +23,17 @@
 ///
 /// Authentication:
 ///   https://docs.aws.amazon.com/general/latest/gr/sigv4_signing.html
-class Route53Driver final : public BaseDriver {
+class Route53Driver final : public yaddnsc::sdk::Driver {
 public:
     ~Route53Driver() override = default;
 
-    /// Build a Route 53 ChangeResourceRecordSets request with SigV4 headers.
-    [[nodiscard]] DriverRequestContext generate_request(
-        const DriverConfig &config, const DriverUpdateParams &ctx
-    ) const override;
-
-    /// Validate the Route 53 API response (XML with libxml2).
-    [[nodiscard]] bool check_response(const net::http::Response &response) const override;
-
-    /// Return static metadata about this driver.
-    [[nodiscard]] DriverDetail get_detail() const noexcept override;
+    /// Perform one update: build signed request → HTTP exchange → check-response.
+    yaddnsc::sdk::Result update(yaddnsc::sdk::UpdateContext &context) override;
 
 private:
+    /// Validate the Route 53 API response (XML with libxml2).
+    static bool check_response(const yaddnsc::sdk::HttpResponse &response, const yaddnsc::sdk::Services &services);
+
     /// Build the XML request body for a Route 53 UPSERT change batch.
     static std::string build_xml_body(const std::string &fqdn,
                                       std::string_view rd_type,

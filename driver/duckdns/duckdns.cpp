@@ -4,61 +4,81 @@
 
 #include "duckdns.h"
 
-#include <glaze/glaze.hpp>
-
-#include "fmt.hpp"
-#include "config.hpp"
-#include "driver/factory.h"
-#include "interface/core_logger.h"
+namespace fmt = yaddnsc::sdk::fmt;
+using yaddnsc::sdk::Error;
+using yaddnsc::sdk::HttpRequest;
+using yaddnsc::sdk::HttpResponse;
+using yaddnsc::sdk::Method;
+using yaddnsc::sdk::Result;
+using yaddnsc::sdk::Services;
+using yaddnsc::sdk::UpdateContext;
+using yaddnsc::sdk::UpdateRequest;
 
 namespace {
     constexpr std::string_view API_URL = "https://www.duckdns.org/update";
+    constexpr std::string_view DRIVER_NAME = "duckdns";
 }
 
-DEFINE_DRIVER_FACTORY(DuckDnsDriver)
+YADDNSC_DEFINE_DRIVER(DuckDnsDriver, "duckdns", "Updates DNS records via the DuckDNS API", "Kotarou", "1.0.0",
+                      YADDNSC_DRIVER_CAPABILITY_A | YADDNSC_DRIVER_CAPABILITY_AAAA)
 
-DriverRequestContext DuckDnsDriver::generate_request(const DriverConfig &config, const DriverUpdateParams &ctx) const {
-    auto cfg = parse_config<DuckDnsParams>(config);
+Result DuckDnsDriver::update(UpdateContext &context) {
+    const auto &params = context.request();
+    const auto cfg = parse_config<DuckDnsParams>(params.driver_param_json);
 
-    // Use ipv6 param for AAAA records, ip param for A records
-    auto ip_param = (ctx.rd_type == "AAAA") ? "ipv6" : "ip";
+    HttpRequest request{};
+    request.url = generate_url(cfg, params);
+    request.method = Method::Get;
 
-    auto url = fmt::format("{}?domains={}&token={}&{}={}",
-                           API_URL, ctx.subdomain, cfg.token, ip_param, ctx.ip_addr);
+    YADDNSC_SDK_LOG_DEBUG(context, "Domain {} ({}) received DNS record update request from driver {}, {}",
+                          params.fqdn, params.record_type, DRIVER_NAME, yaddnsc::sdk::format_request(request));
 
-    if (cfg.verbose.value_or(false)) {
-        url += "&verbose=true";
+    auto response = context.exchange(request);
+    if (!response) {
+        YADDNSC_SDK_LOG_WARN(context, "Domain {} ({}) update failed (HTTP error: {})", params.fqdn,
+                             params.record_type, response.error().message);
+        return std::unexpected(Error{response.error().status, response.error().message, 0});
     }
 
-    DriverRequest request{};
-    request.method = net::http::Method::GET;
+    if (!check_response(*response, context.services())) {
+        YADDNSC_SDK_LOG_WARN(context, "Domain {} ({}) update rejected by upstream", params.fqdn, params.record_type);
+        return std::unexpected(Error{YADDNSC_STATUS_UPSTREAM_REJECTED,
+                                     fmt::format("Domain {} ({}) update rejected by upstream", params.fqdn,
+                                                 params.record_type),
+                                     0});
+    }
 
-    return {std::move(url), std::move(request)};
+    return {};
 }
 
-bool DuckDnsDriver::check_response(const net::http::Response &response) const {
-    CORE_LOG_TRACE("Got {} from server.", response.text());
+bool DuckDnsDriver::check_response(const HttpResponse &response, const Services &services) {
+    YADDNSC_SDK_LOG_TRACE(services, "Got {} from server.", response.body);
 
     // DuckDNS returns:
     //   "OK"           — success (non-verbose)
     //   "OK\n..."      — success (verbose mode)
     //   "KO"           — failure
-    if (response.text().starts_with("OK")) {
-        if (response.text().size() > 2) {
-            CORE_LOG_DEBUG("DNS record updated successfully: {}", response.text());
+    if (response.body.starts_with("OK")) {
+        if (response.body.size() > 2) {
+            YADDNSC_SDK_LOG_DEBUG(services, "DNS record updated successfully: {}", response.body);
         }
         return true;
     }
 
-    CORE_LOG_ERROR("DuckDNS API error: {}", response.text());
+    YADDNSC_SDK_LOG_ERROR(services, "DuckDNS API error: {}", response.body);
     return false;
 }
 
-DriverDetail DuckDnsDriver::get_detail() const noexcept {
-    return {
-        .name = "duckdns",
-        .description = "Updates DNS records via the DuckDNS API",
-        .author = "Kotarou",
-        .version = "1.0.0"
-    };
+std::string DuckDnsDriver::generate_url(const DuckDnsParams &cfg, const UpdateRequest &params) {
+    // Use ipv6 param for AAAA records, ip param for A records
+    auto ip_param = (params.record_type == "AAAA") ? "ipv6" : "ip";
+
+    auto url = fmt::format("{}?domains={}&token={}&{}={}",
+                           API_URL, params.subdomain, cfg.token, ip_param, params.ip_address);
+
+    if (cfg.verbose.value_or(false)) {
+        url += "&verbose=true";
+    }
+
+    return url;
 }

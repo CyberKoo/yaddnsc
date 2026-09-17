@@ -4,20 +4,31 @@
 
 #include "dnspod.h"
 
+#include <string>
+#include <string_view>
 #include <unordered_map>
 
-#include "fmt.hpp"  // IWYU pragma: keep — needed by CORE_LOG_* macros
+#include <yaddnsc/sdk/form_encode.hpp>
+
 #include "config.hpp"
 #include "response.hpp"
-#include "driver/factory.h"
-#include "interface/core_logger.h"
-#include "interface/http_client.h"
-#include "http_client/form_encode.h"
+
+namespace fmt = yaddnsc::sdk::fmt;
+using yaddnsc::sdk::Error;
+using yaddnsc::sdk::HttpRequest;
+using yaddnsc::sdk::HttpResponse;
+using yaddnsc::sdk::Method;
+using yaddnsc::sdk::Result;
+using yaddnsc::sdk::Services;
+using yaddnsc::sdk::UpdateContext;
+using yaddnsc::sdk::UpdateRequest;
 
 namespace {
     constexpr std::string_view API_URL_CN = "https://dnsapi.cn/Record.Ddns";
 
     constexpr std::string_view API_URL_GLOBAL = "https://api.dnspod.com/Record.Ddns";
+
+    constexpr std::string_view DRIVER_NAME = "dnspod";
 
     std::unordered_map<std::string_view, std::string_view> ERROR_CODES = {
         {"-15", "Domain got prohibited"},
@@ -44,46 +55,71 @@ namespace {
     };
 }
 
-DEFINE_DRIVER_FACTORY (DNSPodDriver)
+YADDNSC_DEFINE_DRIVER(DNSPodDriver, "dnspod", "Updates DNS records via the DNSPod API", "Kotarou",
+                      "2.0.0", YADDNSC_DRIVER_CAPABILITY_A | YADDNSC_DRIVER_CAPABILITY_AAAA)
 
-DriverRequestContext DNSPodDriver::generate_request(const DriverConfig &config, const DriverUpdateParams &ctx) const {
-    auto cfg = parse_config<DNSPodParams>(config);
+Result DNSPodDriver::update(UpdateContext &context) {
+    const auto &params = context.request();
+    const auto cfg = parse_config<DNSPodParams>(params.driver_param_json);
 
+    auto request = generate_request(cfg, params);
+
+    YADDNSC_SDK_LOG_DEBUG(context, "Domain {} ({}) received DNS record update request from driver {}, {}",
+                          params.fqdn, params.record_type, DRIVER_NAME, yaddnsc::sdk::format_request(request));
+
+    auto response = context.exchange(request);
+    if (!response) {
+        YADDNSC_SDK_LOG_WARN(context, "Domain {} ({}) update failed (HTTP error: {})", params.fqdn,
+                             params.record_type, response.error().message);
+        return std::unexpected(Error{response.error().status, response.error().message, 0});
+    }
+
+    if (!check_response(*response, context.services())) {
+        YADDNSC_SDK_LOG_WARN(context, "Domain {} ({}) update rejected by upstream", params.fqdn, params.record_type);
+        return std::unexpected(Error{YADDNSC_STATUS_UPSTREAM_REJECTED,
+                                     fmt::format("Domain {} ({}) update rejected by upstream", params.fqdn,
+                                                 params.record_type),
+                                     0});
+    }
+
+    return {};
+}
+
+HttpRequest DNSPodDriver::generate_request(const DNSPodParams &cfg, const UpdateRequest &params) {
     // record_line: optional, with dynamic default based on global flag
     auto record_line = cfg.record_line.value_or(cfg.global ? "default" : "默认");
 
-    auto url = std::string(cfg.global ? API_URL_GLOBAL : API_URL_CN);
-
-    DriverRequest request{};
-    request.body = net::http::encode_form(DriverParams{
+    HttpRequest request{};
+    request.url = std::string(cfg.global ? API_URL_GLOBAL : API_URL_CN);
+    request.body = yaddnsc::sdk::encode_form({
         {"login_token", cfg.login_token},
         {"domain_id", cfg.domain_id},
         {"record_id", cfg.record_id},
-        {"sub_domain", ctx.subdomain},
-        {"record_type", ctx.rd_type},
-        {"value", ctx.ip_addr},
+        {"sub_domain", std::string(params.subdomain)},
+        {"record_type", std::string(params.record_type)},
+        {"value", std::string(params.ip_address)},
         {"record_line", record_line},
         {"record_line_id", cfg.record_line_id},
         {"format", "json"}
     });
     request.content_type = "application/x-www-form-urlencoded";
-    request.method = net::http::Method::POST;
+    request.method = Method::Post;
 
-    return {std::move(url), std::move(request)};
+    return request;
 }
 
-bool DNSPodDriver::check_response(const net::http::Response &response) const {
-    CORE_LOG_TRACE("Got {} from server.", response.text());
+bool DNSPodDriver::check_response(const HttpResponse &response, const Services &services) {
+    YADDNSC_SDK_LOG_TRACE(services, "Got {} from server.", response.body);
 
-    auto result = glz::read_json<DnsPodResponse>(response.text());
+    auto result = glz::read_json<DnsPodResponse>(response.body);
     if (!result) {
-        CORE_LOG_ERROR("Failed to parse DNSPod API response");
+        YADDNSC_SDK_LOG_ERROR(services, "Failed to parse DNSPod API response");
         return false;
     }
 
     auto resp = result.value();
     if (!resp.status.has_value()) {
-        CORE_LOG_ERROR("Server returned an unknown error, raw response: {}", response.text());
+        YADDNSC_SDK_LOG_ERROR(services, "Server returned an unknown error, raw response: {}", response.body);
         return false;
     }
 
@@ -91,25 +127,17 @@ bool DNSPodDriver::check_response(const net::http::Response &response) const {
     if (status.code == "1") {
         if (resp.record.has_value()) {
             auto &record = resp.record.value();
-            CORE_LOG_DEBUG("Record updated successfully, id: {}, name: {}, value: {}", record.id, record.name,
-                           record.value);
+            YADDNSC_SDK_LOG_DEBUG(services, "Record updated successfully, id: {}, name: {}, value: {}", record.id,
+                                  record.name, record.value);
         }
         return true;
     }
 
     auto description = describe_error_code(status.code);
-    CORE_LOG_ERROR("DNSPod API error: {} (code: {}, description: {})", status.message, status.code, description);
+    YADDNSC_SDK_LOG_ERROR(services, "DNSPod API error: {} (code: {}, description: {})", status.message, status.code,
+                          description);
 
     return false;
-}
-
-DriverDetail DNSPodDriver::get_detail() const noexcept {
-    return {
-        .name = "dnspod",
-        .description = "Updates DNS records via the DNSPod API",
-        .author = "Kotarou",
-        .version = "2.0.0"
-    };
 }
 
 std::string_view DNSPodDriver::describe_error_code(std::string_view code) {

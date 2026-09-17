@@ -10,9 +10,9 @@
 #include <vector>
 
 /// UpdateDecision — pure decision over already-fetched inputs for one update
-/// cycle (refactor/phase-3-scheduling-and-workflow.md §3.3).
+/// cycle.
 ///
-/// Locked behaviours (Phase 0 table):
+/// Locked behaviours (legacy Updater semantics):
 ///   - no local address          → SkipNoAddress (the driver is never called);
 ///   - force_update              → UpdateForced (DNS records are not consulted);
 ///   - the FIRST record equals the local address → SkipUnchanged;

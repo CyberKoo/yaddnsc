@@ -7,8 +7,7 @@
 
 #include "domain/update/update_task.h"
 
-/// TaskExecutor — execution port for scheduled update tasks
-/// (refactor/phase-3-scheduling-and-workflow.md §3.5).
+/// TaskExecutor — execution port for scheduled update tasks.
 ///
 /// The executor is the only component allowed to own a thread pool; it knows
 /// nothing about plugin modules. Submitted work units reference drivers only

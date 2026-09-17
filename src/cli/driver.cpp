@@ -13,8 +13,7 @@
 #include "config/config.h"
 #include "config/normalizer.h"
 #include "core/driver_loader.h"
-#include "core/driver_manager.h"
-#include "interface/driver.h"
+#include "infrastructure/plugin/driver_catalog.h"
 
 
 
@@ -46,11 +45,11 @@ namespace Cli {
 
     int execute_driver_list(const std::string &config_path) {
         auto config = Config::load_config(config_path);
-        DriverManager driver_manager;
+        DriverCatalog driver_catalog;
         // Normalise only — this command deliberately performs no validation.
-        DriverLoader::load(driver_manager, Config::normalize(config).driver);
+        DriverLoader::load(driver_catalog, Config::normalize(config).driver);
 
-        const auto drivers = driver_manager.get_loaded_drivers();
+        const auto drivers = driver_catalog.get_loaded_drivers();
         if (drivers.empty()) {
             std::println("No drivers loaded.");
             return EXIT_SUCCESS;
@@ -59,8 +58,7 @@ namespace Cli {
         std::println("Loaded drivers ({}):", drivers.size());
         for (const auto &name: drivers) {
             try {
-                const auto &driver = driver_manager.get_driver(std::string(name));
-                const auto detail = driver.get_detail();
+                const auto &detail = driver_catalog.get_descriptor(name);
                 std::println("  {} \u2014 {} (v{}, by {})", detail.name, detail.description, detail.version,
                              detail.author);
             } catch (const std::exception &e) {
@@ -72,13 +70,12 @@ namespace Cli {
 
     int execute_driver_info(const std::string &config_path, const std::string &driver_name) {
         auto config = Config::load_config(config_path);
-        DriverManager driver_manager;
+        DriverCatalog driver_catalog;
         // Normalise only — this command deliberately performs no validation.
-        DriverLoader::load(driver_manager, Config::normalize(config).driver);
+        DriverLoader::load(driver_catalog, Config::normalize(config).driver);
 
         try {
-            const auto &driver = driver_manager.get_driver(driver_name);
-            const auto detail = driver.get_detail();
+            const auto &detail = driver_catalog.get_descriptor(driver_name);
             std::println(
                 "Name:        {}\n"
                 "Description: {}\n"

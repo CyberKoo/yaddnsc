@@ -11,7 +11,7 @@
 # They are NOT "unit tests" — they validate that individual components
 # operate correctly against the real OS environment on loopback.
 #
-# Phase 2 note: migrated targets link the production OBJECT libraries via
+# Note: migrated targets link the production OBJECT libraries via
 # yaddnsc_prod_all (defined in ../CMakeLists.txt) instead of compiling
 # hand-picked production .cpp files.
 # ==============================================================================
@@ -120,7 +120,7 @@ add_sanitizer_flags(test_factory_mdns)
 set_tests_properties(test_factory_mdns PROPERTIES RESOURCE_LOCK "mdns-multicast")
 
 # ============================================================================
-#  Manager lifecycle  (observable shutdown sequence; Phase 0 §0.5)
+#  Manager lifecycle  (observable shutdown sequence)
 #
 #  Real Manager + real "simple" driver .so through the production dlopen path,
 #  with fake DNS (fixed wire response) and a blocking fake HttpClient.

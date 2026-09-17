@@ -5,7 +5,12 @@
 #ifndef YADDNSC_DRV_LINODE_LINODE_H
 #define YADDNSC_DRV_LINODE_LINODE_H
 
-#include "driver/base.h"
+#include <optional>
+#include <string>
+
+#include <yaddnsc/sdk/driver.hpp>
+
+#include "config.hpp"
 
 /// Linode API v4 driver for DNS record updates.
 ///
@@ -13,22 +18,19 @@
 /// via their domain records endpoint.
 ///
 /// API reference: https://techdocs.akamai.com/linode-api/reference/put-domain-record
-class LinodeDriver final : public BaseDriver {
+class LinodeDriver final : public yaddnsc::sdk::Driver {
 public:
     ~LinodeDriver() override = default;
 
-    /// Build the API request from config and update params.
-    [[nodiscard]] DriverRequestContext generate_request(const DriverConfig &config, const DriverUpdateParams &ctx) const override;
-
-    /// Validate the Linode API response.
-    [[nodiscard]] bool check_response(const net::http::Response &response) const override;
-
-    /// Return static metadata about this driver.
-    [[nodiscard]] DriverDetail get_detail() const noexcept override;
+    /// Perform one update: generate-request → HTTP exchange → check-response.
+    yaddnsc::sdk::Result update(yaddnsc::sdk::UpdateContext &context) override;
 
 private:
     /// Build the JSON request body for a Linode DNS record update.
-    static std::string generate_body(const DriverUpdateParams &ctx, std::optional<int> ttl_sec);
+    static std::string generate_body(const yaddnsc::sdk::UpdateRequest &request, std::optional<int> ttl_sec);
+
+    /// Validate the Linode API response.
+    static bool check_response(const yaddnsc::sdk::HttpResponse &response, const yaddnsc::sdk::Services &services);
 };
 
 #endif //YADDNSC_DRV_LINODE_LINODE_H

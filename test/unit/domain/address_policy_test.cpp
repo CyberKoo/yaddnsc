@@ -1,7 +1,7 @@
 //
 // Unit tests for src/domain/address_policy.h — domain::select_address.
 //
-// Locks the legacy Updater filtering rules (Phase 0):
+// Locks the legacy Updater filtering rules:
 //   - filtering applies only to AAAA records;
 //   - link-local (fe80::/10) dropped unless allow_local_link;
 //   - ULA (fc00::/7) dropped unless allow_ula;

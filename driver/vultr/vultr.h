@@ -5,7 +5,9 @@
 #ifndef YADDNSC_DRV_VULTR_VULTR_H
 #define YADDNSC_DRV_VULTR_VULTR_H
 
-#include "driver/base.h"
+#include <yaddnsc/sdk/driver.hpp>
+
+#include "config.hpp"
 
 /// Vultr API v2 driver for DNS record updates.
 ///
@@ -13,22 +15,17 @@
 /// via their domain records endpoint.
 ///
 /// API reference: https://www.vultr.com/api/#tag/dns
-class VultrDriver final : public BaseDriver {
+class VultrDriver final : public yaddnsc::sdk::Driver {
 public:
     ~VultrDriver() override = default;
 
-    /// Build the API request from config and update params.
-    [[nodiscard]] DriverRequestContext generate_request(const DriverConfig &config, const DriverUpdateParams &ctx) const override;
-
-    /// Validate the Vultr API response.
-    [[nodiscard]] bool check_response(const net::http::Response &response) const override;
-
-    /// Return static metadata about this driver.
-    [[nodiscard]] DriverDetail get_detail() const noexcept override;
+    /// Perform one update: generate-request → HTTP exchange → check-response.
+    [[nodiscard]] yaddnsc::sdk::Result update(yaddnsc::sdk::UpdateContext &context) override;
 
 private:
-    /// Build the JSON request body for a Vultr DNS record update.
-    static std::string generate_body(const DriverUpdateParams &ctx, std::optional<int> ttl);
+    /// Validate the Vultr API response.
+    [[nodiscard]] static bool check_response(const yaddnsc::sdk::HttpResponse &response,
+                                             const yaddnsc::sdk::Services &services);
 };
 
 #endif //YADDNSC_DRV_VULTR_VULTR_H

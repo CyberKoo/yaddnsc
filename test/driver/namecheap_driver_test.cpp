@@ -1,132 +1,135 @@
 //
 // Unit tests for NamecheapDriver (driver/namecheap/)
 //
-// Verifies:
-//   - get_detail() returns expected metadata.
-//   - generate_request() builds correct Namecheap DDNS API URL.
-//   - generate_request() rejects AAAA records with ParamParseException.
-//   - generate_request() handles bare-domain (apex) records correctly.
-//   - generate_request() with missing config throws ParamParseException.
-//   - check_response() returns true for XML with ErrCount=0 and <IP> element.
-//   - check_response() returns false for XML with ErrCount>0.
-//   - check_response() returns false for malformed XML.
-//   - check_response() returns false for empty body.
+// Verifies (through the v1 alpha ABI entries and FakeHostServices):
+//   - descriptor returns expected metadata (name/version/author/capabilities).
+//   - update builds the correct Namecheap DDNS API URL (GET, no body).
+//   - update handles bare-domain (apex) records correctly.
+//   - update rejects AAAA records with UNSUPPORTED_RECORD (no request sent).
+//   - update with missing config fields returns INVALID_CONFIG.
+//   - update succeeds for XML with ErrCount=0.
+//   - update returns UPSTREAM_REJECTED for ErrCount>0 / malformed / empty XML.
 // =============================================================================
 
 #include <gtest/gtest.h>
 
-#include "namecheap.h"
-#include "config.hpp"
-#include "factory_test_helpers.h"
+#include "abi_test_harness.h"
+
+// ── Shared fixtures ──────────────────────────────────────────────────────────
 
 namespace {
+    constexpr std::string_view CONFIG = R"({"password": "my-pass"})";
 
-/// Build a Namecheap API success XML response with the given IP.
-std::string make_success_xml(std::string_view ip) {
-    return fmt::format(
-        R"(<?xml version="1.0"?>
+    /// Build a Namecheap API success XML response with the given IP.
+    std::string make_success_xml(std::string_view ip) {
+        return std::string{R"(<?xml version="1.0"?>
 <interface-response>
   <Command>NAMEcheap.dynamicdns.update</Command>
   <ErrCount>0</ErrCount>
   <Done>true</Done>
-  <IP>{}</IP>
-</interface-response>)", ip);
-}
+  <IP>)"} + std::string{ip} + R"(</IP>
+</interface-response>)";
+    }
 
-/// Build a Namecheap API error XML response with the given error message.
-std::string make_error_xml(std::string_view err_msg) {
-    return fmt::format(
-        R"(<?xml version="1.0"?>
+    /// Build a Namecheap API error XML response with the given error message.
+    std::string make_error_xml(std::string_view err_msg) {
+        return std::string{R"(<?xml version="1.0"?>
 <interface-response>
   <Command>NAMEcheap.dynamicdns.update</Command>
   <ErrCount>1</ErrCount>
   <Done>true</Done>
   <errors>
-    <error>{}</error>
+    <error>)"} + std::string{err_msg} + R"(</error>
   </errors>
-</interface-response>)", err_msg);
+</interface-response>)";
+    }
+} // namespace
+
+// ── Tests ──────────────────────────────────────────────────────────────────
+
+TEST(NamecheapDriverTest, Descriptor_ReturnsExpectedMetadata) {
+    const yaddnsc_driver_descriptor *descriptor = nullptr;
+    ASSERT_EQ(yaddnsc_driver_get_descriptor(&descriptor), YADDNSC_STATUS_OK);
+    ASSERT_NE(descriptor, nullptr);
+    EXPECT_EQ(descriptor->magic, YADDNSC_DRIVER_MAGIC);
+    EXPECT_EQ(descriptor->api_revision, YADDNSC_DRIVER_API_REVISION);
+    EXPECT_EQ(std::string_view(descriptor->name.data, descriptor->name.size), "namecheap");
+    EXPECT_EQ(std::string_view(descriptor->description.data, descriptor->description.size),
+              "Updates DNS records via the Namecheap Dynamic DNS API");
+    EXPECT_EQ(std::string_view(descriptor->author.data, descriptor->author.size), "Kotarou");
+    EXPECT_EQ(std::string_view(descriptor->version.data, descriptor->version.size), "1.0.0");
+    EXPECT_NE(descriptor->capabilities & YADDNSC_DRIVER_CAPABILITY_A, 0u);
+    EXPECT_EQ(descriptor->capabilities & YADDNSC_DRIVER_CAPABILITY_AAAA, 0u);
 }
 
-} // anonymous namespace
+TEST(NamecheapDriverTest, Update_BasicARecord) {
+    FakeHostServices fake;
+    fake.queue_response(200, make_success_xml("1.2.3.4"));
 
-TEST(NamecheapDriverTest, GetDetail_ReturnsExpectedMetadata) {
-    NamecheapDriver driver;
-    auto detail = driver.get_detail();
-    EXPECT_EQ(detail.name, "namecheap");
-    EXPECT_EQ(detail.description, "Updates DNS records via the Namecheap Dynamic DNS API");
-    EXPECT_EQ(detail.author, "Kotarou");
-    EXPECT_EQ(detail.version, "1.0.0");
-}
+    const auto result = run_abi_update(fake, CONFIG, "1.2.3.4", "A", "example.com", "www", "www.example.com");
+    ASSERT_EQ(result.create_status, YADDNSC_STATUS_OK) << result.error_message;
+    ASSERT_EQ(result.status, YADDNSC_STATUS_OK) << result.error_message;
 
-TEST(NamecheapDriverTest, GenerateRequest_BasicARecord) {
-    NamecheapDriver driver;
-    DriverConfig config = R"({"password": "my-pass"})";
-    DriverUpdateParams ctx{
-        .ip_addr = "1.2.3.4", .rd_type = "A",
-        .domain = "example.com", .subdomain = "www", .fqdn = "www.example.com"
-    };
-
-    auto result = driver.generate_request(config, ctx);
+    ASSERT_EQ(fake.requests.size(), 1u);
+    const auto &request = fake.requests[0];
 
     // Check URL
-    EXPECT_EQ(result.url,
+    EXPECT_EQ(request.url,
               "https://dynamicdns.park-your-domain.com/update?host=www&domain=example.com&password=my-pass&ip=1.2.3.4");
-    EXPECT_EQ(result.request.method, net::http::Method::GET);
-    EXPECT_FALSE(result.request.body.has_value());
+
+    // Check method — GET with no body
+    EXPECT_EQ(request.method, YADDNSC_HTTP_GET);
+    EXPECT_FALSE(request.body.has_value());
 }
 
-TEST(NamecheapDriverTest, GenerateRequest_ApexDomain) {
-    NamecheapDriver driver;
-    DriverConfig config = R"({"password": "my-pass"})";
-    DriverUpdateParams ctx{
-        .ip_addr = "10.0.0.1", .rd_type = "A",
-        .domain = "example.com", .subdomain = "@", .fqdn = "example.com"
-    };
+TEST(NamecheapDriverTest, Update_ApexDomain) {
+    FakeHostServices fake;
+    fake.queue_response(200, make_success_xml("10.0.0.1"));
 
-    auto result = driver.generate_request(config, ctx);
-    EXPECT_TRUE(result.url.find("host=@") != std::string::npos)
-        << "Apex domain should use @ as host, got URL: " << result.url;
+    const auto result = run_abi_update(fake, CONFIG, "10.0.0.1", "A", "example.com", "@", "example.com");
+    ASSERT_EQ(result.status, YADDNSC_STATUS_OK) << result.error_message;
+
+    ASSERT_EQ(fake.requests.size(), 1u);
+    EXPECT_TRUE(fake.requests[0].url.find("host=@") != std::string::npos)
+        << "Apex domain should use @ as host, got URL: " << fake.requests[0].url;
 }
 
-TEST(NamecheapDriverTest, GenerateRequest_AAAARecord_ThrowsParamParseException) {
-    NamecheapDriver driver;
-    DriverConfig config = R"({"password": "my-pass"})";
-    DriverUpdateParams ctx{
-        .ip_addr = "::1", .rd_type = "AAAA",
-        .domain = "example.com", .subdomain = "www", .fqdn = "www.example.com"
-    };
-
-    EXPECT_THROW({ driver.generate_request(config, ctx); }, ParamParseException);
+TEST(NamecheapDriverTest, Update_AaaaRecord_ReturnsUnsupportedRecord) {
+    FakeHostServices fake;
+    const auto result = run_abi_update(fake, CONFIG, "::1", "AAAA", "example.com", "www", "www.example.com");
+    EXPECT_EQ(result.status, YADDNSC_STATUS_UNSUPPORTED_RECORD);
+    EXPECT_EQ(result.error_message,
+              "Namecheap DDNS does not support AAAA (IPv6) records. Use an A record instead for domain "
+              "'www.example.com'.");
+    EXPECT_TRUE(fake.requests.empty());
 }
 
-TEST(NamecheapDriverTest, GenerateRequest_MissingPassword_ThrowsParamParseException) {
-    NamecheapDriver driver;
-    DriverConfig config = R"({"not_password": "value"})";
-    DriverUpdateParams ctx{
-        .ip_addr = "1.2.3.4", .rd_type = "A",
-        .domain = "example.com", .subdomain = "@", .fqdn = "example.com"
-    };
-    EXPECT_THROW({ driver.generate_request(config, ctx); }, ParamParseException);
+TEST(NamecheapDriverTest, Update_MissingPassword_ReturnsInvalidConfig) {
+    FakeHostServices fake;
+    const auto result =
+            run_abi_update(fake, R"({"not_password": "value"})", "1.2.3.4", "A", "example.com", "@", "example.com");
+    EXPECT_EQ(result.status, YADDNSC_STATUS_INVALID_CONFIG);
+    EXPECT_TRUE(result.error_message.starts_with("Driver configuration parse error:")) << result.error_message;
+    EXPECT_TRUE(fake.requests.empty());
 }
 
-TEST(NamecheapDriverTest, CheckResponse_Success_ReturnsTrue) {
-    NamecheapDriver driver;
-    auto xml = make_success_xml("1.2.3.4");
-    net::http::Response resp{200, xml, {}};
-    EXPECT_TRUE(driver.check_response(resp));
+TEST(NamecheapDriverTest, Update_Success_ReturnsOk) {
+    FakeHostServices fake;
+    fake.queue_response(200, make_success_xml("1.2.3.4"));
+    const auto result = run_abi_update(fake, CONFIG, "1.2.3.4", "A", "example.com", "www", "www.example.com");
+    EXPECT_EQ(result.status, YADDNSC_STATUS_OK) << result.error_message;
 }
 
-TEST(NamecheapDriverTest, CheckResponse_Error_ReturnsFalse) {
-    NamecheapDriver driver;
-    auto xml = make_error_xml("Domain name not found");
-    net::http::Response resp{200, xml, {}};
-    EXPECT_FALSE(driver.check_response(resp));
+TEST(NamecheapDriverTest, Update_Error_ReturnsUpstreamRejected) {
+    FakeHostServices fake;
+    fake.queue_response(200, make_error_xml("Domain name not found"));
+    const auto result = run_abi_update(fake, CONFIG, "1.2.3.4", "A", "example.com", "www", "www.example.com");
+    EXPECT_EQ(result.status, YADDNSC_STATUS_UPSTREAM_REJECTED);
 }
 
-TEST(NamecheapDriverTest, CheckResponse_MultipleErrors_ReturnsFalse) {
-    NamecheapDriver driver;
-    auto xml = fmt::format(
-        R"(<?xml version="1.0"?>
+TEST(NamecheapDriverTest, Update_MultipleErrors_ReturnsUpstreamRejected) {
+    FakeHostServices fake;
+    fake.queue_response(200, R"(<?xml version="1.0"?>
 <interface-response>
   <ErrCount>2</ErrCount>
   <errors>
@@ -134,60 +137,64 @@ TEST(NamecheapDriverTest, CheckResponse_MultipleErrors_ReturnsFalse) {
     <error>Second error</error>
   </errors>
 </interface-response>)");
-    net::http::Response resp{200, xml, {}};
-    EXPECT_FALSE(driver.check_response(resp));
+    const auto result = run_abi_update(fake, CONFIG, "1.2.3.4", "A", "example.com", "www", "www.example.com");
+    EXPECT_EQ(result.status, YADDNSC_STATUS_UPSTREAM_REJECTED);
 }
 
-TEST(NamecheapDriverTest, CheckResponse_MalformedXml_ReturnsFalse) {
-    NamecheapDriver driver;
-    net::http::Response resp{200, "not xml", {}};
-    EXPECT_FALSE(driver.check_response(resp));
+TEST(NamecheapDriverTest, Update_MalformedXml_ReturnsUpstreamRejected) {
+    FakeHostServices fake;
+    fake.queue_response(200, "not xml");
+    const auto result = run_abi_update(fake, CONFIG, "1.2.3.4", "A", "example.com", "www", "www.example.com");
+    EXPECT_EQ(result.status, YADDNSC_STATUS_UPSTREAM_REJECTED);
 }
 
-TEST(NamecheapDriverTest, CheckResponse_MissingErrCount_ReturnsFalse) {
-    NamecheapDriver driver;
-    auto xml = R"(<?xml version="1.0"?><interface-response><Done>true</Done></interface-response>)";
-    net::http::Response resp{200, xml, {}};
-    EXPECT_FALSE(driver.check_response(resp));
+TEST(NamecheapDriverTest, Update_MissingErrCount_ReturnsUpstreamRejected) {
+    FakeHostServices fake;
+    fake.queue_response(200, R"(<?xml version="1.0"?><interface-response><Done>true</Done></interface-response>)");
+    const auto result = run_abi_update(fake, CONFIG, "1.2.3.4", "A", "example.com", "www", "www.example.com");
+    EXPECT_EQ(result.status, YADDNSC_STATUS_UPSTREAM_REJECTED);
 }
 
-TEST(NamecheapDriverTest, CheckResponse_EmptyBody_ReturnsFalse) {
-    NamecheapDriver driver;
-    net::http::Response resp{200, "", {}};
-    EXPECT_FALSE(driver.check_response(resp));
+TEST(NamecheapDriverTest, Update_EmptyBody_ReturnsUpstreamRejected) {
+    FakeHostServices fake;
+    fake.queue_response(200, "");
+    const auto result = run_abi_update(fake, CONFIG, "1.2.3.4", "A", "example.com", "www", "www.example.com");
+    EXPECT_EQ(result.status, YADDNSC_STATUS_UPSTREAM_REJECTED);
 }
 
-TEST(NamecheapDriverTest, CheckResponse_Non200_ReturnsFalse) {
-    NamecheapDriver driver;
-    net::http::Response resp{500, "", {}};
-    EXPECT_FALSE(driver.check_response(resp));
+TEST(NamecheapDriverTest, Update_Non200_ReturnsUpstreamRejected) {
+    FakeHostServices fake;
+    fake.queue_response(500, "");
+    const auto result = run_abi_update(fake, CONFIG, "1.2.3.4", "A", "example.com", "www", "www.example.com");
+    EXPECT_EQ(result.status, YADDNSC_STATUS_UPSTREAM_REJECTED);
 }
 
-TEST(NamecheapDriverTest, CheckResponse_ErrCountZero_WithoutIp_ReturnsTrue) {
+TEST(NamecheapDriverTest, Update_ErrCountZero_WithoutIp_ReturnsOk) {
     // ErrCount=0 but no <IP> element — still a success (IP logging is best-effort).
-    NamecheapDriver driver;
-    auto xml = R"(<?xml version="1.0"?>
+    FakeHostServices fake;
+    fake.queue_response(200, R"(<?xml version="1.0"?>
 <interface-response>
   <ErrCount>0</ErrCount>
   <Done>true</Done>
-</interface-response>)";
-    net::http::Response resp{200, xml, {}};
-    EXPECT_TRUE(driver.check_response(resp));
+</interface-response>)");
+    const auto result = run_abi_update(fake, CONFIG, "1.2.3.4", "A", "example.com", "www", "www.example.com");
+    EXPECT_EQ(result.status, YADDNSC_STATUS_OK) << result.error_message;
 }
 
-TEST(NamecheapDriverTest, CheckResponse_Error_WithoutErrorMessages_ReturnsFalse) {
+TEST(NamecheapDriverTest, Update_Error_WithoutErrorMessages_ReturnsUpstreamRejected) {
     // ErrCount>0 but no <errors> children — falls back to the count-only log.
-    NamecheapDriver driver;
-    auto xml = R"(<?xml version="1.0"?>
+    FakeHostServices fake;
+    fake.queue_response(200, R"(<?xml version="1.0"?>
 <interface-response>
   <ErrCount>1</ErrCount>
   <Done>true</Done>
-</interface-response>)";
-    net::http::Response resp{200, xml, {}};
-    EXPECT_FALSE(driver.check_response(resp));
+</interface-response>)");
+    const auto result = run_abi_update(fake, CONFIG, "1.2.3.4", "A", "example.com", "www", "www.example.com");
+    EXPECT_EQ(result.status, YADDNSC_STATUS_UPSTREAM_REJECTED);
 }
 
-TEST(NamecheapDriverTest, FactoryCreateDestroy) { test_factory_create_destroy(); }
-TEST(NamecheapDriverTest, FactoryMagic) { test_factory_magic(); }
-TEST(NamecheapDriverTest, FactoryBuildId) { test_factory_build_id(); }
-TEST(NamecheapDriverTest, FactoryCompilerIdHash) { test_factory_compiler_id_hash(); }
+TEST(NamecheapDriverTest, Entries_NullArgumentsRejected) {
+    EXPECT_EQ(yaddnsc_driver_get_descriptor(nullptr), YADDNSC_STATUS_INVALID_ARGUMENT);
+    EXPECT_EQ(yaddnsc_driver_update(nullptr, nullptr, nullptr), YADDNSC_STATUS_INVALID_ARGUMENT);
+    yaddnsc_driver_destroy(nullptr); // must be a no-op, must not crash
+}

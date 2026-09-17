@@ -30,8 +30,7 @@ struct UpdateResult {
 /// the sole error path.
 using UpdateOutcome = std::expected<UpdateResult, domain::UpdateError>;
 
-/// UpdateWorkflow — the application use case for one DDNS update cycle
-/// (refactor/phase-3-scheduling-and-workflow.md §3.4).
+/// UpdateWorkflow — the application use case for one DDNS update cycle.
 ///
 /// Steps (address resolution and the DNS read are private steps of the
 /// workflow, not sibling services):

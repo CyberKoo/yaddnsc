@@ -23,10 +23,9 @@ foreach (DIR_NAME ${DRIVER_DIRS})
       set_target_properties(${DRIVER_NAME} PROPERTIES PREFIX "" OUTPUT_NAME "${DRIVER_NAME}")
 
       # -----------------------------------------------------------------------
-      # Common project settings (compile options, include dirs, compile defs,
-      # and third-party include paths) — inherited from the main project.
+      # Drivers are self-contained plugins: they link only the SDK (per-driver
+      # CMakeLists) and never see host-internal headers or compile config.
       # -----------------------------------------------------------------------
-      target_link_libraries(${DRIVER_NAME} PRIVATE yaddnsc_compile_config)
 
       # Driver-specific extra compile options
       target_compile_options(${DRIVER_NAME} PRIVATE -Wnon-virtual-dtor)
@@ -37,10 +36,6 @@ foreach (DIR_NAME ${DRIVER_DIRS})
       # -----------------------------------------------------------------------
       # Linker options
       # -----------------------------------------------------------------------
-      # Allow undefined symbols at runtime (resolved from the main executable at dlopen time)
-      target_link_options(${DRIVER_NAME} PRIVATE
-                  $<$<PLATFORM_ID:Darwin>:-Wl,-undefined,dynamic_lookup>
-              )
       # Strip symbols in Release builds
       target_link_options(${DRIVER_NAME} PRIVATE
                   $<$<CONFIG:Release>:$<$<PLATFORM_ID:Darwin>:-Wl,-S>>

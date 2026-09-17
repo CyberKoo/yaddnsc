@@ -8,14 +8,14 @@
 #include <memory>
 #include <stop_token>
 
-#include "cpp_driver_gateway.h"
 #include "domain/config/runtime_config.h"
+#include "infrastructure/plugin/abi_driver_gateway.h"
 
 class ResolverDispatcher;
 
 /// Top-level orchestrator for the DDNS client lifecycle.
 ///
-/// Owns the scheduler, thread pool, resolver dispatcher, and driver manager.
+/// Owns the scheduler, thread pool, resolver dispatcher, and driver catalog.
 /// Callers should invoke methods in order:
 ///   1. load_drivers()
 ///   2. validate_config()

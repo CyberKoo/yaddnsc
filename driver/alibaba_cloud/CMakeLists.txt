@@ -1,2 +1,2 @@
 add_library(alibaba_cloud MODULE alibaba_cloud.cpp)
-target_link_libraries(alibaba_cloud PRIVATE yaddnsc_fmt)
+target_link_libraries(alibaba_cloud PRIVATE yaddnsc_sdk yaddnsc_plugin_crypto)

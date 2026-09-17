@@ -1,10 +1,10 @@
 //
-// Unit tests for include/driver/magic.h — YADDNSC_DRIVER_MAGIC constant.
+// Unit tests for the YADDNSC_DRIVER_MAGIC constant in the v1 alpha plugin
+// ABI header (<yaddnsc/sdk/driver_abi.h>).
 //
 // Verifies:
-//   - The constant is defined with the correct type (std::uint64_t).
+//   - The value is a 64-bit unsigned compile-time constant.
 //   - The value is the expected ASCII encoding of "YADDNSC\0".
-//   - The value is constexpr (compile-time constant).
 //   - The constant is non-zero (provides a useful validity check).
 // =============================================================================
 
@@ -13,10 +13,11 @@
 
 #include <gtest/gtest.h>
 
-#include "driver/magic.h"
+#include <yaddnsc/sdk/driver_abi.h>
 
-TEST(DriverMagicTest, TypeIsUint64) {
-    EXPECT_TRUE((std::is_same_v<decltype(YADDNSC_DRIVER_MAGIC), const std::uint64_t>));
+TEST(DriverMagicTest, TypeIs64BitUnsigned) {
+    static_assert(sizeof(decltype(YADDNSC_DRIVER_MAGIC)) == sizeof(std::uint64_t));
+    EXPECT_TRUE((std::is_unsigned_v<decltype(YADDNSC_DRIVER_MAGIC)>));
 }
 
 TEST(DriverMagicTest, ValueIsNonZero) {
@@ -30,13 +31,12 @@ TEST(DriverMagicTest, Value_Matches_AsciiEncoding) {
 }
 
 TEST(DriverMagicTest, Constexpr_Context) {
-    // Verify it can be used in a constexpr context.
+    // The macro expands to a literal, usable in any constant expression.
     constexpr auto magic = YADDNSC_DRIVER_MAGIC;
     EXPECT_EQ(magic, 0x594144444E534300ULL);
 }
 
 TEST(DriverMagicTest, Constexpr_StaticAssert) {
-    // Compile-time check that the value is indeed constexpr.
     static_assert(YADDNSC_DRIVER_MAGIC == 0x594144444E534300ULL);
     static_assert(YADDNSC_DRIVER_MAGIC != 0);
 }

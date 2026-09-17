@@ -6,13 +6,18 @@
 
 #include <glaze/glaze.hpp>
 
-#include "fmt.hpp"
-#include "config.hpp"
-#include "driver/factory.h"
-#include "interface/core_logger.h"
+namespace fmt = yaddnsc::sdk::fmt;
+using yaddnsc::sdk::Error;
+using yaddnsc::sdk::HttpRequest;
+using yaddnsc::sdk::HttpResponse;
+using yaddnsc::sdk::Method;
+using yaddnsc::sdk::Result;
+using yaddnsc::sdk::Services;
+using yaddnsc::sdk::UpdateContext;
 
 namespace {
     constexpr std::string_view API_URL = "https://api.godaddy.com/v1/domains/{DOMAIN}/records/{TYPE}/{NAME}";
+    constexpr std::string_view DRIVER_NAME = "godaddy";
 
     /// GoDaddy DNS record update request body (single record in an array).
     struct GoDaddyRecordBody {
@@ -32,58 +37,67 @@ struct glz::meta<GoDaddyRecordBody> {
     );
 };
 
-DEFINE_DRIVER_FACTORY(GoDaddyDriver)
+YADDNSC_DEFINE_DRIVER(GoDaddyDriver, "godaddy", "Updates DNS records via the GoDaddy API", "Kotarou",
+                      "1.0.0", YADDNSC_DRIVER_CAPABILITY_A | YADDNSC_DRIVER_CAPABILITY_AAAA)
 
-DriverRequestContext GoDaddyDriver::generate_request(const DriverConfig &config, const DriverUpdateParams &ctx) const {
-    auto cfg = parse_config<GoDaddyParams>(config);
+Result GoDaddyDriver::update(UpdateContext &context) {
+    const auto &params = context.request();
+    const auto cfg = parse_config<GoDaddyParams>(params.driver_param_json);
 
-    auto url = fmt::format(API_URL,
-                           fmt::arg("DOMAIN", ctx.domain),
-                           fmt::arg("TYPE", ctx.rd_type),
-                           fmt::arg("NAME", ctx.subdomain));
+    HttpRequest request{};
+    request.url = fmt::format(API_URL,
+                              fmt::arg("DOMAIN", params.domain),
+                              fmt::arg("TYPE", params.record_type),
+                              fmt::arg("NAME", params.subdomain));
 
     auto body = GoDaddyRecordBody{
-        .data = ctx.ip_addr,
+        .data = std::string(params.ip_address),
         .ttl = cfg.ttl.value_or(600),
-        .type = ctx.rd_type
+        .type = std::string(params.record_type)
     };
 
     // GoDaddy expects an array of records
-    auto body_json = fmt::format("[{}]", glz::write_json(body).value_or("{}"));
-
-    DriverRequest request{};
-    request.headers.insert({"Authorization", fmt::format("sso-key {}:{}", cfg.key, cfg.secret)});
-    request.body = std::move(body_json);
+    request.body = fmt::format("[{}]", glz::write_json(body).value_or("{}"));
+    request.headers.push_back({"Authorization", fmt::format("sso-key {}:{}", cfg.key, cfg.secret)});
     request.content_type = "application/json";
-    request.method = net::http::Method::PUT;
+    request.method = Method::Put;
 
-    return {std::move(url), std::move(request)};
+    YADDNSC_SDK_LOG_DEBUG(context, "Domain {} ({}) received DNS record update request from driver {}, {}",
+                          params.fqdn, params.record_type, DRIVER_NAME, yaddnsc::sdk::format_request(request));
+
+    auto response = context.exchange(request);
+    if (!response) {
+        YADDNSC_SDK_LOG_WARN(context, "Domain {} ({}) update failed (HTTP error: {})", params.fqdn,
+                             params.record_type, response.error().message);
+        return std::unexpected(Error{response.error().status, response.error().message, 0});
+    }
+
+    if (!check_response(*response, context.services())) {
+        YADDNSC_SDK_LOG_WARN(context, "Domain {} ({}) update rejected by upstream", params.fqdn, params.record_type);
+        return std::unexpected(Error{YADDNSC_STATUS_UPSTREAM_REJECTED,
+                                     fmt::format("Domain {} ({}) update rejected by upstream", params.fqdn,
+                                                 params.record_type),
+                                     0});
+    }
+
+    return {};
 }
 
-bool GoDaddyDriver::check_response(const net::http::Response &response) const {
-    CORE_LOG_TRACE("Got {} from server.", response.text());
+bool GoDaddyDriver::check_response(const HttpResponse &response, const Services &services) {
+    YADDNSC_SDK_LOG_TRACE(services, "Got {} from server.", response.body);
 
     // GoDaddy returns 200 OK with an empty body on success.
-    if (response.status == 200) {
-        CORE_LOG_DEBUG("DNS record updated successfully");
+    if (response.status_code == 200) {
+        YADDNSC_SDK_LOG_DEBUG(services, "DNS record updated successfully");
         return true;
     }
 
     // Error responses typically include a JSON body with error details.
-    if (!response.text().empty()) {
-        CORE_LOG_ERROR("GoDaddy API error (HTTP {}): {}", response.status, response.text());
+    if (!response.body.empty()) {
+        YADDNSC_SDK_LOG_ERROR(services, "GoDaddy API error (HTTP {}): {}", response.status_code, response.body);
     } else {
-        CORE_LOG_ERROR("GoDaddy API request failed with HTTP status {}", response.status);
+        YADDNSC_SDK_LOG_ERROR(services, "GoDaddy API request failed with HTTP status {}", response.status_code);
     }
 
     return false;
-}
-
-DriverDetail GoDaddyDriver::get_detail() const noexcept {
-    return {
-        .name = "godaddy",
-        .description = "Updates DNS records via the GoDaddy API",
-        .author = "Kotarou",
-        .version = "1.0.0"
-    };
 }

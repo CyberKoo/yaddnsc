@@ -1,7 +1,7 @@
 //
 // Unit tests for config/static_validator.h — validate_static +
 // validate_and_normalize, plus domain::make_fqdn (used by the validator for
-// its messages; moved from Config to the domain layer in Phase 3).
+// its messages).
 //
 // Verified:
 //   - make_fqdn — correct FQDN construction (apex / empty / deep labels).

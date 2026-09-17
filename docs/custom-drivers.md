@@ -6,19 +6,23 @@ yaddnsc. End users configuring one of the bundled providers should start with
 
 ## Compatibility
 
-Drivers are runtime-loaded shared libraries. Build a custom driver with the
-same compiler family, compatible compiler version, C++ standard library, C++23
-settings, and yaddnsc ABI as the host application. Rebuild the driver when the
-host toolchain or ABI changes.
+Drivers are runtime-loaded shared libraries that talk to the host exclusively
+through the **v1 alpha plugin ABI** — a small pure-C surface declared in
+`include/yaddnsc/sdk/driver_abi.h`, plus an optional C++ helper layer in
+`include/yaddnsc/sdk/driver.hpp`. No C++ exceptions, STL containers, or host
+objects ever cross the `.so` boundary, so a driver does not need to share the
+host's exact standard-library internals. It must still be built with a C++23
+compiler on a 64-bit platform.
 
 The host verifies a driver before use:
 
 1. the driver magic value identifies a yaddnsc driver;
-2. the compiler/build identity matches the host;
-3. the driver ABI version is compatible after instantiation.
+2. the descriptor's `api_revision` matches the host's exactly;
+3. every ABI struct carries a `struct_size` prefix the host can safely read.
 
-A failed check is a configuration/build error. Do not bypass it by weakening
-verification; rebuild the driver with the host build configuration instead.
+When the plugin interface changes, `api_revision` is bumped and older drivers
+are rejected at load time with a message telling you to rebuild. Rebuild the
+driver against the current SDK headers — do not bypass the check.
 
 ## Recommended build
 
@@ -29,35 +33,53 @@ cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --parallel
 ```
 
-The project driver build supplies the generated ABI and build-identity headers
-and applies the same compiler settings as the main binary.
+The driver target links only `yaddnsc_sdk`:
+
+```cmake
+add_library(<name> MODULE <name>.cpp)
+target_link_libraries(<name> PRIVATE yaddnsc_sdk)
+```
 
 ## Driver responsibilities
 
-A driver normally:
+A driver:
 
-- creates the provider request from the update context;
-- validates the provider response;
-- exposes provider metadata and the ABI version;
-- uses `DEFINE_DRIVER_FACTORY(YourDriver)` in its implementation file.
+- subclasses `yaddnsc::sdk::Driver` and implements `update(UpdateContext &)`;
+- parses its configuration with `parse_config<T>()` from `driver_param` JSON;
+- performs provider HTTP calls through the Host Services exchange
+  (`UpdateContext::exchange`) — the host owns the actual HTTP client;
+- logs through the `YADDNSC_SDK_LOG_*` macros (source location is forwarded
+  to the host logger);
+- reports outcomes as `yaddnsc::sdk::Error` values with the appropriate
+  `YADDNSC_STATUS_*` code;
+- exports itself with
+  `YADDNSC_DEFINE_DRIVER(YourDriver, "<name>", "<description>", "<author>", "<version>", YADDNSC_DRIVER_CAPABILITY_A | YADDNSC_DRIVER_CAPABILITY_AAAA)`.
 
-Use the existing drivers as examples and keep provider-specific credentials in
-`driver_param`. Do not put credentials in source code or log messages.
+Each update call runs on a fresh driver instance (`create → update →
+destroy`), so instance state never leaks between updates. Use the existing
+drivers as examples and keep provider-specific credentials in `driver_param`.
+Do not put credentials in source code or log messages — the SDK log helpers
+redact sensitive request fields by default.
+
+Drivers that need request signing can link the optional `yaddnsc_plugin_crypto`
+static library (HMAC/SHA/hex/base64).
 
 ## Standalone shared library
 
 Standalone builds are discouraged. If unavoidable, the driver must be built as
-a `MODULE` library with position-independent code and must use the generated
-headers and factory macro from a compatible yaddnsc source/build tree. A
-successful compilation alone does not guarantee ABI compatibility.
+a `MODULE` library with position-independent code against the SDK headers of
+the exact yaddnsc version it will run with, exporting only the four
+`yaddnsc_driver_*` entry points. A successful compilation alone does not
+guarantee compatibility — the `api_revision` check decides at load time.
 
 ## Troubleshooting
 
 - `Driver not found`: check `driver_dir`, the file name, and installation.
-- Magic or ABI mismatch: rebuild the driver with the same source/toolchain as
-the host.
+- Magic or `api_revision` mismatch: rebuild the driver with the current SDK
+  headers.
 - Missing required parameters: compare `driver_param` with the provider entry
-in [`DRIVERS.md`](../DRIVERS.md).
+  in [`DRIVERS.md`](../DRIVERS.md).
 
-The public driver interface and generated ABI headers are the source of truth;
-this guide intentionally avoids duplicating their full API documentation.
+The SDK headers in `include/yaddnsc/sdk/` are the source of truth for the
+plugin interface; this guide intentionally avoids duplicating their full API
+documentation.

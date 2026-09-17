@@ -1,156 +1,167 @@
 //
 // Unit tests for VultrDriver (driver/vultr/)
 //
-// Verifies:
-//   - get_detail() returns expected metadata.
-//   - generate_request() builds correct Vultr API URL with domain/record_id.
-//   - generate_request() sets Bearer authorization.
-//   - generate_request() produces JSON body with name/data/ttl fields.
-//   - generate_request() excludes ttl when not configured.
-//   - generate_request() with missing config throws ParamParseException.
-//   - check_response() returns true for HTTP 204.
-//   - check_response() returns false for non-204 with error JSON.
-//   - check_response() returns false for non-204 with empty body.
+// Verifies (through the v1 alpha ABI entries and FakeHostServices):
+//   - descriptor returns expected metadata (name/version/author/capabilities).
+//   - update builds the correct Vultr API URL with domain/record_id.
+//   - update sets Bearer authorization.
+//   - update produces JSON body with name/data fields and ttl when configured.
+//   - update with missing config fields returns INVALID_CONFIG.
+//   - update succeeds for HTTP 204 No Content.
+//   - update returns UPSTREAM_REJECTED for non-204 / error bodies.
 // =============================================================================
 
 #include <gtest/gtest.h>
 
-#include "vultr.h"
-#include "config.hpp"
-#include "response.hpp"
-#include "factory_test_helpers.h"
+#include "abi_test_harness.h"
 
-TEST(VultrDriverTest, GetDetail_ReturnsExpectedMetadata) {
-    VultrDriver driver;
-    auto detail = driver.get_detail();
-    EXPECT_EQ(detail.name, "vultr");
-    EXPECT_EQ(detail.description, "Updates DNS records via the Vultr API");
-    EXPECT_EQ(detail.author, "Kotarou");
-    EXPECT_EQ(detail.version, "1.0.0");
-}
+// ── Shared fixtures ──────────────────────────────────────────────────────────
 
-TEST(VultrDriverTest, GenerateRequest_BasicARecord) {
-    VultrDriver driver;
-    DriverConfig config = R"({
+namespace {
+    constexpr std::string_view CONFIG = R"({
         "api_key": "my-key",
         "record_id": "rec123"
     })";
-    DriverUpdateParams ctx{
-        .ip_addr = "1.2.3.4", .rd_type = "A",
-        .domain = "example.com", .subdomain = "www", .fqdn = "www.example.com"
-    };
+} // namespace
 
-    auto result = driver.generate_request(config, ctx);
+// ── Tests ──────────────────────────────────────────────────────────────────
+
+TEST(VultrDriverTest, Descriptor_ReturnsExpectedMetadata) {
+    const yaddnsc_driver_descriptor *descriptor = nullptr;
+    ASSERT_EQ(yaddnsc_driver_get_descriptor(&descriptor), YADDNSC_STATUS_OK);
+    ASSERT_NE(descriptor, nullptr);
+    EXPECT_EQ(descriptor->magic, YADDNSC_DRIVER_MAGIC);
+    EXPECT_EQ(descriptor->api_revision, YADDNSC_DRIVER_API_REVISION);
+    EXPECT_EQ(std::string_view(descriptor->name.data, descriptor->name.size), "vultr");
+    EXPECT_EQ(std::string_view(descriptor->description.data, descriptor->description.size),
+              "Updates DNS records via the Vultr API");
+    EXPECT_EQ(std::string_view(descriptor->author.data, descriptor->author.size), "Kotarou");
+    EXPECT_EQ(std::string_view(descriptor->version.data, descriptor->version.size), "1.0.0");
+    EXPECT_NE(descriptor->capabilities & YADDNSC_DRIVER_CAPABILITY_A, 0u);
+    EXPECT_NE(descriptor->capabilities & YADDNSC_DRIVER_CAPABILITY_AAAA, 0u);
+}
+
+TEST(VultrDriverTest, Update_BasicARecord) {
+    FakeHostServices fake;
+    fake.queue_response(204, "");
+
+    const auto result = run_abi_update(fake, CONFIG, "1.2.3.4", "A", "example.com", "www", "www.example.com");
+    ASSERT_EQ(result.create_status, YADDNSC_STATUS_OK) << result.error_message;
+    ASSERT_EQ(result.status, YADDNSC_STATUS_OK) << result.error_message;
+
+    ASSERT_EQ(fake.requests.size(), 1u);
+    const auto &request = fake.requests[0];
 
     // Check URL
-    EXPECT_EQ(result.url,
-              "https://api.vultr.com/v2/domains/example.com/records/rec123");
+    EXPECT_EQ(request.url, "https://api.vultr.com/v2/domains/example.com/records/rec123");
 
     // Check method and content type
-    EXPECT_EQ(result.request.method, net::http::Method::PATCH);
-    EXPECT_EQ(result.request.content_type, "application/json");
+    EXPECT_EQ(request.method, YADDNSC_HTTP_PATCH);
+    EXPECT_EQ(request.content_type, "application/json");
 
     // Check auth header
-    auto auth_it = result.request.headers.find("Authorization");
-    ASSERT_NE(auth_it, result.request.headers.end());
-    EXPECT_EQ(auth_it->second, "Bearer my-key");
+    const auto auth = request.header("Authorization");
+    ASSERT_TRUE(auth.has_value());
+    EXPECT_EQ(*auth, "Bearer my-key");
 
     // Check body
-    ASSERT_TRUE(result.request.body.has_value());
-    auto &body = result.request.body.value();
+    ASSERT_TRUE(request.body.has_value());
+    const auto &body = *request.body;
     EXPECT_TRUE(body.find(R"("name":"www")") != std::string::npos);
     EXPECT_TRUE(body.find(R"("data":"1.2.3.4")") != std::string::npos);
     // ttl should be omitted when not configured
     EXPECT_TRUE(body.find("ttl") == std::string::npos);
 }
 
-TEST(VultrDriverTest, GenerateRequest_WithTtl) {
-    VultrDriver driver;
-    DriverConfig config = R"({
-        "api_key": "my-key",
-        "record_id": "rec123",
-        "ttl": 600
-    })";
-    DriverUpdateParams ctx{
-        .ip_addr = "10.0.0.1", .rd_type = "AAAA",
-        .domain = "example.com", .subdomain = "@", .fqdn = "example.com"
-    };
+TEST(VultrDriverTest, Update_WithTtl) {
+    FakeHostServices fake;
+    fake.queue_response(204, "");
 
-    auto result = driver.generate_request(config, ctx);
-    ASSERT_TRUE(result.request.body.has_value());
-    EXPECT_TRUE(result.request.body.value().find(R"("ttl":600)") != std::string::npos);
+    const auto result = run_abi_update(fake, R"({"api_key":"my-key","record_id":"rec123","ttl":600})", "10.0.0.1",
+                                       "AAAA", "example.com", "@", "example.com");
+    ASSERT_EQ(result.status, YADDNSC_STATUS_OK) << result.error_message;
+
+    ASSERT_EQ(fake.requests.size(), 1u);
+    ASSERT_TRUE(fake.requests[0].body.has_value());
+    EXPECT_TRUE(fake.requests[0].body.value().find(R"("ttl":600)") != std::string::npos);
 }
 
-TEST(VultrDriverTest, GenerateRequest_MissingApiKey_ThrowsParamParseException) {
-    VultrDriver driver;
-    DriverConfig config = R"({"record_id": "rec123"})";
-    DriverUpdateParams ctx{
-        .ip_addr = "1.2.3.4", .rd_type = "A",
-        .domain = "example.com", .subdomain = "@", .fqdn = "example.com"
-    };
-    EXPECT_THROW({ driver.generate_request(config, ctx); }, ParamParseException);
+TEST(VultrDriverTest, Update_MissingApiKey_ReturnsInvalidConfig) {
+    FakeHostServices fake;
+    const auto result = run_abi_update(fake, R"({"record_id":"rec123"})", "1.2.3.4", "A", "example.com", "@",
+                                       "example.com");
+    EXPECT_EQ(result.status, YADDNSC_STATUS_INVALID_CONFIG);
+    EXPECT_TRUE(result.error_message.starts_with("Driver configuration parse error:")) << result.error_message;
+    EXPECT_TRUE(fake.requests.empty());
 }
 
-TEST(VultrDriverTest, GenerateRequest_MissingRecordId_ThrowsParamParseException) {
-    VultrDriver driver;
-    DriverConfig config = R"({"api_key": "my-key"})";
-    DriverUpdateParams ctx{
-        .ip_addr = "1.2.3.4", .rd_type = "A",
-        .domain = "example.com", .subdomain = "@", .fqdn = "example.com"
-    };
-    EXPECT_THROW({ driver.generate_request(config, ctx); }, ParamParseException);
+TEST(VultrDriverTest, Update_MissingRecordId_ReturnsInvalidConfig) {
+    FakeHostServices fake;
+    const auto result = run_abi_update(fake, R"({"api_key":"my-key"})", "1.2.3.4", "A", "example.com", "@",
+                                       "example.com");
+    EXPECT_EQ(result.status, YADDNSC_STATUS_INVALID_CONFIG);
+    EXPECT_TRUE(result.error_message.starts_with("Driver configuration parse error:")) << result.error_message;
+    EXPECT_TRUE(fake.requests.empty());
 }
 
-TEST(VultrDriverTest, CheckResponse_204_ReturnsTrue) {
-    VultrDriver driver;
-    net::http::Response resp{204, "", {}};
-    EXPECT_TRUE(driver.check_response(resp));
+TEST(VultrDriverTest, Update_204_ReturnsOk) {
+    FakeHostServices fake;
+    fake.queue_response(204, "");
+    const auto result = run_abi_update(fake, CONFIG, "1.2.3.4", "A", "example.com", "www", "www.example.com");
+    EXPECT_EQ(result.status, YADDNSC_STATUS_OK) << result.error_message;
 }
 
-TEST(VultrDriverTest, CheckResponse_Non204_WithErrorBody_ReturnsFalse) {
-    VultrDriver driver;
-    net::http::Response resp{400, R"({"errors":[{"detail":"Invalid record ID"}]})", {}};
-    EXPECT_FALSE(driver.check_response(resp));
+TEST(VultrDriverTest, Update_Non204_WithErrorBody_ReturnsUpstreamRejected) {
+    FakeHostServices fake;
+    fake.queue_response(400, R"({"errors":[{"detail":"Invalid record ID"}]})");
+    const auto result = run_abi_update(fake, CONFIG, "1.2.3.4", "A", "example.com", "www", "www.example.com");
+    EXPECT_EQ(result.status, YADDNSC_STATUS_UPSTREAM_REJECTED);
 }
 
-TEST(VultrDriverTest, CheckResponse_Non204_WithMultipleErrors_ReturnsFalse) {
-    VultrDriver driver;
-    net::http::Response resp{400, R"({
+TEST(VultrDriverTest, Update_Non204_WithMultipleErrors_ReturnsUpstreamRejected) {
+    FakeHostServices fake;
+    fake.queue_response(400, R"({
         "errors": [
             {"detail": "Invalid API key"},
             {"detail": "Rate limit exceeded"}
         ]
-    })", {}};
-    EXPECT_FALSE(driver.check_response(resp));
+    })");
+    const auto result = run_abi_update(fake, CONFIG, "1.2.3.4", "A", "example.com", "www", "www.example.com");
+    EXPECT_EQ(result.status, YADDNSC_STATUS_UPSTREAM_REJECTED);
 }
 
-TEST(VultrDriverTest, CheckResponse_Non204_UnparseableBody_ReturnsFalse) {
-    VultrDriver driver;
-    net::http::Response resp{400, "not-json", {}};
-    EXPECT_FALSE(driver.check_response(resp));
+TEST(VultrDriverTest, Update_Non204_UnparseableBody_ReturnsUpstreamRejected) {
+    FakeHostServices fake;
+    fake.queue_response(400, "not-json");
+    const auto result = run_abi_update(fake, CONFIG, "1.2.3.4", "A", "example.com", "www", "www.example.com");
+    EXPECT_EQ(result.status, YADDNSC_STATUS_UPSTREAM_REJECTED);
 }
 
-TEST(VultrDriverTest, CheckResponse_Non204_EmptyBody_ReturnsFalse) {
-    VultrDriver driver;
-    net::http::Response resp{500, "", {}};
-    EXPECT_FALSE(driver.check_response(resp));
+TEST(VultrDriverTest, Update_Non204_EmptyBody_ReturnsUpstreamRejected) {
+    FakeHostServices fake;
+    fake.queue_response(500, "");
+    const auto result = run_abi_update(fake, CONFIG, "1.2.3.4", "A", "example.com", "www", "www.example.com");
+    EXPECT_EQ(result.status, YADDNSC_STATUS_UPSTREAM_REJECTED);
 }
 
-TEST(VultrDriverTest, CheckResponse_Non204_WithError_SuccessStatusFalse) {
+TEST(VultrDriverTest, Update_Non204_UnexpectedBody_ReturnsUpstreamRejected) {
     // Even with 200 status, Vultr returns 204 on success.
     // But 200 with empty body is not expected — treat as failure.
-    VultrDriver driver;
-    net::http::Response resp{200, "something", {}};
-    EXPECT_FALSE(driver.check_response(resp));
+    FakeHostServices fake;
+    fake.queue_response(200, "something");
+    const auto result = run_abi_update(fake, CONFIG, "1.2.3.4", "A", "example.com", "www", "www.example.com");
+    EXPECT_EQ(result.status, YADDNSC_STATUS_UPSTREAM_REJECTED);
 }
 
-TEST(VultrDriverTest, FactoryCreateDestroy) { test_factory_create_destroy(); }
-TEST(VultrDriverTest, FactoryMagic) { test_factory_magic(); }
-TEST(VultrDriverTest, FactoryBuildId) { test_factory_build_id(); }
-TEST(VultrDriverTest, FactoryCompilerIdHash) { test_factory_compiler_id_hash(); }
+TEST(VultrDriverTest, Update_Non204_NoRelevantErrorKey_ReturnsUpstreamRejected) {
+    FakeHostServices fake;
+    fake.queue_response(400, R"({"some_other_key": "value"})");
+    const auto result = run_abi_update(fake, CONFIG, "1.2.3.4", "A", "example.com", "www", "www.example.com");
+    EXPECT_EQ(result.status, YADDNSC_STATUS_UPSTREAM_REJECTED);
+}
 
-TEST(VultrDriverTest, CheckResponse_Non204_NoRelevantErrorKey_ReturnsFalse) {
-    VultrDriver driver;
-    net::http::Response resp{400, R"({"some_other_key": "value"})", {}};
-    EXPECT_FALSE(driver.check_response(resp));
+TEST(VultrDriverTest, Entries_NullArgumentsRejected) {
+    EXPECT_EQ(yaddnsc_driver_get_descriptor(nullptr), YADDNSC_STATUS_INVALID_ARGUMENT);
+    EXPECT_EQ(yaddnsc_driver_update(nullptr, nullptr, nullptr), YADDNSC_STATUS_INVALID_ARGUMENT);
+    yaddnsc_driver_destroy(nullptr); // must be a no-op, must not crash
 }

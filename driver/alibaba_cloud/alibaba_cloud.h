@@ -5,7 +5,11 @@
 #ifndef YADDNSC_DRV_ALIBABA_CLOUD_ALIBABA_CLOUD_H
 #define YADDNSC_DRV_ALIBABA_CLOUD_ALIBABA_CLOUD_H
 
-#include "driver/base.h"
+#include <string>
+
+#include <yaddnsc/sdk/driver.hpp>
+
+#include "config.hpp"
 
 /// Alibaba Cloud DNS (Alidns) driver for updating A and AAAA records.
 ///
@@ -17,20 +21,20 @@
 ///
 /// Signing:
 ///   https://www.alibabacloud.com/help/en/sdk/request-signature
-class AlibabaCloudDriver final : public BaseDriver {
+class AlibabaCloudDriver final : public yaddnsc::sdk::Driver {
 public:
     ~AlibabaCloudDriver() override = default;
 
+    /// Perform one update: generate-request → HTTP exchange → check-response.
+    yaddnsc::sdk::Result update(yaddnsc::sdk::UpdateContext &context) override;
+
+private:
     /// Build an Alibaba Cloud DNS UpdateDomainRecord request with RPC signature.
-    [[nodiscard]] DriverRequestContext generate_request(
-        const DriverConfig &config, const DriverUpdateParams &ctx
-    ) const override;
+    static yaddnsc::sdk::HttpRequest generate_request(const AlibabaParams &cfg,
+                                                      const yaddnsc::sdk::UpdateRequest &request);
 
     /// Validate the Alibaba Cloud DNS API response.
-    [[nodiscard]] bool check_response(const net::http::Response &response) const override;
-
-    /// Return static metadata about this driver.
-    [[nodiscard]] DriverDetail get_detail() const noexcept override;
+    static bool check_response(const yaddnsc::sdk::HttpResponse &response, const yaddnsc::sdk::Services &services);
 };
 
 #endif // YADDNSC_DRV_ALIBABA_CLOUD_ALIBABA_CLOUD_H

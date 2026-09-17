@@ -10,8 +10,9 @@
 
 #include "fmt.hpp"
 
-/// Log severity levels, ordered by verbosity (debug is the most verbose).
+/// Log severity levels, ordered by verbosity (trace is the most verbose).
 enum class LogLevel {
+    trace,
     debug,
     info,
     warn,
@@ -39,6 +40,18 @@ public:
     /// Emit one already-formatted record.
     /// @note Implementations must be thread-safe.
     virtual void log(LogLevel level, std::string_view message, const std::source_location &loc) const = 0;
+
+    /// Emit one record whose call site lies outside this process image (a
+    /// driver plugin logging through Host Services): the location arrives as
+    /// plain data because std::source_location cannot be synthesised.
+    /// The default implementation drops the explicit location.
+    virtual void log_explicit(LogLevel level, std::string_view message, std::string_view file, int line,
+                              std::string_view function) const {
+        (void)file;
+        (void)line;
+        (void)function;
+        log(level, message, std::source_location::current());
+    }
 };
 
 /// Log a formatted message at the given level through a Logger.

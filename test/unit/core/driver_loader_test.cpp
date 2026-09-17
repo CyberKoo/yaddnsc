@@ -1,9 +1,10 @@
 //
-// Unit tests for src/core/driver_loader.cpp + src/core/driver_manager.cpp
+// Unit tests for src/core/driver_loader.cpp +
+// src/infrastructure/plugin/driver_catalog.cpp
 //
 // Loads a real .so driver (simple.so) from the build tree, exercises
-// DriverLoader::load(), DriverManager::get_driver(), get_loaded_drivers(),
-// and unload_driver().
+// DriverLoader::load(), DriverCatalog::find()/get_descriptor(),
+// get_loaded_drivers(), and unload_driver().
 //
 // NOTE: The TEST_DRIVER_DIR compile definition must point to the directory
 // containing built .so driver files (typically ${CMAKE_BINARY_DIR}/driver).
@@ -20,10 +21,10 @@
 
 #include "domain/config/runtime_config.h"
 #include "core/driver_loader.h"
-#include "core/driver_manager.h"
-#include "exception/bad_driver.h"
+#include "infrastructure/plugin/driver_catalog.h"
 #include "exception/config_verification.h"
 #include "exception/driver_not_found.h"
+#include "exception/plugin_load.h"
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -37,94 +38,95 @@
 }
 
 // ===========================================================================
-//  DriverLoader + DriverManager  (integration via real .so)
+//  DriverLoader + DriverCatalog  (integration via real .so)
 // ===========================================================================
 
 TEST(DriverLoaderTest, LoadSimpleDriver_ByName) {
-    DriverManager mgr;
+    DriverCatalog catalog;
 
     // Build settings: load "simple.so" from test driver dir.
     auto settings = make_load_settings("simple/simple.so");
 
-    // This should dlopen simple.so, verify magic+compiler+ABI, and register.
-    EXPECT_NO_THROW({ DriverLoader::load(mgr, settings); });
+    // This should dlopen simple.so, verify magic+revision, and register.
+    EXPECT_NO_THROW({ DriverLoader::load(catalog, settings); });
 
     // Verify the driver was registered.
-    auto loaded = mgr.get_loaded_drivers();
+    auto loaded = catalog.get_loaded_drivers();
     ASSERT_EQ(loaded.size(), 1u);
     EXPECT_EQ(loaded[0], "simple");
 
     // Verify we can retrieve it.
-    EXPECT_NO_THROW({ [[maybe_unused]] auto &drv = mgr.get_driver("simple"); });
+    EXPECT_NO_THROW({ [[maybe_unused]] auto &module = catalog.get_descriptor("simple"); });
+    EXPECT_NE(catalog.find("simple"), nullptr);
 }
 
 TEST(DriverLoaderTest, LoadDriver_NotFound_Throws) {
-    DriverManager mgr;
+    DriverCatalog catalog;
     domain::DriverSettings settings;
     settings.auto_discover = false;
     settings.load.push_back("nonexistent_driver.so");
 
-    // The file doesn't exist — should throw BadDriverException.
-    EXPECT_THROW({ DriverLoader::load(mgr, settings); }, BadDriverException);
+    // The file doesn't exist — should throw PluginLoadException.
+    EXPECT_THROW({ DriverLoader::load(catalog, settings); }, PluginLoadException);
 }
 
 TEST(DriverLoaderTest, EmptyDriverDir_Throws) {
-    DriverManager mgr;
+    DriverCatalog catalog;
     domain::DriverSettings settings;
     settings.auto_discover = false;
     // driver_dir is set but empty — a configuration error, not a driver error.
     settings.driver_dir = "";
     settings.load.push_back("simple/simple.so");
 
-    EXPECT_THROW({ DriverLoader::load(mgr, settings); }, ConfigVerificationException);
+    EXPECT_THROW({ DriverLoader::load(catalog, settings); }, ConfigVerificationException);
 }
 
-TEST(DriverManagerTest, UnloadDriver) {
-    DriverManager mgr;
+TEST(DriverCatalogTest, UnloadDriver) {
+    DriverCatalog catalog;
     auto settings = make_load_settings("simple/simple.so");
-    DriverLoader::load(mgr, settings);
+    DriverLoader::load(catalog, settings);
 
     // Verify it's loaded.
-    ASSERT_EQ(mgr.get_loaded_drivers().size(), 1u);
+    ASSERT_EQ(catalog.get_loaded_drivers().size(), 1u);
 
     // Unload it.
-    EXPECT_NO_THROW({ mgr.unload_driver("simple"); });
-    EXPECT_TRUE(mgr.get_loaded_drivers().empty());
+    EXPECT_NO_THROW({ catalog.unload_driver("simple"); });
+    EXPECT_TRUE(catalog.get_loaded_drivers().empty());
 }
 
-TEST(DriverManagerTest, UnloadDriver_NotFound_Throws) {
-    DriverManager mgr;
-    EXPECT_THROW({ mgr.unload_driver("nonexistent"); }, DriverNotFoundException);
+TEST(DriverCatalogTest, UnloadDriver_NotFound_Throws) {
+    DriverCatalog catalog;
+    EXPECT_THROW({ catalog.unload_driver("nonexistent"); }, DriverNotFoundException);
 }
 
-TEST(DriverManagerTest, GetDriver_NotFound_Throws) {
-    DriverManager mgr;
-    EXPECT_THROW({ [[maybe_unused]] auto &d = mgr.get_driver("nonexistent"); },
+TEST(DriverCatalogTest, GetDescriptor_NotFound_Throws) {
+    DriverCatalog catalog;
+    EXPECT_THROW({ [[maybe_unused]] auto &d = catalog.get_descriptor("nonexistent"); },
                  DriverNotFoundException);
 }
 
-TEST(DriverManagerTest, LoadSameDriverTwice_SecondIsSkipped) {
-    DriverManager mgr;
+TEST(DriverCatalogTest, LoadSameDriverTwice_SecondIsSkipped) {
+    DriverCatalog catalog;
     auto settings = make_load_settings("simple/simple.so");
-    DriverLoader::load(mgr, settings);
+    DriverLoader::load(catalog, settings);
 
     // Load again — should log a warning but not throw.
-    EXPECT_NO_THROW({ DriverLoader::load(mgr, settings); });
+    EXPECT_NO_THROW({ DriverLoader::load(catalog, settings); });
 
-    auto loaded = mgr.get_loaded_drivers();
+    auto loaded = catalog.get_loaded_drivers();
     ASSERT_EQ(loaded.size(), 1u);
     EXPECT_EQ(loaded[0], "simple");
 }
 
 TEST(DriverLoaderTest, AutoDiscover_NonExistentDir_DoesNotThrow) {
-    DriverManager mgr;
+    DriverCatalog catalog;
     domain::DriverSettings settings;
     settings.auto_discover = true;
     settings.driver_dir = "/nonexistent_directory_for_testing";
 
     // Should log a warning but not throw.
-    EXPECT_NO_THROW({ DriverLoader::load(mgr, settings); });
-    EXPECT_TRUE(mgr.get_loaded_drivers().empty());
+    EXPECT_NO_THROW({ DriverLoader::load(catalog, settings); });
+    EXPECT_TRUE(catalog.get_loaded_drivers().empty());
 }
 
 TEST(DriverLoaderTest, AutoDiscover_FileInsteadOfDirectory_DoesNotThrow) {
@@ -133,46 +135,26 @@ TEST(DriverLoaderTest, AutoDiscover_FileInsteadOfDirectory_DoesNotThrow) {
     ASSERT_GE(fd, 0) << "mkstemp failed";
     ::close(fd);
 
-    DriverManager mgr;
+    DriverCatalog catalog;
     domain::DriverSettings settings;
     settings.auto_discover = true;
     settings.driver_dir = path_template;
-    EXPECT_NO_THROW({ DriverLoader::load(mgr, settings); });
-    EXPECT_TRUE(mgr.get_loaded_drivers().empty());
+    EXPECT_NO_THROW({ DriverLoader::load(catalog, settings); });
+    EXPECT_TRUE(catalog.get_loaded_drivers().empty());
 
     ::unlink(path_template);
 }
 
 TEST(DriverLoaderTest, LoadByAbsolutePath) {
-    DriverManager mgr;
+    DriverCatalog catalog;
     domain::DriverSettings settings;
     settings.auto_discover = false;
     // Use absolute path.
     settings.load.push_back(std::string(TEST_DRIVER_DIR) + "/simple/simple.so");
 
-    EXPECT_NO_THROW({ DriverLoader::load(mgr, settings); });
-    ASSERT_EQ(mgr.get_loaded_drivers().size(), 1u);
-    EXPECT_EQ(mgr.get_loaded_drivers()[0], "simple");
-}
-
-TEST(DriverLoaderTest, DriverCreateReturnsNull_Rejected) {
-    DriverManager mgr;
-    domain::DriverSettings settings;
-    settings.auto_discover = false;
-    // The fixture passes magic + compiler verification, but its create()
-    // returns nullptr — must be rejected as a bad driver rather than
-    // dereferenced downstream.
-    settings.load.push_back(NULL_DRIVER_FIXTURE);
-
-    try {
-        DriverLoader::load(mgr, settings);
-        FAIL() << "Expected BadDriverException";
-    } catch (const BadDriverException &e) {
-        // Assert the rejection comes from the null-instance guard, not from
-        // an earlier magic/compiler mismatch.
-        EXPECT_NE(std::string_view(e.what()).find("null instance"), std::string_view::npos);
-    }
-    EXPECT_TRUE(mgr.get_loaded_drivers().empty());
+    EXPECT_NO_THROW({ DriverLoader::load(catalog, settings); });
+    ASSERT_EQ(catalog.get_loaded_drivers().size(), 1u);
+    EXPECT_EQ(catalog.get_loaded_drivers()[0], "simple");
 }
 
 // ===========================================================================
@@ -183,7 +165,7 @@ TEST(DriverLoaderTest, AutoDiscover_SkipsBadLibraries) {
     // Temp dir containing one good driver and two bad libraries:
     //  - a text file named .so            (dlopen fails)
     //  - a real shared library that is NOT a yaddnsc driver (dlopen
-    //    succeeds, magic/ABI verification fails)
+    //    succeeds, entry-point resolution fails)
     char dir_template[] = "/tmp/yaddnsc_driver_test_XXXXXX";
     auto *dir = ::mkdtemp(dir_template);
     ASSERT_NE(dir, nullptr) << "mkdtemp failed";
@@ -198,15 +180,15 @@ TEST(DriverLoaderTest, AutoDiscover_SkipsBadLibraries) {
     }
     std::filesystem::copy_file(BAD_DRIVER_FIXTURE, std::string(dir) + "/foreign.so");
 
-    DriverManager mgr;
+    DriverCatalog catalog;
     domain::DriverSettings settings;
     settings.auto_discover = true;
     settings.driver_dir = dir;
 
-    // Before the fix, the foreign libraries aborted the whole load.
-    EXPECT_NO_THROW({ DriverLoader::load(mgr, settings); });
+    // Foreign libraries must be skipped, not abort the whole load.
+    EXPECT_NO_THROW({ DriverLoader::load(catalog, settings); });
 
-    auto loaded = mgr.get_loaded_drivers();
+    auto loaded = catalog.get_loaded_drivers();
     ASSERT_EQ(loaded.size(), 1u);
     EXPECT_EQ(loaded[0], "simple");
 
@@ -228,13 +210,13 @@ TEST(DriverLoaderTest, AutoDiscover_IgnoresNonSharedFiles) {
     }
     std::filesystem::create_directory(std::string(dir) + "/nested.so");
 
-    DriverManager mgr;
+    DriverCatalog catalog;
     domain::DriverSettings settings;
     settings.auto_discover = true;
     settings.driver_dir = dir;
-    EXPECT_NO_THROW({ DriverLoader::load(mgr, settings); });
-    ASSERT_EQ(mgr.get_loaded_drivers().size(), 1u);
-    EXPECT_EQ(mgr.get_loaded_drivers()[0], "simple");
+    EXPECT_NO_THROW({ DriverLoader::load(catalog, settings); });
+    ASSERT_EQ(catalog.get_loaded_drivers().size(), 1u);
+    EXPECT_EQ(catalog.get_loaded_drivers()[0], "simple");
 
     std::filesystem::remove_all(dir);
 }
@@ -246,13 +228,13 @@ TEST(DriverLoaderTest, AutoDiscover_AllBad_DoesNotThrow) {
 
     std::filesystem::copy_file(BAD_DRIVER_FIXTURE, std::string(dir) + "/foreign.so");
 
-    DriverManager mgr;
+    DriverCatalog catalog;
     domain::DriverSettings settings;
     settings.auto_discover = true;
     settings.driver_dir = dir;
 
-    EXPECT_NO_THROW({ DriverLoader::load(mgr, settings); });
-    EXPECT_TRUE(mgr.get_loaded_drivers().empty());
+    EXPECT_NO_THROW({ DriverLoader::load(catalog, settings); });
+    EXPECT_TRUE(catalog.get_loaded_drivers().empty());
 
     std::filesystem::remove_all(dir);
 }

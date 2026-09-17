@@ -5,7 +5,11 @@
 #ifndef YADDNSC_DRV_NAMECHEAP_NAMECHEAP_H
 #define YADDNSC_DRV_NAMECHEAP_NAMECHEAP_H
 
-#include "driver/base.h"
+#include <string>
+
+#include <yaddnsc/sdk/driver.hpp>
+
+#include "config.hpp"
 
 /// Namecheap Dynamic DNS driver for updating A records.
 ///
@@ -15,22 +19,23 @@
 ///
 /// API reference:
 ///   https://www.namecheap.com/support/knowledgebase/article.aspx/29/11/how-to-configure-your-dns-dynamic-dns-update-url/
-class NamecheapDriver final : public BaseDriver {
+class NamecheapDriver final : public yaddnsc::sdk::Driver {
 public:
     ~NamecheapDriver() override = default;
 
-    /// Build the API request from config and update params.
+    /// Perform one update: generate-request → HTTP exchange → check-response.
+    yaddnsc::sdk::Result update(yaddnsc::sdk::UpdateContext &context) override;
+
+private:
+    /// Build the GET request for a Namecheap DDNS update.
     ///
-    /// @throws ParamParseException  When attempting to update an AAAA record
-    ///                              (unsupported by the Namecheap DDNS API).
-    [[nodiscard]] DriverRequestContext generate_request(const DriverConfig& config,
-                                                        const DriverUpdateParams& ctx) const override;
+    /// The `host` parameter uses the subdomain label directly; for a
+    /// bare-domain (apex) record the configuration should pass "@".
+    static yaddnsc::sdk::HttpRequest generate_request(const NamecheapParams &cfg,
+                                                      const yaddnsc::sdk::UpdateRequest &params);
 
     /// Validate the Namecheap API response XML using libxml2.
-    [[nodiscard]] bool check_response(const net::http::Response& response) const override;
-
-    /// Return static metadata about this driver.
-    [[nodiscard]] DriverDetail get_detail() const noexcept override;
+    static bool check_response(const yaddnsc::sdk::HttpResponse &response, const yaddnsc::sdk::Services &services);
 };
 
 #endif  // YADDNSC_DRV_NAMECHEAP_NAMECHEAP_H

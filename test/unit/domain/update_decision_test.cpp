@@ -1,8 +1,8 @@
 //
 // UpdateDecision unit tests — domain::decide_update is a pure function over
-// already-fetched inputs (refactor/phase-3-scheduling-and-workflow.md §3.3).
+// already-fetched inputs.
 //
-// Locked behaviours (Phase 0 table):
+// Locked behaviours (legacy Updater semantics):
 //   - no local address             → SkipNoAddress (driver never called)
 //   - force_update                 → UpdateForced (DNS not consulted)
 //   - FIRST record == local        → SkipUnchanged

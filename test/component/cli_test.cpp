@@ -163,7 +163,7 @@ namespace {
                R"(","load":[]},"resolver":{"use_custom_server":false},"domains":[]})";
     }
 
-    /// Config that loads a driver file that does not exist → BadDriverException.
+    /// Config that loads a driver file that does not exist → PluginLoadException.
     [[nodiscard]] std::string config_bad_driver() {
         return std::string(R"({"driver":{"auto_discover":false,"driver_dir":")") + TEST_DRIVER_DIR +
                R"(","load":["definitely_missing_driver.so"]},"resolver":{"use_custom_server":false},"domains":[]})";
@@ -350,11 +350,11 @@ TEST(CliConfigTest, ExecuteShow_MissingFile_Throws) {
     EXPECT_THROW(Cli::execute_config_show("/nonexistent/yaddnsc_config.json"), std::runtime_error);
 }
 
-// Intentional change (registered in refactor/phase-0-baseline.md): config show
-// redacts sensitive driver_param fields by default. Rule: an object member is
-// sensitive when its lower-cased key contains "token", "password", "secret" or
-// "key"; the whole value is replaced with "***". Only fake placeholder values
-// are used here — real tokens must never appear in golden files.
+// Intentional behaviour: config show redacts sensitive driver_param fields by
+// default. Rule: an object member is sensitive when its lower-cased key
+// contains "token", "password", "secret" or "key"; the whole value is
+// replaced with "***". Only fake placeholder values are used here — real
+// tokens must never appear in golden files.
 TEST(CliConfigTest, ExecuteShow_RedactsSensitiveDriverParams) {
     const std::string config_json = R"({
         "driver": {"auto_discover": false, "load": []},
@@ -421,7 +421,7 @@ TEST(CliConfigTest, ExecuteTest_EmptyDriverDir_ReturnsFailure) {
 }
 
 TEST(CliConfigTest, ExecuteTest_BadDriver_ReturnsFailure) {
-    // A driver file that does not exist → BadDriverException (YaddnscException).
+    // A driver file that does not exist → PluginLoadException (YaddnscException).
     TempConfigFile cfg(config_bad_driver());
     EXPECT_EQ(Cli::execute_config_test(cfg.path()), EXIT_FAILURE);
 }
@@ -706,7 +706,7 @@ TEST(CliInfoTest, Parse_InfoSubcommand_ReturnsZero) {
     EXPECT_EQ(outcome.exit_code, EXIT_SUCCESS);
 }
 
-// Phase 0 baseline: `info` must keep printing these key fields.
+// Locked CLI behaviour: `info` must keep printing these key fields.
 TEST(CliInfoTest, Info_PrintsKeyFields) {
     auto argv = make_argv({"yaddnsc", "info"});
 
@@ -721,7 +721,7 @@ TEST(CliInfoTest, Info_PrintsKeyFields) {
     EXPECT_NE(out.find("Min update interval:"), std::string::npos);
 }
 
-// Phase 0 baseline: -v/--version prints "yaddnsc/<version>" and exits zero.
+// Locked CLI behaviour: -v/--version prints "yaddnsc/<version>" and exits zero.
 TEST(CliInfoTest, VersionFlag_PrintsProgramAndVersion) {
     auto argv = make_argv({"yaddnsc", "--version"});
 

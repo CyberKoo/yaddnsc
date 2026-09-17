@@ -13,8 +13,7 @@
 
 #include "domain/update/schedule_queue.h"
 
-/// SchedulerRunner — drives the periodic scheduling loop
-/// (refactor/phase-3-scheduling-and-workflow.md §3.2).
+/// SchedulerRunner — drives the periodic scheduling loop.
 ///
 /// Responsibilities: read the Clock, wait for the next deadline, respond to
 /// the stop token, pop due tasks from the ScheduleQueue and submit them to

@@ -10,7 +10,7 @@
 # Tests that require real I/O (loopback sockets, filesystem, network) belong
 # in ../component/ instead.
 #
-# Phase 2 note: new and migrated targets link the production OBJECT libraries
+# Note: new and migrated targets link the production OBJECT libraries
 # via yaddnsc_prod_all (defined in ../CMakeLists.txt) instead of compiling
 # hand-picked production .cpp files.
 # ==============================================================================
@@ -30,7 +30,7 @@ add_unit_test(cache         SOURCE util/cache_test.cpp)
 add_unit_test(cancellation_token SOURCE util/cancellation_token_test.cpp)
 add_unit_test(fd            SOURCE util/fd_test.cpp)
 add_unit_test(fmt_polyfill  SOURCE util/fmt_polyfill_test.cpp)
-add_unit_test(http_fmt      SOURCE util/http_fmt_test.cpp)
+add_unit_test(sdk_helpers   SOURCE util/sdk_helpers_test.cpp)
 add_unit_test(mixin         SOURCE util/mixin_test.cpp)
 add_unit_test(random        SOURCE util/random_test.cpp)
 target_link_libraries(test_random PRIVATE OpenSSL::Crypto)
@@ -40,7 +40,8 @@ add_unit_test(validation    SOURCE util/validation_test.cpp)
 
 # signing — cryptographic primitives (SHA, HMAC, Base64, hex)
 add_unit_test(signing SOURCE util/signing_test.cpp
-    ${PROJECT_SOURCE_DIR}/src/util/signing.cpp)
+    ${PROJECT_SOURCE_DIR}/plugin_crypto/signing.cpp)
+target_include_directories(test_signing PRIVATE ${PROJECT_SOURCE_DIR}/plugin_crypto)
 target_link_libraries(test_signing PRIVATE OpenSSL::Crypto)
 
 # ============================================================================
@@ -118,25 +119,14 @@ add_unit_test(config_loader SOURCE config/config_loader_test.cpp
 add_unit_test(signal_watcher SOURCE core/signal_watcher_test.cpp
     ${PROJECT_SOURCE_DIR}/src/core/signal_watcher.cpp)
 
-# driver_loader + driver_manager — dlopen-based driver loading
+# driver_loader + driver_catalog — dlopen-based plugin loading
 # Fixture: a shared library that is deliberately NOT a yaddnsc driver —
 # verifies that auto-discovery skips foreign libraries instead of aborting.
 # MODULE produces a .so on both Linux and macOS (SHARED would be .dylib).
 add_library(yaddnsc_bad_driver_fixture MODULE core/bad_driver_fixture.cpp)
 
-# Fixture: a library that passes magic/compiler verification but whose
-# create() returns nullptr — exercises the null-instance guard in
-# DriverModule::create_driver. Must use the project compile config so the
-# compiler-identity hash matches the host's.
-add_library(yaddnsc_null_driver_fixture MODULE core/null_driver_fixture.cpp)
-target_link_libraries(yaddnsc_null_driver_fixture PRIVATE yaddnsc_compile_config)
-add_sanitizer_flags(yaddnsc_null_driver_fixture)
-
-add_unit_test(driver_loader SOURCE core/driver_loader_test.cpp
-    ${PROJECT_SOURCE_DIR}/src/core/driver_loader.cpp
-    ${PROJECT_SOURCE_DIR}/src/core/driver_manager.cpp
-    ${PROJECT_SOURCE_DIR}/src/core/core_logger.cpp)
-set_target_properties(test_driver_loader PROPERTIES ENABLE_EXPORTS ON)
+add_unit_test(driver_loader SOURCE core/driver_loader_test.cpp)
+target_link_libraries(test_driver_loader PRIVATE yaddnsc_prod_all)
 # The loaded driver .so is built with sanitizers — the test binary must be
 # too, or ASan aborts with "runtime does not come first" at dlopen time.
 add_sanitizer_flags(test_driver_loader)
@@ -149,19 +139,13 @@ set_tests_properties(test_driver_loader PROPERTIES
     ENVIRONMENT "ASAN_OPTIONS=detect_odr_violation=0:detect_stack_use_after_return=1:strict_string_checks=1:detect_invalid_pointer_pairs=2")
 target_compile_definitions(test_driver_loader PRIVATE
     TEST_DRIVER_DIR="${CMAKE_BINARY_DIR}/driver"
-    BAD_DRIVER_FIXTURE="$<TARGET_FILE:yaddnsc_bad_driver_fixture>"
-    NULL_DRIVER_FIXTURE="$<TARGET_FILE:yaddnsc_null_driver_fixture>")
+    BAD_DRIVER_FIXTURE="$<TARGET_FILE:yaddnsc_bad_driver_fixture>")
 target_link_libraries(test_driver_loader PRIVATE ${CMAKE_DL_LIBS})
 # simple.so must be built before the test runs (dlopen dependency).
-add_dependencies(test_driver_loader simple yaddnsc_bad_driver_fixture yaddnsc_null_driver_fixture)
+add_dependencies(test_driver_loader simple yaddnsc_bad_driver_fixture)
 
-# updater — moved to application/update_workflow in Phase 3 (see
+# updater — superseded by application/update_workflow (see
 # application/update_workflow_test.cpp).
-
-# cpp_driver_gateway — DriverGateway contract over the in-process C++ drivers
-add_unit_test(cpp_driver_gateway SOURCE core/cpp_driver_gateway_test.cpp)
-target_link_libraries(test_cpp_driver_gateway PRIVATE yaddnsc_prod_all)
-add_sanitizer_flags(test_cpp_driver_gateway)
 
 # ============================================================================
 #  dns/  —  DNS protocol types, parser, dispatchers, wire-format builders
@@ -253,14 +237,13 @@ add_unit_test(net_transport SOURCE net_transport/net_transport_test.cpp
 target_link_libraries(test_net_transport PRIVATE OpenSSL::SSL OpenSSL::Crypto)
 
 # ============================================================================
-#  http_client/  —  net::http domain: protocol, redirect, form encoding
+#  http_client/  —  net::http domain: protocol, redirect
 #  (scripted in-memory Stream, no network I/O)
 # ============================================================================
 
 add_unit_test(http_client SOURCE http_client/http_client_test.cpp
     ${PROJECT_SOURCE_DIR}/src/http_client/protocol/exchange.cpp
     ${PROJECT_SOURCE_DIR}/src/http_client/redirect.cpp
-    ${PROJECT_SOURCE_DIR}/src/http_client/form_encode.cpp
     ${PROJECT_SOURCE_DIR}/src/network/uri.cpp
     ${PROJECT_SOURCE_DIR}/src/network/inet_address.cpp)
 target_link_libraries(test_http_client PRIVATE picohttpparser)
@@ -294,8 +277,8 @@ add_unit_test(http_persistent SOURCE http_client/persistent_client_test.cpp
 target_link_libraries(test_http_persistent PRIVATE OpenSSL::SSL OpenSSL::Crypto picohttpparser)
 
 # http_public_headers — the public HTTP/transport headers must be includable
-# in a translation unit WITHOUT the src/ include root (Phase 2 completion
-# criterion).  Deliberately NOT add_unit_test: yaddnsc_test_config and
+# in a translation unit WITHOUT the src/ include root.  Deliberately NOT
+# add_unit_test: yaddnsc_test_config and
 # test_support would inject src/ into the include path.
 add_executable(test_http_public_headers http_client/public_headers_test.cpp)
 target_include_directories(test_http_public_headers PRIVATE
@@ -321,8 +304,5 @@ add_unit_test(mdns_response SOURCE ip_source/mdns_response_test.cpp
     ${PROJECT_SOURCE_DIR}/src/dns/parser.cpp
     ${PROJECT_SOURCE_DIR}/src/network/inet_address.cpp)
 
-# driver_magic — compile-time constant check, header-only
+# driver_magic — the YADDNSC_DRIVER_MAGIC constant in the v1 alpha ABI header
 add_unit_test(driver_magic SOURCE ip_source/driver_magic_test.cpp)
-
-# driver_exceptions — ParamParseException hierarchy test, header-only
-add_unit_test(driver_exceptions SOURCE ip_source/driver_exceptions_test.cpp)

@@ -3,7 +3,7 @@
 // against the application ports: MockDnsResolverPort, MockIpSourcePort,
 // MockDriverGateway and a NullLogger.
 //
-// Behaviour locked here (Phase 0 table):
+// Behaviour locked here (legacy Updater semantics):
 //   - IP unchanged            → driver not invoked        (SkipUnchanged)
 //   - IP changed / DNS fails  → update attempted          (UpdateChanged)
 //   - force_update            → DNS comparison skipped    (UpdateForced)
@@ -249,8 +249,8 @@ TEST(UpdateWorkflow, RateLimitedCarriesRetryAfterIntoUpdateError) {
     const auto outcome = workflow.run(task);
     ASSERT_FALSE(outcome.has_value());
     EXPECT_EQ(outcome.error().code, domain::UpdateError::Code::DRIVER_FAILED);
-    // Phase 0 did not approve RATE_LIMITED rescheduling: the value is carried
-    // for observability but the scheduler must ignore it.
+    // RATE_LIMITED does not reschedule: the value is carried for
+    // observability but the scheduler must ignore it.
     EXPECT_EQ(outcome.error().retry_after_seconds, 120);
 }
 

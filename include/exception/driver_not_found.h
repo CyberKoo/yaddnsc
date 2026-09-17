@@ -8,7 +8,7 @@
 #include "base.h"
 
 /// Thrown when a lookup is performed for a driver name that has not been
-/// registered with the DriverManager.
+/// loaded into the DriverCatalog.
 class DriverNotFoundException : public YaddnscException {
 public:
     using YaddnscException::YaddnscException;

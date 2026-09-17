@@ -25,7 +25,7 @@
 #include "application/update_workflow.h"
 
 #include "driver_loader.h"
-#include "driver_manager.h"
+#include "infrastructure/plugin/driver_catalog.h"
 #include "spdlog_logger.h"
 #include "steady_clock.h"
 
@@ -63,9 +63,9 @@ namespace {
 } // anonymous namespace
 
 // ---------------------------------------------------------------------------
-// Manager::Impl — composition root (Phase 3 shell): owns every component and
-// drives the explicit shutdown sequence; the update policy itself lives in
-// the domain/application components (ScheduleQueue, SchedulerRunner,
+// Manager::Impl — composition root: owns every component and drives the
+// explicit shutdown sequence; the update policy itself lives in the
+// domain/application components (ScheduleQueue, SchedulerRunner,
 // UpdateWorkflow, TaskExecutor).
 // ---------------------------------------------------------------------------
 
@@ -87,15 +87,15 @@ struct Manager::Impl {
     // adapter, the HTTP client factory inside driver_gateway_) so it outlives
     // them all. task_executor_ is declared after the components its tasks
     // reference (workflow_, and transitively the ports) so its destructor
-    // drains the pool before any of them — and long before driver_manager_
+    // drains the pool before any of them — and long before driver_catalog_
     // unloads the modules — can be destroyed.
     std::shared_ptr<const domain::RuntimeConfig> config_;
     std::shared_ptr<Utils::CancellationSource> cancel_src_;
     SpdlogLogger logger_;
-    DriverManager driver_manager_;
+    DriverCatalog driver_catalog_;
     ResolverDispatcher dispatcher_;
     IpSourceAdapter ip_source_;
-    CppDriverGateway driver_gateway_;
+    AbiDriverGateway driver_gateway_;
     UpdateWorkflow workflow_;
     SteadyClock clock_;
     domain::ScheduleQueue schedule_queue_;
@@ -109,7 +109,8 @@ Manager::Impl::Impl(domain::RuntimeConfig config, std::stop_source stop_source)
     : config_(std::make_shared<const domain::RuntimeConfig>(std::move(config))),
       cancel_src_(std::make_shared<Utils::CancellationSource>()),
       dispatcher_(DnsResolverFactory::create(config_->resolver, cancel_src_->token(), ResolverCatalog::with_builtins())),
-      ip_source_(cancel_src_->token()), driver_gateway_(driver_manager_, make_http_client_factory(cancel_src_)),
+      ip_source_(cancel_src_->token()),
+      driver_gateway_(driver_catalog_, make_http_client_factory(cancel_src_), cancel_src_->token(), logger_),
       workflow_(dispatcher_, ip_source_, driver_gateway_, logger_), clock_(),
       schedule_queue_(config_, clock_.now()), task_executor_(estimate_pool_size(*config_), workflow_),
       scheduler_runner_(schedule_queue_, clock_, task_executor_, stop_source.get_token(), logger_),
@@ -122,7 +123,8 @@ Manager::Impl::Impl(domain::RuntimeConfig config, std::stop_source stop_source, 
                     HttpClientFactory http_factory)
     : config_(std::make_shared<const domain::RuntimeConfig>(std::move(config))),
       cancel_src_(std::make_shared<Utils::CancellationSource>()), dispatcher_(std::move(dispatcher)),
-      ip_source_(cancel_src_->token()), driver_gateway_(driver_manager_, std::move(http_factory)),
+      ip_source_(cancel_src_->token()),
+      driver_gateway_(driver_catalog_, std::move(http_factory), cancel_src_->token(), logger_),
       workflow_(dispatcher_, ip_source_, driver_gateway_, logger_), clock_(),
       schedule_queue_(config_, clock_.now()), task_executor_(estimate_pool_size(*config_), workflow_),
       scheduler_runner_(schedule_queue_, clock_, task_executor_, stop_source.get_token(), logger_),
@@ -132,12 +134,12 @@ Manager::Impl::Impl(domain::RuntimeConfig config, std::stop_source stop_source, 
 }
 
 void Manager::Impl::load_drivers() {
-    DriverLoader::load(driver_manager_, config_->driver);
+    DriverLoader::load(driver_catalog_, config_->driver);
 }
 
 void Manager::Impl::validate_config() const {
     const auto interfaces = InterfaceUtil::get_interfaces();
-    const EnvironmentValidator validator(driver_manager_.get_loaded_drivers(), interfaces);
+    const EnvironmentValidator validator(driver_catalog_.get_loaded_drivers(), interfaces);
     validator.validate(*config_);
 }
 
@@ -145,8 +147,7 @@ void Manager::Impl::run() {
     const auto interfaces = InterfaceUtil::get_interfaces();
     YLOG_INFO(logger_, "All available interfaces: {}", fmt::join(interfaces, ", "));
 
-    // Explicit shutdown sequence (refactor/phase-3-scheduling-and-workflow.md
-    // §3.6), not just member declaration order:
+    // Explicit shutdown sequence, not just member declaration order:
     //   1. stop is requested through stop_source_ (e.g. by SignalWatcher);
     //   2. the runner stops popping new tasks and returns;
     scheduler_runner_.run();

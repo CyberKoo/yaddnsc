@@ -29,10 +29,9 @@ struct DriverUpdateCommand {
 /// never see a Driver* or a module handle, and the gateway guarantees the
 /// module outlives every in-flight update.
 ///
-/// Concurrency (Phase 2–3): the temporary adapter behind this port shares one
-/// C++ Driver instance across concurrent update() calls — the existing driver
-/// contract. Phase 4 replaces the internals with the C ABI (one instance per
-/// update) without changing this signature.
+/// Concurrency: the implementation performs one create → update → destroy
+/// cycle per update() call on the v1 alpha C ABI (one driver instance per
+/// update); concurrent update() calls never share an instance.
 class DriverGateway {
 public:
     virtual ~DriverGateway() = default;

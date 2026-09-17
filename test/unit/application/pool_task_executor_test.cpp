@@ -1,14 +1,13 @@
 //
-// PoolTaskExecutor unit tests — the thread-pool-backed TaskExecutor adapter
-// (refactor/phase-3-scheduling-and-workflow.md §3.5).
+// PoolTaskExecutor unit tests — the thread-pool-backed TaskExecutor adapter.
 //
 // Locked behaviours:
 //   - submitted tasks run the UpdateWorkflow on pool threads;
 //   - shutdown() rejects new submissions; in-flight tasks are unaffected;
 //   - wait_idle() blocks until every accepted task has finished (drain
 //     before the driver gateway's modules may be unloaded);
-//   - tasks of the SAME module (shared C++ Driver behind the gateway) still
-//     run concurrently — the Phase 2–3 concurrency contract.
+//   - tasks of the SAME module still run concurrently — the gateway performs
+//     one driver instance per update, so concurrent updates never share one.
 //
 
 #include <atomic>
@@ -172,7 +171,7 @@ TEST(PoolTaskExecutor, WaitIdleBlocksUntilInFlightTaskFinishes) {
     EXPECT_TRUE(drained.load());
 }
 
-// ── same-module tasks still run concurrently (Phase 2–3 contract) ────────────
+// ── same-module tasks still run concurrently ─────────────────────────────────
 
 TEST(PoolTaskExecutor, SameModuleTasksRunConcurrently) {
     Fixture f;

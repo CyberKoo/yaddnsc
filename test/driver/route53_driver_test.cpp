@@ -1,32 +1,40 @@
 //
 // Unit tests for Route53Driver (driver/route53/)
 //
-// Verifies:
-//   - get_detail() returns expected metadata.
-//   - generate_request() builds correct Route 53 API URL.
-//   - generate_request() sets required SigV4 headers.
-//   - generate_request() produces valid XML request body with UPSERT action.
-//   - generate_request() uses configurable TTL.
-//   - generate_request() ensures FQDN has trailing dot.
-//   - generate_request() with missing config throws ParamParseException.
-//   - check_response() returns true for XML with PENDING status.
-//   - check_response() returns true for XML with INSYNC status.
-//   - check_response() returns false for non-200 status.
-//   - check_response() returns false for malformed XML.
-//   - check_response() returns false for empty body.
+// Verifies (through the v1 alpha ABI entries and FakeHostServices):
+//   - descriptor returns expected metadata (name/version/author/capabilities).
+//   - update builds the correct Route 53 API URL.
+//   - update sets required SigV4 headers.
+//   - update produces a valid XML request body with UPSERT action.
+//   - update uses configurable TTL.
+//   - update ensures FQDN has a trailing dot.
+//   - update with missing config fields returns INVALID_CONFIG.
+//   - update succeeds for XML with PENDING / INSYNC status.
+//   - update returns UPSTREAM_REJECTED for non-200, malformed, or empty bodies.
 // =============================================================================
+
+#include <format>
+#include <string>
+#include <string_view>
 
 #include <gtest/gtest.h>
 
-#include "route53.h"
-#include "config.hpp"
-#include "factory_test_helpers.h"
+#include "abi_test_harness.h"
+
+// ── Shared fixtures ──────────────────────────────────────────────────────────
 
 namespace {
+    constexpr std::string_view CONFIG = R"({
+        "access_key_id": "AKID123",
+        "secret_access_key": "secret456",
+        "hosted_zone_id": "Z3M79L5CQABCDE",
+        "region": "us-east-1",
+        "record_name": "www.example.com"
+    })";
 
 /// Build a Route 53 ChangeResourceRecordSets success response XML.
 std::string make_success_xml(std::string_view status) {
-    return fmt::format(
+    return std::format(
         R"(<?xml version="1.0" encoding="UTF-8"?>
 <ChangeResourceRecordSetsResponse xmlns="https://route53.amazonaws.com/doc/2013-04-01/">
   <ChangeInfo>
@@ -39,7 +47,7 @@ std::string make_success_xml(std::string_view status) {
 
 /// Build a Route 53 error response XML.
 std::string make_error_xml(std::string_view code, std::string_view message) {
-    return fmt::format(
+    return std::format(
         R"(<?xml version="1.0" encoding="UTF-8"?>
 <ErrorResponse xmlns="https://route53.amazonaws.com/doc/2013-04-01/">
   <Error>
@@ -50,63 +58,61 @@ std::string make_error_xml(std::string_view code, std::string_view message) {
   <RequestId>req123</RequestId>
 </ErrorResponse>)", code, message);
 }
+} // namespace
 
-} // anonymous namespace
+// ── Tests ──────────────────────────────────────────────────────────────────
 
-TEST(Route53DriverTest, GetDetail_ReturnsExpectedMetadata) {
-    Route53Driver driver;
-    auto detail = driver.get_detail();
-    EXPECT_EQ(detail.name, "route53");
-    EXPECT_EQ(detail.description, "Updates DNS records via the AWS Route 53 API");
-    EXPECT_EQ(detail.author, "Kotarou");
-    EXPECT_EQ(detail.version, "1.0.0");
+TEST(Route53DriverTest, Descriptor_ReturnsExpectedMetadata) {
+    const yaddnsc_driver_descriptor *descriptor = nullptr;
+    ASSERT_EQ(yaddnsc_driver_get_descriptor(&descriptor), YADDNSC_STATUS_OK);
+    ASSERT_NE(descriptor, nullptr);
+    EXPECT_EQ(descriptor->magic, YADDNSC_DRIVER_MAGIC);
+    EXPECT_EQ(descriptor->api_revision, YADDNSC_DRIVER_API_REVISION);
+    EXPECT_EQ(std::string_view(descriptor->name.data, descriptor->name.size), "route53");
+    EXPECT_EQ(std::string_view(descriptor->description.data, descriptor->description.size),
+              "Updates DNS records via the AWS Route 53 API");
+    EXPECT_EQ(std::string_view(descriptor->author.data, descriptor->author.size), "Kotarou");
+    EXPECT_EQ(std::string_view(descriptor->version.data, descriptor->version.size), "1.0.0");
+    EXPECT_NE(descriptor->capabilities & YADDNSC_DRIVER_CAPABILITY_A, 0u);
+    EXPECT_NE(descriptor->capabilities & YADDNSC_DRIVER_CAPABILITY_AAAA, 0u);
 }
 
-TEST(Route53DriverTest, GenerateRequest_BasicARecord) {
-    Route53Driver driver;
-    DriverConfig config = R"({
-        "access_key_id": "AKID123",
-        "secret_access_key": "secret456",
-        "hosted_zone_id": "Z3M79L5CQABCDE",
-        "region": "us-east-1",
-        "record_name": "www.example.com"
-    })";
-    DriverUpdateParams ctx{
-        .ip_addr = "1.2.3.4", .rd_type = "A",
-        .domain = "example.com", .subdomain = "www", .fqdn = "www.example.com"
-    };
+TEST(Route53DriverTest, Update_BasicARecord) {
+    FakeHostServices fake;
+    fake.queue_response(200, make_success_xml("PENDING"));
 
-    auto result = driver.generate_request(config, ctx);
+    const auto result = run_abi_update(fake, CONFIG, "1.2.3.4", "A", "example.com", "www", "www.example.com");
+    ASSERT_EQ(result.create_status, YADDNSC_STATUS_OK) << result.error_message;
+    ASSERT_EQ(result.status, YADDNSC_STATUS_OK) << result.error_message;
+
+    ASSERT_EQ(fake.requests.size(), 1u);
+    const auto &request = fake.requests[0];
 
     // Check URL
-    EXPECT_EQ(result.url,
+    EXPECT_EQ(request.url,
               "https://route53.amazonaws.com/2013-04-01/hostedzone/Z3M79L5CQABCDE/rrset");
 
     // Check method and content type
-    EXPECT_EQ(result.request.method, net::http::Method::POST);
-    EXPECT_EQ(result.request.content_type, "application/xml");
+    EXPECT_EQ(request.method, YADDNSC_HTTP_POST);
+    EXPECT_EQ(request.content_type, "application/xml");
 
-    // Check SigV4 headers are present (use find() — headers is multimap)
-    {
-        auto it = result.request.headers.find("Host");
-        ASSERT_NE(it, result.request.headers.end());
-        EXPECT_EQ(it->second, "route53.amazonaws.com");
-    }
-    EXPECT_NE(result.request.headers.find("X-Amz-Date"), result.request.headers.end());
-    EXPECT_NE(result.request.headers.find("X-Amz-Content-SHA256"), result.request.headers.end());
-    EXPECT_NE(result.request.headers.find("Authorization"), result.request.headers.end());
+    // Check SigV4 headers are present
+    const auto host = request.header("Host");
+    ASSERT_TRUE(host.has_value());
+    EXPECT_EQ(*host, "route53.amazonaws.com");
+    EXPECT_TRUE(request.header("X-Amz-Date").has_value());
+    EXPECT_TRUE(request.header("X-Amz-Content-SHA256").has_value());
 
     // Verify Authorization header starts with AWS4-HMAC-SHA256
-    auto auth_it = result.request.headers.find("Authorization");
-    ASSERT_NE(auth_it, result.request.headers.end());
-    auto &auth = auth_it->second;
-    EXPECT_TRUE(auth.starts_with("AWS4-HMAC-SHA256"));
-    EXPECT_TRUE(auth.find("Credential=AKID123") != std::string::npos);
-    EXPECT_TRUE(auth.find("us-east-1/route53/aws4_request") != std::string::npos);
+    const auto auth = request.header("Authorization");
+    ASSERT_TRUE(auth.has_value());
+    EXPECT_TRUE(auth->starts_with("AWS4-HMAC-SHA256"));
+    EXPECT_TRUE(auth->find("Credential=AKID123") != std::string::npos);
+    EXPECT_TRUE(auth->find("us-east-1/route53/aws4_request") != std::string::npos);
 
     // Check body contains XML
-    ASSERT_TRUE(result.request.body.has_value());
-    auto &body = result.request.body.value();
+    ASSERT_TRUE(request.body.has_value());
+    const auto &body = *request.body;
     EXPECT_TRUE(body.find("ChangeResourceRecordSetsRequest") != std::string::npos);
     EXPECT_TRUE(body.find("UPSERT") != std::string::npos);
     EXPECT_TRUE(body.find("www.example.com.") != std::string::npos);  // trailing dot
@@ -115,117 +121,122 @@ TEST(Route53DriverTest, GenerateRequest_BasicARecord) {
     EXPECT_TRUE(body.find("<TTL>300</TTL>") != std::string::npos);  // default TTL
 }
 
-TEST(Route53DriverTest, GenerateRequest_FqdnWithoutDot_AddsTrailingDot) {
-    Route53Driver driver;
-    DriverConfig config = R"({
+TEST(Route53DriverTest, Update_FqdnWithoutDot_AddsTrailingDot) {
+    FakeHostServices fake;
+    fake.queue_response(200, make_success_xml("PENDING"));
+
+    const auto result = run_abi_update(fake,
+                                       R"({
         "access_key_id": "AKID123",
         "secret_access_key": "secret456",
         "hosted_zone_id": "ZONE1",
         "region": "us-west-2",
         "record_name": "test.example.com"
-    })";
-    DriverUpdateParams ctx{
-        .ip_addr = "10.0.0.1", .rd_type = "AAAA",
-        .domain = "example.com", .subdomain = "test", .fqdn = "test.example.com"
-    };
+    })",
+                                       "10.0.0.1", "AAAA", "example.com", "test", "test.example.com");
+    ASSERT_EQ(result.status, YADDNSC_STATUS_OK) << result.error_message;
 
-    auto result = driver.generate_request(config, ctx);
-    ASSERT_TRUE(result.request.body.has_value());
+    ASSERT_EQ(fake.requests.size(), 1u);
+    ASSERT_TRUE(fake.requests[0].body.has_value());
     // Route 53 requires FQDN with trailing dot
-    EXPECT_TRUE(result.request.body.value().find("test.example.com.") != std::string::npos);
+    EXPECT_TRUE(fake.requests[0].body->find("test.example.com.") != std::string::npos);
 }
 
-TEST(Route53DriverTest, GenerateRequest_WithCustomTtl) {
-    Route53Driver driver;
-    DriverConfig config = R"({
+TEST(Route53DriverTest, Update_WithCustomTtl) {
+    FakeHostServices fake;
+    fake.queue_response(200, make_success_xml("PENDING"));
+
+    const auto result = run_abi_update(fake,
+                                       R"({
         "access_key_id": "AKID123",
         "secret_access_key": "secret456",
         "hosted_zone_id": "ZONE1",
         "region": "eu-west-1",
         "record_name": "www.example.com",
         "ttl": 60
-    })";
-    DriverUpdateParams ctx{
-        .ip_addr = "1.2.3.4", .rd_type = "A",
-        .domain = "example.com", .subdomain = "www", .fqdn = "www.example.com"
-    };
+    })",
+                                       "1.2.3.4", "A", "example.com", "www", "www.example.com");
+    ASSERT_EQ(result.status, YADDNSC_STATUS_OK) << result.error_message;
 
-    auto result = driver.generate_request(config, ctx);
-    ASSERT_TRUE(result.request.body.has_value());
-    EXPECT_TRUE(result.request.body.value().find("<TTL>60</TTL>") != std::string::npos);
+    ASSERT_EQ(fake.requests.size(), 1u);
+    ASSERT_TRUE(fake.requests[0].body.has_value());
+    EXPECT_TRUE(fake.requests[0].body->find("<TTL>60</TTL>") != std::string::npos);
 }
 
-TEST(Route53DriverTest, GenerateRequest_MissingAccessKey_ThrowsParamParseException) {
-    Route53Driver driver;
-    DriverConfig config = R"({
+TEST(Route53DriverTest, Update_MissingAccessKey_ReturnsInvalidConfig) {
+    FakeHostServices fake;
+    const auto result = run_abi_update(fake,
+                                       R"({
         "secret_access_key": "secret456",
         "hosted_zone_id": "ZONE1",
         "region": "us-east-1",
         "record_name": "test"
-    })";
-    DriverUpdateParams ctx{
-        .ip_addr = "1.2.3.4", .rd_type = "A",
-        .domain = "example.com", .subdomain = "@", .fqdn = "example.com"
-    };
-    EXPECT_THROW({ driver.generate_request(config, ctx); }, ParamParseException);
+    })",
+                                       "1.2.3.4", "A", "example.com", "@", "example.com");
+    EXPECT_EQ(result.status, YADDNSC_STATUS_INVALID_CONFIG);
+    EXPECT_TRUE(result.error_message.starts_with("Driver configuration parse error:")) << result.error_message;
+    EXPECT_TRUE(fake.requests.empty());
 }
 
-TEST(Route53DriverTest, GenerateRequest_MissingHostedZoneId_ThrowsParamParseException) {
-    Route53Driver driver;
-    DriverConfig config = R"({
+TEST(Route53DriverTest, Update_MissingHostedZoneId_ReturnsInvalidConfig) {
+    FakeHostServices fake;
+    const auto result = run_abi_update(fake,
+                                       R"({
         "access_key_id": "AKID123",
         "secret_access_key": "secret456",
         "region": "us-east-1",
         "record_name": "test"
-    })";
-    DriverUpdateParams ctx{
-        .ip_addr = "1.2.3.4", .rd_type = "A",
-        .domain = "example.com", .subdomain = "@", .fqdn = "example.com"
-    };
-    EXPECT_THROW({ driver.generate_request(config, ctx); }, ParamParseException);
+    })",
+                                       "1.2.3.4", "A", "example.com", "@", "example.com");
+    EXPECT_EQ(result.status, YADDNSC_STATUS_INVALID_CONFIG);
+    EXPECT_TRUE(result.error_message.starts_with("Driver configuration parse error:")) << result.error_message;
+    EXPECT_TRUE(fake.requests.empty());
 }
 
-TEST(Route53DriverTest, CheckResponse_PendingStatus_ReturnsTrue) {
-    Route53Driver driver;
-    net::http::Response resp{200, make_success_xml("PENDING"), {}};
-    EXPECT_TRUE(driver.check_response(resp));
+TEST(Route53DriverTest, Update_PendingStatus_ReturnsOk) {
+    FakeHostServices fake;
+    fake.queue_response(200, make_success_xml("PENDING"));
+    const auto result = run_abi_update(fake, CONFIG, "1.2.3.4", "A", "example.com", "www", "www.example.com");
+    EXPECT_EQ(result.status, YADDNSC_STATUS_OK) << result.error_message;
 }
 
-TEST(Route53DriverTest, CheckResponse_InsyncStatus_ReturnsTrue) {
-    Route53Driver driver;
-    net::http::Response resp{200, make_success_xml("INSYNC"), {}};
-    EXPECT_TRUE(driver.check_response(resp));
+TEST(Route53DriverTest, Update_InsyncStatus_ReturnsOk) {
+    FakeHostServices fake;
+    fake.queue_response(200, make_success_xml("INSYNC"));
+    const auto result = run_abi_update(fake, CONFIG, "1.2.3.4", "A", "example.com", "www", "www.example.com");
+    EXPECT_EQ(result.status, YADDNSC_STATUS_OK) << result.error_message;
 }
 
-TEST(Route53DriverTest, CheckResponse_UnexpectedStatus_ReturnsFalse) {
-    Route53Driver driver;
-    net::http::Response resp{200, make_success_xml("FAILED"), {}};
-    EXPECT_FALSE(driver.check_response(resp));
+TEST(Route53DriverTest, Update_UnexpectedStatus_ReturnsUpstreamRejected) {
+    FakeHostServices fake;
+    fake.queue_response(200, make_success_xml("FAILED"));
+    const auto result = run_abi_update(fake, CONFIG, "1.2.3.4", "A", "example.com", "www", "www.example.com");
+    EXPECT_EQ(result.status, YADDNSC_STATUS_UPSTREAM_REJECTED);
 }
 
-TEST(Route53DriverTest, CheckResponse_MissingStatus_ReturnsFalse) {
-    Route53Driver driver;
-    auto xml = R"(<?xml version="1.0" encoding="UTF-8"?>
+TEST(Route53DriverTest, Update_MissingStatus_ReturnsUpstreamRejected) {
+    FakeHostServices fake;
+    fake.queue_response(200, R"(<?xml version="1.0" encoding="UTF-8"?>
 <ChangeResourceRecordSetsResponse xmlns="https://route53.amazonaws.com/doc/2013-04-01/">
   <ChangeInfo>
     <Id>/change/C2682N5HXP0BZ4</Id>
     <SubmittedAt>2024-01-01T00:00:00Z</SubmittedAt>
   </ChangeInfo>
-</ChangeResourceRecordSetsResponse>)";
-    net::http::Response resp{200, xml, {}};
-    EXPECT_FALSE(driver.check_response(resp));
+</ChangeResourceRecordSetsResponse>)");
+    const auto result = run_abi_update(fake, CONFIG, "1.2.3.4", "A", "example.com", "www", "www.example.com");
+    EXPECT_EQ(result.status, YADDNSC_STATUS_UPSTREAM_REJECTED);
 }
 
-TEST(Route53DriverTest, CheckResponse_Non200_WithErrorXml_ReturnsFalse) {
-    Route53Driver driver;
-    net::http::Response resp{400, make_error_xml("InvalidChangeBatch", "RRset with name www.example.com. and type A is not supported"), {}};
-    EXPECT_FALSE(driver.check_response(resp));
+TEST(Route53DriverTest, Update_Non200WithErrorXml_ReturnsUpstreamRejected) {
+    FakeHostServices fake;
+    fake.queue_response(400, make_error_xml("InvalidChangeBatch", "RRset with name www.example.com. and type A is not supported"));
+    const auto result = run_abi_update(fake, CONFIG, "1.2.3.4", "A", "example.com", "www", "www.example.com");
+    EXPECT_EQ(result.status, YADDNSC_STATUS_UPSTREAM_REJECTED);
 }
 
-TEST(Route53DriverTest, CheckResponse_Non200_WithMultipleErrors_ReturnsFalse) {
-    Route53Driver driver;
-    auto xml = fmt::format(
-        R"(<?xml version="1.0" encoding="UTF-8"?>
+TEST(Route53DriverTest, Update_Non200WithMultipleErrors_ReturnsUpstreamRejected) {
+    FakeHostServices fake;
+    fake.queue_response(403, R"(<?xml version="1.0" encoding="UTF-8"?>
 <ErrorResponse xmlns="https://route53.amazonaws.com/doc/2013-04-01/">
   <Error>
     <Type>Sender</Type>
@@ -239,71 +250,77 @@ TEST(Route53DriverTest, CheckResponse_Non200_WithMultipleErrors_ReturnsFalse) {
   </Error>
   <RequestId>req456</RequestId>
 </ErrorResponse>)");
-    net::http::Response resp{403, xml, {}};
-    EXPECT_FALSE(driver.check_response(resp));
+    const auto result = run_abi_update(fake, CONFIG, "1.2.3.4", "A", "example.com", "www", "www.example.com");
+    EXPECT_EQ(result.status, YADDNSC_STATUS_UPSTREAM_REJECTED);
 }
 
-TEST(Route53DriverTest, CheckResponse_Non200_UnparseableBody_ReturnsFalse) {
-    Route53Driver driver;
-    net::http::Response resp{400, "not xml", {}};
-    EXPECT_FALSE(driver.check_response(resp));
+TEST(Route53DriverTest, Update_Non200UnparseableBody_ReturnsUpstreamRejected) {
+    FakeHostServices fake;
+    fake.queue_response(400, "not xml");
+    const auto result = run_abi_update(fake, CONFIG, "1.2.3.4", "A", "example.com", "www", "www.example.com");
+    EXPECT_EQ(result.status, YADDNSC_STATUS_UPSTREAM_REJECTED);
 }
 
-TEST(Route53DriverTest, CheckResponse_Non200_EmptyBody_ReturnsFalse) {
-    Route53Driver driver;
-    net::http::Response resp{500, "", {}};
-    EXPECT_FALSE(driver.check_response(resp));
+TEST(Route53DriverTest, Update_Non200EmptyBody_ReturnsUpstreamRejected) {
+    FakeHostServices fake;
+    fake.queue_response(500, "");
+    const auto result = run_abi_update(fake, CONFIG, "1.2.3.4", "A", "example.com", "www", "www.example.com");
+    EXPECT_EQ(result.status, YADDNSC_STATUS_UPSTREAM_REJECTED);
 }
 
-TEST(Route53DriverTest, GenerateRequest_EmptyFqdn_UsesDot) {
+TEST(Route53DriverTest, Update_EmptyFqdn_UsesDot) {
     // ensure_trailing_dot("") returns "." — Route 53 requires a dot.
-    Route53Driver driver;
-    DriverConfig config = R"({
+    FakeHostServices fake;
+    fake.queue_response(200, make_success_xml("PENDING"));
+
+    const auto result = run_abi_update(fake,
+                                       R"({
         "access_key_id": "AKID123",
         "secret_access_key": "secret456",
         "hosted_zone_id": "ZONE1",
         "region": "us-east-1",
         "record_name": "test"
-    })";
-    DriverUpdateParams ctx{
-        .ip_addr = "1.2.3.4", .rd_type = "A",
-        .domain = "example.com", .subdomain = "", .fqdn = ""
-    };
+    })",
+                                       "1.2.3.4", "A", "example.com", "", "");
+    ASSERT_EQ(result.status, YADDNSC_STATUS_OK) << result.error_message;
 
-    auto result = driver.generate_request(config, ctx);
-    ASSERT_TRUE(result.request.body.has_value());
-    EXPECT_TRUE(result.request.body.value().find(">.<") != std::string::npos);
+    ASSERT_EQ(fake.requests.size(), 1u);
+    ASSERT_TRUE(fake.requests[0].body.has_value());
+    EXPECT_TRUE(fake.requests[0].body->find(">.<") != std::string::npos);
 }
 
-TEST(Route53DriverTest, GenerateRequest_FqdnWithTrailingDot_NotDuplicated) {
-    Route53Driver driver;
-    DriverConfig config = R"({
+TEST(Route53DriverTest, Update_FqdnWithTrailingDot_NotDuplicated) {
+    FakeHostServices fake;
+    fake.queue_response(200, make_success_xml("PENDING"));
+
+    const auto result = run_abi_update(fake,
+                                       R"({
         "access_key_id": "AKID123",
         "secret_access_key": "secret456",
         "hosted_zone_id": "ZONE1",
         "region": "us-east-1",
         "record_name": "test"
-    })";
-    DriverUpdateParams ctx{
-        .ip_addr = "1.2.3.4", .rd_type = "A",
-        .domain = "example.com", .subdomain = "www", .fqdn = "www.example.com."
-    };
+    })",
+                                       "1.2.3.4", "A", "example.com", "www", "www.example.com.");
+    ASSERT_EQ(result.status, YADDNSC_STATUS_OK) << result.error_message;
 
-    auto result = driver.generate_request(config, ctx);
-    ASSERT_TRUE(result.request.body.has_value());
-    const auto &body = result.request.body.value();
+    ASSERT_EQ(fake.requests.size(), 1u);
+    ASSERT_TRUE(fake.requests[0].body.has_value());
+    const auto &body = *fake.requests[0].body;
     // The trailing dot must not be doubled.
     EXPECT_TRUE(body.find("www.example.com.<") != std::string::npos);
     EXPECT_TRUE(body.find("www.example.com..<") == std::string::npos);
 }
 
-TEST(Route53DriverTest, CheckResponse_MalformedSuccessXml_ReturnsFalse) {
-    Route53Driver driver;
-    net::http::Response resp{200, "not valid xml at all", {}};
-    EXPECT_FALSE(driver.check_response(resp));
+TEST(Route53DriverTest, Update_MalformedSuccessXml_ReturnsUpstreamRejected) {
+    FakeHostServices fake;
+    fake.queue_response(200, "not valid xml at all");
+    const auto result = run_abi_update(fake, CONFIG, "1.2.3.4", "A", "example.com", "www", "www.example.com");
+    EXPECT_EQ(result.status, YADDNSC_STATUS_UPSTREAM_REJECTED);
 }
 
-TEST(Route53DriverTest, FactoryCreateDestroy) { test_factory_create_destroy(); }
-TEST(Route53DriverTest, FactoryMagic) { test_factory_magic(); }
-TEST(Route53DriverTest, FactoryBuildId) { test_factory_build_id(); }
-TEST(Route53DriverTest, FactoryCompilerIdHash) { test_factory_compiler_id_hash(); }
+TEST(Route53DriverTest, Entries_NullArgumentsRejected) {
+    EXPECT_EQ(yaddnsc_driver_get_descriptor(nullptr), YADDNSC_STATUS_INVALID_ARGUMENT);
+    EXPECT_EQ(yaddnsc_driver_update(nullptr, nullptr, nullptr), YADDNSC_STATUS_INVALID_ARGUMENT);
+    yaddnsc_driver_destroy(nullptr); // must be a no-op, must not crash
+}

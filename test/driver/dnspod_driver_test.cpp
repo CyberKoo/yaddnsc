@@ -1,91 +1,103 @@
 //
 // Unit tests for DNSPodDriver (driver/dnspod/)
 //
-// Verifies:
-//   - get_detail() returns expected metadata.
-//   - generate_request() builds correct DNSPod API URL (CN).
-//   - generate_request() builds correct DNSPod API URL (global).
-//   - generate_request() produces form-encoded body with all expected fields.
-//   - generate_request() uses "默认" record_line by default for CN.
-//   - generate_request() uses "default" record_line for global.
-//   - generate_request() with missing config throws ParamParseException.
-//   - check_response() returns true for status code "1" with record.
-//   - check_response() returns false for other status codes.
-//   - check_response() returns false when status is missing.
-//   - check_response() returns false for unparseable response.
+// Verifies (through the v1 alpha ABI entries and FakeHostServices):
+//   - descriptor returns expected metadata (name/version/author/capabilities).
+//   - update builds the correct DNSPod API URL (CN / global endpoint).
+//   - update produces a form-encoded body with all expected fields.
+//   - update uses "默认" record_line by default for CN, "default" for global.
+//   - update with missing config fields returns INVALID_CONFIG.
+//   - update succeeds for status code "1" responses (with/without record).
+//   - update returns UPSTREAM_REJECTED for error status / missing status /
+//     unparseable or empty response bodies.
 // =============================================================================
 
 #include <gtest/gtest.h>
 
-#include "dnspod.h"
-#include "config.hpp"
-#include "response.hpp"
-#include "factory_test_helpers.h"
+#include "abi_test_harness.h"
 
-TEST(DNSPodDriverTest, GetDetail_ReturnsExpectedMetadata) {
-    DNSPodDriver driver;
-    auto detail = driver.get_detail();
-    EXPECT_EQ(detail.name, "dnspod");
-    EXPECT_EQ(detail.description, "Updates DNS records via the DNSPod API");
-    EXPECT_EQ(detail.author, "Kotarou");
-    EXPECT_EQ(detail.version, "2.0.0");
-}
+// ── Shared fixtures ──────────────────────────────────────────────────────────
 
-TEST(DNSPodDriverTest, GenerateRequest_DefaultEndpointCn) {
-    DNSPodDriver driver;
-    DriverConfig config = R"({
+namespace {
+    constexpr std::string_view CONFIG = R"({
         "domain_id": "dom123",
         "record_id": "rec456",
         "login_token": "token123",
         "record_line_id": "0",
         "global": false
     })";
-    DriverUpdateParams ctx{
-        .ip_addr = "1.2.3.4", .rd_type = "A",
-        .domain = "example.com", .subdomain = "www", .fqdn = "www.example.com"
-    };
 
-    auto result = driver.generate_request(config, ctx);
-    EXPECT_EQ(result.url, "https://dnsapi.cn/Record.Ddns");
-    EXPECT_EQ(result.request.method, net::http::Method::POST);
-    EXPECT_EQ(result.request.content_type, "application/x-www-form-urlencoded");
-}
+    const std::string SUCCESS_WITH_RECORD = R"({
+        "status": {"code": "1", "message": "Action completed successfully", "created_at": "2024-01-01 00:00:00"},
+        "record": {"id": 123, "name": "www.example.com", "value": "1.2.3.4"}
+    })";
 
-TEST(DNSPodDriverTest, GenerateRequest_GlobalEndpoint) {
-    DNSPodDriver driver;
-    DriverConfig config = R"({
+    constexpr std::string_view GLOBAL_CONFIG = R"({
         "domain_id": "dom123",
         "record_id": "rec456",
         "login_token": "token123",
         "global": true,
         "record_line_id": "0"
     })";
-    DriverUpdateParams ctx{
-        .ip_addr = "1.2.3.4", .rd_type = "A",
-        .domain = "example.com", .subdomain = "www", .fqdn = "www.example.com"
-    };
+} // namespace
 
-    auto result = driver.generate_request(config, ctx);
-    EXPECT_EQ(result.url, "https://api.dnspod.com/Record.Ddns");
+// ── Tests ──────────────────────────────────────────────────────────────────
+
+TEST(DNSPodDriverTest, Descriptor_ReturnsExpectedMetadata) {
+    const yaddnsc_driver_descriptor *descriptor = nullptr;
+    ASSERT_EQ(yaddnsc_driver_get_descriptor(&descriptor), YADDNSC_STATUS_OK);
+    ASSERT_NE(descriptor, nullptr);
+    EXPECT_EQ(descriptor->magic, YADDNSC_DRIVER_MAGIC);
+    EXPECT_EQ(descriptor->api_revision, YADDNSC_DRIVER_API_REVISION);
+    EXPECT_EQ(std::string_view(descriptor->name.data, descriptor->name.size), "dnspod");
+    EXPECT_EQ(std::string_view(descriptor->description.data, descriptor->description.size),
+              "Updates DNS records via the DNSPod API");
+    EXPECT_EQ(std::string_view(descriptor->author.data, descriptor->author.size), "Kotarou");
+    EXPECT_EQ(std::string_view(descriptor->version.data, descriptor->version.size), "2.0.0");
+    EXPECT_NE(descriptor->capabilities & YADDNSC_DRIVER_CAPABILITY_A, 0u);
+    EXPECT_NE(descriptor->capabilities & YADDNSC_DRIVER_CAPABILITY_AAAA, 0u);
 }
 
-TEST(DNSPodDriverTest, GenerateRequest_BodyContainsRequiredFields) {
-    DNSPodDriver driver;
-    DriverConfig config = R"({
-        "domain_id": "dom123",
-        "record_id": "rec456",
-        "login_token": "token123",
-        "record_line_id": "0",
-        "global": false
-    })";
-    DriverUpdateParams ctx{
-        .ip_addr = "10.0.0.1", .rd_type = "AAAA",
-        .domain = "example.com", .subdomain = "@", .fqdn = "example.com"
-    };
+TEST(DNSPodDriverTest, Update_DefaultEndpointCn) {
+    FakeHostServices fake;
+    fake.queue_response(200, SUCCESS_WITH_RECORD);
 
-    auto result = driver.generate_request(config, ctx);
-    ASSERT_TRUE(result.request.body.has_value());
-    auto &body = result.request.body.value();
+    const auto result = run_abi_update(fake, CONFIG, "1.2.3.4", "A", "example.com", "www", "www.example.com");
+    ASSERT_EQ(result.create_status, YADDNSC_STATUS_OK) << result.error_message;
+    ASSERT_EQ(result.status, YADDNSC_STATUS_OK) << result.error_message;
+
+    ASSERT_EQ(fake.requests.size(), 1u);
+    const auto &request = fake.requests[0];
+
+    EXPECT_EQ(request.url, "https://dnsapi.cn/Record.Ddns");
+    EXPECT_EQ(request.method, YADDNSC_HTTP_POST);
+    EXPECT_EQ(request.content_type, "application/x-www-form-urlencoded");
+}
+
+TEST(DNSPodDriverTest, Update_GlobalEndpoint) {
+    FakeHostServices fake;
+    fake.queue_response(200, SUCCESS_WITH_RECORD);
+
+    const auto result = run_abi_update(fake, GLOBAL_CONFIG, "1.2.3.4", "A", "example.com", "www",
+                                       "www.example.com");
+    ASSERT_EQ(result.create_status, YADDNSC_STATUS_OK) << result.error_message;
+    ASSERT_EQ(result.status, YADDNSC_STATUS_OK) << result.error_message;
+
+    ASSERT_EQ(fake.requests.size(), 1u);
+    EXPECT_EQ(fake.requests[0].url, "https://api.dnspod.com/Record.Ddns");
+}
+
+TEST(DNSPodDriverTest, Update_BodyContainsRequiredFields) {
+    FakeHostServices fake;
+    fake.queue_response(200, SUCCESS_WITH_RECORD);
+
+    const auto result = run_abi_update(fake, CONFIG, "10.0.0.1", "AAAA", "example.com", "@", "example.com");
+    ASSERT_EQ(result.create_status, YADDNSC_STATUS_OK) << result.error_message;
+    ASSERT_EQ(result.status, YADDNSC_STATUS_OK) << result.error_message;
+
+    ASSERT_EQ(fake.requests.size(), 1u);
+    ASSERT_TRUE(fake.requests[0].body.has_value());
+    const auto &body = *fake.requests[0].body;
 
     EXPECT_TRUE(body.find("login_token=token123") != std::string::npos);
     EXPECT_TRUE(body.find("domain_id=dom123") != std::string::npos);
@@ -96,130 +108,133 @@ TEST(DNSPodDriverTest, GenerateRequest_BodyContainsRequiredFields) {
     EXPECT_TRUE(body.find("format=json") != std::string::npos);
 }
 
-TEST(DNSPodDriverTest, GenerateRequest_DefaultRecordLine_Cn) {
-    DNSPodDriver driver;
-    DriverConfig config = R"({
-        "domain_id": "dom123",
-        "record_id": "rec456",
-        "login_token": "token123",
-        "record_line_id": "0",
-        "global": false
-    })";
-    DriverUpdateParams ctx{
-        .ip_addr = "1.2.3.4", .rd_type = "A",
-        .domain = "example.com", .subdomain = "www", .fqdn = "www.example.com"
-    };
+TEST(DNSPodDriverTest, Update_DefaultRecordLine_Cn) {
+    FakeHostServices fake;
+    fake.queue_response(200, SUCCESS_WITH_RECORD);
 
-    auto result = driver.generate_request(config, ctx);
-    ASSERT_TRUE(result.request.body.has_value());
+    const auto result = run_abi_update(fake, CONFIG, "1.2.3.4", "A", "example.com", "www", "www.example.com");
+    ASSERT_EQ(result.create_status, YADDNSC_STATUS_OK) << result.error_message;
+    ASSERT_EQ(result.status, YADDNSC_STATUS_OK) << result.error_message;
+
+    ASSERT_EQ(fake.requests.size(), 1u);
+    ASSERT_TRUE(fake.requests[0].body.has_value());
     // CN default record_line should be "默认"
-    EXPECT_TRUE(result.request.body.value().find("record_line=%E9%BB%98%E8%AE%A4") != std::string::npos ||
-                result.request.body.value().find("record_line=默认") != std::string::npos);
+    const auto &body = *fake.requests[0].body;
+    EXPECT_TRUE(body.find("record_line=%E9%BB%98%E8%AE%A4") != std::string::npos ||
+                body.find("record_line=默认") != std::string::npos);
 }
 
-TEST(DNSPodDriverTest, GenerateRequest_DefaultRecordLine_Global) {
-    DNSPodDriver driver;
-    DriverConfig config = R"({
-        "domain_id": "dom123",
-        "record_id": "rec456",
-        "login_token": "token123",
-        "global": true,
-        "record_line_id": "0"
-    })";
-    DriverUpdateParams ctx{
-        .ip_addr = "1.2.3.4", .rd_type = "A",
-        .domain = "example.com", .subdomain = "www", .fqdn = "www.example.com"
-    };
+TEST(DNSPodDriverTest, Update_DefaultRecordLine_Global) {
+    FakeHostServices fake;
+    fake.queue_response(200, SUCCESS_WITH_RECORD);
 
-    auto result = driver.generate_request(config, ctx);
-    ASSERT_TRUE(result.request.body.has_value());
-    EXPECT_TRUE(result.request.body.value().find("record_line=default") != std::string::npos);
+    const auto result = run_abi_update(fake, GLOBAL_CONFIG, "1.2.3.4", "A", "example.com", "www",
+                                       "www.example.com");
+    ASSERT_EQ(result.create_status, YADDNSC_STATUS_OK) << result.error_message;
+    ASSERT_EQ(result.status, YADDNSC_STATUS_OK) << result.error_message;
+
+    ASSERT_EQ(fake.requests.size(), 1u);
+    ASSERT_TRUE(fake.requests[0].body.has_value());
+    EXPECT_TRUE(fake.requests[0].body->find("record_line=default") != std::string::npos);
 }
 
-TEST(DNSPodDriverTest, GenerateRequest_CustomRecordLine) {
-    DNSPodDriver driver;
-    DriverConfig config = R"({
-        "domain_id": "dom123",
-        "record_id": "rec456",
-        "login_token": "token123",
-        "record_line": "unicom",
-        "record_line_id": "0",
-        "global": false
-    })";
-    DriverUpdateParams ctx{
-        .ip_addr = "1.2.3.4", .rd_type = "A",
-        .domain = "example.com", .subdomain = "www", .fqdn = "www.example.com"
-    };
+TEST(DNSPodDriverTest, Update_CustomRecordLine) {
+    FakeHostServices fake;
+    fake.queue_response(200, SUCCESS_WITH_RECORD);
 
-    auto result = driver.generate_request(config, ctx);
-    ASSERT_TRUE(result.request.body.has_value());
-    EXPECT_TRUE(result.request.body.value().find("record_line=unicom") != std::string::npos);
+    const auto result = run_abi_update(fake,
+                                       R"({
+                                            "domain_id": "dom123",
+                                            "record_id": "rec456",
+                                            "login_token": "token123",
+                                            "record_line": "unicom",
+                                            "record_line_id": "0",
+                                            "global": false
+                                        })",
+                                       "1.2.3.4", "A", "example.com", "www", "www.example.com");
+    ASSERT_EQ(result.create_status, YADDNSC_STATUS_OK) << result.error_message;
+    ASSERT_EQ(result.status, YADDNSC_STATUS_OK) << result.error_message;
+
+    ASSERT_EQ(fake.requests.size(), 1u);
+    ASSERT_TRUE(fake.requests[0].body.has_value());
+    EXPECT_TRUE(fake.requests[0].body->find("record_line=unicom") != std::string::npos);
 }
 
-TEST(DNSPodDriverTest, GenerateRequest_MissingDomainId_ThrowsParamParseException) {
-    DNSPodDriver driver;
-    DriverConfig config = R"({"record_id": "rec456", "login_token": "token123"})";
-    DriverUpdateParams ctx{
-        .ip_addr = "1.2.3.4", .rd_type = "A",
-        .domain = "example.com", .subdomain = "@", .fqdn = "example.com"
-    };
-    EXPECT_THROW({ driver.generate_request(config, ctx); }, ParamParseException);
+TEST(DNSPodDriverTest, Update_MissingDomainId_ReturnsInvalidConfig) {
+    FakeHostServices fake;
+    const auto result = run_abi_update(fake, R"({"record_id": "rec456", "login_token": "token123"})", "1.2.3.4",
+                                       "A", "example.com", "@", "example.com");
+    EXPECT_EQ(result.status, YADDNSC_STATUS_INVALID_CONFIG);
+    EXPECT_TRUE(result.error_message.starts_with("Driver configuration parse error:")) << result.error_message;
+    EXPECT_TRUE(fake.requests.empty());
 }
 
-TEST(DNSPodDriverTest, GenerateRequest_MissingLoginToken_ThrowsParamParseException) {
-    DNSPodDriver driver;
-    DriverConfig config = R"({"domain_id": "dom123", "record_id": "rec456"})";
-    DriverUpdateParams ctx{
-        .ip_addr = "1.2.3.4", .rd_type = "A",
-        .domain = "example.com", .subdomain = "@", .fqdn = "example.com"
-    };
-    EXPECT_THROW({ driver.generate_request(config, ctx); }, ParamParseException);
+TEST(DNSPodDriverTest, Update_MissingLoginToken_ReturnsInvalidConfig) {
+    FakeHostServices fake;
+    const auto result = run_abi_update(fake, R"({"domain_id": "dom123", "record_id": "rec456"})", "1.2.3.4", "A",
+                                       "example.com", "@", "example.com");
+    EXPECT_EQ(result.status, YADDNSC_STATUS_INVALID_CONFIG);
+    EXPECT_TRUE(result.error_message.starts_with("Driver configuration parse error:")) << result.error_message;
+    EXPECT_TRUE(fake.requests.empty());
 }
 
-TEST(DNSPodDriverTest, CheckResponse_StatusCode1WithRecord_ReturnsTrue) {
-    DNSPodDriver driver;
-    net::http::Response resp{200, R"({
+TEST(DNSPodDriverTest, Update_StatusCode1WithRecord_ReturnsOk) {
+    FakeHostServices fake;
+    fake.queue_response(200, R"({
         "status": {"code": "1", "message": "Action completed successfully", "created_at": "2024-01-01 00:00:00"},
         "record": {"id": 123, "name": "www.example.com", "value": "1.2.3.4"}
-    })", {}};
-    EXPECT_TRUE(driver.check_response(resp));
+    })");
+    const auto result = run_abi_update(fake, CONFIG, "1.2.3.4", "A", "example.com", "www", "www.example.com");
+    ASSERT_EQ(result.create_status, YADDNSC_STATUS_OK) << result.error_message;
+    EXPECT_EQ(result.status, YADDNSC_STATUS_OK) << result.error_message;
 }
 
-TEST(DNSPodDriverTest, CheckResponse_StatusCode1NoRecord_ReturnsTrue) {
-    DNSPodDriver driver;
-    net::http::Response resp{200, R"({
+TEST(DNSPodDriverTest, Update_StatusCode1NoRecord_ReturnsOk) {
+    FakeHostServices fake;
+    fake.queue_response(200, R"({
         "status": {"code": "1", "message": "Action completed successfully", "created_at": "2024-01-01 00:00:00"}
-    })", {}};
-    EXPECT_TRUE(driver.check_response(resp));
+    })");
+    const auto result = run_abi_update(fake, CONFIG, "1.2.3.4", "A", "example.com", "www", "www.example.com");
+    ASSERT_EQ(result.create_status, YADDNSC_STATUS_OK) << result.error_message;
+    EXPECT_EQ(result.status, YADDNSC_STATUS_OK) << result.error_message;
 }
 
-TEST(DNSPodDriverTest, CheckResponse_ErrorStatusCode_ReturnsFalse) {
-    DNSPodDriver driver;
-    net::http::Response resp{200, R"({
+TEST(DNSPodDriverTest, Update_ErrorStatusCode_ReturnsUpstreamRejected) {
+    FakeHostServices fake;
+    fake.queue_response(200, R"({
         "status": {"code": "-1", "message": "Login fails", "created_at": "2024-01-01 00:00:00"}
-    })", {}};
-    EXPECT_FALSE(driver.check_response(resp));
+    })");
+    const auto result = run_abi_update(fake, CONFIG, "1.2.3.4", "A", "example.com", "www", "www.example.com");
+    ASSERT_EQ(result.create_status, YADDNSC_STATUS_OK) << result.error_message;
+    EXPECT_EQ(result.status, YADDNSC_STATUS_UPSTREAM_REJECTED);
 }
 
-TEST(DNSPodDriverTest, CheckResponse_MissingStatus_ReturnsFalse) {
-    DNSPodDriver driver;
-    net::http::Response resp{200, R"({"record": {"id": 123, "name": "www", "value": "1.2.3.4"}})", {}};
-    EXPECT_FALSE(driver.check_response(resp));
+TEST(DNSPodDriverTest, Update_MissingStatus_ReturnsUpstreamRejected) {
+    FakeHostServices fake;
+    fake.queue_response(200, R"({"record": {"id": 123, "name": "www", "value": "1.2.3.4"}})");
+    const auto result = run_abi_update(fake, CONFIG, "1.2.3.4", "A", "example.com", "www", "www.example.com");
+    ASSERT_EQ(result.create_status, YADDNSC_STATUS_OK) << result.error_message;
+    EXPECT_EQ(result.status, YADDNSC_STATUS_UPSTREAM_REJECTED);
 }
 
-TEST(DNSPodDriverTest, CheckResponse_UnparseableBody_ReturnsFalse) {
-    DNSPodDriver driver;
-    net::http::Response resp{200, "not-json", {}};
-    EXPECT_FALSE(driver.check_response(resp));
+TEST(DNSPodDriverTest, Update_UnparseableBody_ReturnsUpstreamRejected) {
+    FakeHostServices fake;
+    fake.queue_response(200, "not-json");
+    const auto result = run_abi_update(fake, CONFIG, "1.2.3.4", "A", "example.com", "www", "www.example.com");
+    ASSERT_EQ(result.create_status, YADDNSC_STATUS_OK) << result.error_message;
+    EXPECT_EQ(result.status, YADDNSC_STATUS_UPSTREAM_REJECTED);
 }
 
-TEST(DNSPodDriverTest, CheckResponse_EmptyBody_ReturnsFalse) {
-    DNSPodDriver driver;
-    net::http::Response resp{200, "", {}};
-    EXPECT_FALSE(driver.check_response(resp));
+TEST(DNSPodDriverTest, Update_EmptyBody_ReturnsUpstreamRejected) {
+    FakeHostServices fake;
+    fake.queue_response(200, "");
+    const auto result = run_abi_update(fake, CONFIG, "1.2.3.4", "A", "example.com", "www", "www.example.com");
+    ASSERT_EQ(result.create_status, YADDNSC_STATUS_OK) << result.error_message;
+    EXPECT_EQ(result.status, YADDNSC_STATUS_UPSTREAM_REJECTED);
 }
 
-TEST(DNSPodDriverTest, FactoryCreateDestroy) { test_factory_create_destroy(); }
-TEST(DNSPodDriverTest, FactoryMagic) { test_factory_magic(); }
-TEST(DNSPodDriverTest, FactoryBuildId) { test_factory_build_id(); }
-TEST(DNSPodDriverTest, FactoryCompilerIdHash) { test_factory_compiler_id_hash(); }
+TEST(DNSPodDriverTest, Entries_NullArgumentsRejected) {
+    EXPECT_EQ(yaddnsc_driver_get_descriptor(nullptr), YADDNSC_STATUS_INVALID_ARGUMENT);
+    EXPECT_EQ(yaddnsc_driver_update(nullptr, nullptr, nullptr), YADDNSC_STATUS_INVALID_ARGUMENT);
+    yaddnsc_driver_destroy(nullptr); // must be a no-op, must not crash
+}

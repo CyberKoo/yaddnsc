@@ -17,7 +17,7 @@
 #include "config/static_validator.h"
 #include "config/validator.hpp"
 #include "core/driver_loader.h"
-#include "core/driver_manager.h"
+#include "infrastructure/plugin/driver_catalog.h"
 #include "ip_source/iface_util.h"
 #include "exception/base.h"
 #include "exception/config_verification.h"
@@ -30,8 +30,7 @@
 namespace Cli {
 
 namespace {
-    /// `config show` redaction rule (registered as an intentional change in
-    /// refactor/phase-0-baseline.md): an object member is sensitive when its
+    /// `config show` redaction rule: an object member is sensitive when its
     /// lower-cased key contains "token", "password", "secret" or "key".
     /// The whole value is replaced with "***" regardless of its type.
     /// Substring matching may over-redact (e.g. a key like "monkey"); that is
@@ -120,10 +119,10 @@ namespace {
                 return EXIT_FAILURE;
             }
 
-            DriverManager driver_manager;
-            DriverLoader::load(driver_manager, config->driver);
+            DriverCatalog driver_catalog;
+            DriverLoader::load(driver_catalog, config->driver);
             const auto interfaces = InterfaceUtil::get_interfaces();
-            const EnvironmentValidator validator(driver_manager.get_loaded_drivers(), interfaces);
+            const EnvironmentValidator validator(driver_catalog.get_loaded_drivers(), interfaces);
             validator.validate(*config);
 
             if (!quiet) {

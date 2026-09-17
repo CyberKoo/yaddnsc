@@ -1,188 +1,189 @@
 //
 // Unit tests for CloudflareDriver (driver/cloudflare/)
 //
-// Verifies:
-//   - get_detail() returns expected metadata.
-//   - generate_request() builds correct Cloudflare API URL.
-//   - generate_request() sets Bearer authorization header.
-//   - generate_request() produces valid JSON request body.
-//   - generate_request() uses config values for zone/record IDs.
-//   - generate_request() with missing config fields throws ParamParseException.
-//   - check_response() returns true for success=true with result.
-//   - check_response() returns false for success=false with errors.
-//   - check_response() returns false for unparseable response.
+// Verifies (through the v1 alpha ABI entries and FakeHostServices):
+//   - descriptor returns expected metadata (name/version/author/capabilities).
+//   - update builds the correct Cloudflare API URL, method, auth header, body.
+//   - update uses config values for zone/record IDs.
+//   - update with missing config fields returns INVALID_CONFIG.
+//   - update succeeds for success=true responses.
+//   - update returns UPSTREAM_REJECTED for success=false / unparseable responses.
 // =============================================================================
 
 #include <gtest/gtest.h>
 
-#include "cloudflare.h"
-#include "config.hpp"
-#include "response.hpp"
-#include "factory_test_helpers.h"
+#include "abi_test_harness.h"
 
-// ── Helper: build a minimal success response ─────────────────────────────────
-std::string make_success_response(std::string_view type, std::string_view name,
-                                  std::string_view content, int ttl, bool proxied) {
-    return fmt::format(R"({{"success":true,"errors":[],"messages":[],"result":{{"id":"rec123","name":"{}","type":"{}","content":"{}","ttl":{},"proxied":{},"proxiable":false}}}})",
-                       name, type, content, ttl, proxied ? "true" : "false");
-}
+// ── Shared fixtures ──────────────────────────────────────────────────────────
 
-// ── Tests ──────────────────────────────────────────────────────────────────
-
-TEST(CloudflareDriverTest, GetDetail_ReturnsExpectedMetadata) {
-    CloudflareDriver driver;
-    auto detail = driver.get_detail();
-    EXPECT_EQ(detail.name, "cloudflare");
-    EXPECT_EQ(detail.description, "Updates DNS records via the Cloudflare API");
-    EXPECT_EQ(detail.author, "Kotarou");
-    EXPECT_EQ(detail.version, "2.0.0");
-}
-
-TEST(CloudflareDriverTest, GenerateRequest_BasicARecord) {
-    CloudflareDriver driver;
-    DriverConfig config = R"({
+namespace {
+    constexpr std::string_view CONFIG = R"({
         "zone_id": "myzone",
         "record_id": "rec123",
         "token": "mytoken"
     })";
-    DriverUpdateParams ctx{
-        .ip_addr = "1.2.3.4", .rd_type = "A",
-        .domain = "example.com", .subdomain = "www", .fqdn = "www.example.com"
-    };
 
-    auto result = driver.generate_request(config, ctx);
+    std::string make_success_response(std::string_view type, std::string_view name, std::string_view content, int ttl,
+                                      bool proxied) {
+        return std::string{R"({"success":true,"errors":[],"messages":[],"result":{"id":"rec123","name":")"} +
+                           std::string{name} + R"(","type":")" + std::string{type} + R"(","content":")" +
+                           std::string{content} + R"(","ttl":)" + std::to_string(ttl) +
+                           (proxied ? R"(,"proxied":true)" : R"(,"proxied":false)") + R"(,"proxiable":false}})";
+    }
+} // namespace
+
+// ── Tests ──────────────────────────────────────────────────────────────────
+
+TEST(CloudflareDriverTest, Descriptor_ReturnsExpectedMetadata) {
+    const yaddnsc_driver_descriptor *descriptor = nullptr;
+    ASSERT_EQ(yaddnsc_driver_get_descriptor(&descriptor), YADDNSC_STATUS_OK);
+    ASSERT_NE(descriptor, nullptr);
+    EXPECT_EQ(descriptor->magic, YADDNSC_DRIVER_MAGIC);
+    EXPECT_EQ(descriptor->api_revision, YADDNSC_DRIVER_API_REVISION);
+    EXPECT_EQ(std::string_view(descriptor->name.data, descriptor->name.size), "cloudflare");
+    EXPECT_EQ(std::string_view(descriptor->description.data, descriptor->description.size),
+              "Updates DNS records via the Cloudflare API");
+    EXPECT_EQ(std::string_view(descriptor->author.data, descriptor->author.size), "Kotarou");
+    EXPECT_EQ(std::string_view(descriptor->version.data, descriptor->version.size), "2.0.0");
+    EXPECT_NE(descriptor->capabilities & YADDNSC_DRIVER_CAPABILITY_A, 0u);
+    EXPECT_NE(descriptor->capabilities & YADDNSC_DRIVER_CAPABILITY_AAAA, 0u);
+}
+
+TEST(CloudflareDriverTest, Update_BasicARecord) {
+    FakeHostServices fake;
+    fake.queue_response(200, make_success_response("A", "www.example.com", "1.2.3.4", 30, false));
+
+    const auto result = run_abi_update(fake, CONFIG, "1.2.3.4", "A", "example.com", "www", "www.example.com");
+    ASSERT_EQ(result.create_status, YADDNSC_STATUS_OK) << result.error_message;
+    ASSERT_EQ(result.status, YADDNSC_STATUS_OK) << result.error_message;
+
+    ASSERT_EQ(fake.requests.size(), 1u);
+    const auto &request = fake.requests[0];
 
     // Check URL
-    EXPECT_EQ(result.url, "https://api.cloudflare.com/client/v4/zones/myzone/dns_records/rec123");
+    EXPECT_EQ(request.url, "https://api.cloudflare.com/client/v4/zones/myzone/dns_records/rec123");
 
     // Check method and content type
-    EXPECT_EQ(result.request.method, net::http::Method::PUT);
-    EXPECT_EQ(result.request.content_type, "application/json");
+    EXPECT_EQ(request.method, YADDNSC_HTTP_PUT);
+    EXPECT_EQ(request.content_type, "application/json");
 
     // Check auth header
-    auto auth_it = result.request.headers.find("Authorization");
-    ASSERT_NE(auth_it, result.request.headers.end());
-    EXPECT_EQ(auth_it->second, "Bearer mytoken");
+    const auto auth = request.header("Authorization");
+    ASSERT_TRUE(auth.has_value());
+    EXPECT_EQ(*auth, "Bearer mytoken");
 
-    // Check request body exists and contains expected fields
-    ASSERT_TRUE(result.request.body.has_value());
-    auto &body = result.request.body.value();
+    // Check request body contains expected fields
+    ASSERT_TRUE(request.body.has_value());
+    const auto &body = *request.body;
     EXPECT_TRUE(body.find(R"("type":"A")") != std::string::npos);
     EXPECT_TRUE(body.find(R"("content":"1.2.3.4")") != std::string::npos);
     EXPECT_TRUE(body.find(R"("name":"www")") != std::string::npos);
 }
 
-TEST(CloudflareDriverTest, GenerateRequest_WithTtlAndProxied) {
-    CloudflareDriver driver;
-    DriverConfig config = R"({
-        "zone_id": "z1",
-        "record_id": "r1",
-        "token": "t1",
-        "ttl": 120,
-        "proxied": true
-    })";
-    DriverUpdateParams ctx{
-        .ip_addr = "10.0.0.1", .rd_type = "AAAA",
-        .domain = "example.com", .subdomain = "@", .fqdn = "example.com"
-    };
+TEST(CloudflareDriverTest, Update_WithTtlAndProxied) {
+    FakeHostServices fake;
+    fake.queue_response(200, make_success_response("AAAA", "example.com", "10.0.0.1", 120, true));
 
-    auto result = driver.generate_request(config, ctx);
+    const auto result = run_abi_update(fake,
+                                       R"({"zone_id":"z1","record_id":"r1","token":"t1","ttl":120,"proxied":true})",
+                                       "10.0.0.1", "AAAA", "example.com", "@", "example.com");
+    ASSERT_EQ(result.status, YADDNSC_STATUS_OK) << result.error_message;
 
-    ASSERT_TRUE(result.request.body.has_value());
-    auto &body = result.request.body.value();
+    ASSERT_EQ(fake.requests.size(), 1u);
+    ASSERT_TRUE(fake.requests[0].body.has_value());
+    const auto &body = *fake.requests[0].body;
     EXPECT_TRUE(body.find(R"("type":"AAAA")") != std::string::npos);
     EXPECT_TRUE(body.find(R"("ttl":120)") != std::string::npos);
     EXPECT_TRUE(body.find(R"("proxied":true)") != std::string::npos);
     EXPECT_TRUE(body.find(R"("content":"10.0.0.1")") != std::string::npos);
 }
 
-TEST(CloudflareDriverTest, GenerateRequest_MissingZoneId_ThrowsParamParseException) {
-    CloudflareDriver driver;
-    DriverConfig config = R"({"record_id": "r1", "token": "t1"})";
-    DriverUpdateParams ctx{
-        .ip_addr = "1.2.3.4", .rd_type = "A",
-        .domain = "example.com", .subdomain = "@", .fqdn = "example.com"
-    };
-    EXPECT_THROW({ driver.generate_request(config, ctx); }, ParamParseException);
+TEST(CloudflareDriverTest, Update_MissingZoneId_ReturnsInvalidConfig) {
+    FakeHostServices fake;
+    const auto result = run_abi_update(fake, R"({"record_id":"r1","token":"t1"})", "1.2.3.4", "A", "example.com",
+                                       "@", "example.com");
+    EXPECT_EQ(result.status, YADDNSC_STATUS_INVALID_CONFIG);
+    EXPECT_TRUE(result.error_message.starts_with("Driver configuration parse error:")) << result.error_message;
+    EXPECT_TRUE(fake.requests.empty());
 }
 
-TEST(CloudflareDriverTest, GenerateRequest_MissingToken_ThrowsParamParseException) {
-    CloudflareDriver driver;
-    DriverConfig config = R"({"zone_id": "z1", "record_id": "r1"})";
-    DriverUpdateParams ctx{
-        .ip_addr = "1.2.3.4", .rd_type = "A",
-        .domain = "example.com", .subdomain = "@", .fqdn = "example.com"
-    };
-    EXPECT_THROW({ driver.generate_request(config, ctx); }, ParamParseException);
+TEST(CloudflareDriverTest, Update_MissingToken_ReturnsInvalidConfig) {
+    FakeHostServices fake;
+    const auto result = run_abi_update(fake, R"({"zone_id":"z1","record_id":"r1"})", "1.2.3.4", "A", "example.com",
+                                       "@", "example.com");
+    EXPECT_EQ(result.status, YADDNSC_STATUS_INVALID_CONFIG);
+    EXPECT_TRUE(result.error_message.starts_with("Driver configuration parse error:")) << result.error_message;
+    EXPECT_TRUE(fake.requests.empty());
 }
 
-TEST(CloudflareDriverTest, CheckResponse_Success_ReturnsTrue) {
-    CloudflareDriver driver;
-    auto body = make_success_response("A", "www.example.com", "1.2.3.4", 120, false);
-    net::http::Response resp{200, body, {}};
-    EXPECT_TRUE(driver.check_response(resp));
-}
-
-TEST(CloudflareDriverTest, CheckResponse_SuccessWithProxied_ReturnsTrue) {
-    CloudflareDriver driver;
-    auto body = make_success_response("A", "www.example.com", "1.2.3.4", 30, true);
-    net::http::Response resp{200, body, {}};
-    EXPECT_TRUE(driver.check_response(resp));
-}
-
-TEST(CloudflareDriverTest, CheckResponse_SuccessWithoutResult_ReturnsTrue) {
+TEST(CloudflareDriverTest, Update_SuccessWithoutResult_ReturnsOk) {
     // Cloudflare can return success=true with no result field for certain operations.
-    CloudflareDriver driver;
-    net::http::Response resp{200, R"({"success":true,"errors":[],"messages":[]})", {}};
-    EXPECT_TRUE(driver.check_response(resp));
+    FakeHostServices fake;
+    fake.queue_response(200, R"({"success":true,"errors":[],"messages":[]})");
+    const auto result = run_abi_update(fake, CONFIG, "1.2.3.4", "A", "example.com", "www", "www.example.com");
+    EXPECT_EQ(result.status, YADDNSC_STATUS_OK) << result.error_message;
 }
 
-TEST(CloudflareDriverTest, CheckResponse_ErrorWithSource_ReturnsFalse) {
-    CloudflareDriver driver;
-    net::http::Response resp{400, R"({
+TEST(CloudflareDriverTest, Update_ErrorWithSource_ReturnsUpstreamRejected) {
+    FakeHostServices fake;
+    fake.queue_response(400, R"({
         "success": false,
         "errors": [{"code": 7003, "message": "Could not find zone", "source": {"pointer": "/zone_id"}}],
         "messages": []
-    })", {}};
-    EXPECT_FALSE(driver.check_response(resp));
+    })");
+    const auto result = run_abi_update(fake, CONFIG, "1.2.3.4", "A", "example.com", "www", "www.example.com");
+    EXPECT_EQ(result.status, YADDNSC_STATUS_UPSTREAM_REJECTED);
 }
 
-TEST(CloudflareDriverTest, CheckResponse_ErrorWithoutSource_ReturnsFalse) {
-    CloudflareDriver driver;
-    net::http::Response resp{400, R"({
+TEST(CloudflareDriverTest, Update_ErrorWithoutSource_ReturnsUpstreamRejected) {
+    FakeHostServices fake;
+    fake.queue_response(400, R"({
         "success": false,
         "errors": [{"code": 9003, "message": "Record not found"}],
         "messages": []
-    })", {}};
-    EXPECT_FALSE(driver.check_response(resp));
+    })");
+    const auto result = run_abi_update(fake, CONFIG, "1.2.3.4", "A", "example.com", "www", "www.example.com");
+    EXPECT_EQ(result.status, YADDNSC_STATUS_UPSTREAM_REJECTED);
 }
 
-TEST(CloudflareDriverTest, CheckResponse_UnparseableBody_ReturnsFalse) {
-    CloudflareDriver driver;
-    net::http::Response resp{200, "not-json-at-all", {}};
-    EXPECT_FALSE(driver.check_response(resp));
+TEST(CloudflareDriverTest, Update_UnparseableBody_ReturnsUpstreamRejected) {
+    FakeHostServices fake;
+    fake.queue_response(200, "not-json-at-all");
+    const auto result = run_abi_update(fake, CONFIG, "1.2.3.4", "A", "example.com", "www", "www.example.com");
+    EXPECT_EQ(result.status, YADDNSC_STATUS_UPSTREAM_REJECTED);
 }
 
-TEST(CloudflareDriverTest, CheckResponse_EmptyBody_ReturnsFalse) {
-    CloudflareDriver driver;
-    net::http::Response resp{200, "", {}};
-    EXPECT_FALSE(driver.check_response(resp));
+TEST(CloudflareDriverTest, Update_EmptyBody_ReturnsUpstreamRejected) {
+    FakeHostServices fake;
+    fake.queue_response(200, "");
+    const auto result = run_abi_update(fake, CONFIG, "1.2.3.4", "A", "example.com", "www", "www.example.com");
+    EXPECT_EQ(result.status, YADDNSC_STATUS_UPSTREAM_REJECTED);
 }
 
-TEST(CloudflareDriverTest, CheckResponse_MultipleErrors_ReturnsFalse) {
-    CloudflareDriver driver;
-    net::http::Response resp{400, R"({
+TEST(CloudflareDriverTest, Update_MultipleErrors_ReturnsUpstreamRejected) {
+    FakeHostServices fake;
+    fake.queue_response(400, R"({
         "success": false,
         "errors": [
             {"code": 1001, "message": "First error"},
             {"code": 1002, "message": "Second error"}
         ],
         "messages": []
-    })", {}};
-    EXPECT_FALSE(driver.check_response(resp));
+    })");
+    const auto result = run_abi_update(fake, CONFIG, "1.2.3.4", "A", "example.com", "www", "www.example.com");
+    EXPECT_EQ(result.status, YADDNSC_STATUS_UPSTREAM_REJECTED);
 }
 
-TEST(CloudflareDriverTest, FactoryCreateDestroy) { test_factory_create_destroy(); }
-TEST(CloudflareDriverTest, FactoryMagic) { test_factory_magic(); }
-TEST(CloudflareDriverTest, FactoryBuildId) { test_factory_build_id(); }
-TEST(CloudflareDriverTest, FactoryCompilerIdHash) { test_factory_compiler_id_hash(); }
+TEST(CloudflareDriverTest, Update_TransportError_PropagatesStatus) {
+    FakeHostServices fake;
+    fake.queue_error(YADDNSC_STATUS_NETWORK_ERROR, "connection refused");
+    const auto result = run_abi_update(fake, CONFIG, "1.2.3.4", "A", "example.com", "www", "www.example.com");
+    EXPECT_EQ(result.status, YADDNSC_STATUS_NETWORK_ERROR);
+    EXPECT_EQ(result.error_message, "connection refused");
+}
+
+TEST(CloudflareDriverTest, Entries_NullArgumentsRejected) {
+    EXPECT_EQ(yaddnsc_driver_get_descriptor(nullptr), YADDNSC_STATUS_INVALID_ARGUMENT);
+    EXPECT_EQ(yaddnsc_driver_update(nullptr, nullptr, nullptr), YADDNSC_STATUS_INVALID_ARGUMENT);
+    yaddnsc_driver_destroy(nullptr); // must be a no-op, must not crash
+}

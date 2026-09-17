@@ -4,70 +4,83 @@
 
 #include "vultr.h"
 
-#include "fmt.hpp"
-#include "config.hpp"
 #include "response.hpp"
-#include "driver/factory.h"
-#include "interface/core_logger.h"
+
+namespace fmt = yaddnsc::sdk::fmt;
+using yaddnsc::sdk::Error;
+using yaddnsc::sdk::HttpRequest;
+using yaddnsc::sdk::HttpResponse;
+using yaddnsc::sdk::Method;
+using yaddnsc::sdk::Result;
+using yaddnsc::sdk::Services;
+using yaddnsc::sdk::UpdateContext;
 
 namespace {
     constexpr std::string_view API_URL = "https://api.vultr.com/v2/domains/{DOMAIN}/records/{RECORD_ID}";
+    constexpr std::string_view DRIVER_NAME = "vultr";
 }
 
-DEFINE_DRIVER_FACTORY(VultrDriver)
+YADDNSC_DEFINE_DRIVER(VultrDriver, "vultr", "Updates DNS records via the Vultr API", "Kotarou", "1.0.0",
+                      YADDNSC_DRIVER_CAPABILITY_A | YADDNSC_DRIVER_CAPABILITY_AAAA)
 
-DriverRequestContext VultrDriver::generate_request(const DriverConfig &config, const DriverUpdateParams &ctx) const {
-    auto cfg = parse_config<VultrParams>(config);
+Result VultrDriver::update(UpdateContext &context) {
+    const auto &params = context.request();
+    const auto cfg = parse_config<VultrParams>(params.driver_param_json);
 
-    auto url = fmt::format(API_URL,
-                           fmt::arg("DOMAIN", ctx.domain),
-                           fmt::arg("RECORD_ID", cfg.record_id));
-
-    auto body = VultrRequestBody{
-        .name = ctx.subdomain,
-        .data = ctx.ip_addr,
+    HttpRequest request{};
+    request.url = fmt::format(API_URL, fmt::arg("DOMAIN", params.domain), fmt::arg("RECORD_ID", cfg.record_id));
+    request.headers.push_back({"Authorization", fmt::format("Bearer {}", cfg.api_key)});
+    const auto body = VultrRequestBody{
+        .name = std::string(params.subdomain),
+        .data = std::string(params.ip_address),
         .ttl = cfg.ttl
     };
-
-    DriverRequest request{};
-    request.headers.insert({"Authorization", fmt::format("Bearer {}", cfg.api_key)});
     request.body = glz::write_json(body).value_or("{}");
     request.content_type = "application/json";
-    request.method = net::http::Method::PATCH;
+    request.method = Method::Patch;
 
-    return {std::move(url), std::move(request)};
+    YADDNSC_SDK_LOG_DEBUG(context, "Domain {} ({}) received DNS record update request from driver {}, {}",
+                          params.fqdn, params.record_type, DRIVER_NAME, yaddnsc::sdk::format_request(request));
+
+    auto response = context.exchange(request);
+    if (!response) {
+        YADDNSC_SDK_LOG_WARN(context, "Domain {} ({}) update failed (HTTP error: {})", params.fqdn,
+                             params.record_type, response.error().message);
+        return std::unexpected(Error{response.error().status, response.error().message, 0});
+    }
+
+    if (!check_response(*response, context.services())) {
+        YADDNSC_SDK_LOG_WARN(context, "Domain {} ({}) update rejected by upstream", params.fqdn, params.record_type);
+        return std::unexpected(Error{YADDNSC_STATUS_UPSTREAM_REJECTED,
+                                     fmt::format("Domain {} ({}) update rejected by upstream", params.fqdn,
+                                                 params.record_type),
+                                     0});
+    }
+
+    return {};
 }
 
-bool VultrDriver::check_response(const net::http::Response &response) const {
-    CORE_LOG_TRACE("Got {} from server.", response.text());
+bool VultrDriver::check_response(const HttpResponse &response, const Services &services) {
+    YADDNSC_SDK_LOG_TRACE(services, "Got {} from server.", response.body);
 
     // Vultr returns 204 No Content with an empty body on success.
-    if (response.status == 204) {
-        CORE_LOG_DEBUG("DNS record updated successfully");
+    if (response.status_code == 204) {
+        YADDNSC_SDK_LOG_DEBUG(services, "DNS record updated successfully");
         return true;
     }
 
     // Error responses include a JSON body with error details.
-    if (!response.text().empty()) {
-        if (auto result = glz::read_json<VultrErrorResponse>(response.text())) {
-            for (const auto &err : result.value().errors) {
-                CORE_LOG_ERROR("Vultr API error: {}", err.detail);
+    if (!response.body.empty()) {
+        if (auto result = glz::read_json<VultrErrorResponse>(response.body)) {
+            for (const auto &err: result.value().errors) {
+                YADDNSC_SDK_LOG_ERROR(services, "Vultr API error: {}", err.detail);
             }
         } else {
-            CORE_LOG_ERROR("Vultr API error (HTTP {}): {}", response.status, response.text());
+            YADDNSC_SDK_LOG_ERROR(services, "Vultr API error (HTTP {}): {}", response.status_code, response.body);
         }
     } else {
-        CORE_LOG_ERROR("Vultr API request failed with HTTP status {}", response.status);
+        YADDNSC_SDK_LOG_ERROR(services, "Vultr API request failed with HTTP status {}", response.status_code);
     }
 
     return false;
-}
-
-DriverDetail VultrDriver::get_detail() const noexcept {
-    return {
-        .name = "vultr",
-        .description = "Updates DNS records via the Vultr API",
-        .author = "Kotarou",
-        .version = "1.0.0"
-    };
 }

@@ -5,7 +5,11 @@
 #ifndef YADDNSC_DRV_DUCKDNS_DUCKDNS_H
 #define YADDNSC_DRV_DUCKDNS_DUCKDNS_H
 
-#include "driver/base.h"
+#include <string>
+
+#include <yaddnsc/sdk/driver.hpp>
+
+#include "config.hpp"
 
 /// DuckDNS API driver for DDNS record updates.
 ///
@@ -13,18 +17,19 @@
 /// via their simple GET-based update endpoint.
 ///
 /// API reference: https://www.duckdns.org/spec.jsp
-class DuckDnsDriver final : public BaseDriver {
+class DuckDnsDriver final : public yaddnsc::sdk::Driver {
 public:
     ~DuckDnsDriver() override = default;
 
-    /// Build the API request from config and update params.
-    [[nodiscard]] DriverRequestContext generate_request(const DriverConfig &config, const DriverUpdateParams &ctx) const override;
+    /// Perform one update: generate-request → HTTP exchange → check-response.
+    yaddnsc::sdk::Result update(yaddnsc::sdk::UpdateContext &context) override;
+
+private:
+    /// Build the DuckDNS API request URL from config and update params.
+    static std::string generate_url(const DuckDnsParams &cfg, const yaddnsc::sdk::UpdateRequest &request);
 
     /// Validate the DuckDNS API response (expects "OK" or "KO").
-    [[nodiscard]] bool check_response(const net::http::Response &response) const override;
-
-    /// Return static metadata about this driver.
-    [[nodiscard]] DriverDetail get_detail() const noexcept override;
+    static bool check_response(const yaddnsc::sdk::HttpResponse &response, const yaddnsc::sdk::Services &services);
 };
 
 #endif //YADDNSC_DRV_DUCKDNS_DUCKDNS_H

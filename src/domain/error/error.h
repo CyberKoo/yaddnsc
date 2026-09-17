@@ -11,9 +11,7 @@
 ///
 /// Shared convention: every error carries a category-specific `code` plus a
 /// human-readable `message`. Recoverable errors cross layer boundaries as
-/// values inside std::expected, never as exceptions. Only the types with a
-/// real caller are fleshed out; the rest are skeletons filled in by later
-/// phases (see refactor/01-architecture-and-contracts.md §3).
+/// values inside std::expected, never as exceptions.
 ///
 /// DNS already conforms via DnsErrorInfo (src/dns/dns_error_info.h), so no
 /// parallel DnsError skeleton is defined here.
@@ -21,7 +19,7 @@ namespace domain {
 
 /// Static configuration error (shape, values, field combinations).
 /// Environment failures (driver not loaded, interface missing) are validated
-/// separately and keep throwing ConfigVerificationException until Phase 5.
+/// separately and keep throwing ConfigVerificationException.
 struct ConfigError {
     enum class Code {
         EMPTY_DOMAIN_NAME,     ///< Domain name must not be empty
@@ -42,16 +40,32 @@ struct ConfigError {
     std::string message;
 };
 
-/// Skeleton (Phase 2): IP source port failure.
+/// IP source port failure.
 struct IpSourceError {
     enum class Code { UNAVAILABLE, NO_ADDRESS, UNKNOWN };
     Code code;
     std::string message;
 };
 
+/// Plugin loading / ABI-contract failure.
+///
+/// Loading failures surface as PluginError values from the plugin loader and
+/// are re-thrown as PluginLoadException at the DriverCatalog boundary (the
+/// fail-fast manual-load path); a single update failure is a DriverError.
+struct PluginError {
+    enum class Code {
+        LOAD_FAILED,        ///< dlopen failed (not a loadable module)
+        MISSING_SYMBOL,     ///< A required entry point is absent
+        ABI_MISMATCH,       ///< Magic number or api_revision mismatch
+        CONTRACT_VIOLATION, ///< The plugin violated the ABI contract at runtime
+    };
+    Code code;
+    std::string message;
+};
+
 /// Driver update failure (one update attempt through the driver gateway).
 /// `retry_after_seconds` is only meaningful when the driver reported
-/// RATE_LIMITED; schedulers ignore it unless Phase 0 approved rescheduling.
+/// RATE_LIMITED; schedulers currently ignore it (no rescheduling).
 struct DriverError {
     enum class Code {
         UPDATE_FAILED, ///< Driver executed but reported failure (e.g. upstream rejected)
@@ -65,7 +79,7 @@ struct DriverError {
     int retry_after_seconds{0};
 };
 
-/// One update-workflow failure (Phase 3).
+/// One update-workflow failure.
 ///
 /// Every expected failure of a single update cycle surfaces as this value:
 ///   - SKIPPED_NO_ADDRESS — no usable local address (IP source failed, or no
@@ -73,7 +87,7 @@ struct DriverError {
 ///     schedule carries on;
 ///   - DRIVER_FAILED — the driver gateway rejected the update (message and,
 ///     for RATE_LIMITED, retry_after_seconds are copied from DriverError;
-///     schedulers ignore retry_after unless Phase 0 approved rescheduling);
+///     schedulers currently ignore retry_after);
 ///   - UNKNOWN — an unexpected exception escaped the workflow (the legacy
 ///     catch-all boundary, now mapped to an error value).
 struct UpdateError {

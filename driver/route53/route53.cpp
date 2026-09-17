@@ -14,11 +14,16 @@
 #include <libxml/xpath.h>
 #include <libxml/xpathInternals.h>
 
-#include "fmt.hpp"
 #include "signing.h"
-#include "config.hpp"
-#include "driver/factory.h"
-#include "interface/core_logger.h"
+
+namespace fmt = yaddnsc::sdk::fmt;
+using yaddnsc::sdk::Error;
+using yaddnsc::sdk::HttpRequest;
+using yaddnsc::sdk::HttpResponse;
+using yaddnsc::sdk::Method;
+using yaddnsc::sdk::Result;
+using yaddnsc::sdk::Services;
+using yaddnsc::sdk::UpdateContext;
 
 namespace {
 
@@ -47,6 +52,8 @@ namespace {
     /// SigV4 algorithm identifier.
     constexpr std::string_view SIGV4_ALGORITHM = "AWS4-HMAC-SHA256";
 
+    constexpr std::string_view DRIVER_NAME = "route53";
+
     // ── SigV4 signing key derivation ────────────────────────────────────────
 
     /// Derive the multi-stage SigV4 signing key.
@@ -67,26 +74,23 @@ namespace {
 
 } // anonymous namespace
 
-// =============================================================================
-//  Driver factory entry point
-// =============================================================================
-
-DEFINE_DRIVER_FACTORY(Route53Driver)
+YADDNSC_DEFINE_DRIVER(Route53Driver, "route53", "Updates DNS records via the AWS Route 53 API", "Kotarou",
+                      "1.0.0", YADDNSC_DRIVER_CAPABILITY_A | YADDNSC_DRIVER_CAPABILITY_AAAA)
 
 // =============================================================================
-//  Route53Driver::generate_request
+//  Route53Driver::update
 // =============================================================================
 
-DriverRequestContext Route53Driver::generate_request(const DriverConfig &config,
-                                                     const DriverUpdateParams &ctx) const {
-    auto cfg = parse_config<Route53Params>(config);
+Result Route53Driver::update(UpdateContext &context) {
+    const auto &params = context.request();
+    const auto cfg = parse_config<Route53Params>(params.driver_param_json);
 
     // Route 53 requires the FQDN with a trailing dot.
-    auto fqdn = ensure_trailing_dot(ctx.fqdn);
+    auto fqdn = ensure_trailing_dot(params.fqdn);
 
     // Build the XML request body.
     auto ttl = cfg.ttl.value_or(300);
-    auto body = build_xml_body(fqdn, ctx.rd_type, ctx.ip_addr, ttl);
+    auto body = build_xml_body(fqdn, params.record_type, params.ip_address, ttl);
 
     // URL path (used for both the request URL and the SigV4 canonical URI).
     constexpr std::string_view URI_PATH_PREFIX = "/2013-04-01/hostedzone/";
@@ -132,41 +136,58 @@ DriverRequestContext Route53Driver::generate_request(const DriverConfig &config,
     // -----------------------------------------------------------------------
     //  Assemble the request
     // -----------------------------------------------------------------------
-    auto url = fmt::format("https://{}{}", R53_HOST, url_path);
-
-    DriverRequest request{};
-    request.body = std::move(body);
+    HttpRequest request{};
+    request.url = fmt::format("https://{}{}", R53_HOST, url_path);
+    request.method = Method::Post;
     request.content_type = "application/xml";
-    request.method = net::http::Method::POST;
-    request.headers.insert({"Host", std::string(R53_HOST)});
-    request.headers.insert({"X-Amz-Date", std::move(amz_date)});
-    request.headers.insert({"X-Amz-Content-SHA256", std::move(payload_hash)});
-    request.headers.insert({"Authorization", std::move(authorization)});
+    request.body = std::move(body);
+    request.headers.push_back({"Host", std::string(R53_HOST)});
+    request.headers.push_back({"X-Amz-Date", std::move(amz_date)});
+    request.headers.push_back({"X-Amz-Content-SHA256", std::move(payload_hash)});
+    request.headers.push_back({"Authorization", std::move(authorization)});
 
-    return {std::move(url), std::move(request)};
+    YADDNSC_SDK_LOG_DEBUG(context, "Domain {} ({}) received DNS record update request from driver {}, {}",
+                          params.fqdn, params.record_type, DRIVER_NAME, yaddnsc::sdk::format_request(request));
+
+    auto response = context.exchange(request);
+    if (!response) {
+        YADDNSC_SDK_LOG_WARN(context, "Domain {} ({}) update failed (HTTP error: {})", params.fqdn,
+                             params.record_type, response.error().message);
+        return std::unexpected(Error{response.error().status, response.error().message, 0});
+    }
+
+    if (!check_response(*response, context.services())) {
+        YADDNSC_SDK_LOG_WARN(context, "Domain {} ({}) update rejected by upstream", params.fqdn, params.record_type);
+        return std::unexpected(Error{YADDNSC_STATUS_UPSTREAM_REJECTED,
+                                     fmt::format("Domain {} ({}) update rejected by upstream", params.fqdn,
+                                                 params.record_type),
+                                     0});
+    }
+
+    return {};
 }
 
 // =============================================================================
 //  Route53Driver::check_response
 // =============================================================================
 
-bool Route53Driver::check_response(const net::http::Response &response) const {
-    CORE_LOG_TRACE("Got {} from server.", response.text());
+bool Route53Driver::check_response(const HttpResponse &response, const Services &services) {
+    YADDNSC_SDK_LOG_TRACE(services, "Got {} from server.", response.body);
 
-    if (response.status == 200) {
+    if (response.status_code == 200) {
         // Route 53 returns HTTP 200 with <ChangeResourceRecordSetsResponse> on success.
-        xmlDocPtr doc = xmlReadMemory(response.text().data(),
-                                      static_cast<int>(response.text().size()),
+        xmlDocPtr doc = xmlReadMemory(response.body.data(),
+                                      static_cast<int>(response.body.size()),
                                       nullptr, nullptr, 0);
         if (!doc) {
-            CORE_LOG_ERROR("Failed to parse Route 53 response XML");
+            YADDNSC_SDK_LOG_ERROR(services, "Failed to parse Route 53 response XML");
             return false;
         }
 
         xmlXPathContextPtr xpath_ctx = xmlXPathNewContext(doc);
         if (!xpath_ctx) {
             xmlFreeDoc(doc);
-            CORE_LOG_ERROR("Failed to create XPath context");
+            YADDNSC_SDK_LOG_ERROR(services, "Failed to create XPath context");
             return false;
         }
 
@@ -175,7 +196,7 @@ bool Route53Driver::check_response(const net::http::Response &response) const {
                                BAD_CAST R53_XMLNS.data()) != 0) {
             xmlXPathFreeContext(xpath_ctx);
             xmlFreeDoc(doc);
-            CORE_LOG_ERROR("Failed to register Route 53 XML namespace");
+            YADDNSC_SDK_LOG_ERROR(services, "Failed to register Route 53 XML namespace");
             return false;
         }
 
@@ -193,14 +214,14 @@ bool Route53Driver::check_response(const net::http::Response &response) const {
                 std::string_view status(reinterpret_cast<const char *>(status_text));
                 success = (status == "PENDING" || status == "INSYNC");
                 if (success) {
-                    CORE_LOG_DEBUG("DNS record updated successfully (status: {})", status);
+                    YADDNSC_SDK_LOG_DEBUG(services, "DNS record updated successfully (status: {})", status);
                 } else {
-                    CORE_LOG_ERROR("Route 53 returned unexpected status: {}", status);
+                    YADDNSC_SDK_LOG_ERROR(services, "Route 53 returned unexpected status: {}", status);
                 }
                 xmlFree(status_text);
             }
         } else {
-            CORE_LOG_ERROR("Route 53 response missing <ChangeInfo><Status> element");
+            YADDNSC_SDK_LOG_ERROR(services, "Route 53 response missing <ChangeInfo><Status> element");
         }
 
         xmlXPathFreeObject(result);
@@ -210,9 +231,9 @@ bool Route53Driver::check_response(const net::http::Response &response) const {
     }
 
     // ── Error response: parse <ErrorResponse> XML ────────────────────────────
-    if (!response.text().empty()) {
-        xmlDocPtr doc = xmlReadMemory(response.text().data(),
-                                      static_cast<int>(response.text().size()),
+    if (!response.body.empty()) {
+        xmlDocPtr doc = xmlReadMemory(response.body.data(),
+                                      static_cast<int>(response.body.size()),
                                       nullptr, nullptr, 0);
         if (doc) {
             xmlXPathContextPtr xpath_ctx = xmlXPathNewContext(doc);
@@ -236,43 +257,30 @@ bool Route53Driver::check_response(const net::http::Response &response) const {
                                 }
                             }
                         }
-                        CORE_LOG_ERROR("Route 53 API error: {} ({})",
-                                       msg ? reinterpret_cast<const char *>(msg) : "unknown",
-                                       code ? reinterpret_cast<const char *>(code) : "no code");
+                        YADDNSC_SDK_LOG_ERROR(services, "Route 53 API error: {} ({})",
+                                              msg ? reinterpret_cast<const char *>(msg) : "unknown",
+                                              code ? reinterpret_cast<const char *>(code) : "no code");
                         xmlFree(code);
                         xmlFree(msg);
                     }
                 } else {
-                    CORE_LOG_ERROR("Route 53 API error (HTTP {}): {}",
-                                   response.status, response.text());
+                    YADDNSC_SDK_LOG_ERROR(services, "Route 53 API error (HTTP {}): {}",
+                                          response.status_code, response.body);
                 }
                 xmlXPathFreeObject(errors);
                 xmlXPathFreeContext(xpath_ctx);
             }
             xmlFreeDoc(doc);
         } else {
-            CORE_LOG_ERROR("Route 53 API error (HTTP {}): {}",
-                           response.status, response.text());
+            YADDNSC_SDK_LOG_ERROR(services, "Route 53 API error (HTTP {}): {}",
+                                  response.status_code, response.body);
         }
     } else {
-        CORE_LOG_ERROR("Route 53 API request failed with HTTP status {}",
-                       response.status);
+        YADDNSC_SDK_LOG_ERROR(services, "Route 53 API request failed with HTTP status {}",
+                              response.status_code);
     }
 
     return false;
-}
-
-// =============================================================================
-//  Route53Driver::get_detail
-// =============================================================================
-
-DriverDetail Route53Driver::get_detail() const noexcept {
-    return {
-        .name = "route53",
-        .description = "Updates DNS records via the AWS Route 53 API",
-        .author = "Kotarou",
-        .version = "1.0.0"
-    };
 }
 
 // =============================================================================
