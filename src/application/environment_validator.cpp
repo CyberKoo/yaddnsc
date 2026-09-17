@@ -11,7 +11,7 @@
 
 #include "domain/config/runtime_config.h"
 
-#include "fmt.hpp"
+#include "support/fmt.hpp"
 
 std::expected<void, std::vector<domain::ConfigError>>
 validate_environment(const domain::RuntimeConfig &config, const DriverCatalogPort &catalog,

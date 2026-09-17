@@ -36,6 +36,12 @@ public:
         return module_->update(handle_, request, out_error);
     }
 
+    /// Driver-side driver_param validation (optional ABI entry; the module
+    /// returns OK when the plugin does not export it).
+    [[nodiscard]] yaddnsc_status validate(yaddnsc_string driver_param_json, yaddnsc_error &out_error) const {
+        return module_->validate(handle_, driver_param_json, out_error);
+    }
+
 private:
     std::shared_ptr<const PluginModule> module_;
     yaddnsc_driver *handle_;

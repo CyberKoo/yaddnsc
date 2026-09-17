@@ -39,10 +39,10 @@
 #include "cli/presenter.h"
 #include "composition/bootstrap.h"
 
-#include "config/config.h"
-#include "dns/dns_error_info.h"
-#include "network/system_network_interfaces.h"
-#include "record_kind.h"
+#include "infrastructure/config/config.h"
+#include "domain/error/dns_error_info.h"
+#include "infrastructure/network/system_network_interfaces.h"
+#include "domain/dns/record_kind.h"
 
 #include "fixtures/sample_config.h"
 #include "mocks/mock_ports.h"

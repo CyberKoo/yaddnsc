@@ -1,5 +1,5 @@
 //
-// Unit tests for include/record_kind.h — RecordKind enum.
+// Unit tests for src/domain/dns/record_kind.h — RecordKind enum.
 //
 // Verifies:
 //   - All enumerator values are defined and stable.
@@ -12,7 +12,7 @@
 
 #include <gtest/gtest.h>
 
-#include "record_kind.h"
+#include "domain/dns/record_kind.h"
 
 TEST(RecordKindTest, EnumeratorValues_Defined) {
     EXPECT_EQ(static_cast<int>(RecordKind::A), 0);

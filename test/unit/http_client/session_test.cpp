@@ -1,5 +1,5 @@
 //
-// Unit tests for net::http::Session (src/http_client/session.cpp).
+// Unit tests for net::http::Session (src/infrastructure/network/http/session.cpp).
 //
 // The persistent-connection policy is exercised through a scripted
 // in-memory StreamFactory (no network I/O):
@@ -21,9 +21,9 @@
 #include <expected>
 #include <gtest/gtest.h>
 
-#include "http_client/session.h"
-#include "http_client/stream_factory.h"
-#include "network/transport/stream.h"
+#include "infrastructure/network/http/session.h"
+#include "infrastructure/network/http/stream_factory.h"
+#include "infrastructure/network/transport/stream.h"
 
 using net::http::ErrorCode;
 using net::http::Method;

@@ -33,9 +33,9 @@
 #include "domain/update/schedule_queue.h"
 #include "domain/update/update_task.h"
 
-#include "config/config.h"
-#include "config/normalizer.h"
-#include "config/parser.hpp"
+#include "infrastructure/config/config.h"
+#include "infrastructure/config/normalizer.h"
+#include "infrastructure/config/parser.hpp"
 
 #include "fixtures/sample_config.h"
 #include "mocks/fake_clock.h"
@@ -93,6 +93,7 @@ public:
 
     void wait_idle() override {}
     void shutdown() override { shutdown_ = true; }
+    void set_retry_handler(RetryHandler) override {}
 
 private:
     std::function<void(const domain::UpdateTask &)> fn_;
@@ -210,6 +211,69 @@ TEST(SchedulerRunner, AdvancingTimeRedispatchesAfterInterval) {
     // Second round: 300s < force interval (3600s) — plain updates.
     EXPECT_FALSE(tasks[2].force_update);
     EXPECT_FALSE(tasks[3].force_update);
+}
+
+// ── retry_after rescheduling ─────────────────────────────────────────────────
+
+// Spin until the runner has parked in wait_until for the n-th time, so
+// stimuli land deterministically instead of racing the loop.
+static bool wait_parked(const FakeClock &clock, unsigned n) {
+    for (int i = 0; i < 5000; ++i) {
+        if (clock.wait_entries() >= n) {
+            return true;
+        }
+        std::this_thread::sleep_for(1ms);
+    }
+    return false;
+}
+
+// Requests stop and joins the runner loop on destruction, so a failing
+// assertion can never unwind past a joinable jthread (which would hang).
+struct LoopGuard {
+    std::stop_source &stop;
+    std::jthread &loop;
+    ~LoopGuard() {
+        stop.request_stop();
+        if (loop.joinable()) {
+            loop.join();
+        }
+    }
+};
+
+TEST(SchedulerRunner, RetryRequestMovesDeadlineAndWakesLoop) {
+    RunnerFixture f;
+    auto runner = f.make_runner();
+    // Production wiring is RunLifecycle; here the test wires the handler
+    // straight to the runner.
+    f.executor.set_retry_handler(
+            [&runner](domain::TaskId id, std::chrono::seconds delay) { runner.request_retry(id, delay); });
+
+    std::jthread loop([&] { runner.run(); });
+    const LoopGuard cleanup{f.stop, loop};
+
+    ASSERT_TRUE(f.executor.wait_submitted(2));
+    ASSERT_TRUE(wait_parked(f.clock, 1));
+
+    // Rate-limit the first task ({0,0}) for two intervals; the wake must
+    // pull the runner out of its 300s wait immediately.
+    f.executor.fire_retry(domain::TaskId{0, 0}, 600s);
+    ASSERT_TRUE(wait_parked(f.clock, 2));
+
+    // One interval later only the second task may be re-dispatched.
+    f.clock.advance_by(300s);
+    ASSERT_TRUE(f.executor.wait_submitted(3));
+    ASSERT_TRUE(wait_parked(f.clock, 3));
+    EXPECT_EQ(f.executor.submitted().size(), 3U)
+        << "the rate-limited task must not re-run at its old deadline";
+
+    // Advancing the second interval reaches the moved deadline.
+    f.clock.advance_by(300s);
+    ASSERT_TRUE(f.executor.wait_submitted(4));
+
+    f.stop.request_stop();
+    loop.join();
+
+    EXPECT_EQ(f.executor.submitted()[3].fqdn, "example.com");
 }
 
 // ── full application flow without a real provider ────────────────────────────

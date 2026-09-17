@@ -19,9 +19,9 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
-#include "config/static_validator.h"
+#include "infrastructure/config/static_validator.h"
 #include "domain/fqdn.h"
-#include "fmt.hpp"
+#include "support/fmt.hpp"
 #include "min_update_interval.h"
 
 using testing::ElementsAre;
@@ -372,6 +372,23 @@ TEST(StaticValidatorTest, ResolverNotCustom_NotChecked) {
     const auto errors = validate_with([](Config::AppConfig &cfg) {
         cfg.resolver.use_custom_server = false;
         cfg.resolver.address = "999.999.999.999"; // ignored: no custom server
+    });
+    EXPECT_TRUE(errors.empty());
+}
+
+TEST(StaticValidatorTest, ResolverCustomWithoutServers) {
+    const auto errors = validate_with([](Config::AppConfig &cfg) {
+        cfg.resolver.use_custom_server = true; // neither servers nor legacy address set
+    });
+    ASSERT_EQ(errors.size(), 1U);
+    EXPECT_EQ(errors[0].code, Code::NO_RESOLVER_SERVERS);
+    EXPECT_EQ(errors[0].message, "use_custom_server is enabled but no custom resolver servers are configured");
+}
+
+TEST(StaticValidatorTest, ResolverCustomLegacyAddressOnly_NoErrors) {
+    const auto errors = validate_with([](Config::AppConfig &cfg) {
+        cfg.resolver.use_custom_server = true;
+        cfg.resolver.address = "1.1.1.1";
     });
     EXPECT_TRUE(errors.empty());
 }

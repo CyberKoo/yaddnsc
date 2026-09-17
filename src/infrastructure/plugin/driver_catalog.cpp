@@ -7,10 +7,10 @@
 #include <algorithm>
 #include <filesystem>
 
-#include "exception/driver_not_found.h"
-#include "exception/plugin_load.h"
+#include "infrastructure/plugin/driver_not_found_exception.h"
+#include "infrastructure/plugin/plugin_load_exception.h"
 
-#include "fmt.hpp"
+#include "support/fmt.hpp"
 
 #include <spdlog/spdlog.h>
 

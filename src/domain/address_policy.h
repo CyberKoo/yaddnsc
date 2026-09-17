@@ -8,8 +8,8 @@
 #include <optional>
 #include <vector>
 
-#include "network/inet_address.h"
-#include "record_kind.h"
+#include "domain/network/inet_address.h"
+#include "domain/dns/record_kind.h"
 
 namespace domain {
 

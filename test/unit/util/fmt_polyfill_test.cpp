@@ -16,7 +16,7 @@
 
 #include <gtest/gtest.h>
 
-#include "fmt.hpp"
+#include "support/fmt.hpp"
 
 // ── Positional formatting ────────────────────────────────────────────────────
 

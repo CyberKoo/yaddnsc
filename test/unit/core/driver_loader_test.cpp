@@ -1,5 +1,5 @@
 //
-// Unit tests for src/core/driver_loader.cpp +
+// Unit tests for src/infrastructure/plugin/driver_loader.cpp +
 // src/infrastructure/plugin/driver_catalog.cpp
 //
 // Loads a real .so driver (simple.so) from the build tree, exercises
@@ -20,11 +20,11 @@
 #include <gtest/gtest.h>
 
 #include "domain/config/runtime_config.h"
-#include "core/driver_loader.h"
+#include "infrastructure/plugin/driver_loader.h"
 #include "infrastructure/plugin/driver_catalog.h"
-#include "exception/config_verification.h"
-#include "exception/driver_not_found.h"
-#include "exception/plugin_load.h"
+#include "infrastructure/config/config_verification_exception.h"
+#include "infrastructure/plugin/driver_not_found_exception.h"
+#include "infrastructure/plugin/plugin_load_exception.h"
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 

@@ -10,8 +10,8 @@
 #include <string_view>
 #include <vector>
 
-#include "dns/dns_error_info.h"
-#include "record_kind.h"
+#include "domain/error/dns_error_info.h"
+#include "domain/dns/record_kind.h"
 
 /// DnsResolverPort — application port for DNS resolution.
 ///

@@ -6,11 +6,11 @@
 
 #include <algorithm>
 #include <stdexcept>
+#include <string>
 #include <utility>
 
 #include "domain/fqdn.h"
 
-#include "fmt.hpp"
 
 namespace domain {
 
@@ -29,9 +29,8 @@ ScheduleQueue::ScheduleQueue(std::shared_ptr<const RuntimeConfig> config, TimePo
             // validation normally rejects this, but the queue must not rely
             // on the caller invoking validate_config() (defence in depth).
             if (effective_interval <= 0) {
-                throw std::invalid_argument(
-                    fmt::format("Update interval for {}.{} must be positive (got {})", subdomain.name,
-                                domain_config.name, effective_interval));
+                throw std::invalid_argument("Update interval for " + subdomain.name + "." + domain_config.name +
+                                            " must be positive (got " + std::to_string(effective_interval) + ")");
             }
 
             // Initialise last_force_update far enough in the past so that the

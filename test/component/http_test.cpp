@@ -26,9 +26,9 @@
 
 #include <gtest/gtest.h>
 
-#include "http_client/client.h"
-#include "http_client/stream_factory.h"
-#include "ip_source/http.h"
+#include "infrastructure/network/http/client.h"
+#include "infrastructure/network/http/stream_factory.h"
+#include "infrastructure/ip_source/http.h"
 
 using namespace std::chrono_literals;
 

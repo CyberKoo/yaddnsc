@@ -20,8 +20,8 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
-#include "dns/resolver/dot.h"
-#include "network/transport/stream.h"
+#include "infrastructure/dns/resolver/dot.h"
+#include "infrastructure/network/transport/stream.h"
 
 namespace {
 

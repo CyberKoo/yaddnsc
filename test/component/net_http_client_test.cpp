@@ -28,11 +28,11 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
-#include "http_client/client.h"
-#include "http_client/persistent_client.h"
-#include "http_client/stream_factory.h"
-#include "http_client/session.h"
-#include "util/cancellation_token.hpp"
+#include "infrastructure/network/http/client.h"
+#include "infrastructure/network/http/persistent_client.h"
+#include "infrastructure/network/http/stream_factory.h"
+#include "infrastructure/network/http/session.h"
+#include "support/util/cancellation_token.hpp"
 
 using namespace std::chrono_literals;
 using net::http::ErrorCode;

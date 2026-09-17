@@ -11,9 +11,9 @@
 
 #include <gtest/gtest.h>
 
-#include "dns/wire/query_util.h"
-#include "dns/wire/builder.h"
-#include "address_family.h"
+#include "infrastructure/dns/wire/query_util.h"
+#include "infrastructure/dns/wire/builder.h"
+#include "domain/network/address_family.h"
 
 // ===========================================================================
 // Helper: verify the DNS header of any query packet (12 bytes).

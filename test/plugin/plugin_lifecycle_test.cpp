@@ -21,9 +21,9 @@
 
 #include "plugin/plugin_test_doubles.h"
 
-#include "core/driver_loader.h"
+#include "infrastructure/plugin/driver_loader.h"
 #include "domain/config/runtime_config.h"
-#include "exception/plugin_load.h"
+#include "infrastructure/plugin/plugin_load_exception.h"
 #include "infrastructure/plugin/driver_catalog.h"
 #include "infrastructure/plugin/driver_instance.h"
 #include "infrastructure/plugin/shared_library.h"
@@ -214,6 +214,37 @@ TEST(PluginLifecycle, LoaderRejectsTruncatedDescriptor) {
     EXPECT_EQ(module.error().code, domain::PluginError::Code::ABI_MISMATCH);
     EXPECT_THAT(module.error().message, ::testing::HasSubstr("descriptor struct_size 4 is below the required minimum"));
     EXPECT_THAT(module.error().message, ::testing::HasSubstr(SMALL_DESCRIPTOR_FIXTURE));
+}
+
+// ===========================================================================
+//  Optional validate entry (added within api_revision 1)
+// ===========================================================================
+
+TEST(PluginLifecycle, LoaderAcceptsPluginWithoutOptionalValidateEntry) {
+    // A complete plugin built against an SDK predating yaddnsc_driver_validate
+    // must load exactly like before — the missing entry is not an error.
+    auto module = PluginModule::load(NO_VALIDATE_FIXTURE);
+    ASSERT_TRUE(module.has_value()) << module.error().message;
+    EXPECT_EQ(module->descriptor().name, "no_validate");
+    EXPECT_FALSE(module->supports_validate());
+}
+
+TEST(PluginLifecycle, ValidateIsSkippedWhenEntryIsMissing) {
+    auto module = PluginModule::load(NO_VALIDATE_FIXTURE);
+    ASSERT_TRUE(module.has_value()) << module.error().message;
+
+    // The trampoline reports OK without touching the instance: config
+    // validation skips the driver-side check instead of failing.
+    yaddnsc_error error{};
+    error.struct_size = static_cast<uint32_t>(sizeof(error));
+    const yaddnsc_string param{R"({"anything":true})", 16};
+    EXPECT_EQ(module->validate(nullptr, param, error), YADDNSC_STATUS_OK);
+}
+
+TEST(PluginLifecycle, ValidateEntryAvailableOnCurrentSdkPlugin) {
+    auto module = PluginModule::load(std::string(kPluginPath));
+    ASSERT_TRUE(module.has_value()) << module.error().message;
+    EXPECT_TRUE(module->supports_validate());
 }
 
 TEST(PluginLifecycle, ManualLoadFailsFastOnAbiMismatch) {

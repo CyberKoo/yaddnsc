@@ -14,11 +14,11 @@
 
 #include <gtest/gtest.h>
 
-#include "network/socket.h"
-#include "network/socket_addr.h"
-#include "network/inet_address.h"
-#include "exception/socket.h"
-#include "util/cancellation_token.hpp"
+#include "infrastructure/network/socket.h"
+#include "infrastructure/network/socket_addr.h"
+#include "domain/network/inet_address.h"
+#include "infrastructure/network/socket_exception.h"
+#include "support/util/cancellation_token.hpp"
 
 // ===========================================================================
 // Basic Socket operations

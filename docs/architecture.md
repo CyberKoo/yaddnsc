@@ -39,14 +39,21 @@ Dependency direction is enforced by the CMake target graph
   runner, run lifecycle, diagnostics, environment validation. No spdlog,
   Glaze, CLI11, OpenSSL, or dlopen; logging goes through the `ports/log.h`
   facade.
-- Infrastructure and adapters: `src/config/` (JSON/Glaze), `src/dns/`,
-  `src/ip_source/`, `src/network/` + `src/http_client/` (`net::transport` /
-  `net::http`), `src/infrastructure/plugin/` (plugin host), `src/core/`
+- Infrastructure and adapters: `src/infrastructure/config/` (JSON/Glaze), `src/infrastructure/dns/`,
+  `src/infrastructure/ip_source/`, `src/infrastructure/network/` + `src/infrastructure/network/http/` (`net::transport` /
+  `net::http`), `src/infrastructure/plugin/` (plugin host), `src/infrastructure/logging/`, `src/infrastructure/time/`, and `src/infrastructure/process/`
   (concrete port adapters: logger, clock, signal watcher, driver loader,
   network interfaces), `src/cli/` (parser + presenter).
 - `src/composition/`: the composition root.
-- `include/`: public headers — shared value types, the `HttpClient` port, and
-  the plugin SDK (`include/yaddnsc/sdk/`).
+- `include/yaddnsc/sdk/`: the plugin SDK (C ABI + C++ helper layer). Together
+  with `include/yaddnsc/util/` these are the only public headers. All host
+  implementation headers, including shared value types and the `HttpClient`
+  port, live under `src/`.
+- `include/yaddnsc/util/`: header-only utilities shared by the host and the
+  plugins (string utilities, named-argument formatting, percent-encoding).
+  This is the single implementation site — `src/support/` and
+  `include/yaddnsc/sdk/` headers only forward to it, and both sides must use
+  it instead of carrying local copies.
 - `driver/`: bundled provider plugins, built against the SDK only.
 
 The textual boundary rules are policed by the `architecture_guard` ctest
@@ -61,7 +68,11 @@ exceptions, STL containers, or host objects cross the `.so` boundary.
 
 - The host validates entry points, magic, exact `api_revision`, and minimum
   `struct_size` at load time; a mismatch rejects the plugin with a
-  rebuild-with-current-SDK message.
+  rebuild-with-current-SDK message. Four entry points are required
+  (`get_descriptor`, `create`, `destroy`, `update`); a fifth,
+  `yaddnsc_driver_validate`, is optional within api_revision 1 — the host
+  dlsym-probes it so `config test` can check `driver_param` against the
+  driver's schema, and skips the check when the plugin does not export it.
 - Each update runs on a fresh driver instance (`create → update → destroy`).
   Instances of the same module may update concurrently; a single instance is
   never used concurrently. `create()` is not process-level one-time

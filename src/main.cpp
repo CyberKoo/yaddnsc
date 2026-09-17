@@ -9,8 +9,8 @@
 #include "cli/parser.h"
 #include "composition/bootstrap.h"
 #include "logging_pattern.h"
-#include "exception/base.h"
-#include "exception/config_verification.h"
+#include "support/exception.h"
+#include "infrastructure/config/config_verification_exception.h"
 
 // ===========================================================================
 // main — DDNS client entry point and top-level error boundary.

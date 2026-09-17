@@ -12,8 +12,8 @@
 
 #include <gtest/gtest.h>
 
-#include "record_kind.h"
-#include "config/config.h"
+#include "domain/dns/record_kind.h"
+#include "infrastructure/config/config.h"
 
 // ── RecordKind ─────────────────────────────────────────────────────
 

@@ -18,8 +18,8 @@
 
 #include <gmock/gmock.h>
 
-#include "ip_source/base.h"
-#include "network/inet_address.h"
+#include "infrastructure/ip_source/base.h"
+#include "domain/network/inet_address.h"
 
 class MockIpSource : public IpSourceBase {
 public:

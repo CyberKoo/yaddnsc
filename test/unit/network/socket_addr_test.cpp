@@ -19,8 +19,8 @@
 
 #include <gtest/gtest.h>
 
-#include "network/socket_addr.h"
-#include "network/inet_address.h"
+#include "infrastructure/network/socket_addr.h"
+#include "domain/network/inet_address.h"
 
 // ===========================================================================
 // from_inet — IPv4

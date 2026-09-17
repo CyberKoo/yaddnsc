@@ -22,6 +22,10 @@ public:
     /// Perform one update: generate-request → HTTP exchange → check-response.
     yaddnsc::sdk::Result update(yaddnsc::sdk::UpdateContext &context) override;
 
+    /// Validate driver_param against the Cloudflare API schema without
+    /// updating; schema violations surface as YADDNSC_STATUS_INVALID_CONFIG.
+    yaddnsc::sdk::Result validate(std::string_view driver_param_json) const override;
+
 private:
     /// Build the JSON request body for a Cloudflare DNS record update.
     static std::string generate_body(const CloudflareParams &cfg, const yaddnsc::sdk::UpdateRequest &request);

@@ -15,7 +15,7 @@
 
 #include <gtest/gtest.h>
 
-#include "util/random.hpp"
+#include "support/util/random.hpp"
 
 TEST(RandomEngineTest, ReturnsReferenceToMt19937) {
     // Verify the return type is std::mt19937& (not a copy).

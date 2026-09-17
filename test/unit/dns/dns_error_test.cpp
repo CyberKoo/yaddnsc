@@ -11,7 +11,7 @@
 
 #include <gtest/gtest.h>
 
-#include "dns_error.h"
+#include "domain/error/dns_error.h"
 
 TEST(DnsErrorTest, ErrorToStr_NxDomain) {
     auto s = error_to_str(DnsError::NX_DOMAIN);

@@ -15,12 +15,12 @@
 
 #include <gtest/gtest.h>
 
-#include "exception/base.h"
-#include "exception/plugin_load.h"
-#include "exception/config_verification.h"
-#include "exception/dns_lookup.h"
-#include "exception/socket.h"
-#include "dns_error.h"
+#include "support/exception.h"
+#include "infrastructure/plugin/plugin_load_exception.h"
+#include "infrastructure/config/config_verification_exception.h"
+#include "infrastructure/dns/dns_lookup_exception.h"
+#include "infrastructure/network/socket_exception.h"
+#include "domain/error/dns_error.h"
 
 // ── Base ─────────────────────────────────────────────────────────────────────
 

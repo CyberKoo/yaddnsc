@@ -7,7 +7,7 @@
 #include "application/ports/dns_resolver.h"
 #include "application/ports/network_interfaces.h"
 
-#include "record_kind.h"
+#include "domain/dns/record_kind.h"
 
 #include <magic_enum/magic_enum.hpp>
 

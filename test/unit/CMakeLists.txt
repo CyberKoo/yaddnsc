@@ -115,7 +115,7 @@ target_link_libraries(test_config_loader PRIVATE yaddnsc_config_infrastructure)
 # signal_watcher — install/construct/destroy lifecycle (signals are blocked
 # process-wide by install(), so this binary only runs these tests).
 add_unit_test(signal_watcher SOURCE core/signal_watcher_test.cpp)
-target_link_libraries(test_signal_watcher PRIVATE yaddnsc_core)
+target_link_libraries(test_signal_watcher PRIVATE yaddnsc_process_adapter)
 
 # driver_loader + driver_catalog — dlopen-based plugin loading
 # Fixture: a shared library that is deliberately NOT a yaddnsc driver —
@@ -199,7 +199,7 @@ add_unit_test(inet_address SOURCE network/inet_address_test.cpp)
 
 # socket_addr — value-type wrapper around sockaddr_storage
 add_unit_test(socket_addr SOURCE network/socket_addr_test.cpp)
-target_link_libraries(test_socket_addr PRIVATE yaddnsc_network)
+target_link_libraries(test_socket_addr PRIVATE yaddnsc_network_infrastructure)
 
 # URI parsing — uses uri.cpp + inet_address.cpp (in test_support)
 add_unit_test(uri_parse SOURCE network/uri_parse_test.cpp)
@@ -215,7 +215,7 @@ add_unit_test(socket_mock SOURCE network/socket_mock_test.cpp)
 # ============================================================================
 
 add_unit_test(net_transport SOURCE net_transport/net_transport_test.cpp)
-target_link_libraries(test_net_transport PRIVATE yaddnsc_net_transport OpenSSL::SSL OpenSSL::Crypto)
+target_link_libraries(test_net_transport PRIVATE yaddnsc_network_transport OpenSSL::SSL OpenSSL::Crypto)
 
 # ============================================================================
 #  http_client/  —  net::http domain: protocol, redirect
@@ -223,29 +223,21 @@ target_link_libraries(test_net_transport PRIVATE yaddnsc_net_transport OpenSSL::
 # ============================================================================
 
 add_unit_test(http_client SOURCE http_client/http_client_test.cpp)
-target_link_libraries(test_http_client PRIVATE yaddnsc_http_client picohttpparser)
+target_link_libraries(test_http_client PRIVATE yaddnsc_http_infrastructure picohttpparser)
 
 # http_session — Session's persistent-connection policy (retry on connection
 # loss, scheme->factory pairing, connect-error mapping) via scripted fakes.
 add_unit_test(http_session SOURCE http_client/session_test.cpp)
-target_link_libraries(test_http_session PRIVATE yaddnsc_http_client OpenSSL::SSL OpenSSL::Crypto picohttpparser)
+target_link_libraries(test_http_session PRIVATE yaddnsc_http_infrastructure OpenSSL::SSL OpenSSL::Crypto picohttpparser)
 
 # http_persistent — PersistentClient target/redirect semantics + the shared
 # wire-request helpers, driven through a scripted in-memory StreamFactory.
 add_unit_test(http_persistent SOURCE http_client/persistent_client_test.cpp)
-target_link_libraries(test_http_persistent PRIVATE yaddnsc_http_client OpenSSL::SSL OpenSSL::Crypto picohttpparser)
+target_link_libraries(test_http_persistent PRIVATE yaddnsc_http_infrastructure OpenSSL::SSL OpenSSL::Crypto picohttpparser)
 
-# http_public_headers — the public HTTP/transport headers must be includable
-# in a translation unit WITHOUT the src/ include root.  Deliberately NOT
-# add_unit_test: yaddnsc_test_config and
-# test_support would inject src/ into the include path.
-add_executable(test_http_public_headers http_client/public_headers_test.cpp)
-target_include_directories(test_http_public_headers PRIVATE
-    ${PROJECT_SOURCE_DIR}/include
-    ${PROJECT_BINARY_DIR}/generated)
-target_link_libraries(test_http_public_headers PRIVATE GTest::gtest_main)
-add_test(NAME test_http_public_headers COMMAND test_http_public_headers)
-set_property(GLOBAL APPEND PROPERTY YADDNSC_TEST_TARGETS test_http_public_headers)
+# http_internal_headers — host-internal HTTP/transport headers remain
+# self-contained under the src/ include root.
+add_unit_test(http_internal_headers SOURCE http_client/internal_headers_test.cpp)
 
 # ============================================================================
 #  ip_source/  —  IP-source abstraction

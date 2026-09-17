@@ -1,7 +1,7 @@
 //
 // Unit tests for net::http::PersistentClient
-// (src/http_client/persistent_client.cpp) and the shared wire-request
-// helpers (src/http_client/wire_request.cpp).
+// (src/infrastructure/network/http/persistent_client.cpp) and the shared wire-request
+// helpers (src/infrastructure/network/http/wire_request.cpp).
 //
 // Request-target semantics and redirect handling (same-origin follow-up on
 // the persistent connection, cross-origin transient hop, redirect limit)
@@ -19,11 +19,11 @@
 #include <expected>
 #include <gtest/gtest.h>
 
-#include "http_client/client.h"
-#include "http_client/persistent_client.h"
-#include "http_client/redirect.h"
-#include "http_client/wire_request.h"
-#include "network/transport/stream.h"
+#include "infrastructure/network/http/client.h"
+#include "infrastructure/network/http/persistent_client.h"
+#include "infrastructure/network/http/redirect.h"
+#include "infrastructure/network/http/wire_request.h"
+#include "infrastructure/network/transport/stream.h"
 
 using net::http::ErrorCode;
 using net::http::Method;

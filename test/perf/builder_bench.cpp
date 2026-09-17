@@ -9,8 +9,8 @@
 #include <string_view>
 #include <vector>
 
-#include "dns/types.h"
-#include "dns/wire/builder.h"
+#include "infrastructure/dns/types.h"
+#include "infrastructure/dns/wire/builder.h"
 
 // =============================================================================
 // QueryBuilder — simple single-question query

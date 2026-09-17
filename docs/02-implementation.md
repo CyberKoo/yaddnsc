@@ -30,15 +30,17 @@
 
 - Include order is enforced by clang-format (`IncludeBlocks: Regroup`).
 - Include syntax:
-  - Project headers (from `include/`, `src/`, and `generated/`) always use `#include "..."`.
-  - Third-party library headers and standard library headers always use `#include <...>`.
+  - Host-internal and generated headers (from `src/` and `generated/`) use `#include "..."`.
+  - Public SDK headers use `#include <yaddnsc/sdk/...>`.
+  - Shared utility headers (host + plugins) use `#include <yaddnsc/util/...>`.
+  - Third-party library headers and standard library headers use `#include <...>`.
 - Include path conventions:
   - A `.cpp` file should include its own `.h` header using the bare filename
     (e.g. `#include "dispatcher.h"` for `dispatcher.cpp`). This is automatically
     placed first by clang-format.
-  - All other project headers must use the full path relative to the project's
-    `include/` or `src/` base directory (e.g. `#include "dns/types.h"`,
-    `#include "exception/dns_lookup.h"`).
+  - All other host-internal headers must use the full path relative to the
+    `src/` base directory (e.g. `#include "infrastructure/dns/types.h"`,
+    `#include "infrastructure/dns/dns_lookup_exception.h"`).
   - Do **NOT** use `../` relative paths to reach other modules.
   - Generated headers (from `generated/`): the `generated/` directory is added to the
     compiler's include root, so they are referenced by their flat filename

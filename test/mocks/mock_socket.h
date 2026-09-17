@@ -18,7 +18,7 @@
 
 #include <gmock/gmock.h>
 
-#include "network/socket.h"
+#include "infrastructure/network/socket.h"
 
 class MockSocket : public SocketBase {
 public:

@@ -14,7 +14,7 @@
 #include <string>
 #include <vector>
 
-#include "dns/parser.h"
+#include "infrastructure/dns/parser.h"
 
 // =============================================================================
 // Helpers — minimal DNS wire-format construction

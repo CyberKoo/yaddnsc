@@ -22,7 +22,15 @@ bool PoolTaskExecutor::submit(domain::UpdateTask task) {
         return false;
     }
 
-    pool_.detach_task([this, t = std::move(task)] { static_cast<void>(workflow_.run(t)); });
+    pool_.detach_task([this, t = std::move(task)] {
+        const auto result = workflow_.run(t);
+        // A provider retry_after (rate limit) is handed back to the
+        // scheduler so the task's next deadline honours the backoff.
+        if (!result && result.error().retry_after_seconds > 0 && retry_handler_) {
+            retry_handler_(domain::TaskId{t.domain_index, t.subdomain_index},
+                           std::chrono::seconds(result.error().retry_after_seconds));
+        }
+    });
     return true;
 }
 

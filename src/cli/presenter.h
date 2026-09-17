@@ -11,8 +11,7 @@
 
 #include "application/diagnostics.h"
 #include "application/ports/driver_catalog.h"
-#include "config/config.h"
-#include "network/inet_address.h"
+#include "domain/network/inet_address.h"
 
 /// CLI presenter — maps command result objects to stdout/stderr text and
 /// exit codes. All user-visible wording lives here (single place), including
@@ -36,12 +35,13 @@ namespace Cli {
     /// unknown record type exits FAILURE).
     [[nodiscard]] int present_dns_resolve(const Diagnostics::DnsResolveOutcome &outcome);
 
-    /// `dns resolver` — configured resolver details.
-    [[nodiscard]] int present_dns_resolver(const Config::ResolverConfig &resolver);
+    /// `dns resolver` — configured resolver details already formatted by the composition root.
+    [[nodiscard]] int present_dns_resolver(bool use_custom_server, std::string_view strategy,
+                                           const std::vector<std::string> &servers,
+                                           std::string_view legacy_address, unsigned short legacy_port);
 
-    /// `config show` — the parsed configuration as JSON, with sensitive
-    /// driver_param fields redacted (rule lives here, applied nowhere else).
-    [[nodiscard]] int present_config_show(Config::AppConfig config);
+    /// `config show` — the parsed configuration as redacted JSON.
+    [[nodiscard]] int present_config_show(std::string_view json);
 
     /// `config test` — validation outcome.
     [[nodiscard]] int present_config_test(const Diagnostics::ConfigTestOutcome &outcome);

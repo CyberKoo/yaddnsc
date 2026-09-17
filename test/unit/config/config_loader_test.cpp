@@ -1,5 +1,5 @@
 //
-// Unit tests for src/config/config.cpp — configuration loading.
+// Unit tests for src/infrastructure/config/config.cpp — configuration loading.
 //
 // Verifies:
 //   - Existing valid config file → parses successfully.
@@ -17,7 +17,7 @@
 
 #include <gtest/gtest.h>
 
-#include "config/config.h"
+#include "infrastructure/config/config.h"
 
 // ── Helper: write a temp config file ───────────────────────────────────────
 

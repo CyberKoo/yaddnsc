@@ -9,15 +9,14 @@
 #include "application/ports/network_interfaces.h"
 #include "application/ports/task_executor.h"
 
-#include "util/cancellation_token.hpp"
-
-#include "fmt.hpp"
+#include "support/fmt.hpp"
+#include "support/util/cancellation_token.hpp"
 
 RunLifecycle::RunLifecycle(std::shared_ptr<const domain::RuntimeConfig> config, std::stop_source stop_source,
-                           std::shared_ptr<Utils::CancellationSource> cancel_source, Clock &clock,
-                           TaskExecutor &executor, const NetworkInterfaces &interfaces, const Logger &logger)
+                           const Utils::CancellationSource &cancellation, Clock &clock, TaskExecutor &executor,
+                           const NetworkInterfaces &interfaces, const Logger &logger)
     : config_(std::move(config)),
-      cancel_source_(std::move(cancel_source)),
+      cancellation_(cancellation),
       clock_(clock),
       executor_(executor),
       interfaces_(interfaces),
@@ -25,7 +24,11 @@ RunLifecycle::RunLifecycle(std::shared_ptr<const domain::RuntimeConfig> config, 
       queue_(config_, clock_.now()),
       runner_(queue_, clock_, executor_, stop_source.get_token(), logger_),
       stop_source_(std::move(stop_source)),
-      stop_cb_(stop_source_.get_token(), [src = cancel_source_] { src->trigger(); }) {
+      stop_cb_(stop_source_.get_token(), [this] { cancellation_.trigger(); }) {
+    // Rate-limit backoff: a task that fails with retry_after reports it back
+    // to the runner, which moves the task's next deadline accordingly.
+    executor_.set_retry_handler(
+            [this](domain::TaskId id, std::chrono::seconds delay) { runner_.request_retry(id, delay); });
 }
 
 RunResult RunLifecycle::run() {

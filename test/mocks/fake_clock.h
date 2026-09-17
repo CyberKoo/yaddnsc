@@ -26,9 +26,21 @@ public:
 
     bool wait_until(domain::TimePoint deadline, const std::stop_token &stop) override {
         std::unique_lock lock(mtx_);
+        ++wait_entries_;
         std::stop_callback cb(stop, [this] { cv_.notify_all(); });
-        cv_.wait(lock, [this, deadline, &stop] { return now_ >= deadline || stop.stop_requested(); });
+        const auto epoch = wake_epoch_;
+        cv_.wait(lock, [this, deadline, &stop, epoch] {
+            return now_ >= deadline || stop.stop_requested() || wake_epoch_ != epoch;
+        });
         return !stop.stop_requested();
+    }
+
+    void wake() override {
+        {
+            std::lock_guard lock(mtx_);
+            ++wake_epoch_;
+        }
+        cv_.notify_all();
     }
 
     /// Advance the fake time and wake every waiter.
@@ -48,10 +60,19 @@ public:
         cv_.notify_all();
     }
 
+    /// How often wait_until was entered — tests spin on this to know the
+    /// scheduling loop is parked before injecting stimuli.
+    [[nodiscard]] unsigned wait_entries() const {
+        std::lock_guard lock(mtx_);
+        return wait_entries_;
+    }
+
 private:
     mutable std::mutex mtx_;
     std::condition_variable cv_;
     domain::TimePoint now_;
+    unsigned wake_epoch_ = 0;
+    unsigned wait_entries_ = 0;
 };
 
 #endif // YADDNSC_TEST_MOCKS_FAKE_CLOCK_H

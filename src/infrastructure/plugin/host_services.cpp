@@ -5,9 +5,11 @@
 #include "host_services.h"
 
 #include <algorithm>
+#include <exception>
 #include <expected>
+#include <string>
 
-#include "interface/http_client.h"
+#include "infrastructure/network/http/client_port.h"
 
 namespace {
     [[nodiscard]] std::string_view to_view(yaddnsc_string value) noexcept {
@@ -107,7 +109,20 @@ yaddnsc_status HostServicesContext::http_exchange_entry(void *context, const yad
         write_error(out_error, YADDNSC_STATUS_INVALID_ARGUMENT, "http response struct_size too small");
         return YADDNSC_STATUS_INVALID_ARGUMENT;
     }
-    return static_cast<HostServicesContext *>(context)->http_exchange(*request, out_response, out_error);
+    // A host exception (e.g. bad_alloc while copying into the arena) must
+    // never escape into the plugin's C frame — report it as an internal
+    // error instead. The message view points at thread-local storage; the
+    // plugin copies it synchronously on this thread.
+    try {
+        return static_cast<HostServicesContext *>(context)->http_exchange(*request, out_response, out_error);
+    } catch (const std::exception &e) {
+        thread_local std::string message;
+        message = e.what();
+        write_error(out_error, YADDNSC_STATUS_INTERNAL_ERROR, message);
+    } catch (...) {
+        write_error(out_error, YADDNSC_STATUS_INTERNAL_ERROR, "unknown host exception during http exchange");
+    }
+    return YADDNSC_STATUS_INTERNAL_ERROR;
 }
 
 yaddnsc_status HostServicesContext::http_exchange(const yaddnsc_http_request &request,

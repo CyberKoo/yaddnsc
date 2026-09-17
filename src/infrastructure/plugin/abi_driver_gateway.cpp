@@ -8,9 +8,9 @@
 #include "driver_instance.h"
 #include "host_services.h"
 
-#include "interface/http_client.h"
+#include "infrastructure/network/http/client_port.h"
 
-#include "fmt.hpp"
+#include "support/fmt.hpp"
 
 AbiDriverGateway::AbiDriverGateway(const DriverCatalog &catalog, HttpClientFactory http_factory,
                                    Utils::CancellationToken cancel_token, const Logger &logger)
@@ -47,6 +47,20 @@ namespace {
 
     [[nodiscard]] std::string_view to_view(yaddnsc_string value) noexcept {
         return {value.data, value.size};
+    }
+
+    /// yaddnsc_status → domain::DriverError for the validate path. Unlike the
+    /// update mapping there is no fqdn context; any non-OK status means the
+    /// configuration was rejected (INVALID_CONFIG is the canonical code, but
+    /// plugins may report other failures — e.g. an internal error while
+    /// validating — which the caller must surface verbatim).
+    [[nodiscard]] domain::DriverError map_validate_error(yaddnsc_status /*status*/, std::string_view plugin_message,
+                                                         std::string_view driver_name) {
+        const std::string message =
+                !plugin_message.empty()
+                    ? std::string(plugin_message)
+                    : fmt::format("Driver '{}' rejected its driver_param configuration", driver_name);
+        return {domain::DriverError::Code::UNKNOWN, message, 0};
     }
 } // anonymous namespace
 
@@ -96,4 +110,42 @@ std::expected<void, domain::DriverError> AbiDriverGateway::update(std::string_vi
         driver_error.retry_after_seconds = static_cast<int>(error.retry_after_seconds);
     }
     return std::unexpected(std::move(driver_error));
+}
+
+std::expected<void, domain::DriverError> AbiDriverGateway::validate_config(
+        std::string_view driver_name, std::string_view driver_param_json) const {
+    auto module = catalog_.find(driver_name);
+    if (module == nullptr) {
+        return std::unexpected(
+                domain::DriverError{domain::DriverError::Code::NOT_FOUND,
+                                    fmt::format("Driver '{}' is not loaded", driver_name)});
+    }
+
+    // OPTIONAL entry: plugins built against an SDK without it are skipped.
+    if (!module->supports_validate()) {
+        return {};
+    }
+
+    auto http_client = http_factory_();
+    HostServicesContext context(*http_client, logger_, cancel_token_);
+    const auto services = context.make_services();
+
+    yaddnsc_error error{};
+    error.struct_size = static_cast<uint32_t>(sizeof(error));
+
+    yaddnsc_driver *handle = nullptr;
+    if (const yaddnsc_status status = module->create(services, &handle, error); status != YADDNSC_STATUS_OK) {
+        return std::unexpected(map_validate_error(status, to_view(error.message), driver_name));
+    }
+
+    // The instance owns the destroy() call; copy error bytes out
+    // synchronously after validate() returns, before destroy.
+    DriverInstance instance(std::move(module), handle);
+
+    const yaddnsc_string param{driver_param_json.data(), driver_param_json.size()};
+    const yaddnsc_status status = instance.validate(param, error);
+    if (status == YADDNSC_STATUS_OK) {
+        return {};
+    }
+    return std::unexpected(map_validate_error(status, to_view(error.message), driver_name));
 }

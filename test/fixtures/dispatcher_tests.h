@@ -21,14 +21,14 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
-#include "config/dns_config.h"
-#include "dns/dispatcher.h"
-#include "dns/dns_error_info.h"
-#include "dns/resolver/base.h"
-#include "dns_error.h"
-#include "exception/dns_lookup.h"
+#include "domain/config/dns_config.h"
+#include "infrastructure/dns/dispatcher.h"
+#include "domain/error/dns_error_info.h"
+#include "infrastructure/dns/resolver/base.h"
+#include "domain/error/dns_error.h"
+#include "infrastructure/dns/dns_lookup_exception.h"
 #include "mocks/mock_resolver.h"
-#include "record_kind.h"
+#include "domain/dns/record_kind.h"
 
 namespace {
 

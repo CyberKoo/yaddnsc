@@ -1,5 +1,5 @@
 //
-// Component tests for src/dns/resolver/dot.cpp — DNS-over-TLS (RFC 7858)
+// Component tests for src/infrastructure/dns/resolver/dot.cpp — DNS-over-TLS (RFC 7858)
 //
 // Starts a Python DoT server on loopback, generates a self-signed
 // certificate, and exercises DotResolver::query().
@@ -31,11 +31,11 @@
 
 #include <gtest/gtest.h>
 
-#include "dns/resolver/dot.h"
-#include "dns_error.h"
-#include "record_kind.h"
-#include "util/cancellation_token.hpp"
-#include "fmt.hpp"
+#include "infrastructure/dns/resolver/dot.h"
+#include "domain/error/dns_error.h"
+#include "domain/dns/record_kind.h"
+#include "support/util/cancellation_token.hpp"
+#include "support/fmt.hpp"
 
 using namespace std::chrono_literals;
 

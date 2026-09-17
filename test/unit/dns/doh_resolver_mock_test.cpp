@@ -22,10 +22,10 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
-#include "dns/resolver/doh.h"
-#include "network/transport/stream.h"
+#include "infrastructure/dns/resolver/doh.h"
+#include "infrastructure/network/transport/stream.h"
 
-#include "fmt.hpp"
+#include "support/fmt.hpp"
 
 namespace {
 

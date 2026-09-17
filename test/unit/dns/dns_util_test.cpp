@@ -13,9 +13,9 @@
 
 #include <gtest/gtest.h>
 
-#include "dns/util.hpp"
-#include "util/bytes.hpp"
-#include "record_kind.h"
+#include "infrastructure/dns/util.hpp"
+#include "support/util/bytes.hpp"
+#include "domain/dns/record_kind.h"
 
 // ── read_u16_be ──────────────────────────────────────────────────────────────
 

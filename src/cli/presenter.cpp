@@ -4,55 +4,22 @@
 
 #include "presenter.h"
 
-#include <algorithm>
-#include <cctype>
 #include <cstdlib>
 #include <iostream>
 #include <print>
 #include <string_view>
 
-#include <glaze/glaze.hpp>
 #include <magic_enum/magic_enum.hpp>
 
-#include "address_family.h"
-#include "fmt.hpp"
-#include "record_kind.h"
-#include "uri.h"
+#include "domain/network/address_family.h"
+#include "support/fmt.hpp"
+#include "domain/dns/record_kind.h"
 
 #include "build_id.hpp"
 #include "min_update_interval.h"
 #include "resolver_config.h"
 #include "version.h"
 
-namespace {
-    /// `config show` redaction rule: an object member is sensitive when its
-    /// lower-cased key contains "token", "password", "secret" or "key".
-    /// The whole value is replaced with "***" regardless of its type.
-    /// Substring matching may over-redact (e.g. a key like "monkey"); that is
-    /// accepted for a diagnostic view — the config file keeps the real values.
-    [[nodiscard]] bool is_sensitive_key(std::string_view key) {
-        std::string lower(key.size(), '\0');
-        std::ranges::transform(key, lower.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-        return lower.find("token") != std::string::npos || lower.find("password") != std::string::npos ||
-               lower.find("secret") != std::string::npos || lower.find("key") != std::string::npos;
-    }
-
-    void redact_sensitive_fields(glz::generic &value) {
-        if (value.is_object()) {
-            for (auto &entry: value.get_object()) {
-                if (is_sensitive_key(entry.first)) {
-                    entry.second = "***";
-                } else {
-                    redact_sensitive_fields(entry.second);
-                }
-            }
-        } else if (value.is_array()) {
-            for (auto &element: value.get_array()) {
-                redact_sensitive_fields(element);
-            }
-        }
-    }
-} // anonymous namespace
 
 int Cli::present_driver_list(const std::vector<Diagnostics::DriverListItem> &items) {
     if (items.empty()) {
@@ -148,46 +115,28 @@ int Cli::present_dns_resolve(const Diagnostics::DnsResolveOutcome &outcome) {
     return EXIT_SUCCESS;
 }
 
-int Cli::present_dns_resolver(const Config::ResolverConfig &resolver) {
+int Cli::present_dns_resolver(const bool use_custom_server, const std::string_view strategy,
+                              const std::vector<std::string> &servers, const std::string_view legacy_address,
+                              const unsigned short legacy_port) {
     std::println(
         "DNS resolver configuration:\n"
         "  Custom server: {}\n"
         "  Strategy:      {}",
-        resolver.use_custom_server ? "yes" : "no", magic_enum::enum_name(resolver.strategy));
+        use_custom_server ? "yes" : "no", strategy);
 
-    if (!resolver.servers.empty()) {
-        std::println("  Servers ({}):", resolver.servers.size());
-        for (const auto &srv: resolver.servers) {
-            const auto uri = Uri::parse(srv.address);
-            if (!uri.get_schema().empty()) {
-                std::string display = uri.get_origin();
-                auto path = uri.get_path();
-                if (!path.empty() && path != "/") {
-                    display += path;
-                }
-                std::println("    - {}", display);
-            } else {
-                std::println("    - {}:{}", uri.get_host_literal(), srv.port);
-            }
+    if (!servers.empty()) {
+        std::println("  Servers ({}):", servers.size());
+        for (const auto &server: servers) {
+            std::println("    - {}", server);
         }
-    } else if (resolver.use_custom_server && !resolver.address.empty()) {
-        std::println("  Server: {}:{}", resolver.address, resolver.port);
+    } else if (use_custom_server && !legacy_address.empty()) {
+        std::println("  Server: {}:{}", legacy_address, legacy_port);
     }
 
     return EXIT_SUCCESS;
 }
 
-int Cli::present_config_show(Config::AppConfig config) {
-    for (auto &domain_config: config.domains) {
-        for (auto &subdomain: domain_config.subdomains) {
-            redact_sensitive_fields(subdomain.driver_param);
-        }
-    }
-    std::string json;
-    if (const auto ec = glz::write_json(config, json)) {
-        std::println(std::cerr, "Failed to serialize config: {}", glz::format_error(ec));
-        return EXIT_FAILURE;
-    }
+int Cli::present_config_show(const std::string_view json) {
     std::println("{}", json);
     return EXIT_SUCCESS;
 }

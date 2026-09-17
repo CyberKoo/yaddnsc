@@ -10,11 +10,11 @@
 
 #include <gtest/gtest.h>
 
-#include "ip_source/iface.h"
-#include "ip_source/iface_util.h"
-#include "network/inet_address.h"
-#include "network/net_devices.h"
-#include "address_family.h"
+#include "infrastructure/ip_source/iface.h"
+#include "infrastructure/ip_source/iface_util.h"
+#include "domain/network/inet_address.h"
+#include "infrastructure/network/net_devices.h"
+#include "domain/network/address_family.h"
 
 namespace {
     const std::string LOOPBACK = NetDevices::loopback_name();

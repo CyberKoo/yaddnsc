@@ -12,7 +12,7 @@
 
 #include <gtest/gtest.h>
 
-#include "address_family.h"
+#include "domain/network/address_family.h"
 
 TEST(AddressFamilyTest, EnumeratorValues_Defined) {
     EXPECT_EQ(static_cast<int>(AddressFamily::UNSPECIFIED), 0);

@@ -30,8 +30,8 @@
 
 #include <gtest/gtest.h>
 
-#include "dns/validator.h"
-#include "dns_error.h"
+#include "infrastructure/dns/validator.h"
+#include "domain/error/dns_error.h"
 
 // ===========================================================================
 // Test helpers — build minimal DNS wire-format messages

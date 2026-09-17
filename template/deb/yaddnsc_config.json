@@ -3,7 +3,7 @@
     "auto_discover": true
   },
   "resolver": {
-    "use_custom_server": false,
+    "use_custom_server": true,
     "strategy": "concurrent",
     "servers": [
       {

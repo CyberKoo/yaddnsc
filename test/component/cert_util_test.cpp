@@ -1,5 +1,5 @@
 //
-// Tests for util/cert_util.h — CA certificate discovery.
+// Tests for infrastructure/network/tls/cert_util.h — CA certificate discovery.
 //
 // Verifies that:
 //   - discover_ca_bundle() returns a path or nullopt (never crashes)
@@ -23,7 +23,7 @@
 
 #include <unistd.h>
 
-#include "util/cert_util.h"
+#include "infrastructure/network/tls/cert_util.h"
 
 // ---------------------------------------------------------------------------
 // Test that discover_ca_bundle() falls through when SSL_CERT_FILE points to

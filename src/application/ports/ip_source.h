@@ -10,7 +10,7 @@
 
 #include "domain/config/runtime_config.h"
 #include "domain/error/error.h"
-#include "network/inet_address.h"
+#include "domain/network/inet_address.h"
 
 /// IpSourcePort — application port for obtaining local IP address candidates.
 ///

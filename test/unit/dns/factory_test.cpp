@@ -1,5 +1,5 @@
 //
-// Unit tests for src/dns/factory.cpp — DnsResolverFactory.
+// Unit tests for src/infrastructure/dns/factory.cpp — DnsResolverFactory.
 //
 // Verifies:
 //   - create() with configured servers.
@@ -18,15 +18,15 @@
 
 #include <gtest/gtest.h>
 
-#include "config/dns_config.h"
+#include "domain/config/dns_config.h"
 #include "domain/config/runtime_config.h"
-#include "dns/dns_error_info.h"
-#include "dns/factory.h"
-#include "dns/resolver/base.h"
-#include "dns/resolver_catalog.h"
-#include "exception/dns_lookup.h"
-#include "record_kind.h"
-#include "util/cancellation_token.hpp"
+#include "domain/error/dns_error_info.h"
+#include "infrastructure/dns/factory.h"
+#include "infrastructure/dns/resolver/base.h"
+#include "infrastructure/dns/resolver_catalog.h"
+#include "infrastructure/dns/dns_lookup_exception.h"
+#include "domain/dns/record_kind.h"
+#include "support/util/cancellation_token.hpp"
 
 // ── Minimal ResolverBase subclass for factory testing ───────────────────────
 

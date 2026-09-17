@@ -175,6 +175,18 @@ public:
         return std::unexpected(Error{YADDNSC_STATUS_INTERNAL_ERROR, fmt::format("unknown op: {}", op), 0});
     }
 
+    /// OPTIONAL ABI entry backing: the default Driver::validate accepts
+    /// everything; "reject_validate" lets host-side tests exercise the
+    /// INVALID_CONFIG mapping and message pass-through.
+    Result validate(std::string_view driver_param_json) const override {
+        const auto config = parse_config<TestDriverConfig>(driver_param_json);
+        if (config.op.value_or("success") == "reject_validate") {
+            return std::unexpected(Error{YADDNSC_STATUS_INVALID_CONFIG,
+                                         config.message.value_or("driver_param rejected by test plugin"), 0});
+        }
+        return {};
+    }
+
 private:
     /// Perform `http_count` exchanges; after each one, every previously
     /// received response view must still byte-compare equal to its snapshot

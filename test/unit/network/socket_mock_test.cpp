@@ -12,7 +12,7 @@
 #include <gtest/gtest.h>
 
 #include "mocks/mock_socket.h"
-#include "util/cancellation_token.hpp"
+#include "support/util/cancellation_token.hpp"
 
 namespace {
 

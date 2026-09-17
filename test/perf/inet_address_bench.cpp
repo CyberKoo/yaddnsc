@@ -7,7 +7,7 @@
 #include <string>
 #include <string_view>
 
-#include "network/inet_address.h"
+#include "domain/network/inet_address.h"
 
 // =============================================================================
 // Inet4Address

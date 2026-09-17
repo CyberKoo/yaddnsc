@@ -18,8 +18,8 @@
 
 #include <gtest/gtest.h>
 
-#include "dns/wire/builder.h"
-#include "exception/dns_packet.h"
+#include "infrastructure/dns/wire/builder.h"
+#include "infrastructure/dns/dns_packet_exception.h"
 
 // ===========================================================================
 //  Helper: decode a 2-byte big-endian value at offset

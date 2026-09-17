@@ -15,7 +15,7 @@
 
 #include <gtest/gtest.h>
 
-#include "util/bytes.hpp"
+#include "support/util/bytes.hpp"
 
 // ── read_u16_be ───────────────────────────────────────────────────────────────
 

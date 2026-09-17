@@ -81,10 +81,10 @@ endif()
 # that is fully testable without any production code changes.
 # ---------------------------------------------------------------------------
 add_library(test_support STATIC
-    ${PROJECT_SOURCE_DIR}/src/dns/error.cpp
-    ${PROJECT_SOURCE_DIR}/src/network/inet_address.cpp
-    ${PROJECT_SOURCE_DIR}/src/network/uri.cpp
-    ${PROJECT_SOURCE_DIR}/src/dns/validator.cpp
+    ${PROJECT_SOURCE_DIR}/src/domain/error/dns_error.cpp
+    ${PROJECT_SOURCE_DIR}/src/domain/network/inet_address.cpp
+    ${PROJECT_SOURCE_DIR}/src/infrastructure/network/uri.cpp
+    ${PROJECT_SOURCE_DIR}/src/infrastructure/dns/validator.cpp
 )
 
 target_include_directories(test_support PUBLIC
@@ -145,16 +145,20 @@ target_link_libraries(yaddnsc_prod_all INTERFACE
     yaddnsc_config_infrastructure
     yaddnsc_domain
     yaddnsc_application
-    yaddnsc_core
+    yaddnsc_plugin_loader_adapter
+    yaddnsc_process_adapter
+    yaddnsc_logging_adapter
+    yaddnsc_time_adapter
+    yaddnsc_network_adapter
     yaddnsc_plugin_infrastructure
-    yaddnsc_network
-    yaddnsc_net_transport
-    yaddnsc_http_client
+    yaddnsc_network_infrastructure
+    yaddnsc_network_transport
+    yaddnsc_http_infrastructure
     yaddnsc_cli_adapter
     yaddnsc_composition
     yaddnsc_dns_infrastructure
     yaddnsc_ip_source_infrastructure
-    yaddnsc_util
+    yaddnsc_tls_support
 )
 
 # ============================================================================

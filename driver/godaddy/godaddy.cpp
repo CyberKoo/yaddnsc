@@ -40,6 +40,14 @@ struct glz::meta<GoDaddyRecordBody> {
 YADDNSC_DEFINE_DRIVER(GoDaddyDriver, "godaddy", "Updates DNS records via the GoDaddy API", "Kotarou",
                       "1.0.0", YADDNSC_DRIVER_CAPABILITY_A | YADDNSC_DRIVER_CAPABILITY_AAAA)
 
+Result GoDaddyDriver::validate(std::string_view driver_param_json) const {
+    // Reuses the update-time schema: parse_config throws ConfigParseError on
+    // missing keys or malformed values, which the ABI entry maps to
+    // YADDNSC_STATUS_INVALID_CONFIG.
+    [[maybe_unused]] const auto cfg = parse_config<GoDaddyParams>(driver_param_json);
+    return {};
+}
+
 Result GoDaddyDriver::update(UpdateContext &context) {
     const auto &params = context.request();
     const auto cfg = parse_config<GoDaddyParams>(params.driver_param_json);
@@ -62,25 +70,10 @@ Result GoDaddyDriver::update(UpdateContext &context) {
     request.content_type = "application/json";
     request.method = Method::Put;
 
-    YADDNSC_SDK_LOG_DEBUG(context, "Domain {} ({}) received DNS record update request from driver {}, {}",
-                          params.fqdn, params.record_type, DRIVER_NAME, yaddnsc::sdk::format_request(request));
-
-    auto response = context.exchange(request);
-    if (!response) {
-        YADDNSC_SDK_LOG_WARN(context, "Domain {} ({}) update failed (HTTP error: {})", params.fqdn,
-                             params.record_type, response.error().message);
-        return std::unexpected(Error{response.error().status, response.error().message, 0});
-    }
-
-    if (!check_response(*response, context.services())) {
-        YADDNSC_SDK_LOG_WARN(context, "Domain {} ({}) update rejected by upstream", params.fqdn, params.record_type);
-        return std::unexpected(Error{YADDNSC_STATUS_UPSTREAM_REJECTED,
-                                     fmt::format("Domain {} ({}) update rejected by upstream", params.fqdn,
-                                                 params.record_type),
-                                     0});
-    }
-
-    return {};
+    return run_update(context, DRIVER_NAME, request,
+                      [this](const HttpResponse &response, const Services &services) {
+                          return check_response(response, services);
+                      });
 }
 
 bool GoDaddyDriver::check_response(const HttpResponse &response, const Services &services) {

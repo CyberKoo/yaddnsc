@@ -12,6 +12,23 @@ SchedulerRunner::SchedulerRunner(domain::ScheduleQueue &queue, Clock &clock, Tas
 
 void SchedulerRunner::run() {
     while (!stop_.stop_requested()) {
+        // Apply retry_after reschedules reported since the last round BEFORE
+        // popping, so a rate-limited task is not re-executed at its old
+        // (sooner) deadline.
+        {
+            std::vector<std::pair<domain::TaskId, std::chrono::seconds>> retries;
+            {
+                std::lock_guard lock(retry_mtx_);
+                retries.swap(pending_retries_);
+            }
+            if (!retries.empty()) {
+                const auto now = clock_.now();
+                for (const auto &[id, delay]: retries) {
+                    queue_.reschedule(id, now + delay);
+                }
+            }
+        }
+
         for (auto &task: queue_.pop_due(clock_.now())) {
             // A false return means the executor is shutting down; the task is
             // dropped, matching the legacy shutdown semantics (pending work is
@@ -27,4 +44,12 @@ void SchedulerRunner::run() {
             break;
         }
     }
+}
+
+void SchedulerRunner::request_retry(domain::TaskId id, std::chrono::seconds delay) {
+    {
+        std::lock_guard lock(retry_mtx_);
+        pending_retries_.emplace_back(id, delay);
+    }
+    clock_.wake();
 }

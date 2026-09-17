@@ -1,5 +1,5 @@
 //
-// Tests for util/cert_util.h — CA certificate discovery, env-var override.
+// Tests for infrastructure/network/tls/cert_util.h — CA certificate discovery, env-var override.
 //
 // This is a SEPARATE test binary from cert_util_test.cpp on purpose:
 // discover_ca_bundle() caches its result in a function-local static on the
@@ -19,7 +19,7 @@
 
 #include <unistd.h>
 
-#include "util/cert_util.h"
+#include "infrastructure/network/tls/cert_util.h"
 
 namespace {
     /// RAII set/unset of an environment variable.

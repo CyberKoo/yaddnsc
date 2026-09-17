@@ -28,6 +28,10 @@ public:
     /// Perform one update: generate-request → HTTP exchange → check-response.
     yaddnsc::sdk::Result update(yaddnsc::sdk::UpdateContext &context) override;
 
+    /// Validate driver_param against the Alibaba Cloud API schema without
+    /// updating; schema violations surface as YADDNSC_STATUS_INVALID_CONFIG.
+    yaddnsc::sdk::Result validate(std::string_view driver_param_json) const override;
+
 private:
     /// Build an Alibaba Cloud DNS UpdateDomainRecord request with RPC signature.
     static yaddnsc::sdk::HttpRequest generate_request(const AlibabaParams &cfg,

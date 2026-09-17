@@ -18,8 +18,8 @@
 
 #include <glaze/glaze.hpp>
 
-#include "config/normalizer.h"
-#include "config/parser.hpp"
+#include "infrastructure/config/normalizer.h"
+#include "infrastructure/config/parser.hpp"
 
 namespace {
 
@@ -195,16 +195,48 @@ TEST(NormalizerTest, SubdomainInterval_ZeroMeansInherit) {
     EXPECT_EQ(config.domains[0].subdomains[0].update_interval, 300);
 }
 
+TEST(NormalizerTest, SubdomainType_Missing_FallsBackToA) {
+    const auto raw = parse_raw(R"({
+        "domains": [{
+            "name": "example.com",
+            "update_interval": 300,
+            "driver": "test_driver",
+            "subdomains": [
+                {"name": "www", "ip_source": "http", "ip_source_param": "https://api.ipify.org"}
+            ]
+        }]
+    })");
+    const auto config = Config::normalize(raw);
+    // Legacy configs without "type" keep running as A records (warn logged).
+    EXPECT_EQ(config.domains[0].subdomains[0].type, RecordKind::A);
+}
+
 // ===========================================================================
 // driver_param normalisation
 // ===========================================================================
 
-TEST(NormalizerTest, DriverParam_Unset_PreservesLegacyDumpOutput) {
+TEST(NormalizerTest, DriverParam_Unset_BecomesEmptyObject) {
     const auto config = Config::normalize(parse_raw(MINIMAL_CONFIG));
-    // Byte-identical to the legacy Updater path
-    // (driver_param.dump().value_or("{}")): glz::generic{} dumps as "null",
-    // value_or only fires on a dump error, which null does not produce.
-    EXPECT_EQ(config.domains[0].subdomains[0].driver_param, "null");
+    // An unset driver_param arrives as glz::generic null; the driver must
+    // receive "{}" — never the literal "null".
+    EXPECT_EQ(config.domains[0].subdomains[0].driver_param, "{}");
+}
+
+TEST(NormalizerTest, DriverParam_ExplicitNull_BecomesEmptyObject) {
+    const auto raw = parse_raw(R"({
+        "domains": [{
+            "name": "example.com",
+            "update_interval": 300,
+            "driver": "test_driver",
+            "subdomains": [{
+                "name": "www", "type": "a", "ip_source": "http",
+                "ip_source_param": "https://api.ipify.org",
+                "driver_param": null
+            }]
+        }]
+    })");
+    const auto config = Config::normalize(raw);
+    EXPECT_EQ(config.domains[0].subdomains[0].driver_param, "{}");
 }
 
 TEST(NormalizerTest, DriverParam_PreservesFieldsAndValues) {

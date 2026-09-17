@@ -12,7 +12,8 @@
 ///     UpdateRequest, UpdateContext),
 ///   - the Driver base class with parse_config<T>() JSON deserialisation,
 ///   - YADDNSC_SDK_LOG_* logging macros capturing source location,
-///   - YADDNSC_DEFINE_DRIVER, which emits the four C entry points.
+///   - YADDNSC_DEFINE_DRIVER, which emits the four required C entry points
+///     plus the optional validate entry,
 ///
 /// Plugins must not include host-internal headers; this layer plus
 /// driver_abi.h is the entire supported surface.
@@ -21,6 +22,7 @@
 #include <expected>
 #include <memory>
 #include <optional>
+#include <source_location>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -326,6 +328,25 @@ public:
     /// concurrent update() calls on distinct instances.
     virtual Result update(UpdateContext &context) = 0;
 
+    /// Validate a driver_param JSON against this driver's schema without
+    /// performing an update. Invoked by the host's `config test` through the
+    /// OPTIONAL yaddnsc_driver_validate ABI entry (dlsym-probed; the default
+    /// implementation accepts everything, which keeps drivers written
+    /// against an SDK without this entry source-compatible). The default
+    /// also applies to drivers that recompile without overriding: the host
+    /// treats a missing entry as "no driver-side validation".
+    ///
+    /// Override with the canonical one-liner
+    /// `parse_config<YourParams>(driver_param_json); return {};` — a thrown
+    /// ConfigParseError maps to YADDNSC_STATUS_INVALID_CONFIG. Runs on a
+    /// freshly created instance between create() and destroy(): it must not
+    /// rely on state left by a previous call and must not touch host
+    /// services (no HTTP exchange happens during validation).
+    [[nodiscard]] virtual Result validate(std::string_view driver_param_json) const {
+        (void) driver_param_json;
+        return {};
+    }
+
 protected:
     /// Parse the driver_param JSON into a typed struct with built-in
     /// validation. Requires a glz::meta specialisation for T.
@@ -340,6 +361,44 @@ protected:
         }
 
         throw ConfigParseError(fmt::format("Driver configuration parse error: {}", glz::format_error(ec)));
+    }
+
+    /// Run the canonical update tail shared by the bundled drivers: log the
+    /// outgoing request, perform the exchange, and translate transport
+    /// failures and upstream rejections into an Error. @p check_response
+    /// receives the response plus a Services handle and decides whether the
+    /// provider accepted the update.
+    template<typename CheckFn>
+    static Result run_update(UpdateContext &context, std::string_view driver_name, const HttpRequest &request,
+                             CheckFn &&check_response,
+                             const std::source_location &location = std::source_location::current()) {
+        const auto &params = context.request();
+        const auto file = location.file_name();
+        const auto line = static_cast<int32_t>(location.line());
+        const auto function = location.function_name();
+
+        detail::log_message(detail::to_services(context), YADDNSC_LOG_DEBUG, file, line, function,
+                            "Domain {} ({}) received DNS record update request from driver {}, {}", params.fqdn,
+                            params.record_type, driver_name, format_request(request));
+
+        auto response = context.exchange(request);
+        if (!response) {
+            detail::log_message(detail::to_services(context), YADDNSC_LOG_WARN, file, line, function,
+                                "Domain {} ({}) update failed (HTTP error: {})", params.fqdn, params.record_type,
+                                response.error().message);
+            return std::unexpected(Error{response.error().status, response.error().message, 0});
+        }
+
+        if (!check_response(*response, context.services())) {
+            detail::log_message(detail::to_services(context), YADDNSC_LOG_WARN, file, line, function,
+                                "Domain {} ({}) update rejected by upstream", params.fqdn, params.record_type);
+            return std::unexpected(Error{YADDNSC_STATUS_UPSTREAM_REJECTED,
+                                         fmt::format("Domain {} ({}) update rejected by upstream", params.fqdn,
+                                                     params.record_type),
+                                         0});
+        }
+
+        return {};
     }
 };
 
@@ -434,6 +493,42 @@ inline yaddnsc_status update_driver(yaddnsc_driver *driver, const yaddnsc_update
     return YADDNSC_STATUS_INTERNAL_ERROR;
 }
 
+inline yaddnsc_status validate_driver(yaddnsc_driver *driver, yaddnsc_string driver_param_json,
+                                      yaddnsc_error *out_error) {
+    if (driver == nullptr) {
+        write_error(out_error, YADDNSC_STATUS_INVALID_ARGUMENT, "driver must not be null", 0);
+        return YADDNSC_STATUS_INVALID_ARGUMENT;
+    }
+
+    // Validate on the live instance the host created: the create → validate →
+    // destroy pairing guarantees the plugin code stays mapped, and the
+    // instance carries the error-storage backing for out_error.
+    auto *instance = reinterpret_cast<DriverInstance *>(driver); // NOLINT
+    try {
+        Result result = instance->driver->validate(to_view(driver_param_json));
+        if (result.has_value()) {
+            return YADDNSC_STATUS_OK;
+        }
+
+        Error &error = result.error();
+        const yaddnsc_status status =
+                error.status == YADDNSC_STATUS_OK ? YADDNSC_STATUS_INTERNAL_ERROR : error.status;
+        instance->error_storage = std::move(error.message);
+        write_error(out_error, status, instance->error_storage, error.retry_after_seconds);
+        return status;
+    } catch (const ConfigParseError &e) {
+        instance->error_storage = e.what();
+        write_error(out_error, YADDNSC_STATUS_INVALID_CONFIG, instance->error_storage, 0);
+        return YADDNSC_STATUS_INVALID_CONFIG;
+    } catch (const std::exception &e) {
+        instance->error_storage = e.what();
+    } catch (...) {
+        instance->error_storage = "unknown exception during validate";
+    }
+    write_error(out_error, YADDNSC_STATUS_INTERNAL_ERROR, instance->error_storage, 0);
+    return YADDNSC_STATUS_INTERNAL_ERROR;
+}
+
 } // namespace detail
 
 } // namespace yaddnsc::sdk
@@ -458,7 +553,8 @@ inline yaddnsc_status update_driver(yaddnsc_driver *driver, const yaddnsc_update
 
 /* ── Driver definition macro ──────────────────────────────────────────────*/
 
-/// Emit the four C entry points plus the static descriptor for a driver.
+/// Emit the four required C entry points, the optional validate entry, and
+/// the static descriptor for a driver.
 ///
 /// Usage in a driver plugin:
 /// @code{.cpp}
@@ -502,6 +598,11 @@ inline yaddnsc_status update_driver(yaddnsc_driver *driver, const yaddnsc_update
     extern "C" YADDNSC_SDK_EXPORT yaddnsc_status yaddnsc_driver_update(                                    \
             yaddnsc_driver *driver, const yaddnsc_update_request *request, yaddnsc_error *out_error) {     \
         return ::yaddnsc::sdk::detail::update_driver(driver, request, out_error);                          \
+    }                                                                                                      \
+                                                                                                           \
+    extern "C" YADDNSC_SDK_EXPORT yaddnsc_status yaddnsc_driver_validate(                                  \
+            yaddnsc_driver *driver, yaddnsc_string driver_param_json, yaddnsc_error *out_error) {          \
+        return ::yaddnsc::sdk::detail::validate_driver(driver, driver_param_json, out_error);              \
     }
 
 #endif // YADDNSC_SDK_DRIVER_HPP

@@ -10,7 +10,7 @@
 #include <vector>
 
 #include "application/ports/log.h"
-#include "util/cancellation_token.hpp"
+#include "support/util/cancellation_token.hpp"
 
 #include <yaddnsc/sdk/driver_abi.h>
 
@@ -54,8 +54,14 @@ private:
     [[nodiscard]] std::string_view arena_copy(std::string_view value);
 
     static void log_entry(void *context, yaddnsc_log_level level, yaddnsc_string message,
-                          const yaddnsc_source_location *location) {
-        static_cast<HostServicesContext *>(context)->log(level, message, location);
+                          const yaddnsc_source_location *location) noexcept {
+        // Contract: logging failure must never fail an update — and a host
+        // exception (e.g. bad_alloc) must never escape into the plugin's
+        // C frame.
+        try {
+            static_cast<HostServicesContext *>(context)->log(level, message, location);
+        } catch (...) {
+        }
     }
 
     static yaddnsc_status http_exchange_entry(void *context, const yaddnsc_http_request *request,

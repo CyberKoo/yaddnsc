@@ -13,8 +13,8 @@
 
 #include <gmock/gmock.h>
 
-#include "dns/resolver/base.h"
-#include "util/cancellation_token.hpp"
+#include "infrastructure/dns/resolver/base.h"
+#include "support/util/cancellation_token.hpp"
 
 class MockResolver : public ResolverBase {
 public:

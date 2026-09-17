@@ -16,7 +16,7 @@
 
 #include <gtest/gtest.h>
 
-#include "uri.h"
+#include "infrastructure/network/uri.h"
 
 // ===========================================================================
 // Percent encoding

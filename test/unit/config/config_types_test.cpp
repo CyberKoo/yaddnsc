@@ -13,9 +13,9 @@
 
 #include <gtest/gtest.h>
 
-#include "config/config.h"
-#include "record_kind.h"
-#include "address_family.h"
+#include "infrastructure/config/config.h"
+#include "domain/dns/record_kind.h"
+#include "domain/network/address_family.h"
 
 // ===========================================================================
 // Config::IpSource
@@ -119,7 +119,8 @@ TEST(ConfigResolverConfigTest, AggregateInit) {
 TEST(ConfigSubdomainConfigTest, DefaultValues) {
     Config::SubdomainConfig cfg{};
     EXPECT_TRUE(cfg.name.empty());
-    EXPECT_EQ(cfg.type, RecordKind::A);
+    // No record type configured — the normaliser falls back to A with a warning.
+    EXPECT_FALSE(cfg.type.has_value());
     EXPECT_TRUE(cfg.interface.empty());
     EXPECT_EQ(cfg.ip_type, AddressFamily::UNSPECIFIED);
     EXPECT_EQ(cfg.ip_source, Config::IpSource::INTERFACE);

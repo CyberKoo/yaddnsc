@@ -1,5 +1,5 @@
 //
-// Contract tests for src/ip_source/adapter.cpp — IpSourceAdapter.
+// Contract tests for src/infrastructure/ip_source/adapter.cpp — IpSourceAdapter.
 //
 // Locks the translation from the legacy throwing IpSourceBase contract to
 // the IpSourcePort error-value contract:
@@ -17,8 +17,8 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
-#include "ip_source/adapter.h"
-#include "ip_source/base.h"
+#include "infrastructure/ip_source/adapter.h"
+#include "infrastructure/ip_source/base.h"
 
 #include "mocks/mock_ip_source.h"
 

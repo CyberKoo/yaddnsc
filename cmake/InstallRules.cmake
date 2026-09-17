@@ -118,6 +118,10 @@ install(
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/yaddnsc
 )
 install(
+    DIRECTORY ${CMAKE_SOURCE_DIR}/include/yaddnsc/util
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/yaddnsc
+)
+install(
     FILES
         ${CMAKE_SOURCE_DIR}/plugin_crypto/signing.h
         ${CMAKE_SOURCE_DIR}/plugin_crypto/signing.cpp

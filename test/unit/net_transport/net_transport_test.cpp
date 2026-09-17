@@ -1,5 +1,5 @@
 //
-// Unit tests for Transport (src/network/transport/).
+// Unit tests for Transport (src/infrastructure/network/transport/).
 //
 // Verifies (no network I/O):
 //   - Options field defaults.
@@ -19,13 +19,13 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
-#include "network/transport/detail/socket_stream.h"
-#include "network/transport/io_error.h"
-#include "transport/options.h"
-#include "network/transport/tcp_stream.h"
-#include "network/transport/tls_stream.h"
-#include "util/cancellation_token.hpp"
-#include "util/fd.hpp"
+#include "infrastructure/network/transport/detail/socket_stream.h"
+#include "infrastructure/network/transport/io_error.h"
+#include "infrastructure/network/transport/options.h"
+#include "infrastructure/network/transport/tcp_stream.h"
+#include "infrastructure/network/transport/tls_stream.h"
+#include "support/util/cancellation_token.hpp"
+#include "support/util/fd.hpp"
 
 using namespace std::chrono_literals;
 using Transport::IoError;

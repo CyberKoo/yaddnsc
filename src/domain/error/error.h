@@ -13,7 +13,7 @@
 /// human-readable `message`. Recoverable errors cross layer boundaries as
 /// values inside std::expected, never as exceptions.
 ///
-/// DNS already conforms via DnsErrorInfo (src/dns/dns_error_info.h), so no
+/// DNS already conforms via DnsErrorInfo (src/domain/error/dns_error_info.h), so no
 /// parallel DnsError skeleton is defined here.
 namespace domain {
 
@@ -35,6 +35,7 @@ struct ConfigError {
         MDNS_NOT_LOCAL,        ///< mDNS param does not end with .local
         MDNS_BAD_RECORD_TYPE,  ///< mDNS source requires type a/aaaa
         INVALID_RESOLVER,      ///< Resolver address is not a valid IP/URI
+        NO_RESOLVER_SERVERS,   ///< use_custom_server set but no servers configured
         DRIVER_NOT_FOUND,      ///< Referenced driver plugin is not loaded
         INTERFACE_NOT_FOUND,   ///< Referenced network interface does not exist
     };
@@ -68,7 +69,8 @@ struct PluginError {
 
 /// Driver update failure (one update attempt through the driver gateway).
 /// `retry_after_seconds` is only meaningful when the driver reported
-/// RATE_LIMITED; schedulers currently ignore it (no rescheduling).
+/// RATE_LIMITED; the executor reports it back to the scheduler, which moves
+/// the task's next deadline to honour the backoff.
 struct DriverError {
     enum class Code {
         UPDATE_FAILED, ///< Driver executed but reported failure (e.g. upstream rejected)
@@ -89,8 +91,9 @@ struct DriverError {
 ///     candidate survived the address policy); the cycle is skipped and the
 ///     schedule carries on;
 ///   - DRIVER_FAILED — the driver gateway rejected the update (message and,
-///     for RATE_LIMITED, retry_after_seconds are copied from DriverError;
-///     schedulers currently ignore retry_after);
+///     for RATE_LIMITED, retry_after_seconds are copied from DriverError; the
+///     executor feeds retry_after back to the scheduler for backoff
+///     rescheduling);
 ///   - UNKNOWN — an unexpected exception escaped the workflow (the legacy
 ///     catch-all boundary, now mapped to an error value).
 struct UpdateError {

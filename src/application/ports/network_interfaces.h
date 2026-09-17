@@ -8,7 +8,7 @@
 #include <string>
 #include <vector>
 
-#include "network/inet_address.h"
+#include "domain/network/inet_address.h"
 
 /// NetworkInterfaces — application port for querying the host's network
 /// interfaces (names and assigned addresses).

@@ -23,13 +23,13 @@
 # ============================================================================
 
 add_unit_test(cert_util_test SOURCE cert_util_test.cpp)
-target_link_libraries(test_cert_util_test PRIVATE yaddnsc_util OpenSSL::Crypto)
+target_link_libraries(test_cert_util_test PRIVATE yaddnsc_tls_support OpenSSL::Crypto)
 
 # cert_util env-var hit — SEPARATE binary because discover_ca_bundle() caches
 # its result on the first call in the process; the env-var-hit branch can only
 # be reached when the first call sees a valid SSL_CERT_FILE.
 add_unit_test(cert_util_override SOURCE cert_util_override_test.cpp)
-target_link_libraries(test_cert_util_override PRIVATE yaddnsc_util OpenSSL::Crypto)
+target_link_libraries(test_cert_util_override PRIVATE yaddnsc_tls_support OpenSSL::Crypto)
 
 # ============================================================================
 #  CLI layer + composition root — pure parser tests, presenter output,
@@ -57,14 +57,14 @@ set_tests_properties(test_cli PROPERTIES
 # ============================================================================
 
 add_unit_test(socket_test SOURCE socket_test.cpp)
-target_link_libraries(test_socket_test PRIVATE yaddnsc_network)
+target_link_libraries(test_socket_test PRIVATE yaddnsc_network_infrastructure)
 
 # ============================================================================
 #  Network device enumeration  (loopback interface)
 # ============================================================================
 
 add_unit_test(net_devices_test SOURCE net_devices_test.cpp)
-target_link_libraries(test_net_devices_test PRIVATE yaddnsc_network)
+target_link_libraries(test_net_devices_test PRIVATE yaddnsc_network_infrastructure)
 
 # ============================================================================
 #  IP source — InterfaceIpSource  (loopback interface)
@@ -138,7 +138,7 @@ target_compile_definitions(test_classic_resolver PRIVATE
 # ============================================================================
 
 add_unit_test(net_transport_component SOURCE net_transport_test.cpp)
-target_link_libraries(test_net_transport_component PRIVATE yaddnsc_net_transport OpenSSL::SSL OpenSSL::Crypto)
+target_link_libraries(test_net_transport_component PRIVATE yaddnsc_network_transport OpenSSL::SSL OpenSSL::Crypto)
 target_compile_definitions(test_net_transport_component PRIVATE
     TEST_DATA_DIR="${PROJECT_SOURCE_DIR}/test/component"
 )
@@ -148,7 +148,7 @@ target_compile_definitions(test_net_transport_component PRIVATE
 # ============================================================================
 
 add_unit_test(net_http_client SOURCE net_http_client_test.cpp)
-target_link_libraries(test_net_http_client PRIVATE yaddnsc_http_client OpenSSL::SSL OpenSSL::Crypto picohttpparser)
+target_link_libraries(test_net_http_client PRIVATE yaddnsc_http_infrastructure OpenSSL::SSL OpenSSL::Crypto picohttpparser)
 
 # ============================================================================
 #  DotResolver  (DoT — DNS-over-TLS via Python DoT server)

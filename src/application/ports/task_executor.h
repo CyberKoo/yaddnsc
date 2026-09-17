@@ -5,6 +5,10 @@
 #ifndef YADDNSC_APPLICATION_PORTS_TASK_EXECUTOR_H
 #define YADDNSC_APPLICATION_PORTS_TASK_EXECUTOR_H
 
+#include <chrono>
+#include <functional>
+
+#include "domain/update/schedule_queue.h"
 #include "domain/update/update_task.h"
 
 /// TaskExecutor — execution port for scheduled update tasks.
@@ -16,6 +20,11 @@
 /// executor before driver instances are destroyed.
 class TaskExecutor {
 public:
+    /// Invoked (on an executor thread) when a task fails with a provider
+    /// retry_after delay — the scheduler uses it to honour rate-limit
+    /// backoff for the task's next deadline.
+    using RetryHandler = std::function<void(domain::TaskId, std::chrono::seconds)>;
+
     virtual ~TaskExecutor() = default;
 
     /// Submit one scheduled task for execution.
@@ -29,6 +38,10 @@ public:
     /// Stop accepting new tasks; submit() returns false afterwards.
     /// In-flight tasks are unaffected — drain them with wait_idle().
     virtual void shutdown() = 0;
+
+    /// Install the retry_after handler. Called once during composition,
+    /// before the scheduling loop starts submitting work.
+    virtual void set_retry_handler(RetryHandler handler) = 0;
 };
 
 #endif // YADDNSC_APPLICATION_PORTS_TASK_EXECUTOR_H

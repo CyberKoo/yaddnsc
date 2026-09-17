@@ -45,8 +45,12 @@ public:
     /// Stop accepting new tasks; in-flight tasks keep running.
     void shutdown() override;
 
+    /// Install the retry_after handler (composition-time, before run()).
+    void set_retry_handler(RetryHandler handler) override { retry_handler_ = std::move(handler); }
+
 private:
     const UpdateWorkflow &workflow_;
+    RetryHandler retry_handler_;
     std::atomic<bool> accepting_{true};
     // Declared last so destruction drains the pool before the workflow
     // reference could dangle (the destructor body drains explicitly anyway).

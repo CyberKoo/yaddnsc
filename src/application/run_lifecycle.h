@@ -40,7 +40,7 @@ struct RunResult {};
 ///
 ///   construction
 ///   → bind stop_source to BOTH scheduler stop (stop token into the runner)
-///     and I/O cancellation (stop callback triggers the CancellationSource)
+///     and I/O cancellation (stop callback triggers the cancellation source)
 ///   → build the schedule queue
 ///   run()
 ///   → SchedulerRunner pops due tasks until stop is requested
@@ -58,7 +58,7 @@ public:
     /// The stop → I/O-cancel binding is registered here so that a stop
     /// requested before run() still cancels blocking I/O.
     RunLifecycle(std::shared_ptr<const domain::RuntimeConfig> config, std::stop_source stop_source,
-                 std::shared_ptr<Utils::CancellationSource> cancel_source, Clock &clock, TaskExecutor &executor,
+                 const Utils::CancellationSource &cancellation, Clock &clock, TaskExecutor &executor,
                  const NetworkInterfaces &interfaces, const Logger &logger);
 
     /// Drive the scheduling loop until stop is requested, then shut down in
@@ -67,7 +67,7 @@ public:
 
 private:
     std::shared_ptr<const domain::RuntimeConfig> config_;
-    std::shared_ptr<Utils::CancellationSource> cancel_source_;
+    const Utils::CancellationSource &cancellation_;
     Clock &clock_;
     TaskExecutor &executor_;
     const NetworkInterfaces &interfaces_;

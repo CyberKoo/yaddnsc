@@ -13,8 +13,8 @@
 
 #include <gtest/gtest.h>
 
-#include "dns/parser.h"
-#include "exception/dns_lookup.h"
+#include "infrastructure/dns/parser.h"
+#include "infrastructure/dns/dns_lookup_exception.h"
 
 // ===========================================================================
 // Helpers for constructing DNS response packets

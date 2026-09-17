@@ -28,7 +28,6 @@ function(add_benchmark name)
     # link them need matching flags.
     add_sanitizer_flags(bench_${name})
     target_include_directories(bench_${name} PRIVATE
-        ${PROJECT_SOURCE_DIR}/include
         ${PROJECT_SOURCE_DIR}/src
         ${PROJECT_BINARY_DIR}/generated
     )
@@ -70,7 +69,7 @@ add_benchmark(inet_address)
 # ============================================================================
 
 add_benchmark(socket_addr)
-target_link_libraries(bench_socket_addr PRIVATE yaddnsc_network)
+target_link_libraries(bench_socket_addr PRIVATE yaddnsc_network_infrastructure)
 
 # ============================================================================
 #  DNS QueryBuilder benchmarks

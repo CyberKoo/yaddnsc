@@ -5,7 +5,11 @@
 #ifndef YADDNSC_APPLICATION_SCHEDULER_RUNNER_H
 #define YADDNSC_APPLICATION_SCHEDULER_RUNNER_H
 
+#include <chrono>
+#include <mutex>
 #include <stop_token>
+#include <utility>
+#include <vector>
 
 #include "application/ports/clock.h"
 #include "application/ports/log.h"
@@ -39,12 +43,23 @@ public:
     /// are the TaskExecutor's business, not the runner's.
     void run();
 
+    /// Thread-safe: called from executor pool threads when a task's update
+    /// failed with a provider retry_after delay. Moves the task's next
+    /// deadline to now + delay and wakes the scheduling loop so the new
+    /// deadline is honoured before the next pop.
+    void request_retry(domain::TaskId id, std::chrono::seconds delay);
+
 private:
     domain::ScheduleQueue &queue_;
     Clock &clock_;
     TaskExecutor &executor_;
     std::stop_token stop_;
     const Logger &logger_;
+
+    // Retry requests arrive on pool threads; the runner drains them on its
+    // own thread at the top of every scheduling round.
+    std::mutex retry_mtx_;
+    std::vector<std::pair<domain::TaskId, std::chrono::seconds>> pending_retries_;
 };
 
 #endif // YADDNSC_APPLICATION_SCHEDULER_RUNNER_H

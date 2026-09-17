@@ -2,9 +2,10 @@
 # Plugin contract tests (v1 alpha C ABI)
 #
 # A whiteboard test plugin (real MODULE .so, dlopen'ed by the tests) plus
-# deliberately broken fixture libraries for the loader rejection matrix.
-# The test binaries link the production plugin host and drive the plugin
-# through its four C entry points / the AbiDriverGateway.
+# deliberately broken fixture libraries for the loader rejection matrix and
+# one plugin that predates the optional validate entry. The test binaries
+# link the production plugin host and drive the plugins through their C
+# entry points / the AbiDriverGateway.
 # ==============================================================================
 
 # ---------------------------------------------------------------------------
@@ -28,6 +29,15 @@ foreach(fixture bad_revision bad_magic missing_symbol small_descriptor)
 endforeach()
 
 # ---------------------------------------------------------------------------
+# Optional-entry fixture — a complete, loadable plugin that predates the
+# OPTIONAL yaddnsc_driver_validate entry. The loader must accept it and the
+# host must skip the driver-side driver_param check instead of failing.
+# ---------------------------------------------------------------------------
+add_library(yaddnsc_fixture_no_validate MODULE fixtures/no_validate.cpp)
+set_target_properties(yaddnsc_fixture_no_validate PROPERTIES PREFIX "" OUTPUT_NAME "no_validate")
+target_include_directories(yaddnsc_fixture_no_validate PRIVATE ${PROJECT_SOURCE_DIR}/include)
+
+# ---------------------------------------------------------------------------
 # Test binaries
 # ---------------------------------------------------------------------------
 add_unit_test(plugin_abi_contract SOURCE driver_abi_contract_test.cpp)
@@ -45,11 +55,13 @@ foreach(test_target test_plugin_abi_contract test_plugin_lifecycle test_abi_driv
         BAD_REVISION_FIXTURE="$<TARGET_FILE:yaddnsc_fixture_bad_revision>"
         BAD_MAGIC_FIXTURE="$<TARGET_FILE:yaddnsc_fixture_bad_magic>"
         MISSING_SYMBOL_FIXTURE="$<TARGET_FILE:yaddnsc_fixture_missing_symbol>"
-        SMALL_DESCRIPTOR_FIXTURE="$<TARGET_FILE:yaddnsc_fixture_small_descriptor>")
+        SMALL_DESCRIPTOR_FIXTURE="$<TARGET_FILE:yaddnsc_fixture_small_descriptor>"
+        NO_VALIDATE_FIXTURE="$<TARGET_FILE:yaddnsc_fixture_no_validate>")
     add_dependencies(${test_target}
         yaddnsc_test_driver_plugin
         yaddnsc_fixture_bad_revision
         yaddnsc_fixture_bad_magic
         yaddnsc_fixture_missing_symbol
-        yaddnsc_fixture_small_descriptor)
+        yaddnsc_fixture_small_descriptor
+        yaddnsc_fixture_no_validate)
 endforeach()

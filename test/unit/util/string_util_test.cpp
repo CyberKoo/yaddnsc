@@ -1,5 +1,5 @@
 //
-// Unit tests for include/string_util.hpp — string utility functions.
+// Unit tests for src/support/string_util.hpp — string utility functions.
 //
 // Verifies:
 //   - trim/ltrim/rtrim (view-based and copy)
@@ -16,7 +16,7 @@
 
 #include <gtest/gtest.h>
 
-#include "string_util.hpp"
+#include "support/string_util.hpp"
 
 // ===========================================================================
 // trim / ltrim / rtrim

@@ -28,8 +28,8 @@
 #include "application/ports/log.h"
 #include "infrastructure/plugin/host_services.h"
 #include "infrastructure/plugin/plugin_loader.h"
-#include "interface/http_client.h"
-#include "util/cancellation_token.hpp"
+#include "infrastructure/network/http/client_port.h"
+#include "support/util/cancellation_token.hpp"
 
 #include <yaddnsc/sdk/driver_abi.h>
 

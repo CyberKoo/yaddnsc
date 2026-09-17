@@ -5,7 +5,7 @@
 // the process — this binary only runs these tests, so that is safe here.
 // =============================================================================
 
-#include "core/signal_watcher.h"
+#include "infrastructure/process/signal_watcher.h"
 
 #include <chrono>
 #include <csignal>

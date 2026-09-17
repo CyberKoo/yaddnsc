@@ -182,7 +182,14 @@ struct yaddnsc_host_services {
     int (*is_cancelled)(void *context);
 };
 
-/* ── Exported entry points (extern "C", no exceptions, no C++ objects) ────*/
+/* ── Exported entry points (extern "C", no exceptions, no C++ objects) ────
+ *
+ * Four entry points are REQUIRED: get_descriptor, create, destroy, update.
+ * A fifth, yaddnsc_driver_validate, is OPTIONAL within api_revision 1: the
+ * host resolves it with dlsym and, when absent, skips the driver-side
+ * driver_param check (config validation still passes). Plugins built
+ * against an older SDK simply do not export it.
+ */
 
 yaddnsc_status yaddnsc_driver_get_descriptor(
     const yaddnsc_driver_descriptor **out_descriptor);
@@ -197,6 +204,26 @@ void yaddnsc_driver_destroy(yaddnsc_driver *driver);
 yaddnsc_status yaddnsc_driver_update(
     yaddnsc_driver *driver,
     const yaddnsc_update_request *request,
+    yaddnsc_error *out_error);
+
+/* OPTIONAL — validate driver_param without performing an update.
+ *
+ * Called by the host's `config test` on a live instance between
+ * yaddnsc_driver_create() and yaddnsc_driver_destroy(); `driver` is exactly
+ * the handle create() produced. `driver_param_json` is host-serialised,
+ * valid JSON UTF-8 bytes, owned by the host and valid for the duration of
+ * the call only.
+ *
+ * Return YADDNSC_STATUS_OK when the parameter is acceptable, or
+ * YADDNSC_STATUS_INVALID_CONFIG with a human-readable message when it
+ * violates the driver's schema; any other non-OK status is treated as a
+ * validation failure as well. Implementations must not depend on host
+ * services (no HTTP exchange is available during validation) and must be
+ * prepared for concurrent calls on distinct instances.
+ */
+yaddnsc_status yaddnsc_driver_validate(
+    yaddnsc_driver *driver,
+    yaddnsc_string driver_param_json,
     yaddnsc_error *out_error);
 
 /* ── struct_size helpers (C and C++) ──────────────────────────────────────*/

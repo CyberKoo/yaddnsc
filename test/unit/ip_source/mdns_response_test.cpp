@@ -5,7 +5,7 @@
 
 #include <gtest/gtest.h>
 
-#include "ip_source/mdns_response.h"
+#include "infrastructure/ip_source/mdns_response.h"
 
 namespace {
     void append_u16(std::vector<std::uint8_t>& out, const std::uint16_t value) {

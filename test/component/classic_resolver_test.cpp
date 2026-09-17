@@ -42,24 +42,24 @@
 #include <sys/prctl.h>
 #endif
 
-#include <util/cancellation_token.hpp>
+#include "support/util/cancellation_token.hpp"
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
-#include "config/dns_config.h"
-#include "dns/resolver/classic.h"
-#include "dns/dns_error_info.h"
-#include "dns/types.h"
-#include "dns/wire/builder.h"
-#include "network/inet_address.h"
-#include "network/socket.h"
-#include "network/socket_addr.h"
-#include "record_kind.h"
-#include "uri.h"
-#include "exception/dns_lookup.h"
+#include "domain/config/dns_config.h"
+#include "infrastructure/dns/resolver/classic.h"
+#include "domain/error/dns_error_info.h"
+#include "infrastructure/dns/types.h"
+#include "infrastructure/dns/wire/builder.h"
+#include "domain/network/inet_address.h"
+#include "infrastructure/network/socket.h"
+#include "infrastructure/network/socket_addr.h"
+#include "domain/dns/record_kind.h"
+#include "infrastructure/network/uri.h"
+#include "infrastructure/dns/dns_lookup_exception.h"
 
-#include "fmt.hpp"
+#include "support/fmt.hpp"
 
 using namespace std::chrono_literals;
 

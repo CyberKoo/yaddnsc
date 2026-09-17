@@ -11,8 +11,8 @@
 #include <netinet/in.h>
 #include <sys/socket.h>
 
-#include "network/inet_address.h"
-#include "network/socket_addr.h"
+#include "domain/network/inet_address.h"
+#include "infrastructure/network/socket_addr.h"
 
 // =============================================================================
 // SocketAddr::from_inet

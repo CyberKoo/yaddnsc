@@ -1,5 +1,5 @@
 //
-// Component tests for Transport (src/network/transport/).
+// Component tests for Transport (src/infrastructure/network/transport/).
 //
 // TcpStream: in-process loopback echo server.
 // TlsStream: Python TLS echo server (fork/exec), mirroring the legacy
@@ -27,11 +27,11 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
-#include "network/transport/tcp_stream.h"
-#include "network/transport/tls_stream.h"
-#include "util/cancellation_token.hpp"
+#include "infrastructure/network/transport/tcp_stream.h"
+#include "infrastructure/network/transport/tls_stream.h"
+#include "support/util/cancellation_token.hpp"
 
-#include "fmt.hpp"
+#include "support/fmt.hpp"
 
 using namespace std::chrono_literals;
 using Transport::IoError;

@@ -9,7 +9,7 @@
 #include <memory>
 
 #include "application/ports/driver_gateway.h"
-#include "util/cancellation_token.hpp"
+#include "support/util/cancellation_token.hpp"
 
 class HttpClient;
 class DriverCatalog;
@@ -53,6 +53,14 @@ public:
 
     [[nodiscard]] std::expected<void, domain::DriverError>
     update(std::string_view driver_name, const DriverUpdateCommand &command) const override;
+
+    /// Validate one subdomain's driver_param JSON against the driver's schema
+    /// without performing an update (the host's `config test` path). Runs the
+    /// same create → validate → destroy instance cycle as update(); when the
+    /// plugin does not export the OPTIONAL yaddnsc_driver_validate entry the
+    /// call succeeds immediately — older plugins impose no driver-side check.
+    [[nodiscard]] std::expected<void, domain::DriverError>
+    validate_config(std::string_view driver_name, std::string_view driver_param_json) const;
 
 private:
     const DriverCatalog &catalog_;

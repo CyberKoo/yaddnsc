@@ -1,5 +1,5 @@
 //
-// Unit tests for the net::http client domain (src/http_client/).
+// Unit tests for the net::http client domain (src/infrastructure/network/http/).
 //
 // Protocol exchange is exercised through a scripted in-memory Stream
 // (no network I/O): fixed/chunked/close-delimited bodies, split reads,
@@ -16,10 +16,10 @@
 #include <expected>
 #include <gtest/gtest.h>
 
-#include "http_client/protocol/exchange.h"
-#include "http_client/protocol/wire.h"
-#include "http_client/redirect.h"
-#include "network/transport/stream.h"
+#include "infrastructure/network/http/protocol/exchange.h"
+#include "infrastructure/network/http/protocol/wire.h"
+#include "infrastructure/network/http/redirect.h"
+#include "infrastructure/network/transport/stream.h"
 
 using net::http::ErrorCode;
 using net::http::Limits;

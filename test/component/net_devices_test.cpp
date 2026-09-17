@@ -12,8 +12,8 @@
 
 #include <gtest/gtest.h>
 
-#include "network/inet_address.h"
-#include "network/net_devices.h"
+#include "domain/network/inet_address.h"
+#include "infrastructure/network/net_devices.h"
 
 namespace {
     const std::string LOOPBACK = NetDevices::loopback_name();

@@ -9,7 +9,7 @@
 
 #include <gmock/gmock.h>
 
-#include "interface/http_client.h"
+#include "infrastructure/network/http/client_port.h"
 
 class MockHttpClient : public HttpClient {
 public:

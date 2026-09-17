@@ -18,8 +18,8 @@
 #include <gtest/gtest.h>
 #include <glaze/glaze.hpp>
 
-#include "config/config.h"
-#include "config/parser.hpp"
+#include "infrastructure/config/config.h"
+#include "infrastructure/config/parser.hpp"
 #include "fixtures/sample_config.h"
 
 // ===========================================================================

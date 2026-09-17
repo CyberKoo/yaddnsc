@@ -7,8 +7,8 @@
 #include <string>
 #include <string_view>
 
-#include "string_util.hpp"
-#include "uri.h"
+#include "support/string_util.hpp"
+#include "infrastructure/network/uri.h"
 
 // =============================================================================
 // Uri::parse benchmarks — various URI shapes

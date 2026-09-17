@@ -15,7 +15,7 @@
 
 #include <gtest/gtest.h>
 
-#include "mixin.h"
+#include "support/mixin.h"
 
 // ---------------------------------------------------------------------------
 // NoCopy

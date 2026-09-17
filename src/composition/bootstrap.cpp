@@ -10,6 +10,7 @@
 #include <thread>
 #include <utility>
 
+#include <magic_enum/magic_enum.hpp>
 #include <spdlog/spdlog.h>
 
 #include "application/diagnostics.h"
@@ -20,27 +21,31 @@
 
 #include "cli/presenter.h"
 
-#include "config/config.h"
-#include "config/normalizer.h"
-#include "config/static_validator.h"
+#include "infrastructure/config/config.h"
+#include "infrastructure/config/normalizer.h"
+#include "infrastructure/config/static_validator.h"
 
-#include "core/driver_loader.h"
-#include "core/signal_watcher.h"
-#include "core/spdlog_logger.h"
-#include "core/steady_clock.h"
+#include "infrastructure/plugin/driver_loader.h"
+#include "infrastructure/process/signal_watcher.h"
+#include "infrastructure/logging/spdlog_logger.h"
+#include "infrastructure/time/steady_clock.h"
 
-#include "dns/factory.h"
-#include "dns/resolver_catalog.h"
+#include "infrastructure/dns/factory.h"
+#include "infrastructure/dns/resolver_catalog.h"
 
-#include "exception/base.h"
-#include "exception/config_verification.h"
+#include "support/exception.h"
+#include "support/fmt.hpp"
+#include "support/util/cancellation_token.hpp"
+#include "infrastructure/config/config_verification_exception.h"
 
-#include "http_client/client.h"
+#include "domain/fqdn.h"
+
+#include "infrastructure/network/http/client.h"
+#include "infrastructure/network/uri.h"
 #include "infrastructure/plugin/abi_driver_gateway.h"
 #include "infrastructure/plugin/driver_catalog.h"
-#include "ip_source/adapter.h"
-#include "network/system_network_interfaces.h"
-#include "util/cancellation_token.hpp"
+#include "infrastructure/ip_source/adapter.h"
+#include "infrastructure/network/system_network_interfaces.h"
 #include "version.h"
 
 namespace {
@@ -67,11 +72,12 @@ namespace {
 
     /// HTTP client factory bound to the run's cancellation source: every
     /// client created from it is cancellable through the same token.
-    [[nodiscard]] HttpClientFactory make_http_client_factory(const std::shared_ptr<Utils::CancellationSource> &src) {
-        return [src] {
+    [[nodiscard]] HttpClientFactory make_http_client_factory(const Utils::CancellationSource &source) {
+        const auto token = source.token();
+        return [token] {
             net::http::Options opts;
             opts.user_agent = YADDNSC::get_full_version();
-            return std::make_unique<net::http::Client>(std::move(opts), src->token());
+            return std::make_unique<net::http::Client>(std::move(opts), token);
         };
     }
 
@@ -98,7 +104,7 @@ namespace {
         }
 
         SignalWatcher signal_watcher;
-        const auto cancel_src = std::make_shared<Utils::CancellationSource>();
+        Utils::CancellationSource cancellation;
         const auto runtime_config = std::make_shared<const domain::RuntimeConfig>(std::move(*config));
 
         // The driver catalog lives in this scope: it is released (modules
@@ -121,18 +127,31 @@ namespace {
             }
 
             auto dispatcher =
-                DnsResolverFactory::create(runtime_config->resolver, cancel_src->token(), ResolverCatalog::with_builtins());
-            const IpSourceAdapter ip_source(cancel_src->token());
-            const AbiDriverGateway driver_gateway(driver_catalog, make_http_client_factory(cancel_src),
-                                                  cancel_src->token(), logger);
+                DnsResolverFactory::create(runtime_config->resolver, cancellation.token(), ResolverCatalog::with_builtins());
+            const IpSourceAdapter ip_source(cancellation.token());
+            const AbiDriverGateway driver_gateway(driver_catalog, make_http_client_factory(cancellation),
+                                                  cancellation.token(), logger);
             const UpdateWorkflow workflow(dispatcher, ip_source, driver_gateway, logger);
             PoolTaskExecutor task_executor(estimate_pool_size(*runtime_config), workflow);
 
-            RunLifecycle lifecycle(runtime_config, signal_watcher.get_stop_source(), cancel_src, clock,
+            RunLifecycle lifecycle(runtime_config, signal_watcher.get_stop_source(), cancellation, clock,
                                    task_executor, interfaces, logger);
             lifecycle.run();
         }
         return EXIT_SUCCESS;
+    }
+
+    [[nodiscard]] std::string format_resolver_server(const Config::DnsServer &server) {
+        const auto uri = Uri::parse(server.address);
+        if (!uri.get_schema().empty()) {
+            std::string display = uri.get_origin();
+            const auto path = uri.get_path();
+            if (!path.empty() && path != "/") {
+                display += path;
+            }
+            return display;
+        }
+        return fmt::format("{}:{}", uri.get_host_literal(), server.port);
     }
 
     // -----------------------------------------------------------------------
@@ -178,11 +197,19 @@ namespace {
     }
 
     int execute_command(const Cli::DnsResolverCommand &command) {
-        return Cli::present_dns_resolver(Config::load_config(command.config_path).resolver);
+        const auto resolver = Config::load_config(command.config_path).resolver;
+        std::vector<std::string> servers;
+        servers.reserve(resolver.servers.size());
+        for (const auto &server: resolver.servers) {
+            servers.push_back(format_resolver_server(server));
+        }
+        return Cli::present_dns_resolver(resolver.use_custom_server,
+                                         magic_enum::enum_name(resolver.strategy), servers,
+                                         resolver.address, resolver.port);
     }
 
     int execute_command(const Cli::ConfigShowCommand &command) {
-        return Cli::present_config_show(Config::load_config(command.config_path));
+        return Cli::present_config_show(Config::redacted_json(Config::load_config(command.config_path)));
     }
 
     int execute_command(const Cli::ConfigTestCommand &command) {
@@ -211,6 +238,31 @@ namespace {
                 return Cli::present_config_test(
                     {.quiet = command.quiet,
                      .error = Error{.kind = Error::Kind::VERIFICATION, .message = env.error().front().message}});
+            }
+
+            // Driver-side driver_param validation through the OPTIONAL ABI
+            // entry: every subdomain's driver_param is checked against its
+            // driver's schema so a missing zone_id-style key fails here
+            // instead of on the first update. Plugins that do not export
+            // yaddnsc_driver_validate are skipped (not an error).
+            Utils::CancellationSource cancellation;
+            const SpdlogLogger logger;
+            const AbiDriverGateway driver_gateway(driver_catalog, make_http_client_factory(cancellation),
+                                                  cancellation.token(), logger);
+            for (const auto &domain_config : config->domains) {
+                for (const auto &subdomain : domain_config.subdomains) {
+                    if (const auto result =
+                                driver_gateway.validate_config(domain_config.driver, subdomain.driver_param);
+                        !result.has_value()) {
+                        return Cli::present_config_test(
+                            {.quiet = command.quiet,
+                             .error = Error{.kind = Error::Kind::VERIFICATION,
+                                            .message = fmt::format("Driver '{}' rejected configuration for {}: {}",
+                                                                   domain_config.driver,
+                                                                   domain::make_fqdn(domain_config.name, subdomain.name),
+                                                                   result.error().message)}});
+                    }
+                }
             }
 
             return Cli::present_config_test({.quiet = command.quiet, .error = std::nullopt});

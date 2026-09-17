@@ -24,6 +24,24 @@ When the plugin interface changes, `api_revision` is bumped and older drivers
 are rejected at load time with a message telling you to rebuild. Rebuild the
 driver against the current SDK headers — do not bypass the check.
 
+## Entry points
+
+Four entry points are **required**: `yaddnsc_driver_get_descriptor`,
+`yaddnsc_driver_create`, `yaddnsc_driver_destroy`, and
+`yaddnsc_driver_update`. A fifth, `yaddnsc_driver_validate`, is **optional**
+within api_revision 1: the host probes it with `dlsym` and simply skips the
+driver-side `driver_param` check when it is absent, so plugins built against
+an older SDK keep working.
+
+`yaddnsc_driver_validate` lets `yaddnsc config test` check a driver's
+`driver_param` against the driver's own schema without performing an update.
+It is called on a live instance between create and destroy, must not use host
+services (no HTTP exchange is available), and returns
+`YADDNSC_STATUS_INVALID_CONFIG` with a human-readable message when the
+parameter is unacceptable. The SDK's C++ helper layer emits it automatically
+from `YADDNSC_DEFINE_DRIVER`; override `Driver::validate()` to add the
+schema check (the bundled drivers are one-liners calling `parse_config<T>`).
+
 ## Recommended build
 
 Place the driver under `driver/<name>/` and rebuild the project:
@@ -45,7 +63,8 @@ target_link_libraries(<name> PRIVATE yaddnsc_plugin_sdk)
 The SDK is installed alongside the host so third-party drivers can build
 without the host sources:
 
-- headers: `<prefix>/include/yaddnsc/sdk/` (the C ABI + C++ helper layer);
+- headers: `<prefix>/include/yaddnsc/sdk/` (the C ABI + C++ helper layer) and
+  `<prefix>/include/yaddnsc/util/` (shared string/format/URL utilities);
 - crypto helpers: `<prefix>/share/yaddnsc/plugin-sdk/plugin_crypto/`
   (`signing.h` / `signing.cpp`) — shipped as source, so the plugin compiles
   them with its own toolchain flags (PIC/sanitizer choices always match the
@@ -84,9 +103,14 @@ one-time initialization.
 
 A plugin must not include host `src/` headers or legacy utility headers
 (`CORE_LOG`, `uri.h`, `fmt.hpp`, `string_util.hpp`, host `HttpClient`); the
-SDK surface (`yaddnsc/sdk/*`) plus privately linked third-party libraries is
-the whole contract. Use the bundled `driver/cloudflare/` as the reference
-implementation and keep provider-specific credentials in `driver_param`.
+SDK surface (`yaddnsc/sdk/*`, backed by the shared utilities in
+`yaddnsc/util/*`) plus privately linked third-party libraries is the whole
+contract. String helpers (`yaddnsc/sdk/string_util.hpp`), named-argument
+formatting (`yaddnsc/sdk/format.hpp`), and percent-encoding
+(`yaddnsc/sdk/url_encode.hpp`) are part of that surface — use them instead of
+copying implementations into the driver. Use the bundled
+`driver/cloudflare/` as the reference implementation and keep
+provider-specific credentials in `driver_param`.
 Do not put credentials in source code or log messages — the SDK log helpers
 redact sensitive request fields by default.
 

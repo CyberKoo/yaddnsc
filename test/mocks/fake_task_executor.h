@@ -41,6 +41,15 @@ public:
         shutdown_ = true;
     }
 
+    void set_retry_handler(RetryHandler handler) override { retry_handler_ = std::move(handler); }
+
+    /// Fire the installed retry handler as a pool thread would (test hook).
+    void fire_retry(domain::TaskId id, std::chrono::seconds delay) {
+        if (retry_handler_) {
+            retry_handler_(id, delay);
+        }
+    }
+
     /// Block until at least `n` tasks were submitted (or the timeout fires).
     bool wait_submitted(std::size_t n, std::chrono::milliseconds timeout = std::chrono::milliseconds{5000}) {
         std::unique_lock lock(mtx_);
@@ -68,6 +77,7 @@ private:
     std::vector<domain::UpdateTask> submitted_;
     bool shutdown_{false};
     std::atomic<int> wait_idle_calls_{0};
+    RetryHandler retry_handler_;
 };
 
 #endif // YADDNSC_TEST_MOCKS_FAKE_TASK_EXECUTOR_H

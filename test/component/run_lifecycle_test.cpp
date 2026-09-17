@@ -38,22 +38,23 @@
 #include "application/pool_task_executor.h"
 #include "application/run_lifecycle.h"
 #include "application/update_workflow.h"
-#include "core/driver_loader.h"
-#include "core/spdlog_logger.h"
-#include "core/steady_clock.h"
+#include "infrastructure/plugin/driver_loader.h"
+#include "infrastructure/logging/spdlog_logger.h"
+#include "infrastructure/time/steady_clock.h"
 #include "infrastructure/plugin/abi_driver_gateway.h"
 #include "infrastructure/plugin/driver_catalog.h"
-#include "ip_source/adapter.h"
-#include "network/system_network_interfaces.h"
+#include "infrastructure/ip_source/adapter.h"
+#include "infrastructure/network/system_network_interfaces.h"
 
-#include "config/config.h"
-#include "config/normalizer.h"
-#include "config/parser.hpp"
-#include "dns/dispatcher.h"
-#include "interface/http_client.h"
-#include "ip_source/iface.h"
-#include "ip_source/iface_util.h"
-#include "util/cancellation_token.hpp"
+#include "infrastructure/config/config.h"
+#include "infrastructure/config/normalizer.h"
+#include "infrastructure/config/parser.hpp"
+#include "infrastructure/dns/dispatcher.h"
+#include "infrastructure/network/http/client_port.h"
+#include "infrastructure/ip_source/iface.h"
+#include "infrastructure/ip_source/iface_util.h"
+
+#include "support/util/cancellation_token.hpp"
 
 #include "mocks/fake_clock.h"
 #include "mocks/fake_task_executor.h"
@@ -175,15 +176,15 @@ struct RunGraph {
     RunGraph(domain::RuntimeConfig config, ResolverDispatcher dispatcher, HttpClientFactory http_factory)
         : config_(std::make_shared<const domain::RuntimeConfig>(std::move(config))),
           dispatcher_(std::move(dispatcher)),
-          ip_source_(cancel_src_->token()),
-          gateway_(catalog_, std::move(http_factory), cancel_src_->token(), logger_),
+          ip_source_(cancellation_.token()),
+          gateway_(catalog_, std::move(http_factory), cancellation_.token(), logger_),
           workflow_(dispatcher_, ip_source_, gateway_, logger_),
           executor_(2, workflow_) {
         DriverLoader::load(catalog_, config_->driver);
     }
 
     std::shared_ptr<const domain::RuntimeConfig> config_;
-    std::shared_ptr<Utils::CancellationSource> cancel_src_{std::make_shared<Utils::CancellationSource>()};
+    Utils::CancellationSource cancellation_;
     SpdlogLogger logger_;
     DriverCatalog catalog_;
     SteadyClock clock_;
@@ -235,7 +236,7 @@ TEST(RunLifecycle, StopDrainsInFlightTaskBeforeReturning) {
     HttpClientFactory http_factory = [state] { return std::make_unique<BlockingHttpClient>(state); };
 
     RunGraph graph(parse_cfg(lifecycle_config(*interface_name)), make_dispatcher(), http_factory);
-    RunLifecycle lifecycle(graph.config_, stop_source, graph.cancel_src_, graph.clock_, graph.executor_,
+    RunLifecycle lifecycle(graph.config_, stop_source, graph.cancellation_, graph.clock_, graph.executor_,
                            graph.interfaces_, graph.logger_);
 
     std::promise<void> run_done;
@@ -283,7 +284,7 @@ TEST(RunLifecycle, StopBeforeRunDispatchesNothing) {
     HttpClientFactory http_factory = [state] { return std::make_unique<BlockingHttpClient>(state); };
 
     RunGraph graph(parse_cfg(lifecycle_config(*interface_name)), make_dispatcher(), http_factory);
-    RunLifecycle lifecycle(graph.config_, stop_source, graph.cancel_src_, graph.clock_, graph.executor_,
+    RunLifecycle lifecycle(graph.config_, stop_source, graph.cancellation_, graph.clock_, graph.executor_,
                            graph.interfaces_, graph.logger_);
 
     stop_source.request_stop();
@@ -300,10 +301,11 @@ TEST(RunLifecycle, StopBeforeRunDispatchesNothing) {
 }
 
 // stop → I/O cancellation fires, the executor is shut down and drained, and
-// the runner never dispatches again — observed through pure port fakes.
+// the runner never dispatches again — observed through port fakes plus the
+// real cancellation primitive.
 TEST(RunLifecycle, StopCancelsIoAndDrainsExecutor) {
     auto config = std::make_shared<const domain::RuntimeConfig>(fake_graph_config());
-    auto cancel_src = std::make_shared<Utils::CancellationSource>();
+    Utils::CancellationSource cancellation;
     NullLogger logger;
     FakeClock clock{T0};
     FakeTaskExecutor executor;
@@ -311,7 +313,7 @@ TEST(RunLifecycle, StopCancelsIoAndDrainsExecutor) {
     ON_CALL(interfaces, names()).WillByDefault(Return(std::vector<std::string>{"lo"}));
 
     std::stop_source stop_source;
-    RunLifecycle lifecycle(config, stop_source, cancel_src, clock, executor, interfaces, logger);
+    RunLifecycle lifecycle(config, stop_source, cancellation, clock, executor, interfaces, logger);
 
     std::promise<void> run_done;
     auto run_future = run_done.get_future();
@@ -324,12 +326,11 @@ TEST(RunLifecycle, StopCancelsIoAndDrainsExecutor) {
     // the runner parks on the fake clock one hour out.
     ASSERT_TRUE(executor.wait_submitted(1));
 
+    EXPECT_FALSE(cancellation.is_triggered());
     stop_source.request_stop();
+    EXPECT_TRUE(cancellation.is_triggered());
 
     ASSERT_EQ(run_future.wait_for(10s), std::future_status::ready) << "run() did not return after stop";
-
-    // The stop → I/O-cancel binding fired.
-    EXPECT_TRUE(cancel_src->is_triggered());
     // The executor was shut down (rejecting further submits) and drained once.
     EXPECT_TRUE(executor.is_shutdown());
     EXPECT_EQ(executor.wait_idle_calls(), 1);
@@ -341,7 +342,7 @@ TEST(RunLifecycle, StopCancelsIoAndDrainsExecutor) {
 // (the binding is established at construction).
 TEST(RunLifecycle, PreStopCancelsIoBeforeRun) {
     auto config = std::make_shared<const domain::RuntimeConfig>(fake_graph_config());
-    auto cancel_src = std::make_shared<Utils::CancellationSource>();
+    Utils::CancellationSource cancellation;
     NullLogger logger;
     FakeClock clock{T0};
     FakeTaskExecutor executor;
@@ -349,10 +350,10 @@ TEST(RunLifecycle, PreStopCancelsIoBeforeRun) {
     ON_CALL(interfaces, names()).WillByDefault(Return(std::vector<std::string>{"lo"}));
 
     std::stop_source stop_source;
-    RunLifecycle lifecycle(config, stop_source, cancel_src, clock, executor, interfaces, logger);
+    RunLifecycle lifecycle(config, stop_source, cancellation, clock, executor, interfaces, logger);
 
     stop_source.request_stop();
-    EXPECT_TRUE(cancel_src->is_triggered());
+    EXPECT_TRUE(cancellation.is_triggered());
 
     lifecycle.run();
     EXPECT_TRUE(executor.is_shutdown());

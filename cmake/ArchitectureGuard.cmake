@@ -36,8 +36,8 @@ set(INC_RE "^[ \t]*#[ \t]*include[ \t]*")
 # ------------------------------------------------------------------------------
 # 1. domain: no infrastructure, third-party libraries or cancellation plumbing
 # ------------------------------------------------------------------------------
-guard_check("domain must not include http_client/Glaze/spdlog/CLI11/CancellationToken"
-    "${INC_RE}[<\"](http_client/|glaze/|spdlog/|CLI/|[^\">]*[Cc]ancellation[Tt]oken[^\">]*)"
+guard_check("domain must not include infrastructure/Glaze/spdlog/CLI11/CancellationToken"
+    "${INC_RE}[<\"](infrastructure/|glaze/|spdlog/|CLI/|[^\">]*[Cc]ancellation[Tt]oken[^\">]*)"
     ${PROJECT_SOURCE_DIR}/src/domain/*.h
     ${PROJECT_SOURCE_DIR}/src/domain/*.hpp
     ${PROJECT_SOURCE_DIR}/src/domain/*.cpp)
@@ -46,7 +46,7 @@ guard_check("domain must not include http_client/Glaze/spdlog/CLI11/Cancellation
 # 2. application: no infrastructure implementation headers or third-party I/O
 # ------------------------------------------------------------------------------
 guard_check("application must not include infrastructure/spdlog/Glaze/CLI11/OpenSSL/dlopen"
-    "${INC_RE}[<\"](infrastructure/|core/|composition/|cli/|spdlog/|glaze/|CLI/|openssl/|dlfcn\\.h)"
+    "${INC_RE}[<\"](infrastructure/|composition/|cli/|spdlog/|glaze/|CLI/|openssl/|dlfcn\\.h)"
     ${PROJECT_SOURCE_DIR}/src/application/*.h
     ${PROJECT_SOURCE_DIR}/src/application/*.hpp
     ${PROJECT_SOURCE_DIR}/src/application/*.cpp)
@@ -56,7 +56,7 @@ guard_check("application must not include infrastructure/spdlog/Glaze/CLI11/Open
 #    no spdlog (logging goes through Host Services)
 # ------------------------------------------------------------------------------
 guard_check("plugins must not include host src/ module headers"
-    "${INC_RE}\"(\\.\\./|(core|application|infrastructure|domain|config|network|http_client|cli|composition|dns|ip_source|util)/)"
+    "${INC_RE}\"(\\.\\./|(core|application|infrastructure|domain|config|network|http_client|cli|composition|dns|ip_source|util|support)/)"
     ${PROJECT_SOURCE_DIR}/driver/*.h
     ${PROJECT_SOURCE_DIR}/driver/*.hpp
     ${PROJECT_SOURCE_DIR}/driver/*.cpp)
@@ -107,7 +107,7 @@ foreach (f ${http_check_files})
             continue()
         endif ()
         string(STRIP "${line}" stripped)
-        set(violations "${violations}\n  ${f}: no parallel HTTP types (use include/http/types.h + interface/http_client.h)\n      ${stripped}")
+        set(violations "${violations}\n  ${f}: no parallel HTTP types (use src/infrastructure/network/http/types.h + src/infrastructure/network/http/client_port.h)\n      ${stripped}")
     endforeach ()
 endforeach ()
 
@@ -142,6 +142,17 @@ foreach (f ${cmake_files})
         endif ()
     endforeach ()
 endforeach ()
+
+# ------------------------------------------------------------------------------
+# 9. plugins must not redefine shared string utilities — the single
+#    implementation lives in include/yaddnsc/util/ (exposed to drivers via
+#    yaddnsc/sdk/*); a return-type prefix keeps call sites from matching
+# ------------------------------------------------------------------------------
+guard_check("plugins must not redefine shared string utilities (use yaddnsc/sdk/string_util.hpp, yaddnsc/sdk/url_encode.hpp)"
+    "^[ \t]*(static[ \t]+|inline[ \t]+)*(void|bool|std::string|std::string_view)[ \t]+(ltrim|rtrim|trim|replace_all|url_encode)[ \t]*\\("
+    ${PROJECT_SOURCE_DIR}/driver/*/*.h
+    ${PROJECT_SOURCE_DIR}/driver/*/*.hpp
+    ${PROJECT_SOURCE_DIR}/driver/*/*.cpp)
 
 # ------------------------------------------------------------------------------
 # Verdict

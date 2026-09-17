@@ -4,7 +4,7 @@
 
 #include "plugin_loader.h"
 
-#include "fmt.hpp"
+#include "support/fmt.hpp"
 
 #include <spdlog/spdlog.h>
 
@@ -56,6 +56,11 @@ std::expected<PluginModule, domain::PluginError> PluginModule::load(const std::s
                                                       "points (get_descriptor/create/destroy/update). {}",
                                                       path, ABI_CHANGED_HINT)));
     }
+
+    // 2b. The OPTIONAL validate entry (added within api_revision 1): absence
+    // is not an error — the host skips the driver-side config check for
+    // plugins built against an SDK that predates it.
+    module.validate_ = resolve_entry<decltype(yaddnsc_driver_validate)>(module.library_, "yaddnsc_driver_validate");
 
     // 3. Fetch the descriptor.
     const yaddnsc_driver_descriptor *raw_descriptor = nullptr;

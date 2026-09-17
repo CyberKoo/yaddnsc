@@ -28,11 +28,11 @@
 
 #include "domain/fqdn.h"
 #include "domain/update/update_task.h"
-#include "network/inet_address.h"
+#include "domain/network/inet_address.h"
 
-#include "config/config.h"
-#include "config/normalizer.h"
-#include "config/parser.hpp"
+#include "infrastructure/config/config.h"
+#include "infrastructure/config/normalizer.h"
+#include "infrastructure/config/parser.hpp"
 
 #include "fixtures/sample_config.h"
 #include "mocks/mock_ports.h"

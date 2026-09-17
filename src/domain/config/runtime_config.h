@@ -10,17 +10,17 @@
 #include <string>
 #include <vector>
 
-#include "address_family.h"
-#include "ip_source_kind.h"
-#include "record_kind.h"
+#include "domain/network/address_family.h"
+#include "domain/config/ip_source_kind.h"
+#include "domain/dns/record_kind.h"
 
-#include "config/dns_config.h"
+#include "domain/config/dns_config.h"
 
 /// Domain runtime configuration model.
 ///
 /// Normalised, glaze-free value objects produced by the config adapter
-/// (src/config/normalizer + static_validator). Unlike the raw DTO in
-/// src/config/config.h, this model contains:
+/// (src/infrastructure/config/normalizer + static_validator). Unlike the raw DTO in
+/// src/infrastructure/config/config.h, this model contains:
 ///   - no glz::generic (driver_param is opaque JSON text),
 ///   - no legacy file-format fields (resolver is already a server list),
 ///   - no CLI11 types and no environment probe results.

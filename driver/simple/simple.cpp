@@ -4,15 +4,16 @@
 
 #include "simple.h"
 
-#include <algorithm>
-#include <cctype>
-#include <ranges>
 #include <string>
 #include <string_view>
+#include <tuple>
 
 #include <glaze/glaze.hpp>
 
+#include <yaddnsc/sdk/string_util.hpp>
+
 namespace fmt = yaddnsc::sdk::fmt;
+namespace string_util = yaddnsc::sdk::string_util;
 using yaddnsc::sdk::Error;
 using yaddnsc::sdk::HttpRequest;
 using yaddnsc::sdk::HttpResponse;
@@ -24,67 +25,6 @@ using yaddnsc::sdk::UpdateRequest;
 
 namespace {
     constexpr std::string_view DRIVER_NAME = "simple";
-
-    // Copied from include/string_util.hpp (host-internal; plugins must not
-    // include it) so the URL template substitution behaves identically.
-    void replace_all(std::string &str, const std::string_view target, const std::string_view replacement) {
-        if (target.empty()) return;
-
-        // Equal-length: in-place overwrite, no allocation
-        if (target.size() == replacement.size()) {
-            if (replacement.data() >= str.data() && replacement.data() < str.data() + str.size()) {
-                std::string repl(replacement);
-                auto pos = str.find(target);
-                while (pos != std::string::npos) {
-                    std::copy_n(repl.data(), replacement.size(), str.data() + pos);
-                    pos = str.find(target, pos + replacement.size());
-                }
-            } else {
-                auto pos = str.find(target);
-                while (pos != std::string::npos) {
-                    std::copy_n(replacement.data(), replacement.size(), str.data() + pos);
-                    pos = str.find(target, pos + replacement.size());
-                }
-            }
-            return;
-        }
-
-        // Unequal-length: build new string, single allocation
-        std::string result;
-        size_t last = 0;
-        auto pos = str.find(target);
-        while (pos != std::string::npos) {
-            result.append(str, last, pos - last);
-            result.append(replacement);
-            last = pos + target.size();
-            pos = str.find(target, last);
-        }
-        result.append(str, last);
-        str.swap(result);
-    }
-
-    // Copied from include/string_util.hpp.
-    std::string_view ltrim(const std::string_view sv) noexcept {
-        const auto it = std::ranges::find_if(sv, [](unsigned char ch) noexcept {
-            return !std::isspace(ch);
-        });
-        return sv.substr(static_cast<size_t>(std::distance(sv.begin(), it)));
-    }
-
-    // Copied from include/string_util.hpp.
-    std::string_view rtrim(const std::string_view sv) noexcept {
-        const auto it = std::ranges::find_if(
-                sv | std::views::reverse,
-                [](unsigned char ch) noexcept {
-                    return !std::isspace(ch);
-                });
-        return sv.substr(0, static_cast<size_t>(std::distance(sv.begin(), it.base())));
-    }
-
-    // Copied from include/string_util.hpp.
-    std::string_view trim(const std::string_view sv) noexcept {
-        return ltrim(rtrim(sv));
-    }
 } // namespace
 
 YADDNSC_DEFINE_DRIVER(SimpleDriver, "simple", "Generic HTTP driver with URL template substitution", "Kotarou",
@@ -95,41 +35,37 @@ Result SimpleDriver::update(UpdateContext &context) {
 
     auto request = generate_request(params);
 
-    YADDNSC_SDK_LOG_DEBUG(context, "Domain {} ({}) received DNS record update request from driver {}, {}",
-                          params.fqdn, params.record_type, DRIVER_NAME, yaddnsc::sdk::format_request(request));
+    return run_update(context, DRIVER_NAME, request,
+                      [this](const HttpResponse &response, const Services &services) {
+                          return check_response(response, services);
+                      });
+}
 
-    auto response = context.exchange(request);
-    if (!response) {
-        YADDNSC_SDK_LOG_WARN(context, "Domain {} ({}) update failed (HTTP error: {})", params.fqdn,
-                             params.record_type, response.error().message);
-        return std::unexpected(Error{response.error().status, response.error().message, 0});
-    }
-
-    if (!check_response(*response, context.services())) {
-        YADDNSC_SDK_LOG_WARN(context, "Domain {} ({}) update rejected by upstream", params.fqdn, params.record_type);
-        return std::unexpected(Error{YADDNSC_STATUS_UPSTREAM_REJECTED,
-                                     fmt::format("Domain {} ({}) update rejected by upstream", params.fqdn,
-                                                 params.record_type),
-                                     0});
-    }
-
+Result SimpleDriver::validate(std::string_view driver_param_json) const {
+    // Same check as the update path: a missing or non-string "url" throws
+    // ConfigParseError, which the ABI entry maps to YADDNSC_STATUS_INVALID_CONFIG.
+    std::ignore = parse_driver_param(driver_param_json);
     return {};
 }
 
-HttpRequest SimpleDriver::generate_request(const UpdateRequest &params) {
-    auto full = parse_config<glz::generic>(params.driver_param_json);
+glz::generic SimpleDriver::parse_driver_param(std::string_view driver_param_json) {
+    auto full = parse_config<glz::generic>(driver_param_json);
     if (!full.is_object() || !full.contains("url") || !full["url"].is_string()) {
         throw yaddnsc::sdk::ConfigParseError(
                 "Driver configuration parse error: Missing required parameter \"url\" in driver config");
     }
+    return full;
+}
 
+HttpRequest SimpleDriver::generate_request(const UpdateRequest &params) {
+    auto full = parse_driver_param(params.driver_param_json);
     auto &obj = full.get_object();
     auto url = obj["url"].get_string();
 
     // Substitute all keys into the URL template: config params first, then context
     const auto substitute = [&](std::string_view key, std::string_view val) {
         const auto target = fmt::format("{{{}}}", key);
-        replace_all(url, target, val);
+        string_util::replace_all(url, target, val);
     };
 
     for (auto &[key, val]: obj) {
@@ -151,7 +87,7 @@ HttpRequest SimpleDriver::generate_request(const UpdateRequest &params) {
 }
 
 bool SimpleDriver::check_response(const HttpResponse &response, const Services &services) {
-    YADDNSC_SDK_LOG_DEBUG(services, "Status: {}, Response: {}", response.status_code, trim(response.body));
+    YADDNSC_SDK_LOG_DEBUG(services, "Status: {}, Response: {}", response.status_code, string_util::trim(response.body));
 
     if (response.status_code >= 300) {
         YADDNSC_SDK_LOG_ERROR(services, "HTTP request failed with status code {}", response.status_code);

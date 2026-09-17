@@ -6,8 +6,10 @@
 #define YADDNSC_INFRASTRUCTURE_PLUGIN_PLUGIN_LOADER_H
 
 #include <cstdint>
+#include <exception>
 #include <expected>
 #include <string>
+#include <string_view>
 
 #include "domain/error/error.h"
 #include "shared_library.h"
@@ -26,12 +28,15 @@ struct DriverDescriptor {
 };
 
 /// PluginModule — one loaded driver plugin: the shared library handle, its
-/// four resolved entry points, and the validated descriptor.
+/// four resolved required entry points, the optional validate entry, and the
+/// validated descriptor.
 ///
 /// Loading follows the ABI protocol order: dlopen(RTLD_NOW|RTLD_LOCAL) →
-/// resolve all entry points → get_descriptor() → magic check → exact
+/// resolve all required entry points → get_descriptor() → magic check → exact
 /// api_revision match → descriptor minimum struct_size check → copy
-/// descriptor fields. Only then may create() be called.
+/// descriptor fields. Only then may create() be called. The fifth entry
+/// (validate) is optional: it is dlsym-probed and simply stays nullptr when
+/// the plugin predates it.
 ///
 /// @note Thread-safe for concurrent create/update/destroy calls (they only
 ///       read the entry-point table); load is single-threaded startup work.
@@ -50,27 +55,85 @@ public:
 
     [[nodiscard]] const std::string &path() const noexcept { return library_.path(); }
 
-    /// Entry-point trampolines — thin forwards into the plugin.
+    /// Entry-point trampolines — thin forwards into the plugin, behind an
+    /// exception firewall: the ABI forbids exceptions, but a misbehaving
+    /// third-party plugin must not let one escape its C frame into the host.
     [[nodiscard]] yaddnsc_status create(const yaddnsc_host_services &services, yaddnsc_driver **out_driver,
                                         yaddnsc_error &out_error) const {
-        return create_(&services, out_driver, &out_error);
+        try {
+            return create_(&services, out_driver, &out_error);
+        } catch (const std::exception &e) {
+            write_entry_error(out_error, e.what());
+        } catch (...) {
+            write_entry_error(out_error, "unknown exception from plugin create");
+        }
+        return YADDNSC_STATUS_INTERNAL_ERROR;
     }
 
     void destroy(yaddnsc_driver *driver) const noexcept { destroy_(driver); }
 
     [[nodiscard]] yaddnsc_status update(yaddnsc_driver *driver, const yaddnsc_update_request &request,
                                         yaddnsc_error &out_error) const {
-        return update_(driver, &request, &out_error);
+        try {
+            return update_(driver, &request, &out_error);
+        } catch (const std::exception &e) {
+            write_entry_error(out_error, e.what());
+        } catch (...) {
+            write_entry_error(out_error, "unknown exception from plugin update");
+        }
+        return YADDNSC_STATUS_INTERNAL_ERROR;
+    }
+
+    /// Whether the plugin exports the OPTIONAL yaddnsc_driver_validate entry
+    /// (added within api_revision 1). Plugins built against an older SDK do
+    /// not export it and are simply skipped during config validation.
+    [[nodiscard]] bool supports_validate() const noexcept { return validate_ != nullptr; }
+
+    /// Validate a driver_param JSON against the plugin's schema, behind the
+    /// same exception firewall as the other trampolines. When the plugin
+    /// does not export the optional entry this returns OK — the caller must
+    /// treat that as "no driver-side validation", never as an error.
+    [[nodiscard]] yaddnsc_status validate(yaddnsc_driver *driver, yaddnsc_string driver_param_json,
+                                          yaddnsc_error &out_error) const {
+        if (validate_ == nullptr) {
+            return YADDNSC_STATUS_OK;
+        }
+        try {
+            return validate_(driver, driver_param_json, &out_error);
+        } catch (const std::exception &e) {
+            write_entry_error(out_error, e.what());
+        } catch (...) {
+            write_entry_error(out_error, "unknown exception from plugin validate");
+        }
+        return YADDNSC_STATUS_INTERNAL_ERROR;
     }
 
 private:
     PluginModule() = default;
+
+    /// Report a firewall-caught exception through the ABI error struct,
+    /// honouring the caller-supplied struct_size. The message view points at
+    /// thread-local storage; callers copy it synchronously on this thread.
+    static void write_entry_error(yaddnsc_error &out_error, std::string_view message) noexcept {
+        if (out_error.struct_size < YADDNSC_ERROR_MIN_SIZE) {
+            return;
+        }
+        thread_local std::string storage;
+        storage = message;
+        out_error.status = YADDNSC_STATUS_INTERNAL_ERROR;
+        out_error.retry_after_seconds = 0;
+        out_error.message = yaddnsc_string{storage.data(), storage.size()};
+        out_error.struct_size = out_error.struct_size < static_cast<std::uint32_t>(sizeof(yaddnsc_error))
+                                        ? out_error.struct_size
+                                        : static_cast<std::uint32_t>(sizeof(yaddnsc_error));
+    }
 
     SharedLibrary library_;
     decltype(&yaddnsc_driver_get_descriptor) get_descriptor_ = nullptr;
     decltype(&yaddnsc_driver_create) create_ = nullptr;
     decltype(&yaddnsc_driver_destroy) destroy_ = nullptr;
     decltype(&yaddnsc_driver_update) update_ = nullptr;
+    decltype(&yaddnsc_driver_validate) validate_ = nullptr;
     DriverDescriptor descriptor_;
 };
 

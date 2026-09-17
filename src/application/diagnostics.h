@@ -11,8 +11,8 @@
 #include <vector>
 
 #include "application/ports/driver_catalog.h"
-#include "dns/dns_error_info.h"
-#include "network/inet_address.h"
+#include "domain/error/dns_error_info.h"
+#include "domain/network/inet_address.h"
 
 class DnsResolverPort;
 class NetworkInterfaces;

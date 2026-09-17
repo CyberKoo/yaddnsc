@@ -1,5 +1,5 @@
 //
-// Unit tests for src/util/signing.cpp — cryptographic primitives.
+// Unit tests for src/support/util/signing.cpp — cryptographic primitives.
 //
 // Verifies:
 //   - sha256 / sha1 produce known digests.

@@ -25,25 +25,25 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
-#include "util/cancellation_token.hpp"
-#include "util/random.hpp"
+#include "support/util/cancellation_token.hpp"
+#include "support/util/random.hpp"
 
 #include "domain/config/runtime_config.h"
-#include "ip_source/base.h"
-#include "ip_source/factory.h"
-#include "ip_source/mdns.h"
-#include "network/inet_address.h"
-#include "network/net_devices.h"
-#include "network/socket.h"
-#include "network/socket_addr.h"
+#include "infrastructure/ip_source/base.h"
+#include "infrastructure/ip_source/factory.h"
+#include "infrastructure/ip_source/mdns.h"
+#include "domain/network/inet_address.h"
+#include "infrastructure/network/net_devices.h"
+#include "infrastructure/network/socket.h"
+#include "infrastructure/network/socket_addr.h"
 
 #include <netinet/in.h>
 #include <poll.h>
 
-#include "address_family.h"
-#include "record_kind.h"
+#include "domain/network/address_family.h"
+#include "domain/dns/record_kind.h"
 
-#include "fmt.hpp"
+#include "support/fmt.hpp"
 
 namespace {
     const std::string LOOPBACK = NetDevices::loopback_name();

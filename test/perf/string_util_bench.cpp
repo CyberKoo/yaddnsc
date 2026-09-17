@@ -8,7 +8,7 @@
 #include <string_view>
 #include <vector>
 
-#include "string_util.hpp"
+#include "support/string_util.hpp"
 
 // =============================================================================
 // split / join

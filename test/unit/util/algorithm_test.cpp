@@ -17,7 +17,7 @@
 
 #include <gtest/gtest.h>
 
-#include "util/algorithm.hpp"
+#include "support/util/algorithm.hpp"
 
 TEST(DedupeTest, EmptyVector) {
     std::vector<int> v;

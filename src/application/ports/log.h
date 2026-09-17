@@ -8,7 +8,7 @@
 #include <source_location>
 #include <string_view>
 
-#include "fmt.hpp"
+#include "support/fmt.hpp"
 
 /// Log severity levels, ordered by verbosity (trace is the most verbose).
 enum class LogLevel {

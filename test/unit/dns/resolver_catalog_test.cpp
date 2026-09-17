@@ -1,5 +1,5 @@
 //
-// Unit tests for src/dns/resolver_catalog.cpp — ResolverCatalog.
+// Unit tests for src/infrastructure/dns/resolver_catalog.cpp — ResolverCatalog.
 //
 // Instance-level successor of the removed global DnsResolverRegistry tests:
 // each test builds its own catalog, so the suite is order-independent and
@@ -25,13 +25,13 @@
 
 #include <gtest/gtest.h>
 
-#include "config/dns_config.h"
-#include "dns/dns_error_info.h"
-#include "dns/resolver/base.h"
-#include "dns/resolver_catalog.h"
-#include "exception/dns_lookup.h"
-#include "record_kind.h"
-#include "util/cancellation_token.hpp"
+#include "domain/config/dns_config.h"
+#include "domain/error/dns_error_info.h"
+#include "infrastructure/dns/resolver/base.h"
+#include "infrastructure/dns/resolver_catalog.h"
+#include "infrastructure/dns/dns_lookup_exception.h"
+#include "domain/dns/record_kind.h"
+#include "support/util/cancellation_token.hpp"
 
 // ── Minimal ResolverBase subclass for testing ───────────────────────────────
 

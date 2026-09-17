@@ -8,8 +8,6 @@
 #include <string>
 #include <string_view>
 
-#include "fmt.hpp"
-
 namespace domain {
     /// Build the FQDN for a subdomain within a domain.
     ///
@@ -20,7 +18,7 @@ namespace domain {
         if (subdomain.empty() || subdomain == "@") {
             return std::string(domain);
         }
-        return fmt::format("{}.{}", subdomain, domain);
+        return std::string(subdomain) + "." + std::string(domain);
     }
 }
 
