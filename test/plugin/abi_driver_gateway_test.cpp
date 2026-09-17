@@ -7,6 +7,10 @@
 /// fallback wording, driver-not-found wording, one HttpClient per update,
 /// and cancellation visibility — all against the real dlopen'ed whiteboard
 /// test plugin with a scripted HttpClient behind the factory.
+///
+/// The validate_config suite additionally loads the "no_validate" fixture (a
+/// complete plugin predating the OPTIONAL validate entry) to lock the
+/// skip-instead-of-fail behaviour.
 
 #include <atomic>
 #include <memory>
@@ -25,7 +29,9 @@
 namespace {
 
 constexpr std::string_view kPluginPath = TEST_PLUGIN_PATH;
+constexpr std::string_view kNoValidatePluginPath = NO_VALIDATE_FIXTURE;
 constexpr std::string_view kDriverName = "test_driver_plugin";
+constexpr std::string_view kNoValidateDriverName = "no_validate";
 constexpr std::string_view kFqdn = "www.example.com";
 
 /// Test fixture: catalog with the whiteboard plugin, a shared scripted HTTP
@@ -157,4 +163,69 @@ TEST_F(AbiDriverGatewayTest, UpdateParametersReachThePlugin) {
     ASSERT_EQ(records.size(), 1u);
     EXPECT_EQ(records[0].message,
               R"(params ip=192.0.2.1 rd=A domain=example.com sub=www fqdn=www.example.com param={"op":"echo_params"})");
+}
+
+// ── validate_config ──────────────────────────────────────────────────────────
+//
+// The host's `config test` path. Three outcomes are locked here: a valid
+// driver_param passes, a driver-side rejection surfaces the plugin's message
+// verbatim, and a plugin without the OPTIONAL validate entry is skipped.
+
+namespace {
+
+/// Catalog holding both the whiteboard plugin (validate entry present) and
+/// the "no_validate" fixture (no validate entry). validate_config performs no
+/// HTTP exchange, so the factory only has to satisfy the type.
+class AbiDriverGatewayValidateTest : public ::testing::Test {
+protected:
+    void SetUp() override {
+        ASSERT_NO_THROW(catalog_.load_driver(std::string(kPluginPath)));
+        ASSERT_NO_THROW(catalog_.load_driver(std::string(kNoValidatePluginPath)));
+        gateway_ = std::make_unique<AbiDriverGateway>(
+                catalog_,
+                []() -> std::unique_ptr<HttpClient> { return std::make_unique<QueueHttpClient>(); },
+                cancel_source_.token(), logger_);
+    }
+
+    DriverCatalog catalog_;
+    RecordingLogger logger_;
+    Utils::CancellationSource cancel_source_;
+    std::unique_ptr<AbiDriverGateway> gateway_;
+};
+
+} // namespace
+
+TEST_F(AbiDriverGatewayValidateTest, ValidDriverParamSucceeds) {
+    const auto result = gateway_->validate_config(kDriverName, R"({"op":"success"})");
+    EXPECT_TRUE(result.has_value()) << result.error().message;
+}
+
+TEST_F(AbiDriverGatewayValidateTest, DriverRejectionMapsPluginMessageVerbatim) {
+    const auto result =
+            gateway_->validate_config(kDriverName, R"({"op":"reject_validate","message":"bad zone_id"})");
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error().code, domain::DriverError::Code::UNKNOWN);
+    EXPECT_EQ(result.error().message, "bad zone_id");
+}
+
+TEST_F(AbiDriverGatewayValidateTest, DriverRejectionEmptyMessageFallsBackToWording) {
+    const auto result = gateway_->validate_config(kDriverName, R"({"op":"reject_validate","message":""})");
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error().code, domain::DriverError::Code::UNKNOWN);
+    EXPECT_EQ(result.error().message,
+              "Driver 'test_driver_plugin' rejected its driver_param configuration");
+}
+
+TEST_F(AbiDriverGatewayValidateTest, PluginWithoutValidateEntryIsSkipped) {
+    // The OPTIONAL entry is absent: the host must skip the driver-side check
+    // and report success instead of failing.
+    const auto result = gateway_->validate_config(kNoValidateDriverName, R"({"anything":true})");
+    EXPECT_TRUE(result.has_value()) << result.error().message;
+}
+
+TEST_F(AbiDriverGatewayValidateTest, UnknownDriverReportsNotFound) {
+    const auto result = gateway_->validate_config("missing", R"({"op":"success"})");
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error().code, domain::DriverError::Code::NOT_FOUND);
+    EXPECT_EQ(result.error().message, "Driver 'missing' is not loaded");
 }

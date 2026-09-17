@@ -25,9 +25,16 @@ public:
     }
 
     bool wait_until(domain::TimePoint deadline, const std::stop_token &stop) override {
+        // Registered BEFORE taking the mutex: an already-requested stop runs
+        // the callback inline here (not holding mtx_), avoiding self-deadlock.
+        // The callback takes mtx_ before notifying, closing the lost-wakeup
+        // window between the predicate check and blocking on the cv.
+        std::stop_callback cb(stop, [this] {
+            { std::lock_guard lock(mtx_); }
+            cv_.notify_all();
+        });
         std::unique_lock lock(mtx_);
         ++wait_entries_;
-        std::stop_callback cb(stop, [this] { cv_.notify_all(); });
         const auto epoch = wake_epoch_;
         cv_.wait(lock, [this, deadline, &stop, epoch] {
             return now_ >= deadline || stop.stop_requested() || wake_epoch_ != epoch;

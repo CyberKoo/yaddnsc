@@ -247,6 +247,57 @@ TEST(PluginLifecycle, ValidateEntryAvailableOnCurrentSdkPlugin) {
     EXPECT_TRUE(module->supports_validate());
 }
 
+// ===========================================================================
+//  Entry exception firewall — a misbehaving plugin throwing across the C ABI.
+//  The ABI forbids exceptions; each trampoline must translate an escape into
+//  YADDNSC_STATUS_INTERNAL_ERROR with a usable message instead of unwinding
+//  into the host's frame.
+// ===========================================================================
+
+TEST(PluginLifecycle, EntryFirewallTranslatesCreateException) {
+    auto module = PluginModule::load(THROWING_FIXTURE);
+    ASSERT_TRUE(module.has_value()) << module.error().message;
+
+    HostUpdateContext host;
+    const auto services = host.context.make_services();
+    yaddnsc_error error{};
+    error.struct_size = static_cast<uint32_t>(sizeof(error));
+    yaddnsc_driver *handle = nullptr;
+    EXPECT_EQ(module->create(services, &handle, error), YADDNSC_STATUS_INTERNAL_ERROR);
+    EXPECT_EQ(handle, nullptr);
+    EXPECT_EQ(std::string(error.message.data, error.message.size), "create exploded");
+}
+
+TEST(PluginLifecycle, EntryFirewallTranslatesUpdateException) {
+    auto module = PluginModule::load(THROWING_FIXTURE);
+    ASSERT_TRUE(module.has_value()) << module.error().message;
+
+    // create throws, so no real handle exists; the fixture's update throws
+    // before touching the handle and the firewall must still translate it.
+    yaddnsc_error error{};
+    error.struct_size = static_cast<uint32_t>(sizeof(error));
+    int token = 0;
+    auto *handle = reinterpret_cast<yaddnsc_driver *>(&token); // NOLINT
+    const auto request = make_update_request("192.0.2.1", "A", "example.com", "www", "www.example.com", "{}");
+    EXPECT_EQ(module->update(handle, request, error), YADDNSC_STATUS_INTERNAL_ERROR);
+    EXPECT_EQ(std::string(error.message.data, error.message.size), "update exploded");
+}
+
+TEST(PluginLifecycle, EntryFirewallTranslatesValidateException) {
+    auto module = PluginModule::load(THROWING_FIXTURE);
+    ASSERT_TRUE(module.has_value()) << module.error().message;
+
+    // validate throws a non-std type → the catch-all arm reports the generic
+    // wording rather than the exception's (nonexistent) what().
+    yaddnsc_error error{};
+    error.struct_size = static_cast<uint32_t>(sizeof(error));
+    int token = 0;
+    auto *handle = reinterpret_cast<yaddnsc_driver *>(&token); // NOLINT
+    const yaddnsc_string param{"{}", 2};
+    EXPECT_EQ(module->validate(handle, param, error), YADDNSC_STATUS_INTERNAL_ERROR);
+    EXPECT_EQ(std::string(error.message.data, error.message.size), "unknown exception from plugin validate");
+}
+
 TEST(PluginLifecycle, ManualLoadFailsFastOnAbiMismatch) {
     DriverCatalog catalog;
     domain::DriverSettings settings;

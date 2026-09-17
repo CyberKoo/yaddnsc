@@ -637,6 +637,26 @@ TEST(CliDnsTest, DispatchResolver_LegacyServer_ReturnsZero) {
     EXPECT_NE(capture.str().find("Server: 9.9.9.9:53"), std::string::npos);
 }
 
+// The dns resolve dispatch path builds a real resolver dispatcher from the
+// config, but an unknown record type short-circuits before any socket I/O:
+// Diagnostics::dns_resolve returns "no lookup" and the presenter reports the
+// valid set. Command is constructed directly (the parser would reject the
+// type), keeping the test on loopback-free, deterministic ground.
+TEST(CliDnsTest, DispatchResolve_UnknownType_PrintsValidTypes) {
+    TempConfigFile cfg{std::string(Fixtures::MINIMAL_CONFIG)};
+
+    StreamCapture err{STDERR_FILENO};
+    EXPECT_EQ(Composition::dispatch(Cli::DnsResolveCommand{cfg.path(), "example.com", "BOGUS"}), EXIT_FAILURE);
+    EXPECT_EQ(err.str(), "Error: unknown record type 'BOGUS'.\nValid types: A, AAAA, TXT\n");
+}
+
+TEST(CliDnsTest, DispatchResolve_MissingConfig_ReturnsFailure) {
+    StreamCapture err{STDERR_FILENO};
+    EXPECT_EQ(Composition::dispatch(Cli::DnsResolveCommand{"/nonexistent/yaddnsc_config.json", "example.com", "A"}),
+              EXIT_FAILURE);
+    EXPECT_NE(err.str().find("Error: "), std::string::npos);
+}
+
 TEST(CliInfoTest, DispatchInfo_PrintsKeyFields) {
     StdoutCapture capture;
     EXPECT_EQ(Composition::dispatch(Cli::InfoCommand{}), EXIT_SUCCESS);

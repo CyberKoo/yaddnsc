@@ -170,6 +170,16 @@ TEST(NetTransportErrorPaths, TcpStream_SendAll_WithoutConnection_Fails) {
     EXPECT_EQ(result.error(), IoError::CONNECTION_FAILED);
 }
 
+// close() is safe on an unconnected stream (SocketStream::close just drops
+// the fd) and is idempotent, so shutting down a never-connected or
+// already-closed stream must not throw.
+TEST(NetTransportErrorPaths, TcpStream_Close_WithoutConnection_IsNoOp) {
+    const Utils::CancellationToken token;
+    Transport::TcpStream stream("127.0.0.1", 80, {}, token);
+    EXPECT_NO_THROW(stream.close());
+    EXPECT_NO_THROW(stream.close());
+}
+
 TEST(NetTransportErrorPaths, TlsStream_ReadSome_WithoutHandshake_Fails) {
     const Utils::CancellationToken token;
     Transport::TlsStream stream("127.0.0.1", 443, {}, {}, token);

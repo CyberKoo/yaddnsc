@@ -220,6 +220,20 @@ struct RunGraph {
 
 const domain::TimePoint T0{std::chrono::seconds{10000}};
 
+/// Spin until the fake clock has been entered `n` times — i.e. the scheduling
+/// loop has consumed the previous stimulus and parked again — so a test can
+/// inject a retry only after the runner has applied the last one (removes the
+/// advance-vs-reschedule race).
+[[nodiscard]] bool wait_parked(const FakeClock &clock, unsigned n) {
+    for (int i = 0; i < 5000; ++i) {
+        if (clock.wait_entries() >= n) {
+            return true;
+        }
+        std::this_thread::sleep_for(1ms);
+    }
+    return false;
+}
+
 } // namespace
 
 // stop while one task is blocked in HTTP: run() must keep waiting until the
@@ -358,4 +372,45 @@ TEST(RunLifecycle, PreStopCancelsIoBeforeRun) {
     lifecycle.run();
     EXPECT_TRUE(executor.is_shutdown());
     EXPECT_TRUE(executor.submitted().empty());
+}
+
+// A rate-limit report for an in-flight task reaches the scheduler runner
+// through the retry handler the lifecycle installs at construction: the
+// runner moves the task's deadline to now + retry_after and re-dispatches it
+// there, not at the one-hour update interval.
+TEST(RunLifecycle, RateLimitedTaskIsRescheduledAtRetryDeadline) {
+    auto config = std::make_shared<const domain::RuntimeConfig>(fake_graph_config());
+    Utils::CancellationSource cancellation;
+    NullLogger logger;
+    FakeClock clock{T0};
+    FakeTaskExecutor executor;
+    MockNetworkInterfaces interfaces;
+    ON_CALL(interfaces, names()).WillByDefault(Return(std::vector<std::string>{"lo"}));
+
+    std::stop_source stop_source;
+    RunLifecycle lifecycle(config, stop_source, cancellation, clock, executor, interfaces, logger);
+
+    std::promise<void> run_done;
+    auto run_future = run_done.get_future();
+    std::jthread runner([&] {
+        lifecycle.run();
+        run_done.set_value();
+    });
+
+    // Initial deadline == now: the first task is dispatched immediately, then
+    // the runner parks one hour out.
+    ASSERT_TRUE(executor.wait_submitted(1));
+    ASSERT_TRUE(wait_parked(clock, 1));
+
+    // Rate-limit the task for 30s. fire_retry() invokes the handler exactly
+    // as a pool thread would; the runner applies the retry and re-parks.
+    executor.fire_retry(domain::TaskId{0, 0}, 30s);
+    ASSERT_TRUE(wait_parked(clock, 2));
+
+    // The one-hour deadline is ignored; at now + 30s the task re-dispatches.
+    clock.advance_to(T0 + 30s);
+    ASSERT_TRUE(executor.wait_submitted(2)) << "task was not re-dispatched at the retry deadline";
+
+    stop_source.request_stop();
+    ASSERT_EQ(run_future.wait_for(10s), std::future_status::ready) << "run() did not return after stop";
 }

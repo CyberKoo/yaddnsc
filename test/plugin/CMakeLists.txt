@@ -37,6 +37,13 @@ add_library(yaddnsc_fixture_no_validate MODULE fixtures/no_validate.cpp)
 set_target_properties(yaddnsc_fixture_no_validate PROPERTIES PREFIX "" OUTPUT_NAME "no_validate")
 target_include_directories(yaddnsc_fixture_no_validate PRIVATE ${PROJECT_SOURCE_DIR}/include)
 
+# Exception-firewall fixture — a loadable plugin whose entry points throw
+# across the C ABI; the host trampolines must translate each escape into
+# YADDNSC_STATUS_INTERNAL_ERROR instead of crashing.
+add_library(yaddnsc_fixture_throwing MODULE fixtures/throwing.cpp)
+set_target_properties(yaddnsc_fixture_throwing PROPERTIES PREFIX "" OUTPUT_NAME "throwing")
+target_include_directories(yaddnsc_fixture_throwing PRIVATE ${PROJECT_SOURCE_DIR}/include)
+
 # ---------------------------------------------------------------------------
 # Test binaries
 # ---------------------------------------------------------------------------
@@ -56,12 +63,14 @@ foreach(test_target test_plugin_abi_contract test_plugin_lifecycle test_abi_driv
         BAD_MAGIC_FIXTURE="$<TARGET_FILE:yaddnsc_fixture_bad_magic>"
         MISSING_SYMBOL_FIXTURE="$<TARGET_FILE:yaddnsc_fixture_missing_symbol>"
         SMALL_DESCRIPTOR_FIXTURE="$<TARGET_FILE:yaddnsc_fixture_small_descriptor>"
-        NO_VALIDATE_FIXTURE="$<TARGET_FILE:yaddnsc_fixture_no_validate>")
+        NO_VALIDATE_FIXTURE="$<TARGET_FILE:yaddnsc_fixture_no_validate>"
+        THROWING_FIXTURE="$<TARGET_FILE:yaddnsc_fixture_throwing>")
     add_dependencies(${test_target}
         yaddnsc_test_driver_plugin
         yaddnsc_fixture_bad_revision
         yaddnsc_fixture_bad_magic
         yaddnsc_fixture_missing_symbol
         yaddnsc_fixture_small_descriptor
-        yaddnsc_fixture_no_validate)
+        yaddnsc_fixture_no_validate
+        yaddnsc_fixture_throwing)
 endforeach()

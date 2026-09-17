@@ -60,6 +60,16 @@ add_unit_test(socket_test SOURCE socket_test.cpp)
 target_link_libraries(test_socket_test PRIVATE yaddnsc_network_infrastructure)
 
 # ============================================================================
+#  SteadyClock — the Clock adapter over std::chrono::steady_clock
+#
+#  wait_until() parks until the deadline; wake() must release a parked waiter
+#  early (the retry path moves deadlines sooner). Threads + real time.
+# ============================================================================
+
+add_unit_test(steady_clock SOURCE steady_clock_test.cpp)
+target_link_libraries(test_steady_clock PRIVATE yaddnsc_time_adapter)
+
+# ============================================================================
 #  Network device enumeration  (loopback interface)
 # ============================================================================
 

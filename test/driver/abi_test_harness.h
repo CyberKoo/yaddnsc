@@ -174,6 +174,13 @@ struct AbiUpdateResult {
     uint32_t retry_after_seconds = 0;
 };
 
+/// The outcome of one create → validate → destroy cycle through the ABI.
+struct AbiValidateResult {
+    yaddnsc_status create_status = YADDNSC_STATUS_OK;
+    yaddnsc_status status = YADDNSC_STATUS_OK;
+    std::string error_message;
+};
+
 /// Run one full update cycle through the driver's C entry points.
 [[nodiscard]] inline AbiUpdateResult run_abi_update(FakeHostServices &fake, std::string_view driver_param_json,
                                                     std::string_view ip_addr, std::string_view rd_type,
@@ -211,6 +218,36 @@ struct AbiUpdateResult {
         result.error_message = std::string(error.message.data, error.message.size);
     }
     result.retry_after_seconds = error.retry_after_seconds;
+
+    yaddnsc_driver_destroy(driver);
+    return result;
+}
+
+/// Run one full validate cycle through the driver's C entry points: create an
+/// instance, call the OPTIONAL yaddnsc_driver_validate entry, then destroy.
+/// Validation is a pure parse check — no HTTP exchange is queued or expected.
+[[nodiscard]] inline AbiValidateResult run_abi_validate(FakeHostServices &fake, std::string_view driver_param_json) {
+    const auto services = fake.table();
+
+    AbiValidateResult result{};
+    yaddnsc_error error{};
+    error.struct_size = static_cast<uint32_t>(sizeof(error));
+
+    yaddnsc_driver *driver = nullptr;
+    result.create_status = yaddnsc_driver_create(&services, &driver, &error);
+    if (result.create_status != YADDNSC_STATUS_OK) {
+        if (error.message.data != nullptr) {
+            result.error_message = std::string(error.message.data, error.message.size);
+        }
+        return result;
+    }
+
+    result.status =
+            yaddnsc_driver_validate(driver, yaddnsc_string{driver_param_json.data(), driver_param_json.size()}, &error);
+    // Copy error bytes out before destroy, as the production host does.
+    if (error.message.data != nullptr) {
+        result.error_message = std::string(error.message.data, error.message.size);
+    }
 
     yaddnsc_driver_destroy(driver);
     return result;

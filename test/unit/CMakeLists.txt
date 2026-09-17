@@ -88,6 +88,10 @@ target_link_libraries(test_pool_task_executor PRIVATE yaddnsc_application yaddns
 add_unit_test(environment_validator SOURCE application/environment_validator_test.cpp)
 target_link_libraries(test_environment_validator PRIVATE yaddnsc_application GTest::gmock glaze::glaze)
 
+# logger_port — the Logger port's default log_explicit() forwards to log();
+# the YLOG_* macros format only when is_enabled() (recording double, header-only)
+add_unit_test(logger_port SOURCE application/logger_port_test.cpp)
+
 # ============================================================================
 #  config/  —  configuration parsing, types, and validation
 # ============================================================================
@@ -216,6 +220,15 @@ add_unit_test(socket_mock SOURCE network/socket_mock_test.cpp)
 
 add_unit_test(net_transport SOURCE net_transport/net_transport_test.cpp)
 target_link_libraries(test_net_transport PRIVATE yaddnsc_network_transport OpenSSL::SSL OpenSSL::Crypto)
+
+# ============================================================================
+#  logging/  —  the Logger port implementation on top of spdlog
+# ============================================================================
+
+# spdlog_logger — LogLevel → spdlog::level mapping for every severity, plus the
+# source_location (log) and plain-data (log_explicit) overloads.
+add_unit_test(spdlog_logger SOURCE logging/spdlog_logger_test.cpp)
+target_link_libraries(test_spdlog_logger PRIVATE yaddnsc_logging_adapter spdlog::spdlog)
 
 # ============================================================================
 #  http_client/  —  net::http domain: protocol, redirect

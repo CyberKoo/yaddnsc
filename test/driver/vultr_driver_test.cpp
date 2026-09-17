@@ -160,6 +160,36 @@ TEST(VultrDriverTest, Update_Non204_NoRelevantErrorKey_ReturnsUpstreamRejected) 
     EXPECT_EQ(result.status, YADDNSC_STATUS_UPSTREAM_REJECTED);
 }
 
+// ── validate (OPTIONAL yaddnsc_driver_validate entry) ────────────────────────
+//
+// Validation is a pure parse of driver_param against the driver's schema: a
+// valid config passes; a missing required key and malformed JSON both map to
+// YADDNSC_STATUS_INVALID_CONFIG. No HTTP exchange is queued or expected.
+
+TEST(VultrDriverTest, Validate_ValidConfig_Succeeds) {
+    FakeHostServices fake;
+    const auto result = run_abi_validate(fake, CONFIG);
+    EXPECT_EQ(result.create_status, YADDNSC_STATUS_OK) << result.error_message;
+    EXPECT_EQ(result.status, YADDNSC_STATUS_OK) << result.error_message;
+    EXPECT_TRUE(fake.requests.empty());
+}
+
+TEST(VultrDriverTest, Validate_MissingApiKey_ReturnsInvalidConfig) {
+    FakeHostServices fake;
+    const auto result = run_abi_validate(fake, R"({"record_id":"rec123"})");
+    EXPECT_EQ(result.create_status, YADDNSC_STATUS_OK) << result.error_message;
+    EXPECT_EQ(result.status, YADDNSC_STATUS_INVALID_CONFIG);
+    EXPECT_TRUE(result.error_message.starts_with("Driver configuration parse error:")) << result.error_message;
+    EXPECT_TRUE(fake.requests.empty());
+}
+
+TEST(VultrDriverTest, Validate_MalformedJson_ReturnsInvalidConfig) {
+    FakeHostServices fake;
+    const auto result = run_abi_validate(fake, R"({invalid)");
+    EXPECT_EQ(result.status, YADDNSC_STATUS_INVALID_CONFIG);
+    EXPECT_TRUE(fake.requests.empty());
+}
+
 TEST(VultrDriverTest, Entries_NullArgumentsRejected) {
     EXPECT_EQ(yaddnsc_driver_get_descriptor(nullptr), YADDNSC_STATUS_INVALID_ARGUMENT);
     EXPECT_EQ(yaddnsc_driver_update(nullptr, nullptr, nullptr), YADDNSC_STATUS_INVALID_ARGUMENT);
