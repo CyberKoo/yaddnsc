@@ -7,6 +7,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <string_view>
 
@@ -48,9 +49,12 @@ public:
     [[nodiscard]] std::string_view get_type() const noexcept override { return TYPE; }
 
 private:
-    struct Impl;
-
-    std::unique_ptr<Impl> impl_;
+    const std::uint64_t id_;
+    const std::string server_;
+    const std::uint16_t port_;
+    const std::string label_;  // display label for log / error messages
+    mutable std::mutex mutex_;
+    mutable std::unique_ptr<Transport::Stream> stream_;
     static constexpr std::string_view TYPE = "DNS-Over-TLS";
 };
 

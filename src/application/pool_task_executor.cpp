@@ -16,8 +16,14 @@
 #include "BS_thread_pool.hpp"
 #include "update_workflow.h"
 
+struct PoolTaskExecutor::Impl {
+    explicit Impl(std::size_t thread_count) : pool(thread_count) {}
+
+    BS::thread_pool<> pool;
+};
+
 PoolTaskExecutor::PoolTaskExecutor(std::size_t thread_count, const UpdateWorkflow& workflow)
-    : workflow_(workflow), pool_(thread_count) {}
+    : workflow_(workflow), impl_(std::make_unique<Impl>(thread_count)) {}
 
 PoolTaskExecutor::~PoolTaskExecutor() {
     shutdown();
@@ -29,7 +35,7 @@ bool PoolTaskExecutor::submit(domain::UpdateTask task) {
         return false;
     }
 
-    pool_.detach_task([this, t = std::move(task)] {
+    impl_->pool.detach_task([this, t = std::move(task)] {
         const auto result = workflow_.run(t);
         // A provider retry_after (rate limit) is handed back to the
         // scheduler so the task's next deadline honours the backoff.
@@ -42,7 +48,7 @@ bool PoolTaskExecutor::submit(domain::UpdateTask task) {
 }
 
 void PoolTaskExecutor::wait_idle() {
-    pool_.wait();
+    impl_->pool.wait();
 }
 
 void PoolTaskExecutor::shutdown() {

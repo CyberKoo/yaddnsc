@@ -73,9 +73,14 @@ public:
                                                                                 std::uint32_t backoff_ms) const;
 
 private:
-    struct Impl;
+    /// Resolve a hostname across multiple resolvers (fallback / shuffle / concurrent).
+    /// Dispatches to FallbackRunner or ConcurrentRunner based on the strategy.
+    /// @return  Resolved addresses on success, or a categorised error on failure.
+    [[nodiscard]] std::expected<std::vector<std::string>, DnsErrorInfo> resolve_multi(const std::string& host,
+                                                                                      RecordKind type) const;
 
-    std::unique_ptr<Impl> impl_;
+    std::vector<std::unique_ptr<ResolverBase>> resolvers_;
+    Config::ResolverStrategy strategy_{Config::ResolverStrategy::CONCURRENT};
 };
 
 #endif  // YADDNSC_DNS_DISPATCHER_H

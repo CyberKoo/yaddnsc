@@ -88,63 +88,30 @@ using namespace std::chrono_literals;
     }
     return is_ipv6 ? fmt::format("[{}]:{}", host, port) : fmt::format("{}:{}", host, port);
 }
+
+constexpr auto CONNECT_TIMEOUT = 1s;
+constexpr unsigned char ALPN_HTTP[] = {8, 'h', 't', 't', 'p', '/', '1', '.', '1'};
+
+/// Connection + TLS options for the DoH connection.
+[[nodiscard]] std::pair<Transport::Options, Transport::TlsOptions> make_tls_options() {
+    Transport::Options conn;
+    conn.connect_timeout = CONNECT_TIMEOUT;
+    Transport::TlsOptions tls;
+    tls.alpn_proto = ALPN_HTTP;
+    return {conn, tls};
+}
 }  // namespace
 
 // ===========================================================================
-//  DohResolver::Impl  —  private implementation
+//  DohResolver  —  public API
 // ===========================================================================
 
-struct DohResolver::Impl {
-    // ── Constants ──
-    static constexpr auto CONNECT_TIMEOUT = 1s;
-    static constexpr unsigned char ALPN_HTTP[] = {8, 'h', 't', 't', 'p', '/', '1', '.', '1'};
-
-    /// Connection + TLS options for the DoH connection.
-    [[nodiscard]] static std::pair<Transport::Options, Transport::TlsOptions> make_tls_options() {
-        Transport::Options conn;
-        conn.connect_timeout = CONNECT_TIMEOUT;
-        Transport::TlsOptions tls;
-        tls.alpn_proto = ALPN_HTTP;
-        return {conn, tls};
-    }
-
-    /// Production ctor: creates the TLS stream with the token bound.
-    Impl(std::string server,
-         std::uint16_t port,
-         std::string path,
-         std::uint64_t id,
-         std::string label,
-         Utils::CancellationToken token);
-
-    /// Testing ctor: stream injected.
-    Impl(std::string server,
-         std::uint16_t port,
-         std::string path,
-         std::uint64_t id,
-         std::string label,
-         std::unique_ptr<Transport::Stream> stream);
-
-    [[nodiscard]] std::expected<std::vector<std::uint8_t>, DnsErrorInfo> query(const std::string& host,
-                                                                               RecordKind type) const;
-
-    // ── Data members ──
-    const std::uint64_t id_;
-    const std::string host_;
-    const std::uint16_t port_;
-    const std::string path_;
-    const std::string host_header_;
-    const std::string label_;  // display label for log / error messages
-    mutable std::mutex mutex_;
-    mutable std::unique_ptr<Transport::Stream> stream_;
-};
-
-DohResolver::Impl::Impl(std::string server,
-                        const std::uint16_t port,
-                        std::string path,
-                        const std::uint64_t id,
-                        std::string label,
-                        Utils::CancellationToken token)
-    : id_(id), host_(std::move(server)), port_(port), path_(std::move(path)),
+DohResolver::DohResolver(std::string host,
+                         const std::uint16_t port,
+                         std::string path,
+                         std::string label,
+                         Utils::CancellationToken token)
+    : id_(get_id()), host_(std::move(host)), port_(port), path_(std::move(path)),
       host_header_(build_host_header(host_, port_)), label_(std::move(label)),
       stream_(std::make_unique<Transport::TlsStream>(host_,
                                                      port_,
@@ -152,17 +119,18 @@ DohResolver::Impl::Impl(std::string server,
                                                      make_tls_options().second,
                                                      std::move(token))) {}
 
-DohResolver::Impl::Impl(std::string server,
-                        const std::uint16_t port,
-                        std::string path,
-                        const std::uint64_t id,
-                        std::string label,
-                        std::unique_ptr<Transport::Stream> stream)
-    : id_(id), host_(std::move(server)), port_(port), path_(std::move(path)),
+DohResolver::DohResolver(std::string host,
+                         const std::uint16_t port,
+                         std::string path,
+                         std::string label,
+                         std::unique_ptr<Transport::Stream> stream)
+    : id_(get_id()), host_(std::move(host)), port_(port), path_(std::move(path)),
       host_header_(build_host_header(host_, port_)), label_(std::move(label)), stream_(std::move(stream)) {}
 
-std::expected<std::vector<std::uint8_t>, DnsErrorInfo> DohResolver::Impl::query(const std::string& host,
-                                                                                RecordKind type) const {
+DohResolver::~DohResolver() = default;
+
+std::expected<std::vector<std::uint8_t>, DnsErrorInfo> DohResolver::query(const std::string& host,
+                                                                          RecordKind type) const {
     try {
         const auto record_type = DNS::Util::type_to_record_type(type);
 
@@ -248,39 +216,4 @@ std::expected<std::vector<std::uint8_t>, DnsErrorInfo> DohResolver::Impl::query(
         return std::unexpected(
             DnsErrorInfo{DnsError::UNKNOWN, fmt::format(R"(Query for "{}" failed: {})", host, e.what())});
     }
-}
-
-// ===========================================================================
-//  DohResolver  —  public API
-// ===========================================================================
-
-DohResolver::DohResolver(std::string host,
-                         const std::uint16_t port,
-                         std::string path,
-                         std::string label,
-                         Utils::CancellationToken token)
-    : impl_(std::make_unique<Impl>(std::move(host),
-                                   port,
-                                   std::move(path),
-                                   get_id(),
-                                   std::move(label),
-                                   std::move(token))) {}
-
-DohResolver::DohResolver(std::string host,
-                         const std::uint16_t port,
-                         std::string path,
-                         std::string label,
-                         std::unique_ptr<Transport::Stream> stream)
-    : impl_(std::make_unique<Impl>(std::move(host),
-                                   port,
-                                   std::move(path),
-                                   get_id(),
-                                   std::move(label),
-                                   std::move(stream))) {}
-
-DohResolver::~DohResolver() = default;
-
-std::expected<std::vector<std::uint8_t>, DnsErrorInfo> DohResolver::query(const std::string& host,
-                                                                          RecordKind type) const {
-    return impl_->query(host, type);
 }

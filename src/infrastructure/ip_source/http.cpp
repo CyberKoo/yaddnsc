@@ -4,6 +4,7 @@
 
 #include "http.h"
 
+#include <memory>
 #include <optional>
 #include <stdexcept>
 #include <utility>
@@ -16,6 +17,7 @@
 
 #include "domain/network/inet_address.h"
 #include "infrastructure/network/http/error.h"
+#include "infrastructure/network/http/persistent_client.h"
 #include "infrastructure/network/http/types.h"
 #include "infrastructure/network/transport/options.h"
 #include "support/fmt.hpp"
@@ -50,7 +52,8 @@ HttpIpSource::HttpIpSource(std::string url,
                            std::string bind_interface,
                            Utils::CancellationToken token)
     : url_(std::move(url)), address_family_(address_family), bind_interface_(std::move(bind_interface)),
-      client_(url_, make_client_options(address_family_, bind_interface_), std::move(token)) {}
+      client_(std::make_unique<net::http::PersistentClient>(url_, make_client_options(address_family_, bind_interface_),
+                                                            std::move(token))) {}
 
 // ---------------------------------------------------------------------------
 // HttpIpSource::resolve — send GET request and parse the response body as an IP.
@@ -60,7 +63,7 @@ std::vector<InetAddress> HttpIpSource::resolve() const {
     net::http::Request req;
     req.method = net::http::Method::GET;
 
-    auto resp = client_.exchange(url_, req);
+    auto resp = client_->exchange(url_, req);
     if (!resp) {
         throw std::runtime_error(
             fmt::format(R"(HTTP IP source "{}" did not return a valid response: {})", url_, resp.error().message));

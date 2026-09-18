@@ -7,9 +7,8 @@
 
 #include <atomic>
 #include <cstddef>
+#include <memory>
 #include <utility>
-
-#include <BS_thread_pool.hpp>
 
 #include "application/ports/task_executor.h"
 
@@ -50,12 +49,14 @@ public:
     void set_retry_handler(RetryHandler handler) override { retry_handler_ = std::move(handler); }
 
 private:
+    struct Impl;
+
     const UpdateWorkflow& workflow_;
     RetryHandler retry_handler_;
     std::atomic<bool> accepting_{true};
     // Declared last so destruction drains the pool before the workflow
     // reference could dangle (the destructor body drains explicitly anyway).
-    BS::thread_pool<> pool_;
+    std::unique_ptr<Impl> impl_;
 };
 
 #endif  // YADDNSC_APPLICATION_POOL_TASK_EXECUTOR_H

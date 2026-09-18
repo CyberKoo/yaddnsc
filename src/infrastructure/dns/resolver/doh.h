@@ -7,6 +7,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <string_view>
 
@@ -48,19 +49,20 @@ public:
 
     ~DohResolver() override;
 
-    DohResolver(const DohResolver&) = delete;
-
-    DohResolver& operator=(const DohResolver&) = delete;
-
     [[nodiscard]] std::expected<std::vector<std::uint8_t>, DnsErrorInfo> query(const std::string& host,
                                                                                RecordKind type) const override;
 
     [[nodiscard]] std::string_view get_type() const noexcept override { return "DNS-Over-HTTPS"; }
 
 private:
-    struct Impl;
-
-    std::unique_ptr<Impl> impl_;
+    const std::uint64_t id_;
+    const std::string host_;
+    const std::uint16_t port_;
+    const std::string path_;
+    const std::string host_header_;
+    const std::string label_;  // display label for log / error messages
+    mutable std::mutex mutex_;
+    mutable std::unique_ptr<Transport::Stream> stream_;
 };
 
 #endif  // YADDNSC_DNS_DOH_RESOLVER_H

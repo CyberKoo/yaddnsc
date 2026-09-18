@@ -438,83 +438,12 @@ std::expected<std::vector<std::string>, DnsErrorInfo> ConcurrentRunner::run(cons
 }
 
 // ===========================================================================
-//  ResolverDispatcher::Impl  —  private implementation (thin delegation)
-// ===========================================================================
-
-struct ResolverDispatcher::Impl {
-    Impl(std::vector<std::unique_ptr<ResolverBase>> resolvers, Config::ResolverStrategy strategy);
-
-    ~Impl();
-
-    /// Resolve a hostname with retry support (single-resolver mode only).
-    /// For multi-resolver mode, delegates to resolve_multi() without retry
-    /// — resolver redundancy provides fault tolerance.
-    /// @return  Resolved addresses on success, or a categorised error on failure.
-    [[nodiscard]] std::expected<std::vector<std::string>, DnsErrorInfo> resolve(const std::string& host,
-                                                                                RecordKind type,
-                                                                                std::uint32_t max_retries,
-                                                                                std::uint32_t backoff_ms) const;
-
-    /// Resolve a hostname across multiple resolvers (fallback / shuffle / concurrent).
-    /// Dispatches to FallbackRunner or ConcurrentRunner based on the strategy.
-    /// @return  Resolved addresses on success, or a categorised error on failure.
-    [[nodiscard]] std::expected<std::vector<std::string>, DnsErrorInfo> resolve_multi(const std::string& host,
-                                                                                      RecordKind type) const;
-
-    std::vector<std::unique_ptr<ResolverBase>> resolvers_;
-    Config::ResolverStrategy strategy_{Config::ResolverStrategy::CONCURRENT};
-};
-
-// ===========================================================================
-//  ResolverDispatcher::Impl  —  implementations
-// ===========================================================================
-
-ResolverDispatcher::Impl::Impl(std::vector<std::unique_ptr<ResolverBase>> resolvers, Config::ResolverStrategy strategy)
-    : resolvers_(std::move(resolvers)), strategy_(strategy) {}
-
-ResolverDispatcher::Impl::~Impl() = default;
-
-std::expected<std::vector<std::string>, DnsErrorInfo> ResolverDispatcher::Impl::resolve(
-    const std::string& host,
-    RecordKind type,
-    std::uint32_t max_retries,
-    std::uint32_t backoff_ms) const {
-    // Retry is only applied in single-resolver modes (exactly one resolver).
-    // Multi-resolver mode (size > 1) runs without retry — the redundancy of multiple resolvers
-    // provides fault tolerance, and retrying the entire multi-resolver round is not desired.
-    if (resolvers_.size() == 1) {
-        SingleResolverRunner runner(*resolvers_[0]);
-        return runner.run(host, type, max_retries, backoff_ms);
-    }
-
-    return resolve_multi(host, type);
-}
-
-std::expected<std::vector<std::string>, DnsErrorInfo> ResolverDispatcher::Impl::resolve_multi(const std::string& host,
-                                                                                              RecordKind type) const {
-    if (strategy_ == Config::ResolverStrategy::FALLBACK) {
-        SPDLOG_DEBUG(R"(Fallback mode: trying {} resolver(s) in configured order for "{}")", resolvers_.size(), host);
-        FallbackRunner runner(resolvers_, false);
-        return runner.run(host, type);
-    }
-
-    if (strategy_ == Config::ResolverStrategy::SHUFFLE) {
-        SPDLOG_DEBUG(R"(Shuffle mode: trying {} resolver(s) in random order for "{}")", resolvers_.size(), host);
-        FallbackRunner runner(resolvers_, true);
-        return runner.run(host, type);
-    }
-
-    ConcurrentRunner runner(resolvers_);
-    return runner.run(host, type);
-}
-
-// ===========================================================================
-//  ResolverDispatcher public API — thin delegation to Impl
+//  ResolverDispatcher public API
 // ===========================================================================
 
 ResolverDispatcher::ResolverDispatcher(std::vector<std::unique_ptr<ResolverBase>> resolvers,
                                        Config::ResolverStrategy strategy)
-    : impl_(std::make_unique<Impl>(std::move(resolvers), strategy)) {}
+    : resolvers_(std::move(resolvers)), strategy_(strategy) {}
 
 ResolverDispatcher::~ResolverDispatcher() = default;
 
@@ -541,5 +470,33 @@ std::expected<std::vector<std::string>, DnsErrorInfo> ResolverDispatcher::resolv
     // The strategy runners predate the port and still operate on std::string;
     // the copy lives until the synchronous call returns, keeping the internal
     // const std::string& references valid.
-    return impl_->resolve(std::string(host), type, max_retries, backoff_ms);
+    const std::string host_str(host);
+
+    // Retry is only applied in single-resolver modes (exactly one resolver).
+    // Multi-resolver mode (size > 1) runs without retry — the redundancy of multiple resolvers
+    // provides fault tolerance, and retrying the entire multi-resolver round is not desired.
+    if (resolvers_.size() == 1) {
+        SingleResolverRunner runner(*resolvers_[0]);
+        return runner.run(host_str, type, max_retries, backoff_ms);
+    }
+
+    return resolve_multi(host_str, type);
+}
+
+std::expected<std::vector<std::string>, DnsErrorInfo> ResolverDispatcher::resolve_multi(const std::string& host,
+                                                                                        RecordKind type) const {
+    if (strategy_ == Config::ResolverStrategy::FALLBACK) {
+        SPDLOG_DEBUG(R"(Fallback mode: trying {} resolver(s) in configured order for "{}")", resolvers_.size(), host);
+        FallbackRunner runner(resolvers_, false);
+        return runner.run(host, type);
+    }
+
+    if (strategy_ == Config::ResolverStrategy::SHUFFLE) {
+        SPDLOG_DEBUG(R"(Shuffle mode: trying {} resolver(s) in random order for "{}")", resolvers_.size(), host);
+        FallbackRunner runner(resolvers_, true);
+        return runner.run(host, type);
+    }
+
+    ConcurrentRunner runner(resolvers_);
+    return runner.run(host, type);
 }

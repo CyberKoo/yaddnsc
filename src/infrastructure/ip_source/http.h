@@ -5,12 +5,16 @@
 #ifndef YADDNSC_HTTP_IP_SOURCE_H
 #define YADDNSC_HTTP_IP_SOURCE_H
 
+#include <memory>
 #include <string>
 
 #include "domain/network/address_family.h"
-#include "infrastructure/network/http/persistent_client.h"
 #include "support/util/cancellation_token.hpp"
 #include "infrastructure/ip_source/base.h"
+
+namespace net::http {
+class PersistentClient;
+}
 
 /// HttpIpSource — fetches the local public IP address from an external HTTP service.
 ///
@@ -40,7 +44,7 @@ private:
     std::string url_;
     AddressFamily address_family_;
     std::string bind_interface_;
-    net::http::PersistentClient client_;
+    std::unique_ptr<net::http::PersistentClient> client_;
 };
 
 #endif  // YADDNSC_HTTP_IP_SOURCE_H
