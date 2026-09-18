@@ -31,9 +31,9 @@
 
 #include <glaze/glaze.hpp>
 
-#include "driver_abi.h"
-#include "format.hpp"
-#include "redact.hpp"
+#include "yaddnsc/sdk/driver_abi.h"
+#include "yaddnsc/sdk/format.hpp"
+#include "yaddnsc/sdk/redact.hpp"
 
 #if defined(_WIN32)
 #define YADDNSC_SDK_EXPORT __declspec(dllexport)
