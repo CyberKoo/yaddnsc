@@ -19,6 +19,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -419,4 +420,82 @@ TEST(UpdateWorkflow, CancelledIpSourceDoesNotInvokeDnsOrDriver) {
 
     ASSERT_FALSE(outcome.has_value());
     EXPECT_EQ(outcome.error().code, domain::UpdateError::Code::CANCELLED);
+}
+
+TEST(UpdateWorkflow, CancellationBeforeDriverDoesNotInvokeDriver) {
+    auto cfg = parse_cfg(Fixtures::FULL_CONFIG);
+    auto task = make_task(cfg);
+    task.force_update = true;
+
+    Utils::CancellationSource source;
+    Ports ports;
+    EXPECT_CALL(ports.ip_source, resolve(_, _)).WillOnce([&source](const domain::SubdomainConfig&,
+                                                                   const Utils::CancellationToken&) {
+        source.trigger();
+        return std::expected<std::vector<InetAddress>, domain::IpSourceError>{one_v4(198, 51, 100, 1)};
+    });
+    EXPECT_CALL(ports.dns, resolve(_, _, _)).Times(0);
+    EXPECT_CALL(ports.gateway, update(_, _)).Times(0);
+
+    const UpdateWorkflow workflow(ports.dns, ports.ip_source, ports.gateway, ports.logger);
+    const auto outcome = workflow.run(task, source.token());
+
+    ASSERT_FALSE(outcome.has_value());
+    EXPECT_EQ(outcome.error().code, domain::UpdateError::Code::CANCELLED);
+}
+
+TEST(UpdateWorkflow, DriverCancellationReturnsCancelled) {
+    auto cfg = parse_cfg(Fixtures::FULL_CONFIG);
+    auto task = make_task(cfg);
+
+    Ports ports;
+    EXPECT_CALL(ports.ip_source, resolve(_, _)).WillOnce(Return(one_v4(198, 51, 100, 1)));
+    EXPECT_CALL(ports.dns, resolve(_, _, _)).WillOnce(Return(std::vector<std::string>{"192.0.2.1"}));
+    EXPECT_CALL(ports.gateway, update(_, _))
+        .WillOnce(Return(std::unexpected(domain::DriverError{domain::DriverError::Code::CANCELLED, "cancelled"})));
+
+    const UpdateWorkflow workflow(ports.dns, ports.ip_source, ports.gateway, ports.logger);
+    const auto outcome = workflow.run(task, {});
+
+    ASSERT_FALSE(outcome.has_value());
+    EXPECT_EQ(outcome.error().code, domain::UpdateError::Code::CANCELLED);
+    EXPECT_EQ(outcome.error().message, "cancelled");
+}
+
+TEST(UpdateWorkflow, StandardExceptionIsTranslatedToUnknown) {
+    auto cfg = parse_cfg(Fixtures::FULL_CONFIG);
+    auto task = make_task(cfg);
+
+    Ports ports;
+    EXPECT_CALL(ports.ip_source, resolve(_, _)).WillOnce([](const domain::SubdomainConfig&,
+                                                            const Utils::CancellationToken&) {
+        throw std::runtime_error("unexpected failure");
+        return std::expected<std::vector<InetAddress>, domain::IpSourceError>{};
+    });
+
+    const UpdateWorkflow workflow(ports.dns, ports.ip_source, ports.gateway, ports.logger);
+    const auto outcome = workflow.run(task, {});
+
+    ASSERT_FALSE(outcome.has_value());
+    EXPECT_EQ(outcome.error().code, domain::UpdateError::Code::UNKNOWN);
+    EXPECT_EQ(outcome.error().message, "unexpected failure");
+}
+
+TEST(UpdateWorkflow, NonStandardExceptionIsTranslatedToUnknown) {
+    auto cfg = parse_cfg(Fixtures::FULL_CONFIG);
+    auto task = make_task(cfg);
+
+    Ports ports;
+    EXPECT_CALL(ports.ip_source, resolve(_, _)).WillOnce([](const domain::SubdomainConfig&,
+                                                            const Utils::CancellationToken&) {
+        throw 42;
+        return std::expected<std::vector<InetAddress>, domain::IpSourceError>{};
+    });
+
+    const UpdateWorkflow workflow(ports.dns, ports.ip_source, ports.gateway, ports.logger);
+    const auto outcome = workflow.run(task, {});
+
+    ASSERT_FALSE(outcome.has_value());
+    EXPECT_EQ(outcome.error().code, domain::UpdateError::Code::UNKNOWN);
+    EXPECT_EQ(outcome.error().message, "Unknown non-standard exception");
 }

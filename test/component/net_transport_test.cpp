@@ -388,6 +388,17 @@ TEST_F(TcpStreamTest, CancelDuringRead_UsingExplicitToken) {
     EXPECT_LT(elapsed, 5s);
 }
 
+TEST_F(TcpStreamTest, TriggeredTokenCancelsSend) {
+    Utils::CancellationSource source;
+    Transport::TcpStream stream("127.0.0.1", server_.port(), {});
+    ASSERT_TRUE(stream.ensure_connected(source.token()));
+    source.trigger();
+
+    const auto result = stream.send_all(bytes("cancelled"), source.token());
+    ASSERT_FALSE(result);
+    EXPECT_EQ(result.error(), IoError::CANCELLED);
+}
+
 // ===========================================================================
 //  TlsStream over the Python TLS echo server
 // ===========================================================================
@@ -480,6 +491,16 @@ TEST_F(NetTransportCloseTest, TcpStream_PeerClose_ReadReturnsConnectionFailed) {
     const auto result = stream.read_some(buf, {});
     ASSERT_FALSE(result);
     EXPECT_EQ(result.error(), IoError::CONNECTION_FAILED);  // EOF
+}
+
+TEST_F(NetTransportCloseTest, TcpStream_PeerClose_ReadExactPropagatesFailure) {
+    Transport::TcpStream stream("127.0.0.1", server_.port(), {});
+    ASSERT_TRUE(stream.ensure_connected({}));
+
+    std::vector<std::uint8_t> buf(4);
+    const auto result = stream.read_exact(buf, {});
+    ASSERT_FALSE(result);
+    EXPECT_EQ(result.error(), IoError::CONNECTION_FAILED);
 }
 
 TEST_F(NetTransportCloseTest, TcpStream_UnhealthyPeer_EnsureConnectedReconnects) {

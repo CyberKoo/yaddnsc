@@ -117,6 +117,41 @@ TEST(PoolTaskExecutor, RunsSubmittedTaskToCompletion) {
     EXPECT_EQ(done.get_future().wait_for(0s), std::future_status::ready);
 }
 
+TEST(PoolTaskExecutor, ReportsDriverRetryAfterToRetryHandler) {
+    Fixture f;
+    std::promise<std::pair<domain::TaskId, std::chrono::seconds>> retry;
+    EXPECT_CALL(f.gateway, update("cloudflare", _))
+        .WillOnce(Return(std::unexpected(
+            domain::DriverError{domain::DriverError::Code::RATE_LIMITED, "slow down", 120})));
+
+    auto workflow = f.make_workflow();
+    PoolTaskExecutor executor(2, workflow);
+    executor.set_retry_handler([&retry](domain::TaskId id, std::chrono::seconds delay) {
+        retry.set_value({id, delay});
+    });
+
+    ASSERT_TRUE(executor.submit(make_task(f.config, 0), {}));
+    executor.wait_idle();
+
+    const auto reported = retry.get_future().get();
+    EXPECT_EQ(reported.first.domain_index, 0U);
+    EXPECT_EQ(reported.first.subdomain_index, 0U);
+    EXPECT_EQ(reported.second, 120s);
+}
+
+TEST(PoolTaskExecutor, IgnoresRetryAfterWithoutRetryHandler) {
+    Fixture f;
+    EXPECT_CALL(f.gateway, update("cloudflare", _))
+        .WillOnce(Return(std::unexpected(
+            domain::DriverError{domain::DriverError::Code::RATE_LIMITED, "slow down", 120})));
+
+    auto workflow = f.make_workflow();
+    PoolTaskExecutor executor(2, workflow);
+
+    ASSERT_TRUE(executor.submit(make_task(f.config, 0), {}));
+    executor.wait_idle();
+}
+
 // ── shutdown rejects new tasks ───────────────────────────────────────────────
 
 TEST(PoolTaskExecutor, RejectsTasksAfterShutdown) {
