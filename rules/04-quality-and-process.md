@@ -69,7 +69,7 @@
   - Configuration options and environment variables
   - Test and benchmark commands
 - Review README accuracy and cross-language consistency as part of the [Code Review Checklist](#code-review-checklist).
-- When adding, removing, or renaming a rules topic, update the numbered files under `docs/` and the index in [`.rules`](../.rules) in the same change.
+- When adding, removing, or renaming a rules topic, update the numbered files under `rules/` and the index in [`AGENTS.md`](../AGENTS.md) in the same change.
 
 ## Code Review Checklist
 
