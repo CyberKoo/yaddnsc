@@ -13,6 +13,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_POLICY_DEFAULT_CMP0077 NEW)
 
 include(ClangTidy)
+include(IWYU)
 
 # ==============================================================================
 # Build type configuration
@@ -225,6 +226,16 @@ target_compile_options(yaddnsc_warnings INTERFACE
 # in project code still surface as warnings.
 if (YADDNSC_USE_SYSTEM_SPDLOG AND fmt_VERSION VERSION_LESS 10)
   target_compile_options(yaddnsc_warnings INTERFACE -Wno-error=array-bounds)
+endif ()
+
+# ---------------------------------------------------------------------------
+# Include-What-You-Use (cmake/IWYU.cmake). Enabled here — after every CPM
+# dependency target exists — so only first-party targets (production modules,
+# drivers, plugin_crypto, tests) inherit the check; third-party TUs are never
+# analyzed.
+# ---------------------------------------------------------------------------
+if (YADDNSC_IWYU_COMMAND)
+  set(CMAKE_CXX_INCLUDE_WHAT_YOU_USE ${YADDNSC_IWYU_COMMAND})
 endif ()
 
 # ---------------------------------------------------------------------------
@@ -587,6 +598,11 @@ target_compile_options(yaddnsc_plugin_sdk INTERFACE -Wall -Wextra -Wpedantic -We
 
 add_subdirectory(${PROJECT_SOURCE_DIR}/plugin_crypto/)
 add_subdirectory(${PROJECT_SOURCE_DIR}/driver/)
+
+# ==============================================================================
+# Header self-containment checks (cmake/HeaderCheck.cmake)
+# ==============================================================================
+include(HeaderCheck)
 
 # ==============================================================================
 # Tests — GoogleTest via CPM, gated by option

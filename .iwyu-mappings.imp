@@ -1,0 +1,23 @@
+# Include-What-You-Use mappings for third-party dependencies.
+#
+# glaze and spdlog are consumed only through their umbrella headers, plus
+# glaze/json/generic{,_fwd}.hpp which the umbrella does not provide. Without
+# these mappings IWYU suggests including their internal implementation
+# headers, which are not a stable surface.
+#
+# IWYU's regex engine has no lookahead support and requires a full match, so
+# the public exceptions (glaze.hpp, json/generic*.hpp, spdlog.h, sinks/*) are
+# excluded through negated alternation. A header matched as both private
+# source and public target trips an IWYU assertion, so exceptions must not
+# match.
+[
+  { include: ["@<glaze/([^gj/]|g[^l]|j[^s]|js[^o]|jso[^n]|json/([^g/]|g[^e]|ge[^n])).*", "private", "<glaze/glaze.hpp>", "public"] },
+  { include: ["@<spdlog/([^s/]|s[^pi]).*", "private", "<spdlog/spdlog.h>", "public"] },
+
+  # iwyu 0.23's bundled GCC-15 libstdc++ mappings mis-attribute these symbols
+  # (std::vector -> <format>, std::pair -> <ranges>, ranges::find -> <ranges>
+  # where it is not even declared). Pin them to their defining headers.
+  { symbol: ["std::vector", "private", "<vector>", "public"] },
+  { symbol: ["std::pair", "private", "<utility>", "public"] },
+  { symbol: ["std::ranges::find", "private", "<algorithm>", "public"] }
+]

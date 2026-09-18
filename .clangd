@@ -8,3 +8,9 @@ CompileFlags:
     - -fdeps-format=*
     - -fdeps-file=*
     - -fdeps-target=*
+
+# Flag includes that are unused, or that are only satisfied transitively
+# (the classic "builds with libstdc++, fails with libc++" bug).
+Diagnostics:
+  UnusedIncludes: Strict
+  MissingIncludes: Strict

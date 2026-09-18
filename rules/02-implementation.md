@@ -49,6 +49,18 @@
     with a relative path.
 - Minimize `#include` dependencies: forward-declare types where possible.
 - Always include what you use (IWYU): do not rely on transitive includes.
+  A symbol must come from a header you include directly — never from one
+  pulled in incidentally by another header. This is enforced, not advisory:
+  - IWYU runs as part of every Clang build (`cmake/IWYU.cmake`) and
+    violations fail the build. Third-party noise is filtered through
+    `.iwyu-mappings.imp`; when a suggestion is genuinely wrong, prefer a
+    mapping entry over an in-source pragma.
+  - Every first-party header must be self-contained (compile standalone).
+    The `yaddnsc_header_checks` target (`cmake/HeaderCheck.cmake`) compiles
+    each header as its own translation unit on every build. This is what
+    keeps "works with libstdc++, fails with libc++" bugs off macOS.
+  - clangd flags both problems in the editor (`.clangd` sets
+    `UnusedIncludes`/`MissingIncludes` to `Strict`).
 - File conventions:
   - **`.h`**: Interface declarations with limited inline implementations.
     Permitted inline content:

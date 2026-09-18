@@ -100,3 +100,26 @@ the workflows actually cover.
 Strict warnings (`-Wall -Wextra -Wpedantic -Wshadow -Werror`) apply to
 production targets and test targets alike; test warnings are fixed, not
 silenced.
+
+## Include hygiene
+
+Include correctness is enforced structurally, not by convention:
+
+- **IWYU** (`include-what-you-use`) runs alongside every compile in Clang
+  builds (`cmake/IWYU.cmake`, on by default; `-DYADDNSC_IWYU=OFF` to opt out).
+  Violations fail the build. Third-party noise is filtered through
+  `.iwyu-mappings.imp`; the macOS CI job installs IWYU from Homebrew, so the
+  libc++ build is always checked.
+- **Header self-containment**: the `yaddnsc_header_checks` target
+  (`cmake/HeaderCheck.cmake`) compiles every first-party header as its own
+  translation unit on every build. A header that relies on transitive
+  includes fails here even on platforms where the build would otherwise
+  succeed.
+- **Editor feedback**: the project `.clangd` sets `UnusedIncludes` and
+  `MissingIncludes` to `Strict`, so dead and transitively-satisfied includes
+  are flagged while typing.
+
+When IWYU is genuinely wrong about an include, prefer a mapping entry in
+`.iwyu-mappings.imp` over in-source pragmas; use `// IWYU pragma: keep` only
+for side-effect includes (e.g. headers that register `glz::meta`
+specializations).

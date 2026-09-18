@@ -64,7 +64,7 @@ jobs:
             - name: Checkout
               uses: actions/checkout@v7
             - name: Install dependencies
-              run: brew update; brew install cmake git ninja openssl@3 pkg-config
+              run: brew update; brew install cmake git ninja openssl@3 pkg-config include-what-you-use
             - name: Configure
               run: cmake -B build -G Ninja -DOPENSSL_ROOT_DIR=/opt/homebrew/opt/openssl@3/ -DCMAKE_BUILD_TYPE=Debug -DYADDNSC_BUILD_TESTS=ON
             - name: Build

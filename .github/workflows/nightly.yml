@@ -133,7 +133,7 @@ jobs:
             - name: Checkout
               uses: actions/checkout@v7
             - name: Install dependencies
-              run: sudo apt update; sudo apt install -y ninja-build clang-19 clang-tidy-19 lld-19 libc++-19-dev libc++abi-19-dev libssl-dev zlib1g zlib1g-dev pkg-config
+              run: sudo apt update; sudo apt install -y ninja-build clang-19 clang-tidy-19 lld-19 libc++-19-dev libc++abi-19-dev iwyu libssl-dev zlib1g zlib1g-dev pkg-config
             - name: Configure
               env:
                   CC: clang-19
