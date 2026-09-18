@@ -63,7 +63,6 @@ _yaddnsc_driver() {
   typeset -A opt_args
 
   _arguments -C \
-    '(-c --config)'{-c,--config}'[Path to configuration file]:config file:_files' \
     '(-): :->driver-command' \
     '(-)*:: :->option-or-argument'
 
@@ -78,8 +77,13 @@ _yaddnsc_driver() {
       ;;
     option-or-argument)
       case $words[2] in
+        list)
+          _arguments \
+            '(-c --config)'{-c,--config}'[Path to configuration file]:config file:_files'
+          ;;
         info)
           _arguments \
+            '(-c --config)'{-c,--config}'[Path to configuration file]:config file:_files' \
             ':driver name:'
           ;;
       esac
@@ -126,7 +130,6 @@ _yaddnsc_dns() {
   typeset -A opt_args
 
   _arguments -C \
-    '(-c --config)'{-c,--config}'[Path to configuration file]:config file:_files' \
     '(-): :->dns-command' \
     '(-)*:: :->option-or-argument'
 
@@ -143,8 +146,13 @@ _yaddnsc_dns() {
       case $words[2] in
         resolve|r)
           _arguments \
+            '(-c --config)'{-c,--config}'[Path to configuration file]:config file:_files' \
             '--type[DNS record type (A, AAAA, TXT)]:record type:(A AAAA TXT)' \
             ':hostname:'
+          ;;
+        resolver)
+          _arguments \
+            '(-c --config)'{-c,--config}'[Path to configuration file]:config file:_files'
           ;;
       esac
       ;;
@@ -159,7 +167,6 @@ _yaddnsc_config() {
   typeset -A opt_args
 
   _arguments -C \
-    '(-c --config)'{-c,--config}'[Path to configuration file]:config file:_files' \
     '(-): :->config-command' \
     '(-)*:: :->option-or-argument'
 
@@ -175,10 +182,12 @@ _yaddnsc_config() {
     option-or-argument)
       case $words[2] in
         show|s)
-          # No subcommand-specific arguments
+          _arguments \
+            '(-c --config)'{-c,--config}'[Path to configuration file]:config file:_files'
           ;;
         test|t)
           _arguments \
+            '(-c --config)'{-c,--config}'[Path to configuration file]:config file:_files' \
             '(-q --quiet)'{-q,--quiet}'[Suppress success message]'
           ;;
       esac

@@ -184,8 +184,17 @@ available.
 
 ## Configuration
 
-yaddnsc reads `./config.json` by default. Use `-c` on `run` or on a diagnostic
-subcommand to select another file.
+yaddnsc reads `./config.json` by default. The `-c` option belongs to the leaf
+command, so put it after the command you are invoking. For example:
+
+```bash
+yaddnsc run -c /etc/yaddnsc/config.json
+yaddnsc config test -c /etc/yaddnsc/config.json -q
+yaddnsc config show -c /etc/yaddnsc/config.json
+```
+
+`yaddnsc config -c ... test` is not valid because `config` is only a command
+group; `-c` is defined by `config test` and `config show`.
 
 ### Minimal structure
 

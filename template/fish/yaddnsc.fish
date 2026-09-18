@@ -28,8 +28,6 @@ complete -c yaddnsc -n "__fish_seen_subcommand_from run" -s d -l debug \
     -d "Enable verbose (debug) logging"
 
 # ── driver ──────────────────────────────────────────────────────────────────
-complete -c yaddnsc -n "__fish_seen_subcommand_from driver" -s c -l config \
-    -d "Path to configuration file" -r -F
 complete -c yaddnsc -n "__fish_seen_subcommand_from driver; and not __fish_seen_subcommand_from list info" \
     -f -a "list" -d "List all loaded drivers"
 complete -c yaddnsc -n "__fish_seen_subcommand_from driver; and not __fish_seen_subcommand_from list info" \
@@ -49,8 +47,6 @@ complete -c yaddnsc -n "__fish_seen_subcommand_from interface if net; and __fish
     -f -a "(__fish_print_interfaces)" -d "Interface name"
 
 # ── dns ─────────────────────────────────────────────────────────────────────
-complete -c yaddnsc -n "__fish_seen_subcommand_from dns" -s c -l config \
-    -d "Path to configuration file" -r -F
 complete -c yaddnsc -n "__fish_seen_subcommand_from dns; and not __fish_seen_subcommand_from resolve resolver" \
     -f -a "resolve" -d "Resolve a hostname"
 complete -c yaddnsc -n "__fish_seen_subcommand_from dns; and not __fish_seen_subcommand_from resolve resolver" \
@@ -65,8 +61,6 @@ complete -c yaddnsc -n "__fish_seen_subcommand_from dns; and __fish_seen_subcomm
     -s c -l config -d "Path to configuration file" -r -F
 
 # ── config ──────────────────────────────────────────────────────────────────
-complete -c yaddnsc -n "__fish_seen_subcommand_from config" -s c -l config \
-    -d "Path to configuration file" -r -F
 complete -c yaddnsc -n "__fish_seen_subcommand_from config; and not __fish_seen_subcommand_from show test" \
     -f -a "show" -d "Print resolved configuration as JSON"
 complete -c yaddnsc -n "__fish_seen_subcommand_from config; and not __fish_seen_subcommand_from show test" \

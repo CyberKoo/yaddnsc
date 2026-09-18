@@ -56,16 +56,16 @@ _yaddnsc()
                     COMPREPLY=($(compgen -W '-c --config -d --debug' -- "$cur"))
                     ;;
                 driver)
-                    COMPREPLY=($(compgen -W '-c --config list info' -- "$cur"))
+                    COMPREPLY=($(compgen -W 'list info' -- "$cur"))
                     ;;
                 interface|if|net)
                     COMPREPLY=($(compgen -W 'list ip' -- "$cur"))
                     ;;
                 dns)
-                    COMPREPLY=($(compgen -W '-c --config resolve resolver' -- "$cur"))
+                    COMPREPLY=($(compgen -W 'resolve resolver' -- "$cur"))
                     ;;
                 config)
-                    COMPREPLY=($(compgen -W '-c --config show test' -- "$cur"))
+                    COMPREPLY=($(compgen -W 'show test' -- "$cur"))
                     ;;
                 info)
                     # No subcommand-specific options

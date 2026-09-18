@@ -177,7 +177,16 @@ yaddnsc --help
 
 ## 配置文件
 
-yaddnsc 默认读取 `./config.json`。运行命令或诊断子命令可以使用 `-c` 指定其他文件。
+yaddnsc 默认读取 `./config.json`。`-c` 参数属于具体的叶子命令，应放在实际命令之后。例如：
+
+```bash
+yaddnsc run -c /etc/yaddnsc/config.json
+yaddnsc config test -c /etc/yaddnsc/config.json -q
+yaddnsc config show -c /etc/yaddnsc/config.json
+```
+
+由于 `config` 只是命令分组，`yaddnsc config -c ... test` 无效；`-c` 由
+`config test` 和 `config show` 定义。
 
 ### 基本结构
 
