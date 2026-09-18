@@ -192,9 +192,10 @@ TEST(DohResolverMockTest, ConnectTimeout_ReturnsRetry) {
     EXPECT_EQ(result.error().code, DnsError::RETRY);
 }
 
-TEST(DohResolverMockTest, ConnectCancelled_ReturnsCancelled) {
+TEST(DohResolverMockTest, ConnectCancelled_ReturnsCancelledWithoutReconnect) {
     auto mock = std::make_unique<MockStream>();
-    ON_CALL(*mock, ensure_connected(_)).WillByDefault(Return(std::unexpected(IoError::CANCELLED)));
+    EXPECT_CALL(*mock, ensure_connected(_)).WillOnce(Return(std::unexpected(IoError::CANCELLED)));
+    EXPECT_CALL(*mock, close()).Times(1);
     DohResolver resolver("127.0.0.1", 1443, "/dns-query", "mock:1443", std::move(mock));
 
     auto result = resolver.query("yaddnsc.test", RecordKind::A, {});

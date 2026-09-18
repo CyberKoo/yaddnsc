@@ -164,6 +164,9 @@ std::expected<std::vector<std::uint8_t>, DnsErrorInfo> DohResolver::query(
             // ensure_connected() is idempotent: healthy → no-op, stale → rebuild.
             if (auto connected = stream_->ensure_connected(token); !connected) {
                 stream_->close();
+                if (connected.error() == Transport::IoError::CANCELLED) {
+                    return std::unexpected(map_connect_error(connected.error(), label_));
+                }
                 if (attempt < MAX_ATTEMPTS - 1) {
                     continue;
                 }

@@ -602,7 +602,10 @@ add_subdirectory(${PROJECT_SOURCE_DIR}/driver/)
 # ==============================================================================
 # Header self-containment checks (cmake/HeaderCheck.cmake)
 # ==============================================================================
-include(HeaderCheck)
+# Release builds compile only production targets.
+if (NOT CMAKE_BUILD_TYPE STREQUAL "Release")
+  include(HeaderCheck)
+endif ()
 
 # ==============================================================================
 # Tests — GoogleTest via CPM, gated by option
