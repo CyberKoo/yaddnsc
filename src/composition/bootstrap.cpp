@@ -80,14 +80,13 @@ std::uint32_t estimate_pool_size(const domain::RuntimeConfig& config) noexcept {
     return std::min(thread_count, 4U);
 }
 
-/// HTTP client factory bound to the run's cancellation source: every
-/// client created from it is cancellable through the same token.
-[[nodiscard]] HttpClientFactory make_http_client_factory(const Utils::CancellationSource& source) {
-    const auto token = source.token();
-    return [token] {
+/// HTTP client factory for the driver gateway: the token is no longer bound
+/// into the client — cancellation flows through each exchange() call instead.
+[[nodiscard]] HttpClientFactory make_http_client_factory() {
+    return [] {
         net::http::Options opts;
         opts.user_agent = YADDNSC::get_full_version();
-        return std::make_unique<net::http::Client>(std::move(opts), token);
+        return std::make_unique<net::http::Client>(std::move(opts));
     };
 }
 
@@ -135,11 +134,9 @@ int run_command(const Cli::RunCommand& command) {
             return EXIT_FAILURE;
         }
 
-        auto dispatcher = DnsResolverFactory::create(runtime_config->resolver, cancellation.token(),
-                                                     ResolverCatalog::with_builtins());
-        const IpSourceAdapter ip_source(cancellation.token());
-        const AbiDriverGateway driver_gateway(driver_catalog, make_http_client_factory(cancellation),
-                                              cancellation.token(), logger);
+        auto dispatcher = DnsResolverFactory::create(runtime_config->resolver, ResolverCatalog::with_builtins());
+        const IpSourceAdapter ip_source;
+        const AbiDriverGateway driver_gateway(driver_catalog, make_http_client_factory(), cancellation.token(), logger);
         const UpdateWorkflow workflow(dispatcher, ip_source, driver_gateway, logger);
         PoolTaskExecutor task_executor(estimate_pool_size(*runtime_config), workflow);
 
@@ -198,11 +195,12 @@ int execute_command(const Cli::InterfaceIpCommand& command) {
 
 int execute_command(const Cli::DnsResolveCommand& command) {
     const auto raw_config = Config::load_config(command.config_path);
-    // Normalise only — this command deliberately performs no validation,
-    // and binds no I/O cancellation (legacy one-shot behaviour).
-    auto dispatcher =
-        DnsResolverFactory::create(Config::normalize(raw_config).resolver, {}, ResolverCatalog::with_builtins());
-    return Cli::present_dns_resolve(Diagnostics::dns_resolve(dispatcher, command.host, command.type));
+    // Normalise only — this command deliberately performs no validation.
+    // The one-shot command scope owns its own root cancellation source.
+    Utils::CancellationSource cancellation;
+    auto dispatcher = DnsResolverFactory::create(Config::normalize(raw_config).resolver, ResolverCatalog::with_builtins());
+    return Cli::present_dns_resolve(
+        Diagnostics::dns_resolve(dispatcher, command.host, command.type, cancellation.token()));
 }
 
 int execute_command(const Cli::DnsResolverCommand& command) {
@@ -255,8 +253,7 @@ int execute_command(const Cli::ConfigTestCommand& command) {
         // yaddnsc_driver_validate are skipped (not an error).
         Utils::CancellationSource cancellation;
         const SpdlogLogger logger;
-        const AbiDriverGateway driver_gateway(driver_catalog, make_http_client_factory(cancellation),
-                                              cancellation.token(), logger);
+        const AbiDriverGateway driver_gateway(driver_catalog, make_http_client_factory(), cancellation.token(), logger);
         for (const auto& domain_config : config->domains) {
             for (const auto& subdomain : domain_config.subdomains) {
                 if (const auto result = driver_gateway.validate_config(domain_config.driver, subdomain.driver_param);

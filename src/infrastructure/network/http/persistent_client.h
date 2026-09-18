@@ -46,18 +46,18 @@ public:
     /// @throws std::invalid_argument when base_url is not a valid http(s) URL.
     explicit PersistentClient(std::string base_url, Options opts = {});
 
-    /// Base URL + cancellation token bound into the connection.
-    PersistentClient(std::string base_url, Options opts, Utils::CancellationToken token);
-
     /// Base URL + custom stream factory (tests inject fakes).
     PersistentClient(std::string base_url, Options opts, std::shared_ptr<StreamFactory> factory);
 
     ~PersistentClient() override;
 
     /// Perform an exchange over the persistent connection.
-    /// @param url  Request target (path + query), e.g. "/v1/update?foo=bar".
-    ///             Empty means "/".
-    [[nodiscard]] std::expected<Response, Error> exchange(std::string_view url, const Request& req) const override;
+    /// @param url    Request target (path + query), e.g. "/v1/update?foo=bar".
+    ///               Empty means "/".
+    /// @param token  Cancellation token for this exchange.
+    [[nodiscard]] std::expected<Response, Error> exchange(std::string_view url,
+                                                          const Request& req,
+                                                          const Utils::CancellationToken& token) const override;
 
 private:
     [[nodiscard]] Uri current_uri(const std::string_view target) const;

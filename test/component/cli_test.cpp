@@ -53,6 +53,7 @@
 #include "fixtures/sample_config.h"
 #include "infrastructure/network/system_network_interfaces.h"
 #include "mocks/mock_ports.h"
+#include "support/util/cancellation_token.hpp"
 
 // ===========================================================================
 //  Helpers — argv construction + temp config files + output capture
@@ -697,7 +698,7 @@ TEST(CliInfoTest, VersionFlag_PrintsProgramAndVersion) {
 
 TEST(CliDiagnosticsTest, DnsResolve_UnknownType_ReturnsNoLookup) {
     MockDnsResolverPort resolver;
-    const auto outcome = Diagnostics::dns_resolve(resolver, "example.com", "BOGUS");
+    const auto outcome = Diagnostics::dns_resolve(resolver, "example.com", "BOGUS", {});
 
     EXPECT_EQ(outcome.host, "example.com");
     EXPECT_EQ(outcome.type_text, "BOGUS");
@@ -706,10 +707,10 @@ TEST(CliDiagnosticsTest, DnsResolve_UnknownType_ReturnsNoLookup) {
 
 TEST(CliDiagnosticsTest, DnsResolve_TypeIsCaseInsensitive) {
     MockDnsResolverPort resolver;
-    EXPECT_CALL(resolver, resolve("example.com", RecordKind::AAAA))
+    EXPECT_CALL(resolver, resolve("example.com", RecordKind::AAAA, ::testing::_))
         .WillOnce(::testing::Return(std::vector<std::string>{"::1"}));
 
-    const auto outcome = Diagnostics::dns_resolve(resolver, "example.com", "aaaa");
+    const auto outcome = Diagnostics::dns_resolve(resolver, "example.com", "aaaa", {});
     ASSERT_TRUE(outcome.lookup.has_value());
     ASSERT_TRUE(outcome.lookup->has_value());
     EXPECT_EQ((*outcome.lookup)->front(), "::1");
@@ -717,10 +718,10 @@ TEST(CliDiagnosticsTest, DnsResolve_TypeIsCaseInsensitive) {
 
 TEST(CliDiagnosticsTest, DnsResolve_ErrorPassesThrough) {
     MockDnsResolverPort resolver;
-    EXPECT_CALL(resolver, resolve("example.com", RecordKind::A))
+    EXPECT_CALL(resolver, resolve("example.com", RecordKind::A, ::testing::_))
         .WillOnce(::testing::Return(std::unexpected(DnsErrorInfo{DnsError::NX_DOMAIN, "nxdomain"})));
 
-    const auto outcome = Diagnostics::dns_resolve(resolver, "example.com", "A");
+    const auto outcome = Diagnostics::dns_resolve(resolver, "example.com", "A", {});
     ASSERT_TRUE(outcome.lookup.has_value());
     ASSERT_FALSE(outcome.lookup->has_value());
     EXPECT_EQ(outcome.lookup->error().message, "nxdomain");

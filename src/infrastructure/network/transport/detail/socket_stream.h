@@ -1,6 +1,6 @@
 //
 // Internal: connected TCP socket with cancellable, deadline-bounded
-// establishment and poll-based readiness waits.
+// establishment and poll-based readiness polling.
 //
 // Composed by TlsStream and TcpStream; not part of the public surface.
 //
@@ -33,10 +33,10 @@ inline constexpr int kNoSigpipe = 0;
 
 /// Poll a single fd for readiness, honouring the cancellation token.
 ///
-/// Combines the fd and the token's cancel fd into one poll(); returns
-/// CANCELLED when the token is or becomes triggered (the latched flag is
-/// consulted both before and after poll, so draining by another consumer
-/// of the same source cannot lose the signal).
+/// Combines the fd and every fd in the token's ancestor chain into one
+/// poll(); returns CANCELLED when the token is or becomes triggered (the
+/// latched flag is consulted both before and after poll, so draining by
+/// another consumer of the same source cannot lose the signal).
 [[nodiscard]] std::expected<void, IoError> poll_fd(int fd,
                                                    short events,
                                                    std::chrono::milliseconds timeout,
@@ -45,7 +45,7 @@ inline constexpr int kNoSigpipe = 0;
 /// A connected (or connectable) TCP socket. Owns the fd.
 class SocketStream {
 public:
-    SocketStream(std::string host, std::uint16_t port, Options opts, Utils::CancellationToken token);
+    SocketStream(std::string host, std::uint16_t port, Options opts);
 
     // Non-movable: SSL objects (TlsStream) reference the underlying fd.
     SocketStream(const SocketStream&) = delete;
@@ -53,7 +53,7 @@ public:
 
     /// Resolve, bind to the outbound interface (if configured), and connect.
     /// Bounded by Options::connect_timeout; cancellable at every stage.
-    [[nodiscard]] std::expected<void, IoError> connect();
+    [[nodiscard]] std::expected<void, IoError> connect(const Utils::CancellationToken& token);
 
     void close() noexcept;
 
@@ -62,8 +62,10 @@ public:
     /// EOF-aware health probe: false when the peer has closed the connection.
     [[nodiscard]] bool is_healthy() const noexcept;
 
-    /// Poll the socket for readiness, honouring the construction-time token.
-    [[nodiscard]] std::expected<void, IoError> poll(short events, std::chrono::milliseconds timeout) const;
+    /// Poll the socket for readiness, honouring the operation's token.
+    [[nodiscard]] std::expected<void, IoError> poll(short events,
+                                                    std::chrono::milliseconds timeout,
+                                                    const Utils::CancellationToken& token) const;
 
     [[nodiscard]] int fd() const noexcept { return fd_.get(); }
 
@@ -76,12 +78,12 @@ public:
 private:
     [[nodiscard]] std::expected<void, IoError> connect_one(const struct sockaddr* addr,
                                                            socklen_t addr_len,
-                                                           std::chrono::steady_clock::time_point deadline);
+                                                           std::chrono::steady_clock::time_point deadline,
+                                                           const Utils::CancellationToken& token);
 
     std::string host_;
     std::uint16_t port_;
     Options opts_;
-    Utils::CancellationToken token_;
     Utils::UniqueFd fd_;
 };
 

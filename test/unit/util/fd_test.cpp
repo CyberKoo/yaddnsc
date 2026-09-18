@@ -217,6 +217,35 @@ TEST(UniqueFdTest, MakePipe_CloseOnExecSet) {
     EXPECT_TRUE(flags_w & FD_CLOEXEC);
 }
 
+TEST(UniqueFdTest, MakePipe_NonBlockingSet) {
+    auto [read_end, write_end] = Utils::make_pipe();
+
+    ASSERT_TRUE(read_end);
+    ASSERT_TRUE(write_end);
+
+    int flags_r = ::fcntl(read_end.get(), F_GETFL);
+    int flags_w = ::fcntl(write_end.get(), F_GETFL);
+    ASSERT_GE(flags_r, 0);
+    ASSERT_GE(flags_w, 0);
+
+    EXPECT_TRUE(flags_r & O_NONBLOCK);
+    EXPECT_TRUE(flags_w & O_NONBLOCK);
+}
+
+// Regression: draining an empty non-blocking pipe must return EAGAIN instead
+// of blocking forever (a blocking read here deadlocked multi-consumer drains).
+TEST(UniqueFdTest, MakePipe_ReadOnEmptyPipe_ReturnsEagain) {
+    auto [read_end, write_end] = Utils::make_pipe();
+
+    ASSERT_TRUE(read_end);
+    ASSERT_TRUE(write_end);
+
+    char buf[8];
+    errno = 0;
+    EXPECT_EQ(::read(read_end.get(), buf, sizeof(buf)), -1);
+    EXPECT_EQ(errno, EAGAIN);
+}
+
 // ── UniqueFd is move-only ─────────────────────────────────────────────────────
 
 TEST(UniqueFdTest, IsMoveOnly) {

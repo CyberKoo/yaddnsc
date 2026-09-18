@@ -194,8 +194,8 @@ protected:
 // ===========================================================================
 
 TEST_F(DohResolverTest, Resolve_A_Record) {
-    DohResolver resolver("127.0.0.1", DOH_PORT, "/dns-query", "test-doh", Utils::CancellationToken{});
-    auto result = resolver.query("yaddnsc.test", RecordKind::A);
+    DohResolver resolver("127.0.0.1", DOH_PORT, "/dns-query", "test-doh");
+    auto result = resolver.query("yaddnsc.test", RecordKind::A, {});
 
     ASSERT_TRUE(result.has_value()) << "DoH A query failed: " << dns_error_name(result.error().code);
     // QNAME for "yaddnsc.test" = \x07yaddnsc\x04test\x00 = 14 bytes
@@ -209,16 +209,16 @@ TEST_F(DohResolverTest, Resolve_A_Record) {
 }
 
 TEST_F(DohResolverTest, Resolve_AAAA_Record) {
-    DohResolver resolver("127.0.0.1", DOH_PORT, "/dns-query", "test-doh", Utils::CancellationToken{});
-    auto result = resolver.query("yaddnsc.test", RecordKind::AAAA);
+    DohResolver resolver("127.0.0.1", DOH_PORT, "/dns-query", "test-doh");
+    auto result = resolver.query("yaddnsc.test", RecordKind::AAAA, {});
 
     ASSERT_TRUE(result.has_value()) << "DoH AAAA query failed: " << dns_error_name(result.error().code);
     ASSERT_GT(result->size(), 12U);
 }
 
 TEST_F(DohResolverTest, ConnectToRefusedPort_ReturnsError) {
-    DohResolver resolver("127.0.0.1", 1, "/dns-query", "test-doh-refused", Utils::CancellationToken{});
-    auto result = resolver.query("yaddnsc.test", RecordKind::A);
+    DohResolver resolver("127.0.0.1", 1, "/dns-query", "test-doh-refused");
+    auto result = resolver.query("yaddnsc.test", RecordKind::A, {});
 
     ASSERT_FALSE(result.has_value());
     EXPECT_TRUE(result.error().code == DnsError::CONNECTION || result.error().code == DnsError::RETRY)
@@ -226,8 +226,8 @@ TEST_F(DohResolverTest, ConnectToRefusedPort_ReturnsError) {
 }
 
 TEST_F(DohResolverTest, TimeoutHost_ReturnsError) {
-    DohResolver resolver("127.0.0.1", DOH_PORT, "/dns-query", "test-doh-timeout", Utils::CancellationToken{});
-    auto result = resolver.query("doh-timeout.yaddnsc.test", RecordKind::A);
+    DohResolver resolver("127.0.0.1", DOH_PORT, "/dns-query", "test-doh-timeout");
+    auto result = resolver.query("doh-timeout.yaddnsc.test", RecordKind::A, {});
 
     ASSERT_FALSE(result.has_value());
     EXPECT_TRUE(result.error().code == DnsError::RETRY || result.error().code == DnsError::CONNECTION ||
@@ -236,32 +236,32 @@ TEST_F(DohResolverTest, TimeoutHost_ReturnsError) {
 }
 
 TEST_F(DohResolverTest, Http404_ReturnsServerRefused) {
-    DohResolver resolver("127.0.0.1", DOH_PORT, "/dns-query", "test-doh-404", Utils::CancellationToken{});
-    auto result = resolver.query("doh-404.yaddnsc.test", RecordKind::A);
+    DohResolver resolver("127.0.0.1", DOH_PORT, "/dns-query", "test-doh-404");
+    auto result = resolver.query("doh-404.yaddnsc.test", RecordKind::A, {});
 
     ASSERT_FALSE(result.has_value());
     EXPECT_EQ(result.error().code, DnsError::SERVER_REFUSED);
 }
 
 TEST_F(DohResolverTest, Http500_ReturnsRetry) {
-    DohResolver resolver("127.0.0.1", DOH_PORT, "/dns-query", "test-doh-500", Utils::CancellationToken{});
-    auto result = resolver.query("doh-500.yaddnsc.test", RecordKind::A);
+    DohResolver resolver("127.0.0.1", DOH_PORT, "/dns-query", "test-doh-500");
+    auto result = resolver.query("doh-500.yaddnsc.test", RecordKind::A, {});
 
     ASSERT_FALSE(result.has_value());
     EXPECT_EQ(result.error().code, DnsError::RETRY);
 }
 
 TEST_F(DohResolverTest, WrongContentType_ReturnsParseError) {
-    DohResolver resolver("127.0.0.1", DOH_PORT, "/dns-query", "test-doh-wrong-ct", Utils::CancellationToken{});
-    auto result = resolver.query("doh-malformed.yaddnsc.test", RecordKind::A);
+    DohResolver resolver("127.0.0.1", DOH_PORT, "/dns-query", "test-doh-wrong-ct");
+    auto result = resolver.query("doh-malformed.yaddnsc.test", RecordKind::A, {});
 
     ASSERT_FALSE(result.has_value());
     EXPECT_EQ(result.error().code, DnsError::PARSE);
 }
 
 TEST_F(DohResolverTest, NonExistentDomain_FallsBackToDefault) {
-    DohResolver resolver("127.0.0.1", DOH_PORT, "/dns-query", "test-doh-nx", Utils::CancellationToken{});
-    auto result = resolver.query("nonexistent.yaddnsc.test", RecordKind::A);
+    DohResolver resolver("127.0.0.1", DOH_PORT, "/dns-query", "test-doh-nx");
+    auto result = resolver.query("nonexistent.yaddnsc.test", RecordKind::A, {});
 
     ASSERT_TRUE(result.has_value()) << "DoH A query failed: " << dns_error_name(result.error().code);
     // The test server falls back to 198.51.100.1 for unknown A records.
@@ -276,8 +276,8 @@ TEST_F(DohResolverTest, NonExistentDomain_FallsBackToDefault) {
 
 TEST_F(DohResolverTest, ChunkedTransferEncoding_Succeeds) {
     // Tests the chunked transfer encoding path in read_response().
-    DohResolver resolver("127.0.0.1", DOH_PORT, "/dns-query", "test-doh-chunked", Utils::CancellationToken{});
-    auto result = resolver.query("doh-chunked.yaddnsc.test", RecordKind::A);
+    DohResolver resolver("127.0.0.1", DOH_PORT, "/dns-query", "test-doh-chunked");
+    auto result = resolver.query("doh-chunked.yaddnsc.test", RecordKind::A, {});
 
     ASSERT_TRUE(result.has_value()) << "DoH chunked query failed: " << dns_error_name(result.error().code);
     // QNAME for "doh-chunked.yaddnsc.test" = 1+11 + 1+7 + 1+4 + 1 = 26 bytes
@@ -293,8 +293,8 @@ TEST_F(DohResolverTest, ChunkedTransferEncoding_Succeeds) {
 TEST_F(DohResolverTest, InvalidDnsResponse_ReturnsParseError) {
     // Server returns valid HTTP with dns-message content type, but
     // the DNS body is garbage.  The resolver's validator should catch it.
-    DohResolver resolver("127.0.0.1", DOH_PORT, "/dns-query", "test-doh-invalid", Utils::CancellationToken{});
-    auto result = resolver.query("doh-invalid-dns.yaddnsc.test", RecordKind::A);
+    DohResolver resolver("127.0.0.1", DOH_PORT, "/dns-query", "test-doh-invalid");
+    auto result = resolver.query("doh-invalid-dns.yaddnsc.test", RecordKind::A, {});
 
     ASSERT_FALSE(result.has_value());
     EXPECT_EQ(result.error().code, DnsError::PARSE);
@@ -304,15 +304,15 @@ TEST_F(DohResolverTest, TwoSequentialQueries_ReconnectTransparently) {
     // The server uses Connection: close, so the first query causes the
     // server to drop the connection.  The second query should transparently
     // reconnect via ensure_connection().
-    DohResolver resolver("127.0.0.1", DOH_PORT, "/dns-query", "test-doh-seq", Utils::CancellationToken{});
+    DohResolver resolver("127.0.0.1", DOH_PORT, "/dns-query", "test-doh-seq");
 
-    auto r1 = resolver.query("yaddnsc.test", RecordKind::A);
+    auto r1 = resolver.query("yaddnsc.test", RecordKind::A, {});
     ASSERT_TRUE(r1.has_value()) << "First sequential DoH query failed: " << dns_error_name(r1.error().code);
 
     // Small delay for server-side FIN to propagate.
     std::this_thread::sleep_for(50ms);
 
-    auto r2 = resolver.query("yaddnsc.test", RecordKind::A);
+    auto r2 = resolver.query("yaddnsc.test", RecordKind::A, {});
     ASSERT_TRUE(r2.has_value()) << "Second sequential DoH query failed: " << dns_error_name(r2.error().code);
     ASSERT_GE(r2->size(), 46U);
     EXPECT_EQ((*r2)[42], 198);
@@ -325,9 +325,9 @@ TEST_F(DohResolverTest, Ipv6Address_FormatsHostHeader) {
     // Uses an IPv6 loopback address to exercise the IPv6 branch in
     // build_host_header().  The connection will fail (no server on that
     // port for IPv6), but the host header construction is tested.
-    DohResolver resolver("::1", DOH_PORT, "/dns-query", "test-doh-ipv6", Utils::CancellationToken{});
+    DohResolver resolver("::1", DOH_PORT, "/dns-query", "test-doh-ipv6");
     // No server on ::1, so connection should be refused.
-    auto result = resolver.query("yaddnsc.test", RecordKind::A);
+    auto result = resolver.query("yaddnsc.test", RecordKind::A, {});
 
     ASSERT_FALSE(result.has_value());
     EXPECT_TRUE(result.error().code == DnsError::CONNECTION || result.error().code == DnsError::RETRY)
@@ -337,8 +337,8 @@ TEST_F(DohResolverTest, Ipv6Address_FormatsHostHeader) {
 TEST_F(DohResolverTest, MalformedHeader_ReturnsParseError) {
     // Triggers Http::Error::HEADER_PARSE_FAILED, which to_dns_error()
     // maps to DnsError::PARSE via its default case.
-    DohResolver resolver("127.0.0.1", DOH_PORT, "/dns-query", "test-doh-malformed-header", Utils::CancellationToken{});
-    auto result = resolver.query("doh-malformed-header.yaddnsc.test", RecordKind::A);
+    DohResolver resolver("127.0.0.1", DOH_PORT, "/dns-query", "test-doh-malformed-header");
+    auto result = resolver.query("doh-malformed-header.yaddnsc.test", RecordKind::A, {});
 
     ASSERT_FALSE(result.has_value());
     EXPECT_EQ(result.error().code, DnsError::PARSE);

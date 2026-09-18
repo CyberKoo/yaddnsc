@@ -106,18 +106,13 @@ constexpr unsigned char ALPN_HTTP[] = {8, 'h', 't', 't', 'p', '/', '1', '.', '1'
 //  DohResolver  —  public API
 // ===========================================================================
 
-DohResolver::DohResolver(std::string host,
-                         const std::uint16_t port,
-                         std::string path,
-                         std::string label,
-                         Utils::CancellationToken token)
+DohResolver::DohResolver(std::string host, const std::uint16_t port, std::string path, std::string label)
     : id_(get_id()), host_(std::move(host)), port_(port), path_(std::move(path)),
       host_header_(build_host_header(host_, port_)), label_(std::move(label)),
       stream_(std::make_unique<Transport::TlsStream>(host_,
                                                      port_,
                                                      make_tls_options().first,
-                                                     make_tls_options().second,
-                                                     std::move(token))) {}
+                                                     make_tls_options().second)) {}
 
 DohResolver::DohResolver(std::string host,
                          const std::uint16_t port,
@@ -129,8 +124,8 @@ DohResolver::DohResolver(std::string host,
 
 DohResolver::~DohResolver() = default;
 
-std::expected<std::vector<std::uint8_t>, DnsErrorInfo> DohResolver::query(const std::string& host,
-                                                                          RecordKind type) const {
+std::expected<std::vector<std::uint8_t>, DnsErrorInfo> DohResolver::query(
+    const std::string& host, RecordKind type, const Utils::CancellationToken& token) const {
     try {
         const auto record_type = DNS::Util::type_to_record_type(type);
 
@@ -167,7 +162,7 @@ std::expected<std::vector<std::uint8_t>, DnsErrorInfo> DohResolver::query(const 
             }
 
             // ensure_connected() is idempotent: healthy → no-op, stale → rebuild.
-            if (auto connected = stream_->ensure_connected(); !connected) {
+            if (auto connected = stream_->ensure_connected(token); !connected) {
                 stream_->close();
                 if (attempt < MAX_ATTEMPTS - 1) {
                     continue;
@@ -175,7 +170,7 @@ std::expected<std::vector<std::uint8_t>, DnsErrorInfo> DohResolver::query(const 
                 return std::unexpected(map_connect_error(connected.error(), label_));
             }
 
-            auto response = net::http::protocol::exchange(*stream_, req, {});
+            auto response = net::http::protocol::exchange(*stream_, req, {}, token);
             if (!response) {
                 stream_->close();
                 if (response.error().code == net::http::ErrorCode::CANCELLED) {

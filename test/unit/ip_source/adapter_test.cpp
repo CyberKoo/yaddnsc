@@ -32,6 +32,7 @@
 
 namespace {
 
+using ::testing::_;
 using ::testing::Return;
 
 [[nodiscard]] domain::SubdomainConfig any_subdomain_config() {
@@ -41,7 +42,7 @@ using ::testing::Return;
 // Factory that always hands out the same preconfigured mock source.
 template<typename F>
 [[nodiscard]] IpSourceAdapter make_adapter(F&& factory_fn) {
-    return IpSourceAdapter(Utils::CancellationToken{}, IpSourceAdapter::FactoryFn(std::forward<F>(factory_fn)));
+    return IpSourceAdapter(IpSourceAdapter::FactoryFn(std::forward<F>(factory_fn)));
 }
 
 }  // namespace
@@ -50,10 +51,10 @@ TEST(IpSourceAdapter, SuccessPassesCandidatesThrough) {
     auto source = std::make_unique<MockIpSource>();
     const std::vector<InetAddress> expected{InetAddress{Inet4Address::from_bytes({192, 0, 2, 1})},
                                             InetAddress{Inet4Address::from_bytes({198, 51, 100, 1})}};
-    EXPECT_CALL(*source, resolve()).WillOnce(Return(expected));
+    EXPECT_CALL(*source, resolve(_)).WillOnce(Return(expected));
 
     auto adapter = make_adapter([&](const domain::SubdomainConfig&) { return std::move(source); });
-    const auto result = adapter.resolve(any_subdomain_config());
+    const auto result = adapter.resolve(any_subdomain_config(), {});
 
     ASSERT_TRUE(result.has_value());
     ASSERT_EQ(result->size(), 2);
@@ -63,10 +64,10 @@ TEST(IpSourceAdapter, SuccessPassesCandidatesThrough) {
 
 TEST(IpSourceAdapter, EmptyCandidatesAreSuccess) {
     auto source = std::make_unique<MockIpSource>();
-    EXPECT_CALL(*source, resolve()).WillOnce(Return(std::vector<InetAddress>{}));
+    EXPECT_CALL(*source, resolve(_)).WillOnce(Return(std::vector<InetAddress>{}));
 
     auto adapter = make_adapter([&](const domain::SubdomainConfig&) { return std::move(source); });
-    const auto result = adapter.resolve(any_subdomain_config());
+    const auto result = adapter.resolve(any_subdomain_config(), {});
 
     ASSERT_TRUE(result.has_value()) << "an empty candidate list is a success, not an error";
     EXPECT_TRUE(result->empty());
@@ -74,12 +75,12 @@ TEST(IpSourceAdapter, EmptyCandidatesAreSuccess) {
 
 TEST(IpSourceAdapter, StdExceptionBecomesUnavailable) {
     auto source = std::make_unique<MockIpSource>();
-    EXPECT_CALL(*source, resolve()).WillOnce([]() -> std::vector<InetAddress> {
+    EXPECT_CALL(*source, resolve(_)).WillOnce([](const Utils::CancellationToken&) -> std::vector<InetAddress> {
         throw std::runtime_error("interface not found");
     });
 
     auto adapter = make_adapter([&](const domain::SubdomainConfig&) { return std::move(source); });
-    const auto result = adapter.resolve(any_subdomain_config());
+    const auto result = adapter.resolve(any_subdomain_config(), {});
 
     ASSERT_FALSE(result.has_value());
     EXPECT_EQ(result.error().code, domain::IpSourceError::Code::UNAVAILABLE);
@@ -90,11 +91,11 @@ TEST(IpSourceAdapter, NonStandardThrowBecomesUnknown) {
     auto adapter = make_adapter([](const domain::SubdomainConfig&) -> std::unique_ptr<IpSourceBase> {
         class ThrowingSource final : public IpSourceBase {
         public:
-            std::vector<InetAddress> resolve() const override { throw 42; }
+            std::vector<InetAddress> resolve(const Utils::CancellationToken&) const override { throw 42; }
         };
         return std::make_unique<ThrowingSource>();
     });
-    const auto result = adapter.resolve(any_subdomain_config());
+    const auto result = adapter.resolve(any_subdomain_config(), {});
 
     ASSERT_FALSE(result.has_value());
     EXPECT_EQ(result.error().code, domain::IpSourceError::Code::UNKNOWN);
@@ -104,7 +105,7 @@ TEST(IpSourceAdapter, FactoryExceptionBecomesUnavailable) {
     auto adapter = make_adapter([](const domain::SubdomainConfig&) -> std::unique_ptr<IpSourceBase> {
         throw std::runtime_error("bad source config");
     });
-    const auto result = adapter.resolve(any_subdomain_config());
+    const auto result = adapter.resolve(any_subdomain_config(), {});
 
     ASSERT_FALSE(result.has_value());
     EXPECT_EQ(result.error().code, domain::IpSourceError::Code::UNAVAILABLE);

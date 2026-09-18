@@ -37,7 +37,7 @@ public:
     ~PoolTaskExecutor() override;
 
     /// Run one task on the pool. @return false when shut down (task dropped).
-    bool submit(domain::UpdateTask task) override;
+    bool submit(domain::UpdateTask task, const Utils::CancellationToken& token) override;
 
     /// Block until every accepted task has finished.
     void wait_idle() override;

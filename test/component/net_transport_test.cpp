@@ -327,51 +327,51 @@ protected:
 };
 
 TEST_F(TcpStreamTest, SendAndReadExact_EchoesBack) {
-    Transport::TcpStream stream("127.0.0.1", server_.port(), {}, {});
-    ASSERT_TRUE(stream.ensure_connected());
+    Transport::TcpStream stream("127.0.0.1", server_.port(), {});
+    ASSERT_TRUE(stream.ensure_connected({}));
 
-    ASSERT_TRUE(stream.send_all(bytes("ping")));
+    ASSERT_TRUE(stream.send_all(bytes("ping"), {}));
 
     std::vector<std::uint8_t> buf(4);
-    ASSERT_TRUE(stream.read_exact(buf));
+    ASSERT_TRUE(stream.read_exact(buf, {}));
     EXPECT_EQ(str(buf), "ping");
 }
 
 TEST_F(TcpStreamTest, EnsureConnected_IsIdempotent) {
-    Transport::TcpStream stream("127.0.0.1", server_.port(), {}, {});
-    ASSERT_TRUE(stream.ensure_connected());
+    Transport::TcpStream stream("127.0.0.1", server_.port(), {});
+    ASSERT_TRUE(stream.ensure_connected({}));
     // Second call must be a no-op success on the healthy connection.
-    ASSERT_TRUE(stream.ensure_connected());
+    ASSERT_TRUE(stream.ensure_connected({}));
 
-    ASSERT_TRUE(stream.send_all(bytes("again")));
+    ASSERT_TRUE(stream.send_all(bytes("again"), {}));
     std::vector<std::uint8_t> buf(5);
-    ASSERT_TRUE(stream.read_exact(buf));
+    ASSERT_TRUE(stream.read_exact(buf, {}));
     EXPECT_EQ(str(buf), "again");
 }
 
 TEST_F(TcpStreamTest, ReadSome_ReturnsAvailableBytes) {
-    Transport::TcpStream stream("127.0.0.1", server_.port(), {}, {});
-    ASSERT_TRUE(stream.ensure_connected());
-    ASSERT_TRUE(stream.send_all(bytes("hello")));
+    Transport::TcpStream stream("127.0.0.1", server_.port(), {});
+    ASSERT_TRUE(stream.ensure_connected({}));
+    ASSERT_TRUE(stream.send_all(bytes("hello"), {}));
 
     std::vector<std::uint8_t> buf(16);
-    auto n = stream.read_some(buf);
+    auto n = stream.read_some(buf, {});
     ASSERT_TRUE(n);
     EXPECT_EQ(*n, 5);
     EXPECT_EQ(str(std::vector<std::uint8_t>(buf.begin(), buf.begin() + static_cast<std::ptrdiff_t>(*n))), "hello");
 }
 
 TEST_F(TcpStreamTest, ConnectionRefused_ReturnsConnectionFailed) {
-    Transport::TcpStream stream("127.0.0.1", 1, {}, {});  // port 1: nothing listens
-    const auto result = stream.ensure_connected();
+    Transport::TcpStream stream("127.0.0.1", 1, {});  // port 1: nothing listens
+    const auto result = stream.ensure_connected({});
     ASSERT_FALSE(result);
     EXPECT_EQ(result.error(), IoError::CONNECTION_FAILED);
 }
 
-TEST_F(TcpStreamTest, CancelDuringRead_UsingBoundToken) {
+TEST_F(TcpStreamTest, CancelDuringRead_UsingExplicitToken) {
     Utils::CancellationSource source;
-    Transport::TcpStream stream("127.0.0.1", server_.port(), {.read_timeout = 30s}, source.token());
-    ASSERT_TRUE(stream.ensure_connected());
+    Transport::TcpStream stream("127.0.0.1", server_.port(), {.read_timeout = 30s});
+    ASSERT_TRUE(stream.ensure_connected(source.token()));
 
     std::jthread triggerrer([src = source] {
         std::this_thread::sleep_for(50ms);
@@ -380,7 +380,7 @@ TEST_F(TcpStreamTest, CancelDuringRead_UsingBoundToken) {
 
     std::vector<std::uint8_t> buf(1);
     const auto start = std::chrono::steady_clock::now();
-    const auto result = stream.read_some(buf);
+    const auto result = stream.read_some(buf, source.token());
     const auto elapsed = std::chrono::steady_clock::now() - start;
 
     ASSERT_FALSE(result);
@@ -406,36 +406,36 @@ protected:
 };
 
 TEST_F(NetTlsStreamTest, VerifyDisabled_EchoesBack) {
-    Transport::TlsStream stream("127.0.0.1", TLS_PORT, {}, {.verify_peer = false}, {});
-    ASSERT_TRUE(stream.ensure_connected());
+    Transport::TlsStream stream("127.0.0.1", TLS_PORT, {}, {.verify_peer = false});
+    ASSERT_TRUE(stream.ensure_connected({}));
 
-    ASSERT_TRUE(stream.send_all(framed("tls-ping")));
+    ASSERT_TRUE(stream.send_all(framed("tls-ping"), {}));
     std::vector<std::uint8_t> buf(4 + 8);
-    ASSERT_TRUE(stream.read_exact(buf));
+    ASSERT_TRUE(stream.read_exact(buf, {}));
     EXPECT_EQ(str(std::vector<std::uint8_t>(buf.begin() + 4, buf.end())), "tls-ping");
 }
 
 TEST_F(NetTlsStreamTest, VerifyWithExplicitCa_EchoesBack) {
-    Transport::TlsStream stream("127.0.0.1", TLS_PORT, {}, {.ca_bundle = g_cert_path}, {});  // self-signed = own CA
-    ASSERT_TRUE(stream.ensure_connected());
+    Transport::TlsStream stream("127.0.0.1", TLS_PORT, {}, {.ca_bundle = g_cert_path});  // self-signed = own CA
+    ASSERT_TRUE(stream.ensure_connected({}));
 
-    ASSERT_TRUE(stream.send_all(framed("secure")));
+    ASSERT_TRUE(stream.send_all(framed("secure"), {}));
     std::vector<std::uint8_t> buf(4 + 6);
-    ASSERT_TRUE(stream.read_exact(buf));
+    ASSERT_TRUE(stream.read_exact(buf, {}));
     EXPECT_EQ(str(std::vector<std::uint8_t>(buf.begin() + 4, buf.end())), "secure");
 }
 
 TEST_F(NetTlsStreamTest, VerifyWithDefaultCa_SelfSignedRejected) {
-    Transport::TlsStream stream("127.0.0.1", TLS_PORT, {}, {}, {});  // default CA store
-    const auto result = stream.ensure_connected();
+    Transport::TlsStream stream("127.0.0.1", TLS_PORT, {}, {});  // default CA store
+    const auto result = stream.ensure_connected({});
     ASSERT_FALSE(result);
     EXPECT_EQ(result.error(), IoError::CONNECTION_FAILED);
 }
 
 TEST_F(NetTlsStreamTest, CancelDuringTlsRead_ReturnsCancelled) {
     Utils::CancellationSource source;
-    Transport::TlsStream stream("127.0.0.1", TLS_PORT, {.read_timeout = 30s}, {.verify_peer = false}, source.token());
-    ASSERT_TRUE(stream.ensure_connected());
+    Transport::TlsStream stream("127.0.0.1", TLS_PORT, {.read_timeout = 30s}, {.verify_peer = false});
+    ASSERT_TRUE(stream.ensure_connected(source.token()));
 
     std::jthread triggerrer([src = source] {
         std::this_thread::sleep_for(50ms);
@@ -443,19 +443,19 @@ TEST_F(NetTlsStreamTest, CancelDuringTlsRead_ReturnsCancelled) {
     });
 
     std::vector<std::uint8_t> buf(1);
-    const auto result = stream.read_some(buf);
+    const auto result = stream.read_some(buf, source.token());
     ASSERT_FALSE(result);
     EXPECT_EQ(result.error(), IoError::CANCELLED);
 }
 
 TEST_F(NetTlsStreamTest, EnsureConnected_IsIdempotent) {
-    Transport::TlsStream stream("127.0.0.1", TLS_PORT, {}, {.verify_peer = false}, {});
-    ASSERT_TRUE(stream.ensure_connected());
-    ASSERT_TRUE(stream.ensure_connected());
+    Transport::TlsStream stream("127.0.0.1", TLS_PORT, {}, {.verify_peer = false});
+    ASSERT_TRUE(stream.ensure_connected({}));
+    ASSERT_TRUE(stream.ensure_connected({}));
 
-    ASSERT_TRUE(stream.send_all(framed("twice")));
+    ASSERT_TRUE(stream.send_all(framed("twice"), {}));
     std::vector<std::uint8_t> buf(4 + 5);
-    ASSERT_TRUE(stream.read_exact(buf));
+    ASSERT_TRUE(stream.read_exact(buf, {}));
     EXPECT_EQ(str(std::vector<std::uint8_t>(buf.begin() + 4, buf.end())), "twice");
 }
 
@@ -473,33 +473,33 @@ protected:
 };
 
 TEST_F(NetTransportCloseTest, TcpStream_PeerClose_ReadReturnsConnectionFailed) {
-    Transport::TcpStream stream("127.0.0.1", server_.port(), {}, {});
-    ASSERT_TRUE(stream.ensure_connected());  // accepted, then closed by the server
+    Transport::TcpStream stream("127.0.0.1", server_.port(), {});
+    ASSERT_TRUE(stream.ensure_connected({}));  // accepted, then closed by the server
 
     std::vector<std::uint8_t> buf(4);
-    const auto result = stream.read_some(buf);
+    const auto result = stream.read_some(buf, {});
     ASSERT_FALSE(result);
     EXPECT_EQ(result.error(), IoError::CONNECTION_FAILED);  // EOF
 }
 
 TEST_F(NetTransportCloseTest, TcpStream_UnhealthyPeer_EnsureConnectedReconnects) {
-    Transport::TcpStream stream("127.0.0.1", server_.port(), {}, {});
-    ASSERT_TRUE(stream.ensure_connected());
+    Transport::TcpStream stream("127.0.0.1", server_.port(), {});
+    ASSERT_TRUE(stream.ensure_connected({}));
 
     std::vector<std::uint8_t> buf(4);
-    ASSERT_FALSE(stream.read_some(buf));  // peer closed -> connection unhealthy
+    ASSERT_FALSE(stream.read_some(buf, {}));  // peer closed -> connection unhealthy
 
     // is_connected() is still true, but the EOF health probe must force a
     // reconnect — which the accept/close server satisfies again.
-    EXPECT_TRUE(stream.ensure_connected());
+    EXPECT_TRUE(stream.ensure_connected({}));
 }
 
 TEST_F(TcpStreamTest, ReadSome_EmptyBuffer_ReturnsZero) {
-    Transport::TcpStream stream("127.0.0.1", server_.port(), {}, {});
-    ASSERT_TRUE(stream.ensure_connected());
+    Transport::TcpStream stream("127.0.0.1", server_.port(), {});
+    ASSERT_TRUE(stream.ensure_connected({}));
 
     std::span<std::uint8_t> empty;
-    const auto n = stream.read_some(empty);
+    const auto n = stream.read_some(empty, {});
     ASSERT_TRUE(n);
     EXPECT_EQ(*n, 0);
 }
@@ -510,34 +510,34 @@ TEST_F(TcpStreamTest, ReadSome_EmptyBuffer_ReturnsZero) {
 
 TEST_F(NetTlsStreamTest, ReadAfterServerClose_ReturnsConnectionFailed) {
     // The Python echo server closes the connection right after echoing.
-    Transport::TlsStream stream("127.0.0.1", TLS_PORT, {}, {.verify_peer = false}, {});
-    ASSERT_TRUE(stream.ensure_connected());
+    Transport::TlsStream stream("127.0.0.1", TLS_PORT, {}, {.verify_peer = false});
+    ASSERT_TRUE(stream.ensure_connected({}));
 
-    ASSERT_TRUE(stream.send_all(framed("bye")));
+    ASSERT_TRUE(stream.send_all(framed("bye"), {}));
     std::vector<std::uint8_t> buf(4 + 3);
-    ASSERT_TRUE(stream.read_exact(buf));
+    ASSERT_TRUE(stream.read_exact(buf, {}));
 
     // The peer sent close_notify: the next read must surface CONNECTION_FAILED
     // (SSL_ERROR_ZERO_RETURN), not success.
     std::vector<std::uint8_t> more(1);
-    const auto result = stream.read_some(more);
+    const auto result = stream.read_some(more, {});
     ASSERT_FALSE(result);
     EXPECT_EQ(result.error(), IoError::CONNECTION_FAILED);
 }
 
 TEST_F(NetTlsStreamTest, EnsureConnected_WithBufferedData_StaysOnConnection) {
-    Transport::TlsStream stream("127.0.0.1", TLS_PORT, {}, {.verify_peer = false}, {});
-    ASSERT_TRUE(stream.ensure_connected());
+    Transport::TlsStream stream("127.0.0.1", TLS_PORT, {}, {.verify_peer = false});
+    ASSERT_TRUE(stream.ensure_connected({}));
 
     // The server sends the whole frame (4-byte prefix + payload) in one TLS
     // record and then closes. Reading only the prefix leaves decrypted bytes
     // in OpenSSL's buffer — the health probe must treat the connection as
     // alive (SSL_pending > 0) even though the socket already shows EOF.
-    ASSERT_TRUE(stream.send_all(framed("buffered")));
+    ASSERT_TRUE(stream.send_all(framed("buffered"), {}));
     std::vector<std::uint8_t> prefix(4);
-    ASSERT_TRUE(stream.read_exact(prefix));
+    ASSERT_TRUE(stream.read_exact(prefix, {}));
 
-    EXPECT_TRUE(stream.ensure_connected());
+    EXPECT_TRUE(stream.ensure_connected({}));
 }
 
 TEST_F(NetTlsStreamTest, SniHostname_SetsSniAndVerificationHost) {
@@ -545,31 +545,30 @@ TEST_F(NetTlsStreamTest, SniHostname_SetsSniAndVerificationHost) {
     // branches. Verification is disabled here — the server cert is for
     // 127.0.0.1 — but SSL_set_tlsext_host_name / SSL_set1_host still run.
     // The SNI name is never resolved: TCP still targets 127.0.0.1.
-    Transport::TlsStream stream("127.0.0.1", TLS_PORT, {}, {.sni_hostname = "dns.example.com", .verify_peer = false},
-                                {});
-    ASSERT_TRUE(stream.ensure_connected());
+    Transport::TlsStream stream("127.0.0.1", TLS_PORT, {}, {.sni_hostname = "dns.example.com", .verify_peer = false});
+    ASSERT_TRUE(stream.ensure_connected({}));
 
-    ASSERT_TRUE(stream.send_all(framed("named")));
+    ASSERT_TRUE(stream.send_all(framed("named"), {}));
     std::vector<std::uint8_t> buf(4 + 5);
-    ASSERT_TRUE(stream.read_exact(buf));
+    ASSERT_TRUE(stream.read_exact(buf, {}));
     EXPECT_EQ(str(std::vector<std::uint8_t>(buf.begin() + 4, buf.end())), "named");
 }
 
 TEST_F(NetTlsStreamTest, ScopedIpv6Sni_StripScopeBeforeIpVerification) {
     // A scoped IPv6 literal must have the "%zone" stripped before
     // X509_VERIFY_PARAM_set1_ip_asc (it parses addresses, not scopes).
-    Transport::TlsStream stream("127.0.0.1", TLS_PORT, {}, {.sni_hostname = "fe80::1%eth0", .verify_peer = false}, {});
-    ASSERT_TRUE(stream.ensure_connected());
+    Transport::TlsStream stream("127.0.0.1", TLS_PORT, {}, {.sni_hostname = "fe80::1%eth0", .verify_peer = false});
+    ASSERT_TRUE(stream.ensure_connected({}));
 }
 
 TEST_F(NetTlsStreamTest, AlpnProto_SentDuringHandshake) {
     // Wire-format ALPN protocol list: one protocol "h2".
     static constexpr unsigned char alpn[] = {2, 'h', '2'};
-    Transport::TlsStream stream("127.0.0.1", TLS_PORT, {}, {.alpn_proto = alpn, .verify_peer = false}, {});
-    ASSERT_TRUE(stream.ensure_connected());
+    Transport::TlsStream stream("127.0.0.1", TLS_PORT, {}, {.alpn_proto = alpn, .verify_peer = false});
+    ASSERT_TRUE(stream.ensure_connected({}));
 
-    ASSERT_TRUE(stream.send_all(framed("alpn")));
+    ASSERT_TRUE(stream.send_all(framed("alpn"), {}));
     std::vector<std::uint8_t> buf(4 + 4);
-    ASSERT_TRUE(stream.read_exact(buf));
+    ASSERT_TRUE(stream.read_exact(buf, {}));
     EXPECT_EQ(str(std::vector<std::uint8_t>(buf.begin() + 4, buf.end())), "alpn");
 }

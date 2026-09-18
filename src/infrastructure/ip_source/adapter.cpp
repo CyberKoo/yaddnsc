@@ -18,16 +18,21 @@
 #include "support/util/cancellation_token.hpp"
 
 #include "factory.h"
+#include "support/util/cancellation_token.hpp"
 
-IpSourceAdapter::IpSourceAdapter(Utils::CancellationToken token, FactoryFn factory)
-    : factory_(factory ? std::move(factory) : FactoryFn([token = std::move(token)](const domain::SubdomainConfig& cfg) {
-          return IpSourceFactory::create(cfg, token);
+IpSourceAdapter::IpSourceAdapter(FactoryFn factory)
+    : factory_(factory ? std::move(factory) : FactoryFn([](const domain::SubdomainConfig& cfg) {
+          return IpSourceFactory::create(cfg);
       })) {}
 
 std::expected<std::vector<InetAddress>, domain::IpSourceError> IpSourceAdapter::resolve(
-    const domain::SubdomainConfig& config) const {
+    const domain::SubdomainConfig& config, const Utils::CancellationToken& token) const {
+    if (token.is_triggered()) {
+        return std::unexpected(domain::IpSourceError{domain::IpSourceError::Code::CANCELLED, "IP source lookup cancelled"});
+    }
+
     try {
-        return factory_(config)->resolve();
+        return factory_(config)->resolve(token);
     } catch (const std::exception& e) {
         return std::unexpected(domain::IpSourceError{domain::IpSourceError::Code::UNAVAILABLE, e.what()});
     } catch (...) {

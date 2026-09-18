@@ -12,6 +12,7 @@
 #include "domain/error/error.h"
 #include "domain/update/schedule_queue.h"
 #include "domain/update/update_task.h"
+#include "support/util/cancellation_token.hpp"
 
 #include "BS_thread_pool.hpp"
 #include "update_workflow.h"
@@ -30,13 +31,13 @@ PoolTaskExecutor::~PoolTaskExecutor() {
     wait_idle();
 }
 
-bool PoolTaskExecutor::submit(domain::UpdateTask task) {
+bool PoolTaskExecutor::submit(domain::UpdateTask task, const Utils::CancellationToken& token) {
     if (!accepting_.load(std::memory_order_acquire)) {
         return false;
     }
 
-    impl_->pool.detach_task([this, t = std::move(task)] {
-        const auto result = workflow_.run(t);
+    impl_->pool.detach_task([this, t = std::move(task), token] {
+        const auto result = workflow_.run(t, token);
         // A provider retry_after (rate limit) is handed back to the
         // scheduler so the task's next deadline honours the backoff.
         if (!result && result.error().retry_after_seconds > 0 && retry_handler_) {

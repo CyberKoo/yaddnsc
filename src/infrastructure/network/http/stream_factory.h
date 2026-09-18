@@ -14,7 +14,6 @@
 #include <string_view>
 
 #include "infrastructure/network/transport/stream.h"
-#include "support/util/cancellation_token.hpp"
 
 namespace Transport {
 struct Options;
@@ -39,13 +38,8 @@ public:
 };
 
 /// Default factory: TlsStream for TLS, TcpStream for TCP.
-///
-/// Holds the cancellation token; every stream it creates is cancellable
-/// through it.
 class DefaultStreamFactory final : public StreamFactory {
 public:
-    explicit DefaultStreamFactory(Utils::CancellationToken token = {});
-
     [[nodiscard]] std::unique_ptr<Transport::Stream> create_tls(std::string_view host,
                                                                 std::uint16_t port,
                                                                 const Transport::Options& conn_opts,
@@ -54,9 +48,6 @@ public:
     [[nodiscard]] std::unique_ptr<Transport::Stream> create_tcp(std::string_view host,
                                                                 std::uint16_t port,
                                                                 const Transport::Options& conn_opts) override;
-
-private:
-    Utils::CancellationToken token_;
 };
 
 }  // namespace net::http

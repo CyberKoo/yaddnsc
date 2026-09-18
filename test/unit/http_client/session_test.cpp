@@ -35,6 +35,7 @@
 #include "infrastructure/network/http/types.h"
 #include "infrastructure/network/transport/io_error.h"
 #include "infrastructure/network/transport/stream.h"
+#include "support/util/cancellation_token.hpp"
 
 using net::http::ErrorCode;
 using net::http::Method;
@@ -55,7 +56,7 @@ public:
     std::optional<IoError> connect_error;
     std::string sent;
 
-    [[nodiscard]] std::expected<void, IoError> ensure_connected() override {
+    [[nodiscard]] std::expected<void, IoError> ensure_connected(const Utils::CancellationToken&) override {
         if (connect_error) {
             return std::unexpected(*connect_error);
         }
@@ -64,7 +65,8 @@ public:
 
     void close() noexcept override {}
 
-    [[nodiscard]] std::expected<size_t, IoError> read_some(std::span<std::uint8_t> buf) override {
+    [[nodiscard]] std::expected<size_t, IoError> read_some(std::span<std::uint8_t> buf,
+                                                           const Utils::CancellationToken&) override {
         if (fail_reads) {
             return std::unexpected(*fail_reads);
         }
@@ -77,10 +79,11 @@ public:
         return n;
     }
 
-    [[nodiscard]] std::expected<void, IoError> read_exact(std::span<std::uint8_t> buf) override {
+    [[nodiscard]] std::expected<void, IoError> read_exact(std::span<std::uint8_t> buf,
+                                                          const Utils::CancellationToken& token) override {
         auto remaining = buf;
         while (!remaining.empty()) {
-            auto n = read_some(remaining);
+            auto n = read_some(remaining, token);
             if (!n) {
                 return std::unexpected(n.error());
             }
@@ -89,7 +92,8 @@ public:
         return {};
     }
 
-    [[nodiscard]] std::expected<void, IoError> send_all(std::span<const std::uint8_t> data) override {
+    [[nodiscard]] std::expected<void, IoError> send_all(std::span<const std::uint8_t> data,
+                                                        const Utils::CancellationToken&) override {
         sent.append(reinterpret_cast<const char*>(data.data()), data.size());
         return {};
     }
@@ -155,7 +159,7 @@ TEST(HttpSession, HttpScheme_UsesTcpFactory) {
     factory->tcp_streams.push_back(ok_stream());
 
     auto session = make_session(factory, "http");
-    const auto resp = session.exchange(get_request());
+    const auto resp = session.exchange(get_request(), {});
 
     ASSERT_TRUE(resp);
     EXPECT_EQ(resp->status, 200);
@@ -175,8 +179,8 @@ TEST(HttpSession, KeepAliveMaxRebuildsBeforeTheNextExchange) {
     factory->tcp_streams.push_back(ok_stream());
 
     auto session = make_session(factory, "http");
-    ASSERT_TRUE(session.exchange(get_request()));
-    ASSERT_TRUE(session.exchange(get_request()));
+    ASSERT_TRUE(session.exchange(get_request(), {}));
+    ASSERT_TRUE(session.exchange(get_request(), {}));
     EXPECT_EQ(factory->tcp_hosts.size(), 2);
 }
 
@@ -190,9 +194,9 @@ TEST(HttpSession, RepeatedKeepAliveMaxDoesNotResetTheConnectionCap) {
     factory->tcp_streams.push_back(ok_stream());
 
     auto session = make_session(factory, "http");
-    ASSERT_TRUE(session.exchange(get_request()));
-    ASSERT_TRUE(session.exchange(get_request()));
-    ASSERT_TRUE(session.exchange(get_request()));
+    ASSERT_TRUE(session.exchange(get_request(), {}));
+    ASSERT_TRUE(session.exchange(get_request(), {}));
+    ASSERT_TRUE(session.exchange(get_request(), {}));
     EXPECT_EQ(factory->tcp_hosts.size(), 2);
 }
 
@@ -201,7 +205,7 @@ TEST(HttpSession, HttpsScheme_UsesTlsFactory) {
     factory->tls_streams.push_back(ok_stream());
 
     auto session = make_session(factory, "https");
-    const auto resp = session.exchange(get_request());
+    const auto resp = session.exchange(get_request(), {});
 
     ASSERT_TRUE(resp);
     EXPECT_EQ(resp->status, 200);
@@ -219,21 +223,21 @@ TEST(HttpSession, ConnectError_MappedToDomainError) {
     cancelled->connect_error = IoError::CANCELLED;
     factory->tcp_streams.push_back(std::move(cancelled));
     auto session = make_session(factory, "http");
-    const auto r1 = session.exchange(get_request());
+    const auto r1 = session.exchange(get_request(), {});
     ASSERT_FALSE(r1);
     EXPECT_EQ(r1.error().code, ErrorCode::CANCELLED);
 
     auto timed_out = std::make_unique<FakeStream>();
     timed_out->connect_error = IoError::TIMEOUT;
     factory->tcp_streams.push_back(std::move(timed_out));
-    const auto r2 = session.exchange(get_request());
+    const auto r2 = session.exchange(get_request(), {});
     ASSERT_FALSE(r2);
     EXPECT_EQ(r2.error().code, ErrorCode::TIMEOUT);
 
     auto refused = std::make_unique<FakeStream>();
     refused->connect_error = IoError::CONNECTION_FAILED;
     factory->tcp_streams.push_back(std::move(refused));
-    const auto r3 = session.exchange(get_request());
+    const auto r3 = session.exchange(get_request(), {});
     ASSERT_FALSE(r3);
     EXPECT_EQ(r3.error().code, ErrorCode::CONNECT_FAILED);
 }
@@ -249,7 +253,7 @@ TEST(HttpSession, IdempotentRequest_ConnectionLost_RetriedOnceOnNewStream) {
     factory->tcp_streams.push_back(ok_stream());
 
     auto session = make_session(factory, "http");
-    const auto resp = session.exchange(get_request());
+    const auto resp = session.exchange(get_request(), {});
 
     ASSERT_TRUE(resp);
     EXPECT_EQ(resp->status, 200);
@@ -268,7 +272,7 @@ TEST(HttpSession, IdempotentRequest_RetryFails_ReturnsConnectionLost) {
     factory->tcp_streams.push_back(std::move(dying2));
 
     auto session = make_session(factory, "http");
-    const auto resp = session.exchange(get_request());
+    const auto resp = session.exchange(get_request(), {});
 
     ASSERT_FALSE(resp);
     EXPECT_EQ(resp.error().code, ErrorCode::CONNECTION_LOST);
@@ -287,7 +291,7 @@ TEST(HttpSession, NonIdempotentRequest_ConnectionLost_NotRetried) {
     auto req = get_request();
     req.method = Method::POST;
     req.body = "payload";
-    const auto resp = session.exchange(req);
+    const auto resp = session.exchange(req, {});
 
     ASSERT_FALSE(resp);
     EXPECT_EQ(resp.error().code, ErrorCode::CONNECTION_LOST);
@@ -303,7 +307,7 @@ TEST(HttpSession, NonRecoverableError_NotRetried) {
     factory->tcp_streams.push_back(ok_stream());  // must NOT be consumed
 
     auto session = make_session(factory, "http");
-    const auto resp = session.exchange(get_request());
+    const auto resp = session.exchange(get_request(), {});
 
     ASSERT_FALSE(resp);
     EXPECT_EQ(resp.error().code, ErrorCode::CANCELLED);
@@ -321,7 +325,7 @@ TEST(HttpSession, ReconnectFailsOnRetry_ReturnsConnectError) {
     factory->tcp_streams.push_back(std::move(refused));
 
     auto session = make_session(factory, "http");
-    const auto resp = session.exchange(get_request());
+    const auto resp = session.exchange(get_request(), {});
 
     ASSERT_FALSE(resp);
     EXPECT_EQ(resp.error().code, ErrorCode::TIMEOUT);
@@ -337,14 +341,14 @@ TEST(HttpSession, HealthyStream_ReusedAcrossExchanges) {
     factory->tcp_streams.push_back(ok_stream());
 
     auto session = make_session(factory, "http");
-    ASSERT_TRUE(session.exchange(get_request()));
+    ASSERT_TRUE(session.exchange(get_request(), {}));
 
     // POST is not retried: the EOF surfaces as CONNECTION_LOST and the
     // factory must NOT be consulted again — the connection was reused.
     auto req = get_request();
     req.method = Method::POST;
     req.body = "x";
-    const auto resp = session.exchange(req);
+    const auto resp = session.exchange(req, {});
 
     ASSERT_FALSE(resp);  // stream exhausted -> EOF
     EXPECT_EQ(resp.error().code, ErrorCode::CONNECTION_LOST);

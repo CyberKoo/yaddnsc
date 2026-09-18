@@ -47,23 +47,19 @@ namespace {
 
 HttpIpSource::~HttpIpSource() = default;
 
-HttpIpSource::HttpIpSource(std::string url,
-                           const AddressFamily address_family,
-                           std::string bind_interface,
-                           Utils::CancellationToken token)
+HttpIpSource::HttpIpSource(std::string url, const AddressFamily address_family, std::string bind_interface)
     : url_(std::move(url)), address_family_(address_family), bind_interface_(std::move(bind_interface)),
-      client_(std::make_unique<net::http::PersistentClient>(url_, make_client_options(address_family_, bind_interface_),
-                                                            std::move(token))) {}
+      client_(std::make_unique<net::http::PersistentClient>(url_, make_client_options(address_family_, bind_interface_))) {}
 
 // ---------------------------------------------------------------------------
 // HttpIpSource::resolve — send GET request and parse the response body as an IP.
 // ---------------------------------------------------------------------------
 
-std::vector<InetAddress> HttpIpSource::resolve() const {
+std::vector<InetAddress> HttpIpSource::resolve(const Utils::CancellationToken& token) const {
     net::http::Request req;
     req.method = net::http::Method::GET;
 
-    auto resp = client_->exchange(url_, req);
+    auto resp = client_->exchange(url_, req, token);
     if (!resp) {
         throw std::runtime_error(
             fmt::format(R"(HTTP IP source "{}" did not return a valid response: {})", url_, resp.error().message));

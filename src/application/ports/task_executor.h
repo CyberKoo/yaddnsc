@@ -11,6 +11,10 @@
 #include "domain/update/schedule_queue.h"
 #include "domain/update/update_task.h"
 
+namespace Utils {
+class CancellationToken;
+}
+
 /// TaskExecutor — execution port for scheduled update tasks.
 ///
 /// The executor is the only component allowed to own a thread pool; it knows
@@ -28,9 +32,11 @@ public:
     virtual ~TaskExecutor() = default;
 
     /// Submit one scheduled task for execution.
+    /// @param token  I/O cancellation token observed by the task's blocking
+    ///               operations (copied into the work unit).
     /// @return false when the executor is shutting down; the task is dropped
     ///         (shutdown discards pending work by design).
-    virtual bool submit(domain::UpdateTask task) = 0;
+    virtual bool submit(domain::UpdateTask task, const Utils::CancellationToken& token) = 0;
 
     /// Block until every accepted task has finished.
     virtual void wait_idle() = 0;

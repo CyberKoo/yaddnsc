@@ -15,10 +15,6 @@
 
 class ResolverBase;
 
-namespace Utils {
-class CancellationToken;
-}
-
 /// ResolverCatalog — instance-level factory catalog for DNS resolver types.
 ///
 /// Replaces the former process-wide DnsResolverRegistry: the schema→factory
@@ -29,10 +25,10 @@ class CancellationToken;
 /// ("https", "tls", "" for classic) to the corresponding resolver factories.
 class ResolverCatalog {
 public:
-    /// Factory function type: receives a DNS server config + a cancellation
-    /// token (bound into the resolver at construction) and returns a resolver.
-    using FactoryFn = std::function<std::unique_ptr<ResolverBase>(const Config::DnsServer &,
-                                                                  const Utils::CancellationToken &)>;
+    /// Factory function type: receives a DNS server config and returns a
+    /// resolver.  Cancellation is not bound at construction; it flows
+    /// through ResolverBase::query().
+    using FactoryFn = std::function<std::unique_ptr<ResolverBase>(const Config::DnsServer &)>;
 
     /// Register a factory for the given URI schema.
     /// @param schema   URI schema (e.g. "https", "tls"). Empty string is the
@@ -50,11 +46,9 @@ public:
     /// then dispatches to the registered factory.
     ///
     /// @param server  DNS server address and port.
-    /// @param token   Cancellation token bound into the created resolver.
     /// @return        A new resolver instance.
     /// @throws DnsLookupException  If no factory is registered for the schema.
-    [[nodiscard]] std::unique_ptr<ResolverBase> create(const Config::DnsServer &server,
-                                                       const Utils::CancellationToken &token) const;
+    [[nodiscard]] std::unique_ptr<ResolverBase> create(const Config::DnsServer &server) const;
 
 private:
     std::unordered_map<std::string, FactoryFn> factories_;

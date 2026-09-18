@@ -15,6 +15,7 @@
 #include "infrastructure/ip_source/iface.h"
 #include "infrastructure/ip_source/iface_util.h"
 #include "infrastructure/network/net_devices.h"
+#include "support/util/cancellation_token.hpp"
 
 namespace {
 const std::string LOOPBACK = NetDevices::loopback_name();
@@ -26,13 +27,13 @@ const std::string LOOPBACK = NetDevices::loopback_name();
 
 TEST(InterfaceIpSourceTest, Resolve_Loopback_ReturnsNonEmpty) {
     InterfaceIpSource src(LOOPBACK, AddressFamily::UNSPECIFIED);
-    auto addrs = src.resolve();
+    auto addrs = src.resolve({});
     EXPECT_FALSE(addrs.empty());
 }
 
 TEST(InterfaceIpSourceTest, Resolve_Loopback_FilterIpv4) {
     InterfaceIpSource src(LOOPBACK, AddressFamily::IPV4);
-    auto addrs = src.resolve();
+    auto addrs = src.resolve({});
     ASSERT_FALSE(addrs.empty());
 
     for (const auto& addr : addrs) {
@@ -52,7 +53,7 @@ TEST(InterfaceIpSourceTest, Resolve_Loopback_FilterIpv4) {
 
 TEST(InterfaceIpSourceTest, Resolve_Loopback_FilterIpv6) {
     InterfaceIpSource src(LOOPBACK, AddressFamily::IPV6);
-    auto addrs = src.resolve();
+    auto addrs = src.resolve({});
 
     // IPv6 may be disabled in containers; skip if empty.
     if (addrs.empty()) {
@@ -66,7 +67,7 @@ TEST(InterfaceIpSourceTest, Resolve_Loopback_FilterIpv6) {
 
 TEST(InterfaceIpSourceTest, Resolve_NonExistentInterface_Throws) {
     InterfaceIpSource src("nonexistent999", AddressFamily::UNSPECIFIED);
-    EXPECT_THROW({ [[maybe_unused]] auto _ = src.resolve(); }, std::runtime_error);
+    EXPECT_THROW({ [[maybe_unused]] auto _ = src.resolve({}); }, std::runtime_error);
 }
 
 // ===========================================================================
@@ -88,7 +89,7 @@ TEST(InterfaceIpSourceTest, GetInterfaces_ReturnsNonEmpty) {
 
 TEST(InterfaceIpSourceTest, Resolve_Loopback_Unspecified_ContainsBothFamilies) {
     InterfaceIpSource src(LOOPBACK, AddressFamily::UNSPECIFIED);
-    auto addrs = src.resolve();
+    auto addrs = src.resolve({});
     ASSERT_FALSE(addrs.empty());
 
     bool has_v4 = false;

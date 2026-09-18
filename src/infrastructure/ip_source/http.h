@@ -9,19 +9,22 @@
 #include <string>
 
 #include "domain/network/address_family.h"
-#include "support/util/cancellation_token.hpp"
 #include "infrastructure/ip_source/base.h"
 
 namespace net::http {
 class PersistentClient;
 }
 
+namespace Utils {
+class CancellationToken;
+}
+
 /// HttpIpSource — fetches the local public IP address from an external HTTP service.
 ///
 /// Uses net::http::Client to maintain keep-alive efficiency across
 /// resolve() calls. The address family and outbound interface binding are
-/// passed through to the underlying transport; cancellation is bound at
-/// construction.
+/// passed through to the underlying transport; cancellation flows through
+/// resolve() as a parameter.
 ///
 /// resolve() returns 0 or 1 addresses.
 class HttpIpSource final : public IpSourceBase {
@@ -30,15 +33,13 @@ public:
     /// @param url              URL of the HTTP IP detection service.
     /// @param address_family   Preferred address family for the connection.
     /// @param bind_interface   Outbound network interface to bind to (empty = any).
-    /// @param token            Cancellation token for the underlying HTTP client.
     explicit HttpIpSource(std::string url,
                           AddressFamily address_family = AddressFamily::UNSPECIFIED,
-                          std::string bind_interface = {},
-                          Utils::CancellationToken token = {});
+                          std::string bind_interface = {});
 
     ~HttpIpSource() override;
 
-    [[nodiscard]] std::vector<InetAddress> resolve() const override;
+    [[nodiscard]] std::vector<InetAddress> resolve(const Utils::CancellationToken& token) const override;
 
 private:
     std::string url_;

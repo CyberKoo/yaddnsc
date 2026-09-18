@@ -315,7 +315,7 @@ TEST_F(HttpClientTest, Get_ReturnsStatusHeadersBody) {
     auto client = make_client();
     net::http::Request req{.method = Method::GET};
 
-    auto resp = client.exchange(server_.base_url() + "/hello", req);
+    auto resp = client.exchange(server_.base_url() + "/hello", req, {});
     ASSERT_TRUE(resp);
     EXPECT_EQ(resp->status, 200);
     EXPECT_EQ(resp->text(), "hello world");
@@ -326,7 +326,7 @@ TEST_F(HttpClientTest, Get_QueryStringPreserved) {
     auto client = make_client();
     net::http::Request req{.method = Method::GET};
 
-    auto resp = client.exchange(server_.base_url() + "/query?a=1&b=two", req);
+    auto resp = client.exchange(server_.base_url() + "/query?a=1&b=two", req, {});
     ASSERT_TRUE(resp);
     EXPECT_EQ(resp->text(), "target=/query?a=1&b=two");
 }
@@ -340,7 +340,7 @@ TEST_F(HttpClientTest, Post_EchoesBody) {
         .content_type = "text/plain",
     };
 
-    auto resp = client.exchange(server_.base_url() + "/echo", req);
+    auto resp = client.exchange(server_.base_url() + "/echo", req, {});
     ASSERT_TRUE(resp);
     EXPECT_EQ(resp->status, 200);
     EXPECT_EQ(resp->text(), "payload-123");
@@ -350,7 +350,7 @@ TEST_F(HttpClientTest, ChunkedResponse_Assembled) {
     auto client = make_client();
     net::http::Request req{.method = Method::GET};
 
-    auto resp = client.exchange(server_.base_url() + "/chunked", req);
+    auto resp = client.exchange(server_.base_url() + "/chunked", req, {});
     ASSERT_TRUE(resp);
     EXPECT_EQ(resp->text(), "part1-part2-part3");
 }
@@ -359,7 +359,7 @@ TEST_F(HttpClientTest, Redirect_IsFollowed) {
     auto client = make_client();
     net::http::Request req{.method = Method::GET};
 
-    auto resp = client.exchange(server_.base_url() + "/redirect", req);
+    auto resp = client.exchange(server_.base_url() + "/redirect", req, {});
     ASSERT_TRUE(resp);
     EXPECT_EQ(resp->status, 200);
     EXPECT_EQ(resp->text(), "hello world");
@@ -369,7 +369,7 @@ TEST_F(HttpClientTest, RedirectLoop_LimitExceeded) {
     auto client = make_client();
     net::http::Request req{.method = Method::GET};
 
-    auto resp = client.exchange(server_.base_url() + "/redirect-loop", req);
+    auto resp = client.exchange(server_.base_url() + "/redirect-loop", req, {});
     ASSERT_FALSE(resp);
     EXPECT_EQ(resp.error().code, ErrorCode::REDIRECT_LIMIT_EXCEEDED);
 }
@@ -380,7 +380,7 @@ TEST_F(HttpClientTest, BodyLimit_Enforced) {
     net::http::Client client(std::move(opts));
 
     net::http::Request req{.method = Method::GET};
-    auto resp = client.exchange(server_.base_url() + "/big", req);
+    auto resp = client.exchange(server_.base_url() + "/big", req, {});
     ASSERT_FALSE(resp);
     EXPECT_EQ(resp.error().code, ErrorCode::BODY_TOO_LARGE);
 }
@@ -389,7 +389,7 @@ TEST_F(HttpClientTest, ConnectionRefused_ConnectFailed) {
     auto client = make_client();
     net::http::Request req{.method = Method::GET};
 
-    auto resp = client.exchange(HttpTestServer::fmt_url(1), req);  // nothing listens
+    auto resp = client.exchange(HttpTestServer::fmt_url(1), req, {});  // nothing listens
     ASSERT_FALSE(resp);
     EXPECT_EQ(resp.error().code, ErrorCode::CONNECT_FAILED);
 }
@@ -398,15 +398,15 @@ TEST_F(HttpClientTest, InvalidUrl_Rejected) {
     auto client = make_client();
     net::http::Request req{.method = Method::GET};
 
-    EXPECT_EQ(client.exchange("ftp://example.com/x", req).error().code, ErrorCode::INVALID_URL);
-    EXPECT_EQ(client.exchange("http://", req).error().code, ErrorCode::INVALID_URL);
+    EXPECT_EQ(client.exchange("ftp://example.com/x", req, {}).error().code, ErrorCode::INVALID_URL);
+    EXPECT_EQ(client.exchange("http://", req, {}).error().code, ErrorCode::INVALID_URL);
 }
 
 TEST_F(HttpClientTest, CancelMidExchange_ReturnsCancelled) {
     Utils::CancellationSource source;
     net::http::Options opts;
     opts.transport.read_timeout = 30s;
-    net::http::Client client(std::move(opts), source.token());
+    net::http::Client client(std::move(opts));
 
     net::http::Request req{.method = Method::GET};
     std::jthread triggerrer([src = source] {
@@ -415,7 +415,7 @@ TEST_F(HttpClientTest, CancelMidExchange_ReturnsCancelled) {
     });
 
     const auto start = std::chrono::steady_clock::now();
-    auto resp = client.exchange(server_.base_url() + "/slow", req);
+    auto resp = client.exchange(server_.base_url() + "/slow", req, source.token());
     const auto elapsed = std::chrono::steady_clock::now() - start;
 
     ASSERT_FALSE(resp);
@@ -431,7 +431,7 @@ TEST_F(HttpClientTest, PersistentClient_ExchangesAgainstBaseOrigin) {
     net::http::PersistentClient client(server_.base_url());
     net::http::Request req{.method = Method::GET};
 
-    auto resp = client.exchange("/hello", req);
+    auto resp = client.exchange("/hello", req, {});
     ASSERT_TRUE(resp);
     EXPECT_EQ(resp->status, 200);
     EXPECT_EQ(resp->text(), "hello world");
@@ -442,8 +442,8 @@ TEST_F(HttpClientTest, PersistentClient_ReusesConnectionAcrossExchanges) {
     net::http::Request req{.method = Method::GET};
 
     const auto before = server_.connection_count();
-    ASSERT_TRUE(client.exchange("/hello", req));
-    ASSERT_TRUE(client.exchange("/query?x=1", req));
+    ASSERT_TRUE(client.exchange("/hello", req, {}));
+    ASSERT_TRUE(client.exchange("/query?x=1", req, {}));
 
     // Both exchanges ran on ONE connection (keep-alive).
     EXPECT_EQ(server_.connection_count(), before + 1);
@@ -455,8 +455,8 @@ TEST_F(HttpClientTest, PersistentClient_Http10KeepAlive_ReusesConnection) {
     net::http::Request req{.method = Method::GET};
 
     const auto before = server_.connection_count();
-    auto first = client.exchange("/http10-keep-alive", req);
-    auto second = client.exchange("/http10-keep-alive", req);
+    auto first = client.exchange("/http10-keep-alive", req, {});
+    auto second = client.exchange("/http10-keep-alive", req, {});
 
     ASSERT_TRUE(first);
     ASSERT_TRUE(second);
@@ -469,7 +469,7 @@ TEST_F(HttpClientTest, PersistentClient_FollowsSameOriginRedirect) {
     net::http::PersistentClient client(server_.base_url());
     net::http::Request req{.method = Method::GET};
 
-    auto resp = client.exchange("/redirect", req);
+    auto resp = client.exchange("/redirect", req, {});
     ASSERT_TRUE(resp);
     EXPECT_EQ(resp->status, 200);
     EXPECT_EQ(resp->text(), "hello world");
@@ -491,13 +491,13 @@ TEST_F(HttpClientTest, Session_ReusesConnectionAcrossExchanges) {
     // The server handles sequential requests on one keep-alive connection.
     net::http::protocol::WireRequest first{
         .method = Method::GET, .target = "/hello", .headers = {{"Host", "127.0.0.1"}}};
-    auto r1 = session.exchange(first);
+    auto r1 = session.exchange(first, {});
     ASSERT_TRUE(r1);
     EXPECT_EQ(r1->text(), "hello world");
 
     net::http::protocol::WireRequest second{
         .method = Method::GET, .target = "/query?x=1", .headers = {{"Host", "127.0.0.1"}}};
-    auto r2 = session.exchange(second);
+    auto r2 = session.exchange(second, {});
     ASSERT_TRUE(r2);
     EXPECT_EQ(r2->text(), "target=/query?x=1");
 }

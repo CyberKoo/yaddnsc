@@ -20,15 +20,18 @@ class Logger;
 /// HostServicesContext — the per-update state behind yaddnsc_host_services.
 ///
 /// One context is constructed on the stack for every update call and bound
-/// to a fresh HttpClient, the logger, and the manager-wide cancellation
-/// token. It owns the response arena: every string and header array a plugin
+/// to a fresh HttpClient and the logger. The host-only HTTP cancellation
+/// token is never exposed through the plugin ABI. It owns the response arena:
+/// every string and header array a plugin
 /// may borrow stays valid until the update call returns, across multiple
 /// exchanges (the ABI memory rules).
 ///
 /// @note Single-threaded: one context serves exactly one update call.
 class HostServicesContext {
 public:
-    HostServicesContext(HttpClient& http_client, const Logger& logger, Utils::CancellationToken cancel_token);
+    /// @param http_token  Host-only token passed directly to HttpClient by
+    ///                    http_exchange(); plugins cannot observe it.
+    HostServicesContext(HttpClient& http_client, const Logger& logger, Utils::CancellationToken http_token);
 
     /// Build the services table bound to this context. The returned table
     /// copies no state; it must not outlive the context.
@@ -49,7 +52,9 @@ public:
                                  yaddnsc_http_response* out_response,
                                  yaddnsc_error* out_error);
 
-    [[nodiscard]] int is_cancelled() const noexcept { return cancel_token_.is_triggered() ? 1 : 0; }
+    /// Plugin cancellation is deliberately independent of host lifecycle
+    /// cancellation. Host-side cancellation only aborts individual HTTP I/O.
+    [[nodiscard]] int is_cancelled() const noexcept { return 0; }
 
 private:
     /// Arena-owning copy of a string; the returned view stays valid until the
@@ -80,7 +85,7 @@ private:
 
     HttpClient& http_client_;
     const Logger& logger_;
-    Utils::CancellationToken cancel_token_;
+    Utils::CancellationToken http_token_;
 
     // Arenas — std::deque never invalidates references on push_back.
     std::deque<std::string> string_arena_;

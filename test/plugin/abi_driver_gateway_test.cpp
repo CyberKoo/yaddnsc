@@ -153,9 +153,9 @@ TEST_F(AbiDriverGatewayTest, PluginLogReachesTheHostLogger) {
     EXPECT_EQ(records[0].function, "update");
 }
 
-TEST_F(AbiDriverGatewayTest, CancellationIsVisibleToThePlugin) {
+TEST_F(AbiDriverGatewayTest, HostCancellationIsNotVisibleToThePlugin) {
     cancel_source_.trigger();
-    const auto result = gateway_->update(kDriverName, make_command(R"({"op":"check_cancel","expect_cancelled":true})"));
+    const auto result = gateway_->update(kDriverName, make_command(R"({"op":"check_cancel","expect_cancelled":false})"));
     EXPECT_TRUE(result.has_value()) << result.error().message;
 }
 

@@ -38,7 +38,10 @@ std::vector<InterfaceListItem> list_interfaces(const NetworkInterfaces& interfac
     return items;
 }
 
-DnsResolveOutcome dns_resolve(const DnsResolverPort& resolver, std::string host, std::string type_text) {
+DnsResolveOutcome dns_resolve(const DnsResolverPort& resolver,
+                              std::string host,
+                              std::string type_text,
+                              const Utils::CancellationToken& token) {
     DnsResolveOutcome outcome{.host = std::move(host), .type_text = std::move(type_text), .lookup = std::nullopt};
 
     const auto type = magic_enum::enum_cast<RecordKind>(outcome.type_text, magic_enum::case_insensitive);
@@ -46,7 +49,7 @@ DnsResolveOutcome dns_resolve(const DnsResolverPort& resolver, std::string host,
         return outcome;  // lookup stays nullopt — unknown record type
     }
 
-    outcome.lookup = resolver.resolve(outcome.host, *type);
+    outcome.lookup = resolver.resolve(outcome.host, *type, token);
     return outcome;
 }
 

@@ -41,7 +41,7 @@ RunResult RunLifecycle::run() {
     //      the stop callback triggers the CancellationSource, aborting
     //      in-flight blocking I/O;
     //   2. the runner stops popping new tasks and returns;
-    runner_.run();
+    runner_.run(cancellation_.token());
     //   3. the executor stops accepting new tasks (pending work dropped);
     executor_.shutdown();
     //   4. in-flight updates drain before any driver instance may be

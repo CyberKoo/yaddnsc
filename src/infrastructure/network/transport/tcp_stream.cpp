@@ -16,36 +16,38 @@
 
 namespace Transport {
 
-TcpStream::TcpStream(std::string host, const std::uint16_t port, Options opts, Utils::CancellationToken token)
-    : socket_(std::move(host), port, opts, std::move(token)), opts_(std::move(opts)) {}
+TcpStream::TcpStream(std::string host, const std::uint16_t port, Options opts)
+    : socket_(std::move(host), port, opts), opts_(std::move(opts)) {}
 
-std::expected<void, IoError> TcpStream::ensure_connected() {
+std::expected<void, IoError> TcpStream::ensure_connected(const Utils::CancellationToken& token) {
     if (socket_.is_connected() && socket_.is_healthy()) {
         return {};
     }
     socket_.close();
-    return socket_.connect();
+    return socket_.connect(token);
 }
 
 void TcpStream::close() noexcept {
     socket_.close();
 }
 
-std::expected<size_t, IoError> TcpStream::read_some(const std::span<std::uint8_t> buf) {
+std::expected<size_t, IoError> TcpStream::read_some(const std::span<std::uint8_t> buf,
+                                                    const Utils::CancellationToken& token) {
     if (!socket_.is_connected()) {
         return std::unexpected(IoError::CONNECTION_FAILED);
     }
     if (buf.empty()) {
         return 0;
     }
-    return read_once(buf);
+    return read_once(buf, token);
 }
 
-std::expected<size_t, IoError> TcpStream::read_once(const std::span<std::uint8_t> buf) {
+std::expected<size_t, IoError> TcpStream::read_once(const std::span<std::uint8_t> buf,
+                                                    const Utils::CancellationToken& token) {
     using enum IoError;
 
     for (;;) {
-        if (auto ready = socket_.poll(POLLIN, opts_.read_timeout); !ready) {
+        if (auto ready = socket_.poll(POLLIN, opts_.read_timeout, token); !ready) {
             return std::unexpected(ready.error());
         }
 
@@ -67,10 +69,11 @@ std::expected<size_t, IoError> TcpStream::read_once(const std::span<std::uint8_t
     }
 }
 
-std::expected<void, IoError> TcpStream::read_exact(const std::span<std::uint8_t> buf) {
+std::expected<void, IoError> TcpStream::read_exact(const std::span<std::uint8_t> buf,
+                                                   const Utils::CancellationToken& token) {
     auto remaining = buf;
     while (!remaining.empty()) {
-        auto n = read_once(remaining);
+        auto n = read_once(remaining, token);
         if (!n) {
             return std::unexpected(n.error());
         }
@@ -79,7 +82,8 @@ std::expected<void, IoError> TcpStream::read_exact(const std::span<std::uint8_t>
     return {};
 }
 
-std::expected<void, IoError> TcpStream::send_all(const std::span<const std::uint8_t> data) {
+std::expected<void, IoError> TcpStream::send_all(const std::span<const std::uint8_t> data,
+                                                 const Utils::CancellationToken& token) {
     using enum IoError;
 
     if (!socket_.is_connected()) {
@@ -88,7 +92,7 @@ std::expected<void, IoError> TcpStream::send_all(const std::span<const std::uint
 
     auto remaining = data;
     while (!remaining.empty()) {
-        if (auto ready = socket_.poll(POLLOUT, opts_.write_timeout); !ready) {
+        if (auto ready = socket_.poll(POLLOUT, opts_.write_timeout, token); !ready) {
             return std::unexpected(ready.error());
         }
 

@@ -32,7 +32,7 @@ public:
     /// @param type       RecordKind::A for IPv4 or RecordKind::AAAA for IPv6
     MdnsIpSource(std::string hostname, RecordKind type, std::string interface);
 
-    [[nodiscard]] std::vector<InetAddress> resolve() const override;
+    [[nodiscard]] std::vector<InetAddress> resolve(const Utils::CancellationToken& token) const override;
 
 private:
     std::string hostname_;

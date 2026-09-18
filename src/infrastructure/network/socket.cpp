@@ -547,21 +547,20 @@ std::expected<int, int> Socket::wait_for(short events, int timeout_ms) const noe
 std::expected<int, int> Socket::wait_for(short events,
                                          int timeout_ms,
                                          const Utils::CancellationToken& cancel_token) const noexcept {
-    // Latched pre-check: a trigger that another consumer already drained from
-    // the pipe must still cancel this operation.
+    // Latched pre-check: cancellation remains terminal even if poll() was
+    // entered after the source fired.
     if (cancel_token.is_triggered()) {
         return std::unexpected(ECANCELED);
     }
 
-    const int cancel_fd = cancel_token.native_handle();
-
-    pollfd pfds[2];
+    // Cancellation is broadcast to this token's own fd, so no shared signal
+    // is consumed by another concurrent waiter.
+    pollfd pfds[2]{};
     pfds[0] = {fd_, events, 0};
-
-    auto nfds = static_cast<nfds_t>(1);
-    if (cancel_token) {
+    const auto cancel_fd = cancel_token.native_handle();
+    const auto nfds = static_cast<nfds_t>(cancel_fd >= 0 ? 2 : 1);
+    if (cancel_fd >= 0) {
         pfds[1] = {cancel_fd, POLLIN, 0};
-        nfds = static_cast<nfds_t>(2);
     }
 
     int rc;
@@ -574,8 +573,10 @@ std::expected<int, int> Socket::wait_for(short events,
     }
 
     // Check cancellation before normal readiness.
-    if (cancel_token && (pfds[1].revents & POLLIN)) {
-        cancel_token.drain();
+    if (cancel_fd >= 0 && pfds[1].revents & POLLIN) {
+        return std::unexpected(ECANCELED);
+    }
+    if (cancel_token.is_triggered()) {
         return std::unexpected(ECANCELED);
     }
 

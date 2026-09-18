@@ -23,7 +23,7 @@ InterfaceIpSource::InterfaceIpSource(std::string interface_name, AddressFamily a
 // InterfaceIpSource::resolve — query the interface for all matching addresses.
 // ---------------------------------------------------------------------------
 
-std::vector<InetAddress> InterfaceIpSource::resolve() const {
+std::vector<InetAddress> InterfaceIpSource::resolve([[maybe_unused]] const Utils::CancellationToken& token) const {
     auto addresses = InterfaceUtil::get_addresses(interface_name_);
 
     // Filter by address family.

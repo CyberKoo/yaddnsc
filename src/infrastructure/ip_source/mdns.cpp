@@ -264,7 +264,10 @@ unsigned int setup_multicast_options(Socket& sock, const std::string& hostname, 
 
 /// Shared helper: poll, receive, parse DNS response.
 /// Throws std::runtime_error on any failure.
-[[nodiscard]] std::vector<InetAddress> recv_and_parse(Socket& sock, RecordKind type, const std::string& hostname) {
+[[nodiscard]] std::vector<InetAddress> recv_and_parse(Socket& sock,
+                                                      RecordKind type,
+                                                      const std::string& hostname,
+                                                      const Utils::CancellationToken& token) {
     // mDNS responses MUST come from UDP source port 5353 (RFC 6762 §6),
     // and only answers whose owner name matches the queried hostname are
     // accepted.  Other datagrams (unrelated multicast traffic, forged
@@ -280,7 +283,7 @@ unsigned int setup_multicast_options(Socket& sock, const std::string& hostname, 
         }
         const auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - now);
 
-        auto wait_res = sock.wait_for(POLLIN, static_cast<int>(remaining.count()));
+        auto wait_res = sock.wait_for(POLLIN, static_cast<int>(remaining.count()), token);
         if (!wait_res) {
             throw std::runtime_error(fmt::format(R"(mDNS wait_for failed: {})", errno_str(wait_res.error())));
         }
@@ -331,7 +334,8 @@ unsigned int setup_multicast_options(Socket& sock, const std::string& hostname, 
 template<IpVersionTag Tag>
 [[nodiscard]] std::vector<InetAddress> resolve_mdns(const std::string& hostname,
                                                     RecordKind type,
-                                                    const std::string& interface) {
+                                                    const std::string& interface,
+                                                    const Utils::CancellationToken& token) {
     constexpr int af = std::is_same_v<Tag, Ipv6Tag> ? AF_INET6 : AF_INET;
     const auto& dest_addr = std::is_same_v<Tag, Ipv6Tag> ? MDNS_IPV6_DEST : MDNS_IPV4_DEST;
 
@@ -413,7 +417,7 @@ template<IpVersionTag Tag>
     SPDLOG_TRACE(R"(mDNS sent {} bytes for "{}")", query_pkt.size(), hostname);
 
     // ── Receive & parse ─────────────────────────────────────────────────
-    return recv_and_parse(sock, type, hostname);
+    return recv_and_parse(sock, type, hostname, token);
 }
 }  // anonymous namespace
 
@@ -424,10 +428,10 @@ template<IpVersionTag Tag>
 MdnsIpSource::MdnsIpSource(std::string hostname, RecordKind type, std::string interface)
     : hostname_(std::move(hostname)), type_(type), interface_(std::move(interface)) {}
 
-std::vector<InetAddress> MdnsIpSource::resolve() const {
+std::vector<InetAddress> MdnsIpSource::resolve(const Utils::CancellationToken& token) const {
     if (type_ == RecordKind::AAAA) {
-        return resolve_mdns<Ipv6Tag>(hostname_, type_, interface_);
+        return resolve_mdns<Ipv6Tag>(hostname_, type_, interface_, token);
     }
 
-    return resolve_mdns<Ipv4Tag>(hostname_, type_, interface_);
+    return resolve_mdns<Ipv4Tag>(hostname_, type_, interface_, token);
 }

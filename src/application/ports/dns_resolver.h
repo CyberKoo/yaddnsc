@@ -13,6 +13,10 @@
 #include "domain/error/dns_error_info.h"
 #include "domain/dns/record_kind.h"
 
+namespace Utils {
+class CancellationToken;
+}
+
 /// DnsResolverPort — application port for DNS resolution.
 ///
 /// The application sees only this port: no raw DNS packets, sockets, or
@@ -26,16 +30,17 @@
 ///   - workflows treat every failure uniformly as "cannot verify the current
 ///     record → proceed with the update".
 ///
-/// Cancellation is bound inside the infrastructure implementation at
-/// construction time (Utils::CancellationToken); the port itself stays
-/// free of I/O cancellation types.
+/// Cancellation flows through resolve() as a parameter
+/// (Utils::CancellationToken): the caller passes a token derived from the
+/// process root source, and every blocking I/O point underneath polls it.
+/// Nothing is bound at construction.
 class DnsResolverPort {
 public:
     virtual ~DnsResolverPort() = default;
 
     /// Resolve `host` for the given record type.
     [[nodiscard]] virtual std::expected<std::vector<std::string>, DnsErrorInfo>
-    resolve(std::string_view host, RecordKind type) const = 0;
+    resolve(std::string_view host, RecordKind type, const Utils::CancellationToken& token) const = 0;
 };
 
 #endif // YADDNSC_APPLICATION_PORTS_DNS_RESOLVER_H

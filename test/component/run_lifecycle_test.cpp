@@ -101,7 +101,7 @@ struct RunnerGuard {
 class FixedAResolver : public MockResolver {
 public:
     FixedAResolver() {
-        ON_CALL(*this, query(_, _))
+        ON_CALL(*this, query(_, _, _))
             .WillByDefault(Return(std::vector<std::uint8_t>{
                 0x12, 0x34, 0x81, 0x80, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x07, 'e',  'x',
                 'a',  'm',  'p',  'l',  'e',  0x03, 'c',  'o',  'm',  0x00, 0x00, 0x01, 0x00, 0x01, 0xC0,
@@ -144,7 +144,8 @@ public:
     explicit BlockingHttpClient(std::shared_ptr<BlockingHttpState> state) : state_(std::move(state)) {}
 
     std::expected<net::http::Response, net::http::Error> exchange(std::string_view /*url*/,
-                                                                  const net::http::Request& /*req*/) const override {
+                                                                  const net::http::Request& /*req*/,
+                                                                  const Utils::CancellationToken& /*token*/) const override {
         state_->calls.fetch_add(1);
         {
             std::unique_lock lock(state_->mtx);
@@ -168,7 +169,7 @@ private:
 [[nodiscard]] std::optional<std::string> find_ipv4_interface() {
     for (const auto& name : InterfaceUtil::get_interfaces()) {
         InterfaceIpSource source(name, AddressFamily::IPV4);
-        if (!source.resolve().empty()) {
+        if (!source.resolve({}).empty()) {
             return name;
         }
     }
@@ -201,7 +202,7 @@ private:
 struct RunGraph {
     RunGraph(domain::RuntimeConfig config, ResolverDispatcher dispatcher, HttpClientFactory http_factory)
         : config_(std::make_shared<const domain::RuntimeConfig>(std::move(config))), dispatcher_(std::move(dispatcher)),
-          ip_source_(cancellation_.token()),
+          ip_source_(),
           gateway_(catalog_, std::move(http_factory), cancellation_.token(), logger_),
           workflow_(dispatcher_, ip_source_, gateway_, logger_), executor_(2, workflow_) {
         DriverLoader::load(catalog_, config_->driver);

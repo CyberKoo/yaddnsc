@@ -84,8 +84,8 @@ void write_error(yaddnsc_error* out_error, yaddnsc_status status, std::string_vi
 
 HostServicesContext::HostServicesContext(HttpClient& http_client,
                                          const Logger& logger,
-                                         Utils::CancellationToken cancel_token)
-    : http_client_(http_client), logger_(logger), cancel_token_(std::move(cancel_token)) {}
+                                         Utils::CancellationToken http_token)
+    : http_client_(http_client), logger_(logger), http_token_(std::move(http_token)) {}
 
 std::string_view HostServicesContext::arena_copy(std::string_view value) {
     return string_arena_.emplace_back(value);
@@ -169,7 +169,7 @@ yaddnsc_status HostServicesContext::http_exchange(const yaddnsc_http_request& re
     }
     http_request.content_type = std::string(to_view(request.content_type));
 
-    auto response = http_client_.exchange(to_view(request.url), http_request);
+    auto response = http_client_.exchange(to_view(request.url), http_request, http_token_);
     if (!response) {
         const auto& error = response.error();
         const yaddnsc_status status =

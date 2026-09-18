@@ -46,7 +46,7 @@ struct ConfigError {
 
 /// IP source port failure.
 struct IpSourceError {
-    enum class Code { UNAVAILABLE, NO_ADDRESS, UNKNOWN };
+    enum class Code { UNAVAILABLE, NO_ADDRESS, CANCELLED, UNKNOWN };
     Code code;
     std::string message;
 };
@@ -94,10 +94,11 @@ struct DriverError {
 ///     for RATE_LIMITED, retry_after_seconds are copied from DriverError; the
 ///     executor feeds retry_after back to the scheduler for backoff
 ///     rescheduling);
+///   - CANCELLED — the operation was stopped and must not begin later steps;
 ///   - UNKNOWN — an unexpected exception escaped the workflow (the legacy
 ///     catch-all boundary, now mapped to an error value).
 struct UpdateError {
-    enum class Code { DRIVER_FAILED, SKIPPED_NO_ADDRESS, UNKNOWN };
+    enum class Code { DRIVER_FAILED, SKIPPED_NO_ADDRESS, CANCELLED, UNKNOWN };
     Code code;
     std::string message;
     int retry_after_seconds{0};

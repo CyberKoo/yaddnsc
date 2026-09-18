@@ -50,6 +50,7 @@
 #include "mocks/fake_task_executor.h"
 #include "mocks/mock_ports.h"
 #include "mocks/null_logger.h"
+#include "support/util/cancellation_token.hpp"
 
 namespace {
 
@@ -91,7 +92,7 @@ class InlineTaskExecutor final : public TaskExecutor {
 public:
     explicit InlineTaskExecutor(std::function<void(const domain::UpdateTask&)> fn) : fn_(std::move(fn)) {}
 
-    bool submit(domain::UpdateTask task) override {
+    bool submit(domain::UpdateTask task, const Utils::CancellationToken&) override {
         if (shutdown_) {
             return false;
         }
@@ -144,7 +145,7 @@ TEST(SchedulerRunner, StopBeforeRunDispatchesNothing) {
     f.stop.request_stop();
 
     auto runner = f.make_runner();
-    runner.run();  // must return immediately
+    runner.run({});  // must return immediately
 
     EXPECT_TRUE(f.executor.submitted().empty());
 }
@@ -153,7 +154,7 @@ TEST(SchedulerRunner, StopDuringWaitReturnsPromptly) {
     RunnerFixture f;
     auto runner = f.make_runner();
 
-    std::jthread loop([&] { runner.run(); });
+    std::jthread loop([&] { runner.run({}); });
     const LoopGuard cleanup{f.stop, loop};
     ASSERT_TRUE(f.executor.wait_submitted(2));
 
@@ -178,7 +179,7 @@ TEST(SchedulerRunner, EmptyQueueWaitsOnlyForStop) {
 
     std::atomic<bool> returned{false};
     std::jthread loop([&] {
-        runner.run();
+        runner.run({});
         returned.store(true);
     });
     const LoopGuard cleanup{f.stop, loop};
@@ -198,7 +199,7 @@ TEST(SchedulerRunner, InitialDispatchSubmitsEveryDueTaskForced) {
     RunnerFixture f;
     auto runner = f.make_runner();
 
-    std::jthread loop([&] { runner.run(); });
+    std::jthread loop([&] { runner.run({}); });
     const LoopGuard cleanup{f.stop, loop};
     ASSERT_TRUE(f.executor.wait_submitted(2));
     f.stop.request_stop();
@@ -222,7 +223,7 @@ TEST(SchedulerRunner, AdvancingTimeRedispatchesAfterInterval) {
     RunnerFixture f;
     auto runner = f.make_runner();
 
-    std::jthread loop([&] { runner.run(); });
+    std::jthread loop([&] { runner.run({}); });
     const LoopGuard cleanup{f.stop, loop};
     ASSERT_TRUE(f.executor.wait_submitted(2));
 
@@ -263,7 +264,7 @@ TEST(SchedulerRunner, RetryRequestMovesDeadlineAndWakesLoop) {
     f.executor.set_retry_handler(
         [&runner](domain::TaskId id, std::chrono::seconds delay) { runner.request_retry(id, delay); });
 
-    std::jthread loop([&] { runner.run(); });
+    std::jthread loop([&] { runner.run({}); });
     const LoopGuard cleanup{f.stop, loop};
 
     ASSERT_TRUE(f.executor.wait_submitted(2));
@@ -303,13 +304,13 @@ TEST(SchedulerRunner, FullUpdateCycleOverMockPorts) {
     MockDriverGateway gateway;
     NullLogger logger;
 
-    EXPECT_CALL(ip_source, resolve(_))
+    EXPECT_CALL(ip_source, resolve(_, _))
         .WillRepeatedly(Return(std::vector<InetAddress>{InetAddress{Inet4Address::from_bytes({198, 51, 100, 1})}}));
     // Cycle 1: record differs from the local address → update. Cycle 2: the
     // record now matches → skip; the gateway must not be called again.
-    EXPECT_CALL(dns, resolve("www.example.com", RecordKind::A))
+    EXPECT_CALL(dns, resolve("www.example.com", RecordKind::A, _))
         .WillOnce(Return(std::vector<std::string>{"192.0.2.1"}))
-        .WillOnce([&second_cycle_done](std::string_view, RecordKind) {
+        .WillOnce([&second_cycle_done](std::string_view, RecordKind, const Utils::CancellationToken&) {
             second_cycle_done.set_value();
             return std::expected<std::vector<std::string>, DnsErrorInfo>{{"198.51.100.1"}};
         });
@@ -326,11 +327,11 @@ TEST(SchedulerRunner, FullUpdateCycleOverMockPorts) {
 
     domain::ScheduleQueue queue(cfg, T0);
     FakeClock clock{T0};
-    InlineTaskExecutor executor([&workflow](const domain::UpdateTask& task) { workflow.run(task); });
+    InlineTaskExecutor executor([&workflow](const domain::UpdateTask& task) { workflow.run(task, {}); });
 
     std::stop_source stop;
     SchedulerRunner runner(queue, clock, executor, stop.get_token(), logger);
-    std::jthread loop([&] { runner.run(); });
+    std::jthread loop([&] { runner.run({}); });
     const LoopGuard cleanup{stop, loop};
 
     ASSERT_EQ(first_update_done.get_future().wait_for(30s), std::future_status::ready)

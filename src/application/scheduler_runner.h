@@ -17,6 +17,10 @@ class Clock;
 class Logger;
 class TaskExecutor;
 
+namespace Utils {
+class CancellationToken;
+}
+
 /// SchedulerRunner — drives the periodic scheduling loop.
 ///
 /// Responsibilities: read the Clock, wait for the next deadline, respond to
@@ -25,9 +29,9 @@ class TaskExecutor;
 /// rescheduling during shutdown is not possible because the queue advances
 /// deadlines at pop time and the runner is the queue's only driver.
 ///
-/// It knows nothing about DNS, IP sources, drivers or HTTP, and does not own
-/// the I/O cancellation token — the composition root wires stop → I/O cancel
-/// separately.
+/// It knows nothing about DNS, IP sources, drivers or HTTP; the I/O
+/// cancellation token passes through run() as a parameter (owned by the
+/// composition root) on its way to the executor.
 ///
 /// @note run() must be called from a single thread; the queue is not
 ///       thread-safe by design.
@@ -44,7 +48,8 @@ public:
     /// Pop-and-submit due tasks until stop is requested, waiting on the
     /// clock between rounds. Returns promptly after stop; in-flight tasks
     /// are the TaskExecutor's business, not the runner's.
-    void run();
+    /// @param token  I/O cancellation token forwarded to every submitted task.
+    void run(const Utils::CancellationToken& token);
 
     /// Thread-safe: called from executor pool threads when a task's update
     /// failed with a provider retry_after delay. Moves the task's next

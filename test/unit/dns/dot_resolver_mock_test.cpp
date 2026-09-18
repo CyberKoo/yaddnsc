@@ -28,6 +28,7 @@
 #include "infrastructure/dns/resolver/dot.h"
 #include "infrastructure/network/transport/io_error.h"
 #include "infrastructure/network/transport/stream.h"
+#include "support/util/cancellation_token.hpp"
 
 namespace {
 
@@ -41,16 +42,19 @@ using Transport::IoError;
 
 class MockStream final : public Transport::Stream {
 public:
-    MOCK_METHOD((std::expected<void, IoError>), ensure_connected, (), (override));
+    MOCK_METHOD((std::expected<void, IoError>), ensure_connected, (const Utils::CancellationToken& token), (override));
     MOCK_METHOD(void, close, (), (noexcept, override));
-    MOCK_METHOD((std::expected<size_t, IoError>), read_some, (std::span<std::uint8_t>), (override));
-    MOCK_METHOD((std::expected<void, IoError>), read_exact, (std::span<std::uint8_t>), (override));
-    MOCK_METHOD((std::expected<void, IoError>), send_all, (std::span<const std::uint8_t>), (override));
+    MOCK_METHOD((std::expected<size_t, IoError>), read_some,
+                (std::span<std::uint8_t> buf, const Utils::CancellationToken& token), (override));
+    MOCK_METHOD((std::expected<void, IoError>), read_exact,
+                (std::span<std::uint8_t> buf, const Utils::CancellationToken& token), (override));
+    MOCK_METHOD((std::expected<void, IoError>), send_all,
+                (std::span<const std::uint8_t> data, const Utils::CancellationToken& token), (override));
 };
 
 [[nodiscard]] std::unique_ptr<MockStream> connected_mock() {
     auto mock = std::make_unique<MockStream>();
-    ON_CALL(*mock, ensure_connected()).WillByDefault(Return(std::expected<void, IoError>{}));
+    ON_CALL(*mock, ensure_connected(_)).WillByDefault(Return(std::expected<void, IoError>{}));
     return mock;
 }
 
@@ -59,12 +63,12 @@ public:
 class MockServerPipe {
 public:
     explicit MockServerPipe(MockStream& mock) {
-        ON_CALL(mock, send_all(_))
-            .WillByDefault([this](std::span<const std::uint8_t> data) -> std::expected<void, IoError> {
+        ON_CALL(mock, send_all(_, _))
+            .WillByDefault([this](std::span<const std::uint8_t> data, const Utils::CancellationToken&) -> std::expected<void, IoError> {
                 captured_.assign(data.begin(), data.end());
                 return {};
             });
-        ON_CALL(mock, read_exact(_)).WillByDefault([this](std::span<std::uint8_t> buf) -> std::expected<void, IoError> {
+        ON_CALL(mock, read_exact(_, _)).WillByDefault([this](std::span<std::uint8_t> buf, const Utils::CancellationToken&) -> std::expected<void, IoError> {
             // Minimal canned response: echo the query ID with QR+RD+RA set
             // and one A record (192.0.2.1). 2-byte length prefix first.
             std::vector<std::uint8_t> body{
@@ -99,30 +103,30 @@ private:
 
 TEST(DotResolverMockTest, ConnectTimeout_ReturnsRetry) {
     auto mock = std::make_unique<MockStream>();
-    ON_CALL(*mock, ensure_connected()).WillByDefault(Return(std::unexpected(IoError::TIMEOUT)));
+    ON_CALL(*mock, ensure_connected(_)).WillByDefault(Return(std::unexpected(IoError::TIMEOUT)));
     DotResolver resolver("127.0.0.1", 1853, "mock:1853", std::move(mock));
 
-    auto result = resolver.query("yaddnsc.test", RecordKind::A);
+    auto result = resolver.query("yaddnsc.test", RecordKind::A, {});
     ASSERT_FALSE(result.has_value());
     EXPECT_EQ(result.error().code, DnsError::RETRY);
 }
 
 TEST(DotResolverMockTest, ConnectCancelled_ReturnsCancelled) {
     auto mock = std::make_unique<MockStream>();
-    ON_CALL(*mock, ensure_connected()).WillByDefault(Return(std::unexpected(IoError::CANCELLED)));
+    ON_CALL(*mock, ensure_connected(_)).WillByDefault(Return(std::unexpected(IoError::CANCELLED)));
     DotResolver resolver("127.0.0.1", 1853, "mock:1853", std::move(mock));
 
-    auto result = resolver.query("yaddnsc.test", RecordKind::A);
+    auto result = resolver.query("yaddnsc.test", RecordKind::A, {});
     ASSERT_FALSE(result.has_value());
     EXPECT_EQ(result.error().code, DnsError::CANCELLED);
 }
 
 TEST(DotResolverMockTest, ConnectFailed_ReturnsConnection) {
     auto mock = std::make_unique<MockStream>();
-    ON_CALL(*mock, ensure_connected()).WillByDefault(Return(std::unexpected(IoError::CONNECTION_FAILED)));
+    ON_CALL(*mock, ensure_connected(_)).WillByDefault(Return(std::unexpected(IoError::CONNECTION_FAILED)));
     DotResolver resolver("127.0.0.1", 1853, "mock:1853", std::move(mock));
 
-    auto result = resolver.query("yaddnsc.test", RecordKind::A);
+    auto result = resolver.query("yaddnsc.test", RecordKind::A, {});
     ASSERT_FALSE(result.has_value());
     EXPECT_EQ(result.error().code, DnsError::CONNECTION);
 }
@@ -133,58 +137,58 @@ TEST(DotResolverMockTest, ConnectFailed_ReturnsConnection) {
 
 TEST(DotResolverMockTest, SendCancelled_ReturnsCancelled) {
     auto mock = connected_mock();
-    ON_CALL(*mock, send_all(_)).WillByDefault(Return(std::unexpected(IoError::CANCELLED)));
+    ON_CALL(*mock, send_all(_, _)).WillByDefault(Return(std::unexpected(IoError::CANCELLED)));
     DotResolver resolver("127.0.0.1", 1853, "mock:1853", std::move(mock));
 
-    auto result = resolver.query("yaddnsc.test", RecordKind::A);
+    auto result = resolver.query("yaddnsc.test", RecordKind::A, {});
     ASSERT_FALSE(result.has_value());
     EXPECT_EQ(result.error().code, DnsError::CANCELLED);
 }
 
 TEST(DotResolverMockTest, SendFailed_ReturnsConnection) {
     auto mock = connected_mock();
-    ON_CALL(*mock, send_all(_)).WillByDefault(Return(std::unexpected(IoError::CONNECTION_FAILED)));
+    ON_CALL(*mock, send_all(_, _)).WillByDefault(Return(std::unexpected(IoError::CONNECTION_FAILED)));
     DotResolver resolver("127.0.0.1", 1853, "mock:1853", std::move(mock));
 
-    auto result = resolver.query("yaddnsc.test", RecordKind::A);
+    auto result = resolver.query("yaddnsc.test", RecordKind::A, {});
     ASSERT_FALSE(result.has_value());
     EXPECT_EQ(result.error().code, DnsError::CONNECTION);
 }
 
 TEST(DotResolverMockTest, ReadCancelled_ReturnsCancelled) {
     auto mock = connected_mock();
-    ON_CALL(*mock, send_all(_)).WillByDefault(Return(std::expected<void, IoError>{}));
-    ON_CALL(*mock, read_exact(_)).WillByDefault(Return(std::unexpected(IoError::CANCELLED)));
+    ON_CALL(*mock, send_all(_, _)).WillByDefault(Return(std::expected<void, IoError>{}));
+    ON_CALL(*mock, read_exact(_, _)).WillByDefault(Return(std::unexpected(IoError::CANCELLED)));
     DotResolver resolver("127.0.0.1", 1853, "mock:1853", std::move(mock));
 
-    auto result = resolver.query("yaddnsc.test", RecordKind::A);
+    auto result = resolver.query("yaddnsc.test", RecordKind::A, {});
     ASSERT_FALSE(result.has_value());
     EXPECT_EQ(result.error().code, DnsError::CANCELLED);
 }
 
 TEST(DotResolverMockTest, ReadTimeout_ReturnsConnection) {
     auto mock = connected_mock();
-    ON_CALL(*mock, send_all(_)).WillByDefault(Return(std::expected<void, IoError>{}));
-    ON_CALL(*mock, read_exact(_)).WillByDefault(Return(std::unexpected(IoError::TIMEOUT)));
+    ON_CALL(*mock, send_all(_, _)).WillByDefault(Return(std::expected<void, IoError>{}));
+    ON_CALL(*mock, read_exact(_, _)).WillByDefault(Return(std::unexpected(IoError::TIMEOUT)));
     DotResolver resolver("127.0.0.1", 1853, "mock:1853", std::move(mock));
 
-    auto result = resolver.query("yaddnsc.test", RecordKind::A);
+    auto result = resolver.query("yaddnsc.test", RecordKind::A, {});
     ASSERT_FALSE(result.has_value());
     EXPECT_EQ(result.error().code, DnsError::CONNECTION);
 }
 
 TEST(DotResolverMockTest, ZeroLengthResponse_ReturnsParse) {
     auto mock = connected_mock();
-    ON_CALL(*mock, send_all(_)).WillByDefault(Return(std::expected<void, IoError>{}));
+    ON_CALL(*mock, send_all(_, _)).WillByDefault(Return(std::expected<void, IoError>{}));
     // First read_exact (2-byte length prefix) delivers 0.
-    ON_CALL(*mock, read_exact(_)).WillByDefault([](std::span<std::uint8_t> buf) -> std::expected<void, IoError> {
+    ON_CALL(*mock, read_exact(_, _)).WillByDefault([](std::span<std::uint8_t> buf, const Utils::CancellationToken&) -> std::expected<void, IoError> {
         buf[0] = 0;
         buf[1] = 0;
         return {};
     });
     DotResolver resolver("127.0.0.1", 1853, "mock:1853", std::move(mock));
 
-    auto result = resolver.query("yaddnsc.test", RecordKind::A);
+    auto result = resolver.query("yaddnsc.test", RecordKind::A, {});
     ASSERT_FALSE(result.has_value());
     EXPECT_EQ(result.error().code, DnsError::PARSE);
 }
@@ -195,11 +199,11 @@ TEST(DotResolverMockTest, ZeroLengthResponse_ReturnsParse) {
 
 TEST(DotResolverMockTest, SendFailsThenReconnectSucceeds) {
     auto mock = std::make_unique<MockStream>();
-    ON_CALL(*mock, ensure_connected()).WillByDefault(Return(std::expected<void, IoError>{}));
+    ON_CALL(*mock, ensure_connected(_)).WillByDefault(Return(std::expected<void, IoError>{}));
 
     bool first_attempt = true;
     std::vector<std::uint8_t> captured;
-    ON_CALL(*mock, send_all(_)).WillByDefault([&](std::span<const std::uint8_t> data) -> std::expected<void, IoError> {
+    ON_CALL(*mock, send_all(_, _)).WillByDefault([&](std::span<const std::uint8_t> data, const Utils::CancellationToken&) -> std::expected<void, IoError> {
         if (first_attempt) {
             first_attempt = false;
             return std::unexpected(IoError::CONNECTION_FAILED);
@@ -207,7 +211,7 @@ TEST(DotResolverMockTest, SendFailsThenReconnectSucceeds) {
         captured.assign(data.begin(), data.end());
         return {};
     });
-    ON_CALL(*mock, read_exact(_)).WillByDefault([&](std::span<std::uint8_t> buf) -> std::expected<void, IoError> {
+    ON_CALL(*mock, read_exact(_, _)).WillByDefault([&](std::span<std::uint8_t> buf, const Utils::CancellationToken&) -> std::expected<void, IoError> {
         // Canned response mirroring the query ID with QR set + one A record.
         std::vector<std::uint8_t> body{
             captured[2], captured[3], 0x81, 0x80, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00,
@@ -224,7 +228,7 @@ TEST(DotResolverMockTest, SendFailsThenReconnectSucceeds) {
     });
     DotResolver resolver("127.0.0.1", 1853, "mock:1853", std::move(mock));
 
-    auto result = resolver.query("yaddnsc.test", RecordKind::A);
+    auto result = resolver.query("yaddnsc.test", RecordKind::A, {});
     ASSERT_TRUE(result.has_value());
     EXPECT_EQ((*result)[2] & 0x80, 0x80);
 }
@@ -238,7 +242,7 @@ TEST(DotResolverMockTest, QuerySucceeds) {
     MockServerPipe pipe(*mock);
     DotResolver resolver("127.0.0.1", 1853, "mock:1853", std::move(mock));
 
-    auto result = resolver.query("yaddnsc.test", RecordKind::A);
+    auto result = resolver.query("yaddnsc.test", RecordKind::A, {});
     ASSERT_TRUE(result.has_value());
     // ID echoed from the query, QR flag set (byte 2).
     EXPECT_EQ((*result)[2] & 0x80, 0x80);

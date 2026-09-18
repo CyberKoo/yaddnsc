@@ -27,6 +27,7 @@
 #include "infrastructure/network/transport/io_error.h"
 #include "infrastructure/network/transport/stream.h"
 #include "infrastructure/network/uri.h"
+#include "support/util/cancellation_token.hpp"
 
 using net::http::ErrorCode;
 using net::http::Limits;
@@ -50,11 +51,12 @@ public:
     bool return_zero_reads = false;
     std::string sent;
 
-    [[nodiscard]] std::expected<void, IoError> ensure_connected() override { return {}; }
+    [[nodiscard]] std::expected<void, IoError> ensure_connected(const Utils::CancellationToken&) override { return {}; }
 
     void close() noexcept override {}
 
-    [[nodiscard]] std::expected<size_t, IoError> read_some(std::span<std::uint8_t> buf) override {
+    [[nodiscard]] std::expected<size_t, IoError> read_some(std::span<std::uint8_t> buf,
+                                                           const Utils::CancellationToken&) override {
         if (fail_reads) {
             return std::unexpected(*fail_reads);
         }
@@ -73,10 +75,11 @@ public:
         return n;
     }
 
-    [[nodiscard]] std::expected<void, IoError> read_exact(std::span<std::uint8_t> buf) override {
+    [[nodiscard]] std::expected<void, IoError> read_exact(std::span<std::uint8_t> buf,
+                                                          const Utils::CancellationToken& token) override {
         auto remaining = buf;
         while (!remaining.empty()) {
-            auto n = read_some(remaining);
+            auto n = read_some(remaining, token);
             if (!n) {
                 return std::unexpected(n.error());
             }
@@ -85,7 +88,8 @@ public:
         return {};
     }
 
-    [[nodiscard]] std::expected<void, IoError> send_all(std::span<const std::uint8_t> data) override {
+    [[nodiscard]] std::expected<void, IoError> send_all(std::span<const std::uint8_t> data,
+                                                        const Utils::CancellationToken&) override {
         if (fail_writes) {
             return std::unexpected(*fail_writes);
         }
@@ -139,7 +143,7 @@ TEST(HttpClientExchange, FixedLengthBody) {
     FakeStream stream;
     stream.input = "HTTP/1.1 200 OK\r\nContent-Length: 5\r\nX-Custom: v\r\n\r\nhello";
 
-    auto resp = net::http::protocol::exchange(stream, make_get("/"), Limits{});
+    auto resp = net::http::protocol::exchange(stream, make_get("/"), Limits{}, {});
     ASSERT_TRUE(resp);
     EXPECT_EQ(resp->status, 200);
     EXPECT_EQ(resp->text(), "hello");
@@ -151,7 +155,7 @@ TEST(HttpClientExchange, SplitReadsAcrossHeadersAndBody) {
     stream.chunk_size = 7;  // force many small reads
     stream.input = "HTTP/1.1 200 OK\r\nContent-Length: 11\r\n\r\nhello world";
 
-    auto resp = net::http::protocol::exchange(stream, make_get("/"), Limits{});
+    auto resp = net::http::protocol::exchange(stream, make_get("/"), Limits{}, {});
     ASSERT_TRUE(resp);
     EXPECT_EQ(resp->text(), "hello world");
 }
@@ -165,7 +169,7 @@ TEST(HttpClientExchange, ChunkedBody) {
         "6\r\n world\r\n"
         "0\r\n\r\n";
 
-    auto resp = net::http::protocol::exchange(stream, make_get("/"), Limits{});
+    auto resp = net::http::protocol::exchange(stream, make_get("/"), Limits{}, {});
     ASSERT_TRUE(resp);
     EXPECT_EQ(resp->text(), "hello world");
 }
@@ -174,7 +178,7 @@ TEST(HttpClientExchange, CloseDelimitedBody) {
     FakeStream stream;
     stream.input = "HTTP/1.1 200 OK\r\nConnection: close\r\n\r\nstreamed body";
 
-    auto resp = net::http::protocol::exchange(stream, make_get("/"), Limits{});
+    auto resp = net::http::protocol::exchange(stream, make_get("/"), Limits{}, {});
     ASSERT_TRUE(resp);
     EXPECT_EQ(resp->text(), "streamed body");
     EXPECT_FALSE(resp->reusable);
@@ -184,7 +188,7 @@ TEST(HttpClientExchange, Http10KeepAliveWithContentLength_IsReusable) {
     FakeStream stream;
     stream.input = "HTTP/1.0 200 OK\r\nConnection: Keep-Alive\r\nContent-Length: 2\r\n\r\nok";
 
-    auto resp = net::http::protocol::exchange(stream, make_get("/"), Limits{});
+    auto resp = net::http::protocol::exchange(stream, make_get("/"), Limits{}, {});
     ASSERT_TRUE(resp);
     EXPECT_EQ(resp->version, net::http::HttpVersion::V1_0);
     EXPECT_TRUE(resp->reusable);
@@ -194,7 +198,7 @@ TEST(HttpClientExchange, Http10WithoutKeepAlive_IsNotReusable) {
     FakeStream stream;
     stream.input = "HTTP/1.0 200 OK\r\nContent-Length: 2\r\n\r\nok";
 
-    auto resp = net::http::protocol::exchange(stream, make_get("/"), Limits{});
+    auto resp = net::http::protocol::exchange(stream, make_get("/"), Limits{}, {});
     ASSERT_TRUE(resp);
     EXPECT_FALSE(resp->reusable);
 }
@@ -203,13 +207,13 @@ TEST(HttpClientExchange, ConnectionTokensAreExact) {
     FakeStream stream;
     stream.input = "HTTP/1.1 200 OK\r\nConnection: X-close, upgradeable\r\nContent-Length: 2\r\n\r\nok";
 
-    auto resp = net::http::protocol::exchange(stream, make_get("/"), Limits{});
+    auto resp = net::http::protocol::exchange(stream, make_get("/"), Limits{}, {});
     ASSERT_TRUE(resp);
     EXPECT_TRUE(resp->reusable);
 
     FakeStream closing;
     closing.input = "HTTP/1.1 200 OK\r\nConnection: Foo, close\r\nContent-Length: 2\r\n\r\nok";
-    resp = net::http::protocol::exchange(closing, make_get("/"), Limits{});
+    resp = net::http::protocol::exchange(closing, make_get("/"), Limits{}, {});
     ASSERT_TRUE(resp);
     EXPECT_FALSE(resp->reusable);
 }
@@ -218,26 +222,26 @@ TEST(HttpClientExchange, RejectsUnsafeWireFramingAndProtocolUpgrade) {
     auto wire = make_get("/");
     wire.headers.emplace("Content-Length", "1");
     FakeStream mismatched_length;
-    auto resp = net::http::protocol::exchange(mismatched_length, wire, Limits{});
+    auto resp = net::http::protocol::exchange(mismatched_length, wire, Limits{}, {});
     ASSERT_FALSE(resp);
     EXPECT_EQ(resp.error().code, ErrorCode::INVALID_REQUEST);
 
     wire = make_get("/");
     wire.headers.emplace("Upgrade", "websocket");
     FakeStream request_upgrade;
-    resp = net::http::protocol::exchange(request_upgrade, wire, Limits{});
+    resp = net::http::protocol::exchange(request_upgrade, wire, Limits{}, {});
     ASSERT_FALSE(resp);
     EXPECT_EQ(resp.error().code, ErrorCode::UNSUPPORTED_PROTOCOL);
 
     FakeStream coding;
     coding.input = "HTTP/1.1 200 OK\r\nTransfer-Encoding: gzip, chunked\r\n\r\n";
-    resp = net::http::protocol::exchange(coding, make_get("/"), Limits{});
+    resp = net::http::protocol::exchange(coding, make_get("/"), Limits{}, {});
     ASSERT_FALSE(resp);
     EXPECT_EQ(resp.error().code, ErrorCode::RESPONSE_PARSE_FAILED);
 
     FakeStream upgrade;
     upgrade.input = "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n";
-    resp = net::http::protocol::exchange(upgrade, make_get("/"), Limits{});
+    resp = net::http::protocol::exchange(upgrade, make_get("/"), Limits{}, {});
     ASSERT_FALSE(resp);
     EXPECT_EQ(resp.error().code, ErrorCode::UNSUPPORTED_PROTOCOL);
 }
@@ -245,7 +249,7 @@ TEST(HttpClientExchange, RejectsUnsafeWireFramingAndProtocolUpgrade) {
 TEST(HttpClientExchange, ResetContentAndChunkedTrailersFollowFramingRules) {
     FakeStream reset;
     reset.input = "HTTP/1.1 205 Reset Content\r\nContent-Length: 1\r\n\r\nx";
-    auto resp = net::http::protocol::exchange(reset, make_get("/"), Limits{});
+    auto resp = net::http::protocol::exchange(reset, make_get("/"), Limits{}, {});
     ASSERT_FALSE(resp);
     EXPECT_EQ(resp.error().code, ErrorCode::RESPONSE_PARSE_FAILED);
 
@@ -253,7 +257,7 @@ TEST(HttpClientExchange, ResetContentAndChunkedTrailersFollowFramingRules) {
     chunked.input =
         "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n"
         "2\r\nok\r\n0\r\nChecksum: abc\r\n\r\n";
-    resp = net::http::protocol::exchange(chunked, make_get("/"), Limits{});
+    resp = net::http::protocol::exchange(chunked, make_get("/"), Limits{}, {});
     ASSERT_TRUE(resp);
     EXPECT_EQ(resp->text(), "ok");
     EXPECT_EQ(resp->trailers.find("Checksum")->second, "abc");
@@ -262,13 +266,13 @@ TEST(HttpClientExchange, ResetContentAndChunkedTrailersFollowFramingRules) {
     forbidden.input =
         "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n"
         "0\r\nContent-Length: 1\r\n\r\n";
-    resp = net::http::protocol::exchange(forbidden, make_get("/"), Limits{});
+    resp = net::http::protocol::exchange(forbidden, make_get("/"), Limits{}, {});
     ASSERT_FALSE(resp);
     EXPECT_EQ(resp.error().code, ErrorCode::RESPONSE_PARSE_FAILED);
 
     FakeStream reset_chunked;
     reset_chunked.input = "HTTP/1.1 205 Reset Content\r\nTransfer-Encoding: chunked\r\n\r\n0\r\n\r\n";
-    resp = net::http::protocol::exchange(reset_chunked, make_get("/"), Limits{});
+    resp = net::http::protocol::exchange(reset_chunked, make_get("/"), Limits{}, {});
     ASSERT_TRUE(resp);
     EXPECT_TRUE(resp->text().empty());
 }
@@ -278,11 +282,11 @@ TEST(HttpClientExchange, NoBodyStatusPreservesNextResponse) {
     stream.input = "HTTP/1.1 204 No Content\r\n\r\nHTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok";
     std::string pending;
 
-    auto first = net::http::protocol::exchange(stream, make_get("/first"), Limits{}, pending);
+    auto first = net::http::protocol::exchange(stream, make_get("/first"), Limits{}, pending, {});
     ASSERT_TRUE(first);
     EXPECT_TRUE(first->text().empty());
 
-    auto second = net::http::protocol::exchange(stream, make_get("/second"), Limits{}, pending);
+    auto second = net::http::protocol::exchange(stream, make_get("/second"), Limits{}, pending, {});
     ASSERT_TRUE(second);
     EXPECT_EQ(second->text(), "ok");
 }
@@ -295,11 +299,11 @@ TEST(HttpClientExchange, ChunkedBodyPreservesNextResponse) {
         "HTTP/1.1 200 OK\r\nContent-Length: 3\r\n\r\ntwo";
     std::string pending;
 
-    auto first = net::http::protocol::exchange(stream, make_get("/first"), Limits{}, pending);
+    auto first = net::http::protocol::exchange(stream, make_get("/first"), Limits{}, pending, {});
     ASSERT_TRUE(first);
     EXPECT_EQ(first->text(), "ok");
 
-    auto second = net::http::protocol::exchange(stream, make_get("/second"), Limits{}, pending);
+    auto second = net::http::protocol::exchange(stream, make_get("/second"), Limits{}, pending, {});
     ASSERT_TRUE(second);
     EXPECT_EQ(second->text(), "two");
 }
@@ -310,7 +314,7 @@ TEST(HttpClientExchange, HeadResponseHasNoBody) {
 
     auto req = make_get("/");
     req.method = Method::HEAD;
-    auto resp = net::http::protocol::exchange(stream, req, Limits{});
+    auto resp = net::http::protocol::exchange(stream, req, Limits{}, {});
     ASSERT_TRUE(resp);
     EXPECT_EQ(resp->status, 200);
     EXPECT_TRUE(resp->text().empty());
@@ -326,7 +330,7 @@ TEST(HttpClientExchange, RequestIsSerializedToStream) {
         .headers = {{"Host", "example.com"}},
         .body = "payload",
     };
-    ASSERT_TRUE(net::http::protocol::exchange(stream, req, Limits{}));
+    ASSERT_TRUE(net::http::protocol::exchange(stream, req, Limits{}, {}));
     EXPECT_EQ(stream.sent,
               "PUT /resource HTTP/1.1\r\n"
               "Host: example.com\r\n"
@@ -340,7 +344,7 @@ TEST(HttpClientExchange, MalformedHeaders_Fail) {
     FakeStream stream;
     stream.input = "NOT AN HTTP RESPONSE\r\n\r\n";
 
-    auto resp = net::http::protocol::exchange(stream, make_get("/"), Limits{});
+    auto resp = net::http::protocol::exchange(stream, make_get("/"), Limits{}, {});
     ASSERT_FALSE(resp);
     EXPECT_EQ(resp.error().code, ErrorCode::RESPONSE_PARSE_FAILED);
 }
@@ -353,7 +357,7 @@ TEST(HttpClientExchange, InvalidContentLengthAndTransferEncoding_Fail) {
          }) {
         FakeStream stream;
         stream.input = response;
-        const auto resp = net::http::protocol::exchange(stream, make_get("/"), Limits{});
+        const auto resp = net::http::protocol::exchange(stream, make_get("/"), Limits{}, {});
         ASSERT_FALSE(resp);
         EXPECT_EQ(resp.error().code, ErrorCode::RESPONSE_PARSE_FAILED);
     }
@@ -363,7 +367,7 @@ TEST(HttpClientExchange, ConflictingContentLength_Fails) {
     FakeStream stream;
     stream.input = "HTTP/1.1 200 OK\r\nContent-Length: 5\r\nContent-Length: 6\r\n\r\nhello!";
 
-    auto resp = net::http::protocol::exchange(stream, make_get("/"), Limits{});
+    auto resp = net::http::protocol::exchange(stream, make_get("/"), Limits{}, {});
     ASSERT_FALSE(resp);
     EXPECT_EQ(resp.error().code, ErrorCode::RESPONSE_PARSE_FAILED);
 }
@@ -373,7 +377,7 @@ TEST(HttpClientExchange, BodyExceedsLimit) {
     stream.input = "HTTP/1.1 200 OK\r\nContent-Length: 100\r\n\r\n";
 
     const Limits limits{.max_header_bytes = 64 * 1024, .max_body_bytes = 10};
-    auto resp = net::http::protocol::exchange(stream, make_get("/"), limits);
+    auto resp = net::http::protocol::exchange(stream, make_get("/"), limits, {});
     ASSERT_FALSE(resp);
     EXPECT_EQ(resp.error().code, ErrorCode::BODY_TOO_LARGE);
 }
@@ -384,7 +388,7 @@ TEST(HttpClientExchange, HeadersExceedLimit) {
     stream.input = "HTTP/1.1 200 OK\r\nX-Big: " + big + "\r\n\r\n";
 
     const Limits limits{.max_header_bytes = 100, .max_body_bytes = 1024};
-    auto resp = net::http::protocol::exchange(stream, make_get("/"), limits);
+    auto resp = net::http::protocol::exchange(stream, make_get("/"), limits, {});
     ASSERT_FALSE(resp);
     EXPECT_EQ(resp.error().code, ErrorCode::HEADERS_TOO_LARGE);
 }
@@ -392,13 +396,13 @@ TEST(HttpClientExchange, HeadersExceedLimit) {
 TEST(HttpClientExchange, ChunkedErrorsAndLimits_Fail) {
     FakeStream malformed;
     malformed.input = "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\nnot-a-chunk\r\n";
-    auto resp = net::http::protocol::exchange(malformed, make_get("/"), Limits{});
+    auto resp = net::http::protocol::exchange(malformed, make_get("/"), Limits{}, {});
     ASSERT_FALSE(resp);
     EXPECT_EQ(resp.error().code, ErrorCode::RESPONSE_PARSE_FAILED);
 
     FakeStream too_large;
     too_large.input = "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nhello\r\n0\r\n\r\n";
-    resp = net::http::protocol::exchange(too_large, make_get("/"), {.max_body_bytes = 4});
+    resp = net::http::protocol::exchange(too_large, make_get("/"), {.max_body_bytes = 4}, {});
     ASSERT_FALSE(resp);
     EXPECT_EQ(resp.error().code, ErrorCode::BODY_TOO_LARGE);
 }
@@ -406,13 +410,13 @@ TEST(HttpClientExchange, ChunkedErrorsAndLimits_Fail) {
 TEST(HttpClientExchange, ZeroReadAndSendFailure_MapToConnectionErrors) {
     FakeStream zero;
     zero.return_zero_reads = true;
-    auto resp = net::http::protocol::exchange(zero, make_get("/"), Limits{});
+    auto resp = net::http::protocol::exchange(zero, make_get("/"), Limits{}, {});
     ASSERT_FALSE(resp);
     EXPECT_EQ(resp.error().code, ErrorCode::CONNECTION_LOST);
 
     FakeStream send_failure;
     send_failure.fail_writes = IoError::TIMEOUT;
-    resp = net::http::protocol::exchange(send_failure, make_get("/"), Limits{});
+    resp = net::http::protocol::exchange(send_failure, make_get("/"), Limits{}, {});
     ASSERT_FALSE(resp);
     EXPECT_EQ(resp.error().code, ErrorCode::TIMEOUT);
 }
@@ -421,7 +425,7 @@ TEST(HttpClientExchange, CancelledStream_MapsToCancelled) {
     FakeStream stream;
     stream.fail_reads = IoError::CANCELLED;
 
-    auto resp = net::http::protocol::exchange(stream, make_get("/"), Limits{});
+    auto resp = net::http::protocol::exchange(stream, make_get("/"), Limits{}, {});
     ASSERT_FALSE(resp);
     EXPECT_EQ(resp.error().code, ErrorCode::CANCELLED);
 }
@@ -430,7 +434,7 @@ TEST(HttpClientExchange, Timeout_MapsToTimeout) {
     FakeStream stream;
     stream.fail_reads = IoError::TIMEOUT;
 
-    auto resp = net::http::protocol::exchange(stream, make_get("/"), Limits{});
+    auto resp = net::http::protocol::exchange(stream, make_get("/"), Limits{}, {});
     ASSERT_FALSE(resp);
     EXPECT_EQ(resp.error().code, ErrorCode::TIMEOUT);
 }
@@ -439,7 +443,7 @@ TEST(HttpClientExchange, ConnectionLost_MapsToConnectionLost) {
     FakeStream stream;
     stream.input = "HTTP/1.1 200 OK\r\nContent-Length: 100\r\n\r\nshort";
 
-    auto resp = net::http::protocol::exchange(stream, make_get("/"), Limits{});
+    auto resp = net::http::protocol::exchange(stream, make_get("/"), Limits{}, {});
     ASSERT_FALSE(resp);
     EXPECT_EQ(resp.error().code, ErrorCode::CONNECTION_LOST);
 }

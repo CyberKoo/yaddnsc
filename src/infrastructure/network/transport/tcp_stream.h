@@ -31,23 +31,27 @@ class TcpStream final : public Stream {
 public:
     /// @throws std::invalid_argument when host is neither a valid IP nor a
     ///         valid domain name (validated eagerly, no I/O).
-    TcpStream(std::string host, std::uint16_t port, Options opts, Utils::CancellationToken token);
+    TcpStream(std::string host, std::uint16_t port, Options opts);
 
     ~TcpStream() override = default;
 
     TcpStream(const TcpStream&) = delete;
     TcpStream& operator=(const TcpStream&) = delete;
 
-    [[nodiscard]] std::expected<void, IoError> ensure_connected() override;
+    [[nodiscard]] std::expected<void, IoError> ensure_connected(const Utils::CancellationToken& token) override;
     void close() noexcept override;
 
-    [[nodiscard]] std::expected<size_t, IoError> read_some(std::span<std::uint8_t> buf) override;
-    [[nodiscard]] std::expected<void, IoError> read_exact(std::span<std::uint8_t> buf) override;
-    [[nodiscard]] std::expected<void, IoError> send_all(std::span<const std::uint8_t> data) override;
+    [[nodiscard]] std::expected<size_t, IoError> read_some(std::span<std::uint8_t> buf,
+                                                           const Utils::CancellationToken& token) override;
+    [[nodiscard]] std::expected<void, IoError> read_exact(std::span<std::uint8_t> buf,
+                                                          const Utils::CancellationToken& token) override;
+    [[nodiscard]] std::expected<void, IoError> send_all(std::span<const std::uint8_t> data,
+                                                        const Utils::CancellationToken& token) override;
 
 private:
     /// Single recv attempt: poll-aware, returns bytes read (>= 1).
-    [[nodiscard]] std::expected<size_t, IoError> read_once(std::span<std::uint8_t> buf);
+    [[nodiscard]] std::expected<size_t, IoError> read_once(std::span<std::uint8_t> buf,
+                                                           const Utils::CancellationToken& token);
 
     detail::SocketStream socket_;
     Options opts_;

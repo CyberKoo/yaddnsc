@@ -109,11 +109,11 @@ TEST(IpSourceFactoryTest, CreateInterfaceSource_ResolvesLoopback) {
     cfg.ip_source = Config::IpSource::INTERFACE;
     cfg.interface = LOOPBACK;
 
-    auto source = IpSourceFactory::create(cfg, {});
+    auto source = IpSourceFactory::create(cfg);
     ASSERT_NE(source, nullptr);
 
     // resolve() must work using the real loopback interface.
-    auto addrs = source->resolve();
+    auto addrs = source->resolve({});
     EXPECT_FALSE(addrs.empty());
     EXPECT_TRUE(std::ranges::any_of(addrs, [](const InetAddress& a) { return a.to_string() == "127.0.0.1"; }));
 }
@@ -125,9 +125,9 @@ TEST(IpSourceFactoryTest, CreateInterfaceSource_Ipv6) {
     cfg.ip_source = Config::IpSource::INTERFACE;
     cfg.interface = LOOPBACK;
 
-    auto source = IpSourceFactory::create(cfg, {});
+    auto source = IpSourceFactory::create(cfg);
     ASSERT_NE(source, nullptr);
-    auto addrs = source->resolve();
+    auto addrs = source->resolve({});
 
     if (addrs.empty()) {
         GTEST_SKIP() << "IPv6 is not available on this system";
@@ -148,7 +148,7 @@ TEST(IpSourceFactoryTest, CreateHttpSource_ConstructsSuccessfully) {
     cfg.ip_source = Config::IpSource::HTTP;
     cfg.ip_source_param = "http://127.0.0.1:1/ip";  // valid URL, no server needed for construction
 
-    auto source = IpSourceFactory::create(cfg, {});
+    auto source = IpSourceFactory::create(cfg);
     ASSERT_NE(source, nullptr);
     // Constructor succeeds — resolves via PersistentHttpClient.
     // resolve() would fail with connection refused, which is expected.
@@ -162,7 +162,7 @@ TEST(IpSourceFactoryTest, CreateHttpSource_WithIface_BindsToInterface) {
     cfg.ip_source_param = "http://127.0.0.1:1/ip";
     cfg.interface = LOOPBACK;
 
-    auto source = IpSourceFactory::create(cfg, {});
+    auto source = IpSourceFactory::create(cfg);
     ASSERT_NE(source, nullptr);
 }
 
@@ -177,11 +177,11 @@ TEST(IpSourceFactoryTest, UnknownType_FallsBackToUnspecified) {
     cfg.ip_source = Config::IpSource::INTERFACE;
     cfg.interface = LOOPBACK;
 
-    auto source = IpSourceFactory::create(cfg, {});
+    auto source = IpSourceFactory::create(cfg);
     ASSERT_NE(source, nullptr);
 
     // UNSPECIFIED returns all addresses on the interface.
-    auto addrs = source->resolve();
+    auto addrs = source->resolve({});
     EXPECT_FALSE(addrs.empty());
 }
 
@@ -466,7 +466,7 @@ private:
 
 TEST_F(MdnsTest, ResolveMdns_A_Record) {
     MdnsIpSource source(test_hostname_, RecordKind::A, "");
-    auto addrs = source.resolve();
+    auto addrs = source.resolve({});
 
     ASSERT_EQ(addrs.size(), 1U);
     EXPECT_EQ(addrs[0].to_string(), "198.51.100.7");
@@ -486,10 +486,10 @@ TEST_F(MdnsTest, Factory_CreateMdnsSource_ResolvesViaMulticast) {
     cfg.ip_source_param = test_hostname_;
     cfg.interface = "";
 
-    auto source = IpSourceFactory::create(cfg, {});
+    auto source = IpSourceFactory::create(cfg);
     ASSERT_NE(source, nullptr);
 
-    auto addrs = source->resolve();
+    auto addrs = source->resolve({});
     ASSERT_EQ(addrs.size(), 1U);
     EXPECT_EQ(addrs[0].to_string(), "198.51.100.7");
     EXPECT_EQ(query_count(), 1);
@@ -506,7 +506,7 @@ TEST_F(MdnsTest, ResolveMdns_IgnoresWrongSourcePort) {
     start_forger();
 
     MdnsIpSource source(test_hostname_, RecordKind::A, "");
-    auto addrs = source.resolve();
+    auto addrs = source.resolve({});
 
     ASSERT_EQ(addrs.size(), 1U);
     EXPECT_EQ(addrs[0].to_string(), "198.51.100.7");
@@ -520,7 +520,7 @@ TEST_F(MdnsTest, ResolveMdns_IgnoresUnrelatedRecords) {
     include_unrelated_record_.store(true);
 
     MdnsIpSource source(test_hostname_, RecordKind::A, "");
-    auto addrs = source.resolve();
+    auto addrs = source.resolve({});
 
     ASSERT_EQ(addrs.size(), 1U);
     EXPECT_EQ(addrs[0].to_string(), "198.51.100.7");

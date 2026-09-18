@@ -7,7 +7,7 @@
 //
 // Usage:
 //   MockIpSource mock;
-//   EXPECT_CALL(mock, resolve())
+//   EXPECT_CALL(mock, resolve(_))
 //       .WillOnce(Return(std::vector{InetAddress::parse("192.168.1.1").value()}));
 // =============================================================================
 
@@ -23,7 +23,7 @@
 
 class MockIpSource : public IpSourceBase {
 public:
-    MOCK_METHOD(std::vector<InetAddress>, resolve, (), (const, override));
+    MOCK_METHOD(std::vector<InetAddress>, resolve, (const Utils::CancellationToken& token), (const, override));
 };
 
 #endif  // YADDNSC_TEST_MOCKS_MOCK_IP_SOURCE_H

@@ -47,12 +47,15 @@ public:
             Limits limits);
 
     /// Perform one request-response exchange over the persistent
-    /// connection. Thread-safe.
-    [[nodiscard]] std::expected<Response, Error> exchange(const protocol::WireRequest& req);
+    /// connection. Thread-safe.  Cancellation is operation-scoped via
+    /// `token` (see Transport::Stream).
+    [[nodiscard]] std::expected<Response, Error> exchange(const protocol::WireRequest& req,
+                                                          const Utils::CancellationToken& token);
 
 private:
-    [[nodiscard]] std::expected<protocol::RawResponse, Error> do_exchange(const protocol::WireRequest& req);
-    [[nodiscard]] std::expected<void, Error> ensure_stream();
+    [[nodiscard]] std::expected<protocol::RawResponse, Error> do_exchange(const protocol::WireRequest& req,
+                                                                          const Utils::CancellationToken& token);
+    [[nodiscard]] std::expected<void, Error> ensure_stream(const Utils::CancellationToken& token);
 
     std::shared_ptr<StreamFactory> factory_;
     Transport::Options transport_opts_;

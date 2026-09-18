@@ -7,85 +7,137 @@
 
 #include "support/util/fd.hpp"
 
+#include <algorithm>
 #include <atomic>
-#include <cstdint>
+#include <cerrno>
 #include <memory>
+#include <mutex>
+#include <system_error>
 #include <utility>
+#include <vector>
 
 #include <unistd.h>
 
 namespace Utils {
 
+class CancellationSource;
+
 namespace detail {
 
 /// Shared state behind CancellationToken / CancellationSource.
 ///
-/// Owning the pipe ends through shared_ptr makes every token self-contained:
-/// the fd stays valid as long as any copy of the token exists, so there is
-/// no external ordering requirement between the source's lifetime and the
-/// consumers' lifetimes.
+/// A source owns one cancellation pipe and weak references to direct child
+/// sources. Triggering a source latches and signals its entire descendant
+/// tree. Each token consequently waits only on its own pipe: cancellation is
+/// broadcast, never consumed by one waiter, and cannot be missed between a
+/// state check and poll().
 struct CancellationState {
     explicit CancellationState(std::pair<UniqueFd, UniqueFd> pipe) noexcept
-        : read_end(std::move(pipe.first)), write_end(std::move(pipe.second)) {
-    }
+        : read_end(std::move(pipe.first)), write_end(std::move(pipe.second)) {}
 
     UniqueFd read_end;
     UniqueFd write_end;
     std::atomic<bool> triggered{false};
+    std::shared_ptr<CancellationState> parent;
+    std::mutex children_mutex;
+    std::vector<std::weak_ptr<CancellationState>> children;
 };
 
-} // namespace detail
+[[nodiscard]] inline std::shared_ptr<CancellationState> make_state() {
+    auto pipe = make_pipe();
+    if (!pipe.first || !pipe.second) {
+        throw std::system_error(errno, std::generic_category(), "failed to create cancellation pipe");
+    }
+    return std::make_shared<CancellationState>(std::move(pipe));
+}
+
+inline void trigger(const std::shared_ptr<CancellationState>& state) noexcept {
+    if (!state || state->triggered.exchange(true, std::memory_order_acq_rel)) {
+        return;
+    }
+
+    if (state->write_end) {
+        const char signal = 1;
+        // The pipe is initially empty and each state is signalled exactly
+        // once. Retry an interrupted write so waiters already in poll() are
+        // reliably awakened; EAGAIN is impossible unless an external caller
+        // has violated the no-drain invariant.
+        ssize_t written;
+        do {
+            written = ::write(state->write_end.get(), &signal, sizeof(signal));
+        } while (written < 0 && errno == EINTR);
+    }
+
+    // Hold the parent lock while walking: derive() can only append under
+    // this same lock, and no child operation ever acquires its parent's lock.
+    // This keeps trigger() allocation-free and therefore safe to keep noexcept.
+    std::lock_guard lock(state->children_mutex);
+    auto& weak_children = state->children;
+    for (auto it = weak_children.begin(); it != weak_children.end();) {
+        if (auto child = it->lock()) {
+            trigger(child);
+            ++it;
+        } else {
+            it = weak_children.erase(it);
+        }
+    }
+}
+
+[[nodiscard]] inline std::shared_ptr<CancellationState>
+derive(const std::shared_ptr<CancellationState>& parent) {
+    auto child = make_state();
+    if (!parent) {
+        return child;
+    }
+
+    child->parent = parent;
+    bool parent_triggered = false;
+    {
+        std::lock_guard lock(parent->children_mutex);
+        auto& children = parent->children;
+        std::erase_if(children, [](const std::weak_ptr<CancellationState>& candidate) {
+            return candidate.expired();
+        });
+        children.push_back(child);
+        parent_triggered = parent->triggered.load(std::memory_order_acquire);
+    }
+    if (parent_triggered) {
+        trigger(child);
+    }
+    return child;
+}
+
+}  // namespace detail
 
 /// A lightweight, shared-owning token for poll()-based I/O cancellation.
 ///
-/// Semantically analogous to std::stop_token, but designed for poll()-based
-/// I/O: when the owning CancellationSource is triggered, a flag latches and
-/// the pipe becomes readable, causing poll() to return with POLLIN on
-/// native_handle().
+/// Cancellation is latched and broadcast: every token has a private readable
+/// fd that remains readable after cancellation. It must never be drained;
+/// once cancelled, all subsequent operations must fail promptly.
 ///
-/// Default-constructed tokens are inert (native_handle() returns -1),
-/// eliminating the need for a sentinel value.
-///
-/// Thread safety: safe to copy and read from any thread.  drain() should
-/// be called by the thread that owns the poll()-loop (it modifies the
-/// kernel-side pipe buffer, not the token itself).
+/// Hierarchies are downward-only. A token derived from another token observes
+/// cancellation of the parent source, while triggering the child never affects
+/// its parent or siblings.
 class CancellationToken {
 public:
     CancellationToken() noexcept = default;
 
-    /// The raw read-end fd for use with poll().  Returns -1 when no
-    /// cancellation source is associated.  Callers should omit fd -1 from
-    /// pollfd arrays.
-    [[nodiscard]] int native_handle() const noexcept {
-        return state_ ? state_->read_end.get() : -1;
-    }
+    /// The read-end fd to include in poll(). Returns -1 for an inert token.
+    [[nodiscard]] int native_handle() const noexcept { return state_ ? state_->read_end.get() : -1; }
 
-    /// True if this token is linked to an active CancellationSource.
-    explicit operator bool() const noexcept { return native_handle() >= 0; }
+    /// True if this token is linked to a cancellation source.
+    explicit operator bool() const noexcept { return state_ != nullptr; }
 
-    /// Latched cancellation state: true once the source was triggered,
-    /// even if the pipe signal was already drained by another consumer.
+    /// True after this token's source or an ancestor source was triggered.
     [[nodiscard]] bool is_triggered() const noexcept {
         return state_ && state_->triggered.load(std::memory_order_acquire);
     }
 
-    /// Drain the cancellation signal from the pipe.
-    ///
-    /// Must be called after poll() returns POLLIN on this fd to clear the
-    /// signal so that subsequent poll() calls on the same pipe do not
-    /// spuriously return POLLIN immediately.  The latched triggered flag
-    /// is unaffected (see is_triggered()).
-    void drain() const noexcept {
-        if (state_) {
-            std::uint64_t val = 0;
-            [[maybe_unused]] auto _ = ::read(state_->read_end.get(), &val, sizeof(val));
-        }
-    }
+    /// Derive a child cancellation source from this token.
+    [[nodiscard]] CancellationSource derive_source() const;
 
 private:
-    explicit CancellationToken(std::shared_ptr<detail::CancellationState> state) noexcept
-        : state_(std::move(state)) {
-    }
+    explicit CancellationToken(std::shared_ptr<detail::CancellationState> state) noexcept : state_(std::move(state)) {}
 
     std::shared_ptr<detail::CancellationState> state_;
 
@@ -94,41 +146,37 @@ private:
 
 /// A source of cancellation that provides shared-owning CancellationTokens.
 ///
-/// trigger() latches the flag and writes a byte to the pipe, making the
-/// tokens' fds readable.  Semantically analogous to std::stop_source.
-///
-/// Thread safety: trigger() is thread-safe and idempotent; it may be called
-/// from any thread (main, worker, or signal context).  Tokens may be copied
-/// to other threads and remain valid even after the source is destroyed.
+/// trigger() is thread-safe and idempotent. It latches its own state and
+/// broadcasts to all current descendants; sources derived concurrently with a
+/// trigger are also latched before derive() returns.
 class CancellationSource {
 public:
-    CancellationSource() : state_(std::make_shared<detail::CancellationState>(make_pipe())) {
-    }
+    /// Throws std::system_error if a reliable cancellation pipe cannot be
+    /// created. Continuing without it could leave blocked I/O uninterruptible.
+    CancellationSource() : state_(detail::make_state()) {}
 
-    /// Get a token for this source.
     [[nodiscard]] CancellationToken token() const noexcept { return CancellationToken(state_); }
 
-    /// Signal cancellation.  Safe to call from any thread; idempotent.
-    void trigger() const noexcept {
-        if (!state_) {
-            return;
-        }
-        state_->triggered.store(true, std::memory_order_release);
-        if (state_->write_end) {
-            std::uint64_t val = 1;
-            [[maybe_unused]] auto _ = ::write(state_->write_end.get(), &val, sizeof(val));
-        }
-    }
+    [[nodiscard]] CancellationSource derive() const { return CancellationSource(detail::derive(state_)); }
 
-    /// Whether trigger() has been called.
+    void trigger() const noexcept { detail::trigger(state_); }
+
     [[nodiscard]] bool is_triggered() const noexcept {
         return state_ && state_->triggered.load(std::memory_order_acquire);
     }
 
 private:
+    explicit CancellationSource(std::shared_ptr<detail::CancellationState> state) noexcept : state_(std::move(state)) {}
+
     std::shared_ptr<detail::CancellationState> state_;
+
+    friend class CancellationToken;
 };
 
-} // namespace Utils
+inline CancellationSource CancellationToken::derive_source() const {
+    return CancellationSource(detail::derive(state_));
+}
 
-#endif // YADDNSC_UTIL_CANCELLATION_TOKEN_H
+}  // namespace Utils
+
+#endif  // YADDNSC_UTIL_CANCELLATION_TOKEN_H

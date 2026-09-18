@@ -28,9 +28,6 @@ namespace net::http {
 
 Client::Client(Options opts) : Client(std::move(opts), std::make_shared<DefaultStreamFactory>()) {}
 
-Client::Client(Options opts, Utils::CancellationToken token)
-    : Client(std::move(opts), std::make_shared<DefaultStreamFactory>(std::move(token))) {}
-
 Client::Client(Options opts, std::shared_ptr<StreamFactory> factory)
     : opts_(std::move(opts)), factory_(std::move(factory)) {
     if (!factory_) {
@@ -38,7 +35,9 @@ Client::Client(Options opts, std::shared_ptr<StreamFactory> factory)
     }
 }
 
-std::expected<Response, Error> Client::exchange(const std::string_view url, const Request& req) const {
+std::expected<Response, Error> Client::exchange(const std::string_view url,
+                                                const Request& req,
+                                                const Utils::CancellationToken& token) const {
     if (auto valid = validate_request(req); !valid) {
         return std::unexpected(std::move(valid.error()));
     }
@@ -64,11 +63,11 @@ std::expected<Response, Error> Client::exchange(const std::string_view url, cons
         std::unique_ptr<Transport::Stream> stream = scheme == "https"
                                                         ? factory_->create_tls(host, port, opts_.transport, opts_.tls)
                                                         : factory_->create_tcp(host, port, opts_.transport);
-        if (auto connected = stream->ensure_connected(); !connected) {
+        if (auto connected = stream->ensure_connected(token); !connected) {
             return std::unexpected(map_connect_error(connected.error()));
         }
 
-        auto raw = protocol::exchange(*stream, wire, opts_.limits);
+        auto raw = protocol::exchange(*stream, wire, opts_.limits, token);
         if (!raw) {
             return std::unexpected(std::move(raw.error()));
         }

@@ -19,12 +19,16 @@
 class ResolverBase;
 enum class RecordKind;
 
+namespace Utils {
+class CancellationToken;
+}
+
 /// ResolverDispatcher — dispatches DNS queries across one or more backend
 ///                      resolvers using a configurable strategy (fallback /
 ///                      shuffle / concurrent), with automatic retry on
 ///                      transient errors.
 ///
-/// Implements the application-facing DnsResolverPort: the two-argument
+/// Implements the application-facing DnsResolverPort: the three-argument
 /// resolve() override applies the default retry policy (1 retry, 50 ms base
 /// backoff, single-resolver mode only).
 ///
@@ -46,8 +50,8 @@ public:
 
     /// Resolve a hostname using the configured strategy and backends,
     /// with the default retry policy (max_retries = 1, backoff_ms = 50).
-    [[nodiscard]] std::expected<std::vector<std::string>, DnsErrorInfo> resolve(std::string_view host,
-                                                                                RecordKind type) const override;
+    [[nodiscard]] std::expected<std::vector<std::string>, DnsErrorInfo>
+    resolve(std::string_view host, RecordKind type, const Utils::CancellationToken& token) const override;
 
     /// Resolve a hostname using the configured strategy and backends.
     ///
@@ -59,6 +63,8 @@ public:
     ///
     /// @param host         Hostname to resolve.
     /// @param type         DNS record type (A or AAAA).
+    /// @param token        Cancellation token observed by every blocking I/O
+    ///                     point underneath (derived from the process root).
     /// @param max_retries  Maximum number of retries on transient errors
     ///                     (single-resolver mode only; ignored in multi-resolver mode).
     /// @param backoff_ms   Base backoff interval in milliseconds
@@ -69,6 +75,7 @@ public:
     ///                     from permanent errors (NX_DOMAIN, NODATA, PARSE, CONFIG).
     [[nodiscard]] std::expected<std::vector<std::string>, DnsErrorInfo> resolve(std::string_view host,
                                                                                 RecordKind type,
+                                                                                const Utils::CancellationToken& token,
                                                                                 std::uint32_t max_retries,
                                                                                 std::uint32_t backoff_ms) const;
 
@@ -76,8 +83,8 @@ private:
     /// Resolve a hostname across multiple resolvers (fallback / shuffle / concurrent).
     /// Dispatches to FallbackRunner or ConcurrentRunner based on the strategy.
     /// @return  Resolved addresses on success, or a categorised error on failure.
-    [[nodiscard]] std::expected<std::vector<std::string>, DnsErrorInfo> resolve_multi(const std::string& host,
-                                                                                      RecordKind type) const;
+    [[nodiscard]] std::expected<std::vector<std::string>, DnsErrorInfo>
+    resolve_multi(const std::string& host, RecordKind type, const Utils::CancellationToken& token) const;
 
     std::vector<std::unique_ptr<ResolverBase>> resolvers_;
     Config::ResolverStrategy strategy_{Config::ResolverStrategy::CONCURRENT};

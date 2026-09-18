@@ -11,8 +11,6 @@ namespace domain { struct SubdomainConfig; }
 
 class IpSourceBase;
 
-namespace Utils { class CancellationToken; }
-
 /// IpSourceFactory — constructs the appropriate IpSourceBase implementation from a
 ///                   subdomain configuration.
 ///
@@ -20,11 +18,9 @@ namespace Utils { class CancellationToken; }
 /// or know about concrete IpSourceBase classes.
 namespace IpSourceFactory {
     /// Create an IP source from subdomain configuration.
-    /// @param cfg    The subdomain configuration specifying the IP source type and params.
-    /// @param token  Cancellation token (HTTP source only; inert for others).
-    /// @return       A unique pointer to the appropriate IpSourceBase implementation.
-    [[nodiscard]] std::unique_ptr<IpSourceBase> create(const domain::SubdomainConfig &cfg,
-                                                       const Utils::CancellationToken &token);
+    /// @param cfg  The subdomain configuration specifying the IP source type and params.
+    /// @return     A unique pointer to the appropriate IpSourceBase implementation.
+    [[nodiscard]] std::unique_ptr<IpSourceBase> create(const domain::SubdomainConfig &cfg);
 } // namespace IpSourceFactory
 
 #endif  // YADDNSC_IP_SOURCE_FACTORY_H

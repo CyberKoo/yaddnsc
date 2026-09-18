@@ -56,20 +56,17 @@ TEST(NetTransportOptions, Defaults) {
 // ── Eager host validation ────────────────────────────────────────────────────
 
 TEST(NetTransportCtor, TlsStream_RejectsInvalidHost) {
-    const Utils::CancellationToken token;
-    EXPECT_THROW((Transport::TlsStream("not_a_valid_address!!!", 443, {}, {}, token)), std::invalid_argument);
+    EXPECT_THROW((Transport::TlsStream("not_a_valid_address!!!", 443, {}, {})), std::invalid_argument);
 }
 
 TEST(NetTransportCtor, TcpStream_RejectsInvalidHost) {
-    const Utils::CancellationToken token;
-    EXPECT_THROW((Transport::TcpStream("not_a_valid_address!!!", 80, {}, token)), std::invalid_argument);
+    EXPECT_THROW((Transport::TcpStream("not_a_valid_address!!!", 80, {})), std::invalid_argument);
 }
 
 TEST(NetTransportCtor, AcceptsIpLiteralAndDomain) {
-    const Utils::CancellationToken token;
-    EXPECT_NO_THROW((Transport::TlsStream("127.0.0.1", 443, {}, {}, token)));
-    EXPECT_NO_THROW((Transport::TlsStream("dns.example.com", 443, {}, {}, token)));
-    EXPECT_NO_THROW((Transport::TcpStream("::1", 80, {}, token)));
+    EXPECT_NO_THROW((Transport::TlsStream("127.0.0.1", 443, {}, {})));
+    EXPECT_NO_THROW((Transport::TlsStream("dns.example.com", 443, {}, {})));
+    EXPECT_NO_THROW((Transport::TcpStream("::1", 80, {})));
 }
 
 // ── poll_fd cancellation semantics ───────────────────────────────────────────
@@ -129,15 +126,14 @@ TEST(NetTransportPollFd, TriggerFromAnotherThread_WakesPoll) {
     EXPECT_LT(elapsed, 2s);
 }
 
-TEST(NetTransportPollFd, DrainedSignal_StillCancelledViaLatch) {
+TEST(NetTransportPollFd, PersistentSignal_StillCancelled) {
     const SilentFd silent;
     Utils::CancellationSource source;
     const auto token = source.token();
 
     source.trigger();
-    token.drain();  // another consumer drains the pipe edge...
 
-    // ...the latched flag must still cancel the operation.
+    // The terminal broadcast remains visible to every consumer.
     const auto result = Transport::detail::poll_fd(silent.read.get(), POLLIN, 5000ms, token);
     ASSERT_FALSE(result);
     EXPECT_EQ(result.error(), IoError::CANCELLED);
@@ -158,20 +154,20 @@ TEST(NetTransportPollFd, ReadyFd_ReturnsOk) {
 
 TEST(NetTransportErrorPaths, TcpStream_ReadSome_WithoutConnection_Fails) {
     const Utils::CancellationToken token;
-    Transport::TcpStream stream("127.0.0.1", 80, {}, token);
+    Transport::TcpStream stream("127.0.0.1", 80, {});
 
     std::uint8_t buf[4];
-    const auto result = stream.read_some(buf);
+    const auto result = stream.read_some(buf, token);
     ASSERT_FALSE(result);
     EXPECT_EQ(result.error(), IoError::CONNECTION_FAILED);
 }
 
 TEST(NetTransportErrorPaths, TcpStream_SendAll_WithoutConnection_Fails) {
     const Utils::CancellationToken token;
-    Transport::TcpStream stream("127.0.0.1", 80, {}, token);
+    Transport::TcpStream stream("127.0.0.1", 80, {});
 
     const std::uint8_t data[4] = {1, 2, 3, 4};
-    const auto result = stream.send_all(data);
+    const auto result = stream.send_all(data, token);
     ASSERT_FALSE(result);
     EXPECT_EQ(result.error(), IoError::CONNECTION_FAILED);
 }
@@ -180,37 +176,36 @@ TEST(NetTransportErrorPaths, TcpStream_SendAll_WithoutConnection_Fails) {
 // the fd) and is idempotent, so shutting down a never-connected or
 // already-closed stream must not throw.
 TEST(NetTransportErrorPaths, TcpStream_Close_WithoutConnection_IsNoOp) {
-    const Utils::CancellationToken token;
-    Transport::TcpStream stream("127.0.0.1", 80, {}, token);
+    Transport::TcpStream stream("127.0.0.1", 80, {});
     EXPECT_NO_THROW(stream.close());
     EXPECT_NO_THROW(stream.close());
 }
 
 TEST(NetTransportErrorPaths, TlsStream_ReadSome_WithoutHandshake_Fails) {
     const Utils::CancellationToken token;
-    Transport::TlsStream stream("127.0.0.1", 443, {}, {}, token);
+    Transport::TlsStream stream("127.0.0.1", 443, {}, {});
 
     std::uint8_t buf[4];
-    const auto result = stream.read_some(buf);
+    const auto result = stream.read_some(buf, token);
     ASSERT_FALSE(result);
     EXPECT_EQ(result.error(), IoError::CONNECTION_FAILED);
 }
 
 TEST(NetTransportErrorPaths, TlsStream_SendAll_WithoutHandshake_Fails) {
     const Utils::CancellationToken token;
-    Transport::TlsStream stream("127.0.0.1", 443, {}, {}, token);
+    Transport::TlsStream stream("127.0.0.1", 443, {}, {});
 
     const std::uint8_t data[4] = {1, 2, 3, 4};
-    const auto result = stream.send_all(data);
+    const auto result = stream.send_all(data, token);
     ASSERT_FALSE(result);
     EXPECT_EQ(result.error(), IoError::CONNECTION_FAILED);
 }
 
 TEST(NetTransportErrorPaths, SocketStream_Poll_WithoutFd_Fails) {
     const Utils::CancellationToken token;
-    const Transport::detail::SocketStream stream("127.0.0.1", 80, {}, token);
+    const Transport::detail::SocketStream stream("127.0.0.1", 80, {});
 
-    const auto result = stream.poll(POLLIN, 0ms);
+    const auto result = stream.poll(POLLIN, 0ms, token);
     ASSERT_FALSE(result);
     EXPECT_EQ(result.error(), IoError::CONNECTION_FAILED);
 }
@@ -219,26 +214,26 @@ TEST(NetTransportErrorPaths, SocketStream_Connect_PreTriggeredToken_Cancelled) {
     Utils::CancellationSource source;
     source.trigger();
 
-    Transport::detail::SocketStream stream("127.0.0.1", 80, {}, source.token());
-    const auto result = stream.connect();
+    Transport::detail::SocketStream stream("127.0.0.1", 80, {});
+    const auto result = stream.connect(source.token());
     ASSERT_FALSE(result);
     EXPECT_EQ(result.error(), IoError::CANCELLED);
 }
 
 TEST(NetTransportErrorPaths, SocketStream_Connect_ZeroBudget_TimesOut) {
     const Utils::CancellationToken token;
-    Transport::detail::SocketStream stream("127.0.0.1", 80, {.connect_timeout = 0ms}, token);
+    Transport::detail::SocketStream stream("127.0.0.1", 80, {.connect_timeout = 0ms});
 
-    const auto result = stream.connect();
+    const auto result = stream.connect(token);
     ASSERT_FALSE(result);
     EXPECT_EQ(result.error(), IoError::TIMEOUT);
 }
 
 TEST(NetTransportErrorPaths, SocketStream_Connect_BogusInterface_Fails) {
     const Utils::CancellationToken token;
-    Transport::detail::SocketStream stream("127.0.0.1", 80, {.interface = std::string("bogus0")}, token);
+    Transport::detail::SocketStream stream("127.0.0.1", 80, {.interface = std::string("bogus0")});
 
-    const auto result = stream.connect();
+    const auto result = stream.connect(token);
     ASSERT_FALSE(result);
     EXPECT_EQ(result.error(), IoError::CONNECTION_FAILED);
 }
@@ -273,9 +268,9 @@ namespace {
 
 TEST(NetTransportErrorPaths, SocketStream_Connect_RefusedPort_Fails) {
     const Utils::CancellationToken token;
-    Transport::detail::SocketStream stream("127.0.0.1", closed_loopback_port(), {}, token);
+    Transport::detail::SocketStream stream("127.0.0.1", closed_loopback_port(), {});
 
-    const auto result = stream.connect();
+    const auto result = stream.connect(token);
     ASSERT_FALSE(result);
     EXPECT_EQ(result.error(), IoError::CONNECTION_FAILED);
 }
@@ -283,9 +278,9 @@ TEST(NetTransportErrorPaths, SocketStream_Connect_RefusedPort_Fails) {
 TEST(NetTransportErrorPaths, SocketStream_Connect_UnresolvableHost_Fails) {
     const Utils::CancellationToken token;
     // Syntactically valid (passes eager validation), guaranteed non-existent.
-    Transport::detail::SocketStream stream("no-such-host-yaddnsc.invalid", 443, {}, token);
+    Transport::detail::SocketStream stream("no-such-host-yaddnsc.invalid", 443, {});
 
-    const auto result = stream.connect();
+    const auto result = stream.connect(token);
     ASSERT_FALSE(result);
     EXPECT_EQ(result.error(), IoError::CONNECTION_FAILED);
 }

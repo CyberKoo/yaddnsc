@@ -32,14 +32,14 @@
 #include "domain/error/dns_error_info.h"
 #include "infrastructure/dns/dns_lookup_exception.h"
 #include "infrastructure/dns/resolver/base.h"
-#include "support/util/cancellation_token.hpp"
 
 // ── Minimal ResolverBase subclass for testing ───────────────────────────────
 
 class TestResolver : public ResolverBase {
 public:
     [[nodiscard]] std::expected<std::vector<std::uint8_t>, DnsErrorInfo> query(const std::string&,
-                                                                               RecordKind) const override {
+                                                                               RecordKind,
+                                                                               const Utils::CancellationToken&) const override {
         return std::vector<std::uint8_t>{};
     }
 
@@ -55,13 +55,13 @@ public:
 TEST(ResolverCatalogTest, UnknownSchemaThrows) {
     const ResolverCatalog catalog;
     EXPECT_THROW(
-        { [[maybe_unused]] auto r = catalog.create(make_server("unknown://resolver"), {}); }, DnsLookupException);
+        { [[maybe_unused]] auto r = catalog.create(make_server("unknown://resolver")); }, DnsLookupException);
 }
 
 TEST(ResolverCatalogTest, UnknownSchemaErrorMessage) {
     const ResolverCatalog catalog;
     try {
-        [[maybe_unused]] auto r = catalog.create(make_server("tls1://server"), {});
+        [[maybe_unused]] auto r = catalog.create(make_server("tls1://server"));
         FAIL() << "expected DnsLookupException";
     } catch (const DnsLookupException& e) {
         EXPECT_STREQ(e.what(), R"(No resolver factory registered for schema "tls1" (server: tls1://server))");
@@ -71,14 +71,14 @@ TEST(ResolverCatalogTest, UnknownSchemaErrorMessage) {
 TEST(ResolverCatalogTest, RegisterAndCreate) {
     ResolverCatalog catalog;
     bool proto_called = false;
-    catalog.register_factory("proto", [&proto_called](const Config::DnsServer& s, const Utils::CancellationToken&) {
+    catalog.register_factory("proto", [&proto_called](const Config::DnsServer& s) {
         proto_called = true;
         EXPECT_EQ(s.address, "proto://host");
         EXPECT_EQ(s.port, 853);
         return std::make_unique<TestResolver>();
     });
 
-    auto resolver = catalog.create(make_server("proto://host", 853), {});
+    auto resolver = catalog.create(make_server("proto://host", 853));
     ASSERT_NE(resolver, nullptr);
     EXPECT_TRUE(proto_called);
     EXPECT_EQ(resolver->get_type(), "test");
@@ -86,34 +86,34 @@ TEST(ResolverCatalogTest, RegisterAndCreate) {
 
 TEST(ResolverCatalogTest, UnknownSchemaStillThrowsAfterRegistration) {
     ResolverCatalog catalog;
-    catalog.register_factory("proto", [](const Config::DnsServer&, const Utils::CancellationToken&) {
+    catalog.register_factory("proto", [](const Config::DnsServer&) {
         return std::make_unique<TestResolver>();
     });
 
     EXPECT_THROW(
-        { [[maybe_unused]] auto r = catalog.create(make_server("other://resolver"), {}); }, DnsLookupException);
+        { [[maybe_unused]] auto r = catalog.create(make_server("other://resolver")); }, DnsLookupException);
 }
 
 TEST(ResolverCatalogTest, EmptySchemaWithoutFallbackThrows) {
     ResolverCatalog catalog;
-    catalog.register_factory("proto", [](const Config::DnsServer&, const Utils::CancellationToken&) {
+    catalog.register_factory("proto", [](const Config::DnsServer&) {
         return std::make_unique<TestResolver>();
     });
 
     // "10.0.0.1" has an empty schema and no "" factory is registered.
-    EXPECT_THROW({ [[maybe_unused]] auto r = catalog.create(make_server("10.0.0.1"), {}); }, DnsLookupException);
+    EXPECT_THROW({ [[maybe_unused]] auto r = catalog.create(make_server("10.0.0.1")); }, DnsLookupException);
 }
 
 TEST(ResolverCatalogTest, EmptySchemaFallsBackToDefault) {
     ResolverCatalog catalog;
     bool fallback_called = false;
-    catalog.register_factory("", [&fallback_called](const Config::DnsServer& s, const Utils::CancellationToken&) {
+    catalog.register_factory("", [&fallback_called](const Config::DnsServer& s) {
         fallback_called = true;
         EXPECT_EQ(s.address, "192.168.1.1");
         return std::make_unique<TestResolver>();
     });
 
-    auto resolver = catalog.create(make_server("192.168.1.1"), {});
+    auto resolver = catalog.create(make_server("192.168.1.1"));
     ASSERT_NE(resolver, nullptr);
     EXPECT_TRUE(fallback_called);
     EXPECT_EQ(resolver->get_type(), "test");
@@ -122,22 +122,22 @@ TEST(ResolverCatalogTest, EmptySchemaFallsBackToDefault) {
 TEST(ResolverCatalogTest, ExplicitUnknownSchemaDoesNotFallBack) {
     ResolverCatalog catalog;
     catalog.register_factory(
-        "", [](const Config::DnsServer&, const Utils::CancellationToken&) { return std::make_unique<TestResolver>(); });
+        "", [](const Config::DnsServer&) { return std::make_unique<TestResolver>(); });
 
-    EXPECT_THROW({ [[maybe_unused]] auto r = catalog.create(make_server("tls1://server"), {}); }, DnsLookupException);
+    EXPECT_THROW({ [[maybe_unused]] auto r = catalog.create(make_server("tls1://server")); }, DnsLookupException);
 }
 
 TEST(ResolverCatalogTest, MultipleSchemasResolveIndependently) {
     ResolverCatalog catalog;
-    catalog.register_factory("alpha", [](const Config::DnsServer&, const Utils::CancellationToken&) {
+    catalog.register_factory("alpha", [](const Config::DnsServer&) {
         return std::make_unique<TestResolver>();
     });
-    catalog.register_factory("beta", [](const Config::DnsServer&, const Utils::CancellationToken&) {
+    catalog.register_factory("beta", [](const Config::DnsServer&) {
         return std::make_unique<TestResolver>();
     });
 
-    auto ra = catalog.create(make_server("alpha://srv"), {});
-    auto rb = catalog.create(make_server("beta://srv"), {});
+    auto ra = catalog.create(make_server("alpha://srv"));
+    auto rb = catalog.create(make_server("beta://srv"));
     ASSERT_NE(ra, nullptr);
     ASSERT_NE(rb, nullptr);
 }
@@ -145,11 +145,11 @@ TEST(ResolverCatalogTest, MultipleSchemasResolveIndependently) {
 TEST(ResolverCatalogTest, CatalogsAreIndependentInstances) {
     ResolverCatalog first;
     first.register_factory(
-        "", [](const Config::DnsServer&, const Utils::CancellationToken&) { return std::make_unique<TestResolver>(); });
+        "", [](const Config::DnsServer&) { return std::make_unique<TestResolver>(); });
 
     // A second catalog does not see the first one's registrations.
     const ResolverCatalog second;
-    EXPECT_THROW({ [[maybe_unused]] auto r = second.create(make_server("192.168.1.1"), {}); }, DnsLookupException);
+    EXPECT_THROW({ [[maybe_unused]] auto r = second.create(make_server("192.168.1.1")); }, DnsLookupException);
 }
 
 // ── with_builtins — schema dispatch to the real resolver types ──────────────
@@ -158,21 +158,21 @@ TEST(ResolverCatalogTest, CatalogsAreIndependentInstances) {
 
 TEST(ResolverCatalogTest, Builtins_ClassicForBareAddress) {
     const auto catalog = ResolverCatalog::with_builtins();
-    auto resolver = catalog.create(make_server("1.1.1.1", 53), {});
+    auto resolver = catalog.create(make_server("1.1.1.1", 53));
     ASSERT_NE(resolver, nullptr);
     EXPECT_EQ(resolver->get_type(), "Classic");
 }
 
 TEST(ResolverCatalogTest, Builtins_DohForHttpsSchema) {
     const auto catalog = ResolverCatalog::with_builtins();
-    auto resolver = catalog.create(make_server("https://1.1.1.1/dns-query"), {});
+    auto resolver = catalog.create(make_server("https://1.1.1.1/dns-query"));
     ASSERT_NE(resolver, nullptr);
     EXPECT_EQ(resolver->get_type(), "DNS-Over-HTTPS");
 }
 
 TEST(ResolverCatalogTest, Builtins_DotForTlsSchema) {
     const auto catalog = ResolverCatalog::with_builtins();
-    auto resolver = catalog.create(make_server("tls://1.1.1.1"), {});
+    auto resolver = catalog.create(make_server("tls://1.1.1.1"));
     ASSERT_NE(resolver, nullptr);
     EXPECT_EQ(resolver->get_type(), "DNS-Over-TLS");
 }
@@ -180,5 +180,5 @@ TEST(ResolverCatalogTest, Builtins_DotForTlsSchema) {
 TEST(ResolverCatalogTest, Builtins_UnknownSchemaThrows) {
     const auto catalog = ResolverCatalog::with_builtins();
     EXPECT_THROW(
-        { [[maybe_unused]] auto r = catalog.create(make_server("quic://dns.example"), {}); }, DnsLookupException);
+        { [[maybe_unused]] auto r = catalog.create(make_server("quic://dns.example")); }, DnsLookupException);
 }

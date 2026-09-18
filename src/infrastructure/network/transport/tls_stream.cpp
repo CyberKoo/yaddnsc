@@ -92,12 +92,8 @@ void SslContextDeleter::operator()(SSL_CTX* ctx) const noexcept {
     SSL_CTX_free(ctx);
 }
 
-TlsStream::TlsStream(std::string host,
-                     const std::uint16_t port,
-                     Options opts,
-                     TlsOptions tls_opts,
-                     Utils::CancellationToken token)
-    : socket_(std::move(host), port, opts, std::move(token)), opts_(std::move(opts)), tls_opts_(std::move(tls_opts)),
+TlsStream::TlsStream(std::string host, const std::uint16_t port, Options opts, TlsOptions tls_opts)
+    : socket_(std::move(host), port, opts), opts_(std::move(opts)), tls_opts_(std::move(tls_opts)),
       alpn_proto_(tls_opts_.alpn_proto.begin(), tls_opts_.alpn_proto.end()) {}
 
 TlsStream::~TlsStream() {
@@ -114,19 +110,20 @@ SSL_CTX* TlsStream::ssl_ctx() const noexcept {
     return nullptr;
 }
 
-std::expected<void, IoError> TlsStream::ensure_connected() {
+std::expected<void, IoError> TlsStream::ensure_connected(const Utils::CancellationToken& token) {
     if (socket_.is_connected() && is_healthy()) {
         return {};
     }
-    return connect(std::chrono::steady_clock::now() + opts_.connect_timeout);
+    return connect(std::chrono::steady_clock::now() + opts_.connect_timeout, token);
 }
 
-std::expected<void, IoError> TlsStream::connect(const std::chrono::steady_clock::time_point deadline) {
+std::expected<void, IoError> TlsStream::connect(const std::chrono::steady_clock::time_point deadline,
+                                                const Utils::CancellationToken& token) {
     using enum IoError;
 
     close();
 
-    if (auto result = socket_.connect(); !result) {
+    if (auto result = socket_.connect(token); !result) {
         return std::unexpected(result.error());
     }
 
@@ -179,7 +176,7 @@ std::expected<void, IoError> TlsStream::connect(const std::chrono::steady_clock:
         }
     }
 
-    auto result = handshake(deadline);
+    auto result = handshake(deadline, token);
     if (result) {
         SPDLOG_DEBUG(R"(TLS connection established to "{}:{}" ({}))", socket_.host(), socket_.port(),
                      SSL_get_version(ssl_));
@@ -187,7 +184,8 @@ std::expected<void, IoError> TlsStream::connect(const std::chrono::steady_clock:
     return result;
 }
 
-std::expected<void, IoError> TlsStream::handshake(const std::chrono::steady_clock::time_point deadline) {
+std::expected<void, IoError> TlsStream::handshake(const std::chrono::steady_clock::time_point deadline,
+                                                  const Utils::CancellationToken& token) {
     using enum IoError;
 
     for (;;) {
@@ -207,7 +205,7 @@ std::expected<void, IoError> TlsStream::handshake(const std::chrono::steady_cloc
             return std::unexpected(TIMEOUT);
         }
         const auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - now);
-        if (auto ready = socket_.poll(err == SSL_ERROR_WANT_READ ? POLLIN : POLLOUT, remaining); !ready) {
+        if (auto ready = socket_.poll(err == SSL_ERROR_WANT_READ ? POLLIN : POLLOUT, remaining, token); !ready) {
             return std::unexpected(ready.error());
         }
     }
@@ -225,23 +223,25 @@ bool TlsStream::is_healthy() const noexcept {
     return socket_.is_healthy();
 }
 
-std::expected<size_t, IoError> TlsStream::read_some(const std::span<std::uint8_t> buf) {
+std::expected<size_t, IoError> TlsStream::read_some(const std::span<std::uint8_t> buf,
+                                                    const Utils::CancellationToken& token) {
     if (ssl_ == nullptr) {
         return std::unexpected(IoError::CONNECTION_FAILED);
     }
     if (buf.empty()) {
         return 0;
     }
-    return read_once(buf);
+    return read_once(buf, token);
 }
 
-std::expected<size_t, IoError> TlsStream::read_once(const std::span<std::uint8_t> buf) {
+std::expected<size_t, IoError> TlsStream::read_once(const std::span<std::uint8_t> buf,
+                                                    const Utils::CancellationToken& token) {
     using enum IoError;
 
     for (;;) {
         // Skip the poll when OpenSSL already holds decrypted data.
         if (SSL_pending(ssl_) == 0) {
-            if (auto ready = socket_.poll(POLLIN, opts_.read_timeout); !ready) {
+            if (auto ready = socket_.poll(POLLIN, opts_.read_timeout, token); !ready) {
                 return std::unexpected(ready.error());
             }
         }
@@ -264,10 +264,11 @@ std::expected<size_t, IoError> TlsStream::read_once(const std::span<std::uint8_t
     }
 }
 
-std::expected<void, IoError> TlsStream::read_exact(const std::span<std::uint8_t> buf) {
+std::expected<void, IoError> TlsStream::read_exact(const std::span<std::uint8_t> buf,
+                                                   const Utils::CancellationToken& token) {
     auto remaining = buf;
     while (!remaining.empty()) {
-        auto n = read_once(remaining);
+        auto n = read_once(remaining, token);
         if (!n) {
             return std::unexpected(n.error());
         }
@@ -276,7 +277,8 @@ std::expected<void, IoError> TlsStream::read_exact(const std::span<std::uint8_t>
     return {};
 }
 
-std::expected<void, IoError> TlsStream::send_all(const std::span<const std::uint8_t> data) {
+std::expected<void, IoError> TlsStream::send_all(const std::span<const std::uint8_t> data,
+                                                 const Utils::CancellationToken& token) {
     using enum IoError;
 
     if (ssl_ == nullptr) {
@@ -294,7 +296,7 @@ std::expected<void, IoError> TlsStream::send_all(const std::span<const std::uint
         const int err = SSL_get_error(ssl_, rc);
         if (err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE) {
             const auto timeout = err == SSL_ERROR_WANT_READ ? opts_.read_timeout : opts_.write_timeout;
-            if (auto ready = socket_.poll(err == SSL_ERROR_WANT_READ ? POLLIN : POLLOUT, timeout); !ready) {
+            if (auto ready = socket_.poll(err == SSL_ERROR_WANT_READ ? POLLIN : POLLOUT, timeout, token); !ready) {
                 return std::unexpected(ready.error());
             }
             continue;

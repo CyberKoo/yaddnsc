@@ -23,6 +23,7 @@
 #include "domain/network/inet_address.h"
 #include "domain/update/update_decision.h"
 #include "domain/update/update_task.h"
+#include "support/util/cancellation_token.hpp"
 
 UpdateWorkflow::UpdateWorkflow(const DnsResolverPort& dns_resolver,
                                const IpSourcePort& ip_source,
@@ -30,7 +31,7 @@ UpdateWorkflow::UpdateWorkflow(const DnsResolverPort& dns_resolver,
                                const Logger& logger)
     : dns_resolver_(dns_resolver), ip_source_(ip_source), driver_gateway_(driver_gateway), logger_(logger) {}
 
-UpdateOutcome UpdateWorkflow::run(const domain::UpdateTask& task) const {
+UpdateOutcome UpdateWorkflow::run(const domain::UpdateTask& task, const Utils::CancellationToken& token) const {
     try {
         const auto& subdomain = task.subdomain_config();
         const auto rd_type_name = magic_enum::enum_name(subdomain.type);
@@ -38,8 +39,12 @@ UpdateOutcome UpdateWorkflow::run(const domain::UpdateTask& task) const {
 
         // --- Step 1: local IP -------------------------------------------------
 
-        const auto candidates = ip_source_.resolve(subdomain);
+        const auto candidates = ip_source_.resolve(subdomain, token);
         if (!candidates) {
+            if (candidates.error().code == domain::IpSourceError::Code::CANCELLED) {
+                return std::unexpected(
+                    domain::UpdateError{domain::UpdateError::Code::CANCELLED, candidates.error().message});
+            }
             YLOG_ERROR(logger_, "Failed to resolve local IP address for {}, skipping the update: {}", task.fqdn,
                        candidates.error().message);
             return std::unexpected(
@@ -60,8 +65,12 @@ UpdateOutcome UpdateWorkflow::run(const domain::UpdateTask& task) const {
 
         std::vector<std::string> records;
         if (!task.force_update) {
-            const auto resolved = dns_resolver_.resolve(task.fqdn, subdomain.type);
+            const auto resolved = dns_resolver_.resolve(task.fqdn, subdomain.type, token);
             if (!resolved) {
+                if (resolved.error().code == DnsError::CANCELLED) {
+                    return std::unexpected(
+                        domain::UpdateError{domain::UpdateError::Code::CANCELLED, resolved.error().message});
+                }
                 // Cannot verify the current record (transient failure, NXDOMAIN,
                 // NODATA, ...) — proceed with the update anyway: pushing an
                 // unchanged record is harmless, while skipping a changed one is not.
@@ -108,9 +117,16 @@ UpdateOutcome UpdateWorkflow::run(const domain::UpdateTask& task) const {
             .fqdn = task.fqdn,
         };
 
+        if (token.is_triggered()) {
+            return std::unexpected(domain::UpdateError{domain::UpdateError::Code::CANCELLED, "Update cancelled"});
+        }
+
         const auto result = driver_gateway_.update(task.driver_name(), command);
         if (!result) {
             switch (result.error().code) {
+                case domain::DriverError::Code::CANCELLED:
+                    return std::unexpected(
+                        domain::UpdateError{domain::UpdateError::Code::CANCELLED, result.error().message});
                 case domain::DriverError::Code::NOT_FOUND:
                     YLOG_ERROR(logger_, "Driver '{}' not found for task '{}', skipping: {}", task.driver_name(),
                                task.fqdn, result.error().message);

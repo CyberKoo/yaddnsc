@@ -268,26 +268,24 @@ struct AddrResult {
 // ===========================================================================
 
 struct ClassicResolver::Impl {
-    explicit Impl(Config::DnsServer server, std::uint64_t id, Utils::CancellationToken token);
+    explicit Impl(Config::DnsServer server, std::uint64_t id);
 
     ~Impl() = default;
 
-    [[nodiscard]] std::expected<std::vector<std::uint8_t>, DnsErrorInfo> query(const std::string& host_str,
-                                                                               RecordKind type) const;
+    [[nodiscard]] std::expected<std::vector<std::uint8_t>, DnsErrorInfo>
+    query(const std::string& host_str, RecordKind type, const Utils::CancellationToken& token) const;
 
     std::uint64_t id_;
     Config::DnsServer server_;
     Uri uri_;
     AddrResult addr_;
-    Utils::CancellationToken token_;
 };
 
-ClassicResolver::Impl::Impl(Config::DnsServer server, std::uint64_t id, Utils::CancellationToken token)
-    : id_(id), server_(std::move(server)), uri_(Uri::parse(server_.address)), addr_(make_addr(server_)),
-      token_(std::move(token)) {}
+ClassicResolver::Impl::Impl(Config::DnsServer server, std::uint64_t id)
+    : id_(id), server_(std::move(server)), uri_(Uri::parse(server_.address)), addr_(make_addr(server_)) {}
 
-std::expected<std::vector<std::uint8_t>, DnsErrorInfo> ClassicResolver::Impl::query(const std::string& host_str,
-                                                                                    RecordKind type) const {
+std::expected<std::vector<std::uint8_t>, DnsErrorInfo> ClassicResolver::Impl::query(
+    const std::string& host_str, RecordKind type, const Utils::CancellationToken& token) const {
     try {
         SPDLOG_TRACE(R"(Resolver #{} DNS lookup for "{}")", id_, host_str);
 
@@ -301,7 +299,7 @@ std::expected<std::vector<std::uint8_t>, DnsErrorInfo> ClassicResolver::Impl::qu
         // Try UDP first.
         // query_udp returns std::expected for I/O errors.  Socket constructor
         // failure may throw SocketException (OS resource exhaustion).
-        auto response = query_udp(addr_, query_packet, token_, id_);
+        auto response = query_udp(addr_, query_packet, token, id_);
         if (!response) {
             return std::unexpected(std::move(response.error()));
         }
@@ -319,7 +317,7 @@ std::expected<std::vector<std::uint8_t>, DnsErrorInfo> ClassicResolver::Impl::qu
         // Fall back to TCP if response is truncated.
         if (is_truncated(resp_data)) {
             SPDLOG_TRACE(R"(Resolver #{} UDP response truncated for "{}", falling back to TCP)", id_, host_str);
-            auto tcp_response = query_tcp(addr_, query_packet, token_, id_);
+            auto tcp_response = query_tcp(addr_, query_packet, token, id_);
             if (!tcp_response) {
                 return std::unexpected(std::move(tcp_response.error()));
             }
@@ -349,12 +347,12 @@ std::expected<std::vector<std::uint8_t>, DnsErrorInfo> ClassicResolver::Impl::qu
     }
 }
 
-ClassicResolver::ClassicResolver(Config::DnsServer server, Utils::CancellationToken token)
-    : impl_(std::make_unique<Impl>(std::move(server), get_id(), std::move(token))) {}
+ClassicResolver::ClassicResolver(Config::DnsServer server)
+    : impl_(std::make_unique<Impl>(std::move(server), get_id())) {}
 
 ClassicResolver::~ClassicResolver() = default;
 
-std::expected<std::vector<std::uint8_t>, DnsErrorInfo> ClassicResolver::query(const std::string& host,
-                                                                              RecordKind type) const {
-    return impl_->query(host, type);
+std::expected<std::vector<std::uint8_t>, DnsErrorInfo> ClassicResolver::query(
+    const std::string& host, RecordKind type, const Utils::CancellationToken& token) const {
+    return impl_->query(host, type, token);
 }

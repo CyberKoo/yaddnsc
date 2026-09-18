@@ -12,6 +12,7 @@
 #include "infrastructure/network/http/error.h"
 #include "infrastructure/network/http/types.h"
 #include "infrastructure/network/transport/options.h"
+#include "support/util/cancellation_token.hpp"
 
 namespace {
 
@@ -20,7 +21,8 @@ class NoopHttpClient final : public HttpClient {
 public:
     [[nodiscard]] std::expected<net::http::Response, net::http::Error> exchange(
         std::string_view,
-        const net::http::Request&) const override {
+        const net::http::Request&,
+        const Utils::CancellationToken&) const override {
         return net::http::Response{200, "ok", {}};
     }
 };
@@ -28,7 +30,7 @@ public:
 TEST(HttpInternalHeaders, SelfContained) {
     const NoopHttpClient client;
     const net::http::Request request{.method = net::http::Method::GET};
-    const auto result = client.exchange("https://example.com", request);
+    const auto result = client.exchange("https://example.com", request, {});
     ASSERT_TRUE(result.has_value());
     EXPECT_EQ(result->status, 200);
 

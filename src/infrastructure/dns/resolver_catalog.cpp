@@ -17,7 +17,6 @@
 #include "infrastructure/dns/resolver/dot.h"
 #include "infrastructure/network/uri.h"
 #include "support/fmt.hpp"
-#include "support/util/cancellation_token.hpp"  // IWYU pragma: keep — resolvers take the token by value
 
 void ResolverCatalog::register_factory(std::string_view schema, FactoryFn factory) {
     factories_[std::string(schema)] = std::move(factory);
@@ -27,17 +26,15 @@ ResolverCatalog ResolverCatalog::with_builtins() {
     ResolverCatalog catalog;
 
     catalog.register_factory(
-        "",
-        [](const Config::DnsServer& server, const Utils::CancellationToken& token) -> std::unique_ptr<ResolverBase> {
-            return std::make_unique<ClassicResolver>(server, token);
+        "", [](const Config::DnsServer& server) -> std::unique_ptr<ResolverBase> {
+            return std::make_unique<ClassicResolver>(server);
         });
 
     // DoH resolver: port is read from the URI only; server.port is intentionally
     // ignored because the URI already specifies the port (e.g. https://1.1.1.1:1443/dns-query).
     // If no port is present in the URI, the default is 443.
     catalog.register_factory(
-        "https",
-        [](const Config::DnsServer& server, const Utils::CancellationToken& token) -> std::unique_ptr<ResolverBase> {
+        "https", [](const Config::DnsServer& server) -> std::unique_ptr<ResolverBase> {
             auto uri = Uri::parse(server.address);
             auto host = std::string(uri.get_host());
             auto port = static_cast<std::uint16_t>(uri.get_port() != 0 ? uri.get_port() : 443);
@@ -45,27 +42,24 @@ ResolverCatalog ResolverCatalog::with_builtins() {
             if (path.empty()) {
                 path = "/";
             }
-            return std::make_unique<DohResolver>(std::move(host), port, std::move(path), std::string(uri.get_origin()),
-                                                 token);
+            return std::make_unique<DohResolver>(std::move(host), port, std::move(path), std::string(uri.get_origin()));
         });
 
     // DoT resolver: port is read from the URI only; server.port is intentionally
     // ignored because the URI already specifies the port (e.g. tls://1.1.1.1:853).
     // If no port is present in the URI, the default is 853.
     catalog.register_factory(
-        "tls",
-        [](const Config::DnsServer& server, const Utils::CancellationToken& token) -> std::unique_ptr<ResolverBase> {
+        "tls", [](const Config::DnsServer& server) -> std::unique_ptr<ResolverBase> {
             auto uri = Uri::parse(server.address);
             auto host = std::string(uri.get_host());
             auto port = static_cast<std::uint16_t>(uri.get_port() != 0 ? uri.get_port() : 853);
-            return std::make_unique<DotResolver>(std::move(host), port, std::string(uri.get_origin()), token);
+            return std::make_unique<DotResolver>(std::move(host), port, std::string(uri.get_origin()));
         });
 
     return catalog;
 }
 
-std::unique_ptr<ResolverBase> ResolverCatalog::create(const Config::DnsServer& server,
-                                                      const Utils::CancellationToken& token) const {
+std::unique_ptr<ResolverBase> ResolverCatalog::create(const Config::DnsServer& server) const {
     auto uri = Uri::parse(server.address);
     auto schema = std::string(uri.get_schema());
 
@@ -85,5 +79,5 @@ std::unique_ptr<ResolverBase> ResolverCatalog::create(const Config::DnsServer& s
             DnsError::CONFIG);
     }
 
-    return it->second(server, token);
+    return it->second(server);
 }

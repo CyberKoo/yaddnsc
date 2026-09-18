@@ -30,6 +30,7 @@
 #include "domain/network/inet_address.h"
 #include "infrastructure/network/http/client.h"
 #include "infrastructure/network/http/types.h"
+#include "support/util/cancellation_token.hpp"
 
 using namespace std::chrono_literals;
 
@@ -226,19 +227,19 @@ protected:
 
 TEST_F(HttpFixture, HttpIpSource_ResolvesIpFromBody) {
     const HttpIpSource source(server_.base_url() + "/ip");
-    const auto addresses = source.resolve();
+    const auto addresses = source.resolve({});
     ASSERT_EQ(addresses.size(), 1);
     EXPECT_EQ(addresses.front().to_string(), "203.0.113.7");
 }
 
 TEST_F(HttpFixture, HttpIpSource_ThrowsOnUnparseableBody) {
     const HttpIpSource source(server_.base_url() + "/bad");
-    EXPECT_THROW(std::ignore = source.resolve(), std::runtime_error);
+    EXPECT_THROW(std::ignore = source.resolve({}), std::runtime_error);
 }
 
 TEST_F(HttpFixture, HttpIpSource_ThrowsOnConnectionRefused) {
     const HttpIpSource source("http://127.0.0.1:1/ip");  // nothing listens
-    EXPECT_THROW(std::ignore = source.resolve(), std::runtime_error);
+    EXPECT_THROW(std::ignore = source.resolve({}), std::runtime_error);
 }
 
 // ── Production client (transient, through the connection factory) ────────────
@@ -247,7 +248,7 @@ TEST_F(HttpFixture, Client_GetRoundtrip) {
     net::http::Client client({});
     net::http::Request req{.method = net::http::Method::GET};
 
-    auto resp = client.exchange(server_.base_url() + "/ip", req);
+    auto resp = client.exchange(server_.base_url() + "/ip", req, {});
     ASSERT_TRUE(resp);
     EXPECT_EQ(resp->status, 200);
     EXPECT_EQ(resp->text(), "203.0.113.7");
@@ -260,7 +261,7 @@ TEST_F(HttpFixture, Client_PostEchoesBinaryBody) {
     req.set_body(std::span(reinterpret_cast<const std::uint8_t*>(payload.data()), payload.size()));
     req.content_type = "application/octet-stream";
 
-    auto resp = client.exchange(server_.base_url() + "/echo", req);
+    auto resp = client.exchange(server_.base_url() + "/echo", req, {});
     ASSERT_TRUE(resp);
     EXPECT_EQ(resp->status, 200);
     const auto echoed = resp->bytes();

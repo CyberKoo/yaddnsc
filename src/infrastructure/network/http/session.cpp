@@ -51,7 +51,8 @@ Session::Session(std::shared_ptr<StreamFactory> factory,
     : factory_(std::move(factory)), transport_opts_(std::move(transport_opts)), tls_opts_(std::move(tls_opts)),
       scheme_(std::move(scheme)), host_(std::move(host)), port_(port), limits_(limits) {}
 
-std::expected<Response, Error> Session::exchange(const protocol::WireRequest& req) {
+std::expected<Response, Error> Session::exchange(const protocol::WireRequest& req,
+                                                 const Utils::CancellationToken& token) {
     std::lock_guard lock(mutex_);
 
     if (stream_ && keep_alive_deadline_ && std::chrono::steady_clock::now() >= *keep_alive_deadline_) {
@@ -61,11 +62,11 @@ std::expected<Response, Error> Session::exchange(const protocol::WireRequest& re
         keep_alive_remaining_.reset();
         keep_alive_deadline_.reset();
     }
-    if (auto ready = ensure_stream(); !ready) {
+    if (auto ready = ensure_stream(token); !ready) {
         return std::unexpected(std::move(ready.error()));
     }
 
-    auto raw = do_exchange(req);
+    auto raw = do_exchange(req, token);
     if (!raw) {
         const auto should_retry = raw.error().code == ErrorCode::CONNECTION_LOST && is_idempotent(req.method);
         // A failed exchange can leave unread bytes or a partially consumed
@@ -79,10 +80,10 @@ std::expected<Response, Error> Session::exchange(const protocol::WireRequest& re
         if (!should_retry) {
             return std::unexpected(std::move(raw.error()));
         }
-        if (auto ready = ensure_stream(); !ready) {
+        if (auto ready = ensure_stream(token); !ready) {
             return std::unexpected(std::move(ready.error()));
         }
-        raw = do_exchange(req);
+        raw = do_exchange(req, token);
         if (!raw) {
             stream_->close();
             stream_.reset();
@@ -121,17 +122,18 @@ std::expected<Response, Error> Session::exchange(const protocol::WireRequest& re
     return Response{raw->status, std::move(raw->body), std::move(raw->headers), std::move(raw->trailers)};
 }
 
-std::expected<protocol::RawResponse, Error> Session::do_exchange(const protocol::WireRequest& req) {
-    return protocol::exchange(*stream_, req, limits_, pending_);
+std::expected<protocol::RawResponse, Error> Session::do_exchange(const protocol::WireRequest& req,
+                                                                 const Utils::CancellationToken& token) {
+    return protocol::exchange(*stream_, req, limits_, pending_, token);
 }
 
-std::expected<void, Error> Session::ensure_stream() {
+std::expected<void, Error> Session::ensure_stream(const Utils::CancellationToken& token) {
     if (!stream_) {
         // Scheme/transport pairing is decided here, once per origin.
         stream_ = scheme_ == "https" ? factory_->create_tls(host_, port_, transport_opts_, tls_opts_)
                                      : factory_->create_tcp(host_, port_, transport_opts_);
     }
-    if (auto connected = stream_->ensure_connected(); !connected) {
+    if (auto connected = stream_->ensure_connected(token); !connected) {
         stream_.reset();
         pending_.clear();
         keep_alive_remaining_.reset();

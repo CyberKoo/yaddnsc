@@ -11,6 +11,10 @@
 
 #include "support/mixin.h"
 
+namespace Utils {
+class CancellationToken;
+}
+
 /// IpSourceBase — abstract interface for obtaining a local IP address.
 ///
 /// Three concrete implementations exist:
@@ -53,6 +57,8 @@ public:
     /// For sources that return multiple candidates (interface, mDNS), all found
     /// addresses are returned so the caller can apply policy filters.
     ///
+    /// @param token  Cancellation token observed by blocking I/O (HTTP / mDNS
+    ///               sources); sources without blocking I/O ignore it.
     /// @return  A vector of resolved addresses (maybe empty if the source has
     ///          no addresses of the requested family).
     ///
@@ -60,7 +66,7 @@ public:
     ///         at all (network error, interface not found, parse failure, etc.).
     ///         An empty return means the source succeeded but found no matching
     ///         addresses — distinct from a failure to reach the source.
-    [[nodiscard]] virtual std::vector<InetAddress> resolve() const = 0;
+    [[nodiscard]] virtual std::vector<InetAddress> resolve(const Utils::CancellationToken& token) const = 0;
 
 private:
     [[maybe_unused, no_unique_address]] NoCopy no_copy_;

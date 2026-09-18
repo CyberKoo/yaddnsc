@@ -215,7 +215,7 @@ void start_dns_server() {
     server.address = "127.0.0.1";
     server.port = DNS_PORT;
 
-    global_resolver = std::make_unique<ClassicResolver>(std::move(server), Utils::CancellationToken{});
+    global_resolver = std::make_unique<ClassicResolver>(std::move(server));
     server_started = true;
 }
 
@@ -252,7 +252,7 @@ protected:
 // ===========================================================================
 
 TEST_F(ClassicNativeResolverTest, ResolveARecord) {
-    auto result = global_resolver->query("yaddnsc.test", RecordKind::A);
+    auto result = global_resolver->query("yaddnsc.test", RecordKind::A, {});
 
     ASSERT_TRUE(result.has_value());
     ASSERT_FALSE(result->empty());
@@ -260,7 +260,7 @@ TEST_F(ClassicNativeResolverTest, ResolveARecord) {
 }
 
 TEST_F(ClassicNativeResolverTest, ResolveAAAARecord) {
-    auto result = global_resolver->query("yaddnsc.test", RecordKind::AAAA);
+    auto result = global_resolver->query("yaddnsc.test", RecordKind::AAAA, {});
 
     ASSERT_TRUE(result.has_value());
     ASSERT_FALSE(result->empty());
@@ -268,13 +268,13 @@ TEST_F(ClassicNativeResolverTest, ResolveAAAARecord) {
 }
 
 TEST_F(ClassicNativeResolverTest, ResolveNonexistentDomain) {
-    auto result = global_resolver->query("nonexistent.example", RecordKind::A);
+    auto result = global_resolver->query("nonexistent.example", RecordKind::A, {});
 
     ASSERT_TRUE(result.has_value());
 }
 
 TEST_F(ClassicNativeResolverTest, QueryIsValidDnsResponse) {
-    auto result = global_resolver->query("yaddnsc.test", RecordKind::A);
+    auto result = global_resolver->query("yaddnsc.test", RecordKind::A, {});
 
     ASSERT_TRUE(result.has_value());
 
@@ -288,7 +288,7 @@ TEST_F(ClassicNativeResolverTest, QueryIsValidDnsResponse) {
 TEST_F(ClassicNativeResolverTest, TruncatedResponse_FallsBackToTcp) {
     // Query a host that triggers TC=1 on UDP and a normal response on TCP.
     // The resolver should fall back to TCP and return a valid response.
-    auto result = global_resolver->query("truncate.yaddnsc.test", RecordKind::A);
+    auto result = global_resolver->query("truncate.yaddnsc.test", RecordKind::A, {});
 
     ASSERT_TRUE(result.has_value()) << "TCP fallback should succeed";
     ASSERT_FALSE(result->empty());
@@ -305,8 +305,8 @@ TEST_F(ClassicNativeResolverTest, ConnectionRefused_ReturnsError) {
     server.address = "127.0.0.1";
     server.port = 1;  // port 1 is never open on loopback
 
-    auto bad_resolver = std::make_unique<ClassicResolver>(std::move(server), Utils::CancellationToken{});
-    auto result = bad_resolver->query("yaddnsc.test", RecordKind::A);
+    auto bad_resolver = std::make_unique<ClassicResolver>(std::move(server));
+    auto result = bad_resolver->query("yaddnsc.test", RecordKind::A, {});
 
     // Should fail with a connection error.
     ASSERT_FALSE(result.has_value());
@@ -315,7 +315,7 @@ TEST_F(ClassicNativeResolverTest, ConnectionRefused_ReturnsError) {
 TEST_F(ClassicNativeResolverTest, MalformedResponse_ValidatorRejects) {
     // Query a host that makes the server return garbage.
     // The response validator should reject it.
-    auto result = global_resolver->query("malformed.yaddnsc.test", RecordKind::A);
+    auto result = global_resolver->query("malformed.yaddnsc.test", RecordKind::A, {});
 
     // Should fail — validator rejects the malformed response.
     ASSERT_FALSE(result.has_value());
@@ -328,13 +328,13 @@ TEST_F(ClassicNativeResolverTest, InvalidServerAddress_Throws) {
     server.port = 53;
 
     EXPECT_THROW(
-        { auto bad = std::make_unique<ClassicResolver>(std::move(server), Utils::CancellationToken{}); },
+        { auto bad = std::make_unique<ClassicResolver>(std::move(server)); },
         DnsLookupException);
 }
 
 TEST_F(ClassicNativeResolverTest, UdpTimeout_ReturnsRetryError) {
     // Query a host the server ignores on UDP — resolver should time out.
-    auto result = global_resolver->query("timeout.yaddnsc.test", RecordKind::A);
+    auto result = global_resolver->query("timeout.yaddnsc.test", RecordKind::A, {});
 
     // Should fail with a timeout/retry error (no server response).
     ASSERT_FALSE(result.has_value());
@@ -342,7 +342,7 @@ TEST_F(ClassicNativeResolverTest, UdpTimeout_ReturnsRetryError) {
 
 TEST_F(ClassicNativeResolverTest, TcpConnectionReset_ReturnsError) {
     // UDP returns TC=1, then TCP connection is immediately closed.
-    auto result = global_resolver->query("tcpreset.yaddnsc.test", RecordKind::A);
+    auto result = global_resolver->query("tcpreset.yaddnsc.test", RecordKind::A, {});
 
     // Should fail — TCP connection reset before any response.
     ASSERT_FALSE(result.has_value());
@@ -350,7 +350,7 @@ TEST_F(ClassicNativeResolverTest, TcpConnectionReset_ReturnsError) {
 
 TEST_F(ClassicNativeResolverTest, TcpInvalidResponseLength_ReturnsError) {
     // UDP returns TC=1, then TCP returns length prefix 0.
-    auto result = global_resolver->query("tcperror.yaddnsc.test", RecordKind::A);
+    auto result = global_resolver->query("tcperror.yaddnsc.test", RecordKind::A, {});
 
     // Should fail — TCP response length is invalid (0).
     ASSERT_FALSE(result.has_value());
@@ -362,7 +362,7 @@ TEST_F(ClassicNativeResolverTest, DnsPacketException_IsCaught) {
     std::string long_label(70, 'a');
     auto bad_host = fmt::format("{}.example.com", long_label);
 
-    auto result = global_resolver->query(bad_host, RecordKind::A);
+    auto result = global_resolver->query(bad_host, RecordKind::A, {});
 
     ASSERT_FALSE(result.has_value());
 }
@@ -373,8 +373,8 @@ TEST_F(ClassicNativeResolverTest, Ipv6ServerAddress) {
     server.address = "::1";
     server.port = DNS_PORT;
 
-    auto ipv6_resolver = std::make_unique<ClassicResolver>(std::move(server), Utils::CancellationToken{});
-    auto result = ipv6_resolver->query("yaddnsc.test", RecordKind::A);
+    auto ipv6_resolver = std::make_unique<ClassicResolver>(std::move(server));
+    auto result = ipv6_resolver->query("yaddnsc.test", RecordKind::A, {});
 
     // ::1 is the same machine; the server should be reachable.
     // If the test environment has IPv6 disabled this will fail gracefully.
@@ -386,7 +386,7 @@ TEST_F(ClassicNativeResolverTest, Ipv6ServerAddress) {
 
 TEST_F(ClassicNativeResolverTest, TcpRecvTimeout_ReturnsRetryError) {
     // UDP returns TC=1, TCP connects but never sends — resolver times out.
-    auto result = global_resolver->query("tcptimeout.yaddnsc.test", RecordKind::A);
+    auto result = global_resolver->query("tcptimeout.yaddnsc.test", RecordKind::A, {});
 
     // Should fail with timeout.
     ASSERT_FALSE(result.has_value());
@@ -394,7 +394,7 @@ TEST_F(ClassicNativeResolverTest, TcpRecvTimeout_ReturnsRetryError) {
 
 TEST_F(ClassicNativeResolverTest, TcpGarbageResponse_ValidatorRejects) {
     // UDP returns TC=1, TCP returns garbage — validator rejects.
-    auto result = global_resolver->query("tcpgarbage.yaddnsc.test", RecordKind::A);
+    auto result = global_resolver->query("tcpgarbage.yaddnsc.test", RecordKind::A, {});
 
     // Should fail — validator rejects garbage.
     ASSERT_FALSE(result.has_value());
@@ -402,7 +402,7 @@ TEST_F(ClassicNativeResolverTest, TcpGarbageResponse_ValidatorRejects) {
 
 TEST_F(ClassicNativeResolverTest, TcpResponseLengthTooLarge_ReturnsError) {
     // UDP returns TC=1, TCP returns length prefix > 4096.
-    auto result = global_resolver->query("tcplarge.yaddnsc.test", RecordKind::A);
+    auto result = global_resolver->query("tcplarge.yaddnsc.test", RecordKind::A, {});
 
     // Should fail — invalid response length.
     ASSERT_FALSE(result.has_value());
@@ -492,11 +492,11 @@ TEST_F(ClassicNativeResolverTest, TcpConnectFailureAfterTruncatedUdp) {
     Config::DnsServer server;
     server.address = "127.0.0.1";
     server.port = UDP_ONLY_PORT;
-    auto resolver = std::make_unique<ClassicResolver>(std::move(server), Utils::CancellationToken{});
+    auto resolver = std::make_unique<ClassicResolver>(std::move(server));
 
     // Query a host that triggers TC=1 on UDP.
     // Since there's no TCP listener, the TCP connect should fail.
-    auto result = resolver->query("tcpconnectfail.yaddnsc.test", RecordKind::A);
+    auto result = resolver->query("tcpconnectfail.yaddnsc.test", RecordKind::A, {});
 
     // Should fail with a connection error (TCP connect failed after truncation).
     ASSERT_FALSE(result.has_value());
@@ -574,7 +574,7 @@ TEST_F(ClassicNativeResolverTest, UdpResponseFromUnexpectedSource_IsDiscarded) {
     Config::DnsServer server;
     server.address = "127.0.0.1";
     server.port = server_port;
-    ClassicResolver resolver(std::move(server), {});
+    ClassicResolver resolver(std::move(server));
 
     // Server thread: on query, send a forged response from a DIFFERENT
     // source port first, then the genuine response from the real socket.
@@ -618,7 +618,7 @@ TEST_F(ClassicNativeResolverTest, UdpResponseFromUnexpectedSource_IsDiscarded) {
         }
     });
 
-    auto result = resolver.query("spoof-test.example", RecordKind::A);
+    auto result = resolver.query("spoof-test.example", RecordKind::A, {});
     server_thread.join();
 
     ASSERT_TRUE(result.has_value()) << "resolver query failed: " << result.error().message << " (code "
@@ -657,8 +657,8 @@ TEST_F(ClassicNativeResolverTest, CancelledUdpQuery_ReturnsCancelledError) {
     // Pre-triggered token: the UDP wait_for returns ECANCELED immediately.
     Utils::CancellationSource source;
     source.trigger();
-    ClassicResolver resolver({"127.0.0.1", DNS_PORT}, source.token());
-    auto result = resolver.query("yaddnsc.test", RecordKind::A);
+    ClassicResolver resolver({"127.0.0.1", DNS_PORT});
+    auto result = resolver.query("yaddnsc.test", RecordKind::A, source.token());
 
     ASSERT_FALSE(result.has_value());
     EXPECT_EQ(static_cast<int>(result.error().code), static_cast<int>(DnsError::CANCELLED));
@@ -668,12 +668,12 @@ TEST_F(ClassicNativeResolverTest, CancelledTcpQuery_ReturnsCancelledError) {
     // UDP returns TC=1 → resolver falls back to TCP; the TCP server accepts
     // but never responds, so the cancel arrives while the TCP recv waits.
     Utils::CancellationSource source;
-    ClassicResolver resolver({"127.0.0.1", DNS_PORT}, source.token());
+    ClassicResolver resolver({"127.0.0.1", DNS_PORT});
     std::thread canceller([&source] {
         std::this_thread::sleep_for(std::chrono::milliseconds(200));
         source.trigger();
     });
-    auto result = resolver.query("tcptimeout.yaddnsc.test", RecordKind::A);
+    auto result = resolver.query("tcptimeout.yaddnsc.test", RecordKind::A, source.token());
     canceller.join();
 
     ASSERT_FALSE(result.has_value());
@@ -683,7 +683,7 @@ TEST_F(ClassicNativeResolverTest, CancelledTcpQuery_ReturnsCancelledError) {
 TEST_F(ClassicNativeResolverTest, TcpBodyTruncated_ReturnsConnectionError) {
     // TCP declares 100 bytes but only sends 10 before closing — the resolver
     // hits EOF while reading the response body.
-    auto result = global_resolver->query("tcpbodytrunc.yaddnsc.test", RecordKind::A);
+    auto result = global_resolver->query("tcpbodytrunc.yaddnsc.test", RecordKind::A, {});
 
     ASSERT_FALSE(result.has_value());
 }

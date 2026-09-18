@@ -26,7 +26,6 @@
 // ===========================================================================
 
 ResolverDispatcher DnsResolverFactory::create(const domain::ResolverSettings& settings,
-                                              const Utils::CancellationToken& token,
                                               const ResolverCatalog& catalog) {
     // The server list arrives already normalised (legacy single-server format
     // folded in by the config normaliser).
@@ -42,7 +41,7 @@ ResolverDispatcher DnsResolverFactory::create(const domain::ResolverSettings& se
     // "" → ClassicResolver).
     std::vector<std::unique_ptr<ResolverBase>> resolvers;
     for (const auto& server : dns_servers) {
-        resolvers.push_back(catalog.create(server, token));
+        resolvers.push_back(catalog.create(server));
         const auto uri = Uri::parse(server.address);
         SPDLOG_INFO("DNS resolver #{}: {} ({})", resolvers.back()->get_id(),
                     uri.get_schema().empty() ? uri.get_host_literal() : uri.get_origin(), resolvers.back()->get_type());

@@ -448,7 +448,8 @@ struct ChunkedBody {
                                                                 const size_t total,
                                                                 const std::string_view buffered,
                                                                 const WireRequest& req,
-                                                                std::string& pending) {
+                                                                std::string& pending,
+                                                                const Utils::CancellationToken& token) {
     std::string body;
     body.reserve(total);
     const auto available = std::min(buffered.size(), total);
@@ -460,7 +461,7 @@ struct ChunkedBody {
     while (body.size() < total) {
         std::array<std::uint8_t, READ_CHUNK> buf{};
         const auto needed = std::min(buf.size(), total - body.size());
-        auto n = stream.read_some(std::span(buf.data(), needed));
+        auto n = stream.read_some(std::span(buf.data(), needed), token);
         if (!n) {
             return std::unexpected(map_io_error(n.error(), context(req)));
         }
@@ -477,12 +478,13 @@ struct ChunkedBody {
                                                                   const std::string_view buffered,
                                                                   const Limits& limits,
                                                                   const WireRequest& req,
-                                                                  std::string& pending) {
+                                                                  std::string& pending,
+                                                                  const Utils::CancellationToken& token) {
     std::string raw{buffered};
     ChunkedBody result;
     const auto read_more = [&]() -> std::expected<void, Error> {
         std::array<std::uint8_t, READ_CHUNK> buf{};
-        auto n = stream.read_some(buf);
+        auto n = stream.read_some(buf, token);
         if (!n) {
             return std::unexpected(map_io_error(n.error(), context(req)));
         }
@@ -557,14 +559,15 @@ struct ChunkedBody {
 [[nodiscard]] std::expected<std::string, Error> read_until_eof(Transport::Stream& stream,
                                                                const std::string_view buffered,
                                                                const Limits& limits,
-                                                               const WireRequest& req) {
+                                                               const WireRequest& req,
+                                                               const Utils::CancellationToken& token) {
     std::string body(buffered);
     for (;;) {
         if (body.size() > limits.max_body_bytes) {
             return std::unexpected(Error{ErrorCode::BODY_TOO_LARGE, "response body exceeds limit"});
         }
         std::array<std::uint8_t, READ_CHUNK> buf{};
-        auto n = stream.read_some(buf);
+        auto n = stream.read_some(buf, token);
         if (!n) {
             if (n.error() == Transport::IoError::CONNECTION_FAILED) {
                 return body;  // EOF terminates the body.
@@ -596,14 +599,15 @@ Error map_io_error(const Transport::IoError err, const std::string_view stage) {
 std::expected<RawResponse, Error> exchange(Transport::Stream& stream,
                                            const WireRequest& req,
                                            const Limits& limits,
-                                           std::string& pending) {
+                                           std::string& pending,
+                                           const Utils::CancellationToken& token) {
     // ── Send ──
     if (const auto invalid = validate_wire_request(req)) {
         return std::unexpected(*invalid);
     }
     const auto wire = serialize(req);
     const auto* wire_bytes = reinterpret_cast<const std::uint8_t*>(wire.data());
-    if (auto sent = stream.send_all(std::span(wire_bytes, wire.size())); !sent) {
+    if (auto sent = stream.send_all(std::span(wire_bytes, wire.size()), token); !sent) {
         return std::unexpected(map_io_error(sent.error(), context(req)));
     }
 
@@ -636,7 +640,7 @@ std::expected<RawResponse, Error> exchange(Transport::Stream& stream,
 
         std::array<std::uint8_t, READ_CHUNK> read_buf{};
         const auto capacity = std::min(read_buf.size(), limits.max_header_bytes - buf.size());
-        auto n = stream.read_some(std::span(read_buf.data(), capacity));
+        auto n = stream.read_some(std::span(read_buf.data(), capacity), token);
         if (!n) {
             return std::unexpected(map_io_error(n.error(), context(req)));
         }
@@ -663,7 +667,7 @@ std::expected<RawResponse, Error> exchange(Transport::Stream& stream,
                 return std::unexpected(Error{ErrorCode::RESPONSE_PARSE_FAILED, "205 response has a non-empty body"});
             }
             if (headers.is_chunked) {
-                auto chunked = read_chunked_body(stream, buffered, limits, req, pending);
+                auto chunked = read_chunked_body(stream, buffered, limits, req, pending, token);
                 if (!chunked) {
                     return std::unexpected(std::move(chunked.error()));
                 }
@@ -677,7 +681,7 @@ std::expected<RawResponse, Error> exchange(Transport::Stream& stream,
                 pending.assign(buffered);
                 body = std::string{};
             } else if (headers.connection_close) {
-                body = read_until_eof(stream, buffered, limits, req);
+                body = read_until_eof(stream, buffered, limits, req, token);
                 if (body && !body->empty()) {
                     return std::unexpected(
                         Error{ErrorCode::RESPONSE_PARSE_FAILED, "205 response has a non-empty body"});
@@ -691,16 +695,16 @@ std::expected<RawResponse, Error> exchange(Transport::Stream& stream,
             body = std::string{};
         }
     } else if (headers.has_content_length) {
-        body = read_fixed_body(stream, headers.content_length, buffered, req, pending);
+        body = read_fixed_body(stream, headers.content_length, buffered, req, pending, token);
     } else if (headers.is_chunked) {
-        auto chunked = read_chunked_body(stream, buffered, limits, req, pending);
+        auto chunked = read_chunked_body(stream, buffered, limits, req, pending, token);
         if (!chunked) {
             return std::unexpected(std::move(chunked.error()));
         }
         body = std::move(chunked->body);
         trailers = std::move(chunked->trailers);
     } else {
-        body = read_until_eof(stream, buffered, limits, req);
+        body = read_until_eof(stream, buffered, limits, req, token);
     }
     if (!body) {
         return std::unexpected(std::move(body.error()));
@@ -727,9 +731,12 @@ std::expected<RawResponse, Error> exchange(Transport::Stream& stream,
     };
 }
 
-std::expected<RawResponse, Error> exchange(Transport::Stream& stream, const WireRequest& req, const Limits& limits) {
+std::expected<RawResponse, Error> exchange(Transport::Stream& stream,
+                                           const WireRequest& req,
+                                           const Limits& limits,
+                                           const Utils::CancellationToken& token) {
     std::string pending;
-    return exchange(stream, req, limits, pending);
+    return exchange(stream, req, limits, pending, token);
 }
 
 }  // namespace net::http::protocol

@@ -32,13 +32,11 @@ public:
     /// Factory type for creating IP source instances (tests may inject stubs).
     using FactoryFn = std::function<std::unique_ptr<IpSourceBase>(const domain::SubdomainConfig&)>;
 
-    /// @param token    Cancellation token bound into every created HTTP IP source.
-    /// @param factory  Source factory; defaults to IpSourceFactory::create
-    ///                 bound to `token`.
-    explicit IpSourceAdapter(Utils::CancellationToken token, FactoryFn factory = {});
+    /// @param factory  Source factory; defaults to IpSourceFactory::create.
+    explicit IpSourceAdapter(FactoryFn factory = {});
 
     [[nodiscard]] std::expected<std::vector<InetAddress>, domain::IpSourceError> resolve(
-        const domain::SubdomainConfig& config) const override;
+        const domain::SubdomainConfig& config, const Utils::CancellationToken& token) const override;
 
 private:
     FactoryFn factory_;

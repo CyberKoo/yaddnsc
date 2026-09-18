@@ -42,6 +42,7 @@
 #include "infrastructure/config/normalizer.h"
 #include "mocks/mock_ports.h"
 #include "mocks/null_logger.h"
+#include "support/util/cancellation_token.hpp"
 
 struct DriverUpdateCommand;
 
@@ -73,7 +74,7 @@ using ::testing::Return;
 
 // IP answers matching the fixture subdomains ("@" is type A, "www" AAAA).
 void stub_ip_answers(MockIpSourcePort& ip_source) {
-    ON_CALL(ip_source, resolve(_)).WillByDefault([](const domain::SubdomainConfig& sub) {
+    ON_CALL(ip_source, resolve(_, _)).WillByDefault([](const domain::SubdomainConfig& sub, const Utils::CancellationToken&) {
         if (sub.type == RecordKind::AAAA) {
             return std::expected<std::vector<InetAddress>, domain::IpSourceError>{{InetAddress{
                 Inet6Address::from_bytes({0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x01})}}};
@@ -111,7 +112,7 @@ TEST(PoolTaskExecutor, RunsSubmittedTaskToCompletion) {
     auto workflow = f.make_workflow();
     PoolTaskExecutor executor(2, workflow);
 
-    ASSERT_TRUE(executor.submit(make_task(f.config, 0)));
+    ASSERT_TRUE(executor.submit(make_task(f.config, 0), {}));
     executor.wait_idle();
     EXPECT_EQ(done.get_future().wait_for(0s), std::future_status::ready);
 }
@@ -126,7 +127,7 @@ TEST(PoolTaskExecutor, RejectsTasksAfterShutdown) {
     PoolTaskExecutor executor(2, workflow);
     executor.shutdown();
 
-    EXPECT_FALSE(executor.submit(make_task(f.config, 0)));
+    EXPECT_FALSE(executor.submit(make_task(f.config, 0), {}));
     executor.wait_idle();
 }
 
@@ -151,7 +152,7 @@ TEST(PoolTaskExecutor, WaitIdleBlocksUntilInFlightTaskFinishes) {
 
     auto workflow = f.make_workflow();
     PoolTaskExecutor executor(2, workflow);
-    ASSERT_TRUE(executor.submit(make_task(f.config, 0)));
+    ASSERT_TRUE(executor.submit(make_task(f.config, 0), {}));
 
     {
         std::unique_lock lock(mtx);
@@ -204,8 +205,8 @@ TEST(PoolTaskExecutor, SameModuleTasksRunConcurrently) {
     auto workflow = f.make_workflow();
     PoolTaskExecutor executor(2, workflow);
 
-    ASSERT_TRUE(executor.submit(make_task(f.config, 0)));  // "@"  (A)
-    ASSERT_TRUE(executor.submit(make_task(f.config, 1)));  // "www" (AAAA)
+    ASSERT_TRUE(executor.submit(make_task(f.config, 0), {}));  // "@"  (A)
+    ASSERT_TRUE(executor.submit(make_task(f.config, 1), {}));  // "www" (AAAA)
     executor.wait_idle();
 
     EXPECT_EQ(calls.load(), 2);

@@ -26,17 +26,17 @@ class CancellationToken;
 /// built-in self-contained transport (no libresolv).
 ///
 /// Always requires an explicit DNS server — no default constructor.
+/// Cancellation is operation-scoped: query() takes the caller's token.
 class ClassicResolver final : public ResolverBase {
 public:
     /// Construct with a DNS server.
     /// @param server  DNS server address and port.
-    /// @param token   Cancellation token, bound for the lifetime of the resolver.
-    explicit ClassicResolver(Config::DnsServer server, Utils::CancellationToken token);
+    explicit ClassicResolver(Config::DnsServer server);
 
     ~ClassicResolver() override;
 
-    [[nodiscard]] std::expected<std::vector<std::uint8_t>, DnsErrorInfo> query(const std::string& host,
-                                                                               RecordKind type) const override;
+    [[nodiscard]] std::expected<std::vector<std::uint8_t>, DnsErrorInfo>
+    query(const std::string& host, RecordKind type, const Utils::CancellationToken& token) const override;
 
     [[nodiscard]] std::string_view get_type() const noexcept override { return TYPE; }
 

@@ -14,7 +14,8 @@
 class MockHttpClient : public HttpClient {
 public:
     MOCK_METHOD((std::expected<net::http::Response, net::http::Error>), exchange,
-                (std::string_view url, const net::http::Request& req), (const, override));
+                (std::string_view url, const net::http::Request& req, const Utils::CancellationToken& token),
+                (const, override));
 };
 
 #endif // YADDNSC_TEST_MOCKS_MOCK_HTTP_CLIENT_H

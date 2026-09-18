@@ -21,10 +21,9 @@
 
 AbiDriverGateway::AbiDriverGateway(const DriverCatalog& catalog,
                                    HttpClientFactory http_factory,
-                                   Utils::CancellationToken cancel_token,
+                                   Utils::CancellationToken http_token,
                                    const Logger& logger)
-    : catalog_(catalog), http_factory_(std::move(http_factory)), cancel_token_(std::move(cancel_token)),
-      logger_(logger) {}
+    : catalog_(catalog), http_factory_(std::move(http_factory)), http_token_(std::move(http_token)), logger_(logger) {}
 
 namespace {
 [[nodiscard]] domain::DriverError map_error(yaddnsc_status status,
@@ -83,7 +82,7 @@ std::expected<void, domain::DriverError> AbiDriverGateway::update(std::string_vi
     }
 
     auto http_client = http_factory_();
-    HostServicesContext context(*http_client, logger_, cancel_token_);
+    HostServicesContext context(*http_client, logger_, http_token_);
     const auto services = context.make_services();
 
     yaddnsc_error error{};
@@ -135,7 +134,7 @@ std::expected<void, domain::DriverError> AbiDriverGateway::validate_config(std::
     }
 
     auto http_client = http_factory_();
-    HostServicesContext context(*http_client, logger_, cancel_token_);
+    HostServicesContext context(*http_client, logger_, {});
     const auto services = context.make_services();
 
     yaddnsc_error error{};

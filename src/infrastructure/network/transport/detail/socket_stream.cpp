@@ -59,21 +59,22 @@ std::expected<void, IoError> poll_fd(const int fd,
                                      const Utils::CancellationToken& token) {
     using enum IoError;
 
-    // Latched pre-check: a trigger that another consumer already drained
-    // from the pipe must still cancel this operation.
+    // Latched pre-check: cancellation remains terminal even if poll() was
+    // entered after the source fired.
     if (token.is_triggered()) {
         return std::unexpected(CANCELLED);
     }
 
+    // Cancellation is broadcast to this token's own fd, so no shared signal
+    // is consumed by another concurrent waiter.
     std::array<pollfd, 2> fds{};
     fds[0].fd = fd;
     fds[0].events = events;
-
-    auto nfds = nfds_t{1};
-    if (token) {
-        fds[1].fd = token.native_handle();
+    const auto cancel_fd = token.native_handle();
+    const auto nfds = static_cast<nfds_t>(cancel_fd >= 0 ? 2 : 1);
+    if (cancel_fd >= 0) {
+        fds[1].fd = cancel_fd;
         fds[1].events = POLLIN;
-        nfds = 2;
     }
 
     int ret;
@@ -88,8 +89,7 @@ std::expected<void, IoError> poll_fd(const int fd,
         return std::unexpected(CONNECTION_FAILED);
     }
 
-    if (token && (fds[1].revents & POLLIN)) {
-        token.drain();
+    if (cancel_fd >= 0 && fds[1].revents & POLLIN) {
         return std::unexpected(CANCELLED);
     }
     if (token.is_triggered()) {
@@ -105,8 +105,8 @@ std::expected<void, IoError> poll_fd(const int fd,
     return std::unexpected(CONNECTION_FAILED);
 }
 
-SocketStream::SocketStream(std::string host, const std::uint16_t port, Options opts, Utils::CancellationToken token)
-    : host_(std::move(host)), port_(port), opts_(std::move(opts)), token_(std::move(token)) {
+SocketStream::SocketStream(std::string host, const std::uint16_t port, Options opts)
+    : host_(std::move(host)), port_(port), opts_(std::move(opts)) {
     // Validate eagerly so the caller gets a clear error at construction time.
     if (!InetAddress::parse(host_).has_value() && !Utils::is_valid_domain(host_)) {
         throw std::invalid_argument(
@@ -114,12 +114,12 @@ SocketStream::SocketStream(std::string host, const std::uint16_t port, Options o
     }
 }
 
-std::expected<void, IoError> SocketStream::connect() {
+std::expected<void, IoError> SocketStream::connect(const Utils::CancellationToken& token) {
     using enum IoError;
 
     close();
 
-    if (token_.is_triggered()) {
+    if (token.is_triggered()) {
         return std::unexpected(CANCELLED);
     }
 
@@ -144,7 +144,7 @@ std::expected<void, IoError> SocketStream::connect() {
             return std::unexpected(TIMEOUT);
         }
 
-        if (auto result = connect_one(ai->ai_addr, static_cast<socklen_t>(ai->ai_addrlen), deadline)) {
+        if (auto result = connect_one(ai->ai_addr, static_cast<socklen_t>(ai->ai_addrlen), deadline, token)) {
             return {};
         } else {
             if (result.error() == TIMEOUT || result.error() == CANCELLED) {
@@ -160,7 +160,8 @@ std::expected<void, IoError> SocketStream::connect() {
 
 std::expected<void, IoError> SocketStream::connect_one(const struct sockaddr* addr,
                                                        const socklen_t addr_len,
-                                                       const std::chrono::steady_clock::time_point deadline) {
+                                                       const std::chrono::steady_clock::time_point deadline,
+                                                       const Utils::CancellationToken& token) {
     using enum IoError;
 
     Utils::UniqueFd sock(::socket(addr->sa_family, SOCK_STREAM, IPPROTO_TCP));
@@ -200,7 +201,7 @@ std::expected<void, IoError> SocketStream::connect_one(const struct sockaddr* ad
     if (rc != 0) {
         const auto remaining =
             std::chrono::duration_cast<std::chrono::milliseconds>(deadline - std::chrono::steady_clock::now());
-        auto ready = poll_fd(sock.get(), POLLOUT, remaining, token_);
+        auto ready = poll_fd(sock.get(), POLLOUT, remaining, token);
         if (!ready) {
             return std::unexpected(ready.error());
         }
@@ -246,11 +247,13 @@ bool SocketStream::is_healthy() const noexcept {
     return n > 0;  // n == 0 means EOF (peer closed).
 }
 
-std::expected<void, IoError> SocketStream::poll(const short events, const std::chrono::milliseconds timeout) const {
+std::expected<void, IoError> SocketStream::poll(const short events,
+                                                const std::chrono::milliseconds timeout,
+                                                const Utils::CancellationToken& token) const {
     if (fd_.get() < 0) {
         return std::unexpected(IoError::CONNECTION_FAILED);
     }
-    return poll_fd(fd_.get(), events, timeout, token_);
+    return poll_fd(fd_.get(), events, timeout, token);
 }
 
 }  // namespace Transport::detail

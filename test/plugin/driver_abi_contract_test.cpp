@@ -679,32 +679,18 @@ TEST(DriverAbiContract, PluginResponseViewsSurviveMultipleExchanges) {
     EXPECT_EQ(host.client.remaining(), 0u);
 }
 
-TEST(DriverAbiContract, CancellationReachesThePlugin) {
+TEST(DriverAbiContract, HostCancellationIsNotVisibleToThePlugin) {
     auto module = load_module();
     ASSERT_NE(module, nullptr);
 
     Utils::CancellationSource source;
-
-    // Not triggered, plugin expects "not cancelled".
-    {
-        HostUpdateContext host;
-        host.token = source.token();
-        HostServicesContext context(host.client, host.logger, host.token);
-        const auto services = context.make_services();
-        const auto result = run_module_cycle(*module, services, R"({"op":"check_cancel","expect_cancelled":false})");
-        EXPECT_EQ(result.update_status, YADDNSC_STATUS_OK) << result.error_message;
-    }
-
     source.trigger();
 
-    // Triggered, plugin observes the cancellation.
-    {
-        HostUpdateContext host;
-        HostServicesContext context(host.client, host.logger, source.token());
-        const auto services = context.make_services();
-        const auto result = run_module_cycle(*module, services, R"({"op":"check_cancel","expect_cancelled":true})");
-        EXPECT_EQ(result.update_status, YADDNSC_STATUS_OK) << result.error_message;
-    }
+    HostUpdateContext host;
+    HostServicesContext context(host.client, host.logger, source.token());
+    const auto services = context.make_services();
+    const auto result = run_module_cycle(*module, services, R"({"op":"check_cancel","expect_cancelled":false})");
+    EXPECT_EQ(result.update_status, YADDNSC_STATUS_OK) << result.error_message;
 }
 
 TEST(DriverAbiContract, ErrorReportIsCopiedSynchronously) {

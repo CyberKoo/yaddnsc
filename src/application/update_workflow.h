@@ -14,6 +14,10 @@ class DriverGateway;
 class IpSourcePort;
 class Logger;
 
+namespace Utils {
+class CancellationToken;
+}
+
 namespace domain {
 struct UpdateTask;
 enum class UpdateDecision;
@@ -63,7 +67,9 @@ public:
     /// Every expected failure is logged in place with the legacy wording and
     /// returned as an UpdateError; the caller (TaskExecutor) may discard the
     /// result — the schedule has already been advanced by the queue.
-    UpdateOutcome run(const domain::UpdateTask& task) const;
+    /// @param token  I/O cancellation token (derived from the process root)
+    ///               observed by the DNS lookup and the IP source fetch.
+    UpdateOutcome run(const domain::UpdateTask& task, const Utils::CancellationToken& token) const;
 
 private:
     const DnsResolverPort& dns_resolver_;

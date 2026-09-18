@@ -22,19 +22,20 @@
 class MockDnsResolverPort final : public DnsResolverPort {
 public:
     MOCK_METHOD((std::expected<std::vector<std::string>, DnsErrorInfo>), resolve,
-                (std::string_view host, RecordKind type), (const, override));
+                (std::string_view host, RecordKind type, const Utils::CancellationToken &token), (const, override));
 };
 
 class MockIpSourcePort final : public IpSourcePort {
 public:
     MOCK_METHOD((std::expected<std::vector<InetAddress>, domain::IpSourceError>), resolve,
-                (const domain::SubdomainConfig &config), (const, override));
+                (const domain::SubdomainConfig &config, const Utils::CancellationToken &token), (const, override));
 };
 
 class MockDriverGateway final : public DriverGateway {
 public:
     MOCK_METHOD((std::expected<void, domain::DriverError>), update,
-                (std::string_view driver_name, const DriverUpdateCommand &command), (const, override));
+                (std::string_view driver_name, const DriverUpdateCommand &command),
+                (const, override));
 };
 
 class MockNetworkInterfaces final : public NetworkInterfaces {

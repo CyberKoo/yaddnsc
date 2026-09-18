@@ -51,12 +51,6 @@ namespace {
 PersistentClient::PersistentClient(std::string base_url, Options opts)
     : PersistentClient(std::move(base_url), std::move(opts), std::make_shared<DefaultStreamFactory>()) {}
 
-PersistentClient::PersistentClient(std::string base_url, Options opts, Utils::CancellationToken token)
-    : PersistentClient(
-          std::move(base_url),
-          std::move(opts),
-          std::static_pointer_cast<StreamFactory>(std::make_shared<DefaultStreamFactory>(std::move(token)))) {}
-
 PersistentClient::PersistentClient(std::string base_url, Options opts, std::shared_ptr<StreamFactory> factory)
     : scheme_(std::string(Uri::parse(base_url).get_schema())), host_(std::string(Uri::parse(base_url).get_host())),
       port_(static_cast<std::uint16_t>(Uri::parse(base_url).get_port() > 0 ? Uri::parse(base_url).get_port()
@@ -76,7 +70,9 @@ Uri PersistentClient::current_uri(const std::string_view target) const {
                                   target.empty() ? "/" : std::string(target)));
 }
 
-std::expected<Response, Error> PersistentClient::exchange(const std::string_view url, const Request& req) const {
+std::expected<Response, Error> PersistentClient::exchange(const std::string_view url,
+                                                          const Request& req,
+                                                          const Utils::CancellationToken& token) const {
     if (auto valid = validate_request(req); !valid) {
         return std::unexpected(std::move(valid.error()));
     }
@@ -94,7 +90,7 @@ std::expected<Response, Error> PersistentClient::exchange(const std::string_view
     wire.target = std::move(target);
 
     for (int redirect_count = 0;; ++redirect_count) {
-        auto raw = session_.exchange(wire);
+        auto raw = session_.exchange(wire, token);
         if (!raw) {
             return std::unexpected(std::move(raw.error()));
         }
@@ -112,13 +108,13 @@ std::expected<Response, Error> PersistentClient::exchange(const std::string_view
         if (plan.cross_origin) {
             // The persistent connection cannot serve another origin —
             // follow the redirect with a one-shot transient exchange on the
-            // same factory (token/fakes propagate).
+            // same factory (fakes propagate).
             const auto absolute =
                 fmt::format("{}://{}:{}{}", plan.scheme,
                             plan.host.find(':') != std::string::npos ? fmt::format("[{}]", plan.host) : plan.host,
                             plan.port, plan.next.target);
             Client transient(opts_, factory_);
-            return transient.exchange(absolute, to_request(plan.next));
+            return transient.exchange(absolute, to_request(plan.next), token);
         }
 
         // Same origin: keep the connection and follow on it.

@@ -17,6 +17,10 @@
 class DnsResolverPort;
 class NetworkInterfaces;
 
+namespace Utils {
+class CancellationToken;
+}
+
 /// Diagnostic command handlers — thin application functions over the ports.
 ///
 /// Each function returns a result object; nothing here prints. The CLI
@@ -59,8 +63,10 @@ namespace Diagnostics {
     /// Resolve `host` through the resolver port. The record type string is
     /// matched case-insensitively (legacy behaviour for direct invocations;
     /// the CLI parser already restricts --type to A/AAAA/TXT).
+    /// @param token  I/O cancellation token from the command's composition
+    ///               scope.
     [[nodiscard]] DnsResolveOutcome dns_resolve(const DnsResolverPort &resolver, std::string host,
-                                                std::string type_text);
+                                                std::string type_text, const Utils::CancellationToken &token);
 
     /// Error of a `config test` run; `kind` selects the legacy message prefix.
     struct ConfigTestError {

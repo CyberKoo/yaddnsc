@@ -60,7 +60,8 @@ public:
     }
 
     [[nodiscard]] std::expected<net::http::Response, net::http::Error>
-    exchange(std::string_view url, const net::http::Request &req) const override {
+    exchange(std::string_view url, const net::http::Request &req,
+             const Utils::CancellationToken &) const override {
         std::lock_guard lock(mutex_);
         requests_.push_back(CapturedRequest{std::string(url), req.method, req.headers, req.body, req.content_type});
         if (queue_.empty()) {
@@ -101,8 +102,9 @@ public:
     explicit SharedHttpClient(std::shared_ptr<QueueHttpClient> inner) : inner_(std::move(inner)) {}
 
     [[nodiscard]] std::expected<net::http::Response, net::http::Error>
-    exchange(std::string_view url, const net::http::Request &req) const override {
-        return inner_->exchange(url, req);
+    exchange(std::string_view url, const net::http::Request &req,
+             const Utils::CancellationToken &token) const override {
+        return inner_->exchange(url, req, token);
     }
 
 private:

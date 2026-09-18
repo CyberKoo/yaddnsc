@@ -22,7 +22,7 @@
 
 class FakeTaskExecutor final : public TaskExecutor {
 public:
-    bool submit(domain::UpdateTask task) override {
+    bool submit(domain::UpdateTask task, const Utils::CancellationToken&) override {
         {
             std::lock_guard lock(mtx_);
             if (shutdown_) {

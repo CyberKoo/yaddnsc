@@ -1,9 +1,9 @@
 //
 // Full HTTP/1.x request-response exchange over a Transport::Stream.
 //
-// The protocol layer is transport-agnostic and cancellation-agnostic:
-// cancellation surfaces as IoError::CANCELLED from the stream and is
-// mapped to Error{ErrorCode::CANCELLED, ...} here.
+// The protocol layer is transport-agnostic; cancellation is passed through
+// to the stream per operation and surfaces as IoError::CANCELLED, mapped
+// to Error{ErrorCode::CANCELLED, ...} here.
 //
 
 #ifndef YADDNSC_HTTP_CLIENT_PROTOCOL_EXCHANGE_H
@@ -25,6 +25,10 @@ namespace Transport {
 class Stream;
 enum class IoError;
 }  // namespace Transport
+
+namespace Utils {
+class CancellationToken;
+}
 
 namespace net {
 namespace http {
@@ -68,17 +72,20 @@ struct RawResponse {
 ///
 /// Does NOT connect: the caller owns lifecycle (Stream::ensure_connected /
 /// close). Safe to call on an already-connected stream only.
+/// Cancellation is operation-scoped via `token` (see Transport::Stream).
 [[nodiscard]] std::expected<RawResponse, Error> exchange(Transport::Stream& stream,
                                                          const WireRequest& req,
                                                          const Limits& limits,
-                                                         std::string& pending);
+                                                         std::string& pending,
+                                                         const Utils::CancellationToken& token);
 
 /// One-shot convenience overload. Persistent callers must retain `pending`
 /// between exchanges so bytes read past one response remain available for the
 /// next response.
 [[nodiscard]] std::expected<RawResponse, Error> exchange(Transport::Stream& stream,
                                                          const WireRequest& req,
-                                                         const Limits& limits);
+                                                         const Limits& limits,
+                                                         const Utils::CancellationToken& token);
 
 }  // namespace net::http::protocol
 

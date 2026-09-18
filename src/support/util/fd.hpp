@@ -5,6 +5,7 @@
 #ifndef YADDNSC_UTIL_FD_H
 #define YADDNSC_UTIL_FD_H
 
+#include <cerrno>
 #include <utility>
 
 #include <fcntl.h>
@@ -83,16 +84,30 @@ namespace Utils {
         int fd_ = -1;
     };
 
-    /// Create a pipe (see pipe(2)) and return both ends as RAII wrappers.
+    /// Create a non-blocking pipe (see pipe(2)) and return both ends as
+    /// RAII wrappers.
+    ///
+    /// Both ends have O_NONBLOCK and close-on-exec set. Non-blocking keeps
+    /// cancellation signalling safe in noexcept paths: the single latch byte
+    /// never blocks a trigger, and cancellation readers only poll it (they
+    /// never consume the byte).
     ///
     /// Returns a pair of (read_end, write_end).
     /// On failure, both fds are invalid (operator bool returns false for both).
     [[nodiscard]] inline std::pair<UniqueFd, UniqueFd> make_pipe() noexcept {
         int fds[2] = {-1, -1};
         if (::pipe(fds) == 0) {
-            // Set close-on-exec for both ends.
-            ::fcntl(fds[0], F_SETFD, FD_CLOEXEC);
-            ::fcntl(fds[1], F_SETFD, FD_CLOEXEC);
+            // Set close-on-exec and non-blocking for both ends.
+            // (No pipe2() on macOS/BSD — set the flags portably.)
+            if (::fcntl(fds[0], F_SETFD, FD_CLOEXEC) == -1 || ::fcntl(fds[1], F_SETFD, FD_CLOEXEC) == -1 ||
+                ::fcntl(fds[0], F_SETFL, O_NONBLOCK) == -1 || ::fcntl(fds[1], F_SETFL, O_NONBLOCK) == -1) {
+                const int error = errno;
+                [[maybe_unused]] const auto close_read = ::close(fds[0]);
+                [[maybe_unused]] const auto close_write = ::close(fds[1]);
+                fds[0] = -1;
+                fds[1] = -1;
+                errno = error;
+            }
         }
         return {UniqueFd(fds[0]), UniqueFd(fds[1])};
     }

@@ -50,15 +50,16 @@ public:
     /// @param catalog       Loaded-plugin registry (non-owning; must outlive
     ///                      the gateway — it does in the composition root).
     /// @param http_factory  Factory creating one HttpClient per update call.
-    /// @param cancel_token  Process-wide I/O cancellation signal.
+    /// @param http_token    Host-only cancellation passed directly to each
+    ///                      HttpClient exchange; never exposed to plugins.
     /// @param logger        Log port receiving plugin log records.
     AbiDriverGateway(const DriverCatalog& catalog,
                      HttpClientFactory http_factory,
-                     Utils::CancellationToken cancel_token,
+                     Utils::CancellationToken http_token,
                      const Logger& logger);
 
-    [[nodiscard]] std::expected<void, domain::DriverError> update(std::string_view driver_name,
-                                                                  const DriverUpdateCommand& command) const override;
+    [[nodiscard]] std::expected<void, domain::DriverError>
+    update(std::string_view driver_name, const DriverUpdateCommand& command) const override;
 
     /// Validate one subdomain's driver_param JSON against the driver's schema
     /// without performing an update (the host's `config test` path). Runs the
@@ -71,7 +72,7 @@ public:
 private:
     const DriverCatalog& catalog_;
     HttpClientFactory http_factory_;
-    Utils::CancellationToken cancel_token_;
+    Utils::CancellationToken http_token_;
     const Logger& logger_;
 };
 

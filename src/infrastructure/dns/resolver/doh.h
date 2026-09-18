@@ -25,7 +25,8 @@ class CancellationToken;
 ///
 /// Owns a persistent Transport::Stream (TLS) to the DoH server and
 /// performs HTTP/1.1 POST exchanges via the net::http protocol layer.
-/// Cancellation is bound at construction; query() takes no token.
+/// Cancellation flows through query() as a parameter; nothing is bound
+/// at construction.
 class DohResolver final : public ResolverBase {
 public:
     /// Production constructor.
@@ -33,12 +34,7 @@ public:
     /// @param port   DoH server port.
     /// @param path   HTTP path for DNS queries (e.g. "/dns-query").
     /// @param label  Display label for log / error messages.
-    /// @param token  Cancellation token, bound for the resolver's lifetime.
-    DohResolver(std::string host,
-                std::uint16_t port,
-                std::string path,
-                std::string label,
-                Utils::CancellationToken token);
+    DohResolver(std::string host, std::uint16_t port, std::string path, std::string label);
 
     /// Testing constructor: inject a pre-built stream (fake or real).
     DohResolver(std::string host,
@@ -49,8 +45,8 @@ public:
 
     ~DohResolver() override;
 
-    [[nodiscard]] std::expected<std::vector<std::uint8_t>, DnsErrorInfo> query(const std::string& host,
-                                                                               RecordKind type) const override;
+    [[nodiscard]] std::expected<std::vector<std::uint8_t>, DnsErrorInfo>
+    query(const std::string& host, RecordKind type, const Utils::CancellationToken& token) const override;
 
     [[nodiscard]] std::string_view get_type() const noexcept override { return "DNS-Over-HTTPS"; }
 

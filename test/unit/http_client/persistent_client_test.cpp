@@ -38,6 +38,7 @@
 #include "infrastructure/network/transport/io_error.h"
 #include "infrastructure/network/transport/stream.h"
 #include "infrastructure/network/uri.h"
+#include "support/util/cancellation_token.hpp"
 
 using net::http::ErrorCode;
 using net::http::Method;
@@ -56,7 +57,7 @@ public:
     /// next request.
     size_t max_chunk = 0;
 
-    [[nodiscard]] std::expected<void, IoError> ensure_connected() override {
+    [[nodiscard]] std::expected<void, IoError> ensure_connected(const Utils::CancellationToken&) override {
         if (connect_error) {
             return std::unexpected(*connect_error);
         }
@@ -65,7 +66,8 @@ public:
 
     void close() noexcept override {}
 
-    [[nodiscard]] std::expected<size_t, IoError> read_some(std::span<std::uint8_t> buf) override {
+    [[nodiscard]] std::expected<size_t, IoError> read_some(std::span<std::uint8_t> buf,
+                                                           const Utils::CancellationToken&) override {
         if (fail_reads) {
             return std::unexpected(*fail_reads);
         }
@@ -81,10 +83,11 @@ public:
         return n;
     }
 
-    [[nodiscard]] std::expected<void, IoError> read_exact(std::span<std::uint8_t> buf) override {
+    [[nodiscard]] std::expected<void, IoError> read_exact(std::span<std::uint8_t> buf,
+                                                          const Utils::CancellationToken& token) override {
         auto remaining = buf;
         while (!remaining.empty()) {
-            auto n = read_some(remaining);
+            auto n = read_some(remaining, token);
             if (!n) {
                 return std::unexpected(n.error());
             }
@@ -93,7 +96,8 @@ public:
         return {};
     }
 
-    [[nodiscard]] std::expected<void, IoError> send_all(std::span<const std::uint8_t> data) override {
+    [[nodiscard]] std::expected<void, IoError> send_all(std::span<const std::uint8_t> data,
+                                                        const Utils::CancellationToken&) override {
         sent.append(reinterpret_cast<const char*>(data.data()), data.size());
         return {};
     }
@@ -382,7 +386,7 @@ TEST(HttpPersistentClient, EmptyTarget_SendsRoot) {
     factory->tcp_streams.push_back(std::move(stream));
 
     const net::http::PersistentClient client("http://a.test", {}, factory);
-    const auto resp = client.exchange("", plain_get());
+    const auto resp = client.exchange("", plain_get(), {});
 
     ASSERT_TRUE(resp);
     EXPECT_TRUE(stream_ptr->sent.starts_with("GET / HTTP/1.1\r\n"));
@@ -395,7 +399,7 @@ TEST(HttpPersistentClient, PathTarget_UsedVerbatim) {
     factory->tcp_streams.push_back(std::move(stream));
 
     const net::http::PersistentClient client("http://a.test", {}, factory);
-    const auto resp = client.exchange("/ip?x=1", plain_get());
+    const auto resp = client.exchange("/ip?x=1", plain_get(), {});
 
     ASSERT_TRUE(resp);
     EXPECT_TRUE(stream_ptr->sent.starts_with("GET /ip?x=1 HTTP/1.1\r\n"));
@@ -410,7 +414,7 @@ TEST(HttpPersistentClient, AbsoluteUrl_ContributesOnlyPathAndQuery) {
     // Through the HttpClient port callers pass full URLs; the origin still
     // comes from the base URL — only path+query are used.
     const net::http::PersistentClient client("http://a.test", {}, factory);
-    const auto resp = client.exchange("http://other.test/ip?q=1", plain_get());
+    const auto resp = client.exchange("http://other.test/ip?q=1", plain_get(), {});
 
     ASSERT_TRUE(resp);
     EXPECT_TRUE(stream_ptr->sent.starts_with("GET /ip?q=1 HTTP/1.1\r\n"));
@@ -427,8 +431,8 @@ TEST(HttpPersistentClient, ConnectionClose_RebuildsSession) {
     factory->tcp_streams.push_back(ok_stream("two"));
 
     const net::http::PersistentClient client("http://a.test", {}, factory);
-    auto first = client.exchange("/one", plain_get());
-    auto second = client.exchange("/two", plain_get());
+    auto first = client.exchange("/one", plain_get(), {});
+    auto second = client.exchange("/two", plain_get(), {});
 
     ASSERT_TRUE(first);
     ASSERT_TRUE(second);
@@ -449,8 +453,8 @@ TEST(HttpPersistentClient, Http10KeepAlive_ReusesSession) {
     net::http::Options opts{.version = net::http::HttpVersion::V1_0};
     const net::http::PersistentClient client("http://a.test", opts, factory);
 
-    auto first = client.exchange("/one", plain_get());
-    auto second = client.exchange("/two", plain_get());
+    auto first = client.exchange("/one", plain_get(), {});
+    auto second = client.exchange("/two", plain_get(), {});
 
     ASSERT_TRUE(first);
     ASSERT_TRUE(second);
@@ -474,7 +478,7 @@ TEST(HttpPersistentClient, SameOriginRedirect_FollowedOnSameConnection) {
     factory->tcp_streams.push_back(std::move(stream));
 
     const net::http::PersistentClient client("http://a.test", {}, factory);
-    const auto resp = client.exchange("/start", plain_get());
+    const auto resp = client.exchange("/start", plain_get(), {});
 
     ASSERT_TRUE(resp);
     EXPECT_EQ(resp->status, 200);
@@ -499,7 +503,7 @@ TEST(HttpPersistentClient, Redirect_RewritesMethodToGetAndDropsBody) {
     auto req = plain_get();
     req.method = Method::POST;
     req.set_body("payload");
-    const auto resp = client.exchange("/start", req);
+    const auto resp = client.exchange("/start", req, {});
 
     ASSERT_TRUE(resp);
     // 301/302/303: the follow-up is a bodyless GET.
@@ -518,7 +522,7 @@ TEST(HttpPersistentClient, CrossOriginRedirect_FollowedViaTransientClient) {
 
     auto req = plain_get();
     req.headers.emplace("X-Custom", "keep-me");
-    const auto resp = client.exchange("/start", req);
+    const auto resp = client.exchange("/start", req, {});
 
     ASSERT_TRUE(resp);
     EXPECT_EQ(resp->text(), "cross");
@@ -540,7 +544,7 @@ TEST(HttpPersistentClient, RedirectLimitExceeded_ReturnsError) {
     net::http::Options opts;
     opts.max_redirects = 2;
     const net::http::PersistentClient client("http://a.test", opts, factory);
-    const auto resp = client.exchange("/loop", plain_get());
+    const auto resp = client.exchange("/loop", plain_get(), {});
 
     ASSERT_FALSE(resp);
     EXPECT_EQ(resp.error().code, ErrorCode::REDIRECT_LIMIT_EXCEEDED);
@@ -553,7 +557,7 @@ TEST(HttpPersistentClient, ConnectFailure_ReturnsConnectError) {
     factory->tcp_streams.push_back(std::move(refused));
 
     const net::http::PersistentClient client("http://a.test", {}, factory);
-    const auto resp = client.exchange("/", plain_get());
+    const auto resp = client.exchange("/", plain_get(), {});
 
     ASSERT_FALSE(resp);
     EXPECT_EQ(resp.error().code, ErrorCode::CONNECT_FAILED);
@@ -564,7 +568,7 @@ TEST(HttpPersistentClient, HttpsBase_UsesTlsStream) {
     factory->tls_streams.push_back(ok_stream());
 
     const net::http::PersistentClient client("https://a.test", {}, factory);
-    const auto resp = client.exchange("/", plain_get());
+    const auto resp = client.exchange("/", plain_get(), {});
 
     ASSERT_TRUE(resp);
     ASSERT_EQ(factory->tls_hosts.size(), 1);
@@ -577,7 +581,7 @@ TEST(HttpClient, InvalidUrl_ReturnsInvalidUrlError) {
     auto factory = std::make_shared<FakeFactory>();
     const net::http::Client client({}, factory);
 
-    const auto resp = client.exchange("ftp://a.test/", plain_get());
+    const auto resp = client.exchange("ftp://a.test/", plain_get(), {});
     ASSERT_FALSE(resp);
     EXPECT_EQ(resp.error().code, ErrorCode::INVALID_URL);
 }
@@ -587,7 +591,7 @@ TEST(HttpClient, HttpsUrl_UsesTlsFactory) {
     factory->tls_streams.push_back(ok_stream());
 
     const net::http::Client client({}, factory);
-    const auto resp = client.exchange("https://a.test/", plain_get());
+    const auto resp = client.exchange("https://a.test/", plain_get(), {});
 
     ASSERT_TRUE(resp);
     ASSERT_EQ(factory->tls_hosts.size(), 1);
