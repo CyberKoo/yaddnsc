@@ -7,17 +7,17 @@
 
 #include <expected>
 
-#include "application/ports/dns_resolver.h"
-#include "application/ports/driver_gateway.h"
-#include "application/ports/ip_source.h"
-#include "application/ports/log.h"
-
 #include "domain/error/error.h"
-#include "domain/update/update_decision.h"
+
+class DnsResolverPort;
+class DriverGateway;
+class IpSourcePort;
+class Logger;
 
 namespace domain {
-    struct UpdateTask;
-}
+struct UpdateTask;
+enum class UpdateDecision;
+}  // namespace domain
 
 /// Outcome of one executed update cycle.
 struct UpdateResult {
@@ -53,21 +53,23 @@ class UpdateWorkflow {
 public:
     /// Construct with the workflow's ports (all non-owning; owned by the
     /// composition root).
-    UpdateWorkflow(const DnsResolverPort &dns_resolver, const IpSourcePort &ip_source,
-                   const DriverGateway &driver_gateway, const Logger &logger);
+    UpdateWorkflow(const DnsResolverPort& dns_resolver,
+                   const IpSourcePort& ip_source,
+                   const DriverGateway& driver_gateway,
+                   const Logger& logger);
 
     /// Execute one update cycle for `task`.
     ///
     /// Every expected failure is logged in place with the legacy wording and
     /// returned as an UpdateError; the caller (TaskExecutor) may discard the
     /// result — the schedule has already been advanced by the queue.
-    UpdateOutcome run(const domain::UpdateTask &task) const;
+    UpdateOutcome run(const domain::UpdateTask& task) const;
 
 private:
-    const DnsResolverPort &dns_resolver_;
-    const IpSourcePort &ip_source_;
-    const DriverGateway &driver_gateway_;
-    const Logger &logger_;
+    const DnsResolverPort& dns_resolver_;
+    const IpSourcePort& ip_source_;
+    const DriverGateway& driver_gateway_;
+    const Logger& logger_;
 };
 
-#endif // YADDNSC_APPLICATION_UPDATE_WORKFLOW_H
+#endif  // YADDNSC_APPLICATION_UPDATE_WORKFLOW_H

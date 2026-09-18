@@ -6,19 +6,18 @@
 #define YADDNSC_DNS_DISPATCHER_H
 
 #include <cstdint>
-#include <expected>
 #include <memory>
 #include <string>
 #include <string_view>
 #include <vector>
-
-#include "domain/config/dns_config.h"
+#include <expected>
 
 #include "application/ports/dns_resolver.h"
+#include "domain/config/dns_config.h"
 #include "domain/error/dns_error_info.h"
-#include "domain/dns/record_kind.h"
 
 class ResolverBase;
+enum class RecordKind;
 
 /// ResolverDispatcher — dispatches DNS queries across one or more backend
 ///                      resolvers using a configurable strategy (fallback /
@@ -36,19 +35,19 @@ public:
     /// Construct with a list of resolver backends and a dispatch strategy.
     /// @param resolvers  Vector of resolver backends to query.
     /// @param strategy   Dispatch strategy (fallback, shuffle, or concurrent).
-    explicit ResolverDispatcher(std::vector<std::unique_ptr<ResolverBase> > resolvers,
+    explicit ResolverDispatcher(std::vector<std::unique_ptr<ResolverBase>> resolvers,
                                 Config::ResolverStrategy strategy = Config::ResolverStrategy::CONCURRENT);
 
     ~ResolverDispatcher() override;
 
-    ResolverDispatcher(ResolverDispatcher &&) noexcept;
+    ResolverDispatcher(ResolverDispatcher&&) noexcept;
 
-    ResolverDispatcher &operator=(ResolverDispatcher &&) noexcept;
+    ResolverDispatcher& operator=(ResolverDispatcher&&) noexcept;
 
     /// Resolve a hostname using the configured strategy and backends,
     /// with the default retry policy (max_retries = 1, backoff_ms = 50).
-    [[nodiscard]] std::expected<std::vector<std::string>, DnsErrorInfo>
-    resolve(std::string_view host, RecordKind type) const override;
+    [[nodiscard]] std::expected<std::vector<std::string>, DnsErrorInfo> resolve(std::string_view host,
+                                                                                RecordKind type) const override;
 
     /// Resolve a hostname using the configured strategy and backends.
     ///
@@ -68,12 +67,14 @@ public:
     ///                     describing the failure.  Callers should check the
     ///                     error code to distinguish transient (RETRY, CONNECTION)
     ///                     from permanent errors (NX_DOMAIN, NODATA, PARSE, CONFIG).
-    [[nodiscard]] std::expected<std::vector<std::string>, DnsErrorInfo>
-    resolve(std::string_view host, RecordKind type, std::uint32_t max_retries,
-            std::uint32_t backoff_ms) const;
+    [[nodiscard]] std::expected<std::vector<std::string>, DnsErrorInfo> resolve(std::string_view host,
+                                                                                RecordKind type,
+                                                                                std::uint32_t max_retries,
+                                                                                std::uint32_t backoff_ms) const;
 
 private:
     struct Impl;
+
     std::unique_ptr<Impl> impl_;
 };
 

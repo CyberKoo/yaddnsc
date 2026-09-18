@@ -6,14 +6,11 @@
 #define YADDNSC_DNS_DOH_RESOLVER_H
 
 #include <cstdint>
-#include <expected>
 #include <memory>
 #include <string>
-#include <vector>
+#include <string_view>
 
-#include "domain/error/dns_error_info.h"
 #include "infrastructure/dns/resolver/base.h"
-#include "domain/dns/record_kind.h"
 
 namespace Transport {
 class Stream;
@@ -36,27 +33,34 @@ public:
     /// @param path   HTTP path for DNS queries (e.g. "/dns-query").
     /// @param label  Display label for log / error messages.
     /// @param token  Cancellation token, bound for the resolver's lifetime.
-    DohResolver(std::string host, std::uint16_t port, std::string path, std::string label,
+    DohResolver(std::string host,
+                std::uint16_t port,
+                std::string path,
+                std::string label,
                 Utils::CancellationToken token);
 
     /// Testing constructor: inject a pre-built stream (fake or real).
-    DohResolver(std::string host, std::uint16_t port, std::string path, std::string label,
+    DohResolver(std::string host,
+                std::uint16_t port,
+                std::string path,
+                std::string label,
                 std::unique_ptr<Transport::Stream> stream);
 
     ~DohResolver() override;
 
-    DohResolver(const DohResolver &) = delete;
+    DohResolver(const DohResolver&) = delete;
 
-    DohResolver &operator=(const DohResolver &) = delete;
+    DohResolver& operator=(const DohResolver&) = delete;
 
-    [[nodiscard]] std::expected<std::vector<std::uint8_t>, DnsErrorInfo>
-    query(const std::string &host, RecordKind type) const override;
+    [[nodiscard]] std::expected<std::vector<std::uint8_t>, DnsErrorInfo> query(const std::string& host,
+                                                                               RecordKind type) const override;
 
     [[nodiscard]] std::string_view get_type() const noexcept override { return "DNS-Over-HTTPS"; }
 
 private:
     struct Impl;
+
     std::unique_ptr<Impl> impl_;
 };
 
-#endif // YADDNSC_DNS_DOH_RESOLVER_H
+#endif  // YADDNSC_DNS_DOH_RESOLVER_H

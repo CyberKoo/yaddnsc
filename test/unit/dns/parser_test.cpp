@@ -5,543 +5,556 @@
 // that RecordParser correctly extracts A, AAAA, TXT, CNAME, NS record types.
 // =============================================================================
 
-#include <vector>
-#include <cstdint>
+#include "infrastructure/dns/parser.h"
+
 #include <array>
+#include <cstddef>
+#include <cstdint>
+#include <optional>
+#include <span>
 #include <string>
 #include <string_view>
+#include <vector>
 
 #include <gtest/gtest.h>
 
-#include "infrastructure/dns/parser.h"
 #include "infrastructure/dns/dns_lookup_exception.h"
+#include "infrastructure/dns/types.h"
 
 // ===========================================================================
 // Helpers for constructing DNS response packets
 // ===========================================================================
 
 namespace {
-    /// Write a 16-bit big-endian value into a buffer at the given offset.
-    void write_u16_be(std::vector<std::uint8_t> &buf, size_t offset, std::uint16_t v) {
-        buf[offset] = static_cast<std::uint8_t>(v >> 8);
-        buf[offset + 1] = static_cast<std::uint8_t>(v & 0xFF);
-    }
+/// Write a 16-bit big-endian value into a buffer at the given offset.
+void write_u16_be(std::vector<std::uint8_t>& buf, size_t offset, std::uint16_t v) {
+    buf[offset] = static_cast<std::uint8_t>(v >> 8);
+    buf[offset + 1] = static_cast<std::uint8_t>(v & 0xFF);
+}
 
-    /// Encode a domain name (e.g. "example.com") into DNS label format
-    /// and append to the buffer. Returns the number of bytes written.
-    size_t encode_name(std::vector<std::uint8_t> &buf, std::string_view name) {
-        size_t written = 0;
-        size_t pos = 0;
-        while (pos < name.size()) {
-            auto dot = name.find('.', pos);
-            if (dot == std::string::npos) dot = name.size();
-            auto label_len = static_cast<std::uint8_t>(dot - pos);
-            buf.push_back(label_len);
-            ++written;
-            for (size_t i = 0; i < label_len; ++i) {
-                buf.push_back(static_cast<std::uint8_t>(name[pos + i]));
-                ++written;
-            }
-            pos = dot + 1;
-        }
-        buf.push_back(0); // root label
+/// Encode a domain name (e.g. "example.com") into DNS label format
+/// and append to the buffer. Returns the number of bytes written.
+size_t encode_name(std::vector<std::uint8_t>& buf, std::string_view name) {
+    size_t written = 0;
+    size_t pos = 0;
+    while (pos < name.size()) {
+        auto dot = name.find('.', pos);
+        if (dot == std::string::npos)
+            dot = name.size();
+        auto label_len = static_cast<std::uint8_t>(dot - pos);
+        buf.push_back(label_len);
         ++written;
-        return written;
-    }
-
-    /// Build a minimal DNS response with a single A record.
-    std::vector<std::uint8_t> make_a_response(std::uint16_t txid, std::array<std::uint8_t, 4> answer_ip,
-                                              std::uint32_t ttl = 300) {
-        std::vector<std::uint8_t> buf;
-        buf.resize(12, 0);
-        write_u16_be(buf, 0, txid);
-        buf[2] = 0x81;
-        buf[3] = 0x80;
-        write_u16_be(buf, 4, 1);
-        write_u16_be(buf, 6, 1);
-
-        encode_name(buf, "example.com");
-        buf.push_back(0x00);
-        buf.push_back(0x01);
-        buf.push_back(0x00);
-        buf.push_back(0x01);
-
-        buf.push_back(0xC0);
-        buf.push_back(0x0C);
-        buf.push_back(0x00);
-        buf.push_back(0x01);
-        buf.push_back(0x00);
-        buf.push_back(0x01);
-        buf.push_back(static_cast<std::uint8_t>(ttl >> 24));
-        buf.push_back(static_cast<std::uint8_t>(ttl >> 16));
-        buf.push_back(static_cast<std::uint8_t>(ttl >> 8));
-        buf.push_back(static_cast<std::uint8_t>(ttl & 0xFF));
-        buf.push_back(0x00);
-        buf.push_back(0x04);
-        buf.push_back(answer_ip[0]);
-        buf.push_back(answer_ip[1]);
-        buf.push_back(answer_ip[2]);
-        buf.push_back(answer_ip[3]);
-        return buf;
-    }
-
-    /// Build a minimal DNS response with a single AAAA record.
-    std::vector<std::uint8_t> make_aaaa_response(std::uint16_t txid,
-                                                 std::array<std::uint8_t, 16> answer_ip,
-                                                 std::uint32_t ttl = 300) {
-        std::vector<std::uint8_t> buf;
-        buf.resize(12, 0);
-        write_u16_be(buf, 0, txid);
-        buf[2] = 0x81;
-        buf[3] = 0x80;
-        write_u16_be(buf, 4, 1);
-        write_u16_be(buf, 6, 1);
-
-        encode_name(buf, "example.com");
-        buf.push_back(0x00);
-        buf.push_back(0x1C);
-        buf.push_back(0x00);
-        buf.push_back(0x01);
-
-        buf.push_back(0xC0);
-        buf.push_back(0x0C);
-        buf.push_back(0x00);
-        buf.push_back(0x1C);
-        buf.push_back(0x00);
-        buf.push_back(0x01);
-        buf.push_back(static_cast<std::uint8_t>(ttl >> 24));
-        buf.push_back(static_cast<std::uint8_t>(ttl >> 16));
-        buf.push_back(static_cast<std::uint8_t>(ttl >> 8));
-        buf.push_back(static_cast<std::uint8_t>(ttl & 0xFF));
-        buf.push_back(0x00);
-        buf.push_back(0x10);
-        for (auto byte: answer_ip) {
-            buf.push_back(byte);
+        for (size_t i = 0; i < label_len; ++i) {
+            buf.push_back(static_cast<std::uint8_t>(name[pos + i]));
+            ++written;
         }
-        return buf;
+        pos = dot + 1;
     }
+    buf.push_back(0);  // root label
+    ++written;
+    return written;
+}
 
-    /// Build a DNS response with a single TXT record.
-    std::vector<std::uint8_t>
-    make_txt_response(std::uint16_t txid, std::string_view txt_value, std::uint32_t ttl = 300) {
-        std::vector<std::uint8_t> buf;
-        buf.resize(12, 0);
-        write_u16_be(buf, 0, txid);
-        buf[2] = 0x81;
-        buf[3] = 0x80;
-        write_u16_be(buf, 4, 1);
-        write_u16_be(buf, 6, 1);
+/// Build a minimal DNS response with a single A record.
+std::vector<std::uint8_t> make_a_response(std::uint16_t txid,
+                                          std::array<std::uint8_t, 4> answer_ip,
+                                          std::uint32_t ttl = 300) {
+    std::vector<std::uint8_t> buf;
+    buf.resize(12, 0);
+    write_u16_be(buf, 0, txid);
+    buf[2] = 0x81;
+    buf[3] = 0x80;
+    write_u16_be(buf, 4, 1);
+    write_u16_be(buf, 6, 1);
 
-        encode_name(buf, "example.com");
-        buf.push_back(0x00);
-        buf.push_back(0x10);
-        buf.push_back(0x00);
-        buf.push_back(0x01);
+    encode_name(buf, "example.com");
+    buf.push_back(0x00);
+    buf.push_back(0x01);
+    buf.push_back(0x00);
+    buf.push_back(0x01);
 
-        buf.push_back(0xC0);
-        buf.push_back(0x0C);
-        buf.push_back(0x00);
-        buf.push_back(0x10);
-        buf.push_back(0x00);
-        buf.push_back(0x01);
-        buf.push_back(static_cast<std::uint8_t>(ttl >> 24));
-        buf.push_back(static_cast<std::uint8_t>(ttl >> 16));
-        buf.push_back(static_cast<std::uint8_t>(ttl >> 8));
-        buf.push_back(static_cast<std::uint8_t>(ttl & 0xFF));
+    buf.push_back(0xC0);
+    buf.push_back(0x0C);
+    buf.push_back(0x00);
+    buf.push_back(0x01);
+    buf.push_back(0x00);
+    buf.push_back(0x01);
+    buf.push_back(static_cast<std::uint8_t>(ttl >> 24));
+    buf.push_back(static_cast<std::uint8_t>(ttl >> 16));
+    buf.push_back(static_cast<std::uint8_t>(ttl >> 8));
+    buf.push_back(static_cast<std::uint8_t>(ttl & 0xFF));
+    buf.push_back(0x00);
+    buf.push_back(0x04);
+    buf.push_back(answer_ip[0]);
+    buf.push_back(answer_ip[1]);
+    buf.push_back(answer_ip[2]);
+    buf.push_back(answer_ip[3]);
+    return buf;
+}
 
-        auto txt_len = static_cast<std::uint8_t>(txt_value.size());
-        auto rdlength = static_cast<std::uint16_t>(1 + txt_len);
-        buf.push_back(static_cast<std::uint8_t>(rdlength >> 8));
-        buf.push_back(static_cast<std::uint8_t>(rdlength & 0xFF));
-        buf.push_back(txt_len);
-        for (auto ch: txt_value) {
-            buf.push_back(static_cast<std::uint8_t>(ch));
-        }
-        return buf;
+/// Build a minimal DNS response with a single AAAA record.
+std::vector<std::uint8_t> make_aaaa_response(std::uint16_t txid,
+                                             std::array<std::uint8_t, 16> answer_ip,
+                                             std::uint32_t ttl = 300) {
+    std::vector<std::uint8_t> buf;
+    buf.resize(12, 0);
+    write_u16_be(buf, 0, txid);
+    buf[2] = 0x81;
+    buf[3] = 0x80;
+    write_u16_be(buf, 4, 1);
+    write_u16_be(buf, 6, 1);
+
+    encode_name(buf, "example.com");
+    buf.push_back(0x00);
+    buf.push_back(0x1C);
+    buf.push_back(0x00);
+    buf.push_back(0x01);
+
+    buf.push_back(0xC0);
+    buf.push_back(0x0C);
+    buf.push_back(0x00);
+    buf.push_back(0x1C);
+    buf.push_back(0x00);
+    buf.push_back(0x01);
+    buf.push_back(static_cast<std::uint8_t>(ttl >> 24));
+    buf.push_back(static_cast<std::uint8_t>(ttl >> 16));
+    buf.push_back(static_cast<std::uint8_t>(ttl >> 8));
+    buf.push_back(static_cast<std::uint8_t>(ttl & 0xFF));
+    buf.push_back(0x00);
+    buf.push_back(0x10);
+    for (auto byte : answer_ip) {
+        buf.push_back(byte);
     }
+    return buf;
+}
 
-    /// Build a DNS response with a CNAME record.
-    std::vector<std::uint8_t> make_cname_response(std::uint16_t txid, std::string_view cname_target) {
-        std::vector<std::uint8_t> buf;
-        buf.resize(12, 0);
-        write_u16_be(buf, 0, txid);
-        buf[2] = 0x81;
-        buf[3] = 0x80;
-        write_u16_be(buf, 4, 1);
-        write_u16_be(buf, 6, 1);
+/// Build a DNS response with a single TXT record.
+std::vector<std::uint8_t> make_txt_response(std::uint16_t txid, std::string_view txt_value, std::uint32_t ttl = 300) {
+    std::vector<std::uint8_t> buf;
+    buf.resize(12, 0);
+    write_u16_be(buf, 0, txid);
+    buf[2] = 0x81;
+    buf[3] = 0x80;
+    write_u16_be(buf, 4, 1);
+    write_u16_be(buf, 6, 1);
 
-        encode_name(buf, "www.example.com");
-        buf.push_back(0x00);
-        buf.push_back(0x01);
-        buf.push_back(0x00);
-        buf.push_back(0x01);
+    encode_name(buf, "example.com");
+    buf.push_back(0x00);
+    buf.push_back(0x10);
+    buf.push_back(0x00);
+    buf.push_back(0x01);
 
-        buf.push_back(0xC0);
-        buf.push_back(0x0C);
-        buf.push_back(0x00);
-        buf.push_back(0x05);
-        buf.push_back(0x00);
-        buf.push_back(0x01);
-        buf.push_back(0x00);
-        buf.push_back(0x00);
-        buf.push_back(0x01);
-        buf.push_back(0x2C);
+    buf.push_back(0xC0);
+    buf.push_back(0x0C);
+    buf.push_back(0x00);
+    buf.push_back(0x10);
+    buf.push_back(0x00);
+    buf.push_back(0x01);
+    buf.push_back(static_cast<std::uint8_t>(ttl >> 24));
+    buf.push_back(static_cast<std::uint8_t>(ttl >> 16));
+    buf.push_back(static_cast<std::uint8_t>(ttl >> 8));
+    buf.push_back(static_cast<std::uint8_t>(ttl & 0xFF));
 
-        size_t rdlength_offset = buf.size();
-        buf.push_back(0x00);
-        buf.push_back(0x00);
-        size_t rdata_start = buf.size();
-        encode_name(buf, cname_target);
-        uint16_t rdlength = static_cast<uint16_t>(buf.size() - rdata_start);
-        buf[rdlength_offset] = static_cast<uint8_t>(rdlength >> 8);
-        buf[rdlength_offset + 1] = static_cast<uint8_t>(rdlength & 0xFF);
-        return buf;
+    auto txt_len = static_cast<std::uint8_t>(txt_value.size());
+    auto rdlength = static_cast<std::uint16_t>(1 + txt_len);
+    buf.push_back(static_cast<std::uint8_t>(rdlength >> 8));
+    buf.push_back(static_cast<std::uint8_t>(rdlength & 0xFF));
+    buf.push_back(txt_len);
+    for (auto ch : txt_value) {
+        buf.push_back(static_cast<std::uint8_t>(ch));
     }
+    return buf;
+}
 
-    /// Build a DNS response with an NS record (type 2).
-    std::vector<std::uint8_t> make_ns_response(std::uint16_t txid, std::string_view ns_target,
-                                                std::uint32_t ttl = 300) {
-        std::vector<std::uint8_t> buf;
-        buf.resize(12, 0);
-        write_u16_be(buf, 0, txid);
-        buf[2] = 0x81;
-        buf[3] = 0x80;
-        write_u16_be(buf, 4, 1);
-        write_u16_be(buf, 6, 1);
+/// Build a DNS response with a CNAME record.
+std::vector<std::uint8_t> make_cname_response(std::uint16_t txid, std::string_view cname_target) {
+    std::vector<std::uint8_t> buf;
+    buf.resize(12, 0);
+    write_u16_be(buf, 0, txid);
+    buf[2] = 0x81;
+    buf[3] = 0x80;
+    write_u16_be(buf, 4, 1);
+    write_u16_be(buf, 6, 1);
 
-        encode_name(buf, "example.com");
-        buf.push_back(0x00);
-        buf.push_back(0x02);
-        buf.push_back(0x00);
-        buf.push_back(0x01);
+    encode_name(buf, "www.example.com");
+    buf.push_back(0x00);
+    buf.push_back(0x01);
+    buf.push_back(0x00);
+    buf.push_back(0x01);
 
-        buf.push_back(0xC0);
-        buf.push_back(0x0C);
-        buf.push_back(0x00);
-        buf.push_back(0x02);
-        buf.push_back(0x00);
-        buf.push_back(0x01);
-        buf.push_back(static_cast<std::uint8_t>(ttl >> 24));
-        buf.push_back(static_cast<std::uint8_t>(ttl >> 16));
-        buf.push_back(static_cast<std::uint8_t>(ttl >> 8));
-        buf.push_back(static_cast<std::uint8_t>(ttl & 0xFF));
+    buf.push_back(0xC0);
+    buf.push_back(0x0C);
+    buf.push_back(0x00);
+    buf.push_back(0x05);
+    buf.push_back(0x00);
+    buf.push_back(0x01);
+    buf.push_back(0x00);
+    buf.push_back(0x00);
+    buf.push_back(0x01);
+    buf.push_back(0x2C);
 
-        size_t rdlength_offset = buf.size();
-        buf.push_back(0x00);
-        buf.push_back(0x00);
-        size_t rdata_start = buf.size();
-        encode_name(buf, ns_target);
-        uint16_t rdlength = static_cast<uint16_t>(buf.size() - rdata_start);
-        buf[rdlength_offset] = static_cast<uint8_t>(rdlength >> 8);
-        buf[rdlength_offset + 1] = static_cast<uint8_t>(rdlength & 0xFF);
-        return buf;
-    }
-    void write_u32_be_bytes(std::vector<std::uint8_t>& buf, std::uint32_t v) {
-        buf.push_back(static_cast<std::uint8_t>(v >> 24));
-        buf.push_back(static_cast<std::uint8_t>(v >> 16));
-        buf.push_back(static_cast<std::uint8_t>(v >> 8));
-        buf.push_back(static_cast<std::uint8_t>(v & 0xFF));
-    }
+    size_t rdlength_offset = buf.size();
+    buf.push_back(0x00);
+    buf.push_back(0x00);
+    size_t rdata_start = buf.size();
+    encode_name(buf, cname_target);
+    uint16_t rdlength = static_cast<uint16_t>(buf.size() - rdata_start);
+    buf[rdlength_offset] = static_cast<uint8_t>(rdlength >> 8);
+    buf[rdlength_offset + 1] = static_cast<uint8_t>(rdlength & 0xFF);
+    return buf;
+}
 
-    std::vector<std::uint8_t> make_ptr_response(std::uint16_t txid, std::string_view ptr_target,
+/// Build a DNS response with an NS record (type 2).
+std::vector<std::uint8_t> make_ns_response(std::uint16_t txid, std::string_view ns_target, std::uint32_t ttl = 300) {
+    std::vector<std::uint8_t> buf;
+    buf.resize(12, 0);
+    write_u16_be(buf, 0, txid);
+    buf[2] = 0x81;
+    buf[3] = 0x80;
+    write_u16_be(buf, 4, 1);
+    write_u16_be(buf, 6, 1);
+
+    encode_name(buf, "example.com");
+    buf.push_back(0x00);
+    buf.push_back(0x02);
+    buf.push_back(0x00);
+    buf.push_back(0x01);
+
+    buf.push_back(0xC0);
+    buf.push_back(0x0C);
+    buf.push_back(0x00);
+    buf.push_back(0x02);
+    buf.push_back(0x00);
+    buf.push_back(0x01);
+    buf.push_back(static_cast<std::uint8_t>(ttl >> 24));
+    buf.push_back(static_cast<std::uint8_t>(ttl >> 16));
+    buf.push_back(static_cast<std::uint8_t>(ttl >> 8));
+    buf.push_back(static_cast<std::uint8_t>(ttl & 0xFF));
+
+    size_t rdlength_offset = buf.size();
+    buf.push_back(0x00);
+    buf.push_back(0x00);
+    size_t rdata_start = buf.size();
+    encode_name(buf, ns_target);
+    uint16_t rdlength = static_cast<uint16_t>(buf.size() - rdata_start);
+    buf[rdlength_offset] = static_cast<uint8_t>(rdlength >> 8);
+    buf[rdlength_offset + 1] = static_cast<uint8_t>(rdlength & 0xFF);
+    return buf;
+}
+
+void write_u32_be_bytes(std::vector<std::uint8_t>& buf, std::uint32_t v) {
+    buf.push_back(static_cast<std::uint8_t>(v >> 24));
+    buf.push_back(static_cast<std::uint8_t>(v >> 16));
+    buf.push_back(static_cast<std::uint8_t>(v >> 8));
+    buf.push_back(static_cast<std::uint8_t>(v & 0xFF));
+}
+
+std::vector<std::uint8_t> make_ptr_response(std::uint16_t txid, std::string_view ptr_target, std::uint32_t ttl = 300) {
+    std::vector<std::uint8_t> buf;
+    buf.resize(12, 0);
+    write_u16_be(buf, 0, txid);
+    buf[2] = 0x81;
+    buf[3] = 0x80;
+    write_u16_be(buf, 4, 1);
+    write_u16_be(buf, 6, 1);
+    encode_name(buf, "example.com");
+    buf.push_back(0x00);
+    buf.push_back(0x0C);
+    buf.push_back(0x00);
+    buf.push_back(0x01);
+    buf.push_back(0xC0);
+    buf.push_back(0x0C);
+    buf.push_back(0x00);
+    buf.push_back(0x0C);
+    buf.push_back(0x00);
+    buf.push_back(0x01);
+    buf.push_back(static_cast<std::uint8_t>(ttl >> 24));
+    buf.push_back(static_cast<std::uint8_t>(ttl >> 16));
+    buf.push_back(static_cast<std::uint8_t>(ttl >> 8));
+    buf.push_back(static_cast<std::uint8_t>(ttl & 0xFF));
+    size_t rdlength_offset = buf.size();
+    buf.push_back(0x00);
+    buf.push_back(0x00);
+    size_t rdata_start = buf.size();
+    encode_name(buf, ptr_target);
+    uint16_t rdlength = static_cast<uint16_t>(buf.size() - rdata_start);
+    buf[rdlength_offset] = static_cast<uint8_t>(rdlength >> 8);
+    buf[rdlength_offset + 1] = static_cast<uint8_t>(rdlength & 0xFF);
+    return buf;
+}
+
+std::vector<std::uint8_t> make_mx_response(std::uint16_t txid,
+                                           std::uint16_t preference,
+                                           std::string_view mx_target,
+                                           std::uint32_t ttl = 300) {
+    std::vector<std::uint8_t> buf;
+    buf.resize(12, 0);
+    write_u16_be(buf, 0, txid);
+    buf[2] = 0x81;
+    buf[3] = 0x80;
+    write_u16_be(buf, 4, 1);
+    write_u16_be(buf, 6, 1);
+    encode_name(buf, "example.com");
+    buf.push_back(0x00);
+    buf.push_back(0x0F);
+    buf.push_back(0x00);
+    buf.push_back(0x01);
+    buf.push_back(0xC0);
+    buf.push_back(0x0C);
+    buf.push_back(0x00);
+    buf.push_back(0x0F);
+    buf.push_back(0x00);
+    buf.push_back(0x01);
+    buf.push_back(static_cast<std::uint8_t>(ttl >> 24));
+    buf.push_back(static_cast<std::uint8_t>(ttl >> 16));
+    buf.push_back(static_cast<std::uint8_t>(ttl >> 8));
+    buf.push_back(static_cast<std::uint8_t>(ttl & 0xFF));
+    size_t rdlength_offset = buf.size();
+    buf.push_back(0x00);
+    buf.push_back(0x00);
+    size_t rdata_start = buf.size();
+    buf.push_back(static_cast<std::uint8_t>(preference >> 8));
+    buf.push_back(static_cast<std::uint8_t>(preference & 0xFF));
+    encode_name(buf, mx_target);
+    uint16_t rdlength = static_cast<uint16_t>(buf.size() - rdata_start);
+    buf[rdlength_offset] = static_cast<uint8_t>(rdlength >> 8);
+    buf[rdlength_offset + 1] = static_cast<uint8_t>(rdlength & 0xFF);
+    return buf;
+}
+
+std::vector<std::uint8_t> make_soa_response(std::uint16_t txid,
+                                            std::string_view mname,
+                                            std::string_view rname,
+                                            std::uint32_t ttl = 300) {
+    std::vector<std::uint8_t> buf;
+    buf.resize(12, 0);
+    write_u16_be(buf, 0, txid);
+    buf[2] = 0x81;
+    buf[3] = 0x80;
+    write_u16_be(buf, 4, 1);
+    write_u16_be(buf, 6, 1);
+    encode_name(buf, "example.com");
+    buf.push_back(0x00);
+    buf.push_back(0x06);
+    buf.push_back(0x00);
+    buf.push_back(0x01);
+    buf.push_back(0xC0);
+    buf.push_back(0x0C);
+    buf.push_back(0x00);
+    buf.push_back(0x06);
+    buf.push_back(0x00);
+    buf.push_back(0x01);
+    buf.push_back(static_cast<std::uint8_t>(ttl >> 24));
+    buf.push_back(static_cast<std::uint8_t>(ttl >> 16));
+    buf.push_back(static_cast<std::uint8_t>(ttl >> 8));
+    buf.push_back(static_cast<std::uint8_t>(ttl & 0xFF));
+    size_t rdlength_offset = buf.size();
+    buf.push_back(0x00);
+    buf.push_back(0x00);
+    size_t rdata_start = buf.size();
+    encode_name(buf, mname);
+    encode_name(buf, rname);
+    write_u32_be_bytes(buf, 2024010100U);
+    write_u32_be_bytes(buf, 3600U);
+    write_u32_be_bytes(buf, 900U);
+    write_u32_be_bytes(buf, 604800U);
+    write_u32_be_bytes(buf, 86400U);
+    uint16_t rdlength = static_cast<uint16_t>(buf.size() - rdata_start);
+    buf[rdlength_offset] = static_cast<uint8_t>(rdlength >> 8);
+    buf[rdlength_offset + 1] = static_cast<uint8_t>(rdlength & 0xFF);
+    return buf;
+}
+
+std::vector<std::uint8_t> make_srv_response(std::uint16_t txid,
+                                            std::uint16_t priority,
+                                            std::uint16_t weight,
+                                            std::uint16_t port,
+                                            std::string_view target,
+                                            std::uint32_t ttl = 300) {
+    std::vector<std::uint8_t> buf;
+    buf.resize(12, 0);
+    write_u16_be(buf, 0, txid);
+    buf[2] = 0x81;
+    buf[3] = 0x80;
+    write_u16_be(buf, 4, 1);
+    write_u16_be(buf, 6, 1);
+    encode_name(buf, "example.com");
+    buf.push_back(0x00);
+    buf.push_back(0x21);
+    buf.push_back(0x00);
+    buf.push_back(0x01);
+    buf.push_back(0xC0);
+    buf.push_back(0x0C);
+    buf.push_back(0x00);
+    buf.push_back(0x21);
+    buf.push_back(0x00);
+    buf.push_back(0x01);
+    buf.push_back(static_cast<std::uint8_t>(ttl >> 24));
+    buf.push_back(static_cast<std::uint8_t>(ttl >> 16));
+    buf.push_back(static_cast<std::uint8_t>(ttl >> 8));
+    buf.push_back(static_cast<std::uint8_t>(ttl & 0xFF));
+    size_t rdlength_offset = buf.size();
+    buf.push_back(0x00);
+    buf.push_back(0x00);
+    size_t rdata_start = buf.size();
+    buf.push_back(static_cast<std::uint8_t>(priority >> 8));
+    buf.push_back(static_cast<std::uint8_t>(priority & 0xFF));
+    buf.push_back(static_cast<std::uint8_t>(weight >> 8));
+    buf.push_back(static_cast<std::uint8_t>(weight & 0xFF));
+    buf.push_back(static_cast<std::uint8_t>(port >> 8));
+    buf.push_back(static_cast<std::uint8_t>(port & 0xFF));
+    encode_name(buf, target);
+    uint16_t rdlength = static_cast<uint16_t>(buf.size() - rdata_start);
+    buf[rdlength_offset] = static_cast<uint8_t>(rdlength >> 8);
+    buf[rdlength_offset + 1] = static_cast<uint8_t>(rdlength & 0xFF);
+    return buf;
+}
+
+/// Build a response with a single answer record of the given type and
+/// raw RDATA bytes.  `declared_rdlen` overrides the RDLENGTH field
+/// (defaults to the actual RDATA size) — used to build malformed records.
+std::vector<std::uint8_t> make_response_with_rdata(std::uint16_t type,
+                                                   const std::vector<std::uint8_t>& rdata,
+                                                   std::size_t declared_rdlen = std::string::npos) {
+    std::vector<std::uint8_t> buf;
+    buf.resize(12, 0);
+    write_u16_be(buf, 0, 0x1234);
+    buf[2] = 0x81;
+    buf[3] = 0x80;
+    write_u16_be(buf, 4, 1);
+    write_u16_be(buf, 6, 1);
+    encode_name(buf, "example.com");
+    buf.push_back(0x00);
+    buf.push_back(0x01);
+    buf.push_back(0x00);
+    buf.push_back(0x01);
+    // Answer: name pointer + type + class + ttl + rdlength + rdata.
+    buf.push_back(0xC0);
+    buf.push_back(0x0C);
+    buf.push_back(static_cast<std::uint8_t>(type >> 8));
+    buf.push_back(static_cast<std::uint8_t>(type & 0xFF));
+    buf.push_back(0x00);
+    buf.push_back(0x01);
+    buf.push_back(0x00);
+    buf.push_back(0x00);
+    buf.push_back(0x01);
+    buf.push_back(0x2C);
+    const auto rdlen = declared_rdlen == std::string::npos ? rdata.size() : declared_rdlen;
+    buf.push_back(static_cast<std::uint8_t>(rdlen >> 8));
+    buf.push_back(static_cast<std::uint8_t>(rdlen & 0xFF));
+    buf.insert(buf.end(), rdata.begin(), rdata.end());
+    return buf;
+}
+
+std::vector<std::uint8_t> make_authority_response(std::uint16_t txid,
+                                                  std::string_view /*ns_name*/,
+                                                  std::string_view ns_target,
                                                   std::uint32_t ttl = 300) {
-        std::vector<std::uint8_t> buf;
-        buf.resize(12, 0);
-        write_u16_be(buf, 0, txid);
-        buf[2] = 0x81;
-        buf[3] = 0x80;
-        write_u16_be(buf, 4, 1);
-        write_u16_be(buf, 6, 1);
-        encode_name(buf, "example.com");
-        buf.push_back(0x00);
-        buf.push_back(0x0C);
-        buf.push_back(0x00);
-        buf.push_back(0x01);
-        buf.push_back(0xC0);
-        buf.push_back(0x0C);
-        buf.push_back(0x00);
-        buf.push_back(0x0C);
-        buf.push_back(0x00);
-        buf.push_back(0x01);
-        buf.push_back(static_cast<std::uint8_t>(ttl >> 24));
-        buf.push_back(static_cast<std::uint8_t>(ttl >> 16));
-        buf.push_back(static_cast<std::uint8_t>(ttl >> 8));
-        buf.push_back(static_cast<std::uint8_t>(ttl & 0xFF));
-        size_t rdlength_offset = buf.size();
-        buf.push_back(0x00);
-        buf.push_back(0x00);
-        size_t rdata_start = buf.size();
-        encode_name(buf, ptr_target);
-        uint16_t rdlength = static_cast<uint16_t>(buf.size() - rdata_start);
-        buf[rdlength_offset] = static_cast<uint8_t>(rdlength >> 8);
-        buf[rdlength_offset + 1] = static_cast<uint8_t>(rdlength & 0xFF);
-        return buf;
-    }
+    std::vector<std::uint8_t> buf;
+    buf.resize(12, 0);
+    write_u16_be(buf, 0, txid);
+    buf[2] = 0x81;
+    buf[3] = 0x80;
+    write_u16_be(buf, 4, 1);
+    write_u16_be(buf, 6, 1);
+    write_u16_be(buf, 8, 1);
+    encode_name(buf, "example.com");
+    buf.push_back(0x00);
+    buf.push_back(0x01);
+    buf.push_back(0x00);
+    buf.push_back(0x01);
+    buf.push_back(0xC0);
+    buf.push_back(0x0C);
+    buf.push_back(0x00);
+    buf.push_back(0x01);
+    buf.push_back(0x00);
+    buf.push_back(0x01);
+    buf.push_back(static_cast<std::uint8_t>(ttl >> 24));
+    buf.push_back(static_cast<std::uint8_t>(ttl >> 16));
+    buf.push_back(static_cast<std::uint8_t>(ttl >> 8));
+    buf.push_back(static_cast<std::uint8_t>(ttl & 0xFF));
+    buf.push_back(0x00);
+    buf.push_back(0x04);
+    buf.push_back(1);
+    buf.push_back(2);
+    buf.push_back(3);
+    buf.push_back(4);
+    buf.push_back(0xC0);
+    buf.push_back(0x0C);
+    buf.push_back(0x00);
+    buf.push_back(0x02);
+    buf.push_back(0x00);
+    buf.push_back(0x01);
+    buf.push_back(static_cast<std::uint8_t>(ttl >> 24));
+    buf.push_back(static_cast<std::uint8_t>(ttl >> 16));
+    buf.push_back(static_cast<std::uint8_t>(ttl >> 8));
+    buf.push_back(static_cast<std::uint8_t>(ttl & 0xFF));
+    size_t rdlength_offset = buf.size();
+    buf.push_back(0x00);
+    buf.push_back(0x00);
+    size_t rdata_start = buf.size();
+    encode_name(buf, ns_target);
+    uint16_t rdlength = static_cast<uint16_t>(buf.size() - rdata_start);
+    buf[rdlength_offset] = static_cast<uint8_t>(rdlength >> 8);
+    buf[rdlength_offset + 1] = static_cast<uint8_t>(rdlength & 0xFF);
+    return buf;
+}
 
-    std::vector<std::uint8_t>
-    make_mx_response(std::uint16_t txid, std::uint16_t preference, std::string_view mx_target,
-                     std::uint32_t ttl = 300) {
-        std::vector<std::uint8_t> buf;
-        buf.resize(12, 0);
-        write_u16_be(buf, 0, txid);
-        buf[2] = 0x81;
-        buf[3] = 0x80;
-        write_u16_be(buf, 4, 1);
-        write_u16_be(buf, 6, 1);
-        encode_name(buf, "example.com");
-        buf.push_back(0x00);
-        buf.push_back(0x0F);
-        buf.push_back(0x00);
-        buf.push_back(0x01);
-        buf.push_back(0xC0);
-        buf.push_back(0x0C);
-        buf.push_back(0x00);
-        buf.push_back(0x0F);
-        buf.push_back(0x00);
-        buf.push_back(0x01);
-        buf.push_back(static_cast<std::uint8_t>(ttl >> 24));
-        buf.push_back(static_cast<std::uint8_t>(ttl >> 16));
-        buf.push_back(static_cast<std::uint8_t>(ttl >> 8));
-        buf.push_back(static_cast<std::uint8_t>(ttl & 0xFF));
-        size_t rdlength_offset = buf.size();
-        buf.push_back(0x00);
-        buf.push_back(0x00);
-        size_t rdata_start = buf.size();
-        buf.push_back(static_cast<std::uint8_t>(preference >> 8));
-        buf.push_back(static_cast<std::uint8_t>(preference & 0xFF));
-        encode_name(buf, mx_target);
-        uint16_t rdlength = static_cast<uint16_t>(buf.size() - rdata_start);
-        buf[rdlength_offset] = static_cast<uint8_t>(rdlength >> 8);
-        buf[rdlength_offset + 1] = static_cast<uint8_t>(rdlength & 0xFF);
-        return buf;
-    }
-
-    std::vector<std::uint8_t> make_soa_response(std::uint16_t txid, std::string_view mname,
-                                                  std::string_view rname, std::uint32_t ttl = 300) {
-        std::vector<std::uint8_t> buf;
-        buf.resize(12, 0);
-        write_u16_be(buf, 0, txid);
-        buf[2] = 0x81;
-        buf[3] = 0x80;
-        write_u16_be(buf, 4, 1);
-        write_u16_be(buf, 6, 1);
-        encode_name(buf, "example.com");
-        buf.push_back(0x00);
-        buf.push_back(0x06);
-        buf.push_back(0x00);
-        buf.push_back(0x01);
-        buf.push_back(0xC0);
-        buf.push_back(0x0C);
-        buf.push_back(0x00);
-        buf.push_back(0x06);
-        buf.push_back(0x00);
-        buf.push_back(0x01);
-        buf.push_back(static_cast<std::uint8_t>(ttl >> 24));
-        buf.push_back(static_cast<std::uint8_t>(ttl >> 16));
-        buf.push_back(static_cast<std::uint8_t>(ttl >> 8));
-        buf.push_back(static_cast<std::uint8_t>(ttl & 0xFF));
-        size_t rdlength_offset = buf.size();
-        buf.push_back(0x00);
-        buf.push_back(0x00);
-        size_t rdata_start = buf.size();
-        encode_name(buf, mname);
-        encode_name(buf, rname);
-        write_u32_be_bytes(buf, 2024010100U);
-        write_u32_be_bytes(buf, 3600U);
-        write_u32_be_bytes(buf, 900U);
-        write_u32_be_bytes(buf, 604800U);
-        write_u32_be_bytes(buf, 86400U);
-        uint16_t rdlength = static_cast<uint16_t>(buf.size() - rdata_start);
-        buf[rdlength_offset] = static_cast<uint8_t>(rdlength >> 8);
-        buf[rdlength_offset + 1] = static_cast<uint8_t>(rdlength & 0xFF);
-        return buf;
-    }
-
-    std::vector<std::uint8_t>
-    make_srv_response(std::uint16_t txid, std::uint16_t priority, std::uint16_t weight,
-                      std::uint16_t port, std::string_view target, std::uint32_t ttl = 300) {
-        std::vector<std::uint8_t> buf;
-        buf.resize(12, 0);
-        write_u16_be(buf, 0, txid);
-        buf[2] = 0x81;
-        buf[3] = 0x80;
-        write_u16_be(buf, 4, 1);
-        write_u16_be(buf, 6, 1);
-        encode_name(buf, "example.com");
-        buf.push_back(0x00);
-        buf.push_back(0x21);
-        buf.push_back(0x00);
-        buf.push_back(0x01);
-        buf.push_back(0xC0);
-        buf.push_back(0x0C);
-        buf.push_back(0x00);
-        buf.push_back(0x21);
-        buf.push_back(0x00);
-        buf.push_back(0x01);
-        buf.push_back(static_cast<std::uint8_t>(ttl >> 24));
-        buf.push_back(static_cast<std::uint8_t>(ttl >> 16));
-        buf.push_back(static_cast<std::uint8_t>(ttl >> 8));
-        buf.push_back(static_cast<std::uint8_t>(ttl & 0xFF));
-        size_t rdlength_offset = buf.size();
-        buf.push_back(0x00);
-        buf.push_back(0x00);
-        size_t rdata_start = buf.size();
-        buf.push_back(static_cast<std::uint8_t>(priority >> 8));
-        buf.push_back(static_cast<std::uint8_t>(priority & 0xFF));
-        buf.push_back(static_cast<std::uint8_t>(weight >> 8));
-        buf.push_back(static_cast<std::uint8_t>(weight & 0xFF));
-        buf.push_back(static_cast<std::uint8_t>(port >> 8));
-        buf.push_back(static_cast<std::uint8_t>(port & 0xFF));
-        encode_name(buf, target);
-        uint16_t rdlength = static_cast<uint16_t>(buf.size() - rdata_start);
-        buf[rdlength_offset] = static_cast<uint8_t>(rdlength >> 8);
-        buf[rdlength_offset + 1] = static_cast<uint8_t>(rdlength & 0xFF);
-        return buf;
-    }
-
-    /// Build a response with a single answer record of the given type and
-    /// raw RDATA bytes.  `declared_rdlen` overrides the RDLENGTH field
-    /// (defaults to the actual RDATA size) — used to build malformed records.
-    std::vector<std::uint8_t> make_response_with_rdata(std::uint16_t type,
-                                                       const std::vector<std::uint8_t> &rdata,
-                                                       std::size_t declared_rdlen = std::string::npos) {
-        std::vector<std::uint8_t> buf;
-        buf.resize(12, 0);
-        write_u16_be(buf, 0, 0x1234);
-        buf[2] = 0x81;
-        buf[3] = 0x80;
-        write_u16_be(buf, 4, 1);
-        write_u16_be(buf, 6, 1);
-        encode_name(buf, "example.com");
-        buf.push_back(0x00);
-        buf.push_back(0x01);
-        buf.push_back(0x00);
-        buf.push_back(0x01);
-        // Answer: name pointer + type + class + ttl + rdlength + rdata.
-        buf.push_back(0xC0);
-        buf.push_back(0x0C);
-        buf.push_back(static_cast<std::uint8_t>(type >> 8));
-        buf.push_back(static_cast<std::uint8_t>(type & 0xFF));
-        buf.push_back(0x00);
-        buf.push_back(0x01);
-        buf.push_back(0x00);
-        buf.push_back(0x00);
-        buf.push_back(0x01);
-        buf.push_back(0x2C);
-        const auto rdlen = declared_rdlen == std::string::npos ? rdata.size() : declared_rdlen;
-        buf.push_back(static_cast<std::uint8_t>(rdlen >> 8));
-        buf.push_back(static_cast<std::uint8_t>(rdlen & 0xFF));
-        buf.insert(buf.end(), rdata.begin(), rdata.end());
-        return buf;
-    }
-
-    std::vector<std::uint8_t> make_authority_response(std::uint16_t txid, std::string_view /*ns_name*/,
-                                                       std::string_view ns_target, std::uint32_t ttl = 300) {
-        std::vector<std::uint8_t> buf;
-        buf.resize(12, 0);
-        write_u16_be(buf, 0, txid);
-        buf[2] = 0x81;
-        buf[3] = 0x80;
-        write_u16_be(buf, 4, 1);
-        write_u16_be(buf, 6, 1);
-        write_u16_be(buf, 8, 1);
-        encode_name(buf, "example.com");
-        buf.push_back(0x00);
-        buf.push_back(0x01);
-        buf.push_back(0x00);
-        buf.push_back(0x01);
-        buf.push_back(0xC0);
-        buf.push_back(0x0C);
-        buf.push_back(0x00);
-        buf.push_back(0x01);
-        buf.push_back(0x00);
-        buf.push_back(0x01);
-        buf.push_back(static_cast<std::uint8_t>(ttl >> 24));
-        buf.push_back(static_cast<std::uint8_t>(ttl >> 16));
-        buf.push_back(static_cast<std::uint8_t>(ttl >> 8));
-        buf.push_back(static_cast<std::uint8_t>(ttl & 0xFF));
+std::vector<std::uint8_t> make_edns_response(std::uint16_t txid, bool with_options = false) {
+    std::vector<std::uint8_t> buf;
+    buf.resize(12, 0);
+    write_u16_be(buf, 0, txid);
+    buf[2] = 0x81;
+    buf[3] = 0x80;
+    write_u16_be(buf, 4, 1);
+    write_u16_be(buf, 6, 1);
+    write_u16_be(buf, 10, 1);
+    encode_name(buf, "example.com");
+    buf.push_back(0x00);
+    buf.push_back(0x01);
+    buf.push_back(0x00);
+    buf.push_back(0x01);
+    buf.push_back(0xC0);
+    buf.push_back(0x0C);
+    buf.push_back(0x00);
+    buf.push_back(0x01);
+    buf.push_back(0x00);
+    buf.push_back(0x01);
+    buf.push_back(0x00);
+    buf.push_back(0x00);
+    buf.push_back(0x01);
+    buf.push_back(0x2C);
+    buf.push_back(0x00);
+    buf.push_back(0x04);
+    buf.push_back(1);
+    buf.push_back(2);
+    buf.push_back(3);
+    buf.push_back(4);
+    buf.push_back(0x00);
+    buf.push_back(0x00);
+    buf.push_back(0x29);
+    buf.push_back(0x10);
+    buf.push_back(0x00);
+    buf.push_back(0x00);
+    buf.push_back(0x00);
+    buf.push_back(0x80);
+    buf.push_back(0x00);
+    if (with_options) {
         buf.push_back(0x00);
         buf.push_back(0x04);
-        buf.push_back(1);
-        buf.push_back(2);
-        buf.push_back(3);
-        buf.push_back(4);
-        buf.push_back(0xC0);
-        buf.push_back(0x0C);
-        buf.push_back(0x00);
-        buf.push_back(0x02);
         buf.push_back(0x00);
         buf.push_back(0x01);
-        buf.push_back(static_cast<std::uint8_t>(ttl >> 24));
-        buf.push_back(static_cast<std::uint8_t>(ttl >> 16));
-        buf.push_back(static_cast<std::uint8_t>(ttl >> 8));
-        buf.push_back(static_cast<std::uint8_t>(ttl & 0xFF));
-        size_t rdlength_offset = buf.size();
         buf.push_back(0x00);
         buf.push_back(0x00);
-        size_t rdata_start = buf.size();
-        encode_name(buf, ns_target);
-        uint16_t rdlength = static_cast<uint16_t>(buf.size() - rdata_start);
-        buf[rdlength_offset] = static_cast<uint8_t>(rdlength >> 8);
-        buf[rdlength_offset + 1] = static_cast<uint8_t>(rdlength & 0xFF);
-        return buf;
+    } else {
+        buf.push_back(0x00);
+        buf.push_back(0x00);
     }
+    return buf;
+}
 
-    std::vector<std::uint8_t>
-    make_edns_response(std::uint16_t txid, bool with_options = false) {
-        std::vector<std::uint8_t> buf;
-        buf.resize(12, 0);
-        write_u16_be(buf, 0, txid);
-        buf[2] = 0x81;
-        buf[3] = 0x80;
-        write_u16_be(buf, 4, 1);
-        write_u16_be(buf, 6, 1);
-        write_u16_be(buf, 10, 1);
-        encode_name(buf, "example.com");
-        buf.push_back(0x00);
-        buf.push_back(0x01);
-        buf.push_back(0x00);
-        buf.push_back(0x01);
-        buf.push_back(0xC0);
-        buf.push_back(0x0C);
-        buf.push_back(0x00);
-        buf.push_back(0x01);
-        buf.push_back(0x00);
-        buf.push_back(0x01);
-        buf.push_back(0x00);
-        buf.push_back(0x00);
-        buf.push_back(0x01);
-        buf.push_back(0x2C);
-        buf.push_back(0x00);
-        buf.push_back(0x04);
-        buf.push_back(1);
-        buf.push_back(2);
-        buf.push_back(3);
-        buf.push_back(4);
-        buf.push_back(0x00);
-        buf.push_back(0x00);
-        buf.push_back(0x29);
-        buf.push_back(0x10);
-        buf.push_back(0x00);
-        buf.push_back(0x00);
-        buf.push_back(0x00);
-        buf.push_back(0x80);
-        buf.push_back(0x00);
-        if (with_options) {
-            buf.push_back(0x00);
-            buf.push_back(0x04);
-            buf.push_back(0x00);
-            buf.push_back(0x01);
-            buf.push_back(0x00);
-            buf.push_back(0x00);
-        } else {
-            buf.push_back(0x00);
-            buf.push_back(0x00);
-        }
-        return buf;
-    }
 // ===========================================================================
-} // anonymous namespace
+}  // anonymous namespace
 
 // ===========================================================================
 // A record parsing
@@ -852,7 +865,7 @@ TEST(DnsParserTest, ParseSoaRecord) {
 
 TEST(DnsParserTest, ParseSoaRecord_LongNames) {
     auto response = make_soa_response(0x5678, "very-long-primary-name.internal.example.com",
-                                       "hostmaster.very-long-primary-name.internal.example.com");
+                                      "hostmaster.very-long-primary-name.internal.example.com");
     auto parsed = DNS::RecordParser::parse_strings(response);
     ASSERT_EQ(parsed.records.size(), 1U);
     EXPECT_EQ(parsed.records[0],
@@ -989,7 +1002,8 @@ TEST(DnsParserTest, DecompressName_TooManyIndirections_Throws) {
     buf.push_back(0x01);
     buf.push_back(0x00);
     buf.push_back(0x01);
-    while (buf.size() < chain_start) buf.push_back(0x00);
+    while (buf.size() < chain_start)
+        buf.push_back(0x00);
     for (int i = 0; i < 8; ++i) {
         uint8_t off = static_cast<uint8_t>(buf.size());
         buf.push_back(0xC0);
@@ -1025,9 +1039,11 @@ TEST(DnsParserTest, DecompressName_LabelExtendsPastWire_Throws) {
     buf.push_back(0x01);
     buf.push_back(0x00);
     buf.push_back(0x01);
-    while (buf.size() < 100) buf.push_back(0x00);
+    while (buf.size() < 100)
+        buf.push_back(0x00);
     buf.push_back(50);
-    for (int i = 0; i < 10; ++i) buf.push_back('a');
+    for (int i = 0; i < 10; ++i)
+        buf.push_back('a');
     EXPECT_THROW((DNS::RecordParser{buf}), DnsLookupException);
 }
 
@@ -1058,19 +1074,19 @@ TEST(DnsParserTest, QuestionSectionTruncated_Throws) {
 TEST(DnsParserTest, ParseMxRecord_ShortRdata_Throws) {
     // MX requires at least 2 (preference) + 1 (root label) bytes.
     auto response = make_response_with_rdata(static_cast<std::uint16_t>(DNS::RecordType::MX), {0x00});
-    EXPECT_THROW((void)(DNS::RecordParser::parse_strings(response)), DnsLookupException);
+    EXPECT_THROW((void) (DNS::RecordParser::parse_strings(response)), DnsLookupException);
 }
 
 TEST(DnsParserTest, ParseSoaRecord_ShortRdata_Throws) {
     // SOA requires 2 names + 20 bytes of integers.
     auto response = make_response_with_rdata(static_cast<std::uint16_t>(DNS::RecordType::SOA), {0x00, 0x00});
-    EXPECT_THROW((void)(DNS::RecordParser::parse_strings(response)), DnsLookupException);
+    EXPECT_THROW((void) (DNS::RecordParser::parse_strings(response)), DnsLookupException);
 }
 
 TEST(DnsParserTest, ParseSrvRecord_ShortRdata_Throws) {
     // SRV requires 6 fixed bytes + at least a root label.
     auto response = make_response_with_rdata(static_cast<std::uint16_t>(DNS::RecordType::SRV), {0x00, 0x00});
-    EXPECT_THROW((void)(DNS::RecordParser::parse_strings(response)), DnsLookupException);
+    EXPECT_THROW((void) (DNS::RecordParser::parse_strings(response)), DnsLookupException);
 }
 
 TEST(DnsParserTest, ParseSoaRecord_NamesPastRdata_Throws) {
@@ -1079,7 +1095,7 @@ TEST(DnsParserTest, ParseSoaRecord_NamesPastRdata_Throws) {
     std::vector<std::uint8_t> mname;
     encode_name(mname, "very-long-name.example.com");
     auto response = make_response_with_rdata(static_cast<std::uint16_t>(DNS::RecordType::SOA), mname, 22);
-    EXPECT_THROW((void)(DNS::RecordParser::parse_strings(response)), DnsLookupException);
+    EXPECT_THROW((void) (DNS::RecordParser::parse_strings(response)), DnsLookupException);
 }
 
 TEST(DnsParserTest, DecompressName_ExpandedTooLong_Throws) {
@@ -1104,7 +1120,7 @@ TEST(DnsParserTest, DecompressName_ExpandedTooLong_Throws) {
         buf.push_back(63);
         buf.insert(buf.end(), 63, static_cast<std::uint8_t>('a' + i));
     }
-    buf.push_back(0xC0); // pointer placeholder (2 bytes)
+    buf.push_back(0xC0);  // pointer placeholder (2 bytes)
     buf.push_back(0x00);
 
     // Rest of the answer record (parsing aborts before RDATA matters).
@@ -1408,10 +1424,18 @@ TEST(DnsParserTest, MultiSegmentTxtRecord) {
     buf.push_back(static_cast<uint8_t>(rdlen & 0xFF));
     // "hello"
     buf.push_back(5);
-    buf.push_back('h'); buf.push_back('e'); buf.push_back('l'); buf.push_back('l'); buf.push_back('o');
+    buf.push_back('h');
+    buf.push_back('e');
+    buf.push_back('l');
+    buf.push_back('l');
+    buf.push_back('o');
     // "world"
     buf.push_back(5);
-    buf.push_back('w'); buf.push_back('o'); buf.push_back('r'); buf.push_back('l'); buf.push_back('d');
+    buf.push_back('w');
+    buf.push_back('o');
+    buf.push_back('r');
+    buf.push_back('l');
+    buf.push_back('d');
     auto parsed = DNS::RecordParser::parse_strings(buf);
     ASSERT_EQ(parsed.records.size(), 1U);
     EXPECT_EQ(parsed.records[0], "hello world");
@@ -1426,12 +1450,12 @@ TEST(DnsParserTest, ParseResponse_Servfail_ReturnsEmpty) {
     std::vector<std::uint8_t> buf;
     buf.resize(12, 0);
     write_u16_be(buf, 0, 0x1234);
-    buf[2] = 0x81;  // QR=1, OPCODE=0, AA=0, TC=0, RD=1
-    buf[3] = 0x82;  // RA=1, rcode=2 (SERVFAIL)
-    write_u16_be(buf, 4, 1);  // QDCOUNT=1
-    write_u16_be(buf, 6, 0);  // ANCOUNT=0
-    write_u16_be(buf, 8, 0);  // NSCOUNT=0
-    write_u16_be(buf, 10, 0); // ARCOUNT=0
+    buf[2] = 0x81;             // QR=1, OPCODE=0, AA=0, TC=0, RD=1
+    buf[3] = 0x82;             // RA=1, rcode=2 (SERVFAIL)
+    write_u16_be(buf, 4, 1);   // QDCOUNT=1
+    write_u16_be(buf, 6, 0);   // ANCOUNT=0
+    write_u16_be(buf, 8, 0);   // NSCOUNT=0
+    write_u16_be(buf, 10, 0);  // ARCOUNT=0
     encode_name(buf, "example.com");
     buf.push_back(0x00);
     buf.push_back(0x01);
@@ -1475,7 +1499,7 @@ TEST(DnsParserTest, ParsesTcFlag) {
     buf.resize(12, 0);
     write_u16_be(buf, 0, 0x1234);
     buf[2] = 0x81 | 0x02;  // QR=1, TC=1, RD=1
-    buf[3] = 0x80;          // RA=1, rcode=0
+    buf[3] = 0x80;         // RA=1, rcode=0
     write_u16_be(buf, 4, 1);
     write_u16_be(buf, 6, 0);
     encode_name(buf, "example.com");
@@ -1571,21 +1595,33 @@ TEST(DnsParserTest, DecompressName_MixedLabelAndPointer) {
     // Encode "sub" + pointer (0xC022) to "example.com" at offset 22.
     // Offset 12: label_len=3, "sub"
     buf.push_back(3);
-    buf.push_back('s'); buf.push_back('u'); buf.push_back('b');
+    buf.push_back('s');
+    buf.push_back('u');
+    buf.push_back('b');
     // Pointer to offset 22
     buf.push_back(0xC0);
     buf.push_back(22);
     // QTYPE + QCLASS
-    buf.push_back(0x00); buf.push_back(0x01);
-    buf.push_back(0x00); buf.push_back(0x01);
+    buf.push_back(0x00);
+    buf.push_back(0x01);
+    buf.push_back(0x00);
+    buf.push_back(0x01);
     // Base name "example.com" at offset 22
     // Ensure we reach offset 22
-    while (buf.size() < 22) buf.push_back(0x00);
+    while (buf.size() < 22)
+        buf.push_back(0x00);
     buf.push_back(7);
-    buf.push_back('e'); buf.push_back('x'); buf.push_back('a'); buf.push_back('m');
-    buf.push_back('p'); buf.push_back('l'); buf.push_back('e');
+    buf.push_back('e');
+    buf.push_back('x');
+    buf.push_back('a');
+    buf.push_back('m');
+    buf.push_back('p');
+    buf.push_back('l');
+    buf.push_back('e');
     buf.push_back(3);
-    buf.push_back('c'); buf.push_back('o'); buf.push_back('m');
+    buf.push_back('c');
+    buf.push_back('o');
+    buf.push_back('m');
     buf.push_back(0);
 
     DNS::RecordParser parser(buf);
@@ -1604,10 +1640,10 @@ TEST(DnsParserTest, ZeroQuestionCount_DoesNotCrash) {
     write_u16_be(buf, 0, 0x1234);
     buf[2] = 0x80;  // QR=1
     buf[3] = 0x80;
-    write_u16_be(buf, 4, 0);  // QDCOUNT=0
-    write_u16_be(buf, 6, 0);  // ANCOUNT=0
-    write_u16_be(buf, 8, 0);  // NSCOUNT=0
-    write_u16_be(buf, 10, 0); // ARCOUNT=0
+    write_u16_be(buf, 4, 0);   // QDCOUNT=0
+    write_u16_be(buf, 6, 0);   // ANCOUNT=0
+    write_u16_be(buf, 8, 0);   // NSCOUNT=0
+    write_u16_be(buf, 10, 0);  // ARCOUNT=0
 
     DNS::RecordParser parser(buf);
     EXPECT_TRUE(parser.message().questions.empty());
@@ -1626,8 +1662,10 @@ TEST(DnsParserTest, ZeroAnswerCount_ReturnsEmptyResults) {
     write_u16_be(buf, 8, 0);
     write_u16_be(buf, 10, 0);
     encode_name(buf, "example.com");
-    buf.push_back(0x00); buf.push_back(0x01);
-    buf.push_back(0x00); buf.push_back(0x01);
+    buf.push_back(0x00);
+    buf.push_back(0x01);
+    buf.push_back(0x00);
+    buf.push_back(0x01);
 
     auto parsed = DNS::RecordParser::parse_strings(buf);
     EXPECT_TRUE(parsed.records.empty());
@@ -1652,30 +1690,35 @@ TEST(DnsParserTest, ParseResponse_NoerrorWithAnswers) {
 TEST(DnsParserTest, ParseMxRecord_NameExtendsPastRdata_Throws) {
     // Preference(2) + label "abc" (5 bytes) — but RDLENGTH claims only 5,
     // so the decoded name ends up past the declared RDATA boundary.
-    auto response = make_response_with_rdata(
-        static_cast<std::uint16_t>(DNS::RecordType::MX),
-        {0x00, 0x0A, 0x03, 'a', 'b', 'c', 0x00}, 5);
-    EXPECT_THROW((void)(DNS::RecordParser::parse_strings(response)), DnsLookupException);
+    auto response = make_response_with_rdata(static_cast<std::uint16_t>(DNS::RecordType::MX),
+                                             {0x00, 0x0A, 0x03, 'a', 'b', 'c', 0x00}, 5);
+    EXPECT_THROW((void) (DNS::RecordParser::parse_strings(response)), DnsLookupException);
 }
 
 TEST(DnsParserTest, ParseSoaRecord_TruncatedRdata_Throws) {
     // mname + rname (10 bytes) followed by only 12 bytes of the required
     // 20 bytes of trailing integers → truncated SOA RDATA.
     std::vector<std::uint8_t> rdata;
-    rdata.push_back(0x03); rdata.push_back('a'); rdata.push_back('b'); rdata.push_back('c'); rdata.push_back(0x00);
-    rdata.push_back(0x03); rdata.push_back('d'); rdata.push_back('e'); rdata.push_back('f'); rdata.push_back(0x00);
+    rdata.push_back(0x03);
+    rdata.push_back('a');
+    rdata.push_back('b');
+    rdata.push_back('c');
+    rdata.push_back(0x00);
+    rdata.push_back(0x03);
+    rdata.push_back('d');
+    rdata.push_back('e');
+    rdata.push_back('f');
+    rdata.push_back(0x00);
     rdata.insert(rdata.end(), 12, 0x00);
-    auto response = make_response_with_rdata(
-        static_cast<std::uint16_t>(DNS::RecordType::SOA), rdata);
-    EXPECT_THROW((void)(DNS::RecordParser::parse_strings(response)), DnsLookupException);
+    auto response = make_response_with_rdata(static_cast<std::uint16_t>(DNS::RecordType::SOA), rdata);
+    EXPECT_THROW((void) (DNS::RecordParser::parse_strings(response)), DnsLookupException);
 }
 
 TEST(DnsParserTest, ParseSrvRecord_TargetExtendsPastRdata_Throws) {
     // priority(2)+weight(2)+port(2)+target(5) = 11 bytes, RDLENGTH claims 7.
-    auto response = make_response_with_rdata(
-        static_cast<std::uint16_t>(DNS::RecordType::SRV),
-        {0x00, 0x0A, 0x00, 0x14, 0x1F, 0x90, 0x03, 's', 'r', 'v', 0x00}, 7);
-    EXPECT_THROW((void)(DNS::RecordParser::parse_strings(response)), DnsLookupException);
+    auto response = make_response_with_rdata(static_cast<std::uint16_t>(DNS::RecordType::SRV),
+                                             {0x00, 0x0A, 0x00, 0x14, 0x1F, 0x90, 0x03, 's', 'r', 'v', 0x00}, 7);
+    EXPECT_THROW((void) (DNS::RecordParser::parse_strings(response)), DnsLookupException);
 }
 
 // ===========================================================================
@@ -1687,8 +1730,8 @@ TEST(DnsParserTest, ParseSrvRecord_TargetExtendsPastRdata_Throws) {
 /// @param opt_rdata   OPT RDATA bytes (options).
 /// @param opt_ttl     OPT TTL field (carries extended RCODE / version / DO).
 std::vector<std::uint8_t> make_custom_edns_response(std::vector<std::uint8_t> opt_name,
-                                                     std::vector<std::uint8_t> opt_rdata,
-                                                     std::uint32_t opt_ttl) {
+                                                    std::vector<std::uint8_t> opt_rdata,
+                                                    std::uint32_t opt_ttl) {
     std::vector<std::uint8_t> buf;
     buf.resize(12, 0);
     write_u16_be(buf, 0, 0x1234);
@@ -1698,19 +1741,33 @@ std::vector<std::uint8_t> make_custom_edns_response(std::vector<std::uint8_t> op
     write_u16_be(buf, 6, 1);
     write_u16_be(buf, 10, 1);
     encode_name(buf, "example.com");
-    buf.push_back(0x00); buf.push_back(0x01);
-    buf.push_back(0x00); buf.push_back(0x01);
+    buf.push_back(0x00);
+    buf.push_back(0x01);
+    buf.push_back(0x00);
+    buf.push_back(0x01);
     // Answer: A record 1.2.3.4.
-    buf.push_back(0xC0); buf.push_back(0x0C);
-    buf.push_back(0x00); buf.push_back(0x01);
-    buf.push_back(0x00); buf.push_back(0x01);
-    buf.push_back(0x00); buf.push_back(0x00); buf.push_back(0x01); buf.push_back(0x2C);
-    buf.push_back(0x00); buf.push_back(0x04);
-    buf.push_back(1); buf.push_back(2); buf.push_back(3); buf.push_back(4);
+    buf.push_back(0xC0);
+    buf.push_back(0x0C);
+    buf.push_back(0x00);
+    buf.push_back(0x01);
+    buf.push_back(0x00);
+    buf.push_back(0x01);
+    buf.push_back(0x00);
+    buf.push_back(0x00);
+    buf.push_back(0x01);
+    buf.push_back(0x2C);
+    buf.push_back(0x00);
+    buf.push_back(0x04);
+    buf.push_back(1);
+    buf.push_back(2);
+    buf.push_back(3);
+    buf.push_back(4);
     // Additional: OPT.
     buf.insert(buf.end(), opt_name.begin(), opt_name.end());
-    buf.push_back(0x00); buf.push_back(0x29);       // type OPT (41)
-    buf.push_back(0x10); buf.push_back(0x00);       // class 4096 (UDP payload)
+    buf.push_back(0x00);
+    buf.push_back(0x29);  // type OPT (41)
+    buf.push_back(0x10);
+    buf.push_back(0x00);  // class 4096 (UDP payload)
     buf.push_back(static_cast<std::uint8_t>(opt_ttl >> 24));
     buf.push_back(static_cast<std::uint8_t>(opt_ttl >> 16));
     buf.push_back(static_cast<std::uint8_t>(opt_ttl >> 8));
@@ -1723,23 +1780,20 @@ std::vector<std::uint8_t> make_custom_edns_response(std::vector<std::uint8_t> op
 
 TEST(DnsParserTest, Edns0_TruncatedOption_Throws) {
     // OPT option declares length 10 but the RDATA only has 4 bytes.
-    auto response = make_custom_edns_response(
-        {0x00}, {0x00, 0x01, 0x00, 0x0A}, 0x00000000);
+    auto response = make_custom_edns_response({0x00}, {0x00, 0x01, 0x00, 0x0A}, 0x00000000);
     EXPECT_THROW((DNS::RecordParser{response}), DnsLookupException);
 }
 
 TEST(DnsParserTest, Edns0_NonRootName_NotDetected) {
     // An OPT-typed record with a non-root name is not EDNS0 (RFC 6891 §6.1).
-    auto response = make_custom_edns_response(
-        {0x03, 'w', 'w', 'w', 0x00}, {}, 0x00000000);
+    auto response = make_custom_edns_response({0x03, 'w', 'w', 'w', 0x00}, {}, 0x00000000);
     DNS::RecordParser parser(response);
     EXPECT_FALSE(parser.edns().has_value());
 }
 
 TEST(DnsParserTest, Edns0_ExtendedRcode_Combined) {
     // OPT TTL upper byte carries extended RCODE 1 → final RCODE = 0x10.
-    auto response = make_custom_edns_response(
-        {0x00}, {}, 0x01000000);
+    auto response = make_custom_edns_response({0x00}, {}, 0x01000000);
     DNS::RecordParser parser(response);
     ASSERT_TRUE(parser.edns().has_value());
     EXPECT_EQ(static_cast<std::uint8_t>(parser.message().rcode), 0x10);
@@ -1772,10 +1826,14 @@ TEST(DnsParserTest, AnswerSection_HeaderTruncated_Throws) {
     write_u16_be(buf, 4, 1);
     write_u16_be(buf, 6, 1);
     encode_name(buf, "example.com");
-    buf.push_back(0x00); buf.push_back(0x01);
-    buf.push_back(0x00); buf.push_back(0x01);
-    buf.push_back(0xC0); buf.push_back(0x0C);  // answer name pointer
-    buf.push_back(0x00); buf.push_back(0x01);  // only TYPE — 10 more bytes required
+    buf.push_back(0x00);
+    buf.push_back(0x01);
+    buf.push_back(0x00);
+    buf.push_back(0x01);
+    buf.push_back(0xC0);
+    buf.push_back(0x0C);  // answer name pointer
+    buf.push_back(0x00);
+    buf.push_back(0x01);  // only TYPE — 10 more bytes required
     EXPECT_THROW((DNS::RecordParser{buf}), DnsLookupException);
 }
 
@@ -1786,13 +1844,11 @@ TEST(DnsParserTest, UnsupportedRecordType_ThrowsWithQuestionMark) {
     EXPECT_THROW(
         {
             try {
-                (void)DNS::RecordParser::parse_strings(response);
-            } catch (const DnsLookupException &e) {
+                (void) DNS::RecordParser::parse_strings(response);
+            } catch (const DnsLookupException& e) {
                 EXPECT_NE(std::string(e.what()).find("?"), std::string::npos);
                 throw;
             }
         },
         DnsLookupException);
 }
-
-

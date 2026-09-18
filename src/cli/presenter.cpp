@@ -4,33 +4,40 @@
 
 #include "presenter.h"
 
+#include <array>
 #include <cstdlib>
 #include <iostream>
-#include <print>
+#include <optional>
 #include <string_view>
 
+#include <expected>
 #include <magic_enum/magic_enum.hpp>
+#include <print>
+#include <yaddnsc/util/format.hpp>
 
+#include "application/diagnostics.h"
+#include "application/ports/driver_catalog.h"
+#include "domain/dns/record_kind.h"  // IWYU pragma: keep — magic_enum::enum_names needs the definition
+#include "domain/error/dns_error_info.h"
 #include "domain/network/address_family.h"
+#include "domain/network/inet_address.h"
 #include "support/fmt.hpp"
-#include "domain/dns/record_kind.h"
 
 #include "build_id.hpp"
 #include "min_update_interval.h"
 #include "resolver_config.h"
 #include "version.h"
 
-
-int Cli::present_driver_list(const std::vector<Diagnostics::DriverListItem> &items) {
+int Cli::present_driver_list(const std::vector<Diagnostics::DriverListItem>& items) {
     if (items.empty()) {
         std::println("No drivers loaded.");
         return EXIT_SUCCESS;
     }
 
     std::println("Loaded drivers ({}):", items.size());
-    for (const auto &item: items) {
+    for (const auto& item : items) {
         if (item.detail.has_value()) {
-            const auto &detail = *item.detail;
+            const auto& detail = *item.detail;
             std::println("  {} — {} (v{}, by {})", detail.name, detail.description, detail.version, detail.author);
         } else {
             std::println("  {} — (failed to query details: {})", item.name, item.error);
@@ -39,7 +46,7 @@ int Cli::present_driver_list(const std::vector<Diagnostics::DriverListItem> &ite
     return EXIT_SUCCESS;
 }
 
-int Cli::present_driver_info(const DriverDescription &detail) {
+int Cli::present_driver_info(const DriverDescription& detail) {
     std::println(
         "Name:        {}\n"
         "Description: {}\n"
@@ -49,14 +56,14 @@ int Cli::present_driver_info(const DriverDescription &detail) {
     return EXIT_SUCCESS;
 }
 
-int Cli::present_interface_list(const std::vector<Diagnostics::InterfaceListItem> &items) {
+int Cli::present_interface_list(const std::vector<Diagnostics::InterfaceListItem>& items) {
     if (items.empty()) {
         std::println("No network interfaces found.");
         return EXIT_SUCCESS;
     }
 
     std::println("Network interfaces ({}):", items.size());
-    for (const auto &item: items) {
+    for (const auto& item : items) {
         std::print("  {}", item.name);
         if (!item.addresses.empty()) {
             std::print(" (");
@@ -73,15 +80,15 @@ int Cli::present_interface_list(const std::vector<Diagnostics::InterfaceListItem
     return EXIT_SUCCESS;
 }
 
-int Cli::present_interface_ip(const std::string &name, const std::vector<InetAddress> &addresses) {
+int Cli::present_interface_ip(const std::string& name, const std::vector<InetAddress>& addresses) {
     std::println("Interface: {}", name);
-    for (const auto &addr: addresses) {
+    for (const auto& addr : addresses) {
         std::println("  {} ({})", addr.to_string(), addr.get_family() == AddressFamily::IPV4 ? "IPv4" : "IPv6");
     }
     return EXIT_SUCCESS;
 }
 
-int Cli::present_dns_resolve(const Diagnostics::DnsResolveOutcome &outcome) {
+int Cli::present_dns_resolve(const Diagnostics::DnsResolveOutcome& outcome) {
     if (!outcome.lookup.has_value()) {
         std::print(std::cerr, "Error: unknown record type '{}'.\nValid types: ", outcome.type_text);
         const auto names = magic_enum::enum_names<RecordKind>();
@@ -95,7 +102,7 @@ int Cli::present_dns_resolve(const Diagnostics::DnsResolveOutcome &outcome) {
         return EXIT_FAILURE;
     }
 
-    const auto &lookup = *outcome.lookup;
+    const auto& lookup = *outcome.lookup;
     if (!lookup.has_value()) {
         std::println("DNS lookup for {} ({}) failed: {}", outcome.host, outcome.type_text, lookup.error().message);
         return EXIT_SUCCESS;
@@ -115,8 +122,10 @@ int Cli::present_dns_resolve(const Diagnostics::DnsResolveOutcome &outcome) {
     return EXIT_SUCCESS;
 }
 
-int Cli::present_dns_resolver(const bool use_custom_server, const std::string_view strategy,
-                              const std::vector<std::string> &servers, const std::string_view legacy_address,
+int Cli::present_dns_resolver(const bool use_custom_server,
+                              const std::string_view strategy,
+                              const std::vector<std::string>& servers,
+                              const std::string_view legacy_address,
                               const unsigned short legacy_port) {
     std::println(
         "DNS resolver configuration:\n"
@@ -126,7 +135,7 @@ int Cli::present_dns_resolver(const bool use_custom_server, const std::string_vi
 
     if (!servers.empty()) {
         std::println("  Servers ({}):", servers.size());
-        for (const auto &server: servers) {
+        for (const auto& server : servers) {
             std::println("    - {}", server);
         }
     } else if (use_custom_server && !legacy_address.empty()) {
@@ -141,7 +150,7 @@ int Cli::present_config_show(const std::string_view json) {
     return EXIT_SUCCESS;
 }
 
-int Cli::present_config_test(const Diagnostics::ConfigTestOutcome &outcome) {
+int Cli::present_config_test(const Diagnostics::ConfigTestOutcome& outcome) {
     if (!outcome.error.has_value()) {
         if (!outcome.quiet) {
             std::println("Configuration file test passed");
@@ -149,7 +158,7 @@ int Cli::present_config_test(const Diagnostics::ConfigTestOutcome &outcome) {
         return EXIT_SUCCESS;
     }
 
-    const auto &error = *outcome.error;
+    const auto& error = *outcome.error;
     switch (error.kind) {
         case Diagnostics::ConfigTestError::Kind::VERIFICATION:
             std::println(std::cerr, "Configuration verification failed: {}", error.message);
@@ -199,7 +208,7 @@ int Cli::present_info() {
     return EXIT_SUCCESS;
 }
 
-int Cli::present_error(const std::exception &e) {
+int Cli::present_error(const std::exception& e) {
     std::println(std::cerr, "Error: {}", e.what());
     return EXIT_FAILURE;
 }

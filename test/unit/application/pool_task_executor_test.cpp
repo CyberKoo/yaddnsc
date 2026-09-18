@@ -10,33 +10,40 @@
 //     one driver instance per update, so concurrent updates never share one.
 //
 
+#include "application/pool_task_executor.h"
+
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
+#include <cstddef>
 #include <future>
 #include <memory>
 #include <mutex>
+#include <string>
 #include <string_view>
 #include <thread>
 #include <vector>
 
+#include <expected>
+#include <glaze/glaze.hpp>
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
-#include "application/pool_task_executor.h"
 #include "application/update_workflow.h"
-
+#include "domain/config/runtime_config.h"
+#include "domain/dns/record_kind.h"
+#include "domain/error/error.h"
 #include "domain/fqdn.h"
-#include "domain/update/update_task.h"
 #include "domain/network/inet_address.h"
-
-#include "infrastructure/config/config.h"
-#include "infrastructure/config/normalizer.h"
-#include "infrastructure/config/parser.hpp"
-
+#include "domain/update/update_task.h"
 #include "fixtures/sample_config.h"
+#include "infrastructure/config/config.h"
+#include "infrastructure/config/parser.hpp"  // IWYU pragma: keep — registers glz::meta specializations
+#include "infrastructure/config/normalizer.h"
 #include "mocks/mock_ports.h"
 #include "mocks/null_logger.h"
+
+struct DriverUpdateCommand;
 
 namespace {
 
@@ -51,31 +58,29 @@ using ::testing::Return;
     return std::make_shared<const domain::RuntimeConfig>(Config::normalize(raw));
 }
 
-[[nodiscard]] domain::UpdateTask make_task(const std::shared_ptr<const domain::RuntimeConfig> &cfg,
+[[nodiscard]] domain::UpdateTask make_task(const std::shared_ptr<const domain::RuntimeConfig>& cfg,
                                            std::size_t sub_idx) {
-    const auto &domain = cfg->domains[0];
-    const auto &sub = domain.subdomains[sub_idx];
+    const auto& domain = cfg->domains[0];
+    const auto& sub = domain.subdomains[sub_idx];
     return domain::UpdateTask{
         .config = cfg,
         .domain_index = 0,
         .subdomain_index = sub_idx,
         .fqdn = domain::make_fqdn(domain.name, sub.name),
-        .force_update = true, // skip the DNS read: these tests target the executor
+        .force_update = true,  // skip the DNS read: these tests target the executor
     };
 }
 
 // IP answers matching the fixture subdomains ("@" is type A, "www" AAAA).
-void stub_ip_answers(MockIpSourcePort &ip_source) {
-    ON_CALL(ip_source, resolve(_))
-        .WillByDefault([](const domain::SubdomainConfig &sub) {
-            if (sub.type == RecordKind::AAAA) {
-                return std::expected<std::vector<InetAddress>, domain::IpSourceError>{
-                    {InetAddress{Inet6Address::from_bytes(
-                        {0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x01})}}};
-            }
-            return std::expected<std::vector<InetAddress>, domain::IpSourceError>{
-                {InetAddress{Inet4Address::from_bytes({198, 51, 100, 1})}}};
-        });
+void stub_ip_answers(MockIpSourcePort& ip_source) {
+    ON_CALL(ip_source, resolve(_)).WillByDefault([](const domain::SubdomainConfig& sub) {
+        if (sub.type == RecordKind::AAAA) {
+            return std::expected<std::vector<InetAddress>, domain::IpSourceError>{{InetAddress{
+                Inet6Address::from_bytes({0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x01})}}};
+        }
+        return std::expected<std::vector<InetAddress>, domain::IpSourceError>{
+            {InetAddress{Inet4Address::from_bytes({198, 51, 100, 1})}}};
+    });
 }
 
 struct Fixture {
@@ -90,7 +95,7 @@ struct Fixture {
     UpdateWorkflow make_workflow() { return {dns, ip_source, gateway, logger}; }
 };
 
-} // namespace
+}  // namespace
 
 // ── submitted tasks actually run ─────────────────────────────────────────────
 
@@ -98,7 +103,7 @@ TEST(PoolTaskExecutor, RunsSubmittedTaskToCompletion) {
     Fixture f;
     std::promise<void> done;
     EXPECT_CALL(f.gateway, update("cloudflare", _))
-        .WillOnce([&done](std::string_view, const DriverUpdateCommand &) -> std::expected<void, domain::DriverError> {
+        .WillOnce([&done](std::string_view, const DriverUpdateCommand&) -> std::expected<void, domain::DriverError> {
             done.set_value();
             return {};
         });
@@ -136,7 +141,7 @@ TEST(PoolTaskExecutor, WaitIdleBlocksUntilInFlightTaskFinishes) {
     bool released = false;
 
     EXPECT_CALL(f.gateway, update(_, _))
-        .WillOnce([&](std::string_view, const DriverUpdateCommand &) -> std::expected<void, domain::DriverError> {
+        .WillOnce([&](std::string_view, const DriverUpdateCommand&) -> std::expected<void, domain::DriverError> {
             std::unique_lock lock(mtx);
             entered = true;
             cv.notify_all();
@@ -186,8 +191,7 @@ TEST(PoolTaskExecutor, SameModuleTasksRunConcurrently) {
 
     EXPECT_CALL(f.gateway, update("cloudflare", _))
         .Times(2)
-        .WillRepeatedly([&](std::string_view, const DriverUpdateCommand &)
-                            -> std::expected<void, domain::DriverError> {
+        .WillRepeatedly([&](std::string_view, const DriverUpdateCommand&) -> std::expected<void, domain::DriverError> {
             calls.fetch_add(1);
             std::unique_lock lock(mtx);
             ++inside;
@@ -200,8 +204,8 @@ TEST(PoolTaskExecutor, SameModuleTasksRunConcurrently) {
     auto workflow = f.make_workflow();
     PoolTaskExecutor executor(2, workflow);
 
-    ASSERT_TRUE(executor.submit(make_task(f.config, 0))); // "@"  (A)
-    ASSERT_TRUE(executor.submit(make_task(f.config, 1))); // "www" (AAAA)
+    ASSERT_TRUE(executor.submit(make_task(f.config, 0)));  // "@"  (A)
+    ASSERT_TRUE(executor.submit(make_task(f.config, 1)));  // "www" (AAAA)
     executor.wait_idle();
 
     EXPECT_EQ(calls.load(), 2);

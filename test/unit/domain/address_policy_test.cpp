@@ -9,12 +9,17 @@
 //   - the first surviving candidate wins.
 // =============================================================================
 
+#include "domain/address_policy.h"
+
+#include <cstdint>
 #include <optional>
+#include <string>
 #include <vector>
 
 #include <gtest/gtest.h>
 
-#include "domain/address_policy.h"
+#include "domain/dns/record_kind.h"
+#include "domain/network/inet_address.h"
 
 namespace {
 
@@ -37,7 +42,7 @@ namespace {
 constexpr domain::AddressPolicy NONE_ALLOWED{false, false};
 constexpr domain::AddressPolicy ALL_ALLOWED{true, true};
 
-} // namespace
+}  // namespace
 
 // ── Empty input → no address ─────────────────────────────────────────────────
 

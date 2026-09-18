@@ -14,14 +14,25 @@
 #include <cstdint>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
-
 #include <expected>
 
 #include "infrastructure/network/http/error.h"
 #include "infrastructure/network/http/protocol/exchange.h"
-#include "infrastructure/network/http/stream_factory.h"
 #include "infrastructure/network/http/types.h"
+#include "infrastructure/network/transport/options.h"
+#include "infrastructure/network/transport/stream.h"
+
+namespace net {
+namespace http {
+class StreamFactory;
+
+namespace protocol {
+struct WireRequest;
+}  // namespace protocol
+}  // namespace http
+}  // namespace net
 
 namespace net::http {
 

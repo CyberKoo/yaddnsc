@@ -10,14 +10,15 @@
 #include <vector>
 
 #include "domain/network/inet_address.h"
-#include "domain/dns/record_kind.h"
+
+enum class RecordKind;
 
 namespace Mdns {
-    /// Parse one DNS datagram and return matching A/AAAA answers for hostname.
-    /// Invalid DNS packets propagate RecordParser's exception to the caller.
-    [[nodiscard]] std::vector<InetAddress> parse_response(std::span<const std::uint8_t> packet,
-                                                           std::string_view hostname,
-                                                           RecordKind type);
-}
+/// Parse one DNS datagram and return matching A/AAAA answers for hostname.
+/// Invalid DNS packets propagate RecordParser's exception to the caller.
+[[nodiscard]] std::vector<InetAddress> parse_response(std::span<const std::uint8_t> packet,
+                                                      std::string_view hostname,
+                                                      RecordKind type);
+}  // namespace Mdns
 
-#endif // YADDNSC_IP_SOURCE_MDNS_RESPONSE_H
+#endif  // YADDNSC_IP_SOURCE_MDNS_RESPONSE_H

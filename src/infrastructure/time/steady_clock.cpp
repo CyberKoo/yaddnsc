@@ -4,11 +4,14 @@
 
 #include "steady_clock.h"
 
+#include <chrono>
+#include <stop_token>
+
 domain::TimePoint SteadyClock::now() const {
     return std::chrono::steady_clock::now();
 }
 
-bool SteadyClock::wait_until(domain::TimePoint deadline, const std::stop_token &stop) {
+bool SteadyClock::wait_until(domain::TimePoint deadline, const std::stop_token& stop) {
     if (stop.stop_requested()) {
         return false;
     }
@@ -19,14 +22,14 @@ bool SteadyClock::wait_until(domain::TimePoint deadline, const std::stop_token &
     // between the predicate check and blocking — a missed stop here could
     // park an empty queue at TimePoint::max().
     const std::stop_callback cb(stop, [this] {
-        { std::lock_guard lock(mtx_); }
+        {
+            std::lock_guard lock(mtx_);
+        }
         cv_.notify_all();
     });
     std::unique_lock lock(mtx_);
     const auto epoch = wake_epoch_;
-    cv_.wait_until(lock, deadline, [this, &stop, epoch] {
-        return stop.stop_requested() || wake_epoch_ != epoch;
-    });
+    cv_.wait_until(lock, deadline, [this, &stop, epoch] { return stop.stop_requested() || wake_epoch_ != epoch; });
     return !stop.stop_requested();
 }
 

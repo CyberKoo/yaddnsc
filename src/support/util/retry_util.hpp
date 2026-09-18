@@ -5,12 +5,13 @@
 #ifndef YADDNSC_UTIL_RETRY_UTIL_H
 #define YADDNSC_UTIL_RETRY_UTIL_H
 
+#include <spdlog/spdlog.h>
 #include <chrono>
 #include <thread>
 #include <type_traits>
-
 #include <expected>
-#include <spdlog/spdlog.h>
+#include <concepts>
+#include <optional>
 
 namespace Utils::Retry {
     namespace detail {

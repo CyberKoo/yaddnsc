@@ -10,26 +10,32 @@
 //   - update returns UPSTREAM_REJECTED for non-200 error/empty bodies.
 // =============================================================================
 
+#include <optional>
+#include <string>
+#include <string_view>
+#include <vector>
+
 #include <gtest/gtest.h>
+#include <yaddnsc/sdk/driver_abi.h>
 
 #include "abi_test_harness.h"
 
 // ── Shared fixtures ──────────────────────────────────────────────────────────
 
 namespace {
-    constexpr std::string_view CONFIG = R"({
+constexpr std::string_view CONFIG = R"({
         "token": "my-token",
         "domain_id": "dom123",
         "record_id": "rec456"
     })";
 
-    const std::string SUCCESS_BODY = R"({"id": 123, "type": "A", "name": "www", "target": "1.2.3.4", "ttl_sec": 300})";
-} // namespace
+const std::string SUCCESS_BODY = R"({"id": 123, "type": "A", "name": "www", "target": "1.2.3.4", "ttl_sec": 300})";
+}  // namespace
 
 // ── Tests ──────────────────────────────────────────────────────────────────
 
 TEST(LinodeDriverTest, Descriptor_ReturnsExpectedMetadata) {
-    const yaddnsc_driver_descriptor *descriptor = nullptr;
+    const yaddnsc_driver_descriptor* descriptor = nullptr;
     ASSERT_EQ(yaddnsc_driver_get_descriptor(&descriptor), YADDNSC_STATUS_OK);
     ASSERT_NE(descriptor, nullptr);
     EXPECT_EQ(descriptor->magic, YADDNSC_DRIVER_MAGIC);
@@ -52,7 +58,7 @@ TEST(LinodeDriverTest, Update_BasicARecord) {
     ASSERT_EQ(result.status, YADDNSC_STATUS_OK) << result.error_message;
 
     ASSERT_EQ(fake.requests.size(), 1u);
-    const auto &request = fake.requests[0];
+    const auto& request = fake.requests[0];
 
     // Check URL
     EXPECT_EQ(request.url, "https://api.linode.com/v4/domains/dom123/records/rec456");
@@ -68,7 +74,7 @@ TEST(LinodeDriverTest, Update_BasicARecord) {
 
     // Check body
     ASSERT_TRUE(request.body.has_value());
-    const auto &body = *request.body;
+    const auto& body = *request.body;
     EXPECT_TRUE(body.find(R"("name":"www")") != std::string::npos);
     EXPECT_TRUE(body.find(R"("target":"1.2.3.4")") != std::string::npos);
     // ttl_sec is optional and should be omitted when not set
@@ -79,9 +85,9 @@ TEST(LinodeDriverTest, Update_WithTtlSec) {
     FakeHostServices fake;
     fake.queue_response(200, SUCCESS_BODY);
 
-    const auto result = run_abi_update(fake,
-                                       R"({"token": "t1", "domain_id": "d1", "record_id": "r1", "ttl_sec": 3600})",
-                                       "10.0.0.1", "AAAA", "example.com", "@", "example.com");
+    const auto result =
+        run_abi_update(fake, R"({"token": "t1", "domain_id": "d1", "record_id": "r1", "ttl_sec": 3600})", "10.0.0.1",
+                       "AAAA", "example.com", "@", "example.com");
     ASSERT_EQ(result.status, YADDNSC_STATUS_OK) << result.error_message;
 
     ASSERT_EQ(fake.requests.size(), 1u);
@@ -91,8 +97,8 @@ TEST(LinodeDriverTest, Update_WithTtlSec) {
 
 TEST(LinodeDriverTest, Update_MissingToken_ReturnsInvalidConfig) {
     FakeHostServices fake;
-    const auto result = run_abi_update(fake, R"({"domain_id": "d1", "record_id": "r1"})", "1.2.3.4", "A",
-                                       "example.com", "@", "example.com");
+    const auto result = run_abi_update(fake, R"({"domain_id": "d1", "record_id": "r1"})", "1.2.3.4", "A", "example.com",
+                                       "@", "example.com");
     EXPECT_EQ(result.status, YADDNSC_STATUS_INVALID_CONFIG);
     EXPECT_TRUE(result.error_message.starts_with("Driver configuration parse error:")) << result.error_message;
     EXPECT_TRUE(fake.requests.empty());
@@ -100,8 +106,8 @@ TEST(LinodeDriverTest, Update_MissingToken_ReturnsInvalidConfig) {
 
 TEST(LinodeDriverTest, Update_MissingDomainId_ReturnsInvalidConfig) {
     FakeHostServices fake;
-    const auto result = run_abi_update(fake, R"({"token": "t1", "record_id": "r1"})", "1.2.3.4", "A",
-                                       "example.com", "@", "example.com");
+    const auto result = run_abi_update(fake, R"({"token": "t1", "record_id": "r1"})", "1.2.3.4", "A", "example.com",
+                                       "@", "example.com");
     EXPECT_EQ(result.status, YADDNSC_STATUS_INVALID_CONFIG);
     EXPECT_TRUE(result.error_message.starts_with("Driver configuration parse error:")) << result.error_message;
     EXPECT_TRUE(fake.requests.empty());
@@ -210,5 +216,5 @@ TEST(LinodeDriverTest, Validate_MalformedJson_ReturnsInvalidConfig) {
 TEST(LinodeDriverTest, Entries_NullArgumentsRejected) {
     EXPECT_EQ(yaddnsc_driver_get_descriptor(nullptr), YADDNSC_STATUS_INVALID_ARGUMENT);
     EXPECT_EQ(yaddnsc_driver_update(nullptr, nullptr, nullptr), YADDNSC_STATUS_INVALID_ARGUMENT);
-    yaddnsc_driver_destroy(nullptr); // must be a no-op, must not crash
+    yaddnsc_driver_destroy(nullptr);  // must be a no-op, must not crash
 }

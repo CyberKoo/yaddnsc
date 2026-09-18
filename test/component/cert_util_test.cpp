@@ -15,15 +15,15 @@
 //
 // =============================================================================
 
-#include <gtest/gtest.h>
+#include "infrastructure/network/tls/cert_util.h"
 
-#include <cstdlib>
 #include <cstdio>
+#include <cstdlib>
+#include <optional>
 #include <string>
 
+#include <gtest/gtest.h>
 #include <unistd.h>
-
-#include "infrastructure/network/tls/cert_util.h"
 
 // ---------------------------------------------------------------------------
 // Test that discover_ca_bundle() falls through when SSL_CERT_FILE points to
@@ -37,12 +37,12 @@
 // ---------------------------------------------------------------------------
 TEST(CertUtilTest, DiscoverCaBundle_EnvVarNotFound) {
     // Set SSL_CERT_FILE to a path that does not exist.
-    const auto *old_env = std::getenv("SSL_CERT_FILE");
+    const auto* old_env = std::getenv("SSL_CERT_FILE");
     ASSERT_EQ(::setenv("SSL_CERT_FILE", "/tmp/yaddnsc_ca_nonexistent_XXXXXX", 1), 0);
 
     // Place a ./ca.pem in the working directory — it must NOT be picked up.
-    constexpr const char *CWD_CA = "./ca.pem";
-    FILE *f = std::fopen(CWD_CA, "w");
+    constexpr const char* CWD_CA = "./ca.pem";
+    FILE* f = std::fopen(CWD_CA, "w");
     ASSERT_NE(f, nullptr) << "failed to create ./ca.pem in the working directory";
     std::fclose(f);
 
@@ -83,7 +83,7 @@ TEST(CertUtilTest, DiscoverCaBundle_EnvVarOverride) {
     ASSERT_GE(fd, 0) << "mkstemp failed";
     ::close(fd);
 
-    const auto *old_env = std::getenv("SSL_CERT_FILE");
+    const auto* old_env = std::getenv("SSL_CERT_FILE");
     ::setenv("SSL_CERT_FILE", tmp, 1);
 
     // The cached result from the first test is used.  We just verify that

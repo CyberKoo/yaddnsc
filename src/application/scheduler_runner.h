@@ -11,11 +11,11 @@
 #include <utility>
 #include <vector>
 
-#include "application/ports/clock.h"
-#include "application/ports/log.h"
-#include "application/ports/task_executor.h"
-
 #include "domain/update/schedule_queue.h"
+
+class Clock;
+class Logger;
+class TaskExecutor;
 
 /// SchedulerRunner — drives the periodic scheduling loop.
 ///
@@ -35,8 +35,11 @@ class SchedulerRunner {
 public:
     /// All references must outlive the runner (they do: the composition root
     /// owns every component).
-    SchedulerRunner(domain::ScheduleQueue &queue, Clock &clock, TaskExecutor &executor, std::stop_token stop,
-                    const Logger &logger);
+    SchedulerRunner(domain::ScheduleQueue& queue,
+                    Clock& clock,
+                    TaskExecutor& executor,
+                    std::stop_token stop,
+                    const Logger& logger);
 
     /// Pop-and-submit due tasks until stop is requested, waiting on the
     /// clock between rounds. Returns promptly after stop; in-flight tasks
@@ -50,11 +53,11 @@ public:
     void request_retry(domain::TaskId id, std::chrono::seconds delay);
 
 private:
-    domain::ScheduleQueue &queue_;
-    Clock &clock_;
-    TaskExecutor &executor_;
+    domain::ScheduleQueue& queue_;
+    Clock& clock_;
+    TaskExecutor& executor_;
     std::stop_token stop_;
-    const Logger &logger_;
+    const Logger& logger_;
 
     // Retry requests arrive on pool threads; the runner drains them on its
     // own thread at the top of every scheduling round.
@@ -62,4 +65,4 @@ private:
     std::vector<std::pair<domain::TaskId, std::chrono::seconds>> pending_retries_;
 };
 
-#endif // YADDNSC_APPLICATION_SCHEDULER_RUNNER_H
+#endif  // YADDNSC_APPLICATION_SCHEDULER_RUNNER_H

@@ -9,33 +9,37 @@
 // =============================================================================
 
 #include <chrono>
+#include <compare>
 #include <cstdint>
 #include <cstdlib>
-#include <cstring>
-#include <memory>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <vector>
 
+#include <arpa/inet.h>
+#include <expected>
 #include <fcntl.h>
-#include <poll.h>
+#include <netinet/in.h>
 #include <signal.h>
 #include <sys/socket.h>
+#include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
-#include <arpa/inet.h>
 
 #ifdef __linux__
 #include <sys/prctl.h>
 #endif
 
 #include <gtest/gtest.h>
+#include <yaddnsc/util/format.hpp>
 
-#include "infrastructure/dns/resolver/doh.h"
-#include "domain/error/dns_error.h"
 #include "domain/dns/record_kind.h"
-#include "support/util/cancellation_token.hpp"
+#include "domain/error/dns_error.h"
+#include "domain/error/dns_error_info.h"
+#include "infrastructure/dns/resolver/doh.h"
 #include "support/fmt.hpp"
+#include "support/util/cancellation_token.hpp"
 
 using namespace std::chrono_literals;
 
@@ -51,15 +55,24 @@ static std::string server_log;
 /// Format a DnsError code for diagnostic messages.
 [[nodiscard]] std::string_view dns_error_name(DnsError code) {
     switch (code) {
-    case DnsError::NX_DOMAIN:    return "NX_DOMAIN";
-    case DnsError::RETRY:        return "RETRY";
-    case DnsError::NODATA:       return "NODATA";
-    case DnsError::PARSE:        return "PARSE";
-    case DnsError::CONNECTION:   return "CONNECTION";
-    case DnsError::CONFIG:       return "CONFIG";
-    case DnsError::CANCELLED:    return "CANCELLED";
-    case DnsError::SERVER_REFUSED: return "SERVER_REFUSED";
-    case DnsError::UNKNOWN:      return "UNKNOWN";
+        case DnsError::NX_DOMAIN:
+            return "NX_DOMAIN";
+        case DnsError::RETRY:
+            return "RETRY";
+        case DnsError::NODATA:
+            return "NODATA";
+        case DnsError::PARSE:
+            return "PARSE";
+        case DnsError::CONNECTION:
+            return "CONNECTION";
+        case DnsError::CONFIG:
+            return "CONFIG";
+        case DnsError::CANCELLED:
+            return "CANCELLED";
+        case DnsError::SERVER_REFUSED:
+            return "SERVER_REFUSED";
+        case DnsError::UNKNOWN:
+            return "UNKNOWN";
     }
     return "?";
 }
@@ -67,7 +80,7 @@ static std::string server_log;
 /// Generate a self-signed certificate and key for testing.
 void generate_cert() {
     char dir_template[] = "/tmp/yaddnsc_doh_test_XXXXXX";
-    auto *dir = ::mkdtemp(dir_template);
+    auto* dir = ::mkdtemp(dir_template);
     ASSERT_NE(dir, nullptr) << "mkdtemp failed";
 
     cert_path = std::string(dir) + "/cert.pem";
@@ -102,20 +115,17 @@ void start_doh_server() {
 #ifdef __linux__
         ::prctl(PR_SET_PDEATHSIG, SIGTERM);
 #endif
-        int log_fd = ::open(server_log.c_str(),
-                            O_WRONLY | O_CREAT | O_TRUNC, 0644);
+        int log_fd = ::open(server_log.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
         if (log_fd >= 0) {
             ::dup2(log_fd, STDOUT_FILENO);
             ::dup2(log_fd, STDERR_FILENO);
             ::close(log_fd);
         }
         // Try venv python first, then system.
-        ::execlp("python3", "python3", TEST_DATA_DIR "/doh_server.py",
-                 fmt::format("{}", DOH_PORT).c_str(),
+        ::execlp("python3", "python3", TEST_DATA_DIR "/doh_server.py", fmt::format("{}", DOH_PORT).c_str(),
                  cert_path.c_str(), key_path.c_str(), nullptr);
         ::execl("/tmp/sim-venv/bin/python3", "python3", TEST_DATA_DIR "/doh_server.py",
-                fmt::format("{}", DOH_PORT).c_str(),
-                cert_path.c_str(), key_path.c_str(), nullptr);
+                fmt::format("{}", DOH_PORT).c_str(), cert_path.c_str(), key_path.c_str(), nullptr);
         ::_exit(127);
     }
 
@@ -125,18 +135,20 @@ void start_doh_server() {
 
     while (!ready && std::chrono::steady_clock::now() < deadline) {
         int fd = ::socket(AF_INET, SOCK_STREAM, 0);
-        if (fd < 0) break;
+        if (fd < 0)
+            break;
 
         struct sockaddr_in addr = {};
         addr.sin_family = AF_INET;
         addr.sin_port = htons(static_cast<std::uint16_t>(DOH_PORT));
         ::inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
 
-        if (::connect(fd, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) == 0) {
+        if (::connect(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) == 0) {
             ready = true;
         }
         ::close(fd);
-        if (!ready) std::this_thread::sleep_for(100ms);
+        if (!ready)
+            std::this_thread::sleep_for(100ms);
     }
 
     if (!ready) {
@@ -166,13 +178,9 @@ void stop_doh_server() {
 
 class DohResolverTest : public ::testing::Test {
 protected:
-    static void SetUpTestSuite() {
-        start_doh_server();
-    }
+    static void SetUpTestSuite() { start_doh_server(); }
 
-    static void TearDownTestSuite() {
-        stop_doh_server();
-    }
+    static void TearDownTestSuite() { stop_doh_server(); }
 
     void SetUp() override {
         if (!server_started) {
@@ -189,8 +197,7 @@ TEST_F(DohResolverTest, Resolve_A_Record) {
     DohResolver resolver("127.0.0.1", DOH_PORT, "/dns-query", "test-doh", Utils::CancellationToken{});
     auto result = resolver.query("yaddnsc.test", RecordKind::A);
 
-    ASSERT_TRUE(result.has_value()) << "DoH A query failed: "
-                                    << dns_error_name(result.error().code);
+    ASSERT_TRUE(result.has_value()) << "DoH A query failed: " << dns_error_name(result.error().code);
     // QNAME for "yaddnsc.test" = \x07yaddnsc\x04test\x00 = 14 bytes
     // RDATA starts at: 12(header) + 14(QNAME) + 4(QTYPE+QCLASS)
     //   + 2(name ptr) + 2(TYPE) + 2(CLASS) + 4(TTL) + 2(RDLENGTH) = 42
@@ -205,8 +212,7 @@ TEST_F(DohResolverTest, Resolve_AAAA_Record) {
     DohResolver resolver("127.0.0.1", DOH_PORT, "/dns-query", "test-doh", Utils::CancellationToken{});
     auto result = resolver.query("yaddnsc.test", RecordKind::AAAA);
 
-    ASSERT_TRUE(result.has_value()) << "DoH AAAA query failed: "
-                                    << dns_error_name(result.error().code);
+    ASSERT_TRUE(result.has_value()) << "DoH AAAA query failed: " << dns_error_name(result.error().code);
     ASSERT_GT(result->size(), 12U);
 }
 
@@ -215,10 +221,8 @@ TEST_F(DohResolverTest, ConnectToRefusedPort_ReturnsError) {
     auto result = resolver.query("yaddnsc.test", RecordKind::A);
 
     ASSERT_FALSE(result.has_value());
-    EXPECT_TRUE(result.error().code == DnsError::CONNECTION ||
-                result.error().code == DnsError::RETRY)
-        << "Expected CONNECTION or RETRY, got "
-        << dns_error_name(result.error().code);
+    EXPECT_TRUE(result.error().code == DnsError::CONNECTION || result.error().code == DnsError::RETRY)
+        << "Expected CONNECTION or RETRY, got " << dns_error_name(result.error().code);
 }
 
 TEST_F(DohResolverTest, TimeoutHost_ReturnsError) {
@@ -226,11 +230,9 @@ TEST_F(DohResolverTest, TimeoutHost_ReturnsError) {
     auto result = resolver.query("doh-timeout.yaddnsc.test", RecordKind::A);
 
     ASSERT_FALSE(result.has_value());
-    EXPECT_TRUE(result.error().code == DnsError::RETRY ||
-                result.error().code == DnsError::CONNECTION ||
+    EXPECT_TRUE(result.error().code == DnsError::RETRY || result.error().code == DnsError::CONNECTION ||
                 result.error().code == DnsError::CANCELLED)
-        << "Expected RETRY, CONNECTION, or CANCELLED, got "
-        << dns_error_name(result.error().code);
+        << "Expected RETRY, CONNECTION, or CANCELLED, got " << dns_error_name(result.error().code);
 }
 
 TEST_F(DohResolverTest, Http404_ReturnsServerRefused) {
@@ -261,8 +263,7 @@ TEST_F(DohResolverTest, NonExistentDomain_FallsBackToDefault) {
     DohResolver resolver("127.0.0.1", DOH_PORT, "/dns-query", "test-doh-nx", Utils::CancellationToken{});
     auto result = resolver.query("nonexistent.yaddnsc.test", RecordKind::A);
 
-    ASSERT_TRUE(result.has_value()) << "DoH A query failed: "
-                                    << dns_error_name(result.error().code);
+    ASSERT_TRUE(result.has_value()) << "DoH A query failed: " << dns_error_name(result.error().code);
     // The test server falls back to 198.51.100.1 for unknown A records.
     // QNAME for "nonexistent.yaddnsc.test" = 26 bytes
     // RDATA starts at: 12 + 26 + 4 + 2 + 2 + 2 + 4 + 2 = 54
@@ -278,8 +279,7 @@ TEST_F(DohResolverTest, ChunkedTransferEncoding_Succeeds) {
     DohResolver resolver("127.0.0.1", DOH_PORT, "/dns-query", "test-doh-chunked", Utils::CancellationToken{});
     auto result = resolver.query("doh-chunked.yaddnsc.test", RecordKind::A);
 
-    ASSERT_TRUE(result.has_value()) << "DoH chunked query failed: "
-                                    << dns_error_name(result.error().code);
+    ASSERT_TRUE(result.has_value()) << "DoH chunked query failed: " << dns_error_name(result.error().code);
     // QNAME for "doh-chunked.yaddnsc.test" = 1+11 + 1+7 + 1+4 + 1 = 26 bytes
     // RDATA starts at: 12(header) + 26(QNAME) + 4(QTYPE+QCLASS)
     //   + 2(name ptr) + 2(TYPE) + 2(CLASS) + 4(TTL) + 2(RDLENGTH) = 54
@@ -307,15 +307,13 @@ TEST_F(DohResolverTest, TwoSequentialQueries_ReconnectTransparently) {
     DohResolver resolver("127.0.0.1", DOH_PORT, "/dns-query", "test-doh-seq", Utils::CancellationToken{});
 
     auto r1 = resolver.query("yaddnsc.test", RecordKind::A);
-    ASSERT_TRUE(r1.has_value()) << "First sequential DoH query failed: "
-                                << dns_error_name(r1.error().code);
+    ASSERT_TRUE(r1.has_value()) << "First sequential DoH query failed: " << dns_error_name(r1.error().code);
 
     // Small delay for server-side FIN to propagate.
     std::this_thread::sleep_for(50ms);
 
     auto r2 = resolver.query("yaddnsc.test", RecordKind::A);
-    ASSERT_TRUE(r2.has_value()) << "Second sequential DoH query failed: "
-                                << dns_error_name(r2.error().code);
+    ASSERT_TRUE(r2.has_value()) << "Second sequential DoH query failed: " << dns_error_name(r2.error().code);
     ASSERT_GE(r2->size(), 46U);
     EXPECT_EQ((*r2)[42], 198);
     EXPECT_EQ((*r2)[43], 51);
@@ -332,10 +330,8 @@ TEST_F(DohResolverTest, Ipv6Address_FormatsHostHeader) {
     auto result = resolver.query("yaddnsc.test", RecordKind::A);
 
     ASSERT_FALSE(result.has_value());
-    EXPECT_TRUE(result.error().code == DnsError::CONNECTION ||
-                result.error().code == DnsError::RETRY)
-        << "Expected CONNECTION or RETRY for unreachable server, got "
-        << dns_error_name(result.error().code);
+    EXPECT_TRUE(result.error().code == DnsError::CONNECTION || result.error().code == DnsError::RETRY)
+        << "Expected CONNECTION or RETRY for unreachable server, got " << dns_error_name(result.error().code);
 }
 
 TEST_F(DohResolverTest, MalformedHeader_ReturnsParseError) {
@@ -348,4 +344,4 @@ TEST_F(DohResolverTest, MalformedHeader_ReturnsParseError) {
     EXPECT_EQ(result.error().code, DnsError::PARSE);
 }
 
-} // anonymous namespace
+}  // anonymous namespace

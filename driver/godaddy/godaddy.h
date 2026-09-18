@@ -6,8 +6,7 @@
 #define YADDNSC_DRV_GODADDY_GODADDY_H
 
 #include <yaddnsc/sdk/driver.hpp>
-
-#include "config.hpp"
+#include <string_view>
 
 /// GoDaddy API driver for DNS record updates.
 ///
@@ -20,7 +19,7 @@ public:
     ~GoDaddyDriver() override = default;
 
     /// Perform one update: generate-request → HTTP exchange → check-response.
-    yaddnsc::sdk::Result update(yaddnsc::sdk::UpdateContext &context) override;
+    yaddnsc::sdk::Result update(yaddnsc::sdk::UpdateContext& context) override;
 
     /// Validate driver_param against the GoDaddy API schema without updating;
     /// schema violations surface as YADDNSC_STATUS_INVALID_CONFIG.
@@ -28,7 +27,7 @@ public:
 
 private:
     /// Validate the GoDaddy API response.
-    static bool check_response(const yaddnsc::sdk::HttpResponse &response, const yaddnsc::sdk::Services &services);
+    static bool check_response(const yaddnsc::sdk::HttpResponse& response, const yaddnsc::sdk::Services& services);
 };
 
-#endif //YADDNSC_DRV_GODADDY_GODADDY_H
+#endif  // YADDNSC_DRV_GODADDY_GODADDY_H

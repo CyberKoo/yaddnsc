@@ -8,6 +8,10 @@
 #include <glaze/glaze.hpp>
 
 #include "config.h"
+#include "domain/config/dns_config.h"
+#include "domain/config/ip_source_kind.h"
+#include "domain/dns/record_kind.h"
+#include "domain/network/address_family.h"
 
 /// glz::meta specialisation for Config::DriverConfig JSON mapping.
 template<>

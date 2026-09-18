@@ -1,9 +1,9 @@
 #pragma once
 
-#include "config.h"
 #include "domain/config/runtime_config.h"
 
 namespace Config {
+struct AppConfig;
 
 /// Maps a raw AppConfig (as parsed from JSON) to the normalized runtime
 /// configuration. Performs no validation and never throws on content, so
@@ -22,4 +22,4 @@ namespace Config {
 /// error) so legacy configs that rely on the default keep working.
 auto normalize(const AppConfig& raw) -> domain::RuntimeConfig;
 
-} // namespace Config
+}  // namespace Config

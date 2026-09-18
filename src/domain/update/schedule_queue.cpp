@@ -5,21 +5,22 @@
 #include "schedule_queue.h"
 
 #include <algorithm>
+#include <chrono>
+#include <compare>
 #include <stdexcept>
 #include <string>
 #include <utility>
 
+#include "domain/config/runtime_config.h"
 #include "domain/fqdn.h"
-
 
 namespace domain {
 
-ScheduleQueue::ScheduleQueue(std::shared_ptr<const RuntimeConfig> config, TimePoint now)
-    : config_(std::move(config)) {
+ScheduleQueue::ScheduleQueue(std::shared_ptr<const RuntimeConfig> config, TimePoint now) : config_(std::move(config)) {
     for (std::size_t domain_idx = 0; domain_idx < config_->domains.size(); ++domain_idx) {
-        const auto &domain_config = config_->domains[domain_idx];
+        const auto& domain_config = config_->domains[domain_idx];
         for (std::size_t subdomain_idx = 0; subdomain_idx < domain_config.subdomains.size(); ++subdomain_idx) {
-            const auto &subdomain = domain_config.subdomains[subdomain_idx];
+            const auto& subdomain = domain_config.subdomains[subdomain_idx];
             // SubdomainConfig::update_interval is already the effective value
             // (normaliser applied the domain-level fallback).
             const auto effective_interval = subdomain.update_interval;
@@ -38,28 +39,28 @@ ScheduleQueue::ScheduleQueue(std::shared_ptr<const RuntimeConfig> config, TimePo
             // interval is positive. Using {} (epoch) would make the elapsed
             // time depend on system uptime, which on a fresh CI runner can be
             // shorter than the force_update_interval.
-            const auto force_update_past = domain_config.force_update > 0
-                ? now - std::chrono::seconds(domain_config.force_update)
-                : TimePoint{};
+            const auto force_update_past =
+                domain_config.force_update > 0 ? now - std::chrono::seconds(domain_config.force_update) : TimePoint{};
 
             entries_.push_back(Entry{
                 .deadline = now,
                 .update_interval = effective_interval,
                 .force_update_interval = domain_config.force_update,
                 .last_force_update = force_update_past,
-                .task = {
-                    .config = config_,
-                    .domain_index = domain_idx,
-                    .subdomain_index = subdomain_idx,
-                    .fqdn = make_fqdn(domain_config.name, subdomain.name),
-                    .force_update = false,
-                },
+                .task =
+                    {
+                        .config = config_,
+                        .domain_index = domain_idx,
+                        .subdomain_index = subdomain_idx,
+                        .fqdn = make_fqdn(domain_config.name, subdomain.name),
+                        .force_update = false,
+                    },
             });
         }
     }
 }
 
-bool ScheduleQueue::check_force_update(Entry &entry, TimePoint now) noexcept {
+bool ScheduleQueue::check_force_update(Entry& entry, TimePoint now) noexcept {
     if (entry.force_update_interval <= 0) {
         return false;
     }
@@ -93,8 +94,8 @@ std::vector<UpdateTask> ScheduleQueue::pop_due(TimePoint now) {
 
     std::vector<UpdateTask> due;
     due.reserve(due_indices.size());
-    for (const auto idx: due_indices) {
-        auto &entry = entries_[idx];
+    for (const auto idx : due_indices) {
+        auto& entry = entries_[idx];
 
         entry.task.force_update = check_force_update(entry, now);
         // The entry stays queued with its task intact, so the caller receives
@@ -115,15 +116,15 @@ std::optional<Duration> ScheduleQueue::time_until_next(TimePoint now) const {
     }
 
     auto nearest = entries_.front().deadline;
-    for (const auto &entry: entries_) {
+    for (const auto& entry : entries_) {
         nearest = std::min(nearest, entry.deadline);
     }
 
     return std::max(nearest - now, Duration::zero());
 }
 
-bool ScheduleQueue::reschedule(const TaskId &id, TimePoint new_deadline) {
-    for (auto &entry: entries_) {
+bool ScheduleQueue::reschedule(const TaskId& id, TimePoint new_deadline) {
+    for (auto& entry : entries_) {
         if (entry.task.domain_index == id.domain_index && entry.task.subdomain_index == id.subdomain_index) {
             entry.deadline = new_deadline;
             return true;
@@ -140,4 +141,4 @@ bool ScheduleQueue::empty() const {
     return entries_.empty();
 }
 
-} // namespace domain
+}  // namespace domain

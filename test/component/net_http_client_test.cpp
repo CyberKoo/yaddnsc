@@ -8,15 +8,16 @@
 // =============================================================================
 
 #include <algorithm>
-#include <atomic>
 #include <array>
+#include <atomic>
 #include <cctype>
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
-#include <cstring>
 #include <map>
 #include <memory>
+#include <optional>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -24,14 +25,21 @@
 #include <vector>
 
 #include <arpa/inet.h>
+#include <expected>
 #include <gtest/gtest.h>
+#include <netinet/in.h>
 #include <sys/socket.h>
+#include <sys/types.h>
 #include <unistd.h>
 
 #include "infrastructure/network/http/client.h"
+#include "infrastructure/network/http/error.h"
 #include "infrastructure/network/http/persistent_client.h"
-#include "infrastructure/network/http/stream_factory.h"
+#include "infrastructure/network/http/protocol/wire.h"
 #include "infrastructure/network/http/session.h"
+#include "infrastructure/network/http/stream_factory.h"
+#include "infrastructure/network/http/types.h"
+#include "infrastructure/network/transport/options.h"
 #include "support/util/cancellation_token.hpp"
 
 using namespace std::chrono_literals;
@@ -107,9 +115,7 @@ public:
     [[nodiscard]] std::string base_url() const { return fmt_url(port_); }
 
     /// Total accepted connections since start (keep-alive assertions).
-    [[nodiscard]] int connection_count() const noexcept {
-        return connections_.load(std::memory_order_relaxed);
-    }
+    [[nodiscard]] int connection_count() const noexcept { return connections_.load(std::memory_order_relaxed); }
 
     static std::string fmt_url(const std::uint16_t port) { return "http://127.0.0.1:" + std::to_string(port); }
 
@@ -129,7 +135,8 @@ private:
         return out;
     }
 
-    [[nodiscard]] static std::string fmt_line(const int status, std::string reason,
+    [[nodiscard]] static std::string fmt_line(const int status,
+                                              std::string reason,
                                               const std::string_view version = "HTTP/1.1") {
         return std::string(version) + " " + std::to_string(status) + " " + std::move(reason) + "\r\n";
     }

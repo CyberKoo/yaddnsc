@@ -10,17 +10,21 @@
 //   - Exception-specific accessors work correctly.
 // =============================================================================
 
-#include <string_view>
+#include "support/exception.h"
+
 #include <stdexcept>
+#include <string>
+#include <string_view>
+#include <type_traits>
+#include <utility>
 
 #include <gtest/gtest.h>
 
-#include "support/exception.h"
-#include "infrastructure/plugin/plugin_load_exception.h"
+#include "domain/error/dns_error.h"
 #include "infrastructure/config/config_verification_exception.h"
 #include "infrastructure/dns/dns_lookup_exception.h"
 #include "infrastructure/network/socket_exception.h"
-#include "domain/error/dns_error.h"
+#include "infrastructure/plugin/plugin_load_exception.h"
 
 // ── Base ─────────────────────────────────────────────────────────────────────
 
@@ -29,7 +33,7 @@ TEST(ExceptionTest, YaddnscException_IsRuntimeError) {
     // concrete subclass to verify the inheritance chain.
     try {
         throw PluginLoadException("base error");
-    } catch (const std::runtime_error &) {
+    } catch (const std::runtime_error&) {
         SUCCEED();
     } catch (...) {
         FAIL() << "PluginLoadException should be caught as std::runtime_error";
@@ -51,7 +55,7 @@ TEST(ExceptionTest, PluginLoadException_GetName_ReturnsCorrectType) {
 TEST(ExceptionTest, PluginLoadException_CatchByYaddnscException) {
     try {
         throw PluginLoadException("bad driver");
-    } catch (const YaddnscException &) {
+    } catch (const YaddnscException&) {
         SUCCEED();
     }
 }
@@ -66,7 +70,7 @@ TEST(ExceptionTest, ConfigVerificationException_GetName_ReturnsCorrectType) {
 TEST(ExceptionTest, ConfigVerificationException_IsYaddnscException) {
     try {
         throw ConfigVerificationException("config invalid");
-    } catch (const YaddnscException &) {
+    } catch (const YaddnscException&) {
         SUCCEED();
     }
 }
@@ -140,7 +144,7 @@ TEST(ExceptionTest, SocketException_WithErrnoEmptyContext) {
 TEST(ExceptionTest, SocketException_IsYaddnscException) {
     try {
         throw SocketException("socket error");
-    } catch (const YaddnscException &) {
+    } catch (const YaddnscException&) {
         SUCCEED();
     }
 }

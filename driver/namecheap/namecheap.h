@@ -5,11 +5,10 @@
 #ifndef YADDNSC_DRV_NAMECHEAP_NAMECHEAP_H
 #define YADDNSC_DRV_NAMECHEAP_NAMECHEAP_H
 
-#include <string>
-
 #include <yaddnsc/sdk/driver.hpp>
+#include <string_view>
 
-#include "config.hpp"
+struct NamecheapParams;
 
 /// Namecheap Dynamic DNS driver for updating A records.
 ///
@@ -24,7 +23,7 @@ public:
     ~NamecheapDriver() override = default;
 
     /// Perform one update: generate-request → HTTP exchange → check-response.
-    yaddnsc::sdk::Result update(yaddnsc::sdk::UpdateContext &context) override;
+    yaddnsc::sdk::Result update(yaddnsc::sdk::UpdateContext& context) override;
 
     /// Validate driver_param against the Namecheap API schema without
     /// updating; schema violations surface as YADDNSC_STATUS_INVALID_CONFIG.
@@ -35,11 +34,11 @@ private:
     ///
     /// The `host` parameter uses the subdomain label directly; for a
     /// bare-domain (apex) record the configuration should pass "@".
-    static yaddnsc::sdk::HttpRequest generate_request(const NamecheapParams &cfg,
-                                                      const yaddnsc::sdk::UpdateRequest &params);
+    static yaddnsc::sdk::HttpRequest generate_request(const NamecheapParams& cfg,
+                                                      const yaddnsc::sdk::UpdateRequest& params);
 
     /// Validate the Namecheap API response XML using libxml2.
-    static bool check_response(const yaddnsc::sdk::HttpResponse &response, const yaddnsc::sdk::Services &services);
+    static bool check_response(const yaddnsc::sdk::HttpResponse& response, const yaddnsc::sdk::Services& services);
 };
 
 #endif  // YADDNSC_DRV_NAMECHEAP_NAMECHEAP_H

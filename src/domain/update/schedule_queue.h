@@ -5,24 +5,23 @@
 #ifndef YADDNSC_DOMAIN_UPDATE_SCHEDULE_QUEUE_H
 #define YADDNSC_DOMAIN_UPDATE_SCHEDULE_QUEUE_H
 
-#include <chrono>
 #include <cstddef>
 #include <memory>
 #include <optional>
 #include <vector>
 
-#include "domain/config/runtime_config.h"
 #include "domain/update/time_types.h"
 #include "domain/update/update_task.h"
 
 namespace domain {
+struct RuntimeConfig;
 
 /// Identifies one scheduled task by its position in the runtime config.
 struct TaskId {
     std::size_t domain_index{};
     std::size_t subdomain_index{};
 
-    bool operator==(const TaskId &) const = default;
+    bool operator==(const TaskId&) const = default;
 };
 
 /// ScheduleQueue — pure timer queue for periodic DDNS update tasks.
@@ -62,7 +61,7 @@ public:
 
     /// Move the NEXT deadline of an already-queued task. Never inserts a new
     /// entry. @return false when the task id is unknown.
-    bool reschedule(const TaskId &id, TimePoint new_deadline);
+    bool reschedule(const TaskId& id, TimePoint new_deadline);
 
     /// Number of scheduled entries (one per subdomain).
     [[nodiscard]] std::size_t size() const;
@@ -80,12 +79,12 @@ private:
     };
 
     /// Evaluate the force-update flag for an entry popped at `now`.
-    [[nodiscard]] static bool check_force_update(Entry &entry, TimePoint now) noexcept;
+    [[nodiscard]] static bool check_force_update(Entry& entry, TimePoint now) noexcept;
 
     std::shared_ptr<const RuntimeConfig> config_;
     std::vector<Entry> entries_;
 };
 
-} // namespace domain
+}  // namespace domain
 
-#endif // YADDNSC_DOMAIN_UPDATE_SCHEDULE_QUEUE_H
+#endif  // YADDNSC_DOMAIN_UPDATE_SCHEDULE_QUEUE_H

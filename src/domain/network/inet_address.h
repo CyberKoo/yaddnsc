@@ -11,7 +11,10 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <variant>
+
+#include <stddef.h>
 
 #include "domain/network/address_family.h"
 
@@ -32,31 +35,23 @@ public:
     static std::optional<Inet4Address> parse(std::string_view addr);
 
     /// Create from 4 raw bytes (network byte order).
-    static Inet4Address from_bytes(const addr_type &bytes) noexcept;
+    static Inet4Address from_bytes(const addr_type& bytes) noexcept;
 
-    static Inet4Address from_array(const addr_type &addr) noexcept;
+    static Inet4Address from_array(const addr_type& addr) noexcept;
 
     // ---- accessors ---------------------------------------------------------
 
-    static constexpr AddressFamily get_family() noexcept {
-        return AddressFamily::IPV4;
-    }
+    static constexpr AddressFamily get_family() noexcept { return AddressFamily::IPV4; }
 
     [[nodiscard]] std::string to_string() const;
 
-    [[nodiscard]] constexpr const addr_type &get_address() const noexcept {
-        return addr_;
-    }
+    [[nodiscard]] constexpr const addr_type& get_address() const noexcept { return addr_; }
 
     // ---- classification ----------------------------------------------------
 
-    [[nodiscard]] constexpr bool is_loopback() const noexcept {
-        return addr_[0] == 127;
-    }
+    [[nodiscard]] constexpr bool is_loopback() const noexcept { return addr_[0] == 127; }
 
-    [[nodiscard]] constexpr bool is_multicast() const noexcept {
-        return (addr_[0] & 0xf0) == 0xe0;
-    }
+    [[nodiscard]] constexpr bool is_multicast() const noexcept { return (addr_[0] & 0xf0) == 0xe0; }
 
     [[nodiscard]] constexpr bool is_unspecified() const noexcept {
         static constexpr addr_type zero{};
@@ -65,17 +60,13 @@ public:
 
     // ---- equality ----------------------------------------------------------
 
-    bool operator==(const Inet4Address &other) const = default;
+    bool operator==(const Inet4Address& other) const = default;
 
     // ---- direct access -----------------------------------------------------
 
-    [[nodiscard]] constexpr const std::uint8_t *data() const noexcept {
-        return addr_.data();
-    }
+    [[nodiscard]] constexpr const std::uint8_t* data() const noexcept { return addr_.data(); }
 
-    [[nodiscard]] constexpr const addr_type &addr() const noexcept {
-        return addr_;
-    }
+    [[nodiscard]] constexpr const addr_type& addr() const noexcept { return addr_; }
 
 private:
     addr_type addr_{};
@@ -95,25 +86,21 @@ public:
     // ---- factory methods ---------------------------------------------------
 
     /// Parse an IPv6 string (with or without scope ID, e.g. "fe80::1%eth0").
-  /// Returns std::nullopt on failure.
+    /// Returns std::nullopt on failure.
     static std::optional<Inet6Address> parse(std::string_view addr);
 
     /// Create from 16 raw bytes (network byte order).
-    static Inet6Address from_bytes(const addr_type &bytes) noexcept;
+    static Inet6Address from_bytes(const addr_type& bytes) noexcept;
 
-    static Inet6Address from_array(const addr_type &addr) noexcept;
+    static Inet6Address from_array(const addr_type& addr) noexcept;
 
     // ---- accessors ---------------------------------------------------------
 
-    static constexpr AddressFamily get_family() noexcept {
-        return AddressFamily::IPV6;
-    }
+    static constexpr AddressFamily get_family() noexcept { return AddressFamily::IPV6; }
 
     [[nodiscard]] std::string to_string() const;
 
-    [[nodiscard]] constexpr const addr_type &get_address() const noexcept {
-        return addr_;
-    }
+    [[nodiscard]] constexpr const addr_type& get_address() const noexcept { return addr_; }
 
     // ---- classification ----------------------------------------------------
 
@@ -122,9 +109,7 @@ public:
         return addr_ == loopback;
     }
 
-    [[nodiscard]] constexpr bool is_multicast() const noexcept {
-        return addr_[0] == 0xff;
-    }
+    [[nodiscard]] constexpr bool is_multicast() const noexcept { return addr_[0] == 0xff; }
 
     [[nodiscard]] constexpr bool is_unspecified() const noexcept {
         static constexpr addr_type zero{};
@@ -139,33 +124,23 @@ public:
         return addr_[0] == 0xfe && (addr_[1] & 0xc0) == 0xc0;
     }
 
-    [[nodiscard]] constexpr bool is_ula() const noexcept {
-        return (addr_[0] & 0xfe) == 0xfc;
-    }
+    [[nodiscard]] constexpr bool is_ula() const noexcept { return (addr_[0] & 0xfe) == 0xfc; }
 
     // ---- scope ID ----------------------------------------------------------
 
-    [[nodiscard]] std::uint32_t get_scope_id() const noexcept {
-        return scope_id_;
-    }
+    [[nodiscard]] std::uint32_t get_scope_id() const noexcept { return scope_id_; }
 
-    void set_scope_id(std::uint32_t id) noexcept {
-        scope_id_ = id;
-    }
+    void set_scope_id(std::uint32_t id) noexcept { scope_id_ = id; }
 
     // ---- equality ----------------------------------------------------------
 
-    bool operator==(const Inet6Address &other) const = default;
+    bool operator==(const Inet6Address& other) const = default;
 
     // ---- direct access -----------------------------------------------------
 
-    [[nodiscard]] constexpr const std::uint8_t *data() const noexcept {
-        return addr_.data();
-    }
+    [[nodiscard]] constexpr const std::uint8_t* data() const noexcept { return addr_.data(); }
 
-    [[nodiscard]] constexpr const addr_type &addr() const noexcept {
-        return addr_;
-    }
+    [[nodiscard]] constexpr const addr_type& addr() const noexcept { return addr_; }
 
 private:
     addr_type addr_{};
@@ -187,21 +162,19 @@ public:
 
     // implicit conversions from concrete types
     // NOLINTNEXTLINE(google-explicit-constructor)
-    InetAddress(Inet4Address v4) noexcept : addr_(v4) {
-    }
+    InetAddress(Inet4Address v4) noexcept : addr_(v4) {}
 
     // NOLINTNEXTLINE(google-explicit-constructor)
-    InetAddress(Inet6Address v6) noexcept : addr_(v6) {
-    }
+    InetAddress(Inet6Address v6) noexcept : addr_(v6) {}
 
     // ---- factory methods ---------------------------------------------------
 
     /// Parse a textual IP address ("192.168.1.1" or "::1").
-  /// Returns std::nullopt on parse failure.
+    /// Returns std::nullopt on parse failure.
     static std::optional<InetAddress> parse(std::string_view addr);
 
     /// Parse from an opaque byte buffer.  `len` must be 4 (IPv4) or 16 (IPv6);
-  /// returns std::nullopt otherwise.
+    /// returns std::nullopt otherwise.
     [[nodiscard]] static std::optional<InetAddress> from_bytes(std::span<const std::uint8_t> bytes);
 
     // ---- accessors ---------------------------------------------------------
@@ -233,27 +206,23 @@ public:
 
     // ---- type-safe access --------------------------------------------------
 
-    [[nodiscard]] const Inet4Address *as_v4() const noexcept {
-        return std::get_if<Inet4Address>(&addr_);
-    }
+    [[nodiscard]] const Inet4Address* as_v4() const noexcept { return std::get_if<Inet4Address>(&addr_); }
 
-    [[nodiscard]] const Inet6Address *as_v6() const noexcept {
-        return std::get_if<Inet6Address>(&addr_);
-    }
+    [[nodiscard]] const Inet6Address* as_v6() const noexcept { return std::get_if<Inet6Address>(&addr_); }
 
     // ---- equality ----------------------------------------------------------
 
-    bool operator==(const InetAddress &other) const = default;
+    bool operator==(const InetAddress& other) const = default;
 
     // ---- visit -------------------------------------------------------------
 
     template<typename Visitor>
-    decltype(auto) visit(Visitor &&vis) const {
+    decltype(auto) visit(Visitor&& vis) const {
         return std::visit(std::forward<Visitor>(vis), addr_);
     }
 
     template<typename Visitor>
-    decltype(auto) visit(Visitor &&vis) {
+    decltype(auto) visit(Visitor&& vis) {
         return std::visit(std::forward<Visitor>(vis), addr_);
     }
 

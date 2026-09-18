@@ -8,12 +8,15 @@
 // =============================================================================
 
 #include <cstdint>
+#include <string>
+#include <vector>
 
 #include <gtest/gtest.h>
+#include <stddef.h>
 
-#include "infrastructure/dns/wire/query_util.h"
+#include "infrastructure/dns/types.h"
 #include "infrastructure/dns/wire/builder.h"
-#include "domain/network/address_family.h"
+#include "infrastructure/dns/wire/query_util.h"
 
 // ===========================================================================
 // Helper: verify the DNS header of any query packet (12 bytes).
@@ -21,67 +24,68 @@
 
 namespace {
 
-    /// Verify the DNS header structure for a standard query (mkquery).
-    ///
-    /// Verifies all fixed header fields. The TXID is random and may be any
-    /// 16-bit value (including 0x0000), so it is not asserted here.
-    /// Randomness is validated in TxidRandomness below.
-    void expect_standard_query_header(const std::vector<std::uint8_t> &packet) {
-        ASSERT_GE(packet.size(), 12U) << "Packet must have at least a 12-byte header";
+/// Verify the DNS header structure for a standard query (mkquery).
+///
+/// Verifies all fixed header fields. The TXID is random and may be any
+/// 16-bit value (including 0x0000), so it is not asserted here.
+/// Randomness is validated in TxidRandomness below.
+void expect_standard_query_header(const std::vector<std::uint8_t>& packet) {
+    ASSERT_GE(packet.size(), 12U) << "Packet must have at least a 12-byte header";
 
-        // Flags: bytes 2-3 = 0x0100 (standard query, RD=1)
-        EXPECT_EQ(packet[2], 0x01) << "Flags high byte: standard query with RD";
-        EXPECT_EQ(packet[3], 0x00) << "Flags low byte";
+    // Flags: bytes 2-3 = 0x0100 (standard query, RD=1)
+    EXPECT_EQ(packet[2], 0x01) << "Flags high byte: standard query with RD";
+    EXPECT_EQ(packet[3], 0x00) << "Flags low byte";
 
-        // QDCOUNT = 1 (bytes 4-5)
-        EXPECT_EQ(packet[4], 0x00);
-        EXPECT_EQ(packet[5], 0x01);
+    // QDCOUNT = 1 (bytes 4-5)
+    EXPECT_EQ(packet[4], 0x00);
+    EXPECT_EQ(packet[5], 0x01);
 
-        // ANCOUNT = 0 (bytes 6-7)
-        EXPECT_EQ(packet[6], 0x00);
-        EXPECT_EQ(packet[7], 0x00);
+    // ANCOUNT = 0 (bytes 6-7)
+    EXPECT_EQ(packet[6], 0x00);
+    EXPECT_EQ(packet[7], 0x00);
 
-        // NSCOUNT = 0 (bytes 8-9)
-        EXPECT_EQ(packet[8], 0x00);
-        EXPECT_EQ(packet[9], 0x00);
+    // NSCOUNT = 0 (bytes 8-9)
+    EXPECT_EQ(packet[8], 0x00);
+    EXPECT_EQ(packet[9], 0x00);
 
-        // ARCOUNT = 1 (bytes 10-11) — EDNS0 OPT pseudo-record is appended.
-        EXPECT_EQ(packet[10], 0x00);
-        EXPECT_EQ(packet[11], 0x01);
+    // ARCOUNT = 1 (bytes 10-11) — EDNS0 OPT pseudo-record is appended.
+    EXPECT_EQ(packet[10], 0x00);
+    EXPECT_EQ(packet[11], 0x01);
+}
+
+/// Verify that the QNAME at offset 12 encodes "example.com" correctly.
+void expect_qname_example_com(const std::vector<std::uint8_t>& packet, size_t offset = 12) {
+    // \x07example\x03com\x00
+    ASSERT_GE(packet.size(), offset + 13);
+    EXPECT_EQ(packet[offset + 0], 7);
+    EXPECT_EQ(packet[offset + 1], 'e');
+    EXPECT_EQ(packet[offset + 2], 'x');
+    EXPECT_EQ(packet[offset + 3], 'a');
+    EXPECT_EQ(packet[offset + 4], 'm');
+    EXPECT_EQ(packet[offset + 5], 'p');
+    EXPECT_EQ(packet[offset + 6], 'l');
+    EXPECT_EQ(packet[offset + 7], 'e');
+    EXPECT_EQ(packet[offset + 8], 3);
+    EXPECT_EQ(packet[offset + 9], 'c');
+    EXPECT_EQ(packet[offset + 10], 'o');
+    EXPECT_EQ(packet[offset + 11], 'm');
+    EXPECT_EQ(packet[offset + 12], 0);  // root label
+}
+
+/// Compute QNAME length from the encoded form (sum of label lengths + labels + root).
+size_t encoded_qname_length(const std::vector<std::uint8_t>& packet, size_t offset = 12) {
+    size_t len = 0;
+    while (offset + len < packet.size()) {
+        auto label_len = packet[offset + len];
+        ++len;  // length byte
+        if (label_len == 0)
+            break;  // root label
+        len += label_len;
     }
+    return len;
+}
 
-    /// Verify that the QNAME at offset 12 encodes "example.com" correctly.
-    void expect_qname_example_com(const std::vector<std::uint8_t> &packet, size_t offset = 12) {
-        // \x07example\x03com\x00
-        ASSERT_GE(packet.size(), offset + 13);
-        EXPECT_EQ(packet[offset + 0], 7);
-        EXPECT_EQ(packet[offset + 1], 'e');
-        EXPECT_EQ(packet[offset + 2], 'x');
-        EXPECT_EQ(packet[offset + 3], 'a');
-        EXPECT_EQ(packet[offset + 4], 'm');
-        EXPECT_EQ(packet[offset + 5], 'p');
-        EXPECT_EQ(packet[offset + 6], 'l');
-        EXPECT_EQ(packet[offset + 7], 'e');
-        EXPECT_EQ(packet[offset + 8], 3);
-        EXPECT_EQ(packet[offset + 9], 'c');
-        EXPECT_EQ(packet[offset + 10], 'o');
-        EXPECT_EQ(packet[offset + 11], 'm');
-        EXPECT_EQ(packet[offset + 12], 0);  // root label
-    }
-
-    /// Compute QNAME length from the encoded form (sum of label lengths + labels + root).
-    size_t encoded_qname_length(const std::vector<std::uint8_t> &packet, size_t offset = 12) {
-        size_t len = 0;
-        while (offset + len < packet.size()) {
-            auto label_len = packet[offset + len];
-            ++len;  // length byte
-            if (label_len == 0) break;  // root label
-            len += label_len;
-        }
-        return len;
-    }
-
-} // anonymous namespace
+}  // anonymous namespace
 
 // ===========================================================================
 // build_query — standard DNS query
@@ -206,9 +210,7 @@ TEST(BuildQueryTest, ReturnsNonEmpty) {
 // ===========================================================================
 
 TEST(QueryBuilderTest, WithoutEdns_HasNoAdditionalSection) {
-    auto packet = DNS::QueryBuilder{}
-        .add_question("example.com", DNS::RecordType::A)
-        .build();
+    auto packet = DNS::QueryBuilder{}.add_question("example.com", DNS::RecordType::A).build();
 
     ASSERT_GE(packet.size(), 12U);
     EXPECT_EQ(packet[2], 0x01);  // standard query, RD=1
@@ -227,10 +229,7 @@ TEST(QueryBuilderTest, WithoutEdns_HasNoAdditionalSection) {
 }
 
 TEST(QueryBuilderTest, WithEdns_HasAdditionalSection) {
-    auto packet = DNS::QueryBuilder{}
-        .add_question("example.com", DNS::RecordType::A)
-        .add_edns(4096)
-        .build();
+    auto packet = DNS::QueryBuilder{}.add_question("example.com", DNS::RecordType::A).add_edns(4096).build();
 
     expect_standard_query_header(packet);  // ARCOUNT = 1 implies EDNS0
     EXPECT_EQ(packet.size(), 40U);

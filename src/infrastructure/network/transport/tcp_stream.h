@@ -10,6 +10,7 @@
 #include <string>
 
 #include <expected>
+#include <stddef.h>
 
 #include "infrastructure/network/transport/detail/socket_stream.h"
 #include "infrastructure/network/transport/io_error.h"

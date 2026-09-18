@@ -5,26 +5,29 @@
 #include "factory.h"
 
 #include <memory>
+#include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
-#include "domain/config/runtime_config.h"
+#include <spdlog/spdlog.h>
+
 #include "domain/config/dns_config.h"
+#include "domain/config/runtime_config.h"
+#include "infrastructure/dns/dispatcher.h"
 #include "infrastructure/dns/resolver/base.h"
 #include "infrastructure/dns/resolver_catalog.h"
-
-#include "resolver_config.h"
 #include "infrastructure/network/uri.h"
 
-#include <spdlog/spdlog.h>
+#include "resolver_config.h"
 
 // ===========================================================================
 // DnsResolverFactory::create — build a ResolverDispatcher from resolver settings.
 // ===========================================================================
 
-ResolverDispatcher DnsResolverFactory::create(const domain::ResolverSettings &settings,
-                                              const Utils::CancellationToken &token,
-                                              const ResolverCatalog &catalog) {
+ResolverDispatcher DnsResolverFactory::create(const domain::ResolverSettings& settings,
+                                              const Utils::CancellationToken& token,
+                                              const ResolverCatalog& catalog) {
     // The server list arrives already normalised (legacy single-server format
     // folded in by the config normaliser).
     std::vector<Config::DnsServer> dns_servers = settings.servers;
@@ -37,8 +40,8 @@ ResolverDispatcher DnsResolverFactory::create(const domain::ResolverSettings &se
     // Build resolver objects from server configurations, dispatching on the
     // URI schema via the catalog (https → DohResolver, tls → DotResolver,
     // "" → ClassicResolver).
-    std::vector<std::unique_ptr<ResolverBase> > resolvers;
-    for (const auto &server: dns_servers) {
+    std::vector<std::unique_ptr<ResolverBase>> resolvers;
+    for (const auto& server : dns_servers) {
         resolvers.push_back(catalog.create(server, token));
         const auto uri = Uri::parse(server.address);
         SPDLOG_INFO("DNS resolver #{}: {} ({})", resolvers.back()->get_id(),

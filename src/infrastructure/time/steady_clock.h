@@ -9,6 +9,7 @@
 #include <mutex>
 
 #include "application/ports/clock.h"
+#include "domain/update/time_types.h"
 
 /// SteadyClock — Clock adapter over std::chrono::steady_clock.
 ///
@@ -20,7 +21,7 @@ public:
     [[nodiscard]] domain::TimePoint now() const override;
 
     /// Block until `deadline`; returns false when stop was requested first.
-    bool wait_until(domain::TimePoint deadline, const std::stop_token &stop) override;
+    bool wait_until(domain::TimePoint deadline, const std::stop_token& stop) override;
 
     /// Wake every waiter early (retry requests can move deadlines sooner).
     void wake() override;
@@ -34,4 +35,4 @@ private:
     unsigned wake_epoch_ = 0;
 };
 
-#endif // YADDNSC_INFRASTRUCTURE_TIME_STEADY_CLOCK_H
+#endif  // YADDNSC_INFRASTRUCTURE_TIME_STEADY_CLOCK_H

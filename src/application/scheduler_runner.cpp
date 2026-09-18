@@ -4,8 +4,19 @@
 
 #include "scheduler_runner.h"
 
-SchedulerRunner::SchedulerRunner(domain::ScheduleQueue &queue, Clock &clock, TaskExecutor &executor,
-                                 std::stop_token stop, const Logger &logger)
+#include <optional>
+
+#include "application/ports/clock.h"
+#include "application/ports/log.h"
+#include "application/ports/task_executor.h"
+#include "domain/update/time_types.h"
+#include "domain/update/update_task.h"
+
+SchedulerRunner::SchedulerRunner(domain::ScheduleQueue& queue,
+                                 Clock& clock,
+                                 TaskExecutor& executor,
+                                 std::stop_token stop,
+                                 const Logger& logger)
     : queue_(queue), clock_(clock), executor_(executor), stop_(std::move(stop)), logger_(logger) {
     YLOG_INFO(logger_, "Scheduler initialised with {} tasks", queue_.size());
 }
@@ -23,13 +34,13 @@ void SchedulerRunner::run() {
             }
             if (!retries.empty()) {
                 const auto now = clock_.now();
-                for (const auto &[id, delay]: retries) {
+                for (const auto& [id, delay] : retries) {
                     queue_.reschedule(id, now + delay);
                 }
             }
         }
 
-        for (auto &task: queue_.pop_due(clock_.now())) {
+        for (auto& task : queue_.pop_due(clock_.now())) {
             // A false return means the executor is shutting down; the task is
             // dropped, matching the legacy shutdown semantics (pending work is
             // discarded once stop was requested).

@@ -4,11 +4,20 @@
 
 #include "namecheap.h"
 
-#include <libxml/parser.h>
-#include <libxml/tree.h>
-#include <libxml/xpath.h>
+#include <memory>
+#include <optional>
+#include <string>
+#include <vector>
 
+#include <expected>
+#include <libxml/parser.h>
+#include <libxml/xmlmemory.h>
+#include <libxml/xmlstring.h>
+#include <libxml/xpath.h>
+#include <yaddnsc/sdk/driver.hpp>
+#include <yaddnsc/sdk/driver_abi.h>
 #include <yaddnsc/sdk/xml_raii.hpp>
+#include <yaddnsc/util/format.hpp>
 
 #include "config.hpp"
 
@@ -23,12 +32,16 @@ using yaddnsc::sdk::UpdateContext;
 using yaddnsc::sdk::UpdateRequest;
 
 namespace {
-    constexpr std::string_view API_URL = "https://dynamicdns.park-your-domain.com/update";
-    constexpr std::string_view DRIVER_NAME = "namecheap";
-}
+constexpr std::string_view API_URL = "https://dynamicdns.park-your-domain.com/update";
+constexpr std::string_view DRIVER_NAME = "namecheap";
+}  // namespace
 
-YADDNSC_DEFINE_DRIVER(NamecheapDriver, "namecheap", "Updates DNS records via the Namecheap Dynamic DNS API", "Kotarou",
-                      "1.0.0", YADDNSC_DRIVER_CAPABILITY_A)
+YADDNSC_DEFINE_DRIVER(NamecheapDriver,
+                      "namecheap",
+                      "Updates DNS records via the Namecheap Dynamic DNS API",
+                      "Kotarou",
+                      "1.0.0",
+                      YADDNSC_DRIVER_CAPABILITY_A)
 
 // =============================================================================
 //  NamecheapDriver::update
@@ -42,8 +55,8 @@ Result NamecheapDriver::validate(std::string_view driver_param_json) const {
     return {};
 }
 
-Result NamecheapDriver::update(UpdateContext &context) {
-    const auto &params = context.request();
+Result NamecheapDriver::update(UpdateContext& context) {
+    const auto& params = context.request();
 
     // Namecheap DDNS only supports A records.
     if (params.record_type == "AAAA") {
@@ -58,17 +71,16 @@ Result NamecheapDriver::update(UpdateContext &context) {
 
     auto request = generate_request(cfg, params);
 
-    return run_update(context, DRIVER_NAME, request,
-                      [](const HttpResponse &response, const Services &services) {
-                          return check_response(response, services);
-                      });
+    return run_update(context, DRIVER_NAME, request, [](const HttpResponse& response, const Services& services) {
+        return check_response(response, services);
+    });
 }
 
 // =============================================================================
 //  NamecheapDriver::generate_request
 // =============================================================================
 
-HttpRequest NamecheapDriver::generate_request(const NamecheapParams &cfg, const UpdateRequest &params) {
+HttpRequest NamecheapDriver::generate_request(const NamecheapParams& cfg, const UpdateRequest& params) {
     // Build URL:
     //   https://dynamicdns.park-your-domain.com/update
     //   ?host=HOST&domain=DOMAIN&password=PASS&ip=IP
@@ -86,7 +98,7 @@ HttpRequest NamecheapDriver::generate_request(const NamecheapParams &cfg, const 
 //  NamecheapDriver::check_response
 // =============================================================================
 
-bool NamecheapDriver::check_response(const HttpResponse &response, const Services &services) {
+bool NamecheapDriver::check_response(const HttpResponse& response, const Services& services) {
     YADDNSC_SDK_LOG_TRACE(services, "Got {} from server.", response.body);
 
     // Parse the XML response with libxml2.

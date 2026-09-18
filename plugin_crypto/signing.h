@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <span>
 #include <string>
+#include <string_view>
 #include <vector>
 
 /// Cryptographic and encoding utilities for API request signing.
@@ -56,6 +57,6 @@ namespace Signing {
 /// Current UTC date formatted as "YYYYMMDD".
 [[nodiscard]] std::string iso8601_date() noexcept;
 
-} // namespace Signing
+}  // namespace Signing
 
-#endif // YADDNSC_PLUGIN_CRYPTO_SIGNING_H
+#endif  // YADDNSC_PLUGIN_CRYPTO_SIGNING_H

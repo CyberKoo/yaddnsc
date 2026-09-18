@@ -9,13 +9,13 @@
 //   - Maximum values fit within the return type.
 // =============================================================================
 
+#include "support/util/bytes.hpp"
+
 #include <cstdint>
 #include <span>
-#include <vector>
+#include <string>
 
 #include <gtest/gtest.h>
-
-#include "support/util/bytes.hpp"
 
 // ── read_u16_be ───────────────────────────────────────────────────────────────
 

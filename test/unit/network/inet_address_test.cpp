@@ -10,11 +10,18 @@
 //   - Edge cases: empty input, malformed addresses, boundary values.
 // =============================================================================
 
-#include <string_view>
+#include "domain/network/inet_address.h"
 
 #include <gtest/gtest.h>
+#include <stddef.h>
+#include <array>
+#include <optional>
+#include <span>
+#include <string>
+#include <string_view>
+#include <type_traits>
 
-#include "domain/network/inet_address.h"
+#include "domain/network/address_family.h"
 
 // ===========================================================================
 // Inet4Address
@@ -183,8 +190,7 @@ TEST(Inet6AddressTest, Parse_Invalid_ReturnsNullopt) {
 }
 
 TEST(Inet6AddressTest, FromBytes_RoundTrip) {
-    Inet6Address::addr_type bytes = {0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0,
-                                     0, 0, 0, 0, 0, 0, 0, 1};  // 2001:db8::1
+    Inet6Address::addr_type bytes = {0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1};  // 2001:db8::1
     auto addr = Inet6Address::from_bytes(bytes);
     EXPECT_EQ(addr.get_address(), bytes);
 }
@@ -220,8 +226,7 @@ TEST(Inet6AddressTest, ScopeId) {
 
 TEST(Inet6AddressTest, ToString_WithScopeId) {
     Inet6Address addr;
-    Inet6Address::addr_type bytes = {0xfe, 0x80, 0, 0, 0, 0, 0, 0,
-                                     0, 0, 0, 0, 0, 0, 0, 2};
+    Inet6Address::addr_type bytes = {0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2};
     addr = Inet6Address::from_bytes(bytes);
     addr.set_scope_id(5);
     auto s = addr.to_string();
@@ -229,15 +234,13 @@ TEST(Inet6AddressTest, ToString_WithScopeId) {
 }
 
 TEST(Inet6AddressTest, FromArray_DelegatesToFromBytes) {
-    Inet6Address::addr_type bytes = {0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0,
-                                     0, 0, 0, 0, 0, 0, 0, 1};
+    Inet6Address::addr_type bytes = {0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1};
     auto addr = Inet6Address::from_array(bytes);
     EXPECT_EQ(addr.get_address(), bytes);
 }
 
 TEST(Inet6AddressTest, AddrAccessor) {
-    Inet6Address::addr_type bytes = {0xfe, 0x80, 0, 0, 0, 0, 0, 0,
-                                     0, 0, 0, 0, 0, 0, 0, 1};
+    Inet6Address::addr_type bytes = {0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1};
     auto addr = Inet6Address::from_bytes(bytes);
     EXPECT_EQ(addr.addr(), bytes);
 }
@@ -456,9 +459,7 @@ TEST(InetAddressTest, Visit_IPv4) {
     auto addr = InetAddress::parse("10.0.0.1");
     ASSERT_TRUE(addr.has_value());
     bool visited_v4 = false;
-    addr->visit([&](const auto &a) {
-        visited_v4 = std::is_same_v<std::decay_t<decltype(a)>, Inet4Address>;
-    });
+    addr->visit([&](const auto& a) { visited_v4 = std::is_same_v<std::decay_t<decltype(a)>, Inet4Address>; });
     EXPECT_TRUE(visited_v4);
 }
 
@@ -466,17 +467,15 @@ TEST(InetAddressTest, Visit_IPv6) {
     auto addr = InetAddress::parse("::1");
     ASSERT_TRUE(addr.has_value());
     bool visited_v6 = false;
-    addr->visit([&](const auto &a) {
-        visited_v6 = std::is_same_v<std::decay_t<decltype(a)>, Inet6Address>;
-    });
+    addr->visit([&](const auto& a) { visited_v6 = std::is_same_v<std::decay_t<decltype(a)>, Inet6Address>; });
     EXPECT_TRUE(visited_v6);
 }
 
 TEST(InetAddressTest, Visit_Mutable) {
     InetAddress addr{Inet4Address{}};
-    addr.visit([](auto &a) {
+    addr.visit([](auto& a) {
         // Just verify the mutable overload compiles and runs
         using T = std::decay_t<decltype(a)>;
-        EXPECT_TRUE((std::is_same_v<T, Inet4Address>));
+        EXPECT_TRUE((std::is_same_v<T, Inet4Address>) );
     });
 }

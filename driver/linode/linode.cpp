@@ -4,6 +4,14 @@
 
 #include "linode.h"
 
+#include <vector>
+
+#include <glaze/glaze.hpp>
+#include <yaddnsc/sdk/driver.hpp>
+#include <yaddnsc/sdk/driver_abi.h>
+#include <yaddnsc/util/format.hpp>
+
+#include "config.hpp"
 #include "response.hpp"
 
 namespace fmt = yaddnsc::sdk::fmt;
@@ -17,12 +25,16 @@ using yaddnsc::sdk::UpdateContext;
 using yaddnsc::sdk::UpdateRequest;
 
 namespace {
-    constexpr std::string_view API_URL = "https://api.linode.com/v4/domains/{DOMAIN_ID}/records/{RECORD_ID}";
-    constexpr std::string_view DRIVER_NAME = "linode";
-}
+constexpr std::string_view API_URL = "https://api.linode.com/v4/domains/{DOMAIN_ID}/records/{RECORD_ID}";
+constexpr std::string_view DRIVER_NAME = "linode";
+}  // namespace
 
-YADDNSC_DEFINE_DRIVER(LinodeDriver, "linode", "Updates DNS records via the Linode API", "Kotarou",
-                      "1.0.0", YADDNSC_DRIVER_CAPABILITY_A | YADDNSC_DRIVER_CAPABILITY_AAAA)
+YADDNSC_DEFINE_DRIVER(LinodeDriver,
+                      "linode",
+                      "Updates DNS records via the Linode API",
+                      "Kotarou",
+                      "1.0.0",
+                      YADDNSC_DRIVER_CAPABILITY_A | YADDNSC_DRIVER_CAPABILITY_AAAA)
 
 Result LinodeDriver::validate(std::string_view driver_param_json) const {
     // Reuses the update-time schema: parse_config throws ConfigParseError on
@@ -32,8 +44,8 @@ Result LinodeDriver::validate(std::string_view driver_param_json) const {
     return {};
 }
 
-Result LinodeDriver::update(UpdateContext &context) {
-    const auto &params = context.request();
+Result LinodeDriver::update(UpdateContext& context) {
+    const auto& params = context.request();
     const auto cfg = parse_config<LinodeParams>(params.driver_param_json);
 
     HttpRequest request{};
@@ -43,13 +55,12 @@ Result LinodeDriver::update(UpdateContext &context) {
     request.content_type = "application/json";
     request.method = Method::Put;
 
-    return run_update(context, DRIVER_NAME, request,
-                      [](const HttpResponse &response, const Services &services) {
-                          return check_response(response, services);
-                      });
+    return run_update(context, DRIVER_NAME, request, [](const HttpResponse& response, const Services& services) {
+        return check_response(response, services);
+    });
 }
 
-bool LinodeDriver::check_response(const HttpResponse &response, const Services &services) {
+bool LinodeDriver::check_response(const HttpResponse& response, const Services& services) {
     YADDNSC_SDK_LOG_TRACE(services, "Got {} from server.", response.body);
 
     // Linode returns 200 OK with the updated record object on success.
@@ -61,7 +72,7 @@ bool LinodeDriver::check_response(const HttpResponse &response, const Services &
     // Error responses include a JSON body with error details.
     if (!response.body.empty()) {
         if (auto result = glz::read_json<LinodeErrorResponse>(response.body)) {
-            for (const auto &err: result.value().errors) {
+            for (const auto& err : result.value().errors) {
                 YADDNSC_SDK_LOG_ERROR(services, "Linode API error{}: {}",
                                       err.field.empty() ? "" : fmt::format(" ({})", err.field), err.reason);
             }
@@ -75,11 +86,8 @@ bool LinodeDriver::check_response(const HttpResponse &response, const Services &
     return false;
 }
 
-std::string LinodeDriver::generate_body(const UpdateRequest &request, std::optional<int> ttl_sec) {
+std::string LinodeDriver::generate_body(const UpdateRequest& request, std::optional<int> ttl_sec) {
     auto body = LinodeRequestBody{
-        .name = std::string(request.subdomain),
-        .target = std::string(request.ip_address),
-        .ttl_sec = ttl_sec
-    };
+        .name = std::string(request.subdomain), .target = std::string(request.ip_address), .ttl_sec = ttl_sec};
     return glz::write_json(body).value_or("{}");
 }

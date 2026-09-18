@@ -5,12 +5,12 @@
 #ifndef YADDNSC_URI_H
 #define YADDNSC_URI_H
 
-#include <string>
-#include <vector>
-#include <utility>
+#include <cstddef>
 #include <optional>
+#include <string>
 #include <string_view>
-
+#include <utility>
+#include <vector>
 
 /// A URI parser and builder conforming to RFC 3986.
 ///
@@ -93,8 +93,7 @@ public:
     /// When @p encode_slash is false, '/' is preserved instead of being encoded as
     /// "%2F".  This is needed for the canonical URI in AWS SigV4 signing, where
     /// each path segment is encoded separately and '/' is the segment delimiter.
-    [[nodiscard]] static std::string url_encode(std::string_view input,
-                                                 bool encode_slash = true) noexcept;
+    [[nodiscard]] static std::string url_encode(std::string_view input, bool encode_slash = true) noexcept;
 
     /// Percent-decode a string per RFC 3986 §2.1.
     /// Each "%XX" sequence is replaced with the corresponding byte.
@@ -111,35 +110,40 @@ private:
         std::size_t pos = 0;
         std::size_t len = 0;
 
-        [[nodiscard]] std::string_view view(const std::string &s) const noexcept {
+        [[nodiscard]] std::string_view view(const std::string& s) const noexcept {
             return std::string_view(s).substr(pos, len);
         }
+
         [[nodiscard]] bool empty() const noexcept { return len == 0; }
-        void assign(std::size_t p, std::size_t l) noexcept { pos = p; len = l; }
+
+        void assign(std::size_t p, std::size_t l) noexcept {
+            pos = p;
+            len = l;
+        }
     };
 
-    [[nodiscard]] std::string_view view(const Slice &s) const noexcept {
-        return s.view(raw_uri_);
-    }
+    [[nodiscard]] std::string_view view(const Slice& s) const noexcept { return s.view(raw_uri_); }
 
     /// Return the well-known default port for a given scheme, or 0 if unknown.
     static int default_port_for(std::string_view scheme) noexcept;
 
     /// Parse a host:port authority string into host slice and port.
-    static void parse_authority(std::string_view auth, Slice &host_out,
-                                std::optional<int> &port_out, bool &is_ipv6_out,
+    static void parse_authority(std::string_view auth,
+                                Slice& host_out,
+                                std::optional<int>& port_out,
+                                bool& is_ipv6_out,
                                 std::size_t auth_raw_offset,
                                 std::string_view raw_uri_hint);
 
-    std::string raw_uri_;                     ///< sole string buffer owner
+    std::string raw_uri_;  ///< sole string buffer owner
     Slice schema_;
     Slice host_;
     bool is_ipv6_ = false;
-    std::optional<int> port_;                 ///< always populated after parse()
+    std::optional<int> port_;  ///< always populated after parse()
     Slice path_;
     Slice query_string_;
     Slice body_;
     mutable std::string host_bracketed_cache_;  ///< lazy "[host]" for IPv6
 };
 
-#endif //YADDNSC_URI_H
+#endif  // YADDNSC_URI_H

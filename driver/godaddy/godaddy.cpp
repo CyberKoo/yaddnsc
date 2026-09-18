@@ -4,7 +4,21 @@
 
 #include "godaddy.h"
 
+#include <optional>
+#include <string>
+#include <vector>
+
 #include <glaze/glaze.hpp>
+#include <yaddnsc/sdk/driver.hpp>
+#include <yaddnsc/sdk/driver_abi.h>
+#include <yaddnsc/util/format.hpp>
+
+#include "config.hpp"
+
+namespace glz {
+template<class T>
+struct meta;
+}  // namespace glz
 
 namespace fmt = yaddnsc::sdk::fmt;
 using yaddnsc::sdk::Error;
@@ -16,29 +30,29 @@ using yaddnsc::sdk::Services;
 using yaddnsc::sdk::UpdateContext;
 
 namespace {
-    constexpr std::string_view API_URL = "https://api.godaddy.com/v1/domains/{DOMAIN}/records/{TYPE}/{NAME}";
-    constexpr std::string_view DRIVER_NAME = "godaddy";
+constexpr std::string_view API_URL = "https://api.godaddy.com/v1/domains/{DOMAIN}/records/{TYPE}/{NAME}";
+constexpr std::string_view DRIVER_NAME = "godaddy";
 
-    /// GoDaddy DNS record update request body (single record in an array).
-    struct GoDaddyRecordBody {
-        std::string data;  ///< Record value (IP address)
-        int ttl;           ///< Time-to-live in seconds
-        std::string type;  ///< DNS record type (A, AAAA)
-    };
-} // anonymous namespace
+/// GoDaddy DNS record update request body (single record in an array).
+struct GoDaddyRecordBody {
+    std::string data;  ///< Record value (IP address)
+    int ttl;           ///< Time-to-live in seconds
+    std::string type;  ///< DNS record type (A, AAAA)
+};
+}  // anonymous namespace
 
 template<>
 struct glz::meta<GoDaddyRecordBody> {
     using T = GoDaddyRecordBody;
-    static constexpr auto value = object(
-        "data", &T::data,
-        "ttl", &T::ttl,
-        "type", &T::type
-    );
+    static constexpr auto value = object("data", &T::data, "ttl", &T::ttl, "type", &T::type);
 };
 
-YADDNSC_DEFINE_DRIVER(GoDaddyDriver, "godaddy", "Updates DNS records via the GoDaddy API", "Kotarou",
-                      "1.0.0", YADDNSC_DRIVER_CAPABILITY_A | YADDNSC_DRIVER_CAPABILITY_AAAA)
+YADDNSC_DEFINE_DRIVER(GoDaddyDriver,
+                      "godaddy",
+                      "Updates DNS records via the GoDaddy API",
+                      "Kotarou",
+                      "1.0.0",
+                      YADDNSC_DRIVER_CAPABILITY_A | YADDNSC_DRIVER_CAPABILITY_AAAA)
 
 Result GoDaddyDriver::validate(std::string_view driver_param_json) const {
     // Reuses the update-time schema: parse_config throws ConfigParseError on
@@ -48,21 +62,16 @@ Result GoDaddyDriver::validate(std::string_view driver_param_json) const {
     return {};
 }
 
-Result GoDaddyDriver::update(UpdateContext &context) {
-    const auto &params = context.request();
+Result GoDaddyDriver::update(UpdateContext& context) {
+    const auto& params = context.request();
     const auto cfg = parse_config<GoDaddyParams>(params.driver_param_json);
 
     HttpRequest request{};
-    request.url = fmt::format(API_URL,
-                              fmt::arg("DOMAIN", params.domain),
-                              fmt::arg("TYPE", params.record_type),
+    request.url = fmt::format(API_URL, fmt::arg("DOMAIN", params.domain), fmt::arg("TYPE", params.record_type),
                               fmt::arg("NAME", params.subdomain));
 
     auto body = GoDaddyRecordBody{
-        .data = std::string(params.ip_address),
-        .ttl = cfg.ttl.value_or(600),
-        .type = std::string(params.record_type)
-    };
+        .data = std::string(params.ip_address), .ttl = cfg.ttl.value_or(600), .type = std::string(params.record_type)};
 
     // GoDaddy expects an array of records
     request.body = fmt::format("[{}]", glz::write_json(body).value_or("{}"));
@@ -70,13 +79,12 @@ Result GoDaddyDriver::update(UpdateContext &context) {
     request.content_type = "application/json";
     request.method = Method::Put;
 
-    return run_update(context, DRIVER_NAME, request,
-                      [](const HttpResponse &response, const Services &services) {
-                          return check_response(response, services);
-                      });
+    return run_update(context, DRIVER_NAME, request, [](const HttpResponse& response, const Services& services) {
+        return check_response(response, services);
+    });
 }
 
-bool GoDaddyDriver::check_response(const HttpResponse &response, const Services &services) {
+bool GoDaddyDriver::check_response(const HttpResponse& response, const Services& services) {
     YADDNSC_SDK_LOG_TRACE(services, "Got {} from server.", response.body);
 
     // GoDaddy returns 200 OK with an empty body on success.

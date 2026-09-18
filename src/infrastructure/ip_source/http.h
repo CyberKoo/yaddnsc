@@ -8,7 +8,6 @@
 #include <string>
 
 #include "domain/network/address_family.h"
-#include "support/exception.h"
 #include "infrastructure/network/http/persistent_client.h"
 #include "support/util/cancellation_token.hpp"
 #include "infrastructure/ip_source/base.h"

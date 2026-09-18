@@ -9,21 +9,35 @@
 // are pure functions (no network I/O).
 // =============================================================================
 
+#include "infrastructure/network/http/persistent_client.h"
+
+#include <algorithm>
+#include <cstdint>
+#include <cstring>
 #include <deque>
+#include <map>
 #include <memory>
 #include <optional>
+#include <span>
+#include <stdexcept>
 #include <string>
+#include <string_view>
+#include <utility>
 #include <vector>
 
-#include <cstring>
 #include <expected>
 #include <gtest/gtest.h>
 
 #include "infrastructure/network/http/client.h"
-#include "infrastructure/network/http/persistent_client.h"
+#include "infrastructure/network/http/error.h"
+#include "infrastructure/network/http/protocol/wire.h"
 #include "infrastructure/network/http/redirect.h"
+#include "infrastructure/network/http/stream_factory.h"
+#include "infrastructure/network/http/types.h"
 #include "infrastructure/network/http/wire_request.h"
+#include "infrastructure/network/transport/io_error.h"
 #include "infrastructure/network/transport/stream.h"
+#include "infrastructure/network/uri.h"
 
 using net::http::ErrorCode;
 using net::http::Method;
@@ -95,22 +109,24 @@ std::unique_ptr<FakeStream> stream_responding(std::string raw) {
 }
 
 std::unique_ptr<FakeStream> ok_stream(std::string body_marker = "done") {
-    return stream_responding("HTTP/1.1 200 OK\r\nContent-Length: " + std::to_string(body_marker.size()) +
-                             "\r\n\r\n" + body_marker);
+    return stream_responding("HTTP/1.1 200 OK\r\nContent-Length: " + std::to_string(body_marker.size()) + "\r\n\r\n" +
+                             body_marker);
 }
 
 /// Factory serving scripted streams per host, recording every call.
 class FakeFactory final : public net::http::StreamFactory {
 public:
-    [[nodiscard]] std::unique_ptr<Transport::Stream>
-        create_tls(std::string_view host, std::uint16_t /*port*/, const Transport::Options& /*conn_opts*/,
-                   const Transport::TlsOptions& /*tls_opts*/) override {
+    [[nodiscard]] std::unique_ptr<Transport::Stream> create_tls(std::string_view host,
+                                                                std::uint16_t /*port*/,
+                                                                const Transport::Options& /*conn_opts*/,
+                                                                const Transport::TlsOptions& /*tls_opts*/) override {
         tls_hosts.emplace_back(host);
         return next(tls_streams);
     }
 
-    [[nodiscard]] std::unique_ptr<Transport::Stream>
-        create_tcp(std::string_view host, std::uint16_t /*port*/, const Transport::Options& /*opts*/) override {
+    [[nodiscard]] std::unique_ptr<Transport::Stream> create_tcp(std::string_view host,
+                                                                std::uint16_t /*port*/,
+                                                                const Transport::Options& /*opts*/) override {
         tcp_hosts.emplace_back(host);
         return next(tcp_streams);
     }
@@ -179,8 +195,10 @@ TEST(HttpRedirect, EnforcesLimitAndRejectsMalformedLocations) {
     EXPECT_FALSE(limited.plan);
     EXPECT_TRUE(limited.limit_reached);
     EXPECT_FALSE(net::http::evaluate_redirect(302, location_headers("   "), 0, opts, request, current).plan);
-    EXPECT_FALSE(net::http::evaluate_redirect(302, location_headers("http:///missing-host"), 0, opts, request, current).plan);
-    EXPECT_FALSE(net::http::evaluate_redirect(302, location_headers("http://[::1/malformed"), 0, opts, request, current).plan);
+    EXPECT_FALSE(
+        net::http::evaluate_redirect(302, location_headers("http:///missing-host"), 0, opts, request, current).plan);
+    EXPECT_FALSE(
+        net::http::evaluate_redirect(302, location_headers("http://[::1/malformed"), 0, opts, request, current).plan);
 }
 
 TEST(HttpRedirect, RewritesPostAndPreservesSafeHeadersForSameOrigin) {
@@ -207,7 +225,8 @@ TEST(HttpRedirect, NormalizesDotSegmentsAndDropsFragments) {
     const auto request = redirect_request();
     const auto current = Uri::parse("https://example.test/a/b/page?old=1");
 
-    const auto relative = net::http::evaluate_redirect(302, location_headers("../next#section"), 0, {}, request, current);
+    const auto relative =
+        net::http::evaluate_redirect(302, location_headers("../next#section"), 0, {}, request, current);
     ASSERT_TRUE(relative.plan);
     EXPECT_EQ(relative.plan->next.target, "/a/next");
 
@@ -219,7 +238,8 @@ TEST(HttpRedirect, NormalizesDotSegmentsAndDropsFragments) {
 TEST(HttpRedirect, PreservesBodyButDropsCredentialsAcrossOrigins) {
     const auto request = redirect_request();
     const auto current = Uri::parse("https://example.test/start");
-    const auto result = net::http::evaluate_redirect(307, location_headers("//[2001:db8::1]:8443/next"), 0, {}, request, current);
+    const auto result =
+        net::http::evaluate_redirect(307, location_headers("//[2001:db8::1]:8443/next"), 0, {}, request, current);
 
     ASSERT_TRUE(result.plan);
     const auto& plan = *result.plan;
@@ -421,8 +441,9 @@ TEST(HttpPersistentClient, Http10KeepAlive_ReusesSession) {
     auto factory = std::make_shared<FakeFactory>();
     auto stream = std::make_unique<FakeStream>();
     auto* stream_ptr = stream.get();
-    stream->input = "HTTP/1.0 200 OK\r\nConnection: Keep-Alive\r\nContent-Length: 3\r\n\r\none"
-                    "HTTP/1.0 200 OK\r\nConnection: Keep-Alive\r\nContent-Length: 3\r\n\r\ntwo";
+    stream->input =
+        "HTTP/1.0 200 OK\r\nConnection: Keep-Alive\r\nContent-Length: 3\r\n\r\none"
+        "HTTP/1.0 200 OK\r\nConnection: Keep-Alive\r\nContent-Length: 3\r\n\r\ntwo";
     factory->tcp_streams.push_back(std::move(stream));
 
     net::http::Options opts{.version = net::http::HttpVersion::V1_0};

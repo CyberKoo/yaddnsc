@@ -6,13 +6,10 @@
 #define YADDNSC_DNS_DOT_H
 
 #include <cstdint>
-#include <expected>
 #include <memory>
 #include <string>
-#include <vector>
+#include <string_view>
 
-#include "support/exception.h"
-#include "domain/error/dns_error_info.h"
 #include "infrastructure/dns/resolver/base.h"
 
 namespace Transport {
@@ -38,24 +35,23 @@ public:
     /// @param port    TLS port (default: 853).
     /// @param label   Display label (e.g. "dot.pub:853"), used in log/error messages.
     /// @param token   Cancellation token, bound for the resolver's lifetime.
-    explicit DotResolver(std::string server, std::uint16_t port, std::string label,
-                         Utils::CancellationToken token);
+    explicit DotResolver(std::string server, std::uint16_t port, std::string label, Utils::CancellationToken token);
 
     /// Testing constructor: inject a pre-built stream (fake or real).
-    DotResolver(std::string server, std::uint16_t port, std::string label,
-                std::unique_ptr<Transport::Stream> stream);
+    DotResolver(std::string server, std::uint16_t port, std::string label, std::unique_ptr<Transport::Stream> stream);
 
     ~DotResolver() override;
 
-    [[nodiscard]] std::expected<std::vector<std::uint8_t>, DnsErrorInfo>
-    query(const std::string &host, RecordKind type) const override;
+    [[nodiscard]] std::expected<std::vector<std::uint8_t>, DnsErrorInfo> query(const std::string& host,
+                                                                               RecordKind type) const override;
 
     [[nodiscard]] std::string_view get_type() const noexcept override { return TYPE; }
 
 private:
     struct Impl;
+
     std::unique_ptr<Impl> impl_;
     static constexpr std::string_view TYPE = "DNS-Over-TLS";
 };
 
-#endif // YADDNSC_DNS_DOT_H
+#endif  // YADDNSC_DNS_DOT_H

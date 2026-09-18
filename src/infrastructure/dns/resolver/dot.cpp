@@ -10,6 +10,7 @@
 #include <array>
 #include <chrono>
 #include <cstdint>
+#include <exception>
 #include <mutex>
 #include <span>
 #include <string>
@@ -17,56 +18,62 @@
 #include <utility>
 #include <vector>
 
-#include "support/util/random.hpp"
+#include <expected>
+#include <spdlog/spdlog.h>
+#include <stddef.h>
+#include <yaddnsc/util/format.hpp>
 
+#include "domain/error/dns_error.h"
 #include "domain/error/dns_error_info.h"
 #include "infrastructure/dns/dns_lookup_exception.h"
 #include "infrastructure/dns/dns_packet_exception.h"
+#include "infrastructure/dns/types.h"
 #include "infrastructure/dns/util.hpp"
 #include "infrastructure/dns/validator.h"
 #include "infrastructure/dns/wire/builder.h"
+#include "infrastructure/network/transport/io_error.h"
+#include "infrastructure/network/transport/options.h"
 #include "infrastructure/network/transport/stream.h"
 #include "infrastructure/network/transport/tls_stream.h"
+#include "support/fmt.hpp"
 #include "support/util/bytes.hpp"
 #include "support/util/cancellation_token.hpp"
+#include "support/util/random.hpp"
 
-#include "domain/error/dns_error.h"
-#include "infrastructure/network/uri.h"
-
-#include "support/fmt.hpp"
-#include <spdlog/spdlog.h>
+enum class RecordKind;
 
 namespace {
-    using namespace std::chrono_literals;
+using namespace std::chrono_literals;
 
-    /// Map a transport I/O error to DnsErrorInfo (post-connect I/O stage).
-    [[nodiscard]] DnsErrorInfo map_io_error(const Transport::IoError err, const std::string_view label,
-                                            const std::string_view stage) {
-        using enum Transport::IoError;
-        switch (err) {
-            case CANCELLED:
-                return {DnsError::CANCELLED, "Query cancelled"};
-            case TIMEOUT:
-            case CONNECTION_FAILED:
-                return {DnsError::CONNECTION, fmt::format(R"(Failed to {} from "{}")", stage, label)};
-        }
-        return {DnsError::CONNECTION, fmt::format(R"(Failed to {} from "{}")", stage, label)};
+/// Map a transport I/O error to DnsErrorInfo (post-connect I/O stage).
+[[nodiscard]] DnsErrorInfo map_io_error(const Transport::IoError err,
+                                        const std::string_view label,
+                                        const std::string_view stage) {
+    using enum Transport::IoError;
+    switch (err) {
+        case CANCELLED:
+            return {DnsError::CANCELLED, "Query cancelled"};
+        case TIMEOUT:
+        case CONNECTION_FAILED:
+            return {DnsError::CONNECTION, fmt::format(R"(Failed to {} from "{}")", stage, label)};
     }
+    return {DnsError::CONNECTION, fmt::format(R"(Failed to {} from "{}")", stage, label)};
+}
 
-    /// Map a connect-stage error.
-    [[nodiscard]] DnsErrorInfo map_connect_error(const Transport::IoError err, const std::string_view label) {
-        using enum Transport::IoError;
-        switch (err) {
-            case CANCELLED:
-                return {DnsError::CANCELLED, "Query cancelled"};
-            case TIMEOUT:
-                return {DnsError::RETRY, fmt::format(R"(Connection to "{}" timed out)", label)};
-            case CONNECTION_FAILED:
-                return {DnsError::CONNECTION, fmt::format(R"(Connection to "{}" failed)", label)};
-        }
-        return {DnsError::CONNECTION, fmt::format(R"(Connection to "{}" failed)", label)};
+/// Map a connect-stage error.
+[[nodiscard]] DnsErrorInfo map_connect_error(const Transport::IoError err, const std::string_view label) {
+    using enum Transport::IoError;
+    switch (err) {
+        case CANCELLED:
+            return {DnsError::CANCELLED, "Query cancelled"};
+        case TIMEOUT:
+            return {DnsError::RETRY, fmt::format(R"(Connection to "{}" timed out)", label)};
+        case CONNECTION_FAILED:
+            return {DnsError::CONNECTION, fmt::format(R"(Connection to "{}" failed)", label)};
     }
-} // namespace
+    return {DnsError::CONNECTION, fmt::format(R"(Connection to "{}" failed)", label)};
+}
+}  // namespace
 
 // ===========================================================================
 //  DotResolver::Impl  —  private implementation
@@ -87,21 +94,23 @@ struct DotResolver::Impl {
     }
 
     /// Production ctor: creates the TLS stream with the token bound.
-    Impl(std::string server, std::uint16_t port, std::uint64_t id, std::string label,
-         Utils::CancellationToken token);
+    Impl(std::string server, std::uint16_t port, std::uint64_t id, std::string label, Utils::CancellationToken token);
 
     /// Testing ctor: stream injected.
-    Impl(std::string server, std::uint16_t port, std::uint64_t id, std::string label,
+    Impl(std::string server,
+         std::uint16_t port,
+         std::uint64_t id,
+         std::string label,
          std::unique_ptr<Transport::Stream> stream);
 
-    [[nodiscard]] std::expected<std::vector<std::uint8_t>, DnsErrorInfo>
-    query(const std::string &host, RecordKind type) const;
+    [[nodiscard]] std::expected<std::vector<std::uint8_t>, DnsErrorInfo> query(const std::string& host,
+                                                                               RecordKind type) const;
 
     /// Build a padded DNS query for DoT (RFC 7858 §3.5 / RFC 7830).
     /// @throws  DnsPacketException on invalid input (programming error).
-    [[nodiscard]] static std::vector<std::uint8_t> build_padded_query(const std::string &host, DNS::RecordType type);
+    [[nodiscard]] static std::vector<std::uint8_t> build_padded_query(const std::string& host, DNS::RecordType type);
 
-    [[nodiscard]] static std::vector<std::uint8_t> build_wire_format(const std::vector<std::uint8_t> &query_bytes);
+    [[nodiscard]] static std::vector<std::uint8_t> build_wire_format(const std::vector<std::uint8_t>& query_bytes);
 
     /// Read the response (2-byte length prefix + DNS message).
     [[nodiscard]] std::expected<std::vector<std::uint8_t>, DnsErrorInfo> read_response() const;
@@ -110,25 +119,32 @@ struct DotResolver::Impl {
     const std::uint64_t id_;
     const std::string server_;
     const std::uint16_t port_;
-    const std::string label_;   // display label for log / error messages
+    const std::string label_;  // display label for log / error messages
     mutable std::mutex mutex_;
     mutable std::unique_ptr<Transport::Stream> stream_;
 };
 
-DotResolver::Impl::Impl(std::string server, const std::uint16_t port, const std::uint64_t id, std::string label,
+DotResolver::Impl::Impl(std::string server,
+                        const std::uint16_t port,
+                        const std::uint64_t id,
+                        std::string label,
                         Utils::CancellationToken token)
     : id_(id), server_(std::move(server)), port_(port), label_(std::move(label)),
-      stream_(std::make_unique<Transport::TlsStream>(server_, port_, make_tls_options().first,
-                                                     make_tls_options().second, std::move(token))) {
-}
+      stream_(std::make_unique<Transport::TlsStream>(server_,
+                                                     port_,
+                                                     make_tls_options().first,
+                                                     make_tls_options().second,
+                                                     std::move(token))) {}
 
-DotResolver::Impl::Impl(std::string server, const std::uint16_t port, const std::uint64_t id, std::string label,
+DotResolver::Impl::Impl(std::string server,
+                        const std::uint16_t port,
+                        const std::uint64_t id,
+                        std::string label,
                         std::unique_ptr<Transport::Stream> stream)
-    : id_(id), server_(std::move(server)), port_(port), label_(std::move(label)), stream_(std::move(stream)) {
-}
+    : id_(id), server_(std::move(server)), port_(port), label_(std::move(label)), stream_(std::move(stream)) {}
 
-std::expected<std::vector<std::uint8_t>, DnsErrorInfo> DotResolver::Impl::query(
-    const std::string &host, RecordKind type) const {
+std::expected<std::vector<std::uint8_t>, DnsErrorInfo> DotResolver::Impl::query(const std::string& host,
+                                                                                RecordKind type) const {
     try {
         const auto record_type = DNS::Util::type_to_record_type(type);
 
@@ -202,18 +218,14 @@ std::expected<std::vector<std::uint8_t>, DnsErrorInfo> DotResolver::Impl::query(
 
         // Not reached.
         std::unreachable();
-    } catch (const DnsPacketException &e) {
-        return std::unexpected(DnsErrorInfo{
-            DnsError::PARSE,
-            fmt::format(R"(Packet construction for "{}" failed: {})", host, e.what())
-        });
-    } catch (const DnsLookupException &e) {
+    } catch (const DnsPacketException& e) {
+        return std::unexpected(
+            DnsErrorInfo{DnsError::PARSE, fmt::format(R"(Packet construction for "{}" failed: {})", host, e.what())});
+    } catch (const DnsLookupException& e) {
         return std::unexpected(DnsErrorInfo{e.get_error(), e.what()});
-    } catch (const std::exception &e) {
-        return std::unexpected(DnsErrorInfo{
-            DnsError::UNKNOWN,
-            fmt::format(R"(Query for "{}" failed: {})", host, e.what())
-        });
+    } catch (const std::exception& e) {
+        return std::unexpected(
+            DnsErrorInfo{DnsError::UNKNOWN, fmt::format(R"(Query for "{}" failed: {})", host, e.what())});
     }
 }
 
@@ -221,8 +233,7 @@ std::expected<std::vector<std::uint8_t>, DnsErrorInfo> DotResolver::Impl::query(
 //  build_padded_query  —  build DNS query with EDNS(0) padding (RFC 7830)
 // ---------------------------------------------------------------------------
 
-std::vector<std::uint8_t> DotResolver::Impl::build_padded_query(
-    const std::string &host, DNS::RecordType type) {
+std::vector<std::uint8_t> DotResolver::Impl::build_padded_query(const std::string& host, DNS::RecordType type) {
     // RFC 7830 / RFC 7858 §3.5: pad DoT queries to a block boundary to
     // obscure query length and reduce traffic-analysis risk.  A 128-octet
     // block size is a reasonable trade-off between overhead and protection.
@@ -253,17 +264,14 @@ std::vector<std::uint8_t> DotResolver::Impl::build_padded_query(
     std::ranges::generate(padding_data, [] { return static_cast<std::uint8_t>(Utils::Random::engine()()); });
     const DNS::EdnsOption pad_opt{12, padding_data};
 
-    return DNS::QueryBuilder{}
-            .add_question(host, type)
-            .add_edns(512, 0, false, std::span(&pad_opt, 1))
-            .build();
+    return DNS::QueryBuilder{}.add_question(host, type).add_edns(512, 0, false, std::span(&pad_opt, 1)).build();
 }
 
 // ---------------------------------------------------------------------------
 //  build_wire_format  —  2-byte length prefix + DNS message
 // ---------------------------------------------------------------------------
 
-std::vector<std::uint8_t> DotResolver::Impl::build_wire_format(const std::vector<std::uint8_t> &query_bytes) {
+std::vector<std::uint8_t> DotResolver::Impl::build_wire_format(const std::vector<std::uint8_t>& query_bytes) {
     std::vector<std::uint8_t> wire(2 + query_bytes.size());
     Utils::Bytes::write_u16_be(wire, static_cast<std::uint16_t>(query_bytes.size()));
     std::ranges::copy(query_bytes, wire.begin() + 2);
@@ -283,17 +291,13 @@ std::expected<std::vector<std::uint8_t>, DnsErrorInfo> DotResolver::Impl::read_r
 
     const auto resp_len = Utils::Bytes::read_u16_be(length_buffer);
     if (resp_len == 0) {
-        return std::unexpected(DnsErrorInfo{
-            DnsError::PARSE,
-            fmt::format(R"(Server "{}" returned zero-length response)", label_)
-        });
+        return std::unexpected(
+            DnsErrorInfo{DnsError::PARSE, fmt::format(R"(Server "{}" returned zero-length response)", label_)});
     }
     constexpr size_t MAX_DOT_RESPONSE_SIZE = 65535;
     if (resp_len > MAX_DOT_RESPONSE_SIZE) {
         return std::unexpected(DnsErrorInfo{
-            DnsError::PARSE,
-            fmt::format(R"(Server "{}" response too large: {} bytes)", label_, resp_len)
-        });
+            DnsError::PARSE, fmt::format(R"(Server "{}" response too large: {} bytes)", label_, resp_len)});
     }
 
     // Read response body.
@@ -309,19 +313,21 @@ std::expected<std::vector<std::uint8_t>, DnsErrorInfo> DotResolver::Impl::read_r
 //  DotResolver  —  public API
 // ===========================================================================
 
-DotResolver::DotResolver(std::string server, const std::uint16_t port, std::string label,
+DotResolver::DotResolver(std::string server,
+                         const std::uint16_t port,
+                         std::string label,
                          Utils::CancellationToken token)
-    : impl_(std::make_unique<Impl>(std::move(server), port, get_id(), std::move(label), std::move(token))) {
-}
+    : impl_(std::make_unique<Impl>(std::move(server), port, get_id(), std::move(label), std::move(token))) {}
 
-DotResolver::DotResolver(std::string server, const std::uint16_t port, std::string label,
+DotResolver::DotResolver(std::string server,
+                         const std::uint16_t port,
+                         std::string label,
                          std::unique_ptr<Transport::Stream> stream)
-    : impl_(std::make_unique<Impl>(std::move(server), port, get_id(), std::move(label), std::move(stream))) {
-}
+    : impl_(std::make_unique<Impl>(std::move(server), port, get_id(), std::move(label), std::move(stream))) {}
 
 DotResolver::~DotResolver() = default;
 
-std::expected<std::vector<std::uint8_t>, DnsErrorInfo>
-DotResolver::query(const std::string &host, RecordKind type) const {
+std::expected<std::vector<std::uint8_t>, DnsErrorInfo> DotResolver::query(const std::string& host,
+                                                                          RecordKind type) const {
     return impl_->query(host, type);
 }

@@ -4,25 +4,32 @@
 #include "infrastructure/network/http/client.h"
 
 #include <cstdint>
+#include <exception>
+#include <map>
 #include <optional>
 #include <string>
 #include <utility>
 
+#include <expected>
+#include <yaddnsc/util/format.hpp>
+
+#include "infrastructure/network/http/error.h"
+#include "infrastructure/network/http/protocol/exchange.h"
+#include "infrastructure/network/http/protocol/wire.h"
 #include "infrastructure/network/http/redirect.h"
+#include "infrastructure/network/http/stream_factory.h"
 #include "infrastructure/network/http/wire_request.h"
 #include "infrastructure/network/transport/stream.h"
-
-#include "support/fmt.hpp"
 #include "infrastructure/network/uri.h"
+#include "support/fmt.hpp"
+#include "support/util/cancellation_token.hpp"
 
 namespace net::http {
 
-Client::Client(Options opts) : Client(std::move(opts), std::make_shared<DefaultStreamFactory>()) {
-}
+Client::Client(Options opts) : Client(std::move(opts), std::make_shared<DefaultStreamFactory>()) {}
 
 Client::Client(Options opts, Utils::CancellationToken token)
-    : Client(std::move(opts), std::make_shared<DefaultStreamFactory>(std::move(token))) {
-}
+    : Client(std::move(opts), std::make_shared<DefaultStreamFactory>(std::move(token))) {}
 
 Client::Client(Options opts, std::shared_ptr<StreamFactory> factory)
     : opts_(std::move(opts)), factory_(std::move(factory)) {
@@ -54,10 +61,9 @@ std::expected<Response, Error> Client::exchange(const std::string_view url, cons
     for (int redirect_count = 0;; ++redirect_count) {
         // The scheme/transport pairing is decided HERE — https -> TLS,
         // http -> TCP — not by the injected factory.
-        std::unique_ptr<Transport::Stream> stream =
-            scheme == "https"
-                ? factory_->create_tls(host, port, opts_.transport, opts_.tls)
-                : factory_->create_tcp(host, port, opts_.transport);
+        std::unique_ptr<Transport::Stream> stream = scheme == "https"
+                                                        ? factory_->create_tls(host, port, opts_.transport, opts_.tls)
+                                                        : factory_->create_tcp(host, port, opts_.transport);
         if (auto connected = stream->ensure_connected(); !connected) {
             return std::unexpected(map_connect_error(connected.error()));
         }
@@ -82,9 +88,9 @@ std::expected<Response, Error> Client::exchange(const std::string_view url, cons
         host = std::move(plan.host);
         port = plan.port;
         try {
-            parsed_uri.emplace(Uri::parse(fmt::format("{}://{}:{}{}", scheme,
-                                                       host.find(':') != std::string::npos ? fmt::format("[{}]", host) : host,
-                                                       port, wire.target)));
+            parsed_uri.emplace(Uri::parse(fmt::format(
+                "{}://{}:{}{}", scheme, host.find(':') != std::string::npos ? fmt::format("[{}]", host) : host, port,
+                wire.target)));
         } catch (const std::exception&) {
             return std::unexpected(Error{ErrorCode::INVALID_URL, "invalid redirect URL"});
         }

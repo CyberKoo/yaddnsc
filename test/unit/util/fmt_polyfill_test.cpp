@@ -11,10 +11,14 @@
 //   - fmt::format_to writes to output iterator.
 // =============================================================================
 
-#include <vector>
+#include <iterator>
 #include <string>
+#include <string_view>
+#include <vector>
 
+#include <format>
 #include <gtest/gtest.h>
+#include <yaddnsc/util/format.hpp>
 
 #include "support/fmt.hpp"
 

@@ -14,27 +14,34 @@
 // workflow wiring (subdomain flags → policy) is checked.
 //
 
+#include "application/update_workflow.h"
+
+#include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <string_view>
 #include <vector>
 
+#include <expected>
+#include <glaze/glaze.hpp>
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
-#include <glaze/glaze.hpp>
-
-#include "application/update_workflow.h"
-
+#include "application/ports/driver_gateway.h"
+#include "domain/config/runtime_config.h"
+#include "domain/dns/record_kind.h"
+#include "domain/error/dns_error.h"
+#include "domain/error/dns_error_info.h"
+#include "domain/error/error.h"
 #include "domain/fqdn.h"
-#include "domain/update/update_task.h"
 #include "domain/network/inet_address.h"
-
-#include "infrastructure/config/config.h"
-#include "infrastructure/config/normalizer.h"
-#include "infrastructure/config/parser.hpp"
-
+#include "domain/update/update_decision.h"
+#include "domain/update/update_task.h"
 #include "fixtures/sample_config.h"
+#include "infrastructure/config/config.h"
+#include "infrastructure/config/parser.hpp"  // IWYU pragma: keep — registers glz::meta specializations
+#include "infrastructure/config/normalizer.h"
 #include "mocks/mock_ports.h"
 #include "mocks/null_logger.h"
 
@@ -55,7 +62,7 @@ using ::testing::Return;
 // Parse a config, apply a mutation to the raw DTO before normalising, and
 // return the shared runtime config. Used by tests that override a subdomain
 // setting (the shared config is const once handed out).
-template <typename Mutator>
+template<typename Mutator>
 [[nodiscard]] std::shared_ptr<const domain::RuntimeConfig> parse_cfg_mut(std::string_view json, Mutator mut) {
     auto cfg = Config::AppConfig{};
     const auto ec = glz::read<glz::opts{.error_on_missing_keys = false}>(cfg, json);
@@ -65,10 +72,11 @@ template <typename Mutator>
 }
 
 // Build a single-subdomain task from the shared fixture config.
-[[nodiscard]] domain::UpdateTask make_task(const std::shared_ptr<const domain::RuntimeConfig> &cfg,
-                                           std::size_t domain_idx = 0, std::size_t sub_idx = 0) {
-    const auto &domain = cfg->domains[domain_idx];
-    const auto &sub = domain.subdomains[sub_idx];
+[[nodiscard]] domain::UpdateTask make_task(const std::shared_ptr<const domain::RuntimeConfig>& cfg,
+                                           std::size_t domain_idx = 0,
+                                           std::size_t sub_idx = 0) {
+    const auto& domain = cfg->domains[domain_idx];
+    const auto& sub = domain.subdomains[sub_idx];
     return domain::UpdateTask{
         .config = cfg,
         .domain_index = domain_idx,
@@ -93,7 +101,7 @@ struct Ports {
     NullLogger logger;
 };
 
-} // namespace
+}  // namespace
 
 // ── IP unchanged → driver not invoked ─────────────────────────────────────────
 
@@ -122,16 +130,16 @@ TEST(UpdateWorkflow, UpdatesWhenIpChanged) {
     EXPECT_CALL(ports.ip_source, resolve(_)).WillOnce(Return(one_v4(198, 51, 100, 1)));
     EXPECT_CALL(ports.dns, resolve(task.fqdn, RecordKind::A)).WillOnce(Return(std::vector<std::string>{"192.0.2.1"}));
     EXPECT_CALL(ports.gateway, update("cloudflare", _))
-        .WillOnce([&task](std::string_view, const DriverUpdateCommand &cmd)
-                      -> std::expected<void, domain::DriverError> {
-            EXPECT_EQ(cmd.ip_addr, "198.51.100.1");
-            EXPECT_EQ(cmd.rd_type, "A");
-            EXPECT_EQ(cmd.domain, "example.com");
-            EXPECT_EQ(cmd.subdomain, "@");
-            EXPECT_EQ(cmd.fqdn, task.fqdn);
-            EXPECT_FALSE(cmd.driver_param.empty());
-            return {};
-        });
+        .WillOnce(
+            [&task](std::string_view, const DriverUpdateCommand& cmd) -> std::expected<void, domain::DriverError> {
+                EXPECT_EQ(cmd.ip_addr, "198.51.100.1");
+                EXPECT_EQ(cmd.rd_type, "A");
+                EXPECT_EQ(cmd.domain, "example.com");
+                EXPECT_EQ(cmd.subdomain, "@");
+                EXPECT_EQ(cmd.fqdn, task.fqdn);
+                EXPECT_FALSE(cmd.driver_param.empty());
+                return {};
+            });
 
     const UpdateWorkflow workflow(ports.dns, ports.ip_source, ports.gateway, ports.logger);
     const auto outcome = workflow.run(task);
@@ -221,8 +229,8 @@ TEST(UpdateWorkflow, DriverFailureReturnsDriverFailed) {
     EXPECT_CALL(ports.ip_source, resolve(_)).WillOnce(Return(one_v4(198, 51, 100, 1)));
     EXPECT_CALL(ports.dns, resolve(_, _)).WillOnce(Return(std::vector<std::string>{"192.0.2.1"}));
     EXPECT_CALL(ports.gateway, update(_, _))
-        .WillOnce(Return(std::unexpected(
-            domain::DriverError{domain::DriverError::Code::UPDATE_FAILED, "upstream rejected"})));
+        .WillOnce(Return(
+            std::unexpected(domain::DriverError{domain::DriverError::Code::UPDATE_FAILED, "upstream rejected"})));
 
     const UpdateWorkflow workflow(ports.dns, ports.ip_source, ports.gateway, ports.logger);
     const auto outcome = workflow.run(task);
@@ -242,8 +250,8 @@ TEST(UpdateWorkflow, RateLimitedCarriesRetryAfterIntoUpdateError) {
     EXPECT_CALL(ports.ip_source, resolve(_)).WillOnce(Return(one_v4(198, 51, 100, 1)));
     EXPECT_CALL(ports.dns, resolve(_, _)).WillOnce(Return(std::vector<std::string>{"192.0.2.1"}));
     EXPECT_CALL(ports.gateway, update(_, _))
-        .WillOnce(Return(std::unexpected(
-            domain::DriverError{domain::DriverError::Code::RATE_LIMITED, "slow down", 120})));
+        .WillOnce(
+            Return(std::unexpected(domain::DriverError{domain::DriverError::Code::RATE_LIMITED, "slow down", 120})));
 
     const UpdateWorkflow workflow(ports.dns, ports.ip_source, ports.gateway, ports.logger);
     const auto outcome = workflow.run(task);
@@ -264,8 +272,8 @@ TEST(UpdateWorkflow, DriverNotFoundReturnsDriverFailed) {
     EXPECT_CALL(ports.ip_source, resolve(_)).WillOnce(Return(one_v4(198, 51, 100, 1)));
     EXPECT_CALL(ports.dns, resolve(_, _)).WillOnce(Return(std::vector<std::string>{"192.0.2.1"}));
     EXPECT_CALL(ports.gateway, update(_, _))
-        .WillOnce(Return(std::unexpected(
-            domain::DriverError{domain::DriverError::Code::NOT_FOUND, "driver not loaded"})));
+        .WillOnce(
+            Return(std::unexpected(domain::DriverError{domain::DriverError::Code::NOT_FOUND, "driver not loaded"})));
 
     const UpdateWorkflow workflow(ports.dns, ports.ip_source, ports.gateway, ports.logger);
     const auto outcome = workflow.run(task);
@@ -309,15 +317,17 @@ TEST(UpdateWorkflow, FiltersLinkLocalForAaaaWhenNotAllowed) {
 }
 
 TEST(UpdateWorkflow, KeepsLinkLocalForAaaaWhenAllowed) {
-    auto task = make_task(parse_cfg_mut(Fixtures::FULL_CONFIG, [](Config::AppConfig &cfg) {
-        cfg.domains[0].subdomains[1].allow_local_link = true; // override
-    }), 0, 1);
+    auto task = make_task(parse_cfg_mut(Fixtures::FULL_CONFIG,
+                                        [](Config::AppConfig& cfg) {
+                                            cfg.domains[0].subdomains[1].allow_local_link = true;  // override
+                                        }),
+                          0, 1);
 
     Ports ports;
     EXPECT_CALL(ports.ip_source, resolve(_)).WillOnce(Return(std::vector<InetAddress>{link_local_v6()}));
     EXPECT_CALL(ports.dns, resolve(_, _)).WillOnce(Return(std::vector<std::string>{"2001:db8::1"}));
     EXPECT_CALL(ports.gateway, update(_, _))
-        .WillOnce([](std::string_view, const DriverUpdateCommand &cmd) -> std::expected<void, domain::DriverError> {
+        .WillOnce([](std::string_view, const DriverUpdateCommand& cmd) -> std::expected<void, domain::DriverError> {
             EXPECT_EQ(cmd.ip_addr, "fe80::1");
             EXPECT_EQ(cmd.rd_type, "AAAA");
             return {};
@@ -339,8 +349,8 @@ TEST(UpdateWorkflow, SkipsWhenIpSourceFails) {
 
     Ports ports;
     EXPECT_CALL(ports.ip_source, resolve(_))
-        .WillOnce(Return(std::unexpected(
-            domain::IpSourceError{domain::IpSourceError::Code::UNAVAILABLE, "interface not found"})));
+        .WillOnce(Return(
+            std::unexpected(domain::IpSourceError{domain::IpSourceError::Code::UNAVAILABLE, "interface not found"})));
     EXPECT_CALL(ports.dns, resolve(_, _)).Times(0);
     EXPECT_CALL(ports.gateway, update(_, _)).Times(0);
 
@@ -365,7 +375,7 @@ TEST(UpdateWorkflow, MultipleIpCandidates_PicksFirst) {
         }));
     EXPECT_CALL(ports.dns, resolve(_, _)).WillOnce(Return(std::vector<std::string>{"192.0.2.1"}));
     EXPECT_CALL(ports.gateway, update(_, _))
-        .WillOnce([](std::string_view, const DriverUpdateCommand &cmd) -> std::expected<void, domain::DriverError> {
+        .WillOnce([](std::string_view, const DriverUpdateCommand& cmd) -> std::expected<void, domain::DriverError> {
             EXPECT_EQ(cmd.ip_addr, "10.0.0.1");
             return {};
         });

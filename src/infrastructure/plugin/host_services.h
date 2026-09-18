@@ -5,16 +5,17 @@
 #ifndef YADDNSC_INFRASTRUCTURE_PLUGIN_HOST_SERVICES_H
 #define YADDNSC_INFRASTRUCTURE_PLUGIN_HOST_SERVICES_H
 
+#include <stdint.h>
+#include <yaddnsc/sdk/driver_abi.h>
 #include <deque>
 #include <string>
+#include <string_view>
 #include <vector>
 
-#include "application/ports/log.h"
 #include "support/util/cancellation_token.hpp"
 
-#include <yaddnsc/sdk/driver_abi.h>
-
 class HttpClient;
+class Logger;
 
 /// HostServicesContext — the per-update state behind yaddnsc_host_services.
 ///
@@ -27,25 +28,27 @@ class HttpClient;
 /// @note Single-threaded: one context serves exactly one update call.
 class HostServicesContext {
 public:
-    HostServicesContext(HttpClient &http_client, const Logger &logger, Utils::CancellationToken cancel_token);
+    HostServicesContext(HttpClient& http_client, const Logger& logger, Utils::CancellationToken cancel_token);
 
     /// Build the services table bound to this context. The returned table
     /// copies no state; it must not outlive the context.
     [[nodiscard]] yaddnsc_host_services make_services() noexcept {
         return yaddnsc_host_services{
-                .struct_size = static_cast<uint32_t>(sizeof(yaddnsc_host_services)),
-                .api_revision = YADDNSC_DRIVER_API_REVISION,
-                .context = this,
-                .log = &log_entry,
-                .http_exchange = &http_exchange_entry,
-                .is_cancelled = &is_cancelled_entry,
+            .struct_size = static_cast<uint32_t>(sizeof(yaddnsc_host_services)),
+            .api_revision = YADDNSC_DRIVER_API_REVISION,
+            .context = this,
+            .log = &log_entry,
+            .http_exchange = &http_exchange_entry,
+            .is_cancelled = &is_cancelled_entry,
         };
     }
 
     // Trampoline bodies (called through the C function pointers above).
-    void log(yaddnsc_log_level level, yaddnsc_string message, const yaddnsc_source_location *location);
-    yaddnsc_status http_exchange(const yaddnsc_http_request &request, yaddnsc_http_response *out_response,
-                                 yaddnsc_error *out_error);
+    void log(yaddnsc_log_level level, yaddnsc_string message, const yaddnsc_source_location* location);
+    yaddnsc_status http_exchange(const yaddnsc_http_request& request,
+                                 yaddnsc_http_response* out_response,
+                                 yaddnsc_error* out_error);
+
     [[nodiscard]] int is_cancelled() const noexcept { return cancel_token_.is_triggered() ? 1 : 0; }
 
 private:
@@ -53,26 +56,30 @@ private:
     /// context is destroyed.
     [[nodiscard]] std::string_view arena_copy(std::string_view value);
 
-    static void log_entry(void *context, yaddnsc_log_level level, yaddnsc_string message,
-                          const yaddnsc_source_location *location) noexcept {
+    static void log_entry(void* context,
+                          yaddnsc_log_level level,
+                          yaddnsc_string message,
+                          const yaddnsc_source_location* location) noexcept {
         // Contract: logging failure must never fail an update — and a host
         // exception (e.g. bad_alloc) must never escape into the plugin's
         // C frame.
         try {
-            static_cast<HostServicesContext *>(context)->log(level, message, location);
+            static_cast<HostServicesContext*>(context)->log(level, message, location);
         } catch (...) {
         }
     }
 
-    static yaddnsc_status http_exchange_entry(void *context, const yaddnsc_http_request *request,
-                                              yaddnsc_http_response *out_response, yaddnsc_error *out_error);
+    static yaddnsc_status http_exchange_entry(void* context,
+                                              const yaddnsc_http_request* request,
+                                              yaddnsc_http_response* out_response,
+                                              yaddnsc_error* out_error);
 
-    static int is_cancelled_entry(void *context) noexcept {
-        return static_cast<HostServicesContext *>(context)->is_cancelled();
+    static int is_cancelled_entry(void* context) noexcept {
+        return static_cast<HostServicesContext*>(context)->is_cancelled();
     }
 
-    HttpClient &http_client_;
-    const Logger &logger_;
+    HttpClient& http_client_;
+    const Logger& logger_;
     Utils::CancellationToken cancel_token_;
 
     // Arenas — std::deque never invalidates references on push_back.
@@ -80,4 +87,4 @@ private:
     std::deque<std::vector<yaddnsc_http_header>> header_array_arena_;
 };
 
-#endif // YADDNSC_INFRASTRUCTURE_PLUGIN_HOST_SERVICES_H
+#endif  // YADDNSC_INFRASTRUCTURE_PLUGIN_HOST_SERVICES_H

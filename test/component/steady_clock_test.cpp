@@ -8,14 +8,15 @@
 // cross-thread wakeup uses the same 30ms settle idiom as the poll_fd tests.
 // =============================================================================
 
+#include "infrastructure/time/steady_clock.h"
+
 #include <atomic>
 #include <chrono>
 #include <stop_token>
+#include <string>
 #include <thread>
 
 #include <gtest/gtest.h>
-
-#include "infrastructure/time/steady_clock.h"
 
 using namespace std::chrono_literals;
 

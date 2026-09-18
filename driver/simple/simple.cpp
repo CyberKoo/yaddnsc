@@ -4,16 +4,19 @@
 
 #include "simple.h"
 
+#include <yaddnsc/sdk/driver.hpp>
+#include <yaddnsc/sdk/driver_abi.h>
+#include <optional>
 #include <string>
 #include <string_view>
-#include <tuple>
+#include <utility>
+#include <vector>
 
-#include <glaze/glaze.hpp>
+#include <yaddnsc/util/format.hpp>
+#include <yaddnsc/util/string_util.hpp>
 
-#include <yaddnsc/sdk/string_util.hpp>
-
-namespace fmt = yaddnsc::sdk::fmt;
-namespace string_util = yaddnsc::sdk::string_util;
+namespace fmt = yaddnsc::util::fmt;
+namespace string_util = yaddnsc::util;
 using yaddnsc::sdk::Error;
 using yaddnsc::sdk::HttpRequest;
 using yaddnsc::sdk::HttpResponse;
@@ -24,21 +27,24 @@ using yaddnsc::sdk::UpdateContext;
 using yaddnsc::sdk::UpdateRequest;
 
 namespace {
-    constexpr std::string_view DRIVER_NAME = "simple";
-} // namespace
+constexpr std::string_view DRIVER_NAME = "simple";
+}  // namespace
 
-YADDNSC_DEFINE_DRIVER(SimpleDriver, "simple", "Generic HTTP driver with URL template substitution", "Kotarou",
-                      "2.0.0", YADDNSC_DRIVER_CAPABILITY_A | YADDNSC_DRIVER_CAPABILITY_AAAA)
+YADDNSC_DEFINE_DRIVER(SimpleDriver,
+                      "simple",
+                      "Generic HTTP driver with URL template substitution",
+                      "Kotarou",
+                      "2.0.0",
+                      YADDNSC_DRIVER_CAPABILITY_A | YADDNSC_DRIVER_CAPABILITY_AAAA)
 
-Result SimpleDriver::update(UpdateContext &context) {
-    const auto &params = context.request();
+Result SimpleDriver::update(UpdateContext& context) {
+    const auto& params = context.request();
 
     auto request = generate_request(params);
 
-    return run_update(context, DRIVER_NAME, request,
-                      [](const HttpResponse &response, const Services &services) {
-                          return check_response(response, services);
-                      });
+    return run_update(context, DRIVER_NAME, request, [](const HttpResponse& response, const Services& services) {
+        return check_response(response, services);
+    });
 }
 
 Result SimpleDriver::validate(std::string_view driver_param_json) const {
@@ -52,14 +58,14 @@ glz::generic SimpleDriver::parse_driver_param(std::string_view driver_param_json
     auto full = parse_config<glz::generic>(driver_param_json);
     if (!full.is_object() || !full.contains("url") || !full["url"].is_string()) {
         throw yaddnsc::sdk::ConfigParseError(
-                "Driver configuration parse error: Missing required parameter \"url\" in driver config");
+            "Driver configuration parse error: Missing required parameter \"url\" in driver config");
     }
     return full;
 }
 
-HttpRequest SimpleDriver::generate_request(const UpdateRequest &params) {
+HttpRequest SimpleDriver::generate_request(const UpdateRequest& params) {
     auto full = parse_driver_param(params.driver_param_json);
-    auto &obj = full.get_object();
+    auto& obj = full.get_object();
     auto url = obj["url"].get_string();
 
     // Substitute all keys into the URL template: config params first, then context
@@ -68,7 +74,7 @@ HttpRequest SimpleDriver::generate_request(const UpdateRequest &params) {
         string_util::replace_all(url, target, val);
     };
 
-    for (auto &[key, val]: obj) {
+    for (auto& [key, val] : obj) {
         if (key != "url" && val.is_string()) {
             substitute(key, val.get_string());
         }
@@ -86,7 +92,7 @@ HttpRequest SimpleDriver::generate_request(const UpdateRequest &params) {
     return request;
 }
 
-bool SimpleDriver::check_response(const HttpResponse &response, const Services &services) {
+bool SimpleDriver::check_response(const HttpResponse& response, const Services& services) {
     YADDNSC_SDK_LOG_DEBUG(services, "Status: {}, Response: {}", response.status_code, string_util::trim(response.body));
 
     if (response.status_code >= 300) {

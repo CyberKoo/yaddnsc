@@ -12,26 +12,33 @@
 
 #include <array>
 #include <chrono>
+#include <compare>
+#include <cstddef>
 #include <cstdint>
 #include <cstring>
-#include <memory>
+#include <optional>
+#include <span>
 #include <string>
 #include <thread>
 #include <vector>
 
 #include <arpa/inet.h>
-#include <fcntl.h>
+#include <expected>
 #include <gtest/gtest.h>
+#include <netinet/in.h>
 #include <signal.h>
+#include <stdlib.h>
 #include <sys/socket.h>
+#include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#include <yaddnsc/util/format.hpp>
 
+#include "infrastructure/network/transport/io_error.h"
 #include "infrastructure/network/transport/tcp_stream.h"
 #include "infrastructure/network/transport/tls_stream.h"
-#include "support/util/cancellation_token.hpp"
-
 #include "support/fmt.hpp"
+#include "support/util/cancellation_token.hpp"
 
 using namespace std::chrono_literals;
 using Transport::IoError;
@@ -427,8 +434,7 @@ TEST_F(NetTlsStreamTest, VerifyWithDefaultCa_SelfSignedRejected) {
 
 TEST_F(NetTlsStreamTest, CancelDuringTlsRead_ReturnsCancelled) {
     Utils::CancellationSource source;
-    Transport::TlsStream stream("127.0.0.1", TLS_PORT, {.read_timeout = 30s}, {.verify_peer = false},
-                                 source.token());
+    Transport::TlsStream stream("127.0.0.1", TLS_PORT, {.read_timeout = 30s}, {.verify_peer = false}, source.token());
     ASSERT_TRUE(stream.ensure_connected());
 
     std::jthread triggerrer([src = source] {
@@ -540,7 +546,7 @@ TEST_F(NetTlsStreamTest, SniHostname_SetsSniAndVerificationHost) {
     // 127.0.0.1 — but SSL_set_tlsext_host_name / SSL_set1_host still run.
     // The SNI name is never resolved: TCP still targets 127.0.0.1.
     Transport::TlsStream stream("127.0.0.1", TLS_PORT, {}, {.sni_hostname = "dns.example.com", .verify_peer = false},
-                                 {});
+                                {});
     ASSERT_TRUE(stream.ensure_connected());
 
     ASSERT_TRUE(stream.send_all(framed("named")));
@@ -552,8 +558,7 @@ TEST_F(NetTlsStreamTest, SniHostname_SetsSniAndVerificationHost) {
 TEST_F(NetTlsStreamTest, ScopedIpv6Sni_StripScopeBeforeIpVerification) {
     // A scoped IPv6 literal must have the "%zone" stripped before
     // X509_VERIFY_PARAM_set1_ip_asc (it parses addresses, not scopes).
-    Transport::TlsStream stream("127.0.0.1", TLS_PORT, {}, {.sni_hostname = "fe80::1%eth0", .verify_peer = false},
-                                 {});
+    Transport::TlsStream stream("127.0.0.1", TLS_PORT, {}, {.sni_hostname = "fe80::1%eth0", .verify_peer = false}, {});
     ASSERT_TRUE(stream.ensure_connected());
 }
 

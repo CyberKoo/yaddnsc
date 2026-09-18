@@ -10,16 +10,17 @@
 //   - Edge cases: AF_UNSPEC, zero-length input, null pointer.
 // =============================================================================
 
-#include <cstdint>
-#include <cstring>
+#include "infrastructure/network/socket_addr.h"
+
+#include <optional>
+#include <string>
 
 #include <arpa/inet.h>
+#include <gtest/gtest.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
 
-#include <gtest/gtest.h>
-
-#include "infrastructure/network/socket_addr.h"
+#include "domain/network/address_family.h"
 #include "domain/network/inet_address.h"
 
 // ===========================================================================
@@ -160,12 +161,12 @@ TEST(SocketAddrFromInetTest, DefaultInetAddress_ReturnsUnspec) {
 // ===========================================================================
 
 TEST(SocketAddrFromRawTest, Ipv4_SockaddrIn) {
-    struct sockaddr_in sin {};
+    struct sockaddr_in sin{};
     sin.sin_family = AF_INET;
     sin.sin_port = htons(1234);
     sin.sin_addr.s_addr = htonl(0x01020304);  // 1.2.3.4
 
-    auto sock_addr = SocketAddr::from_raw(reinterpret_cast<const sockaddr *>(&sin), sizeof(sin));
+    auto sock_addr = SocketAddr::from_raw(reinterpret_cast<const sockaddr*>(&sin), sizeof(sin));
     EXPECT_EQ(sock_addr.family(), AF_INET);
     EXPECT_EQ(sock_addr.port(), 1234);
 
@@ -183,10 +184,10 @@ TEST(SocketAddrFromRawTest, Ipv4_NullPtr_ReturnsUnspec) {
 }
 
 TEST(SocketAddrFromRawTest, Ipv4_ZeroLen_ReturnsUnspec) {
-    struct sockaddr_in sin {};
+    struct sockaddr_in sin{};
     sin.sin_family = AF_INET;
 
-    auto sock_addr = SocketAddr::from_raw(reinterpret_cast<const sockaddr *>(&sin), 0);
+    auto sock_addr = SocketAddr::from_raw(reinterpret_cast<const sockaddr*>(&sin), 0);
     // len is 0, so nothing is copied — storage_ remains AF_UNSPEC
     EXPECT_EQ(sock_addr.family(), AF_UNSPEC);
 }

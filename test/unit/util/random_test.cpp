@@ -10,18 +10,21 @@
 //     state is observable across calls).
 // =============================================================================
 
+#include "support/util/random.hpp"
+
+#include <cstdint>
 #include <random>
 #include <set>
+#include <string>
+#include <type_traits>
 
 #include <gtest/gtest.h>
-
-#include "support/util/random.hpp"
 
 TEST(RandomEngineTest, ReturnsReferenceToMt19937) {
     // Verify the return type is std::mt19937& (not a copy).
     auto& eng = Utils::Random::engine();
     using EngineType = std::mt19937;
-    EXPECT_TRUE((std::is_same_v<decltype(eng), EngineType&>));
+    EXPECT_TRUE((std::is_same_v<decltype(eng), EngineType&>) );
 }
 
 TEST(RandomEngineTest, ProducesValuesInRange) {

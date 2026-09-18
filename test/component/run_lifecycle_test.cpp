@@ -19,48 +19,62 @@
 // latches — not sleeps — order the threads.
 // =============================================================================
 
+#include "application/run_lifecycle.h"
+
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
+#include <cstdint>
 #include <future>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <stop_token>
 #include <string>
+#include <string_view>
 #include <thread>
+#include <utility>
 #include <vector>
 
+#include <expected>
+#include <glaze/glaze.hpp>
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
-#include <glaze/glaze.hpp>
-
 #include "application/pool_task_executor.h"
-#include "application/run_lifecycle.h"
 #include "application/update_workflow.h"
-#include "infrastructure/plugin/driver_loader.h"
-#include "infrastructure/logging/spdlog_logger.h"
-#include "infrastructure/time/steady_clock.h"
-#include "infrastructure/plugin/abi_driver_gateway.h"
-#include "infrastructure/plugin/driver_catalog.h"
-#include "infrastructure/ip_source/adapter.h"
-#include "infrastructure/network/system_network_interfaces.h"
-
+#include "domain/config/dns_config.h"
+#include "domain/config/ip_source_kind.h"
+#include "domain/config/runtime_config.h"
+#include "domain/dns/record_kind.h"
+#include "domain/network/address_family.h"
+#include "domain/update/schedule_queue.h"
+#include "domain/update/time_types.h"
+#include "domain/update/update_task.h"
 #include "infrastructure/config/config.h"
+#include "infrastructure/config/parser.hpp"  // IWYU pragma: keep — registers glz::meta specializations
 #include "infrastructure/config/normalizer.h"
-#include "infrastructure/config/parser.hpp"
 #include "infrastructure/dns/dispatcher.h"
-#include "infrastructure/network/http/client_port.h"
+#include "infrastructure/dns/resolver/base.h"
+#include "infrastructure/ip_source/adapter.h"
 #include "infrastructure/ip_source/iface.h"
 #include "infrastructure/ip_source/iface_util.h"
-
-#include "support/util/cancellation_token.hpp"
-
+#include "infrastructure/logging/spdlog_logger.h"
+#include "infrastructure/network/http/client_port.h"
+#include "infrastructure/network/http/error.h"
+#include "infrastructure/network/http/types.h"
+#include "infrastructure/network/system_network_interfaces.h"
+#include "infrastructure/plugin/abi_driver_gateway.h"
+#include "infrastructure/plugin/driver_catalog.h"
+#include "infrastructure/plugin/driver_loader.h"
+#include "infrastructure/time/steady_clock.h"
 #include "mocks/fake_clock.h"
 #include "mocks/fake_task_executor.h"
 #include "mocks/mock_ports.h"
 #include "mocks/mock_resolver.h"
 #include "mocks/null_logger.h"
+#include "support/util/cancellation_token.hpp"
 
 namespace {
 
@@ -71,8 +85,9 @@ using ::testing::Return;
 // Requests stop and joins the runner thread on destruction, so a failing
 // assertion can never unwind past a joinable jthread (which would hang).
 struct RunnerGuard {
-    std::stop_source &stop;
-    std::jthread &runner;
+    std::stop_source& stop;
+    std::jthread& runner;
+
     ~RunnerGuard() {
         stop.request_stop();
         if (runner.joinable()) {
@@ -88,10 +103,9 @@ public:
     FixedAResolver() {
         ON_CALL(*this, query(_, _))
             .WillByDefault(Return(std::vector<std::uint8_t>{
-                0x12, 0x34, 0x81, 0x80, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00,
-                0x07, 'e', 'x', 'a', 'm', 'p', 'l', 'e', 0x03, 'c', 'o', 'm', 0x00,
-                0x00, 0x01, 0x00, 0x01, 0xC0, 0x0C, 0x00, 0x01, 0x00, 0x01,
-                0x00, 0x00, 0x01, 0x2C, 0x00, 0x04, 0xC0, 0x00, 0x02, 0x01}));
+                0x12, 0x34, 0x81, 0x80, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x07, 'e',  'x',
+                'a',  'm',  'p',  'l',  'e',  0x03, 'c',  'o',  'm',  0x00, 0x00, 0x01, 0x00, 0x01, 0xC0,
+                0x0C, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x01, 0x2C, 0x00, 0x04, 0xC0, 0x00, 0x02, 0x01}));
         ON_CALL(*this, get_type()).WillByDefault(Return("Mock"));
     }
 };
@@ -130,7 +144,7 @@ public:
     explicit BlockingHttpClient(std::shared_ptr<BlockingHttpState> state) : state_(std::move(state)) {}
 
     std::expected<net::http::Response, net::http::Error> exchange(std::string_view /*url*/,
-                                                                  const net::http::Request & /*req*/) const override {
+                                                                  const net::http::Request& /*req*/) const override {
         state_->calls.fetch_add(1);
         {
             std::unique_lock lock(state_->mtx);
@@ -152,7 +166,7 @@ private:
 // macOS). The loopback address differs from the fake DNS record (192.0.2.1),
 // so the updater takes the update path and invokes the driver.
 [[nodiscard]] std::optional<std::string> find_ipv4_interface() {
-    for (const auto &name: InterfaceUtil::get_interfaces()) {
+    for (const auto& name : InterfaceUtil::get_interfaces()) {
         InterfaceIpSource source(name, AddressFamily::IPV4);
         if (!source.resolve().empty()) {
             return name;
@@ -161,7 +175,7 @@ private:
     return std::nullopt;
 }
 
-[[nodiscard]] domain::RuntimeConfig parse_cfg(const std::string &json) {
+[[nodiscard]] domain::RuntimeConfig parse_cfg(const std::string& json) {
     Config::AppConfig cfg{};
     const auto ec = glz::read<glz::opts{.error_on_missing_keys = false}>(cfg, json);
     EXPECT_EQ(ec, glz::error_code::none) << glz::format_error(ec, json);
@@ -177,8 +191,7 @@ private:
            R"(","load":["simple/simple.so"]},"resolver":{"use_custom_server":false},)" +
            R"("domains":[{"name":"example.com","update_interval":3600,"force_update":0,"driver":"simple",)" +
            R"("subdomains":[{"name":"www","type":"a","ip_source":"interface","interface":")" +
-           std::string(interface_name) +
-           R"(","driver_param":{"url":"http://127.0.0.1/update?ip={ip_addr}"}}]}]})";
+           std::string(interface_name) + R"(","driver_param":{"url":"http://127.0.0.1/update?ip={ip_addr}"}}]}]})";
 }
 
 /// The run graph, assembled exactly as the composition root does: catalog +
@@ -187,12 +200,10 @@ private:
 /// cancellation source before every token consumer).
 struct RunGraph {
     RunGraph(domain::RuntimeConfig config, ResolverDispatcher dispatcher, HttpClientFactory http_factory)
-        : config_(std::make_shared<const domain::RuntimeConfig>(std::move(config))),
-          dispatcher_(std::move(dispatcher)),
+        : config_(std::make_shared<const domain::RuntimeConfig>(std::move(config))), dispatcher_(std::move(dispatcher)),
           ip_source_(cancellation_.token()),
           gateway_(catalog_, std::move(http_factory), cancellation_.token(), logger_),
-          workflow_(dispatcher_, ip_source_, gateway_, logger_),
-          executor_(2, workflow_) {
+          workflow_(dispatcher_, ip_source_, gateway_, logger_), executor_(2, workflow_) {
         DriverLoader::load(catalog_, config_->driver);
     }
 
@@ -237,7 +248,7 @@ const domain::TimePoint T0{std::chrono::seconds{10000}};
 /// loop has consumed the previous stimulus and parked again — so a test can
 /// inject a retry only after the runner has applied the last one (removes the
 /// advance-vs-reschedule race).
-[[nodiscard]] bool wait_parked(const FakeClock &clock, unsigned n) {
+[[nodiscard]] bool wait_parked(const FakeClock& clock, unsigned n) {
     for (int i = 0; i < 5000; ++i) {
         if (clock.wait_entries() >= n) {
             return true;
@@ -247,7 +258,7 @@ const domain::TimePoint T0{std::chrono::seconds{10000}};
     return false;
 }
 
-} // namespace
+}  // namespace
 
 // stop while one task is blocked in HTTP: run() must keep waiting until the
 // in-flight task finishes, return promptly afterwards (the next deadline is an
@@ -288,8 +299,7 @@ TEST(RunLifecycle, StopDrainsInFlightTaskBeforeReturning) {
 
     // stop interrupts the scheduler wait: run() returns promptly although the
     // rescheduled deadline is one hour out.
-    ASSERT_EQ(run_future.wait_for(10s), std::future_status::ready)
-        << "run() did not return after stop + drain";
+    ASSERT_EQ(run_future.wait_for(10s), std::future_status::ready) << "run() did not return after stop + drain";
 
     // Exactly one dispatch happened — after stop, the re-queued entry never ran.
     EXPECT_EQ(state->calls.load(), 1);

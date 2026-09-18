@@ -8,14 +8,18 @@
 //     DomainConfig, AppConfig) default values and aggregate initialisation.
 // =============================================================================
 
+#include <optional>
+#include <string>
 #include <type_traits>
 #include <vector>
 
 #include <gtest/gtest.h>
 
-#include "infrastructure/config/config.h"
+#include "domain/config/dns_config.h"
+#include "domain/config/ip_source_kind.h"
 #include "domain/dns/record_kind.h"
 #include "domain/network/address_family.h"
+#include "infrastructure/config/config.h"
 
 // ===========================================================================
 // Config::IpSource
@@ -28,8 +32,8 @@ TEST(ConfigIpSourceTest, EnumeratorValues_Defined) {
 }
 
 TEST(ConfigIpSourceTest, IsEnumClass) {
-    EXPECT_TRUE((std::is_enum_v<Config::IpSource>));
-    EXPECT_FALSE((std::is_convertible_v<Config::IpSource, int>));
+    EXPECT_TRUE((std::is_enum_v<Config::IpSource>) );
+    EXPECT_FALSE((std::is_convertible_v<Config::IpSource, int>) );
 }
 
 TEST(ConfigIpSourceTest, DefaultIsInterface) {
@@ -48,8 +52,8 @@ TEST(ConfigResolverStrategyTest, EnumeratorValues_Defined) {
 }
 
 TEST(ConfigResolverStrategyTest, IsEnumClass) {
-    EXPECT_TRUE((std::is_enum_v<Config::ResolverStrategy>));
-    EXPECT_FALSE((std::is_convertible_v<Config::ResolverStrategy, int>));
+    EXPECT_TRUE((std::is_enum_v<Config::ResolverStrategy>) );
+    EXPECT_FALSE((std::is_convertible_v<Config::ResolverStrategy, int>) );
 }
 
 TEST(ConfigResolverStrategyTest, DefaultIsFallback) {
@@ -204,9 +208,10 @@ TEST(ConfigAppConfigTest, AggregateInit) {
     Config::AppConfig cfg{
         .driver = {.driver_dir = "./drivers", .auto_discover = true},
         .resolver = {.use_custom_server = true, .servers = {{"9.9.9.9", 53}}},
-        .domains = {
-            {.name = "example.com", .update_interval = 300, .driver = "simple"},
-        },
+        .domains =
+            {
+                {.name = "example.com", .update_interval = 300, .driver = "simple"},
+            },
     };
 
     EXPECT_TRUE(cfg.driver.auto_discover);

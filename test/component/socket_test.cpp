@@ -6,17 +6,24 @@
 //
 // =============================================================================
 
-#include <cstddef>
-#include <cstring>
-#include <span>
-
-#include <poll.h>
+#include "infrastructure/network/socket.h"
 
 #include <gtest/gtest.h>
+#include <poll.h>
+#include <sys/socket.h>
+#include <sys/types.h>
+#include <sys/uio.h>
+#include <array>
+#include <cstddef>
+#include <optional>
+#include <span>
+#include <string>
+#include <string_view>
+#include <utility>
+#include <expected>
 
-#include "infrastructure/network/socket.h"
-#include "infrastructure/network/socket_addr.h"
 #include "domain/network/inet_address.h"
+#include "infrastructure/network/socket_addr.h"
 #include "infrastructure/network/socket_exception.h"
 #include "support/util/cancellation_token.hpp"
 
@@ -85,20 +92,15 @@ TEST(SocketTest, TcpEchoOnLoopback) {
 
     // Send data from client to server.
     const std::string message = "Hello, socket!";
-    auto sent = client.send(std::span<const std::byte>{
-        reinterpret_cast<const std::byte *>(message.data()), message.size()
-    });
+    auto sent =
+        client.send(std::span<const std::byte>{reinterpret_cast<const std::byte*>(message.data()), message.size()});
     EXPECT_EQ(sent, static_cast<ssize_t>(message.size()));
 
     // Receive on server side.
     std::array<std::byte, 64> recv_buf{};
     auto received = accepted->recv(std::span<std::byte>{recv_buf});
     EXPECT_EQ(received, static_cast<ssize_t>(message.size()));
-    EXPECT_EQ(
-        std::string(reinterpret_cast<const char *>(recv_buf.data()),
-                    static_cast<size_t>(received)),
-        message
-    );
+    EXPECT_EQ(std::string(reinterpret_cast<const char*>(recv_buf.data()), static_cast<size_t>(received)), message);
 }
 
 TEST(SocketTest, TcpConnectRefused) {
@@ -116,8 +118,7 @@ TEST(SocketTest, TcpConnectRefused) {
     // On Linux a connection to a closed port is immediately refused; on FreeBSD
     // the non-blocking connect returns EINPROGRESS and poll() with timeout 0 may
     // time out before the RST arrives.  Both outcomes are valid.
-    EXPECT_TRUE(result.error() == ConnectError::REFUSED ||
-                result.error() == ConnectError::TIMED_OUT);
+    EXPECT_TRUE(result.error() == ConnectError::REFUSED || result.error() == ConnectError::TIMED_OUT);
 }
 
 // ===========================================================================
@@ -136,7 +137,7 @@ TEST(SocketTest, NonBlockingFlag) {
     ASSERT_TRUE(target.has_value());
 
     auto result = sock.connect(*target, 0);
-    EXPECT_FALSE(result.has_value()); // Refused or InProgress
+    EXPECT_FALSE(result.has_value());  // Refused or InProgress
 }
 
 // ===========================================================================
@@ -164,11 +165,7 @@ TEST(SocketTest, UdpSendRecvOnLoopback) {
 
     const std::string message = "UDP test";
     auto sent = client.send_to(
-        std::span<const std::byte>{
-            reinterpret_cast<const std::byte *>(message.data()), message.size()
-        },
-        *target
-    );
+        std::span<const std::byte>{reinterpret_cast<const std::byte*>(message.data()), message.size()}, *target);
     EXPECT_EQ(sent, static_cast<ssize_t>(message.size()));
 
     // Receive on server.
@@ -176,11 +173,7 @@ TEST(SocketTest, UdpSendRecvOnLoopback) {
     SocketAddr src_addr;
     auto received = server.recv_from(std::span<std::byte>{recv_buf}, 0, &src_addr);
     ASSERT_EQ(received, static_cast<ssize_t>(message.size()));
-    EXPECT_EQ(
-        std::string(reinterpret_cast<const char *>(recv_buf.data()),
-                    static_cast<size_t>(received)),
-        message
-    );
+    EXPECT_EQ(std::string(reinterpret_cast<const char*>(recv_buf.data()), static_cast<size_t>(received)), message);
     EXPECT_EQ(src_addr.family(), AF_INET);
 }
 
@@ -324,7 +317,7 @@ TEST(SocketTest, RecvExactOnStream) {
     std::array<std::byte, 100> buf{};
     auto received = accepted->recv_exact(std::span{buf});
     EXPECT_EQ(received, 100);
-    EXPECT_EQ(std::string(reinterpret_cast<const char *>(buf.data()), 100), payload);
+    EXPECT_EQ(std::string(reinterpret_cast<const char*>(buf.data()), 100), payload);
 }
 
 TEST(SocketTest, UdpSendToAndRecvFrom_DefaultOverloads) {
@@ -375,7 +368,7 @@ TEST(SocketTest, RecvExactOnDatagram) {
     std::array<std::byte, 128> buf{};
     auto received = server.recv_exact(std::span{buf});
     EXPECT_EQ(received, 32);
-    EXPECT_EQ(std::string(reinterpret_cast<const char *>(buf.data()), 32), payload);
+    EXPECT_EQ(std::string(reinterpret_cast<const char*>(buf.data()), 32), payload);
 }
 
 // ===========================================================================
@@ -527,7 +520,7 @@ TEST(SocketTest, SendRecvWithFlags) {
     std::array<std::byte, 32> buf{};
     auto received = accepted.recv(std::span{buf}, 0);
     EXPECT_EQ(received, static_cast<ssize_t>(msg.size()));
-    EXPECT_EQ(std::string(reinterpret_cast<const char *>(buf.data()), msg.size()), msg);
+    EXPECT_EQ(std::string(reinterpret_cast<const char*>(buf.data()), msg.size()), msg);
 }
 
 // ===========================================================================
@@ -539,7 +532,7 @@ TEST(SocketTest, CreateSocket_InvalidProtocol_Throws) {
     EXPECT_THROW(Socket(AF_INET, SOCK_STREAM, 0xFFFFFF), SocketException);
 }
 
-TEST(SocketTest, SelfMoveAssignment_IsNoOp) { // NOLINT(bugprone-use-after-move)
+TEST(SocketTest, SelfMoveAssignment_IsNoOp) {  // NOLINT(bugprone-use-after-move)
     Socket sock(AF_INET, SOCK_STREAM);
     const int fd = sock.native_handle();
 #pragma GCC diagnostic push
@@ -612,12 +605,12 @@ TEST(SocketTest, Bind_OnClosedSocket_ReturnsError) {
 TEST(SocketTest, GetSockname_OnClosedSocket_Throws) {
     Socket sock(AF_INET, SOCK_STREAM);
     sock.close();
-    EXPECT_THROW((void)sock.get_sockname(), SocketException);
+    EXPECT_THROW((void) sock.get_sockname(), SocketException);
 }
 
 TEST(SocketTest, GetPeername_Unconnected_Throws) {
     Socket sock(AF_INET, SOCK_STREAM);
-    EXPECT_THROW((void)sock.get_peername(), SocketException);  // ENOTCONN
+    EXPECT_THROW((void) sock.get_peername(), SocketException);  // ENOTCONN
 }
 
 TEST(SocketTest, BlockingConnect_Refused) {

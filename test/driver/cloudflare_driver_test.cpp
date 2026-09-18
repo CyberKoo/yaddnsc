@@ -10,32 +10,41 @@
 //   - update returns UPSTREAM_REJECTED for success=false / unparseable responses.
 // =============================================================================
 
+#include <optional>
+#include <string>
+#include <string_view>
+#include <vector>
+
 #include <gtest/gtest.h>
+#include <yaddnsc/sdk/driver_abi.h>
 
 #include "abi_test_harness.h"
 
 // ── Shared fixtures ──────────────────────────────────────────────────────────
 
 namespace {
-    constexpr std::string_view CONFIG = R"({
+constexpr std::string_view CONFIG = R"({
         "zone_id": "myzone",
         "record_id": "rec123",
         "token": "mytoken"
     })";
 
-    std::string make_success_response(std::string_view type, std::string_view name, std::string_view content, int ttl,
-                                      bool proxied) {
-        return std::string{R"({"success":true,"errors":[],"messages":[],"result":{"id":"rec123","name":")"} +
-                           std::string{name} + R"(","type":")" + std::string{type} + R"(","content":")" +
-                           std::string{content} + R"(","ttl":)" + std::to_string(ttl) +
-                           (proxied ? R"(,"proxied":true)" : R"(,"proxied":false)") + R"(,"proxiable":false}})";
-    }
-} // namespace
+std::string make_success_response(std::string_view type,
+                                  std::string_view name,
+                                  std::string_view content,
+                                  int ttl,
+                                  bool proxied) {
+    return std::string{R"({"success":true,"errors":[],"messages":[],"result":{"id":"rec123","name":")"} +
+           std::string{name} + R"(","type":")" + std::string{type} + R"(","content":")" + std::string{content} +
+           R"(","ttl":)" + std::to_string(ttl) + (proxied ? R"(,"proxied":true)" : R"(,"proxied":false)") +
+           R"(,"proxiable":false}})";
+}
+}  // namespace
 
 // ── Tests ──────────────────────────────────────────────────────────────────
 
 TEST(CloudflareDriverTest, Descriptor_ReturnsExpectedMetadata) {
-    const yaddnsc_driver_descriptor *descriptor = nullptr;
+    const yaddnsc_driver_descriptor* descriptor = nullptr;
     ASSERT_EQ(yaddnsc_driver_get_descriptor(&descriptor), YADDNSC_STATUS_OK);
     ASSERT_NE(descriptor, nullptr);
     EXPECT_EQ(descriptor->magic, YADDNSC_DRIVER_MAGIC);
@@ -58,7 +67,7 @@ TEST(CloudflareDriverTest, Update_BasicARecord) {
     ASSERT_EQ(result.status, YADDNSC_STATUS_OK) << result.error_message;
 
     ASSERT_EQ(fake.requests.size(), 1u);
-    const auto &request = fake.requests[0];
+    const auto& request = fake.requests[0];
 
     // Check URL
     EXPECT_EQ(request.url, "https://api.cloudflare.com/client/v4/zones/myzone/dns_records/rec123");
@@ -74,7 +83,7 @@ TEST(CloudflareDriverTest, Update_BasicARecord) {
 
     // Check request body contains expected fields
     ASSERT_TRUE(request.body.has_value());
-    const auto &body = *request.body;
+    const auto& body = *request.body;
     EXPECT_TRUE(body.find(R"("type":"A")") != std::string::npos);
     EXPECT_TRUE(body.find(R"("content":"1.2.3.4")") != std::string::npos);
     EXPECT_TRUE(body.find(R"("name":"www")") != std::string::npos);
@@ -84,14 +93,14 @@ TEST(CloudflareDriverTest, Update_WithTtlAndProxied) {
     FakeHostServices fake;
     fake.queue_response(200, make_success_response("AAAA", "example.com", "10.0.0.1", 120, true));
 
-    const auto result = run_abi_update(fake,
-                                       R"({"zone_id":"z1","record_id":"r1","token":"t1","ttl":120,"proxied":true})",
-                                       "10.0.0.1", "AAAA", "example.com", "@", "example.com");
+    const auto result =
+        run_abi_update(fake, R"({"zone_id":"z1","record_id":"r1","token":"t1","ttl":120,"proxied":true})", "10.0.0.1",
+                       "AAAA", "example.com", "@", "example.com");
     ASSERT_EQ(result.status, YADDNSC_STATUS_OK) << result.error_message;
 
     ASSERT_EQ(fake.requests.size(), 1u);
     ASSERT_TRUE(fake.requests[0].body.has_value());
-    const auto &body = *fake.requests[0].body;
+    const auto& body = *fake.requests[0].body;
     EXPECT_TRUE(body.find(R"("type":"AAAA")") != std::string::npos);
     EXPECT_TRUE(body.find(R"("ttl":120)") != std::string::npos);
     EXPECT_TRUE(body.find(R"("proxied":true)") != std::string::npos);
@@ -100,8 +109,8 @@ TEST(CloudflareDriverTest, Update_WithTtlAndProxied) {
 
 TEST(CloudflareDriverTest, Update_MissingZoneId_ReturnsInvalidConfig) {
     FakeHostServices fake;
-    const auto result = run_abi_update(fake, R"({"record_id":"r1","token":"t1"})", "1.2.3.4", "A", "example.com",
-                                       "@", "example.com");
+    const auto result =
+        run_abi_update(fake, R"({"record_id":"r1","token":"t1"})", "1.2.3.4", "A", "example.com", "@", "example.com");
     EXPECT_EQ(result.status, YADDNSC_STATUS_INVALID_CONFIG);
     EXPECT_TRUE(result.error_message.starts_with("Driver configuration parse error:")) << result.error_message;
     EXPECT_TRUE(fake.requests.empty());
@@ -109,8 +118,8 @@ TEST(CloudflareDriverTest, Update_MissingZoneId_ReturnsInvalidConfig) {
 
 TEST(CloudflareDriverTest, Update_MissingToken_ReturnsInvalidConfig) {
     FakeHostServices fake;
-    const auto result = run_abi_update(fake, R"({"zone_id":"z1","record_id":"r1"})", "1.2.3.4", "A", "example.com",
-                                       "@", "example.com");
+    const auto result =
+        run_abi_update(fake, R"({"zone_id":"z1","record_id":"r1"})", "1.2.3.4", "A", "example.com", "@", "example.com");
     EXPECT_EQ(result.status, YADDNSC_STATUS_INVALID_CONFIG);
     EXPECT_TRUE(result.error_message.starts_with("Driver configuration parse error:")) << result.error_message;
     EXPECT_TRUE(fake.requests.empty());
@@ -215,5 +224,5 @@ TEST(CloudflareDriverTest, Validate_MalformedJson_ReturnsInvalidConfig) {
 TEST(CloudflareDriverTest, Entries_NullArgumentsRejected) {
     EXPECT_EQ(yaddnsc_driver_get_descriptor(nullptr), YADDNSC_STATUS_INVALID_ARGUMENT);
     EXPECT_EQ(yaddnsc_driver_update(nullptr, nullptr, nullptr), YADDNSC_STATUS_INVALID_ARGUMENT);
-    yaddnsc_driver_destroy(nullptr); // must be a no-op, must not crash
+    yaddnsc_driver_destroy(nullptr);  // must be a no-op, must not crash
 }

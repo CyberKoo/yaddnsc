@@ -13,27 +13,31 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <compare>
+#include <cstddef>
 #include <cstdint>
-#include <cstdlib>
-#include <cstring>
 #include <deque>
+#include <fstream>
 #include <iterator>
 #include <memory>
 #include <optional>
 #include <span>
 #include <string>
+#include <string_view>
 #include <thread>
+#include <utility>
 #include <vector>
 
-#include <fcntl.h>
-#include <fstream>
-#include <sys/socket.h>
-#include <sys/wait.h>
-#include <unistd.h>
-#include <netinet/in.h>
 #include <arpa/inet.h>
+#include <expected>
+#include <fcntl.h>
+#include <netinet/in.h>
 #include <poll.h>
 #include <signal.h>
+#include <sys/socket.h>
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <unistd.h>
 
 // For prctl(PR_SET_PDEATHSIG) — Linux-only, prevents orphaned children
 // when the test process is killed (including SIGKILL, which can't be caught
@@ -42,24 +46,21 @@
 #include <sys/prctl.h>
 #endif
 
-#include "support/util/cancellation_token.hpp"
-
-#include <gmock/gmock.h>
 #include <gtest/gtest.h>
+#include <yaddnsc/util/format.hpp>
 
 #include "domain/config/dns_config.h"
-#include "infrastructure/dns/resolver/classic.h"
+#include "domain/dns/record_kind.h"
+#include "domain/error/dns_error.h"
 #include "domain/error/dns_error_info.h"
-#include "infrastructure/dns/types.h"
-#include "infrastructure/dns/wire/builder.h"
 #include "domain/network/inet_address.h"
+#include "infrastructure/dns/dns_lookup_exception.h"
+#include "infrastructure/dns/resolver/classic.h"
+#include "infrastructure/dns/types.h"
 #include "infrastructure/network/socket.h"
 #include "infrastructure/network/socket_addr.h"
-#include "domain/dns/record_kind.h"
-#include "infrastructure/network/uri.h"
-#include "infrastructure/dns/dns_lookup_exception.h"
-
 #include "support/fmt.hpp"
+#include "support/util/cancellation_token.hpp"
 
 using namespace std::chrono_literals;
 
@@ -97,7 +98,7 @@ static bool server_started = false;
     }
 
     std::string result;
-    for (const auto &l: lines) {
+    for (const auto& l : lines) {
         result += l;
         result += '\n';
     }
@@ -158,13 +159,19 @@ void start_dns_server() {
         probe.push_back(static_cast<std::uint8_t>(v >> 8));
         probe.push_back(static_cast<std::uint8_t>(v & 0xFF));
     };
-    w16(0); w16(0x0100); w16(1); w16(0); w16(0); w16(0);
+    w16(0);
+    w16(0x0100);
+    w16(1);
+    w16(0);
+    w16(0);
+    w16(0);
     probe.push_back(7);
     std::ranges::copy(std::string_view("example"), std::back_inserter(probe));
     probe.push_back(3);
     std::ranges::copy(std::string_view("com"), std::back_inserter(probe));
     probe.push_back(0);
-    w16(1); w16(1);
+    w16(1);
+    w16(1);
 
     struct sockaddr_in addr = {};
     addr.sin_family = AF_INET;
@@ -174,10 +181,10 @@ void start_dns_server() {
     bool ready = false;
     while (!ready && std::chrono::steady_clock::now() < deadline) {
         int fd = ::socket(AF_INET, SOCK_DGRAM, 0);
-        if (fd < 0) break;
+        if (fd < 0)
+            break;
 
-        ::sendto(fd, probe.data(), probe.size(), 0,
-                 reinterpret_cast<sockaddr *>(&addr), sizeof(addr));
+        ::sendto(fd, probe.data(), probe.size(), 0, reinterpret_cast<sockaddr*>(&addr), sizeof(addr));
         struct pollfd pfd = {fd, POLLIN, 0};
         if (::poll(&pfd, 1, 200) > 0) {
             std::vector<std::uint8_t> buf(512);
@@ -186,7 +193,8 @@ void start_dns_server() {
             }
         }
         ::close(fd);
-        if (!ready) std::this_thread::sleep_for(100ms);
+        if (!ready)
+            std::this_thread::sleep_for(100ms);
     }
 
     if (!ready) {
@@ -228,13 +236,9 @@ void stop_dns_server() {
 
 class ClassicNativeResolverTest : public ::testing::Test {
 protected:
-    static void SetUpTestSuite() {
-        start_dns_server();
-    }
+    static void SetUpTestSuite() { start_dns_server(); }
 
-    static void TearDownTestSuite() {
-        stop_dns_server();
-    }
+    static void TearDownTestSuite() { stop_dns_server(); }
 
     void SetUp() override {
         if (!server_started) {
@@ -274,7 +278,7 @@ TEST_F(ClassicNativeResolverTest, QueryIsValidDnsResponse) {
 
     ASSERT_TRUE(result.has_value());
 
-    const auto &response = *result;
+    const auto& response = *result;
     ASSERT_GE(response.size(), 12);
 
     EXPECT_TRUE(response[2] & 0x80) << "QR bit not set in response";
@@ -291,7 +295,7 @@ TEST_F(ClassicNativeResolverTest, TruncatedResponse_FallsBackToTcp) {
     EXPECT_GT(result->size(), 12);
 
     // Verify QR bit is set (valid response header).
-    const auto &response = *result;
+    const auto& response = *result;
     EXPECT_TRUE(response[2] & 0x80) << "QR bit not set in TCP fallback response";
 }
 
@@ -299,7 +303,7 @@ TEST_F(ClassicNativeResolverTest, ConnectionRefused_ReturnsError) {
     // Create a resolver pointing to a closed port.
     Config::DnsServer server;
     server.address = "127.0.0.1";
-    server.port = 1; // port 1 is never open on loopback
+    server.port = 1;  // port 1 is never open on loopback
 
     auto bad_resolver = std::make_unique<ClassicResolver>(std::move(server), Utils::CancellationToken{});
     auto result = bad_resolver->query("yaddnsc.test", RecordKind::A);
@@ -309,194 +313,197 @@ TEST_F(ClassicNativeResolverTest, ConnectionRefused_ReturnsError) {
 }
 
 TEST_F(ClassicNativeResolverTest, MalformedResponse_ValidatorRejects) {
-	// Query a host that makes the server return garbage.
-	// The response validator should reject it.
-	auto result = global_resolver->query("malformed.yaddnsc.test", RecordKind::A);
+    // Query a host that makes the server return garbage.
+    // The response validator should reject it.
+    auto result = global_resolver->query("malformed.yaddnsc.test", RecordKind::A);
 
-	// Should fail — validator rejects the malformed response.
-	ASSERT_FALSE(result.has_value());
+    // Should fail — validator rejects the malformed response.
+    ASSERT_FALSE(result.has_value());
 }
 
 TEST_F(ClassicNativeResolverTest, InvalidServerAddress_Throws) {
-	// An invalid address (not a valid IP) should throw during construction.
-	Config::DnsServer server;
-	server.address = "not-an-ip";
-	server.port = 53;
+    // An invalid address (not a valid IP) should throw during construction.
+    Config::DnsServer server;
+    server.address = "not-an-ip";
+    server.port = 53;
 
-	EXPECT_THROW(
-		{ auto bad = std::make_unique<ClassicResolver>(std::move(server), Utils::CancellationToken{}); },
-		DnsLookupException
-	);
+    EXPECT_THROW(
+        { auto bad = std::make_unique<ClassicResolver>(std::move(server), Utils::CancellationToken{}); },
+        DnsLookupException);
 }
 
 TEST_F(ClassicNativeResolverTest, UdpTimeout_ReturnsRetryError) {
-	// Query a host the server ignores on UDP — resolver should time out.
-	auto result = global_resolver->query("timeout.yaddnsc.test", RecordKind::A);
+    // Query a host the server ignores on UDP — resolver should time out.
+    auto result = global_resolver->query("timeout.yaddnsc.test", RecordKind::A);
 
-	// Should fail with a timeout/retry error (no server response).
-	ASSERT_FALSE(result.has_value());
+    // Should fail with a timeout/retry error (no server response).
+    ASSERT_FALSE(result.has_value());
 }
 
 TEST_F(ClassicNativeResolverTest, TcpConnectionReset_ReturnsError) {
-	// UDP returns TC=1, then TCP connection is immediately closed.
-	auto result = global_resolver->query("tcpreset.yaddnsc.test", RecordKind::A);
+    // UDP returns TC=1, then TCP connection is immediately closed.
+    auto result = global_resolver->query("tcpreset.yaddnsc.test", RecordKind::A);
 
-	// Should fail — TCP connection reset before any response.
-	ASSERT_FALSE(result.has_value());
+    // Should fail — TCP connection reset before any response.
+    ASSERT_FALSE(result.has_value());
 }
 
 TEST_F(ClassicNativeResolverTest, TcpInvalidResponseLength_ReturnsError) {
-	// UDP returns TC=1, then TCP returns length prefix 0.
-	auto result = global_resolver->query("tcperror.yaddnsc.test", RecordKind::A);
+    // UDP returns TC=1, then TCP returns length prefix 0.
+    auto result = global_resolver->query("tcperror.yaddnsc.test", RecordKind::A);
 
-	// Should fail — TCP response length is invalid (0).
-	ASSERT_FALSE(result.has_value());
+    // Should fail — TCP response length is invalid (0).
+    ASSERT_FALSE(result.has_value());
 }
 
 TEST_F(ClassicNativeResolverTest, DnsPacketException_IsCaught) {
-	// A hostname with a label > 63 chars triggers DnsPacketException
-	// in build_query, which is caught and returned as an error.
-	std::string long_label(70, 'a');
-	auto bad_host = fmt::format("{}.example.com", long_label);
+    // A hostname with a label > 63 chars triggers DnsPacketException
+    // in build_query, which is caught and returned as an error.
+    std::string long_label(70, 'a');
+    auto bad_host = fmt::format("{}.example.com", long_label);
 
-	auto result = global_resolver->query(bad_host, RecordKind::A);
+    auto result = global_resolver->query(bad_host, RecordKind::A);
 
-	ASSERT_FALSE(result.has_value());
+    ASSERT_FALSE(result.has_value());
 }
 
 TEST_F(ClassicNativeResolverTest, Ipv6ServerAddress) {
-	// Create a resolver pointing to an IPv6 loopback.
-	Config::DnsServer server;
-	server.address = "::1";
-	server.port = DNS_PORT;
+    // Create a resolver pointing to an IPv6 loopback.
+    Config::DnsServer server;
+    server.address = "::1";
+    server.port = DNS_PORT;
 
-	auto ipv6_resolver = std::make_unique<ClassicResolver>(std::move(server), Utils::CancellationToken{});
-	auto result = ipv6_resolver->query("yaddnsc.test", RecordKind::A);
+    auto ipv6_resolver = std::make_unique<ClassicResolver>(std::move(server), Utils::CancellationToken{});
+    auto result = ipv6_resolver->query("yaddnsc.test", RecordKind::A);
 
-	// ::1 is the same machine; the server should be reachable.
-	// If the test environment has IPv6 disabled this will fail gracefully.
-	if (!result) {
-		GTEST_SKIP() << "IPv6 loopback not available";
-	}
-	ASSERT_TRUE(result.has_value());
+    // ::1 is the same machine; the server should be reachable.
+    // If the test environment has IPv6 disabled this will fail gracefully.
+    if (!result) {
+        GTEST_SKIP() << "IPv6 loopback not available";
+    }
+    ASSERT_TRUE(result.has_value());
 }
 
 TEST_F(ClassicNativeResolverTest, TcpRecvTimeout_ReturnsRetryError) {
-	// UDP returns TC=1, TCP connects but never sends — resolver times out.
-	auto result = global_resolver->query("tcptimeout.yaddnsc.test", RecordKind::A);
+    // UDP returns TC=1, TCP connects but never sends — resolver times out.
+    auto result = global_resolver->query("tcptimeout.yaddnsc.test", RecordKind::A);
 
-	// Should fail with timeout.
-	ASSERT_FALSE(result.has_value());
+    // Should fail with timeout.
+    ASSERT_FALSE(result.has_value());
 }
 
 TEST_F(ClassicNativeResolverTest, TcpGarbageResponse_ValidatorRejects) {
-	// UDP returns TC=1, TCP returns garbage — validator rejects.
-	auto result = global_resolver->query("tcpgarbage.yaddnsc.test", RecordKind::A);
+    // UDP returns TC=1, TCP returns garbage — validator rejects.
+    auto result = global_resolver->query("tcpgarbage.yaddnsc.test", RecordKind::A);
 
-	// Should fail — validator rejects garbage.
-	ASSERT_FALSE(result.has_value());
+    // Should fail — validator rejects garbage.
+    ASSERT_FALSE(result.has_value());
 }
 
 TEST_F(ClassicNativeResolverTest, TcpResponseLengthTooLarge_ReturnsError) {
-	// UDP returns TC=1, TCP returns length prefix > 4096.
-	auto result = global_resolver->query("tcplarge.yaddnsc.test", RecordKind::A);
+    // UDP returns TC=1, TCP returns length prefix > 4096.
+    auto result = global_resolver->query("tcplarge.yaddnsc.test", RecordKind::A);
 
-	// Should fail — invalid response length.
-	ASSERT_FALSE(result.has_value());
+    // Should fail — invalid response length.
+    ASSERT_FALSE(result.has_value());
 }
 
 TEST_F(ClassicNativeResolverTest, TcpConnectFailureAfterTruncatedUdp) {
-	// Use a UDP-only server that returns TC=1, so TCP connect fails.
-	// Start a second Python server with --udp-only on a different port.
-	constexpr int UDP_ONLY_PORT = 21554;
+    // Use a UDP-only server that returns TC=1, so TCP connect fails.
+    // Start a second Python server with --udp-only on a different port.
+    constexpr int UDP_ONLY_PORT = 21554;
 
-	pid_t udp_only_pid = ::fork();
-	ASSERT_NE(udp_only_pid, -1) << "fork() failed";
+    pid_t udp_only_pid = ::fork();
+    ASSERT_NE(udp_only_pid, -1) << "fork() failed";
 
-	if (udp_only_pid == 0) {
-		// Child: exec the UDP-only DNS server.
+    if (udp_only_pid == 0) {
+        // Child: exec the UDP-only DNS server.
 #ifdef __linux__
-		::prctl(PR_SET_PDEATHSIG, SIGTERM);
+        ::prctl(PR_SET_PDEATHSIG, SIGTERM);
 #endif
-		int log_fd = ::open("/tmp/yaddnsc-udp-only-server.log",
-		                    O_WRONLY | O_CREAT | O_TRUNC, 0644);
-		if (log_fd >= 0) {
-			::dup2(log_fd, STDOUT_FILENO);
-			::dup2(log_fd, STDERR_FILENO);
-			::close(log_fd);
-		}
-		auto port_str = fmt::format("{}", UDP_ONLY_PORT);
-		::execlp("python3", "python3", TEST_DATA_DIR "/dns_server.py",
-		         port_str.c_str(), "--udp-only", nullptr);
-		::execl("/tmp/sim-venv/bin/python3", "python3", TEST_DATA_DIR "/dns_server.py",
-		        port_str.c_str(), "--udp-only", nullptr);
-		::_exit(127);
-	}
+        int log_fd = ::open("/tmp/yaddnsc-udp-only-server.log", O_WRONLY | O_CREAT | O_TRUNC, 0644);
+        if (log_fd >= 0) {
+            ::dup2(log_fd, STDOUT_FILENO);
+            ::dup2(log_fd, STDERR_FILENO);
+            ::close(log_fd);
+        }
+        auto port_str = fmt::format("{}", UDP_ONLY_PORT);
+        ::execlp("python3", "python3", TEST_DATA_DIR "/dns_server.py", port_str.c_str(), "--udp-only", nullptr);
+        ::execl("/tmp/sim-venv/bin/python3", "python3", TEST_DATA_DIR "/dns_server.py", port_str.c_str(), "--udp-only",
+                nullptr);
+        ::_exit(127);
+    }
 
-	// Parent: wait for the UDP-only server to become ready.
-	// Use a proper DNS query as probe (same as main server startup).
-	auto deadline = std::chrono::steady_clock::now() + 10s;
-	bool ready = false;
+    // Parent: wait for the UDP-only server to become ready.
+    // Use a proper DNS query as probe (same as main server startup).
+    auto deadline = std::chrono::steady_clock::now() + 10s;
+    bool ready = false;
 
-	std::vector<std::uint8_t> probe;
-	auto w16 = [&](std::uint16_t v) {
-		probe.push_back(static_cast<std::uint8_t>(v >> 8));
-		probe.push_back(static_cast<std::uint8_t>(v & 0xFF));
-	};
-	w16(0); w16(0x0100); w16(1); w16(0); w16(0); w16(0);
-	probe.push_back(7);
-	std::ranges::copy(std::string_view("example"), std::back_inserter(probe));
-	probe.push_back(3);
-	std::ranges::copy(std::string_view("com"), std::back_inserter(probe));
-	probe.push_back(0);
-	w16(1); w16(1);
+    std::vector<std::uint8_t> probe;
+    auto w16 = [&](std::uint16_t v) {
+        probe.push_back(static_cast<std::uint8_t>(v >> 8));
+        probe.push_back(static_cast<std::uint8_t>(v & 0xFF));
+    };
+    w16(0);
+    w16(0x0100);
+    w16(1);
+    w16(0);
+    w16(0);
+    w16(0);
+    probe.push_back(7);
+    std::ranges::copy(std::string_view("example"), std::back_inserter(probe));
+    probe.push_back(3);
+    std::ranges::copy(std::string_view("com"), std::back_inserter(probe));
+    probe.push_back(0);
+    w16(1);
+    w16(1);
 
-	while (!ready && std::chrono::steady_clock::now() < deadline) {
-		int fd = ::socket(AF_INET, SOCK_DGRAM, 0);
-		if (fd < 0) break;
+    while (!ready && std::chrono::steady_clock::now() < deadline) {
+        int fd = ::socket(AF_INET, SOCK_DGRAM, 0);
+        if (fd < 0)
+            break;
 
-		struct sockaddr_in addr = {};
-		addr.sin_family = AF_INET;
-		addr.sin_port = htons(static_cast<std::uint16_t>(UDP_ONLY_PORT));
-		::inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
+        struct sockaddr_in addr = {};
+        addr.sin_family = AF_INET;
+        addr.sin_port = htons(static_cast<std::uint16_t>(UDP_ONLY_PORT));
+        ::inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
 
-		::sendto(fd, probe.data(), probe.size(), 0,
-		         reinterpret_cast<sockaddr *>(&addr), sizeof(addr));
-		struct pollfd pfd = {fd, POLLIN, 0};
-		if (::poll(&pfd, 1, 200) > 0) {
-			std::vector<std::uint8_t> buf(512);
-			if (::recv(fd, buf.data(), buf.size(), 0) > 0) {
-				ready = true;
-			}
-		}
-		::close(fd);
-		if (!ready)
-			std::this_thread::sleep_for(100ms);
-	}
+        ::sendto(fd, probe.data(), probe.size(), 0, reinterpret_cast<sockaddr*>(&addr), sizeof(addr));
+        struct pollfd pfd = {fd, POLLIN, 0};
+        if (::poll(&pfd, 1, 200) > 0) {
+            std::vector<std::uint8_t> buf(512);
+            if (::recv(fd, buf.data(), buf.size(), 0) > 0) {
+                ready = true;
+            }
+        }
+        ::close(fd);
+        if (!ready)
+            std::this_thread::sleep_for(100ms);
+    }
 
-	if (!ready) {
-		::kill(udp_only_pid, SIGTERM);
-		::waitpid(udp_only_pid, nullptr, 0);
-		GTEST_SKIP() << "UDP-only server did not start within 10s";
-		return;
-	}
+    if (!ready) {
+        ::kill(udp_only_pid, SIGTERM);
+        ::waitpid(udp_only_pid, nullptr, 0);
+        GTEST_SKIP() << "UDP-only server did not start within 10s";
+        return;
+    }
 
-	// Create a resolver pointing to the UDP-only server.
-	Config::DnsServer server;
-	server.address = "127.0.0.1";
-	server.port = UDP_ONLY_PORT;
-	auto resolver = std::make_unique<ClassicResolver>(std::move(server), Utils::CancellationToken{});
+    // Create a resolver pointing to the UDP-only server.
+    Config::DnsServer server;
+    server.address = "127.0.0.1";
+    server.port = UDP_ONLY_PORT;
+    auto resolver = std::make_unique<ClassicResolver>(std::move(server), Utils::CancellationToken{});
 
-	// Query a host that triggers TC=1 on UDP.
-	// Since there's no TCP listener, the TCP connect should fail.
-	auto result = resolver->query("tcpconnectfail.yaddnsc.test", RecordKind::A);
+    // Query a host that triggers TC=1 on UDP.
+    // Since there's no TCP listener, the TCP connect should fail.
+    auto result = resolver->query("tcpconnectfail.yaddnsc.test", RecordKind::A);
 
-	// Should fail with a connection error (TCP connect failed after truncation).
-	ASSERT_FALSE(result.has_value());
+    // Should fail with a connection error (TCP connect failed after truncation).
+    ASSERT_FALSE(result.has_value());
 
-	// Clean up the UDP-only server.
-	::kill(udp_only_pid, SIGTERM);
-	::waitpid(udp_only_pid, nullptr, 0);
+    // Clean up the UDP-only server.
+    ::kill(udp_only_pid, SIGTERM);
+    ::waitpid(udp_only_pid, nullptr, 0);
 }
 
 // ===========================================================================
@@ -506,44 +513,42 @@ TEST_F(ClassicNativeResolverTest, TcpConnectFailureAfterTruncatedUdp) {
 /// Build a DNS response that echoes @p query (same ID and question) with a
 /// single A answer for @p ip.  Deliberately passes the ID/question
 /// validation so that only source verification can reject it.
-[[nodiscard]] std::vector<std::uint8_t> build_a_response(const std::vector<std::uint8_t> &query,
-                                                         std::string_view ip) {
+[[nodiscard]] std::vector<std::uint8_t> build_a_response(const std::vector<std::uint8_t>& query, std::string_view ip) {
     auto resp = query;
-    resp[2] = 0x81; // QR | RD
-    resp[3] = 0x80; // RA
+    resp[2] = 0x81;  // QR | RD
+    resp[3] = 0x80;  // RA
     resp[6] = 0x00;
-    resp[7] = 0x01; // ANCOUNT = 1
+    resp[7] = 0x01;  // ANCOUNT = 1
 
     // Skip the question section (QNAME + QTYPE + QCLASS).
     std::size_t q_end = DNS::HEADER_SIZE;
     while (q_end < resp.size() && resp[q_end] != 0) {
         q_end += 1u + resp[q_end];
     }
-    q_end += 5; // root label + QTYPE(2) + QCLASS(2)
+    q_end += 5;  // root label + QTYPE(2) + QCLASS(2)
 
     // Drop the EDNS OPT record the query may carry (ARCOUNT=1): the client
     // does not require it in the response, and it would shift the answer.
-    if (q_end + 11 <= resp.size() && resp[q_end] == 0x00 && resp[q_end + 1] == 0x00 &&
-        resp[q_end + 2] == 0x29) {
+    if (q_end + 11 <= resp.size() && resp[q_end] == 0x00 && resp[q_end + 1] == 0x00 && resp[q_end + 2] == 0x29) {
         resp.resize(q_end);
         resp[10] = 0x00;
-        resp[11] = 0x00; // ARCOUNT = 0
+        resp[11] = 0x00;  // ARCOUNT = 0
     }
 
     // Answer: name pointer to the question, type A, class IN, TTL, RDATA.
     const std::array<std::uint8_t, 10> fixed = {
-        0xC0, 0x0C,         // name pointer (offset 12)
-        0x00, 0x01,         // TYPE = A
-        0x00, 0x01,         // CLASS = IN
-        0x00, 0x00, 0x00, 0x3C, // TTL = 60
+        0xC0, 0x0C,              // name pointer (offset 12)
+        0x00, 0x01,              // TYPE = A
+        0x00, 0x01,              // CLASS = IN
+        0x00, 0x00, 0x00, 0x3C,  // TTL = 60
     };
     resp.insert(resp.end(), fixed.begin(), fixed.end());
 
     in_addr in{};
     ::inet_pton(AF_INET, ip.data(), &in);
-    const auto *bytes = reinterpret_cast<const std::uint8_t *>(&in.s_addr);
+    const auto* bytes = reinterpret_cast<const std::uint8_t*>(&in.s_addr);
     resp.push_back(0x00);
-    resp.push_back(0x04); // RDLENGTH = 4
+    resp.push_back(0x04);  // RDLENGTH = 4
     resp.insert(resp.end(), bytes, bytes + 4);
     return resp;
 }
@@ -579,7 +584,7 @@ TEST_F(ClassicNativeResolverTest, UdpResponseFromUnexpectedSource_IsDiscarded) {
         SocketAddr client_addr;
         auto n = server_sock.recv_from(std::as_writable_bytes(std::span{recv_buf}), &client_addr);
         if (n <= 0) {
-            return; // client query failed — the resolver will time out
+            return;  // client query failed — the resolver will time out
         }
         const auto client_query = std::vector<std::uint8_t>(recv_buf.begin(), recv_buf.begin() + n);
 
@@ -590,13 +595,14 @@ TEST_F(ClassicNativeResolverTest, UdpResponseFromUnexpectedSource_IsDiscarded) {
         for (int attempt = 0; attempt < 8 && !spoof_sock.has_value(); ++attempt) {
             Socket s(AF_INET, SOCK_DGRAM);
             auto sb = SocketAddr::from_inet(*v4, 0);
-            if (!sb.has_value()) break;
+            if (!sb.has_value())
+                break;
             if (s.bind(*sb).has_value() && s.get_sockname().port() != server_port) {
                 spoof_sock.emplace(std::move(s));
             }
         }
         if (!spoof_sock.has_value()) {
-            return; // could not get a distinct source port
+            return;  // could not get a distinct source port
         }
 
         auto spoof_pkt = build_a_response(client_query, "1.2.3.4");
@@ -608,20 +614,20 @@ TEST_F(ClassicNativeResolverTest, UdpResponseFromUnexpectedSource_IsDiscarded) {
         // Genuine response from the real server socket.
         auto real_pkt = build_a_response(client_query, "198.51.100.42");
         if (server_sock.send_to(std::as_bytes(std::span{real_pkt}), client_addr) < 0) {
-            return; // genuine response lost — the resolver will time out
+            return;  // genuine response lost — the resolver will time out
         }
     });
 
     auto result = resolver.query("spoof-test.example", RecordKind::A);
     server_thread.join();
 
-    ASSERT_TRUE(result.has_value()) << "resolver query failed: " << result.error().message
-                                    << " (code " << static_cast<int>(result.error().code) << ")";
+    ASSERT_TRUE(result.has_value()) << "resolver query failed: " << result.error().message << " (code "
+                                    << static_cast<int>(result.error().code) << ")";
 
     // ClassicResolver returns the raw DNS message.  Locate the A record in
     // the answer section and compare the address bytes: the genuine
     // response (198.51.100.42) must have won, not the forged one (1.2.3.4).
-    const auto &response = *result;
+    const auto& response = *result;
     ASSERT_GE(response.size(), 12U);
 
     // Skip the question section (QNAME + QTYPE + QCLASS).
@@ -629,12 +635,12 @@ TEST_F(ClassicNativeResolverTest, UdpResponseFromUnexpectedSource_IsDiscarded) {
     while (off < response.size() && response[off] != 0) {
         off += 1u + response[off];
     }
-    off += 5; // root label + QTYPE(2) + QCLASS(2)
+    off += 5;  // root label + QTYPE(2) + QCLASS(2)
 
     // Answer: name(2) + type(2) + class(2) + ttl(4) + rdlength(2) + rdata(4).
     ASSERT_GE(response.size(), off + 16);
     ASSERT_EQ(response[off + 2], 0x00);
-    ASSERT_EQ(response[off + 3], 0x01); // type = A
+    ASSERT_EQ(response[off + 3], 0x01);  // type = A
     const auto rdlength = static_cast<std::uint16_t>((response[off + 10] << 8) | response[off + 11]);
     ASSERT_EQ(rdlength, 4);
 
@@ -682,4 +688,4 @@ TEST_F(ClassicNativeResolverTest, TcpBodyTruncated_ReturnsConnectionError) {
     ASSERT_FALSE(result.has_value());
 }
 
-} // anonymous namespace
+}  // anonymous namespace

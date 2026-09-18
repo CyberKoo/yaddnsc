@@ -12,42 +12,42 @@
 // SSL_CERT_FILE pointing to a real file → covers the tier-1 hit branch.
 // =============================================================================
 
-#include <gtest/gtest.h>
-
-#include <cstdio>
 #include <cstdlib>
+#include <optional>
+#include <string>
 
+#include <gtest/gtest.h>
 #include <unistd.h>
 
 #include "infrastructure/network/tls/cert_util.h"
 
 namespace {
-    /// RAII set/unset of an environment variable.
-    class ScopedEnvVar {
-    public:
-        explicit ScopedEnvVar(const char *name, const char *value) : name_(name) {
-            old_value_ = std::getenv(name);
-            old_present_ = (old_value_ != nullptr);
-            ::setenv(name, value, 1);
+/// RAII set/unset of an environment variable.
+class ScopedEnvVar {
+public:
+    explicit ScopedEnvVar(const char* name, const char* value) : name_(name) {
+        old_value_ = std::getenv(name);
+        old_present_ = (old_value_ != nullptr);
+        ::setenv(name, value, 1);
+    }
+
+    ~ScopedEnvVar() {
+        if (old_present_) {
+            ::setenv(name_.c_str(), old_value_, 1);
+        } else {
+            ::unsetenv(name_.c_str());
         }
+    }
 
-        ~ScopedEnvVar() {
-            if (old_present_) {
-                ::setenv(name_.c_str(), old_value_, 1);
-            } else {
-                ::unsetenv(name_.c_str());
-            }
-        }
+    ScopedEnvVar(const ScopedEnvVar&) = delete;
+    ScopedEnvVar& operator=(const ScopedEnvVar&) = delete;
 
-        ScopedEnvVar(const ScopedEnvVar &) = delete;
-        ScopedEnvVar &operator=(const ScopedEnvVar &) = delete;
-
-    private:
-        std::string name_;
-        const char *old_value_{nullptr};
-        bool old_present_{false};
-    };
-} // namespace
+private:
+    std::string name_;
+    const char* old_value_{nullptr};
+    bool old_present_{false};
+};
+}  // namespace
 
 TEST(CertUtilEnvOverrideTest, DiscoverCaBundle_EnvVarHit) {
     // Create a real, non-empty CA file.

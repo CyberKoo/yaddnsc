@@ -8,11 +8,12 @@
 //   - All three values are distinct.
 // =============================================================================
 
+#include "domain/dns/record_kind.h"
+
+#include <string>
 #include <type_traits>
 
 #include <gtest/gtest.h>
-
-#include "domain/dns/record_kind.h"
 
 TEST(RecordKindTest, EnumeratorValues_Defined) {
     EXPECT_EQ(static_cast<int>(RecordKind::A), 0);
@@ -21,8 +22,8 @@ TEST(RecordKindTest, EnumeratorValues_Defined) {
 }
 
 TEST(RecordKindTest, IsEnumClass) {
-    EXPECT_TRUE((std::is_enum_v<RecordKind>));
-    EXPECT_FALSE((std::is_convertible_v<RecordKind, int>));
+    EXPECT_TRUE((std::is_enum_v<RecordKind>) );
+    EXPECT_FALSE((std::is_convertible_v<RecordKind, int>) );
 }
 
 TEST(RecordKindTest, DefaultIsA) {
@@ -39,9 +40,12 @@ TEST(RecordKindTest, AllValues_Distinct) {
 TEST(RecordKindTest, Switch_CoversAllValues) {
     auto classify = [](RecordKind rk) -> const char* {
         switch (rk) {
-            case RecordKind::A:    return "A";
-            case RecordKind::AAAA: return "AAAA";
-            case RecordKind::TXT:  return "TXT";
+            case RecordKind::A:
+                return "A";
+            case RecordKind::AAAA:
+                return "AAAA";
+            case RecordKind::TXT:
+                return "TXT";
         }
         return "unknown";
     };

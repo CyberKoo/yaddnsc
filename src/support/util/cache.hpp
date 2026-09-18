@@ -13,8 +13,10 @@
 #include <optional>
 #include <type_traits>
 #include <unordered_map>
-
 #include <concepts>
+#include <cstddef>
+#include <exception>
+#include <utility>
 
 namespace Utils::Cache {
     /// A generic thread-safe TTL (time-to-live) cache.

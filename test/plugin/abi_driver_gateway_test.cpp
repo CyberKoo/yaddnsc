@@ -12,19 +12,23 @@
 /// complete plugin predating the OPTIONAL validate entry) to lock the
 /// skip-instead-of-fail behaviour.
 
-#include <atomic>
+#include "infrastructure/plugin/abi_driver_gateway.h"
+
 #include <memory>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
+#include <expected>
 #include <gtest/gtest.h>
 
-#include "plugin/plugin_test_doubles.h"
-
 #include "application/ports/driver_gateway.h"
-#include "infrastructure/plugin/abi_driver_gateway.h"
+#include "domain/error/error.h"
+#include "infrastructure/network/http/client_port.h"
 #include "infrastructure/plugin/driver_catalog.h"
+#include "plugin/plugin_test_doubles.h"
+#include "support/util/cancellation_token.hpp"
 
 namespace {
 
@@ -43,22 +47,22 @@ protected:
         queue_ = std::make_shared<QueueHttpClient>();
         factory_calls_ = 0;
         gateway_ = std::make_unique<AbiDriverGateway>(
-                catalog_,
-                [this]() -> std::unique_ptr<HttpClient> {
-                    ++factory_calls_;
-                    return std::make_unique<SharedHttpClient>(queue_);
-                },
-                cancel_source_.token(), logger_);
+            catalog_,
+            [this]() -> std::unique_ptr<HttpClient> {
+                ++factory_calls_;
+                return std::make_unique<SharedHttpClient>(queue_);
+            },
+            cancel_source_.token(), logger_);
     }
 
     [[nodiscard]] DriverUpdateCommand make_command(std::string driver_param) const {
         return DriverUpdateCommand{
-                .driver_param = std::move(driver_param),
-                .ip_addr = "192.0.2.1",
-                .rd_type = "A",
-                .domain = "example.com",
-                .subdomain = "www",
-                .fqdn = std::string(kFqdn),
+            .driver_param = std::move(driver_param),
+            .ip_addr = "192.0.2.1",
+            .rd_type = "A",
+            .domain = "example.com",
+            .subdomain = "www",
+            .fqdn = std::string(kFqdn),
         };
     }
 
@@ -70,7 +74,7 @@ protected:
     std::unique_ptr<AbiDriverGateway> gateway_;
 };
 
-} // namespace
+}  // namespace
 
 TEST_F(AbiDriverGatewayTest, UnknownDriverReportsNotFound) {
     const auto result = gateway_->update("missing", make_command(R"({"op":"success"})"));
@@ -86,20 +90,20 @@ TEST_F(AbiDriverGatewayTest, SuccessfulUpdate) {
 
 TEST_F(AbiDriverGatewayTest, StatusMapping) {
     const std::vector<std::pair<std::string, domain::DriverError::Code>> cases = {
-            {"network_error", domain::DriverError::Code::UPDATE_FAILED},
-            {"authentication_failed", domain::DriverError::Code::UPDATE_FAILED},
-            {"upstream_rejected", domain::DriverError::Code::UPDATE_FAILED},
-            {"unsupported_record", domain::DriverError::Code::UPDATE_FAILED},
-            {"invalid_response", domain::DriverError::Code::UPDATE_FAILED},
-            {"invalid_config", domain::DriverError::Code::UNKNOWN},
-            {"internal_error", domain::DriverError::Code::UNKNOWN},
-            {"cancelled", domain::DriverError::Code::CANCELLED},
-            {"rate_limited", domain::DriverError::Code::RATE_LIMITED},
+        {"network_error", domain::DriverError::Code::UPDATE_FAILED},
+        {"authentication_failed", domain::DriverError::Code::UPDATE_FAILED},
+        {"upstream_rejected", domain::DriverError::Code::UPDATE_FAILED},
+        {"unsupported_record", domain::DriverError::Code::UPDATE_FAILED},
+        {"invalid_response", domain::DriverError::Code::UPDATE_FAILED},
+        {"invalid_config", domain::DriverError::Code::UNKNOWN},
+        {"internal_error", domain::DriverError::Code::UNKNOWN},
+        {"cancelled", domain::DriverError::Code::CANCELLED},
+        {"rate_limited", domain::DriverError::Code::RATE_LIMITED},
     };
 
-    for (const auto &[status, expected_code]: cases) {
+    for (const auto& [status, expected_code] : cases) {
         const auto result = gateway_->update(
-                kDriverName, make_command(R"({"op":"fail","status":")" + status + R"(","message":"m-)" + status + R"("})"));
+            kDriverName, make_command(R"({"op":"fail","status":")" + status + R"(","message":"m-)" + status + R"("})"));
         ASSERT_FALSE(result.has_value()) << status;
         EXPECT_EQ(result.error().code, expected_code) << status;
         EXPECT_EQ(result.error().message, "m-" + status) << status;
@@ -109,7 +113,7 @@ TEST_F(AbiDriverGatewayTest, StatusMapping) {
 
 TEST_F(AbiDriverGatewayTest, RetryAfterIsPassedThrough) {
     const auto result = gateway_->update(
-            kDriverName, make_command(R"({"op":"fail","status":"rate_limited","message":"slow","retry_after":120})"));
+        kDriverName, make_command(R"({"op":"fail","status":"rate_limited","message":"slow","retry_after":120})"));
     ASSERT_FALSE(result.has_value());
     EXPECT_EQ(result.error().code, domain::DriverError::Code::RATE_LIMITED);
     EXPECT_EQ(result.error().message, "slow");
@@ -117,8 +121,8 @@ TEST_F(AbiDriverGatewayTest, RetryAfterIsPassedThrough) {
 }
 
 TEST_F(AbiDriverGatewayTest, EmptyPluginMessageFallsBackToLegacyWording) {
-    const auto result = gateway_->update(kDriverName,
-                                         make_command(R"({"op":"fail","status":"network_error","message":""})"));
+    const auto result =
+        gateway_->update(kDriverName, make_command(R"({"op":"fail","status":"network_error","message":""})"));
     ASSERT_FALSE(result.has_value());
     EXPECT_EQ(result.error().code, domain::DriverError::Code::UPDATE_FAILED);
     EXPECT_EQ(result.error().message, "Driver 'test_driver_plugin' update failed for www.example.com");
@@ -182,9 +186,8 @@ protected:
         ASSERT_NO_THROW(catalog_.load_driver(std::string(kPluginPath)));
         ASSERT_NO_THROW(catalog_.load_driver(std::string(kNoValidatePluginPath)));
         gateway_ = std::make_unique<AbiDriverGateway>(
-                catalog_,
-                []() -> std::unique_ptr<HttpClient> { return std::make_unique<QueueHttpClient>(); },
-                cancel_source_.token(), logger_);
+            catalog_, []() -> std::unique_ptr<HttpClient> { return std::make_unique<QueueHttpClient>(); },
+            cancel_source_.token(), logger_);
     }
 
     DriverCatalog catalog_;
@@ -193,7 +196,7 @@ protected:
     std::unique_ptr<AbiDriverGateway> gateway_;
 };
 
-} // namespace
+}  // namespace
 
 TEST_F(AbiDriverGatewayValidateTest, ValidDriverParamSucceeds) {
     const auto result = gateway_->validate_config(kDriverName, R"({"op":"success"})");
@@ -201,8 +204,7 @@ TEST_F(AbiDriverGatewayValidateTest, ValidDriverParamSucceeds) {
 }
 
 TEST_F(AbiDriverGatewayValidateTest, DriverRejectionMapsPluginMessageVerbatim) {
-    const auto result =
-            gateway_->validate_config(kDriverName, R"({"op":"reject_validate","message":"bad zone_id"})");
+    const auto result = gateway_->validate_config(kDriverName, R"({"op":"reject_validate","message":"bad zone_id"})");
     ASSERT_FALSE(result.has_value());
     EXPECT_EQ(result.error().code, domain::DriverError::Code::UNKNOWN);
     EXPECT_EQ(result.error().message, "bad zone_id");
@@ -212,8 +214,7 @@ TEST_F(AbiDriverGatewayValidateTest, DriverRejectionEmptyMessageFallsBackToWordi
     const auto result = gateway_->validate_config(kDriverName, R"({"op":"reject_validate","message":""})");
     ASSERT_FALSE(result.has_value());
     EXPECT_EQ(result.error().code, domain::DriverError::Code::UNKNOWN);
-    EXPECT_EQ(result.error().message,
-              "Driver 'test_driver_plugin' rejected its driver_param configuration");
+    EXPECT_EQ(result.error().message, "Driver 'test_driver_plugin' rejected its driver_param configuration");
 }
 
 TEST_F(AbiDriverGatewayValidateTest, PluginWithoutValidateEntryIsSkipped) {

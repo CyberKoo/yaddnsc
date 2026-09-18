@@ -10,7 +10,9 @@
 #include <poll.h>
 #include <spdlog/spdlog.h>
 #include <sys/socket.h>
-#include <unistd.h>
+#include <sys/types.h>
+
+#include "support/util/cancellation_token.hpp"
 
 namespace Transport {
 

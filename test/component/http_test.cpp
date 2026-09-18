@@ -3,32 +3,33 @@
 // client wiring, over an in-process loopback HTTP server.
 // =============================================================================
 
+#include "infrastructure/ip_source/http.h"
+
 #include <algorithm>
 #include <array>
-#include <chrono>
 #include <cctype>
+#include <chrono>
 #include <cstdint>
 #include <cstdio>
-#include <cstring>
 #include <map>
-#include <memory>
 #include <span>
 #include <stdexcept>
 #include <string>
-#include <string_view>
 #include <thread>
 #include <utility>
 #include <vector>
 
-#include <sys/socket.h>
-#include <unistd.h>
 #include <arpa/inet.h>
-
+#include <expected>
 #include <gtest/gtest.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
+#include <sys/types.h>
+#include <unistd.h>
 
+#include "domain/network/inet_address.h"
 #include "infrastructure/network/http/client.h"
-#include "infrastructure/network/http/stream_factory.h"
-#include "infrastructure/ip_source/http.h"
+#include "infrastructure/network/http/types.h"
 
 using namespace std::chrono_literals;
 
@@ -59,11 +60,11 @@ public:
         addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
         addr.sin_port = 0;
 
-        ASSERT_EQ(::bind(listener_, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)), 0);
+        ASSERT_EQ(::bind(listener_, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)), 0);
         ASSERT_EQ(::listen(listener_, 8), 0);
 
         socklen_t len = sizeof(addr);
-        ASSERT_EQ(::getsockname(listener_, reinterpret_cast<sockaddr *>(&addr), &len), 0);
+        ASSERT_EQ(::getsockname(listener_, reinterpret_cast<sockaddr*>(&addr), &len), 0);
         port_ = ntohs(addr.sin_port);
 
         running_ = true;
@@ -82,7 +83,7 @@ public:
                 addr.sin_family = AF_INET;
                 addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
                 addr.sin_port = htons(port_);
-                ::connect(wake, reinterpret_cast<sockaddr *>(&addr), sizeof(addr));
+                ::connect(wake, reinterpret_cast<sockaddr*>(&addr), sizeof(addr));
                 ::close(wake);
             }
             ::close(listener_);
@@ -94,12 +95,10 @@ public:
 
     [[nodiscard]] std::uint16_t port() const noexcept { return port_; }
 
-    [[nodiscard]] std::string base_url() const {
-        return "http://127.0.0.1:" + std::to_string(port_);
-    }
+    [[nodiscard]] std::string base_url() const { return "http://127.0.0.1:" + std::to_string(port_); }
 
 private:
-    [[nodiscard]] static std::string route(const HttpRequest &req) {
+    [[nodiscard]] static std::string route(const HttpRequest& req) {
         if (req.method == "GET" && req.target == "/ip") {
             return response(200, "203.0.113.7");
         }
@@ -112,9 +111,8 @@ private:
         return response(404, "no such route");
     }
 
-    [[nodiscard]] static std::string response(const int status, const std::string &body) {
-        std::string out = "HTTP/1.1 " + std::to_string(status) +
-                          (status == 200 ? " OK\r\n" : " Not Found\r\n");
+    [[nodiscard]] static std::string response(const int status, const std::string& body) {
+        std::string out = "HTTP/1.1 " + std::to_string(status) + (status == 200 ? " OK\r\n" : " Not Found\r\n");
         out += "Content-Length: " + std::to_string(body.size()) + "\r\n\r\n";
         out += body;
         return out;
@@ -136,9 +134,8 @@ private:
             }
 
             HttpRequest req = parse_request(pending.substr(0, header_end));
-            const size_t content_length = req.headers.contains("content-length")
-                                              ? std::stoull(req.headers["content-length"])
-                                              : 0;
+            const size_t content_length =
+                req.headers.contains("content-length") ? std::stoull(req.headers["content-length"]) : 0;
             const size_t need = header_end + 4 + content_length;
             while (pending.size() < need) {
                 const ssize_t n = ::recv(conn, buf.data(), buf.size(), 0);
@@ -154,8 +151,7 @@ private:
             const std::string out = route(req);
             ssize_t sent = 0;
             while (sent < static_cast<ssize_t>(out.size())) {
-                const ssize_t n = ::send(conn, out.data() + sent,
-                                         out.size() - static_cast<size_t>(sent), MSG_NOSIGNAL);
+                const ssize_t n = ::send(conn, out.data() + sent, out.size() - static_cast<size_t>(sent), MSG_NOSIGNAL);
                 if (n <= 0) {
                     ::close(conn);
                     return;
@@ -165,7 +161,7 @@ private:
         }
     }
 
-    [[nodiscard]] static HttpRequest parse_request(const std::string &header_block) {
+    [[nodiscard]] static HttpRequest parse_request(const std::string& header_block) {
         HttpRequest req;
         const auto first_line_end = header_block.find("\r\n");
         const auto first_line = header_block.substr(0, first_line_end);
@@ -218,12 +214,13 @@ private:
 class HttpFixture : public ::testing::Test {
 protected:
     static void SetUpTestSuite() { server_.start(); }
+
     static void TearDownTestSuite() { server_.stop(); }
 
     inline static HttpTestServer server_;
 };
 
-} // namespace
+}  // namespace
 
 // ── HttpIpSource ─────────────────────────────────────────────────────────────
 
@@ -240,7 +237,7 @@ TEST_F(HttpFixture, HttpIpSource_ThrowsOnUnparseableBody) {
 }
 
 TEST_F(HttpFixture, HttpIpSource_ThrowsOnConnectionRefused) {
-    const HttpIpSource source("http://127.0.0.1:1/ip"); // nothing listens
+    const HttpIpSource source("http://127.0.0.1:1/ip");  // nothing listens
     EXPECT_THROW(std::ignore = source.resolve(), std::runtime_error);
 }
 
@@ -258,9 +255,9 @@ TEST_F(HttpFixture, Client_GetRoundtrip) {
 
 TEST_F(HttpFixture, Client_PostEchoesBinaryBody) {
     net::http::Client client({});
-    const std::string payload{'a', '\0', 'b', '\0', 'c'}; // binary-safe
+    const std::string payload{'a', '\0', 'b', '\0', 'c'};  // binary-safe
     net::http::Request req{.method = net::http::Method::POST};
-    req.set_body(std::span(reinterpret_cast<const std::uint8_t *>(payload.data()), payload.size()));
+    req.set_body(std::span(reinterpret_cast<const std::uint8_t*>(payload.data()), payload.size()));
     req.content_type = "application/octet-stream";
 
     auto resp = client.exchange(server_.base_url() + "/echo", req);

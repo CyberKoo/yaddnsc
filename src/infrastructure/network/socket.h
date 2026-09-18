@@ -7,11 +7,11 @@
 
 #include <cerrno>
 #include <cstddef>
-#include <expected>
 #include <span>
 
-#include "infrastructure/network/socket_addr.h"
+#include <expected>
 
+#include "infrastructure/network/socket_addr.h"
 #include "support/mixin.h"
 
 // ── Forward declarations ──
@@ -21,6 +21,7 @@ class CancellationToken;
 }
 
 #include <sys/socket.h>
+#include <sys/types.h>
 
 // ---------------------------------------------------------------------------
 // ConnectError — errors that can occur during connect().
@@ -45,24 +46,26 @@ public:
     virtual ~SocketBase() = default;
 
     SocketBase() = default;
-    SocketBase(SocketBase &&) noexcept = default;
-    SocketBase &operator=(SocketBase &&) noexcept = default;
-    SocketBase(const SocketBase &) = delete;
-    SocketBase &operator=(const SocketBase &) = delete;
+    SocketBase(SocketBase&&) noexcept = default;
+    SocketBase& operator=(SocketBase&&) noexcept = default;
+    SocketBase(const SocketBase&) = delete;
+    SocketBase& operator=(const SocketBase&) = delete;
 
     // ---- Options (non-virtual template delegates to virtual raw) ---------
 
     template<typename T>
-    [[nodiscard]] std::expected<void, int> set_option(int level, int optname, const T &val) const noexcept {
+    [[nodiscard]] std::expected<void, int> set_option(int level, int optname, const T& val) const noexcept {
         return set_option_raw(level, optname, &val, sizeof(val));
     }
 
     /// Raw setsockopt for variable-length values (e.g. SO_BINDTODEVICE).
-    [[nodiscard]] virtual std::expected<void, int> set_option_raw(
-        int level, int optname, const void *val, socklen_t len) const noexcept = 0;
+    [[nodiscard]] virtual std::expected<void, int> set_option_raw(int level,
+                                                                  int optname,
+                                                                  const void* val,
+                                                                  socklen_t len) const noexcept = 0;
 
     template<typename T>
-    [[nodiscard]] std::expected<void, int> get_option(int level, int optname, T &val) const noexcept {
+    [[nodiscard]] std::expected<void, int> get_option(int level, int optname, T& val) const noexcept {
         socklen_t len = sizeof(val);
         if (::getsockopt(native_handle(), level, optname, &val, &len) == 0) {
             return {};
@@ -74,20 +77,19 @@ public:
 
     // ---- Connection (client) -----------------------------------------------
 
-    [[nodiscard]] virtual std::expected<void, ConnectError> connect(
-        const SocketAddr &addr, int timeout_sec = -1) = 0;
+    [[nodiscard]] virtual std::expected<void, ConnectError> connect(const SocketAddr& addr, int timeout_sec = -1) = 0;
 
     // ---- I/O (all return ssize_t, no exceptions) ---------------------------
 
     [[nodiscard]] virtual ssize_t send(std::span<const std::byte> data) const = 0;
     [[nodiscard]] virtual ssize_t send(std::span<const std::byte> data, int flags) const = 0;
-    [[nodiscard]] virtual ssize_t send_to(std::span<const std::byte> data, const SocketAddr &dest) const = 0;
-    [[nodiscard]] virtual ssize_t send_to(std::span<const std::byte> data, const SocketAddr &dest, int flags) const = 0;
+    [[nodiscard]] virtual ssize_t send_to(std::span<const std::byte> data, const SocketAddr& dest) const = 0;
+    [[nodiscard]] virtual ssize_t send_to(std::span<const std::byte> data, const SocketAddr& dest, int flags) const = 0;
 
     [[nodiscard]] virtual ssize_t recv(std::span<std::byte> buf) const = 0;
     [[nodiscard]] virtual ssize_t recv(std::span<std::byte> buf, int flags) const = 0;
-    [[nodiscard]] virtual ssize_t recv_from(std::span<std::byte> buf, SocketAddr *src = nullptr) const = 0;
-    [[nodiscard]] virtual ssize_t recv_from(std::span<std::byte> buf, int flags, SocketAddr *src = nullptr) const = 0;
+    [[nodiscard]] virtual ssize_t recv_from(std::span<std::byte> buf, SocketAddr* src = nullptr) const = 0;
+    [[nodiscard]] virtual ssize_t recv_from(std::span<std::byte> buf, int flags, SocketAddr* src = nullptr) const = 0;
 
     [[nodiscard]] virtual ssize_t recv_exact(std::span<std::byte> buf) const = 0;
     [[nodiscard]] virtual ssize_t recv_exact(std::span<std::byte> buf, int flags) const = 0;
@@ -98,8 +100,8 @@ public:
     virtual void close() noexcept = 0;
 
     [[nodiscard]] virtual std::expected<int, int> wait_for(short events, int timeout_ms) const noexcept = 0;
-    [[nodiscard]] virtual std::expected<int, int> wait_for(short events, int timeout_ms,
-                                                           const Utils::CancellationToken &cancel_token) const noexcept = 0;
+    [[nodiscard]] virtual std::expected<int, int>
+    wait_for(short events, int timeout_ms, const Utils::CancellationToken& cancel_token) const noexcept = 0;
 
     // ---- Accessors ---------------------------------------------------------
 
@@ -116,7 +118,8 @@ public:
 //   - connect():  returns std::expected<void, ConnectError>, does NOT throw.
 //   - Options (set_option/get_option and convenience methods):  return std::expected<void, int>, do NOT throw.
 //   - accept:  returns std::expected<Socket, int>, does NOT throw.
-//   - Setup/control (bind, set_nonblocking, wait_for):  return std::expected<void, int> or std::expected<int, int>, do NOT throw.
+//   - Setup/control (bind, set_nonblocking, wait_for):  return std::expected<void, int> or std::expected<int, int>, do
+//   NOT throw.
 //   - listen:  throw SocketException.
 //   - Destructor and close():  noexcept (errors silently ignored).
 //
@@ -131,14 +134,16 @@ public:
 
     ~Socket() override;
 
-    Socket(Socket &&other) noexcept;
+    Socket(Socket&& other) noexcept;
 
-    Socket &operator=(Socket &&other) noexcept;
+    Socket& operator=(Socket&& other) noexcept;
 
     // ---- Options: inherited (set_option<T> via SocketBase) ----------------
 
-    [[nodiscard]] std::expected<void, int> set_option_raw(
-        int level, int optname, const void *val, socklen_t len) const noexcept override;
+    [[nodiscard]] std::expected<void, int> set_option_raw(int level,
+                                                          int optname,
+                                                          const void* val,
+                                                          socklen_t len) const noexcept override;
 
     [[nodiscard]] std::expected<void, int> set_nonblocking(bool enable) const noexcept override;
 
@@ -158,7 +163,7 @@ public:
 
     // ---- Address binding: accept SocketAddr instead of raw sockaddr -------
 
-    [[nodiscard]] std::expected<void, int> bind(const SocketAddr &addr) const noexcept;
+    [[nodiscard]] std::expected<void, int> bind(const SocketAddr& addr) const noexcept;
 
     [[nodiscard]] SocketAddr get_sockname() const;
 
@@ -166,14 +171,13 @@ public:
 
     // ---- Connection (client) -----------------------------------------------
 
-    [[nodiscard]] std::expected<void, ConnectError> connect(
-        const SocketAddr &addr, int timeout_sec = -1) override;
+    [[nodiscard]] std::expected<void, ConnectError> connect(const SocketAddr& addr, int timeout_sec = -1) override;
 
     // ---- Listening + accept (server) ---------------------------------------
 
     void listen(int backlog = SOMAXCONN) const;
 
-    [[nodiscard]] std::expected<Socket, int> accept(SocketAddr *addr = nullptr) const noexcept;
+    [[nodiscard]] std::expected<Socket, int> accept(SocketAddr* addr = nullptr) const noexcept;
 
     // ---- I/O (all return ssize_t, no exceptions) ---------------------------
 
@@ -181,60 +185,50 @@ public:
 
     [[nodiscard]] ssize_t send(std::span<const std::byte> data, int flags) const override;
 
-    [[nodiscard]] ssize_t send_to(std::span<const std::byte> data, const SocketAddr &dest) const override;
+    [[nodiscard]] ssize_t send_to(std::span<const std::byte> data, const SocketAddr& dest) const override;
 
-    [[nodiscard]] ssize_t send_to(std::span<const std::byte> data, const SocketAddr &dest, int flags) const override;
+    [[nodiscard]] ssize_t send_to(std::span<const std::byte> data, const SocketAddr& dest, int flags) const override;
 
     [[nodiscard]] ssize_t recv(std::span<std::byte> buf) const override;
 
     [[nodiscard]] ssize_t recv(std::span<std::byte> buf, int flags) const override;
 
-    [[nodiscard]] ssize_t recv_from(std::span<std::byte> buf, SocketAddr *src = nullptr) const override;
+    [[nodiscard]] ssize_t recv_from(std::span<std::byte> buf, SocketAddr* src = nullptr) const override;
 
-    [[nodiscard]] ssize_t recv_from(std::span<std::byte> buf, int flags, SocketAddr *src = nullptr) const override;
+    [[nodiscard]] ssize_t recv_from(std::span<std::byte> buf, int flags, SocketAddr* src = nullptr) const override;
 
     [[nodiscard]] ssize_t recv_exact(std::span<std::byte> buf) const override;
 
     [[nodiscard]] ssize_t recv_exact(std::span<std::byte> buf, int flags) const override;
 
     /// Send a scatter/gather message (vectored I/O).
-    [[nodiscard]] ssize_t sendmsg(const struct msghdr *msg, int flags = 0) const;
+    [[nodiscard]] ssize_t sendmsg(const struct msghdr* msg, int flags = 0) const;
 
     /// Receive a scatter/gather message (vectored I/O).
-    [[nodiscard]] ssize_t recvmsg(struct msghdr *msg, int flags = 0) const;
+    [[nodiscard]] ssize_t recvmsg(struct msghdr* msg, int flags = 0) const;
 
     // ---- Control -----------------------------------------------------------
 
     void shutdown(int how) noexcept override;
 
-    void shutdown_read() noexcept {
-        shutdown(SHUT_RD);
-    }
+    void shutdown_read() noexcept { shutdown(SHUT_RD); }
 
-    void shutdown_write() noexcept {
-        shutdown(SHUT_WR);
-    }
+    void shutdown_write() noexcept { shutdown(SHUT_WR); }
 
-    void shutdown_both() noexcept {
-        shutdown(SHUT_RDWR);
-    }
+    void shutdown_both() noexcept { shutdown(SHUT_RDWR); }
 
     void close() noexcept override;
 
     [[nodiscard]] std::expected<int, int> wait_for(short events, int timeout_ms) const noexcept override;
 
-    [[nodiscard]] std::expected<int, int> wait_for(short events, int timeout_ms,
-                                                   const Utils::CancellationToken &cancel_token) const noexcept override;
+    [[nodiscard]] std::expected<int, int>
+    wait_for(short events, int timeout_ms, const Utils::CancellationToken& cancel_token) const noexcept override;
 
     // ---- Accessors ---------------------------------------------------------
 
-    [[nodiscard]] int native_handle() const noexcept override {
-        return fd_;
-    }
+    [[nodiscard]] int native_handle() const noexcept override { return fd_; }
 
-    [[nodiscard]] bool is_closed() const noexcept override {
-        return fd_ < 0;
-    }
+    [[nodiscard]] bool is_closed() const noexcept override { return fd_ < 0; }
 
 private:
     [[maybe_unused, no_unique_address]] NoCopy no_copy_;

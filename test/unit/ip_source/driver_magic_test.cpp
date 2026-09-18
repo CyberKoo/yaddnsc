@@ -9,15 +9,15 @@
 // =============================================================================
 
 #include <cstdint>
+#include <string>
 #include <type_traits>
 
 #include <gtest/gtest.h>
-
 #include <yaddnsc/sdk/driver_abi.h>
 
 TEST(DriverMagicTest, TypeIs64BitUnsigned) {
     static_assert(sizeof(decltype(YADDNSC_DRIVER_MAGIC)) == sizeof(std::uint64_t));
-    EXPECT_TRUE((std::is_unsigned_v<decltype(YADDNSC_DRIVER_MAGIC)>));
+    EXPECT_TRUE((std::is_unsigned_v<decltype(YADDNSC_DRIVER_MAGIC)>) );
 }
 
 TEST(DriverMagicTest, ValueIsNonZero) {

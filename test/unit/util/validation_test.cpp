@@ -9,11 +9,12 @@
 //   - Edge cases: trailing dot, single-label, TLD-only.
 // =============================================================================
 
-#include <string_view>
+#include "support/util/validation.hpp"
+
+#include <cstddef>
+#include <string>
 
 #include <gtest/gtest.h>
-
-#include "support/util/validation.hpp"
 
 // ── Valid domains ────────────────────────────────────────────────────────────
 
@@ -119,7 +120,7 @@ TEST(DomainValidationTest, SpecialChars_Rejected) {
 
 TEST(DomainValidationTest, PunycodeTLD_Accepted) {
     // xn-- prefix for internationalised TLDs
-    EXPECT_TRUE(Utils::is_valid_domain("example.xn--fiqs8s"));  // .xn--fiqs8s = .中国
+    EXPECT_TRUE(Utils::is_valid_domain("example.xn--fiqs8s"));         // .xn--fiqs8s = .中国
     EXPECT_TRUE(Utils::is_valid_domain("example.xn--mgberp4a5d4ar"));  // .xn--mgberp4a5d4ar = .الارقام
 }
 

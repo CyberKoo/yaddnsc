@@ -11,48 +11,52 @@
 // suite is parallel-safe.
 // =============================================================================
 
+#include "infrastructure/dns/factory.h"
+
 #include <cstdint>
-#include <expected>
 #include <memory>
+#include <string>
+#include <string_view>
+#include <utility>
 #include <vector>
 
+#include <expected>
 #include <gtest/gtest.h>
 
 #include "domain/config/dns_config.h"
 #include "domain/config/runtime_config.h"
 #include "domain/error/dns_error_info.h"
-#include "infrastructure/dns/factory.h"
+#include "infrastructure/dns/dns_lookup_exception.h"
 #include "infrastructure/dns/resolver/base.h"
 #include "infrastructure/dns/resolver_catalog.h"
-#include "infrastructure/dns/dns_lookup_exception.h"
-#include "domain/dns/record_kind.h"
 #include "support/util/cancellation_token.hpp"
 
 // ── Minimal ResolverBase subclass for factory testing ───────────────────────
 
 class FactoryTestResolver : public ResolverBase {
 public:
-    [[nodiscard]] std::expected<std::vector<std::uint8_t>, DnsErrorInfo>
-    query(const std::string &, RecordKind) const override {
+    [[nodiscard]] std::expected<std::vector<std::uint8_t>, DnsErrorInfo> query(const std::string&,
+                                                                               RecordKind) const override {
         return std::vector<std::uint8_t>{};
     }
+
     [[nodiscard]] std::string_view get_type() const noexcept override { return "factory_test"; }
 };
 
 // ── Stub catalog: "factorytest" schema + "" fallback ────────────────────────
 
 namespace {
-    [[nodiscard]] ResolverCatalog make_stub_catalog() {
-        ResolverCatalog catalog;
-        const ResolverCatalog::FactoryFn factory = [](const Config::DnsServer &,
-                                                      const Utils::CancellationToken &) -> std::unique_ptr<ResolverBase> {
-            return std::make_unique<FactoryTestResolver>();
-        };
-        catalog.register_factory("factorytest", factory);
-        catalog.register_factory("", factory);
-        return catalog;
-    }
-} // namespace
+[[nodiscard]] ResolverCatalog make_stub_catalog() {
+    ResolverCatalog catalog;
+    const ResolverCatalog::FactoryFn factory = [](const Config::DnsServer&,
+                                                  const Utils::CancellationToken&) -> std::unique_ptr<ResolverBase> {
+        return std::make_unique<FactoryTestResolver>();
+    };
+    catalog.register_factory("factorytest", factory);
+    catalog.register_factory("", factory);
+    return catalog;
+}
+}  // namespace
 
 // ── Helper to populate resolver settings ────────────────────────────────────
 
@@ -65,22 +69,20 @@ namespace {
 }
 
 TEST(DnsFactoryTest, CreateWithCustomServers) {
-    auto settings = make_settings({
-        {"factorytest://dns1.example.com", 53},
-        {"factorytest://dns2.example.com", 53},
-    }, Config::ResolverStrategy::FALLBACK);
+    auto settings = make_settings(
+        {
+            {"factorytest://dns1.example.com", 53},
+            {"factorytest://dns2.example.com", 53},
+        },
+        Config::ResolverStrategy::FALLBACK);
 
-    EXPECT_NO_THROW({
-        auto dispatcher = DnsResolverFactory::create(settings, {}, make_stub_catalog());
-    });
+    EXPECT_NO_THROW({ auto dispatcher = DnsResolverFactory::create(settings, {}, make_stub_catalog()); });
 }
 
 TEST(DnsFactoryTest, CreateWithEmptyServerList_UsesDefault) {
     const domain::ResolverSettings settings;
 
-    EXPECT_NO_THROW({
-        auto dispatcher = DnsResolverFactory::create(settings, {}, make_stub_catalog());
-    });
+    EXPECT_NO_THROW({ auto dispatcher = DnsResolverFactory::create(settings, {}, make_stub_catalog()); });
 }
 
 TEST(DnsFactoryTest, CreateWithMultipleServers_DoesNotThrow) {
@@ -89,36 +91,29 @@ TEST(DnsFactoryTest, CreateWithMultipleServers_DoesNotThrow) {
     servers.push_back({"factorytest://secondary.example.com", 53});
     auto settings = make_settings(std::move(servers), Config::ResolverStrategy::FALLBACK);
 
-    EXPECT_NO_THROW({
-        auto dispatcher = DnsResolverFactory::create(settings, {}, make_stub_catalog());
-    });
+    EXPECT_NO_THROW({ auto dispatcher = DnsResolverFactory::create(settings, {}, make_stub_catalog()); });
 }
 
 TEST(DnsFactoryTest, CreateWithConcurrentStrategy) {
-    auto settings = make_settings({{"factorytest://dns.example.com", 53}},
-                                  Config::ResolverStrategy::CONCURRENT);
+    auto settings = make_settings({{"factorytest://dns.example.com", 53}}, Config::ResolverStrategy::CONCURRENT);
 
-    EXPECT_NO_THROW({
-        auto dispatcher = DnsResolverFactory::create(settings, {}, make_stub_catalog());
-    });
+    EXPECT_NO_THROW({ auto dispatcher = DnsResolverFactory::create(settings, {}, make_stub_catalog()); });
 }
 
 TEST(DnsFactoryTest, CreateWithShuffleStrategy) {
-    auto settings = make_settings({
-        {"factorytest://dns1.example.com", 53},
-        {"factorytest://dns2.example.com", 53},
-    }, Config::ResolverStrategy::SHUFFLE);
+    auto settings = make_settings(
+        {
+            {"factorytest://dns1.example.com", 53},
+            {"factorytest://dns2.example.com", 53},
+        },
+        Config::ResolverStrategy::SHUFFLE);
 
-    EXPECT_NO_THROW({
-        auto dispatcher = DnsResolverFactory::create(settings, {}, make_stub_catalog());
-    });
+    EXPECT_NO_THROW({ auto dispatcher = DnsResolverFactory::create(settings, {}, make_stub_catalog()); });
 }
 
 TEST(DnsFactoryTest, UnknownSchemaThrows) {
-    auto settings = make_settings({{"nosuchproto://dns.example.com", 53}},
-                                  Config::ResolverStrategy::FALLBACK);
+    auto settings = make_settings({{"nosuchproto://dns.example.com", 53}}, Config::ResolverStrategy::FALLBACK);
 
-    EXPECT_THROW({
-        auto dispatcher = DnsResolverFactory::create(settings, {}, make_stub_catalog());
-    }, DnsLookupException);
+    EXPECT_THROW(
+        { auto dispatcher = DnsResolverFactory::create(settings, {}, make_stub_catalog()); }, DnsLookupException);
 }

@@ -6,8 +6,7 @@
 #define YADDNSC_DRV_VULTR_VULTR_H
 
 #include <yaddnsc/sdk/driver.hpp>
-
-#include "config.hpp"
+#include <string_view>
 
 /// Vultr API v2 driver for DNS record updates.
 ///
@@ -20,7 +19,7 @@ public:
     ~VultrDriver() override = default;
 
     /// Perform one update: generate-request → HTTP exchange → check-response.
-    [[nodiscard]] yaddnsc::sdk::Result update(yaddnsc::sdk::UpdateContext &context) override;
+    [[nodiscard]] yaddnsc::sdk::Result update(yaddnsc::sdk::UpdateContext& context) override;
 
     /// Validate driver_param against the Vultr API schema without updating;
     /// schema violations surface as YADDNSC_STATUS_INVALID_CONFIG.
@@ -28,8 +27,8 @@ public:
 
 private:
     /// Validate the Vultr API response.
-    [[nodiscard]] static bool check_response(const yaddnsc::sdk::HttpResponse &response,
-                                             const yaddnsc::sdk::Services &services);
+    [[nodiscard]] static bool check_response(const yaddnsc::sdk::HttpResponse& response,
+                                             const yaddnsc::sdk::Services& services);
 };
 
-#endif //YADDNSC_DRV_VULTR_VULTR_H
+#endif  // YADDNSC_DRV_VULTR_VULTR_H

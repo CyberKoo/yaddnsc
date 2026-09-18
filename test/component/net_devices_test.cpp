@@ -6,18 +6,21 @@
 //
 // =============================================================================
 
+#include "infrastructure/network/net_devices.h"
+
 #include <map>
 #include <string>
 #include <vector>
 
 #include <gtest/gtest.h>
+#include <sys/socket.h>
 
+#include "domain/network/address_family.h"
 #include "domain/network/inet_address.h"
-#include "infrastructure/network/net_devices.h"
 
 namespace {
-    const std::string LOOPBACK = NetDevices::loopback_name();
-} // anonymous namespace
+const std::string LOOPBACK = NetDevices::loopback_name();
+}  // anonymous namespace
 
 // ===========================================================================
 // enumerate_interfaces
@@ -25,15 +28,13 @@ namespace {
 
 TEST(NetDevicesTest, EnumerateInterfaces_ContainsLoopback) {
     auto ifaces = NetDevices::enumerate_interfaces();
-    EXPECT_TRUE(ifaces.contains(LOOPBACK))
-        << "Loopback interface must be present via getifaddrs()";
+    EXPECT_TRUE(ifaces.contains(LOOPBACK)) << "Loopback interface must be present via getifaddrs()";
 }
 
 TEST(NetDevicesTest, EnumerateInterfaces_LoopbackHasAddresses) {
     auto ifaces = NetDevices::enumerate_interfaces();
     ASSERT_TRUE(ifaces.contains(LOOPBACK));
-    EXPECT_FALSE(ifaces.at(LOOPBACK).empty())
-        << "Loopback must have at least one address (127.0.0.1)";
+    EXPECT_FALSE(ifaces.at(LOOPBACK).empty()) << "Loopback must have at least one address (127.0.0.1)";
 }
 
 TEST(NetDevicesTest, EnumerateInterfaces_Ipv4Present) {
@@ -41,7 +42,7 @@ TEST(NetDevicesTest, EnumerateInterfaces_Ipv4Present) {
     ASSERT_TRUE(ifaces.contains(LOOPBACK));
 
     bool has_ipv4 = false;
-    for (const auto &addr : ifaces.at(LOOPBACK)) {
+    for (const auto& addr : ifaces.at(LOOPBACK)) {
         if (addr.get_family() == AddressFamily::IPV4) {
             has_ipv4 = true;
             EXPECT_EQ(addr.to_string(), "127.0.0.1");
@@ -56,7 +57,7 @@ TEST(NetDevicesTest, EnumerateInterfaces_Ipv6Present) {
     ASSERT_TRUE(ifaces.contains(LOOPBACK));
 
     bool has_ipv6 = false;
-    for (const auto &addr : ifaces.at(LOOPBACK)) {
+    for (const auto& addr : ifaces.at(LOOPBACK)) {
         if (addr.get_family() == AddressFamily::IPV6) {
             has_ipv6 = true;
             break;

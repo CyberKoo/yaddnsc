@@ -9,14 +9,19 @@
 #define YADDNSC_HTTP_CLIENT_REDIRECT_H
 
 #include <cstdint>
+#include <map>
 #include <optional>
 #include <string>
 
-#include "infrastructure/network/http/error.h"
-#include "infrastructure/network/http/protocol/exchange.h"
-#include "infrastructure/network/http/types.h"
+#include "infrastructure/network/http/protocol/wire.h"
 
-#include "infrastructure/network/uri.h"
+class Uri;
+
+namespace net {
+namespace http {
+struct Options;
+}  // namespace http
+}  // namespace net
 
 namespace net::http {
 

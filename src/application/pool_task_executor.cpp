@@ -4,13 +4,20 @@
 
 #include "pool_task_executor.h"
 
+#include <chrono>
+#include <functional>
+#include <type_traits>
 #include <utility>
 
+#include "domain/error/error.h"
+#include "domain/update/schedule_queue.h"
+#include "domain/update/update_task.h"
+
+#include "BS_thread_pool.hpp"
 #include "update_workflow.h"
 
-PoolTaskExecutor::PoolTaskExecutor(std::size_t thread_count, const UpdateWorkflow &workflow)
-    : workflow_(workflow), pool_(thread_count) {
-}
+PoolTaskExecutor::PoolTaskExecutor(std::size_t thread_count, const UpdateWorkflow& workflow)
+    : workflow_(workflow), pool_(thread_count) {}
 
 PoolTaskExecutor::~PoolTaskExecutor() {
     shutdown();

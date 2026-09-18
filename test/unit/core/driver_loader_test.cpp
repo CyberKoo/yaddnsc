@@ -10,19 +10,22 @@
 // containing built .so driver files (typically ${CMAKE_BINARY_DIR}/driver).
 // =============================================================================
 
+#include "infrastructure/plugin/driver_loader.h"
+
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
+#include <optional>
 #include <string>
-#include <vector>
 #include <string_view>
+#include <vector>
 
 #include <gtest/gtest.h>
+#include <unistd.h>
 
 #include "domain/config/runtime_config.h"
-#include "infrastructure/plugin/driver_loader.h"
-#include "infrastructure/plugin/driver_catalog.h"
 #include "infrastructure/config/config_verification_exception.h"
+#include "infrastructure/plugin/driver_catalog.h"
 #include "infrastructure/plugin/driver_not_found_exception.h"
 #include "infrastructure/plugin/plugin_load_exception.h"
 
@@ -56,7 +59,7 @@ TEST(DriverLoaderTest, LoadSimpleDriver_ByName) {
     EXPECT_EQ(loaded[0], "simple");
 
     // Verify we can retrieve it.
-    EXPECT_NO_THROW({ [[maybe_unused]] auto &module = catalog.get_descriptor("simple"); });
+    EXPECT_NO_THROW({ [[maybe_unused]] auto& module = catalog.get_descriptor("simple"); });
     EXPECT_NE(catalog.find("simple"), nullptr);
 }
 
@@ -101,8 +104,7 @@ TEST(DriverCatalogTest, UnloadDriver_NotFound_Throws) {
 
 TEST(DriverCatalogTest, GetDescriptor_NotFound_Throws) {
     DriverCatalog catalog;
-    EXPECT_THROW({ [[maybe_unused]] auto &d = catalog.get_descriptor("nonexistent"); },
-                 DriverNotFoundException);
+    EXPECT_THROW({ [[maybe_unused]] auto& d = catalog.get_descriptor("nonexistent"); }, DriverNotFoundException);
 }
 
 TEST(DriverCatalogTest, LoadSameDriverTwice_SecondIsSkipped) {
@@ -167,13 +169,12 @@ TEST(DriverLoaderTest, AutoDiscover_SkipsBadLibraries) {
     //  - a real shared library that is NOT a yaddnsc driver (dlopen
     //    succeeds, entry-point resolution fails)
     char dir_template[] = "/tmp/yaddnsc_driver_test_XXXXXX";
-    auto *dir = ::mkdtemp(dir_template);
+    auto* dir = ::mkdtemp(dir_template);
     ASSERT_NE(dir, nullptr) << "mkdtemp failed";
 
-    std::filesystem::copy_file(std::string(TEST_DRIVER_DIR) + "/simple/simple.so",
-                               std::string(dir) + "/simple.so");
+    std::filesystem::copy_file(std::string(TEST_DRIVER_DIR) + "/simple/simple.so", std::string(dir) + "/simple.so");
     {
-        FILE *f = std::fopen((std::string(dir) + "/not_elf.so").c_str(), "w");
+        FILE* f = std::fopen((std::string(dir) + "/not_elf.so").c_str(), "w");
         ASSERT_NE(f, nullptr);
         std::fputs("this is not a shared library", f);
         std::fclose(f);
@@ -197,13 +198,12 @@ TEST(DriverLoaderTest, AutoDiscover_SkipsBadLibraries) {
 
 TEST(DriverLoaderTest, AutoDiscover_IgnoresNonSharedFiles) {
     char dir_template[] = "/tmp/yaddnsc_driver_test_XXXXXX";
-    auto *dir = ::mkdtemp(dir_template);
+    auto* dir = ::mkdtemp(dir_template);
     ASSERT_NE(dir, nullptr) << "mkdtemp failed";
 
-    std::filesystem::copy_file(std::string(TEST_DRIVER_DIR) + "/simple/simple.so",
-                               std::string(dir) + "/simple.so");
+    std::filesystem::copy_file(std::string(TEST_DRIVER_DIR) + "/simple/simple.so", std::string(dir) + "/simple.so");
     {
-        FILE *f = std::fopen((std::string(dir) + "/README.txt").c_str(), "w");
+        FILE* f = std::fopen((std::string(dir) + "/README.txt").c_str(), "w");
         ASSERT_NE(f, nullptr);
         std::fputs("not a driver", f);
         std::fclose(f);
@@ -223,7 +223,7 @@ TEST(DriverLoaderTest, AutoDiscover_IgnoresNonSharedFiles) {
 
 TEST(DriverLoaderTest, AutoDiscover_AllBad_DoesNotThrow) {
     char dir_template[] = "/tmp/yaddnsc_driver_test_XXXXXX";
-    auto *dir = ::mkdtemp(dir_template);
+    auto* dir = ::mkdtemp(dir_template);
     ASSERT_NE(dir, nullptr) << "mkdtemp failed";
 
     std::filesystem::copy_file(BAD_DRIVER_FIXTURE, std::string(dir) + "/foreign.so");

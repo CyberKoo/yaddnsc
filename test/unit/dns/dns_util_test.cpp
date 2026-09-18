@@ -8,14 +8,17 @@
 //   - type_to_record_type mapping.
 // =============================================================================
 
-#include <cstdint>
 #include <array>
+#include <cstdint>
+#include <span>
+#include <string>
 
 #include <gtest/gtest.h>
 
+#include "domain/dns/record_kind.h"
+#include "infrastructure/dns/types.h"
 #include "infrastructure/dns/util.hpp"
 #include "support/util/bytes.hpp"
-#include "domain/dns/record_kind.h"
 
 // ── read_u16_be ──────────────────────────────────────────────────────────────
 

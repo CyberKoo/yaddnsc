@@ -11,16 +11,22 @@
 //   - update returns UPSTREAM_REJECTED for "KO", empty, or non-OK bodies.
 // =============================================================================
 
+#include <optional>
+#include <string>
+#include <string_view>
+#include <vector>
+
 #include <gtest/gtest.h>
+#include <yaddnsc/sdk/driver_abi.h>
 
 #include "abi_test_harness.h"
 
 namespace {
-    constexpr std::string_view CONFIG = R"({"token": "my-token"})";
+constexpr std::string_view CONFIG = R"({"token": "my-token"})";
 }
 
 TEST(DuckDnsDriverTest, Descriptor_ReturnsExpectedMetadata) {
-    const yaddnsc_driver_descriptor *descriptor = nullptr;
+    const yaddnsc_driver_descriptor* descriptor = nullptr;
     ASSERT_EQ(yaddnsc_driver_get_descriptor(&descriptor), YADDNSC_STATUS_OK);
     ASSERT_NE(descriptor, nullptr);
     EXPECT_EQ(descriptor->magic, YADDNSC_DRIVER_MAGIC);
@@ -38,13 +44,12 @@ TEST(DuckDnsDriverTest, Update_BasicARecord) {
     FakeHostServices fake;
     fake.queue_response(200, "OK");
 
-    const auto result = run_abi_update(fake, CONFIG, "1.2.3.4", "A", "duckdns.org", "mydomain",
-                                       "mydomain.duckdns.org");
+    const auto result = run_abi_update(fake, CONFIG, "1.2.3.4", "A", "duckdns.org", "mydomain", "mydomain.duckdns.org");
     ASSERT_EQ(result.create_status, YADDNSC_STATUS_OK) << result.error_message;
     ASSERT_EQ(result.status, YADDNSC_STATUS_OK) << result.error_message;
 
     ASSERT_EQ(fake.requests.size(), 1u);
-    const auto &request = fake.requests[0];
+    const auto& request = fake.requests[0];
 
     EXPECT_EQ(request.url, "https://www.duckdns.org/update?domains=mydomain&token=my-token&ip=1.2.3.4");
     EXPECT_EQ(request.method, YADDNSC_HTTP_GET);
@@ -55,8 +60,7 @@ TEST(DuckDnsDriverTest, Update_AAAARecord_UsesIpv6Param) {
     FakeHostServices fake;
     fake.queue_response(200, "OK");
 
-    const auto result = run_abi_update(fake, CONFIG, "::1", "AAAA", "duckdns.org", "mydomain",
-                                       "mydomain.duckdns.org");
+    const auto result = run_abi_update(fake, CONFIG, "::1", "AAAA", "duckdns.org", "mydomain", "mydomain.duckdns.org");
     ASSERT_EQ(result.status, YADDNSC_STATUS_OK) << result.error_message;
 
     ASSERT_EQ(fake.requests.size(), 1u);
@@ -93,8 +97,8 @@ TEST(DuckDnsDriverTest, Update_VerboseFalse_DoesNotAppendVerboseFlag) {
 
 TEST(DuckDnsDriverTest, Update_MissingToken_ReturnsInvalidConfig) {
     FakeHostServices fake;
-    const auto result = run_abi_update(fake, R"({"not_token": "value"})", "1.2.3.4", "A", "duckdns.org", "x",
-                                       "x.duckdns.org");
+    const auto result =
+        run_abi_update(fake, R"({"not_token": "value"})", "1.2.3.4", "A", "duckdns.org", "x", "x.duckdns.org");
     EXPECT_EQ(result.status, YADDNSC_STATUS_INVALID_CONFIG);
     EXPECT_TRUE(result.error_message.starts_with("Driver configuration parse error:")) << result.error_message;
     EXPECT_TRUE(fake.requests.empty());
@@ -104,8 +108,7 @@ TEST(DuckDnsDriverTest, Update_OkBody_ReturnsOk) {
     FakeHostServices fake;
     fake.queue_response(200, "OK");
 
-    const auto result = run_abi_update(fake, CONFIG, "1.2.3.4", "A", "duckdns.org", "mydomain",
-                                       "mydomain.duckdns.org");
+    const auto result = run_abi_update(fake, CONFIG, "1.2.3.4", "A", "duckdns.org", "mydomain", "mydomain.duckdns.org");
     EXPECT_EQ(result.status, YADDNSC_STATUS_OK) << result.error_message;
 }
 
@@ -113,8 +116,7 @@ TEST(DuckDnsDriverTest, Update_VerboseOkBody_ReturnsOk) {
     FakeHostServices fake;
     fake.queue_response(200, "OK\n127.0.0.1\nupdated successfully");
 
-    const auto result = run_abi_update(fake, CONFIG, "1.2.3.4", "A", "duckdns.org", "mydomain",
-                                       "mydomain.duckdns.org");
+    const auto result = run_abi_update(fake, CONFIG, "1.2.3.4", "A", "duckdns.org", "mydomain", "mydomain.duckdns.org");
     EXPECT_EQ(result.status, YADDNSC_STATUS_OK) << result.error_message;
 }
 
@@ -122,8 +124,7 @@ TEST(DuckDnsDriverTest, Update_KoBody_ReturnsUpstreamRejected) {
     FakeHostServices fake;
     fake.queue_response(200, "KO");
 
-    const auto result = run_abi_update(fake, CONFIG, "1.2.3.4", "A", "duckdns.org", "mydomain",
-                                       "mydomain.duckdns.org");
+    const auto result = run_abi_update(fake, CONFIG, "1.2.3.4", "A", "duckdns.org", "mydomain", "mydomain.duckdns.org");
     EXPECT_EQ(result.status, YADDNSC_STATUS_UPSTREAM_REJECTED);
 }
 
@@ -131,8 +132,7 @@ TEST(DuckDnsDriverTest, Update_EmptyBody_ReturnsUpstreamRejected) {
     FakeHostServices fake;
     fake.queue_response(200, "");
 
-    const auto result = run_abi_update(fake, CONFIG, "1.2.3.4", "A", "duckdns.org", "mydomain",
-                                       "mydomain.duckdns.org");
+    const auto result = run_abi_update(fake, CONFIG, "1.2.3.4", "A", "duckdns.org", "mydomain", "mydomain.duckdns.org");
     EXPECT_EQ(result.status, YADDNSC_STATUS_UPSTREAM_REJECTED);
 }
 
@@ -142,8 +142,7 @@ TEST(DuckDnsDriverTest, Update_ErrorStatusWithOkBody_ReturnsOk) {
     FakeHostServices fake;
     fake.queue_response(500, "OK");
 
-    const auto result = run_abi_update(fake, CONFIG, "1.2.3.4", "A", "duckdns.org", "mydomain",
-                                       "mydomain.duckdns.org");
+    const auto result = run_abi_update(fake, CONFIG, "1.2.3.4", "A", "duckdns.org", "mydomain", "mydomain.duckdns.org");
     EXPECT_EQ(result.status, YADDNSC_STATUS_OK) << result.error_message;
 }
 
@@ -151,8 +150,7 @@ TEST(DuckDnsDriverTest, Update_ErrorStatusWithNonOkBody_ReturnsUpstreamRejected)
     FakeHostServices fake;
     fake.queue_response(500, "Internal Server Error");
 
-    const auto result = run_abi_update(fake, CONFIG, "1.2.3.4", "A", "duckdns.org", "mydomain",
-                                       "mydomain.duckdns.org");
+    const auto result = run_abi_update(fake, CONFIG, "1.2.3.4", "A", "duckdns.org", "mydomain", "mydomain.duckdns.org");
     EXPECT_EQ(result.status, YADDNSC_STATUS_UPSTREAM_REJECTED);
 }
 
@@ -189,5 +187,5 @@ TEST(DuckDnsDriverTest, Validate_MalformedJson_ReturnsInvalidConfig) {
 TEST(DuckDnsDriverTest, Entries_NullArgumentsRejected) {
     EXPECT_EQ(yaddnsc_driver_get_descriptor(nullptr), YADDNSC_STATUS_INVALID_ARGUMENT);
     EXPECT_EQ(yaddnsc_driver_update(nullptr, nullptr, nullptr), YADDNSC_STATUS_INVALID_ARGUMENT);
-    yaddnsc_driver_destroy(nullptr); // must be a no-op, must not crash
+    yaddnsc_driver_destroy(nullptr);  // must be a no-op, must not crash
 }

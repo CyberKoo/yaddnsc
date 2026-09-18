@@ -8,12 +8,13 @@
 //   - DnsServer aggregate initialisation and defaults.
 // =============================================================================
 
+#include <string>
 #include <type_traits>
 
 #include <gtest/gtest.h>
 
+#include "domain/config/dns_config.h"
 #include "domain/dns/record_kind.h"
-#include "infrastructure/config/config.h"
 
 // ── RecordKind ─────────────────────────────────────────────────────
 
@@ -24,8 +25,8 @@ TEST(RecordKindTest, EnumeratorValues_Defined) {
 }
 
 TEST(RecordKindTest, IsEnumClass) {
-    EXPECT_TRUE((std::is_enum_v<RecordKind>));
-    EXPECT_FALSE((std::is_convertible_v<RecordKind, int>));
+    EXPECT_TRUE((std::is_enum_v<RecordKind>) );
+    EXPECT_FALSE((std::is_convertible_v<RecordKind, int>) );
 }
 
 TEST(RecordKindTest, DefaultValue_IsA) {

@@ -3,107 +3,108 @@
 //
 #include "infrastructure/network/transport/tls_stream.h"
 
-#include <netinet/in.h>
-#include <poll.h>
-
 #include <array>
 #include <chrono>
+#include <compare>
 #include <optional>
 #include <utility>
 
 #include <openssl/err.h>
-
+#include <openssl/prov_ssl.h>
+#include <openssl/ssl.h>
+#include <openssl/x509.h>
+#include <poll.h>
 #include <spdlog/spdlog.h>
+#include <yaddnsc/util/format.hpp>
 
 #include "domain/network/inet_address.h"
-#include "support/util/cancellation_token.hpp"
 #include "infrastructure/network/tls/cert_util.h"
-
 #include "support/fmt.hpp"
+#include "support/util/cancellation_token.hpp"
 
 namespace Transport {
 
 namespace {
 
-    /// Format the OpenSSL error stack for logging.
-    [[nodiscard]] std::string ssl_errors() {
-        std::vector<std::string> errors;
-        unsigned long err;
-        while ((err = ERR_get_error()) != 0) {
-            std::array<char, 256> buf{};
-            ERR_error_string_n(err, buf.data(), buf.size());
-            errors.emplace_back(buf.data());
-        }
-        return fmt::format("{}", fmt::join(errors, "; "));
+/// Format the OpenSSL error stack for logging.
+[[nodiscard]] std::string ssl_errors() {
+    std::vector<std::string> errors;
+    unsigned long err;
+    while ((err = ERR_get_error()) != 0) {
+        std::array<char, 256> buf{};
+        ERR_error_string_n(err, buf.data(), buf.size());
+        errors.emplace_back(buf.data());
+    }
+    return fmt::format("{}", fmt::join(errors, "; "));
+}
+
+/// Build an SSL_CTX for the given options.
+///
+/// Shared default (verify-on, auto-discovered CA) is used when the
+/// options match it; otherwise a per-instance ctx is built (custom CA
+/// bundle or verification disabled).
+[[nodiscard]] SslCtxPtr make_ssl_ctx(const TlsOptions& opts) {
+    SslCtxPtr ctx(SSL_CTX_new(TLS_client_method()));
+    if (!ctx) {
+        SPDLOG_ERROR("SSL_CTX_new failed: {}", ssl_errors());
+        return nullptr;
     }
 
-    /// Build an SSL_CTX for the given options.
-    ///
-    /// Shared default (verify-on, auto-discovered CA) is used when the
-    /// options match it; otherwise a per-instance ctx is built (custom CA
-    /// bundle or verification disabled).
-    [[nodiscard]] SslCtxPtr make_ssl_ctx(const TlsOptions &opts) {
-        SslCtxPtr ctx(SSL_CTX_new(TLS_client_method()));
-        if (!ctx) {
-            SPDLOG_ERROR("SSL_CTX_new failed: {}", ssl_errors());
-            return nullptr;
-        }
+    if (SSL_CTX_set_min_proto_version(ctx.get(), TLS1_2_VERSION) != 1 ||
+        SSL_CTX_set_max_proto_version(ctx.get(), TLS1_3_VERSION) != 1) {
+        SPDLOG_ERROR("Failed to restrict TLS versions: {}", ssl_errors());
+        return nullptr;
+    }
 
-        if (SSL_CTX_set_min_proto_version(ctx.get(), TLS1_2_VERSION) != 1 ||
-            SSL_CTX_set_max_proto_version(ctx.get(), TLS1_3_VERSION) != 1) {
-            SPDLOG_ERROR("Failed to restrict TLS versions: {}", ssl_errors());
-            return nullptr;
-        }
-
-        if (!opts.verify_peer) {
-            SSL_CTX_set_verify(ctx.get(), SSL_VERIFY_NONE, nullptr);
-            return ctx;
-        }
-
-        SSL_CTX_set_verify(ctx.get(), SSL_VERIFY_PEER, nullptr);
-
-        // CA: explicit path -> discovery -> OpenSSL default (fail-closed).
-        std::optional<std::string> ca_path = opts.ca_bundle;
-        if (!ca_path) {
-            ca_path = Utils::Cert::discover_ca_bundle();
-        }
-        if (ca_path) {
-            if (SSL_CTX_load_verify_locations(ctx.get(), ca_path->c_str(), nullptr) != 1) {
-                SPDLOG_ERROR("Failed to load CA bundle from {}: {}", *ca_path, ssl_errors());
-                return nullptr;
-            }
-        } else if (SSL_CTX_set_default_verify_paths(ctx.get()) != 1) {
-            SPDLOG_ERROR("No CA bundle found and OpenSSL default paths failed: {}", ssl_errors());
-            return nullptr;
-        }
-
+    if (!opts.verify_peer) {
+        SSL_CTX_set_verify(ctx.get(), SSL_VERIFY_NONE, nullptr);
         return ctx;
     }
 
-    [[nodiscard]] SslCtxPtr &shared_default_ctx() {
-        static SslCtxPtr ctx = make_ssl_ctx(TlsOptions{});
-        return ctx;
+    SSL_CTX_set_verify(ctx.get(), SSL_VERIFY_PEER, nullptr);
+
+    // CA: explicit path -> discovery -> OpenSSL default (fail-closed).
+    std::optional<std::string> ca_path = opts.ca_bundle;
+    if (!ca_path) {
+        ca_path = Utils::Cert::discover_ca_bundle();
+    }
+    if (ca_path) {
+        if (SSL_CTX_load_verify_locations(ctx.get(), ca_path->c_str(), nullptr) != 1) {
+            SPDLOG_ERROR("Failed to load CA bundle from {}: {}", *ca_path, ssl_errors());
+            return nullptr;
+        }
+    } else if (SSL_CTX_set_default_verify_paths(ctx.get()) != 1) {
+        SPDLOG_ERROR("No CA bundle found and OpenSSL default paths failed: {}", ssl_errors());
+        return nullptr;
     }
 
-} // namespace
+    return ctx;
+}
 
-void SslContextDeleter::operator()(SSL_CTX *ctx) const noexcept {
+[[nodiscard]] SslCtxPtr& shared_default_ctx() {
+    static SslCtxPtr ctx = make_ssl_ctx(TlsOptions{});
+    return ctx;
+}
+
+}  // namespace
+
+void SslContextDeleter::operator()(SSL_CTX* ctx) const noexcept {
     SSL_CTX_free(ctx);
 }
 
-TlsStream::TlsStream(std::string host, const std::uint16_t port, Options opts, TlsOptions tls_opts,
+TlsStream::TlsStream(std::string host,
+                     const std::uint16_t port,
+                     Options opts,
+                     TlsOptions tls_opts,
                      Utils::CancellationToken token)
-    : socket_(std::move(host), port, opts, std::move(token)),
-      opts_(std::move(opts)),
-      tls_opts_(std::move(tls_opts)),
-      alpn_proto_(tls_opts_.alpn_proto.begin(), tls_opts_.alpn_proto.end()) {
-}
+    : socket_(std::move(host), port, opts, std::move(token)), opts_(std::move(opts)), tls_opts_(std::move(tls_opts)),
+      alpn_proto_(tls_opts_.alpn_proto.begin(), tls_opts_.alpn_proto.end()) {}
 
 TlsStream::~TlsStream() {
     close();
 }
 
-SSL_CTX *TlsStream::ssl_ctx() const noexcept {
+SSL_CTX* TlsStream::ssl_ctx() const noexcept {
     if (custom_ctx_) {
         return custom_ctx_.get();
     }
@@ -130,7 +131,7 @@ std::expected<void, IoError> TlsStream::connect(const std::chrono::steady_clock:
     }
 
     // Resolve the SSL_CTX (shared default or per-instance custom).
-    SSL_CTX *ctx = ssl_ctx();
+    SSL_CTX* ctx = ssl_ctx();
     if (ctx == nullptr) {
         custom_ctx_ = make_ssl_ctx(tls_opts_);
         ctx = custom_ctx_.get();
@@ -146,7 +147,8 @@ std::expected<void, IoError> TlsStream::connect(const std::chrono::steady_clock:
     }
     SSL_set_fd(ssl_, socket_.fd());
 
-    const std::string &effective_hostname = tls_opts_.sni_hostname.has_value() ? *tls_opts_.sni_hostname : socket_.host();
+    const std::string& effective_hostname =
+        tls_opts_.sni_hostname.has_value() ? *tls_opts_.sni_hostname : socket_.host();
     const bool is_ip = InetAddress::parse(effective_hostname).has_value();
 
     if (!is_ip) {
@@ -155,14 +157,12 @@ std::expected<void, IoError> TlsStream::connect(const std::chrono::steady_clock:
     }
 
     // Bind peer identity to the connection target.
-    auto *verify_param = SSL_get0_param(ssl_);
+    auto* verify_param = SSL_get0_param(ssl_);
     if (is_ip) {
         // Strip the IPv6 scope id ("fe80::1%eth0") — it is not part of the
         // address and X509_VERIFY_PARAM_set1_ip_asc rejects it.
         const auto pct = effective_hostname.find('%');
-        const auto ip_literal = pct == std::string::npos
-                                    ? effective_hostname
-                                    : effective_hostname.substr(0, pct);
+        const auto ip_literal = pct == std::string::npos ? effective_hostname : effective_hostname.substr(0, pct);
         if (X509_VERIFY_PARAM_set1_ip_asc(verify_param, ip_literal.c_str()) != 1) {
             SPDLOG_ERROR(R"(Failed to set IP verification for "{}": {})", effective_hostname, ssl_errors());
             return std::unexpected(CONNECTION_FAILED);
@@ -198,8 +198,7 @@ std::expected<void, IoError> TlsStream::handshake(const std::chrono::steady_cloc
 
         const int err = SSL_get_error(ssl_, rc);
         if (err != SSL_ERROR_WANT_READ && err != SSL_ERROR_WANT_WRITE) {
-            SPDLOG_ERROR(R"(TLS handshake failed for "{}:{}": {})", socket_.host(), socket_.port(),
-                         ssl_errors());
+            SPDLOG_ERROR(R"(TLS handshake failed for "{}:{}": {})", socket_.host(), socket_.port(), ssl_errors());
             return std::unexpected(CONNECTION_FAILED);
         }
 
@@ -254,7 +253,7 @@ std::expected<size_t, IoError> TlsStream::read_once(const std::span<std::uint8_t
 
         const int err = SSL_get_error(ssl_, rc);
         if (err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE) {
-            continue; // poll again with the respective readiness direction
+            continue;  // poll again with the respective readiness direction
         }
         if (err == SSL_ERROR_ZERO_RETURN) {
             // close_notify: the peer closed the connection cleanly.
@@ -314,4 +313,4 @@ void TlsStream::close() noexcept {
     socket_.close();
 }
 
-} // namespace Transport
+}  // namespace Transport

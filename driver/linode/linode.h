@@ -5,12 +5,10 @@
 #ifndef YADDNSC_DRV_LINODE_LINODE_H
 #define YADDNSC_DRV_LINODE_LINODE_H
 
+#include <yaddnsc/sdk/driver.hpp>
 #include <optional>
 #include <string>
-
-#include <yaddnsc/sdk/driver.hpp>
-
-#include "config.hpp"
+#include <string_view>
 
 /// Linode API v4 driver for DNS record updates.
 ///
@@ -23,7 +21,7 @@ public:
     ~LinodeDriver() override = default;
 
     /// Perform one update: generate-request → HTTP exchange → check-response.
-    yaddnsc::sdk::Result update(yaddnsc::sdk::UpdateContext &context) override;
+    yaddnsc::sdk::Result update(yaddnsc::sdk::UpdateContext& context) override;
 
     /// Validate driver_param against the Linode API schema without updating;
     /// schema violations surface as YADDNSC_STATUS_INVALID_CONFIG.
@@ -31,10 +29,10 @@ public:
 
 private:
     /// Build the JSON request body for a Linode DNS record update.
-    static std::string generate_body(const yaddnsc::sdk::UpdateRequest &request, std::optional<int> ttl_sec);
+    static std::string generate_body(const yaddnsc::sdk::UpdateRequest& request, std::optional<int> ttl_sec);
 
     /// Validate the Linode API response.
-    static bool check_response(const yaddnsc::sdk::HttpResponse &response, const yaddnsc::sdk::Services &services);
+    static bool check_response(const yaddnsc::sdk::HttpResponse& response, const yaddnsc::sdk::Services& services);
 };
 
-#endif //YADDNSC_DRV_LINODE_LINODE_H
+#endif  // YADDNSC_DRV_LINODE_LINODE_H

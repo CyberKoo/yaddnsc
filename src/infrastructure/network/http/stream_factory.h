@@ -13,9 +13,13 @@
 #include <memory>
 #include <string_view>
 
-#include "infrastructure/network/transport/options.h"
 #include "infrastructure/network/transport/stream.h"
 #include "support/util/cancellation_token.hpp"
+
+namespace Transport {
+struct Options;
+struct TlsOptions;
+}  // namespace Transport
 
 namespace net::http {
 
@@ -24,12 +28,14 @@ class StreamFactory {
 public:
     virtual ~StreamFactory() = default;
 
-    [[nodiscard]] virtual std::unique_ptr<Transport::Stream>
-        create_tls(std::string_view host, std::uint16_t port, const Transport::Options &conn_opts,
-                   const Transport::TlsOptions &tls_opts) = 0;
+    [[nodiscard]] virtual std::unique_ptr<Transport::Stream> create_tls(std::string_view host,
+                                                                        std::uint16_t port,
+                                                                        const Transport::Options& conn_opts,
+                                                                        const Transport::TlsOptions& tls_opts) = 0;
 
-    [[nodiscard]] virtual std::unique_ptr<Transport::Stream>
-        create_tcp(std::string_view host, std::uint16_t port, const Transport::Options &opts) = 0;
+    [[nodiscard]] virtual std::unique_ptr<Transport::Stream> create_tcp(std::string_view host,
+                                                                        std::uint16_t port,
+                                                                        const Transport::Options& opts) = 0;
 };
 
 /// Default factory: TlsStream for TLS, TcpStream for TCP.
@@ -40,17 +46,19 @@ class DefaultStreamFactory final : public StreamFactory {
 public:
     explicit DefaultStreamFactory(Utils::CancellationToken token = {});
 
-    [[nodiscard]] std::unique_ptr<Transport::Stream>
-        create_tls(std::string_view host, std::uint16_t port, const Transport::Options &conn_opts,
-                   const Transport::TlsOptions &tls_opts) override;
+    [[nodiscard]] std::unique_ptr<Transport::Stream> create_tls(std::string_view host,
+                                                                std::uint16_t port,
+                                                                const Transport::Options& conn_opts,
+                                                                const Transport::TlsOptions& tls_opts) override;
 
-    [[nodiscard]] std::unique_ptr<Transport::Stream>
-        create_tcp(std::string_view host, std::uint16_t port, const Transport::Options &conn_opts) override;
+    [[nodiscard]] std::unique_ptr<Transport::Stream> create_tcp(std::string_view host,
+                                                                std::uint16_t port,
+                                                                const Transport::Options& conn_opts) override;
 
 private:
     Utils::CancellationToken token_;
 };
 
-} // namespace net::http
+}  // namespace net::http
 
-#endif // YADDNSC_HTTP_CLIENT_STREAM_FACTORY_H
+#endif  // YADDNSC_HTTP_CLIENT_STREAM_FACTORY_H

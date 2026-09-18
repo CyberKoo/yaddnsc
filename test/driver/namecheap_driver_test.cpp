@@ -11,44 +11,52 @@
 //   - update returns UPSTREAM_REJECTED for ErrCount>0 / malformed / empty XML.
 // =============================================================================
 
+#include <optional>
+#include <string>
+#include <string_view>
+#include <vector>
+
 #include <gtest/gtest.h>
+#include <yaddnsc/sdk/driver_abi.h>
 
 #include "abi_test_harness.h"
 
 // ── Shared fixtures ──────────────────────────────────────────────────────────
 
 namespace {
-    constexpr std::string_view CONFIG = R"({"password": "my-pass"})";
+constexpr std::string_view CONFIG = R"({"password": "my-pass"})";
 
-    /// Build a Namecheap API success XML response with the given IP.
-    std::string make_success_xml(std::string_view ip) {
-        return std::string{R"(<?xml version="1.0"?>
+/// Build a Namecheap API success XML response with the given IP.
+std::string make_success_xml(std::string_view ip) {
+    return std::string{R"(<?xml version="1.0"?>
 <interface-response>
   <Command>NAMEcheap.dynamicdns.update</Command>
   <ErrCount>0</ErrCount>
   <Done>true</Done>
-  <IP>)"} + std::string{ip} + R"(</IP>
+  <IP>)"} + std::string{ip} +
+           R"(</IP>
 </interface-response>)";
-    }
+}
 
-    /// Build a Namecheap API error XML response with the given error message.
-    std::string make_error_xml(std::string_view err_msg) {
-        return std::string{R"(<?xml version="1.0"?>
+/// Build a Namecheap API error XML response with the given error message.
+std::string make_error_xml(std::string_view err_msg) {
+    return std::string{R"(<?xml version="1.0"?>
 <interface-response>
   <Command>NAMEcheap.dynamicdns.update</Command>
   <ErrCount>1</ErrCount>
   <Done>true</Done>
   <errors>
-    <error>)"} + std::string{err_msg} + R"(</error>
+    <error>)"} +
+           std::string{err_msg} + R"(</error>
   </errors>
 </interface-response>)";
-    }
-} // namespace
+}
+}  // namespace
 
 // ── Tests ──────────────────────────────────────────────────────────────────
 
 TEST(NamecheapDriverTest, Descriptor_ReturnsExpectedMetadata) {
-    const yaddnsc_driver_descriptor *descriptor = nullptr;
+    const yaddnsc_driver_descriptor* descriptor = nullptr;
     ASSERT_EQ(yaddnsc_driver_get_descriptor(&descriptor), YADDNSC_STATUS_OK);
     ASSERT_NE(descriptor, nullptr);
     EXPECT_EQ(descriptor->magic, YADDNSC_DRIVER_MAGIC);
@@ -71,7 +79,7 @@ TEST(NamecheapDriverTest, Update_BasicARecord) {
     ASSERT_EQ(result.status, YADDNSC_STATUS_OK) << result.error_message;
 
     ASSERT_EQ(fake.requests.size(), 1u);
-    const auto &request = fake.requests[0];
+    const auto& request = fake.requests[0];
 
     // Check URL
     EXPECT_EQ(request.url,
@@ -107,7 +115,7 @@ TEST(NamecheapDriverTest, Update_AaaaRecord_ReturnsUnsupportedRecord) {
 TEST(NamecheapDriverTest, Update_MissingPassword_ReturnsInvalidConfig) {
     FakeHostServices fake;
     const auto result =
-            run_abi_update(fake, R"({"not_password": "value"})", "1.2.3.4", "A", "example.com", "@", "example.com");
+        run_abi_update(fake, R"({"not_password": "value"})", "1.2.3.4", "A", "example.com", "@", "example.com");
     EXPECT_EQ(result.status, YADDNSC_STATUS_INVALID_CONFIG);
     EXPECT_TRUE(result.error_message.starts_with("Driver configuration parse error:")) << result.error_message;
     EXPECT_TRUE(fake.requests.empty());
@@ -226,5 +234,5 @@ TEST(NamecheapDriverTest, Validate_MalformedJson_ReturnsInvalidConfig) {
 TEST(NamecheapDriverTest, Entries_NullArgumentsRejected) {
     EXPECT_EQ(yaddnsc_driver_get_descriptor(nullptr), YADDNSC_STATUS_INVALID_ARGUMENT);
     EXPECT_EQ(yaddnsc_driver_update(nullptr, nullptr, nullptr), YADDNSC_STATUS_INVALID_ARGUMENT);
-    yaddnsc_driver_destroy(nullptr); // must be a no-op, must not crash
+    yaddnsc_driver_destroy(nullptr);  // must be a no-op, must not crash
 }

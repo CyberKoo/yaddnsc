@@ -3,20 +3,22 @@
 //
 #include "infrastructure/network/socket.h"
 
-#include "support/util/cancellation_token.hpp"
-
-#include <unistd.h>
-#include <fcntl.h>
-#include <poll.h>
-#include <netinet/in.h>
-
 #include <cerrno>
-#include <concepts>
 #include <cstdint>
+#include <string>
 #include <utility>
 
-#include "config_cmake.h"
+#include <concepts>
+
+#include <fcntl.h>
+#include <netinet/in.h>
+#include <poll.h>
+#include <unistd.h>
+
 #include "infrastructure/network/socket_exception.h"
+#include "support/util/cancellation_token.hpp"
+
+#include "config_cmake.h"
 
 // ===========================================================================
 //  SIGPIPE suppression strategy
@@ -40,106 +42,104 @@ constexpr int YADDNSC_NO_SIGPIPE = 0;
 // ===========================================================================
 
 namespace {
-    /// Loop helper for send/sendto.
-    ///
-    /// For stream sockets (@p stream == true): retries on EINTR and short writes
-    /// until all bytes are transferred (TCP semantics).
-    /// For datagram sockets (@p stream == false): single-shot send with EINTR
-    /// retry only (UDP semantics).
-    ///
-    /// @return  @p len on success (stream), or the number of bytes sent (datagram),
-    ///          -1 on error (errno set).
-    template<typename Fn>
-        requires requires(Fn f, const std::uint8_t *p, size_t s) {
-            { f(p, s) } -> std::convertible_to<ssize_t>;
-        }
-    [[nodiscard]] ssize_t send_loop(const void *data, size_t len, bool stream, Fn &&fn) {
-        auto *buf = static_cast<const std::uint8_t *>(data);
-        if (!stream) {
-            // Datagram — single-shot (send either succeeds fully or fails).
-            ssize_t n;
-            do {
-                n = fn(buf, len);
-            } while (n < 0 && errno == EINTR);
-            return n;
-        }
-        // Stream — loop on short writes.
-        size_t total = 0;
-        while (total < len) {
-            ssize_t n;
-            do {
-                n = fn(buf + total, len - total);
-            } while (n < 0 && errno == EINTR);
-            if (n < 0) {
-                return -1;
-            }
-            total += static_cast<size_t>(n);
-        }
-        return static_cast<ssize_t>(len);
+/// Loop helper for send/sendto.
+///
+/// For stream sockets (@p stream == true): retries on EINTR and short writes
+/// until all bytes are transferred (TCP semantics).
+/// For datagram sockets (@p stream == false): single-shot send with EINTR
+/// retry only (UDP semantics).
+///
+/// @return  @p len on success (stream), or the number of bytes sent (datagram),
+///          -1 on error (errno set).
+template<typename Fn>
+    requires requires(Fn f, const std::uint8_t* p, size_t s) {
+        { f(p, s) } -> std::convertible_to<ssize_t>;
     }
-
-    /// RAII guard that restores the original fcntl flags on destruction.
-    /// Used by connect() to ensure O_NONBLOCK is reverted on any exception path.
-    class FcntlGuard {
-    public:
-        FcntlGuard(int fd, int saved_flags) noexcept : fd_(fd), saved_flags_(saved_flags) {
-        }
-
-        FcntlGuard(const FcntlGuard &) = delete;
-        FcntlGuard(FcntlGuard &&) = delete;
-
-        FcntlGuard &operator=(const FcntlGuard &) = delete;
-        FcntlGuard &operator=(FcntlGuard &&) = delete;
-
-        /// Restore flags and mark as disarmed.
-        /// @return true on success, false if fcntl failed.
-        [[nodiscard]] bool restore() noexcept {
-            if (fd_ < 0) return true;
-            int rc = ::fcntl(fd_, F_SETFL, saved_flags_);
-            fd_ = -1;
-            return rc == 0;
-        }
-
-        void disarm() noexcept { fd_ = -1; }
-
-        ~FcntlGuard() {
-            [[maybe_unused]] auto _ = restore(); // best-effort on exception unwind
-        }
-
-    private:
-        int fd_;
-        int saved_flags_;
-    };
-
-    /// Shared implementation for all recv_from overloads.
-    [[nodiscard]] ssize_t recv_from_impl(int fd, std::span<std::byte> buf, int flags, SocketAddr *src) noexcept {
+[[nodiscard]] ssize_t send_loop(const void* data, size_t len, bool stream, Fn&& fn) {
+    auto* buf = static_cast<const std::uint8_t*>(data);
+    if (!stream) {
+        // Datagram — single-shot (send either succeeds fully or fails).
         ssize_t n;
         do {
-            n = ::recvfrom(
-                fd, buf.data(), buf.size(), flags,
-                src ? src->raw_mut() : nullptr, src ? src->raw_len_ptr() : nullptr
-            );
+            n = fn(buf, len);
         } while (n < 0 && errno == EINTR);
         return n;
     }
-
-    /// Translate errno to ConnectError.
-    [[nodiscard]] ConnectError to_connect_error(int errnum) noexcept {
-        switch (errnum) {
-            case ETIMEDOUT:
-                return ConnectError::TIMED_OUT;
-            case ECONNREFUSED:
-                return ConnectError::REFUSED;
-            case ENETUNREACH:
-            case EHOSTUNREACH:
-                return ConnectError::UNREACHABLE;
-            case ECANCELED:
-                return ConnectError::CANCELLED;
-            default:
-                return ConnectError::INTERNAL;
+    // Stream — loop on short writes.
+    size_t total = 0;
+    while (total < len) {
+        ssize_t n;
+        do {
+            n = fn(buf + total, len - total);
+        } while (n < 0 && errno == EINTR);
+        if (n < 0) {
+            return -1;
         }
+        total += static_cast<size_t>(n);
     }
-} // anonymous namespace
+    return static_cast<ssize_t>(len);
+}
+
+/// RAII guard that restores the original fcntl flags on destruction.
+/// Used by connect() to ensure O_NONBLOCK is reverted on any exception path.
+class FcntlGuard {
+public:
+    FcntlGuard(int fd, int saved_flags) noexcept : fd_(fd), saved_flags_(saved_flags) {}
+
+    FcntlGuard(const FcntlGuard&) = delete;
+    FcntlGuard(FcntlGuard&&) = delete;
+
+    FcntlGuard& operator=(const FcntlGuard&) = delete;
+    FcntlGuard& operator=(FcntlGuard&&) = delete;
+
+    /// Restore flags and mark as disarmed.
+    /// @return true on success, false if fcntl failed.
+    [[nodiscard]] bool restore() noexcept {
+        if (fd_ < 0)
+            return true;
+        int rc = ::fcntl(fd_, F_SETFL, saved_flags_);
+        fd_ = -1;
+        return rc == 0;
+    }
+
+    void disarm() noexcept { fd_ = -1; }
+
+    ~FcntlGuard() {
+        [[maybe_unused]] auto _ = restore();  // best-effort on exception unwind
+    }
+
+private:
+    int fd_;
+    int saved_flags_;
+};
+
+/// Shared implementation for all recv_from overloads.
+[[nodiscard]] ssize_t recv_from_impl(int fd, std::span<std::byte> buf, int flags, SocketAddr* src) noexcept {
+    ssize_t n;
+    do {
+        n = ::recvfrom(fd, buf.data(), buf.size(), flags, src ? src->raw_mut() : nullptr,
+                       src ? src->raw_len_ptr() : nullptr);
+    } while (n < 0 && errno == EINTR);
+    return n;
+}
+
+/// Translate errno to ConnectError.
+[[nodiscard]] ConnectError to_connect_error(int errnum) noexcept {
+    switch (errnum) {
+        case ETIMEDOUT:
+            return ConnectError::TIMED_OUT;
+        case ECONNREFUSED:
+            return ConnectError::REFUSED;
+        case ENETUNREACH:
+        case EHOSTUNREACH:
+            return ConnectError::UNREACHABLE;
+        case ECANCELED:
+            return ConnectError::CANCELLED;
+        default:
+            return ConnectError::INTERNAL;
+    }
+}
+}  // anonymous namespace
 
 // ===========================================================================
 //  Construction / destruction / move
@@ -174,11 +174,11 @@ Socket::~Socket() {
     close();
 }
 
-Socket::Socket(Socket &&other) noexcept : fd_(std::exchange(other.fd_, -1)), type_(other.type_) {
+Socket::Socket(Socket&& other) noexcept : fd_(std::exchange(other.fd_, -1)), type_(other.type_) {
     other.type_ = -1;
 }
 
-Socket &Socket::operator=(Socket &&other) noexcept {
+Socket& Socket::operator=(Socket&& other) noexcept {
     if (this != &other) {
         close();
         fd_ = std::exchange(other.fd_, -1);
@@ -191,7 +191,7 @@ Socket &Socket::operator=(Socket &&other) noexcept {
 //  Options
 // ===========================================================================
 
-std::expected<void, int> Socket::set_option_raw(int level, int optname, const void *val, socklen_t len) const noexcept {
+std::expected<void, int> Socket::set_option_raw(int level, int optname, const void* val, socklen_t len) const noexcept {
     if (::setsockopt(fd_, level, optname, val, len) == 0) {
         return {};
     }
@@ -256,7 +256,7 @@ std::expected<void, int> Socket::set_reuseport([[maybe_unused]] bool enable) con
 //  Address binding
 // ===========================================================================
 
-std::expected<void, int> Socket::bind(const SocketAddr &addr) const noexcept {
+std::expected<void, int> Socket::bind(const SocketAddr& addr) const noexcept {
     if (::bind(fd_, addr.raw(), addr.raw_len()) < 0) {
         return std::unexpected(errno);
     }
@@ -284,7 +284,7 @@ SocketAddr Socket::get_peername() const {
 // ===========================================================================
 
 // NOLINTNEXTLINE(readability-make-member-function-const) — see declaration for rationale
-std::expected<void, ConnectError> Socket::connect(const SocketAddr &addr, int timeout_sec) {
+std::expected<void, ConnectError> Socket::connect(const SocketAddr& addr, int timeout_sec) {
     if (timeout_sec < 0) {
         // Blocking connect (with EINTR retry).
         int rc;
@@ -369,7 +369,7 @@ void Socket::listen(int backlog) const {
     }
 }
 
-std::expected<Socket, int> Socket::accept(SocketAddr *addr) const noexcept {
+std::expected<Socket, int> Socket::accept(SocketAddr* addr) const noexcept {
     int client_fd;
     if (addr) {
         do {
@@ -410,39 +410,30 @@ std::expected<Socket, int> Socket::accept(SocketAddr *addr) const noexcept {
 // ===========================================================================
 
 ssize_t Socket::send(std::span<const std::byte> data) const {
-    return send_loop(
-        data.data(), data.size(), type_ == SOCK_STREAM,
-        [this](const std::uint8_t *ptr, size_t chunk) {
-            return ::send(fd_, ptr, chunk, YADDNSC_NO_SIGPIPE);
-        }
-    );
+    return send_loop(data.data(), data.size(), type_ == SOCK_STREAM, [this](const std::uint8_t* ptr, size_t chunk) {
+        return ::send(fd_, ptr, chunk, YADDNSC_NO_SIGPIPE);
+    });
 }
 
 ssize_t Socket::send(std::span<const std::byte> data, int flags) const {
-    return send_loop(
-        data.data(), data.size(), type_ == SOCK_STREAM,
-        [this, flags](const std::uint8_t *ptr, size_t chunk) {
-            return ::send(fd_, ptr, chunk, flags | YADDNSC_NO_SIGPIPE);
-        }
-    );
+    return send_loop(data.data(), data.size(), type_ == SOCK_STREAM,
+                     [this, flags](const std::uint8_t* ptr, size_t chunk) {
+                         return ::send(fd_, ptr, chunk, flags | YADDNSC_NO_SIGPIPE);
+                     });
 }
 
-ssize_t Socket::send_to(std::span<const std::byte> data, const SocketAddr &dest) const {
-    return send_loop(
-        data.data(), data.size(), type_ == SOCK_STREAM,
-        [this, &dest](const std::uint8_t *ptr, size_t chunk) {
-            return ::sendto(fd_, ptr, chunk, YADDNSC_NO_SIGPIPE, dest.raw(), dest.raw_len());
-        }
-    );
+ssize_t Socket::send_to(std::span<const std::byte> data, const SocketAddr& dest) const {
+    return send_loop(data.data(), data.size(), type_ == SOCK_STREAM,
+                     [this, &dest](const std::uint8_t* ptr, size_t chunk) {
+                         return ::sendto(fd_, ptr, chunk, YADDNSC_NO_SIGPIPE, dest.raw(), dest.raw_len());
+                     });
 }
 
-ssize_t Socket::send_to(std::span<const std::byte> data, const SocketAddr &dest, int flags) const {
-    return send_loop(
-        data.data(), data.size(), type_ == SOCK_STREAM,
-        [this, &dest, flags](const std::uint8_t *ptr, size_t chunk) {
-            return ::sendto(fd_, ptr, chunk, flags | YADDNSC_NO_SIGPIPE, dest.raw(), dest.raw_len());
-        }
-    );
+ssize_t Socket::send_to(std::span<const std::byte> data, const SocketAddr& dest, int flags) const {
+    return send_loop(data.data(), data.size(), type_ == SOCK_STREAM,
+                     [this, &dest, flags](const std::uint8_t* ptr, size_t chunk) {
+                         return ::sendto(fd_, ptr, chunk, flags | YADDNSC_NO_SIGPIPE, dest.raw(), dest.raw_len());
+                     });
 }
 
 ssize_t Socket::recv(std::span<std::byte> buf) const {
@@ -461,11 +452,11 @@ ssize_t Socket::recv(std::span<std::byte> buf, int flags) const {
     return n;
 }
 
-ssize_t Socket::recv_from(std::span<std::byte> buf, SocketAddr *src) const {
+ssize_t Socket::recv_from(std::span<std::byte> buf, SocketAddr* src) const {
     return recv_from_impl(fd_, buf, 0, src);
 }
 
-ssize_t Socket::recv_from(std::span<std::byte> buf, int flags, SocketAddr *src) const {
+ssize_t Socket::recv_from(std::span<std::byte> buf, int flags, SocketAddr* src) const {
     return recv_from_impl(fd_, buf, flags, src);
 }
 
@@ -499,17 +490,17 @@ ssize_t Socket::recv_exact(std::span<std::byte> buf, int flags) const {
         } while (n < 0 && errno == EINTR);
 
         if (n < 0) {
-            return -1; // errno is set
+            return -1;  // errno is set
         }
         if (n == 0) {
-            return static_cast<ssize_t>(total); // peer closed early
+            return static_cast<ssize_t>(total);  // peer closed early
         }
         total += static_cast<size_t>(n);
     }
     return static_cast<ssize_t>(buf.size());
 }
 
-ssize_t Socket::sendmsg(const msghdr *msg, int flags) const {
+ssize_t Socket::sendmsg(const msghdr* msg, int flags) const {
     ssize_t n;
     do {
         n = ::sendmsg(fd_, msg, flags | YADDNSC_NO_SIGPIPE);
@@ -517,7 +508,7 @@ ssize_t Socket::sendmsg(const msghdr *msg, int flags) const {
     return n;
 }
 
-ssize_t Socket::recvmsg(msghdr *msg, int flags) const {
+ssize_t Socket::recvmsg(msghdr* msg, int flags) const {
     ssize_t n;
     do {
         n = ::recvmsg(fd_, msg, flags);
@@ -532,9 +523,9 @@ ssize_t Socket::recvmsg(msghdr *msg, int flags) const {
 // NOLINTNEXTLINE(readability-make-member-function-const) — see declaration for rationale
 void Socket::shutdown(int how) noexcept {
     if (fd_ < 0) {
-        return; // already closed — no-op.
+        return;  // already closed — no-op.
     }
-    ::shutdown(fd_, how); // silently ignore — socket may already be shut down.
+    ::shutdown(fd_, how);  // silently ignore — socket may already be shut down.
 }
 
 void Socket::close() noexcept {
@@ -542,7 +533,7 @@ void Socket::close() noexcept {
         return;
     }
     int fd = fd_;
-    fd_ = -1; // mark closed immediately to prevent double-close
+    fd_ = -1;  // mark closed immediately to prevent double-close
     // Per POSIX, the state of the fd after close() returns EINTR is
     // unspecified.  Retrying close() risks closing a different fd that
     // another thread may have opened in the meantime.  Call exactly once.
@@ -553,8 +544,9 @@ std::expected<int, int> Socket::wait_for(short events, int timeout_ms) const noe
     return wait_for(events, timeout_ms, {});
 }
 
-std::expected<int, int> Socket::wait_for(short events, int timeout_ms,
-                                         const Utils::CancellationToken &cancel_token) const noexcept {
+std::expected<int, int> Socket::wait_for(short events,
+                                         int timeout_ms,
+                                         const Utils::CancellationToken& cancel_token) const noexcept {
     // Latched pre-check: a trigger that another consumer already drained from
     // the pipe must still cancel this operation.
     if (cancel_token.is_triggered()) {

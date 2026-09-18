@@ -5,7 +5,24 @@
 // test/fixtures/dispatcher_tests.h for the shared test bodies.
 // =============================================================================
 
+#include "infrastructure/dns/dispatcher.h"
+
+#include <memory>
+#include <string>
+#include <utility>
+#include <vector>
+
+#include <expected>
+#include <gtest/gtest.h>
+
+#include "application/ports/dns_resolver.h"
+#include "domain/config/dns_config.h"
+#include "domain/dns/record_kind.h"
+#include "domain/error/dns_error.h"
+#include "domain/error/dns_error_info.h"
 #include "fixtures/dispatcher_tests.h"
+#include "gmock/gmock.h"
+#include "infrastructure/dns/resolver/base.h"
 
 // ===========================================================================
 //  Additional branch coverage — fallback / concurrent edge cases
@@ -68,14 +85,12 @@ TEST(DispatcherPort, TwoArgResolve_AppliesDefaultRetryPolicy) {
     // The port entry point retries once by default (max_retries = 1): a single
     // transient failure followed by success must still produce a result.
     auto r = make_mock();
-    EXPECT_CALL(*r, query(_, _))
-        .WillOnce(Return(err(DnsError::RETRY, "t1")))
-        .WillOnce(Return(ok_a()));
+    EXPECT_CALL(*r, query(_, _)).WillOnce(Return(err(DnsError::RETRY, "t1"))).WillOnce(Return(ok_a()));
     std::vector<std::unique_ptr<ResolverBase>> resolvers;
     resolvers.push_back(std::move(r));
     ResolverDispatcher disp(std::move(resolvers), Config::ResolverStrategy::CONCURRENT);
 
-    const DnsResolverPort &port = disp; // call through the port interface
+    const DnsResolverPort& port = disp;  // call through the port interface
     auto result = port.resolve("example.com", RecordKind::A);
     ASSERT_TRUE(result.has_value());
     EXPECT_EQ((*result)[0], "192.168.1.1");

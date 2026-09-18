@@ -3,14 +3,22 @@
 // demonstrates the pattern for using SocketBase in tests.
 // =============================================================================
 
+#include <algorithm>
+#include <array>
 #include <cstddef>
-#include <poll.h>
 #include <span>
+#include <string>
 #include <vector>
 
+#include <expected>
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
+#include <poll.h>
+#include <sys/socket.h>
+#include <sys/types.h>
 
+#include "infrastructure/network/socket.h"
+#include "infrastructure/network/socket_addr.h"
 #include "mocks/mock_socket.h"
 #include "support/util/cancellation_token.hpp"
 
@@ -23,8 +31,7 @@ TEST(MockSocketTest, SendToMocked) {
     MockSocket mock;
     SocketAddr addr;  // default-constructed, unused in mock
 
-    EXPECT_CALL(mock, send_to(_, _))
-        .WillOnce(Return(ssize_t{4}));
+    EXPECT_CALL(mock, send_to(_, _)).WillOnce(Return(ssize_t{4}));
 
     std::vector<std::byte> data(4);
     auto n = mock.send_to(data, addr);
@@ -34,11 +41,10 @@ TEST(MockSocketTest, SendToMocked) {
 TEST(MockSocketTest, RecvFromMocked) {
     MockSocket mock;
 
-    EXPECT_CALL(mock, recv_from(_, testing::IsNull()))
-        .WillOnce([](std::span<std::byte> buf, SocketAddr*) {
-            std::fill(buf.begin(), buf.begin() + 3, std::byte{0xAB});
-            return ssize_t{3};
-        });
+    EXPECT_CALL(mock, recv_from(_, testing::IsNull())).WillOnce([](std::span<std::byte> buf, SocketAddr*) {
+        std::fill(buf.begin(), buf.begin() + 3, std::byte{0xAB});
+        return ssize_t{3};
+    });
 
     std::array<std::byte, 16> buf{};
     auto n = mock.recv_from(buf, nullptr);
@@ -52,8 +58,7 @@ TEST(MockSocketTest, ConnectTimeout) {
     MockSocket mock;
     SocketAddr addr;
 
-    EXPECT_CALL(mock, connect(_, _))
-        .WillOnce(Return(std::unexpected(ConnectError::TIMED_OUT)));
+    EXPECT_CALL(mock, connect(_, _)).WillOnce(Return(std::unexpected(ConnectError::TIMED_OUT)));
 
     auto result = mock.connect(addr, 1);
     ASSERT_FALSE(result.has_value());
@@ -74,8 +79,7 @@ TEST(MockSocketTest, SetOptionRawMocked) {
 TEST(MockSocketTest, WaitForReturnsReady) {
     MockSocket mock;
 
-    EXPECT_CALL(mock, wait_for(POLLIN, 1000, _))
-        .WillOnce(Return(1));
+    EXPECT_CALL(mock, wait_for(POLLIN, 1000, _)).WillOnce(Return(1));
 
     Utils::CancellationToken cancel;
     auto result = mock.wait_for(POLLIN, 1000, cancel);
@@ -86,9 +90,7 @@ TEST(MockSocketTest, WaitForReturnsReady) {
 TEST(MockSocketTest, CloseAndIsClosed) {
     MockSocket mock;
 
-    EXPECT_CALL(mock, is_closed())
-        .WillOnce(Return(false))
-        .WillOnce(Return(true));
+    EXPECT_CALL(mock, is_closed()).WillOnce(Return(false)).WillOnce(Return(true));
 
     EXPECT_FALSE(mock.is_closed());
     EXPECT_TRUE(mock.is_closed());
@@ -97,12 +99,11 @@ TEST(MockSocketTest, CloseAndIsClosed) {
 TEST(MockSocketTest, SendSuccess) {
     MockSocket mock;
 
-    EXPECT_CALL(mock, send(_))
-        .WillOnce(Return(ssize_t{8}));
+    EXPECT_CALL(mock, send(_)).WillOnce(Return(ssize_t{8}));
 
     std::vector<std::byte> data(8);
     auto n = mock.send(data);
     EXPECT_EQ(n, 8);
 }
 
-} // anonymous namespace
+}  // anonymous namespace

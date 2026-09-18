@@ -5,9 +5,11 @@
 #include "signal_watcher.h"
 
 #include <csignal>
+#include <exception>
 #include <stdexcept>
 #include <string_view>
 
+#include <errno.h>
 #include <spdlog/spdlog.h>
 #include <unistd.h>
 
@@ -23,7 +25,7 @@ void SignalWatcher::install() {
     sigemptyset(&sigset);
     sigaddset(&sigset, SIGINT);
     sigaddset(&sigset, SIGTERM);
-    sigaddset(&sigset, SIGUSR2); // reserved as the destructor's wake-up signal
+    sigaddset(&sigset, SIGUSR2);  // reserved as the destructor's wake-up signal
     if (pthread_sigmask(SIG_BLOCK, &sigset, nullptr) != 0) {
         SPDLOG_CRITICAL("Failed to block SIGINT/SIGTERM/SIGUSR2, errno: {}", errno);
         std::terminate();
@@ -77,7 +79,7 @@ void SignalWatcher::signal_loop(std::stop_token st) {
     sigemptyset(&sigset);
     sigaddset(&sigset, SIGINT);
     sigaddset(&sigset, SIGTERM);
-    sigaddset(&sigset, SIGUSR2); // destructor wake-up — ignored below
+    sigaddset(&sigset, SIGUSR2);  // destructor wake-up — ignored below
 
     auto request_stop = [this](std::string_view reason) {
         SPDLOG_INFO("{}", reason);

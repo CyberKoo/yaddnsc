@@ -5,27 +5,31 @@
 #include "iface_util.h"
 
 #include <algorithm>
+#include <chrono>
+#include <iterator>
 #include <map>
 #include <stdexcept>
+#include <utility>
+
+#include <yaddnsc/util/format.hpp>
 
 #include "domain/network/inet_address.h"
 #include "infrastructure/network/net_devices.h"
-#include "support/util/cache.hpp"
-
 #include "support/fmt.hpp"
+#include "support/util/cache.hpp"
 
 // ===========================================================================
 // Internal cache
 // ===========================================================================
 
 namespace {
-    using InterfaceMap = std::map<std::string, std::vector<InetAddress> >;
+using InterfaceMap = std::map<std::string, std::vector<InetAddress>>;
 
-    [[nodiscard]] InterfaceMap get_cached_interfaces() {
-        static Utils::Cache::TtlCache<std::monostate, InterfaceMap> cache(std::chrono::seconds(5));
-        return cache.get_or_compute(std::monostate{}, [] { return NetDevices::enumerate_interfaces(); });
-    }
-} // anonymous namespace
+[[nodiscard]] InterfaceMap get_cached_interfaces() {
+    static Utils::Cache::TtlCache<std::monostate, InterfaceMap> cache(std::chrono::seconds(5));
+    return cache.get_or_compute(std::monostate{}, [] { return NetDevices::enumerate_interfaces(); });
+}
+}  // anonymous namespace
 
 // ===========================================================================
 // Public API
@@ -35,11 +39,11 @@ std::vector<std::string> InterfaceUtil::get_interfaces() {
     auto interface_map = get_cached_interfaces();
     std::vector<std::string> interfaces;
     interfaces.reserve(interface_map.size());
-    std::ranges::transform(interface_map, std::back_inserter(interfaces), [](const auto &kv) { return kv.first; });
+    std::ranges::transform(interface_map, std::back_inserter(interfaces), [](const auto& kv) { return kv.first; });
     return interfaces;
 }
 
-std::vector<InetAddress> InterfaceUtil::get_addresses(const std::string &interface_name) {
+std::vector<InetAddress> InterfaceUtil::get_addresses(const std::string& interface_name) {
     auto all = get_cached_interfaces();
     if (const auto it = all.find(interface_name); it != all.end()) {
         return it->second;

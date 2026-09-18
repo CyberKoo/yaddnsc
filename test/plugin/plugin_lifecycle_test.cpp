@@ -2,31 +2,39 @@
 // Created by Kotarou on 2026/9/17.
 //
 
-/// Plugin lifecycle contract tests for the v1 alpha ABI: descriptor validation, create → update → destroy ordering, concurrent
-/// instances of one module, module lease vs. dlclose ordering, and the
-/// loader's rejection matrix (missing file/symbols, magic, revision,
-/// descriptor struct_size) including the manual-load fail-fast vs.
-/// auto-discover skip policy from the README behaviour table.
+/// Plugin lifecycle contract tests for the v1 alpha ABI: descriptor validation, create → update → destroy ordering,
+/// concurrent instances of one module, module lease vs. dlclose ordering, and the loader's rejection matrix (missing
+/// file/symbols, magic, revision, descriptor struct_size) including the manual-load fail-fast vs. auto-discover skip
+/// policy from the README behaviour table.
 
 #include <array>
 #include <cstdint>
 #include <cstdio>
 #include <filesystem>
 #include <memory>
+#include <optional>
 #include <string>
+#include <string_view>
 #include <thread>
+#include <utility>
+#include <vector>
 
+#include <expected>
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
+#include <stdlib.h>
+#include <yaddnsc/sdk/driver_abi.h>
 
-#include "plugin/plugin_test_doubles.h"
-
-#include "infrastructure/plugin/driver_loader.h"
 #include "domain/config/runtime_config.h"
-#include "infrastructure/plugin/plugin_load_exception.h"
+#include "domain/error/error.h"
 #include "infrastructure/plugin/driver_catalog.h"
 #include "infrastructure/plugin/driver_instance.h"
+#include "infrastructure/plugin/driver_loader.h"
+#include "infrastructure/plugin/host_services.h"
+#include "infrastructure/plugin/plugin_load_exception.h"
+#include "infrastructure/plugin/plugin_loader.h"
 #include "infrastructure/plugin/shared_library.h"
+#include "plugin/plugin_test_doubles.h"
 
 namespace {
 
@@ -34,7 +42,7 @@ constexpr std::string_view kPluginPath = TEST_PLUGIN_PATH;
 
 using ControlSetFailures = void (*)(int);
 using ControlResetState = void (*)();
-using ControlGetState = void (*)(uint64_t *, uint64_t *, uint64_t *, uint64_t *, uint64_t *, uint64_t *);
+using ControlGetState = void (*)(uint64_t*, uint64_t*, uint64_t*, uint64_t*, uint64_t*, uint64_t*);
 
 /// Resolve the test plugin's control exports (not part of the driver ABI).
 /// The control library is a second dlopen of the already-loaded module, so
@@ -54,19 +62,21 @@ struct PluginControl {
         return control;
     }
     control.library = std::move(*library);
-    control.set_failures = reinterpret_cast<ControlSetFailures>(control.library.resolve("test_plugin_set_create_failures")); // NOLINT
-    control.reset_state = reinterpret_cast<ControlResetState>(control.library.resolve("test_plugin_reset_state"));           // NOLINT
-    control.get_state = reinterpret_cast<ControlGetState>(control.library.resolve("test_plugin_get_state"));                 // NOLINT
+    control.set_failures =
+        reinterpret_cast<ControlSetFailures>(control.library.resolve("test_plugin_set_create_failures"));  // NOLINT
+    control.reset_state =
+        reinterpret_cast<ControlResetState>(control.library.resolve("test_plugin_reset_state"));              // NOLINT
+    control.get_state = reinterpret_cast<ControlGetState>(control.library.resolve("test_plugin_get_state"));  // NOLINT
     return control;
 }
 
-} // namespace
+}  // namespace
 
 TEST(PluginLifecycle, DescriptorIsCopiedIntoHostStorage) {
     auto module = PluginModule::load(std::string(kPluginPath));
     ASSERT_TRUE(module.has_value()) << module.error().message;
 
-    const auto &descriptor = module->descriptor();
+    const auto& descriptor = module->descriptor();
     EXPECT_EQ(descriptor.name, "test_driver_plugin");
     EXPECT_EQ(descriptor.version, "0.0.0");
     EXPECT_EQ(descriptor.author, "yaddnsc");
@@ -118,11 +128,11 @@ TEST(PluginLifecycle, ConcurrentInstancesOfOneModule) {
             results[i] = run_module_cycle(*module, services, R"({"op":"success"})");
         });
     }
-    for (auto &thread: threads) {
+    for (auto& thread : threads) {
         thread.join();
     }
 
-    for (const auto &result: results) {
+    for (const auto& result : results) {
         EXPECT_EQ(result.create_status, YADDNSC_STATUS_OK) << result.error_message;
         EXPECT_EQ(result.update_status, YADDNSC_STATUS_OK) << result.error_message;
     }
@@ -146,7 +156,7 @@ TEST(PluginLifecycle, InstanceLeaseKeepsModuleAliveAfterCatalogRemoval) {
 
     yaddnsc_error error{};
     error.struct_size = static_cast<uint32_t>(sizeof(error));
-    yaddnsc_driver *handle = nullptr;
+    yaddnsc_driver* handle = nullptr;
     ASSERT_EQ(module->create(services, &handle, error), YADDNSC_STATUS_OK);
     ASSERT_NE(handle, nullptr);
 
@@ -156,10 +166,10 @@ TEST(PluginLifecycle, InstanceLeaseKeepsModuleAliveAfterCatalogRemoval) {
     ASSERT_NO_THROW(catalog.unload_driver("test_driver_plugin"));
     EXPECT_TRUE(catalog.get_loaded_drivers().empty());
 
-    const auto request = make_update_request("192.0.2.1", "A", "example.com", "www", "www.example.com",
-                                             R"({"op":"success"})");
+    const auto request =
+        make_update_request("192.0.2.1", "A", "example.com", "www", "www.example.com", R"({"op":"success"})");
     EXPECT_EQ(instance.update(request, error), YADDNSC_STATUS_OK)
-                << std::string_view(error.message.data, error.message.size);
+        << std::string_view(error.message.data, error.message.size);
 
     // ~DriverInstance() calls destroy() while the lease is still held; the
     // final dlclose happens only after the instance is gone.
@@ -174,7 +184,7 @@ TEST(PluginLifecycle, LoaderRejectsMissingFile) {
     try {
         catalog.load_driver("/nonexistent/driver.so");
         FAIL() << "expected PluginLoadException";
-    } catch (const PluginLoadException &e) {
+    } catch (const PluginLoadException& e) {
         EXPECT_THAT(std::string(e.what()),
                     ::testing::HasSubstr("Driver library 'driver.so' not found at /nonexistent/driver.so"));
     }
@@ -262,7 +272,7 @@ TEST(PluginLifecycle, EntryFirewallTranslatesCreateException) {
     const auto services = host.context.make_services();
     yaddnsc_error error{};
     error.struct_size = static_cast<uint32_t>(sizeof(error));
-    yaddnsc_driver *handle = nullptr;
+    yaddnsc_driver* handle = nullptr;
     EXPECT_EQ(module->create(services, &handle, error), YADDNSC_STATUS_INTERNAL_ERROR);
     EXPECT_EQ(handle, nullptr);
     EXPECT_EQ(std::string(error.message.data, error.message.size), "create exploded");
@@ -277,7 +287,7 @@ TEST(PluginLifecycle, EntryFirewallTranslatesUpdateException) {
     yaddnsc_error error{};
     error.struct_size = static_cast<uint32_t>(sizeof(error));
     int token = 0;
-    auto *handle = reinterpret_cast<yaddnsc_driver *>(&token); // NOLINT
+    auto* handle = reinterpret_cast<yaddnsc_driver*>(&token);  // NOLINT
     const auto request = make_update_request("192.0.2.1", "A", "example.com", "www", "www.example.com", "{}");
     EXPECT_EQ(module->update(handle, request, error), YADDNSC_STATUS_INTERNAL_ERROR);
     EXPECT_EQ(std::string(error.message.data, error.message.size), "update exploded");
@@ -292,7 +302,7 @@ TEST(PluginLifecycle, EntryFirewallTranslatesValidateException) {
     yaddnsc_error error{};
     error.struct_size = static_cast<uint32_t>(sizeof(error));
     int token = 0;
-    auto *handle = reinterpret_cast<yaddnsc_driver *>(&token); // NOLINT
+    auto* handle = reinterpret_cast<yaddnsc_driver*>(&token);  // NOLINT
     const yaddnsc_string param{"{}", 2};
     EXPECT_EQ(module->validate(handle, param, error), YADDNSC_STATUS_INTERNAL_ERROR);
     EXPECT_EQ(std::string(error.message.data, error.message.size), "unknown exception from plugin validate");
@@ -302,7 +312,7 @@ TEST(PluginLifecycle, ManualLoadFailsFastOnAbiMismatch) {
     DriverCatalog catalog;
     domain::DriverSettings settings;
     settings.auto_discover = false;
-    settings.load.push_back(BAD_REVISION_FIXTURE); // absolute path is used as-is
+    settings.load.push_back(BAD_REVISION_FIXTURE);  // absolute path is used as-is
 
     EXPECT_THROW({ DriverLoader::load(catalog, settings); }, PluginLoadException);
     EXPECT_TRUE(catalog.get_loaded_drivers().empty());
@@ -312,7 +322,7 @@ TEST(PluginLifecycle, AutoDiscoverSkipsAbiMismatchedLibraries) {
     // One directory containing only the revision-mismatched fixture: auto
     // discovery must skip it with a warning instead of aborting startup.
     char dir_template[] = "/tmp/yaddnsc_plugin_test_XXXXXX";
-    auto *dir = ::mkdtemp(dir_template);
+    auto* dir = ::mkdtemp(dir_template);
     ASSERT_NE(dir, nullptr) << "mkdtemp failed";
 
     std::filesystem::copy_file(BAD_REVISION_FIXTURE, std::string(dir) + "/bad_revision.so");

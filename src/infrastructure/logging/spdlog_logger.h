@@ -5,7 +5,6 @@
 #ifndef YADDNSC_INFRASTRUCTURE_LOGGING_SPDLOG_LOGGER_H
 #define YADDNSC_INFRASTRUCTURE_LOGGING_SPDLOG_LOGGER_H
 
-#include <source_location>
 #include <string_view>
 
 #include "application/ports/log.h"

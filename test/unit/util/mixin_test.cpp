@@ -11,11 +11,13 @@
 //   - Mixed inheritance (both tags) disables both.
 // =============================================================================
 
+#include "support/mixin.h"
+
+#include <string>
 #include <type_traits>
+#include <utility>
 
 #include <gtest/gtest.h>
-
-#include "support/mixin.h"
 
 // ---------------------------------------------------------------------------
 // NoCopy
@@ -91,8 +93,7 @@ TEST(NoMoveTest, CanCopyAssign) {
 // Combined: class inheriting both NoCopy and NoMove
 // ---------------------------------------------------------------------------
 
-struct BothMixins : private NoCopy, private NoMove {
-};
+struct BothMixins : private NoCopy, private NoMove {};
 
 TEST(MixinCombinedTest, BothCopyAndMove_Deleted) {
     EXPECT_FALSE(std::is_copy_constructible_v<BothMixins>);

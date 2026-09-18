@@ -10,17 +10,25 @@
 //   - exception from the factory  → {UNAVAILABLE, e.what()}
 // =============================================================================
 
+#include "infrastructure/ip_source/adapter.h"
+
 #include <memory>
 #include <stdexcept>
+#include <string>
+#include <utility>
 #include <vector>
 
+#include <expected>
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
-#include "infrastructure/ip_source/adapter.h"
+#include "domain/config/runtime_config.h"
+#include "domain/dns/record_kind.h"
+#include "domain/error/error.h"
+#include "domain/network/inet_address.h"
 #include "infrastructure/ip_source/base.h"
-
 #include "mocks/mock_ip_source.h"
+#include "support/util/cancellation_token.hpp"
 
 namespace {
 
@@ -31,13 +39,12 @@ using ::testing::Return;
 }
 
 // Factory that always hands out the same preconfigured mock source.
-template <typename F>
-[[nodiscard]] IpSourceAdapter make_adapter(F &&factory_fn) {
-    return IpSourceAdapter(Utils::CancellationToken{},
-                           IpSourceAdapter::FactoryFn(std::forward<F>(factory_fn)));
+template<typename F>
+[[nodiscard]] IpSourceAdapter make_adapter(F&& factory_fn) {
+    return IpSourceAdapter(Utils::CancellationToken{}, IpSourceAdapter::FactoryFn(std::forward<F>(factory_fn)));
 }
 
-} // namespace
+}  // namespace
 
 TEST(IpSourceAdapter, SuccessPassesCandidatesThrough) {
     auto source = std::make_unique<MockIpSource>();
@@ -45,7 +52,7 @@ TEST(IpSourceAdapter, SuccessPassesCandidatesThrough) {
                                             InetAddress{Inet4Address::from_bytes({198, 51, 100, 1})}};
     EXPECT_CALL(*source, resolve()).WillOnce(Return(expected));
 
-    auto adapter = make_adapter([&](const domain::SubdomainConfig &) { return std::move(source); });
+    auto adapter = make_adapter([&](const domain::SubdomainConfig&) { return std::move(source); });
     const auto result = adapter.resolve(any_subdomain_config());
 
     ASSERT_TRUE(result.has_value());
@@ -58,7 +65,7 @@ TEST(IpSourceAdapter, EmptyCandidatesAreSuccess) {
     auto source = std::make_unique<MockIpSource>();
     EXPECT_CALL(*source, resolve()).WillOnce(Return(std::vector<InetAddress>{}));
 
-    auto adapter = make_adapter([&](const domain::SubdomainConfig &) { return std::move(source); });
+    auto adapter = make_adapter([&](const domain::SubdomainConfig&) { return std::move(source); });
     const auto result = adapter.resolve(any_subdomain_config());
 
     ASSERT_TRUE(result.has_value()) << "an empty candidate list is a success, not an error";
@@ -71,7 +78,7 @@ TEST(IpSourceAdapter, StdExceptionBecomesUnavailable) {
         throw std::runtime_error("interface not found");
     });
 
-    auto adapter = make_adapter([&](const domain::SubdomainConfig &) { return std::move(source); });
+    auto adapter = make_adapter([&](const domain::SubdomainConfig&) { return std::move(source); });
     const auto result = adapter.resolve(any_subdomain_config());
 
     ASSERT_FALSE(result.has_value());
@@ -80,7 +87,7 @@ TEST(IpSourceAdapter, StdExceptionBecomesUnavailable) {
 }
 
 TEST(IpSourceAdapter, NonStandardThrowBecomesUnknown) {
-    auto adapter = make_adapter([](const domain::SubdomainConfig &) -> std::unique_ptr<IpSourceBase> {
+    auto adapter = make_adapter([](const domain::SubdomainConfig&) -> std::unique_ptr<IpSourceBase> {
         class ThrowingSource final : public IpSourceBase {
         public:
             std::vector<InetAddress> resolve() const override { throw 42; }
@@ -94,7 +101,7 @@ TEST(IpSourceAdapter, NonStandardThrowBecomesUnknown) {
 }
 
 TEST(IpSourceAdapter, FactoryExceptionBecomesUnavailable) {
-    auto adapter = make_adapter([](const domain::SubdomainConfig &) -> std::unique_ptr<IpSourceBase> {
+    auto adapter = make_adapter([](const domain::SubdomainConfig&) -> std::unique_ptr<IpSourceBase> {
         throw std::runtime_error("bad source config");
     });
     const auto result = adapter.resolve(any_subdomain_config());

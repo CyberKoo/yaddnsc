@@ -9,17 +9,30 @@
 #ifndef YADDNSC_HTTP_CLIENT_PROTOCOL_EXCHANGE_H
 #define YADDNSC_HTTP_CLIENT_PROTOCOL_EXCHANGE_H
 
+#include <cstddef>
+#include <cstdint>
 #include <map>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
-
 #include <expected>
 
 #include "infrastructure/network/http/error.h"
-#include "infrastructure/network/http/protocol/wire.h"
 #include "infrastructure/network/http/types.h"
-#include "infrastructure/network/transport/stream.h"
+
+namespace Transport {
+class Stream;
+enum class IoError;
+}  // namespace Transport
+
+namespace net {
+namespace http {
+namespace protocol {
+struct WireRequest;
+}  // namespace protocol
+}  // namespace http
+}  // namespace net
 
 namespace net::http::protocol {
 
@@ -36,19 +49,15 @@ struct RawResponse {
     std::string body;
 
     /// The body viewed as text (no encoding conversion).
-    [[nodiscard]] std::string_view text() const noexcept {
-        return body;
-    }
+    [[nodiscard]] std::string_view text() const noexcept { return body; }
 
     /// The body viewed as raw octets.
     [[nodiscard]] std::span<const std::uint8_t> bytes() const noexcept {
-        return {reinterpret_cast<const std::uint8_t *>(body.data()), body.size()};
+        return {reinterpret_cast<const std::uint8_t*>(body.data()), body.size()};
     }
 
     /// Body size in octets.
-    [[nodiscard]] std::size_t size() const noexcept {
-        return body.size();
-    }
+    [[nodiscard]] std::size_t size() const noexcept { return body.size(); }
 };
 
 /// Map a transport-level I/O error to a domain error.

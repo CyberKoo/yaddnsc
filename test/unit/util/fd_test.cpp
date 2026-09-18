@@ -13,11 +13,17 @@
 //   - Copy operations are deleted (compile-time).
 // =============================================================================
 
-#include <sys/stat.h>
-
-#include <gtest/gtest.h>
-
 #include "support/util/fd.hpp"
+
+#include <string>
+#include <type_traits>
+#include <utility>
+
+#include <errno.h>
+#include <fcntl.h>
+#include <gtest/gtest.h>
+#include <sys/types.h>
+#include <unistd.h>
 
 // ── Default construction ─────────────────────────────────────────────────────
 

@@ -3,12 +3,18 @@
 //
 #include "infrastructure/network/http/redirect.h"
 
-#include <algorithm>
 #include <exception>
+#include <initializer_list>
 #include <string_view>
 #include <utility>
 #include <vector>
 
+#include <stddef.h>
+#include <yaddnsc/util/format.hpp>
+#include <yaddnsc/util/string_util.hpp>
+
+#include "infrastructure/network/http/types.h"
+#include "infrastructure/network/uri.h"
 #include "support/fmt.hpp"
 #include "support/string_util.hpp"
 
@@ -130,8 +136,8 @@ struct ResolvedLocation {
                           location.substr(0, scheme_separator).find_first_of("/?#") == std::string_view::npos;
     if (absolute || location.starts_with("//")) {
         try {
-            const auto uri = Uri::parse(location.starts_with("//") ? fmt::format("{}:{}", scheme, location)
-                                                                   : std::string(location));
+            const auto uri =
+                Uri::parse(location.starts_with("//") ? fmt::format("{}:{}", scheme, location) : std::string(location));
             scheme = std::string(uri.get_schema());
             host = std::string(uri.get_host());
             raw_port = uri.get_port();
@@ -143,8 +149,7 @@ struct ResolvedLocation {
     } else if (location.starts_with('/')) {
         target = path_and_query(location);
     } else if (location.starts_with('?')) {
-        target = remove_dot_segments(current_uri.get_path()) +
-                 std::string(location.substr(0, location.find('#')));
+        target = remove_dot_segments(current_uri.get_path()) + std::string(location.substr(0, location.find('#')));
     } else if (location.starts_with('#')) {
         target = remove_dot_segments(current_uri.get_path());
         if (const auto query = current_uri.get_query_string(); !query.empty()) {
@@ -162,7 +167,10 @@ struct ResolvedLocation {
     }
 
     const auto port = static_cast<std::uint16_t>(raw_port > 0 ? raw_port : default_port(scheme));
-    return ResolvedLocation{.scheme = scheme, .host = host, .port = port, .target = std::move(target),
+    return ResolvedLocation{.scheme = scheme,
+                            .host = host,
+                            .port = port,
+                            .target = std::move(target),
                             .host_header = make_host_header(host, port, scheme)};
 }
 

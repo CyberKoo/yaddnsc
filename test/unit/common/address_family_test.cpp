@@ -8,11 +8,12 @@
 //   - enum class semantics prevent implicit conversion.
 // =============================================================================
 
+#include "domain/network/address_family.h"
+
+#include <string>
 #include <type_traits>
 
 #include <gtest/gtest.h>
-
-#include "domain/network/address_family.h"
 
 TEST(AddressFamilyTest, EnumeratorValues_Defined) {
     EXPECT_EQ(static_cast<int>(AddressFamily::UNSPECIFIED), 0);
@@ -21,8 +22,8 @@ TEST(AddressFamilyTest, EnumeratorValues_Defined) {
 }
 
 TEST(AddressFamilyTest, IsEnumClass) {
-    EXPECT_TRUE((std::is_enum_v<AddressFamily>));
-    EXPECT_FALSE((std::is_convertible_v<AddressFamily, int>));
+    EXPECT_TRUE((std::is_enum_v<AddressFamily>) );
+    EXPECT_FALSE((std::is_convertible_v<AddressFamily, int>) );
 }
 
 TEST(AddressFamilyTest, Unspecified_IsDefault) {
@@ -33,9 +34,12 @@ TEST(AddressFamilyTest, Unspecified_IsDefault) {
 TEST(AddressFamilyTest, Switch_CoversAllValues) {
     auto classify = [](AddressFamily af) -> const char* {
         switch (af) {
-            case AddressFamily::UNSPECIFIED: return "unspec";
-            case AddressFamily::IPV4:        return "v4";
-            case AddressFamily::IPV6:        return "v6";
+            case AddressFamily::UNSPECIFIED:
+                return "unspec";
+            case AddressFamily::IPV4:
+                return "v4";
+            case AddressFamily::IPV6:
+                return "v6";
         }
         return "unknown";
     };

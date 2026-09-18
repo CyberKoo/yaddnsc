@@ -12,21 +12,27 @@
 //   - reschedule() moves the already-queued next deadline, never duplicates
 //
 
+#include "domain/update/schedule_queue.h"
+
 #include <chrono>
+#include <initializer_list>
 #include <memory>
+#include <optional>
 #include <stdexcept>
+#include <string>
 #include <string_view>
 #include <vector>
 
+#include <glaze/glaze.hpp>
 #include <gtest/gtest.h>
 
-#include "domain/update/schedule_queue.h"
-
-#include "infrastructure/config/config.h"
-#include "infrastructure/config/normalizer.h"
-#include "infrastructure/config/parser.hpp"
-
+#include "domain/config/runtime_config.h"
+#include "domain/update/time_types.h"
+#include "domain/update/update_task.h"
 #include "fixtures/sample_config.h"
+#include "infrastructure/config/config.h"
+#include "infrastructure/config/parser.hpp"  // IWYU pragma: keep — registers glz::meta specializations
+#include "infrastructure/config/normalizer.h"
 
 namespace {
 
@@ -65,8 +71,8 @@ inline constexpr std::string_view OVERRIDE_CONFIG = R"({
     ]
 })";
 
-[[nodiscard]] bool contains_fqdn(const std::vector<domain::UpdateTask> &tasks, std::string_view fqdn) {
-    for (const auto &task: tasks) {
+[[nodiscard]] bool contains_fqdn(const std::vector<domain::UpdateTask>& tasks, std::string_view fqdn) {
+    for (const auto& task : tasks) {
         if (task.fqdn == fqdn) {
             return true;
         }
@@ -74,7 +80,7 @@ inline constexpr std::string_view OVERRIDE_CONFIG = R"({
     return false;
 }
 
-} // namespace
+}  // namespace
 
 // ── Construction & initial population ────────────────────────────────────────
 
@@ -135,7 +141,7 @@ TEST(ScheduleQueue, PopAtNextDeadlineDispatchesAgain) {
     ASSERT_EQ(queue.pop_due(T0).size(), 2U);
     const auto second = queue.pop_due(T0 + 300s);
     ASSERT_EQ(second.size(), 2U);
-    for (const auto &task: second) {
+    for (const auto& task : second) {
         EXPECT_FALSE(task.force_update) << "re-queued cycle must not be forced (interval 300 < force 3600)";
     }
 }
@@ -183,7 +189,7 @@ TEST(ScheduleQueue, FirstPopIsForcedWhenForceUpdateEnabled) {
 
     const auto due = queue.pop_due(T0);
     ASSERT_EQ(due.size(), 2U);
-    for (const auto &task: due) {
+    for (const auto& task : due) {
         EXPECT_TRUE(task.force_update);
     }
 }
@@ -192,11 +198,11 @@ TEST(ScheduleQueue, ForceUpdateTriggersAgainAfterIntervalElapses) {
     const auto cfg = parse_cfg(Fixtures::FULL_CONFIG);
     domain::ScheduleQueue queue(cfg, T0);
 
-    ASSERT_EQ(queue.pop_due(T0).size(), 2U);           // forced, last_force = T0
-    ASSERT_EQ(queue.pop_due(T0 + 300s).size(), 2U);    // 300 < 3600: not forced
-    const auto third = queue.pop_due(T0 + 3600s);      // 3600 >= 3600: forced again
+    ASSERT_EQ(queue.pop_due(T0).size(), 2U);         // forced, last_force = T0
+    ASSERT_EQ(queue.pop_due(T0 + 300s).size(), 2U);  // 300 < 3600: not forced
+    const auto third = queue.pop_due(T0 + 3600s);    // 3600 >= 3600: forced again
     ASSERT_EQ(third.size(), 2U);
-    for (const auto &task: third) {
+    for (const auto& task : third) {
         EXPECT_TRUE(task.force_update);
     }
 }
@@ -205,8 +211,8 @@ TEST(ScheduleQueue, NoForceUpdateWhenIntervalIsZero) {
     const auto cfg = parse_cfg(Fixtures::NO_FORCE_UPDATE_CONFIG);
     domain::ScheduleQueue queue(cfg, T0);
 
-    for (const auto at: {T0, T0 + 300s, T0 + 86400s}) {
-        for (const auto &task: queue.pop_due(at)) {
+    for (const auto at : {T0, T0 + 300s, T0 + 86400s}) {
+        for (const auto& task : queue.pop_due(at)) {
             EXPECT_FALSE(task.force_update) << "force_update must stay false when the interval is 0";
         }
     }
@@ -218,9 +224,9 @@ TEST(ScheduleQueue, DomainForceIntervalWithSubdomainIntervalOverride) {
     const auto cfg = parse_cfg(OVERRIDE_CONFIG);
     domain::ScheduleQueue queue(cfg, T0);
 
-    ASSERT_EQ(queue.pop_due(T0).size(), 2U); // both forced (first pop)
+    ASSERT_EQ(queue.pop_due(T0).size(), 2U);  // both forced (first pop)
 
-    auto due = queue.pop_due(T0 + 120s); // only www due; 120 < 600: not forced
+    auto due = queue.pop_due(T0 + 120s);  // only www due; 120 < 600: not forced
     ASSERT_EQ(due.size(), 1U);
     EXPECT_EQ(due[0].fqdn, "www.test.com");
     EXPECT_FALSE(due[0].force_update);
@@ -229,7 +235,7 @@ TEST(ScheduleQueue, DomainForceIntervalWithSubdomainIntervalOverride) {
     // for both (last force was T0).
     due = queue.pop_due(T0 + 600s);
     ASSERT_EQ(due.size(), 2U);
-    for (const auto &task: due) {
+    for (const auto& task : due) {
         EXPECT_TRUE(task.force_update);
     }
     // www still re-queues on its 120s override.
@@ -261,7 +267,7 @@ TEST(ScheduleQueue, ZeroUpdateIntervalThrows) {
     try {
         const domain::ScheduleQueue queue(cfg, T0);
         FAIL() << "expected std::invalid_argument";
-    } catch (const std::invalid_argument &e) {
+    } catch (const std::invalid_argument& e) {
         EXPECT_STREQ(e.what(), "Update interval for www.test.com must be positive (got 0)");
     }
 }
@@ -272,7 +278,7 @@ TEST(ScheduleQueue, RescheduleMovesTheQueuedDeadlineWithoutDuplicating) {
     const auto cfg = parse_cfg(Fixtures::FULL_CONFIG);
     domain::ScheduleQueue queue(cfg, T0);
 
-    ASSERT_EQ(queue.pop_due(T0).size(), 2U); // both re-queued at T0+300
+    ASSERT_EQ(queue.pop_due(T0).size(), 2U);  // both re-queued at T0+300
 
     // Move www's next deadline closer; the entry count must not change.
     EXPECT_TRUE(queue.reschedule(domain::TaskId{0, 1}, T0 + 30s));
@@ -302,5 +308,5 @@ TEST(ScheduleQueue, RescheduleUnknownTaskIdReturnsFalse) {
     domain::ScheduleQueue queue(cfg, T0);
 
     EXPECT_FALSE(queue.reschedule(domain::TaskId{9, 9}, T0));
-    EXPECT_EQ(queue.time_until_next(T0), std::optional{0s}); // untouched
+    EXPECT_EQ(queue.time_until_next(T0), std::optional{0s});  // untouched
 }

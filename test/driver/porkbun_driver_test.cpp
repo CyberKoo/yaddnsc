@@ -13,23 +13,29 @@
 //   - update returns UPSTREAM_REJECTED for status "ERROR" / unparseable responses.
 // =============================================================================
 
+#include <optional>
+#include <string>
+#include <string_view>
+#include <vector>
+
 #include <gtest/gtest.h>
+#include <yaddnsc/sdk/driver_abi.h>
 
 #include "abi_test_harness.h"
 
 // ── Shared fixtures ──────────────────────────────────────────────────────────
 
 namespace {
-    constexpr std::string_view CONFIG = R"({
+constexpr std::string_view CONFIG = R"({
         "api_key": "pk1",
         "secret_api_key": "sk1"
     })";
-} // namespace
+}  // namespace
 
 // ── Tests ──────────────────────────────────────────────────────────────────
 
 TEST(PorkbunDriverTest, Descriptor_ReturnsExpectedMetadata) {
-    const yaddnsc_driver_descriptor *descriptor = nullptr;
+    const yaddnsc_driver_descriptor* descriptor = nullptr;
     ASSERT_EQ(yaddnsc_driver_get_descriptor(&descriptor), YADDNSC_STATUS_OK);
     ASSERT_NE(descriptor, nullptr);
     EXPECT_EQ(descriptor->magic, YADDNSC_DRIVER_MAGIC);
@@ -52,11 +58,10 @@ TEST(PorkbunDriverTest, Update_BasicARecord) {
     ASSERT_EQ(result.status, YADDNSC_STATUS_OK) << result.error_message;
 
     ASSERT_EQ(fake.requests.size(), 1u);
-    const auto &request = fake.requests[0];
+    const auto& request = fake.requests[0];
 
     // Check URL
-    EXPECT_EQ(request.url,
-              "https://api.porkbun.com/api/json/v3/dns/editByNameType/example.com/A/www");
+    EXPECT_EQ(request.url, "https://api.porkbun.com/api/json/v3/dns/editByNameType/example.com/A/www");
 
     // Check method and content type
     EXPECT_EQ(request.method, YADDNSC_HTTP_POST);
@@ -72,7 +77,7 @@ TEST(PorkbunDriverTest, Update_BasicARecord) {
 
     // Check body contains API keys and content
     ASSERT_TRUE(request.body.has_value());
-    const auto &body = *request.body;
+    const auto& body = *request.body;
     EXPECT_TRUE(body.find(R"("apikey":"pk1")") != std::string::npos);
     EXPECT_TRUE(body.find(R"("secretapikey":"sk1")") != std::string::npos);
     EXPECT_TRUE(body.find(R"("content":"1.2.3.4")") != std::string::npos);
@@ -87,8 +92,7 @@ TEST(PorkbunDriverTest, Update_SubdomainAt_BecomesEmpty) {
 
     // When subdomain is "@" or empty, the URL path should be empty (root domain)
     ASSERT_EQ(fake.requests.size(), 1u);
-    EXPECT_EQ(fake.requests[0].url,
-              "https://api.porkbun.com/api/json/v3/dns/editByNameType/example.com/A/");
+    EXPECT_EQ(fake.requests[0].url, "https://api.porkbun.com/api/json/v3/dns/editByNameType/example.com/A/");
 }
 
 TEST(PorkbunDriverTest, Update_EmptySubdomain_BecomesEmpty) {
@@ -99,16 +103,15 @@ TEST(PorkbunDriverTest, Update_EmptySubdomain_BecomesEmpty) {
     ASSERT_EQ(result.status, YADDNSC_STATUS_OK) << result.error_message;
 
     ASSERT_EQ(fake.requests.size(), 1u);
-    EXPECT_EQ(fake.requests[0].url,
-              "https://api.porkbun.com/api/json/v3/dns/editByNameType/example.com/A/");
+    EXPECT_EQ(fake.requests[0].url, "https://api.porkbun.com/api/json/v3/dns/editByNameType/example.com/A/");
 }
 
 TEST(PorkbunDriverTest, Update_WithTtl) {
     FakeHostServices fake;
     fake.queue_response(200, R"({"status":"SUCCESS"})");
 
-    const auto result = run_abi_update(fake, R"({"api_key":"pk1","secret_api_key":"sk1","ttl":300})", "1.2.3.4",
-                                       "A", "example.com", "www", "www.example.com");
+    const auto result = run_abi_update(fake, R"({"api_key":"pk1","secret_api_key":"sk1","ttl":300})", "1.2.3.4", "A",
+                                       "example.com", "www", "www.example.com");
     ASSERT_EQ(result.status, YADDNSC_STATUS_OK) << result.error_message;
 
     ASSERT_EQ(fake.requests.size(), 1u);
@@ -118,8 +121,8 @@ TEST(PorkbunDriverTest, Update_WithTtl) {
 
 TEST(PorkbunDriverTest, Update_MissingApiKey_ReturnsInvalidConfig) {
     FakeHostServices fake;
-    const auto result = run_abi_update(fake, R"({"secret_api_key":"sk1"})", "1.2.3.4", "A", "example.com",
-                                       "@", "example.com");
+    const auto result =
+        run_abi_update(fake, R"({"secret_api_key":"sk1"})", "1.2.3.4", "A", "example.com", "@", "example.com");
     EXPECT_EQ(result.status, YADDNSC_STATUS_INVALID_CONFIG);
     EXPECT_TRUE(result.error_message.starts_with("Driver configuration parse error:")) << result.error_message;
     EXPECT_TRUE(fake.requests.empty());
@@ -127,8 +130,7 @@ TEST(PorkbunDriverTest, Update_MissingApiKey_ReturnsInvalidConfig) {
 
 TEST(PorkbunDriverTest, Update_MissingSecretApiKey_ReturnsInvalidConfig) {
     FakeHostServices fake;
-    const auto result = run_abi_update(fake, R"({"api_key":"pk1"})", "1.2.3.4", "A", "example.com",
-                                       "@", "example.com");
+    const auto result = run_abi_update(fake, R"({"api_key":"pk1"})", "1.2.3.4", "A", "example.com", "@", "example.com");
     EXPECT_EQ(result.status, YADDNSC_STATUS_INVALID_CONFIG);
     EXPECT_TRUE(result.error_message.starts_with("Driver configuration parse error:")) << result.error_message;
     EXPECT_TRUE(fake.requests.empty());
@@ -216,5 +218,5 @@ TEST(PorkbunDriverTest, Validate_MalformedJson_ReturnsInvalidConfig) {
 TEST(PorkbunDriverTest, Entries_NullArgumentsRejected) {
     EXPECT_EQ(yaddnsc_driver_get_descriptor(nullptr), YADDNSC_STATUS_INVALID_ARGUMENT);
     EXPECT_EQ(yaddnsc_driver_update(nullptr, nullptr, nullptr), YADDNSC_STATUS_INVALID_ARGUMENT);
-    yaddnsc_driver_destroy(nullptr); // must be a no-op, must not crash
+    yaddnsc_driver_destroy(nullptr);  // must be a no-op, must not crash
 }

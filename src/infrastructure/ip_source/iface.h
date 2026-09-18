@@ -7,9 +7,9 @@
 
 #include <string>
 
-#include "domain/network/address_family.h"
-#include "support/exception.h"
 #include "infrastructure/ip_source/base.h"
+
+enum class AddressFamily;
 
 /// InterfaceIpSource — reads IP addresses from a local network interface.
 ///

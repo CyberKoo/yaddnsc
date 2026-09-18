@@ -13,88 +13,88 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
-#include <cerrno>
 #include <chrono>
+#include <cstddef>
 #include <cstdint>
-#include <cstring>
 #include <memory>
+#include <optional>
+#include <random>
+#include <span>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <vector>
 
-#include <gmock/gmock.h>
+#include <expected>
 #include <gtest/gtest.h>
+#include <netinet/in.h>
+#include <poll.h>
+#include <sys/socket.h>
 
-#include "support/util/cancellation_token.hpp"
-#include "support/util/random.hpp"
-
+#include "domain/config/ip_source_kind.h"
 #include "domain/config/runtime_config.h"
+#include "domain/dns/record_kind.h"
+#include "domain/network/address_family.h"
+#include "domain/network/inet_address.h"
 #include "infrastructure/ip_source/base.h"
 #include "infrastructure/ip_source/factory.h"
 #include "infrastructure/ip_source/mdns.h"
-#include "domain/network/inet_address.h"
 #include "infrastructure/network/net_devices.h"
 #include "infrastructure/network/socket.h"
 #include "infrastructure/network/socket_addr.h"
-
-#include <netinet/in.h>
-#include <poll.h>
-
-#include "domain/network/address_family.h"
-#include "domain/dns/record_kind.h"
-
-#include "support/fmt.hpp"
+#include "support/util/cancellation_token.hpp"
+#include "support/util/random.hpp"
 
 namespace {
-    const std::string LOOPBACK = NetDevices::loopback_name();
+const std::string LOOPBACK = NetDevices::loopback_name();
 
-    /// Generate a random UUID v4 string (e.g. "a1b2c3d4-e5f6-4789-abcd-ef1234567890").
-    /// Each call produces a unique hostname, ensuring mDNS queries from this test
-    /// are not answered by other mDNS responders on the network (e.g. avahi-daemon,
-    /// systemd-resolved).
-    [[nodiscard]] std::string generate_uuid() {
-        auto &eng = Utils::Random::engine();
-        std::uniform_int_distribution<std::size_t> hex_dist(0, 15);
-        std::uniform_int_distribution<std::size_t> variant_dist(0, 3);
+/// Generate a random UUID v4 string (e.g. "a1b2c3d4-e5f6-4789-abcd-ef1234567890").
+/// Each call produces a unique hostname, ensuring mDNS queries from this test
+/// are not answered by other mDNS responders on the network (e.g. avahi-daemon,
+/// systemd-resolved).
+[[nodiscard]] std::string generate_uuid() {
+    auto& eng = Utils::Random::engine();
+    std::uniform_int_distribution<std::size_t> hex_dist(0, 15);
+    std::uniform_int_distribution<std::size_t> variant_dist(0, 3);
 
-        const char *hex_chars = "0123456789abcdef";
-        // UUID format: 8-4-4-4-12 = 36 chars
-        std::string uuid(36, '\0');
-        for (std::size_t i = 0; i < 36; ++i) {
-            if (i == 8 || i == 13 || i == 18 || i == 23) {
-                uuid[i] = '-';
-            } else if (i == 14) {
-                uuid[i] = '4';  // Version 4
-            } else if (i == 19) {
-                // Variant: 10xx -> 8, 9, a, or b
-                uuid[i] = hex_chars[8 + variant_dist(eng)];
-            } else {
-                uuid[i] = hex_chars[hex_dist(eng)];
-            }
+    const char* hex_chars = "0123456789abcdef";
+    // UUID format: 8-4-4-4-12 = 36 chars
+    std::string uuid(36, '\0');
+    for (std::size_t i = 0; i < 36; ++i) {
+        if (i == 8 || i == 13 || i == 18 || i == 23) {
+            uuid[i] = '-';
+        } else if (i == 14) {
+            uuid[i] = '4';  // Version 4
+        } else if (i == 19) {
+            // Variant: 10xx -> 8, 9, a, or b
+            uuid[i] = hex_chars[8 + variant_dist(eng)];
+        } else {
+            uuid[i] = hex_chars[hex_dist(eng)];
         }
-        return uuid;
     }
+    return uuid;
+}
 
-    /// Quick probe to check whether UDP multicast sending to 224.0.0.251:5353
-    /// works on this system.  macOS CI runners often lack a multicast route,
-    /// causing sendto() to fail with EHOSTUNREACH / ENETUNREACH.
-    [[nodiscard]] bool multicast_available() {
-        Socket sock(AF_INET, SOCK_DGRAM);
-        auto dest = SocketAddr::from_inet(Inet4Address::parse("224.0.0.251").value(), 5353);
-        if (!dest) {
-            return false;
-        }
-        std::byte payload{0};
-        auto ret = sock.send_to(std::span(&payload, 1), *dest);
-        if (ret >= 0) {
-            return true;
-        }
-        // ENETUNREACH / EHOSTUNREACH are the expected failures when there is no
-        // multicast route.  Any other error is unexpected but we treat it as
-        // "not available" to stay safe.
+/// Quick probe to check whether UDP multicast sending to 224.0.0.251:5353
+/// works on this system.  macOS CI runners often lack a multicast route,
+/// causing sendto() to fail with EHOSTUNREACH / ENETUNREACH.
+[[nodiscard]] bool multicast_available() {
+    Socket sock(AF_INET, SOCK_DGRAM);
+    auto dest = SocketAddr::from_inet(Inet4Address::parse("224.0.0.251").value(), 5353);
+    if (!dest) {
         return false;
     }
-} // anonymous namespace
+    std::byte payload{0};
+    auto ret = sock.send_to(std::span(&payload, 1), *dest);
+    if (ret >= 0) {
+        return true;
+    }
+    // ENETUNREACH / EHOSTUNREACH are the expected failures when there is no
+    // multicast route.  Any other error is unexpected but we treat it as
+    // "not available" to stay safe.
+    return false;
+}
+}  // anonymous namespace
 
 using namespace std::chrono_literals;
 
@@ -115,9 +115,7 @@ TEST(IpSourceFactoryTest, CreateInterfaceSource_ResolvesLoopback) {
     // resolve() must work using the real loopback interface.
     auto addrs = source->resolve();
     EXPECT_FALSE(addrs.empty());
-    EXPECT_TRUE(std::ranges::any_of(addrs, [](const InetAddress &a) {
-        return a.to_string() == "127.0.0.1";
-    }));
+    EXPECT_TRUE(std::ranges::any_of(addrs, [](const InetAddress& a) { return a.to_string() == "127.0.0.1"; }));
 }
 
 TEST(IpSourceFactoryTest, CreateInterfaceSource_Ipv6) {
@@ -134,7 +132,7 @@ TEST(IpSourceFactoryTest, CreateInterfaceSource_Ipv6) {
     if (addrs.empty()) {
         GTEST_SKIP() << "IPv6 is not available on this system";
     }
-    for (const auto &addr : addrs) {
+    for (const auto& addr : addrs) {
         EXPECT_EQ(addr.get_family(), AddressFamily::IPV6);
     }
 }
@@ -175,7 +173,7 @@ TEST(IpSourceFactoryTest, CreateHttpSource_WithIface_BindsToInterface) {
 TEST(IpSourceFactoryTest, UnknownType_FallsBackToUnspecified) {
     domain::SubdomainConfig cfg;
     cfg.name = "test";
-    cfg.type = RecordKind::TXT;       // not A or AAAA → UNSPECIFIED
+    cfg.type = RecordKind::TXT;  // not A or AAAA → UNSPECIFIED
     cfg.ip_source = Config::IpSource::INTERFACE;
     cfg.interface = LOOPBACK;
 
@@ -227,7 +225,7 @@ protected:
 
         // Build ip_mreq: group address + INADDR_ANY interface.
         mreq_ = ip_mreq{};
-        auto *dest = reinterpret_cast<std::uint8_t *>(&mreq_.imr_multiaddr);
+        auto* dest = reinterpret_cast<std::uint8_t*>(&mreq_.imr_multiaddr);
         std::copy_n(mcast_addr->data(), sizeof(mreq_.imr_multiaddr), dest);
         mreq_.imr_interface.s_addr = INADDR_ANY;
         responder_sock_->set_option(IPPROTO_IP, IP_ADD_MEMBERSHIP, mreq_).value();
@@ -250,11 +248,11 @@ protected:
         }
         if (responder_sock_) {
             // Leave multicast group.
-            (void)responder_sock_->set_option(IPPROTO_IP, IP_DROP_MEMBERSHIP, mreq_);
+            (void) responder_sock_->set_option(IPPROTO_IP, IP_DROP_MEMBERSHIP, mreq_);
             responder_sock_->close();
         }
         if (forger_sock_) {
-            (void)forger_sock_->set_option(IPPROTO_IP, IP_DROP_MEMBERSHIP, mreq_);
+            (void) forger_sock_->set_option(IPPROTO_IP, IP_DROP_MEMBERSHIP, mreq_);
             forger_sock_->close();
         }
         responder_sock_.reset();
@@ -279,9 +277,7 @@ protected:
     }
 
     /// Check how many matching queries the responder received.
-    [[nodiscard]] int query_count() const {
-        return query_count_.load();
-    }
+    [[nodiscard]] int query_count() const { return query_count_.load(); }
 
     std::string test_hostname_;  // Random UUID hostname for this test run
 
@@ -291,15 +287,12 @@ protected:
 private:
     /// Encode a dot-separated hostname into DNS label format
     /// (e.g. "foo.local" -> "\x03foo\x05local\x00").
-    [[nodiscard]] static std::vector<std::uint8_t> encode_dns_name(
-        std::string_view name) {
+    [[nodiscard]] static std::vector<std::uint8_t> encode_dns_name(std::string_view name) {
         std::vector<std::uint8_t> encoded;
         size_t start = 0;
         while (start < name.size()) {
             auto dot = name.find('.', start);
-            auto len = (dot == std::string_view::npos)
-                           ? name.size() - start
-                           : dot - start;
+            auto len = (dot == std::string_view::npos) ? name.size() - start : dot - start;
             encoded.push_back(static_cast<std::uint8_t>(len));
             for (size_t i = 0; i < len; ++i) {
                 encoded.push_back(static_cast<std::uint8_t>(name[start + i]));
@@ -312,24 +305,23 @@ private:
 
     /// Check whether the QNAME in a DNS query (starting at offset 12) matches
     /// the given encoded hostname.
-    [[nodiscard]] static bool qname_matches(
-        std::span<const std::uint8_t> query,
-        const std::vector<std::uint8_t>& encoded_hostname) {
+    [[nodiscard]] static bool qname_matches(std::span<const std::uint8_t> query,
+                                            const std::vector<std::uint8_t>& encoded_hostname) {
         if (query.size() < 12 + encoded_hostname.size()) {
             return false;
         }
-        return std::ranges::equal(
-            encoded_hostname,
-            query.subspan(12, encoded_hostname.size()));
+        return std::ranges::equal(encoded_hostname, query.subspan(12, encoded_hostname.size()));
     }
 
     /// Build a crafted mDNS A-record response echoing the query's TXID and
     /// question section.  Optionally appends an unrelated A record to test
     /// owner-name filtering.
-    [[nodiscard]] std::vector<std::uint8_t> build_response(
-        std::span<const std::uint8_t> query,
-        std::uint8_t a, std::uint8_t b, std::uint8_t c, std::uint8_t d,
-        bool include_unrelated = false) const {
+    [[nodiscard]] std::vector<std::uint8_t> build_response(std::span<const std::uint8_t> query,
+                                                           std::uint8_t a,
+                                                           std::uint8_t b,
+                                                           std::uint8_t c,
+                                                           std::uint8_t d,
+                                                           bool include_unrelated = false) const {
         std::vector<std::uint8_t> resp;
         resp.reserve(query.size() + 48);
 
@@ -352,9 +344,8 @@ private:
         while (qname_end < query.size() && query[qname_end] != 0) {
             qname_end += size_t{1} + query[qname_end];
         }
-        qname_end += 1; // skip the root label
-        resp.insert(resp.end(), query.begin() + 12,
-                    query.begin() + static_cast<std::ptrdiff_t>(qname_end) + 4);
+        qname_end += 1;  // skip the root label
+        resp.insert(resp.end(), query.begin() + 12, query.begin() + static_cast<std::ptrdiff_t>(qname_end) + 4);
 
         // Answer 1: name pointer (0xC0 0x0C), TYPE A, CLASS IN, TTL 60, RDATA.
         resp.push_back(0xC0);
@@ -408,9 +399,8 @@ private:
             // Receive the mDNS query.
             std::array<std::uint8_t, 512> recv_buf{};
             SocketAddr src_addr;
-            auto n = responder_sock_->recv_from(std::span<std::byte>{
-                reinterpret_cast<std::byte *>(recv_buf.data()), recv_buf.size()
-            }, 0, &src_addr);
+            auto n = responder_sock_->recv_from(
+                std::span<std::byte>{reinterpret_cast<std::byte*>(recv_buf.data()), recv_buf.size()}, 0, &src_addr);
 
             if (n <= 0) {
                 continue;
@@ -445,9 +435,8 @@ private:
 
             std::array<std::uint8_t, 512> recv_buf{};
             SocketAddr src_addr;
-            auto n = forger_sock_->recv_from(std::span<std::byte>{
-                reinterpret_cast<std::byte *>(recv_buf.data()), recv_buf.size()
-            }, 0, &src_addr);
+            auto n = forger_sock_->recv_from(
+                std::span<std::byte>{reinterpret_cast<std::byte*>(recv_buf.data()), recv_buf.size()}, 0, &src_addr);
 
             if (n <= 0) {
                 continue;

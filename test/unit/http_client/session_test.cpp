@@ -11,18 +11,29 @@
 //   - stream reuse across exchanges
 // =============================================================================
 
+#include "infrastructure/network/http/session.h"
+
+#include <algorithm>
+#include <cstdint>
+#include <cstring>
 #include <deque>
+#include <map>
 #include <memory>
 #include <optional>
+#include <span>
 #include <string>
+#include <string_view>
+#include <utility>
 #include <vector>
 
-#include <cstring>
 #include <expected>
 #include <gtest/gtest.h>
 
-#include "infrastructure/network/http/session.h"
+#include "infrastructure/network/http/error.h"
+#include "infrastructure/network/http/protocol/wire.h"
 #include "infrastructure/network/http/stream_factory.h"
+#include "infrastructure/network/http/types.h"
+#include "infrastructure/network/transport/io_error.h"
 #include "infrastructure/network/transport/stream.h"
 
 using net::http::ErrorCode;
@@ -90,15 +101,17 @@ private:
 /// Factory serving scripted streams per host, recording every call.
 class FakeFactory final : public net::http::StreamFactory {
 public:
-    [[nodiscard]] std::unique_ptr<Transport::Stream>
-        create_tls(std::string_view host, std::uint16_t /*port*/, const Transport::Options& /*conn_opts*/,
-                   const Transport::TlsOptions& /*tls_opts*/) override {
+    [[nodiscard]] std::unique_ptr<Transport::Stream> create_tls(std::string_view host,
+                                                                std::uint16_t /*port*/,
+                                                                const Transport::Options& /*conn_opts*/,
+                                                                const Transport::TlsOptions& /*tls_opts*/) override {
         tls_hosts.emplace_back(host);
         return next(tls_streams);
     }
 
-    [[nodiscard]] std::unique_ptr<Transport::Stream>
-        create_tcp(std::string_view host, std::uint16_t /*port*/, const Transport::Options& /*opts*/) override {
+    [[nodiscard]] std::unique_ptr<Transport::Stream> create_tcp(std::string_view host,
+                                                                std::uint16_t /*port*/,
+                                                                const Transport::Options& /*opts*/) override {
         tcp_hosts.emplace_back(host);
         return next(tcp_streams);
     }
@@ -126,8 +139,7 @@ std::unique_ptr<FakeStream> ok_stream() {
 }
 
 net::http::Session make_session(std::shared_ptr<FakeFactory> factory, std::string scheme) {
-    return net::http::Session(std::move(factory), {}, {}, std::move(scheme), "example.com", 80,
-                              net::http::Limits{});
+    return net::http::Session(std::move(factory), {}, {}, std::move(scheme), "example.com", 80, net::http::Limits{});
 }
 
 net::http::protocol::WireRequest get_request() {
@@ -157,7 +169,8 @@ TEST(HttpSession, HttpScheme_UsesTcpFactory) {
 TEST(HttpSession, KeepAliveMaxRebuildsBeforeTheNextExchange) {
     auto factory = std::make_shared<FakeFactory>();
     auto limited = std::make_unique<FakeStream>();
-    limited->input = "HTTP/1.0 200 OK\r\nConnection: keep-alive\r\nKeep-Alive: timeout=5, max=1\r\nContent-Length: 2\r\n\r\nok";
+    limited->input =
+        "HTTP/1.0 200 OK\r\nConnection: keep-alive\r\nKeep-Alive: timeout=5, max=1\r\nContent-Length: 2\r\n\r\nok";
     factory->tcp_streams.push_back(std::move(limited));
     factory->tcp_streams.push_back(ok_stream());
 
@@ -170,8 +183,9 @@ TEST(HttpSession, KeepAliveMaxRebuildsBeforeTheNextExchange) {
 TEST(HttpSession, RepeatedKeepAliveMaxDoesNotResetTheConnectionCap) {
     auto factory = std::make_shared<FakeFactory>();
     auto limited = std::make_unique<FakeStream>();
-    limited->input = "HTTP/1.0 200 OK\r\nConnection: keep-alive\r\nKeep-Alive: max=2\r\nContent-Length: 2\r\n\r\nok"
-                     "HTTP/1.0 200 OK\r\nConnection: keep-alive\r\nKeep-Alive: max=2\r\nContent-Length: 2\r\n\r\nok";
+    limited->input =
+        "HTTP/1.0 200 OK\r\nConnection: keep-alive\r\nKeep-Alive: max=2\r\nContent-Length: 2\r\n\r\nok"
+        "HTTP/1.0 200 OK\r\nConnection: keep-alive\r\nKeep-Alive: max=2\r\nContent-Length: 2\r\n\r\nok";
     factory->tcp_streams.push_back(std::move(limited));
     factory->tcp_streams.push_back(ok_stream());
 

@@ -10,21 +10,26 @@
 // =============================================================================
 
 #include <algorithm>
+#include <cstddef>
 #include <cstdint>
-#include <cstring>
-#include <expected>
 #include <memory>
 #include <span>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
+#include <expected>
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
+#include <yaddnsc/util/format.hpp>
 
+#include "domain/dns/record_kind.h"
+#include "domain/error/dns_error.h"
+#include "domain/error/dns_error_info.h"
 #include "infrastructure/dns/resolver/doh.h"
+#include "infrastructure/network/transport/io_error.h"
 #include "infrastructure/network/transport/stream.h"
-
 #include "support/fmt.hpp"
 
 namespace {
@@ -53,8 +58,9 @@ public:
 }
 
 /// Build HTTP response headers (up to and including \r\n\r\n).
-[[nodiscard]] std::vector<std::uint8_t> make_http_headers(
-    const int status_code, const std::string_view reason, const size_t body_len) {
+[[nodiscard]] std::vector<std::uint8_t> make_http_headers(const int status_code,
+                                                          const std::string_view reason,
+                                                          const size_t body_len) {
     auto str = fmt::format(
         "HTTP/1.1 {} {}\r\n"
         "Content-Type: application/dns-message\r\n"
@@ -67,30 +73,61 @@ public:
 /// A valid minimal DNS response for an A query (ID echoed by the pipe).
 [[nodiscard]] std::vector<std::uint8_t> make_dns_body(const std::uint8_t id_hi, const std::uint8_t id_lo) {
     return {
-        id_hi, id_lo,                       // ID (echoed from the query)
-        0x81, 0x80,                         // flags: QR, RD, RA
-        0x00, 0x01,                         // QDCOUNT
-        0x00, 0x01,                         // ANCOUNT
-        0x00, 0x00,                         // NSCOUNT
-        0x00, 0x00,                         // ARCOUNT
+        id_hi,
+        id_lo,  // ID (echoed from the query)
+        0x81,
+        0x80,  // flags: QR, RD, RA
+        0x00,
+        0x01,  // QDCOUNT
+        0x00,
+        0x01,  // ANCOUNT
+        0x00,
+        0x00,  // NSCOUNT
+        0x00,
+        0x00,  // ARCOUNT
         // Question: yaddnsc.test A (7 labels… minimal form)
-        0x07, 'y', 'a', 'd', 'd', 'n', 's', 'c', 0x04, 't', 'e', 's', 't', 0x00,
-        0x00, 0x01,                         // TYPE A
-        0x00, 0x01,                         // CLASS IN
+        0x07,
+        'y',
+        'a',
+        'd',
+        'd',
+        'n',
+        's',
+        'c',
+        0x04,
+        't',
+        'e',
+        's',
+        't',
+        0x00,
+        0x00,
+        0x01,  // TYPE A
+        0x00,
+        0x01,  // CLASS IN
         // Answer: pointer to question, A record 192.0.2.1
-        0xC0, 0x0C,
-        0x00, 0x01, 0x00, 0x01,
-        0x00, 0x00, 0x00, 0x3C,
-        0x00, 0x04,
-        192, 0, 2, 1,
+        0xC0,
+        0x0C,
+        0x00,
+        0x01,
+        0x00,
+        0x01,
+        0x00,
+        0x00,
+        0x00,
+        0x3C,
+        0x00,
+        0x04,
+        192,
+        0,
+        2,
+        1,
     };
 }
 
 /// HTTP response sink: serves a canned 200 + DNS body over read_some.
 class MockHttpPipe {
 public:
-    MockHttpPipe(MockStream &mock, const int status, const std::vector<std::uint8_t> &body)
-        : body_(body) {
+    MockHttpPipe(MockStream& mock, const int status, const std::vector<std::uint8_t>& body) : body_(body) {
         const auto headers = make_http_headers(status, status == 200 ? "OK" : "Error", body.size());
         script_.insert(script_.end(), headers.begin(), headers.end());
 
@@ -112,7 +149,7 @@ public:
                     body_appended_ = true;
                 }
                 if (pos_ >= script_.size()) {
-                    return std::unexpected(IoError::CONNECTION_FAILED); // EOF
+                    return std::unexpected(IoError::CONNECTION_FAILED);  // EOF
                 }
                 const auto n = std::min(buf.size(), script_.size() - pos_);
                 std::copy_n(script_.begin() + static_cast<std::ptrdiff_t>(pos_), n, buf.begin());
@@ -295,7 +332,7 @@ TEST(DohResolverMockTest, ConnectionLostThenReconnectSucceeds) {
 
 TEST(DohResolverMockTest, QuerySucceeds) {
     auto mock = connected_mock();
-    const auto body = make_dns_body(0, 0); // pipe echoes the real ID
+    const auto body = make_dns_body(0, 0);  // pipe echoes the real ID
     MockHttpPipe pipe(*mock, 200, body);
     DohResolver resolver("127.0.0.1", 1443, "/dns-query", "mock:1443", std::move(mock));
 
@@ -304,7 +341,7 @@ TEST(DohResolverMockTest, QuerySucceeds) {
     const auto [id_hi, id_lo] = pipe.query_id();
     EXPECT_EQ((*result)[0], id_hi);
     EXPECT_EQ((*result)[1], id_lo);
-    EXPECT_EQ((*result)[2] & 0x80, 0x80); // QR flag
+    EXPECT_EQ((*result)[2] & 0x80, 0x80);  // QR flag
 }
 
-} // namespace
+}  // namespace

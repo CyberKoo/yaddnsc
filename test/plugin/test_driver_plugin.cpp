@@ -31,7 +31,16 @@
 #include <utility>
 #include <vector>
 
+#include <expected>
+#include <glaze/glaze.hpp>
 #include <yaddnsc/sdk/driver.hpp>
+#include <yaddnsc/sdk/driver_abi.h>
+#include <yaddnsc/util/format.hpp>
+
+namespace glz {
+template<class T>
+struct meta;
+}  // namespace glz
 
 namespace fmt = yaddnsc::sdk::fmt;
 using yaddnsc::sdk::Error;
@@ -62,7 +71,7 @@ std::atomic<uint64_t> g_last_create_seq{0};
 std::atomic<uint64_t> g_last_update_seq{0};
 std::atomic<uint64_t> g_last_destroy_seq{0};
 
-void tick(std::atomic<uint64_t> &slot) {
+void tick(std::atomic<uint64_t>& slot) {
     const uint64_t seq = g_clock.fetch_add(1, std::memory_order_relaxed) + 1;
     slot.store(seq, std::memory_order_relaxed);
 }
@@ -98,20 +107,25 @@ void tick(std::atomic<uint64_t> &slot) {
     return YADDNSC_STATUS_INTERNAL_ERROR;
 }
 
-} // namespace
+}  // namespace
 
 template<>
 struct glz::meta<TestDriverConfig> {
     using T = TestDriverConfig;
-    static constexpr auto value = object(
-            "op", &T::op,
-            "status", &T::status,
-            "message", &T::message,
-            "retry_after", &T::retry_after,
-            "http_count", &T::http_count,
-            "url", &T::url,
-            "expect_cancelled", &T::expect_cancelled
-    );
+    static constexpr auto value = object("op",
+                                         &T::op,
+                                         "status",
+                                         &T::status,
+                                         "message",
+                                         &T::message,
+                                         "retry_after",
+                                         &T::retry_after,
+                                         "http_count",
+                                         &T::http_count,
+                                         "url",
+                                         &T::url,
+                                         "expect_cancelled",
+                                         &T::expect_cancelled);
 };
 
 class TestDriver final : public yaddnsc::sdk::Driver {
@@ -134,7 +148,7 @@ public:
         tick(g_last_destroy_seq);
     }
 
-    Result update(UpdateContext &context) override {
+    Result update(UpdateContext& context) override {
         g_updates.fetch_add(1, std::memory_order_relaxed);
         tick(g_last_update_seq);
 
@@ -165,7 +179,7 @@ public:
             return {};
         }
         if (op == "echo_params") {
-            const auto &params = context.request();
+            const auto& params = context.request();
             YADDNSC_SDK_LOG_INFO(context, "params ip={} rd={} domain={} sub={} fqdn={} param={}", params.ip_address,
                                  params.record_type, params.domain, params.subdomain, params.fqdn,
                                  params.driver_param_json);
@@ -191,7 +205,7 @@ private:
     /// Perform `http_count` exchanges; after each one, every previously
     /// received response view must still byte-compare equal to its snapshot
     /// (the ABI contract: views live until yaddnsc_driver_update() returns).
-    static Result run_exchanges(UpdateContext &context, const TestDriverConfig &config) {
+    static Result run_exchanges(UpdateContext& context, const TestDriverConfig& config) {
         struct Snapshot {
             uint32_t status_code;
             std::string_view body_view;
@@ -215,9 +229,9 @@ private:
 
             auto response = context.exchange(request);
             if (!response) {
-                return std::unexpected(
-                        Error{response.error().status, fmt::format("exchange failed: {}", response.error().message),
-                              response.error().retry_after_seconds});
+                return std::unexpected(Error{response.error().status,
+                                             fmt::format("exchange failed: {}", response.error().message),
+                                             response.error().retry_after_seconds});
             }
 
             Snapshot snapshot{};
@@ -245,8 +259,8 @@ private:
 
     /// Hand-written log calls that violate the location contract; the host
     /// must tolerate all of them without failing the update.
-    static Result run_raw_logs(UpdateContext &context) {
-        const auto *services = context.services().get();
+    static Result run_raw_logs(UpdateContext& context) {
+        const auto* services = context.services().get();
         const yaddnsc_string message{"raw log record", sizeof("raw log record") - 1};
 
         // (a) no location at all
@@ -271,7 +285,11 @@ private:
     }
 };
 
-YADDNSC_DEFINE_DRIVER(TestDriver, "test_driver_plugin", "Contract-test whiteboard driver", "yaddnsc", "0.0.0",
+YADDNSC_DEFINE_DRIVER(TestDriver,
+                      "test_driver_plugin",
+                      "Contract-test whiteboard driver",
+                      "yaddnsc",
+                      "0.0.0",
                       YADDNSC_DRIVER_CAPABILITY_A | YADDNSC_DRIVER_CAPABILITY_AAAA)
 
 /* ── Test control exports (not part of the driver ABI) ────────────────────*/
@@ -291,9 +309,12 @@ extern "C" YADDNSC_SDK_EXPORT void test_plugin_reset_state() {
     g_last_destroy_seq.store(0, std::memory_order_relaxed);
 }
 
-extern "C" YADDNSC_SDK_EXPORT void test_plugin_get_state(uint64_t *creates, uint64_t *updates, uint64_t *destroys,
-                                                         uint64_t *create_seq, uint64_t *update_seq,
-                                                         uint64_t *destroy_seq) {
+extern "C" YADDNSC_SDK_EXPORT void test_plugin_get_state(uint64_t* creates,
+                                                         uint64_t* updates,
+                                                         uint64_t* destroys,
+                                                         uint64_t* create_seq,
+                                                         uint64_t* update_seq,
+                                                         uint64_t* destroy_seq) {
     *creates = g_creates.load(std::memory_order_relaxed);
     *updates = g_updates.load(std::memory_order_relaxed);
     *destroys = g_destroys.load(std::memory_order_relaxed);

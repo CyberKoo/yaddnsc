@@ -5,17 +5,25 @@
 
 #include <algorithm>
 #include <array>
-#include <charconv>
 #include <cctype>
+#include <charconv>
 #include <cstdint>
 #include <span>
 #include <string>
 #include <string_view>
+#include <system_error>
+#include <utility>
+#include <vector>
 
 #include <expected>
 #include <picohttpparser.h>
 #include <spdlog/spdlog.h>
+#include <yaddnsc/util/format.hpp>
+#include <yaddnsc/util/string_util.hpp>
 
+#include "infrastructure/network/http/protocol/wire.h"
+#include "infrastructure/network/transport/io_error.h"
+#include "infrastructure/network/transport/stream.h"
 #include "support/fmt.hpp"
 #include "support/string_util.hpp"
 
@@ -55,7 +63,7 @@ struct HeaderOutcome {
     if (value.empty()) {
         return false;
     }
-    for (const auto ch: value) {
+    for (const auto ch : value) {
         const auto c = static_cast<unsigned char>(ch);
         if (std::isalnum(c) || ch == '!' || ch == '#' || ch == '$' || ch == '%' || ch == '&' || ch == '\'' ||
             ch == '*' || ch == '+' || ch == '-' || ch == '.' || ch == '^' || ch == '_' || ch == '`' || ch == '|' ||
@@ -68,7 +76,7 @@ struct HeaderOutcome {
 }
 
 [[nodiscard]] bool is_field_value(const std::string_view value) noexcept {
-    for (const auto ch: value) {
+    for (const auto ch : value) {
         const auto c = static_cast<unsigned char>(ch);
         if (c != '\t' && (c < 0x20 || c == 0x7f)) {
             return false;
@@ -97,7 +105,8 @@ struct HeaderOutcome {
     size_t pos = 0;
     while (pos < value.size()) {
         const auto comma = value.find(',', pos);
-        if (StringUtil::iequals(StringUtil::trim(value.substr(pos, comma == std::string_view::npos ? comma : comma - pos)), wanted)) {
+        if (StringUtil::iequals(
+                StringUtil::trim(value.substr(pos, comma == std::string_view::npos ? comma : comma - pos)), wanted)) {
             return true;
         }
         if (comma == std::string_view::npos) {
@@ -125,7 +134,7 @@ struct HeaderOutcome {
 
 [[nodiscard]] std::optional<unsigned> keep_alive_parameter(const std::string_view value,
                                                            const std::string_view wanted) {
-    for (const auto& parameter: StringUtil::split(value, ",")) {
+    for (const auto& parameter : StringUtil::split(value, ",")) {
         const auto trimmed = StringUtil::trim(parameter);
         const auto eq = trimmed.find('=');
         if (eq == std::string_view::npos || !StringUtil::iequals(StringUtil::trim(trimmed.substr(0, eq)), wanted)) {
@@ -220,8 +229,8 @@ struct ChunkedBody {
     return size;
 }
 
-[[nodiscard]] std::expected<std::multimap<std::string, std::string>, Error>
-parse_trailers(const std::string_view data, std::string& pending) {
+[[nodiscard]] std::expected<std::multimap<std::string, std::string>, Error> parse_trailers(const std::string_view data,
+                                                                                           std::string& pending) {
     const bool empty = data.starts_with("\r\n");
     const auto end = empty ? 0 : data.find("\r\n\r\n");
     if (end == std::string_view::npos) {
@@ -240,8 +249,8 @@ parse_trailers(const std::string_view data, std::string& pending) {
             const auto name = std::string_view(fields[i].name, fields[i].name_len);
             const auto value = StringUtil::trim(std::string_view(fields[i].value, fields[i].value_len));
             if (!is_token(name) || forbidden_trailer(name) || !is_field_value(value)) {
-                return std::unexpected(Error{ErrorCode::RESPONSE_PARSE_FAILED,
-                                             "malformed, forbidden, or unsafe chunked trailer"});
+                return std::unexpected(
+                    Error{ErrorCode::RESPONSE_PARSE_FAILED, "malformed, forbidden, or unsafe chunked trailer"});
             }
             trailers.emplace(name, value);
         }
@@ -271,7 +280,7 @@ parse_trailers(const std::string_view data, std::string& pending) {
     size_t hosts = 0;
     size_t connections = 0;
     std::optional<size_t> content_length;
-    for (const auto& [name, value]: req.headers) {
+    for (const auto& [name, value] : req.headers) {
         if (!is_token(name) || !is_field_value(value) ||
             (StringUtil::iequals(name, "connection") && !valid_token_list(value))) {
             return Error{ErrorCode::INVALID_REQUEST, "invalid HTTP request header"};
@@ -465,10 +474,10 @@ parse_trailers(const std::string_view data, std::string& pending) {
 
 /// Read a chunked body (RFC 9112 §7.1), including strict extensions and trailers.
 [[nodiscard]] std::expected<ChunkedBody, Error> read_chunked_body(Transport::Stream& stream,
-                                                                   const std::string_view buffered,
-                                                                   const Limits& limits,
-                                                                   const WireRequest& req,
-                                                                   std::string& pending) {
+                                                                  const std::string_view buffered,
+                                                                  const Limits& limits,
+                                                                  const WireRequest& req,
+                                                                  std::string& pending) {
     std::string raw{buffered};
     ChunkedBody result;
     const auto read_more = [&]() -> std::expected<void, Error> {
@@ -610,8 +619,8 @@ std::expected<RawResponse, Error> exchange(Transport::Stream& stream,
             // consume it and parse the final response from the same stream.
             if (headers.status >= 100 && headers.status < 200 && headers.status != 101) {
                 if (headers.has_content_length || headers.is_chunked) {
-                    return std::unexpected(Error{ErrorCode::RESPONSE_PARSE_FAILED,
-                                                 "interim response has body framing"});
+                    return std::unexpected(
+                        Error{ErrorCode::RESPONSE_PARSE_FAILED, "interim response has body framing"});
                 }
                 buf.erase(0, headers.header_end);
                 continue;
@@ -646,7 +655,8 @@ std::expected<RawResponse, Error> exchange(Transport::Stream& stream,
     std::expected<std::string, Error> body = std::string{};
     std::multimap<std::string, std::string> trailers;
     const bool no_body = req.method == Method::HEAD || headers.status == 101 || headers.status == 204 ||
-                         headers.status == 205 || headers.status == 304 || (headers.status >= 100 && headers.status < 200);
+                         headers.status == 205 || headers.status == 304 ||
+                         (headers.status >= 100 && headers.status < 200);
     if (no_body) {
         if (headers.status == 205) {
             if (headers.has_content_length && headers.content_length != 0) {
@@ -658,7 +668,8 @@ std::expected<RawResponse, Error> exchange(Transport::Stream& stream,
                     return std::unexpected(std::move(chunked.error()));
                 }
                 if (!chunked->body.empty()) {
-                    return std::unexpected(Error{ErrorCode::RESPONSE_PARSE_FAILED, "205 response has a non-empty body"});
+                    return std::unexpected(
+                        Error{ErrorCode::RESPONSE_PARSE_FAILED, "205 response has a non-empty body"});
                 }
                 trailers = std::move(chunked->trailers);
                 body = std::string{};
@@ -668,10 +679,12 @@ std::expected<RawResponse, Error> exchange(Transport::Stream& stream,
             } else if (headers.connection_close) {
                 body = read_until_eof(stream, buffered, limits, req);
                 if (body && !body->empty()) {
-                    return std::unexpected(Error{ErrorCode::RESPONSE_PARSE_FAILED, "205 response has a non-empty body"});
+                    return std::unexpected(
+                        Error{ErrorCode::RESPONSE_PARSE_FAILED, "205 response has a non-empty body"});
                 }
             } else {
-                return std::unexpected(Error{ErrorCode::RESPONSE_PARSE_FAILED, "205 response lacks zero-length framing"});
+                return std::unexpected(
+                    Error{ErrorCode::RESPONSE_PARSE_FAILED, "205 response lacks zero-length framing"});
             }
         } else {
             pending.assign(buffered);
@@ -714,9 +727,7 @@ std::expected<RawResponse, Error> exchange(Transport::Stream& stream,
     };
 }
 
-std::expected<RawResponse, Error> exchange(Transport::Stream& stream,
-                                           const WireRequest& req,
-                                           const Limits& limits) {
+std::expected<RawResponse, Error> exchange(Transport::Stream& stream, const WireRequest& req, const Limits& limits) {
     std::string pending;
     return exchange(stream, req, limits, pending);
 }

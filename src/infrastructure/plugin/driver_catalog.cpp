@@ -6,28 +6,32 @@
 
 #include <algorithm>
 #include <filesystem>
+#include <iterator>
+#include <utility>
 
+#include <expected>
+#include <spdlog/spdlog.h>
+#include <yaddnsc/util/format.hpp>
+
+#include "domain/error/error.h"
 #include "infrastructure/plugin/driver_not_found_exception.h"
 #include "infrastructure/plugin/plugin_load_exception.h"
-
+#include "infrastructure/plugin/plugin_loader.h"
 #include "support/fmt.hpp"
 
-#include <spdlog/spdlog.h>
-
 namespace {
-    [[nodiscard]] std::string_view get_driver_lib_name(std::string_view path) {
-        const auto pos = path.rfind('/');
-        if (pos == std::string_view::npos) {
-            return path;
-        }
-        return path.substr(pos + 1);
+[[nodiscard]] std::string_view get_driver_lib_name(std::string_view path) {
+    const auto pos = path.rfind('/');
+    if (pos == std::string_view::npos) {
+        return path;
     }
-} // anonymous namespace
+    return path.substr(pos + 1);
+}
+}  // anonymous namespace
 
-void DriverCatalog::load_driver(const std::string &path) {
+void DriverCatalog::load_driver(const std::string& path) {
     if (!std::filesystem::exists(path)) {
-        throw PluginLoadException(
-                fmt::format("Driver library '{}' not found at {}", get_driver_lib_name(path), path));
+        throw PluginLoadException(fmt::format("Driver library '{}' not found at {}", get_driver_lib_name(path), path));
     }
 
     auto module = PluginModule::load(path);
@@ -36,20 +40,19 @@ void DriverCatalog::load_driver(const std::string &path) {
     }
 
     const auto driver_name = module->descriptor().name;
-    auto [_, inserted] =
-            modules_.emplace(driver_name, std::make_shared<const PluginModule>(std::move(*module)));
+    auto [_, inserted] = modules_.emplace(driver_name, std::make_shared<const PluginModule>(std::move(*module)));
     if (!inserted) {
         SPDLOG_WARN("Driver '{}' ({}) is already loaded, skipped", driver_name, get_driver_lib_name(path));
         return;
     }
 
     SPDLOG_DEBUG("Loaded driver '{}' ({})", driver_name, get_driver_lib_name(path));
-    [[maybe_unused]] const auto &descriptor = modules_.at(driver_name)->descriptor();
+    [[maybe_unused]] const auto& descriptor = modules_.at(driver_name)->descriptor();
     SPDLOG_TRACE("Driver {} ({}), developed by {}, version: {}", descriptor.name, descriptor.description,
                  descriptor.author, descriptor.version);
 }
 
-void DriverCatalog::unload_driver(const std::string &name) {
+void DriverCatalog::unload_driver(const std::string& name) {
     if (modules_.erase(name) == 0) {
         throw DriverNotFoundException(fmt::format("Driver '{}' is not loaded, cannot unload", name));
     }
@@ -60,7 +63,7 @@ std::vector<std::string> DriverCatalog::get_loaded_drivers() const {
     std::vector<std::string> loaded_drivers;
     loaded_drivers.reserve(modules_.size());
     std::ranges::transform(modules_, std::back_inserter(loaded_drivers),
-                           [](const auto &kv) -> std::string { return kv.first; });
+                           [](const auto& kv) -> std::string { return kv.first; });
     return loaded_drivers;
 }
 
@@ -71,7 +74,7 @@ std::shared_ptr<const PluginModule> DriverCatalog::find(std::string_view name) c
     return nullptr;
 }
 
-const DriverDescriptor &DriverCatalog::get_descriptor(std::string_view name) const {
+const DriverDescriptor& DriverCatalog::get_descriptor(std::string_view name) const {
     if (const auto it = modules_.find(name); it != modules_.end()) {
         return it->second->descriptor();
     }
@@ -83,7 +86,7 @@ std::vector<std::string> DriverCatalog::loaded_drivers() const {
 }
 
 DriverDescription DriverCatalog::describe(std::string_view name) const {
-    const auto &descriptor = get_descriptor(name);
+    const auto& descriptor = get_descriptor(name);
     return DriverDescription{
         .name = descriptor.name,
         .version = descriptor.version,

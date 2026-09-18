@@ -10,16 +10,25 @@
 //   - normalize() never validates: statically-invalid configs still convert.
 // =============================================================================
 
-#include <string>
-#include <utility>
+#include "infrastructure/config/normalizer.h"
 
-#include <gmock/gmock.h>
-#include <gtest/gtest.h>
+#include <filesystem>
+#include <optional>
+#include <string>
+#include <string_view>
+#include <vector>
 
 #include <glaze/glaze.hpp>
+#include <glaze/json/generic_fwd.hpp>
+#include <gtest/gtest.h>
 
-#include "infrastructure/config/normalizer.h"
-#include "infrastructure/config/parser.hpp"
+#include "domain/config/dns_config.h"
+#include "domain/config/ip_source_kind.h"
+#include "domain/config/runtime_config.h"
+#include "domain/dns/record_kind.h"
+#include "domain/network/address_family.h"
+#include "infrastructure/config/config.h"
+#include "infrastructure/config/parser.hpp"  // IWYU pragma: keep — registers glz::meta specializations
 
 namespace {
 
@@ -48,7 +57,7 @@ constexpr std::string_view MINIMAL_CONFIG = R"({
     ]
 })";
 
-} // anonymous namespace
+}  // anonymous namespace
 
 // ===========================================================================
 // Resolver normalisation
@@ -253,13 +262,13 @@ TEST(NormalizerTest, DriverParam_PreservesFieldsAndValues) {
         }]
     })");
     const auto config = Config::normalize(raw);
-    const auto &param = config.domains[0].subdomains[0].driver_param;
+    const auto& param = config.domains[0].subdomains[0].driver_param;
 
     // Opaque JSON text: must round-trip with every field intact.
     glz::generic reparsed;
     const auto ec = glz::read_json(reparsed, param);
     ASSERT_EQ(ec, glz::error_code::none) << glz::format_error(ec, param);
-    const auto &obj = reparsed.get_object();
+    const auto& obj = reparsed.get_object();
     EXPECT_EQ(obj.at("token").get<std::string>(), "secret-value");
     EXPECT_EQ(obj.at("ttl").get<double>(), 600.0);
     EXPECT_EQ(obj.at("proxied").get<bool>(), true);
@@ -271,7 +280,7 @@ TEST(NormalizerTest, DriverParam_PreservesFieldsAndValues) {
 
 TEST(NormalizerTest, SubdomainFields_PassedThrough) {
     auto raw = parse_raw(MINIMAL_CONFIG);
-    auto &sub = raw.domains[0].subdomains[0];
+    auto& sub = raw.domains[0].subdomains[0];
     sub.type = RecordKind::AAAA;
     sub.interface = "eth0";
     sub.ip_type = AddressFamily::IPV6;
@@ -279,7 +288,7 @@ TEST(NormalizerTest, SubdomainFields_PassedThrough) {
     sub.allow_local_link = true;
 
     const auto config = Config::normalize(raw);
-    const auto &out = config.domains[0].subdomains[0];
+    const auto& out = config.domains[0].subdomains[0];
     EXPECT_EQ(out.name, "www");
     EXPECT_EQ(out.type, RecordKind::AAAA);
     EXPECT_EQ(out.interface, "eth0");

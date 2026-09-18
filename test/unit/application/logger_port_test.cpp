@@ -9,7 +9,6 @@
 // plugin-host logger that only implements log()) must still emit the record.
 // =============================================================================
 
-#include <source_location>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -31,17 +30,17 @@ class RecordingLogger final : public Logger {
 public:
     [[nodiscard]] bool is_enabled(LogLevel) const override { return true; }
 
-    void log(LogLevel level, std::string_view message, const std::source_location &) const override {
+    void log(LogLevel level, std::string_view message, const std::source_location&) const override {
         records_.push_back(RecordedRecord{level, std::string(message)});
     }
 
-    [[nodiscard]] const std::vector<RecordedRecord> &records() const { return records_; }
+    [[nodiscard]] const std::vector<RecordedRecord>& records() const { return records_; }
 
 private:
     mutable std::vector<RecordedRecord> records_;
 };
 
-} // namespace
+}  // namespace
 
 TEST(LoggerPortTest, DefaultLogExplicitForwardsLevelAndMessageToLog) {
     RecordingLogger logger;

@@ -15,6 +15,7 @@
 #include "support/util/cancellation_token.hpp"
 
 #include <chrono>
+#include <string>
 #include <thread>
 
 #include <gtest/gtest.h>

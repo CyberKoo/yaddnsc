@@ -4,17 +4,20 @@
 
 #include "resolver_catalog.h"
 
+#include <cstdint>
 #include <utility>
 
-#include "infrastructure/network/uri.h"
-#include "support/fmt.hpp"
+#include <yaddnsc/util/format.hpp>
+
 #include "domain/error/dns_error.h"
+#include "infrastructure/dns/dns_lookup_exception.h"
 #include "infrastructure/dns/resolver/base.h"
 #include "infrastructure/dns/resolver/classic.h"
 #include "infrastructure/dns/resolver/doh.h"
 #include "infrastructure/dns/resolver/dot.h"
-#include "infrastructure/dns/dns_lookup_exception.h"
-#include "support/util/cancellation_token.hpp"
+#include "infrastructure/network/uri.h"
+#include "support/fmt.hpp"
+#include "support/util/cancellation_token.hpp"  // IWYU pragma: keep — resolvers take the token by value
 
 void ResolverCatalog::register_factory(std::string_view schema, FactoryFn factory) {
     factories_[std::string(schema)] = std::move(factory);
@@ -24,7 +27,8 @@ ResolverCatalog ResolverCatalog::with_builtins() {
     ResolverCatalog catalog;
 
     catalog.register_factory(
-        "", [](const Config::DnsServer &server, const Utils::CancellationToken &token) -> std::unique_ptr<ResolverBase> {
+        "",
+        [](const Config::DnsServer& server, const Utils::CancellationToken& token) -> std::unique_ptr<ResolverBase> {
             return std::make_unique<ClassicResolver>(server, token);
         });
 
@@ -33,7 +37,7 @@ ResolverCatalog ResolverCatalog::with_builtins() {
     // If no port is present in the URI, the default is 443.
     catalog.register_factory(
         "https",
-        [](const Config::DnsServer &server, const Utils::CancellationToken &token) -> std::unique_ptr<ResolverBase> {
+        [](const Config::DnsServer& server, const Utils::CancellationToken& token) -> std::unique_ptr<ResolverBase> {
             auto uri = Uri::parse(server.address);
             auto host = std::string(uri.get_host());
             auto port = static_cast<std::uint16_t>(uri.get_port() != 0 ? uri.get_port() : 443);
@@ -41,8 +45,8 @@ ResolverCatalog ResolverCatalog::with_builtins() {
             if (path.empty()) {
                 path = "/";
             }
-            return std::make_unique<DohResolver>(std::move(host), port, std::move(path),
-                                                 std::string(uri.get_origin()), token);
+            return std::make_unique<DohResolver>(std::move(host), port, std::move(path), std::string(uri.get_origin()),
+                                                 token);
         });
 
     // DoT resolver: port is read from the URI only; server.port is intentionally
@@ -50,7 +54,7 @@ ResolverCatalog ResolverCatalog::with_builtins() {
     // If no port is present in the URI, the default is 853.
     catalog.register_factory(
         "tls",
-        [](const Config::DnsServer &server, const Utils::CancellationToken &token) -> std::unique_ptr<ResolverBase> {
+        [](const Config::DnsServer& server, const Utils::CancellationToken& token) -> std::unique_ptr<ResolverBase> {
             auto uri = Uri::parse(server.address);
             auto host = std::string(uri.get_host());
             auto port = static_cast<std::uint16_t>(uri.get_port() != 0 ? uri.get_port() : 853);
@@ -60,8 +64,8 @@ ResolverCatalog ResolverCatalog::with_builtins() {
     return catalog;
 }
 
-std::unique_ptr<ResolverBase> ResolverCatalog::create(const Config::DnsServer &server,
-                                                      const Utils::CancellationToken &token) const {
+std::unique_ptr<ResolverBase> ResolverCatalog::create(const Config::DnsServer& server,
+                                                      const Utils::CancellationToken& token) const {
     auto uri = Uri::parse(server.address);
     auto schema = std::string(uri.get_schema());
 
@@ -78,8 +82,7 @@ std::unique_ptr<ResolverBase> ResolverCatalog::create(const Config::DnsServer &s
     if (it == factories_.end()) {
         throw DnsLookupException(
             fmt::format(R"(No resolver factory registered for schema "{}" (server: {}))", schema, server.address),
-            DnsError::CONFIG
-        );
+            DnsError::CONFIG);
     }
 
     return it->second(server, token);

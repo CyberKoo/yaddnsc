@@ -13,6 +13,7 @@
 #include <vector>
 
 #include <openssl/evp.h>
+#include <openssl/types.h>
 
 // ===========================================================================
 //  Internal helpers
@@ -20,74 +21,71 @@
 
 namespace {
 
-    // ── RAII deleters for OpenSSL EVP types ──
+// ── RAII deleters for OpenSSL EVP types ──
 
-    struct EvpPKeyDeleter {
-        void operator()(EVP_PKEY *pkey) const noexcept { EVP_PKEY_free(pkey); }
-    };
+struct EvpPKeyDeleter {
+    void operator()(EVP_PKEY* pkey) const noexcept { EVP_PKEY_free(pkey); }
+};
 
-    struct EvpMdCtxDeleter {
-        void operator()(EVP_MD_CTX *ctx) const noexcept { EVP_MD_CTX_free(ctx); }
-    };
+struct EvpMdCtxDeleter {
+    void operator()(EVP_MD_CTX* ctx) const noexcept { EVP_MD_CTX_free(ctx); }
+};
 
-    using EvpPKeyPtr = std::unique_ptr<EVP_PKEY, EvpPKeyDeleter>;
-    using EvpMdCtxPtr = std::unique_ptr<EVP_MD_CTX, EvpMdCtxDeleter>;
+using EvpPKeyPtr = std::unique_ptr<EVP_PKEY, EvpPKeyDeleter>;
+using EvpMdCtxPtr = std::unique_ptr<EVP_MD_CTX, EvpMdCtxDeleter>;
 
-    /// Compute HMAC using EVP_DigestSign (the modern, non-deprecated API).
-    [[nodiscard]] std::vector<std::uint8_t> hmac_digest(std::span<const std::uint8_t> key,
-                                                         std::span<const std::uint8_t> data,
-                                                         const EVP_MD *md) noexcept {
-        EvpPKeyPtr pkey(EVP_PKEY_new_mac_key(EVP_PKEY_HMAC, nullptr, key.data(),
-                                              static_cast<int>(key.size())));
-        if (!pkey)
-            return {};
+/// Compute HMAC using EVP_DigestSign (the modern, non-deprecated API).
+[[nodiscard]] std::vector<std::uint8_t> hmac_digest(std::span<const std::uint8_t> key,
+                                                    std::span<const std::uint8_t> data,
+                                                    const EVP_MD* md) noexcept {
+    EvpPKeyPtr pkey(EVP_PKEY_new_mac_key(EVP_PKEY_HMAC, nullptr, key.data(), static_cast<int>(key.size())));
+    if (!pkey)
+        return {};
 
-        EvpMdCtxPtr ctx(EVP_MD_CTX_new());
-        if (!ctx)
-            return {};
+    EvpMdCtxPtr ctx(EVP_MD_CTX_new());
+    if (!ctx)
+        return {};
 
-        std::vector<std::uint8_t> result;
-        if (EVP_DigestSignInit(ctx.get(), nullptr, md, nullptr, pkey.get()) == 1 &&
-            EVP_DigestSignUpdate(ctx.get(), data.data(), data.size()) == 1) {
-            // First call gets the required length.
-            std::size_t len = 0;
-            if (EVP_DigestSignFinal(ctx.get(), nullptr, &len) == 1) {
+    std::vector<std::uint8_t> result;
+    if (EVP_DigestSignInit(ctx.get(), nullptr, md, nullptr, pkey.get()) == 1 &&
+        EVP_DigestSignUpdate(ctx.get(), data.data(), data.size()) == 1) {
+        // First call gets the required length.
+        std::size_t len = 0;
+        if (EVP_DigestSignFinal(ctx.get(), nullptr, &len) == 1) {
+            result.resize(len);
+            // Second call produces the actual signature.
+            if (EVP_DigestSignFinal(ctx.get(), result.data(), &len) != 1)
+                result.clear();
+            else
                 result.resize(len);
-                // Second call produces the actual signature.
-                if (EVP_DigestSignFinal(ctx.get(), result.data(), &len) != 1)
-                    result.clear();
-                else
-                    result.resize(len);
-            }
         }
-
-        return result;
     }
 
-    /// Compute a one-shot hash digest using the given EVP_MD.
-    [[nodiscard]] std::vector<std::uint8_t> hash_digest(std::span<const std::uint8_t> data,
-                                                         const EVP_MD *md) noexcept {
-        EvpMdCtxPtr ctx(EVP_MD_CTX_new());
-        if (!ctx)
-            return {};
+    return result;
+}
 
-        std::vector<std::uint8_t> result(EVP_MAX_MD_SIZE, 0);
-        unsigned int len = 0;
-        EVP_DigestInit_ex(ctx.get(), md, nullptr);
-        EVP_DigestUpdate(ctx.get(), data.data(), data.size());
-        EVP_DigestFinal_ex(ctx.get(), result.data(), &len);
-        result.resize(len);
-        return result;
-    }
+/// Compute a one-shot hash digest using the given EVP_MD.
+[[nodiscard]] std::vector<std::uint8_t> hash_digest(std::span<const std::uint8_t> data, const EVP_MD* md) noexcept {
+    EvpMdCtxPtr ctx(EVP_MD_CTX_new());
+    if (!ctx)
+        return {};
 
-    /// Base64 alphabet (standard, RFC 4648).
-    constexpr std::string_view BASE64_CHARS =
-        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    std::vector<std::uint8_t> result(EVP_MAX_MD_SIZE, 0);
+    unsigned int len = 0;
+    EVP_DigestInit_ex(ctx.get(), md, nullptr);
+    EVP_DigestUpdate(ctx.get(), data.data(), data.size());
+    EVP_DigestFinal_ex(ctx.get(), result.data(), &len);
+    result.resize(len);
+    return result;
+}
 
-    /// Hex nibble -> character lookup.
-    constexpr std::string_view HEX_CHARS = "0123456789abcdef";
+/// Base64 alphabet (standard, RFC 4648).
+constexpr std::string_view BASE64_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
-} // anonymous namespace
+/// Hex nibble -> character lookup.
+constexpr std::string_view HEX_CHARS = "0123456789abcdef";
+
+}  // anonymous namespace
 
 // ===========================================================================
 //  signing::sha256
@@ -120,7 +118,7 @@ std::string Signing::sha256_hex(std::string_view data) noexcept {
 // ===========================================================================
 
 std::vector<std::uint8_t> Signing::hmac_sha256(std::span<const std::uint8_t> key,
-                                                std::span<const std::uint8_t> data) noexcept {
+                                               std::span<const std::uint8_t> data) noexcept {
     return hmac_digest(key, data, EVP_sha256());
 }
 
@@ -129,7 +127,7 @@ std::vector<std::uint8_t> Signing::hmac_sha256(std::span<const std::uint8_t> key
 // ===========================================================================
 
 std::vector<std::uint8_t> Signing::hmac_sha1(std::span<const std::uint8_t> key,
-                                              std::span<const std::uint8_t> data) noexcept {
+                                             std::span<const std::uint8_t> data) noexcept {
     return hmac_digest(key, data, EVP_sha1());
 }
 
@@ -198,7 +196,7 @@ std::string Signing::base64_encode(std::span<const std::uint8_t> data) noexcept 
 
 std::string Signing::iso8601_timestamp() noexcept {
     const auto now = std::time(nullptr);
-    const auto *tm = std::gmtime(&now);
+    const auto* tm = std::gmtime(&now);
     if (!tm)
         return {};
     std::array<char, 24> buf{};
@@ -212,7 +210,7 @@ std::string Signing::iso8601_timestamp() noexcept {
 
 std::string Signing::iso8601_date() noexcept {
     const auto now = std::time(nullptr);
-    const auto *tm = std::gmtime(&now);
+    const auto* tm = std::gmtime(&now);
     if (!tm)
         return {};
     std::array<char, 16> buf{};

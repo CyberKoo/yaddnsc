@@ -47,8 +47,10 @@ if (googletest_ADDED)
 
     # Mark GTest/GMock as SYSTEM to suppress clang-tidy false positives
     # (e.g. bugprone-suspicious-include on gtest-all.cc / gmock-all.cc).
+    # Also exempt them from IWYU: they are third-party TUs and must not fail
+    # the enforced include-hygiene check.
     foreach(tgt gtest gtest_main gmock gmock_main)
-      set_target_properties(${tgt} PROPERTIES SYSTEM TRUE)
+      set_target_properties(${tgt} PROPERTIES SYSTEM TRUE CXX_INCLUDE_WHAT_YOU_USE "")
     endforeach()
 endif ()
 
@@ -65,8 +67,11 @@ CPMAddPackage(
 
 # Google Benchmark's own library must be compiled with optimisations for
 # meaningful timing results, even when the parent project is Debug.
+# Also exempt it from IWYU: it is a third-party TU and must not fail the
+# enforced include-hygiene check.
 if(benchmark_ADDED)
   foreach(tgt benchmark benchmark_main)
+    set_target_properties(${tgt} PROPERTIES CXX_INCLUDE_WHAT_YOU_USE "")
     target_compile_options(${tgt} PRIVATE
           $<$<NOT:$<CONFIG:Release>>:-O2 -DNDEBUG>
         )

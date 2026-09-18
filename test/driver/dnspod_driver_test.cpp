@@ -12,14 +12,20 @@
 //     unparseable or empty response bodies.
 // =============================================================================
 
+#include <optional>
+#include <string>
+#include <string_view>
+#include <vector>
+
 #include <gtest/gtest.h>
+#include <yaddnsc/sdk/driver_abi.h>
 
 #include "abi_test_harness.h"
 
 // ── Shared fixtures ──────────────────────────────────────────────────────────
 
 namespace {
-    constexpr std::string_view CONFIG = R"({
+constexpr std::string_view CONFIG = R"({
         "domain_id": "dom123",
         "record_id": "rec456",
         "login_token": "token123",
@@ -27,24 +33,24 @@ namespace {
         "global": false
     })";
 
-    const std::string SUCCESS_WITH_RECORD = R"({
+const std::string SUCCESS_WITH_RECORD = R"({
         "status": {"code": "1", "message": "Action completed successfully", "created_at": "2024-01-01 00:00:00"},
         "record": {"id": 123, "name": "www.example.com", "value": "1.2.3.4"}
     })";
 
-    constexpr std::string_view GLOBAL_CONFIG = R"({
+constexpr std::string_view GLOBAL_CONFIG = R"({
         "domain_id": "dom123",
         "record_id": "rec456",
         "login_token": "token123",
         "global": true,
         "record_line_id": "0"
     })";
-} // namespace
+}  // namespace
 
 // ── Tests ──────────────────────────────────────────────────────────────────
 
 TEST(DNSPodDriverTest, Descriptor_ReturnsExpectedMetadata) {
-    const yaddnsc_driver_descriptor *descriptor = nullptr;
+    const yaddnsc_driver_descriptor* descriptor = nullptr;
     ASSERT_EQ(yaddnsc_driver_get_descriptor(&descriptor), YADDNSC_STATUS_OK);
     ASSERT_NE(descriptor, nullptr);
     EXPECT_EQ(descriptor->magic, YADDNSC_DRIVER_MAGIC);
@@ -67,7 +73,7 @@ TEST(DNSPodDriverTest, Update_DefaultEndpointCn) {
     ASSERT_EQ(result.status, YADDNSC_STATUS_OK) << result.error_message;
 
     ASSERT_EQ(fake.requests.size(), 1u);
-    const auto &request = fake.requests[0];
+    const auto& request = fake.requests[0];
 
     EXPECT_EQ(request.url, "https://dnsapi.cn/Record.Ddns");
     EXPECT_EQ(request.method, YADDNSC_HTTP_POST);
@@ -78,8 +84,7 @@ TEST(DNSPodDriverTest, Update_GlobalEndpoint) {
     FakeHostServices fake;
     fake.queue_response(200, SUCCESS_WITH_RECORD);
 
-    const auto result = run_abi_update(fake, GLOBAL_CONFIG, "1.2.3.4", "A", "example.com", "www",
-                                       "www.example.com");
+    const auto result = run_abi_update(fake, GLOBAL_CONFIG, "1.2.3.4", "A", "example.com", "www", "www.example.com");
     ASSERT_EQ(result.create_status, YADDNSC_STATUS_OK) << result.error_message;
     ASSERT_EQ(result.status, YADDNSC_STATUS_OK) << result.error_message;
 
@@ -97,7 +102,7 @@ TEST(DNSPodDriverTest, Update_BodyContainsRequiredFields) {
 
     ASSERT_EQ(fake.requests.size(), 1u);
     ASSERT_TRUE(fake.requests[0].body.has_value());
-    const auto &body = *fake.requests[0].body;
+    const auto& body = *fake.requests[0].body;
 
     EXPECT_TRUE(body.find("login_token=token123") != std::string::npos);
     EXPECT_TRUE(body.find("domain_id=dom123") != std::string::npos);
@@ -119,7 +124,7 @@ TEST(DNSPodDriverTest, Update_DefaultRecordLine_Cn) {
     ASSERT_EQ(fake.requests.size(), 1u);
     ASSERT_TRUE(fake.requests[0].body.has_value());
     // CN default record_line should be "默认"
-    const auto &body = *fake.requests[0].body;
+    const auto& body = *fake.requests[0].body;
     EXPECT_TRUE(body.find("record_line=%E9%BB%98%E8%AE%A4") != std::string::npos ||
                 body.find("record_line=默认") != std::string::npos);
 }
@@ -128,8 +133,7 @@ TEST(DNSPodDriverTest, Update_DefaultRecordLine_Global) {
     FakeHostServices fake;
     fake.queue_response(200, SUCCESS_WITH_RECORD);
 
-    const auto result = run_abi_update(fake, GLOBAL_CONFIG, "1.2.3.4", "A", "example.com", "www",
-                                       "www.example.com");
+    const auto result = run_abi_update(fake, GLOBAL_CONFIG, "1.2.3.4", "A", "example.com", "www", "www.example.com");
     ASSERT_EQ(result.create_status, YADDNSC_STATUS_OK) << result.error_message;
     ASSERT_EQ(result.status, YADDNSC_STATUS_OK) << result.error_message;
 
@@ -162,8 +166,8 @@ TEST(DNSPodDriverTest, Update_CustomRecordLine) {
 
 TEST(DNSPodDriverTest, Update_MissingDomainId_ReturnsInvalidConfig) {
     FakeHostServices fake;
-    const auto result = run_abi_update(fake, R"({"record_id": "rec456", "login_token": "token123"})", "1.2.3.4",
-                                       "A", "example.com", "@", "example.com");
+    const auto result = run_abi_update(fake, R"({"record_id": "rec456", "login_token": "token123"})", "1.2.3.4", "A",
+                                       "example.com", "@", "example.com");
     EXPECT_EQ(result.status, YADDNSC_STATUS_INVALID_CONFIG);
     EXPECT_TRUE(result.error_message.starts_with("Driver configuration parse error:")) << result.error_message;
     EXPECT_TRUE(fake.requests.empty());
@@ -266,5 +270,5 @@ TEST(DNSPodDriverTest, Validate_MalformedJson_ReturnsInvalidConfig) {
 TEST(DNSPodDriverTest, Entries_NullArgumentsRejected) {
     EXPECT_EQ(yaddnsc_driver_get_descriptor(nullptr), YADDNSC_STATUS_INVALID_ARGUMENT);
     EXPECT_EQ(yaddnsc_driver_update(nullptr, nullptr, nullptr), YADDNSC_STATUS_INVALID_ARGUMENT);
-    yaddnsc_driver_destroy(nullptr); // must be a no-op, must not crash
+    yaddnsc_driver_destroy(nullptr);  // must be a no-op, must not crash
 }

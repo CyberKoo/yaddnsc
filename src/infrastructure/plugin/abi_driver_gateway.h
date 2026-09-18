@@ -7,8 +7,12 @@
 
 #include <functional>
 #include <memory>
+#include <string_view>
+
+#include <expected>
 
 #include "application/ports/driver_gateway.h"
+#include "domain/error/error.h"
 #include "support/util/cancellation_token.hpp"
 
 class HttpClient;
@@ -48,25 +52,27 @@ public:
     /// @param http_factory  Factory creating one HttpClient per update call.
     /// @param cancel_token  Process-wide I/O cancellation signal.
     /// @param logger        Log port receiving plugin log records.
-    AbiDriverGateway(const DriverCatalog &catalog, HttpClientFactory http_factory,
-                     Utils::CancellationToken cancel_token, const Logger &logger);
+    AbiDriverGateway(const DriverCatalog& catalog,
+                     HttpClientFactory http_factory,
+                     Utils::CancellationToken cancel_token,
+                     const Logger& logger);
 
-    [[nodiscard]] std::expected<void, domain::DriverError>
-    update(std::string_view driver_name, const DriverUpdateCommand &command) const override;
+    [[nodiscard]] std::expected<void, domain::DriverError> update(std::string_view driver_name,
+                                                                  const DriverUpdateCommand& command) const override;
 
     /// Validate one subdomain's driver_param JSON against the driver's schema
     /// without performing an update (the host's `config test` path). Runs the
     /// same create → validate → destroy instance cycle as update(); when the
     /// plugin does not export the OPTIONAL yaddnsc_driver_validate entry the
     /// call succeeds immediately — older plugins impose no driver-side check.
-    [[nodiscard]] std::expected<void, domain::DriverError>
-    validate_config(std::string_view driver_name, std::string_view driver_param_json) const;
+    [[nodiscard]] std::expected<void, domain::DriverError> validate_config(std::string_view driver_name,
+                                                                           std::string_view driver_param_json) const;
 
 private:
-    const DriverCatalog &catalog_;
+    const DriverCatalog& catalog_;
     HttpClientFactory http_factory_;
     Utils::CancellationToken cancel_token_;
-    const Logger &logger_;
+    const Logger& logger_;
 };
 
-#endif // YADDNSC_INFRASTRUCTURE_PLUGIN_ABI_DRIVER_GATEWAY_H
+#endif  // YADDNSC_INFRASTRUCTURE_PLUGIN_ABI_DRIVER_GATEWAY_H

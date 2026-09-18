@@ -6,11 +6,14 @@
 
 #include <algorithm>
 #include <chrono>
+#include <compare>
+#include <map>
 #include <utility>
 
+#include "infrastructure/network/http/protocol/wire.h"
+#include "infrastructure/network/http/stream_factory.h"
+#include "infrastructure/network/transport/io_error.h"
 #include "infrastructure/network/transport/stream.h"
-
-#include "support/fmt.hpp"
 
 namespace net::http {
 
@@ -93,9 +96,8 @@ std::expected<Response, Error> Session::exchange(const protocol::WireRequest& re
     if (raw->keep_alive_max) {
         // `max` limits requests on this connection; a repeated header must
         // not reset a cap already consumed by earlier exchanges.
-        keep_alive_remaining_ = keep_alive_remaining_
-                                    ? std::min(*keep_alive_remaining_, *raw->keep_alive_max)
-                                    : *raw->keep_alive_max;
+        keep_alive_remaining_ =
+            keep_alive_remaining_ ? std::min(*keep_alive_remaining_, *raw->keep_alive_max) : *raw->keep_alive_max;
     }
     if (raw->keep_alive_timeout) {
         keep_alive_deadline_ = std::chrono::steady_clock::now() + std::chrono::seconds(*raw->keep_alive_timeout);
@@ -126,9 +128,8 @@ std::expected<protocol::RawResponse, Error> Session::do_exchange(const protocol:
 std::expected<void, Error> Session::ensure_stream() {
     if (!stream_) {
         // Scheme/transport pairing is decided here, once per origin.
-        stream_ = scheme_ == "https"
-                      ? factory_->create_tls(host_, port_, transport_opts_, tls_opts_)
-                      : factory_->create_tcp(host_, port_, transport_opts_);
+        stream_ = scheme_ == "https" ? factory_->create_tls(host_, port_, transport_opts_, tls_opts_)
+                                     : factory_->create_tcp(host_, port_, transport_opts_);
     }
     if (auto connected = stream_->ensure_connected(); !connected) {
         stream_.reset();

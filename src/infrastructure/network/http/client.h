@@ -11,15 +11,17 @@
 #ifndef YADDNSC_HTTP_CLIENT_CLIENT_H
 #define YADDNSC_HTTP_CLIENT_CLIENT_H
 
+#include <memory>
 #include <string_view>
 
-#include <expected>
-
 #include "infrastructure/network/http/client_port.h"
-
-#include "infrastructure/network/http/error.h"
-#include "infrastructure/network/http/stream_factory.h"
 #include "infrastructure/network/http/types.h"
+
+namespace net {
+namespace http {
+class StreamFactory;
+}  // namespace http
+}  // namespace net
 
 namespace Utils {
 class CancellationToken;
@@ -40,14 +42,13 @@ public:
     Client(Options opts, std::shared_ptr<StreamFactory> factory);
 
     /// Perform an HTTP exchange, following redirects per Options.
-    [[nodiscard]] std::expected<Response, Error> exchange(std::string_view url,
-                                                          const Request& req) const override;
+    [[nodiscard]] std::expected<Response, Error> exchange(std::string_view url, const Request& req) const override;
 
 private:
     Options opts_;
     std::shared_ptr<StreamFactory> factory_;
 };
 
-} // namespace net::http
+}  // namespace net::http
 
-#endif // YADDNSC_HTTP_CLIENT_CLIENT_H
+#endif  // YADDNSC_HTTP_CLIENT_CLIENT_H

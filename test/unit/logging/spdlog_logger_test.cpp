@@ -8,6 +8,8 @@
 // gating against the active spdlog level.
 // =============================================================================
 
+#include "infrastructure/logging/spdlog_logger.h"
+
 #include <memory>
 #include <mutex>
 #include <source_location>
@@ -16,11 +18,10 @@
 #include <vector>
 
 #include <gtest/gtest.h>
-
 #include <spdlog/sinks/base_sink.h>
 #include <spdlog/spdlog.h>
 
-#include "infrastructure/logging/spdlog_logger.h"
+#include "application/ports/log.h"
 
 namespace {
 
@@ -38,12 +39,12 @@ public:
     std::vector<RecordedRecord> records;
 
 protected:
-    void sink_it_(const spdlog::details::log_msg &msg) override {
-        records.push_back(RecordedRecord{
-                msg.level, std::string(msg.payload.data(), msg.payload.size()),
-                msg.source.filename != nullptr ? std::string(msg.source.filename) : std::string{},
-                static_cast<int>(msg.source.line),
-                msg.source.funcname != nullptr ? std::string(msg.source.funcname) : std::string{}});
+    void sink_it_(const spdlog::details::log_msg& msg) override {
+        records.push_back(
+            RecordedRecord{msg.level, std::string(msg.payload.data(), msg.payload.size()),
+                           msg.source.filename != nullptr ? std::string(msg.source.filename) : std::string{},
+                           static_cast<int>(msg.source.line),
+                           msg.source.funcname != nullptr ? std::string(msg.source.funcname) : std::string{}});
     }
 
     void flush_() override {}
@@ -62,21 +63,19 @@ public:
         spdlog::set_default_logger(logger);
     }
 
-    ~ScopedRecordingLogger() {
-        spdlog::set_default_logger(original_);
-    }
+    ~ScopedRecordingLogger() { spdlog::set_default_logger(original_); }
 
-    ScopedRecordingLogger(const ScopedRecordingLogger &) = delete;
-    ScopedRecordingLogger &operator=(const ScopedRecordingLogger &) = delete;
+    ScopedRecordingLogger(const ScopedRecordingLogger&) = delete;
+    ScopedRecordingLogger& operator=(const ScopedRecordingLogger&) = delete;
 
-    [[nodiscard]] const std::vector<RecordedRecord> &records() const { return sink_->records; }
+    [[nodiscard]] const std::vector<RecordedRecord>& records() const { return sink_->records; }
 
 private:
     std::shared_ptr<spdlog::logger> original_;
     std::shared_ptr<RecordingSink> sink_;
 };
 
-} // namespace
+}  // namespace
 
 TEST(SpdlogLoggerTest, ForwardsEveryLevelWithSourceLocation) {
     ScopedRecordingLogger env;
@@ -89,7 +88,7 @@ TEST(SpdlogLoggerTest, ForwardsEveryLevelWithSourceLocation) {
     logger.log(LogLevel::error, "e", std::source_location::current());
     logger.log(LogLevel::critical, "c", std::source_location::current());
 
-    const auto &records = env.records();
+    const auto& records = env.records();
     ASSERT_EQ(records.size(), 6u);
     EXPECT_EQ(records[0].level, spdlog::level::trace);
     EXPECT_EQ(records[1].level, spdlog::level::debug);
@@ -97,9 +96,9 @@ TEST(SpdlogLoggerTest, ForwardsEveryLevelWithSourceLocation) {
     EXPECT_EQ(records[3].level, spdlog::level::warn);
     EXPECT_EQ(records[4].level, spdlog::level::err);
     EXPECT_EQ(records[5].level, spdlog::level::critical);
-    for (const auto &record: records) {
-        EXPECT_EQ(record.message.size(), 1u); // single-char payload survives intact
-        EXPECT_FALSE(record.file.empty());    // source location forwarded
+    for (const auto& record : records) {
+        EXPECT_EQ(record.message.size(), 1u);  // single-char payload survives intact
+        EXPECT_FALSE(record.file.empty());     // source location forwarded
     }
 }
 
@@ -110,7 +109,7 @@ TEST(SpdlogLoggerTest, LogExplicitForwardsExplicitSourceLocation) {
     // The plugin Host Services path: location arrives as plain data.
     logger.log_explicit(LogLevel::warn, "via explicit", "plugin.cpp", 42, "update");
 
-    const auto &records = env.records();
+    const auto& records = env.records();
     ASSERT_EQ(records.size(), 1u);
     EXPECT_EQ(records[0].level, spdlog::level::warn);
     EXPECT_EQ(records[0].message, "via explicit");

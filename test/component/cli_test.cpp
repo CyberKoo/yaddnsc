@@ -17,34 +17,41 @@
 // config-test and driver-command dispatch paths.
 // =============================================================================
 
-#include <gmock/gmock.h>
-#include <gtest/gtest.h>
-
 #include <atomic>
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <initializer_list>
 #include <iostream>
+#include <iterator>
+#include <optional>
+#include <stdexcept>
 #include <string>
 #include <string_view>
+#include <system_error>
+#include <utility>
+#include <variant>
 #include <vector>
 
+#include <expected>
 #include <fcntl.h>
+#include <gmock/gmock.h>
+#include <gtest/gtest.h>
 #include <unistd.h>
 
 #include "application/diagnostics.h"
+#include "application/ports/driver_catalog.h"
 #include "cli/command.h"
 #include "cli/parser.h"
 #include "cli/presenter.h"
 #include "composition/bootstrap.h"
-
-#include "infrastructure/config/config.h"
-#include "domain/error/dns_error_info.h"
-#include "infrastructure/network/system_network_interfaces.h"
 #include "domain/dns/record_kind.h"
-
+#include "domain/error/dns_error.h"
+#include "domain/error/dns_error_info.h"
+#include "domain/network/inet_address.h"
 #include "fixtures/sample_config.h"
+#include "infrastructure/network/system_network_interfaces.h"
 #include "mocks/mock_ports.h"
 
 // ===========================================================================
@@ -53,150 +60,149 @@
 
 namespace {
 
-    struct Argv {
-        std::vector<std::string> storage;
-        std::vector<char *> ptrs;
+struct Argv {
+    std::vector<std::string> storage;
+    std::vector<char*> ptrs;
 
-        [[nodiscard]] int argc() const { return static_cast<int>(ptrs.size()); }
+    [[nodiscard]] int argc() const { return static_cast<int>(ptrs.size()); }
 
-        [[nodiscard]] char **data() { return ptrs.data(); }
-    };
+    [[nodiscard]] char** data() { return ptrs.data(); }
+};
 
-    /// Build argv that stays alive for the duration of the call: the returned
-    /// struct owns both the string storage and the char* pointers.
-    [[nodiscard]] Argv make_argv(std::vector<std::string> args) {
-        Argv argv;
-        argv.storage = std::move(args);
-        argv.ptrs.reserve(argv.storage.size());
-        for (auto &arg: argv.storage) {
-            argv.ptrs.push_back(arg.data());
-        }
-        return argv;
+/// Build argv that stays alive for the duration of the call: the returned
+/// struct owns both the string storage and the char* pointers.
+[[nodiscard]] Argv make_argv(std::vector<std::string> args) {
+    Argv argv;
+    argv.storage = std::move(args);
+    argv.ptrs.reserve(argv.storage.size());
+    for (auto& arg : argv.storage) {
+        argv.ptrs.push_back(arg.data());
+    }
+    return argv;
+}
+
+/// Parse helper: builds argv and runs the pure parser.
+[[nodiscard]] Cli::ParseResult parse(std::vector<std::string> args) {
+    auto argv = make_argv(std::move(args));
+    return Cli::parse(argv.argc(), argv.data());
+}
+
+class TempConfigFile {
+public:
+    explicit TempConfigFile(std::string content) : path_(make_unique_path()) {
+        std::ofstream out(path_);
+        out << content;
     }
 
-    /// Parse helper: builds argv and runs the pure parser.
-    [[nodiscard]] Cli::ParseResult parse(std::vector<std::string> args) {
-        auto argv = make_argv(std::move(args));
-        return Cli::parse(argv.argc(), argv.data());
+    ~TempConfigFile() {
+        std::error_code ec;
+        std::filesystem::remove(path_, ec);
     }
 
-    class TempConfigFile {
-    public:
-        explicit TempConfigFile(std::string content) : path_(make_unique_path()) {
-            std::ofstream out(path_);
-            out << content;
-        }
+    TempConfigFile(const TempConfigFile&) = delete;
+    TempConfigFile& operator=(const TempConfigFile&) = delete;
 
-        ~TempConfigFile() {
-            std::error_code ec;
-            std::filesystem::remove(path_, ec);
-        }
+    [[nodiscard]] const std::string& path() const { return path_; }
 
-        TempConfigFile(const TempConfigFile &) = delete;
-        TempConfigFile &operator=(const TempConfigFile &) = delete;
-
-        [[nodiscard]] const std::string &path() const { return path_; }
-
-    private:
-        [[nodiscard]] static std::string make_unique_path() {
-            static std::atomic<unsigned> counter{0};
-            const auto path = std::filesystem::temp_directory_path() /
-                              ("yaddnsc_cli_test_" + std::to_string(::getpid()) + "_" +
-                               std::to_string(counter.fetch_add(1)) + ".json");
-            return path.string();
-        }
-
-        std::string path_;
-    };
-
-    /// Config that loads the real "simple" driver from the build tree.
-    [[nodiscard]] std::string config_with_simple_driver() {
-        return std::string(R"({"driver":{"auto_discover":false,"driver_dir":")") + TEST_DRIVER_DIR +
-               R"(","load":["simple/simple.so"]},"resolver":{"use_custom_server":false},"domains":[]})";
+private:
+    [[nodiscard]] static std::string make_unique_path() {
+        static std::atomic<unsigned> counter{0};
+        const auto path =
+            std::filesystem::temp_directory_path() /
+            ("yaddnsc_cli_test_" + std::to_string(::getpid()) + "_" + std::to_string(counter.fetch_add(1)) + ".json");
+        return path.string();
     }
 
-    /// Config with no drivers loaded (driver_dir exists, empty load list).
-    [[nodiscard]] std::string config_no_drivers() {
-        return std::string(R"({"driver":{"auto_discover":false,"driver_dir":")") + TEST_DRIVER_DIR +
-               R"(","load":[]},"resolver":{"use_custom_server":false},"domains":[]})";
+    std::string path_;
+};
+
+/// Config that loads the real "simple" driver from the build tree.
+[[nodiscard]] std::string config_with_simple_driver() {
+    return std::string(R"({"driver":{"auto_discover":false,"driver_dir":")") + TEST_DRIVER_DIR +
+           R"(","load":["simple/simple.so"]},"resolver":{"use_custom_server":false},"domains":[]})";
+}
+
+/// Config with no drivers loaded (driver_dir exists, empty load list).
+[[nodiscard]] std::string config_no_drivers() {
+    return std::string(R"({"driver":{"auto_discover":false,"driver_dir":")") + TEST_DRIVER_DIR +
+           R"(","load":[]},"resolver":{"use_custom_server":false},"domains":[]})";
+}
+
+/// Config that loads a driver file that does not exist → PluginLoadException.
+[[nodiscard]] std::string config_bad_driver() {
+    return std::string(R"({"driver":{"auto_discover":false,"driver_dir":")") + TEST_DRIVER_DIR +
+           R"(","load":["definitely_missing_driver.so"]},"resolver":{"use_custom_server":false},"domains":[]})";
+}
+
+/// Redirect a stream (STDOUT_FILENO or STDERR_FILENO) to a temp file so
+/// output can be asserted. Restores on destruction (or when str() runs).
+class StreamCapture {
+public:
+    explicit StreamCapture(int fd = STDOUT_FILENO) : target_fd_(fd), path_(make_unique_path()) {
+        flush_out();
+        saved_fd_ = ::dup(target_fd_);
+        file_fd_ = ::open(path_.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0600);
+        ::dup2(file_fd_, target_fd_);
     }
 
-    /// Config that loads a driver file that does not exist → PluginLoadException.
-    [[nodiscard]] std::string config_bad_driver() {
-        return std::string(R"({"driver":{"auto_discover":false,"driver_dir":")") + TEST_DRIVER_DIR +
-               R"(","load":["definitely_missing_driver.so"]},"resolver":{"use_custom_server":false},"domains":[]})";
+    ~StreamCapture() {
+        restore();
+        std::error_code ec;
+        std::filesystem::remove(path_, ec);
     }
 
-    /// Redirect a stream (STDOUT_FILENO or STDERR_FILENO) to a temp file so
-    /// output can be asserted. Restores on destruction (or when str() runs).
-    class StreamCapture {
-    public:
-        explicit StreamCapture(int fd = STDOUT_FILENO) : target_fd_(fd), path_(make_unique_path()) {
-            flush_out();
-            saved_fd_ = ::dup(target_fd_);
-            file_fd_ = ::open(path_.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0600);
-            ::dup2(file_fd_, target_fd_);
-        }
+    StreamCapture(const StreamCapture&) = delete;
+    StreamCapture& operator=(const StreamCapture&) = delete;
 
-        ~StreamCapture() {
-            restore();
-            std::error_code ec;
-            std::filesystem::remove(path_, ec);
-        }
-
-        StreamCapture(const StreamCapture &) = delete;
-        StreamCapture &operator=(const StreamCapture &) = delete;
-
-        /// Restore the stream and return everything written so far.
-        [[nodiscard]] std::string str() {
-            restore();
-            std::ifstream in(path_);
-            return {std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()};
-        }
-
-    private:
-        // std::println writes to the stdio buffer while CLI11 and gtest use
-        // std::cout — both buffers must be drained around a redirect.
-        static void flush_out() {
-            std::cout.flush();
-            std::cerr.flush();
-            std::fflush(stdout);
-            std::fflush(stderr);
-        }
-
-        void restore() {
-            if (saved_fd_ == -1) {
-                return;
-            }
-            flush_out();
-            ::dup2(saved_fd_, target_fd_);
-            ::close(saved_fd_);
-            ::close(file_fd_);
-            saved_fd_ = -1;
-        }
-
-        [[nodiscard]] static std::filesystem::path make_unique_path() {
-            static std::atomic<unsigned> counter{0};
-            return std::filesystem::temp_directory_path() /
-                   ("yaddnsc_cli_out_" + std::to_string(::getpid()) + "_" +
-                    std::to_string(counter.fetch_add(1)) + ".txt");
-        }
-
-        int target_fd_;
-        std::filesystem::path path_;
-        int saved_fd_{-1};
-        int file_fd_{-1};
-    };
-
-    using StdoutCapture = StreamCapture;
-
-    /// Any interface name known to the OS (loopback at minimum).
-    [[nodiscard]] std::string any_interface_name() {
-        const SystemNetworkInterfaces interfaces;
-        const auto names = interfaces.names();
-        return names.empty() ? std::string{} : names.front();
+    /// Restore the stream and return everything written so far.
+    [[nodiscard]] std::string str() {
+        restore();
+        std::ifstream in(path_);
+        return {std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()};
     }
-} // namespace
+
+private:
+    // std::println writes to the stdio buffer while CLI11 and gtest use
+    // std::cout — both buffers must be drained around a redirect.
+    static void flush_out() {
+        std::cout.flush();
+        std::cerr.flush();
+        std::fflush(stdout);
+        std::fflush(stderr);
+    }
+
+    void restore() {
+        if (saved_fd_ == -1) {
+            return;
+        }
+        flush_out();
+        ::dup2(saved_fd_, target_fd_);
+        ::close(saved_fd_);
+        ::close(file_fd_);
+        saved_fd_ = -1;
+    }
+
+    [[nodiscard]] static std::filesystem::path make_unique_path() {
+        static std::atomic<unsigned> counter{0};
+        return std::filesystem::temp_directory_path() /
+               ("yaddnsc_cli_out_" + std::to_string(::getpid()) + "_" + std::to_string(counter.fetch_add(1)) + ".txt");
+    }
+
+    int target_fd_;
+    std::filesystem::path path_;
+    int saved_fd_{-1};
+    int file_fd_{-1};
+};
+
+using StdoutCapture = StreamCapture;
+
+/// Any interface name known to the OS (loopback at minimum).
+[[nodiscard]] std::string any_interface_name() {
+    const SystemNetworkInterfaces interfaces;
+    const auto names = interfaces.names();
+    return names.empty() ? std::string{} : names.front();
+}
+}  // namespace
 
 // ===========================================================================
 //  Cli::parse — routing, aliases, options (pure parsing)
@@ -241,7 +247,7 @@ TEST(CliParseTest, Run_DefaultConfig) {
     const auto result = parse({"yaddnsc", "run"});
 
     ASSERT_TRUE(result.command.has_value());
-    const auto &cmd = std::get<Cli::RunCommand>(*result.command);
+    const auto& cmd = std::get<Cli::RunCommand>(*result.command);
     EXPECT_EQ(cmd.config_path, "config.json");
     EXPECT_FALSE(cmd.verbose);
 }
@@ -301,7 +307,7 @@ TEST(CliParseTest, DriverInfo_ParsesName) {
     const auto result = parse({"yaddnsc", "driver", "info", "cloudflare"});
 
     ASSERT_TRUE(result.command.has_value());
-    const auto &cmd = std::get<Cli::DriverInfoCommand>(*result.command);
+    const auto& cmd = std::get<Cli::DriverInfoCommand>(*result.command);
     EXPECT_EQ(cmd.name, "cloudflare");
     EXPECT_EQ(cmd.config_path, "config.json");
 }
@@ -314,7 +320,7 @@ TEST(CliParseTest, DriverInfo_RequiresName) {
 }
 
 TEST(CliParseTest, InterfaceAliases_ParseToSameCommand) {
-    for (const auto &alias: {"interface", "if", "net"}) {
+    for (const auto& alias : {"interface", "if", "net"}) {
         const auto result = parse({"yaddnsc", alias, "list"});
         ASSERT_TRUE(result.command.has_value()) << "alias: " << alias;
         EXPECT_TRUE(std::holds_alternative<Cli::InterfaceListCommand>(*result.command)) << "alias: " << alias;
@@ -332,7 +338,7 @@ TEST(CliParseTest, DnsResolve_ParsesHostAndDefaultType) {
     const auto result = parse({"yaddnsc", "dns", "resolve", "example.com"});
 
     ASSERT_TRUE(result.command.has_value());
-    const auto &cmd = std::get<Cli::DnsResolveCommand>(*result.command);
+    const auto& cmd = std::get<Cli::DnsResolveCommand>(*result.command);
     EXPECT_EQ(cmd.host, "example.com");
     EXPECT_EQ(cmd.type, "A");
 }
@@ -341,7 +347,7 @@ TEST(CliParseTest, DnsResolve_AliasAndType) {
     const auto result = parse({"yaddnsc", "dns", "r", "example.com", "--type", "AAAA"});
 
     ASSERT_TRUE(result.command.has_value());
-    const auto &cmd = std::get<Cli::DnsResolveCommand>(*result.command);
+    const auto& cmd = std::get<Cli::DnsResolveCommand>(*result.command);
     EXPECT_EQ(cmd.host, "example.com");
     EXPECT_EQ(cmd.type, "AAAA");
 }
@@ -361,7 +367,7 @@ TEST(CliParseTest, DnsResolver_Parses) {
 }
 
 TEST(CliParseTest, ConfigShow_AliasParses) {
-    for (const auto &alias: {"show", "s"}) {
+    for (const auto& alias : {"show", "s"}) {
         const auto result = parse({"yaddnsc", "config", alias});
         ASSERT_TRUE(result.command.has_value()) << "alias: " << alias;
         EXPECT_TRUE(std::holds_alternative<Cli::ConfigShowCommand>(*result.command)) << "alias: " << alias;
@@ -372,7 +378,7 @@ TEST(CliParseTest, ConfigTest_AliasAndQuietFlag) {
     const auto result = parse({"yaddnsc", "config", "t", "-q"});
 
     ASSERT_TRUE(result.command.has_value());
-    const auto &cmd = std::get<Cli::ConfigTestCommand>(*result.command);
+    const auto& cmd = std::get<Cli::ConfigTestCommand>(*result.command);
     EXPECT_TRUE(cmd.quiet);
     EXPECT_EQ(cmd.config_path, "config.json");
 }
@@ -494,7 +500,8 @@ TEST(CliConfigTest, DispatchTest_Quiet_PrintsNothing) {
 
 TEST(CliConfigTest, DispatchTest_EmptyDriverDir_ReturnsFailure) {
     // driver_dir set but empty → ConfigVerificationException at load time.
-    TempConfigFile cfg(R"({"driver":{"auto_discover":false,"driver_dir":"","load":["simple/simple.so"]},"resolver":{"use_custom_server":false},"domains":[]})");
+    TempConfigFile cfg(
+        R"({"driver":{"auto_discover":false,"driver_dir":"","load":["simple/simple.so"]},"resolver":{"use_custom_server":false},"domains":[]})");
     EXPECT_EQ(Composition::dispatch(Cli::ConfigTestCommand{cfg.path()}), EXIT_FAILURE);
 }
 
@@ -517,9 +524,12 @@ TEST(CliConfigTest, DispatchTest_DriverNotLoaded_ReturnsFailure) {
     // A domain whose referenced driver is not loaded → environment validation
     // failure (after drivers load successfully). update_interval is set so
     // static validation passes and the environment check is what fails.
-    const std::string invalid_domain_config = std::string("{\"driver\":{\"auto_discover\":false,\"driver_dir\":\"") +
-                                              TEST_DRIVER_DIR +
-                                              "\",\"load\":[\"simple/simple.so\"]},\"resolver\":{\"use_custom_server\":false},\"domains\":[{\"name\":\"example.com\",\"update_interval\":300,\"driver\":\"cloudflare\",\"subdomains\":[{\"name\":\"www\",\"type\":\"a\",\"ip_source\":\"http\",\"ip_source_param\":\"https://api.ipify.org\"}]}]}";
+    const std::string invalid_domain_config =
+        std::string("{\"driver\":{\"auto_discover\":false,\"driver_dir\":\"") + TEST_DRIVER_DIR +
+        "\",\"load\":[\"simple/"
+        "simple.so\"]},\"resolver\":{\"use_custom_server\":false},\"domains\":[{\"name\":\"example.com\",\"update_"
+        "interval\":300,\"driver\":\"cloudflare\",\"subdomains\":[{\"name\":\"www\",\"type\":\"a\",\"ip_source\":"
+        "\"http\",\"ip_source_param\":\"https://api.ipify.org\"}]}]}";
     TempConfigFile cfg(invalid_domain_config);
 
     StreamCapture err{STDERR_FILENO};
@@ -614,7 +624,8 @@ TEST(CliDnsTest, DispatchResolver_Default_ReturnsZero) {
 }
 
 TEST(CliDnsTest, DispatchResolver_UriServers_ReturnsZero) {
-    TempConfigFile cfg{R"({"driver":{"auto_discover":false,"load":[]},"resolver":{"use_custom_server":true,"servers":[{"address":"https://1.1.1.1/dns-query","port":443}]},"domains":[]})"};
+    TempConfigFile cfg{
+        R"({"driver":{"auto_discover":false,"load":[]},"resolver":{"use_custom_server":true,"servers":[{"address":"https://1.1.1.1/dns-query","port":443}]},"domains":[]})"};
 
     StdoutCapture capture;
     EXPECT_EQ(Composition::dispatch(Cli::DnsResolverCommand{cfg.path()}), EXIT_SUCCESS);
@@ -622,7 +633,8 @@ TEST(CliDnsTest, DispatchResolver_UriServers_ReturnsZero) {
 }
 
 TEST(CliDnsTest, DispatchResolver_BareServers_ReturnsZero) {
-    TempConfigFile cfg{R"({"driver":{"auto_discover":false,"load":[]},"resolver":{"use_custom_server":true,"servers":[{"address":"8.8.8.8","port":53}]},"domains":[]})"};
+    TempConfigFile cfg{
+        R"({"driver":{"auto_discover":false,"load":[]},"resolver":{"use_custom_server":true,"servers":[{"address":"8.8.8.8","port":53}]},"domains":[]})"};
 
     StdoutCapture capture;
     EXPECT_EQ(Composition::dispatch(Cli::DnsResolverCommand{cfg.path()}), EXIT_SUCCESS);
@@ -630,7 +642,8 @@ TEST(CliDnsTest, DispatchResolver_BareServers_ReturnsZero) {
 }
 
 TEST(CliDnsTest, DispatchResolver_LegacyServer_ReturnsZero) {
-    TempConfigFile cfg{R"({"driver":{"auto_discover":false,"load":[]},"resolver":{"use_custom_server":true,"address":"9.9.9.9","port":53},"domains":[]})"};
+    TempConfigFile cfg{
+        R"({"driver":{"auto_discover":false,"load":[]},"resolver":{"use_custom_server":true,"address":"9.9.9.9","port":53},"domains":[]})"};
 
     StdoutCapture capture;
     EXPECT_EQ(Composition::dispatch(Cli::DnsResolverCommand{cfg.path()}), EXIT_SUCCESS);
@@ -722,12 +735,11 @@ TEST(CliDiagnosticsTest, ListDrivers_EmptyCatalog) {
 
 TEST(CliDiagnosticsTest, ListDrivers_CapturesPerDriverFailure) {
     MockDriverCatalogPort catalog;
-    ON_CALL(catalog, loaded_drivers())
-        .WillByDefault(::testing::Return(std::vector<std::string>{"good", "bad"}));
+    ON_CALL(catalog, loaded_drivers()).WillByDefault(::testing::Return(std::vector<std::string>{"good", "bad"}));
     ON_CALL(catalog, describe("good"))
-        .WillByDefault(::testing::Return(DriverDescription{.name = "good", .version = "1.0", .author = "a", .description = "d"}));
-    ON_CALL(catalog, describe("bad"))
-        .WillByDefault(::testing::Throw(std::runtime_error("descriptor exploded")));
+        .WillByDefault(
+            ::testing::Return(DriverDescription{.name = "good", .version = "1.0", .author = "a", .description = "d"}));
+    ON_CALL(catalog, describe("bad")).WillByDefault(::testing::Throw(std::runtime_error("descriptor exploded")));
 
     const auto items = Diagnostics::list_drivers(catalog);
     ASSERT_EQ(items.size(), 2);
@@ -757,8 +769,7 @@ TEST(CliDiagnosticsTest, ListInterfaces_CollectsAddresses) {
 // ===========================================================================
 
 TEST(CliPresenterTest, DnsResolve_UnknownType_PrintsValidTypes) {
-    Diagnostics::DnsResolveOutcome outcome{
-        .host = "example.com", .type_text = "BOGUS", .lookup = std::nullopt};
+    Diagnostics::DnsResolveOutcome outcome{.host = "example.com", .type_text = "BOGUS", .lookup = std::nullopt};
 
     StreamCapture err{STDERR_FILENO};
     EXPECT_EQ(Cli::present_dns_resolve(outcome), EXIT_FAILURE);
@@ -791,8 +802,7 @@ TEST(CliPresenterTest, DnsResolve_Records_PrintsResultBlock) {
 
     StdoutCapture capture;
     EXPECT_EQ(Cli::present_dns_resolve(outcome), EXIT_SUCCESS);
-    EXPECT_EQ(capture.str(),
-              "DNS lookup result:\n  Host:  example.com\n  Type:  A\n  Value: 192.0.2.1, 192.0.2.2\n");
+    EXPECT_EQ(capture.str(), "DNS lookup result:\n  Host:  example.com\n  Type:  A\n  Value: 192.0.2.1, 192.0.2.2\n");
 }
 
 TEST(CliPresenterTest, ConfigTest_Success_PrintsPassed) {
@@ -812,22 +822,23 @@ TEST(CliPresenterTest, ConfigTest_ErrorPrefixes) {
 
     {
         StreamCapture err{STDERR_FILENO};
-        EXPECT_EQ(Cli::present_config_test({.quiet = false,
-                                            .error = Error{.kind = Error::Kind::VERIFICATION, .message = "m1"}}),
+        EXPECT_EQ(Cli::present_config_test(
+                      {.quiet = false, .error = Error{.kind = Error::Kind::VERIFICATION, .message = "m1"}}),
                   EXIT_FAILURE);
         EXPECT_EQ(err.str(), "Configuration verification failed: m1\n");
     }
     {
         StreamCapture err{STDERR_FILENO};
-        EXPECT_EQ(Cli::present_config_test({.quiet = false, .error = Error{.kind = Error::Kind::FATAL, .message = "m2"}}),
-                  EXIT_FAILURE);
+        EXPECT_EQ(
+            Cli::present_config_test({.quiet = false, .error = Error{.kind = Error::Kind::FATAL, .message = "m2"}}),
+            EXIT_FAILURE);
         EXPECT_EQ(err.str(), "Fatal error: unrecoverable exception: m2\n");
     }
     {
         StreamCapture err{STDERR_FILENO};
-        EXPECT_EQ(Cli::present_config_test(
-                      {.quiet = false, .error = Error{.kind = Error::Kind::GENERIC, .message = "m3"}}),
-                  EXIT_FAILURE);
+        EXPECT_EQ(
+            Cli::present_config_test({.quiet = false, .error = Error{.kind = Error::Kind::GENERIC, .message = "m3"}}),
+            EXIT_FAILURE);
         EXPECT_EQ(err.str(), "Failed to validate configuration: m3\n");
     }
 }
@@ -856,18 +867,18 @@ TEST(CliCompletionTest, ScriptsCoverEveryCommandAndAlias) {
           "interface|if|net)", "resolve|r)", "show|s)", "test|t)", "--type", "--debug", "--quiet", "--config",
           "--version"}},
         {"bash/yaddnsc",
-         {"run driver interface dns config info", "interface|if|net)", "resolve|resolver|show|test|r|s|t",
-          "--config", "--debug", "--quiet", "--type", "-v"}},
+         {"run driver interface dns config info", "interface|if|net)", "resolve|resolver|show|test|r|s|t", "--config",
+          "--debug", "--quiet", "--type", "-v"}},
         {"fish/yaddnsc.fish",
          {"__fish_seen_subcommand_from run driver interface if net dns config info", "resolve r", "show s", "test t",
           "-l config", "-l debug", "-l quiet", "-l type", "-l version"}},
     };
 
-    for (const auto &[script, patterns]: expectations) {
+    for (const auto& [script, patterns] : expectations) {
         std::ifstream in(template_dir / script);
         ASSERT_TRUE(in.good()) << "missing completion script: " << script;
         const std::string content{std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()};
-        for (const auto &pattern: patterns) {
+        for (const auto& pattern : patterns) {
             EXPECT_TRUE(content.find(pattern) != std::string::npos)
                 << script << " is out of sync with the parser (missing: " << pattern << ")";
         }

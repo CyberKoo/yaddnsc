@@ -7,9 +7,9 @@
 
 #include <string>
 
-#include "support/exception.h"
-#include "domain/dns/record_kind.h"
 #include "infrastructure/ip_source/base.h"
+
+enum class RecordKind;
 
 // ---------------------------------------------------------------------------
 // MdnsIpSource — discovers a LAN device's IP address via mDNS (RFC 6762).
@@ -40,4 +40,4 @@ private:
     std::string interface_;
 };
 
-#endif // YADDNSC_MDNS_IP_SOURCE_H
+#endif  // YADDNSC_MDNS_IP_SOURCE_H

@@ -4,15 +4,24 @@
 #include "infrastructure/network/http/persistent_client.h"
 
 #include <cstdint>
+#include <map>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <utility>
 
-#include "infrastructure/network/http/client.h"
-#include "infrastructure/network/http/redirect.h"
-#include "infrastructure/network/http/wire_request.h"
+#include <expected>
+#include <yaddnsc/util/format.hpp>
 
+#include "infrastructure/network/http/client.h"
+#include "infrastructure/network/http/error.h"
+#include "infrastructure/network/http/protocol/wire.h"
+#include "infrastructure/network/http/redirect.h"
+#include "infrastructure/network/http/stream_factory.h"
+#include "infrastructure/network/http/wire_request.h"
+#include "infrastructure/network/transport/options.h"
 #include "support/fmt.hpp"
+#include "support/util/cancellation_token.hpp"
 
 namespace net::http {
 
@@ -24,7 +33,7 @@ namespace {
     Request req;
     req.method = wire.method;
     req.body = wire.body;
-    for (const auto& [name, value]: wire.headers) {
+    for (const auto& [name, value] : wire.headers) {
         if (name == "Host" || name == "User-Agent" || name == "Content-Length") {
             continue;
         }
@@ -37,24 +46,21 @@ namespace {
     return req;
 }
 
-} // namespace
+}  // namespace
 
 PersistentClient::PersistentClient(std::string base_url, Options opts)
-    : PersistentClient(std::move(base_url), std::move(opts), std::make_shared<DefaultStreamFactory>()) {
-}
+    : PersistentClient(std::move(base_url), std::move(opts), std::make_shared<DefaultStreamFactory>()) {}
 
 PersistentClient::PersistentClient(std::string base_url, Options opts, Utils::CancellationToken token)
-    : PersistentClient(std::move(base_url), std::move(opts),
-                       std::static_pointer_cast<StreamFactory>(
-                           std::make_shared<DefaultStreamFactory>(std::move(token)))) {
-}
+    : PersistentClient(
+          std::move(base_url),
+          std::move(opts),
+          std::static_pointer_cast<StreamFactory>(std::make_shared<DefaultStreamFactory>(std::move(token)))) {}
 
 PersistentClient::PersistentClient(std::string base_url, Options opts, std::shared_ptr<StreamFactory> factory)
-    : scheme_(std::string(Uri::parse(base_url).get_schema())),
-      host_(std::string(Uri::parse(base_url).get_host())),
-      port_(static_cast<std::uint16_t>(Uri::parse(base_url).get_port() > 0
-                                            ? Uri::parse(base_url).get_port()
-                                            : default_port(scheme_))),
+    : scheme_(std::string(Uri::parse(base_url).get_schema())), host_(std::string(Uri::parse(base_url).get_host())),
+      port_(static_cast<std::uint16_t>(Uri::parse(base_url).get_port() > 0 ? Uri::parse(base_url).get_port()
+                                                                           : default_port(scheme_))),
       base_uri_(Uri::parse(base_url)), opts_(std::move(opts)), factory_(std::move(factory)),
       session_(factory_, opts_.transport, opts_.tls, scheme_, host_, port_, opts_.limits) {
     if ((scheme_ != "http" && scheme_ != "https") || host_.empty()) {
@@ -66,8 +72,8 @@ PersistentClient::~PersistentClient() = default;
 
 Uri PersistentClient::current_uri(const std::string_view target) const {
     return Uri::parse(fmt::format("{}://{}:{}{}", scheme_,
-                                  host_.find(':') != std::string::npos ? fmt::format("[{}]", host_) : host_,
-                                  port_, target.empty() ? "/" : std::string(target)));
+                                  host_.find(':') != std::string::npos ? fmt::format("[{}]", host_) : host_, port_,
+                                  target.empty() ? "/" : std::string(target)));
 }
 
 std::expected<Response, Error> PersistentClient::exchange(const std::string_view url, const Request& req) const {
@@ -93,8 +99,8 @@ std::expected<Response, Error> PersistentClient::exchange(const std::string_view
             return std::unexpected(std::move(raw.error()));
         }
 
-        const auto eval = evaluate_redirect(raw->status, raw->headers, redirect_count, opts_, wire,
-                                                      current_uri(wire.target));
+        const auto eval =
+            evaluate_redirect(raw->status, raw->headers, redirect_count, opts_, wire, current_uri(wire.target));
         if (!eval.plan.has_value()) {
             if (eval.limit_reached) {
                 return std::unexpected(Error{ErrorCode::REDIRECT_LIMIT_EXCEEDED, "redirect limit exceeded"});
@@ -107,11 +113,10 @@ std::expected<Response, Error> PersistentClient::exchange(const std::string_view
             // The persistent connection cannot serve another origin —
             // follow the redirect with a one-shot transient exchange on the
             // same factory (token/fakes propagate).
-            const auto absolute = fmt::format("{}://{}:{}{}", plan.scheme,
-                                              plan.host.find(':') != std::string::npos
-                                                  ? fmt::format("[{}]", plan.host)
-                                                  : plan.host,
-                                              plan.port, plan.next.target);
+            const auto absolute =
+                fmt::format("{}://{}:{}{}", plan.scheme,
+                            plan.host.find(':') != std::string::npos ? fmt::format("[{}]", plan.host) : plan.host,
+                            plan.port, plan.next.target);
             Client transient(opts_, factory_);
             return transient.exchange(absolute, to_request(plan.next));
         }
@@ -121,4 +126,4 @@ std::expected<Response, Error> PersistentClient::exchange(const std::string_view
     }
 }
 
-} // namespace net::http
+}  // namespace net::http

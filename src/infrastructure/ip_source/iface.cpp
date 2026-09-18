@@ -4,8 +4,10 @@
 
 #include "iface.h"
 
+#include <utility>
 #include <vector>
 
+#include "domain/network/address_family.h"
 #include "domain/network/inet_address.h"
 
 #include "iface_util.h"
@@ -15,8 +17,7 @@
 // ===========================================================================
 
 InterfaceIpSource::InterfaceIpSource(std::string interface_name, AddressFamily address_family)
-    : interface_name_(std::move(interface_name)), address_family_(address_family) {
-}
+    : interface_name_(std::move(interface_name)), address_family_(address_family) {}
 
 // ---------------------------------------------------------------------------
 // InterfaceIpSource::resolve — query the interface for all matching addresses.
@@ -27,7 +28,7 @@ std::vector<InetAddress> InterfaceIpSource::resolve() const {
 
     // Filter by address family.
     if (address_family_ != AddressFamily::UNSPECIFIED) {
-        std::erase_if(addresses, [af = address_family_](const InetAddress &addr) { return addr.get_family() != af; });
+        std::erase_if(addresses, [af = address_family_](const InetAddress& addr) { return addr.get_family() != af; });
     }
 
     return addresses;

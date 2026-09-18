@@ -8,14 +8,14 @@
 //   - Missing required fields → throws std::runtime_error.
 // =============================================================================
 
-#include <cstdio>
-#include <filesystem>
-#include <string>
-
-#include <fcntl.h>
-#include <unistd.h>
-
 #include <gtest/gtest.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <filesystem>
+#include <stdexcept>
+#include <string>
+#include <string_view>
+#include <vector>
 
 #include "infrastructure/config/config.h"
 
@@ -57,27 +57,20 @@
 TEST(ConfigLoaderTest, LoadValidConfig_Succeeds) {
     auto path = write_temp_config(get_minimal_valid_config());
 
-    EXPECT_NO_THROW({
-        auto cfg = Config::load_config(path);
-    });
+    EXPECT_NO_THROW({ auto cfg = Config::load_config(path); });
 
     std::filesystem::remove(path);
 }
 
 TEST(ConfigLoaderTest, NonExistentFile_ThrowsRuntimeError) {
     EXPECT_THROW(
-        { [[maybe_unused]] auto cfg = Config::load_config("/tmp/nonexistent_config_12345.json"); },
-        std::runtime_error
-    );
+        { [[maybe_unused]] auto cfg = Config::load_config("/tmp/nonexistent_config_12345.json"); }, std::runtime_error);
 }
 
 TEST(ConfigLoaderTest, InvalidJson_ThrowsRuntimeError) {
     auto path = write_temp_config("{invalid json content!!!}");
 
-    EXPECT_THROW(
-        { [[maybe_unused]] auto cfg = Config::load_config(path); },
-        std::runtime_error
-    );
+    EXPECT_THROW({ [[maybe_unused]] auto cfg = Config::load_config(path); }, std::runtime_error);
 
     std::filesystem::remove(path);
 }
@@ -91,7 +84,7 @@ TEST(ConfigLoaderTest, InvalidJson_ErrorDoesNotLeakConfigContent) {
     try {
         [[maybe_unused]] auto cfg = Config::load_config(path);
         FAIL() << "expected std::runtime_error";
-    } catch (const std::runtime_error &e) {
+    } catch (const std::runtime_error& e) {
         const std::string msg(e.what());
         EXPECT_EQ(msg.find("supersecret456"), std::string::npos) << "message leaked config content: " << msg;
     }
@@ -102,10 +95,7 @@ TEST(ConfigLoaderTest, InvalidJson_ErrorDoesNotLeakConfigContent) {
 TEST(ConfigLoaderTest, EmptyFile_ThrowsRuntimeError) {
     auto path = write_temp_config("");
 
-    EXPECT_THROW(
-        { [[maybe_unused]] auto cfg = Config::load_config(path); },
-        std::runtime_error
-    );
+    EXPECT_THROW({ [[maybe_unused]] auto cfg = Config::load_config(path); }, std::runtime_error);
 
     std::filesystem::remove(path);
 }
@@ -114,10 +104,7 @@ TEST(ConfigLoaderTest, MissingRequiredField_ThrowsRuntimeError) {
     // Missing "resolver" section.
     auto path = write_temp_config(R"({"driver": {"directory": "/x", "load": []}})");
 
-    EXPECT_THROW(
-        { [[maybe_unused]] auto cfg = Config::load_config(path); },
-        std::runtime_error
-    );
+    EXPECT_THROW({ [[maybe_unused]] auto cfg = Config::load_config(path); }, std::runtime_error);
 
     std::filesystem::remove(path);
 }

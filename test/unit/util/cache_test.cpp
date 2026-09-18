@@ -10,14 +10,18 @@
 //   - Thread safety under concurrent access.
 // =============================================================================
 
-#include <thread>
-#include <chrono>
+#include "support/util/cache.hpp"
+
 #include <atomic>
+#include <chrono>
+#include <future>
+#include <optional>
+#include <stdexcept>
+#include <string>
+#include <thread>
 #include <vector>
 
 #include <gtest/gtest.h>
-
-#include "support/util/cache.hpp"
 
 using namespace std::chrono_literals;
 
@@ -145,13 +149,8 @@ TEST(TtlCacheTest, GetOrCompute_FactoryThrows_PropagatesException) {
 
     // Factory throws an exception — should propagate to caller
     EXPECT_THROW(
-        {
-            cache.get_or_compute(1, [&]() -> std::string {
-                throw std::runtime_error("factory failure");
-            });
-        },
-        std::runtime_error
-    );
+        { cache.get_or_compute(1, [&]() -> std::string { throw std::runtime_error("factory failure"); }); },
+        std::runtime_error);
 
     // After failure, the key should NOT be cached
     EXPECT_FALSE(cache.contains(1));
@@ -184,7 +183,7 @@ TEST(TtlCacheTest, ConcurrentGetOrCompute_SingleKey) {
     std::this_thread::sleep_for(5ms);
     go.set_value();
 
-    for (auto &t : threads) {
+    for (auto& t : threads) {
         t.join();
     }
 

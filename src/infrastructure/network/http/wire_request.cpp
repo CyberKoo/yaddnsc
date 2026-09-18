@@ -4,11 +4,17 @@
 #include "infrastructure/network/http/wire_request.h"
 
 #include <cctype>
-#include <utility>
+#include <map>
+#include <optional>
 
+#include <yaddnsc/util/format.hpp>
+#include <yaddnsc/util/string_util.hpp>
+
+#include "infrastructure/network/http/types.h"
+#include "infrastructure/network/transport/io_error.h"
 #include "infrastructure/network/uri.h"
-#include "support/string_util.hpp"
 #include "support/fmt.hpp"
+#include "support/string_util.hpp"
 
 namespace net::http {
 
@@ -31,7 +37,7 @@ namespace {
 }
 
 [[nodiscard]] bool is_field_value(const std::string_view value) noexcept {
-    for (const auto ch: value) {
+    for (const auto ch : value) {
         const auto c = static_cast<unsigned char>(ch);
         if (c != '\t' && (c < 0x20 || c == 0x7f)) {
             return false;
@@ -47,7 +53,7 @@ namespace {
            StringUtil::iequals(name, "upgrade");
 }
 
-} // namespace
+}  // namespace
 
 std::uint16_t default_port(const std::string_view scheme) noexcept {
     return scheme == "https" ? 443 : 80;
@@ -62,7 +68,7 @@ std::string make_host_header(const std::string_view scheme, const std::string_vi
     return fmt::format("{}:{}", bracketed, port);
 }
 
-std::string make_target(const Uri &uri) {
+std::string make_target(const Uri& uri) {
     auto target = std::string(uri.get_path());
     if (target.empty()) {
         target = "/";
@@ -74,8 +80,8 @@ std::string make_target(const Uri &uri) {
     return target;
 }
 
-std::expected<void, Error> validate_request(const Request &req) {
-    for (const auto &[name, value]: req.headers) {
+std::expected<void, Error> validate_request(const Request& req) {
+    for (const auto& [name, value] : req.headers) {
         if (!is_token(name) || !is_field_value(value)) {
             return std::unexpected(Error{ErrorCode::INVALID_REQUEST, "invalid HTTP request header"});
         }
@@ -83,7 +89,8 @@ std::expected<void, Error> validate_request(const Request &req) {
             return std::unexpected(Error{ErrorCode::UNSUPPORTED_PROTOCOL, "HTTP protocol upgrade is not supported"});
         }
         if (StringUtil::iequals(name, "transfer-encoding") || StringUtil::iequals(name, "trailer")) {
-            return std::unexpected(Error{ErrorCode::INVALID_REQUEST, "request transfer coding and trailers are not supported"});
+            return std::unexpected(
+                Error{ErrorCode::INVALID_REQUEST, "request transfer coding and trailers are not supported"});
         }
     }
     if (!is_field_value(req.content_type)) {
@@ -92,8 +99,11 @@ std::expected<void, Error> validate_request(const Request &req) {
     return {};
 }
 
-protocol::WireRequest build_wire_request(const Request &req, const std::string_view scheme,
-                                         const std::string_view host, const std::uint16_t port, const Options &opts) {
+protocol::WireRequest build_wire_request(const Request& req,
+                                         const std::string_view scheme,
+                                         const std::string_view host,
+                                         const std::uint16_t port,
+                                         const Options& opts) {
     protocol::WireRequest wire{
         .method = req.method,
         .version = opts.version,
@@ -101,7 +111,7 @@ protocol::WireRequest build_wire_request(const Request &req, const std::string_v
         .headers = {},
         .body = req.body,
     };
-    for (const auto &[name, value]: req.headers) {
+    for (const auto& [name, value] : req.headers) {
         if (!is_managed_header(name)) {
             wire.headers.emplace(name, value);
         }
@@ -138,4 +148,4 @@ Error map_connect_error(const Transport::IoError err) {
     return {ErrorCode::CONNECT_FAILED, "connect/handshake failed"};
 }
 
-} // namespace net::http
+}  // namespace net::http

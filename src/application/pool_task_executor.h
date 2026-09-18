@@ -7,6 +7,7 @@
 
 #include <atomic>
 #include <cstddef>
+#include <utility>
 
 #include <BS_thread_pool.hpp>
 
@@ -30,7 +31,7 @@ public:
     /// @param workflow      Use case executed per task (non-owning; owned by
     ///                      the composition root and drained-before-destroyed
     ///                      by this executor).
-    PoolTaskExecutor(std::size_t thread_count, const UpdateWorkflow &workflow);
+    PoolTaskExecutor(std::size_t thread_count, const UpdateWorkflow& workflow);
 
     /// Shut down (reject new tasks) and drain the pool before the base
     /// subobjects are destroyed.
@@ -49,7 +50,7 @@ public:
     void set_retry_handler(RetryHandler handler) override { retry_handler_ = std::move(handler); }
 
 private:
-    const UpdateWorkflow &workflow_;
+    const UpdateWorkflow& workflow_;
     RetryHandler retry_handler_;
     std::atomic<bool> accepting_{true};
     // Declared last so destruction drains the pool before the workflow
@@ -57,4 +58,4 @@ private:
     BS::thread_pool<> pool_;
 };
 
-#endif // YADDNSC_APPLICATION_POOL_TASK_EXECUTOR_H
+#endif  // YADDNSC_APPLICATION_POOL_TASK_EXECUTOR_H

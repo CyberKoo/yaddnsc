@@ -11,12 +11,19 @@
 //   - str_to_bool
 // =============================================================================
 
+#include "support/string_util.hpp"
+
+#include <array>
+#include <stdexcept>
 #include <string>
+#include <string_view>
+#include <type_traits>
+#include <utility>
 #include <vector>
 
 #include <gtest/gtest.h>
-
-#include "support/string_util.hpp"
+#include <stddef.h>
+#include <yaddnsc/util/string_util.hpp>
 
 // ===========================================================================
 // trim / ltrim / rtrim
@@ -66,7 +73,7 @@ TEST(StringUtilTrimTest, LtrimCopy_ReturnsNewString) {
     auto result = StringUtil::ltrim_copy("  hello");
     EXPECT_EQ(result, "hello");
     // Verify it's an independent std::string, not a view
-    EXPECT_TRUE((std::is_same_v<decltype(result), std::string>));
+    EXPECT_TRUE((std::is_same_v<decltype(result), std::string>) );
 }
 
 TEST(StringUtilTrimTest, RtrimCopy_ReturnsNewString) {
@@ -114,7 +121,7 @@ TEST(StringUtilCaseTest, ToLower_EmptyString) {
 TEST(StringUtilCaseTest, ToLowerCopy_ReturnsNewString) {
     auto result = StringUtil::to_lower_copy("HELLO");
     EXPECT_EQ(result, "hello");
-    EXPECT_TRUE((std::is_same_v<decltype(result), std::string>));
+    EXPECT_TRUE((std::is_same_v<decltype(result), std::string>) );
 }
 
 TEST(StringUtilCaseTest, ToUpperCopy_ReturnsNewString) {
@@ -171,9 +178,8 @@ TEST(StringUtilReplaceTest, Replace_SinglePair) {
 
 TEST(StringUtilReplaceTest, Replace_MultiplePairs) {
     std::string s = "a1b2c3";
-    StringUtil::replace(s, std::vector<std::pair<std::string, std::string>>{
-        {"1", "one"}, {"2", "two"}, {"3", "three"}
-    });
+    StringUtil::replace(s,
+                        std::vector<std::pair<std::string, std::string>>{{"1", "one"}, {"2", "two"}, {"3", "three"}});
     // replace replaces ALL occurrences of each target sequentially:
     //   "a1b2c3" -> "aoneb2c3" (1->one) -> "aonebtwoc3" (2->two) -> "aonebtwocthree" (3->three)
     EXPECT_EQ(s, "aonebtwocthree");
@@ -198,8 +204,8 @@ TEST(StringUtilReplaceTest, Replace_TargetNotFound_Unchanged) {
 }
 
 TEST(StringUtilReplaceTest, ReplaceCopy_ReturnsNewString) {
-    auto result = StringUtil::replace_copy("hello world",
-        std::vector<std::pair<std::string, std::string>>{{"world", "there"}});
+    auto result =
+        StringUtil::replace_copy("hello world", std::vector<std::pair<std::string, std::string>>{{"world", "there"}});
     EXPECT_EQ(result, "hello there");
     // Original unchanged
     [[maybe_unused]] std::string_view original = "hello world";

@@ -10,7 +10,7 @@
 //   - Path extraction with and without scheme.
 // =============================================================================
 
-#include <string_view>
+#include <string>
 
 #include <gtest/gtest.h>
 

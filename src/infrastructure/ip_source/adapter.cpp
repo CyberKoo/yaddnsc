@@ -5,25 +5,30 @@
 #include "adapter.h"
 
 #include <exception>
+#include <string>
+#include <type_traits>
 #include <utility>
+#include <vector>
+
+#include <expected>
+
+#include "domain/error/error.h"
+#include "domain/network/inet_address.h"
+#include "infrastructure/ip_source/base.h"
+#include "support/util/cancellation_token.hpp"
 
 #include "factory.h"
-#include "support/exception.h"
-#include "infrastructure/ip_source/base.h"
 
 IpSourceAdapter::IpSourceAdapter(Utils::CancellationToken token, FactoryFn factory)
-    : factory_(factory
-                   ? std::move(factory)
-                   : FactoryFn([token = std::move(token)](const domain::SubdomainConfig &cfg) {
-                         return IpSourceFactory::create(cfg, token);
-                     })) {
-}
+    : factory_(factory ? std::move(factory) : FactoryFn([token = std::move(token)](const domain::SubdomainConfig& cfg) {
+          return IpSourceFactory::create(cfg, token);
+      })) {}
 
-std::expected<std::vector<InetAddress>, domain::IpSourceError>
-IpSourceAdapter::resolve(const domain::SubdomainConfig &config) const {
+std::expected<std::vector<InetAddress>, domain::IpSourceError> IpSourceAdapter::resolve(
+    const domain::SubdomainConfig& config) const {
     try {
         return factory_(config)->resolve();
-    } catch (const std::exception &e) {
+    } catch (const std::exception& e) {
         return std::unexpected(domain::IpSourceError{domain::IpSourceError::Code::UNAVAILABLE, e.what()});
     } catch (...) {
         return std::unexpected(

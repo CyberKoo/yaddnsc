@@ -12,16 +12,28 @@
 //     failure returns the collected errors.
 // =============================================================================
 
+#include "infrastructure/config/static_validator.h"
+
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
 
+#include <expected>
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
+#include <yaddnsc/util/format.hpp>
 
-#include "infrastructure/config/static_validator.h"
+#include "domain/config/dns_config.h"
+#include "domain/config/ip_source_kind.h"
+#include "domain/config/runtime_config.h"
+#include "domain/dns/record_kind.h"
+#include "domain/error/error.h"
 #include "domain/fqdn.h"
+#include "domain/network/address_family.h"
+#include "infrastructure/config/config.h"
 #include "support/fmt.hpp"
+
 #include "min_update_interval.h"
 
 using testing::ElementsAre;
@@ -32,12 +44,10 @@ namespace {
 using Code = domain::ConfigError::Code;
 
 /// Build a minimal raw AppConfig with one domain and one subdomain.
-[[nodiscard]] Config::AppConfig make_domain_config(
-    std::string domain_name = "example.com",
-    int update_interval = 300,
-    std::string driver_name = "test_driver",
-    std::string subdomain_name = "www"
-) {
+[[nodiscard]] Config::AppConfig make_domain_config(std::string domain_name = "example.com",
+                                                   int update_interval = 300,
+                                                   std::string driver_name = "test_driver",
+                                                   std::string subdomain_name = "www") {
     return Config::AppConfig{
         .driver = {},
         .resolver = {},
@@ -46,16 +56,14 @@ using Code = domain::ConfigError::Code;
             .update_interval = update_interval,
             .force_update = 0,
             .driver = std::move(driver_name),
-            .subdomains = {{
-                Config::SubdomainConfig{
-                    .name = std::move(subdomain_name),
-                    .type = RecordKind::A,
-                    .interface = "",
-                    .ip_type = AddressFamily::UNSPECIFIED,
-                    .ip_source = Config::IpSource::HTTP,
-                    .ip_source_param = "https://api.ipify.org",
-                }
-            }},
+            .subdomains = {{Config::SubdomainConfig{
+                .name = std::move(subdomain_name),
+                .type = RecordKind::A,
+                .interface = "",
+                .ip_type = AddressFamily::UNSPECIFIED,
+                .ip_source = Config::IpSource::HTTP,
+                .ip_source_param = "https://api.ipify.org",
+            }}},
         }},
     };
 }
@@ -68,7 +76,7 @@ template<typename Mutator>
     return Config::validate_static(cfg);
 }
 
-} // anonymous namespace
+}  // anonymous namespace
 
 // ===========================================================================
 // domain::make_fqdn
@@ -99,23 +107,22 @@ TEST(StaticValidatorTest, ValidConfig_NoErrors) {
 }
 
 TEST(StaticValidatorTest, EmptyDomainName) {
-    const auto errors = validate_with([](Config::AppConfig &cfg) { cfg.domains[0].name = ""; });
+    const auto errors = validate_with([](Config::AppConfig& cfg) { cfg.domains[0].name = ""; });
     ASSERT_EQ(errors.size(), 1U);
     EXPECT_EQ(errors[0].code, Code::EMPTY_DOMAIN_NAME);
     EXPECT_EQ(errors[0].message, "Domain name must not be empty");
 }
 
 TEST(StaticValidatorTest, NoSubdomains) {
-    const auto errors = validate_with([](Config::AppConfig &cfg) { cfg.domains[0].subdomains.clear(); });
+    const auto errors = validate_with([](Config::AppConfig& cfg) { cfg.domains[0].subdomains.clear(); });
     ASSERT_EQ(errors.size(), 1U);
     EXPECT_EQ(errors[0].code, Code::EMPTY_SUBDOMAINS);
     EXPECT_EQ(errors[0].message, "Domain 'example.com' must have at least one subdomain");
 }
 
 TEST(StaticValidatorTest, UpdateIntervalBelowMinimum) {
-    const auto errors = validate_with([](Config::AppConfig &cfg) {
-        cfg.domains[0].update_interval = YADDNSC_MIN_UPDATE_INTERVAL - 1;
-    });
+    const auto errors =
+        validate_with([](Config::AppConfig& cfg) { cfg.domains[0].update_interval = YADDNSC_MIN_UPDATE_INTERVAL - 1; });
     ASSERT_EQ(errors.size(), 1U);
     EXPECT_EQ(errors[0].code, Code::UPDATE_INTERVAL_LOW);
     EXPECT_EQ(errors[0].message,
@@ -124,14 +131,13 @@ TEST(StaticValidatorTest, UpdateIntervalBelowMinimum) {
 }
 
 TEST(StaticValidatorTest, UpdateIntervalAtMinimum_NoErrors) {
-    const auto errors = validate_with([](Config::AppConfig &cfg) {
-        cfg.domains[0].update_interval = YADDNSC_MIN_UPDATE_INTERVAL;
-    });
+    const auto errors =
+        validate_with([](Config::AppConfig& cfg) { cfg.domains[0].update_interval = YADDNSC_MIN_UPDATE_INTERVAL; });
     EXPECT_TRUE(errors.empty());
 }
 
 TEST(StaticValidatorTest, ForceUpdateSmallerThanInterval) {
-    const auto errors = validate_with([](Config::AppConfig &cfg) { cfg.domains[0].force_update = 30; });
+    const auto errors = validate_with([](Config::AppConfig& cfg) { cfg.domains[0].force_update = 30; });
     ASSERT_EQ(errors.size(), 1U);
     EXPECT_EQ(errors[0].code, Code::FORCE_UPDATE_CONFLICT);
     EXPECT_EQ(errors[0].message,
@@ -139,12 +145,12 @@ TEST(StaticValidatorTest, ForceUpdateSmallerThanInterval) {
 }
 
 TEST(StaticValidatorTest, ForceUpdateDisabled_NoErrors) {
-    const auto errors = validate_with([](Config::AppConfig &cfg) { cfg.domains[0].force_update = 0; });
+    const auto errors = validate_with([](Config::AppConfig& cfg) { cfg.domains[0].force_update = 0; });
     EXPECT_TRUE(errors.empty());
 }
 
 TEST(StaticValidatorTest, ForceUpdateGreaterThanInterval_NoErrors) {
-    const auto errors = validate_with([](Config::AppConfig &cfg) { cfg.domains[0].force_update = 600; });
+    const auto errors = validate_with([](Config::AppConfig& cfg) { cfg.domains[0].force_update = 600; });
     EXPECT_TRUE(errors.empty());
 }
 
@@ -153,16 +159,15 @@ TEST(StaticValidatorTest, ForceUpdateGreaterThanInterval_NoErrors) {
 // ===========================================================================
 
 TEST(StaticValidatorTest, EmptySubdomainName) {
-    const auto errors = validate_with([](Config::AppConfig &cfg) { cfg.domains[0].subdomains[0].name = ""; });
+    const auto errors = validate_with([](Config::AppConfig& cfg) { cfg.domains[0].subdomains[0].name = ""; });
     ASSERT_EQ(errors.size(), 1U);
     EXPECT_EQ(errors[0].code, Code::EMPTY_SUBDOMAIN_NAME);
     EXPECT_EQ(errors[0].message, "Subdomain name must not be empty in domain 'example.com'");
 }
 
 TEST(StaticValidatorTest, SubdomainIntervalBelowMinimum) {
-    const auto errors = validate_with([](Config::AppConfig &cfg) {
-        cfg.domains[0].subdomains[0].update_interval = YADDNSC_MIN_UPDATE_INTERVAL - 1;
-    });
+    const auto errors = validate_with(
+        [](Config::AppConfig& cfg) { cfg.domains[0].subdomains[0].update_interval = YADDNSC_MIN_UPDATE_INTERVAL - 1; });
     ASSERT_EQ(errors.size(), 1U);
     EXPECT_EQ(errors[0].code, Code::UPDATE_INTERVAL_LOW);
     EXPECT_EQ(errors[0].message,
@@ -171,9 +176,8 @@ TEST(StaticValidatorTest, SubdomainIntervalBelowMinimum) {
 }
 
 TEST(StaticValidatorTest, SubdomainIntervalAtMinimum_NoErrors) {
-    const auto errors = validate_with([](Config::AppConfig &cfg) {
-        cfg.domains[0].subdomains[0].update_interval = YADDNSC_MIN_UPDATE_INTERVAL;
-    });
+    const auto errors = validate_with(
+        [](Config::AppConfig& cfg) { cfg.domains[0].subdomains[0].update_interval = YADDNSC_MIN_UPDATE_INTERVAL; });
     EXPECT_TRUE(errors.empty());
 }
 
@@ -182,8 +186,8 @@ TEST(StaticValidatorTest, SubdomainIntervalAtMinimum_NoErrors) {
 // ===========================================================================
 
 TEST(StaticValidatorTest, InterfaceSource_WithInterface_NoErrors) {
-    const auto errors = validate_with([](Config::AppConfig &cfg) {
-        auto &sub = cfg.domains[0].subdomains[0];
+    const auto errors = validate_with([](Config::AppConfig& cfg) {
+        auto& sub = cfg.domains[0].subdomains[0];
         sub.ip_source = Config::IpSource::INTERFACE;
         sub.interface = "eth0";
         sub.ip_source_param = "";
@@ -192,8 +196,8 @@ TEST(StaticValidatorTest, InterfaceSource_WithInterface_NoErrors) {
 }
 
 TEST(StaticValidatorTest, InterfaceSource_EmptyInterface) {
-    const auto errors = validate_with([](Config::AppConfig &cfg) {
-        auto &sub = cfg.domains[0].subdomains[0];
+    const auto errors = validate_with([](Config::AppConfig& cfg) {
+        auto& sub = cfg.domains[0].subdomains[0];
         sub.ip_source = Config::IpSource::INTERFACE;
         sub.interface = "";
         sub.ip_source_param = "";
@@ -204,35 +208,31 @@ TEST(StaticValidatorTest, InterfaceSource_EmptyInterface) {
 }
 
 TEST(StaticValidatorTest, HttpSource_EmptyParam) {
-    const auto errors = validate_with([](Config::AppConfig &cfg) {
-        cfg.domains[0].subdomains[0].ip_source_param = "";
-    });
+    const auto errors =
+        validate_with([](Config::AppConfig& cfg) { cfg.domains[0].subdomains[0].ip_source_param = ""; });
     ASSERT_EQ(errors.size(), 1U);
     EXPECT_EQ(errors[0].code, Code::EMPTY_IP_SOURCE_PARAM);
     EXPECT_EQ(errors[0].message, "Subdomain www.example.com uses HTTP IP source but ip_source_param is empty");
 }
 
 TEST(StaticValidatorTest, HttpSource_InvalidUrl) {
-    const auto errors = validate_with([](Config::AppConfig &cfg) {
-        cfg.domains[0].subdomains[0].ip_source_param = "not-a-url";
-    });
+    const auto errors =
+        validate_with([](Config::AppConfig& cfg) { cfg.domains[0].subdomains[0].ip_source_param = "not-a-url"; });
     ASSERT_EQ(errors.size(), 1U);
     EXPECT_EQ(errors[0].code, Code::INVALID_IP_SOURCE_URL);
-    EXPECT_THAT(errors[0].message,
-                HasSubstr("Subdomain www.example.com has invalid ip_source_param 'not-a-url': "));
+    EXPECT_THAT(errors[0].message, HasSubstr("Subdomain www.example.com has invalid ip_source_param 'not-a-url': "));
 }
 
 TEST(StaticValidatorTest, HttpSource_MissingHost) {
-    const auto errors = validate_with([](Config::AppConfig &cfg) {
-        cfg.domains[0].subdomains[0].ip_source_param = "http://:8080/path";
-    });
+    const auto errors = validate_with(
+        [](Config::AppConfig& cfg) { cfg.domains[0].subdomains[0].ip_source_param = "http://:8080/path"; });
     ASSERT_EQ(errors.size(), 1U);
     EXPECT_EQ(errors[0].code, Code::INVALID_IP_SOURCE_URL);
 }
 
 TEST(StaticValidatorTest, MdnsSource_ValidLocalDomain_NoErrors) {
-    const auto errors = validate_with([](Config::AppConfig &cfg) {
-        auto &sub = cfg.domains[0].subdomains[0];
+    const auto errors = validate_with([](Config::AppConfig& cfg) {
+        auto& sub = cfg.domains[0].subdomains[0];
         sub.ip_source = Config::IpSource::MDNS;
         sub.ip_source_param = "printer.local";
     });
@@ -240,8 +240,8 @@ TEST(StaticValidatorTest, MdnsSource_ValidLocalDomain_NoErrors) {
 }
 
 TEST(StaticValidatorTest, MdnsSource_TrailingDot_NoErrors) {
-    const auto errors = validate_with([](Config::AppConfig &cfg) {
-        auto &sub = cfg.domains[0].subdomains[0];
+    const auto errors = validate_with([](Config::AppConfig& cfg) {
+        auto& sub = cfg.domains[0].subdomains[0];
         sub.type = RecordKind::AAAA;
         sub.ip_source = Config::IpSource::MDNS;
         sub.ip_source_param = "printer.local.";
@@ -250,8 +250,8 @@ TEST(StaticValidatorTest, MdnsSource_TrailingDot_NoErrors) {
 }
 
 TEST(StaticValidatorTest, MdnsSource_EmptyParam) {
-    const auto errors = validate_with([](Config::AppConfig &cfg) {
-        auto &sub = cfg.domains[0].subdomains[0];
+    const auto errors = validate_with([](Config::AppConfig& cfg) {
+        auto& sub = cfg.domains[0].subdomains[0];
         sub.ip_source = Config::IpSource::MDNS;
         sub.ip_source_param = "";
     });
@@ -261,8 +261,8 @@ TEST(StaticValidatorTest, MdnsSource_EmptyParam) {
 }
 
 TEST(StaticValidatorTest, MdnsSource_InvalidDomain) {
-    const auto errors = validate_with([](Config::AppConfig &cfg) {
-        auto &sub = cfg.domains[0].subdomains[0];
+    const auto errors = validate_with([](Config::AppConfig& cfg) {
+        auto& sub = cfg.domains[0].subdomains[0];
         sub.ip_source = Config::IpSource::MDNS;
         sub.ip_source_param = "not valid .local";
     });
@@ -273,8 +273,8 @@ TEST(StaticValidatorTest, MdnsSource_InvalidDomain) {
 }
 
 TEST(StaticValidatorTest, MdnsSource_NonLocalSuffix) {
-    const auto errors = validate_with([](Config::AppConfig &cfg) {
-        auto &sub = cfg.domains[0].subdomains[0];
+    const auto errors = validate_with([](Config::AppConfig& cfg) {
+        auto& sub = cfg.domains[0].subdomains[0];
         sub.ip_source = Config::IpSource::MDNS;
         sub.ip_source_param = "printer.example.com";
     });
@@ -286,8 +286,8 @@ TEST(StaticValidatorTest, MdnsSource_NonLocalSuffix) {
 }
 
 TEST(StaticValidatorTest, MdnsSource_TxtType) {
-    const auto errors = validate_with([](Config::AppConfig &cfg) {
-        auto &sub = cfg.domains[0].subdomains[0];
+    const auto errors = validate_with([](Config::AppConfig& cfg) {
+        auto& sub = cfg.domains[0].subdomains[0];
         sub.type = RecordKind::TXT;
         sub.ip_source = Config::IpSource::MDNS;
         sub.ip_source_param = "printer.local";
@@ -302,7 +302,7 @@ TEST(StaticValidatorTest, MdnsSource_TxtType) {
 // ===========================================================================
 
 TEST(StaticValidatorTest, ResolverDoH_NoErrors) {
-    const auto errors = validate_with([](Config::AppConfig &cfg) {
+    const auto errors = validate_with([](Config::AppConfig& cfg) {
         cfg.resolver.use_custom_server = true;
         cfg.resolver.servers = {{.address = "https://dns.cloudflare.com/dns-query", .port = 443}};
     });
@@ -310,7 +310,7 @@ TEST(StaticValidatorTest, ResolverDoH_NoErrors) {
 }
 
 TEST(StaticValidatorTest, ResolverDoT_NoErrors) {
-    const auto errors = validate_with([](Config::AppConfig &cfg) {
+    const auto errors = validate_with([](Config::AppConfig& cfg) {
         cfg.resolver.use_custom_server = true;
         cfg.resolver.servers = {{.address = "tls://1.1.1.1:853", .port = 853}};
     });
@@ -318,7 +318,7 @@ TEST(StaticValidatorTest, ResolverDoT_NoErrors) {
 }
 
 TEST(StaticValidatorTest, ResolverLegacyIPv4_NoErrors) {
-    const auto errors = validate_with([](Config::AppConfig &cfg) {
+    const auto errors = validate_with([](Config::AppConfig& cfg) {
         cfg.resolver.use_custom_server = true;
         cfg.resolver.address = "1.1.1.1";
         cfg.resolver.port = 53;
@@ -327,7 +327,7 @@ TEST(StaticValidatorTest, ResolverLegacyIPv4_NoErrors) {
 }
 
 TEST(StaticValidatorTest, ResolverInvalidIPv4) {
-    const auto errors = validate_with([](Config::AppConfig &cfg) {
+    const auto errors = validate_with([](Config::AppConfig& cfg) {
         cfg.resolver.use_custom_server = true;
         cfg.resolver.address = "999.999.999.999";
         cfg.resolver.port = 53;
@@ -338,7 +338,7 @@ TEST(StaticValidatorTest, ResolverInvalidIPv4) {
 }
 
 TEST(StaticValidatorTest, ResolverHostnameAddress) {
-    const auto errors = validate_with([](Config::AppConfig &cfg) {
+    const auto errors = validate_with([](Config::AppConfig& cfg) {
         cfg.resolver.use_custom_server = true;
         cfg.resolver.address = "resolver.example.com";
         cfg.resolver.port = 53;
@@ -349,7 +349,7 @@ TEST(StaticValidatorTest, ResolverHostnameAddress) {
 }
 
 TEST(StaticValidatorTest, ResolverDoHEmptyHost) {
-    const auto errors = validate_with([](Config::AppConfig &cfg) {
+    const auto errors = validate_with([](Config::AppConfig& cfg) {
         cfg.resolver.use_custom_server = true;
         cfg.resolver.servers = {{.address = "https:///dns-query", .port = 443}};
     });
@@ -359,7 +359,7 @@ TEST(StaticValidatorTest, ResolverDoHEmptyHost) {
 }
 
 TEST(StaticValidatorTest, ResolverDoTPortZero) {
-    const auto errors = validate_with([](Config::AppConfig &cfg) {
+    const auto errors = validate_with([](Config::AppConfig& cfg) {
         cfg.resolver.use_custom_server = true;
         cfg.resolver.servers = {{.address = "tls://1.1.1.1:0", .port = 853}};
     });
@@ -369,16 +369,16 @@ TEST(StaticValidatorTest, ResolverDoTPortZero) {
 }
 
 TEST(StaticValidatorTest, ResolverNotCustom_NotChecked) {
-    const auto errors = validate_with([](Config::AppConfig &cfg) {
+    const auto errors = validate_with([](Config::AppConfig& cfg) {
         cfg.resolver.use_custom_server = false;
-        cfg.resolver.address = "999.999.999.999"; // ignored: no custom server
+        cfg.resolver.address = "999.999.999.999";  // ignored: no custom server
     });
     EXPECT_TRUE(errors.empty());
 }
 
 TEST(StaticValidatorTest, ResolverCustomWithoutServers) {
-    const auto errors = validate_with([](Config::AppConfig &cfg) {
-        cfg.resolver.use_custom_server = true; // neither servers nor legacy address set
+    const auto errors = validate_with([](Config::AppConfig& cfg) {
+        cfg.resolver.use_custom_server = true;  // neither servers nor legacy address set
     });
     ASSERT_EQ(errors.size(), 1U);
     EXPECT_EQ(errors[0].code, Code::NO_RESOLVER_SERVERS);
@@ -386,7 +386,7 @@ TEST(StaticValidatorTest, ResolverCustomWithoutServers) {
 }
 
 TEST(StaticValidatorTest, ResolverCustomLegacyAddressOnly_NoErrors) {
-    const auto errors = validate_with([](Config::AppConfig &cfg) {
+    const auto errors = validate_with([](Config::AppConfig& cfg) {
         cfg.resolver.use_custom_server = true;
         cfg.resolver.address = "1.1.1.1";
     });
@@ -398,8 +398,8 @@ TEST(StaticValidatorTest, ResolverCustomLegacyAddressOnly_NoErrors) {
 // ===========================================================================
 
 TEST(StaticValidatorTest, CollectsAllErrorsInVisitationOrder) {
-    auto cfg = make_domain_config("", 10); // empty name + low interval
-    cfg.domains[0].subdomains[0].name = ""; // empty subdomain name
+    auto cfg = make_domain_config("", 10);   // empty name + low interval
+    cfg.domains[0].subdomains[0].name = "";  // empty subdomain name
 
     const auto errors = Config::validate_static(cfg);
     ASSERT_EQ(errors.size(), 3U);

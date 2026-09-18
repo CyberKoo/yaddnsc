@@ -7,54 +7,54 @@
 #include "parser.h"
 
 #include <array>
-#include <limits>
-#include <ranges>
+#include <cstddef>
 #include <string>
-#include <system_error>
+#include <utility>
 #include <vector>
 
-#include "infrastructure/dns/dns_lookup_exception.h"
-#include "support/util/bytes.hpp"
-
-#include "domain/error/dns_error.h"
-
-#include "support/fmt.hpp"
 #include <arpa/inet.h>
 #include <magic_enum/magic_enum.hpp>
+#include <netinet/in.h>
 #include <spdlog/spdlog.h>
 #include <sys/socket.h>
+#include <yaddnsc/util/format.hpp>
+
+#include "domain/error/dns_error.h"
+#include "infrastructure/dns/dns_lookup_exception.h"
+#include "support/fmt.hpp"
+#include "support/util/bytes.hpp"
 
 // =============================================================================
 // Internal constants
 // =============================================================================
 
 namespace {
-    constexpr size_t NAME_MAX_BYTES = 255; // RFC 1035 §2.3.4
-    constexpr uint8_t MAX_LABEL_LENGTH = 63; // RFC 1035 §2.3.4
-    constexpr int MAX_POINTER_DEPTH = 7; // Cycle / indirection limit
-    constexpr size_t QUESTION_FIXED_SIZE = 4; // QTYPE(2) + QCLASS(2)
-    constexpr size_t RR_FIXED_SIZE = 10; // TYPE(2) + CLASS(2) + TTL(4) + RDLENGTH(2)
+constexpr size_t NAME_MAX_BYTES = 255;     // RFC 1035 §2.3.4
+constexpr uint8_t MAX_LABEL_LENGTH = 63;   // RFC 1035 §2.3.4
+constexpr int MAX_POINTER_DEPTH = 7;       // Cycle / indirection limit
+constexpr size_t QUESTION_FIXED_SIZE = 4;  // QTYPE(2) + QCLASS(2)
+constexpr size_t RR_FIXED_SIZE = 10;       // TYPE(2) + CLASS(2) + TTL(4) + RDLENGTH(2)
 
-    /// Flag bits in the DNS header's second flags byte (byte 3).
-    /// QR=0x80 is in byte 2; AA, TC, RD are in byte 2; RA, Z, RCODE are in byte 3.
-    constexpr uint8_t FLAGS_QR = 0x80; // byte 2
-    constexpr uint8_t FLAGS_AA = 0x04; // byte 2
-    constexpr uint8_t FLAGS_TC = 0x02; // byte 2
-    constexpr uint8_t FLAGS_RD = 0x01; // byte 2
-    constexpr uint8_t FLAGS3_RA = 0x80; // byte 3
-    constexpr uint8_t FLAGS3_RCODE = 0x0F; // byte 3, lower 4 bits
+/// Flag bits in the DNS header's second flags byte (byte 3).
+/// QR=0x80 is in byte 2; AA, TC, RD are in byte 2; RA, Z, RCODE are in byte 3.
+constexpr uint8_t FLAGS_QR = 0x80;      // byte 2
+constexpr uint8_t FLAGS_AA = 0x04;      // byte 2
+constexpr uint8_t FLAGS_TC = 0x02;      // byte 2
+constexpr uint8_t FLAGS_RD = 0x01;      // byte 2
+constexpr uint8_t FLAGS3_RA = 0x80;     // byte 3
+constexpr uint8_t FLAGS3_RCODE = 0x0F;  // byte 3, lower 4 bits
 
-    // EDNS0 TTL field masks
-    constexpr uint32_t EDNS_TTL_RCODE_MASK = 0xFF000000U;
-    constexpr uint32_t EDNS_TTL_VERSION_MASK = 0x00FF0000U;
-    constexpr uint32_t EDNS_TTL_DO_MASK = 0x00008000U;
-} // anonymous namespace
+// EDNS0 TTL field masks
+constexpr uint32_t EDNS_TTL_RCODE_MASK = 0xFF000000U;
+constexpr uint32_t EDNS_TTL_VERSION_MASK = 0x00FF0000U;
+constexpr uint32_t EDNS_TTL_DO_MASK = 0x00008000U;
+}  // anonymous namespace
 
 // =============================================================================
 // Name decompression (RFC 1035 §4.1.4)
 // =============================================================================
 
-std::string DNS::RecordParser::decompress_name(const std::span<const std::uint8_t> wire, size_t &offset) {
+std::string DNS::RecordParser::decompress_name(const std::span<const std::uint8_t> wire, size_t& offset) {
     // Track visited offsets to detect pointer cycles.
     // Fixed-size array on the stack: zero allocation, cache-friendly.
     // MAX_POINTER_DEPTH (16) bounds the worst-case chain length, so
@@ -81,20 +81,17 @@ std::string DNS::RecordParser::decompress_name(const std::span<const std::uint8_
         // Detect pointer (top two bits set: 0xC0).
         if ((label_len & 0xC0) == 0xC0) {
             if (current + 2 > wire_len) {
-                throw DnsLookupException(
-                    fmt::format("DNS name decompression: pointer at offset {} truncated", current),
-                    DnsError::PARSE
-                );
+                throw DnsLookupException(fmt::format("DNS name decompression: pointer at offset {} truncated", current),
+                                         DnsError::PARSE);
             }
 
-            const auto ptr_offset = static_cast<size_t>(
-                ((static_cast<size_t>(label_len) & 0x3F) << 8) | wire[current + 1]);
+            const auto ptr_offset =
+                static_cast<size_t>(((static_cast<size_t>(label_len) & 0x3F) << 8) | wire[current + 1]);
 
             if (indirections++ >= MAX_POINTER_DEPTH) {
                 throw DnsLookupException(
                     fmt::format("DNS name decompression: too many indirections ({})", MAX_POINTER_DEPTH),
-                    DnsError::PARSE
-                );
+                    DnsError::PARSE);
             }
 
             // Linear scan of visited offsets (max 16 iterations, no allocation).
@@ -102,8 +99,7 @@ std::string DNS::RecordParser::decompress_name(const std::span<const std::uint8_
                 if (visited[i] == ptr_offset) {
                     throw DnsLookupException(
                         fmt::format("DNS name decompression: repeated pointer to offset {} (cycle)", ptr_offset),
-                        DnsError::PARSE
-                    );
+                        DnsError::PARSE);
                 }
             }
             visited[visited_count++] = ptr_offset;
@@ -129,8 +125,7 @@ std::string DNS::RecordParser::decompress_name(const std::span<const std::uint8_
         if (label_len > MAX_LABEL_LENGTH) {
             throw DnsLookupException(
                 fmt::format("DNS name decompression: invalid label length {} at offset {}", label_len, current),
-                DnsError::PARSE
-            );
+                DnsError::PARSE);
         }
 
         if (!result.empty()) {
@@ -141,20 +136,17 @@ std::string DNS::RecordParser::decompress_name(const std::span<const std::uint8_
         if (current + label_len > wire_len) {
             throw DnsLookupException(
                 fmt::format("DNS name decompression: label of length {} extends past wire end", label_len),
-                DnsError::PARSE
-            );
+                DnsError::PARSE);
         }
 
-        result.append(reinterpret_cast<const char *>(wire.data() + current), label_len);
+        result.append(reinterpret_cast<const char*>(wire.data() + current), label_len);
         current += label_len;
 
         // RFC 1035 §2.3.4: an expanded name must not exceed 255 octets.
         // Pointer chains could otherwise expand far beyond the limit.
         if (result.size() > NAME_MAX_BYTES) {
             throw DnsLookupException(
-                fmt::format("DNS name decompression: expanded name exceeds {} bytes", NAME_MAX_BYTES),
-                DnsError::PARSE
-            );
+                fmt::format("DNS name decompression: expanded name exceeds {} bytes", NAME_MAX_BYTES), DnsError::PARSE);
         }
     }
 
@@ -189,14 +181,13 @@ std::string DNS::RecordParser::format_txt(const std::span<const std::uint8_t> rd
         if (pos + 1 + seg_len > rdlen) {
             throw DnsLookupException(
                 fmt::format("Invalid TXT record: segment length {} exceeds RDATA at offset {}", seg_len, pos),
-                DnsError::PARSE
-            );
+                DnsError::PARSE);
         }
         if (!result.empty()) {
             // Separate multiple character-strings with a space.
             result += ' ';
         }
-        result.append(reinterpret_cast<const char *>(rdata.data() + pos + 1), seg_len);
+        result.append(reinterpret_cast<const char*>(rdata.data() + pos + 1), seg_len);
         pos += 1 + seg_len;
     }
     return result;
@@ -208,8 +199,7 @@ std::string DNS::RecordParser::format_domain_name(const std::span<const std::uin
     return decompress_name(wire, name_offset);
 }
 
-std::string DNS::RecordParser::format_mx(const std::span<const std::uint8_t> wire, size_t rdata_offset,
-                                         size_t rdlen) {
+std::string DNS::RecordParser::format_mx(const std::span<const std::uint8_t> wire, size_t rdata_offset, size_t rdlen) {
     // MX: preference (2 bytes) + domain-name (compressed).
     const auto rdata = wire.subspan(rdata_offset, rdlen);
     const auto pref = Utils::Bytes::try_read_u16_be(rdata, 0);
@@ -226,8 +216,7 @@ std::string DNS::RecordParser::format_mx(const std::span<const std::uint8_t> wir
     return fmt::format("{} {}", *pref, name);
 }
 
-std::string DNS::RecordParser::format_soa(const std::span<const std::uint8_t> wire, size_t rdata_offset,
-                                          size_t rdlen) {
+std::string DNS::RecordParser::format_soa(const std::span<const std::uint8_t> wire, size_t rdata_offset, size_t rdlen) {
     // SOA: MNAME (domain-name) + RNAME (domain-name) + 5 × uint32.
     const auto rdata = wire.subspan(rdata_offset, rdlen);
 
@@ -258,8 +247,7 @@ std::string DNS::RecordParser::format_soa(const std::span<const std::uint8_t> wi
     return fmt::format("{} {} {} {} {} {} {}", mname, rname, serial, refresh, retry, expire, minimum);
 }
 
-std::string DNS::RecordParser::format_srv(const std::span<const std::uint8_t> wire, size_t rdata_offset,
-                                          size_t rdlen) {
+std::string DNS::RecordParser::format_srv(const std::span<const std::uint8_t> wire, size_t rdata_offset, size_t rdlen) {
     // SRV: priority (2) + weight (2) + port (2) + target (domain-name).
     const auto rdata = wire.subspan(rdata_offset, rdlen);
     const auto priority = Utils::Bytes::try_read_u16_be(rdata, 0);
@@ -296,7 +284,7 @@ std::string DNS::RecordParser::format_generic(const std::span<const std::uint8_t
 // EDNS0 parsing (RFC 6891)
 // =============================================================================
 
-std::optional<DNS::EdnsInfo> DNS::RecordParser::parse_edns(const ResourceRecord &rr) {
+std::optional<DNS::EdnsInfo> DNS::RecordParser::parse_edns(const ResourceRecord& rr) {
     if (rr.type != static_cast<std::uint16_t>(RecordType::OPT)) {
         return std::nullopt;
     }
@@ -324,11 +312,9 @@ std::optional<DNS::EdnsInfo> DNS::RecordParser::parse_edns(const ResourceRecord 
         offset += 2;
 
         if (offset + opt_len > rr.rdata.size()) {
-            throw DnsLookupException(
-                fmt::format("EDNS0 option truncated: code={}, declared length={}, remaining={}",
-                            opt.code, opt_len, rr.rdata.size() - offset),
-                DnsError::PARSE
-            );
+            throw DnsLookupException(fmt::format("EDNS0 option truncated: code={}, declared length={}, remaining={}",
+                                                 opt.code, opt_len, rr.rdata.size() - offset),
+                                     DnsError::PARSE);
         }
         opt.data.assign(rr.rdata.data() + offset, rr.rdata.data() + offset + opt_len);
         offset += opt_len;
@@ -343,32 +329,25 @@ std::optional<DNS::EdnsInfo> DNS::RecordParser::parse_edns(const ResourceRecord 
 // RDATA dispatch
 // =============================================================================
 
-std::string DNS::RecordParser::rdata_to_string(const ResourceRecord &rr, const std::span<const std::uint8_t> wire) {
+std::string DNS::RecordParser::rdata_to_string(const ResourceRecord& rr, const std::span<const std::uint8_t> wire) {
     // Read RDATA length from the wire buffer (the 2-byte rdlength field
     // always precedes RDATA at rdata_offset - 2 in a valid DNS packet).
     // This works regardless of whether rr.rdata was populated, and avoids
     // depending on the copied vector size.
-    const auto rdlen = static_cast<size_t>(
-        (static_cast<size_t>(wire[rr.rdata_offset - 2]) << 8) |
-        wire[rr.rdata_offset - 1]);
+    const auto rdlen =
+        static_cast<size_t>((static_cast<size_t>(wire[rr.rdata_offset - 2]) << 8) | wire[rr.rdata_offset - 1]);
     const auto rdata = wire.subspan(rr.rdata_offset, rdlen);
 
     switch (rr.type) {
         case static_cast<std::uint16_t>(RecordType::A):
             if (rdlen != 4) [[unlikely]] {
-                throw DnsLookupException(
-                    fmt::format("Invalid A record RDATA length: {}", rdlen),
-                    DnsError::PARSE
-                );
+                throw DnsLookupException(fmt::format("Invalid A record RDATA length: {}", rdlen), DnsError::PARSE);
             }
             return format_a(rdata);
 
         case static_cast<std::uint16_t>(RecordType::AAAA):
             if (rdlen != 16) [[unlikely]] {
-                throw DnsLookupException(
-                    fmt::format("Invalid AAAA record RDATA length: {}", rdlen),
-                    DnsError::PARSE
-                );
+                throw DnsLookupException(fmt::format("Invalid AAAA record RDATA length: {}", rdlen), DnsError::PARSE);
             }
             return format_aaaa(rdata);
 
@@ -382,39 +361,28 @@ std::string DNS::RecordParser::rdata_to_string(const ResourceRecord &rr, const s
 
         case static_cast<std::uint16_t>(RecordType::MX):
             if (rdlen < 3) [[unlikely]] {
-                throw DnsLookupException(
-                    fmt::format("Invalid MX record RDATA length: {}", rdlen),
-                    DnsError::PARSE
-                );
+                throw DnsLookupException(fmt::format("Invalid MX record RDATA length: {}", rdlen), DnsError::PARSE);
             }
             return format_mx(wire, rr.rdata_offset, rdlen);
 
         case static_cast<std::uint16_t>(RecordType::SOA):
             if (rdlen < 22) [[unlikely]] {
-                throw DnsLookupException(
-                    fmt::format("Invalid SOA record RDATA length: {}", rdlen),
-                    DnsError::PARSE
-                );
+                throw DnsLookupException(fmt::format("Invalid SOA record RDATA length: {}", rdlen), DnsError::PARSE);
             }
             return format_soa(wire, rr.rdata_offset, rdlen);
 
         case static_cast<std::uint16_t>(RecordType::SRV):
             if (rdlen < 7) [[unlikely]] {
-                throw DnsLookupException(
-                    fmt::format("Invalid SRV record RDATA length: {}", rdlen),
-                    DnsError::PARSE
-                );
+                throw DnsLookupException(fmt::format("Invalid SRV record RDATA length: {}", rdlen), DnsError::PARSE);
             }
             return format_srv(wire, rr.rdata_offset, rdlen);
 
         default: {
             const auto type_name = magic_enum::enum_name(static_cast<RecordType>(rr.type));
             const auto type_str = type_name.empty() ? "?" : type_name.data();
-            throw DnsLookupException(
-                fmt::format("DNS parsing: record type {} ({}) is not supported yet", type_str,
-                            static_cast<std::uint16_t>(rr.type)),
-                DnsError::PARSE
-            );
+            throw DnsLookupException(fmt::format("DNS parsing: record type {} ({}) is not supported yet", type_str,
+                                                 static_cast<std::uint16_t>(rr.type)),
+                                     DnsError::PARSE);
         }
     }
 }
@@ -427,8 +395,7 @@ DNS::ParsedMessage DNS::RecordParser::parse_message(const std::span<const std::u
     if (data.size() < HEADER_SIZE) [[unlikely]] {
         throw DnsLookupException(
             fmt::format("DNS packet too short: {} bytes (minimum {} bytes)", data.size(), HEADER_SIZE),
-            DnsError::PARSE
-        );
+            DnsError::PARSE);
     }
 
     ParsedMessage m{};
@@ -458,10 +425,8 @@ DNS::ParsedMessage DNS::RecordParser::parse_message(const std::span<const std::u
         Question q{};
         q.qname = decompress_name(data, offset);
         if (offset + QUESTION_FIXED_SIZE > data.size()) [[unlikely]] {
-            throw DnsLookupException(
-                fmt::format("DNS question section truncated at offset {}", offset),
-                DnsError::PARSE
-            );
+            throw DnsLookupException(fmt::format("DNS question section truncated at offset {}", offset),
+                                     DnsError::PARSE);
         }
         q.qtype = Utils::Bytes::read_u16_be(data.subspan(offset));
         q.qclass = Utils::Bytes::read_u16_be(data.subspan(offset + 2));
@@ -476,10 +441,7 @@ DNS::ParsedMessage DNS::RecordParser::parse_message(const std::span<const std::u
         ResourceRecord rr{};
         rr.name = decompress_name(data, offset);
         if (offset + RR_FIXED_SIZE > data.size()) [[unlikely]] {
-            throw DnsLookupException(
-                fmt::format("DNS RR header truncated at offset {}", offset),
-                DnsError::PARSE
-            );
+            throw DnsLookupException(fmt::format("DNS RR header truncated at offset {}", offset), DnsError::PARSE);
         }
         rr.type = Utils::Bytes::read_u16_be(data.subspan(offset));
         rr.qclass = Utils::Bytes::read_u16_be(data.subspan(offset + 2));
@@ -487,10 +449,8 @@ DNS::ParsedMessage DNS::RecordParser::parse_message(const std::span<const std::u
         const auto rd_length = static_cast<size_t>(Utils::Bytes::read_u16_be(data.subspan(offset + 8)));
         offset += RR_FIXED_SIZE;
         if (offset + rd_length > data.size()) [[unlikely]] {
-            throw DnsLookupException(
-                fmt::format("DNS RDATA truncated at offset {} (declared {})", offset, rd_length),
-                DnsError::PARSE
-            );
+            throw DnsLookupException(fmt::format("DNS RDATA truncated at offset {} (declared {})", offset, rd_length),
+                                     DnsError::PARSE);
         }
         rr.rdata_offset = offset;
         // Skip RDATA copy for the fast path (parse_strings) since
@@ -519,8 +479,7 @@ DNS::ParsedMessage DNS::RecordParser::parse_message(const std::span<const std::u
         // Check for EDNS0 OPT pseudo-record (RFC 6891 §6.1).
         // The NAME must be the root label (0x00, which decompresses to an
         // empty string), and CLASS must carry a non-zero UDP payload size.
-        if (rr.type == static_cast<std::uint16_t>(RecordType::OPT) && rr.name.empty() && rr.qclass >
-            0) [[unlikely]] {
+        if (rr.type == static_cast<std::uint16_t>(RecordType::OPT) && rr.name.empty() && rr.qclass > 0) [[unlikely]] {
             m.edns = parse_edns(rr);
         }
         m.additionals.push_back(std::move(rr));
@@ -549,25 +508,23 @@ size_t DNS::RecordParser::record_count() const noexcept {
 }
 
 std::string DNS::RecordParser::parse_record(size_t index) const {
-    const auto &msg = message_;
+    const auto& msg = message_;
     if (index >= static_cast<size_t>(msg.ancount)) {
         throw DnsLookupException(
             fmt::format("DNS parse_record: index {} out of bounds (answer count: {})", index, msg.ancount),
-            DnsError::PARSE
-        );
+            DnsError::PARSE);
     }
 
-    const auto &rr = msg.answers[index];
+    const auto& rr = msg.answers[index];
     [[maybe_unused]] const auto type_name = magic_enum::enum_name(static_cast<RecordType>(rr.type));
     SPDLOG_TRACE(R"(Parsing DNS record #{}: type={} ({}), name="{}")", index,
-                 type_name.empty() ? "?" : type_name.data(),
-                 magic_enum::enum_integer(rr.type), rr.name);
+                 type_name.empty() ? "?" : type_name.data(), magic_enum::enum_integer(rr.type), rr.name);
 
     return rdata_to_string(rr, wire_);
 }
 
 DNS::ParsedResponse DNS::RecordParser::parse_response(const std::span<const std::uint8_t> data,
-                                                      [[maybe_unused]] const std::string &host) {
+                                                      [[maybe_unused]] const std::string& host) {
     RecordParser parser(data);
     ParsedResponse response;
     response.rcode = parser.message().rcode;
@@ -580,7 +537,7 @@ DNS::ParsedResponse DNS::RecordParser::parse_response(const std::span<const std:
 }
 
 DNS::FormattedResponse DNS::RecordParser::parse_strings(const std::span<const std::uint8_t> data,
-                                                        [[maybe_unused]] const std::string &host) {
+                                                        [[maybe_unused]] const std::string& host) {
     // Fast path: parse without copying RDATA — rdata_to_string reads
     // directly from the wire buffer via rdata_offset.
     auto msg = parse_message(data, false);

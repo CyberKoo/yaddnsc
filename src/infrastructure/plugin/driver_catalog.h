@@ -5,15 +5,16 @@
 #ifndef YADDNSC_INFRASTRUCTURE_PLUGIN_DRIVER_CATALOG_H
 #define YADDNSC_INFRASTRUCTURE_PLUGIN_DRIVER_CATALOG_H
 
+#include <functional>
 #include <map>
 #include <memory>
 #include <string>
 #include <string_view>
 #include <vector>
 
-#include "plugin_loader.h"
-
 #include "application/ports/driver_catalog.h"
+
+#include "plugin_loader.h"
 
 /// DriverCatalog — name → loaded-plugin registry (replaces DriverManager).
 ///
@@ -33,11 +34,11 @@ public:
     /// A duplicate driver name is skipped with a warning (kept behaviour).
     /// @throws PluginLoadException  When the library fails to load or fails
     ///                              the ABI checks.
-    void load_driver(const std::string &path);
+    void load_driver(const std::string& path);
 
     /// Unload a previously loaded driver by name.
     /// @throws DriverNotFoundException  If no driver with that name is loaded.
-    void unload_driver(const std::string &name);
+    void unload_driver(const std::string& name);
 
     /// Return the names of all currently loaded drivers (owned copies).
     [[nodiscard]] std::vector<std::string> get_loaded_drivers() const;
@@ -47,7 +48,7 @@ public:
 
     /// Look up a loaded driver's descriptor.
     /// @throws DriverNotFoundException  If no driver with that name is loaded.
-    [[nodiscard]] const DriverDescriptor &get_descriptor(std::string_view name) const;
+    [[nodiscard]] const DriverDescriptor& get_descriptor(std::string_view name) const;
 
     /// DriverCatalogPort: names of all currently loaded drivers.
     [[nodiscard]] std::vector<std::string> loaded_drivers() const override;
@@ -60,4 +61,4 @@ private:
     std::map<std::string, std::shared_ptr<const PluginModule>, std::less<>> modules_;
 };
 
-#endif // YADDNSC_INFRASTRUCTURE_PLUGIN_DRIVER_CATALOG_H
+#endif  // YADDNSC_INFRASTRUCTURE_PLUGIN_DRIVER_CATALOG_H

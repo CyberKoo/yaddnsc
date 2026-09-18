@@ -12,6 +12,8 @@
 //     mock ports) runs without any real provider.
 //
 
+#include "application/scheduler_runner.h"
+
 #include <atomic>
 #include <chrono>
 #include <functional>
@@ -24,20 +26,26 @@
 #include <utility>
 #include <vector>
 
+#include <expected>
+#include <glaze/glaze.hpp>
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
-#include "application/scheduler_runner.h"
+#include "application/ports/driver_gateway.h"
+#include "application/ports/task_executor.h"
 #include "application/update_workflow.h"
-
+#include "domain/config/runtime_config.h"
+#include "domain/dns/record_kind.h"
+#include "domain/error/dns_error_info.h"
+#include "domain/error/error.h"
+#include "domain/network/inet_address.h"
 #include "domain/update/schedule_queue.h"
+#include "domain/update/time_types.h"
 #include "domain/update/update_task.h"
-
-#include "infrastructure/config/config.h"
-#include "infrastructure/config/normalizer.h"
-#include "infrastructure/config/parser.hpp"
-
 #include "fixtures/sample_config.h"
+#include "infrastructure/config/config.h"
+#include "infrastructure/config/parser.hpp"  // IWYU pragma: keep — registers glz::meta specializations
+#include "infrastructure/config/normalizer.h"
 #include "mocks/fake_clock.h"
 #include "mocks/fake_task_executor.h"
 #include "mocks/mock_ports.h"
@@ -81,7 +89,7 @@ inline constexpr std::string_view FLOW_CONFIG = R"({
 // stays deterministic without a real thread pool.
 class InlineTaskExecutor final : public TaskExecutor {
 public:
-    explicit InlineTaskExecutor(std::function<void(const domain::UpdateTask &)> fn) : fn_(std::move(fn)) {}
+    explicit InlineTaskExecutor(std::function<void(const domain::UpdateTask&)> fn) : fn_(std::move(fn)) {}
 
     bool submit(domain::UpdateTask task) override {
         if (shutdown_) {
@@ -92,11 +100,13 @@ public:
     }
 
     void wait_idle() override {}
+
     void shutdown() override { shutdown_ = true; }
+
     void set_retry_handler(RetryHandler) override {}
 
 private:
-    std::function<void(const domain::UpdateTask &)> fn_;
+    std::function<void(const domain::UpdateTask&)> fn_;
     bool shutdown_{false};
 };
 
@@ -111,13 +121,14 @@ struct RunnerFixture {
     SchedulerRunner make_runner() { return {queue, clock, executor, stop.get_token(), logger}; }
 };
 
-} // namespace
+}  // namespace
 
 // Requests stop and joins the runner loop on destruction, so a failing
 // assertion can never unwind past a joinable jthread (which would hang).
 struct LoopGuard {
-    std::stop_source &stop;
-    std::jthread &loop;
+    std::stop_source& stop;
+    std::jthread& loop;
+
     ~LoopGuard() {
         stop.request_stop();
         if (loop.joinable()) {
@@ -133,7 +144,7 @@ TEST(SchedulerRunner, StopBeforeRunDispatchesNothing) {
     f.stop.request_stop();
 
     auto runner = f.make_runner();
-    runner.run(); // must return immediately
+    runner.run();  // must return immediately
 
     EXPECT_TRUE(f.executor.submitted().empty());
 }
@@ -196,12 +207,12 @@ TEST(SchedulerRunner, InitialDispatchSubmitsEveryDueTaskForced) {
     const auto tasks = f.executor.submitted();
     ASSERT_EQ(tasks.size(), 2U);
     // FULL_CONFIG has force_update=3600: the first pop of every task is forced.
-    for (const auto &task: tasks) {
+    for (const auto& task : tasks) {
         EXPECT_TRUE(task.force_update);
     }
 
     std::vector<std::string> fqdns;
-    for (const auto &task: tasks) {
+    for (const auto& task : tasks) {
         fqdns.push_back(task.fqdn);
     }
     EXPECT_THAT(fqdns, ::testing::UnorderedElementsAre("example.com", "www.example.com"));
@@ -234,7 +245,7 @@ TEST(SchedulerRunner, AdvancingTimeRedispatchesAfterInterval) {
 
 // Spin until the runner has parked in wait_until for the n-th time, so
 // stimuli land deterministically instead of racing the loop.
-static bool wait_parked(const FakeClock &clock, unsigned n) {
+static bool wait_parked(const FakeClock& clock, unsigned n) {
     for (int i = 0; i < 30000; ++i) {
         if (clock.wait_entries() >= n) {
             return true;
@@ -250,7 +261,7 @@ TEST(SchedulerRunner, RetryRequestMovesDeadlineAndWakesLoop) {
     // Production wiring is RunLifecycle; here the test wires the handler
     // straight to the runner.
     f.executor.set_retry_handler(
-            [&runner](domain::TaskId id, std::chrono::seconds delay) { runner.request_retry(id, delay); });
+        [&runner](domain::TaskId id, std::chrono::seconds delay) { runner.request_retry(id, delay); });
 
     std::jthread loop([&] { runner.run(); });
     const LoopGuard cleanup{f.stop, loop};
@@ -267,8 +278,7 @@ TEST(SchedulerRunner, RetryRequestMovesDeadlineAndWakesLoop) {
     f.clock.advance_by(300s);
     ASSERT_TRUE(f.executor.wait_submitted(3));
     ASSERT_TRUE(wait_parked(f.clock, 3));
-    EXPECT_EQ(f.executor.submitted().size(), 3U)
-        << "the rate-limited task must not re-run at its old deadline";
+    EXPECT_EQ(f.executor.submitted().size(), 3U) << "the rate-limited task must not re-run at its old deadline";
 
     // Advancing the second interval reaches the moved deadline.
     f.clock.advance_by(300s);
@@ -304,8 +314,8 @@ TEST(SchedulerRunner, FullUpdateCycleOverMockPorts) {
             return std::expected<std::vector<std::string>, DnsErrorInfo>{{"198.51.100.1"}};
         });
     EXPECT_CALL(gateway, update("cloudflare", _))
-        .WillOnce([&first_update_done](std::string_view, const DriverUpdateCommand &cmd)
-                      -> std::expected<void, domain::DriverError> {
+        .WillOnce([&first_update_done](std::string_view,
+                                       const DriverUpdateCommand& cmd) -> std::expected<void, domain::DriverError> {
             EXPECT_EQ(cmd.fqdn, "www.example.com");
             EXPECT_EQ(cmd.ip_addr, "198.51.100.1");
             first_update_done.set_value();
@@ -316,7 +326,7 @@ TEST(SchedulerRunner, FullUpdateCycleOverMockPorts) {
 
     domain::ScheduleQueue queue(cfg, T0);
     FakeClock clock{T0};
-    InlineTaskExecutor executor([&workflow](const domain::UpdateTask &task) { workflow.run(task); });
+    InlineTaskExecutor executor([&workflow](const domain::UpdateTask& task) { workflow.run(task); });
 
     std::stop_source stop;
     SchedulerRunner runner(queue, clock, executor, stop.get_token(), logger);

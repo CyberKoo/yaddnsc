@@ -11,16 +11,17 @@
 //   - iso8601_timestamp / iso8601_date produce valid ISO 8601 format.
 // =============================================================================
 
+#include "signing.h"
+
 #include <array>
 #include <cstdint>
-#include <cstring>
+#include <cstdlib>
 #include <span>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include <gtest/gtest.h>
-
-#include "signing.h"
 
 // ── Known test vectors ─────────────────────────────────────────────────────
 
@@ -32,12 +33,10 @@ constexpr std::string_view ABC_SHA1_HEX = "a9993e364706816aba3e25717850c26c9cd0d
 
 // HMAC-SHA256(key="key", data="The quick brown fox jumps over the lazy dog")
 // Verified with RFC 4231 section 2 (Test Case 2).
-constexpr std::string_view HMAC_SHA256_EXPECTED =
-    "f7bc83f430538424b13298e6aa6fb143ef4d59a14946175997479dbc2d1a3cd8";
+constexpr std::string_view HMAC_SHA256_EXPECTED = "f7bc83f430538424b13298e6aa6fb143ef4d59a14946175997479dbc2d1a3cd8";
 
 // HMAC-SHA1(key="key", data="The quick brown fox jumps over the lazy dog")
-constexpr std::string_view HMAC_SHA1_EXPECTED =
-    "de7c9b85b8b78aa6bc8a7a36f70a90701c9db4d9";
+constexpr std::string_view HMAC_SHA1_EXPECTED = "de7c9b85b8b78aa6bc8a7a36f70a90701c9db4d9";
 
 // ── Helper: convert hex string to bytes ─────────────────────────────────────
 [[nodiscard]] std::vector<std::uint8_t> hex_to_bytes(std::string_view hex) {
@@ -62,16 +61,15 @@ TEST(SigningTest, Sha256_EmptyInput) {
 
 TEST(SigningTest, Sha256_KnownDigest) {
     std::string input = "abc";
-    auto data = std::span<const std::uint8_t>(
-        reinterpret_cast<const std::uint8_t *>(input.data()), input.size());
+    auto data = std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t*>(input.data()), input.size());
     auto digest = Signing::sha256(data);
     auto hex = Signing::hex_encode(digest);
     EXPECT_EQ(hex, ABC_SHA256_HEX);
 }
 
 TEST(SigningTest, Sha256_DifferentInputsProduceDifferentDigests) {
-    auto d1 = Signing::sha256(std::span(reinterpret_cast<const std::uint8_t *>("a"), 1));
-    auto d2 = Signing::sha256(std::span(reinterpret_cast<const std::uint8_t *>("b"), 1));
+    auto d1 = Signing::sha256(std::span(reinterpret_cast<const std::uint8_t*>("a"), 1));
+    auto d2 = Signing::sha256(std::span(reinterpret_cast<const std::uint8_t*>("b"), 1));
     EXPECT_NE(d1, d2);
 }
 
@@ -87,8 +85,7 @@ TEST(SigningTest, Sha1_EmptyInput) {
 
 TEST(SigningTest, Sha1_KnownDigest) {
     std::string input = "abc";
-    auto data = std::span<const std::uint8_t>(
-        reinterpret_cast<const std::uint8_t *>(input.data()), input.size());
+    auto data = std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t*>(input.data()), input.size());
     auto digest = Signing::sha1(data);
     auto hex = Signing::hex_encode(digest);
     EXPECT_EQ(hex, ABC_SHA1_HEX);
@@ -119,10 +116,8 @@ TEST(SigningTest, HmacSha256_KnownTestVector) {
     std::string key_str = "key";
     std::string data_str = "The quick brown fox jumps over the lazy dog";
 
-    auto key = std::span<const std::uint8_t>(
-        reinterpret_cast<const std::uint8_t *>(key_str.data()), key_str.size());
-    auto data = std::span<const std::uint8_t>(
-        reinterpret_cast<const std::uint8_t *>(data_str.data()), data_str.size());
+    auto key = std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t*>(key_str.data()), key_str.size());
+    auto data = std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t*>(data_str.data()), data_str.size());
 
     auto hmac = Signing::hmac_sha256(key, data);
     auto hex = Signing::hex_encode(hmac);
@@ -132,16 +127,14 @@ TEST(SigningTest, HmacSha256_KnownTestVector) {
 TEST(SigningTest, HmacSha256_EmptyKey) {
     // An empty key causes EVP_PKEY_new_mac_key to fail — function returns empty.
     std::string data_str = "data";
-    auto data = std::span<const std::uint8_t>(
-        reinterpret_cast<const std::uint8_t *>(data_str.data()), data_str.size());
+    auto data = std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t*>(data_str.data()), data_str.size());
     auto hmac = Signing::hmac_sha256({}, data);
     EXPECT_TRUE(hmac.empty());
 }
 
 TEST(SigningTest, HmacSha256_EmptyData) {
     std::string key_str = "key";
-    auto key = std::span<const std::uint8_t>(
-        reinterpret_cast<const std::uint8_t *>(key_str.data()), key_str.size());
+    auto key = std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t*>(key_str.data()), key_str.size());
     auto hmac = Signing::hmac_sha256(key, {});
     EXPECT_FALSE(hmac.empty());
 }
@@ -154,10 +147,8 @@ TEST(SigningTest, HmacSha1_KnownTestVector) {
     std::string key_str = "key";
     std::string data_str = "The quick brown fox jumps over the lazy dog";
 
-    auto key = std::span<const std::uint8_t>(
-        reinterpret_cast<const std::uint8_t *>(key_str.data()), key_str.size());
-    auto data = std::span<const std::uint8_t>(
-        reinterpret_cast<const std::uint8_t *>(data_str.data()), data_str.size());
+    auto key = std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t*>(key_str.data()), key_str.size());
+    auto data = std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t*>(data_str.data()), data_str.size());
 
     auto hmac = Signing::hmac_sha1(key, data);
     auto hex = Signing::hex_encode(hmac);
@@ -235,9 +226,11 @@ TEST(SigningTest, Base64Encode_4Bytes) {
 }
 
 TEST(SigningTest, Base64Encode_LongerInput) {
-    std::string input = "Man is distinguished, not only by his reason, but by this singular passion from other animals, which is a lust of the mind, that by a perseverance of delight in the continued and indefatigable generation of knowledge, exceeds the short vehemence of any carnal pleasure.";
-    auto data = std::span<const std::uint8_t>(
-        reinterpret_cast<const std::uint8_t *>(input.data()), input.size());
+    std::string input =
+        "Man is distinguished, not only by his reason, but by this singular passion from other animals, which is a "
+        "lust of the mind, that by a perseverance of delight in the continued and indefatigable generation of "
+        "knowledge, exceeds the short vehemence of any carnal pleasure.";
+    auto data = std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t*>(input.data()), input.size());
     auto b64 = Signing::base64_encode(data);
 
     // Expected from RFC 4648 §10 (no padding).
@@ -308,23 +301,20 @@ TEST(SigningTest, SigV4LikeSigningChain) {
 
     // This is a simplified check — ensure the chain doesn't crash and
     // produces non-empty results.
-    auto k_date = Signing::hmac_sha256(
-        std::span(reinterpret_cast<const std::uint8_t *>(k_date_str.data()), k_date_str.size()),
-        std::span(reinterpret_cast<const std::uint8_t *>(date_str.data()), date_str.size()));
+    auto k_date =
+        Signing::hmac_sha256(std::span(reinterpret_cast<const std::uint8_t*>(k_date_str.data()), k_date_str.size()),
+                             std::span(reinterpret_cast<const std::uint8_t*>(date_str.data()), date_str.size()));
     EXPECT_FALSE(k_date.empty());
 
     auto k_region = Signing::hmac_sha256(
-        std::span(k_date),
-        std::span(reinterpret_cast<const std::uint8_t *>(region.data()), region.size()));
+        std::span(k_date), std::span(reinterpret_cast<const std::uint8_t*>(region.data()), region.size()));
     EXPECT_FALSE(k_region.empty());
 
     auto k_service = Signing::hmac_sha256(
-        std::span(k_region),
-        std::span(reinterpret_cast<const std::uint8_t *>(service.data()), service.size()));
+        std::span(k_region), std::span(reinterpret_cast<const std::uint8_t*>(service.data()), service.size()));
     EXPECT_FALSE(k_service.empty());
 
-    auto k_signing = Signing::hmac_sha256(
-        std::span(k_service),
-        std::span(reinterpret_cast<const std::uint8_t *>("aws4_request"), 12));
+    auto k_signing = Signing::hmac_sha256(std::span(k_service),
+                                          std::span(reinterpret_cast<const std::uint8_t*>("aws4_request"), 12));
     EXPECT_FALSE(k_signing.empty());
 }

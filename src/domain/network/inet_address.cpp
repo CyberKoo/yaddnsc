@@ -4,15 +4,16 @@
 
 #include "inet_address.h"
 
+#include <algorithm>
+#include <array>
+#include <charconv>
+#include <cstdint>
+#include <span>
+#include <system_error>
+
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
-
-#include <span>
-#include <algorithm>
-#include <cstdint>
-#include <charconv>
-#include <array>
 
 // inet_pton/inet_ntop are platform codecs only: this value object performs no
 // socket operation, DNS lookup, interface enumeration, or other network I/O.
@@ -34,18 +35,18 @@ std::optional<Inet4Address> Inet4Address::parse(std::string_view addr) {
     }
 
     Inet4Address result;
-    const auto *src = reinterpret_cast<const std::uint8_t *>(&in.s_addr);
+    const auto* src = reinterpret_cast<const std::uint8_t*>(&in.s_addr);
     std::ranges::copy(src, src + ADDR_LEN, result.addr_.begin());
     return result;
 }
 
-Inet4Address Inet4Address::from_bytes(const addr_type &bytes) noexcept {
+Inet4Address Inet4Address::from_bytes(const addr_type& bytes) noexcept {
     Inet4Address result;
     result.addr_ = bytes;
     return result;
 }
 
-Inet4Address Inet4Address::from_array(const addr_type &addr) noexcept {
+Inet4Address Inet4Address::from_array(const addr_type& addr) noexcept {
     return from_bytes(addr);
 }
 
@@ -95,13 +96,13 @@ std::optional<Inet6Address> Inet6Address::parse(std::string_view addr) {
     return result;
 }
 
-Inet6Address Inet6Address::from_bytes(const addr_type &bytes) noexcept {
+Inet6Address Inet6Address::from_bytes(const addr_type& bytes) noexcept {
     Inet6Address result;
     result.addr_ = bytes;
     return result;
 }
 
-Inet6Address Inet6Address::from_array(const addr_type &addr) noexcept {
+Inet6Address Inet6Address::from_array(const addr_type& addr) noexcept {
     return from_bytes(addr);
 }
 
@@ -158,47 +159,47 @@ std::optional<InetAddress> InetAddress::from_bytes(std::span<const std::uint8_t>
 }
 
 AddressFamily InetAddress::get_family() const noexcept {
-    return std::visit([](const auto &a) { return a.get_family(); }, addr_);
+    return std::visit([](const auto& a) { return a.get_family(); }, addr_);
 }
 
 std::string InetAddress::to_string() const {
-    return std::visit([](const auto &a) { return a.to_string(); }, addr_);
+    return std::visit([](const auto& a) { return a.to_string(); }, addr_);
 }
 
 std::array<std::uint8_t, 16> InetAddress::get_address() const {
     std::array<std::uint8_t, 16> result{};
-    std::visit([&result](const auto &a) { std::ranges::copy(a.addr(), result.begin()); }, addr_);
+    std::visit([&result](const auto& a) { std::ranges::copy(a.addr(), result.begin()); }, addr_);
     return result;
 }
 
 bool InetAddress::is_loopback() const {
-    return std::visit([](const auto &a) { return a.is_loopback(); }, addr_);
+    return std::visit([](const auto& a) { return a.is_loopback(); }, addr_);
 }
 
 bool InetAddress::is_multicast() const {
-    return std::visit([](const auto &a) { return a.is_multicast(); }, addr_);
+    return std::visit([](const auto& a) { return a.is_multicast(); }, addr_);
 }
 
 bool InetAddress::is_unspecified() const {
-    return std::visit([](const auto &a) { return a.is_unspecified(); }, addr_);
+    return std::visit([](const auto& a) { return a.is_unspecified(); }, addr_);
 }
 
 bool InetAddress::is_link_local() const noexcept {
-    auto *v6 = as_v6();
+    auto* v6 = as_v6();
     return v6 && v6->is_link_local();
 }
 
 bool InetAddress::is_site_local() const noexcept {
-    auto *v6 = as_v6();
+    auto* v6 = as_v6();
     return v6 && v6->is_site_local();
 }
 
 bool InetAddress::is_ula() const noexcept {
-    auto *v6 = as_v6();
+    auto* v6 = as_v6();
     return v6 && v6->is_ula();
 }
 
 std::uint32_t InetAddress::get_scope_id() const noexcept {
-    auto *v6 = as_v6();
+    auto* v6 = as_v6();
     return v6 ? v6->get_scope_id() : 0;
 }

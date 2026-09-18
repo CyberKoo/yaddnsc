@@ -22,16 +22,18 @@
 //   - QCLASS: 2 bytes (1 = IN)
 // =============================================================================
 
-#include <array>
-#include <expected>
-#include <vector>
 #include <cstdint>
 #include <span>
+#include <string>
+#include <string_view>
+#include <vector>
 
+#include <expected>
 #include <gtest/gtest.h>
 
-#include "infrastructure/dns/validator.h"
 #include "domain/error/dns_error.h"
+#include "domain/error/dns_error_info.h"
+#include "infrastructure/dns/validator.h"
 
 // ===========================================================================
 // Test helpers — build minimal DNS wire-format messages
@@ -39,93 +41,89 @@
 
 namespace {
 
-    /// Build a proper minimal query with \x07example\x03com\x00 QNAME.
-    /// Total: 12 (header) + 13 (QNAME) + 4 (QTYPE+QCLASS) = 29 bytes.
-    std::vector<std::uint8_t> make_query_example(std::uint16_t txid = 0x1234) {
-        std::vector<std::uint8_t> buf(29, 0);
+/// Build a proper minimal query with \x07example\x03com\x00 QNAME.
+/// Total: 12 (header) + 13 (QNAME) + 4 (QTYPE+QCLASS) = 29 bytes.
+std::vector<std::uint8_t> make_query_example(std::uint16_t txid = 0x1234) {
+    std::vector<std::uint8_t> buf(29, 0);
 
-        // Header
-        buf[0] = static_cast<std::uint8_t>(txid >> 8);
-        buf[1] = static_cast<std::uint8_t>(txid & 0xFF);
-        buf[2] = 0x01;  // flags: recursive query
-        buf[3] = 0x00;
-        buf[4] = 0x00;  // QDCOUNT high
-        buf[5] = 0x01;  // QDCOUNT low  = 1
-        // ANCOUNT, NSCOUNT, ARCOUNT remain 0
+    // Header
+    buf[0] = static_cast<std::uint8_t>(txid >> 8);
+    buf[1] = static_cast<std::uint8_t>(txid & 0xFF);
+    buf[2] = 0x01;  // flags: recursive query
+    buf[3] = 0x00;
+    buf[4] = 0x00;  // QDCOUNT high
+    buf[5] = 0x01;  // QDCOUNT low  = 1
+    // ANCOUNT, NSCOUNT, ARCOUNT remain 0
 
-        // Question: "example.com" in wire format
-        // \x07example\x03com\x00
-        buf[12] = 7;
-        buf[13] = 'e';
-        buf[14] = 'x';
-        buf[15] = 'a';
-        buf[16] = 'm';
-        buf[17] = 'p';
-        buf[18] = 'l';
-        buf[19] = 'e';
-        buf[20] = 3;
-        buf[21] = 'c';
-        buf[22] = 'o';
-        buf[23] = 'm';
-        buf[24] = 0;  // root label
+    // Question: "example.com" in wire format
+    // \x07example\x03com\x00
+    buf[12] = 7;
+    buf[13] = 'e';
+    buf[14] = 'x';
+    buf[15] = 'a';
+    buf[16] = 'm';
+    buf[17] = 'p';
+    buf[18] = 'l';
+    buf[19] = 'e';
+    buf[20] = 3;
+    buf[21] = 'c';
+    buf[22] = 'o';
+    buf[23] = 'm';
+    buf[24] = 0;  // root label
 
-        // QTYPE = 1 (A record)
-        buf[25] = 0x00;
-        buf[26] = 0x01;
+    // QTYPE = 1 (A record)
+    buf[25] = 0x00;
+    buf[26] = 0x01;
 
-        // QCLASS = 1 (IN)
-        buf[27] = 0x00;
-        buf[28] = 0x01;
+    // QCLASS = 1 (IN)
+    buf[27] = 0x00;
+    buf[28] = 0x01;
 
-        return buf;
+    return buf;
+}
+
+/// Build a valid response to the query above.
+/// Starts with QR bit set, same TXID, echoes the question.
+std::vector<std::uint8_t> make_valid_response(std::uint16_t txid = 0x1234) {
+    auto buf = make_query_example(txid);
+
+    // Set QR bit (0x80) in flags — first response byte.
+    // Original was 0x01; QR | 0x01 = 0x81
+    buf[2] = 0x81;  // QR=1, opcode=0, AA=0, TC=0, RD=1
+    buf[3] = 0x80;  // RA=1
+
+    return buf;
+}
+
+/// Helper: assert that validate_response succeeds.
+void expect_valid(std::span<const std::uint8_t> query, std::span<const std::uint8_t> response) {
+    auto result = DNS::Validator::validate_response(query, response);
+    EXPECT_TRUE(result.has_value()) << "expected valid, got: " << (result.has_value() ? "" : result.error().message);
+}
+
+/// Helper: assert that validate_response fails with PARSE error.
+void expect_parse_error(std::span<const std::uint8_t> query, std::span<const std::uint8_t> response) {
+    auto result = DNS::Validator::validate_response(query, response);
+    EXPECT_FALSE(result.has_value());
+    if (!result.has_value()) {
+        EXPECT_EQ(result.error().code, DnsError::PARSE);
     }
+}
 
-    /// Build a valid response to the query above.
-    /// Starts with QR bit set, same TXID, echoes the question.
-    std::vector<std::uint8_t> make_valid_response(std::uint16_t txid = 0x1234) {
-        auto buf = make_query_example(txid);
-
-        // Set QR bit (0x80) in flags — first response byte.
-        // Original was 0x01; QR | 0x01 = 0x81
-        buf[2] = 0x81;  // QR=1, opcode=0, AA=0, TC=0, RD=1
-        buf[3] = 0x80;  // RA=1
-
-        return buf;
+/// Helper: assert that validate_response fails with PARSE error
+/// and error message contains the given substring.
+void expect_parse_error_msg(std::span<const std::uint8_t> query,
+                            std::span<const std::uint8_t> response,
+                            std::string_view expected_substr) {
+    auto result = DNS::Validator::validate_response(query, response);
+    EXPECT_FALSE(result.has_value());
+    if (!result.has_value()) {
+        EXPECT_EQ(result.error().code, DnsError::PARSE);
+        EXPECT_NE(result.error().message.find(expected_substr), std::string_view::npos);
     }
+}
 
-    /// Helper: assert that validate_response succeeds.
-    void expect_valid(std::span<const std::uint8_t> query,
-                      std::span<const std::uint8_t> response) {
-        auto result = DNS::Validator::validate_response(query, response);
-        EXPECT_TRUE(result.has_value()) << "expected valid, got: "
-            << (result.has_value() ? "" : result.error().message);
-    }
-
-    /// Helper: assert that validate_response fails with PARSE error.
-    void expect_parse_error(std::span<const std::uint8_t> query,
-                            std::span<const std::uint8_t> response) {
-        auto result = DNS::Validator::validate_response(query, response);
-        EXPECT_FALSE(result.has_value());
-        if (!result.has_value()) {
-            EXPECT_EQ(result.error().code, DnsError::PARSE);
-        }
-    }
-
-    /// Helper: assert that validate_response fails with PARSE error
-    /// and error message contains the given substring.
-    void expect_parse_error_msg(std::span<const std::uint8_t> query,
-                                std::span<const std::uint8_t> response,
-                                std::string_view expected_substr) {
-        auto result = DNS::Validator::validate_response(query, response);
-        EXPECT_FALSE(result.has_value());
-        if (!result.has_value()) {
-            EXPECT_EQ(result.error().code, DnsError::PARSE);
-            EXPECT_NE(result.error().message.find(expected_substr),
-                      std::string_view::npos);
-        }
-    }
-
-} // anonymous namespace
+}  // anonymous namespace
 
 // ===========================================================================
 // Happy path

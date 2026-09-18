@@ -2,53 +2,56 @@
 // Created by Kotarou on 2021/9/7.
 //
 #include "infrastructure/network/uri.h"
-#include "support/string_util.hpp"
 
-#include <string>
-#include <vector>
-#include <utility>
-#include <unordered_map>
-#include <charconv>
-#include <optional>
 #include <algorithm>
-#include <string_view>
+#include <array>
 #include <cctype>
+#include <charconv>
 #include <cstddef>
+#include <optional>
+#include <stdexcept>
+#include <string>
+#include <string_view>
+#include <system_error>
+#include <unordered_map>
+#include <utility>
+#include <vector>
 
+#include <yaddnsc/util/format.hpp>
 #include <yaddnsc/util/url_encode.hpp>
 
-#include "support/fmt.hpp"
 #include "domain/network/inet_address.h"
+#include "support/fmt.hpp"
 
 namespace {
-    /// Known scheme-to-default-port mappings.
-    const std::unordered_map<std::string_view, int> KNOWN_PORTS = {
-        {"http", 80}, {"https", 443}, {"tls", 853},
-    };
+/// Known scheme-to-default-port mappings.
+const std::unordered_map<std::string_view, int> KNOWN_PORTS = {
+    {"http", 80},
+    {"https", 443},
+    {"tls", 853},
+};
 
-    constexpr std::string_view DEFAULT_PATH = "/";
+constexpr std::string_view DEFAULT_PATH = "/";
 
-    [[nodiscard]] int lookup_default_port(std::string_view scheme) noexcept {
-        auto it = KNOWN_PORTS.find(scheme);
-        return it != KNOWN_PORTS.end() ? it->second : 0;
-    }
-
-    [[nodiscard]] bool is_default_port(std::string_view scheme, int port) noexcept {
-        auto it = KNOWN_PORTS.find(scheme);
-        return it != KNOWN_PORTS.end() && it->second == port;
-    }
-
-    /// Lowercase a range of characters in-place within a string.
-    void lowercase_range(std::string &s, std::size_t pos, std::size_t len) noexcept {
-        if (len == 0) return;
-        auto start = s.begin() + static_cast<std::ptrdiff_t>(pos);
-        std::transform(start, start + static_cast<std::ptrdiff_t>(len), start,
-                       [](unsigned char c) -> char {
-                           return static_cast<char>(std::tolower(c));
-                       }
-        );
-    }
+[[nodiscard]] int lookup_default_port(std::string_view scheme) noexcept {
+    auto it = KNOWN_PORTS.find(scheme);
+    return it != KNOWN_PORTS.end() ? it->second : 0;
 }
+
+[[nodiscard]] bool is_default_port(std::string_view scheme, int port) noexcept {
+    auto it = KNOWN_PORTS.find(scheme);
+    return it != KNOWN_PORTS.end() && it->second == port;
+}
+
+/// Lowercase a range of characters in-place within a string.
+void lowercase_range(std::string& s, std::size_t pos, std::size_t len) noexcept {
+    if (len == 0)
+        return;
+    auto start = s.begin() + static_cast<std::ptrdiff_t>(pos);
+    std::transform(start, start + static_cast<std::ptrdiff_t>(len), start,
+                   [](unsigned char c) -> char { return static_cast<char>(std::tolower(c)); });
+}
+}  // namespace
 
 // ---------------------------------------------------------------------------
 // Parse
@@ -77,7 +80,7 @@ Uri Uri::parse(std::string_view uri) {
     // Look for "://".  If found and there is at least one character before
     // it, treat the part before "://" as a scheme name.
     bool has_scheme = false;
-    std::size_t authority_start = 0; // offset where authority begins
+    std::size_t authority_start = 0;  // offset where authority begins
 
     auto const hier_delim = u.find("://");
     if (hier_delim != std::string_view::npos && hier_delim > 0) {
@@ -87,7 +90,7 @@ Uri Uri::parse(std::string_view uri) {
         // scheme is case-insensitive → lowercase in-place within raw_uri_
         lowercase_range(result.raw_uri_, 0, hier_delim);
 
-        authority_start = hier_delim + 3; // skip "://"
+        authority_start = hier_delim + 3;  // skip "://"
         result.body_.assign(authority_start, u.size() - authority_start);
     } else {
         // No scheme – the whole input (minus fragment) is treated as
@@ -111,10 +114,10 @@ Uri Uri::parse(std::string_view uri) {
     // delimiter (path, query, or end-of-string).
     auto authority_end = u.size();
     if (path_pos != std::string_view::npos) {
-        authority_end = (std::min)(authority_end, path_pos);
+        authority_end = (std::min) (authority_end, path_pos);
     }
     if (query_pos != std::string_view::npos) {
-        authority_end = (std::min)(authority_end, query_pos);
+        authority_end = (std::min) (authority_end, query_pos);
     }
 
     auto const auth_view = u.substr(authority_start, authority_end - authority_start);
@@ -134,8 +137,7 @@ Uri Uri::parse(std::string_view uri) {
     }
 
     // -------- path --------------------------------------------------------
-    if (path_pos != std::string_view::npos &&
-        (query_pos == std::string_view::npos || path_pos < query_pos)) {
+    if (path_pos != std::string_view::npos && (query_pos == std::string_view::npos || path_pos < query_pos)) {
         // Path runs from the first '/' up to (but not including) '?'.
         auto const path_end = (query_pos != std::string_view::npos) ? query_pos : u.size();
         result.path_.assign(path_pos, path_end - path_pos);
@@ -158,8 +160,12 @@ Uri Uri::parse(std::string_view uri) {
 // parse_authority
 // ---------------------------------------------------------------------------
 
-void Uri::parse_authority(std::string_view auth, Slice &host_out, std::optional<int> &port_out, bool &is_ipv6_out,
-                          std::size_t auth_raw_offset, std::string_view raw_uri_hint) {
+void Uri::parse_authority(std::string_view auth,
+                          Slice& host_out,
+                          std::optional<int>& port_out,
+                          bool& is_ipv6_out,
+                          std::size_t auth_raw_offset,
+                          std::string_view raw_uri_hint) {
     if (auth.empty()) {
         return;
     }
@@ -167,8 +173,7 @@ void Uri::parse_authority(std::string_view auth, Slice &host_out, std::optional<
     if (auth.starts_with('[')) {
         auto const closing = auth.find(']');
         if (closing == std::string_view::npos) {
-            throw std::runtime_error(
-                fmt::format("Unclosed IPv6 literal bracket: {}", raw_uri_hint));
+            throw std::runtime_error(fmt::format("Unclosed IPv6 literal bracket: {}", raw_uri_hint));
         }
 
         host_out.assign(auth_raw_offset + 1, closing - 1);
@@ -184,8 +189,7 @@ void Uri::parse_authority(std::string_view auth, Slice &host_out, std::optional<
                     // values were previously silently truncated by callers'
                     // static_cast<uint16_t>, connecting to the wrong port.
                     if (v < 0 || v > 65535) {
-                        throw std::runtime_error(
-                            fmt::format("Invalid port \"{}\" in URI (must be 0-65535)", port_str));
+                        throw std::runtime_error(fmt::format("Invalid port \"{}\" in URI (must be 0-65535)", port_str));
                     }
                     port_out.emplace(v);
                 }
@@ -217,8 +221,7 @@ void Uri::parse_authority(std::string_view auth, Slice &host_out, std::optional<
             if (ec == std::errc() && p == port_str.data() + port_str.size()) {
                 // See the IPv6 branch above: numeric ports must be 0-65535.
                 if (v < 0 || v > 65535) {
-                    throw std::runtime_error(
-                        fmt::format("Invalid port \"{}\" in URI (must be 0-65535)", port_str));
+                    throw std::runtime_error(fmt::format("Invalid port \"{}\" in URI (must be 0-65535)", port_str));
                 }
                 port_out.emplace(v);
             }
@@ -303,8 +306,8 @@ std::string Uri::get_origin() const {
     return std::string(schema_view) + "://" + std::string(host_view) + ':' + std::to_string(*port_);
 }
 
-std::vector<std::pair<std::string, std::string> > Uri::get_query_params(bool plus_to_space) const {
-    std::vector<std::pair<std::string, std::string> > params;
+std::vector<std::pair<std::string, std::string>> Uri::get_query_params(bool plus_to_space) const {
+    std::vector<std::pair<std::string, std::string>> params;
 
     if (query_string_.empty()) {
         return params;
@@ -335,8 +338,9 @@ std::vector<std::pair<std::string, std::string> > Uri::get_query_params(bool plu
             auto decode_query = [plus_to_space](std::string_view s) -> std::string {
                 auto decoded = Uri::url_decode(s);
                 if (plus_to_space) {
-                    for (auto &ch: decoded) {
-                        if (ch == '+') ch = ' ';
+                    for (auto& ch : decoded) {
+                        if (ch == '+')
+                            ch = ' ';
                     }
                 }
                 return decoded;

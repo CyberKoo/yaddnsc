@@ -9,20 +9,26 @@
 //   - update returns UPSTREAM_REJECTED for error / unparseable responses.
 // =============================================================================
 
+#include <optional>
+#include <string>
+#include <string_view>
+#include <vector>
+
 #include <gtest/gtest.h>
+#include <yaddnsc/sdk/driver_abi.h>
 
 #include "abi_test_harness.h"
 
 // ── Shared fixtures ──────────────────────────────────────────────────────────
 
 namespace {
-    constexpr std::string_view CONFIG = R"({"record_id": "123456", "token": "my-token"})";
-} // namespace
+constexpr std::string_view CONFIG = R"({"record_id": "123456", "token": "my-token"})";
+}  // namespace
 
 // ── Tests ──────────────────────────────────────────────────────────────────
 
 TEST(DigitalOceanDriverTest, Descriptor_ReturnsExpectedMetadata) {
-    const yaddnsc_driver_descriptor *descriptor = nullptr;
+    const yaddnsc_driver_descriptor* descriptor = nullptr;
     ASSERT_EQ(yaddnsc_driver_get_descriptor(&descriptor), YADDNSC_STATUS_OK);
     ASSERT_NE(descriptor, nullptr);
     EXPECT_EQ(descriptor->magic, YADDNSC_DRIVER_MAGIC);
@@ -53,7 +59,7 @@ TEST(DigitalOceanDriverTest, Update_BasicARecord) {
     ASSERT_EQ(result.status, YADDNSC_STATUS_OK) << result.error_message;
 
     ASSERT_EQ(fake.requests.size(), 1u);
-    const auto &request = fake.requests[0];
+    const auto& request = fake.requests[0];
 
     // Check URL
     EXPECT_EQ(request.url, "https://api.digitalocean.com/v2/domains/example.com/records/123456");
@@ -69,7 +75,7 @@ TEST(DigitalOceanDriverTest, Update_BasicARecord) {
 
     // Check request body contains expected fields
     ASSERT_TRUE(request.body.has_value());
-    const auto &body = *request.body;
+    const auto& body = *request.body;
     EXPECT_TRUE(body.find(R"("data":"1.2.3.4")") != std::string::npos);
 }
 
@@ -96,8 +102,8 @@ TEST(DigitalOceanDriverTest, Update_SuccessWithAllFields_ReturnsOk) {
 
 TEST(DigitalOceanDriverTest, Update_MissingRecordId_ReturnsInvalidConfig) {
     FakeHostServices fake;
-    const auto result = run_abi_update(fake, R"({"token": "my-token"})", "1.2.3.4", "A", "example.com", "@",
-                                       "example.com");
+    const auto result =
+        run_abi_update(fake, R"({"token": "my-token"})", "1.2.3.4", "A", "example.com", "@", "example.com");
     EXPECT_EQ(result.status, YADDNSC_STATUS_INVALID_CONFIG);
     EXPECT_TRUE(result.error_message.starts_with("Driver configuration parse error:")) << result.error_message;
     EXPECT_TRUE(fake.requests.empty());
@@ -105,8 +111,8 @@ TEST(DigitalOceanDriverTest, Update_MissingRecordId_ReturnsInvalidConfig) {
 
 TEST(DigitalOceanDriverTest, Update_MissingToken_ReturnsInvalidConfig) {
     FakeHostServices fake;
-    const auto result = run_abi_update(fake, R"({"record_id": "123"})", "1.2.3.4", "A", "example.com", "@",
-                                       "example.com");
+    const auto result =
+        run_abi_update(fake, R"({"record_id": "123"})", "1.2.3.4", "A", "example.com", "@", "example.com");
     EXPECT_EQ(result.status, YADDNSC_STATUS_INVALID_CONFIG);
     EXPECT_TRUE(result.error_message.starts_with("Driver configuration parse error:")) << result.error_message;
     EXPECT_TRUE(fake.requests.empty());
@@ -186,5 +192,5 @@ TEST(DigitalOceanDriverTest, Validate_MalformedJson_ReturnsInvalidConfig) {
 TEST(DigitalOceanDriverTest, Entries_NullArgumentsRejected) {
     EXPECT_EQ(yaddnsc_driver_get_descriptor(nullptr), YADDNSC_STATUS_INVALID_ARGUMENT);
     EXPECT_EQ(yaddnsc_driver_update(nullptr, nullptr, nullptr), YADDNSC_STATUS_INVALID_ARGUMENT);
-    yaddnsc_driver_destroy(nullptr); // must be a no-op, must not crash
+    yaddnsc_driver_destroy(nullptr);  // must be a no-op, must not crash
 }

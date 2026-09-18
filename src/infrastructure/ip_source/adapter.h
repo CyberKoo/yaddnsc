@@ -9,9 +9,13 @@
 #include <memory>
 
 #include "application/ports/ip_source.h"
-#include "support/util/cancellation_token.hpp"
+#include "domain/config/runtime_config.h"
 
 class IpSourceBase;
+
+namespace Utils {
+class CancellationToken;
+}  // namespace Utils
 
 /// IpSourceAdapter — IpSourcePort implementation over the legacy
 /// IpSourceFactory + IpSourceBase (throwing) stack.
@@ -26,18 +30,18 @@ class IpSourceBase;
 class IpSourceAdapter final : public IpSourcePort {
 public:
     /// Factory type for creating IP source instances (tests may inject stubs).
-    using FactoryFn = std::function<std::unique_ptr<IpSourceBase>(const domain::SubdomainConfig &)>;
+    using FactoryFn = std::function<std::unique_ptr<IpSourceBase>(const domain::SubdomainConfig&)>;
 
     /// @param token    Cancellation token bound into every created HTTP IP source.
     /// @param factory  Source factory; defaults to IpSourceFactory::create
     ///                 bound to `token`.
     explicit IpSourceAdapter(Utils::CancellationToken token, FactoryFn factory = {});
 
-    [[nodiscard]] std::expected<std::vector<InetAddress>, domain::IpSourceError>
-    resolve(const domain::SubdomainConfig &config) const override;
+    [[nodiscard]] std::expected<std::vector<InetAddress>, domain::IpSourceError> resolve(
+        const domain::SubdomainConfig& config) const override;
 
 private:
     FactoryFn factory_;
 };
 
-#endif // YADDNSC_IP_SOURCE_ADAPTER_H
+#endif  // YADDNSC_IP_SOURCE_ADAPTER_H

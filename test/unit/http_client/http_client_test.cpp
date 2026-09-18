@@ -7,19 +7,26 @@
 // =============================================================================
 
 #include <algorithm>
+#include <cstdint>
 #include <cstring>
+#include <initializer_list>
+#include <map>
 #include <optional>
 #include <span>
 #include <string>
-#include <vector>
+#include <utility>
 
 #include <expected>
 #include <gtest/gtest.h>
 
+#include "infrastructure/network/http/error.h"
 #include "infrastructure/network/http/protocol/exchange.h"
 #include "infrastructure/network/http/protocol/wire.h"
 #include "infrastructure/network/http/redirect.h"
+#include "infrastructure/network/http/types.h"
+#include "infrastructure/network/transport/io_error.h"
 #include "infrastructure/network/transport/stream.h"
+#include "infrastructure/network/uri.h"
 
 using net::http::ErrorCode;
 using net::http::Limits;
@@ -243,16 +250,18 @@ TEST(HttpClientExchange, ResetContentAndChunkedTrailersFollowFramingRules) {
     EXPECT_EQ(resp.error().code, ErrorCode::RESPONSE_PARSE_FAILED);
 
     FakeStream chunked;
-    chunked.input = "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n"
-                    "2\r\nok\r\n0\r\nChecksum: abc\r\n\r\n";
+    chunked.input =
+        "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n"
+        "2\r\nok\r\n0\r\nChecksum: abc\r\n\r\n";
     resp = net::http::protocol::exchange(chunked, make_get("/"), Limits{});
     ASSERT_TRUE(resp);
     EXPECT_EQ(resp->text(), "ok");
     EXPECT_EQ(resp->trailers.find("Checksum")->second, "abc");
 
     FakeStream forbidden;
-    forbidden.input = "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n"
-                      "0\r\nContent-Length: 1\r\n\r\n";
+    forbidden.input =
+        "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n"
+        "0\r\nContent-Length: 1\r\n\r\n";
     resp = net::http::protocol::exchange(forbidden, make_get("/"), Limits{});
     ASSERT_FALSE(resp);
     EXPECT_EQ(resp.error().code, ErrorCode::RESPONSE_PARSE_FAILED);
@@ -280,9 +289,10 @@ TEST(HttpClientExchange, NoBodyStatusPreservesNextResponse) {
 
 TEST(HttpClientExchange, ChunkedBodyPreservesNextResponse) {
     FakeStream stream;
-    stream.input = "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n"
-                   "2\r\nok\r\n0\r\n\r\n"
-                   "HTTP/1.1 200 OK\r\nContent-Length: 3\r\n\r\ntwo";
+    stream.input =
+        "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n"
+        "2\r\nok\r\n0\r\n\r\n"
+        "HTTP/1.1 200 OK\r\nContent-Length: 3\r\n\r\ntwo";
     std::string pending;
 
     auto first = net::http::protocol::exchange(stream, make_get("/first"), Limits{}, pending);
@@ -458,8 +468,7 @@ net::http::protocol::WireRequest post_request() {
 }  // namespace
 
 TEST(HttpClientRedirect, NotARedirect_NotFollowed) {
-    const auto eval =
-        net::http::evaluate_redirect(200, {}, 0, {}, post_request(), make_current_uri());
+    const auto eval = net::http::evaluate_redirect(200, {}, 0, {}, post_request(), make_current_uri());
     EXPECT_FALSE(eval.plan.has_value());
     EXPECT_FALSE(eval.limit_reached);
 }
@@ -472,12 +481,14 @@ TEST(HttpClientRedirect, MissingLocation_NotFollowed) {
 TEST(HttpClientRedirect, FollowDisabled_NotFollowed) {
     net::http::Options opts;
     opts.follow_redirects = false;
-    const auto eval = net::http::evaluate_redirect(302, {{"Location", "/new"}}, 0, opts, post_request(), make_current_uri());
+    const auto eval =
+        net::http::evaluate_redirect(302, {{"Location", "/new"}}, 0, opts, post_request(), make_current_uri());
     EXPECT_FALSE(eval.plan.has_value());
 }
 
 TEST(HttpClientRedirect, MovedPermanently_RewritesToGetDropsBody) {
-    const auto eval = net::http::evaluate_redirect(301, {{"Location", "/moved"}}, 0, {}, post_request(), make_current_uri());
+    const auto eval =
+        net::http::evaluate_redirect(301, {{"Location", "/moved"}}, 0, {}, post_request(), make_current_uri());
     ASSERT_TRUE(eval.plan.has_value());
     EXPECT_EQ(eval.plan->next.method, Method::GET);
     EXPECT_FALSE(eval.plan->next.body.has_value());
@@ -487,7 +498,8 @@ TEST(HttpClientRedirect, MovedPermanently_RewritesToGetDropsBody) {
 }
 
 TEST(HttpClientRedirect, TemporaryRedirect_PreservesMethodAndBody) {
-    const auto eval = net::http::evaluate_redirect(307, {{"Location", "/retry"}}, 0, {}, post_request(), make_current_uri());
+    const auto eval =
+        net::http::evaluate_redirect(307, {{"Location", "/retry"}}, 0, {}, post_request(), make_current_uri());
     ASSERT_TRUE(eval.plan.has_value());
     EXPECT_EQ(eval.plan->next.method, Method::POST);
     ASSERT_TRUE(eval.plan->next.body.has_value());
@@ -497,8 +509,8 @@ TEST(HttpClientRedirect, TemporaryRedirect_PreservesMethodAndBody) {
 }
 
 TEST(HttpClientRedirect, CrossOrigin_StripsAuthorization) {
-    const auto eval = net::http::evaluate_redirect(
-        302, {{"Location", "https://other.example.net/api"}}, 0, {}, post_request(), make_current_uri());
+    const auto eval = net::http::evaluate_redirect(302, {{"Location", "https://other.example.net/api"}}, 0, {},
+                                                   post_request(), make_current_uri());
     ASSERT_TRUE(eval.plan.has_value());
     EXPECT_TRUE(eval.plan->cross_origin);
     EXPECT_EQ(eval.plan->host, "other.example.net");
@@ -510,8 +522,8 @@ TEST(HttpClientRedirect, CrossOrigin_StripsAuthorization) {
 }
 
 TEST(HttpClientRedirect, AbsoluteLocationWithPort) {
-    const auto eval = net::http::evaluate_redirect(
-        302, {{"Location", "http://plain.example.com:8080/x"}}, 0, {}, post_request(), make_current_uri());
+    const auto eval = net::http::evaluate_redirect(302, {{"Location", "http://plain.example.com:8080/x"}}, 0, {},
+                                                   post_request(), make_current_uri());
     ASSERT_TRUE(eval.plan.has_value());
     EXPECT_EQ(eval.plan->scheme, "http");
     EXPECT_EQ(eval.plan->port, 8080);
@@ -519,7 +531,8 @@ TEST(HttpClientRedirect, AbsoluteLocationWithPort) {
 }
 
 TEST(HttpClientRedirect, RelativeLocation_MergesPath) {
-    const auto eval = net::http::evaluate_redirect(302, {{"Location", "next"}}, 0, {}, post_request(), make_current_uri());
+    const auto eval =
+        net::http::evaluate_redirect(302, {{"Location", "next"}}, 0, {}, post_request(), make_current_uri());
     ASSERT_TRUE(eval.plan.has_value());
     EXPECT_EQ(eval.plan->next.target, "/api/v1/next");
     EXPECT_FALSE(eval.plan->cross_origin);
@@ -528,7 +541,8 @@ TEST(HttpClientRedirect, RelativeLocation_MergesPath) {
 TEST(HttpClientRedirect, LimitExceeded_ReportsLimit) {
     net::http::Options opts;
     opts.max_redirects = 3;
-    const auto eval = net::http::evaluate_redirect(302, {{"Location", "/loop"}}, 3, opts, post_request(), make_current_uri());
+    const auto eval =
+        net::http::evaluate_redirect(302, {{"Location", "/loop"}}, 3, opts, post_request(), make_current_uri());
     EXPECT_FALSE(eval.plan.has_value());
     EXPECT_TRUE(eval.limit_reached);
 }

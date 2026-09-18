@@ -10,19 +10,28 @@
 //   - Movability is preserved.
 // =============================================================================
 
+#include <cstdint>
+#include <memory>
+#include <string>
+#include <string_view>
 #include <type_traits>
+#include <utility>
+#include <vector>
 
+#include <expected>
 #include <gtest/gtest.h>
 
+#include "domain/dns/record_kind.h"
+#include "domain/error/dns_error.h"
+#include "domain/error/dns_error_info.h"
 #include "infrastructure/dns/resolver/base.h"
-#include "support/util/cancellation_token.hpp"
 
 // ── Concrete subclass for testing ─────────────────────────────────────────────
 
 class TestResolver final : public ResolverBase {
 public:
-    [[nodiscard]] std::expected<std::vector<std::uint8_t>, DnsErrorInfo>
-    query([[maybe_unused]] const std::string &host, RecordKind type) const override {
+    [[nodiscard]] std::expected<std::vector<std::uint8_t>, DnsErrorInfo> query([[maybe_unused]] const std::string& host,
+                                                                               RecordKind type) const override {
         // Return a minimal "success" packet (just host bytes for identification).
         if (type == RecordKind::A) {
             return std::vector<std::uint8_t>{192, 168, 1, 1};
@@ -30,9 +39,7 @@ public:
         return std::unexpected(DnsErrorInfo{DnsError::NX_DOMAIN, "not found"});
     }
 
-    [[nodiscard]] std::string_view get_type() const noexcept override {
-        return "TestResolver";
-    }
+    [[nodiscard]] std::string_view get_type() const noexcept override { return "TestResolver"; }
 };
 
 // ── Static interface checks ───────────────────────────────────────────────────

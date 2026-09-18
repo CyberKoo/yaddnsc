@@ -9,9 +9,13 @@
 //   - error_to_str handles the default (unknown) case.
 // =============================================================================
 
-#include <gtest/gtest.h>
-
 #include "domain/error/dns_error.h"
+
+#include <string>
+#include <string_view>
+#include <type_traits>
+
+#include <gtest/gtest.h>
 
 TEST(DnsErrorTest, ErrorToStr_NxDomain) {
     auto s = error_to_str(DnsError::NX_DOMAIN);
@@ -84,6 +88,6 @@ TEST(DnsErrorTest, ErrorToStr_AllEnums_NonNull) {
 // ── Enum properties ──────────────────────────────────────────────────────────
 
 TEST(DnsErrorTest, IsEnumClass) {
-    EXPECT_TRUE((std::is_enum_v<DnsError>));
-    EXPECT_FALSE((std::is_convertible_v<DnsError, int>));
+    EXPECT_TRUE((std::is_enum_v<DnsError>) );
+    EXPECT_FALSE((std::is_convertible_v<DnsError, int>) );
 }

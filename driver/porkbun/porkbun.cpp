@@ -4,6 +4,15 @@
 
 #include "porkbun.h"
 
+#include <optional>
+#include <vector>
+
+#include <glaze/glaze.hpp>
+#include <yaddnsc/sdk/driver.hpp>
+#include <yaddnsc/sdk/driver_abi.h>
+#include <yaddnsc/util/format.hpp>
+
+#include "config.hpp"
 #include "response.hpp"
 
 namespace fmt = yaddnsc::sdk::fmt;
@@ -17,12 +26,17 @@ using yaddnsc::sdk::UpdateContext;
 using yaddnsc::sdk::UpdateRequest;
 
 namespace {
-    constexpr std::string_view API_URL = "https://api.porkbun.com/api/json/v3/dns/editByNameType/{DOMAIN}/{TYPE}/{SUBDOMAIN}";
-    constexpr std::string_view DRIVER_NAME = "porkbun";
-}
+constexpr std::string_view API_URL =
+    "https://api.porkbun.com/api/json/v3/dns/editByNameType/{DOMAIN}/{TYPE}/{SUBDOMAIN}";
+constexpr std::string_view DRIVER_NAME = "porkbun";
+}  // namespace
 
-YADDNSC_DEFINE_DRIVER(PorkbunDriver, "porkbun", "Updates DNS records via the Porkbun API", "Kotarou",
-                      "1.0.0", YADDNSC_DRIVER_CAPABILITY_A | YADDNSC_DRIVER_CAPABILITY_AAAA)
+YADDNSC_DEFINE_DRIVER(PorkbunDriver,
+                      "porkbun",
+                      "Updates DNS records via the Porkbun API",
+                      "Kotarou",
+                      "1.0.0",
+                      YADDNSC_DRIVER_CAPABILITY_A | YADDNSC_DRIVER_CAPABILITY_AAAA)
 
 Result PorkbunDriver::validate(std::string_view driver_param_json) const {
     // Reuses the update-time schema: parse_config throws ConfigParseError on
@@ -32,8 +46,8 @@ Result PorkbunDriver::validate(std::string_view driver_param_json) const {
     return {};
 }
 
-Result PorkbunDriver::update(UpdateContext &context) {
-    const auto &params = context.request();
+Result PorkbunDriver::update(UpdateContext& context) {
+    const auto& params = context.request();
     const auto cfg = parse_config<PorkbunParams>(params.driver_param_json);
 
     HttpRequest request{};
@@ -41,9 +55,7 @@ Result PorkbunDriver::update(UpdateContext &context) {
     // Porkbun's editByNameType uses subdomain (not FQDN). Empty subdomain for root domain.
     const auto subdomain = (params.subdomain == "@" || params.subdomain.empty()) ? "" : params.subdomain;
 
-    request.url = fmt::format(API_URL,
-                              fmt::arg("DOMAIN", params.domain),
-                              fmt::arg("TYPE", params.record_type),
+    request.url = fmt::format(API_URL, fmt::arg("DOMAIN", params.domain), fmt::arg("TYPE", params.record_type),
                               fmt::arg("SUBDOMAIN", subdomain));
     // Use header auth (preferred per docs) and body auth as fallback
     request.headers.push_back({"X-API-Key", cfg.api_key});
@@ -52,13 +64,12 @@ Result PorkbunDriver::update(UpdateContext &context) {
     request.content_type = "application/json";
     request.method = Method::Post;
 
-    return run_update(context, DRIVER_NAME, request,
-                      [](const HttpResponse &response, const Services &services) {
-                          return check_response(response, services);
-                      });
+    return run_update(context, DRIVER_NAME, request, [](const HttpResponse& response, const Services& services) {
+        return check_response(response, services);
+    });
 }
 
-bool PorkbunDriver::check_response(const HttpResponse &response, const Services &services) {
+bool PorkbunDriver::check_response(const HttpResponse& response, const Services& services) {
     YADDNSC_SDK_LOG_TRACE(services, "Got {} from server.", response.body);
 
     auto result = glz::read_json<PorkbunResponse>(response.body);
@@ -67,7 +78,7 @@ bool PorkbunDriver::check_response(const HttpResponse &response, const Services 
         return false;
     }
 
-    auto &resp = result.value();
+    auto& resp = result.value();
     if (resp.status == "SUCCESS") {
         YADDNSC_SDK_LOG_DEBUG(services, "DNS record updated successfully");
         return true;
@@ -83,12 +94,10 @@ bool PorkbunDriver::check_response(const HttpResponse &response, const Services 
     return false;
 }
 
-std::string PorkbunDriver::generate_body(const PorkbunParams &cfg, const UpdateRequest &request) {
-    auto body = PorkbunRequestBody{
-        .apikey = cfg.api_key,
-        .secretapikey = cfg.secret_api_key,
-        .content = std::string(request.ip_address),
-        .ttl = cfg.ttl
-    };
+std::string PorkbunDriver::generate_body(const PorkbunParams& cfg, const UpdateRequest& request) {
+    auto body = PorkbunRequestBody{.apikey = cfg.api_key,
+                                   .secretapikey = cfg.secret_api_key,
+                                   .content = std::string(request.ip_address),
+                                   .ttl = cfg.ttl};
     return glz::write_json(body).value_or("{}");
 }

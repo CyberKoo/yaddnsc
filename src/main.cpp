@@ -3,14 +3,19 @@
 //
 
 #include <cstdlib>
+#include <exception>
+#include <optional>
+#include <string>
+#include <string_view>
 
 #include <spdlog/spdlog.h>
 
 #include "cli/parser.h"
 #include "composition/bootstrap.h"
-#include "logging_pattern.h"
-#include "support/exception.h"
 #include "infrastructure/config/config_verification_exception.h"
+#include "support/exception.h"
+
+#include "logging_pattern.h"
 
 // ===========================================================================
 // main — DDNS client entry point and top-level error boundary.
@@ -26,7 +31,7 @@
 //      stderr text and exit codes inside dispatch.
 // ===========================================================================
 
-int main(int argc, char *argv[]) {
+int main(int argc, char* argv[]) {
     const auto parsed = Cli::parse(argc, argv);
     if (!parsed.command.has_value()) {
         return parsed.exit_code;
@@ -38,11 +43,11 @@ int main(int argc, char *argv[]) {
 
     try {
         return Composition::dispatch(*parsed.command);
-    } catch (const ConfigVerificationException &e) {
+    } catch (const ConfigVerificationException& e) {
         SPDLOG_CRITICAL(e.what());
-    } catch (const YaddnscException &e) {
+    } catch (const YaddnscException& e) {
         SPDLOG_CRITICAL("Fatal error {}: {}", e.get_name(), e.what());
-    } catch (const std::exception &e) {
+    } catch (const std::exception& e) {
         SPDLOG_CRITICAL("Unhandled exception. Error: {}", e.what());
     }
 

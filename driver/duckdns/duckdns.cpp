@@ -4,6 +4,15 @@
 
 #include "duckdns.h"
 
+#include <optional>
+#include <vector>
+
+#include <yaddnsc/sdk/driver.hpp>
+#include <yaddnsc/sdk/driver_abi.h>
+#include <yaddnsc/util/format.hpp>
+
+#include "config.hpp"
+
 namespace fmt = yaddnsc::sdk::fmt;
 using yaddnsc::sdk::Error;
 using yaddnsc::sdk::HttpRequest;
@@ -15,11 +24,15 @@ using yaddnsc::sdk::UpdateContext;
 using yaddnsc::sdk::UpdateRequest;
 
 namespace {
-    constexpr std::string_view API_URL = "https://www.duckdns.org/update";
-    constexpr std::string_view DRIVER_NAME = "duckdns";
-}
+constexpr std::string_view API_URL = "https://www.duckdns.org/update";
+constexpr std::string_view DRIVER_NAME = "duckdns";
+}  // namespace
 
-YADDNSC_DEFINE_DRIVER(DuckDnsDriver, "duckdns", "Updates DNS records via the DuckDNS API", "Kotarou", "1.0.0",
+YADDNSC_DEFINE_DRIVER(DuckDnsDriver,
+                      "duckdns",
+                      "Updates DNS records via the DuckDNS API",
+                      "Kotarou",
+                      "1.0.0",
                       YADDNSC_DRIVER_CAPABILITY_A | YADDNSC_DRIVER_CAPABILITY_AAAA)
 
 Result DuckDnsDriver::validate(std::string_view driver_param_json) const {
@@ -30,21 +43,20 @@ Result DuckDnsDriver::validate(std::string_view driver_param_json) const {
     return {};
 }
 
-Result DuckDnsDriver::update(UpdateContext &context) {
-    const auto &params = context.request();
+Result DuckDnsDriver::update(UpdateContext& context) {
+    const auto& params = context.request();
     const auto cfg = parse_config<DuckDnsParams>(params.driver_param_json);
 
     HttpRequest request{};
     request.url = generate_url(cfg, params);
     request.method = Method::Get;
 
-    return run_update(context, DRIVER_NAME, request,
-                      [](const HttpResponse &response, const Services &services) {
-                          return check_response(response, services);
-                      });
+    return run_update(context, DRIVER_NAME, request, [](const HttpResponse& response, const Services& services) {
+        return check_response(response, services);
+    });
 }
 
-bool DuckDnsDriver::check_response(const HttpResponse &response, const Services &services) {
+bool DuckDnsDriver::check_response(const HttpResponse& response, const Services& services) {
     YADDNSC_SDK_LOG_TRACE(services, "Got {} from server.", response.body);
 
     // DuckDNS returns:
@@ -62,12 +74,12 @@ bool DuckDnsDriver::check_response(const HttpResponse &response, const Services 
     return false;
 }
 
-std::string DuckDnsDriver::generate_url(const DuckDnsParams &cfg, const UpdateRequest &params) {
+std::string DuckDnsDriver::generate_url(const DuckDnsParams& cfg, const UpdateRequest& params) {
     // Use ipv6 param for AAAA records, ip param for A records
     auto ip_param = (params.record_type == "AAAA") ? "ipv6" : "ip";
 
-    auto url = fmt::format("{}?domains={}&token={}&{}={}",
-                           API_URL, params.subdomain, cfg.token, ip_param, params.ip_address);
+    auto url =
+        fmt::format("{}?domains={}&token={}&{}={}", API_URL, params.subdomain, cfg.token, ip_param, params.ip_address);
 
     if (cfg.verbose.value_or(false)) {
         url += "&verbose=true";

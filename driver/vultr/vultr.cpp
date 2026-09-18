@@ -4,6 +4,16 @@
 
 #include "vultr.h"
 
+#include <optional>
+#include <string>
+#include <vector>
+
+#include <glaze/glaze.hpp>
+#include <yaddnsc/sdk/driver.hpp>
+#include <yaddnsc/sdk/driver_abi.h>
+#include <yaddnsc/util/format.hpp>
+
+#include "config.hpp"
 #include "response.hpp"
 
 namespace fmt = yaddnsc::sdk::fmt;
@@ -16,11 +26,15 @@ using yaddnsc::sdk::Services;
 using yaddnsc::sdk::UpdateContext;
 
 namespace {
-    constexpr std::string_view API_URL = "https://api.vultr.com/v2/domains/{DOMAIN}/records/{RECORD_ID}";
-    constexpr std::string_view DRIVER_NAME = "vultr";
-}
+constexpr std::string_view API_URL = "https://api.vultr.com/v2/domains/{DOMAIN}/records/{RECORD_ID}";
+constexpr std::string_view DRIVER_NAME = "vultr";
+}  // namespace
 
-YADDNSC_DEFINE_DRIVER(VultrDriver, "vultr", "Updates DNS records via the Vultr API", "Kotarou", "1.0.0",
+YADDNSC_DEFINE_DRIVER(VultrDriver,
+                      "vultr",
+                      "Updates DNS records via the Vultr API",
+                      "Kotarou",
+                      "1.0.0",
                       YADDNSC_DRIVER_CAPABILITY_A | YADDNSC_DRIVER_CAPABILITY_AAAA)
 
 Result VultrDriver::validate(std::string_view driver_param_json) const {
@@ -31,29 +45,25 @@ Result VultrDriver::validate(std::string_view driver_param_json) const {
     return {};
 }
 
-Result VultrDriver::update(UpdateContext &context) {
-    const auto &params = context.request();
+Result VultrDriver::update(UpdateContext& context) {
+    const auto& params = context.request();
     const auto cfg = parse_config<VultrParams>(params.driver_param_json);
 
     HttpRequest request{};
     request.url = fmt::format(API_URL, fmt::arg("DOMAIN", params.domain), fmt::arg("RECORD_ID", cfg.record_id));
     request.headers.push_back({"Authorization", fmt::format("Bearer {}", cfg.api_key)});
-    const auto body = VultrRequestBody{
-        .name = std::string(params.subdomain),
-        .data = std::string(params.ip_address),
-        .ttl = cfg.ttl
-    };
+    const auto body =
+        VultrRequestBody{.name = std::string(params.subdomain), .data = std::string(params.ip_address), .ttl = cfg.ttl};
     request.body = glz::write_json(body).value_or("{}");
     request.content_type = "application/json";
     request.method = Method::Patch;
 
-    return run_update(context, DRIVER_NAME, request,
-                      [](const HttpResponse &response, const Services &services) {
-                          return check_response(response, services);
-                      });
+    return run_update(context, DRIVER_NAME, request, [](const HttpResponse& response, const Services& services) {
+        return check_response(response, services);
+    });
 }
 
-bool VultrDriver::check_response(const HttpResponse &response, const Services &services) {
+bool VultrDriver::check_response(const HttpResponse& response, const Services& services) {
     YADDNSC_SDK_LOG_TRACE(services, "Got {} from server.", response.body);
 
     // Vultr returns 204 No Content with an empty body on success.
@@ -65,7 +75,7 @@ bool VultrDriver::check_response(const HttpResponse &response, const Services &s
     // Error responses include a JSON body with error details.
     if (!response.body.empty()) {
         if (auto result = glz::read_json<VultrErrorResponse>(response.body)) {
-            for (const auto &err: result.value().errors) {
+            for (const auto& err : result.value().errors) {
                 YADDNSC_SDK_LOG_ERROR(services, "Vultr API error: {}", err.detail);
             }
         } else {

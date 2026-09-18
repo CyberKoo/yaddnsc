@@ -1,19 +1,26 @@
 // Compile-time self-containment check for host-internal HTTP/transport headers.
 
+#include <chrono>
+#include <map>
+#include <string>
+#include <string_view>
+
+#include <expected>
+#include <gtest/gtest.h>
+
+#include "infrastructure/network/http/client_port.h"
 #include "infrastructure/network/http/error.h"
 #include "infrastructure/network/http/types.h"
-#include "infrastructure/network/http/client_port.h"
 #include "infrastructure/network/transport/options.h"
-
-#include <gtest/gtest.h>
 
 namespace {
 
 // Instantiate the internal types once so a missing include surfaces here.
 class NoopHttpClient final : public HttpClient {
 public:
-    [[nodiscard]] std::expected<net::http::Response, net::http::Error>
-    exchange(std::string_view, const net::http::Request &) const override {
+    [[nodiscard]] std::expected<net::http::Response, net::http::Error> exchange(
+        std::string_view,
+        const net::http::Request&) const override {
         return net::http::Response{200, "ok", {}};
     }
 };
@@ -35,4 +42,4 @@ TEST(HttpInternalHeaders, SelfContained) {
     EXPECT_TRUE(http_options.keep_alive);
 }
 
-} // namespace
+}  // namespace

@@ -7,56 +7,61 @@
 // static_validator_test.cpp.
 // =============================================================================
 
+#include "application/environment_validator.h"
+
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
+#include <expected>
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
-#include "application/environment_validator.h"
-
+#include "domain/config/ip_source_kind.h"
+#include "domain/config/runtime_config.h"
+#include "domain/dns/record_kind.h"
+#include "domain/error/error.h"
 #include "mocks/mock_ports.h"
 
 namespace {
-    /// Minimal runtime config with one domain and one subdomain.
-    [[nodiscard]] domain::RuntimeConfig make_config(std::string driver = "test_driver",
-                                                    std::string interface = "") {
-        domain::RuntimeConfig config;
-        config.domains.push_back(domain::DomainConfig{
-            .name = "example.com",
-            .update_interval = 300,
-            .force_update = 0,
-            .driver = std::move(driver),
-            .subdomains = {{
-                domain::SubdomainConfig{
-                    .name = "www",
-                    .type = RecordKind::A,
-                    .interface = std::move(interface),
-                    .ip_source = Config::IpSource::HTTP,
-                    .ip_source_param = "https://api.ipify.org",
-                    .update_interval = 300,
-                },
-            }},
-        });
-        return config;
-    }
+/// Minimal runtime config with one domain and one subdomain.
+[[nodiscard]] domain::RuntimeConfig make_config(std::string driver = "test_driver", std::string interface = "") {
+    domain::RuntimeConfig config;
+    config.domains.push_back(domain::DomainConfig{
+        .name = "example.com",
+        .update_interval = 300,
+        .force_update = 0,
+        .driver = std::move(driver),
+        .subdomains = {{
+            domain::SubdomainConfig{
+                .name = "www",
+                .type = RecordKind::A,
+                .interface = std::move(interface),
+                .ip_source = Config::IpSource::HTTP,
+                .ip_source_param = "https://api.ipify.org",
+                .update_interval = 300,
+            },
+        }},
+    });
+    return config;
+}
 
-    /// Catalog fake reporting the given drivers as loaded.
-    /// (gmock mocks are immovable — hand out ownership instead.)
-    [[nodiscard]] std::unique_ptr<MockDriverCatalogPort> catalog_with(std::vector<std::string> drivers) {
-        auto catalog = std::make_unique<MockDriverCatalogPort>();
-        ON_CALL(*catalog, loaded_drivers()).WillByDefault(::testing::Return(std::move(drivers)));
-        return catalog;
-    }
+/// Catalog fake reporting the given drivers as loaded.
+/// (gmock mocks are immovable — hand out ownership instead.)
+[[nodiscard]] std::unique_ptr<MockDriverCatalogPort> catalog_with(std::vector<std::string> drivers) {
+    auto catalog = std::make_unique<MockDriverCatalogPort>();
+    ON_CALL(*catalog, loaded_drivers()).WillByDefault(::testing::Return(std::move(drivers)));
+    return catalog;
+}
 
-    /// Interface fake reporting the given interface names.
-    [[nodiscard]] std::unique_ptr<MockNetworkInterfaces> interfaces_with(std::vector<std::string> names) {
-        auto interfaces = std::make_unique<MockNetworkInterfaces>();
-        ON_CALL(*interfaces, names()).WillByDefault(::testing::Return(std::move(names)));
-        return interfaces;
-    }
-} // anonymous namespace
+/// Interface fake reporting the given interface names.
+[[nodiscard]] std::unique_ptr<MockNetworkInterfaces> interfaces_with(std::vector<std::string> names) {
+    auto interfaces = std::make_unique<MockNetworkInterfaces>();
+    ON_CALL(*interfaces, names()).WillByDefault(::testing::Return(std::move(names)));
+    return interfaces;
+}
+}  // anonymous namespace
 
 TEST(EnvironmentValidator, ValidConfig_Passes) {
     auto catalog = catalog_with({"test_driver"});

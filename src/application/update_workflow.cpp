@@ -7,22 +7,32 @@
 #include <exception>
 #include <optional>
 #include <string>
-#include <utility>
+#include <string_view>
 #include <vector>
-
-#include "domain/address_policy.h"
-#include "domain/update/update_task.h"
 
 #include <magic_enum/magic_enum.hpp>
 
-UpdateWorkflow::UpdateWorkflow(const DnsResolverPort &dns_resolver, const IpSourcePort &ip_source,
-                               const DriverGateway &driver_gateway, const Logger &logger)
-    : dns_resolver_(dns_resolver), ip_source_(ip_source), driver_gateway_(driver_gateway), logger_(logger) {
-}
+#include "application/ports/dns_resolver.h"
+#include "application/ports/driver_gateway.h"
+#include "application/ports/ip_source.h"
+#include "application/ports/log.h"
+#include "domain/address_policy.h"
+#include "domain/config/runtime_config.h"
+#include "domain/error/dns_error.h"
+#include "domain/error/dns_error_info.h"
+#include "domain/network/inet_address.h"
+#include "domain/update/update_decision.h"
+#include "domain/update/update_task.h"
 
-UpdateOutcome UpdateWorkflow::run(const domain::UpdateTask &task) const {
+UpdateWorkflow::UpdateWorkflow(const DnsResolverPort& dns_resolver,
+                               const IpSourcePort& ip_source,
+                               const DriverGateway& driver_gateway,
+                               const Logger& logger)
+    : dns_resolver_(dns_resolver), ip_source_(ip_source), driver_gateway_(driver_gateway), logger_(logger) {}
+
+UpdateOutcome UpdateWorkflow::run(const domain::UpdateTask& task) const {
     try {
-        const auto &subdomain = task.subdomain_config();
+        const auto& subdomain = task.subdomain_config();
         const auto rd_type_name = magic_enum::enum_name(subdomain.type);
         const auto rd_type = rd_type_name.empty() ? "UNKNOWN" : rd_type_name;
 
@@ -78,8 +88,8 @@ UpdateOutcome UpdateWorkflow::run(const domain::UpdateTask &task) const {
                 return UpdateResult{decision};
             case domain::UpdateDecision::UpdateChanged:
                 if (!records.empty()) {
-                    YLOG_DEBUG(logger_, "Domain {} ({}) will be updated to {} (was {})", task.fqdn, rd_type,
-                               local_addr, records.front());
+                    YLOG_DEBUG(logger_, "Domain {} ({}) will be updated to {} (was {})", task.fqdn, rd_type, local_addr,
+                               records.front());
                 }
                 break;
             case domain::UpdateDecision::UpdateForced:
@@ -116,13 +126,13 @@ UpdateOutcome UpdateWorkflow::run(const domain::UpdateTask &task) const {
                     YLOG_DEBUG(logger_, "{}", result.error().message);
                     break;
             }
-            return std::unexpected(domain::UpdateError{domain::UpdateError::Code::DRIVER_FAILED,
-                                                       result.error().message, result.error().retry_after_seconds});
+            return std::unexpected(domain::UpdateError{domain::UpdateError::Code::DRIVER_FAILED, result.error().message,
+                                                       result.error().retry_after_seconds});
         }
 
         YLOG_INFO(logger_, "Domain {} ({}) updated to {}", task.fqdn, rd_type, local_addr);
         return UpdateResult{decision};
-    } catch (const std::exception &e) {
+    } catch (const std::exception& e) {
         // Defence against unexpected exceptions only — expected failures are
         // error values handled above.
         YLOG_ERROR(logger_, "Unhandled exception during update of {}. {}", task.fqdn, e.what());

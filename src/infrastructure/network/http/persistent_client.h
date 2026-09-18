@@ -10,18 +10,20 @@
 #define YADDNSC_HTTP_CLIENT_PERSISTENT_CLIENT_H
 
 #include <cstdint>
-#include <expected>
 #include <memory>
 #include <string>
 #include <string_view>
 
 #include "infrastructure/network/http/client_port.h"
-
-#include "infrastructure/network/http/error.h"
 #include "infrastructure/network/http/session.h"
-#include "infrastructure/network/http/stream_factory.h"
 #include "infrastructure/network/http/types.h"
 #include "infrastructure/network/uri.h"
+
+namespace net {
+namespace http {
+class StreamFactory;
+}  // namespace http
+}  // namespace net
 
 namespace Utils {
 class CancellationToken;
@@ -55,8 +57,7 @@ public:
     /// Perform an exchange over the persistent connection.
     /// @param url  Request target (path + query), e.g. "/v1/update?foo=bar".
     ///             Empty means "/".
-    [[nodiscard]] std::expected<Response, Error> exchange(std::string_view url,
-                                                          const Request& req) const override;
+    [[nodiscard]] std::expected<Response, Error> exchange(std::string_view url, const Request& req) const override;
 
 private:
     [[nodiscard]] Uri current_uri(const std::string_view target) const;
@@ -70,6 +71,6 @@ private:
     mutable Session session_;
 };
 
-} // namespace net::http
+}  // namespace net::http
 
-#endif // YADDNSC_HTTP_CLIENT_PERSISTENT_CLIENT_H
+#endif  // YADDNSC_HTTP_CLIENT_PERSISTENT_CLIENT_H

@@ -7,6 +7,7 @@
 
 #include <stdexcept>
 #include <string_view>
+#include <string>
 
 /// Base exception class for all yaddnsc-specific errors.
 ///

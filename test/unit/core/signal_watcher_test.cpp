@@ -8,26 +8,28 @@
 #include "infrastructure/process/signal_watcher.h"
 
 #include <chrono>
+#include <compare>
 #include <csignal>
+#include <stdexcept>
+#include <string>
 #include <thread>
 
 #include <gtest/gtest.h>
 #include <unistd.h>
 
 namespace {
-    /// Poll until the watcher requests a stop (or the timeout elapses).
-    [[nodiscard]] bool wait_for_stop(SignalWatcher &watcher,
-                                     std::chrono::milliseconds timeout = std::chrono::seconds(2)) {
-        const auto deadline = std::chrono::steady_clock::now() + timeout;
-        while (std::chrono::steady_clock::now() < deadline) {
-            if (watcher.get_stop_source().stop_requested()) {
-                return true;
-            }
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+/// Poll until the watcher requests a stop (or the timeout elapses).
+[[nodiscard]] bool wait_for_stop(SignalWatcher& watcher, std::chrono::milliseconds timeout = std::chrono::seconds(2)) {
+    const auto deadline = std::chrono::steady_clock::now() + timeout;
+    while (std::chrono::steady_clock::now() < deadline) {
+        if (watcher.get_stop_source().stop_requested()) {
+            return true;
         }
-        return false;
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
-} // namespace
+    return false;
+}
+}  // namespace
 
 // MUST be the first test in this binary: install() blocks SIGINT/SIGTERM
 // process-wide and cannot be undone, so the "not installed" path can only be

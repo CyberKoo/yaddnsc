@@ -5,16 +5,20 @@
 #ifndef YADDNSC_DNS_CLASSIC_H
 #define YADDNSC_DNS_CLASSIC_H
 
-#include <expected>
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <string_view>
 
-#include "support/exception.h"
-#include "domain/dns/record_kind.h"
-#include "domain/config/dns_config.h"
-#include "domain/error/dns_error_info.h"
 #include "infrastructure/dns/resolver/base.h"
+
+namespace Config {
+struct DnsServer;
+}  // namespace Config
+
+namespace Utils {
+class CancellationToken;
+}  // namespace Utils
 
 /// ClassicResolver — traditional UDP/TCP DNS resolver.
 ///
@@ -31,15 +35,16 @@ public:
 
     ~ClassicResolver() override;
 
-    [[nodiscard]] std::expected<std::vector<std::uint8_t>, DnsErrorInfo>
-    query(const std::string &host, RecordKind type) const override;
+    [[nodiscard]] std::expected<std::vector<std::uint8_t>, DnsErrorInfo> query(const std::string& host,
+                                                                               RecordKind type) const override;
 
     [[nodiscard]] std::string_view get_type() const noexcept override { return TYPE; }
 
 private:
     struct Impl;
+
     std::unique_ptr<Impl> impl_;
     static constexpr std::string_view TYPE = "Classic";
 };
 
-#endif // YADDNSC_DNS_CLASSIC_H
+#endif  // YADDNSC_DNS_CLASSIC_H
