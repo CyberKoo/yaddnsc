@@ -36,8 +36,10 @@
 
 #include <expected>
 #include <fcntl.h>
+#include <signal.h>
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
+#include <spdlog/spdlog.h>
 #include <unistd.h>
 
 #include "application/diagnostics.h"
@@ -512,9 +514,63 @@ TEST(CliConfigTest, DispatchTest_BadDriver_ReturnsFailure) {
     EXPECT_EQ(Composition::dispatch(Cli::ConfigTestCommand{cfg.path()}), EXIT_FAILURE);
 }
 
+TEST(CliConfigTest, DispatchTest_EmptyCustomResolverFailsBeforeDriverLoading) {
+    // The deliberately missing driver must never be considered: static
+    // resolver validation happens before catalog loading and environment
+    // validation on every runtime path.
+    const std::string config =
+        std::string(R"({"driver":{"auto_discover":false,"driver_dir":")") + TEST_DRIVER_DIR +
+        R"(","load":["definitely_missing_driver.so"]},"resolver":{"use_custom_server":true},"domains":[]})";
+    TempConfigFile cfg(config);
+
+    StreamCapture err{STDERR_FILENO};
+    EXPECT_EQ(Composition::dispatch(Cli::ConfigTestCommand{cfg.path()}), EXIT_FAILURE);
+    EXPECT_NE(err.str().find("Configuration verification failed: use_custom_server is enabled but no custom resolver "
+                             "servers are configured"),
+              std::string::npos);
+}
+
 TEST(CliConfigTest, DispatchTest_InvalidJson_ReturnsFailure) {
     TempConfigFile cfg{std::string(Fixtures::INVALID_JSON)};
     EXPECT_EQ(Composition::dispatch(Cli::ConfigTestCommand{cfg.path()}), EXIT_FAILURE);
+}
+
+// ===========================================================================
+//  Composition::dispatch — run
+// ===========================================================================
+
+TEST(CliRunTest, DispatchRun_EmptyCustomResolverFailsBeforeDriverLoading) {
+    // Same guarantee as config test, on the run path: static resolver
+    // validation precedes driver loading, resolver creation and scheduling,
+    // so the deliberately missing driver must never be considered.
+    const std::string config =
+        std::string(R"({"driver":{"auto_discover":false,"driver_dir":")") + TEST_DRIVER_DIR +
+        R"(","load":["definitely_missing_driver.so"]},"resolver":{"use_custom_server":true},"domains":[]})";
+    TempConfigFile cfg(config);
+
+    // A previous test may have lowered the global log level (config test
+    // --quiet); the run path reports validation failures through the logger.
+    const auto previous_level = spdlog::default_logger()->level();
+    spdlog::set_level(spdlog::level::info);
+
+    // run_command() installs the process-wide signal mask before touching
+    // the configuration; keep the test process's own mask untouched.
+    sigset_t saved_mask;
+    ::sigprocmask(SIG_SETMASK, nullptr, &saved_mask);
+
+    StreamCapture out{STDOUT_FILENO};
+    StreamCapture err{STDERR_FILENO};
+    EXPECT_EQ(Composition::dispatch(Cli::RunCommand{cfg.path()}), EXIT_FAILURE);
+
+    ::sigprocmask(SIG_SETMASK, &saved_mask, nullptr);
+    spdlog::set_level(previous_level);
+
+    // The failure is reported as the resolver validation error (through the
+    // logger), never as a driver load failure.
+    const std::string logged = out.str() + err.str();
+    EXPECT_NE(logged.find("use_custom_server is enabled but no custom resolver servers are configured"),
+              std::string::npos);
+    EXPECT_EQ(logged.find("definitely_missing_driver"), std::string::npos);
 }
 
 TEST(CliConfigTest, DispatchTest_MissingFile_ReturnsFailure) {

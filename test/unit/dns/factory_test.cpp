@@ -3,7 +3,8 @@
 //
 // Verifies:
 //   - create() with configured servers.
-//   - create() with an empty server list falls back to the built-in default.
+//   - create() rejects an empty server list because normalisation owns the
+//     default-resolver decision.
 // (Legacy single-server folding now lives in the config normaliser and is
 // covered by normalizer_test.)
 //
@@ -78,10 +79,11 @@ TEST(DnsFactoryTest, CreateWithCustomServers) {
     EXPECT_NO_THROW({ auto dispatcher = DnsResolverFactory::create(settings, make_stub_catalog()); });
 }
 
-TEST(DnsFactoryTest, CreateWithEmptyServerList_UsesDefault) {
+TEST(DnsFactoryTest, CreateWithEmptyServerList_RejectsBrokenRuntimeInvariant) {
     const domain::ResolverSettings settings;
 
-    EXPECT_NO_THROW({ auto dispatcher = DnsResolverFactory::create(settings, make_stub_catalog()); });
+    EXPECT_THROW({ [[maybe_unused]] auto dispatcher = DnsResolverFactory::create(settings, make_stub_catalog()); },
+                 std::invalid_argument);
 }
 
 TEST(DnsFactoryTest, CreateWithMultipleServers_DoesNotThrow) {

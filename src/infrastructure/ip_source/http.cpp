@@ -5,8 +5,6 @@
 #include "http.h"
 
 #include <memory>
-#include <optional>
-#include <stdexcept>
 #include <utility>
 #include <vector>
 
@@ -22,6 +20,7 @@
 #include "infrastructure/network/transport/options.h"
 #include "support/fmt.hpp"
 #include "support/string_util.hpp"
+#include "support/util/cancellation_token.hpp"
 
 #include "version.h"
 
@@ -55,20 +54,35 @@ HttpIpSource::HttpIpSource(std::string url, const AddressFamily address_family, 
 // HttpIpSource::resolve — send GET request and parse the response body as an IP.
 // ---------------------------------------------------------------------------
 
-std::vector<InetAddress> HttpIpSource::resolve(const Utils::CancellationToken& token) const {
+IpSourceBase::Result HttpIpSource::resolve(const Utils::CancellationToken& token) const {
+    if (token.is_triggered()) {
+        return std::unexpected(domain::IpSourceError{domain::IpSourceError::Code::CANCELLED,
+                                                      "HTTP IP source lookup cancelled"});
+    }
+
     net::http::Request req;
     req.method = net::http::Method::GET;
 
     auto resp = client_->exchange(url_, req, token);
     if (!resp) {
-        throw std::runtime_error(
-            fmt::format(R"(HTTP IP source "{}" did not return a valid response: {})", url_, resp.error().message));
+        const auto code = resp.error().code == net::http::ErrorCode::CANCELLED
+                              ? domain::IpSourceError::Code::CANCELLED
+                              : domain::IpSourceError::Code::UNAVAILABLE;
+        return std::unexpected(domain::IpSourceError{
+            code, fmt::format(R"(HTTP IP source "{}" did not return a valid response: {})", url_, resp.error().message)});
+    }
+
+    if (token.is_triggered()) {
+        return std::unexpected(domain::IpSourceError{domain::IpSourceError::Code::CANCELLED,
+                                                      "HTTP IP source lookup cancelled"});
     }
 
     auto addr = InetAddress::parse(StringUtil::trim(resp->text()));
     if (!addr) {
-        throw std::runtime_error(fmt::format(R"(HTTP IP source "{}" did not return a valid message)", url_));
+        return std::unexpected(domain::IpSourceError{
+            domain::IpSourceError::Code::UNAVAILABLE,
+            fmt::format(R"(HTTP IP source "{}" did not return a valid message)", url_)});
     }
     SPDLOG_DEBUG("Resolved IP from HTTP: {}", addr->to_string());
-    return {*std::move(addr)};
+    return std::vector<InetAddress>{*std::move(addr)};
 }

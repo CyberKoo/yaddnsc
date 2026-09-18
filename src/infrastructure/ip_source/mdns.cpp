@@ -10,9 +10,9 @@
 #include <compare>
 #include <cstddef>
 #include <cstdint>
-#include <optional>
+#include <exception>
+#include <new>
 #include <span>
-#include <stdexcept>
 #include <system_error>
 #include <type_traits>
 #include <utility>
@@ -29,6 +29,7 @@
 
 #include "domain/dns/record_kind.h"
 #include "domain/network/inet_address.h"
+#include "infrastructure/dns/dns_packet_exception.h"
 #include "infrastructure/dns/types.h"
 #include "infrastructure/dns/util.hpp"
 #include "infrastructure/dns/wire/builder.h"
@@ -36,7 +37,9 @@
 #include "infrastructure/network/net_devices.h"
 #include "infrastructure/network/socket.h"
 #include "infrastructure/network/socket_addr.h"
+#include "infrastructure/network/socket_exception.h"
 #include "support/fmt.hpp"
+#include "support/util/cancellation_token.hpp"
 
 namespace {
 // ===========================================================================
@@ -101,39 +104,22 @@ template<IpVersionTag Tag>
 struct ScopedMembership {
     using mreq_type = std::conditional_t<std::is_same_v<Tag, Ipv6Tag>, ipv6_mreq, ip_mreq>;
 
-    Socket& sock_;
+    Socket* sock_;
     mreq_type mreq_{};
 
-    /// @param sock  The multicast socket. Must outlive this object.
-    explicit ScopedMembership(Socket& sock, unsigned int if_index, const std::string& interface) : sock_(sock) {
-        if constexpr (std::is_same_v<Tag, Ipv6Tag>) {
-            // Bridge: copy Inet6Address bytes → POSIX in6_addr.
-            auto* v6_dest = reinterpret_cast<std::uint8_t*>(&mreq_.ipv6mr_multiaddr);
-            std::copy_n(MDNS_IPV6_GROUP_INET.data(), sizeof(mreq_.ipv6mr_multiaddr), v6_dest);
-            mreq_.ipv6mr_interface = if_index;
-            if (auto res = sock_.set_option(IPPROTO_IPV6, IPV6_JOIN_GROUP, mreq_); !res) {
-                throw std::runtime_error(fmt::format(R"(mDNS IPV6_JOIN_GROUP failed: {})", errno_str(res.error())));
-            }
-        } else {
-            // Bridge: copy Inet4Address bytes → POSIX in_addr.
-            auto* v4_dest = reinterpret_cast<std::uint8_t*>(&mreq_.imr_multiaddr);
-            std::copy_n(MDNS_IPV4_GROUP_INET.data(), sizeof(mreq_.imr_multiaddr), v4_dest);
-            mreq_.imr_interface = pick_ipv4_interface_addr(interface);
-            if (auto res = sock_.set_option(IPPROTO_IP, IP_ADD_MEMBERSHIP, mreq_); !res) {
-                throw std::runtime_error(fmt::format(R"(mDNS IP_ADD_MEMBERSHIP failed: {})", errno_str(res.error())));
-            }
-        }
-    }
+    /// Construct only after a successful multicast join.  OS setup failures
+    /// are returned by join_multicast_group(), never thrown from this guard.
+    explicit ScopedMembership(Socket& sock, mreq_type mreq) noexcept : sock_(&sock), mreq_(mreq) {}
 
     ~ScopedMembership() {
-        // Guard against a moved-from socket (fd_ == -1).  ScopedMembership is
-        // always stack-local and outlives the socket, so this is defensive.
-        if (sock_.is_closed()) {
+        // A moved-from guard relinquishes the socket pointer.  The active
+        // guard is stack-local and outlives the socket.
+        if (sock_ == nullptr || sock_->is_closed()) {
             return;
         }
         constexpr auto level = std::is_same_v<Tag, Ipv6Tag> ? IPPROTO_IPV6 : IPPROTO_IP;
         constexpr auto leave_opt = std::is_same_v<Tag, Ipv6Tag> ? IPV6_LEAVE_GROUP : IP_DROP_MEMBERSHIP;
-        if (auto res = sock_.set_option(level, leave_opt, mreq_); !res) {
+        if (auto res = sock_->set_option(level, leave_opt, mreq_); !res) {
             SPDLOG_WARN(R"(mDNS {} failed: {})",
                         std::is_same_v<Tag, Ipv6Tag> ? "IPV6_LEAVE_GROUP" : "IP_DROP_MEMBERSHIP",
                         errno_str(res.error()));
@@ -144,8 +130,10 @@ struct ScopedMembership {
 
     ScopedMembership& operator=(const ScopedMembership&) = delete;
 
-    // Move is implicitly deleted due to the reference member — ScopedMembership
-    // is only ever used as a stack-local in resolve_mdns(), so this is intentional.
+    ScopedMembership(ScopedMembership&& other) noexcept
+        : sock_(std::exchange(other.sock_, nullptr)), mreq_(other.mreq_) {}
+
+    ScopedMembership& operator=(ScopedMembership&&) = delete;
 };
 
 // ===========================================================================
@@ -174,15 +162,45 @@ struct ScopedMembership {
 
 /// Bind the socket to the appropriate mDNS address and set V6ONLY if needed.
 template<IpVersionTag Tag>
-void bind_socket(Socket& sock, const std::string& hostname) {
+[[nodiscard]] std::expected<void, domain::IpSourceError> bind_socket(Socket& sock, const std::string& hostname) {
     if constexpr (std::is_same_v<Tag, Ipv6Tag>) {
         if (auto res = sock.set_option(IPPROTO_IPV6, IPV6_V6ONLY, 1); !res) {
             SPDLOG_WARN(R"(mDNS IPV6_V6ONLY failed for "{}": {})", hostname, errno_str(res.error()));
         }
     }
     if (auto res = sock.bind(std::is_same_v<Tag, Ipv6Tag> ? MDNS_IPV6_BIND : MDNS_IPV4_BIND); !res) {
-        throw std::runtime_error(fmt::format(R"(mDNS bind failed: {})", errno_str(res.error())));
+        return std::unexpected(domain::IpSourceError{
+            domain::IpSourceError::Code::UNAVAILABLE,
+            fmt::format(R"(mDNS bind failed for "{}": {})", hostname, errno_str(res.error()))});
     }
+    return {};
+}
+
+/// Join the multicast group and return a RAII leave guard on success.
+template<IpVersionTag Tag>
+[[nodiscard]] std::expected<ScopedMembership<Tag>, domain::IpSourceError>
+join_multicast_group(Socket& sock, unsigned int if_index, const std::string& interface) {
+    typename ScopedMembership<Tag>::mreq_type mreq{};
+    if constexpr (std::is_same_v<Tag, Ipv6Tag>) {
+        auto* v6_dest = reinterpret_cast<std::uint8_t*>(&mreq.ipv6mr_multiaddr);
+        std::copy_n(MDNS_IPV6_GROUP_INET.data(), sizeof(mreq.ipv6mr_multiaddr), v6_dest);
+        mreq.ipv6mr_interface = if_index;
+        if (auto res = sock.set_option(IPPROTO_IPV6, IPV6_JOIN_GROUP, mreq); !res) {
+            return std::unexpected(domain::IpSourceError{
+                domain::IpSourceError::Code::UNAVAILABLE,
+                fmt::format(R"(mDNS IPV6_JOIN_GROUP failed: {})", errno_str(res.error()))});
+        }
+    } else {
+        auto* v4_dest = reinterpret_cast<std::uint8_t*>(&mreq.imr_multiaddr);
+        std::copy_n(MDNS_IPV4_GROUP_INET.data(), sizeof(mreq.imr_multiaddr), v4_dest);
+        mreq.imr_interface = pick_ipv4_interface_addr(interface);
+        if (auto res = sock.set_option(IPPROTO_IP, IP_ADD_MEMBERSHIP, mreq); !res) {
+            return std::unexpected(domain::IpSourceError{
+                domain::IpSourceError::Code::UNAVAILABLE,
+                fmt::format(R"(mDNS IP_ADD_MEMBERSHIP failed: {})", errno_str(res.error()))});
+        }
+    }
+    return ScopedMembership<Tag>{sock, mreq};
 }
 
 /// Resolve the multicast interface index.
@@ -251,8 +269,11 @@ void setup_multicast_output_opts(Socket& sock,
 
 template<IpVersionTag Tag>
 [[nodiscard]]
-unsigned int setup_multicast_options(Socket& sock, const std::string& hostname, const std::string& interface) {
-    bind_socket<Tag>(sock, hostname);
+std::expected<unsigned int, domain::IpSourceError>
+setup_multicast_options(Socket& sock, const std::string& hostname, const std::string& interface) {
+    if (auto bind_result = bind_socket<Tag>(sock, hostname); !bind_result) {
+        return std::unexpected(std::move(bind_result.error()));
+    }
     auto if_index = resolve_multicast_if_index<Tag>(interface, hostname);
     setup_multicast_output_opts<Tag>(sock, if_index, interface, hostname);
     return if_index;
@@ -263,11 +284,10 @@ unsigned int setup_multicast_options(Socket& sock, const std::string& hostname, 
 // ===========================================================================
 
 /// Shared helper: poll, receive, parse DNS response.
-/// Throws std::runtime_error on any failure.
-[[nodiscard]] std::vector<InetAddress> recv_and_parse(Socket& sock,
-                                                      RecordKind type,
-                                                      const std::string& hostname,
-                                                      const Utils::CancellationToken& token) {
+[[nodiscard]] IpSourceBase::Result recv_and_parse(Socket& sock,
+                                                   RecordKind type,
+                                                   const std::string& hostname,
+                                                   const Utils::CancellationToken& token) {
     // mDNS responses MUST come from UDP source port 5353 (RFC 6762 §6),
     // and only answers whose owner name matches the queried hostname are
     // accepted.  Other datagrams (unrelated multicast traffic, forged
@@ -276,16 +296,27 @@ unsigned int setup_multicast_options(Socket& sock, const std::string& hostname, 
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(MDNS_TIMEOUT_MS);
 
     while (true) {
+        if (token.is_triggered()) {
+            return std::unexpected(
+                domain::IpSourceError{domain::IpSourceError::Code::CANCELLED, "mDNS lookup cancelled"});
+        }
         const auto now = std::chrono::steady_clock::now();
         if (now >= deadline) {
-            throw std::runtime_error(
-                fmt::format(R"(mDNS no valid response for "{}" within {}ms)", hostname, MDNS_TIMEOUT_MS));
+            return std::unexpected(domain::IpSourceError{
+                domain::IpSourceError::Code::UNAVAILABLE,
+                fmt::format(R"(mDNS no valid response for "{}" within {}ms)", hostname, MDNS_TIMEOUT_MS)});
         }
         const auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - now);
 
         auto wait_res = sock.wait_for(POLLIN, static_cast<int>(remaining.count()), token);
         if (!wait_res) {
-            throw std::runtime_error(fmt::format(R"(mDNS wait_for failed: {})", errno_str(wait_res.error())));
+            if (wait_res.error() == ECANCELED || token.is_triggered()) {
+                return std::unexpected(
+                    domain::IpSourceError{domain::IpSourceError::Code::CANCELLED, "mDNS lookup cancelled"});
+            }
+            return std::unexpected(domain::IpSourceError{
+                domain::IpSourceError::Code::UNAVAILABLE,
+                fmt::format(R"(mDNS wait_for failed: {})", errno_str(wait_res.error()))});
         }
         if (*wait_res == 0) {
             continue;  // deadline re-checked at the top of the loop
@@ -298,7 +329,8 @@ unsigned int setup_multicast_options(Socket& sock, const std::string& hostname, 
         ssize_t recv_len = sock.recv_from(buf, &src_addr);
         if (recv_len < 0) {
             int e = errno;
-            throw std::runtime_error(fmt::format(R"(mDNS recvfrom() failed: {})", errno_str(e)));
+            return std::unexpected(domain::IpSourceError{
+                domain::IpSourceError::Code::UNAVAILABLE, fmt::format(R"(mDNS recvfrom() failed: {})", errno_str(e))});
         }
 
         // Source check: responders always send from port 5353 (RFC 6762 §6).
@@ -312,7 +344,19 @@ unsigned int setup_multicast_options(Socket& sock, const std::string& hostname, 
 
         // Parse and filter only answers owned by the queried hostname
         // with the requested record type.
-        auto results = Mdns::parse_response(std::span{recv_buf.data(), static_cast<size_t>(recv_len)}, hostname, type);
+        std::vector<InetAddress> results;
+        try {
+            results = Mdns::parse_response(std::span{recv_buf.data(), static_cast<size_t>(recv_len)}, hostname, type);
+        } catch (const std::bad_alloc&) {
+            throw;
+        } catch (const std::exception& error) {
+            return std::unexpected(domain::IpSourceError{
+                domain::IpSourceError::Code::UNAVAILABLE,
+                fmt::format(R"(mDNS response parse failed for "{}": {})", hostname, error.what())});
+        } catch (...) {
+            return std::unexpected(domain::IpSourceError{domain::IpSourceError::Code::UNKNOWN,
+                                                          "unknown mDNS response parser exception"});
+        }
 
         if (results.empty()) {
             // E.g. another service's packet on the shared multicast group.
@@ -332,10 +376,13 @@ unsigned int setup_multicast_options(Socket& sock, const std::string& hostname, 
 // ===========================================================================
 
 template<IpVersionTag Tag>
-[[nodiscard]] std::vector<InetAddress> resolve_mdns(const std::string& hostname,
-                                                    RecordKind type,
-                                                    const std::string& interface,
-                                                    const Utils::CancellationToken& token) {
+[[nodiscard]] IpSourceBase::Result resolve_mdns(const std::string& hostname,
+                                                 RecordKind type,
+                                                 const std::string& interface,
+                                                 const Utils::CancellationToken& token) {
+    if (token.is_triggered()) {
+        return std::unexpected(domain::IpSourceError{domain::IpSourceError::Code::CANCELLED, "mDNS lookup cancelled"});
+    }
     constexpr int af = std::is_same_v<Tag, Ipv6Tag> ? AF_INET6 : AF_INET;
     const auto& dest_addr = std::is_same_v<Tag, Ipv6Tag> ? MDNS_IPV6_DEST : MDNS_IPV4_DEST;
 
@@ -402,16 +449,27 @@ template<IpVersionTag Tag>
     }
 
     // ── Bind + multicast options ────────────────────────────────────────
-    unsigned int if_index = setup_multicast_options<Tag>(sock, hostname, interface);
+    auto if_index = setup_multicast_options<Tag>(sock, hostname, interface);
+    if (!if_index) {
+        return std::unexpected(std::move(if_index.error()));
+    }
 
     // ── Join multicast group ──────────────────────────────────────────
-    ScopedMembership<Tag> membership{sock, if_index, interface};
+    auto membership = join_multicast_group<Tag>(sock, *if_index, interface);
+    if (!membership) {
+        return std::unexpected(std::move(membership.error()));
+    }
 
     // ── Send query ──────────────────────────────────────────────────────
+    if (token.is_triggered()) {
+        return std::unexpected(domain::IpSourceError{domain::IpSourceError::Code::CANCELLED, "mDNS lookup cancelled"});
+    }
     auto data = std::as_bytes(std::span{query_pkt});
     if (sock.send_to(data, dest_addr) < 0) {
         int e = errno;
-        throw std::runtime_error(fmt::format(R"(mDNS sendto() failed: {})", errno_str(e)));
+        return std::unexpected(domain::IpSourceError{
+            domain::IpSourceError::Code::UNAVAILABLE,
+            fmt::format(R"(mDNS sendto() failed: {})", errno_str(e))});
     }
 
     SPDLOG_TRACE(R"(mDNS sent {} bytes for "{}")", query_pkt.size(), hostname);
@@ -428,10 +486,32 @@ template<IpVersionTag Tag>
 MdnsIpSource::MdnsIpSource(std::string hostname, RecordKind type, std::string interface)
     : hostname_(std::move(hostname)), type_(type), interface_(std::move(interface)) {}
 
-std::vector<InetAddress> MdnsIpSource::resolve(const Utils::CancellationToken& token) const {
-    if (type_ == RecordKind::AAAA) {
-        return resolve_mdns<Ipv6Tag>(hostname_, type_, interface_, token);
+IpSourceBase::Result MdnsIpSource::resolve(const Utils::CancellationToken& token) const {
+    if (token.is_triggered()) {
+        return std::unexpected(domain::IpSourceError{domain::IpSourceError::Code::CANCELLED, "mDNS lookup cancelled"});
     }
 
-    return resolve_mdns<Ipv4Tag>(hostname_, type_, interface_, token);
+    // Exception boundary: no ordinary exception crosses resolve(). Only
+    // std::bad_alloc propagates — allocation failure is never disguised as
+    // a lookup failure.
+    try {
+        if (type_ == RecordKind::AAAA) {
+            return resolve_mdns<Ipv6Tag>(hostname_, type_, interface_, token);
+        }
+        return resolve_mdns<Ipv4Tag>(hostname_, type_, interface_, token);
+    } catch (const SocketException& error) {
+        return std::unexpected(domain::IpSourceError{
+            domain::IpSourceError::Code::UNAVAILABLE, fmt::format(R"(mDNS socket creation failed: {})", error.what())});
+    } catch (const DnsPacketException& error) {
+        return std::unexpected(
+            domain::IpSourceError{domain::IpSourceError::Code::UNAVAILABLE,
+                                  fmt::format(R"(mDNS query construction failed for "{}": {})", hostname_, error.what())});
+    } catch (const std::bad_alloc&) {
+        throw;
+    } catch (const std::exception& error) {
+        return std::unexpected(domain::IpSourceError{domain::IpSourceError::Code::UNKNOWN, error.what()});
+    } catch (...) {
+        return std::unexpected(
+            domain::IpSourceError{domain::IpSourceError::Code::UNKNOWN, "unknown non-standard exception in mDNS resolve"});
+    }
 }

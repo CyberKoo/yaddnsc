@@ -19,6 +19,7 @@
 /// driver_abi.h is the entire supported surface.
 
 #include <cstdint>
+#include <cstddef>
 #include <expected>
 #include <memory>
 #include <optional>
@@ -26,6 +27,7 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -168,11 +170,12 @@ namespace detail {
 }
 
 [[nodiscard]] inline std::string_view to_view(yaddnsc_string value) noexcept {
-    return {value.data, value.size};
+    return value.data == nullptr ? std::string_view{} : std::string_view{value.data, value.size};
 }
 
 [[nodiscard]] inline std::string_view to_view(yaddnsc_bytes value) noexcept {
-    return {reinterpret_cast<const char *>(value.data), value.size};
+    return value.data == nullptr ? std::string_view{}
+                                 : std::string_view{reinterpret_cast<const char *>(value.data), value.size};
 }
 
 /// Write an error report honouring the caller-supplied capacity: fields are
@@ -189,6 +192,24 @@ inline void write_error(yaddnsc_error *out_error, yaddnsc_status status, std::st
     out_error->struct_size = out_error->struct_size < static_cast<uint32_t>(sizeof(yaddnsc_error))
                                  ? out_error->struct_size
                                  : static_cast<uint32_t>(sizeof(yaddnsc_error));
+}
+
+[[nodiscard]] inline bool has_valid_error(const yaddnsc_error& error) noexcept {
+    return error.struct_size >= YADDNSC_ERROR_MIN_SIZE && yaddnsc_status_is_valid(error.status) &&
+           yaddnsc_string_is_valid(error.message);
+}
+
+[[nodiscard]] inline bool has_valid_response(const yaddnsc_http_response& response) noexcept {
+    if (response.struct_size < YADDNSC_HTTP_RESPONSE_MIN_SIZE || !yaddnsc_bytes_is_valid(response.body) ||
+        !yaddnsc_http_header_array_is_valid(response.headers, response.header_count)) {
+        return false;
+    }
+    for (size_t i = 0; i < response.header_count; ++i) {
+        if (!yaddnsc_http_header_is_valid(response.headers[i])) {
+            return false;
+        }
+    }
+    return true;
 }
 
 } // namespace detail
@@ -211,8 +232,10 @@ public:
     /// Perform an HTTP exchange through the host. Transport failures come
     /// back as HttpError; provider status codes arrive in HttpResponse.
     [[nodiscard]] ExchangeResult exchange(const HttpRequest &request) const {
-        if (services_ == nullptr || services_->http_exchange == nullptr) {
-            return std::unexpected(HttpError{YADDNSC_STATUS_NETWORK_ERROR, "host services unavailable", 0});
+        if (services_ == nullptr || services_->struct_size < YADDNSC_HOST_SERVICES_MIN_SIZE ||
+            services_->api_revision != YADDNSC_DRIVER_API_REVISION || services_->context == nullptr ||
+            services_->http_exchange == nullptr) {
+            return std::unexpected(HttpError{YADDNSC_STATUS_INTERNAL_ERROR, "invalid host services table", 0});
         }
 
         std::vector<yaddnsc_http_header> c_headers;
@@ -225,7 +248,7 @@ public:
         c_request.struct_size = static_cast<uint32_t>(sizeof(c_request));
         c_request.url = detail::make_view(request.url);
         c_request.method = static_cast<yaddnsc_http_method>(request.method);
-        c_request.headers = c_headers.data();
+        c_request.headers = c_headers.empty() ? nullptr : c_headers.data();
         c_request.header_count = c_headers.size();
         c_request.content_type = detail::make_view(request.content_type);
         if (request.body.has_value()) {
@@ -237,11 +260,22 @@ public:
         yaddnsc_error c_error{};
         c_error.struct_size = static_cast<uint32_t>(sizeof(c_error));
 
-        const yaddnsc_status status =
-                services_->http_exchange(services_->context, &c_request, &c_response, &c_error);
+        const yaddnsc_status status = services_->http_exchange(services_->context, &c_request, &c_response, &c_error);
+        if (!yaddnsc_status_is_valid(status)) {
+            return std::unexpected(HttpError{YADDNSC_STATUS_INTERNAL_ERROR, "host returned an unknown status", 0});
+        }
         if (status != YADDNSC_STATUS_OK) {
+            if (!detail::has_valid_error(c_error) || c_error.status != status) {
+                return std::unexpected(
+                    HttpError{YADDNSC_STATUS_INTERNAL_ERROR, "host returned an invalid error report", 0});
+            }
             return std::unexpected(
                     HttpError{status, std::string(detail::to_view(c_error.message)), c_error.retry_after_seconds});
+        }
+
+        if (!detail::has_valid_response(c_response)) {
+            return std::unexpected(
+                HttpError{YADDNSC_STATUS_INTERNAL_ERROR, "host returned an invalid HTTP response", 0});
         }
 
         HttpResponse response;
@@ -321,7 +355,7 @@ inline void log_message(const yaddnsc_host_services *services, yaddnsc_log_level
 
 class Driver {
 public:
-    virtual ~Driver() = default;
+    virtual ~Driver() noexcept = default;
 
     /// Perform one DNS record update. Return {} on success or an Error
     /// describing the failure. Implementations must be prepared for
@@ -386,7 +420,8 @@ protected:
             detail::log_message(detail::to_services(context), YADDNSC_LOG_WARN, file, line, function,
                                 "Domain {} ({}) update failed (HTTP error: {})", params.fqdn, params.record_type,
                                 response.error().message);
-            return std::unexpected(Error{response.error().status, response.error().message, 0});
+            return std::unexpected(
+                Error{response.error().status, response.error().message, response.error().retry_after_seconds});
         }
 
         if (!check_response(*response, context.services())) {
@@ -419,15 +454,17 @@ inline yaddnsc_status create_driver(const yaddnsc_host_services *services, yaddn
         write_error(out_error, YADDNSC_STATUS_INVALID_ARGUMENT, "services and out_driver must not be null", 0);
         return YADDNSC_STATUS_INVALID_ARGUMENT;
     }
+    *out_driver = nullptr;
     if (services->struct_size < YADDNSC_HOST_SERVICES_MIN_SIZE ||
-        services->api_revision != YADDNSC_DRIVER_API_REVISION || services->log == nullptr ||
+        services->api_revision != YADDNSC_DRIVER_API_REVISION || services->context == nullptr || services->log == nullptr ||
         services->http_exchange == nullptr || services->is_cancelled == nullptr) {
         write_error(out_error, YADDNSC_STATUS_INVALID_ARGUMENT, "incompatible host services table", 0);
         return YADDNSC_STATUS_INVALID_ARGUMENT;
     }
 
+    static_assert(std::is_nothrow_destructible_v<DriverClass>,
+                  "driver classes must be nothrow destructible across the C ABI");
     thread_local std::string create_error;
-    *out_driver = nullptr;
     try {
         auto instance = std::make_unique<DriverInstance>();
         instance->services = *services;
@@ -457,6 +494,12 @@ inline yaddnsc_status update_driver(yaddnsc_driver *driver, const yaddnsc_update
         write_error(out_error, YADDNSC_STATUS_INVALID_ARGUMENT, "update request struct_size too small", 0);
         return YADDNSC_STATUS_INVALID_ARGUMENT;
     }
+    if (!yaddnsc_string_is_valid(request->ip_address) || !yaddnsc_string_is_valid(request->record_type) ||
+        !yaddnsc_string_is_valid(request->domain) || !yaddnsc_string_is_valid(request->subdomain) ||
+        !yaddnsc_string_is_valid(request->fqdn) || !yaddnsc_bytes_is_valid(request->driver_param_json)) {
+        write_error(out_error, YADDNSC_STATUS_INVALID_ARGUMENT, "update request contains an invalid view", 0);
+        return YADDNSC_STATUS_INVALID_ARGUMENT;
+    }
 
     auto *instance = reinterpret_cast<DriverInstance *>(driver); // NOLINT
     try {
@@ -475,8 +518,9 @@ inline yaddnsc_status update_driver(yaddnsc_driver *driver, const yaddnsc_update
         }
 
         Error &error = result.error();
-        const yaddnsc_status status =
-                error.status == YADDNSC_STATUS_OK ? YADDNSC_STATUS_INTERNAL_ERROR : error.status;
+        const yaddnsc_status status = !yaddnsc_status_is_valid(error.status) || error.status == YADDNSC_STATUS_OK
+                                          ? YADDNSC_STATUS_INTERNAL_ERROR
+                                          : error.status;
         instance->error_storage = std::move(error.message);
         write_error(out_error, status, instance->error_storage, error.retry_after_seconds);
         return status;
@@ -499,6 +543,10 @@ inline yaddnsc_status validate_driver(yaddnsc_driver *driver, yaddnsc_string dri
         write_error(out_error, YADDNSC_STATUS_INVALID_ARGUMENT, "driver must not be null", 0);
         return YADDNSC_STATUS_INVALID_ARGUMENT;
     }
+    if (!yaddnsc_string_is_valid(driver_param_json)) {
+        write_error(out_error, YADDNSC_STATUS_INVALID_ARGUMENT, "driver_param_json contains an invalid view", 0);
+        return YADDNSC_STATUS_INVALID_ARGUMENT;
+    }
 
     // Validate on the live instance the host created: the create → validate →
     // destroy pairing guarantees the plugin code stays mapped, and the
@@ -511,8 +559,9 @@ inline yaddnsc_status validate_driver(yaddnsc_driver *driver, yaddnsc_string dri
         }
 
         Error &error = result.error();
-        const yaddnsc_status status =
-                error.status == YADDNSC_STATUS_OK ? YADDNSC_STATUS_INTERNAL_ERROR : error.status;
+        const yaddnsc_status status = !yaddnsc_status_is_valid(error.status) || error.status == YADDNSC_STATUS_OK
+                                          ? YADDNSC_STATUS_INTERNAL_ERROR
+                                          : error.status;
         instance->error_storage = std::move(error.message);
         write_error(out_error, status, instance->error_storage, error.retry_after_seconds);
         return status;

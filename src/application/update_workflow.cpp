@@ -121,7 +121,7 @@ UpdateOutcome UpdateWorkflow::run(const domain::UpdateTask& task, const Utils::C
             return std::unexpected(domain::UpdateError{domain::UpdateError::Code::CANCELLED, "Update cancelled"});
         }
 
-        const auto result = driver_gateway_.update(task.driver_name(), command);
+        const auto result = driver_gateway_.update(task.driver_name(), command, token);
         if (!result) {
             switch (result.error().code) {
                 case domain::DriverError::Code::CANCELLED:

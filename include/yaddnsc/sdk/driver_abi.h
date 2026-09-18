@@ -14,11 +14,11 @@
  * headers. Plugins are compiled with the same C++ standard as the host
  * (C++23) — see docs/custom-drivers.md.
  *
- * struct_size convention: every extensible struct carries its caller- or
- * provider-supplied size in bytes as its first field. A reader may only
- * read fields fully covered by struct_size (see yaddnsc_struct_has_field);
- * appending fields is allowed within one api_revision, anything else
- * requires bumping YADDNSC_DRIVER_API_REVISION.
+ * struct_size convention: every v1 alpha ABI struct carries its caller- or
+ * provider-supplied size in bytes as its first field. A supported v1 alpha
+ * value must cover the complete v1 alpha layout. A larger value may carry an
+ * unknown tail, which readers ignore; fields must never be appended while
+ * this api_revision remains 1.
  */
 
 #include <stddef.h>
@@ -47,6 +47,18 @@ typedef struct yaddnsc_bytes {
     size_t size;
 } yaddnsc_bytes;
 
+/* A zero-length view may use NULL data. A non-zero length view must point to
+ * readable storage. These helpers are the mandatory validation boundary
+ * before constructing a C++ string_view/span from an ABI view.
+ */
+static inline int yaddnsc_string_is_valid(yaddnsc_string value) {
+    return value.size == 0 || value.data != NULL;
+}
+
+static inline int yaddnsc_bytes_is_valid(yaddnsc_bytes value) {
+    return value.size == 0 || value.data != NULL;
+}
+
 /* ── Status codes ─────────────────────────────────────────────────────────*/
 typedef uint32_t yaddnsc_status;
 #define YADDNSC_STATUS_OK UINT32_C(0)
@@ -60,6 +72,25 @@ typedef uint32_t yaddnsc_status;
 #define YADDNSC_STATUS_INVALID_RESPONSE UINT32_C(8)
 #define YADDNSC_STATUS_CANCELLED UINT32_C(9)
 #define YADDNSC_STATUS_INTERNAL_ERROR UINT32_C(10)
+
+static inline int yaddnsc_status_is_valid(yaddnsc_status status) {
+    switch (status) {
+        case YADDNSC_STATUS_OK:
+        case YADDNSC_STATUS_INVALID_ARGUMENT:
+        case YADDNSC_STATUS_INVALID_CONFIG:
+        case YADDNSC_STATUS_UNSUPPORTED_RECORD:
+        case YADDNSC_STATUS_NETWORK_ERROR:
+        case YADDNSC_STATUS_AUTHENTICATION_FAILED:
+        case YADDNSC_STATUS_RATE_LIMITED:
+        case YADDNSC_STATUS_UPSTREAM_REJECTED:
+        case YADDNSC_STATUS_INVALID_RESPONSE:
+        case YADDNSC_STATUS_CANCELLED:
+        case YADDNSC_STATUS_INTERNAL_ERROR:
+            return 1;
+        default:
+            return 0;
+    }
+}
 
 /* ── Log levels ───────────────────────────────────────────────────────────*/
 typedef uint32_t yaddnsc_log_level;
@@ -91,6 +122,8 @@ typedef uint32_t yaddnsc_http_method;
 
 #define YADDNSC_DRIVER_CAPABILITY_A (UINT64_C(1) << 0)
 #define YADDNSC_DRIVER_CAPABILITY_AAAA (UINT64_C(1) << 1)
+#define YADDNSC_DRIVER_CAPABILITIES_SUPPORTED \
+    (YADDNSC_DRIVER_CAPABILITY_A | YADDNSC_DRIVER_CAPABILITY_AAAA)
 
 /* Caller-owned output: the caller sets struct_size to its capacity; the
  * writer only writes fields fully inside that capacity, never writes its
@@ -107,6 +140,18 @@ typedef struct yaddnsc_http_header {
     yaddnsc_string name;
     yaddnsc_string value;
 } yaddnsc_http_header;
+
+static inline int yaddnsc_http_header_is_valid(yaddnsc_http_header header) {
+    return yaddnsc_string_is_valid(header.name) && yaddnsc_string_is_valid(header.value);
+}
+
+static inline int yaddnsc_http_header_array_is_valid(const yaddnsc_http_header *headers, size_t count) {
+    return count == 0 || headers != NULL;
+}
+
+static inline int yaddnsc_driver_capabilities_are_valid(uint64_t capabilities) {
+    return (capabilities & ~YADDNSC_DRIVER_CAPABILITIES_SUPPORTED) == 0;
+}
 
 typedef struct yaddnsc_http_request {
     uint32_t struct_size;
@@ -165,8 +210,9 @@ typedef struct yaddnsc_driver yaddnsc_driver;
  *                HTTP status always arrives via out_response->status_code.
  *                Response views stay valid until yaddnsc_driver_update()
  *                returns (host arena), across multiple exchanges.
- * is_cancelled:  0 = not cancelled, non-0 = cancelled (host-global shutdown
- *                signal). A predicate, not a fallible operation.
+ * is_cancelled:  0 = the current update operation is active, non-0 = its
+ *                cancellation token was triggered. A predicate, not a
+ *                fallible operation.
  */
 struct yaddnsc_host_services {
     uint32_t struct_size;
@@ -194,6 +240,13 @@ struct yaddnsc_host_services {
 yaddnsc_status yaddnsc_driver_get_descriptor(
     const yaddnsc_driver_descriptor **out_descriptor);
 
+/* Handle ownership: on YADDNSC_STATUS_OK the host owns the instance and
+ * guarantees the matching yaddnsc_driver_destroy() call. On ANY non-OK
+ * return the plugin must leave *out_driver NULL — a failed create owns
+ * nothing and must have released its state already. The host defensively
+ * destroys and clears a handle a misbehaving plugin stored before
+ * reporting failure, so plugin state never leaks out of the failure path.
+ */
 yaddnsc_status yaddnsc_driver_create(
     const yaddnsc_host_services *services,
     yaddnsc_driver **out_driver,
@@ -239,7 +292,7 @@ static inline int yaddnsc_struct_has_field(uint32_t struct_size, uint32_t field_
     return struct_size >= field_end;
 }
 
-/* Minimum accepted struct_size (required prefix) per struct. */
+/* Minimum accepted struct_size: the complete fixed v1 alpha layout. */
 #define YADDNSC_ERROR_MIN_SIZE YADDNSC_SIZEOF_THROUGH(yaddnsc_error, message)
 #define YADDNSC_HTTP_REQUEST_MIN_SIZE YADDNSC_SIZEOF_THROUGH(yaddnsc_http_request, body)
 #define YADDNSC_HTTP_RESPONSE_MIN_SIZE YADDNSC_SIZEOF_THROUGH(yaddnsc_http_response, body)

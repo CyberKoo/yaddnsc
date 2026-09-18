@@ -8,15 +8,21 @@
 // These tests link the DNS + IP-source dependency chain directly
 // (socket, net_devices, builder, parser, etc.).
 //
+// Cancellation: one test arms the responder to hold its reply after
+// acknowledging the query, then triggers the token while MdnsIpSource waits —
+// resolve() must return CANCELLED early instead of waiting out the deadline.
 // =============================================================================
 
 #include <algorithm>
 #include <array>
 #include <atomic>
 #include <chrono>
+#include <condition_variable>
 #include <cstddef>
 #include <cstdint>
+#include <future>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <random>
 #include <span>
@@ -109,13 +115,14 @@ TEST(IpSourceFactoryTest, CreateInterfaceSource_ResolvesLoopback) {
     cfg.ip_source = Config::IpSource::INTERFACE;
     cfg.interface = LOOPBACK;
 
-    auto source = IpSourceFactory::create(cfg);
-    ASSERT_NE(source, nullptr);
+    const auto source = IpSourceFactory::create(cfg);
+    ASSERT_TRUE(source.has_value()) << source.error().message;
 
     // resolve() must work using the real loopback interface.
-    auto addrs = source->resolve({});
-    EXPECT_FALSE(addrs.empty());
-    EXPECT_TRUE(std::ranges::any_of(addrs, [](const InetAddress& a) { return a.to_string() == "127.0.0.1"; }));
+    const auto addrs = (*source)->resolve({});
+    ASSERT_TRUE(addrs.has_value()) << addrs.error().message;
+    EXPECT_FALSE(addrs->empty());
+    EXPECT_TRUE(std::ranges::any_of(*addrs, [](const InetAddress& a) { return a.to_string() == "127.0.0.1"; }));
 }
 
 TEST(IpSourceFactoryTest, CreateInterfaceSource_Ipv6) {
@@ -125,14 +132,15 @@ TEST(IpSourceFactoryTest, CreateInterfaceSource_Ipv6) {
     cfg.ip_source = Config::IpSource::INTERFACE;
     cfg.interface = LOOPBACK;
 
-    auto source = IpSourceFactory::create(cfg);
-    ASSERT_NE(source, nullptr);
-    auto addrs = source->resolve({});
+    const auto source = IpSourceFactory::create(cfg);
+    ASSERT_TRUE(source.has_value()) << source.error().message;
+    const auto addrs = (*source)->resolve({});
+    ASSERT_TRUE(addrs.has_value()) << addrs.error().message;
 
-    if (addrs.empty()) {
+    if (addrs->empty()) {
         GTEST_SKIP() << "IPv6 is not available on this system";
     }
-    for (const auto& addr : addrs) {
+    for (const auto& addr : *addrs) {
         EXPECT_EQ(addr.get_family(), AddressFamily::IPV6);
     }
 }
@@ -148,8 +156,8 @@ TEST(IpSourceFactoryTest, CreateHttpSource_ConstructsSuccessfully) {
     cfg.ip_source = Config::IpSource::HTTP;
     cfg.ip_source_param = "http://127.0.0.1:1/ip";  // valid URL, no server needed for construction
 
-    auto source = IpSourceFactory::create(cfg);
-    ASSERT_NE(source, nullptr);
+    const auto source = IpSourceFactory::create(cfg);
+    ASSERT_TRUE(source.has_value()) << source.error().message;
     // Constructor succeeds — resolves via PersistentHttpClient.
     // resolve() would fail with connection refused, which is expected.
 }
@@ -162,8 +170,8 @@ TEST(IpSourceFactoryTest, CreateHttpSource_WithIface_BindsToInterface) {
     cfg.ip_source_param = "http://127.0.0.1:1/ip";
     cfg.interface = LOOPBACK;
 
-    auto source = IpSourceFactory::create(cfg);
-    ASSERT_NE(source, nullptr);
+    const auto source = IpSourceFactory::create(cfg);
+    ASSERT_TRUE(source.has_value()) << source.error().message;
 }
 
 // ===========================================================================
@@ -177,12 +185,13 @@ TEST(IpSourceFactoryTest, UnknownType_FallsBackToUnspecified) {
     cfg.ip_source = Config::IpSource::INTERFACE;
     cfg.interface = LOOPBACK;
 
-    auto source = IpSourceFactory::create(cfg);
-    ASSERT_NE(source, nullptr);
+    const auto source = IpSourceFactory::create(cfg);
+    ASSERT_TRUE(source.has_value()) << source.error().message;
 
     // UNSPECIFIED returns all addresses on the interface.
-    auto addrs = source->resolve({});
-    EXPECT_FALSE(addrs.empty());
+    const auto addrs = (*source)->resolve({});
+    ASSERT_TRUE(addrs.has_value()) << addrs.error().message;
+    EXPECT_FALSE(addrs->empty());
 }
 
 // ===========================================================================
@@ -279,10 +288,25 @@ protected:
     /// Check how many matching queries the responder received.
     [[nodiscard]] int query_count() const { return query_count_.load(); }
 
+    /// Let a responder parked by hold_response_ send its reply and exit.
+    void release_response() {
+        {
+            std::lock_guard lock(hold_mtx_);
+            respond_release_ = true;
+        }
+        hold_cv_.notify_all();
+    }
+
     std::string test_hostname_;  // Random UUID hostname for this test run
 
     /// When true, the responder appends an unrelated A record to its reply.
     std::atomic<bool> include_unrelated_record_{false};
+
+    /// When true, the responder signals query_received_ on a matching query
+    /// and parks before replying until release_response() (or TearDown).
+    std::atomic<bool> hold_response_{false};
+    std::promise<void> query_received_;
+    std::atomic<bool> query_signalled_{false};
 
 private:
     /// Encode a dot-separated hostname into DNS label format
@@ -417,6 +441,17 @@ private:
             }
             query_count_.fetch_add(1);
 
+            // Test hook: with hold_response_ armed, acknowledge the query to
+            // the test and park before replying, so the test can cancel a
+            // client that is blocked mid-wait deterministically.
+            if (hold_response_.load()) {
+                if (!query_signalled_.exchange(true)) {
+                    query_received_.set_value();
+                }
+                std::unique_lock lock(hold_mtx_);
+                hold_cv_.wait(lock, [&] { return respond_release_ || stop_flag_.load(); });
+            }
+
             // Genuine response from port 5353 (RFC 6762 §6 compliance).
             auto resp = build_response(query, 198, 51, 100, 7, include_unrelated_record_.load());
             auto data = std::as_bytes(std::span{resp});
@@ -462,15 +497,19 @@ private:
     std::atomic<bool> stop_flag_{false};
     std::atomic<int> query_count_{0};
     ip_mreq mreq_{};
+    std::mutex hold_mtx_;
+    std::condition_variable hold_cv_;
+    bool respond_release_{false};
 };
 
 TEST_F(MdnsTest, ResolveMdns_A_Record) {
     MdnsIpSource source(test_hostname_, RecordKind::A, "");
-    auto addrs = source.resolve({});
+    const auto addrs = source.resolve({});
 
-    ASSERT_EQ(addrs.size(), 1U);
-    EXPECT_EQ(addrs[0].to_string(), "198.51.100.7");
-    EXPECT_EQ(addrs[0].get_family(), AddressFamily::IPV4);
+    ASSERT_TRUE(addrs.has_value()) << addrs.error().message;
+    ASSERT_EQ(addrs->size(), 1U);
+    EXPECT_EQ((*addrs)[0].to_string(), "198.51.100.7");
+    EXPECT_EQ((*addrs)[0].get_family(), AddressFamily::IPV4);
     EXPECT_EQ(query_count(), 1);
 }
 
@@ -486,12 +525,13 @@ TEST_F(MdnsTest, Factory_CreateMdnsSource_ResolvesViaMulticast) {
     cfg.ip_source_param = test_hostname_;
     cfg.interface = "";
 
-    auto source = IpSourceFactory::create(cfg);
-    ASSERT_NE(source, nullptr);
+    const auto source = IpSourceFactory::create(cfg);
+    ASSERT_TRUE(source.has_value()) << source.error().message;
 
-    auto addrs = source->resolve({});
-    ASSERT_EQ(addrs.size(), 1U);
-    EXPECT_EQ(addrs[0].to_string(), "198.51.100.7");
+    const auto addrs = (*source)->resolve({});
+    ASSERT_TRUE(addrs.has_value()) << addrs.error().message;
+    ASSERT_EQ(addrs->size(), 1U);
+    EXPECT_EQ((*addrs)[0].to_string(), "198.51.100.7");
     EXPECT_EQ(query_count(), 1);
 }
 
@@ -506,10 +546,11 @@ TEST_F(MdnsTest, ResolveMdns_IgnoresWrongSourcePort) {
     start_forger();
 
     MdnsIpSource source(test_hostname_, RecordKind::A, "");
-    auto addrs = source.resolve({});
+    const auto addrs = source.resolve({});
 
-    ASSERT_EQ(addrs.size(), 1U);
-    EXPECT_EQ(addrs[0].to_string(), "198.51.100.7");
+    ASSERT_TRUE(addrs.has_value()) << addrs.error().message;
+    ASSERT_EQ(addrs->size(), 1U);
+    EXPECT_EQ((*addrs)[0].to_string(), "198.51.100.7");
     EXPECT_EQ(query_count(), 1);
 }
 
@@ -520,9 +561,60 @@ TEST_F(MdnsTest, ResolveMdns_IgnoresUnrelatedRecords) {
     include_unrelated_record_.store(true);
 
     MdnsIpSource source(test_hostname_, RecordKind::A, "");
-    auto addrs = source.resolve({});
+    const auto addrs = source.resolve({});
 
-    ASSERT_EQ(addrs.size(), 1U);
-    EXPECT_EQ(addrs[0].to_string(), "198.51.100.7");
+    ASSERT_TRUE(addrs.has_value()) << addrs.error().message;
+    ASSERT_EQ(addrs->size(), 1U);
+    EXPECT_EQ((*addrs)[0].to_string(), "198.51.100.7");
     EXPECT_EQ(query_count(), 1);
+}
+
+// ===========================================================================
+// mDNS — cancellation while waiting for a response
+// ===========================================================================
+
+// The responder holds its reply after acknowledging the query; triggering the
+// token while MdnsIpSource waits must wake the poll and return CANCELLED
+// instead of waiting out the 500ms deadline (plan 4.5).
+TEST_F(MdnsTest, ResolveMdns_CancelMidWaitReturnsCancelled) {
+    hold_response_.store(true);
+
+    MdnsIpSource source(test_hostname_, RecordKind::A, "");
+    Utils::CancellationSource cancellation;
+
+    std::optional<IpSourceBase::Result> result;
+    std::jthread worker([&] { result = source.resolve(cancellation.token()); });
+
+    // The query reached the responder: resolve() is parked in its wait loop.
+    ASSERT_EQ(query_received_.get_future().wait_for(10s), std::future_status::ready)
+        << "the mDNS query never reached the responder";
+
+    const auto start = std::chrono::steady_clock::now();
+    cancellation.trigger();
+    worker.join();
+    release_response();
+    const auto elapsed = std::chrono::steady_clock::now() - start;
+
+    ASSERT_TRUE(result.has_value());
+    ASSERT_FALSE(result->has_value());
+    EXPECT_EQ(result->error().code, domain::IpSourceError::Code::CANCELLED);
+    // Without cancellation the same lookup would sit in poll() until the
+    // 500ms mDNS deadline and return UNAVAILABLE.
+    EXPECT_LT(elapsed, 400ms);
+}
+
+// ===========================================================================
+// mDNS — exception boundary: no ordinary exception crosses resolve()
+// ===========================================================================
+
+// A label longer than 63 octets violates the DNS wire format, so the query
+// builder throws DnsPacketException before any socket is created. The source
+// boundary must classify it as UNAVAILABLE instead of letting it escape.
+TEST(MdnsExceptionBoundaryTest, ResolveMdns_MalformedHostnameReturnsUnavailable) {
+    const std::string bad_hostname = std::string(64, 'a') + ".local";
+    const MdnsIpSource source(bad_hostname, RecordKind::A, "");
+
+    const auto result = source.resolve({});
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error().code, domain::IpSourceError::Code::UNAVAILABLE);
 }

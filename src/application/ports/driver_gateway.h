@@ -11,6 +11,10 @@
 
 #include "domain/error/error.h"
 
+namespace Utils {
+class CancellationToken;
+}
+
 /// DriverUpdateCommand — everything one driver update call needs, expressed
 /// in application terms (no plugin-SDK types cross this boundary).
 struct DriverUpdateCommand {
@@ -40,7 +44,9 @@ public:
     /// the port never throws for an expected failure (driver not loaded,
     /// upstream rejection, HTTP error, driver exception).
     [[nodiscard]] virtual std::expected<void, domain::DriverError>
-    update(std::string_view driver_name, const DriverUpdateCommand &command) const = 0;
+    update(std::string_view driver_name,
+           const DriverUpdateCommand &command,
+           const Utils::CancellationToken &token) const = 0;
 };
 
 #endif // YADDNSC_APPLICATION_PORTS_DRIVER_GATEWAY_H

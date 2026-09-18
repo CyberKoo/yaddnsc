@@ -86,6 +86,7 @@ struct RawPlugin {
     decltype(&yaddnsc_driver_create) create = nullptr;
     decltype(&yaddnsc_driver_destroy) destroy = nullptr;
     decltype(&yaddnsc_driver_update) update = nullptr;
+    decltype(&yaddnsc_driver_validate) validate = nullptr;
 };
 
 [[nodiscard]] RawPlugin resolve_raw() {
@@ -101,6 +102,7 @@ struct RawPlugin {
     raw.create = reinterpret_cast<decltype(raw.create)>(raw.library.resolve("yaddnsc_driver_create"));         // NOLINT
     raw.destroy = reinterpret_cast<decltype(raw.destroy)>(raw.library.resolve("yaddnsc_driver_destroy"));      // NOLINT
     raw.update = reinterpret_cast<decltype(raw.update)>(raw.library.resolve("yaddnsc_driver_update"));         // NOLINT
+    raw.validate = reinterpret_cast<decltype(raw.validate)>(raw.library.resolve("yaddnsc_driver_validate"));   // NOLINT
     return raw;
 }
 
@@ -159,6 +161,9 @@ TEST(DriverAbiContract, CreateValidatesItsArguments) {
     EXPECT_EQ(raw.create(&wrong_revision, &handle, &error), YADDNSC_STATUS_INVALID_ARGUMENT);
     // null function pointers
     for (auto broken = services;;) {
+        broken.context = nullptr;
+        EXPECT_EQ(raw.create(&broken, &handle, &error), YADDNSC_STATUS_INVALID_ARGUMENT);
+        broken = services;
         broken.log = nullptr;
         EXPECT_EQ(raw.create(&broken, &handle, &error), YADDNSC_STATUS_INVALID_ARGUMENT);
         broken = services;
@@ -210,6 +215,52 @@ TEST(DriverAbiContract, UpdateValidatesItsArguments) {
     raw.destroy(handle);
 }
 
+TEST(DriverAbiContract, UpdateRejectsInvalidViews) {
+    auto raw = resolve_raw();
+    ASSERT_NE(raw.create, nullptr);
+
+    HostUpdateContext host;
+    const auto services = host.context.make_services();
+    yaddnsc_error error = make_error_buffer();
+    yaddnsc_driver* handle = nullptr;
+    ASSERT_EQ(raw.create(&services, &handle, &error), YADDNSC_STATUS_OK);
+    ASSERT_NE(handle, nullptr);
+
+    const auto request =
+        make_update_request("192.0.2.1", "A", "example.com", "www", "www.example.com", R"({"op":"success"})");
+    using Mutate = void (*)(yaddnsc_update_request&);
+    for (const Mutate mutate : {
+             +[](yaddnsc_update_request& value) { value.ip_address = {nullptr, 1}; },
+             +[](yaddnsc_update_request& value) { value.record_type = {nullptr, 1}; },
+             +[](yaddnsc_update_request& value) { value.domain = {nullptr, 1}; },
+             +[](yaddnsc_update_request& value) { value.subdomain = {nullptr, 1}; },
+             +[](yaddnsc_update_request& value) { value.fqdn = {nullptr, 1}; },
+             +[](yaddnsc_update_request& value) { value.driver_param_json = {nullptr, 1}; },
+         }) {
+        auto invalid = request;
+        mutate(invalid);
+        EXPECT_EQ(raw.update(handle, &invalid, &error), YADDNSC_STATUS_INVALID_ARGUMENT);
+    }
+
+    raw.destroy(handle);
+}
+
+TEST(DriverAbiContract, ValidateRejectsInvalidView) {
+    auto raw = resolve_raw();
+    ASSERT_NE(raw.create, nullptr);
+    ASSERT_NE(raw.validate, nullptr);
+
+    HostUpdateContext host;
+    const auto services = host.context.make_services();
+    yaddnsc_error error = make_error_buffer();
+    yaddnsc_driver* handle = nullptr;
+    ASSERT_EQ(raw.create(&services, &handle, &error), YADDNSC_STATUS_OK);
+    ASSERT_NE(handle, nullptr);
+
+    EXPECT_EQ(raw.validate(handle, yaddnsc_string{nullptr, 1}, &error), YADDNSC_STATUS_INVALID_ARGUMENT);
+    raw.destroy(handle);
+}
+
 // ===========================================================================
 //  http_exchange — NULL / struct_size matrix (direct table calls)
 // ===========================================================================
@@ -226,12 +277,8 @@ TEST(DriverAbiContract, HttpExchangeRejectsNullPointers) {
     EXPECT_EQ(services.http_exchange(nullptr, &request, &response, &error), YADDNSC_STATUS_INVALID_ARGUMENT);
     EXPECT_EQ(services.http_exchange(services.context, nullptr, &response, &error), YADDNSC_STATUS_INVALID_ARGUMENT);
     EXPECT_EQ(services.http_exchange(services.context, &request, nullptr, &error), YADDNSC_STATUS_INVALID_ARGUMENT);
-
-    // out_error is optional: a valid call with NULL out_error succeeds.
-    host.client.queue_response(200, "ok");
-    response.struct_size = static_cast<uint32_t>(sizeof(response));
-    EXPECT_EQ(services.http_exchange(services.context, &request, &response, nullptr), YADDNSC_STATUS_OK);
-    EXPECT_EQ(response.status_code, 200u);
+    EXPECT_EQ(services.http_exchange(services.context, &request, &response, nullptr), YADDNSC_STATUS_INVALID_ARGUMENT);
+    EXPECT_EQ(host.client.request_count(), 0u);
 }
 
 TEST(DriverAbiContract, HttpExchangeRequestStructSizeMatrix) {
@@ -312,27 +359,27 @@ TEST(DriverAbiContract, HttpExchangeErrorStructSizeMatrix) {
     yaddnsc_http_response response{};
     response.struct_size = static_cast<uint32_t>(sizeof(response));
 
-    // struct_size == 0 → the status is still returned, nothing is written.
-    host.client.queue_error(net::http::ErrorCode::TIMEOUT, "timed out");
+    // struct_size == 0 → rejected before the transport is entered.
     yaddnsc_error zero_error{};
     std::memset(&zero_error, 0x55, sizeof(zero_error));
     zero_error.struct_size = 0;
-    EXPECT_EQ(services.http_exchange(services.context, &request, &response, &zero_error), YADDNSC_STATUS_NETWORK_ERROR);
+    EXPECT_EQ(services.http_exchange(services.context, &request, &response, &zero_error), YADDNSC_STATUS_INVALID_ARGUMENT);
     yaddnsc_error untouched{};
     std::memset(&untouched, 0x55, sizeof(untouched));
     untouched.struct_size = 0;
     EXPECT_EQ(std::memcmp(&zero_error, &untouched, sizeof(zero_error)), 0);
 
-    // one below the minimum → same: returned, not written.
-    host.client.queue_error(net::http::ErrorCode::TIMEOUT, "timed out");
+    // one below the minimum → also rejected before the transport is entered.
     yaddnsc_error below_min{};
     std::memset(&below_min, 0x55, sizeof(below_min));
     below_min.struct_size = YADDNSC_ERROR_MIN_SIZE - 1;
-    EXPECT_EQ(services.http_exchange(services.context, &request, &response, &below_min), YADDNSC_STATUS_NETWORK_ERROR);
+    EXPECT_EQ(services.http_exchange(services.context, &request, &response, &below_min),
+              YADDNSC_STATUS_INVALID_ARGUMENT);
     yaddnsc_error untouched2{};
     std::memset(&untouched2, 0x55, sizeof(untouched2));
     untouched2.struct_size = YADDNSC_ERROR_MIN_SIZE - 1;
     EXPECT_EQ(std::memcmp(&below_min, &untouched2, sizeof(below_min)), 0);
+    EXPECT_EQ(host.client.request_count(), 0u);
 
     // oversized with a canary tail → status/message written, struct_size
     // clamped to sizeof, the unknown tail untouched.
@@ -374,6 +421,20 @@ TEST(DriverAbiContract, HttpExchangeRejectsMalformedLeafViews) {
     request = make_http_request("http://localhost/x");
     request.headers = nullptr;
     request.header_count = 1;
+    EXPECT_EQ(services.http_exchange(services.context, &request, &response, &error), YADDNSC_STATUS_INVALID_ARGUMENT);
+
+    std::array<yaddnsc_http_header, 1> headers{};
+    headers[0] = {{nullptr, 1}, {"value", 5}};
+    request = make_http_request("http://localhost/x");
+    request.headers = headers.data();
+    request.header_count = headers.size();
+    EXPECT_EQ(services.http_exchange(services.context, &request, &response, &error), YADDNSC_STATUS_INVALID_ARGUMENT);
+    headers[0].name = {"name", 4};
+    headers[0].value = {nullptr, 1};
+    EXPECT_EQ(services.http_exchange(services.context, &request, &response, &error), YADDNSC_STATUS_INVALID_ARGUMENT);
+
+    request = make_http_request("http://localhost/x");
+    request.content_type = {nullptr, 1};
     EXPECT_EQ(services.http_exchange(services.context, &request, &response, &error), YADDNSC_STATUS_INVALID_ARGUMENT);
 
     // body size > 0 with NULL body data
@@ -441,6 +502,12 @@ TEST(DriverAbiContract, TransportErrorMapping) {
     EXPECT_EQ(services.http_exchange(services.context, &request, &response, &error), YADDNSC_STATUS_CANCELLED);
     EXPECT_EQ(std::string_view(error.message.data, error.message.size), "aborted");
 
+    host.client.queue_error(net::http::ErrorCode::CONNECT_FAILED, "back off", 45);
+    response.struct_size = static_cast<uint32_t>(sizeof(response));
+    error = make_error_buffer();
+    EXPECT_EQ(services.http_exchange(services.context, &request, &response, &error), YADDNSC_STATUS_NETWORK_ERROR);
+    EXPECT_EQ(error.retry_after_seconds, 45u);
+
     // …every other net::http error maps to NETWORK_ERROR.
     for (const auto code : {net::http::ErrorCode::TIMEOUT, net::http::ErrorCode::CONNECT_FAILED,
                             net::http::ErrorCode::TLS_HANDSHAKE_FAILED, net::http::ErrorCode::RESPONSE_PARSE_FAILED}) {
@@ -451,6 +518,24 @@ TEST(DriverAbiContract, TransportErrorMapping) {
             << "code " << static_cast<int>(code);
         EXPECT_EQ(std::string_view(error.message.data, error.message.size), "boom");
     }
+}
+
+TEST(DriverAbiContract, OperationCancellationBlocksHttpAndMatchesPluginPredicate) {
+    Utils::CancellationSource source;
+    HostUpdateContext host;
+    HostServicesContext context(host.client, host.logger, source.token());
+    const auto services = context.make_services();
+    const auto request = make_http_request("http://localhost/x");
+    yaddnsc_http_response response{};
+    response.struct_size = static_cast<uint32_t>(sizeof(response));
+    yaddnsc_error error = make_error_buffer();
+
+    source.trigger();
+
+    EXPECT_NE(services.is_cancelled(services.context), 0);
+    EXPECT_EQ(services.http_exchange(services.context, &request, &response, &error), YADDNSC_STATUS_CANCELLED);
+    EXPECT_EQ(error.status, YADDNSC_STATUS_CANCELLED);
+    EXPECT_EQ(host.client.request_count(), 0u);
 }
 
 TEST(DriverAbiContract, Http4xxIsDeliveredAsResponse) {
@@ -679,7 +764,7 @@ TEST(DriverAbiContract, PluginResponseViewsSurviveMultipleExchanges) {
     EXPECT_EQ(host.client.remaining(), 0u);
 }
 
-TEST(DriverAbiContract, HostCancellationIsNotVisibleToThePlugin) {
+TEST(DriverAbiContract, OperationCancellationIsVisibleToThePlugin) {
     auto module = load_module();
     ASSERT_NE(module, nullptr);
 
@@ -689,7 +774,7 @@ TEST(DriverAbiContract, HostCancellationIsNotVisibleToThePlugin) {
     HostUpdateContext host;
     HostServicesContext context(host.client, host.logger, source.token());
     const auto services = context.make_services();
-    const auto result = run_module_cycle(*module, services, R"({"op":"check_cancel","expect_cancelled":false})");
+    const auto result = run_module_cycle(*module, services, R"({"op":"check_cancel","expect_cancelled":true})");
     EXPECT_EQ(result.update_status, YADDNSC_STATUS_OK) << result.error_message;
 }
 

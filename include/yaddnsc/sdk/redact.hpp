@@ -19,7 +19,7 @@
 namespace yaddnsc::sdk::redact {
 
 /// Lowercase a string (ASCII).
-[[nodiscard]] inline std::string to_lower(std::string_view s) noexcept {
+[[nodiscard]] inline std::string to_lower(std::string_view s) {
     std::string out(s);
     for (auto &ch: out) {
         ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
@@ -28,7 +28,7 @@ namespace yaddnsc::sdk::redact {
 }
 
 /// Whether an HTTP header key carries credentials (case-insensitive).
-[[nodiscard]] inline bool is_sensitive_header(std::string_view key) noexcept {
+[[nodiscard]] inline bool is_sensitive_header(std::string_view key) {
     static constexpr std::string_view SENSITIVE_HEADERS[] = {
         "authorization", "proxy-authorization", "cookie",
         "x-api-key", "x-auth-token", "x-access-token", "x-api-token",
@@ -42,7 +42,7 @@ namespace yaddnsc::sdk::redact {
 /// credentials. Exact match first, then a suffix fallback so that
 /// future drivers using *_token / *_secret / *_password / *_key
 /// parameter names are covered automatically.
-[[nodiscard]] inline bool is_sensitive_param(std::string_view key) noexcept {
+[[nodiscard]] inline bool is_sensitive_param(std::string_view key) {
     static constexpr std::string_view SENSITIVE_PARAMS[] = {
         "token", "api_key", "apikey", "auth", "secret", "client_secret", "api_secret",
         "access_key_secret", "secret_access_key", "password", "passwd",
@@ -57,7 +57,7 @@ namespace yaddnsc::sdk::redact {
 }
 
 /// Redact a header value if its key is sensitive; otherwise pass through.
-[[nodiscard]] inline std::string redact_header(std::string_view key, std::string_view value) noexcept {
+[[nodiscard]] inline std::string redact_header(std::string_view key, std::string_view value) {
     return is_sensitive_header(key) ? std::string("***") : std::string(value);
 }
 

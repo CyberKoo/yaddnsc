@@ -9,8 +9,8 @@
 /// a usable message instead of letting it propagate into the host's frame.
 ///
 /// get_descriptor succeeds so PluginModule::load() accepts the library; the
-/// create/update entries throw std::exceptions (covered arm) and validate
-/// throws a non-std type (the catch-all arm).
+/// create/update/destroy entries throw std::exceptions (covered arm) and
+/// validate throws a non-std type (the catch-all arm).
 
 #include <stdexcept>
 
@@ -50,6 +50,7 @@ extern "C" FIXTURE_EXPORT yaddnsc_status yaddnsc_driver_create(const yaddnsc_hos
 }
 
 extern "C" FIXTURE_EXPORT void yaddnsc_driver_destroy(yaddnsc_driver * /*driver*/) {
+    throw std::runtime_error("destroy exploded");
 }
 
 extern "C" FIXTURE_EXPORT yaddnsc_status yaddnsc_driver_update(yaddnsc_driver * /*driver*/,

@@ -37,7 +37,7 @@ using EvpMdCtxPtr = std::unique_ptr<EVP_MD_CTX, EvpMdCtxDeleter>;
 /// Compute HMAC using EVP_DigestSign (the modern, non-deprecated API).
 [[nodiscard]] std::vector<std::uint8_t> hmac_digest(std::span<const std::uint8_t> key,
                                                     std::span<const std::uint8_t> data,
-                                                    const EVP_MD* md) noexcept {
+                                                    const EVP_MD* md) {
     EvpPKeyPtr pkey(EVP_PKEY_new_mac_key(EVP_PKEY_HMAC, nullptr, key.data(), static_cast<int>(key.size())));
     if (!pkey)
         return {};
@@ -65,7 +65,7 @@ using EvpMdCtxPtr = std::unique_ptr<EVP_MD_CTX, EvpMdCtxDeleter>;
 }
 
 /// Compute a one-shot hash digest using the given EVP_MD.
-[[nodiscard]] std::vector<std::uint8_t> hash_digest(std::span<const std::uint8_t> data, const EVP_MD* md) noexcept {
+[[nodiscard]] std::vector<std::uint8_t> hash_digest(std::span<const std::uint8_t> data, const EVP_MD* md) {
     EvpMdCtxPtr ctx(EVP_MD_CTX_new());
     if (!ctx)
         return {};
@@ -91,7 +91,7 @@ constexpr std::string_view HEX_CHARS = "0123456789abcdef";
 //  signing::sha256
 // ===========================================================================
 
-std::vector<std::uint8_t> Signing::sha256(std::span<const std::uint8_t> data) noexcept {
+std::vector<std::uint8_t> Signing::sha256(std::span<const std::uint8_t> data) {
     return hash_digest(data, EVP_sha256());
 }
 
@@ -99,7 +99,7 @@ std::vector<std::uint8_t> Signing::sha256(std::span<const std::uint8_t> data) no
 //  signing::sha1
 // ===========================================================================
 
-std::vector<std::uint8_t> Signing::sha1(std::span<const std::uint8_t> data) noexcept {
+std::vector<std::uint8_t> Signing::sha1(std::span<const std::uint8_t> data) {
     return hash_digest(data, EVP_sha1());
 }
 
@@ -107,7 +107,7 @@ std::vector<std::uint8_t> Signing::sha1(std::span<const std::uint8_t> data) noex
 //  signing::sha256_hex
 // ===========================================================================
 
-std::string Signing::sha256_hex(std::string_view data) noexcept {
+std::string Signing::sha256_hex(std::string_view data) {
     const std::vector<std::uint8_t> raw(data.begin(), data.end());
     const auto digest = sha256(std::span<const std::uint8_t>(raw));
     return hex_encode(digest);
@@ -118,7 +118,7 @@ std::string Signing::sha256_hex(std::string_view data) noexcept {
 // ===========================================================================
 
 std::vector<std::uint8_t> Signing::hmac_sha256(std::span<const std::uint8_t> key,
-                                               std::span<const std::uint8_t> data) noexcept {
+                                               std::span<const std::uint8_t> data) {
     return hmac_digest(key, data, EVP_sha256());
 }
 
@@ -127,7 +127,7 @@ std::vector<std::uint8_t> Signing::hmac_sha256(std::span<const std::uint8_t> key
 // ===========================================================================
 
 std::vector<std::uint8_t> Signing::hmac_sha1(std::span<const std::uint8_t> key,
-                                             std::span<const std::uint8_t> data) noexcept {
+                                             std::span<const std::uint8_t> data) {
     return hmac_digest(key, data, EVP_sha1());
 }
 
@@ -135,7 +135,7 @@ std::vector<std::uint8_t> Signing::hmac_sha1(std::span<const std::uint8_t> key,
 //  signing::hex_encode
 // ===========================================================================
 
-std::string Signing::hex_encode(std::span<const std::uint8_t> data) noexcept {
+std::string Signing::hex_encode(std::span<const std::uint8_t> data) {
     if (data.empty())
         return {};
 
@@ -152,7 +152,7 @@ std::string Signing::hex_encode(std::span<const std::uint8_t> data) noexcept {
 //  signing::base64_encode
 // ===========================================================================
 
-std::string Signing::base64_encode(std::span<const std::uint8_t> data) noexcept {
+std::string Signing::base64_encode(std::span<const std::uint8_t> data) {
     if (data.empty())
         return {};
 
@@ -194,7 +194,7 @@ std::string Signing::base64_encode(std::span<const std::uint8_t> data) noexcept 
 //  signing::base64_encode
 // ===========================================================================
 
-std::string Signing::iso8601_timestamp() noexcept {
+std::string Signing::iso8601_timestamp() {
     const auto now = std::time(nullptr);
     const auto* tm = std::gmtime(&now);
     if (!tm)
@@ -208,7 +208,7 @@ std::string Signing::iso8601_timestamp() noexcept {
 //  signing::iso8601_date
 // ===========================================================================
 
-std::string Signing::iso8601_date() noexcept {
+std::string Signing::iso8601_date() {
     const auto now = std::time(nullptr);
     const auto* tm = std::gmtime(&now);
     if (!tm)

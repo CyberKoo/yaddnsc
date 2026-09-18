@@ -5,6 +5,7 @@
 #include "factory.h"
 
 #include <memory>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -19,22 +20,19 @@
 #include "infrastructure/dns/resolver_catalog.h"
 #include "infrastructure/network/uri.h"
 
-#include "resolver_config.h"
-
 // ===========================================================================
 // DnsResolverFactory::create — build a ResolverDispatcher from resolver settings.
 // ===========================================================================
 
 ResolverDispatcher DnsResolverFactory::create(const domain::ResolverSettings& settings,
                                               const ResolverCatalog& catalog) {
-    // The server list arrives already normalised (legacy single-server format
-    // folded in by the config normaliser).
-    std::vector<Config::DnsServer> dns_servers = settings.servers;
-
-    // Ensure at least one DNS server is available.
-    if (dns_servers.empty()) {
-        dns_servers.push_back({YADDNSC_DEFAULT_DNS_SERVER, YADDNSC_DEFAULT_DNS_PORT});
+    // The server list arrives fully normalized. An empty list is an internal
+    // invariant violation: configuration intent must never be guessed here.
+    if (settings.servers.empty()) {
+        throw std::invalid_argument("ResolverSettings.servers must not be empty");
     }
+
+    const auto& dns_servers = settings.servers;
 
     // Build resolver objects from server configurations, dispatching on the
     // URI schema via the catalog (https → DohResolver, tls → DotResolver,

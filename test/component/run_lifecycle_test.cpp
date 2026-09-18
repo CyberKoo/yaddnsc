@@ -169,7 +169,8 @@ private:
 [[nodiscard]] std::optional<std::string> find_ipv4_interface() {
     for (const auto& name : InterfaceUtil::get_interfaces()) {
         InterfaceIpSource source(name, AddressFamily::IPV4);
-        if (!source.resolve({}).empty()) {
+        const auto addresses = source.resolve({});
+        if (addresses && !addresses->empty()) {
             return name;
         }
     }
@@ -203,7 +204,7 @@ struct RunGraph {
     RunGraph(domain::RuntimeConfig config, ResolverDispatcher dispatcher, HttpClientFactory http_factory)
         : config_(std::make_shared<const domain::RuntimeConfig>(std::move(config))), dispatcher_(std::move(dispatcher)),
           ip_source_(),
-          gateway_(catalog_, std::move(http_factory), cancellation_.token(), logger_),
+          gateway_(catalog_, std::move(http_factory), logger_),
           workflow_(dispatcher_, ip_source_, gateway_, logger_), executor_(2, workflow_) {
         DriverLoader::load(catalog_, config_->driver);
     }

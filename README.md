@@ -238,8 +238,8 @@ group; `-c` is defined by `config test` and `config show`.
 | `driver` | `driver_dir` | Directory containing driver libraries. Omitted uses the installed driver directory. |
 | `driver` | `auto_discover` | Load every `.so` in `driver_dir`; when true, `load` is ignored. |
 | `driver` | `load` | Driver library names to load manually. |
-| `resolver` | `use_custom_server` | Use configured servers instead of the build-time default. |
-| `resolver` | `servers` | DNS server list; see [DNS Resolver](#dns-resolver). |
+| `resolver` | `use_custom_server` | Use configured servers instead of the built-in default resolver. When `true`, at least one server is required (see [DNS Resolver](#dns-resolver)). |
+| `resolver` | `servers` | DNS server list; see [DNS Resolver](#dns-resolver). Takes precedence over the legacy `address`/`port` pair. |
 | `resolver` | `strategy` | `concurrent`, `fallback`, or `shuffle`. |
 | `domains[]` | `name` | Managed domain, such as `example.com`. |
 | `domains[]` | `update_interval` | Default update interval in seconds; must meet the configured minimum. |
@@ -292,10 +292,22 @@ IPv6 mDNS may require an explicit interface.
 
 ## DNS Resolver
 
-The resolver uses configured servers when `use_custom_server` is enabled.
-Otherwise it uses the build-time default, normally `1.1.1.1:53`. Maintainers can
-change it with `-DYADDNSC_DEFAULT_DNS_SERVER=...` and
-`-DYADDNSC_DEFAULT_DNS_PORT=...` when configuring the build.
+The resolver uses configured servers when `use_custom_server` is enabled;
+otherwise it uses the built-in default resolver, whose server is fixed at
+build time — normally `1.1.1.1:53`. Maintainers can change it with
+`-DYADDNSC_DEFAULT_DNS_SERVER=...` and `-DYADDNSC_DEFAULT_DNS_PORT=...` when
+configuring the build.
+
+Enabling `use_custom_server` requires at least one server, provided either
+through the `servers` array or the legacy `address`/`port` pair. An empty
+custom resolver is an invalid configuration: both `run` and `config test`
+fail validation with "use_custom_server is enabled but no custom resolver
+servers are configured", before any driver is loaded.
+
+Normalisation rules: `servers` takes precedence over the legacy `address`
+field; when `servers` is empty, the legacy `address` and `port` are folded
+into the server list. When `use_custom_server` is disabled, the legacy fields
+are ignored and the built-in default server is used.
 
 - **Traditional DNS:** use an IP address and `port`; UDP is used with TCP
   fallback for large responses.

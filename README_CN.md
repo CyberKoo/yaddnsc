@@ -230,8 +230,8 @@ yaddnsc config show -c /etc/yaddnsc/config.json
 | `driver` | `driver_dir` | 驱动库目录；省略时使用安装目录。 |
 | `driver` | `auto_discover` | 加载目录中的所有 `.so`；启用时忽略 `load`。 |
 | `driver` | `load` | 手动加载的驱动库名称。 |
-| `resolver` | `use_custom_server` | 使用配置的服务器，而不是构建时默认值。 |
-| `resolver` | `servers` | DNS 服务器列表，见 [DNS 解析器](#dns-解析器)。 |
+| `resolver` | `use_custom_server` | 使用配置的服务器，而不是内置默认解析器。为 `true` 时至少需要一个服务器（见 [DNS 解析器](#dns-解析器)）。 |
+| `resolver` | `servers` | DNS 服务器列表，见 [DNS 解析器](#dns-解析器)。优先于旧版 `address`/`port` 字段。 |
 | `resolver` | `strategy` | `concurrent`、`fallback` 或 `shuffle`。 |
 | `domains[]` | `name` | 要管理的域名，例如 `example.com`。 |
 | `domains[]` | `update_interval` | 默认更新间隔（秒），必须满足构建时的最小值。 |
@@ -279,9 +279,18 @@ IPv6 mDNS 可能需要指定网卡。
 
 ## DNS 解析器
 
-启用 `use_custom_server` 时使用配置的服务器，否则使用构建时默认值，通常为
-`1.1.1.1:53`。维护者可以在配置构建时使用
+启用 `use_custom_server` 时使用配置的服务器；否则使用内置默认解析器，其默认
+服务器由构建时决定，通常为 `1.1.1.1:53`。维护者可以在配置构建时使用
 `-DYADDNSC_DEFAULT_DNS_SERVER=...` 和 `-DYADDNSC_DEFAULT_DNS_PORT=...` 修改默认值。
+
+启用 `use_custom_server` 时必须至少提供一个服务器，可以通过 `servers` 数组
+或旧版 `address`/`port` 字段。空的自定义解析器属于非法配置：`run` 和
+`config test` 都会在加载任何驱动之前以 "use_custom_server is enabled but
+no custom resolver servers are configured" 验证失败。
+
+归一化规则：`servers` 优先于旧版 `address` 字段；当 `servers` 为空时，旧版的
+`address` 和 `port` 会被归一化进服务器列表。`use_custom_server` 为 `false`
+时，旧版字段被忽略，使用内置默认服务器。
 
 - **传统 DNS：** 使用 IP 地址和 `port`；UDP 失败或响应过大时使用 TCP。
 - **DoH：** 使用完整的 `https://host/path` 地址，例如

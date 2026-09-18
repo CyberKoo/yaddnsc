@@ -4,6 +4,8 @@
 
 #include "plugin_loader.h"
 
+#include <exception>
+#include <new>
 #include <type_traits>
 #include <utility>
 
@@ -37,7 +39,7 @@ template<typename Signature>
 }
 
 [[nodiscard]] std::string_view to_view(yaddnsc_string value) noexcept {
-    return {value.data, value.size};
+    return value.data == nullptr ? std::string_view{} : std::string_view{value.data, value.size};
 }
 }  // anonymous namespace
 
@@ -73,11 +75,22 @@ std::expected<PluginModule, domain::PluginError> PluginModule::load(const std::s
 
     // 3. Fetch the descriptor.
     const yaddnsc_driver_descriptor* raw_descriptor = nullptr;
-    if (const yaddnsc_status status = module.get_descriptor_(&raw_descriptor);
-        status != YADDNSC_STATUS_OK || raw_descriptor == nullptr) {
+    yaddnsc_status descriptor_status = YADDNSC_STATUS_INTERNAL_ERROR;
+    try {
+        descriptor_status = module.get_descriptor_(&raw_descriptor);
+    } catch (const std::bad_alloc&) {
+        throw;
+    } catch (const std::exception& e) {
+        return std::unexpected(make_error(domain::PluginError::Code::CONTRACT_VIOLATION,
+                                          fmt::format("Driver '{}' get_descriptor() threw: {}", path, e.what())));
+    } catch (...) {
+        return std::unexpected(make_error(domain::PluginError::Code::CONTRACT_VIOLATION,
+                                          fmt::format("Driver '{}' get_descriptor() threw an unknown exception", path)));
+    }
+    if (descriptor_status != YADDNSC_STATUS_OK || raw_descriptor == nullptr) {
         return std::unexpected(
             make_error(domain::PluginError::Code::CONTRACT_VIOLATION,
-                       fmt::format("Driver '{}' get_descriptor() failed (status {})", path, status)));
+                       fmt::format("Driver '{}' get_descriptor() failed (status {})", path, descriptor_status)));
     }
 
     // 4–6. magic, exact api_revision, minimum struct_size.
@@ -99,9 +112,26 @@ std::expected<PluginModule, domain::PluginError> PluginModule::load(const std::s
                        fmt::format("Driver '{}' reports api_revision {}, host requires {}. {}", path,
                                    raw_descriptor->api_revision, YADDNSC_DRIVER_API_REVISION, ABI_CHANGED_HINT)));
     }
-    if (raw_descriptor->name.data == nullptr || raw_descriptor->name.size == 0) {
+    if (!yaddnsc_string_is_valid(raw_descriptor->name) || raw_descriptor->name.size == 0) {
         return std::unexpected(make_error(domain::PluginError::Code::CONTRACT_VIOLATION,
                                           fmt::format("Driver '{}' reports an empty driver name", path)));
+    }
+    if (!yaddnsc_string_is_valid(raw_descriptor->version)) {
+        return std::unexpected(make_error(domain::PluginError::Code::CONTRACT_VIOLATION,
+                                          fmt::format("Driver '{}' has an invalid descriptor version view", path)));
+    }
+    if (!yaddnsc_string_is_valid(raw_descriptor->author)) {
+        return std::unexpected(make_error(domain::PluginError::Code::CONTRACT_VIOLATION,
+                                          fmt::format("Driver '{}' has an invalid descriptor author view", path)));
+    }
+    if (!yaddnsc_string_is_valid(raw_descriptor->description)) {
+        return std::unexpected(make_error(
+            domain::PluginError::Code::CONTRACT_VIOLATION,
+            fmt::format("Driver '{}' has an invalid descriptor description view", path)));
+    }
+    if (!yaddnsc_driver_capabilities_are_valid(raw_descriptor->capabilities)) {
+        return std::unexpected(make_error(domain::PluginError::Code::CONTRACT_VIOLATION,
+                                          fmt::format("Driver '{}' has unsupported descriptor capabilities", path)));
     }
 
     // 7. Copy descriptor fields into host-owned storage.
@@ -115,4 +145,48 @@ std::expected<PluginModule, domain::PluginError> PluginModule::load(const std::s
     };
 
     return module;
+}
+
+yaddnsc_status PluginModule::create(const yaddnsc_host_services& services, yaddnsc_driver** out_driver,
+                                    yaddnsc_error& out_error) const {
+    yaddnsc_status status;
+    try {
+        status = create_(&services, out_driver, &out_error);
+    } catch (const std::exception& e) {
+        write_entry_error(out_error, e.what());
+        status = YADDNSC_STATUS_INTERNAL_ERROR;
+    } catch (...) {
+        write_entry_error(out_error, "unknown exception from plugin create");
+        status = YADDNSC_STATUS_INTERNAL_ERROR;
+    }
+
+    // Handle-ownership backstop: a failure return must leave *out_driver
+    // null. A plugin that stored a handle before failing would otherwise
+    // leak it — no DriverInstance exists to own the destroy() call.
+    if (status != YADDNSC_STATUS_OK && out_driver != nullptr && *out_driver != nullptr) {
+        SPDLOG_WARN("Driver '{}' ({}) violated the create contract: failure after storing a handle; destroying it",
+                    descriptor_.name, path());
+        destroy(*out_driver);
+        *out_driver = nullptr;
+    }
+    return status;
+}
+
+void PluginModule::destroy(yaddnsc_driver* driver) const noexcept {
+    if (driver == nullptr) {
+        return;
+    }
+    try {
+        destroy_(driver);
+    } catch (const std::exception& e) {
+        try {
+            SPDLOG_ERROR("Driver '{}' threw during destroy: {}", path(), e.what());
+        } catch (...) {
+        }
+    } catch (...) {
+        try {
+            SPDLOG_ERROR("Driver '{}' threw an unknown exception during destroy", path());
+        } catch (...) {
+        }
+    }
 }

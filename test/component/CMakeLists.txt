@@ -88,7 +88,9 @@ target_link_libraries(test_ip_source_test PRIVATE yaddnsc_ip_source_infrastructu
 # ============================================================================
 
 add_unit_test(http_test SOURCE http_test.cpp)
-target_link_libraries(test_http_test PRIVATE yaddnsc_ip_source_infrastructure OpenSSL::Crypto)
+# UpdateWorkflow tests in this file need the application module on top of the
+# IP-source infrastructure (adapter + factory + HttpIpSource).
+target_link_libraries(test_http_test PRIVATE yaddnsc_ip_source_infrastructure yaddnsc_application OpenSSL::Crypto)
 
 # ============================================================================
 #  mDNS responder + IpSourceFactory  (loopback multicast)

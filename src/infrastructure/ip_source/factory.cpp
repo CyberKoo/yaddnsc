@@ -4,6 +4,9 @@
 
 #include "factory.h"
 
+#include <exception>
+#include <new>
+#include <string>
 #include <utility>
 
 #include "domain/config/ip_source_kind.h"
@@ -40,19 +43,29 @@ namespace {
 /// based on Config::IpSource.
 /// @param cfg  The subdomain configuration record.
 /// @return     A unique pointer to the concrete IP source implementation.
-std::unique_ptr<IpSourceBase> IpSourceFactory::create(const domain::SubdomainConfig& cfg) {
+IpSourceFactory::Result IpSourceFactory::create(const domain::SubdomainConfig& cfg) {
     auto address_family = type_to_family(cfg.type);
 
-    switch (cfg.ip_source) {
-        case Config::IpSource::INTERFACE:
-            return std::make_unique<InterfaceIpSource>(cfg.interface, address_family);
+    try {
+        switch (cfg.ip_source) {
+            case Config::IpSource::INTERFACE:
+                return std::make_unique<InterfaceIpSource>(cfg.interface, address_family);
 
-        case Config::IpSource::HTTP:
-            return std::make_unique<HttpIpSource>(cfg.ip_source_param, address_family, cfg.interface);
+            case Config::IpSource::HTTP:
+                return std::make_unique<HttpIpSource>(cfg.ip_source_param, address_family, cfg.interface);
 
-        case Config::IpSource::MDNS:
-            return std::make_unique<MdnsIpSource>(cfg.ip_source_param, cfg.type, cfg.interface);
+            case Config::IpSource::MDNS:
+                return std::make_unique<MdnsIpSource>(cfg.ip_source_param, cfg.type, cfg.interface);
+        }
+    } catch (const std::bad_alloc&) {
+        throw;
+    } catch (const std::exception& error) {
+        return std::unexpected(domain::IpSourceError{domain::IpSourceError::Code::UNAVAILABLE, error.what()});
+    } catch (...) {
+        return std::unexpected(
+            domain::IpSourceError{domain::IpSourceError::Code::UNKNOWN, "unknown IP source construction exception"});
     }
 
-    std::unreachable();
+    return std::unexpected(
+        domain::IpSourceError{domain::IpSourceError::Code::UNKNOWN, "unknown IP source kind"});
 }

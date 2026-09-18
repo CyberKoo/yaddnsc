@@ -17,6 +17,8 @@
 #include "domain/dns/record_kind.h"
 #include "infrastructure/config/config.h"
 
+#include "resolver_config.h"
+
 namespace Config {
 
 namespace {
@@ -24,10 +26,12 @@ auto normalize_resolver(const ResolverConfig& raw) -> domain::ResolverSettings {
     domain::ResolverSettings settings;
     settings.strategy = raw.strategy;
 
-    // Fold the legacy single-server format into the server list. An empty
-    // result means "use the built-in default"; the default itself is
-    // injected by the infrastructure factory.
-    if (raw.use_custom_server) {
+    // Fold the legacy single-server format into the server list. The runtime
+    // model never uses an empty list as an implicit default: disabled custom
+    // DNS is normalized to the configured built-in resolver here.
+    if (!raw.use_custom_server) {
+        settings.servers.push_back({YADDNSC_DEFAULT_DNS_SERVER, YADDNSC_DEFAULT_DNS_PORT});
+    } else {
         if (!raw.servers.empty()) {
             settings.servers = raw.servers;
         } else if (!raw.address.empty()) {

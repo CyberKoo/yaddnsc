@@ -25,7 +25,7 @@ public:
     /// @param address_family  Preferred address family (IPV4, IPV6, or UNSPECIFIED).
     InterfaceIpSource(std::string interface_name, AddressFamily address_family);
 
-    [[nodiscard]] std::vector<InetAddress> resolve(const Utils::CancellationToken& token) const override;
+    [[nodiscard]] Result resolve(const Utils::CancellationToken& token) const override;
 
 private:
     std::string interface_name_;

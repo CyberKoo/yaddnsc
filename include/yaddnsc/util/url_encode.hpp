@@ -23,7 +23,7 @@ namespace yaddnsc::util {
 /// When @p encode_slash is false, '/' is preserved instead of being encoded
 /// as "%2F". This is needed for the canonical URI in AWS SigV4 signing,
 /// where each path segment is encoded separately and '/' is the delimiter.
-[[nodiscard]] inline std::string url_encode(std::string_view input, bool encode_slash = true) noexcept {
+[[nodiscard]] inline std::string url_encode(std::string_view input, bool encode_slash = true) {
     constexpr auto HEX_CHARS = std::to_array("0123456789ABCDEF");
 
     std::string result;

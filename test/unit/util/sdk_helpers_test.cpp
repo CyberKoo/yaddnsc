@@ -13,6 +13,8 @@
 //   - encode_form_component / encode_form.
 // =============================================================================
 
+#include <array>
+#include <cstdint>
 #include <initializer_list>
 #include <map>
 #include <optional>
@@ -26,6 +28,113 @@
 #include <yaddnsc/sdk/redact.hpp>
 
 namespace redact = yaddnsc::sdk::redact;
+
+namespace {
+
+struct MalformedResponseHost {
+    yaddnsc_status status{YADDNSC_STATUS_OK};
+    yaddnsc_http_response response{};
+    yaddnsc_error error{};
+
+    MalformedResponseHost() {
+        response.struct_size = static_cast<uint32_t>(sizeof(response));
+        error.struct_size = static_cast<uint32_t>(sizeof(error));
+    }
+
+    [[nodiscard]] yaddnsc_host_services table() noexcept {
+        return {
+            .struct_size = static_cast<uint32_t>(sizeof(yaddnsc_host_services)),
+            .api_revision = YADDNSC_DRIVER_API_REVISION,
+            .context = this,
+            .log = &log,
+            .http_exchange = &exchange,
+            .is_cancelled = &is_cancelled,
+        };
+    }
+
+private:
+    static void log(void*, yaddnsc_log_level, yaddnsc_string, const yaddnsc_source_location*) noexcept {}
+
+    static yaddnsc_status exchange(void* context,
+                                   const yaddnsc_http_request*,
+                                   yaddnsc_http_response* out_response,
+                                   yaddnsc_error* out_error) noexcept {
+        const auto& self = *static_cast<MalformedResponseHost*>(context);
+        *out_response = self.response;
+        *out_error = self.error;
+        return self.status;
+    }
+
+    static int is_cancelled(void*) noexcept { return 0; }
+};
+
+[[nodiscard]] yaddnsc::sdk::HttpRequest exchange_request() {
+    return {
+        .method = yaddnsc::sdk::Method::Get,
+        .url = "https://example.com",
+        .headers = {},
+        .body = std::nullopt,
+        .content_type = {},
+    };
+}
+
+void expect_contract_failure(const yaddnsc::sdk::ExchangeResult& result) {
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error().status, YADDNSC_STATUS_INTERNAL_ERROR);
+}
+
+}  // namespace
+
+TEST(SdkHelpersTest, ServicesRejectsMalformedHostResponseViews) {
+    MalformedResponseHost host;
+    const auto table = host.table();
+    const yaddnsc::sdk::Services services(&table);
+
+    host.response.body = {nullptr, 1};
+    expect_contract_failure(services.exchange(exchange_request()));
+
+    host.response.body = {};
+    host.response.headers = nullptr;
+    host.response.header_count = 1;
+    expect_contract_failure(services.exchange(exchange_request()));
+
+    std::array<yaddnsc_http_header, 1> headers{};
+    headers[0] = {{nullptr, 1}, {"value", 5}};
+    host.response.headers = headers.data();
+    host.response.header_count = headers.size();
+    expect_contract_failure(services.exchange(exchange_request()));
+
+    headers[0] = {{"name", 4}, {nullptr, 1}};
+    expect_contract_failure(services.exchange(exchange_request()));
+
+    host.response.headers = nullptr;
+    host.response.header_count = 0;
+    host.response.struct_size = YADDNSC_HTTP_RESPONSE_MIN_SIZE - 1;
+    expect_contract_failure(services.exchange(exchange_request()));
+}
+
+TEST(SdkHelpersTest, ServicesRejectsMalformedHostErrorReports) {
+    MalformedResponseHost host;
+    const auto table = host.table();
+    const yaddnsc::sdk::Services services(&table);
+
+    host.status = YADDNSC_STATUS_NETWORK_ERROR;
+    host.error.status = YADDNSC_STATUS_NETWORK_ERROR;
+    host.error.message = {nullptr, 1};
+    expect_contract_failure(services.exchange(exchange_request()));
+
+    host.error.message = {"network failed", sizeof("network failed") - 1};
+    host.error.struct_size = YADDNSC_ERROR_MIN_SIZE - 1;
+    expect_contract_failure(services.exchange(exchange_request()));
+
+    host.error.struct_size = static_cast<uint32_t>(sizeof(host.error));
+    host.error.status = YADDNSC_STATUS_CANCELLED;
+    expect_contract_failure(services.exchange(exchange_request()));
+
+    host.status = UINT32_C(99);
+    host.error.status = UINT32_C(99);
+    expect_contract_failure(services.exchange(exchange_request()));
+}
 
 // ===========================================================================
 //  is_sensitive_param

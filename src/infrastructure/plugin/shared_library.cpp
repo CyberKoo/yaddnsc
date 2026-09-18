@@ -11,13 +11,30 @@
 SharedLibrary::SharedLibrary(void *handle, std::string path) noexcept : handle_(handle), path_(std::move(path)) {
 }
 
-std::expected<SharedLibrary, std::string> SharedLibrary::open(const std::string &path) noexcept {
-    void *handle = ::dlopen(path.c_str(), RTLD_NOW | RTLD_LOCAL);
-    if (handle == nullptr) {
+std::expected<SharedLibrary, std::string> SharedLibrary::open(const std::string &path) {
+    void *raw_handle = ::dlopen(path.c_str(), RTLD_NOW | RTLD_LOCAL);
+    if (raw_handle == nullptr) {
         const char *error = ::dlerror();
         return std::unexpected(error != nullptr ? error : "unknown dlopen error");
     }
-    return SharedLibrary{handle, path};
+
+    // Keep the raw handle guarded until the last throwing step (the path
+    // copy) has completed; only then hand ownership to the RAII wrapper.
+    struct HandleGuard {
+        explicit HandleGuard(void *raw) : handle(raw) {}
+        ~HandleGuard() {
+            if (handle != nullptr) {
+                ::dlclose(handle);
+            }
+        }
+        HandleGuard(const HandleGuard &) = delete;
+        HandleGuard &operator=(const HandleGuard &) = delete;
+        [[nodiscard]] void *release() noexcept { return std::exchange(handle, nullptr); }
+        void *handle;
+    };
+    HandleGuard guard{raw_handle};
+    std::string owned_path = path;
+    return SharedLibrary{guard.release(), std::move(owned_path)};
 }
 
 SharedLibrary::~SharedLibrary() {

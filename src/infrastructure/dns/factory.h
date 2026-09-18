@@ -19,10 +19,12 @@ namespace domain {
 /// selection logic into a single, independently testable component.
 namespace DnsResolverFactory {
     /// Build a fully-configured ResolverDispatcher from resolver settings.
-    /// @param settings  Normalised resolver settings (legacy fields folded in).
+    /// @param settings  Valid, normalised resolver settings with at least one
+    ///                  server (legacy fields already folded in).
     /// @param catalog   Resolver catalog used to dispatch on the URI schema
     ///                  (production: ResolverCatalog::with_builtins()).
     /// @return          A ResolverDispatcher ready for use.
+    /// @throws std::invalid_argument if the RuntimeConfig invariant is broken.
     [[nodiscard]] ResolverDispatcher create(const domain::ResolverSettings &settings,
                                             const ResolverCatalog &catalog);
 } // namespace DnsResolverFactory

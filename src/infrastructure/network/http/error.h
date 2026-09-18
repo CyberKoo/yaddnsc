@@ -8,6 +8,7 @@
 #ifndef YADDNSC_HTTP_ERROR_H
 #define YADDNSC_HTTP_ERROR_H
 
+#include <cstdint>
 #include <string>
 
 namespace net::http {
@@ -33,6 +34,7 @@ enum class ErrorCode {
 struct Error {
     ErrorCode code;
     std::string message;
+    uint32_t retry_after_seconds{0};
 };
 
 }  // namespace net::http

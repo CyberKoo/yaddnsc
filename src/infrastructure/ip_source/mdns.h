@@ -21,8 +21,8 @@ enum class RecordKind;
 ///   • RecordKind::A    → IPv4 multicast to 224.0.0.251:5353
 ///   • RecordKind::AAAA → IPv6 multicast to ff02::fb:5353
 //
-// resolve() returns one or more InetAddress(es), or throws on failure.  The caller (UpdateWorkflow) applies
-// further filtering (link-local, ULA, etc.) via filter_ipv6_candidates().
+// resolve() returns addresses or a structured failure. The caller
+// (UpdateWorkflow) applies further filtering (link-local, ULA, etc.).
 //
 // Thread-safe: resolve() is const and opens/closes its own socket per call.
 // ---------------------------------------------------------------------------
@@ -32,7 +32,7 @@ public:
     /// @param type       RecordKind::A for IPv4 or RecordKind::AAAA for IPv6
     MdnsIpSource(std::string hostname, RecordKind type, std::string interface);
 
-    [[nodiscard]] std::vector<InetAddress> resolve(const Utils::CancellationToken& token) const override;
+    [[nodiscard]] Result resolve(const Utils::CancellationToken& token) const override;
 
 private:
     std::string hostname_;

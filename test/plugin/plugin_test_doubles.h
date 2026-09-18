@@ -53,10 +53,10 @@ public:
                         std::in_place, status_code, std::move(body), std::move(headers)));
     }
 
-    void queue_error(net::http::ErrorCode code, std::string message) {
+    void queue_error(net::http::ErrorCode code, std::string message, uint32_t retry_after_seconds = 0) {
         std::lock_guard lock(mutex_);
         queue_.emplace_back(std::expected<net::http::Response, net::http::Error>(
-                std::unexpect, code, std::move(message)));
+                std::unexpect, code, std::move(message), retry_after_seconds));
     }
 
     [[nodiscard]] std::expected<net::http::Response, net::http::Error>

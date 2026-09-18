@@ -21,9 +21,8 @@
 
 AbiDriverGateway::AbiDriverGateway(const DriverCatalog& catalog,
                                    HttpClientFactory http_factory,
-                                   Utils::CancellationToken http_token,
                                    const Logger& logger)
-    : catalog_(catalog), http_factory_(std::move(http_factory)), http_token_(std::move(http_token)), logger_(logger) {}
+    : catalog_(catalog), http_factory_(std::move(http_factory)), logger_(logger) {}
 
 namespace {
 [[nodiscard]] domain::DriverError map_error(yaddnsc_status status,
@@ -55,7 +54,18 @@ namespace {
 }
 
 [[nodiscard]] std::string_view to_view(yaddnsc_string value) noexcept {
-    return {value.data, value.size};
+    return value.data == nullptr ? std::string_view{} : std::string_view{value.data, value.size};
+}
+
+[[nodiscard]] bool has_valid_plugin_error(const yaddnsc_error& error, yaddnsc_status returned_status) noexcept {
+    return yaddnsc_status_is_valid(returned_status) && error.struct_size >= YADDNSC_ERROR_MIN_SIZE &&
+           yaddnsc_status_is_valid(error.status) && error.status == returned_status &&
+           yaddnsc_string_is_valid(error.message);
+}
+
+[[nodiscard]] domain::DriverError invalid_plugin_result(std::string_view driver_name, std::string_view entry) {
+    return {domain::DriverError::Code::UNKNOWN,
+            fmt::format("Driver '{}' returned an invalid {} ABI error report", driver_name, entry), 0};
 }
 
 /// yaddnsc_status → domain::DriverError for the validate path. Unlike the
@@ -74,7 +84,8 @@ namespace {
 }  // anonymous namespace
 
 std::expected<void, domain::DriverError> AbiDriverGateway::update(std::string_view driver_name,
-                                                                  const DriverUpdateCommand& command) const {
+                                                                  const DriverUpdateCommand& command,
+                                                                  const Utils::CancellationToken& token) const {
     auto module = catalog_.find(driver_name);
     if (module == nullptr) {
         return std::unexpected(domain::DriverError{domain::DriverError::Code::NOT_FOUND,
@@ -82,7 +93,7 @@ std::expected<void, domain::DriverError> AbiDriverGateway::update(std::string_vi
     }
 
     auto http_client = http_factory_();
-    HostServicesContext context(*http_client, logger_, http_token_);
+    HostServicesContext context(*http_client, logger_, token);
     const auto services = context.make_services();
 
     yaddnsc_error error{};
@@ -90,6 +101,9 @@ std::expected<void, domain::DriverError> AbiDriverGateway::update(std::string_vi
 
     yaddnsc_driver* handle = nullptr;
     if (const yaddnsc_status status = module->create(services, &handle, error); status != YADDNSC_STATUS_OK) {
+        if (!has_valid_plugin_error(error, status)) {
+            return std::unexpected(invalid_plugin_result(driver_name, "create"));
+        }
         return std::unexpected(map_error(status, to_view(error.message), driver_name, command.fqdn));
     }
 
@@ -108,15 +122,18 @@ std::expected<void, domain::DriverError> AbiDriverGateway::update(std::string_vi
                               command.driver_param.size()},
     };
 
+    error = {};
+    error.struct_size = static_cast<uint32_t>(sizeof(error));
     const yaddnsc_status status = instance.update(request, error);
     if (status == YADDNSC_STATUS_OK) {
         return {};
     }
+    if (!has_valid_plugin_error(error, status)) {
+        return std::unexpected(invalid_plugin_result(driver_name, "update"));
+    }
 
     auto driver_error = map_error(status, to_view(error.message), driver_name, command.fqdn);
-    if (status == YADDNSC_STATUS_RATE_LIMITED) {
-        driver_error.retry_after_seconds = static_cast<int>(error.retry_after_seconds);
-    }
+    driver_error.retry_after_seconds = static_cast<int>(error.retry_after_seconds);
     return std::unexpected(std::move(driver_error));
 }
 
@@ -142,6 +159,9 @@ std::expected<void, domain::DriverError> AbiDriverGateway::validate_config(std::
 
     yaddnsc_driver* handle = nullptr;
     if (const yaddnsc_status status = module->create(services, &handle, error); status != YADDNSC_STATUS_OK) {
+        if (!has_valid_plugin_error(error, status)) {
+            return std::unexpected(invalid_plugin_result(driver_name, "create"));
+        }
         return std::unexpected(map_validate_error(status, to_view(error.message), driver_name));
     }
 
@@ -149,10 +169,15 @@ std::expected<void, domain::DriverError> AbiDriverGateway::validate_config(std::
     // synchronously after validate() returns, before destroy.
     DriverInstance instance(std::move(module), handle);
 
+    error = {};
+    error.struct_size = static_cast<uint32_t>(sizeof(error));
     const yaddnsc_string param{driver_param_json.data(), driver_param_json.size()};
     const yaddnsc_status status = instance.validate(param, error);
     if (status == YADDNSC_STATUS_OK) {
         return {};
+    }
+    if (!has_valid_plugin_error(error, status)) {
+        return std::unexpected(invalid_plugin_result(driver_name, "validate"));
     }
     return std::unexpected(map_validate_error(status, to_view(error.message), driver_name));
 }

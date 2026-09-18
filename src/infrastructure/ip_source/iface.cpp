@@ -4,11 +4,15 @@
 
 #include "iface.h"
 
+#include <exception>
+#include <new>
+#include <string>
 #include <utility>
 #include <vector>
 
 #include "domain/network/address_family.h"
 #include "domain/network/inet_address.h"
+#include "support/util/cancellation_token.hpp"
 
 #include "iface_util.h"
 
@@ -23,13 +27,32 @@ InterfaceIpSource::InterfaceIpSource(std::string interface_name, AddressFamily a
 // InterfaceIpSource::resolve — query the interface for all matching addresses.
 // ---------------------------------------------------------------------------
 
-std::vector<InetAddress> InterfaceIpSource::resolve([[maybe_unused]] const Utils::CancellationToken& token) const {
-    auto addresses = InterfaceUtil::get_addresses(interface_name_);
-
-    // Filter by address family.
-    if (address_family_ != AddressFamily::UNSPECIFIED) {
-        std::erase_if(addresses, [af = address_family_](const InetAddress& addr) { return addr.get_family() != af; });
+IpSourceBase::Result InterfaceIpSource::resolve(const Utils::CancellationToken& token) const {
+    if (token.is_triggered()) {
+        return std::unexpected(
+            domain::IpSourceError{domain::IpSourceError::Code::CANCELLED, "Interface IP source lookup cancelled"});
     }
 
-    return addresses;
+    try {
+        auto addresses = InterfaceUtil::get_addresses(interface_name_);
+
+        // Filter by address family.
+        if (address_family_ != AddressFamily::UNSPECIFIED) {
+            std::erase_if(addresses,
+                          [af = address_family_](const InetAddress& addr) { return addr.get_family() != af; });
+        }
+
+        if (token.is_triggered()) {
+            return std::unexpected(
+                domain::IpSourceError{domain::IpSourceError::Code::CANCELLED, "Interface IP source lookup cancelled"});
+        }
+        return addresses;
+    } catch (const std::bad_alloc&) {
+        throw;
+    } catch (const std::exception& error) {
+        return std::unexpected(domain::IpSourceError{domain::IpSourceError::Code::UNAVAILABLE, error.what()});
+    } catch (...) {
+        return std::unexpected(
+            domain::IpSourceError{domain::IpSourceError::Code::UNKNOWN, "unknown interface source exception"});
+    }
 }

@@ -175,6 +175,56 @@ TEST(PluginLifecycle, InstanceLeaseKeepsModuleAliveAfterCatalogRemoval) {
     // final dlclose happens only after the instance is gone.
 }
 
+TEST(PluginLifecycle, DestroyRunsAfterFailedUpdate) {
+    DriverCatalog catalog;
+    ASSERT_NO_THROW(catalog.load_driver(std::string(kPluginPath)));
+
+    auto control = resolve_control();
+    ASSERT_NE(control.reset_state, nullptr);
+    ASSERT_NE(control.get_state, nullptr);
+    control.reset_state();
+
+    HostUpdateContext host;
+    const auto services = host.context.make_services();
+    yaddnsc_error error{};
+    error.struct_size = static_cast<uint32_t>(sizeof(error));
+
+    yaddnsc_driver *handle = nullptr;
+    {
+        auto module = catalog.find("test_driver_plugin");
+        ASSERT_NE(module, nullptr);
+        ASSERT_EQ(module->create(services, &handle, error), YADDNSC_STATUS_OK);
+        ASSERT_NE(handle, nullptr);
+
+        // The instance holds the only remaining lease once the catalog entry
+        // is gone; a failed update must not skip destroy(), and destroy()
+        // must still run before the module is dlclose'd.
+        DriverInstance instance(module, handle);
+        module.reset();
+        ASSERT_NO_THROW(catalog.unload_driver("test_driver_plugin"));
+        EXPECT_TRUE(catalog.get_loaded_drivers().empty());
+
+        const auto request =
+                make_update_request("192.0.2.1", "A", "example.com", "www", "www.example.com",
+                                    R"({"op":"fail","status":"rate_limited","message":"slow down","retry_after":30})");
+        EXPECT_EQ(instance.update(request, error), YADDNSC_STATUS_RATE_LIMITED)
+                << std::string_view(error.message.data, error.message.size);
+        EXPECT_EQ(std::string(error.message.data, error.message.size), "slow down");
+        EXPECT_EQ(error.retry_after_seconds, 30u);
+    }
+
+    // ~DriverInstance() ran destroy() after the failed update while the lease
+    // kept the module mapped; the counters stay readable through the control
+    // mapping, which outlives the module handle itself.
+    uint64_t creates = 0, updates = 0, destroys = 0, create_seq = 0, update_seq = 0, destroy_seq = 0;
+    control.get_state(&creates, &updates, &destroys, &create_seq, &update_seq, &destroy_seq);
+    EXPECT_EQ(creates, 1u);
+    EXPECT_EQ(updates, 1u);
+    EXPECT_EQ(destroys, 1u);
+    EXPECT_LT(create_seq, update_seq);
+    EXPECT_LT(update_seq, destroy_seq);
+}
+
 // ===========================================================================
 //  Loader rejection matrix
 // ===========================================================================
@@ -195,7 +245,7 @@ TEST(PluginLifecycle, LoaderRejectsWrongRevision) {
     ASSERT_FALSE(module.has_value());
     EXPECT_EQ(module.error().code, domain::PluginError::Code::ABI_MISMATCH);
     EXPECT_THAT(module.error().message, ::testing::HasSubstr(BAD_REVISION_FIXTURE));
-    EXPECT_THAT(module.error().message, ::testing::HasSubstr("api_revision 2"));
+    EXPECT_THAT(module.error().message, ::testing::HasSubstr("api_revision 0"));
     EXPECT_THAT(module.error().message,
                 ::testing::HasSubstr("host requires " + std::to_string(YADDNSC_DRIVER_API_REVISION)));
     EXPECT_THAT(module.error().message, ::testing::HasSubstr("rebuild the driver with the current SDK"));
@@ -224,6 +274,24 @@ TEST(PluginLifecycle, LoaderRejectsTruncatedDescriptor) {
     EXPECT_EQ(module.error().code, domain::PluginError::Code::ABI_MISMATCH);
     EXPECT_THAT(module.error().message, ::testing::HasSubstr("descriptor struct_size 4 is below the required minimum"));
     EXPECT_THAT(module.error().message, ::testing::HasSubstr(SMALL_DESCRIPTOR_FIXTURE));
+}
+
+TEST(PluginLifecycle, LoaderRejectsInvalidDescriptorViewsAndCapabilities) {
+    const std::array fixtures{
+        std::pair{std::string_view{INVALID_NAME_FIXTURE}, "name"},
+        std::pair{std::string_view{INVALID_VERSION_FIXTURE}, "version"},
+        std::pair{std::string_view{INVALID_AUTHOR_FIXTURE}, "author"},
+        std::pair{std::string_view{INVALID_DESCRIPTION_FIXTURE}, "description"},
+        std::pair{std::string_view{INVALID_CAPABILITIES_FIXTURE}, "capabilities"},
+    };
+
+    for (const auto& [path, field] : fixtures) {
+        auto module = PluginModule::load(std::string(path));
+        ASSERT_FALSE(module.has_value()) << path;
+        EXPECT_EQ(module.error().code, domain::PluginError::Code::CONTRACT_VIOLATION) << path;
+        EXPECT_THAT(module.error().message, ::testing::HasSubstr(path)) << path;
+        EXPECT_THAT(module.error().message, ::testing::HasSubstr(field)) << path;
+    }
 }
 
 // ===========================================================================
@@ -306,6 +374,96 @@ TEST(PluginLifecycle, EntryFirewallTranslatesValidateException) {
     const yaddnsc_string param{"{}", 2};
     EXPECT_EQ(module->validate(handle, param, error), YADDNSC_STATUS_INTERNAL_ERROR);
     EXPECT_EQ(std::string(error.message.data, error.message.size), "unknown exception from plugin validate");
+}
+
+TEST(PluginLifecycle, DestroyFirewallContainsPluginException) {
+    auto module = PluginModule::load(THROWING_FIXTURE);
+    ASSERT_TRUE(module.has_value()) << module.error().message;
+
+    int token = 0;
+    auto* handle = reinterpret_cast<yaddnsc_driver*>(&token);  // NOLINT
+    EXPECT_NO_THROW(module->destroy(handle));
+}
+
+TEST(PluginLifecycle, DestroyFirewallContainsNonStdException) {
+    auto module = PluginModule::load(THROWING_DESTROY_FIXTURE);
+    ASSERT_TRUE(module.has_value()) << module.error().message;
+
+    // create/update succeed so the cycle reaches destroy; destroy throws a
+    // non-std type (int) — the catch-all firewall arm must swallow the
+    // escape without unwinding into the host or terminating the process.
+    HostUpdateContext host;
+    const auto services = host.context.make_services();
+    yaddnsc_error error{};
+    error.struct_size = static_cast<uint32_t>(sizeof(error));
+
+    yaddnsc_driver *handle = nullptr;
+    ASSERT_EQ(module->create(services, &handle, error), YADDNSC_STATUS_OK);
+    ASSERT_NE(handle, nullptr);
+
+    const auto request = make_update_request("192.0.2.1", "A", "example.com", "www", "www.example.com", "{}");
+    EXPECT_EQ(module->update(handle, request, error), YADDNSC_STATUS_OK)
+            << std::string_view(error.message.data, error.message.size);
+
+    EXPECT_NO_THROW(module->destroy(handle));
+}
+
+// ===========================================================================
+//  Create handle-ownership backstop — a plugin that stores a handle and
+//  then reports failure (or throws) violates the ABI contract; the host
+//  must destroy and clear the leaked handle before returning the failure,
+//  because no DriverInstance exists to own the destroy() call.
+// ===========================================================================
+
+TEST(PluginLifecycle, CreateFailureAfterStoringHandleDestroysAndClearsIt) {
+    auto module = PluginModule::load(LEAKY_CREATE_FIXTURE);
+    ASSERT_TRUE(module.has_value()) << module.error().message;
+
+    // Second dlopen of the same module: shares the fixture's globals and
+    // keeps the mapping alive for the control exports.
+    auto control_library = SharedLibrary::open(LEAKY_CREATE_FIXTURE);
+    ASSERT_TRUE(control_library.has_value()) << control_library.error();
+    using SetMode = void (*)(int);
+    using GetState = void (*)(uint64_t*, uintptr_t*);
+    using Token = uintptr_t (*)();
+    const auto set_mode = reinterpret_cast<SetMode>(control_library->resolve("leaky_create_set_mode"));      // NOLINT
+    const auto get_state = reinterpret_cast<GetState>(control_library->resolve("leaky_create_get_state"));  // NOLINT
+    const auto token = reinterpret_cast<Token>(control_library->resolve("leaky_create_token"));             // NOLINT
+    ASSERT_NE(set_mode, nullptr);
+    ASSERT_NE(get_state, nullptr);
+    ASSERT_NE(token, nullptr);
+
+    HostUpdateContext host;
+    const auto services = host.context.make_services();
+
+    // Status mode: create stores a handle, then returns a failure status.
+    set_mode(0);
+    yaddnsc_error error{};
+    error.struct_size = static_cast<uint32_t>(sizeof(error));
+    yaddnsc_driver* handle = nullptr;
+    EXPECT_EQ(module->create(services, &handle, error), YADDNSC_STATUS_INTERNAL_ERROR);
+    EXPECT_EQ(handle, nullptr);
+    EXPECT_EQ(std::string(error.message.data, error.message.size), "create failed after storing a handle");
+
+    uint64_t destroys = 0;
+    uintptr_t last_destroyed = 0;
+    get_state(&destroys, &last_destroyed);
+    EXPECT_EQ(destroys, 1u);
+    EXPECT_EQ(last_destroyed, token());
+
+    // Exception mode: create stores a handle, then throws across the ABI —
+    // the firewall reports the exception and the same backstop still runs.
+    set_mode(1);
+    error = {};
+    error.struct_size = static_cast<uint32_t>(sizeof(error));
+    handle = nullptr;
+    EXPECT_EQ(module->create(services, &handle, error), YADDNSC_STATUS_INTERNAL_ERROR);
+    EXPECT_EQ(handle, nullptr);
+    EXPECT_EQ(std::string(error.message.data, error.message.size), "create exploded after storing a handle");
+
+    get_state(&destroys, &last_destroyed);
+    EXPECT_EQ(destroys, 2u);
+    EXPECT_EQ(last_destroyed, token());
 }
 
 TEST(PluginLifecycle, ManualLoadFailsFastOnAbiMismatch) {

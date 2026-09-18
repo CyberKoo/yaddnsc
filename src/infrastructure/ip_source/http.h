@@ -39,7 +39,7 @@ public:
 
     ~HttpIpSource() override;
 
-    [[nodiscard]] std::vector<InetAddress> resolve(const Utils::CancellationToken& token) const override;
+    [[nodiscard]] Result resolve(const Utils::CancellationToken& token) const override;
 
 private:
     std::string url_;

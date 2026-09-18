@@ -14,15 +14,86 @@ objects ever cross the `.so` boundary, so a driver does not need to share the
 host's exact standard-library internals. It must still be built with a C++23
 compiler on a 64-bit platform.
 
+The current `YADDNSC_DRIVER_API_REVISION` is **1**. One revision corresponds
+to exactly one fixed struct layout: every layout change requires bumping the
+revision, and fields must never be appended while a revision stays in force —
+there is no same-revision "just add fields" compatibility. A plugin reporting
+any other revision is rejected at load time with a message telling you to
+rebuild. Rebuild the driver against the current SDK — do not bypass the check.
+
+This C ABI is new in this release. Drivers written against the old C++ plugin
+API are completely incompatible and cannot load at all — they must be rebuilt
+against the new SDK.
+
 The host verifies a driver before use:
 
-1. the driver magic value identifies a yaddnsc driver;
-2. the descriptor's `api_revision` matches the host's exactly;
-3. every ABI struct carries a `struct_size` prefix the host can safely read.
+1. the driver exports the required entry points;
+2. the descriptor's `struct_size` covers the complete revision layout;
+3. the descriptor's `magic` identifies a yaddnsc driver;
+4. the descriptor's `api_revision` matches the host's exactly;
+5. the descriptor's string views and capability bits are valid.
 
-When the plugin interface changes, `api_revision` is bumped and older drivers
-are rejected at load time with a message telling you to rebuild. Rebuild the
-driver against the current SDK headers — do not bypass the check.
+### Struct layout and `struct_size`
+
+Every ABI struct carries its size in bytes as its first field,
+`struct_size`, set by the **caller** to the capacity of the struct it
+actually provides:
+
+- a value below the complete layout of the current revision — the
+  `YADDNSC_*_MIN_SIZE` constants in `driver_abi.h` — is rejected with
+  `YADDNSC_STATUS_INVALID_ARGUMENT`;
+- a larger value may carry an unknown tail, which readers ignore. Writers
+  only write fields fully inside the supplied capacity, write `struct_size`
+  back as `min(capacity, sizeof(struct))`, and never read or zero the
+  unknown tail.
+
+### Views, arrays, and validation
+
+`yaddnsc_string` / `yaddnsc_bytes` are borrowed views: `data` is not
+NUL-terminated and `size` is the only valid length. A view with `size == 0`
+may use `data == NULL`; a view with `size > 0` and `data == NULL` is invalid.
+The same rule applies to arrays such as HTTP header lists: `count == 0` with
+a `NULL` pointer is legal, `count > 0` with a `NULL` pointer is not.
+
+Both directions validate completely. The host validates the plugin's
+descriptor (non-empty name, well-formed views, supported capability bits) and
+every request passed to `http_exchange` (non-empty URL, known method, header
+array and per-header views, content type, body). The SDK validates the host
+services table plus every host response and error report before exposing them
+to driver code; an invalid error report coming back from the plugin is
+surfaced as an "invalid … ABI error report" failure rather than trusted.
+
+Response views borrowed from the host stay valid until
+`yaddnsc_driver_update()` returns (host-owned arena), across multiple
+exchanges.
+
+### Cancellation and lifetime
+
+`is_cancelled()` reports the cancellation state of the **current driver
+update operation**: `0` means the operation is active, non-zero means its
+cancellation token was triggered. It is driven by the same operation token as
+the host HTTP exchange, so a cancelled exchange and a polled
+`is_cancelled()` always agree. A driver that performs several exchanges may
+poll it between calls to bail out early. It is a per-operation predicate, not
+a host-global shutdown signal.
+
+The `services` and `context` pointers are valid from
+`yaddnsc_driver_create()` until the matching `yaddnsc_driver_destroy()`
+returns; a plugin must not cache them. `destroy` must not throw: the C++
+`Driver` base class destructor is `noexcept`, and the driver definition macro
+enforces `std::is_nothrow_destructible` at compile time. Independently of
+that, the host calls every plugin entry point through an exception firewall:
+exceptions escaping `create`/`update`/`validate` are converted to
+`YADDNSC_STATUS_INTERNAL_ERROR`, and an exception escaping `destroy` is
+logged and swallowed — never retried, never replaced by a fallback.
+
+Handle ownership follows the same rule as the firewall: on
+`YADDNSC_STATUS_OK` the host owns the instance and guarantees the matching
+`yaddnsc_driver_destroy()` call, while on any non-OK return the plugin must
+leave `*out_driver` `NULL` — a failed create owns nothing. If a plugin
+stores a handle and then reports failure, the host destroys and clears that
+handle before propagating the error, so instance state never leaks out of
+the create failure path.
 
 ## Entry points
 
@@ -44,19 +115,41 @@ schema check (the bundled drivers are one-liners calling `parse_config<T>`).
 
 ## Recommended build
 
-Place the driver under `driver/<name>/` and rebuild the project:
+Third-party drivers build against the installed yaddnsc package — no host
+sources needed:
 
-```bash
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build --parallel
+```cmake
+find_package(yaddnsc CONFIG REQUIRED COMPONENTS plugin_sdk)  # optional: plugin_sdk_xml plugin_crypto
+
+add_library(my_driver MODULE my_driver.cpp)
+target_link_libraries(my_driver PRIVATE yaddnsc::plugin_sdk)
 ```
 
-The driver target links only `yaddnsc_plugin_sdk`:
+`plugin_sdk` is the default component. The package config resolves the Glaze
+dependency automatically (`find_dependency(glaze CONFIG)`), and
+`yaddnsc::plugin_sdk` carries the C++23 requirement and the SDK warning
+flags, so the snippet above is the entire build setup for a JSON-only driver.
+
+Drivers that parse XML responses link the separate `plugin_sdk_xml`
+component instead: `yaddnsc::plugin_sdk_xml` implies `yaddnsc::plugin_sdk`
+and adds libxml2 (`find_dependency(LibXml2)`). `driver.hpp` itself never
+includes libxml2, so only drivers that include `yaddnsc/sdk/xml_raii.hpp`
+need this component, and it exists only in packages built with libxml2
+available.
+
+Drivers that sign requests link the `yaddnsc::plugin_crypto` component
+(HMAC/SHA/hex/base64); see below.
+
+When developing inside the yaddnsc source tree (for example for a driver that
+will be bundled), link the in-tree target instead and rebuild the project:
 
 ```cmake
 add_library(<name> MODULE <name>.cpp)
 target_link_libraries(<name> PRIVATE yaddnsc_plugin_sdk)
 ```
+
+External and released drivers should always build against the installed
+package, not the source tree.
 
 ## SDK distribution
 
@@ -65,15 +158,24 @@ without the host sources:
 
 - headers: `<prefix>/include/yaddnsc/sdk/` (the C ABI + C++ helper layer) and
   `<prefix>/include/yaddnsc/util/` (shared string/format/URL utilities);
-- crypto helpers: `<prefix>/share/yaddnsc/plugin-sdk/plugin_crypto/`
-  (`signing.h` / `signing.cpp`) — shipped as source, so the plugin compiles
-  them with its own toolchain flags (PIC/sanitizer choices always match the
-  plugin itself, never the host build).
+- CMake package: `${CMAKE_INSTALL_LIBDIR}/cmake/yaddnsc` under the prefix
+  (normally `<prefix>/lib/cmake/yaddnsc/`), exporting three components —
+  `yaddnsc::plugin_sdk` (the default), `yaddnsc::plugin_sdk_xml`, and
+  `yaddnsc::plugin_crypto`;
+- crypto helpers: a prebuilt static library with position-independent code,
+  installed under `${CMAKE_INSTALL_LIBDIR}` (normally `<prefix>/lib/`), with
+  its header at `<prefix>/include/yaddnsc/plugin_crypto/signing.h`. The
+  target links `OpenSSL::Crypto` PUBLIC, so the OpenSSL dependency reaches
+  the final driver module automatically.
 
 The set of bundled drivers is an explicit, auditable list in
 `driver/CMakeLists.txt`; adding a new bundled driver means adding its
 directory to `YADDNSC_DRIVERS` there. Runtime auto-discovery (skipping
 foreign libraries in the driver directory) is unaffected.
+
+Standalone consumer examples that build against the installed package live in
+`test/sdk_consumer/` (`c_abi_driver.cpp`, `http_driver.cpp`, `xml_driver.cpp`,
+`crypto_driver.cpp`).
 
 ## Driver responsibilities
 
@@ -82,7 +184,7 @@ A driver:
 - subclasses `yaddnsc::sdk::Driver` and implements `update(UpdateContext &)`;
 - parses its configuration with `parse_config<T>()` from `driver_param` JSON —
   Glaze is available privately to the plugin (it is part of
-  `yaddnsc_plugin_sdk`);
+  `yaddnsc::plugin_sdk`);
 - performs provider HTTP calls through the Host Services exchange
   (`UpdateContext::exchange`) — the host owns the actual HTTP client;
 - logs through the `YADDNSC_SDK_LOG_*` macros — the call site
@@ -114,16 +216,19 @@ provider-specific credentials in `driver_param`.
 Do not put credentials in source code or log messages — the SDK log helpers
 redact sensitive request fields by default.
 
-Drivers that need request signing can link the optional `yaddnsc_plugin_crypto`
-static library (HMAC/SHA/hex/base64).
+Drivers that need request signing can link the optional
+`yaddnsc::plugin_crypto` component — a prebuilt static library
+(HMAC/SHA/hex/base64).
 
 ## Standalone shared library
 
 Standalone builds are discouraged. If unavoidable, the driver must be built as
-a `MODULE` library with position-independent code against the SDK headers of
-the exact yaddnsc version it will run with, exporting only the four
-`yaddnsc_driver_*` entry points. A successful compilation alone does not
-guarantee compatibility — the `api_revision` check decides at load time.
+a `MODULE` library with position-independent code against the SDK of the
+exact yaddnsc version it will run with, exporting only the
+`yaddnsc_driver_*` ABI entry points — the four required ones plus the
+optional `yaddnsc_driver_validate` when provided — and nothing else. A
+successful compilation alone does not guarantee compatibility — the
+`api_revision` check decides at load time.
 
 ## Troubleshooting
 

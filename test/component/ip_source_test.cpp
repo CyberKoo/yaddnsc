@@ -4,13 +4,13 @@
 // =============================================================================
 
 #include <gtest/gtest.h>
-#include <stdexcept>
 #include <string>
 #include <vector>
 #include <algorithm>
 #include <ranges>
 
 #include "domain/network/address_family.h"
+#include "domain/error/error.h"
 #include "domain/network/inet_address.h"
 #include "infrastructure/ip_source/iface.h"
 #include "infrastructure/ip_source/iface_util.h"
@@ -27,13 +27,16 @@ const std::string LOOPBACK = NetDevices::loopback_name();
 
 TEST(InterfaceIpSourceTest, Resolve_Loopback_ReturnsNonEmpty) {
     InterfaceIpSource src(LOOPBACK, AddressFamily::UNSPECIFIED);
-    auto addrs = src.resolve({});
-    EXPECT_FALSE(addrs.empty());
+    const auto result = src.resolve({});
+    ASSERT_TRUE(result.has_value()) << result.error().message;
+    EXPECT_FALSE(result->empty());
 }
 
 TEST(InterfaceIpSourceTest, Resolve_Loopback_FilterIpv4) {
     InterfaceIpSource src(LOOPBACK, AddressFamily::IPV4);
-    auto addrs = src.resolve({});
+    const auto result = src.resolve({});
+    ASSERT_TRUE(result.has_value()) << result.error().message;
+    const auto& addrs = *result;
     ASSERT_FALSE(addrs.empty());
 
     for (const auto& addr : addrs) {
@@ -53,7 +56,9 @@ TEST(InterfaceIpSourceTest, Resolve_Loopback_FilterIpv4) {
 
 TEST(InterfaceIpSourceTest, Resolve_Loopback_FilterIpv6) {
     InterfaceIpSource src(LOOPBACK, AddressFamily::IPV6);
-    auto addrs = src.resolve({});
+    const auto result = src.resolve({});
+    ASSERT_TRUE(result.has_value()) << result.error().message;
+    const auto& addrs = *result;
 
     // IPv6 may be disabled in containers; skip if empty.
     if (addrs.empty()) {
@@ -65,9 +70,11 @@ TEST(InterfaceIpSourceTest, Resolve_Loopback_FilterIpv6) {
     }
 }
 
-TEST(InterfaceIpSourceTest, Resolve_NonExistentInterface_Throws) {
+TEST(InterfaceIpSourceTest, Resolve_NonExistentInterface_ReturnsUnavailable) {
     InterfaceIpSource src("nonexistent999", AddressFamily::UNSPECIFIED);
-    EXPECT_THROW({ [[maybe_unused]] auto _ = src.resolve({}); }, std::runtime_error);
+    const auto result = src.resolve({});
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error().code, domain::IpSourceError::Code::UNAVAILABLE);
 }
 
 // ===========================================================================
@@ -89,7 +96,9 @@ TEST(InterfaceIpSourceTest, GetInterfaces_ReturnsNonEmpty) {
 
 TEST(InterfaceIpSourceTest, Resolve_Loopback_Unspecified_ContainsBothFamilies) {
     InterfaceIpSource src(LOOPBACK, AddressFamily::UNSPECIFIED);
-    auto addrs = src.resolve({});
+    const auto result = src.resolve({});
+    ASSERT_TRUE(result.has_value()) << result.error().message;
+    const auto& addrs = *result;
     ASSERT_FALSE(addrs.empty());
 
     bool has_v4 = false;

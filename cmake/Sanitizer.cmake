@@ -158,5 +158,8 @@ endif()
 # ==============================================================================
 
 function(add_sanitizer_flags TARGET)
-  target_link_libraries(${TARGET} PRIVATE yaddnsc_sanitizers)
+  # Sanitizer instrumentation is a property of this source build.  Do not
+  # export the internal flags target through installable static libraries:
+  # downstream plugins choose their own instrumentation.
+  target_link_libraries(${TARGET} PRIVATE $<BUILD_INTERFACE:yaddnsc_sanitizers>)
 endfunction()

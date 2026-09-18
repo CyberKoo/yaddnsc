@@ -68,14 +68,14 @@ struct PluginError {
 };
 
 /// Driver update failure (one update attempt through the driver gateway).
-/// `retry_after_seconds` is only meaningful when the driver reported
-/// RATE_LIMITED; the executor reports it back to the scheduler, which moves
-/// the task's next deadline to honour the backoff.
+/// `retry_after_seconds` is preserved whenever an upstream or transport
+/// failure supplies it; the executor reports it back to the scheduler, which
+/// moves the task's next deadline to honour the backoff.
 struct DriverError {
     enum class Code {
         UPDATE_FAILED, ///< Driver executed but reported failure (e.g. upstream rejected)
         NOT_FOUND,     ///< Referenced driver is not loaded
-        RATE_LIMITED,  ///< Upstream rate-limited the request (retry_after_seconds set)
+        RATE_LIMITED,  ///< Upstream rate-limited the request
         CANCELLED,     ///< Aborted via cancellation
         UNKNOWN,       ///< Any other failure (message carries details)
     };
@@ -91,8 +91,8 @@ struct DriverError {
 ///     candidate survived the address policy); the cycle is skipped and the
 ///     schedule carries on;
 ///   - DRIVER_FAILED — the driver gateway rejected the update (message and,
-///     for RATE_LIMITED, retry_after_seconds are copied from DriverError; the
-///     executor feeds retry_after back to the scheduler for backoff
+///     retry_after_seconds are copied from DriverError; the executor feeds
+///     retry_after back to the scheduler for backoff
 ///     rescheduling);
 ///   - CANCELLED — the operation was stopped and must not begin later steps;
 ///   - UNKNOWN — an unexpected exception escaped the workflow (the legacy

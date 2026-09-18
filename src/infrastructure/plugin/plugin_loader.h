@@ -5,6 +5,10 @@
 #ifndef YADDNSC_INFRASTRUCTURE_PLUGIN_PLUGIN_LOADER_H
 #define YADDNSC_INFRASTRUCTURE_PLUGIN_PLUGIN_LOADER_H
 
+#include <algorithm>
+#include <array>
+#include <cstddef>
+#include <cstring>
 #include <cstdint>
 #include <exception>
 #include <expected>
@@ -58,19 +62,17 @@ public:
     /// Entry-point trampolines — thin forwards into the plugin, behind an
     /// exception firewall: the ABI forbids exceptions, but a misbehaving
     /// third-party plugin must not let one escape its C frame into the host.
+    ///
+    /// create() additionally enforces the handle-ownership contract out of
+    /// line (plugin_loader.cpp): a failure return must leave *out_driver
+    /// null, and a handle stored before the failure is destroyed and
+    /// cleared by the host.
     [[nodiscard]] yaddnsc_status create(const yaddnsc_host_services &services, yaddnsc_driver **out_driver,
-                                        yaddnsc_error &out_error) const {
-        try {
-            return create_(&services, out_driver, &out_error);
-        } catch (const std::exception &e) {
-            write_entry_error(out_error, e.what());
-        } catch (...) {
-            write_entry_error(out_error, "unknown exception from plugin create");
-        }
-        return YADDNSC_STATUS_INTERNAL_ERROR;
-    }
+                                        yaddnsc_error &out_error) const;
 
-    void destroy(yaddnsc_driver *driver) const noexcept { destroy_(driver); }
+    /// Destroy behind a noexcept firewall. A broken third-party destroy
+    /// entry point must never escape through DriverInstance's destructor.
+    void destroy(yaddnsc_driver *driver) const noexcept;
 
     [[nodiscard]] yaddnsc_status update(yaddnsc_driver *driver, const yaddnsc_update_request &request,
                                         yaddnsc_error &out_error) const {
@@ -112,17 +114,25 @@ private:
     PluginModule() = default;
 
     /// Report a firewall-caught exception through the ABI error struct,
-    /// honouring the caller-supplied struct_size. The message view points at
-    /// thread-local storage; callers copy it synchronously on this thread.
+    /// honouring the caller-supplied struct_size.  The bounded thread-local
+    /// storage makes this noexcept path allocation-free: a plugin exception
+    /// must never turn into a second termination while reporting it.
     static void write_entry_error(yaddnsc_error &out_error, std::string_view message) noexcept {
         if (out_error.struct_size < YADDNSC_ERROR_MIN_SIZE) {
             return;
         }
-        thread_local std::string storage;
-        storage = message;
+        constexpr std::string_view fallback = "plugin entry threw";
+        constexpr std::size_t capacity = 512;
+        thread_local std::array<char, capacity> storage{};
+        const std::string_view source = message.data() == nullptr ? fallback : message;
+        const std::size_t size = std::min(source.size(), storage.size() - 1);
+        if (size != 0) {
+            std::memcpy(storage.data(), source.data(), size);
+        }
+        storage[size] = '\0';
         out_error.status = YADDNSC_STATUS_INTERNAL_ERROR;
         out_error.retry_after_seconds = 0;
-        out_error.message = yaddnsc_string{storage.data(), storage.size()};
+        out_error.message = yaddnsc_string{storage.data(), size};
         out_error.struct_size = out_error.struct_size < static_cast<std::uint32_t>(sizeof(yaddnsc_error))
                                         ? out_error.struct_size
                                         : static_cast<std::uint32_t>(sizeof(yaddnsc_error));

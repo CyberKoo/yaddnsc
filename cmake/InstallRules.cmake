@@ -108,11 +108,9 @@ install(
 # ==============================================================================
 # Plugin SDK — development files for third-party driver authors
 # ==============================================================================
-# Third-party drivers build without the host sources. Distribution choice:
-#   - SDK headers (the v1 alpha C ABI + C++ helper layer) install as headers;
-#   - yaddnsc_plugin_crypto ships AS SOURCE so the plugin compiles it with
-#     its own toolchain flags (PIC/sanitizer choices always match the plugin
-#     itself, never the host build).
+# Third-party drivers build without the host sources.  Export actual CMake
+# targets instead of relying on source-tree-only interface libraries or a
+# hand-assembled crypto source path.
 install(
     DIRECTORY ${CMAKE_SOURCE_DIR}/include/yaddnsc/sdk
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/yaddnsc
@@ -121,9 +119,68 @@ install(
     DIRECTORY ${CMAKE_SOURCE_DIR}/include/yaddnsc/util
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/yaddnsc
 )
+
+install(
+    TARGETS yaddnsc_plugin_sdk
+    EXPORT yaddnscSdkTargets
+    INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+)
+install(
+    TARGETS yaddnsc_plugin_crypto
+    EXPORT yaddnscCryptoTargets
+    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/yaddnsc/plugin_crypto
+)
+install(
+    FILES ${CMAKE_SOURCE_DIR}/plugin_crypto/signing.h
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/yaddnsc/plugin_crypto
+)
+
+if (YADDNSC_HAS_SDK_XML_COMPONENT)
+    install(
+        TARGETS yaddnsc_plugin_sdk_xml
+        EXPORT yaddnscXmlTargets
+        INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+    )
+endif ()
+
+set(YADDNSC_CMAKE_INSTALL_DIR "${CMAKE_INSTALL_LIBDIR}/cmake/yaddnsc")
+
+install(
+    EXPORT yaddnscSdkTargets
+    FILE yaddnscSdkTargets.cmake
+    NAMESPACE yaddnsc::
+    DESTINATION ${YADDNSC_CMAKE_INSTALL_DIR}
+)
+install(
+    EXPORT yaddnscCryptoTargets
+    FILE yaddnscCryptoTargets.cmake
+    NAMESPACE yaddnsc::
+    DESTINATION ${YADDNSC_CMAKE_INSTALL_DIR}
+)
+if (YADDNSC_HAS_SDK_XML_COMPONENT)
+    install(
+        EXPORT yaddnscXmlTargets
+        FILE yaddnscXmlTargets.cmake
+        NAMESPACE yaddnsc::
+        DESTINATION ${YADDNSC_CMAKE_INSTALL_DIR}
+    )
+endif ()
+
+include(CMakePackageConfigHelpers)
+configure_package_config_file(
+    ${CMAKE_SOURCE_DIR}/cmake/yaddnscConfig.cmake.in
+    ${CMAKE_CURRENT_BINARY_DIR}/yaddnscConfig.cmake
+    INSTALL_DESTINATION ${YADDNSC_CMAKE_INSTALL_DIR}
+)
+write_basic_package_version_file(
+    ${CMAKE_CURRENT_BINARY_DIR}/yaddnscConfigVersion.cmake
+    VERSION ${PROJECT_VERSION}
+    COMPATIBILITY SameMajorVersion
+)
 install(
     FILES
-        ${CMAKE_SOURCE_DIR}/plugin_crypto/signing.h
-        ${CMAKE_SOURCE_DIR}/plugin_crypto/signing.cpp
-    DESTINATION ${CMAKE_INSTALL_DATADIR}/yaddnsc/plugin-sdk/plugin_crypto
+        ${CMAKE_CURRENT_BINARY_DIR}/yaddnscConfig.cmake
+        ${CMAKE_CURRENT_BINARY_DIR}/yaddnscConfigVersion.cmake
+    DESTINATION ${YADDNSC_CMAKE_INSTALL_DIR}
 )

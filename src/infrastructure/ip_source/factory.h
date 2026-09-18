@@ -5,11 +5,12 @@
 #ifndef YADDNSC_IP_SOURCE_FACTORY_H
 #define YADDNSC_IP_SOURCE_FACTORY_H
 
+#include <expected>
 #include <memory>
 
-namespace domain { struct SubdomainConfig; }
-
-class IpSourceBase;
+#include "domain/config/runtime_config.h"
+#include "domain/error/error.h"
+#include "infrastructure/ip_source/base.h"
 
 /// IpSourceFactory — constructs the appropriate IpSourceBase implementation from a
 ///                   subdomain configuration.
@@ -17,10 +18,12 @@ class IpSourceBase;
 /// Eliminates the need for callers (e.g. UpdateWorkflow) to branch on Config::IpSource
 /// or know about concrete IpSourceBase classes.
 namespace IpSourceFactory {
+    using Result = std::expected<std::unique_ptr<IpSourceBase>, domain::IpSourceError>;
+
     /// Create an IP source from subdomain configuration.
     /// @param cfg  The subdomain configuration specifying the IP source type and params.
-    /// @return     A unique pointer to the appropriate IpSourceBase implementation.
-    [[nodiscard]] std::unique_ptr<IpSourceBase> create(const domain::SubdomainConfig &cfg);
+    /// @return     The appropriate source or a structured creation failure.
+    [[nodiscard]] Result create(const domain::SubdomainConfig &cfg);
 } // namespace IpSourceFactory
 
 #endif  // YADDNSC_IP_SOURCE_FACTORY_H

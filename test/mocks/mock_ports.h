@@ -34,7 +34,8 @@ public:
 class MockDriverGateway final : public DriverGateway {
 public:
     MOCK_METHOD((std::expected<void, domain::DriverError>), update,
-                (std::string_view driver_name, const DriverUpdateCommand &command),
+                (std::string_view driver_name, const DriverUpdateCommand &command,
+                 const Utils::CancellationToken &token),
                 (const, override));
 };
 

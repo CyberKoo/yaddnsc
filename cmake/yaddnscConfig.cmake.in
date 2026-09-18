@@ -1,0 +1,37 @@
+@PACKAGE_INIT@
+
+include(CMakeFindDependencyMacro)
+
+set(_yaddnsc_requested_components "${yaddnsc_FIND_COMPONENTS}")
+if (NOT _yaddnsc_requested_components)
+    set(_yaddnsc_requested_components plugin_sdk)
+endif ()
+
+set(yaddnsc_plugin_sdk_FOUND FALSE)
+set(yaddnsc_plugin_crypto_FOUND FALSE)
+set(yaddnsc_plugin_sdk_xml_FOUND FALSE)
+
+if ("plugin_sdk" IN_LIST _yaddnsc_requested_components OR
+    "plugin_sdk_xml" IN_LIST _yaddnsc_requested_components)
+    find_dependency(glaze CONFIG)
+    include("${CMAKE_CURRENT_LIST_DIR}/yaddnscSdkTargets.cmake")
+    set(yaddnsc_plugin_sdk_FOUND TRUE)
+endif ()
+
+if ("plugin_crypto" IN_LIST _yaddnsc_requested_components)
+    find_dependency(OpenSSL 3.0)
+    include("${CMAKE_CURRENT_LIST_DIR}/yaddnscCryptoTargets.cmake")
+    set(yaddnsc_plugin_crypto_FOUND TRUE)
+endif ()
+
+if ("plugin_sdk_xml" IN_LIST _yaddnsc_requested_components)
+    if (NOT @YADDNSC_HAS_SDK_XML_COMPONENT@)
+        set(yaddnsc_plugin_sdk_xml_FOUND FALSE)
+    else ()
+        find_dependency(LibXml2)
+        include("${CMAKE_CURRENT_LIST_DIR}/yaddnscXmlTargets.cmake")
+        set(yaddnsc_plugin_sdk_xml_FOUND TRUE)
+    endif ()
+endif ()
+
+check_required_components(yaddnsc)

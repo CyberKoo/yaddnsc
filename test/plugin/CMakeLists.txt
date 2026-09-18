@@ -28,6 +28,14 @@ foreach(fixture bad_revision bad_magic missing_symbol small_descriptor)
     target_include_directories(yaddnsc_fixture_${fixture} PRIVATE ${PROJECT_SOURCE_DIR}/include)
 endforeach()
 
+foreach(field name version author description capabilities)
+    add_library(yaddnsc_fixture_invalid_${field} MODULE fixtures/invalid_descriptor.cpp)
+    set_target_properties(yaddnsc_fixture_invalid_${field} PROPERTIES PREFIX "" OUTPUT_NAME "invalid_${field}")
+    target_include_directories(yaddnsc_fixture_invalid_${field} PRIVATE ${PROJECT_SOURCE_DIR}/include)
+    string(TOUPPER "${field}" field_upper)
+    target_compile_definitions(yaddnsc_fixture_invalid_${field} PRIVATE "YADDNSC_FIXTURE_INVALID_${field_upper}")
+endforeach()
+
 # ---------------------------------------------------------------------------
 # Optional-entry fixture — a complete, loadable plugin that predates the
 # OPTIONAL yaddnsc_driver_validate entry. The loader must accept it and the
@@ -43,6 +51,18 @@ target_include_directories(yaddnsc_fixture_no_validate PRIVATE ${PROJECT_SOURCE_
 add_library(yaddnsc_fixture_throwing MODULE fixtures/throwing.cpp)
 set_target_properties(yaddnsc_fixture_throwing PROPERTIES PREFIX "" OUTPUT_NAME "throwing")
 target_include_directories(yaddnsc_fixture_throwing PRIVATE ${PROJECT_SOURCE_DIR}/include)
+
+# Destroy-firewall fixture — destroy() throws a non-std type; the catch-all
+# arm of the host's destroy firewall must swallow it (log only, no terminate).
+add_library(yaddnsc_fixture_throwing_destroy MODULE fixtures/throwing_destroy.cpp)
+set_target_properties(yaddnsc_fixture_throwing_destroy PROPERTIES PREFIX "" OUTPUT_NAME "throwing_destroy")
+target_include_directories(yaddnsc_fixture_throwing_destroy PRIVATE ${PROJECT_SOURCE_DIR}/include)
+
+# Create-contract fixture — create() stores a handle and THEN fails/throws;
+# the host must destroy and clear the leaked handle before returning.
+add_library(yaddnsc_fixture_leaky_create MODULE fixtures/leaky_create.cpp)
+set_target_properties(yaddnsc_fixture_leaky_create PROPERTIES PREFIX "" OUTPUT_NAME "leaky_create")
+target_include_directories(yaddnsc_fixture_leaky_create PRIVATE ${PROJECT_SOURCE_DIR}/include)
 
 # ---------------------------------------------------------------------------
 # Test binaries
@@ -63,14 +83,28 @@ foreach(test_target test_plugin_abi_contract test_plugin_lifecycle test_abi_driv
         BAD_MAGIC_FIXTURE="$<TARGET_FILE:yaddnsc_fixture_bad_magic>"
         MISSING_SYMBOL_FIXTURE="$<TARGET_FILE:yaddnsc_fixture_missing_symbol>"
         SMALL_DESCRIPTOR_FIXTURE="$<TARGET_FILE:yaddnsc_fixture_small_descriptor>"
+        INVALID_NAME_FIXTURE="$<TARGET_FILE:yaddnsc_fixture_invalid_name>"
+        INVALID_VERSION_FIXTURE="$<TARGET_FILE:yaddnsc_fixture_invalid_version>"
+        INVALID_AUTHOR_FIXTURE="$<TARGET_FILE:yaddnsc_fixture_invalid_author>"
+        INVALID_DESCRIPTION_FIXTURE="$<TARGET_FILE:yaddnsc_fixture_invalid_description>"
+        INVALID_CAPABILITIES_FIXTURE="$<TARGET_FILE:yaddnsc_fixture_invalid_capabilities>"
         NO_VALIDATE_FIXTURE="$<TARGET_FILE:yaddnsc_fixture_no_validate>"
-        THROWING_FIXTURE="$<TARGET_FILE:yaddnsc_fixture_throwing>")
+        THROWING_FIXTURE="$<TARGET_FILE:yaddnsc_fixture_throwing>"
+        THROWING_DESTROY_FIXTURE="$<TARGET_FILE:yaddnsc_fixture_throwing_destroy>"
+        LEAKY_CREATE_FIXTURE="$<TARGET_FILE:yaddnsc_fixture_leaky_create>")
     add_dependencies(${test_target}
         yaddnsc_test_driver_plugin
         yaddnsc_fixture_bad_revision
         yaddnsc_fixture_bad_magic
         yaddnsc_fixture_missing_symbol
         yaddnsc_fixture_small_descriptor
+        yaddnsc_fixture_invalid_name
+        yaddnsc_fixture_invalid_version
+        yaddnsc_fixture_invalid_author
+        yaddnsc_fixture_invalid_description
+        yaddnsc_fixture_invalid_capabilities
         yaddnsc_fixture_no_validate
-        yaddnsc_fixture_throwing)
+        yaddnsc_fixture_throwing
+        yaddnsc_fixture_throwing_destroy
+        yaddnsc_fixture_leaky_create)
 endforeach()

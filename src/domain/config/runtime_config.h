@@ -36,9 +36,9 @@ struct DriverSettings {
 };
 
 /// DNS resolver settings with legacy fields already folded in.
-/// An empty `servers` list means "use the built-in default"; injecting the
-/// default server stays in the infrastructure factory (it is build-configured
-/// and logged at startup).
+/// `servers` is always non-empty in a valid RuntimeConfig. The normalizer
+/// materializes the build-configured default when custom DNS is disabled, so
+/// infrastructure never has to infer user intent from an empty list.
 struct ResolverSettings {
     std::vector<Config::DnsServer> servers{};                     ///< Normalised server list
     Config::ResolverStrategy strategy{Config::ResolverStrategy::CONCURRENT}; ///< Resolution strategy

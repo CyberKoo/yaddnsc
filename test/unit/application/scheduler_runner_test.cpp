@@ -9,7 +9,9 @@
 //   - once stop is requested the runner never pops again and run() returns
 //     promptly, even with a far-future deadline or an empty queue;
 //   - one full application flow (queue → runner → executor → workflow over
-//     mock ports) runs without any real provider.
+//     mock ports) runs without any real provider;
+//   - a failed cycle (IP source UNAVAILABLE → SKIPPED_NO_ADDRESS) skips that
+//     round but never stops the scheduler: the next interval still dispatches.
 //
 
 #include "application/scheduler_runner.h"
@@ -314,9 +316,10 @@ TEST(SchedulerRunner, FullUpdateCycleOverMockPorts) {
             second_cycle_done.set_value();
             return std::expected<std::vector<std::string>, DnsErrorInfo>{{"198.51.100.1"}};
         });
-    EXPECT_CALL(gateway, update("cloudflare", _))
+    EXPECT_CALL(gateway, update("cloudflare", _, _))
         .WillOnce([&first_update_done](std::string_view,
-                                       const DriverUpdateCommand& cmd) -> std::expected<void, domain::DriverError> {
+                                       const DriverUpdateCommand& cmd,
+                                       const Utils::CancellationToken&) -> std::expected<void, domain::DriverError> {
             EXPECT_EQ(cmd.fqdn, "www.example.com");
             EXPECT_EQ(cmd.ip_addr, "198.51.100.1");
             first_update_done.set_value();
@@ -344,4 +347,69 @@ TEST(SchedulerRunner, FullUpdateCycleOverMockPorts) {
     stop.request_stop();
     loop.join();
     // gmock verifies: gateway called exactly once across both cycles.
+}
+
+// ── a failed cycle never stops the scheduler ─────────────────────────────────
+
+// A non-cancellation IP-source failure maps to SKIPPED_NO_ADDRESS (workflow
+// contract, locked in update_workflow_test.cpp); the scheduler must keep
+// dispatching the task on later rounds instead of terminating (plan 4.5).
+TEST(SchedulerRunner, IpSourceFailureDoesNotStopScheduling) {
+    const auto cfg = parse_cfg(FLOW_CONFIG);
+
+    std::promise<void> first_attempt;
+    std::promise<void> second_attempt;
+
+    MockDnsResolverPort dns;
+    MockIpSourcePort ip_source;
+    MockDriverGateway gateway;
+    NullLogger logger;
+
+    std::atomic<int> attempts{0};
+    EXPECT_CALL(ip_source, resolve(_, _))
+        .WillRepeatedly([&](const domain::SubdomainConfig&, const Utils::CancellationToken&)
+                            -> std::expected<std::vector<InetAddress>, domain::IpSourceError> {
+            if (attempts.fetch_add(1) == 0) {
+                first_attempt.set_value();
+            } else {
+                second_attempt.set_value();
+            }
+            return std::unexpected(domain::IpSourceError{domain::IpSourceError::Code::UNAVAILABLE, "source down"});
+        });
+    EXPECT_CALL(dns, resolve(_, _, _)).Times(0);
+    EXPECT_CALL(gateway, update(_, _, _)).Times(0);
+
+    const UpdateWorkflow workflow(dns, ip_source, gateway, logger);
+
+    std::mutex outcomes_mtx;
+    std::vector<domain::UpdateError::Code> outcomes;
+    domain::ScheduleQueue queue(cfg, T0);
+    FakeClock clock{T0};
+    InlineTaskExecutor executor([&](const domain::UpdateTask& task) {
+        const auto outcome = workflow.run(task, {});
+        ASSERT_FALSE(outcome.has_value());
+        std::lock_guard lock(outcomes_mtx);
+        outcomes.push_back(outcome.error().code);
+    });
+
+    std::stop_source stop;
+    SchedulerRunner runner(queue, clock, executor, stop.get_token(), logger);
+    std::jthread loop([&] { runner.run({}); });
+    const LoopGuard cleanup{stop, loop};
+
+    // Round 1 runs inline and fails at the IP source.
+    ASSERT_EQ(first_attempt.get_future().wait_for(30s), std::future_status::ready)
+        << "the initial cycle never ran";
+
+    // A failed cycle must not kill the loop: the next interval re-dispatches.
+    clock.advance_by(300s);
+    ASSERT_EQ(second_attempt.get_future().wait_for(30s), std::future_status::ready)
+        << "the scheduler stopped dispatching after a failed cycle";
+
+    stop.request_stop();
+    loop.join();
+
+    ASSERT_EQ(outcomes.size(), 2U);
+    EXPECT_EQ(outcomes[0], domain::UpdateError::Code::SKIPPED_NO_ADDRESS);
+    EXPECT_EQ(outcomes[1], domain::UpdateError::Code::SKIPPED_NO_ADDRESS);
 }

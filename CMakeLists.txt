@@ -122,7 +122,19 @@ find_package(OpenSSL 3.0 REQUIRED)
 # ---------------------------------------------------------------------------
 # glaze – JSON/reflection library
 # ---------------------------------------------------------------------------
-CPMAddPackage("gh:stephenberry/glaze@7.8.2")
+# The installed C++ SDK exposes Glaze through yaddnsc::plugin_sdk.  CPM adds
+# Glaze as a subproject, where its default is not to install package metadata;
+# enable that metadata so an installed SDK never points consumers at this build
+# tree's CPM cache.
+set(glaze_INSTALL ON CACHE BOOL "Install Glaze package metadata for the yaddnsc SDK" FORCE)
+CPMAddPackage(
+    NAME glaze
+    GITHUB_REPOSITORY stephenberry/glaze
+    GIT_TAG v7.8.2
+    EXCLUDE_FROM_ALL NO
+    SYSTEM YES
+    OPTIONS "glaze_INSTALL ON"
+)
 
 # ---------------------------------------------------------------------------
 # fmt / std::format  (conditional)
@@ -592,9 +604,29 @@ include(Doxygen)
 # C ABI plus the C++ helper layer (yaddnsc/sdk/*). Deliberately does NOT expose
 # the host's src/ include root or host-only dependencies.
 add_library(yaddnsc_plugin_sdk INTERFACE)
-target_include_directories(yaddnsc_plugin_sdk INTERFACE ${PROJECT_SOURCE_DIR}/include)
+add_library(yaddnsc::plugin_sdk ALIAS yaddnsc_plugin_sdk)
+set_target_properties(yaddnsc_plugin_sdk PROPERTIES EXPORT_NAME plugin_sdk)
+target_include_directories(yaddnsc_plugin_sdk INTERFACE
+    $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
+    $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
+)
 target_link_libraries(yaddnsc_plugin_sdk INTERFACE glaze::glaze)
+target_compile_features(yaddnsc_plugin_sdk INTERFACE cxx_std_23)
 target_compile_options(yaddnsc_plugin_sdk INTERFACE -Wall -Wextra -Wpedantic -Werror -fvisibility=hidden)
+
+# XML is deliberately an opt-in SDK component.  driver.hpp itself does not
+# include libxml2, so ordinary plugin consumers only need Glaze.  Drivers that
+# include xml_raii.hpp link this target to obtain both the SDK and libxml2.
+find_package(LibXml2 QUIET)
+if (LibXml2_FOUND)
+  add_library(yaddnsc_plugin_sdk_xml INTERFACE)
+  add_library(yaddnsc::plugin_sdk_xml ALIAS yaddnsc_plugin_sdk_xml)
+  set_target_properties(yaddnsc_plugin_sdk_xml PROPERTIES EXPORT_NAME plugin_sdk_xml)
+  target_link_libraries(yaddnsc_plugin_sdk_xml INTERFACE yaddnsc_plugin_sdk LibXml2::LibXml2)
+  set(YADDNSC_HAS_SDK_XML_COMPONENT ON)
+else ()
+  set(YADDNSC_HAS_SDK_XML_COMPONENT OFF)
+endif ()
 
 add_subdirectory(${PROJECT_SOURCE_DIR}/plugin_crypto/)
 add_subdirectory(${PROJECT_SOURCE_DIR}/driver/)

@@ -220,6 +220,13 @@ private:
         snapshots.reserve(count);
 
         for (uint32_t i = 0; i < count; ++i) {
+            // A driver that chains provider calls must observe the same
+            // operation token between exchanges and stop before initiating
+            // another request once it was cancelled.
+            if (context.is_cancelled()) {
+                return std::unexpected(
+                    Error{YADDNSC_STATUS_CANCELLED, "plugin observed cancellation before next HTTP exchange", 0});
+            }
             HttpRequest request{};
             request.method = yaddnsc::sdk::Method::Post;
             request.url = fmt::format("{}/{}", url, i);

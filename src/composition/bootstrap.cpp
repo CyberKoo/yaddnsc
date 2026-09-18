@@ -61,6 +61,7 @@
 namespace {
 /// Thread-pool sizing policy: total subdomains, capped at
 /// min(hardware cores, 4); at least 2.
+template<uint32_t THREAD_LIMIT = 4U>
 std::uint32_t estimate_pool_size(const domain::RuntimeConfig& config) noexcept {
     std::uint32_t total_subdomains = 0;
     const auto thread_count = std::thread::hardware_concurrency();
@@ -77,7 +78,7 @@ std::uint32_t estimate_pool_size(const domain::RuntimeConfig& config) noexcept {
         return total_subdomains;
     }
 
-    return std::min(thread_count, 4U);
+    return std::min(thread_count, THREAD_LIMIT);
 }
 
 /// HTTP client factory for the driver gateway: the token is no longer bound
@@ -136,7 +137,7 @@ int run_command(const Cli::RunCommand& command) {
 
         auto dispatcher = DnsResolverFactory::create(runtime_config->resolver, ResolverCatalog::with_builtins());
         const IpSourceAdapter ip_source;
-        const AbiDriverGateway driver_gateway(driver_catalog, make_http_client_factory(), cancellation.token(), logger);
+        const AbiDriverGateway driver_gateway(driver_catalog, make_http_client_factory(), logger);
         const UpdateWorkflow workflow(dispatcher, ip_source, driver_gateway, logger);
         PoolTaskExecutor task_executor(estimate_pool_size(*runtime_config), workflow);
 
@@ -165,11 +166,22 @@ int run_command(const Cli::RunCommand& command) {
 //  hands the result objects to the presenter.
 // -----------------------------------------------------------------------
 
-/// Load the raw config and fill a catalog for the driver diagnostics:
-/// normalise only — these commands deliberately perform no validation.
+/// Load exactly one validated runtime configuration for a composition path.
+/// No runtime dependency may re-normalize the raw DTO afterwards.
+[[nodiscard]] domain::RuntimeConfig load_runtime_config(const std::string& config_path) {
+    auto config = Config::validate_and_normalize(Config::load_config(config_path));
+    if (!config.has_value()) {
+        throw ConfigVerificationException(config.error().front().message);
+    }
+    return std::move(*config);
+}
+
+/// Load the validated runtime configuration and fill a catalog for driver
+/// diagnostics.
 DriverCatalog load_catalog_for(const std::string& config_path) {
+    const auto config = load_runtime_config(config_path);
     DriverCatalog catalog;
-    DriverLoader::load(catalog, Config::normalize(Config::load_config(config_path)).driver);
+    DriverLoader::load(catalog, config.driver);
     return catalog;
 }
 
@@ -194,11 +206,10 @@ int execute_command(const Cli::InterfaceIpCommand& command) {
 }
 
 int execute_command(const Cli::DnsResolveCommand& command) {
-    const auto raw_config = Config::load_config(command.config_path);
-    // Normalise only — this command deliberately performs no validation.
+    const auto config = load_runtime_config(command.config_path);
     // The one-shot command scope owns its own root cancellation source.
     Utils::CancellationSource cancellation;
-    auto dispatcher = DnsResolverFactory::create(Config::normalize(raw_config).resolver, ResolverCatalog::with_builtins());
+    auto dispatcher = DnsResolverFactory::create(config.resolver, ResolverCatalog::with_builtins());
     return Cli::present_dns_resolve(
         Diagnostics::dns_resolve(dispatcher, command.host, command.type, cancellation.token()));
 }
@@ -253,7 +264,7 @@ int execute_command(const Cli::ConfigTestCommand& command) {
         // yaddnsc_driver_validate are skipped (not an error).
         Utils::CancellationSource cancellation;
         const SpdlogLogger logger;
-        const AbiDriverGateway driver_gateway(driver_catalog, make_http_client_factory(), cancellation.token(), logger);
+        const AbiDriverGateway driver_gateway(driver_catalog, make_http_client_factory(), logger);
         for (const auto& domain_config : config->domains) {
             for (const auto& subdomain : domain_config.subdomains) {
                 if (const auto result = driver_gateway.validate_config(domain_config.driver, subdomain.driver_param);

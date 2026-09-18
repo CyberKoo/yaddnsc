@@ -5,7 +5,10 @@
 #include "host_services.h"
 
 #include <algorithm>
+#include <array>
+#include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <exception>
 #include <map>
 #include <optional>
@@ -24,19 +27,37 @@
 
 namespace {
 [[nodiscard]] std::string_view to_view(yaddnsc_string value) noexcept {
-    return {value.data, value.size};
+    return value.data == nullptr ? std::string_view{} : std::string_view{value.data, value.size};
+}
+
+/// The C callback firewall must not allocate while reporting an exception:
+/// allocation failure is precisely one of the cases it is handling.
+[[nodiscard]] std::string_view copy_callback_error(std::string_view message) noexcept {
+    constexpr std::string_view fallback = "host exception during HTTP exchange";
+    constexpr std::size_t capacity = 512;
+    thread_local std::array<char, capacity> storage{};
+    const std::string_view source = message.data() == nullptr ? fallback : message;
+    const std::size_t size = std::min(source.size(), storage.size() - 1);
+    if (size != 0) {
+        std::memcpy(storage.data(), source.data(), size);
+    }
+    storage[size] = '\0';
+    return {storage.data(), size};
 }
 
 /// Write an error report honouring the caller-supplied capacity (same
 /// rules as the SDK side): fields are only written when fully covered,
 /// struct_size is written back as min(capacity, sizeof), and an unknown
 /// tail is never zeroed.
-void write_error(yaddnsc_error* out_error, yaddnsc_status status, std::string_view message) noexcept {
+void write_error(yaddnsc_error* out_error,
+                 yaddnsc_status status,
+                 std::string_view message,
+                 uint32_t retry_after_seconds = 0) noexcept {
     if (out_error == nullptr || out_error->struct_size < YADDNSC_ERROR_MIN_SIZE) {
         return;
     }
     out_error->status = status;
-    out_error->retry_after_seconds = 0;
+    out_error->retry_after_seconds = retry_after_seconds;
     out_error->message = yaddnsc_string{message.data(), message.size()};
     out_error->struct_size = std::min(out_error->struct_size, static_cast<uint32_t>(sizeof(yaddnsc_error)));
 }
@@ -84,8 +105,8 @@ void write_error(yaddnsc_error* out_error, yaddnsc_status status, std::string_vi
 
 HostServicesContext::HostServicesContext(HttpClient& http_client,
                                          const Logger& logger,
-                                         Utils::CancellationToken http_token)
-    : http_client_(http_client), logger_(logger), http_token_(std::move(http_token)) {}
+                                         Utils::CancellationToken operation_token)
+    : http_client_(http_client), logger_(logger), operation_token_(std::move(operation_token)) {}
 
 std::string_view HostServicesContext::arena_copy(std::string_view value) {
     return string_arena_.emplace_back(value);
@@ -109,8 +130,9 @@ yaddnsc_status HostServicesContext::http_exchange_entry(void* context,
                                                         const yaddnsc_http_request* request,
                                                         yaddnsc_http_response* out_response,
                                                         yaddnsc_error* out_error) {
-    if (context == nullptr || request == nullptr || out_response == nullptr) {
-        write_error(out_error, YADDNSC_STATUS_INVALID_ARGUMENT, "context, request and out_response must not be null");
+    if (context == nullptr || request == nullptr || out_response == nullptr || out_error == nullptr) {
+        write_error(out_error, YADDNSC_STATUS_INVALID_ARGUMENT,
+                    "context, request, out_response and out_error must not be null");
         return YADDNSC_STATUS_INVALID_ARGUMENT;
     }
     if (request->struct_size < YADDNSC_HTTP_REQUEST_MIN_SIZE) {
@@ -121,16 +143,17 @@ yaddnsc_status HostServicesContext::http_exchange_entry(void* context,
         write_error(out_error, YADDNSC_STATUS_INVALID_ARGUMENT, "http response struct_size too small");
         return YADDNSC_STATUS_INVALID_ARGUMENT;
     }
-    // A host exception (e.g. bad_alloc while copying into the arena) must
-    // never escape into the plugin's C frame — report it as an internal
-    // error instead. The message view points at thread-local storage; the
-    // plugin copies it synchronously on this thread.
+    if (out_error->struct_size < YADDNSC_ERROR_MIN_SIZE) {
+        write_error(out_error, YADDNSC_STATUS_INVALID_ARGUMENT, "error struct_size too small");
+        return YADDNSC_STATUS_INVALID_ARGUMENT;
+    }
+    // A host exception (including bad_alloc while copying into the arena)
+    // must never escape into the plugin's C frame.  Its reporting path uses
+    // a fixed buffer, so handling allocation failure does not allocate again.
     try {
         return static_cast<HostServicesContext*>(context)->http_exchange(*request, out_response, out_error);
     } catch (const std::exception& e) {
-        thread_local std::string message;
-        message = e.what();
-        write_error(out_error, YADDNSC_STATUS_INTERNAL_ERROR, message);
+        write_error(out_error, YADDNSC_STATUS_INTERNAL_ERROR, copy_callback_error(e.what()));
     } catch (...) {
         write_error(out_error, YADDNSC_STATUS_INTERNAL_ERROR, "unknown host exception during http exchange");
     }
@@ -140,7 +163,7 @@ yaddnsc_status HostServicesContext::http_exchange_entry(void* context,
 yaddnsc_status HostServicesContext::http_exchange(const yaddnsc_http_request& request,
                                                   yaddnsc_http_response* out_response,
                                                   yaddnsc_error* out_error) {
-    if (request.url.data == nullptr || request.url.size == 0) {
+    if (!yaddnsc_string_is_valid(request.url) || request.url.size == 0) {
         write_error(out_error, YADDNSC_STATUS_INVALID_ARGUMENT, "request url must not be empty");
         return YADDNSC_STATUS_INVALID_ARGUMENT;
     }
@@ -149,13 +172,27 @@ yaddnsc_status HostServicesContext::http_exchange(const yaddnsc_http_request& re
         write_error(out_error, YADDNSC_STATUS_INVALID_ARGUMENT, "unknown http method");
         return YADDNSC_STATUS_INVALID_ARGUMENT;
     }
-    if (request.header_count > 0 && request.headers == nullptr) {
+    if (!yaddnsc_http_header_array_is_valid(request.headers, request.header_count)) {
         write_error(out_error, YADDNSC_STATUS_INVALID_ARGUMENT, "header_count > 0 with null headers");
         return YADDNSC_STATUS_INVALID_ARGUMENT;
     }
-    if (request.body.size > 0 && request.body.data == nullptr) {
+    if (!yaddnsc_string_is_valid(request.content_type)) {
+        write_error(out_error, YADDNSC_STATUS_INVALID_ARGUMENT, "invalid content_type view");
+        return YADDNSC_STATUS_INVALID_ARGUMENT;
+    }
+    if (!yaddnsc_bytes_is_valid(request.body)) {
         write_error(out_error, YADDNSC_STATUS_INVALID_ARGUMENT, "body size > 0 with null body data");
         return YADDNSC_STATUS_INVALID_ARGUMENT;
+    }
+    for (size_t i = 0; i < request.header_count; ++i) {
+        if (!yaddnsc_http_header_is_valid(request.headers[i])) {
+            write_error(out_error, YADDNSC_STATUS_INVALID_ARGUMENT, "invalid HTTP header view");
+            return YADDNSC_STATUS_INVALID_ARGUMENT;
+        }
+    }
+    if (operation_token_.is_triggered()) {
+        write_error(out_error, YADDNSC_STATUS_CANCELLED, "HTTP exchange cancelled");
+        return YADDNSC_STATUS_CANCELLED;
     }
 
     net::http::Request http_request;
@@ -169,12 +206,12 @@ yaddnsc_status HostServicesContext::http_exchange(const yaddnsc_http_request& re
     }
     http_request.content_type = std::string(to_view(request.content_type));
 
-    auto response = http_client_.exchange(to_view(request.url), http_request, http_token_);
+    auto response = http_client_.exchange(to_view(request.url), http_request, operation_token_);
     if (!response) {
         const auto& error = response.error();
         const yaddnsc_status status =
             error.code == net::http::ErrorCode::CANCELLED ? YADDNSC_STATUS_CANCELLED : YADDNSC_STATUS_NETWORK_ERROR;
-        write_error(out_error, status, arena_copy(error.message));
+        write_error(out_error, status, arena_copy(error.message), error.retry_after_seconds);
         return status;
     }
 

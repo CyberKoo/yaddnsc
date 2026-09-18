@@ -14,6 +14,8 @@
 
 #include "infrastructure/plugin/abi_driver_gateway.h"
 
+#include <atomic>
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -26,7 +28,9 @@
 #include "application/ports/driver_gateway.h"
 #include "domain/error/error.h"
 #include "infrastructure/network/http/client_port.h"
+#include "infrastructure/network/http/error.h"
 #include "infrastructure/plugin/driver_catalog.h"
+#include "infrastructure/plugin/shared_library.h"
 #include "plugin/plugin_test_doubles.h"
 #include "support/util/cancellation_token.hpp"
 
@@ -37,6 +41,31 @@ constexpr std::string_view kNoValidatePluginPath = NO_VALIDATE_FIXTURE;
 constexpr std::string_view kDriverName = "test_driver_plugin";
 constexpr std::string_view kNoValidateDriverName = "no_validate";
 constexpr std::string_view kFqdn = "www.example.com";
+
+/// Triggers the operation token after the first completed transport call.
+/// It lets the real test plugin prove it observes cancellation before it
+/// begins its next exchange.
+class TriggerAfterFirstExchangeClient final : public HttpClient {
+public:
+    TriggerAfterFirstExchangeClient(std::shared_ptr<QueueHttpClient> inner, const Utils::CancellationSource& source)
+        : inner_(std::move(inner)), source_(source) {}
+
+    [[nodiscard]] std::expected<net::http::Response, net::http::Error>
+    exchange(std::string_view url,
+             const net::http::Request& request,
+             const Utils::CancellationToken& token) const override {
+        auto result = inner_->exchange(url, request, token);
+        if (exchange_count_.fetch_add(1, std::memory_order_relaxed) == 0) {
+            source_.trigger();
+        }
+        return result;
+    }
+
+private:
+    std::shared_ptr<QueueHttpClient> inner_;
+    const Utils::CancellationSource& source_;
+    mutable std::atomic<uint32_t> exchange_count_{0};
+};
 
 /// Test fixture: catalog with the whiteboard plugin, a shared scripted HTTP
 /// queue behind the per-update factory, and a recording logger.
@@ -52,7 +81,7 @@ protected:
                 ++factory_calls_;
                 return std::make_unique<SharedHttpClient>(queue_);
             },
-            cancel_source_.token(), logger_);
+            logger_);
     }
 
     [[nodiscard]] DriverUpdateCommand make_command(std::string driver_param) const {
@@ -77,14 +106,14 @@ protected:
 }  // namespace
 
 TEST_F(AbiDriverGatewayTest, UnknownDriverReportsNotFound) {
-    const auto result = gateway_->update("missing", make_command(R"({"op":"success"})"));
+    const auto result = gateway_->update("missing", make_command(R"({"op":"success"})"), cancel_source_.token());
     ASSERT_FALSE(result.has_value());
     EXPECT_EQ(result.error().code, domain::DriverError::Code::NOT_FOUND);
     EXPECT_EQ(result.error().message, "Driver 'missing' is not loaded");
 }
 
 TEST_F(AbiDriverGatewayTest, SuccessfulUpdate) {
-    const auto result = gateway_->update(kDriverName, make_command(R"({"op":"success"})"));
+    const auto result = gateway_->update(kDriverName, make_command(R"({"op":"success"})"), cancel_source_.token());
     EXPECT_TRUE(result.has_value()) << result.error().message;
 }
 
@@ -103,7 +132,8 @@ TEST_F(AbiDriverGatewayTest, StatusMapping) {
 
     for (const auto& [status, expected_code] : cases) {
         const auto result = gateway_->update(
-            kDriverName, make_command(R"({"op":"fail","status":")" + status + R"(","message":"m-)" + status + R"("})"));
+            kDriverName, make_command(R"({"op":"fail","status":")" + status + R"(","message":"m-)" + status + R"("})"),
+            cancel_source_.token());
         ASSERT_FALSE(result.has_value()) << status;
         EXPECT_EQ(result.error().code, expected_code) << status;
         EXPECT_EQ(result.error().message, "m-" + status) << status;
@@ -113,16 +143,28 @@ TEST_F(AbiDriverGatewayTest, StatusMapping) {
 
 TEST_F(AbiDriverGatewayTest, RetryAfterIsPassedThrough) {
     const auto result = gateway_->update(
-        kDriverName, make_command(R"({"op":"fail","status":"rate_limited","message":"slow","retry_after":120})"));
+        kDriverName, make_command(R"({"op":"fail","status":"rate_limited","message":"slow","retry_after":120})"),
+        cancel_source_.token());
     ASSERT_FALSE(result.has_value());
     EXPECT_EQ(result.error().code, domain::DriverError::Code::RATE_LIMITED);
     EXPECT_EQ(result.error().message, "slow");
     EXPECT_EQ(result.error().retry_after_seconds, 120);
 }
 
-TEST_F(AbiDriverGatewayTest, EmptyPluginMessageFallsBackToLegacyWording) {
+TEST_F(AbiDriverGatewayTest, TransportRetryAfterIsPassedThrough) {
+    queue_->queue_error(net::http::ErrorCode::CONNECT_FAILED, "back off", 45);
+
     const auto result =
-        gateway_->update(kDriverName, make_command(R"({"op":"fail","status":"network_error","message":""})"));
+        gateway_->update(kDriverName, make_command(R"({"op":"exchange","http_count":1})"), cancel_source_.token());
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error().code, domain::DriverError::Code::UPDATE_FAILED);
+    EXPECT_EQ(result.error().message, "exchange failed: back off");
+    EXPECT_EQ(result.error().retry_after_seconds, 45);
+}
+
+TEST_F(AbiDriverGatewayTest, EmptyPluginMessageFallsBackToLegacyWording) {
+    const auto result = gateway_->update(
+        kDriverName, make_command(R"({"op":"fail","status":"network_error","message":""})"), cancel_source_.token());
     ASSERT_FALSE(result.has_value());
     EXPECT_EQ(result.error().code, domain::DriverError::Code::UPDATE_FAILED);
     EXPECT_EQ(result.error().message, "Driver 'test_driver_plugin' update failed for www.example.com");
@@ -136,14 +178,17 @@ TEST_F(AbiDriverGatewayTest, OneHttpClientPerUpdate) {
     queue_->queue_response(200, "b");
     queue_->queue_response(200, "c");
 
-    const auto result = gateway_->update(kDriverName, make_command(R"({"op":"exchange","http_count":3})"));
+    const auto result =
+        gateway_->update(kDriverName, make_command(R"({"op":"exchange","http_count":3})"), cancel_source_.token());
     EXPECT_TRUE(result.has_value()) << result.error().message;
     EXPECT_EQ(factory_calls_, 1);
     EXPECT_EQ(queue_->request_count(), 3u);
 }
 
 TEST_F(AbiDriverGatewayTest, PluginLogReachesTheHostLogger) {
-    const auto result = gateway_->update(kDriverName, make_command(R"({"op":"log_macro","message":"via gateway"})"));
+    const auto result = gateway_->update(kDriverName,
+                                         make_command(R"({"op":"log_macro","message":"via gateway"})"),
+                                         cancel_source_.token());
     ASSERT_TRUE(result.has_value()) << result.error().message;
 
     const auto records = logger_.records();
@@ -153,20 +198,83 @@ TEST_F(AbiDriverGatewayTest, PluginLogReachesTheHostLogger) {
     EXPECT_EQ(records[0].function, "update");
 }
 
-TEST_F(AbiDriverGatewayTest, HostCancellationIsNotVisibleToThePlugin) {
+TEST_F(AbiDriverGatewayTest, OperationCancellationIsVisibleToThePlugin) {
     cancel_source_.trigger();
-    const auto result = gateway_->update(kDriverName, make_command(R"({"op":"check_cancel","expect_cancelled":false})"));
+    const auto result = gateway_->update(kDriverName,
+                                         make_command(R"({"op":"check_cancel","expect_cancelled":true})"),
+                                         cancel_source_.token());
     EXPECT_TRUE(result.has_value()) << result.error().message;
 }
 
+TEST_F(AbiDriverGatewayTest, CancellationBetweenExchangesStopsTheNextNetworkOperation) {
+    gateway_ = std::make_unique<AbiDriverGateway>(
+        catalog_,
+        [this]() -> std::unique_ptr<HttpClient> {
+            return std::make_unique<TriggerAfterFirstExchangeClient>(queue_, cancel_source_);
+        },
+        logger_);
+    queue_->queue_response(200, "first");
+    queue_->queue_response(200, "must not be requested");
+
+    const auto result =
+        gateway_->update(kDriverName, make_command(R"({"op":"exchange","http_count":2})"), cancel_source_.token());
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error().code, domain::DriverError::Code::CANCELLED);
+    EXPECT_EQ(queue_->request_count(), 1u);
+    EXPECT_EQ(queue_->remaining(), 1u);
+}
+
 TEST_F(AbiDriverGatewayTest, UpdateParametersReachThePlugin) {
-    const auto result = gateway_->update(kDriverName, make_command(R"({"op":"echo_params"})"));
+    const auto result = gateway_->update(kDriverName, make_command(R"({"op":"echo_params"})"), cancel_source_.token());
     ASSERT_TRUE(result.has_value()) << result.error().message;
 
     const auto records = logger_.records();
     ASSERT_EQ(records.size(), 1u);
     EXPECT_EQ(records[0].message,
               R"(params ip=192.0.2.1 rd=A domain=example.com sub=www fqdn=www.example.com param={"op":"echo_params"})");
+}
+
+TEST(AbiDriverGatewayCreateTest, CreateFailureAfterStoringHandleDoesNotLeak) {
+    // The leaky_create fixture stores a handle and then fails create; the
+    // gateway must still surface the failure AND the leaked handle must have
+    // been destroyed by the host backstop — no instance escapes.
+    DriverCatalog catalog;
+    ASSERT_NO_THROW(catalog.load_driver(std::string(LEAKY_CREATE_FIXTURE)));
+
+    auto control_library = SharedLibrary::open(LEAKY_CREATE_FIXTURE);
+    ASSERT_TRUE(control_library.has_value()) << control_library.error();
+    using SetMode = void (*)(int);
+    using GetState = void (*)(uint64_t*, uintptr_t*);
+    const auto set_mode = reinterpret_cast<SetMode>(control_library->resolve("leaky_create_set_mode"));      // NOLINT
+    const auto get_state = reinterpret_cast<GetState>(control_library->resolve("leaky_create_get_state"));  // NOLINT
+    ASSERT_NE(set_mode, nullptr);
+    ASSERT_NE(get_state, nullptr);
+    set_mode(0);
+
+    RecordingLogger logger;
+    const AbiDriverGateway gateway(
+        catalog, []() -> std::unique_ptr<HttpClient> { return std::make_unique<QueueHttpClient>(); }, logger);
+    const Utils::CancellationSource cancellation;
+
+    const auto result = gateway.update("leaky_create",
+                                       DriverUpdateCommand{
+                                           .driver_param = "{}",
+                                           .ip_addr = "192.0.2.1",
+                                           .rd_type = "A",
+                                           .domain = "example.com",
+                                           .subdomain = "www",
+                                           .fqdn = "www.example.com",
+                                       },
+                                       cancellation.token());
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error().code, domain::DriverError::Code::UNKNOWN);
+    EXPECT_EQ(result.error().message, "create failed after storing a handle");
+
+    uint64_t destroys = 0;
+    uintptr_t last_destroyed = 0;
+    get_state(&destroys, &last_destroyed);
+    EXPECT_EQ(destroys, 1u);
+    EXPECT_NE(last_destroyed, 0u);
 }
 
 // ── validate_config ──────────────────────────────────────────────────────────
@@ -187,12 +295,11 @@ protected:
         ASSERT_NO_THROW(catalog_.load_driver(std::string(kNoValidatePluginPath)));
         gateway_ = std::make_unique<AbiDriverGateway>(
             catalog_, []() -> std::unique_ptr<HttpClient> { return std::make_unique<QueueHttpClient>(); },
-            cancel_source_.token(), logger_);
+            logger_);
     }
 
     DriverCatalog catalog_;
     RecordingLogger logger_;
-    Utils::CancellationSource cancel_source_;
     std::unique_ptr<AbiDriverGateway> gateway_;
 };
 

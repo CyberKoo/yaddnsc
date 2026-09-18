@@ -6,14 +6,13 @@ namespace Config {
 struct AppConfig;
 
 /// Maps a raw AppConfig (as parsed from JSON) to the normalized runtime
-/// configuration. Performs no validation and never throws on content, so
-/// commands that consume configuration without verifying it (dns resolve,
-/// driver list/info) can use it as well.
+/// configuration. Performs no validation, so callers that enter the runtime
+/// graph must use validate_and_normalize() first.
 ///
 /// Normalization rules:
 ///  - Legacy resolver fields (resolver.address/port + use_custom_server) are
-///    folded into resolver.servers; servers is left empty when the built-in
-///    default resolver should be used.
+///    folded into resolver.servers; disabled custom DNS is materialized as
+///    the configured built-in default server.
 ///  - SubdomainConfig::update_interval carries the effective value
 ///    (subdomain override if > 0, else the domain-level interval).
 ///  - driver_param is dumped to opaque JSON text ("{}" when unset).

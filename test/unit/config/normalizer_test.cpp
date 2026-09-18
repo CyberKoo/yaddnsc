@@ -3,7 +3,7 @@
 //
 // Verified:
 //   - Legacy resolver fields (use_custom_server + address/port) are folded
-//     into the server list; an empty result means "use the built-in default".
+//     into the server list; disabled custom DNS materializes the default.
 //   - SubdomainConfig::update_interval carries the EFFECTIVE value
 //     (subdomain override if > 0, else the domain-level interval).
 //   - driver_param is dumped to opaque JSON text preserving fields/values.
@@ -63,10 +63,11 @@ constexpr std::string_view MINIMAL_CONFIG = R"({
 // Resolver normalisation
 // ===========================================================================
 
-TEST(NormalizerTest, Resolver_NoCustomServer_EmptyServers) {
+TEST(NormalizerTest, Resolver_NoCustomServer_MaterializesDefaultServer) {
     const auto config = Config::normalize(parse_raw(MINIMAL_CONFIG));
-    // Empty = "use the built-in default" (injected by the DNS factory).
-    EXPECT_TRUE(config.resolver.servers.empty());
+    ASSERT_EQ(config.resolver.servers.size(), 1U);
+    EXPECT_EQ(config.resolver.servers.front().address, "1.1.1.1");
+    EXPECT_EQ(config.resolver.servers.front().port, 53);
     EXPECT_EQ(config.resolver.strategy, Config::ResolverStrategy::CONCURRENT);
 }
 
@@ -131,7 +132,8 @@ TEST(NormalizerTest, Resolver_LegacyAddressIgnoredWhenNotCustom) {
         "domains": []
     })");
     const auto config = Config::normalize(raw);
-    EXPECT_TRUE(config.resolver.servers.empty());
+    ASSERT_EQ(config.resolver.servers.size(), 1U);
+    EXPECT_EQ(config.resolver.servers.front().address, "1.1.1.1");
 }
 
 TEST(NormalizerTest, Resolver_ShuffleStrategy_Preserved) {

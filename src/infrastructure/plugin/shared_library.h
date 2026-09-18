@@ -19,7 +19,7 @@ public:
 
     /// Open the shared library at @p path.
     /// @return The library handle, or the dlerror() text on failure.
-    [[nodiscard]] static std::expected<SharedLibrary, std::string> open(const std::string &path) noexcept;
+    [[nodiscard]] static std::expected<SharedLibrary, std::string> open(const std::string &path);
 
     ~SharedLibrary();
 

@@ -21,7 +21,7 @@ public:
         : module_(std::move(module)), handle_(handle) {
     }
 
-    ~DriverInstance() {
+    ~DriverInstance() noexcept {
         if (handle_ != nullptr) {
             module_->destroy(handle_);
         }

@@ -10,27 +10,22 @@
 
 #include "application/ports/ip_source.h"
 #include "domain/config/runtime_config.h"
-
-class IpSourceBase;
+#include "infrastructure/ip_source/factory.h"
 
 namespace Utils {
 class CancellationToken;
 }  // namespace Utils
 
-/// IpSourceAdapter — IpSourcePort implementation over the legacy
-/// IpSourceFactory + IpSourceBase (throwing) stack.
-///
-/// Translates the legacy exception contract into error values: any
-/// std::exception escaping the factory or resolve() becomes
-/// {Code::UNAVAILABLE, e.what()} — the workflow keeps its uniform
-/// "log and skip this cycle" handling. An empty candidate vector passes
-/// through unchanged (success, not an error).
+/// IpSourceAdapter — IpSourcePort implementation over structured source
+/// results. It composes factory creation and source resolution without
+/// remapping recoverable errors; only an unexpected implementation exception
+/// becomes Code::UNKNOWN. An empty candidate vector remains successful.
 ///
 /// @note Thread-safe: resolve() is const and owns no mutable state.
 class IpSourceAdapter final : public IpSourcePort {
 public:
     /// Factory type for creating IP source instances (tests may inject stubs).
-    using FactoryFn = std::function<std::unique_ptr<IpSourceBase>(const domain::SubdomainConfig&)>;
+    using FactoryFn = std::function<IpSourceFactory::Result(const domain::SubdomainConfig&)>;
 
     /// @param factory  Source factory; defaults to IpSourceFactory::create.
     explicit IpSourceAdapter(FactoryFn factory = {});

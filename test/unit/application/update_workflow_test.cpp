@@ -114,7 +114,7 @@ TEST(UpdateWorkflow, SkipsUpdateWhenIpUnchanged) {
     Ports ports;
     EXPECT_CALL(ports.ip_source, resolve(_, _)).WillOnce(Return(one_v4(192, 0, 2, 1)));
     EXPECT_CALL(ports.dns, resolve(task.fqdn, RecordKind::A, _)).WillOnce(Return(std::vector<std::string>{"192.0.2.1"}));
-    EXPECT_CALL(ports.gateway, update(_, _)).Times(0);
+    EXPECT_CALL(ports.gateway, update(_, _, _)).Times(0);
 
     const UpdateWorkflow workflow(ports.dns, ports.ip_source, ports.gateway, ports.logger);
     const auto outcome = workflow.run(task, {});
@@ -131,9 +131,11 @@ TEST(UpdateWorkflow, UpdatesWhenIpChanged) {
     Ports ports;
     EXPECT_CALL(ports.ip_source, resolve(_, _)).WillOnce(Return(one_v4(198, 51, 100, 1)));
     EXPECT_CALL(ports.dns, resolve(task.fqdn, RecordKind::A, _)).WillOnce(Return(std::vector<std::string>{"192.0.2.1"}));
-    EXPECT_CALL(ports.gateway, update("cloudflare", _))
+    EXPECT_CALL(ports.gateway, update("cloudflare", _, _))
         .WillOnce(
-            [&task](std::string_view, const DriverUpdateCommand& cmd) -> std::expected<void, domain::DriverError> {
+            [&task](std::string_view,
+                    const DriverUpdateCommand& cmd,
+                    const Utils::CancellationToken&) -> std::expected<void, domain::DriverError> {
                 EXPECT_EQ(cmd.ip_addr, "198.51.100.1");
                 EXPECT_EQ(cmd.rd_type, "A");
                 EXPECT_EQ(cmd.domain, "example.com");
@@ -161,7 +163,7 @@ TEST(UpdateWorkflow, ForceUpdateSkipsDnsComparison) {
     // Even though the IP would equal the DNS record, force_update must still
     // update — and must not even ask the resolver.
     EXPECT_CALL(ports.dns, resolve(_, _, _)).Times(0);
-    EXPECT_CALL(ports.gateway, update(_, _)).WillOnce(Return(std::expected<void, domain::DriverError>{}));
+    EXPECT_CALL(ports.gateway, update(_, _, _)).WillOnce(Return(std::expected<void, domain::DriverError>{}));
 
     const UpdateWorkflow workflow(ports.dns, ports.ip_source, ports.gateway, ports.logger);
     const auto outcome = workflow.run(task, {});
@@ -178,7 +180,7 @@ TEST(UpdateWorkflow, SkipsWhenIpSourceReturnsEmpty) {
     Ports ports;
     EXPECT_CALL(ports.ip_source, resolve(_, _)).WillOnce(Return(std::vector<InetAddress>{}));
     EXPECT_CALL(ports.dns, resolve(_, _, _)).Times(0);
-    EXPECT_CALL(ports.gateway, update(_, _)).Times(0);
+    EXPECT_CALL(ports.gateway, update(_, _, _)).Times(0);
 
     const UpdateWorkflow workflow(ports.dns, ports.ip_source, ports.gateway, ports.logger);
     const auto outcome = workflow.run(task, {});
@@ -196,7 +198,7 @@ TEST(UpdateWorkflow, UpdatesWhenDnsLookupFails) {
     EXPECT_CALL(ports.ip_source, resolve(_, _)).WillOnce(Return(one_v4(198, 51, 100, 1)));
     EXPECT_CALL(ports.dns, resolve(_, _, _))
         .WillOnce(Return(std::unexpected(DnsErrorInfo{DnsError::NX_DOMAIN, "domain does not exist"})));
-    EXPECT_CALL(ports.gateway, update(_, _)).WillOnce(Return(std::expected<void, domain::DriverError>{}));
+    EXPECT_CALL(ports.gateway, update(_, _, _)).WillOnce(Return(std::expected<void, domain::DriverError>{}));
 
     const UpdateWorkflow workflow(ports.dns, ports.ip_source, ports.gateway, ports.logger);
     const auto outcome = workflow.run(task, {});
@@ -213,7 +215,7 @@ TEST(UpdateWorkflow, UpdatesWhenDnsReturnsEmptyRecordList) {
     Ports ports;
     EXPECT_CALL(ports.ip_source, resolve(_, _)).WillOnce(Return(one_v4(198, 51, 100, 1)));
     EXPECT_CALL(ports.dns, resolve(_, _, _)).WillOnce(Return(std::vector<std::string>{}));
-    EXPECT_CALL(ports.gateway, update(_, _)).WillOnce(Return(std::expected<void, domain::DriverError>{}));
+    EXPECT_CALL(ports.gateway, update(_, _, _)).WillOnce(Return(std::expected<void, domain::DriverError>{}));
 
     const UpdateWorkflow workflow(ports.dns, ports.ip_source, ports.gateway, ports.logger);
     const auto outcome = workflow.run(task, {});
@@ -230,7 +232,7 @@ TEST(UpdateWorkflow, DriverFailureReturnsDriverFailed) {
     Ports ports;
     EXPECT_CALL(ports.ip_source, resolve(_, _)).WillOnce(Return(one_v4(198, 51, 100, 1)));
     EXPECT_CALL(ports.dns, resolve(_, _, _)).WillOnce(Return(std::vector<std::string>{"192.0.2.1"}));
-    EXPECT_CALL(ports.gateway, update(_, _))
+    EXPECT_CALL(ports.gateway, update(_, _, _))
         .WillOnce(Return(
             std::unexpected(domain::DriverError{domain::DriverError::Code::UPDATE_FAILED, "upstream rejected"})));
 
@@ -251,7 +253,7 @@ TEST(UpdateWorkflow, RateLimitedCarriesRetryAfterIntoUpdateError) {
     Ports ports;
     EXPECT_CALL(ports.ip_source, resolve(_, _)).WillOnce(Return(one_v4(198, 51, 100, 1)));
     EXPECT_CALL(ports.dns, resolve(_, _, _)).WillOnce(Return(std::vector<std::string>{"192.0.2.1"}));
-    EXPECT_CALL(ports.gateway, update(_, _))
+    EXPECT_CALL(ports.gateway, update(_, _, _))
         .WillOnce(
             Return(std::unexpected(domain::DriverError{domain::DriverError::Code::RATE_LIMITED, "slow down", 120})));
 
@@ -259,8 +261,8 @@ TEST(UpdateWorkflow, RateLimitedCarriesRetryAfterIntoUpdateError) {
     const auto outcome = workflow.run(task, {});
     ASSERT_FALSE(outcome.has_value());
     EXPECT_EQ(outcome.error().code, domain::UpdateError::Code::DRIVER_FAILED);
-    // RATE_LIMITED does not reschedule: the value is carried for
-    // observability but the scheduler must ignore it.
+    // The executor forwards any positive retry-after—whether supplied by a
+    // provider rate limit or a transport failure—to the scheduler.
     EXPECT_EQ(outcome.error().retry_after_seconds, 120);
 }
 
@@ -273,7 +275,7 @@ TEST(UpdateWorkflow, DriverNotFoundReturnsDriverFailed) {
     Ports ports;
     EXPECT_CALL(ports.ip_source, resolve(_, _)).WillOnce(Return(one_v4(198, 51, 100, 1)));
     EXPECT_CALL(ports.dns, resolve(_, _, _)).WillOnce(Return(std::vector<std::string>{"192.0.2.1"}));
-    EXPECT_CALL(ports.gateway, update(_, _))
+    EXPECT_CALL(ports.gateway, update(_, _, _))
         .WillOnce(
             Return(std::unexpected(domain::DriverError{domain::DriverError::Code::NOT_FOUND, "driver not loaded"})));
 
@@ -290,7 +292,7 @@ TEST(UpdateWorkflow, DriverUnknownErrorReturnsDriverFailed) {
     Ports ports;
     EXPECT_CALL(ports.ip_source, resolve(_, _)).WillOnce(Return(one_v4(198, 51, 100, 1)));
     EXPECT_CALL(ports.dns, resolve(_, _, _)).WillOnce(Return(std::vector<std::string>{"192.0.2.1"}));
-    EXPECT_CALL(ports.gateway, update(_, _))
+    EXPECT_CALL(ports.gateway, update(_, _, _))
         .WillOnce(Return(std::unexpected(
             domain::DriverError{domain::DriverError::Code::UNKNOWN, "Driver configuration parse error: ..."})));
 
@@ -310,7 +312,7 @@ TEST(UpdateWorkflow, FiltersLinkLocalForAaaaWhenNotAllowed) {
     Ports ports;
     // Only a link-local candidate is available; it must be filtered out.
     EXPECT_CALL(ports.ip_source, resolve(_, _)).WillOnce(Return(std::vector<InetAddress>{link_local_v6()}));
-    EXPECT_CALL(ports.gateway, update(_, _)).Times(0);
+    EXPECT_CALL(ports.gateway, update(_, _, _)).Times(0);
 
     const UpdateWorkflow workflow(ports.dns, ports.ip_source, ports.gateway, ports.logger);
     const auto outcome = workflow.run(task, {});
@@ -328,8 +330,10 @@ TEST(UpdateWorkflow, KeepsLinkLocalForAaaaWhenAllowed) {
     Ports ports;
     EXPECT_CALL(ports.ip_source, resolve(_, _)).WillOnce(Return(std::vector<InetAddress>{link_local_v6()}));
     EXPECT_CALL(ports.dns, resolve(_, _, _)).WillOnce(Return(std::vector<std::string>{"2001:db8::1"}));
-    EXPECT_CALL(ports.gateway, update(_, _))
-        .WillOnce([](std::string_view, const DriverUpdateCommand& cmd) -> std::expected<void, domain::DriverError> {
+    EXPECT_CALL(ports.gateway, update(_, _, _))
+        .WillOnce([](std::string_view,
+                     const DriverUpdateCommand& cmd,
+                     const Utils::CancellationToken&) -> std::expected<void, domain::DriverError> {
             EXPECT_EQ(cmd.ip_addr, "fe80::1");
             EXPECT_EQ(cmd.rd_type, "AAAA");
             return {};
@@ -354,7 +358,7 @@ TEST(UpdateWorkflow, SkipsWhenIpSourceFails) {
         .WillOnce(Return(
             std::unexpected(domain::IpSourceError{domain::IpSourceError::Code::UNAVAILABLE, "interface not found"})));
     EXPECT_CALL(ports.dns, resolve(_, _, _)).Times(0);
-    EXPECT_CALL(ports.gateway, update(_, _)).Times(0);
+    EXPECT_CALL(ports.gateway, update(_, _, _)).Times(0);
 
     const UpdateWorkflow workflow(ports.dns, ports.ip_source, ports.gateway, ports.logger);
     const auto outcome = workflow.run(task, {});
@@ -376,8 +380,10 @@ TEST(UpdateWorkflow, MultipleIpCandidates_PicksFirst) {
             InetAddress{Inet4Address::from_bytes({198, 51, 100, 1})},
         }));
     EXPECT_CALL(ports.dns, resolve(_, _, _)).WillOnce(Return(std::vector<std::string>{"192.0.2.1"}));
-    EXPECT_CALL(ports.gateway, update(_, _))
-        .WillOnce([](std::string_view, const DriverUpdateCommand& cmd) -> std::expected<void, domain::DriverError> {
+    EXPECT_CALL(ports.gateway, update(_, _, _))
+        .WillOnce([](std::string_view,
+                     const DriverUpdateCommand& cmd,
+                     const Utils::CancellationToken&) -> std::expected<void, domain::DriverError> {
             EXPECT_EQ(cmd.ip_addr, "10.0.0.1");
             return {};
         });
@@ -396,7 +402,7 @@ TEST(UpdateWorkflow, CancelledDnsLookupDoesNotInvokeDriver) {
     EXPECT_CALL(ports.ip_source, resolve(_, _)).WillOnce(Return(one_v4(198, 51, 100, 1)));
     EXPECT_CALL(ports.dns, resolve(task.fqdn, RecordKind::A, _))
         .WillOnce(Return(std::unexpected(DnsErrorInfo{DnsError::CANCELLED, "cancelled"})));
-    EXPECT_CALL(ports.gateway, update(_, _)).Times(0);
+    EXPECT_CALL(ports.gateway, update(_, _, _)).Times(0);
 
     const UpdateWorkflow workflow(ports.dns, ports.ip_source, ports.gateway, ports.logger);
     const auto outcome = workflow.run(task, {});
@@ -413,7 +419,7 @@ TEST(UpdateWorkflow, CancelledIpSourceDoesNotInvokeDnsOrDriver) {
     EXPECT_CALL(ports.ip_source, resolve(_, _))
         .WillOnce(Return(std::unexpected(domain::IpSourceError{domain::IpSourceError::Code::CANCELLED, "cancelled"})));
     EXPECT_CALL(ports.dns, resolve(_, _, _)).Times(0);
-    EXPECT_CALL(ports.gateway, update(_, _)).Times(0);
+    EXPECT_CALL(ports.gateway, update(_, _, _)).Times(0);
 
     const UpdateWorkflow workflow(ports.dns, ports.ip_source, ports.gateway, ports.logger);
     const auto outcome = workflow.run(task, {});
@@ -435,7 +441,7 @@ TEST(UpdateWorkflow, CancellationBeforeDriverDoesNotInvokeDriver) {
         return std::expected<std::vector<InetAddress>, domain::IpSourceError>{one_v4(198, 51, 100, 1)};
     });
     EXPECT_CALL(ports.dns, resolve(_, _, _)).Times(0);
-    EXPECT_CALL(ports.gateway, update(_, _)).Times(0);
+    EXPECT_CALL(ports.gateway, update(_, _, _)).Times(0);
 
     const UpdateWorkflow workflow(ports.dns, ports.ip_source, ports.gateway, ports.logger);
     const auto outcome = workflow.run(task, source.token());
@@ -451,7 +457,7 @@ TEST(UpdateWorkflow, DriverCancellationReturnsCancelled) {
     Ports ports;
     EXPECT_CALL(ports.ip_source, resolve(_, _)).WillOnce(Return(one_v4(198, 51, 100, 1)));
     EXPECT_CALL(ports.dns, resolve(_, _, _)).WillOnce(Return(std::vector<std::string>{"192.0.2.1"}));
-    EXPECT_CALL(ports.gateway, update(_, _))
+    EXPECT_CALL(ports.gateway, update(_, _, _))
         .WillOnce(Return(std::unexpected(domain::DriverError{domain::DriverError::Code::CANCELLED, "cancelled"})));
 
     const UpdateWorkflow workflow(ports.dns, ports.ip_source, ports.gateway, ports.logger);

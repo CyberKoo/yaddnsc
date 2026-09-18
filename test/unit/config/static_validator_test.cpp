@@ -453,3 +453,16 @@ TEST(StaticValidatorTest, ValidateAndNormalize_FailureReturnsAllErrors) {
     EXPECT_EQ(result.error().size(), 2U);
     EXPECT_EQ(result.error().front().code, Code::EMPTY_DOMAIN_NAME);
 }
+
+TEST(StaticValidatorTest, ValidateAndNormalize_RejectsEmptyCustomResolver) {
+    auto cfg = make_domain_config();
+    cfg.resolver.use_custom_server = true;
+
+    const auto result = Config::validate_and_normalize(cfg);
+
+    ASSERT_FALSE(result.has_value());
+    ASSERT_EQ(result.error().size(), 1U);
+    EXPECT_EQ(result.error().front().code, Code::NO_RESOLVER_SERVERS);
+    EXPECT_EQ(result.error().front().message,
+              "use_custom_server is enabled but no custom resolver servers are configured");
+}
