@@ -12,12 +12,12 @@
 
 /// Log severity levels, ordered by verbosity (trace is the most verbose).
 enum class LogLevel {
-    trace,
-    debug,
-    info,
-    warn,
-    error,
-    critical,
+    TRACE,
+    DEBUG,
+    INFO,
+    WARN,
+    ERROR,
+    CRITICAL,
 };
 
 /// Logger — thin, thread-safe log facade port for the application layer and
@@ -64,10 +64,10 @@ public:
         } \
     } while (0)
 
-#define YLOG_DEBUG(logger, ...) YLOG(logger, LogLevel::debug, __VA_ARGS__)
-#define YLOG_INFO(logger, ...) YLOG(logger, LogLevel::info, __VA_ARGS__)
-#define YLOG_WARN(logger, ...) YLOG(logger, LogLevel::warn, __VA_ARGS__)
-#define YLOG_ERROR(logger, ...) YLOG(logger, LogLevel::error, __VA_ARGS__)
-#define YLOG_CRITICAL(logger, ...) YLOG(logger, LogLevel::critical, __VA_ARGS__)
+#define YLOG_DEBUG(logger, ...) YLOG(logger, LogLevel::DEBUG, __VA_ARGS__)
+#define YLOG_INFO(logger, ...) YLOG(logger, LogLevel::INFO, __VA_ARGS__)
+#define YLOG_WARN(logger, ...) YLOG(logger, LogLevel::WARN, __VA_ARGS__)
+#define YLOG_ERROR(logger, ...) YLOG(logger, LogLevel::ERROR, __VA_ARGS__)
+#define YLOG_CRITICAL(logger, ...) YLOG(logger, LogLevel::CRITICAL, __VA_ARGS__)
 
 #endif // YADDNSC_APPLICATION_PORTS_LOG_H

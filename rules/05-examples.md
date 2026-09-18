@@ -43,9 +43,9 @@ int divide(int a, int b, int* result) {
 }
 
 // GOOD: std::expected (C++23) — no allocation, safe to mark noexcept
-enum class MathError { DivisionByZero };
+enum class MathError { DIVISION_BY_ZERO };
 [[nodiscard]] std::expected<int, MathError> divide(int a, int b) noexcept {
-    if (b == 0) return std::unexpected(MathError::DivisionByZero);
+    if (b == 0) return std::unexpected(MathError::DIVISION_BY_ZERO);
     return a / b;
 }
 

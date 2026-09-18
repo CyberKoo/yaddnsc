@@ -13,17 +13,17 @@
 namespace {
 [[nodiscard]] constexpr spdlog::level::level_enum to_spdlog_level(LogLevel level) noexcept {
     switch (level) {
-        case LogLevel::trace:
+        case LogLevel::TRACE:
             return spdlog::level::trace;
-        case LogLevel::debug:
+        case LogLevel::DEBUG:
             return spdlog::level::debug;
-        case LogLevel::info:
+        case LogLevel::INFO:
             return spdlog::level::info;
-        case LogLevel::warn:
+        case LogLevel::WARN:
             return spdlog::level::warn;
-        case LogLevel::error:
+        case LogLevel::ERROR:
             return spdlog::level::err;
-        case LogLevel::critical:
+        case LogLevel::CRITICAL:
             return spdlog::level::critical;
     }
     return spdlog::level::info;

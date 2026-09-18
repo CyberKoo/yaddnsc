@@ -81,12 +81,12 @@ TEST(SpdlogLoggerTest, ForwardsEveryLevelWithSourceLocation) {
     ScopedRecordingLogger env;
     const SpdlogLogger logger;
 
-    logger.log(LogLevel::trace, "t", std::source_location::current());
-    logger.log(LogLevel::debug, "d", std::source_location::current());
-    logger.log(LogLevel::info, "i", std::source_location::current());
-    logger.log(LogLevel::warn, "w", std::source_location::current());
-    logger.log(LogLevel::error, "e", std::source_location::current());
-    logger.log(LogLevel::critical, "c", std::source_location::current());
+    logger.log(LogLevel::TRACE, "t", std::source_location::current());
+    logger.log(LogLevel::DEBUG, "d", std::source_location::current());
+    logger.log(LogLevel::INFO, "i", std::source_location::current());
+    logger.log(LogLevel::WARN, "w", std::source_location::current());
+    logger.log(LogLevel::ERROR, "e", std::source_location::current());
+    logger.log(LogLevel::CRITICAL, "c", std::source_location::current());
 
     const auto& records = env.records();
     ASSERT_EQ(records.size(), 6u);
@@ -107,7 +107,7 @@ TEST(SpdlogLoggerTest, LogExplicitForwardsExplicitSourceLocation) {
     const SpdlogLogger logger;
 
     // The plugin Host Services path: location arrives as plain data.
-    logger.log_explicit(LogLevel::warn, "via explicit", "plugin.cpp", 42, "update");
+    logger.log_explicit(LogLevel::WARN, "via explicit", "plugin.cpp", 42, "update");
 
     const auto& records = env.records();
     ASSERT_EQ(records.size(), 1u);
@@ -123,10 +123,10 @@ TEST(SpdlogLoggerTest, IsEnabledFollowsTheActiveSpdlogLevel) {
     spdlog::default_logger()->set_level(spdlog::level::info);
     const SpdlogLogger logger;
 
-    EXPECT_FALSE(logger.is_enabled(LogLevel::trace));
-    EXPECT_FALSE(logger.is_enabled(LogLevel::debug));
-    EXPECT_TRUE(logger.is_enabled(LogLevel::info));
-    EXPECT_TRUE(logger.is_enabled(LogLevel::warn));
-    EXPECT_TRUE(logger.is_enabled(LogLevel::error));
-    EXPECT_TRUE(logger.is_enabled(LogLevel::critical));
+    EXPECT_FALSE(logger.is_enabled(LogLevel::TRACE));
+    EXPECT_FALSE(logger.is_enabled(LogLevel::DEBUG));
+    EXPECT_TRUE(logger.is_enabled(LogLevel::INFO));
+    EXPECT_TRUE(logger.is_enabled(LogLevel::WARN));
+    EXPECT_TRUE(logger.is_enabled(LogLevel::ERROR));
+    EXPECT_TRUE(logger.is_enabled(LogLevel::CRITICAL));
 }

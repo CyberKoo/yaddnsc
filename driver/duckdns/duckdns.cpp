@@ -49,7 +49,7 @@ Result DuckDnsDriver::update(UpdateContext& context) {
 
     HttpRequest request{};
     request.url = generate_url(cfg, params);
-    request.method = Method::Get;
+    request.method = Method::GET;
 
     return run_update(context, DRIVER_NAME, request, [](const HttpResponse& response, const Services& services) {
         return check_response(response, services);

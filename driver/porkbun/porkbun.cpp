@@ -62,7 +62,7 @@ Result PorkbunDriver::update(UpdateContext& context) {
     request.headers.push_back({"X-Secret-API-Key", cfg.secret_api_key});
     request.body = generate_body(cfg, params);
     request.content_type = "application/json";
-    request.method = Method::Post;
+    request.method = Method::POST;
 
     return run_update(context, DRIVER_NAME, request, [](const HttpResponse& response, const Services& services) {
         return check_response(response, services);

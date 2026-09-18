@@ -65,17 +65,17 @@ void write_error(yaddnsc_error* out_error,
 [[nodiscard]] LogLevel to_log_level(yaddnsc_log_level level) noexcept {
     switch (level) {
         case YADDNSC_LOG_TRACE:
-            return LogLevel::trace;
+            return LogLevel::TRACE;
         case YADDNSC_LOG_DEBUG:
-            return LogLevel::debug;
+            return LogLevel::DEBUG;
         case YADDNSC_LOG_INFO:
-            return LogLevel::info;
+            return LogLevel::INFO;
         case YADDNSC_LOG_WARN:
-            return LogLevel::warn;
+            return LogLevel::WARN;
         case YADDNSC_LOG_ERROR:
-            return LogLevel::error;
+            return LogLevel::ERROR;
         default:
-            return LogLevel::info;
+            return LogLevel::INFO;
     }
 }
 

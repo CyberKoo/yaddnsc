@@ -4,9 +4,9 @@
 // MockDriverGateway and a NullLogger.
 //
 // Behaviour locked here (legacy Updater semantics):
-//   - IP unchanged            → driver not invoked        (SkipUnchanged)
-//   - IP changed / DNS fails  → update attempted          (UpdateChanged)
-//   - force_update            → DNS comparison skipped    (UpdateForced)
+//   - IP unchanged            → driver not invoked        (SKIP_UNCHANGED)
+//   - IP changed / DNS fails  → update attempted          (UPDATE_CHANGED)
+//   - force_update            → DNS comparison skipped    (UPDATE_FORCED)
 //   - no candidate address    → update skipped            (SKIPPED_NO_ADDRESS)
 //   - driver failure          → UpdateError::DRIVER_FAILED, logged, never thrown
 // The AAAA link-local/ULA filtering rules live in domain::select_address and
@@ -119,7 +119,7 @@ TEST(UpdateWorkflow, SkipsUpdateWhenIpUnchanged) {
     const UpdateWorkflow workflow(ports.dns, ports.ip_source, ports.gateway, ports.logger);
     const auto outcome = workflow.run(task, {});
     ASSERT_TRUE(outcome.has_value());
-    EXPECT_EQ(outcome->decision, domain::UpdateDecision::SkipUnchanged);
+    EXPECT_EQ(outcome->decision, domain::UpdateDecision::SKIP_UNCHANGED);
 }
 
 // ── IP changed → driver invoked with the mapped command ──────────────────────
@@ -148,7 +148,7 @@ TEST(UpdateWorkflow, UpdatesWhenIpChanged) {
     const UpdateWorkflow workflow(ports.dns, ports.ip_source, ports.gateway, ports.logger);
     const auto outcome = workflow.run(task, {});
     ASSERT_TRUE(outcome.has_value());
-    EXPECT_EQ(outcome->decision, domain::UpdateDecision::UpdateChanged);
+    EXPECT_EQ(outcome->decision, domain::UpdateDecision::UPDATE_CHANGED);
 }
 
 // ── force_update → DNS comparison skipped ─────────────────────────────────────
@@ -168,7 +168,7 @@ TEST(UpdateWorkflow, ForceUpdateSkipsDnsComparison) {
     const UpdateWorkflow workflow(ports.dns, ports.ip_source, ports.gateway, ports.logger);
     const auto outcome = workflow.run(task, {});
     ASSERT_TRUE(outcome.has_value());
-    EXPECT_EQ(outcome->decision, domain::UpdateDecision::UpdateForced);
+    EXPECT_EQ(outcome->decision, domain::UpdateDecision::UPDATE_FORCED);
 }
 
 // ── empty IP source → update skipped ──────────────────────────────────────────
@@ -203,7 +203,7 @@ TEST(UpdateWorkflow, UpdatesWhenDnsLookupFails) {
     const UpdateWorkflow workflow(ports.dns, ports.ip_source, ports.gateway, ports.logger);
     const auto outcome = workflow.run(task, {});
     ASSERT_TRUE(outcome.has_value());
-    EXPECT_EQ(outcome->decision, domain::UpdateDecision::UpdateChanged);
+    EXPECT_EQ(outcome->decision, domain::UpdateDecision::UPDATE_CHANGED);
 }
 
 // ── DNS success with zero records → still updates ────────────────────────────
@@ -220,7 +220,7 @@ TEST(UpdateWorkflow, UpdatesWhenDnsReturnsEmptyRecordList) {
     const UpdateWorkflow workflow(ports.dns, ports.ip_source, ports.gateway, ports.logger);
     const auto outcome = workflow.run(task, {});
     ASSERT_TRUE(outcome.has_value());
-    EXPECT_EQ(outcome->decision, domain::UpdateDecision::UpdateChanged);
+    EXPECT_EQ(outcome->decision, domain::UpdateDecision::UPDATE_CHANGED);
 }
 
 // ── driver reports failure → DRIVER_FAILED error value, no throw ─────────────
@@ -342,7 +342,7 @@ TEST(UpdateWorkflow, KeepsLinkLocalForAaaaWhenAllowed) {
     const UpdateWorkflow workflow(ports.dns, ports.ip_source, ports.gateway, ports.logger);
     const auto outcome = workflow.run(task, {});
     ASSERT_TRUE(outcome.has_value());
-    EXPECT_EQ(outcome->decision, domain::UpdateDecision::UpdateChanged);
+    EXPECT_EQ(outcome->decision, domain::UpdateDecision::UPDATE_CHANGED);
 }
 
 // ── IP source failure arrives as an error value → update skipped ─────────────
@@ -391,7 +391,7 @@ TEST(UpdateWorkflow, MultipleIpCandidates_PicksFirst) {
     const UpdateWorkflow workflow(ports.dns, ports.ip_source, ports.gateway, ports.logger);
     const auto outcome = workflow.run(task, {});
     ASSERT_TRUE(outcome.has_value());
-    EXPECT_EQ(outcome->decision, domain::UpdateDecision::UpdateChanged);
+    EXPECT_EQ(outcome->decision, domain::UpdateDecision::UPDATE_CHANGED);
 }
 
 TEST(UpdateWorkflow, CancelledDnsLookupDoesNotInvokeDriver) {

@@ -67,13 +67,13 @@ using Result = std::expected<void, Error>;
 /* ── HTTP ─────────────────────────────────────────────────────────────────*/
 
 enum class Method : yaddnsc_http_method {
-    Get = YADDNSC_HTTP_GET,
-    Post = YADDNSC_HTTP_POST,
-    Put = YADDNSC_HTTP_PUT,
-    Delete = YADDNSC_HTTP_DELETE,
-    Patch = YADDNSC_HTTP_PATCH,
-    Head = YADDNSC_HTTP_HEAD,
-    Options = YADDNSC_HTTP_OPTIONS,
+    GET = YADDNSC_HTTP_GET,
+    POST = YADDNSC_HTTP_POST,
+    PUT = YADDNSC_HTTP_PUT,
+    DELETE = YADDNSC_HTTP_DELETE,
+    PATCH = YADDNSC_HTTP_PATCH,
+    HEAD = YADDNSC_HTTP_HEAD,
+    OPTIONS = YADDNSC_HTTP_OPTIONS,
 };
 
 struct HttpHeader {
@@ -84,7 +84,7 @@ struct HttpHeader {
 /// An owned HTTP request handed to Services::exchange(). `body` engaged means
 /// "send a body" (possibly empty); std::nullopt means no body at all.
 struct HttpRequest {
-    Method method = Method::Get;
+    Method method = Method::GET;
     std::string url;
     std::vector<HttpHeader> headers;
     std::optional<std::string> body;
@@ -119,19 +119,19 @@ using ExchangeResult = std::expected<HttpResponse, HttpError>;
 /// emits; used by request logging).
 [[nodiscard]] inline std::string_view method_name(Method method) noexcept {
     switch (method) {
-        case Method::Get:
+        case Method::GET:
             return "GET";
-        case Method::Post:
+        case Method::POST:
             return "POST";
-        case Method::Put:
+        case Method::PUT:
             return "PUT";
-        case Method::Delete:
+        case Method::DELETE:
             return "DELETE";
-        case Method::Patch:
+        case Method::PATCH:
             return "PATCH";
-        case Method::Head:
+        case Method::HEAD:
             return "HEAD";
-        case Method::Options:
+        case Method::OPTIONS:
             return "OPTIONS";
     }
     return "GET";

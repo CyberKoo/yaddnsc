@@ -56,7 +56,7 @@ Result VultrDriver::update(UpdateContext& context) {
         VultrRequestBody{.name = std::string(params.subdomain), .data = std::string(params.ip_address), .ttl = cfg.ttl};
     request.body = glz::write_json(body).value_or("{}");
     request.content_type = "application/json";
-    request.method = Method::Patch;
+    request.method = Method::PATCH;
 
     return run_update(context, DRIVER_NAME, request, [](const HttpResponse& response, const Services& services) {
         return check_response(response, services);

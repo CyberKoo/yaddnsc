@@ -88,7 +88,7 @@ HttpRequest SimpleDriver::generate_request(const UpdateRequest& params) {
 
     HttpRequest request{};
     request.url = std::move(url);
-    request.method = Method::Get;
+    request.method = Method::GET;
     return request;
 }
 

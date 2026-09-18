@@ -13,20 +13,20 @@
 /// cycle.
 ///
 /// Locked behaviours (legacy Updater semantics):
-///   - no local address          → SkipNoAddress (the driver is never called);
-///   - force_update              → UpdateForced (DNS records are not consulted);
-///   - the FIRST record equals the local address → SkipUnchanged;
+///   - no local address          → SKIP_NO_ADDRESS (the driver is never called);
+///   - force_update              → UPDATE_FORCED (DNS records are not consulted);
+///   - the FIRST record equals the local address → SKIP_UNCHANGED;
 ///   - everything else — including an empty record list, whether the lookup
-///     succeeded empty or failed and was mapped to empty — is UpdateChanged.
+///     succeeded empty or failed and was mapped to empty — is UPDATE_CHANGED.
 /// Only the first record is ever compared; no "skip because no record" state
 /// exists.
 namespace domain {
 
 enum class UpdateDecision {
-    SkipUnchanged,  ///< First DNS record already equals the local address
-    UpdateChanged,  ///< Records differ (or are unavailable) — update
-    UpdateForced,   ///< force_update cycle — update without comparing
-    SkipNoAddress,  ///< No usable local address — do not call the driver
+    SKIP_UNCHANGED,  ///< First DNS record already equals the local address
+    UPDATE_CHANGED,  ///< Records differ (or are unavailable) — update
+    UPDATE_FORCED,   ///< force_update cycle — update without comparing
+    SKIP_NO_ADDRESS, ///< No usable local address — do not call the driver
 };
 
 /// Decide what one update cycle should do.
@@ -39,15 +39,15 @@ enum class UpdateDecision {
                                                   const std::optional<std::string> &local_address,
                                                   bool force_update) noexcept {
     if (!local_address.has_value()) {
-        return UpdateDecision::SkipNoAddress;
+        return UpdateDecision::SKIP_NO_ADDRESS;
     }
     if (force_update) {
-        return UpdateDecision::UpdateForced;
+        return UpdateDecision::UPDATE_FORCED;
     }
     if (!current_records.empty() && current_records.front() == *local_address) {
-        return UpdateDecision::SkipUnchanged;
+        return UpdateDecision::SKIP_UNCHANGED;
     }
-    return UpdateDecision::UpdateChanged;
+    return UpdateDecision::UPDATE_CHANGED;
 }
 
 } // namespace domain

@@ -70,7 +70,7 @@ private:
 
 [[nodiscard]] yaddnsc::sdk::HttpRequest exchange_request() {
     return {
-        .method = yaddnsc::sdk::Method::Get,
+        .method = yaddnsc::sdk::Method::GET,
         .url = "https://example.com",
         .headers = {},
         .body = std::nullopt,
@@ -341,24 +341,24 @@ namespace {
 
 TEST(SdkHelpersTest, Format_AllMethods) {
     // Every Method maps to its canonical string.
-    EXPECT_TRUE(yaddnsc::sdk::format_request(make_request(yaddnsc::sdk::Method::Get)).find(R"(method="GET")") !=
+    EXPECT_TRUE(yaddnsc::sdk::format_request(make_request(yaddnsc::sdk::Method::GET)).find(R"(method="GET")") !=
                 std::string::npos);
-    EXPECT_TRUE(yaddnsc::sdk::format_request(make_request(yaddnsc::sdk::Method::Post)).find(R"(method="POST")") !=
+    EXPECT_TRUE(yaddnsc::sdk::format_request(make_request(yaddnsc::sdk::Method::POST)).find(R"(method="POST")") !=
                 std::string::npos);
-    EXPECT_TRUE(yaddnsc::sdk::format_request(make_request(yaddnsc::sdk::Method::Put)).find(R"(method="PUT")") !=
+    EXPECT_TRUE(yaddnsc::sdk::format_request(make_request(yaddnsc::sdk::Method::PUT)).find(R"(method="PUT")") !=
                 std::string::npos);
-    EXPECT_TRUE(yaddnsc::sdk::format_request(make_request(yaddnsc::sdk::Method::Patch)).find(R"(method="PATCH")") !=
+    EXPECT_TRUE(yaddnsc::sdk::format_request(make_request(yaddnsc::sdk::Method::PATCH)).find(R"(method="PATCH")") !=
                 std::string::npos);
-    EXPECT_TRUE(yaddnsc::sdk::format_request(make_request(yaddnsc::sdk::Method::Delete)).find(R"(method="DELETE")") !=
+    EXPECT_TRUE(yaddnsc::sdk::format_request(make_request(yaddnsc::sdk::Method::DELETE)).find(R"(method="DELETE")") !=
                 std::string::npos);
-    EXPECT_TRUE(yaddnsc::sdk::format_request(make_request(yaddnsc::sdk::Method::Head)).find(R"(method="HEAD")") !=
+    EXPECT_TRUE(yaddnsc::sdk::format_request(make_request(yaddnsc::sdk::Method::HEAD)).find(R"(method="HEAD")") !=
                 std::string::npos);
-    EXPECT_TRUE(yaddnsc::sdk::format_request(make_request(yaddnsc::sdk::Method::Options)).find(R"(method="OPTIONS")") !=
+    EXPECT_TRUE(yaddnsc::sdk::format_request(make_request(yaddnsc::sdk::Method::OPTIONS)).find(R"(method="OPTIONS")") !=
                 std::string::npos);
 }
 
 TEST(SdkHelpersTest, Format_RedactsSensitiveHeader) {
-    const auto out = yaddnsc::sdk::format_request(make_request(yaddnsc::sdk::Method::Post, "{}"));
+    const auto out = yaddnsc::sdk::format_request(make_request(yaddnsc::sdk::Method::POST, "{}"));
     EXPECT_TRUE(out.find("Authorization=***") != std::string::npos);
     EXPECT_TRUE(out.find("Bearer top-secret") == std::string::npos);
     // Non-sensitive headers pass through.
@@ -366,13 +366,13 @@ TEST(SdkHelpersTest, Format_RedactsSensitiveHeader) {
 }
 
 TEST(SdkHelpersTest, Format_RedactsSensitiveBody) {
-    const auto out = yaddnsc::sdk::format_request(make_request(yaddnsc::sdk::Method::Post, R"({"token": "abc"})"));
+    const auto out = yaddnsc::sdk::format_request(make_request(yaddnsc::sdk::Method::POST, R"({"token": "abc"})"));
     EXPECT_TRUE(out.find(R"("token": ***)") != std::string::npos);
     EXPECT_TRUE(out.find("abc") == std::string::npos);
 }
 
 TEST(SdkHelpersTest, Format_EmptyBody) {
-    const auto out = yaddnsc::sdk::format_request(make_request(yaddnsc::sdk::Method::Get));
+    const auto out = yaddnsc::sdk::format_request(make_request(yaddnsc::sdk::Method::GET));
     EXPECT_TRUE(out.find(R"(body="")") != std::string::npos);
 }
 

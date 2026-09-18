@@ -86,22 +86,22 @@ UpdateOutcome UpdateWorkflow::run(const domain::UpdateTask& task, const Utils::C
         const auto local_addr = local_ip->to_string();
         const auto decision = domain::decide_update(records, local_addr, task.force_update);
         switch (decision) {
-            case domain::UpdateDecision::SkipNoAddress:
+            case domain::UpdateDecision::SKIP_NO_ADDRESS:
                 // Unreachable: step 1 already returned. Kept for exhaustive
                 // switching over the decision contract.
                 return std::unexpected(
                     domain::UpdateError{domain::UpdateError::Code::SKIPPED_NO_ADDRESS, "No valid IP address found"});
-            case domain::UpdateDecision::SkipUnchanged:
+            case domain::UpdateDecision::SKIP_UNCHANGED:
                 YLOG_DEBUG(logger_, "Domain {} ({}) unchanged ({}), skipping update", task.fqdn, rd_type,
                            records.front());
                 return UpdateResult{decision};
-            case domain::UpdateDecision::UpdateChanged:
+            case domain::UpdateDecision::UPDATE_CHANGED:
                 if (!records.empty()) {
                     YLOG_DEBUG(logger_, "Domain {} ({}) will be updated to {} (was {})", task.fqdn, rd_type, local_addr,
                                records.front());
                 }
                 break;
-            case domain::UpdateDecision::UpdateForced:
+            case domain::UpdateDecision::UPDATE_FORCED:
                 YLOG_INFO(logger_, "Force update triggered for {}", task.fqdn);
                 break;
         }

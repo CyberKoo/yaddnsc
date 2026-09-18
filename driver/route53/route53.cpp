@@ -150,7 +150,7 @@ Result Route53Driver::update(UpdateContext& context) {
     // -----------------------------------------------------------------------
     HttpRequest request{};
     request.url = fmt::format("https://{}{}", R53_HOST, url_path);
-    request.method = Method::Post;
+    request.method = Method::POST;
     request.content_type = "application/xml";
     request.body = std::move(body);
     request.headers.push_back({"Host", std::string(R53_HOST)});

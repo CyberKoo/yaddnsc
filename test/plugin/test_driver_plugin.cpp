@@ -228,7 +228,7 @@ private:
                     Error{YADDNSC_STATUS_CANCELLED, "plugin observed cancellation before next HTTP exchange", 0});
             }
             HttpRequest request{};
-            request.method = yaddnsc::sdk::Method::Post;
+            request.method = yaddnsc::sdk::Method::POST;
             request.url = fmt::format("{}/{}", url, i);
             request.headers.push_back({"X-Seq", fmt::format("{}", i)});
             request.body = fmt::format("plugin-request-{}", i);

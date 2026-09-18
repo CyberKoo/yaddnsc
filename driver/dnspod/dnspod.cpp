@@ -105,7 +105,7 @@ HttpRequest DNSPodDriver::generate_request(const DNSPodParams& cfg, const Update
                                               {"record_line_id", cfg.record_line_id},
                                               {"format", "json"}});
     request.content_type = "application/x-www-form-urlencoded";
-    request.method = Method::Post;
+    request.method = Method::POST;
 
     return request;
 }

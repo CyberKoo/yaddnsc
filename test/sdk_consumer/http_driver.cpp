@@ -8,7 +8,7 @@ class HttpDriver final : public yaddnsc::sdk::Driver {
 public:
     [[nodiscard]] sdk::Result update(sdk::UpdateContext &context) override {
         const sdk::HttpRequest request{
-                .method = sdk::Method::Get,
+                .method = sdk::Method::GET,
                 .url = "https://example.invalid/health",
                 .headers = {},
                 .body = std::nullopt,

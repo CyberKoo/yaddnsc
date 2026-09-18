@@ -90,7 +90,7 @@ HttpRequest NamecheapDriver::generate_request(const NamecheapParams& cfg, const 
     HttpRequest request{};
     request.url = fmt::format("{}?host={}&domain={}&password={}&ip={}", API_URL, params.subdomain, params.domain,
                               cfg.password, params.ip_address);
-    request.method = Method::Get;
+    request.method = Method::GET;
     return request;
 }
 

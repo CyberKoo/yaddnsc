@@ -188,7 +188,7 @@ HttpRequest AlibabaCloudDriver::generate_request(const AlibabaParams& cfg, const
     request.url = std::string(API_URL);
     request.body = std::move(canonical_query);
     request.content_type = "application/x-www-form-urlencoded";
-    request.method = Method::Post;
+    request.method = Method::POST;
 
     return request;
 }

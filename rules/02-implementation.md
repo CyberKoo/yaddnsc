@@ -143,6 +143,7 @@ All formatting is enforced by **clang-format** (`BasedOnStyle: Chromium`). Namin
 ## Enums
 
 - Always use `enum class`. Avoid plain `enum`.
+- Name enumerators in `UPPER_CASE_CONSTANT` style.
 - Use **magic_enum** for reflection (name/enum conversion, iteration).
 - Use the project's **fmt polyfill** for compile-time checked formatting of enum values. Do not use raw `std::format` or `fmt::format` directly. All enum `fmt::formatter` specializations are registered through the polyfill's shared, project-wide header; once registered there, **spdlog can log the enum directly** (`logger->info("state: {}", state)`). An enum not registered in the polyfill must not be logged.
 - Use `std::to_underlying` (C++23) for underlying integer conversions when explicitly needed.

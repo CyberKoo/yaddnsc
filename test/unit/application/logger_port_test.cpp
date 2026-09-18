@@ -45,10 +45,10 @@ private:
 TEST(LoggerPortTest, DefaultLogExplicitForwardsLevelAndMessageToLog) {
     RecordingLogger logger;
 
-    logger.log_explicit(LogLevel::warn, "via default explicit", "plugin.cpp", 7, "update");
+    logger.log_explicit(LogLevel::WARN, "via default explicit", "plugin.cpp", 7, "update");
 
     ASSERT_EQ(logger.records().size(), 1u);
-    EXPECT_EQ(logger.records()[0].level, LogLevel::warn);
+    EXPECT_EQ(logger.records()[0].level, LogLevel::WARN);
     EXPECT_EQ(logger.records()[0].message, "via default explicit");
 }
 
@@ -57,6 +57,6 @@ TEST(LoggerPortTest, IsEnabledDrivesYlogMacroFormatting) {
     // The level is enabled, so the YLOG_* macro formats and emits...
     YLOG_WARN(logger, "formatted {}", 42);
     ASSERT_EQ(logger.records().size(), 1u);
-    EXPECT_EQ(logger.records()[0].level, LogLevel::warn);
+    EXPECT_EQ(logger.records()[0].level, LogLevel::WARN);
     EXPECT_EQ(logger.records()[0].message, "formatted 42");
 }
