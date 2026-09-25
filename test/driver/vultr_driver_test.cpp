@@ -118,20 +118,16 @@ TEST(VultrDriverTest, Update_204_ReturnsOk) {
 }
 
 TEST(VultrDriverTest, Update_Non204_WithErrorBody_ReturnsUpstreamRejected) {
+    // Real Vultr API v2 error shape: {"error": "...", "status": 400}
     FakeHostServices fake;
-    fake.queue_response(400, R"({"errors":[{"detail":"Invalid record ID"}]})");
+    fake.queue_response(400, R"({"error":"Invalid record ID","status":400})");
     const auto result = run_abi_update(fake, CONFIG, "1.2.3.4", "A", "example.com", "www", "www.example.com");
     EXPECT_EQ(result.status, YADDNSC_STATUS_UPSTREAM_REJECTED);
 }
 
-TEST(VultrDriverTest, Update_Non204_WithMultipleErrors_ReturnsUpstreamRejected) {
+TEST(VultrDriverTest, Update_Non204_AuthError_ReturnsUpstreamRejected) {
     FakeHostServices fake;
-    fake.queue_response(400, R"({
-        "errors": [
-            {"detail": "Invalid API key"},
-            {"detail": "Rate limit exceeded"}
-        ]
-    })");
+    fake.queue_response(401, R"({"error":"Invalid API key","status":401})");
     const auto result = run_abi_update(fake, CONFIG, "1.2.3.4", "A", "example.com", "www", "www.example.com");
     EXPECT_EQ(result.status, YADDNSC_STATUS_UPSTREAM_REJECTED);
 }

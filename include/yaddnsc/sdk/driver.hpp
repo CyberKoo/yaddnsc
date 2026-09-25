@@ -10,7 +10,8 @@
 /// Compiled into each driver plugin. Provides:
 ///   - owned/view wrappers for the C structs (HttpRequest, HttpResponse,
 ///     UpdateRequest, UpdateContext),
-///   - the Driver base class with parse_config<T>() JSON deserialisation,
+///   - the Driver base class with parse_config<T>() / parse_response<T>()
+///     JSON deserialisation helpers,
 ///   - YADDNSC_SDK_LOG_* logging macros capturing source location,
 ///   - YADDNSC_DEFINE_DRIVER, which emits the four required C entry points
 ///     plus the optional validate entry,
@@ -395,6 +396,23 @@ protected:
         }
 
         throw ConfigParseError(fmt::format("Driver configuration parse error: {}", glz::format_error(ec)));
+    }
+
+    /// Parse an upstream API response body into a typed struct. Providers
+    /// return fields beyond those modeled in T and extend their responses
+    /// over time, so unknown keys are ignored rather than failing the parse
+    /// (glaze errors on them by default). Requires a glz::meta
+    /// specialisation for T. Returns std::nullopt when the body does not
+    /// match the expected shape.
+    template<typename T>
+    [[nodiscard]] static std::optional<T> parse_response(std::string_view body) {
+        T value{};
+        const auto ec = glz::read<glz::opts{.error_on_unknown_keys = false}>(value, body, glz::context{});
+        if (ec == glz::error_code::none) [[likely]] {
+            return value;
+        }
+
+        return std::nullopt;
     }
 
     /// Run the canonical update tail shared by the bundled drivers: log the

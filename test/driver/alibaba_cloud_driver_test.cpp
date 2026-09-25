@@ -168,9 +168,12 @@ TEST(AlibabaCloudDriverTest, Update_200UnexpectedShape_ReturnsOk) {
 }
 
 TEST(AlibabaCloudDriverTest, Update_Non200WithErrorBody_ReturnsUpstreamRejected) {
+    // Real Aliyun error bodies also carry Recommend/HostId, which the driver
+    // does not model; parsing must tolerate them.
     FakeHostServices fake;
     fake.queue_response(
-        400, R"({"Code":"InvalidRecordId","Message":"The specified RecordId does not exist","RequestId":"req123"})");
+        400, R"({"Code":"InvalidRecordId","Message":"The specified RecordId does not exist","RequestId":"req123",)"
+             R"("HostId":"alidns.aliyuncs.com","Recommend":"https://troubleshoot.api.aliyun.com/qiyu/xxx"})");
     const auto result = run_abi_update(fake, CONFIG, "1.2.3.4", "A", "example.com", "www", "www.example.com");
     EXPECT_EQ(result.status, YADDNSC_STATUS_UPSTREAM_REJECTED);
 }

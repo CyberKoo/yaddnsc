@@ -198,8 +198,8 @@ bool AlibabaCloudDriver::check_response(const HttpResponse& response, const Serv
 
     if (response.status_code == 200) {
         // On success, Alibaba DNS returns JSON with RecordId.
-        if (auto result = glz::read_json<AlibabaUpdateResponse>(response.body)) {
-            YADDNSC_SDK_LOG_DEBUG(services, "DNS record updated successfully (RecordId: {})", result.value().record_id);
+        if (auto result = parse_response<AlibabaUpdateResponse>(response.body)) {
+            YADDNSC_SDK_LOG_DEBUG(services, "DNS record updated successfully (RecordId: {})", result->record_id);
             return true;
         }
 
@@ -210,9 +210,8 @@ bool AlibabaCloudDriver::check_response(const HttpResponse& response, const Serv
 
     // Error responses include JSON with Code and Message.
     if (!response.body.empty()) {
-        if (auto result = glz::read_json<AlibabaErrorResponse>(response.body)) {
-            YADDNSC_SDK_LOG_ERROR(services, "Alibaba Cloud API error: {} ({})", result.value().message,
-                                  result.value().code);
+        if (auto result = parse_response<AlibabaErrorResponse>(response.body)) {
+            YADDNSC_SDK_LOG_ERROR(services, "Alibaba Cloud API error: {} ({})", result->message, result->code);
         } else {
             YADDNSC_SDK_LOG_ERROR(services, "Alibaba Cloud API error (HTTP {}): {}", response.status_code,
                                   response.body);

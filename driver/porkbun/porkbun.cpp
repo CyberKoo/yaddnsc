@@ -72,23 +72,22 @@ Result PorkbunDriver::update(UpdateContext& context) {
 bool PorkbunDriver::check_response(const HttpResponse& response, const Services& services) {
     YADDNSC_SDK_LOG_TRACE(services, "Got {} from server.", response.body);
 
-    auto result = glz::read_json<PorkbunResponse>(response.body);
-    if (!result) {
+    auto resp = parse_response<PorkbunResponse>(response.body);
+    if (!resp) {
         YADDNSC_SDK_LOG_ERROR(services, "Failed to parse Porkbun API response");
         return false;
     }
 
-    auto& resp = result.value();
-    if (resp.status == "SUCCESS") {
+    if (resp->status == "SUCCESS") {
         YADDNSC_SDK_LOG_DEBUG(services, "DNS record updated successfully");
         return true;
     }
 
-    if (resp.message.has_value()) {
-        YADDNSC_SDK_LOG_ERROR(services, "Porkbun API error ({}): {}", resp.code.value_or("unknown"),
-                              resp.message.value());
+    if (resp->message.has_value()) {
+        YADDNSC_SDK_LOG_ERROR(services, "Porkbun API error ({}): {}", resp->code.value_or("unknown"),
+                              resp->message.value());
     } else {
-        YADDNSC_SDK_LOG_ERROR(services, "Porkbun API request failed with status: {}", resp.status);
+        YADDNSC_SDK_LOG_ERROR(services, "Porkbun API request failed with status: {}", resp->status);
     }
 
     return false;

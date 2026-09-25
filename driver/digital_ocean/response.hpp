@@ -27,8 +27,10 @@ struct DigitalOceanDomainRecord {
 };
 
 /// DigitalOcean success response wrapper.
+/// domain_record doubles as the shape discriminator against the error
+/// response: parsing tolerates unknown keys, so presence is what matters.
 struct DigitalOceanDomainResponse {
-    DigitalOceanDomainRecord domain_record;
+    std::optional<DigitalOceanDomainRecord> domain_record;
 };
 
 /// DigitalOcean error response.

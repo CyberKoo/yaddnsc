@@ -33,9 +33,15 @@ constexpr std::string_view CONFIG = R"({
         "global": false
     })";
 
+// Mirrors the real DNSPod Record.Modify response, whose record object
+// carries fields the driver does not model (line/ttl/status/...); parsing
+// must tolerate them (glaze errors on unknown keys by default).
 const std::string SUCCESS_WITH_RECORD = R"({
         "status": {"code": "1", "message": "Action completed successfully", "created_at": "2024-01-01 00:00:00"},
-        "record": {"id": 123, "name": "www.example.com", "value": "1.2.3.4"}
+        "record": {"id": 123, "name": "www.example.com", "value": "1.2.3.4",
+                   "line": "默认", "line_id": "10=0", "type": "A", "ttl": 600,
+                   "weight": null, "mx": 0, "enabled": true, "status": "enable",
+                   "monitor_status": "", "remark": "", "updated_on": "2024-01-01 00:00:00"}
     })";
 
 constexpr std::string_view GLOBAL_CONFIG = R"({

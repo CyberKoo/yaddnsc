@@ -5,34 +5,22 @@
 #ifndef YADDNSC_DRV_VULTR_RESPONSE_H
 #define YADDNSC_DRV_VULTR_RESPONSE_H
 
+#include <cstdint>
 #include <string>
-#include <vector>
-#include <optional>
 #include <glaze/glaze.hpp>
 
-/// Vultr API error detail.
-struct VultrError {
-    std::string detail;  ///< Error description
-};
-
-/// Vultr API error response body.
+/// Vultr API v2 error response body: {"error": "...", "status": 400}
 struct VultrErrorResponse {
-    std::vector<VultrError> errors;  ///< List of errors
-};
-
-template<>
-struct glz::meta<VultrError> {
-    using T = VultrError;
-    static constexpr auto value = object(
-        "detail", &T::detail
-    );
+    std::string error;  ///< Error description
+    int64_t status = 0; ///< Status code echoed by the API
 };
 
 template<>
 struct glz::meta<VultrErrorResponse> {
     using T = VultrErrorResponse;
     static constexpr auto value = object(
-        "errors", &T::errors
+        "error", &T::error,
+        "status", &T::status
     );
 };
 

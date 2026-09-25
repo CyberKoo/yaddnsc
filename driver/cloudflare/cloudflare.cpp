@@ -63,15 +63,13 @@ Result CloudflareDriver::update(UpdateContext& context) {
 bool CloudflareDriver::check_response(const HttpResponse& response, const Services& services) {
     YADDNSC_SDK_LOG_TRACE(services, "Got {} from server.", response.body);
 
-    auto result = glz::read_json<CloudflareResponse>(response.body);
-    if (!result) {
+    auto resp = parse_response<CloudflareResponse>(response.body);
+    if (!resp) {
         YADDNSC_SDK_LOG_ERROR(services, "Failed to parse Cloudflare API response");
         return false;
     }
-
-    auto& resp = result.value();
-    if (!resp.success) {
-        for (const auto& error : resp.errors) {
+    if (!resp->success) {
+        for (const auto& error : resp->errors) {
             if (error.source.has_value()) {
                 YADDNSC_SDK_LOG_ERROR(services, "Cloudflare API error ({}): {} [{}]", error.code, error.message,
                                       error.source->pointer);
@@ -82,8 +80,8 @@ bool CloudflareDriver::check_response(const HttpResponse& response, const Servic
         return false;
     }
 
-    if (resp.result.has_value()) {
-        auto& record = resp.result.value();
+    if (resp->result.has_value()) {
+        auto& record = resp->result.value();
         YADDNSC_SDK_LOG_DEBUG(services, "DNS record updated successfully: {} {} -> {} (TTL: {}, proxied: {})",
                               record.type, record.name, record.content, record.ttl, record.proxied ? "yes" : "no");
     }

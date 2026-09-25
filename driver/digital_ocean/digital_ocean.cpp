@@ -64,18 +64,20 @@ Result DigitalOceanDriver::update(UpdateContext& context) {
 bool DigitalOceanDriver::check_response(const HttpResponse& response, const Services& services) {
     YADDNSC_SDK_LOG_TRACE(services, "Got {} from server.", response.body);
 
-    // Try success response: { "domain_record": { ... } }
-    if (auto result = glz::read_json<DigitalOceanDomainResponse>(response.body)) {
-        auto& record = result.value().domain_record;
+    // Success response: { "domain_record": { ... } }. Tolerant parsing means
+    // any JSON object parses, so the presence of domain_record is what
+    // distinguishes success from other shapes.
+    if (auto result = parse_response<DigitalOceanDomainResponse>(response.body); result && result->domain_record) {
+        auto& record = *result->domain_record;
         YADDNSC_SDK_LOG_DEBUG(services, "DNS record updated successfully: {} {} -> {} (TTL: {})", record.type,
                               record.name, record.data, record.ttl);
         return true;
     }
 
-    // Try error response: { "id": "...", "message": "..." }
-    if (auto result = glz::read_json<DigitalOceanErrorResponse>(response.body)) {
-        auto& err = result.value();
-        YADDNSC_SDK_LOG_ERROR(services, "DigitalOcean API error ({}): {}", err.id, err.message);
+    // Error response: { "id": "...", "message": "..." }
+    if (auto result = parse_response<DigitalOceanErrorResponse>(response.body);
+        result && (!result->id.empty() || !result->message.empty())) {
+        YADDNSC_SDK_LOG_ERROR(services, "DigitalOcean API error ({}): {}", result->id, result->message);
         return false;
     }
 

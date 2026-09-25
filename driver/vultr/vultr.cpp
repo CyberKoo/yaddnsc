@@ -6,7 +6,6 @@
 
 #include <optional>
 #include <string>
-#include <vector>
 
 #include <glaze/glaze.hpp>
 #include <yaddnsc/sdk/driver.hpp>
@@ -72,12 +71,10 @@ bool VultrDriver::check_response(const HttpResponse& response, const Services& s
         return true;
     }
 
-    // Error responses include a JSON body with error details.
+    // Error responses include a JSON body with an error message.
     if (!response.body.empty()) {
-        if (auto result = glz::read_json<VultrErrorResponse>(response.body)) {
-            for (const auto& err : result.value().errors) {
-                YADDNSC_SDK_LOG_ERROR(services, "Vultr API error: {}", err.detail);
-            }
+        if (auto result = parse_response<VultrErrorResponse>(response.body); result && !result->error.empty()) {
+            YADDNSC_SDK_LOG_ERROR(services, "Vultr API error (status {}): {}", result->status, result->error);
         } else {
             YADDNSC_SDK_LOG_ERROR(services, "Vultr API error (HTTP {}): {}", response.status_code, response.body);
         }

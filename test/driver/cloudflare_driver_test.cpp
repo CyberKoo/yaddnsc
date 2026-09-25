@@ -34,10 +34,15 @@ std::string make_success_response(std::string_view type,
                                   std::string_view content,
                                   int ttl,
                                   bool proxied) {
+    // Mirrors the real Cloudflare API response, which carries fields the
+    // driver does not model (settings/meta/created_on/...); parsing must
+    // tolerate them (glaze errors on unknown keys by default).
     return std::string{R"({"success":true,"errors":[],"messages":[],"result":{"id":"rec123","name":")"} +
            std::string{name} + R"(","type":")" + std::string{type} + R"(","content":")" + std::string{content} +
            R"(","ttl":)" + std::to_string(ttl) + (proxied ? R"(,"proxied":true)" : R"(,"proxied":false)") +
-           R"(,"proxiable":false}})";
+           R"(,"proxiable":false,"settings":{"ipv4_only":false,"ipv6_only":false},)" +
+           R"("meta":{"auto_added":false},"tags":[],"comment":null,)" +
+           R"("created_on":"2024-01-01T00:00:00.000000Z","modified_on":"2024-01-01T00:00:00.000000Z"}})";
 }
 }  // namespace
 

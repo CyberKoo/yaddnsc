@@ -12,7 +12,6 @@
 #include <utility>
 #include <vector>
 
-#include <glaze/glaze.hpp>
 #include <yaddnsc/sdk/driver.hpp>
 #include <yaddnsc/sdk/driver_abi.h>
 #include <yaddnsc/sdk/form_encode.hpp>
@@ -113,22 +112,21 @@ HttpRequest DNSPodDriver::generate_request(const DNSPodParams& cfg, const Update
 bool DNSPodDriver::check_response(const HttpResponse& response, const Services& services) {
     YADDNSC_SDK_LOG_TRACE(services, "Got {} from server.", response.body);
 
-    auto result = glz::read_json<DnsPodResponse>(response.body);
-    if (!result) {
+    auto resp = parse_response<DnsPodResponse>(response.body);
+    if (!resp) {
         YADDNSC_SDK_LOG_ERROR(services, "Failed to parse DNSPod API response");
         return false;
     }
 
-    auto resp = result.value();
-    if (!resp.status.has_value()) {
+    if (!resp->status.has_value()) {
         YADDNSC_SDK_LOG_ERROR(services, "Server returned an unknown error, raw response: {}", response.body);
         return false;
     }
 
-    auto& status = resp.status.value();
+    auto& status = resp->status.value();
     if (status.code == "1") {
-        if (resp.record.has_value()) {
-            auto& record = resp.record.value();
+        if (resp->record.has_value()) {
+            auto& record = resp->record.value();
             YADDNSC_SDK_LOG_DEBUG(services, "Record updated successfully, id: {}, name: {}, value: {}", record.id,
                                   record.name, record.value);
         }

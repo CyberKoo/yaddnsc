@@ -71,8 +71,8 @@ bool LinodeDriver::check_response(const HttpResponse& response, const Services& 
 
     // Error responses include a JSON body with error details.
     if (!response.body.empty()) {
-        if (auto result = glz::read_json<LinodeErrorResponse>(response.body)) {
-            for (const auto& err : result.value().errors) {
+        if (auto result = parse_response<LinodeErrorResponse>(response.body); result && !result->errors.empty()) {
+            for (const auto& err : result->errors) {
                 YADDNSC_SDK_LOG_ERROR(services, "Linode API error{}: {}",
                                       err.field.empty() ? "" : fmt::format(" ({})", err.field), err.reason);
             }
