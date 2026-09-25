@@ -20,7 +20,7 @@ The following libraries are licensed under the MIT License:
     Copyright (c) 2016 - present, Gabi Melman and spdlog contributors
 
   - magic_enum 0.9.8          https://github.com/Neargye/magic_enum
-    Copyright (c) 2019 - 2026 Daniil Goncharov
+    Copyright (c) 2019 - 2024 Daniil Goncharov
 
   - BS::thread_pool 5.1.0     https://github.com/bshoshany/thread-pool
     Copyright (c) 2021-2026 Barak Shoshany
@@ -28,6 +28,10 @@ The following libraries are licensed under the MIT License:
   - picohttpparser 1.2        https://github.com/h2o/picohttpparser
     Copyright (c) 2009-2014 Kazuho Oku, Tokuhiro Matsuno, Daisuke Murase,
                           Shigeo Mitsunari
+
+  - libxml2 2.x (optional system library)  https://gitlab.gnome.org/GNOME/libxml2
+    Copyright (C) 1998-2012 Daniel Veillard. All Rights Reserved.
+    Copyright (C) The Libxml2 Contributors.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy of
 this software and associated documentation files (the "Software"), to deal in
@@ -89,7 +93,7 @@ https://www.apache.org/licenses/
 ===============================================================================
 
   - OpenSSL 3.x (system library)  https://www.openssl.org/
-    Copyright (c) 1995-2026 The OpenSSL Project
+    Copyright (c) The OpenSSL Project Authors. All rights reserved.
 
    TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION
 
