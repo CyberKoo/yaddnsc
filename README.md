@@ -1,69 +1,89 @@
-# yaddnsc — Yet Another Dynamic DNS Client (legacy branch)
+# yaddnsc — Yet Another Dynamic DNS Client (v0.x, legacy)
 
-**yaddnsc** is a Dynamic DNS (DDNS) client that monitors your local IP addresses and automatically updates DNS records with supported providers when changes are detected. It is designed to be lightweight, modular, and extensible through a plugin-based driver system.
+> **Branch status.** This is the legacy branch, maintained for systems whose
+> toolchains cannot build v1.x. The language requirement is lowered to C++17
+> and OpenSSL 1.1.x is supported. The branch is maintenance-only: it receives
+> bug fixes but no new features. Driver plugins built for v0.x remain
+> binary-compatible with this branch; plugins built for v1.x are rejected.
+> New development takes place on `master` (v1.x).
 
-> **This is the `legacy` branch**, backported for older systems.
-> - C++ standard lowered to **C++17** — compiles out of the box on **Ubuntu 20.04** with GCC 9 and OpenSSL 1.1.x (native packages, no PPA required).
-> - **ABI-compatible** with **v0.x driver plugins** — existing `.so` drivers work without recompilation.
-> - **Maintenance-only** — this branch will no longer receive new features; only critical bug fixes will be addressed. **For new features and better performance, switch to the `master` branch (v1.x).**
-> - Resolver support for DoH (DNS-over-HTTPS) and DoT (DNS-over-TLS) has been backported from the master branch.
+yaddnsc is a dynamic DNS client. For every configured record it periodically
+acquires an IP address — from a local network interface or an HTTP(S)
+endpoint — and compares it with the address currently published in DNS. When
+the two differ, it submits an update through a provider-specific driver
+loaded as a shared library. A single JSON file manages any number of domains.
+
+## Contents
+
+- [Features](#features)
+- [Requirements](#requirements)
+- [Getting the Source](#getting-the-source)
+- [Building](#building)
+- [Running](#running)
+- [Configuration](#configuration)
+- [IP Address Sources](#ip-address-sources)
+- [DNS Resolver](#dns-resolver)
+- [Drivers](#drivers)
+- [TLS and CA Certificates](#tls-and-ca-certificates)
+- [Running as a Service](#running-as-a-service)
+- [Driver Plugin ABI](#driver-plugin-abi)
+- [Writing Custom Drivers](#writing-custom-drivers)
+- [Upgrading to v1.x](#upgrading-to-v1x)
+- [Dependencies](#dependencies)
+- [License](#license)
 
 ## Features
 
-- **Multi-domain and multi-subdomain management** — manage multiple domains and subdomains from a single configuration file.
-- **Pluggable driver architecture** — drivers are loaded as shared libraries (`.so`) at runtime via `dlopen`. Built-in drivers include:
-  - [Cloudflare](https://www.cloudflare.com/) — updates DNS records via the Cloudflare API v4
-  - [DigitalOcean](https://www.digitalocean.com/) — updates DNS records via the DigitalOcean API v2
-  - [DNSPod](https://www.dnspod.com/) — updates DNS records via DNSPod API (supports both China and Global endpoints)
-  - [Simple](https://github.com/CyberKoo/yaddnsc) — a generic HTTP driver with URL template substitution for custom API endpoints
-- **Flexible IP source configuration** — each subdomain can choose between:
-  - `interface` — obtain the IP from a local network interface
-  - `url` — obtain the IP from an external HTTP service (e.g. `https://ifconfig.me`)
-- **IPv4 and IPv6 support** — configure A and AAAA records independently.
-- **Custom DNS resolver** — optionally use a specific DNS server instead of the system resolver. Supports **traditional DNS** (plain IP + port), **DNS-over-HTTPS (DoH)** (full HTTPS URL, e.g. `https://1.1.1.1/dns-query`), and **DNS-over-TLS (DoT)** (TLS URI with `tls://` scheme, e.g. `tls://1.1.1.1`). The protocol is auto-detected from the address prefix.
-- **Forced update scheduling** — periodically force-update DNS records even when the IP hasn't changed.
-- **Graceful shutdown** — handles SIGINT/SIGTERM via a dedicated signal-handling thread.
-- **Thread-pool-based concurrency** — subdomain updates are dispatched to a thread pool for parallel execution.
+- Multiple domains and records managed from one JSON configuration, with a
+  per-domain update interval and an optional periodic forced update.
+- Address acquisition from a local network interface or an HTTP(S) endpoint.
+- Provider drivers loaded as shared libraries at runtime; Cloudflare,
+  DigitalOcean, DNSPod, and a generic HTTP driver are included.
+- DNS resolution through the system resolver, a custom server over UDP,
+  DNS-over-HTTPS, or DNS-over-TLS.
+- A and AAAA records handled independently; TXT and SOA lookups are supported
+  by the resolver.
+- Concurrent record updates on a thread pool.
+- Graceful shutdown on SIGINT/SIGTERM.
 
-## Prerequisites
+## Requirements
 
-| Tool / Library  | Minimum Version    |
-|-----------------|--------------------|
-| CMake           | 3.14               |
-| C++ Compiler    | C++17 capable      |
-| OpenSSL         | 1.1.x              |
-| Zlib            | Any recent version |
+| Component | Minimum |
+|---|---|
+| CMake | 3.14 |
+| C++ compiler | C++17 capable (GCC 9+ recommended; GCC 7/8 are supported through an automatic `stdc++fs` fallback) |
+| OpenSSL | 1.1.1 or later (OpenSSL 3.x is also supported) |
+| zlib | any recent version |
 
-### Distribution Compatibility
+All other dependencies are vendored as git submodules; see
+[Dependencies](#dependencies).
 
-The table below lists the minimum distribution versions that satisfy the requirements above:
+Reference points for common distributions:
 
-| Distribution         | Minimum Version       | Notes                                                                                |
-|----------------------|-----------------------|--------------------------------------------------------------------------------------|
-| Ubuntu               | 18.04 (Bionic)        | Needs pip-installed CMake (≥ 3.14). GCC 7 requires `stdc++fs` (handled automatically). |
-| Debian               | 10 (Buster)           | Needs pip-installed CMake (system CMake 3.13). GCC 8 + OpenSSL 1.1.1.                 |
-| RHEL / CentOS / Rocky / Alma | 8 | Needs `gcc-toolset-10` or newer (GCC 9+) from AppStream. CMake 3.20+. OpenSSL 1.1.1.<br>**RHEL 7** has OpenSSL 1.0.2 (incompatible — requires OpenSSL ≥ 1.1.1).<br>**RHEL 9** has OpenSSL 3.0 (compatible). |
-| Fedora               | 30                   | GCC 9 + CMake 3.14 + OpenSSL 1.1.1.                                                 |
-| openSUSE / SLES      | Leap 15.2 / SLES 15 SP2 | GCC 9 + CMake 3.16 + OpenSSL 1.1.1.<br>Leap ≤ 15.1 / SLES 15 SP1 have GCC 7 (incompatible). |
-| Alpine Linux         | 3.11                 | GCC 9.2 + CMake 3.15 + OpenSSL 1.1.1d.<br>musl is auto-detected (LTO disabled automatically).<br>Alpine 3.10 (GCC 8.3) is theoretically possible but not recommended. |
+| Distribution | Notes |
+|---|---|
+| Ubuntu 20.04 and later | Builds with native packages. |
+| Ubuntu 18.04 | Requires a newer CMake (3.14+), for example via pip; the default GCC 7 relies on the automatic `stdc++fs` fallback. |
+| Debian 10 and later | Requires a newer CMake (3.14+) than the system package provides. |
+| RHEL / CentOS / Rocky / Alma 8 and later | Requires GCC 9 or newer (for example `gcc-toolset-10`); RHEL 7 ships OpenSSL 1.0.2 and is not supported. |
+| Alpine 3.11 and later | musl is detected automatically and LTO is disabled accordingly. |
 
 ## Getting the Source
 
-Clone the repository and initialize all submodule dependencies:
+The dependencies are git submodules and must be fetched together with the
+source:
 
 ```bash
-# Option A: Clone with submodules in one step
+# Clone with submodules
 git clone --recursive -b v0.x https://github.com/CyberKoo/yaddnsc.git
 
-# Option B: Clone first, then initialize submodules separately
+# Or initialize them after the fact
 git clone -b v0.x https://github.com/CyberKoo/yaddnsc.git
 cd yaddnsc
 git submodule update --init --recursive --depth 1
 ```
 
-> `--depth 1` performs a shallow clone, significantly reducing download size and disk usage.
-
-If you already have the source and need to pull the latest submodule commits (e.g., after switching branches or pulling upstream changes):
+After switching branches or pulling, refresh the submodules:
 
 ```bash
 git submodule update --recursive --depth 1
@@ -71,76 +91,76 @@ git submodule update --recursive --depth 1
 
 ## Building
 
-> **Ubuntu 20.04** (native packages work out of the box):
+Ubuntu 20.04 and later:
 
 ```bash
-# Install system dependencies
-sudo apt install libssl-dev zlib1g-dev build-essential cmake
+sudo apt install build-essential cmake libssl-dev zlib1g-dev
 
-# Build
 mkdir build && cd build
 cmake .. -DCMAKE_BUILD_TYPE=Release
 make -j$(nproc)
-
-# The main binary will be at build/objs/yaddnsc
-# Driver modules will be at build/objs/driver/*.so
 ```
 
-> **Ubuntu 18.04** (system CMake 3.10 is too old — use a newer CMake via pip):
+Ubuntu 18.04 (system CMake is too old):
 
 ```bash
-# Install system dependencies
-sudo apt install build-essential libssl-dev zlib1g-dev python3-pip cmake git
-
-# Install a newer CMake (3.14+) via pip
-pip3 install --upgrade pip
+sudo apt install build-essential libssl-dev zlib1g-dev python3-pip git
 pip install --user "cmake<3.24"
 
-# Build
 mkdir build && cd build
 ~/.local/bin/cmake .. -DCMAKE_BUILD_TYPE=Release
 make -j$(nproc)
-
-# The main binary will be at build/objs/yaddnsc
-# Driver modules will be at build/objs/driver/*.so
 ```
 
-> For other POSIX systems, ensure your compiler supports C++17 and your CMake version is 3.14 or higher.
+The build produces the executable at `build/objs/yaddnsc` and the driver
+modules at `build/objs/driver/*.so`. This branch has no install rules or
+packages; copy the files into place manually (see
+[Running as a Service](#running-as-a-service)).
 
 ### CMake Options
 
-| Option                        | Default | Description                                                    |
-|-------------------------------|---------|----------------------------------------------------------------|
-| `CMAKE_BUILD_TYPE`            | Release | Set to `Debug` for debug builds                                |
-| `LIBC_MUSL`                   | auto     | Enable musl-specific workarounds (auto-detected; manual override via `-DLIBC_MUSL=ON/OFF`) |
-| `NO_RTTI`                     | OFF     | Disable RTTI for a smaller binary (`-fno-rtti`)                |
+| Option | Default | Description |
+|---|---|---|
+| `CMAKE_BUILD_TYPE` | `Release` | Set to `Debug` for a debug build. |
+| `LIBC_MUSL` | auto-detected | musl-specific adjustments (disables LTO); override with `-DLIBC_MUSL=ON/OFF`. |
+| `NO_RTTI` | `OFF` | Build with `-fno-rtti` for a smaller binary. |
 
-Third-party dependencies (spdlog, cpp-httplib v0.14.3, cxxopts, BS::thread_pool, fmt, nlohmann_json) are included as **git submodules**.
+## Running
 
-## Driver Plugin ABI Compatibility
+```bash
+yaddnsc -c /etc/yaddnsc/config.json
+```
 
-Drivers built for **yaddnsc v0.x** are binary-compatible with this legacy branch. The driver ABI version (`DRV_VERSION`) remains unchanged at `"1000000"`. Drop your existing `.so` files into the driver directory and they will work without recompilation.
+| Option | Description |
+|---|---|
+| `-c, --config <path>` | Configuration file path; default `./config.json`. |
+| `-v, --verbose` | Enable debug-level logging. |
+| `-V, --version` | Print the version and exit. |
+| `-h, --help` | Print usage and exit. |
+
+The configuration is loaded at startup and validated once the drivers have
+been loaded; an invalid configuration aborts the start. On any fatal error
+the program logs a critical message and exits with a non-zero status.
+
+SIGINT and SIGTERM trigger a graceful shutdown: in-flight updates are
+completed before the process exits. Repeated SIGINT escalates to an immediate
+termination.
 
 ## Configuration
 
-yaddnsc uses a JSON configuration file. By default it looks for `./config.json`, or you can specify a custom path with the `-c` flag.
-
-### Example Configuration
+yaddnsc reads a JSON configuration file, `./config.json` by default. A
+complete example is shipped as [`config.example.json`](config.example.json):
 
 ```json
 {
   "driver": {
     "driver_dir": "/opt/yaddnsc/drivers",
-    "load": [
-      "cloudflare.so",
-      "simple.so"
-    ]
+    "load": ["cloudflare.so"]
   },
   "resolver": {
     "use_custom_server": false,
     "ipaddress": "1.1.1.1",
-    "port": 53,
-    "protocol": "system"
+    "port": 53
   },
   "domains": [
     {
@@ -151,21 +171,6 @@ yaddnsc uses a JSON configuration file. By default it looks for `./config.json`,
       "subdomains": [
         {
           "name": "home",
-          "type": "aaaa",
-          "interface": "eth0",
-          "ip_type": "ipv6",
-          "ip_source": "interface",
-          "ip_source_param": "",
-          "allow_ula": false,
-          "allow_local_link": false,
-          "driver_param": {
-            "zone_id": "your-zone-id",
-            "record_id": "your-record-id",
-            "token": "your-api-token"
-          }
-        },
-        {
-          "name": "home",
           "type": "a",
           "interface": "",
           "ip_type": "ipv4",
@@ -174,6 +179,7 @@ yaddnsc uses a JSON configuration file. By default it looks for `./config.json`,
           "allow_ula": false,
           "allow_local_link": false,
           "driver_param": {
+            "sub_domain": "home.example.com",
             "zone_id": "your-zone-id",
             "record_id": "your-record-id",
             "token": "your-api-token"
@@ -185,155 +191,278 @@ yaddnsc uses a JSON configuration file. By default it looks for `./config.json`,
 }
 ```
 
-> **DoH example:** To use DNS-over-HTTPS, set `ipaddress` to a full HTTPS URL:
-> ```json
-> { "ipaddress": "https://1.1.1.1/dns-query" }
-> ```
-> DoH uses the port from the URI (443); the `port` field is ignored. The address must start with `https://` and include the complete path (typically `/dns-query`). The protocol is auto-detected from the prefix, so you can omit `"protocol": "doh"`.
+### `driver`
 
-> **DoT example:** To use DNS-over-TLS, use the `tls://` prefix:
-> ```json
-> { "ipaddress": "tls://1.1.1.1", "port": 853 }
-> ```
-> DoT uses the `port` field, which must be set to 853.
+| Field | Type | Description |
+|---|---|---|
+| `driver_dir` | string | Directory containing the driver modules; optional, default empty (paths in `load` are then relative to the working directory). |
+| `load` | string[] | Driver module file names to load, including the `.so` suffix; required. Entries are resolved against `driver_dir`. |
 
-### Configuration Reference
+### `resolver`
 
-#### Top-level
+| Field | Type | Description |
+|---|---|---|
+| `use_custom_server` | boolean | Required. When `false`, the system resolver (`/etc/resolv.conf`) is used and the remaining fields carry no effect. |
+| `ipaddress` | string | Required even when `use_custom_server` is `false`. Plain IP for classic DNS, an `https://` URL for DoH, or a `tls://` address for DoT; see [DNS Resolver](#dns-resolver). |
+| `port` | integer | Server port; optional, default 53. |
+| `protocol` | string | Ignored; retained for backward compatibility. The protocol is always derived from the `ipaddress` prefix. |
 
-| Field      | Type     | Description                                   |
-|------------|----------|-----------------------------------------------|
-| `driver`   | object   | Driver loading configuration                  |
-| `resolver` | object   | Custom DNS resolver settings (optional)       |
-| `domains`  | array    | List of domain configurations                 |
+### `domains[]`
 
-#### `driver` object
+All fields are required.
 
-| Field           | Type     | Description                                            |
-|-----------------|----------|--------------------------------------------------------|
-| `driver_dir`    | string   | Directory containing driver `.so` files (optional)     |
-| `load`          | string[] | List of driver shared library filenames to load        |
+| Field | Type | Description |
+|---|---|---|
+| `name` | string | Domain name, for example `example.com`. |
+| `update_interval` | int | Update interval in seconds; minimum 60. |
+| `force_update` | int | Interval in seconds at which an update is pushed unconditionally, without comparing against DNS. `0` disables it; otherwise the value must not be smaller than `update_interval`. |
+| `driver` | string | Name of the driver handling this domain; must match a loaded driver. |
+| `subdomains` | array | Records managed under this domain. |
 
-#### `resolver` object
+### `subdomains[]`
 
-| Field               | Type    | Description                                                                                                 |
-|---------------------|---------|-------------------------------------------------------------------------------------------------------------|
-| `use_custom_server` | boolean | If true, use the specified DNS server instead of the system default                                         |
-| `ipaddress`         | string  | DNS server address: plain IP (e.g. `1.1.1.1`), DoH HTTPS URL, or `tls://` URI for DoT                      |
-| `port`              | integer | DNS server port, defaults to 53 (optional)                                                                  |
-| `protocol`          | string  | **Deprecated.** Kept for compatibility. Protocol is auto-detected from the `ipaddress` prefix (`https://` → DoH, `tls://` → DoT); manual setting is unnecessary. |
+| Field | Type | Description |
+|---|---|---|
+| `name` | string | Record label, for example `home` for `home.example.com`; required. |
+| `type` | string | Record type: `a`, `aaaa`, `txt`, or `soa` (case-sensitive); required. Dynamic DNS updates use `a` or `aaaa`. |
+| `interface` | string | Network interface name; the key is required but may be empty (`""`). When set, it selects the source interface and binds outgoing HTTP traffic; see [IP Address Sources](#ip-address-sources). |
+| `ip_type` | string | `ipv4`, `ipv6`, or `unspecified` (default). Selects the socket family used for HTTP traffic — the `url` source request and the driver API request. |
+| `ip_source` | string | `interface` or `url`; required. See [IP Address Sources](#ip-address-sources). |
+| `ip_source_param` | string | The HTTP(S) URL to query when `ip_source` is `url`; unused by the `interface` source. The key is required. |
+| `allow_ula` | boolean | Accept IPv6 unique-local addresses (fc00::/7) from an interface source; default `false`. |
+| `allow_local_link` | boolean | Accept IPv6 link-local (fe80::/10) and site-local (fec0::/10) addresses from an interface source; default `false`. |
+| `driver_param` | object | Driver-specific parameters; required. Keys and values must all be strings. |
 
-#### `domains[]` object
+Two fields with similar names serve different purposes: `type` determines the
+record type and, for the `interface` source, the address family collected
+locally; `ip_type` determines the address family of the HTTP connections made
+for the `url` source and for driver API calls.
 
-| Field             | Type   | Description                                                              |
-|-------------------|--------|--------------------------------------------------------------------------|
-| `name`            | string | Domain name (e.g. `example.com`)                                         |
-| `update_interval` | int    | Interval in seconds between updates (minimum: 60)                        |
-| `force_update`    | int    | Interval in seconds for forced updates (0 = disabled)                    |
-| `driver`          | string | Name of the driver to use (must match a loaded driver)                   |
-| `subdomains`      | array  | List of subdomain records to manage                                      |
+Before each update, the host adds the keys `domain`, `subdomain`, `ip_addr`,
+`rd_type`, and `fqdn` to the driver's parameters with their runtime values.
+Explicit entries in `driver_param` with the same names take precedence.
+Drivers that declare these keys as required (for example `domain` for
+DigitalOcean) therefore need no manual entry.
 
-#### `subdomains[]` object
+### Credentials
 
-| Field              | Type    | Description                                                                                      |
-|--------------------|---------|--------------------------------------------------------------------------------------------------|
-| `name`             | string  | Subdomain name (e.g. `home` for `home.example.com`)                                              |
-| `type`             | string  | DNS record type: `"a"`, `"aaaa"`, `"txt"`, or `"soa"`                                           |
-| `interface`        | string  | Network interface name (e.g. `eth0`). **Always required**, even when `ip_source` is `"url"`      |
-| `ip_type`          | string  | IP version: `"ipv4"`, `"ipv6"`, or `"unspecified"` (optional, default: `"unspecified"`)          |
-| `ip_source`        | string  | IP source: `"interface"` (from local network interface) or `"url"` (from external HTTP service)  |
-| `ip_source_param`  | string  | HTTP(S) URL when `ip_source` is `"url"` (e.g. `https://api.ipify.org/`)                          |
-| `allow_ula`        | boolean | Allow unique local addresses (IPv6 only), defaults to `false` (optional)                         |
-| `allow_local_link` | boolean | Allow link-local addresses (IPv6 only), defaults to `false` (optional)                           |
-| `driver_param`     | object  | Driver-specific parameters (key-value pairs)                                                     |
+`driver_param` commonly contains API tokens or keys. Keep the configuration
+file out of version control, restrict its permissions (`chmod 600
+config.json`), and grant each credential only the permissions the update
+requires.
 
-> **Note:** `interface` is always required. When `ip_source` is `"url"`, it is still passed to the HTTP client for socket binding. Set it to `""` if interface binding is not needed.
+## IP Address Sources
+
+### `interface`
+
+Reads an address from the local interface named by `interface`. A records
+receive an IPv4 address and AAAA records an IPv6 address. Unique-local
+addresses are excluded unless `allow_ula` is set; link-local and site-local
+addresses are excluded unless `allow_local_link` is set.
+
+### `url`
+
+Issues an HTTP GET to `ip_source_param` and parses the response body as a
+bare IP address. HTTPS endpoints are recommended. The `interface` field, when
+non-empty, binds the outgoing connection to that interface; the same binding
+applies to the driver's update request.
+
+## DNS Resolver
+
+With `use_custom_server: false`, lookups go through the system resolver. With
+`use_custom_server: true`, the form of `ipaddress` selects the protocol:
+
+| Form | Protocol | Port |
+|---|---|---|
+| Plain IPv4/IPv6 address | Classic DNS over UDP | `port` (default 53) |
+| `https://host[/path]` | DNS-over-HTTPS | Taken from the URL (443); `port` is ignored |
+| `tls://host` | DNS-over-TLS | `port` (default 53 — set it to 853 explicitly) |
+
+Notes on each form:
+
+- Classic custom servers are applied through the resolver library; on
+  platforms without `res_nquery` the custom server is ignored and a warning
+  is logged. IPv6 custom servers require platform support detected at build
+  time.
+- For DoH, an empty path defaults to `/dns-query`.
+- For DoT, the `tls://` prefix is stripped and the remainder is used as the
+  server host name (and the TLS SNI). The port is **not** inferred: it comes
+  from `port`, whose default of 53 is unsuitable — set `"port": 853`.
+
+A failed lookup is retried up to five times with a one-second interval before
+the update cycle skips the record.
+
+## Drivers
+
+Four drivers are included, built as `cloudflare.so`, `digital_ocean.so`,
+`dnspod.so`, and `simple.so`. A domain selects its driver by the name in the
+`driver` field; parameters go into the record's `driver_param` as string
+key-value pairs. A missing required key is reported when the affected record
+is updated.
+
+The keys `domain`, `subdomain`, `ip_addr`, `rd_type`, and `fqdn` are supplied
+automatically at update time (see [Configuration](#configuration)) and are
+omitted from the requirement lists below.
+
+### Cloudflare (`cloudflare`)
+
+Updates an existing record through the Cloudflare API v4 with a bearer API
+token.
+
+| Parameter | Required | Default | Description |
+|---|---|---|---|
+| `sub_domain` | Yes | — | Full name of the record, for example `home.example.com` |
+| `zone_id` | Yes | — | Zone ID of the domain |
+| `record_id` | Yes | — | ID of the record to update |
+| `token` | Yes | — | API token with DNS edit permission on the zone |
+| `ttl` | No | `"30"` | TTL in seconds |
+| `proxied` | No | `"0"` | Route the record through the Cloudflare proxy; truthy values are `1`, `on`, `true`, `yes` |
+
+Note the spelling `sub_domain` (with underscore): it is not covered by the
+automatically supplied `subdomain` key and must be given explicitly.
+
+### DigitalOcean (`digital_ocean`)
+
+Updates an existing record through the DigitalOcean API v2 with a personal
+access token. Only the record content is modified; no TTL control exists.
+
+| Parameter | Required | Default | Description |
+|---|---|---|---|
+| `record_id` | Yes | — | ID of the record to update |
+| `token` | Yes | — | Personal access token |
+
+### DNSPod (`dnspod`)
+
+Updates an existing record through the DNSPod API (`Record.Ddns`) with a
+login token.
+
+| Parameter | Required | Default | Description |
+|---|---|---|---|
+| `domain_id` | Yes | — | Domain ID |
+| `record_id` | Yes | — | Record ID |
+| `login_token` | Yes | — | API token in `ID,Token` format |
+| `global` | No | `"false"` | Truthy values (`1`, `on`, `true`, `yes`) select the international endpoint instead of the China endpoint |
+| `record_line` | No | `"默认"` | Record line name |
+| `record_line_id` | No | `"0"` | Record line ID |
+
+### Simple (`simple`)
+
+Issues an HTTP GET to a configured URL; intended for custom update endpoints.
+
+| Parameter | Required | Default | Description |
+|---|---|---|---|
+| `url` | Yes | — | The request URL |
+| `format` | No | — | When this key is present (any value), the URL is treated as a template |
+
+With `format` present, each placeholder `{name}` in the URL is replaced by
+the value of the `driver_param` entry whose key is `{name}` (braces
+included). For example, an entry `"{token}": "abc123"` makes `{token}`
+available in the URL. Placeholders without a matching entry abort the update.
+The automatically supplied runtime values (`ip_addr` and the others) are not
+visible to the template on this branch; use this driver with endpoints that
+derive the address from the request source, or upgrade to v1.x, where the
+template can reference them.
+
+The response is not inspected: any completed request counts as success. The
+same applies to the Cloudflare driver on this branch.
+
+## TLS and CA Certificates
+
+HTTPS traffic — driver API calls, the `url` source, and the DoH/DoT
+resolvers — is verified against a CA bundle located by searching, in order:
+`./ca.pem` in the working directory, then a set of platform-specific system
+paths (Debian/Ubuntu, RHEL/Fedora, openSUSE, macOS Homebrew, and others).
+
+There is no `SSL_CERT_FILE` support on this branch. To use a private CA,
+place a PEM bundle at `./ca.pem` next to the executable or install it into
+the system location. If no bundle is found at all, certificate verification
+is disabled and a notice is logged; ensure a bundle is present on production
+systems.
+
+## Running as a Service
+
+A sample systemd unit is provided as [`yaddnsc.service`](yaddnsc.service). A
+manual installation looks like:
+
+```bash
+sudo install -D build/objs/yaddnsc /opt/yaddnsc/yaddnsc
+sudo install -D -t /opt/yaddnsc/drivers build/objs/driver/*.so
+sudo install -D -m 600 config.json /etc/yaddnsc/config.json
+sudo install -D yaddnsc.service /etc/systemd/system/yaddnsc.service
+
+sudo systemctl daemon-reload
+sudo systemctl enable --now yaddnsc
+journalctl -u yaddnsc
+```
+
+The unit starts `/opt/yaddnsc/yaddnsc -c /etc/yaddnsc/config.json` as
+`nobody` and restarts the process on failure. Adjust paths and the service
+user to the installation; the configuration file must remain readable by the
+service account.
+
+## Driver Plugin ABI
+
+Drivers are shared libraries loaded with `dlopen` at startup. Each driver
+reports an ABI version that must match the host exactly; the version on this
+branch is `1000000` and is unchanged across v0.x releases, so existing v0.x
+`.so` files keep working without recompilation. Drivers built against the
+v1.x SDK carry a different ABI and are refused at load time.
 
 ## Writing Custom Drivers
 
-This branch retains the same driver API as v0.x. See the built-in drivers in `driver/` for reference.
-
-### Driver API
-
-Drivers implement the `IDriver` interface (defined in `include/IDriver.h`):
+A driver implements the `IDriver` interface (`include/IDriver.h`) and is
+built as a prefix-less `MODULE` library exporting two C symbols:
 
 ```cpp
-class IDriver {
-public:
-    virtual driver_request generate_request(const driver_config_type &config) const = 0;
-    virtual bool check_response(std::string_view response_body) const = 0;
-    virtual driver_detail get_detail() const = 0;
-    virtual std::string_view get_driver_version() const = 0;
-    virtual void init_logger(int level, std::string_view pattern) = 0;
-};
+extern "C" IDriver *create();          // factory
+extern "C" void destroy(IDriver *);    // disposer
 ```
 
-- `generate_request(config)` — receives the `driver_param` map from the subdomain config and returns a `driver_request` struct (URL, body, content type, HTTP method, headers).
-- `check_response(response)` — receives the raw HTTP response body string; returns `true` if the update was successful.
-- `get_detail()` — returns driver metadata (name, description, author, version).
-- `get_driver_version()` — returns the ABI version constant. `BaseDriver` provides a `final` implementation; do not override.
+The interface consists of:
 
-The `BaseDriver` class (in `driver/base_driver.h`) provides useful helpers:
+- `generate_request(config)` — receives the parameter map (including the
+  automatically supplied runtime keys) and returns a `driver_request`
+  describing the URL, method, headers, and body of the update request.
+- `check_response(body)` — inspects the response body and reports whether the
+  update succeeded.
+- `get_detail()` — returns the driver name, description, author, and version;
+  the name is what configurations reference in the `driver` field.
+- `get_driver_version()` and `init_logger()` — provided by `BaseDriver`
+  (`driver/base_driver.h`); do not override them.
 
-| Method                    | Description                                                        |
-|---------------------------|--------------------------------------------------------------------|
-| `check_required_params()` | Validates that required keys exist in `driver_param`               |
-| `get_optional()`          | Safely retrieves an optional parameter from `driver_param`         |
-| `vformat(format, args)`   | Named (`std::map`) or positional (`std::vector`) string formatting |
-
-### Driver Factory
-
-Each driver must export a `create()` factory function with C linkage:
-
-```cpp
-// cloudflare.h
-extern "C" inline IDriver *create() {
-    return new CloudflareDriver;
-}
-```
-
-Place this in the driver's header file. The core loads drivers via `dlopen` and looks up the `create()` symbol.
-
-### Build as a shared library
-
-Drivers are built as `MODULE` libraries (position-independent, no `lib` prefix):
-
-```cmake
-add_library(cloudflare MODULE cloudflare.cpp cloudflare.h)
-target_link_libraries(cloudflare PRIVATE yaddnsc_lib)
-```
+`BaseDriver` additionally offers `check_required_params()` for required-key
+validation (failing keys raise an exception at update time), `get_optional()`
+for optional parameters, and `vformat()` helpers for named or positional
+string substitution. The bundled drivers under `driver/` serve as complete
+examples.
 
 ## Upgrading to v1.x
 
-> **Warning:** The `master` branch (v1.x) is under heavy development. The v1 ABI has not yet been finalized and may change significantly — plugins **must** be recompiled after each update.
-
-The `master` branch (v1.x) is a complete rewrite with significant improvements:
-
-- **C++23** with modern standard library features, better performance, and fewer external dependencies
-- **mDNS IP source** — discover LAN device addresses via mDNS (RFC 6762), e.g. `printer.local`
-- **Interactive CLI** — diagnostic subcommands for inspecting drivers, network interfaces, DNS resolution, and configuration at runtime
-- **Overhauled build system** — install rules, DEB packaging, and Docker containerization support
-- **ABI versioning with driver magic validation** — forward-compatible versioning, legacy v0.x `.so` drivers are **not** compatible
-- **Resolver identity system** — stable numeric IDs for unambiguous log cross-referencing
-- **Improved DoT robustness** — non-blocking connection with configurable timeout
-
-Switch to `master` if your system can meet the build requirements (GCC 14+, Clang 18+, AppleClang 15+, CMake 3.28+).
+The `master` branch (v1.x) is a rewrite with a different driver ABI; v0.x
+plugins cannot be used there and must be rebuilt against the new SDK. It
+requires a current toolchain (CMake 3.28+, GCC 14+, Clang 19+, or Apple Clang
+15+) and adds, among other things, an mDNS address source, a subcommand-based
+CLI with configuration validation and diagnostics, resolver strategies over
+multiple servers, install rules with DEB packaging, and a container image.
+Configurations are not fully compatible between the branches; consult the
+v1.x documentation when migrating.
 
 ## Dependencies
 
-This branch uses **git submodules** for dependency management.
+| Library | Version | Purpose |
+|---|---|---|
+| [spdlog](https://github.com/gabime/spdlog) | 1.13.0 | Logging |
+| [fmt](https://github.com/fmtlib/fmt) | 10.2.1 | String formatting |
+| [cpp-httplib](https://github.com/yhirose/cpp-httplib) | 0.14.3 | HTTP client |
+| [nlohmann_json](https://github.com/nlohmann/json) | 3.11.3 | JSON parsing |
+| [cxxopts](https://github.com/jarro2783/cxxopts) | 3.2.1 | Command-line parsing |
+| [BS::thread_pool](https://github.com/bshoshany/thread-pool) | 4.1.0 | Thread pool |
+| OpenSSL | system | TLS |
+| zlib | system | Compression |
 
-| Library                                                     | Purpose                 | Management  |
-|-------------------------------------------------------------|-------------------------|-------------|
-| [spdlog](https://github.com/gabime/spdlog)                  | Logging                 | submodule   |
-| [cpp-httplib](https://github.com/yhirose/cpp-httplib) v0.14.3 | HTTP client (OpenSSL 1.1.x compatible) | submodule |
-| [cxxopts](https://github.com/jarro2783/cxxopts)             | CLI option parsing      | submodule   |
-| [BS::thread_pool](https://github.com/bshoshany/thread-pool) | Thread pool             | submodule   |
-| [fmt](https://github.com/fmtlib/fmt)                        | String formatting       | submodule   |
-| [nlohmann_json](https://github.com/nlohmann/json)           | JSON parsing            | submodule   |
-| OpenSSL (1.1.x)                                             | TLS support             | system      |
-| Zlib                                                        | Compression             | system      |
+The libraries in the first six rows are git submodules under `deps/` and are
+built as part of the project.
 
 ## License
 
-This project is licensed under the terms specified in the [LICENSE](LICENSE) file.
+This project is distributed under the MIT License; see [LICENSE](LICENSE).
