@@ -5,8 +5,9 @@
 #ifndef YADDNSC_DRV_GODADDY_GODADDY_H
 #define YADDNSC_DRV_GODADDY_GODADDY_H
 
-#include <yaddnsc/sdk/driver.hpp>
 #include <string_view>
+
+#include <yaddnsc/sdk/driver.hpp>
 
 /// GoDaddy API driver for DNS record updates.
 ///

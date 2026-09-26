@@ -47,8 +47,8 @@ public:
 
     ~DotResolver() override;
 
-    [[nodiscard]] std::expected<std::vector<std::uint8_t>, DnsErrorInfo>
-    query(const std::string& host, RecordKind type, const Utils::CancellationToken& token) const override;
+    [[nodiscard]] std::expected<std::vector<std::uint8_t>, DnsErrorInfo> query(
+        const std::string& host, RecordKind type, const Utils::CancellationToken& token) const override;
 
     [[nodiscard]] std::string_view get_type() const noexcept override { return TYPE; }
 

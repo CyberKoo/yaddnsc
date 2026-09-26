@@ -29,7 +29,7 @@ namespace yaddnsc::util {
     std::string result;
     result.reserve(input.size() * 3);
 
-    for (auto const c: input) {
+    for (auto const c : input) {
         auto const uc = static_cast<unsigned char>(c);
         if (std::isalnum(uc) || uc == '-' || uc == '.' || uc == '_' || uc == '~') {
             // unreserved character (RFC 3986 §2.3)
@@ -46,6 +46,6 @@ namespace yaddnsc::util {
     return result;
 }
 
-} // namespace yaddnsc::util
+}  // namespace yaddnsc::util
 
-#endif // YADDNSC_UTIL_URL_ENCODE_HPP
+#endif  // YADDNSC_UTIL_URL_ENCODE_HPP

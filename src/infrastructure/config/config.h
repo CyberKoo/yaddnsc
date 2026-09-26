@@ -5,10 +5,11 @@
 #ifndef YADDNSC_CONFIG_CONFIG_H
 #define YADDNSC_CONFIG_CONFIG_H
 
-#include <glaze/json/generic_fwd.hpp>
 #include <optional>
 #include <string>
 #include <vector>
+
+#include <glaze/json/generic_fwd.hpp>
 
 #include "domain/config/dns_config.h"
 #include "domain/network/address_family.h"

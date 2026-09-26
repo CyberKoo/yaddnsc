@@ -41,12 +41,8 @@ namespace {
 
 }  // namespace
 
-Session::Session(std::shared_ptr<StreamFactory> factory,
-                 Transport::Options transport_opts,
-                 Transport::TlsOptions tls_opts,
-                 std::string scheme,
-                 std::string host,
-                 const std::uint16_t port,
+Session::Session(std::shared_ptr<StreamFactory> factory, Transport::Options transport_opts,
+                 Transport::TlsOptions tls_opts, std::string scheme, std::string host, const std::uint16_t port,
                  const Limits limits)
     : factory_(std::move(factory)), transport_opts_(std::move(transport_opts)), tls_opts_(std::move(tls_opts)),
       scheme_(std::move(scheme)), host_(std::move(host)), port_(port), limits_(limits) {}

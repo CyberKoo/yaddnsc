@@ -50,4 +50,4 @@ public:
     virtual void set_retry_handler(RetryHandler handler) = 0;
 };
 
-#endif // YADDNSC_APPLICATION_PORTS_TASK_EXECUTOR_H
+#endif  // YADDNSC_APPLICATION_PORTS_TASK_EXECUTOR_H

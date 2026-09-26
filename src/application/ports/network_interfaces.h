@@ -29,7 +29,7 @@ public:
 
     /// All addresses (v4 and v6) assigned to `name`.
     /// @throws std::runtime_error  If the interface does not exist.
-    [[nodiscard]] virtual std::vector<InetAddress> addresses(const std::string &name) const = 0;
+    [[nodiscard]] virtual std::vector<InetAddress> addresses(const std::string& name) const = 0;
 };
 
-#endif // YADDNSC_APPLICATION_PORTS_NETWORK_INTERFACES_H
+#endif  // YADDNSC_APPLICATION_PORTS_NETWORK_INTERFACES_H

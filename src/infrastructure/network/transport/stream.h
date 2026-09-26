@@ -8,8 +8,9 @@
 
 #include <cstddef>
 #include <cstdint>
-#include <expected>
 #include <span>
+
+#include <expected>
 
 #include "infrastructure/network/transport/io_error.h"
 
@@ -38,8 +39,7 @@ public:
     virtual ~Stream() = default;
 
     /// Ensure the connection is established and healthy. Idempotent.
-    [[nodiscard]] virtual std::expected<void, IoError>
-    ensure_connected(const Utils::CancellationToken& token) = 0;
+    [[nodiscard]] virtual std::expected<void, IoError> ensure_connected(const Utils::CancellationToken& token) = 0;
 
     /// Close the connection. No-op when not connected.
     virtual void close() noexcept = 0;
@@ -57,6 +57,6 @@ public:
                                                                 const Utils::CancellationToken& token) = 0;
 };
 
-} // namespace Transport
+}  // namespace Transport
 
 #endif  // YADDNSC_NET_TRANSPORT_STREAM_H

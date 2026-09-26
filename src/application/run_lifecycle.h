@@ -11,11 +11,10 @@
 
 #include "application/run_environment.h"
 #include "application/scheduler_runner.h"
-
 #include "domain/update/schedule_queue.h"
 
 namespace domain {
-    struct RuntimeConfig;
+struct RuntimeConfig;
 }
 
 /// Result of one `run` execution. Currently a unit result: the run either
@@ -64,4 +63,4 @@ private:
     std::stop_callback<std::function<void()>> stop_cb_;
 };
 
-#endif // YADDNSC_APPLICATION_RUN_LIFECYCLE_H
+#endif  // YADDNSC_APPLICATION_RUN_LIFECYCLE_H

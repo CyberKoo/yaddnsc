@@ -100,8 +100,7 @@ using ParamList = std::vector<std::pair<std::string, std::string>>;
 ///                percentEncode(canonical_query)
 ///
 /// Signature = Base64(HMAC-SHA1(StringToSign, SecretAccessKey + "&"))
-[[nodiscard]] std::string compute_signature(std::string_view secret_access_key,
-                                            std::string_view http_method,
+[[nodiscard]] std::string compute_signature(std::string_view secret_access_key, std::string_view http_method,
                                             const std::string& canonical_query) {
     // Build string to sign.
     auto encoded_path = yaddnsc::sdk::url_encode("/");
@@ -121,12 +120,8 @@ using ParamList = std::vector<std::pair<std::string, std::string>>;
 
 }  // anonymous namespace
 
-YADDNSC_DEFINE_DRIVER(AlibabaCloudDriver,
-                      "alibaba_cloud",
-                      "Updates DNS records via the Alibaba Cloud DNS API",
-                      "Kotarou",
-                      "1.0.0",
-                      YADDNSC_DRIVER_CAPABILITY_A | YADDNSC_DRIVER_CAPABILITY_AAAA)
+YADDNSC_DEFINE_DRIVER(AlibabaCloudDriver, "alibaba_cloud", "Updates DNS records via the Alibaba Cloud DNS API",
+                      "Kotarou", "1.0.0", YADDNSC_DRIVER_CAPABILITY_A | YADDNSC_DRIVER_CAPABILITY_AAAA)
 
 Result AlibabaCloudDriver::validate(std::string_view driver_param_json) const {
     // Reuses the update-time schema: parse_config throws ConfigParseError on

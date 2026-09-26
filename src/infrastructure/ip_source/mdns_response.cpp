@@ -24,8 +24,7 @@ namespace {
 }  // namespace
 
 std::vector<InetAddress> Mdns::parse_response(const std::span<const std::uint8_t> packet,
-                                              const std::string_view hostname,
-                                              const RecordKind type) {
+                                              const std::string_view hostname, const RecordKind type) {
     DNS::RecordParser parser(packet);
     const auto& msg = parser.message();
     std::vector<InetAddress> results;

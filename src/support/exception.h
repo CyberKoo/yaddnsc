@@ -6,8 +6,8 @@
 #define YADDNSC_EXCEPTION_BASE_H
 
 #include <stdexcept>
-#include <string_view>
 #include <string>
+#include <string_view>
 
 /// Base exception class for all yaddnsc-specific errors.
 ///
@@ -22,4 +22,4 @@ public:
     [[nodiscard]] virtual std::string_view get_name() const noexcept = 0;
 };
 
-#endif //YADDNSC_EXCEPTION_BASE_H
+#endif  // YADDNSC_EXCEPTION_BASE_H

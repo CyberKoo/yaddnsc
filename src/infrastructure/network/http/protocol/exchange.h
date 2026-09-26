@@ -16,6 +16,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+
 #include <expected>
 
 #include "infrastructure/network/http/error.h"
@@ -73,19 +74,15 @@ struct RawResponse {
 /// Does NOT connect: the caller owns lifecycle (Stream::ensure_connected /
 /// close). Safe to call on an already-connected stream only.
 /// Cancellation is operation-scoped via `token` (see Transport::Stream).
-[[nodiscard]] std::expected<RawResponse, Error> exchange(Transport::Stream& stream,
-                                                         const WireRequest& req,
-                                                         const Limits& limits,
-                                                         std::string& pending,
+[[nodiscard]] std::expected<RawResponse, Error> exchange(Transport::Stream& stream, const WireRequest& req,
+                                                         const Limits& limits, std::string& pending,
                                                          const Utils::CancellationToken& token);
 
 /// One-shot convenience overload. Persistent callers must retain `pending`
 /// between exchanges so bytes read past one response remain available for the
 /// next response.
-[[nodiscard]] std::expected<RawResponse, Error> exchange(Transport::Stream& stream,
-                                                         const WireRequest& req,
-                                                         const Limits& limits,
-                                                         const Utils::CancellationToken& token);
+[[nodiscard]] std::expected<RawResponse, Error> exchange(Transport::Stream& stream, const WireRequest& req,
+                                                         const Limits& limits, const Utils::CancellationToken& token);
 
 }  // namespace net::http::protocol
 

@@ -12,26 +12,26 @@
 struct NoCopy {
     NoCopy() = default;
 
-    NoCopy(const NoCopy &) = delete;
+    NoCopy(const NoCopy&) = delete;
 
-    NoCopy &operator=(const NoCopy &) = delete;
+    NoCopy& operator=(const NoCopy&) = delete;
 
-    NoCopy(NoCopy &&) = default;
+    NoCopy(NoCopy&&) = default;
 
-    NoCopy &operator=(NoCopy &&) = default;
+    NoCopy& operator=(NoCopy&&) = default;
 };
 
 /// Disables move construction/assignment; copy semantics are preserved.
 struct NoMove {
     NoMove() = default;
 
-    NoMove(NoMove &&) = delete;
+    NoMove(NoMove&&) = delete;
 
-    NoMove &operator=(NoMove &&) = delete;
+    NoMove& operator=(NoMove&&) = delete;
 
-    NoMove(const NoMove &) = default;
+    NoMove(const NoMove&) = default;
 
-    NoMove &operator=(const NoMove &) = default;
+    NoMove& operator=(const NoMove&) = default;
 };
 
-#endif //YADDNSC_SUPPORT_MIXIN_H
+#endif  // YADDNSC_SUPPORT_MIXIN_H

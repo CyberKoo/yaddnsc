@@ -14,9 +14,7 @@ class PluginLoadException : public YaddnscException {
 public:
     using YaddnscException::YaddnscException;
 
-    [[nodiscard]] std::string_view get_name() const noexcept override {
-        return "PluginLoadException";
-    }
+    [[nodiscard]] std::string_view get_name() const noexcept override { return "PluginLoadException"; }
 };
 
-#endif // YADDNSC_EXCEPTION_PLUGIN_LOAD_H
+#endif  // YADDNSC_EXCEPTION_PLUGIN_LOAD_H

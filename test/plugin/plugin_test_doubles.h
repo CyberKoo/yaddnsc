@@ -15,7 +15,6 @@
 
 #include <cstdint>
 #include <deque>
-#include <expected>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -25,13 +24,14 @@
 #include <utility>
 #include <vector>
 
+#include <expected>
+#include <yaddnsc/sdk/driver_abi.h>
+
 #include "application/ports/log.h"
+#include "infrastructure/network/http/client_port.h"
 #include "infrastructure/plugin/host_services.h"
 #include "infrastructure/plugin/plugin_loader.h"
-#include "infrastructure/network/http/client_port.h"
 #include "support/util/cancellation_token.hpp"
-
-#include <yaddnsc/sdk/driver_abi.h>
 
 /// Scripted HttpClient: replays queued responses/transport errors and keeps
 /// an owned copy of every captured request. Thread-safe.
@@ -41,32 +41,29 @@ public:
         std::string url;
         net::http::Method method;
         std::multimap<std::string, std::string> headers;
-        std::optional<std::string> body; ///< nullopt = no body at all
+        std::optional<std::string> body;  ///< nullopt = no body at all
         std::string content_type;
     };
 
-    void queue_response(int status_code, std::string body,
-                        std::multimap<std::string, std::string> headers = {}) {
+    void queue_response(int status_code, std::string body, std::multimap<std::string, std::string> headers = {}) {
         std::lock_guard lock(mutex_);
-        queue_.emplace_back(
-                std::expected<net::http::Response, net::http::Error>(
-                        std::in_place, status_code, std::move(body), std::move(headers)));
+        queue_.emplace_back(std::expected<net::http::Response, net::http::Error>(std::in_place, status_code,
+                                                                                 std::move(body), std::move(headers)));
     }
 
     void queue_error(net::http::ErrorCode code, std::string message, uint32_t retry_after_seconds = 0) {
         std::lock_guard lock(mutex_);
         queue_.emplace_back(std::expected<net::http::Response, net::http::Error>(
-                std::unexpect, code, std::move(message), retry_after_seconds));
+            std::unexpect, code, std::move(message), retry_after_seconds));
     }
 
-    [[nodiscard]] std::expected<net::http::Response, net::http::Error>
-    exchange(std::string_view url, const net::http::Request &req,
-             const Utils::CancellationToken &) const override {
+    [[nodiscard]] std::expected<net::http::Response, net::http::Error> exchange(
+        std::string_view url, const net::http::Request& req, const Utils::CancellationToken&) const override {
         std::lock_guard lock(mutex_);
         requests_.push_back(CapturedRequest{std::string(url), req.method, req.headers, req.body, req.content_type});
         if (queue_.empty()) {
-            return std::unexpected(net::http::Error{net::http::ErrorCode::CONNECTION_LOST,
-                                                    "QueueHttpClient: no queued exchange"});
+            return std::unexpected(
+                net::http::Error{net::http::ErrorCode::CONNECTION_LOST, "QueueHttpClient: no queued exchange"});
         }
         auto front = std::move(queue_.front());
         queue_.pop_front();
@@ -101,9 +98,8 @@ class SharedHttpClient final : public HttpClient {
 public:
     explicit SharedHttpClient(std::shared_ptr<QueueHttpClient> inner) : inner_(std::move(inner)) {}
 
-    [[nodiscard]] std::expected<net::http::Response, net::http::Error>
-    exchange(std::string_view url, const net::http::Request &req,
-             const Utils::CancellationToken &token) const override {
+    [[nodiscard]] std::expected<net::http::Response, net::http::Error> exchange(
+        std::string_view url, const net::http::Request& req, const Utils::CancellationToken& token) const override {
         return inner_->exchange(url, req, token);
     }
 
@@ -125,10 +121,10 @@ public:
 
     [[nodiscard]] bool is_enabled(LogLevel) const override { return true; }
 
-    void log(LogLevel level, std::string_view message, const std::source_location &loc) const override {
+    void log(LogLevel level, std::string_view message, const std::source_location& loc) const override {
         std::lock_guard lock(mutex_);
-        records_.push_back(Record{level, std::string(message), loc.file_name(),
-                                  static_cast<int>(loc.line()), loc.function_name()});
+        records_.push_back(
+            Record{level, std::string(message), loc.file_name(), static_cast<int>(loc.line()), loc.function_name()});
     }
 
     void log_explicit(LogLevel level, std::string_view message, std::string_view file, int line,
@@ -161,18 +157,18 @@ struct HostUpdateContext {
 };
 
 /// Build a fully-populated update request (all views borrow the arguments).
-[[nodiscard]] inline yaddnsc_update_request
-make_update_request(std::string_view ip_addr, std::string_view rd_type, std::string_view domain,
-                    std::string_view subdomain, std::string_view fqdn, std::string_view driver_param_json) {
+[[nodiscard]] inline yaddnsc_update_request make_update_request(std::string_view ip_addr, std::string_view rd_type,
+                                                                std::string_view domain, std::string_view subdomain,
+                                                                std::string_view fqdn,
+                                                                std::string_view driver_param_json) {
     return yaddnsc_update_request{
-            .struct_size = static_cast<uint32_t>(sizeof(yaddnsc_update_request)),
-            .ip_address = {ip_addr.data(), ip_addr.size()},
-            .record_type = {rd_type.data(), rd_type.size()},
-            .domain = {domain.data(), domain.size()},
-            .subdomain = {subdomain.data(), subdomain.size()},
-            .fqdn = {fqdn.data(), fqdn.size()},
-            .driver_param_json = {reinterpret_cast<const uint8_t *>(driver_param_json.data()),
-                                  driver_param_json.size()},
+        .struct_size = static_cast<uint32_t>(sizeof(yaddnsc_update_request)),
+        .ip_address = {ip_addr.data(), ip_addr.size()},
+        .record_type = {rd_type.data(), rd_type.size()},
+        .domain = {domain.data(), domain.size()},
+        .subdomain = {subdomain.data(), subdomain.size()},
+        .fqdn = {fqdn.data(), fqdn.size()},
+        .driver_param_json = {reinterpret_cast<const uint8_t*>(driver_param_json.data()), driver_param_json.size()},
     };
 }
 
@@ -187,19 +183,15 @@ struct ModuleCycleResult {
 /// Drive one full update cycle through a module's C entry points, copying
 /// the error report out synchronously before destroy (mirrors
 /// AbiDriverGateway::update).
-[[nodiscard]] inline ModuleCycleResult run_module_cycle(const PluginModule &module,
-                                                        const yaddnsc_host_services &services,
-                                                        std::string_view driver_param_json,
-                                                        std::string_view ip_addr = "192.0.2.1",
-                                                        std::string_view rd_type = "A",
-                                                        std::string_view domain = "example.com",
-                                                        std::string_view subdomain = "www",
-                                                        std::string_view fqdn = "www.example.com") {
+[[nodiscard]] inline ModuleCycleResult run_module_cycle(
+    const PluginModule& module, const yaddnsc_host_services& services, std::string_view driver_param_json,
+    std::string_view ip_addr = "192.0.2.1", std::string_view rd_type = "A", std::string_view domain = "example.com",
+    std::string_view subdomain = "www", std::string_view fqdn = "www.example.com") {
     ModuleCycleResult result;
     yaddnsc_error error{};
     error.struct_size = static_cast<uint32_t>(sizeof(error));
 
-    yaddnsc_driver *handle = nullptr;
+    yaddnsc_driver* handle = nullptr;
     result.create_status = module.create(services, &handle, error);
     if (result.create_status != YADDNSC_STATUS_OK) {
         if (error.message.data != nullptr) {
@@ -219,4 +211,4 @@ struct ModuleCycleResult {
     return result;
 }
 
-#endif // YADDNSC_TEST_PLUGIN_PLUGIN_TEST_DOUBLES_H
+#endif  // YADDNSC_TEST_PLUGIN_PLUGIN_TEST_DOUBLES_H

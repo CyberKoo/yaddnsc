@@ -23,10 +23,10 @@
 namespace domain {
 
 enum class UpdateDecision {
-    SKIP_UNCHANGED,  ///< First DNS record already equals the local address
-    UPDATE_CHANGED,  ///< Records differ (or are unavailable) — update
-    UPDATE_FORCED,   ///< force_update cycle — update without comparing
-    SKIP_NO_ADDRESS, ///< No usable local address — do not call the driver
+    SKIP_UNCHANGED,   ///< First DNS record already equals the local address
+    UPDATE_CHANGED,   ///< Records differ (or are unavailable) — update
+    UPDATE_FORCED,    ///< force_update cycle — update without comparing
+    SKIP_NO_ADDRESS,  ///< No usable local address — do not call the driver
 };
 
 /// Decide what one update cycle should do.
@@ -35,8 +35,8 @@ enum class UpdateDecision {
 ///                         arrives as an empty list (mapped by the workflow).
 /// @param local_address    The address to publish, if any was resolved.
 /// @param force_update     Skip the comparison and update unconditionally.
-[[nodiscard]] inline UpdateDecision decide_update(const std::vector<std::string> &current_records,
-                                                  const std::optional<std::string> &local_address,
+[[nodiscard]] inline UpdateDecision decide_update(const std::vector<std::string>& current_records,
+                                                  const std::optional<std::string>& local_address,
                                                   bool force_update) noexcept {
     if (!local_address.has_value()) {
         return UpdateDecision::SKIP_NO_ADDRESS;
@@ -50,6 +50,6 @@ enum class UpdateDecision {
     return UpdateDecision::UPDATE_CHANGED;
 }
 
-} // namespace domain
+}  // namespace domain
 
-#endif // YADDNSC_DOMAIN_UPDATE_UPDATE_DECISION_H
+#endif  // YADDNSC_DOMAIN_UPDATE_UPDATE_DECISION_H

@@ -5,9 +5,10 @@
 #ifndef YADDNSC_DRV_CLOUDFLARE_CLOUDFLARE_H
 #define YADDNSC_DRV_CLOUDFLARE_CLOUDFLARE_H
 
-#include <yaddnsc/sdk/driver.hpp>
 #include <string>
 #include <string_view>
+
+#include <yaddnsc/sdk/driver.hpp>
 
 struct CloudflareParams;
 

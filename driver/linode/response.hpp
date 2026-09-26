@@ -5,9 +5,10 @@
 #ifndef YADDNSC_DRV_LINODE_RESPONSE_H
 #define YADDNSC_DRV_LINODE_RESPONSE_H
 
-#include <string>
 #include <optional>
+#include <string>
 #include <vector>
+
 #include <glaze/glaze.hpp>
 
 /// Linode API error detail.
@@ -24,18 +25,13 @@ struct LinodeErrorResponse {
 template<>
 struct glz::meta<LinodeError> {
     using T = LinodeError;
-    static constexpr auto value = object(
-        "field", &T::field,
-        "reason", &T::reason
-    );
+    static constexpr auto value = object("field", &T::field, "reason", &T::reason);
 };
 
 template<>
 struct glz::meta<LinodeErrorResponse> {
     using T = LinodeErrorResponse;
-    static constexpr auto value = object(
-        "errors", &T::errors
-    );
+    static constexpr auto value = object("errors", &T::errors);
 };
 
-#endif // YADDNSC_DRV_LINODE_RESPONSE_H
+#endif  // YADDNSC_DRV_LINODE_RESPONSE_H

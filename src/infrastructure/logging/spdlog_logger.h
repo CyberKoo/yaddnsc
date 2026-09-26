@@ -18,10 +18,10 @@ class SpdlogLogger final : public Logger {
 public:
     [[nodiscard]] bool is_enabled(LogLevel level) const override;
 
-    void log(LogLevel level, std::string_view message, const std::source_location &loc) const override;
+    void log(LogLevel level, std::string_view message, const std::source_location& loc) const override;
 
     void log_explicit(LogLevel level, std::string_view message, std::string_view file, int line,
                       std::string_view function) const override;
 };
 
-#endif // YADDNSC_INFRASTRUCTURE_LOGGING_SPDLOG_LOGGER_H
+#endif  // YADDNSC_INFRASTRUCTURE_LOGGING_SPDLOG_LOGGER_H

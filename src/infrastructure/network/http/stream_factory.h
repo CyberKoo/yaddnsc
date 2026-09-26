@@ -27,26 +27,22 @@ class StreamFactory {
 public:
     virtual ~StreamFactory() = default;
 
-    [[nodiscard]] virtual std::unique_ptr<Transport::Stream> create_tls(std::string_view host,
-                                                                        std::uint16_t port,
+    [[nodiscard]] virtual std::unique_ptr<Transport::Stream> create_tls(std::string_view host, std::uint16_t port,
                                                                         const Transport::Options& conn_opts,
                                                                         const Transport::TlsOptions& tls_opts) = 0;
 
-    [[nodiscard]] virtual std::unique_ptr<Transport::Stream> create_tcp(std::string_view host,
-                                                                        std::uint16_t port,
+    [[nodiscard]] virtual std::unique_ptr<Transport::Stream> create_tcp(std::string_view host, std::uint16_t port,
                                                                         const Transport::Options& opts) = 0;
 };
 
 /// Default factory: TlsStream for TLS, TcpStream for TCP.
 class DefaultStreamFactory final : public StreamFactory {
 public:
-    [[nodiscard]] std::unique_ptr<Transport::Stream> create_tls(std::string_view host,
-                                                                std::uint16_t port,
+    [[nodiscard]] std::unique_ptr<Transport::Stream> create_tls(std::string_view host, std::uint16_t port,
                                                                 const Transport::Options& conn_opts,
                                                                 const Transport::TlsOptions& tls_opts) override;
 
-    [[nodiscard]] std::unique_ptr<Transport::Stream> create_tcp(std::string_view host,
-                                                                std::uint16_t port,
+    [[nodiscard]] std::unique_ptr<Transport::Stream> create_tcp(std::string_view host, std::uint16_t port,
                                                                 const Transport::Options& conn_opts) override;
 };
 

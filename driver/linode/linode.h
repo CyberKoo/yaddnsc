@@ -5,10 +5,11 @@
 #ifndef YADDNSC_DRV_LINODE_LINODE_H
 #define YADDNSC_DRV_LINODE_LINODE_H
 
-#include <yaddnsc/sdk/driver.hpp>
 #include <optional>
 #include <string>
 #include <string_view>
+
+#include <yaddnsc/sdk/driver.hpp>
 
 /// Linode API v4 driver for DNS record updates.
 ///

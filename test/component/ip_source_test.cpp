@@ -3,14 +3,15 @@
 //
 // =============================================================================
 
-#include <gtest/gtest.h>
-#include <string>
-#include <vector>
 #include <algorithm>
 #include <ranges>
+#include <string>
+#include <vector>
 
-#include "domain/network/address_family.h"
+#include <gtest/gtest.h>
+
 #include "domain/error/error.h"
+#include "domain/network/address_family.h"
 #include "domain/network/inet_address.h"
 #include "infrastructure/ip_source/iface.h"
 #include "infrastructure/ip_source/iface_util.h"

@@ -6,15 +6,16 @@
 #define YADDNSC_DNS_BASE_H
 
 #include <atomic>
-#include <expected>
-#include <string>
-#include <vector>
 #include <cstdint>
+#include <string>
 #include <string_view>
+#include <vector>
 
-#include "support/mixin.h"
+#include <expected>
+
 #include "domain/dns/record_kind.h"
 #include "domain/error/dns_error_info.h"
+#include "support/mixin.h"
 
 // ── Forward declarations ──
 
@@ -32,9 +33,9 @@ class ResolverBase {
 public:
     virtual ~ResolverBase() = default;
 
-    ResolverBase(ResolverBase &&) noexcept = default;
+    ResolverBase(ResolverBase&&) noexcept = default;
 
-    ResolverBase &operator=(ResolverBase &&) noexcept = default;
+    ResolverBase& operator=(ResolverBase&&) noexcept = default;
 
     /// Perform a DNS query and return the raw response packet.
     ///
@@ -51,8 +52,8 @@ public:
     ///          Callers must check the error code via error().code to
     ///          distinguish transient errors (RETRY, CONNECTION) from permanent
     ///          ones (NX_DOMAIN, NODATA).
-    [[nodiscard]] virtual std::expected<std::vector<std::uint8_t>, DnsErrorInfo>
-    query(const std::string &host, RecordKind type, const Utils::CancellationToken &token) const = 0;
+    [[nodiscard]] virtual std::expected<std::vector<std::uint8_t>, DnsErrorInfo> query(
+        const std::string& host, RecordKind type, const Utils::CancellationToken& token) const = 0;
 
     /// Return a human-readable resolver type name (e.g. "Classic", "DNS-Over-HTTPS").
     [[nodiscard]] virtual std::string_view get_type() const noexcept = 0;
@@ -62,8 +63,7 @@ public:
 
 protected:
     /// Construct with a new auto-incremented ID.
-    ResolverBase() : id_(next_id_.fetch_add(1, std::memory_order_relaxed)) {
-    }
+    ResolverBase() : id_(next_id_.fetch_add(1, std::memory_order_relaxed)) {}
 
 private:
     std::uint64_t id_;
@@ -73,4 +73,4 @@ private:
     [[maybe_unused, no_unique_address]] NoCopy no_copy_;
 };
 
-#endif // YADDNSC_DNS_BASE_H
+#endif  // YADDNSC_DNS_BASE_H

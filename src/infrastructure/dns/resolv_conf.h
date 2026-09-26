@@ -23,8 +23,7 @@ namespace DNS {
 /// @return      Discovered servers on port 53; empty when the file is
 ///              missing, unreadable or contains no valid entry (not an
 ///              error — the caller decides whether bootstrap is required).
-[[nodiscard]] std::vector<Config::DnsServer> parse_resolv_conf(
-    const std::filesystem::path& path = "/etc/resolv.conf");
+[[nodiscard]] std::vector<Config::DnsServer> parse_resolv_conf(const std::filesystem::path& path = "/etc/resolv.conf");
 
 }  // namespace DNS
 

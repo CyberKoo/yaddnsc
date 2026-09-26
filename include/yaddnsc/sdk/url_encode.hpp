@@ -16,6 +16,6 @@ namespace yaddnsc::sdk {
 
 using util::url_encode;
 
-} // namespace yaddnsc::sdk
+}  // namespace yaddnsc::sdk
 
-#endif // YADDNSC_SDK_URL_ENCODE_HPP
+#endif  // YADDNSC_SDK_URL_ENCODE_HPP

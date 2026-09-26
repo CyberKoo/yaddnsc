@@ -17,6 +17,6 @@ namespace domain {
 using TimePoint = std::chrono::steady_clock::time_point;
 using Duration = std::chrono::steady_clock::duration;
 
-} // namespace domain
+}  // namespace domain
 
-#endif // YADDNSC_DOMAIN_UPDATE_TIME_TYPES_H
+#endif  // YADDNSC_DOMAIN_UPDATE_TIME_TYPES_H

@@ -30,12 +30,8 @@ constexpr std::string_view API_URL = "https://api.digitalocean.com/v2/domains/{D
 constexpr std::string_view DRIVER_NAME = "digital_ocean";
 }  // namespace
 
-YADDNSC_DEFINE_DRIVER(DigitalOceanDriver,
-                      "digital_ocean",
-                      "Updates DNS records via the DigitalOcean API",
-                      "Kotarou",
-                      "2.0.0",
-                      YADDNSC_DRIVER_CAPABILITY_A | YADDNSC_DRIVER_CAPABILITY_AAAA)
+YADDNSC_DEFINE_DRIVER(DigitalOceanDriver, "digital_ocean", "Updates DNS records via the DigitalOcean API", "Kotarou",
+                      "2.0.0", YADDNSC_DRIVER_CAPABILITY_A | YADDNSC_DRIVER_CAPABILITY_AAAA)
 
 Result DigitalOceanDriver::validate(std::string_view driver_param_json) const {
     // Reuses the update-time schema: parse_config throws ConfigParseError on

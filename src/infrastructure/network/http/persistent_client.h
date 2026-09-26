@@ -55,8 +55,7 @@ public:
     /// @param url    Request target (path + query), e.g. "/v1/update?foo=bar".
     ///               Empty means "/".
     /// @param token  Cancellation token for this exchange.
-    [[nodiscard]] std::expected<Response, Error> exchange(std::string_view url,
-                                                          const Request& req,
+    [[nodiscard]] std::expected<Response, Error> exchange(std::string_view url, const Request& req,
                                                           const Utils::CancellationToken& token) const override;
 
 private:

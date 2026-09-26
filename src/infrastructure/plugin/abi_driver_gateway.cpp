@@ -21,16 +21,12 @@
 #include "driver_instance.h"
 #include "host_services.h"
 
-AbiDriverGateway::AbiDriverGateway(const DriverCatalog& catalog,
-                                   HttpClientFactory http_factory,
-                                   const Logger& logger)
+AbiDriverGateway::AbiDriverGateway(const DriverCatalog& catalog, HttpClientFactory http_factory, const Logger& logger)
     : catalog_(catalog), http_factory_(std::move(http_factory)), logger_(logger) {}
 
 namespace {
-[[nodiscard]] domain::DriverError map_error(yaddnsc_status status,
-                                            std::string_view plugin_message,
-                                            std::string_view driver_name,
-                                            std::string_view fqdn) {
+[[nodiscard]] domain::DriverError map_error(yaddnsc_status status, std::string_view plugin_message,
+                                            std::string_view driver_name, std::string_view fqdn) {
     using Code = domain::DriverError::Code;
     const std::string message = !plugin_message.empty()
                                     ? std::string(plugin_message)
@@ -75,8 +71,7 @@ namespace {
 /// configuration was rejected (INVALID_CONFIG is the canonical code, but
 /// plugins may report other failures — e.g. an internal error while
 /// validating — which the caller must surface verbatim).
-[[nodiscard]] domain::DriverError map_validate_error(yaddnsc_status /*status*/,
-                                                     std::string_view plugin_message,
+[[nodiscard]] domain::DriverError map_validate_error(yaddnsc_status /*status*/, std::string_view plugin_message,
                                                      std::string_view driver_name) {
     const std::string message = !plugin_message.empty()
                                     ? std::string(plugin_message)
@@ -137,9 +132,8 @@ std::expected<void, domain::DriverError> AbiDriverGateway::update(std::string_vi
     auto driver_error = map_error(status, to_view(error.message), driver_name, command.fqdn);
     // The ABI field is uint32; clamp instead of narrowing so an out-of-range
     // plugin value saturates at INT_MAX rather than going negative.
-    driver_error.retry_after_seconds =
-        static_cast<int>(std::min<std::uint32_t>(error.retry_after_seconds,
-                                                 static_cast<std::uint32_t>(std::numeric_limits<int>::max())));
+    driver_error.retry_after_seconds = static_cast<int>(std::min<std::uint32_t>(
+        error.retry_after_seconds, static_cast<std::uint32_t>(std::numeric_limits<int>::max())));
     return std::unexpected(std::move(driver_error));
 }
 

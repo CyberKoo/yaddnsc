@@ -99,11 +99,8 @@ std::expected<void, Error> validate_request(const Request& req) {
     return {};
 }
 
-protocol::WireRequest build_wire_request(const Request& req,
-                                         const std::string_view scheme,
-                                         const std::string_view host,
-                                         const std::uint16_t port,
-                                         const Options& opts) {
+protocol::WireRequest build_wire_request(const Request& req, const std::string_view scheme, const std::string_view host,
+                                         const std::uint16_t port, const Options& opts) {
     protocol::WireRequest wire{
         .method = req.method,
         .version = opts.version,

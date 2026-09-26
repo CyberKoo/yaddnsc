@@ -42,4 +42,4 @@ public:
     [[nodiscard]] virtual DriverDescription describe(std::string_view name) const = 0;
 };
 
-#endif // YADDNSC_APPLICATION_PORTS_DRIVER_CATALOG_H
+#endif  // YADDNSC_APPLICATION_PORTS_DRIVER_CATALOG_H

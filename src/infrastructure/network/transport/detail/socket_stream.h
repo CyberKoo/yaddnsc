@@ -37,9 +37,7 @@ inline constexpr int kNoSigpipe = 0;
 /// poll(); returns CANCELLED when the token is or becomes triggered (the
 /// latched flag is consulted both before and after poll, so draining by
 /// another consumer of the same source cannot lose the signal).
-[[nodiscard]] std::expected<void, IoError> poll_fd(int fd,
-                                                   short events,
-                                                   std::chrono::milliseconds timeout,
+[[nodiscard]] std::expected<void, IoError> poll_fd(int fd, short events, std::chrono::milliseconds timeout,
                                                    const Utils::CancellationToken& token);
 
 /// A connected (or connectable) TCP socket. Owns the fd.
@@ -63,8 +61,7 @@ public:
     [[nodiscard]] bool is_healthy() const noexcept;
 
     /// Poll the socket for readiness, honouring the operation's token.
-    [[nodiscard]] std::expected<void, IoError> poll(short events,
-                                                    std::chrono::milliseconds timeout,
+    [[nodiscard]] std::expected<void, IoError> poll(short events, std::chrono::milliseconds timeout,
                                                     const Utils::CancellationToken& token) const;
 
     [[nodiscard]] int fd() const noexcept { return fd_.get(); }
@@ -76,8 +73,7 @@ public:
     [[nodiscard]] const Options& options() const noexcept { return opts_; }
 
 private:
-    [[nodiscard]] std::expected<void, IoError> connect_one(const struct sockaddr* addr,
-                                                           socklen_t addr_len,
+    [[nodiscard]] std::expected<void, IoError> connect_one(const struct sockaddr* addr, socklen_t addr_len,
                                                            std::chrono::steady_clock::time_point deadline,
                                                            const Utils::CancellationToken& token);
 

@@ -122,10 +122,8 @@ int Cli::present_dns_resolve(const Diagnostics::DnsResolveOutcome& outcome) {
     return EXIT_SUCCESS;
 }
 
-int Cli::present_dns_resolver(const bool use_custom_server,
-                              const std::string_view strategy,
-                              const std::vector<std::string>& servers,
-                              const std::string_view legacy_address,
+int Cli::present_dns_resolver(const bool use_custom_server, const std::string_view strategy,
+                              const std::vector<std::string>& servers, const std::string_view legacy_address,
                               const unsigned short legacy_port) {
     std::println(
         "DNS resolver configuration:\n"

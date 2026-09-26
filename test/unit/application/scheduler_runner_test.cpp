@@ -46,8 +46,8 @@
 #include "domain/update/update_task.h"
 #include "fixtures/sample_config.h"
 #include "infrastructure/config/config.h"
-#include "infrastructure/config/parser.hpp"  // IWYU pragma: keep — registers glz::meta specializations
 #include "infrastructure/config/normalizer.h"
+#include "infrastructure/config/parser.hpp"  // IWYU pragma: keep — registers glz::meta specializations
 #include "mocks/fake_clock.h"
 #include "mocks/fake_task_executor.h"
 #include "mocks/mock_ports.h"
@@ -317,8 +317,7 @@ TEST(SchedulerRunner, FullUpdateCycleOverMockPorts) {
             return std::expected<std::vector<std::string>, DnsErrorInfo>{{"198.51.100.1"}};
         });
     EXPECT_CALL(gateway, update("cloudflare", _, _))
-        .WillOnce([&first_update_done](std::string_view,
-                                       const DriverUpdateCommand& cmd,
+        .WillOnce([&first_update_done](std::string_view, const DriverUpdateCommand& cmd,
                                        const Utils::CancellationToken&) -> std::expected<void, domain::DriverError> {
             EXPECT_EQ(cmd.fqdn, "www.example.com");
             EXPECT_EQ(cmd.ip_addr, "198.51.100.1");
@@ -330,7 +329,8 @@ TEST(SchedulerRunner, FullUpdateCycleOverMockPorts) {
 
     domain::ScheduleQueue queue(cfg, T0);
     FakeClock clock{T0};
-    InlineTaskExecutor executor([&workflow](const domain::UpdateTask& task) { static_cast<void>(workflow.run(task, {})); });
+    InlineTaskExecutor executor(
+        [&workflow](const domain::UpdateTask& task) { static_cast<void>(workflow.run(task, {})); });
 
     std::stop_source stop;
     SchedulerRunner runner(queue, clock, executor, stop.get_token(), logger);
@@ -367,15 +367,16 @@ TEST(SchedulerRunner, IpSourceFailureDoesNotStopScheduling) {
 
     std::atomic<int> attempts{0};
     EXPECT_CALL(ip_source, resolve(_, _))
-        .WillRepeatedly([&](const domain::SubdomainConfig&, const Utils::CancellationToken&)
-                            -> std::expected<std::vector<InetAddress>, domain::IpSourceError> {
-            if (attempts.fetch_add(1) == 0) {
-                first_attempt.set_value();
-            } else {
-                second_attempt.set_value();
-            }
-            return std::unexpected(domain::IpSourceError{domain::IpSourceError::Code::UNAVAILABLE, "source down"});
-        });
+        .WillRepeatedly(
+            [&](const domain::SubdomainConfig&,
+                const Utils::CancellationToken&) -> std::expected<std::vector<InetAddress>, domain::IpSourceError> {
+                if (attempts.fetch_add(1) == 0) {
+                    first_attempt.set_value();
+                } else {
+                    second_attempt.set_value();
+                }
+                return std::unexpected(domain::IpSourceError{domain::IpSourceError::Code::UNAVAILABLE, "source down"});
+            });
     EXPECT_CALL(dns, resolve(_, _, _)).Times(0);
     EXPECT_CALL(gateway, update(_, _, _)).Times(0);
 
@@ -398,8 +399,7 @@ TEST(SchedulerRunner, IpSourceFailureDoesNotStopScheduling) {
     const LoopGuard cleanup{stop, loop};
 
     // Round 1 runs inline and fails at the IP source.
-    ASSERT_EQ(first_attempt.get_future().wait_for(30s), std::future_status::ready)
-        << "the initial cycle never ran";
+    ASSERT_EQ(first_attempt.get_future().wait_for(30s), std::future_status::ready) << "the initial cycle never ran";
 
     // A failed cycle must not kill the loop: the next interval re-dispatches.
     clock.advance_by(300s);

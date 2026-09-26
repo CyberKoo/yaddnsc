@@ -53,8 +53,8 @@
 #include "domain/update/time_types.h"
 #include "domain/update/update_task.h"
 #include "infrastructure/config/config.h"
-#include "infrastructure/config/parser.hpp"  // IWYU pragma: keep — registers glz::meta specializations
 #include "infrastructure/config/normalizer.h"
+#include "infrastructure/config/parser.hpp"  // IWYU pragma: keep — registers glz::meta specializations
 #include "infrastructure/dns/dispatcher.h"
 #include "infrastructure/dns/resolver/base.h"
 #include "infrastructure/ip_source/adapter.h"
@@ -143,9 +143,9 @@ class BlockingHttpClient : public HttpClient {
 public:
     explicit BlockingHttpClient(std::shared_ptr<BlockingHttpState> state) : state_(std::move(state)) {}
 
-    std::expected<net::http::Response, net::http::Error> exchange(std::string_view /*url*/,
-                                                                  const net::http::Request& /*req*/,
-                                                                  const Utils::CancellationToken& /*token*/) const override {
+    std::expected<net::http::Response, net::http::Error> exchange(
+        std::string_view /*url*/, const net::http::Request& /*req*/,
+        const Utils::CancellationToken& /*token*/) const override {
         state_->calls.fetch_add(1);
         {
             std::unique_lock lock(state_->mtx);
@@ -203,8 +203,7 @@ private:
 struct RunGraph {
     RunGraph(domain::RuntimeConfig config, ResolverDispatcher dispatcher, HttpClientFactory http_factory)
         : config_(std::make_shared<const domain::RuntimeConfig>(std::move(config))), dispatcher_(std::move(dispatcher)),
-          ip_source_(),
-          gateway_(catalog_, std::move(http_factory), logger_),
+          ip_source_(), gateway_(catalog_, std::move(http_factory), logger_),
           workflow_(dispatcher_, ip_source_, gateway_, logger_), executor_(2, workflow_) {
         DriverLoader::load(catalog_, config_->driver);
     }
@@ -276,9 +275,9 @@ TEST(RunLifecycle, StopDrainsInFlightTaskBeforeReturning) {
     HttpClientFactory http_factory = [state] { return std::make_unique<BlockingHttpClient>(state); };
 
     RunGraph graph(parse_cfg(lifecycle_config(*interface_name)), make_dispatcher(), http_factory);
-    RunLifecycle lifecycle(graph.config_,
-                           {.stop = stop_source, .cancellation = graph.cancellation_},
-                           {.clock = graph.clock_, .executor = graph.executor_, .interfaces = graph.interfaces_, .logger = graph.logger_});
+    RunLifecycle lifecycle(
+        graph.config_, {.stop = stop_source, .cancellation = graph.cancellation_},
+        {.clock = graph.clock_, .executor = graph.executor_, .interfaces = graph.interfaces_, .logger = graph.logger_});
 
     std::promise<void> run_done;
     auto run_future = run_done.get_future();
@@ -325,9 +324,9 @@ TEST(RunLifecycle, StopBeforeRunDispatchesNothing) {
     HttpClientFactory http_factory = [state] { return std::make_unique<BlockingHttpClient>(state); };
 
     RunGraph graph(parse_cfg(lifecycle_config(*interface_name)), make_dispatcher(), http_factory);
-    RunLifecycle lifecycle(graph.config_,
-                           {.stop = stop_source, .cancellation = graph.cancellation_},
-                           {.clock = graph.clock_, .executor = graph.executor_, .interfaces = graph.interfaces_, .logger = graph.logger_});
+    RunLifecycle lifecycle(
+        graph.config_, {.stop = stop_source, .cancellation = graph.cancellation_},
+        {.clock = graph.clock_, .executor = graph.executor_, .interfaces = graph.interfaces_, .logger = graph.logger_});
 
     stop_source.request_stop();
 
@@ -356,8 +355,7 @@ TEST(RunLifecycle, StopCancelsIoAndDrainsExecutor) {
     ON_CALL(interfaces, names()).WillByDefault(Return(std::vector<std::string>{"lo"}));
 
     std::stop_source stop_source;
-    RunLifecycle lifecycle(config,
-                           {.stop = stop_source, .cancellation = cancellation},
+    RunLifecycle lifecycle(config, {.stop = stop_source, .cancellation = cancellation},
                            {.clock = clock, .executor = executor, .interfaces = interfaces, .logger = logger});
 
     std::promise<void> run_done;
@@ -396,8 +394,7 @@ TEST(RunLifecycle, PreStopCancelsIoBeforeRun) {
     ON_CALL(interfaces, names()).WillByDefault(Return(std::vector<std::string>{"lo"}));
 
     std::stop_source stop_source;
-    RunLifecycle lifecycle(config,
-                           {.stop = stop_source, .cancellation = cancellation},
+    RunLifecycle lifecycle(config, {.stop = stop_source, .cancellation = cancellation},
                            {.clock = clock, .executor = executor, .interfaces = interfaces, .logger = logger});
 
     stop_source.request_stop();
@@ -422,8 +419,7 @@ TEST(RunLifecycle, RateLimitedTaskIsRescheduledAtRetryDeadline) {
     ON_CALL(interfaces, names()).WillByDefault(Return(std::vector<std::string>{"lo"}));
 
     std::stop_source stop_source;
-    RunLifecycle lifecycle(config,
-                           {.stop = stop_source, .cancellation = cancellation},
+    RunLifecycle lifecycle(config, {.stop = stop_source, .cancellation = cancellation},
                            {.clock = clock, .executor = executor, .interfaces = interfaces, .logger = logger});
 
     std::promise<void> run_done;

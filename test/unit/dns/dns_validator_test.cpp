@@ -112,8 +112,7 @@ void expect_parse_error(std::span<const std::uint8_t> query, std::span<const std
 
 /// Helper: assert that validate_response fails with PARSE error
 /// and error message contains the given substring.
-void expect_parse_error_msg(std::span<const std::uint8_t> query,
-                            std::span<const std::uint8_t> response,
+void expect_parse_error_msg(std::span<const std::uint8_t> query, std::span<const std::uint8_t> response,
                             std::string_view expected_substr) {
     auto result = DNS::Validator::validate_response(query, response);
     EXPECT_FALSE(result.has_value());

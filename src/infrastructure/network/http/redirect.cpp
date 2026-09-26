@@ -50,8 +50,7 @@ struct ResolvedLocation {
 
 /// Format a Host header value per RFC 7230 §5.4 (bracket IPv6, omit
 /// default ports).
-[[nodiscard]] std::string make_host_header(const std::string_view host,
-                                           const std::uint16_t port,
+[[nodiscard]] std::string make_host_header(const std::string_view host, const std::uint16_t port,
                                            const std::string_view scheme) {
     const bool is_ipv6 = host.find(':') != std::string_view::npos;
     auto bracketed = is_ipv6 ? fmt::format("[{}]", host) : std::string(host);
@@ -201,11 +200,8 @@ void strip_auth_headers(protocol::WireRequest& req) {
 
 }  // namespace
 
-RedirectEval evaluate_redirect(const int status,
-                               const std::multimap<std::string, std::string>& headers,
-                               const int redirect_count,
-                               const Options& opts,
-                               const protocol::WireRequest& current,
+RedirectEval evaluate_redirect(const int status, const std::multimap<std::string, std::string>& headers,
+                               const int redirect_count, const Options& opts, const protocol::WireRequest& current,
                                const Uri& current_uri) {
     if (!is_redirect_status(status)) {
         return {};

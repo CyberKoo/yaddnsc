@@ -41,8 +41,8 @@
 #include "domain/update/update_task.h"
 #include "fixtures/sample_config.h"
 #include "infrastructure/config/config.h"
-#include "infrastructure/config/parser.hpp"  // IWYU pragma: keep — registers glz::meta specializations
 #include "infrastructure/config/normalizer.h"
+#include "infrastructure/config/parser.hpp"  // IWYU pragma: keep — registers glz::meta specializations
 #include "mocks/mock_ports.h"
 #include "mocks/null_logger.h"
 #include "support/util/cancellation_token.hpp"
@@ -75,8 +75,7 @@ template<typename Mutator>
 
 // Build a single-subdomain task from the shared fixture config.
 [[nodiscard]] domain::UpdateTask make_task(const std::shared_ptr<const domain::RuntimeConfig>& cfg,
-                                           std::size_t domain_idx = 0,
-                                           std::size_t sub_idx = 0) {
+                                           std::size_t domain_idx = 0, std::size_t sub_idx = 0) {
     const auto& domain = cfg->domains[domain_idx];
     const auto& sub = domain.subdomains[sub_idx];
     return domain::UpdateTask{
@@ -113,7 +112,8 @@ TEST(UpdateWorkflow, SkipsUpdateWhenIpUnchanged) {
 
     Ports ports;
     EXPECT_CALL(ports.ip_source, resolve(_, _)).WillOnce(Return(one_v4(192, 0, 2, 1)));
-    EXPECT_CALL(ports.dns, resolve(task.fqdn, RecordKind::A, _)).WillOnce(Return(std::vector<std::string>{"192.0.2.1"}));
+    EXPECT_CALL(ports.dns, resolve(task.fqdn, RecordKind::A, _))
+        .WillOnce(Return(std::vector<std::string>{"192.0.2.1"}));
     EXPECT_CALL(ports.gateway, update(_, _, _)).Times(0);
 
     const UpdateWorkflow workflow(ports.dns, ports.ip_source, ports.gateway, ports.logger);
@@ -130,20 +130,19 @@ TEST(UpdateWorkflow, UpdatesWhenIpChanged) {
 
     Ports ports;
     EXPECT_CALL(ports.ip_source, resolve(_, _)).WillOnce(Return(one_v4(198, 51, 100, 1)));
-    EXPECT_CALL(ports.dns, resolve(task.fqdn, RecordKind::A, _)).WillOnce(Return(std::vector<std::string>{"192.0.2.1"}));
+    EXPECT_CALL(ports.dns, resolve(task.fqdn, RecordKind::A, _))
+        .WillOnce(Return(std::vector<std::string>{"192.0.2.1"}));
     EXPECT_CALL(ports.gateway, update("cloudflare", _, _))
-        .WillOnce(
-            [&task](std::string_view,
-                    const DriverUpdateCommand& cmd,
-                    const Utils::CancellationToken&) -> std::expected<void, domain::DriverError> {
-                EXPECT_EQ(cmd.ip_addr, "198.51.100.1");
-                EXPECT_EQ(cmd.rd_type, "A");
-                EXPECT_EQ(cmd.domain, "example.com");
-                EXPECT_EQ(cmd.subdomain, "@");
-                EXPECT_EQ(cmd.fqdn, task.fqdn);
-                EXPECT_FALSE(cmd.driver_param.empty());
-                return {};
-            });
+        .WillOnce([&task](std::string_view, const DriverUpdateCommand& cmd,
+                          const Utils::CancellationToken&) -> std::expected<void, domain::DriverError> {
+            EXPECT_EQ(cmd.ip_addr, "198.51.100.1");
+            EXPECT_EQ(cmd.rd_type, "A");
+            EXPECT_EQ(cmd.domain, "example.com");
+            EXPECT_EQ(cmd.subdomain, "@");
+            EXPECT_EQ(cmd.fqdn, task.fqdn);
+            EXPECT_FALSE(cmd.driver_param.empty());
+            return {};
+        });
 
     const UpdateWorkflow workflow(ports.dns, ports.ip_source, ports.gateway, ports.logger);
     const auto outcome = workflow.run(task, {});
@@ -331,8 +330,7 @@ TEST(UpdateWorkflow, KeepsLinkLocalForAaaaWhenAllowed) {
     EXPECT_CALL(ports.ip_source, resolve(_, _)).WillOnce(Return(std::vector<InetAddress>{link_local_v6()}));
     EXPECT_CALL(ports.dns, resolve(_, _, _)).WillOnce(Return(std::vector<std::string>{"2001:db8::1"}));
     EXPECT_CALL(ports.gateway, update(_, _, _))
-        .WillOnce([](std::string_view,
-                     const DriverUpdateCommand& cmd,
+        .WillOnce([](std::string_view, const DriverUpdateCommand& cmd,
                      const Utils::CancellationToken&) -> std::expected<void, domain::DriverError> {
             EXPECT_EQ(cmd.ip_addr, "fe80::1");
             EXPECT_EQ(cmd.rd_type, "AAAA");
@@ -381,8 +379,7 @@ TEST(UpdateWorkflow, MultipleIpCandidates_PicksFirst) {
         }));
     EXPECT_CALL(ports.dns, resolve(_, _, _)).WillOnce(Return(std::vector<std::string>{"192.0.2.1"}));
     EXPECT_CALL(ports.gateway, update(_, _, _))
-        .WillOnce([](std::string_view,
-                     const DriverUpdateCommand& cmd,
+        .WillOnce([](std::string_view, const DriverUpdateCommand& cmd,
                      const Utils::CancellationToken&) -> std::expected<void, domain::DriverError> {
             EXPECT_EQ(cmd.ip_addr, "10.0.0.1");
             return {};
@@ -435,11 +432,11 @@ TEST(UpdateWorkflow, CancellationBeforeDriverDoesNotInvokeDriver) {
 
     Utils::CancellationSource source;
     Ports ports;
-    EXPECT_CALL(ports.ip_source, resolve(_, _)).WillOnce([&source](const domain::SubdomainConfig&,
-                                                                   const Utils::CancellationToken&) {
-        source.trigger();
-        return std::expected<std::vector<InetAddress>, domain::IpSourceError>{one_v4(198, 51, 100, 1)};
-    });
+    EXPECT_CALL(ports.ip_source, resolve(_, _))
+        .WillOnce([&source](const domain::SubdomainConfig&, const Utils::CancellationToken&) {
+            source.trigger();
+            return std::expected<std::vector<InetAddress>, domain::IpSourceError>{one_v4(198, 51, 100, 1)};
+        });
     EXPECT_CALL(ports.dns, resolve(_, _, _)).Times(0);
     EXPECT_CALL(ports.gateway, update(_, _, _)).Times(0);
 
@@ -473,11 +470,11 @@ TEST(UpdateWorkflow, StandardExceptionIsTranslatedToUnknown) {
     auto task = make_task(cfg);
 
     Ports ports;
-    EXPECT_CALL(ports.ip_source, resolve(_, _)).WillOnce([](const domain::SubdomainConfig&,
-                                                            const Utils::CancellationToken&) {
-        throw std::runtime_error("unexpected failure");
-        return std::expected<std::vector<InetAddress>, domain::IpSourceError>{};
-    });
+    EXPECT_CALL(ports.ip_source, resolve(_, _))
+        .WillOnce([](const domain::SubdomainConfig&, const Utils::CancellationToken&) {
+            throw std::runtime_error("unexpected failure");
+            return std::expected<std::vector<InetAddress>, domain::IpSourceError>{};
+        });
 
     const UpdateWorkflow workflow(ports.dns, ports.ip_source, ports.gateway, ports.logger);
     const auto outcome = workflow.run(task, {});
@@ -492,11 +489,11 @@ TEST(UpdateWorkflow, NonStandardExceptionIsTranslatedToUnknown) {
     auto task = make_task(cfg);
 
     Ports ports;
-    EXPECT_CALL(ports.ip_source, resolve(_, _)).WillOnce([](const domain::SubdomainConfig&,
-                                                            const Utils::CancellationToken&) {
-        throw 42;
-        return std::expected<std::vector<InetAddress>, domain::IpSourceError>{};
-    });
+    EXPECT_CALL(ports.ip_source, resolve(_, _))
+        .WillOnce([](const domain::SubdomainConfig&, const Utils::CancellationToken&) {
+            throw 42;
+            return std::expected<std::vector<InetAddress>, domain::IpSourceError>{};
+        });
 
     const UpdateWorkflow workflow(ports.dns, ports.ip_source, ports.gateway, ports.logger);
     const auto outcome = workflow.run(task, {});

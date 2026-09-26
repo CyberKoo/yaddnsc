@@ -29,11 +29,7 @@ constexpr std::string_view API_URL = "https://api.cloudflare.com/client/v4/zones
 constexpr std::string_view DRIVER_NAME = "cloudflare";
 }  // namespace
 
-YADDNSC_DEFINE_DRIVER(CloudflareDriver,
-                      "cloudflare",
-                      "Updates DNS records via the Cloudflare API",
-                      "Kotarou",
-                      "2.0.0",
+YADDNSC_DEFINE_DRIVER(CloudflareDriver, "cloudflare", "Updates DNS records via the Cloudflare API", "Kotarou", "2.0.0",
                       YADDNSC_DRIVER_CAPABILITY_A | YADDNSC_DRIVER_CAPABILITY_AAAA)
 
 Result CloudflareDriver::validate(std::string_view driver_param_json) const {

@@ -8,8 +8,8 @@
 #include <optional>
 #include <vector>
 
-#include "domain/network/inet_address.h"
 #include "domain/dns/record_kind.h"
+#include "domain/network/inet_address.h"
 
 namespace domain {
 
@@ -29,14 +29,14 @@ struct AddressPolicy {
 ///  - filtering applies only when the record type is AAAA;
 ///  - an empty candidate list (before or after filtering) means "no address";
 ///  - the first surviving candidate wins.
-[[nodiscard]] inline std::optional<InetAddress>
-select_address(std::vector<InetAddress> candidates, RecordKind record_type, const AddressPolicy &policy) {
+[[nodiscard]] inline std::optional<InetAddress> select_address(std::vector<InetAddress> candidates,
+                                                               RecordKind record_type, const AddressPolicy& policy) {
     if (record_type == RecordKind::AAAA) {
         if (!policy.allow_local_link) {
-            std::erase_if(candidates, [](const InetAddress &a) { return a.is_link_local(); });
+            std::erase_if(candidates, [](const InetAddress& a) { return a.is_link_local(); });
         }
         if (!policy.allow_ula) {
-            std::erase_if(candidates, [](const InetAddress &a) { return a.is_ula(); });
+            std::erase_if(candidates, [](const InetAddress& a) { return a.is_ula(); });
         }
     }
 
@@ -46,6 +46,6 @@ select_address(std::vector<InetAddress> candidates, RecordKind record_type, cons
     return candidates.front();
 }
 
-} // namespace domain
+}  // namespace domain
 
-#endif // YADDNSC_DOMAIN_ADDRESS_POLICY_H
+#endif  // YADDNSC_DOMAIN_ADDRESS_POLICY_H

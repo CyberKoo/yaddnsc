@@ -51,10 +51,8 @@ public:
     TriggerAfterFirstExchangeClient(std::shared_ptr<QueueHttpClient> inner, const Utils::CancellationSource& source)
         : inner_(std::move(inner)), source_(source) {}
 
-    [[nodiscard]] std::expected<net::http::Response, net::http::Error>
-    exchange(std::string_view url,
-             const net::http::Request& request,
-             const Utils::CancellationToken& token) const override {
+    [[nodiscard]] std::expected<net::http::Response, net::http::Error> exchange(
+        std::string_view url, const net::http::Request& request, const Utils::CancellationToken& token) const override {
         auto result = inner_->exchange(url, request, token);
         if (exchange_count_.fetch_add(1, std::memory_order_relaxed) == 0) {
             source_.trigger();
@@ -156,8 +154,7 @@ TEST_F(AbiDriverGatewayTest, OversizedRetryAfterIsClamped) {
     // The ABI field is uint32; a value beyond INT_MAX must saturate instead
     // of narrowing to a negative backoff.
     const auto result = gateway_->update(
-        kDriverName,
-        make_command(R"({"op":"fail","status":"rate_limited","message":"slow","retry_after":4294967295})"),
+        kDriverName, make_command(R"({"op":"fail","status":"rate_limited","message":"slow","retry_after":4294967295})"),
         cancel_source_.token());
     ASSERT_FALSE(result.has_value());
     EXPECT_EQ(result.error().retry_after_seconds, std::numeric_limits<int>::max());
@@ -198,8 +195,7 @@ TEST_F(AbiDriverGatewayTest, OneHttpClientPerUpdate) {
 }
 
 TEST_F(AbiDriverGatewayTest, PluginLogReachesTheHostLogger) {
-    const auto result = gateway_->update(kDriverName,
-                                         make_command(R"({"op":"log_macro","message":"via gateway"})"),
+    const auto result = gateway_->update(kDriverName, make_command(R"({"op":"log_macro","message":"via gateway"})"),
                                          cancel_source_.token());
     ASSERT_TRUE(result.has_value()) << result.error().message;
 
@@ -212,8 +208,7 @@ TEST_F(AbiDriverGatewayTest, PluginLogReachesTheHostLogger) {
 
 TEST_F(AbiDriverGatewayTest, OperationCancellationIsVisibleToThePlugin) {
     cancel_source_.trigger();
-    const auto result = gateway_->update(kDriverName,
-                                         make_command(R"({"op":"check_cancel","expect_cancelled":true})"),
+    const auto result = gateway_->update(kDriverName, make_command(R"({"op":"check_cancel","expect_cancelled":true})"),
                                          cancel_source_.token());
     EXPECT_TRUE(result.has_value()) << result.error().message;
 }
@@ -257,7 +252,7 @@ TEST(AbiDriverGatewayCreateTest, CreateFailureAfterStoringHandleDoesNotLeak) {
     ASSERT_TRUE(control_library.has_value()) << control_library.error();
     using SetMode = void (*)(int);
     using GetState = void (*)(uint64_t*, uintptr_t*);
-    const auto set_mode = reinterpret_cast<SetMode>(control_library->resolve("leaky_create_set_mode"));      // NOLINT
+    const auto set_mode = reinterpret_cast<SetMode>(control_library->resolve("leaky_create_set_mode"));     // NOLINT
     const auto get_state = reinterpret_cast<GetState>(control_library->resolve("leaky_create_get_state"));  // NOLINT
     ASSERT_NE(set_mode, nullptr);
     ASSERT_NE(get_state, nullptr);
@@ -306,8 +301,7 @@ protected:
         ASSERT_NO_THROW(catalog_.load_driver(std::string(kPluginPath)));
         ASSERT_NO_THROW(catalog_.load_driver(std::string(kNoValidatePluginPath)));
         gateway_ = std::make_unique<AbiDriverGateway>(
-            catalog_, []() -> std::unique_ptr<HttpClient> { return std::make_unique<QueueHttpClient>(); },
-            logger_);
+            catalog_, []() -> std::unique_ptr<HttpClient> { return std::make_unique<QueueHttpClient>(); }, logger_);
     }
 
     DriverCatalog catalog_;

@@ -25,10 +25,8 @@
 #include "domain/update/update_task.h"
 #include "support/util/cancellation_token.hpp"
 
-UpdateWorkflow::UpdateWorkflow(const DnsResolverPort& dns_resolver,
-                               const IpSourcePort& ip_source,
-                               const DriverGateway& driver_gateway,
-                               const Logger& logger)
+UpdateWorkflow::UpdateWorkflow(const DnsResolverPort& dns_resolver, const IpSourcePort& ip_source,
+                               const DriverGateway& driver_gateway, const Logger& logger)
     : dns_resolver_(dns_resolver), ip_source_(ip_source), driver_gateway_(driver_gateway), logger_(logger) {}
 
 UpdateOutcome UpdateWorkflow::run(const domain::UpdateTask& task, const Utils::CancellationToken& token) const {

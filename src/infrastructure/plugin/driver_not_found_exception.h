@@ -13,9 +13,7 @@ class DriverNotFoundException : public YaddnscException {
 public:
     using YaddnscException::YaddnscException;
 
-    [[nodiscard]] std::string_view get_name() const noexcept override {
-        return "DriverNotFoundException";
-    }
+    [[nodiscard]] std::string_view get_name() const noexcept override { return "DriverNotFoundException"; }
 };
 
-#endif // YADDNSC_EXCEPTION_DRIVER_NOT_FOUND_H
+#endif  // YADDNSC_EXCEPTION_DRIVER_NOT_FOUND_H

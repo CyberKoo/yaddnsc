@@ -35,8 +35,7 @@ Client::Client(Options opts, std::shared_ptr<StreamFactory> factory)
     }
 }
 
-std::expected<Response, Error> Client::exchange(const std::string_view url,
-                                                const Request& req,
+std::expected<Response, Error> Client::exchange(const std::string_view url, const Request& req,
                                                 const Utils::CancellationToken& token) const {
     if (auto valid = validate_request(req); !valid) {
         return std::unexpected(std::move(valid.error()));

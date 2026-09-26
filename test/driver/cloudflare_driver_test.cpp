@@ -29,10 +29,7 @@ constexpr std::string_view CONFIG = R"({
         "token": "mytoken"
     })";
 
-std::string make_success_response(std::string_view type,
-                                  std::string_view name,
-                                  std::string_view content,
-                                  int ttl,
+std::string make_success_response(std::string_view type, std::string_view name, std::string_view content, int ttl,
                                   bool proxied) {
     // Mirrors the real Cloudflare API response, which carries fields the
     // driver does not model (settings/meta/created_on/...); parsing must

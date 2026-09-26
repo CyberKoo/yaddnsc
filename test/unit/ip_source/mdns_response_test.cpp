@@ -40,9 +40,7 @@ void append_name(std::vector<std::uint8_t>& out, std::string_view name) {
     out.push_back(0);
 }
 
-void append_answer(std::vector<std::uint8_t>& out,
-                   std::string_view name,
-                   const std::uint16_t type,
+void append_answer(std::vector<std::uint8_t>& out, std::string_view name, const std::uint16_t type,
                    std::span<const std::uint8_t> rdata) {
     append_name(out, name);
     append_u16(out, type);

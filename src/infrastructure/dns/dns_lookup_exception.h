@@ -5,8 +5,8 @@
 #ifndef YADDNSC_EXCEPTION_DNS_LOOKUP_H
 #define YADDNSC_EXCEPTION_DNS_LOOKUP_H
 
-#include "support/exception.h"
 #include "domain/error/dns_error.h"
+#include "support/exception.h"
 
 /// Thrown when a DNS lookup fails.
 ///
@@ -18,33 +18,25 @@ public:
     using YaddnscException::YaddnscException;
 
     /// Construct with a message and a typed error code.
-    DnsLookupException(const std::string &msg, DnsError err) : YaddnscException(msg), error_(err) {
-    }
+    DnsLookupException(const std::string& msg, DnsError err) : YaddnscException(msg), error_(err) {}
 
     /// @overload
-    DnsLookupException(const char *msg, DnsError err) : YaddnscException(msg), error_(err) {
-    }
+    DnsLookupException(const char* msg, DnsError err) : YaddnscException(msg), error_(err) {}
 
     /// Construct by wrapping another exception with a DNS error code.
-    DnsLookupException(YaddnscException &&exc, DnsError err) : YaddnscException(exc), error_(err) {
-    }
+    DnsLookupException(YaddnscException&& exc, DnsError err) : YaddnscException(exc), error_(err) {}
 
     /// @overload
-    DnsLookupException(const YaddnscException &exc, DnsError err) : YaddnscException(exc), error_(err) {
-    }
+    DnsLookupException(const YaddnscException& exc, DnsError err) : YaddnscException(exc), error_(err) {}
 
-    [[nodiscard]] std::string_view get_name() const noexcept override {
-        return "DnsLookupException";
-    }
+    [[nodiscard]] std::string_view get_name() const noexcept override { return "DnsLookupException"; }
 
     /// Return the typed DNS error code associated with this exception.
-    [[nodiscard]] DnsError get_error() const noexcept {
-        return error_;
-    }
+    [[nodiscard]] DnsError get_error() const noexcept { return error_; }
 
 private:
-    DnsError error_{DnsError::UNKNOWN}; ///< Categorised DNS error code
+    DnsError error_{DnsError::UNKNOWN};  ///< Categorised DNS error code
 };
 
 
-#endif //YADDNSC_EXCEPTION_DNS_LOOKUP_H
+#endif  // YADDNSC_EXCEPTION_DNS_LOOKUP_H

@@ -189,7 +189,7 @@ TEST(PluginLifecycle, DestroyRunsAfterFailedUpdate) {
     yaddnsc_error error{};
     error.struct_size = static_cast<uint32_t>(sizeof(error));
 
-    yaddnsc_driver *handle = nullptr;
+    yaddnsc_driver* handle = nullptr;
     {
         auto module = catalog.find("test_driver_plugin");
         ASSERT_NE(module, nullptr);
@@ -205,10 +205,10 @@ TEST(PluginLifecycle, DestroyRunsAfterFailedUpdate) {
         EXPECT_TRUE(catalog.get_loaded_drivers().empty());
 
         const auto request =
-                make_update_request("192.0.2.1", "A", "example.com", "www", "www.example.com",
-                                    R"({"op":"fail","status":"rate_limited","message":"slow down","retry_after":30})");
+            make_update_request("192.0.2.1", "A", "example.com", "www", "www.example.com",
+                                R"({"op":"fail","status":"rate_limited","message":"slow down","retry_after":30})");
         EXPECT_EQ(instance.update(request, error), YADDNSC_STATUS_RATE_LIMITED)
-                << std::string_view(error.message.data, error.message.size);
+            << std::string_view(error.message.data, error.message.size);
         EXPECT_EQ(std::string(error.message.data, error.message.size), "slow down");
         EXPECT_EQ(error.retry_after_seconds, 30u);
     }
@@ -397,13 +397,13 @@ TEST(PluginLifecycle, DestroyFirewallContainsNonStdException) {
     yaddnsc_error error{};
     error.struct_size = static_cast<uint32_t>(sizeof(error));
 
-    yaddnsc_driver *handle = nullptr;
+    yaddnsc_driver* handle = nullptr;
     ASSERT_EQ(module->create(services, &handle, error), YADDNSC_STATUS_OK);
     ASSERT_NE(handle, nullptr);
 
     const auto request = make_update_request("192.0.2.1", "A", "example.com", "www", "www.example.com", "{}");
     EXPECT_EQ(module->update(handle, request, error), YADDNSC_STATUS_OK)
-            << std::string_view(error.message.data, error.message.size);
+        << std::string_view(error.message.data, error.message.size);
 
     EXPECT_NO_THROW(module->destroy(handle));
 }
@@ -426,7 +426,7 @@ TEST(PluginLifecycle, CreateFailureAfterStoringHandleDestroysAndClearsIt) {
     using SetMode = void (*)(int);
     using GetState = void (*)(uint64_t*, uintptr_t*);
     using Token = uintptr_t (*)();
-    const auto set_mode = reinterpret_cast<SetMode>(control_library->resolve("leaky_create_set_mode"));      // NOLINT
+    const auto set_mode = reinterpret_cast<SetMode>(control_library->resolve("leaky_create_set_mode"));     // NOLINT
     const auto get_state = reinterpret_cast<GetState>(control_library->resolve("leaky_create_get_state"));  // NOLINT
     const auto token = reinterpret_cast<Token>(control_library->resolve("leaky_create_token"));             // NOLINT
     ASSERT_NE(set_mode, nullptr);

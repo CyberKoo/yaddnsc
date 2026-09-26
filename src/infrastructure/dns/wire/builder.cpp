@@ -114,8 +114,8 @@ constexpr std::uint16_t OPT_RR_TYPE = 41;
 /// @param ra      Recursion Available flag.
 /// @param rcode   Response code (4 bits, 0 = NOERROR).
 /// @return        The packed 16-bit flags field value.
-[[nodiscard]] std::uint16_t
-build_flags(bool qr, std::uint8_t opcode, bool aa, bool tc, bool rd, bool ra, std::uint8_t rcode) noexcept {
+[[nodiscard]] std::uint16_t build_flags(bool qr, std::uint8_t opcode, bool aa, bool tc, bool rd, bool ra,
+                                        std::uint8_t rcode) noexcept {
     return static_cast<std::uint16_t>((qr ? FLAG_QR : 0) | (static_cast<std::uint16_t>(opcode & 0x0F) << 11) |
                                       (aa ? FLAG_AA : 0) | (tc ? FLAG_TC : 0) | (rd ? FLAG_RD : 0) |
                                       (ra ? FLAG_RA : 0) | (rcode & 0x0F));
@@ -181,8 +181,7 @@ QueryBuilder& QueryBuilder::add_question(std::string_view qname, RecordType qtyp
     return *this;
 }
 
-QueryBuilder& QueryBuilder::add_question_raw_qclass(std::string_view qname,
-                                                    RecordType qtype,
+QueryBuilder& QueryBuilder::add_question_raw_qclass(std::string_view qname, RecordType qtype,
                                                     std::uint16_t raw_qclass) {
     questions_.push_back(PendingQuestion{
         .qname = std::string(qname),
@@ -192,9 +191,7 @@ QueryBuilder& QueryBuilder::add_question_raw_qclass(std::string_view qname,
     return *this;
 }
 
-QueryBuilder& QueryBuilder::add_edns(std::uint16_t udp_payload_size,
-                                     std::uint8_t version,
-                                     bool dnssec_ok,
+QueryBuilder& QueryBuilder::add_edns(std::uint16_t udp_payload_size, std::uint8_t version, bool dnssec_ok,
                                      std::span<const EdnsOption> options) {
     edns_ = EdnsConfig{
         .udp_payload_size = udp_payload_size,
@@ -272,16 +269,15 @@ std::vector<std::uint8_t> QueryBuilder::build() const {
             rdlength += 4 + opt.data.size();
         }
         if (rdlength > 0xFFFF) {
-            throw DnsPacketException(
-                fmt::format("EDNS options are too large ({} octets, max 65535)", rdlength));
+            throw DnsPacketException(fmt::format("EDNS options are too large ({} octets, max 65535)", rdlength));
         }
         w.write_uint16(static_cast<std::uint16_t>(rdlength));
 
         // Write each option: code(2) + length(2) + data.
         for (const auto& opt : edns.options) {
             if (opt.data.size() > 0xFFFF) {
-                throw DnsPacketException(fmt::format("EDNS option {} data is too large ({} octets, max 65535)",
-                                                     opt.code, opt.data.size()));
+                throw DnsPacketException(
+                    fmt::format("EDNS option {} data is too large ({} octets, max 65535)", opt.code, opt.data.size()));
             }
             w.write_uint16(opt.code);
             w.write_uint16(static_cast<std::uint16_t>(opt.data.size()));

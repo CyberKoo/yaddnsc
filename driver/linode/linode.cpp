@@ -29,11 +29,7 @@ constexpr std::string_view API_URL = "https://api.linode.com/v4/domains/{DOMAIN_
 constexpr std::string_view DRIVER_NAME = "linode";
 }  // namespace
 
-YADDNSC_DEFINE_DRIVER(LinodeDriver,
-                      "linode",
-                      "Updates DNS records via the Linode API",
-                      "Kotarou",
-                      "1.0.0",
+YADDNSC_DEFINE_DRIVER(LinodeDriver, "linode", "Updates DNS records via the Linode API", "Kotarou", "1.0.0",
                       YADDNSC_DRIVER_CAPABILITY_A | YADDNSC_DRIVER_CAPABILITY_AAAA)
 
 Result LinodeDriver::validate(std::string_view driver_param_json) const {

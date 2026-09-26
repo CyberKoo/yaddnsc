@@ -35,9 +35,8 @@
 
 class FactoryTestResolver : public ResolverBase {
 public:
-    [[nodiscard]] std::expected<std::vector<std::uint8_t>, DnsErrorInfo> query(const std::string&,
-                                                                               RecordKind,
-                                                                               const Utils::CancellationToken&) const override {
+    [[nodiscard]] std::expected<std::vector<std::uint8_t>, DnsErrorInfo> query(
+        const std::string&, RecordKind, const Utils::CancellationToken&) const override {
         return std::vector<std::uint8_t>{};
     }
 
@@ -82,8 +81,9 @@ TEST(DnsFactoryTest, CreateWithCustomServers) {
 TEST(DnsFactoryTest, CreateWithEmptyServerList_RejectsBrokenRuntimeInvariant) {
     const domain::ResolverSettings settings;
 
-    EXPECT_THROW({ [[maybe_unused]] auto dispatcher = DnsResolverFactory::create(settings, make_stub_catalog()); },
-                 std::invalid_argument);
+    EXPECT_THROW(
+        { [[maybe_unused]] auto dispatcher = DnsResolverFactory::create(settings, make_stub_catalog()); },
+        std::invalid_argument);
 }
 
 TEST(DnsFactoryTest, CreateWithMultipleServers_DoesNotThrow) {
@@ -115,6 +115,5 @@ TEST(DnsFactoryTest, CreateWithShuffleStrategy) {
 TEST(DnsFactoryTest, UnknownSchemaThrows) {
     auto settings = make_settings({{"nosuchproto://dns.example.com", 53}}, Config::ResolverStrategy::FALLBACK);
 
-    EXPECT_THROW(
-        { auto dispatcher = DnsResolverFactory::create(settings, make_stub_catalog()); }, DnsLookupException);
+    EXPECT_THROW({ auto dispatcher = DnsResolverFactory::create(settings, make_stub_catalog()); }, DnsLookupException);
 }

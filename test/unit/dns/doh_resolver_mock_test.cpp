@@ -62,8 +62,7 @@ public:
 }
 
 /// Build HTTP response headers (up to and including \r\n\r\n).
-[[nodiscard]] std::vector<std::uint8_t> make_http_headers(const int status_code,
-                                                          const std::string_view reason,
+[[nodiscard]] std::vector<std::uint8_t> make_http_headers(const int status_code, const std::string_view reason,
                                                           const size_t body_len) {
     auto str = fmt::format(
         "HTTP/1.1 {} {}\r\n"
@@ -136,30 +135,32 @@ public:
         script_.insert(script_.end(), headers.begin(), headers.end());
 
         ON_CALL(mock, send_all(_, _))
-            .WillByDefault([this](std::span<const std::uint8_t> data, const Utils::CancellationToken&) -> std::expected<void, IoError> {
+            .WillByDefault([this](std::span<const std::uint8_t> data,
+                                  const Utils::CancellationToken&) -> std::expected<void, IoError> {
                 captured_.assign(data.begin(), data.end());
                 return {};
             });
         ON_CALL(mock, read_some(_, _))
-            .WillByDefault([this](std::span<std::uint8_t> buf, const Utils::CancellationToken&) -> std::expected<size_t, IoError> {
-                // Lazily append the body once the query has been captured, so
-                // the response echoes the query's transaction ID.
-                if (!body_appended_ && !captured_.empty()) {
-                    auto body_copy = body_;
-                    const auto id = query_id();
-                    body_copy[0] = id.first;
-                    body_copy[1] = id.second;
-                    script_.insert(script_.end(), body_copy.begin(), body_copy.end());
-                    body_appended_ = true;
-                }
-                if (pos_ >= script_.size()) {
-                    return std::unexpected(IoError::CONNECTION_FAILED);  // EOF
-                }
-                const auto n = std::min(buf.size(), script_.size() - pos_);
-                std::copy_n(script_.begin() + static_cast<std::ptrdiff_t>(pos_), n, buf.begin());
-                pos_ += n;
-                return n;
-            });
+            .WillByDefault(
+                [this](std::span<std::uint8_t> buf, const Utils::CancellationToken&) -> std::expected<size_t, IoError> {
+                    // Lazily append the body once the query has been captured, so
+                    // the response echoes the query's transaction ID.
+                    if (!body_appended_ && !captured_.empty()) {
+                        auto body_copy = body_;
+                        const auto id = query_id();
+                        body_copy[0] = id.first;
+                        body_copy[1] = id.second;
+                        script_.insert(script_.end(), body_copy.begin(), body_copy.end());
+                        body_appended_ = true;
+                    }
+                    if (pos_ >= script_.size()) {
+                        return std::unexpected(IoError::CONNECTION_FAILED);  // EOF
+                    }
+                    const auto n = std::min(buf.size(), script_.size() - pos_);
+                    std::copy_n(script_.begin() + static_cast<std::ptrdiff_t>(pos_), n, buf.begin());
+                    pos_ += n;
+                    return n;
+                });
     }
 
     /// The ID from the captured DNS query (first bytes of the HTTP body).
@@ -244,10 +245,11 @@ TEST(DohResolverMockTest, MalformedResponse_ReturnsParse) {
     ON_CALL(*mock, send_all(_, _)).WillByDefault(Return(std::expected<void, IoError>{}));
     const std::vector<std::uint8_t> garbage{'N', 'O', 'T', ' ', 'H', 'T', 'T', 'P'};
     ON_CALL(*mock, read_some(_, _))
-        .WillByDefault([garbage](std::span<std::uint8_t> buf, const Utils::CancellationToken&) -> std::expected<size_t, IoError> {
-            std::copy(garbage.begin(), garbage.end(), buf.begin());
-            return garbage.size();
-        });
+        .WillByDefault(
+            [garbage](std::span<std::uint8_t> buf, const Utils::CancellationToken&) -> std::expected<size_t, IoError> {
+                std::copy(garbage.begin(), garbage.end(), buf.begin());
+                return garbage.size();
+            });
     DohResolver resolver("127.0.0.1", 1443, "/dns-query", "mock:1443", std::move(mock));
 
     auto result = resolver.query("yaddnsc.test", RecordKind::A, {});
@@ -312,7 +314,8 @@ TEST(DohResolverMockTest, ConnectionLostThenReconnectSucceeds) {
     bool first_read = true;
     ON_CALL(*mock, send_all(_, _)).WillByDefault(Return(std::expected<void, IoError>{}));
     ON_CALL(*mock, read_some(_, _))
-        .WillByDefault([&first_read](std::span<std::uint8_t> buf, const Utils::CancellationToken&) -> std::expected<size_t, IoError> {
+        .WillByDefault([&first_read](std::span<std::uint8_t> buf,
+                                     const Utils::CancellationToken&) -> std::expected<size_t, IoError> {
             if (first_read) {
                 first_read = false;
                 return std::unexpected(IoError::CONNECTION_FAILED);

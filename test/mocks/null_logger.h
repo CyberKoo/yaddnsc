@@ -17,7 +17,7 @@ class NullLogger final : public Logger {
 public:
     [[nodiscard]] bool is_enabled(LogLevel) const override { return false; }
 
-    void log(LogLevel, std::string_view, const std::source_location &) const override {}
+    void log(LogLevel, std::string_view, const std::source_location&) const override {}
 };
 
-#endif // YADDNSC_TEST_MOCKS_NULL_LOGGER_H
+#endif  // YADDNSC_TEST_MOCKS_NULL_LOGGER_H

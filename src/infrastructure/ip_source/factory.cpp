@@ -44,8 +44,7 @@ namespace {
 /// based on Config::IpSource.
 /// @param cfg  The subdomain configuration record.
 /// @return     A unique pointer to the concrete IP source implementation.
-IpSourceFactory::Result IpSourceFactory::create(const domain::SubdomainConfig& cfg,
-                                                net::http::Options http_options) {
+IpSourceFactory::Result IpSourceFactory::create(const domain::SubdomainConfig& cfg, net::http::Options http_options) {
     auto address_family = type_to_family(cfg.type);
 
     try {
@@ -69,6 +68,5 @@ IpSourceFactory::Result IpSourceFactory::create(const domain::SubdomainConfig& c
             domain::IpSourceError{domain::IpSourceError::Code::UNKNOWN, "unknown IP source construction exception"});
     }
 
-    return std::unexpected(
-        domain::IpSourceError{domain::IpSourceError::Code::UNKNOWN, "unknown IP source kind"});
+    return std::unexpected(domain::IpSourceError{domain::IpSourceError::Code::UNKNOWN, "unknown IP source kind"});
 }

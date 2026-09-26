@@ -5,13 +5,14 @@
 #ifndef YADDNSC_APPLICATION_PORTS_DNS_RESOLVER_H
 #define YADDNSC_APPLICATION_PORTS_DNS_RESOLVER_H
 
-#include <expected>
 #include <string>
 #include <string_view>
 #include <vector>
 
-#include "domain/error/dns_error_info.h"
+#include <expected>
+
 #include "domain/dns/record_kind.h"
+#include "domain/error/dns_error_info.h"
 
 namespace Utils {
 class CancellationToken;
@@ -39,8 +40,8 @@ public:
     virtual ~DnsResolverPort() = default;
 
     /// Resolve `host` for the given record type.
-    [[nodiscard]] virtual std::expected<std::vector<std::string>, DnsErrorInfo>
-    resolve(std::string_view host, RecordKind type, const Utils::CancellationToken& token) const = 0;
+    [[nodiscard]] virtual std::expected<std::vector<std::string>, DnsErrorInfo> resolve(
+        std::string_view host, RecordKind type, const Utils::CancellationToken& token) const = 0;
 };
 
-#endif // YADDNSC_APPLICATION_PORTS_DNS_RESOLVER_H
+#endif  // YADDNSC_APPLICATION_PORTS_DNS_RESOLVER_H

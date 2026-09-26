@@ -22,7 +22,7 @@ namespace net::http::protocol {
 struct WireRequest {
     Method method;
     HttpVersion version{HttpVersion::V1_1};
-    std::string target{};                             ///< path + query, e.g. "/dns-query?x=1"
+    std::string target{};                               ///< path + query, e.g. "/dns-query?x=1"
     std::multimap<std::string, std::string> headers{};  ///< includes Host / UA / CL / CT
     std::optional<std::string> body{};
 };

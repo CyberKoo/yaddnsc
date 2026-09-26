@@ -5,11 +5,12 @@
 #ifndef YADDNSC_HTTP_CLIENT_INTERFACE_H
 #define YADDNSC_HTTP_CLIENT_INTERFACE_H
 
-#include <expected>
 #include <functional>
 #include <memory>
 #include <string>
 #include <string_view>
+
+#include <expected>
 
 #include "infrastructure/network/http/error.h"
 #include "infrastructure/network/http/types.h"
@@ -36,9 +37,8 @@ public:
     /// @param req    Request details (method, headers, body, content type).
     /// @param token  Cancellation token for this exchange.
     /// @return       Response on success, or a structured error on failure.
-    [[nodiscard]] virtual std::expected<net::http::Response, net::http::Error>
-        exchange(std::string_view url, const net::http::Request &req,
-                 const Utils::CancellationToken &token) const = 0;
+    [[nodiscard]] virtual std::expected<net::http::Response, net::http::Error> exchange(
+        std::string_view url, const net::http::Request& req, const Utils::CancellationToken& token) const = 0;
 
 private:
     [[maybe_unused, no_unique_address]] NoCopy no_copy_;
@@ -53,4 +53,4 @@ private:
 /// of truth and tests can substitute a fake with one injection point.
 using HttpClientFactory = std::function<std::unique_ptr<HttpClient>()>;
 
-#endif //YADDNSC_HTTP_CLIENT_INTERFACE_H
+#endif  // YADDNSC_HTTP_CLIENT_INTERFACE_H

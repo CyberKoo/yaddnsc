@@ -67,9 +67,7 @@ public:
     }
 
     /// How often wait_idle() was called (the lifecycle drains exactly once).
-    [[nodiscard]] int wait_idle_calls() const {
-        return wait_idle_calls_.load();
-    }
+    [[nodiscard]] int wait_idle_calls() const { return wait_idle_calls_.load(); }
 
 private:
     mutable std::mutex mtx_;
@@ -80,4 +78,4 @@ private:
     RetryHandler retry_handler_;
 };
 
-#endif // YADDNSC_TEST_MOCKS_FAKE_TASK_EXECUTOR_H
+#endif  // YADDNSC_TEST_MOCKS_FAKE_TASK_EXECUTOR_H

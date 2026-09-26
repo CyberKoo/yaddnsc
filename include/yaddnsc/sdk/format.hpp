@@ -16,6 +16,6 @@ namespace yaddnsc::sdk {
 
 namespace fmt = yaddnsc::util::fmt;
 
-} // namespace yaddnsc::sdk
+}  // namespace yaddnsc::sdk
 
-#endif // YADDNSC_SDK_FORMAT_HPP
+#endif  // YADDNSC_SDK_FORMAT_HPP

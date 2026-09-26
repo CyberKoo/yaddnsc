@@ -49,9 +49,7 @@ namespace {
 /// rules as the SDK side): fields are only written when fully covered,
 /// struct_size is written back as min(capacity, sizeof), and an unknown
 /// tail is never zeroed.
-void write_error(yaddnsc_error* out_error,
-                 yaddnsc_status status,
-                 std::string_view message,
+void write_error(yaddnsc_error* out_error, yaddnsc_status status, std::string_view message,
                  uint32_t retry_after_seconds = 0) noexcept {
     if (out_error == nullptr || out_error->struct_size < YADDNSC_ERROR_MIN_SIZE) {
         return;
@@ -103,8 +101,7 @@ void write_error(yaddnsc_error* out_error,
 }
 }  // anonymous namespace
 
-HostServicesContext::HostServicesContext(HttpClient& http_client,
-                                         const Logger& logger,
+HostServicesContext::HostServicesContext(HttpClient& http_client, const Logger& logger,
                                          Utils::CancellationToken operation_token)
     : http_client_(http_client), logger_(logger), operation_token_(std::move(operation_token)) {}
 
@@ -112,8 +109,7 @@ std::string_view HostServicesContext::arena_copy(std::string_view value) {
     return string_arena_.emplace_back(value);
 }
 
-void HostServicesContext::log(yaddnsc_log_level level,
-                              yaddnsc_string message,
+void HostServicesContext::log(yaddnsc_log_level level, yaddnsc_string message,
                               const yaddnsc_source_location* location) {
     // Contract: location must be non-null with non-empty file/function views
     // and line > 0. Tolerate violations defensively — logging must never
@@ -126,10 +122,8 @@ void HostServicesContext::log(yaddnsc_log_level level,
     logger_.log_explicit(to_log_level(level), to_view(message), file, line, function);
 }
 
-yaddnsc_status HostServicesContext::http_exchange_entry(void* context,
-                                                        const yaddnsc_http_request* request,
-                                                        yaddnsc_http_response* out_response,
-                                                        yaddnsc_error* out_error) {
+yaddnsc_status HostServicesContext::http_exchange_entry(void* context, const yaddnsc_http_request* request,
+                                                        yaddnsc_http_response* out_response, yaddnsc_error* out_error) {
     if (context == nullptr || request == nullptr || out_response == nullptr || out_error == nullptr) {
         write_error(out_error, YADDNSC_STATUS_INVALID_ARGUMENT,
                     "context, request, out_response and out_error must not be null");
@@ -161,8 +155,7 @@ yaddnsc_status HostServicesContext::http_exchange_entry(void* context,
 }
 
 yaddnsc_status HostServicesContext::http_exchange(const yaddnsc_http_request& request,
-                                                  yaddnsc_http_response* out_response,
-                                                  yaddnsc_error* out_error) {
+                                                  yaddnsc_http_response* out_response, yaddnsc_error* out_error) {
     if (!yaddnsc_string_is_valid(request.url) || request.url.size == 0) {
         write_error(out_error, YADDNSC_STATUS_INVALID_ARGUMENT, "request url must not be empty");
         return YADDNSC_STATUS_INVALID_ARGUMENT;

@@ -14,4 +14,4 @@
 
 namespace StringUtil = yaddnsc::util;
 
-#endif // YADDNSC_STRING_UTIL_H
+#endif  // YADDNSC_STRING_UTIL_H

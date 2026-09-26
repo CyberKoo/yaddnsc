@@ -5,12 +5,12 @@
 #ifndef YADDNSC_IP_SOURCE_BASE_H
 #define YADDNSC_IP_SOURCE_BASE_H
 
-#include <expected>
 #include <vector>
+
+#include <expected>
 
 #include "domain/error/error.h"
 #include "domain/network/inet_address.h"
-
 #include "support/mixin.h"
 
 namespace Utils {
@@ -33,9 +33,9 @@ public:
 
     IpSourceBase() = default;
 
-    IpSourceBase(IpSourceBase &&) noexcept = default;
+    IpSourceBase(IpSourceBase&&) noexcept = default;
 
-    IpSourceBase &operator=(IpSourceBase &&) noexcept = default;
+    IpSourceBase& operator=(IpSourceBase&&) noexcept = default;
 
     /// Resolve the local IP address(es).
     ///

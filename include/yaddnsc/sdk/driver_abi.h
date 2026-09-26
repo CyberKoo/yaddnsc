@@ -38,12 +38,12 @@ extern "C" {
  * stricter lifetime is documented for the specific callback.
  */
 typedef struct yaddnsc_string {
-    const char *data;
+    const char* data;
     size_t size;
 } yaddnsc_string;
 
 typedef struct yaddnsc_bytes {
-    const uint8_t *data;
+    const uint8_t* data;
     size_t size;
 } yaddnsc_bytes;
 
@@ -122,8 +122,7 @@ typedef uint32_t yaddnsc_http_method;
 
 #define YADDNSC_DRIVER_CAPABILITY_A (UINT64_C(1) << 0)
 #define YADDNSC_DRIVER_CAPABILITY_AAAA (UINT64_C(1) << 1)
-#define YADDNSC_DRIVER_CAPABILITIES_SUPPORTED \
-    (YADDNSC_DRIVER_CAPABILITY_A | YADDNSC_DRIVER_CAPABILITY_AAAA)
+#define YADDNSC_DRIVER_CAPABILITIES_SUPPORTED (YADDNSC_DRIVER_CAPABILITY_A | YADDNSC_DRIVER_CAPABILITY_AAAA)
 
 /* Caller-owned output: the caller sets struct_size to its capacity; the
  * writer only writes fields fully inside that capacity, never writes its
@@ -145,7 +144,7 @@ static inline int yaddnsc_http_header_is_valid(yaddnsc_http_header header) {
     return yaddnsc_string_is_valid(header.name) && yaddnsc_string_is_valid(header.value);
 }
 
-static inline int yaddnsc_http_header_array_is_valid(const yaddnsc_http_header *headers, size_t count) {
+static inline int yaddnsc_http_header_array_is_valid(const yaddnsc_http_header* headers, size_t count) {
     return count == 0 || headers != NULL;
 }
 
@@ -157,7 +156,7 @@ typedef struct yaddnsc_http_request {
     uint32_t struct_size;
     yaddnsc_string url;
     yaddnsc_http_method method;
-    const yaddnsc_http_header *headers;
+    const yaddnsc_http_header* headers;
     size_t header_count;
     yaddnsc_string content_type;
     yaddnsc_bytes body;
@@ -166,7 +165,7 @@ typedef struct yaddnsc_http_request {
 typedef struct yaddnsc_http_response {
     uint32_t struct_size;
     uint32_t status_code;
-    const yaddnsc_http_header *headers;
+    const yaddnsc_http_header* headers;
     size_t header_count;
     yaddnsc_bytes body;
 } yaddnsc_http_response;
@@ -217,15 +216,12 @@ typedef struct yaddnsc_driver yaddnsc_driver;
 struct yaddnsc_host_services {
     uint32_t struct_size;
     uint32_t api_revision;
-    void *context;
-    void (*log)(void *context, yaddnsc_log_level level,
-                yaddnsc_string message,
-                const yaddnsc_source_location *location);
-    yaddnsc_status (*http_exchange)(void *context,
-                                    const yaddnsc_http_request *request,
-                                    yaddnsc_http_response *out_response,
-                                    yaddnsc_error *out_error);
-    int (*is_cancelled)(void *context);
+    void* context;
+    void (*log)(void* context, yaddnsc_log_level level, yaddnsc_string message,
+                const yaddnsc_source_location* location);
+    yaddnsc_status (*http_exchange)(void* context, const yaddnsc_http_request* request,
+                                    yaddnsc_http_response* out_response, yaddnsc_error* out_error);
+    int (*is_cancelled)(void* context);
 };
 
 /* ── Exported entry points (extern "C", no exceptions, no C++ objects) ────
@@ -237,8 +233,7 @@ struct yaddnsc_host_services {
  * against an older SDK simply do not export it.
  */
 
-yaddnsc_status yaddnsc_driver_get_descriptor(
-    const yaddnsc_driver_descriptor **out_descriptor);
+yaddnsc_status yaddnsc_driver_get_descriptor(const yaddnsc_driver_descriptor** out_descriptor);
 
 /* Handle ownership: on YADDNSC_STATUS_OK the host owns the instance and
  * guarantees the matching yaddnsc_driver_destroy() call. On ANY non-OK
@@ -247,17 +242,13 @@ yaddnsc_status yaddnsc_driver_get_descriptor(
  * destroys and clears a handle a misbehaving plugin stored before
  * reporting failure, so plugin state never leaks out of the failure path.
  */
-yaddnsc_status yaddnsc_driver_create(
-    const yaddnsc_host_services *services,
-    yaddnsc_driver **out_driver,
-    yaddnsc_error *out_error);
+yaddnsc_status yaddnsc_driver_create(const yaddnsc_host_services* services, yaddnsc_driver** out_driver,
+                                     yaddnsc_error* out_error);
 
-void yaddnsc_driver_destroy(yaddnsc_driver *driver);
+void yaddnsc_driver_destroy(yaddnsc_driver* driver);
 
-yaddnsc_status yaddnsc_driver_update(
-    yaddnsc_driver *driver,
-    const yaddnsc_update_request *request,
-    yaddnsc_error *out_error);
+yaddnsc_status yaddnsc_driver_update(yaddnsc_driver* driver, const yaddnsc_update_request* request,
+                                     yaddnsc_error* out_error);
 
 /* OPTIONAL — validate driver_param without performing an update.
  *
@@ -274,17 +265,14 @@ yaddnsc_status yaddnsc_driver_update(
  * services (no HTTP exchange is available during validation) and must be
  * prepared for concurrent calls on distinct instances.
  */
-yaddnsc_status yaddnsc_driver_validate(
-    yaddnsc_driver *driver,
-    yaddnsc_string driver_param_json,
-    yaddnsc_error *out_error);
+yaddnsc_status yaddnsc_driver_validate(yaddnsc_driver* driver, yaddnsc_string driver_param_json,
+                                       yaddnsc_error* out_error);
 
 /* ── struct_size helpers (C and C++) ──────────────────────────────────────*/
 
 /* Byte size covering `member` of `type` completely — the only legal test
  * for field visibility. All arithmetic is compile-time constant. */
-#define YADDNSC_SIZEOF_THROUGH(type, member) \
-    ((uint32_t)(offsetof(type, member) + sizeof(((type *)0)->member)))
+#define YADDNSC_SIZEOF_THROUGH(type, member) ((uint32_t) (offsetof(type, member) + sizeof(((type*) 0)->member)))
 
 /* True when `field_end` (YADDNSC_SIZEOF_THROUGH of the field) is fully
  * covered by the supplied struct_size. */
@@ -304,8 +292,10 @@ static inline int yaddnsc_struct_has_field(uint32_t struct_size, uint32_t field_
  * Pin every field offset so an accidental reorder/insert trips the build
  * instead of silently breaking the ABI (LP64/LLP64 layout).
  */
-#define YADDNSC_ABI_ASSERT_OFFSET(type, member, expected) \
-    YADDNSC_STATIC_ASSERT(offsetof(type, member) == (expected), #type "." #member " offset changed — bump api_revision")
+#define YADDNSC_ABI_ASSERT_OFFSET(type, member, expected)                                       \
+    YADDNSC_STATIC_ASSERT(offsetof(type, member) == (expected), #type "." #member               \
+                                                                      " offset changed — bump " \
+                                                                      "api_revision")
 
 #if defined(__cplusplus)
 #define YADDNSC_STATIC_ASSERT(cond, msg) static_assert(cond, msg)
@@ -313,7 +303,7 @@ static inline int yaddnsc_struct_has_field(uint32_t struct_size, uint32_t field_
 #define YADDNSC_STATIC_ASSERT(cond, msg) _Static_assert(cond, msg)
 #endif
 
-YADDNSC_STATIC_ASSERT(sizeof(void *) == 8, "the v1 alpha ABI assumes a 64-bit platform");
+YADDNSC_STATIC_ASSERT(sizeof(void*) == 8, "the v1 alpha ABI assumes a 64-bit platform");
 YADDNSC_STATIC_ASSERT(sizeof(yaddnsc_string) == 16, "yaddnsc_string layout changed");
 YADDNSC_STATIC_ASSERT(sizeof(yaddnsc_bytes) == 16, "yaddnsc_bytes layout changed");
 

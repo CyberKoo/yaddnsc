@@ -345,11 +345,8 @@ private:
     /// Build a crafted mDNS A-record response echoing the query's TXID and
     /// question section.  Optionally appends an unrelated A record to test
     /// owner-name filtering.
-    [[nodiscard]] std::vector<std::uint8_t> build_response(std::span<const std::uint8_t> query,
-                                                           std::uint8_t a,
-                                                           std::uint8_t b,
-                                                           std::uint8_t c,
-                                                           std::uint8_t d,
+    [[nodiscard]] std::vector<std::uint8_t> build_response(std::span<const std::uint8_t> query, std::uint8_t a,
+                                                           std::uint8_t b, std::uint8_t c, std::uint8_t d,
                                                            bool include_unrelated = false) const {
         std::vector<std::uint8_t> resp;
         resp.reserve(query.size() + 48);

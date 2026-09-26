@@ -22,9 +22,7 @@ struct DnsErrorInfo {
     DnsError code{DnsError::UNKNOWN};
     std::string message;
 
-    [[nodiscard]] std::string_view error_name() const noexcept {
-        return error_to_str(code);
-    }
+    [[nodiscard]] std::string_view error_name() const noexcept { return error_to_str(code); }
 };
 
 #endif  // YADDNSC_DNS_ERROR_INFO_H

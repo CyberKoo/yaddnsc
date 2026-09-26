@@ -38,10 +38,8 @@ public:
     ///                         CA discovery) built once by the composition root;
     ///                         the address family / interface overrides are
     ///                         applied on top of it here.
-    explicit HttpIpSource(std::string url,
-                          AddressFamily address_family = AddressFamily::UNSPECIFIED,
-                          std::string bind_interface = {},
-                          net::http::Options base_options = {});
+    explicit HttpIpSource(std::string url, AddressFamily address_family = AddressFamily::UNSPECIFIED,
+                          std::string bind_interface = {}, net::http::Options base_options = {});
 
     ~HttpIpSource() override;
 

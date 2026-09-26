@@ -49,8 +49,7 @@ constexpr auto CONNECT_TIMEOUT = 1s;
 constexpr unsigned char ALPN_DOT[] = {3, 'd', 'o', 't'};
 
 /// Map a transport I/O error to DnsErrorInfo (post-connect I/O stage).
-[[nodiscard]] DnsErrorInfo map_io_error(const Transport::IoError err,
-                                        const std::string_view label,
+[[nodiscard]] DnsErrorInfo map_io_error(const Transport::IoError err, const std::string_view label,
                                         const std::string_view stage) {
     using enum Transport::IoError;
     switch (err) {
@@ -78,8 +77,8 @@ constexpr unsigned char ALPN_DOT[] = {3, 'd', 'o', 't'};
 }
 
 /// Connection + TLS options for the DoT connection.
-[[nodiscard]] std::pair<Transport::Options, Transport::TlsOptions>
-make_tls_options(std::vector<Config::DnsServer> bootstrap) {
+[[nodiscard]] std::pair<Transport::Options, Transport::TlsOptions> make_tls_options(
+    std::vector<Config::DnsServer> bootstrap) {
     Transport::Options conn;
     conn.connect_timeout = CONNECT_TIMEOUT;
     conn.bootstrap_dns = std::move(bootstrap);
@@ -133,8 +132,8 @@ make_tls_options(std::vector<Config::DnsServer> bootstrap) {
 }
 
 /// Read the response (2-byte length prefix + DNS message).
-[[nodiscard]] std::expected<std::vector<std::uint8_t>, DnsErrorInfo>
-read_response(Transport::Stream& stream, const std::string_view label, const Utils::CancellationToken& token) {
+[[nodiscard]] std::expected<std::vector<std::uint8_t>, DnsErrorInfo> read_response(
+    Transport::Stream& stream, const std::string_view label, const Utils::CancellationToken& token) {
     // Read 2-byte response length prefix (big-endian).
     std::array<std::uint8_t, 2> length_buffer{};
     if (auto status = stream.read_exact(length_buffer, token); !status) {
@@ -167,22 +166,18 @@ DotResolver::DotResolver(std::string server, const std::uint16_t port, std::stri
                          std::vector<Config::DnsServer> bootstrap)
     : id_(get_id()), server_(std::move(server)), port_(port), label_(std::move(label)),
       bootstrap_(std::move(bootstrap)),
-      stream_(std::make_unique<Transport::TlsStream>(server_,
-                                                     port_,
-                                                     make_tls_options(bootstrap_).first,
+      stream_(std::make_unique<Transport::TlsStream>(server_, port_, make_tls_options(bootstrap_).first,
                                                      make_tls_options(bootstrap_).second)) {}
 
-DotResolver::DotResolver(std::string server,
-                         const std::uint16_t port,
-                         std::string label,
+DotResolver::DotResolver(std::string server, const std::uint16_t port, std::string label,
                          std::unique_ptr<Transport::Stream> stream)
     : id_(get_id()), server_(std::move(server)), port_(port), label_(std::move(label)), bootstrap_{},
       stream_(std::move(stream)) {}
 
 DotResolver::~DotResolver() = default;
 
-std::expected<std::vector<std::uint8_t>, DnsErrorInfo> DotResolver::query(
-    const std::string& host, RecordKind type, const Utils::CancellationToken& token) const {
+std::expected<std::vector<std::uint8_t>, DnsErrorInfo> DotResolver::query(const std::string& host, RecordKind type,
+                                                                          const Utils::CancellationToken& token) const {
     try {
         const auto record_type = DNS::Util::type_to_record_type(type);
 

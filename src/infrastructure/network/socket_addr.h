@@ -28,16 +28,14 @@ public:
 
     /// Build from an InetAddress + port.
     /// Returns std::nullopt if the address family is not AF_INET or AF_INET6.
-    [[nodiscard]] static std::optional<SocketAddr> from_inet(const InetAddress &addr, std::uint16_t port) noexcept;
+    [[nodiscard]] static std::optional<SocketAddr> from_inet(const InetAddress& addr, std::uint16_t port) noexcept;
 
     /// Build from a raw POSIX sockaddr (copies the data internally).
-    [[nodiscard]] static SocketAddr from_raw(const sockaddr *addr, socklen_t len) noexcept;
+    [[nodiscard]] static SocketAddr from_raw(const sockaddr* addr, socklen_t len) noexcept;
 
     // ---- accessors ---------------------------------------------------------
 
-    [[nodiscard]] constexpr int family() const noexcept {
-        return storage_.ss_family;
-    }
+    [[nodiscard]] constexpr int family() const noexcept { return storage_.ss_family; }
 
     /// Port in host byte order.
     [[nodiscard]] std::uint16_t port() const noexcept;
@@ -50,22 +48,14 @@ public:
 
     // ---- C API interop (for passing to raw syscalls) ----------------------
 
-    [[nodiscard]] const sockaddr *raw() const noexcept {
-        return reinterpret_cast<const sockaddr *>(&storage_);
-    }
+    [[nodiscard]] const sockaddr* raw() const noexcept { return reinterpret_cast<const sockaddr*>(&storage_); }
 
-    [[nodiscard]] socklen_t raw_len() const noexcept {
-        return len_;
-    }
+    [[nodiscard]] socklen_t raw_len() const noexcept { return len_; }
 
     /// Mutable raw pointer for recvfrom / accept to fill in.
-    [[nodiscard]] sockaddr *raw_mut() noexcept {
-        return reinterpret_cast<sockaddr *>(&storage_);
-    }
+    [[nodiscard]] sockaddr* raw_mut() noexcept { return reinterpret_cast<sockaddr*>(&storage_); }
 
-    [[nodiscard]] socklen_t *raw_len_ptr() noexcept {
-        return &len_;
-    }
+    [[nodiscard]] socklen_t* raw_len_ptr() noexcept { return &len_; }
 
 private:
     sockaddr_storage storage_{};

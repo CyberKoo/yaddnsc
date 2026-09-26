@@ -31,11 +31,7 @@ constexpr std::string_view API_URL =
 constexpr std::string_view DRIVER_NAME = "porkbun";
 }  // namespace
 
-YADDNSC_DEFINE_DRIVER(PorkbunDriver,
-                      "porkbun",
-                      "Updates DNS records via the Porkbun API",
-                      "Kotarou",
-                      "1.0.0",
+YADDNSC_DEFINE_DRIVER(PorkbunDriver, "porkbun", "Updates DNS records via the Porkbun API", "Kotarou", "1.0.0",
                       YADDNSC_DRIVER_CAPABILITY_A | YADDNSC_DRIVER_CAPABILITY_AAAA)
 
 Result PorkbunDriver::validate(std::string_view driver_param_json) const {

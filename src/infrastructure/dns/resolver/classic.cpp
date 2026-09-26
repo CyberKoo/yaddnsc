@@ -97,9 +97,7 @@ struct AddrResult {
 
 // ── UDP query ──
 [[nodiscard]] std::expected<std::vector<std::uint8_t>, DnsErrorInfo> query_udp(
-    const AddrResult& addr,
-    std::span<const uint8_t> query_packet,
-    const Utils::CancellationToken& cancel_token,
+    const AddrResult& addr, std::span<const uint8_t> query_packet, const Utils::CancellationToken& cancel_token,
     std::uint64_t resolver_id) {
     // Socket constructor may throw SocketException on OS resource
     // exhaustion — let it propagate.
@@ -153,9 +151,7 @@ struct AddrResult {
 
 // ── TCP query (fallback for truncated responses) ──
 [[nodiscard]] std::expected<std::vector<std::uint8_t>, DnsErrorInfo> query_tcp(
-    const AddrResult& addr,
-    std::span<const uint8_t> query_packet,
-    const Utils::CancellationToken& cancel_token,
+    const AddrResult& addr, std::span<const uint8_t> query_packet, const Utils::CancellationToken& cancel_token,
     std::uint64_t resolver_id) {
     // Socket constructor may throw SocketException on OS resource
     // exhaustion — let it propagate.
@@ -272,8 +268,8 @@ struct ClassicResolver::Impl {
 
     ~Impl() = default;
 
-    [[nodiscard]] std::expected<std::vector<std::uint8_t>, DnsErrorInfo>
-    query(const std::string& host_str, RecordKind type, const Utils::CancellationToken& token) const;
+    [[nodiscard]] std::expected<std::vector<std::uint8_t>, DnsErrorInfo> query(
+        const std::string& host_str, RecordKind type, const Utils::CancellationToken& token) const;
 
     std::uint64_t id_;
     Config::DnsServer server_;

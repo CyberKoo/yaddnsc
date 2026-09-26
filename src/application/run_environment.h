@@ -26,16 +26,16 @@
 /// requested through the former triggers the latter.
 struct ShutdownSignals {
     std::stop_source stop;
-    const Utils::CancellationSource &cancellation;
+    const Utils::CancellationSource& cancellation;
 };
 
 /// RunEnvironment — the ambient services the run lifecycle draws on:
 /// time, task execution, interface enumeration and logging.
 struct RunEnvironment {
-    Clock &clock;
-    TaskExecutor &executor;
-    const NetworkInterfaces &interfaces;
-    const Logger &logger;
+    Clock& clock;
+    TaskExecutor& executor;
+    const NetworkInterfaces& interfaces;
+    const Logger& logger;
 };
 
-#endif // YADDNSC_APPLICATION_RUN_ENVIRONMENT_H
+#endif  // YADDNSC_APPLICATION_RUN_ENVIRONMENT_H

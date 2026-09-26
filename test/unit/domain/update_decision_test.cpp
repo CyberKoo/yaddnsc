@@ -10,18 +10,18 @@
 // Only the first record participates in the comparison.
 //
 
+#include "domain/update/update_decision.h"
+
 #include <optional>
 #include <string>
 #include <vector>
 
 #include <gtest/gtest.h>
 
-#include "domain/update/update_decision.h"
-
 namespace {
 
-using domain::UpdateDecision;
 using domain::decide_update;
+using domain::UpdateDecision;
 
 const std::optional<std::string> LOCAL{"198.51.100.1"};
 
@@ -67,4 +67,4 @@ TEST(UpdateDecision, EmptyRecordListUpdates) {
     EXPECT_EQ(decide_update({}, LOCAL, false), UpdateDecision::UPDATE_CHANGED);
 }
 
-} // namespace
+}  // namespace

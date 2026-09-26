@@ -94,9 +94,10 @@ void fill_bootstrap_servers(domain::RuntimeConfig& config) {
     }
     config.resolver.bootstrap_servers = DNS::parse_resolv_conf();
     if (config.resolver.bootstrap_servers.empty()) {
-        SPDLOG_WARN("No bootstrap DNS servers available (no \"bootstrap_dns\" configured and no nameserver found in "
-                    "/etc/resolv.conf): hostname targets will fail to resolve. IP-literal targets are unaffected. "
-                    "(/etc/hosts and NSS are never consulted.)");
+        SPDLOG_WARN(
+            "No bootstrap DNS servers available (no \"bootstrap_dns\" configured and no nameserver found in "
+            "/etc/resolv.conf): hostname targets will fail to resolve. IP-literal targets are unaffected. "
+            "(/etc/hosts and NSS are never consulted.)");
     }
 }
 
@@ -178,15 +179,13 @@ int run_command(const Cli::RunCommand& command) {
         auto dispatcher = DnsResolverFactory::create(
             runtime_config->resolver, ResolverCatalog::with_builtins(runtime_config->resolver.bootstrap_servers));
         const auto http_options = make_http_options(runtime_config->resolver);
-        const IpSourceAdapter ip_source{[http_options](const domain::SubdomainConfig& cfg) {
-            return IpSourceFactory::create(cfg, http_options);
-        }};
+        const IpSourceAdapter ip_source{
+            [http_options](const domain::SubdomainConfig& cfg) { return IpSourceFactory::create(cfg, http_options); }};
         const AbiDriverGateway driver_gateway(driver_catalog, make_http_client_factory(http_options), logger);
         const UpdateWorkflow workflow(dispatcher, ip_source, driver_gateway, logger);
         PoolTaskExecutor task_executor(estimate_pool_size(*runtime_config), workflow);
 
-        RunLifecycle lifecycle(runtime_config,
-                               {.stop = signal_watcher.get_stop_source(), .cancellation = cancellation},
+        RunLifecycle lifecycle(runtime_config, {.stop = signal_watcher.get_stop_source(), .cancellation = cancellation},
                                {.clock = clock, .executor = task_executor, .interfaces = interfaces, .logger = logger});
         lifecycle.run();
     }
@@ -312,8 +311,8 @@ int execute_command(const Cli::ConfigTestCommand& command) {
         // yaddnsc_driver_validate are skipped (not an error).
         Utils::CancellationSource cancellation;
         const SpdlogLogger logger;
-        const AbiDriverGateway driver_gateway(driver_catalog, make_http_client_factory(make_http_options(config->resolver)),
-                                              logger);
+        const AbiDriverGateway driver_gateway(driver_catalog,
+                                              make_http_client_factory(make_http_options(config->resolver)), logger);
         for (const auto& domain_config : config->domains) {
             for (const auto& subdomain : domain_config.subdomains) {
                 if (const auto result = driver_gateway.validate_config(domain_config.driver, subdomain.driver_param);

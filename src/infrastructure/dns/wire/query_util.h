@@ -9,8 +9,8 @@
 #include <string_view>
 #include <vector>
 
-#include "infrastructure/dns/wire/builder.h"
 #include "infrastructure/dns/types.h"
+#include "infrastructure/dns/wire/builder.h"
 
 namespace DNS {
 
@@ -32,12 +32,9 @@ namespace DNS {
 /// @param type  The DNS record type (e.g. RecordType::A, RecordType::AAAA).
 /// @return      A buffer containing the raw DNS query packet bytes.
 [[nodiscard]] inline std::vector<std::uint8_t> build_query(std::string_view host, RecordType type) {
-    return QueryBuilder{}
-        .add_question(host, type)
-        .add_edns(/*udp_payload_size=*/1232)
-        .build();
+    return QueryBuilder{}.add_question(host, type).add_edns(/*udp_payload_size=*/1232).build();
 }
 
-} // namespace DNS
+}  // namespace DNS
 
-#endif // YADDNSC_DNS_WIRE_QUERY_UTIL_H
+#endif  // YADDNSC_DNS_WIRE_QUERY_UTIL_H

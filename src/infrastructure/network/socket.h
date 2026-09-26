@@ -59,9 +59,7 @@ public:
     }
 
     /// Raw setsockopt for variable-length values (e.g. SO_BINDTODEVICE).
-    [[nodiscard]] virtual std::expected<void, int> set_option_raw(int level,
-                                                                  int optname,
-                                                                  const void* val,
+    [[nodiscard]] virtual std::expected<void, int> set_option_raw(int level, int optname, const void* val,
                                                                   socklen_t len) const noexcept = 0;
 
     template<typename T>
@@ -100,8 +98,8 @@ public:
     virtual void close() noexcept = 0;
 
     [[nodiscard]] virtual std::expected<int, int> wait_for(short events, int timeout_ms) const noexcept = 0;
-    [[nodiscard]] virtual std::expected<int, int>
-    wait_for(short events, int timeout_ms, const Utils::CancellationToken& cancel_token) const noexcept = 0;
+    [[nodiscard]] virtual std::expected<int, int> wait_for(
+        short events, int timeout_ms, const Utils::CancellationToken& cancel_token) const noexcept = 0;
 
     // ---- Accessors ---------------------------------------------------------
 
@@ -140,9 +138,7 @@ public:
 
     // ---- Options: inherited (set_option<T> via SocketBase) ----------------
 
-    [[nodiscard]] std::expected<void, int> set_option_raw(int level,
-                                                          int optname,
-                                                          const void* val,
+    [[nodiscard]] std::expected<void, int> set_option_raw(int level, int optname, const void* val,
                                                           socklen_t len) const noexcept override;
 
     [[nodiscard]] std::expected<void, int> set_nonblocking(bool enable) const noexcept override;
@@ -221,8 +217,8 @@ public:
 
     [[nodiscard]] std::expected<int, int> wait_for(short events, int timeout_ms) const noexcept override;
 
-    [[nodiscard]] std::expected<int, int>
-    wait_for(short events, int timeout_ms, const Utils::CancellationToken& cancel_token) const noexcept override;
+    [[nodiscard]] std::expected<int, int> wait_for(
+        short events, int timeout_ms, const Utils::CancellationToken& cancel_token) const noexcept override;
 
     // ---- Accessors ---------------------------------------------------------
 

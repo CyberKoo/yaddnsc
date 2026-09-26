@@ -62,11 +62,7 @@ std::unordered_map<std::string_view, std::string_view> ERROR_CODES = {
 };
 }  // namespace
 
-YADDNSC_DEFINE_DRIVER(DNSPodDriver,
-                      "dnspod",
-                      "Updates DNS records via the DNSPod API",
-                      "Kotarou",
-                      "2.0.0",
+YADDNSC_DEFINE_DRIVER(DNSPodDriver, "dnspod", "Updates DNS records via the DNSPod API", "Kotarou", "2.0.0",
                       YADDNSC_DRIVER_CAPABILITY_A | YADDNSC_DRIVER_CAPABILITY_AAAA)
 
 Result DNSPodDriver::validate(std::string_view driver_param_json) const {

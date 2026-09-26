@@ -120,11 +120,9 @@ public:
     static std::string fmt_url(const std::uint16_t port) { return "http://127.0.0.1:" + std::to_string(port); }
 
 private:
-    [[nodiscard]] static std::string response(const int status,
-                                              std::string reason,
+    [[nodiscard]] static std::string response(const int status, std::string reason,
                                               std::vector<std::pair<std::string, std::string>> headers,
-                                              const std::string& body,
-                                              const std::string_view version = "HTTP/1.1") {
+                                              const std::string& body, const std::string_view version = "HTTP/1.1") {
         headers.emplace_back("Content-Length", std::to_string(body.size()));
         std::string out = fmt_line(status, std::move(reason), version);
         for (const auto& [k, v] : headers) {
@@ -135,8 +133,7 @@ private:
         return out;
     }
 
-    [[nodiscard]] static std::string fmt_line(const int status,
-                                              std::string reason,
+    [[nodiscard]] static std::string fmt_line(const int status, std::string reason,
                                               const std::string_view version = "HTTP/1.1") {
         return std::string(version) + " " + std::to_string(status) + " " + std::move(reason) + "\r\n";
     }

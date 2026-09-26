@@ -23,7 +23,7 @@ namespace yaddnsc::sdk::redact {
 /// Lowercase a string (ASCII).
 [[nodiscard]] inline std::string to_lower(std::string_view s) {
     std::string out(s);
-    for (auto &ch: out) {
+    for (auto& ch : out) {
         ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
     }
     return out;
@@ -32,9 +32,8 @@ namespace yaddnsc::sdk::redact {
 /// Whether an HTTP header key carries credentials (case-insensitive).
 [[nodiscard]] inline bool is_sensitive_header(std::string_view key) {
     static constexpr std::string_view SENSITIVE_HEADERS[] = {
-        "authorization", "proxy-authorization", "cookie",
-        "x-api-key", "x-auth-token", "x-access-token", "x-api-token",
-        "x-amz-security-token",
+        "authorization", "proxy-authorization", "cookie",      "x-api-key",
+        "x-auth-token",  "x-access-token",      "x-api-token", "x-amz-security-token",
     };
     const auto lower = to_lower(key);
     return std::ranges::find(SENSITIVE_HEADERS, lower) != std::end(SENSITIVE_HEADERS);
@@ -46,16 +45,25 @@ namespace yaddnsc::sdk::redact {
 /// parameter names are covered automatically.
 [[nodiscard]] inline bool is_sensitive_param(std::string_view key) {
     static constexpr std::string_view SENSITIVE_PARAMS[] = {
-        "token", "api_key", "apikey", "auth", "secret", "client_secret", "api_secret",
-        "access_key_secret", "secret_access_key", "password", "passwd",
+        "token",
+        "api_key",
+        "apikey",
+        "auth",
+        "secret",
+        "client_secret",
+        "api_secret",
+        "access_key_secret",
+        "secret_access_key",
+        "password",
+        "passwd",
         "signature",
     };
     const auto lower = to_lower(key);
     if (std::ranges::find(SENSITIVE_PARAMS, lower) != std::end(SENSITIVE_PARAMS)) {
         return true;
     }
-    return lower.ends_with("_token") || lower.ends_with("_secret") ||
-           lower.ends_with("_password") || lower.ends_with("_key");
+    return lower.ends_with("_token") || lower.ends_with("_secret") || lower.ends_with("_password") ||
+           lower.ends_with("_key");
 }
 
 /// Redact a header value if its key is sensitive; otherwise pass through.
@@ -95,8 +103,8 @@ namespace yaddnsc::sdk::redact {
 
     const auto value_end = [&body](std::size_t start) {
         std::size_t pos = start;
-        while (pos < body.size() && body[pos] != '&' && body[pos] != ',' &&
-               body[pos] != '}' && body[pos] != '\n' && body[pos] != '\r') {
+        while (pos < body.size() && body[pos] != '&' && body[pos] != ',' && body[pos] != '}' && body[pos] != '\n' &&
+               body[pos] != '\r') {
             ++pos;
         }
         return pos;
@@ -120,8 +128,7 @@ namespace yaddnsc::sdk::redact {
                 if (is_sensitive_param(key)) {
                     // Copy '"key":' + whitespace, then replace the value.
                     std::size_t val_start = colon + 1;
-                    while (val_start < body.size() &&
-                           (body[val_start] == ' ' || body[val_start] == '\t')) {
+                    while (val_start < body.size() && (body[val_start] == ' ' || body[val_start] == '\t')) {
                         ++val_start;
                     }
                     result.append(body.substr(pos, val_start - pos));
@@ -169,6 +176,6 @@ namespace yaddnsc::sdk::redact {
     return std::string(path.substr(0, q + 1)) + redact_body(path.substr(q + 1));
 }
 
-} // namespace yaddnsc::sdk::redact
+}  // namespace yaddnsc::sdk::redact
 
-#endif // YADDNSC_SDK_REDACT_HPP
+#endif  // YADDNSC_SDK_REDACT_HPP

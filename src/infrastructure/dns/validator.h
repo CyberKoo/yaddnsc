@@ -5,8 +5,9 @@
 #define YADDNSC_DNS_VALIDATOR_H
 
 #include <cstdint>
-#include <expected>
 #include <span>
+
+#include <expected>
 
 #include "domain/error/dns_error_info.h"
 
@@ -21,8 +22,8 @@
 ///
 /// @return  std::expected<void, DnsErrorInfo> — success or a PARSE error.
 namespace DNS::Validator {
-    [[nodiscard]] std::expected<void, DnsErrorInfo> validate_response(
-        std::span<const std::uint8_t> request, std::span<const std::uint8_t> response);
-} // namespace DNS
+[[nodiscard]] std::expected<void, DnsErrorInfo> validate_response(std::span<const std::uint8_t> request,
+                                                                  std::span<const std::uint8_t> response);
+}  // namespace DNS::Validator
 
-#endif // YADDNSC_DNS_VALIDATOR_H
+#endif  // YADDNSC_DNS_VALIDATOR_H

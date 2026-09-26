@@ -39,7 +39,7 @@ public:
 
     /// Emit one already-formatted record.
     /// @note Implementations must be thread-safe.
-    virtual void log(LogLevel level, std::string_view message, const std::source_location &loc) const = 0;
+    virtual void log(LogLevel level, std::string_view message, const std::source_location& loc) const = 0;
 
     /// Emit one record whose call site lies outside this process image (a
     /// driver plugin logging through Host Services): the location arrives as
@@ -47,9 +47,9 @@ public:
     /// The default implementation drops the explicit location.
     virtual void log_explicit(LogLevel level, std::string_view message, std::string_view file, int line,
                               std::string_view function) const {
-        (void)file;
-        (void)line;
-        (void)function;
+        (void) file;
+        (void) line;
+        (void) function;
         log(level, message, std::source_location::current());
     }
 };
@@ -57,11 +57,11 @@ public:
 /// Log a formatted message at the given level through a Logger.
 /// The format string and arguments are only evaluated when the level is
 /// enabled; the source location is captured at the call site.
-#define YLOG(logger, level, ...) \
-    do { \
-        if ((logger).is_enabled(level)) { \
+#define YLOG(logger, level, ...)                                                            \
+    do {                                                                                    \
+        if ((logger).is_enabled(level)) {                                                   \
             (logger).log(level, fmt::format(__VA_ARGS__), std::source_location::current()); \
-        } \
+        }                                                                                   \
     } while (0)
 
 #define YLOG_DEBUG(logger, ...) YLOG(logger, LogLevel::DEBUG, __VA_ARGS__)
@@ -70,4 +70,4 @@ public:
 #define YLOG_ERROR(logger, ...) YLOG(logger, LogLevel::ERROR, __VA_ARGS__)
 #define YLOG_CRITICAL(logger, ...) YLOG(logger, LogLevel::CRITICAL, __VA_ARGS__)
 
-#endif // YADDNSC_APPLICATION_PORTS_LOG_H
+#endif  // YADDNSC_APPLICATION_PORTS_LOG_H

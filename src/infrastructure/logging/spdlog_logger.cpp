@@ -40,10 +40,7 @@ void SpdlogLogger::log(LogLevel level, std::string_view message, const std::sour
                                       spdlog::string_view_t(message.data(), message.size()));
 }
 
-void SpdlogLogger::log_explicit(LogLevel level,
-                                std::string_view message,
-                                std::string_view file,
-                                int line,
+void SpdlogLogger::log_explicit(LogLevel level, std::string_view message, std::string_view file, int line,
                                 std::string_view function) const {
     // spdlog::source_loc stores raw pointers; copy the views so they are
     // guaranteed NUL-terminated for the duration of the synchronous log call.

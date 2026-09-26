@@ -36,8 +36,7 @@ using EvpMdCtxPtr = std::unique_ptr<EVP_MD_CTX, EvpMdCtxDeleter>;
 
 /// Compute HMAC using EVP_DigestSign (the modern, non-deprecated API).
 [[nodiscard]] std::vector<std::uint8_t> hmac_digest(std::span<const std::uint8_t> key,
-                                                    std::span<const std::uint8_t> data,
-                                                    const EVP_MD* md) {
+                                                    std::span<const std::uint8_t> data, const EVP_MD* md) {
     EvpPKeyPtr pkey(EVP_PKEY_new_mac_key(EVP_PKEY_HMAC, nullptr, key.data(), static_cast<int>(key.size())));
     if (!pkey)
         return {};
@@ -117,8 +116,7 @@ std::string Signing::sha256_hex(std::string_view data) {
 //  signing::hmac_sha256
 // ===========================================================================
 
-std::vector<std::uint8_t> Signing::hmac_sha256(std::span<const std::uint8_t> key,
-                                               std::span<const std::uint8_t> data) {
+std::vector<std::uint8_t> Signing::hmac_sha256(std::span<const std::uint8_t> key, std::span<const std::uint8_t> data) {
     return hmac_digest(key, data, EVP_sha256());
 }
 
@@ -126,8 +124,7 @@ std::vector<std::uint8_t> Signing::hmac_sha256(std::span<const std::uint8_t> key
 //  signing::hmac_sha1
 // ===========================================================================
 
-std::vector<std::uint8_t> Signing::hmac_sha1(std::span<const std::uint8_t> key,
-                                             std::span<const std::uint8_t> data) {
+std::vector<std::uint8_t> Signing::hmac_sha1(std::span<const std::uint8_t> key, std::span<const std::uint8_t> data) {
     return hmac_digest(key, data, EVP_sha1());
 }
 

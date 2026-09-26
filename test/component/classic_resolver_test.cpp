@@ -331,9 +331,7 @@ TEST_F(ClassicNativeResolverTest, InvalidServerAddress_Throws) {
     server.address = "not-an-ip";
     server.port = 53;
 
-    EXPECT_THROW(
-        { auto bad = std::make_unique<ClassicResolver>(std::move(server)); },
-        DnsLookupException);
+    EXPECT_THROW({ auto bad = std::make_unique<ClassicResolver>(std::move(server)); }, DnsLookupException);
 }
 
 TEST_F(ClassicNativeResolverTest, UdpTimeout_ReturnsRetryError) {
@@ -730,8 +728,7 @@ TEST_F(ClassicNativeResolverTest, Bootstrap_Nxdomain_ReturnsError) {
 
     // The fake server answers ANY A query with a fallback record, so the
     // NXDOMAIN path is exercised through an AAAA query.
-    const auto result =
-        DNS::resolve_bootstrap("nonexistent.yaddnsc.test", AddressFamily::IPV6, servers, deadline, {});
+    const auto result = DNS::resolve_bootstrap("nonexistent.yaddnsc.test", AddressFamily::IPV6, servers, deadline, {});
 
     ASSERT_FALSE(result.has_value());
     EXPECT_EQ(result.error().code, DnsError::NX_DOMAIN);

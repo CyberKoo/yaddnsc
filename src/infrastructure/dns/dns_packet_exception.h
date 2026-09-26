@@ -15,9 +15,7 @@ class DnsPacketException : public YaddnscException {
 public:
     using YaddnscException::YaddnscException;
 
-    [[nodiscard]] std::string_view get_name() const noexcept override {
-        return "DnsPacketException";
-    }
+    [[nodiscard]] std::string_view get_name() const noexcept override { return "DnsPacketException"; }
 };
 
 #endif  // YADDNSC_EXCEPTION_DNS_PACKET_H

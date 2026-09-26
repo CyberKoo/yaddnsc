@@ -18,12 +18,10 @@
 
 class MockResolver : public ResolverBase {
 public:
-    MOCK_METHOD((std::expected<std::vector<std::uint8_t>, DnsErrorInfo>),
-                query,
-                (const std::string& host, RecordKind type, const Utils::CancellationToken& token),
-                (const, override));
+    MOCK_METHOD((std::expected<std::vector<std::uint8_t>, DnsErrorInfo>), query,
+                (const std::string& host, RecordKind type, const Utils::CancellationToken& token), (const, override));
 
     MOCK_METHOD(std::string_view, get_type, (), (const, noexcept, override));
 };
 
-#endif // YADDNSC_TEST_MOCKS_MOCK_RESOLVER_H
+#endif  // YADDNSC_TEST_MOCKS_MOCK_RESOLVER_H

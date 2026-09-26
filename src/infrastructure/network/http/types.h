@@ -44,13 +44,11 @@ struct Request {
     std::string content_type{};
 
     /// Attach a text body (e.g. JSON, form-encoded data).
-    void set_body(const std::string_view text) {
-        body = std::string(text);
-    }
+    void set_body(const std::string_view text) { body = std::string(text); }
 
     /// Attach a binary body (e.g. DNS wire format, serialized data).
     void set_body(const std::span<const std::uint8_t> bytes) {
-        body.emplace(reinterpret_cast<const char *>(bytes.data()), bytes.size());
+        body.emplace(reinterpret_cast<const char*>(bytes.data()), bytes.size());
     }
 };
 
@@ -63,8 +61,7 @@ public:
     Response(int status_code, std::string body, std::multimap<std::string, std::string> response_headers,
              std::multimap<std::string, std::string> response_trailers = {})
         : status(status_code), headers(std::move(response_headers)), trailers(std::move(response_trailers)),
-          body_(std::move(body)) {
-    }
+          body_(std::move(body)) {}
 
     int status;
     std::multimap<std::string, std::string> headers;
@@ -72,22 +69,18 @@ public:
     std::multimap<std::string, std::string> trailers;
 
     /// The body viewed as text (no encoding conversion is performed).
-    [[nodiscard]] std::string_view text() const noexcept {
-        return body_;
-    }
+    [[nodiscard]] std::string_view text() const noexcept { return body_; }
 
     /// The body viewed as raw octets.
     [[nodiscard]] std::span<const std::uint8_t> bytes() const noexcept {
-        return {reinterpret_cast<const std::uint8_t *>(body_.data()), body_.size()};
+        return {reinterpret_cast<const std::uint8_t*>(body_.data()), body_.size()};
     }
 
     /// Body size in octets.
-    [[nodiscard]] std::size_t size() const noexcept {
-        return body_.size();
-    }
+    [[nodiscard]] std::size_t size() const noexcept { return body_.size(); }
 
 private:
-    std::string body_; ///< Owning octets.
+    std::string body_;  ///< Owning octets.
 };
 
 /// Size limits for a single exchange.

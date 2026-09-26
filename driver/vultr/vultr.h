@@ -5,8 +5,9 @@
 #ifndef YADDNSC_DRV_VULTR_VULTR_H
 #define YADDNSC_DRV_VULTR_VULTR_H
 
-#include <yaddnsc/sdk/driver.hpp>
 #include <string_view>
+
+#include <yaddnsc/sdk/driver.hpp>
 
 /// Vultr API v2 driver for DNS record updates.
 ///

@@ -95,6 +95,9 @@ ConstructorInitializerAllOnOneLineOrOnePerLine: true
 # Function declaration and definition formatting
 AlwaysBreakAfterReturnType: None
 AlwaysBreakTemplateDeclarations: Yes
+# Pack as many parameters/arguments per line as the column limit allows
+BinPackArguments: true
+BinPackParameters: true
 BreakBeforeBinaryOperators: None
 BreakBeforeTernaryOperators: true
 BreakInheritanceList: BeforeColon

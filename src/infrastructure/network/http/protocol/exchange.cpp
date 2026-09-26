@@ -444,10 +444,8 @@ struct ChunkedBody {
 
 /// Read a fixed-length body; `buffered` holds bytes already received
 /// past the header block.
-[[nodiscard]] std::expected<std::string, Error> read_fixed_body(Transport::Stream& stream,
-                                                                const size_t total,
-                                                                const std::string_view buffered,
-                                                                const WireRequest& req,
+[[nodiscard]] std::expected<std::string, Error> read_fixed_body(Transport::Stream& stream, const size_t total,
+                                                                const std::string_view buffered, const WireRequest& req,
                                                                 std::string& pending,
                                                                 const Utils::CancellationToken& token) {
     std::string body;
@@ -475,10 +473,8 @@ struct ChunkedBody {
 
 /// Read a chunked body (RFC 9112 §7.1), including strict extensions and trailers.
 [[nodiscard]] std::expected<ChunkedBody, Error> read_chunked_body(Transport::Stream& stream,
-                                                                  const std::string_view buffered,
-                                                                  const Limits& limits,
-                                                                  const WireRequest& req,
-                                                                  std::string& pending,
+                                                                  const std::string_view buffered, const Limits& limits,
+                                                                  const WireRequest& req, std::string& pending,
                                                                   const Utils::CancellationToken& token) {
     std::string raw{buffered};
     ChunkedBody result;
@@ -557,8 +553,7 @@ struct ChunkedBody {
 /// Read a close-delimited body (no Content-Length, no chunked): the
 /// body runs until the peer closes the connection.
 [[nodiscard]] std::expected<std::string, Error> read_until_eof(Transport::Stream& stream,
-                                                               const std::string_view buffered,
-                                                               const Limits& limits,
+                                                               const std::string_view buffered, const Limits& limits,
                                                                const WireRequest& req,
                                                                const Utils::CancellationToken& token) {
     std::string body(buffered);
@@ -596,11 +591,8 @@ Error map_io_error(const Transport::IoError err, const std::string_view stage) {
     return {ErrorCode::CONNECTION_LOST, fmt::format("{}: connection lost", stage)};
 }
 
-std::expected<RawResponse, Error> exchange(Transport::Stream& stream,
-                                           const WireRequest& req,
-                                           const Limits& limits,
-                                           std::string& pending,
-                                           const Utils::CancellationToken& token) {
+std::expected<RawResponse, Error> exchange(Transport::Stream& stream, const WireRequest& req, const Limits& limits,
+                                           std::string& pending, const Utils::CancellationToken& token) {
     // ── Send ──
     if (const auto invalid = validate_wire_request(req)) {
         return std::unexpected(*invalid);
@@ -731,9 +723,7 @@ std::expected<RawResponse, Error> exchange(Transport::Stream& stream,
     };
 }
 
-std::expected<RawResponse, Error> exchange(Transport::Stream& stream,
-                                           const WireRequest& req,
-                                           const Limits& limits,
+std::expected<RawResponse, Error> exchange(Transport::Stream& stream, const WireRequest& req, const Limits& limits,
                                            const Utils::CancellationToken& token) {
     std::string pending;
     return exchange(stream, req, limits, pending, token);

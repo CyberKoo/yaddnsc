@@ -36,12 +36,8 @@ constexpr std::string_view API_URL = "https://dynamicdns.park-your-domain.com/up
 constexpr std::string_view DRIVER_NAME = "namecheap";
 }  // namespace
 
-YADDNSC_DEFINE_DRIVER(NamecheapDriver,
-                      "namecheap",
-                      "Updates DNS records via the Namecheap Dynamic DNS API",
-                      "Kotarou",
-                      "1.0.0",
-                      YADDNSC_DRIVER_CAPABILITY_A)
+YADDNSC_DEFINE_DRIVER(NamecheapDriver, "namecheap", "Updates DNS records via the Namecheap Dynamic DNS API", "Kotarou",
+                      "1.0.0", YADDNSC_DRIVER_CAPABILITY_A)
 
 // =============================================================================
 //  NamecheapDriver::update

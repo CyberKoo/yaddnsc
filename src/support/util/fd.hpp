@@ -12,105 +12,95 @@
 #include <unistd.h>
 
 namespace Utils {
-    /// RAII wrapper for a file descriptor.
-    ///
-    /// Automatically closes the fd on destruction. Move-only — no copies.
-    /// Default-constructs with fd = -1 (invalid/closed state).
-    ///
-    /// @code
-    ///   Utils::UniqueFd fd(::open(...));
-    ///   // ... use fd.get() ...
-    ///   // fd closes automatically when it goes out of scope.
-    ///
-    ///   auto fd2 = std::move(fd);  // transfer ownership
-    /// @endcode
-    class UniqueFd {
-    public:
-        UniqueFd() noexcept = default;
+/// RAII wrapper for a file descriptor.
+///
+/// Automatically closes the fd on destruction. Move-only — no copies.
+/// Default-constructs with fd = -1 (invalid/closed state).
+///
+/// @code
+///   Utils::UniqueFd fd(::open(...));
+///   // ... use fd.get() ...
+///   // fd closes automatically when it goes out of scope.
+///
+///   auto fd2 = std::move(fd);  // transfer ownership
+/// @endcode
+class UniqueFd {
+public:
+    UniqueFd() noexcept = default;
 
-        explicit UniqueFd(int fd) noexcept : fd_(fd) {
-        }
+    explicit UniqueFd(int fd) noexcept : fd_(fd) {}
 
-        ~UniqueFd() {
+    ~UniqueFd() { close(); }
+
+    UniqueFd(UniqueFd&& other) noexcept : fd_(std::exchange(other.fd_, -1)) {}
+
+    UniqueFd& operator=(UniqueFd&& other) noexcept {
+        if (this != &other) {
             close();
+            fd_ = std::exchange(other.fd_, -1);
         }
-
-        UniqueFd(UniqueFd &&other) noexcept : fd_(std::exchange(other.fd_, -1)) {
-        }
-
-        UniqueFd &operator=(UniqueFd &&other) noexcept {
-            if (this != &other) {
-                close();
-                fd_ = std::exchange(other.fd_, -1);
-            }
-            return *this;
-        }
-
-        UniqueFd(const UniqueFd &) = delete;
-
-        UniqueFd &operator=(const UniqueFd &) = delete;
-
-        /// Close the current fd (if any) and take ownership of a new one.
-        void reset(int fd = -1) noexcept {
-            close();
-            fd_ = fd;
-        }
-
-        /// Release ownership without closing the fd.
-        /// Returns the fd number; the caller is responsible for closing it.
-        [[nodiscard]] int release() noexcept {
-            return std::exchange(fd_, -1);
-        }
-
-        /// Return the raw fd number (-1 if closed).
-        [[nodiscard]] int get() const noexcept {
-            return fd_;
-        }
-
-        /// True if this object owns a valid fd (>= 0).
-        explicit operator bool() const noexcept {
-            return fd_ >= 0;
-        }
-
-    private:
-        void close() noexcept {
-            if (fd_ >= 0) {
-                const int old_fd = fd_;
-                fd_ = -1; // mark closed before calling ::close to prevent double-close
-                [[maybe_unused]] auto _ = ::close(old_fd);
-            }
-        }
-
-        int fd_ = -1;
-    };
-
-    /// Create a non-blocking pipe (see pipe(2)) and return both ends as
-    /// RAII wrappers.
-    ///
-    /// Both ends have O_NONBLOCK and close-on-exec set. Non-blocking keeps
-    /// cancellation signalling safe in noexcept paths: the single latch byte
-    /// never blocks a trigger, and cancellation readers only poll it (they
-    /// never consume the byte).
-    ///
-    /// Returns a pair of (read_end, write_end).
-    /// On failure, both fds are invalid (operator bool returns false for both).
-    [[nodiscard]] inline std::pair<UniqueFd, UniqueFd> make_pipe() noexcept {
-        int fds[2] = {-1, -1};
-        if (::pipe(fds) == 0) {
-            // Set close-on-exec and non-blocking for both ends.
-            // (No pipe2() on macOS/BSD — set the flags portably.)
-            if (::fcntl(fds[0], F_SETFD, FD_CLOEXEC) == -1 || ::fcntl(fds[1], F_SETFD, FD_CLOEXEC) == -1 ||
-                ::fcntl(fds[0], F_SETFL, O_NONBLOCK) == -1 || ::fcntl(fds[1], F_SETFL, O_NONBLOCK) == -1) {
-                const int error = errno;
-                [[maybe_unused]] const auto close_read = ::close(fds[0]);
-                [[maybe_unused]] const auto close_write = ::close(fds[1]);
-                fds[0] = -1;
-                fds[1] = -1;
-                errno = error;
-            }
-        }
-        return {UniqueFd(fds[0]), UniqueFd(fds[1])};
+        return *this;
     }
-} // namespace Utils
+
+    UniqueFd(const UniqueFd&) = delete;
+
+    UniqueFd& operator=(const UniqueFd&) = delete;
+
+    /// Close the current fd (if any) and take ownership of a new one.
+    void reset(int fd = -1) noexcept {
+        close();
+        fd_ = fd;
+    }
+
+    /// Release ownership without closing the fd.
+    /// Returns the fd number; the caller is responsible for closing it.
+    [[nodiscard]] int release() noexcept { return std::exchange(fd_, -1); }
+
+    /// Return the raw fd number (-1 if closed).
+    [[nodiscard]] int get() const noexcept { return fd_; }
+
+    /// True if this object owns a valid fd (>= 0).
+    explicit operator bool() const noexcept { return fd_ >= 0; }
+
+private:
+    void close() noexcept {
+        if (fd_ >= 0) {
+            const int old_fd = fd_;
+            fd_ = -1;  // mark closed before calling ::close to prevent double-close
+            [[maybe_unused]] auto _ = ::close(old_fd);
+        }
+    }
+
+    int fd_ = -1;
+};
+
+/// Create a non-blocking pipe (see pipe(2)) and return both ends as
+/// RAII wrappers.
+///
+/// Both ends have O_NONBLOCK and close-on-exec set. Non-blocking keeps
+/// cancellation signalling safe in noexcept paths: the single latch byte
+/// never blocks a trigger, and cancellation readers only poll it (they
+/// never consume the byte).
+///
+/// Returns a pair of (read_end, write_end).
+/// On failure, both fds are invalid (operator bool returns false for both).
+[[nodiscard]] inline std::pair<UniqueFd, UniqueFd> make_pipe() noexcept {
+    int fds[2] = {-1, -1};
+    if (::pipe(fds) == 0) {
+        // Set close-on-exec and non-blocking for both ends.
+        // (No pipe2() on macOS/BSD — set the flags portably.)
+        if (::fcntl(fds[0], F_SETFD, FD_CLOEXEC) == -1 || ::fcntl(fds[1], F_SETFD, FD_CLOEXEC) == -1 ||
+            ::fcntl(fds[0], F_SETFL, O_NONBLOCK) == -1 || ::fcntl(fds[1], F_SETFL, O_NONBLOCK) == -1) {
+            const int error = errno;
+            [[maybe_unused]] const auto close_read = ::close(fds[0]);
+            [[maybe_unused]] const auto close_write = ::close(fds[1]);
+            fds[0] = -1;
+            fds[1] = -1;
+            errno = error;
+        }
+    }
+    return {UniqueFd(fds[0]), UniqueFd(fds[1])};
+}
+}  // namespace Utils
 
 #endif  // YADDNSC_UTIL_FD_H

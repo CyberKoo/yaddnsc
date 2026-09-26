@@ -16,6 +16,7 @@
 #include <mutex>
 #include <optional>
 #include <string>
+
 #include <expected>
 
 #include "infrastructure/network/http/error.h"
@@ -38,13 +39,8 @@ namespace net::http {
 
 class Session {
 public:
-    Session(std::shared_ptr<StreamFactory> factory,
-            Transport::Options transport_opts,
-            Transport::TlsOptions tls_opts,
-            std::string scheme,
-            std::string host,
-            std::uint16_t port,
-            Limits limits);
+    Session(std::shared_ptr<StreamFactory> factory, Transport::Options transport_opts, Transport::TlsOptions tls_opts,
+            std::string scheme, std::string host, std::uint16_t port, Limits limits);
 
     /// Perform one request-response exchange over the persistent
     /// connection. Thread-safe.  Cancellation is operation-scoped via

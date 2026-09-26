@@ -5,13 +5,14 @@
 #ifndef YADDNSC_APPLICATION_ENVIRONMENT_VALIDATOR_H
 #define YADDNSC_APPLICATION_ENVIRONMENT_VALIDATOR_H
 
-#include <expected>
 #include <vector>
+
+#include <expected>
 
 #include "domain/error/error.h"
 
 namespace domain {
-    struct RuntimeConfig;
+struct RuntimeConfig;
 }
 
 class DriverCatalogPort;
@@ -28,8 +29,7 @@ class NetworkInterfaces;
 /// Fail-fast: returns the FIRST violated constraint as a single-element
 /// error list, with the message wording unchanged from the legacy
 /// ConfigValidator.
-[[nodiscard]] std::expected<void, std::vector<domain::ConfigError>>
-validate_environment(const domain::RuntimeConfig &config, const DriverCatalogPort &catalog,
-                     const NetworkInterfaces &interfaces);
+[[nodiscard]] std::expected<void, std::vector<domain::ConfigError>> validate_environment(
+    const domain::RuntimeConfig& config, const DriverCatalogPort& catalog, const NetworkInterfaces& interfaces);
 
-#endif // YADDNSC_APPLICATION_ENVIRONMENT_VALIDATOR_H
+#endif  // YADDNSC_APPLICATION_ENVIRONMENT_VALIDATOR_H

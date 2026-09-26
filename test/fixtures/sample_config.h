@@ -175,61 +175,54 @@ namespace DnsWire {
 //   ID=0x1234, QR=1, OpCode=0, AA=0, TC=0, RD=1, RA=1, Z=0, RCODE=0
 //   QDCOUNT=1, ANCOUNT=1, NSCOUNT=0, ARCOUNT=0
 inline constexpr unsigned char SIMPLE_A_RESPONSE[] = {
-    0x12, 0x34,                         // ID
-    0x81, 0x80,                         // flags: QR, RD, RA
-    0x00, 0x01,                         // QDCOUNT
-    0x00, 0x01,                         // ANCOUNT
-    0x00, 0x00,                         // NSCOUNT
-    0x00, 0x00,                         // ARCOUNT
+    0x12, 0x34,  // ID
+    0x81, 0x80,  // flags: QR, RD, RA
+    0x00, 0x01,  // QDCOUNT
+    0x00, 0x01,  // ANCOUNT
+    0x00, 0x00,  // NSCOUNT
+    0x00, 0x00,  // ARCOUNT
     // Question: example.com A
-    0x07, 'e', 'x', 'a', 'm', 'p', 'l', 'e',
-    0x03, 'c', 'o', 'm',
-    0x00,                               // end of name
-    0x00, 0x01,                         // QTYPE A
-    0x00, 0x01,                         // QCLASS IN
+    0x07, 'e', 'x', 'a', 'm', 'p', 'l', 'e', 0x03, 'c', 'o', 'm',
+    0x00,        // end of name
+    0x00, 0x01,  // QTYPE A
+    0x00, 0x01,  // QCLASS IN
     // Answer: example.com A 192.0.2.1 TTL=300
-    0xC0, 0x0C,                         // name pointer to offset 12
-    0x00, 0x01,                         // TYPE A
-    0x00, 0x01,                         // CLASS IN
-    0x00, 0x00, 0x01, 0x2C,            // TTL 300
-    0x00, 0x04,                         // RDLENGTH 4
-    0xC0, 0x00, 0x02, 0x01             // RDATA 192.0.2.1
+    0xC0, 0x0C,              // name pointer to offset 12
+    0x00, 0x01,              // TYPE A
+    0x00, 0x01,              // CLASS IN
+    0x00, 0x00, 0x01, 0x2C,  // TTL 300
+    0x00, 0x04,              // RDLENGTH 4
+    0xC0, 0x00, 0x02, 0x01   // RDATA 192.0.2.1
 };
 
 // NXDOMAIN response header
 inline constexpr unsigned char NXDOMAIN_RESPONSE[] = {
-    0x12, 0x35,                         // ID
-    0x81, 0x83,                         // flags: QR, RD, RA, RCODE=3 (NXDOMAIN)
-    0x00, 0x01,                         // QDCOUNT
-    0x00, 0x00,                         // ANCOUNT
-    0x00, 0x01,                         // NSCOUNT
-    0x00, 0x00,                         // ARCOUNT
+    0x12, 0x35,  // ID
+    0x81, 0x83,  // flags: QR, RD, RA, RCODE=3 (NXDOMAIN)
+    0x00, 0x01,  // QDCOUNT
+    0x00, 0x00,  // ANCOUNT
+    0x00, 0x01,  // NSCOUNT
+    0x00, 0x00,  // ARCOUNT
     // Question: nonexistent.example.com AAAA
-    0x0A, 'n', 'o', 'n', 'e', 'x', 'i', 's', 't', 'e', 'n', 't',
-    0x07, 'e', 'x', 'a', 'm', 'p', 'l', 'e',
-    0x03, 'c', 'o', 'm',
-    0x00,                               // end of name
-    0x00, 0x1C,                         // QTYPE AAAA
-    0x00, 0x01                          // QCLASS IN
+    0x0A, 'n', 'o', 'n', 'e', 'x', 'i', 's', 't', 'e', 'n', 't', 0x07, 'e', 'x', 'a', 'm', 'p', 'l', 'e', 0x03, 'c',
+    'o', 'm',
+    0x00,        // end of name
+    0x00, 0x1C,  // QTYPE AAAA
+    0x00, 0x01   // QCLASS IN
 };
 
 // SERVFAIL response header
-inline constexpr unsigned char SERVFAIL_RESPONSE[] = {
-    0x12, 0x36,                         // ID
-    0x81, 0x82,                         // flags: QR, RD, RA, RCODE=2 (SERVFAIL)
-    0x00, 0x01,                         // QDCOUNT
-    0x00, 0x00,                         // ANCOUNT
-    0x00, 0x00,                         // NSCOUNT
-    0x00, 0x00,                         // ARCOUNT
-    // Question: example.com A
-    0x07, 'e', 'x', 'a', 'm', 'p', 'l', 'e',
-    0x03, 'c', 'o', 'm',
-    0x00,
-    0x00, 0x01,
-    0x00, 0x01
-};
+inline constexpr unsigned char SERVFAIL_RESPONSE[] = {0x12, 0x36,  // ID
+                                                      0x81, 0x82,  // flags: QR, RD, RA, RCODE=2 (SERVFAIL)
+                                                      0x00, 0x01,  // QDCOUNT
+                                                      0x00, 0x00,  // ANCOUNT
+                                                      0x00, 0x00,  // NSCOUNT
+                                                      0x00, 0x00,  // ARCOUNT
+                                                      // Question: example.com A
+                                                      0x07, 'e', 'x', 'a', 'm', 'p', 'l', 'e', 0x03, 'c', 'o', 'm',
+                                                      0x00, 0x00, 0x01, 0x00, 0x01};
 
-} // namespace DnsWire
-} // namespace Fixtures
+}  // namespace DnsWire
+}  // namespace Fixtures
 
-#endif // YADDNSC_TEST_FIXTURES_SAMPLE_CONFIG_H
+#endif  // YADDNSC_TEST_FIXTURES_SAMPLE_CONFIG_H

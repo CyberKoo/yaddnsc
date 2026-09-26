@@ -17,9 +17,8 @@
 /// still held, so no code is ever unloaded under a live instance.
 class DriverInstance {
 public:
-    DriverInstance(std::shared_ptr<const PluginModule> module, yaddnsc_driver *handle) noexcept
-        : module_(std::move(module)), handle_(handle) {
-    }
+    DriverInstance(std::shared_ptr<const PluginModule> module, yaddnsc_driver* handle) noexcept
+        : module_(std::move(module)), handle_(handle) {}
 
     ~DriverInstance() noexcept {
         if (handle_ != nullptr) {
@@ -27,24 +26,24 @@ public:
         }
     }
 
-    DriverInstance(DriverInstance &&) = delete;
-    DriverInstance &operator=(DriverInstance &&) = delete;
-    DriverInstance(const DriverInstance &) = delete;
-    DriverInstance &operator=(const DriverInstance &) = delete;
+    DriverInstance(DriverInstance&&) = delete;
+    DriverInstance& operator=(DriverInstance&&) = delete;
+    DriverInstance(const DriverInstance&) = delete;
+    DriverInstance& operator=(const DriverInstance&) = delete;
 
-    [[nodiscard]] yaddnsc_status update(const yaddnsc_update_request &request, yaddnsc_error &out_error) const {
+    [[nodiscard]] yaddnsc_status update(const yaddnsc_update_request& request, yaddnsc_error& out_error) const {
         return module_->update(handle_, request, out_error);
     }
 
     /// Driver-side driver_param validation (optional ABI entry; the module
     /// returns OK when the plugin does not export it).
-    [[nodiscard]] yaddnsc_status validate(yaddnsc_string driver_param_json, yaddnsc_error &out_error) const {
+    [[nodiscard]] yaddnsc_status validate(yaddnsc_string driver_param_json, yaddnsc_error& out_error) const {
         return module_->validate(handle_, driver_param_json, out_error);
     }
 
 private:
     std::shared_ptr<const PluginModule> module_;
-    yaddnsc_driver *handle_;
+    yaddnsc_driver* handle_;
 };
 
-#endif // YADDNSC_INFRASTRUCTURE_PLUGIN_DRIVER_INSTANCE_H
+#endif  // YADDNSC_INFRASTRUCTURE_PLUGIN_DRIVER_INSTANCE_H

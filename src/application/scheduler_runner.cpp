@@ -12,11 +12,8 @@
 #include "domain/update/time_types.h"
 #include "domain/update/update_task.h"
 
-SchedulerRunner::SchedulerRunner(domain::ScheduleQueue& queue,
-                                 Clock& clock,
-                                 TaskExecutor& executor,
-                                 std::stop_token stop,
-                                 const Logger& logger)
+SchedulerRunner::SchedulerRunner(domain::ScheduleQueue& queue, Clock& clock, TaskExecutor& executor,
+                                 std::stop_token stop, const Logger& logger)
     : queue_(queue), clock_(clock), executor_(executor), stop_(std::move(stop)), logger_(logger) {
     YLOG_INFO(logger_, "Scheduler initialised with {} tasks", queue_.size());
 }

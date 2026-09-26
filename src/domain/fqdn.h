@@ -9,17 +9,17 @@
 #include <string_view>
 
 namespace domain {
-    /// Build the FQDN for a subdomain within a domain.
-    ///
-    /// Apex labels (`"@"` or empty) resolve to the bare domain so that DNS
-    /// lookups and driver `{fqdn}` substitutions target `example.com` rather
-    /// than `@.example.com`.
-    [[nodiscard]] inline std::string make_fqdn(std::string_view domain, std::string_view subdomain) {
-        if (subdomain.empty() || subdomain == "@") {
-            return std::string(domain);
-        }
-        return std::string(subdomain) + "." + std::string(domain);
+/// Build the FQDN for a subdomain within a domain.
+///
+/// Apex labels (`"@"` or empty) resolve to the bare domain so that DNS
+/// lookups and driver `{fqdn}` substitutions target `example.com` rather
+/// than `@.example.com`.
+[[nodiscard]] inline std::string make_fqdn(std::string_view domain, std::string_view subdomain) {
+    if (subdomain.empty() || subdomain == "@") {
+        return std::string(domain);
     }
+    return std::string(subdomain) + "." + std::string(domain);
 }
+}  // namespace domain
 
-#endif // YADDNSC_DOMAIN_FQDN_H
+#endif  // YADDNSC_DOMAIN_FQDN_H

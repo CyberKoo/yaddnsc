@@ -5,9 +5,10 @@
 #ifndef YADDNSC_DRV_SIMPLE_SIMPLE_H
 #define YADDNSC_DRV_SIMPLE_SIMPLE_H
 
+#include <string_view>
+
 #include <glaze/json/generic_fwd.hpp>
 #include <yaddnsc/sdk/driver.hpp>
-#include <string_view>
 
 /// Simple HTTP GET driver for DNS record updates.
 ///

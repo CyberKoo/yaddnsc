@@ -5,8 +5,9 @@
 #ifndef YADDNSC_DRV_DIGITALOCEAN_DIGITALOCEAN_H
 #define YADDNSC_DRV_DIGITALOCEAN_DIGITALOCEAN_H
 
-#include <yaddnsc/sdk/driver.hpp>
 #include <string_view>
+
+#include <yaddnsc/sdk/driver.hpp>
 
 /// DigitalOcean API driver for DNS record updates.
 ///

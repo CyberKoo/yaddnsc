@@ -55,9 +55,7 @@ struct MalformedResponseHost {
 private:
     static void log(void*, yaddnsc_log_level, yaddnsc_string, const yaddnsc_source_location*) noexcept {}
 
-    static yaddnsc_status exchange(void* context,
-                                   const yaddnsc_http_request*,
-                                   yaddnsc_http_response* out_response,
+    static yaddnsc_status exchange(void* context, const yaddnsc_http_request*, yaddnsc_http_response* out_response,
                                    yaddnsc_error* out_error) noexcept {
         const auto& self = *static_cast<MalformedResponseHost*>(context);
         *out_response = self.response;

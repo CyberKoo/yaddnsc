@@ -66,10 +66,8 @@ constexpr std::string_view DRIVER_NAME = "route53";
 
 /// Derive the multi-stage SigV4 signing key.
 [[nodiscard]] std::vector<std::uint8_t> derive_signing_key(std::string_view secret_access_key,
-                                                           std::string_view date_stamp,
-                                                           std::string_view region,
-                                                           std::string_view service,
-                                                           std::string_view request_type) {
+                                                           std::string_view date_stamp, std::string_view region,
+                                                           std::string_view service, std::string_view request_type) {
     const auto k_secret = fmt::format("AWS4{}", secret_access_key);
 
     const auto k_date = Signing::hmac_sha256(to_bytes(k_secret), to_bytes(date_stamp));
@@ -80,11 +78,7 @@ constexpr std::string_view DRIVER_NAME = "route53";
 
 }  // anonymous namespace
 
-YADDNSC_DEFINE_DRIVER(Route53Driver,
-                      "route53",
-                      "Updates DNS records via the AWS Route 53 API",
-                      "Kotarou",
-                      "1.0.0",
+YADDNSC_DEFINE_DRIVER(Route53Driver, "route53", "Updates DNS records via the AWS Route 53 API", "Kotarou", "1.0.0",
                       YADDNSC_DRIVER_CAPABILITY_A | YADDNSC_DRIVER_CAPABILITY_AAAA)
 
 // =============================================================================
@@ -272,9 +266,7 @@ bool Route53Driver::check_response(const HttpResponse& response, const Services&
 //  Route53Driver::build_xml_body
 // =============================================================================
 
-std::string Route53Driver::build_xml_body(const std::string& fqdn,
-                                          std::string_view rd_type,
-                                          std::string_view ip_addr,
+std::string Route53Driver::build_xml_body(const std::string& fqdn, std::string_view rd_type, std::string_view ip_addr,
                                           int ttl) {
     // Build the UPSERT XML document using libxml2's tree API.
     // This ensures proper XML escaping, namespace handling, and encoding.

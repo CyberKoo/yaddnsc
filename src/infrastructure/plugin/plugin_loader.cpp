@@ -84,8 +84,9 @@ std::expected<PluginModule, domain::PluginError> PluginModule::load(const std::s
         return std::unexpected(make_error(domain::PluginError::Code::CONTRACT_VIOLATION,
                                           fmt::format("Driver '{}' get_descriptor() threw: {}", path, e.what())));
     } catch (...) {
-        return std::unexpected(make_error(domain::PluginError::Code::CONTRACT_VIOLATION,
-                                          fmt::format("Driver '{}' get_descriptor() threw an unknown exception", path)));
+        return std::unexpected(
+            make_error(domain::PluginError::Code::CONTRACT_VIOLATION,
+                       fmt::format("Driver '{}' get_descriptor() threw an unknown exception", path)));
     }
     if (descriptor_status != YADDNSC_STATUS_OK || raw_descriptor == nullptr) {
         return std::unexpected(
@@ -125,9 +126,8 @@ std::expected<PluginModule, domain::PluginError> PluginModule::load(const std::s
                                           fmt::format("Driver '{}' has an invalid descriptor author view", path)));
     }
     if (!yaddnsc_string_is_valid(raw_descriptor->description)) {
-        return std::unexpected(make_error(
-            domain::PluginError::Code::CONTRACT_VIOLATION,
-            fmt::format("Driver '{}' has an invalid descriptor description view", path)));
+        return std::unexpected(make_error(domain::PluginError::Code::CONTRACT_VIOLATION,
+                                          fmt::format("Driver '{}' has an invalid descriptor description view", path)));
     }
     if (!yaddnsc_driver_capabilities_are_valid(raw_descriptor->capabilities)) {
         return std::unexpected(make_error(domain::PluginError::Code::CONTRACT_VIOLATION,

@@ -31,8 +31,8 @@
 #include "domain/update/update_task.h"
 #include "fixtures/sample_config.h"
 #include "infrastructure/config/config.h"
-#include "infrastructure/config/parser.hpp"  // IWYU pragma: keep — registers glz::meta specializations
 #include "infrastructure/config/normalizer.h"
+#include "infrastructure/config/parser.hpp"  // IWYU pragma: keep — registers glz::meta specializations
 
 namespace {
 

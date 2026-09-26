@@ -11,11 +11,12 @@
 #define YADDNSC_DNS_BOOTSTRAP_H
 
 #include <chrono>
-#include <expected>
 #include <optional>
 #include <span>
 #include <string>
 #include <vector>
+
+#include <expected>
 
 #include "domain/config/dns_config.h"
 #include "domain/error/dns_error_info.h"
@@ -43,12 +44,9 @@ namespace DNS {
 /// @param deadline  Overall budget, shared with the subsequent connect.
 /// @param token     Cancellation token observed by every query.
 /// @return          Resolved addresses, or the last error encountered.
-[[nodiscard]] std::expected<std::vector<InetAddress>, DnsErrorInfo>
-resolve_bootstrap(const std::string& host,
-                  std::optional<AddressFamily> family,
-                  std::span<const Config::DnsServer> servers,
-                  std::chrono::steady_clock::time_point deadline,
-                  const Utils::CancellationToken& token);
+[[nodiscard]] std::expected<std::vector<InetAddress>, DnsErrorInfo> resolve_bootstrap(
+    const std::string& host, std::optional<AddressFamily> family, std::span<const Config::DnsServer> servers,
+    std::chrono::steady_clock::time_point deadline, const Utils::CancellationToken& token);
 
 }  // namespace DNS
 

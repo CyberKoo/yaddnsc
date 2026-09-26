@@ -29,11 +29,7 @@ constexpr std::string_view API_URL = "https://api.vultr.com/v2/domains/{DOMAIN}/
 constexpr std::string_view DRIVER_NAME = "vultr";
 }  // namespace
 
-YADDNSC_DEFINE_DRIVER(VultrDriver,
-                      "vultr",
-                      "Updates DNS records via the Vultr API",
-                      "Kotarou",
-                      "1.0.0",
+YADDNSC_DEFINE_DRIVER(VultrDriver, "vultr", "Updates DNS records via the Vultr API", "Kotarou", "1.0.0",
                       YADDNSC_DRIVER_CAPABILITY_A | YADDNSC_DRIVER_CAPABILITY_AAAA)
 
 Result VultrDriver::validate(std::string_view driver_param_json) const {

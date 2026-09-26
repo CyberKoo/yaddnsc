@@ -18,23 +18,23 @@
 namespace xml_raii {
 
 struct XmlDocDeleter {
-    void operator()(xmlDoc *doc) const noexcept { xmlFreeDoc(doc); }
+    void operator()(xmlDoc* doc) const noexcept { xmlFreeDoc(doc); }
 };
 
 using unique_doc = std::unique_ptr<xmlDoc, XmlDocDeleter>;
 
 struct XPathCtxDeleter {
-    void operator()(xmlXPathContext *ctx) const noexcept { xmlXPathFreeContext(ctx); }
+    void operator()(xmlXPathContext* ctx) const noexcept { xmlXPathFreeContext(ctx); }
 };
 
 using unique_xpath_ctx = std::unique_ptr<xmlXPathContext, XPathCtxDeleter>;
 
 struct XPathObjDeleter {
-    void operator()(xmlXPathObject *obj) const noexcept { xmlXPathFreeObject(obj); }
+    void operator()(xmlXPathObject* obj) const noexcept { xmlXPathFreeObject(obj); }
 };
 
 using unique_xpath_obj = std::unique_ptr<xmlXPathObject, XPathObjDeleter>;
 
-} // namespace xml_raii
+}  // namespace xml_raii
 
-#endif // YADDNSC_SDK_XML_RAII_HPP
+#endif  // YADDNSC_SDK_XML_RAII_HPP

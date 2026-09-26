@@ -5,7 +5,7 @@ namespace sdk = yaddnsc::sdk;
 
 class XmlDriver final : public yaddnsc::sdk::Driver {
 public:
-    [[nodiscard]] sdk::Result update(sdk::UpdateContext &context) override {
+    [[nodiscard]] sdk::Result update(sdk::UpdateContext& context) override {
         (void) context;
         xml_raii::unique_doc doc(xmlReadMemory("<root/>", 7, nullptr, nullptr, XML_PARSE_NONET));
         if (!doc) {

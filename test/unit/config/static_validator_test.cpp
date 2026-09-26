@@ -44,8 +44,7 @@ namespace {
 using Code = domain::ConfigError::Code;
 
 /// Build a minimal raw AppConfig with one domain and one subdomain.
-[[nodiscard]] Config::AppConfig make_domain_config(std::string domain_name = "example.com",
-                                                   int update_interval = 300,
+[[nodiscard]] Config::AppConfig make_domain_config(std::string domain_name = "example.com", int update_interval = 300,
                                                    std::string driver_name = "test_driver",
                                                    std::string subdomain_name = "www") {
     return Config::AppConfig{

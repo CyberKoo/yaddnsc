@@ -8,17 +8,18 @@
 #include <algorithm>
 #include <array>
 #include <cstddef>
-#include <cstring>
 #include <cstdint>
+#include <cstring>
 #include <exception>
-#include <expected>
 #include <string>
 #include <string_view>
 
-#include "domain/error/error.h"
-#include "shared_library.h"
-
+#include <expected>
 #include <yaddnsc/sdk/driver_abi.h>
+
+#include "domain/error/error.h"
+
+#include "shared_library.h"
 
 /// DriverDescriptor — host-owned copy of a plugin's static descriptor.
 /// All strings are copied out of the module at load time.
@@ -47,17 +48,17 @@ struct DriverDescriptor {
 class PluginModule {
 public:
     /// Load and validate the plugin at @p path.
-    [[nodiscard]] static std::expected<PluginModule, domain::PluginError> load(const std::string &path);
+    [[nodiscard]] static std::expected<PluginModule, domain::PluginError> load(const std::string& path);
 
-    PluginModule(PluginModule &&) noexcept = default;
-    PluginModule &operator=(PluginModule &&) noexcept = default;
+    PluginModule(PluginModule&&) noexcept = default;
+    PluginModule& operator=(PluginModule&&) noexcept = default;
 
-    PluginModule(const PluginModule &) = delete;
-    PluginModule &operator=(const PluginModule &) = delete;
+    PluginModule(const PluginModule&) = delete;
+    PluginModule& operator=(const PluginModule&) = delete;
 
-    [[nodiscard]] const DriverDescriptor &descriptor() const noexcept { return descriptor_; }
+    [[nodiscard]] const DriverDescriptor& descriptor() const noexcept { return descriptor_; }
 
-    [[nodiscard]] const std::string &path() const noexcept { return library_.path(); }
+    [[nodiscard]] const std::string& path() const noexcept { return library_.path(); }
 
     /// Entry-point trampolines — thin forwards into the plugin, behind an
     /// exception firewall: the ABI forbids exceptions, but a misbehaving
@@ -67,18 +68,18 @@ public:
     /// line (plugin_loader.cpp): a failure return must leave *out_driver
     /// null, and a handle stored before the failure is destroyed and
     /// cleared by the host.
-    [[nodiscard]] yaddnsc_status create(const yaddnsc_host_services &services, yaddnsc_driver **out_driver,
-                                        yaddnsc_error &out_error) const;
+    [[nodiscard]] yaddnsc_status create(const yaddnsc_host_services& services, yaddnsc_driver** out_driver,
+                                        yaddnsc_error& out_error) const;
 
     /// Destroy behind a noexcept firewall. A broken third-party destroy
     /// entry point must never escape through DriverInstance's destructor.
-    void destroy(yaddnsc_driver *driver) const noexcept;
+    void destroy(yaddnsc_driver* driver) const noexcept;
 
-    [[nodiscard]] yaddnsc_status update(yaddnsc_driver *driver, const yaddnsc_update_request &request,
-                                        yaddnsc_error &out_error) const {
+    [[nodiscard]] yaddnsc_status update(yaddnsc_driver* driver, const yaddnsc_update_request& request,
+                                        yaddnsc_error& out_error) const {
         try {
             return update_(driver, &request, &out_error);
-        } catch (const std::exception &e) {
+        } catch (const std::exception& e) {
             write_entry_error(out_error, e.what());
         } catch (...) {
             write_entry_error(out_error, "unknown exception from plugin update");
@@ -95,14 +96,14 @@ public:
     /// same exception firewall as the other trampolines. When the plugin
     /// does not export the optional entry this returns OK — the caller must
     /// treat that as "no driver-side validation", never as an error.
-    [[nodiscard]] yaddnsc_status validate(yaddnsc_driver *driver, yaddnsc_string driver_param_json,
-                                          yaddnsc_error &out_error) const {
+    [[nodiscard]] yaddnsc_status validate(yaddnsc_driver* driver, yaddnsc_string driver_param_json,
+                                          yaddnsc_error& out_error) const {
         if (validate_ == nullptr) {
             return YADDNSC_STATUS_OK;
         }
         try {
             return validate_(driver, driver_param_json, &out_error);
-        } catch (const std::exception &e) {
+        } catch (const std::exception& e) {
             write_entry_error(out_error, e.what());
         } catch (...) {
             write_entry_error(out_error, "unknown exception from plugin validate");
@@ -117,7 +118,7 @@ private:
     /// honouring the caller-supplied struct_size.  The bounded thread-local
     /// storage makes this noexcept path allocation-free: a plugin exception
     /// must never turn into a second termination while reporting it.
-    static void write_entry_error(yaddnsc_error &out_error, std::string_view message) noexcept {
+    static void write_entry_error(yaddnsc_error& out_error, std::string_view message) noexcept {
         if (out_error.struct_size < YADDNSC_ERROR_MIN_SIZE) {
             return;
         }
@@ -134,8 +135,8 @@ private:
         out_error.retry_after_seconds = 0;
         out_error.message = yaddnsc_string{storage.data(), size};
         out_error.struct_size = out_error.struct_size < static_cast<std::uint32_t>(sizeof(yaddnsc_error))
-                                        ? out_error.struct_size
-                                        : static_cast<std::uint32_t>(sizeof(yaddnsc_error));
+                                    ? out_error.struct_size
+                                    : static_cast<std::uint32_t>(sizeof(yaddnsc_error));
     }
 
     SharedLibrary library_;
@@ -147,4 +148,4 @@ private:
     DriverDescriptor descriptor_;
 };
 
-#endif // YADDNSC_INFRASTRUCTURE_PLUGIN_PLUGIN_LOADER_H
+#endif  // YADDNSC_INFRASTRUCTURE_PLUGIN_PLUGIN_LOADER_H

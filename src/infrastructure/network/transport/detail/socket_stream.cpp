@@ -34,9 +34,7 @@
 
 namespace Transport::detail {
 
-std::expected<void, IoError> poll_fd(const int fd,
-                                     const short events,
-                                     const std::chrono::milliseconds timeout,
+std::expected<void, IoError> poll_fd(const int fd, const short events, const std::chrono::milliseconds timeout,
                                      const Utils::CancellationToken& token) {
     using enum IoError;
 
@@ -168,8 +166,7 @@ std::expected<void, IoError> SocketStream::connect(const Utils::CancellationToke
     return std::unexpected(CONNECTION_FAILED);
 }
 
-std::expected<void, IoError> SocketStream::connect_one(const struct sockaddr* addr,
-                                                       const socklen_t addr_len,
+std::expected<void, IoError> SocketStream::connect_one(const struct sockaddr* addr, const socklen_t addr_len,
                                                        const std::chrono::steady_clock::time_point deadline,
                                                        const Utils::CancellationToken& token) {
     using enum IoError;
@@ -211,9 +208,9 @@ std::expected<void, IoError> SocketStream::connect_one(const struct sockaddr* ad
     if (rc != 0) {
         // Clamp: a deadline already in the past must not degenerate into an
         // infinite poll() (a negative timeout means "block forever").
-        const auto remaining = std::max(
-            std::chrono::duration_cast<std::chrono::milliseconds>(deadline - std::chrono::steady_clock::now()),
-            std::chrono::milliseconds{0});
+        const auto remaining =
+            std::max(std::chrono::duration_cast<std::chrono::milliseconds>(deadline - std::chrono::steady_clock::now()),
+                     std::chrono::milliseconds{0});
         auto ready = poll_fd(sock.get(), POLLOUT, remaining, token);
         if (!ready) {
             return std::unexpected(ready.error());
@@ -260,8 +257,7 @@ bool SocketStream::is_healthy() const noexcept {
     return n > 0;  // n == 0 means EOF (peer closed).
 }
 
-std::expected<void, IoError> SocketStream::poll(const short events,
-                                                const std::chrono::milliseconds timeout,
+std::expected<void, IoError> SocketStream::poll(const short events, const std::chrono::milliseconds timeout,
                                                 const Utils::CancellationToken& token) const {
     if (fd_.get() < 0) {
         return std::unexpected(IoError::CONNECTION_FAILED);

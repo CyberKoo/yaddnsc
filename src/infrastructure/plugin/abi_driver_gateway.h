@@ -46,14 +46,11 @@ public:
     ///                      the gateway — it does in the composition root).
     /// @param http_factory  Factory creating one HttpClient per update call.
     /// @param logger        Log port receiving plugin log records.
-    AbiDriverGateway(const DriverCatalog& catalog,
-                     HttpClientFactory http_factory,
-                     const Logger& logger);
+    AbiDriverGateway(const DriverCatalog& catalog, HttpClientFactory http_factory, const Logger& logger);
 
-    [[nodiscard]] std::expected<void, domain::DriverError>
-    update(std::string_view driver_name,
-           const DriverUpdateCommand& command,
-           const Utils::CancellationToken& token) const override;
+    [[nodiscard]] std::expected<void, domain::DriverError> update(std::string_view driver_name,
+                                                                  const DriverUpdateCommand& command,
+                                                                  const Utils::CancellationToken& token) const override;
 
     /// Validate one subdomain's driver_param JSON against the driver's schema
     /// without performing an update (the host's `config test` path). Runs the

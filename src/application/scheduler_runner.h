@@ -39,10 +39,7 @@ class SchedulerRunner {
 public:
     /// All references must outlive the runner (they do: the composition root
     /// owns every component).
-    SchedulerRunner(domain::ScheduleQueue& queue,
-                    Clock& clock,
-                    TaskExecutor& executor,
-                    std::stop_token stop,
+    SchedulerRunner(domain::ScheduleQueue& queue, Clock& clock, TaskExecutor& executor, std::stop_token stop,
                     const Logger& logger);
 
     /// Pop-and-submit due tasks until stop is requested, waiting on the

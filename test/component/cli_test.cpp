@@ -36,9 +36,9 @@
 
 #include <expected>
 #include <fcntl.h>
-#include <signal.h>
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
+#include <signal.h>
 #include <spdlog/spdlog.h>
 #include <unistd.h>
 
@@ -758,8 +758,9 @@ TEST(CliDnsTest, DispatchResolver_LegacyServer_ReturnsZero) {
 TEST(CliDnsTest, DispatchResolve_UnknownType_PrintsValidTypes) {
     // The dispatch path validates the config before resolving, so the file
     // must hold at least one statically-valid domain.
-    TempConfigFile cfg{std::string(R"({"driver":{"auto_discover":false,"load":[]},"resolver":{"use_custom_server":false},)") +
-                       one_http_domain() + "}"};
+    TempConfigFile cfg{
+        std::string(R"({"driver":{"auto_discover":false,"load":[]},"resolver":{"use_custom_server":false},)") +
+        one_http_domain() + "}"};
 
     StreamCapture err{STDERR_FILENO};
     EXPECT_EQ(Composition::dispatch(Cli::DnsResolveCommand{cfg.path(), "example.com", "BOGUS"}), EXIT_FAILURE);

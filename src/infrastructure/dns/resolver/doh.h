@@ -42,16 +42,13 @@ public:
                 std::vector<Config::DnsServer> bootstrap = {});
 
     /// Testing constructor: inject a pre-built stream (fake or real).
-    DohResolver(std::string host,
-                std::uint16_t port,
-                std::string path,
-                std::string label,
+    DohResolver(std::string host, std::uint16_t port, std::string path, std::string label,
                 std::unique_ptr<Transport::Stream> stream);
 
     ~DohResolver() override;
 
-    [[nodiscard]] std::expected<std::vector<std::uint8_t>, DnsErrorInfo>
-    query(const std::string& host, RecordKind type, const Utils::CancellationToken& token) const override;
+    [[nodiscard]] std::expected<std::vector<std::uint8_t>, DnsErrorInfo> query(
+        const std::string& host, RecordKind type, const Utils::CancellationToken& token) const override;
 
     [[nodiscard]] std::string_view get_type() const noexcept override { return "DNS-Over-HTTPS"; }
 

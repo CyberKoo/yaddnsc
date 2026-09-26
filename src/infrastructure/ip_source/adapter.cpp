@@ -21,14 +21,14 @@
 #include "factory.h"
 
 IpSourceAdapter::IpSourceAdapter(FactoryFn factory)
-    : factory_(factory ? std::move(factory) : FactoryFn([](const domain::SubdomainConfig& cfg) {
-          return IpSourceFactory::create(cfg);
-      })) {}
+    : factory_(factory ? std::move(factory)
+                       : FactoryFn([](const domain::SubdomainConfig& cfg) { return IpSourceFactory::create(cfg); })) {}
 
 std::expected<std::vector<InetAddress>, domain::IpSourceError> IpSourceAdapter::resolve(
     const domain::SubdomainConfig& config, const Utils::CancellationToken& token) const {
     if (token.is_triggered()) {
-        return std::unexpected(domain::IpSourceError{domain::IpSourceError::Code::CANCELLED, "IP source lookup cancelled"});
+        return std::unexpected(
+            domain::IpSourceError{domain::IpSourceError::Code::CANCELLED, "IP source lookup cancelled"});
     }
 
     try {

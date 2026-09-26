@@ -23,23 +23,23 @@ namespace domain {
 /// application-level environment validator.
 struct ConfigError {
     enum class Code {
-        EMPTY_DOMAINS,         ///< Config must define at least one domain
-        EMPTY_DOMAIN_NAME,     ///< Domain name must not be empty
-        EMPTY_SUBDOMAINS,      ///< Domain must have at least one subdomain
-        UPDATE_INTERVAL_LOW,   ///< Interval below the configured minimum
-        FORCE_UPDATE_CONFLICT, ///< force_update smaller than update_interval
-        EMPTY_SUBDOMAIN_NAME,  ///< Subdomain name must not be empty
-        MISSING_INTERFACE,     ///< INTERFACE ip source without interface name
-        EMPTY_IP_SOURCE_PARAM, ///< ip_source_param required but empty
-        INVALID_IP_SOURCE_URL, ///< HTTP ip source URL has no host/port
-        INVALID_MDNS_NAME,     ///< mDNS param is not a valid domain name
-        MDNS_NOT_LOCAL,        ///< mDNS param does not end with .local
-        MDNS_BAD_RECORD_TYPE,  ///< mDNS source requires type a/aaaa
-        INVALID_RESOLVER,      ///< Resolver address is not a valid IP/URI
-        NO_RESOLVER_SERVERS,   ///< use_custom_server set but no servers configured
-        INVALID_BOOTSTRAP_DNS, ///< bootstrap_dns is not a valid IP literal
-        DRIVER_NOT_FOUND,      ///< Referenced driver plugin is not loaded
-        INTERFACE_NOT_FOUND,   ///< Referenced network interface does not exist
+        EMPTY_DOMAINS,          ///< Config must define at least one domain
+        EMPTY_DOMAIN_NAME,      ///< Domain name must not be empty
+        EMPTY_SUBDOMAINS,       ///< Domain must have at least one subdomain
+        UPDATE_INTERVAL_LOW,    ///< Interval below the configured minimum
+        FORCE_UPDATE_CONFLICT,  ///< force_update smaller than update_interval
+        EMPTY_SUBDOMAIN_NAME,   ///< Subdomain name must not be empty
+        MISSING_INTERFACE,      ///< INTERFACE ip source without interface name
+        EMPTY_IP_SOURCE_PARAM,  ///< ip_source_param required but empty
+        INVALID_IP_SOURCE_URL,  ///< HTTP ip source URL has no host/port
+        INVALID_MDNS_NAME,      ///< mDNS param is not a valid domain name
+        MDNS_NOT_LOCAL,         ///< mDNS param does not end with .local
+        MDNS_BAD_RECORD_TYPE,   ///< mDNS source requires type a/aaaa
+        INVALID_RESOLVER,       ///< Resolver address is not a valid IP/URI
+        NO_RESOLVER_SERVERS,    ///< use_custom_server set but no servers configured
+        INVALID_BOOTSTRAP_DNS,  ///< bootstrap_dns is not a valid IP literal
+        DRIVER_NOT_FOUND,       ///< Referenced driver plugin is not loaded
+        INTERFACE_NOT_FOUND,    ///< Referenced network interface does not exist
     };
 
     Code code;
@@ -60,10 +60,10 @@ struct IpSourceError {
 /// fail-fast manual-load path); a single update failure is a DriverError.
 struct PluginError {
     enum class Code {
-        LOAD_FAILED,        ///< dlopen failed (not a loadable module)
-        MISSING_SYMBOL,     ///< A required entry point is absent
-        ABI_MISMATCH,       ///< Magic number or api_revision mismatch
-        CONTRACT_VIOLATION, ///< The plugin violated the ABI contract at runtime
+        LOAD_FAILED,         ///< dlopen failed (not a loadable module)
+        MISSING_SYMBOL,      ///< A required entry point is absent
+        ABI_MISMATCH,        ///< Magic number or api_revision mismatch
+        CONTRACT_VIOLATION,  ///< The plugin violated the ABI contract at runtime
     };
     Code code;
     std::string message;
@@ -75,11 +75,11 @@ struct PluginError {
 /// moves the task's next deadline to honour the backoff.
 struct DriverError {
     enum class Code {
-        UPDATE_FAILED, ///< Driver executed but reported failure (e.g. upstream rejected)
-        NOT_FOUND,     ///< Referenced driver is not loaded
-        RATE_LIMITED,  ///< Upstream rate-limited the request
-        CANCELLED,     ///< Aborted via cancellation
-        UNKNOWN,       ///< Any other failure (message carries details)
+        UPDATE_FAILED,  ///< Driver executed but reported failure (e.g. upstream rejected)
+        NOT_FOUND,      ///< Referenced driver is not loaded
+        RATE_LIMITED,   ///< Upstream rate-limited the request
+        CANCELLED,      ///< Aborted via cancellation
+        UNKNOWN,        ///< Any other failure (message carries details)
     };
     Code code;
     std::string message;
@@ -106,6 +106,6 @@ struct UpdateError {
     int retry_after_seconds{0};
 };
 
-} // namespace domain
+}  // namespace domain
 
-#endif // YADDNSC_DOMAIN_ERROR_H
+#endif  // YADDNSC_DOMAIN_ERROR_H

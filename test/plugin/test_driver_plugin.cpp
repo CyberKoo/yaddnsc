@@ -112,20 +112,9 @@ void tick(std::atomic<uint64_t>& slot) {
 template<>
 struct glz::meta<TestDriverConfig> {
     using T = TestDriverConfig;
-    static constexpr auto value = object("op",
-                                         &T::op,
-                                         "status",
-                                         &T::status,
-                                         "message",
-                                         &T::message,
-                                         "retry_after",
-                                         &T::retry_after,
-                                         "http_count",
-                                         &T::http_count,
-                                         "url",
-                                         &T::url,
-                                         "expect_cancelled",
-                                         &T::expect_cancelled);
+    static constexpr auto value =
+        object("op", &T::op, "status", &T::status, "message", &T::message, "retry_after", &T::retry_after, "http_count",
+               &T::http_count, "url", &T::url, "expect_cancelled", &T::expect_cancelled);
 };
 
 class TestDriver final : public yaddnsc::sdk::Driver {
@@ -292,11 +281,7 @@ private:
     }
 };
 
-YADDNSC_DEFINE_DRIVER(TestDriver,
-                      "test_driver_plugin",
-                      "Contract-test whiteboard driver",
-                      "yaddnsc",
-                      "0.0.0",
+YADDNSC_DEFINE_DRIVER(TestDriver, "test_driver_plugin", "Contract-test whiteboard driver", "yaddnsc", "0.0.0",
                       YADDNSC_DRIVER_CAPABILITY_A | YADDNSC_DRIVER_CAPABILITY_AAAA)
 
 /* ── Test control exports (not part of the driver ABI) ────────────────────*/
@@ -316,11 +301,8 @@ extern "C" YADDNSC_SDK_EXPORT void test_plugin_reset_state() {
     g_last_destroy_seq.store(0, std::memory_order_relaxed);
 }
 
-extern "C" YADDNSC_SDK_EXPORT void test_plugin_get_state(uint64_t* creates,
-                                                         uint64_t* updates,
-                                                         uint64_t* destroys,
-                                                         uint64_t* create_seq,
-                                                         uint64_t* update_seq,
+extern "C" YADDNSC_SDK_EXPORT void test_plugin_get_state(uint64_t* creates, uint64_t* updates, uint64_t* destroys,
+                                                         uint64_t* create_seq, uint64_t* update_seq,
                                                          uint64_t* destroy_seq) {
     *creates = g_creates.load(std::memory_order_relaxed);
     *updates = g_updates.load(std::memory_order_relaxed);

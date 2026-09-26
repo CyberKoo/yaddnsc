@@ -6,6 +6,7 @@
 #define YADDNSC_CONFIG_STATIC_VALIDATOR_H
 
 #include <vector>
+
 #include <expected>
 
 #include "domain/config/runtime_config.h"

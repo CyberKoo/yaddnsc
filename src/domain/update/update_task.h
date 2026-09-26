@@ -29,21 +29,17 @@ struct UpdateTask {
     bool force_update{false};                     ///< Skip IP-change check; always send update
 
     /// The subdomain configuration this task updates.
-    [[nodiscard]] const SubdomainConfig &subdomain_config() const {
+    [[nodiscard]] const SubdomainConfig& subdomain_config() const {
         return config->domains[domain_index].subdomains[subdomain_index];
     }
 
     /// Name of the parent domain.
-    [[nodiscard]] std::string_view domain_name() const {
-        return config->domains[domain_index].name;
-    }
+    [[nodiscard]] std::string_view domain_name() const { return config->domains[domain_index].name; }
 
     /// Name of the driver plugin to use.
-    [[nodiscard]] std::string_view driver_name() const {
-        return config->domains[domain_index].driver;
-    }
+    [[nodiscard]] std::string_view driver_name() const { return config->domains[domain_index].driver; }
 };
 
-} // namespace domain
+}  // namespace domain
 
-#endif // YADDNSC_DOMAIN_UPDATE_UPDATE_TASK_H
+#endif  // YADDNSC_DOMAIN_UPDATE_UPDATE_TASK_H

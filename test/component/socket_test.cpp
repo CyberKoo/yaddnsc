@@ -8,11 +8,6 @@
 
 #include "infrastructure/network/socket.h"
 
-#include <gtest/gtest.h>
-#include <poll.h>
-#include <sys/socket.h>
-#include <sys/types.h>
-#include <sys/uio.h>
 #include <array>
 #include <cstddef>
 #include <optional>
@@ -20,7 +15,13 @@
 #include <string>
 #include <string_view>
 #include <utility>
+
 #include <expected>
+#include <gtest/gtest.h>
+#include <poll.h>
+#include <sys/socket.h>
+#include <sys/types.h>
+#include <sys/uio.h>
 
 #include "domain/network/inet_address.h"
 #include "infrastructure/network/socket_addr.h"

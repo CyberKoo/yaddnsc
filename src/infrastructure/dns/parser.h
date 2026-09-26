@@ -7,11 +7,12 @@
 #ifndef YADDNSC_DNS_PARSER_H
 #define YADDNSC_DNS_PARSER_H
 
-#include <stddef.h>
 #include <cstdint>
 #include <optional>
 #include <span>
 #include <string>
+
+#include <stddef.h>
 
 #include "infrastructure/dns/types.h"
 

@@ -24,7 +24,7 @@ public:
     /// Block until `deadline` is reached.
     /// @return false when `stop` was requested first (caller should exit the
     ///         scheduling loop without popping again).
-    virtual bool wait_until(domain::TimePoint deadline, const std::stop_token &stop) = 0;
+    virtual bool wait_until(domain::TimePoint deadline, const std::stop_token& stop) = 0;
 
     /// Wake every waiter early so it re-evaluates its deadlines (used when a
     /// retry request moved a task's deadline sooner). A waiting wait_until
@@ -33,4 +33,4 @@ public:
     virtual void wake() = 0;
 };
 
-#endif // YADDNSC_APPLICATION_PORTS_CLOCK_H
+#endif  // YADDNSC_APPLICATION_PORTS_CLOCK_H

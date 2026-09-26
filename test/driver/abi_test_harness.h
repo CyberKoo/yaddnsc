@@ -30,12 +30,12 @@ public:
         std::string url;
         yaddnsc_http_method method = 0;
         std::vector<std::pair<std::string, std::string>> headers;
-        std::optional<std::string> body; ///< nullopt = no body at all
+        std::optional<std::string> body;  ///< nullopt = no body at all
         std::string content_type;
 
         /// First value of the named header, or nullopt when absent.
         [[nodiscard]] std::optional<std::string> header(std::string_view name) const {
-            for (const auto &[n, v]: headers) {
+            for (const auto& [n, v] : headers) {
                 if (n == name) {
                     return v;
                 }
@@ -70,12 +70,12 @@ public:
     /// Build the services table bound to this fake.
     [[nodiscard]] yaddnsc_host_services table() noexcept {
         return yaddnsc_host_services{
-                .struct_size = static_cast<uint32_t>(sizeof(yaddnsc_host_services)),
-                .api_revision = YADDNSC_DRIVER_API_REVISION,
-                .context = this,
-                .log = &log_entry,
-                .http_exchange = &http_exchange_entry,
-                .is_cancelled = &is_cancelled_entry,
+            .struct_size = static_cast<uint32_t>(sizeof(yaddnsc_host_services)),
+            .api_revision = YADDNSC_DRIVER_API_REVISION,
+            .context = this,
+            .log = &log_entry,
+            .http_exchange = &http_exchange_entry,
+            .is_cancelled = &is_cancelled_entry,
         };
     }
 
@@ -85,38 +85,38 @@ private:
         std::string body;
         std::vector<std::pair<std::string, std::string>> headers;
     };
+
     struct QueuedError {
         yaddnsc_status status;
         std::string message;
     };
 
-    static void log_entry(void *context, yaddnsc_log_level level, yaddnsc_string message,
-                          const yaddnsc_source_location *location) {
-        auto &self = *static_cast<FakeHostServices *>(context);
+    static void log_entry(void* context, yaddnsc_log_level level, yaddnsc_string message,
+                          const yaddnsc_source_location* location) {
+        auto& self = *static_cast<FakeHostServices*>(context);
         self.logs.push_back(LogRecord{
-                level,
-                std::string(message.data, message.size),
-                location != nullptr ? std::string(location->file.data, location->file.size) : std::string{},
-                location != nullptr ? location->line : 0,
-                location != nullptr ? std::string(location->function.data, location->function.size) : std::string{},
+            level,
+            std::string(message.data, message.size),
+            location != nullptr ? std::string(location->file.data, location->file.size) : std::string{},
+            location != nullptr ? location->line : 0,
+            location != nullptr ? std::string(location->function.data, location->function.size) : std::string{},
         });
     }
 
-    static yaddnsc_status http_exchange_entry(void *context, const yaddnsc_http_request *request,
-                                              yaddnsc_http_response *out_response, yaddnsc_error *out_error) {
-        auto &self = *static_cast<FakeHostServices *>(context);
+    static yaddnsc_status http_exchange_entry(void* context, const yaddnsc_http_request* request,
+                                              yaddnsc_http_response* out_response, yaddnsc_error* out_error) {
+        auto& self = *static_cast<FakeHostServices*>(context);
 
         // Capture (owned copies — the ABI views expire when this call returns).
         CapturedRequest captured;
         captured.url = std::string(request->url.data, request->url.size);
         captured.method = request->method;
         for (size_t i = 0; i < request->header_count; ++i) {
-            captured.headers.emplace_back(
-                    std::string(request->headers[i].name.data, request->headers[i].name.size),
-                    std::string(request->headers[i].value.data, request->headers[i].value.size));
+            captured.headers.emplace_back(std::string(request->headers[i].name.data, request->headers[i].name.size),
+                                          std::string(request->headers[i].value.data, request->headers[i].value.size));
         }
         if (request->body.data != nullptr) {
-            captured.body = std::string(reinterpret_cast<const char *>(request->body.data), request->body.size);
+            captured.body = std::string(reinterpret_cast<const char*>(request->body.data), request->body.size);
         }
         captured.content_type = std::string(request->content_type.data, request->content_type.size);
         self.requests.push_back(std::move(captured));
@@ -127,16 +127,16 @@ private:
         auto queued = std::move(self.exchanges_.front());
         self.exchanges_.pop_front();
 
-        if (const auto *error = std::get_if<QueuedError>(&queued)) {
+        if (const auto* error = std::get_if<QueuedError>(&queued)) {
             return write_error(out_error, error->status, self.arena_copy(error->message));
         }
 
-        const auto &response = std::get<QueuedResponse>(queued);
+        const auto& response = std::get<QueuedResponse>(queued);
         out_response->status_code = response.status_code;
         const std::string_view body = self.arena_copy(response.body);
-        out_response->body = yaddnsc_bytes{reinterpret_cast<const uint8_t *>(body.data()), body.size()};
-        auto &array = self.header_array_arena_.emplace_back();
-        for (const auto &[name, value]: response.headers) {
+        out_response->body = yaddnsc_bytes{reinterpret_cast<const uint8_t*>(body.data()), body.size()};
+        auto& array = self.header_array_arena_.emplace_back();
+        for (const auto& [name, value] : response.headers) {
             array.push_back({yaddnsc_string{self.arena_copy(name).data(), name.size()},
                              yaddnsc_string{self.arena_copy(value).data(), value.size()}});
         }
@@ -145,11 +145,11 @@ private:
         return YADDNSC_STATUS_OK;
     }
 
-    static int is_cancelled_entry(void *context) noexcept {
-        return static_cast<FakeHostServices *>(context)->cancelled ? 1 : 0;
+    static int is_cancelled_entry(void* context) noexcept {
+        return static_cast<FakeHostServices*>(context)->cancelled ? 1 : 0;
     }
 
-    static yaddnsc_status write_error(yaddnsc_error *out_error, yaddnsc_status status, std::string_view message) {
+    static yaddnsc_status write_error(yaddnsc_error* out_error, yaddnsc_status status, std::string_view message) {
         if (out_error != nullptr && out_error->struct_size >= YADDNSC_ERROR_MIN_SIZE) {
             out_error->status = status;
             out_error->message = yaddnsc_string{message.data(), message.size()};
@@ -157,9 +157,7 @@ private:
         return status;
     }
 
-    std::string_view arena_copy(std::string_view value) {
-        return string_arena_.emplace_back(value);
-    }
+    std::string_view arena_copy(std::string_view value) { return string_arena_.emplace_back(value); }
 
     std::deque<std::variant<QueuedResponse, QueuedError>> exchanges_;
     std::deque<std::string> string_arena_;
@@ -182,7 +180,7 @@ struct AbiValidateResult {
 };
 
 /// Run one full update cycle through the driver's C entry points.
-[[nodiscard]] inline AbiUpdateResult run_abi_update(FakeHostServices &fake, std::string_view driver_param_json,
+[[nodiscard]] inline AbiUpdateResult run_abi_update(FakeHostServices& fake, std::string_view driver_param_json,
                                                     std::string_view ip_addr, std::string_view rd_type,
                                                     std::string_view domain, std::string_view subdomain,
                                                     std::string_view fqdn) {
@@ -192,7 +190,7 @@ struct AbiValidateResult {
     yaddnsc_error error{};
     error.struct_size = static_cast<uint32_t>(sizeof(error));
 
-    yaddnsc_driver *driver = nullptr;
+    yaddnsc_driver* driver = nullptr;
     result.create_status = yaddnsc_driver_create(&services, &driver, &error);
     if (result.create_status != YADDNSC_STATUS_OK) {
         if (error.message.data != nullptr) {
@@ -202,14 +200,13 @@ struct AbiValidateResult {
     }
 
     const yaddnsc_update_request request{
-            .struct_size = static_cast<uint32_t>(sizeof(request)),
-            .ip_address = {ip_addr.data(), ip_addr.size()},
-            .record_type = {rd_type.data(), rd_type.size()},
-            .domain = {domain.data(), domain.size()},
-            .subdomain = {subdomain.data(), subdomain.size()},
-            .fqdn = {fqdn.data(), fqdn.size()},
-            .driver_param_json = {reinterpret_cast<const uint8_t *>(driver_param_json.data()),
-                                  driver_param_json.size()},
+        .struct_size = static_cast<uint32_t>(sizeof(request)),
+        .ip_address = {ip_addr.data(), ip_addr.size()},
+        .record_type = {rd_type.data(), rd_type.size()},
+        .domain = {domain.data(), domain.size()},
+        .subdomain = {subdomain.data(), subdomain.size()},
+        .fqdn = {fqdn.data(), fqdn.size()},
+        .driver_param_json = {reinterpret_cast<const uint8_t*>(driver_param_json.data()), driver_param_json.size()},
     };
 
     result.status = yaddnsc_driver_update(driver, &request, &error);
@@ -226,14 +223,14 @@ struct AbiValidateResult {
 /// Run one full validate cycle through the driver's C entry points: create an
 /// instance, call the OPTIONAL yaddnsc_driver_validate entry, then destroy.
 /// Validation is a pure parse check — no HTTP exchange is queued or expected.
-[[nodiscard]] inline AbiValidateResult run_abi_validate(FakeHostServices &fake, std::string_view driver_param_json) {
+[[nodiscard]] inline AbiValidateResult run_abi_validate(FakeHostServices& fake, std::string_view driver_param_json) {
     const auto services = fake.table();
 
     AbiValidateResult result{};
     yaddnsc_error error{};
     error.struct_size = static_cast<uint32_t>(sizeof(error));
 
-    yaddnsc_driver *driver = nullptr;
+    yaddnsc_driver* driver = nullptr;
     result.create_status = yaddnsc_driver_create(&services, &driver, &error);
     if (result.create_status != YADDNSC_STATUS_OK) {
         if (error.message.data != nullptr) {
@@ -243,7 +240,7 @@ struct AbiValidateResult {
     }
 
     result.status =
-            yaddnsc_driver_validate(driver, yaddnsc_string{driver_param_json.data(), driver_param_json.size()}, &error);
+        yaddnsc_driver_validate(driver, yaddnsc_string{driver_param_json.data(), driver_param_json.size()}, &error);
     // Copy error bytes out before destroy, as the production host does.
     if (error.message.data != nullptr) {
         result.error_message = std::string(error.message.data, error.message.size);
@@ -253,4 +250,4 @@ struct AbiValidateResult {
     return result;
 }
 
-#endif // YADDNSC_TEST_DRIVER_ABI_TEST_HARNESS_H
+#endif  // YADDNSC_TEST_DRIVER_ABI_TEST_HARNESS_H

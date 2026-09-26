@@ -24,13 +24,15 @@ public:
         return now_;
     }
 
-    bool wait_until(domain::TimePoint deadline, const std::stop_token &stop) override {
+    bool wait_until(domain::TimePoint deadline, const std::stop_token& stop) override {
         // Registered BEFORE taking the mutex: an already-requested stop runs
         // the callback inline here (not holding mtx_), avoiding self-deadlock.
         // The callback takes mtx_ before notifying, closing the lost-wakeup
         // window between the predicate check and blocking on the cv.
         std::stop_callback cb(stop, [this] {
-            { std::lock_guard lock(mtx_); }
+            {
+                std::lock_guard lock(mtx_);
+            }
             cv_.notify_all();
         });
         std::unique_lock lock(mtx_);
@@ -82,4 +84,4 @@ private:
     unsigned wait_entries_ = 0;
 };
 
-#endif // YADDNSC_TEST_MOCKS_FAKE_CLOCK_H
+#endif  // YADDNSC_TEST_MOCKS_FAKE_CLOCK_H

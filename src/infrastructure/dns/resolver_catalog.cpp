@@ -25,37 +25,34 @@ void ResolverCatalog::register_factory(std::string_view schema, FactoryFn factor
 ResolverCatalog ResolverCatalog::with_builtins(std::vector<Config::DnsServer> bootstrap) {
     ResolverCatalog catalog;
 
-    catalog.register_factory(
-        "", [](const Config::DnsServer& server) -> std::unique_ptr<ResolverBase> {
-            return std::make_unique<ClassicResolver>(server);
-        });
+    catalog.register_factory("", [](const Config::DnsServer& server) -> std::unique_ptr<ResolverBase> {
+        return std::make_unique<ClassicResolver>(server);
+    });
 
     // DoH resolver: port is read from the URI only; server.port is intentionally
     // ignored because the URI already specifies the port (e.g. https://1.1.1.1:1443/dns-query).
     // If no port is present in the URI, the default is 443.
-    catalog.register_factory(
-        "https", [bootstrap](const Config::DnsServer& server) -> std::unique_ptr<ResolverBase> {
-            auto uri = Uri::parse(server.address);
-            auto host = std::string(uri.get_host());
-            auto port = static_cast<std::uint16_t>(uri.get_port() != 0 ? uri.get_port() : 443);
-            auto path = std::string(uri.get_path());
-            if (path.empty()) {
-                path = "/";
-            }
-            return std::make_unique<DohResolver>(std::move(host), port, std::move(path),
-                                                 std::string(uri.get_origin()), bootstrap);
-        });
+    catalog.register_factory("https", [bootstrap](const Config::DnsServer& server) -> std::unique_ptr<ResolverBase> {
+        auto uri = Uri::parse(server.address);
+        auto host = std::string(uri.get_host());
+        auto port = static_cast<std::uint16_t>(uri.get_port() != 0 ? uri.get_port() : 443);
+        auto path = std::string(uri.get_path());
+        if (path.empty()) {
+            path = "/";
+        }
+        return std::make_unique<DohResolver>(std::move(host), port, std::move(path), std::string(uri.get_origin()),
+                                             bootstrap);
+    });
 
     // DoT resolver: port is read from the URI only; server.port is intentionally
     // ignored because the URI already specifies the port (e.g. tls://1.1.1.1:853).
     // If no port is present in the URI, the default is 853.
-    catalog.register_factory(
-        "tls", [bootstrap](const Config::DnsServer& server) -> std::unique_ptr<ResolverBase> {
-            auto uri = Uri::parse(server.address);
-            auto host = std::string(uri.get_host());
-            auto port = static_cast<std::uint16_t>(uri.get_port() != 0 ? uri.get_port() : 853);
-            return std::make_unique<DotResolver>(std::move(host), port, std::string(uri.get_origin()), bootstrap);
-        });
+    catalog.register_factory("tls", [bootstrap](const Config::DnsServer& server) -> std::unique_ptr<ResolverBase> {
+        auto uri = Uri::parse(server.address);
+        auto host = std::string(uri.get_host());
+        auto port = static_cast<std::uint16_t>(uri.get_port() != 0 ? uri.get_port() : 853);
+        return std::make_unique<DotResolver>(std::move(host), port, std::string(uri.get_origin()), bootstrap);
+    });
 
     return catalog;
 }

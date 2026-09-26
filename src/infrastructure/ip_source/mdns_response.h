@@ -16,8 +16,7 @@ enum class RecordKind;
 namespace Mdns {
 /// Parse one DNS datagram and return matching A/AAAA answers for hostname.
 /// Invalid DNS packets propagate RecordParser's exception to the caller.
-[[nodiscard]] std::vector<InetAddress> parse_response(std::span<const std::uint8_t> packet,
-                                                      std::string_view hostname,
+[[nodiscard]] std::vector<InetAddress> parse_response(std::span<const std::uint8_t> packet, std::string_view hostname,
                                                       RecordKind type);
 }  // namespace Mdns
 

@@ -16,6 +16,6 @@ namespace yaddnsc::sdk {
 
 namespace string_util = yaddnsc::util;
 
-} // namespace yaddnsc::sdk
+}  // namespace yaddnsc::sdk
 
-#endif // YADDNSC_SDK_STRING_UTIL_HPP
+#endif  // YADDNSC_SDK_STRING_UTIL_HPP

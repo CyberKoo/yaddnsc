@@ -12,14 +12,15 @@
 
 #include "domain/network/inet_address.h"
 
-#include <gtest/gtest.h>
-#include <stddef.h>
 #include <array>
 #include <optional>
 #include <span>
 #include <string>
 #include <string_view>
 #include <type_traits>
+
+#include <gtest/gtest.h>
+#include <stddef.h>
 
 #include "domain/network/address_family.h"
 

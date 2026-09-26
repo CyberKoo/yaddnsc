@@ -75,8 +75,8 @@ TEST(IpSourceAdapter, EmptyCandidatesAreSuccess) {
 TEST(IpSourceAdapter, SourceFailurePassesThrough) {
     auto source = std::make_unique<MockIpSource>();
     EXPECT_CALL(*source, resolve(_))
-        .WillOnce(Return(std::unexpected(
-            domain::IpSourceError{domain::IpSourceError::Code::UNAVAILABLE, "interface not found"})));
+        .WillOnce(Return(
+            std::unexpected(domain::IpSourceError{domain::IpSourceError::Code::UNAVAILABLE, "interface not found"})));
 
     auto adapter = make_adapter([&](const domain::SubdomainConfig&) { return std::move(source); });
     const auto result = adapter.resolve(any_subdomain_config(), {});
@@ -102,8 +102,7 @@ TEST(IpSourceAdapter, UnexpectedSourceExceptionBecomesUnknown) {
 
 TEST(IpSourceAdapter, FactoryFailurePassesThrough) {
     auto adapter = make_adapter([](const domain::SubdomainConfig&) -> IpSourceFactory::Result {
-        return std::unexpected(
-            domain::IpSourceError{domain::IpSourceError::Code::UNAVAILABLE, "bad source config"});
+        return std::unexpected(domain::IpSourceError{domain::IpSourceError::Code::UNAVAILABLE, "bad source config"});
     });
     const auto result = adapter.resolve(any_subdomain_config(), {});
 

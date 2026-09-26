@@ -47,11 +47,7 @@ struct glz::meta<GoDaddyRecordBody> {
     static constexpr auto value = object("data", &T::data, "ttl", &T::ttl, "type", &T::type);
 };
 
-YADDNSC_DEFINE_DRIVER(GoDaddyDriver,
-                      "godaddy",
-                      "Updates DNS records via the GoDaddy API",
-                      "Kotarou",
-                      "1.0.0",
+YADDNSC_DEFINE_DRIVER(GoDaddyDriver, "godaddy", "Updates DNS records via the GoDaddy API", "Kotarou", "1.0.0",
                       YADDNSC_DRIVER_CAPABILITY_A | YADDNSC_DRIVER_CAPABILITY_AAAA)
 
 Result GoDaddyDriver::validate(std::string_view driver_param_json) const {

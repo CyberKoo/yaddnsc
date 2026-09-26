@@ -12,6 +12,7 @@
 #include <cstdint>
 #include <string>
 #include <string_view>
+
 #include <expected>
 
 #include "infrastructure/network/http/error.h"
@@ -49,11 +50,8 @@ namespace net::http {
 /// caller. User-supplied Host, Content-Length, Connection, Transfer-Encoding,
 /// Trailer, and Upgrade fields are discarded; this client owns framing and
 /// connection semantics.
-[[nodiscard]] protocol::WireRequest build_wire_request(const Request& req,
-                                                       std::string_view scheme,
-                                                       std::string_view host,
-                                                       std::uint16_t port,
-                                                       const Options& opts);
+[[nodiscard]] protocol::WireRequest build_wire_request(const Request& req, std::string_view scheme,
+                                                       std::string_view host, std::uint16_t port, const Options& opts);
 
 /// Map a transport connect/handshake error to a domain error.
 [[nodiscard]] Error map_connect_error(Transport::IoError err);

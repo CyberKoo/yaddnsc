@@ -8,14 +8,15 @@
 //   - Missing required fields → throws std::runtime_error.
 // =============================================================================
 
-#include <gtest/gtest.h>
-#include <stdlib.h>
-#include <unistd.h>
 #include <filesystem>
 #include <stdexcept>
 #include <string>
 #include <string_view>
 #include <vector>
+
+#include <gtest/gtest.h>
+#include <stdlib.h>
+#include <unistd.h>
 
 #include "infrastructure/config/config.h"
 

@@ -56,8 +56,7 @@ size_t encode_name(std::vector<std::uint8_t>& buf, std::string_view name) {
 }
 
 /// Build a minimal DNS response with a single A record.
-std::vector<std::uint8_t> make_a_response(std::uint16_t txid,
-                                          std::array<std::uint8_t, 4> answer_ip,
+std::vector<std::uint8_t> make_a_response(std::uint16_t txid, std::array<std::uint8_t, 4> answer_ip,
                                           std::uint32_t ttl = 300) {
     std::vector<std::uint8_t> buf;
     buf.resize(12, 0);
@@ -93,8 +92,7 @@ std::vector<std::uint8_t> make_a_response(std::uint16_t txid,
 }
 
 /// Build a minimal DNS response with a single AAAA record.
-std::vector<std::uint8_t> make_aaaa_response(std::uint16_t txid,
-                                             std::array<std::uint8_t, 16> answer_ip,
+std::vector<std::uint8_t> make_aaaa_response(std::uint16_t txid, std::array<std::uint8_t, 16> answer_ip,
                                              std::uint32_t ttl = 300) {
     std::vector<std::uint8_t> buf;
     buf.resize(12, 0);
@@ -283,9 +281,7 @@ std::vector<std::uint8_t> make_ptr_response(std::uint16_t txid, std::string_view
     return buf;
 }
 
-std::vector<std::uint8_t> make_mx_response(std::uint16_t txid,
-                                           std::uint16_t preference,
-                                           std::string_view mx_target,
+std::vector<std::uint8_t> make_mx_response(std::uint16_t txid, std::uint16_t preference, std::string_view mx_target,
                                            std::uint32_t ttl = 300) {
     std::vector<std::uint8_t> buf;
     buf.resize(12, 0);
@@ -322,9 +318,7 @@ std::vector<std::uint8_t> make_mx_response(std::uint16_t txid,
     return buf;
 }
 
-std::vector<std::uint8_t> make_soa_response(std::uint16_t txid,
-                                            std::string_view mname,
-                                            std::string_view rname,
+std::vector<std::uint8_t> make_soa_response(std::uint16_t txid, std::string_view mname, std::string_view rname,
                                             std::uint32_t ttl = 300) {
     std::vector<std::uint8_t> buf;
     buf.resize(12, 0);
@@ -365,12 +359,8 @@ std::vector<std::uint8_t> make_soa_response(std::uint16_t txid,
     return buf;
 }
 
-std::vector<std::uint8_t> make_srv_response(std::uint16_t txid,
-                                            std::uint16_t priority,
-                                            std::uint16_t weight,
-                                            std::uint16_t port,
-                                            std::string_view target,
-                                            std::uint32_t ttl = 300) {
+std::vector<std::uint8_t> make_srv_response(std::uint16_t txid, std::uint16_t priority, std::uint16_t weight,
+                                            std::uint16_t port, std::string_view target, std::uint32_t ttl = 300) {
     std::vector<std::uint8_t> buf;
     buf.resize(12, 0);
     write_u16_be(buf, 0, txid);
@@ -413,8 +403,7 @@ std::vector<std::uint8_t> make_srv_response(std::uint16_t txid,
 /// Build a response with a single answer record of the given type and
 /// raw RDATA bytes.  `declared_rdlen` overrides the RDLENGTH field
 /// (defaults to the actual RDATA size) — used to build malformed records.
-std::vector<std::uint8_t> make_response_with_rdata(std::uint16_t type,
-                                                   const std::vector<std::uint8_t>& rdata,
+std::vector<std::uint8_t> make_response_with_rdata(std::uint16_t type, const std::vector<std::uint8_t>& rdata,
                                                    std::size_t declared_rdlen = std::string::npos) {
     std::vector<std::uint8_t> buf;
     buf.resize(12, 0);
@@ -446,10 +435,8 @@ std::vector<std::uint8_t> make_response_with_rdata(std::uint16_t type,
     return buf;
 }
 
-std::vector<std::uint8_t> make_authority_response(std::uint16_t txid,
-                                                  std::string_view /*ns_name*/,
-                                                  std::string_view ns_target,
-                                                  std::uint32_t ttl = 300) {
+std::vector<std::uint8_t> make_authority_response(std::uint16_t txid, std::string_view /*ns_name*/,
+                                                  std::string_view ns_target, std::uint32_t ttl = 300) {
     std::vector<std::uint8_t> buf;
     buf.resize(12, 0);
     write_u16_be(buf, 0, txid);
@@ -1730,8 +1717,7 @@ TEST(DnsParserTest, ParseSrvRecord_TargetExtendsPastRdata_Throws) {
 /// @param opt_rdata   OPT RDATA bytes (options).
 /// @param opt_ttl     OPT TTL field (carries extended RCODE / version / DO).
 std::vector<std::uint8_t> make_custom_edns_response(std::vector<std::uint8_t> opt_name,
-                                                    std::vector<std::uint8_t> opt_rdata,
-                                                    std::uint32_t opt_ttl) {
+                                                    std::vector<std::uint8_t> opt_rdata, std::uint32_t opt_ttl) {
     std::vector<std::uint8_t> buf;
     buf.resize(12, 0);
     write_u16_be(buf, 0, 0x1234);

@@ -128,12 +128,8 @@ private:
     static int default_port_for(std::string_view scheme) noexcept;
 
     /// Parse a host:port authority string into host slice and port.
-    static void parse_authority(std::string_view auth,
-                                Slice& host_out,
-                                std::optional<int>& port_out,
-                                bool& is_ipv6_out,
-                                std::size_t auth_raw_offset,
-                                std::string_view raw_uri_hint);
+    static void parse_authority(std::string_view auth, Slice& host_out, std::optional<int>& port_out, bool& is_ipv6_out,
+                                std::size_t auth_raw_offset, std::string_view raw_uri_hint);
 
     std::string raw_uri_;  ///< sole string buffer owner
     Slice schema_;

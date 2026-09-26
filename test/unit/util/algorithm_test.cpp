@@ -12,12 +12,12 @@
 //   - Return value equals number of removed elements.
 // =============================================================================
 
-#include <vector>
+#include "support/util/algorithm.hpp"
+
 #include <string>
+#include <vector>
 
 #include <gtest/gtest.h>
-
-#include "support/util/algorithm.hpp"
 
 TEST(DedupeTest, EmptyVector) {
     std::vector<int> v;

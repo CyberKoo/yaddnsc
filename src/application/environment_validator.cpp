@@ -4,10 +4,11 @@
 
 #include "environment_validator.h"
 
-#include <yaddnsc/util/format.hpp>
-#include <string>
 #include <algorithm>
 #include <ranges>
+#include <string>
+
+#include <yaddnsc/util/format.hpp>
 
 #include "application/ports/driver_catalog.h"
 #include "application/ports/network_interfaces.h"

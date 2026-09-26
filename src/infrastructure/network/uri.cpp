@@ -160,12 +160,8 @@ Uri Uri::parse(std::string_view uri) {
 // parse_authority
 // ---------------------------------------------------------------------------
 
-void Uri::parse_authority(std::string_view auth,
-                          Slice& host_out,
-                          std::optional<int>& port_out,
-                          bool& is_ipv6_out,
-                          std::size_t auth_raw_offset,
-                          std::string_view raw_uri_hint) {
+void Uri::parse_authority(std::string_view auth, Slice& host_out, std::optional<int>& port_out, bool& is_ipv6_out,
+                          std::size_t auth_raw_offset, std::string_view raw_uri_hint) {
     if (auth.empty()) {
         return;
     }

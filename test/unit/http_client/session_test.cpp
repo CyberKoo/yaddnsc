@@ -105,16 +105,14 @@ private:
 /// Factory serving scripted streams per host, recording every call.
 class FakeFactory final : public net::http::StreamFactory {
 public:
-    [[nodiscard]] std::unique_ptr<Transport::Stream> create_tls(std::string_view host,
-                                                                std::uint16_t /*port*/,
+    [[nodiscard]] std::unique_ptr<Transport::Stream> create_tls(std::string_view host, std::uint16_t /*port*/,
                                                                 const Transport::Options& /*conn_opts*/,
                                                                 const Transport::TlsOptions& /*tls_opts*/) override {
         tls_hosts.emplace_back(host);
         return next(tls_streams);
     }
 
-    [[nodiscard]] std::unique_ptr<Transport::Stream> create_tcp(std::string_view host,
-                                                                std::uint16_t /*port*/,
+    [[nodiscard]] std::unique_ptr<Transport::Stream> create_tcp(std::string_view host, std::uint16_t /*port*/,
                                                                 const Transport::Options& /*opts*/) override {
         tcp_hosts.emplace_back(host);
         return next(tcp_streams);

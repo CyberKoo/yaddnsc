@@ -10,6 +10,7 @@
 #include <string>
 #include <string_view>
 #include <vector>
+
 #include <expected>
 
 #include "application/ports/dns_resolver.h"
@@ -50,8 +51,8 @@ public:
 
     /// Resolve a hostname using the configured strategy and backends,
     /// with the default retry policy (max_retries = 1, backoff_ms = 50).
-    [[nodiscard]] std::expected<std::vector<std::string>, DnsErrorInfo>
-    resolve(std::string_view host, RecordKind type, const Utils::CancellationToken& token) const override;
+    [[nodiscard]] std::expected<std::vector<std::string>, DnsErrorInfo> resolve(
+        std::string_view host, RecordKind type, const Utils::CancellationToken& token) const override;
 
     /// Resolve a hostname using the configured strategy and backends.
     ///
@@ -73,8 +74,7 @@ public:
     ///                     describing the failure.  Callers should check the
     ///                     error code to distinguish transient (RETRY, CONNECTION)
     ///                     from permanent errors (NX_DOMAIN, NODATA, PARSE, CONFIG).
-    [[nodiscard]] std::expected<std::vector<std::string>, DnsErrorInfo> resolve(std::string_view host,
-                                                                                RecordKind type,
+    [[nodiscard]] std::expected<std::vector<std::string>, DnsErrorInfo> resolve(std::string_view host, RecordKind type,
                                                                                 const Utils::CancellationToken& token,
                                                                                 std::uint32_t max_retries,
                                                                                 std::uint32_t backoff_ms) const;
@@ -83,8 +83,8 @@ private:
     /// Resolve a hostname across multiple resolvers (fallback / shuffle / concurrent).
     /// Dispatches to FallbackRunner or ConcurrentRunner based on the strategy.
     /// @return  Resolved addresses on success, or a categorised error on failure.
-    [[nodiscard]] std::expected<std::vector<std::string>, DnsErrorInfo>
-    resolve_multi(const std::string& host, RecordKind type, const Utils::CancellationToken& token) const;
+    [[nodiscard]] std::expected<std::vector<std::string>, DnsErrorInfo> resolve_multi(
+        const std::string& host, RecordKind type, const Utils::CancellationToken& token) const;
 
     std::vector<std::unique_ptr<ResolverBase>> resolvers_;
     Config::ResolverStrategy strategy_{Config::ResolverStrategy::CONCURRENT};

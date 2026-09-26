@@ -5,9 +5,10 @@
 #ifndef YADDNSC_APPLICATION_PORTS_DRIVER_GATEWAY_H
 #define YADDNSC_APPLICATION_PORTS_DRIVER_GATEWAY_H
 
-#include <expected>
 #include <string>
 #include <string_view>
+
+#include <expected>
 
 #include "domain/error/error.h"
 
@@ -18,12 +19,12 @@ class CancellationToken;
 /// DriverUpdateCommand — everything one driver update call needs, expressed
 /// in application terms (no plugin-SDK types cross this boundary).
 struct DriverUpdateCommand {
-    std::string driver_param; ///< Opaque driver configuration JSON text
-    std::string ip_addr;      ///< Resolved IP address to publish
-    std::string rd_type;      ///< DNS record type as string (e.g. "A", "AAAA")
-    std::string domain;       ///< Parent domain name
-    std::string subdomain;    ///< Subdomain label (may be "@" for apex)
-    std::string fqdn;         ///< Fully qualified domain name
+    std::string driver_param;  ///< Opaque driver configuration JSON text
+    std::string ip_addr;       ///< Resolved IP address to publish
+    std::string rd_type;       ///< DNS record type as string (e.g. "A", "AAAA")
+    std::string domain;        ///< Parent domain name
+    std::string subdomain;     ///< Subdomain label (may be "@" for apex)
+    std::string fqdn;          ///< Fully qualified domain name
 };
 
 /// DriverGateway — application port for performing one DNS record update
@@ -43,10 +44,9 @@ public:
     /// Perform one update. Failures are reported as DriverError values:
     /// the port never throws for an expected failure (driver not loaded,
     /// upstream rejection, HTTP error, driver exception).
-    [[nodiscard]] virtual std::expected<void, domain::DriverError>
-    update(std::string_view driver_name,
-           const DriverUpdateCommand &command,
-           const Utils::CancellationToken &token) const = 0;
+    [[nodiscard]] virtual std::expected<void, domain::DriverError> update(
+        std::string_view driver_name, const DriverUpdateCommand& command,
+        const Utils::CancellationToken& token) const = 0;
 };
 
-#endif // YADDNSC_APPLICATION_PORTS_DRIVER_GATEWAY_H
+#endif  // YADDNSC_APPLICATION_PORTS_DRIVER_GATEWAY_H

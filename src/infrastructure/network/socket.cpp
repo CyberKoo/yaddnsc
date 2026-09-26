@@ -544,8 +544,7 @@ std::expected<int, int> Socket::wait_for(short events, int timeout_ms) const noe
     return wait_for(events, timeout_ms, {});
 }
 
-std::expected<int, int> Socket::wait_for(short events,
-                                         int timeout_ms,
+std::expected<int, int> Socket::wait_for(short events, int timeout_ms,
                                          const Utils::CancellationToken& cancel_token) const noexcept {
     // Latched pre-check: cancellation remains terminal even if poll() was
     // entered after the source fired.

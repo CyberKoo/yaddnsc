@@ -38,8 +38,8 @@
 #include "domain/update/update_task.h"
 #include "fixtures/sample_config.h"
 #include "infrastructure/config/config.h"
-#include "infrastructure/config/parser.hpp"  // IWYU pragma: keep — registers glz::meta specializations
 #include "infrastructure/config/normalizer.h"
+#include "infrastructure/config/parser.hpp"  // IWYU pragma: keep — registers glz::meta specializations
 #include "mocks/mock_ports.h"
 #include "mocks/null_logger.h"
 #include "support/util/cancellation_token.hpp"
@@ -74,14 +74,15 @@ using ::testing::Return;
 
 // IP answers matching the fixture subdomains ("@" is type A, "www" AAAA).
 void stub_ip_answers(MockIpSourcePort& ip_source) {
-    ON_CALL(ip_source, resolve(_, _)).WillByDefault([](const domain::SubdomainConfig& sub, const Utils::CancellationToken&) {
-        if (sub.type == RecordKind::AAAA) {
-            return std::expected<std::vector<InetAddress>, domain::IpSourceError>{{InetAddress{
-                Inet6Address::from_bytes({0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x01})}}};
-        }
-        return std::expected<std::vector<InetAddress>, domain::IpSourceError>{
-            {InetAddress{Inet4Address::from_bytes({198, 51, 100, 1})}}};
-    });
+    ON_CALL(ip_source, resolve(_, _))
+        .WillByDefault([](const domain::SubdomainConfig& sub, const Utils::CancellationToken&) {
+            if (sub.type == RecordKind::AAAA) {
+                return std::expected<std::vector<InetAddress>, domain::IpSourceError>{{InetAddress{
+                    Inet6Address::from_bytes({0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x01})}}};
+            }
+            return std::expected<std::vector<InetAddress>, domain::IpSourceError>{
+                {InetAddress{Inet4Address::from_bytes({198, 51, 100, 1})}}};
+        });
 }
 
 struct Fixture {
@@ -104,8 +105,7 @@ TEST(PoolTaskExecutor, RunsSubmittedTaskToCompletion) {
     Fixture f;
     std::promise<void> done;
     EXPECT_CALL(f.gateway, update("cloudflare", _, _))
-        .WillOnce([&done](std::string_view,
-                          const DriverUpdateCommand&,
+        .WillOnce([&done](std::string_view, const DriverUpdateCommand&,
                           const Utils::CancellationToken&) -> std::expected<void, domain::DriverError> {
             done.set_value();
             return {};
@@ -123,14 +123,13 @@ TEST(PoolTaskExecutor, ReportsDriverRetryAfterToRetryHandler) {
     Fixture f;
     std::promise<std::pair<domain::TaskId, std::chrono::seconds>> retry;
     EXPECT_CALL(f.gateway, update("cloudflare", _, _))
-        .WillOnce(Return(std::unexpected(
-            domain::DriverError{domain::DriverError::Code::RATE_LIMITED, "slow down", 120})));
+        .WillOnce(
+            Return(std::unexpected(domain::DriverError{domain::DriverError::Code::RATE_LIMITED, "slow down", 120})));
 
     auto workflow = f.make_workflow();
     PoolTaskExecutor executor(2, workflow);
-    executor.set_retry_handler([&retry](domain::TaskId id, std::chrono::seconds delay) {
-        retry.set_value({id, delay});
-    });
+    executor.set_retry_handler(
+        [&retry](domain::TaskId id, std::chrono::seconds delay) { retry.set_value({id, delay}); });
 
     ASSERT_TRUE(executor.submit(make_task(f.config, 0), {}));
     executor.wait_idle();
@@ -150,9 +149,8 @@ TEST(PoolTaskExecutor, ReportsTransportRetryAfterToRetryHandler) {
 
     auto workflow = f.make_workflow();
     PoolTaskExecutor executor(2, workflow);
-    executor.set_retry_handler([&retry](domain::TaskId id, std::chrono::seconds delay) {
-        retry.set_value({id, delay});
-    });
+    executor.set_retry_handler(
+        [&retry](domain::TaskId id, std::chrono::seconds delay) { retry.set_value({id, delay}); });
 
     ASSERT_TRUE(executor.submit(make_task(f.config, 0), {}));
     executor.wait_idle();
@@ -166,8 +164,8 @@ TEST(PoolTaskExecutor, ReportsTransportRetryAfterToRetryHandler) {
 TEST(PoolTaskExecutor, IgnoresRetryAfterWithoutRetryHandler) {
     Fixture f;
     EXPECT_CALL(f.gateway, update("cloudflare", _, _))
-        .WillOnce(Return(std::unexpected(
-            domain::DriverError{domain::DriverError::Code::RATE_LIMITED, "slow down", 120})));
+        .WillOnce(
+            Return(std::unexpected(domain::DriverError{domain::DriverError::Code::RATE_LIMITED, "slow down", 120})));
 
     auto workflow = f.make_workflow();
     PoolTaskExecutor executor(2, workflow);
@@ -201,8 +199,7 @@ TEST(PoolTaskExecutor, WaitIdleBlocksUntilInFlightTaskFinishes) {
     bool released = false;
 
     EXPECT_CALL(f.gateway, update(_, _, _))
-        .WillOnce([&](std::string_view,
-                      const DriverUpdateCommand&,
+        .WillOnce([&](std::string_view, const DriverUpdateCommand&,
                       const Utils::CancellationToken&) -> std::expected<void, domain::DriverError> {
             std::unique_lock lock(mtx);
             entered = true;
@@ -253,8 +250,7 @@ TEST(PoolTaskExecutor, SameModuleTasksRunConcurrently) {
 
     EXPECT_CALL(f.gateway, update("cloudflare", _, _))
         .Times(2)
-        .WillRepeatedly([&](std::string_view,
-                            const DriverUpdateCommand&,
+        .WillRepeatedly([&](std::string_view, const DriverUpdateCommand&,
                             const Utils::CancellationToken&) -> std::expected<void, domain::DriverError> {
             calls.fetch_add(1);
             std::unique_lock lock(mtx);

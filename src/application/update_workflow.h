@@ -57,10 +57,8 @@ class UpdateWorkflow {
 public:
     /// Construct with the workflow's ports (all non-owning; owned by the
     /// composition root).
-    UpdateWorkflow(const DnsResolverPort& dns_resolver,
-                   const IpSourcePort& ip_source,
-                   const DriverGateway& driver_gateway,
-                   const Logger& logger);
+    UpdateWorkflow(const DnsResolverPort& dns_resolver, const IpSourcePort& ip_source,
+                   const DriverGateway& driver_gateway, const Logger& logger);
 
     /// Execute one update cycle for `task`.
     ///

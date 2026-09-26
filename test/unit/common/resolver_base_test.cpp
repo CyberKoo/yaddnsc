@@ -31,9 +31,9 @@
 
 class TestResolver final : public ResolverBase {
 public:
-    [[nodiscard]] std::expected<std::vector<std::uint8_t>, DnsErrorInfo> query([[maybe_unused]] const std::string& host,
-                                                                               RecordKind type,
-                                                                               [[maybe_unused]] const Utils::CancellationToken& token) const override {
+    [[nodiscard]] std::expected<std::vector<std::uint8_t>, DnsErrorInfo> query(
+        [[maybe_unused]] const std::string& host, RecordKind type,
+        [[maybe_unused]] const Utils::CancellationToken& token) const override {
         // Return a minimal "success" packet (just host bytes for identification).
         if (type == RecordKind::A) {
             return std::vector<std::uint8_t>{192, 168, 1, 1};

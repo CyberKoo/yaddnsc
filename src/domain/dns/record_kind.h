@@ -10,9 +10,9 @@
 /// This is a subset of wire-format DNS record types (DNS::RecordType)
 /// that the updater can query and update.
 enum class RecordKind {
-    A,    ///< IPv4 address record
-    AAAA, ///< IPv6 address record
-    TXT,  ///< Text record
+    A,     ///< IPv4 address record
+    AAAA,  ///< IPv6 address record
+    TXT,   ///< Text record
 };
 
-#endif // YADDNSC_RECORD_KIND_H
+#endif  // YADDNSC_RECORD_KIND_H

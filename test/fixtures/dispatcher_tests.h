@@ -11,24 +11,24 @@
 #include <array>
 #include <chrono>
 #include <cstdint>
-#include <expected>
-#include <poll.h>
 #include <string>
 #include <string_view>
 #include <thread>
 #include <vector>
 
+#include <expected>
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
+#include <poll.h>
 
 #include "domain/config/dns_config.h"
-#include "infrastructure/dns/dispatcher.h"
-#include "domain/error/dns_error_info.h"
-#include "infrastructure/dns/resolver/base.h"
-#include "domain/error/dns_error.h"
-#include "infrastructure/dns/dns_lookup_exception.h"
-#include "mocks/mock_resolver.h"
 #include "domain/dns/record_kind.h"
+#include "domain/error/dns_error.h"
+#include "domain/error/dns_error_info.h"
+#include "infrastructure/dns/dispatcher.h"
+#include "infrastructure/dns/dns_lookup_exception.h"
+#include "infrastructure/dns/resolver/base.h"
+#include "mocks/mock_resolver.h"
 
 namespace {
 
@@ -37,17 +37,18 @@ using ::testing::Return;
 
 // ── DNS wire-format packet builders (backend-agnostic) ───────────────────────
 
-void write_u16_be(std::vector<std::uint8_t> &buf, std::size_t offset, std::uint16_t v) {
+void write_u16_be(std::vector<std::uint8_t>& buf, std::size_t offset, std::uint16_t v) {
     buf[offset] = static_cast<std::uint8_t>(v >> 8);
     buf[offset + 1] = static_cast<std::uint8_t>(v & 0xFF);
 }
 
-std::size_t encode_name(std::vector<std::uint8_t> &buf, std::string_view name) {
+std::size_t encode_name(std::vector<std::uint8_t>& buf, std::string_view name) {
     std::size_t written = 0;
     std::size_t pos = 0;
     while (pos < name.size()) {
         auto dot = name.find('.', pos);
-        if (dot == std::string::npos) dot = name.size();
+        if (dot == std::string::npos)
+            dot = name.size();
         auto label_len = static_cast<std::uint8_t>(dot - pos);
         buf.push_back(label_len);
         ++written;
@@ -64,8 +65,7 @@ std::size_t encode_name(std::vector<std::uint8_t> &buf, std::string_view name) {
 
 // Standard response header with a single question and `ancount` answers.
 // `rcode_byte` carries the full third header byte (flags + RCODE in low nibble).
-std::vector<std::uint8_t> make_header_response(std::uint16_t txid, std::uint8_t rcode_byte,
-                                               std::uint16_t ancount) {
+std::vector<std::uint8_t> make_header_response(std::uint16_t txid, std::uint8_t rcode_byte, std::uint16_t ancount) {
     std::vector<std::uint8_t> buf;
     buf.resize(12, 0);
     write_u16_be(buf, 0, txid);
@@ -81,8 +81,7 @@ std::vector<std::uint8_t> make_header_response(std::uint16_t txid, std::uint8_t 
     return buf;
 }
 
-std::vector<std::uint8_t> make_a_response(std::uint16_t txid, std::array<std::uint8_t, 4> ip,
-                                          std::uint32_t ttl = 300) {
+std::vector<std::uint8_t> make_a_response(std::uint16_t txid, std::array<std::uint8_t, 4> ip, std::uint32_t ttl = 300) {
     std::vector<std::uint8_t> buf;
     buf.resize(12, 0);
     write_u16_be(buf, 0, txid);
@@ -140,7 +139,8 @@ std::vector<std::uint8_t> make_aaaa_response(std::uint16_t txid, std::array<std:
     buf.push_back(static_cast<std::uint8_t>(ttl & 0xFF));
     buf.push_back(0x00);
     buf.push_back(0x10);
-    for (std::uint8_t b: ip) buf.push_back(b);
+    for (std::uint8_t b : ip)
+        buf.push_back(b);
     return buf;
 }
 
@@ -208,13 +208,13 @@ std::vector<std::uint8_t> make_malformed_response() {
 
 // ── Resolver result builders ─────────────────────────────────────────────────
 
-std::expected<std::vector<std::uint8_t>, DnsErrorInfo>
-ok_a(std::array<std::uint8_t, 4> ip = {192, 168, 1, 1}) {
+std::expected<std::vector<std::uint8_t>, DnsErrorInfo> ok_a(std::array<std::uint8_t, 4> ip = {192, 168, 1, 1}) {
     return make_a_response(0x1234, ip);
 }
 
-std::expected<std::vector<std::uint8_t>, DnsErrorInfo>
-ok_aaaa(std::array<std::uint8_t, 16> ip = {0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1}) {
+std::expected<std::vector<std::uint8_t>, DnsErrorInfo> ok_aaaa(std::array<std::uint8_t, 16> ip = {
+                                                                   0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                                                                   0, 1}) {
     return make_aaaa_response(0x1234, ip);
 }
 
@@ -239,14 +239,13 @@ std::unique_ptr<::testing::NiceMock<MockResolver>> make_mock() {
 // Failure where every resolver returned only retryable/transient errors and no
 // definitive error was produced.  The native backend reports this as
 // std::unexpected<DnsErrorInfo> (error code kept).
-void expect_transient_failure(const std::expected<std::vector<std::string>, DnsErrorInfo> &r) {
+void expect_transient_failure(const std::expected<std::vector<std::string>, DnsErrorInfo>& r) {
     EXPECT_FALSE(r.has_value());
 }
 
 // Single-resolver failure (definitive or not). The native backend preserves the
 // error code.
-void expect_single_resolver_failure(const std::expected<std::vector<std::string>, DnsErrorInfo> &r,
-                                    DnsError code) {
+void expect_single_resolver_failure(const std::expected<std::vector<std::string>, DnsErrorInfo>& r, DnsError code) {
     EXPECT_FALSE(r.has_value());
     if (!r.has_value()) {
         EXPECT_EQ(r.error().code, code);
@@ -254,7 +253,7 @@ void expect_single_resolver_failure(const std::expected<std::vector<std::string>
 }
 
 // Multi-resolver definitive failure — both backends report std::unexpected.
-void expect_unexpected(const std::expected<std::vector<std::string>, DnsErrorInfo> &r, DnsError code) {
+void expect_unexpected(const std::expected<std::vector<std::string>, DnsErrorInfo>& r, DnsError code) {
     EXPECT_FALSE(r.has_value());
     if (!r.has_value()) {
         EXPECT_EQ(r.error().code, code);
@@ -269,11 +268,10 @@ void expect_unexpected(const std::expected<std::vector<std::string>, DnsErrorInf
 // sleeping through its full timeout.
 class SlowCancellableResolver : public ResolverBase {
 public:
-    explicit SlowCancellableResolver(bool succeed, int poll_ms = 3000)
-        : succeed_(succeed), poll_ms_(poll_ms) {}
+    explicit SlowCancellableResolver(bool succeed, int poll_ms = 3000) : succeed_(succeed), poll_ms_(poll_ms) {}
 
-    [[nodiscard]] std::expected<std::vector<std::uint8_t>, DnsErrorInfo>
-    query(const std::string &, RecordKind, const Utils::CancellationToken &token) const override {
+    [[nodiscard]] std::expected<std::vector<std::uint8_t>, DnsErrorInfo> query(
+        const std::string&, RecordKind, const Utils::CancellationToken& token) const override {
         if (succeed_) {
             // The winner answers immediately.
             return ok_a();
@@ -294,7 +292,7 @@ private:
     int poll_ms_;
 };
 
-} // namespace
+}  // namespace
 
 // =============================================================================
 //  Single-resolver mode (exactly one backend — retry applies)
@@ -344,7 +342,7 @@ TEST(DispatcherSingle, RetriesOnTransientThenSucceeds) {
 TEST(DispatcherSingle, ExhaustsRetries_ReturnsFailure) {
     auto r = make_mock();
     EXPECT_CALL(*r, query(_, _, _))
-        .Times(4) // 1 initial attempt + 3 retries (max_retries = 3)
+        .Times(4)  // 1 initial attempt + 3 retries (max_retries = 3)
         .WillRepeatedly(Return(err(DnsError::RETRY, "retry")));
     std::vector<std::unique_ptr<ResolverBase>> resolvers;
     resolvers.push_back(std::move(r));
@@ -389,9 +387,7 @@ TEST(DispatcherSingle, ParseError_ReturnsFailure) {
 
 TEST(DispatcherSingle, ZeroRetries_AttemptsOnce) {
     auto r = make_mock();
-    EXPECT_CALL(*r, query(_, _, _))
-        .Times(1)
-        .WillRepeatedly(Return(err(DnsError::RETRY, "retry")));
+    EXPECT_CALL(*r, query(_, _, _)).Times(1).WillRepeatedly(Return(err(DnsError::RETRY, "retry")));
     std::vector<std::unique_ptr<ResolverBase>> resolvers;
     resolvers.push_back(std::move(r));
     ResolverDispatcher disp(std::move(resolvers), Config::ResolverStrategy::CONCURRENT);
@@ -450,7 +446,7 @@ TEST(DispatcherSingle, RcodeNodata_Classified) {
 
 TEST(DispatcherSingle, RcodeUnknown_DefaultBranch) {
     auto r = make_mock();
-    ON_CALL(*r, query(_, _, _)).WillByDefault(Return(make_rcode_response(0x86))); // NOTIMP
+    ON_CALL(*r, query(_, _, _)).WillByDefault(Return(make_rcode_response(0x86)));  // NOTIMP
     std::vector<std::unique_ptr<ResolverBase>> resolvers;
     resolvers.push_back(std::move(r));
     ResolverDispatcher disp(std::move(resolvers), Config::ResolverStrategy::CONCURRENT);
@@ -482,8 +478,8 @@ TEST(DispatcherSingle, MultipleRecords_ReturnsAll) {
 TEST(DispatcherSingle, ThrowsDnsLookupException_TranslatedToParse) {
     auto r = make_mock();
     ON_CALL(*r, query(_, _, _))
-        .WillByDefault([](const std::string &, RecordKind,
-                          const Utils::CancellationToken &) -> std::expected<std::vector<std::uint8_t>, DnsErrorInfo> {
+        .WillByDefault([](const std::string&, RecordKind,
+                          const Utils::CancellationToken&) -> std::expected<std::vector<std::uint8_t>, DnsErrorInfo> {
             throw DnsLookupException("parse boom", DnsError::PARSE);
         });
     std::vector<std::unique_ptr<ResolverBase>> resolvers;
@@ -498,8 +494,8 @@ TEST(DispatcherSingle, ThrowsDnsLookupException_TranslatedToParse) {
 TEST(DispatcherSingle, ThrowsStdException_TranslatedToUnknown) {
     auto r = make_mock();
     ON_CALL(*r, query(_, _, _))
-        .WillByDefault([](const std::string &, RecordKind,
-                          const Utils::CancellationToken &) -> std::expected<std::vector<std::uint8_t>, DnsErrorInfo> {
+        .WillByDefault([](const std::string&, RecordKind,
+                          const Utils::CancellationToken&) -> std::expected<std::vector<std::uint8_t>, DnsErrorInfo> {
             throw std::runtime_error("transport boom");
         });
     std::vector<std::unique_ptr<ResolverBase>> resolvers;
@@ -711,9 +707,7 @@ TEST(DispatcherConcurrent, MoreThanMax_OneSucceedsInLaterBatch) {
 // path (with retry) is always taken.
 TEST(DispatcherStrategy, SingleResolverIgnoresStrategy) {
     auto r = make_mock();
-    EXPECT_CALL(*r, query(_, _, _))
-        .WillOnce(Return(err(DnsError::RETRY, "t1")))
-        .WillOnce(Return(ok_a()));
+    EXPECT_CALL(*r, query(_, _, _)).WillOnce(Return(err(DnsError::RETRY, "t1"))).WillOnce(Return(ok_a()));
     std::vector<std::unique_ptr<ResolverBase>> resolvers;
     resolvers.push_back(std::move(r));
     ResolverDispatcher disp(std::move(resolvers), Config::ResolverStrategy::FALLBACK);
@@ -736,4 +730,4 @@ TEST(Dispatcher, MoveConstructible) {
     EXPECT_EQ((*result)[0], "192.168.1.1");
 }
 
-#endif // YADDNSC_TEST_FIXTURES_DISPATCHER_TESTS_H
+#endif  // YADDNSC_TEST_FIXTURES_DISPATCHER_TESTS_H

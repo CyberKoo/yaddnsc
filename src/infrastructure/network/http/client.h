@@ -38,8 +38,7 @@ public:
     Client(Options opts, std::shared_ptr<StreamFactory> factory);
 
     /// Perform an HTTP exchange, following redirects per Options.
-    [[nodiscard]] std::expected<Response, Error> exchange(std::string_view url,
-                                                          const Request& req,
+    [[nodiscard]] std::expected<Response, Error> exchange(std::string_view url, const Request& req,
                                                           const Utils::CancellationToken& token) const override;
 
 private:

@@ -36,11 +36,10 @@ namespace {
 /// Extract addresses of the queried kind from a raw response packet.
 /// NXDOMAIN is authoritative and reported as an error immediately.
 /// Throws DnsLookupException on malformed packets — the caller translates.
-[[nodiscard]] std::expected<std::vector<InetAddress>, DnsErrorInfo>
-extract_addresses(const std::vector<std::uint8_t>& response, const std::string& host, const RecordKind kind) {
-    const auto expected_type = kind == RecordKind::A
-                                   ? static_cast<std::uint16_t>(RecordType::A)
-                                   : static_cast<std::uint16_t>(RecordType::AAAA);
+[[nodiscard]] std::expected<std::vector<InetAddress>, DnsErrorInfo> extract_addresses(
+    const std::vector<std::uint8_t>& response, const std::string& host, const RecordKind kind) {
+    const auto expected_type = kind == RecordKind::A ? static_cast<std::uint16_t>(RecordType::A)
+                                                     : static_cast<std::uint16_t>(RecordType::AAAA);
 
     const auto parsed = RecordParser::parse_response(response, host);
 
@@ -63,12 +62,10 @@ extract_addresses(const std::vector<std::uint8_t>& response, const std::string& 
 
 }  // namespace
 
-std::expected<std::vector<InetAddress>, DnsErrorInfo>
-resolve_bootstrap(const std::string& host,
-                  const std::optional<AddressFamily> family,
-                  const std::span<const Config::DnsServer> servers,
-                  const std::chrono::steady_clock::time_point deadline,
-                  const Utils::CancellationToken& token) {
+std::expected<std::vector<InetAddress>, DnsErrorInfo> resolve_bootstrap(
+    const std::string& host, const std::optional<AddressFamily> family,
+    const std::span<const Config::DnsServer> servers, const std::chrono::steady_clock::time_point deadline,
+    const Utils::CancellationToken& token) {
     const auto kinds = kinds_for(family);
     DnsErrorInfo last_error{DnsError::NODATA,
                             fmt::format(R"(No address records found for "{}" via bootstrap DNS)", host)};
@@ -84,8 +81,7 @@ resolve_bootstrap(const std::string& host,
         for (const auto kind : kinds) {
             if (std::chrono::steady_clock::now() >= deadline) {
                 return std::unexpected(DnsErrorInfo{
-                    DnsError::RETRY,
-                    fmt::format(R"(Bootstrap DNS deadline exceeded while resolving "{}")", host)});
+                    DnsError::RETRY, fmt::format(R"(Bootstrap DNS deadline exceeded while resolving "{}")", host)});
             }
 
             auto response = resolver.query(host, kind, token);
@@ -111,9 +107,9 @@ resolve_bootstrap(const std::string& host,
                 }
                 addresses.insert(addresses.end(), found->begin(), found->end());
             } catch (const std::exception& e) {
-                last_error = DnsErrorInfo{
-                    DnsError::PARSE,
-                    fmt::format(R"(Failed to parse bootstrap DNS response for "{}": {})", host, e.what())};
+                last_error =
+                    DnsErrorInfo{DnsError::PARSE,
+                                 fmt::format(R"(Failed to parse bootstrap DNS response for "{}": {})", host, e.what())};
                 break;  // malformed response — try the next server
             }
         }

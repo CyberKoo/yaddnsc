@@ -41,12 +41,8 @@ namespace {
 }
 
 /// Verify the 12-byte DNS header matches expected values.
-void expect_header(const std::vector<std::uint8_t>& packet,
-                   std::uint16_t expected_id,
-                   std::uint16_t expected_flags,
-                   std::uint16_t expected_qdcount,
-                   std::uint16_t expected_ancount,
-                   std::uint16_t expected_nscount,
+void expect_header(const std::vector<std::uint8_t>& packet, std::uint16_t expected_id, std::uint16_t expected_flags,
+                   std::uint16_t expected_qdcount, std::uint16_t expected_ancount, std::uint16_t expected_nscount,
                    std::uint16_t expected_arcount) {
     ASSERT_GE(packet.size(), 12U);
     EXPECT_EQ(read_u16(packet, 0), expected_id);

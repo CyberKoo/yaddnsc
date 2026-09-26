@@ -5,9 +5,10 @@
 #ifndef YADDNSC_DRV_ROUTE53_ROUTE53_H
 #define YADDNSC_DRV_ROUTE53_ROUTE53_H
 
-#include <yaddnsc/sdk/driver.hpp>
 #include <string>
 #include <string_view>
+
+#include <yaddnsc/sdk/driver.hpp>
 
 /// AWS Route 53 DNS driver for updating A and AAAA records.
 ///
@@ -36,9 +37,7 @@ private:
     static bool check_response(const yaddnsc::sdk::HttpResponse& response, const yaddnsc::sdk::Services& services);
 
     /// Build the XML request body for a Route 53 UPSERT change batch.
-    static std::string build_xml_body(const std::string& fqdn,
-                                      std::string_view rd_type,
-                                      std::string_view ip_addr,
+    static std::string build_xml_body(const std::string& fqdn, std::string_view rd_type, std::string_view ip_addr,
                                       int ttl);
 };
 

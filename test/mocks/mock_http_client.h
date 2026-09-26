@@ -18,4 +18,4 @@ public:
                 (const, override));
 };
 
-#endif // YADDNSC_TEST_MOCKS_MOCK_HTTP_CLIENT_H
+#endif  // YADDNSC_TEST_MOCKS_MOCK_HTTP_CLIENT_H

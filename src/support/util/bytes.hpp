@@ -12,76 +12,74 @@
 
 /// Big-endian byte-order helpers.
 namespace Utils::Bytes {
-    /// Read a 16-bit big-endian value from a raw pointer.
-    [[nodiscard]] constexpr std::uint16_t read_u16_be(const std::uint8_t *buf) noexcept {
-        return static_cast<std::uint16_t>(
-            (static_cast<std::uint16_t>(buf[0]) << 8) | static_cast<std::uint16_t>(buf[1])
-        );
-    }
+/// Read a 16-bit big-endian value from a raw pointer.
+[[nodiscard]] constexpr std::uint16_t read_u16_be(const std::uint8_t* buf) noexcept {
+    return static_cast<std::uint16_t>((static_cast<std::uint16_t>(buf[0]) << 8) | static_cast<std::uint16_t>(buf[1]));
+}
 
-    /// Read a 16-bit big-endian value from the start of a span.
-    [[nodiscard]] inline std::uint16_t read_u16_be(std::span<const std::uint8_t> buf) noexcept {
-        return read_u16_be(buf.data());
-    }
+/// Read a 16-bit big-endian value from the start of a span.
+[[nodiscard]] inline std::uint16_t read_u16_be(std::span<const std::uint8_t> buf) noexcept {
+    return read_u16_be(buf.data());
+}
 
-    /// Read a 16-bit big-endian value from a span at the given offset.
-    [[nodiscard]] inline std::uint16_t read_u16_be(std::span<const std::uint8_t> buf, std::size_t offset) noexcept {
-        return read_u16_be(buf.subspan(offset));
-    }
+/// Read a 16-bit big-endian value from a span at the given offset.
+[[nodiscard]] inline std::uint16_t read_u16_be(std::span<const std::uint8_t> buf, std::size_t offset) noexcept {
+    return read_u16_be(buf.subspan(offset));
+}
 
-    /// Read a 32-bit big-endian value from a raw pointer.
-    [[nodiscard]] constexpr std::uint32_t read_u32_be(const std::uint8_t *buf) noexcept {
-        return (static_cast<std::uint32_t>(buf[0]) << 24) | (static_cast<std::uint32_t>(buf[1]) << 16) |
-               (static_cast<std::uint32_t>(buf[2]) << 8) | static_cast<std::uint32_t>(buf[3]);
-    }
+/// Read a 32-bit big-endian value from a raw pointer.
+[[nodiscard]] constexpr std::uint32_t read_u32_be(const std::uint8_t* buf) noexcept {
+    return (static_cast<std::uint32_t>(buf[0]) << 24) | (static_cast<std::uint32_t>(buf[1]) << 16) |
+           (static_cast<std::uint32_t>(buf[2]) << 8) | static_cast<std::uint32_t>(buf[3]);
+}
 
-    /// Read a 32-bit big-endian value from the start of a span.
-    [[nodiscard]] inline std::uint32_t read_u32_be(std::span<const std::uint8_t> buf) noexcept {
-        return read_u32_be(buf.data());
-    }
+/// Read a 32-bit big-endian value from the start of a span.
+[[nodiscard]] inline std::uint32_t read_u32_be(std::span<const std::uint8_t> buf) noexcept {
+    return read_u32_be(buf.data());
+}
 
-    /// Read a 32-bit big-endian value from a span at the given offset.
-    [[nodiscard]] inline std::uint32_t read_u32_be(std::span<const std::uint8_t> buf, std::size_t offset) noexcept {
-        return read_u32_be(buf.data() + offset);
-    }
+/// Read a 32-bit big-endian value from a span at the given offset.
+[[nodiscard]] inline std::uint32_t read_u32_be(std::span<const std::uint8_t> buf, std::size_t offset) noexcept {
+    return read_u32_be(buf.data() + offset);
+}
 
-    /// Read a 16-bit big-endian value at @p offset, verifying that the span
-    /// actually covers the value.
-    /// @return  std::nullopt when fewer than 2 bytes remain at @p offset.
-    [[nodiscard]] inline std::optional<std::uint16_t> try_read_u16_be(std::span<const std::uint8_t> buf,
-                                                                      std::size_t offset) noexcept {
-        if (offset > buf.size() || buf.size() - offset < 2) {
-            return std::nullopt;
-        }
-        return read_u16_be(buf.data() + offset);
+/// Read a 16-bit big-endian value at @p offset, verifying that the span
+/// actually covers the value.
+/// @return  std::nullopt when fewer than 2 bytes remain at @p offset.
+[[nodiscard]] inline std::optional<std::uint16_t> try_read_u16_be(std::span<const std::uint8_t> buf,
+                                                                  std::size_t offset) noexcept {
+    if (offset > buf.size() || buf.size() - offset < 2) {
+        return std::nullopt;
     }
+    return read_u16_be(buf.data() + offset);
+}
 
-    /// Read a 32-bit big-endian value at @p offset, verifying that the span
-    /// actually covers the value.
-    /// @return  std::nullopt when fewer than 4 bytes remain at @p offset.
-    [[nodiscard]] inline std::optional<std::uint32_t> try_read_u32_be(std::span<const std::uint8_t> buf,
-                                                                      std::size_t offset) noexcept {
-        if (offset > buf.size() || buf.size() - offset < 4) {
-            return std::nullopt;
-        }
-        return read_u32_be(buf.data() + offset);
+/// Read a 32-bit big-endian value at @p offset, verifying that the span
+/// actually covers the value.
+/// @return  std::nullopt when fewer than 4 bytes remain at @p offset.
+[[nodiscard]] inline std::optional<std::uint32_t> try_read_u32_be(std::span<const std::uint8_t> buf,
+                                                                  std::size_t offset) noexcept {
+    if (offset > buf.size() || buf.size() - offset < 4) {
+        return std::nullopt;
     }
+    return read_u32_be(buf.data() + offset);
+}
 
-    /// Write a 16-bit big-endian value to a raw pointer.
-    inline void write_u16_be(std::uint8_t *buf, std::uint16_t value) noexcept {
-        buf[0] = static_cast<std::uint8_t>(value >> 8);
-        buf[1] = static_cast<std::uint8_t>(value);
-    }
+/// Write a 16-bit big-endian value to a raw pointer.
+inline void write_u16_be(std::uint8_t* buf, std::uint16_t value) noexcept {
+    buf[0] = static_cast<std::uint8_t>(value >> 8);
+    buf[1] = static_cast<std::uint8_t>(value);
+}
 
-    /// Write a 16-bit big-endian value to the start of a span.
-    inline void write_u16_be(std::span<std::uint8_t> buf, std::uint16_t value) noexcept {
-        write_u16_be(buf.data(), value);
-    }
+/// Write a 16-bit big-endian value to the start of a span.
+inline void write_u16_be(std::span<std::uint8_t> buf, std::uint16_t value) noexcept {
+    write_u16_be(buf.data(), value);
+}
 
-    /// Write a 16-bit big-endian value to a span at the given offset.
-    inline void write_u16_be(std::span<std::uint8_t> buf, std::size_t offset, std::uint16_t value) noexcept {
-        write_u16_be(buf.subspan(offset), value);
-    }
-} // namespace Utils::Bytes
+/// Write a 16-bit big-endian value to a span at the given offset.
+inline void write_u16_be(std::span<std::uint8_t> buf, std::size_t offset, std::uint16_t value) noexcept {
+    write_u16_be(buf.subspan(offset), value);
+}
+}  // namespace Utils::Bytes
 
 #endif  // YADDNSC_UTIL_BYTES_H

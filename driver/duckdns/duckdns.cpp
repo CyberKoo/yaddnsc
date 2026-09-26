@@ -28,11 +28,7 @@ constexpr std::string_view API_URL = "https://www.duckdns.org/update";
 constexpr std::string_view DRIVER_NAME = "duckdns";
 }  // namespace
 
-YADDNSC_DEFINE_DRIVER(DuckDnsDriver,
-                      "duckdns",
-                      "Updates DNS records via the DuckDNS API",
-                      "Kotarou",
-                      "1.0.0",
+YADDNSC_DEFINE_DRIVER(DuckDnsDriver, "duckdns", "Updates DNS records via the DuckDNS API", "Kotarou", "1.0.0",
                       YADDNSC_DRIVER_CAPABILITY_A | YADDNSC_DRIVER_CAPABILITY_AAAA)
 
 Result DuckDnsDriver::validate(std::string_view driver_param_json) const {

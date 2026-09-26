@@ -43,10 +43,8 @@ namespace Cli {
 [[nodiscard]] int present_dns_resolve(const Diagnostics::DnsResolveOutcome& outcome);
 
 /// `dns resolver` — configured resolver details already formatted by the composition root.
-[[nodiscard]] int present_dns_resolver(bool use_custom_server,
-                                       std::string_view strategy,
-                                       const std::vector<std::string>& servers,
-                                       std::string_view legacy_address,
+[[nodiscard]] int present_dns_resolver(bool use_custom_server, std::string_view strategy,
+                                       const std::vector<std::string>& servers, std::string_view legacy_address,
                                        unsigned short legacy_port);
 
 /// `config show` — the parsed configuration as redacted JSON.

@@ -20,9 +20,7 @@ namespace {
 class NoopHttpClient final : public HttpClient {
 public:
     [[nodiscard]] std::expected<net::http::Response, net::http::Error> exchange(
-        std::string_view,
-        const net::http::Request&,
-        const Utils::CancellationToken&) const override {
+        std::string_view, const net::http::Request&, const Utils::CancellationToken&) const override {
         return net::http::Response{200, "ok", {}};
     }
 };

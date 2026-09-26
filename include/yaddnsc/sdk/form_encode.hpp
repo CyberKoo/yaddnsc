@@ -48,16 +48,17 @@ namespace detail {
     }
 }
 
-inline constexpr std::array<char, 16> HEX{'0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'B', 'C', 'D', 'E', 'F'};
+inline constexpr std::array<char, 16> HEX{'0', '1', '2', '3', '4', '5', '6', '7',
+                                          '8', '9', 'A', 'B', 'C', 'D', 'E', 'F'};
 
-} // namespace detail
+}  // namespace detail
 
 /// Encode a single value (or name) per form semantics.
 [[nodiscard]] inline std::string encode_form_component(const std::string_view value) {
     std::string out;
     out.reserve(value.size());
 
-    for (const char raw: value) {
+    for (const char raw : value) {
         const auto c = static_cast<unsigned char>(raw);
         if (c == ' ') {
             out += '+';
@@ -76,10 +77,10 @@ inline constexpr std::array<char, 16> HEX{'0', '1', '2', '3', '4', '5', '6', '7'
 
 /// Encode a parameter map as "k1=v1&k2=v2" (keys and values encoded,
 /// pairs joined by '&').
-[[nodiscard]] inline std::string encode_form(const std::multimap<std::string, std::string> &params) {
+[[nodiscard]] inline std::string encode_form(const std::multimap<std::string, std::string>& params) {
     std::string out;
     bool first = true;
-    for (const auto &[key, value]: params) {
+    for (const auto& [key, value] : params) {
         if (!first) {
             out += '&';
         }
@@ -91,6 +92,6 @@ inline constexpr std::array<char, 16> HEX{'0', '1', '2', '3', '4', '5', '6', '7'
     return out;
 }
 
-} // namespace yaddnsc::sdk
+}  // namespace yaddnsc::sdk
 
-#endif // YADDNSC_SDK_FORM_ENCODE_HPP
+#endif  // YADDNSC_SDK_FORM_ENCODE_HPP

@@ -65,6 +65,6 @@ struct TlsOptions {
     std::optional<std::string> ca_bundle{};
 };
 
-} // namespace Transport
+}  // namespace Transport
 
-#endif // YADDNSC_TRANSPORT_OPTIONS_PUBLIC_H
+#endif  // YADDNSC_TRANSPORT_OPTIONS_PUBLIC_H

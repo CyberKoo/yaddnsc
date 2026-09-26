@@ -24,8 +24,7 @@
 namespace {
 /// Apply per-source transport overrides on the composition root's shared
 /// HTTP policy (user agent, bootstrap DNS, CA discovery live in the base).
-[[nodiscard]] net::http::Options with_transport_overrides(net::http::Options opts,
-                                                          const AddressFamily address_family,
+[[nodiscard]] net::http::Options with_transport_overrides(net::http::Options opts, const AddressFamily address_family,
                                                           const std::string& bind_interface) {
     if (address_family != AddressFamily::UNSPECIFIED) {
         opts.transport.address_family = address_family;
@@ -55,8 +54,8 @@ HttpIpSource::HttpIpSource(std::string url, const AddressFamily address_family, 
 
 IpSourceBase::Result HttpIpSource::resolve(const Utils::CancellationToken& token) const {
     if (token.is_triggered()) {
-        return std::unexpected(domain::IpSourceError{domain::IpSourceError::Code::CANCELLED,
-                                                      "HTTP IP source lookup cancelled"});
+        return std::unexpected(
+            domain::IpSourceError{domain::IpSourceError::Code::CANCELLED, "HTTP IP source lookup cancelled"});
     }
 
     net::http::Request req;
@@ -68,19 +67,20 @@ IpSourceBase::Result HttpIpSource::resolve(const Utils::CancellationToken& token
                               ? domain::IpSourceError::Code::CANCELLED
                               : domain::IpSourceError::Code::UNAVAILABLE;
         return std::unexpected(domain::IpSourceError{
-            code, fmt::format(R"(HTTP IP source "{}" did not return a valid response: {})", url_, resp.error().message)});
+            code,
+            fmt::format(R"(HTTP IP source "{}" did not return a valid response: {})", url_, resp.error().message)});
     }
 
     if (token.is_triggered()) {
-        return std::unexpected(domain::IpSourceError{domain::IpSourceError::Code::CANCELLED,
-                                                      "HTTP IP source lookup cancelled"});
+        return std::unexpected(
+            domain::IpSourceError{domain::IpSourceError::Code::CANCELLED, "HTTP IP source lookup cancelled"});
     }
 
     auto addr = InetAddress::parse(StringUtil::trim(resp->text()));
     if (!addr) {
-        return std::unexpected(domain::IpSourceError{
-            domain::IpSourceError::Code::UNAVAILABLE,
-            fmt::format(R"(HTTP IP source "{}" did not return a valid message)", url_)});
+        return std::unexpected(
+            domain::IpSourceError{domain::IpSourceError::Code::UNAVAILABLE,
+                                  fmt::format(R"(HTTP IP source "{}" did not return a valid message)", url_)});
     }
     SPDLOG_DEBUG("Resolved IP from HTTP: {}", addr->to_string());
     return std::vector<InetAddress>{*std::move(addr)};

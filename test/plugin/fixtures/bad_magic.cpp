@@ -36,16 +36,14 @@ extern "C" FIXTURE_EXPORT yaddnsc_status yaddnsc_driver_get_descriptor(const yad
     return YADDNSC_STATUS_OK;
 }
 
-extern "C" FIXTURE_EXPORT yaddnsc_status yaddnsc_driver_create(const yaddnsc_host_services*,
-                                                               yaddnsc_driver**,
+extern "C" FIXTURE_EXPORT yaddnsc_status yaddnsc_driver_create(const yaddnsc_host_services*, yaddnsc_driver**,
                                                                yaddnsc_error*) {
     return YADDNSC_STATUS_INTERNAL_ERROR;
 }
 
 extern "C" FIXTURE_EXPORT void yaddnsc_driver_destroy(yaddnsc_driver*) {}
 
-extern "C" FIXTURE_EXPORT yaddnsc_status yaddnsc_driver_update(yaddnsc_driver*,
-                                                               const yaddnsc_update_request*,
+extern "C" FIXTURE_EXPORT yaddnsc_status yaddnsc_driver_update(yaddnsc_driver*, const yaddnsc_update_request*,
                                                                yaddnsc_error*) {
     return YADDNSC_STATUS_INTERNAL_ERROR;
 }

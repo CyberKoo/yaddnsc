@@ -16,13 +16,9 @@
 #include "support/fmt.hpp"
 #include "support/util/cancellation_token.hpp"
 
-RunLifecycle::RunLifecycle(std::shared_ptr<const domain::RuntimeConfig> config,
-                           ShutdownSignals shutdown,
+RunLifecycle::RunLifecycle(std::shared_ptr<const domain::RuntimeConfig> config, ShutdownSignals shutdown,
                            RunEnvironment env)
-    : config_(std::move(config)),
-      shutdown_(std::move(shutdown)),
-      env_(env),
-      queue_(config_, env_.clock.now()),
+    : config_(std::move(config)), shutdown_(std::move(shutdown)), env_(env), queue_(config_, env_.clock.now()),
       runner_(queue_, env_.clock, env_.executor, shutdown_.stop.get_token(), env_.logger),
       stop_cb_(shutdown_.stop.get_token(), [this] { shutdown_.cancellation.trigger(); }) {
     // Rate-limit backoff: a task that fails with retry_after reports it back

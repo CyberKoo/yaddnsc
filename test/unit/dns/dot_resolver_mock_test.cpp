@@ -64,33 +64,36 @@ class MockServerPipe {
 public:
     explicit MockServerPipe(MockStream& mock) {
         ON_CALL(mock, send_all(_, _))
-            .WillByDefault([this](std::span<const std::uint8_t> data, const Utils::CancellationToken&) -> std::expected<void, IoError> {
+            .WillByDefault([this](std::span<const std::uint8_t> data,
+                                  const Utils::CancellationToken&) -> std::expected<void, IoError> {
                 captured_.assign(data.begin(), data.end());
                 return {};
             });
-        ON_CALL(mock, read_exact(_, _)).WillByDefault([this](std::span<std::uint8_t> buf, const Utils::CancellationToken&) -> std::expected<void, IoError> {
-            // Minimal canned response: echo the query ID with QR+RD+RA set
-            // and one A record (192.0.2.1). 2-byte length prefix first.
-            std::vector<std::uint8_t> body{
-                captured_[2], captured_[3],              // ID from the query
-                0x81,         0x80,                      // flags
-                0x00,         0x01,         0x00, 0x01,  // QD/AN count
-                0x00,         0x00,         0x00, 0x00,  // NS/AR count
-            };
-            // Copy the question section verbatim (everything past the 2-byte
-            // length prefix and 12-byte header of the query).
-            body.insert(body.end(), captured_.begin() + 2 + 12, captured_.end());
-            // Answer: pointer to question + TYPE A + CLASS IN + TTL + RDLEN + 192.0.2.1
-            body.insert(body.end(),
-                        {0xC0, 0x0C, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x3C, 0x00, 0x04, 192, 0, 2, 1});
-            if (buf.size() == 2) {
-                buf[0] = static_cast<std::uint8_t>(body.size() >> 8);
-                buf[1] = static_cast<std::uint8_t>(body.size() & 0xFF);
-                return {};
-            }
-            std::copy_n(body.begin(), std::min(buf.size(), body.size()), buf.begin());
-            return {};
-        });
+        ON_CALL(mock, read_exact(_, _))
+            .WillByDefault(
+                [this](std::span<std::uint8_t> buf, const Utils::CancellationToken&) -> std::expected<void, IoError> {
+                    // Minimal canned response: echo the query ID with QR+RD+RA set
+                    // and one A record (192.0.2.1). 2-byte length prefix first.
+                    std::vector<std::uint8_t> body{
+                        captured_[2], captured_[3],              // ID from the query
+                        0x81,         0x80,                      // flags
+                        0x00,         0x01,         0x00, 0x01,  // QD/AN count
+                        0x00,         0x00,         0x00, 0x00,  // NS/AR count
+                    };
+                    // Copy the question section verbatim (everything past the 2-byte
+                    // length prefix and 12-byte header of the query).
+                    body.insert(body.end(), captured_.begin() + 2 + 12, captured_.end());
+                    // Answer: pointer to question + TYPE A + CLASS IN + TTL + RDLEN + 192.0.2.1
+                    body.insert(body.end(),
+                                {0xC0, 0x0C, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x3C, 0x00, 0x04, 192, 0, 2, 1});
+                    if (buf.size() == 2) {
+                        buf[0] = static_cast<std::uint8_t>(body.size() >> 8);
+                        buf[1] = static_cast<std::uint8_t>(body.size() & 0xFF);
+                        return {};
+                    }
+                    std::copy_n(body.begin(), std::min(buf.size(), body.size()), buf.begin());
+                    return {};
+                });
     }
 
 private:
@@ -181,11 +184,13 @@ TEST(DotResolverMockTest, ZeroLengthResponse_ReturnsParse) {
     auto mock = connected_mock();
     ON_CALL(*mock, send_all(_, _)).WillByDefault(Return(std::expected<void, IoError>{}));
     // First read_exact (2-byte length prefix) delivers 0.
-    ON_CALL(*mock, read_exact(_, _)).WillByDefault([](std::span<std::uint8_t> buf, const Utils::CancellationToken&) -> std::expected<void, IoError> {
-        buf[0] = 0;
-        buf[1] = 0;
-        return {};
-    });
+    ON_CALL(*mock, read_exact(_, _))
+        .WillByDefault(
+            [](std::span<std::uint8_t> buf, const Utils::CancellationToken&) -> std::expected<void, IoError> {
+                buf[0] = 0;
+                buf[1] = 0;
+                return {};
+            });
     DotResolver resolver("127.0.0.1", 1853, "mock:1853", std::move(mock));
 
     auto result = resolver.query("yaddnsc.test", RecordKind::A, {});
@@ -203,29 +208,34 @@ TEST(DotResolverMockTest, SendFailsThenReconnectSucceeds) {
 
     bool first_attempt = true;
     std::vector<std::uint8_t> captured;
-    ON_CALL(*mock, send_all(_, _)).WillByDefault([&](std::span<const std::uint8_t> data, const Utils::CancellationToken&) -> std::expected<void, IoError> {
-        if (first_attempt) {
-            first_attempt = false;
-            return std::unexpected(IoError::CONNECTION_FAILED);
-        }
-        captured.assign(data.begin(), data.end());
-        return {};
-    });
-    ON_CALL(*mock, read_exact(_, _)).WillByDefault([&](std::span<std::uint8_t> buf, const Utils::CancellationToken&) -> std::expected<void, IoError> {
-        // Canned response mirroring the query ID with QR set + one A record.
-        std::vector<std::uint8_t> body{
-            captured[2], captured[3], 0x81, 0x80, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00,
-        };
-        body.insert(body.end(), captured.begin() + 2 + 12, captured.end());
-        body.insert(body.end(), {0xC0, 0x0C, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x3C, 0x00, 0x04, 192, 0, 2, 1});
-        if (buf.size() == 2) {
-            buf[0] = static_cast<std::uint8_t>(body.size() >> 8);
-            buf[1] = static_cast<std::uint8_t>(body.size() & 0xFF);
-            return {};
-        }
-        std::copy_n(body.begin(), std::min(buf.size(), body.size()), buf.begin());
-        return {};
-    });
+    ON_CALL(*mock, send_all(_, _))
+        .WillByDefault(
+            [&](std::span<const std::uint8_t> data, const Utils::CancellationToken&) -> std::expected<void, IoError> {
+                if (first_attempt) {
+                    first_attempt = false;
+                    return std::unexpected(IoError::CONNECTION_FAILED);
+                }
+                captured.assign(data.begin(), data.end());
+                return {};
+            });
+    ON_CALL(*mock, read_exact(_, _))
+        .WillByDefault(
+            [&](std::span<std::uint8_t> buf, const Utils::CancellationToken&) -> std::expected<void, IoError> {
+                // Canned response mirroring the query ID with QR set + one A record.
+                std::vector<std::uint8_t> body{
+                    captured[2], captured[3], 0x81, 0x80, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00,
+                };
+                body.insert(body.end(), captured.begin() + 2 + 12, captured.end());
+                body.insert(body.end(),
+                            {0xC0, 0x0C, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x3C, 0x00, 0x04, 192, 0, 2, 1});
+                if (buf.size() == 2) {
+                    buf[0] = static_cast<std::uint8_t>(body.size() >> 8);
+                    buf[1] = static_cast<std::uint8_t>(body.size() & 0xFF);
+                    return {};
+                }
+                std::copy_n(body.begin(), std::min(buf.size(), body.size()), buf.begin());
+                return {};
+            });
     DotResolver resolver("127.0.0.1", 1853, "mock:1853", std::move(mock));
 
     auto result = resolver.query("yaddnsc.test", RecordKind::A, {});

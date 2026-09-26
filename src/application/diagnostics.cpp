@@ -40,9 +40,7 @@ std::vector<InterfaceListItem> list_interfaces(const NetworkInterfaces& interfac
     return items;
 }
 
-DnsResolveOutcome dns_resolve(const DnsResolverPort& resolver,
-                              std::string host,
-                              std::string type_text,
+DnsResolveOutcome dns_resolve(const DnsResolverPort& resolver, std::string host, std::string type_text,
                               const Utils::CancellationToken& token) {
     DnsResolveOutcome outcome{.host = std::move(host), .type_text = std::move(type_text), .lookup = std::nullopt};
 

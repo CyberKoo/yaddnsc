@@ -7,21 +7,19 @@
 
 #include <glaze/glaze.hpp>
 
-#include "config.h"
 #include "domain/config/dns_config.h"
 #include "domain/config/ip_source_kind.h"
 #include "domain/dns/record_kind.h"
 #include "domain/network/address_family.h"
 
+#include "config.h"
+
 /// glz::meta specialisation for Config::DriverConfig JSON mapping.
 template<>
 struct glz::meta<Config::DriverConfig> {
     using T = Config::DriverConfig;
-    static constexpr auto value = object(
-        "driver_dir", &T::driver_dir,
-        "auto_discover", &T::auto_discover,
-        "load", &T::load
-    );
+    static constexpr auto value =
+        object("driver_dir", &T::driver_dir, "auto_discover", &T::auto_discover, "load", &T::load);
 };
 
 /// glz::meta specialisation for DnsServer JSON mapping.
@@ -29,79 +27,49 @@ struct glz::meta<Config::DriverConfig> {
 template<>
 struct glz::meta<Config::DnsServer> {
     using T = Config::DnsServer;
-    static constexpr auto value = object(
-        "address", &T::address,
-        "ipaddress", &T::address,
-        "port", &T::port
-    );
+    static constexpr auto value = object("address", &T::address, "ipaddress", &T::address, "port", &T::port);
 };
 
 /// glz::meta specialisation for Config::ResolverConfig JSON mapping.
 template<>
 struct glz::meta<Config::ResolverConfig> {
     using T = Config::ResolverConfig;
-    static constexpr auto value = object(
-        "use_custom_server", &T::use_custom_server,
-        "address", &T::address,
-        "ipaddress", &T::address,
-        "port", &T::port,
-        "servers", &T::servers,
-        "strategy", &T::strategy
-    );
+    static constexpr auto value =
+        object("use_custom_server", &T::use_custom_server, "address", &T::address, "ipaddress", &T::address, "port",
+               &T::port, "servers", &T::servers, "strategy", &T::strategy);
 };
 
 /// glz::meta specialisation for Config::ResolverStrategy enum JSON mapping.
 template<>
 struct glz::meta<Config::ResolverStrategy> {
     using enum Config::ResolverStrategy;
-    static constexpr auto value = enumerate(
-        "fallback", FALLBACK,
-        "concurrent", CONCURRENT,
-        "shuffle", SHUFFLE
-    );
+    static constexpr auto value = enumerate("fallback", FALLBACK, "concurrent", CONCURRENT, "shuffle", SHUFFLE);
 };
 
 /// glz::meta specialisation for Config::SubdomainConfig JSON mapping.
 template<>
 struct glz::meta<Config::SubdomainConfig> {
     using T = Config::SubdomainConfig;
-    static constexpr auto value = object(
-        "name", &T::name,
-        "type", &T::type,
-        "interface", &T::interface,
-        "ip_type", &T::ip_type,
-        "ip_source", &T::ip_source,
-        "ip_source_param", &T::ip_source_param,
-        "allow_ula", &T::allow_ula,
-        "allow_local_link", &T::allow_local_link,
-        "update_interval", &T::update_interval,
-        "driver_param", &T::driver_param
-    );
+    static constexpr auto value =
+        object("name", &T::name, "type", &T::type, "interface", &T::interface, "ip_type", &T::ip_type, "ip_source",
+               &T::ip_source, "ip_source_param", &T::ip_source_param, "allow_ula", &T::allow_ula, "allow_local_link",
+               &T::allow_local_link, "update_interval", &T::update_interval, "driver_param", &T::driver_param);
 };
 
 /// glz::meta specialisation for Config::DomainConfig JSON mapping.
 template<>
 struct glz::meta<Config::DomainConfig> {
     using T = Config::DomainConfig;
-    static constexpr auto value = object(
-        "name", &T::name,
-        "update_interval", &T::update_interval,
-        "force_update", &T::force_update,
-        "driver", &T::driver,
-        "subdomains", &T::subdomains
-    );
+    static constexpr auto value = object("name", &T::name, "update_interval", &T::update_interval, "force_update",
+                                         &T::force_update, "driver", &T::driver, "subdomains", &T::subdomains);
 };
 
 /// glz::meta specialisation for Config::AppConfig (top-level) JSON mapping.
 template<>
 struct glz::meta<Config::AppConfig> {
     using T = Config::AppConfig;
-    static constexpr auto value = object(
-        "driver", &T::driver,
-        "resolver", &T::resolver,
-        "domains", &T::domains,
-        "bootstrap_dns", &T::bootstrap_dns
-    );
+    static constexpr auto value = object("driver", &T::driver, "resolver", &T::resolver, "domains", &T::domains,
+                                         "bootstrap_dns", &T::bootstrap_dns);
 };
 
 /// glz::meta specialisation for Config::IpSource enum JSON mapping.
@@ -109,34 +77,23 @@ struct glz::meta<Config::AppConfig> {
 template<>
 struct glz::meta<Config::IpSource> {
     using enum Config::IpSource;
-    static constexpr auto value = enumerate(
-        "interface", INTERFACE,
-        "http", HTTP,
-        "url", HTTP, // backward compatibility
-        "mdns", MDNS
-    );
+    static constexpr auto value = enumerate("interface", INTERFACE, "http", HTTP, "url",
+                                            HTTP,  // backward compatibility
+                                            "mdns", MDNS);
 };
 
 /// glz::meta specialisation for RecordKind enum JSON mapping.
 template<>
 struct glz::meta<RecordKind> {
     using enum RecordKind;
-    static constexpr auto value = enumerate(
-        "a", A,
-        "aaaa", AAAA,
-        "txt", TXT
-    );
+    static constexpr auto value = enumerate("a", A, "aaaa", AAAA, "txt", TXT);
 };
 
 /// glz::meta specialisation for AddressFamily enum JSON mapping.
 template<>
 struct glz::meta<AddressFamily> {
     using enum AddressFamily;
-    static constexpr auto value = enumerate(
-        "ipv6", IPV6,
-        "ipv4", IPV4,
-        "unspecified", UNSPECIFIED
-    );
+    static constexpr auto value = enumerate("ipv6", IPV6, "ipv4", IPV4, "unspecified", UNSPECIFIED);
 };
 
-#endif //YADDNSC_CONFIG_PARSER_HPP
+#endif  // YADDNSC_CONFIG_PARSER_HPP

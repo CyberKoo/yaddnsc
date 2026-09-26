@@ -4,14 +4,14 @@
 
 #include "simple.h"
 
-#include <yaddnsc/sdk/driver.hpp>
-#include <yaddnsc/sdk/driver_abi.h>
 #include <optional>
 #include <string>
 #include <string_view>
 #include <utility>
 #include <vector>
 
+#include <yaddnsc/sdk/driver.hpp>
+#include <yaddnsc/sdk/driver_abi.h>
 #include <yaddnsc/util/format.hpp>
 #include <yaddnsc/util/string_util.hpp>
 
@@ -30,11 +30,7 @@ namespace {
 constexpr std::string_view DRIVER_NAME = "simple";
 }  // namespace
 
-YADDNSC_DEFINE_DRIVER(SimpleDriver,
-                      "simple",
-                      "Generic HTTP driver with URL template substitution",
-                      "Kotarou",
-                      "2.0.0",
+YADDNSC_DEFINE_DRIVER(SimpleDriver, "simple", "Generic HTTP driver with URL template substitution", "Kotarou", "2.0.0",
                       YADDNSC_DRIVER_CAPABILITY_A | YADDNSC_DRIVER_CAPABILITY_AAAA)
 
 Result SimpleDriver::update(UpdateContext& context) {

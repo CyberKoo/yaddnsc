@@ -363,7 +363,8 @@ TEST(DriverAbiContract, HttpExchangeErrorStructSizeMatrix) {
     yaddnsc_error zero_error{};
     std::memset(&zero_error, 0x55, sizeof(zero_error));
     zero_error.struct_size = 0;
-    EXPECT_EQ(services.http_exchange(services.context, &request, &response, &zero_error), YADDNSC_STATUS_INVALID_ARGUMENT);
+    EXPECT_EQ(services.http_exchange(services.context, &request, &response, &zero_error),
+              YADDNSC_STATUS_INVALID_ARGUMENT);
     yaddnsc_error untouched{};
     std::memset(&untouched, 0x55, sizeof(untouched));
     untouched.struct_size = 0;

@@ -5,8 +5,9 @@
 #ifndef YADDNSC_APPLICATION_PORTS_IP_SOURCE_H
 #define YADDNSC_APPLICATION_PORTS_IP_SOURCE_H
 
-#include <expected>
 #include <vector>
+
+#include <expected>
 
 #include "domain/config/runtime_config.h"
 #include "domain/error/error.h"
@@ -36,8 +37,8 @@ public:
     virtual ~IpSourcePort() = default;
 
     /// Resolve the local address candidates for a subdomain configuration.
-    [[nodiscard]] virtual std::expected<std::vector<InetAddress>, domain::IpSourceError>
-    resolve(const domain::SubdomainConfig &config, const Utils::CancellationToken &token) const = 0;
+    [[nodiscard]] virtual std::expected<std::vector<InetAddress>, domain::IpSourceError> resolve(
+        const domain::SubdomainConfig& config, const Utils::CancellationToken& token) const = 0;
 };
 
-#endif // YADDNSC_APPLICATION_PORTS_IP_SOURCE_H
+#endif  // YADDNSC_APPLICATION_PORTS_IP_SOURCE_H

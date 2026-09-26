@@ -29,7 +29,7 @@ public:
     /// Factory function type: receives a DNS server config and returns a
     /// resolver.  Cancellation is not bound at construction; it flows
     /// through ResolverBase::query().
-    using FactoryFn = std::function<std::unique_ptr<ResolverBase>(const Config::DnsServer &)>;
+    using FactoryFn = std::function<std::unique_ptr<ResolverBase>(const Config::DnsServer&)>;
 
     /// Register a factory for the given URI schema.
     /// @param schema   URI schema (e.g. "https", "tls"). Empty string is the
@@ -51,10 +51,10 @@ public:
     /// @param server  DNS server address and port.
     /// @return        A new resolver instance.
     /// @throws DnsLookupException  If no factory is registered for the schema.
-    [[nodiscard]] std::unique_ptr<ResolverBase> create(const Config::DnsServer &server) const;
+    [[nodiscard]] std::unique_ptr<ResolverBase> create(const Config::DnsServer& server) const;
 
 private:
     std::unordered_map<std::string, FactoryFn> factories_;
 };
 
-#endif // YADDNSC_DNS_RESOLVER_CATALOG_H
+#endif  // YADDNSC_DNS_RESOLVER_CATALOG_H

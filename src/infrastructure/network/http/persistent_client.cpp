@@ -70,8 +70,7 @@ Uri PersistentClient::current_uri(const std::string_view target) const {
                                   target.empty() ? "/" : std::string(target)));
 }
 
-std::expected<Response, Error> PersistentClient::exchange(const std::string_view url,
-                                                          const Request& req,
+std::expected<Response, Error> PersistentClient::exchange(const std::string_view url, const Request& req,
                                                           const Utils::CancellationToken& token) const {
     if (auto valid = validate_request(req); !valid) {
         return std::unexpected(std::move(valid.error()));

@@ -5,8 +5,6 @@
 #ifndef YADDNSC_UTIL_CANCELLATION_TOKEN_H
 #define YADDNSC_UTIL_CANCELLATION_TOKEN_H
 
-#include "support/util/fd.hpp"
-
 #include <algorithm>
 #include <atomic>
 #include <cerrno>
@@ -17,6 +15,8 @@
 #include <vector>
 
 #include <unistd.h>
+
+#include "support/util/fd.hpp"
 
 namespace Utils {
 
@@ -83,8 +83,7 @@ inline void trigger(const std::shared_ptr<CancellationState>& state) noexcept {
     }
 }
 
-[[nodiscard]] inline std::shared_ptr<CancellationState>
-derive(const std::shared_ptr<CancellationState>& parent) {
+[[nodiscard]] inline std::shared_ptr<CancellationState> derive(const std::shared_ptr<CancellationState>& parent) {
     auto child = make_state();
     if (!parent) {
         return child;
@@ -95,9 +94,7 @@ derive(const std::shared_ptr<CancellationState>& parent) {
     {
         std::lock_guard lock(parent->children_mutex);
         auto& children = parent->children;
-        std::erase_if(children, [](const std::weak_ptr<CancellationState>& candidate) {
-            return candidate.expired();
-        });
+        std::erase_if(children, [](const std::weak_ptr<CancellationState>& candidate) { return candidate.expired(); });
         children.push_back(child);
         parent_triggered = parent->triggered.load(std::memory_order_acquire);
     }

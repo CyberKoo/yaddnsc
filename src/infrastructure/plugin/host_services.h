@@ -5,12 +5,13 @@
 #ifndef YADDNSC_INFRASTRUCTURE_PLUGIN_HOST_SERVICES_H
 #define YADDNSC_INFRASTRUCTURE_PLUGIN_HOST_SERVICES_H
 
-#include <stdint.h>
-#include <yaddnsc/sdk/driver_abi.h>
 #include <deque>
 #include <string>
 #include <string_view>
 #include <vector>
+
+#include <stdint.h>
+#include <yaddnsc/sdk/driver_abi.h>
 
 #include "support/util/cancellation_token.hpp"
 
@@ -48,8 +49,7 @@ public:
 
     // Trampoline bodies (called through the C function pointers above).
     void log(yaddnsc_log_level level, yaddnsc_string message, const yaddnsc_source_location* location);
-    yaddnsc_status http_exchange(const yaddnsc_http_request& request,
-                                 yaddnsc_http_response* out_response,
+    yaddnsc_status http_exchange(const yaddnsc_http_request& request, yaddnsc_http_response* out_response,
                                  yaddnsc_error* out_error);
 
     /// 0 means this update operation is active; non-zero means its token was
@@ -61,9 +61,7 @@ private:
     /// context is destroyed.
     [[nodiscard]] std::string_view arena_copy(std::string_view value);
 
-    static void log_entry(void* context,
-                          yaddnsc_log_level level,
-                          yaddnsc_string message,
+    static void log_entry(void* context, yaddnsc_log_level level, yaddnsc_string message,
                           const yaddnsc_source_location* location) noexcept {
         // Contract: logging failure must never fail an update — and a host
         // exception (e.g. bad_alloc) must never escape into the plugin's
@@ -74,10 +72,8 @@ private:
         }
     }
 
-    static yaddnsc_status http_exchange_entry(void* context,
-                                              const yaddnsc_http_request* request,
-                                              yaddnsc_http_response* out_response,
-                                              yaddnsc_error* out_error);
+    static yaddnsc_status http_exchange_entry(void* context, const yaddnsc_http_request* request,
+                                              yaddnsc_http_response* out_response, yaddnsc_error* out_error);
 
     static int is_cancelled_entry(void* context) noexcept {
         return static_cast<HostServicesContext*>(context)->is_cancelled();

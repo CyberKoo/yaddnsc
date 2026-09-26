@@ -20,12 +20,11 @@
 #include <numeric>
 #include <span>
 #include <thread>
-
-#include <poll.h>
 #include <utility>
 
 #include <expected>
 #include <magic_enum/magic_enum.hpp>
+#include <poll.h>
 #include <spdlog/spdlog.h>
 #include <stddef.h>
 #include <yaddnsc/util/format.hpp>
@@ -54,8 +53,7 @@ namespace {
 
 /// Wait for retry backoff while remaining responsive to operation cancellation.
 /// An inert token preserves the ordinary sleep behaviour.
-[[nodiscard]] bool wait_for_retry_backoff(std::chrono::milliseconds delay,
-                                          const Utils::CancellationToken& token) {
+[[nodiscard]] bool wait_for_retry_backoff(std::chrono::milliseconds delay, const Utils::CancellationToken& token) {
     if (token.is_triggered()) {
         return true;
     }
@@ -98,11 +96,10 @@ namespace {
 /// @note  The outer try-catch is a safety barrier at the dispatcher boundary.
 ///        Unexpected exceptions from the resolver/parser layer are caught here
 ///        to prevent std::terminate — this is NOT catch-to-convert for flow control.
-[[nodiscard]] std::expected<std::vector<std::string>, DnsErrorInfo> try_resolve(
-    const ResolverBase& resolver,
-    const std::string& host,
-    RecordKind type,
-    const Utils::CancellationToken& token) {
+[[nodiscard]] std::expected<std::vector<std::string>, DnsErrorInfo> try_resolve(const ResolverBase& resolver,
+                                                                                const std::string& host,
+                                                                                RecordKind type,
+                                                                                const Utils::CancellationToken& token) {
     if (token.is_triggered()) {
         return std::unexpected(DnsErrorInfo{DnsError::CANCELLED, "DNS lookup cancelled"});
     }
@@ -170,8 +167,7 @@ class SingleResolverRunner {
 public:
     explicit SingleResolverRunner(const ResolverBase& resolver);
 
-    [[nodiscard]] std::expected<std::vector<std::string>, DnsErrorInfo> run(const std::string& host,
-                                                                            RecordKind type,
+    [[nodiscard]] std::expected<std::vector<std::string>, DnsErrorInfo> run(const std::string& host, RecordKind type,
                                                                             const Utils::CancellationToken& token,
                                                                             std::uint32_t max_retries,
                                                                             std::uint32_t backoff_ms) const;
@@ -190,9 +186,8 @@ class FallbackRunner {
 public:
     explicit FallbackRunner(const std::vector<std::unique_ptr<ResolverBase>>& resolvers, bool shuffle = false);
 
-    [[nodiscard]] std::expected<std::vector<std::string>, DnsErrorInfo> run(const std::string& host,
-                                                                            RecordKind type,
-                                                                            const Utils::CancellationToken& token) const;
+    [[nodiscard]] std::expected<std::vector<std::string>, DnsErrorInfo> run(
+        const std::string& host, RecordKind type, const Utils::CancellationToken& token) const;
 
 private:
     const std::vector<std::unique_ptr<ResolverBase>>& resolvers_;
@@ -250,9 +245,8 @@ public:
 
     explicit ConcurrentRunner(const std::vector<std::unique_ptr<ResolverBase>>& resolvers);
 
-    [[nodiscard]] std::expected<std::vector<std::string>, DnsErrorInfo> run(const std::string& host,
-                                                                            RecordKind type,
-                                                                            const Utils::CancellationToken& token) const;
+    [[nodiscard]] std::expected<std::vector<std::string>, DnsErrorInfo> run(
+        const std::string& host, RecordKind type, const Utils::CancellationToken& token) const;
 
 private:
     const std::vector<std::unique_ptr<ResolverBase>>& resolvers_;
@@ -264,12 +258,11 @@ private:
 
 SingleResolverRunner::SingleResolverRunner(const ResolverBase& resolver) : resolver_(resolver) {}
 
-std::expected<std::vector<std::string>, DnsErrorInfo> SingleResolverRunner::run(
-    const std::string& host,
-    RecordKind type,
-    const Utils::CancellationToken& token,
-    std::uint32_t max_retries,
-    std::uint32_t backoff_ms) const {
+std::expected<std::vector<std::string>, DnsErrorInfo> SingleResolverRunner::run(const std::string& host,
+                                                                                RecordKind type,
+                                                                                const Utils::CancellationToken& token,
+                                                                                std::uint32_t max_retries,
+                                                                                std::uint32_t backoff_ms) const {
     if (token.is_triggered()) {
         return std::unexpected(DnsErrorInfo{DnsError::CANCELLED, "DNS lookup cancelled"});
     }
@@ -309,8 +302,7 @@ std::expected<std::vector<std::string>, DnsErrorInfo> SingleResolverRunner::run(
 FallbackRunner::FallbackRunner(const std::vector<std::unique_ptr<ResolverBase>>& resolvers, bool shuffle)
     : resolvers_(resolvers), shuffle_(shuffle) {}
 
-std::expected<std::vector<std::string>, DnsErrorInfo> FallbackRunner::run(const std::string& host,
-                                                                          RecordKind type,
+std::expected<std::vector<std::string>, DnsErrorInfo> FallbackRunner::run(const std::string& host, RecordKind type,
                                                                           const Utils::CancellationToken& token) const {
     DnsErrorInfo last_error{DnsError::NODATA, fmt::format(R"(DNS lookup for domain "{}" returned no records)", host)};
 
@@ -570,12 +562,11 @@ std::expected<std::vector<std::string>, DnsErrorInfo> ResolverDispatcher::resolv
     return resolve(host, type, token, DEFAULT_MAX_RETRIES, DEFAULT_BACKOFF_MS);
 }
 
-std::expected<std::vector<std::string>, DnsErrorInfo> ResolverDispatcher::resolve(
-    std::string_view host,
-    RecordKind type,
-    const Utils::CancellationToken& token,
-    std::uint32_t max_retries,
-    std::uint32_t backoff_ms) const {
+std::expected<std::vector<std::string>, DnsErrorInfo> ResolverDispatcher::resolve(std::string_view host,
+                                                                                  RecordKind type,
+                                                                                  const Utils::CancellationToken& token,
+                                                                                  std::uint32_t max_retries,
+                                                                                  std::uint32_t backoff_ms) const {
     // The strategy runners predate the port and still operate on std::string;
     // the copy lives until the synchronous call returns, keeping the internal
     // const std::string& references valid.
