@@ -5,6 +5,7 @@
 #include "signal_watcher.h"
 
 #include <csignal>
+#include <cstdlib>
 #include <exception>
 #include <stdexcept>
 #include <string_view>
@@ -111,23 +112,18 @@ void SignalWatcher::signal_loop(std::stop_token st) {
             ++sigint_count;
 
             if (sigint_count == 1) {
-                request_stop("Received SIGINT, initiating graceful shutdown...");
-            } else if (sigint_count == 2) {
-                SPDLOG_WARN("Second SIGINT received, escalating to SIGTERM...");
-                kill(getpid(), SIGTERM);
+                request_stop("Received SIGINT, initiating graceful shutdown (press Ctrl-C again to force quit)...");
             } else {
-                SPDLOG_CRITICAL("Third SIGINT received, hard killing with SIGKILL...");
-                kill(getpid(), SIGKILL);
+                // Escalating through SIGTERM is a no-op: SIGTERM is blocked
+                // process-wide and would be consumed by this very thread.
+                // Terminate directly with the conventional 128+SIGINT status.
+                SPDLOG_CRITICAL("Second SIGINT received, forcing immediate termination");
+                ::_exit(128 + SIGINT);
             }
         } else if (sig == SIGTERM) {
-            if (sigint_count == 0) {
-                // External SIGTERM — not triggered by our own escalation.
-                request_stop("Received SIGTERM, shutting down...");
-            } else {
-                // SIGTERM with sigint_count > 0: our own escalation signal —
-                // skip; the loop exits via the stop_requested() checks above.
-                SPDLOG_TRACE("SIGTERM suppressed during SIGINT escalation (sigint_count={})", sigint_count);
-            }
+            // SIGTERM is never self-sent (escalation terminates directly), so
+            // every SIGTERM observed here is external.
+            request_stop("Received SIGTERM, shutting down...");
         }
     }
 }

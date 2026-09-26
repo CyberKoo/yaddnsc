@@ -36,6 +36,12 @@ public:
     /// subobjects are destroyed.
     ~PoolTaskExecutor() override;
 
+    // Owns a thread pool; neither copyable nor movable.
+    PoolTaskExecutor(const PoolTaskExecutor&) = delete;
+    PoolTaskExecutor& operator=(const PoolTaskExecutor&) = delete;
+    PoolTaskExecutor(PoolTaskExecutor&&) = delete;
+    PoolTaskExecutor& operator=(PoolTaskExecutor&&) = delete;
+
     /// Run one task on the pool. @return false when shut down (task dropped).
     bool submit(domain::UpdateTask task, const Utils::CancellationToken& token) override;
 

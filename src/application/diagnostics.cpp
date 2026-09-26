@@ -24,6 +24,8 @@ std::vector<DriverListItem> list_drivers(const DriverCatalogPort& catalog) {
             item.detail = catalog.describe(name);
         } catch (const std::exception& e) {
             item.error = e.what();
+        } catch (...) {
+            item.error = "unknown error while describing driver";
         }
         items.push_back(std::move(item));
     }

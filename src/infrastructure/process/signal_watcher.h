@@ -23,9 +23,10 @@
 ///
 /// The watching thread loops on sigwait() for SIGINT/SIGTERM with escalation:
 ///   - 1st SIGINT -> request_stop() on the internal stop_source (graceful).
-///   - 2nd SIGINT -> kill(getpid(), SIGTERM) — escalate.
-///   - 3rd SIGINT -> kill(getpid(), SIGKILL) — hard kill.
-///   - External SIGTERM (not from escalation) -> request_stop().
+///   - 2nd SIGINT -> std::_exit(128 + SIGINT) — immediate termination.
+///     (Escalating through SIGTERM would be a no-op: it is blocked
+///     process-wide and would be consumed by the watcher thread itself.)
+///   - External SIGTERM -> request_stop().
 ///
 /// @par Signal contract
 /// install() blocks SIGINT, SIGTERM and SIGUSR2 on every thread for the rest

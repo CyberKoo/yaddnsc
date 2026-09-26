@@ -16,6 +16,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <limits>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -149,6 +150,17 @@ TEST_F(AbiDriverGatewayTest, RetryAfterIsPassedThrough) {
     EXPECT_EQ(result.error().code, domain::DriverError::Code::RATE_LIMITED);
     EXPECT_EQ(result.error().message, "slow");
     EXPECT_EQ(result.error().retry_after_seconds, 120);
+}
+
+TEST_F(AbiDriverGatewayTest, OversizedRetryAfterIsClamped) {
+    // The ABI field is uint32; a value beyond INT_MAX must saturate instead
+    // of narrowing to a negative backoff.
+    const auto result = gateway_->update(
+        kDriverName,
+        make_command(R"({"op":"fail","status":"rate_limited","message":"slow","retry_after":4294967295})"),
+        cancel_source_.token());
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error().retry_after_seconds, std::numeric_limits<int>::max());
 }
 
 TEST_F(AbiDriverGatewayTest, TransportRetryAfterIsPassedThrough) {

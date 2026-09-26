@@ -95,19 +95,26 @@ TEST(SignalWatcher, FirstSigint_RequestsStop) {
     EXPECT_TRUE(wait_for_stop(watcher)) << "first SIGINT must initiate graceful shutdown";
 }
 
-TEST(SignalWatcher, SecondSigint_EscalatesWithoutCrash) {
-    SignalWatcher::install();
-    SignalWatcher watcher;
+TEST(SignalWatcher, SecondSigint_ForcesImmediateTermination) {
+    // Death test: the child presses Ctrl-C twice; the second SIGINT must
+    // terminate the process directly with the conventional 128+SIGINT status
+    // (escalating through the blocked SIGTERM would be a no-op).
+    EXPECT_EXIT(
+        {
+            SignalWatcher::install();
+            SignalWatcher watcher;
 
-    kill(getpid(), SIGINT);
-    ASSERT_TRUE(wait_for_stop(watcher));
+            kill(getpid(), SIGINT);
+            if (!wait_for_stop(watcher)) {
+                ::_exit(1);  // graceful stop did not latch
+            }
+            kill(getpid(), SIGINT);
 
-    // Second SIGINT escalates: the watcher sends SIGTERM to itself.  SIGTERM
-    // is blocked (install()) and consumed by the watcher — the process must
-    // survive and the stop state must remain set.
-    kill(getpid(), SIGINT);
-    std::this_thread::sleep_for(std::chrono::milliseconds(200));
-    EXPECT_TRUE(watcher.get_stop_source().stop_requested());
+            // Surviving past this point means the escalation did not fire.
+            std::this_thread::sleep_for(std::chrono::milliseconds(500));
+            ::_exit(2);
+        },
+        ::testing::ExitedWithCode(128 + SIGINT), "");
 }
 
 TEST(SignalWatcher, ExternalSigterm_RequestsStop) {

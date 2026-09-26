@@ -4,6 +4,8 @@
 
 #include "abi_driver_gateway.h"
 
+#include <algorithm>
+#include <limits>
 #include <string>
 #include <utility>
 
@@ -133,7 +135,11 @@ std::expected<void, domain::DriverError> AbiDriverGateway::update(std::string_vi
     }
 
     auto driver_error = map_error(status, to_view(error.message), driver_name, command.fqdn);
-    driver_error.retry_after_seconds = static_cast<int>(error.retry_after_seconds);
+    // The ABI field is uint32; clamp instead of narrowing so an out-of-range
+    // plugin value saturates at INT_MAX rather than going negative.
+    driver_error.retry_after_seconds =
+        static_cast<int>(std::min<std::uint32_t>(error.retry_after_seconds,
+                                                 static_cast<std::uint32_t>(std::numeric_limits<int>::max())));
     return std::unexpected(std::move(driver_error));
 }
 

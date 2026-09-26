@@ -32,6 +32,10 @@ PoolTaskExecutor::~PoolTaskExecutor() {
 }
 
 bool PoolTaskExecutor::submit(domain::UpdateTask task, const Utils::CancellationToken& token) {
+    // Check-then-act against shutdown() is deliberately not serialised: a
+    // task that wins the race is simply accepted and drained by the
+    // destructor like any other in-flight work — only tasks that observe
+    // accepting_ == false are dropped.
     if (!accepting_.load(std::memory_order_acquire)) {
         return false;
     }
