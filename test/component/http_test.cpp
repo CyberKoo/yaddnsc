@@ -15,6 +15,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cctype>
 #include <chrono>
 #include <condition_variable>
@@ -100,6 +101,8 @@ public:
             return;
         }
         running_ = false;
+        // Wake any parked /hang handler so its connection thread can exit.
+        release_hang();
         if (listener_ >= 0) {
             const int wake = ::socket(AF_INET, SOCK_STREAM, 0);
             if (wake >= 0) {
@@ -113,6 +116,19 @@ public:
             ::close(listener_);
             listener_ = -1;
         }
+        // Join every worker before returning: the destructor releases
+        // hang_entered_ and the hang synchronisation primitives right after
+        // stop(), and no thread may still be touching them by then.
+        if (accept_thread_.joinable()) {
+            accept_thread_.join();
+        }
+        std::lock_guard lock(conn_mtx_);
+        for (auto& thread : conn_threads_) {
+            if (thread.joinable()) {
+                thread.join();
+            }
+        }
+        conn_threads_.clear();
     }
 
     ~HttpTestServer() { stop(); }
@@ -124,7 +140,11 @@ public:
     /// Arm the /hang route: the first request to it fulfils `entered` and the
     /// handler parks without responding until release_hang() — the client is
     /// expected to unblock through cancellation, not a timeout.
-    void arm_hang(std::shared_ptr<std::promise<void>> entered) { hang_entered_ = std::move(entered); }
+    void arm_hang(std::shared_ptr<std::promise<void>> entered) {
+        std::lock_guard lock(hang_mtx_);
+        hang_entered_ = std::move(entered);
+        hang_release_ = false;
+    }
 
     /// Let a parked /hang handler close its connection and exit.
     void release_hang() {
@@ -188,10 +208,18 @@ private:
 
             if (req.method == "GET" && req.target == "/hang") {
                 // The request reached the server: the exchange is in flight.
-                // Hold the response until the test releases it (or the process
-                // ends) so the client must be unblocked by cancellation.
-                if (hang_entered_) {
-                    hang_entered_->set_value();
+                // Hold the response until the test releases it (or stop()
+                // runs) so the client must be unblocked by cancellation.
+                // The arming promise is consumed, so only the first /hang
+                // request fulfils it; the local copy keeps the promise alive
+                // across set_value() independently of the member's lifetime.
+                std::shared_ptr<std::promise<void>> entered;
+                {
+                    std::lock_guard lock(hang_mtx_);
+                    entered = std::move(hang_entered_);
+                }
+                if (entered) {
+                    entered->set_value();
                 }
                 std::unique_lock lock(hang_mtx_);
                 hang_cv_.wait(lock, [this] { return hang_release_; });
@@ -248,14 +276,24 @@ private:
             if (conn < 0) {
                 break;
             }
-            std::jthread([this, conn] { handle_connection(conn); }).detach();
+            if (!running_) {
+                // Woken by stop()'s dummy connection: do not serve it.
+                ::close(conn);
+                break;
+            }
+            std::lock_guard lock(conn_mtx_);
+            conn_threads_.emplace_back([this, conn] { handle_connection(conn); });
         }
     }
 
     int listener_ = -1;
     std::uint16_t port_ = 0;
-    bool running_ = false;
+    std::atomic<bool> running_{false};
     std::jthread accept_thread_;
+    // Connection threads are tracked and joined by stop() so no handler can
+    // outlive the members it touches (hang_entered_, hang_mtx_, hang_cv_).
+    std::mutex conn_mtx_;
+    std::vector<std::jthread> conn_threads_;
     // Synchronisation state for /hang; handle_connection() is const, and
     // mutable is the idiomatic escape hatch for mutex-guarded state.
     mutable std::shared_ptr<std::promise<void>> hang_entered_;
