@@ -6,6 +6,8 @@
 #define YADDNSC_HTTP_CLIENT_INTERFACE_H
 
 #include <expected>
+#include <functional>
+#include <memory>
 #include <string>
 #include <string_view>
 
@@ -42,5 +44,13 @@ private:
     [[maybe_unused, no_unique_address]] NoCopy no_copy_;
     [[maybe_unused, no_unique_address]] NoMove no_move_;
 };
+
+/// Factory type for creating HttpClient instances on demand.
+///
+/// The composition root builds ONE factory bound to the shared HTTP policy
+/// (user agent, CA discovery, bootstrap DNS) and hands it to every consumer
+/// (driver gateway, HTTP IP source), so transport policy has a single source
+/// of truth and tests can substitute a fake with one injection point.
+using HttpClientFactory = std::function<std::unique_ptr<HttpClient>()>;
 
 #endif //YADDNSC_HTTP_CLIENT_INTERFACE_H

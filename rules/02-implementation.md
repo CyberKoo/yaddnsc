@@ -140,6 +140,26 @@ All formatting is enforced by **clang-format** (`BasedOnStyle: Chromium`). Namin
 - **Consider PIMPL** for stable public-facing APIs whose implementation changes frequently, to reduce compile-time dependencies. Note: a PIMPL class necessarily defines a destructor (and possibly move operations) for its incomplete-type `std::unique_ptr` member; this is a deliberate, localized exception to the Rule of 0 — disable copying unless explicitly required.
 - Use **CRTP** sparingly; prefer concepts-based polymorphism.
 
+## Function & Constructor Signatures
+
+- Keep constructors at **≤ 4 parameters**. Beyond that, introduce a small
+  reference bundle named `XxxPorts` / `XxxDeps` / `XxxEnvironment` (see
+  `src/application/run_environment.h`). Bundles group by who uses the members
+  together — never accumulate a general `AppContext`/service-locator struct.
+  If a bundle member goes unused by one holder, split the bundle.
+- **Raw configuration values do not travel.** A `std::string`/`std::vector`
+  sliced out of `domain::RuntimeConfig` must not appear in three or more
+  signatures; pass the domain slice struct (e.g. `domain::ResolverSettings`)
+  or a pre-built policy object (e.g. `net::http::Options`) instead, so adding
+  a config field never ripples through call sites.
+- Cross-cutting policy objects (HTTP options, factories) are built **once in
+  the composition root** and injected; no second construction path may
+  re-derive the same policy downstream.
+- `Utils::CancellationToken` is always passed **as a call parameter**, never
+  stored as a member: cancellation is operation-scoped by design.
+- `Logger&` and other ports are passed explicitly (directly or inside a
+  bundle). Do not introduce global/singleton ports.
+
 ## Enums
 
 - Always use `enum class`. Avoid plain `enum`.

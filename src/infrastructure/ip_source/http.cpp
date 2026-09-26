@@ -16,22 +16,17 @@
 #include "domain/network/inet_address.h"
 #include "infrastructure/network/http/error.h"
 #include "infrastructure/network/http/persistent_client.h"
-#include "infrastructure/network/http/types.h"
 #include "infrastructure/network/transport/options.h"
 #include "support/fmt.hpp"
 #include "support/string_util.hpp"
 #include "support/util/cancellation_token.hpp"
 
-#include "version.h"
-
 namespace {
-/// Build the client options for an HTTP IP source.
-[[nodiscard]] net::http::Options make_client_options(const AddressFamily address_family,
-                                                     const std::string& bind_interface,
-                                                     std::vector<Config::DnsServer> bootstrap) {
-    net::http::Options opts;
-    opts.user_agent = YADDNSC::get_full_version();
-    opts.transport.bootstrap_dns = std::move(bootstrap);
+/// Apply per-source transport overrides on the composition root's shared
+/// HTTP policy (user agent, bootstrap DNS, CA discovery live in the base).
+[[nodiscard]] net::http::Options with_transport_overrides(net::http::Options opts,
+                                                          const AddressFamily address_family,
+                                                          const std::string& bind_interface) {
     if (address_family != AddressFamily::UNSPECIFIED) {
         opts.transport.address_family = address_family;
     }
@@ -49,10 +44,10 @@ namespace {
 HttpIpSource::~HttpIpSource() = default;
 
 HttpIpSource::HttpIpSource(std::string url, const AddressFamily address_family, std::string bind_interface,
-                           std::vector<Config::DnsServer> bootstrap)
+                           net::http::Options base_options)
     : url_(std::move(url)), address_family_(address_family), bind_interface_(std::move(bind_interface)),
       client_(std::make_unique<net::http::PersistentClient>(
-          url_, make_client_options(address_family_, bind_interface_, std::move(bootstrap)))) {}
+          url_, with_transport_overrides(std::move(base_options), address_family_, bind_interface_))) {}
 
 // ---------------------------------------------------------------------------
 // HttpIpSource::resolve — send GET request and parse the response body as an IP.

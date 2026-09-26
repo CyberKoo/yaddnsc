@@ -100,15 +100,20 @@ void fill_bootstrap_servers(domain::RuntimeConfig& config) {
     }
 }
 
+/// Shared HTTP policy: user agent, CA discovery and bootstrap DNS are built
+/// once here — every HTTP consumer (driver gateway, HTTP IP source) derives
+/// its client options from this single source of truth.
+[[nodiscard]] net::http::Options make_http_options(const domain::ResolverSettings& resolver) {
+    net::http::Options opts;
+    opts.user_agent = YADDNSC::get_full_version();
+    opts.transport.bootstrap_dns = resolver.bootstrap_servers;
+    return opts;
+}
+
 /// HTTP client factory for the driver gateway: the token is no longer bound
 /// into the client — cancellation flows through each exchange() call instead.
-[[nodiscard]] HttpClientFactory make_http_client_factory(std::vector<Config::DnsServer> bootstrap) {
-    return [bootstrap = std::move(bootstrap)] {
-        net::http::Options opts;
-        opts.user_agent = YADDNSC::get_full_version();
-        opts.transport.bootstrap_dns = bootstrap;
-        return std::make_unique<net::http::Client>(std::move(opts));
-    };
+[[nodiscard]] HttpClientFactory make_http_client_factory(net::http::Options opts) {
+    return [opts = std::move(opts)] { return std::make_unique<net::http::Client>(opts); };
 }
 
 // -----------------------------------------------------------------------
@@ -172,16 +177,17 @@ int run_command(const Cli::RunCommand& command) {
 
         auto dispatcher = DnsResolverFactory::create(
             runtime_config->resolver, ResolverCatalog::with_builtins(runtime_config->resolver.bootstrap_servers));
-        const auto& bootstrap = runtime_config->resolver.bootstrap_servers;
-        const IpSourceAdapter ip_source{[&bootstrap](const domain::SubdomainConfig& cfg) {
-            return IpSourceFactory::create(cfg, bootstrap);
+        const auto http_options = make_http_options(runtime_config->resolver);
+        const IpSourceAdapter ip_source{[http_options](const domain::SubdomainConfig& cfg) {
+            return IpSourceFactory::create(cfg, http_options);
         }};
-        const AbiDriverGateway driver_gateway(driver_catalog, make_http_client_factory(bootstrap), logger);
+        const AbiDriverGateway driver_gateway(driver_catalog, make_http_client_factory(http_options), logger);
         const UpdateWorkflow workflow(dispatcher, ip_source, driver_gateway, logger);
         PoolTaskExecutor task_executor(estimate_pool_size(*runtime_config), workflow);
 
-        RunLifecycle lifecycle(runtime_config, signal_watcher.get_stop_source(), cancellation, clock, task_executor,
-                               interfaces, logger);
+        RunLifecycle lifecycle(runtime_config,
+                               {.stop = signal_watcher.get_stop_source(), .cancellation = cancellation},
+                               {.clock = clock, .executor = task_executor, .interfaces = interfaces, .logger = logger});
         lifecycle.run();
     }
     return EXIT_SUCCESS;
@@ -306,7 +312,7 @@ int execute_command(const Cli::ConfigTestCommand& command) {
         // yaddnsc_driver_validate are skipped (not an error).
         Utils::CancellationSource cancellation;
         const SpdlogLogger logger;
-        const AbiDriverGateway driver_gateway(driver_catalog, make_http_client_factory(config->resolver.bootstrap_servers),
+        const AbiDriverGateway driver_gateway(driver_catalog, make_http_client_factory(make_http_options(config->resolver)),
                                               logger);
         for (const auto& domain_config : config->domains) {
             for (const auto& subdomain : domain_config.subdomains) {

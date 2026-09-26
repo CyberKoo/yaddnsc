@@ -7,11 +7,10 @@
 
 #include <memory>
 #include <string>
-#include <vector>
 
-#include "domain/config/dns_config.h"
 #include "domain/network/address_family.h"
 #include "infrastructure/ip_source/base.h"
+#include "infrastructure/network/http/types.h"
 
 namespace net::http {
 class PersistentClient;
@@ -35,12 +34,14 @@ public:
     /// @param url              URL of the HTTP IP detection service.
     /// @param address_family   Preferred address family for the connection.
     /// @param bind_interface   Outbound network interface to bind to (empty = any).
-    /// @param bootstrap        Bootstrap DNS servers used to resolve the URL's
-    ///                         hostname (empty: hostname URLs fail fast).
+    /// @param base_options     Shared HTTP policy (user agent, bootstrap DNS,
+    ///                         CA discovery) built once by the composition root;
+    ///                         the address family / interface overrides are
+    ///                         applied on top of it here.
     explicit HttpIpSource(std::string url,
                           AddressFamily address_family = AddressFamily::UNSPECIFIED,
                           std::string bind_interface = {},
-                          std::vector<Config::DnsServer> bootstrap = {});
+                          net::http::Options base_options = {});
 
     ~HttpIpSource() override;
 

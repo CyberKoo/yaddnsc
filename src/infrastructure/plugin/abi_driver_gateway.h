@@ -5,22 +5,17 @@
 #ifndef YADDNSC_INFRASTRUCTURE_PLUGIN_ABI_DRIVER_GATEWAY_H
 #define YADDNSC_INFRASTRUCTURE_PLUGIN_ABI_DRIVER_GATEWAY_H
 
-#include <functional>
-#include <memory>
 #include <string_view>
 
 #include <expected>
 
 #include "application/ports/driver_gateway.h"
 #include "domain/error/error.h"
+#include "infrastructure/network/http/client_port.h"  // HttpClientFactory
 #include "support/util/cancellation_token.hpp"
 
-class HttpClient;
 class DriverCatalog;
 class Logger;
-
-/// Factory type for creating HttpClient instances on demand.
-using HttpClientFactory = std::function<std::unique_ptr<HttpClient>()>;
 
 /// AbiDriverGateway — DriverGateway implementation over the v1 alpha C ABI
 /// plugin host.

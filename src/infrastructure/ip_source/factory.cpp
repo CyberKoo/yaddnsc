@@ -45,7 +45,7 @@ namespace {
 /// @param cfg  The subdomain configuration record.
 /// @return     A unique pointer to the concrete IP source implementation.
 IpSourceFactory::Result IpSourceFactory::create(const domain::SubdomainConfig& cfg,
-                                                std::vector<Config::DnsServer> bootstrap) {
+                                                net::http::Options http_options) {
     auto address_family = type_to_family(cfg.type);
 
     try {
@@ -55,7 +55,7 @@ IpSourceFactory::Result IpSourceFactory::create(const domain::SubdomainConfig& c
 
             case Config::IpSource::HTTP:
                 return std::make_unique<HttpIpSource>(cfg.ip_source_param, address_family, cfg.interface,
-                                                      std::move(bootstrap));
+                                                      std::move(http_options));
 
             case Config::IpSource::MDNS:
                 return std::make_unique<MdnsIpSource>(cfg.ip_source_param, cfg.type, cfg.interface);

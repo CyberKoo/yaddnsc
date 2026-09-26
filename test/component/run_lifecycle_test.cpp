@@ -276,8 +276,9 @@ TEST(RunLifecycle, StopDrainsInFlightTaskBeforeReturning) {
     HttpClientFactory http_factory = [state] { return std::make_unique<BlockingHttpClient>(state); };
 
     RunGraph graph(parse_cfg(lifecycle_config(*interface_name)), make_dispatcher(), http_factory);
-    RunLifecycle lifecycle(graph.config_, stop_source, graph.cancellation_, graph.clock_, graph.executor_,
-                           graph.interfaces_, graph.logger_);
+    RunLifecycle lifecycle(graph.config_,
+                           {.stop = stop_source, .cancellation = graph.cancellation_},
+                           {.clock = graph.clock_, .executor = graph.executor_, .interfaces = graph.interfaces_, .logger = graph.logger_});
 
     std::promise<void> run_done;
     auto run_future = run_done.get_future();
@@ -324,8 +325,9 @@ TEST(RunLifecycle, StopBeforeRunDispatchesNothing) {
     HttpClientFactory http_factory = [state] { return std::make_unique<BlockingHttpClient>(state); };
 
     RunGraph graph(parse_cfg(lifecycle_config(*interface_name)), make_dispatcher(), http_factory);
-    RunLifecycle lifecycle(graph.config_, stop_source, graph.cancellation_, graph.clock_, graph.executor_,
-                           graph.interfaces_, graph.logger_);
+    RunLifecycle lifecycle(graph.config_,
+                           {.stop = stop_source, .cancellation = graph.cancellation_},
+                           {.clock = graph.clock_, .executor = graph.executor_, .interfaces = graph.interfaces_, .logger = graph.logger_});
 
     stop_source.request_stop();
 
@@ -354,7 +356,9 @@ TEST(RunLifecycle, StopCancelsIoAndDrainsExecutor) {
     ON_CALL(interfaces, names()).WillByDefault(Return(std::vector<std::string>{"lo"}));
 
     std::stop_source stop_source;
-    RunLifecycle lifecycle(config, stop_source, cancellation, clock, executor, interfaces, logger);
+    RunLifecycle lifecycle(config,
+                           {.stop = stop_source, .cancellation = cancellation},
+                           {.clock = clock, .executor = executor, .interfaces = interfaces, .logger = logger});
 
     std::promise<void> run_done;
     auto run_future = run_done.get_future();
@@ -392,7 +396,9 @@ TEST(RunLifecycle, PreStopCancelsIoBeforeRun) {
     ON_CALL(interfaces, names()).WillByDefault(Return(std::vector<std::string>{"lo"}));
 
     std::stop_source stop_source;
-    RunLifecycle lifecycle(config, stop_source, cancellation, clock, executor, interfaces, logger);
+    RunLifecycle lifecycle(config,
+                           {.stop = stop_source, .cancellation = cancellation},
+                           {.clock = clock, .executor = executor, .interfaces = interfaces, .logger = logger});
 
     stop_source.request_stop();
     EXPECT_TRUE(cancellation.is_triggered());
@@ -416,7 +422,9 @@ TEST(RunLifecycle, RateLimitedTaskIsRescheduledAtRetryDeadline) {
     ON_CALL(interfaces, names()).WillByDefault(Return(std::vector<std::string>{"lo"}));
 
     std::stop_source stop_source;
-    RunLifecycle lifecycle(config, stop_source, cancellation, clock, executor, interfaces, logger);
+    RunLifecycle lifecycle(config,
+                           {.stop = stop_source, .cancellation = cancellation},
+                           {.clock = clock, .executor = executor, .interfaces = interfaces, .logger = logger});
 
     std::promise<void> run_done;
     auto run_future = run_done.get_future();

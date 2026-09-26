@@ -9,18 +9,10 @@
 #include <memory>
 #include <stop_token>
 
+#include "application/run_environment.h"
 #include "application/scheduler_runner.h"
 
 #include "domain/update/schedule_queue.h"
-
-class Clock;
-class TaskExecutor;
-class NetworkInterfaces;
-class Logger;
-
-namespace Utils {
-    class CancellationSource;
-}
 
 namespace domain {
     struct RuntimeConfig;
@@ -35,8 +27,8 @@ struct RunResult {};
 ///
 /// The composition root owns every concrete component (catalog, dispatcher,
 /// gateway, workflow, executor, clock, logger) and hands this object the
-/// ports it needs; this object owns the scheduling loop and the shutdown
-/// sequence:
+/// ports it needs (bundled as ShutdownSignals + RunEnvironment); this object
+/// owns the scheduling loop and the shutdown sequence:
 ///
 ///   construction
 ///   → bind stop_source to BOTH scheduler stop (stop token into the runner)
@@ -57,9 +49,7 @@ public:
     /// composition root owns every component on the stack of the run path).
     /// The stop → I/O-cancel binding is registered here so that a stop
     /// requested before run() still cancels blocking I/O.
-    RunLifecycle(std::shared_ptr<const domain::RuntimeConfig> config, std::stop_source stop_source,
-                 const Utils::CancellationSource &cancellation, Clock &clock, TaskExecutor &executor,
-                 const NetworkInterfaces &interfaces, const Logger &logger);
+    RunLifecycle(std::shared_ptr<const domain::RuntimeConfig> config, ShutdownSignals shutdown, RunEnvironment env);
 
     /// Drive the scheduling loop until stop is requested, then shut down in
     /// the explicit order documented above. Blocks; call from the run thread.
@@ -67,14 +57,10 @@ public:
 
 private:
     std::shared_ptr<const domain::RuntimeConfig> config_;
-    const Utils::CancellationSource &cancellation_;
-    Clock &clock_;
-    TaskExecutor &executor_;
-    const NetworkInterfaces &interfaces_;
-    const Logger &logger_;
+    ShutdownSignals shutdown_;
+    RunEnvironment env_;
     domain::ScheduleQueue queue_;
     SchedulerRunner runner_;
-    std::stop_source stop_source_;
     std::stop_callback<std::function<void()>> stop_cb_;
 };
 
