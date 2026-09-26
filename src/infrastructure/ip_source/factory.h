@@ -7,6 +7,7 @@
 
 #include <expected>
 #include <memory>
+#include <vector>
 
 #include "domain/config/runtime_config.h"
 #include "domain/error/error.h"
@@ -21,9 +22,12 @@ namespace IpSourceFactory {
     using Result = std::expected<std::unique_ptr<IpSourceBase>, domain::IpSourceError>;
 
     /// Create an IP source from subdomain configuration.
-    /// @param cfg  The subdomain configuration specifying the IP source type and params.
+    /// @param cfg        The subdomain configuration specifying the IP source type and params.
+    /// @param bootstrap  Bootstrap DNS servers handed to HTTP sources for
+    ///                   resolving hostname URLs (empty: hostname URLs fail fast).
     /// @return     The appropriate source or a structured creation failure.
-    [[nodiscard]] Result create(const domain::SubdomainConfig &cfg);
+    [[nodiscard]] Result create(const domain::SubdomainConfig &cfg,
+                                std::vector<Config::DnsServer> bootstrap = {});
 } // namespace IpSourceFactory
 
 #endif  // YADDNSC_IP_SOURCE_FACTORY_H

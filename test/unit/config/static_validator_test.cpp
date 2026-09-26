@@ -466,3 +466,22 @@ TEST(StaticValidatorTest, ValidateAndNormalize_RejectsEmptyCustomResolver) {
     EXPECT_EQ(result.error().front().message,
               "use_custom_server is enabled but no custom resolver servers are configured");
 }
+
+TEST(StaticValidatorTest, BootstrapDns_ValidIpLiteral_NoErrors) {
+    const auto errors = validate_with([](Config::AppConfig& cfg) { cfg.bootstrap_dns = "223.5.5.5"; });
+    EXPECT_TRUE(errors.empty());
+}
+
+TEST(StaticValidatorTest, BootstrapDns_ValidIpv6Literal_NoErrors) {
+    const auto errors = validate_with([](Config::AppConfig& cfg) { cfg.bootstrap_dns = "2606:4700:4700::1111"; });
+    EXPECT_TRUE(errors.empty());
+}
+
+TEST(StaticValidatorTest, BootstrapDns_Hostname_Rejected) {
+    // A hostname here would be circular: bootstrap DNS is what resolves
+    // hostnames, so only IP literals are accepted.
+    const auto errors = validate_with([](Config::AppConfig& cfg) { cfg.bootstrap_dns = "dns.example.com"; });
+    ASSERT_EQ(errors.size(), 1U);
+    EXPECT_EQ(errors.front().code, Code::INVALID_BOOTSTRAP_DNS);
+    EXPECT_THAT(errors.front().message, HasSubstr("dns.example.com"));
+}

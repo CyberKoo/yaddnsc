@@ -27,9 +27,11 @@
 namespace {
 /// Build the client options for an HTTP IP source.
 [[nodiscard]] net::http::Options make_client_options(const AddressFamily address_family,
-                                                     const std::string& bind_interface) {
+                                                     const std::string& bind_interface,
+                                                     std::vector<Config::DnsServer> bootstrap) {
     net::http::Options opts;
     opts.user_agent = YADDNSC::get_full_version();
+    opts.transport.bootstrap_dns = std::move(bootstrap);
     if (address_family != AddressFamily::UNSPECIFIED) {
         opts.transport.address_family = address_family;
     }
@@ -46,9 +48,11 @@ namespace {
 
 HttpIpSource::~HttpIpSource() = default;
 
-HttpIpSource::HttpIpSource(std::string url, const AddressFamily address_family, std::string bind_interface)
+HttpIpSource::HttpIpSource(std::string url, const AddressFamily address_family, std::string bind_interface,
+                           std::vector<Config::DnsServer> bootstrap)
     : url_(std::move(url)), address_family_(address_family), bind_interface_(std::move(bind_interface)),
-      client_(std::make_unique<net::http::PersistentClient>(url_, make_client_options(address_family_, bind_interface_))) {}
+      client_(std::make_unique<net::http::PersistentClient>(
+          url_, make_client_options(address_family_, bind_interface_, std::move(bootstrap)))) {}
 
 // ---------------------------------------------------------------------------
 // HttpIpSource::resolve — send GET request and parse the response body as an IP.

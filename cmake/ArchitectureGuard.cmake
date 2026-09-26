@@ -56,7 +56,7 @@ guard_check("application must not include infrastructure/spdlog/Glaze/CLI11/Open
 #    no spdlog (logging goes through Host Services)
 # ------------------------------------------------------------------------------
 guard_check("plugins must not include host src/ module headers"
-    "${INC_RE}\"(\\.\\./|(core|application|infrastructure|domain|config|network|http_client|cli|composition|dns|ip_source|util|support)/)"
+    "${INC_RE}[<\"](\\.\\./|(core|application|infrastructure|domain|config|network|http_client|cli|composition|dns|ip_source|util|support)/)"
     ${PROJECT_SOURCE_DIR}/driver/*.h
     ${PROJECT_SOURCE_DIR}/driver/*.hpp
     ${PROJECT_SOURCE_DIR}/driver/*.cpp)
@@ -71,7 +71,7 @@ guard_check("plugins must not include legacy utility headers (use yaddnsc/sdk/*)
 # 4. driver_abi.h stays pure C (C standard headers only)
 # ------------------------------------------------------------------------------
 set(ABI_HEADER ${PROJECT_SOURCE_DIR}/include/yaddnsc/sdk/driver_abi.h)
-file(STRINGS ${ABI_HEADER} abi_includes REGEX "${INC_RE}<")
+file(STRINGS ${ABI_HEADER} abi_includes REGEX "${INC_RE}[<\"]")
 foreach (line ${abi_includes})
     if (NOT line MATCHES "^[ \t]*#[ \t]*include[ \t]*<(stddef\\.h|stdint\\.h|stdbool\\.h)>[ \t]*$")
         string(STRIP "${line}" stripped)
@@ -153,6 +153,28 @@ guard_check("plugins must not redefine shared string utilities (use yaddnsc/sdk/
     ${PROJECT_SOURCE_DIR}/driver/*/*.h
     ${PROJECT_SOURCE_DIR}/driver/*/*.hpp
     ${PROJECT_SOURCE_DIR}/driver/*/*.cpp)
+
+# ------------------------------------------------------------------------------
+# 10. dns_classic stays below the transport layer: the classic resolver, wire
+#     format, parser, bootstrap and resolv.conf discovery must not pull in the
+#     HTTP/transport/plugin machinery (SocketStream depends on this target —
+#     a back-edge would create a cycle)
+# ------------------------------------------------------------------------------
+file(GLOB_RECURSE dns_classic_files RELATIVE ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/src/infrastructure/dns/*.h
+    ${PROJECT_SOURCE_DIR}/src/infrastructure/dns/*.hpp
+    ${PROJECT_SOURCE_DIR}/src/infrastructure/dns/*.cpp)
+list(FILTER dns_classic_files EXCLUDE REGEX "(doh|dot|dispatcher|factory|resolver_catalog)\\.")
+foreach (f ${dns_classic_files})
+    file(STRINGS ${PROJECT_SOURCE_DIR}/${f} lines REGEX "${INC_RE}[<\"](infrastructure/network/(http|transport)/|infrastructure/plugin/|openssl/)")
+    foreach (line ${lines})
+        if (line MATCHES "^[ \t]*(//|/\\*|\\*)")
+            continue()
+        endif ()
+        string(STRIP "${line}" stripped)
+        set(violations "${violations}\n  ${f}: dns_classic must not depend on HTTP/transport/plugin/OpenSSL (layering cycle)\n      ${stripped}")
+    endforeach ()
+endforeach ()
 
 # ------------------------------------------------------------------------------
 # Verdict

@@ -7,7 +7,9 @@
 
 #include <memory>
 #include <string>
+#include <vector>
 
+#include "domain/config/dns_config.h"
 #include "domain/network/address_family.h"
 #include "infrastructure/ip_source/base.h"
 
@@ -33,9 +35,12 @@ public:
     /// @param url              URL of the HTTP IP detection service.
     /// @param address_family   Preferred address family for the connection.
     /// @param bind_interface   Outbound network interface to bind to (empty = any).
+    /// @param bootstrap        Bootstrap DNS servers used to resolve the URL's
+    ///                         hostname (empty: hostname URLs fail fast).
     explicit HttpIpSource(std::string url,
                           AddressFamily address_family = AddressFamily::UNSPECIFIED,
-                          std::string bind_interface = {});
+                          std::string bind_interface = {},
+                          std::vector<Config::DnsServer> bootstrap = {});
 
     ~HttpIpSource() override;
 

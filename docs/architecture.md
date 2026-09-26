@@ -44,6 +44,17 @@ Dependency direction is enforced by the CMake target graph
   `net::http`), `src/infrastructure/plugin/` (plugin host), `src/infrastructure/logging/`, `src/infrastructure/time/`, and `src/infrastructure/process/`
   (concrete port adapters: logger, clock, signal watcher, driver loader,
   network interfaces), `src/cli/` (parser + presenter).
+
+  Within DNS infrastructure the classic resolver, wire format, parser and the
+  bootstrap/`resolv.conf` helpers form a separate lower target
+  (`yaddnsc_dns_classic`, depending only on domain + network infrastructure)
+  so that `net::transport` can resolve hostname targets through them:
+  `SocketStream` never calls `getaddrinfo` — hostname endpoints go through
+  the bootstrap DNS servers (`bootstrap_dns`, else `/etc/resolv.conf`),
+  keeping name resolution cancellable and inside the connect deadline. The
+  DoH/DoT resolvers, dispatcher and resolver factory sit above HTTP in
+  `yaddnsc_dns_infrastructure`, which would otherwise create a dependency
+  cycle with the transport.
 - `src/composition/`: the composition root.
 - `include/yaddnsc/sdk/`: the plugin SDK (C ABI + C++ helper layer). Together
   with `include/yaddnsc/util/` these are the only public headers. All host

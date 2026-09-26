@@ -13,15 +13,17 @@
 #include <optional>
 #include <span>
 #include <string>
+#include <vector>
 
+#include "domain/config/dns_config.h"
 #include "domain/network/address_family.h"
 
 namespace Transport {
 
 /// Connection-level options shared by TCP and TLS streams.
 struct Options {
-    /// Budget for connection establishment (connect + TLS handshake;
-    /// name resolution itself is blocking and not covered by this).
+    /// Budget for connection establishment (connect + TLS handshake),
+    /// including bootstrap name resolution of hostname targets.
     std::chrono::milliseconds connect_timeout{5000};
 
     /// Timeout for each poll() iteration while reading.
@@ -36,6 +38,12 @@ struct Options {
 
     /// Restrict name resolution to this address family.
     std::optional<AddressFamily> address_family{};
+
+    /// Bootstrap DNS servers (IP literals) used to resolve hostname targets
+    /// via the built-in classic resolver. getaddrinfo/NSS is never used:
+    /// /etc/hosts and friends do not apply. Empty: hostname targets fail
+    /// fast with an actionable error.
+    std::vector<Config::DnsServer> bootstrap_dns{};
 };
 
 /// TLS-only options. Accepted exclusively by TlsStream / create_tls —

@@ -82,6 +82,10 @@ auto normalize(const AppConfig& raw) -> domain::RuntimeConfig {
     domain::RuntimeConfig config;
     config.resolver = normalize_resolver(raw.resolver);
 
+    if (!raw.bootstrap_dns.empty()) {
+        config.resolver.bootstrap_servers.push_back({raw.bootstrap_dns, 53});
+    }
+
     if (raw.driver.driver_dir.has_value()) {
         config.driver.driver_dir = std::filesystem::path{*raw.driver.driver_dir};
     }

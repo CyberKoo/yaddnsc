@@ -268,6 +268,7 @@ rejected; `config` is only a command group.
 | `resolver` | `use_custom_server` | Use the servers below instead of the built-in default. See [DNS Resolver](#dns-resolver). |
 | `resolver` | `servers` | List of DNS servers. Takes precedence over the legacy `address`/`port` pair. |
 | `resolver` | `strategy` | `concurrent` (default), `fallback`, or `shuffle`. |
+| (top level) | `bootstrap_dns` | IP literal of the bootstrap DNS server used to resolve hostnames of outbound endpoints (DoH/DoT servers, `http` IP source URLs, provider API hosts). Default: `/etc/resolv.conf` nameservers. See [DNS Resolver](#dns-resolver). |
 | `domains[]` | `name` | Managed domain, for example `example.com`. |
 | `domains[]` | `update_interval` | Update interval in seconds. The default lower bound is 60, adjustable at build time. |
 | `domains[]` | `force_update` | Interval in seconds at which an update is pushed unconditionally, without comparing against DNS. `0` (default) disables it; otherwise the value must not be smaller than `update_interval`. |
@@ -353,6 +354,19 @@ With several servers configured, `strategy` controls the query order:
 | `concurrent` | Queries resolvers in parallel and adopts the first successful answer. |
 | `fallback` | Queries resolvers sequentially in the configured order. |
 | `shuffle` | Queries resolvers sequentially in an order randomized per query. |
+
+### Hostname resolution (bootstrap DNS)
+
+yaddnsc never calls `getaddrinfo`: the system resolver, `/etc/hosts` and NSS
+are not consulted. IP literals connect directly; every hostname outbound
+endpoint (a DoH/DoT server given as a host name, the URL of an `http` IP
+source, or a provider API host used by a driver) is resolved through the
+built-in classic DNS resolver using the bootstrap servers — the configured
+`bootstrap_dns` first, otherwise the `nameserver` entries of
+`/etc/resolv.conf`. If neither source yields a server, hostname endpoints
+fail fast with an actionable error at connect time; IP-literal endpoints are
+unaffected. A host name listed in `/etc/hosts` therefore does not resolve —
+configure the corresponding IP literal instead.
 
 ## TLS and CA Certificates
 

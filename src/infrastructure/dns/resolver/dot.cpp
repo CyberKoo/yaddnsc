@@ -78,9 +78,11 @@ constexpr unsigned char ALPN_DOT[] = {3, 'd', 'o', 't'};
 }
 
 /// Connection + TLS options for the DoT connection.
-[[nodiscard]] std::pair<Transport::Options, Transport::TlsOptions> make_tls_options() {
+[[nodiscard]] std::pair<Transport::Options, Transport::TlsOptions>
+make_tls_options(std::vector<Config::DnsServer> bootstrap) {
     Transport::Options conn;
     conn.connect_timeout = CONNECT_TIMEOUT;
+    conn.bootstrap_dns = std::move(bootstrap);
     Transport::TlsOptions tls;
     tls.alpn_proto = ALPN_DOT;
     return {conn, tls};
@@ -164,18 +166,21 @@ read_response(Transport::Stream& stream, const std::string_view label, const Uti
 //  DotResolver  —  public API
 // ===========================================================================
 
-DotResolver::DotResolver(std::string server, const std::uint16_t port, std::string label)
+DotResolver::DotResolver(std::string server, const std::uint16_t port, std::string label,
+                         std::vector<Config::DnsServer> bootstrap)
     : id_(get_id()), server_(std::move(server)), port_(port), label_(std::move(label)),
+      bootstrap_(std::move(bootstrap)),
       stream_(std::make_unique<Transport::TlsStream>(server_,
                                                      port_,
-                                                     make_tls_options().first,
-                                                     make_tls_options().second)) {}
+                                                     make_tls_options(bootstrap_).first,
+                                                     make_tls_options(bootstrap_).second)) {}
 
 DotResolver::DotResolver(std::string server,
                          const std::uint16_t port,
                          std::string label,
                          std::unique_ptr<Transport::Stream> stream)
-    : id_(get_id()), server_(std::move(server)), port_(port), label_(std::move(label)), stream_(std::move(stream)) {}
+    : id_(get_id()), server_(std::move(server)), port_(port), label_(std::move(label)), bootstrap_{},
+      stream_(std::move(stream)) {}
 
 DotResolver::~DotResolver() = default;
 

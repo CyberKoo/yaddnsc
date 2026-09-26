@@ -23,6 +23,7 @@
       }
     ]
   },
+  "bootstrap_dns": "1.1.1.1",
   "domains": [
     {
       "name": "example.com",

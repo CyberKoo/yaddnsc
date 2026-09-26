@@ -70,6 +70,11 @@ struct AppConfig {
     DriverConfig driver{};                ///< Driver loading configuration
     ResolverConfig resolver{};            ///< DNS resolver configuration
     std::vector<DomainConfig> domains{};  ///< Domains to manage
+    /// Bootstrap DNS server (IP literal, port 53) used to resolve hostname
+    /// targets of outbound connections (DoH/DoT servers, HTTP IP sources,
+    /// provider APIs). Empty: fall back to /etc/resolv.conf nameservers.
+    /// getaddrinfo/NSS is never used.
+    std::string bootstrap_dns{};
 };
 
 /// Load the application configuration from a JSON file.

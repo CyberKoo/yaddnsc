@@ -99,7 +99,8 @@ struct glz::meta<Config::AppConfig> {
     static constexpr auto value = object(
         "driver", &T::driver,
         "resolver", &T::resolver,
-        "domains", &T::domains
+        "domains", &T::domains,
+        "bootstrap_dns", &T::bootstrap_dns
     );
 };
 

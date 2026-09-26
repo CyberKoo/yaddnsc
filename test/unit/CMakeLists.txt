@@ -186,6 +186,15 @@ target_link_libraries(test_mkquery PRIVATE yaddnsc_dns_infrastructure OpenSSL::C
 add_unit_test(dns_parser SOURCE dns/parser_test.cpp)
 target_link_libraries(test_dns_parser PRIVATE yaddnsc_dns_infrastructure)
 
+# bootstrap — hostname resolution via bootstrap DNS servers (no-network paths:
+# empty server list, expired deadline, pre-cancelled token)
+add_unit_test(dns_bootstrap SOURCE dns/bootstrap_test.cpp)
+target_link_libraries(test_dns_bootstrap PRIVATE yaddnsc_dns_classic)
+
+# resolv_conf — /etc/resolv.conf nameserver discovery
+add_unit_test(resolv_conf SOURCE dns/resolv_conf_test.cpp)
+target_link_libraries(test_resolv_conf PRIVATE yaddnsc_dns_classic)
+
 # DotResolver mock tests — TLS error paths via a mocked net::transport::Stream
 add_unit_test(dot_resolver_mock SOURCE dns/dot_resolver_mock_test.cpp)
 target_link_libraries(test_dot_resolver_mock PRIVATE yaddnsc_prod_all)

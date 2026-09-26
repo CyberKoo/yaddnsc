@@ -10,7 +10,9 @@
 #include <mutex>
 #include <string>
 #include <string_view>
+#include <vector>
 
+#include "domain/config/dns_config.h"
 #include "infrastructure/dns/resolver/base.h"
 
 namespace Transport {
@@ -35,7 +37,10 @@ public:
     /// @param server  Server hostname or IP address.
     /// @param port    TLS port (default: 853).
     /// @param label   Display label (e.g. "dot.pub:853"), used in log/error messages.
-    explicit DotResolver(std::string server, std::uint16_t port, std::string label);
+    /// @param bootstrap  Bootstrap DNS servers used to resolve `server` when
+    ///                   it is a hostname (empty: hostname targets fail fast).
+    explicit DotResolver(std::string server, std::uint16_t port, std::string label,
+                         std::vector<Config::DnsServer> bootstrap = {});
 
     /// Testing constructor: inject a pre-built stream (fake or real).
     DotResolver(std::string server, std::uint16_t port, std::string label, std::unique_ptr<Transport::Stream> stream);
@@ -52,6 +57,7 @@ private:
     const std::string server_;
     const std::uint16_t port_;
     const std::string label_;  // display label for log / error messages
+    const std::vector<Config::DnsServer> bootstrap_;
     mutable std::mutex mutex_;
     mutable std::unique_ptr<Transport::Stream> stream_;
     static constexpr std::string_view TYPE = "DNS-Over-TLS";

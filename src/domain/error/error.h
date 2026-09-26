@@ -36,6 +36,7 @@ struct ConfigError {
         MDNS_BAD_RECORD_TYPE,  ///< mDNS source requires type a/aaaa
         INVALID_RESOLVER,      ///< Resolver address is not a valid IP/URI
         NO_RESOLVER_SERVERS,   ///< use_custom_server set but no servers configured
+        INVALID_BOOTSTRAP_DNS, ///< bootstrap_dns is not a valid IP literal
         DRIVER_NOT_FOUND,      ///< Referenced driver plugin is not loaded
         INTERFACE_NOT_FOUND,   ///< Referenced network interface does not exist
     };

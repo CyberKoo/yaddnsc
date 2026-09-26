@@ -341,6 +341,24 @@ target_link_libraries(yaddnsc_network_infrastructure
     PRIVATE spdlog::spdlog yaddnsc_fmt
 )
 
+# Classic DNS resolution: wire format, response parser/validator and the
+# self-contained UDP/TCP resolver (no libresolv). Lives below the transport
+# layer so SocketStream can bootstrap hostnames without a dependency cycle.
+add_library(yaddnsc_dns_classic STATIC
+    src/infrastructure/dns/validator.cpp
+    src/infrastructure/dns/parser.cpp
+    src/infrastructure/dns/wire/builder.cpp
+    src/infrastructure/dns/resolver/classic.cpp
+    src/infrastructure/dns/bootstrap.cpp
+    src/infrastructure/dns/resolv_conf.cpp
+)
+yaddnsc_production_module(yaddnsc_dns_classic)
+target_link_libraries(yaddnsc_dns_classic
+    PUBLIC yaddnsc_domain yaddnsc_network_infrastructure
+    # OpenSSL::Crypto: the wire builder draws random query IDs via RAND_bytes.
+    PRIVATE spdlog::spdlog magic_enum OpenSSL::Crypto yaddnsc_fmt
+)
+
 # Network transport infrastructure (net::transport): TCP/TLS streams over OpenSSL.
 # OpenSSL is PUBLIC: the public tls_stream.h includes <openssl/ssl.h>, so every
 # consumer needs the OpenSSL include path (Homebrew OpenSSL on macOS lives
@@ -353,7 +371,7 @@ add_library(yaddnsc_network_transport STATIC
 yaddnsc_production_module(yaddnsc_network_transport)
 target_link_libraries(yaddnsc_network_transport
     PUBLIC yaddnsc_network_infrastructure yaddnsc_tls_support OpenSSL::SSL OpenSSL::Crypto
-    PRIVATE spdlog::spdlog yaddnsc_fmt
+    PRIVATE spdlog::spdlog yaddnsc_fmt yaddnsc_dns_classic
 )
 
 # HTTP client infrastructure (net::http) — used by the HTTP IP source
@@ -405,20 +423,19 @@ target_link_libraries(yaddnsc_config_infrastructure
 
 # DNS infrastructure — wire format, parsers, classic/DoT/DoH resolvers.
 # (dns/error.cpp lives in yaddnsc_domain: DnsError is port-level vocabulary.)
+# DNS infrastructure: resolver backends (DoH / DoT), dispatch strategies and
+# the resolver factory/catalog. The classic UDP/TCP resolver, wire format and
+# parser live in yaddnsc_dns_classic (below the transport layer).
 add_library(yaddnsc_dns_infrastructure STATIC
-    src/infrastructure/dns/validator.cpp
-    src/infrastructure/dns/wire/builder.cpp
     src/infrastructure/dns/resolver/doh.cpp
     src/infrastructure/dns/resolver/dot.cpp
-    src/infrastructure/dns/resolver/classic.cpp
     src/infrastructure/dns/factory.cpp
     src/infrastructure/dns/resolver_catalog.cpp
-    src/infrastructure/dns/parser.cpp
     src/infrastructure/dns/dispatcher.cpp
 )
 yaddnsc_production_module(yaddnsc_dns_infrastructure)
 target_link_libraries(yaddnsc_dns_infrastructure
-    PUBLIC yaddnsc_domain yaddnsc_network_infrastructure yaddnsc_http_infrastructure
+    PUBLIC yaddnsc_domain yaddnsc_dns_classic yaddnsc_http_infrastructure
     PRIVATE spdlog::spdlog magic_enum OpenSSL::Crypto yaddnsc_fmt
 )
 

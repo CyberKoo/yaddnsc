@@ -178,6 +178,15 @@ auto validate_static(const AppConfig& raw) -> std::vector<domain::ConfigError> {
         }
     }
 
+    // Bootstrap DNS server — must be an IP literal when set (hostnames would
+    // be circular: bootstrap DNS is what resolves hostnames).
+    if (!raw.bootstrap_dns.empty() && !InetAddress::parse(raw.bootstrap_dns)) {
+        push_error(errors, Code::INVALID_BOOTSTRAP_DNS,
+                   fmt::format(R"(Invalid bootstrap_dns "{}": must be an IP literal (e.g. "223.5.5.5" or )"
+                               R"("2606:4700:4700::1111"))",
+                               raw.bootstrap_dns));
+    }
+
     return errors;
 }
 

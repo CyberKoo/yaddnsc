@@ -8,6 +8,7 @@
 #include <new>
 #include <string>
 #include <utility>
+#include <vector>
 
 #include "domain/config/ip_source_kind.h"
 #include "domain/config/runtime_config.h"
@@ -43,7 +44,8 @@ namespace {
 /// based on Config::IpSource.
 /// @param cfg  The subdomain configuration record.
 /// @return     A unique pointer to the concrete IP source implementation.
-IpSourceFactory::Result IpSourceFactory::create(const domain::SubdomainConfig& cfg) {
+IpSourceFactory::Result IpSourceFactory::create(const domain::SubdomainConfig& cfg,
+                                                std::vector<Config::DnsServer> bootstrap) {
     auto address_family = type_to_family(cfg.type);
 
     try {
@@ -52,7 +54,8 @@ IpSourceFactory::Result IpSourceFactory::create(const domain::SubdomainConfig& c
                 return std::make_unique<InterfaceIpSource>(cfg.interface, address_family);
 
             case Config::IpSource::HTTP:
-                return std::make_unique<HttpIpSource>(cfg.ip_source_param, address_family, cfg.interface);
+                return std::make_unique<HttpIpSource>(cfg.ip_source_param, address_family, cfg.interface,
+                                                      std::move(bootstrap));
 
             case Config::IpSource::MDNS:
                 return std::make_unique<MdnsIpSource>(cfg.ip_source_param, cfg.type, cfg.interface);

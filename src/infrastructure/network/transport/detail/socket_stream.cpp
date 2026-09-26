@@ -13,9 +13,9 @@
 #include <optional>
 #include <stdexcept>
 #include <utility>
+#include <vector>
 
 #include <fcntl.h>
-#include <netdb.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <poll.h>
@@ -24,6 +24,8 @@
 
 #include "domain/network/address_family.h"
 #include "domain/network/inet_address.h"
+#include "infrastructure/dns/bootstrap.h"
+#include "infrastructure/network/socket_addr.h"
 #include "support/fmt.hpp"
 #include "support/util/cancellation_token.hpp"
 #include "support/util/validation.hpp"
@@ -31,27 +33,6 @@
 #include "config_cmake.h"
 
 namespace Transport::detail {
-
-namespace {
-
-struct AddrInfoDeleter {
-    void operator()(addrinfo* p) const noexcept { ::freeaddrinfo(p); }
-};
-
-using AddrInfoPtr = std::unique_ptr<addrinfo, AddrInfoDeleter>;
-
-[[nodiscard]] int af_hint(const std::optional<AddressFamily> af) noexcept {
-    switch (af.value_or(AddressFamily::UNSPECIFIED)) {
-        case AddressFamily::IPV4:
-            return AF_INET;
-        case AddressFamily::IPV6:
-            return AF_INET6;
-        default:
-            return AF_UNSPEC;
-    }
-}
-
-}  // namespace
 
 std::expected<void, IoError> poll_fd(const int fd,
                                      const short events,
@@ -123,28 +104,57 @@ std::expected<void, IoError> SocketStream::connect(const Utils::CancellationToke
         return std::unexpected(CANCELLED);
     }
 
-    addrinfo hints{};
-    hints.ai_family = af_hint(opts_.address_family);
-    hints.ai_socktype = SOCK_STREAM;
-    hints.ai_protocol = IPPROTO_TCP;
-
-    AddrInfoPtr res{nullptr};
-    if (addrinfo* raw = nullptr; ::getaddrinfo(host_.c_str(), std::to_string(port_).c_str(), &hints, &raw) == 0) {
-        res.reset(raw);
-    }
-    if (!res) {
-        SPDLOG_DEBUG(R"(Name resolution failed for "{}")", host_);
-        return std::unexpected(CONNECTION_FAILED);
-    }
-
+    // Name resolution shares the connect budget.
     const auto deadline = std::chrono::steady_clock::now() + opts_.connect_timeout;
 
-    for (auto* ai = res.get(); ai != nullptr; ai = ai->ai_next) {
+    // Resolve the target into socket addresses. getaddrinfo/NSS is
+    // deliberately never used: IP literals connect directly, hostnames go
+    // through the configured bootstrap DNS servers (cancellable, bounded
+    // by the same deadline).
+    std::vector<SocketAddr> addrs;
+    if (const auto ip = InetAddress::parse(host_)) {
+        if (auto sa = SocketAddr::from_inet(*ip, port_)) {
+            addrs.push_back(*sa);
+        } else {
+            return std::unexpected(CONNECTION_FAILED);
+        }
+    } else {
+        if (opts_.bootstrap_dns.empty()) {
+            SPDLOG_WARN(R"(Cannot resolve hostname "{}": no bootstrap DNS servers available. )"
+                        R"(Set "bootstrap_dns" in the configuration or populate /etc/resolv.conf, )"
+                        R"(or use an IP literal. (/etc/hosts and NSS are not consulted.))",
+                        host_);
+            return std::unexpected(CONNECTION_FAILED);
+        }
+
+        auto resolved = DNS::resolve_bootstrap(host_, opts_.address_family, opts_.bootstrap_dns, deadline, token);
+        if (!resolved) {
+            if (resolved.error().code == DnsError::CANCELLED) {
+                return std::unexpected(CANCELLED);
+            }
+            if (resolved.error().code == DnsError::RETRY) {
+                return std::unexpected(TIMEOUT);
+            }
+            SPDLOG_DEBUG(R"(Bootstrap name resolution failed for "{}": {})", host_, resolved.error().message);
+            return std::unexpected(CONNECTION_FAILED);
+        }
+
+        for (const auto& addr : *resolved) {
+            if (auto sa = SocketAddr::from_inet(addr, port_)) {
+                addrs.push_back(*sa);
+            }
+        }
+        if (addrs.empty()) {
+            return std::unexpected(CONNECTION_FAILED);
+        }
+    }
+
+    for (const auto& sa : addrs) {
         if (std::chrono::steady_clock::now() >= deadline) {
             return std::unexpected(TIMEOUT);
         }
 
-        if (auto result = connect_one(ai->ai_addr, static_cast<socklen_t>(ai->ai_addrlen), deadline, token)) {
+        if (auto result = connect_one(sa.raw(), sa.raw_len(), deadline, token)) {
             return {};
         } else {
             if (result.error() == TIMEOUT || result.error() == CANCELLED) {
@@ -199,8 +209,11 @@ std::expected<void, IoError> SocketStream::connect_one(const struct sockaddr* ad
         return std::unexpected(CONNECTION_FAILED);
     }
     if (rc != 0) {
-        const auto remaining =
-            std::chrono::duration_cast<std::chrono::milliseconds>(deadline - std::chrono::steady_clock::now());
+        // Clamp: a deadline already in the past must not degenerate into an
+        // infinite poll() (a negative timeout means "block forever").
+        const auto remaining = std::max(
+            std::chrono::duration_cast<std::chrono::milliseconds>(deadline - std::chrono::steady_clock::now()),
+            std::chrono::milliseconds{0});
         auto ready = poll_fd(sock.get(), POLLOUT, remaining, token);
         if (!ready) {
             return std::unexpected(ready.error());

@@ -255,6 +255,7 @@ yaddnsc config test -c /etc/yaddnsc/config.json -q
 | `resolver` | `use_custom_server` | 使用下方配置的服务器替代内置默认服务器，详见 [DNS 解析器](#dns-解析器)。 |
 | `resolver` | `servers` | DNS 服务器列表；优先于旧版 `address`/`port` 字段。 |
 | `resolver` | `strategy` | `concurrent`（默认）、`fallback` 或 `shuffle`。 |
+| （顶层） | `bootstrap_dns` | bootstrap DNS 服务器（IP 字面量），用于解析所有出站端点的主机名（DoH/DoT 服务器、`http` IP 源 URL、服务商 API 主机）。缺省使用 `/etc/resolv.conf` 的 nameserver。详见 [DNS 解析器](#dns-解析器)。 |
 | `domains[]` | `name` | 受管理的域名，例如 `example.com`。 |
 | `domains[]` | `update_interval` | 更新间隔，单位秒；默认下限为 60，可在构建时调整。 |
 | `domains[]` | `force_update` | 强制更新间隔，单位秒；到达该间隔时不与 DNS 比对即推送更新。`0`（默认）表示关闭；非零时不得小于 `update_interval`。 |
@@ -331,6 +332,15 @@ IPv6 唯一本地地址与链路本地地址不参与选取。
 | `concurrent` | 并行查询各解析器，采用最先返回的成功结果。 |
 | `fallback` | 按配置顺序依次查询。 |
 | `shuffle` | 每次查询随机排列顺序后依次查询。 |
+
+### 主机名解析（bootstrap DNS）
+
+yaddnsc 从不调用 `getaddrinfo`：不查询系统解析器、`/etc/hosts` 与 NSS。IP 字面量
+直接连接；所有主机名形式的出站端点（以主机名给出的 DoH/DoT 服务器、`http` IP 源的
+URL、驱动使用的服务商 API 主机）一律通过内置 classic DNS 解析器经 bootstrap 服务器
+解析——优先使用配置的 `bootstrap_dns`，否则使用 `/etc/resolv.conf` 的 `nameserver`
+条目。两者皆无时，主机名端点会在连接时立即失败并给出可操作的错误提示；IP 字面量
+端点不受影响。因此 `/etc/hosts` 中的主机名不会生效——请改为配置对应的 IP 字面量。
 
 ## TLS 与 CA 证书
 

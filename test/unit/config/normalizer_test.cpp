@@ -325,3 +325,25 @@ TEST(NormalizerTest, StaticallyInvalidConfig_StillNormalizes) {
     const auto config = Config::normalize(raw);
     EXPECT_EQ(config.domains[0].subdomains[0].update_interval, 1);
 }
+
+TEST(NormalizerTest, BootstrapDns_ParsedFromJsonIntoBootstrapServers) {
+    const auto raw = parse_raw(R"({
+        "driver": {},
+        "resolver": { "use_custom_server": false },
+        "domains": [],
+        "bootstrap_dns": "9.9.9.9"
+    })");
+    EXPECT_EQ(raw.bootstrap_dns, "9.9.9.9");
+
+    const auto config = Config::normalize(raw);
+    ASSERT_EQ(config.resolver.bootstrap_servers.size(), 1U);
+    EXPECT_EQ(config.resolver.bootstrap_servers[0].address, "9.9.9.9");
+    EXPECT_EQ(config.resolver.bootstrap_servers[0].port, 53);
+}
+
+TEST(NormalizerTest, BootstrapDns_Unset_LeavesBootstrapServersEmpty) {
+    const auto raw = parse_raw(MINIMAL_CONFIG);
+
+    const auto config = Config::normalize(raw);
+    EXPECT_TRUE(config.resolver.bootstrap_servers.empty());
+}

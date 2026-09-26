@@ -10,7 +10,9 @@
 #include <mutex>
 #include <string>
 #include <string_view>
+#include <vector>
 
+#include "domain/config/dns_config.h"
 #include "infrastructure/dns/resolver/base.h"
 
 namespace Transport {
@@ -34,7 +36,10 @@ public:
     /// @param port   DoH server port.
     /// @param path   HTTP path for DNS queries (e.g. "/dns-query").
     /// @param label  Display label for log / error messages.
-    DohResolver(std::string host, std::uint16_t port, std::string path, std::string label);
+    /// @param bootstrap  Bootstrap DNS servers used to resolve `host` when
+    ///                   it is a hostname (empty: hostname targets fail fast).
+    DohResolver(std::string host, std::uint16_t port, std::string path, std::string label,
+                std::vector<Config::DnsServer> bootstrap = {});
 
     /// Testing constructor: inject a pre-built stream (fake or real).
     DohResolver(std::string host,
@@ -57,6 +62,7 @@ private:
     const std::string path_;
     const std::string host_header_;
     const std::string label_;  // display label for log / error messages
+    const std::vector<Config::DnsServer> bootstrap_;
     mutable std::mutex mutex_;
     mutable std::unique_ptr<Transport::Stream> stream_;
 };

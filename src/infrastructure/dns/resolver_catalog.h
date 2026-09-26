@@ -10,6 +10,7 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <vector>
 
 #include "domain/config/dns_config.h"
 
@@ -38,7 +39,9 @@ public:
 
     /// A catalog carrying the built-in resolver factories:
     /// "" → ClassicResolver, "https" → DohResolver, "tls" → DotResolver.
-    [[nodiscard]] static ResolverCatalog with_builtins();
+    /// @param bootstrap  Bootstrap DNS servers handed to the DoH/DoT
+    ///                   resolvers for resolving hostname server addresses.
+    [[nodiscard]] static ResolverCatalog with_builtins(std::vector<Config::DnsServer> bootstrap = {});
 
     /// Create a resolver for the given server address.
     ///

@@ -21,6 +21,9 @@ import sys
 
 DEFAULT_RECORDS = {
     "yaddnsc.test": {"A": "198.51.100.42", "AAAA": "2001:db8::42"},
+    # Used by the bootstrap end-to-end test: resolves to loopback so the
+    # resolved address can be connected to locally.
+    "loopback.yaddnsc.test": {"A": "127.0.0.1"},
 }
 
 # Hostnames that trigger special behaviour.

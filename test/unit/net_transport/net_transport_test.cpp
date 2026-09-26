@@ -45,6 +45,7 @@ TEST(NetTransportOptions, Defaults) {
     EXPECT_EQ(opts.write_timeout, 5000ms);
     EXPECT_FALSE(opts.interface.has_value());
     EXPECT_FALSE(opts.address_family.has_value());
+    EXPECT_TRUE(opts.bootstrap_dns.empty());
 
     const Transport::TlsOptions tls;
     EXPECT_TRUE(tls.verify_peer);
@@ -283,6 +284,21 @@ TEST(NetTransportErrorPaths, SocketStream_Connect_UnresolvableHost_Fails) {
     const auto result = stream.connect(token);
     ASSERT_FALSE(result);
     EXPECT_EQ(result.error(), IoError::CONNECTION_FAILED);
+}
+
+TEST(NetTransportErrorPaths, SocketStream_Connect_HostnameWithoutBootstrap_FailsFast) {
+    const Utils::CancellationToken token;
+    // No bootstrap DNS servers configured: a hostname target must fail
+    // immediately (no getaddrinfo fallback, no NSS lookup).
+    Transport::detail::SocketStream stream("example.com", 443, {});
+
+    const auto start = std::chrono::steady_clock::now();
+    const auto result = stream.connect(token);
+    const auto elapsed = std::chrono::steady_clock::now() - start;
+
+    ASSERT_FALSE(result);
+    EXPECT_EQ(result.error(), IoError::CONNECTION_FAILED);
+    EXPECT_LT(elapsed, 1s);
 }
 
 TEST(NetTransportPollFd, ErrorFlagWithoutMatchingEvent_ReturnsConnectionFailed) {

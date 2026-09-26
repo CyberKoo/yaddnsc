@@ -186,7 +186,10 @@ A driver:
   Glaze is available privately to the plugin (it is part of
   `yaddnsc::plugin_sdk`);
 - performs provider HTTP calls through the Host Services exchange
-  (`UpdateContext::exchange`) — the host owns the actual HTTP client;
+  (`UpdateContext::exchange`) — the host owns the actual HTTP client.
+  Hostname endpoints are resolved through the host's bootstrap DNS
+  (`bootstrap_dns` or `/etc/resolv.conf`); `getaddrinfo`, `/etc/hosts` and
+  NSS are never consulted, so prefer IP literals in exotic environments;
 - logs through the `YADDNSC_SDK_LOG_*` macros — the call site
   (`file` / `line` / `function`) is forwarded through Host Services to the
   host logger (`spdlog::source_loc`); there is no `-rdynamic` / `CORE_LOG`

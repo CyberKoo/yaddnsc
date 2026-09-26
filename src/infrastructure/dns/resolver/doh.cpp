@@ -93,9 +93,11 @@ constexpr auto CONNECT_TIMEOUT = 1s;
 constexpr unsigned char ALPN_HTTP[] = {8, 'h', 't', 't', 'p', '/', '1', '.', '1'};
 
 /// Connection + TLS options for the DoH connection.
-[[nodiscard]] std::pair<Transport::Options, Transport::TlsOptions> make_tls_options() {
+[[nodiscard]] std::pair<Transport::Options, Transport::TlsOptions>
+make_tls_options(std::vector<Config::DnsServer> bootstrap) {
     Transport::Options conn;
     conn.connect_timeout = CONNECT_TIMEOUT;
+    conn.bootstrap_dns = std::move(bootstrap);
     Transport::TlsOptions tls;
     tls.alpn_proto = ALPN_HTTP;
     return {conn, tls};
@@ -106,13 +108,14 @@ constexpr unsigned char ALPN_HTTP[] = {8, 'h', 't', 't', 'p', '/', '1', '.', '1'
 //  DohResolver  —  public API
 // ===========================================================================
 
-DohResolver::DohResolver(std::string host, const std::uint16_t port, std::string path, std::string label)
+DohResolver::DohResolver(std::string host, const std::uint16_t port, std::string path, std::string label,
+                         std::vector<Config::DnsServer> bootstrap)
     : id_(get_id()), host_(std::move(host)), port_(port), path_(std::move(path)),
-      host_header_(build_host_header(host_, port_)), label_(std::move(label)),
+      host_header_(build_host_header(host_, port_)), label_(std::move(label)), bootstrap_(std::move(bootstrap)),
       stream_(std::make_unique<Transport::TlsStream>(host_,
                                                      port_,
-                                                     make_tls_options().first,
-                                                     make_tls_options().second)) {}
+                                                     make_tls_options(bootstrap_).first,
+                                                     make_tls_options(bootstrap_).second)) {}
 
 DohResolver::DohResolver(std::string host,
                          const std::uint16_t port,
@@ -120,7 +123,8 @@ DohResolver::DohResolver(std::string host,
                          std::string label,
                          std::unique_ptr<Transport::Stream> stream)
     : id_(get_id()), host_(std::move(host)), port_(port), path_(std::move(path)),
-      host_header_(build_host_header(host_, port_)), label_(std::move(label)), stream_(std::move(stream)) {}
+      host_header_(build_host_header(host_, port_)), label_(std::move(label)), bootstrap_{},
+      stream_(std::move(stream)) {}
 
 DohResolver::~DohResolver() = default;
 

@@ -330,7 +330,7 @@ TEST(SchedulerRunner, FullUpdateCycleOverMockPorts) {
 
     domain::ScheduleQueue queue(cfg, T0);
     FakeClock clock{T0};
-    InlineTaskExecutor executor([&workflow](const domain::UpdateTask& task) { workflow.run(task, {}); });
+    InlineTaskExecutor executor([&workflow](const domain::UpdateTask& task) { static_cast<void>(workflow.run(task, {})); });
 
     std::stop_source stop;
     SchedulerRunner runner(queue, clock, executor, stop.get_token(), logger);

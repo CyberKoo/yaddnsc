@@ -42,6 +42,9 @@ struct DriverSettings {
 struct ResolverSettings {
     std::vector<Config::DnsServer> servers{};                     ///< Normalised server list
     Config::ResolverStrategy strategy{Config::ResolverStrategy::CONCURRENT}; ///< Resolution strategy
+    /// Effective bootstrap DNS servers for outbound hostname resolution
+    /// (from bootstrap_dns, or /etc/resolv.conf filled in by composition).
+    std::vector<Config::DnsServer> bootstrap_servers{};
 };
 
 /// Per-subdomain runtime configuration.

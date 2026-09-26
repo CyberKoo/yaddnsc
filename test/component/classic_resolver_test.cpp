@@ -54,13 +54,17 @@
 #include "domain/error/dns_error.h"
 #include "domain/error/dns_error_info.h"
 #include "domain/network/inet_address.h"
+#include "infrastructure/dns/bootstrap.h"
 #include "infrastructure/dns/dns_lookup_exception.h"
 #include "infrastructure/dns/resolver/classic.h"
 #include "infrastructure/dns/types.h"
 #include "infrastructure/network/socket.h"
 #include "infrastructure/network/socket_addr.h"
+#include "infrastructure/network/transport/detail/socket_stream.h"
+#include "infrastructure/network/transport/options.h"
 #include "support/fmt.hpp"
 #include "support/util/cancellation_token.hpp"
+#include "support/util/fd.hpp"
 
 using namespace std::chrono_literals;
 
@@ -686,6 +690,83 @@ TEST_F(ClassicNativeResolverTest, TcpBodyTruncated_ReturnsConnectionError) {
     auto result = global_resolver->query("tcpbodytrunc.yaddnsc.test", RecordKind::A, {});
 
     ASSERT_FALSE(result.has_value());
+}
+
+// ===========================================================================
+// Bootstrap DNS — DNS::resolve_bootstrap against the same fake server, plus
+// the SocketStream hostname end-to-end path through it.
+// ===========================================================================
+
+TEST_F(ClassicNativeResolverTest, Bootstrap_ResolvesAAndAAAA) {
+    const std::vector<Config::DnsServer> servers{{"127.0.0.1", DNS_PORT}};
+    const auto deadline = std::chrono::steady_clock::now() + 5s;
+
+    const auto result = DNS::resolve_bootstrap("yaddnsc.test", std::nullopt, servers, deadline, {});
+
+    ASSERT_TRUE(result.has_value()) << result.error().message;
+    ASSERT_EQ(result->size(), 2U);
+    EXPECT_EQ((*result)[0].to_string(), "198.51.100.42");  // A first
+    EXPECT_EQ((*result)[1].to_string(), "2001:db8::42");
+}
+
+TEST_F(ClassicNativeResolverTest, Bootstrap_FamilyFilter) {
+    const std::vector<Config::DnsServer> servers{{"127.0.0.1", DNS_PORT}};
+    const auto deadline = std::chrono::steady_clock::now() + 5s;
+
+    const auto v4 = DNS::resolve_bootstrap("yaddnsc.test", AddressFamily::IPV4, servers, deadline, {});
+    ASSERT_TRUE(v4.has_value()) << v4.error().message;
+    ASSERT_EQ(v4->size(), 1U);
+    EXPECT_EQ((*v4)[0].to_string(), "198.51.100.42");
+
+    const auto v6 = DNS::resolve_bootstrap("yaddnsc.test", AddressFamily::IPV6, servers, deadline, {});
+    ASSERT_TRUE(v6.has_value()) << v6.error().message;
+    ASSERT_EQ(v6->size(), 1U);
+    EXPECT_EQ((*v6)[0].to_string(), "2001:db8::42");
+}
+
+TEST_F(ClassicNativeResolverTest, Bootstrap_Nxdomain_ReturnsError) {
+    const std::vector<Config::DnsServer> servers{{"127.0.0.1", DNS_PORT}};
+    const auto deadline = std::chrono::steady_clock::now() + 5s;
+
+    // The fake server answers ANY A query with a fallback record, so the
+    // NXDOMAIN path is exercised through an AAAA query.
+    const auto result =
+        DNS::resolve_bootstrap("nonexistent.yaddnsc.test", AddressFamily::IPV6, servers, deadline, {});
+
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error().code, DnsError::NX_DOMAIN);
+}
+
+TEST_F(ClassicNativeResolverTest, Bootstrap_SocketStreamConnectsViaHostname) {
+    // Local TCP listener on an ephemeral loopback port; the fake DNS server
+    // resolves loopback.yaddnsc.test to 127.0.0.1.
+    const Utils::UniqueFd listener(::socket(AF_INET, SOCK_STREAM, 0));
+    ASSERT_TRUE(listener);
+    sockaddr_in addr{};
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    addr.sin_port = 0;
+    ASSERT_EQ(::bind(listener.get(), reinterpret_cast<sockaddr*>(&addr), sizeof(addr)), 0);
+    ASSERT_EQ(::listen(listener.get(), 1), 0);
+    socklen_t addr_len = sizeof(addr);
+    ASSERT_EQ(::getsockname(listener.get(), reinterpret_cast<sockaddr*>(&addr), &addr_len), 0);
+    const auto port = ntohs(addr.sin_port);
+
+    std::thread acceptor([&] {
+        // Bounded wait so a failed connect can never hang the test.
+        pollfd pfd{.fd = listener.get(), .events = POLLIN, .revents = 0};
+        if (::poll(&pfd, 1, 5000) > 0) {
+            const Utils::UniqueFd conn(::accept(listener.get(), nullptr, nullptr));
+        }
+    });
+
+    Transport::Options opts;
+    opts.bootstrap_dns = {Config::DnsServer{"127.0.0.1", DNS_PORT}};
+    Transport::detail::SocketStream stream("loopback.yaddnsc.test", port, opts);
+
+    const auto result = stream.connect({});
+    EXPECT_TRUE(result.has_value());
+    acceptor.join();
 }
 
 }  // anonymous namespace

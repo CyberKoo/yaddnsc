@@ -39,8 +39,10 @@
 #include "infrastructure/config/static_validator.h"
 #include "infrastructure/dns/dispatcher.h"
 #include "infrastructure/dns/factory.h"
+#include "infrastructure/dns/resolv_conf.h"
 #include "infrastructure/dns/resolver_catalog.h"
 #include "infrastructure/ip_source/adapter.h"
+#include "infrastructure/ip_source/factory.h"
 #include "infrastructure/logging/spdlog_logger.h"
 #include "infrastructure/network/http/client.h"
 #include "infrastructure/network/http/client_port.h"
@@ -81,12 +83,30 @@ std::uint32_t estimate_pool_size(const domain::RuntimeConfig& config) noexcept {
     return std::min(thread_count, THREAD_LIMIT);
 }
 
+/// Fill in the effective bootstrap DNS server list: the configured
+/// bootstrap_dns wins; otherwise fall back to /etc/resolv.conf nameservers.
+/// An empty result is not fatal — IP-literal targets still work — but every
+/// hostname target (DoH/DoT server, HTTP IP source, provider API endpoint)
+/// will fail fast at connect time, so say so once at startup.
+void fill_bootstrap_servers(domain::RuntimeConfig& config) {
+    if (!config.resolver.bootstrap_servers.empty()) {
+        return;
+    }
+    config.resolver.bootstrap_servers = DNS::parse_resolv_conf();
+    if (config.resolver.bootstrap_servers.empty()) {
+        SPDLOG_WARN("No bootstrap DNS servers available (no \"bootstrap_dns\" configured and no nameserver found in "
+                    "/etc/resolv.conf): hostname targets will fail to resolve. IP-literal targets are unaffected. "
+                    "(/etc/hosts and NSS are never consulted.)");
+    }
+}
+
 /// HTTP client factory for the driver gateway: the token is no longer bound
 /// into the client — cancellation flows through each exchange() call instead.
-[[nodiscard]] HttpClientFactory make_http_client_factory() {
-    return [] {
+[[nodiscard]] HttpClientFactory make_http_client_factory(std::vector<Config::DnsServer> bootstrap) {
+    return [bootstrap = std::move(bootstrap)] {
         net::http::Options opts;
         opts.user_agent = YADDNSC::get_full_version();
+        opts.transport.bootstrap_dns = bootstrap;
         return std::make_unique<net::http::Client>(std::move(opts));
     };
 }
@@ -112,6 +132,7 @@ int run_command(const Cli::RunCommand& command) {
         SPDLOG_CRITICAL(config.error().front().message);
         return EXIT_FAILURE;
     }
+    fill_bootstrap_servers(*config);
 
     SignalWatcher signal_watcher;
     Utils::CancellationSource cancellation;
@@ -135,9 +156,13 @@ int run_command(const Cli::RunCommand& command) {
             return EXIT_FAILURE;
         }
 
-        auto dispatcher = DnsResolverFactory::create(runtime_config->resolver, ResolverCatalog::with_builtins());
-        const IpSourceAdapter ip_source;
-        const AbiDriverGateway driver_gateway(driver_catalog, make_http_client_factory(), logger);
+        auto dispatcher = DnsResolverFactory::create(
+            runtime_config->resolver, ResolverCatalog::with_builtins(runtime_config->resolver.bootstrap_servers));
+        const auto& bootstrap = runtime_config->resolver.bootstrap_servers;
+        const IpSourceAdapter ip_source{[&bootstrap](const domain::SubdomainConfig& cfg) {
+            return IpSourceFactory::create(cfg, bootstrap);
+        }};
+        const AbiDriverGateway driver_gateway(driver_catalog, make_http_client_factory(bootstrap), logger);
         const UpdateWorkflow workflow(dispatcher, ip_source, driver_gateway, logger);
         PoolTaskExecutor task_executor(estimate_pool_size(*runtime_config), workflow);
 
@@ -173,6 +198,7 @@ int run_command(const Cli::RunCommand& command) {
     if (!config.has_value()) {
         throw ConfigVerificationException(config.error().front().message);
     }
+    fill_bootstrap_servers(*config);
     return std::move(*config);
 }
 
@@ -209,7 +235,8 @@ int execute_command(const Cli::DnsResolveCommand& command) {
     const auto config = load_runtime_config(command.config_path);
     // The one-shot command scope owns its own root cancellation source.
     Utils::CancellationSource cancellation;
-    auto dispatcher = DnsResolverFactory::create(config.resolver, ResolverCatalog::with_builtins());
+    auto dispatcher =
+        DnsResolverFactory::create(config.resolver, ResolverCatalog::with_builtins(config.resolver.bootstrap_servers));
     return Cli::present_dns_resolve(
         Diagnostics::dns_resolve(dispatcher, command.host, command.type, cancellation.token()));
 }
@@ -247,6 +274,7 @@ int execute_command(const Cli::ConfigTestCommand& command) {
                 {.quiet = command.quiet,
                  .error = Error{.kind = Error::Kind::VERIFICATION, .message = config.error().front().message}});
         }
+        fill_bootstrap_servers(*config);
 
         DriverCatalog driver_catalog;
         DriverLoader::load(driver_catalog, config->driver);
@@ -264,7 +292,8 @@ int execute_command(const Cli::ConfigTestCommand& command) {
         // yaddnsc_driver_validate are skipped (not an error).
         Utils::CancellationSource cancellation;
         const SpdlogLogger logger;
-        const AbiDriverGateway driver_gateway(driver_catalog, make_http_client_factory(), logger);
+        const AbiDriverGateway driver_gateway(driver_catalog, make_http_client_factory(config->resolver.bootstrap_servers),
+                                              logger);
         for (const auto& domain_config : config->domains) {
             for (const auto& subdomain : domain_config.subdomains) {
                 if (const auto result = driver_gateway.validate_config(domain_config.driver, subdomain.driver_param);
