@@ -234,6 +234,12 @@ RedirectEval evaluate_redirect(const int status,
         return {};
     }
 
+    // Never follow a redirect that downgrades https to http — that would
+    // silently strip TLS from a request the caller expected to be encrypted.
+    if (current_uri.get_schema() == "https" && resolved->scheme == "http") {
+        return {};
+    }
+
     const auto current_port = static_cast<std::uint16_t>(
         current_uri.get_port() > 0 ? current_uri.get_port() : default_port(current_uri.get_schema()));
 

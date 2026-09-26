@@ -67,6 +67,12 @@ public:
             }
 
             const auto label_len = static_cast<std::uint8_t>(dot - pos);
+            if (label_len == 0) {
+                // An interior empty label ("a..b" or a leading dot) would emit
+                // a zero length byte mid-name, which parsers read as the root
+                // terminator — silently truncating the name on the wire.
+                throw DnsPacketException(fmt::format("Empty label in domain name \"{}\" at offset {}", name, pos));
+            }
             if (label_len > 63) {
                 throw DnsPacketException(fmt::format("Label too long in domain name \"{}\" at offset {}", name, pos));
             }
@@ -259,15 +265,24 @@ std::vector<std::uint8_t> QueryBuilder::build() const {
         w.write_uint32(ttl);
 
         // RDLENGTH and RDATA (options).
-        // Compute total option data size.
-        std::uint16_t rdlength = 0;
+        // Compute total option data size in a wide type: the wire field is
+        // 16 bits, so an oversized option set must fail instead of wrapping.
+        size_t rdlength = 0;
         for (const auto& opt : edns.options) {
-            rdlength += static_cast<std::uint16_t>(4 + opt.data.size());
+            rdlength += 4 + opt.data.size();
         }
-        w.write_uint16(rdlength);
+        if (rdlength > 0xFFFF) {
+            throw DnsPacketException(
+                fmt::format("EDNS options are too large ({} octets, max 65535)", rdlength));
+        }
+        w.write_uint16(static_cast<std::uint16_t>(rdlength));
 
         // Write each option: code(2) + length(2) + data.
         for (const auto& opt : edns.options) {
+            if (opt.data.size() > 0xFFFF) {
+                throw DnsPacketException(fmt::format("EDNS option {} data is too large ({} octets, max 65535)",
+                                                     opt.code, opt.data.size()));
+            }
             w.write_uint16(opt.code);
             w.write_uint16(static_cast<std::uint16_t>(opt.data.size()));
             w.write_bytes(opt.data);

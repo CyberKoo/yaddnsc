@@ -203,11 +203,10 @@ TEST(Inet6AddressTest, Parse_WithNumericScopeId) {
 }
 
 TEST(Inet6AddressTest, Parse_WithEmptyScopeId) {
-    // Trailing % with nothing after it — scope_str is empty
+    // Trailing % with nothing after it is malformed — rejected, not silently
+    // parsed as the bare address.
     auto addr = Inet6Address::parse("fe80::1%");
-    ASSERT_TRUE(addr.has_value());
-    EXPECT_TRUE(addr->is_link_local());
-    EXPECT_EQ(addr->get_scope_id(), 0U);
+    EXPECT_FALSE(addr.has_value());
 }
 
 TEST(Inet6AddressTest, Parse_WithNonNumericScopeId) {

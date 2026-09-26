@@ -47,6 +47,7 @@ struct RedirectEval {
 ///     and drop the body (common safe practice).
 ///   - Authorization / Cookie / Proxy-Authorization headers are dropped
 ///     when the redirect crosses an origin (scheme, host, or port change).
+///   - https -> http downgrades are never followed.
 [[nodiscard]] RedirectEval evaluate_redirect(int status,
                                              const std::multimap<std::string, std::string>& headers,
                                              int redirect_count,

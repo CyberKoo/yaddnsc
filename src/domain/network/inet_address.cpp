@@ -76,12 +76,16 @@ std::optional<Inet6Address> Inet6Address::parse(std::string_view addr) {
         auto scope_str = s.substr(pct + 1);
         s.resize(pct);
 
-        if (!scope_str.empty()) {
-            unsigned long val = 0;
-            auto [ptr, ec] = std::from_chars(scope_str.data(), scope_str.data() + scope_str.size(), val);
-            if (ec == std::errc{} && ptr == scope_str.data() + scope_str.size()) {
-                scope_id = static_cast<std::uint32_t>(val);
-            }
+        // A bare trailing '%' with no scope is malformed — reject it instead
+        // of silently parsing the address without a zone.
+        if (scope_str.empty()) {
+            return std::nullopt;
+        }
+
+        unsigned long val = 0;
+        auto [ptr, ec] = std::from_chars(scope_str.data(), scope_str.data() + scope_str.size(), val);
+        if (ec == std::errc{} && ptr == scope_str.data() + scope_str.size()) {
+            scope_id = static_cast<std::uint32_t>(val);
         }
     }
 

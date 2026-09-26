@@ -426,6 +426,20 @@ TEST(QueryBuilderTest, ThrowsOnLabelTooLong) {
     EXPECT_THROW({ [[maybe_unused]] auto _ = builder.build(); }, DnsPacketException);
 }
 
+TEST(QueryBuilderTest, ThrowsOnEmptyInteriorLabel) {
+    // "a..b" contains an empty label that would emit a zero byte mid-name,
+    // silently truncating the wire name at the root terminator.
+    DNS::QueryBuilder builder;
+    builder.add_question("a..b", DNS::RecordType::A);
+    EXPECT_THROW({ [[maybe_unused]] auto _ = builder.build(); }, DnsPacketException);
+}
+
+TEST(QueryBuilderTest, ThrowsOnLeadingDot) {
+    DNS::QueryBuilder builder;
+    builder.add_question(".example.com", DNS::RecordType::A);
+    EXPECT_THROW({ [[maybe_unused]] auto _ = builder.build(); }, DnsPacketException);
+}
+
 TEST(QueryBuilderTest, AcceptsLabelLength63) {
     // Maximum valid label length: 63 characters
     std::string max_label(63, 'a');
@@ -477,6 +491,29 @@ TEST(QueryBuilderTest, ThrowsOnEdnsPayloadTooSmall) {
     DNS::QueryBuilder builder;
     builder.add_question("example.com", DNS::RecordType::A);
     builder.add_edns(511, 0, false);
+    EXPECT_THROW({ [[maybe_unused]] auto _ = builder.build(); }, DnsPacketException);
+}
+
+TEST(QueryBuilderTest, ThrowsOnEdnsOptionsTotalTooLarge) {
+    // Two options whose combined encoded size exceeds the 16-bit RDLENGTH
+    // field must fail instead of silently wrapping the length.
+    std::vector<DNS::EdnsOption> opts = {
+        {1, std::vector<std::uint8_t>(40000, 0xAA)},
+        {2, std::vector<std::uint8_t>(40000, 0xBB)},
+    };
+    DNS::QueryBuilder builder;
+    builder.add_question("example.com", DNS::RecordType::A);
+    builder.add_edns(4096, 0, false, opts);
+    EXPECT_THROW({ [[maybe_unused]] auto _ = builder.build(); }, DnsPacketException);
+}
+
+TEST(QueryBuilderTest, ThrowsOnEdnsOptionDataTooLarge) {
+    std::vector<DNS::EdnsOption> opts = {
+        {1, std::vector<std::uint8_t>(70000, 0xAA)},
+    };
+    DNS::QueryBuilder builder;
+    builder.add_question("example.com", DNS::RecordType::A);
+    builder.add_edns(4096, 0, false, opts);
     EXPECT_THROW({ [[maybe_unused]] auto _ = builder.build(); }, DnsPacketException);
 }
 

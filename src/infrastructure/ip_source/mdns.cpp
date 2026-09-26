@@ -343,19 +343,21 @@ setup_multicast_options(Socket& sock, const std::string& hostname, const std::st
         SPDLOG_TRACE(R"(mDNS received {} bytes for "{}")", recv_len, hostname);
 
         // Parse and filter only answers owned by the queried hostname
-        // with the requested record type.
+        // with the requested record type. A malformed or incompatible
+        // datagram (including one from another host on the shared multicast
+        // group) must not abort the query: drop it and keep waiting until
+        // the deadline.
         std::vector<InetAddress> results;
         try {
             results = Mdns::parse_response(std::span{recv_buf.data(), static_cast<size_t>(recv_len)}, hostname, type);
         } catch (const std::bad_alloc&) {
             throw;
         } catch (const std::exception& error) {
-            return std::unexpected(domain::IpSourceError{
-                domain::IpSourceError::Code::UNAVAILABLE,
-                fmt::format(R"(mDNS response parse failed for "{}": {})", hostname, error.what())});
+            SPDLOG_TRACE(R"(mDNS discarding unparseable response for "{}": {})", hostname, error.what());
+            continue;
         } catch (...) {
-            return std::unexpected(domain::IpSourceError{domain::IpSourceError::Code::UNKNOWN,
-                                                          "unknown mDNS response parser exception"});
+            SPDLOG_TRACE(R"(mDNS discarding response for "{}": unknown parser exception)", hostname);
+            continue;
         }
 
         if (results.empty()) {

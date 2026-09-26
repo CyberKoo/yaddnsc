@@ -527,11 +527,17 @@ TEST(HttpClientRedirect, CrossOrigin_StripsAuthorization) {
 
 TEST(HttpClientRedirect, AbsoluteLocationWithPort) {
     const auto eval = net::http::evaluate_redirect(302, {{"Location", "http://plain.example.com:8080/x"}}, 0, {},
-                                                   post_request(), make_current_uri());
+                                                   post_request(), Uri::parse("http://plain.example.com/api"));
     ASSERT_TRUE(eval.plan.has_value());
     EXPECT_EQ(eval.plan->scheme, "http");
     EXPECT_EQ(eval.plan->port, 8080);
     EXPECT_EQ(eval.plan->next.target, "/x");
+}
+
+TEST(HttpClientRedirect, HttpsToHttpDowngrade_NotFollowed) {
+    const auto eval = net::http::evaluate_redirect(302, {{"Location", "http://api.example.com/api/v1/update"}}, 0, {},
+                                                   post_request(), make_current_uri());
+    EXPECT_FALSE(eval.plan.has_value());
 }
 
 TEST(HttpClientRedirect, RelativeLocation_MergesPath) {

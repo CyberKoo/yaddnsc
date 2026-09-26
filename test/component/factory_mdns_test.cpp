@@ -302,6 +302,11 @@ protected:
     /// When true, the responder appends an unrelated A record to its reply.
     std::atomic<bool> include_unrelated_record_{false};
 
+    /// When true, the responder sends a garbage datagram (from the correct
+    /// port 5353) before the genuine reply — the client must tolerate and
+    /// discard it instead of aborting the whole query.
+    std::atomic<bool> send_garbage_first_{false};
+
     /// When true, the responder signals query_received_ on a matching query
     /// and parks before replying until release_response() (or TearDown).
     std::atomic<bool> hold_response_{false};
@@ -452,6 +457,16 @@ private:
                 hold_cv_.wait(lock, [&] { return respond_release_ || stop_flag_.load(); });
             }
 
+            // Test hook: precede the genuine reply with a malformed datagram
+            // (from the correct source port) — a busy shared multicast group
+            // produces these in practice.
+            if (send_garbage_first_.load()) {
+                std::vector<std::uint8_t> garbage(12, 0x00);  // zeroed header
+                garbage.insert(garbage.end(), query.begin(), query.end());
+                auto garbage_bytes = std::as_bytes(std::span{garbage});
+                [[maybe_unused]] auto gsent = responder_sock_->send_to(garbage_bytes, src_addr);
+            }
+
             // Genuine response from port 5353 (RFC 6762 §6 compliance).
             auto resp = build_response(query, 198, 51, 100, 7, include_unrelated_record_.load());
             auto data = std::as_bytes(std::span{resp});
@@ -511,6 +526,19 @@ TEST_F(MdnsTest, ResolveMdns_A_Record) {
     EXPECT_EQ((*addrs)[0].to_string(), "198.51.100.7");
     EXPECT_EQ((*addrs)[0].get_family(), AddressFamily::IPV4);
     EXPECT_EQ(query_count(), 1);
+}
+
+TEST_F(MdnsTest, ResolveMdns_ToleratesMalformedDatagram) {
+    // A garbage datagram from port 5353 (e.g. another host's malformed
+    // packet on the shared multicast group) must be discarded, not abort
+    // the query — the genuine reply right behind it still wins.
+    send_garbage_first_.store(true);
+    MdnsIpSource source(test_hostname_, RecordKind::A, "");
+    const auto addrs = source.resolve({});
+
+    ASSERT_TRUE(addrs.has_value()) << addrs.error().message;
+    ASSERT_EQ(addrs->size(), 1U);
+    EXPECT_EQ((*addrs)[0].to_string(), "198.51.100.7");
 }
 
 // ===========================================================================

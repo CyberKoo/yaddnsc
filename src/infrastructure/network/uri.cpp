@@ -265,9 +265,10 @@ std::string_view Uri::get_host_literal() const noexcept {
 }
 
 int Uri::get_port() const noexcept {
-    // port_ is always populated after parse() — either explicitly set or
-    // filled in by the default-port logic — so value() is safe here.
-    return *port_;
+    // parse() fills port_ with either the explicit value or the default-port
+    // fallback; value_or keeps this noexcept accessor safe even for a Uri
+    // that did not come from parse().
+    return port_.value_or(0);
 }
 
 std::string_view Uri::get_path() const noexcept {
