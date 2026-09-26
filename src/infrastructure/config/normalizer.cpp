@@ -46,12 +46,15 @@ auto normalize_subdomain(const SubdomainConfig& raw, int domain_interval) -> dom
     if (!raw.type.has_value()) {
         SPDLOG_WARN("Subdomain {} has no record type configured, treating it as an A record", raw.name);
     }
+    if (!raw.ip_source.has_value()) {
+        SPDLOG_WARN("Subdomain {} has no ip_source configured, defaulting to 'interface'", raw.name);
+    }
     return {
         .name = raw.name,
         .type = raw.type.value_or(RecordKind::A),
         .interface = raw.interface,
         .ip_type = raw.ip_type,
-        .ip_source = raw.ip_source,
+        .ip_source = raw.ip_source.value_or(IpSource::INTERFACE),
         .ip_source_param = raw.ip_source_param,
         .allow_ula = raw.allow_ula,
         .allow_local_link = raw.allow_local_link,

@@ -23,6 +23,7 @@ namespace domain {
 /// application-level environment validator.
 struct ConfigError {
     enum class Code {
+        EMPTY_DOMAINS,         ///< Config must define at least one domain
         EMPTY_DOMAIN_NAME,     ///< Domain name must not be empty
         EMPTY_SUBDOMAINS,      ///< Domain must have at least one subdomain
         UPDATE_INTERVAL_LOW,   ///< Interval below the configured minimum

@@ -106,6 +106,13 @@ TEST(StaticValidatorTest, ValidConfig_NoErrors) {
     EXPECT_TRUE(Config::validate_static(make_domain_config()).empty());
 }
 
+TEST(StaticValidatorTest, NoDomains) {
+    const auto errors = validate_with([](Config::AppConfig& cfg) { cfg.domains.clear(); });
+    ASSERT_EQ(errors.size(), 1U);
+    EXPECT_EQ(errors[0].code, Code::EMPTY_DOMAINS);
+    EXPECT_EQ(errors[0].message, "Config must define at least one domain");
+}
+
 TEST(StaticValidatorTest, EmptyDomainName) {
     const auto errors = validate_with([](Config::AppConfig& cfg) { cfg.domains[0].name = ""; });
     ASSERT_EQ(errors.size(), 1U);
@@ -142,6 +149,14 @@ TEST(StaticValidatorTest, ForceUpdateSmallerThanInterval) {
     EXPECT_EQ(errors[0].code, Code::FORCE_UPDATE_CONFLICT);
     EXPECT_EQ(errors[0].message,
               "Force update interval for domain example.com must not be smaller than the update interval (300)");
+}
+
+TEST(StaticValidatorTest, ForceUpdateNegative) {
+    const auto errors = validate_with([](Config::AppConfig& cfg) { cfg.domains[0].force_update = -5; });
+    ASSERT_EQ(errors.size(), 1U);
+    EXPECT_EQ(errors[0].code, Code::FORCE_UPDATE_CONFLICT);
+    EXPECT_EQ(errors[0].message,
+              "Field 'force_update' for domain example.com must not be negative (got -5, 0 disables it)");
 }
 
 TEST(StaticValidatorTest, ForceUpdateDisabled_NoErrors) {
@@ -484,4 +499,17 @@ TEST(StaticValidatorTest, BootstrapDns_Hostname_Rejected) {
     ASSERT_EQ(errors.size(), 1U);
     EXPECT_EQ(errors.front().code, Code::INVALID_BOOTSTRAP_DNS);
     EXPECT_THAT(errors.front().message, HasSubstr("dns.example.com"));
+}
+
+TEST(StaticValidatorTest, MalformedResolverAddress_ReportedNotThrown) {
+    // A malformed resolver address (e.g. unterminated IPv6 bracket) is a
+    // configuration mistake: it must surface as a collected INVALID_RESOLVER
+    // error on every entry path, never as an escaping Uri::parse exception.
+    const auto errors = validate_with([](Config::AppConfig& cfg) {
+        cfg.resolver.use_custom_server = true;
+        cfg.resolver.servers = {Config::DnsServer{"https://[::1", 443}};
+    });
+    ASSERT_EQ(errors.size(), 1U);
+    EXPECT_EQ(errors.front().code, Code::INVALID_RESOLVER);
+    EXPECT_THAT(errors.front().message, HasSubstr("https://[::1"));
 }

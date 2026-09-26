@@ -115,6 +115,20 @@ void fill_bootstrap_servers(domain::RuntimeConfig& config) {
 //  run — the only command with a lifecycle object; exceptions escape to
 //  main()'s fatal-error boundary (legacy wording preserved there).
 // -----------------------------------------------------------------------
+
+/// Join every collected validation error into one message so a single
+/// failing run reports all problems instead of only the first.
+[[nodiscard]] std::string format_config_errors(const std::vector<domain::ConfigError>& errors) {
+    std::string joined;
+    for (const auto& error : errors) {
+        if (!joined.empty()) {
+            joined += '\n';
+        }
+        joined += error.message;
+    }
+    return joined;
+}
+
 int run_command(const Cli::RunCommand& command) {
     if (command.verbose) {
         spdlog::set_level(spdlog::level::debug);
@@ -125,11 +139,11 @@ int run_command(const Cli::RunCommand& command) {
 
     const auto raw_config = Config::load_config(command.config_path);
 
-    // Static validation + normalisation: report the first error with the
-    // same output shape as the legacy ConfigVerificationException path.
+    // Static validation + normalisation: report every collected error with
+    // the same output shape as the legacy ConfigVerificationException path.
     auto config = Config::validate_and_normalize(raw_config);
     if (!config.has_value()) {
-        SPDLOG_CRITICAL(config.error().front().message);
+        SPDLOG_CRITICAL(format_config_errors(config.error()));
         return EXIT_FAILURE;
     }
     fill_bootstrap_servers(*config);
@@ -150,9 +164,9 @@ int run_command(const Cli::RunCommand& command) {
         const SystemNetworkInterfaces interfaces;
 
         // Environment validation: referenced drivers loaded, referenced
-        // interfaces present (same first-error wording as legacy).
+        // interfaces present (all collected errors are reported).
         if (const auto env = validate_environment(*runtime_config, driver_catalog, interfaces); !env.has_value()) {
-            SPDLOG_CRITICAL(env.error().front().message);
+            SPDLOG_CRITICAL(format_config_errors(env.error()));
             return EXIT_FAILURE;
         }
 
@@ -196,7 +210,7 @@ int run_command(const Cli::RunCommand& command) {
 [[nodiscard]] domain::RuntimeConfig load_runtime_config(const std::string& config_path) {
     auto config = Config::validate_and_normalize(Config::load_config(config_path));
     if (!config.has_value()) {
-        throw ConfigVerificationException(config.error().front().message);
+        throw ConfigVerificationException(format_config_errors(config.error()));
     }
     fill_bootstrap_servers(*config);
     return std::move(*config);
@@ -266,13 +280,13 @@ int execute_command(const Cli::ConfigTestCommand& command) {
     try {
         const auto raw_config = Config::load_config(command.config_path);
 
-        // Static checks first (collected as values; report the first one
+        // Static checks first (collected as values; every error is reported
         // with the same output shape as the legacy exception path).
         auto config = Config::validate_and_normalize(raw_config);
         if (!config.has_value()) {
             return Cli::present_config_test(
                 {.quiet = command.quiet,
-                 .error = Error{.kind = Error::Kind::VERIFICATION, .message = config.error().front().message}});
+                 .error = Error{.kind = Error::Kind::VERIFICATION, .message = format_config_errors(config.error())}});
         }
         fill_bootstrap_servers(*config);
 
@@ -282,7 +296,7 @@ int execute_command(const Cli::ConfigTestCommand& command) {
         if (const auto env = validate_environment(*config, driver_catalog, interfaces); !env.has_value()) {
             return Cli::present_config_test(
                 {.quiet = command.quiet,
-                 .error = Error{.kind = Error::Kind::VERIFICATION, .message = env.error().front().message}});
+                 .error = Error{.kind = Error::Kind::VERIFICATION, .message = format_config_errors(env.error())}});
         }
 
         // Driver-side driver_param validation through the OPTIONAL ABI

@@ -127,7 +127,9 @@ TEST(ConfigSubdomainConfigTest, DefaultValues) {
     EXPECT_FALSE(cfg.type.has_value());
     EXPECT_TRUE(cfg.interface.empty());
     EXPECT_EQ(cfg.ip_type, AddressFamily::UNSPECIFIED);
-    EXPECT_EQ(cfg.ip_source, Config::IpSource::INTERFACE);
+    // No ip_source configured — the normaliser falls back to INTERFACE with
+    // a warning.
+    EXPECT_FALSE(cfg.ip_source.has_value());
     EXPECT_TRUE(cfg.ip_source_param.empty());
     EXPECT_FALSE(cfg.allow_ula);
     EXPECT_FALSE(cfg.allow_local_link);

@@ -48,7 +48,9 @@ struct SubdomainConfig {
     std::optional<RecordKind> type{};
     std::string interface{};                            ///< Network interface name (for INTERFACE IP source)
     AddressFamily ip_type{AddressFamily::UNSPECIFIED};  ///< Preferred address family
-    IpSource ip_source{};                               ///< IP source backend
+    /// IP source backend. Disengaged when the key is absent from the config
+    /// file — the normaliser then falls back to INTERFACE (with a warning).
+    std::optional<IpSource> ip_source{};
     std::string ip_source_param{};  ///< Parameter passed to the IP source (URL, mDNS hostname, etc.)
     bool allow_ula{false};          ///< Allow Unique Local Address (ULA, fc00::/7)
     bool allow_local_link{false};   ///< Allow link-local addresses (fe80::/10)

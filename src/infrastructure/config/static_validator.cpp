@@ -40,14 +40,17 @@ void validate_ip_source(std::vector<domain::ConfigError>& errors,
                         const std::string& domain_name,
                         const SubdomainConfig& subdomain) {
     const auto fqdn = domain::make_fqdn(domain_name, subdomain.name);
+    // An absent ip_source key normalises to INTERFACE; validate the
+    // effective value.
+    const auto ip_source = subdomain.ip_source.value_or(IpSource::INTERFACE);
 
     // Only the INTERFACE source strictly requires a network interface name.
-    if (subdomain.ip_source == IpSource::INTERFACE && subdomain.interface.empty()) {
+    if (ip_source == IpSource::INTERFACE && subdomain.interface.empty()) {
         push_error(errors, Code::MISSING_INTERFACE,
                    fmt::format("Subdomain {} uses interface IP source but 'interface' field is empty", fqdn));
     }
 
-    if (subdomain.ip_source == IpSource::HTTP) {
+    if (ip_source == IpSource::HTTP) {
         if (subdomain.ip_source_param.empty()) {
             push_error(errors, Code::EMPTY_IP_SOURCE_PARAM,
                        fmt::format("Subdomain {} uses HTTP IP source but ip_source_param is empty", fqdn));
@@ -66,7 +69,7 @@ void validate_ip_source(std::vector<domain::ConfigError>& errors,
         return;
     }
 
-    if (subdomain.ip_source == IpSource::MDNS) {
+    if (ip_source == IpSource::MDNS) {
         if (subdomain.ip_source_param.empty()) {
             push_error(errors, Code::EMPTY_IP_SOURCE_PARAM,
                        fmt::format("Subdomain {} uses mDNS IP source but ip_source_param is empty", fqdn));
@@ -97,17 +100,29 @@ void validate_ip_source(std::vector<domain::ConfigError>& errors,
     }
 }
 
-/// Static resolver address check. Uri::parse exceptions deliberately
-/// escape (same behaviour as the legacy validator).
+/// Static resolver address check. Uri::parse failures are reported as
+/// INVALID_RESOLVER config errors — a malformed address is a configuration
+/// mistake, so it must surface identically on every entry path (run, config
+/// test, dns resolve) instead of escaping as an "unhandled exception".
 void validate_resolver_address(std::vector<domain::ConfigError>& errors, const std::string& address) {
-    const auto uri = Uri::parse(address);
+    auto uri = [&]() -> std::optional<Uri> {
+        try {
+            return Uri::parse(address);
+        } catch (const std::exception&) {
+            return std::nullopt;
+        }
+    }();
+    if (!uri.has_value()) {
+        push_error(errors, Code::INVALID_RESOLVER, fmt::format(R"(Malformed resolver address "{}")", address));
+        return;
+    }
     // DoH / DoT address — starts with https or tls.
-    if (uri.get_schema() == "https" || uri.get_schema() == "tls") {
-        if (uri.get_host().empty()) {
+    if (uri->get_schema() == "https" || uri->get_schema() == "tls") {
+        if (uri->get_host().empty()) {
             push_error(errors, Code::INVALID_RESOLVER,
                        fmt::format(R"(DoH/DoT resolver address "{}" has an empty host)", address));
         }
-        if (uri.get_port() == 0) {
+        if (uri->get_port() == 0) {
             push_error(errors, Code::INVALID_RESOLVER,
                        fmt::format(R"(DoH/DoT resolver address "{}" has port 0)", address));
         }
@@ -123,6 +138,10 @@ void validate_resolver_address(std::vector<domain::ConfigError>& errors, const s
 
 auto validate_static(const AppConfig& raw) -> std::vector<domain::ConfigError> {
     std::vector<domain::ConfigError> errors;
+
+    if (raw.domains.empty()) {
+        push_error(errors, Code::EMPTY_DOMAINS, "Config must define at least one domain");
+    }
 
     for (const auto& [name, update_interval, force_update, driver, subdomains] : raw.domains) {
         if (name.empty()) {
@@ -140,7 +159,11 @@ auto validate_static(const AppConfig& raw) -> std::vector<domain::ConfigError> {
                                    update_interval, YADDNSC_MIN_UPDATE_INTERVAL));
         }
 
-        if (force_update != 0 && force_update < update_interval) {
+        if (force_update < 0) {
+            push_error(errors, Code::FORCE_UPDATE_CONFLICT,
+                       fmt::format("Field 'force_update' for domain {} must not be negative (got {}, 0 disables it)",
+                                   name, force_update));
+        } else if (force_update != 0 && force_update < update_interval) {
             push_error(errors, Code::FORCE_UPDATE_CONFLICT,
                        fmt::format("Force update interval for domain {} must not be smaller than the update interval "
                                    "({})",

@@ -161,7 +161,14 @@ int Cli::present_config_test(const Diagnostics::ConfigTestOutcome& outcome) {
     const auto& error = *outcome.error;
     switch (error.kind) {
         case Diagnostics::ConfigTestError::Kind::VERIFICATION:
-            std::println(std::cerr, "Configuration verification failed: {}", error.message);
+            // The message may carry several collected errors, one per line;
+            // repeat the prefix so every line reads as a complete statement.
+            for (std::string_view rest = error.message; !rest.empty();) {
+                const auto newline = rest.find('\n');
+                const auto line = rest.substr(0, newline);
+                std::println(std::cerr, "Configuration verification failed: {}", line);
+                rest = newline == std::string_view::npos ? std::string_view{} : rest.substr(newline + 1);
+            }
             break;
         case Diagnostics::ConfigTestError::Kind::FATAL:
             std::println(std::cerr, "Fatal error: unrecoverable exception: {}", error.message);

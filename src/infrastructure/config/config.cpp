@@ -40,6 +40,22 @@ void redact_sensitive_fields(glz::generic& value) {
         }
     }
 }
+
+/// Replace URI userinfo ("scheme://user:pass@host/...") with "***" — the
+/// address fields (resolver servers, ip_source_param) are plain strings that
+/// may embed credentials.
+void redact_uri_credentials(std::string& text) {
+    const auto scheme_end = text.find("://");
+    if (scheme_end == std::string::npos) {
+        return;
+    }
+    const auto authority_start = scheme_end + 3;
+    const auto authority_end = text.find('/', authority_start);
+    const auto at = text.find('@', authority_start);
+    if (at != std::string::npos && (authority_end == std::string::npos || at < authority_end)) {
+        text.replace(authority_start, at - authority_start, "***");
+    }
+}
 }  // namespace
 
 // ===========================================================================
@@ -64,8 +80,13 @@ Config::AppConfig Config::load_config(const std::string& config_path) {
 }
 
 std::string Config::redacted_json(AppConfig config) {
+    redact_uri_credentials(config.resolver.address);
+    for (auto& server : config.resolver.servers) {
+        redact_uri_credentials(server.address);
+    }
     for (auto& domain_config : config.domains) {
         for (auto& subdomain : domain_config.subdomains) {
+            redact_uri_credentials(subdomain.ip_source_param);
             redact_sensitive_fields(subdomain.driver_param);
         }
     }

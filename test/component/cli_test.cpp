@@ -119,22 +119,32 @@ private:
     std::string path_;
 };
 
+/// One statically-valid domain using the HTTP IP source (no interface
+/// dependency, so environment validation passes anywhere).
+[[nodiscard]] std::string one_http_domain() {
+    return R"("domains":[{"name":"example.com","update_interval":300,"driver":"simple",)"
+           R"("subdomains":[{"name":"www","type":"a","ip_source":"http",)"
+           R"("ip_source_param":"https://api.ipify.org",)"
+           R"("driver_param":{"url":"https://example.com/update"}}]}])";
+}
+
 /// Config that loads the real "simple" driver from the build tree.
 [[nodiscard]] std::string config_with_simple_driver() {
     return std::string(R"({"driver":{"auto_discover":false,"driver_dir":")") + TEST_DRIVER_DIR +
-           R"(","load":["simple/simple.so"]},"resolver":{"use_custom_server":false},"domains":[]})";
+           R"(","load":["simple/simple.so"]},"resolver":{"use_custom_server":false},)" + one_http_domain() + "}";
 }
 
 /// Config with no drivers loaded (driver_dir exists, empty load list).
 [[nodiscard]] std::string config_no_drivers() {
     return std::string(R"({"driver":{"auto_discover":false,"driver_dir":")") + TEST_DRIVER_DIR +
-           R"(","load":[]},"resolver":{"use_custom_server":false},"domains":[]})";
+           R"(","load":[]},"resolver":{"use_custom_server":false},)" + one_http_domain() + "}";
 }
 
 /// Config that loads a driver file that does not exist → PluginLoadException.
 [[nodiscard]] std::string config_bad_driver() {
     return std::string(R"({"driver":{"auto_discover":false,"driver_dir":")") + TEST_DRIVER_DIR +
-           R"(","load":["definitely_missing_driver.so"]},"resolver":{"use_custom_server":false},"domains":[]})";
+           R"(","load":["definitely_missing_driver.so"]},"resolver":{"use_custom_server":false},)" + one_http_domain() +
+           "}";
 }
 
 /// Redirect a stream (STDOUT_FILENO or STDERR_FILENO) to a temp file so
@@ -480,6 +490,39 @@ TEST(CliConfigTest, DispatchShow_RedactsSensitiveDriverParams) {
     EXPECT_NE(out.find(R"("plain-text")"), std::string::npos);
 }
 
+// Address fields are plain strings, so key-based redaction cannot see
+// credentials embedded as URI userinfo; they are masked separately.
+TEST(CliConfigTest, DispatchShow_RedactsUriCredentials) {
+    const std::string config_json = R"({
+        "driver": {"auto_discover": false, "load": []},
+        "resolver": {
+            "use_custom_server": true,
+            "servers": [{"address": "https://fake-user:fake-pass@dns.example.net/dns-query", "port": 443}]
+        },
+        "domains": [{
+            "name": "example.com",
+            "update_interval": 300,
+            "driver": "simple",
+            "subdomains": [{
+                "name": "www",
+                "type": "a",
+                "ip_source": "http",
+                "ip_source_param": "https://fake-user:fake-pass@ifconfig.example.net/ip"
+            }]
+        }]
+    })";
+    TempConfigFile cfg(config_json);
+
+    StdoutCapture capture;
+    EXPECT_EQ(Composition::dispatch(Cli::ConfigShowCommand{cfg.path()}), EXIT_SUCCESS);
+    const std::string out = capture.str();
+
+    EXPECT_EQ(out.find("fake-user"), std::string::npos);
+    EXPECT_EQ(out.find("fake-pass"), std::string::npos);
+    EXPECT_NE(out.find("https://***@dns.example.net/dns-query"), std::string::npos);
+    EXPECT_NE(out.find("https://***@ifconfig.example.net/ip"), std::string::npos);
+}
+
 TEST(CliConfigTest, DispatchTest_ValidConfig_ReturnsZero) {
     TempConfigFile cfg(config_with_simple_driver());
     EXPECT_EQ(Composition::dispatch(Cli::ConfigTestCommand{cfg.path()}), EXIT_SUCCESS);
@@ -713,7 +756,10 @@ TEST(CliDnsTest, DispatchResolver_LegacyServer_ReturnsZero) {
 // valid set. Command is constructed directly (the parser would reject the
 // type), keeping the test on loopback-free, deterministic ground.
 TEST(CliDnsTest, DispatchResolve_UnknownType_PrintsValidTypes) {
-    TempConfigFile cfg{std::string(Fixtures::MINIMAL_CONFIG)};
+    // The dispatch path validates the config before resolving, so the file
+    // must hold at least one statically-valid domain.
+    TempConfigFile cfg{std::string(R"({"driver":{"auto_discover":false,"load":[]},"resolver":{"use_custom_server":false},)") +
+                       one_http_domain() + "}"};
 
     StreamCapture err{STDERR_FILENO};
     EXPECT_EQ(Composition::dispatch(Cli::DnsResolveCommand{cfg.path(), "example.com", "BOGUS"}), EXIT_FAILURE);
