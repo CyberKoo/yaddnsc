@@ -57,7 +57,7 @@ constexpr uint32_t EDNS_TTL_DO_MASK = 0x00008000U;
 std::string DNS::RecordParser::decompress_name(const std::span<const std::uint8_t> wire, size_t& offset) {
     // Track visited offsets to detect pointer cycles.
     // Fixed-size array on the stack: zero allocation, cache-friendly.
-    // MAX_POINTER_DEPTH (16) bounds the worst-case chain length, so
+    // MAX_POINTER_DEPTH bounds the worst-case chain length, so
     // a simple linear scan is both simpler and faster than a hash set.
     const auto wire_len = wire.size();
     std::array<size_t, MAX_POINTER_DEPTH> visited{};

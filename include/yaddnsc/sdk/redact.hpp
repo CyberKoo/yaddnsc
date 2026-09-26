@@ -9,7 +9,9 @@
 ///
 /// API credentials (tokens, secrets, passwords) must never be written to
 /// logs in plain text. Every log site that formats an HttpRequest (or a URL)
-/// is protected by default. Mirrors the host's Utils::Redact rules exactly.
+/// is protected by default. This header is the SDK-side implementation; the
+/// host's own redaction (config show) lives in
+/// src/infrastructure/config/config.cpp.
 
 #include <algorithm>
 #include <cctype>

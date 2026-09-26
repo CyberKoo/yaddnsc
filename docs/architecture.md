@@ -56,6 +56,9 @@ Dependency direction is enforced by the CMake target graph
   `yaddnsc_dns_infrastructure`, which would otherwise create a dependency
   cycle with the transport.
 - `src/composition/`: the composition root.
+- `src/support/`: internal shared helpers (fmt/string utilities, cancellation
+  primitives); forwarding headers onto `include/yaddnsc/util/` where an
+  equivalent public utility exists. Not part of the public surface.
 - `include/yaddnsc/sdk/`: the plugin SDK (C ABI + C++ helper layer). Together
   with `include/yaddnsc/util/` these are the only public headers. All host
   implementation headers, including shared value types and the `HttpClient`
@@ -65,7 +68,8 @@ Dependency direction is enforced by the CMake target graph
   This is the single implementation site — `src/support/` and
   `include/yaddnsc/sdk/` headers only forward to it, and both sides must use
   it instead of carrying local copies.
-- `driver/`: bundled provider plugins, built against the SDK only.
+- `driver/`: bundled provider plugins, built solely against the public
+  headers (`include/yaddnsc/sdk/` and `include/yaddnsc/util/`).
 
 The textual boundary rules are policed by the `architecture_guard` ctest
 (`cmake/ArchitectureGuard.cmake`).

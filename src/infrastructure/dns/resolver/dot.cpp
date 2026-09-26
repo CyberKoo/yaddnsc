@@ -141,15 +141,12 @@ read_response(Transport::Stream& stream, const std::string_view label, const Uti
         return std::unexpected(map_io_error(status.error(), label, "read response length"));
     }
 
+    // The two-byte length prefix bounds the response to 65535 octets, so no
+    // further size check is needed before the bounded read.
     const auto resp_len = Utils::Bytes::read_u16_be(length_buffer);
     if (resp_len == 0) {
         return std::unexpected(
             DnsErrorInfo{DnsError::PARSE, fmt::format(R"(Server "{}" returned zero-length response)", label)});
-    }
-    constexpr size_t MAX_DOT_RESPONSE_SIZE = 65535;
-    if (resp_len > MAX_DOT_RESPONSE_SIZE) {
-        return std::unexpected(DnsErrorInfo{
-            DnsError::PARSE, fmt::format(R"(Server "{}" response too large: {} bytes)", label, resp_len)});
     }
 
     // Read response body.

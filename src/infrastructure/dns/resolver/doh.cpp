@@ -205,7 +205,7 @@ std::expected<std::vector<std::uint8_t>, DnsErrorInfo> DohResolver::query(
                 return std::unexpected(std::move(valid.error()));
             }
 
-            SPDLOG_DEBUG(R"(Resolver #{} query succeeded ({} bytes) for "{}"))", id_, body.size(), host);
+            SPDLOG_DEBUG(R"(Resolver #{} query succeeded ({} bytes) for "{}")", id_, body.size(), host);
 
             return body;
         }
