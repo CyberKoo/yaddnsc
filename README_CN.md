@@ -7,9 +7,9 @@
 ![Linux](https://img.shields.io/badge/Linux-glibc%20%7C%20musl-FCC624?logo=linux&logoColor=black)
 ![macOS](https://img.shields.io/badge/macOS-arm64-000000?logo=apple)
 
-> **发布状态：** 当前版本为 `v1.0.0-alpha.2`（预发布）。`master` 分支对应已发布版本，
-> `dev` 分支汇集面向下一版本的变更，`v0.x` 分支继续支持旧工具链。驱动插件的 ABI
-> 在不同构建之间可能发生变化，升级宿主程序后须重新编译外部构建的驱动。
+> **发布状态：** 预发布阶段，最新版本见 [GitHub Releases](https://github.com/CyberKoo/yaddnsc/releases)。
+> `master` 分支对应已发布版本，`dev` 分支汇集面向下一版本的变更，`v0.x` 分支继续支持
+> 旧工具链。驱动插件的 ABI 在不同构建之间可能发生变化，升级宿主程序后须重新编译外部构建的驱动。
 
 yaddnsc 是一个动态 DNS 客户端。它按配置周期性地获取每条记录的 IP 地址——来源可以
 是本地网络接口、HTTP(S) 端点或组播 DNS——并与 DNS 中当前发布的地址进行比对；两者

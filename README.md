@@ -7,10 +7,11 @@
 ![Linux](https://img.shields.io/badge/Linux-glibc%20%7C%20musl-FCC624?logo=linux&logoColor=black)
 ![macOS](https://img.shields.io/badge/macOS-arm64-000000?logo=apple)
 
-> **Status:** the current release is `v1.0.0-alpha.2` (pre-release). `master`
-> tracks releases, `dev` accumulates changes intended for the next one, and
-> `v0.x` remains available for older toolchains. The driver plugin ABI may
-> change between builds; recompile externally built drivers after upgrading.
+> **Status:** pre-release — see [GitHub Releases](https://github.com/CyberKoo/yaddnsc/releases)
+> for the latest version. `master` tracks releases, `dev` accumulates changes
+> intended for the next one, and `v0.x` remains available for older toolchains.
+> The driver plugin ABI may change between builds; recompile externally built
+> drivers after upgrading.
 
 yaddnsc is a dynamic DNS client. For every configured record it periodically
 acquires an IP address — from a local network interface, an HTTP(S) endpoint,
