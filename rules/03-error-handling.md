@@ -69,6 +69,14 @@ When internal functions form a deep chain where converting every level to `std::
 
 If internal error types diverge or become recoverable, convert the internals to native `std::expected`.
 
+**Established precedent**: the DNS message parser (`src/infrastructure/dns/parser.cpp`)
+throws for malformed packets deep in the call chain, and the resolver module boundaries
+translate to `std::expected` error values — a genuine deep chain where per-level
+propagation would be pure mechanics. Leaf parsers with shallow call chains (e.g.
+`Uri::parse` in `src/infrastructure/network/`) return `std::expected` directly. Prefer
+the direct-`expected` form for new parsers; reserve throw-and-translate-at-the-boundary
+for chains that are genuinely deep.
+
 ## Decision Table
 
 | Scenario | Mechanism | Rationale |

@@ -5,6 +5,7 @@
 #ifndef YADDNSC_INTERFACE_UTIL_H
 #define YADDNSC_INTERFACE_UTIL_H
 
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -26,9 +27,9 @@ namespace InterfaceUtil {
 
 /// Get all IP addresses (v4 and v6) assigned to a given interface.
 /// @param interface_name  Name of the network interface.
-/// @return                IP addresses assigned to the interface.
-/// @throws std::runtime_error  If the interface does not exist.
-[[nodiscard]] std::vector<InetAddress> get_addresses(const std::string& interface_name);
+/// @return                IP addresses assigned to the interface;
+///                        std::nullopt when the interface does not exist.
+[[nodiscard]] std::optional<std::vector<InetAddress>> get_addresses(const std::string& interface_name);
 }  // namespace InterfaceUtil
 
 #endif  // YADDNSC_INTERFACE_UTIL_H

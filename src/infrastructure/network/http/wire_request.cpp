@@ -3,13 +3,13 @@
 //
 #include "infrastructure/network/http/wire_request.h"
 
-#include <cctype>
 #include <map>
 #include <optional>
 
 #include <yaddnsc/util/format.hpp>
 #include <yaddnsc/util/string_util.hpp>
 
+#include "infrastructure/network/http/protocol/field_chars.hpp"
 #include "infrastructure/network/http/types.h"
 #include "infrastructure/network/transport/io_error.h"
 #include "infrastructure/network/uri.h"
@@ -19,32 +19,6 @@
 namespace net::http {
 
 namespace {
-
-[[nodiscard]] bool is_token(const std::string_view value) noexcept {
-    if (value.empty()) {
-        return false;
-    }
-    for (const auto ch : value) {
-        const auto c = static_cast<unsigned char>(ch);
-        if (std::isalnum(c) || ch == '!' || ch == '#' || ch == '$' || ch == '%' || ch == '&' || ch == '\'' ||
-            ch == '*' || ch == '+' || ch == '-' || ch == '.' || ch == '^' || ch == '_' || ch == '`' || ch == '|' ||
-            ch == '~') {
-            continue;
-        }
-        return false;
-    }
-    return true;
-}
-
-[[nodiscard]] bool is_field_value(const std::string_view value) noexcept {
-    for (const auto ch : value) {
-        const auto c = static_cast<unsigned char>(ch);
-        if (c != '\t' && (c < 0x20 || c == 0x7f)) {
-            return false;
-        }
-    }
-    return true;
-}
 
 [[nodiscard]] bool is_managed_header(const std::string_view name) noexcept {
     return StringUtil::iequals(name, "host") || StringUtil::iequals(name, "content-length") ||
@@ -82,7 +56,7 @@ std::string make_target(const Uri& uri) {
 
 std::expected<void, Error> validate_request(const Request& req) {
     for (const auto& [name, value] : req.headers) {
-        if (!is_token(name) || !is_field_value(value)) {
+        if (!protocol::is_token(name) || !protocol::is_field_value(value)) {
             return std::unexpected(Error{ErrorCode::INVALID_REQUEST, "invalid HTTP request header"});
         }
         if (StringUtil::iequals(name, "upgrade")) {
@@ -93,7 +67,7 @@ std::expected<void, Error> validate_request(const Request& req) {
                 Error{ErrorCode::INVALID_REQUEST, "request transfer coding and trailers are not supported"});
         }
     }
-    if (!is_field_value(req.content_type)) {
+    if (!protocol::is_field_value(req.content_type)) {
         return std::unexpected(Error{ErrorCode::INVALID_REQUEST, "invalid HTTP Content-Type"});
     }
     return {};

@@ -59,7 +59,7 @@ public:
     /// @return  true if the key is present and fresh.
     [[nodiscard]] bool contains(const Key& key) {
         std::lock_guard lock(mutex_);
-        return do_get(key).has_value();
+        return do_contains(key);
     }
 
     /// Remove a single entry from the cache.
@@ -120,19 +120,40 @@ public:
         lock.unlock();
 
         // Compute outside the mutex — other cache operations are not blocked
+        auto published = false;
         try {
             Value value = std::invoke(std::forward<Fn>(factory));
-            promise->set_value(value);
 
-            // Store the computed result back into the cache
-            lock.lock();
+            // Publish the result to any waiters first. The promise needs its
+            // own copy (the value is also stored in the cache and returned
+            // below), and set_value can throw — the catch block assumes the
+            // mutex is not held here.
+            promise->set_value(value);
+            published = true;
+
+            // Store the computed result back into the cache. try_emplace
+            // constructs the entry in place inside the map node, so the value
+            // is moved into the cache exactly once (copied for copy-only
+            // types) instead of passing through a temporary Entry.
+            std::lock_guard guard(mutex_);
             pending_.erase(key);
-            map_.insert_or_assign(key, Entry{Clock::now(), value});
-            return value;
+            auto result = map_.try_emplace(key, Clock::now(), std::move(value));
+            if (!result.second) {
+                // Key re-added concurrently (e.g. by set()): overwrite it,
+                // matching insert_or_assign semantics.
+                result.first->second = Entry{Clock::now(), std::move(value)};
+            }
+
+            // Hand the caller a copy of the freshly cached value; the cached
+            // entry itself stays valid.
+            return result.first->second.value;
         } catch (...) {
-            // Propagate the exception to all waiters
-            promise->set_exception(std::current_exception());
-            lock.lock();
+            // Propagate the exception to all waiters. When the value was
+            // already published the promise owns it and must not be touched.
+            if (!published) {
+                promise->set_exception(std::current_exception());
+            }
+            std::lock_guard guard(mutex_);
             pending_.erase(key);
             throw;
         }
@@ -181,6 +202,20 @@ private:
             return std::nullopt;
         }
         return it->second.value;
+    }
+
+    // Internal helper: caller must already hold mutex_. Like do_get(), an
+    // expired entry is evicted on sight, but the value itself is not copied.
+    [[nodiscard]] bool do_contains(const Key& key) {
+        auto it = map_.find(key);
+        if (it == map_.end()) {
+            return false;
+        }
+        if (expired(it->second)) {
+            map_.erase(it);
+            return false;
+        }
+        return true;
     }
 
     bool expired(const Entry& entry) const { return (Clock::now() - entry.timestamp) >= ttl_; }

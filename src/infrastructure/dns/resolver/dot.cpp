@@ -8,9 +8,10 @@
 
 #include <algorithm>
 #include <array>
-#include <chrono>
+#include <cstddef>
 #include <cstdint>
 #include <exception>
+#include <memory>
 #include <mutex>
 #include <span>
 #include <string>
@@ -20,21 +21,20 @@
 
 #include <expected>
 #include <spdlog/spdlog.h>
-#include <stddef.h>
 #include <yaddnsc/util/format.hpp>
 
 #include "domain/error/dns_error.h"
 #include "domain/error/dns_error_info.h"
 #include "infrastructure/dns/dns_lookup_exception.h"
 #include "infrastructure/dns/dns_packet_exception.h"
+#include "infrastructure/dns/resolver/connect_error.hpp"
+#include "infrastructure/dns/resolver/tls_options.hpp"
 #include "infrastructure/dns/types.h"
 #include "infrastructure/dns/util.hpp"
 #include "infrastructure/dns/validator.h"
 #include "infrastructure/dns/wire/builder.h"
 #include "infrastructure/network/transport/io_error.h"
-#include "infrastructure/network/transport/options.h"
 #include "infrastructure/network/transport/stream.h"
-#include "infrastructure/network/transport/tls_stream.h"
 #include "support/fmt.hpp"
 #include "support/util/bytes.hpp"
 #include "support/util/cancellation_token.hpp"
@@ -43,9 +43,6 @@
 enum class RecordKind;
 
 namespace {
-using namespace std::chrono_literals;
-
-constexpr auto CONNECT_TIMEOUT = 1s;
 constexpr unsigned char ALPN_DOT[] = {3, 'd', 'o', 't'};
 
 /// Map a transport I/O error to DnsErrorInfo (post-connect I/O stage).
@@ -60,31 +57,6 @@ constexpr unsigned char ALPN_DOT[] = {3, 'd', 'o', 't'};
             return {DnsError::CONNECTION, fmt::format(R"(Failed to {} from "{}")", stage, label)};
     }
     return {DnsError::CONNECTION, fmt::format(R"(Failed to {} from "{}")", stage, label)};
-}
-
-/// Map a connect-stage error.
-[[nodiscard]] DnsErrorInfo map_connect_error(const Transport::IoError err, const std::string_view label) {
-    using enum Transport::IoError;
-    switch (err) {
-        case CANCELLED:
-            return {DnsError::CANCELLED, "Query cancelled"};
-        case TIMEOUT:
-            return {DnsError::RETRY, fmt::format(R"(Connection to "{}" timed out)", label)};
-        case CONNECTION_FAILED:
-            return {DnsError::CONNECTION, fmt::format(R"(Connection to "{}" failed)", label)};
-    }
-    return {DnsError::CONNECTION, fmt::format(R"(Connection to "{}" failed)", label)};
-}
-
-/// Connection + TLS options for the DoT connection.
-[[nodiscard]] std::pair<Transport::Options, Transport::TlsOptions> make_tls_options(
-    std::vector<Config::DnsServer> bootstrap) {
-    Transport::Options conn;
-    conn.connect_timeout = CONNECT_TIMEOUT;
-    conn.bootstrap_dns = std::move(bootstrap);
-    Transport::TlsOptions tls;
-    tls.alpn_proto = ALPN_DOT;
-    return {conn, tls};
 }
 
 /// Build a padded DNS query for DoT (RFC 7858 §3.5 / RFC 7830).
@@ -165,9 +137,7 @@ constexpr unsigned char ALPN_DOT[] = {3, 'd', 'o', 't'};
 DotResolver::DotResolver(std::string server, const std::uint16_t port, std::string label,
                          std::vector<Config::DnsServer> bootstrap)
     : id_(get_id()), server_(std::move(server)), port_(port), label_(std::move(label)),
-      bootstrap_(std::move(bootstrap)),
-      stream_(std::make_unique<Transport::TlsStream>(server_, port_, make_tls_options(bootstrap_).first,
-                                                     make_tls_options(bootstrap_).second)) {}
+      bootstrap_(std::move(bootstrap)), stream_(DNS::Resolver::make_tls_stream(server_, port_, bootstrap_, ALPN_DOT)) {}
 
 DotResolver::DotResolver(std::string server, const std::uint16_t port, std::string label,
                          std::unique_ptr<Transport::Stream> stream)
@@ -205,12 +175,12 @@ std::expected<std::vector<std::uint8_t>, DnsErrorInfo> DotResolver::query(const 
             if (auto connected = stream_->ensure_connected(token); !connected) {
                 stream_->close();
                 if (connected.error() == Transport::IoError::CANCELLED) {
-                    return std::unexpected(map_connect_error(connected.error(), label_));
+                    return std::unexpected(DNS::Resolver::map_connect_error(connected.error(), label_));
                 }
                 if (attempt < MAX_ATTEMPTS - 1) {
                     continue;
                 }
-                return std::unexpected(map_connect_error(connected.error(), label_));
+                return std::unexpected(DNS::Resolver::map_connect_error(connected.error(), label_));
             }
 
             if (auto sent = stream_->send_all(wire, token); !sent) {

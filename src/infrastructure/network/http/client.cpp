@@ -4,9 +4,7 @@
 #include "infrastructure/network/http/client.h"
 
 #include <cstdint>
-#include <exception>
 #include <map>
-#include <optional>
 #include <string>
 #include <utility>
 
@@ -40,10 +38,8 @@ std::expected<Response, Error> Client::exchange(const std::string_view url, cons
     if (auto valid = validate_request(req); !valid) {
         return std::unexpected(std::move(valid.error()));
     }
-    std::optional<Uri> parsed_uri;
-    try {
-        parsed_uri.emplace(Uri::parse(url));
-    } catch (const std::exception&) {
+    auto parsed_uri = Uri::parse(url);
+    if (!parsed_uri.has_value()) {
         return std::unexpected(Error{ErrorCode::INVALID_URL, fmt::format(R"(invalid URL: "{}")", url)});
     }
     auto scheme = std::string(parsed_uri->get_schema());
@@ -85,11 +81,10 @@ std::expected<Response, Error> Client::exchange(const std::string_view url, cons
         scheme = std::move(plan.scheme);
         host = std::move(plan.host);
         port = plan.port;
-        try {
-            parsed_uri.emplace(Uri::parse(fmt::format(
-                "{}://{}:{}{}", scheme, host.find(':') != std::string::npos ? fmt::format("[{}]", host) : host, port,
-                wire.target)));
-        } catch (const std::exception&) {
+        parsed_uri = Uri::parse(fmt::format("{}://{}:{}{}", scheme,
+                                            host.find(':') != std::string::npos ? fmt::format("[{}]", host) : host,
+                                            port, wire.target));
+        if (!parsed_uri.has_value()) {
             return std::unexpected(Error{ErrorCode::INVALID_URL, "invalid redirect URL"});
         }
     }

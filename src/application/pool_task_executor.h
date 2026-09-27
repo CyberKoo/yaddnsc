@@ -8,7 +8,6 @@
 #include <atomic>
 #include <cstddef>
 #include <memory>
-#include <utility>
 
 #include "application/ports/task_executor.h"
 
@@ -52,7 +51,7 @@ public:
     void shutdown() override;
 
     /// Install the retry_after handler (composition-time, before run()).
-    void set_retry_handler(RetryHandler handler) override { retry_handler_ = std::move(handler); }
+    void set_retry_handler(RetryHandler handler) override;
 
 private:
     struct Impl;

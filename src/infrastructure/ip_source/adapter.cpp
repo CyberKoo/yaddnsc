@@ -18,11 +18,7 @@
 #include "infrastructure/ip_source/base.h"
 #include "support/util/cancellation_token.hpp"
 
-#include "factory.h"
-
-IpSourceAdapter::IpSourceAdapter(FactoryFn factory)
-    : factory_(factory ? std::move(factory)
-                       : FactoryFn([](const domain::SubdomainConfig& cfg) { return IpSourceFactory::create(cfg); })) {}
+IpSourceAdapter::IpSourceAdapter(FactoryFn factory) : factory_(std::move(factory)) {}
 
 std::expected<std::vector<InetAddress>, domain::IpSourceError> IpSourceAdapter::resolve(
     const domain::SubdomainConfig& config, const Utils::CancellationToken& token) const {

@@ -7,7 +7,6 @@
 
 #include <string>
 #include <string_view>
-#include <system_error>
 
 #include "support/exception.h"
 
@@ -39,15 +38,7 @@ private:
     int errnum_;
     bool has_errno_;
 
-    static std::string build_message(int errnum, std::string_view context) {
-        std::string msg;
-        if (!context.empty()) {
-            msg += context;
-            msg += ": ";
-        }
-        msg += std::error_code{errnum, std::generic_category()}.message();
-        return msg;
-    }
+    static std::string build_message(int errnum, std::string_view context);
 };
 
 #endif  // YADDNSC_EXCEPTION_SOCKET_H

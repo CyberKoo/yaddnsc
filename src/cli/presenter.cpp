@@ -8,6 +8,7 @@
 #include <cstdlib>
 #include <iostream>
 #include <optional>
+#include <ranges>
 #include <string_view>
 
 #include <expected>
@@ -66,23 +67,22 @@ int Cli::present_interface_list(const std::vector<Diagnostics::InterfaceListItem
     for (const auto& item : items) {
         std::print("  {}", item.name);
         if (!item.addresses.empty()) {
-            std::print(" (");
-            for (size_t i = 0; i < item.addresses.size(); ++i) {
-                if (i > 0) {
-                    std::print(", ");
-                }
-                std::print("{}", item.addresses[i].to_string());
-            }
-            std::print(")");
+            const auto address_strings =
+                item.addresses | std::views::transform([](const InetAddress& addr) { return addr.to_string(); });
+            std::print(" ({})", fmt::format("{}", fmt::join(address_strings, ", ")));
         }
         std::println("");
     }
     return EXIT_SUCCESS;
 }
 
-int Cli::present_interface_ip(const std::string& name, const std::vector<InetAddress>& addresses) {
+int Cli::present_interface_ip(const std::string& name, const std::optional<std::vector<InetAddress>>& addresses) {
+    if (!addresses.has_value()) {
+        std::println(std::cerr, "Error: Interface {} not found", name);
+        return EXIT_FAILURE;
+    }
     std::println("Interface: {}", name);
-    for (const auto& addr : addresses) {
+    for (const auto& addr : *addresses) {
         std::println("  {} ({})", addr.to_string(), addr.get_family() == AddressFamily::IPV4 ? "IPv4" : "IPv6");
     }
     return EXIT_SUCCESS;

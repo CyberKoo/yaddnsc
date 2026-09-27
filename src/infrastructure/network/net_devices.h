@@ -6,6 +6,7 @@
 #define YADDNSC_NETWORK_NET_DEVICES_H
 
 #include <map>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -56,8 +57,8 @@ struct Ipv4Subnet {
 /// Pass AF_UNSPEC to accept any address family.
 /// Skips loopback (IFF_LOOPBACK) and point-to-point (IFF_POINTOPOINT)
 /// interfaces so that "<default>" picks a physical (or bridged) NIC.
-/// Returns 0 if no suitable interface is found — never throws.
-[[nodiscard]] unsigned int find_default_interface_index(int address_family = AF_UNSPEC);
+/// Returns std::nullopt if no suitable interface is found — never throws.
+[[nodiscard]] std::optional<unsigned int> find_default_interface_index(int address_family = AF_UNSPEC);
 
 // -----------------------------------------------------------------------
 //  Interface name / index conversion

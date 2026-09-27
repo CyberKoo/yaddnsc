@@ -37,7 +37,7 @@ constexpr std::string_view API_URL_GLOBAL = "https://api.dnspod.com/Record.Ddns"
 
 constexpr std::string_view DRIVER_NAME = "dnspod";
 
-std::unordered_map<std::string_view, std::string_view> ERROR_CODES = {
+const std::unordered_map<std::string_view, std::string_view> ERROR_CODES = {
     {"-15", "Domain got prohibited"},
     {"-8", "You need a upgrade for the domain you are acting for"},
     {"-7", "A domain of a company account need a upgrade first"},

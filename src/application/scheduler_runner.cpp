@@ -12,10 +12,9 @@
 #include "domain/update/time_types.h"
 #include "domain/update/update_task.h"
 
-SchedulerRunner::SchedulerRunner(domain::ScheduleQueue& queue, Clock& clock, TaskExecutor& executor,
-                                 std::stop_token stop, const Logger& logger)
-    : queue_(queue), clock_(clock), executor_(executor), stop_(std::move(stop)), logger_(logger) {
-    YLOG_INFO(logger_, "Scheduler initialised with {} tasks", queue_.size());
+SchedulerRunner::SchedulerRunner(domain::ScheduleQueue& queue, SchedulerEnvironment env, std::stop_token stop)
+    : queue_(queue), env_(env), stop_(std::move(stop)) {
+    YLOG_INFO(env_.logger, "Scheduler initialised with {} tasks", queue_.size());
 }
 
 void SchedulerRunner::run(const Utils::CancellationToken& token) {
@@ -30,29 +29,29 @@ void SchedulerRunner::run(const Utils::CancellationToken& token) {
                 retries.swap(pending_retries_);
             }
             if (!retries.empty()) {
-                const auto now = clock_.now();
+                const auto now = env_.clock.now();
                 for (const auto& [id, delay] : retries) {
                     queue_.reschedule(id, now + delay);
                 }
             }
         }
 
-        for (auto& task : queue_.pop_due(clock_.now())) {
+        for (auto& task : queue_.pop_due(env_.clock.now())) {
             // A false return means the executor is shutting down; the task is
             // dropped, matching the legacy shutdown semantics (pending work is
             // discarded once stop was requested).
-            executor_.submit(std::move(task), token);
+            env_.executor.submit(std::move(task), token);
         }
 
         // Read the clock once: with two reads a concurrent time jump (a fake
         // clock advanced from another thread) could land between them and push
         // the deadline past the very next due entry, parking the loop forever.
-        const auto now = clock_.now();
+        const auto now = env_.clock.now();
         const auto next = queue_.time_until_next(now);
         // An empty queue waits only for stop — same as the legacy scheduler's
         // empty-heap wait.
         const auto deadline = next ? now + *next : domain::TimePoint::max();
-        if (!clock_.wait_until(deadline, stop_)) {
+        if (!env_.clock.wait_until(deadline, stop_)) {
             break;
         }
     }
@@ -63,5 +62,5 @@ void SchedulerRunner::request_retry(domain::TaskId id, std::chrono::seconds dela
         std::lock_guard lock(retry_mtx_);
         pending_retries_.emplace_back(id, delay);
     }
-    clock_.wake();
+    env_.clock.wake();
 }

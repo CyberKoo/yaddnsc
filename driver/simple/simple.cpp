@@ -65,7 +65,7 @@ HttpRequest SimpleDriver::generate_request(const UpdateRequest& params) {
     auto url = obj["url"].get_string();
 
     // Substitute all keys into the URL template: config params first, then context
-    const auto substitute = [&](std::string_view key, std::string_view val) {
+    const auto substitute = [&url](std::string_view key, std::string_view val) {
         const auto target = fmt::format("{{{}}}", key);
         string_util::replace_all(url, target, val);
     };

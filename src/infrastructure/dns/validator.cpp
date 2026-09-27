@@ -4,12 +4,13 @@
 #include "infrastructure/dns/validator.h"
 
 #include <algorithm>
+#include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <span>
 #include <string>
 
 #include <expected>
-#include <stddef.h>
 #include <yaddnsc/util/format.hpp>
 
 #include "domain/error/dns_error.h"
@@ -20,10 +21,13 @@
 namespace {
 // ── Low-level DNS wire-format helpers ──
 
+/// Fixed size of QTYPE + QCLASS in the question section (RFC 1035 §4.1.2).
+constexpr size_t QUESTION_FIXED_SIZE = 4;
+
 /// Skip a DNS wire-format name (QNAME) starting at @p offset.
 /// Handles normal labels, compression pointers (0xC0), and the root label (0x00).
-/// @return  The offset past the end of the name, or 0 on error.
-[[nodiscard]] size_t skip_name(std::span<const std::uint8_t> msg, size_t offset) noexcept {
+/// @return  The offset past the end of the name, or std::nullopt on error.
+[[nodiscard]] std::optional<size_t> skip_name(std::span<const std::uint8_t> msg, size_t offset) noexcept {
     while (offset < msg.size()) {
         const auto label_len = msg[offset];
         if (label_len == 0) {
@@ -34,29 +38,30 @@ namespace {
         }
         offset += 1 + label_len;
     }
-    return 0;  // malformed — ran off the end
+    return std::nullopt;  // malformed — ran off the end
 }
 
-/// Find the end of the first question section starting at byte 12.
-/// @return  The offset past QNAME + QTYPE + QCLASS, or 0 on error.
-[[nodiscard]] size_t question_section_end(std::span<const std::uint8_t> msg) noexcept {
-    if (msg.size() < 12)
-        return 0;
-    if (Utils::Bytes::read_u16_be(msg, 4) == 0)
-        return 0;
-    const auto off = skip_name(msg, 12);
-    if (off == 0 || off + 4 > msg.size())
-        return 0;
-    return off + 4;  // skip QTYPE + QCLASS
+/// Find the end of the first question section, starting past the header.
+/// @return  The offset past QNAME + QTYPE + QCLASS, or std::nullopt on error.
+[[nodiscard]] std::optional<size_t> question_section_end(std::span<const std::uint8_t> msg) noexcept {
+    if (msg.size() < DNS::HEADER_SIZE)
+        return std::nullopt;
+    const auto qdcount = Utils::Bytes::try_read_u16_be(msg, 4);
+    if (!qdcount || *qdcount == 0)
+        return std::nullopt;
+    const auto off = skip_name(msg, DNS::HEADER_SIZE);
+    if (!off || *off + QUESTION_FIXED_SIZE > msg.size())
+        return std::nullopt;
+    return *off + QUESTION_FIXED_SIZE;  // skip QTYPE + QCLASS
 }
 
 // ── Individual validation checks (all return expected) ──
 
 [[nodiscard]] std::expected<void, DnsErrorInfo> check_min_header_size(std::span<const std::uint8_t> response) {
-    if (response.size() >= 12)
+    if (response.size() >= DNS::HEADER_SIZE)
         return {};
-    return std::unexpected(
-        DnsErrorInfo{DnsError::PARSE, fmt::format("DNS response too short: {} bytes (minimum 12)", response.size())});
+    return std::unexpected(DnsErrorInfo{DnsError::PARSE, fmt::format("DNS response too short: {} bytes (minimum {})",
+                                                                     response.size(), DNS::HEADER_SIZE)});
 }
 
 [[nodiscard]] std::expected<void, DnsErrorInfo> check_qr_bit(std::span<const std::uint8_t> response) {
@@ -73,11 +78,13 @@ namespace {
 }
 
 [[nodiscard]] std::expected<void, DnsErrorInfo> check_qdcount(std::span<const std::uint8_t> response) {
-    const auto qdcount = Utils::Bytes::read_u16_be(response, 4);
-    if (qdcount == 1)
+    const auto qdcount = Utils::Bytes::try_read_u16_be(response, 4);
+    if (!qdcount)
+        return std::unexpected(DnsErrorInfo{DnsError::PARSE, "DNS response too short for QDCOUNT"});
+    if (*qdcount == 1)
         return {};
     return std::unexpected(
-        DnsErrorInfo{DnsError::PARSE, fmt::format("DNS response QDCOUNT is {} (expected 1)", qdcount)});
+        DnsErrorInfo{DnsError::PARSE, fmt::format("DNS response QDCOUNT is {} (expected 1)", *qdcount)});
 }
 
 [[nodiscard]] std::expected<void, DnsErrorInfo> check_question_echo(std::span<const std::uint8_t> request,
@@ -85,12 +92,12 @@ namespace {
     const auto req_qs_end = question_section_end(request);
     const auto rsp_qs_end = question_section_end(response);
 
-    if (req_qs_end == 0 || rsp_qs_end == 0) {
+    if (!req_qs_end || !rsp_qs_end) {
         return std::unexpected(DnsErrorInfo{DnsError::PARSE, "DNS response has malformed question section"});
     }
 
-    const auto req_qs_len = req_qs_end - DNS::HEADER_SIZE;
-    const auto rsp_qs_len = rsp_qs_end - DNS::HEADER_SIZE;
+    const auto req_qs_len = *req_qs_end - DNS::HEADER_SIZE;
+    const auto rsp_qs_len = *rsp_qs_end - DNS::HEADER_SIZE;
 
     if (req_qs_len == rsp_qs_len && std::ranges::equal(std::span(request).subspan(DNS::HEADER_SIZE, req_qs_len),
                                                        std::span(response).subspan(DNS::HEADER_SIZE, rsp_qs_len))) {

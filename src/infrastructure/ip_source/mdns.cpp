@@ -219,8 +219,8 @@ template<IpVersionTag Tag>
         // table, which is safer (avoids docker/bridge interfaces).  No explicit
         // lookup needed.
     } else if constexpr (std::is_same_v<Tag, Ipv6Tag>) {
-        if_index = NetDevices::find_default_interface_index(AF_INET6);
-        if (if_index > 0) {
+        if (const auto default_index = NetDevices::find_default_interface_index(AF_INET6)) {
+            if_index = *default_index;
             auto if_name = NetDevices::index_to_name(if_index);
             SPDLOG_DEBUG(R"(mDNS auto-selected interface "{}" for "{}" (type AAAA))", if_name.empty() ? "?" : if_name,
                          hostname);

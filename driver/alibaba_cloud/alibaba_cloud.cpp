@@ -5,11 +5,9 @@
 #include "alibaba_cloud.h"
 
 #include <algorithm>
-#include <array>
 #include <chrono>
 #include <compare>
 #include <cstdint>
-#include <ctime>
 #include <optional>
 #include <random>
 #include <span>
@@ -51,14 +49,9 @@ constexpr std::string_view API_VERSION = "2015-01-09";
 constexpr std::string_view DRIVER_NAME = "alibaba_cloud";
 
 /// Generate an ISO 8601 timestamp in Alibaba Cloud format: "YYYY-MM-DDTHH:MM:SSZ".
-[[nodiscard]] std::string alibaba_timestamp() noexcept {
-    const auto now = std::time(nullptr);
-    const auto* tm = std::gmtime(&now);
-    if (!tm)
-        return {};
-    std::array<char, 24> buf{};
-    std::strftime(buf.data(), buf.size(), "%Y-%m-%dT%H:%M:%SZ", tm);
-    return {buf.data()};
+[[nodiscard]] std::string alibaba_timestamp() {
+    const auto now = std::chrono::floor<std::chrono::seconds>(std::chrono::system_clock::now());
+    return fmt::format("{:%Y-%m-%dT%H:%M:%SZ}", now);
 }
 
 /// Generate a unique SignatureNonce for each request.

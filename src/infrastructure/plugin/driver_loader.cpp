@@ -15,7 +15,6 @@
 #include "domain/config/runtime_config.h"
 #include "infrastructure/config/config_verification_exception.h"
 #include "infrastructure/plugin/driver_catalog.h"
-#include "infrastructure/plugin/plugin_load_exception.h"
 #include "support/util/algorithm.hpp"
 
 #include "config_cmake.h"
@@ -76,9 +75,10 @@ void load_auto_discover(DriverCatalog& driver_catalog, const domain::DriverSetti
             }
             try {
                 driver_catalog.load_driver(entry.path().string());
-            } catch (const PluginLoadException& e) {
-                SPDLOG_WARN("Skipping invalid driver '{}': {}", entry.path().filename().string(), e.what());
             } catch (const std::exception& e) {
+                // PluginLoadException (expected: not a loadable driver) and
+                // any other failure share one skip-and-warn path; the .so
+                // files in this directory are not under our control.
                 SPDLOG_WARN("Skipping driver '{}': {}", entry.path().filename().string(), e.what());
             }
         }

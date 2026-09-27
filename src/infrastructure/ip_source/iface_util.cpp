@@ -8,14 +8,10 @@
 #include <chrono>
 #include <iterator>
 #include <map>
-#include <stdexcept>
 #include <utility>
-
-#include <yaddnsc/util/format.hpp>
 
 #include "domain/network/inet_address.h"
 #include "infrastructure/network/net_devices.h"
-#include "support/fmt.hpp"
 #include "support/util/cache.hpp"
 
 // ===========================================================================
@@ -43,10 +39,10 @@ std::vector<std::string> InterfaceUtil::get_interfaces() {
     return interfaces;
 }
 
-std::vector<InetAddress> InterfaceUtil::get_addresses(const std::string& interface_name) {
+std::optional<std::vector<InetAddress>> InterfaceUtil::get_addresses(const std::string& interface_name) {
     auto all = get_cached_interfaces();
     if (const auto it = all.find(interface_name); it != all.end()) {
         return it->second;
     }
-    throw std::runtime_error(fmt::format("Interface {} not found", interface_name));
+    return std::nullopt;
 }

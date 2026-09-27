@@ -10,6 +10,7 @@
 #define YADDNSC_NET_TRANSPORT_TLS_STREAM_H
 
 #include <chrono>
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <span>
@@ -18,7 +19,6 @@
 
 #include <expected>
 #include <openssl/types.h>
-#include <stddef.h>
 
 #include "infrastructure/network/transport/detail/socket_stream.h"
 #include "infrastructure/network/transport/io_error.h"
@@ -36,6 +36,12 @@ struct SslContextDeleter {
 };
 
 using SslCtxPtr = std::unique_ptr<SSL_CTX, SslContextDeleter>;
+
+struct SslDeleter {
+    void operator()(SSL* ssl) const noexcept;
+};
+
+using SslPtr = std::unique_ptr<SSL, SslDeleter>;
 
 /// A TLS byte stream over TCP.
 ///
@@ -66,7 +72,8 @@ public:
 private:
     [[nodiscard]] std::expected<void, IoError> connect(std::chrono::steady_clock::time_point deadline,
                                                        const Utils::CancellationToken& token);
-    [[nodiscard]] std::expected<void, IoError> handshake(std::chrono::steady_clock::time_point deadline,
+    /// TLS handshake on a not-yet-published SSL session (owned by the caller).
+    [[nodiscard]] std::expected<void, IoError> handshake(SSL* ssl, std::chrono::steady_clock::time_point deadline,
                                                          const Utils::CancellationToken& token);
     [[nodiscard]] bool is_healthy() const noexcept;
 
@@ -80,7 +87,7 @@ private:
 
     detail::SocketStream socket_;
     SslCtxPtr custom_ctx_;
-    SSL* ssl_ = nullptr;
+    SslPtr ssl_;
     Options opts_;
     TlsOptions tls_opts_;
     std::vector<unsigned char> alpn_proto_;

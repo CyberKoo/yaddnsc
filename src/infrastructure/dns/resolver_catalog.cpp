@@ -18,6 +18,23 @@
 #include "infrastructure/network/uri.h"
 #include "support/fmt.hpp"
 
+namespace {
+
+/// Parse a configured resolver address. A malformed address is a
+/// configuration mistake that validation should have caught — treat it as a
+/// terminate signal, consistent with create()'s unknown-schema error.
+[[nodiscard]] Uri parse_resolver_address(const Config::DnsServer& server) {
+    auto uri = Uri::parse(server.address);
+    if (!uri.has_value()) {
+        throw DnsLookupException(
+            fmt::format(R"(Malformed resolver address "{}" ({}))", server.address, error_message(uri.error())),
+            DnsError::CONFIG);
+    }
+    return std::move(*uri);
+}
+
+}  // namespace
+
 void ResolverCatalog::register_factory(std::string_view schema, FactoryFn factory) {
     factories_[std::string(schema)] = std::move(factory);
 }
@@ -33,22 +50,24 @@ ResolverCatalog ResolverCatalog::with_builtins(std::vector<Config::DnsServer> bo
     // ignored because the URI already specifies the port (e.g. https://1.1.1.1:1443/dns-query).
     // If no port is present in the URI, the default is 443.
     catalog.register_factory("https", [bootstrap](const Config::DnsServer& server) -> std::unique_ptr<ResolverBase> {
-        auto uri = Uri::parse(server.address);
+        auto uri = parse_resolver_address(server);
         auto host = std::string(uri.get_host());
         auto port = static_cast<std::uint16_t>(uri.get_port() != 0 ? uri.get_port() : 443);
         auto path = std::string(uri.get_path());
         if (path.empty()) {
             path = "/";
         }
-        return std::make_unique<DohResolver>(std::move(host), port, std::move(path), std::string(uri.get_origin()),
-                                             bootstrap);
+        return std::make_unique<DohResolver>(
+            DohEndpoint{
+                .host = std::move(host), .port = port, .path = std::move(path), .label = std::string(uri.get_origin())},
+            bootstrap);
     });
 
     // DoT resolver: port is read from the URI only; server.port is intentionally
     // ignored because the URI already specifies the port (e.g. tls://1.1.1.1:853).
     // If no port is present in the URI, the default is 853.
     catalog.register_factory("tls", [bootstrap](const Config::DnsServer& server) -> std::unique_ptr<ResolverBase> {
-        auto uri = Uri::parse(server.address);
+        auto uri = parse_resolver_address(server);
         auto host = std::string(uri.get_host());
         auto port = static_cast<std::uint16_t>(uri.get_port() != 0 ? uri.get_port() : 853);
         return std::make_unique<DotResolver>(std::move(host), port, std::string(uri.get_origin()), bootstrap);
@@ -58,7 +77,7 @@ ResolverCatalog ResolverCatalog::with_builtins(std::vector<Config::DnsServer> bo
 }
 
 std::unique_ptr<ResolverBase> ResolverCatalog::create(const Config::DnsServer& server) const {
-    auto uri = Uri::parse(server.address);
+    auto uri = parse_resolver_address(server);
     auto schema = std::string(uri.get_schema());
 
     auto it = factories_.find(schema);

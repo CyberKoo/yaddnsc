@@ -466,7 +466,7 @@ net::http::protocol::WireRequest post_request() {
 }
 
 [[nodiscard]] Uri make_current_uri() {
-    return Uri::parse("https://api.example.com/api/v1/update");
+    return Uri::parse("https://api.example.com/api/v1/update").value();
 }
 
 }  // namespace
@@ -527,7 +527,7 @@ TEST(HttpClientRedirect, CrossOrigin_StripsAuthorization) {
 
 TEST(HttpClientRedirect, AbsoluteLocationWithPort) {
     const auto eval = net::http::evaluate_redirect(302, {{"Location", "http://plain.example.com:8080/x"}}, 0, {},
-                                                   post_request(), Uri::parse("http://plain.example.com/api"));
+                                                   post_request(), Uri::parse("http://plain.example.com/api").value());
     ASSERT_TRUE(eval.plan.has_value());
     EXPECT_EQ(eval.plan->scheme, "http");
     EXPECT_EQ(eval.plan->port, 8080);

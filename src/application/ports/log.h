@@ -45,11 +45,8 @@ public:
     /// driver plugin logging through Host Services): the location arrives as
     /// plain data because std::source_location cannot be synthesised.
     /// The default implementation drops the explicit location.
-    virtual void log_explicit(LogLevel level, std::string_view message, std::string_view file, int line,
-                              std::string_view function) const {
-        (void) file;
-        (void) line;
-        (void) function;
+    virtual void log_explicit(LogLevel level, std::string_view message, [[maybe_unused]] std::string_view file,
+                              [[maybe_unused]] int line, [[maybe_unused]] std::string_view function) const {
         log(level, message, std::source_location::current());
     }
 };

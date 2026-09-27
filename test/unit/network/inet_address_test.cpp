@@ -218,6 +218,12 @@ TEST(Inet6AddressTest, Parse_WithNonNumericScopeId) {
     EXPECT_EQ(addr->get_scope_id(), 0U);
 }
 
+TEST(Inet6AddressTest, Parse_ScopeIdOutOfRange_ReturnsNullopt) {
+    // A numeric scope id exceeding 32 bits must be rejected, not truncated.
+    auto addr = Inet6Address::parse("fe80::1%99999999999");
+    EXPECT_FALSE(addr.has_value());
+}
+
 TEST(Inet6AddressTest, ScopeId) {
     Inet6Address addr;
     addr.set_scope_id(42);

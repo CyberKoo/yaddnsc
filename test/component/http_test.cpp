@@ -49,6 +49,7 @@
 #include "domain/network/inet_address.h"
 #include "domain/update/update_task.h"
 #include "infrastructure/ip_source/adapter.h"
+#include "infrastructure/ip_source/factory.h"
 #include "infrastructure/network/http/client.h"
 #include "infrastructure/network/http/types.h"
 #include "mocks/mock_ports.h"
@@ -457,7 +458,10 @@ TEST_F(HttpFixture, UpdateWorkflow_CancelMidHttpExchangeReturnsCancelled) {
     MockDnsResolverPort dns;
     MockDriverGateway gateway;
     NullLogger logger;
-    IpSourceAdapter ip_source;  // default factory: SubdomainConfig → HttpIpSource
+    // Real factory with test-scoped (empty) HTTP options — the same policy
+    // the legacy default factory used: SubdomainConfig → HttpIpSource.
+    IpSourceAdapter ip_source{
+        [](const domain::SubdomainConfig& sub) { return IpSourceFactory::create(sub, net::http::Options{}); }};
     const UpdateWorkflow workflow(dns, ip_source, gateway, logger);
 
     // A cancelled IP source lookup must stop the cycle before the DNS read

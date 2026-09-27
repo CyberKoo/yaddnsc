@@ -92,6 +92,10 @@ void SslContextDeleter::operator()(SSL_CTX* ctx) const noexcept {
     SSL_CTX_free(ctx);
 }
 
+void SslDeleter::operator()(SSL* ssl) const noexcept {
+    SSL_free(ssl);
+}
+
 TlsStream::TlsStream(std::string host, const std::uint16_t port, Options opts, TlsOptions tls_opts)
     : socket_(std::move(host), port, opts), opts_(std::move(opts)), tls_opts_(std::move(tls_opts)),
       alpn_proto_(tls_opts_.alpn_proto.begin(), tls_opts_.alpn_proto.end()) {}
@@ -137,12 +141,15 @@ std::expected<void, IoError> TlsStream::connect(const std::chrono::steady_clock:
         }
     }
 
-    ssl_ = SSL_new(ctx);
-    if (ssl_ == nullptr) {
+    // Build the session in a local owner: it is published to ssl_ only after
+    // the handshake succeeds, so no failure path can leave a half-initialized
+    // SSL session behind for is_healthy() to mistake for a live connection.
+    SslPtr ssl{SSL_new(ctx)};
+    if (!ssl) {
         SPDLOG_ERROR("SSL_new failed: {}", ssl_errors());
         return std::unexpected(CONNECTION_FAILED);
     }
-    SSL_set_fd(ssl_, socket_.fd());
+    SSL_set_fd(ssl.get(), socket_.fd());
 
     const std::string& effective_hostname =
         tls_opts_.sni_hostname.has_value() ? *tls_opts_.sni_hostname : socket_.host();
@@ -150,11 +157,11 @@ std::expected<void, IoError> TlsStream::connect(const std::chrono::steady_clock:
 
     if (!is_ip) {
         // RFC 6066 §3: SNI MUST NOT contain an IP literal.
-        SSL_set_tlsext_host_name(ssl_, effective_hostname.c_str());
+        SSL_set_tlsext_host_name(ssl.get(), effective_hostname.c_str());
     }
 
     // Bind peer identity to the connection target.
-    auto* verify_param = SSL_get0_param(ssl_);
+    auto* verify_param = SSL_get0_param(ssl.get());
     if (is_ip) {
         // Strip the IPv6 scope id ("fe80::1%eth0") — it is not part of the
         // address and X509_VERIFY_PARAM_set1_ip_asc rejects it.
@@ -164,37 +171,39 @@ std::expected<void, IoError> TlsStream::connect(const std::chrono::steady_clock:
             SPDLOG_ERROR(R"(Failed to set IP verification for "{}": {})", effective_hostname, ssl_errors());
             return std::unexpected(CONNECTION_FAILED);
         }
-    } else if (SSL_set1_host(ssl_, effective_hostname.c_str()) != 1) {
+    } else if (SSL_set1_host(ssl.get(), effective_hostname.c_str()) != 1) {
         SPDLOG_ERROR(R"(Failed to set hostname verification for "{}": {})", effective_hostname, ssl_errors());
         return std::unexpected(CONNECTION_FAILED);
     }
 
     if (!alpn_proto_.empty()) {
-        if (SSL_set_alpn_protos(ssl_, alpn_proto_.data(), static_cast<unsigned>(alpn_proto_.size())) != 0) {
+        if (SSL_set_alpn_protos(ssl.get(), alpn_proto_.data(), static_cast<unsigned>(alpn_proto_.size())) != 0) {
             SPDLOG_ERROR("SSL_set_alpn_protos failed: {}", ssl_errors());
             return std::unexpected(CONNECTION_FAILED);
         }
     }
 
-    auto result = handshake(deadline, token);
-    if (result) {
-        SPDLOG_DEBUG(R"(TLS connection established to "{}:{}" ({}))", socket_.host(), socket_.port(),
-                     SSL_get_version(ssl_));
+    if (auto result = handshake(ssl.get(), deadline, token); !result) {
+        return result;
     }
-    return result;
+
+    ssl_ = std::move(ssl);
+    SPDLOG_DEBUG(R"(TLS connection established to "{}:{}" ({}))", socket_.host(), socket_.port(),
+                 SSL_get_version(ssl_.get()));
+    return {};
 }
 
-std::expected<void, IoError> TlsStream::handshake(const std::chrono::steady_clock::time_point deadline,
+std::expected<void, IoError> TlsStream::handshake(SSL* ssl, const std::chrono::steady_clock::time_point deadline,
                                                   const Utils::CancellationToken& token) {
     using enum IoError;
 
     for (;;) {
-        const int rc = SSL_connect(ssl_);
+        const int rc = SSL_connect(ssl);
         if (rc == 1) {
             return {};
         }
 
-        const int err = SSL_get_error(ssl_, rc);
+        const int err = SSL_get_error(ssl, rc);
         if (err != SSL_ERROR_WANT_READ && err != SSL_ERROR_WANT_WRITE) {
             SPDLOG_ERROR(R"(TLS handshake failed for "{}:{}": {})", socket_.host(), socket_.port(), ssl_errors());
             return std::unexpected(CONNECTION_FAILED);
@@ -217,7 +226,7 @@ bool TlsStream::is_healthy() const noexcept {
     }
     // Buffered application data means the connection is alive even when
     // the raw socket shows nothing readable.
-    if (SSL_pending(ssl_) > 0) {
+    if (SSL_pending(ssl_.get()) > 0) {
         return true;
     }
     return socket_.is_healthy();
@@ -240,18 +249,18 @@ std::expected<size_t, IoError> TlsStream::read_once(const std::span<std::uint8_t
 
     for (;;) {
         // Skip the poll when OpenSSL already holds decrypted data.
-        if (SSL_pending(ssl_) == 0) {
+        if (SSL_pending(ssl_.get()) == 0) {
             if (auto ready = socket_.poll(POLLIN, opts_.read_timeout, token); !ready) {
                 return std::unexpected(ready.error());
             }
         }
 
-        const int rc = SSL_read(ssl_, buf.data(), static_cast<int>(buf.size()));
+        const int rc = SSL_read(ssl_.get(), buf.data(), static_cast<int>(buf.size()));
         if (rc > 0) {
             return static_cast<size_t>(rc);
         }
 
-        const int err = SSL_get_error(ssl_, rc);
+        const int err = SSL_get_error(ssl_.get(), rc);
         if (err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE) {
             continue;  // poll again with the respective readiness direction
         }
@@ -287,13 +296,13 @@ std::expected<void, IoError> TlsStream::send_all(const std::span<const std::uint
 
     auto remaining = data;
     while (!remaining.empty()) {
-        const int rc = SSL_write(ssl_, remaining.data(), static_cast<int>(remaining.size()));
+        const int rc = SSL_write(ssl_.get(), remaining.data(), static_cast<int>(remaining.size()));
         if (rc > 0) {
             remaining = remaining.subspan(static_cast<size_t>(rc));
             continue;
         }
 
-        const int err = SSL_get_error(ssl_, rc);
+        const int err = SSL_get_error(ssl_.get(), rc);
         if (err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE) {
             const auto timeout = err == SSL_ERROR_WANT_READ ? opts_.read_timeout : opts_.write_timeout;
             if (auto ready = socket_.poll(err == SSL_ERROR_WANT_READ ? POLLIN : POLLOUT, timeout, token); !ready) {
@@ -308,10 +317,7 @@ std::expected<void, IoError> TlsStream::send_all(const std::span<const std::uint
 }
 
 void TlsStream::close() noexcept {
-    if (ssl_ != nullptr) {
-        SSL_free(ssl_);
-        ssl_ = nullptr;
-    }
+    ssl_.reset();
     socket_.close();
 }
 

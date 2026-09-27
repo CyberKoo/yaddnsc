@@ -80,6 +80,19 @@ struct AddrResult {
     return result;
 }
 
+/// Parse the server address into a Uri (used for display). Same error
+/// contract as make_addr(): a malformed address is a configuration
+/// terminate-signal, reported as DnsLookupException with DnsError::CONFIG.
+[[nodiscard]] Uri parse_server_uri(const Config::DnsServer& server) {
+    auto uri = Uri::parse(server.address);
+    if (!uri.has_value()) {
+        throw DnsLookupException(
+            fmt::format(R"(Invalid DNS server address "{}" ({}))", server.address, error_message(uri.error())),
+            DnsError::CONFIG);
+    }
+    return std::move(*uri);
+}
+
 // ── Helpers to translate Socket error conditions ──
 
 /// Translate wait_for / connect timeout into DnsError.
@@ -150,6 +163,33 @@ struct AddrResult {
 }
 
 // ── TCP query (fallback for truncated responses) ──
+
+/// Receive helper for the TCP fallback: wait with poll, then recv.
+[[nodiscard]] std::expected<size_t, DnsErrorInfo> recv_with_timeout(Socket& sock, std::span<std::byte> buf,
+                                                                    const Utils::CancellationToken& cancel_token,
+                                                                    const std::uint64_t resolver_id) {
+    auto wait_res = sock.wait_for(POLLIN, TCP_CONNECT_TIMEOUT_SEC * 1000, cancel_token);
+    if (!wait_res) {
+        const auto ec = classify_socket_error(wait_res.error());
+        return std::unexpected(DnsErrorInfo{ec, socket_error_msg(resolver_id, "TCP wait_for", wait_res.error())});
+    }
+    if (*wait_res == 0) {
+        return std::unexpected(
+            DnsErrorInfo{DnsError::RETRY, fmt::format(R"(Resolver #{} TCP recv timed out)", resolver_id)});
+    }
+
+    auto n = sock.recv(buf);
+    if (n == 0) {
+        return std::unexpected(DnsErrorInfo{DnsError::CONNECTION,
+                                            fmt::format(R"(Resolver #{} TCP connection reset by peer)", resolver_id)});
+    }
+    if (n < 0) {
+        return std::unexpected(DnsErrorInfo{DnsError::CONNECTION, fmt::format(R"(Resolver #{} TCP recv failed: {})",
+                                                                              resolver_id, std::strerror(errno))});
+    }
+    return static_cast<size_t>(n);
+}
+
 [[nodiscard]] std::expected<std::vector<std::uint8_t>, DnsErrorInfo> query_tcp(
     const AddrResult& addr, std::span<const uint8_t> query_packet, const Utils::CancellationToken& cancel_token,
     std::uint64_t resolver_id) {
@@ -177,8 +217,11 @@ struct AddrResult {
 
     // Enable TCP_NODELAY to disable Nagle's algorithm — DNS queries are
     // typically small and latency-sensitive; batching via Nagle adds
-    // unnecessary delay.
-    sock.set_option(IPPROTO_TCP, TCP_NODELAY, 1).value();
+    // unnecessary delay.  A setsockopt failure is not fatal: the query
+    // still proceeds, just potentially with extra latency.
+    if (auto nodelay = sock.set_option(IPPROTO_TCP, TCP_NODELAY, 1); !nodelay) {
+        SPDLOG_DEBUG(R"(Resolver #{} failed to set TCP_NODELAY: {})", resolver_id, std::strerror(nodelay.error()));
+    }
 
     // Send: 2-byte big-endian length prefix + query packet (RFC 1035 §4.2.2).
     const std::uint16_t be_len = htons(static_cast<std::uint16_t>(query_packet.size()));
@@ -192,38 +235,13 @@ struct AddrResult {
                                                                               resolver_id, std::strerror(errno))});
     }
 
-    // Receive helper: wait with poll, then recv.
-    auto recv_with_timeout = [&sock, &cancel_token,
-                              resolver_id](std::span<std::byte> buf) -> std::expected<size_t, DnsErrorInfo> {
-        auto wait_res = sock.wait_for(POLLIN, TCP_CONNECT_TIMEOUT_SEC * 1000, cancel_token);
-        if (!wait_res) {
-            const auto ec = classify_socket_error(wait_res.error());
-            return std::unexpected(DnsErrorInfo{ec, socket_error_msg(resolver_id, "TCP wait_for", wait_res.error())});
-        }
-        if (*wait_res == 0) {
-            return std::unexpected(
-                DnsErrorInfo{DnsError::RETRY, fmt::format(R"(Resolver #{} TCP recv timed out)", resolver_id)});
-        }
-
-        auto n = sock.recv(buf);
-        if (n == 0) {
-            return std::unexpected(DnsErrorInfo{
-                DnsError::CONNECTION, fmt::format(R"(Resolver #{} TCP connection reset by peer)", resolver_id)});
-        }
-        if (n < 0) {
-            return std::unexpected(DnsErrorInfo{DnsError::CONNECTION, fmt::format(R"(Resolver #{} TCP recv failed: {})",
-                                                                                  resolver_id, std::strerror(errno))});
-        }
-        return static_cast<size_t>(n);
-    };
-
     // Receive: 2-byte big-endian length prefix.
     std::uint16_t be_rsp_len = 0;
     auto len_buf = std::as_writable_bytes(std::span{&be_rsp_len, 1});
     {
         size_t total = 0;
         while (total < len_buf.size()) {
-            auto n = recv_with_timeout(len_buf.subspan(total));
+            auto n = recv_with_timeout(sock, len_buf.subspan(total), cancel_token, resolver_id);
             if (!n) {
                 return std::unexpected(std::move(n.error()));
             }
@@ -242,7 +260,7 @@ struct AddrResult {
     {
         size_t total = 0;
         while (total < rsp_buf.size()) {
-            auto n = recv_with_timeout(rsp_buf.subspan(total));
+            auto n = recv_with_timeout(sock, rsp_buf.subspan(total), cancel_token, resolver_id);
             if (!n) {
                 return std::unexpected(std::move(n.error()));
             }
@@ -278,7 +296,7 @@ struct ClassicResolver::Impl {
 };
 
 ClassicResolver::Impl::Impl(Config::DnsServer server, std::uint64_t id)
-    : id_(id), server_(std::move(server)), uri_(Uri::parse(server_.address)), addr_(make_addr(server_)) {}
+    : id_(id), server_(std::move(server)), uri_(parse_server_uri(server_)), addr_(make_addr(server_)) {}
 
 std::expected<std::vector<std::uint8_t>, DnsErrorInfo> ClassicResolver::Impl::query(
     const std::string& host_str, RecordKind type, const Utils::CancellationToken& token) const {

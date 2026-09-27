@@ -86,7 +86,7 @@ auto normalize(const AppConfig& raw) -> domain::RuntimeConfig {
     config.resolver = normalize_resolver(raw.resolver);
 
     if (!raw.bootstrap_dns.empty()) {
-        config.resolver.bootstrap_servers.push_back({raw.bootstrap_dns, 53});
+        config.resolver.bootstrap_servers.push_back({raw.bootstrap_dns, YADDNSC_DEFAULT_DNS_PORT});
     }
 
     if (raw.driver.driver_dir.has_value()) {

@@ -263,18 +263,18 @@ std::expected<void, int> Socket::bind(const SocketAddr& addr) const noexcept {
     return {};
 }
 
-SocketAddr Socket::get_sockname() const {
+std::expected<SocketAddr, int> Socket::get_sockname() const noexcept {
     SocketAddr result;
     if (::getsockname(fd_, result.raw_mut(), result.raw_len_ptr()) < 0) {
-        throw SocketException(errno, "getsockname");
+        return std::unexpected(errno);
     }
     return result;
 }
 
-SocketAddr Socket::get_peername() const {
+std::expected<SocketAddr, int> Socket::get_peername() const noexcept {
     SocketAddr result;
     if (::getpeername(fd_, result.raw_mut(), result.raw_len_ptr()) < 0) {
-        throw SocketException(errno, "getpeername");
+        return std::unexpected(errno);
     }
     return result;
 }

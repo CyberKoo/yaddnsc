@@ -38,4 +38,14 @@ struct RunEnvironment {
     const Logger& logger;
 };
 
+/// SchedulerEnvironment — the ambient services the scheduling loop draws on:
+/// time, task execution and logging. Deliberately mirrors RunEnvironment minus
+/// the interface enumeration: the scheduler never touches interfaces, and an
+/// unused bundle member means the bundle is mis-grouped (split, don't pad).
+struct SchedulerEnvironment {
+    Clock& clock;
+    TaskExecutor& executor;
+    const Logger& logger;
+};
+
 #endif  // YADDNSC_APPLICATION_RUN_ENVIRONMENT_H

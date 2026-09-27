@@ -14,6 +14,7 @@
 #include <atomic>
 #include <chrono>
 #include <climits>
+#include <cstddef>
 #include <exception>
 #include <functional>
 #include <future>
@@ -26,7 +27,6 @@
 #include <magic_enum/magic_enum.hpp>
 #include <poll.h>
 #include <spdlog/spdlog.h>
-#include <stddef.h>
 #include <yaddnsc/util/format.hpp>
 
 #include "domain/error/dns_error.h"

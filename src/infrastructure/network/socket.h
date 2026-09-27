@@ -118,6 +118,7 @@ public:
 //   - accept:  returns std::expected<Socket, int>, does NOT throw.
 //   - Setup/control (bind, set_nonblocking, wait_for):  return std::expected<void, int> or std::expected<int, int>, do
 //   NOT throw.
+//   - Address accessors (get_sockname/get_peername):  return std::expected<SocketAddr, int>, do NOT throw.
 //   - listen:  throw SocketException.
 //   - Destructor and close():  noexcept (errors silently ignored).
 //
@@ -161,9 +162,9 @@ public:
 
     [[nodiscard]] std::expected<void, int> bind(const SocketAddr& addr) const noexcept;
 
-    [[nodiscard]] SocketAddr get_sockname() const;
+    [[nodiscard]] std::expected<SocketAddr, int> get_sockname() const noexcept;
 
-    [[nodiscard]] SocketAddr get_peername() const;
+    [[nodiscard]] std::expected<SocketAddr, int> get_peername() const noexcept;
 
     // ---- Connection (client) -----------------------------------------------
 

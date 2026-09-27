@@ -178,7 +178,7 @@ std::multimap<std::string, std::string> location_headers(std::string location) {
 
 TEST(HttpRedirect, IgnoresNonRedirectAndMissingOrDisabledLocation) {
     const auto request = redirect_request();
-    const auto current = Uri::parse("http://example.test:8080/dir/page");
+    const auto current = Uri::parse("http://example.test:8080/dir/page").value();
     net::http::Options opts;
 
     EXPECT_FALSE(net::http::evaluate_redirect(200, location_headers("/next"), 0, opts, request, current).plan);
@@ -190,7 +190,7 @@ TEST(HttpRedirect, IgnoresNonRedirectAndMissingOrDisabledLocation) {
 
 TEST(HttpRedirect, EnforcesLimitAndRejectsMalformedLocations) {
     const auto request = redirect_request();
-    const auto current = Uri::parse("http://example.test/dir/page");
+    const auto current = Uri::parse("http://example.test/dir/page").value();
     net::http::Options opts{.max_redirects = 2};
 
     const auto limited = net::http::evaluate_redirect(302, location_headers("/next"), 2, opts, request, current);
@@ -205,7 +205,7 @@ TEST(HttpRedirect, EnforcesLimitAndRejectsMalformedLocations) {
 
 TEST(HttpRedirect, RewritesPostAndPreservesSafeHeadersForSameOrigin) {
     const auto request = redirect_request();
-    const auto current = Uri::parse("http://example.test:8080/dir/page");
+    const auto current = Uri::parse("http://example.test:8080/dir/page").value();
     const auto result = net::http::evaluate_redirect(303, location_headers("next?x=1"), 0, {}, request, current);
 
     ASSERT_TRUE(result.plan);
@@ -225,7 +225,7 @@ TEST(HttpRedirect, RewritesPostAndPreservesSafeHeadersForSameOrigin) {
 
 TEST(HttpRedirect, NormalizesDotSegmentsAndDropsFragments) {
     const auto request = redirect_request();
-    const auto current = Uri::parse("https://example.test/a/b/page?old=1");
+    const auto current = Uri::parse("https://example.test/a/b/page?old=1").value();
 
     const auto relative =
         net::http::evaluate_redirect(302, location_headers("../next#section"), 0, {}, request, current);
@@ -239,7 +239,7 @@ TEST(HttpRedirect, NormalizesDotSegmentsAndDropsFragments) {
 
 TEST(HttpRedirect, PreservesBodyButDropsCredentialsAcrossOrigins) {
     const auto request = redirect_request();
-    const auto current = Uri::parse("https://example.test/start");
+    const auto current = Uri::parse("https://example.test/start").value();
     const auto result =
         net::http::evaluate_redirect(307, location_headers("//[2001:db8::1]:8443/next"), 0, {}, request, current);
 
@@ -278,9 +278,9 @@ TEST(HttpWireRequest, MakeHostHeader) {
 }
 
 TEST(HttpWireRequest, MakeTarget) {
-    EXPECT_EQ(net::http::make_target(Uri::parse("http://a.test")), "/");
-    EXPECT_EQ(net::http::make_target(Uri::parse("http://a.test/path")), "/path");
-    EXPECT_EQ(net::http::make_target(Uri::parse("http://a.test/path?q=1&r=2")), "/path?q=1&r=2");
+    EXPECT_EQ(net::http::make_target(Uri::parse("http://a.test").value()), "/");
+    EXPECT_EQ(net::http::make_target(Uri::parse("http://a.test/path").value()), "/path");
+    EXPECT_EQ(net::http::make_target(Uri::parse("http://a.test/path?q=1&r=2").value()), "/path?q=1&r=2");
 }
 
 TEST(HttpWireRequest, BuildWireRequest_NoBody) {

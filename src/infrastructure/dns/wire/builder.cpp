@@ -4,9 +4,9 @@
 
 #include "infrastructure/dns/wire/builder.h"
 
+#include <cstddef>
 #include <utility>
 
-#include <stddef.h>
 #include <yaddnsc/util/format.hpp>
 
 #include "infrastructure/dns/dns_packet_exception.h"
@@ -37,7 +37,7 @@ public:
 
     // Encode a domain name into DNS label sequence (RFC 1035 §4.1.2).
     //
-    // Throws DnsLookupException if:
+    // Throws DnsPacketException if:
     //   - any label exceeds 63 octets
     //   - the encoded name exceeds 255 octets
     void encode_name(std::string_view name) {

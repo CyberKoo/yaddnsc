@@ -482,8 +482,8 @@ TEST_F(HttpClientTest, PersistentClient_InvalidBaseUrl_Throws) {
 // ===========================================================================
 
 TEST_F(HttpClientTest, Session_ReusesConnectionAcrossExchanges) {
-    net::http::Session session(std::make_shared<net::http::DefaultStreamFactory>(), {}, {}, "http", "127.0.0.1",
-                               server_.port(), {});
+    net::http::Session session({std::make_shared<net::http::DefaultStreamFactory>(), {}, {}},
+                               {"http", "127.0.0.1", server_.port()}, {});
 
     // The server handles sequential requests on one keep-alive connection.
     net::http::protocol::WireRequest first{

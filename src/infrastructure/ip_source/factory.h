@@ -25,10 +25,11 @@ using Result = std::expected<std::unique_ptr<IpSourceBase>, domain::IpSourceErro
 /// Create an IP source from subdomain configuration.
 /// @param cfg          The subdomain configuration specifying the IP source type and params.
 /// @param http_options Shared HTTP policy built once by the composition root
-///                     (used only by HTTP sources; an empty/default policy
-///                     makes hostname URLs fail fast at resolve time).
+///                     and handed to every HTTP source. A default-constructed
+///                     (empty) policy makes hostname URLs fail fast at
+///                     resolve time — tests only, never production wiring.
 /// @return     The appropriate source or a structured creation failure.
-[[nodiscard]] Result create(const domain::SubdomainConfig& cfg, net::http::Options http_options = {});
+[[nodiscard]] Result create(const domain::SubdomainConfig& cfg, net::http::Options http_options);
 }  // namespace IpSourceFactory
 
 #endif  // YADDNSC_IP_SOURCE_FACTORY_H

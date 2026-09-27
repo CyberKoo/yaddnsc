@@ -58,6 +58,7 @@
 #include "infrastructure/dns/dispatcher.h"
 #include "infrastructure/dns/resolver/base.h"
 #include "infrastructure/ip_source/adapter.h"
+#include "infrastructure/ip_source/factory.h"
 #include "infrastructure/ip_source/iface.h"
 #include "infrastructure/ip_source/iface_util.h"
 #include "infrastructure/logging/spdlog_logger.h"
@@ -203,8 +204,10 @@ private:
 struct RunGraph {
     RunGraph(domain::RuntimeConfig config, ResolverDispatcher dispatcher, HttpClientFactory http_factory)
         : config_(std::make_shared<const domain::RuntimeConfig>(std::move(config))), dispatcher_(std::move(dispatcher)),
-          ip_source_(), gateway_(catalog_, std::move(http_factory), logger_),
-          workflow_(dispatcher_, ip_source_, gateway_, logger_), executor_(2, workflow_) {
+          ip_source_(
+              [](const domain::SubdomainConfig& cfg) { return IpSourceFactory::create(cfg, net::http::Options{}); }),
+          gateway_(catalog_, std::move(http_factory), logger_), workflow_(dispatcher_, ip_source_, gateway_, logger_),
+          executor_(2, workflow_) {
         DriverLoader::load(catalog_, config_->driver);
     }
 

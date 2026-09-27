@@ -5,9 +5,9 @@
 
 #include <cstdint>
 #include <map>
-#include <optional>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <utility>
 
 #include <expected>
@@ -46,28 +46,39 @@ namespace {
     return req;
 }
 
+/// Parse and validate the client's base URL exactly once.
+/// @throws std::invalid_argument when base_url is not a valid http(s) URL —
+///         a precondition violation the caller cannot recover from here.
+[[nodiscard]] Uri parse_validated_base_url(const std::string& base_url) {
+    auto parsed = Uri::parse(base_url);
+    const auto scheme = parsed ? parsed->get_schema() : std::string_view{};
+    if (!parsed || (scheme != "http" && scheme != "https") || parsed->get_host().empty()) {
+        throw std::invalid_argument(fmt::format(R"(invalid base URL: "{}")", base_url));
+    }
+    return std::move(*parsed);
+}
+
 }  // namespace
 
 PersistentClient::PersistentClient(std::string base_url, Options opts)
     : PersistentClient(std::move(base_url), std::move(opts), std::make_shared<DefaultStreamFactory>()) {}
 
 PersistentClient::PersistentClient(std::string base_url, Options opts, std::shared_ptr<StreamFactory> factory)
-    : scheme_(std::string(Uri::parse(base_url).get_schema())), host_(std::string(Uri::parse(base_url).get_host())),
-      port_(static_cast<std::uint16_t>(Uri::parse(base_url).get_port() > 0 ? Uri::parse(base_url).get_port()
-                                                                           : default_port(scheme_))),
-      base_uri_(Uri::parse(base_url)), opts_(std::move(opts)), factory_(std::move(factory)),
-      session_(factory_, opts_.transport, opts_.tls, scheme_, host_, port_, opts_.limits) {
-    if ((scheme_ != "http" && scheme_ != "https") || host_.empty()) {
-        throw std::invalid_argument(fmt::format(R"(invalid base URL: "{}")", base_url));
-    }
-}
+    : base_uri_(parse_validated_base_url(base_url)), scheme_(std::string(base_uri_.get_schema())),
+      host_(std::string(base_uri_.get_host())),
+      port_(static_cast<std::uint16_t>(base_uri_.get_port() > 0 ? base_uri_.get_port() : default_port(scheme_))),
+      opts_(std::move(opts)), factory_(std::move(factory)),
+      session_({factory_, opts_.transport, opts_.tls}, {scheme_, host_, port_}, opts_.limits) {}
 
 PersistentClient::~PersistentClient() = default;
 
 Uri PersistentClient::current_uri(const std::string_view target) const {
+    // The URL is assembled from already-validated components (origin from the
+    // validated base URL, target from the request), so parsing cannot fail.
     return Uri::parse(fmt::format("{}://{}:{}{}", scheme_,
                                   host_.find(':') != std::string::npos ? fmt::format("[{}]", host_) : host_, port_,
-                                  target.empty() ? "/" : std::string(target)));
+                                  target.empty() ? "/" : std::string(target)))
+        .value();
 }
 
 std::expected<Response, Error> PersistentClient::exchange(const std::string_view url, const Request& req,
@@ -82,7 +93,10 @@ std::expected<Response, Error> PersistentClient::exchange(const std::string_view
     std::string target = "/";
     if (!url.empty()) {
         const auto parsed = Uri::parse(url);
-        target = parsed.get_schema().empty() ? std::string(url) : make_target(parsed);
+        if (!parsed.has_value()) {
+            return std::unexpected(Error{ErrorCode::INVALID_URL, fmt::format(R"(invalid URL: "{}")", url)});
+        }
+        target = parsed->get_schema().empty() ? std::string(url) : make_target(*parsed);
     }
 
     auto wire = build_wire_request(req, scheme_, host_, port_, opts_);

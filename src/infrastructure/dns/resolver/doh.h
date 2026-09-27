@@ -23,6 +23,17 @@ namespace Utils {
 class CancellationToken;
 }
 
+/// DohEndpoint — the DoH server target, bundled so the resolver constructors
+/// stay within the ≤4-parameter rule.  Groups the members that are always
+/// used together: the HTTPS origin (SNI + certificate verification host),
+/// port, HTTP query path, and the display label for log / error messages.
+struct DohEndpoint {
+    std::string host;
+    std::uint16_t port;
+    std::string path;
+    std::string label;
+};
+
 /// DNS-over-HTTPS resolver (RFC 8484).
 ///
 /// Owns a persistent Transport::Stream (TLS) to the DoH server and
@@ -32,18 +43,13 @@ class CancellationToken;
 class DohResolver final : public ResolverBase {
 public:
     /// Production constructor.
-    /// @param host   DoH server hostname (SNI + certificate verification).
-    /// @param port   DoH server port.
-    /// @param path   HTTP path for DNS queries (e.g. "/dns-query").
-    /// @param label  Display label for log / error messages.
-    /// @param bootstrap  Bootstrap DNS servers used to resolve `host` when
-    ///                   it is a hostname (empty: hostname targets fail fast).
-    DohResolver(std::string host, std::uint16_t port, std::string path, std::string label,
-                std::vector<Config::DnsServer> bootstrap = {});
+    /// @param endpoint   DoH server target (host, port, query path, label).
+    /// @param bootstrap  Bootstrap DNS servers used to resolve `endpoint.host`
+    ///                   when it is a hostname (empty: hostname targets fail fast).
+    explicit DohResolver(DohEndpoint endpoint, std::vector<Config::DnsServer> bootstrap = {});
 
     /// Testing constructor: inject a pre-built stream (fake or real).
-    DohResolver(std::string host, std::uint16_t port, std::string path, std::string label,
-                std::unique_ptr<Transport::Stream> stream);
+    DohResolver(DohEndpoint endpoint, std::unique_ptr<Transport::Stream> stream);
 
     ~DohResolver() override;
 

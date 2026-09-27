@@ -122,6 +122,17 @@ void HostServicesContext::log(yaddnsc_log_level level, yaddnsc_string message,
     logger_.log_explicit(to_log_level(level), to_view(message), file, line, function);
 }
 
+void HostServicesContext::log_entry(void* context, yaddnsc_log_level level, yaddnsc_string message,
+                                    const yaddnsc_source_location* location) noexcept {
+    // Contract: logging failure must never fail an update — and a host
+    // exception (e.g. bad_alloc) must never escape into the plugin's
+    // C frame.
+    try {
+        static_cast<HostServicesContext*>(context)->log(level, message, location);
+    } catch (...) {
+    }
+}
+
 yaddnsc_status HostServicesContext::http_exchange_entry(void* context, const yaddnsc_http_request* request,
                                                         yaddnsc_http_response* out_response, yaddnsc_error* out_error) {
     if (context == nullptr || request == nullptr || out_response == nullptr || out_error == nullptr) {

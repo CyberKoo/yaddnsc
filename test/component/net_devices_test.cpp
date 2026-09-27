@@ -92,9 +92,12 @@ TEST(NetDevicesTest, FindDefaultInterfaceIndex_Unspec_ReturnsNonZero) {
     // At minimum the loopback might be found; in a full system there
     // should be at least one non-loopback UP interface.
     auto index = NetDevices::find_default_interface_index(AF_UNSPEC);
-    // This may be 0 in minimal containers; we just verify it doesn't crash.
-    // In practice on any real or CI host this returns a valid index.
-    EXPECT_GE(index, 0U);
+    // This may be std::nullopt in minimal containers; we just verify it
+    // doesn't crash. In practice on any real or CI host this returns a
+    // valid index.
+    if (index) {
+        EXPECT_GT(*index, 0U);
+    }
 }
 
 // ===========================================================================
@@ -131,13 +134,17 @@ TEST(NetDevicesTest, IndexToName_InvalidIndex_ReturnsEmpty) {
 TEST(NetDevicesTest, FindDefaultInterfaceIndex_IPv4) {
     auto index = NetDevices::find_default_interface_index(AF_INET);
     // On a real system there should be at least one non-loopback IPv4 interface.
-    // In minimal containers it may return 0.
-    EXPECT_GE(index, 0U);
+    // In minimal containers it may return std::nullopt.
+    if (index) {
+        EXPECT_GT(*index, 0U);
+    }
 }
 
 TEST(NetDevicesTest, FindDefaultInterfaceIndex_IPv6) {
     auto index = NetDevices::find_default_interface_index(AF_INET6);
-    EXPECT_GE(index, 0U);
+    if (index) {
+        EXPECT_GT(*index, 0U);
+    }
 }
 
 // ===========================================================================
@@ -148,13 +155,13 @@ TEST(NetDevicesTest, DefaultInterface_RoundTrip) {
     // Find the default IPv4 interface, then round-trip through name_to_index
     // and index_to_name.
     auto index = NetDevices::find_default_interface_index(AF_INET);
-    if (index > 0) {
-        auto name = NetDevices::index_to_name(index);
+    if (index) {
+        auto name = NetDevices::index_to_name(*index);
         EXPECT_FALSE(name.empty());
         EXPECT_NE(name, LOOPBACK) << "Default interface should not be loopback";
 
         auto index2 = NetDevices::name_to_index(name);
-        EXPECT_EQ(index, index2) << "Round-trip name→index→name should match";
+        EXPECT_EQ(*index, index2) << "Round-trip name→index→name should match";
     }
-    // If index == 0 (minimal container), the test is vacuously true.
+    // If std::nullopt (minimal container), the test is vacuously true.
 }

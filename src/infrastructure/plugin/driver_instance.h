@@ -7,7 +7,7 @@
 
 #include <memory>
 
-#include "plugin_loader.h"
+#include "infrastructure/plugin/plugin_loader.h"
 
 /// DriverInstance — one live driver instance plus a lease on its module.
 ///
@@ -20,11 +20,7 @@ public:
     DriverInstance(std::shared_ptr<const PluginModule> module, yaddnsc_driver* handle) noexcept
         : module_(std::move(module)), handle_(handle) {}
 
-    ~DriverInstance() noexcept {
-        if (handle_ != nullptr) {
-            module_->destroy(handle_);
-        }
-    }
+    ~DriverInstance() noexcept;
 
     DriverInstance(DriverInstance&&) = delete;
     DriverInstance& operator=(DriverInstance&&) = delete;

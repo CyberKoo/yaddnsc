@@ -16,7 +16,7 @@
 static void BM_UriParseSimple(benchmark::State& state) {
     constexpr std::string_view uri = "https://example.com/path";
     for (auto _ : state) {
-        auto u = Uri::parse(uri);
+        auto u = Uri::parse(uri).value();
         benchmark::DoNotOptimize(u);
     }
 }
@@ -26,7 +26,7 @@ BENCHMARK(BM_UriParseSimple);
 static void BM_UriParseWithPort(benchmark::State& state) {
     constexpr std::string_view uri = "https://example.com:8443/api/v1/update";
     for (auto _ : state) {
-        auto u = Uri::parse(uri);
+        auto u = Uri::parse(uri).value();
         benchmark::DoNotOptimize(u);
     }
 }
@@ -36,7 +36,7 @@ BENCHMARK(BM_UriParseWithPort);
 static void BM_UriParseWithQuery(benchmark::State& state) {
     constexpr std::string_view uri = "https://example.com/path?key1=value1&key2=value2&key3=12345";
     for (auto _ : state) {
-        auto u = Uri::parse(uri);
+        auto u = Uri::parse(uri).value();
         benchmark::DoNotOptimize(u);
     }
 }
@@ -46,7 +46,7 @@ BENCHMARK(BM_UriParseWithQuery);
 static void BM_UriParseIPv6(benchmark::State& state) {
     constexpr std::string_view uri = "https://[2001:db8::1]:8080/path?q=test";
     for (auto _ : state) {
-        auto u = Uri::parse(uri);
+        auto u = Uri::parse(uri).value();
         benchmark::DoNotOptimize(u);
     }
 }
@@ -59,7 +59,7 @@ BENCHMARK(BM_UriParseIPv6);
 
 static void BM_UriGetQueryParams(benchmark::State& state) {
     constexpr std::string_view uri = "https://example.com/path?name=John+Doe&age=30&city=New+York";
-    auto u = Uri::parse(uri);
+    auto u = Uri::parse(uri).value();
     for (auto _ : state) {
         auto params = u.get_query_params();
         benchmark::DoNotOptimize(params);
@@ -69,7 +69,7 @@ static void BM_UriGetQueryParams(benchmark::State& state) {
 BENCHMARK(BM_UriGetQueryParams);
 
 static void BM_UriGetOrigin(benchmark::State& state) {
-    auto u = Uri::parse("https://example.com:8443/path");
+    auto u = Uri::parse("https://example.com:8443/path").value();
     for (auto _ : state) {
         auto origin = u.get_origin();
         benchmark::DoNotOptimize(origin);

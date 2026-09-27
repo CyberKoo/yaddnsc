@@ -3,17 +3,17 @@
 //
 #include "infrastructure/network/http/redirect.h"
 
-#include <exception>
+#include <cstddef>
 #include <initializer_list>
 #include <string_view>
 #include <utility>
 #include <vector>
 
-#include <stddef.h>
 #include <yaddnsc/util/format.hpp>
 #include <yaddnsc/util/string_util.hpp>
 
 #include "infrastructure/network/http/types.h"
+#include "infrastructure/network/http/wire_request.h"
 #include "infrastructure/network/uri.h"
 #include "support/fmt.hpp"
 #include "support/string_util.hpp"
@@ -42,34 +42,6 @@ struct ResolvedLocation {
         default:
             return false;
     }
-}
-
-[[nodiscard]] std::uint16_t default_port(const std::string_view scheme) noexcept {
-    return scheme == "https" ? 443 : 80;
-}
-
-/// Format a Host header value per RFC 7230 §5.4 (bracket IPv6, omit
-/// default ports).
-[[nodiscard]] std::string make_host_header(const std::string_view host, const std::uint16_t port,
-                                           const std::string_view scheme) {
-    const bool is_ipv6 = host.find(':') != std::string_view::npos;
-    auto bracketed = is_ipv6 ? fmt::format("[{}]", host) : std::string(host);
-    if (port == default_port(scheme)) {
-        return bracketed;
-    }
-    return fmt::format("{}:{}", bracketed, port);
-}
-
-[[nodiscard]] std::string make_target(const Uri& uri) {
-    auto target = std::string(uri.get_path());
-    if (target.empty()) {
-        target = "/";
-    }
-    if (const auto query = uri.get_query_string(); !query.empty()) {
-        target += '?';
-        target += query;
-    }
-    return target;
 }
 
 /// RFC 3986 §5.2.4 dot-segment removal for an absolute request path.
@@ -134,17 +106,16 @@ struct ResolvedLocation {
     const bool absolute = scheme_separator != std::string_view::npos &&
                           location.substr(0, scheme_separator).find_first_of("/?#") == std::string_view::npos;
     if (absolute || location.starts_with("//")) {
-        try {
-            const auto uri =
-                Uri::parse(location.starts_with("//") ? fmt::format("{}:{}", scheme, location) : std::string(location));
-            scheme = std::string(uri.get_schema());
-            host = std::string(uri.get_host());
-            raw_port = uri.get_port();
-            // Uri strips fragments; normalize the parsed path before sending it.
-            target = path_and_query(make_target(uri));
-        } catch (const std::exception&) {
+        const auto uri =
+            Uri::parse(location.starts_with("//") ? fmt::format("{}:{}", scheme, location) : std::string(location));
+        if (!uri.has_value()) {
             return std::nullopt;
         }
+        scheme = std::string(uri->get_schema());
+        host = std::string(uri->get_host());
+        raw_port = uri->get_port();
+        // Uri strips fragments; normalize the parsed path before sending it.
+        target = path_and_query(make_target(*uri));
     } else if (location.starts_with('/')) {
         target = path_and_query(location);
     } else if (location.starts_with('?')) {
@@ -170,7 +141,7 @@ struct ResolvedLocation {
                             .host = host,
                             .port = port,
                             .target = std::move(target),
-                            .host_header = make_host_header(host, port, scheme)};
+                            .host_header = make_host_header(scheme, host, port)};
 }
 
 /// Drop hop-specific / body headers before rebuilding the request.

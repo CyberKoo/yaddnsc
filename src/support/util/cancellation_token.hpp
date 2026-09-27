@@ -69,8 +69,12 @@ inline void trigger(const std::shared_ptr<CancellationState>& state) noexcept {
     }
 
     // Hold the parent lock while walking: derive() can only append under
-    // this same lock, and no child operation ever acquires its parent's lock.
-    // This keeps trigger() allocation-free and therefore safe to keep noexcept.
+    // this same lock, and no child operation ever acquires its parent's
+    // lock, so the walk is deadlock-free. noexcept is a deliberate hard
+    // guarantee here, not a consequence of being allocation-free:
+    // std::mutex::lock() may itself throw std::system_error, and a mutex
+    // failure while latching cancellation leaves the state unrecoverable,
+    // so std::terminate is the only safe outcome.
     std::lock_guard lock(state->children_mutex);
     auto& weak_children = state->children;
     for (auto it = weak_children.begin(); it != weak_children.end();) {

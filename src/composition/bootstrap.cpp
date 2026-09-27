@@ -10,6 +10,7 @@
 #include <exception>
 #include <memory>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -62,7 +63,9 @@
 
 namespace {
 /// Thread-pool sizing policy: total subdomains, capped at
-/// min(hardware cores, 4); at least 2.
+/// min(hardware cores, THREAD_LIMIT); at least MIN_POOL_SIZE.
+constexpr std::uint32_t MIN_POOL_SIZE = 2;
+
 template<uint32_t THREAD_LIMIT = 4U>
 std::uint32_t estimate_pool_size(const domain::RuntimeConfig& config) noexcept {
     std::uint32_t total_subdomains = 0;
@@ -72,8 +75,8 @@ std::uint32_t estimate_pool_size(const domain::RuntimeConfig& config) noexcept {
         total_subdomains += static_cast<std::uint32_t>(domain_config.subdomains.size());
     }
 
-    if (total_subdomains < 2 || thread_count < 2) {
-        return 2;
+    if (total_subdomains < MIN_POOL_SIZE || thread_count < MIN_POOL_SIZE) {
+        return MIN_POOL_SIZE;
     }
 
     if (total_subdomains < thread_count) {
@@ -124,7 +127,7 @@ void fill_bootstrap_servers(domain::RuntimeConfig& config) {
 
 /// Join every collected validation error into one message so a single
 /// failing run reports all problems instead of only the first.
-[[nodiscard]] std::string format_config_errors(const std::vector<domain::ConfigError>& errors) {
+[[nodiscard]] std::string format_config_errors(std::span<const domain::ConfigError> errors) {
     std::string joined;
     for (const auto& error : errors) {
         if (!joined.empty()) {
@@ -194,15 +197,19 @@ int run_command(const Cli::RunCommand& command) {
 
 [[nodiscard]] std::string format_resolver_server(const Config::DnsServer& server) {
     const auto uri = Uri::parse(server.address);
-    if (!uri.get_schema().empty()) {
-        std::string display = uri.get_origin();
-        const auto path = uri.get_path();
+    if (!uri.has_value()) {
+        // Display helper must never fail: show the raw address as-is.
+        return server.address;
+    }
+    if (!uri->get_schema().empty()) {
+        std::string display = uri->get_origin();
+        const auto path = uri->get_path();
         if (!path.empty() && path != "/") {
             display += path;
         }
         return display;
     }
-    return fmt::format("{}:{}", uri.get_host_literal(), server.port);
+    return fmt::format("{}:{}", uri->get_host_literal(), server.port);
 }
 
 // -----------------------------------------------------------------------

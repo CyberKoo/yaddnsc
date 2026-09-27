@@ -5,12 +5,7 @@
 #ifndef YADDNSC_INFRASTRUCTURE_PLUGIN_PLUGIN_LOADER_H
 #define YADDNSC_INFRASTRUCTURE_PLUGIN_PLUGIN_LOADER_H
 
-#include <algorithm>
-#include <array>
-#include <cstddef>
 #include <cstdint>
-#include <cstring>
-#include <exception>
 #include <string>
 #include <string_view>
 
@@ -18,8 +13,7 @@
 #include <yaddnsc/sdk/driver_abi.h>
 
 #include "domain/error/error.h"
-
-#include "shared_library.h"
+#include "infrastructure/plugin/shared_library.h"
 
 /// DriverDescriptor — host-owned copy of a plugin's static descriptor.
 /// All strings are copied out of the module at load time.
@@ -76,16 +70,7 @@ public:
     void destroy(yaddnsc_driver* driver) const noexcept;
 
     [[nodiscard]] yaddnsc_status update(yaddnsc_driver* driver, const yaddnsc_update_request& request,
-                                        yaddnsc_error& out_error) const {
-        try {
-            return update_(driver, &request, &out_error);
-        } catch (const std::exception& e) {
-            write_entry_error(out_error, e.what());
-        } catch (...) {
-            write_entry_error(out_error, "unknown exception from plugin update");
-        }
-        return YADDNSC_STATUS_INTERNAL_ERROR;
-    }
+                                        yaddnsc_error& out_error) const;
 
     /// Whether the plugin exports the OPTIONAL yaddnsc_driver_validate entry
     /// (added within api_revision 1). Plugins built against an older SDK do
@@ -97,19 +82,7 @@ public:
     /// does not export the optional entry this returns OK — the caller must
     /// treat that as "no driver-side validation", never as an error.
     [[nodiscard]] yaddnsc_status validate(yaddnsc_driver* driver, yaddnsc_string driver_param_json,
-                                          yaddnsc_error& out_error) const {
-        if (validate_ == nullptr) {
-            return YADDNSC_STATUS_OK;
-        }
-        try {
-            return validate_(driver, driver_param_json, &out_error);
-        } catch (const std::exception& e) {
-            write_entry_error(out_error, e.what());
-        } catch (...) {
-            write_entry_error(out_error, "unknown exception from plugin validate");
-        }
-        return YADDNSC_STATUS_INTERNAL_ERROR;
-    }
+                                          yaddnsc_error& out_error) const;
 
 private:
     PluginModule() = default;
@@ -118,26 +91,7 @@ private:
     /// honouring the caller-supplied struct_size.  The bounded thread-local
     /// storage makes this noexcept path allocation-free: a plugin exception
     /// must never turn into a second termination while reporting it.
-    static void write_entry_error(yaddnsc_error& out_error, std::string_view message) noexcept {
-        if (out_error.struct_size < YADDNSC_ERROR_MIN_SIZE) {
-            return;
-        }
-        constexpr std::string_view fallback = "plugin entry threw";
-        constexpr std::size_t capacity = 512;
-        thread_local std::array<char, capacity> storage{};
-        const std::string_view source = message.data() == nullptr ? fallback : message;
-        const std::size_t size = std::min(source.size(), storage.size() - 1);
-        if (size != 0) {
-            std::memcpy(storage.data(), source.data(), size);
-        }
-        storage[size] = '\0';
-        out_error.status = YADDNSC_STATUS_INTERNAL_ERROR;
-        out_error.retry_after_seconds = 0;
-        out_error.message = yaddnsc_string{storage.data(), size};
-        out_error.struct_size = out_error.struct_size < static_cast<std::uint32_t>(sizeof(yaddnsc_error))
-                                    ? out_error.struct_size
-                                    : static_cast<std::uint32_t>(sizeof(yaddnsc_error));
-    }
+    static void write_entry_error(yaddnsc_error& out_error, std::string_view message) noexcept;
 
     SharedLibrary library_;
     decltype(&yaddnsc_driver_get_descriptor) get_descriptor_ = nullptr;

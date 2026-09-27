@@ -9,6 +9,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <system_error>
 
 #include <openssl/x509.h>
 #include <spdlog/spdlog.h>
@@ -50,7 +51,8 @@ namespace {
         };
 
         for (const auto& p : SEARCH_PATHS) {
-            if (std::filesystem::is_regular_file(p)) {
+            std::error_code ec;
+            if (std::filesystem::is_regular_file(p, ec)) {
                 return std::string(p);
             }
         }
@@ -68,15 +70,10 @@ std::optional<std::string> get_system_ca_path() {
     static const std::optional<std::string> system_ca_path = []() -> std::optional<std::string> {
         SPDLOG_DEBUG("Looking for CA bundle...");
 
-        try {
-            const auto& hardcoded = get_hardcoded_paths();
-            if (hardcoded) {
-                SPDLOG_DEBUG("Found CA bundle at {}", *hardcoded);
-                return *hardcoded;
-            }
-        } catch (const std::filesystem::filesystem_error& e) {
-            SPDLOG_ERROR("Failed to search for CA bundle: {}", e.what());
-            return std::nullopt;
+        const auto& hardcoded = get_hardcoded_paths();
+        if (hardcoded) {
+            SPDLOG_DEBUG("Found CA bundle at {}", *hardcoded);
+            return *hardcoded;
         }
 
         SPDLOG_WARN(
@@ -96,7 +93,8 @@ std::optional<std::string> discover_ca_bundle() {
         // Logged at INFO level because an env-var override of the trust anchor
         // should be visible in the default log output.
         if (const auto* env = std::getenv("SSL_CERT_FILE"); env != nullptr && *env != '\0') {
-            if (std::filesystem::is_regular_file(env)) {
+            std::error_code ec;
+            if (std::filesystem::is_regular_file(env, ec)) {
                 SPDLOG_INFO("Using CA bundle from SSL_CERT_FILE: {}", env);
                 return std::string(env);
             }
@@ -105,7 +103,8 @@ std::optional<std::string> discover_ca_bundle() {
 
         // Tier 2: OpenSSL default cert file path
         if (const auto* default_path = X509_get_default_cert_file(); default_path != nullptr && *default_path != '\0') {
-            if (std::filesystem::is_regular_file(default_path)) {
+            std::error_code ec;
+            if (std::filesystem::is_regular_file(default_path, ec)) {
                 SPDLOG_DEBUG("Found CA bundle via OpenSSL default: {}", default_path);
                 return std::string(default_path);
             }

@@ -5,7 +5,6 @@
 
 #include <algorithm>
 #include <array>
-#include <cctype>
 #include <charconv>
 #include <cstdint>
 #include <span>
@@ -21,6 +20,7 @@
 #include <yaddnsc/util/format.hpp>
 #include <yaddnsc/util/string_util.hpp>
 
+#include "infrastructure/network/http/protocol/field_chars.hpp"
 #include "infrastructure/network/http/protocol/wire.h"
 #include "infrastructure/network/transport/io_error.h"
 #include "infrastructure/network/transport/stream.h"
@@ -57,32 +57,6 @@ struct HeaderOutcome {
 
 [[nodiscard]] std::string context(const WireRequest& req) {
     return fmt::format("{} {}", method_name(req.method), req.target);
-}
-
-[[nodiscard]] bool is_token(const std::string_view value) noexcept {
-    if (value.empty()) {
-        return false;
-    }
-    for (const auto ch : value) {
-        const auto c = static_cast<unsigned char>(ch);
-        if (std::isalnum(c) || ch == '!' || ch == '#' || ch == '$' || ch == '%' || ch == '&' || ch == '\'' ||
-            ch == '*' || ch == '+' || ch == '-' || ch == '.' || ch == '^' || ch == '_' || ch == '`' || ch == '|' ||
-            ch == '~') {
-            continue;
-        }
-        return false;
-    }
-    return true;
-}
-
-[[nodiscard]] bool is_field_value(const std::string_view value) noexcept {
-    for (const auto ch : value) {
-        const auto c = static_cast<unsigned char>(ch);
-        if (c != '\t' && (c < 0x20 || c == 0x7f)) {
-            return false;
-        }
-    }
-    return true;
 }
 
 [[nodiscard]] bool valid_token_list(const std::string_view value) noexcept {
@@ -478,7 +452,7 @@ struct ChunkedBody {
                                                                   const Utils::CancellationToken& token) {
     std::string raw{buffered};
     ChunkedBody result;
-    const auto read_more = [&]() -> std::expected<void, Error> {
+    const auto read_more = [&stream, &token, &req, &raw]() -> std::expected<void, Error> {
         std::array<std::uint8_t, READ_CHUNK> buf{};
         auto n = stream.read_some(buf, token);
         if (!n) {

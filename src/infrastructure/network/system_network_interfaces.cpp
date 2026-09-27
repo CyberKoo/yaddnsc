@@ -12,6 +12,6 @@ std::vector<std::string> SystemNetworkInterfaces::names() const {
     return InterfaceUtil::get_interfaces();
 }
 
-std::vector<InetAddress> SystemNetworkInterfaces::addresses(const std::string& name) const {
+std::optional<std::vector<InetAddress>> SystemNetworkInterfaces::addresses(const std::string& name) const {
     return InterfaceUtil::get_addresses(name);
 }

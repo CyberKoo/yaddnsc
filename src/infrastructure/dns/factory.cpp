@@ -40,7 +40,8 @@ ResolverDispatcher DnsResolverFactory::create(const domain::ResolverSettings& se
     std::vector<std::unique_ptr<ResolverBase>> resolvers;
     for (const auto& server : dns_servers) {
         resolvers.push_back(catalog.create(server));
-        const auto uri = Uri::parse(server.address);
+        // catalog.create() already validated the address, so this cannot fail.
+        const auto uri = Uri::parse(server.address).value();
         SPDLOG_INFO("DNS resolver #{}: {} ({})", resolvers.back()->get_id(),
                     uri.get_schema().empty() ? uri.get_host_literal() : uri.get_origin(), resolvers.back()->get_type());
     }

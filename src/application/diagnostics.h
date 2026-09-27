@@ -47,9 +47,9 @@ struct InterfaceListItem {
     std::vector<InetAddress> addresses;
 };
 
-/// List every interface with its addresses.
-/// @throws std::runtime_error  If an interface disappears mid-listing
-///         (legacy behaviour: the command aborts with "Error: ...").
+/// List every interface with its addresses. A name that disappears between
+/// names() and addresses() (same cache snapshot, so only past the TTL)
+/// degrades to an empty address row instead of aborting the listing.
 [[nodiscard]] std::vector<InterfaceListItem> list_interfaces(const NetworkInterfaces& interfaces);
 
 /// Outcome of one `dns resolve` command.

@@ -21,7 +21,7 @@
 // ===========================================================================
 
 TEST(UriParseTest, SimpleHttp) {
-    auto uri = Uri::parse("http://example.com/path");
+    auto uri = Uri::parse("http://example.com/path").value();
     EXPECT_EQ(uri.get_schema(), "http");
     EXPECT_EQ(uri.get_host(), "example.com");
     EXPECT_EQ(uri.get_path(), "/path");
@@ -29,7 +29,7 @@ TEST(UriParseTest, SimpleHttp) {
 }
 
 TEST(UriParseTest, HttpsWithPort) {
-    auto uri = Uri::parse("https://example.com:8443/api/v1");
+    auto uri = Uri::parse("https://example.com:8443/api/v1").value();
     EXPECT_EQ(uri.get_schema(), "https");
     EXPECT_EQ(uri.get_host(), "example.com");
     EXPECT_EQ(uri.get_port(), 8443);
@@ -37,18 +37,18 @@ TEST(UriParseTest, HttpsWithPort) {
 }
 
 TEST(UriParseTest, DefaultHttpsPort) {
-    auto uri = Uri::parse("https://example.com");
+    auto uri = Uri::parse("https://example.com").value();
     EXPECT_EQ(uri.get_port(), 443);  // default for https
 }
 
 TEST(UriParseTest, WithQueryString) {
-    auto uri = Uri::parse("https://example.com/path?key=value&foo=bar");
+    auto uri = Uri::parse("https://example.com/path?key=value&foo=bar").value();
     EXPECT_EQ(uri.get_path(), "/path");
     EXPECT_EQ(uri.get_query_string(), "key=value&foo=bar");
 }
 
 TEST(UriParseTest, WithFragmentIgnored) {
-    auto uri = Uri::parse("http://example.com/path#section");
+    auto uri = Uri::parse("http://example.com/path#section").value();
     EXPECT_EQ(uri.get_path(), "/path");
     EXPECT_TRUE(uri.get_query_string().empty());
 }
@@ -58,72 +58,72 @@ TEST(UriParseTest, WithFragmentIgnored) {
 // ===========================================================================
 
 TEST(UriParseTest, HostOnly) {
-    auto uri = Uri::parse("http://example.com");
+    auto uri = Uri::parse("http://example.com").value();
     EXPECT_EQ(uri.get_host(), "example.com");
     EXPECT_EQ(uri.get_path(), "/");
 }
 
 TEST(UriParseTest, HostnameIsLowercased) {
-    auto uri = Uri::parse("HTTP://EXAMPLE.COM/Path");
+    auto uri = Uri::parse("HTTP://EXAMPLE.COM/Path").value();
     EXPECT_EQ(uri.get_schema(), "http");
     EXPECT_EQ(uri.get_host(), "example.com");
 }
 
 TEST(UriParseTest, IPv6Literal) {
-    auto uri = Uri::parse("http://[::1]:8080/path");
+    auto uri = Uri::parse("http://[::1]:8080/path").value();
     EXPECT_EQ(uri.get_host(), "::1");
     EXPECT_EQ(uri.get_host_literal(), "[::1]");
     EXPECT_EQ(uri.get_port(), 8080);
 }
 
 TEST(UriParseTest, IPv6LiteralDefaultPort) {
-    auto uri = Uri::parse("https://[::1]/path");
+    auto uri = Uri::parse("https://[::1]/path").value();
     EXPECT_EQ(uri.get_host(), "::1");
     EXPECT_EQ(uri.get_port(), 443);
 }
 
 TEST(UriParseTest, BareIPv6NoScheme) {
-    auto uri = Uri::parse("[::1]:53");
+    auto uri = Uri::parse("[::1]:53").value();
     EXPECT_EQ(uri.get_host(), "::1");
     EXPECT_EQ(uri.get_port(), 53);
 }
 
 TEST(UriParseTest, HostPortNoScheme) {
-    auto uri = Uri::parse("example.com:8080");
+    auto uri = Uri::parse("example.com:8080").value();
     EXPECT_EQ(uri.get_host(), "example.com");
     EXPECT_EQ(uri.get_port(), 8080);
     EXPECT_TRUE(uri.get_schema().empty());
 }
 
 TEST(UriParseTest, HostNoPortNoScheme) {
-    auto uri = Uri::parse("example.com");
+    auto uri = Uri::parse("example.com").value();
     EXPECT_EQ(uri.get_host(), "example.com");
     EXPECT_EQ(uri.get_port(), 0);
 }
 
 TEST(UriParseTest, TLSPort) {
-    auto uri = Uri::parse("tls://1.1.1.1:853");
+    auto uri = Uri::parse("tls://1.1.1.1:853").value();
     EXPECT_EQ(uri.get_schema(), "tls");
     EXPECT_EQ(uri.get_host(), "1.1.1.1");
     EXPECT_EQ(uri.get_port(), 853);
 }
 
 TEST(UriParseTest, UnknownScheme) {
-    auto uri = Uri::parse("unknown://host");
+    auto uri = Uri::parse("unknown://host").value();
     EXPECT_EQ(uri.get_schema(), "unknown");
     EXPECT_EQ(uri.get_host(), "host");
     EXPECT_EQ(uri.get_port(), 0);
 }
 
 TEST(UriParseTest, SchemeOnlyEmptyAuthority) {
-    auto uri = Uri::parse("http://");
+    auto uri = Uri::parse("http://").value();
     EXPECT_EQ(uri.get_schema(), "http");
     EXPECT_TRUE(uri.get_host().empty());
     EXPECT_EQ(uri.get_port(), 80);
 }
 
 TEST(UriParseTest, EmptyAuthorityWithScheme) {
-    auto uri = Uri::parse("http:///path");
+    auto uri = Uri::parse("http:///path").value();
     EXPECT_EQ(uri.get_schema(), "http");
     EXPECT_TRUE(uri.get_host().empty());
     EXPECT_EQ(uri.get_path(), "/path");
@@ -131,7 +131,7 @@ TEST(UriParseTest, EmptyAuthorityWithScheme) {
 }
 
 TEST(UriParseTest, Empty_ReturnsDefault) {
-    auto uri = Uri::parse("");
+    auto uri = Uri::parse("").value();
     EXPECT_TRUE(uri.get_schema().empty());
     EXPECT_TRUE(uri.get_host().empty());
     EXPECT_TRUE(uri.get_path().empty());
@@ -142,31 +142,31 @@ TEST(UriParseTest, Empty_ReturnsDefault) {
 // ===========================================================================
 
 TEST(UriParseTest, PathOnly) {
-    auto uri = Uri::parse("/absolute/path");
+    auto uri = Uri::parse("/absolute/path").value();
     EXPECT_TRUE(uri.get_schema().empty());
     EXPECT_TRUE(uri.get_host().empty());
     EXPECT_EQ(uri.get_path(), "/absolute/path");
 }
 
 TEST(UriParseTest, RelativePathNoScheme) {
-    auto uri = Uri::parse("./relative/path");
+    auto uri = Uri::parse("./relative/path").value();
     EXPECT_TRUE(uri.get_schema().empty());
     EXPECT_EQ(uri.get_path(), "./relative/path");
 }
 
 TEST(UriParseTest, RootPath) {
-    auto uri = Uri::parse("http://example.com");
+    auto uri = Uri::parse("http://example.com").value();
     EXPECT_EQ(uri.get_path(), "/");
 }
 
 TEST(UriParseTest, EmptyPathWithQuery) {
-    auto uri = Uri::parse("http://example.com?query=1");
+    auto uri = Uri::parse("http://example.com?query=1").value();
     EXPECT_EQ(uri.get_path(), "/");
     EXPECT_EQ(uri.get_query_string(), "query=1");
 }
 
 TEST(UriParseTest, QueryBeforePath_DefaultPath) {
-    auto uri = Uri::parse("http://example.com?query/path");
+    auto uri = Uri::parse("http://example.com?query/path").value();
     EXPECT_EQ(uri.get_schema(), "http");
     EXPECT_EQ(uri.get_host(), "example.com");
     EXPECT_EQ(uri.get_query_string(), "query/path");
@@ -174,7 +174,7 @@ TEST(UriParseTest, QueryBeforePath_DefaultPath) {
 }
 
 TEST(UriParseTest, PathBeforeQuery_NormalBehavior) {
-    auto uri = Uri::parse("http://example.com/path?query");
+    auto uri = Uri::parse("http://example.com/path?query").value();
     EXPECT_EQ(uri.get_schema(), "http");
     EXPECT_EQ(uri.get_host(), "example.com");
     EXPECT_EQ(uri.get_path(), "/path");
@@ -182,7 +182,7 @@ TEST(UriParseTest, PathBeforeQuery_NormalBehavior) {
 }
 
 TEST(UriParseTest, QueryWithoutPath_DefaultPath) {
-    auto uri = Uri::parse("http://example.com?query");
+    auto uri = Uri::parse("http://example.com?query").value();
     EXPECT_EQ(uri.get_schema(), "http");
     EXPECT_EQ(uri.get_host(), "example.com");
     EXPECT_EQ(uri.get_query_string(), "query");

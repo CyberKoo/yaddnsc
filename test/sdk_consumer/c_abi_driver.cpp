@@ -33,8 +33,8 @@ yaddnsc_driver_get_descriptor(const yaddnsc_driver_descriptor** out_descriptor) 
 }
 
 extern "C" EXAMPLE_EXPORT yaddnsc_status yaddnsc_driver_create(const yaddnsc_host_services* services,
-                                                               yaddnsc_driver** out_driver, yaddnsc_error* out_error) {
-    (void) out_error;
+                                                               yaddnsc_driver** out_driver,
+                                                               [[maybe_unused]] yaddnsc_error* out_error) {
     if (services == nullptr || out_driver == nullptr) {
         return YADDNSC_STATUS_INVALID_ARGUMENT;
     }
@@ -42,14 +42,11 @@ extern "C" EXAMPLE_EXPORT yaddnsc_status yaddnsc_driver_create(const yaddnsc_hos
     return YADDNSC_STATUS_OK;
 }
 
-extern "C" EXAMPLE_EXPORT void yaddnsc_driver_destroy(yaddnsc_driver* driver) {
-    (void) driver;
-}
+extern "C" EXAMPLE_EXPORT void yaddnsc_driver_destroy([[maybe_unused]] yaddnsc_driver* driver) {}
 
 extern "C" EXAMPLE_EXPORT yaddnsc_status yaddnsc_driver_update(yaddnsc_driver* driver,
                                                                const yaddnsc_update_request* request,
-                                                               yaddnsc_error* out_error) {
-    (void) out_error;
+                                                               [[maybe_unused]] yaddnsc_error* out_error) {
     if (driver == nullptr || request == nullptr) {
         return YADDNSC_STATUS_INVALID_ARGUMENT;
     }

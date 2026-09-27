@@ -26,15 +26,16 @@ public:
     ~Route53Driver() override = default;
 
     /// Perform one update: build signed request → HTTP exchange → check-response.
-    yaddnsc::sdk::Result update(yaddnsc::sdk::UpdateContext& context) override;
+    [[nodiscard]] yaddnsc::sdk::Result update(yaddnsc::sdk::UpdateContext& context) override;
 
     /// Validate driver_param against the Route53 API schema without updating;
     /// schema violations surface as YADDNSC_STATUS_INVALID_CONFIG.
-    yaddnsc::sdk::Result validate(std::string_view driver_param_json) const override;
+    [[nodiscard]] yaddnsc::sdk::Result validate(std::string_view driver_param_json) const override;
 
 private:
     /// Validate the Route 53 API response (XML with libxml2).
-    static bool check_response(const yaddnsc::sdk::HttpResponse& response, const yaddnsc::sdk::Services& services);
+    [[nodiscard]] static bool check_response(const yaddnsc::sdk::HttpResponse& response,
+                                             const yaddnsc::sdk::Services& services);
 
     /// Build the XML request body for a Route 53 UPSERT change batch.
     static std::string build_xml_body(const std::string& fqdn, std::string_view rd_type, std::string_view ip_addr,

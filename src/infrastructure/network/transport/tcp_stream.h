@@ -5,12 +5,12 @@
 #ifndef YADDNSC_NET_TRANSPORT_TCP_STREAM_H
 #define YADDNSC_NET_TRANSPORT_TCP_STREAM_H
 
+#include <cstddef>
 #include <cstdint>
 #include <span>
 #include <string>
 
 #include <expected>
-#include <stddef.h>
 
 #include "infrastructure/network/transport/detail/socket_stream.h"
 #include "infrastructure/network/transport/io_error.h"

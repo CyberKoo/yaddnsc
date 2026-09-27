@@ -9,7 +9,6 @@
 #include <charconv>
 #include <cstddef>
 #include <optional>
-#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -17,11 +16,9 @@
 #include <utility>
 #include <vector>
 
-#include <yaddnsc/util/format.hpp>
 #include <yaddnsc/util/url_encode.hpp>
 
 #include "domain/network/inet_address.h"
-#include "support/fmt.hpp"
 
 namespace {
 /// Known scheme-to-default-port mappings.
@@ -53,11 +50,32 @@ void lowercase_range(std::string& s, std::size_t pos, std::size_t len) noexcept 
 }
 }  // namespace
 
+std::string_view error_message(const UriError err) noexcept {
+    switch (err) {
+        case UriError::UNCLOSED_IPV6_BRACKET:
+            return "unclosed IPv6 literal bracket";
+        case UriError::PORT_OUT_OF_RANGE:
+            return "port out of range (must be 0-65535)";
+    }
+    return "unknown URI error";
+}
+
 // ---------------------------------------------------------------------------
 // Parse
 // ---------------------------------------------------------------------------
 
-Uri Uri::parse(std::string_view uri) {
+std::expected<Uri, UriError> Uri::parse(std::string_view uri) {
+    auto result = parse_impl(uri);
+    if (result && !result->port_.has_value()) {
+        // Invariant: port_ is always engaged once parse() succeeds — 0 means
+        // "no port and no well-known default". Enforced here, in one place,
+        // so no parse_impl exit path can publish a disengaged port_.
+        result->port_.emplace(0);
+    }
+    return result;
+}
+
+std::expected<Uri, UriError> Uri::parse_impl(std::string_view uri) {
     Uri result{};
 
     if (uri.empty()) {
@@ -121,7 +139,10 @@ Uri Uri::parse(std::string_view uri) {
     }
 
     auto const auth_view = u.substr(authority_start, authority_end - authority_start);
-    parse_authority(auth_view, result.host_, result.port_, result.is_ipv6_, authority_start, result.raw_uri_);
+    if (auto authority = parse_authority(auth_view, result.host_, result.port_, result.is_ipv6_, authority_start);
+        !authority) {
+        return std::unexpected(authority.error());
+    }
 
     // host is case-insensitive per RFC 3986 §3.2.2 → lowercase in-place
     if (!result.host_.empty()) {
@@ -160,16 +181,16 @@ Uri Uri::parse(std::string_view uri) {
 // parse_authority
 // ---------------------------------------------------------------------------
 
-void Uri::parse_authority(std::string_view auth, Slice& host_out, std::optional<int>& port_out, bool& is_ipv6_out,
-                          std::size_t auth_raw_offset, std::string_view raw_uri_hint) {
+std::expected<void, UriError> Uri::parse_authority(std::string_view auth, Slice& host_out, std::optional<int>& port_out,
+                                                   bool& is_ipv6_out, std::size_t auth_raw_offset) {
     if (auth.empty()) {
-        return;
+        return {};
     }
 
     if (auth.starts_with('[')) {
         auto const closing = auth.find(']');
         if (closing == std::string_view::npos) {
-            throw std::runtime_error(fmt::format("Unclosed IPv6 literal bracket: {}", raw_uri_hint));
+            return std::unexpected(UriError::UNCLOSED_IPV6_BRACKET);
         }
 
         host_out.assign(auth_raw_offset + 1, closing - 1);
@@ -185,7 +206,7 @@ void Uri::parse_authority(std::string_view auth, Slice& host_out, std::optional<
                     // values were previously silently truncated by callers'
                     // static_cast<uint16_t>, connecting to the wrong port.
                     if (v < 0 || v > 65535) {
-                        throw std::runtime_error(fmt::format("Invalid port \"{}\" in URI (must be 0-65535)", port_str));
+                        return std::unexpected(UriError::PORT_OUT_OF_RANGE);
                     }
                     port_out.emplace(v);
                 }
@@ -193,7 +214,7 @@ void Uri::parse_authority(std::string_view auth, Slice& host_out, std::optional<
                 // (callers fall back to the default) — same as before.
             }
         }
-        return;
+        return {};
     }
 
     // Bare IPv6 (e.g. ::1, 2001:db8::1)
@@ -203,7 +224,7 @@ void Uri::parse_authority(std::string_view auth, Slice& host_out, std::optional<
     if (auth.contains(':') && Inet6Address::parse(auth)) {
         host_out.assign(auth_raw_offset, auth.size());
         is_ipv6_out = true;
-        return;
+        return {};
     }
 
     // Possibly host:port  (exactly one colon)
@@ -217,16 +238,17 @@ void Uri::parse_authority(std::string_view auth, Slice& host_out, std::optional<
             if (ec == std::errc() && p == port_str.data() + port_str.size()) {
                 // See the IPv6 branch above: numeric ports must be 0-65535.
                 if (v < 0 || v > 65535) {
-                    throw std::runtime_error(fmt::format("Invalid port \"{}\" in URI (must be 0-65535)", port_str));
+                    return std::unexpected(UriError::PORT_OUT_OF_RANGE);
                 }
                 port_out.emplace(v);
             }
             // Non-numeric / trailing garbage: port stays unspecified.
         }
-        return;
+        return {};
     }
 
     host_out.assign(auth_raw_offset, auth.size());
+    return {};
 }
 
 // ---------------------------------------------------------------------------
@@ -290,17 +312,19 @@ std::string_view Uri::get_raw_uri() const noexcept {
 std::string Uri::get_origin() const {
     auto const schema_view = view(schema_);
     auto const host_view = get_host_literal();
+    // port_ is always engaged after parse() — see the postcondition in parse().
+    const auto port = *port_;
 
     if (schema_view.empty()) {
-        if (*port_ != 0) {
-            return std::string(host_view) + ':' + std::to_string(*port_);
+        if (port != 0) {
+            return std::string(host_view) + ':' + std::to_string(port);
         }
         return std::string(host_view);
     }
-    if (is_default_port(schema_view, *port_)) {
+    if (is_default_port(schema_view, port)) {
         return std::string(schema_view) + "://" + std::string(host_view);
     }
-    return std::string(schema_view) + "://" + std::string(host_view) + ':' + std::to_string(*port_);
+    return std::string(schema_view) + "://" + std::string(host_view) + ':' + std::to_string(port);
 }
 
 std::vector<std::pair<std::string, std::string>> Uri::get_query_params(bool plus_to_space) const {
@@ -359,11 +383,11 @@ std::vector<std::pair<std::string, std::string>> Uri::get_query_params(bool plus
 // Static utilities
 // ---------------------------------------------------------------------------
 
-std::string Uri::url_encode(std::string_view input, bool encode_slash) noexcept {
+std::string Uri::url_encode(std::string_view input, bool encode_slash) {
     return yaddnsc::util::url_encode(input, encode_slash);
 }
 
-std::string Uri::url_decode(std::string_view input) noexcept {
+std::string Uri::url_decode(std::string_view input) {
     std::string result;
     result.reserve(input.size());
 

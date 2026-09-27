@@ -164,7 +164,7 @@ file(GLOB_RECURSE dns_classic_files RELATIVE ${PROJECT_SOURCE_DIR}
     ${PROJECT_SOURCE_DIR}/src/infrastructure/dns/*.h
     ${PROJECT_SOURCE_DIR}/src/infrastructure/dns/*.hpp
     ${PROJECT_SOURCE_DIR}/src/infrastructure/dns/*.cpp)
-list(FILTER dns_classic_files EXCLUDE REGEX "(doh|dot|dispatcher|factory|resolver_catalog)\\.")
+list(FILTER dns_classic_files EXCLUDE REGEX "(doh|dot|dispatcher|factory|resolver_catalog|tls_options|connect_error)\\.")
 foreach (f ${dns_classic_files})
     file(STRINGS ${PROJECT_SOURCE_DIR}/${f} lines REGEX "${INC_RE}[<\"](infrastructure/network/(http|transport)/|infrastructure/plugin/|openssl/)")
     foreach (line ${lines})

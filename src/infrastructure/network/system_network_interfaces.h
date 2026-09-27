@@ -5,6 +5,7 @@
 #ifndef YADDNSC_NETWORK_SYSTEM_NETWORK_INTERFACES_H
 #define YADDNSC_NETWORK_SYSTEM_NETWORK_INTERFACES_H
 
+#include <optional>
 #include <string>
 
 #include "application/ports/network_interfaces.h"
@@ -17,8 +18,8 @@ class SystemNetworkInterfaces final : public NetworkInterfaces {
 public:
     [[nodiscard]] std::vector<std::string> names() const override;
 
-    /// @throws std::runtime_error  If the interface does not exist.
-    [[nodiscard]] std::vector<InetAddress> addresses(const std::string& name) const override;
+    /// std::nullopt when the interface does not exist.
+    [[nodiscard]] std::optional<std::vector<InetAddress>> addresses(const std::string& name) const override;
 };
 
 #endif  // YADDNSC_NETWORK_SYSTEM_NETWORK_INTERFACES_H

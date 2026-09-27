@@ -56,6 +56,10 @@ void PoolTaskExecutor::wait_idle() {
     impl_->pool.wait();
 }
 
+void PoolTaskExecutor::set_retry_handler(RetryHandler handler) {
+    retry_handler_ = std::move(handler);
+}
+
 void PoolTaskExecutor::shutdown() {
     accepting_.store(false, std::memory_order_release);
 }

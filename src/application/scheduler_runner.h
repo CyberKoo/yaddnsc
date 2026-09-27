@@ -11,11 +11,8 @@
 #include <utility>
 #include <vector>
 
+#include "application/run_environment.h"
 #include "domain/update/schedule_queue.h"
-
-class Clock;
-class Logger;
-class TaskExecutor;
 
 namespace Utils {
 class CancellationToken;
@@ -37,10 +34,13 @@ class CancellationToken;
 ///       thread-safe by design.
 class SchedulerRunner {
 public:
-    /// All references must outlive the runner (they do: the composition root
-    /// owns every component).
-    SchedulerRunner(domain::ScheduleQueue& queue, Clock& clock, TaskExecutor& executor, std::stop_token stop,
-                    const Logger& logger);
+    /// @param queue  The schedule queue the runner pops due tasks from.
+    /// @param env    Ambient services (clock, executor, logger); all
+    ///               referents must outlive the runner (they do: the
+    ///               composition root owns every component).
+    /// @param stop   Scheduler-level stop token: once requested the runner
+    ///               stops popping and run() returns.
+    SchedulerRunner(domain::ScheduleQueue& queue, SchedulerEnvironment env, std::stop_token stop);
 
     /// Pop-and-submit due tasks until stop is requested, waiting on the
     /// clock between rounds. Returns promptly after stop; in-flight tasks
@@ -56,10 +56,8 @@ public:
 
 private:
     domain::ScheduleQueue& queue_;
-    Clock& clock_;
-    TaskExecutor& executor_;
+    SchedulerEnvironment env_;
     std::stop_token stop_;
-    const Logger& logger_;
 
     // Retry requests arrive on pool threads; the runner drains them on its
     // own thread at the top of every scheduling round.

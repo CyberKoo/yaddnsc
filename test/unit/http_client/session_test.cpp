@@ -141,7 +141,7 @@ std::unique_ptr<FakeStream> ok_stream() {
 }
 
 net::http::Session make_session(std::shared_ptr<FakeFactory> factory, std::string scheme) {
-    return net::http::Session(std::move(factory), {}, {}, std::move(scheme), "example.com", 80, net::http::Limits{});
+    return net::http::Session({std::move(factory), {}, {}}, {std::move(scheme), "example.com", 80}, {});
 }
 
 net::http::protocol::WireRequest get_request() {

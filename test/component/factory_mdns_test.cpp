@@ -45,6 +45,7 @@
 #include "infrastructure/ip_source/base.h"
 #include "infrastructure/ip_source/factory.h"
 #include "infrastructure/ip_source/mdns.h"
+#include "infrastructure/network/http/types.h"
 #include "infrastructure/network/net_devices.h"
 #include "infrastructure/network/socket.h"
 #include "infrastructure/network/socket_addr.h"
@@ -115,7 +116,7 @@ TEST(IpSourceFactoryTest, CreateInterfaceSource_ResolvesLoopback) {
     cfg.ip_source = Config::IpSource::INTERFACE;
     cfg.interface = LOOPBACK;
 
-    const auto source = IpSourceFactory::create(cfg);
+    const auto source = IpSourceFactory::create(cfg, net::http::Options{});
     ASSERT_TRUE(source.has_value()) << source.error().message;
 
     // resolve() must work using the real loopback interface.
@@ -132,7 +133,7 @@ TEST(IpSourceFactoryTest, CreateInterfaceSource_Ipv6) {
     cfg.ip_source = Config::IpSource::INTERFACE;
     cfg.interface = LOOPBACK;
 
-    const auto source = IpSourceFactory::create(cfg);
+    const auto source = IpSourceFactory::create(cfg, net::http::Options{});
     ASSERT_TRUE(source.has_value()) << source.error().message;
     const auto addrs = (*source)->resolve({});
     ASSERT_TRUE(addrs.has_value()) << addrs.error().message;
@@ -156,7 +157,7 @@ TEST(IpSourceFactoryTest, CreateHttpSource_ConstructsSuccessfully) {
     cfg.ip_source = Config::IpSource::HTTP;
     cfg.ip_source_param = "http://127.0.0.1:1/ip";  // valid URL, no server needed for construction
 
-    const auto source = IpSourceFactory::create(cfg);
+    const auto source = IpSourceFactory::create(cfg, net::http::Options{});
     ASSERT_TRUE(source.has_value()) << source.error().message;
     // Constructor succeeds — resolves via PersistentHttpClient.
     // resolve() would fail with connection refused, which is expected.
@@ -170,7 +171,7 @@ TEST(IpSourceFactoryTest, CreateHttpSource_WithIface_BindsToInterface) {
     cfg.ip_source_param = "http://127.0.0.1:1/ip";
     cfg.interface = LOOPBACK;
 
-    const auto source = IpSourceFactory::create(cfg);
+    const auto source = IpSourceFactory::create(cfg, net::http::Options{});
     ASSERT_TRUE(source.has_value()) << source.error().message;
 }
 
@@ -185,7 +186,7 @@ TEST(IpSourceFactoryTest, UnknownType_FallsBackToUnspecified) {
     cfg.ip_source = Config::IpSource::INTERFACE;
     cfg.interface = LOOPBACK;
 
-    const auto source = IpSourceFactory::create(cfg);
+    const auto source = IpSourceFactory::create(cfg, net::http::Options{});
     ASSERT_TRUE(source.has_value()) << source.error().message;
 
     // UNSPECIFIED returns all addresses on the interface.
@@ -257,11 +258,11 @@ protected:
         }
         if (responder_sock_) {
             // Leave multicast group.
-            (void) responder_sock_->set_option(IPPROTO_IP, IP_DROP_MEMBERSHIP, mreq_);
+            [[maybe_unused]] const auto _ = responder_sock_->set_option(IPPROTO_IP, IP_DROP_MEMBERSHIP, mreq_);
             responder_sock_->close();
         }
         if (forger_sock_) {
-            (void) forger_sock_->set_option(IPPROTO_IP, IP_DROP_MEMBERSHIP, mreq_);
+            [[maybe_unused]] const auto _ = forger_sock_->set_option(IPPROTO_IP, IP_DROP_MEMBERSHIP, mreq_);
             forger_sock_->close();
         }
         responder_sock_.reset();
@@ -550,7 +551,7 @@ TEST_F(MdnsTest, Factory_CreateMdnsSource_ResolvesViaMulticast) {
     cfg.ip_source_param = test_hostname_;
     cfg.interface = "";
 
-    const auto source = IpSourceFactory::create(cfg);
+    const auto source = IpSourceFactory::create(cfg, net::http::Options{});
     ASSERT_TRUE(source.has_value()) << source.error().message;
 
     const auto addrs = (*source)->resolve({});

@@ -94,6 +94,10 @@ std::expected<std::vector<InetAddress>, DnsErrorInfo> resolve_bootstrap(
                 break;  // transport-level failure — try the next server
             }
 
+            // Set when this server must be abandoned (malformed response or
+            // authoritative NXDOMAIN); the break decision happens outside
+            // the catch — a catch may only record the error.
+            bool server_failed = false;
             try {
                 auto found = extract_addresses(*response, host, kind);
                 if (!found) {
@@ -103,13 +107,18 @@ std::expected<std::vector<InetAddress>, DnsErrorInfo> resolve_bootstrap(
                     // servers sometimes answer one kind and NXDOMAIN the
                     // other).
                     last_error = std::move(found.error());
-                    break;
+                    server_failed = true;
+                } else {
+                    addresses.insert(addresses.end(), found->begin(), found->end());
                 }
-                addresses.insert(addresses.end(), found->begin(), found->end());
             } catch (const std::exception& e) {
                 last_error =
                     DnsErrorInfo{DnsError::PARSE,
                                  fmt::format(R"(Failed to parse bootstrap DNS response for "{}": {})", host, e.what())};
+                server_failed = true;
+            }
+
+            if (server_failed) {
                 break;  // malformed response — try the next server
             }
         }

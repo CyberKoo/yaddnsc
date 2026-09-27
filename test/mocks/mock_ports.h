@@ -6,6 +6,7 @@
 #ifndef YADDNSC_TEST_MOCKS_MOCK_PORTS_H
 #define YADDNSC_TEST_MOCKS_MOCK_PORTS_H
 
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -42,7 +43,7 @@ public:
 class MockNetworkInterfaces final : public NetworkInterfaces {
 public:
     MOCK_METHOD(std::vector<std::string>, names, (), (const, override));
-    MOCK_METHOD((std::vector<InetAddress>), addresses, (const std::string& name), (const, override));
+    MOCK_METHOD((std::optional<std::vector<InetAddress>>), addresses, (const std::string& name), (const, override));
 };
 
 class MockDriverCatalogPort final : public DriverCatalogPort {

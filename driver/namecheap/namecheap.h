@@ -24,11 +24,11 @@ public:
     ~NamecheapDriver() override = default;
 
     /// Perform one update: generate-request → HTTP exchange → check-response.
-    yaddnsc::sdk::Result update(yaddnsc::sdk::UpdateContext& context) override;
+    [[nodiscard]] yaddnsc::sdk::Result update(yaddnsc::sdk::UpdateContext& context) override;
 
     /// Validate driver_param against the Namecheap API schema without
     /// updating; schema violations surface as YADDNSC_STATUS_INVALID_CONFIG.
-    yaddnsc::sdk::Result validate(std::string_view driver_param_json) const override;
+    [[nodiscard]] yaddnsc::sdk::Result validate(std::string_view driver_param_json) const override;
 
 private:
     /// Build the GET request for a Namecheap DDNS update.
@@ -39,7 +39,8 @@ private:
                                                       const yaddnsc::sdk::UpdateRequest& params);
 
     /// Validate the Namecheap API response XML using libxml2.
-    static bool check_response(const yaddnsc::sdk::HttpResponse& response, const yaddnsc::sdk::Services& services);
+    [[nodiscard]] static bool check_response(const yaddnsc::sdk::HttpResponse& response,
+                                             const yaddnsc::sdk::Services& services);
 };
 
 #endif  // YADDNSC_DRV_NAMECHEAP_NAMECHEAP_H

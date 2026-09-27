@@ -12,6 +12,7 @@
 
 #include "domain/network/address_family.h"
 #include "domain/network/inet_address.h"
+#include "support/fmt.hpp"
 #include "support/util/cancellation_token.hpp"
 
 #include "iface_util.h"
@@ -35,10 +36,14 @@ IpSourceBase::Result InterfaceIpSource::resolve(const Utils::CancellationToken& 
 
     try {
         auto addresses = InterfaceUtil::get_addresses(interface_name_);
+        if (!addresses.has_value()) {
+            return std::unexpected(domain::IpSourceError{domain::IpSourceError::Code::UNAVAILABLE,
+                                                         fmt::format("Interface {} not found", interface_name_)});
+        }
 
         // Filter by address family.
         if (address_family_ != AddressFamily::UNSPECIFIED) {
-            std::erase_if(addresses,
+            std::erase_if(*addresses,
                           [af = address_family_](const InetAddress& addr) { return addr.get_family() != af; });
         }
 
@@ -46,7 +51,7 @@ IpSourceBase::Result InterfaceIpSource::resolve(const Utils::CancellationToken& 
             return std::unexpected(
                 domain::IpSourceError{domain::IpSourceError::Code::CANCELLED, "Interface IP source lookup cancelled"});
         }
-        return addresses;
+        return std::move(*addresses);
     } catch (const std::bad_alloc&) {
         throw;
     } catch (const std::exception& error) {

@@ -1830,7 +1830,7 @@ TEST(DnsParserTest, UnsupportedRecordType_ThrowsWithQuestionMark) {
     EXPECT_THROW(
         {
             try {
-                (void) DNS::RecordParser::parse_strings(response);
+                [[maybe_unused]] auto _ = DNS::RecordParser::parse_strings(response);
             } catch (const DnsLookupException& e) {
                 EXPECT_NE(std::string(e.what()).find("?"), std::string::npos);
                 throw;

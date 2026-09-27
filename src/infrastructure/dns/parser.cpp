@@ -157,15 +157,27 @@ std::string DNS::RecordParser::decompress_name(const std::span<const std::uint8_
 // RDATA format helpers
 // =============================================================================
 
-std::string DNS::RecordParser::format_a(const std::span<const std::uint8_t> rdata) noexcept {
+std::string DNS::RecordParser::format_a(const std::span<const std::uint8_t> rdata) {
+    if (rdata.size() != 4) [[unlikely]] {
+        throw DnsLookupException(fmt::format("Invalid A record: RDATA is {} byte(s) (expected 4)", rdata.size()),
+                                 DnsError::PARSE);
+    }
     std::array<char, INET_ADDRSTRLEN> buf{};
-    inet_ntop(AF_INET, rdata.data(), buf.data(), buf.size());
+    if (inet_ntop(AF_INET, rdata.data(), buf.data(), buf.size()) == nullptr) [[unlikely]] {
+        throw DnsLookupException("Invalid A record: address conversion failed", DnsError::PARSE);
+    }
     return buf.data();
 }
 
-std::string DNS::RecordParser::format_aaaa(const std::span<const std::uint8_t> rdata) noexcept {
+std::string DNS::RecordParser::format_aaaa(const std::span<const std::uint8_t> rdata) {
+    if (rdata.size() != 16) [[unlikely]] {
+        throw DnsLookupException(fmt::format("Invalid AAAA record: RDATA is {} byte(s) (expected 16)", rdata.size()),
+                                 DnsError::PARSE);
+    }
     std::array<char, INET6_ADDRSTRLEN> buf{};
-    inet_ntop(AF_INET6, rdata.data(), buf.data(), buf.size());
+    if (inet_ntop(AF_INET6, rdata.data(), buf.data(), buf.size()) == nullptr) [[unlikely]] {
+        throw DnsLookupException("Invalid AAAA record: address conversion failed", DnsError::PARSE);
+    }
     return buf.data();
 }
 
@@ -238,13 +250,16 @@ std::string DNS::RecordParser::format_soa(const std::span<const std::uint8_t> wi
     }
 
     // 5 × 32-bit integers (big-endian).
-    const auto serial = Utils::Bytes::read_u32_be(rdata, consumed);
-    const auto refresh = Utils::Bytes::read_u32_be(rdata, consumed + 4);
-    const auto retry = Utils::Bytes::read_u32_be(rdata, consumed + 8);
-    const auto expire = Utils::Bytes::read_u32_be(rdata, consumed + 12);
-    const auto minimum = Utils::Bytes::read_u32_be(rdata, consumed + 16);
+    const auto serial = Utils::Bytes::try_read_u32_be(rdata, consumed);
+    const auto refresh = Utils::Bytes::try_read_u32_be(rdata, consumed + 4);
+    const auto retry = Utils::Bytes::try_read_u32_be(rdata, consumed + 8);
+    const auto expire = Utils::Bytes::try_read_u32_be(rdata, consumed + 12);
+    const auto minimum = Utils::Bytes::try_read_u32_be(rdata, consumed + 16);
+    if (!serial || !refresh || !retry || !expire || !minimum) [[unlikely]] {
+        throw DnsLookupException("Invalid SOA record: fixed fields missing", DnsError::PARSE);
+    }
 
-    return fmt::format("{} {} {} {} {} {} {}", mname, rname, serial, refresh, retry, expire, minimum);
+    return fmt::format("{} {} {} {} {} {} {}", mname, rname, *serial, *refresh, *retry, *expire, *minimum);
 }
 
 std::string DNS::RecordParser::format_srv(const std::span<const std::uint8_t> wire, size_t rdata_offset, size_t rdlen) {
@@ -304,18 +319,24 @@ std::optional<DNS::EdnsInfo> DNS::RecordParser::parse_edns(const ResourceRecord&
     // Parse EDNS0 options (variable-length).
     size_t offset = 0;
     while (offset + 4 <= rr.rdata.size()) {
-        EdnsOption opt;
-        opt.code = Utils::Bytes::read_u16_be(rr.rdata, offset);
-        offset += 2;
-
-        const auto opt_len = static_cast<size_t>(Utils::Bytes::read_u16_be(rr.rdata, offset));
-        offset += 2;
-
-        if (offset + opt_len > rr.rdata.size()) {
-            throw DnsLookupException(fmt::format("EDNS0 option truncated: code={}, declared length={}, remaining={}",
-                                                 opt.code, opt_len, rr.rdata.size() - offset),
+        const auto opt_code = Utils::Bytes::try_read_u16_be(rr.rdata, offset);
+        const auto opt_len_raw = Utils::Bytes::try_read_u16_be(rr.rdata, offset + 2);
+        if (!opt_code || !opt_len_raw) [[unlikely]] {
+            throw DnsLookupException(fmt::format("EDNS0 option header truncated at offset {} (remaining {} bytes)",
+                                                 offset, rr.rdata.size() - offset),
                                      DnsError::PARSE);
         }
+        offset += 4;
+
+        const auto opt_len = static_cast<size_t>(*opt_len_raw);
+        if (offset + opt_len > rr.rdata.size()) {
+            throw DnsLookupException(fmt::format("EDNS0 option truncated: code={}, declared length={}, remaining={}",
+                                                 *opt_code, opt_len, rr.rdata.size() - offset),
+                                     DnsError::PARSE);
+        }
+
+        EdnsOption opt;
+        opt.code = *opt_code;
         opt.data.assign(rr.rdata.data() + offset, rr.rdata.data() + offset + opt_len);
         offset += opt_len;
 
@@ -391,6 +412,33 @@ std::string DNS::RecordParser::rdata_to_string(const ResourceRecord& rr, const s
 // Full message parser
 // =============================================================================
 
+DNS::ResourceRecord DNS::RecordParser::parse_rr(const std::span<const std::uint8_t> data, size_t& offset,
+                                                const bool copy_rdata) {
+    ResourceRecord rr{};
+    rr.name = decompress_name(data, offset);
+    if (offset + RR_FIXED_SIZE > data.size()) [[unlikely]] {
+        throw DnsLookupException(fmt::format("DNS RR header truncated at offset {}", offset), DnsError::PARSE);
+    }
+    rr.type = Utils::Bytes::read_u16_be(data.subspan(offset));
+    rr.qclass = Utils::Bytes::read_u16_be(data.subspan(offset + 2));
+    rr.ttl = Utils::Bytes::read_u32_be(data.subspan(offset + 4));
+    const auto rd_length = static_cast<size_t>(Utils::Bytes::read_u16_be(data.subspan(offset + 8)));
+    offset += RR_FIXED_SIZE;
+    if (offset + rd_length > data.size()) [[unlikely]] {
+        throw DnsLookupException(fmt::format("DNS RDATA truncated at offset {} (declared {})", offset, rd_length),
+                                 DnsError::PARSE);
+    }
+    rr.rdata_offset = offset;
+    // Skip RDATA copy for the fast path (parse_strings) since
+    // rdata_to_string now reads directly from the wire buffer.
+    if (copy_rdata) [[likely]] {
+        rr.rdata.assign(data.begin() + static_cast<std::ptrdiff_t>(offset),
+                        data.begin() + static_cast<std::ptrdiff_t>(offset + rd_length));
+    }
+    offset += rd_length;
+    return rr;
+}
+
 DNS::ParsedMessage DNS::RecordParser::parse_message(const std::span<const std::uint8_t> data, const bool copy_rdata) {
     if (data.size() < HEADER_SIZE) [[unlikely]] {
         throw DnsLookupException(
@@ -436,46 +484,19 @@ DNS::ParsedMessage DNS::RecordParser::parse_message(const std::span<const std::u
 
     // ── Parse resource records (answers, authority, additional) ──
 
-    // Local lambda to parse a single RR from the wire.
-    auto parse_rr = [&]() -> ResourceRecord {
-        ResourceRecord rr{};
-        rr.name = decompress_name(data, offset);
-        if (offset + RR_FIXED_SIZE > data.size()) [[unlikely]] {
-            throw DnsLookupException(fmt::format("DNS RR header truncated at offset {}", offset), DnsError::PARSE);
-        }
-        rr.type = Utils::Bytes::read_u16_be(data.subspan(offset));
-        rr.qclass = Utils::Bytes::read_u16_be(data.subspan(offset + 2));
-        rr.ttl = Utils::Bytes::read_u32_be(data.subspan(offset + 4));
-        const auto rd_length = static_cast<size_t>(Utils::Bytes::read_u16_be(data.subspan(offset + 8)));
-        offset += RR_FIXED_SIZE;
-        if (offset + rd_length > data.size()) [[unlikely]] {
-            throw DnsLookupException(fmt::format("DNS RDATA truncated at offset {} (declared {})", offset, rd_length),
-                                     DnsError::PARSE);
-        }
-        rr.rdata_offset = offset;
-        // Skip RDATA copy for the fast path (parse_strings) since
-        // rdata_to_string now reads directly from the wire buffer.
-        if (copy_rdata) [[likely]] {
-            rr.rdata.assign(data.begin() + static_cast<std::ptrdiff_t>(offset),
-                            data.begin() + static_cast<std::ptrdiff_t>(offset + rd_length));
-        }
-        offset += rd_length;
-        return rr;
-    };
-
     m.answers.reserve(m.ancount);
     for (uint16_t i = 0; i < m.ancount; ++i) {
-        m.answers.push_back(parse_rr());
+        m.answers.push_back(parse_rr(data, offset, copy_rdata));
     }
 
     m.authorities.reserve(m.nscount);
     for (uint16_t i = 0; i < m.nscount; ++i) {
-        m.authorities.push_back(parse_rr());
+        m.authorities.push_back(parse_rr(data, offset, copy_rdata));
     }
 
     m.additionals.reserve(m.arcount);
     for (uint16_t i = 0; i < m.arcount; ++i) {
-        auto rr = parse_rr();
+        auto rr = parse_rr(data, offset, copy_rdata);
         // Check for EDNS0 OPT pseudo-record (RFC 6891 §6.1).
         // The NAME must be the root label (0x00, which decompresses to an
         // empty string), and CLASS must carry a non-zero UDP payload size.

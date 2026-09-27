@@ -322,8 +322,11 @@ target_link_libraries(yaddnsc_tls_support PRIVATE OpenSSL::Crypto spdlog::spdlog
 # application layer without pulling in the DNS infrastructure stack.
 add_library(yaddnsc_domain STATIC
     src/domain/update/schedule_queue.cpp
+    src/domain/update/update_decision.cpp
     src/domain/network/inet_address.cpp
     src/domain/error/dns_error.cpp
+    src/domain/address_policy.cpp
+    src/domain/fqdn.cpp
 )
 yaddnsc_production_module(yaddnsc_domain)
 # Domain has no third-party or infrastructure dependency.
@@ -333,6 +336,7 @@ add_library(yaddnsc_network_infrastructure STATIC
     src/infrastructure/network/net_devices.cpp
     src/infrastructure/network/socket.cpp
     src/infrastructure/network/socket_addr.cpp
+    src/infrastructure/network/socket_exception.cpp
     src/infrastructure/network/uri.cpp
 )
 yaddnsc_production_module(yaddnsc_network_infrastructure)
@@ -378,6 +382,7 @@ target_link_libraries(yaddnsc_network_transport
 # (PersistentClient), DoH and the driver Host Services.
 add_library(yaddnsc_http_infrastructure STATIC
     src/infrastructure/network/http/protocol/exchange.cpp
+    src/infrastructure/network/http/protocol/wire.cpp
     src/infrastructure/network/http/redirect.cpp
     src/infrastructure/network/http/stream_factory.cpp
     src/infrastructure/network/http/wire_request.cpp
@@ -460,6 +465,7 @@ target_link_libraries(yaddnsc_ip_source_infrastructure
 add_library(yaddnsc_plugin_infrastructure STATIC
     src/infrastructure/plugin/shared_library.cpp
     src/infrastructure/plugin/plugin_loader.cpp
+    src/infrastructure/plugin/driver_instance.cpp
     src/infrastructure/plugin/driver_catalog.cpp
     src/infrastructure/plugin/host_services.cpp
     src/infrastructure/plugin/abi_driver_gateway.cpp

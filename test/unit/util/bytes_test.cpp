@@ -4,7 +4,9 @@
 // Verifies:
 //   - read_u16_be returns correct values for known byte patterns.
 //   - read_u32_be returns correct values for known byte patterns.
-//   - All three overload variants (raw pointer, span, span+offset) agree.
+//   - All overload variants (raw pointer, span, span+offset) agree.
+//   - try_read_u16_be / try_read_u32_be read at an offset and return
+//     std::nullopt when the offset is out of bounds.
 //   - Leading zeros are handled correctly.
 //   - Maximum values fit within the return type.
 // =============================================================================
@@ -12,6 +14,7 @@
 #include "support/util/bytes.hpp"
 
 #include <cstdint>
+#include <optional>
 #include <span>
 #include <string>
 
@@ -34,6 +37,14 @@ TEST(BytesTest, ReadU16_FromSpanWithOffset) {
     const std::uint8_t buf[] = {0x00, 0x00, 0xDE, 0xAD};
     std::span<const std::uint8_t> s{buf};
     EXPECT_EQ(Utils::Bytes::read_u16_be(s, 2), 0xDEADU);
+}
+
+TEST(BytesTest, TryReadU16_FromSpanWithOffset) {
+    const std::uint8_t buf[] = {0x00, 0x00, 0xDE, 0xAD};
+    std::span<const std::uint8_t> s{buf};
+    const auto value = Utils::Bytes::try_read_u16_be(s, 2);
+    ASSERT_TRUE(value.has_value());
+    EXPECT_EQ(*value, 0xDEADU);
 }
 
 TEST(BytesTest, ReadU16_Zero) {
@@ -75,6 +86,14 @@ TEST(BytesTest, ReadU32_FromSpanWithOffset) {
     EXPECT_EQ(Utils::Bytes::read_u32_be(s, 4), 0xC0FFEE01UL);
 }
 
+TEST(BytesTest, TryReadU32_FromSpanWithOffset) {
+    const std::uint8_t buf[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xC0, 0xFF, 0xEE, 0x01};
+    std::span<const std::uint8_t> s{buf};
+    const auto value = Utils::Bytes::try_read_u32_be(s, 4);
+    ASSERT_TRUE(value.has_value());
+    EXPECT_EQ(*value, 0xC0FFEE01UL);
+}
+
 TEST(BytesTest, ReadU32_Zero) {
     const std::uint8_t buf[] = {0x00, 0x00, 0x00, 0x00};
     EXPECT_EQ(Utils::Bytes::read_u32_be(buf), 0x00000000UL);
@@ -88,6 +107,16 @@ TEST(BytesTest, ReadU32_MaxValue) {
 TEST(BytesTest, ReadU32_RawPointerMatchesSpan) {
     const std::uint8_t buf[] = {0xAA, 0xBB, 0xCC, 0xDD};
     EXPECT_EQ(Utils::Bytes::read_u32_be(buf), Utils::Bytes::read_u32_be(std::span{buf}));
+}
+
+// ── try_read_* bounds checking ────────────────────────────────────────────────
+
+TEST(BytesTest, TryRead_OutOfBoundsOffset_ReturnsNullopt) {
+    const std::uint8_t buf[] = {0x12, 0x34};
+    std::span<const std::uint8_t> s{buf};
+    // Not enough bytes remain at the offset.
+    EXPECT_EQ(Utils::Bytes::try_read_u16_be(s, 1), std::nullopt);
+    EXPECT_EQ(Utils::Bytes::try_read_u32_be(s, 0), std::nullopt);
 }
 
 // ── constexpr verification ────────────────────────────────────────────────────

@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <span>
 #include <stdexcept>
 
@@ -97,7 +98,7 @@ std::vector<Ipv4Subnet> get_ipv4_subnets(const std::string& iface_name) {
     return result;
 }
 
-unsigned int find_default_interface_index(int address_family) {
+std::optional<unsigned int> find_default_interface_index(int address_family) {
     auto ifaddrs = query_ifaddrs();
 
     for (auto* ifa = ifaddrs.get(); ifa != nullptr; ifa = ifa->ifa_next) {
@@ -117,7 +118,7 @@ unsigned int find_default_interface_index(int address_family) {
         }
     }
 
-    return 0;
+    return std::nullopt;
 }
 
 unsigned int name_to_index(const std::string& name) noexcept {

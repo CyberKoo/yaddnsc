@@ -857,8 +857,10 @@ TEST(CliDiagnosticsTest, ListInterfaces_CollectsAddresses) {
     MockNetworkInterfaces interfaces;
     ON_CALL(interfaces, names()).WillByDefault(::testing::Return(std::vector<std::string>{"lo", "eth0"}));
     ON_CALL(interfaces, addresses("lo"))
-        .WillByDefault(::testing::Return(std::vector<InetAddress>{InetAddress(*Inet4Address::parse("127.0.0.1"))}));
-    ON_CALL(interfaces, addresses("eth0")).WillByDefault(::testing::Return(std::vector<InetAddress>{}));
+        .WillByDefault(::testing::Return(std::optional<std::vector<InetAddress>>{
+            std::vector<InetAddress>{InetAddress(*Inet4Address::parse("127.0.0.1"))}}));
+    ON_CALL(interfaces, addresses("eth0"))
+        .WillByDefault(::testing::Return(std::optional<std::vector<InetAddress>>{std::vector<InetAddress>{}}));
 
     const auto items = Diagnostics::list_interfaces(interfaces);
     ASSERT_EQ(items.size(), 2);

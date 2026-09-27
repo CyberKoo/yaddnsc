@@ -37,10 +37,26 @@ struct WireRequest;
 
 namespace net::http {
 
+/// Stream-building dependencies for Session: the factory plus the
+/// transport/TLS options forwarded to it. Built once in the composition
+/// root (or by the client that owns the Session).
+struct SessionEnvironment {
+    std::shared_ptr<StreamFactory> factory;
+    Transport::Options transport_opts;
+    Transport::TlsOptions tls_opts;
+};
+
+/// The origin (scheme/host/port) a Session is bound to; the transport
+/// stream is built against it on every (re)connect.
+struct SessionOrigin {
+    std::string scheme;
+    std::string host;
+    std::uint16_t port;
+};
+
 class Session {
 public:
-    Session(std::shared_ptr<StreamFactory> factory, Transport::Options transport_opts, Transport::TlsOptions tls_opts,
-            std::string scheme, std::string host, std::uint16_t port, Limits limits);
+    Session(SessionEnvironment env, SessionOrigin origin, Limits limits);
 
     /// Perform one request-response exchange over the persistent
     /// connection. Thread-safe.  Cancellation is operation-scoped via
@@ -53,12 +69,8 @@ private:
                                                                           const Utils::CancellationToken& token);
     [[nodiscard]] std::expected<void, Error> ensure_stream(const Utils::CancellationToken& token);
 
-    std::shared_ptr<StreamFactory> factory_;
-    Transport::Options transport_opts_;
-    Transport::TlsOptions tls_opts_;
-    std::string scheme_;
-    std::string host_;
-    std::uint16_t port_;
+    SessionEnvironment env_;
+    SessionOrigin origin_;
     Limits limits_;
     std::mutex mutex_;
     std::unique_ptr<Transport::Stream> stream_;

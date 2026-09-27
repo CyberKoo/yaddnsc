@@ -14,7 +14,7 @@
 
 | Category | Requirement |
 |----------|-------------|
-| **Logging** | Use the project's centralized logging facade. No `std::cout`/`printf` or ad-hoc loggers. |
+| **Logging** | Use the project's centralized logging facade for diagnostic logging. No `std::cout`/`printf` or ad-hoc loggers. User-facing CLI output is not logging — see [Logging](04-quality-and-process.md#logging). |
 | **Error/Result types** | Use `std::expected<T, E>` consistently. Do not introduce per-module error wrappers. |
 | **Configuration** | Use the established configuration subsystem. Do not parse env vars or config files independently. |
 | **Platform abstraction** | Use existing platform detection macros and OS-abstraction utilities. No `#ifdef` blocks in new code. |

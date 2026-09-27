@@ -20,11 +20,11 @@ public:
     ~SimpleDriver() override = default;
 
     /// Perform one update: generate-request → HTTP exchange → check-response.
-    yaddnsc::sdk::Result update(yaddnsc::sdk::UpdateContext& context) override;
+    [[nodiscard]] yaddnsc::sdk::Result update(yaddnsc::sdk::UpdateContext& context) override;
 
     /// Validate driver_param without updating; requires a string "url"
     /// member — the same check the update path performs.
-    yaddnsc::sdk::Result validate(std::string_view driver_param_json) const override;
+    [[nodiscard]] yaddnsc::sdk::Result validate(std::string_view driver_param_json) const override;
 
 private:
     /// Parse driver_param and require a string "url" member. Shared by the
@@ -35,7 +35,8 @@ private:
     static yaddnsc::sdk::HttpRequest generate_request(const yaddnsc::sdk::UpdateRequest& params);
 
     /// Validate the response — returns true for 2xx status codes.
-    static bool check_response(const yaddnsc::sdk::HttpResponse& response, const yaddnsc::sdk::Services& services);
+    [[nodiscard]] static bool check_response(const yaddnsc::sdk::HttpResponse& response,
+                                             const yaddnsc::sdk::Services& services);
 };
 
 #endif  // YADDNSC_DRV_SIMPLE_SIMPLE_H

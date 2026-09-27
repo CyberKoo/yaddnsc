@@ -27,8 +27,10 @@ public:
     /// Factory type for creating IP source instances (tests may inject stubs).
     using FactoryFn = std::function<IpSourceFactory::Result(const domain::SubdomainConfig&)>;
 
-    /// @param factory  Source factory; defaults to IpSourceFactory::create.
-    explicit IpSourceAdapter(FactoryFn factory = {});
+    /// @param factory  Source factory — always injected. The composition root
+    ///                 passes one that captures the shared net::http::Options,
+    ///                 so no silently degraded (empty-policy) HTTP path exists.
+    explicit IpSourceAdapter(FactoryFn factory);
 
     [[nodiscard]] std::expected<std::vector<InetAddress>, domain::IpSourceError> resolve(
         const domain::SubdomainConfig& config, const Utils::CancellationToken& token) const override;

@@ -13,6 +13,7 @@
 #include <map>
 #include <optional>
 #include <string>
+#include <string_view>
 
 #include "infrastructure/network/http/types.h"
 
@@ -28,50 +29,10 @@ struct WireRequest {
 };
 
 /// HTTP method name as it appears on the wire.
-[[nodiscard]] constexpr std::string_view method_name(const Method m) noexcept {
-    using enum Method;
-    switch (m) {
-        case GET:
-            return "GET";
-        case POST:
-            return "POST";
-        case PUT:
-            return "PUT";
-        case DEL:
-            return "DELETE";
-        case PATCH:
-            return "PATCH";
-        case HEAD:
-            return "HEAD";
-        case OPTIONS:
-            return "OPTIONS";
-    }
-    return "GET";
-}
+[[nodiscard]] std::string_view method_name(Method m) noexcept;
 
 /// Serialize to HTTP/1.0 or HTTP/1.1 wire format.
-[[nodiscard]] inline std::string serialize(const WireRequest& req) {
-    std::string out;
-    const size_t body_size = req.body.has_value() ? req.body->size() : 0;
-    out.reserve(64 + req.target.size() + body_size);
-
-    out += method_name(req.method);
-    out += ' ';
-    out += req.target.empty() ? "/" : req.target;
-    out += req.version == HttpVersion::V1_0 ? " HTTP/1.0\r\n" : " HTTP/1.1\r\n";
-
-    for (const auto& [name, value] : req.headers) {
-        out += name;
-        out += ": ";
-        out += value;
-        out += "\r\n";
-    }
-    out += "\r\n";
-    if (body_size > 0) {
-        out += *req.body;
-    }
-    return out;
-}
+[[nodiscard]] std::string serialize(const WireRequest& req);
 
 }  // namespace net::http::protocol
 

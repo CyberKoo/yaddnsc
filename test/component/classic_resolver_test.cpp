@@ -571,7 +571,7 @@ TEST_F(ClassicNativeResolverTest, UdpResponseFromUnexpectedSource_IsDiscarded) {
     auto bind_addr = SocketAddr::from_inet(*v4, 0);
     ASSERT_TRUE(bind_addr.has_value());
     ASSERT_TRUE(server_sock.bind(*bind_addr).has_value());
-    const auto server_port = server_sock.get_sockname().port();
+    const auto server_port = server_sock.get_sockname().value().port();
 
     Config::DnsServer server;
     server.address = "127.0.0.1";
@@ -599,7 +599,7 @@ TEST_F(ClassicNativeResolverTest, UdpResponseFromUnexpectedSource_IsDiscarded) {
             auto sb = SocketAddr::from_inet(*v4, 0);
             if (!sb.has_value())
                 break;
-            if (s.bind(*sb).has_value() && s.get_sockname().port() != server_port) {
+            if (s.bind(*sb).has_value() && s.get_sockname().value().port() != server_port) {
                 spoof_sock.emplace(std::move(s));
             }
         }

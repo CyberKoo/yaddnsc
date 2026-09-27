@@ -73,7 +73,8 @@ TEST(SocketTest, TcpEchoOnLoopback) {
 
     // Retrieve the actual port assigned by the kernel.
     auto server_sockname = server.get_sockname();
-    auto server_port = server_sockname.port();
+    ASSERT_TRUE(server_sockname.has_value());
+    auto server_port = server_sockname->port();
     ASSERT_GT(server_port, 0);
 
     // Client: create and connect.
@@ -157,7 +158,7 @@ TEST(SocketTest, UdpSendRecvOnLoopback) {
     auto server_addr = SocketAddr::from_inet(*loopback, 0);
     ASSERT_TRUE(server_addr.has_value());
     server.bind(*server_addr).value();
-    auto server_port = server.get_sockname().port();
+    auto server_port = server.get_sockname().value().port();
     ASSERT_GT(server_port, 0);
 
     // Send from client to server.
@@ -202,7 +203,8 @@ TEST(SocketTest, ShutdownBoth) {
 TEST(SocketTest, GetSockname_BeforeBind_ReturnsUnspec) {
     Socket sock(AF_INET, SOCK_STREAM);
     auto name = sock.get_sockname();
-    EXPECT_GE(name.family(), 0);
+    ASSERT_TRUE(name.has_value());
+    EXPECT_GE(name->family(), 0);
 }
 
 // ===========================================================================
@@ -296,7 +298,7 @@ TEST(SocketTest, RecvExactOnStream) {
     server.bind(*server_addr).value();
     server.listen(1);
 
-    auto server_port = server.get_sockname().port();
+    auto server_port = server.get_sockname().value().port();
     ASSERT_GT(server_port, 0);
 
     auto client_target = SocketAddr::from_inet(*loopback, server_port);
@@ -329,7 +331,7 @@ TEST(SocketTest, UdpSendToAndRecvFrom_DefaultOverloads) {
     const auto bind_addr = SocketAddr::from_inet(*loopback, 0);
     ASSERT_TRUE(bind_addr);
     ASSERT_TRUE(server.bind(*bind_addr));
-    const auto target = SocketAddr::from_inet(*loopback, server.get_sockname().port());
+    const auto target = SocketAddr::from_inet(*loopback, server.get_sockname().value().port());
     ASSERT_TRUE(target);
 
     const std::string message = "default overloads";
@@ -354,7 +356,7 @@ TEST(SocketTest, RecvExactOnDatagram) {
     auto server_addr = SocketAddr::from_inet(*loopback, 0);
     ASSERT_TRUE(server_addr.has_value());
     server.bind(*server_addr).value();
-    auto server_port = server.get_sockname().port();
+    auto server_port = server.get_sockname().value().port();
     ASSERT_GT(server_port, 0);
 
     // Send a 32-byte datagram.
@@ -410,7 +412,7 @@ TEST(SocketTest, AcceptWithoutAddr) {
     server.bind(*addr).value();
     server.listen(1);
 
-    auto port = server.get_sockname().port();
+    auto port = server.get_sockname().value().port();
     ASSERT_GT(port, 0);
 
     auto client_target = SocketAddr::from_inet(*loopback, port);
@@ -440,7 +442,7 @@ TEST(SocketTest, GetPeerNameAfterConnect) {
     server.bind(*addr).value();
     server.listen(1);
 
-    auto port = server.get_sockname().port();
+    auto port = server.get_sockname().value().port();
     ASSERT_GT(port, 0);
 
     auto client_target = SocketAddr::from_inet(*loopback, port);
@@ -451,8 +453,9 @@ TEST(SocketTest, GetPeerNameAfterConnect) {
 
     // After connect, get_peername should return the server's address.
     auto peername = client.get_peername();
-    EXPECT_EQ(peername.family(), AF_INET);
-    EXPECT_EQ(peername.port(), port);
+    ASSERT_TRUE(peername.has_value());
+    EXPECT_EQ(peername->family(), AF_INET);
+    EXPECT_EQ(peername->port(), port);
 }
 
 // ===========================================================================
@@ -467,7 +470,7 @@ TEST(SocketTest, SendMsgAndRecvMsg) {
     ASSERT_TRUE(bind_addr);
     ASSERT_TRUE(server.bind(*bind_addr));
     server.listen(1);
-    const auto target = SocketAddr::from_inet(*loopback, server.get_sockname().port());
+    const auto target = SocketAddr::from_inet(*loopback, server.get_sockname().value().port());
     ASSERT_TRUE(target);
 
     Socket client(AF_INET, SOCK_STREAM);
@@ -501,7 +504,7 @@ TEST(SocketTest, SendRecvWithFlags) {
     server.bind(*addr).value();
     server.listen(1);
 
-    auto port = server.get_sockname().port();
+    auto port = server.get_sockname().value().port();
     ASSERT_GT(port, 0);
 
     auto client_target = SocketAddr::from_inet(*loopback, port);
@@ -578,7 +581,7 @@ TEST(SocketTest, Bind_TwiceSamePort_ReturnsError) {
     auto addr = SocketAddr::from_inet(*loopback, 0);
     ASSERT_TRUE(addr.has_value());
     first.bind(*addr).value();
-    auto port = first.get_sockname().port();
+    auto port = first.get_sockname().value().port();
     ASSERT_GT(port, 0);
 
     // Second bind to the same port without SO_REUSEADDR → EADDRINUSE.
@@ -603,15 +606,19 @@ TEST(SocketTest, Bind_OnClosedSocket_ReturnsError) {
     EXPECT_EQ(res.error(), EBADF);
 }
 
-TEST(SocketTest, GetSockname_OnClosedSocket_Throws) {
+TEST(SocketTest, GetSockname_OnClosedSocket_ReturnsError) {
     Socket sock(AF_INET, SOCK_STREAM);
     sock.close();
-    EXPECT_THROW((void) sock.get_sockname(), SocketException);
+    auto res = sock.get_sockname();
+    ASSERT_FALSE(res.has_value());
+    EXPECT_EQ(res.error(), EBADF);
 }
 
-TEST(SocketTest, GetPeername_Unconnected_Throws) {
+TEST(SocketTest, GetPeername_Unconnected_ReturnsError) {
     Socket sock(AF_INET, SOCK_STREAM);
-    EXPECT_THROW((void) sock.get_peername(), SocketException);  // ENOTCONN
+    auto res = sock.get_peername();  // ENOTCONN
+    ASSERT_FALSE(res.has_value());
+    EXPECT_EQ(res.error(), ENOTCONN);
 }
 
 TEST(SocketTest, BlockingConnect_Refused) {
@@ -680,7 +687,7 @@ TEST(SocketTest, SendToClosedPeer_ReturnsMinusOne) {
     server.bind(*addr).value();
     server.listen(1);
 
-    auto port = server.get_sockname().port();
+    auto port = server.get_sockname().value().port();
     ASSERT_GT(port, 0);
 
     auto client_target = SocketAddr::from_inet(*loopback, port);
@@ -717,7 +724,7 @@ TEST(SocketTest, RecvExact_NonBlockingNoData_ReturnsMinusOne) {
     server.bind(*addr).value();
     server.listen(1);
 
-    auto port = server.get_sockname().port();
+    auto port = server.get_sockname().value().port();
     ASSERT_GT(port, 0);
 
     auto client_target = SocketAddr::from_inet(*loopback, port);
@@ -745,7 +752,7 @@ TEST(SocketTest, RecvExact_PeerShutdown_ReturnsShortCount) {
     server.bind(*addr).value();
     server.listen(1);
 
-    auto port = server.get_sockname().port();
+    auto port = server.get_sockname().value().port();
     ASSERT_GT(port, 0);
 
     auto client_target = SocketAddr::from_inet(*loopback, port);

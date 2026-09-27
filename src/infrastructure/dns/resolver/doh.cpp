@@ -6,10 +6,10 @@
 
 #include "doh.h"
 
-#include <chrono>
 #include <cstdint>
 #include <exception>
 #include <map>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <span>
@@ -24,6 +24,8 @@
 #include "domain/error/dns_error.h"
 #include "domain/error/dns_error_info.h"
 #include "infrastructure/dns/dns_lookup_exception.h"
+#include "infrastructure/dns/resolver/connect_error.hpp"
+#include "infrastructure/dns/resolver/tls_options.hpp"
 #include "infrastructure/dns/util.hpp"
 #include "infrastructure/dns/validator.h"
 #include "infrastructure/dns/wire/query_util.h"
@@ -32,9 +34,7 @@
 #include "infrastructure/network/http/protocol/wire.h"
 #include "infrastructure/network/http/types.h"
 #include "infrastructure/network/transport/io_error.h"
-#include "infrastructure/network/transport/options.h"
 #include "infrastructure/network/transport/stream.h"
-#include "infrastructure/network/transport/tls_stream.h"
 #include "support/fmt.hpp"
 #include "support/util/cancellation_token.hpp"
 
@@ -43,22 +43,6 @@
 enum class RecordKind;
 
 namespace {
-using namespace std::chrono_literals;
-
-/// Map a transport I/O error to DnsErrorInfo (connect stage).
-[[nodiscard]] DnsErrorInfo map_connect_error(const Transport::IoError err, const std::string_view label) {
-    using enum Transport::IoError;
-    switch (err) {
-        case CANCELLED:
-            return {DnsError::CANCELLED, "Query cancelled"};
-        case TIMEOUT:
-            return {DnsError::RETRY, fmt::format(R"(Connection to "{}" timed out)", label)};
-        case CONNECTION_FAILED:
-            return {DnsError::CONNECTION, fmt::format(R"(Connection to "{}" failed)", label)};
-    }
-    return {DnsError::CONNECTION, fmt::format(R"(Connection to "{}" failed)", label)};
-}
-
 /// Map an HTTP protocol error to DnsErrorInfo (exchange stage).
 [[nodiscard]] DnsErrorInfo map_http_error(const net::http::Error& err, const std::string_view label) {
     switch (err.code) {
@@ -89,36 +73,21 @@ using namespace std::chrono_literals;
     return is_ipv6 ? fmt::format("[{}]:{}", host, port) : fmt::format("{}:{}", host, port);
 }
 
-constexpr auto CONNECT_TIMEOUT = 1s;
 constexpr unsigned char ALPN_HTTP[] = {8, 'h', 't', 't', 'p', '/', '1', '.', '1'};
-
-/// Connection + TLS options for the DoH connection.
-[[nodiscard]] std::pair<Transport::Options, Transport::TlsOptions> make_tls_options(
-    std::vector<Config::DnsServer> bootstrap) {
-    Transport::Options conn;
-    conn.connect_timeout = CONNECT_TIMEOUT;
-    conn.bootstrap_dns = std::move(bootstrap);
-    Transport::TlsOptions tls;
-    tls.alpn_proto = ALPN_HTTP;
-    return {conn, tls};
-}
 }  // namespace
 
 // ===========================================================================
 //  DohResolver  —  public API
 // ===========================================================================
 
-DohResolver::DohResolver(std::string host, const std::uint16_t port, std::string path, std::string label,
-                         std::vector<Config::DnsServer> bootstrap)
-    : id_(get_id()), host_(std::move(host)), port_(port), path_(std::move(path)),
-      host_header_(build_host_header(host_, port_)), label_(std::move(label)), bootstrap_(std::move(bootstrap)),
-      stream_(std::make_unique<Transport::TlsStream>(host_, port_, make_tls_options(bootstrap_).first,
-                                                     make_tls_options(bootstrap_).second)) {}
+DohResolver::DohResolver(DohEndpoint endpoint, std::vector<Config::DnsServer> bootstrap)
+    : id_(get_id()), host_(std::move(endpoint.host)), port_(endpoint.port), path_(std::move(endpoint.path)),
+      host_header_(build_host_header(host_, port_)), label_(std::move(endpoint.label)),
+      bootstrap_(std::move(bootstrap)), stream_(DNS::Resolver::make_tls_stream(host_, port_, bootstrap_, ALPN_HTTP)) {}
 
-DohResolver::DohResolver(std::string host, const std::uint16_t port, std::string path, std::string label,
-                         std::unique_ptr<Transport::Stream> stream)
-    : id_(get_id()), host_(std::move(host)), port_(port), path_(std::move(path)),
-      host_header_(build_host_header(host_, port_)), label_(std::move(label)), bootstrap_{},
+DohResolver::DohResolver(DohEndpoint endpoint, std::unique_ptr<Transport::Stream> stream)
+    : id_(get_id()), host_(std::move(endpoint.host)), port_(endpoint.port), path_(std::move(endpoint.path)),
+      host_header_(build_host_header(host_, port_)), label_(std::move(endpoint.label)), bootstrap_{},
       stream_(std::move(stream)) {}
 
 DohResolver::~DohResolver() = default;
@@ -164,12 +133,12 @@ std::expected<std::vector<std::uint8_t>, DnsErrorInfo> DohResolver::query(const 
             if (auto connected = stream_->ensure_connected(token); !connected) {
                 stream_->close();
                 if (connected.error() == Transport::IoError::CANCELLED) {
-                    return std::unexpected(map_connect_error(connected.error(), label_));
+                    return std::unexpected(DNS::Resolver::map_connect_error(connected.error(), label_));
                 }
                 if (attempt < MAX_ATTEMPTS - 1) {
                     continue;
                 }
-                return std::unexpected(map_connect_error(connected.error(), label_));
+                return std::unexpected(DNS::Resolver::map_connect_error(connected.error(), label_));
             }
 
             auto response = net::http::protocol::exchange(*stream_, req, {}, token);

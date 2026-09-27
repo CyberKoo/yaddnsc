@@ -13,7 +13,6 @@
 //   - Host:port with trailing colon, non-numeric port.
 // =============================================================================
 
-#include <stdexcept>
 #include <string>
 #include <string_view>
 
@@ -26,39 +25,39 @@
 // ===========================================================================
 
 TEST(UriEdgeTest, Origin_HttpsDefaultPort) {
-    auto uri = Uri::parse("https://example.com/path");
+    auto uri = Uri::parse("https://example.com/path").value();
     EXPECT_EQ(uri.get_origin(), "https://example.com");
 }
 
 TEST(UriEdgeTest, Origin_NonDefaultPort) {
-    auto uri = Uri::parse("https://example.com:8443/path");
+    auto uri = Uri::parse("https://example.com:8443/path").value();
     EXPECT_EQ(uri.get_origin(), "https://example.com:8443");
 }
 
 TEST(UriEdgeTest, Origin_NoScheme) {
-    auto uri = Uri::parse("example.com:8080");
+    auto uri = Uri::parse("example.com:8080").value();
     EXPECT_TRUE(uri.get_origin().find("example.com") != std::string_view::npos);
     EXPECT_TRUE(uri.get_origin().find("8080") != std::string_view::npos);
 }
 
 TEST(UriEdgeTest, Origin_NoSchemeNoPort) {
-    auto uri = Uri::parse("example.com");
+    auto uri = Uri::parse("example.com").value();
     EXPECT_EQ(uri.get_port(), 0);
     EXPECT_EQ(uri.get_origin(), "example.com");
 }
 
 TEST(UriEdgeTest, Origin_NoSchemeWithNonDefaultPort) {
-    auto uri = Uri::parse("example.com:8080");
+    auto uri = Uri::parse("example.com:8080").value();
     EXPECT_EQ(uri.get_origin(), "example.com:8080");
 }
 
 TEST(UriEdgeTest, Origin_SchemeWithNonMatchingPort) {
-    auto uri = Uri::parse("https://example.com:8443");
+    auto uri = Uri::parse("https://example.com:8443").value();
     EXPECT_EQ(uri.get_origin(), "https://example.com:8443");
 }
 
 TEST(UriEdgeTest, Origin_SchemeDefaultPort) {
-    auto uri = Uri::parse("http://example.com");
+    auto uri = Uri::parse("http://example.com").value();
     EXPECT_EQ(uri.get_origin(), "http://example.com");
 }
 
@@ -68,12 +67,12 @@ TEST(UriEdgeTest, Origin_SchemeDefaultPort) {
 
 TEST(UriEdgeTest, GetRawUri) {
     const std::string raw = "https://example.com/path?q=1";
-    auto uri = Uri::parse(raw);
+    auto uri = Uri::parse(raw).value();
     EXPECT_EQ(uri.get_raw_uri(), raw);
 }
 
 TEST(UriEdgeTest, GetBody) {
-    auto uri = Uri::parse("https://example.com/path");
+    auto uri = Uri::parse("https://example.com/path").value();
     EXPECT_FALSE(uri.get_body().empty());
 }
 
@@ -82,29 +81,31 @@ TEST(UriEdgeTest, GetBody) {
 // ===========================================================================
 
 TEST(UriEdgeTest, NoSchemeIPv6Bracketed) {
-    auto uri = Uri::parse("[::1]:853");
+    auto uri = Uri::parse("[::1]:853").value();
     EXPECT_EQ(uri.get_host(), "::1");
     EXPECT_EQ(uri.get_port(), 853);
 }
 
 TEST(UriEdgeTest, BareIPv6NoBrackets) {
-    auto uri = Uri::parse("http://::1");
+    auto uri = Uri::parse("http://::1").value();
     EXPECT_EQ(uri.get_schema(), "http");
     EXPECT_EQ(uri.get_host(), "::1");
     EXPECT_EQ(uri.get_port(), 80);
 }
 
 TEST(UriEdgeTest, BareIPv6BareAddressNoScheme) {
-    auto uri = Uri::parse("2001:db8::1");
+    auto uri = Uri::parse("2001:db8::1").value();
     EXPECT_TRUE(uri.get_schema().empty());
 }
 
-TEST(UriEdgeTest, UnclosedIPv6Throws) {
-    EXPECT_THROW(Uri::parse("http://[::1"), std::runtime_error);
+TEST(UriEdgeTest, UnclosedIPv6_ReturnsError) {
+    const auto uri = Uri::parse("http://[::1");
+    ASSERT_FALSE(uri.has_value());
+    EXPECT_EQ(uri.error(), UriError::UNCLOSED_IPV6_BRACKET);
 }
 
 TEST(UriEdgeTest, BracketIPv6_WithPort_AfterClosingBracket_AndPath) {
-    auto uri = Uri::parse("https://[::1]:8443/path?query=1");
+    auto uri = Uri::parse("https://[::1]:8443/path?query=1").value();
     EXPECT_EQ(uri.get_host(), "::1");
     EXPECT_EQ(uri.get_host_literal(), "[::1]");
     EXPECT_EQ(uri.get_port(), 8443);
@@ -113,21 +114,21 @@ TEST(UriEdgeTest, BracketIPv6_WithPort_AfterClosingBracket_AndPath) {
 }
 
 TEST(UriEdgeTest, BracketIPv6_WithPort_AfterClosingBracket) {
-    auto uri = Uri::parse("http://[::1]:8080/path");
+    auto uri = Uri::parse("http://[::1]:8080/path").value();
     EXPECT_EQ(uri.get_host(), "::1");
     EXPECT_EQ(uri.get_host_literal(), "[::1]");
     EXPECT_EQ(uri.get_port(), 8080);
 }
 
 TEST(UriEdgeTest, BracketIPv6_WithTrailingColonNoPort) {
-    auto uri = Uri::parse("http://[::1]:");
+    auto uri = Uri::parse("http://[::1]:").value();
     EXPECT_EQ(uri.get_host(), "::1");
     EXPECT_EQ(uri.get_host_literal(), "[::1]");
     EXPECT_EQ(uri.get_port(), 80);
 }
 
 TEST(UriEdgeTest, BareIPv6_InAuthority_NoPort) {
-    auto uri = Uri::parse("http://2001:db8::1");
+    auto uri = Uri::parse("http://2001:db8::1").value();
     EXPECT_EQ(uri.get_host(), "2001:db8::1");
 }
 
@@ -136,13 +137,13 @@ TEST(UriEdgeTest, BareIPv6_InAuthority_NoPort) {
 // ===========================================================================
 
 TEST(UriEdgeTest, HostPort_WithTrailingColonNoPort) {
-    auto uri = Uri::parse("http://example.com:");
+    auto uri = Uri::parse("http://example.com:").value();
     EXPECT_EQ(uri.get_host(), "example.com");
     EXPECT_EQ(uri.get_port(), 80);
 }
 
 TEST(UriEdgeTest, HostPort_WithNonNumericPort) {
-    auto uri = Uri::parse("http://example.com:abc");
+    auto uri = Uri::parse("http://example.com:abc").value();
     EXPECT_EQ(uri.get_host(), "example.com");
     EXPECT_EQ(uri.get_port(), 80);
 }
@@ -151,35 +152,41 @@ TEST(UriEdgeTest, HostPort_WithNonNumericPort) {
 // Port range validation
 // ===========================================================================
 
-TEST(UriEdgeTest, HostPort_OutOfRangePort_Throws) {
+TEST(UriEdgeTest, HostPort_OutOfRangePort_ReturnsError) {
     // Regression: 99999 was previously accepted and silently truncated to
     // 34463 by static_cast<uint16_t> at the call site.
-    EXPECT_THROW(Uri::parse("http://example.com:99999"), std::runtime_error);
+    const auto uri = Uri::parse("http://example.com:99999");
+    ASSERT_FALSE(uri.has_value());
+    EXPECT_EQ(uri.error(), UriError::PORT_OUT_OF_RANGE);
 }
 
-TEST(UriEdgeTest, HostPort_NegativePort_Throws) {
-    EXPECT_THROW(Uri::parse("http://example.com:-1"), std::runtime_error);
+TEST(UriEdgeTest, HostPort_NegativePort_ReturnsError) {
+    const auto uri = Uri::parse("http://example.com:-1");
+    ASSERT_FALSE(uri.has_value());
+    EXPECT_EQ(uri.error(), UriError::PORT_OUT_OF_RANGE);
 }
 
-TEST(UriEdgeTest, BracketIPv6_OutOfRangePort_Throws) {
-    EXPECT_THROW(Uri::parse("http://[::1]:70000"), std::runtime_error);
+TEST(UriEdgeTest, BracketIPv6_OutOfRangePort_ReturnsError) {
+    const auto uri = Uri::parse("http://[::1]:70000");
+    ASSERT_FALSE(uri.has_value());
+    EXPECT_EQ(uri.error(), UriError::PORT_OUT_OF_RANGE);
 }
 
 TEST(UriEdgeTest, HostPort_TrailingGarbage_FallsBackToDefault) {
     // "8080x" must not be silently accepted as 8080; the port is treated
     // as unspecified and the default is used (same as a non-numeric port).
-    auto uri = Uri::parse("http://example.com:8080x");
+    auto uri = Uri::parse("http://example.com:8080x").value();
     EXPECT_EQ(uri.get_host(), "example.com");
     EXPECT_EQ(uri.get_port(), 80);
 }
 
 TEST(UriEdgeTest, HostPort_MaxPort_Accepted) {
-    auto uri = Uri::parse("http://example.com:65535");
+    auto uri = Uri::parse("http://example.com:65535").value();
     EXPECT_EQ(uri.get_port(), 65535);
 }
 
 TEST(UriEdgeTest, HostPort_ZeroPort_Accepted) {
     // Port 0 means "unspecified" throughout the code base.
-    auto uri = Uri::parse("http://example.com:0");
+    auto uri = Uri::parse("http://example.com:0").value();
     EXPECT_EQ(uri.get_port(), 0);
 }

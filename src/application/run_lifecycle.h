@@ -7,6 +7,7 @@
 
 #include <functional>
 #include <memory>
+#include <optional>
 #include <stop_token>
 
 #include "application/run_environment.h"
@@ -60,7 +61,9 @@ private:
     RunEnvironment env_;
     domain::ScheduleQueue queue_;
     SchedulerRunner runner_;
-    std::stop_callback<std::function<void()>> stop_cb_;
+    // Optional only because std::stop_callback is not default-constructible:
+    // it is always engaged by the constructor body (see run_lifecycle.cpp).
+    std::optional<std::stop_callback<std::function<void()>>> stop_cb_;
 };
 
 #endif  // YADDNSC_APPLICATION_RUN_LIFECYCLE_H

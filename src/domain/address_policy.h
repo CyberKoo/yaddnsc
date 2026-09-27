@@ -29,22 +29,8 @@ struct AddressPolicy {
 ///  - filtering applies only when the record type is AAAA;
 ///  - an empty candidate list (before or after filtering) means "no address";
 ///  - the first surviving candidate wins.
-[[nodiscard]] inline std::optional<InetAddress> select_address(std::vector<InetAddress> candidates,
-                                                               RecordKind record_type, const AddressPolicy& policy) {
-    if (record_type == RecordKind::AAAA) {
-        if (!policy.allow_local_link) {
-            std::erase_if(candidates, [](const InetAddress& a) { return a.is_link_local(); });
-        }
-        if (!policy.allow_ula) {
-            std::erase_if(candidates, [](const InetAddress& a) { return a.is_ula(); });
-        }
-    }
-
-    if (candidates.empty()) {
-        return std::nullopt;
-    }
-    return candidates.front();
-}
+[[nodiscard]] std::optional<InetAddress> select_address(std::vector<InetAddress> candidates, RecordKind record_type,
+                                                        const AddressPolicy& policy);
 
 }  // namespace domain
 

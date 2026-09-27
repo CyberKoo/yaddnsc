@@ -121,7 +121,9 @@ struct RunnerFixture {
     NullLogger logger;
     std::stop_source stop;
 
-    SchedulerRunner make_runner() { return {queue, clock, executor, stop.get_token(), logger}; }
+    SchedulerRunner make_runner() {
+        return {queue, {.clock = clock, .executor = executor, .logger = logger}, stop.get_token()};
+    }
 };
 
 }  // namespace
@@ -333,7 +335,7 @@ TEST(SchedulerRunner, FullUpdateCycleOverMockPorts) {
         [&workflow](const domain::UpdateTask& task) { static_cast<void>(workflow.run(task, {})); });
 
     std::stop_source stop;
-    SchedulerRunner runner(queue, clock, executor, stop.get_token(), logger);
+    SchedulerRunner runner(queue, {.clock = clock, .executor = executor, .logger = logger}, stop.get_token());
     std::jthread loop([&] { runner.run({}); });
     const LoopGuard cleanup{stop, loop};
 
@@ -394,7 +396,7 @@ TEST(SchedulerRunner, IpSourceFailureDoesNotStopScheduling) {
     });
 
     std::stop_source stop;
-    SchedulerRunner runner(queue, clock, executor, stop.get_token(), logger);
+    SchedulerRunner runner(queue, {.clock = clock, .executor = executor, .logger = logger}, stop.get_token());
     std::jthread loop([&] { runner.run({}); });
     const LoopGuard cleanup{stop, loop};
 

@@ -35,20 +35,8 @@ enum class UpdateDecision {
 ///                         arrives as an empty list (mapped by the workflow).
 /// @param local_address    The address to publish, if any was resolved.
 /// @param force_update     Skip the comparison and update unconditionally.
-[[nodiscard]] inline UpdateDecision decide_update(const std::vector<std::string>& current_records,
-                                                  const std::optional<std::string>& local_address,
-                                                  bool force_update) noexcept {
-    if (!local_address.has_value()) {
-        return UpdateDecision::SKIP_NO_ADDRESS;
-    }
-    if (force_update) {
-        return UpdateDecision::UPDATE_FORCED;
-    }
-    if (!current_records.empty() && current_records.front() == *local_address) {
-        return UpdateDecision::SKIP_UNCHANGED;
-    }
-    return UpdateDecision::UPDATE_CHANGED;
-}
+[[nodiscard]] UpdateDecision decide_update(const std::vector<std::string>& current_records,
+                                           const std::optional<std::string>& local_address, bool force_update) noexcept;
 
 }  // namespace domain
 

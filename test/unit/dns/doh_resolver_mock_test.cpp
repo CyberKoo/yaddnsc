@@ -186,7 +186,7 @@ private:
 TEST(DohResolverMockTest, ConnectTimeout_ReturnsRetry) {
     auto mock = std::make_unique<MockStream>();
     ON_CALL(*mock, ensure_connected(_)).WillByDefault(Return(std::unexpected(IoError::TIMEOUT)));
-    DohResolver resolver("127.0.0.1", 1443, "/dns-query", "mock:1443", std::move(mock));
+    DohResolver resolver({"127.0.0.1", 1443, "/dns-query", "mock:1443"}, std::move(mock));
 
     auto result = resolver.query("yaddnsc.test", RecordKind::A, {});
     ASSERT_FALSE(result.has_value());
@@ -197,7 +197,7 @@ TEST(DohResolverMockTest, ConnectCancelled_ReturnsCancelledWithoutReconnect) {
     auto mock = std::make_unique<MockStream>();
     EXPECT_CALL(*mock, ensure_connected(_)).WillOnce(Return(std::unexpected(IoError::CANCELLED)));
     EXPECT_CALL(*mock, close()).Times(1);
-    DohResolver resolver("127.0.0.1", 1443, "/dns-query", "mock:1443", std::move(mock));
+    DohResolver resolver({"127.0.0.1", 1443, "/dns-query", "mock:1443"}, std::move(mock));
 
     auto result = resolver.query("yaddnsc.test", RecordKind::A, {});
     ASSERT_FALSE(result.has_value());
@@ -207,7 +207,7 @@ TEST(DohResolverMockTest, ConnectCancelled_ReturnsCancelledWithoutReconnect) {
 TEST(DohResolverMockTest, ConnectFailure_ReturnsConnection) {
     auto mock = std::make_unique<MockStream>();
     ON_CALL(*mock, ensure_connected(_)).WillByDefault(Return(std::unexpected(IoError::CONNECTION_FAILED)));
-    DohResolver resolver("127.0.0.1", 1443, "/dns-query", "mock:1443", std::move(mock));
+    DohResolver resolver({"127.0.0.1", 1443, "/dns-query", "mock:1443"}, std::move(mock));
 
     const auto result = resolver.query("yaddnsc.test", RecordKind::A, {});
     ASSERT_FALSE(result);
@@ -222,7 +222,7 @@ TEST(DohResolverMockTest, ExchangeCancelled_ReturnsCancelled) {
     auto mock = connected_mock();
     ON_CALL(*mock, send_all(_, _)).WillByDefault(Return(std::expected<void, IoError>{}));
     ON_CALL(*mock, read_some(_, _)).WillByDefault(Return(std::unexpected(IoError::CANCELLED)));
-    DohResolver resolver("127.0.0.1", 1443, "/dns-query", "mock:1443", std::move(mock));
+    DohResolver resolver({"127.0.0.1", 1443, "/dns-query", "mock:1443"}, std::move(mock));
 
     auto result = resolver.query("yaddnsc.test", RecordKind::A, {});
     ASSERT_FALSE(result.has_value());
@@ -233,7 +233,7 @@ TEST(DohResolverMockTest, ExchangeTimeout_ReturnsConnection) {
     auto mock = connected_mock();
     ON_CALL(*mock, send_all(_, _)).WillByDefault(Return(std::expected<void, IoError>{}));
     ON_CALL(*mock, read_some(_, _)).WillByDefault(Return(std::unexpected(IoError::TIMEOUT)));
-    DohResolver resolver("127.0.0.1", 1443, "/dns-query", "mock:1443", std::move(mock));
+    DohResolver resolver({"127.0.0.1", 1443, "/dns-query", "mock:1443"}, std::move(mock));
 
     const auto result = resolver.query("yaddnsc.test", RecordKind::A, {});
     ASSERT_FALSE(result);
@@ -250,7 +250,7 @@ TEST(DohResolverMockTest, MalformedResponse_ReturnsParse) {
                 std::copy(garbage.begin(), garbage.end(), buf.begin());
                 return garbage.size();
             });
-    DohResolver resolver("127.0.0.1", 1443, "/dns-query", "mock:1443", std::move(mock));
+    DohResolver resolver({"127.0.0.1", 1443, "/dns-query", "mock:1443"}, std::move(mock));
 
     auto result = resolver.query("yaddnsc.test", RecordKind::A, {});
     ASSERT_FALSE(result.has_value());
@@ -261,7 +261,7 @@ TEST(DohResolverMockTest, Status500_ReturnsRetry) {
     auto mock = connected_mock();
     const auto body = make_dns_body(0x12, 0x34);
     MockHttpPipe pipe(*mock, 500, body);
-    DohResolver resolver("127.0.0.1", 1443, "/dns-query", "mock:1443", std::move(mock));
+    DohResolver resolver({"127.0.0.1", 1443, "/dns-query", "mock:1443"}, std::move(mock));
 
     auto result = resolver.query("yaddnsc.test", RecordKind::A, {});
     ASSERT_FALSE(result.has_value());
@@ -272,7 +272,7 @@ TEST(DohResolverMockTest, Status204_ReturnsServerRefused) {
     auto mock = connected_mock();
     const auto body = make_dns_body(0x12, 0x34);
     MockHttpPipe pipe(*mock, 204, body);
-    DohResolver resolver("127.0.0.1", 1443, "/dns-query", "mock:1443", std::move(mock));
+    DohResolver resolver({"127.0.0.1", 1443, "/dns-query", "mock:1443"}, std::move(mock));
 
     const auto result = resolver.query("yaddnsc.test", RecordKind::A, {});
     ASSERT_FALSE(result);
@@ -283,7 +283,7 @@ TEST(DohResolverMockTest, Status404_ReturnsServerRefused) {
     auto mock = connected_mock();
     const auto body = make_dns_body(0x12, 0x34);
     MockHttpPipe pipe(*mock, 404, body);
-    DohResolver resolver("127.0.0.1", 1443, "/dns-query", "mock:1443", std::move(mock));
+    DohResolver resolver({"127.0.0.1", 1443, "/dns-query", "mock:1443"}, std::move(mock));
 
     auto result = resolver.query("yaddnsc.test", RecordKind::A, {});
     ASSERT_FALSE(result.has_value());
@@ -295,7 +295,7 @@ TEST(DohResolverMockTest, RetryConnectionFailure_ReturnsConnection) {
     ON_CALL(*mock, ensure_connected(_)).WillByDefault(Return(std::expected<void, IoError>{}));
     ON_CALL(*mock, send_all(_, _)).WillByDefault(Return(std::expected<void, IoError>{}));
     ON_CALL(*mock, read_some(_, _)).WillByDefault(Return(std::unexpected(IoError::CONNECTION_FAILED)));
-    DohResolver resolver("127.0.0.1", 1443, "/dns-query", "mock:1443", std::move(mock));
+    DohResolver resolver({"127.0.0.1", 1443, "/dns-query", "mock:1443"}, std::move(mock));
 
     const auto result = resolver.query("yaddnsc.test", RecordKind::A, {});
     ASSERT_FALSE(result);
@@ -324,7 +324,7 @@ TEST(DohResolverMockTest, ConnectionLostThenReconnectSucceeds) {
             std::copy_n(headers.begin(), std::min(buf.size(), headers.size()), buf.begin());
             return std::min(buf.size(), headers.size());
         });
-    DohResolver resolver("127.0.0.1", 1443, "/dns-query", "mock:1443", std::move(mock));
+    DohResolver resolver({"127.0.0.1", 1443, "/dns-query", "mock:1443"}, std::move(mock));
 
     // The retry path is exercised; the body is empty so validation fails —
     // what matters is that the second exchange happened (no CANCELLED/timeout).
@@ -342,7 +342,7 @@ TEST(DohResolverMockTest, QuerySucceeds) {
     auto mock = connected_mock();
     const auto body = make_dns_body(0, 0);  // pipe echoes the real ID
     MockHttpPipe pipe(*mock, 200, body);
-    DohResolver resolver("127.0.0.1", 1443, "/dns-query", "mock:1443", std::move(mock));
+    DohResolver resolver({"127.0.0.1", 1443, "/dns-query", "mock:1443"}, std::move(mock));
 
     auto result = resolver.query("yaddnsc.test", RecordKind::A, {});
     ASSERT_TRUE(result.has_value());

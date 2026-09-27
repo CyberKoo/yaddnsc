@@ -13,8 +13,7 @@
 #include <vector>
 
 #include "application/ports/driver_catalog.h"
-
-#include "plugin_loader.h"
+#include "infrastructure/plugin/plugin_loader.h"
 
 /// DriverCatalog — name → loaded-plugin registry (replaces DriverManager).
 ///

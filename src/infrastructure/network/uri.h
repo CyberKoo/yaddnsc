@@ -12,6 +12,17 @@
 #include <utility>
 #include <vector>
 
+#include <expected>
+
+/// Error conditions reported by Uri::parse for malformed input.
+enum class UriError {
+    UNCLOSED_IPV6_BRACKET,  ///< '[' without a matching ']'
+    PORT_OUT_OF_RANGE,      ///< numeric port outside 0-65535
+};
+
+/// Human-readable description of a UriError, for diagnostics.
+[[nodiscard]] std::string_view error_message(UriError err) noexcept;
+
 /// A URI parser and builder conforming to RFC 3986.
 ///
 /// Parses a URI string into its components (scheme, host, port, path,
@@ -26,8 +37,10 @@ public:
     /// Parse a URI from its string representation.
     /// @param uri  The URI string to parse (e.g. "https://example.com:8080/path?q=1#frag").
     ///             The fragment component, if present, is ignored.
-    /// @return     A fully populated Uri instance.
-    static Uri parse(std::string_view uri);
+    /// @return     A fully populated Uri instance, or a UriError when the
+    ///             input is malformed. Malformed input is a caller-recoverable
+    ///             condition, so it is reported as a value, never thrown.
+    [[nodiscard]] static std::expected<Uri, UriError> parse(std::string_view uri);
 
     /// Return the scheme component.
     /// e.g. for "https://example.com/path" -> "https"
@@ -93,14 +106,14 @@ public:
     /// When @p encode_slash is false, '/' is preserved instead of being encoded as
     /// "%2F".  This is needed for the canonical URI in AWS SigV4 signing, where
     /// each path segment is encoded separately and '/' is the segment delimiter.
-    [[nodiscard]] static std::string url_encode(std::string_view input, bool encode_slash = true) noexcept;
+    [[nodiscard]] static std::string url_encode(std::string_view input, bool encode_slash = true);
 
     /// Percent-decode a string per RFC 3986 §2.1.
     /// Each "%XX" sequence is replaced with the corresponding byte.
     /// Malformed sequences (e.g. "%GG", trailing "%") are preserved as-is.
     /// Note: '+' is NOT decoded as space; that convention belongs to
     /// application/x-www-form-urlencoded and is handled by get_query_params().
-    [[nodiscard]] static std::string url_decode(std::string_view input) noexcept;
+    [[nodiscard]] static std::string url_decode(std::string_view input);
 
 private:
     Uri() = default;
@@ -127,15 +140,19 @@ private:
     /// Return the well-known default port for a given scheme, or 0 if unknown.
     static int default_port_for(std::string_view scheme) noexcept;
 
+    /// Parsing body of parse(); parse() wraps it to enforce postconditions.
+    static std::expected<Uri, UriError> parse_impl(std::string_view uri);
+
     /// Parse a host:port authority string into host slice and port.
-    static void parse_authority(std::string_view auth, Slice& host_out, std::optional<int>& port_out, bool& is_ipv6_out,
-                                std::size_t auth_raw_offset, std::string_view raw_uri_hint);
+    static std::expected<void, UriError> parse_authority(std::string_view auth, Slice& host_out,
+                                                         std::optional<int>& port_out, bool& is_ipv6_out,
+                                                         std::size_t auth_raw_offset);
 
     std::string raw_uri_;  ///< sole string buffer owner
     Slice schema_;
     Slice host_;
     bool is_ipv6_ = false;
-    std::optional<int> port_;  ///< always populated after parse()
+    std::optional<int> port_;  ///< always engaged after parse(); 0 means "no port / no well-known default"
     Slice path_;
     Slice query_string_;
     Slice body_;

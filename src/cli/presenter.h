@@ -6,6 +6,7 @@
 #define YADDNSC_CLI_PRESENTER_H
 
 #include <exception>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -35,8 +36,10 @@ namespace Cli {
 /// `interface list` — all interfaces with their addresses.
 [[nodiscard]] int present_interface_list(const std::vector<Diagnostics::InterfaceListItem>& items);
 
-/// `interface ip` — addresses of one interface.
-[[nodiscard]] int present_interface_ip(const std::string& name, const std::vector<InetAddress>& addresses);
+/// `interface ip` — addresses of one interface; a missing interface prints
+/// the legacy "Error: Interface <name> not found" line and exits FAILURE.
+[[nodiscard]] int present_interface_ip(const std::string& name,
+                                       const std::optional<std::vector<InetAddress>>& addresses);
 
 /// `dns resolve` — lookup outcome (all lookup results exit SUCCESS; an
 /// unknown record type exits FAILURE).

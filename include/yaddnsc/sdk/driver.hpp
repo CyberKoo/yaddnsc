@@ -377,10 +377,7 @@ public:
     /// freshly created instance between create() and destroy(): it must not
     /// rely on state left by a previous call and must not touch host
     /// services (no HTTP exchange happens during validation).
-    [[nodiscard]] virtual Result validate(std::string_view driver_param_json) const {
-        (void) driver_param_json;
-        return {};
-    }
+    [[nodiscard]] virtual Result validate([[maybe_unused]] std::string_view driver_param_json) const { return {}; }
 
 protected:
     /// Parse the driver_param JSON into a typed struct with built-in

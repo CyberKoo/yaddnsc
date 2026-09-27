@@ -4,9 +4,6 @@
 
 #include "static_validator.h"
 
-#include <exception>
-#include <optional>
-#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -54,15 +51,15 @@ void validate_ip_source(std::vector<domain::ConfigError>& errors, const std::str
             push_error(errors, Code::EMPTY_IP_SOURCE_PARAM,
                        fmt::format("Subdomain {} uses HTTP IP source but ip_source_param is empty", fqdn));
         } else {
-            try {
-                const auto uri = Uri::parse(subdomain.ip_source_param);
-                if (uri.get_host().empty() || uri.get_port() == 0) {
-                    throw std::runtime_error("missing host or port");
-                }
-            } catch (const std::exception& e) {
+            const auto uri = Uri::parse(subdomain.ip_source_param);
+            if (!uri.has_value()) {
                 push_error(errors, Code::INVALID_IP_SOURCE_URL,
                            fmt::format("Subdomain {} has invalid ip_source_param '{}': {}", fqdn,
-                                       subdomain.ip_source_param, e.what()));
+                                       subdomain.ip_source_param, error_message(uri.error())));
+            } else if (uri->get_host().empty() || uri->get_port() == 0) {
+                push_error(errors, Code::INVALID_IP_SOURCE_URL,
+                           fmt::format("Subdomain {} has invalid ip_source_param '{}': missing host or port", fqdn,
+                                       subdomain.ip_source_param));
             }
         }
         return;
@@ -104,15 +101,10 @@ void validate_ip_source(std::vector<domain::ConfigError>& errors, const std::str
 /// mistake, so it must surface identically on every entry path (run, config
 /// test, dns resolve) instead of escaping as an "unhandled exception".
 void validate_resolver_address(std::vector<domain::ConfigError>& errors, const std::string& address) {
-    auto uri = [&]() -> std::optional<Uri> {
-        try {
-            return Uri::parse(address);
-        } catch (const std::exception&) {
-            return std::nullopt;
-        }
-    }();
+    const auto uri = Uri::parse(address);
     if (!uri.has_value()) {
-        push_error(errors, Code::INVALID_RESOLVER, fmt::format(R"(Malformed resolver address "{}")", address));
+        push_error(errors, Code::INVALID_RESOLVER,
+                   fmt::format(R"(Malformed resolver address "{}": {})", address, error_message(uri.error())));
         return;
     }
     // DoH / DoT address — starts with https or tls.
@@ -185,7 +177,8 @@ auto validate_static(const AppConfig& raw) -> std::vector<domain::ConfigError> {
         }
     }
 
-    // Custom resolver address(es) — Uri::parse exceptions escape on purpose.
+    // Custom resolver address(es) — parse failures are collected here as
+    // INVALID_RESOLVER config errors (see validate_resolver_address).
     if (raw.resolver.use_custom_server) {
         if (raw.resolver.servers.empty() && raw.resolver.address.empty()) {
             push_error(errors, Code::NO_RESOLVER_SERVERS,

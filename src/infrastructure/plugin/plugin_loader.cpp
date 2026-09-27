@@ -4,8 +4,13 @@
 
 #include "plugin_loader.h"
 
+#include <algorithm>
+#include <array>
+#include <cstdint>
+#include <cstring>
 #include <exception>
 #include <new>
+#include <string_view>
 #include <type_traits>
 #include <utility>
 
@@ -189,4 +194,52 @@ void PluginModule::destroy(yaddnsc_driver* driver) const noexcept {
         } catch (...) {
         }
     }
+}
+
+yaddnsc_status PluginModule::update(yaddnsc_driver* driver, const yaddnsc_update_request& request,
+                                    yaddnsc_error& out_error) const {
+    try {
+        return update_(driver, &request, &out_error);
+    } catch (const std::exception& e) {
+        write_entry_error(out_error, e.what());
+    } catch (...) {
+        write_entry_error(out_error, "unknown exception from plugin update");
+    }
+    return YADDNSC_STATUS_INTERNAL_ERROR;
+}
+
+yaddnsc_status PluginModule::validate(yaddnsc_driver* driver, yaddnsc_string driver_param_json,
+                                      yaddnsc_error& out_error) const {
+    if (validate_ == nullptr) {
+        return YADDNSC_STATUS_OK;
+    }
+    try {
+        return validate_(driver, driver_param_json, &out_error);
+    } catch (const std::exception& e) {
+        write_entry_error(out_error, e.what());
+    } catch (...) {
+        write_entry_error(out_error, "unknown exception from plugin validate");
+    }
+    return YADDNSC_STATUS_INTERNAL_ERROR;
+}
+
+void PluginModule::write_entry_error(yaddnsc_error& out_error, std::string_view message) noexcept {
+    if (out_error.struct_size < YADDNSC_ERROR_MIN_SIZE) {
+        return;
+    }
+    constexpr std::string_view fallback = "plugin entry threw";
+    constexpr std::size_t capacity = 512;
+    thread_local std::array<char, capacity> storage{};
+    const std::string_view source = message.data() == nullptr ? fallback : message;
+    const std::size_t size = std::min(source.size(), storage.size() - 1);
+    if (size != 0) {
+        std::memcpy(storage.data(), source.data(), size);
+    }
+    storage[size] = '\0';
+    out_error.status = YADDNSC_STATUS_INTERNAL_ERROR;
+    out_error.retry_after_seconds = 0;
+    out_error.message = yaddnsc_string{storage.data(), size};
+    out_error.struct_size = out_error.struct_size < static_cast<std::uint32_t>(sizeof(yaddnsc_error))
+                                ? out_error.struct_size
+                                : static_cast<std::uint32_t>(sizeof(yaddnsc_error));
 }

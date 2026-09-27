@@ -21,14 +21,10 @@ struct AppConfig;
 ///
 /// Environment-dependent checks (driver loaded, interface exists) are NOT
 /// performed here; they remain in EnvironmentValidator (validator.hpp).
-///
-/// @throws std::runtime_error  Only from Uri::parse on a malformed custom
-///         resolver address — same escape path as the legacy validator.
 [[nodiscard]] auto validate_static(const AppConfig& raw) -> std::vector<domain::ConfigError>;
 
 /// validate_static + normalize: on success returns the runtime
 /// configuration, on failure the collected static errors.
-/// @throws std::runtime_error  Same Uri::parse escape path as above.
 [[nodiscard]] auto validate_and_normalize(const AppConfig& raw)
     -> std::expected<domain::RuntimeConfig, std::vector<domain::ConfigError>>;
 }  // namespace Config

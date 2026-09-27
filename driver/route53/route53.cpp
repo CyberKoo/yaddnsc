@@ -19,6 +19,7 @@
 #include <libxml/xpathInternals.h>
 #include <yaddnsc/sdk/driver.hpp>
 #include <yaddnsc/sdk/driver_abi.h>
+#include <yaddnsc/sdk/xml_raii.hpp>
 #include <yaddnsc/util/format.hpp>
 
 #include "config.hpp"
@@ -51,8 +52,9 @@ namespace {
     return fmt::format("{}.", fqdn);
 }
 
-/// The Route 53 XML namespace URI.
-constexpr std::string_view R53_XMLNS = "https://route53.amazonaws.com/doc/2013-04-01/";
+/// The Route 53 XML namespace URI (char array: passed to libxml2 C APIs that
+/// require null-terminated strings).
+constexpr char R53_XMLNS[] = "https://route53.amazonaws.com/doc/2013-04-01/";
 
 /// Route 53 API hostname.
 constexpr std::string_view R53_HOST = "route53.amazonaws.com";
@@ -166,31 +168,28 @@ bool Route53Driver::check_response(const HttpResponse& response, const Services&
 
     if (response.status_code == 200) {
         // Route 53 returns HTTP 200 with <ChangeResourceRecordSetsResponse> on success.
-        xmlDocPtr doc =
-            xmlReadMemory(response.body.data(), static_cast<int>(response.body.size()), nullptr, nullptr, 0);
+        xml_raii::unique_doc doc(
+            xmlReadMemory(response.body.data(), static_cast<int>(response.body.size()), nullptr, nullptr, 0));
         if (!doc) {
             YADDNSC_SDK_LOG_ERROR(services, "Failed to parse Route 53 response XML");
             return false;
         }
 
-        xmlXPathContextPtr xpath_ctx = xmlXPathNewContext(doc);
+        xml_raii::unique_xpath_ctx xpath_ctx(xmlXPathNewContext(doc.get()));
         if (!xpath_ctx) {
-            xmlFreeDoc(doc);
             YADDNSC_SDK_LOG_ERROR(services, "Failed to create XPath context");
             return false;
         }
 
         // Register the Route 53 XML namespace.
-        if (xmlXPathRegisterNs(xpath_ctx, BAD_CAST "r53", BAD_CAST R53_XMLNS.data()) != 0) {
-            xmlXPathFreeContext(xpath_ctx);
-            xmlFreeDoc(doc);
+        if (xmlXPathRegisterNs(xpath_ctx.get(), BAD_CAST "r53", BAD_CAST R53_XMLNS) != 0) {
             YADDNSC_SDK_LOG_ERROR(services, "Failed to register Route 53 XML namespace");
             return false;
         }
 
         // Extract <ChangeInfo><Status> text.
         constexpr const char* XPATH_STATUS = "//r53:ChangeResourceRecordSetsResponse/r53:ChangeInfo/r53:Status/text()";
-        xmlXPathObjectPtr result = xmlXPathEvalExpression(BAD_CAST XPATH_STATUS, xpath_ctx);
+        xml_raii::unique_xpath_obj result(xmlXPathEvalExpression(BAD_CAST XPATH_STATUS, xpath_ctx.get()));
 
         bool success = false;
         if (result && result->nodesetval && result->nodesetval->nodeNr > 0) {
@@ -209,21 +208,18 @@ bool Route53Driver::check_response(const HttpResponse& response, const Services&
             YADDNSC_SDK_LOG_ERROR(services, "Route 53 response missing <ChangeInfo><Status> element");
         }
 
-        xmlXPathFreeObject(result);
-        xmlXPathFreeContext(xpath_ctx);
-        xmlFreeDoc(doc);
         return success;
     }
 
     // ── Error response: parse <ErrorResponse> XML ────────────────────────────
     if (!response.body.empty()) {
-        xmlDocPtr doc =
-            xmlReadMemory(response.body.data(), static_cast<int>(response.body.size()), nullptr, nullptr, 0);
+        xml_raii::unique_doc doc(
+            xmlReadMemory(response.body.data(), static_cast<int>(response.body.size()), nullptr, nullptr, 0));
         if (doc) {
-            xmlXPathContextPtr xpath_ctx = xmlXPathNewContext(doc);
+            xml_raii::unique_xpath_ctx xpath_ctx(xmlXPathNewContext(doc.get()));
             if (xpath_ctx) {
-                xmlXPathRegisterNs(xpath_ctx, BAD_CAST "r53", BAD_CAST R53_XMLNS.data());
-                xmlXPathObjectPtr errors = xmlXPathEvalExpression(BAD_CAST "//r53:Error", xpath_ctx);
+                xmlXPathRegisterNs(xpath_ctx.get(), BAD_CAST "r53", BAD_CAST R53_XMLNS);
+                xml_raii::unique_xpath_obj errors(xmlXPathEvalExpression(BAD_CAST "//r53:Error", xpath_ctx.get()));
                 if (errors && errors->nodesetval) {
                     for (int i = 0; i < errors->nodesetval->nodeNr; ++i) {
                         xmlNodePtr error_node = errors->nodesetval->nodeTab[i];
@@ -248,10 +244,7 @@ bool Route53Driver::check_response(const HttpResponse& response, const Services&
                     YADDNSC_SDK_LOG_ERROR(services, "Route 53 API error (HTTP {}): {}", response.status_code,
                                           response.body);
                 }
-                xmlXPathFreeObject(errors);
-                xmlXPathFreeContext(xpath_ctx);
             }
-            xmlFreeDoc(doc);
         } else {
             YADDNSC_SDK_LOG_ERROR(services, "Route 53 API error (HTTP {}): {}", response.status_code, response.body);
         }
@@ -270,23 +263,19 @@ std::string Route53Driver::build_xml_body(const std::string& fqdn, std::string_v
                                           int ttl) {
     // Build the UPSERT XML document using libxml2's tree API.
     // This ensures proper XML escaping, namespace handling, and encoding.
-    xmlDocPtr doc = xmlNewDoc(BAD_CAST "1.0");
+    xml_raii::unique_doc doc(xmlNewDoc(BAD_CAST "1.0"));
     if (!doc)
         return {};
 
-    xmlNodePtr root = xmlNewDocNode(doc, nullptr, BAD_CAST "ChangeResourceRecordSetsRequest", nullptr);
-    if (!root) {
-        xmlFreeDoc(doc);
+    xmlNodePtr root = xmlNewDocNode(doc.get(), nullptr, BAD_CAST "ChangeResourceRecordSetsRequest", nullptr);
+    if (!root)
         return {};
-    }
-    xmlDocSetRootElement(doc, root);
+    xmlDocSetRootElement(doc.get(), root);
 
     // Register the default namespace on the root element.
-    xmlNsPtr ns = xmlNewNs(root, BAD_CAST R53_XMLNS.data(), nullptr);
-    if (!ns) {
-        xmlFreeDoc(doc);
+    xmlNsPtr ns = xmlNewNs(root, BAD_CAST R53_XMLNS, nullptr);
+    if (!ns)
         return {};
-    }
     xmlSetNs(root, ns);
 
     // Build the nested element hierarchy.
@@ -297,21 +286,25 @@ std::string Route53Driver::build_xml_body(const std::string& fqdn, std::string_v
     xmlNewTextChild(change, ns, BAD_CAST "Action", BAD_CAST "UPSERT");
 
     xmlNodePtr rrset = xmlNewChild(change, ns, BAD_CAST "ResourceRecordSet", nullptr);
-    xmlNewTextChild(rrset, ns, BAD_CAST "Name", BAD_CAST fqdn.data());
-    xmlNewTextChild(rrset, ns, BAD_CAST "Type", BAD_CAST rd_type.data());
+    xmlNewTextChild(rrset, ns, BAD_CAST "Name", BAD_CAST fqdn.c_str());
+
+    // xmlNewTextChild requires null-terminated strings; string_view::data() is not.
+    const auto rd_type_str = std::string(rd_type);
+    xmlNewTextChild(rrset, ns, BAD_CAST "Type", BAD_CAST rd_type_str.c_str());
 
     auto ttl_str = std::to_string(ttl);
-    xmlNewTextChild(rrset, ns, BAD_CAST "TTL", BAD_CAST ttl_str.data());
+    xmlNewTextChild(rrset, ns, BAD_CAST "TTL", BAD_CAST ttl_str.c_str());
 
     xmlNodePtr records = xmlNewChild(rrset, ns, BAD_CAST "ResourceRecords", nullptr);
     xmlNodePtr record = xmlNewChild(records, ns, BAD_CAST "ResourceRecord", nullptr);
-    xmlNewTextChild(record, ns, BAD_CAST "Value", BAD_CAST ip_addr.data());
+
+    const auto ip_addr_str = std::string(ip_addr);
+    xmlNewTextChild(record, ns, BAD_CAST "Value", BAD_CAST ip_addr_str.c_str());
 
     // Serialise the document to a string.
     xmlChar* xml_buf = nullptr;
     int xml_len = 0;
-    xmlDocDumpMemory(doc, &xml_buf, &xml_len);
-    xmlFreeDoc(doc);
+    xmlDocDumpMemory(doc.get(), &xml_buf, &xml_len);
 
     if (!xml_buf)
         return {};

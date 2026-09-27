@@ -5,8 +5,7 @@ namespace sdk = yaddnsc::sdk;
 
 class CryptoDriver final : public yaddnsc::sdk::Driver {
 public:
-    [[nodiscard]] sdk::Result update(sdk::UpdateContext& context) override {
-        (void) context;
+    [[nodiscard]] sdk::Result update([[maybe_unused]] sdk::UpdateContext& context) override {
         if (Signing::sha256_hex("consumer").empty()) {
             return std::unexpected(sdk::Error{YADDNSC_STATUS_INTERNAL_ERROR, "OpenSSL SHA-256 failed", 0});
         }

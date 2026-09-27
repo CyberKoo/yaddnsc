@@ -19,8 +19,14 @@
 RunLifecycle::RunLifecycle(std::shared_ptr<const domain::RuntimeConfig> config, ShutdownSignals shutdown,
                            RunEnvironment env)
     : config_(std::move(config)), shutdown_(std::move(shutdown)), env_(env), queue_(config_, env_.clock.now()),
-      runner_(queue_, env_.clock, env_.executor, shutdown_.stop.get_token(), env_.logger),
-      stop_cb_(shutdown_.stop.get_token(), [this] { shutdown_.cancellation.trigger(); }) {
+      runner_(queue_, {.clock = env_.clock, .executor = env_.executor, .logger = env_.logger},
+              shutdown_.stop.get_token()) {
+    // Bind stop → I/O cancellation in the body (std::stop_callback is not
+    // default-constructible, hence the optional member). Registered at
+    // construction time so that a stop requested before run() still
+    // cancels blocking I/O.
+    stop_cb_.emplace(shutdown_.stop.get_token(), [this] { shutdown_.cancellation.trigger(); });
+
     // Rate-limit backoff: a task that fails with retry_after reports it back
     // to the runner, which moves the task's next deadline accordingly.
     env_.executor.set_retry_handler(

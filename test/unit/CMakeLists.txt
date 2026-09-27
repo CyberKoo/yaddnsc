@@ -59,7 +59,8 @@ add_unit_test(resolver_base  SOURCE common/resolver_base_test.cpp)
 # address_policy — domain::select_address (AAAA link-local/ULA rules)
 add_unit_test(address_policy SOURCE domain/address_policy_test.cpp)
 
-# update_decision — domain::decide_update pure decision table (header-only)
+# update_decision — domain::decide_update pure decision table
+# (implementation in src/domain/update/update_decision.cpp, via test_support)
 add_unit_test(update_decision SOURCE domain/update_decision_test.cpp)
 
 # schedule_queue — domain::ScheduleQueue over injected (fake) time

@@ -4,14 +4,14 @@
 
 #include "signing.h"
 
-#include <array>
+#include <chrono>
 #include <cstdint>
-#include <ctime>
 #include <memory>
 #include <span>
 #include <string>
 #include <vector>
 
+#include <format>
 #include <openssl/evp.h>
 #include <openssl/types.h>
 
@@ -71,9 +71,9 @@ using EvpMdCtxPtr = std::unique_ptr<EVP_MD_CTX, EvpMdCtxDeleter>;
 
     std::vector<std::uint8_t> result(EVP_MAX_MD_SIZE, 0);
     unsigned int len = 0;
-    EVP_DigestInit_ex(ctx.get(), md, nullptr);
-    EVP_DigestUpdate(ctx.get(), data.data(), data.size());
-    EVP_DigestFinal_ex(ctx.get(), result.data(), &len);
+    if (EVP_DigestInit_ex(ctx.get(), md, nullptr) != 1 || EVP_DigestUpdate(ctx.get(), data.data(), data.size()) != 1 ||
+        EVP_DigestFinal_ex(ctx.get(), result.data(), &len) != 1)
+        return {};
     result.resize(len);
     return result;
 }
@@ -192,13 +192,8 @@ std::string Signing::base64_encode(std::span<const std::uint8_t> data) {
 // ===========================================================================
 
 std::string Signing::iso8601_timestamp() {
-    const auto now = std::time(nullptr);
-    const auto* tm = std::gmtime(&now);
-    if (!tm)
-        return {};
-    std::array<char, 24> buf{};
-    std::strftime(buf.data(), buf.size(), "%Y%m%dT%H%M%SZ", tm);
-    return {buf.data()};
+    const auto now = std::chrono::floor<std::chrono::seconds>(std::chrono::system_clock::now());
+    return std::format("{:%Y%m%dT%H%M%SZ}", now);
 }
 
 // ===========================================================================
@@ -206,11 +201,6 @@ std::string Signing::iso8601_timestamp() {
 // ===========================================================================
 
 std::string Signing::iso8601_date() {
-    const auto now = std::time(nullptr);
-    const auto* tm = std::gmtime(&now);
-    if (!tm)
-        return {};
-    std::array<char, 16> buf{};
-    std::strftime(buf.data(), buf.size(), "%Y%m%d", tm);
-    return {buf.data()};
+    const auto now = std::chrono::floor<std::chrono::seconds>(std::chrono::system_clock::now());
+    return std::format("{:%Y%m%d}", now);
 }

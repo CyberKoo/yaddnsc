@@ -61,10 +61,12 @@ public:
 private:
     [[nodiscard]] Uri current_uri(const std::string_view target) const;
 
+    // Member order matters: base_uri_ is parsed exactly once at construction
+    // and everything else (scheme_, host_, port_, session_) derives from it.
+    Uri base_uri_;
     std::string scheme_;
     std::string host_;
     std::uint16_t port_;
-    Uri base_uri_;
     Options opts_;
     std::shared_ptr<StreamFactory> factory_;
     mutable Session session_;

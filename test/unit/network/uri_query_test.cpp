@@ -25,13 +25,13 @@
 // ===========================================================================
 
 TEST(UriQueryTest, Empty) {
-    auto uri = Uri::parse("http://example.com");
+    auto uri = Uri::parse("http://example.com").value();
     auto params = uri.get_query_params();
     EXPECT_TRUE(params.empty());
 }
 
 TEST(UriQueryTest, Single) {
-    auto uri = Uri::parse("http://example.com?key=val");
+    auto uri = Uri::parse("http://example.com?key=val").value();
     auto params = uri.get_query_params();
     ASSERT_EQ(params.size(), 1U);
     EXPECT_EQ(params[0].first, "key");
@@ -39,7 +39,7 @@ TEST(UriQueryTest, Single) {
 }
 
 TEST(UriQueryTest, Multiple) {
-    auto uri = Uri::parse("http://example.com?a=1&b=2&c=3");
+    auto uri = Uri::parse("http://example.com?a=1&b=2&c=3").value();
     auto params = uri.get_query_params();
     ASSERT_EQ(params.size(), 3U);
     EXPECT_EQ(params[0].first, "a");
@@ -49,7 +49,7 @@ TEST(UriQueryTest, Multiple) {
 }
 
 TEST(UriQueryTest, ValueAbsent) {
-    auto uri = Uri::parse("http://example.com?key");
+    auto uri = Uri::parse("http://example.com?key").value();
     auto params = uri.get_query_params();
     ASSERT_EQ(params.size(), 1U);
     EXPECT_EQ(params[0].first, "key");
@@ -57,7 +57,7 @@ TEST(UriQueryTest, ValueAbsent) {
 }
 
 TEST(UriQueryTest, EmptySegmentsSkipped) {
-    auto uri = Uri::parse("http://example.com?a=1&&b=2");
+    auto uri = Uri::parse("http://example.com?a=1&&b=2").value();
     auto params = uri.get_query_params();
     ASSERT_EQ(params.size(), 2U);
     EXPECT_EQ(params[0].first, "a");
@@ -65,21 +65,21 @@ TEST(UriQueryTest, EmptySegmentsSkipped) {
 }
 
 TEST(UriQueryTest, PlusToSpace) {
-    auto uri = Uri::parse("http://example.com?name=hello+world");
+    auto uri = Uri::parse("http://example.com?name=hello+world").value();
     auto params = uri.get_query_params(true);
     ASSERT_EQ(params.size(), 1U);
     EXPECT_EQ(params[0].second, "hello world");
 }
 
 TEST(UriQueryTest, PlusKeptWhenDisabled) {
-    auto uri = Uri::parse("http://example.com?name=hello+world");
+    auto uri = Uri::parse("http://example.com?name=hello+world").value();
     auto params = uri.get_query_params(false);
     ASSERT_EQ(params.size(), 1U);
     EXPECT_EQ(params[0].second, "hello+world");
 }
 
 TEST(UriQueryTest, PercentDecoded) {
-    auto uri = Uri::parse("http://example.com?q=%E4%BD%A0%E5%A5%BD");
+    auto uri = Uri::parse("http://example.com?q=%E4%BD%A0%E5%A5%BD").value();
     auto params = uri.get_query_params();
     ASSERT_EQ(params.size(), 1U);
     EXPECT_EQ(params[0].second, "\xe4\xbd\xa0\xe5\xa5\xbd");
@@ -90,7 +90,7 @@ TEST(UriQueryTest, PercentDecoded) {
 // ===========================================================================
 
 TEST(UriQueryTest, TrailingAmpersand) {
-    auto uri = Uri::parse("http://example.com?a=1&b=2&");
+    auto uri = Uri::parse("http://example.com?a=1&b=2&").value();
     auto params = uri.get_query_params();
     ASSERT_EQ(params.size(), 2U);
     EXPECT_EQ(params[0].first, "a");
@@ -98,14 +98,14 @@ TEST(UriQueryTest, TrailingAmpersand) {
 }
 
 TEST(UriQueryTest, LeadingAmpersand) {
-    auto uri = Uri::parse("http://example.com?&a=1");
+    auto uri = Uri::parse("http://example.com?&a=1").value();
     auto params = uri.get_query_params();
     ASSERT_EQ(params.size(), 1U);
     EXPECT_EQ(params[0].first, "a");
 }
 
 TEST(UriQueryTest, DoubleAmpersand) {
-    auto uri = Uri::parse("http://example.com?a=1&&b=2&c=3&&");
+    auto uri = Uri::parse("http://example.com?a=1&&b=2&c=3&&").value();
     auto params = uri.get_query_params();
     ASSERT_EQ(params.size(), 3U);
     EXPECT_EQ(params[0].first, "a");

@@ -35,7 +35,10 @@ std::vector<DriverListItem> list_drivers(const DriverCatalogPort& catalog) {
 std::vector<InterfaceListItem> list_interfaces(const NetworkInterfaces& interfaces) {
     std::vector<InterfaceListItem> items;
     for (const auto& name : interfaces.names()) {
-        items.push_back(InterfaceListItem{.name = name, .addresses = interfaces.addresses(name)});
+        // names() only yields interfaces from the same cached snapshot that
+        // addresses() reads, so a missing entry degrades to an empty row.
+        items.push_back(InterfaceListItem{
+            .name = name, .addresses = interfaces.addresses(name).value_or(std::vector<InetAddress>{})});
     }
     return items;
 }

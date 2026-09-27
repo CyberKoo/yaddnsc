@@ -241,7 +241,7 @@ TEST(DnsValidatorTest, TooShort_ReportedBeforeOtherChecks) {
 // question_section_end — short query (< 12 bytes) on request
 // ===========================================================================
 
-TEST(DnsValidatorTest, ShortQuery_QuestionSectionEnd_ReturnsZero) {
+TEST(DnsValidatorTest, ShortQuery_QuestionSectionEnd_ReturnsNullopt) {
     std::vector<std::uint8_t> short_query{0x12, 0x34, 0x00};  // 3 bytes, TXID matches response
     auto response = make_valid_response();
 
@@ -252,7 +252,7 @@ TEST(DnsValidatorTest, ShortQuery_QuestionSectionEnd_ReturnsZero) {
 // question_section_end — response QDCOUNT == 0
 // ===========================================================================
 
-TEST(DnsValidatorTest, ResponseQdcountZero_QuestionSectionEnd_ReturnsZero) {
+TEST(DnsValidatorTest, ResponseQdcountZero_QuestionSectionEnd_ReturnsNullopt) {
     std::vector<std::uint8_t> query = make_query_example();
     // Set QDCOUNT = 0 on the query
     query[4] = 0;
@@ -264,10 +264,10 @@ TEST(DnsValidatorTest, ResponseQdcountZero_QuestionSectionEnd_ReturnsZero) {
 }
 
 // ===========================================================================
-// check_question_echo — rsp_qs_end == 0 (skip_name returns 0)
+// check_question_echo — rsp_qs_end is nullopt (skip_name returns std::nullopt)
 // ===========================================================================
 
-TEST(DnsValidatorTest, ResponseMalformedQname_SkipName_ReturnsZero) {
+TEST(DnsValidatorTest, ResponseMalformedQname_SkipName_ReturnsNullopt) {
     auto query = make_query_example();
     auto response = make_valid_response();
 

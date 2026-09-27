@@ -7,12 +7,11 @@
 #ifndef YADDNSC_DNS_PARSER_H
 #define YADDNSC_DNS_PARSER_H
 
+#include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <span>
 #include <string>
-
-#include <stddef.h>
 
 #include "infrastructure/dns/types.h"
 
@@ -84,12 +83,16 @@ private:
     // Returns the decompressed name and advances `offset` past the wire-format name.
     [[nodiscard]] static std::string decompress_name(std::span<const std::uint8_t> wire, size_t& offset);
 
+    // ── Resource-record parsing ──
+    // Parses a single RR from the wire, advancing `offset` past it.
+    [[nodiscard]] static ResourceRecord parse_rr(std::span<const std::uint8_t> data, size_t& offset, bool copy_rdata);
+
     // ── RDATA formatting ──
     [[nodiscard]] static std::string rdata_to_string(const ResourceRecord& rr, std::span<const std::uint8_t> wire);
 
-    [[nodiscard]] static std::string format_a(std::span<const std::uint8_t> rdata) noexcept;
+    [[nodiscard]] static std::string format_a(std::span<const std::uint8_t> rdata);
 
-    [[nodiscard]] static std::string format_aaaa(std::span<const std::uint8_t> rdata) noexcept;
+    [[nodiscard]] static std::string format_aaaa(std::span<const std::uint8_t> rdata);
 
     [[nodiscard]] static std::string format_txt(std::span<const std::uint8_t> rdata);
 

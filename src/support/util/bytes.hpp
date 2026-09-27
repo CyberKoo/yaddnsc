@@ -23,8 +23,12 @@ namespace Utils::Bytes {
 }
 
 /// Read a 16-bit big-endian value from a span at the given offset.
+///
+/// @pre offset + 2 <= buf.size() — a violation is undefined behavior, like
+/// std::span::operator[]. For offsets derived from untrusted input, use the
+/// bounds-checked try_read_u16_be() instead.
 [[nodiscard]] inline std::uint16_t read_u16_be(std::span<const std::uint8_t> buf, std::size_t offset) noexcept {
-    return read_u16_be(buf.subspan(offset));
+    return read_u16_be(buf.data() + offset);
 }
 
 /// Read a 32-bit big-endian value from a raw pointer.
@@ -39,6 +43,10 @@ namespace Utils::Bytes {
 }
 
 /// Read a 32-bit big-endian value from a span at the given offset.
+///
+/// @pre offset + 4 <= buf.size() — a violation is undefined behavior, like
+/// std::span::operator[]. For offsets derived from untrusted input, use the
+/// bounds-checked try_read_u32_be() instead.
 [[nodiscard]] inline std::uint32_t read_u32_be(std::span<const std::uint8_t> buf, std::size_t offset) noexcept {
     return read_u32_be(buf.data() + offset);
 }
@@ -77,8 +85,11 @@ inline void write_u16_be(std::span<std::uint8_t> buf, std::uint16_t value) noexc
 }
 
 /// Write a 16-bit big-endian value to a span at the given offset.
+///
+/// @pre offset + 2 <= buf.size() — a violation is undefined behavior, like
+/// std::span::operator[].
 inline void write_u16_be(std::span<std::uint8_t> buf, std::size_t offset, std::uint16_t value) noexcept {
-    write_u16_be(buf.subspan(offset), value);
+    write_u16_be(buf.data() + offset, value);
 }
 }  // namespace Utils::Bytes
 

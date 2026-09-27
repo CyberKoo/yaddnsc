@@ -31,6 +31,20 @@
 - Production logs include timestamp, severity, source location, and message via spdlog.
 - Do not log sensitive data (passwords, tokens, PII) unless explicitly scrubbed.
 
+### Layered Logging Policy
+
+- **Application layer** (`src/application/`): log through the injected `Logger` port and the
+  `YLOG_*` macros (`src/application/ports/log.h`). This keeps the layer's logging mockable in
+  tests. Do not call spdlog directly here.
+- **Infrastructure & support layers** (`src/infrastructure/`, `src/support/`): may use
+  `SPDLOG_*` / spdlog directly. Do not thread a `Logger` port through these layers, and do not
+  introduce a global/singleton `Logger` to "simplify" access — that is banned by the port rule
+  in [Function & Constructor Signatures](02-implementation.md#function--constructor-signatures).
+- **User-facing CLI output is not logging.** Interactive output in `src/cli/` (the presenter)
+  goes to stdout/stderr via `std::print`/`std::println` — it is the program's primary output
+  and is exempt from the facade requirement. Information that only matters when diagnosing a
+  problem (debug traces, internal-state warnings) still goes through the logging facade.
+
 ## Documentation
 
 - Use Doxygen-style `/** ... */` or `///` comments for public API.
@@ -82,6 +96,7 @@ Every code review must verify the following:
 - [ ] Interfaces follow const-correctness.
 - [ ] Input validation is performed on external data.
 - [ ] Existing project infrastructure components are reused where applicable; no duplicate implementations of logging, error handling, configuration, threading, or string utilities.
+- [ ] Logging follows the layered policy: application layer uses the `Logger` port + `YLOG_*`; infrastructure/support may use `SPDLOG_*`; user-facing CLI output via `std::print` is not misused for diagnostic logging.
 - [ ] New third-party dependencies do not duplicate functionality already provided by existing dependencies.
 - [ ] Unit tests cover new/modified functionality and pass.
 - [ ] No C-style `(void)` casts are used; use `[[maybe_unused]]` instead. Do not suppress return values of non-`[[nodiscard]]` functions.
