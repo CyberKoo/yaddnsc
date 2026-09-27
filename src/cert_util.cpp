@@ -11,7 +11,6 @@
 std::string_view get_system_ca_path() {
     static std::string_view ca_path = []() -> std::string_view {
         constexpr std::string_view SEARCH_PATH[]{
-            "./ca.pem",                                             // Local CA file
             "/etc/ssl/certs/ca-certificates.crt",                   // Debian/Ubuntu/Gentoo etc.
             "/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem",    // CentOS/RHEL 7
             "/etc/ssl/ca-bundle.pem",                               // OpenSUSE
@@ -30,7 +29,7 @@ std::string_view get_system_ca_path() {
             }
         }
 
-        SPDLOG_INFO("CA bundle not found, server certificate verification will be disabled.");
+        SPDLOG_INFO("CA bundle not found in the search list, falling back to the OpenSSL default verify paths.");
 
         return "";
     }();

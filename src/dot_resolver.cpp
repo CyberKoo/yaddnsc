@@ -8,12 +8,14 @@
 #include <chrono>
 #include <mutex>
 
+#include <arpa/inet.h>
 #include <arpa/nameser.h>
 #include <sys/select.h>
 
 #include <openssl/bio.h>
 #include <openssl/err.h>
 #include <openssl/ssl.h>
+#include <openssl/x509_vfy.h>
 #include <spdlog/spdlog.h>
 
 #include "dns_mkquery.h"
@@ -49,27 +51,53 @@ namespace {
         throw DnsLookupException(msg, dns_lookup_error_type::CONNECTION);
     }
 
-    bool bio_read_exact(BIO *bio, uint8_t *buf, size_t n) {
+    using Deadline = std::chrono::steady_clock::time_point;
+
+    constexpr auto CONNECT_TIMEOUT = std::chrono::seconds(10);
+    constexpr auto IO_TIMEOUT = std::chrono::seconds(10);
+
+    // Wait until the socket is ready for the requested direction(s) or the
+    // deadline expires. Returns false when the deadline has passed.
+    bool bio_wait(BIO *bio, bool wait_read, bool wait_write, const Deadline &deadline) {
+        const int fd = BIO_get_fd(bio, nullptr);
+        if (fd < 0) {
+            return true;
+        }
+
+        const auto now = std::chrono::steady_clock::now();
+        if (now >= deadline) {
+            return false;
+        }
+
+        const auto remaining = std::chrono::duration_cast<std::chrono::microseconds>(deadline - now);
+        fd_set read_fds;
+        fd_set write_fds;
+        FD_ZERO(&read_fds);
+        FD_ZERO(&write_fds);
+        if (wait_read) FD_SET(fd, &read_fds);
+        if (wait_write) FD_SET(fd, &write_fds);
+        struct timeval tv{
+            static_cast<time_t>(remaining.count() / 1000000),
+            static_cast<suseconds_t>(remaining.count() % 1000000)
+        };
+        return select(fd + 1, wait_read ? &read_fds : nullptr, wait_write ? &write_fds : nullptr, nullptr, &tv) > 0;
+    }
+
+    bool bio_read_exact(BIO *bio, uint8_t *buf, size_t n, const Deadline &deadline) {
         while (n > 0) {
             const int rc = BIO_read(bio, buf, static_cast<int>(n));
             if (rc <= 0) {
                 if (BIO_should_retry(bio)) {
                     // If OpenSSL already has decrypted data buffered, skip the
-                    // select() poll and retry the read immediately.
+                    // poll and retry the read immediately.
                     SSL *ssl = nullptr;
                     BIO_get_ssl(bio, &ssl);
                     if (ssl && SSL_pending(ssl) > 0) {
                         continue;
                     }
-                    fd_set fds;
-                    FD_ZERO(&fds);
-                    const int fd = BIO_get_fd(bio, nullptr);
-                    if (fd >= 0) {
-                        FD_SET(fd, &fds);
-                        struct timeval tv{1, 0};
-                        select(fd + 1, &fds, nullptr, nullptr, &tv);
+                    if (bio_wait(bio, true, false, deadline)) {
+                        continue;
                     }
-                    continue;
                 }
                 return false;
             }
@@ -79,11 +107,11 @@ namespace {
         return true;
     }
 
-    bool bio_send_all(BIO *bio, const uint8_t *data, size_t n) {
+    bool bio_send_all(BIO *bio, const uint8_t *data, size_t n, const Deadline &deadline) {
         while (n > 0) {
             const int rc = BIO_write(bio, data, static_cast<int>(n));
             if (rc <= 0) {
-                if (BIO_should_retry(bio)) continue;
+                if (BIO_should_retry(bio) && bio_wait(bio, false, true, deadline)) continue;
                 return false;
             }
             data += rc;
@@ -149,11 +177,11 @@ public:
         const auto target = fmt::format("{}:{}", server_, port_);
 
         auto *bio = ensure_connection();
-        if (!bio_send_all(bio, wire.data(), wire.size())) {
+        if (!bio_send_all(bio, wire.data(), wire.size(), std::chrono::steady_clock::now() + IO_TIMEOUT)) {
             SPDLOG_DEBUG(R"(DoT: connection to "{}" lost, reconnecting)", target);
             persistent_bio_.reset();
             bio = ensure_connection();
-            if (!bio_send_all(bio, wire.data(), wire.size())) {
+            if (!bio_send_all(bio, wire.data(), wire.size(), std::chrono::steady_clock::now() + IO_TIMEOUT)) {
                 persistent_bio_.reset();
                 throw DnsLookupException(
                     fmt::format(R"(DoT: failed to send query to "{}" after reconnect)", target),
@@ -164,7 +192,7 @@ public:
         SPDLOG_TRACE(R"(DoT: sent {} bytes to "{}")", wire.size(), target);
 
         uint8_t resp_len_buf[2];
-        if (!bio_read_exact(bio, resp_len_buf, 2)) {
+        if (!bio_read_exact(bio, resp_len_buf, 2, std::chrono::steady_clock::now() + IO_TIMEOUT)) {
             persistent_bio_.reset();
             throw DnsLookupException(
                 fmt::format(R"(DoT: failed to read response length from "{}")", target),
@@ -180,7 +208,7 @@ public:
         }
 
         std::vector<uint8_t> response(resp_len);
-        if (!bio_read_exact(bio, response.data(), resp_len)) {
+        if (!bio_read_exact(bio, response.data(), resp_len, std::chrono::steady_clock::now() + IO_TIMEOUT)) {
             persistent_bio_.reset();
             throw DnsLookupException(
                 fmt::format(R"(DoT: failed to read response body from "{}")", target),
@@ -227,26 +255,49 @@ private:
             if (!ssl) throw_ssl_error("BIO_get_ssl");
 
             SSL_set_mode(ssl, SSL_MODE_AUTO_RETRY);
-            SSL_set_tlsext_host_name(ssl, server_.c_str());
+
+            // Verify the peer identity against the configured server: hostname
+            // verification for names, IP address matching for literals
+            // (SNI is not sent for IP literals, RFC 6066 §3).
+            in_addr addr4{};
+            in6_addr addr6{};
+            auto *verify_param = SSL_get0_param(ssl);
+            if (inet_pton(AF_INET, server_.c_str(), &addr4) == 1 ||
+                inet_pton(AF_INET6, server_.c_str(), &addr6) == 1) {
+                if (verify_param == nullptr ||
+                    X509_VERIFY_PARAM_set1_ip_asc(verify_param, server_.c_str()) != 1) {
+                    throw_ssl_error("X509_VERIFY_PARAM_set1_ip_asc");
+                }
+            } else {
+                SSL_set_tlsext_host_name(ssl, server_.c_str());
+                if (verify_param == nullptr || SSL_set1_host(ssl, server_.c_str()) != 1) {
+                    throw_ssl_error("SSL_set1_host");
+                }
+            }
+
             BIO_set_conn_hostname(bio, target.c_str());
             BIO_set_conn_port(bio, std::to_string(port_).c_str());
             BIO_set_nbio(bio, 1);
 
+            const auto connect_deadline = std::chrono::steady_clock::now() + CONNECT_TIMEOUT;
+
             int rc;
-            do { rc = BIO_do_connect(bio); } while (rc <= 0 && BIO_should_retry(bio));
-            if (rc <= 0) {
-                ERR_clear_error();
-                throw DnsLookupException(
-                    fmt::format(R"(DoT: failed to connect to "{}")", target),
-                    dns_lookup_error_type::CONNECTION);
+            while ((rc = BIO_do_connect(bio)) <= 0) {
+                if (!BIO_should_retry(bio) || !bio_wait(bio, false, true, connect_deadline)) {
+                    ERR_clear_error();
+                    throw DnsLookupException(
+                        fmt::format(R"(DoT: failed to connect to "{}")", target),
+                        dns_lookup_error_type::CONNECTION);
+                }
             }
 
-            do { rc = BIO_do_handshake(bio); } while (rc <= 0 && BIO_should_retry(bio));
-            if (rc <= 0) {
-                ERR_clear_error();
-                throw DnsLookupException(
-                    fmt::format(R"(DoT: SSL handshake failed for "{}")", target),
-                    dns_lookup_error_type::CONNECTION);
+            while ((rc = BIO_do_handshake(bio)) <= 0) {
+                if (!BIO_should_retry(bio) || !bio_wait(bio, true, true, connect_deadline)) {
+                    ERR_clear_error();
+                    throw DnsLookupException(
+                        fmt::format(R"(DoT: SSL handshake failed for "{}")", target),
+                        dns_lookup_error_type::CONNECTION);
+                }
             }
 
             SPDLOG_DEBUG(R"(DoT: connected to "{}" (#{}))", target, id_);

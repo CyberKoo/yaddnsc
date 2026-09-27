@@ -51,12 +51,22 @@ std::vector<std::string> parse_dns_response(const uint8_t *data, size_t size) {
 
         switch (ns_rr_type(dns_resource)) {
             case ns_t_a: {
+                if (rdlen != NS_INADDRSZ) {
+                    throw DnsLookupException(
+                        fmt::format("Invalid A record: RDATA is {} byte(s) (expected {})", rdlen, NS_INADDRSZ),
+                        dns_lookup_error_type::PARSE);
+                }
                 char address_buffer[INET6_ADDRSTRLEN] = {};
                 inet_ntop(AF_INET, ns_rr_rdata(dns_resource), address_buffer, INET6_ADDRSTRLEN);
                 resolve_result.emplace_back(address_buffer);
                 break;
             }
             case ns_t_aaaa: {
+                if (rdlen != NS_IN6ADDRSZ) {
+                    throw DnsLookupException(
+                        fmt::format("Invalid AAAA record: RDATA is {} byte(s) (expected {})", rdlen, NS_IN6ADDRSZ),
+                        dns_lookup_error_type::PARSE);
+                }
                 char address_buffer[INET6_ADDRSTRLEN] = {};
                 inet_ntop(AF_INET6, ns_rr_rdata(dns_resource), address_buffer, INET6_ADDRSTRLEN);
                 resolve_result.emplace_back(address_buffer);

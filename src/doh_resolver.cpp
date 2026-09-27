@@ -86,8 +86,8 @@ private:
             auto ca_path = get_system_ca_path();
             if (!ca_path.empty()) {
                 client->set_ca_cert_path(ca_path.data());
-                client->enable_server_certificate_verification(true);
             }
+            client->enable_server_certificate_verification(true);
 
             http_client_ = std::move(client);
         }

@@ -14,14 +14,16 @@ httplib::Client HttpClient::connect(const Uri &uri, int family, const char *nif_
     SPDLOG_DEBUG("Connecting to {}", uri.get_host());
     auto client = httplib::Client(fmt::format("{}://{}:{}", uri.get_schema(), uri.get_host(), uri.get_port()));
 
-    // if is https
+    // if is https: always verify the server certificate (fail closed);
+    // cpp-httplib falls back to the OpenSSL default verify paths when no
+    // explicit CA bundle is set.
     if (uri.get_schema() == "https") {
         auto ca_path = get_system_ca_path();
 
         if (!ca_path.empty()) {
             client.set_ca_cert_path(ca_path.data());
-            client.enable_server_certificate_verification(true);
         }
+        client.enable_server_certificate_verification(true);
     }
 
     // set outbound interface

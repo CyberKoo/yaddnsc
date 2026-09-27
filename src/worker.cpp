@@ -6,6 +6,7 @@
 
 #include <thread>
 #include <algorithm>
+#include <cctype>
 
 #include <httplib.h>
 #include <fmt/format.h>
@@ -95,6 +96,32 @@ struct fmt::formatter<driver_request> {
         }
     }
 
+    // Whether a header/body key carries credentials (case-insensitive).
+    // Covers exact matches plus the *_token / *_secret / *_password / *_key suffixes.
+    static bool is_sensitive_key(std::string_view key) {
+        static constexpr std::string_view SENSITIVE_KEYS[] = {
+            "authorization", "proxy-authorization", "cookie", "x-api-key", "x-auth-token",
+            "x-access-token", "x-api-token", "token", "api_key", "apikey", "auth", "secret",
+            "client_secret", "api_secret", "access_key_secret", "secret_access_key", "password",
+            "passwd", "signature",
+        };
+
+        std::string lower(key);
+        for (auto &ch: lower) {
+            ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+        }
+
+        if (std::find(std::begin(SENSITIVE_KEYS), std::end(SENSITIVE_KEYS), lower) != std::end(SENSITIVE_KEYS)) {
+            return true;
+        }
+
+        auto ends_with = [&lower](std::string_view suffix) {
+            return lower.size() >= suffix.size() &&
+                   lower.compare(lower.size() - suffix.size(), std::string_view::npos, suffix) == 0;
+        };
+        return ends_with("_token") || ends_with("_secret") || ends_with("_password") || ends_with("_key");
+    }
+
     template<typename Iter>
     std::string format_map(Iter first, Iter last) {
         std::string buf;
@@ -102,7 +129,7 @@ struct fmt::formatter<driver_request> {
         for (auto begin = first, it = begin, end = last; it != end; ++it) {
             buf.append(it->first);
             buf.append("=");
-            buf.append(it->second);
+            buf.append(is_sensitive_key(it->first) ? "***" : it->second);
             buf.append("; ");
         }
 
@@ -232,6 +259,9 @@ std::optional<std::string> Worker::Impl::dns_lookup(std::string_view host, dns_r
         return Util::retry_on_exception<std::string, DnsLookupException>(
             [&] {
                 auto dns_answer = DNS::resolve(host, type, dns_server_);
+                if (dns_answer.empty()) {
+                    throw DnsLookupException("DNS returned no answers", dns_lookup_error_type::NODATA);
+                }
                 if (dns_answer.size() > 1) {
                     SPDLOG_WARN(R"(Domain "{}" resolved more than one address (count: {}))", host,
                                 dns_answer.size());
@@ -313,6 +343,8 @@ void Worker::Impl::run_scheduled_tasks() {
                 }
             } catch (DriverException &e) {
                 SPDLOG_ERROR("Task for domain {}, ended with a driver exception: {}", fqdn, e.what());
+            } catch (std::exception &e) {
+                SPDLOG_ERROR("Task for domain {}, ended with an unexpected exception: {}", fqdn, e.what());
             }
         }
 
@@ -384,6 +416,10 @@ Worker::Impl::update_dns_record(const driver_request &request, ip_version_type v
     auto response = do_http_request(request, version, nif);
 
     if (response) {
+        if (response->status >= 300) {
+            SPDLOG_ERROR("HTTP request failed with status code {}", response->status);
+            return std::nullopt;
+        }
         return response->body;
     }
 

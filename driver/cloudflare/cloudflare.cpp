@@ -1,6 +1,7 @@
 //
 // Created by Kotarou on 2022/4/5.
 //
+#include <spdlog/spdlog.h>
 #include <nlohmann/json.hpp>
 
 #include "cloudflare.h"
@@ -35,8 +36,22 @@ driver_request CloudflareDriver::generate_request(const driver_config_type &conf
     return request;
 }
 
-bool CloudflareDriver::check_response(std::string_view) const {
-    return true;
+bool CloudflareDriver::check_response(std::string_view response) const {
+    try {
+        if (auto json = nlohmann::json::parse(response);
+            json.contains("success") && json["success"].is_boolean()) {
+            if (json["success"].get<bool>()) {
+                return true;
+            }
+            if (json.contains("errors")) {
+                SPDLOG_ERROR("Cloudflare API error: {}", json["errors"].dump());
+            }
+        }
+    } catch (nlohmann::json::exception &e) {
+        SPDLOG_ERROR("Unable to parse Cloudflare API response: {}", e.what());
+    }
+
+    return false;
 }
 
 std::string CloudflareDriver::generate_body(const driver_config_type &config) {
