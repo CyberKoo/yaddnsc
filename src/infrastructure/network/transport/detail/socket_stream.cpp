@@ -10,6 +10,7 @@
 #include <compare>
 #include <cstring>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <stdexcept>
 #include <utility>
@@ -186,7 +187,15 @@ std::expected<void, IoError> SocketStream::connect_one(const struct sockaddr* ad
     }
 #else
     if (opts_.interface.has_value() && !opts_.interface->empty()) {
-        SPDLOG_WARN(R"(Interface binding is not supported on this platform ("{}"), ignoring)", *opts_.interface);
+        // Reconnects are periodic, so logging this on every attempt floods the
+        // log on platforms where interface binding is unavailable. The
+        // capability is process-wide; report it once while preserving the
+        // documented best-effort behavior.
+        static std::once_flag warned;
+        std::call_once(warned, [this] {
+            SPDLOG_WARN(R"(Interface binding is not supported on this platform ("{}"), ignoring)",
+                        *opts_.interface);
+        });
     }
 #endif
 
