@@ -565,11 +565,12 @@ public:
     virtual Result update(UpdateContext& context) = 0;
 
     /// Validate a driver_param JSON against this driver's schema without
-    /// performing an update. Invoked by the host's `config test` through the
-    /// OPTIONAL yaddnsc_driver_validate ABI entry (dlsym-probed). The default
-    /// implementation accepts everything. A missing entry and this default
-    /// mean the same thing: the plugin does not provide a host-callable
-    /// schema check. Neither one means the configuration is valid.
+    /// performing an update. The host calls it from `config test` through the
+    /// OPTIONAL yaddnsc_driver_validate entry (dlsym-probed).
+    /// YADDNSC_DEFINE_DRIVER always exports that entry. This default returns
+    /// success, so config test passes without a schema check. When the symbol
+    /// is absent the plugin still loads, and config test fails because the
+    /// host cannot confirm driver_param.
     ///
     /// Override with the canonical one-liner
     /// `parse_config<YourParams>(driver_param_json); return {};` — a thrown

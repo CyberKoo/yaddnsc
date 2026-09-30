@@ -18,8 +18,8 @@ see [docs/custom-drivers.md](docs/custom-drivers.md).
 - All drivers update an existing record; create the record with the provider
   before referencing it. The sole exception is `route53`, which creates the
   record when it does not exist.
-- No bundled driver updates TXT records. The `txt` type is only meaningful to
-  the `yaddnsc dns resolve` diagnostic command.
+- The host rejects any record type other than A and AAAA before a driver
+  runs. `txt` remains valid for `yaddnsc dns resolve`.
 - Keep credentials out of version control, restrict the configuration file
   (for example `chmod 600 config.json`), and grant each credential only the
   permissions the update requires.

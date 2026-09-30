@@ -124,9 +124,10 @@ request. A driver that receives `CANCELLED` stops the current update. A
 driver that performs several exchanges may poll between calls to bail out
 early.
 
-The `services` and `context` pointers are valid from
-`yaddnsc_driver_create()` until the matching `yaddnsc_driver_destroy()`
-returns; a plugin must not cache them. `destroy` must not throw: the C++
+The `services` and `context` pointers may be saved during
+`yaddnsc_driver_create()` and stay valid until the matching
+`yaddnsc_driver_destroy()` returns. Do not use them after that, and do not
+hand them to another thread. `destroy` must not throw: the C++
 `Driver` base class destructor is `noexcept`, and the driver definition macro
 enforces `std::is_nothrow_destructible` at compile time. Independently of
 that, the host calls every plugin entry point through an exception firewall:
@@ -148,12 +149,12 @@ propagating the error.
 Four entry points are **required**: `yaddnsc_driver_get_descriptor`,
 `yaddnsc_driver_create`, `yaddnsc_driver_destroy`, and
 `yaddnsc_driver_update`. A fifth, `yaddnsc_driver_validate`, is **optional**
-since ABI 1.0: the host probes it with `dlsym`. A missing entry
-means the plugin does not provide a check the host can call. `yaddnsc
-config test` fails in that case, because it cannot confirm `driver_param`.
-The plugin still loads and can perform updates. The C++ helper's default
-`Driver::validate()` accepts every parameter and means the same thing: no
-schema check ran. Override it.
+since ABI 1.0: the host probes it with `dlsym`. When the symbol is absent,
+the plugin still loads and can perform updates, and `yaddnsc config test`
+fails because it cannot confirm `driver_param`. `YADDNSC_DEFINE_DRIVER`
+always exports the entry. The C++ helper's default `Driver::validate()`
+returns success, so config test passes and no schema check runs. Override
+it.
 
 `yaddnsc_driver_validate` lets `yaddnsc config test` check a driver's
 `driver_param` against the driver's own schema without performing an update.
@@ -257,14 +258,14 @@ task), while a single instance is never used concurrently — keep instance
 state per-call and module state thread-safe. `create()` is not process-level
 one-time initialization.
 
-The services table belongs to that one call. Do not hand it to a background
-thread, do not call it after the entry point returns, and do not cache
-response views past the return of `yaddnsc_driver_update()`. Host callbacks
-do not re-enter plugin entry points. `http_exchange` may be called only from
-`update`, on that call's thread. `create` may store the table for the
-instance, but `create`, `destroy`, and `validate` must not perform an
-exchange. During `validate` the host's exchange entry fails with
-`INVALID_ARGUMENT` and does not touch the network.
+The services table may be stored on the instance from `create` until
+`destroy`. Do not hand it to another thread, and do not use it after
+`destroy` returns. Do not cache response views past the return of
+`yaddnsc_driver_update()`. Host callbacks do not re-enter plugin entry
+points. `http_exchange` may be called only from `update`, on that call's
+thread. `create`, `destroy`, and `validate` must not perform an exchange.
+During `validate` the host's exchange entry fails with `INVALID_ARGUMENT`
+and does not touch the network.
 
 `capabilities` is enforced by the host before the plugin is called. An
 update whose record type is `A` requires `YADDNSC_DRIVER_CAPABILITY_A`;

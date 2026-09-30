@@ -58,6 +58,7 @@ yaddnsc 是一个动态 DNS 客户端。它按配置周期性地获取每条记�
 - CMake 3.28 或更高版本
 - OpenSSL 3.0 或更高版本
 - 支持 C++23 的编译器：GCC 14+、Clang 19+ 或 Apple Clang 15+
+- 64 位目标平台（指针宽度 8 字节）
 - libxml2（可选；缺失时将不构建 `namecheap` 与 `route53` 驱动）
 
 其余依赖由构建系统自动获取。
@@ -262,7 +263,7 @@ yaddnsc config test -c /etc/yaddnsc/config.json -q
 | `domains[]` | `driver` | 处理该域名的驱动模块名称。 |
 | `domains[]` | `subdomains` | 该域名下受管理的记录，至少一条。 |
 | `subdomains[]` | `name` | 记录标签；`@` 表示域名顶点（apex）记录。 |
-| `subdomains[]` | `type` | `a` 或 `aaaa`；省略时按 `a` 处理。`txt` 可被配置接受，但没有任何随附驱动支持更新 TXT 记录。 |
+| `subdomains[]` | `type` | `a` 或 `aaaa`；省略时按 `a` 处理。`txt` 可以被解析，`yaddnsc dns resolve` 也可以查询它。更新时宿主会在调用驱动之前拒绝其他类型。 |
 | `subdomains[]` | `ip_source` | `interface`、`http` 或 `mdns`，详见 [IP 地址来源](#ip-地址来源)。 |
 | `subdomains[]` | `ip_source_param` | `http` 来源使用 URL，`mdns` 来源使用主机名；`interface` 来源不使用该字段。 |
 | `subdomains[]` | `interface` | 网络接口名称；`interface` 来源必填，其余网络来源可选。 |

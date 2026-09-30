@@ -65,6 +65,7 @@ Requirements:
 - CMake 3.28 or later
 - OpenSSL 3.0 or later
 - A C++23 compiler: GCC 14+, Clang 19+, or Apple Clang 15+
+- A 64-bit target (pointer width 8 bytes)
 - libxml2 (optional; without it the `namecheap` and `route53` drivers are not
   built)
 
@@ -277,7 +278,7 @@ rejected; `config` is only a command group.
 | `domains[]` | `driver` | Name of the driver module handling this domain. |
 | `domains[]` | `subdomains` | Records managed under this domain; at least one is required. |
 | `subdomains[]` | `name` | Record label; `@` denotes the apex of the domain. |
-| `subdomains[]` | `type` | `a` or `aaaa`; when omitted, `a` is assumed. `txt` is accepted but no bundled driver updates TXT records. |
+| `subdomains[]` | `type` | `a` or `aaaa`; when omitted, `a` is assumed. `txt` parses, and `yaddnsc dns resolve` can query it. The host rejects an update of any other type before the driver runs. |
 | `subdomains[]` | `ip_source` | `interface`, `http`, or `mdns`. See [IP Address Sources](#ip-address-sources). |
 | `subdomains[]` | `ip_source_param` | URL for the `http` source, host name for the `mdns` source; unused by `interface`. |
 | `subdomains[]` | `interface` | Interface name. Required by the `interface` source; optional for the network-based sources. |

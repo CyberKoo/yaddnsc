@@ -340,11 +340,11 @@ struct yaddnsc_host_services {
  *
  * Four entry points are REQUIRED: get_descriptor, create, destroy, update.
  * A fifth, yaddnsc_driver_validate, is OPTIONAL since ABI 1.0: the
- * host resolves it with dlsym. When it is absent, the plugin still loads.
- * config test fails, because the host cannot confirm driver_param. Absence
- * does not mean the configuration is valid; it means the plugin does not
- * provide a check the host can call. The C++ helper's default
- * Driver::validate() accepts every parameter and has the same meaning.
+ * host resolves it with dlsym. When it is absent, the plugin still loads
+ * and can update, and config test fails because the host cannot confirm
+ * driver_param. YADDNSC_DEFINE_DRIVER always exports the entry. The C++
+ * helper's default Driver::validate() returns success, so config test
+ * passes and no schema check runs. Override it to check the schema.
  *
  * No entry point may let a C++ exception cross the ABI. The yaddnsc host
  * also catches exceptions as a backstop; another host may not.

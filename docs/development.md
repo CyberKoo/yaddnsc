@@ -12,8 +12,8 @@ cmake --build build --parallel
 
 Use `-DCMAKE_BUILD_TYPE=Release` for production builds.
 
-Supported current toolchains are CMake 3.28+, C++23-capable GCC 14+,
-Clang 19+, or Apple Clang 15+, and OpenSSL 3.0+.
+Supported current toolchains are CMake 3.28+, a 64-bit target, C++23-capable
+GCC 14+, Clang 19+, or Apple Clang 15+, and OpenSSL 3.0+.
 
 ## Tests
 

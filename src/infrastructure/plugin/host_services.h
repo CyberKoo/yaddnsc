@@ -60,7 +60,7 @@ public:
                                  yaddnsc_error* out_error);
 
     /// 0 means this update operation is active; non-zero means its token was
-    /// cancelled. Plugins must not cache this context or services table.
+    /// cancelled.
     [[nodiscard]] std::int32_t is_cancelled() const noexcept { return operation_token_.is_triggered() ? 1 : 0; }
 
 private:
