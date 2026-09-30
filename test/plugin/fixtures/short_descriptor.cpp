@@ -2,11 +2,10 @@
 // Created by Kotarou on 2026/9/17.
 //
 
-/// Loader-rejection fixture: exports all four entry points but the descriptor
-/// carries the wrong magic number — the loader must reject it as "not a valid
-/// yaddnsc driver" before ever looking at the revision.
+/// Loader-rejection fixture: struct_size covers the version prefix and the
+/// descriptor reports ABI 1.0, but the size stops before the ABI 1.0 baseline.
+/// The loader must accept the version and then reject the short baseline.
 
-#include <stdint.h>
 #include <yaddnsc/sdk/driver_abi.h>
 
 #if defined(_WIN32)
@@ -17,14 +16,14 @@
 
 namespace {
 constexpr yaddnsc_driver_descriptor DESCRIPTOR = {
-    .struct_size = sizeof(yaddnsc_driver_descriptor),
+    .struct_size = YADDNSC_ABI_VERSION_PREFIX_SIZE,
     .abi_major = YADDNSC_DRIVER_ABI_MAJOR,
     .abi_minor = YADDNSC_DRIVER_ABI_MINOR,
-    .magic = YADDNSC_DRIVER_MAGIC ^ UINT64_C(0xFF),
-    .name = {"bad_magic", sizeof("bad_magic") - 1},
+    .magic = YADDNSC_DRIVER_MAGIC,
+    .name = {"short_descriptor", sizeof("short_descriptor") - 1},
     .version = {"0.0.0", sizeof("0.0.0") - 1},
     .author = {"yaddnsc", sizeof("yaddnsc") - 1},
-    .description = {"Fixture with a wrong magic number", sizeof("Fixture with a wrong magic number") - 1},
+    .description = {"Fixture below the ABI 1.0 baseline", sizeof("Fixture below the ABI 1.0 baseline") - 1},
     .capabilities = YADDNSC_DRIVER_CAPABILITY_A,
 };
 }  // namespace

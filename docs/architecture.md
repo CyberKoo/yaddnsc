@@ -81,13 +81,19 @@ through the **v1 alpha C ABI** (`include/yaddnsc/sdk/driver_abi.h`) plus an
 optional C++ helper layer (`include/yaddnsc/sdk/driver.hpp`). No C++
 exceptions, STL containers, or host objects cross the `.so` boundary.
 
-- The host validates entry points, magic, exact `api_revision`, and minimum
-  `struct_size` at load time; a mismatch rejects the plugin with a
-  rebuild-with-current-SDK message. Four entry points are required
-  (`get_descriptor`, `create`, `destroy`, `update`); a fifth,
-  `yaddnsc_driver_validate`, is optional within api_revision 1 — the host
-  dlsym-probes it so `config test` can check `driver_param` against the
-  driver's schema, and skips the check when the plugin does not export it.
+- The host reads the 8-byte version prefix, then accepts the plugin when
+  `yaddnsc_abi_provides` says the host provides the plugin's `abi_major` and
+  `abi_minor`. The ABI 1.0 baseline `struct_size` is checked after the
+  version. A mismatch rejects the plugin with a rebuild-with-current-SDK
+  message. Four entry points are required (`get_descriptor`, `create`,
+  `destroy`, `update`); a fifth, `yaddnsc_driver_validate`, is optional
+  since ABI 1.0 — the host dlsym-probes it so `config test` can check
+  `driver_param` against the driver's schema. A missing entry means the
+  plugin provides no such check. `config test` fails in that case; the
+  plugin still loads and can update. Capability bits are enforced before
+  the plugin runs: `A` and `AAAA` are delivered only when the matching bit
+  is set. Any other record type is rejected as `DriverError::UPDATE_FAILED`,
+  and that gate produces no plugin ABI status.
 - Each update runs on a fresh driver instance (`create → update → destroy`).
   Instances of the same module may update concurrently; a single instance is
   never used concurrently. `create()` is not process-level one-time

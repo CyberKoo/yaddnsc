@@ -19,7 +19,8 @@
 namespace {
 constexpr yaddnsc_driver_descriptor DESCRIPTOR = {
     .struct_size = sizeof(yaddnsc_driver_descriptor),
-    .api_revision = YADDNSC_DRIVER_API_REVISION,
+    .abi_major = YADDNSC_DRIVER_ABI_MAJOR,
+    .abi_minor = YADDNSC_DRIVER_ABI_MINOR,
     .magic = YADDNSC_DRIVER_MAGIC,
     .name = {"no_validate", sizeof("no_validate") - 1},
     .version = {"0.0.0", sizeof("0.0.0") - 1},

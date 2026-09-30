@@ -8,7 +8,7 @@
 #include "support/exception.h"
 
 /// Thrown when a driver plugin shared library cannot be loaded or fails the
-/// v1 alpha ABI checks (missing entry points, magic or api_revision
+/// v1 alpha ABI checks (missing entry points, magic or ABI major/minor
 /// mismatch). Replaces BadDriverException on the plugin boundary.
 class PluginLoadException : public YaddnscException {
 public:

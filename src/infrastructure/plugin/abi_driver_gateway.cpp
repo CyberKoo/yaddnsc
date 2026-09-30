@@ -6,7 +6,9 @@
 
 #include <algorithm>
 #include <limits>
+#include <optional>
 #include <string>
+#include <string_view>
 #include <utility>
 
 #include <stdint.h>
@@ -61,6 +63,32 @@ namespace {
            yaddnsc_string_is_valid(error.message);
 }
 
+/// Bit required for an ABI 1.0 record type. "A" and "AAAA" have bits;
+/// every other type, including "TXT", returns nullopt.
+[[nodiscard]] std::optional<uint64_t> required_capability(std::string_view record_type) noexcept {
+    if (record_type == "A") {
+        return YADDNSC_DRIVER_CAPABILITY_A;
+    }
+    if (record_type == "AAAA") {
+        return YADDNSC_DRIVER_CAPABILITY_AAAA;
+    }
+    return std::nullopt;
+}
+
+/// Host-side record-type gate. Runs before create(), so the plugin is not
+/// called and no yaddnsc_status is produced. The domain result is
+/// UPDATE_FAILED, the same code map_error uses when a plugin returns
+/// YADDNSC_STATUS_UNSUPPORTED_RECORD.
+[[nodiscard]] domain::DriverError unsupported_record(std::string_view driver_name, std::string_view record_type,
+                                                     std::optional<uint64_t> required) {
+    const std::string message =
+        required.has_value()
+            ? fmt::format("Driver '{}' does not support record type {} (missing capability {})", driver_name,
+                          record_type, *required == YADDNSC_DRIVER_CAPABILITY_AAAA ? "AAAA" : "A")
+            : fmt::format("Driver '{}' does not support record type {} (no v1 capability)", driver_name, record_type);
+    return {domain::DriverError::Code::UPDATE_FAILED, message, 0};
+}
+
 [[nodiscard]] domain::DriverError invalid_plugin_result(std::string_view driver_name, std::string_view entry) {
     return {domain::DriverError::Code::UNKNOWN,
             fmt::format("Driver '{}' returned an invalid {} ABI error report", driver_name, entry), 0};
@@ -89,6 +117,11 @@ std::expected<void, domain::DriverError> AbiDriverGateway::update(std::string_vi
                                                    fmt::format("Driver '{}' is not loaded", driver_name)});
     }
 
+    const auto required = required_capability(command.rd_type);
+    if (!required.has_value() || (module->descriptor().capabilities & *required) == 0) {
+        return std::unexpected(unsupported_record(driver_name, command.rd_type, required));
+    }
+
     auto http_client = http_factory_();
     HostServicesContext context(*http_client, logger_, token);
     const auto services = context.make_services();
@@ -97,11 +130,15 @@ std::expected<void, domain::DriverError> AbiDriverGateway::update(std::string_vi
     error.struct_size = static_cast<uint32_t>(sizeof(error));
 
     yaddnsc_driver* handle = nullptr;
-    if (const yaddnsc_status status = module->create(services, &handle, error); status != YADDNSC_STATUS_OK) {
-        if (!has_valid_plugin_error(error, status)) {
+    const yaddnsc_status create_status = module->create(services, &handle, error);
+    if (create_status == YADDNSC_STATUS_OK && handle == nullptr) {
+        return std::unexpected(invalid_plugin_result(driver_name, "create"));
+    }
+    if (create_status != YADDNSC_STATUS_OK) {
+        if (!has_valid_plugin_error(error, create_status)) {
             return std::unexpected(invalid_plugin_result(driver_name, "create"));
         }
-        return std::unexpected(map_error(status, to_view(error.message), driver_name, command.fqdn));
+        return std::unexpected(map_error(create_status, to_view(error.message), driver_name, command.fqdn));
     }
 
     // From here on the instance owns the destroy() call; copy error bytes
@@ -145,24 +182,33 @@ std::expected<void, domain::DriverError> AbiDriverGateway::validate_config(std::
                                                    fmt::format("Driver '{}' is not loaded", driver_name)});
     }
 
-    // OPTIONAL entry: plugins built against an SDK without it are skipped.
+    // OPTIONAL entry (optional since ABI 1.0). The plugin still loads.
+    // config test cannot confirm driver_param without the entry.
     if (!module->supports_validate()) {
-        return {};
+        return std::unexpected(domain::DriverError{
+            domain::DriverError::Code::UNKNOWN,
+            fmt::format("Driver '{}' does not provide yaddnsc_driver_validate; its configuration was not checked",
+                        driver_name),
+            0});
     }
 
     auto http_client = http_factory_();
     HostServicesContext context(*http_client, logger_, {});
-    const auto services = context.make_services();
+    const auto services = context.make_services(false);
 
     yaddnsc_error error{};
     error.struct_size = static_cast<uint32_t>(sizeof(error));
 
     yaddnsc_driver* handle = nullptr;
-    if (const yaddnsc_status status = module->create(services, &handle, error); status != YADDNSC_STATUS_OK) {
-        if (!has_valid_plugin_error(error, status)) {
+    const yaddnsc_status create_status = module->create(services, &handle, error);
+    if (create_status == YADDNSC_STATUS_OK && handle == nullptr) {
+        return std::unexpected(invalid_plugin_result(driver_name, "create"));
+    }
+    if (create_status != YADDNSC_STATUS_OK) {
+        if (!has_valid_plugin_error(error, create_status)) {
             return std::unexpected(invalid_plugin_result(driver_name, "create"));
         }
-        return std::unexpected(map_validate_error(status, to_view(error.message), driver_name));
+        return std::unexpected(map_validate_error(create_status, to_view(error.message), driver_name));
     }
 
     // The instance owns the destroy() call; copy error bytes out

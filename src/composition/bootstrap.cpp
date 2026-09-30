@@ -314,8 +314,9 @@ int execute_command(const Cli::ConfigTestCommand& command) {
         // Driver-side driver_param validation through the OPTIONAL ABI
         // entry: every subdomain's driver_param is checked against its
         // driver's schema so a missing zone_id-style key fails here
-        // instead of on the first update. Plugins that do not export
-        // yaddnsc_driver_validate are skipped (not an error).
+        // instead of on the first update. A plugin that does not export
+        // yaddnsc_driver_validate fails this check: the host cannot confirm
+        // the configuration. The plugin can still be loaded for updates.
         Utils::CancellationSource cancellation;
         const SpdlogLogger logger;
         const AbiDriverGateway driver_gateway(driver_catalog,

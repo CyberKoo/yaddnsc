@@ -38,6 +38,10 @@ class Logger;
 ///   INVALID_RESPONSE       → UPDATE_FAILED
 ///   anything else          → UNKNOWN
 ///
+/// The capability gate runs before create() and returns UPDATE_FAILED
+/// directly. It produces no yaddnsc_status. A plugin that returns
+/// UNSUPPORTED_RECORD maps to the same domain code.
+///
 /// @note Thread-safe: update() is const and every call owns its entire
 ///       instance/context chain.
 class AbiDriverGateway final : public DriverGateway {
@@ -54,9 +58,10 @@ public:
 
     /// Validate one subdomain's driver_param JSON against the driver's schema
     /// without performing an update (the host's `config test` path). Runs the
-    /// same create → validate → destroy instance cycle as update(); when the
-    /// plugin does not export the OPTIONAL yaddnsc_driver_validate entry the
-    /// call succeeds immediately — older plugins impose no driver-side check.
+    /// same create → validate → destroy instance cycle as update(). The
+    /// yaddnsc_driver_validate entry stays optional: a plugin that omits it
+    /// still loads and can update, but this call fails because the host
+    /// cannot confirm driver_param.
     [[nodiscard]] std::expected<void, domain::DriverError> validate_config(std::string_view driver_name,
                                                                            std::string_view driver_param_json) const;
 

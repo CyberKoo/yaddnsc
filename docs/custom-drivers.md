@@ -14,38 +14,67 @@ objects ever cross the `.so` boundary, so a driver does not need to share the
 host's exact standard-library internals. It must still be built with a C++23
 compiler on a 64-bit platform.
 
-The current `YADDNSC_DRIVER_API_REVISION` is **1**. One revision corresponds
-to exactly one fixed struct layout: every layout change requires bumping the
-revision, and fields must never be appended while a revision stays in force —
-there is no same-revision "just add fields" compatibility. A plugin reporting
-any other revision is rejected at load time with a message telling you to
-rebuild. Rebuild the driver against the current SDK — do not bypass the check.
+The current ABI version is **1.0** (`YADDNSC_DRIVER_ABI_MAJOR` 1,
+`YADDNSC_DRIVER_ABI_MINOR` 0). The host is the provider. It loads a plugin
+whose major matches and whose minor is no higher than the host's, and a
+plugin accepts a services table on the same rule. A plugin's minor is the
+minimum host minor it requires.
+
+Within a major, fields are only appended to the versioned structs. New host
+callbacks, capability bits, status codes, log levels, and HTTP methods are
+minor bumps. Moving or removing a field, growing a leaf type, or adding a
+required entry point is a major bump. `YADDNSC_*_MIN_SIZE` is the ABI 1.0
+baseline and stays there when a later minor appends a field. A different
+major, or a plugin that requires a newer minor, is rejected at load time.
+Rebuild the driver against the current SDK — do not bypass the check.
 
 This C ABI is new in this release. Drivers written against the old C++ plugin
 API are completely incompatible and cannot load at all — they must be rebuilt
 against the new SDK.
 
+Supported platforms for this ABI are Linux ELF x86_64, Linux ELF AArch64, and
+macOS 64-bit. The host loads plugins with `dlopen` (`RTLD_NOW | RTLD_LOCAL`).
+The layout assumes `sizeof(void*) == 8`, `sizeof(size_t) == 8`, and default
+struct packing. Windows is not a supported host.
+
+A plugin is in-process trusted code, not a sandbox. It can abort, loop
+forever, corrupt the host's memory, or call the operating system directly.
+The ABI checks do not contain an untrusted plugin.
+
 The host verifies a driver before use:
 
 1. the driver exports the required entry points;
-2. the descriptor's `struct_size` covers the complete revision layout;
-3. the descriptor's `magic` identifies a yaddnsc driver;
-4. the descriptor's `api_revision` matches the host's exactly;
-5. the descriptor's string views and capability bits are valid.
+2. the descriptor's `struct_size` covers the 8-byte version prefix
+   (`struct_size`, `abi_major`, `abi_minor`);
+3. `abi_major` is a major the host implements, and the host's minor is at
+   least the plugin's minor;
+4. `struct_size` covers that minor's baseline (the ABI 1.0 baseline for
+   minor 0);
+5. the descriptor's `magic` identifies a yaddnsc driver;
+6. the descriptor's string views and capability bits are valid. The version
+   check runs before the capability check.
 
 ### Struct layout and `struct_size`
 
-Every ABI struct carries its size in bytes as its first field,
+The versioned top-level structs carry their size in bytes as the first field,
 `struct_size`, set by the **caller** to the capacity of the struct it
-actually provides:
+actually provides. Those structs are `yaddnsc_error`, `yaddnsc_http_request`,
+`yaddnsc_http_response`, `yaddnsc_update_request`,
+`yaddnsc_driver_descriptor`, and `yaddnsc_host_services`.
 
-- a value below the complete layout of the current revision — the
-  `YADDNSC_*_MIN_SIZE` constants in `driver_abi.h` — is rejected with
-  `YADDNSC_STATUS_INVALID_ARGUMENT`;
-- a larger value may carry an unknown tail, which readers ignore. Writers
-  only write fields fully inside the supplied capacity, write `struct_size`
-  back as `min(capacity, sizeof(struct))`, and never read or zero the
-  unknown tail.
+Leaf types do not have `struct_size` and are not prefix-compatible:
+`yaddnsc_string`, `yaddnsc_bytes`, `yaddnsc_source_location`, and
+`yaddnsc_http_header`. Do not append fields to them.
+
+For a versioned struct:
+
+- a value below the ABI 1.0 baseline — the `YADDNSC_*_MIN_SIZE` constants in
+  `driver_abi.h` — is rejected once the version has been accepted;
+- a larger value may carry fields added by a later minor. Readers use
+  `yaddnsc_struct_has_field` before touching those fields and ignore a tail
+  they do not know. Writers only write fields fully inside the supplied
+  capacity, write `struct_size` back as `min(capacity, sizeof(struct))`, and
+  never read or zero the unknown tail.
 
 ### Views, arrays, and validation
 
@@ -54,6 +83,21 @@ NUL-terminated and `size` is the only valid length. A view with `size == 0`
 may use `data == NULL`; a view with `size > 0` and `data == NULL` is invalid.
 The same rule applies to arrays such as HTTP header lists: `count == 0` with
 a `NULL` pointer is legal, `count > 0` with a `NULL` pointer is not.
+
+Every message view the ABI returns is borrowed. Copy it before the call
+returns. Do not cache it.
+
+An HTTP request body uses `data == NULL` as a presence bit:
+
+| `data` | `size` | Meaning |
+| --- | --- | --- |
+| `NULL` | 0 | no body |
+| non-`NULL` | 0 | a body of length 0 |
+| non-`NULL` | N | N bytes |
+| `NULL` | N | invalid |
+
+The C++ helper matches this with `std::nullopt` (no body) and an engaged
+`std::string`, including an empty one (a body is present).
 
 Both directions validate completely. The host validates the plugin's
 descriptor (non-empty name, well-formed views, supported capability bits) and
@@ -71,11 +115,14 @@ exchanges.
 
 `is_cancelled()` reports the cancellation state of the **current driver
 update operation**: `0` means the operation is active, non-zero means its
-cancellation token was triggered. It is driven by the same operation token as
-the host HTTP exchange, so a cancelled exchange and a polled
-`is_cancelled()` always agree. A driver that performs several exchanges may
-poll it between calls to bail out early. It is a per-operation predicate, not
-a host-global shutdown signal.
+cancellation token was triggered. The return type is `int32_t`. It is a
+per-operation predicate, not a host-global shutdown signal. A result of `0`
+does not promise that the next HTTP exchange will avoid `CANCELLED`:
+cancellation can happen between the check and the exchange. If the operation
+is already cancelled when an exchange starts, the host does not send the
+request. A driver that receives `CANCELLED` stops the current update. A
+driver that performs several exchanges may poll between calls to bail out
+early.
 
 The `services` and `context` pointers are valid from
 `yaddnsc_driver_create()` until the matching `yaddnsc_driver_destroy()`
@@ -87,22 +134,26 @@ exceptions escaping `create`/`update`/`validate` are converted to
 `YADDNSC_STATUS_INTERNAL_ERROR`, and an exception escaping `destroy` is
 logged and swallowed — never retried, never replaced by a fallback.
 
-Handle ownership follows the same rule as the firewall: on
-`YADDNSC_STATUS_OK` the host owns the instance and guarantees the matching
-`yaddnsc_driver_destroy()` call, while on any non-OK return the plugin must
-leave `*out_driver` `NULL` — a failed create owns nothing. If a plugin
-stores a handle and then reports failure, the host destroys and clears that
-handle before propagating the error, so instance state never leaks out of
-the create failure path.
+Handle ownership: on `YADDNSC_STATUS_OK`, `*out_driver` is non-NULL and the
+host owns the instance, including the matching `yaddnsc_driver_destroy()`
+call. `OK` with a NULL handle is a contract violation; the host turns it
+into `INTERNAL_ERROR` and owns nothing. On any non-OK return the plugin must
+leave `*out_driver` `NULL` — a failed create owns nothing. The host clears
+`*out_driver` before calling the plugin. If a plugin stores a handle and
+then reports failure, the host destroys and clears that handle before
+propagating the error.
 
 ## Entry points
 
 Four entry points are **required**: `yaddnsc_driver_get_descriptor`,
 `yaddnsc_driver_create`, `yaddnsc_driver_destroy`, and
 `yaddnsc_driver_update`. A fifth, `yaddnsc_driver_validate`, is **optional**
-within api_revision 1: the host probes it with `dlsym` and simply skips the
-driver-side `driver_param` check when it is absent, so plugins built against
-an older SDK keep working.
+since ABI 1.0: the host probes it with `dlsym`. A missing entry
+means the plugin does not provide a check the host can call. `yaddnsc
+config test` fails in that case, because it cannot confirm `driver_param`.
+The plugin still loads and can perform updates. The C++ helper's default
+`Driver::validate()` accepts every parameter and means the same thing: no
+schema check ran. Override it.
 
 `yaddnsc_driver_validate` lets `yaddnsc config test` check a driver's
 `driver_param` against the driver's own schema without performing an update.
@@ -206,6 +257,26 @@ task), while a single instance is never used concurrently — keep instance
 state per-call and module state thread-safe. `create()` is not process-level
 one-time initialization.
 
+The services table belongs to that one call. Do not hand it to a background
+thread, do not call it after the entry point returns, and do not cache
+response views past the return of `yaddnsc_driver_update()`. Host callbacks
+do not re-enter plugin entry points. `http_exchange` may be called only from
+`update`, on that call's thread. `create` may store the table for the
+instance, but `create`, `destroy`, and `validate` must not perform an
+exchange. During `validate` the host's exchange entry fails with
+`INVALID_ARGUMENT` and does not touch the network.
+
+`capabilities` is enforced by the host before the plugin is called. An
+update whose record type is `A` requires `YADDNSC_DRIVER_CAPABILITY_A`;
+`AAAA` requires `YADDNSC_DRIVER_CAPABILITY_AAAA`. Any other record type,
+including `TXT`, stops at that gate. The gate produces no plugin ABI
+status. This host reports it as `domain::DriverError::Code::UPDATE_FAILED`.
+`YADDNSC_STATUS_UNSUPPORTED_RECORD` is the status a plugin returns when it
+refuses a record; the gateway maps that return to the same domain code.
+Zero capabilities is legal at load and means the plugin accepts no ABI 1.0
+record type. Unknown bits are rejected at load. ABI 1.0 has no capability
+bit for any other record type. A new bit is a minor bump.
+
 A plugin must not include host `src/` headers or legacy utility headers
 (`CORE_LOG`, `uri.h`, `fmt.hpp`, `string_util.hpp`, host `HttpClient`); the
 SDK surface (`yaddnsc/sdk/*`, backed by the shared utilities in
@@ -231,13 +302,56 @@ exact yaddnsc version it will run with, exporting only the
 `yaddnsc_driver_*` ABI entry points — the four required ones plus the
 optional `yaddnsc_driver_validate` when provided — and nothing else. A
 successful compilation alone does not guarantee compatibility — the
-`api_revision` check decides at load time.
+`abi_major` / `abi_minor` check decides at load time.
+
+## Error reports and HTTP
+
+`out_error` may be NULL. A NULL pointer, or a `struct_size` below the
+ABI 1.0 baseline, is left unchanged; the returned status is still the
+result. `YADDNSC_STATUS_OK` does not write `out_error`. Any other status,
+when the struct is large enough, sets `out_error->status` to that same
+status. `retry_after_seconds == 0` means there is no hint. Any non-OK status
+may set it; the host uses it only when it is greater than 0.
+
+On this host, an unknown status makes the error report illegal, an unknown
+capability bit rejects the plugin at load, an unknown HTTP method returns
+`INVALID_ARGUMENT`, and an unknown log level is recorded as INFO.
+
+`http_exchange` returns non-OK only for transport failure (`NETWORK_ERROR`)
+or cancellation (`CANCELLED`). A provider status, including 4xx and 5xx and
+integers outside 100–599, arrives as `STATUS_OK` plus
+`out_response->status_code`. The SDK does not range-check that integer. The
+body is binary-safe. Response headers may repeat and keep the casing the
+peer sent. Compare header names case-insensitively. Trailers are not exposed.
+
+Request headers named `Host`, `Content-Length`, `Content-Type`, `Connection`,
+and `User-Agent` are discarded; the host compares those names
+case-insensitively and supplies them itself. `Host` comes from the URL.
+`User-Agent` is the host's single value. `Content-Length` comes from the
+body. `Connection` is sent only when the host's policy requires it.
+`Content-Type` is taken only from the `content_type` field, and only when a
+body is present (`data != NULL`). `Transfer-Encoding`, `Trailer`, and
+`Upgrade` are not sent; the exchange fails.
+
+`Driver::run_update` classifies a response that `check_response` rejects.
+401 and 403 become `AUTHENTICATION_FAILED`. 429 becomes `RATE_LIMITED`, and
+the first `Retry-After` value — a delay in seconds, or an IMF-fix HTTP-date
+measured from now — is copied into `retry_after_seconds`. An unparsable or
+already-past date contributes no hint. Every other rejection stays
+`UPSTREAM_REJECTED` with `retry_after_seconds` 0. A `check_response` that
+accepts the response stays a success.
+
+This host allows only `http` and `https`. It follows redirects, up to 10.
+301, 302, and 303 become GET and drop the body; 307 and 308 keep the method
+and the body. A redirect from https to http is not followed. The plugin sees
+the response after redirects. One exchange is limited to 64 KiB of headers
+and 16 MiB of body.
 
 ## Troubleshooting
 
 - `Driver not found`: check `driver_dir`, the file name, and installation.
-- Magic or `api_revision` mismatch: rebuild the driver with the current SDK
-  headers.
+- Magic mismatch, a different ABI major, or a plugin minor newer than the
+  host: rebuild the driver with the current SDK headers.
 - Missing required parameters: compare `driver_param` with the provider entry
   in [`DRIVERS.md`](../DRIVERS.md).
 

@@ -73,9 +73,8 @@ std::expected<PluginModule, domain::PluginError> PluginModule::load(const std::s
                                                       path, ABI_CHANGED_HINT)));
     }
 
-    // 2b. The OPTIONAL validate entry (added within api_revision 1): absence
-    // is not an error — the host skips the driver-side config check for
-    // plugins built against an SDK that predates it.
+    // 2b. The OPTIONAL validate entry (optional since ABI 1.0): absence is
+    // not a load error. config test reports that driver_param was not checked.
     module.validate_ = resolve_entry<decltype(yaddnsc_driver_validate)>(module.library_, "yaddnsc_driver_validate");
 
     // 3. Fetch the descriptor.
@@ -99,24 +98,34 @@ std::expected<PluginModule, domain::PluginError> PluginModule::load(const std::s
                        fmt::format("Driver '{}' get_descriptor() failed (status {})", path, descriptor_status)));
     }
 
-    // 4–6. magic, exact api_revision, minimum struct_size.
+    // 4–8. version prefix, major, minor, ABI 1.0 baseline, then magic.
+    // This host implements major 1 only. A different major is rejected
+    // before the 1.0 tail is interpreted.
+    if (raw_descriptor->struct_size < YADDNSC_ABI_VERSION_PREFIX_SIZE) {
+        return std::unexpected(make_error(
+            domain::PluginError::Code::ABI_MISMATCH,
+            fmt::format("Driver '{}' descriptor struct_size {} does not cover the ABI version prefix {}. {}", path,
+                        raw_descriptor->struct_size, YADDNSC_ABI_VERSION_PREFIX_SIZE, ABI_CHANGED_HINT)));
+    }
+    if (raw_descriptor->abi_major != YADDNSC_DRIVER_ABI_MAJOR ||
+        !yaddnsc_abi_provides(YADDNSC_DRIVER_ABI_MAJOR, YADDNSC_DRIVER_ABI_MINOR, raw_descriptor->abi_major,
+                              raw_descriptor->abi_minor)) {
+        return std::unexpected(make_error(
+            domain::PluginError::Code::ABI_MISMATCH,
+            fmt::format("Driver '{}' reports ABI {}.{}, host provides {}.{}. {}", path, raw_descriptor->abi_major,
+                        raw_descriptor->abi_minor, YADDNSC_DRIVER_ABI_MAJOR, YADDNSC_DRIVER_ABI_MINOR,
+                        ABI_CHANGED_HINT)));
+    }
     if (raw_descriptor->struct_size < YADDNSC_DRIVER_DESCRIPTOR_MIN_SIZE) {
         return std::unexpected(make_error(
             domain::PluginError::Code::ABI_MISMATCH,
-            fmt::format("Driver '{}' descriptor struct_size {} is below the required "
-                        "minimum {}. {}",
-                        path, raw_descriptor->struct_size, YADDNSC_DRIVER_DESCRIPTOR_MIN_SIZE, ABI_CHANGED_HINT)));
+            fmt::format("Driver '{}' descriptor struct_size {} is below the ABI 1.0 baseline {}. {}", path,
+                        raw_descriptor->struct_size, YADDNSC_DRIVER_DESCRIPTOR_MIN_SIZE, ABI_CHANGED_HINT)));
     }
     if (raw_descriptor->magic != YADDNSC_DRIVER_MAGIC) {
         return std::unexpected(
             make_error(domain::PluginError::Code::ABI_MISMATCH,
                        fmt::format("Driver '{}' is not a valid yaddnsc driver (magic mismatch)", path)));
-    }
-    if (raw_descriptor->api_revision != YADDNSC_DRIVER_API_REVISION) {
-        return std::unexpected(
-            make_error(domain::PluginError::Code::ABI_MISMATCH,
-                       fmt::format("Driver '{}' reports api_revision {}, host requires {}. {}", path,
-                                   raw_descriptor->api_revision, YADDNSC_DRIVER_API_REVISION, ABI_CHANGED_HINT)));
     }
     if (!yaddnsc_string_is_valid(raw_descriptor->name) || raw_descriptor->name.size == 0) {
         return std::unexpected(make_error(domain::PluginError::Code::CONTRACT_VIOLATION,
@@ -146,7 +155,8 @@ std::expected<PluginModule, domain::PluginError> PluginModule::load(const std::s
         .author = std::string(to_view(raw_descriptor->author)),
         .description = std::string(to_view(raw_descriptor->description)),
         .capabilities = raw_descriptor->capabilities,
-        .api_revision = raw_descriptor->api_revision,
+        .abi_major = raw_descriptor->abi_major,
+        .abi_minor = raw_descriptor->abi_minor,
     };
 
     return module;
@@ -154,6 +164,15 @@ std::expected<PluginModule, domain::PluginError> PluginModule::load(const std::s
 
 yaddnsc_status PluginModule::create(const yaddnsc_host_services& services, yaddnsc_driver** out_driver,
                                     yaddnsc_error& out_error) const {
+    if (out_driver == nullptr) {
+        write_entry_error(out_error, "out_driver must not be null", YADDNSC_STATUS_INVALID_ARGUMENT);
+        return YADDNSC_STATUS_INVALID_ARGUMENT;
+    }
+    // Drop anything the caller left here before the plugin runs, so a plugin
+    // that fails without writing cannot make the backstop destroy a handle
+    // this call does not own.
+    *out_driver = nullptr;
+
     yaddnsc_status status;
     try {
         status = create_(&services, out_driver, &out_error);
@@ -168,11 +187,18 @@ yaddnsc_status PluginModule::create(const yaddnsc_host_services& services, yaddn
     // Handle-ownership backstop: a failure return must leave *out_driver
     // null. A plugin that stored a handle before failing would otherwise
     // leak it — no DriverInstance exists to own the destroy() call.
-    if (status != YADDNSC_STATUS_OK && out_driver != nullptr && *out_driver != nullptr) {
-        SPDLOG_WARN("Driver '{}' ({}) violated the create contract: failure after storing a handle; destroying it",
-                    descriptor_.name, path());
-        destroy(*out_driver);
-        *out_driver = nullptr;
+    if (status != YADDNSC_STATUS_OK) {
+        if (*out_driver != nullptr) {
+            SPDLOG_WARN("Driver '{}' ({}) violated the create contract: failure after storing a handle; destroying it",
+                        descriptor_.name, path());
+            destroy(*out_driver);
+            *out_driver = nullptr;
+        }
+        return status;
+    }
+    if (*out_driver == nullptr) {
+        write_entry_error(out_error, "create returned OK with a null handle");
+        return YADDNSC_STATUS_INTERNAL_ERROR;
     }
     return status;
 }
@@ -223,7 +249,8 @@ yaddnsc_status PluginModule::validate(yaddnsc_driver* driver, yaddnsc_string dri
     return YADDNSC_STATUS_INTERNAL_ERROR;
 }
 
-void PluginModule::write_entry_error(yaddnsc_error& out_error, std::string_view message) noexcept {
+void PluginModule::write_entry_error(yaddnsc_error& out_error, std::string_view message,
+                                     yaddnsc_status status) noexcept {
     if (out_error.struct_size < YADDNSC_ERROR_MIN_SIZE) {
         return;
     }
@@ -236,7 +263,7 @@ void PluginModule::write_entry_error(yaddnsc_error& out_error, std::string_view 
         std::memcpy(storage.data(), source.data(), size);
     }
     storage[size] = '\0';
-    out_error.status = YADDNSC_STATUS_INTERNAL_ERROR;
+    out_error.status = status;
     out_error.retry_after_seconds = 0;
     out_error.message = yaddnsc_string{storage.data(), size};
     out_error.struct_size = out_error.struct_size < static_cast<std::uint32_t>(sizeof(yaddnsc_error))

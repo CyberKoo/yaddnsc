@@ -8,7 +8,8 @@
 //   - update produces a JSON array body with a single record and configurable TTL.
 //   - update with missing config fields returns INVALID_CONFIG.
 //   - update succeeds for HTTP 200 (empty or non-empty body).
-//   - update returns UPSTREAM_REJECTED for non-200 status codes.
+//   - update returns UPSTREAM_REJECTED for non-200 status codes other than 401/403/429.
+//   - HTTP 403 is AUTHENTICATION_FAILED.
 // =============================================================================
 
 #include <optional>
@@ -37,7 +38,8 @@ TEST(GoDaddyDriverTest, Descriptor_ReturnsExpectedMetadata) {
     ASSERT_EQ(yaddnsc_driver_get_descriptor(&descriptor), YADDNSC_STATUS_OK);
     ASSERT_NE(descriptor, nullptr);
     EXPECT_EQ(descriptor->magic, YADDNSC_DRIVER_MAGIC);
-    EXPECT_EQ(descriptor->api_revision, YADDNSC_DRIVER_API_REVISION);
+    EXPECT_EQ(descriptor->abi_major, YADDNSC_DRIVER_ABI_MAJOR);
+    EXPECT_EQ(descriptor->abi_minor, YADDNSC_DRIVER_ABI_MINOR);
     EXPECT_EQ(std::string_view(descriptor->name.data, descriptor->name.size), "godaddy");
     EXPECT_EQ(std::string_view(descriptor->description.data, descriptor->description.size),
               "Updates DNS records via the GoDaddy API");
@@ -134,11 +136,11 @@ TEST(GoDaddyDriverTest, Update_Non200EmptyBody_ReturnsUpstreamRejected) {
     EXPECT_EQ(result.status, YADDNSC_STATUS_UPSTREAM_REJECTED);
 }
 
-TEST(GoDaddyDriverTest, Update_ForbiddenWithBody_ReturnsUpstreamRejected) {
+TEST(GoDaddyDriverTest, Update_ForbiddenWithBody_ReturnsAuthenticationFailed) {
     FakeHostServices fake;
     fake.queue_response(403, R"({"message":"Forbidden"})");
     const auto result = run_abi_update(fake, CONFIG, "1.2.3.4", "A", "example.com", "www", "www.example.com");
-    EXPECT_EQ(result.status, YADDNSC_STATUS_UPSTREAM_REJECTED);
+    EXPECT_EQ(result.status, YADDNSC_STATUS_AUTHENTICATION_FAILED);
 }
 
 // ── validate (OPTIONAL yaddnsc_driver_validate entry) ────────────────────────

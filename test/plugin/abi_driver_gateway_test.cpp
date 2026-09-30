@@ -116,6 +116,46 @@ TEST_F(AbiDriverGatewayTest, SuccessfulUpdate) {
     EXPECT_TRUE(result.has_value()) << result.error().message;
 }
 
+TEST_F(AbiDriverGatewayTest, AaaaRecordReachesCapablePlugin) {
+    auto command = make_command(R"({"op":"success"})");
+    command.rd_type = "AAAA";
+    command.ip_addr = "2001:db8::1";
+    const auto result = gateway_->update(kDriverName, command, cancel_source_.token());
+    EXPECT_TRUE(result.has_value()) << result.error().message;
+}
+
+TEST_F(AbiDriverGatewayTest, UnsupportedRecordDoesNotCallPlugin) {
+    ASSERT_NO_THROW(catalog_.load_driver(std::string(kNoValidatePluginPath)));
+    const int calls_before = factory_calls_;
+
+    auto aaaa = make_command(R"({})");
+    aaaa.rd_type = "AAAA";
+    const auto missing_bit = gateway_->update(kNoValidateDriverName, aaaa, cancel_source_.token());
+    ASSERT_FALSE(missing_bit.has_value());
+    EXPECT_EQ(missing_bit.error().code, domain::DriverError::Code::UPDATE_FAILED);
+    EXPECT_NE(missing_bit.error().message.find("AAAA"), std::string::npos);
+    EXPECT_EQ(factory_calls_, calls_before);
+
+    auto txt = make_command(R"({"op":"success"})");
+    txt.rd_type = "TXT";
+    const auto no_bit = gateway_->update(kDriverName, txt, cancel_source_.token());
+    ASSERT_FALSE(no_bit.has_value());
+    EXPECT_EQ(no_bit.error().code, domain::DriverError::Code::UPDATE_FAILED);
+    EXPECT_NE(no_bit.error().message.find("TXT"), std::string::npos);
+    EXPECT_EQ(factory_calls_, calls_before);
+
+    const auto supported = gateway_->update(kNoValidateDriverName, make_command(R"({})"), cancel_source_.token());
+    EXPECT_TRUE(supported.has_value()) << supported.error().message;
+}
+
+TEST_F(AbiDriverGatewayTest, CreateOkWithNullHandleIsRejected) {
+    ASSERT_NO_THROW(catalog_.load_driver(CREATE_CONTRACT_FIXTURE));
+    const auto result = gateway_->update("create_contract", make_command(R"({})"), cancel_source_.token());
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error().code, domain::DriverError::Code::UNKNOWN);
+    EXPECT_NE(result.error().message.find("null handle"), std::string::npos);
+}
+
 TEST_F(AbiDriverGatewayTest, StatusMapping) {
     const std::vector<std::pair<std::string, domain::DriverError::Code>> cases = {
         {"network_error", domain::DriverError::Code::UPDATE_FAILED},
@@ -288,7 +328,7 @@ TEST(AbiDriverGatewayCreateTest, CreateFailureAfterStoringHandleDoesNotLeak) {
 //
 // The host's `config test` path. Three outcomes are locked here: a valid
 // driver_param passes, a driver-side rejection surfaces the plugin's message
-// verbatim, and a plugin without the OPTIONAL validate entry is skipped.
+// verbatim, and a plugin without the OPTIONAL validate entry fails the check.
 
 namespace {
 
@@ -330,11 +370,14 @@ TEST_F(AbiDriverGatewayValidateTest, DriverRejectionEmptyMessageFallsBackToWordi
     EXPECT_EQ(result.error().message, "Driver 'test_driver_plugin' rejected its driver_param configuration");
 }
 
-TEST_F(AbiDriverGatewayValidateTest, PluginWithoutValidateEntryIsSkipped) {
-    // The OPTIONAL entry is absent: the host must skip the driver-side check
-    // and report success instead of failing.
+TEST_F(AbiDriverGatewayValidateTest, PluginWithoutValidateEntryFailsConfigTest) {
+    // The OPTIONAL entry is absent. The plugin can still update, but config
+    // test must not report the configuration as checked.
     const auto result = gateway_->validate_config(kNoValidateDriverName, R"({"anything":true})");
-    EXPECT_TRUE(result.has_value()) << result.error().message;
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error().code, domain::DriverError::Code::UNKNOWN);
+    EXPECT_NE(result.error().message.find("yaddnsc_driver_validate"), std::string::npos);
+    EXPECT_NE(result.error().message.find("not checked"), std::string::npos);
 }
 
 TEST_F(AbiDriverGatewayValidateTest, UnknownDriverReportsNotFound) {
@@ -342,4 +385,31 @@ TEST_F(AbiDriverGatewayValidateTest, UnknownDriverReportsNotFound) {
     ASSERT_FALSE(result.has_value());
     EXPECT_EQ(result.error().code, domain::DriverError::Code::NOT_FOUND);
     EXPECT_EQ(result.error().message, "Driver 'missing' is not loaded");
+}
+
+TEST(AbiDriverGatewayValidate, HttpExchangeDuringValidateDoesNotReachTransport) {
+    DriverCatalog catalog;
+    ASSERT_NO_THROW(catalog.load_driver(VALIDATE_HTTP_FIXTURE));
+    auto queue = std::make_shared<QueueHttpClient>();
+    RecordingLogger logger;
+    AbiDriverGateway gateway(
+        catalog, [queue]() -> std::unique_ptr<HttpClient> { return std::make_unique<SharedHttpClient>(queue); },
+        logger);
+
+    const auto result = gateway.validate_config("validate_http", "{}");
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error().code, domain::DriverError::Code::UNKNOWN);
+    EXPECT_NE(result.error().message.find("yaddnsc_driver_update"), std::string::npos);
+    EXPECT_EQ(queue->request_count(), 0u);
+
+    auto control_library = SharedLibrary::open(VALIDATE_HTTP_FIXTURE);
+    ASSERT_TRUE(control_library.has_value()) << control_library.error();
+    using GetState = void (*)(int*, yaddnsc_status*);
+    const auto get_state = reinterpret_cast<GetState>(control_library->resolve("validate_http_get_state"));  // NOLINT
+    ASSERT_NE(get_state, nullptr);
+    int called = 0;
+    yaddnsc_status exchange_status = YADDNSC_STATUS_OK;
+    get_state(&called, &exchange_status);
+    EXPECT_EQ(called, 1);
+    EXPECT_EQ(exchange_status, YADDNSC_STATUS_INVALID_ARGUMENT);
 }

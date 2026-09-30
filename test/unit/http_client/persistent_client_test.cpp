@@ -298,9 +298,14 @@ TEST(HttpWireRequest, BuildWireRequest_NoBody) {
 TEST(HttpWireRequest, BuildWireRequest_WithUserAgent) {
     net::http::Options opts;
     opts.user_agent = "yaddnsc-test";
-    const auto wire = net::http::build_wire_request(plain_get(), "http", "a.test", 8080, opts);
+    auto request = plain_get();
+    request.headers.emplace("User-Agent", "plugin/1");
+    request.headers.emplace("user-agent", "plugin/2");
+    const auto wire = net::http::build_wire_request(request, "http", "a.test", 8080, opts);
 
     EXPECT_EQ(wire.headers.find("Host")->second, "a.test:8080");
+    ASSERT_EQ(wire.headers.count("User-Agent"), 1u);
+    EXPECT_EQ(wire.headers.count("user-agent"), 0u);
     EXPECT_EQ(wire.headers.find("User-Agent")->second, "yaddnsc-test");
 }
 
@@ -322,13 +327,19 @@ TEST(HttpWireRequest, ValidationRejectsHeaderInjectionAndBuilderOwnsFraming) {
     auto managed = plain_get();
     managed.headers.emplace("Host", "attacker.test");
     managed.headers.emplace("Content-Length", "999");
+    managed.headers.emplace("Content-Type", "text/evil");
     managed.headers.emplace("Connection", "close");
+    managed.headers.emplace("User-Agent", "plugin/1");
+    managed.headers.emplace("user-agent", "plugin/2");
     managed.headers.emplace("Transfer-Encoding", "chunked");
     const auto wire = net::http::build_wire_request(managed, "http", "a.test", 80, {});
     EXPECT_EQ(wire.headers.count("Host"), 1);
     EXPECT_EQ(wire.headers.find("Host")->second, "a.test");
     EXPECT_EQ(wire.headers.count("Content-Length"), 0);
+    EXPECT_EQ(wire.headers.count("Content-Type"), 0);
     EXPECT_EQ(wire.headers.count("Connection"), 0);
+    EXPECT_EQ(wire.headers.count("User-Agent"), 0);
+    EXPECT_EQ(wire.headers.count("user-agent"), 0);
     EXPECT_EQ(wire.headers.count("Transfer-Encoding"), 0);
 }
 

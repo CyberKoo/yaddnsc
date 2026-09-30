@@ -10,7 +10,8 @@ namespace {
 
 constexpr yaddnsc_driver_descriptor descriptor{
     .struct_size = sizeof(yaddnsc_driver_descriptor),
-    .api_revision = YADDNSC_DRIVER_API_REVISION,
+    .abi_major = YADDNSC_DRIVER_ABI_MAJOR,
+    .abi_minor = YADDNSC_DRIVER_ABI_MINOR,
     .magic = YADDNSC_DRIVER_MAGIC,
     .name = {"consumer_c_abi", sizeof("consumer_c_abi") - 1},
     .version = {"1", sizeof("1") - 1},

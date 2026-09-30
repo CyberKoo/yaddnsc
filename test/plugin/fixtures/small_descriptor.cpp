@@ -2,9 +2,9 @@
 // Created by Kotarou on 2026/9/17.
 //
 
-/// Loader-rejection fixture: the descriptor reports a struct_size below the
-/// required minimum prefix (only the struct_size field itself), so the loader
-/// must reject it before reading any further field.
+/// Loader-rejection fixture: the descriptor reports a struct_size covering
+/// only the struct_size field, below the 8-byte version prefix. The loader
+/// must reject it before reading abi_major.
 
 #include <yaddnsc/sdk/driver_abi.h>
 
@@ -17,7 +17,8 @@
 namespace {
 constexpr yaddnsc_driver_descriptor DESCRIPTOR = {
     .struct_size = YADDNSC_SIZEOF_THROUGH(yaddnsc_driver_descriptor, struct_size),
-    .api_revision = YADDNSC_DRIVER_API_REVISION,
+    .abi_major = YADDNSC_DRIVER_ABI_MAJOR,
+    .abi_minor = YADDNSC_DRIVER_ABI_MINOR,
     .magic = YADDNSC_DRIVER_MAGIC,
     .name = {"small_descriptor", sizeof("small_descriptor") - 1},
     .version = {"0.0.0", sizeof("0.0.0") - 1},

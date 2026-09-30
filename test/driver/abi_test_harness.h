@@ -71,7 +71,8 @@ public:
     [[nodiscard]] yaddnsc_host_services table() noexcept {
         return yaddnsc_host_services{
             .struct_size = static_cast<uint32_t>(sizeof(yaddnsc_host_services)),
-            .api_revision = YADDNSC_DRIVER_API_REVISION,
+            .abi_major = YADDNSC_DRIVER_ABI_MAJOR,
+            .abi_minor = YADDNSC_DRIVER_ABI_MINOR,
             .context = this,
             .log = &log_entry,
             .http_exchange = &http_exchange_entry,
@@ -145,7 +146,7 @@ private:
         return YADDNSC_STATUS_OK;
     }
 
-    static int is_cancelled_entry(void* context) noexcept {
+    static int32_t is_cancelled_entry(void* context) noexcept {
         return static_cast<FakeHostServices*>(context)->cancelled ? 1 : 0;
     }
 

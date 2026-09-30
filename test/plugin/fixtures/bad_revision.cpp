@@ -3,8 +3,8 @@
 //
 
 /// Loader-rejection fixture: a structurally complete v1 alpha plugin whose
-/// descriptor reports an older api_revision the host no longer accepts. The
-/// loader must reject it with an ABI mismatch error pointing at a rebuild.
+/// descriptor reports ABI major 0. The host implements major 1 only and must
+/// reject it before interpreting the 1.0 tail.
 
 #include <yaddnsc/sdk/driver_abi.h>
 
@@ -17,12 +17,13 @@
 namespace {
 constexpr yaddnsc_driver_descriptor DESCRIPTOR = {
     .struct_size = sizeof(yaddnsc_driver_descriptor),
-    .api_revision = UINT32_C(0),
+    .abi_major = UINT16_C(0),
+    .abi_minor = UINT16_C(0),
     .magic = YADDNSC_DRIVER_MAGIC,
     .name = {"bad_revision", sizeof("bad_revision") - 1},
     .version = {"0.0.0", sizeof("0.0.0") - 1},
     .author = {"yaddnsc", sizeof("yaddnsc") - 1},
-    .description = {"Fixture with an unsupported api_revision", sizeof("Fixture with an unsupported api_revision") - 1},
+    .description = {"Fixture with an unsupported ABI major", sizeof("Fixture with an unsupported ABI major") - 1},
     .capabilities = YADDNSC_DRIVER_CAPABILITY_A,
 };
 }  // namespace

@@ -11,6 +11,7 @@
 //   - update with missing config fields returns INVALID_CONFIG.
 //   - update succeeds for XML with PENDING / INSYNC status.
 //   - update returns UPSTREAM_REJECTED for non-200, malformed, or empty bodies.
+//   - HTTP 403 is AUTHENTICATION_FAILED.
 // =============================================================================
 
 #include <optional>
@@ -72,7 +73,8 @@ TEST(Route53DriverTest, Descriptor_ReturnsExpectedMetadata) {
     ASSERT_EQ(yaddnsc_driver_get_descriptor(&descriptor), YADDNSC_STATUS_OK);
     ASSERT_NE(descriptor, nullptr);
     EXPECT_EQ(descriptor->magic, YADDNSC_DRIVER_MAGIC);
-    EXPECT_EQ(descriptor->api_revision, YADDNSC_DRIVER_API_REVISION);
+    EXPECT_EQ(descriptor->abi_major, YADDNSC_DRIVER_ABI_MAJOR);
+    EXPECT_EQ(descriptor->abi_minor, YADDNSC_DRIVER_ABI_MINOR);
     EXPECT_EQ(std::string_view(descriptor->name.data, descriptor->name.size), "route53");
     EXPECT_EQ(std::string_view(descriptor->description.data, descriptor->description.size),
               "Updates DNS records via the AWS Route 53 API");
@@ -239,7 +241,7 @@ TEST(Route53DriverTest, Update_Non200WithErrorXml_ReturnsUpstreamRejected) {
     EXPECT_EQ(result.status, YADDNSC_STATUS_UPSTREAM_REJECTED);
 }
 
-TEST(Route53DriverTest, Update_Non200WithMultipleErrors_ReturnsUpstreamRejected) {
+TEST(Route53DriverTest, Update_Forbidden_ReturnsAuthenticationFailed) {
     FakeHostServices fake;
     fake.queue_response(403, R"(<?xml version="1.0" encoding="UTF-8"?>
 <ErrorResponse xmlns="https://route53.amazonaws.com/doc/2013-04-01/">
@@ -256,7 +258,7 @@ TEST(Route53DriverTest, Update_Non200WithMultipleErrors_ReturnsUpstreamRejected)
   <RequestId>req456</RequestId>
 </ErrorResponse>)");
     const auto result = run_abi_update(fake, CONFIG, "1.2.3.4", "A", "example.com", "www", "www.example.com");
-    EXPECT_EQ(result.status, YADDNSC_STATUS_UPSTREAM_REJECTED);
+    EXPECT_EQ(result.status, YADDNSC_STATUS_AUTHENTICATION_FAILED);
 }
 
 TEST(Route53DriverTest, Update_Non200UnparseableBody_ReturnsUpstreamRejected) {

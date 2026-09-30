@@ -45,11 +45,13 @@ namespace net::http {
 /// contain CR/LF and framing/routing headers are normalized by the builder.
 [[nodiscard]] std::expected<void, Error> validate_request(const Request& req);
 
-/// Build the wire request: user headers + normalized Host / Connection /
+/// Build the wire request: user headers plus host-owned Host / Connection /
 /// User-Agent / Content-Length / Content-Type. The target is filled by the
-/// caller. User-supplied Host, Content-Length, Connection, Transfer-Encoding,
-/// Trailer, and Upgrade fields are discarded; this client owns framing and
-/// connection semantics.
+/// caller. User-supplied Host, Content-Length, Content-Type, Connection, and
+/// User-Agent fields are discarded (names compared case-insensitively); this
+/// client owns framing, the single User-Agent, and connection semantics.
+/// Content-Type on the wire comes only from Request::content_type, and only
+/// when a body is present.
 [[nodiscard]] protocol::WireRequest build_wire_request(const Request& req, std::string_view scheme,
                                                        std::string_view host, std::uint16_t port, const Options& opts);
 

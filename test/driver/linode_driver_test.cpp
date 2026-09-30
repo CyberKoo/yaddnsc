@@ -39,7 +39,8 @@ TEST(LinodeDriverTest, Descriptor_ReturnsExpectedMetadata) {
     ASSERT_EQ(yaddnsc_driver_get_descriptor(&descriptor), YADDNSC_STATUS_OK);
     ASSERT_NE(descriptor, nullptr);
     EXPECT_EQ(descriptor->magic, YADDNSC_DRIVER_MAGIC);
-    EXPECT_EQ(descriptor->api_revision, YADDNSC_DRIVER_API_REVISION);
+    EXPECT_EQ(descriptor->abi_major, YADDNSC_DRIVER_ABI_MAJOR);
+    EXPECT_EQ(descriptor->abi_minor, YADDNSC_DRIVER_ABI_MINOR);
     EXPECT_EQ(std::string_view(descriptor->name.data, descriptor->name.size), "linode");
     EXPECT_EQ(std::string_view(descriptor->description.data, descriptor->description.size),
               "Updates DNS records via the Linode API");

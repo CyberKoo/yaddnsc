@@ -98,6 +98,7 @@ public:
 
     static constexpr AddressFamily get_family() noexcept { return AddressFamily::IPV6; }
 
+    /// Text form from inet_ntop. A stored scope id is not included.
     [[nodiscard]] std::string to_string() const;
 
     [[nodiscard]] constexpr const addr_type& get_address() const noexcept { return addr_; }

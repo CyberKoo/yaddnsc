@@ -7,6 +7,11 @@
 
 /// C++ helper layer over the v1 alpha plugin C ABI (driver_abi.h).
 ///
+/// This header is a source-level helper compiled into each plugin. It is not
+/// itself an ABI: exceptions, STL containers, and C++ objects stay on this
+/// side of the boundary. The generated entry points catch every exception and
+/// report it through the C ABI without allocating on that path.
+///
 /// Compiled into each driver plugin. Provides:
 ///   - owned/view wrappers for the C structs (HttpRequest, HttpResponse,
 ///     UpdateRequest, UpdateContext),
@@ -19,14 +24,20 @@
 /// Plugins must not include host-internal headers; this layer plus
 /// driver_abi.h is the entire supported surface.
 
+#include <array>
+#include <charconv>
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
+#include <limits>
 #include <memory>
 #include <optional>
 #include <source_location>
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <type_traits>
 #include <utility>
 #include <vector>
@@ -99,7 +110,8 @@ struct HttpHeaderView {
 
 /// A borrowed HTTP response. All views point into the host arena and stay
 /// valid until the current yaddnsc_driver_update() call returns, across
-/// multiple exchanges.
+/// multiple exchanges. Header names keep the peer's casing and may repeat;
+/// compare them case-insensitively.
 struct HttpResponse {
     uint32_t status_code = 0;
     std::vector<HttpHeaderView> headers;
@@ -179,9 +191,28 @@ namespace detail {
                                  : std::string_view{reinterpret_cast<const char*>(value.data), value.size};
 }
 
+/// Copy @p message into a fixed thread-local buffer without allocating.
+/// A null @p message selects @p fallback. The returned view is valid until
+/// the next call on this thread and must be copied by the caller before then.
+[[nodiscard]] inline std::string_view copy_bounded(const char* message, std::string_view fallback) noexcept {
+    constexpr std::size_t capacity = 512;
+    thread_local std::array<char, capacity> storage{};
+    const bool use_fallback = message == nullptr;
+    const char* source = use_fallback ? fallback.data() : message;
+    const std::size_t available = use_fallback ? fallback.size() : std::char_traits<char>::length(message);
+    const std::size_t size = available < (storage.size() - 1) ? available : (storage.size() - 1);
+    if (size != 0 && source != nullptr) {
+        std::memcpy(storage.data(), source, size);
+    }
+    storage[size] = '\0';
+    return {storage.data(), size};
+}
+
 /// Write an error report honouring the caller-supplied capacity: fields are
 /// only written when fully covered, struct_size is written back as
-/// min(capacity, sizeof), and an unknown tail is never zeroed.
+/// min(capacity, sizeof), and an unknown tail is never zeroed. A null
+/// @p out_error, or one whose struct_size is below the v1 layout, is left
+/// unchanged.
 inline void write_error(yaddnsc_error* out_error, yaddnsc_status status, std::string_view message,
                         uint32_t retry_after_seconds) noexcept {
     if (out_error == nullptr || out_error->struct_size < YADDNSC_ERROR_MIN_SIZE) {
@@ -233,8 +264,10 @@ public:
     /// Perform an HTTP exchange through the host. Transport failures come
     /// back as HttpError; provider status codes arrive in HttpResponse.
     [[nodiscard]] ExchangeResult exchange(const HttpRequest& request) const {
-        if (services_ == nullptr || services_->struct_size < YADDNSC_HOST_SERVICES_MIN_SIZE ||
-            services_->api_revision != YADDNSC_DRIVER_API_REVISION || services_->context == nullptr ||
+        if (services_ == nullptr || services_->struct_size < YADDNSC_ABI_VERSION_PREFIX_SIZE ||
+            !yaddnsc_abi_provides(services_->abi_major, services_->abi_minor, YADDNSC_DRIVER_ABI_MAJOR,
+                                  YADDNSC_DRIVER_ABI_MINOR) ||
+            services_->struct_size < YADDNSC_HOST_SERVICES_MIN_SIZE || services_->context == nullptr ||
             services_->http_exchange == nullptr) {
             return std::unexpected(HttpError{YADDNSC_STATUS_INTERNAL_ERROR, "invalid host services table", 0});
         }
@@ -341,13 +374,181 @@ namespace detail {
 
 template<typename... Args>
 inline void log_message(const yaddnsc_host_services* services, yaddnsc_log_level level, std::string_view file,
-                        int32_t line, std::string_view function, std::format_string<Args...> fmt, Args&&... args) {
+                        int32_t line, std::string_view function, std::format_string<Args...> fmt,
+                        Args&&... args) noexcept {
     if (services == nullptr || services->log == nullptr) {
         return;
     }
-    const std::string message = fmt::format(fmt, std::forward<Args>(args)...);
-    const yaddnsc_source_location location{make_view(file), line, make_view(function)};
-    services->log(services->context, level, make_view(message), &location);
+    // Logging must never fail an update. Format allocation and a throwing
+    // host callback are dropped here; the C entry point does not see them.
+    try {
+        const std::string message = fmt::format(fmt, std::forward<Args>(args)...);
+        const yaddnsc_source_location location{make_view(file), line, make_view(function)};
+        services->log(services->context, level, make_view(message), &location);
+    } catch (...) {
+    }
+}
+
+[[nodiscard]] inline int ascii_lower(unsigned char c) noexcept {
+    return (c >= 'A' && c <= 'Z') ? c - 'A' + 'a' : static_cast<int>(c);
+}
+
+[[nodiscard]] inline bool iequals(std::string_view left, std::string_view right) noexcept {
+    if (left.size() != right.size()) {
+        return false;
+    }
+    for (std::size_t i = 0; i < left.size(); ++i) {
+        if (ascii_lower(static_cast<unsigned char>(left[i])) != ascii_lower(static_cast<unsigned char>(right[i]))) {
+            return false;
+        }
+    }
+    return true;
+}
+
+[[nodiscard]] inline std::string_view trim_ws(std::string_view value) noexcept {
+    while (!value.empty() && (value.front() == ' ' || value.front() == '\t')) {
+        value.remove_prefix(1);
+    }
+    while (!value.empty() && (value.back() == ' ' || value.back() == '\t')) {
+        value.remove_suffix(1);
+    }
+    return value;
+}
+
+/// Howard Hinnant's public-domain civil-from-days companion, inverted:
+/// days since 1970-01-01 for a Gregorian date.
+[[nodiscard]] inline int days_from_civil(int year, unsigned month, unsigned day) noexcept {
+    year -= month <= 2;
+    const int era = (year >= 0 ? year : year - 399) / 400;
+    const unsigned yoe = static_cast<unsigned>(year - era * 400);
+    const unsigned doy = (153 * (month + (month > 2 ? -3 : 9)) + 2) / 5 + day - 1;
+    const unsigned doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    return era * 146097 + static_cast<int>(doe) - 719468;
+}
+
+[[nodiscard]] inline int month_index(std::string_view name) noexcept {
+    constexpr std::array<std::string_view, 12> months = {"jan", "feb", "mar", "apr", "may", "jun",
+                                                         "jul", "aug", "sep", "oct", "nov", "dec"};
+    for (std::size_t i = 0; i < months.size(); ++i) {
+        if (iequals(name, months[i])) {
+            return static_cast<int>(i) + 1;
+        }
+    }
+    return 0;
+}
+
+/// IMF-fixdate (`Sun, 06 Nov 1994 08:49:37 GMT`). The weekday is skipped.
+[[nodiscard]] inline std::optional<std::chrono::sys_seconds> parse_http_date(std::string_view text) noexcept {
+    const auto comma = text.find(',');
+    if (comma == std::string_view::npos || comma + 1 >= text.size()) {
+        return std::nullopt;
+    }
+    text.remove_prefix(comma + 1);
+    text = trim_ws(text);
+
+    unsigned day = 0;
+    const auto [day_end, day_ec] = std::from_chars(text.data(), text.data() + text.size(), day);
+    if (day_ec != std::errc{} || day < 1 || day > 31) {
+        return std::nullopt;
+    }
+    text.remove_prefix(static_cast<std::size_t>(day_end - text.data()));
+    if (text.empty() || text.front() != ' ') {
+        return std::nullopt;
+    }
+    text.remove_prefix(1);
+    if (text.size() < 3) {
+        return std::nullopt;
+    }
+    const int month = month_index(text.substr(0, 3));
+    if (month == 0 || text.size() < 4 || text[3] != ' ') {
+        return std::nullopt;
+    }
+    text.remove_prefix(4);
+
+    unsigned year = 0;
+    const auto [year_end, year_ec] = std::from_chars(text.data(), text.data() + text.size(), year);
+    if (year_ec != std::errc{} || year < 1970 || year > 9999) {
+        return std::nullopt;
+    }
+    text.remove_prefix(static_cast<std::size_t>(year_end - text.data()));
+    if (text.size() < 10 || text.front() != ' ' || text[3] != ':' || text[6] != ':') {
+        return std::nullopt;
+    }
+    text.remove_prefix(1);
+
+    unsigned hour = 0;
+    unsigned minute = 0;
+    unsigned second = 0;
+    const auto [hour_end, hour_ec] = std::from_chars(text.data(), text.data() + 2, hour);
+    const auto [minute_end, minute_ec] = std::from_chars(text.data() + 3, text.data() + 5, minute);
+    const auto [second_end, second_ec] = std::from_chars(text.data() + 6, text.data() + 8, second);
+    if (hour_ec != std::errc{} || minute_ec != std::errc{} || second_ec != std::errc{} || hour_end != text.data() + 2 ||
+        minute_end != text.data() + 5 || second_end != text.data() + 8 || hour > 23 || minute > 59 || second > 60) {
+        return std::nullopt;
+    }
+    text.remove_prefix(8);
+    text = trim_ws(text);
+    if (!iequals(text, "GMT")) {
+        return std::nullopt;
+    }
+
+    const auto days = days_from_civil(static_cast<int>(year), static_cast<unsigned>(month), day);
+    const auto secs = static_cast<std::int64_t>(days) * 86400 + static_cast<std::int64_t>(hour) * 3600 +
+                      static_cast<std::int64_t>(minute) * 60 + static_cast<std::int64_t>(second);
+    return std::chrono::sys_seconds{std::chrono::seconds{secs}};
+}
+
+/// First Retry-After on @p response. Delay-seconds win. An IMF-fix date
+/// becomes seconds from now; a past date or an unparsable value is 0.
+[[nodiscard]] inline std::uint32_t retry_after_seconds(const HttpResponse& response) noexcept {
+    for (const auto& header : response.headers) {
+        if (!iequals(header.name, "retry-after")) {
+            continue;
+        }
+        const auto value = trim_ws(header.value);
+        std::uint32_t seconds = 0;
+        const char* const begin = value.data();
+        const char* const end = begin + value.size();
+        const auto [ptr, ec] = std::from_chars(begin, end, seconds);
+        if (ec == std::errc{} && ptr == end) {
+            return seconds;
+        }
+        if (ec == std::errc::result_out_of_range && ptr == end) {
+            return std::numeric_limits<std::uint32_t>::max();
+        }
+        const auto date = parse_http_date(value);
+        if (!date.has_value()) {
+            return 0;
+        }
+        const auto now = std::chrono::time_point_cast<std::chrono::seconds>(std::chrono::system_clock::now());
+        if (*date <= now) {
+            return 0;
+        }
+        const auto delta = (*date - now).count();
+        if (delta >= static_cast<std::chrono::seconds::rep>(std::numeric_limits<std::uint32_t>::max())) {
+            return std::numeric_limits<std::uint32_t>::max();
+        }
+        return static_cast<std::uint32_t>(delta);
+    }
+    return 0;
+}
+
+struct UpstreamFailure {
+    yaddnsc_status status = YADDNSC_STATUS_UPSTREAM_REJECTED;
+    std::uint32_t retry_after_seconds = 0;
+};
+
+/// Status for an exchange the driver has already rejected. 401/403 are
+/// authentication failures. 429 carries Retry-After. Everything else stays
+/// an upstream rejection with no retry hint.
+[[nodiscard]] inline UpstreamFailure classify_upstream_failure(const HttpResponse& response) noexcept {
+    if (response.status_code == 401 || response.status_code == 403) {
+        return {YADDNSC_STATUS_AUTHENTICATION_FAILED, 0};
+    }
+    if (response.status_code == 429) {
+        return {YADDNSC_STATUS_RATE_LIMITED, retry_after_seconds(response)};
+    }
+    return {};
 }
 
 }  // namespace detail
@@ -365,11 +566,10 @@ public:
 
     /// Validate a driver_param JSON against this driver's schema without
     /// performing an update. Invoked by the host's `config test` through the
-    /// OPTIONAL yaddnsc_driver_validate ABI entry (dlsym-probed; the default
-    /// implementation accepts everything, which keeps drivers written
-    /// against an SDK without this entry source-compatible). The default
-    /// also applies to drivers that recompile without overriding: the host
-    /// treats a missing entry as "no driver-side validation".
+    /// OPTIONAL yaddnsc_driver_validate ABI entry (dlsym-probed). The default
+    /// implementation accepts everything. A missing entry and this default
+    /// mean the same thing: the plugin does not provide a host-callable
+    /// schema check. Neither one means the configuration is valid.
     ///
     /// Override with the canonical one-liner
     /// `parse_config<YourParams>(driver_param_json); return {};` — a thrown
@@ -416,7 +616,9 @@ protected:
     /// outgoing request, perform the exchange, and translate transport
     /// failures and upstream rejections into an Error. @p check_response
     /// receives the response plus a Services handle and decides whether the
-    /// provider accepted the update.
+    /// provider accepted the update. A rejection of HTTP 401 or 403 is
+    /// AUTHENTICATION_FAILED. A rejection of HTTP 429 is RATE_LIMITED and
+    /// carries Retry-After. Any other rejection is UPSTREAM_REJECTED.
     template<typename CheckFn>
     static Result run_update(UpdateContext& context, std::string_view driver_name, const HttpRequest& request,
                              CheckFn&& check_response,
@@ -440,11 +642,13 @@ protected:
         }
 
         if (!check_response(*response, context.services())) {
+            const auto failure = detail::classify_upstream_failure(*response);
             detail::log_message(detail::to_services(context), YADDNSC_LOG_WARN, file, line, function,
                                 "Domain {} ({}) update rejected by upstream", params.fqdn, params.record_type);
             return std::unexpected(
-                Error{YADDNSC_STATUS_UPSTREAM_REJECTED,
-                      fmt::format("Domain {} ({}) update rejected by upstream", params.fqdn, params.record_type), 0});
+                Error{failure.status,
+                      fmt::format("Domain {} ({}) update rejected by upstream", params.fqdn, params.record_type),
+                      failure.retry_after_seconds});
         }
 
         return {};
@@ -463,14 +667,16 @@ struct DriverInstance {
 
 template<typename DriverClass>
 inline yaddnsc_status create_driver(const yaddnsc_host_services* services, yaddnsc_driver** out_driver,
-                                    yaddnsc_error* out_error) {
+                                    yaddnsc_error* out_error) noexcept {
     if (services == nullptr || out_driver == nullptr) {
         write_error(out_error, YADDNSC_STATUS_INVALID_ARGUMENT, "services and out_driver must not be null", 0);
         return YADDNSC_STATUS_INVALID_ARGUMENT;
     }
     *out_driver = nullptr;
-    if (services->struct_size < YADDNSC_HOST_SERVICES_MIN_SIZE ||
-        services->api_revision != YADDNSC_DRIVER_API_REVISION || services->context == nullptr ||
+    if (services->struct_size < YADDNSC_ABI_VERSION_PREFIX_SIZE ||
+        !yaddnsc_abi_provides(services->abi_major, services->abi_minor, YADDNSC_DRIVER_ABI_MAJOR,
+                              YADDNSC_DRIVER_ABI_MINOR) ||
+        services->struct_size < YADDNSC_HOST_SERVICES_MIN_SIZE || services->context == nullptr ||
         services->log == nullptr || services->http_exchange == nullptr || services->is_cancelled == nullptr) {
         write_error(out_error, YADDNSC_STATUS_INVALID_ARGUMENT, "incompatible host services table", 0);
         return YADDNSC_STATUS_INVALID_ARGUMENT;
@@ -478,7 +684,8 @@ inline yaddnsc_status create_driver(const yaddnsc_host_services* services, yaddn
 
     static_assert(std::is_nothrow_destructible_v<DriverClass>,
                   "driver classes must be nothrow destructible across the C ABI");
-    thread_local std::string create_error;
+    constexpr std::string_view fallback = "unknown exception during driver construction";
+    std::string_view reported;
     try {
         auto instance = std::make_unique<DriverInstance>();
         instance->services = *services;
@@ -486,11 +693,11 @@ inline yaddnsc_status create_driver(const yaddnsc_host_services* services, yaddn
         *out_driver = reinterpret_cast<yaddnsc_driver*>(instance.release());  // NOLINT
         return YADDNSC_STATUS_OK;
     } catch (const std::exception& e) {
-        create_error = e.what();
+        reported = copy_bounded(e.what(), fallback);
     } catch (...) {
-        create_error = "unknown exception during driver construction";
+        reported = copy_bounded(nullptr, fallback);
     }
-    write_error(out_error, YADDNSC_STATUS_INTERNAL_ERROR, create_error, 0);
+    write_error(out_error, YADDNSC_STATUS_INTERNAL_ERROR, reported, 0);
     return YADDNSC_STATUS_INTERNAL_ERROR;
 }
 
@@ -499,7 +706,7 @@ inline void destroy_driver(yaddnsc_driver* driver) noexcept {
 }
 
 inline yaddnsc_status update_driver(yaddnsc_driver* driver, const yaddnsc_update_request* request,
-                                    yaddnsc_error* out_error) {
+                                    yaddnsc_error* out_error) noexcept {
     if (driver == nullptr || request == nullptr) {
         write_error(out_error, YADDNSC_STATUS_INVALID_ARGUMENT, "driver and request must not be null", 0);
         return YADDNSC_STATUS_INVALID_ARGUMENT;
@@ -539,20 +746,22 @@ inline yaddnsc_status update_driver(yaddnsc_driver* driver, const yaddnsc_update
         write_error(out_error, status, instance->error_storage, error.retry_after_seconds);
         return status;
     } catch (const ConfigParseError& e) {
-        instance->error_storage = e.what();
-        write_error(out_error, YADDNSC_STATUS_INVALID_CONFIG, instance->error_storage, 0);
+        write_error(out_error, YADDNSC_STATUS_INVALID_CONFIG, copy_bounded(e.what(), "invalid driver configuration"),
+                    0);
         return YADDNSC_STATUS_INVALID_CONFIG;
     } catch (const std::exception& e) {
-        instance->error_storage = e.what();
+        write_error(out_error, YADDNSC_STATUS_INTERNAL_ERROR, copy_bounded(e.what(), "unknown exception during update"),
+                    0);
+        return YADDNSC_STATUS_INTERNAL_ERROR;
     } catch (...) {
-        instance->error_storage = "unknown exception during update";
+        write_error(out_error, YADDNSC_STATUS_INTERNAL_ERROR, copy_bounded(nullptr, "unknown exception during update"),
+                    0);
+        return YADDNSC_STATUS_INTERNAL_ERROR;
     }
-    write_error(out_error, YADDNSC_STATUS_INTERNAL_ERROR, instance->error_storage, 0);
-    return YADDNSC_STATUS_INTERNAL_ERROR;
 }
 
 inline yaddnsc_status validate_driver(yaddnsc_driver* driver, yaddnsc_string driver_param_json,
-                                      yaddnsc_error* out_error) {
+                                      yaddnsc_error* out_error) noexcept {
     if (driver == nullptr) {
         write_error(out_error, YADDNSC_STATUS_INVALID_ARGUMENT, "driver must not be null", 0);
         return YADDNSC_STATUS_INVALID_ARGUMENT;
@@ -580,16 +789,18 @@ inline yaddnsc_status validate_driver(yaddnsc_driver* driver, yaddnsc_string dri
         write_error(out_error, status, instance->error_storage, error.retry_after_seconds);
         return status;
     } catch (const ConfigParseError& e) {
-        instance->error_storage = e.what();
-        write_error(out_error, YADDNSC_STATUS_INVALID_CONFIG, instance->error_storage, 0);
+        write_error(out_error, YADDNSC_STATUS_INVALID_CONFIG, copy_bounded(e.what(), "invalid driver configuration"),
+                    0);
         return YADDNSC_STATUS_INVALID_CONFIG;
     } catch (const std::exception& e) {
-        instance->error_storage = e.what();
+        write_error(out_error, YADDNSC_STATUS_INTERNAL_ERROR,
+                    copy_bounded(e.what(), "unknown exception during validate"), 0);
+        return YADDNSC_STATUS_INTERNAL_ERROR;
     } catch (...) {
-        instance->error_storage = "unknown exception during validate";
+        write_error(out_error, YADDNSC_STATUS_INTERNAL_ERROR,
+                    copy_bounded(nullptr, "unknown exception during validate"), 0);
+        return YADDNSC_STATUS_INTERNAL_ERROR;
     }
-    write_error(out_error, YADDNSC_STATUS_INTERNAL_ERROR, instance->error_storage, 0);
-    return YADDNSC_STATUS_INTERNAL_ERROR;
 }
 
 }  // namespace detail
@@ -630,7 +841,8 @@ inline yaddnsc_status validate_driver(yaddnsc_driver* driver, yaddnsc_string dri
     namespace {                                                                                            \
     constexpr yaddnsc_driver_descriptor YADDNSC_SDK_DESCRIPTOR = {                                         \
         .struct_size = sizeof(yaddnsc_driver_descriptor),                                                  \
-        .api_revision = YADDNSC_DRIVER_API_REVISION,                                                       \
+        .abi_major = YADDNSC_DRIVER_ABI_MAJOR,                                                             \
+        .abi_minor = YADDNSC_DRIVER_ABI_MINOR,                                                             \
         .magic = YADDNSC_DRIVER_MAGIC,                                                                     \
         .name = {driver_name, sizeof(driver_name) - 1},                                                    \
         .version = {driver_version, sizeof(driver_version) - 1},                                           \

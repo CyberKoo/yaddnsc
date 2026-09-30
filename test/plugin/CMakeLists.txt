@@ -22,7 +22,7 @@ add_sanitizer_flags(yaddnsc_test_driver_plugin)
 # Like yaddnsc_bad_driver_fixture these are intentionally minimal and not
 # sanitizer-instrumented.
 # ---------------------------------------------------------------------------
-foreach(fixture bad_revision bad_magic missing_symbol small_descriptor)
+foreach(fixture bad_revision newer_minor bad_magic missing_symbol small_descriptor short_descriptor)
     add_library(yaddnsc_fixture_${fixture} MODULE fixtures/${fixture}.cpp)
     set_target_properties(yaddnsc_fixture_${fixture} PROPERTIES PREFIX "" OUTPUT_NAME "${fixture}")
     target_include_directories(yaddnsc_fixture_${fixture} PRIVATE ${PROJECT_SOURCE_DIR}/include)
@@ -64,6 +64,19 @@ add_library(yaddnsc_fixture_leaky_create MODULE fixtures/leaky_create.cpp)
 set_target_properties(yaddnsc_fixture_leaky_create PROPERTIES PREFIX "" OUTPUT_NAME "leaky_create")
 target_include_directories(yaddnsc_fixture_leaky_create PRIVATE ${PROJECT_SOURCE_DIR}/include)
 
+# Create-contract fixture — create() returns without storing a handle, either
+# with OK or with a failure status. The host must reject OK+NULL and must not
+# destroy a pointer the caller had stashed in *out_driver.
+add_library(yaddnsc_fixture_create_contract MODULE fixtures/create_contract.cpp)
+set_target_properties(yaddnsc_fixture_create_contract PROPERTIES PREFIX "" OUTPUT_NAME "create_contract")
+target_include_directories(yaddnsc_fixture_create_contract PRIVATE ${PROJECT_SOURCE_DIR}/include)
+
+# Validate-time HTTP fixture — validate() calls the services table captured
+# at create(). The host table for config validation must refuse the exchange.
+add_library(yaddnsc_fixture_validate_http MODULE fixtures/validate_http.cpp)
+set_target_properties(yaddnsc_fixture_validate_http PROPERTIES PREFIX "" OUTPUT_NAME "validate_http")
+target_include_directories(yaddnsc_fixture_validate_http PRIVATE ${PROJECT_SOURCE_DIR}/include)
+
 # ---------------------------------------------------------------------------
 # Test binaries
 # ---------------------------------------------------------------------------
@@ -80,9 +93,11 @@ foreach(test_target test_plugin_abi_contract test_plugin_lifecycle test_abi_driv
     target_compile_definitions(${test_target} PRIVATE
         TEST_PLUGIN_PATH="$<TARGET_FILE:yaddnsc_test_driver_plugin>"
         BAD_REVISION_FIXTURE="$<TARGET_FILE:yaddnsc_fixture_bad_revision>"
+        NEWER_MINOR_FIXTURE="$<TARGET_FILE:yaddnsc_fixture_newer_minor>"
         BAD_MAGIC_FIXTURE="$<TARGET_FILE:yaddnsc_fixture_bad_magic>"
         MISSING_SYMBOL_FIXTURE="$<TARGET_FILE:yaddnsc_fixture_missing_symbol>"
         SMALL_DESCRIPTOR_FIXTURE="$<TARGET_FILE:yaddnsc_fixture_small_descriptor>"
+        SHORT_DESCRIPTOR_FIXTURE="$<TARGET_FILE:yaddnsc_fixture_short_descriptor>"
         INVALID_NAME_FIXTURE="$<TARGET_FILE:yaddnsc_fixture_invalid_name>"
         INVALID_VERSION_FIXTURE="$<TARGET_FILE:yaddnsc_fixture_invalid_version>"
         INVALID_AUTHOR_FIXTURE="$<TARGET_FILE:yaddnsc_fixture_invalid_author>"
@@ -91,13 +106,17 @@ foreach(test_target test_plugin_abi_contract test_plugin_lifecycle test_abi_driv
         NO_VALIDATE_FIXTURE="$<TARGET_FILE:yaddnsc_fixture_no_validate>"
         THROWING_FIXTURE="$<TARGET_FILE:yaddnsc_fixture_throwing>"
         THROWING_DESTROY_FIXTURE="$<TARGET_FILE:yaddnsc_fixture_throwing_destroy>"
-        LEAKY_CREATE_FIXTURE="$<TARGET_FILE:yaddnsc_fixture_leaky_create>")
+        LEAKY_CREATE_FIXTURE="$<TARGET_FILE:yaddnsc_fixture_leaky_create>"
+        CREATE_CONTRACT_FIXTURE="$<TARGET_FILE:yaddnsc_fixture_create_contract>"
+        VALIDATE_HTTP_FIXTURE="$<TARGET_FILE:yaddnsc_fixture_validate_http>")
     add_dependencies(${test_target}
         yaddnsc_test_driver_plugin
         yaddnsc_fixture_bad_revision
+        yaddnsc_fixture_newer_minor
         yaddnsc_fixture_bad_magic
         yaddnsc_fixture_missing_symbol
         yaddnsc_fixture_small_descriptor
+        yaddnsc_fixture_short_descriptor
         yaddnsc_fixture_invalid_name
         yaddnsc_fixture_invalid_version
         yaddnsc_fixture_invalid_author
@@ -106,5 +125,7 @@ foreach(test_target test_plugin_abi_contract test_plugin_lifecycle test_abi_driv
         yaddnsc_fixture_no_validate
         yaddnsc_fixture_throwing
         yaddnsc_fixture_throwing_destroy
-        yaddnsc_fixture_leaky_create)
+        yaddnsc_fixture_leaky_create
+        yaddnsc_fixture_create_contract
+        yaddnsc_fixture_validate_http)
 endforeach()

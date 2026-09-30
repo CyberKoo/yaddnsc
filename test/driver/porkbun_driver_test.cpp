@@ -11,6 +11,7 @@
 //   - update with missing config fields returns INVALID_CONFIG.
 //   - update succeeds for status "SUCCESS" responses.
 //   - update returns UPSTREAM_REJECTED for status "ERROR" / unparseable responses.
+//   - HTTP 403 is AUTHENTICATION_FAILED.
 // =============================================================================
 
 #include <optional>
@@ -39,7 +40,8 @@ TEST(PorkbunDriverTest, Descriptor_ReturnsExpectedMetadata) {
     ASSERT_EQ(yaddnsc_driver_get_descriptor(&descriptor), YADDNSC_STATUS_OK);
     ASSERT_NE(descriptor, nullptr);
     EXPECT_EQ(descriptor->magic, YADDNSC_DRIVER_MAGIC);
-    EXPECT_EQ(descriptor->api_revision, YADDNSC_DRIVER_API_REVISION);
+    EXPECT_EQ(descriptor->abi_major, YADDNSC_DRIVER_ABI_MAJOR);
+    EXPECT_EQ(descriptor->abi_minor, YADDNSC_DRIVER_ABI_MINOR);
     EXPECT_EQ(std::string_view(descriptor->name.data, descriptor->name.size), "porkbun");
     EXPECT_EQ(std::string_view(descriptor->description.data, descriptor->description.size),
               "Updates DNS records via the Porkbun API");
@@ -157,11 +159,11 @@ TEST(PorkbunDriverTest, Update_ErrorWithoutCode_ReturnsUpstreamRejected) {
     EXPECT_EQ(result.status, YADDNSC_STATUS_UPSTREAM_REJECTED);
 }
 
-TEST(PorkbunDriverTest, Update_ErrorWithCode_ReturnsUpstreamRejected) {
+TEST(PorkbunDriverTest, Update_Forbidden_ReturnsAuthenticationFailed) {
     FakeHostServices fake;
     fake.queue_response(403, R"({"status":"ERROR","code":"ACCESS_DENIED","message":"Permission denied"})");
     const auto result = run_abi_update(fake, CONFIG, "1.2.3.4", "A", "example.com", "www", "www.example.com");
-    EXPECT_EQ(result.status, YADDNSC_STATUS_UPSTREAM_REJECTED);
+    EXPECT_EQ(result.status, YADDNSC_STATUS_AUTHENTICATION_FAILED);
 }
 
 TEST(PorkbunDriverTest, Update_UnparseableBody_ReturnsUpstreamRejected) {

@@ -48,7 +48,8 @@ constexpr uint64_t CAPABILITIES = UINT64_C(1) << 63;
 
 constexpr yaddnsc_driver_descriptor DESCRIPTOR{
     .struct_size = sizeof(yaddnsc_driver_descriptor),
-    .api_revision = YADDNSC_DRIVER_API_REVISION,
+    .abi_major = YADDNSC_DRIVER_ABI_MAJOR,
+    .abi_minor = YADDNSC_DRIVER_ABI_MINOR,
     .magic = YADDNSC_DRIVER_MAGIC,
     .name = NAME,
     .version = VERSION,

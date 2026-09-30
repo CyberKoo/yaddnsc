@@ -82,7 +82,8 @@ TEST(PluginLifecycle, DescriptorIsCopiedIntoHostStorage) {
     EXPECT_EQ(descriptor.author, "yaddnsc");
     EXPECT_EQ(descriptor.description, "Contract-test whiteboard driver");
     EXPECT_EQ(descriptor.capabilities, YADDNSC_DRIVER_CAPABILITY_A | YADDNSC_DRIVER_CAPABILITY_AAAA);
-    EXPECT_EQ(descriptor.api_revision, YADDNSC_DRIVER_API_REVISION);
+    EXPECT_EQ(descriptor.abi_major, YADDNSC_DRIVER_ABI_MAJOR);
+    EXPECT_EQ(descriptor.abi_minor, YADDNSC_DRIVER_ABI_MINOR);
 }
 
 TEST(PluginLifecycle, CreateUpdateDestroyOrdering) {
@@ -245,9 +246,8 @@ TEST(PluginLifecycle, LoaderRejectsWrongRevision) {
     ASSERT_FALSE(module.has_value());
     EXPECT_EQ(module.error().code, domain::PluginError::Code::ABI_MISMATCH);
     EXPECT_THAT(module.error().message, ::testing::HasSubstr(BAD_REVISION_FIXTURE));
-    EXPECT_THAT(module.error().message, ::testing::HasSubstr("api_revision 0"));
-    EXPECT_THAT(module.error().message,
-                ::testing::HasSubstr("host requires " + std::to_string(YADDNSC_DRIVER_API_REVISION)));
+    EXPECT_THAT(module.error().message, ::testing::HasSubstr("reports ABI 0.0"));
+    EXPECT_THAT(module.error().message, ::testing::HasSubstr("host provides 1.0"));
     EXPECT_THAT(module.error().message, ::testing::HasSubstr("rebuild the driver with the current SDK"));
 }
 
@@ -268,11 +268,30 @@ TEST(PluginLifecycle, LoaderRejectsMissingEntryPoints) {
     EXPECT_THAT(module.error().message, ::testing::HasSubstr("rebuild the driver with the current SDK"));
 }
 
+TEST(PluginLifecycle, LoaderRejectsNewerMinor) {
+    auto module = PluginModule::load(NEWER_MINOR_FIXTURE);
+    ASSERT_FALSE(module.has_value());
+    EXPECT_EQ(module.error().code, domain::PluginError::Code::ABI_MISMATCH);
+    EXPECT_THAT(module.error().message, ::testing::HasSubstr(NEWER_MINOR_FIXTURE));
+    EXPECT_THAT(module.error().message, ::testing::HasSubstr("reports ABI 1.1"));
+    EXPECT_THAT(module.error().message, ::testing::HasSubstr("host provides 1.0"));
+    EXPECT_THAT(module.error().message, ::testing::HasSubstr("rebuild the driver with the current SDK"));
+}
+
+TEST(PluginLifecycle, LoaderRejectsBaselineBelowAbi10) {
+    auto module = PluginModule::load(SHORT_DESCRIPTOR_FIXTURE);
+    ASSERT_FALSE(module.has_value());
+    EXPECT_EQ(module.error().code, domain::PluginError::Code::ABI_MISMATCH);
+    EXPECT_THAT(module.error().message, ::testing::HasSubstr(SHORT_DESCRIPTOR_FIXTURE));
+    EXPECT_THAT(module.error().message, ::testing::HasSubstr("is below the ABI 1.0 baseline"));
+}
+
 TEST(PluginLifecycle, LoaderRejectsTruncatedDescriptor) {
     auto module = PluginModule::load(SMALL_DESCRIPTOR_FIXTURE);
     ASSERT_FALSE(module.has_value());
     EXPECT_EQ(module.error().code, domain::PluginError::Code::ABI_MISMATCH);
-    EXPECT_THAT(module.error().message, ::testing::HasSubstr("descriptor struct_size 4 is below the required minimum"));
+    EXPECT_THAT(module.error().message,
+                ::testing::HasSubstr("descriptor struct_size 4 does not cover the ABI version prefix"));
     EXPECT_THAT(module.error().message, ::testing::HasSubstr(SMALL_DESCRIPTOR_FIXTURE));
 }
 
@@ -295,7 +314,7 @@ TEST(PluginLifecycle, LoaderRejectsInvalidDescriptorViewsAndCapabilities) {
 }
 
 // ===========================================================================
-//  Optional validate entry (added within api_revision 1)
+//  Optional validate entry (optional since ABI 1.0)
 // ===========================================================================
 
 TEST(PluginLifecycle, LoaderAcceptsPluginWithoutOptionalValidateEntry) {
@@ -307,12 +326,12 @@ TEST(PluginLifecycle, LoaderAcceptsPluginWithoutOptionalValidateEntry) {
     EXPECT_FALSE(module->supports_validate());
 }
 
-TEST(PluginLifecycle, ValidateIsSkippedWhenEntryIsMissing) {
+TEST(PluginLifecycle, LoaderValidateReturnsOkWhenEntryIsMissing) {
     auto module = PluginModule::load(NO_VALIDATE_FIXTURE);
     ASSERT_TRUE(module.has_value()) << module.error().message;
 
-    // The trampoline reports OK without touching the instance: config
-    // validation skips the driver-side check instead of failing.
+    // The loader trampoline reports OK without calling a plugin. config test
+    // does not treat that OK as a checked configuration.
     yaddnsc_error error{};
     error.struct_size = static_cast<uint32_t>(sizeof(error));
     const yaddnsc_string param{R"({"anything":true})", 16};
@@ -464,6 +483,90 @@ TEST(PluginLifecycle, CreateFailureAfterStoringHandleDestroysAndClearsIt) {
     get_state(&destroys, &last_destroyed);
     EXPECT_EQ(destroys, 2u);
     EXPECT_EQ(last_destroyed, token());
+}
+
+TEST(PluginLifecycle, CreateNullOutDriverIsInvalidArgument) {
+    auto module = PluginModule::load(std::string(kPluginPath));
+    ASSERT_TRUE(module.has_value()) << module.error().message;
+    const auto control = resolve_control();
+    ASSERT_NE(control.reset_state, nullptr);
+    ASSERT_NE(control.get_state, nullptr);
+    control.reset_state();
+
+    HostUpdateContext host;
+    yaddnsc_error error{};
+    error.struct_size = static_cast<uint32_t>(sizeof(error));
+    EXPECT_EQ(module->create(host.services(), nullptr, error), YADDNSC_STATUS_INVALID_ARGUMENT);
+    EXPECT_EQ(error.status, YADDNSC_STATUS_INVALID_ARGUMENT);
+    EXPECT_EQ(std::string_view(error.message.data, error.message.size), "out_driver must not be null");
+
+    uint64_t creates = 0;
+    uint64_t updates = 0;
+    uint64_t destroys = 0;
+    uint64_t create_seq = 0;
+    uint64_t update_seq = 0;
+    uint64_t destroy_seq = 0;
+    control.get_state(&creates, &updates, &destroys, &create_seq, &update_seq, &destroy_seq);
+    EXPECT_EQ(creates, 0u);
+}
+
+TEST(PluginLifecycle, CreateOkWithNullHandleIsInternalError) {
+    auto module = PluginModule::load(CREATE_CONTRACT_FIXTURE);
+    ASSERT_TRUE(module.has_value()) << module.error().message;
+    auto control_library = SharedLibrary::open(CREATE_CONTRACT_FIXTURE);
+    ASSERT_TRUE(control_library.has_value()) << control_library.error();
+    using SetMode = void (*)(int);
+    using GetState = void (*)(uint64_t*, uintptr_t*);
+    const auto set_mode = reinterpret_cast<SetMode>(control_library->resolve("create_contract_set_mode"));     // NOLINT
+    const auto get_state = reinterpret_cast<GetState>(control_library->resolve("create_contract_get_state"));  // NOLINT
+    ASSERT_NE(set_mode, nullptr);
+    ASSERT_NE(get_state, nullptr);
+
+    set_mode(0);
+    HostUpdateContext host;
+    yaddnsc_error error{};
+    error.struct_size = static_cast<uint32_t>(sizeof(error));
+    int sentinel = 0;
+    auto* handle = reinterpret_cast<yaddnsc_driver*>(&sentinel);  // NOLINT
+    EXPECT_EQ(module->create(host.services(), &handle, error), YADDNSC_STATUS_INTERNAL_ERROR);
+    EXPECT_EQ(handle, nullptr);
+    EXPECT_EQ(error.status, YADDNSC_STATUS_INTERNAL_ERROR);
+    EXPECT_EQ(std::string_view(error.message.data, error.message.size), "create returned OK with a null handle");
+
+    uint64_t destroys = 0;
+    uintptr_t last_destroyed = 0;
+    get_state(&destroys, &last_destroyed);
+    EXPECT_EQ(destroys, 0u);
+}
+
+TEST(PluginLifecycle, CreateFailureWithoutHandleLeavesNullAndDoesNotDestroyCallerPointer) {
+    auto module = PluginModule::load(CREATE_CONTRACT_FIXTURE);
+    ASSERT_TRUE(module.has_value()) << module.error().message;
+    auto control_library = SharedLibrary::open(CREATE_CONTRACT_FIXTURE);
+    ASSERT_TRUE(control_library.has_value()) << control_library.error();
+    using SetMode = void (*)(int);
+    using GetState = void (*)(uint64_t*, uintptr_t*);
+    const auto set_mode = reinterpret_cast<SetMode>(control_library->resolve("create_contract_set_mode"));     // NOLINT
+    const auto get_state = reinterpret_cast<GetState>(control_library->resolve("create_contract_get_state"));  // NOLINT
+    ASSERT_NE(set_mode, nullptr);
+    ASSERT_NE(get_state, nullptr);
+
+    set_mode(1);
+    HostUpdateContext host;
+    yaddnsc_error error{};
+    error.struct_size = static_cast<uint32_t>(sizeof(error));
+    int sentinel = 0;
+    auto* handle = reinterpret_cast<yaddnsc_driver*>(&sentinel);  // NOLINT
+    EXPECT_EQ(module->create(host.services(), &handle, error), YADDNSC_STATUS_INTERNAL_ERROR);
+    EXPECT_EQ(handle, nullptr);
+    EXPECT_EQ(error.status, YADDNSC_STATUS_INTERNAL_ERROR);
+    EXPECT_EQ(std::string_view(error.message.data, error.message.size), "create failed without a handle");
+
+    uint64_t destroys = 0;
+    uintptr_t last_destroyed = 0;
+    get_state(&destroys, &last_destroyed);
+    EXPECT_EQ(destroys, 0u);
+    EXPECT_EQ(last_destroyed, 0u);
 }
 
 TEST(PluginLifecycle, ManualLoadFailsFastOnAbiMismatch) {

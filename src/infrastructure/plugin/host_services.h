@@ -5,6 +5,7 @@
 #ifndef YADDNSC_INFRASTRUCTURE_PLUGIN_HOST_SERVICES_H
 #define YADDNSC_INFRASTRUCTURE_PLUGIN_HOST_SERVICES_H
 
+#include <cstdint>
 #include <deque>
 #include <string>
 #include <string_view>
@@ -36,13 +37,19 @@ public:
 
     /// Build the services table bound to this context. The returned table
     /// copies no state; it must not outlive the context.
-    [[nodiscard]] yaddnsc_host_services make_services() noexcept {
+    ///
+    /// @param http_enabled When false, http_exchange fails with
+    ///                     INVALID_ARGUMENT and does not touch the network.
+    ///                     validate_config uses that table; update uses the
+    ///                     real exchange.
+    [[nodiscard]] yaddnsc_host_services make_services(bool http_enabled = true) noexcept {
         return yaddnsc_host_services{
             .struct_size = static_cast<uint32_t>(sizeof(yaddnsc_host_services)),
-            .api_revision = YADDNSC_DRIVER_API_REVISION,
+            .abi_major = YADDNSC_DRIVER_ABI_MAJOR,
+            .abi_minor = YADDNSC_DRIVER_ABI_MINOR,
             .context = this,
             .log = &log_entry,
-            .http_exchange = &http_exchange_entry,
+            .http_exchange = http_enabled ? &http_exchange_entry : &http_exchange_unavailable_entry,
             .is_cancelled = &is_cancelled_entry,
         };
     }
@@ -54,7 +61,7 @@ public:
 
     /// 0 means this update operation is active; non-zero means its token was
     /// cancelled. Plugins must not cache this context or services table.
-    [[nodiscard]] int is_cancelled() const noexcept { return operation_token_.is_triggered() ? 1 : 0; }
+    [[nodiscard]] std::int32_t is_cancelled() const noexcept { return operation_token_.is_triggered() ? 1 : 0; }
 
 private:
     /// Arena-owning copy of a string; the returned view stays valid until the
@@ -67,7 +74,10 @@ private:
     static yaddnsc_status http_exchange_entry(void* context, const yaddnsc_http_request* request,
                                               yaddnsc_http_response* out_response, yaddnsc_error* out_error);
 
-    static int is_cancelled_entry(void* context) noexcept {
+    static yaddnsc_status http_exchange_unavailable_entry(void* context, const yaddnsc_http_request* request,
+                                                          yaddnsc_http_response* out_response, yaddnsc_error* out_error);
+
+    static std::int32_t is_cancelled_entry(void* context) noexcept {
         return static_cast<HostServicesContext*>(context)->is_cancelled();
     }
 

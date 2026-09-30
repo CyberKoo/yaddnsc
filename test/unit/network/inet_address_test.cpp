@@ -201,6 +201,7 @@ TEST(Inet6AddressTest, Parse_WithNumericScopeId) {
     ASSERT_TRUE(addr.has_value());
     EXPECT_TRUE(addr->is_link_local());
     EXPECT_EQ(addr->get_scope_id(), 2U);
+    EXPECT_EQ(addr->to_string(), "fe80::1");
 }
 
 TEST(Inet6AddressTest, Parse_WithEmptyScopeId) {
@@ -230,13 +231,12 @@ TEST(Inet6AddressTest, ScopeId) {
     EXPECT_EQ(addr.get_scope_id(), 42U);
 }
 
-TEST(Inet6AddressTest, ToString_WithScopeId) {
-    Inet6Address addr;
+TEST(Inet6AddressTest, ToString_OmitsScopeId) {
     Inet6Address::addr_type bytes = {0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2};
-    addr = Inet6Address::from_bytes(bytes);
+    auto addr = Inet6Address::from_bytes(bytes);
     addr.set_scope_id(5);
-    auto s = addr.to_string();
-    EXPECT_TRUE(s.find("%5") != std::string_view::npos);
+    EXPECT_EQ(addr.get_scope_id(), 5U);
+    EXPECT_EQ(addr.to_string(), "fe80::2");
 }
 
 TEST(Inet6AddressTest, FromArray_DelegatesToFromBytes) {

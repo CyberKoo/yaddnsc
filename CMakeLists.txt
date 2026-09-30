@@ -637,6 +637,16 @@ target_link_libraries(yaddnsc_plugin_sdk INTERFACE glaze::glaze)
 target_compile_features(yaddnsc_plugin_sdk INTERFACE cxx_std_23)
 target_compile_options(yaddnsc_plugin_sdk INTERFACE -Wall -Wextra -Wpedantic -Werror -fvisibility=hidden)
 
+# C11 compile of the v1 alpha ABI header. An OBJECT library is not linked; a
+# warning or a layout assert fails the build even when tests are disabled.
+add_library(yaddnsc_c_abi_compile OBJECT test/plugin/c_abi_compile.c)
+target_include_directories(yaddnsc_c_abi_compile PRIVATE ${PROJECT_SOURCE_DIR}/include)
+set_target_properties(yaddnsc_c_abi_compile PROPERTIES
+    C_STANDARD 11
+    C_STANDARD_REQUIRED ON
+    C_EXTENSIONS OFF)
+target_compile_options(yaddnsc_c_abi_compile PRIVATE -Wall -Wextra -Wpedantic -Werror)
+
 # XML is deliberately an opt-in SDK component.  driver.hpp itself does not
 # include libxml2, so ordinary plugin consumers only need Glaze.  Drivers that
 # include xml_raii.hpp link this target to obtain both the SDK and libxml2.

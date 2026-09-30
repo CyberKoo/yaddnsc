@@ -133,6 +133,13 @@ void HostServicesContext::log_entry(void* context, yaddnsc_log_level level, yadd
     }
 }
 
+yaddnsc_status HostServicesContext::http_exchange_unavailable_entry(void*, const yaddnsc_http_request*,
+                                                                     yaddnsc_http_response*, yaddnsc_error* out_error) {
+    write_error(out_error, YADDNSC_STATUS_INVALID_ARGUMENT,
+                "http_exchange is only available during yaddnsc_driver_update");
+    return YADDNSC_STATUS_INVALID_ARGUMENT;
+}
+
 yaddnsc_status HostServicesContext::http_exchange_entry(void* context, const yaddnsc_http_request* request,
                                                         yaddnsc_http_response* out_response, yaddnsc_error* out_error) {
     if (context == nullptr || request == nullptr || out_response == nullptr || out_error == nullptr) {

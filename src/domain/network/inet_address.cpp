@@ -121,11 +121,6 @@ std::string Inet6Address::to_string() const {
     if (inet_ntop(AF_INET6, addr_.data(), buf.data(), buf.size()) == nullptr) {
         return "<invalid>";
     }
-
-    if (scope_id_ > 0) {
-        return std::string(buf.data()) + "%" + std::to_string(scope_id_);
-    }
-
     return buf.data();
 }
 

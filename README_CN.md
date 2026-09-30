@@ -9,7 +9,7 @@
 
 > **发布状态：** 预发布阶段，最新版本见 [GitHub Releases](https://github.com/CyberKoo/yaddnsc/releases)。
 > `master` 分支对应已发布版本，`dev` 分支汇集面向下一版本的变更，`v0.x` 分支继续支持
-> 旧工具链。驱动插件的 ABI 在不同构建之间可能发生变化，升级宿主程序后须重新编译外部构建的驱动。
+> 旧工具链。驱动插件 ABI 为 v1 alpha，版本 1.0。major 相同且插件 minor 不高于宿主 minor 时可以加载；major 不同，或插件要求更高的 minor 时，须用当前 SDK 重新编译。
 
 yaddnsc 是一个动态 DNS 客户端。它按配置周期性地获取每条记录的 IP 地址——来源可以
 是本地网络接口、HTTP(S) 端点或组播 DNS——并与 DNS 中当前发布的地址进行比对；两者
@@ -383,7 +383,7 @@ journalctl -u yaddnsc
 | TLS 校验失败 | 检查系统时间、CA 证书包与 `SSL_CERT_FILE`。 |
 | mDNS 无应答 | 确认 `.local` 名称、组播可用性与所选接口。 |
 | 服务启动失败 | 查看 `systemctl status yaddnsc` 与 `journalctl -u yaddnsc`。 |
-| 升级后驱动被拒绝 | 使用当前 SDK 重新编译驱动；宿主要求 ABI 修订号完全一致。 |
+| 升级后驱动被拒绝 | 使用当前 SDK 重新编译驱动；major 不同，或插件要求的 minor 高于宿主时，宿主拒绝加载。 |
 
 ## 其他文档
 

@@ -23,7 +23,8 @@ struct DriverDescriptor {
     std::string author;
     std::string description;
     std::uint64_t capabilities = 0;
-    std::uint32_t api_revision = 0;
+    std::uint16_t abi_major = 0;
+    std::uint16_t abi_minor = 0;
 };
 
 /// PluginModule — one loaded driver plugin: the shared library handle, its
@@ -31,11 +32,11 @@ struct DriverDescriptor {
 /// validated descriptor.
 ///
 /// Loading follows the ABI protocol order: dlopen(RTLD_NOW|RTLD_LOCAL) →
-/// resolve all required entry points → get_descriptor() → magic check → exact
-/// api_revision match → descriptor minimum struct_size check → copy
-/// descriptor fields. Only then may create() be called. The fifth entry
-/// (validate) is optional: it is dlsym-probed and simply stays nullptr when
-/// the plugin predates it.
+/// resolve all required entry points → get_descriptor() → version prefix →
+/// abi_major/abi_minor (`yaddnsc_abi_provides`) → minor baseline struct_size →
+/// magic, strings, and capability bits → copy descriptor fields. Only then
+/// may create() be called. The fifth entry (validate) is optional: it is
+/// dlsym-probed and simply stays nullptr when the plugin does not export it.
 ///
 /// @note Thread-safe for concurrent create/update/destroy calls (they only
 ///       read the entry-point table); load is single-threaded startup work.
@@ -59,9 +60,9 @@ public:
     /// third-party plugin must not let one escape its C frame into the host.
     ///
     /// create() additionally enforces the handle-ownership contract out of
-    /// line (plugin_loader.cpp): a failure return must leave *out_driver
-    /// null, and a handle stored before the failure is destroyed and
-    /// cleared by the host.
+    /// line (plugin_loader.cpp): *out_driver is cleared before the call, a
+    /// failure return leaves it null (a handle stored before the failure is
+    /// destroyed), and OK with a null handle becomes INTERNAL_ERROR.
     [[nodiscard]] yaddnsc_status create(const yaddnsc_host_services& services, yaddnsc_driver** out_driver,
                                         yaddnsc_error& out_error) const;
 
@@ -73,14 +74,15 @@ public:
                                         yaddnsc_error& out_error) const;
 
     /// Whether the plugin exports the OPTIONAL yaddnsc_driver_validate entry
-    /// (added within api_revision 1). Plugins built against an older SDK do
-    /// not export it and are simply skipped during config validation.
+    /// (optional since ABI 1.0). A plugin that does not export it still
+    /// loads. `config test` fails, because the host cannot confirm
+    /// driver_param.
     [[nodiscard]] bool supports_validate() const noexcept { return validate_ != nullptr; }
 
     /// Validate a driver_param JSON against the plugin's schema, behind the
     /// same exception firewall as the other trampolines. When the plugin
-    /// does not export the optional entry this returns OK — the caller must
-    /// treat that as "no driver-side validation", never as an error.
+    /// does not export the optional entry this returns OK. That OK means
+    /// "no driver-side validation", not "the configuration is valid".
     [[nodiscard]] yaddnsc_status validate(yaddnsc_driver* driver, yaddnsc_string driver_param_json,
                                           yaddnsc_error& out_error) const;
 
@@ -91,7 +93,8 @@ private:
     /// honouring the caller-supplied struct_size.  The bounded thread-local
     /// storage makes this noexcept path allocation-free: a plugin exception
     /// must never turn into a second termination while reporting it.
-    static void write_entry_error(yaddnsc_error& out_error, std::string_view message) noexcept;
+    static void write_entry_error(yaddnsc_error& out_error, std::string_view message,
+                                  yaddnsc_status status = YADDNSC_STATUS_INTERNAL_ERROR) noexcept;
 
     SharedLibrary library_;
     decltype(&yaddnsc_driver_get_descriptor) get_descriptor_ = nullptr;

@@ -118,6 +118,19 @@ struct RawPlugin {
 }  // namespace
 
 // ===========================================================================
+//  ABI major.minor
+// ===========================================================================
+
+TEST(DriverAbiContract, AbiProvidesIsTheHostRule) {
+    EXPECT_TRUE(yaddnsc_abi_provides(1, 1, 1, 0));
+    EXPECT_FALSE(yaddnsc_abi_provides(1, 0, 1, 1));
+    EXPECT_FALSE(yaddnsc_abi_provides(2, 0, 1, 0));
+    EXPECT_FALSE(yaddnsc_abi_provides(1, 0, 2, 0));
+    EXPECT_TRUE(yaddnsc_abi_provides(YADDNSC_DRIVER_ABI_MAJOR, YADDNSC_DRIVER_ABI_MINOR, YADDNSC_DRIVER_ABI_MAJOR,
+                                     YADDNSC_DRIVER_ABI_MINOR));
+}
+
+// ===========================================================================
 //  get_descriptor / create / destroy / update — entry-point validation
 // ===========================================================================
 
@@ -131,7 +144,8 @@ TEST(DriverAbiContract, GetDescriptorRejectsNullOut) {
     ASSERT_EQ(raw.get_descriptor(&descriptor), YADDNSC_STATUS_OK);
     ASSERT_NE(descriptor, nullptr);
     EXPECT_EQ(descriptor->struct_size, sizeof(yaddnsc_driver_descriptor));
-    EXPECT_EQ(descriptor->api_revision, YADDNSC_DRIVER_API_REVISION);
+    EXPECT_EQ(descriptor->abi_major, YADDNSC_DRIVER_ABI_MAJOR);
+    EXPECT_EQ(descriptor->abi_minor, YADDNSC_DRIVER_ABI_MINOR);
     EXPECT_EQ(descriptor->magic, YADDNSC_DRIVER_MAGIC);
     EXPECT_EQ(std::string_view(descriptor->name.data, descriptor->name.size), "test_driver_plugin");
 }
@@ -151,14 +165,26 @@ TEST(DriverAbiContract, CreateValidatesItsArguments) {
     EXPECT_EQ(handle, nullptr);
     // out_driver == NULL
     EXPECT_EQ(raw.create(&services, nullptr, &error), YADDNSC_STATUS_INVALID_ARGUMENT);
-    // services struct_size below the required prefix
+    // version is readable, but struct_size stops short of the ABI 1.0 baseline
     auto small_services = services;
     small_services.struct_size = YADDNSC_HOST_SERVICES_MIN_SIZE - 1;
     EXPECT_EQ(raw.create(&small_services, &handle, &error), YADDNSC_STATUS_INVALID_ARGUMENT);
-    // services api_revision mismatch
-    auto wrong_revision = services;
-    wrong_revision.api_revision = YADDNSC_DRIVER_API_REVISION + 1;
-    EXPECT_EQ(raw.create(&wrong_revision, &handle, &error), YADDNSC_STATUS_INVALID_ARGUMENT);
+    // struct_size does not cover abi_major
+    auto below_prefix = services;
+    below_prefix.struct_size = YADDNSC_ABI_VERSION_PREFIX_SIZE - 1;
+    EXPECT_EQ(raw.create(&below_prefix, &handle, &error), YADDNSC_STATUS_INVALID_ARGUMENT);
+    // a different major is rejected
+    auto wrong_major = services;
+    wrong_major.abi_major = static_cast<uint16_t>(YADDNSC_DRIVER_ABI_MAJOR + 1);
+    EXPECT_EQ(raw.create(&wrong_major, &handle, &error), YADDNSC_STATUS_INVALID_ARGUMENT);
+    EXPECT_EQ(handle, nullptr);
+    // a newer host minor still provides ABI 1.0
+    auto newer_minor = services;
+    newer_minor.abi_minor = static_cast<uint16_t>(YADDNSC_DRIVER_ABI_MINOR + 1);
+    ASSERT_EQ(raw.create(&newer_minor, &handle, &error), YADDNSC_STATUS_OK);
+    ASSERT_NE(handle, nullptr);
+    raw.destroy(handle);
+    handle = nullptr;
     // null function pointers
     for (auto broken = services;;) {
         broken.context = nullptr;
@@ -537,6 +563,46 @@ TEST(DriverAbiContract, OperationCancellationBlocksHttpAndMatchesPluginPredicate
     EXPECT_EQ(services.http_exchange(services.context, &request, &response, &error), YADDNSC_STATUS_CANCELLED);
     EXPECT_EQ(error.status, YADDNSC_STATUS_CANCELLED);
     EXPECT_EQ(host.client.request_count(), 0u);
+}
+
+TEST(DriverAbiContract, HttpStatusCodeIsForwardedUnvalidated) {
+    HostUpdateContext host;
+    const auto services = host.context.make_services();
+    const auto request = make_http_request("http://localhost/x");
+
+    for (const int status : {99, 700}) {
+        host.client.queue_response(status, "odd");
+        yaddnsc_http_response response{};
+        response.struct_size = static_cast<uint32_t>(sizeof(response));
+        yaddnsc_error error = make_error_buffer();
+        ASSERT_EQ(services.http_exchange(services.context, &request, &response, &error), YADDNSC_STATUS_OK);
+        EXPECT_EQ(response.status_code, static_cast<uint32_t>(status));
+    }
+}
+
+TEST(DriverAbiContract, AbsentBodyAndEmptyBodyStayDistinct) {
+    HostUpdateContext host;
+    const auto services = host.context.make_services();
+    yaddnsc_http_response response{};
+    response.struct_size = static_cast<uint32_t>(sizeof(response));
+    yaddnsc_error error = make_error_buffer();
+
+    auto absent = make_http_request("http://localhost/absent");
+    absent.body = {nullptr, 0};
+    host.client.queue_response(204, "");
+    ASSERT_EQ(services.http_exchange(services.context, &absent, &response, &error), YADDNSC_STATUS_OK);
+
+    const uint8_t empty_byte = 0;
+    auto empty = make_http_request("http://localhost/empty");
+    empty.body = {&empty_byte, 0};
+    host.client.queue_response(204, "");
+    ASSERT_EQ(services.http_exchange(services.context, &empty, &response, &error), YADDNSC_STATUS_OK);
+
+    const auto captured = host.client.requests();
+    ASSERT_EQ(captured.size(), 2u);
+    EXPECT_FALSE(captured[0].body.has_value());
+    ASSERT_TRUE(captured[1].body.has_value());
+    EXPECT_TRUE(captured[1].body->empty());
 }
 
 TEST(DriverAbiContract, Http4xxIsDeliveredAsResponse) {

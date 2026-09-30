@@ -23,8 +23,8 @@ namespace {
 [[nodiscard]] bool is_managed_header(const std::string_view name) noexcept {
     return StringUtil::iequals(name, "host") || StringUtil::iequals(name, "content-length") ||
            StringUtil::iequals(name, "content-type") || StringUtil::iequals(name, "connection") ||
-           StringUtil::iequals(name, "transfer-encoding") || StringUtil::iequals(name, "trailer") ||
-           StringUtil::iequals(name, "upgrade");
+           StringUtil::iequals(name, "user-agent") || StringUtil::iequals(name, "transfer-encoding") ||
+           StringUtil::iequals(name, "trailer") || StringUtil::iequals(name, "upgrade");
 }
 
 }  // namespace

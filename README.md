@@ -10,8 +10,9 @@
 > **Status:** pre-release — see [GitHub Releases](https://github.com/CyberKoo/yaddnsc/releases)
 > for the latest version. `master` tracks releases, `dev` accumulates changes
 > intended for the next one, and `v0.x` remains available for older toolchains.
-> The driver plugin ABI may change between builds; recompile externally built
-> drivers after upgrading.
+> The driver plugin ABI is v1 alpha, version 1.0. A plugin loads when its
+> major matches and its minor is no higher than the host's. A different major,
+> or a plugin that requires a newer minor, needs a rebuild against the current SDK.
 
 yaddnsc is a dynamic DNS client. For every configured record it periodically
 acquires an IP address — from a local network interface, an HTTP(S) endpoint,
@@ -415,7 +416,7 @@ inaccessible to unrelated accounts.
 | TLS verification fails | Check system time, the CA bundle, and `SSL_CERT_FILE`. |
 | mDNS yields no answer | Verify the `.local` name, multicast availability, and the selected interface. |
 | Service fails to start | Inspect `systemctl status yaddnsc` and `journalctl -u yaddnsc`. |
-| Driver rejected after upgrade | Rebuild the driver against the current SDK; the host requires an exact ABI revision match. |
+| Driver rejected after upgrade | Rebuild the driver against the current SDK when its ABI major differs or it requires a newer minor than the host provides. |
 
 ## Further Documentation
 

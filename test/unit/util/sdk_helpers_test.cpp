@@ -16,12 +16,15 @@
 #include <array>
 #include <cstdint>
 #include <initializer_list>
+#include <limits>
 #include <map>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <utility>
 #include <vector>
 
+#include <format>
 #include <gtest/gtest.h>
 #include <yaddnsc/sdk/driver.hpp>
 #include <yaddnsc/sdk/form_encode.hpp>
@@ -44,7 +47,8 @@ struct MalformedResponseHost {
     [[nodiscard]] yaddnsc_host_services table() noexcept {
         return {
             .struct_size = static_cast<uint32_t>(sizeof(yaddnsc_host_services)),
-            .api_revision = YADDNSC_DRIVER_API_REVISION,
+            .abi_major = YADDNSC_DRIVER_ABI_MAJOR,
+            .abi_minor = YADDNSC_DRIVER_ABI_MINOR,
             .context = this,
             .log = &log,
             .http_exchange = &exchange,
@@ -63,7 +67,7 @@ private:
         return self.status;
     }
 
-    static int is_cancelled(void*) noexcept { return 0; }
+    static int32_t is_cancelled(void*) noexcept { return 0; }
 };
 
 [[nodiscard]] yaddnsc::sdk::HttpRequest exchange_request() {
@@ -132,6 +136,174 @@ TEST(SdkHelpersTest, ServicesRejectsMalformedHostErrorReports) {
     host.status = UINT32_C(99);
     host.error.status = UINT32_C(99);
     expect_contract_failure(services.exchange(exchange_request()));
+}
+
+struct ThrowingFormatArg {};
+
+template<>
+struct std::formatter<ThrowingFormatArg, char> {
+    constexpr auto parse(std::format_parse_context& ctx) { return ctx.begin(); }
+
+    template<class FormatContext>
+    auto format(const ThrowingFormatArg&, FormatContext& ctx) const {
+        throw std::runtime_error("format failed");
+        return ctx.out();
+    }
+};
+
+class LongMessageDriver final : public yaddnsc::sdk::Driver {
+public:
+    LongMessageDriver() { throw std::runtime_error(std::string(800, 'x')); }
+
+    yaddnsc::sdk::Result update(yaddnsc::sdk::UpdateContext&) override { return {}; }
+};
+
+class UpdateThrowDriver final : public yaddnsc::sdk::Driver {
+public:
+    yaddnsc::sdk::Result update(yaddnsc::sdk::UpdateContext&) override {
+        throw std::runtime_error(std::string(800, 'y'));
+    }
+};
+
+class LogThrowDriver final : public yaddnsc::sdk::Driver {
+public:
+    yaddnsc::sdk::Result update(yaddnsc::sdk::UpdateContext& context) override {
+        YADDNSC_SDK_LOG_INFO(context, "{}", ThrowingFormatArg{});
+        return {};
+    }
+};
+
+struct StubHost {
+    [[nodiscard]] yaddnsc_host_services table() noexcept {
+        return {
+            .struct_size = static_cast<uint32_t>(sizeof(yaddnsc_host_services)),
+            .abi_major = YADDNSC_DRIVER_ABI_MAJOR,
+            .abi_minor = YADDNSC_DRIVER_ABI_MINOR,
+            .context = this,
+            .log = &log,
+            .http_exchange = &exchange,
+            .is_cancelled = &is_cancelled,
+        };
+    }
+
+    static void log(void*, yaddnsc_log_level, yaddnsc_string, const yaddnsc_source_location*) noexcept {}
+
+    static yaddnsc_status exchange(void*, const yaddnsc_http_request*, yaddnsc_http_response* out_response,
+                                   yaddnsc_error*) noexcept {
+        out_response->status_code = 204;
+        out_response->headers = nullptr;
+        out_response->header_count = 0;
+        out_response->body = {};
+        return YADDNSC_STATUS_OK;
+    }
+
+    static int32_t is_cancelled(void*) noexcept { return 0; }
+};
+
+struct BodyCaptureHost {
+    yaddnsc_bytes seen{};
+
+    [[nodiscard]] yaddnsc_host_services table() noexcept {
+        return {
+            .struct_size = static_cast<uint32_t>(sizeof(yaddnsc_host_services)),
+            .abi_major = YADDNSC_DRIVER_ABI_MAJOR,
+            .abi_minor = YADDNSC_DRIVER_ABI_MINOR,
+            .context = this,
+            .log = &StubHost::log,
+            .http_exchange = &exchange,
+            .is_cancelled = &StubHost::is_cancelled,
+        };
+    }
+
+    static yaddnsc_status exchange(void* context, const yaddnsc_http_request* request,
+                                   yaddnsc_http_response* out_response, yaddnsc_error*) noexcept {
+        static_cast<BodyCaptureHost*>(context)->seen = request->body;
+        out_response->status_code = 204;
+        out_response->headers = nullptr;
+        out_response->header_count = 0;
+        out_response->body = {};
+        return YADDNSC_STATUS_OK;
+    }
+};
+
+[[nodiscard]] yaddnsc_update_request blank_update_request() {
+    yaddnsc_update_request request{};
+    request.struct_size = static_cast<uint32_t>(sizeof(request));
+    return request;
+}
+
+TEST(SdkHelpersTest, CreateExceptionMessageIsTruncatedWithoutThrowing) {
+    StubHost host;
+    const auto table = host.table();
+    yaddnsc_driver* handle = nullptr;
+    yaddnsc_error error{};
+    error.struct_size = static_cast<uint32_t>(sizeof(error));
+
+    const auto status = yaddnsc::sdk::detail::create_driver<LongMessageDriver>(&table, &handle, &error);
+    EXPECT_EQ(status, YADDNSC_STATUS_INTERNAL_ERROR);
+    EXPECT_EQ(handle, nullptr);
+    EXPECT_EQ(error.status, YADDNSC_STATUS_INTERNAL_ERROR);
+    ASSERT_NE(error.message.data, nullptr);
+    EXPECT_EQ(error.message.size, 511u);
+    EXPECT_EQ(std::string(error.message.data, error.message.size), std::string(511, 'x'));
+}
+
+TEST(SdkHelpersTest, UpdateExceptionMessageIsTruncatedWithoutThrowing) {
+    StubHost host;
+    const auto table = host.table();
+    yaddnsc_driver* handle = nullptr;
+    yaddnsc_error error{};
+    error.struct_size = static_cast<uint32_t>(sizeof(error));
+    ASSERT_EQ(yaddnsc::sdk::detail::create_driver<UpdateThrowDriver>(&table, &handle, &error), YADDNSC_STATUS_OK);
+    ASSERT_NE(handle, nullptr);
+
+    error = {};
+    error.struct_size = static_cast<uint32_t>(sizeof(error));
+    const auto request = blank_update_request();
+    const auto status = yaddnsc::sdk::detail::update_driver(handle, &request, &error);
+    EXPECT_EQ(status, YADDNSC_STATUS_INTERNAL_ERROR);
+    EXPECT_EQ(error.status, YADDNSC_STATUS_INTERNAL_ERROR);
+    ASSERT_NE(error.message.data, nullptr);
+    EXPECT_EQ(error.message.size, 511u);
+    EXPECT_EQ(std::string(error.message.data, error.message.size), std::string(511, 'y'));
+
+    yaddnsc::sdk::detail::destroy_driver(handle);
+}
+
+TEST(SdkHelpersTest, LogFormatFailureDoesNotFailUpdate) {
+    StubHost host;
+    const auto table = host.table();
+    yaddnsc_driver* handle = nullptr;
+    yaddnsc_error error{};
+    error.struct_size = static_cast<uint32_t>(sizeof(error));
+    ASSERT_EQ(yaddnsc::sdk::detail::create_driver<LogThrowDriver>(&table, &handle, &error), YADDNSC_STATUS_OK);
+
+    error = {};
+    error.struct_size = static_cast<uint32_t>(sizeof(error));
+    const auto request = blank_update_request();
+    EXPECT_EQ(yaddnsc::sdk::detail::update_driver(handle, &request, &error), YADDNSC_STATUS_OK);
+
+    yaddnsc::sdk::detail::destroy_driver(handle);
+}
+
+TEST(SdkHelpersTest, ExchangeDistinguishesAbsentAndEmptyBody) {
+    BodyCaptureHost host;
+    const auto table = host.table();
+    const yaddnsc::sdk::Services services(&table);
+
+    yaddnsc::sdk::HttpRequest absent;
+    absent.url = "https://example.com";
+    absent.body = std::nullopt;
+    ASSERT_TRUE(services.exchange(absent).has_value());
+    EXPECT_EQ(host.seen.data, nullptr);
+    EXPECT_EQ(host.seen.size, 0u);
+
+    yaddnsc::sdk::HttpRequest empty;
+    empty.url = "https://example.com";
+    empty.body = std::string{};
+    ASSERT_TRUE(services.exchange(empty).has_value());
+    EXPECT_NE(host.seen.data, nullptr);
+    EXPECT_EQ(host.seen.size, 0u);
 }
 
 // ===========================================================================
@@ -392,4 +564,44 @@ TEST(SdkHelpersTest, FormEncodeComponent_EncodesUtf8Bytes) {
 TEST(SdkHelpersTest, FormEncode_Form_JoinsPairs) {
     const std::multimap<std::string, std::string> params{{"k1", "v 1"}, {"k2", "v&2"}};
     EXPECT_EQ(yaddnsc::sdk::encode_form(params), "k1=v+1&k2=v%262");
+}
+
+namespace {
+
+using yaddnsc::sdk::HttpHeaderView;
+using yaddnsc::sdk::HttpResponse;
+using yaddnsc::sdk::detail::classify_upstream_failure;
+using yaddnsc::sdk::detail::retry_after_seconds;
+
+HttpResponse response_with(uint32_t status, std::initializer_list<HttpHeaderView> headers) {
+    return HttpResponse{.status_code = status, .headers = {headers.begin(), headers.end()}, .body = {}};
+}
+
+}  // namespace
+
+TEST(SdkHelpersTest, ClassifyUpstreamFailure_AuthAndRateLimit) {
+    EXPECT_EQ(classify_upstream_failure(response_with(401, {})).status, YADDNSC_STATUS_AUTHENTICATION_FAILED);
+    EXPECT_EQ(classify_upstream_failure(response_with(403, {})).status, YADDNSC_STATUS_AUTHENTICATION_FAILED);
+    EXPECT_EQ(classify_upstream_failure(response_with(400, {})).status, YADDNSC_STATUS_UPSTREAM_REJECTED);
+    EXPECT_EQ(classify_upstream_failure(response_with(500, {})).status, YADDNSC_STATUS_UPSTREAM_REJECTED);
+
+    const auto limited = classify_upstream_failure(response_with(429, {{"retry-after", "45"}}));
+    EXPECT_EQ(limited.status, YADDNSC_STATUS_RATE_LIMITED);
+    EXPECT_EQ(limited.retry_after_seconds, 45u);
+
+    const auto auth_with_hint = classify_upstream_failure(response_with(401, {{"Retry-After", "30"}}));
+    EXPECT_EQ(auth_with_hint.status, YADDNSC_STATUS_AUTHENTICATION_FAILED);
+    EXPECT_EQ(auth_with_hint.retry_after_seconds, 0u);
+}
+
+TEST(SdkHelpersTest, RetryAfter_DelaySecondsAndHttpDate) {
+    EXPECT_EQ(retry_after_seconds(response_with(429, {{"Retry-After", "  12  "}})), 12u);
+    EXPECT_EQ(retry_after_seconds(response_with(429, {{"Retry-After", "99999999999"}})),
+              std::numeric_limits<uint32_t>::max());
+    EXPECT_EQ(retry_after_seconds(response_with(429, {{"Retry-After", "soon"}, {"Retry-After", "30"}})), 0u);
+    EXPECT_EQ(retry_after_seconds(response_with(429, {{"Retry-After", "Sun, 06 Nov 1994 08:49:37 GMT"}})), 0u);
+
+    const auto future = retry_after_seconds(response_with(429, {{"Retry-After", "Tue, 01 Jan 2036 00:00:00 GMT"}}));
+    EXPECT_GT(future, 0u);
+    EXPECT_LT(future, std::numeric_limits<uint32_t>::max());
 }

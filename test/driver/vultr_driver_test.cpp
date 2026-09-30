@@ -9,6 +9,7 @@
 //   - update with missing config fields returns INVALID_CONFIG.
 //   - update succeeds for HTTP 204 No Content.
 //   - update returns UPSTREAM_REJECTED for non-204 / error bodies.
+//   - HTTP 401 is AUTHENTICATION_FAILED; HTTP 429 is RATE_LIMITED.
 // =============================================================================
 
 #include <optional>
@@ -37,7 +38,8 @@ TEST(VultrDriverTest, Descriptor_ReturnsExpectedMetadata) {
     ASSERT_EQ(yaddnsc_driver_get_descriptor(&descriptor), YADDNSC_STATUS_OK);
     ASSERT_NE(descriptor, nullptr);
     EXPECT_EQ(descriptor->magic, YADDNSC_DRIVER_MAGIC);
-    EXPECT_EQ(descriptor->api_revision, YADDNSC_DRIVER_API_REVISION);
+    EXPECT_EQ(descriptor->abi_major, YADDNSC_DRIVER_ABI_MAJOR);
+    EXPECT_EQ(descriptor->abi_minor, YADDNSC_DRIVER_ABI_MINOR);
     EXPECT_EQ(std::string_view(descriptor->name.data, descriptor->name.size), "vultr");
     EXPECT_EQ(std::string_view(descriptor->description.data, descriptor->description.size),
               "Updates DNS records via the Vultr API");
@@ -125,11 +127,20 @@ TEST(VultrDriverTest, Update_Non204_WithErrorBody_ReturnsUpstreamRejected) {
     EXPECT_EQ(result.status, YADDNSC_STATUS_UPSTREAM_REJECTED);
 }
 
-TEST(VultrDriverTest, Update_Non204_AuthError_ReturnsUpstreamRejected) {
+TEST(VultrDriverTest, Update_Non204_AuthError_ReturnsAuthenticationFailed) {
     FakeHostServices fake;
     fake.queue_response(401, R"({"error":"Invalid API key","status":401})");
     const auto result = run_abi_update(fake, CONFIG, "1.2.3.4", "A", "example.com", "www", "www.example.com");
-    EXPECT_EQ(result.status, YADDNSC_STATUS_UPSTREAM_REJECTED);
+    EXPECT_EQ(result.status, YADDNSC_STATUS_AUTHENTICATION_FAILED);
+    EXPECT_EQ(result.retry_after_seconds, 0u);
+}
+
+TEST(VultrDriverTest, Update_TooManyRequests_ReturnsRateLimited) {
+    FakeHostServices fake;
+    fake.queue_response(429, R"({"error":"rate limit"})", {{"Retry-After", "30"}});
+    const auto result = run_abi_update(fake, CONFIG, "1.2.3.4", "A", "example.com", "www", "www.example.com");
+    EXPECT_EQ(result.status, YADDNSC_STATUS_RATE_LIMITED);
+    EXPECT_EQ(result.retry_after_seconds, 30u);
 }
 
 TEST(VultrDriverTest, Update_Non204_UnparseableBody_ReturnsUpstreamRejected) {

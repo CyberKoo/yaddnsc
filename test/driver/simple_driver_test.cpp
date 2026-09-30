@@ -6,7 +6,8 @@
 //   - update substitutes URL template variables (context + config params) correctly.
 //   - update with missing/non-object/non-string url config returns INVALID_CONFIG.
 //   - update succeeds for 2xx responses with a non-empty body.
-//   - update returns UPSTREAM_REJECTED for 3xx/4xx/5xx status codes.
+//   - update returns AUTHENTICATION_FAILED for 401/403, RATE_LIMITED for 429,
+//     and UPSTREAM_REJECTED for every other 3xx/4xx/5xx status.
 //   - update returns UPSTREAM_REJECTED for 2xx responses with an empty body.
 // =============================================================================
 
@@ -27,7 +28,8 @@ TEST(SimpleDriverTest, Descriptor_ReturnsExpectedMetadata) {
     ASSERT_EQ(yaddnsc_driver_get_descriptor(&descriptor), YADDNSC_STATUS_OK);
     ASSERT_NE(descriptor, nullptr);
     EXPECT_EQ(descriptor->magic, YADDNSC_DRIVER_MAGIC);
-    EXPECT_EQ(descriptor->api_revision, YADDNSC_DRIVER_API_REVISION);
+    EXPECT_EQ(descriptor->abi_major, YADDNSC_DRIVER_ABI_MAJOR);
+    EXPECT_EQ(descriptor->abi_minor, YADDNSC_DRIVER_ABI_MINOR);
     EXPECT_EQ(std::string_view(descriptor->name.data, descriptor->name.size), "simple");
     EXPECT_EQ(std::string_view(descriptor->description.data, descriptor->description.size),
               "Generic HTTP driver with URL template substitution");

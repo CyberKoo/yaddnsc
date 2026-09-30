@@ -62,7 +62,7 @@ struct PluginError {
     enum class Code {
         LOAD_FAILED,         ///< dlopen failed (not a loadable module)
         MISSING_SYMBOL,      ///< A required entry point is absent
-        ABI_MISMATCH,        ///< Magic number or api_revision mismatch
+        ABI_MISMATCH,        ///< Magic number or ABI major/minor mismatch
         CONTRACT_VIOLATION,  ///< The plugin violated the ABI contract at runtime
     };
     Code code;
@@ -75,7 +75,7 @@ struct PluginError {
 /// moves the task's next deadline to honour the backoff.
 struct DriverError {
     enum class Code {
-        UPDATE_FAILED,  ///< Driver executed but reported failure (e.g. upstream rejected)
+        UPDATE_FAILED,  ///< Update was not applied (e.g. upstream rejected, or the host refused the record type)
         NOT_FOUND,      ///< Referenced driver is not loaded
         RATE_LIMITED,   ///< Upstream rate-limited the request
         CANCELLED,      ///< Aborted via cancellation
