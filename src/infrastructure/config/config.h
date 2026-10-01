@@ -12,7 +12,6 @@
 #include <glaze/json/generic_fwd.hpp>
 
 #include "domain/config/dns_config.h"
-#include "domain/network/address_family.h"
 
 enum class RecordKind;
 
@@ -47,8 +46,7 @@ struct SubdomainConfig {
     /// the config file — the normaliser then falls back to A (with a
     /// warning) so legacy configs keep working.
     std::optional<RecordKind> type{};
-    std::string interface{};                            ///< Network interface name (for INTERFACE IP source)
-    AddressFamily ip_type{AddressFamily::UNSPECIFIED};  ///< Preferred address family
+    std::string interface{};  ///< Network interface name (for INTERFACE IP source)
     /// IP source backend. Disengaged when the key is absent from the config
     /// file — the normaliser then falls back to INTERFACE (with a warning).
     std::optional<IpSource> ip_source{};

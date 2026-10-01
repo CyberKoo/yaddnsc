@@ -161,6 +161,9 @@ private:
         if (req.method == "GET" && req.target == "/ip") {
             return response(200, "203.0.113.7");
         }
+        if (req.method == "GET" && req.target == "/ipv6") {
+            return response(200, "2001:db8::7");
+        }
         if (req.method == "GET" && req.target == "/bad") {
             return response(200, "not-an-ip-address");
         }
@@ -326,6 +329,39 @@ TEST_F(HttpFixture, HttpIpSource_ResolvesIpFromBody) {
     ASSERT_TRUE(result.has_value()) << result.error().message;
     ASSERT_EQ(result->size(), 1U);
     EXPECT_EQ(result->front().to_string(), "203.0.113.7");
+}
+
+TEST_F(HttpFixture, HttpIpSource_Ipv4SourceRejectsIpv6Body) {
+    const HttpIpSource source(server_.base_url() + "/ipv6", AddressFamily::IPV4);
+    const auto result = source.resolve({});
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error().code, domain::IpSourceError::Code::UNAVAILABLE);
+    EXPECT_NE(result.error().message.find("wrong family"), std::string::npos);
+}
+
+TEST_F(HttpFixture, HttpIpSource_Ipv6SourceRejectsIpv4Body) {
+    // An IP-literal origin uses IPv4 transport even when the source expects IPv6 content.
+    const HttpIpSource source(server_.base_url() + "/ip", AddressFamily::IPV6);
+    const auto result = source.resolve({});
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error().code, domain::IpSourceError::Code::UNAVAILABLE);
+    EXPECT_NE(result.error().message.find("wrong family"), std::string::npos);
+}
+
+TEST_F(HttpFixture, HttpIpSource_MatchingFamilyAcceptsBody) {
+    const HttpIpSource source(server_.base_url() + "/ipv6", AddressFamily::IPV6);
+    const auto result = source.resolve({});
+    ASSERT_TRUE(result.has_value()) << result.error().message;
+    ASSERT_EQ(result->size(), 1U);
+    EXPECT_EQ(result->front().to_string(), "2001:db8::7");
+}
+
+TEST_F(HttpFixture, HttpIpSource_UnspecifiedFamilyAcceptsIpv6Body) {
+    const HttpIpSource source(server_.base_url() + "/ipv6");
+    const auto result = source.resolve({});
+    ASSERT_TRUE(result.has_value()) << result.error().message;
+    ASSERT_EQ(result->size(), 1U);
+    EXPECT_EQ(result->front().to_string(), "2001:db8::7");
 }
 
 TEST_F(HttpFixture, HttpIpSource_UnparseableBodyReturnsUnavailable) {

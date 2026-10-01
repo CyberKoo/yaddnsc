@@ -10,7 +10,6 @@
 #include "domain/config/dns_config.h"
 #include "domain/config/ip_source_kind.h"
 #include "domain/dns/record_kind.h"
-#include "domain/network/address_family.h"
 
 #include "config.h"
 
@@ -51,8 +50,8 @@ template<>
 struct glz::meta<Config::SubdomainConfig> {
     using T = Config::SubdomainConfig;
     static constexpr auto value =
-        object("name", &T::name, "type", &T::type, "interface", &T::interface, "ip_type", &T::ip_type, "ip_source",
-               &T::ip_source, "ip_source_param", &T::ip_source_param, "allow_ula", &T::allow_ula, "allow_local_link",
+        object("name", &T::name, "type", &T::type, "interface", &T::interface, "ip_source", &T::ip_source,
+               "ip_source_param", &T::ip_source_param, "allow_ula", &T::allow_ula, "allow_local_link",
                &T::allow_local_link, "update_interval", &T::update_interval, "driver_param", &T::driver_param);
 };
 
@@ -87,13 +86,6 @@ template<>
 struct glz::meta<RecordKind> {
     using enum RecordKind;
     static constexpr auto value = enumerate("a", A, "aaaa", AAAA, "txt", TXT);
-};
-
-/// glz::meta specialisation for AddressFamily enum JSON mapping.
-template<>
-struct glz::meta<AddressFamily> {
-    using enum AddressFamily;
-    static constexpr auto value = enumerate("ipv6", IPV6, "ipv4", IPV4, "unspecified", UNSPECIFIED);
 };
 
 #endif  // YADDNSC_CONFIG_PARSER_HPP

@@ -285,7 +285,6 @@ TEST(NormalizerTest, SubdomainFields_PassedThrough) {
     auto& sub = raw.domains[0].subdomains[0];
     sub.type = RecordKind::AAAA;
     sub.interface = "eth0";
-    sub.ip_type = AddressFamily::IPV6;
     sub.allow_ula = true;
     sub.allow_local_link = true;
 
@@ -294,7 +293,6 @@ TEST(NormalizerTest, SubdomainFields_PassedThrough) {
     EXPECT_EQ(out.name, "www");
     EXPECT_EQ(out.type, RecordKind::AAAA);
     EXPECT_EQ(out.interface, "eth0");
-    EXPECT_EQ(out.ip_type, AddressFamily::IPV6);
     EXPECT_EQ(out.ip_source, Config::IpSource::HTTP);
     EXPECT_EQ(out.ip_source_param, "https://api.ipify.org");
     EXPECT_TRUE(out.allow_ula);

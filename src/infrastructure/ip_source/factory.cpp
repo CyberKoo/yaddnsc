@@ -45,7 +45,7 @@ namespace {
 /// @param cfg  The subdomain configuration record.
 /// @return     A unique pointer to the concrete IP source implementation.
 IpSourceFactory::Result IpSourceFactory::create(const domain::SubdomainConfig& cfg, net::http::Options http_options) {
-    auto address_family = type_to_family(cfg.type);
+    const auto address_family = type_to_family(cfg.type);
 
     try {
         switch (cfg.ip_source) {

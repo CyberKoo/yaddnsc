@@ -104,12 +104,23 @@ TEST(AddressPolicy, Aaaa_FirstSurvivorWins) {
     EXPECT_EQ(picked->to_string(), "2001:db8::1");
 }
 
-// ── A records never filter, even with IPv6-looking content in the list ───────
+TEST(AddressPolicy, SelectAddress_ARecordWithOnlyIpv6_ReturnsNoAddress) {
+    EXPECT_FALSE(domain::select_address({v6_link_local()}, RecordKind::A, NONE_ALLOWED).has_value());
+}
 
-TEST(AddressPolicy, ARecord_NeverFiltersV6Candidates) {
-    // An A task handed only IPv6 candidates keeps them (family filtering is
-    // the IP source's job via ip_type, not the address policy's).
-    const auto picked = domain::select_address({v6_link_local()}, RecordKind::A, NONE_ALLOWED);
-    ASSERT_TRUE(picked.has_value());
-    EXPECT_EQ(picked->to_string(), "fe80::1");
+TEST(AddressPolicy, SelectAddress_AaaaRecordWithOnlyIpv4_ReturnsNoAddress) {
+    const auto ipv4 = InetAddress::parse("203.0.113.1");
+    ASSERT_TRUE(ipv4.has_value());
+    EXPECT_FALSE(domain::select_address({*ipv4}, RecordKind::AAAA, ALL_ALLOWED).has_value());
+}
+
+TEST(AddressPolicy, SelectAddress_MixedFamilies_SelectsMatchingRecordFamily) {
+    const auto ipv4 = InetAddress::parse("203.0.113.1");
+    ASSERT_TRUE(ipv4.has_value());
+    const auto a = domain::select_address({v6_global(), *ipv4}, RecordKind::A, ALL_ALLOWED);
+    ASSERT_TRUE(a.has_value());
+    EXPECT_EQ(a->to_string(), "203.0.113.1");
+    const auto aaaa = domain::select_address({*ipv4, v6_global()}, RecordKind::AAAA, ALL_ALLOWED);
+    ASSERT_TRUE(aaaa.has_value());
+    EXPECT_EQ(aaaa->to_string(), "2001:db8::1");
 }

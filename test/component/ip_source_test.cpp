@@ -13,6 +13,7 @@
 #include "domain/error/error.h"
 #include "domain/network/address_family.h"
 #include "domain/network/inet_address.h"
+#include "infrastructure/ip_source/factory.h"
 #include "infrastructure/ip_source/iface.h"
 #include "infrastructure/ip_source/iface_util.h"
 #include "infrastructure/network/net_devices.h"
@@ -25,6 +26,20 @@ const std::string LOOPBACK = NetDevices::loopback_name();
 // ===========================================================================
 // InterfaceIpSource — resolve with loopback
 // ===========================================================================
+
+TEST(IpSourceFactory, Create_ARecord_UsesIpv4Family) {
+    domain::SubdomainConfig config;
+    config.type = RecordKind::A;
+    config.interface = LOOPBACK;
+    const auto source = IpSourceFactory::create(config, {});
+    ASSERT_TRUE(source.has_value());
+    const auto result = (*source)->resolve({});
+    ASSERT_TRUE(result.has_value());
+    ASSERT_FALSE(result->empty());
+    for (const auto& addr : *result) {
+        EXPECT_EQ(addr.get_family(), AddressFamily::IPV4);
+    }
+}
 
 TEST(InterfaceIpSourceTest, Resolve_Loopback_ReturnsNonEmpty) {
     InterfaceIpSource src(LOOPBACK, AddressFamily::UNSPECIFIED);

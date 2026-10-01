@@ -56,11 +56,10 @@ public:
     std::string sent;
 
     void feed(std::string data) { script.push_back(std::move(data)); }
+
     void feed_eof() { script.push_back(std::nullopt); }
 
-    [[nodiscard]] std::expected<void, IoError> ensure_connected(const Utils::CancellationToken&) override {
-        return {};
-    }
+    [[nodiscard]] std::expected<void, IoError> ensure_connected(const Utils::CancellationToken&) override { return {}; }
 
     void close() noexcept override {}
 
@@ -358,8 +357,7 @@ TEST(Exchange, ParseHeaders_InvalidConnectionTokenList_ReturnsParseFailed) {
 
 TEST(Exchange, ParseHeaders_MultipleTransferEncodingHeaders_ReturnsParseFailed) {
     FakeStream stream;
-    stream.feed(
-        "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nTransfer-Encoding: chunked\r\n\r\n0\r\n\r\n");
+    stream.feed("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nTransfer-Encoding: chunked\r\n\r\n0\r\n\r\n");
     EXPECT_EQ(expect_err(stream, make_req()), ErrorCode::RESPONSE_PARSE_FAILED);
 }
 
@@ -660,8 +658,7 @@ TEST(Exchange, Chunked_QuotedExtensionWithTrailingBackslash_ReturnsParseFailed) 
 TEST(Exchange, Chunked_QuotedExtensionWithControlChar_ReturnsParseFailed) {
     FakeStream stream;
     stream.feed("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n");
-    stream.feed(std::string("2;name=\"a\x01")
-                 + "b\"\r\nhi\r\n0\r\n\r\n");
+    stream.feed(std::string("2;name=\"a\x01") + "b\"\r\nhi\r\n0\r\n\r\n");
     EXPECT_EQ(expect_err(stream, make_req()), ErrorCode::RESPONSE_PARSE_FAILED);
 }
 
@@ -853,6 +850,35 @@ TEST(Exchange, Interim100_IsConsumedAndFinalResponseParsed) {
     const auto response = expect_ok(stream, make_req());
     EXPECT_EQ(response.status, 200);
     EXPECT_EQ(response.text(), "ok");
+}
+
+TEST(Exchange, InterimResponses_AtLimit_AcceptsFinalResponse) {
+    FakeStream stream;
+    Limits limits;
+    limits.max_interim_responses = 2;
+    stream.feed(
+        "HTTP/1.1 100 Continue\r\n\r\nHTTP/1.1 103 Early Hints\r\n\r\n"
+        "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok");
+    EXPECT_EQ(expect_ok(stream, make_req(), limits).status, 200);
+}
+
+TEST(Exchange, InterimResponses_OverLimit_ReturnsParseFailed) {
+    FakeStream stream;
+    Limits limits;
+    limits.max_interim_responses = 2;
+    for (size_t i = 0; i < 4; ++i) {
+        stream.feed("HTTP/1.1 100 Continue\r\n\r\n");
+    }
+    EXPECT_EQ(expect_err(stream, make_req(), limits), ErrorCode::RESPONSE_PARSE_FAILED);
+    EXPECT_EQ(stream.reads, 3U);
+}
+
+TEST(Exchange, InterimResponses_ZeroLimit_StillAcceptsFinalResponse) {
+    FakeStream stream;
+    Limits limits;
+    limits.max_interim_responses = 0;
+    stream.feed("HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n");
+    EXPECT_EQ(expect_ok(stream, make_req(), limits).status, 200);
 }
 
 TEST(Exchange, InterimWithBodyFraming_ReturnsParseFailed) {

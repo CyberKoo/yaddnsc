@@ -93,8 +93,13 @@ void SignalWatcher::signal_loop(std::stop_token st) {
     int sigint_count = 0;
 
     while (!st.stop_requested()) {
-        int sig;
-        sigwait(&sigset, &sig);
+        int sig = 0;
+        const int error = sigwait(&sigset, &sig);
+        if (error != 0) {
+            SPDLOG_ERROR("sigwait failed with error {}", error);
+            stop_source_.request_stop();
+            break;
+        }
 
         // Shutdown wins over any pending signal — exit immediately once stop
         // has been requested (e.g. by the destructor's wake-up SIGUSR2).

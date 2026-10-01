@@ -53,7 +53,6 @@ auto normalize_subdomain(const SubdomainConfig& raw, int domain_interval) -> dom
         .name = raw.name,
         .type = raw.type.value_or(RecordKind::A),
         .interface = raw.interface,
-        .ip_type = raw.ip_type,
         .ip_source = raw.ip_source.value_or(IpSource::INTERFACE),
         .ip_source_param = raw.ip_source_param,
         .allow_ula = raw.allow_ula,

@@ -15,9 +15,7 @@ namespace domain {
 
 /// Address selection policy for a subdomain update.
 ///
-/// Pure domain rules, moved verbatim from the legacy Updater. Deliberately
-/// NOT a general "prefer global unicast" ranking: only the legacy filtering
-/// rules exist here.
+/// Pure domain rules; not a general "prefer global unicast" ranking.
 struct AddressPolicy {
     bool allow_ula{false};         ///< Allow ULA (fc00::/7) for AAAA candidates
     bool allow_local_link{false};  ///< Allow link-local (fe80::/10) for AAAA candidates
@@ -25,8 +23,9 @@ struct AddressPolicy {
 
 /// Apply the address policy and pick the address to publish.
 ///
-/// Rules (identical to the legacy Updater behaviour):
-///  - filtering applies only when the record type is AAAA;
+/// Rules:
+///  - A and AAAA candidates must match the record's address family;
+///  - ULA and link-local filtering applies only to AAAA;
 ///  - an empty candidate list (before or after filtering) means "no address";
 ///  - the first surviving candidate wins.
 [[nodiscard]] std::optional<InetAddress> select_address(std::vector<InetAddress> candidates, RecordKind record_type,

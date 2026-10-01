@@ -47,7 +47,7 @@ inline constexpr std::string_view FULL_CONFIG = R"({
             "driver": "cloudflare",
             "subdomains": [
                 {"name": "@", "type": "a", "ip_source": "http", "ip_source_param": "https://api.ipify.org"},
-                {"name": "www", "type": "aaaa", "ip_source": "interface", "interface": "eth0", "ip_type": "ipv6"}
+                {"name": "www", "type": "aaaa", "ip_source": "interface", "interface": "eth0"}
             ]
         }
     ]
@@ -108,7 +108,6 @@ inline constexpr std::string_view ALL_SUBDOMAIN_FIELDS = R"({
                     "name": "api",
                     "type": "txt",
                     "interface": "bond0",
-                    "ip_type": "unspecified",
                     "ip_source": "http",
                     "ip_source_param": "https://checkip.amazonaws.com",
                     "allow_ula": true,

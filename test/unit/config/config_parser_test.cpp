@@ -48,6 +48,18 @@ struct ParseResult {
     return result;
 }
 
+TEST(ConfigParserTest, SubdomainConfig_RemovedIpType_IsRejected) {
+    Config::SubdomainConfig config;
+    const auto error = glz::read_json(config, std::string{R"({"ip_type":"ipv4"})"});
+    EXPECT_EQ(error.ec, glz::error_code::unknown_key);
+}
+
+TEST(ConfigParserTest, SubdomainConfig_Serialization_DoesNotIncludeIpType) {
+    const auto written = glz::write_json(Config::SubdomainConfig{});
+    ASSERT_TRUE(written.has_value());
+    EXPECT_EQ(written->find("ip_type"), std::string::npos);
+}
+
 // ===========================================================================
 // Minimal config
 // ===========================================================================
@@ -113,7 +125,6 @@ TEST(ConfigParserTest, FullConfig_ParsesAllFields) {
     EXPECT_EQ(domain.subdomains[1].type, RecordKind::AAAA);
     EXPECT_EQ(domain.subdomains[1].ip_source, Config::IpSource::INTERFACE);
     EXPECT_EQ(domain.subdomains[1].interface, "eth0");
-    EXPECT_EQ(domain.subdomains[1].ip_type, AddressFamily::IPV6);
 }
 
 // ===========================================================================
@@ -174,7 +185,6 @@ TEST(ConfigParserTest, AllSubdomainFields_ParseCorrectly) {
     EXPECT_EQ(sub.name, "api");
     EXPECT_EQ(sub.type, RecordKind::TXT);
     EXPECT_EQ(sub.interface, "bond0");
-    EXPECT_EQ(sub.ip_type, AddressFamily::UNSPECIFIED);
     EXPECT_EQ(sub.ip_source, Config::IpSource::HTTP);
     EXPECT_EQ(sub.ip_source_param, "https://checkip.amazonaws.com");
     EXPECT_TRUE(sub.allow_ula);

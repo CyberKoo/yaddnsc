@@ -82,6 +82,11 @@ IpSourceBase::Result HttpIpSource::resolve(const Utils::CancellationToken& token
             domain::IpSourceError{domain::IpSourceError::Code::UNAVAILABLE,
                                   fmt::format(R"(HTTP IP source "{}" did not return a valid message)", url_)});
     }
+    if (address_family_ != AddressFamily::UNSPECIFIED && addr->get_family() != address_family_) {
+        return std::unexpected(
+            domain::IpSourceError{domain::IpSourceError::Code::UNAVAILABLE,
+                                  fmt::format(R"(HTTP IP source "{}" returned an address of the wrong family)", url_)});
+    }
     SPDLOG_DEBUG("Resolved IP from HTTP: {}", addr->to_string());
     return std::vector<InetAddress>{*std::move(addr)};
 }

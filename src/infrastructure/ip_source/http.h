@@ -27,12 +27,13 @@ class CancellationToken;
 /// passed through to the underlying transport; cancellation flows through
 /// resolve() as a parameter.
 ///
-/// resolve() returns 0 or 1 addresses.
+/// resolve() returns one address or an error (including a response-family mismatch).
 class HttpIpSource final : public IpSourceBase {
 public:
     /// Construct with an HTTP URL and optional filtering parameters.
     /// @param url              URL of the HTTP IP detection service.
-    /// @param address_family   Preferred address family for the connection.
+    /// @param address_family   Address family for the connection and response IP;
+    ///                         UNSPECIFIED accepts either response family.
     /// @param bind_interface   Outbound network interface to bind to (empty = any).
     /// @param base_options     Shared HTTP policy (user agent, bootstrap DNS,
     ///                         CA discovery) built once by the composition root;

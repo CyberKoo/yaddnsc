@@ -582,6 +582,7 @@ std::expected<RawResponse, Error> exchange(Transport::Stream& stream, const Wire
     pending.clear();
 
     HeaderOutcome headers;
+    size_t interim_responses = 0;
     for (;;) {
         headers = parse_headers(buf, limits);
         if (headers.ok) {
@@ -592,6 +593,10 @@ std::expected<RawResponse, Error> exchange(Transport::Stream& stream, const Wire
                     return std::unexpected(
                         Error{ErrorCode::RESPONSE_PARSE_FAILED, "interim response has body framing"});
                 }
+                if (interim_responses >= limits.max_interim_responses) {
+                    return std::unexpected(Error{ErrorCode::RESPONSE_PARSE_FAILED, "too many interim responses"});
+                }
+                ++interim_responses;
                 buf.erase(0, headers.header_end);
                 continue;
             }

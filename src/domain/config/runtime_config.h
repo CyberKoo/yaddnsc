@@ -13,7 +13,6 @@
 #include "domain/config/dns_config.h"
 #include "domain/config/ip_source_kind.h"
 #include "domain/dns/record_kind.h"
-#include "domain/network/address_family.h"
 
 /// Domain runtime configuration model.
 ///
@@ -48,16 +47,15 @@ struct ResolverSettings {
 
 /// Per-subdomain runtime configuration.
 struct SubdomainConfig {
-    std::string name{};                                 ///< Subdomain label (e.g. "www", "@" for apex)
-    RecordKind type{};                                  ///< DNS record type to update
-    std::string interface{};                            ///< Network interface name (INTERFACE source / HTTP bind)
-    AddressFamily ip_type{AddressFamily::UNSPECIFIED};  ///< Preferred address family
-    Config::IpSource ip_source{};                       ///< IP source backend
-    std::string ip_source_param{};                      ///< IP source parameter (URL, mDNS hostname, ...)
-    bool allow_ula{false};                              ///< Allow ULA (fc00::/7) for AAAA
-    bool allow_local_link{false};                       ///< Allow link-local (fe80::/10) for AAAA
-    int update_interval{};                              ///< EFFECTIVE interval (subdomain override or domain value)
-    std::string driver_param{};                         ///< Opaque JSON text for the driver (fields/values preserved)
+    std::string name{};             ///< Subdomain label (e.g. "www", "@" for apex)
+    RecordKind type{};              ///< DNS record type to update
+    std::string interface{};        ///< Network interface name (INTERFACE source / HTTP bind)
+    Config::IpSource ip_source{};   ///< IP source backend
+    std::string ip_source_param{};  ///< IP source parameter (URL, mDNS hostname, ...)
+    bool allow_ula{false};          ///< Allow ULA (fc00::/7) for AAAA
+    bool allow_local_link{false};   ///< Allow link-local (fe80::/10) for AAAA
+    int update_interval{};          ///< EFFECTIVE interval (subdomain override or domain value)
+    std::string driver_param{};     ///< Opaque JSON text for the driver (fields/values preserved)
 };
 
 /// Per-domain runtime configuration.

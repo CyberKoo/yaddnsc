@@ -167,7 +167,6 @@ std::string valid_config() {
           "name": "iface",
           "type": "a",
           "ip_source": "interface",
-          "ip_type": "ipv4",
           "interface": "{}",
           "driver_param": {{ "url": "http://127.0.0.1:1/ip?ip={{ip_addr}}" }}
         }}
@@ -301,7 +300,6 @@ TEST(CompositionDispatch, ConfigTestCommand_ReferencedInterfaceMissing_Fails) {
           "name": "iface",
           "type": "a",
           "ip_source": "interface",
-          "ip_type": "ipv4",
           "interface": "no-such-if0",
           "driver_param": {{ "url": "http://127.0.0.1:1/ip" }}
         }}
@@ -334,7 +332,6 @@ TEST(CompositionDispatch, ConfigTestCommand_DriverParamRejectedByAbi_Fails) {
           "name": "iface",
           "type": "a",
           "ip_source": "interface",
-          "ip_type": "ipv4",
           "interface": "{}",
           "driver_param": {{}}
         }}
@@ -364,7 +361,6 @@ TEST(CompositionDispatch, ConfigTestCommand_ValidDriverParam_Passes) {
           "name": "iface",
           "type": "a",
           "ip_source": "interface",
-          "ip_type": "ipv4",
           "interface": "{}",
           "driver_param": {{ "url": "http://127.0.0.1:1/ip?ip={{ip_addr}}" }}
         }}
@@ -512,7 +508,6 @@ TEST(CompositionDispatch, RunCommand_MultipleConfigErrors_AreAggregated) {
           "name": "a",
           "type": "a",
           "ip_source": "interface",
-          "ip_type": "ipv4",
           "interface": "",
           "driver_param": { "url": "http://127.0.0.1:1/ip" }
         },
@@ -520,7 +515,6 @@ TEST(CompositionDispatch, RunCommand_MultipleConfigErrors_AreAggregated) {
           "name": "b",
           "type": "a",
           "ip_source": "interface",
-          "ip_type": "ipv4",
           "interface": "",
           "driver_param": { "url": "http://127.0.0.1:1/ip" }
         }

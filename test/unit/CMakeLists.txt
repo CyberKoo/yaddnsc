@@ -122,6 +122,11 @@ target_link_libraries(test_config_loader PRIVATE yaddnsc_config_infrastructure)
 # process-wide by install(), so this binary only runs these tests).
 add_unit_test(signal_watcher SOURCE core/signal_watcher_test.cpp)
 target_link_libraries(test_signal_watcher PRIVATE yaddnsc_process_adapter)
+# Inject a sigwait failure without adding a production-only testing hook.
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    target_link_options(test_signal_watcher PRIVATE "LINKER:--wrap=sigwait")
+    target_compile_definitions(test_signal_watcher PRIVATE YADDNSC_TEST_WRAP_SIGWAIT)
+endif()
 
 # The un-installed path needs a process where install() has never run.
 # install()'s guard is a one-way latch, so sharing a binary with the

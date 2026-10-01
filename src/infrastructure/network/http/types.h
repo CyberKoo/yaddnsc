@@ -87,6 +87,8 @@ private:
 struct Limits {
     size_t max_header_bytes = 64 * 1024;
     size_t max_body_bytes = 16 * 1024 * 1024;
+    /// Maximum number of informational responses before the final response.
+    size_t max_interim_responses = 16;
 };
 
 /// Client-level options.

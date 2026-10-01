@@ -126,7 +126,6 @@ TEST(ConfigSubdomainConfigTest, DefaultValues) {
     // No record type configured — the normaliser falls back to A with a warning.
     EXPECT_FALSE(cfg.type.has_value());
     EXPECT_TRUE(cfg.interface.empty());
-    EXPECT_EQ(cfg.ip_type, AddressFamily::UNSPECIFIED);
     // No ip_source configured — the normaliser falls back to INTERFACE with
     // a warning.
     EXPECT_FALSE(cfg.ip_source.has_value());
@@ -141,7 +140,6 @@ TEST(ConfigSubdomainConfigTest, AggregateInit) {
         .name = "www",
         .type = RecordKind::AAAA,
         .interface = "eth0",
-        .ip_type = AddressFamily::IPV6,
         .ip_source = Config::IpSource::MDNS,
         .ip_source_param = "printer.local",
         .allow_ula = true,
@@ -151,7 +149,6 @@ TEST(ConfigSubdomainConfigTest, AggregateInit) {
     EXPECT_EQ(cfg.name, "www");
     EXPECT_EQ(cfg.type, RecordKind::AAAA);
     EXPECT_EQ(cfg.interface, "eth0");
-    EXPECT_EQ(cfg.ip_type, AddressFamily::IPV6);
     EXPECT_EQ(cfg.ip_source, Config::IpSource::MDNS);
     EXPECT_EQ(cfg.ip_source_param, "printer.local");
     EXPECT_TRUE(cfg.allow_ula);

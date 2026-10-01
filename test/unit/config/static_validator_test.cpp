@@ -59,7 +59,6 @@ using Code = domain::ConfigError::Code;
                 .name = std::move(subdomain_name),
                 .type = RecordKind::A,
                 .interface = "",
-                .ip_type = AddressFamily::UNSPECIFIED,
                 .ip_source = Config::IpSource::HTTP,
                 .ip_source_param = "https://api.ipify.org",
             }}},

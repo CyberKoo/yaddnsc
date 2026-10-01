@@ -7,6 +7,8 @@
 
 #include "infrastructure/process/signal_watcher.h"
 
+#include <atomic>
+#include <cerrno>
 #include <chrono>
 #include <compare>
 #include <csignal>
@@ -16,6 +18,21 @@
 
 #include <gtest/gtest.h>
 #include <unistd.h>
+
+#ifdef YADDNSC_TEST_WRAP_SIGWAIT
+namespace {
+std::atomic<bool> fail_sigwait{false};
+}
+
+extern "C" int __real_sigwait(const sigset_t* set, int* signal);
+
+extern "C" int __wrap_sigwait(const sigset_t* set, int* signal) {
+    if (fail_sigwait.exchange(false)) {
+        return EINVAL;  // Deliberately leave the output parameter untouched.
+    }
+    return __real_sigwait(set, signal);
+}
+#endif
 
 namespace {
 /// Poll until the watcher requests a stop (or the timeout elapses).
@@ -40,6 +57,15 @@ namespace {
 // case in the binary — an implicit ordering constraint that a shuffle, a
 // gtest_filter change, or a new test would silently break. A separate
 // executable gets a fresh process image, so the case is order-independent.
+
+#ifdef YADDNSC_TEST_WRAP_SIGWAIT
+TEST(SignalWatcher, Sigwait_FailsWithoutWritingSignal_RequestsStop) {
+    SignalWatcher::install();
+    fail_sigwait.store(true);
+    SignalWatcher watcher;
+    EXPECT_TRUE(wait_for_stop(watcher));
+}
+#endif
 
 TEST(SignalWatcher, InstallThenConstruct_NoThrow) {
     SignalWatcher::install();
