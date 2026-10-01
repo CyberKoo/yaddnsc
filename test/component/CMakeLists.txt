@@ -24,12 +24,18 @@
 
 add_unit_test(cert_util_test SOURCE cert_util_test.cpp)
 target_link_libraries(test_cert_util_test PRIVATE yaddnsc_tls_support OpenSSL::Crypto)
+target_compile_definitions(test_cert_util_test PRIVATE
+    YADDNSC_TEST_BINARY="$<TARGET_FILE:test_cert_util_test>"
+)
 
 # cert_util env-var hit — SEPARATE binary because discover_ca_bundle() caches
 # its result on the first call in the process; the env-var-hit branch can only
 # be reached when the first call sees a valid SSL_CERT_FILE.
 add_unit_test(cert_util_override SOURCE cert_util_override_test.cpp)
 target_link_libraries(test_cert_util_override PRIVATE yaddnsc_tls_support OpenSSL::Crypto)
+target_compile_definitions(test_cert_util_override PRIVATE
+    YADDNSC_TEST_BINARY="$<TARGET_FILE:test_cert_util_override>"
+)
 
 # ============================================================================
 #  CLI layer + composition root — pure parser tests, presenter output,
@@ -106,6 +112,29 @@ target_link_libraries(test_factory_mdns PRIVATE yaddnsc_ip_source_infrastructure
 # them concurrently makes the UUID-hostname assertions racy. Serialize them.
 set_tests_properties(test_factory_mdns PROPERTIES RESOURCE_LOCK "mdns-multicast")
 
+# composition root — dispatch() over every command variant; needs the real
+# simple.so so driver diagnostics and environment validation use the actual
+# plugin loader.
+add_unit_test(composition_bootstrap SOURCE composition_bootstrap_test.cpp)
+target_link_libraries(test_composition_bootstrap PRIVATE yaddnsc_prod_all GTest::gmock glaze::glaze OpenSSL::Crypto)
+target_compile_definitions(test_composition_bootstrap PRIVATE
+    YADDNSC_TEST_DRIVER_DIR="$<TARGET_FILE_DIR:simple>"
+    YADDNSC_TEST_DRIVER_FILE="$<TARGET_FILE:simple>"
+)
+
+add_dependencies(test_composition_bootstrap simple)
+set_tests_properties(test_composition_bootstrap PROPERTIES
+    ENVIRONMENT "ASAN_OPTIONS=detect_odr_violation=0:detect_stack_use_after_return=1:strict_string_checks=1:detect_invalid_pointer_pairs=2")
+
+# mDNS IPv6 / interface-fallback paths. No responder is started, but the
+# A-record cases do join 224.0.0.251:5353, so this target must be serialized
+# against the other two mDNS group users exactly like test_factory_mdns.
+# Every hostname is a random UUID, so the sim server's 198.51.100.1 catch-all
+# and any real responder (avahi, systemd-resolved) cannot answer these queries.
+add_unit_test(mdns_ipv6 SOURCE mdns_ipv6_test.cpp)
+target_link_libraries(test_mdns_ipv6 PRIVATE yaddnsc_ip_source_infrastructure GTest::gmock glaze::glaze OpenSSL::Crypto)
+set_tests_properties(test_mdns_ipv6 PROPERTIES RESOURCE_LOCK "mdns-multicast")
+
 # ============================================================================
 #  RunLifecycle — the run command's lifecycle object (observable shutdown)
 #
@@ -154,6 +183,11 @@ target_link_libraries(test_net_transport_component PRIVATE yaddnsc_network_trans
 target_compile_definitions(test_net_transport_component PRIVATE
     TEST_DATA_DIR="${PROJECT_SOURCE_DIR}/test/component"
 )
+
+# Successful TCP connect / read / send against a real loopback listener.
+# Complements the failure-path coverage in unit/net_transport.
+add_unit_test(net_transport_success SOURCE net_transport_success_test.cpp)
+target_link_libraries(test_net_transport_success PRIVATE yaddnsc_network_transport OpenSSL::SSL OpenSSL::Crypto)
 
 # ============================================================================
 #  net::http  (Client + Session over an in-process HTTP/1.1 server)

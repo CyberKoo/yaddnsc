@@ -13,8 +13,8 @@
   "domains": [
     {
       "name": "yaddnsc.test",
-      "update_interval": 5,
-      "force_update": 5,
+      "update_interval": 60,
+      "force_update": 0,
       "driver": "simple",
       "subdomains": [
         {

@@ -16,6 +16,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <filesystem>
 #include <optional>
 #include <span>
 #include <string>
@@ -142,6 +143,7 @@ private:
 constexpr int TLS_PORT = 21656;  // distinct from the legacy transport tests
 pid_t g_server_pid = -1;
 bool g_server_started = false;
+std::string g_cert_dir;
 std::string g_cert_path;
 std::string g_key_path;
 
@@ -150,6 +152,7 @@ void generate_cert() {
     auto* dir = ::mkdtemp(dir_template);
     ASSERT_NE(dir, nullptr) << "mkdtemp failed";
 
+    g_cert_dir = dir;
     g_cert_path = std::string(dir) + "/cert.pem";
     g_key_path = std::string(dir) + "/key.pem";
 
@@ -214,6 +217,14 @@ void stop_tls_server() {
         g_server_pid = -1;
     }
     g_server_started = false;
+    // Remove the throwaway certificate directory: otherwise every run leaves a
+    // /tmp/yaddnsc_net_tls_stream_test_XXXXXX/ behind and the CI runner's /tmp
+    // fills up over time.
+    if (!g_cert_dir.empty()) {
+        std::error_code ec;
+        std::filesystem::remove_all(g_cert_dir, ec);
+        g_cert_dir.clear();
+    }
 }
 
 // ===========================================================================

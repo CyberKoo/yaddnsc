@@ -201,7 +201,16 @@ function(add_unit_test name)
     target_include_directories(test_${name} PRIVATE
         ${PROJECT_SOURCE_DIR}/test
     )
-    add_test(NAME test_${name} COMMAND test_${name})
+    # --gtest_shuffle runs the cases in a random order. Without it an implicit
+    # dependency on an earlier case is invisible: a test that only passes
+    # because it happens to run first stays green forever, and breaks the next
+    # time someone reorders the file, narrows a --gtest_filter, or adds a case.
+    # GoogleTest prints the seed it used, so a failure replays with
+    # --gtest_random_seed=<n>. State that must be process-wide (signal masks,
+    # memoised CA-bundle lookups) belongs in its own executable; see
+    # core/signal_watcher_uninstalled_test.cpp and
+    # component/cert_util_override_test.cpp.
+    add_test(NAME test_${name} COMMAND test_${name} --gtest_shuffle)
 
     # Collect all test targets for the top-level test-build convenience target.
     set_property(GLOBAL APPEND PROPERTY YADDNSC_TEST_TARGETS test_${name})

@@ -31,12 +31,15 @@ namespace {
 }
 }  // namespace
 
-// MUST be the first test in this binary: install() blocks SIGINT/SIGTERM
-// process-wide and cannot be undone, so the "not installed" path can only be
-// exercised before any install() call.
-TEST(SignalWatcherUninstalled, ConstructWithoutInstall_Throws) {
-    EXPECT_THROW(SignalWatcher{}, std::logic_error);
-}
+// The "not installed" path lives in its OWN test binary
+// (core/signal_watcher_uninstalled_test.cpp) and is deliberately not here.
+//
+// install() blocks SIGINT/SIGTERM for the process and cannot be undone, so
+// the guard it sets is a one-way latch. Asserting the un-installed path in
+// this file would make the assertion depend on running before every other
+// case in the binary — an implicit ordering constraint that a shuffle, a
+// gtest_filter change, or a new test would silently break. A separate
+// executable gets a fresh process image, so the case is order-independent.
 
 TEST(SignalWatcher, InstallThenConstruct_NoThrow) {
     SignalWatcher::install();

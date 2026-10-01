@@ -1,131 +1,72 @@
-//
-// Tests for infrastructure/network/tls/cert_util.h — CA certificate discovery.
-//
-// Verifies that:
-//   - discover_ca_bundle() returns a path or nullopt (never crashes)
-//   - SSL_CERT_FILE env var takes highest priority
-//   - When SSL_CERT_FILE points to a non-existent file, the function logs
-//     a warning and falls through to the remaining discovery tiers
-//   - A local ./ca.pem in the working directory is NOT trusted
-//   - get_system_ca_path() returns a path or nullopt (legacy)
-//
-// Note: both functions cache their result in a function-local static,
-// so the FIRST call in the process determines the cached value.
-// The env-var-not-found test must run first.
-//
-// =============================================================================
+// CA discovery caches its first result. Each environment-sensitive scenario
+// runs in a fresh executable image, independently of shuffle and repeat.
 
 #include "infrastructure/network/tls/cert_util.h"
 
-#include <cstdio>
 #include <cstdlib>
+#include <filesystem>
+#include <fstream>
 #include <optional>
 #include <string>
 
 #include <gtest/gtest.h>
-#include <unistd.h>
 
-// ---------------------------------------------------------------------------
-// Test that discover_ca_bundle() falls through when SSL_CERT_FILE points to
-// a non-existent file.  The function should log a warning and continue to
-// the remaining discovery tiers.
-//
-// Also verifies that a local ./ca.pem in the working directory is NOT
-// implicitly trusted (regression: the dev/test override was removed).
-//
-// This must be the FIRST discover_ca_bundle() call in the process.
-// ---------------------------------------------------------------------------
+#include "process_test_support.h"
+
 TEST(CertUtilTest, DiscoverCaBundle_EnvVarNotFound) {
-    // Set SSL_CERT_FILE to a path that does not exist.
-    const auto* old_env = std::getenv("SSL_CERT_FILE");
-    ASSERT_EQ(::setenv("SSL_CERT_FILE", "/tmp/yaddnsc_ca_nonexistent_XXXXXX", 1), 0);
-
-    // Place a ./ca.pem in the working directory — it must NOT be picked up.
-    constexpr const char* CWD_CA = "./ca.pem";
-    FILE* f = std::fopen(CWD_CA, "w");
-    ASSERT_NE(f, nullptr) << "failed to create ./ca.pem in the working directory";
-    std::fclose(f);
-
-    // First call — should fall through to the remaining discovery tiers.
-    auto path = Utils::Cert::discover_ca_bundle();
-    // The path may or may not have a value depending on whether any system
-    // CA bundle exists.  But it should not crash, the non-existent env
-    // var path should NOT have been returned, and ./ca.pem must never be
-    // implicitly trusted.
-    if (path.has_value()) {
-        EXPECT_NE(*path, "/tmp/yaddnsc_ca_nonexistent_XXXXXX");
-        EXPECT_NE(*path, CWD_CA);
+    if (ComponentTest::run_in_cold_process(YADDNSC_TEST_BINARY, "CertUtilTest.DiscoverCaBundle_EnvVarNotFound")) {
+        return;
+    }
+    const ComponentTest::TempDirectory directory("/tmp/yaddnsc_ca_fallback_XXXXXX");
+    // The exec child alone changes cwd; never truncate a user's ./ca.pem.
+    std::filesystem::current_path(directory.path());
+    const auto missing = (directory.path() / "missing.pem").string();
+    const ComponentTest::ScopedEnvVar env("SSL_CERT_FILE", missing.c_str());
+    {
+        std::ofstream out("ca.pem");
+        out << "not a system trust anchor\n";
+        ASSERT_TRUE(out.good());
+    }
+    const auto path = Utils::Cert::discover_ca_bundle();
+    if (path) {
+        EXPECT_NE(*path, missing);
+        EXPECT_NE(*path, "./ca.pem");
+        EXPECT_NE(*path, "ca.pem");
+        EXPECT_NE(*path, (directory.path() / "ca.pem").string());
         EXPECT_FALSE(path->empty());
     }
-
-    ::unlink(CWD_CA);
-
-    // Restore.
-    if (old_env) {
-        ::setenv("SSL_CERT_FILE", old_env, 1);
-    } else {
-        ::unsetenv("SSL_CERT_FILE");
-    }
+    // Cache stability is asserted within this cold scenario, not by test order.
+    const ComponentTest::ScopedEnvVar changed_env("SSL_CERT_FILE", "ca.pem");
+    EXPECT_EQ(Utils::Cert::discover_ca_bundle(), path);
 }
 
-// ---------------------------------------------------------------------------
-// Test that discover_ca_bundle() picks up SSL_CERT_FILE as tier 1.
-//
-// Because the cache is already set by the EnvVarNotFound test above, the
-// cached value is used regardless of the current env var.  This test
-// verifies that the function does not crash and returns a value consistent
-// with the cached result.
-// ---------------------------------------------------------------------------
 TEST(CertUtilTest, DiscoverCaBundle_EnvVarOverride) {
-    // Set SSL_CERT_FILE to a real temp file.
-    char tmp[] = "/tmp/yaddnsc_ca_test_XXXXXX";
-    auto fd = ::mkstemp(tmp);
-    ASSERT_GE(fd, 0) << "mkstemp failed";
-    ::close(fd);
-
-    const auto* old_env = std::getenv("SSL_CERT_FILE");
-    ::setenv("SSL_CERT_FILE", tmp, 1);
-
-    // The cached result from the first test is used.  We just verify that
-    // the call does not crash and returns the cached value.
-    auto path = Utils::Cert::discover_ca_bundle();
-
-    // Restore the original environment (no effect on cached value).
-    if (old_env) {
-        ::setenv("SSL_CERT_FILE", old_env, 1);
-    } else {
-        ::unsetenv("SSL_CERT_FILE");
+    if (ComponentTest::run_in_cold_process(YADDNSC_TEST_BINARY, "CertUtilTest.DiscoverCaBundle_EnvVarOverride")) {
+        return;
     }
-
-    ::unlink(tmp);
+    const ComponentTest::TempDirectory directory("/tmp/yaddnsc_ca_override_XXXXXX");
+    const auto file = (directory.path() / "cert.pem").string();
+    {
+        std::ofstream out(file);
+        out << "dummy CA bundle\n";
+        ASSERT_TRUE(out.good());
+    }
+    const ComponentTest::ScopedEnvVar env("SSL_CERT_FILE", file.c_str());
+    EXPECT_EQ(Utils::Cert::discover_ca_bundle(), std::optional<std::string>(file));
+    const ComponentTest::ScopedEnvVar changed_env("SSL_CERT_FILE", "/nonexistent/ca.pem");
+    EXPECT_EQ(Utils::Cert::discover_ca_bundle(), std::optional<std::string>(file));
 }
 
-// ---------------------------------------------------------------------------
-// Basic sanity: discover_ca_bundle() should never crash and, on systems that
-// have a CA bundle, should return a non-empty path.
-//
-// The result is cached from the EnvVarNotFound test above, so on systems
-// where a system CA was found, the cached value reflects that.  We only
-// check that the return value is valid metadata.
-// ---------------------------------------------------------------------------
 TEST(CertUtilTest, DiscoverCaBundle_Basic) {
-    auto path = Utils::Cert::discover_ca_bundle();
-    // In minimal containers (e.g. CI) there may be no CA bundle.
-    if (path.has_value()) {
+    const auto path = Utils::Cert::discover_ca_bundle();
+    if (path) {
         EXPECT_FALSE(path->empty());
     }
 }
 
-// ---------------------------------------------------------------------------
-// Legacy get_system_ca_path() — backward-compatible test.
-// ---------------------------------------------------------------------------
 TEST(CertUtilTest, GetSystemCaPath_ReturnsPathOrNullopt) {
-    auto path = Utils::Cert::get_system_ca_path();
-    // On Ubuntu/Debian the CA bundle is always present.
-    // In minimal containers it may be absent.
-    if (path.has_value()) {
+    const auto path = Utils::Cert::get_system_ca_path();
+    if (path) {
         EXPECT_FALSE(path->empty());
-        EXPECT_GT(path->size(), 0U);
     }
-    // The function is noexcept — it should never throw.
 }

@@ -31,6 +31,7 @@ add_unit_test(cancellation_token SOURCE util/cancellation_token_test.cpp)
 add_unit_test(fd            SOURCE util/fd_test.cpp)
 add_unit_test(fmt_polyfill  SOURCE util/fmt_polyfill_test.cpp)
 add_unit_test(sdk_helpers   SOURCE util/sdk_helpers_test.cpp)
+add_unit_test(sdk_driver_helpers SOURCE util/sdk_driver_helpers_test.cpp)
 add_unit_test(mixin         SOURCE util/mixin_test.cpp)
 add_unit_test(random        SOURCE util/random_test.cpp)
 target_link_libraries(test_random PRIVATE OpenSSL::Crypto)
@@ -122,6 +123,12 @@ target_link_libraries(test_config_loader PRIVATE yaddnsc_config_infrastructure)
 add_unit_test(signal_watcher SOURCE core/signal_watcher_test.cpp)
 target_link_libraries(test_signal_watcher PRIVATE yaddnsc_process_adapter)
 
+# The un-installed path needs a process where install() has never run.
+# install()'s guard is a one-way latch, so sharing a binary with the
+# installed cases would make the assertion order-dependent.
+add_unit_test(signal_watcher_uninstalled SOURCE core/signal_watcher_uninstalled_test.cpp)
+target_link_libraries(test_signal_watcher_uninstalled PRIVATE yaddnsc_process_adapter)
+
 # driver_loader + driver_catalog — dlopen-based plugin loading
 # Fixture: a shared library that is deliberately NOT a yaddnsc driver —
 # verifies that auto-discovery skips foreign libraries instead of aborting.
@@ -185,7 +192,9 @@ target_link_libraries(test_mkquery PRIVATE yaddnsc_dns_infrastructure OpenSSL::C
 
 # RecordParser — self-contained wire-format parser (no libresolv)
 add_unit_test(dns_parser SOURCE dns/parser_test.cpp)
+add_unit_test(dns_parser_malformed SOURCE dns/parser_malformed_test.cpp)
 target_link_libraries(test_dns_parser PRIVATE yaddnsc_dns_infrastructure)
+target_link_libraries(test_dns_parser_malformed PRIVATE yaddnsc_dns_infrastructure)
 
 # bootstrap — hostname resolution via bootstrap DNS servers (no-network paths:
 # empty server list, expired deadline, pre-cancelled token)
@@ -250,6 +259,19 @@ target_link_libraries(test_http_client PRIVATE yaddnsc_http_infrastructure picoh
 
 # http_session — Session's persistent-connection policy (retry on connection
 # loss, scheme->factory pairing, connect-error mapping) via scripted fakes.
+# exchange — HTTP/1.x request-response framing: request validation, response
+# header parsing, fixed/close-delimited/chunked bodies, trailers, 1xx/204/205.
+add_unit_test(http_exchange SOURCE http_client/exchange_test.cpp)
+target_link_libraries(test_http_exchange PRIVATE yaddnsc_http_infrastructure picohttpparser)
+
+# wire_request — host-owned header injection and request validation
+add_unit_test(http_wire_request SOURCE http_client/wire_request_test.cpp)
+target_link_libraries(test_http_wire_request PRIVATE yaddnsc_http_infrastructure picohttpparser)
+
+# redirect — pure redirect policy: reference resolution, origin rules, method rewriting
+add_unit_test(http_redirect_policy SOURCE http_client/redirect_policy_test.cpp)
+target_link_libraries(test_http_redirect_policy PRIVATE yaddnsc_http_infrastructure picohttpparser)
+
 add_unit_test(http_session SOURCE http_client/session_test.cpp)
 target_link_libraries(test_http_session PRIVATE yaddnsc_http_infrastructure OpenSSL::SSL OpenSSL::Crypto picohttpparser)
 

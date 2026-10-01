@@ -41,6 +41,8 @@
 #include "support/fmt.hpp"
 #include "support/util/cancellation_token.hpp"
 
+#include "process_test_support.h"
+
 using namespace std::chrono_literals;
 
 namespace {
@@ -77,14 +79,12 @@ static std::string server_log;
     return "?";
 }
 
-/// Generate a self-signed certificate and key for testing.
-void generate_cert() {
-    char dir_template[] = "/tmp/yaddnsc_dot_test_XXXXXX";
-    auto* dir = ::mkdtemp(dir_template);
-    ASSERT_NE(dir, nullptr) << "mkdtemp failed";
-
-    cert_path = std::string(dir) + "/cert.pem";
-    key_path = std::string(dir) + "/key.pem";
+// Keep one certificate on disk until process exit: discovery caches its path
+// and the shared default SSL_CTX retains the first loaded trust anchor.
+void generate_cert_impl() {
+    static const ComponentTest::TempDirectory directory("/tmp/yaddnsc_dot_test_XXXXXX");
+    cert_path = (directory.path() / "cert.pem").string();
+    key_path = (directory.path() / "key.pem").string();
 
     auto cmd = fmt::format(
         "openssl req -x509 -newkey rsa:2048 -keyout {} -out {} -days 1 -nodes "
@@ -100,11 +100,24 @@ void generate_cert() {
 
     // Also export the generated cert in PEM format that OpenSSL can load
     // as a trusted root via SSL_CERT_FILE.
-    ::setenv("SSL_CERT_FILE", cert_path.c_str(), 1);
+    static const ComponentTest::ScopedEnvVar trust_store("SSL_CERT_FILE", cert_path.c_str());
+}
+
+void generate_cert() {
+    static const bool generated = [] {
+        generate_cert_impl();
+        return !::testing::Test::HasFatalFailure() && !::testing::Test::IsSkipped();
+    }();
+    if (!generated) {
+        GTEST_SKIP() << "TLS certificate generation unavailable";
+    }
 }
 
 void start_dot_server() {
     generate_cert();
+    if (::testing::Test::HasFatalFailure() || ::testing::Test::IsSkipped()) {
+        return;
+    }
 
     server_log = "/tmp/yaddnsc-dot-server.log";
 

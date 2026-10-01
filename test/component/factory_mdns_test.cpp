@@ -308,6 +308,12 @@ protected:
     /// discard it instead of aborting the whole query.
     std::atomic<bool> send_garbage_first_{false};
 
+    /// When true, the responder sends a truncated datagram that makes
+    /// RecordParser throw, from the correct source port so it passes the
+    /// RFC 6762 §6 check. The zeroed-header garbage above is not enough for
+    /// this: no records means an empty result, not a parse failure.
+    std::atomic<bool> send_malformed_record_first_{false};
+
     /// When true, the responder signals query_received_ on a matching query
     /// and parks before replying until release_response() (or TearDown).
     std::atomic<bool> hold_response_{false};
@@ -465,6 +471,18 @@ private:
                 [[maybe_unused]] auto gsent = responder_sock_->send_to(garbage_bytes, src_addr);
             }
 
+            // Test hook: a truncated datagram from the correct source port.
+            // RecordParser throws on it, which is the path a hostile or simply
+            // broken peer on the shared multicast group can drive. The lookup
+            // must discard it and keep waiting for the genuine reply.
+            // (A zeroed header is not enough: that one parses to an empty
+            // answer set instead of throwing.)
+            if (send_malformed_record_first_.load()) {
+                const std::vector<std::uint8_t> truncated{query[0], query[1]};
+                auto truncated_bytes = std::as_bytes(std::span{truncated});
+                [[maybe_unused]] auto tsent = responder_sock_->send_to(truncated_bytes, src_addr);
+            }
+
             // Genuine response from port 5353 (RFC 6762 §6 compliance).
             auto resp = build_response(query, 198, 51, 100, 7, include_unrelated_record_.load());
             auto data = std::as_bytes(std::span{resp});
@@ -537,6 +555,23 @@ TEST_F(MdnsTest, ResolveMdns_ToleratesMalformedDatagram) {
     ASSERT_TRUE(addrs.has_value()) << addrs.error().message;
     ASSERT_EQ(addrs->size(), 1U);
     EXPECT_EQ((*addrs)[0].to_string(), "198.51.100.7");
+}
+
+TEST_F(MdnsTest, ResolveMdns_ToleratesUnparseableRecord) {
+    // A datagram that advertises itself as a response but carries an illegal
+    // record makes RecordParser throw. The lookup must swallow that and keep
+    // waiting for the genuine reply rather than treating the parse failure as
+    // a lookup failure — another host on the shared group can send anything.
+    send_malformed_record_first_.store(true);
+    MdnsIpSource source(test_hostname_, RecordKind::A, "");
+    const auto addrs = source.resolve({});
+
+    ASSERT_TRUE(addrs.has_value()) << addrs.error().message;
+    ASSERT_EQ(addrs->size(), 1U);
+    EXPECT_EQ((*addrs)[0].to_string(), "198.51.100.7");
+    // The query was made once and the genuine reply behind the malformed
+    // datagram is what produced the answer.
+    EXPECT_EQ(query_count(), 1);
 }
 
 // ===========================================================================

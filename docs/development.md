@@ -61,6 +61,61 @@ Tests use GoogleTest/GoogleMock. Component tests may use loopback sockets,
 local helper processes, or platform facilities; they do not require provider
 credentials or external DNS provider access.
 
+### Test tiers
+
+| Tier | Location | Runs the real binary? |
+|------|----------|------------------------|
+| Unit | `test/unit/` | No — pure logic, no I/O |
+| Component | `test/component/` | Real loopback sockets, multicast, TLS |
+| Plugin ABI | `test/plugin/`, `test/sdk_consumer/` | Loads a real `.so` via dlopen |
+| Integration | `test/integration/` | Yes — the built `yaddnsc` binary |
+| Benchmarks | `test/perf/` | No — Google Benchmark |
+
+There is no system-test tier: `integration_scenarios` is the highest one.
+
+### Integration scenarios
+
+`test/integration/run_ctest.sh` drives the real binary against a Python DNS
+simulator (`test/integration/sim/server.py`, aiohttp + dnslib). It covers
+three end-to-end update paths (interface/classic, http/DoT, interface/DoH),
+the read-only CLI subcommands and their exit codes, and two failure
+contracts that pull in opposite directions:
+
+- an HTTP IP source returning a non-address response → the update workflow
+  reports no usable IP address and nothing is published;
+- no DNS answer → the update is still published, because
+  `update_workflow.cpp` treats an unverifiable current record as an empty
+  one. Pushing an unchanged record is harmless; skipping a changed one is
+  not.
+
+Run just this tier:
+
+```bash
+ctest --test-dir build-tests -R integration_scenarios --output-on-failure
+```
+
+**Check for skipped execution.** `SKIP_RETURN_CODE 77` makes CTest report
+this test as skipped when `python3 -m venv` cannot bootstrap pip
+(`python3-venv` missing). A successful CTest exit does not prove the scenarios
+executed — use verbose output (`ctest -V -R integration_scenarios`) and check
+for `ALL SCENARIOS PASSED`. Negative update scenarios require the expected
+workflow diagnostic and a successful shutdown; simulator reset/log failures
+are test failures, not evidence that no update was sent. The mDNS group users (`test_factory_mdns`,
+`test_mdns_ipv6`, `integration_scenarios`) hold the `mdns-multicast`
+`RESOURCE_LOCK` and must not be run concurrently outside CTest.
+
+### Local CI simulation
+
+`test/ci-sim/` builds and runs the project inside Alpine containers and is a
+**local** tool for reproducing the CI environment; it is not invoked by any
+workflow.
+
+```bash
+./test/ci-sim/run.sh          # linux-amd64
+./test/ci-sim/run.sh --musl   # linux-amd64-musl
+./test/ci-sim/run.sh --all    # both
+```
+
 ## Coverage
 
 The nightly coverage job uses GCC instrumentation, runs the CTest suite, and
