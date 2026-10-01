@@ -80,6 +80,7 @@ void remove_file(const fs::path& path) {
 /// run_command() calls SignalWatcher::install(), which blocks SIGINT/SIGTERM
 /// for the calling thread permanently. Left alone that would silence Ctrl-C
 /// for every later case in this binary, so the mask is captured and restored.
+/// Signal-set calls stay unqualified: macOS exposes them as function-like macros.
 class ScopedSignalMask {
 public:
     ScopedSignalMask() {
@@ -93,8 +94,8 @@ public:
         // consumed; user SIGINT/SIGTERM and previously blocked signals retain
         // their normal semantics. sigpending + sigwait works on macOS too.
         sigset_t wake;
-        ::sigemptyset(&wake);
-        ::sigaddset(&wake, SIGUSR2);
+        sigemptyset(&wake);
+        sigaddset(&wake, SIGUSR2);
         if (::pthread_sigmask(SIG_BLOCK, &wake, nullptr) != 0) {
             std::terminate();
         }
@@ -102,7 +103,7 @@ public:
         if (::sigpending(&pending) != 0) {
             std::terminate();
         }
-        if (::sigismember(&pending, SIGUSR2) == 1 && ::sigismember(&saved_, SIGUSR2) == 0) {
+        if (sigismember(&pending, SIGUSR2) == 1 && sigismember(&saved_, SIGUSR2) == 0) {
             int signal = 0;
             if (::sigwait(&wake, &signal) != 0) {
                 std::terminate();
@@ -131,7 +132,7 @@ TEST(CompositionSignalMask, RestoreMask_DrainsPendingWakeSignal) {
     sigset_t after;
     ASSERT_EQ(::pthread_sigmask(SIG_BLOCK, nullptr, &after), 0);
     for (const int signal : {SIGINT, SIGTERM, SIGUSR2}) {
-        EXPECT_EQ(::sigismember(&after, signal), ::sigismember(&before, signal));
+        EXPECT_EQ(sigismember(&after, signal), sigismember(&before, signal));
     }
 }
 
@@ -185,8 +186,8 @@ std::string valid_config() {
 TEST(CompositionSignalMask, RestoreMask_PreservesBlockedUserSignal) {
     const ScopedSignalMask restore_original;
     sigset_t user_signal;
-    ::sigemptyset(&user_signal);
-    ::sigaddset(&user_signal, SIGTERM);
+    sigemptyset(&user_signal);
+    sigaddset(&user_signal, SIGTERM);
     ASSERT_EQ(::pthread_sigmask(SIG_BLOCK, &user_signal, nullptr), 0);
     ASSERT_EQ(::kill(::getpid(), SIGTERM), 0);
     {
@@ -196,8 +197,8 @@ TEST(CompositionSignalMask, RestoreMask_PreservesBlockedUserSignal) {
     }
     sigset_t pending;
     ASSERT_EQ(::sigpending(&pending), 0);
-    EXPECT_EQ(::sigismember(&pending, SIGTERM), 1);
-    if (::sigismember(&pending, SIGTERM) == 1) {
+    EXPECT_EQ(sigismember(&pending, SIGTERM), 1);
+    if (sigismember(&pending, SIGTERM) == 1) {
         int signal = 0;
         EXPECT_EQ(::sigwait(&user_signal, &signal), 0);
         EXPECT_EQ(signal, SIGTERM);
