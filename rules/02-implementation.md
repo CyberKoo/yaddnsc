@@ -1,243 +1,142 @@
 # Implementation
 
-## Code Reuse & Component Selection
+**Requirement levels:** **must / must not** are hard requirements; **prefer / normally** describe defaults; **may** permits an exception under the stated conditions. Examples are explanatory, not additional rules.
 
-**Reuse existing, proven foundation components** whenever they satisfy requirements. Do not reinvent logging, error handling, configuration management, threading primitives, or platform abstraction layers.
+## Scope & Architecture Boundaries
+
+These rules apply to first-party C++ code. C ABI declarations and adapters **must** preserve their language, layout, and ownership contracts rather than expose C++ types. See [Architecture](../docs/architecture.md#layers) and [Custom Drivers](../docs/custom-drivers.md) for details.
+
+| Scope | Required boundary |
+|-------|-------------------|
+| Domain | Pure business rules and value types; no I/O, threading, or third-party dependencies. `std::chrono` time/duration value types are permitted; the layer does not read the system clock. |
+| Application | External capabilities accessed through ports; concrete infrastructure assembled in the composition root. |
+| Infrastructure / adapters | System and third-party APIs adapted to internal contracts; platform-specific code isolated here. |
+| Public SDK / plugins | Only public SDK/util headers; no host-internal dependencies or C++ objects, STL containers, or exceptions crossing the plugin C ABI. |
+
+The include-level parts of these boundaries are checked by the `architecture_guard` test (`cmake/ArchitectureGuard.cmake`, registered with CTest and run in CI). It is a textual include/pattern check, not a full analysis: passing it is necessary, not sufficient, for the boundaries above.
+
+## Code Reuse & Component Selection
 
 ### Reuse Protocol
 
-1. **Search the existing codebase** for similar functionality before implementing anything new.
-2. **Evaluate the existing component** against current requirements. If close but missing a capability, extend it in a backward-compatible manner.
-3. **Document the decision** if you choose not to reuse an existing component, explaining why it was insufficient.
+1. **Search** for existing functionality before implementing it.
+2. **Prefer** extending a suitable existing component over adding a parallel implementation.
+3. If reuse is unsuitable, **document** the reason in the change description.
 
 ### Components That Must Be Reused
 
 | Category | Requirement |
 |----------|-------------|
-| **Logging** | Use the project's centralized logging facade for diagnostic logging. No `std::cout`/`printf` or ad-hoc loggers. User-facing CLI output is not logging — see [Logging](04-quality-and-process.md#logging). |
-| **Error/Result types** | Use `std::expected<T, E>` consistently. Do not introduce per-module error wrappers. |
-| **Configuration** | Use the established configuration subsystem. Do not parse env vars or config files independently. |
-| **Platform abstraction** | Use existing platform detection macros and OS-abstraction utilities. No `#ifdef` blocks in new code. |
-| **String utilities** | Use shared `trim`, `split`, `join`, case conversion from the project's string library. |
-| **Numeric types** | Use fixed-width types (`std::uint8_t`, `std::int32_t`, etc.) at API boundaries, for serialization, and for persistent storage. Local transient counters/indices where overflow is impossible may use plain `int`. Use project-standard safe arithmetic wrappers where they exist. |
+| Logging | Use the central logging system through the [layer-specific entry points](04-quality-and-process.md#layered-logging-policy); CLI output is separate. |
+| Error / result types | Use `std::expected<T, E>` according to [Error Handling](03-error-handling.md); domain-specific error types and result aliases are allowed, duplicate result-wrapper abstractions are not. C ABI status values remain at the boundary. |
+| Configuration | Use the established configuration subsystem; do not independently re-parse configuration or environment variables downstream. |
+| Platform abstraction | Reuse OS adapters and detection utilities. New platform conditionals must be confined to designated adapters or necessary public ABI portability definitions, not scattered through business code. |
+| Shared utilities | Reuse utilities from `include/yaddnsc/util/` and existing support helpers rather than duplicate string/formatting implementations in host and plugins. |
+| Numeric representation | Use explicitly sized types where a protocol, ABI, or persistent format requires a fixed width. Use `std::size_t` for sizes/indices and suitable integer types for local arithmetic; validate narrowing and overflow. |
 
 ### Contribution & Duplication Rules
 
-- Improve reused components in place; ensure all existing callers still compile and pass tests.
-- Do not pull in third-party libraries that duplicate functionality of existing dependencies. Review the dependency graph before adding new libraries.
+- Component changes **must** preserve documented contracts or update affected callers and tests together. **Prefer** backward-compatible extensions.
+- New dependencies **must not** duplicate existing capabilities without a documented reason; review compatibility, licenses, and security implications.
 
 ## Headers & Include Management
 
-- Include order is enforced by clang-format (`IncludeBlocks: Regroup`).
-- Include syntax:
-  - Host-internal and generated headers (from `src/` and `generated/`) use `#include "..."`.
-  - Public SDK headers use `#include <yaddnsc/sdk/...>`.
-  - Shared utility headers (host + plugins) use `#include <yaddnsc/util/...>`.
-  - Third-party library headers and standard library headers use `#include <...>`.
-- Include path conventions:
-  - A `.cpp` file should include its own `.h` header using the bare filename
-    (e.g. `#include "dispatcher.h"` for `dispatcher.cpp`). This is automatically
-    placed first by clang-format.
-  - All other host-internal headers must use the full path relative to the
-    `src/` base directory (e.g. `#include "infrastructure/dns/types.h"`,
-    `#include "infrastructure/dns/dns_lookup_exception.h"`).
-  - Do **NOT** use `../` relative paths to reach other modules.
-  - Generated headers (from `generated/`): the `generated/` directory is added to the
-    compiler's include root, so they are referenced by their flat filename
-    (e.g. `#include "config_cmake.h"`). Do not use relative sub-paths to reach them.
-    If a name collision ever occurs, rename the generator output; never work around it
-    with a relative path.
-- Minimize `#include` dependencies: forward-declare types where possible.
-- Always include what you use (IWYU): do not rely on transitive includes.
-  A symbol must come from a header you include directly — never from one
-  pulled in incidentally by another header. This is enforced, not advisory:
-  - IWYU runs as part of every Clang build (`cmake/IWYU.cmake`) and
-    violations fail the build. Third-party noise is filtered through
-    `.iwyu-mappings.imp`; when a suggestion is genuinely wrong, prefer a
-    mapping entry over an in-source pragma.
-  - Every first-party header must be self-contained (compile standalone).
-    The `yaddnsc_header_checks` target (`cmake/HeaderCheck.cmake`) compiles
-    each header as its own translation unit on every build. This is what
-    keeps "works with libstdc++, fails with libc++" bugs off macOS.
-  - clangd flags both problems in the editor (`.clangd` sets
-    `UnusedIncludes`/`MissingIncludes` to `Strict`).
-- File conventions:
-  - **`.h`**: Interface declarations with limited inline implementations.
-    Permitted inline content:
-    - Pure getters (single `return` statement, `constexpr` or not).
-    - Template methods ≤10 lines (excluding signature, blank lines, and lone brace lines).
-    - Classification predicates (`is_*()`, `has_*()`) that are single expressions.
-    - Factory methods that are single-expression returns (e.g. `from_array` delegating to `from_bytes`).
-    - Type alias / tag / convenience wrappers (e.g. `using`, `visit()` forwarding to `std::visit`).
-  - **`.hpp`**: Headers with template implementations exceeding the `.h` limits, non-trivial inline
-    functions, or any detailed implementation logic that does not fit the `.h` criteria above.
-  - **`.cpp`**: Non-template implementation files.
-- Never place `using namespace` directives in header files at global or namespace scope.
-  Function-body-local `using namespace std::string_literals;` is permitted in `.cpp` files
-  and tolerated inside `.h`/`.hpp` function bodies, but should be avoided in headers when practical.
+- Headers **must** be self-contained and include what they use; do not rely on incidental transitive includes. **Prefer** forward declarations where they avoid unnecessary dependencies without compromising correctness.
+- Use `"..."` for host-internal/generated headers, `<yaddnsc/sdk/...>` and `<yaddnsc/util/...>` for public headers, and `<...>` for standard/third-party headers.
+- A `.cpp` **normally** includes its own header first using the bare filename. Other host-internal includes **must** use paths relative to `src/`, not `../` paths. Generated headers use their configured include-root-relative filenames.
+- Include order and formatting **must** follow `.clang-format`; actual checks are described in [Include hygiene](../docs/development.md#include-hygiene).
+- **Normally** use `.h` for declarations and small inline functions, `.hpp` for substantial template/header-only implementations, and `.cpp` for non-template implementations. Judge inline content by readability and compile-time dependencies, not a line-count threshold; do not rename existing files solely to enforce this preference.
+- Headers **must not** contain namespace-scope `using namespace` directives. Function-local literal namespace imports **may** be used; **prefer** avoiding them in headers when practical.
 
 ## Memory & Resource Management
 
-### Allocation Rules (Memory)
+### Ownership & RAII
 
-- **Never** use raw `new` or `delete` outside permitted contexts.
-- Use `std::unique_ptr` for exclusive ownership, `std::shared_ptr` for shared ownership.
-- Prefer `std::make_unique` and `std::make_shared` for creating smart pointers.
-- Raw pointers (`T*`) and `std::reference_wrapper<T>` are for non-owning observers only.
-- Avoid `std::weak_ptr` unless needed for breaking cyclic dependencies.
-- A moved-from object **must not be accessed** except for destruction or reassignment.
+- Resources **must** have RAII owners, including memory, sockets, files, locks, and library handles. **Prefer** value semantics and the Rule of Zero.
+- Use `std::unique_ptr` for exclusive heap ownership; use `std::shared_ptr` only when shared ownership is required. **Prefer** `make_unique` / `make_shared` where appropriate.
+- Raw pointers and references **normally** borrow; ownership transfer at a C boundary **must** be explicit and documented. `weak_ptr` **may** express non-owning observation of shared ownership, including breaking cycles.
+- Non-owning pointers, references, spans, and string views **must not** outlive their backing object. Return values **must not** refer to destroyed local storage; warnings are useful but do not prove lifetime safety.
+- After moving, operations **must** satisfy the source type's documented moved-from contract. **Normally** reassign before reusing its value; do not assume a particular state unless guaranteed by that type.
 
-#### Exemptions for Raw `new`/`delete`
+### ABI Allocation Exceptions
 
-The prohibition does **not apply** to:
-1. **Dynamic plugin/driver factory entry points** — C ABI-compatible factory functions (`extern "C"` linkage, invoked via `dlsym`) where C++ smart pointers cannot cross library boundaries safely due to ABI instability.
-2. **External dynamic library loading code** — `dlopen`/`dlsym`/`dlclose` wrappers, C-style ABI interactions, and adapter layers bridging C APIs to C++ internals.
+- Raw `new` / `delete` **must not** be used in ordinary internal code. They **may** be used in ABI factories/destructors or low-level C adapters when required to implement an explicit ownership contract.
+- Acquired resources **must** be placed under RAII immediately. Plugin instances **must** use the plugin's matching destroy entry point, not host-side `delete`; the library **must** remain loaded until its instances and callbacks are no longer used.
+- Allocation and deallocation **must** remain on the sides prescribed by the ABI. A permitted raw factory allocation is not permission for unmanaged ownership elsewhere.
 
-**Justification**: Dynamic plugin systems require ABI stability across compilers and standard library versions. Smart pointers do not guarantee stable ABIs. Raw `new`/`delete` usage is strictly confined to boundary-crossing factory functions. All internal code must use smart pointers.
+### Ownership in Signatures
 
-**Ownership handoff**: Within an exemption, the factory may return a raw `T*` allocated with `new`. The internal caller that receives it must immediately wrap it in `std::unique_ptr<T>` (or equivalent RAII owner) at the call site; no other `.cpp` file may ever write a manual `delete`.
+| Intent | Typical parameter |
+|--------|-------------------|
+| Borrow an object | `T&` / `const T&`; pointer when absence is meaningful |
+| Transfer exclusive ownership | `std::unique_ptr<T>` by value |
+| Retain shared ownership | `std::shared_ptr<T>` by value |
+| Inspect an existing shared handle | `const std::shared_ptr<T>&`; copying it acquires a separate ownership share |
 
-### RAII & Ownership Conventions (Resources)
-
-- Follow **RAII** for **all** resources (file handles, locks, sockets, GPU resources, memory — see Allocation Rules above).
-- Document ownership transfer in function signatures:
-  - `std::unique_ptr<T>`: function takes ownership.
-  - `const std::shared_ptr<T>&`: function shares ownership.
-  - `T&` or `T*`: function does not take ownership.
-- Returning a reference/pointer to a local object is a compile-time error (`-Wreturn-stack-address` + `-Werror`).
+**Prefer** borrowing the object directly when the function does not need to manipulate its ownership handle. A reference to a `shared_ptr` does not itself acquire ownership.
 
 ## Const Correctness
 
-- Mark member functions `const` if they do not mutate observable state. Use `mutable` only for caching/synchronization.
-- Prefer `const` references for read-only parameters and `const` iterators (`cbegin()`, `cend()`).
-- Declare immutable variables `const` or `constexpr` by default.
-- Mark functions that cannot fail as `noexcept` per the boundary rule in [Error Handling → Core Principles](03-error-handling.md#core-principles).
+- Member functions **must** be `const` when they do not mutate observable state; `mutable` **may** support documented caching/synchronization.
+- **Prefer** `const` / `constexpr` for immutable values and read-only interfaces appropriate to the type.
+- `noexcept` **must** follow [Exception Safety & noexcept](03-error-handling.md#exception-safety--noexcept), not whether an operation can report failure.
 
 ## Coding Style & Formatting
 
-All formatting is enforced by **clang-format** (`BasedOnStyle: Chromium`). Naming conventions enforced by **clang-tidy**:
+Formatting **must** follow `.clang-format`; naming **must** follow this table. A tool configuration is not a claim that every convention has an automated gate.
 
 | Element | Convention |
 |---------|------------|
-| Constants | `UPPER_SNAKE_CASE` |
+| Constants / enumerators | `UPPER_SNAKE_CASE` |
 | Functions | `snake_case` |
-| Classes | `PascalCase` |
-| Class member variables | `snake_case_` (trailing underscore) |
-| Pure data struct member variables (POD, no invariants) | `snake_case` (no trailing underscore) |
+| Classes / types | `PascalCase` |
+| Class member variables | `snake_case_` |
+| Passive struct fields | `snake_case` |
 
-- Always add `[[nodiscard]]` where ignoring the return value is a bug.
-- Use `[[maybe_unused]]` (C++17 attribute) instead of C-style `(void)` casts for deliberately discarding a return value. This applies to both local variables and function parameters.
-- Do not suppress the return value of functions that are not `[[nodiscard]]` — the compiler will not warn, so the suppression is noise.
-- Use trailing return type syntax only when necessary (e.g., dependent return types in templates).
-- When crossing fixed-width integer types (e.g., `std::uint8_t` argument passed to an `int` parameter, or comparison with `std::size_t`), use an explicit `static_cast`. Do not silence with local `#pragma GCC diagnostic` blocks.
+- Results whose omission is a bug **must** be `[[nodiscard]]`. A deliberate discard **normally** uses a named `[[maybe_unused]]` variable with a reason when non-obvious; do not add suppression for ordinary non-`nodiscard` calls. **Prefer** `[[maybe_unused]]` over C-style `(void)` casts for unused parameters/variables.
+- **Prefer** ordinary return syntax unless trailing returns improve or enable the declaration.
+- Integer conversions **must** preserve the intended range and signedness. Use explicit casts after establishing validity where needed; a cast alone is not a bounds check. Do not hide first-party problems with local warning-suppression pragmas.
 
 ## Classes & Structs
 
-- Use `struct` for passive data carriers (POD, public members, no invariants).
-- Use `class` for types with invariants or private members.
-- Follow the **Rule of 0** by default. If you define any of the five special member functions, explicitly define or delete all five.
-- Mark single-argument constructors `explicit` unless implicit conversion is genuinely intended and documented.
-- **Consider PIMPL** for stable public-facing APIs whose implementation changes frequently, to reduce compile-time dependencies. Note: a PIMPL class necessarily defines a destructor (and possibly move operations) for its incomplete-type `std::unique_ptr` member; this is a deliberate, localized exception to the Rule of 0 — disable copying unless explicitly required.
-- Use **CRTP** sparingly; prefer concepts-based polymorphism.
+- **Normally** use `struct` for passive data and `class` for encapsulated invariants.
+- **Prefer** the Rule of Zero. When custom destruction/copy/move behavior is needed, **review** all five special members and explicitly define or delete operations whose generated behavior would be incorrect. A custom destructor does not automatically require implementing every operation.
+- Single-argument converting constructors **must** be `explicit` unless conversion is intended and documented.
+- PIMPL **may** reduce dependencies in public C++ APIs; it does not make a C++ interface a stable plugin ABI. **Prefer** simple composition or constrained templates over CRTP unless CRTP solves a concrete need.
 
 ## Function & Constructor Signatures
 
-- Keep constructors at **≤ 4 parameters**. Beyond that, introduce a small
-  reference bundle named `XxxPorts` / `XxxDeps` / `XxxEnvironment` (see
-  `src/application/run_environment.h`). Bundles group by who uses the members
-  together — never accumulate a general `AppContext`/service-locator struct.
-  If a bundle member goes unused by one holder, split the bundle.
-- **Raw configuration values do not travel.** A `std::string`/`std::vector`
-  sliced out of `domain::RuntimeConfig` must not appear in three or more
-  signatures; pass the domain slice struct (e.g. `domain::ResolverSettings`)
-  or a pre-built policy object (e.g. `net::http::Options`) instead, so adding
-  a config field never ripples through call sites.
-- Cross-cutting policy objects (HTTP options, factories) are built **once in
-  the composition root** and injected; no second construction path may
-  re-derive the same policy downstream.
-- `Utils::CancellationToken` is always passed **as a call parameter**, never
-  stored as a member: cancellation is operation-scoped by design.
-- `Logger&` and other ports are passed explicitly (directly or inside a
-  bundle). Do not introduce global/singleton ports.
+- **Prefer** small, cohesive parameter lists. More than four constructor parameters is a review signal, not an automatic limit. Related dependencies **may** use an `XxxPorts` / `XxxDeps` / `XxxEnvironment` reference bundle (see `src/application/run_environment.h`); avoid general service locators or unused bundled dependencies.
+- Configuration **must** travel as cohesive domain slices (e.g. `domain::ResolverSettings`) or pre-built policy objects when forwarded across layers, rather than repeated unrelated strings/vectors. Adding a field should not require mechanically changing a long chain of signatures.
+- Cross-cutting policies **must** be assembled in the composition root and injected; downstream code **must not** independently re-derive the same policy.
+- `Utils::CancellationToken` **must** be passed per operation, not stored as a member. Ports **must** be explicit dependencies, directly or through a cohesive bundle; global/singleton ports are prohibited.
 
 ## Enums
 
-- Always use `enum class`. Avoid plain `enum`.
-- Name enumerators in `UPPER_CASE_CONSTANT` style.
-- Use **magic_enum** for reflection (name/enum conversion, iteration).
-- Use the project's **fmt polyfill** for compile-time checked formatting of enum values. Do not use raw `std::format` or `fmt::format` directly. All enum `fmt::formatter` specializations are registered through the polyfill's shared, project-wide header; once registered there, **spdlog can log the enum directly** (`logger->info("state: {}", state)`). An enum not registered in the polyfill must not be logged.
-- Use `std::to_underlying` (C++23) for underlying integer conversions when explicitly needed.
-- Custom formatter specializations for enums go through the fmt polyfill's extension mechanism in a shared, project-wide header.
+- C++ enums **must** use `enum class` unless an external interface requires otherwise. C ABI enums **must** follow the ABI declaration.
+- **Prefer** `magic_enum` for appropriate reflection. Host enum formatting **must** use the existing shared fmt polyfill/formatter registration instead of independent formatter implementations; registered enums can be logged directly.
+- **Prefer** `std::to_underlying` for explicit underlying conversions. Public SDK utilities **must not** acquire host-only formatting dependencies.
 
 ## Templates & Concepts
 
-- Use **C++20 concepts** instead of SFINAE.
-- Avoid `std::enable_if`; use `if constexpr` or concepts.
-- Prefer `requires` clauses for template constraints.
+- **Prefer** concepts and `requires` clauses over new SFINAE/`enable_if` designs; use `if constexpr` for compile-time implementation branches.
 
 ## Standard Library Usage
 
-- Prefer `std::span<T>` over `const std::vector<T>&` for read-only contiguous data.
-- Use `std::string_view` for read-only string parameters (see [String Handling](#string-handling) for the full selection table and C-API safety rules).
-- Prefer `std::optional<T>` over sentinel values (`-1`, `nullptr`).
-- Use `std::variant<Ts...>` for type-safe unions instead of C unions or `void*`.
-- Use range-based `for` loops and `<algorithm>`/`<ranges>` over explicit index-based loops.
-- Use `std::chrono` for all time operations; avoid C-style time functions.
+- **Prefer** `span` for contiguous borrowed ranges, `string_view` for borrowed text, `optional` for genuine optional values, and `variant` for internal type-safe alternatives. Preserve required C ABI representations at boundaries.
+- **Prefer** algorithms/ranges and range-based loops when clearer; explicit indexing is appropriate when the algorithm needs offsets or bounds checks.
+- **Prefer** `chrono` for internal time/duration semantics; adapt to C/system representations at their boundaries.
 
 ## String Handling
 
-### Parameter Selection
-
-| Use Case | Recommended Type | Rationale |
-|----------|-----------------|-----------|
-| Read-only operations | `std::string_view` | Zero overhead, flexible |
-| One-time C API call | Accept `std::string_view`, copy internally | Convenient, cost acceptable |
-| Frequent C API calls | `const std::string&` | Caller manages null-termination |
-| Need ownership/mutation | `std::string` | Clear ownership semantics |
-| C library interfaces | `const std::string&` | Guaranteed null-termination |
-
-### Key Rules
-
-- `string_view::data()` is **not guaranteed null-terminated**. Only use when the API explicitly accepts non-null-terminated buffers.
-- When calling C functions requiring null-termination, explicitly convert to `std::string`.
-- Avoid `const char*` except when interfacing with C libraries.
-- Reuse existing string utility functions (`trim`, `split`, `join`, etc.).
-
-### Performance Patterns
-
-```cpp
-// Read-only: zero overhead
-[[nodiscard]] size_t count_words(std::string_view text) {
-    return std::ranges::count(text, ' ') + 1;
-}
-
-// C library interaction: explicit cost
-[[nodiscard]] bool open_file(const std::string& path) {
-    return ::open(path.c_str(), O_RDONLY) >= 0;
-}
-[[nodiscard]] bool open_file(std::string_view path) {
-    return open_file(std::string(path));  // Explicit copy
-}
-
-// Caching for repeated calls
-class FileHandler {
-    std::string path_;
-public:
-    explicit FileHandler(std::string_view path) : path_(path) {}
-    void open() { ::open(path_.c_str(), O_RDONLY); }
-};
-
-// Lazy copy with null-termination check
-[[nodiscard]] const char* get_c_str_or_copy(std::string_view sv, std::string& buffer) {
-    if (!sv.empty() && sv.data()[sv.size()] == '\0') return sv.data();
-    buffer = sv;
-    return buffer.c_str();
-}
-```
+- Read-only text **normally** uses `std::string_view`; use `std::string` when owning/storing text, and `const std::string&` when an existing owning string's NUL-terminated storage is specifically needed.
+- Views **must** stay within backing-storage bounds and lifetime. `string_view::data()` does not guarantee NUL termination; `data()[size()]` **must not** be probed without an independent storage contract that guarantees readability there.
+- A NUL-terminated C API **must** receive a known terminated string (e.g. an owning `std::string` via `c_str()`), or an explicitly documented C-string input. **Prefer** a length-aware API when available.
+- Embedded NULs **must** be rejected when truncation would change the meaning of a path, hostname, or other externally validated value. Owning a string guarantees termination, not absence of embedded NULs.
+- Repeated C calls **may** reuse one owned string instead of repeatedly copying a view. Returned C handles still require RAII.
 
 ## Lambda Expressions
 
-- Prefer explicit captures over `[=]` or `[&]` defaults.
-- Keep lambdas short (<10 lines). Extract longer ones into named functions.
-- Mark lambdas `noexcept` when they cannot throw.
-- Avoid recursive lambdas; use `std::function` or named function objects.
+- **Prefer** explicit captures and short, cohesive lambdas. Extract a named function when it improves readability, reuse, or testing; no fixed line limit applies.
+- Recursive lambdas **may** use an explicit self parameter or named function object. Use `std::function` only when runtime type erasure is needed, not solely to enable recursion.
+- Lambda `noexcept` declarations **must** follow the same exception guarantee as other functions.

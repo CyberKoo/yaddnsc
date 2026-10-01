@@ -1,206 +1,83 @@
-# Examples
+# Examples (Non-normative)
 
-## Memory Management
+The numbered implementation and error-handling rules are authoritative. This document illustrates checked results, ownership/RAII, and C-string adaptation; it does not introduce additional requirements. Architecture-specific examples are documented at their actual interfaces rather than through placeholder paths or logging macros:
 
-```cpp
-// BAD: Raw memory management
-int* calculateSum(int* a, int* b) {
-    int* result = new int(0);
-    *result = *a + *b;
-    return result;
-}
+- [Layers and shared utility ownership](../docs/architecture.md#layers).
+- [Layer-specific logging entry points](04-quality-and-process.md#layered-logging-policy).
+- [Plugin ABI and SDK usage](../docs/custom-drivers.md).
+- [Contracts, expected, and exception boundaries](03-error-handling.md).
 
-// GOOD: Value semantics
-[[nodiscard]] int calculateSum(int a, int b) const {
-    return a + b;
-}
+## Checked Results & RAII
 
-// BAD: Manual buffer
-class Buffer {
-    char* data_;
-    size_t size_;
-public:
-    Buffer(size_t s) : data_(new char[s]), size_(s) {}
-    ~Buffer() { delete[] data_; }
-};
-
-// GOOD: RAII with standard containers
-class Buffer {
-    std::vector<char> data_;
-public:
-    explicit Buffer(size_t size) : data_(size) {}
-};
-```
-
-## Error Handling
+This complete C++23 example uses only the standard library. In project code, reuse the existing result/resource adapters rather than introduce a second file abstraction.
 
 ```cpp
-// BAD: C-style
-int divide(int a, int b, int* result) {
-    if (b == 0) return -1;
-    *result = a / b;
-    return 0;
-}
+#include <cerrno>
+#include <cstdio>
+#include <expected>
+#include <limits>
+#include <memory>
+#include <string>
+#include <string_view>
 
-// GOOD: std::expected (C++23) — no allocation, safe to mark noexcept
-enum class MathError { DIVISION_BY_ZERO };
-[[nodiscard]] std::expected<int, MathError> divide(int a, int b) noexcept {
-    if (b == 0) return std::unexpected(MathError::DIVISION_BY_ZERO);
-    return a / b;
-}
+namespace examples {
 
-// BAD: Function design — throws for retryable I/O errors
-// The root problem is that send() and read() throw for errors the
-// caller should handle (timeout, transient failure). Fix the functions,
-// not the call site.
-void send(const Packet&);     // throws on timeout — should return expected
-void read(Response&);         // throws on checksum error — should return expected
+enum class MathError { DIVISION_BY_ZERO, OVERFLOW };
 
-try {
-    send(pkt);
-    read(rsp);
-} catch (const DnsLookupException& e) {
-    return std::unexpected(e);
-}
-// ✗ Wrong: The functions themselves are incorrectly designed.
-//   The try-catch papers over the design problem.
-
-// GOOD: Functions return expected — no throw/catch needed
-[[nodiscard]] std::expected<void, SendError> send(const Packet&) noexcept;
-[[nodiscard]] std::expected<Response, ReadError> read() noexcept;
-
-auto s = send(pkt);
-if (!s) return std::unexpected(s.error());
-
-auto rsp = read();
-if (!rsp) return std::unexpected(std::move(rsp.error()));
-
-return std::move(*rsp);
-
-// GOOD: catch only logs at termination point — no rethrow
-void handle_request() {
-    try {
-        process();  // throws on precondition failure — cannot proceed
-    } catch (const std::exception& e) {
-        LOG_ERROR("Fatal: {}", e.what());
+[[nodiscard]] std::expected<int, MathError> divide(int numerator, int denominator) noexcept {
+    if (denominator == 0) {
+        return std::unexpected(MathError::DIVISION_BY_ZERO);
     }
-}
-
-// GOOD: catch logs and propagates — not the final termination point
-void inner() {
-    try {
-        process();
-    } catch (const std::exception& e) {
-        LOG_WARN("Inner failed: {}", e.what());
-        throw;
+    if (numerator == std::numeric_limits<int>::min() && denominator == -1) {
+        return std::unexpected(MathError::OVERFLOW);
     }
+    return numerator / denominator;
 }
 
-// GOOD: Strong exception safety with rollback
-void transfer(Account& from, Account& to, Money amount) {
-    auto snapshot_from = from;
-    auto snapshot_to = to;
-    from.withdraw(amount);
-    try {
-        to.deposit(amount);
-    } catch (...) {
-        from = snapshot_from;   // rollback, nothrow
-        to = snapshot_to;       // rollback, nothrow
-        throw;
-    }
-}
-
-// GOOD: Error translation at module boundary — multiple error categories
-[[nodiscard]] std::expected<Response, ResolveError> resolve(const Query& q) {
-    try {
-        return do_resolve(q);
-    } catch (const TimeoutError& e) {
-        return std::unexpected(ResolveError::TIMEOUT);
-    } catch (const FormatError& e) {
-        return std::unexpected(ResolveError::INVALID_RESPONSE);
-    } catch (const NetworkError& e) {
-        return std::unexpected(ResolveError::NETWORK_FAILURE);
-    }
-}
-```
-
-## Code Reuse
-
-```cpp
-// BAD: Reimplementing string splitting
-std::vector<std::string> split(const std::string& str, char delim) { /* ... */ }
-
-// GOOD: Using project infrastructure
-#include "project/strings/string_utils.h"
-void process_items(std::string_view input) {
-    auto tokens = strings::split(input, ',');
-    for (auto token : tokens) process(strings::trim(token));
-}
-
-// BAD: Ad-hoc logging
-void handle_request(const Request& req) {
-    std::cout << "Processing: " << req.id() << std::endl;
-}
-
-// GOOD: Project logging facade
-void handle_request(const Request& req) {
-    LOG_INFO("Processing request: {}", req.id());
-}
-```
-
-## Move Semantics & Lifetime
-
-```cpp
-// BAD: Use-after-move
-auto other = std::move(data);
-std::cout << data.size();
-
-// GOOD: Reassign before reuse
-auto other = std::move(data);
-data = {4, 5, 6};
-std::cout << data.size();
-
-// BAD: Dangling reference (-Wreturn-stack-address)
-const std::string& get_name() {
-    std::string local = "temp";
-    return local;
-}
-
-// GOOD: Return by value (NRVO applies)
-std::string get_name() {
-    std::string local = "temp";
-    return local;
-}
-```
-
-## String Safety
-
-```cpp
-// BAD: Unsafe string_view with C functions
-void call_open(std::string_view filename) {
-    FILE* f = std::fopen(filename.data(), "r");  // May not be null-terminated
-}
-
-// GOOD: Explicit conversion
-void call_open(std::string_view filename) {
-    std::string str(filename);
-    FILE* f = std::fopen(str.c_str(), "r");
-}
-
-// GOOD: API signals null-termination requirement
-void call_open(const std::string& filename) {
-    FILE* f = std::fopen(filename.c_str(), "r");
-}
-
-// GOOD: Caching for repeated use
-class ConfigParser {
-    std::string config_path_;
-public:
-    explicit ConfigParser(std::string_view path) : config_path_(path) {}
-    void load() {
-        FILE* f = std::fopen(config_path_.c_str(), "r");
-        // ... multiple operations using config_path_.c_str()
-        std::fclose(f);
+struct FileCloser {
+    void operator()(std::FILE* file) const noexcept {
+        if (file != nullptr) {
+            // Best-effort release for this read-only example; never throw.
+            std::fclose(file);
+        }
     }
 };
+
+using File = std::unique_ptr<std::FILE, FileCloser>;
+
+struct FileError {
+    enum class Code { INVALID_PATH, OPEN_FAILED };
+    Code code;
+    int system_error;
+};
+
+[[nodiscard]] std::expected<File, FileError> open_read_only(std::string_view path) {
+    if (path.find('\0') != std::string_view::npos) {
+        return std::unexpected(FileError{FileError::Code::INVALID_PATH, 0});
+    }
+    // The view need not include a terminator. Copy without probing past its end.
+    const std::string owned_path(path);
+    File file(std::fopen(owned_path.c_str(), "r"));
+    if (!file) {
+        const int saved_errno = errno;
+        return std::unexpected(FileError{FileError::Code::OPEN_FAILED, saved_errno});
+    }
+    return file;
+}
+
+}  // namespace examples
 ```
+
+- `divide` checks both undefined integer-division cases and can report errors without throwing.
+- `open_read_only` may throw while constructing the owned string, so it is not `noexcept`. Operational open failures are error values; `errno` remains confined to the C adapter. Its detailed meaning depends on the platform's C library contract.
+- The returned file owner closes on all exit paths, including later exceptions. A write/flush API would need an explicit way to report errors that cannot be conveyed by a destructor.
+- A moved-from owner is used only according to its type contract; do not assume that arbitrary moved-from objects are empty. Explicit moves from members or dereferenced owners can be appropriate, while `return std::move(local)` prevents NRVO for an eligible named local.
+
+## Boundary Failure Policies
+
+For concrete boundary implementations, see `include/yaddnsc/sdk/driver.hpp` and the DNS resolver adapters under `src/infrastructure/dns/resolver/`. These illustrate two distinct contracts:
+
+- The plugin C ABI contains C++ exceptions and reports ABI status/error data without allowing an exception to escape.
+- DNS resolver APIs translate permitted internal parser exceptions into caller-handled results. Malformed network input is not an internal assertion failure or a process-termination requirement.
+
+Rollback examples must establish that restoration itself cannot throw; copying snapshots alone does not prove strong exception safety. Prefer a real transaction/commit design over an illustrative assignment-based rollback with unstated assumptions.

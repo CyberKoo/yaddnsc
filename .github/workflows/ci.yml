@@ -103,8 +103,9 @@ jobs:
               run: ctest --test-dir build --output-on-failure -j$(nproc)
 
     # ----------------------------------------------------------------------
-    # Benchmark job — run performance benchmarks and check for regressions.
-    # Currently only runs on PRs to provide quick feedback.
+    # Benchmark job — run the performance benchmarks on PRs for quick feedback.
+    # Smoke run only: there is no stored baseline, comparison step, or
+    # performance-regression threshold.
     # ----------------------------------------------------------------------
     benchmark:
         if: github.event_name == 'pull_request'

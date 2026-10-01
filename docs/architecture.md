@@ -34,7 +34,9 @@ Dependency direction is enforced by the CMake target graph
 `yaddnsc_composition` ← executable):
 
 - `src/domain/`: pure rules and value types (update decision, schedule queue,
-  runtime config model). No I/O, threads, clocks, or third-party libraries.
+  runtime config model). No I/O, threading, or third-party libraries.
+  `std::chrono` time/duration value types are permitted; the layer does not read
+  the system clock.
 - `src/application/`: use cases over the ports — update workflow, scheduler
   runner, run lifecycle, diagnostics, environment validation. No spdlog,
   Glaze, CLI11, OpenSSL, or dlopen; logging goes through the `ports/log.h`

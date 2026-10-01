@@ -47,7 +47,11 @@ check_cxx_compiler_flag("-fsanitize-address-use-after-return=always"
                         HAVE_ASAN_USE_AFTER_RETURN)
 
 foreach(flag IN ITEMS integer bounds null alignment)
-  if(HAVE_SANITIZE_${flag})
+  # check_cxx_compiler_flag() defines UPPERCASE cache variables; CMake variable
+  # names are case-sensitive, so normalize into a separate variable and keep
+  # the lowercase name for the flag itself.
+  string(TOUPPER "${flag}" flag_probe)
+  if(HAVE_SANITIZE_${flag_probe})
     message(STATUS "Sanitizer flags: -fsanitize=${flag}  => yes")
   else()
     message(STATUS "Sanitizer flags: -fsanitize=${flag}  => no")
@@ -110,10 +114,11 @@ target_link_options(yaddnsc_sanitizers INTERFACE
   $<$<CONFIG:Sanitizer>:-fsanitize=address,undefined>
 )
 
-# Compile options: Clang-only flags (bounds, null, alignment) — feature-detected,
+# Compile options: optional flags (bounds, null, alignment) — feature-detected,
 # Sanitizer build type only.
 foreach(san bounds null alignment)
-  if(HAVE_SANITIZE_${san})
+  string(TOUPPER "${san}" san_probe)
+  if(HAVE_SANITIZE_${san_probe})
     target_compile_options(yaddnsc_sanitizers INTERFACE
       $<$<CONFIG:Sanitizer>:-fsanitize=${san}>
     )
@@ -134,10 +139,11 @@ if(HAVE_ASAN_USE_AFTER_RETURN)
   )
 endif()
 
-# Linker options: Clang-only flags (bounds, null, alignment) — feature-detected,
+# Linker options: optional flags (bounds, null, alignment) — feature-detected,
 # Sanitizer build type only.
 foreach(san bounds null alignment)
-  if(HAVE_SANITIZE_${san})
+  string(TOUPPER "${san}" san_probe)
+  if(HAVE_SANITIZE_${san_probe})
     target_link_options(yaddnsc_sanitizers INTERFACE
       $<$<CONFIG:Sanitizer>:-fsanitize=${san}>
     )
