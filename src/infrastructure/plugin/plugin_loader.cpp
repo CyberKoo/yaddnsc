@@ -74,7 +74,7 @@ std::expected<PluginModule, domain::PluginError> PluginModule::load(const std::s
     }
 
     // 2b. The OPTIONAL validate entry (optional since ABI 1.0): absence is
-    // not a load error. config test reports that driver_param was not checked.
+    // not a load error. config test reports that driver_params was not checked.
     module.validate_ = resolve_entry<decltype(yaddnsc_driver_validate)>(module.library_, "yaddnsc_driver_validate");
 
     // 3. Fetch the descriptor.
@@ -110,17 +110,17 @@ std::expected<PluginModule, domain::PluginError> PluginModule::load(const std::s
     if (raw_descriptor->abi_major != YADDNSC_DRIVER_ABI_MAJOR ||
         !yaddnsc_abi_provides(YADDNSC_DRIVER_ABI_MAJOR, YADDNSC_DRIVER_ABI_MINOR, raw_descriptor->abi_major,
                               raw_descriptor->abi_minor)) {
-        return std::unexpected(make_error(
-            domain::PluginError::Code::ABI_MISMATCH,
-            fmt::format("Driver '{}' reports ABI {}.{}, host provides {}.{}. {}", path, raw_descriptor->abi_major,
-                        raw_descriptor->abi_minor, YADDNSC_DRIVER_ABI_MAJOR, YADDNSC_DRIVER_ABI_MINOR,
-                        ABI_CHANGED_HINT)));
+        return std::unexpected(
+            make_error(domain::PluginError::Code::ABI_MISMATCH,
+                       fmt::format("Driver '{}' reports ABI {}.{}, host provides {}.{}. {}", path,
+                                   raw_descriptor->abi_major, raw_descriptor->abi_minor, YADDNSC_DRIVER_ABI_MAJOR,
+                                   YADDNSC_DRIVER_ABI_MINOR, ABI_CHANGED_HINT)));
     }
     if (raw_descriptor->struct_size < YADDNSC_DRIVER_DESCRIPTOR_MIN_SIZE) {
-        return std::unexpected(make_error(
-            domain::PluginError::Code::ABI_MISMATCH,
-            fmt::format("Driver '{}' descriptor struct_size {} is below the ABI 1.0 baseline {}. {}", path,
-                        raw_descriptor->struct_size, YADDNSC_DRIVER_DESCRIPTOR_MIN_SIZE, ABI_CHANGED_HINT)));
+        return std::unexpected(
+            make_error(domain::PluginError::Code::ABI_MISMATCH,
+                       fmt::format("Driver '{}' descriptor struct_size {} is below the ABI 1.0 baseline {}. {}", path,
+                                   raw_descriptor->struct_size, YADDNSC_DRIVER_DESCRIPTOR_MIN_SIZE, ABI_CHANGED_HINT)));
     }
     if (raw_descriptor->magic != YADDNSC_DRIVER_MAGIC) {
         return std::unexpected(

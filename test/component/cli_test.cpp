@@ -125,26 +125,26 @@ private:
     return R"("domains":[{"name":"example.com","update_interval":300,"driver":"simple",)"
            R"("subdomains":[{"name":"www","type":"a","ip_source":"http",)"
            R"("ip_source_param":"https://api.ipify.org",)"
-           R"("driver_param":{"url":"https://example.com/update"}}]}])";
+           R"("driver_params":{"url":"https://example.com/update"}}]}])";
 }
 
 /// Config that loads the real "simple" driver from the build tree.
 [[nodiscard]] std::string config_with_simple_driver() {
-    return std::string(R"({"driver":{"auto_discover":false,"driver_dir":")") + TEST_DRIVER_DIR +
-           R"(","load":["simple/simple.so"]},"resolver":{"use_custom_server":false},)" + one_http_domain() + "}";
+    return std::string(R"({"drivers":{"auto_discover":false,"driver_dir":")") + TEST_DRIVER_DIR +
+           R"(","load":["simple/simple.so"]},"resolver":{"use_custom_servers":false},)" + one_http_domain() + "}";
 }
 
 /// Config with no drivers loaded (driver_dir exists, empty load list).
 [[nodiscard]] std::string config_no_drivers() {
-    return std::string(R"({"driver":{"auto_discover":false,"driver_dir":")") + TEST_DRIVER_DIR +
-           R"(","load":[]},"resolver":{"use_custom_server":false},)" + one_http_domain() + "}";
+    return std::string(R"({"drivers":{"auto_discover":false,"driver_dir":")") + TEST_DRIVER_DIR +
+           R"(","load":[]},"resolver":{"use_custom_servers":false},)" + one_http_domain() + "}";
 }
 
 /// Config that loads a driver file that does not exist → PluginLoadException.
 [[nodiscard]] std::string config_bad_driver() {
-    return std::string(R"({"driver":{"auto_discover":false,"driver_dir":")") + TEST_DRIVER_DIR +
-           R"(","load":["definitely_missing_driver.so"]},"resolver":{"use_custom_server":false},)" + one_http_domain() +
-           "}";
+    return std::string(R"({"drivers":{"auto_discover":false,"driver_dir":")") + TEST_DRIVER_DIR +
+           R"(","load":["definitely_missing_driver.so"]},"resolver":{"use_custom_servers":false},)" +
+           one_http_domain() + "}";
 }
 
 /// Redirect a stream (STDOUT_FILENO or STDERR_FILENO) to a temp file so
@@ -436,15 +436,15 @@ TEST(CliConfigTest, DispatchShow_MissingFile_ReturnsFailure) {
     EXPECT_EQ(Composition::dispatch(Cli::ConfigShowCommand{"/nonexistent/yaddnsc_config.json"}), EXIT_FAILURE);
 }
 
-// Intentional behaviour: config show redacts sensitive driver_param fields by
+// Intentional behaviour: config show redacts sensitive driver_params fields by
 // default. Rule: an object member is sensitive when its lower-cased key
 // contains "token", "password", "secret" or "key"; the whole value is
 // replaced with "***". Only fake placeholder values are used here — real
 // tokens must never appear in golden files.
 TEST(CliConfigTest, DispatchShow_RedactsSensitiveDriverParams) {
     const std::string config_json = R"({
-        "driver": {"auto_discover": false, "load": []},
-        "resolver": {"use_custom_server": false},
+        "drivers": {"auto_discover": false, "load": []},
+        "resolver": {"use_custom_servers": false},
         "domains": [{
             "name": "example.com",
             "update_interval": 300,
@@ -454,7 +454,7 @@ TEST(CliConfigTest, DispatchShow_RedactsSensitiveDriverParams) {
                 "type": "a",
                 "ip_source": "http",
                 "ip_source_param": "https://api.ipify.org",
-                "driver_param": {
+                "driver_params": {
                     "url": "https://example.com/update?token={token}",
                     "api_token": "fake-token-0001",
                     "Password": "fake-password-0002",
@@ -494,9 +494,9 @@ TEST(CliConfigTest, DispatchShow_RedactsSensitiveDriverParams) {
 // credentials embedded as URI userinfo; they are masked separately.
 TEST(CliConfigTest, DispatchShow_RedactsUriCredentials) {
     const std::string config_json = R"({
-        "driver": {"auto_discover": false, "load": []},
+        "drivers": {"auto_discover": false, "load": []},
         "resolver": {
-            "use_custom_server": true,
+            "use_custom_servers": true,
             "servers": [{"address": "https://fake-user:fake-pass@dns.example.net/dns-query", "port": 443}]
         },
         "domains": [{
@@ -547,7 +547,7 @@ TEST(CliConfigTest, DispatchTest_Quiet_PrintsNothing) {
 TEST(CliConfigTest, DispatchTest_EmptyDriverDir_ReturnsFailure) {
     // driver_dir set but empty → ConfigVerificationException at load time.
     TempConfigFile cfg(
-        R"({"driver":{"auto_discover":false,"driver_dir":"","load":["simple/simple.so"]},"resolver":{"use_custom_server":false},"domains":[]})");
+        R"({"drivers":{"auto_discover":false,"driver_dir":"","load":["simple/simple.so"]},"resolver":{"use_custom_servers":false},"domains":[]})");
     EXPECT_EQ(Composition::dispatch(Cli::ConfigTestCommand{cfg.path()}), EXIT_FAILURE);
 }
 
@@ -562,13 +562,13 @@ TEST(CliConfigTest, DispatchTest_EmptyCustomResolverFailsBeforeDriverLoading) {
     // resolver validation happens before catalog loading and environment
     // validation on every runtime path.
     const std::string config =
-        std::string(R"({"driver":{"auto_discover":false,"driver_dir":")") + TEST_DRIVER_DIR +
-        R"(","load":["definitely_missing_driver.so"]},"resolver":{"use_custom_server":true},"domains":[]})";
+        std::string(R"({"drivers":{"auto_discover":false,"driver_dir":")") + TEST_DRIVER_DIR +
+        R"(","load":["definitely_missing_driver.so"]},"resolver":{"use_custom_servers":true},"domains":[]})";
     TempConfigFile cfg(config);
 
     StreamCapture err{STDERR_FILENO};
     EXPECT_EQ(Composition::dispatch(Cli::ConfigTestCommand{cfg.path()}), EXIT_FAILURE);
-    EXPECT_NE(err.str().find("Configuration verification failed: use_custom_server is enabled but no custom resolver "
+    EXPECT_NE(err.str().find("Configuration verification failed: use_custom_servers is enabled but no custom resolver "
                              "servers are configured"),
               std::string::npos);
 }
@@ -587,8 +587,8 @@ TEST(CliRunTest, DispatchRun_EmptyCustomResolverFailsBeforeDriverLoading) {
     // validation precedes driver loading, resolver creation and scheduling,
     // so the deliberately missing driver must never be considered.
     const std::string config =
-        std::string(R"({"driver":{"auto_discover":false,"driver_dir":")") + TEST_DRIVER_DIR +
-        R"(","load":["definitely_missing_driver.so"]},"resolver":{"use_custom_server":true},"domains":[]})";
+        std::string(R"({"drivers":{"auto_discover":false,"driver_dir":")") + TEST_DRIVER_DIR +
+        R"(","load":["definitely_missing_driver.so"]},"resolver":{"use_custom_servers":true},"domains":[]})";
     TempConfigFile cfg(config);
 
     // A previous test may have lowered the global log level (config test
@@ -611,7 +611,7 @@ TEST(CliRunTest, DispatchRun_EmptyCustomResolverFailsBeforeDriverLoading) {
     // The failure is reported as the resolver validation error (through the
     // logger), never as a driver load failure.
     const std::string logged = out.str() + err.str();
-    EXPECT_NE(logged.find("use_custom_server is enabled but no custom resolver servers are configured"),
+    EXPECT_NE(logged.find("use_custom_servers is enabled but no custom resolver servers are configured"),
               std::string::npos);
     EXPECT_EQ(logged.find("definitely_missing_driver"), std::string::npos);
 }
@@ -625,9 +625,9 @@ TEST(CliConfigTest, DispatchTest_DriverNotLoaded_ReturnsFailure) {
     // failure (after drivers load successfully). update_interval is set so
     // static validation passes and the environment check is what fails.
     const std::string invalid_domain_config =
-        std::string("{\"driver\":{\"auto_discover\":false,\"driver_dir\":\"") + TEST_DRIVER_DIR +
+        std::string("{\"drivers\":{\"auto_discover\":false,\"driver_dir\":\"") + TEST_DRIVER_DIR +
         "\",\"load\":[\"simple/"
-        "simple.so\"]},\"resolver\":{\"use_custom_server\":false},\"domains\":[{\"name\":\"example.com\",\"update_"
+        "simple.so\"]},\"resolver\":{\"use_custom_servers\":false},\"domains\":[{\"name\":\"example.com\",\"update_"
         "interval\":300,\"driver\":\"cloudflare\",\"subdomains\":[{\"name\":\"www\",\"type\":\"a\",\"ip_source\":"
         "\"http\",\"ip_source_param\":\"https://api.ipify.org\"}]}]}";
     TempConfigFile cfg(invalid_domain_config);
@@ -725,7 +725,7 @@ TEST(CliDnsTest, DispatchResolver_Default_ReturnsZero) {
 
 TEST(CliDnsTest, DispatchResolver_UriServers_ReturnsZero) {
     TempConfigFile cfg{
-        R"({"driver":{"auto_discover":false,"load":[]},"resolver":{"use_custom_server":true,"servers":[{"address":"https://1.1.1.1/dns-query","port":443}]},"domains":[]})"};
+        R"({"drivers":{"auto_discover":false,"load":[]},"resolver":{"use_custom_servers":true,"servers":[{"address":"https://1.1.1.1/dns-query","port":443}]},"domains":[]})"};
 
     StdoutCapture capture;
     EXPECT_EQ(Composition::dispatch(Cli::DnsResolverCommand{cfg.path()}), EXIT_SUCCESS);
@@ -734,20 +734,20 @@ TEST(CliDnsTest, DispatchResolver_UriServers_ReturnsZero) {
 
 TEST(CliDnsTest, DispatchResolver_BareServers_ReturnsZero) {
     TempConfigFile cfg{
-        R"({"driver":{"auto_discover":false,"load":[]},"resolver":{"use_custom_server":true,"servers":[{"address":"8.8.8.8","port":53}]},"domains":[]})"};
+        R"({"drivers":{"auto_discover":false,"load":[]},"resolver":{"use_custom_servers":true,"servers":[{"address":"8.8.8.8","port":53}]},"domains":[]})"};
 
     StdoutCapture capture;
     EXPECT_EQ(Composition::dispatch(Cli::DnsResolverCommand{cfg.path()}), EXIT_SUCCESS);
     EXPECT_NE(capture.str().find("8.8.8.8:53"), std::string::npos);
 }
 
-TEST(CliDnsTest, DispatchResolver_LegacyServer_ReturnsZero) {
+TEST(CliDnsTest, DispatchResolver_SingleEntryList_ReturnsZero) {
     TempConfigFile cfg{
-        R"({"driver":{"auto_discover":false,"load":[]},"resolver":{"use_custom_server":true,"address":"9.9.9.9","port":53},"domains":[]})"};
+        R"({"drivers":{"auto_discover":false,"load":[]},"resolver":{"use_custom_servers":true,"servers":[{"address":"9.9.9.9","port":53}]},"domains":[]})"};
 
     StdoutCapture capture;
     EXPECT_EQ(Composition::dispatch(Cli::DnsResolverCommand{cfg.path()}), EXIT_SUCCESS);
-    EXPECT_NE(capture.str().find("Server: 9.9.9.9:53"), std::string::npos);
+    EXPECT_NE(capture.str().find("9.9.9.9:53"), std::string::npos);
 }
 
 // The dns resolve dispatch path builds a real resolver dispatcher from the
@@ -759,7 +759,7 @@ TEST(CliDnsTest, DispatchResolve_UnknownType_PrintsValidTypes) {
     // The dispatch path validates the config before resolving, so the file
     // must hold at least one statically-valid domain.
     TempConfigFile cfg{
-        std::string(R"({"driver":{"auto_discover":false,"load":[]},"resolver":{"use_custom_server":false},)") +
+        std::string(R"({"drivers":{"auto_discover":false,"load":[]},"resolver":{"use_custom_servers":false},)") +
         one_http_domain() + "}"};
 
     StreamCapture err{STDERR_FILENO};

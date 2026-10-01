@@ -72,8 +72,8 @@ const domain::TimePoint T0{std::chrono::seconds{10000}};
 // Single www.example.com A subdomain; force_update disabled (the DNS
 // comparison path stays active), one 300s interval.
 inline constexpr std::string_view FLOW_CONFIG = R"({
-    "driver": { "auto_discover": true },
-    "resolver": { "use_custom_server": false },
+    "drivers": { "auto_discover": true },
+    "resolver": { "use_custom_servers": false },
     "domains": [
         {
             "name": "example.com",

@@ -10,12 +10,11 @@ struct AppConfig;
 /// graph must use validate_and_normalize() first.
 ///
 /// Normalization rules:
-///  - Legacy resolver fields (resolver.address/port + use_custom_server) are
-///    folded into resolver.servers; disabled custom DNS is materialized as
-///    the configured built-in default server.
+///  - Custom resolver servers are copied into the runtime settings; disabled
+///    custom DNS is materialized as the configured built-in default server.
 ///  - SubdomainConfig::update_interval carries the effective value
 ///    (subdomain override if > 0, else the domain-level interval).
-///  - driver_param is dumped to opaque JSON text ("{}" when unset).
+///  - driver_params is dumped to opaque JSON text ("{}" when unset).
 ///
 /// A missing subdomain record type falls back to A with a warning (never an
 /// error) so legacy configs that rely on the default keep working.

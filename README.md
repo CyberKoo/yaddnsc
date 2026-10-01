@@ -139,7 +139,7 @@ A minimal configuration using the Cloudflare driver:
 
 ```json
 {
-  "driver": { "auto_discover": true },
+  "drivers": { "auto_discover": true },
   "domains": [
     {
       "name": "example.com",
@@ -151,7 +151,7 @@ A minimal configuration using the Cloudflare driver:
           "type": "a",
           "ip_source": "http",
           "ip_source_param": "https://api.ipify.org",
-          "driver_param": {
+          "driver_params": {
             "zone_id": "your-zone-id",
             "record_id": "your-record-id",
             "token": "your-api-token"
@@ -165,7 +165,7 @@ A minimal configuration using the Cloudflare driver:
 
 Except for Route 53, every bundled driver updates an existing record; create
 the record with the provider first, then copy the identifiers it assigns
-(`zone_id`, `record_id`, and similar) into `driver_param`. The parameters of
+(`zone_id`, `record_id`, and similar) into `driver_params`. The parameters of
 each driver are listed in [DRIVERS.md](DRIVERS.md).
 
 ## Command-Line Usage
@@ -225,12 +225,12 @@ rejected; `config` is only a command group.
 
 ```json
 {
-  "driver": {
+  "drivers": {
     "driver_dir": "/opt/yaddnsc/drivers",
     "load": ["cloudflare.so"]
   },
   "resolver": {
-    "use_custom_server": true,
+    "use_custom_servers": true,
     "strategy": "concurrent",
     "servers": [
       { "address": "1.1.1.1", "port": 53 },
@@ -249,7 +249,7 @@ rejected; `config` is only a command group.
           "type": "a",
           "ip_source": "interface",
           "interface": "eth0",
-          "driver_param": {
+          "driver_params": {
             "zone_id": "your-zone-id",
             "record_id": "your-record-id",
             "token": "your-api-token"
@@ -261,15 +261,37 @@ rejected; `config` is only a command group.
 }
 ```
 
+### Breaking Configuration Changes
+
+The configuration format has changed incompatibly. Update existing configuration
+files before upgrading; the old keys are rejected as unknown fields, with no
+compatibility aliases or automatic migration.
+
+| Previous key | Migration |
+|---|---|
+| Top-level `driver` | Rename to `drivers`. Keep `domains[].driver` unchanged. |
+| `resolver.use_custom_server` | Rename to `resolver.use_custom_servers`. |
+| `domains[].subdomains[].driver_param` | Rename to `driver_params`; keep its contents unchanged. |
+| `resolver.address` or `resolver.ipaddress`, with `resolver.port` | Move the server into `resolver.servers`, for example `"servers": [{"address": "1.1.1.1", "port": 53}]`, and remove the direct fields. |
+| `domains[].subdomains[].ip_type` | Remove it. The record's `type` selects the address family: `a` uses IPv4 and `aaaa` uses IPv6. |
+
+The fields inside `resolver.servers[]` and the plugin SDK/ABI field
+`driver_param_json` are unchanged. After migration, validate the file before
+starting the client:
+
+```bash
+yaddnsc config test -c /etc/yaddnsc/config.json
+```
+
 ### Field Reference
 
 | Object | Field | Description |
 |---|---|---|
-| `driver` | `driver_dir` | Directory searched for driver modules. Defaults to the installed driver directory. |
-| `driver` | `auto_discover` | Load every module found in `driver_dir`. When enabled, the `load` list is ignored. |
-| `driver` | `load` | Explicit list of modules to load, for example `["cloudflare.so"]`. A module that cannot be loaded is a fatal error. |
-| `resolver` | `use_custom_server` | Use the servers below instead of the built-in default. See [DNS Resolver](#dns-resolver). |
-| `resolver` | `servers` | List of DNS servers. Takes precedence over the legacy `address`/`port` pair. |
+| `drivers` | `driver_dir` | Directory searched for driver modules. Defaults to the installed driver directory. |
+| `drivers` | `auto_discover` | Load every module found in `driver_dir`. When enabled, the `load` list is ignored. |
+| `drivers` | `load` | Explicit list of modules to load, for example `["cloudflare.so"]`. A module that cannot be loaded is a fatal error. |
+| `resolver` | `use_custom_servers` | Use the servers below instead of the built-in default. See [DNS Resolver](#dns-resolver). |
+| `resolver` | `servers` | List of DNS servers; required when `use_custom_servers` is `true`. |
 | `resolver` | `strategy` | `concurrent` (default), `fallback`, or `shuffle`. |
 | (top level) | `bootstrap_dns` | IP literal of the bootstrap DNS server used to resolve hostnames of outbound endpoints (DoH/DoT servers, `http` IP source URLs, provider API hosts). Default: `/etc/resolv.conf` nameservers. See [DNS Resolver](#dns-resolver). |
 | `domains[]` | `name` | Managed domain, for example `example.com`. |
@@ -285,11 +307,11 @@ rejected; `config` is only a command group.
 | `subdomains[]` | `update_interval` | Per-record interval in seconds. `0` (default) inherits the domain interval. |
 | `subdomains[]` | `allow_ula` | Accept IPv6 unique-local addresses (fc00::/7) from an interface source. Default `false`. |
 | `subdomains[]` | `allow_local_link` | Accept IPv6 link-local addresses (fe80::/10) from an interface source. Default `false`. |
-| `subdomains[]` | `driver_param` | Driver-specific parameters. Valid only at subdomain level; see [DRIVERS.md](DRIVERS.md). |
+| `subdomains[]` | `driver_params` | Driver-specific parameters. Valid only at subdomain level; see [DRIVERS.md](DRIVERS.md). |
 
 ### Credentials
 
-`driver_param` commonly contains API tokens or keys. Keep the configuration
+`driver_params` commonly contains API tokens or keys. Keep the configuration
 file out of version control, restrict its permissions, and grant each token
 only the permissions the update requires:
 
@@ -298,7 +320,7 @@ chmod 600 /etc/yaddnsc/config.json
 ```
 
 As a safeguard against accidental disclosure, `config show` masks values in
-`driver_param` whose key contains `token`, `password`, `secret`, or `key`
+`driver_params` whose key contains `token`, `password`, `secret`, or `key`
 (case-insensitive), printing them as `"***"`. The file on disk continues to
 hold the real values.
 
@@ -333,12 +355,10 @@ Without custom configuration, the resolver queries a single built-in server,
 `1.1.1.1:53` unless changed at build time with
 `-DYADDNSC_DEFAULT_DNS_SERVER=...` and `-DYADDNSC_DEFAULT_DNS_PORT=...`.
 
-Setting `use_custom_server` to `true` replaces the built-in server with the
-configured list. At least one server must then be provided, either through
-`servers` or through the legacy `address`/`port` pair; an empty custom
-resolver fails validation in both `run` and `config test`. When `servers` is
-present it takes precedence over the legacy pair, and when
-`use_custom_server` is `false` all custom fields are ignored.
+Setting `use_custom_servers` to `true` replaces the built-in server with the
+configured list. At least one server must then be provided through `servers`;
+an empty custom resolver fails validation in both `run` and `config test`.
+When `use_custom_servers` is `false`, the configured server list is ignored.
 
 The `address` of a server entry selects the protocol:
 

@@ -7,9 +7,9 @@ yaddnsc 随附十二个以可加载模块形式提供的服务商驱动，本文
 ## 通用规则
 
 - 域名通过 `driver` 字段选用驱动，取值为下表中的配置名称。
-- 参数置于 `driver_param` 中，该字段仅在子域名（subdomain）条目内有效。每条记录
-  各自携带完整的 `driver_param`，不存在域名层级的继承。
-- 每个驱动都会在 `yaddnsc config test` 期间校验其 `driver_param`：缺少必填键或
+- 参数置于 `driver_params` 中，该字段仅在子域名（subdomain）条目内有效。每条记录
+  各自携带完整的 `driver_params`，不存在域名层级的继承。
+- 每个驱动都会在 `yaddnsc config test` 期间校验其 `driver_params`：缺少必填键或
   出现无法识别的键均属于校验错误。`simple` 驱动例外，允许任意附加键。
 - 所有驱动均更新已存在的记录，请先在服务商处创建记录后再在配置中引用。唯一例外
   是 `route53`，记录不存在时会自动创建。
@@ -230,7 +230,7 @@ Linode API 仅接受一组固定的 TTL 取值，其余取值会被拒绝；非�
 |---|---|---|---|
 | `url` | 是 | — | 含有 `{key}` 占位符的 HTTP(S) URL 模板 |
 
-`driver_param` 中其余字符串类型的键均可作为 `{key}` 形式的替换变量使用。以下
+`driver_params` 中其余字符串类型的键均可作为 `{key}` 形式的替换变量使用。以下
 内置变量始终可用：
 
 | 变量 | 取值 |
@@ -245,7 +245,7 @@ Linode API 仅接受一组固定的 TTL 取值，其余取值会被拒绝；非�
 
 ```json
 {
-  "driver_param": {
+  "driver_params": {
     "url": "https://api.example.com/update?ip={ip_addr}&type={rd_type}&name={fqdn}",
     "key": "my-secret-key"
   }

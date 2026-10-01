@@ -229,7 +229,7 @@ TEST(SimpleDriverTest, Update_TransportError_PropagatesStatus) {
 
 // ── validate (OPTIONAL yaddnsc_driver_validate entry) ────────────────────────
 //
-// Validation is a pure parse of driver_param against the driver's schema: a
+// Validation is a pure parse of driver_params against the driver's schema: a
 // valid config passes; a missing required key and malformed JSON both map to
 // YADDNSC_STATUS_INVALID_CONFIG. No HTTP exchange is queued or expected.
 

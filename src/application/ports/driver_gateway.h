@@ -19,12 +19,12 @@ class CancellationToken;
 /// DriverUpdateCommand — everything one driver update call needs, expressed
 /// in application terms (no plugin-SDK types cross this boundary).
 struct DriverUpdateCommand {
-    std::string driver_param;  ///< Opaque driver configuration JSON text
-    std::string ip_addr;       ///< Resolved IP address to publish
-    std::string rd_type;       ///< DNS record type as string (e.g. "A", "AAAA")
-    std::string domain;        ///< Parent domain name
-    std::string subdomain;     ///< Subdomain label (may be "@" for apex)
-    std::string fqdn;          ///< Fully qualified domain name
+    std::string driver_params;  ///< Opaque driver configuration JSON text
+    std::string ip_addr;        ///< Resolved IP address to publish
+    std::string rd_type;        ///< DNS record type as string (e.g. "A", "AAAA")
+    std::string domain;         ///< Parent domain name
+    std::string subdomain;      ///< Subdomain label (may be "@" for apex)
+    std::string fqdn;           ///< Fully qualified domain name
 };
 
 /// DriverGateway — application port for performing one DNS record update

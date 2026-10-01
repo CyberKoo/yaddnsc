@@ -179,17 +179,13 @@ auto validate_static(const AppConfig& raw) -> std::vector<domain::ConfigError> {
 
     // Custom resolver address(es) — parse failures are collected here as
     // INVALID_RESOLVER config errors (see validate_resolver_address).
-    if (raw.resolver.use_custom_server) {
-        if (raw.resolver.servers.empty() && raw.resolver.address.empty()) {
+    if (raw.resolver.use_custom_servers) {
+        if (raw.resolver.servers.empty()) {
             push_error(errors, Code::NO_RESOLVER_SERVERS,
-                       "use_custom_server is enabled but no custom resolver servers are configured");
+                       "use_custom_servers is enabled but no custom resolver servers are configured");
         }
-        if (!raw.resolver.servers.empty()) {
-            for (const auto& server : raw.resolver.servers) {
-                validate_resolver_address(errors, server.address);
-            }
-        } else if (!raw.resolver.address.empty()) {
-            validate_resolver_address(errors, raw.resolver.address);
+        for (const auto& server : raw.resolver.servers) {
+            validate_resolver_address(errors, server.address);
         }
     }
 

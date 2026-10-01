@@ -53,8 +53,8 @@ const domain::TimePoint T0{std::chrono::seconds{10000}};
 
 // Domain interval 600 with a subdomain override of 120 on "www".
 inline constexpr std::string_view OVERRIDE_CONFIG = R"({
-    "driver": { "auto_discover": true },
-    "resolver": { "use_custom_server": false },
+    "drivers": { "auto_discover": true },
+    "resolver": { "use_custom_servers": false },
     "domains": [
         {
             "name": "test.com",
@@ -249,8 +249,8 @@ TEST(ScheduleQueue, ZeroUpdateIntervalThrows) {
     // re-queue the entry with deadline == now forever (busy loop). The
     // constructor must reject it instead of relying on static validation.
     const auto json = R"({
-        "driver": { "auto_discover": true },
-        "resolver": { "use_custom_server": false },
+        "drivers": { "auto_discover": true },
+        "resolver": { "use_custom_servers": false },
         "domains": [
             {
                 "name": "test.com",

@@ -80,14 +80,13 @@ Config::AppConfig Config::load_config(const std::string& config_path) {
 }
 
 std::string Config::redacted_json(AppConfig config) {
-    redact_uri_credentials(config.resolver.address);
     for (auto& server : config.resolver.servers) {
         redact_uri_credentials(server.address);
     }
     for (auto& domain_config : config.domains) {
         for (auto& subdomain : domain_config.subdomains) {
             redact_uri_credentials(subdomain.ip_source_param);
-            redact_sensitive_fields(subdomain.driver_param);
+            redact_sensitive_fields(subdomain.driver_params);
         }
     }
 

@@ -19,21 +19,21 @@
 /// Normalised, glaze-free value objects produced by the config adapter
 /// (src/infrastructure/config/normalizer + static_validator). Unlike the raw DTO in
 /// src/infrastructure/config/config.h, this model contains:
-///   - no glz::generic (driver_param is opaque JSON text),
+///   - no glz::generic (driver_params is opaque JSON text),
 ///   - no legacy file-format fields (resolver is already a server list),
 ///   - no CLI11 types and no environment probe results.
 /// Effective values (e.g. the per-subdomain update interval after applying
 /// the domain fallback) are precomputed during normalisation.
 namespace domain {
 
-/// Driver loading settings (normalised view of the raw "driver" section).
+/// Driver loading settings (normalised view of the raw "drivers" section).
 struct DriverSettings {
     std::optional<std::filesystem::path> driver_dir{};  ///< Custom driver directory
     bool auto_discover{false};                          ///< Discover all .so files in the directory
     std::vector<std::string> load{};                    ///< Explicit driver names/paths to load
 };
 
-/// DNS resolver settings with legacy fields already folded in.
+/// Normalised DNS resolver settings.
 /// `servers` is always non-empty in a valid RuntimeConfig. The normalizer
 /// materializes the build-configured default when custom DNS is disabled, so
 /// infrastructure never has to infer user intent from an empty list.
@@ -55,7 +55,7 @@ struct SubdomainConfig {
     bool allow_ula{false};          ///< Allow ULA (fc00::/7) for AAAA
     bool allow_local_link{false};   ///< Allow link-local (fe80::/10) for AAAA
     int update_interval{};          ///< EFFECTIVE interval (subdomain override or domain value)
-    std::string driver_param{};     ///< Opaque JSON text for the driver (fields/values preserved)
+    std::string driver_params{};    ///< Opaque JSON text for the driver (fields/values preserved)
 };
 
 /// Per-domain runtime configuration.
@@ -69,7 +69,7 @@ struct DomainConfig {
 
 /// Top-level runtime configuration.
 struct RuntimeConfig {
-    DriverSettings driver{};              ///< Driver loading settings
+    DriverSettings drivers{};             ///< Driver loading settings
     ResolverSettings resolver{};          ///< DNS resolver settings
     std::vector<DomainConfig> domains{};  ///< Domains to manage
 };

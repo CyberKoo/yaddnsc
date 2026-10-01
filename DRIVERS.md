@@ -9,10 +9,10 @@ see [docs/custom-drivers.md](docs/custom-drivers.md).
 
 - A domain selects its driver through the `driver` field, using the
   configuration name listed below.
-- Parameters are supplied in `driver_param`, which is valid only inside a
-  subdomain entry. Each record carries a complete `driver_param` of its own;
+- Parameters are supplied in `driver_params`, which is valid only inside a
+  subdomain entry. Each record carries a complete `driver_params` of its own;
   there is no inheritance from the domain level.
-- Every driver validates its `driver_param` during `yaddnsc config test`.
+- Every driver validates its `driver_params` during `yaddnsc config test`.
   A missing required key or an unrecognized key is a validation error. The
   `simple` driver is the exception: it accepts arbitrary additional keys.
 - All drivers update an existing record; create the record with the provider
@@ -244,7 +244,7 @@ request to a URL built from a template.
 |---|---|---|---|
 | `url` | Yes | — | HTTP(S) URL template containing `{key}` placeholders |
 
-Any additional string-valued key in `driver_param` becomes a substitution
+Any additional string-valued key in `driver_params` becomes a substitution
 variable `{key}`. The following built-in variables are always available:
 
 | Variable | Value |
@@ -259,7 +259,7 @@ Example:
 
 ```json
 {
-  "driver_param": {
+  "driver_params": {
     "url": "https://api.example.com/update?ip={ip_addr}&type={rd_type}&name={fqdn}",
     "key": "my-secret-key"
   }

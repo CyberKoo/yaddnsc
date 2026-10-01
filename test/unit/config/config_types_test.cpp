@@ -92,24 +92,18 @@ TEST(ConfigDriverConfigTest, AggregateInit) {
 
 TEST(ConfigResolverConfigTest, DefaultValues) {
     Config::ResolverConfig cfg{};
-    EXPECT_FALSE(cfg.use_custom_server);
-    EXPECT_TRUE(cfg.address.empty());
-    EXPECT_EQ(cfg.port, 53);
+    EXPECT_FALSE(cfg.use_custom_servers);
     EXPECT_TRUE(cfg.servers.empty());
     EXPECT_EQ(cfg.strategy, Config::ResolverStrategy::CONCURRENT);
 }
 
 TEST(ConfigResolverConfigTest, AggregateInit) {
     Config::ResolverConfig cfg{
-        .use_custom_server = true,
-        .address = "1.1.1.1",
-        .port = 853,
+        .use_custom_servers = true,
         .servers = {{"8.8.8.8", 53}},
         .strategy = Config::ResolverStrategy::FALLBACK,
     };
-    EXPECT_TRUE(cfg.use_custom_server);
-    EXPECT_EQ(cfg.address, "1.1.1.1");
-    EXPECT_EQ(cfg.port, 853);
+    EXPECT_TRUE(cfg.use_custom_servers);
     ASSERT_EQ(cfg.servers.size(), 1U);
     EXPECT_EQ(cfg.servers[0].address, "8.8.8.8");
     EXPECT_EQ(cfg.servers[0].port, 53);
@@ -198,25 +192,25 @@ TEST(ConfigDomainConfigTest, AggregateInit) {
 TEST(ConfigAppConfigTest, DefaultValues) {
     // AppConfig has nested structs; default-init should zero everything.
     Config::AppConfig cfg{};
-    EXPECT_FALSE(cfg.driver.auto_discover);
-    EXPECT_FALSE(cfg.resolver.use_custom_server);
+    EXPECT_FALSE(cfg.drivers.auto_discover);
+    EXPECT_FALSE(cfg.resolver.use_custom_servers);
     EXPECT_TRUE(cfg.domains.empty());
 }
 
 TEST(ConfigAppConfigTest, AggregateInit) {
     Config::AppConfig cfg{
-        .driver = {.driver_dir = "./drivers", .auto_discover = true},
-        .resolver = {.use_custom_server = true, .servers = {{"9.9.9.9", 53}}},
+        .drivers = {.driver_dir = "./drivers", .auto_discover = true},
+        .resolver = {.use_custom_servers = true, .servers = {{"9.9.9.9", 53}}},
         .domains =
             {
                 {.name = "example.com", .update_interval = 300, .driver = "simple"},
             },
     };
 
-    EXPECT_TRUE(cfg.driver.auto_discover);
-    ASSERT_TRUE(cfg.driver.driver_dir.has_value());
-    EXPECT_EQ(*cfg.driver.driver_dir, "./drivers");
-    EXPECT_TRUE(cfg.resolver.use_custom_server);
+    EXPECT_TRUE(cfg.drivers.auto_discover);
+    ASSERT_TRUE(cfg.drivers.driver_dir.has_value());
+    EXPECT_EQ(*cfg.drivers.driver_dir, "./drivers");
+    EXPECT_TRUE(cfg.resolver.use_custom_servers);
     ASSERT_EQ(cfg.resolver.servers.size(), 1U);
     EXPECT_EQ(cfg.resolver.servers[0].address, "9.9.9.9");
     ASSERT_EQ(cfg.domains.size(), 1U);

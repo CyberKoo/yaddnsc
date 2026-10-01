@@ -122,22 +122,19 @@ int Cli::present_dns_resolve(const Diagnostics::DnsResolveOutcome& outcome) {
     return EXIT_SUCCESS;
 }
 
-int Cli::present_dns_resolver(const bool use_custom_server, const std::string_view strategy,
-                              const std::vector<std::string>& servers, const std::string_view legacy_address,
-                              const unsigned short legacy_port) {
+int Cli::present_dns_resolver(const bool use_custom_servers, const std::string_view strategy,
+                              const std::vector<std::string>& servers) {
     std::println(
         "DNS resolver configuration:\n"
         "  Custom server: {}\n"
         "  Strategy:      {}",
-        use_custom_server ? "yes" : "no", strategy);
+        use_custom_servers ? "yes" : "no", strategy);
 
     if (!servers.empty()) {
         std::println("  Servers ({}):", servers.size());
         for (const auto& server : servers) {
             std::println("    - {}", server);
         }
-    } else if (use_custom_server && !legacy_address.empty()) {
-        std::println("  Server: {}:{}", legacy_address, legacy_port);
     }
 
     return EXIT_SUCCESS;

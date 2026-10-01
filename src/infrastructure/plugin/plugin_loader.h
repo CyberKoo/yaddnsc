@@ -76,10 +76,10 @@ public:
     /// Whether the plugin exports the OPTIONAL yaddnsc_driver_validate entry
     /// (optional since ABI 1.0). A plugin that does not export it still
     /// loads. `config test` fails, because the host cannot confirm
-    /// driver_param.
+    /// driver_params.
     [[nodiscard]] bool supports_validate() const noexcept { return validate_ != nullptr; }
 
-    /// Validate a driver_param JSON against the plugin's schema, behind the
+    /// Validate a driver_params JSON against the plugin's schema, behind the
     /// same exception firewall as the other trampolines. When the plugin
     /// does not export the optional entry this returns OK. That OK means
     /// "no driver-side validation", not "the configuration is valid".

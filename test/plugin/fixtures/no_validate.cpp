@@ -6,7 +6,7 @@
 /// entry points but NOT the optional yaddnsc_driver_validate — the shape a
 /// third-party plugin built against an SDK predating the validate entry has.
 /// The loader must accept it, and config validation must skip the
-/// driver-side driver_param check instead of failing.
+/// driver-side driver_params check instead of failing.
 
 #include <yaddnsc/sdk/driver_abi.h>
 

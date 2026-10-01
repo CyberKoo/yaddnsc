@@ -190,11 +190,11 @@ private:
 // driver's URL template is intercepted by the fake HttpClient before any
 // socket is opened.
 [[nodiscard]] std::string lifecycle_config(std::string_view interface_name) {
-    return std::string(R"({"driver":{"auto_discover":false,"driver_dir":")") + TEST_DRIVER_DIR +
-           R"(","load":["simple/simple.so"]},"resolver":{"use_custom_server":false},)" +
+    return std::string(R"({"drivers":{"auto_discover":false,"driver_dir":")") + TEST_DRIVER_DIR +
+           R"(","load":["simple/simple.so"]},"resolver":{"use_custom_servers":false},)" +
            R"("domains":[{"name":"example.com","update_interval":3600,"force_update":0,"driver":"simple",)" +
            R"("subdomains":[{"name":"www","type":"a","ip_source":"interface","interface":")" +
-           std::string(interface_name) + R"(","driver_param":{"url":"http://127.0.0.1/update?ip={ip_addr}"}}]}]})";
+           std::string(interface_name) + R"(","driver_params":{"url":"http://127.0.0.1/update?ip={ip_addr}"}}]}]})";
 }
 
 /// The run graph, assembled exactly as the composition root does: catalog +
@@ -208,7 +208,7 @@ struct RunGraph {
               [](const domain::SubdomainConfig& cfg) { return IpSourceFactory::create(cfg, net::http::Options{}); }),
           gateway_(catalog_, std::move(http_factory), logger_), workflow_(dispatcher_, ip_source_, gateway_, logger_),
           executor_(2, workflow_) {
-        DriverLoader::load(catalog_, config_->driver);
+        DriverLoader::load(catalog_, config_->drivers);
     }
 
     std::shared_ptr<const domain::RuntimeConfig> config_;

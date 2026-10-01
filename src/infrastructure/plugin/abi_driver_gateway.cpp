@@ -103,7 +103,7 @@ namespace {
                                                      std::string_view driver_name) {
     const std::string message = !plugin_message.empty()
                                     ? std::string(plugin_message)
-                                    : fmt::format("Driver '{}' rejected its driver_param configuration", driver_name);
+                                    : fmt::format("Driver '{}' rejected its driver_params configuration", driver_name);
     return {domain::DriverError::Code::UNKNOWN, message, 0};
 }
 }  // anonymous namespace
@@ -152,8 +152,8 @@ std::expected<void, domain::DriverError> AbiDriverGateway::update(std::string_vi
         .domain = {command.domain.data(), command.domain.size()},
         .subdomain = {command.subdomain.data(), command.subdomain.size()},
         .fqdn = {command.fqdn.data(), command.fqdn.size()},
-        .driver_param_json = {reinterpret_cast<const uint8_t*>(command.driver_param.data()),
-                              command.driver_param.size()},
+        .driver_param_json = {reinterpret_cast<const uint8_t*>(command.driver_params.data()),
+                              command.driver_params.size()},
     };
 
     error = {};
@@ -183,7 +183,7 @@ std::expected<void, domain::DriverError> AbiDriverGateway::validate_config(std::
     }
 
     // OPTIONAL entry (optional since ABI 1.0). The plugin still loads.
-    // config test cannot confirm driver_param without the entry.
+    // config test cannot confirm driver_params without the entry.
     if (!module->supports_validate()) {
         return std::unexpected(domain::DriverError{
             domain::DriverError::Code::UNKNOWN,

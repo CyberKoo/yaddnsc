@@ -140,7 +140,7 @@ TEST(UpdateWorkflow, UpdatesWhenIpChanged) {
             EXPECT_EQ(cmd.domain, "example.com");
             EXPECT_EQ(cmd.subdomain, "@");
             EXPECT_EQ(cmd.fqdn, task.fqdn);
-            EXPECT_FALSE(cmd.driver_param.empty());
+            EXPECT_FALSE(cmd.driver_params.empty());
             return {};
         });
 

@@ -166,7 +166,7 @@ int run_command(const Cli::RunCommand& command) {
     // so no in-flight update can touch unloaded code.
     {
         DriverCatalog driver_catalog;
-        DriverLoader::load(driver_catalog, runtime_config->driver);
+        DriverLoader::load(driver_catalog, runtime_config->drivers);
 
         const SpdlogLogger logger;
         SteadyClock clock;
@@ -233,7 +233,7 @@ int run_command(const Cli::RunCommand& command) {
 DriverCatalog load_catalog_for(const std::string& config_path) {
     const auto config = load_runtime_config(config_path);
     DriverCatalog catalog;
-    DriverLoader::load(catalog, config.driver);
+    DriverLoader::load(catalog, config.drivers);
     return catalog;
 }
 
@@ -274,8 +274,7 @@ int execute_command(const Cli::DnsResolverCommand& command) {
     for (const auto& server : resolver.servers) {
         servers.push_back(format_resolver_server(server));
     }
-    return Cli::present_dns_resolver(resolver.use_custom_server, magic_enum::enum_name(resolver.strategy), servers,
-                                     resolver.address, resolver.port);
+    return Cli::present_dns_resolver(resolver.use_custom_servers, magic_enum::enum_name(resolver.strategy), servers);
 }
 
 int execute_command(const Cli::ConfigShowCommand& command) {
@@ -303,7 +302,7 @@ int execute_command(const Cli::ConfigTestCommand& command) {
         fill_bootstrap_servers(*config);
 
         DriverCatalog driver_catalog;
-        DriverLoader::load(driver_catalog, config->driver);
+        DriverLoader::load(driver_catalog, config->drivers);
         const SystemNetworkInterfaces interfaces;
         if (const auto env = validate_environment(*config, driver_catalog, interfaces); !env.has_value()) {
             return Cli::present_config_test(
@@ -311,8 +310,8 @@ int execute_command(const Cli::ConfigTestCommand& command) {
                  .error = Error{.kind = Error::Kind::VERIFICATION, .message = format_config_errors(env.error())}});
         }
 
-        // Driver-side driver_param validation through the OPTIONAL ABI
-        // entry: every subdomain's driver_param is checked against its
+        // Driver-side driver_params validation through the OPTIONAL ABI
+        // entry: every subdomain's driver_params is checked against its
         // driver's schema so a missing zone_id-style key fails here
         // instead of on the first update. A plugin that does not export
         // yaddnsc_driver_validate fails this check: the host cannot confirm
@@ -323,7 +322,7 @@ int execute_command(const Cli::ConfigTestCommand& command) {
                                               make_http_client_factory(make_http_options(config->resolver)), logger);
         for (const auto& domain_config : config->domains) {
             for (const auto& subdomain : domain_config.subdomains) {
-                if (const auto result = driver_gateway.validate_config(domain_config.driver, subdomain.driver_param);
+                if (const auto result = driver_gateway.validate_config(domain_config.driver, subdomain.driver_params);
                     !result.has_value()) {
                     return Cli::present_config_test(
                         {.quiet = command.quiet,

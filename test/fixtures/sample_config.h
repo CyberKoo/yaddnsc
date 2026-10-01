@@ -14,11 +14,11 @@ namespace Fixtures {
 // ── Minimal valid config ─────────────────────────────────────────────────────
 
 inline constexpr std::string_view MINIMAL_CONFIG = R"({
-    "driver": {
+    "drivers": {
         "auto_discover": true
     },
     "resolver": {
-        "use_custom_server": false
+        "use_custom_servers": false
     },
     "domains": []
 })";
@@ -26,13 +26,13 @@ inline constexpr std::string_view MINIMAL_CONFIG = R"({
 // ── Full config with one domain, two subdomains ──────────────────────────────
 
 inline constexpr std::string_view FULL_CONFIG = R"({
-    "driver": {
+    "drivers": {
         "driver_dir": "/usr/lib/yaddnsc/drivers",
         "auto_discover": true,
         "load": ["cloudflare", "digital_ocean"]
     },
     "resolver": {
-        "use_custom_server": true,
+        "use_custom_servers": true,
         "servers": [
             {"address": "1.1.1.1", "port": 53},
             {"address": "8.8.8.8", "port": 53}
@@ -56,8 +56,8 @@ inline constexpr std::string_view FULL_CONFIG = R"({
 // ── Config with mDNS IP source ───────────────────────────────────────────────
 
 inline constexpr std::string_view MDNS_CONFIG = R"({
-    "driver": { "auto_discover": true },
-    "resolver": { "use_custom_server": false },
+    "drivers": { "auto_discover": true },
+    "resolver": { "use_custom_servers": false },
     "domains": [
         {
             "name": "example.com",
@@ -70,14 +70,13 @@ inline constexpr std::string_view MDNS_CONFIG = R"({
     ]
 })";
 
-// ── Config with backward-compatible "ipaddress" and "url" keys ───────────────
+// ── Config with backward-compatible "url" IP source ───────────────
 
 inline constexpr std::string_view BACKWARD_COMPAT_CONFIG = R"({
-    "driver": { "auto_discover": true },
+    "drivers": { "auto_discover": true },
     "resolver": {
-        "use_custom_server": true,
-        "ipaddress": "9.9.9.9",
-        "port": 53,
+        "use_custom_servers": true,
+        "servers": [{"address": "9.9.9.9", "port": 53}],
         "strategy": "concurrent"
     },
     "domains": [
@@ -95,8 +94,8 @@ inline constexpr std::string_view BACKWARD_COMPAT_CONFIG = R"({
 // ── Config with all SubdomainConfig fields ───────────────────────────────────
 
 inline constexpr std::string_view ALL_SUBDOMAIN_FIELDS = R"({
-    "driver": { "auto_discover": true },
-    "resolver": { "use_custom_server": false },
+    "drivers": { "auto_discover": true },
+    "resolver": { "use_custom_servers": false },
     "domains": [
         {
             "name": "test.net",
@@ -113,7 +112,7 @@ inline constexpr std::string_view ALL_SUBDOMAIN_FIELDS = R"({
                     "allow_ula": true,
                     "allow_local_link": false,
                     "update_interval": 60,
-                    "driver_param": {"zone_id": "abc123"}
+                    "driver_params": {"zone_id": "abc123"}
                 }
             ]
         }
@@ -123,8 +122,8 @@ inline constexpr std::string_view ALL_SUBDOMAIN_FIELDS = R"({
 // ── Config with force_update = 0 (force update disabled) ─────────────────────
 
 inline constexpr std::string_view NO_FORCE_UPDATE_CONFIG = R"({
-    "driver": { "auto_discover": true },
-    "resolver": { "use_custom_server": false },
+    "drivers": { "auto_discover": true },
+    "resolver": { "use_custom_servers": false },
     "domains": [
         {
             "name": "example.com",
@@ -141,28 +140,28 @@ inline constexpr std::string_view NO_FORCE_UPDATE_CONFIG = R"({
 // ── Config with empty domain list (no error but no work to do) ───────────────
 
 inline constexpr std::string_view EMPTY_DOMAINS_CONFIG = R"({
-    "driver": { "driver_dir": "./drivers", "auto_discover": false, "load": [] },
-    "resolver": { "use_custom_server": false },
+    "drivers": { "driver_dir": "./drivers", "auto_discover": false, "load": [] },
+    "resolver": { "use_custom_servers": false },
     "domains": []
 })";
 
 // ── Invalid configs for parser error-path testing ────────────────────────────
 
 inline constexpr std::string_view INVALID_JSON = R"({
-    "driver": {
+    "drivers": {
         "auto_discover": true
     },
     INVALID
 })";
 
 inline constexpr std::string_view MISSING_REQUIRED_FIELD = R"({
-    "resolver": { "use_custom_server": false },
+    "resolver": { "use_custom_servers": false },
     "domains": []
 })";
 
 inline constexpr std::string_view WRONG_TYPE_VALUE = R"({
-    "driver": { "auto_discover": "not_a_boolean" },
-    "resolver": { "use_custom_server": false },
+    "drivers": { "auto_discover": "not_a_boolean" },
+    "resolver": { "use_custom_servers": false },
     "domains": []
 })";
 

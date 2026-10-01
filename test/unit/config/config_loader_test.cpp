@@ -41,12 +41,12 @@
 
 [[nodiscard]] std::string get_minimal_valid_config() {
     return R"({
-        "driver": {
+        "drivers": {
             "auto_discover": false,
             "load": []
         },
         "resolver": {
-            "use_custom_server": false,
+            "use_custom_servers": false,
             "strategy": "fallback"
         },
         "domains": []
@@ -103,7 +103,7 @@ TEST(ConfigLoaderTest, EmptyFile_ThrowsRuntimeError) {
 
 TEST(ConfigLoaderTest, MissingRequiredField_ThrowsRuntimeError) {
     // Missing "resolver" section.
-    auto path = write_temp_config(R"({"driver": {"directory": "/x", "load": []}})");
+    auto path = write_temp_config(R"({"drivers": {"directory": "/x", "load": []}})");
 
     EXPECT_THROW({ [[maybe_unused]] auto cfg = Config::load_config(path); }, std::runtime_error);
 
@@ -114,9 +114,9 @@ TEST(ConfigLoaderTest, ConfigFields_ArePopulated) {
     auto path = write_temp_config(get_minimal_valid_config());
 
     auto cfg = Config::load_config(path);
-    EXPECT_FALSE(cfg.resolver.use_custom_server);
+    EXPECT_FALSE(cfg.resolver.use_custom_servers);
     EXPECT_TRUE(cfg.domains.empty());
-    EXPECT_TRUE(cfg.driver.load.empty());
+    EXPECT_TRUE(cfg.drivers.load.empty());
 
     std::filesystem::remove(path);
 }

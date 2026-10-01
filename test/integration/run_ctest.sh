@@ -342,7 +342,7 @@ fi
 # Negative cases: a malformed config and a missing file must both be reported,
 # not silently accepted. These are the two ways a deployment goes wrong before
 # yaddnsc ever reaches the network.
-echo '{ "driver": { "driver_dir": ' > "${BUILD_DIR}/integration-bad-config.json"
+echo '{ "drivers": { "driver_dir": ' > "${BUILD_DIR}/integration-bad-config.json"
 cli_check "config-test-malformed" nonzero 'Failed to validate configuration' \
     "${YADDNSC_BIN}" config test -c "${BUILD_DIR}/integration-bad-config.json"
 cli_check "config-test-missing-file" nonzero 'does not exist' \
@@ -518,7 +518,7 @@ rm -f "${LAST_LOG}"
 # looping on a config it cannot read.
 echo ""
 echo "=== Scenario: malformed-config-aborts ==="
-echo '{ "driver": { "driver_dir": ' > "${BUILD_DIR}/integration-run-bad.json"
+echo '{ "drivers": { "driver_dir": ' > "${BUILD_DIR}/integration-run-bad.json"
 set +e
 run_bounded "${YADDNSC_BIN}" run -c "${BUILD_DIR}/integration-run-bad.json" -d > /tmp/yaddnsc-run-bad.log 2>&1
 rc=$?

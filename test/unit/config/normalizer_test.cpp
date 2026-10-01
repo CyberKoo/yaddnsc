@@ -2,11 +2,11 @@
 // Unit tests for config/normalizer.h — raw AppConfig → domain::RuntimeConfig.
 //
 // Verified:
-//   - Legacy resolver fields (use_custom_server + address/port) are folded
+//   - Legacy resolver fields (use_custom_servers + address/port) are folded
 //     into the server list; disabled custom DNS materializes the default.
 //   - SubdomainConfig::update_interval carries the EFFECTIVE value
 //     (subdomain override if > 0, else the domain-level interval).
-//   - driver_param is dumped to opaque JSON text preserving fields/values.
+//   - driver_params is dumped to opaque JSON text preserving fields/values.
 //   - normalize() never validates: statically-invalid configs still convert.
 // =============================================================================
 
@@ -42,8 +42,8 @@ namespace {
 
 /// Minimal valid raw config JSON with one domain/subdomain.
 constexpr std::string_view MINIMAL_CONFIG = R"({
-    "driver": { "auto_discover": false },
-    "resolver": { "use_custom_server": false },
+    "drivers": { "auto_discover": false },
+    "resolver": { "use_custom_servers": false },
     "domains": [
         {
             "name": "example.com",
@@ -74,7 +74,7 @@ TEST(NormalizerTest, Resolver_NoCustomServer_MaterializesDefaultServer) {
 TEST(NormalizerTest, Resolver_CustomServers_CopiedThrough) {
     const auto raw = parse_raw(R"({
         "resolver": {
-            "use_custom_server": true,
+            "use_custom_servers": true,
             "strategy": "fallback",
             "servers": [
                 {"address": "1.1.1.1", "port": 53},
@@ -91,44 +91,18 @@ TEST(NormalizerTest, Resolver_CustomServers_CopiedThrough) {
     EXPECT_EQ(config.resolver.strategy, Config::ResolverStrategy::FALLBACK);
 }
 
-TEST(NormalizerTest, Resolver_LegacySingleServer_FoldedIntoServers) {
-    const auto raw = parse_raw(R"({
-        "resolver": { "use_custom_server": true, "address": "8.8.8.8", "port": 5353 },
-        "domains": []
-    })");
-    const auto config = Config::normalize(raw);
-    ASSERT_EQ(config.resolver.servers.size(), 1U);
-    EXPECT_EQ(config.resolver.servers[0].address, "8.8.8.8");
-    EXPECT_EQ(config.resolver.servers[0].port, 5353);
-}
-
-TEST(NormalizerTest, Resolver_ServersTakePrecedenceOverLegacyAddress) {
-    const auto raw = parse_raw(R"({
-        "resolver": {
-            "use_custom_server": true,
-            "address": "8.8.8.8",
-            "port": 5353,
-            "servers": [{"address": "1.1.1.1", "port": 53}]
-        },
-        "domains": []
-    })");
-    const auto config = Config::normalize(raw);
-    ASSERT_EQ(config.resolver.servers.size(), 1U);
-    EXPECT_EQ(config.resolver.servers[0].address, "1.1.1.1");
-}
-
 TEST(NormalizerTest, Resolver_CustomServerWithoutAnyAddress_StaysEmpty) {
     const auto raw = parse_raw(R"({
-        "resolver": { "use_custom_server": true },
+        "resolver": { "use_custom_servers": true },
         "domains": []
     })");
     const auto config = Config::normalize(raw);
     EXPECT_TRUE(config.resolver.servers.empty());
 }
 
-TEST(NormalizerTest, Resolver_LegacyAddressIgnoredWhenNotCustom) {
+TEST(NormalizerTest, Resolver_CustomServersIgnoredWhenNotCustom) {
     const auto raw = parse_raw(R"({
-        "resolver": { "use_custom_server": false, "address": "8.8.8.8", "port": 5353 },
+        "resolver": { "use_custom_servers": false, "servers": [{"address": "8.8.8.8", "port": 5353}] },
         "domains": []
     })");
     const auto config = Config::normalize(raw);
@@ -138,7 +112,7 @@ TEST(NormalizerTest, Resolver_LegacyAddressIgnoredWhenNotCustom) {
 
 TEST(NormalizerTest, Resolver_ShuffleStrategy_Preserved) {
     const auto raw = parse_raw(R"({
-        "resolver": { "use_custom_server": true, "strategy": "shuffle",
+        "resolver": { "use_custom_servers": true, "strategy": "shuffle",
                       "servers": [{"address": "1.1.1.1", "port": 53}] },
         "domains": []
     })");
@@ -153,32 +127,32 @@ TEST(NormalizerTest, Resolver_ShuffleStrategy_Preserved) {
 
 TEST(NormalizerTest, DriverDir_Unset_StaysNullopt) {
     const auto config = Config::normalize(parse_raw(MINIMAL_CONFIG));
-    EXPECT_FALSE(config.driver.driver_dir.has_value());
-    EXPECT_FALSE(config.driver.auto_discover);
-    EXPECT_TRUE(config.driver.load.empty());
+    EXPECT_FALSE(config.drivers.driver_dir.has_value());
+    EXPECT_FALSE(config.drivers.auto_discover);
+    EXPECT_TRUE(config.drivers.load.empty());
 }
 
 TEST(NormalizerTest, DriverDir_Set_ConvertedToPath) {
     const auto raw = parse_raw(R"({
-        "driver": { "driver_dir": "/opt/drivers", "auto_discover": true, "load": ["a.so", "b.so"] },
+        "drivers": { "driver_dir": "/opt/drivers", "auto_discover": true, "load": ["a.so", "b.so"] },
         "domains": []
     })");
     const auto config = Config::normalize(raw);
-    ASSERT_TRUE(config.driver.driver_dir.has_value());
-    EXPECT_EQ(*config.driver.driver_dir, std::filesystem::path("/opt/drivers"));
-    EXPECT_TRUE(config.driver.auto_discover);
-    EXPECT_EQ(config.driver.load, (std::vector<std::string>{"a.so", "b.so"}));
+    ASSERT_TRUE(config.drivers.driver_dir.has_value());
+    EXPECT_EQ(*config.drivers.driver_dir, std::filesystem::path("/opt/drivers"));
+    EXPECT_TRUE(config.drivers.auto_discover);
+    EXPECT_EQ(config.drivers.load, (std::vector<std::string>{"a.so", "b.so"}));
 }
 
 TEST(NormalizerTest, DriverDir_EmptyString_PreservedAsEmptyPath) {
     // "set but empty" must survive normalisation: DriverLoader rejects it.
     const auto raw = parse_raw(R"({
-        "driver": { "driver_dir": "", "load": ["a.so"] },
+        "drivers": { "driver_dir": "", "load": ["a.so"] },
         "domains": []
     })");
     const auto config = Config::normalize(raw);
-    ASSERT_TRUE(config.driver.driver_dir.has_value());
-    EXPECT_TRUE(config.driver.driver_dir->empty());
+    ASSERT_TRUE(config.drivers.driver_dir.has_value());
+    EXPECT_TRUE(config.drivers.driver_dir->empty());
 }
 
 // ===========================================================================
@@ -223,14 +197,14 @@ TEST(NormalizerTest, SubdomainType_Missing_FallsBackToA) {
 }
 
 // ===========================================================================
-// driver_param normalisation
+// driver_params normalisation
 // ===========================================================================
 
 TEST(NormalizerTest, DriverParam_Unset_BecomesEmptyObject) {
     const auto config = Config::normalize(parse_raw(MINIMAL_CONFIG));
-    // An unset driver_param arrives as glz::generic null; the driver must
+    // An unset driver_params arrives as glz::generic null; the driver must
     // receive "{}" — never the literal "null".
-    EXPECT_EQ(config.domains[0].subdomains[0].driver_param, "{}");
+    EXPECT_EQ(config.domains[0].subdomains[0].driver_params, "{}");
 }
 
 TEST(NormalizerTest, DriverParam_ExplicitNull_BecomesEmptyObject) {
@@ -242,12 +216,12 @@ TEST(NormalizerTest, DriverParam_ExplicitNull_BecomesEmptyObject) {
             "subdomains": [{
                 "name": "www", "type": "a", "ip_source": "http",
                 "ip_source_param": "https://api.ipify.org",
-                "driver_param": null
+                "driver_params": null
             }]
         }]
     })");
     const auto config = Config::normalize(raw);
-    EXPECT_EQ(config.domains[0].subdomains[0].driver_param, "{}");
+    EXPECT_EQ(config.domains[0].subdomains[0].driver_params, "{}");
 }
 
 TEST(NormalizerTest, DriverParam_PreservesFieldsAndValues) {
@@ -259,12 +233,12 @@ TEST(NormalizerTest, DriverParam_PreservesFieldsAndValues) {
             "subdomains": [{
                 "name": "www", "type": "a", "ip_source": "http",
                 "ip_source_param": "https://api.ipify.org",
-                "driver_param": {"token": "secret-value", "ttl": 600, "proxied": true}
+                "driver_params": {"token": "secret-value", "ttl": 600, "proxied": true}
             }]
         }]
     })");
     const auto config = Config::normalize(raw);
-    const auto& param = config.domains[0].subdomains[0].driver_param;
+    const auto& param = config.domains[0].subdomains[0].driver_params;
 
     // Opaque JSON text: must round-trip with every field intact.
     glz::generic reparsed;
@@ -326,8 +300,8 @@ TEST(NormalizerTest, StaticallyInvalidConfig_StillNormalizes) {
 
 TEST(NormalizerTest, BootstrapDns_ParsedFromJsonIntoBootstrapServers) {
     const auto raw = parse_raw(R"({
-        "driver": {},
-        "resolver": { "use_custom_server": false },
+        "drivers": {},
+        "resolver": { "use_custom_servers": false },
         "domains": [],
         "bootstrap_dns": "9.9.9.9"
     })");

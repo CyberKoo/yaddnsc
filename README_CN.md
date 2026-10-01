@@ -128,7 +128,7 @@ yaddnsc run
 
 ```json
 {
-  "driver": { "auto_discover": true },
+  "drivers": { "auto_discover": true },
   "domains": [
     {
       "name": "example.com",
@@ -140,7 +140,7 @@ yaddnsc run
           "type": "a",
           "ip_source": "http",
           "ip_source_param": "https://api.ipify.org",
-          "driver_param": {
+          "driver_params": {
             "zone_id": "your-zone-id",
             "record_id": "your-record-id",
             "token": "your-api-token"
@@ -153,7 +153,7 @@ yaddnsc run
 ```
 
 除 Route 53 外，所有随附驱动仅更新已存在的记录。请先在服务商处创建记录，再将其
-分配的标识（如 `zone_id`、`record_id`）填入 `driver_param`。各驱动的参数说明见
+分配的标识（如 `zone_id`、`record_id`）填入 `driver_params`。各驱动的参数说明见
 [DRIVERS_CN.md](DRIVERS_CN.md)。
 
 ## 命令行用法
@@ -210,12 +210,12 @@ yaddnsc config test -c /etc/yaddnsc/config.json -q
 
 ```json
 {
-  "driver": {
+  "drivers": {
     "driver_dir": "/opt/yaddnsc/drivers",
     "load": ["cloudflare.so"]
   },
   "resolver": {
-    "use_custom_server": true,
+    "use_custom_servers": true,
     "strategy": "concurrent",
     "servers": [
       { "address": "1.1.1.1", "port": 53 },
@@ -234,7 +234,7 @@ yaddnsc config test -c /etc/yaddnsc/config.json -q
           "type": "a",
           "ip_source": "interface",
           "interface": "eth0",
-          "driver_param": {
+          "driver_params": {
             "zone_id": "your-zone-id",
             "record_id": "your-record-id",
             "token": "your-api-token"
@@ -246,15 +246,35 @@ yaddnsc config test -c /etc/yaddnsc/config.json -q
 }
 ```
 
+### 配置格式的不兼容变更（Breaking Changes）
+
+配置格式发生了不兼容变更。升级前请迁移已有配置文件；旧键会被作为未知字段拒绝，
+没有兼容别名或自动迁移。
+
+| 原有键 | 迁移方式 |
+|---|---|
+| 顶层 `driver` | 改名为 `drivers`；`domains[].driver` 保持不变。 |
+| `resolver.use_custom_server` | 改名为 `resolver.use_custom_servers`。 |
+| `domains[].subdomains[].driver_param` | 改名为 `driver_params`，其中的参数内容保持不变。 |
+| `resolver.address` 或 `resolver.ipaddress`，以及 `resolver.port` | 将服务器移入 `resolver.servers`，例如 `"servers": [{"address": "1.1.1.1", "port": 53}]`，并删除直接放在 `resolver` 下的这些字段。 |
+| `domains[].subdomains[].ip_type` | 删除该字段；记录的 `type` 决定地址族：`a` 使用 IPv4，`aaaa` 使用 IPv6。 |
+
+`resolver.servers[]` 内的字段以及插件 SDK/ABI 的 `driver_param_json` 字段保持不变。
+迁移后，先校验配置，再启动客户端：
+
+```bash
+yaddnsc config test -c /etc/yaddnsc/config.json
+```
+
 ### 字段说明
 
 | 对象 | 字段 | 说明 |
 |---|---|---|
-| `driver` | `driver_dir` | 驱动模块的搜索目录；省略时使用安装时确定的驱动目录。 |
-| `driver` | `auto_discover` | 加载 `driver_dir` 中的全部模块；启用后 `load` 列表被忽略。 |
-| `driver` | `load` | 显式指定待加载的模块列表，例如 `["cloudflare.so"]`；模块加载失败属于致命错误。 |
-| `resolver` | `use_custom_server` | 使用下方配置的服务器替代内置默认服务器，详见 [DNS 解析器](#dns-解析器)。 |
-| `resolver` | `servers` | DNS 服务器列表；优先于旧版 `address`/`port` 字段。 |
+| `drivers` | `driver_dir` | 驱动模块的搜索目录；省略时使用安装时确定的驱动目录。 |
+| `drivers` | `auto_discover` | 加载 `driver_dir` 中的全部模块；启用后 `load` 列表被忽略。 |
+| `drivers` | `load` | 显式指定待加载的模块列表，例如 `["cloudflare.so"]`；模块加载失败属于致命错误。 |
+| `resolver` | `use_custom_servers` | 使用下方配置的服务器替代内置默认服务器，详见 [DNS 解析器](#dns-解析器)。 |
+| `resolver` | `servers` | DNS 服务器列表；`use_custom_servers` 为 `true` 时必填。 |
 | `resolver` | `strategy` | `concurrent`（默认）、`fallback` 或 `shuffle`。 |
 | （顶层） | `bootstrap_dns` | bootstrap DNS 服务器（IP 字面量），用于解析所有出站端点的主机名（DoH/DoT 服务器、`http` IP 源 URL、服务商 API 主机）。缺省使用 `/etc/resolv.conf` 的 nameserver。详见 [DNS 解析器](#dns-解析器)。 |
 | `domains[]` | `name` | 受管理的域名，例如 `example.com`。 |
@@ -270,18 +290,18 @@ yaddnsc config test -c /etc/yaddnsc/config.json -q
 | `subdomains[]` | `update_interval` | 单条记录的更新间隔，单位秒；`0`（默认）表示继承域名级间隔。 |
 | `subdomains[]` | `allow_ula` | 允许接口来源采用 IPv6 唯一本地地址（fc00::/7），默认 `false`。 |
 | `subdomains[]` | `allow_local_link` | 允许接口来源采用 IPv6 链路本地地址（fe80::/10），默认 `false`。 |
-| `subdomains[]` | `driver_param` | 驱动专有参数，仅在子域名层级有效，详见 [DRIVERS_CN.md](DRIVERS_CN.md)。 |
+| `subdomains[]` | `driver_params` | 驱动专有参数，仅在子域名层级有效，详见 [DRIVERS_CN.md](DRIVERS_CN.md)。 |
 
 ### 凭据保护
 
-`driver_param` 通常包含 API 令牌或密钥。请勿将配置文件纳入版本控制，应限制其访问
+`driver_params` 通常包含 API 令牌或密钥。请勿将配置文件纳入版本控制，应限制其访问
 权限，并且仅为每个令牌授予完成更新所需的最小权限：
 
 ```bash
 chmod 600 /etc/yaddnsc/config.json
 ```
 
-作为防止意外泄露的措施，`config show` 会将 `driver_param` 中键名包含 `token`、
+作为防止意外泄露的措施，`config show` 会将 `driver_params` 中键名包含 `token`、
 `password`、`secret` 或 `key`（不区分大小写）的值显示为 `"***"`；磁盘上的配置文件
 仍保存真实值。
 
@@ -311,10 +331,9 @@ IPv6 唯一本地地址与链路本地地址不参与选取。
 未配置自定义服务器时，解析器使用单个内置服务器，默认为 `1.1.1.1:53`，可在构建时
 通过 `-DYADDNSC_DEFAULT_DNS_SERVER=...` 与 `-DYADDNSC_DEFAULT_DNS_PORT=...` 修改。
 
-将 `use_custom_server` 设为 `true` 即以配置的服务器列表取代内置服务器。此时须通过
-`servers` 数组或旧版 `address`/`port` 字段提供至少一个服务器；自定义服务器为空
-属于非法配置，`run` 与 `config test` 均会校验失败。`servers` 存在时优先于旧版
-字段；`use_custom_server` 为 `false` 时，全部自定义字段均被忽略。
+将 `use_custom_servers` 设为 `true` 即以配置的服务器列表取代内置服务器。此时须通过
+`servers` 数组提供至少一个服务器；自定义服务器为空属于非法配置，`run` 与
+`config test` 均会校验失败。`use_custom_servers` 为 `false` 时，配置的服务器列表被忽略。
 
 服务器条目的 `address` 形式决定所用协议：
 

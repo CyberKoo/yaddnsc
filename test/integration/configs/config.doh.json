@@ -1,11 +1,11 @@
 {
-  "driver": {
+  "drivers": {
     "driver_dir": "__DRIVER_DIR__",
     "auto_discover": true,
     "load": []
   },
   "resolver": {
-    "use_custom_server": true,
+    "use_custom_servers": true,
     "servers": [
       {"address": "https://127.0.0.1/dns-query", "port": 1443}
     ]
@@ -24,7 +24,7 @@
           "ip_type": "ipv4",
           "interface": "lo",
           "ip_source_param": "yaddnsc-mdns-test.local",
-          "driver_param": {
+          "driver_params": {
             "url": "http://127.0.0.1:8080/update?ip={ip_addr}&domain={domain}&source=mdns&resolver=doh"
           }
         }

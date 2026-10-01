@@ -32,9 +32,7 @@ struct DriverConfig {
 
 /// DNS resolver configuration.
 struct ResolverConfig {
-    bool use_custom_server{false};                            ///< Use custom DNS servers instead of system defaults
-    std::string address{};                                    ///< Single custom resolver address (backward-compatible)
-    unsigned short port{53};                                  ///< Port for the single address (default: 53)
+    bool use_custom_servers{false};                           ///< Use custom DNS servers instead of system defaults
     std::vector<DnsServer> servers{};                         ///< List of custom resolver servers
     ResolverStrategy strategy{ResolverStrategy::CONCURRENT};  ///< Domain Resolve strategy
 };
@@ -54,7 +52,7 @@ struct SubdomainConfig {
     bool allow_ula{false};          ///< Allow Unique Local Address (ULA, fc00::/7)
     bool allow_local_link{false};   ///< Allow link-local addresses (fe80::/10)
     int update_interval{};          ///< Per-subdomain override of the domain update interval (0 = inherit)
-    glz::generic driver_param{};    ///< Driver-specific JSON configuration
+    glz::generic driver_params{};   ///< Driver-specific JSON configuration
 };
 
 /// Per-domain configuration from the config file.
@@ -68,7 +66,7 @@ struct DomainConfig {
 
 /// Top-level application configuration.
 struct AppConfig {
-    DriverConfig driver{};                ///< Driver loading configuration
+    DriverConfig drivers{};               ///< Driver loading configuration
     ResolverConfig resolver{};            ///< DNS resolver configuration
     std::vector<DomainConfig> domains{};  ///< Domains to manage
     /// Bootstrap DNS server (IP literal, port 53) used to resolve hostname

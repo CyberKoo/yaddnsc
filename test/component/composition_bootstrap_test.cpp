@@ -147,16 +147,16 @@ std::string loopback_iface() {
 }
 
 // A config whose driver_dir points at the real built driver and which passes
-// every validation stage: a domain, a resolvable interface, and a driver_param
+// every validation stage: a domain, a resolvable interface, and a driver_params
 // the simple driver's own schema accepts.
 std::string valid_config() {
     return std::format(R"({{
-  "driver": {{
+  "drivers": {{
     "driver_dir": "{}",
     "auto_discover": true,
     "load": []
   }},
-  "resolver": {{ "use_custom_server": false }},
+  "resolver": {{ "use_custom_servers": false }},
   "domains": [
     {{
       "name": "yaddnsc.test",
@@ -168,7 +168,7 @@ std::string valid_config() {
           "type": "a",
           "ip_source": "interface",
           "interface": "{}",
-          "driver_param": {{ "url": "http://127.0.0.1:1/ip?ip={{ip_addr}}" }}
+          "driver_params": {{ "url": "http://127.0.0.1:1/ip?ip={{ip_addr}}" }}
         }}
       ]
     }}
@@ -263,7 +263,7 @@ TEST(CompositionDispatch, ConfigTestCommand_Quiet_StillPasses) {
 
 TEST(CompositionDispatch, ConfigTestCommand_InvalidConfig_Fails) {
     // Truncated JSON: the parse error is collected, not thrown.
-    const auto path = write_config("yaddnsc-compose-test-bad.json", R"({ "driver": { "driver_dir": )");
+    const auto path = write_config("yaddnsc-compose-test-bad.json", R"({ "drivers": { "driver_dir": )");
     const Cli::Command command{Cli::ConfigTestCommand{.config_path = path.string(), .quiet = false}};
     EXPECT_NE(Composition::dispatch(command), 0);
     remove_file(path);
@@ -274,8 +274,8 @@ TEST(CompositionDispatch, ConfigTestCommand_EmptyDriverDir_Fails) {
     // config-test handler must present as a verification error rather than
     // letting it escape as a fatal.
     const auto path = write_config("yaddnsc-compose-test-emptydir.json", R"({
-  "driver": { "driver_dir": "", "auto_discover": true, "load": [] },
-  "resolver": { "use_custom_server": false },
+  "drivers": { "driver_dir": "", "auto_discover": true, "load": [] },
+  "resolver": { "use_custom_servers": false },
   "domains": []
 }
 )");
@@ -288,8 +288,8 @@ TEST(CompositionDispatch, ConfigTestCommand_ReferencedInterfaceMissing_Fails) {
     // Environment validation: the interface the subdomain names does not
     // exist, so the config is rejected before any update runs.
     const auto path = write_config("yaddnsc-compose-test-badiface.json", std::format(R"({{
-  "driver": {{ "driver_dir": "{}", "auto_discover": true, "load": [] }},
-  "resolver": {{ "use_custom_server": false }},
+  "drivers": {{ "driver_dir": "{}", "auto_discover": true, "load": [] }},
+  "resolver": {{ "use_custom_servers": false }},
   "domains": [
     {{
       "name": "yaddnsc.test",
@@ -301,7 +301,7 @@ TEST(CompositionDispatch, ConfigTestCommand_ReferencedInterfaceMissing_Fails) {
           "type": "a",
           "ip_source": "interface",
           "interface": "no-such-if0",
-          "driver_param": {{ "url": "http://127.0.0.1:1/ip" }}
+          "driver_params": {{ "url": "http://127.0.0.1:1/ip" }}
         }}
       ]
     }}
@@ -315,13 +315,13 @@ TEST(CompositionDispatch, ConfigTestCommand_ReferencedInterfaceMissing_Fails) {
 }
 
 TEST(CompositionDispatch, ConfigTestCommand_DriverParamRejectedByAbi_Fails) {
-    // The simple driver requires "url" in driver_param. An empty object must
+    // The simple driver requires "url" in driver_params. An empty object must
     // be rejected through the driver's own validate entry point, which is the
     // host's way of catching a bad config before the first update.
     const auto path =
         write_config("yaddnsc-compose-test-badparam.json", std::format(R"({{
-  "driver": {{ "driver_dir": "{}", "auto_discover": true, "load": [] }},
-  "resolver": {{ "use_custom_server": false }},
+  "drivers": {{ "driver_dir": "{}", "auto_discover": true, "load": [] }},
+  "resolver": {{ "use_custom_servers": false }},
   "domains": [
     {{
       "name": "yaddnsc.test",
@@ -333,7 +333,7 @@ TEST(CompositionDispatch, ConfigTestCommand_DriverParamRejectedByAbi_Fails) {
           "type": "a",
           "ip_source": "interface",
           "interface": "{}",
-          "driver_param": {{}}
+          "driver_params": {{}}
         }}
       ]
     }}
@@ -349,8 +349,8 @@ TEST(CompositionDispatch, ConfigTestCommand_DriverParamRejectedByAbi_Fails) {
 TEST(CompositionDispatch, ConfigTestCommand_ValidDriverParam_Passes) {
     const auto path =
         write_config("yaddnsc-compose-test-goodparam.json", std::format(R"({{
-  "driver": {{ "driver_dir": "{}", "auto_discover": true, "load": [] }},
-  "resolver": {{ "use_custom_server": false }},
+  "drivers": {{ "driver_dir": "{}", "auto_discover": true, "load": [] }},
+  "resolver": {{ "use_custom_servers": false }},
   "domains": [
     {{
       "name": "yaddnsc.test",
@@ -362,7 +362,7 @@ TEST(CompositionDispatch, ConfigTestCommand_ValidDriverParam_Passes) {
           "type": "a",
           "ip_source": "interface",
           "interface": "{}",
-          "driver_param": {{ "url": "http://127.0.0.1:1/ip?ip={{ip_addr}}" }}
+          "driver_params": {{ "url": "http://127.0.0.1:1/ip?ip={{ip_addr}}" }}
         }}
       ]
     }}
@@ -422,9 +422,9 @@ TEST(CompositionDispatch, DriverListCommand_InvalidConfig_Fails) {
 
 TEST(CompositionDispatch, DnsResolverCommand_PlainAddress_IsRendered) {
     const auto path = write_config("yaddnsc-compose-resolver-plain.json", R"({
-  "driver": { "auto_discover": false, "load": [] },
+  "drivers": { "auto_discover": false, "load": [] },
   "resolver": {
-    "use_custom_server": true,
+    "use_custom_servers": true,
     "servers": [ { "address": "1.1.1.1", "port": 53 } ]
   },
   "domains": []
@@ -438,9 +438,9 @@ TEST(CompositionDispatch, DnsResolverCommand_PlainAddress_IsRendered) {
 TEST(CompositionDispatch, DnsResolverCommand_UriAddressWithPath_IsRendered) {
     // A scheme-bearing address is displayed as origin + path, not host:port.
     const auto path = write_config("yaddnsc-compose-resolver-uri.json", R"({
-  "driver": { "auto_discover": false, "load": [] },
+  "drivers": { "auto_discover": false, "load": [] },
   "resolver": {
-    "use_custom_server": true,
+    "use_custom_servers": true,
     "servers": [ { "address": "https://dns.example/dns-query", "port": 443 } ]
   },
   "domains": []
@@ -454,9 +454,9 @@ TEST(CompositionDispatch, DnsResolverCommand_UriAddressWithPath_IsRendered) {
 TEST(CompositionDispatch, DnsResolverCommand_UnparsableAddress_FallsBackToRaw) {
     // The display helper must never fail: a malformed address is shown as-is.
     const auto path = write_config("yaddnsc-compose-resolver-raw.json", R"({
-  "driver": { "auto_discover": false, "load": [] },
+  "drivers": { "auto_discover": false, "load": [] },
   "resolver": {
-    "use_custom_server": true,
+    "use_custom_servers": true,
     "servers": [ { "address": "::not a uri::", "port": 53 } ]
   },
   "domains": []
@@ -469,9 +469,9 @@ TEST(CompositionDispatch, DnsResolverCommand_UnparsableAddress_FallsBackToRaw) {
 
 TEST(CompositionDispatch, DnsResolverCommand_MultipleServers_AreAllListed) {
     const auto path = write_config("yaddnsc-compose-resolver-multi.json", R"({
-  "driver": { "auto_discover": false, "load": [] },
+  "drivers": { "auto_discover": false, "load": [] },
   "resolver": {
-    "use_custom_server": true,
+    "use_custom_servers": true,
     "servers": [
       { "address": "1.1.1.1", "port": 53 },
       { "address": "tls://8.8.8.8", "port": 853 },
@@ -496,8 +496,8 @@ TEST(CompositionDispatch, RunCommand_MultipleConfigErrors_AreAggregated) {
     // whole config in one pass instead of rediscovering errors one run at
     // a time. Both subdomains are invalid, so no update can start.
     const auto path = write_config("yaddnsc-compose-run-bad.json", R"({
-  "driver": { "auto_discover": false, "load": [] },
-  "resolver": { "use_custom_server": false },
+  "drivers": { "auto_discover": false, "load": [] },
+  "resolver": { "use_custom_servers": false },
   "domains": [
     {
       "name": "yaddnsc.test",
@@ -509,14 +509,14 @@ TEST(CompositionDispatch, RunCommand_MultipleConfigErrors_AreAggregated) {
           "type": "a",
           "ip_source": "interface",
           "interface": "",
-          "driver_param": { "url": "http://127.0.0.1:1/ip" }
+          "driver_params": { "url": "http://127.0.0.1:1/ip" }
         },
         {
           "name": "b",
           "type": "a",
           "ip_source": "interface",
           "interface": "",
-          "driver_param": { "url": "http://127.0.0.1:1/ip" }
+          "driver_params": { "url": "http://127.0.0.1:1/ip" }
         }
       ]
     }

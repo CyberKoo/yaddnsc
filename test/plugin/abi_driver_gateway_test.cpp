@@ -83,9 +83,9 @@ protected:
             logger_);
     }
 
-    [[nodiscard]] DriverUpdateCommand make_command(std::string driver_param) const {
+    [[nodiscard]] DriverUpdateCommand make_command(std::string driver_params) const {
         return DriverUpdateCommand{
-            .driver_param = std::move(driver_param),
+            .driver_params = std::move(driver_params),
             .ip_addr = "192.0.2.1",
             .rd_type = "A",
             .domain = "example.com",
@@ -305,7 +305,7 @@ TEST(AbiDriverGatewayCreateTest, CreateFailureAfterStoringHandleDoesNotLeak) {
 
     const auto result = gateway.update("leaky_create",
                                        DriverUpdateCommand{
-                                           .driver_param = "{}",
+                                           .driver_params = "{}",
                                            .ip_addr = "192.0.2.1",
                                            .rd_type = "A",
                                            .domain = "example.com",
@@ -327,7 +327,7 @@ TEST(AbiDriverGatewayCreateTest, CreateFailureAfterStoringHandleDoesNotLeak) {
 // ── validate_config ──────────────────────────────────────────────────────────
 //
 // The host's `config test` path. Three outcomes are locked here: a valid
-// driver_param passes, a driver-side rejection surfaces the plugin's message
+// driver_params passes, a driver-side rejection surfaces the plugin's message
 // verbatim, and a plugin without the OPTIONAL validate entry fails the check.
 
 namespace {
@@ -367,7 +367,7 @@ TEST_F(AbiDriverGatewayValidateTest, DriverRejectionEmptyMessageFallsBackToWordi
     const auto result = gateway_->validate_config(kDriverName, R"({"op":"reject_validate","message":""})");
     ASSERT_FALSE(result.has_value());
     EXPECT_EQ(result.error().code, domain::DriverError::Code::UNKNOWN);
-    EXPECT_EQ(result.error().message, "Driver 'test_driver_plugin' rejected its driver_param configuration");
+    EXPECT_EQ(result.error().message, "Driver 'test_driver_plugin' rejected its driver_params configuration");
 }
 
 TEST_F(AbiDriverGatewayValidateTest, PluginWithoutValidateEntryFailsConfigTest) {

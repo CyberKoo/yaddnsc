@@ -34,8 +34,7 @@ template<>
 struct glz::meta<Config::ResolverConfig> {
     using T = Config::ResolverConfig;
     static constexpr auto value =
-        object("use_custom_server", &T::use_custom_server, "address", &T::address, "ipaddress", &T::address, "port",
-               &T::port, "servers", &T::servers, "strategy", &T::strategy);
+        object("use_custom_servers", &T::use_custom_servers, "servers", &T::servers, "strategy", &T::strategy);
 };
 
 /// glz::meta specialisation for Config::ResolverStrategy enum JSON mapping.
@@ -52,7 +51,7 @@ struct glz::meta<Config::SubdomainConfig> {
     static constexpr auto value =
         object("name", &T::name, "type", &T::type, "interface", &T::interface, "ip_source", &T::ip_source,
                "ip_source_param", &T::ip_source_param, "allow_ula", &T::allow_ula, "allow_local_link",
-               &T::allow_local_link, "update_interval", &T::update_interval, "driver_param", &T::driver_param);
+               &T::allow_local_link, "update_interval", &T::update_interval, "driver_params", &T::driver_params);
 };
 
 /// glz::meta specialisation for Config::DomainConfig JSON mapping.
@@ -67,7 +66,7 @@ struct glz::meta<Config::DomainConfig> {
 template<>
 struct glz::meta<Config::AppConfig> {
     using T = Config::AppConfig;
-    static constexpr auto value = object("driver", &T::driver, "resolver", &T::resolver, "domains", &T::domains,
+    static constexpr auto value = object("drivers", &T::drivers, "resolver", &T::resolver, "domains", &T::domains,
                                          "bootstrap_dns", &T::bootstrap_dns);
 };
 

@@ -48,7 +48,7 @@ using Code = domain::ConfigError::Code;
                                                    std::string driver_name = "test_driver",
                                                    std::string subdomain_name = "www") {
     return Config::AppConfig{
-        .driver = {},
+        .drivers = {},
         .resolver = {},
         .domains = {{
             .name = std::move(domain_name),
@@ -316,7 +316,7 @@ TEST(StaticValidatorTest, MdnsSource_TxtType) {
 
 TEST(StaticValidatorTest, ResolverDoH_NoErrors) {
     const auto errors = validate_with([](Config::AppConfig& cfg) {
-        cfg.resolver.use_custom_server = true;
+        cfg.resolver.use_custom_servers = true;
         cfg.resolver.servers = {{.address = "https://dns.cloudflare.com/dns-query", .port = 443}};
     });
     EXPECT_TRUE(errors.empty());
@@ -324,26 +324,24 @@ TEST(StaticValidatorTest, ResolverDoH_NoErrors) {
 
 TEST(StaticValidatorTest, ResolverDoT_NoErrors) {
     const auto errors = validate_with([](Config::AppConfig& cfg) {
-        cfg.resolver.use_custom_server = true;
+        cfg.resolver.use_custom_servers = true;
         cfg.resolver.servers = {{.address = "tls://1.1.1.1:853", .port = 853}};
     });
     EXPECT_TRUE(errors.empty());
 }
 
-TEST(StaticValidatorTest, ResolverLegacyIPv4_NoErrors) {
+TEST(StaticValidatorTest, ResolverIPv4_NoErrors) {
     const auto errors = validate_with([](Config::AppConfig& cfg) {
-        cfg.resolver.use_custom_server = true;
-        cfg.resolver.address = "1.1.1.1";
-        cfg.resolver.port = 53;
+        cfg.resolver.use_custom_servers = true;
+        cfg.resolver.servers = {{"1.1.1.1", 53}};
     });
     EXPECT_TRUE(errors.empty());
 }
 
 TEST(StaticValidatorTest, ResolverInvalidIPv4) {
     const auto errors = validate_with([](Config::AppConfig& cfg) {
-        cfg.resolver.use_custom_server = true;
-        cfg.resolver.address = "999.999.999.999";
-        cfg.resolver.port = 53;
+        cfg.resolver.use_custom_servers = true;
+        cfg.resolver.servers = {{"999.999.999.999", 53}};
     });
     ASSERT_EQ(errors.size(), 1U);
     EXPECT_EQ(errors[0].code, Code::INVALID_RESOLVER);
@@ -352,9 +350,8 @@ TEST(StaticValidatorTest, ResolverInvalidIPv4) {
 
 TEST(StaticValidatorTest, ResolverHostnameAddress) {
     const auto errors = validate_with([](Config::AppConfig& cfg) {
-        cfg.resolver.use_custom_server = true;
-        cfg.resolver.address = "resolver.example.com";
-        cfg.resolver.port = 53;
+        cfg.resolver.use_custom_servers = true;
+        cfg.resolver.servers = {{"resolver.example.com", 53}};
     });
     ASSERT_EQ(errors.size(), 1U);
     EXPECT_EQ(errors[0].code, Code::INVALID_RESOLVER);
@@ -363,7 +360,7 @@ TEST(StaticValidatorTest, ResolverHostnameAddress) {
 
 TEST(StaticValidatorTest, ResolverDoHEmptyHost) {
     const auto errors = validate_with([](Config::AppConfig& cfg) {
-        cfg.resolver.use_custom_server = true;
+        cfg.resolver.use_custom_servers = true;
         cfg.resolver.servers = {{.address = "https:///dns-query", .port = 443}};
     });
     ASSERT_EQ(errors.size(), 1U);
@@ -373,7 +370,7 @@ TEST(StaticValidatorTest, ResolverDoHEmptyHost) {
 
 TEST(StaticValidatorTest, ResolverDoTPortZero) {
     const auto errors = validate_with([](Config::AppConfig& cfg) {
-        cfg.resolver.use_custom_server = true;
+        cfg.resolver.use_custom_servers = true;
         cfg.resolver.servers = {{.address = "tls://1.1.1.1:0", .port = 853}};
     });
     ASSERT_EQ(errors.size(), 1U);
@@ -383,27 +380,19 @@ TEST(StaticValidatorTest, ResolverDoTPortZero) {
 
 TEST(StaticValidatorTest, ResolverNotCustom_NotChecked) {
     const auto errors = validate_with([](Config::AppConfig& cfg) {
-        cfg.resolver.use_custom_server = false;
-        cfg.resolver.address = "999.999.999.999";  // ignored: no custom server
+        cfg.resolver.use_custom_servers = false;
+        cfg.resolver.servers = {{"999.999.999.999", 53}};  // ignored: no custom server
     });
     EXPECT_TRUE(errors.empty());
 }
 
 TEST(StaticValidatorTest, ResolverCustomWithoutServers) {
     const auto errors = validate_with([](Config::AppConfig& cfg) {
-        cfg.resolver.use_custom_server = true;  // neither servers nor legacy address set
+        cfg.resolver.use_custom_servers = true;  // no servers configured
     });
     ASSERT_EQ(errors.size(), 1U);
     EXPECT_EQ(errors[0].code, Code::NO_RESOLVER_SERVERS);
-    EXPECT_EQ(errors[0].message, "use_custom_server is enabled but no custom resolver servers are configured");
-}
-
-TEST(StaticValidatorTest, ResolverCustomLegacyAddressOnly_NoErrors) {
-    const auto errors = validate_with([](Config::AppConfig& cfg) {
-        cfg.resolver.use_custom_server = true;
-        cfg.resolver.address = "1.1.1.1";
-    });
-    EXPECT_TRUE(errors.empty());
+    EXPECT_EQ(errors[0].message, "use_custom_servers is enabled but no custom resolver servers are configured");
 }
 
 // ===========================================================================
@@ -469,7 +458,7 @@ TEST(StaticValidatorTest, ValidateAndNormalize_FailureReturnsAllErrors) {
 
 TEST(StaticValidatorTest, ValidateAndNormalize_RejectsEmptyCustomResolver) {
     auto cfg = make_domain_config();
-    cfg.resolver.use_custom_server = true;
+    cfg.resolver.use_custom_servers = true;
 
     const auto result = Config::validate_and_normalize(cfg);
 
@@ -477,7 +466,7 @@ TEST(StaticValidatorTest, ValidateAndNormalize_RejectsEmptyCustomResolver) {
     ASSERT_EQ(result.error().size(), 1U);
     EXPECT_EQ(result.error().front().code, Code::NO_RESOLVER_SERVERS);
     EXPECT_EQ(result.error().front().message,
-              "use_custom_server is enabled but no custom resolver servers are configured");
+              "use_custom_servers is enabled but no custom resolver servers are configured");
 }
 
 TEST(StaticValidatorTest, BootstrapDns_ValidIpLiteral_NoErrors) {
@@ -504,7 +493,7 @@ TEST(StaticValidatorTest, MalformedResolverAddress_ReportedNotThrown) {
     // configuration mistake: it must surface as a collected INVALID_RESOLVER
     // error on every entry path, never as an escaping Uri::parse exception.
     const auto errors = validate_with([](Config::AppConfig& cfg) {
-        cfg.resolver.use_custom_server = true;
+        cfg.resolver.use_custom_servers = true;
         cfg.resolver.servers = {Config::DnsServer{"https://[::1", 443}};
     });
     ASSERT_EQ(errors.size(), 1U);

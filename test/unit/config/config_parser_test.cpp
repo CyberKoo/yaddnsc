@@ -4,7 +4,7 @@
 // Verifies:
 //   - Minimal config parses successfully with default values.
 //   - Full config with all fields parses correctly.
-//   - Backward-compatible key names ("ipaddress", "url") work.
+//   - Backward-compatible IP source name ("url") works.
 //   - All SubdomainConfig fields round-trip correctly.
 //   - Invalid JSON is rejected.
 //   - Wrong type values produce errors.
@@ -48,6 +48,32 @@ struct ParseResult {
     return result;
 }
 
+TEST(ConfigParserTest, PluralConfigurationKeys_ParseAndSerializeWithDomainDriverUnchanged) {
+    const auto parsed = parse_config(R"({
+        "drivers": {"auto_discover":true},
+        "resolver": {"use_custom_servers":true,"servers":[{"address":"1.1.1.1"}]},
+        "domains": [{"driver":"simple","subdomains":[{"driver_params":{"url":"https://example.com"}}]}]
+    })");
+    ASSERT_TRUE(parsed.ok);
+    EXPECT_TRUE(parsed.value.drivers.auto_discover);
+    EXPECT_TRUE(parsed.value.resolver.use_custom_servers);
+    ASSERT_EQ(parsed.value.domains.size(), 1U);
+    EXPECT_EQ(parsed.value.domains.front().driver, "simple");
+    const auto written = glz::write_json(parsed.value);
+    ASSERT_TRUE(written.has_value());
+    EXPECT_NE(written->find("\"drivers\":"), std::string::npos);
+    EXPECT_NE(written->find("\"use_custom_servers\":"), std::string::npos);
+    EXPECT_NE(written->find("\"driver_params\":"), std::string::npos);
+    EXPECT_NE(written->find("\"driver\":\"simple\""), std::string::npos);
+}
+
+TEST(ConfigParserTest, SingularConfigurationKeys_ReturnUnknownKey) {
+    EXPECT_EQ(parse_config(R"({"driver":{}})").ec.ec, glz::error_code::unknown_key);
+    EXPECT_EQ(parse_config(R"({"resolver":{"use_custom_server":true}})").ec.ec, glz::error_code::unknown_key);
+    EXPECT_EQ(parse_config(R"({"domains":[{"subdomains":[{"driver_param":{}}]}]})").ec.ec,
+              glz::error_code::unknown_key);
+}
+
 TEST(ConfigParserTest, SubdomainConfig_RemovedIpType_IsRejected) {
     Config::SubdomainConfig config;
     const auto error = glz::read_json(config, std::string{R"({"ip_type":"ipv4"})"});
@@ -69,12 +95,11 @@ TEST(ConfigParserTest, MinimalConfig_ParsesSuccessfully) {
     ASSERT_TRUE(result.ok);
 
     const auto& cfg = result.value;
-    EXPECT_TRUE(cfg.driver.auto_discover);
-    EXPECT_FALSE(cfg.driver.driver_dir.has_value());
-    EXPECT_TRUE(cfg.driver.load.empty());
-    EXPECT_FALSE(cfg.resolver.use_custom_server);
+    EXPECT_TRUE(cfg.drivers.auto_discover);
+    EXPECT_FALSE(cfg.drivers.driver_dir.has_value());
+    EXPECT_TRUE(cfg.drivers.load.empty());
+    EXPECT_FALSE(cfg.resolver.use_custom_servers);
     EXPECT_TRUE(cfg.resolver.servers.empty());
-    EXPECT_EQ(cfg.resolver.port, 53);
     EXPECT_TRUE(cfg.domains.empty());
 }
 
@@ -89,15 +114,15 @@ TEST(ConfigParserTest, FullConfig_ParsesAllFields) {
     const auto& cfg = result.value;
 
     // Driver config
-    ASSERT_TRUE(cfg.driver.driver_dir.has_value());
-    EXPECT_EQ(*cfg.driver.driver_dir, "/usr/lib/yaddnsc/drivers");
-    EXPECT_TRUE(cfg.driver.auto_discover);
-    ASSERT_EQ(cfg.driver.load.size(), 2U);
-    EXPECT_EQ(cfg.driver.load[0], "cloudflare");
-    EXPECT_EQ(cfg.driver.load[1], "digital_ocean");
+    ASSERT_TRUE(cfg.drivers.driver_dir.has_value());
+    EXPECT_EQ(*cfg.drivers.driver_dir, "/usr/lib/yaddnsc/drivers");
+    EXPECT_TRUE(cfg.drivers.auto_discover);
+    ASSERT_EQ(cfg.drivers.load.size(), 2U);
+    EXPECT_EQ(cfg.drivers.load[0], "cloudflare");
+    EXPECT_EQ(cfg.drivers.load[1], "digital_ocean");
 
     // Resolver config
-    EXPECT_TRUE(cfg.resolver.use_custom_server);
+    EXPECT_TRUE(cfg.resolver.use_custom_servers);
     ASSERT_EQ(cfg.resolver.servers.size(), 2U);
     EXPECT_EQ(cfg.resolver.servers[0].address, "1.1.1.1");
     EXPECT_EQ(cfg.resolver.servers[0].port, 53);
@@ -133,8 +158,8 @@ TEST(ConfigParserTest, FullConfig_ParsesAllFields) {
 
 TEST(ConfigParserTest, ShuffleStrategy_ParsesSuccessfully) {
     constexpr std::string_view json = R"({
-        "driver": { "auto_discover": true },
-        "resolver": { "use_custom_server": true, "strategy": "shuffle",
+        "drivers": { "auto_discover": true },
+        "resolver": { "use_custom_servers": true, "strategy": "shuffle",
                       "servers": [{"address": "1.1.1.1"}] },
         "domains": []
     })";
@@ -143,16 +168,29 @@ TEST(ConfigParserTest, ShuffleStrategy_ParsesSuccessfully) {
     EXPECT_EQ(result.value.resolver.strategy, Config::ResolverStrategy::SHUFFLE);
 }
 
+TEST(ConfigParserTest, ResolverConfig_DirectServerFields_ReturnUnknownKey) {
+    for (const auto& json : {R"({"address":"1.1.1.1"})", R"({"ipaddress":"1.1.1.1"})", R"({"port":53})"}) {
+        Config::ResolverConfig config;
+        const auto error = glz::read_json(config, std::string(json));
+        EXPECT_EQ(error.ec, glz::error_code::unknown_key) << json;
+    }
+}
+
+TEST(ConfigParserTest, ResolverConfig_Serialization_ContainsOnlyListSettings) {
+    const auto written = glz::write_json(Config::ResolverConfig{});
+    ASSERT_TRUE(written.has_value());
+    EXPECT_EQ(*written, R"({"use_custom_servers":false,"servers":[],"strategy":"concurrent"})");
+}
+
 TEST(ConfigParserTest, BackwardCompat_Keys_AreAccepted) {
     auto result = parse_config(Fixtures::BACKWARD_COMPAT_CONFIG);
     ASSERT_TRUE(result.ok);
 
     const auto& cfg = result.value;
 
-    // "ipaddress" alias for resolver address
-    EXPECT_TRUE(cfg.resolver.use_custom_server);
-    EXPECT_EQ(cfg.resolver.address, "9.9.9.9");
-    EXPECT_EQ(cfg.resolver.port, 53);
+    EXPECT_TRUE(cfg.resolver.use_custom_servers);
+    ASSERT_EQ(cfg.resolver.servers.size(), 1U);
+    EXPECT_EQ(cfg.resolver.servers[0].address, "9.9.9.9");
     EXPECT_EQ(cfg.resolver.strategy, Config::ResolverStrategy::CONCURRENT);
 
     // "url" alias for IP source = HTTP
@@ -220,10 +258,10 @@ TEST(ConfigParserTest, EmptyDomains_ParsesSuccessfully) {
     ASSERT_TRUE(result.ok);
 
     const auto& cfg = result.value;
-    EXPECT_FALSE(cfg.driver.auto_discover);
-    ASSERT_TRUE(cfg.driver.driver_dir.has_value());
-    EXPECT_EQ(*cfg.driver.driver_dir, "./drivers");
-    EXPECT_TRUE(cfg.driver.load.empty());
+    EXPECT_FALSE(cfg.drivers.auto_discover);
+    ASSERT_TRUE(cfg.drivers.driver_dir.has_value());
+    EXPECT_EQ(*cfg.drivers.driver_dir, "./drivers");
+    EXPECT_TRUE(cfg.drivers.load.empty());
     EXPECT_TRUE(cfg.domains.empty());
 }
 

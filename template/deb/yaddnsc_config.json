@@ -1,9 +1,9 @@
 {
-  "driver": {
+  "drivers": {
     "auto_discover": true
   },
   "resolver": {
-    "use_custom_server": true,
+    "use_custom_servers": true,
     "strategy": "concurrent",
     "servers": [
       {
@@ -36,7 +36,7 @@
           "type": "a",
           "ip_source": "http",
           "ip_source_param": "https://api.ipify.org/",
-          "driver_param": {
+          "driver_params": {
             "record_id": "123456789",
             "token": "your-token-here",
             "url": "https://example.com/update"

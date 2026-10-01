@@ -151,13 +151,13 @@ Four entry points are **required**: `yaddnsc_driver_get_descriptor`,
 `yaddnsc_driver_update`. A fifth, `yaddnsc_driver_validate`, is **optional**
 since ABI 1.0: the host probes it with `dlsym`. When the symbol is absent,
 the plugin still loads and can perform updates, and `yaddnsc config test`
-fails because it cannot confirm `driver_param`. `YADDNSC_DEFINE_DRIVER`
+fails because it cannot confirm `driver_params`. `YADDNSC_DEFINE_DRIVER`
 always exports the entry. The C++ helper's default `Driver::validate()`
 returns success, so config test passes and no schema check runs. Override
 it.
 
 `yaddnsc_driver_validate` lets `yaddnsc config test` check a driver's
-`driver_param` against the driver's own schema without performing an update.
+`driver_params` against the driver's own schema without performing an update.
 It is called on a live instance between create and destroy, must not use host
 services (no HTTP exchange is available), and returns
 `YADDNSC_STATUS_INVALID_CONFIG` with a human-readable message when the
@@ -234,7 +234,7 @@ Standalone consumer examples that build against the installed package live in
 A driver:
 
 - subclasses `yaddnsc::sdk::Driver` and implements `update(UpdateContext &)`;
-- parses its configuration with `parse_config<T>()` from `driver_param` JSON —
+- parses its configuration with `parse_config<T>()` from `driver_params` JSON —
   Glaze is available privately to the plugin (it is part of
   `yaddnsc::plugin_sdk`);
 - performs provider HTTP calls through the Host Services exchange
@@ -287,7 +287,7 @@ formatting (`yaddnsc/sdk/format.hpp`), and percent-encoding
 (`yaddnsc/sdk/url_encode.hpp`) are part of that surface — use them instead of
 copying implementations into the driver. Use the bundled
 `driver/cloudflare/` as the reference implementation and keep
-provider-specific credentials in `driver_param`.
+provider-specific credentials in `driver_params`.
 Do not put credentials in source code or log messages — the SDK log helpers
 redact sensitive request fields by default.
 
@@ -353,7 +353,7 @@ and 16 MiB of body.
 - `Driver not found`: check `driver_dir`, the file name, and installation.
 - Magic mismatch, a different ABI major, or a plugin minor newer than the
   host: rebuild the driver with the current SDK headers.
-- Missing required parameters: compare `driver_param` with the provider entry
+- Missing required parameters: compare `driver_params` with the provider entry
   in [`DRIVERS.md`](../DRIVERS.md).
 
 The SDK headers in `include/yaddnsc/sdk/` are the source of truth for the

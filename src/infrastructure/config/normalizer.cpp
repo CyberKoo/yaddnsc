@@ -26,17 +26,10 @@ auto normalize_resolver(const ResolverConfig& raw) -> domain::ResolverSettings {
     domain::ResolverSettings settings;
     settings.strategy = raw.strategy;
 
-    // Fold the legacy single-server format into the server list. The runtime
-    // model never uses an empty list as an implicit default: disabled custom
-    // DNS is normalized to the configured built-in resolver here.
-    if (!raw.use_custom_server) {
-        settings.servers.push_back({YADDNSC_DEFAULT_DNS_SERVER, YADDNSC_DEFAULT_DNS_PORT});
+    if (raw.use_custom_servers) {
+        settings.servers = raw.servers;
     } else {
-        if (!raw.servers.empty()) {
-            settings.servers = raw.servers;
-        } else if (!raw.address.empty()) {
-            settings.servers.push_back({raw.address, raw.port});
-        }
+        settings.servers.push_back({YADDNSC_DEFAULT_DNS_SERVER, YADDNSC_DEFAULT_DNS_PORT});
     }
 
     return settings;
@@ -58,9 +51,9 @@ auto normalize_subdomain(const SubdomainConfig& raw, int domain_interval) -> dom
         .allow_ula = raw.allow_ula,
         .allow_local_link = raw.allow_local_link,
         .update_interval = raw.update_interval > 0 ? raw.update_interval : domain_interval,
-        // An unset driver_param arrives as glz::generic null (either the
+        // An unset driver_params arrives as glz::generic null (either the
         // key is absent or explicitly null); the driver must receive "{}".
-        .driver_param = raw.driver_param.is_null() ? "{}" : raw.driver_param.dump().value_or("{}"),
+        .driver_params = raw.driver_params.is_null() ? "{}" : raw.driver_params.dump().value_or("{}"),
     };
 }
 
@@ -88,11 +81,11 @@ auto normalize(const AppConfig& raw) -> domain::RuntimeConfig {
         config.resolver.bootstrap_servers.push_back({raw.bootstrap_dns, YADDNSC_DEFAULT_DNS_PORT});
     }
 
-    if (raw.driver.driver_dir.has_value()) {
-        config.driver.driver_dir = std::filesystem::path{*raw.driver.driver_dir};
+    if (raw.drivers.driver_dir.has_value()) {
+        config.drivers.driver_dir = std::filesystem::path{*raw.drivers.driver_dir};
     }
-    config.driver.auto_discover = raw.driver.auto_discover;
-    config.driver.load = raw.driver.load;
+    config.drivers.auto_discover = raw.drivers.auto_discover;
+    config.drivers.load = raw.drivers.load;
 
     config.domains.reserve(raw.domains.size());
     for (const auto& domain_config : raw.domains) {

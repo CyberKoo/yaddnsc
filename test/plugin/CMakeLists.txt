@@ -39,7 +39,7 @@ endforeach()
 # ---------------------------------------------------------------------------
 # Optional-entry fixture — a complete, loadable plugin that predates the
 # OPTIONAL yaddnsc_driver_validate entry. The loader must accept it and the
-# host must skip the driver-side driver_param check instead of failing.
+# host must skip the driver-side driver_params check instead of failing.
 # ---------------------------------------------------------------------------
 add_library(yaddnsc_fixture_no_validate MODULE fixtures/no_validate.cpp)
 set_target_properties(yaddnsc_fixture_no_validate PROPERTIES PREFIX "" OUTPUT_NAME "no_validate")

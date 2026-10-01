@@ -90,7 +90,7 @@ exceptions, STL containers, or host objects cross the `.so` boundary.
   message. Four entry points are required (`get_descriptor`, `create`,
   `destroy`, `update`); a fifth, `yaddnsc_driver_validate`, is optional
   since ABI 1.0 — the host dlsym-probes it so `config test` can check
-  `driver_param` against the driver's schema. A missing entry means the
+  `driver_params` against the driver's schema. A missing entry means the
   plugin provides no such check. `config test` fails in that case; the
   plugin still loads and can update. Capability bits are enforced before
   the plugin runs: `A` and `AAAA` are delivered only when the matching bit

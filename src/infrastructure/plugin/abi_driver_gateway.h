@@ -56,12 +56,12 @@ public:
                                                                   const DriverUpdateCommand& command,
                                                                   const Utils::CancellationToken& token) const override;
 
-    /// Validate one subdomain's driver_param JSON against the driver's schema
+    /// Validate one subdomain's driver_params JSON against the driver's schema
     /// without performing an update (the host's `config test` path). Runs the
     /// same create → validate → destroy instance cycle as update(). The
     /// yaddnsc_driver_validate entry stays optional: a plugin that omits it
     /// still loads and can update, but this call fails because the host
-    /// cannot confirm driver_param.
+    /// cannot confirm driver_params.
     [[nodiscard]] std::expected<void, domain::DriverError> validate_config(std::string_view driver_name,
                                                                            std::string_view driver_param_json) const;
 

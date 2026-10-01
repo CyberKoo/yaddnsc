@@ -107,7 +107,7 @@ UpdateOutcome UpdateWorkflow::run(const domain::UpdateTask& task, const Utils::C
         // --- Step 4: delegate to the driver gateway ---------------------------
 
         const DriverUpdateCommand command{
-            .driver_param = subdomain.driver_param,
+            .driver_params = subdomain.driver_params,
             .ip_addr = local_addr,
             .rd_type = std::string(rd_type),
             .domain = std::string(task.domain_name()),
