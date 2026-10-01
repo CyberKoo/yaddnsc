@@ -42,8 +42,8 @@ add_unit_test(validation    SOURCE util/validation_test.cpp)
 # signing — cryptographic primitives (SHA, HMAC, Base64, hex) from the
 # plugin crypto library (also linked into signing-enabled drivers).
 add_unit_test(signing SOURCE util/signing_test.cpp)
-target_include_directories(test_signing PRIVATE ${PROJECT_SOURCE_DIR}/plugin_crypto)
-target_link_libraries(test_signing PRIVATE yaddnsc_plugin_crypto OpenSSL::Crypto)
+target_include_directories(test_signing PRIVATE ${PROJECT_SOURCE_DIR}/plugin_support/crypto)
+target_link_libraries(test_signing PRIVATE yaddnsc_plugin_support_crypto OpenSSL::Crypto)
 
 # ============================================================================
 #  common/  —  cross-module base types (address_family, exceptions, etc.)

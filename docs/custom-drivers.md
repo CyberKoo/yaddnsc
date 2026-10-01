@@ -171,7 +171,7 @@ Third-party drivers build against the installed yaddnsc package — no host
 sources needed:
 
 ```cmake
-find_package(yaddnsc CONFIG REQUIRED COMPONENTS plugin_sdk)  # optional: plugin_sdk_xml plugin_crypto
+find_package(yaddnsc CONFIG REQUIRED COMPONENTS plugin_sdk)  # optional: plugin_sdk_xml plugin_support_crypto
 
 add_library(my_driver MODULE my_driver.cpp)
 target_link_libraries(my_driver PRIVATE yaddnsc::plugin_sdk)
@@ -189,8 +189,23 @@ includes libxml2, so only drivers that include `yaddnsc/sdk/xml_raii.hpp`
 need this component, and it exists only in packages built with libxml2
 available.
 
-Drivers that sign requests link the `yaddnsc::plugin_crypto` component
-(HMAC/SHA/hex/base64); see below.
+Drivers that sign requests request the `plugin_support_crypto` package component
+and link `yaddnsc::plugin_support_crypto` (HMAC/SHA/hex/base64):
+
+```cmake
+find_package(yaddnsc CONFIG REQUIRED COMPONENTS plugin_support_crypto)
+target_link_libraries(my_driver PRIVATE yaddnsc::plugin_support_crypto)
+```
+
+The target supplies the include directory for `<signing.h>`.
+
+**Breaking SDK packaging change:** the crypto support library now lives under
+`plugin_support/crypto/`. Consumers must update their crypto component and target
+to the names above and any explicit header paths to
+`yaddnsc/plugin_support/crypto/signing.h`. The static archive is now named
+`libyaddnsc_plugin_support_crypto.a`; its exported targets file is
+`yaddnscPluginSupportCryptoTargets.cmake`. The signing functions and plugin C ABI
+are unchanged.
 
 When developing inside the yaddnsc source tree (for example for a driver that
 will be bundled), link the in-tree target instead and rebuild the project:
@@ -213,10 +228,10 @@ without the host sources:
 - CMake package: `${CMAKE_INSTALL_LIBDIR}/cmake/yaddnsc` under the prefix
   (normally `<prefix>/lib/cmake/yaddnsc/`), exporting three components —
   `yaddnsc::plugin_sdk` (the default), `yaddnsc::plugin_sdk_xml`, and
-  `yaddnsc::plugin_crypto`;
+  `yaddnsc::plugin_support_crypto`;
 - crypto helpers: a prebuilt static library with position-independent code,
   installed under `${CMAKE_INSTALL_LIBDIR}` (normally `<prefix>/lib/`), with
-  its header at `<prefix>/include/yaddnsc/plugin_crypto/signing.h`. The
+  its header at `<prefix>/include/yaddnsc/plugin_support/crypto/signing.h`. The
   target links `OpenSSL::Crypto` PUBLIC, so the OpenSSL dependency reaches
   the final driver module automatically.
 
@@ -292,7 +307,7 @@ Do not put credentials in source code or log messages — the SDK log helpers
 redact sensitive request fields by default.
 
 Drivers that need request signing can link the optional
-`yaddnsc::plugin_crypto` component — a prebuilt static library
+`yaddnsc::plugin_support_crypto` component — a prebuilt static library
 (HMAC/SHA/hex/base64).
 
 ## Standalone shared library

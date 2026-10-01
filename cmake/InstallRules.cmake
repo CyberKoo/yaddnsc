@@ -126,14 +126,14 @@ install(
     INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
 )
 install(
-    TARGETS yaddnsc_plugin_crypto
-    EXPORT yaddnscCryptoTargets
+    TARGETS yaddnsc_plugin_support_crypto
+    EXPORT yaddnscPluginSupportCryptoTargets
     ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
-    INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/yaddnsc/plugin_crypto
+    INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/yaddnsc/plugin_support/crypto
 )
 install(
-    FILES ${CMAKE_SOURCE_DIR}/plugin_crypto/signing.h
-    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/yaddnsc/plugin_crypto
+    FILES ${CMAKE_SOURCE_DIR}/plugin_support/crypto/signing.h
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/yaddnsc/plugin_support/crypto
 )
 
 if (YADDNSC_HAS_SDK_XML_COMPONENT)
@@ -153,8 +153,8 @@ install(
     DESTINATION ${YADDNSC_CMAKE_INSTALL_DIR}
 )
 install(
-    EXPORT yaddnscCryptoTargets
-    FILE yaddnscCryptoTargets.cmake
+    EXPORT yaddnscPluginSupportCryptoTargets
+    FILE yaddnscPluginSupportCryptoTargets.cmake
     NAMESPACE yaddnsc::
     DESTINATION ${YADDNSC_CMAKE_INSTALL_DIR}
 )

@@ -2,8 +2,8 @@
 // Created by Kotarou on 2026/7/13.
 //
 
-#ifndef YADDNSC_PLUGIN_CRYPTO_SIGNING_H
-#define YADDNSC_PLUGIN_CRYPTO_SIGNING_H
+#ifndef YADDNSC_PLUGIN_SUPPORT_CRYPTO_SIGNING_H
+#define YADDNSC_PLUGIN_SUPPORT_CRYPTO_SIGNING_H
 
 #include <cstdint>
 #include <span>
@@ -61,4 +61,4 @@ namespace Signing {
 
 }  // namespace Signing
 
-#endif  // YADDNSC_PLUGIN_CRYPTO_SIGNING_H
+#endif  // YADDNSC_PLUGIN_SUPPORT_CRYPTO_SIGNING_H

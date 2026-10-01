@@ -38,7 +38,7 @@ endif ()
 # ---------------------------------------------------------------------------
 # Include-What-You-Use (cmake/IWYU.cmake). Enabled here — after every CPM
 # dependency target exists — so only first-party targets (production modules,
-# drivers, plugin_crypto, tests) inherit the check; third-party TUs are never
+# drivers, plugin support libraries, tests) inherit the check; third-party TUs are never
 # analyzed.
 # ---------------------------------------------------------------------------
 if (YADDNSC_IWYU_COMMAND)

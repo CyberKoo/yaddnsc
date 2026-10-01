@@ -39,7 +39,7 @@ that owns the relevant concern; keep the root file focused on loading order:
    regardless of `YADDNSC_BUILD_TESTS`.
 
 Keep the configuration summary and Doxygen setup between `Executable.cmake`
-and `PluginSdk.cmake`. After the SDK, retain this order: `plugin_crypto/`,
+and `PluginSdk.cmake`. After the SDK, retain this order: `plugin_support/crypto/`,
 `driver/`, `HeaderCheck.cmake`, `test/`, then `InstallRules.cmake`, preserving
 existing conditions. The SDK must be available before its consumers.
 
@@ -253,7 +253,7 @@ still fail the build.
   Installing Homebrew IWYU in the macOS job does not activate it with AppleClang.
 - **Header self-containment**: in non-Release builds, `yaddnsc_header_checks`
   compiles individual headers matching `src/*.{h,hpp}`, `include/*.{h,hpp}`,
-  and `plugin_crypto/*.h` recursively. `xml_raii.hpp` is excluded when LibXml2
+  and `plugin_support/crypto/*.h` recursively. `xml_raii.hpp` is excluded when LibXml2
   is unavailable. This is a default-build check, not coverage of every header
   in every configuration.
 - **Editor feedback**: `.clangd` sets `UnusedIncludes` and `MissingIncludes`

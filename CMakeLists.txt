@@ -32,7 +32,7 @@ include(Doxygen)
 
 # Plugin SDK and bundled drivers.
 include(PluginSdk)
-add_subdirectory(${PROJECT_SOURCE_DIR}/plugin_crypto/)
+add_subdirectory(${PROJECT_SOURCE_DIR}/plugin_support/crypto/)
 add_subdirectory(${PROJECT_SOURCE_DIR}/driver/)
 
 # Header self-containment checks. Release builds compile only production targets.

@@ -13,7 +13,7 @@ file(GLOB_RECURSE YADDNSC_HEADER_CHECK_FILES CONFIGURE_DEPENDS
     ${PROJECT_SOURCE_DIR}/src/*.hpp
     ${PROJECT_SOURCE_DIR}/include/*.h
     ${PROJECT_SOURCE_DIR}/include/*.hpp
-    ${PROJECT_SOURCE_DIR}/plugin_crypto/*.h
+    ${PROJECT_SOURCE_DIR}/plugin_support/crypto/*.h
 )
 
 # xml_raii.hpp includes <libxml/parser.h>; libxml2 is an optional dependency

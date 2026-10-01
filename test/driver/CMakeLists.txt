@@ -25,7 +25,7 @@ function(add_abi_driver_test name driver_name)
     target_link_libraries(test_driver_${name} PRIVATE yaddnsc_plugin_sdk)
     target_include_directories(test_driver_${name} PRIVATE
         ${driver_dir}
-        ${PROJECT_SOURCE_DIR}/plugin_crypto
+        ${PROJECT_SOURCE_DIR}/plugin_support/crypto
     )
 endfunction()
 
@@ -46,7 +46,7 @@ add_abi_driver_test(vultr vultr)
 # AlibabaCloudDriver  —  requires Signing::* implementation (+ OpenSSL)
 # ============================================================================
 add_abi_driver_test(alibaba_cloud alibaba_cloud)
-target_link_libraries(test_driver_alibaba_cloud PRIVATE yaddnsc_plugin_crypto OpenSSL::Crypto)
+target_link_libraries(test_driver_alibaba_cloud PRIVATE yaddnsc_plugin_support_crypto OpenSSL::Crypto)
 
 # ============================================================================
 # libxml2-based drivers  —  NamecheapDriver, Route53Driver
@@ -59,7 +59,7 @@ if(LibXml2_FOUND)
 
     # Route53 — XML request body + XML response parsing + AWS SigV4 signing
     add_abi_driver_test(route53 route53)
-    target_link_libraries(test_driver_route53 PRIVATE yaddnsc_plugin_crypto LibXml2::LibXml2 OpenSSL::Crypto)
+    target_link_libraries(test_driver_route53 PRIVATE yaddnsc_plugin_support_crypto LibXml2::LibXml2 OpenSSL::Crypto)
 
     message(STATUS "libxml2 found — building namecheap and route53 driver tests")
 else()
