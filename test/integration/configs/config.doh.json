@@ -21,7 +21,6 @@
           "name": "mdns",
           "type": "a",
           "ip_source": "mdns",
-          "ip_type": "ipv4",
           "interface": "lo",
           "ip_source_param": "yaddnsc-mdns-test.local",
           "driver_params": {

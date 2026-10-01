@@ -21,7 +21,6 @@
           "name": "http",
           "type": "a",
           "ip_source": "http",
-          "ip_type": "ipv4",
           "ip_source_param": "http://127.0.0.1:8080/myip",
           "driver_params": {
             "url": "http://127.0.0.1:8080/update?ip={ip_addr}&domain={domain}&source=http&resolver=dot"
