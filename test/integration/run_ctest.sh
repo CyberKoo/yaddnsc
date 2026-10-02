@@ -523,7 +523,10 @@ set +e
 run_bounded "${YADDNSC_BIN}" run -c "${BUILD_DIR}/integration-run-bad.json" -d > /tmp/yaddnsc-run-bad.log 2>&1
 rc=$?
 set -e
-if [ "${rc}" -gt 0 ] && [ "${rc}" -lt 124 ] && grep -qiE 'parse|validate|failed' /tmp/yaddnsc-run-bad.log; then
+# This fixed truncated input must identify the file, EOF position, and reason,
+# not merely produce an unrelated error log.
+if [ "${rc}" -gt 0 ] && [ "${rc}" -lt 124 ] &&
+        grep -Fq "config file \"${BUILD_DIR}/integration-run-bad.json\" (line 2, column 1): the file ends here; a key or a value is missing" /tmp/yaddnsc-run-bad.log; then
     echo "  ✓ malformed-config-aborts PASS (status ${rc})"
 else
     echo "  ✗ malformed-config-aborts FAIL (status ${rc})"

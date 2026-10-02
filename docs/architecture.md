@@ -76,6 +76,34 @@ Dependency direction is enforced by the CMake target graph
 The textual boundary rules are policed by the `architecture_guard` ctest
 (`cmake/ArchitectureGuard.cmake`).
 
+## Configuration parse diagnostics
+
+`Config::Diagnostic::describe_parse_error()` is an internal facade in
+`src/infrastructure/config/diagnostics/parse_diagnostic.cpp`. It assembles independent
+components within `yaddnsc_config_infrastructure`:
+
+- `error_adapter`: translates Glaze error codes into internal failure
+  categories and scanner options. Glaze-specific cursor semantics stay here.
+- `locator`: scans the failure prefix with local lookahead and returns
+  structured paths, byte positions, token kinds, and malformed-token facts. It
+  does not classify Glaze errors or generate prose.
+- `schema`: derives expectations and accepted member names from the
+  existing Config mappings in `parser.hpp`. It supplies facts, not messages.
+- `decision`: applies classification priority to injected input,
+  location, failure, and schema facts, including unambiguous key suggestions.
+  It returns a structured diagnosis without querying the schema or raw input.
+- `renderer`: formats that diagnosis; it does not parse input, query
+  schema, or reconsider failure classification.
+
+Shared internal vocabulary lives in `types.h`. These are ordinary
+functions and value types, not public SDK APIs or injected runtime ports. The
+components can be tested independently; changes to wording do not require
+scanner changes, and schema representation changes do not require renderer
+changes. Diagnostics do not alter configuration acceptance or recovery policy.
+They may include key names and declared schema constants, but never echo input
+values. Content positions are 1-based; columns count bytes since the last LF.
+File-operation errors have no content position.
+
 ## Plugin boundary (v1 alpha)
 
 Drivers are runtime-loaded shared libraries talking to the host exclusively

@@ -13,6 +13,7 @@
 #include <glaze/glaze.hpp>
 #include <yaddnsc/util/format.hpp>
 
+#include "infrastructure/config/diagnostics/parse_diagnostic.h"
 #include "support/fmt.hpp"
 
 #include "parser.hpp"  // IWYU pragma: keep
@@ -70,10 +71,10 @@ Config::AppConfig Config::load_config(const std::string& config_path) {
     AppConfig cfg{};
     std::string buffer;
     if (const auto ec = glz::read_file_json(cfg, config_path, buffer)) {
-        // Do not include the buffer contents in the error: the config file
-        // holds API credentials, and the message may end up in logs.
-        throw std::runtime_error(
-            fmt::format("Failed to parse config file \"{}\", error: \"{}\"", config_path, glz::format_error(ec)));
+        // The message names the position, the key, and what that key accepts,
+        // but never a configuration value: the file holds API credentials and
+        // the message is logged as a fatal error.
+        throw std::runtime_error(Config::Diagnostic::describe_parse_error(config_path, buffer, ec.count, ec.ec));
     }
 
     return cfg;

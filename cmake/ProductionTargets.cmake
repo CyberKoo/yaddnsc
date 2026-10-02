@@ -119,6 +119,12 @@ target_link_libraries(yaddnsc_application
 add_library(yaddnsc_config_infrastructure STATIC
     src/infrastructure/config/config.cpp
     src/infrastructure/config/normalizer.cpp
+    src/infrastructure/config/diagnostics/parse_diagnostic.cpp
+    src/infrastructure/config/diagnostics/error_adapter.cpp
+    src/infrastructure/config/diagnostics/locator.cpp
+    src/infrastructure/config/diagnostics/schema.cpp
+    src/infrastructure/config/diagnostics/decision.cpp
+    src/infrastructure/config/diagnostics/renderer.cpp
     src/infrastructure/config/static_validator.cpp
 )
 yaddnsc_production_module(yaddnsc_config_infrastructure)
