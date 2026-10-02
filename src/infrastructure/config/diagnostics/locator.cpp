@@ -20,6 +20,7 @@ struct Frame {
     std::size_t index{};
     ScanState state{ScanState::VALUE};
     bool value_complete{false};
+    bool separator_seen{false};
     std::string key;
     std::size_t key_open{};
 };
@@ -217,6 +218,25 @@ Site locate(std::string_view buffer, std::size_t offset, ScanPolicy policy) {
         }
         value_open = at;
     };
+    // The first unconditional syntax damage wins: a separator or a closing
+    // bracket/brace where a value is required. Recorded whether the scan stops
+    // at the offending token or the reader's offset lies beyond it.
+    const auto note_missing_value = [&](std::size_t at) {
+        if (site.missing_value.container != JsonKind::NONE || stack.empty()) {
+            return;
+        }
+        const auto& frame = stack.back();
+        site.missing_value.container = frame.container == '[' ? JsonKind::ARRAY : JsonKind::OBJECT;
+        site.missing_value.path = path;
+        site.missing_value.path.resize(frame.path_size);
+        if (frame.container == '{' && !frame.key.empty()) {
+            site.missing_value.path.push_back({.key = frame.key});
+        }
+        site.missing_value.found = buffer[at];
+        const auto [line, column] = line_column(buffer, at);
+        site.missing_value.line = line;
+        site.missing_value.column = column;
+    };
     const auto capture = [&] {
         if (!stack.empty() && stack.back().state == ScanState::SEPARATOR && stack.back().value_complete) {
             const auto& frame = stack.back();
@@ -248,6 +268,11 @@ Site locate(std::string_view buffer, std::size_t offset, ScanPolicy policy) {
                 const auto token = next_token(buffer, limit);
                 report = token.offset == NO_OFFSET ? limit : token.offset;
                 site.kind = token.kind;
+                // A separator or close right after ':' is a missing member value.
+                if (token.offset != NO_OFFSET &&
+                    (buffer[token.offset] == ',' || buffer[token.offset] == '}' || buffer[token.offset] == ']')) {
+                    note_missing_value(token.offset);
+                }
             }
         } else {
             site.path = path;
@@ -300,7 +325,8 @@ Site locate(std::string_view buffer, std::size_t offset, ScanPolicy policy) {
             continue;
         }
 
-        if (wants_value && c != ']' && c != '}') {
+        // A stray separator starts no value; the separator branch below consumes it.
+        if (wants_value && c != ']' && c != '}' && c != ',') {
             begin_value(i);
             if (i >= limit && !(c == '"' && policy.inspect_complete_string)) {
                 break;
@@ -349,17 +375,30 @@ Site locate(std::string_view buffer, std::size_t offset, ScanPolicy policy) {
         if (c == ':' && !stack.empty() && stack.back().state == ScanState::COLON) {
             stack.back().state = ScanState::VALUE;
         } else if (c == ',' && !stack.empty()) {
+            // A comma while awaiting a value (after ':' or a separator) is
+            // stray, not an element boundary; some readers report past it.
+            if (stack.back().state == ScanState::VALUE) {
+                note_missing_value(i);
+            }
             auto& frame = stack.back();
             path.resize(frame.path_size);
             frame.state = frame.container == '{' ? ScanState::KEY : ScanState::VALUE;
             frame.key.clear();
             frame.value_complete = false;
+            frame.separator_seen = true;
             value_open = NO_OFFSET;
         } else if ((c == '}' || c == ']') && !stack.empty()) {
             const auto& frame = stack.back();
+            // A close while awaiting a value is premature; only '[' + ']' with
+            // nothing consumed yet is the legal empty array.
+            if (frame.state == ScanState::VALUE &&
+                !(frame.container == '[' && c == ']' && frame.index == 0 && !frame.separator_seen)) {
+                note_missing_value(i);
+            }
             const bool complete = c == (frame.container == '[' ? ']' : '}') &&
                                   ((frame.state == ScanState::SEPARATOR && frame.value_complete) ||
-                                   (frame.container == '[' && frame.state == ScanState::VALUE && frame.index == 0) ||
+                                   (frame.container == '[' && frame.state == ScanState::VALUE && frame.index == 0 &&
+                                    !frame.separator_seen) ||
                                    (frame.container == '{' && frame.state == ScanState::KEY && frame.key.empty()));
             stack.pop_back();
             if (!stack.empty()) {
@@ -370,11 +409,19 @@ Site locate(std::string_view buffer, std::size_t offset, ScanPolicy policy) {
         }
         ++i;
     }
-    // An offset on whitespace before an array value still names that element.
+    // Awaiting an array element when the scan stops: a separator here, or a
+    // close after a consumed separator, is unconditional syntax damage (a
+    // leading, double, or trailing comma). An offset on whitespace before a
+    // real element still names that element; a cleanly closed empty array is fine.
     if (!stack.empty() && stack.back().container == '[' && stack.back().state == ScanState::VALUE) {
         const auto token = next_token(buffer, i);
-        if (token.offset != NO_OFFSET && buffer[token.offset] != ']') {
-            begin_value(token.offset);
+        if (token.offset != NO_OFFSET) {
+            const char found = buffer[token.offset];
+            if (found == ',' || found == '}' || (found == ']' && stack.back().separator_seen)) {
+                note_missing_value(token.offset);
+            } else if (found != ']') {
+                begin_value(token.offset);
+            }
         }
     }
     capture();

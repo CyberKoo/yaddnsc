@@ -85,8 +85,10 @@ components within `yaddnsc_config_infrastructure`:
 - `error_adapter`: translates Glaze error codes into internal failure
   categories and scanner options. Glaze-specific cursor semantics stay here.
 - `locator`: scans the failure prefix with local lookahead and returns
-  structured paths, byte positions, token kinds, and malformed-token facts. It
-  does not classify Glaze errors or generate prose.
+  structured paths, byte positions, token kinds, and malformed-token,
+  container-boundary, and missing-value facts. It does not classify Glaze
+  errors or generate prose; its only Glaze use is decoding escaped key names
+  (`glz::read_json` on the key token alone).
 - `schema`: derives expectations and accepted member names from the
   existing Config mappings in `parser.hpp`. It supplies facts, not messages.
 - `decision`: applies classification priority to injected input,

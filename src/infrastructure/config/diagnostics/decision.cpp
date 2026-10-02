@@ -69,7 +69,17 @@ namespace {
            code == ErrorKind::FILE_EXTENSION;
 }
 
-enum class Route { FILE, EMPTY, END, CONTAINER_BOUNDARY, FALLBACK, MEMBER_NAMES, EXPECTATION };
+enum class Route {
+    FILE,
+    EMPTY,
+    END,
+    MISSING_VALUE,
+    UNEXPECTED_TOKEN,
+    CONTAINER_BOUNDARY,
+    FALLBACK,
+    MEMBER_NAMES,
+    EXPECTATION
+};
 
 [[nodiscard]] Route classify(const ParseFailure& failure, const Site& site, InputFacts input) {
     const auto code = failure.kind;
@@ -81,6 +91,16 @@ enum class Route { FILE, EMPTY, END, CONTAINER_BOUNDARY, FALLBACK, MEMBER_NAMES,
     }
     if (site.malformed_string || site.malformed_scalar) {
         return Route::FALLBACK;
+    }
+    // A separator or closing bracket where a value is required is unconditional
+    // syntax damage, independent of the reader's error code or the target type.
+    if (site.missing_value.container != JsonKind::NONE) {
+        return Route::MISSING_VALUE;
+    }
+    // A token that can never start a JSON value at a value position is
+    // unconditional syntax damage, whatever the reader expected there.
+    if (!site.at_key && !site.malformed_scalar && site.kind == JsonKind::UNEXPECTED) {
+        return Route::UNEXPECTED_TOKEN;
     }
     // Bracket codes are ambiguous: typed readers also use them after a value.
     // Lexical completion alone must not override a type or enum rejection.
@@ -180,6 +200,19 @@ Diagnosis decide(const ParseFailure& failure, const Site& site, InputFacts input
             break;
         case Route::END:
             diagnosis.reason = Reason::END;
+            break;
+        case Route::MISSING_VALUE:
+            diagnosis.reason = Reason::MISSING_VALUE;
+            diagnosis.framing = Framing::INVALID_JSON;
+            diagnosis.site.path = site.missing_value.path;
+            diagnosis.site.line = site.missing_value.line;
+            diagnosis.site.column = site.missing_value.column;
+            diagnosis.append_location = !diagnosis.site.path.empty();
+            break;
+        case Route::UNEXPECTED_TOKEN:
+            diagnosis.reason = Reason::UNEXPECTED_TOKEN;
+            diagnosis.framing = Framing::INVALID_JSON;
+            diagnosis.append_location = !diagnosis.site.path.empty();
             break;
         case Route::CONTAINER_BOUNDARY:
             diagnosis.reason = site.after_value.kind == JsonKind::ARRAY ? Reason::ARRAY_SEPARATOR_OR_CLOSE

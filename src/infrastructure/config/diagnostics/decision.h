@@ -26,6 +26,8 @@ enum class Reason {
     QUOTED_KEY,
     MALFORMED_STRING,
     MALFORMED_SCALAR,
+    MISSING_VALUE,
+    UNEXPECTED_TOKEN,
     UNKNOWN_KEY,
     EXPECTED_TYPE,
     EXPECTED_CONSTANT,
@@ -54,8 +56,9 @@ enum class SchemaNeed { NONE, EXPECTATION, MEMBER_NAMES };
 [[nodiscard]] bool needs_location(const ParseFailure& failure, InputFacts input) noexcept;
 [[nodiscard]] SchemaNeed schema_need(const ParseFailure& failure, const Site& site, InputFacts input);
 
-/// Central priority policy: file errors, empty input, malformed tokens, EOF/syntax,
-/// schema explanations, then code fallback. All arguments/results are value facts.
+/// Central priority policy: file errors, empty input, malformed tokens, missing
+/// values, unexpected tokens, EOF/syntax, schema explanations, then code fallback.
+/// All arguments/results are value facts.
 [[nodiscard]] Diagnosis decide(const ParseFailure& failure, const Site& site, InputFacts input,
                                const SchemaFacts& schema);
 

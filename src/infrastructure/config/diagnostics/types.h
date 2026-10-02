@@ -27,6 +27,18 @@ struct ContainerBoundary {
     std::size_t column{1};
 };
 
+/// Present only when a separator or a closing bracket/brace appears where a
+/// value is required (a leading, double, or trailing comma in an array, or a
+/// member value missing after ':'). Unlike a type rejection this is
+/// unconditional syntax damage, whatever the reader expects.
+struct MissingValue {
+    JsonKind container{JsonKind::NONE};  ///< ARRAY or OBJECT when present; NONE means absent
+    Path path;                           ///< Container path for arrays, member path for objects
+    std::size_t line{1};
+    std::size_t column{1};
+    char found{};  ///< The offending ',', ']', or '}'
+};
+
 struct Site {
     std::size_t line{1};
     std::size_t column{1};
@@ -39,6 +51,7 @@ struct Site {
     bool malformed_string{false};
     bool malformed_scalar{false};
     ContainerBoundary after_value{};
+    MissingValue missing_value{};
 };
 
 enum class ErrorKind {

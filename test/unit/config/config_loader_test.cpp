@@ -448,6 +448,132 @@ TEST(ConfigLoaderTest, DescribeParseError_ObjectBoundaryAtEof_ReportsObjectSepar
               "expected ',' or '}' after an object member");
 }
 
+TEST(ConfigLoaderTest, LoadConfig_SeparatorWhereArrayElementExpected_ReportsMissingValue) {
+    // Glaze rejects a leading, double, or trailing comma where the next array
+    // element should start. The diagnostic must name the container and the
+    // offending token, never an element index that never existed, and must not
+    // downgrade unconditional syntax damage to a read failure.
+    struct Case {
+        std::string_view content;
+        glz::error_code code;
+        std::size_t offset;
+        char found;
+        std::string_view path;
+    };
+
+    const Case cases[] = {
+        {R"({"drivers":{"load":["a",]}})", glz::error_code::expected_quote, 24, ']', "drivers.load"},
+        {R"({"drivers":{"load":["a" , ]}})", glz::error_code::expected_quote, 26, ']', "drivers.load"},
+        {R"({"drivers":{"load":[,]}})", glz::error_code::expected_quote, 20, ',', "drivers.load"},
+        {R"({"drivers":{"load":["a",,]}})", glz::error_code::expected_quote, 24, ',', "drivers.load"},
+        {R"({"domains":[{},]})", glz::error_code::expected_brace, 15, ']', "domains"},
+        {R"({"domains":[})", glz::error_code::expected_brace, 12, '}', "domains"},
+    };
+    for (const auto& test_case : cases) {
+        SCOPED_TRACE(test_case.content);
+        Config::AppConfig config;
+        const auto error = glz::read_json(config, test_case.content);
+        SCOPED_TRACE("Glaze code=" + glz::format_error(error.ec) + ", offset=" + std::to_string(error.count));
+        ASSERT_TRUE(error);
+        EXPECT_EQ(error.ec, test_case.code);
+        EXPECT_EQ(error.count, test_case.offset);
+        const auto message = load_failure_message(test_case.content);
+        const auto expected = "(line 1, column " + std::to_string(test_case.offset + 1) +
+                              "): invalid JSON — expected a value, found '" + test_case.found + "' at \"" +
+                              std::string(test_case.path) + "\"";
+        EXPECT_NE(message.find(expected), std::string::npos) << message;
+        EXPECT_EQ(message.find("could not read"), std::string::npos) << message;
+        EXPECT_EQ(message.find(std::string(test_case.path) + "["), std::string::npos) << message;
+        EXPECT_EQ(message.find("expects"), std::string::npos) << message;
+    }
+}
+
+TEST(ConfigLoaderTest, LoadConfig_TrailingCommaInObject_KeepsQuotedKeySyntaxReason) {
+    // The object side already classifies a trailing comma correctly: expecting a
+    // key and finding '}' is invalid JSON, so no missing-value fact is needed.
+    const auto message = load_failure_message(R"({"drivers":{"load":["a"],}})");
+    EXPECT_NE(message.find("(line 1, column 26): invalid JSON — expected a quoted key"), std::string::npos) << message;
+    EXPECT_EQ(message.find("expected a value"), std::string::npos) << message;
+}
+
+TEST(ConfigLoaderTest, LoadConfig_GarbageTokenWhereValueExpected_ReportsUnexpectedCharacter) {
+    // A token that can never start a JSON value is unconditional syntax damage:
+    // the framing must stay invalid JSON regardless of which reader rejected it,
+    // and the message must not hint at the offending character (value contract).
+    struct Case {
+        std::string_view content;
+        glz::error_code code;
+        std::size_t offset;
+        std::size_t column;
+        std::string_view path;
+    };
+
+    const Case cases[] = {
+        {R"({"drivers":{"load":["a", x]}})", glz::error_code::expected_quote, 25, 26, "drivers.load[1]"},
+        {R"({"drivers":{"load":[x]}})", glz::error_code::expected_quote, 20, 21, "drivers.load[0]"},
+        {R"({"domains":[x]})", glz::error_code::expected_brace, 12, 13, "domains[0]"},
+        {R"({"domains":[{},x]})", glz::error_code::expected_brace, 15, 16, "domains[1]"},
+        {R"({"drivers":{"auto_discover": x}})", glz::error_code::expected_true_or_false, 29, 30,
+         "drivers.auto_discover"},
+        {R"({"resolver":{"strategy": @}})", glz::error_code::expected_quote, 25, 26, "resolver.strategy"},
+    };
+    for (const auto& test_case : cases) {
+        SCOPED_TRACE(test_case.content);
+        Config::AppConfig config;
+        const auto error = glz::read_json(config, test_case.content);
+        SCOPED_TRACE("Glaze code=" + glz::format_error(error.ec) + ", offset=" + std::to_string(error.count));
+        ASSERT_TRUE(error);
+        EXPECT_EQ(error.ec, test_case.code);
+        EXPECT_EQ(error.count, test_case.offset);
+        const auto message = load_failure_message(test_case.content);
+        const auto expected = "(line 1, column " + std::to_string(test_case.column) +
+                              "): invalid JSON — an unexpected character at \"" + std::string(test_case.path) + "\"";
+        EXPECT_NE(message.find(expected), std::string::npos) << message;
+        EXPECT_EQ(message.find("could not read"), std::string::npos) << message;
+        EXPECT_EQ(message.find("expects"), std::string::npos) << message;
+        // Nothing trails the path: the offending character is never echoed.
+        EXPECT_TRUE(message.ends_with(expected)) << message;
+    }
+}
+
+TEST(ConfigLoaderTest, LoadConfig_MissingMemberValueInObject_ReportsMissingValue) {
+    // A separator or closing brace right after ':' is unconditional syntax
+    // damage. Some readers report past the offending token, so detection must
+    // not rely on the scan stopping there.
+    struct Case {
+        std::string_view content;
+        glz::error_code code;
+        std::size_t offset;
+        char found;
+        std::size_t column;
+        std::string_view path;
+    };
+
+    const Case cases[] = {
+        {R"({"drivers":{"auto_discover":,}})", glz::error_code::expected_true_or_false, 28, ',', 29,
+         "drivers.auto_discover"},
+        {R"({"drivers":{"auto_discover":}})", glz::error_code::expected_true_or_false, 28, '}', 29,
+         "drivers.auto_discover"},
+        {R"({"resolver":{"strategy":}})", glz::error_code::expected_quote, 24, '}', 25, "resolver.strategy"},
+    };
+    for (const auto& test_case : cases) {
+        SCOPED_TRACE(test_case.content);
+        Config::AppConfig config;
+        const auto error = glz::read_json(config, test_case.content);
+        SCOPED_TRACE("Glaze code=" + glz::format_error(error.ec) + ", offset=" + std::to_string(error.count));
+        ASSERT_TRUE(error);
+        EXPECT_EQ(error.ec, test_case.code);
+        EXPECT_EQ(error.count, test_case.offset);
+        const auto message = load_failure_message(test_case.content);
+        const auto expected = "(line 1, column " + std::to_string(test_case.column) +
+                              "): invalid JSON — expected a value, found '" + test_case.found + "' at \"" +
+                              std::string(test_case.path) + "\"";
+        EXPECT_NE(message.find(expected), std::string::npos) << message;
+        EXPECT_EQ(message.find("could not read"), std::string::npos) << message;
+        EXPECT_EQ(message.find("expects"), std::string::npos) << message;
+    }
+}
+
 TEST(ConfigLoaderTest, LoadConfig_EscapedKnownKey_PreservesGlazeRejectionAndNamesDecodedKey) {
     Config::AppConfig literal_config;
     ASSERT_FALSE(glz::read_json(literal_config, R"({"drivers":{"load":[]}})"));
@@ -714,6 +840,122 @@ TEST(DiagnosticLocatorTest, Locate_IncompleteValueOrValidSeparator_DoesNotInvent
     EXPECT_EQ(locate(close, close.find(']')).after_value.kind, JsonKind::NONE);
 }
 
+TEST(DiagnosticLocatorTest, Locate_SeparatorWhereElementExpected_ReturnsMissingValueFact) {
+    using namespace Config::Diagnostic;
+
+    struct Case {
+        std::string_view buffer;
+        std::size_t offset;
+        char found;
+        std::size_t column;
+        Path path;
+    };
+
+    const Case cases[] = {
+        {R"({"drivers":{"load":["a",]}})", 24, ']', 25, {{.key = "drivers"}, {.key = "load"}}},
+        {R"({"drivers":{"load":["a" , ]}})", 26, ']', 27, {{.key = "drivers"}, {.key = "load"}}},
+        {R"({"drivers":{"load":[,]}})", 20, ',', 21, {{.key = "drivers"}, {.key = "load"}}},
+        {R"({"drivers":{"load":["a",,]}})", 24, ',', 25, {{.key = "drivers"}, {.key = "load"}}},
+        {R"({"outer":[{}, {"items":["a",]}]})",
+         28,
+         ']',
+         29,
+         {{.key = "outer"}, {.key = {}, .index = 1, .is_index = true}, {.key = "items"}}},
+        {R"({"items":[})", 10, '}', 11, {{.key = "items"}}},
+    };
+    for (const auto& test_case : cases) {
+        SCOPED_TRACE(test_case.buffer);
+        const auto site = locate(test_case.buffer, test_case.offset);
+        EXPECT_EQ(site.missing_value.container, JsonKind::ARRAY);
+        EXPECT_EQ(site.missing_value.found, test_case.found);
+        EXPECT_EQ(site.missing_value.line, 1U);
+        EXPECT_EQ(site.missing_value.column, test_case.column);
+        ASSERT_EQ(site.missing_value.path.size(), test_case.path.size());
+        for (std::size_t i = 0; i < test_case.path.size(); ++i) {
+            EXPECT_EQ(site.missing_value.path[i].key, test_case.path[i].key);
+            EXPECT_EQ(site.missing_value.path[i].index, test_case.path[i].index);
+            EXPECT_EQ(site.missing_value.path[i].is_index, test_case.path[i].is_index);
+        }
+    }
+}
+
+TEST(DiagnosticLocatorTest, Locate_EmptyArrayEofOrRealElement_DoesNotInventMissingValue) {
+    using namespace Config::Diagnostic;
+    // A cleanly closed empty array is not missing a value.
+    const std::string_view empty = R"({"items":[])";
+    EXPECT_EQ(locate(empty, empty.find(']')).missing_value.container, JsonKind::NONE);
+    // EOF right after a separator is covered by the end-of-input diagnosis.
+    const std::string_view eof = R"({"items":["a",)";
+    EXPECT_EQ(locate(eof, eof.size()).missing_value.container, JsonKind::NONE);
+    // Whitespace before a real element still names that element, not a comma.
+    const std::string_view spaced = R"({"items":[ true]})";
+    const auto site = locate(spaced, spaced.find(' '));
+    EXPECT_EQ(site.missing_value.container, JsonKind::NONE);
+    EXPECT_EQ(site.kind, JsonKind::BOOLEAN);
+    // A valid separator between elements is not a stray one.
+    const std::string_view valid = R"({"items":["a", "b"]})";
+    EXPECT_EQ(locate(valid, valid.find(',')).missing_value.container, JsonKind::NONE);
+    // A real member value after ':' is present, whatever follows it.
+    const std::string_view number = R"({"outer":{"key": 1}})";
+    const auto member = locate(number, number.find(": ") + 2);
+    EXPECT_EQ(member.missing_value.container, JsonKind::NONE);
+    EXPECT_EQ(member.kind, JsonKind::NUMBER);
+}
+
+TEST(DiagnosticLocatorTest, Locate_SeparatorWhereMemberValueExpected_ReturnsObjectMissingValueFact) {
+    using namespace Config::Diagnostic;
+    // The fact must appear whether the reader stopped at the offending token
+    // (lookahead) or consumed it before giving up (past-the-token offsets).
+
+    struct Case {
+        std::string_view buffer;
+        std::size_t offset;
+        char found;
+    };
+
+    const Case cases[] = {
+        {R"({"outer":{"key":,}})", 16, ','}, {R"({"outer":{"key":,}})", 20, ','}, {R"({"outer":{"key":}})", 16, '}'},
+        {R"({"outer":{"key":}})", 19, '}'},  {R"({"outer":{"key":]}})", 17, ']'}, {R"({"outer":{"key":]}})", 20, ']'},
+    };
+    for (const auto& test_case : cases) {
+        SCOPED_TRACE(test_case.buffer);
+        SCOPED_TRACE(test_case.offset);
+        const auto site = locate(test_case.buffer, test_case.offset);
+        EXPECT_EQ(site.missing_value.container, JsonKind::OBJECT);
+        EXPECT_EQ(site.missing_value.found, test_case.found);
+        EXPECT_EQ(site.missing_value.line, 1U);
+        EXPECT_EQ(site.missing_value.column, 17U);
+        ASSERT_EQ(site.missing_value.path.size(), 2U);
+        EXPECT_EQ(site.missing_value.path[0].key, "outer");
+        EXPECT_EQ(site.missing_value.path[1].key, "key");
+    }
+}
+
+TEST(DiagnosticLocatorTest, Locate_TokenThatCannotStartAValue_ReturnsUnexpectedKindWithoutMissingValue) {
+    using namespace Config::Diagnostic;
+    // A garbage token is reported as the unexpected site itself, so no
+    // missing-value fact may be invented for it.
+    const std::string_view element = R"({"items":[x]})";
+    const auto element_site = locate(element, element.find('x'));
+    EXPECT_EQ(element_site.kind, JsonKind::UNEXPECTED);
+    EXPECT_FALSE(element_site.malformed_scalar);
+    EXPECT_EQ(element_site.column, 11U);
+    ASSERT_EQ(element_site.path.size(), 2U);
+    EXPECT_EQ(element_site.path[0].key, "items");
+    EXPECT_TRUE(element_site.path[1].is_index);
+    EXPECT_EQ(element_site.path[1].index, 0U);
+    EXPECT_EQ(element_site.missing_value.container, JsonKind::NONE);
+
+    const std::string_view member = R"({"items":@})";
+    const auto member_site = locate(member, member.find('@'));
+    EXPECT_EQ(member_site.kind, JsonKind::UNEXPECTED);
+    EXPECT_FALSE(member_site.malformed_scalar);
+    EXPECT_EQ(member_site.column, 10U);
+    ASSERT_EQ(member_site.path.size(), 1U);
+    EXPECT_EQ(member_site.path[0].key, "items");
+    EXPECT_EQ(member_site.missing_value.container, JsonKind::NONE);
+}
+
 TEST(DiagnosticSchemaTest, ExpectationFor_IndexedAndNullablePaths_ReturnsTypeAndDeclaredConstants) {
     using namespace Config::Diagnostic;
     const auto optional_string = expectation_for({{.key = "drivers"}, {.key = "driver_dir"}});
@@ -824,7 +1066,7 @@ TEST(DiagnosticDecisionTest, SchemaNeed_TokenAndSchemaRoutes_RequestsOnlyFactsUs
         {ErrorKind::ENUM, JsonKind::STRING, true, false, false, SchemaNeed::NONE, Reason::MALFORMED_STRING},
         {ErrorKind::UNKNOWN_KEY, JsonKind::UNEXPECTED, false, true, false, SchemaNeed::NONE, Reason::MALFORMED_SCALAR},
         {ErrorKind::EXPECTED_COMMA, JsonKind::BOOLEAN, false, false, false, SchemaNeed::NONE, Reason::CODE},
-        {ErrorKind::SYNTAX, JsonKind::UNEXPECTED, false, false, false, SchemaNeed::NONE, Reason::CODE},
+        {ErrorKind::SYNTAX, JsonKind::UNEXPECTED, false, false, false, SchemaNeed::NONE, Reason::UNEXPECTED_TOKEN},
         {ErrorKind::NUMBER, JsonKind::NUMBER, false, false, false, SchemaNeed::NONE, Reason::CODE},
         {ErrorKind::UNKNOWN_KEY, JsonKind::NONE, false, false, true, SchemaNeed::MEMBER_NAMES, Reason::UNKNOWN_KEY},
         {ErrorKind::OTHER, JsonKind::BOOLEAN, false, false, false, SchemaNeed::EXPECTATION, Reason::EXPECTED_TYPE},
@@ -996,6 +1238,103 @@ TEST(DiagnosticDecisionTest, Decide_MalformedTokenWithBoundaryFacts_PreservesTok
     }
 }
 
+TEST(DiagnosticDecisionTest, Decide_MissingValueFact_OverridesReaderCodeAndNeedsNoSchema) {
+    using namespace Config::Diagnostic;
+    const SchemaFacts schema{.expected = {.type = JsonKind::STRING, .values = {"unused"}}, .member_names = {"unused"}};
+    for (const auto kind : {ErrorKind::EXPECTED_QUOTE, ErrorKind::EXPECTED_BRACE, ErrorKind::EXPECTED_BRACKET,
+                            ErrorKind::UNEXPECTED_END}) {
+        SCOPED_TRACE(static_cast<int>(kind));
+        const ParseFailure failure{.kind = kind, .identifier = {}};
+        const Site site{.line = 99,
+                        .column = 88,
+                        .parent_path = {},
+                        .key = {},
+                        .path = {},
+                        .missing_value = {.container = JsonKind::ARRAY,
+                                          .path = {{.key = "drivers"}, {.key = "load"}},
+                                          .line = 1,
+                                          .column = 25,
+                                          .found = ']'}};
+        EXPECT_TRUE(needs_location(failure, {}));
+        EXPECT_EQ(schema_need(failure, site, {}), SchemaNeed::NONE);
+        const auto diagnosis = decide(failure, site, {}, schema);
+        EXPECT_EQ(diagnosis.reason, Reason::MISSING_VALUE);
+        EXPECT_EQ(diagnosis.framing, Framing::INVALID_JSON);
+        EXPECT_EQ(diagnosis.site.line, 1U);
+        EXPECT_EQ(diagnosis.site.column, 25U);
+        EXPECT_THAT(diagnosis.site.path, testing::ElementsAre(testing::Field(&PathComponent::key, "drivers"),
+                                                              testing::Field(&PathComponent::key, "load")));
+        EXPECT_TRUE(diagnosis.show_position);
+        EXPECT_TRUE(diagnosis.append_location);
+        EXPECT_FALSE(diagnosis.show_actual_kind);
+        EXPECT_TRUE(diagnosis.expected.values.empty());
+        EXPECT_TRUE(diagnosis.candidates.empty());
+        EXPECT_TRUE(diagnosis.suggestion.empty());
+    }
+    // A member value missing after ':' takes the same route as the array side.
+    const ParseFailure failure{.kind = ErrorKind::EXPECTED_QUOTE, .identifier = {}};
+    const Site object_site{.parent_path = {},
+                           .key = {},
+                           .path = {},
+                           .missing_value = {.container = JsonKind::OBJECT,
+                                             .path = {{.key = "drivers"}, {.key = "auto_discover"}},
+                                             .line = 1,
+                                             .column = 29,
+                                             .found = ','}};
+    EXPECT_TRUE(needs_location(failure, {}));
+    EXPECT_EQ(schema_need(failure, object_site, {}), SchemaNeed::NONE);
+    const auto object = decide(failure, object_site, {}, schema);
+    EXPECT_EQ(object.reason, Reason::MISSING_VALUE);
+    EXPECT_EQ(object.framing, Framing::INVALID_JSON);
+    EXPECT_EQ(object.site.line, 1U);
+    EXPECT_EQ(object.site.column, 29U);
+    EXPECT_THAT(object.site.path, testing::ElementsAre(testing::Field(&PathComponent::key, "drivers"),
+                                                       testing::Field(&PathComponent::key, "auto_discover")));
+    EXPECT_TRUE(object.show_position);
+    EXPECT_TRUE(object.append_location);
+    EXPECT_FALSE(object.show_actual_kind);
+}
+
+TEST(DiagnosticDecisionTest, Decide_UnexpectedTokenAtValuePosition_OverridesReaderCodeAndNeedsNoSchema) {
+    using namespace Config::Diagnostic;
+    const SchemaFacts schema{.expected = {.type = JsonKind::STRING, .values = {"unused"}}, .member_names = {"unused"}};
+    const Site site{.line = 1,
+                    .column = 26,
+                    .parent_path = {},
+                    .key = {},
+                    .kind = JsonKind::UNEXPECTED,
+                    .path = {{.key = "drivers"}, {.key = "load"}, {.key = {}, .index = 1, .is_index = true}}};
+    for (const auto kind : {ErrorKind::EXPECTED_QUOTE, ErrorKind::EXPECTED_BRACE, ErrorKind::SYNTAX, ErrorKind::NUMBER,
+                            ErrorKind::OTHER}) {
+        SCOPED_TRACE(static_cast<int>(kind));
+        const ParseFailure failure{.kind = kind, .identifier = {}};
+        EXPECT_TRUE(needs_location(failure, {}));
+        EXPECT_EQ(schema_need(failure, site, {}), SchemaNeed::NONE);
+        const auto diagnosis = decide(failure, site, {}, schema);
+        EXPECT_EQ(diagnosis.reason, Reason::UNEXPECTED_TOKEN);
+        EXPECT_EQ(diagnosis.framing, Framing::INVALID_JSON);
+        EXPECT_EQ(diagnosis.site.line, 1U);
+        EXPECT_EQ(diagnosis.site.column, 26U);
+        EXPECT_THAT(diagnosis.site.path, testing::ElementsAre(testing::Field(&PathComponent::key, "drivers"),
+                                                              testing::Field(&PathComponent::key, "load"),
+                                                              testing::Field(&PathComponent::index, 1U)));
+        EXPECT_TRUE(diagnosis.show_position);
+        EXPECT_TRUE(diagnosis.append_location);
+        EXPECT_FALSE(diagnosis.show_actual_kind);
+        EXPECT_TRUE(diagnosis.expected.values.empty());
+        EXPECT_TRUE(diagnosis.candidates.empty());
+        EXPECT_TRUE(diagnosis.suggestion.empty());
+    }
+    // A token that started a value but broke mid-way stays a malformed scalar.
+    const Site malformed{.parent_path = {},
+                         .key = {},
+                         .kind = JsonKind::UNEXPECTED,
+                         .path = {{.key = "drivers"}, {.key = "load"}},
+                         .malformed_scalar = true};
+    const auto broken = decide({.kind = ErrorKind::EXPECTED_QUOTE, .identifier = {}}, malformed, {}, schema);
+    EXPECT_EQ(broken.reason, Reason::MALFORMED_SCALAR);
+}
+
 TEST(DiagnosticDecisionTest, Decide_InjectedTypeFacts_ExplainsMismatchWithoutLookingUpAppSchema) {
     using namespace Config::Diagnostic;
     const Site site{.parent_path = {}, .key = {}, .kind = JsonKind::BOOLEAN, .path = {{.key = "not_an_app_property"}}};
@@ -1130,6 +1469,56 @@ TEST(DiagnosticRendererTest, Render_ContainerBoundaryReasons_UsesDecidedPosition
         diagnosis.append_location = false;
         EXPECT_EQ(render("boundary.json", diagnosis), prefix + text);
     }
+}
+
+TEST(DiagnosticRendererTest, Render_MissingValueReason_NamesFoundTokenAndContainerPath) {
+    using namespace Config::Diagnostic;
+    Diagnosis diagnosis{.site = {.line = 1,
+                                 .column = 25,
+                                 .parent_path = {},
+                                 .key = {},
+                                 .path = {{.key = "drivers"}, {.key = "load"}},
+                                 .missing_value = {.container = JsonKind::ARRAY, .path = {}, .found = ']'}},
+                        .failure = {.kind = ErrorKind::EXPECTED_QUOTE, .identifier = {}},
+                        .reason = Reason::MISSING_VALUE,
+                        .framing = Framing::INVALID_JSON,
+                        .append_location = true,
+                        .expected = {},
+                        .candidates = {},
+                        .suggestion = {}};
+    EXPECT_EQ(render("trailing.json", diagnosis),
+              "config file \"trailing.json\" (line 1, column 25): invalid JSON — expected a value, found ']' at "
+              "\"drivers.load\"");
+    diagnosis.site.path.clear();
+    diagnosis.append_location = false;
+    EXPECT_EQ(render("trailing.json", diagnosis),
+              "config file \"trailing.json\" (line 1, column 25): invalid JSON — expected a value, found ']'");
+}
+
+TEST(DiagnosticRendererTest, Render_UnexpectedTokenReason_UsesDecidedPositionAndPath) {
+    using namespace Config::Diagnostic;
+    // The offending character is never echoed: input content stays out of the message.
+    Diagnosis diagnosis{
+        .site = {.line = 1,
+                 .column = 26,
+                 .parent_path = {},
+                 .key = {},
+                 .kind = JsonKind::UNEXPECTED,
+                 .path = {{.key = "drivers"}, {.key = "load"}, {.key = {}, .index = 1, .is_index = true}}},
+        .failure = {.kind = ErrorKind::EXPECTED_QUOTE, .identifier = {}},
+        .reason = Reason::UNEXPECTED_TOKEN,
+        .framing = Framing::INVALID_JSON,
+        .append_location = true,
+        .expected = {},
+        .candidates = {},
+        .suggestion = {}};
+    EXPECT_EQ(render("garbage.json", diagnosis),
+              "config file \"garbage.json\" (line 1, column 26): invalid JSON — an unexpected character at "
+              "\"drivers.load[1]\"");
+    diagnosis.site.path.clear();
+    diagnosis.append_location = false;
+    EXPECT_EQ(render("garbage.json", diagnosis),
+              "config file \"garbage.json\" (line 1, column 26): invalid JSON — an unexpected character");
 }
 
 TEST(DiagnosticErrorAdapterTest, AdaptError_LibraryBoundary_ReturnsInternalKindsAndScanningPolicies) {

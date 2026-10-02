@@ -139,6 +139,10 @@ namespace {
             return "malformed or unterminated string";
         case Reason::MALFORMED_SCALAR:
             return "malformed scalar value";
+        case Reason::MISSING_VALUE:
+            return fmt::format("expected a value, found '{}'", site.missing_value.found);
+        case Reason::UNEXPECTED_TOKEN:
+            return "an unexpected character";
         case Reason::UNKNOWN_KEY: {
             std::string reason = site.key.empty() ? "unknown key" : fmt::format("unknown key \"{}\"", site.key);
             if (!site.parent_path.empty()) {

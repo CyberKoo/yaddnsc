@@ -15,6 +15,8 @@ struct ScanPolicy {
 
 /// Scan the failure prefix and local token lookahead; retain only keys and token facts.
 /// Offsets are bytes; returned line/column are 1-based and count bytes after LF.
+/// A separator or closing bracket/brace found where a value is required is
+/// reported as a missing-value fact, never as an indexed element.
 [[nodiscard]] Site locate(std::string_view buffer, std::size_t offset, ScanPolicy policy = {});
 
 }  // namespace Config::Diagnostic
