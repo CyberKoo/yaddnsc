@@ -220,6 +220,16 @@ yaddnsc_status HostServicesContext::http_exchange(const yaddnsc_http_request& re
     auto response = http_client_.exchange(to_view(request.url), http_request, operation_token_);
     if (!response) {
         const auto& error = response.error();
+        // The ABI surface is deliberately coarser than net::http's error
+        // model: only cancellation is distinguishable, and every other
+        // failure (TLS, connect, parse, size limits) becomes
+        // NETWORK_ERROR. The diagnosis still reaches the plugin in the
+        // message text — which the driver gateway forwards into
+        // DriverError, so the user sees it — and in
+        // retry_after_seconds. Widening the status set means new
+        // yaddnsc_status values, i.e. an ABI change, not a local
+        // refactor: do not expand this ternary without bumping
+        // YADDNSC_DRIVER_ABI_MAJOR.
         const yaddnsc_status status =
             error.code == net::http::ErrorCode::CANCELLED ? YADDNSC_STATUS_CANCELLED : YADDNSC_STATUS_NETWORK_ERROR;
         write_error(out_error, status, arena_copy(error.message), error.retry_after_seconds);

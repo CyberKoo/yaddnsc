@@ -22,10 +22,12 @@ class CancellationToken;
 
 /// HttpIpSource — fetches the local public IP address from an external HTTP service.
 ///
-/// Uses net::http::Client to maintain keep-alive efficiency across
-/// resolve() calls. The address family and outbound interface binding are
-/// passed through to the underlying transport; cancellation flows through
-/// resolve() as a parameter.
+/// Uses net::http::PersistentClient to maintain keep-alive efficiency
+/// across resolve() calls: the client is bound to this source's origin at
+/// construction and reuses one connection for every lookup. The address
+/// family and outbound interface binding are passed through to the
+/// underlying transport; cancellation flows through resolve() as a
+/// parameter.
 ///
 /// resolve() returns one address or an error (including a response-family mismatch).
 class HttpIpSource final : public IpSourceBase {
