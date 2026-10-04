@@ -17,7 +17,7 @@ SchedulerRunner::SchedulerRunner(domain::ScheduleQueue& queue, SchedulerEnvironm
     YLOG_INFO(env_.logger, "Scheduler initialised with {} tasks", queue_.size());
 }
 
-void SchedulerRunner::run(const Utils::CancellationToken& token) {
+void SchedulerRunner::run(const Utils::CancellationToken& io_token) {
     while (!stop_.stop_requested()) {
         // Apply retry_after reschedules reported since the last round BEFORE
         // popping, so a rate-limited task is not re-executed at its old
@@ -40,7 +40,7 @@ void SchedulerRunner::run(const Utils::CancellationToken& token) {
             // A false return means the executor is shutting down; the task is
             // dropped, matching the legacy shutdown semantics (pending work is
             // discarded once stop was requested).
-            env_.executor.submit(std::move(task), token);
+            env_.executor.submit(std::move(task), io_token);
         }
 
         // Read the clock once: with two reads a concurrent time jump (a fake

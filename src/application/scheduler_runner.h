@@ -45,8 +45,10 @@ public:
     /// Pop-and-submit due tasks until stop is requested, waiting on the
     /// clock between rounds. Returns promptly after stop; in-flight tasks
     /// are the TaskExecutor's business, not the runner's.
-    /// @param token  I/O cancellation token forwarded to every submitted task.
-    void run(const Utils::CancellationToken& token);
+    /// @param io_token  I/O cancellation token forwarded to every submitted
+    ///                  task; distinct from the constructor's stop token,
+    ///                  which governs this loop's control flow.
+    void run(const Utils::CancellationToken& io_token);
 
     /// Thread-safe: called from executor pool threads when a task's update
     /// failed with a provider retry_after delay. Moves the task's next

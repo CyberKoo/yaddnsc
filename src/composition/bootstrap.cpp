@@ -259,12 +259,15 @@ int execute_command(const Cli::InterfaceIpCommand& command) {
 
 int execute_command(const Cli::DnsResolveCommand& command) {
     const auto config = load_runtime_config(command.config_path);
-    // The one-shot command scope owns its own root cancellation source.
-    Utils::CancellationSource cancellation;
     auto dispatcher =
         DnsResolverFactory::create(config.resolver, ResolverCatalog::with_builtins(config.resolver.bootstrap_servers));
+    // One-shot command: no SignalWatcher is installed, so Ctrl-C keeps the
+    // default disposition and the resolve's cancellation token is
+    // deliberately inert — the root owns no fd and adds nothing to poll
+    // sets. (The dispatcher's per-batch race source still allocates its own
+    // pipe, as it must: the winner cancels the losers through it.)
     return Cli::present_dns_resolve(
-        Diagnostics::dns_resolve(dispatcher, command.host, command.type, cancellation.token()));
+        Diagnostics::dns_resolve(dispatcher, command.host, command.type, Utils::CancellationToken{}));
 }
 
 int execute_command(const Cli::DnsResolverCommand& command) {
@@ -316,7 +319,6 @@ int execute_command(const Cli::ConfigTestCommand& command) {
         // instead of on the first update. A plugin that does not export
         // yaddnsc_driver_validate fails this check: the host cannot confirm
         // the configuration. The plugin can still be loaded for updates.
-        Utils::CancellationSource cancellation;
         const SpdlogLogger logger;
         const AbiDriverGateway driver_gateway(driver_catalog,
                                               make_http_client_factory(make_http_options(config->resolver)), logger);
