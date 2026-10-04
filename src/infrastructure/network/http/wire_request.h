@@ -55,6 +55,16 @@ namespace net::http {
 [[nodiscard]] protocol::WireRequest build_wire_request(const Request& req, std::string_view scheme,
                                                        std::string_view host, std::uint16_t port, const Options& opts);
 
+/// Inverse of build_wire_request: rebuild a public Request from a wire
+/// request so it can be replayed through another client (used for
+/// cross-origin redirect hops). Every host-managed header is dropped
+/// regardless of casing — the same predicate build_wire_request applies —
+/// and Content-Type is carried into Request::content_type. Framing headers
+/// (Host, Content-Length, Connection, User-Agent) are not copied at all:
+/// the next build_wire_request derives them for the new origin. Non-managed
+/// headers keep their original name casing and order-independent values.
+[[nodiscard]] Request to_public_request(const protocol::WireRequest& wire);
+
 /// Map a transport connect/handshake error to a domain error.
 [[nodiscard]] Error map_connect_error(Transport::IoError err);
 

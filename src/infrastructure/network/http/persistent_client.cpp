@@ -4,7 +4,6 @@
 #include "infrastructure/network/http/persistent_client.h"
 
 #include <cstdint>
-#include <map>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -26,25 +25,6 @@
 namespace net::http {
 
 namespace {
-
-/// Strip the auto-generated headers from a wire request so it can be
-/// replayed as a public Request (used for cross-origin redirect hops).
-[[nodiscard]] Request to_request(const protocol::WireRequest& wire) {
-    Request req;
-    req.method = wire.method;
-    req.body = wire.body;
-    for (const auto& [name, value] : wire.headers) {
-        if (name == "Host" || name == "User-Agent" || name == "Content-Length") {
-            continue;
-        }
-        if (name == "Content-Type") {
-            req.content_type = value;
-            continue;
-        }
-        req.headers.emplace(name, value);
-    }
-    return req;
-}
 
 /// Parse and validate the client's base URL exactly once.
 /// @throws std::invalid_argument when base_url is not a valid http(s) URL —
@@ -127,7 +107,7 @@ std::expected<Response, Error> PersistentClient::exchange(const std::string_view
                             plan.host.find(':') != std::string::npos ? fmt::format("[{}]", plan.host) : plan.host,
                             plan.port, plan.next.target);
             Client transient(opts_, factory_);
-            return transient.exchange(absolute, to_request(plan.next), token);
+            return transient.exchange(absolute, to_public_request(plan.next), token);
         }
 
         // Same origin: keep the connection and follow on it.

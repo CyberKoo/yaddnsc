@@ -106,6 +106,23 @@ protocol::WireRequest build_wire_request(const Request& req, const std::string_v
     return wire;
 }
 
+Request to_public_request(const protocol::WireRequest& wire) {
+    Request req{.method = wire.method};
+    req.body = wire.body;
+    for (const auto& [name, value] : wire.headers) {
+        // Same predicate as build_wire_request, so the round trip stays
+        // exact even when a wire request carries non-canonical casing.
+        if (!is_managed_header(name)) {
+            req.headers.emplace(name, value);
+            continue;
+        }
+        if (StringUtil::iequals(name, "content-type")) {
+            req.content_type = value;
+        }
+    }
+    return req;
+}
+
 Error map_connect_error(const Transport::IoError err) {
     using enum Transport::IoError;
     switch (err) {

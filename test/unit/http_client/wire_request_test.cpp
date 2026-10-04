@@ -9,8 +9,11 @@
 //   - make_target                       empty path, query handling
 //   - validate_request                  header grammar and framing headers
 //   - build_wire_request                managed-header override and injection
+//   - to_public_request                 the inverse hop, incl. casing
 //   - map_connect_error                 transport error classification
 // =============================================================================
+
+#include "infrastructure/network/http/wire_request.h"
 
 #include <cstdint>
 #include <optional>
@@ -21,7 +24,6 @@
 
 #include "infrastructure/network/http/error.h"
 #include "infrastructure/network/http/types.h"
-#include "infrastructure/network/http/wire_request.h"
 #include "infrastructure/network/transport/io_error.h"
 #include "infrastructure/network/uri.h"
 
@@ -43,11 +45,16 @@ Uri parse_uri(std::string_view text) {
     return *parsed;
 }
 
+/// ASCII case-insensitive header-name comparison (header names are tokens,
+/// so folding with | 0x20 is enough and avoids locale tables).
+bool ascii_iequals(std::string_view lhs, std::string_view rhs) {
+    return lhs.size() == rhs.size() &&
+           std::equal(lhs.begin(), lhs.end(), rhs.begin(), [](char a, char b) { return (a | 0x20) == (b | 0x20); });
+}
+
 std::string header_value(const net::http::protocol::WireRequest& wire, std::string_view name) {
     for (const auto& [key, value] : wire.headers) {
-        if (key.size() == name.size() &&
-            std::equal(key.begin(), key.end(), name.begin(),
-                       [](char a, char b) { return (a | 0x20) == (b | 0x20); })) {
+        if (ascii_iequals(key, name)) {
             return value;
         }
     }
@@ -57,6 +64,17 @@ std::string header_value(const net::http::protocol::WireRequest& wire, std::stri
 Request base_request() {
     Request req{.method = Method::GET};
     return req;
+}
+
+/// Case-insensitive lookup on a public Request (its headers are a multimap,
+/// so this walks the keys instead of using find()).
+std::string request_header(const Request& req, std::string_view name) {
+    for (const auto& [key, value] : req.headers) {
+        if (ascii_iequals(key, name)) {
+            return value;
+        }
+    }
+    return {};
 }
 
 // ===========================================================================
@@ -316,6 +334,91 @@ TEST(BuildWireRequest, MethodAndVersionAreCarriedThrough) {
     const auto wire = net::http::build_wire_request(req, "https", "example.com", 443, opts);
     EXPECT_EQ(wire.method, Method::DEL);
     EXPECT_EQ(wire.version, HttpVersion::V1_0);
+}
+
+// ===========================================================================
+// to_public_request
+// ===========================================================================
+
+TEST(ToPublicRequest, ManagedHeaders_AreDropped) {
+    // The next build_wire_request re-derives framing for the new origin, so
+    // nothing host-managed may be carried across the hop.
+    net::http::protocol::WireRequest wire;
+    wire.method = Method::GET;
+    wire.headers.emplace("Host", "old.example");
+    wire.headers.emplace("User-Agent", "yaddnsc/1.0");
+    wire.headers.emplace("Content-Length", "0");
+    wire.headers.emplace("Connection", "close");
+
+    const auto req = net::http::to_public_request(wire);
+    EXPECT_TRUE(req.headers.empty());
+    EXPECT_TRUE(req.content_type.empty());
+}
+
+TEST(ToPublicRequest, ContentType_MovesToTheRequestField) {
+    net::http::protocol::WireRequest wire;
+    wire.method = Method::POST;
+    wire.headers.emplace("Content-Type", "application/dns-message");
+
+    const auto req = net::http::to_public_request(wire);
+    EXPECT_EQ(req.content_type, "application/dns-message");
+    EXPECT_TRUE(req.headers.empty());
+}
+
+TEST(ToPublicRequest, ManagedHeaders_AreDroppedRegardlessOfCasing) {
+    // Regression: the per-file copy this replaced compared header names
+    // case-sensitively, so a non-canonical casing would slip into the next
+    // request instead of staying host-owned. Only the Content-Type value is
+    // recoverable, and only because the case-insensitive match catches it.
+    net::http::protocol::WireRequest wire;
+    wire.method = Method::GET;
+    wire.headers.emplace("host", "attacker.example");
+    wire.headers.emplace("user-agent", "evil/1.0");
+    wire.headers.emplace("content-length", "999");
+    wire.headers.emplace("connection", "keep-alive, upgrade");
+    wire.headers.emplace("CONTENT-TYPE", "text/evil");
+
+    const auto req = net::http::to_public_request(wire);
+    EXPECT_TRUE(req.headers.empty()) << "managed headers leaked across: " << req.headers.size();
+    EXPECT_EQ(req.content_type, "text/evil");
+}
+
+TEST(ToPublicRequest, UnmanagedHeaders_ArePreserved) {
+    net::http::protocol::WireRequest wire;
+    wire.method = Method::GET;
+    wire.headers.emplace("X-Custom", "keep-me");
+    wire.headers.emplace("Authorization", "Bearer t");
+
+    const auto req = net::http::to_public_request(wire);
+    EXPECT_EQ(request_header(req, "x-custom"), "keep-me");
+    EXPECT_EQ(request_header(req, "authorization"), "Bearer t");
+    // The original name casing is carried through untouched.
+    EXPECT_EQ(req.headers.count("X-Custom"), 1u);
+    EXPECT_EQ(req.headers.count("Authorization"), 1u);
+}
+
+TEST(ToPublicRequest, RoundTripRebuildsFramingForTheNewOrigin) {
+    auto req = base_request();
+    req.method = Method::POST;
+    req.set_body("payload");
+    req.content_type = "application/dns-message";
+    req.headers.emplace("X-Custom", "keep-me");
+    // A caller-supplied Host never reaches the wire; assert the round trip
+    // does not resurrect it.
+    req.headers.emplace("host", "attacker.example");
+
+    Options opts;
+    const auto first = net::http::build_wire_request(req, "https", "old.example", 443, opts);
+    const auto back = net::http::to_public_request(first);
+    const auto second = net::http::build_wire_request(back, "https", "new.example", 443, opts);
+
+    EXPECT_EQ(header_value(second, "Host"), "new.example");
+    EXPECT_EQ(header_value(second, "Content-Type"), "application/dns-message");
+    EXPECT_EQ(header_value(second, "Content-Length"), "7");
+    EXPECT_EQ(header_value(second, "X-Custom"), "keep-me");
+    EXPECT_EQ(second.headers.count("host"), 0u);
+    ASSERT_TRUE(second.body.has_value());
+    EXPECT_EQ(*second.body, "payload");
 }
 
 // ===========================================================================
