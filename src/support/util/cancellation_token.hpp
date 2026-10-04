@@ -40,7 +40,6 @@ struct CancellationState {
     UniqueFd read_end;
     UniqueFd write_end;
     std::atomic<bool> triggered{false};
-    std::shared_ptr<CancellationState> parent;
     std::mutex children_mutex;
     std::vector<std::weak_ptr<CancellationState>> children;
 };
@@ -95,7 +94,6 @@ inline void trigger(const std::shared_ptr<CancellationState>& state) noexcept {
         return child;
     }
 
-    child->parent = parent;
     bool parent_triggered = false;
     {
         std::lock_guard lock(parent->children_mutex);
@@ -126,6 +124,14 @@ public:
     CancellationToken() noexcept = default;
 
     /// The read-end fd to include in poll(). Returns -1 for an inert token.
+    ///
+    /// Validity contract: the fd is owned by the shared CancellationState,
+    /// not by this token object. It stays valid while ANY handle to the same
+    /// state (token, source or binding) is alive, and is closed when the
+    /// last handle dies — after which the number may be recycled by an
+    /// unrelated open(). Copying the integer into a poll set is fine, but a
+    /// handle must be kept alive across every poll() that uses it, and the
+    /// fd must never be closed or drained.
     [[nodiscard]] int native_handle() const noexcept { return state_ ? state_->read_end.get() : -1; }
 
     /// True if this token is linked to a cancellation source.

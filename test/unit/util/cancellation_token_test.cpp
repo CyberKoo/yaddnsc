@@ -207,3 +207,38 @@ TEST(CancellationTokenTest, Bind_BindingDestroyedBeforeStop_DoesNotTriggerSource
     pollfd pfd{.fd = token.native_handle(), .events = POLLIN, .revents = 0};
     EXPECT_EQ(::poll(&pfd, 1, 0), 0);
 }
+
+TEST(CancellationTokenTest, NativeHandle_InertToken_ReturnsMinusOne) {
+    const Utils::CancellationToken inert;
+    EXPECT_EQ(inert.native_handle(), -1);
+    EXPECT_FALSE(inert.is_triggered());
+}
+
+TEST(CancellationTokenTest, NativeHandle_ValidityFollowsSharedStateNotTokenObject) {
+    Utils::CancellationSource source;
+    const int fd = [&] {
+        const auto token = source.token();
+        const int handle = token.native_handle();
+        EXPECT_GE(handle, 0);
+        return handle;
+    }();
+    // The token object the integer came from is dead; the source keeps the
+    // shared state — and therefore the fd — alive and pollable.
+    source.trigger();
+    pollfd pfd{.fd = fd, .events = POLLIN, .revents = 0};
+    EXPECT_EQ(::poll(&pfd, 1, 0), 1);
+    EXPECT_TRUE(pfd.revents & POLLIN);
+}
+
+TEST(CancellationTokenTest, NativeHandle_LastHandleDeathClosesTheFd) {
+    int stale = -1;
+    {
+        const Utils::CancellationSource source;
+        stale = source.token().native_handle();
+    }
+    // Every handle is dead, so the fd was closed. With no open() in between
+    // to recycle the number, poll reports POLLNVAL, not POLLIN.
+    pollfd pfd{.fd = stale, .events = POLLIN, .revents = 0};
+    EXPECT_EQ(::poll(&pfd, 1, 0), 1);
+    EXPECT_TRUE(pfd.revents & POLLNVAL);
+}
