@@ -4,6 +4,7 @@
 #include "support/util/cancellation_token.hpp"
 
 #include <chrono>
+#include <stop_token>
 #include <thread>
 
 #include <gtest/gtest.h>
@@ -140,4 +141,69 @@ TEST(CancellationTokenTest, MultipleWaitersCannotConsumeCancellation) {
 
     std::this_thread::sleep_for(50ms);
     source.trigger();
+}
+
+TEST(CancellationTokenTest, Bind_StopRequested_TriggersSourceAndToken) {
+    Utils::CancellationSource source;
+    const auto token = source.token();
+    std::stop_source stop_source;
+    const auto binding = source.bind(stop_source.get_token());
+
+    stop_source.request_stop();
+
+    EXPECT_TRUE(source.is_triggered());
+    EXPECT_TRUE(token.is_triggered());
+    // The stop-driven trigger lands on the same poll()-visible signal as a
+    // direct trigger(), so every existing I/O wait path needs no special case.
+    pollfd pfd{.fd = token.native_handle(), .events = POLLIN, .revents = 0};
+    EXPECT_EQ(::poll(&pfd, 1, 0), 1);
+}
+
+TEST(CancellationTokenTest, Bind_StopAlreadyRequested_TriggersSourceInline) {
+    Utils::CancellationSource source;
+    const auto token = source.token();
+    std::stop_source stop_source;
+    stop_source.request_stop();
+
+    // Binding after the stop was requested must not open a cancellation
+    // window: there is no later point at which the token could still be live.
+    const auto binding = source.bind(stop_source.get_token());
+
+    EXPECT_TRUE(source.is_triggered());
+    EXPECT_TRUE(token.is_triggered());
+}
+
+TEST(CancellationTokenTest, Bind_StopRequested_ReachesDerivedSources) {
+    Utils::CancellationSource root;
+    const auto child = root.derive();
+    const auto grandchild = child.derive();
+    std::stop_source stop_source;
+    const auto binding = root.bind(stop_source.get_token());
+
+    stop_source.request_stop();
+
+    // The binding triggers the root state, which broadcasts down the tree:
+    // a stop request reaches poll()-based I/O at every level.
+    for (const auto& token : {root.token(), child.token(), grandchild.token()}) {
+        EXPECT_TRUE(token.is_triggered());
+        pollfd pfd{.fd = token.native_handle(), .events = POLLIN, .revents = 0};
+        EXPECT_EQ(::poll(&pfd, 1, 0), 1);
+    }
+}
+
+TEST(CancellationTokenTest, Bind_BindingDestroyedBeforeStop_DoesNotTriggerSource) {
+    Utils::CancellationSource source;
+    const auto token = source.token();
+    std::stop_source stop_source;
+    {
+        const auto binding = source.bind(stop_source.get_token());
+    }
+
+    stop_source.request_stop();
+
+    // The binding owned the registration; destroying it unregisters.
+    EXPECT_FALSE(source.is_triggered());
+    EXPECT_FALSE(token.is_triggered());
+    pollfd pfd{.fd = token.native_handle(), .events = POLLIN, .revents = 0};
+    EXPECT_EQ(::poll(&pfd, 1, 0), 0);
 }

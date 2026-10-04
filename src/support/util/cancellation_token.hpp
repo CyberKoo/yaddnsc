@@ -8,8 +8,10 @@
 #include <algorithm>
 #include <atomic>
 #include <cerrno>
+#include <functional>
 #include <memory>
 #include <mutex>
+#include <stop_token>
 #include <system_error>
 #include <utility>
 #include <vector>
@@ -165,6 +167,52 @@ public:
     [[nodiscard]] bool is_triggered() const noexcept {
         return state_ && state_->triggered.load(std::memory_order_acquire);
     }
+
+    /// Owns one stop_token → source registration.
+    ///
+    /// Neither copyable nor movable: a stop registration is a unique resource
+    /// that cannot be duplicated or handed on, and std::stop_callback is itself
+    /// non-copyable and non-movable. A binding is therefore constructed exactly
+    /// once, in place — typically as a direct member whose initialiser is the
+    /// prvalue returned by bind().
+    ///
+    /// Destroying the binding unregisters it; later stop requests no longer
+    /// reach the source. The callback captures the shared cancellation state
+    /// rather than the source object, so it never dereferences a source that
+    /// has been destroyed — a binding created in the caller's scope is safe
+    /// even though the source it was built from is a by-reference dependency.
+    class StopBinding {
+    public:
+        StopBinding(const StopBinding&) = delete;
+        StopBinding& operator=(const StopBinding&) = delete;
+        StopBinding(StopBinding&&) = delete;
+        StopBinding& operator=(StopBinding&&) = delete;
+        ~StopBinding() = default;
+
+    private:
+        friend class CancellationSource;
+
+        // Takes the registration's parts rather than a stop_callback: the
+        // member is direct-initialised from them, which avoids moving the
+        // (non-movable) callback in or out.
+        StopBinding(std::stop_token stop, const std::shared_ptr<detail::CancellationState>& state) noexcept
+            : callback_(std::move(stop), [state] { detail::trigger(state); }) {}
+
+        std::stop_callback<std::function<void()>> callback_;
+    };
+
+    /// Project a std::stop_token onto this source: requesting @p stop
+    /// triggers this source and, through it, every token derived from it.
+    ///
+    /// The two cancellation domains stay separate by design. std::stop_token
+    /// drives cooperative control flow and has no file descriptor, so it can
+    /// neither join a poll() set nor express a child source. bind() is the one
+    /// place where stop-driven control flow becomes poll-based I/O abort.
+    ///
+    /// A stop already requested when bind() is called triggers the source
+    /// inline, so no cancellation window opens between the binding and the
+    /// first I/O wait.
+    [[nodiscard]] StopBinding bind(std::stop_token stop) const { return StopBinding(std::move(stop), state_); }
 
 private:
     explicit CancellationSource(std::shared_ptr<detail::CancellationState> state) noexcept : state_(std::move(state)) {}

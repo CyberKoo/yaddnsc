@@ -5,14 +5,12 @@
 #ifndef YADDNSC_APPLICATION_RUN_LIFECYCLE_H
 #define YADDNSC_APPLICATION_RUN_LIFECYCLE_H
 
-#include <functional>
 #include <memory>
-#include <optional>
-#include <stop_token>
 
 #include "application/run_environment.h"
 #include "application/scheduler_runner.h"
 #include "domain/update/schedule_queue.h"
+#include "support/util/cancellation_token.hpp"
 
 namespace domain {
 struct RuntimeConfig;
@@ -61,9 +59,12 @@ private:
     RunEnvironment env_;
     domain::ScheduleQueue queue_;
     SchedulerRunner runner_;
-    // Optional only because std::stop_callback is not default-constructible:
-    // it is always engaged by the constructor body (see run_lifecycle.cpp).
-    std::optional<std::stop_callback<std::function<void()>>> stop_cb_;
+    // stop → I/O cancellation bridge, registered at construction so a stop
+    // requested before run() still cancels blocking I/O. Declared after
+    // shutdown_, whose fields the initialiser reads. The binding captures
+    // the shared cancellation state, not shutdown_ or this, so once
+    // constructed it holds no borrow of the caller's scope.
+    Utils::CancellationSource::StopBinding io_stop_binding_;
 };
 
 #endif  // YADDNSC_APPLICATION_RUN_LIFECYCLE_H
