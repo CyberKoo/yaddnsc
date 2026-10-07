@@ -39,6 +39,7 @@ add_library(yaddnsc_network_infrastructure STATIC
     src/infrastructure/network/socket.cpp
     src/infrastructure/network/socket_addr.cpp
     src/infrastructure/network/socket_exception.cpp
+    src/infrastructure/network/tcp_transfer.cpp
     src/infrastructure/network/uri.cpp
 )
 yaddnsc_production_module(yaddnsc_network_infrastructure)
@@ -47,14 +48,20 @@ target_link_libraries(yaddnsc_network_infrastructure
     PRIVATE spdlog::spdlog yaddnsc_fmt
 )
 
-# Classic DNS resolution: wire format, response parser/validator and the
-# self-contained UDP/TCP resolver (no libresolv). Lives below the transport
-# layer so SocketStream can bootstrap hostnames without a dependency cycle.
+# Classic DNS resolution: wire format, response parser/validator, the classic
+# UDP/TCP exchanges and bootstrap (no libresolv). Lives below the transport
+# layer so TcpConnection can resolve hostnames without a dependency cycle.
+# Directory and target boundaries differ: only the classic protocol's own
+# transport sits under dns/classic/, while bootstrap, resolv_conf, parser,
+# validator and wire/ are shared with the layers above and stay in dns/.
+# The resolver facades above transport are in dns/resolver/ (classic.cpp,
+# doh.cpp, dot.cpp) and belong to yaddnsc_dns_infrastructure.
 add_library(yaddnsc_dns_classic STATIC
     src/infrastructure/dns/validator.cpp
     src/infrastructure/dns/parser.cpp
     src/infrastructure/dns/wire/builder.cpp
-    src/infrastructure/dns/resolver/classic.cpp
+    src/infrastructure/dns/classic/classic_udp.cpp
+    src/infrastructure/dns/classic/classic_tcp.cpp
     src/infrastructure/dns/bootstrap.cpp
     src/infrastructure/dns/resolv_conf.cpp
 )
@@ -70,7 +77,8 @@ target_link_libraries(yaddnsc_dns_classic
 # consumer needs the OpenSSL include path (Homebrew OpenSSL on macOS lives
 # outside the default search path).
 add_library(yaddnsc_network_transport STATIC
-    src/infrastructure/network/transport/detail/socket_stream.cpp
+    src/infrastructure/network/transport/detail/tcp_connection.cpp
+    src/infrastructure/network/transport/detail/tls_io.cpp
     src/infrastructure/network/transport/tls_stream.cpp
     src/infrastructure/network/transport/tcp_stream.cpp
 )
@@ -136,10 +144,13 @@ target_link_libraries(yaddnsc_config_infrastructure
 
 # DNS infrastructure — wire format, parsers, classic/DoT/DoH resolvers.
 # (dns/error.cpp lives in yaddnsc_domain: DnsError is port-level vocabulary.)
-# DNS infrastructure: resolver backends (DoH / DoT), dispatch strategies and
-# the resolver factory/catalog. The classic UDP/TCP resolver, wire format and
-# parser live in yaddnsc_dns_classic (below the transport layer).
+# DNS infrastructure: resolver backends (DoH / DoT / classic TCP fallback),
+# dispatch strategies and the resolver factory/catalog. The UDP exchange, wire
+# format and parser live in yaddnsc_dns_classic (below the transport layer).
+# classic.cpp is the upward edge: it may use TcpStream, and it is not
+# part of yaddnsc_dns_classic.
 add_library(yaddnsc_dns_infrastructure STATIC
+    src/infrastructure/dns/resolver/classic.cpp
     src/infrastructure/dns/resolver/doh.cpp
     src/infrastructure/dns/resolver/dot.cpp
     src/infrastructure/dns/factory.cpp

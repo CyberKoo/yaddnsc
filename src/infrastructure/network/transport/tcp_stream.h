@@ -5,6 +5,7 @@
 #ifndef YADDNSC_NET_TRANSPORT_TCP_STREAM_H
 #define YADDNSC_NET_TRANSPORT_TCP_STREAM_H
 
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <span>
@@ -12,7 +13,7 @@
 
 #include <expected>
 
-#include "infrastructure/network/transport/detail/socket_stream.h"
+#include "infrastructure/network/transport/detail/tcp_connection.h"
 #include "infrastructure/network/transport/io_error.h"
 #include "infrastructure/network/transport/options.h"
 #include "infrastructure/network/transport/stream.h"
@@ -25,8 +26,14 @@ namespace Transport {
 
 /// A plain-TCP byte stream.
 ///
-/// Owns the socket via detail::SocketStream. TLS-specific Options fields
-/// are ignored. Non-movable: hand out via std::unique_ptr.
+/// Owns the connection via detail::TcpConnection. One read_some / read_exact
+/// call spends a single read_timeout; one send_all spends a single
+/// write_timeout. Partial transfers, EINTR, and EAGAIN do not refresh it.
+/// A spent deadline does not send or recv. An empty buffer performs no I/O
+/// and succeeds. A non-empty TCP read that sees EOF returns
+/// IoError::CONNECTION_FAILED.
+///
+/// Non-movable: hand out via std::unique_ptr.
 class TcpStream final : public Stream {
 public:
     /// @throws std::invalid_argument when host is neither a valid IP nor a
@@ -49,12 +56,7 @@ public:
                                                         const Utils::CancellationToken& token) override;
 
 private:
-    /// Single recv attempt: poll-aware, returns bytes read (>= 1).
-    [[nodiscard]] std::expected<size_t, IoError> read_once(std::span<std::uint8_t> buf,
-                                                           const Utils::CancellationToken& token);
-
-    detail::SocketStream socket_;
-    Options opts_;
+    detail::TcpConnection connection_;
 };
 
 }  // namespace Transport

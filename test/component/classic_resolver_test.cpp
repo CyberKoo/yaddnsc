@@ -60,7 +60,7 @@
 #include "infrastructure/dns/types.h"
 #include "infrastructure/network/socket.h"
 #include "infrastructure/network/socket_addr.h"
-#include "infrastructure/network/transport/detail/socket_stream.h"
+#include "infrastructure/network/transport/detail/tcp_connection.h"
 #include "infrastructure/network/transport/options.h"
 #include "support/fmt.hpp"
 #include "support/util/cancellation_token.hpp"
@@ -565,7 +565,9 @@ TEST_F(ClassicNativeResolverTest, UdpResponseFromUnexpectedSource_IsDiscarded) {
     // forged answer (1.2.3.4) won the race.
 
     // Real resolver socket: 127.0.0.1 on an ephemeral port.
-    Socket server_sock(AF_INET, SOCK_DGRAM);
+    auto server_opened = Socket::open(AF_INET, SOCK_DGRAM);
+    ASSERT_TRUE(server_opened) << server_opened.error();
+    Socket server_sock = std::move(*server_opened);
     auto v4 = Inet4Address::parse("127.0.0.1");
     ASSERT_TRUE(v4.has_value());
     auto bind_addr = SocketAddr::from_inet(*v4, 0);
@@ -585,17 +587,22 @@ TEST_F(ClassicNativeResolverTest, UdpResponseFromUnexpectedSource_IsDiscarded) {
         std::array<std::uint8_t, 512> recv_buf{};
         SocketAddr client_addr;
         auto n = server_sock.recv_from(std::as_writable_bytes(std::span{recv_buf}), &client_addr);
-        if (n <= 0) {
+        if (!n || *n == 0) {
             return;  // client query failed — the resolver will time out
         }
-        const auto client_query = std::vector<std::uint8_t>(recv_buf.begin(), recv_buf.begin() + n);
+        const auto client_query =
+            std::vector<std::uint8_t>(recv_buf.begin(), recv_buf.begin() + static_cast<std::ptrdiff_t>(*n));
 
         // Forged response from an unrelated source port.  The kernel may
         // hand out the server's own port again (SO_REUSEADDR), so retry
         // until the ports differ.
         std::optional<Socket> spoof_sock;
         for (int attempt = 0; attempt < 8 && !spoof_sock.has_value(); ++attempt) {
-            Socket s(AF_INET, SOCK_DGRAM);
+            auto opened = Socket::open(AF_INET, SOCK_DGRAM);
+            if (!opened) {
+                break;
+            }
+            Socket s = std::move(*opened);
             auto sb = SocketAddr::from_inet(*v4, 0);
             if (!sb.has_value())
                 break;
@@ -608,14 +615,14 @@ TEST_F(ClassicNativeResolverTest, UdpResponseFromUnexpectedSource_IsDiscarded) {
         }
 
         auto spoof_pkt = build_a_response(client_query, "1.2.3.4");
-        if (spoof_sock->send_to(std::as_bytes(std::span{spoof_pkt}), client_addr) < 0) {
+        if (!spoof_sock->send_to(std::as_bytes(std::span{spoof_pkt}), client_addr)) {
             // Best effort: without the forged packet the genuine response
             // below still exercises the resolver path.
         }
 
         // Genuine response from the real server socket.
         auto real_pkt = build_a_response(client_query, "198.51.100.42");
-        if (server_sock.send_to(std::as_bytes(std::span{real_pkt}), client_addr) < 0) {
+        if (!server_sock.send_to(std::as_bytes(std::span{real_pkt}), client_addr)) {
             return;  // genuine response lost — the resolver will time out
         }
     });
@@ -692,8 +699,22 @@ TEST_F(ClassicNativeResolverTest, TcpBodyTruncated_ReturnsConnectionError) {
 
 // ===========================================================================
 // Bootstrap DNS — DNS::resolve_bootstrap against the same fake server, plus
-// the SocketStream hostname end-to-end path through it.
+// the TcpConnection hostname end-to-end path through it.
 // ===========================================================================
+
+TEST_F(ClassicNativeResolverTest, Bootstrap_TruncatedUdp_FallsBackToTcp) {
+    const std::vector<Config::DnsServer> servers{{"127.0.0.1", DNS_PORT}};
+    const auto deadline = std::chrono::steady_clock::now() + 5s;
+
+    // UDP for this name is TC with no address records. The A result is the
+    // TCP answer, so a bootstrap path that stops at the truncated datagram
+    // cannot produce it.
+    const auto result = DNS::resolve_bootstrap("truncate.yaddnsc.test", AddressFamily::IPV4, servers, deadline, {});
+
+    ASSERT_TRUE(result.has_value()) << result.error().message;
+    ASSERT_EQ(result->size(), 1U);
+    EXPECT_EQ((*result)[0].to_string(), "198.51.100.99");
+}
 
 TEST_F(ClassicNativeResolverTest, Bootstrap_ResolvesAAndAAAA) {
     const std::vector<Config::DnsServer> servers{{"127.0.0.1", DNS_PORT}};
@@ -734,7 +755,7 @@ TEST_F(ClassicNativeResolverTest, Bootstrap_Nxdomain_ReturnsError) {
     EXPECT_EQ(result.error().code, DnsError::NX_DOMAIN);
 }
 
-TEST_F(ClassicNativeResolverTest, Bootstrap_SocketStreamConnectsViaHostname) {
+TEST_F(ClassicNativeResolverTest, Bootstrap_TcpConnectionConnectsViaHostname) {
     // Local TCP listener on an ephemeral loopback port; the fake DNS server
     // resolves loopback.yaddnsc.test to 127.0.0.1.
     const Utils::UniqueFd listener(::socket(AF_INET, SOCK_STREAM, 0));
@@ -759,9 +780,9 @@ TEST_F(ClassicNativeResolverTest, Bootstrap_SocketStreamConnectsViaHostname) {
 
     Transport::Options opts;
     opts.bootstrap_dns = {Config::DnsServer{"127.0.0.1", DNS_PORT}};
-    Transport::detail::SocketStream stream("loopback.yaddnsc.test", port, opts);
+    Transport::detail::TcpConnection connection("loopback.yaddnsc.test", port, opts);
 
-    const auto result = stream.connect({});
+    const auto result = connection.connect(std::chrono::steady_clock::now() + 5s, {});
     EXPECT_TRUE(result.has_value());
     acceptor.join();
 }

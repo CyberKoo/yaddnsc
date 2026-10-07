@@ -1,2 +1,2 @@
-// Placeholder — MdnsIpSource mock tests require deeper refactoring.
-// Test socket mock via test/unit/network/socket_mock_test.cpp instead.
+// Placeholder. mDNS is covered by the component tests, which talk to a
+// real datagram socket. There is no Socket mock.

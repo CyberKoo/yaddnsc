@@ -20,7 +20,7 @@
 #include <expected>
 #include <openssl/types.h>
 
-#include "infrastructure/network/transport/detail/socket_stream.h"
+#include "infrastructure/network/transport/detail/tcp_connection.h"
 #include "infrastructure/network/transport/io_error.h"
 #include "infrastructure/network/transport/options.h"
 #include "infrastructure/network/transport/stream.h"
@@ -45,8 +45,13 @@ using SslPtr = std::unique_ptr<SSL, SslDeleter>;
 
 /// A TLS byte stream over TCP.
 ///
-/// Owns the socket (via detail::SocketStream), the SSL_CTX (shared default
-/// or per-instance for custom CA / verification off) and the SSL session.
+/// Owns the TCP connection (via detail::TcpConnection), the SSL_CTX (shared
+/// default or per-instance for custom CA / verification off) and the SSL
+/// session. One read_some / read_exact spends a single read_timeout; one
+/// send_all spends a single write_timeout. WANT_READ / WANT_WRITE wait for
+/// that direction and do not refresh the budget. An empty buffer performs
+/// no I/O and succeeds.
+///
 /// Non-movable: hand out via std::unique_ptr.
 class TlsStream final : public Stream {
 public:
@@ -77,18 +82,18 @@ private:
                                                          const Utils::CancellationToken& token);
     [[nodiscard]] bool is_healthy() const noexcept;
 
-    /// Single SSL_read attempt: poll-aware, returns bytes read (>= 1).
+    /// Read at least one byte. @p deadline covers every WANT_* retry.
     [[nodiscard]] std::expected<size_t, IoError> read_once(std::span<std::uint8_t> buf,
+                                                           std::chrono::steady_clock::time_point deadline,
                                                            const Utils::CancellationToken& token);
 
     /// Active SSL_CTX: per-instance custom ctx when configured, otherwise
     /// the shared default (verify-on, discovered CA).
     [[nodiscard]] SSL_CTX* ssl_ctx() const noexcept;
 
-    detail::SocketStream socket_;
+    detail::TcpConnection connection_;
     SslCtxPtr custom_ctx_;
     SslPtr ssl_;
-    Options opts_;
     TlsOptions tls_opts_;
     std::vector<unsigned char> alpn_proto_;
 };

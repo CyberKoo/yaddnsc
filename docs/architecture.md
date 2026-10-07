@@ -47,14 +47,39 @@ Dependency direction is enforced by the CMake target graph
   (concrete port adapters: logger, clock, signal watcher, driver loader,
   network interfaces), `src/cli/` (parser + presenter).
 
-  Within DNS infrastructure the classic resolver, wire format, parser and the
-  bootstrap/`resolv.conf` helpers form a separate lower target
+  Within DNS infrastructure the classic UDP exchange, wire format, parser and
+  the bootstrap/`resolv.conf` helpers form a separate lower target
   (`yaddnsc_dns_classic`, depending only on domain + network infrastructure)
-  so that `net::transport` can resolve hostname targets through them:
-  `SocketStream` never calls `getaddrinfo` — hostname endpoints go through
-  the bootstrap DNS servers (`bootstrap_dns`, else `/etc/resolv.conf`),
-  keeping name resolution cancellable and inside the connect deadline. The
-  DoH/DoT resolvers, dispatcher and resolver factory sit above HTTP in
+  so that `net::transport` can resolve hostname targets through them.
+  Directories follow the concept, not the target: `dns/classic/` holds only the
+  classic protocol's transport (`classic_udp`, `classic_tcp`,
+  `socket_error.hpp`), `dns/wire/` the byte format, and `dns/resolver/` the
+  classic/DoT/DoH facades. `bootstrap`, `resolv_conf`, `parser`, `validator`,
+  `types.h` and `util.hpp` stay in `dns/` because the transport layer and the
+  mDNS path use them too.
+  `TcpConnection` never calls `getaddrinfo` — hostname endpoints go through
+  the bootstrap DNS servers (`bootstrap_dns`, else `/etc/resolv.conf`).
+  Name lookup, address attempts, the TCP handshake and (for TLS) the TLS
+  handshake share one connect deadline. One `read_some` or `read_exact`
+  spends one read budget; one `send_all` spends one write budget. Retries
+  for `EINTR`, `EAGAIN` and TLS `WANT_*` do not refresh those budgets.
+  Bootstrap servers are IP literals. A truncated UDP answer is retried over
+  TCP to that same address (`DNS::exchange_tcp` in `yaddnsc_dns_classic`),
+  using the shared Socket transfer rather than `TcpStream`, so the fallback
+  does not resolve another hostname. Classic resolver TCP fallback still
+  goes through `TcpStream` from `classic.cpp`, compiled into
+  `yaddnsc_dns_infrastructure` above the transport. A spent read or write
+  deadline does not send or receive, even if the socket is already ready.
+  Bytes OpenSSL has already decrypted (`SSL_pending`) may still be returned.
+
+  `Socket` is the only owner of an OS socket fd (`Utils::UniqueFd`). On Linux,
+  `SOCK_CLOEXEC` / `accept4` set close-on-exec atomically; other platforms
+  apply it with `fcntl` after the fd exists, so a concurrent fork/exec can
+  still inherit it. `SIGPIPE` is suppressed with `MSG_NOSIGNAL` where that
+  flag exists, and with `SO_NOSIGPIPE` at creation otherwise. macOS behavior
+  of the `fcntl` window and `SO_NOSIGPIPE` was not re-verified in this change.
+
+  The DoH/DoT resolvers, dispatcher and resolver factory sit above HTTP in
   `yaddnsc_dns_infrastructure`, which would otherwise create a dependency
   cycle with the transport.
 - `src/composition/`: the composition root.

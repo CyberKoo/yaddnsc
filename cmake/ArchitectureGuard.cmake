@@ -155,16 +155,22 @@ guard_check("plugins must not redefine shared string utilities (use yaddnsc/sdk/
     ${PROJECT_SOURCE_DIR}/driver/*/*.cpp)
 
 # ------------------------------------------------------------------------------
-# 10. dns_classic stays below the transport layer: the classic resolver, wire
-#     format, parser, bootstrap and resolv.conf discovery must not pull in the
-#     HTTP/transport/plugin machinery (SocketStream depends on this target —
-#     a back-edge would create a cycle)
+# 10. dns_classic stays below the transport layer. Its sources are the
+#     classic UDP and TCP exchanges and the wire format — the pieces that must
+#     not pull in the HTTP/transport/plugin machinery (TcpConnection depends
+#     on this target; a back-edge would create a cycle). Bootstrap's TCP
+#     fallback uses the shared Socket transfer in network infrastructure, not
+#     TcpStream. dns/resolver/ is the other half: classic/doh/dot are facades
+#     above transport and use TcpStream, so resolver/classic.cpp is excluded
+#     from this check. The pattern is anchored to /classic.cpp, which leaves every
+#     file under dns/classic/ — including classic_udp.cpp and classic_tcp.cpp —
+#     covered.
 # ------------------------------------------------------------------------------
 file(GLOB_RECURSE dns_classic_files RELATIVE ${PROJECT_SOURCE_DIR}
     ${PROJECT_SOURCE_DIR}/src/infrastructure/dns/*.h
     ${PROJECT_SOURCE_DIR}/src/infrastructure/dns/*.hpp
     ${PROJECT_SOURCE_DIR}/src/infrastructure/dns/*.cpp)
-list(FILTER dns_classic_files EXCLUDE REGEX "(doh|dot|dispatcher|factory|resolver_catalog|tls_options|connect_error)\\.")
+list(FILTER dns_classic_files EXCLUDE REGEX "(doh|dot|dispatcher|factory|resolver_catalog|tls_options|connect_error)\\.|/classic\\.cpp$")
 foreach (f ${dns_classic_files})
     file(STRINGS ${PROJECT_SOURCE_DIR}/${f} lines REGEX "${INC_RE}[<\"](infrastructure/network/(http|transport)/|infrastructure/plugin/|openssl/)")
     foreach (line ${lines})

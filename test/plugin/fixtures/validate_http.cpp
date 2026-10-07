@@ -29,7 +29,7 @@ constexpr yaddnsc_driver_descriptor DESCRIPTOR = {
     .capabilities = YADDNSC_DRIVER_CAPABILITY_A | YADDNSC_DRIVER_CAPABILITY_AAAA,
 };
 
-constexpr char kUrl[] = "http://example.test/validate";
+constexpr char URL[] = "http://example.test/validate";
 
 int g_token = 0;
 yaddnsc_host_services g_services{};
@@ -74,7 +74,7 @@ extern "C" FIXTURE_EXPORT yaddnsc_status yaddnsc_driver_validate(yaddnsc_driver*
                                                                  yaddnsc_error* out_error) {
     yaddnsc_http_request request{};
     request.struct_size = static_cast<uint32_t>(sizeof(request));
-    request.url = {kUrl, sizeof(kUrl) - 1};
+    request.url = {URL, sizeof(URL) - 1};
     request.method = YADDNSC_HTTP_GET;
 
     yaddnsc_http_response response{};

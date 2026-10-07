@@ -11,9 +11,15 @@
 #include <yaddnsc/util/format.hpp>
 
 #include "domain/dns/record_kind.h"
+#include "domain/network/inet_address.h"
+#include "infrastructure/dns/classic/classic_tcp.h"
+#include "infrastructure/dns/classic/classic_udp.h"
 #include "infrastructure/dns/parser.h"
-#include "infrastructure/dns/resolver/classic.h"
 #include "infrastructure/dns/types.h"
+#include "infrastructure/dns/util.hpp"
+#include "infrastructure/dns/validator.h"
+#include "infrastructure/dns/wire/query_util.h"
+#include "infrastructure/network/socket_addr.h"
 #include "support/fmt.hpp"
 #include "support/util/cancellation_token.hpp"
 
@@ -31,6 +37,10 @@ namespace {
         default:
             return {RecordKind::A, RecordKind::AAAA};
     }
+}
+
+[[nodiscard]] bool is_truncated(const std::span<const std::uint8_t> response) {
+    return response.size() >= DNS::HEADER_SIZE && (response[2] & 0x02) != 0;
 }
 
 /// Extract addresses of the queried kind from a raw response packet.
@@ -75,41 +85,71 @@ std::expected<std::vector<InetAddress>, DnsErrorInfo> resolve_bootstrap(
             return std::unexpected(DnsErrorInfo{DnsError::CANCELLED, "Bootstrap DNS query cancelled"});
         }
 
-        const ClassicResolver resolver(server);
+        auto parsed = InetAddress::parse(server.address);
+        auto endpoint = parsed ? SocketAddr::from_inet(*parsed, server.port) : std::nullopt;
+        if (!endpoint) {
+            last_error = DnsErrorInfo{DnsError::CONFIG,
+                                      fmt::format(R"(Bootstrap DNS server "{}" is not an IP address)", server.address)};
+            continue;
+        }
+
         std::vector<InetAddress> addresses;
 
         for (const auto kind : kinds) {
+            if (token.is_triggered()) {
+                return std::unexpected(DnsErrorInfo{DnsError::CANCELLED, "Bootstrap DNS query cancelled"});
+            }
             if (std::chrono::steady_clock::now() >= deadline) {
                 return std::unexpected(DnsErrorInfo{
                     DnsError::RETRY, fmt::format(R"(Bootstrap DNS deadline exceeded while resolving "{}")", host)});
             }
 
-            auto response = resolver.query(host, kind, token);
-            if (!response) {
-                // NXDOMAIN is authoritative: the name does not exist.
-                if (response.error().code == DnsError::NX_DOMAIN) {
-                    return std::unexpected(std::move(response.error()));
-                }
-                last_error = std::move(response.error());
-                break;  // transport-level failure — try the next server
-            }
-
-            // Set when this server must be abandoned (malformed response or
-            // authoritative NXDOMAIN); the break decision happens outside
-            // the catch — a catch may only record the error.
+            // Packet construction can throw. The failure is recorded below
+            // and the next server is tried; a catch does not decide control flow.
             bool server_failed = false;
             try {
-                auto found = extract_addresses(*response, host, kind);
-                if (!found) {
-                    // NXDOMAIN is authoritative for the NAME: no other record
-                    // type exists either, so stop querying this server — but
-                    // keep any addresses already collected (split-horizon
-                    // servers sometimes answer one kind and NXDOMAIN the
-                    // other).
-                    last_error = std::move(found.error());
+                const auto query = DNS::build_query(host, DNS::Util::type_to_record_type(kind));
+                auto response = DNS::exchange_udp(*endpoint, query, deadline, token, 0);
+                if (!response) {
+                    if (response.error().code == DnsError::CANCELLED) {
+                        return std::unexpected(std::move(response.error()));
+                    }
+                    last_error = std::move(response.error());
+                    server_failed = true;
+                } else if (auto valid = DNS::Validator::validate_response(query, *response); !valid) {
+                    // A malformed UDP packet is not retried. TCP fallback is
+                    // only for a response the validator has already accepted.
+                    last_error = std::move(valid.error());
                     server_failed = true;
                 } else {
-                    addresses.insert(addresses.end(), found->begin(), found->end());
+                    if (is_truncated(*response)) {
+                        SPDLOG_DEBUG(R"(Bootstrap DNS response for "{}" was truncated; retrying over TCP)", host);
+                        response = DNS::exchange_tcp(*endpoint, query, deadline, token, 0);
+                        if (!response) {
+                            if (response.error().code == DnsError::CANCELLED) {
+                                return std::unexpected(std::move(response.error()));
+                            }
+                            last_error = std::move(response.error());
+                            server_failed = true;
+                        } else if (auto tcp_valid = DNS::Validator::validate_response(query, *response); !tcp_valid) {
+                            last_error = std::move(tcp_valid.error());
+                            server_failed = true;
+                        }
+                    }
+                    if (!server_failed) {
+                        auto found = extract_addresses(*response, host, kind);
+                        if (!found) {
+                            // NXDOMAIN is authoritative for the NAME: no other record
+                            // type exists either, so stop querying this server — but
+                            // keep any addresses already collected (split-horizon
+                            // servers sometimes answer one kind and NXDOMAIN the
+                            // other).
+                            last_error = std::move(found.error());
+                            server_failed = true;
+                        } else {
+                            addresses.insert(addresses.end(), found->begin(), found->end());
+                        }
+                    }
                 }
             } catch (const std::exception& e) {
                 last_error =
@@ -119,7 +159,7 @@ std::expected<std::vector<InetAddress>, DnsErrorInfo> resolve_bootstrap(
             }
 
             if (server_failed) {
-                break;  // malformed response — try the next server
+                break;  // this server cannot answer the remaining kinds
             }
         }
 

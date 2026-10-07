@@ -1,11 +1,12 @@
 //
 // Unit tests for Transport (src/infrastructure/network/transport/).
 //
-// Verifies (no network I/O):
+// Verifies (no byte-stream I/O):
 //   - Options field defaults.
 //   - Eager host validation in TlsStream / TcpStream constructors.
-//   - detail::poll_fd cancellation semantics using a silent pipe (the same
-//     primitive every stream I/O path is built on).
+//   - TcpConnection connect() rejection before a handshake: cancellation,
+//     an already-due deadline, a missing bootstrap server, a bad interface.
+// Readiness waiting is covered on Socket in the component socket tests.
 // =============================================================================
 
 #include <chrono>
@@ -14,24 +15,21 @@
 #include <span>
 #include <stdexcept>
 #include <string>
-#include <thread>
 #include <utility>
 
 #include <arpa/inet.h>
 #include <expected>
 #include <gtest/gtest.h>
 #include <netinet/in.h>
-#include <poll.h>
 #include <sys/socket.h>
 #include <unistd.h>
 
-#include "infrastructure/network/transport/detail/socket_stream.h"
+#include "infrastructure/network/transport/detail/tcp_connection.h"
 #include "infrastructure/network/transport/io_error.h"
 #include "infrastructure/network/transport/options.h"
 #include "infrastructure/network/transport/tcp_stream.h"
 #include "infrastructure/network/transport/tls_stream.h"
 #include "support/util/cancellation_token.hpp"
-#include "support/util/fd.hpp"
 
 using namespace std::chrono_literals;
 using Transport::IoError;
@@ -70,87 +68,6 @@ TEST(NetTransportCtor, AcceptsIpLiteralAndDomain) {
     EXPECT_NO_THROW((Transport::TcpStream("::1", 80, {})));
 }
 
-// ── poll_fd cancellation semantics ───────────────────────────────────────────
-
-namespace {
-
-/// A pipe whose read end never becomes ready (silent writer end kept open).
-struct SilentFd {
-    SilentFd() {
-        auto [r, w] = Utils::make_pipe();
-        read = std::move(r);
-        write = std::move(w);
-    }
-
-    Utils::UniqueFd read;
-    Utils::UniqueFd write;
-};
-
-}  // namespace
-
-TEST(NetTransportPollFd, SilentFd_TimesOut) {
-    const SilentFd silent;
-    const Utils::CancellationToken token;
-
-    const auto result = Transport::detail::poll_fd(silent.read.get(), POLLIN, 20ms, token);
-    ASSERT_FALSE(result);
-    EXPECT_EQ(result.error(), IoError::TIMEOUT);
-}
-
-TEST(NetTransportPollFd, TriggeredToken_ReturnsCancelledImmediately) {
-    const SilentFd silent;
-    Utils::CancellationSource source;
-    source.trigger();
-    const auto token = source.token();
-
-    const auto result = Transport::detail::poll_fd(silent.read.get(), POLLIN, 5000ms, token);
-    ASSERT_FALSE(result);
-    EXPECT_EQ(result.error(), IoError::CANCELLED);
-}
-
-TEST(NetTransportPollFd, TriggerFromAnotherThread_WakesPoll) {
-    const SilentFd silent;
-    Utils::CancellationSource source;
-    const auto token = source.token();
-
-    std::jthread triggerrer([src = source] {
-        std::this_thread::sleep_for(30ms);
-        src.trigger();
-    });
-
-    const auto start = std::chrono::steady_clock::now();
-    const auto result = Transport::detail::poll_fd(silent.read.get(), POLLIN, 5000ms, token);
-    const auto elapsed = std::chrono::steady_clock::now() - start;
-
-    ASSERT_FALSE(result);
-    EXPECT_EQ(result.error(), IoError::CANCELLED);
-    EXPECT_LT(elapsed, 2s);
-}
-
-TEST(NetTransportPollFd, PersistentSignal_StillCancelled) {
-    const SilentFd silent;
-    Utils::CancellationSource source;
-    const auto token = source.token();
-
-    source.trigger();
-
-    // The terminal broadcast remains visible to every consumer.
-    const auto result = Transport::detail::poll_fd(silent.read.get(), POLLIN, 5000ms, token);
-    ASSERT_FALSE(result);
-    EXPECT_EQ(result.error(), IoError::CANCELLED);
-}
-
-TEST(NetTransportPollFd, ReadyFd_ReturnsOk) {
-    auto [read_end, write_end] = Utils::make_pipe();
-    const Utils::CancellationToken token;
-
-    const char c = 'x';
-    ASSERT_EQ(::write(write_end.get(), &c, 1), 1);
-
-    const auto result = Transport::detail::poll_fd(read_end.get(), POLLIN, 100ms, token);
-    EXPECT_TRUE(result);
-}
-
 // ── error paths that need no connection (no network I/O) ─────────────────────
 
 TEST(NetTransportErrorPaths, TcpStream_ReadSome_WithoutConnection_Fails) {
@@ -173,9 +90,7 @@ TEST(NetTransportErrorPaths, TcpStream_SendAll_WithoutConnection_Fails) {
     EXPECT_EQ(result.error(), IoError::CONNECTION_FAILED);
 }
 
-// close() is safe on an unconnected stream (SocketStream::close just drops
-// the fd) and is idempotent, so shutting down a never-connected or
-// already-closed stream must not throw.
+// close() is safe on an unconnected stream and is idempotent.
 TEST(NetTransportErrorPaths, TcpStream_Close_WithoutConnection_IsNoOp) {
     Transport::TcpStream stream("127.0.0.1", 80, {});
     EXPECT_NO_THROW(stream.close());
@@ -202,39 +117,37 @@ TEST(NetTransportErrorPaths, TlsStream_SendAll_WithoutHandshake_Fails) {
     EXPECT_EQ(result.error(), IoError::CONNECTION_FAILED);
 }
 
-TEST(NetTransportErrorPaths, SocketStream_Poll_WithoutFd_Fails) {
-    const Utils::CancellationToken token;
-    const Transport::detail::SocketStream stream("127.0.0.1", 80, {});
-
-    const auto result = stream.poll(POLLIN, 0ms, token);
-    ASSERT_FALSE(result);
-    EXPECT_EQ(result.error(), IoError::CONNECTION_FAILED);
+TEST(NetTransportErrorPaths, TcpConnection_Unconnected_IsNotHealthy) {
+    const Transport::detail::TcpConnection connection("127.0.0.1", 80, {});
+    EXPECT_FALSE(connection.is_connected());
+    EXPECT_FALSE(connection.is_healthy());
 }
 
-TEST(NetTransportErrorPaths, SocketStream_Connect_PreTriggeredToken_Cancelled) {
+TEST(NetTransportErrorPaths, TcpConnection_Connect_PreTriggeredToken_Cancelled) {
     Utils::CancellationSource source;
     source.trigger();
 
-    Transport::detail::SocketStream stream("127.0.0.1", 80, {});
-    const auto result = stream.connect(source.token());
+    Transport::detail::TcpConnection connection("127.0.0.1", 80, {});
+    const auto result = connection.connect(std::chrono::steady_clock::now() + 2s, source.token());
     ASSERT_FALSE(result);
     EXPECT_EQ(result.error(), IoError::CANCELLED);
 }
 
-TEST(NetTransportErrorPaths, SocketStream_Connect_ZeroBudget_TimesOut) {
+TEST(NetTransportErrorPaths, TcpConnection_Connect_ZeroBudget_TimesOut) {
     const Utils::CancellationToken token;
-    Transport::detail::SocketStream stream("127.0.0.1", 80, {.connect_timeout = 0ms});
+    // The deadline is the caller's. connect_timeout on Options is not read.
+    Transport::detail::TcpConnection connection("127.0.0.1", 80, {.connect_timeout = 5s});
 
-    const auto result = stream.connect(token);
+    const auto result = connection.connect(std::chrono::steady_clock::now(), token);
     ASSERT_FALSE(result);
     EXPECT_EQ(result.error(), IoError::TIMEOUT);
 }
 
-TEST(NetTransportErrorPaths, SocketStream_Connect_BogusInterface_Fails) {
+TEST(NetTransportErrorPaths, TcpConnection_Connect_BogusInterface_Fails) {
     const Utils::CancellationToken token;
-    Transport::detail::SocketStream stream("127.0.0.1", 80, {.interface = std::string("bogus0")});
+    Transport::detail::TcpConnection connection("127.0.0.1", 80, {.interface = std::string("bogus0")});
 
-    const auto result = stream.connect(token);
+    const auto result = connection.connect(std::chrono::steady_clock::now() + 2s, token);
     ASSERT_FALSE(result);
     EXPECT_EQ(result.error(), IoError::CONNECTION_FAILED);
 }
@@ -267,53 +180,36 @@ namespace {
 
 }  // namespace
 
-TEST(NetTransportErrorPaths, SocketStream_Connect_RefusedPort_Fails) {
+TEST(NetTransportErrorPaths, TcpConnection_Connect_RefusedPort_Fails) {
     const Utils::CancellationToken token;
-    Transport::detail::SocketStream stream("127.0.0.1", closed_loopback_port(), {});
+    Transport::detail::TcpConnection connection("127.0.0.1", closed_loopback_port(), {});
 
-    const auto result = stream.connect(token);
+    const auto result = connection.connect(std::chrono::steady_clock::now() + 2s, token);
     ASSERT_FALSE(result);
     EXPECT_EQ(result.error(), IoError::CONNECTION_FAILED);
 }
 
-TEST(NetTransportErrorPaths, SocketStream_Connect_UnresolvableHost_Fails) {
+TEST(NetTransportErrorPaths, TcpConnection_Connect_UnresolvableHost_Fails) {
     const Utils::CancellationToken token;
     // Syntactically valid (passes eager validation), guaranteed non-existent.
-    Transport::detail::SocketStream stream("no-such-host-yaddnsc.invalid", 443, {});
+    Transport::detail::TcpConnection connection("no-such-host-yaddnsc.invalid", 443, {});
 
-    const auto result = stream.connect(token);
+    const auto result = connection.connect(std::chrono::steady_clock::now() + 2s, token);
     ASSERT_FALSE(result);
     EXPECT_EQ(result.error(), IoError::CONNECTION_FAILED);
 }
 
-TEST(NetTransportErrorPaths, SocketStream_Connect_HostnameWithoutBootstrap_FailsFast) {
+TEST(NetTransportErrorPaths, TcpConnection_Connect_HostnameWithoutBootstrap_FailsFast) {
     const Utils::CancellationToken token;
     // No bootstrap DNS servers configured: a hostname target must fail
     // immediately (no getaddrinfo fallback, no NSS lookup).
-    Transport::detail::SocketStream stream("example.com", 443, {});
+    Transport::detail::TcpConnection connection("example.com", 443, {});
 
     const auto start = std::chrono::steady_clock::now();
-    const auto result = stream.connect(token);
+    const auto result = connection.connect(std::chrono::steady_clock::now() + 2s, token);
     const auto elapsed = std::chrono::steady_clock::now() - start;
 
     ASSERT_FALSE(result);
     EXPECT_EQ(result.error(), IoError::CONNECTION_FAILED);
     EXPECT_LT(elapsed, 1s);
-}
-
-TEST(NetTransportPollFd, ErrorFlagWithoutMatchingEvent_ReturnsConnectionFailed) {
-    const Utils::CancellationToken token;
-
-    // Closed fds yield POLLNVAL, which does not overlap POLLIN, so poll_fd
-    // takes the error-flag path. Darwin's kqueue-backed poll() only registers
-    // a filter when POLLIN/POLLOUT is requested; events=0 never reports
-    // POLLERR/POLLNVAL (a TCP-RST + events=0 setup times out there).
-    const int fd = ::socket(AF_INET, SOCK_STREAM, 0);
-    ASSERT_GE(fd, 0);
-    ASSERT_EQ(::close(fd), 0);
-
-    const auto result = Transport::detail::poll_fd(fd, POLLIN, 2s, token);
-
-    ASSERT_FALSE(result);
-    EXPECT_EQ(result.error(), IoError::CONNECTION_FAILED);
 }

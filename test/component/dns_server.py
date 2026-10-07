@@ -24,6 +24,10 @@ DEFAULT_RECORDS = {
     # Used by the bootstrap end-to-end test: resolves to loopback so the
     # resolved address can be connected to locally.
     "loopback.yaddnsc.test": {"A": "127.0.0.1"},
+    # UDP answers this name with TC and no records (see TRUNCATE_HOST).
+    # TCP answers with this address, so a client that skips TCP cannot
+    # observe it.
+    "truncate.yaddnsc.test": {"A": "198.51.100.99"},
 }
 
 # Hostnames that trigger special behaviour.

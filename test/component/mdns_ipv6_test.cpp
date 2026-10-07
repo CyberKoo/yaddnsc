@@ -80,19 +80,27 @@ namespace {
 /// runners often lack one, which makes sendto() fail with EHOSTUNREACH /
 /// ENETUNREACH and every mDNS path degenerate into a setup failure.
 [[nodiscard]] bool multicast_available() {
-    Socket sock(AF_INET, SOCK_DGRAM);
+    auto opened = Socket::open(AF_INET, SOCK_DGRAM);
+    if (!opened) {
+        return false;
+    }
+    Socket sock = std::move(*opened);
     auto dest = SocketAddr::from_inet(Inet4Address::parse("224.0.0.251").value(), 5353);
     if (!dest) {
         return false;
     }
     const std::byte payload{0};
-    return sock.send_to(std::span(&payload, 1), *dest) >= 0;
+    return sock.send_to(std::span(&payload, 1), *dest).has_value();
 }
 
 /// Probe the selected IPv6 interface, matching production's empty-name
 /// default selection. Link-local multicast needs both an output IF and scope.
 [[nodiscard]] bool multicast_available_v6(std::string_view interface) {
-    Socket sock(AF_INET6, SOCK_DGRAM);
+    auto opened = Socket::open(AF_INET6, SOCK_DGRAM);
+    if (!opened) {
+        return false;
+    }
+    Socket sock = std::move(*opened);
     const auto index = interface.empty() ? NetDevices::find_default_interface_index(AF_INET6).value_or(0)
                                          : NetDevices::name_to_index(std::string(interface));
     if (index == 0) {
@@ -122,7 +130,7 @@ namespace {
     address.sin6_scope_id = index;
     const SocketAddr destination = SocketAddr::from_raw(reinterpret_cast<sockaddr*>(&address), sizeof(address));
     const std::byte payload{0};
-    return sock.send_to(std::span(&payload, 1), destination) >= 0;
+    return sock.send_to(std::span(&payload, 1), destination).has_value();
 }
 
 #define SKIP_WITHOUT_IPV4_MULTICAST()                                      \

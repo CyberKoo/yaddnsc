@@ -235,9 +235,6 @@ add_unit_test(uri_query SOURCE network/uri_query_test.cpp)
 add_unit_test(uri_encode SOURCE network/uri_encode_test.cpp)
 add_unit_test(uri_edge   SOURCE network/uri_edge_test.cpp)
 
-# socket_mock — MockSocket basic tests
-add_unit_test(socket_mock SOURCE network/socket_mock_test.cpp)
-
 # ============================================================================
 #  net/  —  net::transport, the redesigned transport layer (no network I/O)
 # ============================================================================

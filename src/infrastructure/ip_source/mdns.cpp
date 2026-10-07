@@ -37,7 +37,6 @@
 #include "infrastructure/network/net_devices.h"
 #include "infrastructure/network/socket.h"
 #include "infrastructure/network/socket_addr.h"
-#include "infrastructure/network/socket_exception.h"
 #include "support/fmt.hpp"
 #include "support/util/cancellation_token.hpp"
 
@@ -80,6 +79,10 @@ inline const SocketAddr MDNS_IPV6_BIND = SocketAddr::from_inet(Inet6Address{}, 0
 
 [[nodiscard]] inline std::string errno_str(int err) {
     return std::error_code{err, std::generic_category()}.message();
+}
+
+[[nodiscard]] bool retryable_io(const int errnum) noexcept {
+    return errnum == EINTR || errnum == EAGAIN || errnum == EWOULDBLOCK;
 }
 
 // ===========================================================================
@@ -281,52 +284,57 @@ std::expected<unsigned int, domain::IpSourceError> setup_multicast_options(Socke
 //  mDNS response validation
 // ===========================================================================
 
-/// Shared helper: poll, receive, parse DNS response.
+/// Shared helper: wait, receive, parse DNS response.
+/// @p deadline is the collection budget for this lookup. Discarded datagrams
+/// do not start a new one. ETIMEDOUT falls through to that same check.
 [[nodiscard]] IpSourceBase::Result recv_and_parse(Socket& sock, RecordKind type, const std::string& hostname,
-                                                  const Utils::CancellationToken& token) {
+                                                  const Utils::CancellationToken& token,
+                                                  const std::chrono::steady_clock::time_point deadline) {
     // mDNS responses MUST come from UDP source port 5353 (RFC 6762 §6),
     // and only answers whose owner name matches the queried hostname are
     // accepted.  Other datagrams (unrelated multicast traffic, forged
     // replies) are discarded and the lookup keeps waiting until the
     // deadline — a spoofed packet must not abort or pollute the query.
-    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(MDNS_TIMEOUT_MS);
-
     while (true) {
         if (token.is_triggered()) {
             return std::unexpected(
                 domain::IpSourceError{domain::IpSourceError::Code::CANCELLED, "mDNS lookup cancelled"});
         }
-        const auto now = std::chrono::steady_clock::now();
-        if (now >= deadline) {
+        if (std::chrono::steady_clock::now() >= deadline) {
             return std::unexpected(domain::IpSourceError{
                 domain::IpSourceError::Code::UNAVAILABLE,
                 fmt::format(R"(mDNS no valid response for "{}" within {}ms)", hostname, MDNS_TIMEOUT_MS)});
         }
-        const auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - now);
 
-        auto wait_res = sock.wait_for(POLLIN, static_cast<int>(remaining.count()), token);
+        auto wait_res = sock.wait_until(POLLIN, deadline, token);
         if (!wait_res) {
             if (wait_res.error() == ECANCELED || token.is_triggered()) {
                 return std::unexpected(
                     domain::IpSourceError{domain::IpSourceError::Code::CANCELLED, "mDNS lookup cancelled"});
             }
+            if (wait_res.error() == ETIMEDOUT) {
+                continue;
+            }
             return std::unexpected(
                 domain::IpSourceError{domain::IpSourceError::Code::UNAVAILABLE,
-                                      fmt::format(R"(mDNS wait_for failed: {})", errno_str(wait_res.error()))});
-        }
-        if (*wait_res == 0) {
-            continue;  // deadline re-checked at the top of the loop
+                                      fmt::format(R"(mDNS wait failed: {})", errno_str(wait_res.error()))});
         }
 
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init): recv_buf is overwritten by recv_from().
         std::array<std::uint8_t, MDNS_RECV_BUF_SIZE> recv_buf;
         SocketAddr src_addr;
         auto buf = std::as_writable_bytes(std::span{recv_buf});
-        ssize_t recv_len = sock.recv_from(buf, &src_addr);
-        if (recv_len < 0) {
-            int e = errno;
-            return std::unexpected(domain::IpSourceError{domain::IpSourceError::Code::UNAVAILABLE,
-                                                         fmt::format(R"(mDNS recvfrom() failed: {})", errno_str(e))});
+        auto recv_len = sock.recv_from(buf, &src_addr);
+        if (!recv_len) {
+            if (retryable_io(recv_len.error())) {
+                continue;
+            }
+            return std::unexpected(
+                domain::IpSourceError{domain::IpSourceError::Code::UNAVAILABLE,
+                                      fmt::format(R"(mDNS recvfrom() failed: {})", errno_str(recv_len.error()))});
+        }
+        if (*recv_len == 0) {
+            continue;
         }
 
         // Source check: responders always send from port 5353 (RFC 6762 §6).
@@ -336,7 +344,7 @@ std::expected<unsigned int, domain::IpSourceError> setup_multicast_options(Socke
             continue;
         }
 
-        SPDLOG_TRACE(R"(mDNS received {} bytes for "{}")", recv_len, hostname);
+        SPDLOG_TRACE(R"(mDNS received {} bytes for "{}")", *recv_len, hostname);
 
         // Parse and filter only answers owned by the queried hostname
         // with the requested record type. A malformed or incompatible
@@ -345,7 +353,7 @@ std::expected<unsigned int, domain::IpSourceError> setup_multicast_options(Socke
         // the deadline.
         std::vector<InetAddress> results;
         try {
-            results = Mdns::parse_response(std::span{recv_buf.data(), static_cast<size_t>(recv_len)}, hostname, type);
+            results = Mdns::parse_response(std::span{recv_buf.data(), *recv_len}, hostname, type);
         } catch (const std::bad_alloc&) {
             throw;
         } catch (const std::exception& error) {
@@ -395,7 +403,18 @@ template<IpVersionTag Tag>
                                .add_question_raw_qclass(hostname, DNS::Util::type_to_record_type(type),
                                                         static_cast<std::uint16_t>(DNS::RecordClass::IN) | QU_BIT)
                                .build();
-    Socket sock(af, SOCK_DGRAM);
+    auto opened = Socket::open(af, SOCK_DGRAM);
+    if (!opened) {
+        return std::unexpected(
+            domain::IpSourceError{domain::IpSourceError::Code::UNAVAILABLE,
+                                  fmt::format(R"(mDNS socket creation failed: {})", errno_str(opened.error()))});
+    }
+    Socket sock = std::move(*opened);
+    if (auto nb = sock.set_nonblocking(true); !nb) {
+        return std::unexpected(
+            domain::IpSourceError{domain::IpSourceError::Code::UNAVAILABLE,
+                                  fmt::format(R"(mDNS socket nonblocking failed: {})", errno_str(nb.error()))});
+    }
 
     // ── Socket options ──────────────────────────────────────────────────
     if (auto res = sock.set_option(SOL_SOCKET, SO_REUSEADDR, 1); !res) {
@@ -457,20 +476,50 @@ template<IpVersionTag Tag>
     }
 
     // ── Send query ──────────────────────────────────────────────────────
-    if (token.is_triggered()) {
-        return std::unexpected(domain::IpSourceError{domain::IpSourceError::Code::CANCELLED, "mDNS lookup cancelled"});
-    }
+    // Send and the response collection share one deadline. EAGAIN waits
+    // inside it; a discarded datagram does not start another.
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(MDNS_TIMEOUT_MS);
     auto data = std::as_bytes(std::span{query_pkt});
-    if (sock.send_to(data, dest_addr) < 0) {
-        int e = errno;
+    for (;;) {
+        if (token.is_triggered()) {
+            return std::unexpected(
+                domain::IpSourceError{domain::IpSourceError::Code::CANCELLED, "mDNS lookup cancelled"});
+        }
+        if (std::chrono::steady_clock::now() >= deadline) {
+            return std::unexpected(domain::IpSourceError{
+                domain::IpSourceError::Code::UNAVAILABLE,
+                fmt::format(R"(mDNS no valid response for "{}" within {}ms)", hostname, MDNS_TIMEOUT_MS)});
+        }
+
+        auto sent = sock.send_to(data, dest_addr);
+        if (sent && *sent == data.size()) {
+            break;
+        }
+        if (!sent && retryable_io(sent.error())) {
+            auto ready = sock.wait_until(POLLOUT, deadline, token);
+            if (!ready) {
+                if (ready.error() == ECANCELED || token.is_triggered()) {
+                    return std::unexpected(
+                        domain::IpSourceError{domain::IpSourceError::Code::CANCELLED, "mDNS lookup cancelled"});
+                }
+                if (ready.error() == ETIMEDOUT) {
+                    continue;
+                }
+                return std::unexpected(
+                    domain::IpSourceError{domain::IpSourceError::Code::UNAVAILABLE,
+                                          fmt::format(R"(mDNS sendto() failed: {})", errno_str(ready.error()))});
+            }
+            continue;
+        }
+        const int err = sent ? EMSGSIZE : sent.error();
         return std::unexpected(domain::IpSourceError{domain::IpSourceError::Code::UNAVAILABLE,
-                                                     fmt::format(R"(mDNS sendto() failed: {})", errno_str(e))});
+                                                     fmt::format(R"(mDNS sendto() failed: {})", errno_str(err))});
     }
 
     SPDLOG_TRACE(R"(mDNS sent {} bytes for "{}")", query_pkt.size(), hostname);
 
     // ── Receive & parse ─────────────────────────────────────────────────
-    return recv_and_parse(sock, type, hostname, token);
+    return recv_and_parse(sock, type, hostname, token, deadline);
 }
 }  // anonymous namespace
 
@@ -494,9 +543,6 @@ IpSourceBase::Result MdnsIpSource::resolve(const Utils::CancellationToken& token
             return resolve_mdns<Ipv6Tag>(hostname_, type_, interface_, token);
         }
         return resolve_mdns<Ipv4Tag>(hostname_, type_, interface_, token);
-    } catch (const SocketException& error) {
-        return std::unexpected(domain::IpSourceError{domain::IpSourceError::Code::UNAVAILABLE,
-                                                     fmt::format(R"(mDNS socket creation failed: {})", error.what())});
     } catch (const DnsPacketException& error) {
         return std::unexpected(domain::IpSourceError{
             domain::IpSourceError::Code::UNAVAILABLE,

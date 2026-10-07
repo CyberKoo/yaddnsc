@@ -86,14 +86,17 @@ const std::string LOOPBACK = NetDevices::loopback_name();
 /// works on this system.  macOS CI runners often lack a multicast route,
 /// causing sendto() to fail with EHOSTUNREACH / ENETUNREACH.
 [[nodiscard]] bool multicast_available() {
-    Socket sock(AF_INET, SOCK_DGRAM);
+    auto opened = Socket::open(AF_INET, SOCK_DGRAM);
+    if (!opened) {
+        return false;
+    }
+    Socket sock = std::move(*opened);
     auto dest = SocketAddr::from_inet(Inet4Address::parse("224.0.0.251").value(), 5353);
     if (!dest) {
         return false;
     }
     std::byte payload{0};
-    auto ret = sock.send_to(std::span(&payload, 1), *dest);
-    if (ret >= 0) {
+    if (sock.send_to(std::span(&payload, 1), *dest)) {
         return true;
     }
     // ENETUNREACH / EHOSTUNREACH are the expected failures when there is no
@@ -221,7 +224,9 @@ protected:
         test_hostname_ = generate_uuid() + ".local";
 
         // ---- Create responder socket ---------------------------------------
-        responder_sock_ = std::make_unique<Socket>(AF_INET, SOCK_DGRAM);
+        auto opened = Socket::open(AF_INET, SOCK_DGRAM);
+        ASSERT_TRUE(opened) << opened.error();
+        responder_sock_ = std::make_unique<Socket>(std::move(*opened));
         responder_sock_->set_reuseaddr(true).value();
         responder_sock_->set_option(SOL_SOCKET, SO_REUSEPORT, 1).value();
 
@@ -273,7 +278,9 @@ protected:
     /// (an attacker-style forged reply).  Must be called from the test body
     /// after SetUp.
     void start_forger() {
-        forger_sock_ = std::make_unique<Socket>(AF_INET, SOCK_DGRAM);
+        auto opened = Socket::open(AF_INET, SOCK_DGRAM);
+        ASSERT_TRUE(opened) << opened.error();
+        forger_sock_ = std::make_unique<Socket>(std::move(*opened));
         forger_sock_->set_reuseaddr(true).value();
         forger_sock_->set_option(SOL_SOCKET, SO_REUSEPORT, 1).value();
 
@@ -424,8 +431,8 @@ private:
     void responder_loop() {
         // Poll with a short timeout so we can check the stop flag.
         while (!stop_flag_.load()) {
-            auto wait_res = responder_sock_->wait_for(POLLIN, 100);
-            if (!wait_res || *wait_res == 0) {
+            auto wait_res = responder_sock_->wait_until(POLLIN, std::chrono::steady_clock::now() + 100ms, {});
+            if (!wait_res) {
                 continue;
             }
 
@@ -433,9 +440,9 @@ private:
             std::array<std::uint8_t, 512> recv_buf{};
             SocketAddr src_addr;
             auto n = responder_sock_->recv_from(
-                std::span<std::byte>{reinterpret_cast<std::byte*>(recv_buf.data()), recv_buf.size()}, 0, &src_addr);
+                std::span<std::byte>{reinterpret_cast<std::byte*>(recv_buf.data()), recv_buf.size()}, &src_addr);
 
-            if (n <= 0) {
+            if (!n || *n == 0) {
                 continue;
             }
 
@@ -443,7 +450,7 @@ private:
             // This prevents stale multicast packets from other processes
             // (avahi-daemon, systemd-resolved, or previous test runs) from
             // inflating query_count_ and causing flaky failures.
-            auto query = std::span<const std::uint8_t>(recv_buf.data(), static_cast<size_t>(n));
+            auto query = std::span<const std::uint8_t>(recv_buf.data(), *n);
             auto encoded = encode_dns_name(test_hostname_);
             if (!qname_matches(query, encoded)) {
                 continue;
@@ -494,21 +501,21 @@ private:
     /// source port with a forged IP (1.2.3.4).
     void forger_loop() {
         while (!stop_flag_.load()) {
-            auto wait_res = forger_sock_->wait_for(POLLIN, 100);
-            if (!wait_res || *wait_res == 0) {
+            auto wait_res = forger_sock_->wait_until(POLLIN, std::chrono::steady_clock::now() + 100ms, {});
+            if (!wait_res) {
                 continue;
             }
 
             std::array<std::uint8_t, 512> recv_buf{};
             SocketAddr src_addr;
             auto n = forger_sock_->recv_from(
-                std::span<std::byte>{reinterpret_cast<std::byte*>(recv_buf.data()), recv_buf.size()}, 0, &src_addr);
+                std::span<std::byte>{reinterpret_cast<std::byte*>(recv_buf.data()), recv_buf.size()}, &src_addr);
 
-            if (n <= 0) {
+            if (!n || *n == 0) {
                 continue;
             }
 
-            auto query = std::span<const std::uint8_t>(recv_buf.data(), static_cast<size_t>(n));
+            auto query = std::span<const std::uint8_t>(recv_buf.data(), *n);
             auto encoded = encode_dns_name(test_hostname_);
             if (!qname_matches(query, encoded)) {
                 continue;

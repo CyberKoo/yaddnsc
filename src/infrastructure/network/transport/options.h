@@ -22,14 +22,21 @@ namespace Transport {
 
 /// Connection-level options shared by TCP and TLS streams.
 struct Options {
-    /// Budget for connection establishment (connect + TLS handshake),
-    /// including bootstrap name resolution of hostname targets.
+    /// Budget for one ensure_connected() call. Name resolution, address
+    /// attempts, the TCP handshake, and (for TLS) the TLS handshake share it.
+    /// EINTR and WANT_* retries do not extend it.
     std::chrono::milliseconds connect_timeout{5000};
 
-    /// Timeout for each poll() iteration while reading.
+    /// Budget for one read_some() call, or for the whole read_exact() call.
+    /// Partial reads, EINTR, and TLS WANT_* retries do not extend it.
+    /// Once it is spent the call does not recv, even if the socket is
+    /// already readable. A later read on the same stream starts a new budget.
+    /// Bytes OpenSSL has already decrypted are not a new socket read.
     std::chrono::milliseconds read_timeout{5000};
 
-    /// Timeout for each poll() iteration while writing.
+    /// Budget for one send_all() call. Partial writes, EINTR, and TLS
+    /// WANT_* retries do not extend it. Once it is spent the call does not
+    /// send, even if the socket is already writable.
     std::chrono::milliseconds write_timeout{5000};
 
     /// Outbound interface name (SO_BINDTODEVICE, Linux only; ignored

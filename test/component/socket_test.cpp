@@ -9,45 +9,67 @@
 #include "infrastructure/network/socket.h"
 
 #include <array>
+#include <cerrno>
+#include <chrono>
 #include <cstddef>
 #include <optional>
 #include <span>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <utility>
 
 #include <expected>
+#include <fcntl.h>
 #include <gtest/gtest.h>
 #include <poll.h>
 #include <sys/socket.h>
 #include <sys/types.h>
-#include <sys/uio.h>
 
 #include "domain/network/inet_address.h"
 #include "infrastructure/network/socket_addr.h"
-#include "infrastructure/network/socket_exception.h"
 #include "support/util/cancellation_token.hpp"
+
+
+using namespace std::chrono_literals;
+
+namespace {
+
+[[nodiscard]] Socket must_open(int domain, int type, int protocol = 0) {
+    auto opened = Socket::open(domain, type, protocol);
+    if (!opened) {
+        ADD_FAILURE() << "Socket::open failed: " << opened.error();
+        return {};
+    }
+    return std::move(*opened);
+}
+
+[[nodiscard]] std::chrono::steady_clock::time_point test_deadline(std::chrono::milliseconds budget = 2s) {
+    return std::chrono::steady_clock::now() + budget;
+}
+
+}  // namespace
 
 // ===========================================================================
 // Basic Socket operations
 // ===========================================================================
 
 TEST(SocketTest, CreateTcpSocket) {
-    Socket sock(AF_INET, SOCK_STREAM);
+    Socket sock = must_open(AF_INET, SOCK_STREAM);
     EXPECT_GE(sock.native_handle(), 0);
     EXPECT_FALSE(sock.is_closed());
 }
 
 TEST(SocketTest, CreateUdpSocket) {
-    Socket sock(AF_INET, SOCK_DGRAM);
+    Socket sock = must_open(AF_INET, SOCK_DGRAM);
     EXPECT_GE(sock.native_handle(), 0);
     EXPECT_FALSE(sock.is_closed());
 }
 
 TEST(SocketTest, MoveAssignmentClosesOld) {
-    Socket sock(AF_INET, SOCK_STREAM);
+    Socket sock = must_open(AF_INET, SOCK_STREAM);
     int old_fd = sock.native_handle();
-    Socket other(AF_INET, SOCK_DGRAM);
+    Socket other = must_open(AF_INET, SOCK_DGRAM);
     sock = std::move(other);
     // old_fd should be closed by the move assignment
     EXPECT_NE(sock.native_handle(), old_fd);
@@ -64,12 +86,12 @@ TEST(SocketTest, TcpEchoOnLoopback) {
     ASSERT_TRUE(loopback.has_value());
 
     // Server: create, bind, listen.
-    Socket server(AF_INET, SOCK_STREAM);
+    Socket server = must_open(AF_INET, SOCK_STREAM);
     server.set_reuseaddr(true).value();
     auto server_addr = SocketAddr::from_inet(*loopback, 0);
     ASSERT_TRUE(server_addr.has_value());
     server.bind(*server_addr).value();
-    server.listen(1);
+    ASSERT_TRUE(server.listen(1));
 
     // Retrieve the actual port assigned by the kernel.
     auto server_sockname = server.get_sockname();
@@ -81,8 +103,8 @@ TEST(SocketTest, TcpEchoOnLoopback) {
     auto client_target = SocketAddr::from_inet(*loopback, server_port);
     ASSERT_TRUE(client_target.has_value());
 
-    Socket client(AF_INET, SOCK_STREAM);
-    auto connect_result = client.connect(*client_target);
+    Socket client = must_open(AF_INET, SOCK_STREAM);
+    auto connect_result = client.connect(*client_target, test_deadline(), {});
     ASSERT_TRUE(connect_result.has_value()) << "connect failed";
 
     // Server: accept the connection.
@@ -94,15 +116,16 @@ TEST(SocketTest, TcpEchoOnLoopback) {
 
     // Send data from client to server.
     const std::string message = "Hello, socket!";
-    auto sent =
-        client.send(std::span<const std::byte>{reinterpret_cast<const std::byte*>(message.data()), message.size()});
-    EXPECT_EQ(sent, static_cast<ssize_t>(message.size()));
+    auto sent = client.send_some(std::as_bytes(std::span{message}));
+    ASSERT_TRUE(sent) << sent.error();
+    EXPECT_EQ(*sent, message.size());
 
-    // Receive on server side.
+    // Receive on server side. The accepted socket stays blocking.
     std::array<std::byte, 64> recv_buf{};
-    auto received = accepted->recv(std::span<std::byte>{recv_buf});
-    EXPECT_EQ(received, static_cast<ssize_t>(message.size()));
-    EXPECT_EQ(std::string(reinterpret_cast<const char*>(recv_buf.data()), static_cast<size_t>(received)), message);
+    auto received = accepted->recv_some(std::span{recv_buf});
+    ASSERT_TRUE(received) << received.error();
+    EXPECT_EQ(*received, message.size());
+    EXPECT_EQ(std::string(reinterpret_cast<const char*>(recv_buf.data()), *received), message);
 }
 
 TEST(SocketTest, TcpConnectRefused) {
@@ -110,17 +133,16 @@ TEST(SocketTest, TcpConnectRefused) {
     auto loopback = InetAddress::parse("127.0.0.1");
     ASSERT_TRUE(loopback.has_value());
 
-    Socket sock(AF_INET, SOCK_STREAM);
+    Socket sock = must_open(AF_INET, SOCK_STREAM);
     sock.set_nonblocking(true).value();
     auto target = SocketAddr::from_inet(*loopback, 1);
     ASSERT_TRUE(target.has_value());
 
-    auto result = sock.connect(*target, 0);
+    auto result = sock.connect(*target, test_deadline(), {});
     ASSERT_FALSE(result.has_value());
-    // On Linux a connection to a closed port is immediately refused; on FreeBSD
-    // the non-blocking connect returns EINPROGRESS and poll() with timeout 0 may
-    // time out before the RST arrives.  Both outcomes are valid.
-    EXPECT_TRUE(result.error() == ConnectError::REFUSED || result.error() == ConnectError::TIMED_OUT);
+    // A future deadline lets connect() run. Linux reports ECONNREFUSED for a
+    // closed port; a platform that surfaces the RST late may report ETIMEDOUT.
+    EXPECT_TRUE(result.error() == ECONNREFUSED || result.error() == ETIMEDOUT);
 }
 
 // ===========================================================================
@@ -128,7 +150,7 @@ TEST(SocketTest, TcpConnectRefused) {
 // ===========================================================================
 
 TEST(SocketTest, NonBlockingFlag) {
-    Socket sock(AF_INET, SOCK_STREAM);
+    Socket sock = must_open(AF_INET, SOCK_STREAM);
     sock.set_nonblocking(true).value();
 
     // Try connect to an unused port; should fail immediately with EINPROGRESS
@@ -138,7 +160,7 @@ TEST(SocketTest, NonBlockingFlag) {
     auto target = SocketAddr::from_inet(*loopback, 9999);
     ASSERT_TRUE(target.has_value());
 
-    auto result = sock.connect(*target, 0);
+    auto result = sock.connect(*target, test_deadline(), {});
     EXPECT_FALSE(result.has_value());  // Refused or InProgress
 }
 
@@ -148,8 +170,8 @@ TEST(SocketTest, NonBlockingFlag) {
 
 TEST(SocketTest, UdpSendRecvOnLoopback) {
     // Create a pair of UDP sockets on loopback.
-    Socket server(AF_INET, SOCK_DGRAM);
-    Socket client(AF_INET, SOCK_DGRAM);
+    Socket server = must_open(AF_INET, SOCK_DGRAM);
+    Socket client = must_open(AF_INET, SOCK_DGRAM);
 
     auto loopback = InetAddress::parse("127.0.0.1");
     ASSERT_TRUE(loopback.has_value());
@@ -166,16 +188,17 @@ TEST(SocketTest, UdpSendRecvOnLoopback) {
     ASSERT_TRUE(target.has_value());
 
     const std::string message = "UDP test";
-    auto sent = client.send_to(
-        std::span<const std::byte>{reinterpret_cast<const std::byte*>(message.data()), message.size()}, *target);
-    EXPECT_EQ(sent, static_cast<ssize_t>(message.size()));
+    auto sent = client.send_to(std::as_bytes(std::span{message}), *target);
+    ASSERT_TRUE(sent) << sent.error();
+    EXPECT_EQ(*sent, message.size());
 
     // Receive on server.
     std::array<std::byte, 64> recv_buf{};
     SocketAddr src_addr;
-    auto received = server.recv_from(std::span<std::byte>{recv_buf}, 0, &src_addr);
-    ASSERT_EQ(received, static_cast<ssize_t>(message.size()));
-    EXPECT_EQ(std::string(reinterpret_cast<const char*>(recv_buf.data()), static_cast<size_t>(received)), message);
+    auto received = server.recv_from(std::span{recv_buf}, &src_addr);
+    ASSERT_TRUE(received) << received.error();
+    ASSERT_EQ(*received, message.size());
+    EXPECT_EQ(std::string(reinterpret_cast<const char*>(recv_buf.data()), *received), message);
     EXPECT_EQ(src_addr.family(), AF_INET);
 }
 
@@ -185,13 +208,13 @@ TEST(SocketTest, UdpSendRecvOnLoopback) {
 
 TEST(SocketTest, ShutdownWrite) {
     // shutdown_write() should behave like a half-close.
-    Socket sock(AF_INET, SOCK_STREAM);
+    Socket sock = must_open(AF_INET, SOCK_STREAM);
     sock.shutdown_write();
     EXPECT_FALSE(sock.is_closed());  // shutdown is not close
 }
 
 TEST(SocketTest, ShutdownBoth) {
-    Socket sock(AF_INET, SOCK_STREAM);
+    Socket sock = must_open(AF_INET, SOCK_STREAM);
     sock.shutdown_both();
     EXPECT_FALSE(sock.is_closed());
 }
@@ -201,7 +224,7 @@ TEST(SocketTest, ShutdownBoth) {
 // ===========================================================================
 
 TEST(SocketTest, GetSockname_BeforeBind_ReturnsUnspec) {
-    Socket sock(AF_INET, SOCK_STREAM);
+    Socket sock = must_open(AF_INET, SOCK_STREAM);
     auto name = sock.get_sockname();
     ASSERT_TRUE(name.has_value());
     EXPECT_GE(name->family(), 0);
@@ -212,7 +235,7 @@ TEST(SocketTest, GetSockname_BeforeBind_ReturnsUnspec) {
 // ===========================================================================
 
 TEST(SocketTest, CloseIdempotent) {
-    Socket sock(AF_INET, SOCK_STREAM);
+    Socket sock = must_open(AF_INET, SOCK_STREAM);
     EXPECT_FALSE(sock.is_closed());
 
     sock.close();
@@ -224,7 +247,7 @@ TEST(SocketTest, CloseIdempotent) {
 }
 
 TEST(SocketTest, ShutdownOnClosedSocket) {
-    Socket sock(AF_INET, SOCK_STREAM);
+    Socket sock = must_open(AF_INET, SOCK_STREAM);
     sock.close();
     EXPECT_TRUE(sock.is_closed());
 
@@ -240,14 +263,14 @@ TEST(SocketTest, ShutdownOnClosedSocket) {
 
 TEST(SocketTest, SetNonblockingFalse) {
     // set_nonblocking(false) exercises the "else" branch in the implementation.
-    Socket sock(AF_INET, SOCK_STREAM);
+    Socket sock = must_open(AF_INET, SOCK_STREAM);
     EXPECT_TRUE(sock.set_nonblocking(true).has_value());
     EXPECT_TRUE(sock.set_nonblocking(false).has_value());
 }
 
 TEST(SocketTest, SetSocketOptionsTcp) {
     // Options available on any stream socket.
-    Socket sock(AF_INET, SOCK_STREAM);
+    Socket sock = must_open(AF_INET, SOCK_STREAM);
 
     EXPECT_TRUE(sock.set_keepalive(true).has_value());
     EXPECT_TRUE(sock.set_keepalive(false).has_value());
@@ -260,19 +283,19 @@ TEST(SocketTest, SetSocketOptionsTcp) {
 }
 
 TEST(SocketTest, SetSocketOptionsUdp) {
-    Socket sock(AF_INET, SOCK_DGRAM);
+    Socket sock = must_open(AF_INET, SOCK_DGRAM);
     EXPECT_TRUE(sock.set_broadcast(true).has_value());
     EXPECT_TRUE(sock.set_broadcast(false).has_value());
 }
 
 TEST(SocketTest, SetIpv6Only) {
-    Socket sock(AF_INET6, SOCK_STREAM);
+    Socket sock = must_open(AF_INET6, SOCK_STREAM);
     EXPECT_TRUE(sock.set_ipv6_only(true).has_value());
     EXPECT_TRUE(sock.set_ipv6_only(false).has_value());
 }
 
 TEST(SocketTest, SetReusePort) {
-    Socket sock(AF_INET, SOCK_STREAM);
+    Socket sock = must_open(AF_INET, SOCK_STREAM);
     auto result = sock.set_reuseport(true);
     // SO_REUSEPORT is supported on Linux 3.9+. On other platforms it may
     // return ENOPROTOOPT — either outcome is valid.
@@ -291,12 +314,12 @@ TEST(SocketTest, RecvExactOnStream) {
     auto loopback = InetAddress::parse("127.0.0.1");
     ASSERT_TRUE(loopback.has_value());
 
-    Socket server(AF_INET, SOCK_STREAM);
+    Socket server = must_open(AF_INET, SOCK_STREAM);
     server.set_reuseaddr(true).value();
     auto server_addr = SocketAddr::from_inet(*loopback, 0);
     ASSERT_TRUE(server_addr.has_value());
     server.bind(*server_addr).value();
-    server.listen(1);
+    ASSERT_TRUE(server.listen(1));
 
     auto server_port = server.get_sockname().value().port();
     ASSERT_GT(server_port, 0);
@@ -304,8 +327,8 @@ TEST(SocketTest, RecvExactOnStream) {
     auto client_target = SocketAddr::from_inet(*loopback, server_port);
     ASSERT_TRUE(client_target.has_value());
 
-    Socket client(AF_INET, SOCK_STREAM);
-    ASSERT_TRUE(client.connect(*client_target).has_value());
+    Socket client = must_open(AF_INET, SOCK_STREAM);
+    ASSERT_TRUE(client.connect(*client_target, test_deadline(), {}).has_value());
 
     SocketAddr peer_addr;
     auto accepted = server.accept(&peer_addr);
@@ -313,19 +336,21 @@ TEST(SocketTest, RecvExactOnStream) {
 
     // Send exactly 100 bytes from client.
     std::string payload(100, 'x');
-    auto sent = client.send(std::as_bytes(std::span{payload}));
-    ASSERT_EQ(sent, 100);
+    auto sent = client.send_some(std::as_bytes(std::span{payload}));
+    ASSERT_TRUE(sent) << sent.error();
+    ASSERT_EQ(*sent, 100u);
 
-    // recv_exact should read all 100 bytes in one call.
+    // One recv_some on the blocking accepted socket returns the payload.
     std::array<std::byte, 100> buf{};
-    auto received = accepted->recv_exact(std::span{buf});
-    EXPECT_EQ(received, 100);
+    auto received = accepted->recv_some(std::span{buf});
+    ASSERT_TRUE(received) << received.error();
+    EXPECT_EQ(*received, 100u);
     EXPECT_EQ(std::string(reinterpret_cast<const char*>(buf.data()), 100), payload);
 }
 
 TEST(SocketTest, UdpSendToAndRecvFrom_DefaultOverloads) {
-    Socket server(AF_INET, SOCK_DGRAM);
-    Socket client(AF_INET, SOCK_DGRAM);
+    Socket server = must_open(AF_INET, SOCK_DGRAM);
+    Socket client = must_open(AF_INET, SOCK_DGRAM);
     const auto loopback = InetAddress::parse("127.0.0.1");
     ASSERT_TRUE(loopback);
     const auto bind_addr = SocketAddr::from_inet(*loopback, 0);
@@ -335,20 +360,22 @@ TEST(SocketTest, UdpSendToAndRecvFrom_DefaultOverloads) {
     ASSERT_TRUE(target);
 
     const std::string message = "default overloads";
-    ASSERT_EQ(client.send_to(std::as_bytes(std::span{message}), *target), static_cast<ssize_t>(message.size()));
+    const auto sent = client.send_to(std::as_bytes(std::span{message}), *target);
+    ASSERT_TRUE(sent) << sent.error();
+    ASSERT_EQ(*sent, message.size());
     std::array<std::byte, 32> buffer{};
     SocketAddr sender;
     const auto received = server.recv_from(std::span{buffer}, &sender);
-    ASSERT_EQ(received, static_cast<ssize_t>(message.size()));
+    ASSERT_TRUE(received) << received.error();
+    ASSERT_EQ(*received, message.size());
     EXPECT_EQ(sender.family(), AF_INET);
-    EXPECT_EQ(std::string(reinterpret_cast<const char*>(buffer.data()), static_cast<size_t>(received)), message);
+    EXPECT_EQ(std::string(reinterpret_cast<const char*>(buffer.data()), *received), message);
 }
 
-TEST(SocketTest, RecvExactOnDatagram) {
-    // recv_exact on a DGRAM socket should perform a single recv() call
-    // (not loop), preserving datagram boundaries.
-    Socket server(AF_INET, SOCK_DGRAM);
-    Socket client(AF_INET, SOCK_DGRAM);
+TEST(SocketTest, RecvSomeOnDatagramPreservesBoundary) {
+    // One recv_some returns a single datagram, even when the buffer is larger.
+    Socket server = must_open(AF_INET, SOCK_DGRAM);
+    Socket client = must_open(AF_INET, SOCK_DGRAM);
 
     auto loopback = InetAddress::parse("127.0.0.1");
     ASSERT_TRUE(loopback.has_value());
@@ -365,12 +392,13 @@ TEST(SocketTest, RecvExactOnDatagram) {
 
     std::string payload(32, 'y');
     auto sent = client.send_to(std::as_bytes(std::span{payload}), *target);
-    ASSERT_EQ(sent, 32);
+    ASSERT_TRUE(sent) << sent.error();
+    ASSERT_EQ(*sent, 32u);
 
-    // recv_exact with a larger buffer should still return 32 (datagram boundary).
     std::array<std::byte, 128> buf{};
-    auto received = server.recv_exact(std::span{buf});
-    EXPECT_EQ(received, 32);
+    auto received = server.recv_some(std::span{buf});
+    ASSERT_TRUE(received) << received.error();
+    EXPECT_EQ(*received, 32u);
     EXPECT_EQ(std::string(reinterpret_cast<const char*>(buf.data()), 32), payload);
 }
 
@@ -382,19 +410,32 @@ TEST(SocketTest, WaitForReady) {
     // A fresh UDP socket should be writable immediately.
     // TCP is not used here because on macOS/BSD an unconnected TCP socket
     // may not signal POLLOUT, whereas UDP always does.
-    Socket sock(AF_INET, SOCK_DGRAM);
-    auto result = sock.wait_for(POLLOUT, 0);
-    ASSERT_TRUE(result.has_value()) << "wait_for failed: " << result.error();
-    EXPECT_EQ(*result, 1);
+    Socket sock = must_open(AF_INET, SOCK_DGRAM);
+    auto result = sock.wait_until(POLLOUT, std::chrono::steady_clock::now(), {});
+    ASSERT_TRUE(result.has_value()) << "wait_until failed: " << result.error();
+    EXPECT_NE(*result & POLLOUT, 0);
 }
 
 TEST(SocketTest, WaitForTimeout) {
-    // A TCP socket not yet connected to a server has no data to read —
-    // POLLIN with timeout 0 should return 0 (not ready).
-    Socket sock(AF_INET, SOCK_STREAM);
-    auto result = sock.wait_for(POLLIN, 0);
-    ASSERT_TRUE(result.has_value()) << "wait_for failed: " << result.error();
-    EXPECT_EQ(*result, 0);
+    // An accepted connection with nothing queued is not readable. An
+    // unconnected TCP socket reports POLLHUP immediately, which is readiness,
+    // so the timeout case needs a live peer that stays silent.
+    auto loopback = InetAddress::parse("127.0.0.1");
+    ASSERT_TRUE(loopback);
+    Socket server = must_open(AF_INET, SOCK_STREAM);
+    ASSERT_TRUE(server.bind(*SocketAddr::from_inet(*loopback, 0)));
+    ASSERT_TRUE(server.listen(1));
+    const auto port = server.get_sockname().value().port();
+    Socket client = must_open(AF_INET, SOCK_STREAM);
+    ASSERT_TRUE(client.connect(*SocketAddr::from_inet(*loopback, port), test_deadline(), {}));
+    // The accepted socket must stay open. Destroying it sends FIN, and the
+    // client becomes readable.
+    auto accepted = server.accept();
+    ASSERT_TRUE(accepted);
+
+    auto result = client.wait_until(POLLIN, std::chrono::steady_clock::now(), {});
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error(), ETIMEDOUT);
 }
 
 // ===========================================================================
@@ -405,12 +446,12 @@ TEST(SocketTest, AcceptWithoutAddr) {
     auto loopback = InetAddress::parse("127.0.0.1");
     ASSERT_TRUE(loopback.has_value());
 
-    Socket server(AF_INET, SOCK_STREAM);
+    Socket server = must_open(AF_INET, SOCK_STREAM);
     server.set_reuseaddr(true).value();
     auto addr = SocketAddr::from_inet(*loopback, 0);
     ASSERT_TRUE(addr.has_value());
     server.bind(*addr).value();
-    server.listen(1);
+    ASSERT_TRUE(server.listen(1));
 
     auto port = server.get_sockname().value().port();
     ASSERT_GT(port, 0);
@@ -418,8 +459,8 @@ TEST(SocketTest, AcceptWithoutAddr) {
     auto client_target = SocketAddr::from_inet(*loopback, port);
     ASSERT_TRUE(client_target.has_value());
 
-    Socket client(AF_INET, SOCK_STREAM);
-    ASSERT_TRUE(client.connect(*client_target).has_value());
+    Socket client = must_open(AF_INET, SOCK_STREAM);
+    ASSERT_TRUE(client.connect(*client_target, test_deadline(), {}).has_value());
 
     // accept(nullptr) should succeed and not provide peer address.
     auto accepted = server.accept(nullptr);
@@ -435,12 +476,12 @@ TEST(SocketTest, GetPeerNameAfterConnect) {
     auto loopback = InetAddress::parse("127.0.0.1");
     ASSERT_TRUE(loopback.has_value());
 
-    Socket server(AF_INET, SOCK_STREAM);
+    Socket server = must_open(AF_INET, SOCK_STREAM);
     server.set_reuseaddr(true).value();
     auto addr = SocketAddr::from_inet(*loopback, 0);
     ASSERT_TRUE(addr.has_value());
     server.bind(*addr).value();
-    server.listen(1);
+    ASSERT_TRUE(server.listen(1));
 
     auto port = server.get_sockname().value().port();
     ASSERT_GT(port, 0);
@@ -448,8 +489,8 @@ TEST(SocketTest, GetPeerNameAfterConnect) {
     auto client_target = SocketAddr::from_inet(*loopback, port);
     ASSERT_TRUE(client_target.has_value());
 
-    Socket client(AF_INET, SOCK_STREAM);
-    ASSERT_TRUE(client.connect(*client_target).has_value());
+    Socket client = must_open(AF_INET, SOCK_STREAM);
+    ASSERT_TRUE(client.connect(*client_target, test_deadline(), {}).has_value());
 
     // After connect, get_peername should return the server's address.
     auto peername = client.get_peername();
@@ -462,47 +503,44 @@ TEST(SocketTest, GetPeerNameAfterConnect) {
 // send/recv with explicit flags
 // ===========================================================================
 
-TEST(SocketTest, SendMsgAndRecvMsg) {
+TEST(SocketTest, SendSomeAndRecvSome) {
     auto loopback = InetAddress::parse("127.0.0.1");
     ASSERT_TRUE(loopback);
-    Socket server(AF_INET, SOCK_STREAM);
+    Socket server = must_open(AF_INET, SOCK_STREAM);
     const auto bind_addr = SocketAddr::from_inet(*loopback, 0);
     ASSERT_TRUE(bind_addr);
     ASSERT_TRUE(server.bind(*bind_addr));
-    server.listen(1);
+    ASSERT_TRUE(server.listen(1));
     const auto target = SocketAddr::from_inet(*loopback, server.get_sockname().value().port());
     ASSERT_TRUE(target);
 
-    Socket client(AF_INET, SOCK_STREAM);
-    ASSERT_TRUE(client.connect(*target));
-    Socket accepted = *server.accept();
+    Socket client = must_open(AF_INET, SOCK_STREAM);
+    ASSERT_TRUE(client.connect(*target, test_deadline(), {}));
+    auto accepted = server.accept();
+    ASSERT_TRUE(accepted);
 
-    std::array<char, 2> first{'o', 'k'};
-    iovec send_iov{.iov_base = first.data(), .iov_len = first.size()};
-    msghdr send_msg{};
-    send_msg.msg_iov = &send_iov;
-    send_msg.msg_iovlen = 1;
-    ASSERT_EQ(client.sendmsg(&send_msg, 0), 2);
+    const std::string payload = "ok";
+    const auto sent = client.send_some(std::as_bytes(std::span{payload}));
+    ASSERT_TRUE(sent) << sent.error();
+    ASSERT_EQ(*sent, 2u);
 
-    std::array<char, 2> received{};
-    iovec recv_iov{.iov_base = received.data(), .iov_len = received.size()};
-    msghdr recv_msg{};
-    recv_msg.msg_iov = &recv_iov;
-    recv_msg.msg_iovlen = 1;
-    ASSERT_EQ(accepted.recvmsg(&recv_msg, 0), 2);
-    EXPECT_EQ(std::string_view(received.data(), received.size()), "ok");
+    std::array<std::byte, 2> received{};
+    const auto n = accepted->recv_some(std::span{received});
+    ASSERT_TRUE(n) << n.error();
+    ASSERT_EQ(*n, 2u);
+    EXPECT_EQ(std::string(reinterpret_cast<const char*>(received.data()), *n), payload);
 }
 
 TEST(SocketTest, SendRecvWithFlags) {
     auto loopback = InetAddress::parse("127.0.0.1");
     ASSERT_TRUE(loopback.has_value());
 
-    Socket server(AF_INET, SOCK_STREAM);
+    Socket server = must_open(AF_INET, SOCK_STREAM);
     server.set_reuseaddr(true).value();
     auto addr = SocketAddr::from_inet(*loopback, 0);
     ASSERT_TRUE(addr.has_value());
     server.bind(*addr).value();
-    server.listen(1);
+    ASSERT_TRUE(server.listen(1));
 
     auto port = server.get_sockname().value().port();
     ASSERT_GT(port, 0);
@@ -510,20 +548,20 @@ TEST(SocketTest, SendRecvWithFlags) {
     auto client_target = SocketAddr::from_inet(*loopback, port);
     ASSERT_TRUE(client_target.has_value());
 
-    Socket client(AF_INET, SOCK_STREAM);
-    ASSERT_TRUE(client.connect(*client_target).has_value());
+    Socket client = must_open(AF_INET, SOCK_STREAM);
+    ASSERT_TRUE(client.connect(*client_target, test_deadline(), {}).has_value());
 
     Socket accepted = *server.accept();
 
-    // Use send() overload with explicit flags.
     const std::string msg = "flags test";
-    auto sent = client.send(std::as_bytes(std::span{msg}), 0);
-    ASSERT_EQ(sent, static_cast<ssize_t>(msg.size()));
+    auto sent = client.send_some(std::as_bytes(std::span{msg}), 0);
+    ASSERT_TRUE(sent) << sent.error();
+    ASSERT_EQ(*sent, msg.size());
 
-    // recv() with explicit flags.
     std::array<std::byte, 32> buf{};
-    auto received = accepted.recv(std::span{buf}, 0);
-    EXPECT_EQ(received, static_cast<ssize_t>(msg.size()));
+    auto received = accepted.recv_some(std::span{buf}, 0);
+    ASSERT_TRUE(received) << received.error();
+    EXPECT_EQ(*received, msg.size());
     EXPECT_EQ(std::string(reinterpret_cast<const char*>(buf.data()), msg.size()), msg);
 }
 
@@ -531,13 +569,14 @@ TEST(SocketTest, SendRecvWithFlags) {
 // Error paths — construction, close, bind/connect/listen/accept failures
 // ===========================================================================
 
-TEST(SocketTest, CreateSocket_InvalidProtocol_Throws) {
-    // socket(2) fails (EINVAL) for an unknown protocol → SocketException.
-    EXPECT_THROW(Socket(AF_INET, SOCK_STREAM, 0xFFFFFF), SocketException);
+TEST(SocketTest, Open_InvalidProtocol_ReturnsErrno) {
+    auto opened = Socket::open(AF_INET, SOCK_STREAM, 0xFFFFFF);
+    ASSERT_FALSE(opened.has_value());
+    EXPECT_EQ(opened.error(), EINVAL);
 }
 
 TEST(SocketTest, SelfMoveAssignment_IsNoOp) {  // NOLINT(bugprone-use-after-move)
-    Socket sock(AF_INET, SOCK_STREAM);
+    Socket sock = must_open(AF_INET, SOCK_STREAM);
     const int fd = sock.native_handle();
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wself-move"
@@ -548,7 +587,7 @@ TEST(SocketTest, SelfMoveAssignment_IsNoOp) {  // NOLINT(bugprone-use-after-move
 }
 
 TEST(SocketTest, SetOption_OnClosedSocket_ReturnsError) {
-    Socket sock(AF_INET, SOCK_STREAM);
+    Socket sock = must_open(AF_INET, SOCK_STREAM);
     sock.close();
     auto res = sock.set_reuseaddr(true);
     ASSERT_FALSE(res.has_value());
@@ -556,7 +595,7 @@ TEST(SocketTest, SetOption_OnClosedSocket_ReturnsError) {
 }
 
 TEST(SocketTest, SetNonblocking_OnClosedSocket_ReturnsError) {
-    Socket sock(AF_INET, SOCK_STREAM);
+    Socket sock = must_open(AF_INET, SOCK_STREAM);
     sock.close();
     auto res = sock.set_nonblocking(true);
     ASSERT_FALSE(res.has_value());
@@ -564,7 +603,7 @@ TEST(SocketTest, SetNonblocking_OnClosedSocket_ReturnsError) {
 }
 
 TEST(SocketTest, SetReusePort_Disable) {
-    Socket sock(AF_INET, SOCK_STREAM);
+    Socket sock = must_open(AF_INET, SOCK_STREAM);
     auto res = sock.set_reuseport(false);
     // SO_REUSEPORT is supported on Linux 3.9+. On other platforms it may
     // return ENOPROTOOPT — either outcome is valid.
@@ -577,7 +616,7 @@ TEST(SocketTest, Bind_TwiceSamePort_ReturnsError) {
     auto loopback = InetAddress::parse("127.0.0.1");
     ASSERT_TRUE(loopback.has_value());
 
-    Socket first(AF_INET, SOCK_STREAM);
+    Socket first = must_open(AF_INET, SOCK_STREAM);
     auto addr = SocketAddr::from_inet(*loopback, 0);
     ASSERT_TRUE(addr.has_value());
     first.bind(*addr).value();
@@ -587,7 +626,7 @@ TEST(SocketTest, Bind_TwiceSamePort_ReturnsError) {
     // Second bind to the same port without SO_REUSEADDR → EADDRINUSE.
     auto target = SocketAddr::from_inet(*loopback, port);
     ASSERT_TRUE(target.has_value());
-    Socket second(AF_INET, SOCK_STREAM);
+    Socket second = must_open(AF_INET, SOCK_STREAM);
     auto res = second.bind(*target);
     ASSERT_FALSE(res.has_value());
     EXPECT_EQ(res.error(), EADDRINUSE);
@@ -599,7 +638,7 @@ TEST(SocketTest, Bind_OnClosedSocket_ReturnsError) {
     auto addr = SocketAddr::from_inet(*loopback, 0);
     ASSERT_TRUE(addr.has_value());
 
-    Socket sock(AF_INET, SOCK_STREAM);
+    Socket sock = must_open(AF_INET, SOCK_STREAM);
     sock.close();
     auto res = sock.bind(*addr);
     ASSERT_FALSE(res.has_value());
@@ -607,7 +646,7 @@ TEST(SocketTest, Bind_OnClosedSocket_ReturnsError) {
 }
 
 TEST(SocketTest, GetSockname_OnClosedSocket_ReturnsError) {
-    Socket sock(AF_INET, SOCK_STREAM);
+    Socket sock = must_open(AF_INET, SOCK_STREAM);
     sock.close();
     auto res = sock.get_sockname();
     ASSERT_FALSE(res.has_value());
@@ -615,7 +654,7 @@ TEST(SocketTest, GetSockname_OnClosedSocket_ReturnsError) {
 }
 
 TEST(SocketTest, GetPeername_Unconnected_ReturnsError) {
-    Socket sock(AF_INET, SOCK_STREAM);
+    Socket sock = must_open(AF_INET, SOCK_STREAM);
     auto res = sock.get_peername();  // ENOTCONN
     ASSERT_FALSE(res.has_value());
     EXPECT_EQ(res.error(), ENOTCONN);
@@ -625,26 +664,25 @@ TEST(SocketTest, BlockingConnect_Refused) {
     auto loopback = InetAddress::parse("127.0.0.1");
     ASSERT_TRUE(loopback.has_value());
 
-    Socket sock(AF_INET, SOCK_STREAM);
+    Socket sock = must_open(AF_INET, SOCK_STREAM);
     auto target = SocketAddr::from_inet(*loopback, 1);  // nothing listening
     ASSERT_TRUE(target.has_value());
-    auto res = sock.connect(*target);  // blocking connect
+    auto res = sock.connect(*target, test_deadline(), {});
     ASSERT_FALSE(res.has_value());
-    EXPECT_EQ(res.error(), ConnectError::REFUSED);
+    EXPECT_EQ(res.error(), ECONNREFUSED);
 }
 
 TEST(SocketTest, Connect_OnClosedSocket_ReturnsInternal) {
     auto loopback = InetAddress::parse("127.0.0.1");
     ASSERT_TRUE(loopback.has_value());
 
-    Socket sock(AF_INET, SOCK_STREAM);
+    Socket sock = must_open(AF_INET, SOCK_STREAM);
     sock.close();
     auto target = SocketAddr::from_inet(*loopback, 1);
     ASSERT_TRUE(target.has_value());
-    // Timed connect path: fcntl(F_GETFL) fails on the closed fd → INTERNAL.
-    auto res = sock.connect(*target, 5);
+    auto res = sock.connect(*target, test_deadline(), {});
     ASSERT_FALSE(res.has_value());
-    EXPECT_EQ(res.error(), ConnectError::INTERNAL);
+    EXPECT_EQ(res.error(), EBADF);
 }
 
 TEST(SocketTest, Connect_UdpNonBlocking_ImmediateSuccess) {
@@ -653,20 +691,22 @@ TEST(SocketTest, Connect_UdpNonBlocking_ImmediateSuccess) {
     auto loopback = InetAddress::parse("127.0.0.1");
     ASSERT_TRUE(loopback.has_value());
 
-    Socket udp(AF_INET, SOCK_DGRAM);
+    Socket udp = must_open(AF_INET, SOCK_DGRAM);
     auto target = SocketAddr::from_inet(*loopback, 9);  // no listener needed for UDP
     ASSERT_TRUE(target.has_value());
-    auto res = udp.connect(*target, 5);
+    auto res = udp.connect(*target, test_deadline(), {});
     EXPECT_TRUE(res.has_value());
 }
 
-TEST(SocketTest, Listen_OnDatagramSocket_Throws) {
-    Socket sock(AF_INET, SOCK_DGRAM);
-    EXPECT_THROW(sock.listen(1), SocketException);  // EOPNOTSUPP
+TEST(SocketTest, Listen_OnDatagramSocket_ReturnsError) {
+    Socket sock = must_open(AF_INET, SOCK_DGRAM);
+    auto res = sock.listen(1);
+    ASSERT_FALSE(res.has_value());
+    EXPECT_EQ(res.error(), EOPNOTSUPP);
 }
 
 TEST(SocketTest, Accept_OnUnlisteningSocket_ReturnsError) {
-    Socket sock(AF_INET, SOCK_STREAM);
+    Socket sock = must_open(AF_INET, SOCK_STREAM);
     auto res = sock.accept();
     ASSERT_FALSE(res.has_value());  // EINVAL — not listening
 }
@@ -680,12 +720,12 @@ TEST(SocketTest, SendToClosedPeer_ReturnsMinusOne) {
     auto loopback = InetAddress::parse("127.0.0.1");
     ASSERT_TRUE(loopback.has_value());
 
-    Socket server(AF_INET, SOCK_STREAM);
+    Socket server = must_open(AF_INET, SOCK_STREAM);
     server.set_reuseaddr(true).value();
     auto addr = SocketAddr::from_inet(*loopback, 0);
     ASSERT_TRUE(addr.has_value());
     server.bind(*addr).value();
-    server.listen(1);
+    ASSERT_TRUE(server.listen(1));
 
     auto port = server.get_sockname().value().port();
     ASSERT_GT(port, 0);
@@ -693,22 +733,35 @@ TEST(SocketTest, SendToClosedPeer_ReturnsMinusOne) {
     auto client_target = SocketAddr::from_inet(*loopback, port);
     ASSERT_TRUE(client_target.has_value());
 
-    Socket client(AF_INET, SOCK_STREAM);
-    ASSERT_TRUE(client.connect(*client_target).has_value());
+    Socket client = must_open(AF_INET, SOCK_STREAM);
+    ASSERT_TRUE(client.connect(*client_target, test_deadline(), {}).has_value());
     Socket accepted = *server.accept();
 
     // Close the peer (FIN, then RST on loopback).
     accepted.shutdown_both();
     accepted.close();
 
-    // TCP buffers may absorb the first writes — keep sending a large payload
-    // until the kernel reports the dead connection (EPIPE/ECONNRESET).
+    // connect() leaves the client non-blocking, so a full window is EAGAIN.
+    // Keep writing until the kernel reports the dead connection.
     std::string payload(64 * 1024, 'x');
-    ssize_t last = 0;
-    for (int i = 0; i < 256 && last >= 0; ++i) {
-        last = client.send(std::as_bytes(std::span{payload}));
+    bool saw_error = false;
+    for (int i = 0; i < 256 && !saw_error; ++i) {
+        auto sent = client.send_some(std::as_bytes(std::span{payload}));
+        if (sent) {
+            continue;
+        }
+        if (sent.error() == EAGAIN || sent.error() == EWOULDBLOCK || sent.error() == EINTR) {
+            auto ready = client.wait_until(POLLOUT, test_deadline(200ms), {});
+            if (!ready && ready.error() != ETIMEDOUT && ready.error() != EAGAIN) {
+                saw_error = ready.error() == EPIPE || ready.error() == ECONNRESET || ready.error() == ECONNABORTED;
+            }
+            continue;
+        }
+        EXPECT_TRUE(sent.error() == EPIPE || sent.error() == ECONNRESET || sent.error() == ECONNABORTED)
+            << sent.error();
+        saw_error = true;
     }
-    EXPECT_LT(last, 0);
+    EXPECT_TRUE(saw_error);
 }
 
 TEST(SocketTest, RecvExact_NonBlockingNoData_ReturnsMinusOne) {
@@ -717,12 +770,12 @@ TEST(SocketTest, RecvExact_NonBlockingNoData_ReturnsMinusOne) {
     auto loopback = InetAddress::parse("127.0.0.1");
     ASSERT_TRUE(loopback.has_value());
 
-    Socket server(AF_INET, SOCK_STREAM);
+    Socket server = must_open(AF_INET, SOCK_STREAM);
     server.set_reuseaddr(true).value();
     auto addr = SocketAddr::from_inet(*loopback, 0);
     ASSERT_TRUE(addr.has_value());
     server.bind(*addr).value();
-    server.listen(1);
+    ASSERT_TRUE(server.listen(1));
 
     auto port = server.get_sockname().value().port();
     ASSERT_GT(port, 0);
@@ -730,13 +783,15 @@ TEST(SocketTest, RecvExact_NonBlockingNoData_ReturnsMinusOne) {
     auto client_target = SocketAddr::from_inet(*loopback, port);
     ASSERT_TRUE(client_target.has_value());
 
-    Socket client(AF_INET, SOCK_STREAM);
-    ASSERT_TRUE(client.connect(*client_target).has_value());
+    Socket client = must_open(AF_INET, SOCK_STREAM);
+    ASSERT_TRUE(client.connect(*client_target, test_deadline(), {}).has_value());
     Socket accepted = *server.accept();  // keep the peer open, send nothing
 
     client.set_nonblocking(true).value();
     std::array<std::byte, 16> buf{};
-    EXPECT_EQ(client.recv_exact(std::span{buf}), -1);
+    auto received = client.recv_some(std::span{buf});
+    ASSERT_FALSE(received.has_value());
+    EXPECT_TRUE(received.error() == EAGAIN || received.error() == EWOULDBLOCK);
 }
 
 TEST(SocketTest, RecvExact_PeerShutdown_ReturnsShortCount) {
@@ -745,12 +800,12 @@ TEST(SocketTest, RecvExact_PeerShutdown_ReturnsShortCount) {
     auto loopback = InetAddress::parse("127.0.0.1");
     ASSERT_TRUE(loopback.has_value());
 
-    Socket server(AF_INET, SOCK_STREAM);
+    Socket server = must_open(AF_INET, SOCK_STREAM);
     server.set_reuseaddr(true).value();
     auto addr = SocketAddr::from_inet(*loopback, 0);
     ASSERT_TRUE(addr.has_value());
     server.bind(*addr).value();
-    server.listen(1);
+    ASSERT_TRUE(server.listen(1));
 
     auto port = server.get_sockname().value().port();
     ASSERT_GT(port, 0);
@@ -758,16 +813,26 @@ TEST(SocketTest, RecvExact_PeerShutdown_ReturnsShortCount) {
     auto client_target = SocketAddr::from_inet(*loopback, port);
     ASSERT_TRUE(client_target.has_value());
 
-    Socket client(AF_INET, SOCK_STREAM);
-    ASSERT_TRUE(client.connect(*client_target).has_value());
+    Socket client = must_open(AF_INET, SOCK_STREAM);
+    ASSERT_TRUE(client.connect(*client_target, test_deadline(), {}).has_value());
     Socket accepted = *server.accept();
 
     const std::string msg = "0123456789";  // 10 bytes
-    ASSERT_EQ(accepted.send(std::as_bytes(std::span{msg})), static_cast<ssize_t>(msg.size()));
+    auto sent = accepted.send_some(std::as_bytes(std::span{msg}));
+    ASSERT_TRUE(sent) << sent.error();
+    ASSERT_EQ(*sent, msg.size());
     accepted.shutdown_write();  // EOF after the payload
 
+    ASSERT_TRUE(client.wait_until(POLLIN, test_deadline(), {}));
     std::array<std::byte, 100> buf{};
-    EXPECT_EQ(client.recv_exact(std::span{buf}), static_cast<ssize_t>(msg.size()));
+    auto received = client.recv_some(std::span{buf});
+    ASSERT_TRUE(received) << received.error();
+    EXPECT_EQ(*received, msg.size());
+
+    ASSERT_TRUE(client.wait_until(POLLIN, test_deadline(), {}));
+    auto eof = client.recv_some(std::span{buf});
+    ASSERT_TRUE(eof) << eof.error();
+    EXPECT_EQ(*eof, 0u);
 }
 
 // ===========================================================================
@@ -775,27 +840,131 @@ TEST(SocketTest, RecvExact_PeerShutdown_ReturnsShortCount) {
 // ===========================================================================
 
 TEST(SocketTest, WaitFor_OnClosedSocket_ReturnsNotReady) {
-    Socket sock(AF_INET, SOCK_STREAM);
+    Socket sock = must_open(AF_INET, SOCK_STREAM);
     sock.close();
-    // poll(2) silently ignores entries with fd == -1 → treated as not ready.
-    auto res = sock.wait_for(POLLIN, 0);
-    ASSERT_TRUE(res.has_value());
-    EXPECT_EQ(*res, 0);
+    auto res = sock.wait_until(POLLIN, std::chrono::steady_clock::now(), {});
+    ASSERT_FALSE(res.has_value());
+    EXPECT_EQ(res.error(), EBADF);
 }
 
 TEST(SocketTest, WaitFor_WithTokenNotCancelled_ReturnsReady) {
     Utils::CancellationSource source;
-    Socket sock(AF_INET, SOCK_DGRAM);
-    auto res = sock.wait_for(POLLOUT, 0, source.token());
+    Socket sock = must_open(AF_INET, SOCK_DGRAM);
+    auto res = sock.wait_until(POLLOUT, std::chrono::steady_clock::now(), source.token());
     ASSERT_TRUE(res.has_value());
-    EXPECT_EQ(*res, 1);
+    EXPECT_NE(*res & POLLOUT, 0);
 }
 
 TEST(SocketTest, WaitFor_Cancelled_ReturnsECANCELED) {
     Utils::CancellationSource source;
-    Socket sock(AF_INET, SOCK_STREAM);  // no data pending
+    Socket sock = must_open(AF_INET, SOCK_STREAM);  // no data pending
     source.trigger();
-    auto res = sock.wait_for(POLLIN, 1000, source.token());
+    auto res = sock.wait_until(POLLIN, test_deadline(), source.token());
     ASSERT_FALSE(res.has_value());
     EXPECT_EQ(res.error(), ECANCELED);
+}
+
+TEST(SocketTest, WaitUntil_CancelDuringWait_ReturnsECANCELED) {
+    auto loopback = InetAddress::parse("127.0.0.1");
+    ASSERT_TRUE(loopback);
+    Socket server = must_open(AF_INET, SOCK_STREAM);
+    ASSERT_TRUE(server.bind(*SocketAddr::from_inet(*loopback, 0)));
+    ASSERT_TRUE(server.listen(1));
+    const auto port = server.get_sockname().value().port();
+    Socket client = must_open(AF_INET, SOCK_STREAM);
+    ASSERT_TRUE(client.connect(*SocketAddr::from_inet(*loopback, port), test_deadline(), {}));
+    auto accepted = server.accept();
+    ASSERT_TRUE(accepted);
+
+    Utils::CancellationSource source;
+    std::thread canceller([&source] {
+        std::this_thread::sleep_for(50ms);
+        source.trigger();
+    });
+    const auto start = std::chrono::steady_clock::now();
+    auto res = client.wait_until(POLLIN, test_deadline(), source.token());
+    const auto elapsed = std::chrono::steady_clock::now() - start;
+    canceller.join();
+    ASSERT_FALSE(res.has_value());
+    EXPECT_EQ(res.error(), ECANCELED);
+    EXPECT_LT(elapsed, 1s);
+}
+
+TEST(SocketTest, OpenAndAccept_SetCloexec) {
+    Socket server = must_open(AF_INET, SOCK_STREAM);
+    const int server_flags = ::fcntl(server.native_handle(), F_GETFD);
+    ASSERT_GE(server_flags, 0);
+    EXPECT_NE(server_flags & FD_CLOEXEC, 0);
+
+    auto loopback = InetAddress::parse("127.0.0.1");
+    ASSERT_TRUE(loopback);
+    ASSERT_TRUE(server.bind(*SocketAddr::from_inet(*loopback, 0)));
+    ASSERT_TRUE(server.listen(1));
+    const auto port = server.get_sockname().value().port();
+    Socket client = must_open(AF_INET, SOCK_STREAM);
+    ASSERT_TRUE(client.connect(*SocketAddr::from_inet(*loopback, port), test_deadline(), {}));
+    auto accepted = server.accept();
+    ASSERT_TRUE(accepted);
+    const int accepted_flags = ::fcntl(accepted->native_handle(), F_GETFD);
+    ASSERT_GE(accepted_flags, 0);
+    EXPECT_NE(accepted_flags & FD_CLOEXEC, 0);
+}
+
+TEST(SocketTest, MoveLeavesSourceClosed) {
+    Socket original = must_open(AF_INET, SOCK_STREAM);
+    const int fd = original.native_handle();
+    Socket moved = std::move(original);
+    EXPECT_TRUE(original.is_closed());  // NOLINT(bugprone-use-after-move)
+    EXPECT_EQ(moved.native_handle(), fd);
+    moved.close();
+    EXPECT_TRUE(moved.is_closed());
+    moved.close();
+    EXPECT_TRUE(moved.is_closed());
+}
+
+TEST(SocketTest, UdpEmptyDatagramIsSuccess) {
+    Socket server = must_open(AF_INET, SOCK_DGRAM);
+    Socket client = must_open(AF_INET, SOCK_DGRAM);
+    auto loopback = InetAddress::parse("127.0.0.1");
+    ASSERT_TRUE(loopback);
+    ASSERT_TRUE(server.bind(*SocketAddr::from_inet(*loopback, 0)));
+    const auto port = server.get_sockname().value().port();
+    const auto target = SocketAddr::from_inet(*loopback, port);
+    ASSERT_TRUE(target);
+    auto sent = client.send_to({}, *target);
+    ASSERT_TRUE(sent) << sent.error();
+    EXPECT_EQ(*sent, 0u);
+
+    std::array<std::byte, 8> buf{};
+    SocketAddr src;
+    auto received = server.recv_from(std::span{buf}, &src);
+    ASSERT_TRUE(received) << received.error();
+    EXPECT_EQ(*received, 0u);
+    EXPECT_EQ(src.port(), client.get_sockname().value().port());
+}
+
+TEST(SocketTest, WaitUntil_ReadableWithHangup_KeepsPollin) {
+    auto loopback = InetAddress::parse("127.0.0.1");
+    ASSERT_TRUE(loopback);
+    Socket server = must_open(AF_INET, SOCK_STREAM);
+    ASSERT_TRUE(server.bind(*SocketAddr::from_inet(*loopback, 0)));
+    ASSERT_TRUE(server.listen(1));
+    const auto port = server.get_sockname().value().port();
+    Socket client = must_open(AF_INET, SOCK_STREAM);
+    ASSERT_TRUE(client.connect(*SocketAddr::from_inet(*loopback, port), test_deadline(), {}));
+    auto accepted = server.accept();
+    ASSERT_TRUE(accepted);
+
+    const std::string msg = "z";
+    ASSERT_TRUE(accepted->send_some(std::as_bytes(std::span{msg})));
+    accepted->shutdown_write();
+
+    auto ready = client.wait_until(POLLIN, test_deadline(), {});
+    ASSERT_TRUE(ready) << ready.error();
+    EXPECT_NE(*ready & POLLIN, 0);
+
+    std::array<std::byte, 4> buf{};
+    auto received = client.recv_some(std::span{buf});
+    ASSERT_TRUE(received) << received.error();
+    EXPECT_EQ(*received, 1u);
 }

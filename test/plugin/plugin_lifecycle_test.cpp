@@ -38,7 +38,7 @@
 
 namespace {
 
-constexpr std::string_view kPluginPath = TEST_PLUGIN_PATH;
+constexpr std::string_view PLUGIN_PATH = TEST_PLUGIN_PATH;
 
 using ControlSetFailures = void (*)(int);
 using ControlResetState = void (*)();
@@ -56,7 +56,7 @@ struct PluginControl {
 
 [[nodiscard]] PluginControl resolve_control() {
     PluginControl control;
-    auto library = SharedLibrary::open(std::string(kPluginPath));
+    auto library = SharedLibrary::open(std::string(PLUGIN_PATH));
     EXPECT_TRUE(library.has_value()) << library.error();
     if (!library) {
         return control;
@@ -73,7 +73,7 @@ struct PluginControl {
 }  // namespace
 
 TEST(PluginLifecycle, DescriptorIsCopiedIntoHostStorage) {
-    auto module = PluginModule::load(std::string(kPluginPath));
+    auto module = PluginModule::load(std::string(PLUGIN_PATH));
     ASSERT_TRUE(module.has_value()) << module.error().message;
 
     const auto& descriptor = module->descriptor();
@@ -87,7 +87,7 @@ TEST(PluginLifecycle, DescriptorIsCopiedIntoHostStorage) {
 }
 
 TEST(PluginLifecycle, CreateUpdateDestroyOrdering) {
-    auto module = PluginModule::load(std::string(kPluginPath));
+    auto module = PluginModule::load(std::string(PLUGIN_PATH));
     ASSERT_TRUE(module.has_value()) << module.error().message;
     auto control = resolve_control();
     ASSERT_NE(control.reset_state, nullptr);
@@ -111,7 +111,7 @@ TEST(PluginLifecycle, CreateUpdateDestroyOrdering) {
 }
 
 TEST(PluginLifecycle, ConcurrentInstancesOfOneModule) {
-    auto module = PluginModule::load(std::string(kPluginPath));
+    auto module = PluginModule::load(std::string(PLUGIN_PATH));
     ASSERT_TRUE(module.has_value()) << module.error().message;
     auto control = resolve_control();
     ASSERT_NE(control.reset_state, nullptr);
@@ -119,10 +119,10 @@ TEST(PluginLifecycle, ConcurrentInstancesOfOneModule) {
     control.reset_state();
 
     // Two instances of the same module may be updated concurrently.
-    constexpr size_t kThreads = 4;
-    std::array<ModuleCycleResult, kThreads> results{};
-    std::array<std::thread, kThreads> threads{};
-    for (size_t i = 0; i < kThreads; ++i) {
+    constexpr size_t THREAD_COUNT = 4;
+    std::array<ModuleCycleResult, THREAD_COUNT> results{};
+    std::array<std::thread, THREAD_COUNT> threads{};
+    for (size_t i = 0; i < THREAD_COUNT; ++i) {
         threads[i] = std::thread([&, i] {
             HostUpdateContext host;
             const auto services = host.context.make_services();
@@ -140,14 +140,14 @@ TEST(PluginLifecycle, ConcurrentInstancesOfOneModule) {
 
     uint64_t creates = 0, updates = 0, destroys = 0, unused = 0;
     control.get_state(&creates, &updates, &destroys, &unused, &unused, &unused);
-    EXPECT_EQ(creates, kThreads);
-    EXPECT_EQ(updates, kThreads);
-    EXPECT_EQ(destroys, kThreads);
+    EXPECT_EQ(creates, THREAD_COUNT);
+    EXPECT_EQ(updates, THREAD_COUNT);
+    EXPECT_EQ(destroys, THREAD_COUNT);
 }
 
 TEST(PluginLifecycle, InstanceLeaseKeepsModuleAliveAfterCatalogRemoval) {
     DriverCatalog catalog;
-    ASSERT_NO_THROW(catalog.load_driver(std::string(kPluginPath)));
+    ASSERT_NO_THROW(catalog.load_driver(std::string(PLUGIN_PATH)));
 
     auto module = catalog.find("test_driver_plugin");
     ASSERT_NE(module, nullptr);
@@ -178,7 +178,7 @@ TEST(PluginLifecycle, InstanceLeaseKeepsModuleAliveAfterCatalogRemoval) {
 
 TEST(PluginLifecycle, DestroyRunsAfterFailedUpdate) {
     DriverCatalog catalog;
-    ASSERT_NO_THROW(catalog.load_driver(std::string(kPluginPath)));
+    ASSERT_NO_THROW(catalog.load_driver(std::string(PLUGIN_PATH)));
 
     auto control = resolve_control();
     ASSERT_NE(control.reset_state, nullptr);
@@ -339,7 +339,7 @@ TEST(PluginLifecycle, LoaderValidateReturnsOkWhenEntryIsMissing) {
 }
 
 TEST(PluginLifecycle, ValidateEntryAvailableOnCurrentSdkPlugin) {
-    auto module = PluginModule::load(std::string(kPluginPath));
+    auto module = PluginModule::load(std::string(PLUGIN_PATH));
     ASSERT_TRUE(module.has_value()) << module.error().message;
     EXPECT_TRUE(module->supports_validate());
 }
@@ -486,7 +486,7 @@ TEST(PluginLifecycle, CreateFailureAfterStoringHandleDestroysAndClearsIt) {
 }
 
 TEST(PluginLifecycle, CreateNullOutDriverIsInvalidArgument) {
-    auto module = PluginModule::load(std::string(kPluginPath));
+    auto module = PluginModule::load(std::string(PLUGIN_PATH));
     ASSERT_TRUE(module.has_value()) << module.error().message;
     const auto control = resolve_control();
     ASSERT_NE(control.reset_state, nullptr);

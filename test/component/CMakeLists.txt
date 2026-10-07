@@ -189,6 +189,16 @@ target_compile_definitions(test_net_transport_component PRIVATE
 add_unit_test(net_transport_success SOURCE net_transport_success_test.cpp)
 target_link_libraries(test_net_transport_success PRIVATE yaddnsc_network_transport OpenSSL::SSL OpenSSL::Crypto)
 
+# TLS WANT_READ / WANT_WRITE direction. A custom BIO forces the opposite
+# poll event; the socket is made ready in only one direction.
+add_unit_test(tls_direction SOURCE tls_direction_test.cpp)
+target_link_libraries(test_tls_direction PRIVATE yaddnsc_network_transport OpenSSL::SSL OpenSSL::Crypto)
+
+# Bootstrap TCP fallback against an in-process DNS server. Complements the
+# Python-server case in classic_resolver_test.cpp.
+add_unit_test(bootstrap_tcp SOURCE bootstrap_tcp_test.cpp)
+target_link_libraries(test_bootstrap_tcp PRIVATE yaddnsc_dns_classic)
+
 # ============================================================================
 #  net::http  (Client + Session over an in-process HTTP/1.1 server)
 # ============================================================================

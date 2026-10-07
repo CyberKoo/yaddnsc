@@ -2,9 +2,11 @@
 // Bootstrap name resolution for the transport layer.
 //
 // Resolves outbound-connection hostnames through explicit bootstrap DNS
-// servers using the self-contained classic resolver — no getaddrinfo, no
-// NSS. Lives below the transport layer (yaddnsc_dns_classic) so
-// SocketStream can use it without a dependency cycle.
+// servers — no getaddrinfo, no NSS. Lives below the transport layer
+// (yaddnsc_dns_classic) so TcpConnection can use it without a dependency
+// cycle. Servers are IP literals. A truncated UDP answer is retried over
+// TCP to that same address, through the shared Socket transfer, not through
+// TcpConnection, so the fallback does not resolve another name.
 //
 
 #ifndef YADDNSC_DNS_BOOTSTRAP_H

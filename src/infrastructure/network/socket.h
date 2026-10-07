@@ -6,52 +6,68 @@
 #define YADDNSC_NETWORK_SOCKET_H
 
 #include <cerrno>
+#include <chrono>
 #include <cstddef>
 #include <span>
 
 #include <expected>
+#include <sys/socket.h>
 
 #include "infrastructure/network/socket_addr.h"
-#include "support/mixin.h"
-
-// ── Forward declarations ──
+#include "support/util/fd.hpp"
 
 namespace Utils {
 class CancellationToken;
 }
 
-#include <sys/socket.h>
-#include <sys/types.h>
-
 // ---------------------------------------------------------------------------
-// ConnectError — errors that can occur during connect().
-// ---------------------------------------------------------------------------
-enum class ConnectError {
-    TIMED_OUT,    ///< Connection timed out (ETIMEDOUT).
-    REFUSED,      ///< Connection refused (ECONNREFUSED).
-    UNREACHABLE,  ///< Network or host unreachable (ENETUNREACH, EHOSTUNREACH).
-    CANCELLED,    ///< Operation cancelled via CancellationToken (ECANCELED).
-    INTERNAL,     ///< Internal OS error (fcntl, poll, getsockopt, etc.).
-};
-
-// ---------------------------------------------------------------------------
-// SocketBase — abstract interface for POSIX socket operations.
+// Socket — sole owner of one POSIX socket fd.
 //
-// Template methods (set_option<T>, get_option<T>) are non-virtual and
-// delegate to the virtual set_option_raw / a non-virtual implementation.
-// Only the I/O and control methods needed for mocking are pure virtual.
+// The fd is held by Utils::UniqueFd. A default-constructed or moved-from
+// Socket is closed (native_handle() == -1). close() drops the fd once and
+// does not retry EINTR. One Socket must not be used, moved, or closed
+// concurrently with itself; distinct Socket objects are independent.
+//
+// Creation goes through open() / accept(), which set CLOEXEC and the
+// platform SIGPIPE suppression before the Socket is returned. Failures of
+// those steps close the fd and return the errno. Callers translate that
+// errno at their own boundary.
+//
+// Single-shot I/O (send_some / recv_some / send_to / recv_from) performs one
+// system call and returns its result. A negative result becomes
+// unexpected(errno), including EAGAIN, EWOULDBLOCK, and EINTR — this layer
+// does not retry and does not loop until a buffer is full. A returned 0 is
+// success: TCP callers treat it as EOF, datagram callers treat it as an
+// empty datagram.
+//
+// connect() and wait_until() are bounded by a steady_clock deadline and an
+// operation-scoped cancellation token. The token is not stored. EINTR
+// recomputes the remaining time. A deadline that has already passed does not
+// block and does not start connect(). wait_until() reports the poll revents
+// (so POLLIN can arrive together with POLLHUP) or an error: ETIMEDOUT,
+// ECANCELED, or EBADF for a closed or invalid fd.
 // ---------------------------------------------------------------------------
-class SocketBase {
+class Socket {
 public:
-    virtual ~SocketBase() = default;
+    /// Closed socket. No fd is acquired.
+    Socket() noexcept = default;
 
-    SocketBase() = default;
-    SocketBase(SocketBase&&) noexcept = default;
-    SocketBase& operator=(SocketBase&&) noexcept = default;
-    SocketBase(const SocketBase&) = delete;
-    SocketBase& operator=(const SocketBase&) = delete;
+    ~Socket() = default;
 
-    // ---- Options (non-virtual template delegates to virtual raw) ---------
+    Socket(Socket&&) noexcept = default;
+
+    Socket& operator=(Socket&&) noexcept = default;
+
+    Socket(const Socket&) = delete;
+
+    Socket& operator=(const Socket&) = delete;
+
+    /// Create a socket. CLOEXEC is applied atomically where the platform
+    /// provides SOCK_CLOEXEC; otherwise fcntl is used and a concurrent
+    /// fork/exec can still inherit the fd.
+    [[nodiscard]] static std::expected<Socket, int> open(int domain, int type, int protocol = 0) noexcept;
+
+    // ---- Options -----------------------------------------------------------
 
     template<typename T>
     [[nodiscard]] std::expected<void, int> set_option(int level, int optname, const T& val) const noexcept {
@@ -59,8 +75,8 @@ public:
     }
 
     /// Raw setsockopt for variable-length values (e.g. SO_BINDTODEVICE).
-    [[nodiscard]] virtual std::expected<void, int> set_option_raw(int level, int optname, const void* val,
-                                                                  socklen_t len) const noexcept = 0;
+    [[nodiscard]] std::expected<void, int> set_option_raw(int level, int optname, const void* val,
+                                                          socklen_t len) const noexcept;
 
     template<typename T>
     [[nodiscard]] std::expected<void, int> get_option(int level, int optname, T& val) const noexcept {
@@ -71,80 +87,7 @@ public:
         return std::unexpected(errno);
     }
 
-    [[nodiscard]] virtual std::expected<void, int> set_nonblocking(bool enable) const noexcept = 0;
-
-    // ---- Connection (client) -----------------------------------------------
-
-    [[nodiscard]] virtual std::expected<void, ConnectError> connect(const SocketAddr& addr, int timeout_sec = -1) = 0;
-
-    // ---- I/O (all return ssize_t, no exceptions) ---------------------------
-
-    [[nodiscard]] virtual ssize_t send(std::span<const std::byte> data) const = 0;
-    [[nodiscard]] virtual ssize_t send(std::span<const std::byte> data, int flags) const = 0;
-    [[nodiscard]] virtual ssize_t send_to(std::span<const std::byte> data, const SocketAddr& dest) const = 0;
-    [[nodiscard]] virtual ssize_t send_to(std::span<const std::byte> data, const SocketAddr& dest, int flags) const = 0;
-
-    [[nodiscard]] virtual ssize_t recv(std::span<std::byte> buf) const = 0;
-    [[nodiscard]] virtual ssize_t recv(std::span<std::byte> buf, int flags) const = 0;
-    [[nodiscard]] virtual ssize_t recv_from(std::span<std::byte> buf, SocketAddr* src = nullptr) const = 0;
-    [[nodiscard]] virtual ssize_t recv_from(std::span<std::byte> buf, int flags, SocketAddr* src = nullptr) const = 0;
-
-    [[nodiscard]] virtual ssize_t recv_exact(std::span<std::byte> buf) const = 0;
-    [[nodiscard]] virtual ssize_t recv_exact(std::span<std::byte> buf, int flags) const = 0;
-
-    // ---- Control -----------------------------------------------------------
-
-    virtual void shutdown(int how) noexcept = 0;
-    virtual void close() noexcept = 0;
-
-    [[nodiscard]] virtual std::expected<int, int> wait_for(short events, int timeout_ms) const noexcept = 0;
-    [[nodiscard]] virtual std::expected<int, int> wait_for(
-        short events, int timeout_ms, const Utils::CancellationToken& cancel_token) const noexcept = 0;
-
-    // ---- Accessors ---------------------------------------------------------
-
-    [[nodiscard]] virtual int native_handle() const noexcept = 0;
-    [[nodiscard]] virtual bool is_closed() const noexcept = 0;
-};
-
-// ---------------------------------------------------------------------------
-// Socket — POSIX socket RAII wrapper.
-//
-// Policy on exceptions:
-//   - Constructor:  throws SocketException on failure (cannot return error code).
-//   - I/O (send/recv families):  return ssize_t, do NOT throw.
-//   - connect():  returns std::expected<void, ConnectError>, does NOT throw.
-//   - Options (set_option/get_option and convenience methods):  return std::expected<void, int>, do NOT throw.
-//   - accept:  returns std::expected<Socket, int>, does NOT throw.
-//   - Setup/control (bind, set_nonblocking, wait_for):  return std::expected<void, int> or std::expected<int, int>, do
-//   NOT throw.
-//   - Address accessors (get_sockname/get_peername):  return std::expected<SocketAddr, int>, do NOT throw.
-//   - listen:  throw SocketException.
-//   - Destructor and close():  noexcept (errors silently ignored).
-//
-// Thread-safety: a single Socket object must not be used from multiple threads
-// simultaneously.  Distinct Socket objects are independent.
-// ---------------------------------------------------------------------------
-class Socket : public SocketBase {
-public:
-    /// Open a new socket.
-    /// @throws SocketException on failure.
-    explicit Socket(int domain, int type, int protocol = 0);
-
-    ~Socket() override;
-
-    Socket(Socket&& other) noexcept;
-
-    Socket& operator=(Socket&& other) noexcept;
-
-    // ---- Options: inherited (set_option<T> via SocketBase) ----------------
-
-    [[nodiscard]] std::expected<void, int> set_option_raw(int level, int optname, const void* val,
-                                                          socklen_t len) const noexcept override;
-
-    [[nodiscard]] std::expected<void, int> set_nonblocking(bool enable) const noexcept override;
-
-    // ---- Convenience options (all POSIX portable) -------------------------
+    [[nodiscard]] std::expected<void, int> set_nonblocking(bool enable) const noexcept;
 
     [[nodiscard]] std::expected<void, int> set_reuseaddr(bool enable) const noexcept;
 
@@ -158,7 +101,7 @@ public:
 
     [[nodiscard]] std::expected<void, int> set_ipv6_only(bool enable) const noexcept;
 
-    // ---- Address binding: accept SocketAddr instead of raw sockaddr -------
+    // ---- Addresses ---------------------------------------------------------
 
     [[nodiscard]] std::expected<void, int> bind(const SocketAddr& addr) const noexcept;
 
@@ -166,47 +109,35 @@ public:
 
     [[nodiscard]] std::expected<SocketAddr, int> get_peername() const noexcept;
 
-    // ---- Connection (client) -----------------------------------------------
+    /// Non-blocking connect bounded by @p deadline. On success the socket
+    /// stays non-blocking. The result is the SO_ERROR value when the
+    /// handshake finishes with one, otherwise the errno from connect or from
+    /// waiting (ETIMEDOUT, ECANCELED, EBADF, ...).
+    [[nodiscard]] std::expected<void, int> connect(const SocketAddr& addr,
+                                                   std::chrono::steady_clock::time_point deadline,
+                                                   const Utils::CancellationToken& token) noexcept;
 
-    [[nodiscard]] std::expected<void, ConnectError> connect(const SocketAddr& addr, int timeout_sec = -1) override;
+    [[nodiscard]] std::expected<void, int> listen(int backlog = SOMAXCONN) const noexcept;
 
-    // ---- Listening + accept (server) ---------------------------------------
-
-    void listen(int backlog = SOMAXCONN) const;
-
+    /// Accepted sockets receive the same CLOEXEC / SIGPIPE treatment as open().
     [[nodiscard]] std::expected<Socket, int> accept(SocketAddr* addr = nullptr) const noexcept;
 
-    // ---- I/O (all return ssize_t, no exceptions) ---------------------------
+    // ---- Single-shot I/O ---------------------------------------------------
 
-    [[nodiscard]] ssize_t send(std::span<const std::byte> data) const override;
+    [[nodiscard]] std::expected<std::size_t, int> send_some(std::span<const std::byte> data,
+                                                            int flags = 0) const noexcept;
 
-    [[nodiscard]] ssize_t send(std::span<const std::byte> data, int flags) const override;
+    [[nodiscard]] std::expected<std::size_t, int> recv_some(std::span<std::byte> buf, int flags = 0) const noexcept;
 
-    [[nodiscard]] ssize_t send_to(std::span<const std::byte> data, const SocketAddr& dest) const override;
+    [[nodiscard]] std::expected<std::size_t, int> send_to(std::span<const std::byte> data, const SocketAddr& dest,
+                                                          int flags = 0) const noexcept;
 
-    [[nodiscard]] ssize_t send_to(std::span<const std::byte> data, const SocketAddr& dest, int flags) const override;
-
-    [[nodiscard]] ssize_t recv(std::span<std::byte> buf) const override;
-
-    [[nodiscard]] ssize_t recv(std::span<std::byte> buf, int flags) const override;
-
-    [[nodiscard]] ssize_t recv_from(std::span<std::byte> buf, SocketAddr* src = nullptr) const override;
-
-    [[nodiscard]] ssize_t recv_from(std::span<std::byte> buf, int flags, SocketAddr* src = nullptr) const override;
-
-    [[nodiscard]] ssize_t recv_exact(std::span<std::byte> buf) const override;
-
-    [[nodiscard]] ssize_t recv_exact(std::span<std::byte> buf, int flags) const override;
-
-    /// Send a scatter/gather message (vectored I/O).
-    [[nodiscard]] ssize_t sendmsg(const struct msghdr* msg, int flags = 0) const;
-
-    /// Receive a scatter/gather message (vectored I/O).
-    [[nodiscard]] ssize_t recvmsg(struct msghdr* msg, int flags = 0) const;
+    [[nodiscard]] std::expected<std::size_t, int> recv_from(std::span<std::byte> buf, SocketAddr* src = nullptr,
+                                                            int flags = 0) const noexcept;
 
     // ---- Control -----------------------------------------------------------
 
-    void shutdown(int how) noexcept override;
+    void shutdown(int how) noexcept;
 
     void shutdown_read() noexcept { shutdown(SHUT_RD); }
 
@@ -214,26 +145,27 @@ public:
 
     void shutdown_both() noexcept { shutdown(SHUT_RDWR); }
 
-    void close() noexcept override;
+    void close() noexcept;
 
-    [[nodiscard]] std::expected<int, int> wait_for(short events, int timeout_ms) const noexcept override;
+    /// Wait until @p events, an error condition, cancellation, or @p deadline.
+    /// Success is the socket's revents, including POLLERR / POLLHUP when the
+    /// kernel reports them. The caller decides whether data is still readable.
+    [[nodiscard]] std::expected<short, int> wait_until(short events, std::chrono::steady_clock::time_point deadline,
+                                                       const Utils::CancellationToken& token) const noexcept;
 
-    [[nodiscard]] std::expected<int, int> wait_for(
-        short events, int timeout_ms, const Utils::CancellationToken& cancel_token) const noexcept override;
+    /// Borrowed fd for OpenSSL, platform adapters, and tests. Ownership stays
+    /// with this Socket; the number is invalid after close() or move.
+    [[nodiscard]] int native_handle() const noexcept { return fd_.get(); }
 
-    // ---- Accessors ---------------------------------------------------------
-
-    [[nodiscard]] int native_handle() const noexcept override { return fd_; }
-
-    [[nodiscard]] bool is_closed() const noexcept override { return fd_ < 0; }
+    [[nodiscard]] bool is_closed() const noexcept { return !fd_; }
 
 private:
-    [[maybe_unused, no_unique_address]] NoCopy no_copy_;
-    int fd_{-1};
-    int type_{-1};
+    explicit Socket(Utils::UniqueFd fd) noexcept;
 
-    /// Private default constructor — only used by accept().
-    Socket() noexcept = default;
+    /// @p atomic_cloexec is true when the fd was created with SOCK_CLOEXEC / accept4.
+    [[nodiscard]] static std::expected<Socket, int> adopt(Utils::UniqueFd fd, bool atomic_cloexec) noexcept;
+
+    Utils::UniqueFd fd_;
 };
 
 #endif  // YADDNSC_NETWORK_SOCKET_H

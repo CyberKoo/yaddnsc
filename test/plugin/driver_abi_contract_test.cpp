@@ -45,7 +45,7 @@
 
 namespace {
 
-constexpr std::string_view kPluginPath = TEST_PLUGIN_PATH;
+constexpr std::string_view PLUGIN_PATH = TEST_PLUGIN_PATH;
 
 /// Output buffer with a canary tail: the host may write at most the declared
 /// struct_size bytes and must never touch the unknown tail.
@@ -91,7 +91,7 @@ struct RawPlugin {
 
 [[nodiscard]] RawPlugin resolve_raw() {
     RawPlugin raw;
-    auto library = SharedLibrary::open(std::string(kPluginPath));
+    auto library = SharedLibrary::open(std::string(PLUGIN_PATH));
     EXPECT_TRUE(library.has_value()) << library.error();
     if (!library) {
         return raw;
@@ -107,7 +107,7 @@ struct RawPlugin {
 }
 
 [[nodiscard]] std::shared_ptr<const PluginModule> load_module() {
-    auto module = PluginModule::load(std::string(kPluginPath));
+    auto module = PluginModule::load(std::string(PLUGIN_PATH));
     EXPECT_TRUE(module.has_value()) << module.error().message;
     if (!module) {
         return nullptr;
@@ -892,7 +892,7 @@ TEST(DriverAbiContract, ConcurrentCreateFailuresAreIsolated) {
     ASSERT_NE(module, nullptr);
 
     // Arm two injected create() failures through the test control export.
-    auto control = SharedLibrary::open(std::string(kPluginPath));
+    auto control = SharedLibrary::open(std::string(PLUGIN_PATH));
     ASSERT_TRUE(control.has_value()) << control.error();
     auto* set_failures =
         reinterpret_cast<void (*)(int)>(control->resolve("test_plugin_set_create_failures"));  // NOLINT
