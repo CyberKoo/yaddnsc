@@ -238,10 +238,22 @@ guard_check("coroutine DNS must not depend on the legacy synchronous resolvers"
     ${PROJECT_SOURCE_DIR}/src/infrastructure/dns/coro/*.cpp)
 
 # ------------------------------------------------------------------------------
+# 14. The coroutine plugin bridge (src/infrastructure/plugin/coro/) must not fall
+#     back on the synchronous host it replaces: the blocking ABI gateway and its
+#     token-threaded Host Services. The reusable ABI plumbing (plugin_loader,
+#     driver_catalog, driver_instance, shared_library) stays in place.
+# ------------------------------------------------------------------------------
+guard_check("coroutine plugin bridge must not depend on the synchronous driver host"
+    "${INC_RE}[<\"]infrastructure/plugin/(abi_driver_gateway|host_services)\\.h"
+    ${PROJECT_SOURCE_DIR}/src/infrastructure/plugin/coro/*.h
+    ${PROJECT_SOURCE_DIR}/src/infrastructure/plugin/coro/*.hpp
+    ${PROJECT_SOURCE_DIR}/src/infrastructure/plugin/coro/*.cpp)
+
+# ------------------------------------------------------------------------------
 # Verdict
 # ------------------------------------------------------------------------------
 if (violations)
     message(FATAL_ERROR "Architecture guard violations:${violations}\n")
 endif ()
 
-message(STATUS "Architecture guard: OK (domain/application/plugin/SDK/thread-pool/net-transport/dns-transport/boundary checks passed)")
+message(STATUS "Architecture guard: OK (domain/application/plugin/SDK/thread-pool/net-transport/dns-transport/coro-plugin/boundary checks passed)")

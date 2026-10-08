@@ -259,6 +259,23 @@ target_link_libraries(yaddnsc_plugin_infrastructure
     PRIVATE spdlog::spdlog yaddnsc_fmt ${CMAKE_DL_LIBS}
 )
 
+# Coroutine plugin bridge — the worker ↔ loop HTTP bridge, Host Services over
+# it, and the coroutine driver gateway (src/infrastructure/plugin/coro/). It
+# reuses PluginModule / DriverInstance / SharedLibrary / DriverCatalog in place
+# and links only the coroutine protocol stack; the synchronous
+# abi_driver_gateway / host_services remain for the synchronous backend and are
+# deliberately not referenced (architecture_guard rule 14).
+add_library(yaddnsc_coro_plugin STATIC
+    src/infrastructure/plugin/coro/bridge.cpp
+    src/infrastructure/plugin/coro/host_services.cpp
+    src/infrastructure/plugin/coro/driver_gateway.cpp
+)
+yaddnsc_production_module(yaddnsc_coro_plugin)
+target_link_libraries(yaddnsc_coro_plugin
+    PUBLIC yaddnsc_plugin_infrastructure
+    PRIVATE yaddnsc_coro_io yaddnsc_network_infrastructure spdlog::spdlog yaddnsc_fmt
+)
+
 # Concrete adapters stay separate so their target dependencies express their
 # actual ports and infrastructure requirements.
 add_library(yaddnsc_plugin_loader_adapter STATIC
