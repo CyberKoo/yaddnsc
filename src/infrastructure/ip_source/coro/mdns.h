@@ -1,10 +1,5 @@
 //
-// ip_source — coroutine mDNS source (offload transition).
-//
-// Native coroutine mDNS (multicast socket + UdpSocket framing) is not ported
-// yet; this source runs the legacy synchronous implementation on the offload
-// pool. That is deliberate transition debt for stage 3, not the intended final
-// shape.
+// ip_source — coroutine mDNS source.
 //
 
 #ifndef YADDNSC_IP_SOURCE_CORO_MDNS_H
@@ -17,12 +12,18 @@
 
 namespace ipsource {
 
-/// MdnsIpSource — discover a LAN device's address via mDNS.
+/// MdnsIpSource — discover a LAN device's address via mDNS (RFC 6762).
 ///
-/// Transition: wraps the legacy synchronous source through coro::offload, so a
-/// cancelled scope abandons the wait while the worker finishes on its own.
+/// Native coroutine implementation: the multicast socket is configured through
+/// net::detail socket options, the query/response wire logic is the shared DNS
+/// builder and parser, and the response window is a cancel scope
+/// (`with_timeout`) rather than a blocking poll — the equivalent of the legacy
+/// 500 ms deadline.
 class MdnsIpSource final : public CoroIpSource {
 public:
+    /// @param hostname   mDNS name to query, e.g. "printer.local".
+    /// @param type       RecordKind::A (IPv4 multicast) or AAAA (IPv6 multicast).
+    /// @param interface  Outbound interface name; empty selects the kernel default.
     MdnsIpSource(std::string hostname, RecordKind type, std::string interface);
 
     [[nodiscard]] coro::Task<Result> resolve() override;

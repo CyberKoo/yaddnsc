@@ -47,7 +47,7 @@ target_compile_definitions(test_cert_util_override PRIVATE
 # ============================================================================
 
 add_unit_test(cli SOURCE cli_test.cpp)
-target_link_libraries(test_cli PRIVATE yaddnsc_prod_all GTest::gmock)
+target_link_libraries(test_cli PRIVATE yaddnsc_prod_all yaddnsc_coro_application yaddnsc_coro GTest::gmock)
 target_compile_definitions(test_cli PRIVATE
     TEST_DRIVER_DIR="${CMAKE_BINARY_DIR}/driver"
     YADDNSC_TEMPLATE_DIR="${PROJECT_SOURCE_DIR}/template")
@@ -134,6 +134,13 @@ set_tests_properties(test_composition_bootstrap PROPERTIES
 add_unit_test(mdns_ipv6 SOURCE mdns_ipv6_test.cpp)
 target_link_libraries(test_mdns_ipv6 PRIVATE yaddnsc_ip_source_infrastructure GTest::gmock glaze::glaze OpenSSL::Crypto)
 set_tests_properties(test_mdns_ipv6 PROPERTIES RESOURCE_LOCK "mdns-multicast")
+
+# Coroutine mDNS source (src/infrastructure/ip_source/coro/mdns.cpp): the same
+# random-UUID / multicast-availability discipline as the legacy suite, driven
+# through the coroutine runtime.
+add_unit_test(mdns_coro SOURCE mdns_coro_test.cpp)
+target_link_libraries(test_mdns_coro PRIVATE yaddnsc_coro_ip_source yaddnsc_coro)
+set_tests_properties(test_mdns_coro PROPERTIES RESOURCE_LOCK "mdns-multicast")
 
 # ============================================================================
 #  RunLifecycle — the run command's lifecycle object (observable shutdown)

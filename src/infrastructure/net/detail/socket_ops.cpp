@@ -125,6 +125,14 @@ std::expected<void, IoError> bind_local(const int fd, const InetAddress& local, 
     return {};
 }
 
+std::expected<void, IoError> set_socket_option(const int fd, const int level, const int option, const void* data,
+                                               const std::size_t size) noexcept {
+    if (::setsockopt(fd, level, option, data, static_cast<socklen_t>(size)) < 0) {
+        return std::unexpected(IoError::CONNECTION_FAILED);
+    }
+    return {};
+}
+
 std::expected<std::uint16_t, IoError> local_port(const int fd) noexcept {
     sockaddr_storage storage{};
     socklen_t length = sizeof(storage);

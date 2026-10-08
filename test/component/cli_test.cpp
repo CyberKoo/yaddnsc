@@ -42,6 +42,8 @@
 #include <spdlog/spdlog.h>
 #include <unistd.h>
 
+#include "application/coro/diagnostics.h"
+#include "application/coro/ports.h"
 #include "application/diagnostics.h"
 #include "application/ports/driver_catalog.h"
 #include "cli/command.h"
@@ -53,6 +55,7 @@
 #include "domain/error/dns_error_info.h"
 #include "domain/network/inet_address.h"
 #include "fixtures/sample_config.h"
+#include "infrastructure/coro/coro.h"
 #include "infrastructure/network/system_network_interfaces.h"
 #include "mocks/mock_ports.h"
 #include "support/util/cancellation_token.hpp"
@@ -799,9 +802,32 @@ TEST(CliInfoTest, VersionFlag_PrintsProgramAndVersion) {
 //  Diagnostics handlers — fake ports, no real DNS / drivers / interfaces
 // ===========================================================================
 
+namespace {
+/// Coroutine resolver double for the `dns resolve` handler: no gmock needed,
+/// the handler's contract is "parse the type, pass the value through".
+class FakeResolverPort final : public app::ResolverPort {
+public:
+    std::vector<std::string> records;
+    std::optional<DnsErrorInfo> error;
+
+    coro::Task<std::expected<std::vector<std::string>, DnsErrorInfo>> resolve(std::string, RecordKind) override {
+        if (error.has_value()) {
+            co_return std::unexpected(*error);
+        }
+        co_return records;
+    }
+};
+
+[[nodiscard]] Diagnostics::DnsResolveOutcome run_dns_resolve(app::ResolverPort& resolver, const std::string& host,
+                                                            const std::string& type) {
+    coro::Loop loop;
+    return coro::run(loop, app::dns_resolve(resolver, host, type));
+}
+}  // namespace
+
 TEST(CliDiagnosticsTest, DnsResolve_UnknownType_ReturnsNoLookup) {
-    MockDnsResolverPort resolver;
-    const auto outcome = Diagnostics::dns_resolve(resolver, "example.com", "BOGUS", {});
+    FakeResolverPort resolver;
+    const auto outcome = run_dns_resolve(resolver, "example.com", "BOGUS");
 
     EXPECT_EQ(outcome.host, "example.com");
     EXPECT_EQ(outcome.type_text, "BOGUS");
@@ -809,22 +835,20 @@ TEST(CliDiagnosticsTest, DnsResolve_UnknownType_ReturnsNoLookup) {
 }
 
 TEST(CliDiagnosticsTest, DnsResolve_TypeIsCaseInsensitive) {
-    MockDnsResolverPort resolver;
-    EXPECT_CALL(resolver, resolve("example.com", RecordKind::AAAA, ::testing::_))
-        .WillOnce(::testing::Return(std::vector<std::string>{"::1"}));
+    FakeResolverPort resolver;
+    resolver.records = {"::1"};
 
-    const auto outcome = Diagnostics::dns_resolve(resolver, "example.com", "aaaa", {});
+    const auto outcome = run_dns_resolve(resolver, "example.com", "aaaa");
     ASSERT_TRUE(outcome.lookup.has_value());
     ASSERT_TRUE(outcome.lookup->has_value());
     EXPECT_EQ((*outcome.lookup)->front(), "::1");
 }
 
 TEST(CliDiagnosticsTest, DnsResolve_ErrorPassesThrough) {
-    MockDnsResolverPort resolver;
-    EXPECT_CALL(resolver, resolve("example.com", RecordKind::A, ::testing::_))
-        .WillOnce(::testing::Return(std::unexpected(DnsErrorInfo{DnsError::NX_DOMAIN, "nxdomain"})));
+    FakeResolverPort resolver;
+    resolver.error = DnsErrorInfo{DnsError::NX_DOMAIN, "nxdomain"};
 
-    const auto outcome = Diagnostics::dns_resolve(resolver, "example.com", "A", {});
+    const auto outcome = run_dns_resolve(resolver, "example.com", "A");
     ASSERT_TRUE(outcome.lookup.has_value());
     ASSERT_FALSE(outcome.lookup->has_value());
     EXPECT_EQ(outcome.lookup->error().message, "nxdomain");

@@ -286,6 +286,7 @@ add_library(yaddnsc_coro_application STATIC
     src/application/coro/update_once.cpp
     src/application/coro/subdomain_loop.cpp
     src/application/coro/run_scheduler.cpp
+    src/application/coro/diagnostics.cpp
 )
 yaddnsc_production_module(yaddnsc_coro_application)
 target_link_libraries(yaddnsc_coro_application
@@ -305,7 +306,7 @@ add_library(yaddnsc_coro_ip_source STATIC
 yaddnsc_production_module(yaddnsc_coro_ip_source)
 target_link_libraries(yaddnsc_coro_ip_source
     PUBLIC yaddnsc_domain yaddnsc_coro_io yaddnsc_coro
-    PRIVATE yaddnsc_ip_source_infrastructure yaddnsc_network_infrastructure yaddnsc_fmt
+    PRIVATE yaddnsc_ip_source_infrastructure yaddnsc_network_infrastructure spdlog::spdlog yaddnsc_fmt
 )
 
 # Concrete adapters stay separate so their target dependencies express their

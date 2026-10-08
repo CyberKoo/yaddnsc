@@ -44,6 +44,12 @@ namespace net::detail {
 /// Does not block.
 [[nodiscard]] std::expected<void, IoError> bind_local(int fd, const InetAddress& local, std::uint16_t port) noexcept;
 
+/// setsockopt with raw option data — multicast membership, IGMP/MLD interface,
+/// TTL/hops, and the other option shapes the transport helpers do not cover.
+/// Non-blocking. A failure is CONNECTION_FAILED; the errno is not reported.
+[[nodiscard]] std::expected<void, IoError> set_socket_option(int fd, int level, int option, const void* data,
+                                                             std::size_t size) noexcept;
+
 /// The local port of a bound socket, in host byte order. Does not block.
 [[nodiscard]] std::expected<std::uint16_t, IoError> local_port(int fd) noexcept;
 

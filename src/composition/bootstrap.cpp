@@ -23,6 +23,7 @@
 #include <spdlog/spdlog.h>
 #include <yaddnsc/util/format.hpp>
 
+#include "application/coro/diagnostics.h"
 #include "application/coro/run_scheduler.h"
 #include "application/coro/services.h"
 #include "application/diagnostics.h"
@@ -38,26 +39,21 @@
 #include "infrastructure/config/static_validator.h"
 #include "infrastructure/coro/group.hpp"
 #include "infrastructure/coro/loop.h"
+#include "infrastructure/coro/offload.hpp"
 #include "infrastructure/coro/run.hpp"
 #include "infrastructure/dns/coro/factory.h"
 #include "infrastructure/dns/coro/resolver_port.h"
-#include "infrastructure/dns/factory.h"
 #include "infrastructure/dns/resolv_conf.h"
-#include "infrastructure/dns/resolver_catalog.h"
 #include "infrastructure/ip_source/coro/adapter.h"
 #include "infrastructure/logging/spdlog_logger.h"
-#include "infrastructure/network/http/types.h"
-#include "infrastructure/network/http/client.h"
-#include "infrastructure/network/http/client_port.h"
+#include "infrastructure/net/http/types.h"
 #include "infrastructure/network/system_network_interfaces.h"
 #include "infrastructure/network/uri.h"
-#include "infrastructure/plugin/abi_driver_gateway.h"
 #include "infrastructure/plugin/coro/driver_gateway.h"
 #include "infrastructure/plugin/driver_catalog.h"
 #include "infrastructure/plugin/driver_loader.h"
 #include "support/exception.h"
 #include "support/fmt.hpp"
-#include "support/util/cancellation_token.hpp"
 
 #include "version.h"
 
@@ -78,22 +74,6 @@ void fill_bootstrap_servers(domain::RuntimeConfig& config) {
             "/etc/resolv.conf): hostname targets will fail to resolve. IP-literal targets are unaffected. "
             "(/etc/hosts and NSS are never consulted.)");
     }
-}
-
-/// Shared HTTP policy: user agent, CA discovery and bootstrap DNS are built
-/// once here — every HTTP consumer (driver gateway, HTTP IP source) derives
-/// its client options from this single source of truth.
-[[nodiscard]] net::http::Options make_http_options(const domain::ResolverSettings& resolver) {
-    net::http::Options opts;
-    opts.user_agent = YADDNSC::get_full_version();
-    opts.transport.bootstrap_dns = resolver.bootstrap_servers;
-    return opts;
-}
-
-/// HTTP client factory for the driver gateway: the token is no longer bound
-/// into the client — cancellation flows through each exchange() call instead.
-[[nodiscard]] HttpClientFactory make_http_client_factory(net::http::Options opts) {
-    return [opts = std::move(opts)] { return std::make_unique<net::http::Client>(opts); };
 }
 
 /// Shared coroutine HTTP policy for the run path (driver gateway + HTTP IP
@@ -125,71 +105,90 @@ void fill_bootstrap_servers(domain::RuntimeConfig& config) {
     return joined;
 }
 
+/// Startup products built on the offload pool before the scheduler starts.
+struct PreparedStartup {
+    std::shared_ptr<const domain::RuntimeConfig> runtime;  ///< null when validation failed
+    std::shared_ptr<DriverCatalog> catalog;
+    std::string error;  ///< the collected static-validation errors, when runtime is null
+};
+
+/// The run root task. There is no "loop-before" stage (design §6.4): the config
+/// read/validation, plugin dlopen and environment checks all run inside the
+/// loop, on the offload pool, so the loop thread never blocks on a file read or
+/// dlopen.
+///
+/// Failure: a malformed/missing config or a plugin-load failure throws out of
+/// the offload await and propagates to main's fatal boundary with the legacy
+/// wording; a statically invalid config or a failed environment check is logged
+/// and returns EXIT_FAILURE, exactly as before.
+[[nodiscard]] coro::Task<int> prepare_and_run(const Cli::RunCommand& command, coro::Loop& loop) {
+    const auto prepared_result = co_await coro::offload([&command]() -> PreparedStartup {
+        auto config = Config::validate_and_normalize(Config::load_config(command.config_path));
+        if (!config.has_value()) {
+            return PreparedStartup{.runtime = nullptr, .catalog = nullptr,
+                                   .error = format_config_errors(config.error())};
+        }
+        fill_bootstrap_servers(*config);
+        auto runtime = std::make_shared<const domain::RuntimeConfig>(std::move(*config));
+        auto catalog = std::make_shared<DriverCatalog>();
+        DriverLoader::load(*catalog, runtime->drivers);
+        return PreparedStartup{.runtime = std::move(runtime), .catalog = std::move(catalog), .error = {}};
+    });
+    if (!prepared_result.has_value()) {
+        // The offload worker can only fail this way by an errc; treat it as a
+        // fatal startup failure.
+        SPDLOG_CRITICAL("Failed to prepare the run environment");
+        co_return EXIT_FAILURE;
+    }
+    const PreparedStartup& prepared = *prepared_result;
+
+    if (prepared.runtime == nullptr || prepared.catalog == nullptr) {
+        SPDLOG_CRITICAL(prepared.error);
+        co_return EXIT_FAILURE;
+    }
+
+    const SpdlogLogger logger;
+    const SystemNetworkInterfaces interfaces;
+    if (const auto env = validate_environment(*prepared.runtime, *prepared.catalog, interfaces); !env.has_value()) {
+        SPDLOG_CRITICAL(format_config_errors(env.error()));
+        co_return EXIT_FAILURE;
+    }
+
+    const auto http_options = make_coro_http_options(prepared.runtime->resolver);
+    const auto dispatcher =
+        dns::make_dispatcher(prepared.runtime->resolver, prepared.runtime->resolver.bootstrap_servers);
+    dns::DispatcherResolverPort resolver_port{*dispatcher};
+    ipsource::IpSourceAdapter ip_source{http_options};
+
+    // The driver gateway needs the runner's bridge TaskGroup, which only exists
+    // inside the scheduler; the runner hands its root group to make_gateway and
+    // the gateway it builds lives in this frame for the whole run.
+    std::optional<plugin::DriverGateway> gateway;
+    const app::RuntimeServices services{
+        .resolver = resolver_port,
+        .ip_source = ip_source,
+        .logger = logger,
+        .make_gateway =
+            [&](coro::TaskGroup& group) -> app::GatewayPort& {
+            gateway.emplace(*prepared.catalog, logger, loop, group,
+                            plugin::DriverGateway::Options{
+                                .http = http_options,
+                                .bridge_wait_budget = std::chrono::seconds(5),
+                            });
+            return *gateway;
+        },
+    };
+    co_return co_await app::run_scheduler(prepared.runtime, services);
+}
+
 int run_command(const Cli::RunCommand& command) {
     if (command.verbose) {
         spdlog::set_level(spdlog::level::debug);
         SPDLOG_DEBUG("Verbose mode enabled");
     }
 
-    const auto raw_config = Config::load_config(command.config_path);
-
-    // Static validation + normalisation: report every collected error with
-    // the same output shape as the legacy ConfigVerificationException path.
-    auto config = Config::validate_and_normalize(raw_config);
-    if (!config.has_value()) {
-        SPDLOG_CRITICAL(format_config_errors(config.error()));
-        return EXIT_FAILURE;
-    }
-    fill_bootstrap_servers(*config);
-
-    const auto runtime_config = std::make_shared<const domain::RuntimeConfig>(std::move(*config));
-
-    // Configuration, driver loading and environment validation stay synchronous
-    // ahead of the loop: the composition root owns the DriverCatalog and the
-    // gateway it feeds, and folding dlopen into the loop would push those
-    // infrastructure types into the application layer. Moving them behind
-    // offload is stage-3 work; the run itself is the coroutine scheduler.
-    {
-        DriverCatalog driver_catalog;
-        DriverLoader::load(driver_catalog, runtime_config->drivers);
-
-        const SpdlogLogger logger;
-        const SystemNetworkInterfaces interfaces;
-
-        // Environment validation: referenced drivers loaded, referenced
-        // interfaces present (all collected errors are reported).
-        if (const auto env = validate_environment(*runtime_config, driver_catalog, interfaces); !env.has_value()) {
-            SPDLOG_CRITICAL(format_config_errors(env.error()));
-            return EXIT_FAILURE;
-        }
-
-        const auto http_options = make_coro_http_options(runtime_config->resolver);
-        const auto dispatcher =
-            dns::make_dispatcher(runtime_config->resolver, runtime_config->resolver.bootstrap_servers);
-        dns::DispatcherResolverPort resolver_port{*dispatcher};
-        ipsource::IpSourceAdapter ip_source{http_options};
-
-        // The driver gateway needs the runner's bridge TaskGroup, which only
-        // exists inside coro::run; the runner hands its root group to
-        // make_gateway and the gateway it builds lives here for the whole run.
-        std::optional<plugin::DriverGateway> gateway;
-        coro::Loop loop;
-        const app::RuntimeServices services{
-            .resolver = resolver_port,
-            .ip_source = ip_source,
-            .logger = logger,
-            .make_gateway =
-                [&](coro::TaskGroup& group) -> app::GatewayPort& {
-                gateway.emplace(driver_catalog, logger, loop, group,
-                                plugin::DriverGateway::Options{
-                                    .http = http_options,
-                                    .bridge_wait_budget = std::chrono::seconds(5),
-                                });
-                return *gateway;
-            },
-        };
-        return coro::run(loop, app::run_scheduler(runtime_config, services));
-    }
+    coro::Loop loop;
+    return coro::run(loop, prepare_and_run(command, loop));
 }
 
 [[nodiscard]] std::string format_resolver_server(const Config::DnsServer& server) {
@@ -256,15 +255,14 @@ int execute_command(const Cli::InterfaceIpCommand& command) {
 
 int execute_command(const Cli::DnsResolveCommand& command) {
     const auto config = load_runtime_config(command.config_path);
-    auto dispatcher =
-        DnsResolverFactory::create(config.resolver, ResolverCatalog::with_builtins(config.resolver.bootstrap_servers));
-    // One-shot command: no SignalWatcher is installed, so Ctrl-C keeps the
-    // default disposition and the resolve's cancellation token is
-    // deliberately inert — the root owns no fd and adds nothing to poll
-    // sets. (The dispatcher's per-batch race source still allocates its own
-    // pipe, as it must: the winner cancels the losers through it.)
-    return Cli::present_dns_resolve(
-        Diagnostics::dns_resolve(dispatcher, command.host, command.type, Utils::CancellationToken{}));
+    const auto dispatcher = dns::make_dispatcher(config.resolver, config.resolver.bootstrap_servers);
+    dns::DispatcherResolverPort resolver_port{*dispatcher};
+    // One-shot command on a plain root scope: nothing is marked cancellable, so
+    // Ctrl-C keeps the default disposition (no signal watcher is installed).
+    coro::Loop loop;
+    const Diagnostics::DnsResolveOutcome outcome =
+        coro::run(loop, app::dns_resolve(resolver_port, command.host, command.type));
+    return Cli::present_dns_resolve(outcome);
 }
 
 int execute_command(const Cli::DnsResolverCommand& command) {
@@ -316,22 +314,39 @@ int execute_command(const Cli::ConfigTestCommand& command) {
         // instead of on the first update. A plugin that does not export
         // yaddnsc_driver_validate fails this check: the host cannot confirm
         // the configuration. The plugin can still be loaded for updates.
+        // The coroutine gateway needs a loop and a bridge group, so the check
+        // runs in a one-shot loop whose group owns the bridge coroutines.
         const SpdlogLogger logger;
-        const AbiDriverGateway driver_gateway(driver_catalog,
-                                              make_http_client_factory(make_http_options(config->resolver)), logger);
-        for (const auto& domain_config : config->domains) {
-            for (const auto& subdomain : domain_config.subdomains) {
-                if (const auto result = driver_gateway.validate_config(domain_config.driver, subdomain.driver_params);
-                    !result.has_value()) {
-                    return Cli::present_config_test(
-                        {.quiet = command.quiet,
-                         .error = Error{.kind = Error::Kind::VERIFICATION,
-                                        .message = fmt::format("Driver '{}' rejected configuration for {}: {}",
-                                                               domain_config.driver,
-                                                               domain::make_fqdn(domain_config.name, subdomain.name),
-                                                               result.error().message)}});
+        const auto http_options = make_coro_http_options(config->resolver);
+        coro::Loop loop;
+        std::optional<std::string> rejected;
+        coro::run(loop, [&]() -> coro::Task<void> {
+            co_await coro::supervisor_group([&](coro::TaskGroup& group) -> coro::Task<void> {
+                plugin::DriverGateway gateway(driver_catalog, logger, loop, group,
+                                              plugin::DriverGateway::Options{
+                                                  .http = http_options,
+                                                  .bridge_wait_budget = std::chrono::seconds(5),
+                                              });
+                for (const auto& domain_config : config->domains) {
+                    for (const auto& subdomain : domain_config.subdomains) {
+                        const auto result =
+                            co_await gateway.validate_config(domain_config.driver, subdomain.driver_params);
+                        if (!result.has_value()) {
+                            rejected = fmt::format("Driver '{}' rejected configuration for {}: {}",
+                                                   domain_config.driver,
+                                                   domain::make_fqdn(domain_config.name, subdomain.name),
+                                                   result.error().message);
+                            co_return;
+                        }
+                    }
                 }
-            }
+                co_return;
+            });
+            co_return;
+        }());
+        if (rejected.has_value()) {
+            return Cli::present_config_test({.quiet = command.quiet,
+                                             .error = Error{.kind = Error::Kind::VERIFICATION, .message = *rejected}});
         }
 
         return Cli::present_config_test({.quiet = command.quiet, .error = std::nullopt});
