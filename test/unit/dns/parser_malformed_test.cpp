@@ -1,6 +1,6 @@
 //
 // Unit tests for the malformed-packet rejection paths of
-// DNS::RecordParser (src/infrastructure/dns/parser.cpp).
+// dns::RecordParser (src/infrastructure/dns/parser.cpp).
 //
 // The RDATA formatters are private, so every case is driven through the
 // public parse_strings()/parse_message() entry points using hand-built
@@ -20,8 +20,8 @@
 #include "infrastructure/dns/dns_lookup_exception.h"
 #include "infrastructure/dns/types.h"
 
-using DNS::RecordParser;
-using DNS::RecordType;
+using dns::RecordParser;
+using dns::RecordType;
 
 namespace {
 

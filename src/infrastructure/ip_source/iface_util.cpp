@@ -81,7 +81,7 @@ using IfAddrPtr = std::unique_ptr<ifaddrs, decltype(&freeifaddrs)>;
 // Public API
 // ===========================================================================
 
-std::vector<std::string> InterfaceUtil::get_interfaces() {
+std::vector<std::string> ipsource::get_interfaces() {
     auto interface_map = get_cached_interfaces();
     std::vector<std::string> interfaces;
     interfaces.reserve(interface_map.size());
@@ -89,7 +89,7 @@ std::vector<std::string> InterfaceUtil::get_interfaces() {
     return interfaces;
 }
 
-std::optional<std::vector<InetAddress>> InterfaceUtil::get_addresses(const std::string& interface_name) {
+std::optional<std::vector<InetAddress>> ipsource::get_addresses(const std::string& interface_name) {
     auto all = get_cached_interfaces();
     if (const auto it = all.find(interface_name); it != all.end()) {
         return it->second;

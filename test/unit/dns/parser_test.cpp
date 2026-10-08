@@ -549,26 +549,26 @@ std::vector<std::uint8_t> make_edns_response(std::uint16_t txid, bool with_optio
 
 TEST(DnsParserTest, ParseSingleARecord) {
     auto response = make_a_response(0x1234, {192, 168, 1, 1});
-    auto parsed = DNS::RecordParser::parse_strings(response);
+    auto parsed = dns::RecordParser::parse_strings(response);
     ASSERT_EQ(parsed.records.size(), 1U);
     EXPECT_EQ(parsed.records[0], "192.168.1.1");
-    EXPECT_EQ(parsed.rcode, DNS::Rcode::NOERROR);
+    EXPECT_EQ(parsed.rcode, dns::Rcode::NOERROR);
 }
 
 TEST(DnsParserTest, ParseLoopbackRecord) {
     auto response = make_a_response(0x5678, {127, 0, 0, 1});
-    auto parsed = DNS::RecordParser::parse_strings(response);
+    auto parsed = dns::RecordParser::parse_strings(response);
     ASSERT_EQ(parsed.records.size(), 1U);
     EXPECT_EQ(parsed.records[0], "127.0.0.1");
-    EXPECT_EQ(parsed.rcode, DNS::Rcode::NOERROR);
+    EXPECT_EQ(parsed.rcode, dns::Rcode::NOERROR);
 }
 
 TEST(DnsParserTest, ParseDnsServerRecord) {
     auto response = make_a_response(0x9ABC, {8, 8, 8, 8});
-    auto parsed = DNS::RecordParser::parse_strings(response);
+    auto parsed = dns::RecordParser::parse_strings(response);
     ASSERT_EQ(parsed.records.size(), 1U);
     EXPECT_EQ(parsed.records[0], "8.8.8.8");
-    EXPECT_EQ(parsed.rcode, DNS::Rcode::NOERROR);
+    EXPECT_EQ(parsed.rcode, dns::Rcode::NOERROR);
 }
 
 // ===========================================================================
@@ -577,18 +577,18 @@ TEST(DnsParserTest, ParseDnsServerRecord) {
 
 TEST(DnsParserTest, ParseSingleAaaaRecord) {
     auto response = make_aaaa_response(0x1234, {0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1});
-    auto parsed = DNS::RecordParser::parse_strings(response);
+    auto parsed = dns::RecordParser::parse_strings(response);
     ASSERT_EQ(parsed.records.size(), 1U);
-    EXPECT_EQ(parsed.rcode, DNS::Rcode::NOERROR);
+    EXPECT_EQ(parsed.rcode, dns::Rcode::NOERROR);
     EXPECT_FALSE(parsed.records[0].empty());
 }
 
 TEST(DnsParserTest, ParseLoopbackAaaa) {
     auto response = make_aaaa_response(0x1234, {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1});
-    auto parsed = DNS::RecordParser::parse_strings(response);
+    auto parsed = dns::RecordParser::parse_strings(response);
     ASSERT_EQ(parsed.records.size(), 1U);
     EXPECT_EQ(parsed.records[0], "::1");
-    EXPECT_EQ(parsed.rcode, DNS::Rcode::NOERROR);
+    EXPECT_EQ(parsed.rcode, dns::Rcode::NOERROR);
 }
 
 // ===========================================================================
@@ -597,18 +597,18 @@ TEST(DnsParserTest, ParseLoopbackAaaa) {
 
 TEST(DnsParserTest, ParseTxtRecord) {
     auto response = make_txt_response(0x1234, "hello=world");
-    auto parsed = DNS::RecordParser::parse_strings(response);
+    auto parsed = dns::RecordParser::parse_strings(response);
     ASSERT_EQ(parsed.records.size(), 1U);
     EXPECT_EQ(parsed.records[0], "hello=world");
-    EXPECT_EQ(parsed.rcode, DNS::Rcode::NOERROR);
+    EXPECT_EQ(parsed.rcode, dns::Rcode::NOERROR);
 }
 
 TEST(DnsParserTest, ParseEmptyTxtRecord) {
     auto response = make_txt_response(0x1234, "");
-    auto parsed = DNS::RecordParser::parse_strings(response);
+    auto parsed = dns::RecordParser::parse_strings(response);
     ASSERT_EQ(parsed.records.size(), 1U);
     EXPECT_TRUE(parsed.records[0].empty());
-    EXPECT_EQ(parsed.rcode, DNS::Rcode::NOERROR);
+    EXPECT_EQ(parsed.rcode, dns::Rcode::NOERROR);
 }
 
 // ===========================================================================
@@ -617,10 +617,10 @@ TEST(DnsParserTest, ParseEmptyTxtRecord) {
 
 TEST(DnsParserTest, ParseCnameRecord) {
     auto response = make_cname_response(0x1234, "target.example.com");
-    auto parsed = DNS::RecordParser::parse_strings(response);
+    auto parsed = dns::RecordParser::parse_strings(response);
     ASSERT_EQ(parsed.records.size(), 1U);
     EXPECT_EQ(parsed.records[0], "target.example.com");
-    EXPECT_EQ(parsed.rcode, DNS::Rcode::NOERROR);
+    EXPECT_EQ(parsed.rcode, dns::Rcode::NOERROR);
 }
 
 // ===========================================================================
@@ -661,10 +661,10 @@ TEST(DnsParserTest, RecordCount_ReturnsCorrectCount) {
         buf.push_back(static_cast<std::uint8_t>(i + 1));
     }
 
-    DNS::RecordParser parser(buf);
+    dns::RecordParser parser(buf);
     EXPECT_EQ(parser.record_count(), 2U);
 
-    auto parsed = DNS::RecordParser::parse_strings(buf);
+    auto parsed = dns::RecordParser::parse_strings(buf);
     ASSERT_EQ(parsed.records.size(), 2U);
     EXPECT_EQ(parsed.records[0], "10.0.0.1");
     EXPECT_EQ(parsed.records[1], "10.0.0.2");
@@ -676,11 +676,11 @@ TEST(DnsParserTest, RecordCount_ReturnsCorrectCount) {
 
 TEST(DnsParserTest, InvalidPacket_ThrowsDnsLookupException) {
     std::vector<std::uint8_t> garbage = {0, 1, 2, 3, 4, 5};
-    EXPECT_THROW((DNS::RecordParser{garbage}), DnsLookupException);
+    EXPECT_THROW((dns::RecordParser{garbage}), DnsLookupException);
 }
 
 TEST(DnsParserTest, EmptyBuffer_Throws) {
-    EXPECT_THROW(DNS::RecordParser(std::span<const std::uint8_t>{}), DnsLookupException);
+    EXPECT_THROW(dns::RecordParser(std::span<const std::uint8_t>{}), DnsLookupException);
 }
 
 // ===========================================================================
@@ -689,18 +689,18 @@ TEST(DnsParserTest, EmptyBuffer_Throws) {
 
 TEST(DnsParserTest, ParseNsRecord) {
     auto response = make_ns_response(0x1234, "ns1.example.com");
-    auto parsed = DNS::RecordParser::parse_strings(response);
+    auto parsed = dns::RecordParser::parse_strings(response);
     ASSERT_EQ(parsed.records.size(), 1U);
     EXPECT_EQ(parsed.records[0], "ns1.example.com");
-    EXPECT_EQ(parsed.rcode, DNS::Rcode::NOERROR);
+    EXPECT_EQ(parsed.rcode, dns::Rcode::NOERROR);
 }
 
 TEST(DnsParserTest, ParseNsRecord_SubdomainTarget) {
     auto response = make_ns_response(0x5678, "dns.server.example.org");
-    auto parsed = DNS::RecordParser::parse_strings(response);
+    auto parsed = dns::RecordParser::parse_strings(response);
     ASSERT_EQ(parsed.records.size(), 1U);
     EXPECT_EQ(parsed.records[0], "dns.server.example.org");
-    EXPECT_EQ(parsed.rcode, DNS::Rcode::NOERROR);
+    EXPECT_EQ(parsed.rcode, dns::Rcode::NOERROR);
 }
 
 // ===========================================================================
@@ -720,8 +720,8 @@ TEST(DnsParserTest, RcodeNxdomain) {
     buf.push_back(0x01);
     buf.push_back(0x00);
     buf.push_back(0x01);
-    auto parsed = DNS::RecordParser::parse_strings(buf);
-    EXPECT_EQ(parsed.rcode, DNS::Rcode::NXDOMAIN);
+    auto parsed = dns::RecordParser::parse_strings(buf);
+    EXPECT_EQ(parsed.rcode, dns::Rcode::NXDOMAIN);
     EXPECT_TRUE(parsed.records.empty());
 }
 
@@ -738,8 +738,8 @@ TEST(DnsParserTest, RcodeServfail) {
     buf.push_back(0x01);
     buf.push_back(0x00);
     buf.push_back(0x01);
-    auto parsed = DNS::RecordParser::parse_strings(buf);
-    EXPECT_EQ(parsed.rcode, DNS::Rcode::SERVFAIL);
+    auto parsed = dns::RecordParser::parse_strings(buf);
+    EXPECT_EQ(parsed.rcode, dns::Rcode::SERVFAIL);
     EXPECT_TRUE(parsed.records.empty());
 }
 
@@ -756,8 +756,8 @@ TEST(DnsParserTest, RcodeRefused) {
     buf.push_back(0x01);
     buf.push_back(0x00);
     buf.push_back(0x01);
-    auto parsed = DNS::RecordParser::parse_strings(buf);
-    EXPECT_EQ(parsed.rcode, DNS::Rcode::REFUSED);
+    auto parsed = dns::RecordParser::parse_strings(buf);
+    EXPECT_EQ(parsed.rcode, dns::Rcode::REFUSED);
     EXPECT_TRUE(parsed.records.empty());
 }
 
@@ -778,17 +778,17 @@ TEST(DnsParserTest, NoRecords_EmptyResponse) {
     buf.push_back(0x01);
     buf.push_back(0x00);
     buf.push_back(0x01);
-    auto parsed = DNS::RecordParser::parse_strings(buf);
+    auto parsed = dns::RecordParser::parse_strings(buf);
     EXPECT_TRUE(parsed.records.empty());
-    EXPECT_EQ(parsed.rcode, DNS::Rcode::NOERROR);
+    EXPECT_EQ(parsed.rcode, dns::Rcode::NOERROR);
 }
 
 TEST(DnsParserTest, LargeTtl) {
     auto response = make_a_response(0x1234, {192, 168, 1, 1}, 2147483647U);
-    auto parsed = DNS::RecordParser::parse_strings(response);
+    auto parsed = dns::RecordParser::parse_strings(response);
     ASSERT_EQ(parsed.records.size(), 1U);
     EXPECT_EQ(parsed.records[0], "192.168.1.1");
-    EXPECT_EQ(parsed.rcode, DNS::Rcode::NOERROR);
+    EXPECT_EQ(parsed.rcode, dns::Rcode::NOERROR);
 }
 
 // PTR record parsing (type 12)
@@ -796,18 +796,18 @@ TEST(DnsParserTest, LargeTtl) {
 
 TEST(DnsParserTest, ParsePtrRecord) {
     auto response = make_ptr_response(0x1234, "target.example.com");
-    auto parsed = DNS::RecordParser::parse_strings(response);
+    auto parsed = dns::RecordParser::parse_strings(response);
     ASSERT_EQ(parsed.records.size(), 1U);
     EXPECT_EQ(parsed.records[0], "target.example.com");
-    EXPECT_EQ(parsed.rcode, DNS::Rcode::NOERROR);
+    EXPECT_EQ(parsed.rcode, dns::Rcode::NOERROR);
 }
 
 TEST(DnsParserTest, ParsePtrRecord_ArpaDomain) {
     auto response = make_ptr_response(0x5678, "host-1.example.com");
-    auto parsed = DNS::RecordParser::parse_strings(response);
+    auto parsed = dns::RecordParser::parse_strings(response);
     ASSERT_EQ(parsed.records.size(), 1U);
     EXPECT_EQ(parsed.records[0], "host-1.example.com");
-    EXPECT_EQ(parsed.rcode, DNS::Rcode::NOERROR);
+    EXPECT_EQ(parsed.rcode, dns::Rcode::NOERROR);
 }
 
 // ===========================================================================
@@ -816,26 +816,26 @@ TEST(DnsParserTest, ParsePtrRecord_ArpaDomain) {
 
 TEST(DnsParserTest, ParseMxRecord) {
     auto response = make_mx_response(0x1234, 10, "mail.example.com");
-    auto parsed = DNS::RecordParser::parse_strings(response);
+    auto parsed = dns::RecordParser::parse_strings(response);
     ASSERT_EQ(parsed.records.size(), 1U);
     EXPECT_EQ(parsed.records[0], "10 mail.example.com");
-    EXPECT_EQ(parsed.rcode, DNS::Rcode::NOERROR);
+    EXPECT_EQ(parsed.rcode, dns::Rcode::NOERROR);
 }
 
 TEST(DnsParserTest, ParseMxRecord_LowPreference) {
     auto response = make_mx_response(0x5678, 0, "mx-primary.example.com");
-    auto parsed = DNS::RecordParser::parse_strings(response);
+    auto parsed = dns::RecordParser::parse_strings(response);
     ASSERT_EQ(parsed.records.size(), 1U);
     EXPECT_EQ(parsed.records[0], "0 mx-primary.example.com");
-    EXPECT_EQ(parsed.rcode, DNS::Rcode::NOERROR);
+    EXPECT_EQ(parsed.rcode, dns::Rcode::NOERROR);
 }
 
 TEST(DnsParserTest, ParseMxRecord_HighPreference) {
     auto response = make_mx_response(0x9ABC, 65535, "backup-mail.example.org");
-    auto parsed = DNS::RecordParser::parse_strings(response);
+    auto parsed = dns::RecordParser::parse_strings(response);
     ASSERT_EQ(parsed.records.size(), 1U);
     EXPECT_EQ(parsed.records[0], "65535 backup-mail.example.org");
-    EXPECT_EQ(parsed.rcode, DNS::Rcode::NOERROR);
+    EXPECT_EQ(parsed.rcode, dns::Rcode::NOERROR);
 }
 
 // ===========================================================================
@@ -844,22 +844,22 @@ TEST(DnsParserTest, ParseMxRecord_HighPreference) {
 
 TEST(DnsParserTest, ParseSoaRecord) {
     auto response = make_soa_response(0x1234, "ns1.example.com", "admin.example.com");
-    auto parsed = DNS::RecordParser::parse_strings(response);
+    auto parsed = dns::RecordParser::parse_strings(response);
     ASSERT_EQ(parsed.records.size(), 1U);
     EXPECT_EQ(parsed.records[0], "ns1.example.com admin.example.com 2024010100 3600 900 604800 86400");
-    EXPECT_EQ(parsed.rcode, DNS::Rcode::NOERROR);
+    EXPECT_EQ(parsed.rcode, dns::Rcode::NOERROR);
 }
 
 TEST(DnsParserTest, ParseSoaRecord_LongNames) {
     auto response = make_soa_response(0x5678, "very-long-primary-name.internal.example.com",
                                       "hostmaster.very-long-primary-name.internal.example.com");
-    auto parsed = DNS::RecordParser::parse_strings(response);
+    auto parsed = dns::RecordParser::parse_strings(response);
     ASSERT_EQ(parsed.records.size(), 1U);
     EXPECT_EQ(parsed.records[0],
               "very-long-primary-name.internal.example.com "
               "hostmaster.very-long-primary-name.internal.example.com "
               "2024010100 3600 900 604800 86400");
-    EXPECT_EQ(parsed.rcode, DNS::Rcode::NOERROR);
+    EXPECT_EQ(parsed.rcode, dns::Rcode::NOERROR);
 }
 
 // ===========================================================================
@@ -868,26 +868,26 @@ TEST(DnsParserTest, ParseSoaRecord_LongNames) {
 
 TEST(DnsParserTest, ParseSrvRecord) {
     auto response = make_srv_response(0x1234, 10, 20, 8080, "srv.example.com");
-    auto parsed = DNS::RecordParser::parse_strings(response);
+    auto parsed = dns::RecordParser::parse_strings(response);
     ASSERT_EQ(parsed.records.size(), 1U);
     EXPECT_EQ(parsed.records[0], "10 20 8080 srv.example.com");
-    EXPECT_EQ(parsed.rcode, DNS::Rcode::NOERROR);
+    EXPECT_EQ(parsed.rcode, dns::Rcode::NOERROR);
 }
 
 TEST(DnsParserTest, ParseSrvRecord_ZeroValues) {
     auto response = make_srv_response(0x5678, 0, 0, 53, "srv.example.com");
-    auto parsed = DNS::RecordParser::parse_strings(response);
+    auto parsed = dns::RecordParser::parse_strings(response);
     ASSERT_EQ(parsed.records.size(), 1U);
     EXPECT_EQ(parsed.records[0], "0 0 53 srv.example.com");
-    EXPECT_EQ(parsed.rcode, DNS::Rcode::NOERROR);
+    EXPECT_EQ(parsed.rcode, dns::Rcode::NOERROR);
 }
 
 TEST(DnsParserTest, ParseSrvRecord_MaxValues) {
     auto response = make_srv_response(0x9ABC, 65535, 65535, 65535, "srv.example.com");
-    auto parsed = DNS::RecordParser::parse_strings(response);
+    auto parsed = dns::RecordParser::parse_strings(response);
     ASSERT_EQ(parsed.records.size(), 1U);
     EXPECT_EQ(parsed.records[0], "65535 65535 65535 srv.example.com");
-    EXPECT_EQ(parsed.rcode, DNS::Rcode::NOERROR);
+    EXPECT_EQ(parsed.rcode, dns::Rcode::NOERROR);
 }
 
 // ===========================================================================
@@ -896,7 +896,7 @@ TEST(DnsParserTest, ParseSrvRecord_MaxValues) {
 
 TEST(DnsParserTest, Edns0_Detected) {
     auto response = make_edns_response(0x1234, false);
-    DNS::RecordParser parser(response);
+    dns::RecordParser parser(response);
     const auto& msg = parser.message();
     EXPECT_EQ(msg.arcount, 1U);
     const auto& edns = parser.edns();
@@ -907,16 +907,16 @@ TEST(DnsParserTest, Edns0_Detected) {
         EXPECT_EQ(edns->extended_rcode, 0U);
     }
     EXPECT_EQ(msg.additionals.size(), 1U);
-    EXPECT_EQ(msg.additionals[0].type, static_cast<std::uint16_t>(DNS::RecordType::OPT));
+    EXPECT_EQ(msg.additionals[0].type, static_cast<std::uint16_t>(dns::RecordType::OPT));
 }
 
 TEST(DnsParserTest, Edns0_WithOptions) {
     auto response = make_edns_response(0x5678, true);
-    DNS::RecordParser parser(response);
+    dns::RecordParser parser(response);
     const auto& msg = parser.message();
     EXPECT_EQ(msg.arcount, 1U);
     EXPECT_EQ(msg.additionals.size(), 1U);
-    EXPECT_EQ(msg.additionals[0].type, static_cast<std::uint16_t>(DNS::RecordType::OPT));
+    EXPECT_EQ(msg.additionals[0].type, static_cast<std::uint16_t>(dns::RecordType::OPT));
     const auto& edns = parser.edns();
     if (edns.has_value()) {
         EXPECT_EQ(edns->options.size(), 1U);
@@ -938,7 +938,7 @@ TEST(DnsParserTest, DecompressName_TruncatedPointer_Throws) {
     write_u16_be(buf, 4, 1);
     write_u16_be(buf, 6, 0);
     buf.push_back(0xC0);
-    EXPECT_THROW((DNS::RecordParser{buf}), DnsLookupException);
+    EXPECT_THROW((dns::RecordParser{buf}), DnsLookupException);
 }
 
 TEST(DnsParserTest, DecompressName_PointerCycle_Throws) {
@@ -971,7 +971,7 @@ TEST(DnsParserTest, DecompressName_PointerCycle_Throws) {
     buf.push_back(2);
     buf.push_back(3);
     buf.push_back(4);
-    EXPECT_THROW((DNS::RecordParser{buf}), DnsLookupException);
+    EXPECT_THROW((dns::RecordParser{buf}), DnsLookupException);
 }
 
 TEST(DnsParserTest, DecompressName_TooManyIndirections_Throws) {
@@ -997,7 +997,7 @@ TEST(DnsParserTest, DecompressName_TooManyIndirections_Throws) {
         buf.push_back(static_cast<uint8_t>(off + 2));
     }
     buf.push_back(0x00);
-    EXPECT_THROW((DNS::RecordParser{buf}), DnsLookupException);
+    EXPECT_THROW((dns::RecordParser{buf}), DnsLookupException);
 }
 
 TEST(DnsParserTest, DecompressName_LabelTooLong_Throws) {
@@ -1009,7 +1009,7 @@ TEST(DnsParserTest, DecompressName_LabelTooLong_Throws) {
     write_u16_be(buf, 4, 1);
     write_u16_be(buf, 6, 0);
     buf.push_back(100);
-    EXPECT_THROW((DNS::RecordParser{buf}), DnsLookupException);
+    EXPECT_THROW((dns::RecordParser{buf}), DnsLookupException);
 }
 
 TEST(DnsParserTest, DecompressName_LabelExtendsPastWire_Throws) {
@@ -1031,7 +1031,7 @@ TEST(DnsParserTest, DecompressName_LabelExtendsPastWire_Throws) {
     buf.push_back(50);
     for (int i = 0; i < 10; ++i)
         buf.push_back('a');
-    EXPECT_THROW((DNS::RecordParser{buf}), DnsLookupException);
+    EXPECT_THROW((dns::RecordParser{buf}), DnsLookupException);
 }
 
 // ===========================================================================
@@ -1040,7 +1040,7 @@ TEST(DnsParserTest, DecompressName_LabelExtendsPastWire_Throws) {
 
 TEST(DnsParserTest, PacketTooShort_Throws) {
     std::vector<std::uint8_t> too_short = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10};
-    EXPECT_THROW((DNS::RecordParser{too_short}), DnsLookupException);
+    EXPECT_THROW((dns::RecordParser{too_short}), DnsLookupException);
 }
 
 TEST(DnsParserTest, QuestionSectionTruncated_Throws) {
@@ -1051,7 +1051,7 @@ TEST(DnsParserTest, QuestionSectionTruncated_Throws) {
     buf[3] = 0x80;
     write_u16_be(buf, 4, 1);
     write_u16_be(buf, 6, 0);
-    EXPECT_THROW((DNS::RecordParser{buf}), DnsLookupException);
+    EXPECT_THROW((dns::RecordParser{buf}), DnsLookupException);
 }
 
 // ===========================================================================
@@ -1060,20 +1060,20 @@ TEST(DnsParserTest, QuestionSectionTruncated_Throws) {
 
 TEST(DnsParserTest, ParseMxRecord_ShortRdata_Throws) {
     // MX requires at least 2 (preference) + 1 (root label) bytes.
-    auto response = make_response_with_rdata(static_cast<std::uint16_t>(DNS::RecordType::MX), {0x00});
-    EXPECT_THROW((void) (DNS::RecordParser::parse_strings(response)), DnsLookupException);
+    auto response = make_response_with_rdata(static_cast<std::uint16_t>(dns::RecordType::MX), {0x00});
+    EXPECT_THROW((void) (dns::RecordParser::parse_strings(response)), DnsLookupException);
 }
 
 TEST(DnsParserTest, ParseSoaRecord_ShortRdata_Throws) {
     // SOA requires 2 names + 20 bytes of integers.
-    auto response = make_response_with_rdata(static_cast<std::uint16_t>(DNS::RecordType::SOA), {0x00, 0x00});
-    EXPECT_THROW((void) (DNS::RecordParser::parse_strings(response)), DnsLookupException);
+    auto response = make_response_with_rdata(static_cast<std::uint16_t>(dns::RecordType::SOA), {0x00, 0x00});
+    EXPECT_THROW((void) (dns::RecordParser::parse_strings(response)), DnsLookupException);
 }
 
 TEST(DnsParserTest, ParseSrvRecord_ShortRdata_Throws) {
     // SRV requires 6 fixed bytes + at least a root label.
-    auto response = make_response_with_rdata(static_cast<std::uint16_t>(DNS::RecordType::SRV), {0x00, 0x00});
-    EXPECT_THROW((void) (DNS::RecordParser::parse_strings(response)), DnsLookupException);
+    auto response = make_response_with_rdata(static_cast<std::uint16_t>(dns::RecordType::SRV), {0x00, 0x00});
+    EXPECT_THROW((void) (dns::RecordParser::parse_strings(response)), DnsLookupException);
 }
 
 TEST(DnsParserTest, ParseSoaRecord_NamesPastRdata_Throws) {
@@ -1081,8 +1081,8 @@ TEST(DnsParserTest, ParseSoaRecord_NamesPastRdata_Throws) {
     // the record's declared length does not match its content.
     std::vector<std::uint8_t> mname;
     encode_name(mname, "very-long-name.example.com");
-    auto response = make_response_with_rdata(static_cast<std::uint16_t>(DNS::RecordType::SOA), mname, 22);
-    EXPECT_THROW((void) (DNS::RecordParser::parse_strings(response)), DnsLookupException);
+    auto response = make_response_with_rdata(static_cast<std::uint16_t>(dns::RecordType::SOA), mname, 22);
+    EXPECT_THROW((void) (dns::RecordParser::parse_strings(response)), DnsLookupException);
 }
 
 TEST(DnsParserTest, DecompressName_ExpandedTooLong_Throws) {
@@ -1134,7 +1134,7 @@ TEST(DnsParserTest, DecompressName_ExpandedTooLong_Throws) {
     buf[name_start + 193] = static_cast<std::uint8_t>(target_pos >> 8);
     buf[name_start + 194] = static_cast<std::uint8_t>(target_pos & 0xFF);
 
-    EXPECT_THROW((DNS::RecordParser{buf}), DnsLookupException);
+    EXPECT_THROW((dns::RecordParser{buf}), DnsLookupException);
 }
 
 TEST(DnsParserTest, RrHeaderTruncated_Throws) {
@@ -1150,7 +1150,7 @@ TEST(DnsParserTest, RrHeaderTruncated_Throws) {
     buf.push_back(0x01);
     buf.push_back(0x00);
     buf.push_back(0x01);
-    EXPECT_THROW((DNS::RecordParser{buf}), DnsLookupException);
+    EXPECT_THROW((dns::RecordParser{buf}), DnsLookupException);
 }
 
 TEST(DnsParserTest, RdataTruncated_Throws) {
@@ -1182,7 +1182,7 @@ TEST(DnsParserTest, RdataTruncated_Throws) {
     buf.push_back(2);
     buf.push_back(3);
     buf.push_back(4);
-    EXPECT_THROW((DNS::RecordParser{buf}), DnsLookupException);
+    EXPECT_THROW((dns::RecordParser{buf}), DnsLookupException);
 }
 
 // ===========================================================================
@@ -1216,7 +1216,7 @@ TEST(DnsParserTest, InvalidARdata_Throws) {
     buf.push_back(0x02);
     buf.push_back(0x00);
     buf.push_back(0x01);
-    EXPECT_THROW(static_cast<void>(DNS::RecordParser::parse_strings(buf)), DnsLookupException);
+    EXPECT_THROW(static_cast<void>(dns::RecordParser::parse_strings(buf)), DnsLookupException);
 }
 
 TEST(DnsParserTest, InvalidAaaaRdata_Throws) {
@@ -1248,7 +1248,7 @@ TEST(DnsParserTest, InvalidAaaaRdata_Throws) {
     buf.push_back(0x00);
     buf.push_back(0x00);
     buf.push_back(0x01);
-    EXPECT_THROW(static_cast<void>(DNS::RecordParser::parse_strings(buf)), DnsLookupException);
+    EXPECT_THROW(static_cast<void>(dns::RecordParser::parse_strings(buf)), DnsLookupException);
 }
 
 TEST(DnsParserTest, UnsupportedRecordType_Throws) {
@@ -1278,7 +1278,7 @@ TEST(DnsParserTest, UnsupportedRecordType_Throws) {
     buf.push_back(0x02);
     buf.push_back(0x00);
     buf.push_back(0x01);
-    EXPECT_THROW(static_cast<void>(DNS::RecordParser::parse_strings(buf)), DnsLookupException);
+    EXPECT_THROW(static_cast<void>(dns::RecordParser::parse_strings(buf)), DnsLookupException);
 }
 
 // ===========================================================================
@@ -1312,7 +1312,7 @@ TEST(DnsParserTest, TruncatedTxtSegment_Throws) {
     buf.push_back(0x02);
     buf.push_back(10);
     buf.push_back('a');
-    EXPECT_THROW(static_cast<void>(DNS::RecordParser::parse_strings(buf)), DnsLookupException);
+    EXPECT_THROW(static_cast<void>(dns::RecordParser::parse_strings(buf)), DnsLookupException);
 }
 
 // ===========================================================================
@@ -1321,20 +1321,20 @@ TEST(DnsParserTest, TruncatedTxtSegment_Throws) {
 
 TEST(DnsParserTest, AuthorityRecords_Parsed) {
     auto response = make_authority_response(0x1234, "example.com", "ns1.example.com");
-    DNS::RecordParser parser(response);
+    dns::RecordParser parser(response);
     const auto& msg = parser.message();
     EXPECT_EQ(msg.nscount, 1U);
     EXPECT_EQ(msg.authorities.size(), 1U);
-    EXPECT_EQ(msg.authorities[0].type, static_cast<std::uint16_t>(DNS::RecordType::NS));
+    EXPECT_EQ(msg.authorities[0].type, static_cast<std::uint16_t>(dns::RecordType::NS));
     EXPECT_EQ(msg.authorities[0].name, "example.com");
 }
 
 TEST(DnsParserTest, AuthorityRecords_AnswerStillWorks) {
     auto response = make_authority_response(0x1234, "example.com", "ns1.example.com");
-    auto parsed = DNS::RecordParser::parse_strings(response);
+    auto parsed = dns::RecordParser::parse_strings(response);
     ASSERT_EQ(parsed.records.size(), 1U);
     EXPECT_EQ(parsed.records[0], "1.2.3.4");
-    EXPECT_EQ(parsed.rcode, DNS::Rcode::NOERROR);
+    EXPECT_EQ(parsed.rcode, dns::Rcode::NOERROR);
 }
 
 // ===========================================================================
@@ -1375,7 +1375,7 @@ TEST(DnsParserTest, DecompressName_PastWireEnd_Throws) {
     buf.push_back(0x00);
     buf.push_back(0x02);
     buf.push_back(0x01);
-    EXPECT_THROW(static_cast<void>(DNS::RecordParser::parse_strings(buf)), DnsLookupException);
+    EXPECT_THROW(static_cast<void>(dns::RecordParser::parse_strings(buf)), DnsLookupException);
 }
 
 // ===========================================================================
@@ -1423,7 +1423,7 @@ TEST(DnsParserTest, MultiSegmentTxtRecord) {
     buf.push_back('r');
     buf.push_back('l');
     buf.push_back('d');
-    auto parsed = DNS::RecordParser::parse_strings(buf);
+    auto parsed = dns::RecordParser::parse_strings(buf);
     ASSERT_EQ(parsed.records.size(), 1U);
     EXPECT_EQ(parsed.records[0], "hello world");
 }
@@ -1449,8 +1449,8 @@ TEST(DnsParserTest, ParseResponse_Servfail_ReturnsEmpty) {
     buf.push_back(0x00);
     buf.push_back(0x01);
 
-    auto parsed = DNS::RecordParser::parse_response(buf);
-    EXPECT_EQ(parsed.rcode, DNS::Rcode::SERVFAIL);
+    auto parsed = dns::RecordParser::parse_response(buf);
+    EXPECT_EQ(parsed.rcode, dns::Rcode::SERVFAIL);
     EXPECT_TRUE(parsed.answers.empty());
 }
 
@@ -1471,8 +1471,8 @@ TEST(DnsParserTest, ParseStrings_Nxdomain_ReturnsEmpty) {
     buf.push_back(0x00);
     buf.push_back(0x01);
 
-    auto parsed = DNS::RecordParser::parse_strings(buf);
-    EXPECT_EQ(parsed.rcode, DNS::Rcode::NXDOMAIN);
+    auto parsed = dns::RecordParser::parse_strings(buf);
+    EXPECT_EQ(parsed.rcode, dns::Rcode::NXDOMAIN);
     EXPECT_TRUE(parsed.records.empty());
 }
 
@@ -1495,12 +1495,12 @@ TEST(DnsParserTest, ParsesTcFlag) {
     buf.push_back(0x00);
     buf.push_back(0x01);
 
-    DNS::RecordParser parser(buf);
+    dns::RecordParser parser(buf);
     EXPECT_TRUE(parser.message().tc);
     EXPECT_FALSE(parser.message().aa);  // AA not set
     EXPECT_TRUE(parser.message().rd);
     EXPECT_TRUE(parser.message().ra);
-    EXPECT_EQ(parser.message().rcode, DNS::Rcode::NOERROR);
+    EXPECT_EQ(parser.message().rcode, dns::Rcode::NOERROR);
 }
 
 TEST(DnsParserTest, ParsesAaFlag) {
@@ -1518,7 +1518,7 @@ TEST(DnsParserTest, ParsesAaFlag) {
     buf.push_back(0x00);
     buf.push_back(0x01);
 
-    DNS::RecordParser parser(buf);
+    dns::RecordParser parser(buf);
     EXPECT_TRUE(parser.message().aa);
     EXPECT_FALSE(parser.message().tc);
 }
@@ -1558,7 +1558,7 @@ TEST(DnsParserTest, ParseRecord_OutOfBounds_Throws) {
     buf.push_back(0x02);
     buf.push_back(0x01);
 
-    DNS::RecordParser parser(buf);
+    dns::RecordParser parser(buf);
     // Valid index 0 should work.
     EXPECT_NO_THROW(static_cast<void>(parser.parse_record(0)));
     // Index 1 is out of bounds (ancount = 1).
@@ -1611,7 +1611,7 @@ TEST(DnsParserTest, DecompressName_MixedLabelAndPointer) {
     buf.push_back('m');
     buf.push_back(0);
 
-    DNS::RecordParser parser(buf);
+    dns::RecordParser parser(buf);
     EXPECT_EQ(parser.message().questions.size(), 1U);
     EXPECT_EQ(parser.message().questions[0].qname, "sub.example.com");
 }
@@ -1632,7 +1632,7 @@ TEST(DnsParserTest, ZeroQuestionCount_DoesNotCrash) {
     write_u16_be(buf, 8, 0);   // NSCOUNT=0
     write_u16_be(buf, 10, 0);  // ARCOUNT=0
 
-    DNS::RecordParser parser(buf);
+    dns::RecordParser parser(buf);
     EXPECT_TRUE(parser.message().questions.empty());
     EXPECT_TRUE(parser.message().answers.empty());
 }
@@ -1654,9 +1654,9 @@ TEST(DnsParserTest, ZeroAnswerCount_ReturnsEmptyResults) {
     buf.push_back(0x00);
     buf.push_back(0x01);
 
-    auto parsed = DNS::RecordParser::parse_strings(buf);
+    auto parsed = dns::RecordParser::parse_strings(buf);
     EXPECT_TRUE(parsed.records.empty());
-    EXPECT_EQ(parsed.rcode, DNS::Rcode::NOERROR);
+    EXPECT_EQ(parsed.rcode, dns::Rcode::NOERROR);
 }
 
 // ===========================================================================
@@ -1665,9 +1665,9 @@ TEST(DnsParserTest, ZeroAnswerCount_ReturnsEmptyResults) {
 
 TEST(DnsParserTest, ParseResponse_NoerrorWithAnswers) {
     auto response = make_ptr_response(0x1234, "target.example.com");
-    auto parsed = DNS::RecordParser::parse_response(response);
+    auto parsed = dns::RecordParser::parse_response(response);
     ASSERT_EQ(parsed.answers.size(), 1U);
-    EXPECT_EQ(parsed.rcode, DNS::Rcode::NOERROR);
+    EXPECT_EQ(parsed.rcode, dns::Rcode::NOERROR);
 }
 
 // ===========================================================================
@@ -1677,9 +1677,9 @@ TEST(DnsParserTest, ParseResponse_NoerrorWithAnswers) {
 TEST(DnsParserTest, ParseMxRecord_NameExtendsPastRdata_Throws) {
     // Preference(2) + label "abc" (5 bytes) — but RDLENGTH claims only 5,
     // so the decoded name ends up past the declared RDATA boundary.
-    auto response = make_response_with_rdata(static_cast<std::uint16_t>(DNS::RecordType::MX),
+    auto response = make_response_with_rdata(static_cast<std::uint16_t>(dns::RecordType::MX),
                                              {0x00, 0x0A, 0x03, 'a', 'b', 'c', 0x00}, 5);
-    EXPECT_THROW((void) (DNS::RecordParser::parse_strings(response)), DnsLookupException);
+    EXPECT_THROW((void) (dns::RecordParser::parse_strings(response)), DnsLookupException);
 }
 
 TEST(DnsParserTest, ParseSoaRecord_TruncatedRdata_Throws) {
@@ -1697,15 +1697,15 @@ TEST(DnsParserTest, ParseSoaRecord_TruncatedRdata_Throws) {
     rdata.push_back('f');
     rdata.push_back(0x00);
     rdata.insert(rdata.end(), 12, 0x00);
-    auto response = make_response_with_rdata(static_cast<std::uint16_t>(DNS::RecordType::SOA), rdata);
-    EXPECT_THROW((void) (DNS::RecordParser::parse_strings(response)), DnsLookupException);
+    auto response = make_response_with_rdata(static_cast<std::uint16_t>(dns::RecordType::SOA), rdata);
+    EXPECT_THROW((void) (dns::RecordParser::parse_strings(response)), DnsLookupException);
 }
 
 TEST(DnsParserTest, ParseSrvRecord_TargetExtendsPastRdata_Throws) {
     // priority(2)+weight(2)+port(2)+target(5) = 11 bytes, RDLENGTH claims 7.
-    auto response = make_response_with_rdata(static_cast<std::uint16_t>(DNS::RecordType::SRV),
+    auto response = make_response_with_rdata(static_cast<std::uint16_t>(dns::RecordType::SRV),
                                              {0x00, 0x0A, 0x00, 0x14, 0x1F, 0x90, 0x03, 's', 'r', 'v', 0x00}, 7);
-    EXPECT_THROW((void) (DNS::RecordParser::parse_strings(response)), DnsLookupException);
+    EXPECT_THROW((void) (dns::RecordParser::parse_strings(response)), DnsLookupException);
 }
 
 // ===========================================================================
@@ -1767,20 +1767,20 @@ std::vector<std::uint8_t> make_custom_edns_response(std::vector<std::uint8_t> op
 TEST(DnsParserTest, Edns0_TruncatedOption_Throws) {
     // OPT option declares length 10 but the RDATA only has 4 bytes.
     auto response = make_custom_edns_response({0x00}, {0x00, 0x01, 0x00, 0x0A}, 0x00000000);
-    EXPECT_THROW((DNS::RecordParser{response}), DnsLookupException);
+    EXPECT_THROW((dns::RecordParser{response}), DnsLookupException);
 }
 
 TEST(DnsParserTest, Edns0_NonRootName_NotDetected) {
     // An OPT-typed record with a non-root name is not EDNS0 (RFC 6891 §6.1).
     auto response = make_custom_edns_response({0x03, 'w', 'w', 'w', 0x00}, {}, 0x00000000);
-    DNS::RecordParser parser(response);
+    dns::RecordParser parser(response);
     EXPECT_FALSE(parser.edns().has_value());
 }
 
 TEST(DnsParserTest, Edns0_ExtendedRcode_Combined) {
     // OPT TTL upper byte carries extended RCODE 1 → final RCODE = 0x10.
     auto response = make_custom_edns_response({0x00}, {}, 0x01000000);
-    DNS::RecordParser parser(response);
+    dns::RecordParser parser(response);
     ASSERT_TRUE(parser.edns().has_value());
     EXPECT_EQ(static_cast<std::uint8_t>(parser.message().rcode), 0x10);
 }
@@ -1799,7 +1799,7 @@ TEST(DnsParserTest, QuestionSection_TypeTruncated_Throws) {
     write_u16_be(buf, 4, 1);
     buf.push_back(0x00);  // root name
     buf.push_back(0x00);  // 1 byte of QTYPE only — 3 more required
-    EXPECT_THROW((DNS::RecordParser{buf}), DnsLookupException);
+    EXPECT_THROW((dns::RecordParser{buf}), DnsLookupException);
 }
 
 TEST(DnsParserTest, AnswerSection_HeaderTruncated_Throws) {
@@ -1820,7 +1820,7 @@ TEST(DnsParserTest, AnswerSection_HeaderTruncated_Throws) {
     buf.push_back(0x0C);  // answer name pointer
     buf.push_back(0x00);
     buf.push_back(0x01);  // only TYPE — 10 more bytes required
-    EXPECT_THROW((DNS::RecordParser{buf}), DnsLookupException);
+    EXPECT_THROW((dns::RecordParser{buf}), DnsLookupException);
 }
 
 TEST(DnsParserTest, UnsupportedRecordType_ThrowsWithQuestionMark) {
@@ -1830,7 +1830,7 @@ TEST(DnsParserTest, UnsupportedRecordType_ThrowsWithQuestionMark) {
     EXPECT_THROW(
         {
             try {
-                [[maybe_unused]] auto _ = DNS::RecordParser::parse_strings(response);
+                [[maybe_unused]] auto _ = dns::RecordParser::parse_strings(response);
             } catch (const DnsLookupException& e) {
                 EXPECT_NE(std::string(e.what()).find("?"), std::string::npos);
                 throw;

@@ -1,7 +1,7 @@
 //
 // Created by Kotarou on 2026/7/7.
 //
-// Unit tests for dns/util.hpp — DNS::Util compile-time helpers.
+// Unit tests for dns/util.hpp — dns::Util compile-time helpers.
 //
 // Verifies:
 //   - read_u16_be byte-order correctness.
@@ -53,18 +53,18 @@ TEST(DnsUtilTest, ReadU16Be_SpanOffset) {
 // ── type_to_record_type ──────────────────────────────────────────────────────
 
 TEST(DnsUtilTest, TypeToRecordType_A_ReturnsA) {
-    EXPECT_EQ(DNS::Util::type_to_record_type(RecordKind::A), DNS::RecordType::A);
+    EXPECT_EQ(dns::Util::type_to_record_type(RecordKind::A), dns::RecordType::A);
 }
 
 TEST(DnsUtilTest, TypeToRecordType_AAAA_ReturnsAAAA) {
-    EXPECT_EQ(DNS::Util::type_to_record_type(RecordKind::AAAA), DNS::RecordType::AAAA);
+    EXPECT_EQ(dns::Util::type_to_record_type(RecordKind::AAAA), dns::RecordType::AAAA);
 }
 
 TEST(DnsUtilTest, TypeToRecordType_TXT_ReturnsTXT) {
-    EXPECT_EQ(DNS::Util::type_to_record_type(RecordKind::TXT), DNS::RecordType::TXT);
+    EXPECT_EQ(dns::Util::type_to_record_type(RecordKind::TXT), dns::RecordType::TXT);
 }
 
 TEST(DnsUtilTest, TypeToRecordType_Constexpr) {
-    constexpr auto a = DNS::Util::type_to_record_type(RecordKind::A);
-    static_assert(a == DNS::RecordType::A);
+    constexpr auto a = dns::Util::type_to_record_type(RecordKind::A);
+    static_assert(a == dns::RecordType::A);
 }

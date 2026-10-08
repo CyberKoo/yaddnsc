@@ -12,7 +12,7 @@
 
 #include "domain/network/inet_address.h"
 
-namespace DNS {
+namespace dns {
 
 std::vector<Config::DnsServer> parse_resolv_conf(const std::filesystem::path& path) {
     std::vector<Config::DnsServer> servers;
@@ -47,4 +47,4 @@ std::vector<Config::DnsServer> parse_resolv_conf(const std::filesystem::path& pa
     return servers;
 }
 
-}  // namespace DNS
+}  // namespace dns

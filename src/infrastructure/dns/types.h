@@ -10,7 +10,7 @@
 #include <string>
 #include <vector>
 
-namespace DNS {
+namespace dns {
 // =============================================================================
 // DNS wire-format type constants (RFC 1035, RFC 6891)
 // =============================================================================
@@ -139,6 +139,6 @@ struct FormattedResponse {
     Rcode rcode{Rcode::NOERROR};
     std::vector<std::string> records;
 };
-}  // namespace DNS
+}  // namespace dns
 
 #endif  // YADDNSC_DNS_TYPES_H

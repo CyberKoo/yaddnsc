@@ -7,7 +7,7 @@
 
 /// DNS record kinds supported by the DDNS updater.
 ///
-/// This is a subset of wire-format DNS record types (DNS::RecordType)
+/// This is a subset of wire-format DNS record types (dns::RecordType)
 /// that the updater can query and update.
 enum class RecordKind {
     A,     ///< IPv4 address record

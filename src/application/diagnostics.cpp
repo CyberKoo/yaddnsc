@@ -5,11 +5,15 @@
 #include "diagnostics.h"
 
 #include <exception>
+#include <string>
 #include <utility>
 
-#include "application/ports/network_interfaces.h"
+#include <magic_enum/magic_enum.hpp>
 
-namespace Diagnostics {
+#include "application/ports/network_interfaces.h"
+#include "domain/dns/record_kind.h"
+
+namespace app {
 
 std::vector<DriverListItem> list_drivers(const DriverCatalogPort& catalog) {
     std::vector<DriverListItem> items;
@@ -38,4 +42,16 @@ std::vector<InterfaceListItem> list_interfaces(const NetworkInterfaces& interfac
     return items;
 }
 
-}  // namespace Diagnostics
+coro::Task<DnsResolveOutcome> dns_resolve(ResolverPort& resolver, std::string host, std::string type_text) {
+    DnsResolveOutcome outcome{.host = std::move(host), .type_text = std::move(type_text), .lookup = std::nullopt};
+
+    const auto type = magic_enum::enum_cast<RecordKind>(outcome.type_text, magic_enum::case_insensitive);
+    if (!type.has_value()) {
+        co_return outcome;  // lookup stays nullopt — unknown record type
+    }
+
+    outcome.lookup = co_await resolver.resolve(outcome.host, *type);
+    co_return outcome;
+}
+
+}  // namespace app

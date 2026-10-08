@@ -54,7 +54,7 @@ constexpr uint32_t EDNS_TTL_DO_MASK = 0x00008000U;
 // Name decompression (RFC 1035 §4.1.4)
 // =============================================================================
 
-std::string DNS::RecordParser::decompress_name(const std::span<const std::uint8_t> wire, size_t& offset) {
+std::string dns::RecordParser::decompress_name(const std::span<const std::uint8_t> wire, size_t& offset) {
     // Track visited offsets to detect pointer cycles.
     // Fixed-size array on the stack: zero allocation, cache-friendly.
     // MAX_POINTER_DEPTH bounds the worst-case chain length, so
@@ -157,7 +157,7 @@ std::string DNS::RecordParser::decompress_name(const std::span<const std::uint8_
 // RDATA format helpers
 // =============================================================================
 
-std::string DNS::RecordParser::format_a(const std::span<const std::uint8_t> rdata) {
+std::string dns::RecordParser::format_a(const std::span<const std::uint8_t> rdata) {
     if (rdata.size() != 4) [[unlikely]] {
         throw DnsLookupException(fmt::format("Invalid A record: RDATA is {} byte(s) (expected 4)", rdata.size()),
                                  DnsError::PARSE);
@@ -169,7 +169,7 @@ std::string DNS::RecordParser::format_a(const std::span<const std::uint8_t> rdat
     return buf.data();
 }
 
-std::string DNS::RecordParser::format_aaaa(const std::span<const std::uint8_t> rdata) {
+std::string dns::RecordParser::format_aaaa(const std::span<const std::uint8_t> rdata) {
     if (rdata.size() != 16) [[unlikely]] {
         throw DnsLookupException(fmt::format("Invalid AAAA record: RDATA is {} byte(s) (expected 16)", rdata.size()),
                                  DnsError::PARSE);
@@ -181,7 +181,7 @@ std::string DNS::RecordParser::format_aaaa(const std::span<const std::uint8_t> r
     return buf.data();
 }
 
-std::string DNS::RecordParser::format_txt(const std::span<const std::uint8_t> rdata) {
+std::string dns::RecordParser::format_txt(const std::span<const std::uint8_t> rdata) {
     // TXT: one or more <character-string> segments.
     // Each segment: length byte (1 octet) followed by that many bytes.
     // Concatenate all segments.
@@ -205,13 +205,13 @@ std::string DNS::RecordParser::format_txt(const std::span<const std::uint8_t> rd
     return result;
 }
 
-std::string DNS::RecordParser::format_domain_name(const std::span<const std::uint8_t> wire, size_t rdata_offset) {
+std::string dns::RecordParser::format_domain_name(const std::span<const std::uint8_t> wire, size_t rdata_offset) {
     // Decompress a domain name from an arbitrary position in the wire buffer.
     size_t name_offset = rdata_offset;
     return decompress_name(wire, name_offset);
 }
 
-std::string DNS::RecordParser::format_mx(const std::span<const std::uint8_t> wire, size_t rdata_offset, size_t rdlen) {
+std::string dns::RecordParser::format_mx(const std::span<const std::uint8_t> wire, size_t rdata_offset, size_t rdlen) {
     // MX: preference (2 bytes) + domain-name (compressed).
     const auto rdata = wire.subspan(rdata_offset, rdlen);
     const auto pref = Utils::Bytes::try_read_u16_be(rdata, 0);
@@ -228,7 +228,7 @@ std::string DNS::RecordParser::format_mx(const std::span<const std::uint8_t> wir
     return fmt::format("{} {}", *pref, name);
 }
 
-std::string DNS::RecordParser::format_soa(const std::span<const std::uint8_t> wire, size_t rdata_offset, size_t rdlen) {
+std::string dns::RecordParser::format_soa(const std::span<const std::uint8_t> wire, size_t rdata_offset, size_t rdlen) {
     // SOA: MNAME (domain-name) + RNAME (domain-name) + 5 × uint32.
     const auto rdata = wire.subspan(rdata_offset, rdlen);
 
@@ -262,7 +262,7 @@ std::string DNS::RecordParser::format_soa(const std::span<const std::uint8_t> wi
     return fmt::format("{} {} {} {} {} {} {}", mname, rname, *serial, *refresh, *retry, *expire, *minimum);
 }
 
-std::string DNS::RecordParser::format_srv(const std::span<const std::uint8_t> wire, size_t rdata_offset, size_t rdlen) {
+std::string dns::RecordParser::format_srv(const std::span<const std::uint8_t> wire, size_t rdata_offset, size_t rdlen) {
     // SRV: priority (2) + weight (2) + port (2) + target (domain-name).
     const auto rdata = wire.subspan(rdata_offset, rdlen);
     const auto priority = Utils::Bytes::try_read_u16_be(rdata, 0);
@@ -281,7 +281,7 @@ std::string DNS::RecordParser::format_srv(const std::span<const std::uint8_t> wi
     return fmt::format("{} {} {} {}", *priority, *weight, *port, target);
 }
 
-std::string DNS::RecordParser::format_generic(const std::span<const std::uint8_t> rdata) {
+std::string dns::RecordParser::format_generic(const std::span<const std::uint8_t> rdata) {
     // Hex dump for unknown record types.
     const auto rdlen = rdata.size();
     std::string result;
@@ -299,7 +299,7 @@ std::string DNS::RecordParser::format_generic(const std::span<const std::uint8_t
 // EDNS0 parsing (RFC 6891)
 // =============================================================================
 
-std::optional<DNS::EdnsInfo> DNS::RecordParser::parse_edns(const ResourceRecord& rr) {
+std::optional<dns::EdnsInfo> dns::RecordParser::parse_edns(const ResourceRecord& rr) {
     if (rr.type != static_cast<std::uint16_t>(RecordType::OPT)) {
         return std::nullopt;
     }
@@ -350,7 +350,7 @@ std::optional<DNS::EdnsInfo> DNS::RecordParser::parse_edns(const ResourceRecord&
 // RDATA dispatch
 // =============================================================================
 
-std::string DNS::RecordParser::rdata_to_string(const ResourceRecord& rr, const std::span<const std::uint8_t> wire) {
+std::string dns::RecordParser::rdata_to_string(const ResourceRecord& rr, const std::span<const std::uint8_t> wire) {
     // Read RDATA length from the wire buffer (the 2-byte rdlength field
     // always precedes RDATA at rdata_offset - 2 in a valid DNS packet).
     // This works regardless of whether rr.rdata was populated, and avoids
@@ -412,7 +412,7 @@ std::string DNS::RecordParser::rdata_to_string(const ResourceRecord& rr, const s
 // Full message parser
 // =============================================================================
 
-DNS::ResourceRecord DNS::RecordParser::parse_rr(const std::span<const std::uint8_t> data, size_t& offset,
+dns::ResourceRecord dns::RecordParser::parse_rr(const std::span<const std::uint8_t> data, size_t& offset,
                                                 const bool copy_rdata) {
     ResourceRecord rr{};
     rr.name = decompress_name(data, offset);
@@ -439,7 +439,7 @@ DNS::ResourceRecord DNS::RecordParser::parse_rr(const std::span<const std::uint8
     return rr;
 }
 
-DNS::ParsedMessage DNS::RecordParser::parse_message(const std::span<const std::uint8_t> data, const bool copy_rdata) {
+dns::ParsedMessage dns::RecordParser::parse_message(const std::span<const std::uint8_t> data, const bool copy_rdata) {
     if (data.size() < HEADER_SIZE) [[unlikely]] {
         throw DnsLookupException(
             fmt::format("DNS packet too short: {} bytes (minimum {} bytes)", data.size(), HEADER_SIZE),
@@ -518,17 +518,17 @@ DNS::ParsedMessage DNS::RecordParser::parse_message(const std::span<const std::u
 // RecordParser public API
 // =============================================================================
 
-DNS::RecordParser::RecordParser(const std::span<const std::uint8_t> data) : wire_(data) {
+dns::RecordParser::RecordParser(const std::span<const std::uint8_t> data) : wire_(data) {
     message_ = parse_message(data);
     SPDLOG_TRACE(R"(DNS message parser initialised (message size: {}, answer count: {}))", data.size(),
                  message_.ancount);
 }
 
-size_t DNS::RecordParser::record_count() const noexcept {
+size_t dns::RecordParser::record_count() const noexcept {
     return static_cast<size_t>(message_.ancount);
 }
 
-std::string DNS::RecordParser::parse_record(size_t index) const {
+std::string dns::RecordParser::parse_record(size_t index) const {
     const auto& msg = message_;
     if (index >= static_cast<size_t>(msg.ancount)) {
         throw DnsLookupException(
@@ -544,7 +544,7 @@ std::string DNS::RecordParser::parse_record(size_t index) const {
     return rdata_to_string(rr, wire_);
 }
 
-DNS::ParsedResponse DNS::RecordParser::parse_response(const std::span<const std::uint8_t> data,
+dns::ParsedResponse dns::RecordParser::parse_response(const std::span<const std::uint8_t> data,
                                                       [[maybe_unused]] const std::string& host) {
     RecordParser parser(data);
     ParsedResponse response;
@@ -557,7 +557,7 @@ DNS::ParsedResponse DNS::RecordParser::parse_response(const std::span<const std:
     return response;
 }
 
-DNS::FormattedResponse DNS::RecordParser::parse_strings(const std::span<const std::uint8_t> data,
+dns::FormattedResponse dns::RecordParser::parse_strings(const std::span<const std::uint8_t> data,
                                                         [[maybe_unused]] const std::string& host) {
     // Fast path: parse without copying RDATA — rdata_to_string reads
     // directly from the wire buffer via rdata_offset.

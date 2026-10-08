@@ -28,10 +28,10 @@
 #include <gtest/gtest.h>
 #include <unistd.h>
 
-#include "application/coro/run_scheduler.h"
-#include "application/coro/services.h"
-#include "application/coro/subdomain_loop.h"
-#include "application/coro/update_once.h"
+#include "application/run_scheduler.h"
+#include "application/services.h"
+#include "application/subdomain_loop.h"
+#include "application/update_once.h"
 #include "application/ports/log.h"
 #include "domain/config/dns_config.h"
 #include "domain/config/ip_source_kind.h"

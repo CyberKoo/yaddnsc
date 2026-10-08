@@ -18,6 +18,8 @@ struct RuntimeConfig;
 class DriverCatalogPort;
 class NetworkInterfaces;
 
+namespace app {
+
 /// Environment-dependent configuration validation: every referenced driver
 /// must be loaded and every referenced network interface must exist on this
 /// machine. Static (environment-independent) checks live in
@@ -31,5 +33,7 @@ class NetworkInterfaces;
 /// ConfigValidator.
 [[nodiscard]] std::expected<void, std::vector<domain::ConfigError>> validate_environment(
     const domain::RuntimeConfig& config, const DriverCatalogPort& catalog, const NetworkInterfaces& interfaces);
+
+}  // namespace app
 
 #endif  // YADDNSC_APPLICATION_ENVIRONMENT_VALIDATOR_H

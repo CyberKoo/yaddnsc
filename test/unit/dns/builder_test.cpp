@@ -1,5 +1,5 @@
 //
-// Unit tests for dns/wire/builder.h — DNS::QueryBuilder.
+// Unit tests for dns/wire/builder.h — dns::QueryBuilder.
 //
 // Tests cover:
 //   - Header field encoding (ID, flags, counts)
@@ -78,34 +78,34 @@ void expect_qname_example_com(const std::vector<std::uint8_t>& packet, size_t of
 // ===========================================================================
 
 TEST(QueryBuilderTest, AaFlag) {
-    auto packet = DNS::QueryBuilder{}.aa(true).rd(false).add_question("example.com", DNS::RecordType::A).build();
+    auto packet = dns::QueryBuilder{}.aa(true).rd(false).add_question("example.com", dns::RecordType::A).build();
 
     // AA = bit 10 -> 0x0400
     EXPECT_EQ(read_u16(packet, 2), 0x0400);
 }
 
 TEST(QueryBuilderTest, TcFlag) {
-    auto packet = DNS::QueryBuilder{}.tc(true).rd(false).add_question("example.com", DNS::RecordType::A).build();
+    auto packet = dns::QueryBuilder{}.tc(true).rd(false).add_question("example.com", dns::RecordType::A).build();
 
     // TC = bit 9 -> 0x0200
     EXPECT_EQ(read_u16(packet, 2), 0x0200);
 }
 
 TEST(QueryBuilderTest, RaFlag) {
-    auto packet = DNS::QueryBuilder{}.ra(true).rd(false).add_question("example.com", DNS::RecordType::A).build();
+    auto packet = dns::QueryBuilder{}.ra(true).rd(false).add_question("example.com", dns::RecordType::A).build();
 
     // RA = bit 7 -> 0x0080
     EXPECT_EQ(read_u16(packet, 2), 0x0080);
 }
 
 TEST(QueryBuilderTest, AllFlagsOff) {
-    auto packet = DNS::QueryBuilder{}
+    auto packet = dns::QueryBuilder{}
                       .qr(false)
                       .aa(false)
                       .tc(false)
                       .rd(false)
                       .ra(false)
-                      .add_question("example.com", DNS::RecordType::A)
+                      .add_question("example.com", dns::RecordType::A)
                       .build();
 
     // All flags off -> 0x0000
@@ -117,8 +117,8 @@ TEST(QueryBuilderTest, AllFlagsOff) {
 // ===========================================================================
 
 TEST(QueryBuilderTest, DefaultQueryHasRandomIdAndRd) {
-    DNS::QueryBuilder builder;
-    builder.add_question("example.com", DNS::RecordType::A);
+    dns::QueryBuilder builder;
+    builder.add_question("example.com", dns::RecordType::A);
     auto packet = builder.build();
 
     // Default: QR=0, OPCODE=0, RD=1 → flags = 0x0100
@@ -135,7 +135,7 @@ TEST(QueryBuilderTest, DefaultId_IsRandom) {
     std::vector<std::uint16_t> ids;
     ids.reserve(64);
     for (int i = 0; i < 64; ++i) {
-        auto packet = DNS::QueryBuilder{}.add_question("example.com", DNS::RecordType::A).build();
+        auto packet = dns::QueryBuilder{}.add_question("example.com", dns::RecordType::A).build();
         ids.push_back(read_u16(packet, 0));
     }
 
@@ -145,7 +145,7 @@ TEST(QueryBuilderTest, DefaultId_IsRandom) {
 }
 
 TEST(QueryBuilderTest, BuildsExampleComA) {
-    auto packet = DNS::QueryBuilder{}.add_question("example.com", DNS::RecordType::A).build();
+    auto packet = dns::QueryBuilder{}.add_question("example.com", dns::RecordType::A).build();
 
     expect_qname_example_com(packet, 12);
 
@@ -160,7 +160,7 @@ TEST(QueryBuilderTest, BuildsExampleComA) {
 }
 
 TEST(QueryBuilderTest, BuildsAaaaRecord) {
-    auto packet = DNS::QueryBuilder{}.add_question("example.com", DNS::RecordType::AAAA).build();
+    auto packet = dns::QueryBuilder{}.add_question("example.com", dns::RecordType::AAAA).build();
 
     // QTYPE = AAAA (28) = 0x001C
     EXPECT_EQ(read_u16(packet, 25), 28);
@@ -171,26 +171,26 @@ TEST(QueryBuilderTest, BuildsAaaaRecord) {
 // ===========================================================================
 
 TEST(QueryBuilderTest, CustomId) {
-    auto packet = DNS::QueryBuilder{}.id(0xABCD).add_question("example.com", DNS::RecordType::A).build();
+    auto packet = dns::QueryBuilder{}.id(0xABCD).add_question("example.com", dns::RecordType::A).build();
 
     EXPECT_EQ(read_u16(packet, 0), 0xABCD);
 }
 
 TEST(QueryBuilderTest, QrFlag) {
-    auto packet = DNS::QueryBuilder{}.qr(true).add_question("example.com", DNS::RecordType::A).build();
+    auto packet = dns::QueryBuilder{}.qr(true).add_question("example.com", dns::RecordType::A).build();
 
     // QR = bit 15 → 0x8000 | RD = 0x0100 → 0x8100
     EXPECT_EQ(read_u16(packet, 2), 0x8100);
 }
 
 TEST(QueryBuilderTest, AllFlagsSet) {
-    auto packet = DNS::QueryBuilder{}
+    auto packet = dns::QueryBuilder{}
                       .qr(true)
                       .aa(true)
                       .tc(true)
                       .rd(true)
                       .ra(true)
-                      .add_question("example.com", DNS::RecordType::A)
+                      .add_question("example.com", dns::RecordType::A)
                       .build();
 
     // QR(0x8000) | AA(0x0400) | TC(0x0200) | RD(0x0100) | RA(0x0080) = 0x8780
@@ -198,9 +198,9 @@ TEST(QueryBuilderTest, AllFlagsSet) {
 }
 
 TEST(QueryBuilderTest, OpcodeSetsBits) {
-    auto packet = DNS::QueryBuilder{}
+    auto packet = dns::QueryBuilder{}
                       .opcode(1)  // Inverse query (RFC 1035)
-                      .add_question("example.com", DNS::RecordType::A)
+                      .add_question("example.com", dns::RecordType::A)
                       .build();
 
     // OPCODE=1 << 11 = 0x0800 | RD=1 = 0x0100 → flags = 0x0900
@@ -209,11 +209,11 @@ TEST(QueryBuilderTest, OpcodeSetsBits) {
 
 TEST(QueryBuilderTest, QrAndRdControl) {
     // QR=0, RD=1 (default query)
-    auto query = DNS::QueryBuilder{}.add_question("example.com", DNS::RecordType::A).build();
+    auto query = dns::QueryBuilder{}.add_question("example.com", dns::RecordType::A).build();
     EXPECT_EQ(read_u16(query, 2), 0x0100);
 
     // QR=1, RD=0 (response)
-    auto resp = DNS::QueryBuilder{}.qr(true).rd(false).add_question("example.com", DNS::RecordType::A).build();
+    auto resp = dns::QueryBuilder{}.qr(true).rd(false).add_question("example.com", dns::RecordType::A).build();
     EXPECT_EQ(read_u16(resp, 2), 0x8000);
 }
 
@@ -222,9 +222,9 @@ TEST(QueryBuilderTest, QrAndRdControl) {
 // ===========================================================================
 
 TEST(QueryBuilderTest, MultipleQuestions) {
-    auto packet = DNS::QueryBuilder{}
-                      .add_question("example.com", DNS::RecordType::A)
-                      .add_question("example.com", DNS::RecordType::AAAA)
+    auto packet = dns::QueryBuilder{}
+                      .add_question("example.com", dns::RecordType::A)
+                      .add_question("example.com", dns::RecordType::AAAA)
                       .build();
 
     // QDCOUNT = 2
@@ -246,9 +246,9 @@ TEST(QueryBuilderTest, MultipleQuestions) {
 }
 
 TEST(QueryBuilderTest, MultipleDifferentNames) {
-    auto packet = DNS::QueryBuilder{}
-                      .add_question("example.com", DNS::RecordType::A)
-                      .add_question("google.com", DNS::RecordType::AAAA)
+    auto packet = dns::QueryBuilder{}
+                      .add_question("example.com", dns::RecordType::A)
+                      .add_question("google.com", dns::RecordType::AAAA)
                       .build();
 
     EXPECT_EQ(read_u16(packet, 4), 2);
@@ -275,7 +275,7 @@ TEST(QueryBuilderTest, MultipleDifferentNames) {
 // ===========================================================================
 
 TEST(QueryBuilderTest, SingleLabelName) {
-    auto packet = DNS::QueryBuilder{}.add_question("localhost", DNS::RecordType::A).build();
+    auto packet = dns::QueryBuilder{}.add_question("localhost", dns::RecordType::A).build();
 
     // \x09localhost\x00
     ASSERT_GE(packet.size(), 12 + 11);
@@ -295,7 +295,7 @@ TEST(QueryBuilderTest, SingleLabelName) {
 TEST(QueryBuilderTest, BareDotEncodesAsRoot) {
     // A single dot is the root domain — should encode as a single \x00 byte
     // inside the query, same as an empty name.
-    auto packet = DNS::QueryBuilder{}.id(0).rd(false).add_question(".", DNS::RecordType::NS).build();
+    auto packet = dns::QueryBuilder{}.id(0).rd(false).add_question(".", dns::RecordType::NS).build();
 
     // QNAME starts at offset 12; root is a single zero byte.
     EXPECT_EQ(packet[12], 0) << "Root label should be a single zero byte";
@@ -307,7 +307,7 @@ TEST(QueryBuilderTest, BareDotEncodesAsRoot) {
 
 TEST(QueryBuilderTest, TrailingDot) {
     // "example.com." with trailing dot should encode the same way.
-    auto packet = DNS::QueryBuilder{}.add_question("example.com.", DNS::RecordType::A).build();
+    auto packet = dns::QueryBuilder{}.add_question("example.com.", dns::RecordType::A).build();
 
     // Should produce same encoding as "example.com" (without trailing dot)
     // QNAME: \x07example\x03com\x00
@@ -322,11 +322,11 @@ TEST(QueryBuilderTest, TrailingDot) {
 // ===========================================================================
 
 TEST(QueryBuilderTest, RawQclassSetsQuBit) {
-    auto packet = DNS::QueryBuilder{}
+    auto packet = dns::QueryBuilder{}
                       .id(0)
                       .rd(false)
-                      .add_question_raw_qclass("local", DNS::RecordType::A,
-                                               static_cast<std::uint16_t>(DNS::RecordClass::IN) | 0x8000)
+                      .add_question_raw_qclass("local", dns::RecordType::A,
+                                               static_cast<std::uint16_t>(dns::RecordClass::IN) | 0x8000)
                       .build();
 
     // QNAME: \x05local\x00 (7 bytes, offset 12)
@@ -339,14 +339,14 @@ TEST(QueryBuilderTest, RawQclassSetsQuBit) {
 // ===========================================================================
 
 TEST(QueryBuilderTest, EdnsSetsArcount) {
-    auto packet = DNS::QueryBuilder{}.add_question("example.com", DNS::RecordType::A).add_edns(4096, 0, false).build();
+    auto packet = dns::QueryBuilder{}.add_question("example.com", dns::RecordType::A).add_edns(4096, 0, false).build();
 
     // ARCOUNT should be 1 with EDNS0
     EXPECT_EQ(read_u16(packet, 10), 1);
 }
 
 TEST(QueryBuilderTest, EdnsOptRecordFields) {
-    auto packet = DNS::QueryBuilder{}.add_question("example.com", DNS::RecordType::A).add_edns(1232, 0, true).build();
+    auto packet = dns::QueryBuilder{}.add_question("example.com", dns::RecordType::A).add_edns(1232, 0, true).build();
 
     // After the question section: header(12) + qname(13) + qtype(2) + qclass(2) = 29
     size_t opt_offset = 29;
@@ -368,7 +368,7 @@ TEST(QueryBuilderTest, EdnsOptRecordFields) {
 }
 
 TEST(QueryBuilderTest, EdnsWithoutDnssec) {
-    auto packet = DNS::QueryBuilder{}.add_question("example.com", DNS::RecordType::A).add_edns(4096, 0, false).build();
+    auto packet = dns::QueryBuilder{}.add_question("example.com", dns::RecordType::A).add_edns(4096, 0, false).build();
 
     size_t opt_offset = 29;
 
@@ -378,13 +378,13 @@ TEST(QueryBuilderTest, EdnsWithoutDnssec) {
 }
 
 TEST(QueryBuilderTest, EdnsWithOptions) {
-    std::vector<DNS::EdnsOption> opts = {
+    std::vector<dns::EdnsOption> opts = {
         {1, {0x00, 0x08}},        // code=1, 2 bytes of data
         {2, {0xAA, 0xBB, 0xCC}},  // code=2, 3 bytes of data
     };
 
     auto packet =
-        DNS::QueryBuilder{}.add_question("example.com", DNS::RecordType::A).add_edns(4096, 0, false, opts).build();
+        dns::QueryBuilder{}.add_question("example.com", dns::RecordType::A).add_edns(4096, 0, false, opts).build();
 
     size_t opt_offset = 29;
 
@@ -410,37 +410,37 @@ TEST(QueryBuilderTest, EdnsWithOptions) {
 // ===========================================================================
 
 TEST(QueryBuilderTest, ThrowsOnEmptyQuestion) {
-    DNS::QueryBuilder builder;
+    dns::QueryBuilder builder;
     EXPECT_THROW({ [[maybe_unused]] auto _ = builder.build(); }, DnsPacketException);
 }
 
 TEST(QueryBuilderTest, ThrowsOnLabelTooLong) {
     // A single label of 64 characters exceeds the 63-octet limit.
     std::string long_label(64, 'a');
-    DNS::QueryBuilder builder;
-    builder.add_question(long_label, DNS::RecordType::A);
+    dns::QueryBuilder builder;
+    builder.add_question(long_label, dns::RecordType::A);
     EXPECT_THROW({ [[maybe_unused]] auto _ = builder.build(); }, DnsPacketException);
 }
 
 TEST(QueryBuilderTest, ThrowsOnEmptyInteriorLabel) {
     // "a..b" contains an empty label that would emit a zero byte mid-name,
     // silently truncating the wire name at the root terminator.
-    DNS::QueryBuilder builder;
-    builder.add_question("a..b", DNS::RecordType::A);
+    dns::QueryBuilder builder;
+    builder.add_question("a..b", dns::RecordType::A);
     EXPECT_THROW({ [[maybe_unused]] auto _ = builder.build(); }, DnsPacketException);
 }
 
 TEST(QueryBuilderTest, ThrowsOnLeadingDot) {
-    DNS::QueryBuilder builder;
-    builder.add_question(".example.com", DNS::RecordType::A);
+    dns::QueryBuilder builder;
+    builder.add_question(".example.com", dns::RecordType::A);
     EXPECT_THROW({ [[maybe_unused]] auto _ = builder.build(); }, DnsPacketException);
 }
 
 TEST(QueryBuilderTest, AcceptsLabelLength63) {
     // Maximum valid label length: 63 characters
     std::string max_label(63, 'a');
-    DNS::QueryBuilder builder;
-    builder.add_question(max_label + ".com", DNS::RecordType::A);
+    dns::QueryBuilder builder;
+    builder.add_question(max_label + ".com", dns::RecordType::A);
     EXPECT_NO_THROW({ [[maybe_unused]] auto _ = builder.build(); });
 }
 
@@ -452,8 +452,8 @@ TEST(QueryBuilderTest, ThrowsOnNameTooLong) {
             long_name += '.';
         long_name.append(50, 'a');
     }
-    DNS::QueryBuilder builder;
-    builder.add_question(long_name, DNS::RecordType::A);
+    dns::QueryBuilder builder;
+    builder.add_question(long_name, dns::RecordType::A);
     EXPECT_THROW({ [[maybe_unused]] auto _ = builder.build(); }, DnsPacketException);
 }
 
@@ -471,21 +471,21 @@ TEST(QueryBuilderTest, AcceptsMaxNameLength) {
     max_name.append(61, 'a');
     ASSERT_EQ(max_name.size(), 250U);
 
-    DNS::QueryBuilder builder;
-    builder.add_question(max_name, DNS::RecordType::A);
+    dns::QueryBuilder builder;
+    builder.add_question(max_name, dns::RecordType::A);
     EXPECT_NO_THROW({ [[maybe_unused]] auto _ = builder.build(); });
 }
 
 TEST(QueryBuilderTest, ThrowsOnEdnsVersionNonZero) {
-    DNS::QueryBuilder builder;
-    builder.add_question("example.com", DNS::RecordType::A);
+    dns::QueryBuilder builder;
+    builder.add_question("example.com", dns::RecordType::A);
     builder.add_edns(4096, 1, false);
     EXPECT_THROW({ [[maybe_unused]] auto _ = builder.build(); }, DnsPacketException);
 }
 
 TEST(QueryBuilderTest, ThrowsOnEdnsPayloadTooSmall) {
-    DNS::QueryBuilder builder;
-    builder.add_question("example.com", DNS::RecordType::A);
+    dns::QueryBuilder builder;
+    builder.add_question("example.com", dns::RecordType::A);
     builder.add_edns(511, 0, false);
     EXPECT_THROW({ [[maybe_unused]] auto _ = builder.build(); }, DnsPacketException);
 }
@@ -493,29 +493,29 @@ TEST(QueryBuilderTest, ThrowsOnEdnsPayloadTooSmall) {
 TEST(QueryBuilderTest, ThrowsOnEdnsOptionsTotalTooLarge) {
     // Two options whose combined encoded size exceeds the 16-bit RDLENGTH
     // field must fail instead of silently wrapping the length.
-    std::vector<DNS::EdnsOption> opts = {
+    std::vector<dns::EdnsOption> opts = {
         {1, std::vector<std::uint8_t>(40000, 0xAA)},
         {2, std::vector<std::uint8_t>(40000, 0xBB)},
     };
-    DNS::QueryBuilder builder;
-    builder.add_question("example.com", DNS::RecordType::A);
+    dns::QueryBuilder builder;
+    builder.add_question("example.com", dns::RecordType::A);
     builder.add_edns(4096, 0, false, opts);
     EXPECT_THROW({ [[maybe_unused]] auto _ = builder.build(); }, DnsPacketException);
 }
 
 TEST(QueryBuilderTest, ThrowsOnEdnsOptionDataTooLarge) {
-    std::vector<DNS::EdnsOption> opts = {
+    std::vector<dns::EdnsOption> opts = {
         {1, std::vector<std::uint8_t>(70000, 0xAA)},
     };
-    DNS::QueryBuilder builder;
-    builder.add_question("example.com", DNS::RecordType::A);
+    dns::QueryBuilder builder;
+    builder.add_question("example.com", dns::RecordType::A);
     builder.add_edns(4096, 0, false, opts);
     EXPECT_THROW({ [[maybe_unused]] auto _ = builder.build(); }, DnsPacketException);
 }
 
 TEST(QueryBuilderTest, AcceptsEdnsPayload512) {
-    DNS::QueryBuilder builder;
-    builder.add_question("example.com", DNS::RecordType::A);
+    dns::QueryBuilder builder;
+    builder.add_question("example.com", dns::RecordType::A);
     builder.add_edns(512, 0, false);
     EXPECT_NO_THROW({ [[maybe_unused]] auto _ = builder.build(); });
 }
@@ -525,7 +525,7 @@ TEST(QueryBuilderTest, AcceptsEdnsPayload512) {
 // ===========================================================================
 
 TEST(QueryBuilderTest, ExceptionMessageContainsRelevantInfo) {
-    DNS::QueryBuilder empty;
+    dns::QueryBuilder empty;
     try {
         [[maybe_unused]] auto _ = empty.build();
         FAIL() << "Expected DnsPacketException";
@@ -535,7 +535,7 @@ TEST(QueryBuilderTest, ExceptionMessageContainsRelevantInfo) {
 }
 
 TEST(QueryBuilderTest, ExceptionGetName) {
-    DNS::QueryBuilder empty;
+    dns::QueryBuilder empty;
     try {
         [[maybe_unused]] auto _ = empty.build();
     } catch (const DnsPacketException& e) {
@@ -548,11 +548,11 @@ TEST(QueryBuilderTest, ExceptionGetName) {
 // ===========================================================================
 
 TEST(QueryBuilderTest, RcodeSetsHeaderBits) {
-    auto packet = DNS::QueryBuilder{}
+    auto packet = dns::QueryBuilder{}
                       .id(0)
                       .rd(false)
-                      .rcode(DNS::Rcode::REFUSED)
-                      .add_question("example.com", DNS::RecordType::A)
+                      .rcode(dns::Rcode::REFUSED)
+                      .add_question("example.com", dns::RecordType::A)
                       .build();
 
     // RCODE = 5 (REFUSED) in the low 4 bits of the flags word
@@ -560,11 +560,11 @@ TEST(QueryBuilderTest, RcodeSetsHeaderBits) {
 }
 
 TEST(QueryBuilderTest, RcodeNxdomain) {
-    auto packet = DNS::QueryBuilder{}
+    auto packet = dns::QueryBuilder{}
                       .id(0)
                       .rd(false)
-                      .rcode(DNS::Rcode::NXDOMAIN)
-                      .add_question("example.com", DNS::RecordType::A)
+                      .rcode(dns::Rcode::NXDOMAIN)
+                      .add_question("example.com", dns::RecordType::A)
                       .build();
 
     EXPECT_EQ(read_u16(packet, 2), 0x0003);
@@ -576,7 +576,7 @@ TEST(QueryBuilderTest, RcodeNxdomain) {
 
 TEST(QueryBuilderTest, EdnsDefaultOptions) {
     // add_edns with no options argument uses the default std::span{}
-    auto packet = DNS::QueryBuilder{}.add_question("example.com", DNS::RecordType::A).add_edns(4096).build();
+    auto packet = dns::QueryBuilder{}.add_question("example.com", dns::RecordType::A).add_edns(4096).build();
 
     size_t opt_offset = 29;
     // RDLENGTH should be 0 (no options)
@@ -584,9 +584,9 @@ TEST(QueryBuilderTest, EdnsDefaultOptions) {
 }
 
 TEST(QueryBuilderTest, EdnsEmptyExplicitOptions) {
-    std::vector<DNS::EdnsOption> empty_opts;
-    auto packet = DNS::QueryBuilder{}
-                      .add_question("example.com", DNS::RecordType::A)
+    std::vector<dns::EdnsOption> empty_opts;
+    auto packet = dns::QueryBuilder{}
+                      .add_question("example.com", dns::RecordType::A)
                       .add_edns(4096, 0, false, empty_opts)
                       .build();
 

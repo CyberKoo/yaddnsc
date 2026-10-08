@@ -21,9 +21,9 @@
 ///   5. Question section is echoed verbatim (RFC 1035 §4.1.2)
 ///
 /// @return  std::expected<void, DnsErrorInfo> — success or a PARSE error.
-namespace DNS::Validator {
+namespace dns::Validator {
 [[nodiscard]] std::expected<void, DnsErrorInfo> validate_response(std::span<const std::uint8_t> request,
                                                                   std::span<const std::uint8_t> response);
-}  // namespace DNS::Validator
+}  // namespace dns::Validator
 
 #endif  // YADDNSC_DNS_VALIDATOR_H

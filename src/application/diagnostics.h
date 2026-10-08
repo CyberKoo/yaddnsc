@@ -11,9 +11,11 @@
 
 #include <expected>
 
+#include "application/ports.h"
 #include "application/ports/driver_catalog.h"
 #include "domain/error/dns_error_info.h"
 #include "domain/network/inet_address.h"
+#include "infrastructure/coro/task.hpp"
 
 class NetworkInterfaces;
 
@@ -22,7 +24,7 @@ class NetworkInterfaces;
 /// Each function returns a result object; nothing here prints. The CLI
 /// presenter maps result objects to text and exit codes. These are free
 /// functions on purpose: per-command service classes would be empty shells.
-namespace Diagnostics {
+namespace app {
 
 /// One row of `driver list`: the loaded name plus either its descriptor
 /// or the error text from the failed descriptor query.
@@ -56,8 +58,14 @@ struct DnsResolveOutcome {
     std::optional<std::expected<std::vector<std::string>, DnsErrorInfo>> lookup;
 };
 
-// The coroutine equivalent of dns_resolve lives in src/application/coro/:
-// it returns coro::Task<DnsResolveOutcome> over app::ResolverPort.
+/// Coroutine `dns resolve`: match the record type string case-insensitively
+/// (legacy behaviour for direct invocations; the CLI parser already restricts
+/// --type to A/AAAA/TXT) and look the name up through the resolver port.
+///
+/// A nullopt `lookup` means `type_text` was not a known record kind. Failure:
+/// the lookup's DnsErrorInfo value; a defect (allocation) propagates.
+[[nodiscard]] coro::Task<DnsResolveOutcome> dns_resolve(ResolverPort& resolver, std::string host,
+                                                        std::string type_text);
 
 /// Error of a `config test` run; `kind` selects the legacy message prefix.
 struct ConfigTestError {
@@ -76,6 +84,6 @@ struct ConfigTestOutcome {
     std::optional<ConfigTestError> error;
 };
 
-}  // namespace Diagnostics
+}  // namespace app
 
 #endif  // YADDNSC_APPLICATION_DIAGNOSTICS_H

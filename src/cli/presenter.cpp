@@ -29,7 +29,7 @@
 #include "resolver_config.h"
 #include "version.h"
 
-int Cli::present_driver_list(const std::vector<Diagnostics::DriverListItem>& items) {
+int Cli::present_driver_list(const std::vector<app::DriverListItem>& items) {
     if (items.empty()) {
         std::println("No drivers loaded.");
         return EXIT_SUCCESS;
@@ -57,7 +57,7 @@ int Cli::present_driver_info(const DriverDescription& detail) {
     return EXIT_SUCCESS;
 }
 
-int Cli::present_interface_list(const std::vector<Diagnostics::InterfaceListItem>& items) {
+int Cli::present_interface_list(const std::vector<app::InterfaceListItem>& items) {
     if (items.empty()) {
         std::println("No network interfaces found.");
         return EXIT_SUCCESS;
@@ -88,7 +88,7 @@ int Cli::present_interface_ip(const std::string& name, const std::optional<std::
     return EXIT_SUCCESS;
 }
 
-int Cli::present_dns_resolve(const Diagnostics::DnsResolveOutcome& outcome) {
+int Cli::present_dns_resolve(const app::DnsResolveOutcome& outcome) {
     if (!outcome.lookup.has_value()) {
         std::print(std::cerr, "Error: unknown record type '{}'.\nValid types: ", outcome.type_text);
         const auto names = magic_enum::enum_names<RecordKind>();
@@ -145,7 +145,7 @@ int Cli::present_config_show(const std::string_view json) {
     return EXIT_SUCCESS;
 }
 
-int Cli::present_config_test(const Diagnostics::ConfigTestOutcome& outcome) {
+int Cli::present_config_test(const app::ConfigTestOutcome& outcome) {
     if (!outcome.error.has_value()) {
         if (!outcome.quiet) {
             std::println("Configuration file test passed");
@@ -155,7 +155,7 @@ int Cli::present_config_test(const Diagnostics::ConfigTestOutcome& outcome) {
 
     const auto& error = *outcome.error;
     switch (error.kind) {
-        case Diagnostics::ConfigTestError::Kind::VERIFICATION:
+        case app::ConfigTestError::Kind::VERIFICATION:
             // The message may carry several collected errors, one per line;
             // repeat the prefix so every line reads as a complete statement.
             for (std::string_view rest = error.message; !rest.empty();) {
@@ -165,10 +165,10 @@ int Cli::present_config_test(const Diagnostics::ConfigTestOutcome& outcome) {
                 rest = newline == std::string_view::npos ? std::string_view{} : rest.substr(newline + 1);
             }
             break;
-        case Diagnostics::ConfigTestError::Kind::FATAL:
+        case app::ConfigTestError::Kind::FATAL:
             std::println(std::cerr, "Fatal error: unrecoverable exception: {}", error.message);
             break;
-        case Diagnostics::ConfigTestError::Kind::GENERIC:
+        case app::ConfigTestError::Kind::GENERIC:
             std::println(std::cerr, "Failed to validate configuration: {}", error.message);
             break;
     }

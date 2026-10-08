@@ -23,9 +23,9 @@ namespace {
 }
 }  // namespace
 
-std::vector<InetAddress> Mdns::parse_response(const std::span<const std::uint8_t> packet,
+std::vector<InetAddress> ipsource::parse_response(const std::span<const std::uint8_t> packet,
                                               const std::string_view hostname, const RecordKind type) {
-    DNS::RecordParser parser(packet);
+    dns::RecordParser parser(packet);
     const auto& msg = parser.message();
     std::vector<InetAddress> results;
     results.reserve(msg.answers.size());
@@ -35,10 +35,10 @@ std::vector<InetAddress> Mdns::parse_response(const std::span<const std::uint8_t
         if (!name_matches(rr.name, hostname)) {
             continue;
         }
-        if (type == RecordKind::A && rr.type != static_cast<std::uint16_t>(DNS::RecordType::A)) {
+        if (type == RecordKind::A && rr.type != static_cast<std::uint16_t>(dns::RecordType::A)) {
             continue;
         }
-        if (type == RecordKind::AAAA && rr.type != static_cast<std::uint16_t>(DNS::RecordType::AAAA)) {
+        if (type == RecordKind::AAAA && rr.type != static_cast<std::uint16_t>(dns::RecordType::AAAA)) {
             continue;
         }
 

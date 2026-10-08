@@ -25,7 +25,7 @@
 
 #include <expected>
 
-namespace DNS {
+namespace dns {
 
 /// Largest DNS message accepted on the classic UDP and TCP paths.
 ///
@@ -78,6 +78,6 @@ enum class FrameError {
     return length;
 }
 
-}  // namespace DNS
+}  // namespace dns
 
 #endif  // YADDNSC_DNS_WIRE_FRAMING_H

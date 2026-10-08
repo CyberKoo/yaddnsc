@@ -187,7 +187,7 @@ std::vector<std::uint8_t> make_cname_response(std::string_view qname, std::strin
 static void BM_DnsParseA(benchmark::State& state) {
     auto response = make_a_response("example.com");
     for (auto _ : state) {
-        auto parsed = DNS::RecordParser::parse_strings(response);
+        auto parsed = dns::RecordParser::parse_strings(response);
         benchmark::DoNotOptimize(parsed);
     }
 }
@@ -197,7 +197,7 @@ BENCHMARK(BM_DnsParseA);
 static void BM_DnsParseAAAA(benchmark::State& state) {
     auto response = make_aaaa_response("example.com");
     for (auto _ : state) {
-        auto parsed = DNS::RecordParser::parse_strings(response);
+        auto parsed = dns::RecordParser::parse_strings(response);
         benchmark::DoNotOptimize(parsed);
     }
 }
@@ -207,7 +207,7 @@ BENCHMARK(BM_DnsParseAAAA);
 static void BM_DnsParseTXT(benchmark::State& state) {
     auto response = make_txt_response("example.com", "v=spf1 include:_spf.example.com ~all");
     for (auto _ : state) {
-        auto parsed = DNS::RecordParser::parse_strings(response);
+        auto parsed = dns::RecordParser::parse_strings(response);
         benchmark::DoNotOptimize(parsed);
     }
 }
@@ -217,7 +217,7 @@ BENCHMARK(BM_DnsParseTXT);
 static void BM_DnsParseCNAME(benchmark::State& state) {
     auto response = make_cname_response("www.example.com", "www-behind-cdn.example.com");
     for (auto _ : state) {
-        auto parsed = DNS::RecordParser::parse_strings(response);
+        auto parsed = dns::RecordParser::parse_strings(response);
         benchmark::DoNotOptimize(parsed);
     }
 }
@@ -228,7 +228,7 @@ static void BM_DnsParseMultiQuestion(benchmark::State& state) {
     // Build a response with 1 answer record from a single-question query.
     auto response = make_a_response("example.com");
     for (auto _ : state) {
-        DNS::RecordParser parser(response);
+        dns::RecordParser parser(response);
         auto count = parser.record_count();
         benchmark::DoNotOptimize(count);
     }

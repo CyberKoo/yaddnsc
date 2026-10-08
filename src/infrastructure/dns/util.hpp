@@ -11,7 +11,7 @@
 #include "infrastructure/dns/types.h"
 
 /// DNS utility — compile-time type conversion helpers.
-namespace DNS::Util {
+namespace dns::Util {
 /// Convert RecordKind to the corresponding wire-format RecordType.
 ///
 /// @param kind  The RecordKind from the updater layer.
@@ -31,6 +31,6 @@ namespace DNS::Util {
     // -Wswitch will fire because there is no default label.
     std::unreachable();
 }
-}  // namespace DNS::Util
+}  // namespace dns::Util
 
 #endif  // YADDNSC_DNS_UTIL_H

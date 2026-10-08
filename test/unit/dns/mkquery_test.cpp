@@ -92,7 +92,7 @@ size_t encoded_qname_length(const std::vector<std::uint8_t>& packet, size_t offs
 // ===========================================================================
 
 TEST(BuildQueryTest, BuildsExampleCom_A) {
-    auto packet = DNS::build_query("example.com", DNS::RecordType::A);
+    auto packet = dns::build_query("example.com", dns::RecordType::A);
 
     expect_standard_query_header(packet);
     expect_qname_example_com(packet, 12);
@@ -110,7 +110,7 @@ TEST(BuildQueryTest, BuildsExampleCom_A) {
 }
 
 TEST(BuildQueryTest, BuildsGoogleCom_AAAA) {
-    auto packet = DNS::build_query("google.com", DNS::RecordType::AAAA);
+    auto packet = dns::build_query("google.com", dns::RecordType::AAAA);
 
     expect_standard_query_header(packet);
 
@@ -139,7 +139,7 @@ TEST(BuildQueryTest, BuildsGoogleCom_AAAA) {
 }
 
 TEST(BuildQueryTest, TotalPacketSize) {
-    auto packet = DNS::build_query("example.com", DNS::RecordType::A);
+    auto packet = dns::build_query("example.com", dns::RecordType::A);
     // header(12) + QNAME(\x07example\x03com\x00 = 13) + QTYPE(2) + QCLASS(2)
     //   = 29, plus EDNS0 OPT pseudo-record (root name 1 + type 2 + class 2
     //   + TTL 4 + rdlength 2 + rdata 0 = 11) = 40.
@@ -147,7 +147,7 @@ TEST(BuildQueryTest, TotalPacketSize) {
 }
 
 TEST(BuildQueryTest, BuildsDeepSubdomain) {
-    auto packet = DNS::build_query("a.b.c.example.com", DNS::RecordType::A);
+    auto packet = dns::build_query("a.b.c.example.com", dns::RecordType::A);
 
     expect_standard_query_header(packet);
 
@@ -184,8 +184,8 @@ TEST(BuildQueryTest, BuildsDeepSubdomain) {
 TEST(BuildQueryTest, TxidRandomness) {
     // TXID must be random — two consecutive calls should produce different IDs.
     // The probability of colliding is 1/65536 per pair, negligible for 1 trial.
-    auto packet1 = DNS::build_query("example.com", DNS::RecordType::A);
-    auto packet2 = DNS::build_query("google.com", DNS::RecordType::AAAA);
+    auto packet1 = dns::build_query("example.com", dns::RecordType::A);
+    auto packet2 = dns::build_query("google.com", dns::RecordType::AAAA);
 
     ASSERT_GE(packet1.size(), 2U);
     ASSERT_GE(packet2.size(), 2U);
@@ -201,7 +201,7 @@ TEST(BuildQueryTest, TxidRandomness) {
 // ===========================================================================
 
 TEST(BuildQueryTest, ReturnsNonEmpty) {
-    auto packet = DNS::build_query("example.com", DNS::RecordType::A);
+    auto packet = dns::build_query("example.com", dns::RecordType::A);
     EXPECT_GT(packet.size(), 12U);
 }
 
@@ -210,7 +210,7 @@ TEST(BuildQueryTest, ReturnsNonEmpty) {
 // ===========================================================================
 
 TEST(QueryBuilderTest, WithoutEdns_HasNoAdditionalSection) {
-    auto packet = DNS::QueryBuilder{}.add_question("example.com", DNS::RecordType::A).build();
+    auto packet = dns::QueryBuilder{}.add_question("example.com", dns::RecordType::A).build();
 
     ASSERT_GE(packet.size(), 12U);
     EXPECT_EQ(packet[2], 0x01);  // standard query, RD=1
@@ -229,7 +229,7 @@ TEST(QueryBuilderTest, WithoutEdns_HasNoAdditionalSection) {
 }
 
 TEST(QueryBuilderTest, WithEdns_HasAdditionalSection) {
-    auto packet = DNS::QueryBuilder{}.add_question("example.com", DNS::RecordType::A).add_edns(4096).build();
+    auto packet = dns::QueryBuilder{}.add_question("example.com", dns::RecordType::A).add_edns(4096).build();
 
     expect_standard_query_header(packet);  // ARCOUNT = 1 implies EDNS0
     EXPECT_EQ(packet.size(), 40U);

@@ -12,7 +12,7 @@
 #include "infrastructure/dns/types.h"
 #include "infrastructure/dns/wire/builder.h"
 
-namespace DNS {
+namespace dns {
 
 /// Build a standard DNS query packet with EDNS0 (RFC 6891).
 ///
@@ -35,6 +35,6 @@ namespace DNS {
     return QueryBuilder{}.add_question(host, type).add_edns(/*udp_payload_size=*/1232).build();
 }
 
-}  // namespace DNS
+}  // namespace dns
 
 #endif  // YADDNSC_DNS_WIRE_QUERY_UTIL_H

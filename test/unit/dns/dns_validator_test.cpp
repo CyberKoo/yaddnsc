@@ -97,13 +97,13 @@ std::vector<std::uint8_t> make_valid_response(std::uint16_t txid = 0x1234) {
 
 /// Helper: assert that validate_response succeeds.
 void expect_valid(std::span<const std::uint8_t> query, std::span<const std::uint8_t> response) {
-    auto result = DNS::Validator::validate_response(query, response);
+    auto result = dns::Validator::validate_response(query, response);
     EXPECT_TRUE(result.has_value()) << "expected valid, got: " << (result.has_value() ? "" : result.error().message);
 }
 
 /// Helper: assert that validate_response fails with PARSE error.
 void expect_parse_error(std::span<const std::uint8_t> query, std::span<const std::uint8_t> response) {
-    auto result = DNS::Validator::validate_response(query, response);
+    auto result = dns::Validator::validate_response(query, response);
     EXPECT_FALSE(result.has_value());
     if (!result.has_value()) {
         EXPECT_EQ(result.error().code, DnsError::PARSE);
@@ -114,7 +114,7 @@ void expect_parse_error(std::span<const std::uint8_t> query, std::span<const std
 /// and error message contains the given substring.
 void expect_parse_error_msg(std::span<const std::uint8_t> query, std::span<const std::uint8_t> response,
                             std::string_view expected_substr) {
-    auto result = DNS::Validator::validate_response(query, response);
+    auto result = dns::Validator::validate_response(query, response);
     EXPECT_FALSE(result.has_value());
     if (!result.has_value()) {
         EXPECT_EQ(result.error().code, DnsError::PARSE);

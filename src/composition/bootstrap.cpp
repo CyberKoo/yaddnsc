@@ -23,11 +23,10 @@
 #include <spdlog/spdlog.h>
 #include <yaddnsc/util/format.hpp>
 
-#include "application/coro/diagnostics.h"
-#include "application/coro/run_scheduler.h"
-#include "application/coro/services.h"
 #include "application/diagnostics.h"
 #include "application/environment_validator.h"
+#include "application/run_scheduler.h"
+#include "application/services.h"
 #include "cli/presenter.h"
 #include "domain/config/dns_config.h"
 #include "domain/config/runtime_config.h"
@@ -41,16 +40,16 @@
 #include "infrastructure/coro/loop.h"
 #include "infrastructure/coro/offload.hpp"
 #include "infrastructure/coro/run.hpp"
-#include "infrastructure/dns/coro/factory.h"
-#include "infrastructure/dns/coro/resolver_port.h"
+#include "infrastructure/dns/factory.h"
+#include "infrastructure/dns/resolver_port.h"
 #include "infrastructure/dns/resolv_conf.h"
-#include "infrastructure/ip_source/coro/adapter.h"
+#include "infrastructure/ip_source/adapter.h"
+#include "infrastructure/ip_source/system_network_interfaces.h"
 #include "infrastructure/logging/spdlog_logger.h"
 #include "infrastructure/net/http/types.h"
-#include "infrastructure/ip_source/system_network_interfaces.h"
 #include "infrastructure/net/http/uri.h"
-#include "infrastructure/plugin/coro/driver_gateway.h"
 #include "infrastructure/plugin/driver_catalog.h"
+#include "infrastructure/plugin/driver_gateway.h"
 #include "infrastructure/plugin/driver_loader.h"
 #include "support/exception.h"
 #include "support/fmt.hpp"
@@ -67,7 +66,7 @@ void fill_bootstrap_servers(domain::RuntimeConfig& config) {
     if (!config.resolver.bootstrap_servers.empty()) {
         return;
     }
-    config.resolver.bootstrap_servers = DNS::parse_resolv_conf();
+    config.resolver.bootstrap_servers = dns::parse_resolv_conf();
     if (config.resolver.bootstrap_servers.empty()) {
         SPDLOG_WARN(
             "No bootstrap DNS servers available (no \"bootstrap_dns\" configured and no nameserver found in "
@@ -149,7 +148,7 @@ struct PreparedStartup {
 
     const SpdlogLogger logger;
     const SystemNetworkInterfaces interfaces;
-    if (const auto env = validate_environment(*prepared.runtime, *prepared.catalog, interfaces); !env.has_value()) {
+    if (const auto env = app::validate_environment(*prepared.runtime, *prepared.catalog, interfaces); !env.has_value()) {
         SPDLOG_CRITICAL(format_config_errors(env.error()));
         co_return EXIT_FAILURE;
     }
@@ -235,7 +234,7 @@ DriverCatalog load_catalog_for(const std::string& config_path) {
 
 int execute_command(const Cli::DriverListCommand& command) {
     const auto catalog = load_catalog_for(command.config_path);
-    return Cli::present_driver_list(Diagnostics::list_drivers(catalog));
+    return Cli::present_driver_list(app::list_drivers(catalog));
 }
 
 int execute_command(const Cli::DriverInfoCommand& command) {
@@ -245,7 +244,7 @@ int execute_command(const Cli::DriverInfoCommand& command) {
 
 int execute_command(const Cli::InterfaceListCommand&) {
     const SystemNetworkInterfaces interfaces;
-    return Cli::present_interface_list(Diagnostics::list_interfaces(interfaces));
+    return Cli::present_interface_list(app::list_interfaces(interfaces));
 }
 
 int execute_command(const Cli::InterfaceIpCommand& command) {
@@ -260,7 +259,7 @@ int execute_command(const Cli::DnsResolveCommand& command) {
     // One-shot command on a plain root scope: nothing is marked cancellable, so
     // Ctrl-C keeps the default disposition (no signal watcher is installed).
     coro::Loop loop;
-    const Diagnostics::DnsResolveOutcome outcome =
+    const app::DnsResolveOutcome outcome =
         coro::run(loop, app::dns_resolve(resolver_port, command.host, command.type));
     return Cli::present_dns_resolve(outcome);
 }
@@ -280,7 +279,7 @@ int execute_command(const Cli::ConfigShowCommand& command) {
 }
 
 int execute_command(const Cli::ConfigTestCommand& command) {
-    using Error = Diagnostics::ConfigTestError;
+    using Error = app::ConfigTestError;
 
     if (command.quiet) {
         spdlog::set_level(spdlog::level::off);
@@ -302,7 +301,7 @@ int execute_command(const Cli::ConfigTestCommand& command) {
         DriverCatalog driver_catalog;
         DriverLoader::load(driver_catalog, config->drivers);
         const SystemNetworkInterfaces interfaces;
-        if (const auto env = validate_environment(*config, driver_catalog, interfaces); !env.has_value()) {
+        if (const auto env = app::validate_environment(*config, driver_catalog, interfaces); !env.has_value()) {
             return Cli::present_config_test(
                 {.quiet = command.quiet,
                  .error = Error{.kind = Error::Kind::VERIFICATION, .message = format_config_errors(env.error())}});

@@ -11,7 +11,7 @@
 
 #include "domain/config/dns_config.h"
 
-namespace DNS {
+namespace dns {
 
 /// Parse nameserver entries from a resolv.conf-style file.
 ///
@@ -25,6 +25,6 @@ namespace DNS {
 ///              error — the caller decides whether bootstrap is required).
 [[nodiscard]] std::vector<Config::DnsServer> parse_resolv_conf(const std::filesystem::path& path = "/etc/resolv.conf");
 
-}  // namespace DNS
+}  // namespace dns
 
 #endif  // YADDNSC_DNS_RESOLV_CONF_H

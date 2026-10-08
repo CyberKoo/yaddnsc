@@ -19,7 +19,7 @@ class InetAddress;
 /// snapshot without hammering the kernel.
 ///
 /// @note Thread-safe: all public functions are guarded by an internal mutex.
-namespace InterfaceUtil {
+namespace ipsource {
 /// Get a list of all network interface names that have at least one
 /// IPv4 or IPv6 address.
 /// @return  Interface names (e.g. "eth0", "lo", "wlan0").
@@ -30,6 +30,6 @@ namespace InterfaceUtil {
 /// @return                IP addresses assigned to the interface;
 ///                        std::nullopt when the interface does not exist.
 [[nodiscard]] std::optional<std::vector<InetAddress>> get_addresses(const std::string& interface_name);
-}  // namespace InterfaceUtil
+}  // namespace ipsource
 
 #endif  // YADDNSC_INTERFACE_UTIL_H

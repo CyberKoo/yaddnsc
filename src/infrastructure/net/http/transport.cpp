@@ -6,7 +6,7 @@
 
 #include <utility>
 
-#include "infrastructure/dns/coro/bootstrap.h"
+#include "infrastructure/dns/bootstrap.h"
 #include "infrastructure/net/http/wire_request.h"
 #include "support/fmt.hpp"
 

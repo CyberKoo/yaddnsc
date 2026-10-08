@@ -1,5 +1,5 @@
 //
-// Unit tests for DNS::parse_resolv_conf — /etc/resolv.conf discovery.
+// Unit tests for dns::parse_resolv_conf — /etc/resolv.conf discovery.
 // =============================================================================
 
 #include "infrastructure/dns/resolv_conf.h"
@@ -35,14 +35,14 @@ private:
 };
 
 TEST_F(ResolvConfTest, MissingFile_ReturnsEmpty) {
-    EXPECT_TRUE(DNS::parse_resolv_conf("/nonexistent/yaddnsc-resolv.conf").empty());
+    EXPECT_TRUE(dns::parse_resolv_conf("/nonexistent/yaddnsc-resolv.conf").empty());
 }
 
 TEST_F(ResolvConfTest, ParsesNameservers) {
     const auto path = write_temp("yaddnsc-resolv-1.conf",
                                  "nameserver 223.5.5.5\n"
                                  "nameserver 2606:4700:4700::1111\n");
-    const auto servers = DNS::parse_resolv_conf(path);
+    const auto servers = dns::parse_resolv_conf(path);
     ASSERT_EQ(servers.size(), 2U);
     EXPECT_EQ(servers[0].address, "223.5.5.5");
     EXPECT_EQ(servers[0].port, 53);
@@ -58,7 +58,7 @@ TEST_F(ResolvConfTest, IgnoresCommentsAndOtherDirectives) {
                                  "\n"
                                  "nameserver 1.1.1.1 # trailing comment\n"
                                  "nameserver 8.8.8.8 ; trailing comment\n");
-    const auto servers = DNS::parse_resolv_conf(path);
+    const auto servers = dns::parse_resolv_conf(path);
     ASSERT_EQ(servers.size(), 2U);
     EXPECT_EQ(servers[0].address, "1.1.1.1");
     EXPECT_EQ(servers[1].address, "8.8.8.8");
@@ -70,7 +70,7 @@ TEST_F(ResolvConfTest, SkipsInvalidAddresses) {
                                  "nameserver\n"
                                  "nameserver 999.1.2.3\n"
                                  "nameserver 8.8.4.4\n");
-    const auto servers = DNS::parse_resolv_conf(path);
+    const auto servers = dns::parse_resolv_conf(path);
     ASSERT_EQ(servers.size(), 1U);
     EXPECT_EQ(servers[0].address, "8.8.4.4");
 }

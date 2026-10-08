@@ -15,7 +15,7 @@
 
 #include "infrastructure/dns/types.h"
 
-namespace DNS {
+namespace dns {
 // =============================================================================
 // RecordParser — self-contained DNS wire-format parser (no libresolv)
 // =============================================================================
@@ -111,6 +111,6 @@ private:
 
     ParsedMessage message_;
 };
-}  // namespace DNS
+}  // namespace dns
 
 #endif  // YADDNSC_DNS_PARSER_H

@@ -15,7 +15,7 @@
 
 static void BM_QueryBuilderSingle(benchmark::State& state) {
     for (auto _ : state) {
-        auto packet = DNS::QueryBuilder{}.add_question("example.com", DNS::RecordType::A).build();
+        auto packet = dns::QueryBuilder{}.add_question("example.com", dns::RecordType::A).build();
         benchmark::DoNotOptimize(packet);
     }
 }
@@ -28,9 +28,9 @@ BENCHMARK(BM_QueryBuilderSingle);
 
 static void BM_QueryBuilderMultiQuestion(benchmark::State& state) {
     for (auto _ : state) {
-        auto packet = DNS::QueryBuilder{}
-                          .add_question("example.com", DNS::RecordType::A)
-                          .add_question("example.com", DNS::RecordType::AAAA)
+        auto packet = dns::QueryBuilder{}
+                          .add_question("example.com", dns::RecordType::A)
+                          .add_question("example.com", dns::RecordType::AAAA)
                           .build();
         benchmark::DoNotOptimize(packet);
     }
@@ -45,7 +45,7 @@ BENCHMARK(BM_QueryBuilderMultiQuestion);
 static void BM_QueryBuilderWithEdns(benchmark::State& state) {
     for (auto _ : state) {
         auto packet =
-            DNS::QueryBuilder{}.add_question("example.com", DNS::RecordType::A).add_edns(1232, 0, true).build();
+            dns::QueryBuilder{}.add_question("example.com", dns::RecordType::A).add_edns(1232, 0, true).build();
         benchmark::DoNotOptimize(packet);
     }
 }
@@ -61,7 +61,7 @@ static void BM_QueryBuilderLongName(benchmark::State& state) {
         "a-very-long-subdomain-name.that-exceeds-the-typical-length."
         "example-with-many-labels.example.com";
     for (auto _ : state) {
-        auto packet = DNS::QueryBuilder{}.add_question(long_name, DNS::RecordType::TXT).build();
+        auto packet = dns::QueryBuilder{}.add_question(long_name, dns::RecordType::TXT).build();
         benchmark::DoNotOptimize(packet);
     }
 }
@@ -74,11 +74,11 @@ BENCHMARK(BM_QueryBuilderLongName);
 
 static void BM_QueryBuilderFullConfig(benchmark::State& state) {
     for (auto _ : state) {
-        auto packet = DNS::QueryBuilder{}
+        auto packet = dns::QueryBuilder{}
                           .id(0x1234)
                           .rd(true)
-                          .add_question("www.example.com", DNS::RecordType::A)
-                          .add_question("www.example.com", DNS::RecordType::AAAA)
+                          .add_question("www.example.com", dns::RecordType::A)
+                          .add_question("www.example.com", dns::RecordType::AAAA)
                           .add_edns(4096, 0, true)
                           .build();
         benchmark::DoNotOptimize(packet);

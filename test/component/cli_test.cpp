@@ -42,9 +42,8 @@
 #include <spdlog/spdlog.h>
 #include <unistd.h>
 
-#include "application/coro/diagnostics.h"
-#include "application/coro/ports.h"
 #include "application/diagnostics.h"
+#include "application/ports.h"
 #include "application/ports/driver_catalog.h"
 #include "cli/command.h"
 #include "cli/parser.h"
@@ -754,7 +753,7 @@ TEST(CliDnsTest, DispatchResolver_SingleEntryList_ReturnsZero) {
 
 // The dns resolve dispatch path builds a real resolver dispatcher from the
 // config, but an unknown record type short-circuits before any socket I/O:
-// Diagnostics::dns_resolve returns "no lookup" and the presenter reports the
+// app::dns_resolve returns "no lookup" and the presenter reports the
 // valid set. Command is constructed directly (the parser would reject the
 // type), keeping the test on loopback-free, deterministic ground.
 TEST(CliDnsTest, DispatchResolve_UnknownType_PrintsValidTypes) {
@@ -817,7 +816,7 @@ public:
     }
 };
 
-[[nodiscard]] Diagnostics::DnsResolveOutcome run_dns_resolve(app::ResolverPort& resolver, const std::string& host,
+[[nodiscard]] app::DnsResolveOutcome run_dns_resolve(app::ResolverPort& resolver, const std::string& host,
                                                             const std::string& type) {
     coro::Loop loop;
     return coro::run(loop, app::dns_resolve(resolver, host, type));
@@ -857,7 +856,7 @@ TEST(CliDiagnosticsTest, ListDrivers_EmptyCatalog) {
     MockDriverCatalogPort catalog;
     ON_CALL(catalog, loaded_drivers()).WillByDefault(::testing::Return(std::vector<std::string>{}));
 
-    EXPECT_TRUE(Diagnostics::list_drivers(catalog).empty());
+    EXPECT_TRUE(app::list_drivers(catalog).empty());
 }
 
 TEST(CliDiagnosticsTest, ListDrivers_CapturesPerDriverFailure) {
@@ -868,7 +867,7 @@ TEST(CliDiagnosticsTest, ListDrivers_CapturesPerDriverFailure) {
             ::testing::Return(DriverDescription{.name = "good", .version = "1.0", .author = "a", .description = "d"}));
     ON_CALL(catalog, describe("bad")).WillByDefault(::testing::Throw(std::runtime_error("descriptor exploded")));
 
-    const auto items = Diagnostics::list_drivers(catalog);
+    const auto items = app::list_drivers(catalog);
     ASSERT_EQ(items.size(), 2);
     EXPECT_TRUE(items[0].detail.has_value());
     EXPECT_EQ(items[0].detail->name, "good");
@@ -885,7 +884,7 @@ TEST(CliDiagnosticsTest, ListInterfaces_CollectsAddresses) {
     ON_CALL(interfaces, addresses("eth0"))
         .WillByDefault(::testing::Return(std::optional<std::vector<InetAddress>>{std::vector<InetAddress>{}}));
 
-    const auto items = Diagnostics::list_interfaces(interfaces);
+    const auto items = app::list_interfaces(interfaces);
     ASSERT_EQ(items.size(), 2);
     EXPECT_EQ(items[0].name, "lo");
     EXPECT_EQ(items[0].addresses.size(), 1);
@@ -898,7 +897,7 @@ TEST(CliDiagnosticsTest, ListInterfaces_CollectsAddresses) {
 // ===========================================================================
 
 TEST(CliPresenterTest, DnsResolve_UnknownType_PrintsValidTypes) {
-    Diagnostics::DnsResolveOutcome outcome{.host = "example.com", .type_text = "BOGUS", .lookup = std::nullopt};
+    app::DnsResolveOutcome outcome{.host = "example.com", .type_text = "BOGUS", .lookup = std::nullopt};
 
     StreamCapture err{STDERR_FILENO};
     EXPECT_EQ(Cli::present_dns_resolve(outcome), EXIT_FAILURE);
@@ -906,7 +905,7 @@ TEST(CliPresenterTest, DnsResolve_UnknownType_PrintsValidTypes) {
 }
 
 TEST(CliPresenterTest, DnsResolve_Failure_PrintsMessageAndSucceeds) {
-    Diagnostics::DnsResolveOutcome outcome{
+    app::DnsResolveOutcome outcome{
         .host = "example.com",
         .type_text = "A",
         .lookup = std::unexpected(DnsErrorInfo{DnsError::NX_DOMAIN, "Domain example.com does not exist (NXDOMAIN)"})};
@@ -917,7 +916,7 @@ TEST(CliPresenterTest, DnsResolve_Failure_PrintsMessageAndSucceeds) {
 }
 
 TEST(CliPresenterTest, DnsResolve_NoRecords_PrintsMessageAndSucceeds) {
-    Diagnostics::DnsResolveOutcome outcome{
+    app::DnsResolveOutcome outcome{
         .host = "example.com", .type_text = "AAAA", .lookup = std::vector<std::string>{}};
 
     StdoutCapture capture;
@@ -926,7 +925,7 @@ TEST(CliPresenterTest, DnsResolve_NoRecords_PrintsMessageAndSucceeds) {
 }
 
 TEST(CliPresenterTest, DnsResolve_Records_PrintsResultBlock) {
-    Diagnostics::DnsResolveOutcome outcome{
+    app::DnsResolveOutcome outcome{
         .host = "example.com", .type_text = "A", .lookup = std::vector<std::string>{"192.0.2.1", "192.0.2.2"}};
 
     StdoutCapture capture;
@@ -947,7 +946,7 @@ TEST(CliPresenterTest, ConfigTest_QuietSuccess_PrintsNothing) {
 }
 
 TEST(CliPresenterTest, ConfigTest_ErrorPrefixes) {
-    using Error = Diagnostics::ConfigTestError;
+    using Error = app::ConfigTestError;
 
     {
         StreamCapture err{STDERR_FILENO};

@@ -44,12 +44,12 @@ constexpr size_t QUESTION_FIXED_SIZE = 4;
 /// Find the end of the first question section, starting past the header.
 /// @return  The offset past QNAME + QTYPE + QCLASS, or std::nullopt on error.
 [[nodiscard]] std::optional<size_t> question_section_end(std::span<const std::uint8_t> msg) noexcept {
-    if (msg.size() < DNS::HEADER_SIZE)
+    if (msg.size() < dns::HEADER_SIZE)
         return std::nullopt;
     const auto qdcount = Utils::Bytes::try_read_u16_be(msg, 4);
     if (!qdcount || *qdcount == 0)
         return std::nullopt;
-    const auto off = skip_name(msg, DNS::HEADER_SIZE);
+    const auto off = skip_name(msg, dns::HEADER_SIZE);
     if (!off || *off + QUESTION_FIXED_SIZE > msg.size())
         return std::nullopt;
     return *off + QUESTION_FIXED_SIZE;  // skip QTYPE + QCLASS
@@ -58,10 +58,10 @@ constexpr size_t QUESTION_FIXED_SIZE = 4;
 // ── Individual validation checks (all return expected) ──
 
 [[nodiscard]] std::expected<void, DnsErrorInfo> check_min_header_size(std::span<const std::uint8_t> response) {
-    if (response.size() >= DNS::HEADER_SIZE)
+    if (response.size() >= dns::HEADER_SIZE)
         return {};
     return std::unexpected(DnsErrorInfo{DnsError::PARSE, fmt::format("DNS response too short: {} bytes (minimum {})",
-                                                                     response.size(), DNS::HEADER_SIZE)});
+                                                                     response.size(), dns::HEADER_SIZE)});
 }
 
 [[nodiscard]] std::expected<void, DnsErrorInfo> check_qr_bit(std::span<const std::uint8_t> response) {
@@ -96,11 +96,11 @@ constexpr size_t QUESTION_FIXED_SIZE = 4;
         return std::unexpected(DnsErrorInfo{DnsError::PARSE, "DNS response has malformed question section"});
     }
 
-    const auto req_qs_len = *req_qs_end - DNS::HEADER_SIZE;
-    const auto rsp_qs_len = *rsp_qs_end - DNS::HEADER_SIZE;
+    const auto req_qs_len = *req_qs_end - dns::HEADER_SIZE;
+    const auto rsp_qs_len = *rsp_qs_end - dns::HEADER_SIZE;
 
-    if (req_qs_len == rsp_qs_len && std::ranges::equal(std::span(request).subspan(DNS::HEADER_SIZE, req_qs_len),
-                                                       std::span(response).subspan(DNS::HEADER_SIZE, rsp_qs_len))) {
+    if (req_qs_len == rsp_qs_len && std::ranges::equal(std::span(request).subspan(dns::HEADER_SIZE, req_qs_len),
+                                                       std::span(response).subspan(dns::HEADER_SIZE, rsp_qs_len))) {
         return {};
     }
 
@@ -112,7 +112,7 @@ constexpr size_t QUESTION_FIXED_SIZE = 4;
 //  Public API — orchestrator
 // ===========================================================================
 
-namespace DNS::Validator {
+namespace dns::Validator {
 std::expected<void, DnsErrorInfo> validate_response(std::span<const std::uint8_t> request,
                                                     std::span<const std::uint8_t> response) {
     auto result = check_min_header_size(response);
@@ -133,4 +133,4 @@ std::expected<void, DnsErrorInfo> validate_response(std::span<const std::uint8_t
 
     return check_question_echo(request, response);
 }
-}  // namespace DNS::Validator
+}  // namespace dns::Validator

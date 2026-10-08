@@ -46,7 +46,7 @@ guard_check("domain must not include infrastructure/Glaze/spdlog/CLI11/Cancellat
 # 2. application: no infrastructure implementation headers or third-party I/O.
 #    The coroutine runtime (src/infrastructure/coro/) is the one allowed
 #    infrastructure tree: it is the substrate the coroutine application layer is
-#    built on (design §8), so src/application/coro/ may include it. Every other
+#    built on (design §8), so src/application/ may include it. Every other
 #    infrastructure/ include stays forbidden.
 # ------------------------------------------------------------------------------
 file(GLOB_RECURSE application_check_files RELATIVE ${PROJECT_SOURCE_DIR}
@@ -181,7 +181,6 @@ file(GLOB_RECURSE dns_classic_files RELATIVE ${PROJECT_SOURCE_DIR}
     ${PROJECT_SOURCE_DIR}/src/infrastructure/dns/*.h
     ${PROJECT_SOURCE_DIR}/src/infrastructure/dns/*.hpp
     ${PROJECT_SOURCE_DIR}/src/infrastructure/dns/*.cpp)
-list(FILTER dns_classic_files EXCLUDE REGEX "^src/infrastructure/dns/coro/")
 foreach (f ${dns_classic_files})
     file(STRINGS ${PROJECT_SOURCE_DIR}/${f} lines REGEX "${INC_RE}[<\"](infrastructure/plugin/|openssl/)")
     foreach (line ${lines})
@@ -198,7 +197,7 @@ endforeach ()
 #     <thread>, <future> or BS::thread_pool include is allowed only in the
 #     runtime (src/infrastructure/coro/) and in the single place that must hand
 #     a result back across the synchronous plugin ABI boundary
-#     (src/infrastructure/plugin/coro/bridge.*). Everywhere else in the
+#     (src/infrastructure/plugin/bridge.*). Everywhere else in the
 #     application / infrastructure / composition layers, route the work through
 #     coro::offload or a coro::Task. The plugin boundary (driver/) is a separate
 #     binary boundary and is deliberately not checked; src/support/ is a generic
@@ -215,7 +214,7 @@ file(GLOB_RECURSE concurrency_check_files RELATIVE ${PROJECT_SOURCE_DIR}
     ${PROJECT_SOURCE_DIR}/src/composition/*.hpp
     ${PROJECT_SOURCE_DIR}/src/composition/*.cpp)
 list(FILTER concurrency_check_files EXCLUDE REGEX "^src/infrastructure/coro/")
-list(FILTER concurrency_check_files EXCLUDE REGEX "^src/infrastructure/plugin/coro/bridge\\.(h|cpp)$")
+list(FILTER concurrency_check_files EXCLUDE REGEX "^src/infrastructure/plugin/bridge\\.(h|cpp)$")
 foreach (f ${concurrency_check_files})
     file(STRINGS ${PROJECT_SOURCE_DIR}/${f} lines REGEX "${INC_RE}[<\"]((thread|future)>|BS_thread_pool)")
     foreach (line ${lines})

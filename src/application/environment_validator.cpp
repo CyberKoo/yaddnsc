@@ -15,6 +15,8 @@
 #include "domain/config/runtime_config.h"
 #include "support/fmt.hpp"
 
+namespace app {
+
 std::expected<void, std::vector<domain::ConfigError>> validate_environment(const domain::RuntimeConfig& config,
                                                                            const DriverCatalogPort& catalog,
                                                                            const NetworkInterfaces& interfaces) {
@@ -44,3 +46,5 @@ std::expected<void, std::vector<domain::ConfigError>> validate_environment(const
 
     return {};
 }
+
+}  // namespace app

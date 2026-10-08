@@ -13,12 +13,12 @@
 
 class InetAddress;
 
-namespace Diagnostics {
+namespace app {
 struct ConfigTestOutcome;
 struct DnsResolveOutcome;
 struct DriverListItem;
 struct InterfaceListItem;
-}  // namespace Diagnostics
+}  // namespace app
 struct DriverDescription;
 
 /// CLI presenter — maps command result objects to stdout/stderr text and
@@ -28,13 +28,13 @@ struct DriverDescription;
 namespace Cli {
 
 /// `driver list` — summary of every loaded driver.
-[[nodiscard]] int present_driver_list(const std::vector<Diagnostics::DriverListItem>& items);
+[[nodiscard]] int present_driver_list(const std::vector<app::DriverListItem>& items);
 
 /// `driver info` — detail block for one driver.
 [[nodiscard]] int present_driver_info(const DriverDescription& detail);
 
 /// `interface list` — all interfaces with their addresses.
-[[nodiscard]] int present_interface_list(const std::vector<Diagnostics::InterfaceListItem>& items);
+[[nodiscard]] int present_interface_list(const std::vector<app::InterfaceListItem>& items);
 
 /// `interface ip` — addresses of one interface; a missing interface prints
 /// the legacy "Error: Interface <name> not found" line and exits FAILURE.
@@ -43,7 +43,7 @@ namespace Cli {
 
 /// `dns resolve` — lookup outcome (all lookup results exit SUCCESS; an
 /// unknown record type exits FAILURE).
-[[nodiscard]] int present_dns_resolve(const Diagnostics::DnsResolveOutcome& outcome);
+[[nodiscard]] int present_dns_resolve(const app::DnsResolveOutcome& outcome);
 
 /// `dns resolver` — configured resolver details already formatted by the composition root.
 [[nodiscard]] int present_dns_resolver(bool use_custom_servers, std::string_view strategy,
@@ -53,7 +53,7 @@ namespace Cli {
 [[nodiscard]] int present_config_show(std::string_view json);
 
 /// `config test` — validation outcome.
-[[nodiscard]] int present_config_test(const Diagnostics::ConfigTestOutcome& outcome);
+[[nodiscard]] int present_config_test(const app::ConfigTestOutcome& outcome);
 
 /// `info` — build configuration block.
 [[nodiscard]] int present_info();

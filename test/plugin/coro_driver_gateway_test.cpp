@@ -11,7 +11,7 @@
 // coroutine body; coroutine bodies use EXPECT_* only.
 //
 
-#include "infrastructure/plugin/coro/driver_gateway.h"
+#include "infrastructure/plugin/driver_gateway.h"
 
 #include <array>
 #include <atomic>

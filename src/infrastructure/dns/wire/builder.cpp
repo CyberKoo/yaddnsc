@@ -13,7 +13,7 @@
 #include "support/fmt.hpp"
 #include "support/util/random.hpp"
 
-namespace DNS {
+namespace dns {
 // ===========================================================================
 //  WireWriter  —  internal DNS wire-format serializer
 // ===========================================================================
@@ -287,4 +287,4 @@ std::vector<std::uint8_t> QueryBuilder::build() const {
 
     return std::move(w).finish();
 }
-}  // namespace DNS
+}  // namespace dns

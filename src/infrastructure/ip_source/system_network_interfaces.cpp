@@ -9,9 +9,9 @@
 #include "infrastructure/ip_source/iface_util.h"
 
 std::vector<std::string> SystemNetworkInterfaces::names() const {
-    return InterfaceUtil::get_interfaces();
+    return ipsource::get_interfaces();
 }
 
 std::optional<std::vector<InetAddress>> SystemNetworkInterfaces::addresses(const std::string& name) const {
-    return InterfaceUtil::get_addresses(name);
+    return ipsource::get_addresses(name);
 }

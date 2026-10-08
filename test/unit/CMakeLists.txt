@@ -80,7 +80,7 @@ target_link_libraries(test_environment_validator PRIVATE yaddnsc_application GTe
 add_unit_test(logger_port SOURCE application/logger_port_test.cpp)
 
 # ============================================================================
-#  application/coro/  —  the coroutine scheduler (subdomain loops + run root)
+#  application/  —  the coroutine scheduler (subdomain loops + run root)
 # ============================================================================
 
 # coro_scheduler — the per-subdomain scheduling coroutine on a ManualClock and
@@ -205,7 +205,7 @@ add_unit_test(net_coro_http SOURCE net/http_coro_test.cpp)
 target_link_libraries(test_net_coro_http PRIVATE yaddnsc_coro_io)
 
 # ============================================================================
-#  dns/  —  coroutine DNS subsystem (src/infrastructure/dns/coro/)
+#  dns/  —  coroutine DNS subsystem (src/infrastructure/dns/)
 # ============================================================================
 
 # Dispatcher strategies (fallback / shuffle / concurrent), retry policy and

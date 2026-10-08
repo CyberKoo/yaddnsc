@@ -13,7 +13,7 @@
 /// through a dlopen'ed PluginModule.
 ///
 /// The table is test-only scaffolding: the production host-services table is
-/// the coroutine one (src/infrastructure/plugin/coro/host_services.h).
+/// the coroutine one (src/infrastructure/plugin/host_services.h).
 
 #include <algorithm>
 #include <cstddef>

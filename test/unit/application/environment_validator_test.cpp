@@ -66,13 +66,13 @@ namespace {
 TEST(EnvironmentValidator, ValidConfig_Passes) {
     auto catalog = catalog_with({"test_driver"});
     auto interfaces = interfaces_with({});
-    EXPECT_TRUE(validate_environment(make_config(), *catalog, *interfaces).has_value());
+    EXPECT_TRUE(app::validate_environment(make_config(), *catalog, *interfaces).has_value());
 }
 
 TEST(EnvironmentValidator, DriverNotFound_Fails) {
     auto catalog = catalog_with({"some_other_driver"});
     auto interfaces = interfaces_with({});
-    const auto result = validate_environment(make_config(), *catalog, *interfaces);
+    const auto result = app::validate_environment(make_config(), *catalog, *interfaces);
     ASSERT_FALSE(result.has_value());
     ASSERT_EQ(result.error().size(), 1);
     EXPECT_EQ(result.error().front().code, domain::ConfigError::Code::DRIVER_NOT_FOUND);
@@ -82,19 +82,19 @@ TEST(EnvironmentValidator, DriverNotFound_Fails) {
 TEST(EnvironmentValidator, NoDriversLoaded_Fails) {
     auto catalog = catalog_with({});
     auto interfaces = interfaces_with({});
-    EXPECT_FALSE(validate_environment(make_config(), *catalog, *interfaces).has_value());
+    EXPECT_FALSE(app::validate_environment(make_config(), *catalog, *interfaces).has_value());
 }
 
 TEST(EnvironmentValidator, InterfaceExists_Passes) {
     auto catalog = catalog_with({"test_driver"});
     auto interfaces = interfaces_with({"lo", "eth0"});
-    EXPECT_TRUE(validate_environment(make_config("test_driver", "eth0"), *catalog, *interfaces).has_value());
+    EXPECT_TRUE(app::validate_environment(make_config("test_driver", "eth0"), *catalog, *interfaces).has_value());
 }
 
 TEST(EnvironmentValidator, InterfaceNotFound_Fails) {
     auto catalog = catalog_with({"test_driver"});
     auto interfaces = interfaces_with({"lo", "eth1"});
-    const auto result = validate_environment(make_config("test_driver", "eth0"), *catalog, *interfaces);
+    const auto result = app::validate_environment(make_config("test_driver", "eth0"), *catalog, *interfaces);
     ASSERT_FALSE(result.has_value());
     ASSERT_EQ(result.error().size(), 1);
     EXPECT_EQ(result.error().front().code, domain::ConfigError::Code::INTERFACE_NOT_FOUND);
@@ -105,7 +105,7 @@ TEST(EnvironmentValidator, InterfaceNotFound_Fails) {
 TEST(EnvironmentValidator, InterfaceNotFound_ListsAvailableInterfaces) {
     auto catalog = catalog_with({"test_driver"});
     auto interfaces = interfaces_with({"lo", "eth1"});
-    const auto result = validate_environment(make_config("test_driver", "eth0"), *catalog, *interfaces);
+    const auto result = app::validate_environment(make_config("test_driver", "eth0"), *catalog, *interfaces);
     ASSERT_FALSE(result.has_value());
     EXPECT_EQ(result.error().front().message, "Interface eth0 not found, available interfaces: lo, eth1");
 }
@@ -114,7 +114,7 @@ TEST(EnvironmentValidator, EmptyInterface_NotChecked) {
     // An empty interface field is not looked up (HTTP source without binding).
     auto catalog = catalog_with({"test_driver"});
     auto interfaces = interfaces_with({});
-    EXPECT_TRUE(validate_environment(make_config("test_driver", ""), *catalog, *interfaces).has_value());
+    EXPECT_TRUE(app::validate_environment(make_config("test_driver", ""), *catalog, *interfaces).has_value());
 }
 
 TEST(EnvironmentValidator, MultipleDomains_EveryDriverMustBeLoaded) {
@@ -137,10 +137,10 @@ TEST(EnvironmentValidator, MultipleDomains_EveryDriverMustBeLoaded) {
 
     auto ok_catalog = catalog_with({"drv1", "drv2"});
     auto interfaces = interfaces_with({});
-    EXPECT_TRUE(validate_environment(config, *ok_catalog, *interfaces).has_value());
+    EXPECT_TRUE(app::validate_environment(config, *ok_catalog, *interfaces).has_value());
 
     auto missing_catalog = catalog_with({"drv1"});
-    EXPECT_FALSE(validate_environment(config, *missing_catalog, *interfaces).has_value());
+    EXPECT_FALSE(app::validate_environment(config, *missing_catalog, *interfaces).has_value());
 }
 
 TEST(EnvironmentValidator, FailFast_ReportsFirstViolation) {
@@ -156,7 +156,7 @@ TEST(EnvironmentValidator, FailFast_ReportsFirstViolation) {
 
     auto catalog = catalog_with({});
     auto interfaces = interfaces_with({});
-    const auto result = validate_environment(config, *catalog, *interfaces);
+    const auto result = app::validate_environment(config, *catalog, *interfaces);
     ASSERT_FALSE(result.has_value());
     ASSERT_EQ(result.error().size(), 1);
     EXPECT_EQ(result.error().front().message, "Driver missing_one not found");

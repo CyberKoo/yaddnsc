@@ -61,13 +61,13 @@ add_library(yaddnsc_coro_io STATIC
     src/infrastructure/net/http/session.cpp
     src/infrastructure/net/http/client.cpp
     src/infrastructure/net/http/persistent_client.cpp
-    src/infrastructure/dns/coro/exchange.cpp
-    src/infrastructure/dns/coro/bootstrap.cpp
-    src/infrastructure/dns/coro/classic.cpp
-    src/infrastructure/dns/coro/dot.cpp
-    src/infrastructure/dns/coro/doh.cpp
-    src/infrastructure/dns/coro/dispatcher.cpp
-    src/infrastructure/dns/coro/factory.cpp
+    src/infrastructure/dns/exchange.cpp
+    src/infrastructure/dns/bootstrap.cpp
+    src/infrastructure/dns/classic.cpp
+    src/infrastructure/dns/dot.cpp
+    src/infrastructure/dns/doh.cpp
+    src/infrastructure/dns/dispatcher.cpp
+    src/infrastructure/dns/factory.cpp
 )
 yaddnsc_production_module(yaddnsc_coro_io)
 target_link_libraries(yaddnsc_coro_io
@@ -114,7 +114,9 @@ add_library(yaddnsc_application STATIC
 )
 yaddnsc_production_module(yaddnsc_application)
 target_link_libraries(yaddnsc_application
-    PUBLIC yaddnsc_domain yaddnsc_fmt
+    # PUBLIC yaddnsc_coro: application/diagnostics.h returns a coro::Task, so
+    # every consumer needs the runtime's headers (and its BS_thread_pool path).
+    PUBLIC yaddnsc_domain yaddnsc_fmt yaddnsc_coro
     PRIVATE magic_enum
 )
 
@@ -165,11 +167,11 @@ target_link_libraries(yaddnsc_plugin_infrastructure
 )
 
 # Coroutine plugin bridge — the worker ↔ loop HTTP bridge, Host Services over
-# it, and the coroutine driver gateway (src/infrastructure/plugin/coro/).
+# it, and the coroutine driver gateway (src/infrastructure/plugin/).
 add_library(yaddnsc_coro_plugin STATIC
-    src/infrastructure/plugin/coro/bridge.cpp
-    src/infrastructure/plugin/coro/host_services.cpp
-    src/infrastructure/plugin/coro/driver_gateway.cpp
+    src/infrastructure/plugin/bridge.cpp
+    src/infrastructure/plugin/host_services.cpp
+    src/infrastructure/plugin/driver_gateway.cpp
 )
 yaddnsc_production_module(yaddnsc_coro_plugin)
 target_link_libraries(yaddnsc_coro_plugin
@@ -178,14 +180,13 @@ target_link_libraries(yaddnsc_coro_plugin
 )
 
 # Coroutine application layer — the per-subdomain scheduling coroutines, the run
-# root and the coroutine diagnostic handlers (src/application/coro/). Built on
+# root and the coroutine diagnostic handlers (src/application/). Built on
 # the coroutine runtime and the domain layer only; it names application ports,
 # never a concrete infrastructure type.
 add_library(yaddnsc_coro_application STATIC
-    src/application/coro/update_once.cpp
-    src/application/coro/subdomain_loop.cpp
-    src/application/coro/run_scheduler.cpp
-    src/application/coro/diagnostics.cpp
+    src/application/update_once.cpp
+    src/application/subdomain_loop.cpp
+    src/application/run_scheduler.cpp
 )
 yaddnsc_production_module(yaddnsc_coro_application)
 target_link_libraries(yaddnsc_coro_application
@@ -197,10 +198,10 @@ target_link_libraries(yaddnsc_coro_application
 # adapter. It reuses the interface-enumeration cache and the mDNS response
 # filter from yaddnsc_ip_source_infrastructure.
 add_library(yaddnsc_coro_ip_source STATIC
-    src/infrastructure/ip_source/coro/iface.cpp
-    src/infrastructure/ip_source/coro/http.cpp
-    src/infrastructure/ip_source/coro/mdns.cpp
-    src/infrastructure/ip_source/coro/adapter.cpp
+    src/infrastructure/ip_source/iface.cpp
+    src/infrastructure/ip_source/http.cpp
+    src/infrastructure/ip_source/mdns.cpp
+    src/infrastructure/ip_source/adapter.cpp
 )
 yaddnsc_production_module(yaddnsc_coro_ip_source)
 target_link_libraries(yaddnsc_coro_ip_source

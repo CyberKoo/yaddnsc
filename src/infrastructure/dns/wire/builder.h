@@ -14,7 +14,7 @@
 
 #include "infrastructure/dns/types.h"
 
-namespace DNS {
+namespace dns {
 /// Fluent DNS packet builder (wire format, RFC 1035).
 ///
 /// Constructs arbitrary DNS query/update packets with full control over
@@ -143,6 +143,6 @@ private:
     std::vector<PendingQuestion> questions_;
     std::optional<EdnsConfig> edns_;
 };
-}  // namespace DNS
+}  // namespace dns
 
 #endif  // YADDNSC_DNS_WIRE_BUILDER_H
