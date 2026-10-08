@@ -211,10 +211,24 @@ foreach (f ${thread_pool_check_files})
 endforeach()
 
 # ------------------------------------------------------------------------------
+# 12. The coroutine transport (src/infrastructure/net/) must not fall back on the
+#     legacy blocking transport it replaces: network/transport/ and the blocking
+#     Socket/poll machinery. Reusing the pure address codec
+#     (network/socket_addr.h) and CA discovery (network/tls/cert_util.h) is
+#     intended and allowed; the blocking/whole-operation-timeout machinery is
+#     not, because stage 3 deletes that tree.
+# ------------------------------------------------------------------------------
+guard_check("coroutine transport must not depend on the legacy blocking transport"
+    "${INC_RE}[<\"](infrastructure/network/(transport/|socket\\.h|socket_exception\\.h|tcp_transfer\\.h))"
+    ${PROJECT_SOURCE_DIR}/src/infrastructure/net/*.h
+    ${PROJECT_SOURCE_DIR}/src/infrastructure/net/*.hpp
+    ${PROJECT_SOURCE_DIR}/src/infrastructure/net/*.cpp)
+
+# ------------------------------------------------------------------------------
 # Verdict
 # ------------------------------------------------------------------------------
 if (violations)
     message(FATAL_ERROR "Architecture guard violations:${violations}\n")
 endif ()
 
-message(STATUS "Architecture guard: OK (domain/application/plugin/SDK/thread-pool/boundary checks passed)")
+message(STATUS "Architecture guard: OK (domain/application/plugin/SDK/thread-pool/net-transport/boundary checks passed)")

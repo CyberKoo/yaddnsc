@@ -45,6 +45,10 @@ namespace coro {
 
 struct WaitNode;
 
+/// Opaque fd-registration token returned by Loop::add_fd and consumed by
+/// Loop::remove_fd.
+using FdToken = std::uint64_t;
+
 /// Entry in the loop's timer heap.
 ///
 /// Lives inside the waiting frame; the loop stores only a pointer to it, so a
@@ -121,9 +125,13 @@ public:
 
     /// Poll `fd` for `events`; `fn(context, revents)` runs on the loop thread.
     /// Loop thread only; allocates.
-    void add_fd(int fd, short events, void (*fn)(void*, short) noexcept, void* context);
-    /// Stop polling `fd`. Idempotent.
-    void remove_fd(int fd) noexcept;
+    ///
+    /// Returns a registration token. Removal takes the token, not the fd, so
+    /// two waiters on one fd (a TLS read waiting POLLIN while a write waits
+    /// POLLOUT, say) each unregister themselves without disturbing the other.
+    [[nodiscard]] FdToken add_fd(int fd, short events, void (*fn)(void*, short) noexcept, void* context);
+    /// Stop polling a registration made by add_fd(). Idempotent.
+    void remove_fd(FdToken token) noexcept;
 
     /// Park `node` for signal `sig`; `*delivered` is latched when it fires.
     /// Loop thread only; allocates. The caller keeps `node` and `delivered`
@@ -137,6 +145,7 @@ public:
 
 private:
     struct FdEntry {
+        FdToken token = 0;
         int fd = -1;
         short events = 0;
         void (*fn)(void*, short) noexcept = nullptr;
@@ -181,6 +190,8 @@ private:
     std::uint64_t timer_sequence_ = 0;
 
     std::vector<FdEntry> fds_;
+    std::uint64_t fd_sequence_ = 0;
+    FdToken self_pipe_token_ = 0;
     Utils::UniqueFd pipe_read_;
     Utils::UniqueFd pipe_write_;
 

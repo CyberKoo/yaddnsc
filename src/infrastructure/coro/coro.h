@@ -15,6 +15,7 @@
 #include "infrastructure/coro/async_mutex.hpp"
 #include "infrastructure/coro/cancel_scope.h"
 #include "infrastructure/coro/clock.h"
+#include "infrastructure/coro/fd_wait.hpp"
 #include "infrastructure/coro/fwd.h"
 #include "infrastructure/coro/group.hpp"
 #include "infrastructure/coro/loop.h"

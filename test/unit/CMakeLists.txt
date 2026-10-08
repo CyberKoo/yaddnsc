@@ -243,6 +243,16 @@ add_unit_test(net_transport SOURCE net_transport/net_transport_test.cpp)
 target_link_libraries(test_net_transport PRIVATE yaddnsc_network_transport OpenSSL::SSL OpenSSL::Crypto)
 
 # ============================================================================
+#  net/  —  coroutine transport layer (src/infrastructure/net/)
+# ============================================================================
+
+# fd-wait checkpoint plus TcpStream / TlsStream / UdpSocket over loopback and
+# socketpair I/O. The TLS paths here are failure paths only; a real handshake
+# and certificate verification live in the component suite.
+add_unit_test(net_coro_unit SOURCE net/net_coro_unit_test.cpp)
+target_link_libraries(test_net_coro_unit PRIVATE yaddnsc_net OpenSSL::SSL OpenSSL::Crypto)
+
+# ============================================================================
 #  logging/  —  the Logger port implementation on top of spdlog
 # ============================================================================
 

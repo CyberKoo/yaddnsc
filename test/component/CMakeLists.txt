@@ -188,7 +188,6 @@ target_compile_definitions(test_net_transport_component PRIVATE
 # Complements the failure-path coverage in unit/net_transport.
 add_unit_test(net_transport_success SOURCE net_transport_success_test.cpp)
 target_link_libraries(test_net_transport_success PRIVATE yaddnsc_network_transport OpenSSL::SSL OpenSSL::Crypto)
-
 # TLS WANT_READ / WANT_WRITE direction. A custom BIO forces the opposite
 # poll event; the socket is made ready in only one direction.
 add_unit_test(tls_direction SOURCE tls_direction_test.cpp)
@@ -198,6 +197,18 @@ target_link_libraries(test_tls_direction PRIVATE yaddnsc_network_transport OpenS
 # Python-server case in classic_resolver_test.cpp.
 add_unit_test(bootstrap_tcp SOURCE bootstrap_tcp_test.cpp)
 target_link_libraries(test_bootstrap_tcp PRIVATE yaddnsc_dns_classic)
+
+# ============================================================================
+#  Coroutine transport (src/infrastructure/net/) — TCP echo, the shared Python
+#  TLS echo server (with its throwaway self-signed bundle), UDP datagrams and
+#  scope-driven timeouts over real loopback I/O.
+# ============================================================================
+
+add_unit_test(net_coro_component SOURCE net_coro_component_test.cpp)
+target_link_libraries(test_net_coro_component PRIVATE yaddnsc_net OpenSSL::SSL OpenSSL::Crypto)
+target_compile_definitions(test_net_coro_component PRIVATE
+    TEST_DATA_DIR="${PROJECT_SOURCE_DIR}/test/component"
+)
 
 # ============================================================================
 #  net::http  (Client + Session over an in-process HTTP/1.1 server)

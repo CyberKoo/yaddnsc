@@ -79,14 +79,15 @@ void Loop::open_self_pipe() {
     }
     pipe_read_ = std::move(read_end);
     pipe_write_ = std::move(write_end);
-    fds_.push_back(FdEntry{pipe_read_.get(), POLLIN, &Loop::on_pipe_ready, this});
+    self_pipe_token_ = add_fd(pipe_read_.get(), POLLIN, &Loop::on_pipe_ready, this);
     signal_pipe_write_fd.store(pipe_write_.get(), std::memory_order_release);
 }
 
 void Loop::close_self_pipe() noexcept {
     int expected = pipe_write_.get();
     signal_pipe_write_fd.compare_exchange_strong(expected, -1, std::memory_order_acq_rel);
-    remove_fd(pipe_read_.get());
+    remove_fd(self_pipe_token_);
+    self_pipe_token_ = 0;
     pipe_read_.reset();
     pipe_write_.reset();
 }
@@ -277,10 +278,24 @@ void Loop::poll_once(int timeout_ms) {
     if (ready <= 0) {
         return;
     }
+
+    // Snapshot the ready entries before dispatching: a callback may remove its
+    // own registration (or another one), which would invalidate an index walk
+    // over fds_ while it is being iterated.
+    struct ReadyEntry {
+        void (*fn)(void*, short) noexcept;
+        void* context;
+        short revents;
+    };
+
+    std::vector<ReadyEntry> ready_entries;
     for (std::size_t i = 0; i < fds_.size(); ++i) {
         if (pollfds[i].revents != 0 && fds_[i].fn != nullptr) {
-            fds_[i].fn(fds_[i].context, pollfds[i].revents);
+            ready_entries.push_back(ReadyEntry{fds_[i].fn, fds_[i].context, pollfds[i].revents});
         }
+    }
+    for (const ReadyEntry& entry : ready_entries) {
+        entry.fn(entry.context, entry.revents);
     }
 }
 
@@ -396,12 +411,14 @@ void Loop::heap_sift_down(std::size_t index) noexcept {
 // File descriptors.
 // ---------------------------------------------------------------------------
 
-void Loop::add_fd(int fd, short events, void (*fn)(void*, short) noexcept, void* context) {
-    fds_.push_back(FdEntry{fd, events, fn, context});
+FdToken Loop::add_fd(int fd, short events, void (*fn)(void*, short) noexcept, void* context) {
+    const FdToken token = ++fd_sequence_;
+    fds_.push_back(FdEntry{token, fd, events, fn, context});
+    return token;
 }
 
-void Loop::remove_fd(int fd) noexcept {
-    std::erase_if(fds_, [fd](const FdEntry& entry) { return entry.fd == fd; });
+void Loop::remove_fd(FdToken token) noexcept {
+    std::erase_if(fds_, [token](const FdEntry& entry) { return entry.token == token; });
 }
 
 // ---------------------------------------------------------------------------

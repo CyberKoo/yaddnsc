@@ -26,6 +26,26 @@ yaddnsc_production_module(yaddnsc_coro)
 # PUBLIC: loop.h exposes the pool type that offload() submits to.
 target_link_libraries(yaddnsc_coro PUBLIC BS_thread_pool)
 
+# Coroutine transport layer — TCP, TLS and UDP objects over the coroutine
+# runtime. Targets are already-resolved InetAddress values: hostname resolution
+# needs the resolver port, which arrives in stage 2b. The legacy
+# network/transport/ tree is untouched; this target exists to replace it in
+# stage 3, which is why it is a separate module rather than an addition there.
+# OpenSSL is PUBLIC because tls_stream.h publishes the SSL_CTX/SSL ownership
+# types; yaddnsc_network_infrastructure is PRIVATE and provides only the
+# sockaddr codec (SocketAddr) that bridges InetAddress to the POSIX API.
+add_library(yaddnsc_net STATIC
+    src/infrastructure/net/detail/socket_ops.cpp
+    src/infrastructure/net/tcp_stream.cpp
+    src/infrastructure/net/tls_stream.cpp
+    src/infrastructure/net/udp_socket.cpp
+)
+yaddnsc_production_module(yaddnsc_net)
+target_link_libraries(yaddnsc_net
+    PUBLIC yaddnsc_coro yaddnsc_domain OpenSSL::SSL OpenSSL::Crypto
+    PRIVATE yaddnsc_tls_support yaddnsc_network_infrastructure spdlog::spdlog yaddnsc_fmt
+)
+
 # TLS support infrastructure (CA certificate discovery).
 add_library(yaddnsc_tls_support STATIC
     src/infrastructure/network/tls/cert_util.cpp
