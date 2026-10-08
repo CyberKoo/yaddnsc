@@ -13,7 +13,6 @@
 #include <span>
 #include <string>
 #include <string_view>
-#include <thread>
 #include <type_traits>
 #include <utility>
 #include <variant>
@@ -24,11 +23,10 @@
 #include <spdlog/spdlog.h>
 #include <yaddnsc/util/format.hpp>
 
+#include "application/coro/run_scheduler.h"
+#include "application/coro/services.h"
 #include "application/diagnostics.h"
 #include "application/environment_validator.h"
-#include "application/pool_task_executor.h"
-#include "application/run_lifecycle.h"
-#include "application/update_workflow.h"
 #include "cli/presenter.h"
 #include "domain/config/dns_config.h"
 #include "domain/config/runtime_config.h"
@@ -38,23 +36,25 @@
 #include "infrastructure/config/config_verification_exception.h"
 #include "infrastructure/config/normalizer.h"
 #include "infrastructure/config/static_validator.h"
-#include "infrastructure/dns/dispatcher.h"
+#include "infrastructure/coro/group.hpp"
+#include "infrastructure/coro/loop.h"
+#include "infrastructure/coro/run.hpp"
+#include "infrastructure/dns/coro/factory.h"
+#include "infrastructure/dns/coro/resolver_port.h"
 #include "infrastructure/dns/factory.h"
 #include "infrastructure/dns/resolv_conf.h"
 #include "infrastructure/dns/resolver_catalog.h"
-#include "infrastructure/ip_source/adapter.h"
-#include "infrastructure/ip_source/factory.h"
+#include "infrastructure/ip_source/coro/adapter.h"
 #include "infrastructure/logging/spdlog_logger.h"
+#include "infrastructure/network/http/types.h"
 #include "infrastructure/network/http/client.h"
 #include "infrastructure/network/http/client_port.h"
-#include "infrastructure/network/http/types.h"
 #include "infrastructure/network/system_network_interfaces.h"
 #include "infrastructure/network/uri.h"
 #include "infrastructure/plugin/abi_driver_gateway.h"
+#include "infrastructure/plugin/coro/driver_gateway.h"
 #include "infrastructure/plugin/driver_catalog.h"
 #include "infrastructure/plugin/driver_loader.h"
-#include "infrastructure/process/signal_watcher.h"
-#include "infrastructure/time/steady_clock.h"
 #include "support/exception.h"
 #include "support/fmt.hpp"
 #include "support/util/cancellation_token.hpp"
@@ -62,30 +62,6 @@
 #include "version.h"
 
 namespace {
-/// Thread-pool sizing policy: total subdomains, capped at
-/// min(hardware cores, THREAD_LIMIT); at least MIN_POOL_SIZE.
-constexpr std::uint32_t MIN_POOL_SIZE = 2;
-
-template<uint32_t THREAD_LIMIT = 4U>
-std::uint32_t estimate_pool_size(const domain::RuntimeConfig& config) noexcept {
-    std::uint32_t total_subdomains = 0;
-    const auto thread_count = std::thread::hardware_concurrency();
-
-    for (const auto& domain_config : config.domains) {
-        total_subdomains += static_cast<std::uint32_t>(domain_config.subdomains.size());
-    }
-
-    if (total_subdomains < MIN_POOL_SIZE || thread_count < MIN_POOL_SIZE) {
-        return MIN_POOL_SIZE;
-    }
-
-    if (total_subdomains < thread_count) {
-        return total_subdomains;
-    }
-
-    return std::min(thread_count, THREAD_LIMIT);
-}
-
 /// Fill in the effective bootstrap DNS server list: the configured
 /// bootstrap_dns wins; otherwise fall back to /etc/resolv.conf nameservers.
 /// An empty result is not fatal — IP-literal targets still work — but every
@@ -120,6 +96,17 @@ void fill_bootstrap_servers(domain::RuntimeConfig& config) {
     return [opts = std::move(opts)] { return std::make_unique<net::http::Client>(opts); };
 }
 
+/// Shared coroutine HTTP policy for the run path (driver gateway + HTTP IP
+/// source). The coroutine client has its own Options type; it carries the same
+/// information as the legacy one (user agent, bootstrap DNS), plus the TLS and
+/// connect policy defaults.
+[[nodiscard]] http::Options make_coro_http_options(const domain::ResolverSettings& resolver) {
+    http::Options opts;
+    opts.user_agent = YADDNSC::get_full_version();
+    opts.bootstrap_dns = resolver.bootstrap_servers;
+    return opts;
+}
+
 // -----------------------------------------------------------------------
 //  run — the only command with a lifecycle object; exceptions escape to
 //  main()'s fatal-error boundary (legacy wording preserved there).
@@ -144,8 +131,6 @@ int run_command(const Cli::RunCommand& command) {
         SPDLOG_DEBUG("Verbose mode enabled");
     }
 
-    SignalWatcher::install();
-
     const auto raw_config = Config::load_config(command.config_path);
 
     // Static validation + normalisation: report every collected error with
@@ -157,19 +142,18 @@ int run_command(const Cli::RunCommand& command) {
     }
     fill_bootstrap_servers(*config);
 
-    SignalWatcher signal_watcher;
-    Utils::CancellationSource cancellation;
     const auto runtime_config = std::make_shared<const domain::RuntimeConfig>(std::move(*config));
 
-    // The driver catalog lives in this scope: it is released (modules
-    // unloaded) only after RunLifecycle::run() has drained every task,
-    // so no in-flight update can touch unloaded code.
+    // Configuration, driver loading and environment validation stay synchronous
+    // ahead of the loop: the composition root owns the DriverCatalog and the
+    // gateway it feeds, and folding dlopen into the loop would push those
+    // infrastructure types into the application layer. Moving them behind
+    // offload is stage-3 work; the run itself is the coroutine scheduler.
     {
         DriverCatalog driver_catalog;
         DriverLoader::load(driver_catalog, runtime_config->drivers);
 
         const SpdlogLogger logger;
-        SteadyClock clock;
         const SystemNetworkInterfaces interfaces;
 
         // Environment validation: referenced drivers loaded, referenced
@@ -179,20 +163,33 @@ int run_command(const Cli::RunCommand& command) {
             return EXIT_FAILURE;
         }
 
-        auto dispatcher = DnsResolverFactory::create(
-            runtime_config->resolver, ResolverCatalog::with_builtins(runtime_config->resolver.bootstrap_servers));
-        const auto http_options = make_http_options(runtime_config->resolver);
-        const IpSourceAdapter ip_source{
-            [http_options](const domain::SubdomainConfig& cfg) { return IpSourceFactory::create(cfg, http_options); }};
-        const AbiDriverGateway driver_gateway(driver_catalog, make_http_client_factory(http_options), logger);
-        const UpdateWorkflow workflow(dispatcher, ip_source, driver_gateway, logger);
-        PoolTaskExecutor task_executor(estimate_pool_size(*runtime_config), workflow);
+        const auto http_options = make_coro_http_options(runtime_config->resolver);
+        const auto dispatcher =
+            dns::make_dispatcher(runtime_config->resolver, runtime_config->resolver.bootstrap_servers);
+        dns::DispatcherResolverPort resolver_port{*dispatcher};
+        ipsource::IpSourceAdapter ip_source{http_options};
 
-        RunLifecycle lifecycle(runtime_config, {.stop = signal_watcher.get_stop_source(), .cancellation = cancellation},
-                               {.clock = clock, .executor = task_executor, .interfaces = interfaces, .logger = logger});
-        lifecycle.run();
+        // The driver gateway needs the runner's bridge TaskGroup, which only
+        // exists inside coro::run; the runner hands its root group to
+        // make_gateway and the gateway it builds lives here for the whole run.
+        std::optional<plugin::DriverGateway> gateway;
+        coro::Loop loop;
+        const app::RuntimeServices services{
+            .resolver = resolver_port,
+            .ip_source = ip_source,
+            .logger = logger,
+            .make_gateway =
+                [&](coro::TaskGroup& group) -> app::GatewayPort& {
+                gateway.emplace(driver_catalog, logger, loop, group,
+                                plugin::DriverGateway::Options{
+                                    .http = http_options,
+                                    .bridge_wait_budget = std::chrono::seconds(5),
+                                });
+                return *gateway;
+            },
+        };
+        return coro::run(loop, app::run_scheduler(runtime_config, services));
     }
-    return EXIT_SUCCESS;
 }
 
 [[nodiscard]] std::string format_resolver_server(const Config::DnsServer& server) {

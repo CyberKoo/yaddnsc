@@ -67,11 +67,12 @@ add_library(yaddnsc_coro_io STATIC
     src/infrastructure/dns/coro/dot.cpp
     src/infrastructure/dns/coro/doh.cpp
     src/infrastructure/dns/coro/dispatcher.cpp
+    src/infrastructure/dns/coro/factory.cpp
 )
 yaddnsc_production_module(yaddnsc_coro_io)
 target_link_libraries(yaddnsc_coro_io
     PUBLIC yaddnsc_net yaddnsc_domain
-    PRIVATE yaddnsc_dns_classic yaddnsc_network_infrastructure picohttpparser spdlog::spdlog yaddnsc_fmt
+    PRIVATE yaddnsc_dns_classic yaddnsc_network_infrastructure picohttpparser spdlog::spdlog magic_enum yaddnsc_fmt
 )
 
 # TLS support infrastructure (CA certificate discovery).
@@ -276,6 +277,37 @@ target_link_libraries(yaddnsc_coro_plugin
     PRIVATE yaddnsc_coro_io yaddnsc_network_infrastructure spdlog::spdlog yaddnsc_fmt
 )
 
+# Coroutine application layer — the per-subdomain scheduling coroutines and the
+# run root (src/application/coro/). Built on the coroutine runtime and the domain
+# layer only; it names application ports, never a concrete infrastructure type
+# (adapters live in yaddnsc_coro_ip_source / yaddnsc_coro_plugin / the DNS
+# coroutine factory).
+add_library(yaddnsc_coro_application STATIC
+    src/application/coro/update_once.cpp
+    src/application/coro/subdomain_loop.cpp
+    src/application/coro/run_scheduler.cpp
+)
+yaddnsc_production_module(yaddnsc_coro_application)
+target_link_libraries(yaddnsc_coro_application
+    PUBLIC yaddnsc_domain yaddnsc_coro
+    PRIVATE yaddnsc_application magic_enum yaddnsc_fmt
+)
+
+# Coroutine IP sources — interface / HTTP (native) and mDNS (offload transition),
+# plus the app::IpSourcePort adapter. It reuses the legacy InterfaceUtil cache and
+# the legacy mDNS source, which is the mDNS transition debt noted in the headers.
+add_library(yaddnsc_coro_ip_source STATIC
+    src/infrastructure/ip_source/coro/iface.cpp
+    src/infrastructure/ip_source/coro/http.cpp
+    src/infrastructure/ip_source/coro/mdns.cpp
+    src/infrastructure/ip_source/coro/adapter.cpp
+)
+yaddnsc_production_module(yaddnsc_coro_ip_source)
+target_link_libraries(yaddnsc_coro_ip_source
+    PUBLIC yaddnsc_domain yaddnsc_coro_io yaddnsc_coro
+    PRIVATE yaddnsc_ip_source_infrastructure yaddnsc_network_infrastructure yaddnsc_fmt
+)
+
 # Concrete adapters stay separate so their target dependencies express their
 # actual ports and infrastructure requirements.
 add_library(yaddnsc_plugin_loader_adapter STATIC
@@ -352,5 +384,8 @@ target_link_libraries(yaddnsc_composition
         yaddnsc_http_infrastructure
         yaddnsc_tls_support
         yaddnsc_cli_adapter
+        yaddnsc_coro_application
+        yaddnsc_coro_ip_source
+        yaddnsc_coro_plugin
     PRIVATE spdlog::spdlog magic_enum yaddnsc_fmt
 )

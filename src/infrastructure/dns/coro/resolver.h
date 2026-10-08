@@ -46,6 +46,17 @@ public:
 
     /// Human-readable backend name, for diagnostics.
     [[nodiscard]] virtual std::string_view name() const noexcept = 0;
+
+    /// Stable numeric id used in diagnostics (the legacy `Resolver #N` logs).
+    /// Assigned by the Dispatcher when it takes ownership of the backend.
+    [[nodiscard]] std::uint64_t id() const noexcept { return id_; }
+
+    /// Assign the diagnostic id. Called once by the Dispatcher; not for other
+    /// callers.
+    void set_id(const std::uint64_t id) noexcept { id_ = id; }
+
+private:
+    std::uint64_t id_ = 0;
 };
 
 namespace detail {

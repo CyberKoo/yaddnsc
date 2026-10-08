@@ -59,6 +59,8 @@ public:
 
 private:
     std::string target_;
+    /// "scheme://host:port" label for diagnostics.
+    std::string label_;
     std::shared_ptr<http::PersistentClient> client_;
 };
 

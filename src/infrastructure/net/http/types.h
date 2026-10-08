@@ -2,8 +2,8 @@
 // http — public value types, limits and options.
 //
 
-#ifndef YADDNSC_HTTP_TYPES_H
-#define YADDNSC_HTTP_TYPES_H
+#ifndef YADDNSC_NET_HTTP_TYPES_H
+#define YADDNSC_NET_HTTP_TYPES_H
 
 #include <cstddef>
 #include <cstdint>

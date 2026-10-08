@@ -95,6 +95,16 @@ target_link_libraries(test_environment_validator PRIVATE yaddnsc_application GTe
 add_unit_test(logger_port SOURCE application/logger_port_test.cpp)
 
 # ============================================================================
+#  application/coro/  —  the coroutine scheduler (subdomain loops + run root)
+# ============================================================================
+
+# coro_scheduler — the per-subdomain scheduling coroutine on a ManualClock and
+# the run root: interval/retry_after/force timing, update_once decisions, and
+# supervisor + SIGINT shutdown, all driven by fake ports.
+add_unit_test(coro_scheduler SOURCE application/coro_scheduler_test.cpp)
+target_link_libraries(test_coro_scheduler PRIVATE yaddnsc_coro_application yaddnsc_coro yaddnsc_domain)
+
+# ============================================================================
 #  config/  —  configuration parsing, types, and validation
 # ============================================================================
 

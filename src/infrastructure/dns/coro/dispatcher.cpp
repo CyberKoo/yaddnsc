@@ -5,8 +5,10 @@
 #include "dispatcher.h"
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cstddef>
+#include <cstdint>
 #include <exception>
 #include <new>
 #include <numeric>
@@ -16,6 +18,10 @@
 #include <utility>
 #include <vector>
 
+#include <magic_enum/magic_enum.hpp>
+#include <spdlog/spdlog.h>
+
+#include "domain/error/dns_error.h"
 #include "infrastructure/coro/group.hpp"
 #include "infrastructure/coro/scope.hpp"
 #include "infrastructure/coro/sleep.hpp"
@@ -27,8 +33,13 @@
 namespace dns {
 namespace {
 
+/// Process-wide resolver id source; the Dispatcher assigns one per backend so
+/// the diagnostics carry the legacy `Resolver #N` label.
+std::atomic<std::uint64_t> next_resolver_id{0};
+
 /// Outcome of one backend attempt.
 struct Attempt {
+    std::uint64_t id = 0;
     bool ok = false;
     std::vector<std::string> records;
     DnsErrorInfo error{DnsError::UNKNOWN, "unclassified DNS failure"};
@@ -41,6 +52,7 @@ struct Attempt {
 /// rethrown so it cannot masquerade as a retryable DNS error.
 [[nodiscard]] coro::Task<Attempt> attempt_one(Resolver& resolver, std::string host, const RecordKind kind) {
     Attempt attempt;
+    attempt.id = resolver.id();
     try {
         auto raw = co_await resolver.query(host, kind);
         if (!raw) {
@@ -146,6 +158,8 @@ private:
     BatchErrors errors;
     bool cancelled = false;
 
+    SPDLOG_DEBUG(R"(Launching batch of {} resolver(s) for "{}")", batch.size(), host);
+
     // A child scope lets the winner cancel its siblings while the group still
     // joins and reaps every child on exit.
     co_await coro::with_cancel_scope([&](coro::CancelScope& race) -> coro::Task<void> {
@@ -160,13 +174,25 @@ private:
                 }
                 const Attempt& attempt = outcome->value();
                 if (attempt.ok) {
+                    SPDLOG_DEBUG(R"(Resolver #{} returned {} record(s) for "{}")", attempt.id,
+                                 attempt.records.size(), host);
                     winner = attempt.records;
                     race.cancel();  // wake the losers; scope exit joins them
                     break;
                 }
                 if (attempt.error.code == DnsError::CANCELLED) {
+                    SPDLOG_TRACE(R"(Resolver #{} cancelled for "{}")", attempt.id, host);
                     cancelled = true;
                     continue;  // keep consuming until every child has finished
+                }
+                if (attempt.error.code == DnsError::NX_DOMAIN) {
+                    SPDLOG_DEBUG(R"(Resolver #{} returned NXDOMAIN for "{}")", attempt.id, host);
+                } else if (detail::is_definitive(attempt.error.code)) {
+                    SPDLOG_TRACE(R"(Resolver #{} failed for "{}": {})", attempt.id, host,
+                                 error_to_str(attempt.error.code));
+                } else {
+                    SPDLOG_TRACE(R"(Resolver #{} returned {} for "{}")", attempt.id, host,
+                                 error_to_str(attempt.error.code));
                 }
                 errors.note(attempt.error);
             }
@@ -190,13 +216,27 @@ private:
 
     for (Resolver* resolver : order) {
         auto attempt = co_await attempt_one(*resolver, host, kind);
+        const auto id = attempt.id;
         if (attempt.ok) {
+            if (attempt.records.size() > 1) {
+                SPDLOG_WARN(R"(Resolver #{} Domain "{}" resolved to more than one address (count: {}))", id, host,
+                            attempt.records.size());
+            }
+            SPDLOG_DEBUG(R"(Fallback resolver #{} returned {} record(s) for "{}": {})", id, attempt.records.size(),
+                         host, fmt::join(attempt.records, ", "));
             co_return std::move(attempt.records);
         }
+
+        SPDLOG_DEBUG(R"(Fallback resolver #{} failed for "{}": {})", id, host, error_to_str(attempt.error.code));
         last = std::move(attempt.error);
         if (detail::is_definitive(last.code) || last.code == DnsError::NX_DOMAIN || last.code == DnsError::CANCELLED) {
             co_return std::unexpected(std::move(last));
         }
+        SPDLOG_DEBUG(R"(Fallback resolver #{} returned a retryable error, moving to next)", id);
+    }
+    if (order.size() > 1) {
+        SPDLOG_ERROR(R"(All {} fallback resolver(s) failed for domain "{}", last error: {})", order.size(), host,
+                     error_to_str(last.code));
     }
     co_return std::unexpected(std::move(last));
 }
@@ -204,7 +244,11 @@ private:
 }  // namespace
 
 Dispatcher::Dispatcher(std::vector<std::unique_ptr<Resolver>> resolvers, const Strategy strategy)
-    : resolvers_(std::move(resolvers)), strategy_(strategy) {}
+    : resolvers_(std::move(resolvers)), strategy_(strategy) {
+    for (const auto& resolver : resolvers_) {
+        resolver->set_id(next_resolver_id.fetch_add(1, std::memory_order_relaxed));
+    }
+}
 
 Dispatcher::~Dispatcher() = default;
 
@@ -227,6 +271,8 @@ coro::Task<std::expected<std::vector<std::string>, DnsErrorInfo>> Dispatcher::re
     }
 
     if (strategy_ == Strategy::CONCURRENT) {
+        SPDLOG_DEBUG(R"(Concurrent mode: {} resolver(s) for "{}", {} per batch)", all.size(), host,
+                     MAX_CONCURRENT_RESOLVERS);
         DnsErrorInfo last{DnsError::NODATA, fmt::format(R"(DNS lookup for domain "{}" returned no records)", host)};
         for (std::size_t offset = 0; offset < all.size(); offset += MAX_CONCURRENT_RESOLVERS) {
             const auto end = std::min(offset + MAX_CONCURRENT_RESOLVERS, all.size());
@@ -243,15 +289,21 @@ coro::Task<std::expected<std::vector<std::string>, DnsErrorInfo>> Dispatcher::re
                 co_return std::unexpected(std::move(last));
             }
         }
+        if (all.size() > 1) {
+            SPDLOG_ERROR(R"(All {} resolver(s) failed for domain "{}", last error: {})", all.size(), host,
+                         error_to_str(last.code));
+        }
         co_return std::unexpected(std::move(last));
     }
 
     if (strategy_ == Strategy::SHUFFLE) {
+        SPDLOG_DEBUG(R"(Shuffle mode: trying {} resolver(s) in random order for "{}")", all.size(), host);
         std::vector<Resolver*> shuffled = all;
         std::ranges::shuffle(shuffled, Utils::Random::engine());
         co_return co_await run_sequential(shuffled, host, kind);
     }
 
+    SPDLOG_DEBUG(R"(Fallback mode: trying {} resolver(s) in configured order for "{}")", all.size(), host);
     co_return co_await run_sequential(all, host, kind);
 }
 
@@ -260,12 +312,24 @@ coro::Task<std::expected<std::vector<std::string>, DnsErrorInfo>> Dispatcher::ru
     for (std::uint32_t attempt_index = 0;; ++attempt_index) {
         auto attempt = co_await attempt_one(*resolvers_.front(), host, kind);
         if (attempt.ok) {
+            if (attempt.records.size() > 1) {
+                SPDLOG_WARN(R"(Domain "{}" resolved to more than one address (count: {}))", host,
+                            attempt.records.size());
+            }
             co_return std::move(attempt.records);
         }
         if (attempt.error.code == DnsError::CANCELLED || !detail::is_retryable(attempt.error.code) ||
             attempt_index >= max_retries) {
+            if (attempt.error.code == DnsError::NODATA) {
+                SPDLOG_DEBUG(R"(DNS lookup for "{}" returned no records)", host);
+            } else {
+                SPDLOG_WARN(R"(DNS lookup for domain "{}" type: {} failed after {} retries. Error: {})", host,
+                            magic_enum::enum_name(kind), attempt_index, error_to_str(attempt.error.code));
+            }
             co_return std::unexpected(std::move(attempt.error));
         }
+
+        SPDLOG_DEBUG("retrying... (counter {})", attempt_index + 1);
 
         // Backoff is a cancellable sleep: a cancelled scope aborts the wait and
         // the query, with no thread and no derived cancellation domain.

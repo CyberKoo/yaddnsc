@@ -10,6 +10,8 @@
 #include <utility>
 #include <vector>
 
+#include <spdlog/spdlog.h>
+
 #include "infrastructure/dns/coro/exchange.h"
 #include "infrastructure/dns/dns_lookup_exception.h"
 #include "infrastructure/dns/util.hpp"
@@ -22,7 +24,13 @@ namespace dns {
 coro::Task<std::expected<std::vector<std::uint8_t>, DnsErrorInfo>> ClassicResolver::query(std::string host,
                                                                                           const RecordKind kind) {
     try {
-        const auto query_bytes = DNS::build_query(host, DNS::Util::type_to_record_type(kind));
+        SPDLOG_TRACE(R"(Resolver #{} DNS lookup for "{}")", id(), host);
+
+        const auto record_type = DNS::Util::type_to_record_type(kind);
+        SPDLOG_DEBUG(R"(Resolver #{} Resolving "{}" (type {}) via {}:{})", id(), host,
+                     static_cast<std::uint16_t>(record_type), server_.to_string(), port_);
+
+        const auto query_bytes = DNS::build_query(host, record_type);
 
         auto response = co_await detail::query_udp(server_, port_, query_bytes);
         if (!response) {
@@ -36,6 +44,7 @@ coro::Task<std::expected<std::vector<std::uint8_t>, DnsErrorInfo>> ClassicResolv
         }
 
         // A truncated UDP answer is retried over TCP against the same server.
+        SPDLOG_TRACE(R"(Resolver #{} UDP response truncated for "{}", falling back to TCP)", id(), host);
         auto over_tcp = co_await detail::query_tcp(server_, port_, query_bytes);
         if (!over_tcp) {
             co_return std::unexpected(std::move(over_tcp.error()));

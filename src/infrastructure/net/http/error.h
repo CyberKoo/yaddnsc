@@ -7,8 +7,8 @@
 // the reason itself through ScopeOutcome::timed_out().
 //
 
-#ifndef YADDNSC_HTTP_ERROR_H
-#define YADDNSC_HTTP_ERROR_H
+#ifndef YADDNSC_NET_HTTP_ERROR_H
+#define YADDNSC_NET_HTTP_ERROR_H
 
 #include <string>
 

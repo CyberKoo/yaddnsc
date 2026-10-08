@@ -14,6 +14,7 @@
 
 #include <expected>
 
+#include "application/coro/ports.h"
 #include "application/ports/driver_gateway.h"
 #include "domain/error/error.h"
 #include "infrastructure/coro/serial_lane.hpp"
@@ -47,9 +48,12 @@ namespace plugin {
 /// synchronous gateway: see abi_driver_gateway.cpp. The capability gate runs
 /// before create() and returns UPDATE_FAILED directly.
 ///
+/// Implements app::GatewayPort, so the application layer reaches it through the
+/// port instead of this concrete type.
+///
 /// Thread safety: every method is loop-thread only. Retire a driver's lane only
 /// after it is unloaded and no further cycles will be submitted for that name.
-class DriverGateway {
+class DriverGateway final : public app::GatewayPort {
 public:
     /// Construction-time policy.
     struct Options {
@@ -83,7 +87,7 @@ public:
     /// returns CANCELLED while the cycle keeps its place on the lane and runs to
     /// completion on the worker.
     [[nodiscard]] coro::Task<std::expected<void, domain::DriverError>> update(std::string driver_name,
-                                                                              DriverUpdateCommand command);
+                                                                              DriverUpdateCommand command) override;
 
     /// Validate one subdomain's driver_params JSON against the driver's schema
     /// without performing an update (the host's `config test` path). Runs the

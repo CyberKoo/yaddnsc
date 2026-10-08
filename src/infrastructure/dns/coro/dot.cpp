@@ -14,6 +14,8 @@
 #include <utility>
 #include <vector>
 
+#include <spdlog/spdlog.h>
+
 #include "infrastructure/dns/coro/bootstrap.h"
 #include "infrastructure/dns/coro/exchange.h"
 #include "infrastructure/dns/dns_lookup_exception.h"
@@ -83,14 +85,20 @@ coro::Task<std::expected<std::vector<std::uint8_t>, DnsErrorInfo>> DotResolver::
     }
 
     try {
-        const auto query_bytes = build_padded_query(host, DNS::Util::type_to_record_type(kind));
+        const auto record_type = DNS::Util::type_to_record_type(kind);
+        SPDLOG_DEBUG(R"(Resolver #{} lookup for domain "{}" (type {}))", id(), host,
+                     static_cast<std::uint16_t>(record_type));
+
+        const auto query_bytes = build_padded_query(host, record_type);
         const auto framed = DNS::frame_message(query_bytes);
         if (!framed) {
             co_return std::unexpected(DnsErrorInfo{DnsError::PARSE, "DoT query exceeds the framing limit"});
         }
 
+        const std::string label = fmt::format("{}:{}", host_, port_);
         for (int attempt = 0; attempt < 2; ++attempt) {
             if (attempt == 1) {
+                SPDLOG_DEBUG(R"(Connection to "{}" failed, reconnecting)", label);
                 close();  // rebuild once on a transient failure
             }
             if (auto ready = co_await ensure_stream(); !ready) {
@@ -148,6 +156,7 @@ coro::Task<std::expected<std::vector<std::uint8_t>, DnsErrorInfo>> DotResolver::
             if (auto valid = DNS::Validator::validate_response(query_bytes, response); !valid) {
                 co_return std::unexpected(std::move(valid.error()));
             }
+            SPDLOG_DEBUG(R"(Resolver #{} query succeeded ({} bytes) for "{}")", id(), response.size(), host);
             co_return response;
         }
         co_return std::unexpected(DnsErrorInfo{DnsError::CONNECTION, "DoT query failed"});

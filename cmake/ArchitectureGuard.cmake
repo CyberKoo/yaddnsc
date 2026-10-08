@@ -43,13 +43,30 @@ guard_check("domain must not include infrastructure/Glaze/spdlog/CLI11/Cancellat
     ${PROJECT_SOURCE_DIR}/src/domain/*.cpp)
 
 # ------------------------------------------------------------------------------
-# 2. application: no infrastructure implementation headers or third-party I/O
+# 2. application: no infrastructure implementation headers or third-party I/O.
+#    The coroutine runtime (src/infrastructure/coro/) is the one allowed
+#    infrastructure tree: it is the substrate the coroutine application layer is
+#    built on (design §8), so src/application/coro/ may include it. Every other
+#    infrastructure/ include stays forbidden.
 # ------------------------------------------------------------------------------
-guard_check("application must not include infrastructure/spdlog/Glaze/CLI11/OpenSSL/dlopen"
-    "${INC_RE}[<\"](infrastructure/|composition/|cli/|spdlog/|glaze/|CLI/|openssl/|dlfcn\\.h)"
+file(GLOB_RECURSE application_check_files RELATIVE ${PROJECT_SOURCE_DIR}
     ${PROJECT_SOURCE_DIR}/src/application/*.h
     ${PROJECT_SOURCE_DIR}/src/application/*.hpp
     ${PROJECT_SOURCE_DIR}/src/application/*.cpp)
+foreach (f ${application_check_files})
+    file(STRINGS ${PROJECT_SOURCE_DIR}/${f} lines REGEX
+        "${INC_RE}[<\"](infrastructure/|composition/|cli/|spdlog/|glaze/|CLI/|openssl/|dlfcn\\.h)")
+    foreach (line ${lines})
+        if (line MATCHES "^[ \t]*(//|/\\*|\\*)")
+            continue()
+        endif ()
+        if (line MATCHES "${INC_RE}[<\"]infrastructure/coro/")
+            continue()
+        endif ()
+        string(STRIP "${line}" stripped)
+        set(violations "${violations}\n  ${f}: application must not include infrastructure/spdlog/Glaze/CLI11/OpenSSL/dlopen\n      ${stripped}")
+    endforeach ()
+endforeach()
 
 # ------------------------------------------------------------------------------
 # 3. plugins: SDK only — no host src/ modules, no legacy utility headers,

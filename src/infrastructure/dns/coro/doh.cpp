@@ -12,6 +12,8 @@
 #include <utility>
 #include <vector>
 
+#include <spdlog/spdlog.h>
+
 #include "infrastructure/dns/dns_lookup_exception.h"
 #include "infrastructure/dns/util.hpp"
 #include "infrastructure/dns/validator.h"
@@ -71,6 +73,7 @@ DohResolver::DohResolver(std::string url, http::Options options) : target_(endpo
     }
     options.tls.alpn_proto = ALPN_HTTP_1_1;
     client_ = std::make_shared<http::PersistentClient>(std::move(url), std::move(options));
+    label_ = fmt::format("{}://{}:{}", client_->scheme(), client_->host(), client_->port());
 }
 
 DohResolver::~DohResolver() = default;
@@ -78,7 +81,11 @@ DohResolver::~DohResolver() = default;
 coro::Task<std::expected<std::vector<std::uint8_t>, DnsErrorInfo>> DohResolver::query(std::string host,
                                                                                       const RecordKind kind) {
     try {
-        const auto query_bytes = DNS::build_query(host, DNS::Util::type_to_record_type(kind));
+        const auto record_type = DNS::Util::type_to_record_type(kind);
+        SPDLOG_DEBUG(R"(Resolver #{} lookup for domain "{}" (type {}))", id(), host,
+                     static_cast<std::uint16_t>(record_type));
+
+        const auto query_bytes = DNS::build_query(host, record_type);
 
         http::Request request;
         request.method = http::Method::POST;
@@ -88,6 +95,9 @@ coro::Task<std::expected<std::vector<std::uint8_t>, DnsErrorInfo>> DohResolver::
 
         constexpr int MAX_ATTEMPTS = 2;
         for (int attempt = 0; attempt < MAX_ATTEMPTS; ++attempt) {
+            if (attempt == 1) {
+                SPDLOG_DEBUG(R"(Connection to "{}" failed, reconnecting)", label_);
+            }
             auto response = co_await client_->exchange(target_, request);
             if (!response) {
                 if (response.error().code == http::ErrorCode::CANCELLED) {
@@ -113,6 +123,7 @@ coro::Task<std::expected<std::vector<std::uint8_t>, DnsErrorInfo>> DohResolver::
             if (auto valid = DNS::Validator::validate_response(query_bytes, body); !valid) {
                 co_return std::unexpected(std::move(valid.error()));
             }
+            SPDLOG_DEBUG(R"(Resolver #{} query succeeded ({} bytes) for "{}")", id(), body.size(), host);
             co_return body;
         }
         co_return std::unexpected(DnsErrorInfo{DnsError::CONNECTION, "DoH query failed"});
