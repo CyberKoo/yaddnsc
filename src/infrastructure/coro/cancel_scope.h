@@ -8,11 +8,11 @@
 // a scope sets its flag and wakes every waiter in its (unshielded) subtree;
 // nothing uses file descriptors, pipes or a second cancellation domain.
 //
-// Deliberate conflict with rule 02 ("Utils::CancellationToken must be passed
-// per operation, not stored as a member"): this runtime has no cancellation
-// tokens by design. Cancellation is scope state reached through checkpoints, so
-// there is nothing to pass per operation — see .cache/coro_redesign.md §3.3.
-// The token type is not referenced anywhere in this module.
+// Deliberate conflict with rule 02 ("the per-operation cancellation token must
+// be passed per operation, not stored as a member"): this runtime has no
+// cancellation tokens by design. Cancellation is scope state reached through
+// checkpoints, so there is nothing to pass per operation — see
+// .cache/coro_redesign.md §3.3. No token type is referenced anywhere here.
 //
 // A parked awaiter remains valid until it is resumed, so a WaitNode may hold a
 // raw pointer to the awaiting frame plus a flag to set when cancellation wins.

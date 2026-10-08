@@ -124,7 +124,7 @@ foreach (f ${http_check_files})
             continue()
         endif ()
         string(STRIP "${line}" stripped)
-        set(violations "${violations}\n  ${f}: no parallel HTTP types (use src/infrastructure/network/http/types.h + src/infrastructure/network/http/client_port.h)\n      ${stripped}")
+        set(violations "${violations}\n  ${f}: no parallel HTTP types (use src/infrastructure/net/http/types.h)\n      ${stripped}")
     endforeach ()
 endforeach ()
 
@@ -172,99 +172,71 @@ guard_check("plugins must not redefine shared string utilities (use yaddnsc/sdk/
     ${PROJECT_SOURCE_DIR}/driver/*/*.cpp)
 
 # ------------------------------------------------------------------------------
-# 10. dns_classic stays below the transport layer. Its sources are the
-#     classic UDP and TCP exchanges and the wire format — the pieces that must
-#     not pull in the HTTP/transport/plugin machinery (TcpConnection depends
-#     on this target; a back-edge would create a cycle). Bootstrap's TCP
-#     fallback uses the shared Socket transfer in network infrastructure, not
-#     TcpStream. dns/resolver/ is the other half: classic/doh/dot are facades
-#     above transport and use TcpStream, so resolver/classic.cpp is excluded
-#     from this check. The pattern is anchored to /classic.cpp, which leaves every
-#     file under dns/classic/ — including classic_udp.cpp and classic_tcp.cpp —
-#     covered.
+# 10. dns_classic (wire format, parser, validator, resolv.conf) stays below the
+#     HTTP/transport layers: it must not pull in OpenSSL or the plugin tree. The
+#     coroutine resolver facades (dns/coro/) are the layer above and are checked
+#     separately by rule 2's spirit (they may use net/).
 # ------------------------------------------------------------------------------
 file(GLOB_RECURSE dns_classic_files RELATIVE ${PROJECT_SOURCE_DIR}
     ${PROJECT_SOURCE_DIR}/src/infrastructure/dns/*.h
     ${PROJECT_SOURCE_DIR}/src/infrastructure/dns/*.hpp
     ${PROJECT_SOURCE_DIR}/src/infrastructure/dns/*.cpp)
-list(FILTER dns_classic_files EXCLUDE REGEX "(doh|dot|dispatcher|factory|resolver_catalog|tls_options|connect_error)\\.|/classic\\.cpp$")
+list(FILTER dns_classic_files EXCLUDE REGEX "^src/infrastructure/dns/coro/")
 foreach (f ${dns_classic_files})
-    file(STRINGS ${PROJECT_SOURCE_DIR}/${f} lines REGEX "${INC_RE}[<\"](infrastructure/network/(http|transport)/|infrastructure/plugin/|openssl/)")
+    file(STRINGS ${PROJECT_SOURCE_DIR}/${f} lines REGEX "${INC_RE}[<\"](infrastructure/plugin/|openssl/)")
     foreach (line ${lines})
         if (line MATCHES "^[ \t]*(//|/\\*|\\*)")
             continue()
         endif ()
         string(STRIP "${line}" stripped)
-        set(violations "${violations}\n  ${f}: dns_classic must not depend on HTTP/transport/plugin/OpenSSL (layering cycle)\n      ${stripped}")
+        set(violations "${violations}\n  ${f}: dns_classic must not depend on plugin/OpenSSL (layering)\n      ${stripped}")
     endforeach ()
 endforeach ()
 
 # ------------------------------------------------------------------------------
-# 11. thread pools are an implementation detail: offload() is the only gateway.
-#     The coroutine runtime owns the single pool business code may reach
-#     (src/infrastructure/coro/ names BS::thread_pool to implement offload and
-#     SerialLane), and the pre-existing application executor still names it while
-#     the synchronous backend exists. Anywhere else in src/ a direct include is a
-#     layering violation: route the work through coro::offload instead of
-#     reaching for a thread pool. The plugin boundary (driver/) is deliberately
-#     not checked — plugins are a separate binary boundary and may use their own
-#     pool.
+# 11. Concurrency is an implementation detail of the coroutine runtime. A direct
+#     <thread>, <future> or BS::thread_pool include is allowed only in the
+#     runtime (src/infrastructure/coro/) and in the single place that must hand
+#     a result back across the synchronous plugin ABI boundary
+#     (src/infrastructure/plugin/coro/bridge.*). Everywhere else in the
+#     application / infrastructure / composition layers, route the work through
+#     coro::offload or a coro::Task. The plugin boundary (driver/) is a separate
+#     binary boundary and is deliberately not checked; src/support/ is a generic
+#     utility layer and is also not checked.
 # ------------------------------------------------------------------------------
-file(GLOB_RECURSE thread_pool_check_files RELATIVE ${PROJECT_SOURCE_DIR}
-    ${PROJECT_SOURCE_DIR}/src/*.h
-    ${PROJECT_SOURCE_DIR}/src/*.hpp
-    ${PROJECT_SOURCE_DIR}/src/*.cpp)
-list(FILTER thread_pool_check_files EXCLUDE REGEX "^src/infrastructure/coro/")
-list(FILTER thread_pool_check_files EXCLUDE REGEX "^src/application/pool_task_executor\\.cpp$")
-foreach (f ${thread_pool_check_files})
-    file(STRINGS ${PROJECT_SOURCE_DIR}/${f} lines REGEX "${INC_RE}[<\"]BS_thread_pool")
+file(GLOB_RECURSE concurrency_check_files RELATIVE ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/src/application/*.h
+    ${PROJECT_SOURCE_DIR}/src/application/*.hpp
+    ${PROJECT_SOURCE_DIR}/src/application/*.cpp
+    ${PROJECT_SOURCE_DIR}/src/infrastructure/*.h
+    ${PROJECT_SOURCE_DIR}/src/infrastructure/*.hpp
+    ${PROJECT_SOURCE_DIR}/src/infrastructure/*.cpp
+    ${PROJECT_SOURCE_DIR}/src/composition/*.h
+    ${PROJECT_SOURCE_DIR}/src/composition/*.hpp
+    ${PROJECT_SOURCE_DIR}/src/composition/*.cpp)
+list(FILTER concurrency_check_files EXCLUDE REGEX "^src/infrastructure/coro/")
+list(FILTER concurrency_check_files EXCLUDE REGEX "^src/infrastructure/plugin/coro/bridge\\.(h|cpp)$")
+foreach (f ${concurrency_check_files})
+    file(STRINGS ${PROJECT_SOURCE_DIR}/${f} lines REGEX "${INC_RE}[<\"]((thread|future)>|BS_thread_pool)")
     foreach (line ${lines})
         if (line MATCHES "^[ \t]*(//|/\\*|\\*)")
             continue()
         endif ()
         string(STRIP "${line}" stripped)
-        set(violations "${violations}\n  ${f}: thread pools must stay behind coro::offload (do not include BS_thread_pool directly)\n      ${stripped}")
+        set(violations "${violations}\n  ${f}: threads, futures and thread pools belong to the coroutine runtime (use coro::offload / coro::Task)\n      ${stripped}")
     endforeach ()
 endforeach()
 
 # ------------------------------------------------------------------------------
-# 12. The coroutine transport (src/infrastructure/net/) must not fall back on the
-#     legacy blocking transport it replaces: network/transport/ and the blocking
-#     Socket/poll machinery. Reusing the pure address codec
-#     (network/socket_addr.h) and CA discovery (network/tls/cert_util.h) is
-#     intended and allowed; the blocking/whole-operation-timeout machinery is
-#     not, because stage 3 deletes that tree.
+# 12. The legacy per-operation cancellation token is gone: cancellation is scope
+#     state reached through checkpoints. Neither the type nor its header may
+#     reappear anywhere under src/.
 # ------------------------------------------------------------------------------
-guard_check("coroutine transport must not depend on the legacy blocking transport"
-    "${INC_RE}[<\"](infrastructure/network/(transport/|socket\\.h|socket_exception\\.h|tcp_transfer\\.h))"
-    ${PROJECT_SOURCE_DIR}/src/infrastructure/net/*.h
-    ${PROJECT_SOURCE_DIR}/src/infrastructure/net/*.hpp
-    ${PROJECT_SOURCE_DIR}/src/infrastructure/net/*.cpp)
-
-# ------------------------------------------------------------------------------
-# 13. The coroutine DNS subsystem (src/infrastructure/dns/coro/) must not fall
-#     back on the synchronous resolvers it replaces: the resolver facades, their
-#     classic UDP/TCP transports, the legacy dispatcher/bootstrap and the factory
-#     catalog. The pure wire layer (types, parser, validator, wire/, util.hpp,
-#     resolv_conf) stays reusable in place.
-# ------------------------------------------------------------------------------
-guard_check("coroutine DNS must not depend on the legacy synchronous resolvers"
-    "${INC_RE}[<\"](infrastructure/dns/(resolver/|classic/|dispatcher\.h|bootstrap\.h|factory\.h|resolver_catalog\.h))"
-    ${PROJECT_SOURCE_DIR}/src/infrastructure/dns/coro/*.h
-    ${PROJECT_SOURCE_DIR}/src/infrastructure/dns/coro/*.hpp
-    ${PROJECT_SOURCE_DIR}/src/infrastructure/dns/coro/*.cpp)
-
-# ------------------------------------------------------------------------------
-# 14. The coroutine plugin bridge (src/infrastructure/plugin/coro/) must not fall
-#     back on the synchronous host it replaces: the blocking ABI gateway and its
-#     token-threaded Host Services. The reusable ABI plumbing (plugin_loader,
-#     driver_catalog, driver_instance, shared_library) stays in place.
-# ------------------------------------------------------------------------------
-guard_check("coroutine plugin bridge must not depend on the synchronous driver host"
-    "${INC_RE}[<\"]infrastructure/plugin/(abi_driver_gateway|host_services)\\.h"
-    ${PROJECT_SOURCE_DIR}/src/infrastructure/plugin/coro/*.h
-    ${PROJECT_SOURCE_DIR}/src/infrastructure/plugin/coro/*.hpp
-    ${PROJECT_SOURCE_DIR}/src/infrastructure/plugin/coro/*.cpp)
+guard_check("the legacy cancellation token must not reappear (cancellation is scope state)"
+    "[Cc]ancellation(Token|Source)|cancellation_token\\.hpp"
+    ${PROJECT_SOURCE_DIR}/src/*.h
+    ${PROJECT_SOURCE_DIR}/src/*.hpp
+    ${PROJECT_SOURCE_DIR}/src/*.cpp)
 
 # ------------------------------------------------------------------------------
 # Verdict
@@ -273,4 +245,4 @@ if (violations)
     message(FATAL_ERROR "Architecture guard violations:${violations}\n")
 endif ()
 
-message(STATUS "Architecture guard: OK (domain/application/plugin/SDK/thread-pool/net-transport/dns-transport/coro-plugin/boundary checks passed)")
+message(STATUS "Architecture guard: OK (domain/application/plugin/SDK/layering/concurrency/token checks passed)")

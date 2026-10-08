@@ -19,12 +19,12 @@
 
 #include <expected>
 
-#include "application/ports/driver_gateway.h"
 #include "domain/config/runtime_config.h"
 #include "domain/dns/record_kind.h"
 #include "domain/error/dns_error_info.h"
 #include "domain/error/error.h"
 #include "domain/network/inet_address.h"
+#include "domain/update/driver_update_command.h"
 #include "infrastructure/coro/task.hpp"
 
 namespace app {
@@ -65,7 +65,7 @@ public:
     virtual ~GatewayPort() = default;
 
     [[nodiscard]] virtual coro::Task<std::expected<void, domain::DriverError>> update(
-        std::string driver_name, DriverUpdateCommand command) = 0;
+        std::string driver_name, domain::DriverUpdateCommand command) = 0;
 };
 
 }  // namespace app

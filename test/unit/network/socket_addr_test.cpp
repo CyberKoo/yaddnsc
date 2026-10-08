@@ -10,7 +10,7 @@
 //   - Edge cases: AF_UNSPEC, zero-length input, null pointer.
 // =============================================================================
 
-#include "infrastructure/network/socket_addr.h"
+#include "infrastructure/net/socket_addr.h"
 
 #include <optional>
 #include <string>

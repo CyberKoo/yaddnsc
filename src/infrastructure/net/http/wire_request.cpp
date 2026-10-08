@@ -10,7 +10,7 @@
 #include <utility>
 
 #include "infrastructure/net/http/protocol/field_chars.hpp"
-#include "infrastructure/network/uri.h"
+#include "infrastructure/net/http/uri.h"
 #include "support/fmt.hpp"
 #include "support/string_util.hpp"
 

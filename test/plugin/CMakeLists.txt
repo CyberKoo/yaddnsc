@@ -82,7 +82,6 @@ target_include_directories(yaddnsc_fixture_validate_http PRIVATE ${PROJECT_SOURC
 # ---------------------------------------------------------------------------
 add_unit_test(plugin_abi_contract SOURCE driver_abi_contract_test.cpp)
 add_unit_test(plugin_lifecycle SOURCE plugin_lifecycle_test.cpp)
-add_unit_test(abi_driver_gateway SOURCE abi_driver_gateway_test.cpp)
 
 # Coroutine driver gateway — drives the same whiteboard plugin through the
 # coroutine bridge (worker ↔ loop HTTP, SerialLane, abandon, shutdown cancel)
@@ -96,7 +95,7 @@ target_compile_definitions(test_coro_driver_gateway PRIVATE
     THROWING_FIXTURE="$<TARGET_FILE:yaddnsc_fixture_throwing>")
 add_dependencies(test_coro_driver_gateway yaddnsc_test_driver_plugin yaddnsc_fixture_throwing)
 
-foreach(test_target test_plugin_abi_contract test_plugin_lifecycle test_abi_driver_gateway)
+foreach(test_target test_plugin_abi_contract test_plugin_lifecycle)
     target_link_libraries(${test_target} PRIVATE yaddnsc_prod_all ${CMAKE_DL_LIBS})
     # macOS + ASan + dlopen plugins: disable the ODR checker for the plugin's
     # vtables (same known false positive as test_driver_loader).

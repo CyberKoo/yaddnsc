@@ -107,7 +107,7 @@ public:
     /// Invoked on every call, after the counters are updated.
     std::function<void()> on_call;
 
-    coro::Task<std::expected<void, domain::DriverError>> update(std::string, DriverUpdateCommand command) override {
+    coro::Task<std::expected<void, domain::DriverError>> update(std::string, domain::DriverUpdateCommand command) override {
         ++calls;
         fqdns.push_back(command.fqdn);
         if (on_call) {

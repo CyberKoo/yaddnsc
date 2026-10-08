@@ -5,7 +5,7 @@
 
 #include <gtest/gtest.h>
 
-#include "infrastructure/network/tls/cert_util.h"
+#include "infrastructure/net/tls/cert_util.h"
 
 #include "process_test_support.h"
 

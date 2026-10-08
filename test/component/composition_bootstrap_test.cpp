@@ -38,8 +38,6 @@
 
 #include "cli/command.h"
 #include "composition/bootstrap.h"
-#include "infrastructure/process/signal_watcher.h"
-#include "support/util/cancellation_token.hpp"
 
 namespace {
 
@@ -73,67 +71,6 @@ namespace fs = std::filesystem;
 void remove_file(const fs::path& path) {
     std::error_code ec;
     fs::remove(path, ec);
-}
-
-/// Restores the calling thread's signal mask on scope exit.
-///
-/// run_command() calls SignalWatcher::install(), which blocks SIGINT/SIGTERM
-/// for the calling thread permanently. Left alone that would silence Ctrl-C
-/// for every later case in this binary, so the mask is captured and restored.
-/// Signal-set calls stay unqualified: macOS exposes them as function-like macros.
-class ScopedSignalMask {
-public:
-    ScopedSignalMask() {
-        if (::pthread_sigmask(SIG_BLOCK, nullptr, &saved_) != 0) {
-            throw std::runtime_error("pthread_sigmask failed");
-        }
-    }
-
-    ~ScopedSignalMask() {
-        // The watcher is already joined. Only its reserved wake-up signal is
-        // consumed; user SIGINT/SIGTERM and previously blocked signals retain
-        // their normal semantics. sigpending + sigwait works on macOS too.
-        sigset_t wake;
-        sigemptyset(&wake);
-        sigaddset(&wake, SIGUSR2);
-        if (::pthread_sigmask(SIG_BLOCK, &wake, nullptr) != 0) {
-            std::terminate();
-        }
-        sigset_t pending;
-        if (::sigpending(&pending) != 0) {
-            std::terminate();
-        }
-        if (sigismember(&pending, SIGUSR2) == 1 && sigismember(&saved_, SIGUSR2) == 0) {
-            int signal = 0;
-            if (::sigwait(&wake, &signal) != 0) {
-                std::terminate();
-            }
-        }
-        if (::pthread_sigmask(SIG_SETMASK, &saved_, nullptr) != 0) {
-            std::terminate();
-        }
-    }
-
-    ScopedSignalMask(const ScopedSignalMask&) = delete;
-    ScopedSignalMask& operator=(const ScopedSignalMask&) = delete;
-
-private:
-    sigset_t saved_{};
-};
-
-TEST(CompositionSignalMask, RestoreMask_DrainsPendingWakeSignal) {
-    sigset_t before;
-    ASSERT_EQ(::pthread_sigmask(SIG_BLOCK, nullptr, &before), 0);
-    {
-        const ScopedSignalMask restore_signals;
-        SignalWatcher::install();
-        ASSERT_EQ(::kill(::getpid(), SIGUSR2), 0);
-    }
-    sigset_t after;
-    ASSERT_EQ(::pthread_sigmask(SIG_BLOCK, nullptr, &after), 0);
-    for (const int signal : {SIGINT, SIGTERM, SIGUSR2}) {
-        EXPECT_EQ(sigismember(&after, signal), sigismember(&before, signal));
-    }
 }
 
 std::string loopback_iface() {
@@ -179,39 +116,16 @@ std::string valid_config() {
 }
 
 // ---------------------------------------------------------------------------
-// info — the only command that touches no configuration at all
+// run — invalid configurations fail before the scheduler starts
 // ---------------------------------------------------------------------------
 
-TEST(CompositionSignalMask, RestoreMask_PreservesBlockedUserSignal) {
-    const ScopedSignalMask restore_original;
-    sigset_t user_signal;
-    sigemptyset(&user_signal);
-    sigaddset(&user_signal, SIGTERM);
-    ASSERT_EQ(::pthread_sigmask(SIG_BLOCK, &user_signal, nullptr), 0);
-    ASSERT_EQ(::kill(::getpid(), SIGTERM), 0);
-    {
-        const ScopedSignalMask restore_signals;
-        SignalWatcher::install();
-        ASSERT_EQ(::kill(::getpid(), SIGUSR2), 0);
-    }
-    sigset_t pending;
-    ASSERT_EQ(::sigpending(&pending), 0);
-    EXPECT_EQ(sigismember(&pending, SIGTERM), 1);
-    if (sigismember(&pending, SIGTERM) == 1) {
-        int signal = 0;
-        EXPECT_EQ(::sigwait(&user_signal, &signal), 0);
-        EXPECT_EQ(signal, SIGTERM);
-    }
-}
-
-TEST(CompositionDispatch, RunCommand_EnvironmentFailure_JoinsWatcherBeforeMaskRestore) {
+TEST(CompositionDispatch, RunCommand_EnvironmentFailure_ReturnsFailure) {
     auto config = valid_config();
     const auto iface = loopback_iface();
     const auto offset = config.find("\"interface\": \"" + iface + "\"");
     ASSERT_NE(offset, std::string::npos);
     config.replace(offset, std::string("\"interface\": \"" + iface + "\"").size(), "\"interface\": \"no-such-if0\"");
     const auto path = write_config("yaddnsc-compose-run-env.json", config);
-    const ScopedSignalMask restore_signals;
     EXPECT_EQ(Composition::dispatch(Cli::Command{Cli::RunCommand{.config_path = path.string()}}), EXIT_FAILURE);
     remove_file(path);
 }
@@ -526,7 +440,6 @@ TEST(CompositionDispatch, RunCommand_MultipleConfigErrors_AreAggregated) {
     // run_command returns EXIT_FAILURE for an invalid config, and never
     // reaches the lifecycle, so this terminates.
     const Cli::Command command{Cli::RunCommand{.config_path = path.string(), .verbose = false}};
-    const ScopedSignalMask restore_signals;
     std::ostringstream diagnostics;
     const auto sink = std::make_shared<spdlog::sinks::ostream_sink_mt>(diagnostics);
     const auto logger = std::make_shared<spdlog::logger>("composition-test", sink);
@@ -555,7 +468,6 @@ TEST(CompositionDispatch, RunCommand_MalformedConfig_ThrowsToMainBoundary) {
     // rather than returning a code.
     const auto path = write_config("yaddnsc-compose-run-malformed.json", R"({ "domains": [ )");
     const Cli::Command command{Cli::RunCommand{.config_path = path.string(), .verbose = false}};
-    const ScopedSignalMask restore_signals;
     EXPECT_ANY_THROW(static_cast<void>(Composition::dispatch(command)));
     remove_file(path);
 }

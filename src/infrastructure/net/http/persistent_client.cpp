@@ -12,7 +12,7 @@
 #include "infrastructure/net/http/client.h"
 #include "infrastructure/net/http/redirect.h"
 #include "infrastructure/net/http/wire_request.h"
-#include "infrastructure/network/uri.h"
+#include "infrastructure/net/http/uri.h"
 #include "support/fmt.hpp"
 
 namespace http {

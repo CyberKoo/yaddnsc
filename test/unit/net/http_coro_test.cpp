@@ -28,7 +28,7 @@
 #include "infrastructure/net/http/redirect.h"
 #include "infrastructure/net/http/wire_request.h"
 #include "infrastructure/net/stream.h"
-#include "infrastructure/network/uri.h"
+#include "infrastructure/net/http/uri.h"
 
 namespace {
 

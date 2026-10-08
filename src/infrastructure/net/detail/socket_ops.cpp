@@ -18,7 +18,7 @@
 #include <unistd.h>
 
 #include "infrastructure/coro/fd_wait.hpp"
-#include "infrastructure/network/socket_addr.h"
+#include "infrastructure/net/socket_addr.h"
 
 #include "config_cmake.h"
 

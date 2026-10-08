@@ -91,9 +91,6 @@ add_library(test_support STATIC
     ${PROJECT_SOURCE_DIR}/src/domain/update/update_decision.cpp
     ${PROJECT_SOURCE_DIR}/src/domain/address_policy.cpp
     ${PROJECT_SOURCE_DIR}/src/domain/fqdn.cpp
-    ${PROJECT_SOURCE_DIR}/src/infrastructure/network/uri.cpp
-    ${PROJECT_SOURCE_DIR}/src/infrastructure/network/socket_exception.cpp
-    ${PROJECT_SOURCE_DIR}/src/infrastructure/dns/validator.cpp
 )
 
 target_include_directories(test_support PUBLIC
@@ -155,19 +152,18 @@ target_link_libraries(yaddnsc_prod_all INTERFACE
     yaddnsc_domain
     yaddnsc_application
     yaddnsc_plugin_loader_adapter
-    yaddnsc_process_adapter
     yaddnsc_logging_adapter
-    yaddnsc_time_adapter
-    yaddnsc_network_adapter
     yaddnsc_plugin_infrastructure
-    yaddnsc_network_infrastructure
-    yaddnsc_network_transport
-    yaddnsc_http_infrastructure
     yaddnsc_cli_adapter
     yaddnsc_composition
-    yaddnsc_dns_infrastructure
+    yaddnsc_dns_classic
     yaddnsc_ip_source_infrastructure
-    yaddnsc_tls_support
+    yaddnsc_net
+    yaddnsc_coro
+    yaddnsc_coro_io
+    yaddnsc_coro_application
+    yaddnsc_coro_ip_source
+    yaddnsc_coro_plugin
 )
 
 # ============================================================================

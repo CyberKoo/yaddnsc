@@ -35,13 +35,9 @@
 
 #include "application/ports/log.h"
 #include "domain/error/error.h"
-#include "infrastructure/network/http/error.h"
-#include "infrastructure/network/http/types.h"
-#include "infrastructure/plugin/host_services.h"
 #include "infrastructure/plugin/plugin_loader.h"
 #include "infrastructure/plugin/shared_library.h"
 #include "plugin/plugin_test_doubles.h"
-#include "support/util/cancellation_token.hpp"
 
 namespace {
 
@@ -412,7 +408,7 @@ TEST(DriverAbiContract, HttpExchangeErrorStructSizeMatrix) {
     // clamped to sizeof, the unknown tail untouched.
     Canary<yaddnsc_error> big;
     big.oversize();
-    host.client.queue_error(net::http::ErrorCode::CONNECT_FAILED, "refused");
+    host.client.queue_error(false, "refused");
     EXPECT_EQ(services.http_exchange(services.context, &request, &response, &big.value), YADDNSC_STATUS_NETWORK_ERROR);
     EXPECT_EQ(big.value.status, YADDNSC_STATUS_NETWORK_ERROR);
     EXPECT_EQ(std::string_view(big.value.message.data, big.value.message.size), "refused");
@@ -485,13 +481,13 @@ TEST(DriverAbiContract, HttpMethodMapping) {
     const auto services = host.context.make_services();
 
     const std::array mapping{
-        std::pair{YADDNSC_HTTP_GET, net::http::Method::GET},
-        std::pair{YADDNSC_HTTP_POST, net::http::Method::POST},
-        std::pair{YADDNSC_HTTP_PUT, net::http::Method::PUT},
-        std::pair{YADDNSC_HTTP_DELETE, net::http::Method::DEL},
-        std::pair{YADDNSC_HTTP_PATCH, net::http::Method::PATCH},
-        std::pair{YADDNSC_HTTP_HEAD, net::http::Method::HEAD},
-        std::pair{YADDNSC_HTTP_OPTIONS, net::http::Method::OPTIONS},
+        std::pair{YADDNSC_HTTP_GET, TestHttpMethod::GET},
+        std::pair{YADDNSC_HTTP_POST, TestHttpMethod::POST},
+        std::pair{YADDNSC_HTTP_PUT, TestHttpMethod::PUT},
+        std::pair{YADDNSC_HTTP_DELETE, TestHttpMethod::DEL},
+        std::pair{YADDNSC_HTTP_PATCH, TestHttpMethod::PATCH},
+        std::pair{YADDNSC_HTTP_HEAD, TestHttpMethod::HEAD},
+        std::pair{YADDNSC_HTTP_OPTIONS, TestHttpMethod::OPTIONS},
     };
 
     for (const auto& [abi_method, expected] : mapping) {
@@ -522,42 +518,37 @@ TEST(DriverAbiContract, TransportErrorMapping) {
     const auto request = make_http_request("http://localhost/x");
 
     // CANCELLED maps to CANCELLED…
-    host.client.queue_error(net::http::ErrorCode::CANCELLED, "aborted");
+    host.client.queue_error(true, "aborted");
     yaddnsc_http_response response{};
     response.struct_size = static_cast<uint32_t>(sizeof(response));
     yaddnsc_error error = make_error_buffer();
     EXPECT_EQ(services.http_exchange(services.context, &request, &response, &error), YADDNSC_STATUS_CANCELLED);
     EXPECT_EQ(std::string_view(error.message.data, error.message.size), "aborted");
 
-    host.client.queue_error(net::http::ErrorCode::CONNECT_FAILED, "back off", 45);
+    host.client.queue_error(false, "back off", 45);
     response.struct_size = static_cast<uint32_t>(sizeof(response));
     error = make_error_buffer();
     EXPECT_EQ(services.http_exchange(services.context, &request, &response, &error), YADDNSC_STATUS_NETWORK_ERROR);
     EXPECT_EQ(error.retry_after_seconds, 45u);
 
-    // …every other net::http error maps to NETWORK_ERROR.
-    for (const auto code : {net::http::ErrorCode::TIMEOUT, net::http::ErrorCode::CONNECT_FAILED,
-                            net::http::ErrorCode::TLS_HANDSHAKE_FAILED, net::http::ErrorCode::RESPONSE_PARSE_FAILED}) {
-        host.client.queue_error(code, "boom");
+    // …every other transport failure maps to NETWORK_ERROR.
+    for (int i = 0; i < 3; ++i) {
+        host.client.queue_error(false, "boom");
         response.struct_size = static_cast<uint32_t>(sizeof(response));
         error = make_error_buffer();
-        EXPECT_EQ(services.http_exchange(services.context, &request, &response, &error), YADDNSC_STATUS_NETWORK_ERROR)
-            << "code " << static_cast<int>(code);
+        EXPECT_EQ(services.http_exchange(services.context, &request, &response, &error), YADDNSC_STATUS_NETWORK_ERROR);
         EXPECT_EQ(std::string_view(error.message.data, error.message.size), "boom");
     }
 }
 
 TEST(DriverAbiContract, OperationCancellationBlocksHttpAndMatchesPluginPredicate) {
-    Utils::CancellationSource source;
     HostUpdateContext host;
-    HostServicesContext context(host.client, host.logger, source.token());
-    const auto services = context.make_services();
+    host.context.cancelled = true;
+    const auto services = host.context.make_services();
     const auto request = make_http_request("http://localhost/x");
     yaddnsc_http_response response{};
     response.struct_size = static_cast<uint32_t>(sizeof(response));
     yaddnsc_error error = make_error_buffer();
-
-    source.trigger();
 
     EXPECT_NE(services.is_cancelled(services.context), 0);
     EXPECT_EQ(services.http_exchange(services.context, &request, &response, &error), YADDNSC_STATUS_CANCELLED);
@@ -675,7 +666,7 @@ TEST(DriverAbiContract, RequestFieldsReachTheTransport) {
     const auto captured = host.client.requests();
     ASSERT_EQ(captured.size(), 1u);
     EXPECT_EQ(captured[0].url, url);
-    EXPECT_EQ(captured[0].method, net::http::Method::POST);
+    EXPECT_EQ(captured[0].method, TestHttpMethod::POST);
     EXPECT_EQ(captured[0].headers.count("Authorization"), 1u);
     EXPECT_EQ(captured[0].headers.find("Authorization")->second, "Bearer tok");
     EXPECT_EQ(captured[0].headers.find("X-Custom")->second, "yes");
@@ -835,12 +826,9 @@ TEST(DriverAbiContract, OperationCancellationIsVisibleToThePlugin) {
     auto module = load_module();
     ASSERT_NE(module, nullptr);
 
-    Utils::CancellationSource source;
-    source.trigger();
-
     HostUpdateContext host;
-    HostServicesContext context(host.client, host.logger, source.token());
-    const auto services = context.make_services();
+    host.context.cancelled = true;
+    const auto services = host.context.make_services();
     const auto result = run_module_cycle(*module, services, R"({"op":"check_cancel","expect_cancelled":true})");
     EXPECT_EQ(result.update_status, YADDNSC_STATUS_OK) << result.error_message;
 }

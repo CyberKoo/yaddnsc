@@ -23,7 +23,6 @@
 #include "domain/error/dns_error.h"
 #include "infrastructure/config/config_verification_exception.h"
 #include "infrastructure/dns/dns_lookup_exception.h"
-#include "infrastructure/network/socket_exception.h"
 #include "infrastructure/plugin/plugin_load_exception.h"
 
 // ── Base ─────────────────────────────────────────────────────────────────────
@@ -107,48 +106,6 @@ TEST(ExceptionTest, DnsLookupException_WrapConstYaddnscException) {
     EXPECT_EQ(wrapped.get_error(), DnsError::CONFIG);
 }
 
-// ── SocketException ──────────────────────────────────────────────────────────
-
-TEST(ExceptionTest, SocketException_GetName_ReturnsCorrectType) {
-    SocketException exc("socket closed");
-    EXPECT_EQ(exc.get_name(), "SocketException");
-}
-
-TEST(ExceptionTest, SocketException_WithErrno) {
-    // EINVAL = 22 on Linux
-    SocketException exc(22, "setsockopt");
-    EXPECT_TRUE(exc.has_errno());
-    EXPECT_EQ(exc.get_errno(), 22);
-    // The message should contain both the context and the system error string
-    EXPECT_TRUE(std::string_view(exc.what()).find("setsockopt") != std::string_view::npos);
-}
-
-TEST(ExceptionTest, SocketException_WithoutErrno) {
-    SocketException exc("EOF");
-    EXPECT_FALSE(exc.has_errno());
-    EXPECT_EQ(exc.get_errno(), 0);
-}
-
-TEST(ExceptionTest, SocketException_WithErrnoEmptyContext) {
-    // build_message with empty context — exercises !context.empty() = false branch
-    SocketException exc(22, "");
-    EXPECT_TRUE(exc.has_errno());
-    EXPECT_EQ(exc.get_errno(), 22);
-    // The message should contain the system error, but not any custom prefix
-    auto msg = std::string_view(exc.what());
-    EXPECT_TRUE(msg.find("Invalid argument") != std::string_view::npos ||
-                msg.find("Invalid") != std::string_view::npos);
-    EXPECT_FALSE(msg.starts_with(":"));
-}
-
-TEST(ExceptionTest, SocketException_IsYaddnscException) {
-    try {
-        throw SocketException("socket error");
-    } catch (const YaddnscException&) {
-        SUCCEED();
-    }
-}
-
 // ── Inheritance hierarchy ────────────────────────────────────────────────────
 
 TEST(ExceptionTest, InheritanceHierarchy) {
@@ -156,17 +113,14 @@ TEST(ExceptionTest, InheritanceHierarchy) {
     static_assert(std::is_base_of_v<YaddnscException, PluginLoadException>);
     static_assert(std::is_base_of_v<YaddnscException, ConfigVerificationException>);
     static_assert(std::is_base_of_v<YaddnscException, DnsLookupException>);
-    static_assert(std::is_base_of_v<YaddnscException, SocketException>);
 }
 
 TEST(ExceptionTest, AllExceptions_What_IsNonNull) {
     PluginLoadException bd("bd");
     ConfigVerificationException cv("cv");
     DnsLookupException dl("dl");
-    SocketException sk("sk");
 
     EXPECT_NE(bd.what(), nullptr);
     EXPECT_NE(cv.what(), nullptr);
     EXPECT_NE(dl.what(), nullptr);
-    EXPECT_NE(sk.what(), nullptr);
 }

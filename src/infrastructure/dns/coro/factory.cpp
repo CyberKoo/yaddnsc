@@ -15,7 +15,7 @@
 #include "infrastructure/dns/coro/classic.h"
 #include "infrastructure/dns/coro/doh.h"
 #include "infrastructure/dns/coro/dot.h"
-#include "infrastructure/network/uri.h"
+#include "infrastructure/net/http/uri.h"
 #include "support/fmt.hpp"
 
 namespace dns {

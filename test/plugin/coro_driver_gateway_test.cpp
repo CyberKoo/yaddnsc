@@ -243,8 +243,8 @@ private:
     std::vector<std::jthread> handlers_;
 };
 
-[[nodiscard]] DriverUpdateCommand make_command(std::string driver_params) {
-    return DriverUpdateCommand{
+[[nodiscard]] domain::DriverUpdateCommand make_command(std::string driver_params) {
+    return domain::DriverUpdateCommand{
         .driver_params = std::move(driver_params),
         .ip_addr = "192.0.2.1",
         .rd_type = "A",

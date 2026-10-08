@@ -10,7 +10,7 @@
 #include <sys/socket.h>
 
 #include "domain/network/inet_address.h"
-#include "infrastructure/network/socket_addr.h"
+#include "infrastructure/net/socket_addr.h"
 
 // =============================================================================
 // SocketAddr::from_inet

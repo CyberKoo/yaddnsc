@@ -113,7 +113,7 @@ namespace {
 /// The module lease and the per-call state are shared_ptr parameters, so an
 /// abandoned cycle keeps both alive until it finishes.
 [[nodiscard]] std::expected<void, domain::DriverError> run_update_cycle(
-    const std::shared_ptr<const PluginModule>& module, const DriverUpdateCommand& command, Bridge& bridge,
+    const std::shared_ptr<const PluginModule>& module, const domain::DriverUpdateCommand& command, Bridge& bridge,
     const Logger& logger, const std::shared_ptr<CallState>& state) {
     const std::string_view driver_name = module->descriptor().name;
 
@@ -231,7 +231,7 @@ std::shared_ptr<coro::SerialLane> DriverGateway::lane_for(std::string_view drive
 void DriverGateway::retire(std::string_view driver_name) noexcept { lanes_.erase(std::string{driver_name}); }
 
 coro::Task<std::expected<void, domain::DriverError>> DriverGateway::update(std::string driver_name,
-                                                                           DriverUpdateCommand command) {
+                                                                           domain::DriverUpdateCommand command) {
     auto module = catalog_.find(driver_name);
     if (module == nullptr) {
         co_return std::unexpected(domain::DriverError{domain::DriverError::Code::NOT_FOUND,

@@ -1,6 +1,6 @@
 //
-// Port mocks — GoogleMock doubles for the application ports
-// (src/application/ports/), used by workflow and adapter tests.
+// Port mocks — GoogleMock doubles for the retained application ports
+// (src/application/ports/), used by the diagnostics and validator tests.
 // =============================================================================
 
 #ifndef YADDNSC_TEST_MOCKS_MOCK_PORTS_H
@@ -11,34 +11,10 @@
 #include <string_view>
 #include <vector>
 
-#include <expected>
 #include <gmock/gmock.h>
 
-#include "application/ports/dns_resolver.h"
 #include "application/ports/driver_catalog.h"
-#include "application/ports/driver_gateway.h"
-#include "application/ports/ip_source.h"
 #include "application/ports/network_interfaces.h"
-
-class MockDnsResolverPort final : public DnsResolverPort {
-public:
-    MOCK_METHOD((std::expected<std::vector<std::string>, DnsErrorInfo>), resolve,
-                (std::string_view host, RecordKind type, const Utils::CancellationToken& token), (const, override));
-};
-
-class MockIpSourcePort final : public IpSourcePort {
-public:
-    MOCK_METHOD((std::expected<std::vector<InetAddress>, domain::IpSourceError>), resolve,
-                (const domain::SubdomainConfig& config, const Utils::CancellationToken& token), (const, override));
-};
-
-class MockDriverGateway final : public DriverGateway {
-public:
-    MOCK_METHOD((std::expected<void, domain::DriverError>), update,
-                (std::string_view driver_name, const DriverUpdateCommand& command,
-                 const Utils::CancellationToken& token),
-                (const, override));
-};
 
 class MockNetworkInterfaces final : public NetworkInterfaces {
 public:

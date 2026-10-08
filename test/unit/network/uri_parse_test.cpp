@@ -14,7 +14,7 @@
 
 #include <gtest/gtest.h>
 
-#include "infrastructure/network/uri.h"
+#include "infrastructure/net/http/uri.h"
 
 // ===========================================================================
 // Basic parsing

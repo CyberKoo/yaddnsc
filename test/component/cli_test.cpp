@@ -56,9 +56,8 @@
 #include "domain/network/inet_address.h"
 #include "fixtures/sample_config.h"
 #include "infrastructure/coro/coro.h"
-#include "infrastructure/network/system_network_interfaces.h"
+#include "infrastructure/ip_source/system_network_interfaces.h"
 #include "mocks/mock_ports.h"
-#include "support/util/cancellation_token.hpp"
 
 // ===========================================================================
 //  Helpers — argv construction + temp config files + output capture

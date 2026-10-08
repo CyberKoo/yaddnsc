@@ -20,7 +20,7 @@
 #include <spdlog/spdlog.h>
 
 #include "infrastructure/coro/fd_wait.hpp"
-#include "infrastructure/network/tls/cert_util.h"
+#include "infrastructure/net/tls/cert_util.h"
 
 namespace net {
 namespace {

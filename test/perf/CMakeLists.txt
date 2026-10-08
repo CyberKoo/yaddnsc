@@ -44,7 +44,7 @@ endfunction()
 # ============================================================================
 
 add_benchmark(dns_parser)
-target_link_libraries(bench_dns_parser PRIVATE yaddnsc_dns_infrastructure)
+target_link_libraries(bench_dns_parser PRIVATE yaddnsc_dns_classic)
 
 # ============================================================================
 #  URI benchmarks  (Uri is in test_support)
@@ -69,11 +69,11 @@ add_benchmark(inet_address)
 # ============================================================================
 
 add_benchmark(socket_addr)
-target_link_libraries(bench_socket_addr PRIVATE yaddnsc_network_infrastructure)
+target_link_libraries(bench_socket_addr PRIVATE yaddnsc_net)
 
 # ============================================================================
 #  DNS QueryBuilder benchmarks
 # ============================================================================
 
 add_benchmark(builder)
-target_link_libraries(bench_builder PRIVATE yaddnsc_dns_infrastructure)
+target_link_libraries(bench_builder PRIVATE yaddnsc_dns_classic)

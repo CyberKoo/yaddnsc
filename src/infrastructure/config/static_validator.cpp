@@ -16,7 +16,7 @@
 #include "domain/fqdn.h"
 #include "domain/network/inet_address.h"
 #include "infrastructure/config/config.h"
-#include "infrastructure/network/uri.h"
+#include "infrastructure/net/http/uri.h"
 #include "support/fmt.hpp"
 #include "support/util/validation.hpp"
 

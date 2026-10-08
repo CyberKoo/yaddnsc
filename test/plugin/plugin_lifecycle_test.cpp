@@ -30,7 +30,6 @@
 #include "infrastructure/plugin/driver_catalog.h"
 #include "infrastructure/plugin/driver_instance.h"
 #include "infrastructure/plugin/driver_loader.h"
-#include "infrastructure/plugin/host_services.h"
 #include "infrastructure/plugin/plugin_load_exception.h"
 #include "infrastructure/plugin/plugin_loader.h"
 #include "infrastructure/plugin/shared_library.h"

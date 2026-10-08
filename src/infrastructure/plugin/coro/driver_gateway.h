@@ -15,7 +15,6 @@
 #include <expected>
 
 #include "application/coro/ports.h"
-#include "application/ports/driver_gateway.h"
 #include "domain/error/error.h"
 #include "infrastructure/coro/serial_lane.hpp"
 #include "infrastructure/coro/task.hpp"
@@ -44,9 +43,8 @@ namespace plugin {
 /// cycles execute in submission order. Under abandon an abandoned cycle still
 /// holds its place on the lane, so a later cycle waits behind it.
 ///
-/// Status mapping (yaddnsc_status → domain::DriverError) is unchanged from the
-/// synchronous gateway: see abi_driver_gateway.cpp. The capability gate runs
-/// before create() and returns UPDATE_FAILED directly.
+/// Status mapping (yaddnsc_status → domain::DriverError) is the legacy one: the
+/// capability gate runs before create() and returns UPDATE_FAILED directly.
 ///
 /// Implements app::GatewayPort, so the application layer reaches it through the
 /// port instead of this concrete type.
@@ -87,7 +85,7 @@ public:
     /// returns CANCELLED while the cycle keeps its place on the lane and runs to
     /// completion on the worker.
     [[nodiscard]] coro::Task<std::expected<void, domain::DriverError>> update(std::string driver_name,
-                                                                              DriverUpdateCommand command) override;
+                                                                              domain::DriverUpdateCommand command) override;
 
     /// Validate one subdomain's driver_params JSON against the driver's schema
     /// without performing an update (the host's `config test` path). Runs the

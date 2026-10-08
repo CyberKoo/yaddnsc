@@ -11,7 +11,7 @@
 #include <vector>
 
 #include "infrastructure/net/http/wire_request.h"
-#include "infrastructure/network/uri.h"
+#include "infrastructure/net/http/uri.h"
 #include "support/fmt.hpp"
 #include "support/string_util.hpp"
 

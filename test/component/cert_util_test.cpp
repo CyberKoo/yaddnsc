@@ -1,7 +1,7 @@
 // CA discovery caches its first result. Each environment-sensitive scenario
 // runs in a fresh executable image, independently of shuffle and repeat.
 
-#include "infrastructure/network/tls/cert_util.h"
+#include "infrastructure/net/tls/cert_util.h"
 
 #include <cstdlib>
 #include <filesystem>

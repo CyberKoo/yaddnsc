@@ -126,7 +126,7 @@ coro::Task<UpdateOnceOutcome> update_once(const domain::UpdateTask& task, const 
 
         // --- Step 4: delegate to the driver gateway ---------------------------
 
-        const DriverUpdateCommand command{
+        const domain::DriverUpdateCommand command{
             .driver_params = subdomain.driver_params,
             .ip_addr = local_addr,
             .rd_type = std::string(rd_type),
