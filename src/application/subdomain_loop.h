@@ -40,10 +40,10 @@ inline constexpr std::chrono::seconds UPDATE_BUDGET{30};
 /// Drive one subdomain forever: update, sleep, repeat, until the enclosing
 /// scope is cancelled.
 ///
-/// The force-update interval follows ScheduleQueue: the first cycle is forced
-/// when the interval is positive (last_force_update starts one interval in the
-/// past), and each cycle whose elapsed time reaches the interval is forced,
-/// which latches last_force_update to the current time.
+/// The force-update interval: the first cycle is forced when the interval is
+/// positive (last_force_update starts one interval in the past), and each cycle
+/// whose elapsed time reaches the interval is forced, which latches
+/// last_force_update to the current time.
 ///
 /// Cancellation: a checkpoint. The loop re-checks its scope before every cycle
 /// and wakes early from its sleep when the scope is cancelled, so shutdown does

@@ -15,6 +15,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <filesystem>
+#include <memory>
 #include <optional>
 #include <span>
 #include <string>
@@ -39,6 +40,7 @@
 #include "infrastructure/dns/dot.h"
 #include "infrastructure/net/http/client.h"
 #include "infrastructure/net/http/persistent_client.h"
+#include "infrastructure/net/tls_context.h"
 #include "support/fmt.hpp"
 #include "support/util/fd.hpp"
 
@@ -56,6 +58,13 @@ constexpr int DOT_TIMEOUT_PORT = 21683;
     const auto address = InetAddress::parse("127.0.0.1");
     EXPECT_TRUE(address.has_value());
     return address.value_or(InetAddress{});
+}
+
+/// Build the off-loop trust context a resolver's TLS options ask for.
+[[nodiscard]] std::shared_ptr<const net::TlsContext> client_context(const net::TlsOptions& options) {
+    auto context = net::TlsContext::create(options);
+    EXPECT_TRUE(context.has_value()) << "TlsContext::create failed";
+    return context.value_or(nullptr);
 }
 
 /// Run a task on a fresh loop with the system clock.
@@ -311,6 +320,7 @@ TEST(NetCoroDns, doh_resolvesThroughThePersistentHttpSession) {
 
     http::Options options;
     options.tls.verify_peer = false;
+    options.tls_context = client_context(options.tls);
     dns::DohResolver resolver{fmt::format("https://127.0.0.1:{}/dns-query", DOH_PORT), options};
 
     auto resolve = [&]() -> coro::Task<std::pair<bool, bool>> {
@@ -340,6 +350,7 @@ TEST(NetCoroDns, dot_resolvesOverTlsWithPadding) {
 
     dns::EndpointOptions options;
     options.tls.verify_peer = false;
+    options.tls_context = client_context(options.tls);
     dns::DotResolver resolver{"127.0.0.1", DOT_PORT, options};
 
     auto resolve = [&]() -> coro::Task<std::pair<bool, bool>> {
@@ -371,6 +382,7 @@ TEST(NetCoroDns, dot_peerClosesWithoutAnswering_FailsCleanly) {
 
     dns::EndpointOptions options;
     options.tls.verify_peer = false;
+    options.tls_context = client_context(options.tls);
     dns::DotResolver resolver{"127.0.0.1", DOT_TIMEOUT_PORT, options};
 
     const auto result = run_task([&]() -> coro::Task<std::expected<std::vector<std::uint8_t>, DnsErrorInfo>> {
@@ -397,6 +409,7 @@ TEST(NetCoroDns, doh_scopeTimeout_abortsTheQuery) {
 
     http::Options options;
     options.tls.verify_peer = false;
+    options.tls_context = client_context(options.tls);
     dns::DohResolver resolver{fmt::format("https://127.0.0.1:{}/dns-query", DOH_PORT), options};
 
     // doh_server.py accepts this name and then never answers, so only the

@@ -21,9 +21,9 @@ namespace {
 
 /// Evaluate and latch the force-update flag for one cycle.
 ///
-/// Byte-for-byte the ScheduleQueue::check_force_update rule: a non-positive
-/// interval never forces, and a cycle whose elapsed time since the last forced
-/// cycle reaches the interval forces and latches `last_force` to now.
+/// The rule: a non-positive interval never forces, and a cycle whose elapsed
+/// time since the last forced cycle reaches the interval forces and latches
+/// `last_force` to now.
 [[nodiscard]] bool evaluate_force(int force_interval, coro::TimePoint& last_force, coro::TimePoint now) noexcept {
     if (force_interval <= 0) {
         return false;
@@ -56,8 +56,7 @@ coro::Task<void> subdomain_loop(std::shared_ptr<const domain::RuntimeConfig> con
     coro::CancelScope* const scope = context.scope;
 
     // First cycle forced when the interval is positive: start one full interval
-    // in the past (ScheduleQueue's constructor), so the elapsed time never
-    // depends on system uptime.
+    // in the past, so the elapsed time never depends on system uptime.
     coro::TimePoint last_force =
         force_interval > 0 ? context.loop->now() - std::chrono::seconds(force_interval) : coro::TimePoint{};
 
@@ -89,7 +88,12 @@ coro::Task<void> subdomain_loop(std::shared_ptr<const domain::RuntimeConfig> con
         // A budget timeout is a failed cycle, not a shutdown: the body already
         // returned a CANCELLED UpdateError, which next_delay treats as an
         // ordinary failure (interval, or retry_after if one was supplied).
-        co_await coro::sleep_for(next_delay(*outcome, update_interval));
+        // The sleep is the shutdown checkpoint: a cancelled wait means the
+        // enclosing scope was cancelled, so exit instead of pacing the next
+        // cycle (a cancelled sleep resumes immediately and would hot-spin).
+        if (const auto slept = co_await coro::sleep_for(next_delay(*outcome, update_interval)); !slept) {
+            co_return;
+        }
     }
 }
 

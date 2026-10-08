@@ -40,8 +40,10 @@ struct TlsOptions {
     /// Verify the peer certificate (fail-closed). Default: true.
     bool verify_peer{true};
 
-    /// Explicit CA bundle path. Default: `Utils::Cert::discover_ca_bundle()`,
-    /// then OpenSSL's default verify paths.
+    /// Explicit CA bundle path, consumed by TlsContext::create(). Default:
+    /// Utils::Cert::discover_ca_bundle(). When neither yields a bundle,
+    /// verification stays fail-closed and the context cannot be built; OpenSSL's
+    /// lazy default verify paths are deliberately never used.
     std::optional<std::string> ca_bundle{};
 };
 

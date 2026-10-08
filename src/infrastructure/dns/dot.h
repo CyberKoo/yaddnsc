@@ -37,6 +37,9 @@ struct EndpointOptions {
     net::ConnectOptions connect{};
     /// TLS policy; the resolver fills in ALPN. `verify_peer` defaults to true.
     net::TlsOptions tls{};
+    /// Pre-built TLS trust context (off-loop, TlsContext::create). Null fails the
+    /// TLS connection closed.
+    std::shared_ptr<const net::TlsContext> tls_context{};
     /// Bootstrap DNS servers used to resolve the endpoint host.
     std::vector<Config::DnsServer> bootstrap_dns{};
     /// Stream source; null selects the production factory. Tests inject here.

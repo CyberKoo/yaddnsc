@@ -12,8 +12,9 @@
 namespace net {
 
 std::unique_ptr<Stream> DefaultStreamFactory::create_tls(InetAddress address, const std::uint16_t port,
-                                                         const ConnectOptions& options, const TlsOptions& tls_options) {
-    return std::make_unique<TlsStream>(std::move(address), port, options, tls_options);
+                                                         const ConnectOptions& options, const TlsOptions& tls_options,
+                                                         std::shared_ptr<const TlsContext> tls_context) {
+    return std::make_unique<TlsStream>(std::move(address), port, std::move(tls_context), options, tls_options);
 }
 
 std::unique_ptr<Stream> DefaultStreamFactory::create_tcp(InetAddress address, const std::uint16_t port,

@@ -29,6 +29,7 @@
 #include "infrastructure/coro/fd_wait.hpp"
 #include "infrastructure/net/io_error.h"
 #include "infrastructure/net/tcp_stream.h"
+#include "infrastructure/net/tls_context.h"
 #include "infrastructure/net/tls_stream.h"
 #include "infrastructure/net/udp_socket.h"
 #include "support/util/fd.hpp"
@@ -401,7 +402,9 @@ TEST(TcpStream, read_some_BeforeConnecting_Fails) {
 
 TEST(TlsStream, ensure_connected_PlainPeer_FailsHandshake) {
     LoopbackServer server{LoopbackServer::Mode::CLOSE};
-    net::TlsStream stream{loopback_v4(), server.port(), {}, {.verify_peer = false}};
+    auto context = net::TlsContext::create(net::TlsOptions{.verify_peer = false});
+    ASSERT_TRUE(context.has_value());
+    net::TlsStream stream{loopback_v4(), server.port(), std::move(*context)};
 
     std::optional<IoError> error;
     auto task = [&stream, &error]() -> coro::Task<void> {
@@ -418,7 +421,9 @@ TEST(TlsStream, ensure_connected_PlainPeer_FailsHandshake) {
 }
 
 TEST(TlsStream, read_some_BeforeConnecting_Fails) {
-    net::TlsStream stream{loopback_v4(), 9, {}, {.verify_peer = false}};
+    auto context = net::TlsContext::create(net::TlsOptions{.verify_peer = false});
+    ASSERT_TRUE(context.has_value());
+    net::TlsStream stream{loopback_v4(), 9, std::move(*context)};
     std::optional<IoError> error;
     auto task = [&stream, &error]() -> coro::Task<void> {
         std::array<std::uint8_t, 4> buffer{};

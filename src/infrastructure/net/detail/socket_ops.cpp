@@ -84,7 +84,7 @@ std::expected<Utils::UniqueFd, IoError> open_udp_socket(const AddressFamily fami
     return open_socket(native_family(family), SOCK_DGRAM, IPPROTO_UDP);
 }
 
-std::expected<void, IoError> bind_to_interface(const int fd, const std::string_view interface) {
+std::expected<void, IoError> bind_to_interface([[maybe_unused]] const int fd, const std::string_view interface) {
     if (interface.empty()) {
         return {};
     }

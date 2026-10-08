@@ -14,11 +14,13 @@ class InetAddress;
 /// InterfaceUtil — low-level utility for enumerating local network interfaces
 ///                 and their IP addresses.
 ///
-/// Encapsulates the getifaddrs() call with a short-lived TTL cache so that
-/// multiple callers (InterfaceIpSource, EnvironmentValidator, CLI) share the same
-/// snapshot without hammering the kernel.
+/// Each call reads a live getifaddrs() snapshot. No shared cache, locks or
+/// single-flight completion waits. A name may disappear between calls.
 ///
-/// @note Thread-safe: all public functions are guarded by an internal mutex.
+/// getifaddrs() is a kernel call that returns a bounded, small snapshot, so it
+/// is an accepted blocking point on the loop thread (system metadata read).
+///
+/// @note Thread-safe: snapshots are owned independently by each caller.
 namespace ipsource {
 /// Get a list of all network interface names that have at least one
 /// IPv4 or IPv6 address.

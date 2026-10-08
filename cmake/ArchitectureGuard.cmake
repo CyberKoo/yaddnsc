@@ -238,10 +238,22 @@ guard_check("the legacy cancellation token must not reappear (cancellation is sc
     ${PROJECT_SOURCE_DIR}/src/*.cpp)
 
 # ------------------------------------------------------------------------------
+# 13. TLS trust is prepared before the loop starts (TlsContext::create), never
+#     registered lazily for a handshake: OpenSSL's default-path and
+#     hashed-directory loaders read the filesystem on first use, which would
+#     block the loop thread mid-connection.
+# ------------------------------------------------------------------------------
+guard_check("TLS must not register lazy trust loading (build a TlsContext off-loop instead)"
+    "SSL_CTX_set_default_verify_paths|SSL_CTX_load_verify_dir|X509_STORE_load_path"
+    ${PROJECT_SOURCE_DIR}/src/*.h
+    ${PROJECT_SOURCE_DIR}/src/*.hpp
+    ${PROJECT_SOURCE_DIR}/src/*.cpp)
+
+# ------------------------------------------------------------------------------
 # Verdict
 # ------------------------------------------------------------------------------
 if (violations)
     message(FATAL_ERROR "Architecture guard violations:${violations}\n")
 endif ()
 
-message(STATUS "Architecture guard: OK (domain/application/plugin/SDK/layering/concurrency/token checks passed)")
+message(STATUS "Architecture guard: OK (domain/application/plugin/SDK/layering/concurrency/token/TLS checks passed)")

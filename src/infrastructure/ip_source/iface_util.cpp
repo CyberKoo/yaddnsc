@@ -5,7 +5,6 @@
 #include "iface_util.h"
 
 #include <algorithm>
-#include <chrono>
 #include <cstdint>
 #include <iterator>
 #include <map>
@@ -20,10 +19,9 @@
 #include <sys/socket.h>
 
 #include "domain/network/inet_address.h"
-#include "support/util/cache.hpp"
 
 // ===========================================================================
-// Internal enumeration + cache
+// Internal enumeration
 // ===========================================================================
 
 namespace {
@@ -70,11 +68,6 @@ using IfAddrPtr = std::unique_ptr<ifaddrs, decltype(&freeifaddrs)>;
 
     return result;
 }
-
-[[nodiscard]] InterfaceMap get_cached_interfaces() {
-    static Utils::Cache::TtlCache<std::monostate, InterfaceMap> cache(std::chrono::seconds(5));
-    return cache.get_or_compute(std::monostate{}, [] { return enumerate_interfaces(); });
-}
 }  // anonymous namespace
 
 // ===========================================================================
@@ -82,7 +75,7 @@ using IfAddrPtr = std::unique_ptr<ifaddrs, decltype(&freeifaddrs)>;
 // ===========================================================================
 
 std::vector<std::string> ipsource::get_interfaces() {
-    auto interface_map = get_cached_interfaces();
+    auto interface_map = enumerate_interfaces();
     std::vector<std::string> interfaces;
     interfaces.reserve(interface_map.size());
     std::ranges::transform(interface_map, std::back_inserter(interfaces), [](const auto& kv) { return kv.first; });
@@ -90,7 +83,7 @@ std::vector<std::string> ipsource::get_interfaces() {
 }
 
 std::optional<std::vector<InetAddress>> ipsource::get_addresses(const std::string& interface_name) {
-    auto all = get_cached_interfaces();
+    auto all = enumerate_interfaces();
     if (const auto it = all.find(interface_name); it != all.end()) {
         return it->second;
     }

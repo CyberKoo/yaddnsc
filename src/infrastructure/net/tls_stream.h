@@ -28,18 +28,13 @@
 
 namespace net {
 
-/// Frees an SSL_CTX. Defined out of line so this header does not need the
-/// OpenSSL implementation.
-struct SslContextDeleter {
-    void operator()(SSL_CTX* ctx) const noexcept;
-};
+class TlsContext;
 
 /// Frees an SSL session.
 struct SslDeleter {
     void operator()(SSL* ssl) const noexcept;
 };
 
-using SslCtxPtr = std::unique_ptr<SSL_CTX, SslContextDeleter>;
 using SslPtr = std::unique_ptr<SSL, SslDeleter>;
 
 /// A TLS byte stream over TCP.
@@ -49,12 +44,13 @@ using SslPtr = std::unique_ptr<SSL, SslDeleter>;
 /// IP literal: verification is then against the IP, and no SNI is sent because
 /// RFC 6066 §3 forbids an IP literal there.
 ///
-/// The SSL_CTX is per-stream and built lazily on the first connect. It is not
-/// shared through global state; a stream is long-lived, so loading the CA bundle
-/// once per stream is not on a hot path.
+/// The trust material is an immutable TlsContext built off the loop and injected
+/// here; the stream never reads a CA bundle. A null context fails closed at the
+/// first connect, so the composition root must supply one.
 ///
 /// Ownership: the stream owns the TCP socket and the SSL session, released by
-/// close() or destruction (SSL_free before the fd it borrows is closed).
+/// close() or destruction (SSL_free before the fd it borrows is closed), and
+/// borrows the shared TlsContext.
 /// Non-movable, so `this` stays valid for every Task the stream returns.
 /// Failure: expected<T, IoError>; a failed connect or handshake closes the
 /// socket and leaves the stream reusable. EOF and protocol failures are
@@ -64,10 +60,11 @@ class TlsStream final : public Stream {
 public:
     /// @param address      Destination address (IPv4 or IPv6 literal).
     /// @param port         Destination port, host byte order.
+    /// @param context      Pre-built trust context; null fails closed at connect.
     /// @param options      Connection-level options.
-    /// @param tls_options  TLS-only options (SNI, ALPN, verification, CA).
-    ///                     ALPN bytes are copied.
-    TlsStream(InetAddress address, std::uint16_t port, ConnectOptions options = {}, TlsOptions tls_options = {});
+    /// @param tls_options  TLS-only options (SNI, ALPN). ALPN bytes are copied.
+    TlsStream(InetAddress address, std::uint16_t port, std::shared_ptr<const TlsContext> context,
+              ConnectOptions options = {}, TlsOptions tls_options = {});
 
     ~TlsStream();
 
@@ -109,7 +106,7 @@ private:
     TcpStream tcp_;
     TlsOptions tls_options_;
     std::vector<unsigned char> alpn_proto_;
-    SslCtxPtr context_;
+    std::shared_ptr<const TlsContext> context_;
     SslPtr ssl_;
 };
 

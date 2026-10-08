@@ -24,7 +24,7 @@ coro::Task<void> enter_hold_leave(coro::AsyncMutex& mutex, int& counter, int& ma
         co_return;
     }
     max_overlap = std::max(max_overlap, ++counter);
-    co_await coro::sleep_for(5ms);
+    [[maybe_unused]] const auto slept = co_await coro::sleep_for(5ms);
     --counter;
     ++completed;
     co_return;
@@ -36,7 +36,7 @@ coro::Task<void> acquire_record_release(coro::AsyncMutex& mutex, int id, std::ve
         co_return;
     }
     order.push_back(id);
-    co_await coro::sleep_for(1ms);
+    [[maybe_unused]] const auto slept = co_await coro::sleep_for(1ms);
     co_return;
 }
 
@@ -79,7 +79,7 @@ TEST(AsyncMutex, lock_ThreeWaiters_GrantsInFifoOrder) {
                 group.spawn(acquire_record_release(mutex, i, order));
             }
             // Give every waiter time to queue before the lock is handed over.
-            co_await coro::sleep_for(10ms);
+            [[maybe_unused]] const auto slept = co_await coro::sleep_for(10ms);
             if (guard.has_value()) {
                 guard->unlock();
             }

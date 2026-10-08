@@ -24,6 +24,8 @@
 
 namespace net {
 
+class TlsContext;
+
 /// A connected bidirectional byte stream.
 ///
 /// Ownership: an implementation owns its socket/session; `close()` releases it.
@@ -76,10 +78,13 @@ public:
     StreamFactory& operator=(const StreamFactory&) = delete;
     virtual ~StreamFactory() = default;
 
-    /// Build a TLS stream. May throw std::bad_alloc.
+    /// Build a TLS stream. The trust context must be pre-built off the loop
+    /// (TlsContext::create); a null context fails closed at connect. May throw
+    /// std::bad_alloc.
     [[nodiscard]] virtual std::unique_ptr<Stream> create_tls(InetAddress address, std::uint16_t port,
                                                              const ConnectOptions& options,
-                                                             const TlsOptions& tls_options) = 0;
+                                                             const TlsOptions& tls_options,
+                                                             std::shared_ptr<const TlsContext> tls_context) = 0;
 
     /// Build a plain-TCP stream. May throw std::bad_alloc.
     [[nodiscard]] virtual std::unique_ptr<Stream> create_tcp(InetAddress address, std::uint16_t port,
@@ -90,8 +95,8 @@ public:
 class DefaultStreamFactory final : public StreamFactory {
 public:
     [[nodiscard]] std::unique_ptr<Stream> create_tls(InetAddress address, std::uint16_t port,
-                                                     const ConnectOptions& options,
-                                                     const TlsOptions& tls_options) override;
+                                                     const ConnectOptions& options, const TlsOptions& tls_options,
+                                                     std::shared_ptr<const TlsContext> tls_context) override;
 
     [[nodiscard]] std::unique_ptr<Stream> create_tcp(InetAddress address, std::uint16_t port,
                                                      const ConnectOptions& options) override;

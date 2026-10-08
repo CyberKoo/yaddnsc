@@ -11,7 +11,8 @@ argv
   v
 main() -> Cli::parse -> Composition::dispatch
   |                         (async logging install; config load, plugin dlopen,
-  |                          environment validation run on the offload pool)
+  |                          environment validation and trust-context build on
+  |                          the main thread, before the loop starts)
   v
 coro::run(loop, app::run_scheduler(config, services))
   |
@@ -43,7 +44,7 @@ resumption goes through the ready queue so stack depth stays bounded.
 | Thread | Responsibility |
 |--------|----------------|
 | loop thread (`coro::run`'s caller) | all I/O, timers, coroutine resumption, bounded small computation |
-| offload pool (`BS::thread_pool`, reached only through `coro::offload`) | anything that may block or burn CPU: the plugin ABI cycle, mDNS, blocking startup work |
+| offload pool (`BS::thread_pool`, reached only through `coro::offload`) | anything that may block or burn CPU: the plugin ABI cycle, mDNS, and CPU-intensive work in general — `offload` is the runtime's `to_thread` analogue, the single documented exit from the loop |
 | log drain thread (spdlog async sink) | writing log records off the loop |
 
 **Loop internals** (`src/infrastructure/coro/loop.h`): a `poll()` file-descriptor
@@ -89,6 +90,25 @@ interval latches exactly as the legacy scheduler did. One cycle is bounded by
 `DNS_READ_BUDGET` so a dead resolver surfaces in seconds instead of holding the
 whole cycle.
 
+### Blocking-operation inventory
+
+The loop thread never blocks. Everything that can block — a syscall, a file read,
+a `dlopen`, a provider call — either leaves the loop through `coro::offload` or
+runs before the loop starts. The remaining exceptions are deliberate and bounded:
+
+| Blocking point | Where | Why it is allowed |
+|----------------|-------|-------------------|
+| `getifaddrs()` | `infrastructure/ip_source/iface_util.cpp`, on the loop thread | A bounded kernel snapshot of local interface metadata: read-only system state, no network round trip, no attacker-controlled size |
+| startup file/loader I/O | `composition/bootstrap.cpp`, on the main thread before `coro::run` | Config read, static validation, plugin `dlopen`, the environment check and the trust-context build happen once, before any coroutine exists — there is no loop yet to block |
+| CA discovery + `SSL_CTX_load_verify_locations` | `infrastructure/net/tls_context.cpp`, off-loop only (`TlsContext::create`) | Reads the trust store once and shares one immutable context, so a handshake never touches the filesystem. OpenSSL's lazy trust-directory / default-path loaders are banned by the architecture guard for exactly this reason |
+| plugin ABI cycle (`create`/`update`/`destroy`) | offload pool, one serialized lane per driver (`coro::SerialLane`) | The C ABI is synchronous and must not run on the loop; the worker blocks on a promise until the bridge's HTTP child coroutine completes on the loop |
+| log write | log drain thread (async spdlog sink) | Never blocks the caller; a full queue discards the newest record |
+| CPU-intensive work | any `coro::offload` call site | `offload` is the single exit for blocking *and* CPU-bound work (the `asyncio.to_thread` analogue); the total off-loop workload is structurally bounded by the configuration |
+
+`src/support/util/` holds generic helpers only. A blocking primitive (a TTL cache
+with a single-flight mutex, a retrying sleep helper) must not sit on a loop path;
+when one is needed, route the work through `coro::offload` instead.
+
 ## Layers
 
 Dependency direction is enforced by the CMake target graph
@@ -96,8 +116,8 @@ Dependency direction is enforced by the CMake target graph
 `yaddnsc_composition` ← executable) and policed textually by the
 `architecture_guard` ctest (`cmake/ArchitectureGuard.cmake`).
 
-- `src/domain/`: pure rules and value types (update decision, schedule model,
-  runtime config model, `DriverError`/`DriverUpdateCommand`). No I/O, threading,
+- `src/domain/`: pure rules and value types (update decision, update-task
+  records, runtime config model, `DriverError`/`DriverUpdateCommand`). No I/O, threading,
   or third-party dependencies. `std::chrono` value types are permitted; the
   layer does not read the system clock.
 - `src/application/`: the coroutine use cases and the retained ports.
@@ -113,17 +133,18 @@ Dependency direction is enforced by the CMake target graph
   `SerialLane`, signals. This is the only tree allowed to name threads, futures
   or a thread pool.
 - `src/infrastructure/net/`: the transport and its shared codecs — TCP/TLS/UDP
-  streams, `socket_addr` (POSIX sockaddr codec), `tls/cert_util` (CA discovery),
-  and the coroutine HTTP client with the `uri` codec under `net/http/`.
+  streams, the pre-built `tls_context` (off-loop trust material), `socket_addr`
+  (POSIX sockaddr codec), `tls/cert_util` (CA discovery), and the coroutine HTTP
+  client with the `uri` codec under `net/http/`.
 - `src/infrastructure/dns/`: the DNS wire layer (`parser`, `validator`, `wire/`,
   `types.h`, `util.hpp`, `resolv_conf`) plus the coroutine resolvers
   (`classic`, `dot`, `doh`), the `dispatcher`, the `factory` and the
   `resolver_port` adapter. `dns_classic` (wire/parser/validator/resolv_conf) is
   the lower target.
-- `src/infrastructure/ip_source/`: the interface-enumeration cache
-  (`iface_util`), the mDNS response filter (`mdns_response`), the coroutine
-  sources (`iface`, `http`, `mdns`), the `adapter` implementing the IP-source
-  port, and `system_network_interfaces` (the `NetworkInterfaces` port).
+- `src/infrastructure/ip_source/`: live interface enumeration (`iface_util`), the
+  mDNS response filter (`mdns_response`), the coroutine sources (`iface`, `http`,
+  `mdns`), the `adapter` implementing the IP-source port, and
+  `system_network_interfaces` (the `NetworkInterfaces` port).
 - `src/infrastructure/plugin/`: the plugin host — `shared_library`,
   `plugin_loader`, `driver_catalog`, `driver_instance` (lease), and the coroutine
   layer `bridge`, `host_services`, `driver_gateway`.
@@ -133,9 +154,9 @@ Dependency direction is enforced by the CMake target graph
   `async_logging` (the async sink wiring).
 - `src/cli/`: argument parsing (`parser`) and output presentation (`presenter`).
 - `src/composition/`: the composition root.
-- `src/support/`: internal shared helpers (fmt/string utilities, fd and cache
-  helpers); forwarding headers onto `include/yaddnsc/util/` where an equivalent
-  public utility exists. Not part of the public surface.
+- `src/support/`: internal shared helpers (fmt/string utilities, fd helpers);
+  forwarding headers onto `include/yaddnsc/util/` where an equivalent public
+  utility exists. Not part of the public surface.
 - `include/yaddnsc/sdk/`: the plugin SDK (C ABI + C++ helper layer). Together
   with `include/yaddnsc/util/` these are the only public headers.
 - `include/yaddnsc/util/`: header-only utilities shared by the host and the

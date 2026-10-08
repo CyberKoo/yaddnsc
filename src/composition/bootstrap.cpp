@@ -38,7 +38,6 @@
 #include "infrastructure/config/static_validator.h"
 #include "infrastructure/coro/group.hpp"
 #include "infrastructure/coro/loop.h"
-#include "infrastructure/coro/offload.hpp"
 #include "infrastructure/coro/run.hpp"
 #include "infrastructure/dns/factory.h"
 #include "infrastructure/dns/resolver_port.h"
@@ -49,6 +48,7 @@
 #include "infrastructure/logging/spdlog_logger.h"
 #include "infrastructure/net/http/types.h"
 #include "infrastructure/net/http/uri.h"
+#include "infrastructure/net/tls_context.h"
 #include "infrastructure/plugin/driver_catalog.h"
 #include "infrastructure/plugin/driver_gateway.h"
 #include "infrastructure/plugin/driver_loader.h"
@@ -80,11 +80,27 @@ void fill_bootstrap_servers(domain::RuntimeConfig& config) {
 /// source). The coroutine client has its own Options type; it carries the same
 /// information as the legacy one (user agent, bootstrap DNS), plus the TLS and
 /// connect policy defaults.
-[[nodiscard]] http::Options make_coro_http_options(const domain::ResolverSettings& resolver) {
+[[nodiscard]] http::Options make_coro_http_options(const domain::ResolverSettings& resolver,
+                                                   std::shared_ptr<const net::TlsContext> tls_context) {
     http::Options opts;
     opts.user_agent = YADDNSC::get_full_version();
     opts.bootstrap_dns = resolver.bootstrap_servers;
+    opts.tls_context = std::move(tls_context);
     return opts;
+}
+
+/// Build the shared default trust context off the loop. CA discovery and load are
+/// blocking file I/O, so this must run before `coro::run`. A machine without a
+/// usable trust store still runs: the context comes back null and every TLS
+/// connection then fails closed at connect, the same outcome the per-stream lazy
+/// load produced.
+[[nodiscard]] std::shared_ptr<const net::TlsContext> make_default_tls_context() {
+    auto created = net::TlsContext::create(net::TlsOptions{});
+    if (!created) {
+        SPDLOG_WARN("No usable TLS trust context could be built; TLS targets will fail to connect");
+        return nullptr;
+    }
+    return std::move(*created);
 }
 
 // -----------------------------------------------------------------------
@@ -105,60 +121,50 @@ void fill_bootstrap_servers(domain::RuntimeConfig& config) {
     return joined;
 }
 
-/// Startup products built on the offload pool before the scheduler starts.
-struct PreparedStartup {
-    std::shared_ptr<const domain::RuntimeConfig> runtime;  ///< null when validation failed
-    std::shared_ptr<DriverCatalog> catalog;
-    std::string error;  ///< the collected static-validation errors, when runtime is null
-};
-
-/// The run root task. There is no "loop-before" stage (design §6.4): the config
-/// read/validation, plugin dlopen and environment checks all run inside the
-/// loop, on the offload pool, so the loop thread never blocks on a file read or
-/// dlopen.
+/// Startup preparation and the run root.
+///
+/// Startup is synchronous on the main thread, before the loop exists: reading and
+/// validating the configuration, dlopen-ing plugins, checking the environment and
+/// building the trust context are all blocking file/loader I/O that has no reason
+/// to touch the loop. Only the scheduler then runs inside coro::run.
 ///
 /// Failure: a malformed/missing config or a plugin-load failure throws out of
-/// the offload await and propagates to main's fatal boundary with the legacy
-/// wording; a statically invalid config or a failed environment check is logged
-/// and returns EXIT_FAILURE, exactly as before.
-[[nodiscard]] coro::Task<int> prepare_and_run(const Cli::RunCommand& command, coro::Loop& loop) {
-    const auto prepared_result = co_await coro::offload([&command]() -> PreparedStartup {
-        auto config = Config::validate_and_normalize(Config::load_config(command.config_path));
-        if (!config.has_value()) {
-            return PreparedStartup{.runtime = nullptr, .catalog = nullptr,
-                                   .error = format_config_errors(config.error())};
-        }
-        fill_bootstrap_servers(*config);
-        auto runtime = std::make_shared<const domain::RuntimeConfig>(std::move(*config));
-        auto catalog = std::make_shared<DriverCatalog>();
-        DriverLoader::load(*catalog, runtime->drivers);
-        return PreparedStartup{.runtime = std::move(runtime), .catalog = std::move(catalog), .error = {}};
-    });
-    if (!prepared_result.has_value()) {
-        // The offload worker can only fail this way by an errc; treat it as a
-        // fatal startup failure.
-        SPDLOG_CRITICAL("Failed to prepare the run environment");
-        co_return EXIT_FAILURE;
+/// here to main's fatal boundary with the legacy wording; a statically invalid
+/// config or a failed environment check is logged and returns EXIT_FAILURE,
+/// exactly as before.
+int run_command(const Cli::RunCommand& command) {
+    if (command.verbose) {
+        spdlog::set_level(spdlog::level::debug);
+        SPDLOG_DEBUG("Verbose mode enabled");
     }
-    const PreparedStartup& prepared = *prepared_result;
 
-    if (prepared.runtime == nullptr || prepared.catalog == nullptr) {
-        SPDLOG_CRITICAL(prepared.error);
-        co_return EXIT_FAILURE;
+    auto loaded = Config::validate_and_normalize(Config::load_config(command.config_path));
+    if (!loaded.has_value()) {
+        SPDLOG_CRITICAL(format_config_errors(loaded.error()));
+        return EXIT_FAILURE;
     }
+    fill_bootstrap_servers(*loaded);
+    const auto runtime = std::make_shared<const domain::RuntimeConfig>(std::move(*loaded));
+
+    DriverCatalog catalog;
+    DriverLoader::load(catalog, runtime->drivers);
 
     const SpdlogLogger logger;
     const SystemNetworkInterfaces interfaces;
-    if (const auto env = app::validate_environment(*prepared.runtime, *prepared.catalog, interfaces); !env.has_value()) {
+    if (const auto env = app::validate_environment(*runtime, catalog, interfaces); !env.has_value()) {
         SPDLOG_CRITICAL(format_config_errors(env.error()));
-        co_return EXIT_FAILURE;
+        return EXIT_FAILURE;
     }
 
-    const auto http_options = make_coro_http_options(prepared.runtime->resolver);
+    const auto tls_context = make_default_tls_context();
+    const auto http_options = make_coro_http_options(runtime->resolver, tls_context);
     const auto dispatcher =
-        dns::make_dispatcher(prepared.runtime->resolver, prepared.runtime->resolver.bootstrap_servers);
+        dns::make_dispatcher(runtime->resolver, runtime->resolver.bootstrap_servers, tls_context);
     dns::DispatcherResolverPort resolver_port{*dispatcher};
     ipsource::IpSourceAdapter ip_source{http_options};
+
+    // The loop object is created here, but nothing runs until coro::run below.
+    coro::Loop loop;
 
     // The driver gateway needs the runner's bridge TaskGroup, which only exists
     // inside the scheduler; the runner hands its root group to make_gateway and
@@ -170,7 +176,7 @@ struct PreparedStartup {
         .logger = logger,
         .make_gateway =
             [&](coro::TaskGroup& group) -> app::GatewayPort& {
-            gateway.emplace(*prepared.catalog, logger, loop, group,
+            gateway.emplace(catalog, logger, loop, group,
                             plugin::DriverGateway::Options{
                                 .http = http_options,
                                 .bridge_wait_budget = std::chrono::seconds(5),
@@ -178,17 +184,7 @@ struct PreparedStartup {
             return *gateway;
         },
     };
-    co_return co_await app::run_scheduler(prepared.runtime, services);
-}
-
-int run_command(const Cli::RunCommand& command) {
-    if (command.verbose) {
-        spdlog::set_level(spdlog::level::debug);
-        SPDLOG_DEBUG("Verbose mode enabled");
-    }
-
-    coro::Loop loop;
-    return coro::run(loop, prepare_and_run(command, loop));
+    return coro::run(loop, app::run_scheduler(runtime, services));
 }
 
 [[nodiscard]] std::string format_resolver_server(const Config::DnsServer& server) {
@@ -255,7 +251,8 @@ int execute_command(const Cli::InterfaceIpCommand& command) {
 
 int execute_command(const Cli::DnsResolveCommand& command) {
     const auto config = load_runtime_config(command.config_path);
-    const auto dispatcher = dns::make_dispatcher(config.resolver, config.resolver.bootstrap_servers);
+    const auto tls_context = make_default_tls_context();
+    const auto dispatcher = dns::make_dispatcher(config.resolver, config.resolver.bootstrap_servers, tls_context);
     dns::DispatcherResolverPort resolver_port{*dispatcher};
     // One-shot command on a plain root scope: nothing is marked cancellable, so
     // Ctrl-C keeps the default disposition (no signal watcher is installed).
@@ -317,7 +314,9 @@ int execute_command(const Cli::ConfigTestCommand& command) {
         // The coroutine gateway needs a loop and a bridge group, so the check
         // runs in a one-shot loop whose group owns the bridge coroutines.
         const SpdlogLogger logger;
-        const auto http_options = make_coro_http_options(config->resolver);
+        // validate_config runs with make_services(false), so the plugin cannot
+        // reach http_exchange here and no TLS context is needed.
+        const auto http_options = make_coro_http_options(config->resolver, nullptr);
         coro::Loop loop;
         std::optional<std::string> rejected;
         coro::run(loop, [&]() -> coro::Task<void> {

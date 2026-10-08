@@ -28,15 +28,17 @@ yaddnsc_production_module(yaddnsc_coro)
 # PUBLIC: loop.h exposes the pool type that offload() submits to.
 target_link_libraries(yaddnsc_coro PUBLIC BS_thread_pool)
 
-# Coroutine transport layer — TCP, TLS, UDP, the sockaddr codec (SocketAddr) and
-# CA discovery. Targets are already-resolved InetAddress values; resolving a
-# hostname is the resolver's business, not the transport's. OpenSSL is PUBLIC
-# because tls_stream.h publishes the SSL_CTX/SSL ownership types.
+# Coroutine transport layer — TCP, TLS, UDP, the sockaddr codec (SocketAddr),
+# the pre-built TLS trust context and CA discovery. Targets are already-resolved
+# InetAddress values; resolving a hostname is the resolver's business, not the
+# transport's. OpenSSL is PUBLIC because tls_context.h publishes the SSL_CTX
+# handle type.
 add_library(yaddnsc_net STATIC
     src/infrastructure/net/detail/socket_ops.cpp
     src/infrastructure/net/socket_addr.cpp
     src/infrastructure/net/tcp_stream.cpp
     src/infrastructure/net/tls_stream.cpp
+    src/infrastructure/net/tls_context.cpp
     src/infrastructure/net/udp_socket.cpp
     src/infrastructure/net/tls/cert_util.cpp
     src/infrastructure/net/http/uri.cpp
@@ -79,7 +81,6 @@ target_link_libraries(yaddnsc_coro_io
 # std::chrono time/duration value types are permitted.
 # Also owns dns/error.cpp: DnsError is the port-level shared error vocabulary.
 add_library(yaddnsc_domain STATIC
-    src/domain/update/schedule_queue.cpp
     src/domain/update/update_decision.cpp
     src/domain/network/inet_address.cpp
     src/domain/error/dns_error.cpp
@@ -140,7 +141,7 @@ target_link_libraries(yaddnsc_config_infrastructure
     PRIVATE spdlog::spdlog
 )
 
-# IP-source infrastructure — the interface enumeration cache, the mDNS response
+# IP-source infrastructure — live interface enumeration, the mDNS response
 # filter and the NetworkInterfaces port implementation.
 add_library(yaddnsc_ip_source_infrastructure STATIC
     src/infrastructure/ip_source/iface_util.cpp
@@ -195,8 +196,8 @@ target_link_libraries(yaddnsc_coro_application
 )
 
 # Coroutine IP sources — interface / HTTP / mDNS, plus the app::IpSourcePort
-# adapter. It reuses the interface-enumeration cache and the mDNS response
-# filter from yaddnsc_ip_source_infrastructure.
+# adapter. It reuses the interface-enumeration and mDNS response filter from
+# yaddnsc_ip_source_infrastructure.
 add_library(yaddnsc_coro_ip_source STATIC
     src/infrastructure/ip_source/iface.cpp
     src/infrastructure/ip_source/http.cpp

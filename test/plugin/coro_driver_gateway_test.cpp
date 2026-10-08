@@ -329,7 +329,7 @@ TEST_F(CoroDriverGatewayTest, LaneSerializesConcurrentCyclesOfOneDriver) {
             plugin::DriverGateway gateway(catalog_, logger_, loop, group, default_options());
             auto first = group.spawn(gateway.update(DRIVER_NAME, make_command(params)));
             // Let the first cycle reach the lane before submitting the second.
-            co_await coro::sleep_for(20ms);
+            [[maybe_unused]] const auto slept = co_await coro::sleep_for(20ms);
             second_result = co_await gateway.update(DRIVER_NAME, make_command(params));
             co_await first;
             co_return;

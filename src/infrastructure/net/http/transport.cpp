@@ -35,7 +35,7 @@ coro::Task<std::expected<std::unique_ptr<net::Stream>, Error>> connect_stream(
 
     Error last{ErrorCode::CONNECT_FAILED, "no address to connect to"};
     for (const InetAddress& address : addresses) {
-        auto stream = tls ? factory.create_tls(address, port, options.connect, options.tls)
+        auto stream = tls ? factory.create_tls(address, port, options.connect, options.tls, options.tls_context)
                           : factory.create_tcp(address, port, options.connect);
         auto connected = co_await stream->ensure_connected();
         if (connected) {

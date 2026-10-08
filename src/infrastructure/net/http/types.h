@@ -119,6 +119,10 @@ struct Options {
     net::ConnectOptions connect{};
     /// TLS settings (SNI, ALPN, verification, CA bundle).
     net::TlsOptions tls{};
+    /// Pre-built TLS trust context, shared by every https stream this client
+    /// opens. Null makes a TLS connection fail closed; build it off the loop
+    /// with TlsContext::create before entering the loop.
+    std::shared_ptr<const net::TlsContext> tls_context{};
     /// Bootstrap DNS servers (IP literals) used to resolve a URL host. Empty
     /// means hostnames fail fast with RESOLVE_FAILED; IP literals always work.
     /// /etc/hosts and NSS are never consulted.

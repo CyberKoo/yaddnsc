@@ -26,7 +26,6 @@
 
 add_unit_test(algorithm     SOURCE util/algorithm_test.cpp)
 add_unit_test(bytes         SOURCE util/bytes_test.cpp)
-add_unit_test(cache         SOURCE util/cache_test.cpp)
 add_unit_test(fd            SOURCE util/fd_test.cpp)
 add_unit_test(fmt_polyfill  SOURCE util/fmt_polyfill_test.cpp)
 add_unit_test(sdk_helpers   SOURCE util/sdk_helpers_test.cpp)
@@ -34,7 +33,6 @@ add_unit_test(sdk_driver_helpers SOURCE util/sdk_driver_helpers_test.cpp)
 add_unit_test(mixin         SOURCE util/mixin_test.cpp)
 add_unit_test(random        SOURCE util/random_test.cpp)
 target_link_libraries(test_random PRIVATE OpenSSL::Crypto)
-add_unit_test(retry_util    SOURCE util/retry_util_test.cpp)
 add_unit_test(string_util   SOURCE util/string_util_test.cpp)
 add_unit_test(validation    SOURCE util/validation_test.cpp)
 
@@ -61,10 +59,6 @@ add_unit_test(address_policy SOURCE domain/address_policy_test.cpp)
 # update_decision — domain::decide_update pure decision table
 # (implementation in src/domain/update/update_decision.cpp, via test_support)
 add_unit_test(update_decision SOURCE domain/update_decision_test.cpp)
-
-# schedule_queue — domain::ScheduleQueue over injected (fake) time
-add_unit_test(schedule_queue SOURCE domain/schedule_queue_test.cpp)
-target_link_libraries(test_schedule_queue PRIVATE yaddnsc_domain yaddnsc_config_infrastructure glaze::glaze)
 
 # ============================================================================
 #  application/  —  retained use cases and ports

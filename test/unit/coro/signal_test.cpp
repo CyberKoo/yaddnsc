@@ -26,7 +26,7 @@ coro::Task<void> raise_signal_after(std::chrono::milliseconds delay) {
     // Arming the handler takes one ready-queue hop (the on_signal task frame is
     // scheduled before it runs), so wait for the loop to get there. Raising
     // before the handler is installed would take the default action.
-    co_await coro::sleep_for(delay);
+    [[maybe_unused]] const auto slept = co_await coro::sleep_for(delay);
     ::raise(SIGUSR1);
     co_return;
 }
@@ -85,12 +85,12 @@ TEST(Signal, on_signal_RepeatedSignals_HandledInLoop) {
         co_return;
     };
     auto first_raise = []() -> coro::Task<void> {
-        co_await coro::sleep_for(5ms);
+        [[maybe_unused]] const auto slept = co_await coro::sleep_for(5ms);
         ::raise(SIGUSR1);
         co_return;
     };
     auto second_raise = []() -> coro::Task<void> {
-        co_await coro::sleep_for(15ms);
+        [[maybe_unused]] const auto slept = co_await coro::sleep_for(15ms);
         ::raise(SIGUSR1);
         co_return;
     };

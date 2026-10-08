@@ -16,6 +16,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <filesystem>
+#include <memory>
 #include <optional>
 #include <span>
 #include <string>
@@ -35,6 +36,7 @@
 #include "infrastructure/coro/coro.h"
 #include "infrastructure/net/io_error.h"
 #include "infrastructure/net/tcp_stream.h"
+#include "infrastructure/net/tls_context.h"
 #include "infrastructure/net/tls_stream.h"
 #include "infrastructure/net/udp_socket.h"
 #include "support/util/fd.hpp"
@@ -189,6 +191,15 @@ protected:
 
     [[nodiscard]] std::string cert_path() const { return cert_path_; }
 
+    /// Build the trust context the stream under test needs from @p options. The
+    /// test fails (rather than silently skipping) when the requested policy
+    /// cannot produce a context.
+    [[nodiscard]] std::shared_ptr<const net::TlsContext> client_context(const net::TlsOptions& options) {
+        auto context = net::TlsContext::create(options);
+        EXPECT_TRUE(context.has_value()) << "TlsContext::create failed";
+        return context.value_or(nullptr);
+    }
+
 private:
     [[nodiscard]] bool wait_until_accepting() const {
         const auto deadline = std::chrono::steady_clock::now() + 10s;
@@ -316,7 +327,7 @@ TEST(NetCoroTcpStream, read_some_SilentPeerWithTimeout_TimesOutWithoutKillingThe
 TEST_F(TlsEchoServerTest, ensure_connected_VerifiedSelfSignedBundle_RoundTrips) {
     // The throwaway certificate carries SAN IP:127.0.0.1, so handing it in as
     // the CA bundle exercises the real verification path (IP identity, no SNI).
-    net::TlsStream stream{loopback_v4(), TLS_ECHO_PORT, {}, {.ca_bundle = cert_path()}};
+    net::TlsStream stream{loopback_v4(), TLS_ECHO_PORT, client_context({.ca_bundle = cert_path()})};
 
     const std::vector<std::uint8_t> payload{1, 2, 3, 4, 5, 6, 7, 8};
     const std::vector<std::uint8_t> message = framed(payload);
@@ -343,7 +354,11 @@ TEST_F(TlsEchoServerTest, ensure_connected_VerifiedSelfSignedBundle_RoundTrips) 
 TEST_F(TlsEchoServerTest, ensure_connected_UnverifiableCertificate_FailsClosed) {
     // Default verification against the system trust store: a self-signed
     // certificate must be rejected, not silently accepted.
-    net::TlsStream stream{loopback_v4(), TLS_ECHO_PORT};
+    auto context = net::TlsContext::create(net::TlsOptions{});
+    if (!context.has_value()) {
+        GTEST_SKIP() << "no system CA bundle available";
+    }
+    net::TlsStream stream{loopback_v4(), TLS_ECHO_PORT, std::move(*context)};
 
     std::optional<IoError> error;
     auto task = [&stream, &error]() -> coro::Task<void> {
@@ -364,7 +379,8 @@ TEST_F(TlsEchoServerTest, ensure_connected_SniHostnameWithVerificationDisabled_C
     // Drives the name-based branch: SNI plus the OpenSSL 4 host-verification call
     // on the SSL verify parameter. The server certificate is for 127.0.0.1, so
     // verification stays off; this proves the branch itself does not fail.
-    net::TlsStream stream{loopback_v4(), TLS_ECHO_PORT, {}, {.sni_hostname = "dns.example.com", .verify_peer = false}};
+    net::TlsStream stream{loopback_v4(), TLS_ECHO_PORT,
+                          client_context({.sni_hostname = "dns.example.com", .verify_peer = false})};
 
     const std::vector<std::uint8_t> payload{7, 7};
     const std::vector<std::uint8_t> message = framed(payload);
@@ -388,7 +404,7 @@ TEST_F(TlsEchoServerTest, ensure_connected_SniHostnameWithVerificationDisabled_C
 }
 
 TEST_F(TlsEchoServerTest, ensure_connected_VerificationDisabled_RoundTrips) {
-    net::TlsStream stream{loopback_v4(), TLS_ECHO_PORT, {}, {.verify_peer = false}};
+    net::TlsStream stream{loopback_v4(), TLS_ECHO_PORT, client_context({.verify_peer = false})};
 
     const std::vector<std::uint8_t> payload{42};
     const std::vector<std::uint8_t> message = framed(payload);
@@ -414,7 +430,7 @@ TEST_F(TlsEchoServerTest, ensure_connected_VerificationDisabled_RoundTrips) {
 TEST_F(TlsEchoServerTest, read_some_SilentPeerWithTimeout_TimesOut) {
     // A TLS peer that never answers the application request: the handshake
     // succeeds (the server is a real TLS endpoint), then the read times out.
-    net::TlsStream stream{loopback_v4(), TLS_ECHO_PORT, {}, {.verify_peer = false}};
+    net::TlsStream stream{loopback_v4(), TLS_ECHO_PORT, client_context({.verify_peer = false})};
 
     bool timed_out = false;
     std::optional<IoError> error;

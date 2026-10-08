@@ -53,7 +53,7 @@ coro::Task<int> sleep_then_value(std::chrono::milliseconds delay, int value) {
 }
 
 coro::Task<void> increment_after_sleep(int& counter, std::chrono::milliseconds delay) {
-    co_await coro::sleep_for(delay);
+    [[maybe_unused]] const auto slept = co_await coro::sleep_for(delay);
     ++counter;
     co_return;
 }
@@ -71,13 +71,13 @@ coro::Task<void> wait_until_cancelled(bool& cancelled) {
 }
 
 coro::Task<void> cancel_after_sleep(coro::TaskGroup& group, std::chrono::milliseconds delay) {
-    co_await coro::sleep_for(delay);
+    [[maybe_unused]] const auto slept = co_await coro::sleep_for(delay);
     group.cancel();
     co_return;
 }
 
 coro::Task<void> fail_after_sleep(std::chrono::milliseconds delay, const char* message) {
-    co_await coro::sleep_for(delay);
+    [[maybe_unused]] const auto slept = co_await coro::sleep_for(delay);
     throw std::runtime_error(message);
     co_return;
 }

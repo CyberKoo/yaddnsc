@@ -35,7 +35,8 @@ namespace {
 }
 
 [[nodiscard]] std::unique_ptr<Resolver> make_backend(const Config::DnsServer& server,
-                                                     const std::vector<Config::DnsServer>& bootstrap) {
+                                                     const std::vector<Config::DnsServer>& bootstrap,
+                                                     std::shared_ptr<const net::TlsContext> tls_context) {
     const auto uri = Uri::parse(server.address);
     if (!uri.has_value()) {
         throw std::invalid_argument(fmt::format(R"(Malformed resolver address "{}")", server.address));
@@ -54,11 +55,13 @@ namespace {
         const auto port = static_cast<std::uint16_t>(uri->get_port() != 0 ? uri->get_port() : 853);
         EndpointOptions options;
         options.bootstrap_dns = bootstrap;
+        options.tls_context = std::move(tls_context);
         return std::make_unique<DotResolver>(std::string(uri->get_host()), port, std::move(options));
     }
     if (schema == "https") {
         http::Options options;
         options.bootstrap_dns = bootstrap;
+        options.tls_context = std::move(tls_context);
         return std::make_unique<DohResolver>(server.address, std::move(options));
     }
     throw std::invalid_argument(
@@ -68,7 +71,8 @@ namespace {
 }  // namespace
 
 std::unique_ptr<Dispatcher> make_dispatcher(const domain::ResolverSettings& settings,
-                                            std::vector<Config::DnsServer> bootstrap) {
+                                            std::vector<Config::DnsServer> bootstrap,
+                                            std::shared_ptr<const net::TlsContext> tls_context) {
     if (settings.servers.empty()) {
         throw std::invalid_argument("ResolverSettings.servers must not be empty");
     }
@@ -76,7 +80,7 @@ std::unique_ptr<Dispatcher> make_dispatcher(const domain::ResolverSettings& sett
     std::vector<std::unique_ptr<Resolver>> backends;
     backends.reserve(settings.servers.size());
     for (const auto& server : settings.servers) {
-        backends.push_back(make_backend(server, bootstrap));
+        backends.push_back(make_backend(server, bootstrap, tls_context));
     }
     return std::make_unique<Dispatcher>(std::move(backends), to_strategy(settings.strategy));
 }

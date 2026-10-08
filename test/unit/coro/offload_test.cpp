@@ -132,7 +132,7 @@ TEST(Offload, offload_AbandonedWhileQueued_DropsJob) {
     };
     auto second = [&second_ran, &timed_out]() -> coro::Task<void> {
         // Let the only worker become busy with the blocker.
-        co_await coro::sleep_for(20ms);
+        [[maybe_unused]] const auto slept = co_await coro::sleep_for(20ms);
         auto outcome =
             co_await coro::with_timeout(20ms, [&second_ran, &timed_out](coro::CancelScope& scope) -> coro::Task<void> {
                 auto result = co_await coro::offload([&second_ran]() { second_ran.store(true); });

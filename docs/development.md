@@ -258,3 +258,24 @@ still fail the build.
   in every configuration.
 - **Editor feedback**: `.clangd` sets `UnusedIncludes` and `MissingIncludes`
   to `Strict`; editor diagnostics are not CI gates.
+
+## Manual boundary review
+
+The `architecture_guard` ctest (`cmake/ArchitectureGuard.cmake`) checks textual
+boundaries — includes, layering, threads/futures, the cancellation token and the
+lazy TLS trust APIs — but it cannot judge every loop-safety decision. When
+touching startup, transport or IP-source code, confirm by hand:
+
+- **`getifaddrs()` stays the only loop-thread blocking call in the IP source.**
+  `ip_source/iface_util.cpp` reads a live snapshot per call; that is the
+  sanctioned exception (bounded kernel metadata). Do not add a cache, a mutex or
+  a single-flight wait around it.
+- **A CA bundle is only ever loaded off the loop.** Build trust material with
+  `net::TlsContext::create` before `coro::run` or from `coro::offload`. A stream
+  receives a pre-built context and must never load a CA bundle or register a lazy
+  verify path during a handshake.
+- **Blocking primitives do not enter a production loop path.** `src/support/` is
+  a generic helper layer; a cache or retry helper that takes a lock or sleeps does
+  not belong on a coroutine path. Route blocking or CPU-bound work through
+  `coro::offload` — see the blocking-operation inventory in
+  [Architecture](architecture.md#blocking-operation-inventory).

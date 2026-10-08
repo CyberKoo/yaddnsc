@@ -189,7 +189,7 @@ coro::Task<std::expected<void, DnsErrorInfo>> DotResolver::ensure_stream() {
 
     DnsErrorInfo last{DnsError::CONNECTION, "no DoT address"};
     for (const InetAddress& address : *addresses) {
-        auto stream = factory.create_tls(address, port_, options_.connect, options_.tls);
+        auto stream = factory.create_tls(address, port_, options_.connect, options_.tls, options_.tls_context);
         auto connected = co_await stream->ensure_connected();
         if (connected) {
             stream_ = std::move(stream);
