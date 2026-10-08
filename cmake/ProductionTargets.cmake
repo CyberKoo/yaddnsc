@@ -10,6 +10,22 @@
 # exists anywhere in the tree, so plain static archives link correctly.
 # ==============================================================================
 
+# Coroutine runtime core — the loop (poll fd table, timer heap, ready queue,
+# cross-thread inbox), Task<T>, structured scopes, cancellation combinators,
+# cancellable sleeps, AsyncMutex, offload + SerialLane and signals. The offload
+# pool is BS::thread_pool, reused rather than hand-rolled (see the pool note in
+# src/infrastructure/coro/loop.h): a bundled dependency already present for the
+# plugin executor. It is named in the module's loop.h, so BS_thread_pool is
+# PUBLIC here. Everything else is the standard library and POSIX, which keeps
+# this the bottom layer of the tree; stage 2 builds transport on top of it.
+add_library(yaddnsc_coro STATIC
+    src/infrastructure/coro/cancel_scope.cpp
+    src/infrastructure/coro/loop.cpp
+)
+yaddnsc_production_module(yaddnsc_coro)
+# PUBLIC: loop.h exposes the pool type that offload() submits to.
+target_link_libraries(yaddnsc_coro PUBLIC BS_thread_pool)
+
 # TLS support infrastructure (CA certificate discovery).
 add_library(yaddnsc_tls_support STATIC
     src/infrastructure/network/tls/cert_util.cpp

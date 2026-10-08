@@ -183,10 +183,38 @@ foreach (f ${dns_classic_files})
 endforeach ()
 
 # ------------------------------------------------------------------------------
+# 11. thread pools are an implementation detail: offload() is the only gateway.
+#     The coroutine runtime owns the single pool business code may reach
+#     (src/infrastructure/coro/ names BS::thread_pool to implement offload and
+#     SerialLane), and the pre-existing application executor still names it while
+#     the synchronous backend exists. Anywhere else in src/ a direct include is a
+#     layering violation: route the work through coro::offload instead of
+#     reaching for a thread pool. The plugin boundary (driver/) is deliberately
+#     not checked — plugins are a separate binary boundary and may use their own
+#     pool.
+# ------------------------------------------------------------------------------
+file(GLOB_RECURSE thread_pool_check_files RELATIVE ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/src/*.h
+    ${PROJECT_SOURCE_DIR}/src/*.hpp
+    ${PROJECT_SOURCE_DIR}/src/*.cpp)
+list(FILTER thread_pool_check_files EXCLUDE REGEX "^src/infrastructure/coro/")
+list(FILTER thread_pool_check_files EXCLUDE REGEX "^src/application/pool_task_executor\\.cpp$")
+foreach (f ${thread_pool_check_files})
+    file(STRINGS ${PROJECT_SOURCE_DIR}/${f} lines REGEX "${INC_RE}[<\"]BS_thread_pool")
+    foreach (line ${lines})
+        if (line MATCHES "^[ \t]*(//|/\\*|\\*)")
+            continue()
+        endif ()
+        string(STRIP "${line}" stripped)
+        set(violations "${violations}\n  ${f}: thread pools must stay behind coro::offload (do not include BS_thread_pool directly)\n      ${stripped}")
+    endforeach ()
+endforeach()
+
+# ------------------------------------------------------------------------------
 # Verdict
 # ------------------------------------------------------------------------------
 if (violations)
     message(FATAL_ERROR "Architecture guard violations:${violations}\n")
 endif ()
 
-message(STATUS "Architecture guard: OK (domain/application/plugin/SDK/boundary checks passed)")
+message(STATUS "Architecture guard: OK (domain/application/plugin/SDK/thread-pool/boundary checks passed)")
