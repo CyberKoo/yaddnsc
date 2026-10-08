@@ -106,10 +106,10 @@ Formatting **must** follow `.clang-format`; naming **must** follow this table. A
 
 ## Function & Constructor Signatures
 
-- **Prefer** small, cohesive parameter lists. More than four constructor parameters is a review signal, not an automatic limit. Related dependencies **may** use an `XxxPorts` / `XxxDeps` / `XxxEnvironment` reference bundle (see `src/application/run_environment.h`); avoid general service locators or unused bundled dependencies.
+- **Prefer** small, cohesive parameter lists. More than four constructor parameters is a review signal, not an automatic limit. Related dependencies **may** use an `XxxPorts` / `XxxDeps` / `XxxServices` reference bundle (see `src/application/services.h`); avoid general service locators or unused bundled dependencies.
 - Configuration **must** travel as cohesive domain slices (e.g. `domain::ResolverSettings`) or pre-built policy objects when forwarded across layers, rather than repeated unrelated strings/vectors. Adding a field should not require mechanically changing a long chain of signatures.
 - Cross-cutting policies **must** be assembled in the composition root and injected; downstream code **must not** independently re-derive the same policy.
-- `Utils::CancellationToken` **must** be passed per operation, not stored as a member. Ports **must** be explicit dependencies, directly or through a cohesive bundle; global/singleton ports are prohibited.
+- Coroutine cancellation **must** travel as scope state, not as a parameter or a stored member: an operation is cancellable because it runs inside a cancel scope, and every await is a checkpoint. A timeout **must** be composed with `coro::with_timeout` / `coro::with_deadline` around the operation, never passed into a port or an I/O signature. Ports **must** be explicit dependencies, directly or through a cohesive bundle; global/singleton ports are prohibited.
 
 ## Enums
 

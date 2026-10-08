@@ -5,6 +5,8 @@
 ## Concurrency
 
 - Shared mutable state **must** have a defined synchronization strategy; public interfaces **must** document their thread-safety guarantees and caller obligations.
+- Concurrency **must** go through the coroutine runtime (`src/infrastructure/coro/`). The process has exactly three threads: the loop thread (`coro::run`'s caller — all I/O, timers and coroutine resumption), the offload pool (`BS::thread_pool`, reached only through `coro::offload`), and the log drain thread. Code **must not** create additional threads, futures or thread pools; blocking or CPU-bound work **must** leave the loop through `coro::offload`.
+- Waiting **must** be a cancellable await, so scope cancellation reaches it; a deadline **must** be a cancel scope (`coro::with_timeout` / `coro::with_deadline`), not an I/O parameter. Signal handling **must** use `coro::on_signal`; a dedicated signal thread **must not** be introduced.
 - **Prefer** explicit ownership and dependency injection over global mutable state. Global/singleton ports **must not** be introduced (see [Function & Constructor Signatures](02-implementation.md#function--constructor-signatures)).
 - If non-port process-wide state is unavoidable, initialization **may** use a function-local static (Meyers singleton) for one-time construction, or `std::call_once` for a separate initialization operation. Neither protects subsequent mutation. `constinit` guarantees static initialization, not immutability or thread safety; access to mutable state still **must** be synchronized.
 
@@ -35,7 +37,7 @@ Diagnostic logging **must** use the project's centralized logging system through
 | **SDK / plugins** (`include/yaddnsc/sdk/`, `driver/`) | **Must** route diagnostic logs through Host Services (`yaddnsc_host_services::log`); C++ helpers **normally** use `YADDNSC_SDK_LOG_*` from `include/yaddnsc/sdk/driver.hpp`. **Must not** depend on host-internal logging headers or call spdlog directly. |
 | **CLI / composition** (`src/cli/`, `src/composition/`) | Host-adapter diagnostics **may** use the centrally configured spdlog backend. User-facing CLI output is not logging and **normally** uses `std::print` / `std::println` on stdout/stderr; debug traces and internal-state warnings **must not** be presented as command output. |
 
-The central production backend **must** supply timestamp, severity, source location, and message; SDK source locations **must** be forwarded through Host Services. See [Layers](../docs/architecture.md#layers) and [Plugin boundary](../docs/architecture.md#plugin-boundary-v1-alpha) for dependency and ABI boundaries.
+The central production backend **must** supply timestamp, severity, source location, and message; SDK source locations **must** be forwarded through Host Services. The backend is asynchronous — a bounded queue drained by a background thread (see [Architecture](../docs/architecture.md#concurrency--io-model)) — so a log call never blocks the calling (loop) thread; a full queue discards the newest record rather than waiting. See [Layers](../docs/architecture.md#layers) and [Plugin boundary](../docs/architecture.md#plugin-boundary-v1-alpha) for dependency and ABI boundaries.
 
 ## Documentation
 

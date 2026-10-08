@@ -6,100 +6,143 @@ than defining its public configuration contract.
 ## Runtime flow
 
 ```text
-JSON configuration
-       |
-       v
-Composition root (config load, environment validation, assembly)
-       |
-       v
-RunLifecycle -> SchedulerRunner -> UpdateWorkflow (per subdomain)
-       |
-       +--> IP source port: interface | HTTP(S) | mDNS
-       |
-       +--> DNS resolver port: UDP/TCP | DoH | DoT
-       |
-       v
-DriverGateway -> provider driver (.so) -> provider HTTP API
+argv
+  |
+  v
+main() -> Cli::parse -> Composition::dispatch
+  |                         (async logging install; config load, plugin dlopen,
+  |                          environment validation run on the offload pool)
+  v
+coro::run(loop, app::run_scheduler(config, services))
+  |
+  v
+supervisor_group
+  +-- subdomain_loop          one long-lived coroutine per subdomain; its
+  |     |                     ordering state (interval, backoff, force-update
+  |     |                     latch) lives in the frame
+  |     +-- update_once       IP source -> DNS read -> decide -> driver update
+  +-- signal watchers         SIGINT / SIGTERM -> cancel the work scope
 ```
 
 The executable is a thin `main()` over `Cli::parse` and
 `Composition::dispatch` (`src/composition/`). The composition root is the only
-place concrete infrastructure is assembled; everything below it talks to
-ports (`src/application/ports/`).
+place concrete infrastructure is assembled; the application layer reaches it
+through ports (`src/application/ports.h`).
+
+## Concurrency & I/O model
+
+The whole system is built on the coroutine runtime in
+`src/infrastructure/coro/`; `.cache/coro_redesign.md` is the authoritative
+description of that model. Its axioms in one paragraph: the loop thread does
+loop work only; every coroutine belongs to a scope that joins its children; a
+deadline and a shutdown are the same thing (a cancelled scope); every
+resumption goes through the ready queue so stack depth stays bounded.
+
+**Threads.** There are exactly three:
+
+| Thread | Responsibility |
+|--------|----------------|
+| loop thread (`coro::run`'s caller) | all I/O, timers, coroutine resumption, bounded small computation |
+| offload pool (`BS::thread_pool`, reached only through `coro::offload`) | anything that may block or burn CPU: the plugin ABI cycle, mDNS, blocking startup work |
+| log drain thread (spdlog async sink) | writing log records off the loop |
+
+**Loop internals** (`src/infrastructure/coro/loop.h`): a `poll()` file-descriptor
+table, a timer heap, a ready queue, and a cross-thread inbox fed by
+`Loop::post`. Worker→loop traffic and the pool's submit queue are the only
+synchronization points in the runtime.
+
+**Structured concurrency.** `coro::Task<T>` is lazy and runs inline at
+`co_await`. `task_group` cancels siblings on the first failure and rethrows
+after joining every child; `supervisor_group` reports a child failure through
+`next()` without touching its siblings. The run root uses a supervisor group, so
+one subdomain failing never stops the others.
+
+**Cancellation is scope state, not a token.** `with_timeout`,
+`with_deadline`, `with_cancel_scope` and `non_cancellable` run a body in a child
+scope; every await is a checkpoint, and a cancelled scope makes it yield
+`operation_canceled` as a value. There is no cancellation token and no I/O
+timeout parameter anywhere: a timeout is composed at the call site
+(`co_await with_timeout(d, ...)`), which is why the transport and HTTP layers
+have no deadline arguments.
+
+**Leaving the loop.** `coro::offload(fn)` runs `fn` on the pool and returns its
+result through the loop; cancellation is *abandon* — the await returns a
+cancellation value while the work packet finishes on its own. `coro::SerialLane`
+serializes per-instance work on top of offload (one lane per driver name).
+
+**Plugin bridge** (`src/infrastructure/plugin/bridge.h`). The plugin C ABI is
+synchronous, so each update cycle runs on an offload worker; when it calls
+`http_exchange`, the bridge posts a structured child coroutine into the
+application's `TaskGroup` (passed in by the composition root), the loop runs the
+coroutine HTTP client, and the worker blocks on a `std::promise`/`std::future`
+until the loop fulfils it. That promise is the third synchronization boundary in
+the system; it exists only because the ABI may not be re-entered, and the
+blocked thread is a worker whose purpose is to block.
+
+**Scheduler dissolution** (`src/application/subdomain_loop.cpp`). There is no
+central scheduler queue, runner or executor: one long-lived coroutine per
+subdomain sleeps, updates and repeats, carrying its ordering state (update
+interval, last force-update time, retry back-off) as frame locals. A
+provider-supplied `retry_after` overrides the next delay; the force-update
+interval latches exactly as the legacy scheduler did. One cycle is bounded by
+`UPDATE_BUDGET` (`with_timeout`), and the DNS read has its own shorter
+`DNS_READ_BUDGET` so a dead resolver surfaces in seconds instead of holding the
+whole cycle.
 
 ## Layers
 
 Dependency direction is enforced by the CMake target graph
 (`yaddnsc_domain` ← `yaddnsc_application` ← infrastructure/adapters ←
-`yaddnsc_composition` ← executable):
+`yaddnsc_composition` ← executable) and policed textually by the
+`architecture_guard` ctest (`cmake/ArchitectureGuard.cmake`).
 
-- `src/domain/`: pure rules and value types (update decision, schedule queue,
-  runtime config model). No I/O, threading, or third-party libraries.
-  `std::chrono` time/duration value types are permitted; the layer does not read
-  the system clock.
-- `src/application/`: use cases over the ports — update workflow, scheduler
-  runner, run lifecycle, diagnostics, environment validation. No spdlog,
-  Glaze, CLI11, OpenSSL, or dlopen; logging goes through the `ports/log.h`
+- `src/domain/`: pure rules and value types (update decision, schedule model,
+  runtime config model, `DriverError`/`DriverUpdateCommand`). No I/O, threading,
+  or third-party dependencies. `std::chrono` value types are permitted; the
+  layer does not read the system clock.
+- `src/application/`: the coroutine use cases and the retained ports.
+  `ports.h` / `services.h` (the port interfaces and the `Services` bundle),
+  `update_once.*`, `subdomain_loop.*`, `run_scheduler.*`, `diagnostics.*`,
+  `environment_validator.*`, plus the retained ports `ports/log.h`,
+  `ports/driver_catalog.h`, `ports/network_interfaces.h`. It names only domain
+  types and `infrastructure/coro/` (the runtime is its substrate); no spdlog,
+  Glaze, CLI11, OpenSSL, or dlopen. Logging goes through the `ports/log.h`
   facade.
-- Infrastructure and adapters: `src/infrastructure/config/` (JSON/Glaze), `src/infrastructure/dns/`,
-  `src/infrastructure/ip_source/`, `src/infrastructure/network/` + `src/infrastructure/network/http/` (`net::transport` /
-  `net::http`), `src/infrastructure/plugin/` (plugin host), `src/infrastructure/logging/`, `src/infrastructure/time/`, and `src/infrastructure/process/`
-  (concrete port adapters: logger, clock, signal watcher, driver loader,
-  network interfaces), `src/cli/` (parser + presenter).
-
-  Within DNS infrastructure the classic UDP exchange, wire format, parser and
-  the bootstrap/`resolv.conf` helpers form a separate lower target
-  (`yaddnsc_dns_classic`, depending only on domain + network infrastructure)
-  so that `net::transport` can resolve hostname targets through them.
-  Directories follow the concept, not the target: `dns/classic/` holds only the
-  classic protocol's transport (`classic_udp`, `classic_tcp`,
-  `socket_error.hpp`), `dns/wire/` the byte format, and `dns/resolver/` the
-  classic/DoT/DoH facades. `bootstrap`, `resolv_conf`, `parser`, `validator`,
-  `types.h` and `util.hpp` stay in `dns/` because the transport layer and the
-  mDNS path use them too.
-  `TcpConnection` never calls `getaddrinfo` — hostname endpoints go through
-  the bootstrap DNS servers (`bootstrap_dns`, else `/etc/resolv.conf`).
-  Name lookup, address attempts, the TCP handshake and (for TLS) the TLS
-  handshake share one connect deadline. One `read_some` or `read_exact`
-  spends one read budget; one `send_all` spends one write budget. Retries
-  for `EINTR`, `EAGAIN` and TLS `WANT_*` do not refresh those budgets.
-  Bootstrap servers are IP literals. A truncated UDP answer is retried over
-  TCP to that same address (`DNS::exchange_tcp` in `yaddnsc_dns_classic`),
-  using the shared Socket transfer rather than `TcpStream`, so the fallback
-  does not resolve another hostname. Classic resolver TCP fallback still
-  goes through `TcpStream` from `classic.cpp`, compiled into
-  `yaddnsc_dns_infrastructure` above the transport. A spent read or write
-  deadline does not send or receive, even if the socket is already ready.
-  Bytes OpenSSL has already decrypted (`SSL_pending`) may still be returned.
-
-  `Socket` is the only owner of an OS socket fd (`Utils::UniqueFd`). On Linux,
-  `SOCK_CLOEXEC` / `accept4` set close-on-exec atomically; other platforms
-  apply it with `fcntl` after the fd exists, so a concurrent fork/exec can
-  still inherit it. `SIGPIPE` is suppressed with `MSG_NOSIGNAL` where that
-  flag exists, and with `SO_NOSIGPIPE` at creation otherwise. macOS behavior
-  of the `fcntl` window and `SO_NOSIGPIPE` was not re-verified in this change.
-
-  The DoH/DoT resolvers, dispatcher and resolver factory sit above HTTP in
-  `yaddnsc_dns_infrastructure`, which would otherwise create a dependency
-  cycle with the transport.
+- `src/infrastructure/coro/`: the coroutine runtime — loop, `Task`, structured
+  scopes, cancellation combinators, sleeps, `AsyncMutex`, `offload`,
+  `SerialLane`, signals. This is the only tree allowed to name threads, futures
+  or a thread pool.
+- `src/infrastructure/net/`: the transport and its shared codecs — TCP/TLS/UDP
+  streams, `socket_addr` (POSIX sockaddr codec), `tls/cert_util` (CA discovery),
+  and the coroutine HTTP client with the `uri` codec under `net/http/`.
+- `src/infrastructure/dns/`: the DNS wire layer (`parser`, `validator`, `wire/`,
+  `types.h`, `util.hpp`, `resolv_conf`) plus the coroutine resolvers
+  (`classic`, `dot`, `doh`), the `dispatcher`, the `factory` and the
+  `resolver_port` adapter. `dns_classic` (wire/parser/validator/resolv_conf) is
+  the lower target.
+- `src/infrastructure/ip_source/`: the interface-enumeration cache
+  (`iface_util`), the mDNS response filter (`mdns_response`), the coroutine
+  sources (`iface`, `http`, `mdns`), the `adapter` implementing the IP-source
+  port, and `system_network_interfaces` (the `NetworkInterfaces` port).
+- `src/infrastructure/plugin/`: the plugin host — `shared_library`,
+  `plugin_loader`, `driver_catalog`, `driver_instance` (lease), and the coroutine
+  layer `bridge`, `host_services`, `driver_gateway`.
+- `src/infrastructure/config/`: JSON/Glaze parsing, normalization, validation and
+  the parse diagnostics below.
+- `src/infrastructure/logging/`: `spdlog_logger` (the `Logger` facade) and
+  `async_logging` (the async sink wiring).
+- `src/cli/`: argument parsing (`parser`) and output presentation (`presenter`).
 - `src/composition/`: the composition root.
-- `src/support/`: internal shared helpers (fmt/string utilities, cancellation
-  primitives); forwarding headers onto `include/yaddnsc/util/` where an
-  equivalent public utility exists. Not part of the public surface.
+- `src/support/`: internal shared helpers (fmt/string utilities, fd and cache
+  helpers); forwarding headers onto `include/yaddnsc/util/` where an equivalent
+  public utility exists. Not part of the public surface.
 - `include/yaddnsc/sdk/`: the plugin SDK (C ABI + C++ helper layer). Together
-  with `include/yaddnsc/util/` these are the only public headers. All host
-  implementation headers, including shared value types and the `HttpClient`
-  port, live under `src/`.
+  with `include/yaddnsc/util/` these are the only public headers.
 - `include/yaddnsc/util/`: header-only utilities shared by the host and the
-  plugins (string utilities, named-argument formatting, percent-encoding).
-  This is the single implementation site — `src/support/` and
-  `include/yaddnsc/sdk/` headers only forward to it, and both sides must use
-  it instead of carrying local copies.
-- `driver/`: bundled provider plugins, built solely against the public
-  headers (`include/yaddnsc/sdk/` and `include/yaddnsc/util/`).
-
-The textual boundary rules are policed by the `architecture_guard` ctest
-(`cmake/ArchitectureGuard.cmake`).
+  plugins (string utilities, named-argument formatting, percent-encoding). This
+  is the single implementation site; `src/support/` and `include/yaddnsc/sdk/`
+  headers only forward to it.
+- `driver/`: bundled provider plugins, built solely against the public headers.
 
 ## Configuration parse diagnostics
 
@@ -156,11 +199,11 @@ exceptions, STL containers, or host objects cross the `.so` boundary.
   never used concurrently. `create()` is not process-level one-time
   initialization.
 - Provider HTTP, logging, and cancellation reach the plugin through Host
-  Services; the host owns the actual HTTP client and the log sink (source
-  location is forwarded to `spdlog::source_loc`).
-
-See [Custom Drivers](custom-drivers.md) for the SDK guide before changing the
-interface or building a module outside the project build.
+  Services: the host owns the HTTP client (reached through the bridge above) and
+  the log sink (source location is forwarded to `spdlog::source_loc`).
+  `is_cancelled()` reports the host's cancellation state for the current
+  operation. See [Custom Drivers](custom-drivers.md) for the SDK guide before
+  changing the interface or building a module outside the project build.
 
 ## Documentation ownership
 

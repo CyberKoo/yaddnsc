@@ -84,9 +84,9 @@ contracts that pull in opposite directions:
 - an HTTP IP source returning a non-address response → the update workflow
   reports no usable IP address and nothing is published;
 - no DNS answer → the update is still published, because
-  `update_workflow.cpp` treats an unverifiable current record as an empty
-  one. Pushing an unchanged record is harmless; skipping a changed one is
-  not.
+  `src/application/update_once.cpp` treats an unverifiable current record as
+  an empty one. Pushing an unchanged record is harmless; skipping a changed
+  one is not.
 
 Run just this tier:
 
@@ -100,8 +100,8 @@ this test as skipped when `python3 -m venv` cannot bootstrap pip
 executed — use verbose output (`ctest -V -R integration_scenarios`) and check
 for `ALL SCENARIOS PASSED`. Negative update scenarios require the expected
 workflow diagnostic and a successful shutdown; simulator reset/log failures
-are test failures, not evidence that no update was sent. The mDNS group users (`test_factory_mdns`,
-`test_mdns_ipv6`, `integration_scenarios`) hold the `mdns-multicast`
+are test failures, not evidence that no update was sent. The mDNS group users
+(`test_mdns_coro`, `integration_scenarios`) hold the `mdns-multicast`
 `RESOURCE_LOCK` and must not be run concurrently outside CTest.
 
 ### Local CI simulation
