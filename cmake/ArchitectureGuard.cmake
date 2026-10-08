@@ -225,10 +225,23 @@ guard_check("coroutine transport must not depend on the legacy blocking transpor
     ${PROJECT_SOURCE_DIR}/src/infrastructure/net/*.cpp)
 
 # ------------------------------------------------------------------------------
+# 13. The coroutine DNS subsystem (src/infrastructure/dns/coro/) must not fall
+#     back on the synchronous resolvers it replaces: the resolver facades, their
+#     classic UDP/TCP transports, the legacy dispatcher/bootstrap and the factory
+#     catalog. The pure wire layer (types, parser, validator, wire/, util.hpp,
+#     resolv_conf) stays reusable in place.
+# ------------------------------------------------------------------------------
+guard_check("coroutine DNS must not depend on the legacy synchronous resolvers"
+    "${INC_RE}[<\"](infrastructure/dns/(resolver/|classic/|dispatcher\.h|bootstrap\.h|factory\.h|resolver_catalog\.h))"
+    ${PROJECT_SOURCE_DIR}/src/infrastructure/dns/coro/*.h
+    ${PROJECT_SOURCE_DIR}/src/infrastructure/dns/coro/*.hpp
+    ${PROJECT_SOURCE_DIR}/src/infrastructure/dns/coro/*.cpp)
+
+# ------------------------------------------------------------------------------
 # Verdict
 # ------------------------------------------------------------------------------
 if (violations)
     message(FATAL_ERROR "Architecture guard violations:${violations}\n")
 endif ()
 
-message(STATUS "Architecture guard: OK (domain/application/plugin/SDK/thread-pool/net-transport/boundary checks passed)")
+message(STATUS "Architecture guard: OK (domain/application/plugin/SDK/thread-pool/net-transport/dns-transport/boundary checks passed)")

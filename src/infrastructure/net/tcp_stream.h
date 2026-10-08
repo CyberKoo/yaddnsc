@@ -20,6 +20,7 @@
 #include "infrastructure/coro/task.hpp"
 #include "infrastructure/net/io_error.h"
 #include "infrastructure/net/options.h"
+#include "infrastructure/net/stream.h"
 #include "support/util/fd.hpp"
 
 namespace net {
@@ -40,7 +41,7 @@ namespace net {
 /// call in `with_timeout(...)` and reads `ScopeOutcome::timed_out()`.
 /// Thread safety: not thread-safe and not concurrent-safe. One stream serves one
 /// operation at a time.
-class TcpStream {
+class TcpStream final : public Stream {
 public:
     /// @param address  Destination address (IPv4 or IPv6 literal).
     /// @param port     Destination port, host byte order.
@@ -56,24 +57,24 @@ public:
 
     /// Establish the connection. Idempotent: a no-op while connected and
     /// healthy, otherwise the socket is (re)built. Cancellable at the connect.
-    [[nodiscard]] coro::Task<std::expected<void, IoError>> ensure_connected();
+    [[nodiscard]] coro::Task<std::expected<void, IoError>> ensure_connected() override;
 
     /// Read at least one byte, up to `buf.size()`. EOF is CONNECTION_FAILED; an
     /// empty buffer performs no I/O and succeeds with 0.
-    [[nodiscard]] coro::Task<std::expected<std::size_t, IoError>> read_some(std::span<std::uint8_t> buf);
+    [[nodiscard]] coro::Task<std::expected<std::size_t, IoError>> read_some(std::span<std::uint8_t> buf) override;
 
     /// Read exactly `buf.size()` bytes. A short read (EOF mid-message) fails.
-    [[nodiscard]] coro::Task<std::expected<void, IoError>> read_exact(std::span<std::uint8_t> buf);
+    [[nodiscard]] coro::Task<std::expected<void, IoError>> read_exact(std::span<std::uint8_t> buf) override;
 
     /// Write every byte of `data`.
-    [[nodiscard]] coro::Task<std::expected<void, IoError>> send_all(std::span<const std::uint8_t> data);
+    [[nodiscard]] coro::Task<std::expected<void, IoError>> send_all(std::span<const std::uint8_t> data) override;
 
     /// Release the socket. Idempotent; never throws.
-    void close() noexcept;
+    void close() noexcept override;
 
     /// True while a connection is believed good (a one-syscall peek; a peer
     /// close is reported on the next read regardless).
-    [[nodiscard]] bool connected() const noexcept;
+    [[nodiscard]] bool connected() const noexcept override;
 
     /// Borrowed descriptor, for layering (TLS attaches it to an SSL session).
     /// -1 when closed. Valid until close() or destruction.

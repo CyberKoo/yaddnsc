@@ -252,6 +252,21 @@ target_link_libraries(test_net_transport PRIVATE yaddnsc_network_transport OpenS
 add_unit_test(net_coro_unit SOURCE net/net_coro_unit_test.cpp)
 target_link_libraries(test_net_coro_unit PRIVATE yaddnsc_net OpenSSL::SSL OpenSSL::Crypto)
 
+# HTTP protocol layer (src/infrastructure/net/http/) driven by a scripted
+# in-memory stream: framing, 1xx, keep-alive carry-over, the lazy chunked read
+# window and the redirect policy.
+add_unit_test(net_coro_http SOURCE net/http_coro_test.cpp)
+target_link_libraries(test_net_coro_http PRIVATE yaddnsc_coro_io)
+
+# ============================================================================
+#  dns/  —  coroutine DNS subsystem (src/infrastructure/dns/coro/)
+# ============================================================================
+
+# Dispatcher strategies (fallback / shuffle / concurrent), retry policy and
+# error classification, driven by scripted in-memory resolvers.
+add_unit_test(dns_coro_dispatcher SOURCE dns/dispatcher_coro_test.cpp)
+target_link_libraries(test_dns_coro_dispatcher PRIVATE yaddnsc_coro_io)
+
 # ============================================================================
 #  logging/  —  the Logger port implementation on top of spdlog
 # ============================================================================

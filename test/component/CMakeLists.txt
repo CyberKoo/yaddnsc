@@ -210,6 +210,15 @@ target_compile_definitions(test_net_coro_component PRIVATE
     TEST_DATA_DIR="${PROJECT_SOURCE_DIR}/test/component"
 )
 
+# Coroutine HTTP client and DNS subsystem over real loopback I/O: an in-process
+# HTTP/1.1 server for plain TCP, and the shared Python dns/doh/dot servers for
+# the classic, DoH and DoT paths.
+add_unit_test(net_coro_io_component SOURCE net_coro_io_component_test.cpp)
+target_link_libraries(test_net_coro_io_component PRIVATE yaddnsc_coro_io OpenSSL::SSL OpenSSL::Crypto)
+target_compile_definitions(test_net_coro_io_component PRIVATE
+    TEST_DATA_DIR="${PROJECT_SOURCE_DIR}/test/component"
+)
+
 # ============================================================================
 #  net::http  (Client + Session over an in-process HTTP/1.1 server)
 # ============================================================================

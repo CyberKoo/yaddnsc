@@ -23,6 +23,7 @@
 #include "infrastructure/coro/task.hpp"
 #include "infrastructure/net/io_error.h"
 #include "infrastructure/net/options.h"
+#include "infrastructure/net/stream.h"
 #include "infrastructure/net/tcp_stream.h"
 
 namespace net {
@@ -59,7 +60,7 @@ using SslPtr = std::unique_ptr<SSL, SslDeleter>;
 /// socket and leaves the stream reusable. EOF and protocol failures are
 /// CONNECTION_FAILED; a cancelled await is CANCELLED.
 /// Thread safety: not thread-safe and not concurrent-safe.
-class TlsStream {
+class TlsStream final : public Stream {
 public:
     /// @param address      Destination address (IPv4 or IPv6 literal).
     /// @param port         Destination port, host byte order.
@@ -77,23 +78,23 @@ public:
 
     /// Connect the TCP socket and run the handshake. Idempotent: a no-op while
     /// the session is healthy, otherwise the whole connection is rebuilt.
-    [[nodiscard]] coro::Task<std::expected<void, IoError>> ensure_connected();
+    [[nodiscard]] coro::Task<std::expected<void, IoError>> ensure_connected() override;
 
     /// Read at least one byte, up to `buf.size()`. EOF is CONNECTION_FAILED; an
     /// empty buffer performs no I/O and succeeds with 0.
-    [[nodiscard]] coro::Task<std::expected<std::size_t, IoError>> read_some(std::span<std::uint8_t> buf);
+    [[nodiscard]] coro::Task<std::expected<std::size_t, IoError>> read_some(std::span<std::uint8_t> buf) override;
 
     /// Read exactly `buf.size()` bytes. A short read (EOF mid-message) fails.
-    [[nodiscard]] coro::Task<std::expected<void, IoError>> read_exact(std::span<std::uint8_t> buf);
+    [[nodiscard]] coro::Task<std::expected<void, IoError>> read_exact(std::span<std::uint8_t> buf) override;
 
     /// Write every byte of `data`.
-    [[nodiscard]] coro::Task<std::expected<void, IoError>> send_all(std::span<const std::uint8_t> data);
+    [[nodiscard]] coro::Task<std::expected<void, IoError>> send_all(std::span<const std::uint8_t> data) override;
 
     /// Release the session and the socket. Idempotent; never throws.
-    void close() noexcept;
+    void close() noexcept override;
 
     /// True while the session and its socket are believed good.
-    [[nodiscard]] bool connected() const noexcept;
+    [[nodiscard]] bool connected() const noexcept override;
 
     /// Borrowed socket descriptor. -1 when closed.
     [[nodiscard]] int native_handle() const noexcept { return tcp_.native_handle(); }

@@ -46,6 +46,34 @@ target_link_libraries(yaddnsc_net
     PRIVATE yaddnsc_tls_support yaddnsc_network_infrastructure spdlog::spdlog yaddnsc_fmt
 )
 
+# Coroutine application protocols — the HTTP client and the DNS subsystem.
+# They share one archive because they are mutually dependent: resolving a URL
+# host needs the DNS bootstrap resolver, and DoH/DoT are DNS resolvers built on
+# the HTTP client and on the TLS stream. Splitting them would need an injected
+# resolver abstraction that only this archive would ever implement.
+add_library(yaddnsc_coro_io STATIC
+    src/infrastructure/net/stream.cpp
+    src/infrastructure/net/http/protocol/wire.cpp
+    src/infrastructure/net/http/protocol/exchange.cpp
+    src/infrastructure/net/http/wire_request.cpp
+    src/infrastructure/net/http/redirect.cpp
+    src/infrastructure/net/http/transport.cpp
+    src/infrastructure/net/http/session.cpp
+    src/infrastructure/net/http/client.cpp
+    src/infrastructure/net/http/persistent_client.cpp
+    src/infrastructure/dns/coro/exchange.cpp
+    src/infrastructure/dns/coro/bootstrap.cpp
+    src/infrastructure/dns/coro/classic.cpp
+    src/infrastructure/dns/coro/dot.cpp
+    src/infrastructure/dns/coro/doh.cpp
+    src/infrastructure/dns/coro/dispatcher.cpp
+)
+yaddnsc_production_module(yaddnsc_coro_io)
+target_link_libraries(yaddnsc_coro_io
+    PUBLIC yaddnsc_net yaddnsc_domain
+    PRIVATE yaddnsc_dns_classic yaddnsc_network_infrastructure picohttpparser spdlog::spdlog yaddnsc_fmt
+)
+
 # TLS support infrastructure (CA certificate discovery).
 add_library(yaddnsc_tls_support STATIC
     src/infrastructure/network/tls/cert_util.cpp
