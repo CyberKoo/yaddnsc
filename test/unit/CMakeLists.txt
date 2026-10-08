@@ -222,6 +222,12 @@ target_link_libraries(test_dns_coro_dispatcher PRIVATE yaddnsc_coro_io)
 add_unit_test(spdlog_logger SOURCE logging/spdlog_logger_test.cpp)
 target_link_libraries(test_spdlog_logger PRIVATE yaddnsc_logging_adapter spdlog::spdlog)
 
+# async_logging — the async sink: the Logger facade and the direct SPDLOG_*
+# call sites deliver through one pipeline, the overrun counter is readable, and
+# shutdown drains everything.
+add_unit_test(async_logging SOURCE logging/async_logging_test.cpp)
+target_link_libraries(test_async_logging PRIVATE yaddnsc_logging_adapter spdlog::spdlog)
+
 # ============================================================================
 #  ip_source/  —  IP-source abstraction
 # ============================================================================

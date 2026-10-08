@@ -221,6 +221,7 @@ target_link_libraries(yaddnsc_plugin_loader_adapter
 )
 
 add_library(yaddnsc_logging_adapter STATIC
+    src/infrastructure/logging/async_logging.cpp
     src/infrastructure/logging/spdlog_logger.cpp
 )
 yaddnsc_production_module(yaddnsc_logging_adapter)

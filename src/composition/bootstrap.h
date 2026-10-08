@@ -14,6 +14,16 @@
 /// concrete DNS/HTTP/plugin objects; only this unit does.
 namespace Composition {
 
+/// Initialize the process-wide logging pipeline (async sink). Called once at
+/// process start, before any command runs; see logging::initialize() for the
+/// design rationale (design §6.4: async sink, overflow policy, dropped-record
+/// reporting).
+void initialize_logging();
+
+/// Drain the logging pipeline and report dropped records. Called once as the
+/// process exits, after the command's exit code is decided; never throws.
+void shutdown_logging() noexcept;
+
 /// Execute a parsed command end-to-end.
 /// @return the process exit code.
 ///

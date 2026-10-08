@@ -45,6 +45,7 @@
 #include "infrastructure/dns/resolv_conf.h"
 #include "infrastructure/ip_source/adapter.h"
 #include "infrastructure/ip_source/system_network_interfaces.h"
+#include "infrastructure/logging/async_logging.h"
 #include "infrastructure/logging/spdlog_logger.h"
 #include "infrastructure/net/http/types.h"
 #include "infrastructure/net/http/uri.h"
@@ -365,6 +366,10 @@ int execute_command(const Cli::InfoCommand&) {
     return Cli::present_info();
 }
 }  // anonymous namespace
+
+void Composition::initialize_logging() { logging::initialize(); }
+
+void Composition::shutdown_logging() noexcept { logging::shutdown(); }
 
 int Composition::dispatch(const Cli::Command& command) {
     // RUN keeps its own error boundary in main() (fatal log lines).

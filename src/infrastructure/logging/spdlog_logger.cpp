@@ -5,8 +5,11 @@
 #include "spdlog_logger.h"
 
 #include <cstdint>
+#include <mutex>
 #include <source_location>
 #include <string>
+#include <string_view>
+#include <unordered_set>
 
 #include <spdlog/spdlog.h>
 
@@ -28,6 +31,21 @@ namespace {
     }
     return spdlog::level::info;
 }
+
+/// Intern a plugin-supplied file/function name so the async drain thread can
+/// still format `%s`/`%#` after the caller's views are gone.
+///
+/// spdlog's async path copies the source_loc *pointers* into the queued message,
+/// not the strings, while a plugin's location data is only valid for the
+/// duration of the host-services log call. Interning keeps the pointers valid
+/// for the process lifetime; the number of distinct plugin source locations is
+/// bounded, and unordered_set nodes are stable across rehashing.
+[[nodiscard]] const char* intern_source_string(const std::string_view value) {
+    static std::mutex mutex;
+    static std::unordered_set<std::string> pool;
+    const std::lock_guard lock(mutex);
+    return pool.emplace(value).first->c_str();
+}
 }  // namespace
 
 bool SpdlogLogger::is_enabled(LogLevel level) const {
@@ -42,11 +60,11 @@ void SpdlogLogger::log(LogLevel level, std::string_view message, const std::sour
 
 void SpdlogLogger::log_explicit(LogLevel level, std::string_view message, std::string_view file, int line,
                                 std::string_view function) const {
-    // spdlog::source_loc stores raw pointers; copy the views so they are
-    // guaranteed NUL-terminated for the duration of the synchronous log call.
-    const std::string file_str{file};
-    const std::string function_str{function};
-    const spdlog::source_loc spd_loc{file_str.c_str(), static_cast<std::int32_t>(line), function_str.c_str()};
+    // Intern the location strings: an async logger queues a copy of the
+    // source_loc pointers and formats on its drain thread, which would outlive
+    // these plugin-supplied views.
+    const spdlog::source_loc spd_loc{intern_source_string(file), static_cast<std::int32_t>(line),
+                                     intern_source_string(function)};
     spdlog::default_logger_raw()->log(spd_loc, to_spdlog_level(level),
                                       spdlog::string_view_t(message.data(), message.size()));
 }
