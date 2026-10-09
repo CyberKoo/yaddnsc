@@ -26,6 +26,8 @@ complete -c yaddnsc -n "__fish_seen_subcommand_from run" -s c -l config \
     -d "Path to configuration file" -r -F
 complete -c yaddnsc -n "__fish_seen_subcommand_from run" -s d -l debug \
     -d "Enable verbose (debug) logging"
+complete -c yaddnsc -n "__fish_seen_subcommand_from run" -l log-level \
+    -d "Set log level" -r -a "error warn info debug trace"
 
 # ── driver ──────────────────────────────────────────────────────────────────
 complete -c yaddnsc -n "__fish_seen_subcommand_from driver; and not __fish_seen_subcommand_from list info" \

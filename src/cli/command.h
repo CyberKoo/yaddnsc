@@ -18,6 +18,7 @@ namespace Cli {
 struct RunCommand {
     std::string config_path{"config.json"};  ///< -c,--config
     bool verbose{false};                     ///< -d,--debug
+    std::string log_level{};                 ///< --log-level (empty = not specified)
 };
 
 struct DriverListCommand {

@@ -31,7 +31,7 @@ _yaddnsc()
             continue
         fi
         case "${words[i]}" in
-            -c|--config|--type)
+            -c|--config|--type|--log-level)
                 skip_next=1
                 ;;
             -d|--debug|-q|--quiet|-v|--version)
@@ -53,7 +53,7 @@ _yaddnsc()
             # Within a top-level subcommand
             case ${args[0]} in
                 run)
-                    COMPREPLY=($(compgen -W '-c --config -d --debug' -- "$cur"))
+                    COMPREPLY=($(compgen -W '-c --config -d --debug --log-level' -- "$cur"))
                     ;;
                 driver)
                     COMPREPLY=($(compgen -W 'list info' -- "$cur"))

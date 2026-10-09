@@ -52,7 +52,8 @@ _yaddnsc() {
 _yaddnsc_run() {
   _arguments \
     '(-c --config)'{-c,--config}'[Path to configuration file]:config file:_files' \
-    '(-d --debug)'{-d,--debug}'[Enable verbose (debug) logging]'
+    '(-d --debug)'{-d,--debug}'[Enable verbose (debug) logging]' \
+    '--log-level[Set log level]:level:(error warn info debug trace)'
 }
 
 # ── Subcommand: driver ──────────────────────────────────────────────────────

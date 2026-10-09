@@ -177,6 +177,10 @@ yaddnsc run
 # Specify a configuration file and enable debug logging
 yaddnsc run -c /etc/yaddnsc/config.json -d
 
+# Set the log level explicitly (overrides -d); trace requires a build with
+# -DYADDNSC_ENABLE_TRACE=ON
+yaddnsc run --log-level=trace
+
 # Validate a configuration; -q suppresses the success message
 yaddnsc config test -q
 

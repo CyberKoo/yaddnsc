@@ -40,6 +40,8 @@ void register_run(CLI::App& app, std::optional<Cli::Command>& command) {
     auto* run = app.add_subcommand("run", "Run the DDNS client");
     add_config_option(run, *opts);
     run->add_flag("-d,--debug", opts->verbose, "Enable verbose (debug) logging");
+    run->add_option("--log-level", opts->log_level, "Set log level: error, warn, info, debug, trace (overrides -d)")
+        ->check(CLI::IsMember({"error", "warn", "info", "debug", "trace"}));
     run->callback([&command, opts] { command = *opts; });
 }
 

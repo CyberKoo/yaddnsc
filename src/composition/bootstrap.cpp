@@ -59,6 +59,24 @@
 #include "version.h"
 
 namespace {
+/// Map a --log-level token to the spdlog level. The CLI restricts the value
+/// to these five tokens, so the fallthrough is unreachable.
+[[nodiscard]] spdlog::level::level_enum to_log_level(std::string_view level) {
+    if (level == "trace") {
+        return spdlog::level::trace;
+    }
+    if (level == "debug") {
+        return spdlog::level::debug;
+    }
+    if (level == "info") {
+        return spdlog::level::info;
+    }
+    if (level == "warn") {
+        return spdlog::level::warn;
+    }
+    return spdlog::level::err;
+}
+
 /// Fill in the effective bootstrap DNS server list: the configured
 /// bootstrap_dns wins; otherwise fall back to /etc/resolv.conf nameservers.
 /// An empty result is not fatal — IP-literal targets still work — but every
@@ -134,7 +152,10 @@ void fill_bootstrap_servers(domain::RuntimeConfig& config) {
 /// config or a failed environment check is logged and returns EXIT_FAILURE,
 /// exactly as before.
 int run_command(const Cli::RunCommand& command) {
-    if (command.verbose) {
+    if (!command.log_level.empty()) {
+        spdlog::set_level(to_log_level(command.log_level));
+        SPDLOG_DEBUG("Log level set to {}", command.log_level);
+    } else if (command.verbose) {
         spdlog::set_level(spdlog::level::debug);
         SPDLOG_DEBUG("Verbose mode enabled");
     }

@@ -14,6 +14,10 @@ cmake --build build --parallel
 
 Use `-DCMAKE_BUILD_TYPE=Release` for production builds.
 
+Trace-level logging (`SPDLOG_TRACE`, selectable at runtime via
+`yaddnsc run --log-level=trace`) is compiled out by default; compile it in
+with `-DYADDNSC_ENABLE_TRACE=ON`.
+
 Supported current toolchains are CMake 3.28+, a 64-bit target, C++23-capable
 GCC 14+, Clang 19+, or Apple Clang 15+, and OpenSSL 3.0+.
 

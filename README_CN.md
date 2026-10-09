@@ -165,6 +165,10 @@ yaddnsc run
 # 指定配置文件并开启调试日志
 yaddnsc run -c /etc/yaddnsc/config.json -d
 
+# 显式设置日志级别（优先于 -d）；trace 级别需要以
+# -DYADDNSC_ENABLE_TRACE=ON 构建
+yaddnsc run --log-level=trace
+
 # 校验配置；-q 抑制成功提示
 yaddnsc config test -q
 

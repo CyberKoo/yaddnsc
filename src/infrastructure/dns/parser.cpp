@@ -539,7 +539,7 @@ std::string dns::RecordParser::parse_record(size_t index) const {
     const auto& rr = msg.answers[index];
     [[maybe_unused]] const auto type_name = magic_enum::enum_name(static_cast<RecordType>(rr.type));
     SPDLOG_TRACE(R"(Parsing DNS record #{}: type={} ({}), name="{}")", index,
-                 type_name.empty() ? "?" : type_name.data(), magic_enum::enum_integer(rr.type), rr.name);
+                 type_name.empty() ? "?" : type_name.data(), rr.type, rr.name);
 
     return rdata_to_string(rr, wire_);
 }
