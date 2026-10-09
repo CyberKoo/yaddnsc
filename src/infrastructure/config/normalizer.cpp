@@ -12,6 +12,8 @@
 #include "domain/config/dns_config.h"
 #include "domain/dns/record_kind.h"
 #include "infrastructure/config/config.h"
+#include "infrastructure/config/ip_literal.h"
+#include "infrastructure/uri/uri.h"
 
 #include "resolver_config.h"
 
@@ -74,7 +76,15 @@ auto normalize(const AppConfig& raw) -> domain::RuntimeConfig {
     config.resolver = normalize_resolver(raw.resolver);
 
     if (!raw.bootstrap_dns.empty()) {
-        config.resolver.bootstrap_servers.push_back({raw.bootstrap_dns, YADDNSC_DEFAULT_DNS_PORT});
+        // Store the bare address so downstream consumers — the bootstrap
+        // resolver, which parses the address as an IP literal — see exactly
+        // one spelling, bracketed or not. Validation has already rejected
+        // anything else; a value that slipped through is kept verbatim and
+        // reported there as a CONFIG error rather than silently dropped here.
+        const auto uri = Uri::parse(raw.bootstrap_dns);
+        const auto host = uri.has_value() ? bare_ip_host(*uri) : std::nullopt;
+        config.resolver.bootstrap_servers.push_back(
+            {host ? std::string{*host} : raw.bootstrap_dns, YADDNSC_DEFAULT_DNS_PORT});
     }
 
     if (raw.drivers.driver_dir.has_value()) {

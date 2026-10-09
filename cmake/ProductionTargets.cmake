@@ -146,6 +146,7 @@ target_link_libraries(yaddnsc_application
 # Configuration infrastructure — JSON parsing, normalization, validation.
 add_library(yaddnsc_config_infrastructure STATIC
     src/infrastructure/config/config.cpp
+    src/infrastructure/config/ip_literal.cpp
     src/infrastructure/config/normalizer.cpp
     src/infrastructure/config/diagnostics/parse_diagnostic.cpp
     src/infrastructure/config/diagnostics/error_adapter.cpp

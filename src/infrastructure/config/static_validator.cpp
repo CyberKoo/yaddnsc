@@ -12,6 +12,7 @@
 #include "domain/fqdn.h"
 #include "domain/network/inet_address.h"
 #include "infrastructure/config/config.h"
+#include "infrastructure/config/ip_literal.h"
 #include "infrastructure/uri/uri.h"
 #include "support/fmt.hpp"
 #include "support/util/validation.hpp"
@@ -116,9 +117,22 @@ void validate_resolver_address(std::vector<domain::ConfigError>& errors, const s
         return;
     }
 
-    // Plain DNS address — must be a valid IP.
-    if (!domain::InetAddress::parse(address)) {
+    // Plain DNS address — must be a valid IP literal. bare_ip_host judges
+    // the authority host in either spelling (bare or bracketed IPv6); the
+    // brackets are URI syntax, not part of the address.
+    if (!bare_ip_host(*uri)) {
         push_error(errors, Code::INVALID_RESOLVER, fmt::format("Invalid resolver address {}", address));
+        return;
+    }
+
+    // A classic resolver's endpoint comes from DnsServer::port, never from
+    // the authority, so a port here would be silently dropped and the query
+    // would go to a different endpoint than configured. Reject it and point
+    // at the field that is actually honoured.
+    if (uri->get_port() != 0) {
+        push_error(
+            errors, Code::INVALID_RESOLVER,
+            fmt::format(R"(Resolver address "{}" carries a port; set "port" on the server entry instead)", address));
     }
 }
 }  // namespace
@@ -186,12 +200,20 @@ auto validate_static(const AppConfig& raw) -> std::vector<domain::ConfigError> {
     }
 
     // Bootstrap DNS server — must be an IP literal when set (hostnames would
-    // be circular: bootstrap DNS is what resolves hostnames).
-    if (!raw.bootstrap_dns.empty() && !domain::InetAddress::parse(raw.bootstrap_dns)) {
-        push_error(errors, Code::INVALID_BOOTSTRAP_DNS,
-                   fmt::format(R"(Invalid bootstrap_dns "{}": must be an IP literal (e.g. "223.5.5.5" or )"
-                               R"("2606:4700:4700::1111"))",
-                               raw.bootstrap_dns));
+    // be circular: bootstrap DNS is what resolves hostnames). Both IPv6
+    // spellings are accepted, but there is no port field to carry an
+    // authority port, so one is rejected here rather than dropped later.
+    if (!raw.bootstrap_dns.empty()) {
+        const auto uri = Uri::parse(raw.bootstrap_dns);
+        const bool literal =
+            uri.has_value() && uri->get_schema().empty() && uri->get_port() == 0 && bare_ip_host(*uri).has_value();
+        if (!literal) {
+            push_error(errors, Code::INVALID_BOOTSTRAP_DNS,
+                       fmt::format(R"(Invalid bootstrap_dns "{}": must be an IP literal, with or without )"
+                                   R"(brackets (e.g. "223.5.5.5", "2606:4700:4700::1111", )"
+                                   R"("[2606:4700:4700::1111]"))",
+                                   raw.bootstrap_dns));
+        }
     }
 
     return errors;

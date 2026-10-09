@@ -218,6 +218,11 @@ target_link_libraries(test_net_coro_http PRIVATE yaddnsc_http)
 add_unit_test(dns_coro_dispatcher SOURCE dns/dispatcher_coro_test.cpp)
 target_link_libraries(test_dns_coro_dispatcher PRIVATE yaddnsc_coro_dns)
 
+# Server-address → backend mapping (bare / bracketed IPv6, IPv4, schemas).
+# Builds backend objects only — no sockets, no queries.
+add_unit_test(dns_factory SOURCE dns/factory_test.cpp)
+target_link_libraries(test_dns_factory PRIVATE yaddnsc_coro_dns)
+
 # ============================================================================
 #  logging/  —  the Logger port implementation on top of spdlog
 # ============================================================================

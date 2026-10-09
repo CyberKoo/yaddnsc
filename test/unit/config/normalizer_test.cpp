@@ -319,3 +319,21 @@ TEST(NormalizerTest, BootstrapDns_Unset_LeavesBootstrapServersEmpty) {
     const auto config = Config::normalize(raw);
     EXPECT_TRUE(config.resolver.bootstrap_servers.empty());
 }
+
+// The normaliser stores the bare address, never the bracketed spelling: the
+// bootstrap resolver parses this field as an IP literal, and inet_pton
+// rejects "[2606:4700:4700::1111]". Accepting the brackets in validation is
+// only safe because they are stripped here.
+TEST(NormalizerTest, BootstrapDns_BracketedIPv6_NormalisedToBareAddress) {
+    const auto raw = parse_raw(R"({
+        "drivers": {},
+        "resolver": { "use_custom_servers": false },
+        "domains": [],
+        "bootstrap_dns": "[2606:4700:4700::1111]"
+    })");
+
+    const auto config = Config::normalize(raw);
+    ASSERT_EQ(config.resolver.bootstrap_servers.size(), 1U);
+    EXPECT_EQ(config.resolver.bootstrap_servers[0].address, "2606:4700:4700::1111");
+    EXPECT_EQ(config.resolver.bootstrap_servers[0].port, 53);
+}

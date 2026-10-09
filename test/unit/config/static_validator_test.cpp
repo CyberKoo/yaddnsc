@@ -348,6 +348,62 @@ TEST(StaticValidatorTest, ResolverInvalidIPv4) {
     EXPECT_EQ(errors[0].message, "Invalid resolver address 999.999.999.999");
 }
 
+// An IPv6 classic resolver is a legal endpoint. Both spellings must pass:
+// the bare form ("2606:4700:4700::1111") and the RFC 3986 IP-literal form
+// ("[2606:4700:4700::1111]"), whose brackets are URI syntax rather than part
+// of the address.
+TEST(StaticValidatorTest, ResolverBareIPv6_NoErrors) {
+    const auto errors = validate_with([](Config::AppConfig& cfg) {
+        cfg.resolver.use_custom_servers = true;
+        cfg.resolver.servers = {{"2606:4700:4700::1111", 53}};
+    });
+    EXPECT_TRUE(errors.empty());
+}
+
+TEST(StaticValidatorTest, ResolverBracketedIPv6_NoErrors) {
+    const auto errors = validate_with([](Config::AppConfig& cfg) {
+        cfg.resolver.use_custom_servers = true;
+        cfg.resolver.servers = {{"[2606:4700:4700::1111]", 53}};
+    });
+    EXPECT_TRUE(errors.empty());
+}
+
+// A classic resolver always dials DnsServer::port, so a port written into the
+// authority would be dropped without a word and the query would reach a
+// different endpoint than the one configured. Reject it and name the field
+// that is actually honoured.
+TEST(StaticValidatorTest, ResolverAddressWithPort_Rejected) {
+    const auto errors = validate_with([](Config::AppConfig& cfg) {
+        cfg.resolver.use_custom_servers = true;
+        cfg.resolver.servers = {{"1.1.1.1:5353", 5353}};
+    });
+    ASSERT_EQ(errors.size(), 1U);
+    EXPECT_EQ(errors[0].code, Code::INVALID_RESOLVER);
+    EXPECT_THAT(errors[0].message, HasSubstr(R"(set "port" on the server entry instead)"));
+}
+
+TEST(StaticValidatorTest, ResolverBracketedIPv6WithPort_Rejected) {
+    const auto errors = validate_with([](Config::AppConfig& cfg) {
+        cfg.resolver.use_custom_servers = true;
+        cfg.resolver.servers = {{"[2606:4700:4700::1111]:53", 53}};
+    });
+    ASSERT_EQ(errors.size(), 1U);
+    EXPECT_EQ(errors[0].code, Code::INVALID_RESOLVER);
+    EXPECT_THAT(errors[0].message, HasSubstr(R"(set "port" on the server entry instead)"));
+}
+
+// A bracketed authority that is not a valid IPv6 literal is a malformed URI,
+// not a bad IP literal — it keeps the Uri-specific diagnostic.
+TEST(StaticValidatorTest, ResolverBracketedGarbage_MalformedNotInvalidLiteral) {
+    const auto errors = validate_with([](Config::AppConfig& cfg) {
+        cfg.resolver.use_custom_servers = true;
+        cfg.resolver.servers = {{"[not-an-address]", 53}};
+    });
+    ASSERT_EQ(errors.size(), 1U);
+    EXPECT_EQ(errors[0].code, Code::INVALID_RESOLVER);
+    EXPECT_THAT(errors[0].message, HasSubstr("Malformed resolver address"));
+}
+
 TEST(StaticValidatorTest, ResolverHostnameAddress) {
     const auto errors = validate_with([](Config::AppConfig& cfg) {
         cfg.resolver.use_custom_servers = true;
@@ -487,6 +543,37 @@ TEST(StaticValidatorTest, BootstrapDns_Hostname_Rejected) {
     ASSERT_EQ(errors.size(), 1U);
     EXPECT_EQ(errors.front().code, Code::INVALID_BOOTSTRAP_DNS);
     EXPECT_THAT(errors.front().message, HasSubstr("dns.example.com"));
+}
+
+// bootstrap_dns is spelled the same way as a resolver address: the bracketed
+// RFC 3986 IP-literal form is accepted alongside the bare one, so copying an
+// IPv6 endpoint out of a DoH URL does not need hand-editing.
+TEST(StaticValidatorTest, BootstrapDns_BracketedIPv6Literal_NoErrors) {
+    const auto errors = validate_with([](Config::AppConfig& cfg) { cfg.bootstrap_dns = "[2606:4700:4700::1111]"; });
+    EXPECT_TRUE(errors.empty());
+}
+
+// bootstrap_dns has no port field, so an authority port would be dropped
+// without a trace — reject it instead of silently dialling 53.
+TEST(StaticValidatorTest, BootstrapDns_WithPort_Rejected) {
+    const auto errors = validate_with([](Config::AppConfig& cfg) { cfg.bootstrap_dns = "1.1.1.1:5353"; });
+    ASSERT_EQ(errors.size(), 1U);
+    EXPECT_EQ(errors.front().code, Code::INVALID_BOOTSTRAP_DNS);
+    EXPECT_THAT(errors.front().message, HasSubstr("1.1.1.1:5353"));
+}
+
+TEST(StaticValidatorTest, BootstrapDns_BracketedIPv6WithPort_Rejected) {
+    const auto errors = validate_with([](Config::AppConfig& cfg) { cfg.bootstrap_dns = "[2606:4700:4700::1111]:53"; });
+    ASSERT_EQ(errors.size(), 1U);
+    EXPECT_EQ(errors.front().code, Code::INVALID_BOOTSTRAP_DNS);
+}
+
+// bootstrap_dns names a server to send plain DNS to; a DoH URL there is a
+// category error even though its host is a valid literal.
+TEST(StaticValidatorTest, BootstrapDns_WithScheme_Rejected) {
+    const auto errors = validate_with([](Config::AppConfig& cfg) { cfg.bootstrap_dns = "https://1.1.1.1"; });
+    ASSERT_EQ(errors.size(), 1U);
+    EXPECT_EQ(errors.front().code, Code::INVALID_BOOTSTRAP_DNS);
 }
 
 TEST(StaticValidatorTest, MalformedResolverAddress_ReportedNotThrown) {

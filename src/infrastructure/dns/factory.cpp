@@ -47,7 +47,10 @@ namespace {
 
     const std::string schema{uri->get_schema()};
     if (schema.empty()) {
-        const auto address = domain::InetAddress::parse(uri->get_host_literal());
+        // The bare authority host, never get_host_literal(): that accessor
+        // brackets IPv6 for URL building, so "[2606:4700:4700::1111]" would
+        // reach inet_pton with its brackets and be rejected as a non-literal.
+        const auto address = domain::InetAddress::parse(uri->get_host());
         if (!address.has_value()) {
             throw std::invalid_argument(
                 fmt::format(R"(Classic resolver address "{}" is not an IP literal)", server.address));
