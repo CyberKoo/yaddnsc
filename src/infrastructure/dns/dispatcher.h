@@ -1,10 +1,11 @@
 //
 // dns — resolver dispatcher: fallback, shuffle and concurrent strategies.
 //
-// Concurrent batches are the redesign's task_group showcase: children race, the
-// winner cancels its siblings through a child cancel scope, and scope exit still
-// joins and reaps every child (design §3.2). Retry backoff is a cancellable
-// sleep, not a thread.
+// The concurrent race is the redesign's task_group showcase: at most
+// MAX_CONCURRENT_RESOLVERS queries fly at once, each transient failure launches
+// the next backend at once, the winner cancels its siblings through a child
+// cancel scope, and scope exit still joins and reaps every child (design §3.2).
+// Retry backoff is a cancellable sleep, not a thread.
 //
 
 #ifndef YADDNSC_DNS_DISPATCHER_H
@@ -71,7 +72,7 @@ public:
     /// Default retry policy of the port-style entry point.
     static constexpr std::uint32_t DEFAULT_MAX_RETRIES = 1;
     static constexpr std::uint32_t DEFAULT_BACKOFF_MS = 50;
-    /// Largest batch a concurrent round races at once.
+    /// Most backends a concurrent race keeps in flight at once.
     static constexpr std::size_t MAX_CONCURRENT_RESOLVERS = 3;
 
 private:

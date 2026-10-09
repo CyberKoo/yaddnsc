@@ -300,7 +300,7 @@ TEST(DnsDispatcher, concurrent_fastestAnswerWins) {
 
 TEST(DnsDispatcher, concurrent_definitiveErrorSurvivesALaterTransientOne) {
     // The transient failure lands first; the definitive PARSE must not be
-    // downgraded by it, whichever order the batch completes in.
+    // downgraded by it, whichever order the race completes in.
     Fakes fakes;
     [[maybe_unused]] FakeResolver& transient = fakes.add("transient", {error_step(DnsError::RETRY, "servfail", 1ms)});
     [[maybe_unused]] FakeResolver& definitive =
@@ -326,22 +326,73 @@ TEST(DnsDispatcher, concurrent_nxdomainPreferredOverTransient) {
     EXPECT_EQ(result.error().code, DnsError::NX_DOMAIN);
 }
 
-TEST(DnsDispatcher, concurrent_batchesBeyondThree_MoveOnToTheNextGroup) {
-    // Four backends: the first batch of three all fail transiently, the fourth
-    // answers in the second batch.
+TEST(DnsDispatcher, concurrent_beyondThree_RefillsFreedSlots) {
+    // Four backends for three slots: the first three all fail transiently, and
+    // each failure frees its slot, so the fourth backend launches and answers.
     Fakes fakes;
     for (int i = 0; i < 3; ++i) {
         (void) fakes.add("down" + std::to_string(i), {error_step(DnsError::RETRY, "down")});
     }
-    (void) fakes.add("answers", {response_step(a_response("yaddnsc.test", 7))});
+    FakeResolver& answers = fakes.add("answers", {response_step(a_response("yaddnsc.test", 7))});
     dns::Dispatcher dispatcher{fakes.take(), Strategy::CONCURRENT};
 
     const auto result = run_query(dispatcher);
 
-    // The first batch of three failed transiently, so the dispatcher moved on to
-    // the next group, where the fourth backend answered.
     ASSERT_TRUE(result.has_value());
     EXPECT_EQ(*result, (std::vector<std::string>{"198.51.100.7"}));
+    EXPECT_EQ(answers.calls(), 1);
+}
+
+TEST(DnsDispatcher, concurrent_freedSlotLaunchesTheNextBackendImmediately) {
+    // A slow answer occupies one slot while two fast transient failures free
+    // theirs: the fourth backend launches at the first failure and beats the
+    // slow answer. Wave semantics would let the slow answer win instead.
+    Fakes fakes;
+    [[maybe_unused]] FakeResolver& down_a = fakes.add("down-a", {error_step(DnsError::RETRY, "down", 1ms)});
+    FakeResolver& slow = fakes.add("slow-answer", {response_step(a_response("yaddnsc.test", 2), 30ms)});
+    [[maybe_unused]] FakeResolver& down_b = fakes.add("down-b", {error_step(DnsError::RETRY, "down", 1ms)});
+    FakeResolver& answers = fakes.add("answers", {response_step(a_response("yaddnsc.test", 7), 1ms)});
+    dns::Dispatcher dispatcher{fakes.take(), Strategy::CONCURRENT};
+
+    const auto result = run_query(dispatcher);
+
+    ASSERT_TRUE(result.has_value());
+    EXPECT_EQ(*result, (std::vector<std::string>{"198.51.100.7"}));
+    EXPECT_EQ(slow.calls(), 1);
+    EXPECT_EQ(answers.calls(), 1);
+}
+
+TEST(DnsDispatcher, concurrent_nxdomain_StopsFurtherLaunches) {
+    // NXDOMAIN from one backend ends the search: the in-flight queries settle,
+    // but the fourth backend is never launched.
+    Fakes fakes;
+    (void) fakes.add("missing", {response_step(nxdomain_response("yaddnsc.test"), 1ms)});
+    (void) fakes.add("down-a", {error_step(DnsError::RETRY, "down", 30ms)});
+    (void) fakes.add("down-b", {error_step(DnsError::RETRY, "down", 30ms)});
+    FakeResolver& late = fakes.add("late", {response_step(a_response("yaddnsc.test", 7), 1ms)});
+    dns::Dispatcher dispatcher{fakes.take(), Strategy::CONCURRENT};
+
+    const auto result = run_query(dispatcher);
+
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error().code, DnsError::NX_DOMAIN);
+    EXPECT_EQ(late.calls(), 0);
+}
+
+TEST(DnsDispatcher, concurrent_definitive_StopsFurtherLaunches) {
+    // A definitive PARSE failure ends the search the same way NXDOMAIN does.
+    Fakes fakes;
+    (void) fakes.add("malformed", {error_step(DnsError::PARSE, "bad", 1ms)});
+    (void) fakes.add("down-a", {error_step(DnsError::RETRY, "down", 30ms)});
+    (void) fakes.add("down-b", {error_step(DnsError::RETRY, "down", 30ms)});
+    FakeResolver& late = fakes.add("late", {response_step(a_response("yaddnsc.test", 7), 1ms)});
+    dns::Dispatcher dispatcher{fakes.take(), Strategy::CONCURRENT};
+
+    const auto result = run_query(dispatcher);
+
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error().code, DnsError::PARSE);
+    EXPECT_EQ(late.calls(), 0);
 }
 
 // ---------------------------------------------------------------------------
@@ -394,6 +445,38 @@ TEST(DnsDispatcher, scopeTimeout_AbortsTheQueryAsCancelled) {
     EXPECT_TRUE(timed_out);
     ASSERT_TRUE(error.has_value());
     EXPECT_EQ(error->code, DnsError::CANCELLED);
+}
+
+TEST(DnsDispatcher, concurrent_cancellationLaunchesNothingNew) {
+    // Five backends for three slots: shutdown cancels the in-flight queries,
+    // and the two never-launched backends must stay uncalled.
+    Fakes fakes;
+    for (int i = 0; i < 3; ++i) {
+        (void) fakes.add("slow" + std::to_string(i), {response_step(a_response("yaddnsc.test", 42), 500ms)});
+    }
+    FakeResolver& extra_a = fakes.add("extra-a", {response_step(a_response("yaddnsc.test", 7), 1ms)});
+    FakeResolver& extra_b = fakes.add("extra-b", {response_step(a_response("yaddnsc.test", 8), 1ms)});
+    dns::Dispatcher dispatcher{fakes.take(), Strategy::CONCURRENT};
+
+    bool timed_out = false;
+    std::optional<DnsErrorInfo> error;
+    coro::run([&]() -> coro::Task<void> {
+        const auto outcome = co_await coro::with_timeout(20ms, [&](coro::CancelScope&) -> coro::Task<void> {
+            auto result = co_await dispatcher.resolve("yaddnsc.test", RecordKind::A);
+            if (!result) {
+                error = result.error();
+            }
+            co_return;
+        });
+        timed_out = outcome.timed_out;
+        co_return;
+    }());
+
+    EXPECT_TRUE(timed_out);
+    ASSERT_TRUE(error.has_value());
+    EXPECT_EQ(error->code, DnsError::CANCELLED);
+    EXPECT_EQ(extra_a.calls(), 0);
+    EXPECT_EQ(extra_b.calls(), 0);
 }
 
 }  // namespace

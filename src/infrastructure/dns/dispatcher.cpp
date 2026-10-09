@@ -100,7 +100,7 @@ struct Attempt {
     }
 }
 
-/// Collects the diagnosis of a concurrent batch without downgrading it.
+/// Collects the diagnosis of a concurrent race without downgrading it.
 ///
 /// NXDOMAIN outranks every other failure: one backend proving the name does
 /// not exist beats any other diagnosis. Next, the first definitive error
@@ -153,22 +153,33 @@ private:
     bool has_nxdomain_ = false;
 };
 
-/// Race one batch: the first backend to answer wins and cancels the rest.
-[[nodiscard]] coro::Task<std::expected<std::vector<std::string>, DnsErrorInfo>> run_concurrent_batch(
-    const std::span<Resolver* const> batch, std::string host, const RecordKind kind) {
+/// Race every backend with at most MAX_CONCURRENT_RESOLVERS queries in flight.
+///
+/// The first answer wins and cancels the in-flight losers; every transient
+/// failure frees its slot and launches the next backend at once instead of
+/// waiting for a whole wave to settle. A definitive diagnosis (or NXDOMAIN)
+/// stops further launches while the in-flight queries settle.
+[[nodiscard]] coro::Task<std::expected<std::vector<std::string>, DnsErrorInfo>> run_concurrent_race(
+    const std::span<Resolver* const> resolvers, std::string host, const RecordKind kind) {
     std::optional<std::vector<std::string>> winner;
     BatchErrors errors;
     bool cancelled = false;
-
-    SPDLOG_DEBUG(R"(Launching batch of {} resolver(s) for "{}")", batch.size(), host);
 
     // A child scope lets the winner cancel its siblings while the group still
     // joins and reaps every child on exit.
     co_await coro::with_cancel_scope([&](coro::CancelScope& race) -> coro::Task<void> {
         co_await coro::task_group([&](coro::TaskGroup& group) -> coro::Task<void> {
-            for (Resolver* resolver : batch) {
-                group.spawn(attempt_one(*resolver, host, kind));
+            auto pending = resolvers.begin();
+            const auto launch = [&group, &pending, resolvers, &host, kind] {
+                if (pending != resolvers.end()) {
+                    group.spawn(attempt_one(**pending, host, kind));
+                    ++pending;
+                }
+            };
+            for (std::size_t i = 0; i < Dispatcher::MAX_CONCURRENT_RESOLVERS; ++i) {
+                launch();
             }
+            bool search_over = false;
             // Completion order decides, not launch order.
             while (auto outcome = co_await group.next<Attempt>()) {
                 if (!outcome->has_value()) {
@@ -176,8 +187,8 @@ private:
                 }
                 const Attempt& attempt = outcome->value();
                 if (attempt.ok) {
-                    SPDLOG_DEBUG(R"(Resolver #{} returned {} record(s) for "{}")", attempt.id,
-                                 attempt.records.size(), host);
+                    SPDLOG_DEBUG(R"(Resolver #{} returned {} record(s) for "{}")", attempt.id, attempt.records.size(),
+                                 host);
                     winner = attempt.records;
                     race.cancel();  // wake the losers; scope exit joins them
                     break;
@@ -185,7 +196,7 @@ private:
                 if (attempt.error.code == DnsError::CANCELLED) {
                     SPDLOG_TRACE(R"(Resolver #{} cancelled for "{}")", attempt.id, host);
                     cancelled = true;
-                    continue;  // keep consuming until every child has finished
+                    continue;  // shutting down: drain without launching anew
                 }
                 if (attempt.error.code == DnsError::NX_DOMAIN) {
                     SPDLOG_DEBUG(R"(Resolver #{} returned NXDOMAIN for "{}")", attempt.id, host);
@@ -197,6 +208,12 @@ private:
                                  error_to_str(attempt.error.code));
                 }
                 errors.note(attempt.error);
+                if (attempt.error.code == DnsError::NX_DOMAIN || detail::is_definitive(attempt.error.code)) {
+                    search_over = true;  // in-flight queries settle; nothing new launches
+                }
+                if (!search_over) {
+                    launch();  // a transient failure frees its slot at once
+                }
             }
             co_return;
         });
@@ -206,7 +223,7 @@ private:
         co_return std::move(*winner);
     }
     if (cancelled) {
-        co_return std::unexpected(DnsErrorInfo{DnsError::CANCELLED, "DNS batch cancelled"});
+        co_return std::unexpected(DnsErrorInfo{DnsError::CANCELLED, "DNS race cancelled"});
     }
     co_return std::unexpected(errors.best(host));
 }
@@ -273,29 +290,17 @@ coro::Task<std::expected<std::vector<std::string>, DnsErrorInfo>> Dispatcher::re
     }
 
     if (strategy_ == Strategy::CONCURRENT) {
-        SPDLOG_DEBUG(R"(Concurrent mode: {} resolver(s) for "{}", {} per batch)", all.size(), host,
+        SPDLOG_DEBUG(R"(Concurrent mode: {} resolver(s) for "{}", {} at a time)", all.size(), host,
                      MAX_CONCURRENT_RESOLVERS);
-        DnsErrorInfo last{DnsError::NODATA, fmt::format(R"(DNS lookup for domain "{}" returned no records)", host)};
-        for (std::size_t offset = 0; offset < all.size(); offset += MAX_CONCURRENT_RESOLVERS) {
-            const auto end = std::min(offset + MAX_CONCURRENT_RESOLVERS, all.size());
-            auto batch = std::span(all).subspan(offset, end - offset);
-            auto result = co_await run_concurrent_batch(batch, host, kind);
-            if (result.has_value()) {
-                co_return std::move(*result);
-            }
-            last = std::move(result.error());
-            // Definitive diagnoses end the search; a batch that simply failed
-            // moves on to the next group of backends.
-            if (detail::is_definitive(last.code) || last.code == DnsError::NX_DOMAIN ||
-                last.code == DnsError::CANCELLED) {
-                co_return std::unexpected(std::move(last));
-            }
-        }
-        if (all.size() > 1) {
+        auto result = co_await run_concurrent_race(all, host, kind);
+        // Definitive diagnoses end the search inside the race; only a walk
+        // that exhausted every backend on transient failures is reported here.
+        if (!result.has_value() && !detail::is_definitive(result.error().code) &&
+            result.error().code != DnsError::NX_DOMAIN && result.error().code != DnsError::CANCELLED) {
             SPDLOG_ERROR(R"(All {} resolver(s) failed for domain "{}", last error: {})", all.size(), host,
-                         error_to_str(last.code));
+                         error_to_str(result.error().code));
         }
-        co_return std::unexpected(std::move(last));
+        co_return result;
     }
 
     if (strategy_ == Strategy::SHUFFLE) {

@@ -79,7 +79,7 @@ namespace detail {
     return response.size() >= dns::HEADER_SIZE && (response[2] & 0x02) != 0;
 }
 
-/// True when an error is permanent for this name and must stop a batch.
+/// True when an error is permanent for this name and must stop the search.
 [[nodiscard]] constexpr bool is_definitive(const DnsError code) noexcept {
     return code == DnsError::PARSE || code == DnsError::CONFIG;
 }
