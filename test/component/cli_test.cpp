@@ -38,7 +38,6 @@
 #include <fcntl.h>
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
-#include <signal.h>
 #include <spdlog/spdlog.h>
 #include <unistd.h>
 
@@ -546,7 +545,7 @@ TEST(CliConfigTest, DispatchTest_Quiet_PrintsNothing) {
 }
 
 TEST(CliConfigTest, DispatchTest_EmptyDriverDir_ReturnsFailure) {
-    // driver_dir set but empty → ConfigVerificationException at load time.
+    // driver_dir set but empty → ConfigException at load time.
     TempConfigFile cfg(
         R"({"drivers":{"auto_discover":false,"driver_dir":"","load":["simple/simple.so"]},"resolver":{"use_custom_servers":false},"domains":[]})");
     EXPECT_EQ(Composition::dispatch(Cli::ConfigTestCommand{cfg.path()}), EXIT_FAILURE);
@@ -597,16 +596,10 @@ TEST(CliRunTest, DispatchRun_EmptyCustomResolverFailsBeforeDriverLoading) {
     const auto previous_level = spdlog::default_logger()->level();
     spdlog::set_level(spdlog::level::info);
 
-    // run_command() installs the process-wide signal mask before touching
-    // the configuration; keep the test process's own mask untouched.
-    sigset_t saved_mask;
-    ::sigprocmask(SIG_SETMASK, nullptr, &saved_mask);
-
     StreamCapture out{STDOUT_FILENO};
     StreamCapture err{STDERR_FILENO};
     EXPECT_EQ(Composition::dispatch(Cli::RunCommand{cfg.path()}), EXIT_FAILURE);
 
-    ::sigprocmask(SIG_SETMASK, &saved_mask, nullptr);
     spdlog::set_level(previous_level);
 
     // The failure is reported as the resolver validation error (through the
@@ -685,8 +678,10 @@ TEST(CliDriverTest, DispatchInfo_UnknownDriver_ReturnsFailure) {
     TempConfigFile cfg(config_with_simple_driver());
 
     StreamCapture err{STDERR_FILENO};
+    StdoutCapture out;
     EXPECT_EQ(Composition::dispatch(Cli::DriverInfoCommand{cfg.path(), "not_a_driver"}), EXIT_FAILURE);
-    EXPECT_NE(err.str().find("Error: Driver 'not_a_driver' is not loaded"), std::string::npos);
+    EXPECT_EQ(err.str(), "Error: Driver 'not_a_driver' is not loaded\n");
+    EXPECT_EQ(out.str().find("Name:"), std::string::npos);
 }
 
 // ===========================================================================
@@ -806,9 +801,10 @@ namespace {
 class FakeResolverPort final : public app::ResolverPort {
 public:
     std::vector<std::string> records;
-    std::optional<DnsErrorInfo> error;
+    std::optional<domain::DnsErrorInfo> error;
 
-    coro::Task<std::expected<std::vector<std::string>, DnsErrorInfo>> resolve(std::string, RecordKind) override {
+    coro::Task<std::expected<std::vector<std::string>, domain::DnsErrorInfo>> resolve(std::string,
+                                                                                      domain::RecordKind) override {
         if (error.has_value()) {
             co_return std::unexpected(*error);
         }
@@ -817,7 +813,7 @@ public:
 };
 
 [[nodiscard]] app::DnsResolveOutcome run_dns_resolve(app::ResolverPort& resolver, const std::string& host,
-                                                            const std::string& type) {
+                                                     const std::string& type) {
     coro::Loop loop;
     return coro::run(loop, app::dns_resolve(resolver, host, type));
 }
@@ -844,7 +840,7 @@ TEST(CliDiagnosticsTest, DnsResolve_TypeIsCaseInsensitive) {
 
 TEST(CliDiagnosticsTest, DnsResolve_ErrorPassesThrough) {
     FakeResolverPort resolver;
-    resolver.error = DnsErrorInfo{DnsError::NX_DOMAIN, "nxdomain"};
+    resolver.error = domain::DnsErrorInfo{domain::DnsError::NX_DOMAIN, "nxdomain"};
 
     const auto outcome = run_dns_resolve(resolver, "example.com", "A");
     ASSERT_TRUE(outcome.lookup.has_value());
@@ -863,26 +859,32 @@ TEST(CliDiagnosticsTest, ListDrivers_CapturesPerDriverFailure) {
     MockDriverCatalogPort catalog;
     ON_CALL(catalog, loaded_drivers()).WillByDefault(::testing::Return(std::vector<std::string>{"good", "bad"}));
     ON_CALL(catalog, describe("good"))
+        .WillByDefault(::testing::Return(
+            app::DriverDescription{.name = "good", .version = "1.0", .author = "a", .description = "d"}));
+    ON_CALL(catalog, describe("bad"))
         .WillByDefault(
-            ::testing::Return(DriverDescription{.name = "good", .version = "1.0", .author = "a", .description = "d"}));
-    ON_CALL(catalog, describe("bad")).WillByDefault(::testing::Throw(std::runtime_error("descriptor exploded")));
+            ::testing::Return(std::unexpected(domain::DriverError{domain::DriverError::Code::NOT_FOUND, {}})));
 
     const auto items = app::list_drivers(catalog);
     ASSERT_EQ(items.size(), 2);
-    EXPECT_TRUE(items[0].detail.has_value());
+    ASSERT_TRUE(items[0].detail.has_value());
     EXPECT_EQ(items[0].detail->name, "good");
-    EXPECT_FALSE(items[1].detail.has_value());
-    EXPECT_EQ(items[1].error, "descriptor exploded");
+    ASSERT_FALSE(items[1].detail.has_value());
+    EXPECT_EQ(items[1].detail.error().code, domain::DriverError::Code::NOT_FOUND);
+    StdoutCapture capture;
+    EXPECT_EQ(Cli::present_driver_list(items), EXIT_SUCCESS);
+    EXPECT_NE(capture.str().find("bad — (failed to query details: Driver 'bad' is not loaded)"), std::string::npos);
 }
 
 TEST(CliDiagnosticsTest, ListInterfaces_CollectsAddresses) {
     MockNetworkInterfaces interfaces;
     ON_CALL(interfaces, names()).WillByDefault(::testing::Return(std::vector<std::string>{"lo", "eth0"}));
     ON_CALL(interfaces, addresses("lo"))
-        .WillByDefault(::testing::Return(std::optional<std::vector<InetAddress>>{
-            std::vector<InetAddress>{InetAddress(*Inet4Address::parse("127.0.0.1"))}}));
+        .WillByDefault(::testing::Return(std::optional<std::vector<domain::InetAddress>>{
+            std::vector<domain::InetAddress>{domain::InetAddress(*domain::Inet4Address::parse("127.0.0.1"))}}));
     ON_CALL(interfaces, addresses("eth0"))
-        .WillByDefault(::testing::Return(std::optional<std::vector<InetAddress>>{std::vector<InetAddress>{}}));
+        .WillByDefault(
+            ::testing::Return(std::optional<std::vector<domain::InetAddress>>{std::vector<domain::InetAddress>{}}));
 
     const auto items = app::list_interfaces(interfaces);
     ASSERT_EQ(items.size(), 2);
@@ -905,10 +907,10 @@ TEST(CliPresenterTest, DnsResolve_UnknownType_PrintsValidTypes) {
 }
 
 TEST(CliPresenterTest, DnsResolve_Failure_PrintsMessageAndSucceeds) {
-    app::DnsResolveOutcome outcome{
-        .host = "example.com",
-        .type_text = "A",
-        .lookup = std::unexpected(DnsErrorInfo{DnsError::NX_DOMAIN, "Domain example.com does not exist (NXDOMAIN)"})};
+    app::DnsResolveOutcome outcome{.host = "example.com",
+                                   .type_text = "A",
+                                   .lookup = std::unexpected(domain::DnsErrorInfo{
+                                       domain::DnsError::NX_DOMAIN, "Domain example.com does not exist (NXDOMAIN)"})};
 
     StdoutCapture capture;
     EXPECT_EQ(Cli::present_dns_resolve(outcome), EXIT_SUCCESS);
@@ -916,8 +918,7 @@ TEST(CliPresenterTest, DnsResolve_Failure_PrintsMessageAndSucceeds) {
 }
 
 TEST(CliPresenterTest, DnsResolve_NoRecords_PrintsMessageAndSucceeds) {
-    app::DnsResolveOutcome outcome{
-        .host = "example.com", .type_text = "AAAA", .lookup = std::vector<std::string>{}};
+    app::DnsResolveOutcome outcome{.host = "example.com", .type_text = "AAAA", .lookup = std::vector<std::string>{}};
 
     StdoutCapture capture;
     EXPECT_EQ(Cli::present_dns_resolve(outcome), EXIT_SUCCESS);

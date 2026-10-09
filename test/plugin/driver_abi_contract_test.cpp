@@ -1,7 +1,3 @@
-//
-// Created by Kotarou on 2026/9/17.
-//
-
 /// Host-side contract tests for the v1 alpha plugin ABI.
 ///
 /// Two angles:
@@ -481,12 +477,9 @@ TEST(DriverAbiContract, HttpMethodMapping) {
     const auto services = host.context.make_services();
 
     const std::array mapping{
-        std::pair{YADDNSC_HTTP_GET, TestHttpMethod::GET},
-        std::pair{YADDNSC_HTTP_POST, TestHttpMethod::POST},
-        std::pair{YADDNSC_HTTP_PUT, TestHttpMethod::PUT},
-        std::pair{YADDNSC_HTTP_DELETE, TestHttpMethod::DEL},
-        std::pair{YADDNSC_HTTP_PATCH, TestHttpMethod::PATCH},
-        std::pair{YADDNSC_HTTP_HEAD, TestHttpMethod::HEAD},
+        std::pair{YADDNSC_HTTP_GET, TestHttpMethod::GET},         std::pair{YADDNSC_HTTP_POST, TestHttpMethod::POST},
+        std::pair{YADDNSC_HTTP_PUT, TestHttpMethod::PUT},         std::pair{YADDNSC_HTTP_DELETE, TestHttpMethod::DEL},
+        std::pair{YADDNSC_HTTP_PATCH, TestHttpMethod::PATCH},     std::pair{YADDNSC_HTTP_HEAD, TestHttpMethod::HEAD},
         std::pair{YADDNSC_HTTP_OPTIONS, TestHttpMethod::OPTIONS},
     };
 
@@ -694,12 +687,12 @@ TEST(DriverAbiContract, LogLevelMapping) {
 
     const auto records = host.logger.records();
     ASSERT_EQ(records.size(), 6u);
-    EXPECT_EQ(records[0].level, LogLevel::TRACE);
-    EXPECT_EQ(records[1].level, LogLevel::DEBUG);
-    EXPECT_EQ(records[2].level, LogLevel::INFO);
-    EXPECT_EQ(records[3].level, LogLevel::WARN);
-    EXPECT_EQ(records[4].level, LogLevel::ERROR);
-    EXPECT_EQ(records[5].level, LogLevel::INFO);
+    EXPECT_EQ(records[0].level, app::LogLevel::TRACE);
+    EXPECT_EQ(records[1].level, app::LogLevel::DEBUG);
+    EXPECT_EQ(records[2].level, app::LogLevel::INFO);
+    EXPECT_EQ(records[3].level, app::LogLevel::WARN);
+    EXPECT_EQ(records[4].level, app::LogLevel::ERROR);
+    EXPECT_EQ(records[5].level, app::LogLevel::INFO);
 }
 
 TEST(DriverAbiContract, LogCarriesSourceLocation) {
@@ -712,7 +705,7 @@ TEST(DriverAbiContract, LogCarriesSourceLocation) {
 
     const auto records = host.logger.records();
     ASSERT_EQ(records.size(), 1u);
-    EXPECT_EQ(records[0].level, LogLevel::WARN);
+    EXPECT_EQ(records[0].level, app::LogLevel::WARN);
     EXPECT_EQ(records[0].message, "hello");
     EXPECT_EQ(records[0].file, "plugin.cpp");
     EXPECT_EQ(records[0].line, 42);
@@ -771,7 +764,7 @@ TEST(DriverAbiContract, SdkLogMacroDeliversCallSiteLocation) {
 
     const auto records = host.logger.records();
     ASSERT_EQ(records.size(), 1u);
-    EXPECT_EQ(records[0].level, LogLevel::INFO);
+    EXPECT_EQ(records[0].level, app::LogLevel::INFO);
     EXPECT_EQ(records[0].message, "via sdk");
     // The SDK macro path must carry all three of file / line / function.
     EXPECT_TRUE(records[0].file.ends_with("test_driver_plugin.cpp")) << records[0].file;
@@ -792,8 +785,8 @@ TEST(DriverAbiContract, PluginRawLogViolationsDoNotFailUpdate) {
 
     const auto records = host.logger.records();
     ASSERT_EQ(records.size(), 6u);
-    const std::array expected_levels{LogLevel::INFO,  LogLevel::WARN,  LogLevel::ERROR,
-                                     LogLevel::DEBUG, LogLevel::TRACE, LogLevel::INFO};
+    const std::array expected_levels{app::LogLevel::INFO,  app::LogLevel::WARN,  app::LogLevel::ERROR,
+                                     app::LogLevel::DEBUG, app::LogLevel::TRACE, app::LogLevel::INFO};
     for (size_t i = 0; i < records.size(); ++i) {
         EXPECT_EQ(records[i].level, expected_levels[i]) << i;
         EXPECT_EQ(records[i].message, "raw log record") << i;

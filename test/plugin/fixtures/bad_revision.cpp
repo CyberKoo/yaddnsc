@@ -1,7 +1,3 @@
-//
-// Created by Kotarou on 2026/9/17.
-//
-
 /// Loader-rejection fixture: a structurally complete v1 alpha plugin whose
 /// descriptor reports ABI major 0. The host implements major 1 only and must
 /// reject it before interpreting the 1.0 tail.

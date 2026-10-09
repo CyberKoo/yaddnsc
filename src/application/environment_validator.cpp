@@ -1,7 +1,3 @@
-//
-// Created by Kotarou on 2026/9/17.
-//
-
 #include "environment_validator.h"
 
 #include <algorithm>
@@ -19,7 +15,7 @@ namespace app {
 
 std::expected<void, std::vector<domain::ConfigError>> validate_environment(const domain::RuntimeConfig& config,
                                                                            const DriverCatalogPort& catalog,
-                                                                           const NetworkInterfaces& interfaces) {
+                                                                           const NetworkInterfacesPort& interfaces) {
     const auto loaded_drivers = catalog.loaded_drivers();
     const auto available_interfaces = interfaces.names();
 

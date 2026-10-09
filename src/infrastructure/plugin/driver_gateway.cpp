@@ -19,15 +19,19 @@
 
 #include "application/ports/log.h"
 #include "infrastructure/coro/offload.hpp"
-#include "infrastructure/plugin/host_services.h"
+#include "infrastructure/coro/scope.hpp"
 #include "infrastructure/plugin/driver_catalog.h"
 #include "infrastructure/plugin/driver_instance.h"
+#include "infrastructure/plugin/host_services.h"
 #include "infrastructure/plugin/plugin_loader.h"
 #include "support/fmt.hpp"
 
 namespace plugin {
 
 namespace {
+
+// Synchronous worker-to-loop boundary marker; never crosses the C ABI.
+struct AbiCancelled {};
 
 [[nodiscard]] domain::DriverError map_error(yaddnsc_status status, std::string_view plugin_message,
                                             std::string_view driver_name, std::string_view fqdn) {
@@ -39,7 +43,7 @@ namespace {
         case YADDNSC_STATUS_RATE_LIMITED:
             return {Code::RATE_LIMITED, message, 0};
         case YADDNSC_STATUS_CANCELLED:
-            return {Code::CANCELLED, message, 0};
+            throw AbiCancelled{};
         case YADDNSC_STATUS_INVALID_CONFIG:
         case YADDNSC_STATUS_INTERNAL_ERROR:
             return {Code::UNKNOWN, message, 0};
@@ -101,8 +105,11 @@ namespace {
 /// configuration was rejected (INVALID_CONFIG is the canonical code, but
 /// plugins may report other failures — e.g. an internal error while
 /// validating — which the caller must surface verbatim).
-[[nodiscard]] domain::DriverError map_validate_error(yaddnsc_status /*status*/, std::string_view plugin_message,
+[[nodiscard]] domain::DriverError map_validate_error(yaddnsc_status status, std::string_view plugin_message,
                                                      std::string_view driver_name) {
+    if (status == YADDNSC_STATUS_CANCELLED) {
+        throw AbiCancelled{};
+    }
     const std::string message = !plugin_message.empty()
                                     ? std::string(plugin_message)
                                     : fmt::format("Driver '{}' rejected its driver_params configuration", driver_name);
@@ -115,7 +122,7 @@ namespace {
 /// abandoned cycle keeps both alive until it finishes.
 [[nodiscard]] std::expected<void, domain::DriverError> run_update_cycle(
     const std::shared_ptr<const PluginModule>& module, const domain::DriverUpdateCommand& command, Bridge& bridge,
-    const Logger& logger, const std::shared_ptr<CallState>& state) {
+    const app::LoggerPort& logger, const std::shared_ptr<CallState>& state) {
     const std::string_view driver_name = module->descriptor().name;
 
     // Offload drops an abandoned job before it starts; this gate covers the
@@ -123,8 +130,7 @@ namespace {
     // the result is already discarded and the address may no longer be current.
     // Once the cycle has started it runs to completion.
     if (state->cancelled.load(std::memory_order_acquire)) {
-        return std::unexpected(domain::DriverError{domain::DriverError::Code::CANCELLED,
-                                                   fmt::format("Update for driver '{}' was cancelled", driver_name)});
+        throw AbiCancelled{};
     }
 
     HostServicesContext context{bridge, logger, state};
@@ -183,14 +189,13 @@ namespace {
 /// network).
 [[nodiscard]] std::expected<void, domain::DriverError> run_validate_cycle(
     const std::shared_ptr<const PluginModule>& module, const std::string& driver_param_json, Bridge& bridge,
-    const Logger& logger, const std::shared_ptr<CallState>& state) {
+    const app::LoggerPort& logger, const std::shared_ptr<CallState>& state) {
     const std::string_view driver_name = module->descriptor().name;
 
     // Same entry gate as the update cycle: an abandoned queued job skips the
     // plugin entirely.
     if (state->cancelled.load(std::memory_order_acquire)) {
-        return std::unexpected(domain::DriverError{domain::DriverError::Code::CANCELLED,
-                                                   fmt::format("Validation for driver '{}' was cancelled", driver_name)});
+        throw AbiCancelled{};
     }
 
     HostServicesContext context{bridge, logger, state};
@@ -228,11 +233,11 @@ namespace {
 
 }  // namespace
 
-DriverGateway::DriverGateway(const DriverCatalog& catalog, const Logger& logger, coro::Loop& loop,
+DriverGateway::DriverGateway(const DriverCatalog& catalog, const app::LoggerPort& logger, coro::Loop& loop,
                              coro::TaskGroup& bridge_group)
     : DriverGateway(catalog, logger, loop, bridge_group, Options{}) {}
 
-DriverGateway::DriverGateway(const DriverCatalog& catalog, const Logger& logger, coro::Loop& loop,
+DriverGateway::DriverGateway(const DriverCatalog& catalog, const app::LoggerPort& logger, coro::Loop& loop,
                              coro::TaskGroup& bridge_group, Options options)
     : catalog_(catalog), logger_(logger),
       bridge_(std::make_shared<Bridge>(loop, bridge_group, std::move(options.http), options.bridge_wait_budget)) {}
@@ -252,26 +257,26 @@ coro::Task<std::expected<void, domain::DriverError>> DriverGateway::update(std::
 
     auto state = std::make_shared<CallState>();
     auto bridge = bridge_;
-    const Logger* const logger = &logger_;
-    auto outcome = co_await coro::offload(
-        [module, command = std::move(command), bridge, logger, state]() mutable
-            -> std::expected<void, domain::DriverError> {
+    const app::LoggerPort* const logger = &logger_;
+    coro::CancelScope& scope = co_await coro::current_scope();
+    try {
+        co_return co_await coro::offload([module, command = std::move(command), bridge, logger,
+                                          state]() mutable -> std::expected<void, domain::DriverError> {
             return run_update_cycle(module, command, *bridge, *logger, state);
         });
-
-    if (!outcome.has_value()) {
+    } catch (const AbiCancelled&) {
+        scope.cancel();
+        scope.throw_if_cancelled();
+        throw;  // cancellation_origin is guaranteed after cancel()
+    } catch (const coro::Cancelled&) {
         state->cancelled.store(true, std::memory_order_release);
-        // Abandoning the wait also aborts the in-flight bridge exchange: the
-        // plugin's HTTP must not run to completion behind the caller's back.
         bridge->cancel(state->in_flight_call());
-        co_return std::unexpected(domain::DriverError{
-            domain::DriverError::Code::CANCELLED, fmt::format("Update for driver '{}' was cancelled", driver_name)});
+        throw;
     }
-    co_return std::move(*outcome);
 }
 
-coro::Task<std::expected<void, domain::DriverError>> DriverGateway::validate_config(
-    std::string driver_name, std::string driver_param_json) {
+coro::Task<std::expected<void, domain::DriverError>> DriverGateway::validate_config(std::string driver_name,
+                                                                                    std::string driver_param_json) {
     auto module = catalog_.find(driver_name);
     if (module == nullptr) {
         co_return std::unexpected(domain::DriverError{domain::DriverError::Code::NOT_FOUND,
@@ -290,23 +295,22 @@ coro::Task<std::expected<void, domain::DriverError>> DriverGateway::validate_con
 
     auto state = std::make_shared<CallState>();
     auto bridge = bridge_;
-    const Logger* const logger = &logger_;
-    auto outcome = co_await coro::offload(
-        [module, param = std::move(driver_param_json), bridge, logger, state]() mutable
-            -> std::expected<void, domain::DriverError> {
+    const app::LoggerPort* const logger = &logger_;
+    coro::CancelScope& scope = co_await coro::current_scope();
+    try {
+        co_return co_await coro::offload([module, param = std::move(driver_param_json), bridge, logger,
+                                          state]() mutable -> std::expected<void, domain::DriverError> {
             return run_validate_cycle(module, param, *bridge, *logger, state);
         });
-
-    if (!outcome.has_value()) {
+    } catch (const AbiCancelled&) {
+        scope.cancel();
+        scope.throw_if_cancelled();
+        throw;  // cancellation_origin is guaranteed after cancel()
+    } catch (const coro::Cancelled&) {
         state->cancelled.store(true, std::memory_order_release);
-        // Symmetric with update(): validate's services table forbids HTTP, so
-        // there is never an in-flight exchange here; the cancel is a no-op.
         bridge->cancel(state->in_flight_call());
-        co_return std::unexpected(domain::DriverError{
-            domain::DriverError::Code::CANCELLED,
-            fmt::format("Validation for driver '{}' was cancelled", driver_name)});
+        throw;
     }
-    co_return std::move(*outcome);
 }
 
 }  // namespace plugin

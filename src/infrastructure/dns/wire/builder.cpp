@@ -1,7 +1,3 @@
-//
-// Created by Kotarou on 2026/7/8.
-//
-
 #include "infrastructure/dns/wire/builder.h"
 
 #include <cstddef>

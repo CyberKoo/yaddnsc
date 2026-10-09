@@ -1,7 +1,3 @@
-//
-// Created by Kotarou on 2026/9/17.
-//
-
 #ifndef YADDNSC_INFRASTRUCTURE_PLUGIN_PLUGIN_LOADER_H
 #define YADDNSC_INFRASTRUCTURE_PLUGIN_PLUGIN_LOADER_H
 
@@ -12,7 +8,7 @@
 #include <expected>
 #include <yaddnsc/sdk/driver_abi.h>
 
-#include "domain/error/error.h"
+#include "infrastructure/plugin/plugin_error.h"
 #include "infrastructure/plugin/shared_library.h"
 
 /// DriverDescriptor — host-owned copy of a plugin's static descriptor.
@@ -43,7 +39,7 @@ struct DriverDescriptor {
 class PluginModule {
 public:
     /// Load and validate the plugin at @p path.
-    [[nodiscard]] static std::expected<PluginModule, domain::PluginError> load(const std::string& path);
+    [[nodiscard]] static std::expected<PluginModule, plugin::PluginError> load(const std::string& path);
 
     PluginModule(PluginModule&&) noexcept = default;
     PluginModule& operator=(PluginModule&&) noexcept = default;

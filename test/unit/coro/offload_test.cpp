@@ -27,8 +27,7 @@ namespace {
 using namespace std::chrono_literals;
 
 coro::Task<void> run_pooled_job(std::function<void()> job) {
-    auto result = co_await coro::offload(std::move(job));
-    EXPECT_TRUE(result.has_value());
+    co_await coro::offload(std::move(job));
     co_return;
 }
 
@@ -36,13 +35,12 @@ TEST(Offload, defaultOffloadWorkers_NoExplicitSetting_FollowsSizingPolicy) {
     // The production default: min(hardware cores, 4), at least 2. A default-
     // constructed loop must never fall through to the library's
     // hardware_concurrency() fallback.
-    EXPECT_EQ(coro::Loop::default_offload_workers(),
-              std::max(2u, std::min(std::thread::hardware_concurrency(), 4u)));
+    EXPECT_EQ(coro::Loop::default_offload_workers(), std::max(2u, std::min(std::thread::hardware_concurrency(), 4u)));
 }
 
 TEST(Offload, offloadPool_NoExplicitSetting_UsesDefaultWorkerCount) {
     coro::Loop loop;
-    EXPECT_EQ(loop.offload_pool().get_thread_count(), coro::Loop::default_offload_workers());
+    EXPECT_EQ(loop.offload_workers(), coro::Loop::default_offload_workers());
 }
 
 TEST(Offload, offload_Callable_ReturnsResultFromWorkerThread) {
@@ -57,10 +55,7 @@ TEST(Offload, offload_Callable_ReturnsResultFromWorkerThread) {
             worker_thread = std::this_thread::get_id();
             return 7;
         });
-        EXPECT_TRUE(result.has_value());
-        if (result.has_value()) {
-            value = *result;
-        }
+        value = result;
         co_return;
     };
 
@@ -74,8 +69,7 @@ TEST(Offload, offload_VoidCallable_ReturnsSuccess) {
     std::atomic<bool> ran{false};
 
     auto task = [&ran]() -> coro::Task<void> {
-        auto result = co_await coro::offload([&ran]() { ran.store(true); });
-        EXPECT_TRUE(result.has_value());
+        co_await coro::offload([&ran]() { ran.store(true); });
         co_return;
     };
 
@@ -107,18 +101,20 @@ TEST(Offload, offload_AbandonedWhileRunning_JobStillFinishes) {
     bool timed_out = false;
 
     auto task = [&started, &finished, &timed_out]() -> coro::Task<void> {
-        auto outcome = co_await coro::with_timeout(
-            20ms, [&started, &finished, &timed_out](coro::CancelScope& scope) -> coro::Task<void> {
-                auto result = co_await coro::offload([&started, &finished]() -> int {
+        auto outcome = co_await coro::with_timeout(20ms, [&started, &finished, &timed_out]() -> coro::Task<void> {
+            try {
+                co_await coro::offload([&started, &finished]() -> int {
                     started.store(true);
                     std::this_thread::sleep_for(200ms);
                     finished.store(true);
                     return 1;
                 });
-                EXPECT_FALSE(result.has_value());
-                timed_out = scope.timed_out();
-                co_return;
-            });
+            } catch (const coro::Cancelled&) {
+                timed_out = true;
+                throw;
+            }
+            co_return;
+        });
         EXPECT_TRUE(outcome.timed_out);
         co_return;
     };
@@ -140,20 +136,21 @@ TEST(Offload, offload_AbandonedWhileQueued_DropsJob) {
     bool timed_out = false;
 
     auto blocker = []() -> coro::Task<void> {
-        auto result = co_await coro::offload([]() { std::this_thread::sleep_for(300ms); });
-        EXPECT_TRUE(result.has_value());
+        co_await coro::offload([]() { std::this_thread::sleep_for(300ms); });
         co_return;
     };
     auto second = [&second_ran, &timed_out]() -> coro::Task<void> {
         // Let the only worker become busy with the blocker.
-        [[maybe_unused]] const auto slept = co_await coro::sleep_for(20ms);
-        auto outcome =
-            co_await coro::with_timeout(20ms, [&second_ran, &timed_out](coro::CancelScope& scope) -> coro::Task<void> {
-                auto result = co_await coro::offload([&second_ran]() { second_ran.store(true); });
-                EXPECT_FALSE(result.has_value());
-                timed_out = scope.timed_out();
-                co_return;
-            });
+        co_await coro::sleep_for(20ms);
+        auto outcome = co_await coro::with_timeout(20ms, [&second_ran, &timed_out]() -> coro::Task<void> {
+            try {
+                co_await coro::offload([&second_ran]() { second_ran.store(true); });
+            } catch (const coro::Cancelled&) {
+                timed_out = true;
+                throw;
+            }
+            co_return;
+        });
         EXPECT_TRUE(outcome.timed_out);
         co_return;
     };

@@ -2,8 +2,8 @@
 // ip_source — coroutine mDNS source.
 //
 
-#ifndef YADDNSC_IP_SOURCE_MDNS_H
-#define YADDNSC_IP_SOURCE_MDNS_H
+#ifndef YADDNSC_INFRASTRUCTURE_IP_SOURCE_MDNS_H
+#define YADDNSC_INFRASTRUCTURE_IP_SOURCE_MDNS_H
 
 #include <string>
 
@@ -24,16 +24,16 @@ public:
     /// @param hostname   mDNS name to query, e.g. "printer.local".
     /// @param type       RecordKind::A (IPv4 multicast) or AAAA (IPv6 multicast).
     /// @param interface  Outbound interface name; empty selects the kernel default.
-    MdnsIpSource(std::string hostname, RecordKind type, std::string interface);
+    MdnsIpSource(std::string hostname, domain::RecordKind type, std::string interface);
 
     [[nodiscard]] coro::Task<Result> resolve() override;
 
 private:
     std::string hostname_;
-    RecordKind type_;
+    domain::RecordKind type_;
     std::string interface_;
 };
 
 }  // namespace ipsource
 
-#endif  // YADDNSC_IP_SOURCE_MDNS_H
+#endif  // YADDNSC_INFRASTRUCTURE_IP_SOURCE_MDNS_H

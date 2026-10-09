@@ -1,7 +1,3 @@
-//
-// Created by Kotarou on 2026/7/13.
-//
-
 #ifndef YADDNSC_DRV_ROUTE53_ROUTE53_H
 #define YADDNSC_DRV_ROUTE53_ROUTE53_H
 

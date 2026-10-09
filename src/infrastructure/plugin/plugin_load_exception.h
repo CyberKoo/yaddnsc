@@ -1,9 +1,5 @@
-//
-// Created by Kotarou on 2026/9/17.
-//
-
-#ifndef YADDNSC_EXCEPTION_PLUGIN_LOAD_H
-#define YADDNSC_EXCEPTION_PLUGIN_LOAD_H
+#ifndef YADDNSC_INFRASTRUCTURE_PLUGIN_PLUGIN_LOAD_EXCEPTION_H
+#define YADDNSC_INFRASTRUCTURE_PLUGIN_PLUGIN_LOAD_EXCEPTION_H
 
 #include "support/exception.h"
 
@@ -17,4 +13,4 @@ public:
     [[nodiscard]] std::string_view get_name() const noexcept override { return "PluginLoadException"; }
 };
 
-#endif  // YADDNSC_EXCEPTION_PLUGIN_LOAD_H
+#endif  // YADDNSC_INFRASTRUCTURE_PLUGIN_PLUGIN_LOAD_EXCEPTION_H

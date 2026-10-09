@@ -13,7 +13,14 @@ These rules apply to first-party C++ code. C ABI declarations and adapters **mus
 | Infrastructure / adapters | System and third-party APIs adapted to internal contracts; platform-specific code isolated here. |
 | Public SDK / plugins | Only public SDK/util headers; no host-internal dependencies or C++ objects, STL containers, or exceptions crossing the plugin C ABI. |
 
-The include-level parts of these boundaries are checked by the `architecture_guard` test (`cmake/ArchitectureGuard.cmake`, registered with CTest and run in CI). It is a textual include/pattern check, not a full analysis: passing it is necessary, not sufficient, for the boundaries above.
+Application code **may** use a coroutine runtime's public task, group, waiting,
+time-value and cancellation APIs. It **must not** reach implicit runtime
+context, loop or clock implementation objects, coroutine frames or wait
+registrations; runtime internals stay runtime-internal. Composition owns loop
+creation and the run entry point. The boundary, and the headers it admits, are
+described in [Architecture](../docs/architecture.md#coroutine-api-boundary).
+
+The include-level parts of these boundaries are checked by the `architecture_guard` test, registered with CTest and run in CI. It is a textual include/pattern check, not a full analysis: passing it is necessary, not sufficient, for the boundaries above.
 
 ## Code Reuse & Component Selection
 
@@ -27,11 +34,11 @@ The include-level parts of these boundaries are checked by the `architecture_gua
 
 | Category | Requirement |
 |----------|-------------|
-| Logging | Use the central logging system through the [layer-specific entry points](04-quality-and-process.md#layered-logging-policy); CLI output is separate. |
+| Logging | Use the central logging system through the designated per-layer entry point (see [Logging entry points](../docs/architecture.md#logging-entry-points)); CLI output is separate. |
 | Error / result types | Use `std::expected<T, E>` according to [Error Handling](03-error-handling.md); domain-specific error types and result aliases are allowed, duplicate result-wrapper abstractions are not. C ABI status values remain at the boundary. |
 | Configuration | Use the established configuration subsystem; do not independently re-parse configuration or environment variables downstream. |
 | Platform abstraction | Reuse OS adapters and detection utilities. New platform conditionals must be confined to designated adapters or necessary public ABI portability definitions, not scattered through business code. |
-| Shared utilities | Reuse utilities from `include/yaddnsc/util/` and existing support helpers rather than duplicate string/formatting implementations in host and plugins. |
+| Shared utilities | Reuse the existing utility surface rather than duplicate string/formatting implementations between the host and its plugins. The single implementation site is recorded in [Layers](../docs/architecture.md#layers). |
 | Numeric representation | Use explicitly sized types where a protocol, ABI, or persistent format requires a fixed width. Use `std::size_t` for sizes/indices and suitable integer types for local arithmetic; validate narrowing and overflow. |
 
 ### Contribution & Duplication Rules
@@ -42,8 +49,9 @@ The include-level parts of these boundaries are checked by the `architecture_gua
 ## Headers & Include Management
 
 - Headers **must** be self-contained and include what they use; do not rely on incidental transitive includes. **Prefer** forward declarations where they avoid unnecessary dependencies without compromising correctness.
+- First-party production headers **must** use macro include guards derived from their path relative to the production source root: add the project's include-guard prefix, uppercase the path, replace path separators and the extension separator with underscores, and retain the extension letters. The same identifier **must** appear in `#ifndef`, `#define`, and the closing `#endif` comment. Test headers may follow their test-specific convention.
 - Use `"..."` for host-internal/generated headers, `<yaddnsc/sdk/...>` and `<yaddnsc/util/...>` for public headers, and `<...>` for standard/third-party headers.
-- A `.cpp` **normally** includes its own header first using the bare filename. Other host-internal includes **must** use paths relative to `src/`, not `../` paths. Generated headers use their configured include-root-relative filenames.
+- A `.cpp` **normally** includes its own header first using the bare filename. Other host-internal includes **must** use paths relative to the source root, not `../` paths. Generated headers use their configured include-root-relative filenames.
 - Include order and formatting **must** follow `.clang-format`; actual checks are described in [Include hygiene](../docs/development.md#include-hygiene).
 - **Normally** use `.h` for declarations and small inline functions, `.hpp` for substantial template/header-only implementations, and `.cpp` for non-template implementations. Judge inline content by readability and compile-time dependencies, not a line-count threshold; do not rename existing files solely to enforce this preference.
 - Headers **must not** contain namespace-scope `using namespace` directives. Function-local literal namespace imports **may** be used; **prefer** avoiding them in headers when practical.
@@ -106,10 +114,10 @@ Formatting **must** follow `.clang-format`; naming **must** follow this table. A
 
 ## Function & Constructor Signatures
 
-- **Prefer** small, cohesive parameter lists. More than four constructor parameters is a review signal, not an automatic limit. Related dependencies **may** use an `XxxPorts` / `XxxDeps` / `XxxServices` reference bundle (see `src/application/services.h`); avoid general service locators or unused bundled dependencies.
-- Configuration **must** travel as cohesive domain slices (e.g. `domain::ResolverSettings`) or pre-built policy objects when forwarded across layers, rather than repeated unrelated strings/vectors. Adding a field should not require mechanically changing a long chain of signatures.
+- **Prefer** small, cohesive parameter lists. More than four constructor parameters is a review signal, not an automatic limit. Related dependencies **may** use an `XxxPorts` / `XxxDeps` / `XxxServices` reference bundle; avoid general service locators or unused bundled dependencies.
+- Configuration **must** travel as cohesive domain slices or pre-built policy objects when forwarded across layers, rather than repeated unrelated strings/vectors. Adding a field should not require mechanically changing a long chain of signatures.
 - Cross-cutting policies **must** be assembled in the composition root and injected; downstream code **must not** independently re-derive the same policy.
-- Coroutine cancellation **must** travel as scope state, not as a parameter or a stored member: an operation is cancellable because it runs inside a cancel scope, and every await is a checkpoint. A timeout **must** be composed with `coro::with_timeout` / `coro::with_deadline` around the operation, never passed into a port or an I/O signature. Ports **must** be explicit dependencies, directly or through a cohesive bundle; global/singleton ports are prohibited.
+- A deadline **must** be part of the control flow around an operation rather than an argument passed down to it, so that cancellation reaches every await inside. Ports **must** be explicit dependencies, directly or through a cohesive bundle; global/singleton ports are prohibited. Where a foreign-function boundary exposes no cancellation concept, its deadline travels as a boundary argument — see [Concurrency & I/O model](../docs/architecture.md#concurrency--io-model).
 
 ## Enums
 

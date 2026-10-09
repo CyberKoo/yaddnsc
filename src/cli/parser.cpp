@@ -1,7 +1,3 @@
-//
-// Created by Kotarou on 2026/9/17.
-//
-
 #include "parser.h"
 
 #include <functional>

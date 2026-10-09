@@ -1,7 +1,3 @@
-//
-// Created by Kotarou on 2026/9/17.
-//
-
 #include "static_validator.h"
 
 #include <string>
@@ -16,7 +12,7 @@
 #include "domain/fqdn.h"
 #include "domain/network/inet_address.h"
 #include "infrastructure/config/config.h"
-#include "infrastructure/net/http/uri.h"
+#include "infrastructure/uri/uri.h"
 #include "support/fmt.hpp"
 #include "support/util/validation.hpp"
 
@@ -38,15 +34,15 @@ void validate_ip_source(std::vector<domain::ConfigError>& errors, const std::str
     const auto fqdn = domain::make_fqdn(domain_name, subdomain.name);
     // An absent ip_source key normalises to INTERFACE; validate the
     // effective value.
-    const auto ip_source = subdomain.ip_source.value_or(IpSource::INTERFACE);
+    const auto ip_source = subdomain.ip_source.value_or(domain::IpSource::INTERFACE);
 
     // Only the INTERFACE source strictly requires a network interface name.
-    if (ip_source == IpSource::INTERFACE && subdomain.interface.empty()) {
+    if (ip_source == domain::IpSource::INTERFACE && subdomain.interface.empty()) {
         push_error(errors, Code::MISSING_INTERFACE,
                    fmt::format("Subdomain {} uses interface IP source but 'interface' field is empty", fqdn));
     }
 
-    if (ip_source == IpSource::HTTP) {
+    if (ip_source == domain::IpSource::HTTP) {
         if (subdomain.ip_source_param.empty()) {
             push_error(errors, Code::EMPTY_IP_SOURCE_PARAM,
                        fmt::format("Subdomain {} uses HTTP IP source but ip_source_param is empty", fqdn));
@@ -65,7 +61,7 @@ void validate_ip_source(std::vector<domain::ConfigError>& errors, const std::str
         return;
     }
 
-    if (ip_source == IpSource::MDNS) {
+    if (ip_source == domain::IpSource::MDNS) {
         if (subdomain.ip_source_param.empty()) {
             push_error(errors, Code::EMPTY_IP_SOURCE_PARAM,
                        fmt::format("Subdomain {} uses mDNS IP source but ip_source_param is empty", fqdn));
@@ -88,8 +84,8 @@ void validate_ip_source(std::vector<domain::ConfigError>& errors, const std::str
         }
 
         // A missing type defaults to A at runtime, so it is mDNS-compatible.
-        const auto record_kind = subdomain.type.value_or(RecordKind::A);
-        if (record_kind != RecordKind::A && record_kind != RecordKind::AAAA) {
+        const auto record_kind = subdomain.type.value_or(domain::RecordKind::A);
+        if (record_kind != domain::RecordKind::A && record_kind != domain::RecordKind::AAAA) {
             push_error(errors, Code::MDNS_BAD_RECORD_TYPE,
                        fmt::format("Subdomain {} uses mDNS IP source but type must be 'a' or 'aaaa'", fqdn));
         }
@@ -121,7 +117,7 @@ void validate_resolver_address(std::vector<domain::ConfigError>& errors, const s
     }
 
     // Plain DNS address — must be a valid IP.
-    if (!InetAddress::parse(address)) {
+    if (!domain::InetAddress::parse(address)) {
         push_error(errors, Code::INVALID_RESOLVER, fmt::format("Invalid resolver address {}", address));
     }
 }
@@ -191,7 +187,7 @@ auto validate_static(const AppConfig& raw) -> std::vector<domain::ConfigError> {
 
     // Bootstrap DNS server — must be an IP literal when set (hostnames would
     // be circular: bootstrap DNS is what resolves hostnames).
-    if (!raw.bootstrap_dns.empty() && !InetAddress::parse(raw.bootstrap_dns)) {
+    if (!raw.bootstrap_dns.empty() && !domain::InetAddress::parse(raw.bootstrap_dns)) {
         push_error(errors, Code::INVALID_BOOTSTRAP_DNS,
                    fmt::format(R"(Invalid bootstrap_dns "{}": must be an IP literal (e.g. "223.5.5.5" or )"
                                R"("2606:4700:4700::1111"))",

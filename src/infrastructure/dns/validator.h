@@ -1,8 +1,5 @@
-//
-// Created by Kotarou on 2026/7/7.
-//
-#ifndef YADDNSC_DNS_VALIDATOR_H
-#define YADDNSC_DNS_VALIDATOR_H
+#ifndef YADDNSC_INFRASTRUCTURE_DNS_VALIDATOR_H
+#define YADDNSC_INFRASTRUCTURE_DNS_VALIDATOR_H
 
 #include <cstdint>
 #include <span>
@@ -22,8 +19,8 @@
 ///
 /// @return  std::expected<void, DnsErrorInfo> — success or a PARSE error.
 namespace dns::Validator {
-[[nodiscard]] std::expected<void, DnsErrorInfo> validate_response(std::span<const std::uint8_t> request,
-                                                                  std::span<const std::uint8_t> response);
+[[nodiscard]] std::expected<void, domain::DnsErrorInfo> validate_response(std::span<const std::uint8_t> request,
+                                                                          std::span<const std::uint8_t> response);
 }  // namespace dns::Validator
 
-#endif  // YADDNSC_DNS_VALIDATOR_H
+#endif  // YADDNSC_INFRASTRUCTURE_DNS_VALIDATOR_H

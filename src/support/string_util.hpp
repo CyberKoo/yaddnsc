@@ -1,9 +1,5 @@
-//
-// Created by Kotarou on 2022/4/7.
-//
-
-#ifndef YADDNSC_STRING_UTIL_H
-#define YADDNSC_STRING_UTIL_H
+#ifndef YADDNSC_SUPPORT_STRING_UTIL_HPP
+#define YADDNSC_SUPPORT_STRING_UTIL_HPP
 
 /// Host-side alias for the shared string utilities. The implementation lives
 /// in <yaddnsc/util/string_util.hpp> (single source shared with driver
@@ -14,4 +10,4 @@
 
 namespace StringUtil = yaddnsc::util;
 
-#endif  // YADDNSC_STRING_UTIL_H
+#endif  // YADDNSC_SUPPORT_STRING_UTIL_HPP

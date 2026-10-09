@@ -41,22 +41,24 @@
 // plus the per-exchange budget plus the shutdown scope.
 //
 
-#ifndef YADDNSC_PLUGIN_BRIDGE_H
-#define YADDNSC_PLUGIN_BRIDGE_H
+#ifndef YADDNSC_INFRASTRUCTURE_PLUGIN_BRIDGE_H
+#define YADDNSC_INFRASTRUCTURE_PLUGIN_BRIDGE_H
 
 #include <atomic>
 #include <chrono>
-#include <expected>
 #include <future>
 #include <memory>
 #include <mutex>
 #include <string>
 #include <utility>
 
+#include <expected>
+#include <yaddnsc/sdk/driver_abi.h>
+
 #include "infrastructure/coro/fwd.h"
 #include "infrastructure/coro/task.hpp"
-#include "infrastructure/net/http/error.h"
-#include "infrastructure/net/http/types.h"
+#include "infrastructure/http/error.h"
+#include "infrastructure/http/types.h"
 
 namespace coro {
 class Loop;
@@ -64,6 +66,13 @@ class TaskGroup;
 }  // namespace coro
 
 namespace plugin {
+
+/// Coarse host-service ABI result; cancellation stays a value for the worker.
+struct BridgeError {
+    yaddnsc_status code;
+    std::string message;
+    uint32_t retry_after_seconds = 0;
+};
 
 /// One bridged exchange: everything the loop side needs, plus the shared cell
 /// the worker waits on.
@@ -79,7 +88,7 @@ struct BridgeCall {
     std::string url;
     http::Request request;
     /// Fulfilled exactly once by the loop-side coroutine, on every path.
-    std::promise<std::expected<http::Response, http::Error>> promise;
+    std::promise<std::expected<http::Response, BridgeError>> promise;
     /// Latched when the workflow abandons the call (Bridge::cancel) or the
     /// bridge scope is cancelled; read by the plugin's is_cancelled() polling.
     std::atomic<bool> cancelled{false};
@@ -135,9 +144,9 @@ struct BridgeState {
 /// Ownership: takes a share of the state and of the call. The guard fulfils the
 /// promise even when this coroutine is cancelled or reaped, so the worker never
 /// blocks past the promise.
-/// Failure: every failure (including cancellation and the wait budget) is
-/// reported through the promise as an http::Error with code CANCELLED; a defect
-/// escaping the coroutine also fulfils the promise before propagating.
+/// Failure: BridgeError carries an ABI status: cancellation is CANCELLED,
+/// timeout / transport failure is NETWORK_ERROR, and defects are INTERNAL_ERROR.
+/// All paths fulfil the promise so the synchronous worker can finish.
 /// Thread safety: loop thread only.
 [[nodiscard]] coro::Task<void> serve_exchange(std::shared_ptr<const BridgeState> state,
                                               std::shared_ptr<BridgeCall> call);
@@ -150,9 +159,9 @@ struct BridgeState {
 /// bridge, and the group's scope must outlive every in-flight call. An in-flight
 /// exchange does not dereference the Bridge after exchange() returns, so the
 /// Bridge may be destroyed while a worker is still blocked on an abandoned call.
-/// Failure: a bridge-level failure is reported as an http::Error with code
-/// CANCELLED (the wait budget expired, the bridge was stopped, or the scope was
-/// cancelled) so the ABI trampoline keeps one uniform mapping.
+/// Failure: BridgeError carries the existing ABI status. A stopped/cancelled
+/// call or expired synchronous wait is CANCELLED; an upstream timeout or
+/// recoverable HTTP failure is NETWORK_ERROR. Defects are INTERNAL_ERROR.
 /// Thread safety: exchange() may be called from any worker thread; the loop-side
 /// coroutine and the spawn group are loop-thread only. stop() is safe from any
 /// thread.
@@ -180,7 +189,7 @@ public:
 
     /// Worker side: run `call` on the loop and return its answer. Blocks the
     /// calling thread; may be called from any thread.
-    [[nodiscard]] std::expected<http::Response, http::Error> exchange(std::shared_ptr<BridgeCall> call);
+    [[nodiscard]] std::expected<http::Response, BridgeError> exchange(std::shared_ptr<BridgeCall> call);
 
     /// Abort the in-flight loop-side exchange of `call`, if any: the call's
     /// own cancel scope is cancelled on the loop, so the HTTP await fails fast
@@ -207,4 +216,4 @@ private:
 
 }  // namespace plugin
 
-#endif  // YADDNSC_PLUGIN_BRIDGE_H
+#endif  // YADDNSC_INFRASTRUCTURE_PLUGIN_BRIDGE_H

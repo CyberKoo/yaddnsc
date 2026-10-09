@@ -10,14 +10,14 @@
 #include <sys/socket.h>
 
 #include "domain/network/inet_address.h"
-#include "infrastructure/net/socket_addr.h"
+#include "infrastructure/network/address/socket_addr.h"
 
 // =============================================================================
 // SocketAddr::from_inet
 // =============================================================================
 
 static void BM_SocketAddrFromInetV4(benchmark::State& state) {
-    auto addr = InetAddress::parse("192.168.1.1").value();
+    auto addr = domain::InetAddress::parse("192.168.1.1").value();
     for (auto _ : state) {
         auto sa = SocketAddr::from_inet(addr, 53);
         benchmark::DoNotOptimize(sa);
@@ -27,7 +27,7 @@ static void BM_SocketAddrFromInetV4(benchmark::State& state) {
 BENCHMARK(BM_SocketAddrFromInetV4);
 
 static void BM_SocketAddrFromInetV6(benchmark::State& state) {
-    auto addr = InetAddress::parse("2001:db8::1").value();
+    auto addr = domain::InetAddress::parse("2001:db8::1").value();
     for (auto _ : state) {
         auto sa = SocketAddr::from_inet(addr, 53);
         benchmark::DoNotOptimize(sa);
@@ -41,7 +41,7 @@ BENCHMARK(BM_SocketAddrFromInetV6);
 // =============================================================================
 
 static void BM_SocketAddrToStringV4(benchmark::State& state) {
-    auto addr = InetAddress::parse("10.0.0.1").value();
+    auto addr = domain::InetAddress::parse("10.0.0.1").value();
     auto sa = SocketAddr::from_inet(addr, 8080).value();
     for (auto _ : state) {
         auto s = sa.to_string();
@@ -52,7 +52,7 @@ static void BM_SocketAddrToStringV4(benchmark::State& state) {
 BENCHMARK(BM_SocketAddrToStringV4);
 
 static void BM_SocketAddrToStringV6(benchmark::State& state) {
-    auto addr = InetAddress::parse("::1").value();
+    auto addr = domain::InetAddress::parse("::1").value();
     auto sa = SocketAddr::from_inet(addr, 53).value();
     for (auto _ : state) {
         auto s = sa.to_string();
@@ -63,7 +63,7 @@ static void BM_SocketAddrToStringV6(benchmark::State& state) {
 BENCHMARK(BM_SocketAddrToStringV6);
 
 static void BM_SocketAddrExtractAddress(benchmark::State& state) {
-    auto addr = InetAddress::parse("192.168.1.1").value();
+    auto addr = domain::InetAddress::parse("192.168.1.1").value();
     auto sa = SocketAddr::from_inet(addr, 53).value();
     for (auto _ : state) {
         auto extracted = sa.address();

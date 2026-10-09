@@ -1,7 +1,3 @@
-//
-// Created by Kotarou on 2026/9/17.
-//
-
 #ifndef YADDNSC_UTIL_URL_ENCODE_HPP
 #define YADDNSC_UTIL_URL_ENCODE_HPP
 

@@ -1,9 +1,5 @@
-//
-// Created by Kotarou on 2026/7/8.
-//
-
-#ifndef YADDNSC_UTIL_BYTES_H
-#define YADDNSC_UTIL_BYTES_H
+#ifndef YADDNSC_SUPPORT_UTIL_BYTES_HPP
+#define YADDNSC_SUPPORT_UTIL_BYTES_HPP
 
 #include <cstddef>
 #include <cstdint>
@@ -93,4 +89,4 @@ inline void write_u16_be(std::span<std::uint8_t> buf, std::size_t offset, std::u
 }
 }  // namespace Utils::Bytes
 
-#endif  // YADDNSC_UTIL_BYTES_H
+#endif  // YADDNSC_SUPPORT_UTIL_BYTES_HPP

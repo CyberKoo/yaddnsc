@@ -8,8 +8,8 @@
 // Retry backoff is a cancellable sleep, not a thread.
 //
 
-#ifndef YADDNSC_DNS_DISPATCHER_H
-#define YADDNSC_DNS_DISPATCHER_H
+#ifndef YADDNSC_INFRASTRUCTURE_DNS_DISPATCHER_H
+#define YADDNSC_INFRASTRUCTURE_DNS_DISPATCHER_H
 
 #include <cstdint>
 #include <memory>
@@ -22,7 +22,7 @@
 #include "domain/dns/record_kind.h"
 #include "domain/error/dns_error_info.h"
 #include "infrastructure/coro/task.hpp"
-#include "infrastructure/dns/resolver.h"
+#include "infrastructure/dns/resolver/resolver.h"
 
 namespace dns {
 
@@ -41,7 +41,7 @@ enum class Strategy {
 /// NXDOMAIN stops the search. A retryable failure in single-backend mode is
 /// retried with a cancellable backoff; in multi-backend mode the redundancy of
 /// several backends replaces retries.
-/// Cancellation: DnsError::CANCELLED as a value; every await is a checkpoint.
+/// Cancellation: `coro::Cancelled` as a value; every await is a checkpoint.
 /// Thread safety: not thread-safe as an object; concurrent queries on one
 /// dispatcher are not supported (each backend owns its own session state).
 class Dispatcher {
@@ -60,8 +60,8 @@ public:
     /// @param max_retries  Extra attempts on a retryable failure
     ///                     (single-backend mode only).
     /// @param backoff_ms   Base backoff; attempt `n` waits `backoff_ms * n`.
-    [[nodiscard]] coro::Task<std::expected<std::vector<std::string>, DnsErrorInfo>> resolve(
-        std::string host, RecordKind kind, std::uint32_t max_retries = DEFAULT_MAX_RETRIES,
+    [[nodiscard]] coro::Task<std::expected<std::vector<std::string>, domain::DnsErrorInfo>> resolve(
+        std::string host, domain::RecordKind kind, std::uint32_t max_retries = DEFAULT_MAX_RETRIES,
         std::uint32_t backoff_ms = DEFAULT_BACKOFF_MS);
 
     /// Backend count.
@@ -77,8 +77,8 @@ public:
 
 private:
     /// Single backend with retry.
-    [[nodiscard]] coro::Task<std::expected<std::vector<std::string>, DnsErrorInfo>> run_single(
-        std::string host, RecordKind kind, std::uint32_t max_retries, std::uint32_t backoff_ms);
+    [[nodiscard]] coro::Task<std::expected<std::vector<std::string>, domain::DnsErrorInfo>> run_single(
+        std::string host, domain::RecordKind kind, std::uint32_t max_retries, std::uint32_t backoff_ms);
 
     std::vector<std::unique_ptr<Resolver>> resolvers_;
     Strategy strategy_{Strategy::CONCURRENT};
@@ -86,4 +86,4 @@ private:
 
 }  // namespace dns
 
-#endif  // YADDNSC_DNS_DISPATCHER_H
+#endif  // YADDNSC_INFRASTRUCTURE_DNS_DISPATCHER_H

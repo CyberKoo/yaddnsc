@@ -11,30 +11,15 @@
 #define YADDNSC_APPLICATION_SUBDOMAIN_LOOP_H
 
 #include <chrono>
-#include <cstddef>
-#include <memory>
 
-#include "application/update_once.h"
+#include "application/run_update_cycle.h"
 #include "domain/config/runtime_config.h"
-#include "infrastructure/coro/clock.h"
 #include "infrastructure/coro/task.hpp"
+#include "infrastructure/coro/time.h"
 
 namespace app {
 
 struct Services;
-
-/// Overall budget for one update cycle, enforced by with_timeout. It is the
-/// last-resort bound behind the narrower budgets inside the cycle (IP source,
-/// DNS read, per-exchange I/O): a wedged provider can never stall a subdomain
-/// for longer than this.
-inline constexpr std::chrono::seconds UPDATE_BUDGET{30};
-
-/// The delay before the next cycle of a subdomain loop.
-///
-/// Mirrors the legacy scheduler: the update interval advances the schedule, and
-/// a provider-supplied retry_after overrides it (the legacy request_retry →
-/// reschedule path). A zero retry_after leaves the interval in place.
-[[nodiscard]] coro::Duration next_delay(const UpdateOnceOutcome& outcome, int update_interval) noexcept;
 
 /// Drive one subdomain forever: update, sleep, repeat, until the enclosing
 /// scope is cancelled.
@@ -44,13 +29,14 @@ inline constexpr std::chrono::seconds UPDATE_BUDGET{30};
 /// whose elapsed time reaches the interval is forced, which latches
 /// last_force_update to the current time.
 ///
-/// Cancellation: a checkpoint. The loop re-checks its scope before every cycle
-/// and wakes early from its sleep when the scope is cancelled, so shutdown does
-/// not run one more update.
+/// Cancellation: surfaces only through await results, never by polling scope
+/// state. A cancelled enclosing scope throws `coro::Cancelled` from the
+/// in-flight cycle or pacing sleep, and
+/// the loop exits instead of starting another cycle.
 /// Failure: an escaping defect (e.g. allocation failure) aborts this subdomain
 /// only; the runner's supervisor group keeps the siblings running.
-[[nodiscard]] coro::Task<void> subdomain_loop(std::shared_ptr<const domain::RuntimeConfig> config,
-                                              std::size_t domain_index, std::size_t subdomain_index,
+[[nodiscard]] coro::Task<void> subdomain_loop(const domain::DomainConfig& domain,
+                                              const domain::SubdomainConfig& subdomain,
                                               const Services& services);
 
 }  // namespace app

@@ -1,7 +1,7 @@
 //
 // Unit tests for SpdlogLogger (src/infrastructure/logging/spdlog_logger.cpp).
 //
-// The LogLevel → spdlog::level mapping (to_spdlog_level) is exercised for
+// The app::LogLevel → spdlog::level mapping (to_spdlog_level) is exercised for
 // every severity through a recording spdlog sink installed as the default
 // logger. Both the source_location overload (log) and the plain-data overload
 // (log_explicit, used by plugin Host Services) are checked, plus is_enabled()
@@ -81,12 +81,12 @@ TEST(SpdlogLoggerTest, ForwardsEveryLevelWithSourceLocation) {
     ScopedRecordingLogger env;
     const SpdlogLogger logger;
 
-    logger.log(LogLevel::TRACE, "t", std::source_location::current());
-    logger.log(LogLevel::DEBUG, "d", std::source_location::current());
-    logger.log(LogLevel::INFO, "i", std::source_location::current());
-    logger.log(LogLevel::WARN, "w", std::source_location::current());
-    logger.log(LogLevel::ERROR, "e", std::source_location::current());
-    logger.log(LogLevel::CRITICAL, "c", std::source_location::current());
+    logger.log(app::LogLevel::TRACE, "t", std::source_location::current());
+    logger.log(app::LogLevel::DEBUG, "d", std::source_location::current());
+    logger.log(app::LogLevel::INFO, "i", std::source_location::current());
+    logger.log(app::LogLevel::WARN, "w", std::source_location::current());
+    logger.log(app::LogLevel::ERROR, "e", std::source_location::current());
+    logger.log(app::LogLevel::CRITICAL, "c", std::source_location::current());
 
     const auto& records = env.records();
     ASSERT_EQ(records.size(), 6u);
@@ -107,7 +107,7 @@ TEST(SpdlogLoggerTest, LogExplicitForwardsExplicitSourceLocation) {
     const SpdlogLogger logger;
 
     // The plugin Host Services path: location arrives as plain data.
-    logger.log_explicit(LogLevel::WARN, "via explicit", "plugin.cpp", 42, "update");
+    logger.log_explicit(app::LogLevel::WARN, "via explicit", "plugin.cpp", 42, "update");
 
     const auto& records = env.records();
     ASSERT_EQ(records.size(), 1u);
@@ -123,10 +123,10 @@ TEST(SpdlogLoggerTest, IsEnabledFollowsTheActiveSpdlogLevel) {
     spdlog::default_logger()->set_level(spdlog::level::info);
     const SpdlogLogger logger;
 
-    EXPECT_FALSE(logger.is_enabled(LogLevel::TRACE));
-    EXPECT_FALSE(logger.is_enabled(LogLevel::DEBUG));
-    EXPECT_TRUE(logger.is_enabled(LogLevel::INFO));
-    EXPECT_TRUE(logger.is_enabled(LogLevel::WARN));
-    EXPECT_TRUE(logger.is_enabled(LogLevel::ERROR));
-    EXPECT_TRUE(logger.is_enabled(LogLevel::CRITICAL));
+    EXPECT_FALSE(logger.is_enabled(app::LogLevel::TRACE));
+    EXPECT_FALSE(logger.is_enabled(app::LogLevel::DEBUG));
+    EXPECT_TRUE(logger.is_enabled(app::LogLevel::INFO));
+    EXPECT_TRUE(logger.is_enabled(app::LogLevel::WARN));
+    EXPECT_TRUE(logger.is_enabled(app::LogLevel::ERROR));
+    EXPECT_TRUE(logger.is_enabled(app::LogLevel::CRITICAL));
 }

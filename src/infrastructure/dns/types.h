@@ -1,9 +1,5 @@
-//
-// Created by Kotarou on 2026/7/7.
-//
-
-#ifndef YADDNSC_DNS_TYPES_H
-#define YADDNSC_DNS_TYPES_H
+#ifndef YADDNSC_INFRASTRUCTURE_DNS_TYPES_H
+#define YADDNSC_INFRASTRUCTURE_DNS_TYPES_H
 
 #include <cstdint>
 #include <optional>
@@ -141,4 +137,4 @@ struct FormattedResponse {
 };
 }  // namespace dns
 
-#endif  // YADDNSC_DNS_TYPES_H
+#endif  // YADDNSC_INFRASTRUCTURE_DNS_TYPES_H

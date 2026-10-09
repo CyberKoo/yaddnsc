@@ -1,6 +1,3 @@
-//
-// Created by Kotarou on 2026/7/7.
-//
 // Unit tests for uri.h / uri.cpp — edge cases, origin, and accessors.
 //
 // Verifies:
@@ -8,9 +5,9 @@
 //   - get_raw_uri preservation.
 //   - get_body behaviour.
 //   - Bare IPv6 (unbracketed) in authority context.
-//   - Unclosed IPv6 literal rejection.
-//   - Bracket IPv6 with trailing colon, non-numeric port.
-//   - Host:port with trailing colon, non-numeric port.
+//   - Malformed-input rejection: invalid scheme, invalid characters, empty
+//     host, unclosed / invalid IPv6 literals, garbage after ']', non-numeric
+//     and out-of-range ports.
 // =============================================================================
 
 #include <string>
@@ -18,7 +15,7 @@
 
 #include <gtest/gtest.h>
 
-#include "infrastructure/net/http/uri.h"
+#include "infrastructure/uri/uri.h"
 
 // ===========================================================================
 // Origin
@@ -142,10 +139,10 @@ TEST(UriEdgeTest, HostPort_WithTrailingColonNoPort) {
     EXPECT_EQ(uri.get_port(), 80);
 }
 
-TEST(UriEdgeTest, HostPort_WithNonNumericPort) {
-    auto uri = Uri::parse("http://example.com:abc").value();
-    EXPECT_EQ(uri.get_host(), "example.com");
-    EXPECT_EQ(uri.get_port(), 80);
+TEST(UriEdgeTest, HostPort_WithNonNumericPort_ReturnsError) {
+    const auto uri = Uri::parse("http://example.com:abc");
+    ASSERT_FALSE(uri.has_value());
+    EXPECT_EQ(uri.error(), UriError::PORT_NOT_NUMERIC);
 }
 
 // ===========================================================================
@@ -161,9 +158,10 @@ TEST(UriEdgeTest, HostPort_OutOfRangePort_ReturnsError) {
 }
 
 TEST(UriEdgeTest, HostPort_NegativePort_ReturnsError) {
+    // '-' is a non-digit character in port position.
     const auto uri = Uri::parse("http://example.com:-1");
     ASSERT_FALSE(uri.has_value());
-    EXPECT_EQ(uri.error(), UriError::PORT_OUT_OF_RANGE);
+    EXPECT_EQ(uri.error(), UriError::PORT_NOT_NUMERIC);
 }
 
 TEST(UriEdgeTest, BracketIPv6_OutOfRangePort_ReturnsError) {
@@ -172,12 +170,12 @@ TEST(UriEdgeTest, BracketIPv6_OutOfRangePort_ReturnsError) {
     EXPECT_EQ(uri.error(), UriError::PORT_OUT_OF_RANGE);
 }
 
-TEST(UriEdgeTest, HostPort_TrailingGarbage_FallsBackToDefault) {
-    // "8080x" must not be silently accepted as 8080; the port is treated
-    // as unspecified and the default is used (same as a non-numeric port).
-    auto uri = Uri::parse("http://example.com:8080x").value();
-    EXPECT_EQ(uri.get_host(), "example.com");
-    EXPECT_EQ(uri.get_port(), 80);
+TEST(UriEdgeTest, HostPort_TrailingGarbage_ReturnsError) {
+    // "8080x" is malformed: reject it outright rather than silently accepting
+    // 8080 or dropping the port in favour of the default.
+    const auto uri = Uri::parse("http://example.com:8080x");
+    ASSERT_FALSE(uri.has_value());
+    EXPECT_EQ(uri.error(), UriError::PORT_NOT_NUMERIC);
 }
 
 TEST(UriEdgeTest, HostPort_MaxPort_Accepted) {
@@ -189,4 +187,120 @@ TEST(UriEdgeTest, HostPort_ZeroPort_Accepted) {
     // Port 0 means "unspecified" throughout the code base.
     auto uri = Uri::parse("http://example.com:0").value();
     EXPECT_EQ(uri.get_port(), 0);
+}
+
+// ===========================================================================
+// Scheme validation
+// ===========================================================================
+
+TEST(UriEdgeTest, SchemeStartingWithDigit_ReturnsError) {
+    const auto uri = Uri::parse("1abc://example.com");
+    ASSERT_FALSE(uri.has_value());
+    EXPECT_EQ(uri.error(), UriError::INVALID_SCHEME);
+}
+
+TEST(UriEdgeTest, SchemeWithIllegalCharacter_ReturnsError) {
+    // '_' is not in the scheme grammar (ALPHA / DIGIT / '+' / '-' / '.').
+    const auto uri = Uri::parse("ht_tp://example.com");
+    ASSERT_FALSE(uri.has_value());
+    EXPECT_EQ(uri.error(), UriError::INVALID_SCHEME);
+}
+
+TEST(UriEdgeTest, SchemeWithPlusDotDash_Accepted) {
+    auto uri = Uri::parse("a+b-c.d://example.com").value();
+    EXPECT_EQ(uri.get_schema(), "a+b-c.d");
+}
+
+// ===========================================================================
+// Invalid characters
+// ===========================================================================
+
+TEST(UriEdgeTest, SpaceInHost_ReturnsError) {
+    const auto uri = Uri::parse("http://ex ample.com/");
+    ASSERT_FALSE(uri.has_value());
+    EXPECT_EQ(uri.error(), UriError::INVALID_CHARACTER);
+}
+
+TEST(UriEdgeTest, ControlCharacterInPath_ReturnsError) {
+    const auto uri = Uri::parse("http://example.com/\tpath");
+    ASSERT_FALSE(uri.has_value());
+    EXPECT_EQ(uri.error(), UriError::INVALID_CHARACTER);
+}
+
+TEST(UriEdgeTest, Utf8Bytes_Accepted) {
+    // Bytes >= 0x80 are tolerated (IRI convention).
+    auto uri = Uri::parse("http://example.com/\xe4\xbd\xa0\xe5\xa5\xbd").value();
+    EXPECT_EQ(uri.get_path(), "/\xe4\xbd\xa0\xe5\xa5\xbd");
+}
+
+// ===========================================================================
+// Empty host
+// ===========================================================================
+
+TEST(UriEdgeTest, SchemeWithPortButNoHost_ReturnsError) {
+    const auto uri = Uri::parse("http://:8080/path");
+    ASSERT_FALSE(uri.has_value());
+    EXPECT_EQ(uri.error(), UriError::EMPTY_HOST);
+}
+
+TEST(UriEdgeTest, BarePortNoScheme_ReturnsError) {
+    const auto uri = Uri::parse(":8080");
+    ASSERT_FALSE(uri.has_value());
+    EXPECT_EQ(uri.error(), UriError::EMPTY_HOST);
+}
+
+// ===========================================================================
+// IPv6 literal validation
+// ===========================================================================
+
+TEST(UriEdgeTest, BracketedNonIPAddress_ReturnsError) {
+    const auto uri = Uri::parse("http://[not-an-ip]/");
+    ASSERT_FALSE(uri.has_value());
+    EXPECT_EQ(uri.error(), UriError::INVALID_IPV6_LITERAL);
+}
+
+TEST(UriEdgeTest, EmptyBrackets_ReturnsError) {
+    const auto uri = Uri::parse("http://[]/");
+    ASSERT_FALSE(uri.has_value());
+    EXPECT_EQ(uri.error(), UriError::INVALID_IPV6_LITERAL);
+}
+
+TEST(UriEdgeTest, GarbageAfterClosingBracket_ReturnsError) {
+    const auto uri = Uri::parse("http://[::1]xyz/");
+    ASSERT_FALSE(uri.has_value());
+    EXPECT_EQ(uri.error(), UriError::IPV6_TRAILING_GARBAGE);
+}
+
+TEST(UriEdgeTest, BracketIPv6_NonNumericPort_ReturnsError) {
+    const auto uri = Uri::parse("http://[::1]:12x");
+    ASSERT_FALSE(uri.has_value());
+    EXPECT_EQ(uri.error(), UriError::PORT_NOT_NUMERIC);
+}
+
+// ===========================================================================
+// Path-only references
+// ===========================================================================
+
+TEST(UriEdgeTest, RelativePathWithQuery_SplitCorrectly) {
+    auto uri = Uri::parse("/api/v1?key=val&x=1").value();
+    EXPECT_EQ(uri.get_path(), "/api/v1");
+    EXPECT_EQ(uri.get_query_string(), "key=val&x=1");
+}
+
+TEST(UriEdgeTest, DotRelativePathWithQuery_SplitCorrectly) {
+    auto uri = Uri::parse("./a?b=1").value();
+    EXPECT_EQ(uri.get_path(), "./a");
+    EXPECT_EQ(uri.get_query_string(), "b=1");
+}
+
+// ===========================================================================
+// error_message coverage
+// ===========================================================================
+
+TEST(UriEdgeTest, ErrorMessage_CoversAllValues) {
+    for (const auto err : {UriError::INVALID_CHARACTER, UriError::INVALID_SCHEME, UriError::EMPTY_HOST,
+                           UriError::UNCLOSED_IPV6_BRACKET, UriError::INVALID_IPV6_LITERAL,
+                           UriError::IPV6_TRAILING_GARBAGE, UriError::PORT_NOT_NUMERIC, UriError::PORT_OUT_OF_RANGE}) {
+        EXPECT_FALSE(error_message(err).empty()) << static_cast<int>(err);
+    }
 }

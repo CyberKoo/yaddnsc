@@ -1,14 +1,12 @@
-//
-// Created by Kotarou on 2026/7/11.
-//
-
-#ifndef YADDNSC_DNS_ERROR_INFO_H
-#define YADDNSC_DNS_ERROR_INFO_H
+#ifndef YADDNSC_DOMAIN_ERROR_DNS_ERROR_INFO_H
+#define YADDNSC_DOMAIN_ERROR_DNS_ERROR_INFO_H
 
 #include <string>
 #include <string_view>
 
 #include "domain/error/dns_error.h"
+
+namespace domain {
 
 /// Lightweight value type for std::expected error reporting.
 ///
@@ -25,4 +23,6 @@ struct DnsErrorInfo {
     [[nodiscard]] std::string_view error_name() const noexcept { return error_to_str(code); }
 };
 
-#endif  // YADDNSC_DNS_ERROR_INFO_H
+}  // namespace domain
+
+#endif  // YADDNSC_DOMAIN_ERROR_DNS_ERROR_INFO_H

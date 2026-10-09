@@ -28,15 +28,15 @@
 #include <gtest/gtest.h>
 
 #include "infrastructure/coro/coro.h"
-#include "infrastructure/net/http/protocol/exchange.h"
-#include "infrastructure/net/http/protocol/read_window.h"
-#include "infrastructure/net/http/protocol/wire.h"
-#include "infrastructure/net/http/redirect.h"
-#include "infrastructure/net/http/session.h"
-#include "infrastructure/net/http/transport.h"
-#include "infrastructure/net/http/wire_request.h"
-#include "infrastructure/net/stream.h"
-#include "infrastructure/net/http/uri.h"
+#include "infrastructure/http/protocol/exchange.h"
+#include "infrastructure/http/protocol/read_window.h"
+#include "infrastructure/http/protocol/wire.h"
+#include "infrastructure/http/redirect.h"
+#include "infrastructure/http/session.h"
+#include "infrastructure/http/transport.h"
+#include "infrastructure/uri/uri.h"
+#include "infrastructure/http/wire_request.h"
+#include "infrastructure/network/transport/stream.h"
 
 namespace {
 
@@ -375,7 +375,8 @@ TEST(HttpRedirect, disabledFollowing_LeavesTheResponseAlone) {
 /// stream instead of opening a socket.
 class CapturingFactory final : public net::StreamFactory {
 public:
-    [[nodiscard]] std::unique_ptr<net::Stream> create_tls(InetAddress, std::uint16_t, const net::ConnectOptions&,
+    [[nodiscard]] std::unique_ptr<net::Stream> create_tls(domain::InetAddress, std::uint16_t,
+                                                          const net::ConnectOptions&,
                                                           const net::TlsOptions& tls_options,
                                                           std::shared_ptr<const net::TlsContext>) override {
         sni = tls_options.sni_hostname;
@@ -383,7 +384,7 @@ public:
         return std::make_unique<ScriptedStream>("HTTP/1.1 204 No Content\r\n\r\n");
     }
 
-    [[nodiscard]] std::unique_ptr<net::Stream> create_tcp(InetAddress, std::uint16_t,
+    [[nodiscard]] std::unique_ptr<net::Stream> create_tcp(domain::InetAddress, std::uint16_t,
                                                           const net::ConnectOptions&) override {
         ++tcp_calls;
         return std::make_unique<ScriptedStream>("HTTP/1.1 204 No Content\r\n\r\n");
@@ -395,9 +396,10 @@ public:
 };
 
 /// Connect through the capturing factory and return the resulting stream.
-[[nodiscard]] std::expected<std::unique_ptr<net::Stream>, http::Error> run_connect(
-    const std::string_view scheme, const std::string_view host, const InetAddress& address,
-    const http::Options& options) {
+[[nodiscard]] std::expected<std::unique_ptr<net::Stream>, http::Error> run_connect(const std::string_view scheme,
+                                                                                   const std::string_view host,
+                                                                                   const domain::InetAddress& address,
+                                                                                   const http::Options& options) {
     return coro::run([&]() -> coro::Task<std::expected<std::unique_ptr<net::Stream>, http::Error>> {
         co_return co_await http::connect_stream(scheme, host, std::span(&address, 1), 443, options);
     }());
@@ -407,7 +409,7 @@ TEST(HttpConnectStream, https_WithoutPinnedName_DefaultsSniToTheOriginHost) {
     auto factory = std::make_shared<CapturingFactory>();
     http::Options options;
     options.factory = factory;
-    const auto address = InetAddress::parse("203.0.113.10").value();
+    const auto address = domain::InetAddress::parse("203.0.113.10").value();
 
     const auto stream = run_connect("https", "example.test", address, options);
 
@@ -422,7 +424,7 @@ TEST(HttpConnectStream, https_WithPinnedName_KeepsTheExplicitSni) {
     http::Options options;
     options.factory = factory;
     options.tls.sni_hostname = "pinned.test";
-    const auto address = InetAddress::parse("203.0.113.10").value();
+    const auto address = domain::InetAddress::parse("203.0.113.10").value();
 
     const auto stream = run_connect("https", "example.test", address, options);
 
@@ -435,7 +437,7 @@ TEST(HttpConnectStream, https_WithIpLiteralHost_NeverSetsSni) {
     auto factory = std::make_shared<CapturingFactory>();
     http::Options options;
     options.factory = factory;
-    const auto address = InetAddress::parse("203.0.113.10").value();
+    const auto address = domain::InetAddress::parse("203.0.113.10").value();
 
     const auto stream = run_connect("https", "203.0.113.10", address, options);
 
@@ -449,7 +451,7 @@ TEST(HttpConnectStream, https_WithIpv6LiteralHost_NeverSetsSni) {
     auto factory = std::make_shared<CapturingFactory>();
     http::Options options;
     options.factory = factory;
-    const auto address = InetAddress::parse("2001:db8::10").value();
+    const auto address = domain::InetAddress::parse("2001:db8::10").value();
 
     const auto stream = run_connect("https", "2001:db8::10", address, options);
 
@@ -462,7 +464,7 @@ TEST(HttpConnectStream, plain_http_OpensTcpAndNeverTouchesTheHostName) {
     auto factory = std::make_shared<CapturingFactory>();
     http::Options options;
     options.factory = factory;
-    const auto address = InetAddress::parse("203.0.113.10").value();
+    const auto address = domain::InetAddress::parse("203.0.113.10").value();
 
     const auto stream = run_connect("http", "example.test", address, options);
 
@@ -483,7 +485,7 @@ public:
     using ScriptedStream::ScriptedStream;
 
     [[nodiscard]] coro::Task<std::expected<void, net::IoError>> ensure_connected() override {
-        [[maybe_unused]] const auto slept = co_await coro::sleep_for(std::chrono::milliseconds{1});
+        co_await coro::sleep_for(std::chrono::milliseconds{1});
         // A resume after a mid-exchange teardown lands here, on the stream the
         // exchange still borrows.
         ++connect_checks;
@@ -497,14 +499,14 @@ public:
 /// streams, and counts the connections.
 class ScriptedSessionFactory final : public net::StreamFactory {
 public:
-    [[nodiscard]] std::unique_ptr<net::Stream> create_tls(InetAddress, std::uint16_t, const net::ConnectOptions&,
-                                                          const net::TlsOptions&,
+    [[nodiscard]] std::unique_ptr<net::Stream> create_tls(domain::InetAddress, std::uint16_t,
+                                                          const net::ConnectOptions&, const net::TlsOptions&,
                                                           std::shared_ptr<const net::TlsContext>) override {
         ++tls_calls;
         return std::make_unique<SlowConnectStream>("");
     }
 
-    [[nodiscard]] std::unique_ptr<net::Stream> create_tcp(InetAddress, std::uint16_t,
+    [[nodiscard]] std::unique_ptr<net::Stream> create_tcp(domain::InetAddress, std::uint16_t,
                                                           const net::ConnectOptions&) override {
         ++tcp_calls;
         std::string payload;
@@ -528,9 +530,10 @@ public:
 // borrowed stream there (a use-after-free on resume, seen under ASan).
 TEST(HttpSession, close_DuringQueuedExchange_DefersTeardownUntilCompletion) {
     auto factory = std::make_shared<ScriptedSessionFactory>();
-    factory->payloads = {"HTTP/1.1 200 OK\r\nContent-Length: 3\r\n\r\none"
-                         "HTTP/1.1 200 OK\r\nContent-Length: 3\r\n\r\ntwo",
-                         "HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nthree"};
+    factory->payloads = {
+        "HTTP/1.1 200 OK\r\nContent-Length: 3\r\n\r\none"
+        "HTTP/1.1 200 OK\r\nContent-Length: 3\r\n\r\ntwo",
+        "HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nthree"};
     http::Options options;
     options.factory = factory;
     http::Session session{std::move(options), "http", "203.0.113.10", 8080};
@@ -550,7 +553,7 @@ TEST(HttpSession, close_DuringQueuedExchange_DefersTeardownUntilCompletion) {
             // 2ms: the first exchange has completed on connection 1 and the
             // second holds the session guard, parked in the connection's
             // connect check. The close lands mid-exchange.
-            [[maybe_unused]] const auto slept = co_await coro::sleep_for(std::chrono::milliseconds{2});
+            co_await coro::sleep_for(std::chrono::milliseconds{2});
             session.close();
             auto first_result = co_await first;
             auto second_result = co_await second;

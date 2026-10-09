@@ -1,7 +1,3 @@
-//
-// Created by Kotarou on 2026/9/17.
-//
-
 #ifndef YADDNSC_CLI_PARSER_H
 #define YADDNSC_CLI_PARSER_H
 

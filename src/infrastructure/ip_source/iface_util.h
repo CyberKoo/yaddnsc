@@ -1,9 +1,5 @@
-//
-// Created by Kotarou on 2026/7/1.
-//
-
-#ifndef YADDNSC_INTERFACE_UTIL_H
-#define YADDNSC_INTERFACE_UTIL_H
+#ifndef YADDNSC_INFRASTRUCTURE_IP_SOURCE_IFACE_UTIL_H
+#define YADDNSC_INFRASTRUCTURE_IP_SOURCE_IFACE_UTIL_H
 
 #include <optional>
 #include <string>
@@ -11,7 +7,9 @@
 
 #include "domain/network/address_family.h"
 
+namespace domain {
 class InetAddress;
+}
 
 /// InterfaceUtil — low-level utility for enumerating local network interfaces
 ///                 and their IP addresses.
@@ -33,12 +31,12 @@ namespace ipsource {
 /// @param interface_name  Name of the network interface.
 /// @return                IP addresses assigned to the interface;
 ///                        std::nullopt when the interface does not exist.
-[[nodiscard]] std::optional<std::vector<InetAddress>> get_addresses(const std::string& interface_name);
+[[nodiscard]] std::optional<std::vector<domain::InetAddress>> get_addresses(const std::string& interface_name);
 
 /// Get the index of the default interface for a family: the first interface
 /// that is UP, neither loopback nor point-to-point, and carries an address of
 /// that family. std::nullopt when none qualifies.
-[[nodiscard]] std::optional<unsigned int> get_default_interface_index(AddressFamily family);
+[[nodiscard]] std::optional<unsigned int> get_default_interface_index(domain::AddressFamily family);
 }  // namespace ipsource
 
-#endif  // YADDNSC_INTERFACE_UTIL_H
+#endif  // YADDNSC_INFRASTRUCTURE_IP_SOURCE_IFACE_UTIL_H

@@ -1,25 +1,21 @@
-//
-// Created by Kotarou on 2026/9/17.
-//
-
-#ifndef YADDNSC_IP_SOURCE_SYSTEM_NETWORK_INTERFACES_H
-#define YADDNSC_IP_SOURCE_SYSTEM_NETWORK_INTERFACES_H
+#ifndef YADDNSC_INFRASTRUCTURE_IP_SOURCE_SYSTEM_NETWORK_INTERFACES_H
+#define YADDNSC_INFRASTRUCTURE_IP_SOURCE_SYSTEM_NETWORK_INTERFACES_H
 
 #include <optional>
 #include <string>
 
 #include "application/ports/network_interfaces.h"
 
-/// SystemNetworkInterfaces — NetworkInterfaces port implementation over the
+/// SystemNetworkInterfaces — app::NetworkInterfacesPort port implementation over the
 /// real OS interface enumeration (InterfaceUtil / getifaddrs).
 ///
 /// Stateless and thread-safe (InterfaceUtil guards its cache internally).
-class SystemNetworkInterfaces final : public NetworkInterfaces {
+class SystemNetworkInterfaces final : public app::NetworkInterfacesPort {
 public:
     [[nodiscard]] std::vector<std::string> names() const override;
 
     /// std::nullopt when the interface does not exist.
-    [[nodiscard]] std::optional<std::vector<InetAddress>> addresses(const std::string& name) const override;
+    [[nodiscard]] std::optional<std::vector<domain::InetAddress>> addresses(const std::string& name) const override;
 };
 
-#endif  // YADDNSC_NETWORK_SYSTEM_NETWORK_INTERFACES_H
+#endif  // YADDNSC_INFRASTRUCTURE_IP_SOURCE_SYSTEM_NETWORK_INTERFACES_H

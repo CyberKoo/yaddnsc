@@ -1,6 +1,3 @@
-//
-// Created by Kotarou on 2026/7/7.
-//
 // Unit tests for dns/util.hpp — dns::Util compile-time helpers.
 //
 // Verifies:
@@ -53,18 +50,18 @@ TEST(DnsUtilTest, ReadU16Be_SpanOffset) {
 // ── type_to_record_type ──────────────────────────────────────────────────────
 
 TEST(DnsUtilTest, TypeToRecordType_A_ReturnsA) {
-    EXPECT_EQ(dns::Util::type_to_record_type(RecordKind::A), dns::RecordType::A);
+    EXPECT_EQ(dns::Util::type_to_record_type(domain::RecordKind::A), dns::RecordType::A);
 }
 
 TEST(DnsUtilTest, TypeToRecordType_AAAA_ReturnsAAAA) {
-    EXPECT_EQ(dns::Util::type_to_record_type(RecordKind::AAAA), dns::RecordType::AAAA);
+    EXPECT_EQ(dns::Util::type_to_record_type(domain::RecordKind::AAAA), dns::RecordType::AAAA);
 }
 
 TEST(DnsUtilTest, TypeToRecordType_TXT_ReturnsTXT) {
-    EXPECT_EQ(dns::Util::type_to_record_type(RecordKind::TXT), dns::RecordType::TXT);
+    EXPECT_EQ(dns::Util::type_to_record_type(domain::RecordKind::TXT), dns::RecordType::TXT);
 }
 
 TEST(DnsUtilTest, TypeToRecordType_Constexpr) {
-    constexpr auto a = dns::Util::type_to_record_type(RecordKind::A);
+    constexpr auto a = dns::Util::type_to_record_type(domain::RecordKind::A);
     static_assert(a == dns::RecordType::A);
 }

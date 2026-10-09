@@ -5,7 +5,11 @@
 // coroutine body; these tests use EXPECT_* only.
 //
 
+#include <atomic>
 #include <chrono>
+#include <exception>
+#include <stdexcept>
+#include <type_traits>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -22,20 +26,21 @@ using namespace std::chrono_literals;
 
 TEST(CancelScope, with_timeout_DeadlineFires_CancelsBodyAndAbsorbs) {
     bool body_saw_cancellation = false;
-    bool scope_reported_timeout = false;
     bool outcome_reported_timeout = false;
     coro::ManualClock clock;
     coro::Loop loop{clock};
     const auto start = clock.now();
 
-    auto task = [&body_saw_cancellation, &scope_reported_timeout, &outcome_reported_timeout]() -> coro::Task<void> {
-        auto outcome = co_await coro::with_timeout(
-            100ms, [&body_saw_cancellation, &scope_reported_timeout](coro::CancelScope& scope) -> coro::Task<void> {
-                const auto slept = co_await coro::sleep_for(10s);
-                body_saw_cancellation = !slept.has_value();
-                scope_reported_timeout = scope.timed_out();
-                co_return;
-            });
+    auto task = [&body_saw_cancellation, &outcome_reported_timeout]() -> coro::Task<void> {
+        auto outcome = co_await coro::with_timeout(100ms, [&body_saw_cancellation]() -> coro::Task<void> {
+            try {
+                co_await coro::sleep_for(10s);
+            } catch (const coro::Cancelled&) {
+                body_saw_cancellation = true;
+                throw;
+            }
+            co_return;
+        });
         outcome_reported_timeout = outcome.timed_out;
         // The combinator returns normally even though the scope was cancelled.
         co_return;
@@ -43,7 +48,6 @@ TEST(CancelScope, with_timeout_DeadlineFires_CancelsBodyAndAbsorbs) {
 
     coro::run(loop, task());
     EXPECT_TRUE(body_saw_cancellation);
-    EXPECT_TRUE(scope_reported_timeout);
     EXPECT_TRUE(outcome_reported_timeout);
     EXPECT_EQ(clock.now() - start, 100ms);
 }
@@ -54,14 +58,13 @@ TEST(CancelScope, with_timeout_DeadlineFires_DoesNotLeakToOuterScope) {
     coro::Loop loop{clock};
 
     auto task = [&after_timeout_ran]() -> coro::Task<void> {
-        [[maybe_unused]] const auto ignored =
-            co_await coro::with_timeout(10ms, [](coro::CancelScope&) -> coro::Task<void> {
-                [[maybe_unused]] const auto slept = co_await coro::sleep_for(1s);
-                co_return;
-            });
+        [[maybe_unused]] const auto ignored = co_await coro::with_timeout(10ms, []() -> coro::Task<void> {
+            co_await coro::sleep_for(1s);
+            co_return;
+        });
         // If the timeout had propagated, this sleep would be cancelled too.
-        const auto slept = co_await coro::sleep_for(50ms);
-        after_timeout_ran = slept.has_value();
+        co_await coro::sleep_for(50ms);
+        after_timeout_ran = true;
         co_return;
     };
 
@@ -76,8 +79,8 @@ TEST(CancelScope, with_timeout_BodyFinishesEarly_RemovesDeadline) {
     const auto start = clock.now();
 
     auto task = [&completed]() -> coro::Task<void> {
-        auto outcome = co_await coro::with_timeout(10s, [](coro::CancelScope&) -> coro::Task<int> {
-            [[maybe_unused]] const auto slept = co_await coro::sleep_for(100ms);
+        auto outcome = co_await coro::with_timeout(10s, []() -> coro::Task<int> {
+            co_await coro::sleep_for(100ms);
             co_return 5;
         });
         EXPECT_FALSE(outcome.timed_out);
@@ -104,8 +107,8 @@ TEST(CancelScope, with_deadline_DeadlineReached_CancelsBody) {
     const auto deadline = clock.now() + 40ms;
 
     auto task = [&timed_out, deadline]() -> coro::Task<void> {
-        auto outcome = co_await coro::with_deadline(deadline, [](coro::CancelScope&) -> coro::Task<void> {
-            [[maybe_unused]] const auto slept = co_await coro::sleep_for(5s);
+        auto outcome = co_await coro::with_deadline(deadline, []() -> coro::Task<void> {
+            co_await coro::sleep_for(5s);
             co_return;
         });
         timed_out = outcome.timed_out;
@@ -123,8 +126,8 @@ TEST(CancelScope, with_deadline_NotReached_CompletesNormally) {
     coro::Loop loop{clock};
 
     auto task = [&completed, &clock]() -> coro::Task<void> {
-        auto outcome = co_await coro::with_deadline(clock.now() + 100ms, [](coro::CancelScope&) -> coro::Task<void> {
-            [[maybe_unused]] const auto slept = co_await coro::sleep_for(10ms);
+        auto outcome = co_await coro::with_deadline(clock.now() + 100ms, []() -> coro::Task<void> {
+            co_await coro::sleep_for(10ms);
             co_return;
         });
         completed = outcome.completed;
@@ -133,6 +136,46 @@ TEST(CancelScope, with_deadline_NotReached_CompletesNormally) {
 
     coro::run(loop, task());
     EXPECT_TRUE(completed);
+}
+
+TEST(CancelScope, WithTimeout_BodyDefect_PropagatesAndRemovesTimer) {
+    coro::ManualClock clock;
+    coro::Loop loop{clock};
+    bool caught = false;
+    auto task = [&caught]() -> coro::Task<void> {
+        try {
+            co_await coro::with_timeout(10ms, []() -> coro::Task<void> {
+                co_await coro::sleep_for(1ms);
+                throw std::runtime_error("body defect");
+            });
+        } catch (const std::runtime_error&) {
+            caught = true;
+        }
+        // Passing the former deadline must not cancel the caller.
+        co_await coro::sleep_for(20ms);
+    };
+    coro::run(loop, task());
+    EXPECT_TRUE(caught);
+    EXPECT_EQ(clock.now().time_since_epoch(), 21ms);
+}
+
+TEST(CancelScope, WithDeadline_AncestorDeadlineFires_PropagatesThroughInnerScope) {
+    coro::ManualClock clock;
+    coro::Loop loop{clock};
+    bool inner_returned = false;
+    auto task = [&]() -> coro::Task<void> {
+        const auto outcome = co_await coro::with_deadline(clock.now() + 10ms, [&]() -> coro::Task<void> {
+            co_await coro::with_deadline(clock.now() + 100ms,
+                                         []() -> coro::Task<void> { co_await coro::sleep_for(1s); });
+            inner_returned = true;
+        });
+        EXPECT_TRUE(outcome.timed_out);
+        EXPECT_TRUE(outcome.cancelled);
+        EXPECT_FALSE(outcome.completed);
+    };
+    coro::run(loop, task());
+    EXPECT_FALSE(inner_returned);
+    EXPECT_EQ(clock.now().time_since_epoch(), 10ms);
 }
 
 // ---------------------------------------------------------------------------
@@ -150,15 +193,21 @@ TEST(CancelScope, with_cancel_scope_CancelledByPeer_StopsBody) {
         auto outcome = co_await coro::with_cancel_scope(
             [&victim_cancelled, &victim_scope](coro::CancelScope& scope) -> coro::Task<void> {
                 victim_scope = &scope;
-                const auto slept = co_await coro::sleep_for(10s);
-                victim_cancelled = !slept.has_value();
+                try {
+                    co_await coro::sleep_for(10s);
+
+                } catch (const coro::Cancelled&) {
+                    victim_cancelled = true;
+
+                    throw;
+                }
                 co_return;
             });
         EXPECT_FALSE(outcome.timed_out);
         co_return;
     };
     auto canceller = [&canceller_saw_scope, &victim_scope]() -> coro::Task<void> {
-        [[maybe_unused]] const auto slept = co_await coro::sleep_for(5ms);
+        co_await coro::sleep_for(5ms);
         canceller_saw_scope = victim_scope != nullptr;
         if (victim_scope != nullptr) {
             victim_scope->cancel();
@@ -192,18 +241,20 @@ TEST(CancelScope, non_cancellable_OuterCancel_CleanupStillCompletes) {
 
     auto task = [&first_await_cancelled, &cleanup_completed, &shield_reported_cancelled]() -> coro::Task<void> {
         [[maybe_unused]] const auto ignored = co_await coro::with_timeout(
-            10ms,
-            [&first_await_cancelled, &cleanup_completed,
-             &shield_reported_cancelled](coro::CancelScope&) -> coro::Task<void> {
-                const auto first = co_await coro::sleep_for(1s);
-                first_await_cancelled = !first.has_value();
+            10ms, [&first_await_cancelled, &cleanup_completed, &shield_reported_cancelled]() -> coro::Task<void> {
+                try {
+                    co_await coro::sleep_for(1s);
+
+                } catch (const coro::Cancelled&) {
+                    first_await_cancelled = true;
+                }
                 // Cleanup runs under a shield: the outer cancellation must not
                 // reach it, so this sleep completes normally.
                 auto shielded = co_await coro::non_cancellable(
                     [&shield_reported_cancelled](coro::CancelScope& shield) -> coro::Task<int> {
                         shield_reported_cancelled = shield.cancelled();
-                        const auto slept = co_await coro::sleep_for(50ms);
-                        co_return slept.has_value() ? 1 : 0;
+                        co_await coro::sleep_for(50ms);
+                        co_return 1;
                     });
                 cleanup_completed = shielded.has_value() && *shielded == 1;
                 co_return;
@@ -229,11 +280,17 @@ TEST(CancelScope, with_cancel_scope_NestedScope_OuterCancelPropagatesToInner) {
 
     auto task = [&inner_sleep_cancelled, &inner_reported_cancelled]() -> coro::Task<void> {
         [[maybe_unused]] const auto ignored = co_await coro::with_timeout(
-            10ms, [&inner_sleep_cancelled, &inner_reported_cancelled](coro::CancelScope&) -> coro::Task<void> {
+            10ms, [&inner_sleep_cancelled, &inner_reported_cancelled]() -> coro::Task<void> {
                 auto inner =
                     co_await coro::with_cancel_scope([&inner_sleep_cancelled](coro::CancelScope&) -> coro::Task<void> {
-                        const auto slept = co_await coro::sleep_for(1s);
-                        inner_sleep_cancelled = !slept.has_value();
+                        try {
+                            co_await coro::sleep_for(1s);
+
+                        } catch (const coro::Cancelled&) {
+                            inner_sleep_cancelled = true;
+
+                            throw;
+                        }
                         co_return;
                     });
                 inner_reported_cancelled = inner.cancelled;
@@ -244,7 +301,7 @@ TEST(CancelScope, with_cancel_scope_NestedScope_OuterCancelPropagatesToInner) {
 
     coro::run(loop, task());
     EXPECT_TRUE(inner_sleep_cancelled);
-    EXPECT_TRUE(inner_reported_cancelled);
+    EXPECT_FALSE(inner_reported_cancelled);  // ancestor cancellation never returns an inner outcome
 }
 
 TEST(CancelScope, non_cancellable_UnderCancelledScope_StillCompletes) {
@@ -254,12 +311,15 @@ TEST(CancelScope, non_cancellable_UnderCancelledScope_StillCompletes) {
 
     auto task = [&inner_completed]() -> coro::Task<void> {
         [[maybe_unused]] const auto ignored =
-            co_await coro::with_timeout(10ms, [&inner_completed](coro::CancelScope&) -> coro::Task<void> {
-                [[maybe_unused]] const auto slept = co_await coro::sleep_for(1s);  // cancelled here
+            co_await coro::with_timeout(10ms, [&inner_completed]() -> coro::Task<void> {
+                try {
+                    co_await coro::sleep_for(1s);
+                } catch (const coro::Cancelled&) {
+                }
                 auto shielded =
                     co_await coro::non_cancellable([&inner_completed](coro::CancelScope&) -> coro::Task<void> {
-                        const auto resumed = co_await coro::sleep_for(20ms);
-                        inner_completed = resumed.has_value();
+                        co_await coro::sleep_for(20ms);
+                        inner_completed = true;
                         co_return;
                     });
                 EXPECT_TRUE(shielded.completed);
@@ -276,7 +336,7 @@ TEST(CancelScope, non_cancellable_UnderCancelledScope_StillCompletes) {
 // sleep: cancellation, the zero-delay path and deadline accuracy
 // ---------------------------------------------------------------------------
 
-TEST(Sleep, sleep_for_InsideCancelledScope_ReturnsOperationCanceled) {
+TEST(Sleep, sleep_for_InsideCancelledScope_ThrowsCancelled) {
     bool cancelled = false;
     coro::ManualClock clock;
     coro::Loop loop{clock};
@@ -286,8 +346,14 @@ TEST(Sleep, sleep_for_InsideCancelledScope_ReturnsOperationCanceled) {
         [[maybe_unused]] const auto ignored =
             co_await coro::with_cancel_scope([&cancelled](coro::CancelScope& scope) -> coro::Task<void> {
                 scope.cancel();
-                const auto slept = co_await coro::sleep_for(1s);
-                cancelled = !slept.has_value();
+                try {
+                    co_await coro::sleep_for(1s);
+
+                } catch (const coro::Cancelled&) {
+                    cancelled = true;
+
+                    throw;
+                }
                 co_return;
             });
         co_return;
@@ -305,8 +371,8 @@ TEST(Sleep, sleep_for_ZeroDelay_DoesNotAdvanceClock) {
     const auto start = clock.now();
 
     auto task = [&slept]() -> coro::Task<void> {
-        const auto result = co_await coro::sleep_for(0ms);
-        slept = result.has_value();
+        co_await coro::sleep_for(0ms);
+        slept = true;
         co_return;
     };
 
@@ -322,11 +388,9 @@ TEST(Sleep, sleep_for_SequentialDelays_WakesInOrderAndSumsElapsed) {
     const auto start = clock.now();
 
     auto task = [&order]() -> coro::Task<void> {
-        const auto first = co_await coro::sleep_for(100ms);
-        EXPECT_TRUE(first.has_value());
+        co_await coro::sleep_for(100ms);
         order.push_back(1);
-        const auto second = co_await coro::sleep_for(50ms);
-        EXPECT_TRUE(second.has_value());
+        co_await coro::sleep_for(50ms);
         order.push_back(2);
         co_return;
     };
@@ -343,8 +407,8 @@ TEST(Sleep, sleep_until_AbsoluteDeadline_WakesAtDeadline) {
     bool reached = false;
 
     auto task = [&reached, &clock, target]() -> coro::Task<void> {
-        const auto result = co_await coro::sleep_until(target);
-        reached = result.has_value() && clock.now() >= target;
+        co_await coro::sleep_until(target);
+        reached = clock.now() >= target;
         co_return;
     };
 
@@ -380,8 +444,8 @@ TEST(CancelScope, with_timeout_BusyReadyQueue_TimerStillFires) {
     auto task = [&]() -> coro::Task<void> {
         co_await coro::supervisor_group([&](coro::TaskGroup& group) -> coro::Task<void> {
             group.spawn(churn());
-            const auto outcome = co_await coro::with_timeout(1ms, [](coro::CancelScope&) -> coro::Task<void> {
-                [[maybe_unused]] const auto slept = co_await coro::sleep_for(10s);
+            const auto outcome = co_await coro::with_timeout(1ms, []() -> coro::Task<void> {
+                co_await coro::sleep_for(10s);
                 co_return;
             });
             timed_out = outcome.timed_out;
@@ -397,6 +461,83 @@ TEST(CancelScope, with_timeout_BusyReadyQueue_TimerStillFires) {
     // The timer fired mid-churn, not after the ready queue finally drained.
     EXPECT_GE(churned_when_timed_out, 0);
     EXPECT_LT(churned_when_timed_out, churn_steps);
+}
+
+TEST(CancelScope, Cancelled_IsControlExceptionOutsideStdException) {
+    EXPECT_FALSE((std::is_base_of_v<std::exception, coro::Cancelled>) );
+    EXPECT_FALSE((std::is_default_constructible_v<coro::Cancelled>) );
+}
+
+TEST(CancelScope, Cancellation_RemainsStickyAfterItIsCaught) {
+    coro::ManualClock clock;
+    coro::Loop loop{clock};
+    int throws = 0;
+    bool completed = true;
+    coro::run(loop, [&]() -> coro::Task<void> {
+        const auto outcome = co_await coro::with_cancel_scope([&](coro::CancelScope& scope) -> coro::Task<void> {
+            scope.cancel();
+            for (int i = 0; i < 3; ++i) {
+                try {
+                    co_await coro::checkpoint();
+                } catch (const coro::Cancelled&) {
+                    ++throws;
+                }
+            }
+        });
+        completed = outcome.completed;
+    }());
+    EXPECT_EQ(throws, 3);
+    EXPECT_FALSE(completed);
+}
+
+TEST(CancelScope, LocalAndAncestorCancel_OnlyAncestorAbsorbs) {
+    bool inner_returned = false;
+    bool outer_cancelled = false;
+    coro::run([&]() -> coro::Task<void> {
+        const auto outcome = co_await coro::with_cancel_scope([&](coro::CancelScope& outer) -> coro::Task<void> {
+            co_await coro::with_cancel_scope([&](coro::CancelScope& inner) -> coro::Task<void> {
+                inner.cancel();
+                outer.cancel();
+                co_await coro::checkpoint();
+            });
+            inner_returned = true;
+        });
+        outer_cancelled = outcome.cancelled && !outcome.completed;
+    }());
+    EXPECT_FALSE(inner_returned);
+    EXPECT_TRUE(outer_cancelled);
+}
+
+TEST(CancelScope, LocalExceptionCaughtBeforeAncestorCancel_IsReattributedAtExit) {
+    bool inner_returned = false;
+    coro::run([&]() -> coro::Task<void> {
+        const auto outcome = co_await coro::with_cancel_scope([&](coro::CancelScope& outer) -> coro::Task<void> {
+            co_await coro::with_cancel_scope([&](coro::CancelScope& inner) -> coro::Task<void> {
+                inner.cancel();
+                try {
+                    co_await coro::checkpoint();
+                } catch (const coro::Cancelled&) {
+                    outer.cancel();
+                    throw;
+                }
+            });
+            inner_returned = true;
+        });
+        EXPECT_TRUE(outcome.cancelled);
+    }());
+    EXPECT_FALSE(inner_returned);
+}
+
+TEST(Offload, AlreadyCancelled_DoesNotStartWorker) {
+    std::atomic<bool> started{false};
+    coro::run([&]() -> coro::Task<void> {
+        const auto outcome = co_await coro::with_cancel_scope([&](coro::CancelScope& scope) -> coro::Task<void> {
+            scope.cancel();
+            co_await coro::offload([&] { started.store(true); });
+        });
+        EXPECT_FALSE(outcome.completed);
+    }());
+    EXPECT_FALSE(started.load());
 }
 
 }  // namespace

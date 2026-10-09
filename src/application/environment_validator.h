@@ -1,7 +1,3 @@
-//
-// Created by Kotarou on 2026/9/17.
-//
-
 #ifndef YADDNSC_APPLICATION_ENVIRONMENT_VALIDATOR_H
 #define YADDNSC_APPLICATION_ENVIRONMENT_VALIDATOR_H
 
@@ -15,10 +11,10 @@ namespace domain {
 struct RuntimeConfig;
 }
 
-class DriverCatalogPort;
-class NetworkInterfaces;
-
 namespace app {
+
+class DriverCatalogPort;
+class NetworkInterfacesPort;
 
 /// Environment-dependent configuration validation: every referenced driver
 /// must be loaded and every referenced network interface must exist on this
@@ -32,7 +28,7 @@ namespace app {
 /// error list, with the message wording unchanged from the legacy
 /// ConfigValidator.
 [[nodiscard]] std::expected<void, std::vector<domain::ConfigError>> validate_environment(
-    const domain::RuntimeConfig& config, const DriverCatalogPort& catalog, const NetworkInterfaces& interfaces);
+    const domain::RuntimeConfig& config, const DriverCatalogPort& catalog, const NetworkInterfacesPort& interfaces);
 
 }  // namespace app
 

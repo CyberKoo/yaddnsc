@@ -11,8 +11,8 @@
 // own DnsErrorInfo.
 //
 
-#ifndef YADDNSC_DNS_WIRE_FRAMING_H
-#define YADDNSC_DNS_WIRE_FRAMING_H
+#ifndef YADDNSC_INFRASTRUCTURE_DNS_WIRE_FRAMING_H
+#define YADDNSC_INFRASTRUCTURE_DNS_WIRE_FRAMING_H
 
 #include <cstddef>
 #include <cstdint>
@@ -80,4 +80,4 @@ enum class FrameError {
 
 }  // namespace dns
 
-#endif  // YADDNSC_DNS_WIRE_FRAMING_H
+#endif  // YADDNSC_INFRASTRUCTURE_DNS_WIRE_FRAMING_H

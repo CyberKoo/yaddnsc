@@ -1,9 +1,5 @@
-//
-// Created by Kotarou on 2026/7/8.
-//
-
-#ifndef YADDNSC_UTIL_RANDOM_H
-#define YADDNSC_UTIL_RANDOM_H
+#ifndef YADDNSC_SUPPORT_UTIL_RANDOM_HPP
+#define YADDNSC_SUPPORT_UTIL_RANDOM_HPP
 
 #include <cstdint>
 #include <random>
@@ -34,4 +30,4 @@ namespace Utils::Random {
 }
 }  // namespace Utils::Random
 
-#endif  // YADDNSC_UTIL_RANDOM_H
+#endif  // YADDNSC_SUPPORT_UTIL_RANDOM_HPP

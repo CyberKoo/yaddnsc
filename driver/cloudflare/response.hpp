@@ -1,6 +1,3 @@
-//
-// Created by Kotarou on 2026/6/17.
-//
 #ifndef YADDNSC_DRV_CLOUDFLARE_RESPONSE_H
 #define YADDNSC_DRV_CLOUDFLARE_RESPONSE_H
 

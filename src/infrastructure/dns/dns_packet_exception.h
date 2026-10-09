@@ -1,9 +1,5 @@
-//
-// Created by Kotarou on 2026/7/8.
-//
-
-#ifndef YADDNSC_EXCEPTION_DNS_PACKET_H
-#define YADDNSC_EXCEPTION_DNS_PACKET_H
+#ifndef YADDNSC_INFRASTRUCTURE_DNS_DNS_PACKET_EXCEPTION_H
+#define YADDNSC_INFRASTRUCTURE_DNS_DNS_PACKET_EXCEPTION_H
 
 #include "support/exception.h"
 
@@ -18,4 +14,4 @@ public:
     [[nodiscard]] std::string_view get_name() const noexcept override { return "DnsPacketException"; }
 };
 
-#endif  // YADDNSC_EXCEPTION_DNS_PACKET_H
+#endif  // YADDNSC_INFRASTRUCTURE_DNS_DNS_PACKET_EXCEPTION_H

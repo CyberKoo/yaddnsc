@@ -23,11 +23,12 @@ namespace {
 }
 }  // namespace
 
-std::vector<InetAddress> ipsource::parse_response(const std::span<const std::uint8_t> packet,
-                                              const std::string_view hostname, const RecordKind type) {
+std::vector<domain::InetAddress> ipsource::parse_response(const std::span<const std::uint8_t> packet,
+                                                          const std::string_view hostname,
+                                                          const domain::RecordKind type) {
     dns::RecordParser parser(packet);
     const auto& msg = parser.message();
-    std::vector<InetAddress> results;
+    std::vector<domain::InetAddress> results;
     results.reserve(msg.answers.size());
 
     for (size_t i = 0; i < msg.answers.size(); ++i) {
@@ -35,19 +36,19 @@ std::vector<InetAddress> ipsource::parse_response(const std::span<const std::uin
         if (!name_matches(rr.name, hostname)) {
             continue;
         }
-        if (type == RecordKind::A && rr.type != static_cast<std::uint16_t>(dns::RecordType::A)) {
+        if (type == domain::RecordKind::A && rr.type != static_cast<std::uint16_t>(dns::RecordType::A)) {
             continue;
         }
-        if (type == RecordKind::AAAA && rr.type != static_cast<std::uint16_t>(dns::RecordType::AAAA)) {
+        if (type == domain::RecordKind::AAAA && rr.type != static_cast<std::uint16_t>(dns::RecordType::AAAA)) {
             continue;
         }
 
         const auto record = parser.parse_record(i);
-        if (type == RecordKind::A) {
-            if (const auto address = Inet4Address::parse(record)) {
+        if (type == domain::RecordKind::A) {
+            if (const auto address = domain::Inet4Address::parse(record)) {
                 results.emplace_back(*address);
             }
-        } else if (const auto address = Inet6Address::parse(record)) {
+        } else if (const auto address = domain::Inet6Address::parse(record)) {
             results.emplace_back(*address);
         }
     }

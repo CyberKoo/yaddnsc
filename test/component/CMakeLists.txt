@@ -71,14 +71,14 @@ set_tests_properties(test_composition_bootstrap PROPERTIES
     ENVIRONMENT "ASAN_OPTIONS=detect_odr_violation=0:detect_stack_use_after_return=1:strict_string_checks=1:detect_invalid_pointer_pairs=2")
 
 # ============================================================================
-#  Coroutine transport (src/infrastructure/net/) — TCP echo, the shared Python
+#  Coroutine transport (src/infrastructure/network/) — TCP echo, the shared Python
 #  TLS echo server (with its throwaway self-signed bundle), UDP datagrams, the
 #  DNS wire exchange over IPv6 loopback and scope-driven timeouts over real
 #  loopback I/O.
 # ============================================================================
 
 add_unit_test(net_coro_component SOURCE net_coro_component_test.cpp)
-target_link_libraries(test_net_coro_component PRIVATE yaddnsc_coro_io OpenSSL::SSL OpenSSL::Crypto)
+target_link_libraries(test_net_coro_component PRIVATE yaddnsc_dns_bootstrap yaddnsc_coro_dns OpenSSL::SSL OpenSSL::Crypto)
 target_compile_definitions(test_net_coro_component PRIVATE
     TEST_DATA_DIR="${PROJECT_SOURCE_DIR}/test/component"
 )
@@ -87,7 +87,7 @@ target_compile_definitions(test_net_coro_component PRIVATE
 # HTTP/1.1 server for plain TCP, and the shared Python dns/doh/dot servers for
 # the classic, DoH and DoT paths.
 add_unit_test(net_coro_io_component SOURCE net_coro_io_component_test.cpp)
-target_link_libraries(test_net_coro_io_component PRIVATE yaddnsc_coro_io OpenSSL::SSL OpenSSL::Crypto)
+target_link_libraries(test_net_coro_io_component PRIVATE yaddnsc_http yaddnsc_coro_dns OpenSSL::SSL OpenSSL::Crypto)
 target_compile_definitions(test_net_coro_io_component PRIVATE
     TEST_DATA_DIR="${PROJECT_SOURCE_DIR}/test/component"
 )
@@ -103,3 +103,10 @@ target_compile_definitions(test_net_coro_io_component PRIVATE
 add_unit_test(mdns_coro SOURCE mdns_coro_test.cpp)
 target_link_libraries(test_mdns_coro PRIVATE yaddnsc_coro_ip_source yaddnsc_coro)
 set_tests_properties(test_mdns_coro PROPERTIES RESOURCE_LOCK "mdns-multicast")
+
+# Architecture guard regression cases use the same script as the CTest gate.
+add_unit_test(architecture_guard_cases SOURCE architecture_guard_test.cpp)
+target_compile_definitions(test_architecture_guard_cases PRIVATE
+    YADDNSC_TEST_CMAKE="${CMAKE_COMMAND}"
+    YADDNSC_TEST_GUARD="${PROJECT_SOURCE_DIR}/cmake/ArchitectureGuard.cmake"
+)

@@ -1,9 +1,5 @@
-//
-// Created by Kotarou on 2026/7/8.
-//
-
-#ifndef YADDNSC_DNS_WIRE_BUILDER_H
-#define YADDNSC_DNS_WIRE_BUILDER_H
+#ifndef YADDNSC_INFRASTRUCTURE_DNS_WIRE_BUILDER_H
+#define YADDNSC_INFRASTRUCTURE_DNS_WIRE_BUILDER_H
 
 #include <cstdint>
 #include <optional>
@@ -145,4 +141,4 @@ private:
 };
 }  // namespace dns
 
-#endif  // YADDNSC_DNS_WIRE_BUILDER_H
+#endif  // YADDNSC_INFRASTRUCTURE_DNS_WIRE_BUILDER_H

@@ -24,7 +24,7 @@
 #include <unistd.h>
 
 #include "domain/config/runtime_config.h"
-#include "infrastructure/config/config_verification_exception.h"
+#include "infrastructure/config/config_exception.h"
 #include "infrastructure/plugin/driver_catalog.h"
 #include "infrastructure/plugin/driver_not_found_exception.h"
 #include "infrastructure/plugin/plugin_load_exception.h"
@@ -81,7 +81,7 @@ TEST(DriverLoaderTest, EmptyDriverDir_Throws) {
     settings.driver_dir = "";
     settings.load.push_back("simple/simple.so");
 
-    EXPECT_THROW({ DriverLoader::load(catalog, settings); }, ConfigVerificationException);
+    EXPECT_THROW({ DriverLoader::load(catalog, settings); }, ConfigException);
 }
 
 TEST(DriverCatalogTest, UnloadDriver) {
@@ -237,4 +237,26 @@ TEST(DriverLoaderTest, AutoDiscover_AllBad_DoesNotThrow) {
     EXPECT_TRUE(catalog.get_loaded_drivers().empty());
 
     std::filesystem::remove_all(dir);
+}
+
+TEST(DriverCatalogTest, Describe_MissingDriver_ReturnsNotFound) {
+    const DriverCatalog catalog;
+    const auto result = catalog.describe("missing");
+    ASSERT_FALSE(result);
+    EXPECT_EQ(result.error().code, domain::DriverError::Code::NOT_FOUND);
+    EXPECT_TRUE(result.error().message.empty());
+}
+
+TEST(DriverCatalogTest, Describe_LoadedDriver_ReturnsOwnedDescription) {
+    DriverCatalog catalog;
+    DriverLoader::load(catalog, make_load_settings("simple/simple.so"));
+    const auto result = catalog.describe("simple");
+    ASSERT_TRUE(result);
+    const auto& descriptor = catalog.get_descriptor("simple");
+    EXPECT_EQ(result->name, descriptor.name);
+    EXPECT_EQ(result->version, descriptor.version);
+    EXPECT_EQ(result->author, descriptor.author);
+    EXPECT_EQ(result->description, descriptor.description);
+    catalog.unload_driver("simple");
+    EXPECT_EQ(result->name, "simple");
 }

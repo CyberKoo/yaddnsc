@@ -2,8 +2,8 @@
 // ip_source — coroutine interface source.
 //
 
-#ifndef YADDNSC_IP_SOURCE_IFACE_H
-#define YADDNSC_IP_SOURCE_IFACE_H
+#ifndef YADDNSC_INFRASTRUCTURE_IP_SOURCE_IFACE_H
+#define YADDNSC_INFRASTRUCTURE_IP_SOURCE_IFACE_H
 
 #include <string>
 
@@ -19,15 +19,15 @@ namespace ipsource {
 /// or data whose size an external peer controls (design §6.3).
 class InterfaceIpSource final : public CoroIpSource {
 public:
-    InterfaceIpSource(std::string interface_name, AddressFamily address_family);
+    InterfaceIpSource(std::string interface_name, domain::AddressFamily address_family);
 
     [[nodiscard]] coro::Task<Result> resolve() override;
 
 private:
     std::string interface_name_;
-    AddressFamily address_family_;
+    domain::AddressFamily address_family_;
 };
 
 }  // namespace ipsource
 
-#endif  // YADDNSC_IP_SOURCE_IFACE_H
+#endif  // YADDNSC_INFRASTRUCTURE_IP_SOURCE_IFACE_H

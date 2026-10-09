@@ -1,6 +1,3 @@
-//
-// Created by Kotarou on 2026/7/7.
-//
 // Unit tests for mixin.h — NoCopy / NoMove tag types.
 //
 // Verifies:

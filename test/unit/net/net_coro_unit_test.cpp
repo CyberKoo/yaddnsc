@@ -1,5 +1,5 @@
 //
-// Unit tests for the coroutine transport layer (src/infrastructure/net/) and for
+// Unit tests for the coroutine transport layer (src/infrastructure/network/) and for
 // the runtime's fd-wait checkpoint they are built on.
 //
 // Scope: loopback/socketpair-level I/O only. A TLS handshake against a real TLS
@@ -27,11 +27,11 @@
 #include "domain/network/inet_address.h"
 #include "infrastructure/coro/coro.h"
 #include "infrastructure/coro/fd_wait.hpp"
-#include "infrastructure/net/io_error.h"
-#include "infrastructure/net/tcp_stream.h"
-#include "infrastructure/net/tls_context.h"
-#include "infrastructure/net/tls_stream.h"
-#include "infrastructure/net/udp_socket.h"
+#include "infrastructure/network/transport/io_error.h"
+#include "infrastructure/network/transport/tcp_stream.h"
+#include "infrastructure/network/tls/context.h"
+#include "infrastructure/network/tls/stream.h"
+#include "infrastructure/network/transport/udp_socket.h"
 #include "support/util/fd.hpp"
 
 namespace {
@@ -42,10 +42,10 @@ using net::IoError;
 
 constexpr std::size_t BUFFER_SIZE = 512;
 
-[[nodiscard]] InetAddress loopback_v4() {
-    const auto address = InetAddress::parse("127.0.0.1");
+[[nodiscard]] domain::InetAddress loopback_v4() {
+    const auto address = domain::InetAddress::parse("127.0.0.1");
     EXPECT_TRUE(address.has_value());
-    return address.value_or(InetAddress{});
+    return address.value_or(domain::InetAddress{});
 }
 
 /// An AF_UNIX socketpair, owned by UniqueFd so a failing assertion leaks nothing.
@@ -183,8 +183,8 @@ TEST(FdWait, wait_readable_ByteQueued_ReportsReady) {
 
     bool ready = false;
     auto task = [&ready, fd = pair->first()]() -> coro::Task<void> {
-        const auto result = co_await coro::wait_readable(fd);
-        ready = result.has_value();
+        co_await coro::wait_readable(fd);
+        ready = true;
         co_return;
     };
     run_task(task());
@@ -198,12 +198,15 @@ TEST(FdWait, wait_readable_NoData_IsCancelledByScopeTimeout) {
     bool cancelled = false;
     bool timed_out = false;
     auto task = [&cancelled, &timed_out, fd = pair->first()]() -> coro::Task<void> {
-        const auto outcome =
-            co_await coro::with_timeout(20ms, [&cancelled, fd](coro::CancelScope&) -> coro::Task<void> {
-                const auto result = co_await coro::wait_readable(fd);
-                cancelled = !result.has_value();
-                co_return;
-            });
+        const auto outcome = co_await coro::with_timeout(20ms, [&cancelled, fd]() -> coro::Task<void> {
+            try {
+                co_await coro::wait_readable(fd);
+            } catch (const coro::Cancelled&) {
+                cancelled = true;
+                throw;
+            }
+            co_return;
+        });
         timed_out = outcome.timed_out;
         co_return;
     };
@@ -218,19 +221,22 @@ TEST(FdWait, wait_writable_OpenSocket_ReportsReady) {
 
     bool ready = false;
     auto task = [&ready, fd = pair->first()]() -> coro::Task<void> {
-        const auto result = co_await coro::wait_writable(fd);
-        ready = result.has_value();
+        co_await coro::wait_writable(fd);
+        ready = true;
         co_return;
     };
     run_task(task());
     EXPECT_TRUE(ready);
 }
 
-TEST(FdWait, wait_readable_ClosedDescriptor_ReportsCancelledWithoutBlocking) {
+TEST(FdWait, wait_readable_InvalidDescriptor_ThrowsContractError) {
     bool cancelled = false;
     auto task = [&cancelled]() -> coro::Task<void> {
-        const auto result = co_await coro::wait_readable(-1);
-        cancelled = !result.has_value();
+        try {
+            co_await coro::wait_readable(-1);
+        } catch (const std::logic_error&) {
+            cancelled = true;
+        }
         co_return;
     };
     run_task(task());
@@ -339,22 +345,20 @@ TEST(TcpStream, read_some_ScopeTimesOut_ReportsCancelledAndTimedOut) {
         if (!co_await stream.ensure_connected()) {
             co_return;
         }
-        const auto outcome =
-            co_await coro::with_timeout(30ms, [&stream, &error](coro::CancelScope&) -> coro::Task<void> {
-                std::array<std::uint8_t, 8> buffer{};
-                const auto result = co_await stream.read_some(buffer);
-                if (!result) {
-                    error = result.error();
-                }
-                co_return;
-            });
+        const auto outcome = co_await coro::with_timeout(30ms, [&stream, &error]() -> coro::Task<void> {
+            std::array<std::uint8_t, 8> buffer{};
+            const auto result = co_await stream.read_some(buffer);
+            if (!result) {
+                error = result.error();
+            }
+            co_return;
+        });
         timed_out = outcome.timed_out;
         co_return;
     };
     run_task(task());
     EXPECT_TRUE(timed_out);
-    ASSERT_TRUE(error.has_value());
-    EXPECT_EQ(*error, IoError::CANCELLED);
+    EXPECT_FALSE(error.has_value());  // cancellation bypasses the recoverable error channel
     // A cancelled wait leaves the connection usable.
     EXPECT_TRUE(stream.connected());
 }
@@ -480,22 +484,20 @@ TEST(UdpSocket, recv_from_ScopeTimesOut_ReportsCancelled) {
     std::optional<IoError> error;
     bool timed_out = false;
     auto task = [&socket, &error, &timed_out]() -> coro::Task<void> {
-        const auto outcome =
-            co_await coro::with_timeout(30ms, [&socket, &error](coro::CancelScope&) -> coro::Task<void> {
-                std::array<std::uint8_t, BUFFER_SIZE> buffer{};
-                const auto result = co_await socket.recv_from(buffer);
-                if (!result) {
-                    error = result.error();
-                }
-                co_return;
-            });
+        const auto outcome = co_await coro::with_timeout(30ms, [&socket, &error]() -> coro::Task<void> {
+            std::array<std::uint8_t, BUFFER_SIZE> buffer{};
+            const auto result = co_await socket.recv_from(buffer);
+            if (!result) {
+                error = result.error();
+            }
+            co_return;
+        });
         timed_out = outcome.timed_out;
         co_return;
     };
     run_task(task());
     EXPECT_TRUE(timed_out);
-    ASSERT_TRUE(error.has_value());
-    EXPECT_EQ(*error, IoError::CANCELLED);
+    EXPECT_FALSE(error.has_value());  // cancellation bypasses the recoverable error channel
 }
 
 }  // namespace

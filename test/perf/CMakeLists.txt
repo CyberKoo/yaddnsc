@@ -47,10 +47,11 @@ add_benchmark(dns_parser)
 target_link_libraries(bench_dns_parser PRIVATE yaddnsc_dns_classic)
 
 # ============================================================================
-#  URI benchmarks  (Uri is in test_support)
+#  URI benchmarks (linked against the standalone URI target)
 # ============================================================================
 
 add_benchmark(uri)
+target_link_libraries(bench_uri PRIVATE yaddnsc_uri)
 
 # ============================================================================
 #  String utility benchmarks  (header-only)

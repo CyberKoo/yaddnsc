@@ -1,9 +1,5 @@
-//
-// Created by Kotarou on 2022/4/9.
-//
-
-#ifndef YADDNSC_EXCEPTION_DNS_LOOKUP_H
-#define YADDNSC_EXCEPTION_DNS_LOOKUP_H
+#ifndef YADDNSC_INFRASTRUCTURE_DNS_DNS_LOOKUP_EXCEPTION_H
+#define YADDNSC_INFRASTRUCTURE_DNS_DNS_LOOKUP_EXCEPTION_H
 
 #include "domain/error/dns_error.h"
 #include "support/exception.h"
@@ -18,25 +14,25 @@ public:
     using YaddnscException::YaddnscException;
 
     /// Construct with a message and a typed error code.
-    DnsLookupException(const std::string& msg, DnsError err) : YaddnscException(msg), error_(err) {}
+    DnsLookupException(const std::string& msg, domain::DnsError err) : YaddnscException(msg), error_(err) {}
 
     /// @overload
-    DnsLookupException(const char* msg, DnsError err) : YaddnscException(msg), error_(err) {}
+    DnsLookupException(const char* msg, domain::DnsError err) : YaddnscException(msg), error_(err) {}
 
     /// Construct by wrapping another exception with a DNS error code.
-    DnsLookupException(YaddnscException&& exc, DnsError err) : YaddnscException(exc), error_(err) {}
+    DnsLookupException(YaddnscException&& exc, domain::DnsError err) : YaddnscException(exc), error_(err) {}
 
     /// @overload
-    DnsLookupException(const YaddnscException& exc, DnsError err) : YaddnscException(exc), error_(err) {}
+    DnsLookupException(const YaddnscException& exc, domain::DnsError err) : YaddnscException(exc), error_(err) {}
 
     [[nodiscard]] std::string_view get_name() const noexcept override { return "DnsLookupException"; }
 
     /// Return the typed DNS error code associated with this exception.
-    [[nodiscard]] DnsError get_error() const noexcept { return error_; }
+    [[nodiscard]] domain::DnsError get_error() const noexcept { return error_; }
 
 private:
-    DnsError error_{DnsError::UNKNOWN};  ///< Categorised DNS error code
+    domain::DnsError error_{domain::DnsError::UNKNOWN};  ///< Categorised DNS error code
 };
 
 
-#endif  // YADDNSC_EXCEPTION_DNS_LOOKUP_H
+#endif  // YADDNSC_INFRASTRUCTURE_DNS_DNS_LOOKUP_EXCEPTION_H

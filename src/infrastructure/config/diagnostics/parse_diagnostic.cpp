@@ -1,7 +1,3 @@
-//
-// Created by Kotarou on 2026/10/1.
-//
-
 #include "parse_diagnostic.h"
 
 #include "infrastructure/config/diagnostics/decision.h"

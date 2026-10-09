@@ -1,7 +1,3 @@
-//
-// Created by Kotarou on 2026/7/13.
-//
-
 #include "alibaba_cloud.h"
 
 #include <algorithm>

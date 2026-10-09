@@ -1,7 +1,3 @@
-//
-// Created by Kotarou on 2026/9/17.
-//
-
 /// Plugin lifecycle contract tests for the v1 alpha ABI: descriptor validation, create → update → destroy ordering,
 /// concurrent instances of one module, module lease vs. dlclose ordering, and the loader's rejection matrix (missing
 /// file/symbols, magic, revision, descriptor struct_size) including the manual-load fail-fast vs. auto-discover skip
@@ -243,7 +239,7 @@ TEST(PluginLifecycle, LoaderRejectsMissingFile) {
 TEST(PluginLifecycle, LoaderRejectsWrongRevision) {
     auto module = PluginModule::load(BAD_REVISION_FIXTURE);
     ASSERT_FALSE(module.has_value());
-    EXPECT_EQ(module.error().code, domain::PluginError::Code::ABI_MISMATCH);
+    EXPECT_EQ(module.error().code, plugin::PluginError::Code::ABI_MISMATCH);
     EXPECT_THAT(module.error().message, ::testing::HasSubstr(BAD_REVISION_FIXTURE));
     EXPECT_THAT(module.error().message, ::testing::HasSubstr("reports ABI 0.0"));
     EXPECT_THAT(module.error().message, ::testing::HasSubstr("host provides 1.0"));
@@ -253,7 +249,7 @@ TEST(PluginLifecycle, LoaderRejectsWrongRevision) {
 TEST(PluginLifecycle, LoaderRejectsWrongMagic) {
     auto module = PluginModule::load(BAD_MAGIC_FIXTURE);
     ASSERT_FALSE(module.has_value());
-    EXPECT_EQ(module.error().code, domain::PluginError::Code::ABI_MISMATCH);
+    EXPECT_EQ(module.error().code, plugin::PluginError::Code::ABI_MISMATCH);
     EXPECT_THAT(module.error().message, ::testing::HasSubstr("is not a valid yaddnsc driver (magic mismatch)"));
     EXPECT_THAT(module.error().message, ::testing::HasSubstr(BAD_MAGIC_FIXTURE));
 }
@@ -261,7 +257,7 @@ TEST(PluginLifecycle, LoaderRejectsWrongMagic) {
 TEST(PluginLifecycle, LoaderRejectsMissingEntryPoints) {
     auto module = PluginModule::load(MISSING_SYMBOL_FIXTURE);
     ASSERT_FALSE(module.has_value());
-    EXPECT_EQ(module.error().code, domain::PluginError::Code::MISSING_SYMBOL);
+    EXPECT_EQ(module.error().code, plugin::PluginError::Code::MISSING_SYMBOL);
     EXPECT_THAT(module.error().message, ::testing::HasSubstr("does not export the required v1 alpha entry points"));
     EXPECT_THAT(module.error().message, ::testing::HasSubstr(MISSING_SYMBOL_FIXTURE));
     EXPECT_THAT(module.error().message, ::testing::HasSubstr("rebuild the driver with the current SDK"));
@@ -270,7 +266,7 @@ TEST(PluginLifecycle, LoaderRejectsMissingEntryPoints) {
 TEST(PluginLifecycle, LoaderRejectsNewerMinor) {
     auto module = PluginModule::load(NEWER_MINOR_FIXTURE);
     ASSERT_FALSE(module.has_value());
-    EXPECT_EQ(module.error().code, domain::PluginError::Code::ABI_MISMATCH);
+    EXPECT_EQ(module.error().code, plugin::PluginError::Code::ABI_MISMATCH);
     EXPECT_THAT(module.error().message, ::testing::HasSubstr(NEWER_MINOR_FIXTURE));
     EXPECT_THAT(module.error().message, ::testing::HasSubstr("reports ABI 1.1"));
     EXPECT_THAT(module.error().message, ::testing::HasSubstr("host provides 1.0"));
@@ -280,7 +276,7 @@ TEST(PluginLifecycle, LoaderRejectsNewerMinor) {
 TEST(PluginLifecycle, LoaderRejectsBaselineBelowAbi10) {
     auto module = PluginModule::load(SHORT_DESCRIPTOR_FIXTURE);
     ASSERT_FALSE(module.has_value());
-    EXPECT_EQ(module.error().code, domain::PluginError::Code::ABI_MISMATCH);
+    EXPECT_EQ(module.error().code, plugin::PluginError::Code::ABI_MISMATCH);
     EXPECT_THAT(module.error().message, ::testing::HasSubstr(SHORT_DESCRIPTOR_FIXTURE));
     EXPECT_THAT(module.error().message, ::testing::HasSubstr("is below the ABI 1.0 baseline"));
 }
@@ -288,7 +284,7 @@ TEST(PluginLifecycle, LoaderRejectsBaselineBelowAbi10) {
 TEST(PluginLifecycle, LoaderRejectsTruncatedDescriptor) {
     auto module = PluginModule::load(SMALL_DESCRIPTOR_FIXTURE);
     ASSERT_FALSE(module.has_value());
-    EXPECT_EQ(module.error().code, domain::PluginError::Code::ABI_MISMATCH);
+    EXPECT_EQ(module.error().code, plugin::PluginError::Code::ABI_MISMATCH);
     EXPECT_THAT(module.error().message,
                 ::testing::HasSubstr("descriptor struct_size 4 does not cover the ABI version prefix"));
     EXPECT_THAT(module.error().message, ::testing::HasSubstr(SMALL_DESCRIPTOR_FIXTURE));
@@ -306,7 +302,7 @@ TEST(PluginLifecycle, LoaderRejectsInvalidDescriptorViewsAndCapabilities) {
     for (const auto& [path, field] : fixtures) {
         auto module = PluginModule::load(std::string(path));
         ASSERT_FALSE(module.has_value()) << path;
-        EXPECT_EQ(module.error().code, domain::PluginError::Code::CONTRACT_VIOLATION) << path;
+        EXPECT_EQ(module.error().code, plugin::PluginError::Code::CONTRACT_VIOLATION) << path;
         EXPECT_THAT(module.error().message, ::testing::HasSubstr(path)) << path;
         EXPECT_THAT(module.error().message, ::testing::HasSubstr(field)) << path;
     }

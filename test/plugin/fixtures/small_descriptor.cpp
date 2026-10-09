@@ -1,7 +1,3 @@
-//
-// Created by Kotarou on 2026/9/17.
-//
-
 /// Loader-rejection fixture: the descriptor reports a struct_size covering
 /// only the struct_size field, below the 8-byte version prefix. The loader
 /// must reject it before reading abi_major.

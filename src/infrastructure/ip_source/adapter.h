@@ -2,8 +2,8 @@
 // ip_source — the coroutine IP-source factory as an application port.
 //
 
-#ifndef YADDNSC_IP_SOURCE_ADAPTER_H
-#define YADDNSC_IP_SOURCE_ADAPTER_H
+#ifndef YADDNSC_INFRASTRUCTURE_IP_SOURCE_ADAPTER_H
+#define YADDNSC_INFRASTRUCTURE_IP_SOURCE_ADAPTER_H
 
 #include <vector>
 
@@ -14,7 +14,7 @@
 #include "domain/error/error.h"
 #include "domain/network/inet_address.h"
 #include "infrastructure/coro/task.hpp"
-#include "infrastructure/net/http/types.h"
+#include "infrastructure/http/types.h"
 
 namespace ipsource {
 
@@ -30,7 +30,7 @@ class IpSourceAdapter final : public app::IpSourcePort {
 public:
     explicit IpSourceAdapter(http::Options http_options);
 
-    [[nodiscard]] coro::Task<std::expected<std::vector<InetAddress>, domain::IpSourceError>> resolve(
+    [[nodiscard]] coro::Task<std::expected<std::vector<domain::InetAddress>, domain::IpSourceError>> resolve(
         const domain::SubdomainConfig& config) override;
 
 private:
@@ -39,4 +39,4 @@ private:
 
 }  // namespace ipsource
 
-#endif  // YADDNSC_IP_SOURCE_ADAPTER_H
+#endif  // YADDNSC_INFRASTRUCTURE_IP_SOURCE_ADAPTER_H

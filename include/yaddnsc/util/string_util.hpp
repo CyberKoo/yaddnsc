@@ -1,7 +1,3 @@
-//
-// Created by Kotarou on 2022/4/7.
-//
-
 #ifndef YADDNSC_UTIL_STRING_UTIL_HPP
 #define YADDNSC_UTIL_STRING_UTIL_HPP
 

@@ -1,9 +1,5 @@
-//
-// Created by Kotarou on 2026/7/11.
-//
-
-#ifndef YADDNSC_EXCEPTION_DRIVER_NOT_FOUND_H
-#define YADDNSC_EXCEPTION_DRIVER_NOT_FOUND_H
+#ifndef YADDNSC_INFRASTRUCTURE_PLUGIN_DRIVER_NOT_FOUND_EXCEPTION_H
+#define YADDNSC_INFRASTRUCTURE_PLUGIN_DRIVER_NOT_FOUND_EXCEPTION_H
 
 #include "support/exception.h"
 
@@ -16,4 +12,4 @@ public:
     [[nodiscard]] std::string_view get_name() const noexcept override { return "DriverNotFoundException"; }
 };
 
-#endif  // YADDNSC_EXCEPTION_DRIVER_NOT_FOUND_H
+#endif  // YADDNSC_INFRASTRUCTURE_PLUGIN_DRIVER_NOT_FOUND_EXCEPTION_H

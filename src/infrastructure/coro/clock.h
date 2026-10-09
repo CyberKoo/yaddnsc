@@ -7,15 +7,12 @@
 // without any time plumbing in the public API.
 //
 
-#ifndef YADDNSC_CORO_CLOCK_H
-#define YADDNSC_CORO_CLOCK_H
+#ifndef YADDNSC_INFRASTRUCTURE_CORO_CLOCK_H
+#define YADDNSC_INFRASTRUCTURE_CORO_CLOCK_H
 
-#include <chrono>
+#include "infrastructure/coro/time.h"
 
 namespace coro {
-
-using TimePoint = std::chrono::steady_clock::time_point;
-using Duration = std::chrono::steady_clock::duration;
 
 /// Time source owned by a Loop.
 ///
@@ -74,4 +71,4 @@ private:
 
 }  // namespace coro
 
-#endif  // YADDNSC_CORO_CLOCK_H
+#endif  // YADDNSC_INFRASTRUCTURE_CORO_CLOCK_H

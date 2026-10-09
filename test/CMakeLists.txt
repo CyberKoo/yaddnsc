@@ -160,7 +160,9 @@ target_link_libraries(yaddnsc_prod_all INTERFACE
     yaddnsc_ip_source_infrastructure
     yaddnsc_net
     yaddnsc_coro
-    yaddnsc_coro_io
+    yaddnsc_dns_bootstrap
+    yaddnsc_http
+    yaddnsc_coro_dns
     yaddnsc_coro_application
     yaddnsc_coro_ip_source
     yaddnsc_coro_plugin
@@ -219,14 +221,15 @@ add_subdirectory(unit)
 
 # ---------------------------------------------------------------------------
 # Coroutine runtime core (src/infrastructure/coro/) — loop, Task, structured
-# scopes, cancellation combinators, sleeps, AsyncMutex, offload and
-# signals. One binary keeps the async runtime tests together:
+# scopes, cancellation combinators, sleeps, clock reads, AsyncMutex, offload
+# and signals. One binary keeps the async runtime tests together:
 #   ctest --test-dir <build> -R coro   (or run test_coro directly)
 # ---------------------------------------------------------------------------
 add_unit_test(coro
     SOURCE unit/coro/task_test.cpp
            unit/coro/cancel_test.cpp
            unit/coro/async_mutex_test.cpp
+           unit/coro/now_test.cpp
            unit/coro/offload_test.cpp
            unit/coro/signal_test.cpp
 )

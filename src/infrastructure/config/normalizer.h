@@ -1,4 +1,5 @@
-#pragma once
+#ifndef YADDNSC_INFRASTRUCTURE_CONFIG_NORMALIZER_H
+#define YADDNSC_INFRASTRUCTURE_CONFIG_NORMALIZER_H
 
 #include "domain/config/runtime_config.h"
 
@@ -21,3 +22,5 @@ struct AppConfig;
 auto normalize(const AppConfig& raw) -> domain::RuntimeConfig;
 
 }  // namespace Config
+
+#endif  // YADDNSC_INFRASTRUCTURE_CONFIG_NORMALIZER_H

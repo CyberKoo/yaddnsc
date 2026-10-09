@@ -6,8 +6,8 @@
 // and never penetrates the task API.
 //
 
-#ifndef YADDNSC_CORO_RUN_HPP
-#define YADDNSC_CORO_RUN_HPP
+#ifndef YADDNSC_INFRASTRUCTURE_CORO_RUN_HPP
+#define YADDNSC_INFRASTRUCTURE_CORO_RUN_HPP
 
 #include <cassert>
 #include <exception>
@@ -15,7 +15,9 @@
 #include <utility>
 
 #include "infrastructure/coro/cancel_scope.h"
-#include "infrastructure/coro/fwd.h"
+#include "infrastructure/coro/detail/access.h"
+#include "infrastructure/coro/detail/frame.h"
+#include "infrastructure/coro/detail/task_promise.h"
 #include "infrastructure/coro/loop.h"
 #include "infrastructure/coro/task.hpp"
 
@@ -34,16 +36,16 @@ template<typename T>
 [[nodiscard]] T run(Loop& loop, Task<T> task) {
     assert(task.valid() && "coro::run requires a valid task");
     CancelScope root;
-    auto handle = task.release();
-    PromiseBase& promise = handle.promise();
+    auto handle = detail::TaskAccess::release(task);
+    detail::PromiseBase& promise = handle.promise();
     promise.loop = &loop;
     promise.scope = &root;
     promise.context_bound = true;
     promise.is_root = true;
-    loop.schedule(promise);
+    detail::LoopAccess::schedule(loop, promise);
     loop.run();
 
-    if (handle.promise().failed()) {
+    if (handle.promise().error) {
         const std::exception_ptr error = handle.promise().error;
         handle.destroy();
         std::rethrow_exception(error);
@@ -70,4 +72,4 @@ template<typename T>
 
 }  // namespace coro
 
-#endif  // YADDNSC_CORO_RUN_HPP
+#endif  // YADDNSC_INFRASTRUCTURE_CORO_RUN_HPP

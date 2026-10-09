@@ -1,7 +1,3 @@
-//
-// Created by Kotarou on 2026/9/17.
-//
-
 #ifndef YADDNSC_TEST_PLUGIN_PLUGIN_TEST_DOUBLES_H
 #define YADDNSC_TEST_PLUGIN_PLUGIN_TEST_DOUBLES_H
 
@@ -31,8 +27,8 @@
 #include <stdint.h>
 #include <yaddnsc/sdk/driver_abi.h>
 
-#include "application/ports/log.h"
 #include "infrastructure/plugin/plugin_loader.h"
+#include "mocks/recording_logger.h"
 
 /// HTTP verbs as the test can observe them (the ABI constants are mapped by
 /// the host-services table before a request reaches the scripted transport).
@@ -111,42 +107,13 @@ private:
     std::vector<CapturedRequest> requests_;
 };
 
-/// Logger double: records every record with its (explicit) source location.
-/// Every level is enabled.
-class RecordingLogger final : public Logger {
-public:
-    struct Record {
-        LogLevel level;
-        std::string message;
-        std::string file;
-        int line;
-        std::string function;
-    };
-
-    [[nodiscard]] bool is_enabled(LogLevel) const override { return true; }
-
-    void log(LogLevel level, std::string_view message, const std::source_location& loc) const override {
-        records_.push_back(
-            Record{level, std::string(message), loc.file_name(), static_cast<int>(loc.line()), loc.function_name()});
-    }
-
-    void log_explicit(LogLevel level, std::string_view message, std::string_view file, int line,
-                      std::string_view function) const override {
-        records_.push_back(Record{level, std::string(message), std::string(file), line, std::string(function)});
-    }
-
-    [[nodiscard]] std::vector<Record> records() const { return records_; }
-
-private:
-    mutable std::vector<Record> records_;
-};
-
 /// The host-services table used by the ABI contract tests. It mirrors the ABI
 /// memory rules: every view a plugin reads points into the arena and stays
 /// valid until this object dies.
 class TestHostServices {
 public:
-    TestHostServices(RecordingLogger& logger, ScriptedHttpTransport& transport) : logger_(logger), transport_(transport) {}
+    TestHostServices(ExplicitRecordingLogger& logger, ScriptedHttpTransport& transport)
+        : logger_(logger), transport_(transport) {}
 
     /// @param http_enabled  When false, http_exchange refuses (config-test path).
     [[nodiscard]] yaddnsc_host_services make_services(bool http_enabled = true) noexcept {
@@ -215,11 +182,11 @@ private:
         const std::string_view function = (location != nullptr && location->function.data != nullptr)
                                               ? to_view(location->function)
                                               : std::string_view{};
-        const LogLevel mapped = level == YADDNSC_LOG_TRACE   ? LogLevel::TRACE
-                                : level == YADDNSC_LOG_DEBUG ? LogLevel::DEBUG
-                                : level == YADDNSC_LOG_WARN  ? LogLevel::WARN
-                                : level == YADDNSC_LOG_ERROR ? LogLevel::ERROR
-                                                             : LogLevel::INFO;
+        const app::LogLevel mapped = level == YADDNSC_LOG_TRACE   ? app::LogLevel::TRACE
+                                     : level == YADDNSC_LOG_DEBUG ? app::LogLevel::DEBUG
+                                     : level == YADDNSC_LOG_WARN  ? app::LogLevel::WARN
+                                     : level == YADDNSC_LOG_ERROR ? app::LogLevel::ERROR
+                                                                  : app::LogLevel::INFO;
         try {
             self->logger_.log_explicit(mapped, to_view(message), file, line, function);
         } catch (...) {
@@ -330,7 +297,7 @@ private:
         return YADDNSC_STATUS_OK;
     }
 
-    RecordingLogger& logger_;
+    ExplicitRecordingLogger& logger_;
     ScriptedHttpTransport& transport_;
     std::deque<std::string> string_arena_;
     std::deque<std::vector<yaddnsc_http_header>> header_array_arena_;
@@ -338,7 +305,7 @@ private:
 
 /// One per-update host-services context plus its scripted transport.
 struct HostUpdateContext {
-    RecordingLogger logger;
+    ExplicitRecordingLogger logger;
     ScriptedHttpTransport client;
     TestHostServices context;
 

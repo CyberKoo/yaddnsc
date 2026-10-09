@@ -151,7 +151,7 @@ TEST(RecordParser, ParseStrings_MxNameExtendsPastRdata_ThrowsParseError) {
         parse_strings_consume(buf);
         FAIL() << "expected an MX RDATA boundary error";
     } catch (const DnsLookupException& error) {
-        EXPECT_EQ(error.get_error(), DnsError::PARSE);
+        EXPECT_EQ(error.get_error(), domain::DnsError::PARSE);
         EXPECT_STREQ(error.what(), "Invalid MX record: name extends past RDATA");
     }
 
@@ -172,7 +172,7 @@ TEST(RecordParser, ParseStrings_SoaNamesExtendPastRdata_ThrowsParseError) {
         parse_strings_consume(buf);
         FAIL() << "expected an SOA RDATA boundary error";
     } catch (const DnsLookupException& error) {
-        EXPECT_EQ(error.get_error(), DnsError::PARSE);
+        EXPECT_EQ(error.get_error(), domain::DnsError::PARSE);
         EXPECT_STREQ(error.what(), "Invalid SOA record: names extend past RDATA");
     }
 

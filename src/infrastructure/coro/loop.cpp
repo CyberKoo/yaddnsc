@@ -20,7 +20,10 @@
 #include <spdlog/spdlog.h>
 #include <unistd.h>
 
-#include "infrastructure/coro/cancel_scope.h"
+#include "infrastructure/coro/detail/access.h"
+#include "infrastructure/coro/detail/timer_node.h"
+
+#include "BS_thread_pool.hpp"
 
 namespace coro {
 
@@ -157,7 +160,7 @@ void Loop::wake() noexcept {
     [[maybe_unused]] const ssize_t written = ::write(pipe_write_.get(), &byte, 1);
 }
 
-void Loop::schedule(PromiseBase& frame) noexcept {
+void Loop::schedule(detail::PromiseBase& frame) noexcept {
     assert(!frame.in_ready && "frame scheduled twice while already ready");
     frame.in_ready = true;
     frame.ready_next = nullptr;
@@ -171,12 +174,12 @@ void Loop::schedule(PromiseBase& frame) noexcept {
 }
 
 void Loop::drain_ready() {
-    PromiseBase* batch = ready_head_;
+    detail::PromiseBase* batch = ready_head_;
     ready_head_ = nullptr;
     ready_tail_ = nullptr;
     [[maybe_unused]] std::size_t resumed = 0;
     while (batch != nullptr) {
-        PromiseBase* next = batch->ready_next;
+        detail::PromiseBase* next = batch->ready_next;
         batch->ready_next = nullptr;
         batch->in_ready = false;
         batch->self.resume();
@@ -209,11 +212,34 @@ void Loop::process_inbox() {
     }
 }
 
-BS::thread_pool<>& Loop::offload_pool() {
+// The offload worker pool. Defined here so BS_thread_pool.hpp reaches exactly
+// one translation unit: loop.h declares Pool and nothing else names BS.
+class Loop::Pool {
+public:
+    explicit Pool(unsigned workers) : pool(workers) {}
+
+    /// Fire-and-forget: the job reports back through Loop::post(), so the pool
+    /// never holds a result slot and never refuses work.
+    void submit(std::function<void()> job) { pool.detach_task(std::move(job)); }
+
+    [[nodiscard]] unsigned workers() const { return pool.get_thread_count(); }
+
+private:
+    BS::thread_pool<> pool;
+};
+
+void Loop::submit_offload(std::function<void()> job) {
     if (!pool_) {
-        pool_ = std::make_unique<BS::thread_pool<>>(pool_workers_);
+        pool_ = std::make_unique<Pool>(pool_workers_);
     }
-    return *pool_;
+    pool_->submit(std::move(job));
+}
+
+unsigned Loop::offload_workers() {
+    if (!pool_) {
+        pool_ = std::make_unique<Pool>(pool_workers_);
+    }
+    return pool_->workers();
 }
 
 unsigned Loop::default_offload_workers() noexcept {
@@ -264,7 +290,7 @@ bool Loop::process_signals() noexcept {
     while (remaining != 0) {
         const int bit = std::countr_zero(remaining);
         remaining &= remaining - 1;
-        const auto index = static_cast<std::size_t>(bit + 1);
+        const auto index = static_cast<std::size_t>(bit) + 1;
         if (index >= signal_waiters_.size()) {
             continue;
         }
@@ -276,7 +302,7 @@ bool Loop::process_signals() noexcept {
         for (SignalWaiter& entry : parked) {
             if (entry.node != nullptr) {
                 if (entry.node->linked && entry.node->scope != nullptr) {
-                    entry.node->scope->remove_waiter(*entry.node);
+                    detail::ScopeAccess::remove_waiter(*entry.node->scope, *entry.node);
                 }
                 entry.node->scheduled = true;
             }
@@ -305,7 +331,7 @@ int Loop::poll_timeout_ms() {
     if (pending_signals.load(std::memory_order_acquire) != 0) {
         return 0;
     }
-    TimerNode* next = heap_min();
+    detail::TimerNode* next = heap_min();
     if (next == nullptr) {
         // A manual clock cannot be advanced by a blocking poll; return
         // immediately so the loop stays responsive to post()/signals.
@@ -368,11 +394,11 @@ void Loop::poll_once(int timeout_ms) {
 }
 
 void Loop::fire_timers() noexcept {
-    while (TimerNode* next = heap_min()) {
+    while (detail::TimerNode* next = heap_min()) {
         if (next->deadline > clock_->now()) {
             break;
         }
-        TimerNode* const due = heap_pop();
+        detail::TimerNode* const due = heap_pop();
         SPDLOG_TRACE("firing timer {}", static_cast<const void*>(due));
         if (due->action != nullptr) {
             due->action(due->context);
@@ -384,7 +410,7 @@ void Loop::fire_timers() noexcept {
 // Timer heap (indexed binary min-heap ordered by deadline then insertion).
 // ---------------------------------------------------------------------------
 
-void Loop::add_timer(TimerNode& timer, TimePoint deadline, void (*action)(void*) noexcept, void* context) {
+void Loop::add_timer(detail::TimerNode& timer, TimePoint deadline, void (*action)(void*) noexcept, void* context) {
     assert(!timer.in_heap && "timer already armed");
     timer.deadline = deadline;
     timer.sequence = timer_sequence_++;
@@ -395,21 +421,21 @@ void Loop::add_timer(TimerNode& timer, TimePoint deadline, void (*action)(void*)
     SPDLOG_TRACE("armed timer {} (fires in {} ms)", static_cast<const void*>(&timer), in_ms);
 }
 
-void Loop::remove_timer(TimerNode& timer) noexcept {
+void Loop::remove_timer(detail::TimerNode& timer) noexcept {
     if (timer.in_heap) {
         SPDLOG_TRACE("disarmed timer {}", static_cast<const void*>(&timer));
         heap_remove(timer);
     }
 }
 
-void Loop::heap_push(TimerNode& timer) {
+void Loop::heap_push(detail::TimerNode& timer) {
     timer.heap_index = timers_.size();
     timer.in_heap = true;
     timers_.push_back(&timer);
     heap_sift_up(timer.heap_index);
 }
 
-void Loop::heap_remove(TimerNode& timer) noexcept {
+void Loop::heap_remove(detail::TimerNode& timer) noexcept {
     const std::size_t index = timer.heap_index;
     timer.in_heap = false;
     const std::size_t last = timers_.size() - 1;
@@ -424,12 +450,12 @@ void Loop::heap_remove(TimerNode& timer) noexcept {
     }
 }
 
-TimerNode* Loop::heap_min() const noexcept {
+detail::TimerNode* Loop::heap_min() const noexcept {
     return timers_.empty() ? nullptr : timers_.front();
 }
 
-TimerNode* Loop::heap_pop() noexcept {
-    TimerNode* top = timers_.front();
+detail::TimerNode* Loop::heap_pop() noexcept {
+    detail::TimerNode* top = timers_.front();
     heap_remove(*top);
     return top;
 }
@@ -437,8 +463,8 @@ TimerNode* Loop::heap_pop() noexcept {
 void Loop::heap_sift_up(std::size_t index) noexcept {
     while (index > 0) {
         const std::size_t parent = (index - 1) / 2;
-        const TimerNode& a = *timers_[index];
-        const TimerNode& b = *timers_[parent];
+        const detail::TimerNode& a = *timers_[index];
+        const detail::TimerNode& b = *timers_[parent];
         if (a.deadline > b.deadline || (a.deadline == b.deadline && a.sequence >= b.sequence)) {
             break;
         }
@@ -456,8 +482,8 @@ void Loop::heap_sift_down(std::size_t index) noexcept {
         const std::size_t right = left + 1;
         std::size_t smallest = index;
         auto less = [this](std::size_t lhs, std::size_t rhs) {
-            const TimerNode& a = *timers_[lhs];
-            const TimerNode& b = *timers_[rhs];
+            const detail::TimerNode& a = *timers_[lhs];
+            const detail::TimerNode& b = *timers_[rhs];
             return a.deadline < b.deadline || (a.deadline == b.deadline && a.sequence < b.sequence);
         };
         if (left < count && less(left, smallest)) {
@@ -480,14 +506,14 @@ void Loop::heap_sift_down(std::size_t index) noexcept {
 // File descriptors.
 // ---------------------------------------------------------------------------
 
-FdToken Loop::add_fd(int fd, short events, void (*fn)(void*, short) noexcept, void* context) {
-    const FdToken token = ++fd_sequence_;
+detail::FdToken Loop::add_fd(int fd, short events, void (*fn)(void*, short) noexcept, void* context) {
+    const detail::FdToken token = ++fd_sequence_;
     fds_.push_back(FdEntry{token, fd, events, fn, context});
     SPDLOG_TRACE("registered fd {} for events {} (token {})", fd, describe_poll_events(events), token);
     return token;
 }
 
-void Loop::remove_fd(FdToken token) noexcept {
+void Loop::remove_fd(detail::FdToken token) noexcept {
     [[maybe_unused]] const auto erased =
         std::erase_if(fds_, [token](const FdEntry& entry) { return entry.token == token; });
     SPDLOG_TRACE("remove_fd(token {}) erased {} registration(s)", token, erased);
@@ -497,7 +523,7 @@ void Loop::remove_fd(FdToken token) noexcept {
 // Signals.
 // ---------------------------------------------------------------------------
 
-void Loop::arm_signal(int sig, WaitNode& node, bool* delivered) {
+void Loop::arm_signal(int sig, detail::WaitNode& node, bool* delivered) {
     if (sig <= 0 || sig >= SIGNAL_CAPACITY) {
         return;
     }
@@ -517,7 +543,7 @@ void Loop::arm_signal(int sig, WaitNode& node, bool* delivered) {
     SPDLOG_TRACE("armed signal waiter for signal {}", sig);
 }
 
-void Loop::disarm_signal(int sig, WaitNode& node) noexcept {
+void Loop::disarm_signal(int sig, detail::WaitNode& node) noexcept {
     if (sig <= 0 || sig >= SIGNAL_CAPACITY) {
         return;
     }

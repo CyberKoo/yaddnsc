@@ -1,9 +1,5 @@
-//
-// Created by Kotarou on 2022/4/6.
-//
-
-#ifndef YADDNSC_CONFIG_CONFIG_H
-#define YADDNSC_CONFIG_CONFIG_H
+#ifndef YADDNSC_INFRASTRUCTURE_CONFIG_CONFIG_H
+#define YADDNSC_INFRASTRUCTURE_CONFIG_CONFIG_H
 
 #include <optional>
 #include <string>
@@ -13,7 +9,10 @@
 
 #include "domain/config/dns_config.h"
 
+namespace domain {
 enum class RecordKind;
+enum class IpSource;
+}  // namespace domain
 
 /// Configuration data types.
 ///
@@ -21,7 +20,6 @@ enum class RecordKind;
 /// legacy fields. The normalised, glaze-free runtime model consumed by the
 /// business layers lives in src/domain/config/runtime_config.h.
 namespace Config {
-enum class IpSource;
 
 /// Driver loading configuration.
 struct DriverConfig {
@@ -33,8 +31,8 @@ struct DriverConfig {
 /// DNS resolver configuration.
 struct ResolverConfig {
     bool use_custom_servers{false};                           ///< Use custom DNS servers instead of system defaults
-    std::vector<DnsServer> servers{};                         ///< List of custom resolver servers
-    ResolverStrategy strategy{ResolverStrategy::CONCURRENT};  ///< Domain Resolve strategy
+    std::vector<domain::DnsServer> servers{};                 ///< List of custom resolver servers
+    domain::ResolverStrategy strategy{domain::ResolverStrategy::CONCURRENT};  ///< Domain Resolve strategy
 };
 
 /// Per-subdomain configuration from the config file.
@@ -43,11 +41,11 @@ struct SubdomainConfig {
     /// DNS record type to update. Disengaged when the key is absent from
     /// the config file — the normaliser then falls back to A (with a
     /// warning) so legacy configs keep working.
-    std::optional<RecordKind> type{};
+    std::optional<domain::RecordKind> type{};
     std::string interface{};  ///< Network interface name (for INTERFACE IP source)
     /// IP source backend. Disengaged when the key is absent from the config
     /// file — the normaliser then falls back to INTERFACE (with a warning).
-    std::optional<IpSource> ip_source{};
+    std::optional<domain::IpSource> ip_source{};
     std::string ip_source_param{};  ///< Parameter passed to the IP source (URL, mDNS hostname, etc.)
     bool allow_ula{false};          ///< Allow Unique Local Address (ULA, fc00::/7)
     bool allow_local_link{false};   ///< Allow link-local addresses (fe80::/10)
@@ -72,7 +70,6 @@ struct AppConfig {
     /// Bootstrap DNS server (IP literal, port 53) used to resolve hostname
     /// targets of outbound connections (DoH/DoT servers, HTTP IP sources,
     /// provider APIs). Empty: fall back to /etc/resolv.conf nameservers.
-    /// getaddrinfo/NSS is never used.
     std::string bootstrap_dns{};
 };
 
@@ -85,4 +82,4 @@ AppConfig load_config(const std::string& config_path);
 [[nodiscard]] std::string redacted_json(AppConfig config);
 }  // namespace Config
 
-#endif  // YADDNSC_CONFIG_CONFIG_H
+#endif  // YADDNSC_INFRASTRUCTURE_CONFIG_CONFIG_H

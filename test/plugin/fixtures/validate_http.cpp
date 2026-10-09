@@ -1,7 +1,3 @@
-//
-// Created by Kotarou on 2026/9/30.
-//
-
 /// Loader fixture: validate() calls the services table saved at create().
 /// The host must reject that exchange without performing I/O.
 

@@ -1,9 +1,5 @@
-//
-// Created by Kotarou on 2026/6/18.
-//
-
-#ifndef YADDNSC_UTIL_VALIDATION_H
-#define YADDNSC_UTIL_VALIDATION_H
+#ifndef YADDNSC_SUPPORT_UTIL_VALIDATION_HPP
+#define YADDNSC_SUPPORT_UTIL_VALIDATION_HPP
 
 #include <regex>
 #include <string_view>
@@ -59,4 +55,4 @@ static constexpr int DOMAIN_NAME_MAX_LEN = 253;
 }
 }  // namespace Utils
 
-#endif  // YADDNSC_UTIL_VALIDATION_H
+#endif  // YADDNSC_SUPPORT_UTIL_VALIDATION_HPP

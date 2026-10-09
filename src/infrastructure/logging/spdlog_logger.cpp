@@ -1,7 +1,3 @@
-//
-// Created by Kotarou on 2026/9/17.
-//
-
 #include "spdlog_logger.h"
 
 #include <cstdint>
@@ -14,19 +10,19 @@
 #include <spdlog/spdlog.h>
 
 namespace {
-[[nodiscard]] constexpr spdlog::level::level_enum to_spdlog_level(LogLevel level) noexcept {
+[[nodiscard]] constexpr spdlog::level::level_enum to_spdlog_level(app::LogLevel level) noexcept {
     switch (level) {
-        case LogLevel::TRACE:
+        case app::LogLevel::TRACE:
             return spdlog::level::trace;
-        case LogLevel::DEBUG:
+        case app::LogLevel::DEBUG:
             return spdlog::level::debug;
-        case LogLevel::INFO:
+        case app::LogLevel::INFO:
             return spdlog::level::info;
-        case LogLevel::WARN:
+        case app::LogLevel::WARN:
             return spdlog::level::warn;
-        case LogLevel::ERROR:
+        case app::LogLevel::ERROR:
             return spdlog::level::err;
-        case LogLevel::CRITICAL:
+        case app::LogLevel::CRITICAL:
             return spdlog::level::critical;
     }
     return spdlog::level::info;
@@ -48,17 +44,17 @@ namespace {
 }
 }  // namespace
 
-bool SpdlogLogger::is_enabled(LogLevel level) const {
+bool SpdlogLogger::is_enabled(app::LogLevel level) const {
     return spdlog::should_log(to_spdlog_level(level));
 }
 
-void SpdlogLogger::log(LogLevel level, std::string_view message, const std::source_location& loc) const {
+void SpdlogLogger::log(app::LogLevel level, std::string_view message, const std::source_location& loc) const {
     const spdlog::source_loc spd_loc{loc.file_name(), static_cast<std::int32_t>(loc.line()), loc.function_name()};
     spdlog::default_logger_raw()->log(spd_loc, to_spdlog_level(level),
                                       spdlog::string_view_t(message.data(), message.size()));
 }
 
-void SpdlogLogger::log_explicit(LogLevel level, std::string_view message, std::string_view file, int line,
+void SpdlogLogger::log_explicit(app::LogLevel level, std::string_view message, std::string_view file, int line,
                                 std::string_view function) const {
     // Intern the location strings: an async logger queues a copy of the
     // source_loc pointers and formats on its drain thread, which would outlive

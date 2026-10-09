@@ -1,6 +1,3 @@
-//
-// Created by Kotarou on 2022/4/5.
-//
 #include "cloudflare.h"
 
 #include <optional>

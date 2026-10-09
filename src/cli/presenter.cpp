@@ -1,7 +1,3 @@
-//
-// Created by Kotarou on 2026/9/17.
-//
-
 #include "presenter.h"
 
 #include <array>
@@ -17,17 +13,27 @@
 #include <yaddnsc/util/format.hpp>
 
 #include "application/diagnostics.h"
-#include "application/ports/driver_catalog.h"
+#include "domain/config/dns_config.h"
 #include "domain/dns/record_kind.h"  // IWYU pragma: keep — magic_enum::enum_names needs the definition
 #include "domain/error/dns_error_info.h"
 #include "domain/network/address_family.h"
 #include "domain/network/inet_address.h"
+#include "infrastructure/uri/uri.h"
 #include "support/fmt.hpp"
 
 #include "build_id.hpp"
 #include "min_update_interval.h"
 #include "resolver_config.h"
 #include "version.h"
+
+namespace {
+std::string driver_description_error(std::string_view name, const domain::DriverError& error) {
+    if (error.code == domain::DriverError::Code::NOT_FOUND) {
+        return fmt::format("Driver '{}' is not loaded", name);
+    }
+    return error.message;
+}
+}  // namespace
 
 int Cli::present_driver_list(const std::vector<app::DriverListItem>& items) {
     if (items.empty()) {
@@ -41,13 +47,20 @@ int Cli::present_driver_list(const std::vector<app::DriverListItem>& items) {
             const auto& detail = *item.detail;
             std::println("  {} — {} (v{}, by {})", detail.name, detail.description, detail.version, detail.author);
         } else {
-            std::println("  {} — (failed to query details: {})", item.name, item.error);
+            std::println("  {} — (failed to query details: {})", item.name,
+                         driver_description_error(item.name, item.detail.error()));
         }
     }
     return EXIT_SUCCESS;
 }
 
-int Cli::present_driver_info(const DriverDescription& detail) {
+int Cli::present_driver_info(std::string_view name,
+                             const std::expected<app::DriverDescription, domain::DriverError>& result) {
+    if (!result) {
+        std::println(std::cerr, "Error: {}", driver_description_error(name, result.error()));
+        return EXIT_FAILURE;
+    }
+    const auto& detail = *result;
     std::println(
         "Name:        {}\n"
         "Description: {}\n"
@@ -67,8 +80,9 @@ int Cli::present_interface_list(const std::vector<app::InterfaceListItem>& items
     for (const auto& item : items) {
         std::print("  {}", item.name);
         if (!item.addresses.empty()) {
-            const auto address_strings =
-                item.addresses | std::views::transform([](const InetAddress& addr) { return addr.to_string(); });
+            const auto address_strings = item.addresses | std::views::transform([](const domain::InetAddress& addr) {
+                                             return addr.to_string();
+                                         });
             std::print(" ({})", fmt::format("{}", fmt::join(address_strings, ", ")));
         }
         std::println("");
@@ -76,14 +90,15 @@ int Cli::present_interface_list(const std::vector<app::InterfaceListItem>& items
     return EXIT_SUCCESS;
 }
 
-int Cli::present_interface_ip(const std::string& name, const std::optional<std::vector<InetAddress>>& addresses) {
+int Cli::present_interface_ip(const std::string& name,
+                              const std::optional<std::vector<domain::InetAddress>>& addresses) {
     if (!addresses.has_value()) {
         std::println(std::cerr, "Error: Interface {} not found", name);
         return EXIT_FAILURE;
     }
     std::println("Interface: {}", name);
     for (const auto& addr : *addresses) {
-        std::println("  {} ({})", addr.to_string(), addr.get_family() == AddressFamily::IPV4 ? "IPv4" : "IPv6");
+        std::println("  {} ({})", addr.to_string(), addr.get_family() == domain::AddressFamily::IPV4 ? "IPv4" : "IPv6");
     }
     return EXIT_SUCCESS;
 }
@@ -91,7 +106,7 @@ int Cli::present_interface_ip(const std::string& name, const std::optional<std::
 int Cli::present_dns_resolve(const app::DnsResolveOutcome& outcome) {
     if (!outcome.lookup.has_value()) {
         std::print(std::cerr, "Error: unknown record type '{}'.\nValid types: ", outcome.type_text);
-        const auto names = magic_enum::enum_names<RecordKind>();
+        const auto names = magic_enum::enum_names<domain::RecordKind>();
         for (auto it = names.begin(); it != names.end(); ++it) {
             if (it != names.begin()) {
                 std::print(std::cerr, ", ");
@@ -122,8 +137,28 @@ int Cli::present_dns_resolve(const app::DnsResolveOutcome& outcome) {
     return EXIT_SUCCESS;
 }
 
+namespace {
+[[nodiscard]] std::string format_resolver_server(const domain::DnsServer& server) {
+    const auto uri = Uri::parse(server.address);
+    if (!uri.has_value()) {
+        // Display helper must never fail: show the raw address as-is.
+        return server.address;
+    }
+    if (!uri->get_schema().empty()) {
+        std::string display = uri->get_origin();
+        const auto path = uri->get_path();
+        if (!path.empty() && path != "/") {
+            display += path;
+        }
+        return display;
+    }
+    return fmt::format("{}:{}", uri->get_host_literal(), server.port);
+}
+
+}  // namespace
+
 int Cli::present_dns_resolver(const bool use_custom_servers, const std::string_view strategy,
-                              const std::vector<std::string>& servers) {
+                              const std::vector<domain::DnsServer>& servers) {
     std::println(
         "DNS resolver configuration:\n"
         "  Custom server: {}\n"
@@ -133,7 +168,7 @@ int Cli::present_dns_resolver(const bool use_custom_servers, const std::string_v
     if (!servers.empty()) {
         std::println("  Servers ({}):", servers.size());
         for (const auto& server : servers) {
-            std::println("    - {}", server);
+            std::println("    - {}", format_resolver_server(server));
         }
     }
 

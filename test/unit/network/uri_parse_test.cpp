@@ -1,6 +1,3 @@
-//
-// Created by Kotarou on 2026/7/7.
-//
 // Unit tests for uri.h / uri.cpp — URI parsing (scheme, host, port, path).
 //
 // Verifies:
@@ -14,7 +11,7 @@
 
 #include <gtest/gtest.h>
 
-#include "infrastructure/net/http/uri.h"
+#include "infrastructure/uri/uri.h"
 
 // ===========================================================================
 // Basic parsing
@@ -115,19 +112,16 @@ TEST(UriParseTest, UnknownScheme) {
     EXPECT_EQ(uri.get_port(), 0);
 }
 
-TEST(UriParseTest, SchemeOnlyEmptyAuthority) {
-    auto uri = Uri::parse("http://").value();
-    EXPECT_EQ(uri.get_schema(), "http");
-    EXPECT_TRUE(uri.get_host().empty());
-    EXPECT_EQ(uri.get_port(), 80);
+TEST(UriParseTest, SchemeOnlyEmptyAuthority_ReturnsError) {
+    const auto uri = Uri::parse("http://");
+    ASSERT_FALSE(uri.has_value());
+    EXPECT_EQ(uri.error(), UriError::EMPTY_HOST);
 }
 
-TEST(UriParseTest, EmptyAuthorityWithScheme) {
-    auto uri = Uri::parse("http:///path").value();
-    EXPECT_EQ(uri.get_schema(), "http");
-    EXPECT_TRUE(uri.get_host().empty());
-    EXPECT_EQ(uri.get_path(), "/path");
-    EXPECT_EQ(uri.get_port(), 80);
+TEST(UriParseTest, EmptyAuthorityWithScheme_ReturnsError) {
+    const auto uri = Uri::parse("http:///path");
+    ASSERT_FALSE(uri.has_value());
+    EXPECT_EQ(uri.error(), UriError::EMPTY_HOST);
 }
 
 TEST(UriParseTest, Empty_ReturnsDefault) {

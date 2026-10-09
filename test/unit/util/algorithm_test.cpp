@@ -1,6 +1,3 @@
-//
-// Created by Kotarou on 2026/7/7.
-//
 // Unit tests for util/algorithm.hpp — Utils::dedupe.
 //
 // Verifies:

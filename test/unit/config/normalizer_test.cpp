@@ -68,7 +68,7 @@ TEST(NormalizerTest, Resolver_NoCustomServer_MaterializesDefaultServer) {
     ASSERT_EQ(config.resolver.servers.size(), 1U);
     EXPECT_EQ(config.resolver.servers.front().address, "1.1.1.1");
     EXPECT_EQ(config.resolver.servers.front().port, 53);
-    EXPECT_EQ(config.resolver.strategy, Config::ResolverStrategy::CONCURRENT);
+    EXPECT_EQ(config.resolver.strategy, domain::ResolverStrategy::CONCURRENT);
 }
 
 TEST(NormalizerTest, Resolver_CustomServers_CopiedThrough) {
@@ -88,7 +88,7 @@ TEST(NormalizerTest, Resolver_CustomServers_CopiedThrough) {
     EXPECT_EQ(config.resolver.servers[0].address, "1.1.1.1");
     EXPECT_EQ(config.resolver.servers[0].port, 53);
     EXPECT_EQ(config.resolver.servers[1].address, "https://dns.cloudflare.com/dns-query");
-    EXPECT_EQ(config.resolver.strategy, Config::ResolverStrategy::FALLBACK);
+    EXPECT_EQ(config.resolver.strategy, domain::ResolverStrategy::FALLBACK);
 }
 
 TEST(NormalizerTest, Resolver_CustomServerWithoutAnyAddress_StaysEmpty) {
@@ -117,7 +117,7 @@ TEST(NormalizerTest, Resolver_ShuffleStrategy_Preserved) {
         "domains": []
     })");
     const auto config = Config::normalize(raw);
-    EXPECT_EQ(config.resolver.strategy, Config::ResolverStrategy::SHUFFLE);
+    EXPECT_EQ(config.resolver.strategy, domain::ResolverStrategy::SHUFFLE);
     ASSERT_EQ(config.resolver.servers.size(), 1U);
 }
 
@@ -193,7 +193,7 @@ TEST(NormalizerTest, SubdomainType_Missing_FallsBackToA) {
     })");
     const auto config = Config::normalize(raw);
     // Legacy configs without "type" keep running as A records (warn logged).
-    EXPECT_EQ(config.domains[0].subdomains[0].type, RecordKind::A);
+    EXPECT_EQ(config.domains[0].subdomains[0].type, domain::RecordKind::A);
 }
 
 // ===========================================================================
@@ -257,7 +257,7 @@ TEST(NormalizerTest, DriverParam_PreservesFieldsAndValues) {
 TEST(NormalizerTest, SubdomainFields_PassedThrough) {
     auto raw = parse_raw(MINIMAL_CONFIG);
     auto& sub = raw.domains[0].subdomains[0];
-    sub.type = RecordKind::AAAA;
+    sub.type = domain::RecordKind::AAAA;
     sub.interface = "eth0";
     sub.allow_ula = true;
     sub.allow_local_link = true;
@@ -265,9 +265,9 @@ TEST(NormalizerTest, SubdomainFields_PassedThrough) {
     const auto config = Config::normalize(raw);
     const auto& out = config.domains[0].subdomains[0];
     EXPECT_EQ(out.name, "www");
-    EXPECT_EQ(out.type, RecordKind::AAAA);
+    EXPECT_EQ(out.type, domain::RecordKind::AAAA);
     EXPECT_EQ(out.interface, "eth0");
-    EXPECT_EQ(out.ip_source, Config::IpSource::HTTP);
+    EXPECT_EQ(out.ip_source, domain::IpSource::HTTP);
     EXPECT_EQ(out.ip_source_param, "https://api.ipify.org");
     EXPECT_TRUE(out.allow_ula);
     EXPECT_TRUE(out.allow_local_link);

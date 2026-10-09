@@ -3,9 +3,24 @@
 The numbered implementation and error-handling rules are authoritative. This document illustrates checked results, ownership/RAII, and C-string adaptation; it does not introduce additional requirements. Architecture-specific examples are documented at their actual interfaces rather than through placeholder paths or logging macros:
 
 - [Layers and shared utility ownership](../docs/architecture.md#layers).
-- [Layer-specific logging entry points](04-quality-and-process.md#layered-logging-policy).
+- [Layer-specific logging entry points](../docs/architecture.md#logging-entry-points).
 - [Plugin ABI and SDK usage](../docs/custom-drivers.md).
 - [Contracts, expected, and exception boundaries](03-error-handling.md).
+
+## Include-guard Naming Example
+
+For `src/infrastructure/dns/exchange.h`, the project prefix is `YADDNSC_`, producing `YADDNSC_INFRASTRUCTURE_DNS_EXCHANGE_H`:
+
+```cpp
+#ifndef YADDNSC_INFRASTRUCTURE_DNS_EXCHANGE_H
+#define YADDNSC_INFRASTRUCTURE_DNS_EXCHANGE_H
+
+// declarations
+
+#endif  // YADDNSC_INFRASTRUCTURE_DNS_EXCHANGE_H
+```
+
+This illustrates the project-specific form of the general rule; test headers use their test-specific convention.
 
 ## Checked Results & RAII
 
@@ -75,7 +90,10 @@ struct FileError {
 
 ## Boundary Failure Policies
 
-For concrete boundary implementations, see `include/yaddnsc/sdk/driver.hpp` and the DNS resolver adapters under `src/infrastructure/dns/resolver/`. These illustrate two distinct contracts:
+For concrete boundary implementations, see `include/yaddnsc/sdk/driver.hpp` and
+the DNS resolver adapters (`src/infrastructure/dns/resolver/resolver.h`,
+`resolver_port.h`, and the `classic` / `dot` / `doh` implementations). These
+illustrate two distinct contracts:
 
 - The plugin C ABI contains C++ exceptions and reports ABI status/error data without allowing an exception to escape.
 - DNS resolver APIs translate permitted internal parser exceptions into caller-handled results. Malformed network input is not an internal assertion failure or a process-termination requirement.

@@ -1,7 +1,3 @@
-//
-// Created by Kotarou on 2026/9/17.
-//
-
 #ifndef YADDNSC_SDK_DRIVER_ABI_H
 #define YADDNSC_SDK_DRIVER_ABI_H
 

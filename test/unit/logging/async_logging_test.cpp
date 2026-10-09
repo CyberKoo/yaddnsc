@@ -3,7 +3,7 @@
 // (src/infrastructure/logging/async_logging.cpp).
 //
 // The test installs its own recording sink as the default logger, brings up the
-// async pipeline over it, emits through both the Logger facade and a direct
+// async pipeline over it, emits through both the app::LoggerPort facade and a direct
 // SPDLOG_* macro, checks the overrun counter is readable, drains the pipeline,
 // and only then asserts — the sink is written by the drain thread, so reading it
 // before shutdown would race.
@@ -89,7 +89,7 @@ TEST(AsyncLogging, FacadeAndSpdlogMacroShareTheAsyncPipeline) {
 
     SPDLOG_INFO("direct-spdlog-message");
     const SpdlogLogger facade;
-    facade.log(LogLevel::INFO, "facade-message", std::source_location::current());
+    facade.log(app::LogLevel::INFO, "facade-message", std::source_location::current());
 
     // Drains the queue and joins the drain thread, so the sink is stable.
     logging::shutdown();

@@ -1,7 +1,3 @@
-//
-// Created by Kotarou on 2026/9/17.
-//
-
 /// Loader-rejection fixture: a loadable shared library that exports only
 /// yaddnsc_driver_get_descriptor — create/destroy/update are missing, so the
 /// loader must fail at symbol resolution with a MISSING_SYMBOL error.

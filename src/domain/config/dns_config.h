@@ -1,15 +1,11 @@
-//
-// Created by Kotarou on 2026/7/8.
-//
-
-#ifndef YADDNSC_CONFIG_DNS_CONFIG_H
-#define YADDNSC_CONFIG_DNS_CONFIG_H
+#ifndef YADDNSC_DOMAIN_CONFIG_DNS_CONFIG_H
+#define YADDNSC_DOMAIN_CONFIG_DNS_CONFIG_H
 
 #include <cstdint>
 #include <string>
 
 /// DNS-related configuration types.
-namespace Config {
+namespace domain {
 /// DNS server endpoint (configuration value object).
 struct DnsServer {
     std::string address{};   ///< Hostname or IP address of the DNS server
@@ -22,6 +18,6 @@ enum class ResolverStrategy {
     CONCURRENT,  ///< Query resolvers concurrently and take the first result
     SHUFFLE      ///< Try resolvers sequentially in random order until one succeeds
 };
-}  // namespace Config
+}  // namespace domain
 
-#endif  // YADDNSC_CONFIG_DNS_CONFIG_H
+#endif  // YADDNSC_DOMAIN_CONFIG_DNS_CONFIG_H

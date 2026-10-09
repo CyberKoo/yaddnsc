@@ -1,6 +1,3 @@
-//
-// Created by Kotarou on 2026/7/7.
-//
 // Unit tests for network/inet_address.h / .cpp — IP address value types.
 //
 // Verifies:
@@ -29,72 +26,72 @@
 // ===========================================================================
 
 TEST(Inet4AddressTest, Parse_ValidIPv4) {
-    auto addr = Inet4Address::parse("192.168.1.1");
+    auto addr = domain::Inet4Address::parse("192.168.1.1");
     ASSERT_TRUE(addr.has_value());
     EXPECT_EQ(addr->to_string(), "192.168.1.1");
 }
 
 TEST(Inet4AddressTest, Parse_Loopback) {
-    auto addr = Inet4Address::parse("127.0.0.1");
+    auto addr = domain::Inet4Address::parse("127.0.0.1");
     ASSERT_TRUE(addr.has_value());
     EXPECT_TRUE(addr->is_loopback());
 }
 
 TEST(Inet4AddressTest, Parse_Broadcast) {
-    auto addr = Inet4Address::parse("255.255.255.255");
+    auto addr = domain::Inet4Address::parse("255.255.255.255");
     ASSERT_TRUE(addr.has_value());
     EXPECT_EQ(addr->to_string(), "255.255.255.255");
 }
 
 TEST(Inet4AddressTest, Parse_Multicast) {
-    auto addr = Inet4Address::parse("224.0.0.1");
+    auto addr = domain::Inet4Address::parse("224.0.0.1");
     ASSERT_TRUE(addr.has_value());
     EXPECT_TRUE(addr->is_multicast());
 }
 
 TEST(Inet4AddressTest, Parse_Unspecified) {
-    auto addr = Inet4Address::parse("0.0.0.0");
+    auto addr = domain::Inet4Address::parse("0.0.0.0");
     ASSERT_TRUE(addr.has_value());
     EXPECT_TRUE(addr->is_unspecified());
 }
 
 TEST(Inet4AddressTest, Parse_Empty_ReturnsNullopt) {
-    auto addr = Inet4Address::parse("");
+    auto addr = domain::Inet4Address::parse("");
     EXPECT_FALSE(addr.has_value());
 }
 
 TEST(Inet4AddressTest, Parse_InvalidFormat_ReturnsNullopt) {
-    auto addr = Inet4Address::parse("not-an-ip");
+    auto addr = domain::Inet4Address::parse("not-an-ip");
     EXPECT_FALSE(addr.has_value());
 }
 
 TEST(Inet4AddressTest, Parse_OversizedOctet_ReturnsNullopt) {
-    auto addr = Inet4Address::parse("192.168.1.256");
+    auto addr = domain::Inet4Address::parse("192.168.1.256");
     EXPECT_FALSE(addr.has_value());
 }
 
 TEST(Inet4AddressTest, Parse_TooManyOctets_ReturnsNullopt) {
-    auto addr = Inet4Address::parse("1.2.3.4.5");
+    auto addr = domain::Inet4Address::parse("1.2.3.4.5");
     EXPECT_FALSE(addr.has_value());
 }
 
 TEST(Inet4AddressTest, FromBytes_RoundTrip) {
-    Inet4Address::AddrType bytes = {10, 0, 0, 1};
-    auto addr = Inet4Address::from_bytes(bytes);
+    domain::Inet4Address::AddrType bytes = {10, 0, 0, 1};
+    auto addr = domain::Inet4Address::from_bytes(bytes);
     EXPECT_EQ(addr.to_string(), "10.0.0.1");
     EXPECT_EQ(addr.get_address(), bytes);
 }
 
 TEST(Inet4AddressTest, DefaultIsUnspecified) {
-    Inet4Address addr;
+    domain::Inet4Address addr;
     EXPECT_TRUE(addr.is_unspecified());
     EXPECT_EQ(addr.to_string(), "0.0.0.0");
 }
 
 TEST(Inet4AddressTest, Equality) {
-    auto a1 = Inet4Address::parse("1.2.3.4");
-    auto a2 = Inet4Address::parse("1.2.3.4");
-    auto a3 = Inet4Address::parse("4.3.2.1");
+    auto a1 = domain::Inet4Address::parse("1.2.3.4");
+    auto a2 = domain::Inet4Address::parse("1.2.3.4");
+    auto a3 = domain::Inet4Address::parse("4.3.2.1");
     ASSERT_TRUE(a1.has_value());
     ASSERT_TRUE(a2.has_value());
     ASSERT_TRUE(a3.has_value());
@@ -103,11 +100,11 @@ TEST(Inet4AddressTest, Equality) {
 }
 
 TEST(Inet4AddressTest, GetFamily) {
-    EXPECT_EQ(Inet4Address::get_family(), AddressFamily::IPV4);
+    EXPECT_EQ(domain::Inet4Address::get_family(), domain::AddressFamily::IPV4);
 }
 
 TEST(Inet4AddressTest, DataAccess) {
-    auto addr = Inet4Address::parse("1.2.3.4");
+    auto addr = domain::Inet4Address::parse("1.2.3.4");
     ASSERT_TRUE(addr.has_value());
     EXPECT_EQ(addr->data()[0], 1);
     EXPECT_EQ(addr->data()[1], 2);
@@ -116,15 +113,15 @@ TEST(Inet4AddressTest, DataAccess) {
 }
 
 TEST(Inet4AddressTest, FromArray_DelegatesToFromBytes) {
-    Inet4Address::AddrType bytes = {10, 0, 0, 1};
-    auto addr = Inet4Address::from_array(bytes);
+    domain::Inet4Address::AddrType bytes = {10, 0, 0, 1};
+    auto addr = domain::Inet4Address::from_array(bytes);
     EXPECT_EQ(addr.to_string(), "10.0.0.1");
     EXPECT_EQ(addr.get_address(), bytes);
 }
 
 TEST(Inet4AddressTest, AddrAccessor) {
-    Inet4Address::AddrType bytes = {192, 168, 1, 1};
-    auto addr = Inet4Address::from_bytes(bytes);
+    domain::Inet4Address::AddrType bytes = {192, 168, 1, 1};
+    auto addr = domain::Inet4Address::from_bytes(bytes);
     EXPECT_EQ(addr.addr(), bytes);
 }
 
@@ -133,31 +130,31 @@ TEST(Inet4AddressTest, AddrAccessor) {
 // ===========================================================================
 
 TEST(Inet6AddressTest, Parse_Full) {
-    auto addr = Inet6Address::parse("2001:db8::1");
+    auto addr = domain::Inet6Address::parse("2001:db8::1");
     ASSERT_TRUE(addr.has_value());
     EXPECT_FALSE(addr->to_string().empty());
 }
 
 TEST(Inet6AddressTest, Parse_Loopback) {
-    auto addr = Inet6Address::parse("::1");
+    auto addr = domain::Inet6Address::parse("::1");
     ASSERT_TRUE(addr.has_value());
     EXPECT_TRUE(addr->is_loopback());
 }
 
 TEST(Inet6AddressTest, Parse_Unspecified) {
-    auto addr = Inet6Address::parse("::");
+    auto addr = domain::Inet6Address::parse("::");
     ASSERT_TRUE(addr.has_value());
     EXPECT_TRUE(addr->is_unspecified());
 }
 
 TEST(Inet6AddressTest, Parse_Multicast) {
-    auto addr = Inet6Address::parse("ff02::1");
+    auto addr = domain::Inet6Address::parse("ff02::1");
     ASSERT_TRUE(addr.has_value());
     EXPECT_TRUE(addr->is_multicast());
 }
 
 TEST(Inet6AddressTest, Parse_LinkLocal) {
-    auto addr = Inet6Address::parse("fe80::1");
+    auto addr = domain::Inet6Address::parse("fe80::1");
     ASSERT_TRUE(addr.has_value());
     EXPECT_TRUE(addr->is_link_local());
     EXPECT_FALSE(addr->is_site_local());
@@ -165,7 +162,7 @@ TEST(Inet6AddressTest, Parse_LinkLocal) {
 }
 
 TEST(Inet6AddressTest, Parse_UniqueLocal) {
-    auto addr = Inet6Address::parse("fc00::1");
+    auto addr = domain::Inet6Address::parse("fc00::1");
     ASSERT_TRUE(addr.has_value());
     EXPECT_TRUE(addr->is_ula());
     EXPECT_FALSE(addr->is_link_local());
@@ -173,7 +170,7 @@ TEST(Inet6AddressTest, Parse_UniqueLocal) {
 
 TEST(Inet6AddressTest, Parse_WithScopeId) {
     // Scope ID may be parsed differently on different platforms.
-    auto addr = Inet6Address::parse("fe80::1%eth0");
+    auto addr = domain::Inet6Address::parse("fe80::1%eth0");
     ASSERT_TRUE(addr.has_value());
     // On Linux, non-numeric scope IDs are silently ignored.
     // The address itself should still be valid.
@@ -181,23 +178,23 @@ TEST(Inet6AddressTest, Parse_WithScopeId) {
 }
 
 TEST(Inet6AddressTest, Parse_Empty_ReturnsNullopt) {
-    auto addr = Inet6Address::parse("");
+    auto addr = domain::Inet6Address::parse("");
     EXPECT_FALSE(addr.has_value());
 }
 
 TEST(Inet6AddressTest, Parse_Invalid_ReturnsNullopt) {
-    auto addr = Inet6Address::parse("not-an-ip");
+    auto addr = domain::Inet6Address::parse("not-an-ip");
     EXPECT_FALSE(addr.has_value());
 }
 
 TEST(Inet6AddressTest, FromBytes_RoundTrip) {
-    Inet6Address::AddrType bytes = {0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1};  // 2001:db8::1
-    auto addr = Inet6Address::from_bytes(bytes);
+    domain::Inet6Address::AddrType bytes = {0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1};  // 2001:db8::1
+    auto addr = domain::Inet6Address::from_bytes(bytes);
     EXPECT_EQ(addr.get_address(), bytes);
 }
 
 TEST(Inet6AddressTest, Parse_WithNumericScopeId) {
-    auto addr = Inet6Address::parse("fe80::1%2");
+    auto addr = domain::Inet6Address::parse("fe80::1%2");
     ASSERT_TRUE(addr.has_value());
     EXPECT_TRUE(addr->is_link_local());
     EXPECT_EQ(addr->get_scope_id(), 2U);
@@ -207,13 +204,13 @@ TEST(Inet6AddressTest, Parse_WithNumericScopeId) {
 TEST(Inet6AddressTest, Parse_WithEmptyScopeId) {
     // Trailing % with nothing after it is malformed — rejected, not silently
     // parsed as the bare address.
-    auto addr = Inet6Address::parse("fe80::1%");
+    auto addr = domain::Inet6Address::parse("fe80::1%");
     EXPECT_FALSE(addr.has_value());
 }
 
 TEST(Inet6AddressTest, Parse_WithNonNumericScopeId) {
     // Non-numeric scope ID (e.g. interface name) — from_chars fails, scope stays 0
-    auto addr = Inet6Address::parse("fe80::1%eth0");
+    auto addr = domain::Inet6Address::parse("fe80::1%eth0");
     ASSERT_TRUE(addr.has_value());
     EXPECT_TRUE(addr->is_link_local());
     EXPECT_EQ(addr->get_scope_id(), 0U);
@@ -221,39 +218,39 @@ TEST(Inet6AddressTest, Parse_WithNonNumericScopeId) {
 
 TEST(Inet6AddressTest, Parse_ScopeIdOutOfRange_ReturnsNullopt) {
     // A numeric scope id exceeding 32 bits must be rejected, not truncated.
-    auto addr = Inet6Address::parse("fe80::1%99999999999");
+    auto addr = domain::Inet6Address::parse("fe80::1%99999999999");
     EXPECT_FALSE(addr.has_value());
 }
 
 TEST(Inet6AddressTest, ScopeId) {
-    Inet6Address addr;
+    domain::Inet6Address addr;
     addr.set_scope_id(42);
     EXPECT_EQ(addr.get_scope_id(), 42U);
 }
 
 TEST(Inet6AddressTest, ToString_OmitsScopeId) {
-    Inet6Address::AddrType bytes = {0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2};
-    auto addr = Inet6Address::from_bytes(bytes);
+    domain::Inet6Address::AddrType bytes = {0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2};
+    auto addr = domain::Inet6Address::from_bytes(bytes);
     addr.set_scope_id(5);
     EXPECT_EQ(addr.get_scope_id(), 5U);
     EXPECT_EQ(addr.to_string(), "fe80::2");
 }
 
 TEST(Inet6AddressTest, FromArray_DelegatesToFromBytes) {
-    Inet6Address::AddrType bytes = {0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1};
-    auto addr = Inet6Address::from_array(bytes);
+    domain::Inet6Address::AddrType bytes = {0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1};
+    auto addr = domain::Inet6Address::from_array(bytes);
     EXPECT_EQ(addr.get_address(), bytes);
 }
 
 TEST(Inet6AddressTest, AddrAccessor) {
-    Inet6Address::AddrType bytes = {0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1};
-    auto addr = Inet6Address::from_bytes(bytes);
+    domain::Inet6Address::AddrType bytes = {0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1};
+    auto addr = domain::Inet6Address::from_bytes(bytes);
     EXPECT_EQ(addr.addr(), bytes);
 }
 
 TEST(Inet6AddressTest, SiteLocal) {
     // fc00::/7 → fc00::1 is site-local (fc = 1111 1100, masked with 0xfe = 0xfc)
-    auto addr = Inet6Address::parse("fec0::1");
+    auto addr = domain::Inet6Address::parse("fec0::1");
     ASSERT_TRUE(addr.has_value());
     EXPECT_TRUE(addr->is_site_local());
     EXPECT_FALSE(addr->is_link_local());
@@ -262,13 +259,13 @@ TEST(Inet6AddressTest, SiteLocal) {
 
 TEST(Inet6AddressTest, UniqueLocal_AlternatePrefix) {
     // fd00::/7 → fd00::1 is also ULA
-    auto addr = Inet6Address::parse("fd00::1");
+    auto addr = domain::Inet6Address::parse("fd00::1");
     ASSERT_TRUE(addr.has_value());
     EXPECT_TRUE(addr->is_ula());
 }
 
 TEST(Inet6AddressTest, DataAccess) {
-    auto addr = Inet6Address::parse("::1");
+    auto addr = domain::Inet6Address::parse("::1");
     ASSERT_TRUE(addr.has_value());
     EXPECT_EQ(addr->data()[15], 1);
     // All leading bytes should be 0 for ::1
@@ -278,14 +275,14 @@ TEST(Inet6AddressTest, DataAccess) {
 }
 
 TEST(Inet6AddressTest, DefaultIsUnspecified) {
-    Inet6Address addr;
+    domain::Inet6Address addr;
     EXPECT_TRUE(addr.is_unspecified());
 }
 
 TEST(Inet6AddressTest, Equality) {
-    auto a1 = Inet6Address::parse("::1");
-    auto a2 = Inet6Address::parse("::1");
-    auto a3 = Inet6Address::parse("::2");
+    auto a1 = domain::Inet6Address::parse("::1");
+    auto a2 = domain::Inet6Address::parse("::1");
+    auto a3 = domain::Inet6Address::parse("::2");
     ASSERT_TRUE(a1.has_value());
     ASSERT_TRUE(a2.has_value());
     ASSERT_TRUE(a3.has_value());
@@ -294,7 +291,7 @@ TEST(Inet6AddressTest, Equality) {
 }
 
 TEST(Inet6AddressTest, GetFamily) {
-    EXPECT_EQ(Inet6Address::get_family(), AddressFamily::IPV6);
+    EXPECT_EQ(domain::Inet6Address::get_family(), domain::AddressFamily::IPV6);
 }
 
 // ===========================================================================
@@ -302,39 +299,39 @@ TEST(Inet6AddressTest, GetFamily) {
 // ===========================================================================
 
 TEST(InetAddressTest, Parse_IPv4_ReturnsV4) {
-    auto addr = InetAddress::parse("192.168.1.1");
+    auto addr = domain::InetAddress::parse("192.168.1.1");
     ASSERT_TRUE(addr.has_value());
-    EXPECT_EQ(addr->get_family(), AddressFamily::IPV4);
+    EXPECT_EQ(addr->get_family(), domain::AddressFamily::IPV4);
     EXPECT_NE(addr->as_v4(), nullptr);
     EXPECT_EQ(addr->as_v6(), nullptr);
 }
 
 TEST(InetAddressTest, Parse_IPv6_ReturnsV6) {
-    auto addr = InetAddress::parse("::1");
+    auto addr = domain::InetAddress::parse("::1");
     ASSERT_TRUE(addr.has_value());
-    EXPECT_EQ(addr->get_family(), AddressFamily::IPV6);
+    EXPECT_EQ(addr->get_family(), domain::AddressFamily::IPV6);
     EXPECT_NE(addr->as_v6(), nullptr);
     EXPECT_EQ(addr->as_v4(), nullptr);
 }
 
 TEST(InetAddressTest, Parse_Empty_ReturnsNullopt) {
-    auto addr = InetAddress::parse("");
+    auto addr = domain::InetAddress::parse("");
     EXPECT_FALSE(addr.has_value());
 }
 
 TEST(InetAddressTest, Parse_Garbage_ReturnsNullopt) {
-    auto addr = InetAddress::parse("clearly-invalid");
+    auto addr = domain::InetAddress::parse("clearly-invalid");
     EXPECT_FALSE(addr.has_value());
 }
 
 TEST(InetAddressTest, ToString_RoundTrip) {
-    auto addr = InetAddress::parse("10.0.0.1");
+    auto addr = domain::InetAddress::parse("10.0.0.1");
     ASSERT_TRUE(addr.has_value());
     EXPECT_EQ(addr->to_string(), "10.0.0.1");
 }
 
 TEST(InetAddressTest, IPv6_ToString) {
-    auto addr = InetAddress::parse("::1");
+    auto addr = domain::InetAddress::parse("::1");
     ASSERT_TRUE(addr.has_value());
     // inet_ntop may produce "::1" or "0:0:0:0:0:0:0:1" depending on the OS.
     // Either is acceptable; just verify it's non-empty and looks like an IP.
@@ -344,9 +341,9 @@ TEST(InetAddressTest, IPv6_ToString) {
 }
 
 TEST(InetAddressTest, Classification_Delegation) {
-    auto loopback = InetAddress::parse("127.0.0.1");
-    auto multicast = InetAddress::parse("224.0.0.1");
-    auto unspecified = InetAddress::parse("0.0.0.0");
+    auto loopback = domain::InetAddress::parse("127.0.0.1");
+    auto multicast = domain::InetAddress::parse("224.0.0.1");
+    auto unspecified = domain::InetAddress::parse("0.0.0.0");
 
     ASSERT_TRUE(loopback.has_value());
     ASSERT_TRUE(multicast.has_value());
@@ -359,8 +356,8 @@ TEST(InetAddressTest, Classification_Delegation) {
 }
 
 TEST(InetAddressTest, IPv6Only_Classification) {
-    auto link_local = InetAddress::parse("fe80::1");
-    auto ula = InetAddress::parse("fc00::1");
+    auto link_local = domain::InetAddress::parse("fe80::1");
+    auto ula = domain::InetAddress::parse("fc00::1");
 
     ASSERT_TRUE(link_local.has_value());
     ASSERT_TRUE(ula.has_value());
@@ -372,7 +369,7 @@ TEST(InetAddressTest, IPv6Only_Classification) {
 }
 
 TEST(InetAddressTest, IPv4_IPv6Methods_ReturnFalse) {
-    auto v4 = InetAddress::parse("1.2.3.4");
+    auto v4 = domain::InetAddress::parse("1.2.3.4");
     ASSERT_TRUE(v4.has_value());
     EXPECT_FALSE(v4->is_link_local());
     EXPECT_FALSE(v4->is_site_local());
@@ -381,7 +378,7 @@ TEST(InetAddressTest, IPv4_IPv6Methods_ReturnFalse) {
 }
 
 TEST(InetAddressTest, IPv6_SiteLocal) {
-    auto addr = InetAddress::parse("fec0::1");
+    auto addr = domain::InetAddress::parse("fec0::1");
     ASSERT_TRUE(addr.has_value());
     EXPECT_TRUE(addr->is_site_local());
     EXPECT_FALSE(addr->is_link_local());
@@ -389,14 +386,14 @@ TEST(InetAddressTest, IPv6_SiteLocal) {
 }
 
 TEST(InetAddressTest, IPv6_ScopeId) {
-    auto addr = InetAddress::parse("fe80::1%10");
+    auto addr = domain::InetAddress::parse("fe80::1%10");
     ASSERT_TRUE(addr.has_value());
     EXPECT_EQ(addr->get_scope_id(), 10U);
     EXPECT_TRUE(addr->is_link_local());
 }
 
 TEST(InetAddressTest, GetAddress_V4_ZeroPaddedTo16) {
-    auto addr = InetAddress::parse("1.2.3.4");
+    auto addr = domain::InetAddress::parse("1.2.3.4");
     ASSERT_TRUE(addr.has_value());
     auto bytes = addr->get_address();
     // First 12 bytes are zero-padded (IPv4-in-IPv6 mapping? No, just zero-padded)
@@ -412,7 +409,7 @@ TEST(InetAddressTest, GetAddress_V4_ZeroPaddedTo16) {
 }
 
 TEST(InetAddressTest, GetAddress_V6) {
-    auto addr = InetAddress::parse("2001:db8::1");
+    auto addr = domain::InetAddress::parse("2001:db8::1");
     ASSERT_TRUE(addr.has_value());
     auto bytes = addr->get_address();
     EXPECT_EQ(bytes.size(), 16U);
@@ -424,8 +421,8 @@ TEST(InetAddressTest, GetAddress_V6) {
 }
 
 TEST(InetAddressTest, Equality_CrossFamily) {
-    auto v4 = InetAddress::parse("1.2.3.4");
-    auto v6 = InetAddress::parse("::1");
+    auto v4 = domain::InetAddress::parse("1.2.3.4");
+    auto v6 = domain::InetAddress::parse("::1");
     ASSERT_TRUE(v4.has_value());
     ASSERT_TRUE(v6.has_value());
     // An IPv4 and an IPv6 address should never be equal.
@@ -434,54 +431,54 @@ TEST(InetAddressTest, Equality_CrossFamily) {
 
 TEST(InetAddressTest, FromBytes_V4) {
     std::array<uint8_t, 4> bytes = {8, 8, 8, 8};
-    auto addr = InetAddress::from_bytes(std::span<const uint8_t>(bytes));
+    auto addr = domain::InetAddress::from_bytes(std::span<const uint8_t>(bytes));
     ASSERT_TRUE(addr.has_value());
-    EXPECT_EQ(addr->get_family(), AddressFamily::IPV4);
+    EXPECT_EQ(addr->get_family(), domain::AddressFamily::IPV4);
     EXPECT_EQ(addr->to_string(), "8.8.8.8");
 }
 
 TEST(InetAddressTest, FromBytes_V6) {
     std::array<uint8_t, 16> bytes = {};
     bytes[15] = 1;  // ::1
-    auto addr = InetAddress::from_bytes(std::span<const uint8_t>(bytes));
+    auto addr = domain::InetAddress::from_bytes(std::span<const uint8_t>(bytes));
     ASSERT_TRUE(addr.has_value());
-    EXPECT_EQ(addr->get_family(), AddressFamily::IPV6);
+    EXPECT_EQ(addr->get_family(), domain::AddressFamily::IPV6);
 }
 
 TEST(InetAddressTest, FromBytes_InvalidLength) {
     std::array<uint8_t, 7> bytes = {};  // neither 4 nor 16
-    auto addr = InetAddress::from_bytes(std::span<const uint8_t>(bytes));
+    auto addr = domain::InetAddress::from_bytes(std::span<const uint8_t>(bytes));
     EXPECT_FALSE(addr.has_value());
 }
 
 TEST(InetAddressTest, DefaultIsV4Unspecified) {
-    InetAddress addr;
-    EXPECT_EQ(addr.get_family(), AddressFamily::IPV4);
+    domain::InetAddress addr;
+    EXPECT_EQ(addr.get_family(), domain::AddressFamily::IPV4);
     EXPECT_TRUE(addr.is_unspecified());
     EXPECT_EQ(addr.to_string(), "0.0.0.0");
 }
 
 TEST(InetAddressTest, Visit_IPv4) {
-    auto addr = InetAddress::parse("10.0.0.1");
+    auto addr = domain::InetAddress::parse("10.0.0.1");
     ASSERT_TRUE(addr.has_value());
     bool visited_v4 = false;
-    addr->visit([&](const auto& a) { visited_v4 = std::is_same_v<std::decay_t<decltype(a)>, Inet4Address>; });
+    addr->visit([&](const auto& a) { visited_v4 = std::is_same_v<std::decay_t<decltype(a)>, domain::Inet4Address>; });
     EXPECT_TRUE(visited_v4);
 }
 
 TEST(InetAddressTest, Visit_IPv6) {
-    auto addr = InetAddress::parse("::1");
+    auto addr = domain::InetAddress::parse("::1");
     ASSERT_TRUE(addr.has_value());
     bool visited_v6 = false;
-    addr->visit([&](const auto& a) { visited_v6 = std::is_same_v<std::decay_t<decltype(a)>, Inet6Address>; });
+    addr->visit([&](const auto& a) { visited_v6 = std::is_same_v<std::decay_t<decltype(a)>, domain::Inet6Address>; });
     EXPECT_TRUE(visited_v6);
 }
 
 TEST(InetAddressTest, Visit_Mutable) {
-    InetAddress addr{Inet4Address{}};
+    domain::InetAddress addr{domain::Inet4Address{}};
     addr.visit([](auto& a) {
         // Just verify the mutable overload compiles and runs
         using T = std::decay_t<decltype(a)>;
-        EXPECT_TRUE((std::is_same_v<T, Inet4Address>) );
+        EXPECT_TRUE((std::is_same_v<T, domain::Inet4Address>) );
     });
 }

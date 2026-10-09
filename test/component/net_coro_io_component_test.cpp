@@ -34,14 +34,14 @@
 #include "domain/dns/record_kind.h"
 #include "domain/error/dns_error_info.h"
 #include "infrastructure/coro/coro.h"
-#include "infrastructure/dns/bootstrap.h"
-#include "infrastructure/dns/classic.h"
+#include "infrastructure/dns/bootstrap/bootstrap.h"
+#include "infrastructure/dns/resolver/classic.h"
 #include "infrastructure/dns/dispatcher.h"
-#include "infrastructure/dns/doh.h"
-#include "infrastructure/dns/dot.h"
-#include "infrastructure/net/http/client.h"
-#include "infrastructure/net/http/persistent_client.h"
-#include "infrastructure/net/tls_context.h"
+#include "infrastructure/dns/resolver/doh.h"
+#include "infrastructure/dns/resolver/dot.h"
+#include "infrastructure/http/client.h"
+#include "infrastructure/http/persistent_client.h"
+#include "infrastructure/network/tls/context.h"
 #include "support/fmt.hpp"
 #include "support/util/fd.hpp"
 
@@ -57,10 +57,10 @@ constexpr int DOT_TIMEOUT_PORT = 21683;
 constexpr int BOOTSTRAP_FIRST_PORT = 21684;
 constexpr int BOOTSTRAP_SECOND_PORT = 21685;
 
-[[nodiscard]] InetAddress loopback_v4() {
-    const auto address = InetAddress::parse("127.0.0.1");
+[[nodiscard]] domain::InetAddress loopback_v4() {
+    const auto address = domain::InetAddress::parse("127.0.0.1");
     EXPECT_TRUE(address.has_value());
-    return address.value_or(InetAddress{});
+    return address.value_or(domain::InetAddress{});
 }
 
 /// Build the off-loop trust context a resolver's TLS options ask for.
@@ -293,8 +293,8 @@ TEST(NetCoroDns, classic_resolvesOverUdpAndOverTcpOnTruncation) {
     dns::ClassicResolver resolver{loopback_v4(), CLASSIC_PORT};
 
     auto resolve = [&]() -> coro::Task<std::pair<bool, bool>> {
-        auto normal = co_await resolver.query("yaddnsc.test", RecordKind::A);
-        auto truncated = co_await resolver.query("truncate.yaddnsc.test", RecordKind::A);
+        auto normal = co_await resolver.query("yaddnsc.test", domain::RecordKind::A);
+        auto truncated = co_await resolver.query("truncate.yaddnsc.test", domain::RecordKind::A);
         co_return std::pair{normal.has_value() && !normal->empty(), truncated.has_value() && !truncated->empty()};
     };
 
@@ -327,8 +327,8 @@ TEST(NetCoroDns, doh_resolvesThroughThePersistentHttpSession) {
     dns::DohResolver resolver{fmt::format("https://127.0.0.1:{}/dns-query", DOH_PORT), options};
 
     auto resolve = [&]() -> coro::Task<std::pair<bool, bool>> {
-        auto first = co_await resolver.query("yaddnsc.test", RecordKind::A);
-        auto second = co_await resolver.query("yaddnsc.test", RecordKind::AAAA);
+        auto first = co_await resolver.query("yaddnsc.test", domain::RecordKind::A);
+        auto second = co_await resolver.query("yaddnsc.test", domain::RecordKind::AAAA);
         co_return std::pair{first.has_value() && !first->empty(), second.has_value() && !second->empty()};
     };
 
@@ -357,8 +357,8 @@ TEST(NetCoroDns, dot_resolvesOverTlsWithPadding) {
     dns::DotResolver resolver{"127.0.0.1", DOT_PORT, options};
 
     auto resolve = [&]() -> coro::Task<std::pair<bool, bool>> {
-        auto first = co_await resolver.query("yaddnsc.test", RecordKind::A);
-        auto second = co_await resolver.query("yaddnsc.test", RecordKind::A);
+        auto first = co_await resolver.query("yaddnsc.test", domain::RecordKind::A);
+        auto second = co_await resolver.query("yaddnsc.test", domain::RecordKind::A);
         co_return std::pair{first.has_value() && !first->empty(), second.has_value() && !second->empty()};
     };
 
@@ -388,12 +388,12 @@ TEST(NetCoroDns, dot_peerClosesWithoutAnswering_FailsCleanly) {
     options.tls_context = client_context(options.tls);
     dns::DotResolver resolver{"127.0.0.1", DOT_TIMEOUT_PORT, options};
 
-    const auto result = run_task([&]() -> coro::Task<std::expected<std::vector<std::uint8_t>, DnsErrorInfo>> {
-        co_return co_await resolver.query("dot-timeout.yaddnsc.test", RecordKind::A);
+    const auto result = run_task([&]() -> coro::Task<std::expected<std::vector<std::uint8_t>, domain::DnsErrorInfo>> {
+        co_return co_await resolver.query("dot-timeout.yaddnsc.test", domain::RecordKind::A);
     }());
 
     ASSERT_FALSE(result.has_value());
-    EXPECT_EQ(result.error().code, DnsError::CONNECTION);
+    EXPECT_EQ(result.error().code, domain::DnsError::CONNECTION);
 }
 
 TEST(NetCoroDns, doh_scopeTimeout_abortsTheQuery) {
@@ -418,10 +418,10 @@ TEST(NetCoroDns, doh_scopeTimeout_abortsTheQuery) {
     // doh_server.py accepts this name and then never answers, so only the
     // caller's cancel scope can end the wait — the transport has no timeout.
     bool timed_out = false;
-    std::optional<DnsErrorInfo> error;
+    std::optional<domain::DnsErrorInfo> error;
     run_task([&]() -> coro::Task<void> {
-        const auto outcome = co_await coro::with_timeout(300ms, [&](coro::CancelScope&) -> coro::Task<void> {
-            auto result = co_await resolver.query("doh-timeout.yaddnsc.test", RecordKind::A);
+        const auto outcome = co_await coro::with_timeout(300ms, [&]() -> coro::Task<void> {
+            auto result = co_await resolver.query("doh-timeout.yaddnsc.test", domain::RecordKind::A);
             if (!result) {
                 error = result.error();
             }
@@ -432,8 +432,7 @@ TEST(NetCoroDns, doh_scopeTimeout_abortsTheQuery) {
     }());
 
     EXPECT_TRUE(timed_out);
-    ASSERT_TRUE(error.has_value());
-    EXPECT_EQ(error->code, DnsError::CANCELLED);
+    EXPECT_FALSE(error.has_value());  // cancellation bypasses the recoverable error channel
 }
 
 // ---------------------------------------------------------------------------
@@ -456,8 +455,8 @@ TEST(NetCoroDns, dispatcher_concurrentRaceAgainstRealBackends) {
     resolvers.push_back(std::make_unique<dns::ClassicResolver>(loopback_v4(), CLASSIC_PORT));
     dns::Dispatcher dispatcher{std::move(resolvers), dns::Strategy::CONCURRENT};
 
-    const auto result = run_task([&]() -> coro::Task<std::expected<std::vector<std::string>, DnsErrorInfo>> {
-        co_return co_await dispatcher.resolve("yaddnsc.test", RecordKind::A);
+    const auto result = run_task([&]() -> coro::Task<std::expected<std::vector<std::string>, domain::DnsErrorInfo>> {
+        co_return co_await dispatcher.resolve("yaddnsc.test", domain::RecordKind::A);
     }());
 
     ASSERT_TRUE(result.has_value());
@@ -476,19 +475,18 @@ TEST(NetCoroDns, bootstrap_nodataAnswerFallsThroughToTheNextServer) {
         GTEST_SKIP() << "dns_server.py could not be started";
     }
     PythonServer second;
-    if (!second.start("dns_server.py",
-                      {std::to_string(BOOTSTRAP_SECOND_PORT),
-                       R"(--records={"nodata.yaddnsc.test":{"A":"198.51.100.77"}})"})) {
+    if (!second.start("dns_server.py", {std::to_string(BOOTSTRAP_SECOND_PORT),
+                                        R"(--records={"nodata.yaddnsc.test":{"A":"198.51.100.77"}})"})) {
         GTEST_SKIP() << "dns_server.py could not be started";
     }
     if (!first.wait_for_tcp(BOOTSTRAP_FIRST_PORT) || !second.wait_for_tcp(BOOTSTRAP_SECOND_PORT)) {
         GTEST_SKIP() << "dns_server.py did not start";
     }
 
-    const std::vector<Config::DnsServer> servers{{"127.0.0.1", static_cast<std::uint16_t>(BOOTSTRAP_FIRST_PORT)},
+    const std::vector<domain::DnsServer> servers{{"127.0.0.1", static_cast<std::uint16_t>(BOOTSTRAP_FIRST_PORT)},
                                                  {"127.0.0.1", static_cast<std::uint16_t>(BOOTSTRAP_SECOND_PORT)}};
-    auto resolve = [&]() -> coro::Task<std::expected<std::vector<InetAddress>, DnsErrorInfo>> {
-        co_return co_await dns::bootstrap_resolve("nodata.yaddnsc.test", AddressFamily::IPV4, servers);
+    auto resolve = [&]() -> coro::Task<std::expected<std::vector<domain::InetAddress>, domain::DnsErrorInfo>> {
+        co_return co_await dns::bootstrap_resolve("nodata.yaddnsc.test", domain::AddressFamily::IPV4, servers);
     };
 
     const auto result = run_task(resolve());
@@ -505,19 +503,18 @@ TEST(NetCoroDns, bootstrap_nxdomainFromOneServerStillTriesTheNext) {
         GTEST_SKIP() << "dns_server.py could not be started";
     }
     PythonServer second;
-    if (!second.start("dns_server.py",
-                      {std::to_string(BOOTSTRAP_SECOND_PORT),
-                       R"(--records={"v6fallback.yaddnsc.test":{"AAAA":"2001:db8::77"}})"})) {
+    if (!second.start("dns_server.py", {std::to_string(BOOTSTRAP_SECOND_PORT),
+                                        R"(--records={"v6fallback.yaddnsc.test":{"AAAA":"2001:db8::77"}})"})) {
         GTEST_SKIP() << "dns_server.py could not be started";
     }
     if (!first.wait_for_tcp(BOOTSTRAP_FIRST_PORT) || !second.wait_for_tcp(BOOTSTRAP_SECOND_PORT)) {
         GTEST_SKIP() << "dns_server.py did not start";
     }
 
-    const std::vector<Config::DnsServer> servers{{"127.0.0.1", static_cast<std::uint16_t>(BOOTSTRAP_FIRST_PORT)},
+    const std::vector<domain::DnsServer> servers{{"127.0.0.1", static_cast<std::uint16_t>(BOOTSTRAP_FIRST_PORT)},
                                                  {"127.0.0.1", static_cast<std::uint16_t>(BOOTSTRAP_SECOND_PORT)}};
-    auto resolve = [&]() -> coro::Task<std::expected<std::vector<InetAddress>, DnsErrorInfo>> {
-        co_return co_await dns::bootstrap_resolve("v6fallback.yaddnsc.test", AddressFamily::IPV6, servers);
+    auto resolve = [&]() -> coro::Task<std::expected<std::vector<domain::InetAddress>, domain::DnsErrorInfo>> {
+        co_return co_await dns::bootstrap_resolve("v6fallback.yaddnsc.test", domain::AddressFamily::IPV6, servers);
     };
 
     const auto result = run_task(resolve());

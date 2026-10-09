@@ -1,7 +1,3 @@
-//
-// Created by Kotarou on 2026/9/17.
-//
-
 #ifndef YADDNSC_SDK_REDACT_HPP
 #define YADDNSC_SDK_REDACT_HPP
 

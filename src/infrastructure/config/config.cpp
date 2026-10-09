@@ -1,7 +1,3 @@
-//
-// Created by Kotarou on 2022/4/6.
-//
-
 #include "config.h"
 
 #include <algorithm>
@@ -13,6 +9,7 @@
 #include <glaze/glaze.hpp>
 #include <yaddnsc/util/format.hpp>
 
+#include "infrastructure/config/config_exception.h"
 #include "infrastructure/config/diagnostics/parse_diagnostic.h"
 #include "support/fmt.hpp"
 
@@ -65,7 +62,7 @@ void redact_uri_credentials(std::string& text) {
 
 Config::AppConfig Config::load_config(const std::string& config_path) {
     if (!std::filesystem::exists(config_path)) {
-        throw std::runtime_error(fmt::format("Config file \"{}\" does not exist", config_path));
+        throw ConfigException(fmt::format("Config file \"{}\" does not exist", config_path));
     }
 
     AppConfig cfg{};
@@ -74,7 +71,7 @@ Config::AppConfig Config::load_config(const std::string& config_path) {
         // The message names the position, the key, and what that key accepts,
         // but never a configuration value: the file holds API credentials and
         // the message is logged as a fatal error.
-        throw std::runtime_error(Config::Diagnostic::describe_parse_error(config_path, buffer, ec.count, ec.ec));
+        throw ConfigException(Config::Diagnostic::describe_parse_error(config_path, buffer, ec.count, ec.ec));
     }
 
     return cfg;

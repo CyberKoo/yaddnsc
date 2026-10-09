@@ -1,5 +1,5 @@
 //
-// NullLogger — Logger test double that drops every record.
+// NullLogger — app::LoggerPort test double that drops every record.
 //
 // is_enabled() is always false, so the YLOG_* macros skip message
 // formatting entirely (same fast path as a disabled spdlog level).
@@ -13,11 +13,11 @@
 
 #include "application/ports/log.h"
 
-class NullLogger final : public Logger {
+class NullLogger final : public app::LoggerPort {
 public:
-    [[nodiscard]] bool is_enabled(LogLevel) const override { return false; }
+    [[nodiscard]] bool is_enabled(app::LogLevel) const override { return false; }
 
-    void log(LogLevel, std::string_view, const std::source_location&) const override {}
+    void log(app::LogLevel, std::string_view, const std::source_location&) const override {}
 };
 
 #endif  // YADDNSC_TEST_MOCKS_NULL_LOGGER_H

@@ -5,8 +5,8 @@
 // server to a classic / DoT / DoH backend and applies the configured strategy.
 //
 
-#ifndef YADDNSC_DNS_FACTORY_H
-#define YADDNSC_DNS_FACTORY_H
+#ifndef YADDNSC_INFRASTRUCTURE_DNS_FACTORY_H
+#define YADDNSC_INFRASTRUCTURE_DNS_FACTORY_H
 
 #include <memory>
 #include <vector>
@@ -31,9 +31,9 @@ namespace dns {
 ///         address is malformed / uses an unknown schema (configuration
 ///         validation should have rejected both first).
 [[nodiscard]] std::unique_ptr<Dispatcher> make_dispatcher(const domain::ResolverSettings& settings,
-                                                          std::vector<Config::DnsServer> bootstrap,
+                                                          std::vector<domain::DnsServer> bootstrap,
                                                           std::shared_ptr<const net::TlsContext> tls_context);
 
 }  // namespace dns
 
-#endif  // YADDNSC_DNS_FACTORY_H
+#endif  // YADDNSC_INFRASTRUCTURE_DNS_FACTORY_H

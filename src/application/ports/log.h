@@ -1,7 +1,3 @@
-//
-// Created by Kotarou on 2026/9/17.
-//
-
 #ifndef YADDNSC_APPLICATION_PORTS_LOG_H
 #define YADDNSC_APPLICATION_PORTS_LOG_H
 
@@ -9,6 +5,8 @@
 #include <string_view>
 
 #include "support/fmt.hpp"
+
+namespace app {
 
 /// Log severity levels, ordered by verbosity (trace is the most verbose).
 enum class LogLevel {
@@ -20,7 +18,7 @@ enum class LogLevel {
     CRITICAL,
 };
 
-/// Logger — thin, thread-safe log facade port for the application layer and
+/// LoggerPort — thin, thread-safe log facade port for the application layer and
 /// Host Services.
 ///
 /// Every record carries a source location (file / line / function);
@@ -30,9 +28,9 @@ enum class LogLevel {
 /// Callers should use the YLOG_* macros below: they capture the call site via
 /// std::source_location::current() and skip message formatting entirely when
 /// the level is disabled.
-class Logger {
+class LoggerPort {
 public:
-    virtual ~Logger() = default;
+    virtual ~LoggerPort() = default;
 
     /// Whether `level` would be emitted — used by the macros to skip work.
     [[nodiscard]] virtual bool is_enabled(LogLevel level) const = 0;
@@ -44,14 +42,17 @@ public:
     /// Emit one record whose call site lies outside this process image (a
     /// driver plugin logging through Host Services): the location arrives as
     /// plain data because std::source_location cannot be synthesised.
-    /// The default implementation drops the explicit location.
+    /// The default implementation replaces the supplied location with the
+    /// host call site inside LoggerPort::log_explicit().
     virtual void log_explicit(LogLevel level, std::string_view message, [[maybe_unused]] std::string_view file,
                               [[maybe_unused]] int line, [[maybe_unused]] std::string_view function) const {
         log(level, message, std::source_location::current());
     }
 };
 
-/// Log a formatted message at the given level through a Logger.
+}  // namespace app
+
+/// Log a formatted message at the given level through a LoggerPort.
 /// The format string and arguments are only evaluated when the level is
 /// enabled; the source location is captured at the call site.
 #define YLOG(logger, level, ...)                                                            \
@@ -61,10 +62,10 @@ public:
         }                                                                                   \
     } while (0)
 
-#define YLOG_DEBUG(logger, ...) YLOG(logger, LogLevel::DEBUG, __VA_ARGS__)
-#define YLOG_INFO(logger, ...) YLOG(logger, LogLevel::INFO, __VA_ARGS__)
-#define YLOG_WARN(logger, ...) YLOG(logger, LogLevel::WARN, __VA_ARGS__)
-#define YLOG_ERROR(logger, ...) YLOG(logger, LogLevel::ERROR, __VA_ARGS__)
-#define YLOG_CRITICAL(logger, ...) YLOG(logger, LogLevel::CRITICAL, __VA_ARGS__)
+#define YLOG_DEBUG(logger, ...) YLOG(logger, app::LogLevel::DEBUG, __VA_ARGS__)
+#define YLOG_INFO(logger, ...) YLOG(logger, app::LogLevel::INFO, __VA_ARGS__)
+#define YLOG_WARN(logger, ...) YLOG(logger, app::LogLevel::WARN, __VA_ARGS__)
+#define YLOG_ERROR(logger, ...) YLOG(logger, app::LogLevel::ERROR, __VA_ARGS__)
+#define YLOG_CRITICAL(logger, ...) YLOG(logger, app::LogLevel::CRITICAL, __VA_ARGS__)
 
 #endif  // YADDNSC_APPLICATION_PORTS_LOG_H

@@ -343,7 +343,7 @@ fi
 # not silently accepted. These are the two ways a deployment goes wrong before
 # yaddnsc ever reaches the network.
 echo '{ "drivers": { "driver_dir": ' > "${BUILD_DIR}/integration-bad-config.json"
-cli_check "config-test-malformed" nonzero 'Failed to validate configuration' \
+cli_check "config-test-malformed" nonzero 'Configuration verification failed' \
     "${YADDNSC_BIN}" config test -c "${BUILD_DIR}/integration-bad-config.json"
 cli_check "config-test-missing-file" nonzero 'does not exist' \
     "${YADDNSC_BIN}" config test -c "${BUILD_DIR}/integration-no-such-config.json"

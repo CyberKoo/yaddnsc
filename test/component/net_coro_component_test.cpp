@@ -1,5 +1,5 @@
 //
-// Component tests for the coroutine transport layer (src/infrastructure/net/)
+// Component tests for the coroutine transport layer (src/infrastructure/network/)
 // plus the DNS wire exchange built on it.
 //
 // Real I/O on loopback: an in-process TCP echo server for the plain-TCP paths
@@ -37,11 +37,11 @@
 #include "domain/network/inet_address.h"
 #include "infrastructure/coro/coro.h"
 #include "infrastructure/dns/exchange.h"
-#include "infrastructure/net/io_error.h"
-#include "infrastructure/net/tcp_stream.h"
-#include "infrastructure/net/tls_context.h"
-#include "infrastructure/net/tls_stream.h"
-#include "infrastructure/net/udp_socket.h"
+#include "infrastructure/network/transport/io_error.h"
+#include "infrastructure/network/transport/tcp_stream.h"
+#include "infrastructure/network/tls/context.h"
+#include "infrastructure/network/tls/stream.h"
+#include "infrastructure/network/transport/udp_socket.h"
 #include "support/util/fd.hpp"
 
 namespace {
@@ -53,10 +53,10 @@ using net::IoError;
 constexpr std::size_t BUFFER_SIZE = 4096;
 constexpr int TLS_ECHO_PORT = 21657;  // distinct from the legacy transport tests
 
-[[nodiscard]] InetAddress loopback_v4() {
-    const auto address = InetAddress::parse("127.0.0.1");
+[[nodiscard]] domain::InetAddress loopback_v4() {
+    const auto address = domain::InetAddress::parse("127.0.0.1");
     EXPECT_TRUE(address.has_value());
-    return address.value_or(InetAddress{});
+    return address.value_or(domain::InetAddress{});
 }
 
 /// In-process loopback TCP server: one connection, on its own thread.
@@ -301,25 +301,23 @@ TEST(NetCoroTcpStream, read_some_SilentPeerWithTimeout_TimesOutWithoutKillingThe
         if (!co_await stream.ensure_connected()) {
             co_return;
         }
-        const auto outcome =
-            co_await coro::with_timeout(50ms, [&stream, &error](coro::CancelScope&) -> coro::Task<void> {
-                std::array<std::uint8_t, 64> buffer{};
-                const auto result = co_await stream.read_some(buffer);
-                if (!result) {
-                    error = result.error();
-                }
-                co_return;
-            });
+        const auto outcome = co_await coro::with_timeout(50ms, [&stream, &error]() -> coro::Task<void> {
+            std::array<std::uint8_t, 64> buffer{};
+            const auto result = co_await stream.read_some(buffer);
+            if (!result) {
+                error = result.error();
+            }
+            co_return;
+        });
         timed_out = outcome.timed_out;
         co_return;
     };
     run_task(task());
 
     EXPECT_TRUE(timed_out);
-    ASSERT_TRUE(error.has_value());
-    EXPECT_EQ(*error, IoError::CANCELLED);
-    // The timeout is a scope property: the transport itself reports only
-    // CANCELLED, and the connection stays usable afterwards.
+    EXPECT_FALSE(error.has_value());  // cancellation bypasses the recoverable error channel
+    // The timeout belongs to the scope; cancellation unwinds the await and
+    // the connection stays usable afterwards.
     EXPECT_TRUE(stream.connected());
 }
 
@@ -447,23 +445,21 @@ TEST_F(TlsEchoServerTest, read_some_SilentPeerWithTimeout_TimesOut) {
         if (!co_await stream.send_all(partial)) {
             co_return;
         }
-        const auto outcome =
-            co_await coro::with_timeout(50ms, [&stream, &error](coro::CancelScope&) -> coro::Task<void> {
-                std::array<std::uint8_t, 16> buffer{};
-                const auto result = co_await stream.read_some(buffer);
-                if (!result) {
-                    error = result.error();
-                }
-                co_return;
-            });
+        const auto outcome = co_await coro::with_timeout(50ms, [&stream, &error]() -> coro::Task<void> {
+            std::array<std::uint8_t, 16> buffer{};
+            const auto result = co_await stream.read_some(buffer);
+            if (!result) {
+                error = result.error();
+            }
+            co_return;
+        });
         timed_out = outcome.timed_out;
         co_return;
     };
     run_task(task());
 
     EXPECT_TRUE(timed_out);
-    ASSERT_TRUE(error.has_value());
-    EXPECT_EQ(*error, IoError::CANCELLED);
+    EXPECT_FALSE(error.has_value());  // cancellation bypasses the recoverable error channel
 }
 
 // ---------------------------------------------------------------------------
@@ -522,33 +518,31 @@ TEST(NetCoroUdpSocket, recv_from_NoTrafficWithTimeout_TimesOut) {
     bool timed_out = false;
     std::optional<IoError> error;
     auto task = [&socket, &timed_out, &error]() -> coro::Task<void> {
-        const auto outcome =
-            co_await coro::with_timeout(50ms, [&socket, &error](coro::CancelScope&) -> coro::Task<void> {
-                std::array<std::uint8_t, BUFFER_SIZE> buffer{};
-                const auto result = co_await socket.recv_from(buffer);
-                if (!result) {
-                    error = result.error();
-                }
-                co_return;
-            });
+        const auto outcome = co_await coro::with_timeout(50ms, [&socket, &error]() -> coro::Task<void> {
+            std::array<std::uint8_t, BUFFER_SIZE> buffer{};
+            const auto result = co_await socket.recv_from(buffer);
+            if (!result) {
+                error = result.error();
+            }
+            co_return;
+        });
         timed_out = outcome.timed_out;
         co_return;
     };
     run_task(task());
 
     EXPECT_TRUE(timed_out);
-    ASSERT_TRUE(error.has_value());
-    EXPECT_EQ(*error, IoError::CANCELLED);
+    EXPECT_FALSE(error.has_value());  // cancellation bypasses the recoverable error channel
 }
 
 // ---------------------------------------------------------------------------
 // DNS wire exchange (dns::detail) over an IPv6 server
 // ---------------------------------------------------------------------------
 
-[[nodiscard]] InetAddress loopback_v6() {
-    const auto address = InetAddress::parse("::1");
+[[nodiscard]] domain::InetAddress loopback_v6() {
+    const auto address = domain::InetAddress::parse("::1");
     EXPECT_TRUE(address.has_value());
-    return address.value_or(InetAddress{});
+    return address.value_or(domain::InetAddress{});
 }
 
 /// Answer exactly one datagram with `reply`.
@@ -568,7 +562,7 @@ coro::Task<void> answer_one(net::UdpSocket& server, const std::vector<std::uint8
 // even for an IPv6 server, so every IPv6 classic/bootstrap query failed before
 // the first send. The socket must open lazily on the send instead.
 TEST(NetCoroDnsExchange, query_udp_Ipv6Server_RoundTrips) {
-    net::UdpSocket server{AddressFamily::IPV6};
+    net::UdpSocket server{domain::AddressFamily::IPV6};
     if (!server.bind(loopback_v6(), 0).has_value()) {
         GTEST_SKIP() << "IPv6 loopback is unavailable on this host";
     }
@@ -582,18 +576,17 @@ TEST(NetCoroDnsExchange, query_udp_Ipv6Server_RoundTrips) {
     std::vector<std::uint8_t> answer;
 
     auto task = [&]() -> coro::Task<void> {
-        const auto outcome =
-            co_await coro::with_timeout(2s, [&](coro::CancelScope&) -> coro::Task<void> {
-                co_await coro::task_group([&](coro::TaskGroup& group) -> coro::Task<void> {
-                    group.spawn(answer_one(server, reply, answered));
-                    const auto result = co_await dns::detail::query_udp(loopback_v6(), *server_port, query);
-                    if (result) {
-                        answer = *result;
-                    }
-                    co_return;
-                });
+        const auto outcome = co_await coro::with_timeout(2s, [&]() -> coro::Task<void> {
+            co_await coro::task_group([&](coro::TaskGroup& group) -> coro::Task<void> {
+                group.spawn(answer_one(server, reply, answered));
+                const auto result = co_await dns::detail::query_udp(loopback_v6(), *server_port, query);
+                if (result) {
+                    answer = *result;
+                }
                 co_return;
             });
+            co_return;
+        });
         timed_out = outcome.timed_out;
         co_return;
     };

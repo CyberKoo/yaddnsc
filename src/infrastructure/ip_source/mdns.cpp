@@ -26,6 +26,7 @@
 #include "domain/error/error.h"
 #include "domain/network/address_family.h"
 #include "domain/network/inet_address.h"
+#include "infrastructure/coro/cancelled.h"
 #include "infrastructure/coro/scope.hpp"
 #include "infrastructure/dns/dns_packet_exception.h"
 #include "infrastructure/dns/types.h"
@@ -33,8 +34,8 @@
 #include "infrastructure/dns/wire/builder.h"
 #include "infrastructure/ip_source/iface_util.h"
 #include "infrastructure/ip_source/mdns_response.h"
-#include "infrastructure/net/detail/socket_ops.h"
-#include "infrastructure/net/io_error.h"
+#include "infrastructure/network/transport/socket_ops.h"
+#include "infrastructure/network/transport/io_error.h"
 #include "support/fmt.hpp"
 #include "support/util/fd.hpp"
 
@@ -53,13 +54,13 @@ constexpr std::size_t MDNS_RECV_BUF_SIZE = 65536;
 /// mDNS QCLASS carries the QU (unicast-response) bit (RFC 6762 §5.4).
 constexpr std::uint16_t QU_BIT = 0x8000;
 
-[[nodiscard]] const Inet4Address& group_v4() {
-    static const Inet4Address group = Inet4Address::parse(MDNS_IPV4_GROUP).value();
+[[nodiscard]] const domain::Inet4Address& group_v4() {
+    static const domain::Inet4Address group = domain::Inet4Address::parse(MDNS_IPV4_GROUP).value();
     return group;
 }
 
-[[nodiscard]] const Inet6Address& group_v6() {
-    static const Inet6Address group = Inet6Address::parse(MDNS_IPV6_GROUP).value();
+[[nodiscard]] const domain::Inet6Address& group_v6() {
+    static const domain::Inet6Address group = domain::Inet6Address::parse(MDNS_IPV6_GROUP).value();
     return group;
 }
 
@@ -69,8 +70,8 @@ constexpr std::uint16_t QU_BIT = 0x8000;
 [[nodiscard]] in_addr pick_ipv4_interface_addr(const std::string& interface) {
     if (!interface.empty()) {
         if (const auto addresses = get_addresses(interface); addresses.has_value()) {
-            for (const InetAddress& address : *addresses) {
-                if (const Inet4Address* v4 = address.as_v4(); v4 != nullptr) {
+            for (const domain::InetAddress& address : *addresses) {
+                if (const domain::Inet4Address* v4 = address.as_v4(); v4 != nullptr) {
                     in_addr addr{};
                     std::memcpy(&addr, v4->data(), sizeof(addr));
                     return addr;
@@ -97,12 +98,13 @@ public:
 
     ~MembershipGuard() noexcept {
         if (fd_ >= 0) {
-            (void)net::detail::set_socket_option(fd_, level_, leave_option_, request_.data(), size_);
+            (void) net::detail::set_socket_option(fd_, level_, leave_option_, request_.data(), size_);
         }
     }
 
     MembershipGuard(const MembershipGuard&) = delete;
     MembershipGuard& operator=(const MembershipGuard&) = delete;
+
     MembershipGuard(MembershipGuard&& other) noexcept
         : fd_(std::exchange(other.fd_, -1)), level_(other.level_), leave_option_(other.leave_option_),
           size_(other.size_), request_(other.request_) {}
@@ -122,7 +124,7 @@ public:
 private:
     void leave() noexcept {
         if (fd_ >= 0) {
-            (void)net::detail::set_socket_option(fd_, level_, leave_option_, request_.data(), size_);
+            (void) net::detail::set_socket_option(fd_, level_, leave_option_, request_.data(), size_);
         }
     }
 
@@ -147,10 +149,11 @@ void set_int_option(const int fd, const int level, const int option, const int v
 /// Mirrors the legacy socket configuration: SO_REUSEPORT for coexistence, the
 /// optional SO_BINDTODEVICE, IPV6_V6ONLY, the multicast output interface and
 /// TTL/hop limit, then the group join (whose failure is the one hard error).
-[[nodiscard]] std::expected<void, domain::IpSourceError> configure_socket(const int fd, const AddressFamily family,
-                                                                         const std::string& interface,
-                                                                         const std::string& hostname,
-                                                                         MembershipGuard& guard) {
+[[nodiscard]] std::expected<void, domain::IpSourceError> configure_socket(const int fd,
+                                                                          const domain::AddressFamily family,
+                                                                          const std::string& interface,
+                                                                          const std::string& hostname,
+                                                                          MembershipGuard& guard) {
 #ifdef SO_REUSEPORT
     const int enabled = 1;
     if (auto result = net::detail::set_socket_option(fd, SOL_SOCKET, SO_REUSEPORT, &enabled, sizeof(enabled));
@@ -165,11 +168,12 @@ void set_int_option(const int fd, const int level, const int option, const int v
         if (if_index == 0) {
             SPDLOG_WARN(R"(mDNS interface "{}" not found for "{}")", interface, hostname);
         }
-    } else if (family == AddressFamily::IPV6) {
+    } else if (family == domain::AddressFamily::IPV6) {
         // A link-local multicast join needs an explicit scope: with no interface
         // configured, pick the default one (legacy behaviour). IPv4 stays on
         // INADDR_ANY and lets the kernel routing table choose.
-        if (const auto default_index = get_default_interface_index(AddressFamily::IPV6); default_index.has_value()) {
+        if (const auto default_index = get_default_interface_index(domain::AddressFamily::IPV6);
+            default_index.has_value()) {
             if_index = *default_index;
             char name[IF_NAMESIZE] = {};
             const char* resolved = ::if_indextoname(if_index, name);
@@ -181,14 +185,13 @@ void set_int_option(const int fd, const int level, const int option, const int v
     if (!interface.empty()) {
 #if defined(SO_BINDTODEVICE)
         // Best-effort on platforms without SO_BINDTODEVICE; the helper logs once.
-        (void)net::detail::bind_to_interface(fd, interface);
+        (void) net::detail::bind_to_interface(fd, interface);
 #elif defined(IP_BOUND_IF)
         // macOS: there is no SO_BINDTODEVICE; pin the socket by interface index.
         if (if_index > 0) {
-            const int level = family == AddressFamily::IPV6 ? IPPROTO_IPV6 : IPPROTO_IP;
-            const int option = family == AddressFamily::IPV6 ? IPV6_BOUND_IF : IP_BOUND_IF;
-            if (auto result = net::detail::set_socket_option(fd, level, option, &if_index, sizeof(if_index));
-                !result) {
+            const int level = family == domain::AddressFamily::IPV6 ? IPPROTO_IPV6 : IPPROTO_IP;
+            const int option = family == domain::AddressFamily::IPV6 ? IPV6_BOUND_IF : IP_BOUND_IF;
+            if (auto result = net::detail::set_socket_option(fd, level, option, &if_index, sizeof(if_index)); !result) {
                 SPDLOG_DEBUG(R"(mDNS setsockopt bound-if failed for "{}")", hostname);
             }
         }
@@ -197,11 +200,11 @@ void set_int_option(const int fd, const int level, const int option, const int v
         // constraint is silently ignored there (an accepted trade-off).
     }
 
-    if (family == AddressFamily::IPV6) {
+    if (family == domain::AddressFamily::IPV6) {
         set_int_option(fd, IPPROTO_IPV6, IPV6_V6ONLY, 1, "IPV6_V6ONLY", hostname);
         if (if_index > 0) {
-            if (auto result = net::detail::set_socket_option(fd, IPPROTO_IPV6, IPV6_MULTICAST_IF, &if_index,
-                                                             sizeof(if_index));
+            if (auto result =
+                    net::detail::set_socket_option(fd, IPPROTO_IPV6, IPV6_MULTICAST_IF, &if_index, sizeof(if_index));
                 !result) {
                 SPDLOG_DEBUG(R"(mDNS IPV6_MULTICAST_IF failed for "{}")", hostname);
             }
@@ -211,13 +214,13 @@ void set_int_option(const int fd, const int level, const int option, const int v
         ipv6_mreq membership{};
         std::memcpy(&membership.ipv6mr_multiaddr, group_v6().data(), sizeof(membership.ipv6mr_multiaddr));
         membership.ipv6mr_interface = if_index;
-        if (auto result = net::detail::set_socket_option(fd, IPPROTO_IPV6, IPV6_JOIN_GROUP, &membership,
-                                                         sizeof(membership));
+        if (auto result =
+                net::detail::set_socket_option(fd, IPPROTO_IPV6, IPV6_JOIN_GROUP, &membership, sizeof(membership));
             !result) {
             const int error_number = errno;
-            return std::unexpected(domain::IpSourceError{
-                domain::IpSourceError::Code::UNAVAILABLE,
-                fmt::format("mDNS IPV6_JOIN_GROUP failed: {}", std::strerror(error_number))});
+            return std::unexpected(
+                domain::IpSourceError{domain::IpSourceError::Code::UNAVAILABLE,
+                                      fmt::format("mDNS IPV6_JOIN_GROUP failed: {}", std::strerror(error_number))});
         }
         guard = MembershipGuard{fd, IPPROTO_IPV6, IPV6_LEAVE_GROUP, &membership, sizeof(membership)};
         return {};
@@ -247,13 +250,13 @@ void set_int_option(const int fd, const int level, const int option, const int v
     ip_mreq membership{};
     std::memcpy(&membership.imr_multiaddr, group_v4().data(), sizeof(membership.imr_multiaddr));
     membership.imr_interface = pick_ipv4_interface_addr(interface);
-    if (auto result = net::detail::set_socket_option(fd, IPPROTO_IP, IP_ADD_MEMBERSHIP, &membership,
-                                                     sizeof(membership));
+    if (auto result =
+            net::detail::set_socket_option(fd, IPPROTO_IP, IP_ADD_MEMBERSHIP, &membership, sizeof(membership));
         !result) {
         const int error_number = errno;
-        return std::unexpected(domain::IpSourceError{
-            domain::IpSourceError::Code::UNAVAILABLE,
-            fmt::format("mDNS IP_ADD_MEMBERSHIP failed: {}", std::strerror(error_number))});
+        return std::unexpected(
+            domain::IpSourceError{domain::IpSourceError::Code::UNAVAILABLE,
+                                  fmt::format("mDNS IP_ADD_MEMBERSHIP failed: {}", std::strerror(error_number))});
     }
     guard = MembershipGuard{fd, IPPROTO_IP, IP_DROP_MEMBERSHIP, &membership, sizeof(membership)};
     return {};
@@ -261,16 +264,16 @@ void set_int_option(const int fd, const int level, const int option, const int v
 
 /// Send the query and collect the first matching answer. The response window is
 /// the caller's timeout scope; discarded datagrams do not extend it.
-[[nodiscard]] coro::Task<Result> collect(const std::string& hostname, const RecordKind type,
+[[nodiscard]] coro::Task<Result> collect(const std::string& hostname, const domain::RecordKind type,
                                          const std::string& interface, const bool ipv6) {
-    const AddressFamily family = ipv6 ? AddressFamily::IPV6 : AddressFamily::IPV4;
+    const domain::AddressFamily family = ipv6 ? domain::AddressFamily::IPV6 : domain::AddressFamily::IPV4;
 
     auto opened = net::detail::open_udp_socket(family);
     if (!opened) {
         const int error_number = errno;
-        co_return std::unexpected(domain::IpSourceError{
-            domain::IpSourceError::Code::UNAVAILABLE,
-            fmt::format("mDNS socket creation failed: {}", std::strerror(error_number))});
+        co_return std::unexpected(
+            domain::IpSourceError{domain::IpSourceError::Code::UNAVAILABLE,
+                                  fmt::format("mDNS socket creation failed: {}", std::strerror(error_number))});
     }
     const Utils::UniqueFd fd = std::move(*opened);
 
@@ -281,7 +284,8 @@ void set_int_option(const int fd, const int level, const int option, const int v
 
     // RFC 6762 §5.1: a one-shot query MUST NOT use source port 5353, so bind an
     // ephemeral port (which also avoids clashing with avahi/systemd-resolved).
-    const InetAddress bind_address = ipv6 ? InetAddress{Inet6Address{}} : InetAddress{Inet4Address{}};
+    const domain::InetAddress bind_address =
+        ipv6 ? domain::InetAddress{domain::Inet6Address{}} : domain::InetAddress{domain::Inet4Address{}};
     if (auto bound = net::detail::bind_local(fd.get(), bind_address, 0); !bound) {
         const int error_number = errno;
         co_return std::unexpected(domain::IpSourceError{
@@ -303,12 +307,8 @@ void set_int_option(const int fd, const int level, const int option, const int v
             fmt::format(R"(mDNS query construction failed for "{}": {})", hostname, error.what())});
     }
 
-    const InetAddress destination = ipv6 ? InetAddress{group_v6()} : InetAddress{group_v4()};
+    const domain::InetAddress destination = ipv6 ? domain::InetAddress{group_v6()} : domain::InetAddress{group_v4()};
     if (auto sent = co_await net::detail::send_datagram(fd.get(), destination, MDNS_PORT, query); !sent) {
-        if (sent.error() == net::IoError::CANCELLED) {
-            co_return std::unexpected(
-                domain::IpSourceError{domain::IpSourceError::Code::CANCELLED, "mDNS lookup cancelled"});
-        }
         co_return std::unexpected(domain::IpSourceError{domain::IpSourceError::Code::UNAVAILABLE,
                                                         fmt::format(R"(mDNS send failed for "{}")", hostname)});
     }
@@ -317,10 +317,6 @@ void set_int_option(const int fd, const int level, const int option, const int v
     for (;;) {
         auto datagram = co_await net::detail::recv_datagram(fd.get(), buffer);
         if (!datagram) {
-            if (datagram.error() == net::IoError::CANCELLED) {
-                co_return std::unexpected(
-                    domain::IpSourceError{domain::IpSourceError::Code::CANCELLED, "mDNS lookup cancelled"});
-            }
             co_return std::unexpected(domain::IpSourceError{domain::IpSourceError::Code::UNAVAILABLE,
                                                             fmt::format(R"(mDNS receive failed for "{}")", hostname)});
         }
@@ -335,7 +331,7 @@ void set_int_option(const int fd, const int level, const int option, const int v
             continue;
         }
 
-        std::vector<InetAddress> results;
+        std::vector<domain::InetAddress> results;
         try {
             results = ipsource::parse_response(std::span{buffer.data(), datagram->size}, hostname, type);
         } catch (const std::bad_alloc&) {
@@ -343,6 +339,8 @@ void set_int_option(const int fd, const int level, const int option, const int v
         } catch (const std::exception& error) {
             SPDLOG_TRACE(R"(mDNS discarding unparseable response for "{}": {})", hostname, error.what());
             continue;
+        } catch (const coro::Cancelled&) {
+            throw;
         } catch (...) {
             SPDLOG_TRACE(R"(mDNS discarding response for "{}": unknown parser exception)", hostname);
             continue;
@@ -360,31 +358,26 @@ void set_int_option(const int fd, const int level, const int option, const int v
 
 }  // namespace
 
-MdnsIpSource::MdnsIpSource(std::string hostname, RecordKind type, std::string interface)
+MdnsIpSource::MdnsIpSource(std::string hostname, domain::RecordKind type, std::string interface)
     : hostname_(std::move(hostname)), type_(type), interface_(std::move(interface)) {}
 
 coro::Task<Result> MdnsIpSource::resolve() {
-    const bool ipv6 = type_ == RecordKind::AAAA;
+    const bool ipv6 = type_ == domain::RecordKind::AAAA;
     SPDLOG_DEBUG(R"(mDNS resolving "{}" (type {}) on interface "{}")", hostname_, ipv6 ? "AAAA" : "A",
                  interface_.empty() ? "<default>" : interface_);
 
-    const auto scoped = co_await coro::with_timeout(
-        MDNS_TIMEOUT, [this, ipv6](coro::CancelScope&) -> coro::Task<Result> {
-            co_return co_await collect(hostname_, type_, interface_, ipv6);
-        });
+    const auto scoped = co_await coro::with_timeout(MDNS_TIMEOUT, [this, ipv6]() -> coro::Task<Result> {
+        co_return co_await collect(hostname_, type_, interface_, ipv6);
+    });
 
     // The window itself is the deadline: its expiry is an ordinary "no answer"
     // failure, while an outer cancellation (shutdown) stays cancellation.
     if (scoped.timed_out) {
-        co_return std::unexpected(
-            domain::IpSourceError{domain::IpSourceError::Code::UNAVAILABLE,
-                                  fmt::format(R"(mDNS no valid response for "{}" within {}ms)", hostname_,
-                                              MDNS_TIMEOUT.count())});
+        co_return std::unexpected(domain::IpSourceError{
+            domain::IpSourceError::Code::UNAVAILABLE,
+            fmt::format(R"(mDNS no valid response for "{}" within {}ms)", hostname_, MDNS_TIMEOUT.count())});
     }
-    if (scoped.cancelled) {
-        co_return std::unexpected(
-            domain::IpSourceError{domain::IpSourceError::Code::CANCELLED, "mDNS lookup cancelled"});
-    }
+
     co_return *scoped;
 }
 

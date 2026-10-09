@@ -1,7 +1,3 @@
-//
-// Created by Kotarou on 2026/9/18.
-//
-
 /// Loader fixture: a plugin whose destroy() throws a NON-std type across the
 /// C ABI — the shape of a misbehaving third-party plugin hitting the
 /// catch-all arm of the host's destroy firewall (the std::exception arm is

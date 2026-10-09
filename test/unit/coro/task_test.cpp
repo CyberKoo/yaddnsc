@@ -16,6 +16,8 @@
 #include <stdexcept>
 #include <string>
 #include <thread>
+#include <type_traits>
+#include <utility>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -25,6 +27,45 @@
 namespace {
 
 using namespace std::chrono_literals;
+
+template<typename T>
+concept PublicFrameRelease = requires(T& task) { task.release(); };
+
+template<typename T>
+concept PublicContextBinding =
+    requires(T& task, coro::Loop& loop, coro::CancelScope& scope) { task.bind_context(loop, scope); };
+
+template<typename T>
+concept PublicScopeParent = requires(T& scope) { scope.parent(); };
+
+// The loop's scheduling/registration services and the scope's waiter
+// bookkeeping are private: reachable only through detail::LoopAccess and
+// detail::ScopeAccess.
+template<typename T>
+concept PublicLoopScheduling = requires(T& loop, coro::detail::PromiseBase& frame) { loop.schedule(frame); };
+
+template<typename T>
+concept PublicLoopRegistration =
+    requires(T& loop, coro::detail::TimerNode& timer, coro::detail::WaitNode& node) {
+        loop.add_timer(timer, coro::TimePoint{}, nullptr, nullptr);
+        loop.remove_timer(timer);
+        loop.remove_fd(0);
+        loop.arm_signal(0, node, nullptr);
+        loop.disarm_signal(0, node);
+    };
+
+template<typename T>
+concept PublicLoopPool = requires(T& loop) { loop.offload_pool(); };
+
+template<typename T>
+concept PublicScopeWaiter =
+    requires(T& scope, coro::detail::WaitNode& node) { scope.add_waiter(node); };
+
+template<typename T>
+concept PublicScopeCause = requires(T& scope) {
+    scope.cancel(coro::detail::CancelCause::TIMEOUT);
+    scope.absorbs(std::declval<const coro::Cancelled&>());
+};
 
 coro::Task<int> constant(int value) {
     co_return value;
@@ -45,39 +86,40 @@ coro::Task<int> fail_immediately(std::string message) {
 }
 
 coro::Task<int> sleep_then_value(std::chrono::milliseconds delay, int value) {
-    const auto slept = co_await coro::sleep_for(delay);
-    if (!slept) {
-        co_return -1;
-    }
+    co_await coro::sleep_for(delay);
     co_return value;
 }
 
 coro::Task<void> increment_after_sleep(int& counter, std::chrono::milliseconds delay) {
-    [[maybe_unused]] const auto slept = co_await coro::sleep_for(delay);
+    co_await coro::sleep_for(delay);
     ++counter;
     co_return;
 }
 
 coro::Task<int> set_flag_after_sleep(bool& flag, std::chrono::milliseconds delay, int value) {
-    const auto slept = co_await coro::sleep_for(delay);
-    flag = slept.has_value();
+    co_await coro::sleep_for(delay);
+    flag = true;
     co_return value;
 }
 
 coro::Task<void> wait_until_cancelled(bool& cancelled) {
-    const auto slept = co_await coro::sleep_for(1000ms);
-    cancelled = !slept.has_value();
+    try {
+        co_await coro::sleep_for(1000ms);
+    } catch (const coro::Cancelled&) {
+        cancelled = true;
+        throw;
+    }
     co_return;
 }
 
 coro::Task<void> cancel_after_sleep(coro::TaskGroup& group, std::chrono::milliseconds delay) {
-    [[maybe_unused]] const auto slept = co_await coro::sleep_for(delay);
+    co_await coro::sleep_for(delay);
     group.cancel();
     co_return;
 }
 
 coro::Task<void> fail_after_sleep(std::chrono::milliseconds delay, const char* message) {
-    [[maybe_unused]] const auto slept = co_await coro::sleep_for(delay);
+    co_await coro::sleep_for(delay);
     throw std::runtime_error(message);
     co_return;
 }
@@ -85,10 +127,11 @@ coro::Task<void> fail_after_sleep(std::chrono::milliseconds delay, const char* m
 coro::Task<void> tick_until_cancelled(bool& started, bool& cancelled, int& ticks) {
     started = true;
     for (;;) {
-        const auto slept = co_await coro::sleep_for(50ms);
-        if (!slept) {
+        try {
+            co_await coro::sleep_for(50ms);
+        } catch (const coro::Cancelled&) {
             cancelled = true;
-            co_return;
+            throw;
         }
         ++ticks;
     }
@@ -97,6 +140,33 @@ coro::Task<void> tick_until_cancelled(bool& started, bool& cancelled, int& ticks
 // ---------------------------------------------------------------------------
 // run / inline co_await
 // ---------------------------------------------------------------------------
+
+TEST(Task, PublicApi_FrameAndContextAccess_IsUnavailable) {
+    EXPECT_FALSE(PublicFrameRelease<coro::Task<int>>);
+    EXPECT_FALSE(PublicFrameRelease<coro::Task<void>>);
+    EXPECT_FALSE(PublicContextBinding<coro::Task<int>>);
+    EXPECT_FALSE(PublicContextBinding<coro::Task<void>>);
+    using Frame = std::coroutine_handle<coro::Task<int>::promise_type>;
+    EXPECT_FALSE((std::is_constructible_v<coro::Task<int>, Frame>) );
+    EXPECT_FALSE((std::is_constructible_v<coro::TaskGroup, coro::detail::GroupState*>) );
+    EXPECT_FALSE((std::is_constructible_v<coro::Handle<int>, coro::detail::ChildSlot*>) );
+    EXPECT_FALSE(PublicScopeParent<coro::CancelScope>);
+}
+
+TEST(Task, PublicApi_RuntimeRegistrationServices_AreUnavailable) {
+    EXPECT_FALSE(PublicLoopScheduling<coro::Loop>);
+    EXPECT_FALSE(PublicLoopRegistration<coro::Loop>);
+    EXPECT_FALSE(PublicLoopPool<coro::Loop>);
+    EXPECT_FALSE(PublicScopeWaiter<coro::CancelScope>);
+    EXPECT_FALSE(PublicScopeCause<coro::CancelScope>);
+    // The operations a caller performs on a scope stay public.
+    EXPECT_TRUE((requires(coro::CancelScope& scope) {
+        scope.cancel();
+        scope.cancelled();
+        scope.timed_out();
+        scope.throw_if_cancelled();
+    }));
+}
 
 TEST(Task, run_AwaitedChain_ReturnsValue) {
     auto task = []() -> coro::Task<int> {
@@ -338,19 +408,18 @@ TEST(TaskGroup, spawn_discard_IsNeverDeliveredThroughNext) {
     coro::ManualClock clock;
     coro::Loop loop{clock};
     auto task = [&discard_completed, &delivered]() -> coro::Task<void> {
-        co_await coro::supervisor_group(
-            [&discard_completed, &delivered](coro::TaskGroup& group) -> coro::Task<void> {
-                // The discard child finishes last, so the parked next() loop is
-                // woken by a completion it must not observe.
-                group.spawn(sleep_then_value(10ms, 7));
-                group.spawn_discard(increment_after_sleep(discard_completed, 30ms));
-                while (auto outcome = co_await group.next<int>()) {
-                    if (outcome->has_value()) {
-                        delivered.push_back(outcome->value());
-                    }
+        co_await coro::supervisor_group([&discard_completed, &delivered](coro::TaskGroup& group) -> coro::Task<void> {
+            // The discard child finishes last, so the parked next() loop is
+            // woken by a completion it must not observe.
+            group.spawn(sleep_then_value(10ms, 7));
+            group.spawn_discard(increment_after_sleep(discard_completed, 30ms));
+            while (auto outcome = co_await group.next<int>()) {
+                if (outcome->has_value()) {
+                    delivered.push_back(outcome->value());
                 }
-                co_return;
-            });
+            }
+            co_return;
+        });
         co_return;
     };
     coro::run(loop, task());

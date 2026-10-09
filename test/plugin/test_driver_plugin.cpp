@@ -1,7 +1,3 @@
-//
-// Created by Kotarou on 2026/9/17.
-//
-
 /// Whiteboard contract-test plugin for the v1 alpha ABI.
 ///
 /// Behaviour is steered entirely through driver_param_json so the host-side

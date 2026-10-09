@@ -1,7 +1,3 @@
-//
-// Created by Kotarou on 2026/9/17.
-//
-
 #include "plugin_loader.h"
 
 #include <algorithm>
@@ -29,8 +25,8 @@ namespace {
 constexpr std::string_view ABI_CHANGED_HINT =
     "The v1 alpha plugin interface has changed, rebuild the driver with the current SDK.";
 
-[[nodiscard]] domain::PluginError make_error(domain::PluginError::Code code, std::string message) {
-    return domain::PluginError{code, std::move(message)};
+[[nodiscard]] plugin::PluginError make_error(plugin::PluginError::Code code, std::string message) {
+    return plugin::PluginError{code, std::move(message)};
 }
 
 template<typename Signature>
@@ -48,11 +44,11 @@ template<typename Signature>
 }
 }  // anonymous namespace
 
-std::expected<PluginModule, domain::PluginError> PluginModule::load(const std::string& path) {
+std::expected<PluginModule, plugin::PluginError> PluginModule::load(const std::string& path) {
     // 1. dlopen — RTLD_NOW | RTLD_LOCAL (inside SharedLibrary::open).
     auto library = SharedLibrary::open(path);
     if (!library) {
-        return std::unexpected(make_error(domain::PluginError::Code::LOAD_FAILED,
+        return std::unexpected(make_error(plugin::PluginError::Code::LOAD_FAILED,
                                           fmt::format("Failed to load driver '{}': {}", path, library.error())));
     }
 
@@ -67,7 +63,7 @@ std::expected<PluginModule, domain::PluginError> PluginModule::load(const std::s
     module.update_ = resolve_entry<decltype(yaddnsc_driver_update)>(module.library_, "yaddnsc_driver_update");
     if (module.get_descriptor_ == nullptr || module.create_ == nullptr || module.destroy_ == nullptr ||
         module.update_ == nullptr) {
-        return std::unexpected(make_error(domain::PluginError::Code::MISSING_SYMBOL,
+        return std::unexpected(make_error(plugin::PluginError::Code::MISSING_SYMBOL,
                                           fmt::format("Driver '{}' does not export the required v1 alpha entry "
                                                       "points (get_descriptor/create/destroy/update). {}",
                                                       path, ABI_CHANGED_HINT)));
@@ -85,16 +81,16 @@ std::expected<PluginModule, domain::PluginError> PluginModule::load(const std::s
     } catch (const std::bad_alloc&) {
         throw;
     } catch (const std::exception& e) {
-        return std::unexpected(make_error(domain::PluginError::Code::CONTRACT_VIOLATION,
+        return std::unexpected(make_error(plugin::PluginError::Code::CONTRACT_VIOLATION,
                                           fmt::format("Driver '{}' get_descriptor() threw: {}", path, e.what())));
     } catch (...) {
         return std::unexpected(
-            make_error(domain::PluginError::Code::CONTRACT_VIOLATION,
+            make_error(plugin::PluginError::Code::CONTRACT_VIOLATION,
                        fmt::format("Driver '{}' get_descriptor() threw an unknown exception", path)));
     }
     if (descriptor_status != YADDNSC_STATUS_OK || raw_descriptor == nullptr) {
         return std::unexpected(
-            make_error(domain::PluginError::Code::CONTRACT_VIOLATION,
+            make_error(plugin::PluginError::Code::CONTRACT_VIOLATION,
                        fmt::format("Driver '{}' get_descriptor() failed (status {})", path, descriptor_status)));
     }
 
@@ -103,7 +99,7 @@ std::expected<PluginModule, domain::PluginError> PluginModule::load(const std::s
     // before the 1.0 tail is interpreted.
     if (raw_descriptor->struct_size < YADDNSC_ABI_VERSION_PREFIX_SIZE) {
         return std::unexpected(make_error(
-            domain::PluginError::Code::ABI_MISMATCH,
+            plugin::PluginError::Code::ABI_MISMATCH,
             fmt::format("Driver '{}' descriptor struct_size {} does not cover the ABI version prefix {}. {}", path,
                         raw_descriptor->struct_size, YADDNSC_ABI_VERSION_PREFIX_SIZE, ABI_CHANGED_HINT)));
     }
@@ -111,40 +107,40 @@ std::expected<PluginModule, domain::PluginError> PluginModule::load(const std::s
         !yaddnsc_abi_provides(YADDNSC_DRIVER_ABI_MAJOR, YADDNSC_DRIVER_ABI_MINOR, raw_descriptor->abi_major,
                               raw_descriptor->abi_minor)) {
         return std::unexpected(
-            make_error(domain::PluginError::Code::ABI_MISMATCH,
+            make_error(plugin::PluginError::Code::ABI_MISMATCH,
                        fmt::format("Driver '{}' reports ABI {}.{}, host provides {}.{}. {}", path,
                                    raw_descriptor->abi_major, raw_descriptor->abi_minor, YADDNSC_DRIVER_ABI_MAJOR,
                                    YADDNSC_DRIVER_ABI_MINOR, ABI_CHANGED_HINT)));
     }
     if (raw_descriptor->struct_size < YADDNSC_DRIVER_DESCRIPTOR_MIN_SIZE) {
         return std::unexpected(
-            make_error(domain::PluginError::Code::ABI_MISMATCH,
+            make_error(plugin::PluginError::Code::ABI_MISMATCH,
                        fmt::format("Driver '{}' descriptor struct_size {} is below the ABI 1.0 baseline {}. {}", path,
                                    raw_descriptor->struct_size, YADDNSC_DRIVER_DESCRIPTOR_MIN_SIZE, ABI_CHANGED_HINT)));
     }
     if (raw_descriptor->magic != YADDNSC_DRIVER_MAGIC) {
         return std::unexpected(
-            make_error(domain::PluginError::Code::ABI_MISMATCH,
+            make_error(plugin::PluginError::Code::ABI_MISMATCH,
                        fmt::format("Driver '{}' is not a valid yaddnsc driver (magic mismatch)", path)));
     }
     if (!yaddnsc_string_is_valid(raw_descriptor->name) || raw_descriptor->name.size == 0) {
-        return std::unexpected(make_error(domain::PluginError::Code::CONTRACT_VIOLATION,
+        return std::unexpected(make_error(plugin::PluginError::Code::CONTRACT_VIOLATION,
                                           fmt::format("Driver '{}' reports an empty driver name", path)));
     }
     if (!yaddnsc_string_is_valid(raw_descriptor->version)) {
-        return std::unexpected(make_error(domain::PluginError::Code::CONTRACT_VIOLATION,
+        return std::unexpected(make_error(plugin::PluginError::Code::CONTRACT_VIOLATION,
                                           fmt::format("Driver '{}' has an invalid descriptor version view", path)));
     }
     if (!yaddnsc_string_is_valid(raw_descriptor->author)) {
-        return std::unexpected(make_error(domain::PluginError::Code::CONTRACT_VIOLATION,
+        return std::unexpected(make_error(plugin::PluginError::Code::CONTRACT_VIOLATION,
                                           fmt::format("Driver '{}' has an invalid descriptor author view", path)));
     }
     if (!yaddnsc_string_is_valid(raw_descriptor->description)) {
-        return std::unexpected(make_error(domain::PluginError::Code::CONTRACT_VIOLATION,
+        return std::unexpected(make_error(plugin::PluginError::Code::CONTRACT_VIOLATION,
                                           fmt::format("Driver '{}' has an invalid descriptor description view", path)));
     }
     if (!yaddnsc_driver_capabilities_are_valid(raw_descriptor->capabilities)) {
-        return std::unexpected(make_error(domain::PluginError::Code::CONTRACT_VIOLATION,
+        return std::unexpected(make_error(plugin::PluginError::Code::CONTRACT_VIOLATION,
                                           fmt::format("Driver '{}' has unsupported descriptor capabilities", path)));
     }
 

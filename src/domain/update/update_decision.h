@@ -1,7 +1,3 @@
-//
-// Created by Kotarou on 2026/9/17.
-//
-
 #ifndef YADDNSC_DOMAIN_UPDATE_UPDATE_DECISION_H
 #define YADDNSC_DOMAIN_UPDATE_UPDATE_DECISION_H
 

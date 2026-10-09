@@ -31,7 +31,7 @@
 #include "domain/network/inet_address.h"
 #include "infrastructure/coro/coro.h"
 #include "infrastructure/ip_source/mdns.h"
-#include "infrastructure/net/detail/socket_ops.h"
+#include "infrastructure/network/transport/socket_ops.h"
 #include "support/util/random.hpp"
 
 using IpSourceError = domain::IpSourceError;
@@ -60,13 +60,13 @@ using namespace std::chrono_literals;
 /// join (its one hard configuration error) and the query send — because either
 /// fails fast where the family is unroutable: FreeBSD, for example, rejects
 /// joining a link-local group without an interface index.
-[[nodiscard]] bool multicast_available(const AddressFamily family) {
+[[nodiscard]] bool multicast_available(const domain::AddressFamily family) {
     auto socket = net::detail::open_udp_socket(family);
     if (!socket) {
         return false;
     }
-    const bool ipv6 = family == AddressFamily::IPV6;
-    const auto group = InetAddress::parse(ipv6 ? "ff02::fb" : "224.0.0.251");
+    const bool ipv6 = family == domain::AddressFamily::IPV6;
+    const auto group = domain::InetAddress::parse(ipv6 ? "ff02::fb" : "224.0.0.251");
     if (!group) {
         return false;
     }
@@ -94,8 +94,9 @@ using namespace std::chrono_literals;
 }
 
 /// One IPv4 or IPv6 lookup for an unanswerable name must fail, not hang.
-void expect_structured_failure(const RecordKind type) {
-    const AddressFamily family = type == RecordKind::AAAA ? AddressFamily::IPV6 : AddressFamily::IPV4;
+void expect_structured_failure(const domain::RecordKind type) {
+    const domain::AddressFamily family =
+        type == domain::RecordKind::AAAA ? domain::AddressFamily::IPV6 : domain::AddressFamily::IPV4;
     const bool multicast = multicast_available(family);
 
     ipsource::MdnsIpSource source{unanswerable_hostname(), type, ""};
@@ -116,6 +117,10 @@ void expect_structured_failure(const RecordKind type) {
 
 }  // namespace
 
-TEST(MdnsCoro, UnanswerableHostnameFailsWithinTheWindow) { expect_structured_failure(RecordKind::A); }
+TEST(MdnsCoro, UnanswerableHostnameFailsWithinTheWindow) {
+    expect_structured_failure(domain::RecordKind::A);
+}
 
-TEST(MdnsCoro, UnanswerableIpv6HostnameFailsWithinTheWindow) { expect_structured_failure(RecordKind::AAAA); }
+TEST(MdnsCoro, UnanswerableIpv6HostnameFailsWithinTheWindow) {
+    expect_structured_failure(domain::RecordKind::AAAA);
+}

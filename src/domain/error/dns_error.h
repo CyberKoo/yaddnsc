@@ -1,11 +1,9 @@
-//
-// Created by Kotarou on 2026/7/4.
-//
-
-#ifndef YADDNSC_DNS_ERROR_H
-#define YADDNSC_DNS_ERROR_H
+#ifndef YADDNSC_DOMAIN_ERROR_DNS_ERROR_H
+#define YADDNSC_DOMAIN_ERROR_DNS_ERROR_H
 
 #include <string_view>
+
+namespace domain {
 
 /// DNS resolution error codes.
 ///
@@ -19,7 +17,7 @@ enum class DnsError {
     PARSE,           ///< Failed to parse DNS response
     CONNECTION,      ///< Connection to DNS server failed
     CONFIG,          ///< Invalid configuration
-    CANCELLED,       ///< Query was cancelled (another resolver answered first)
+
     SERVER_REFUSED,  ///< Server refused query (policy, rate-limit, not authoritative)
     UNKNOWN          ///< Unrecognised or uncategorised error
 };
@@ -29,4 +27,6 @@ enum class DnsError {
 /// @return       A string view describing the error (e.g. "no such domain (NXDOMAIN)").
 [[nodiscard]] std::string_view error_to_str(DnsError error);
 
-#endif  // YADDNSC_DNS_ERROR_H
+}  // namespace domain
+
+#endif  // YADDNSC_DOMAIN_ERROR_DNS_ERROR_H

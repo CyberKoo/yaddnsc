@@ -1,6 +1,3 @@
-//
-// Created by Kotarou on 2026/7/7.
-//
 #include "infrastructure/dns/validator.h"
 
 #include <algorithm>
@@ -57,43 +54,45 @@ constexpr size_t QUESTION_FIXED_SIZE = 4;
 
 // ── Individual validation checks (all return expected) ──
 
-[[nodiscard]] std::expected<void, DnsErrorInfo> check_min_header_size(std::span<const std::uint8_t> response) {
+[[nodiscard]] std::expected<void, domain::DnsErrorInfo> check_min_header_size(std::span<const std::uint8_t> response) {
     if (response.size() >= dns::HEADER_SIZE)
         return {};
-    return std::unexpected(DnsErrorInfo{DnsError::PARSE, fmt::format("DNS response too short: {} bytes (minimum {})",
-                                                                     response.size(), dns::HEADER_SIZE)});
+    return std::unexpected(domain::DnsErrorInfo{
+        domain::DnsError::PARSE,
+        fmt::format("DNS response too short: {} bytes (minimum {})", response.size(), dns::HEADER_SIZE)});
 }
 
-[[nodiscard]] std::expected<void, DnsErrorInfo> check_qr_bit(std::span<const std::uint8_t> response) {
+[[nodiscard]] std::expected<void, domain::DnsErrorInfo> check_qr_bit(std::span<const std::uint8_t> response) {
     if ((response[2] & 0x80) != 0)
         return {};
-    return std::unexpected(DnsErrorInfo{DnsError::PARSE, "DNS response has QR=0 (not a response)"});
+    return std::unexpected(domain::DnsErrorInfo{domain::DnsError::PARSE, "DNS response has QR=0 (not a response)"});
 }
 
-[[nodiscard]] std::expected<void, DnsErrorInfo> check_txid(std::span<const std::uint8_t> request,
-                                                           std::span<const std::uint8_t> response) {
+[[nodiscard]] std::expected<void, domain::DnsErrorInfo> check_txid(std::span<const std::uint8_t> request,
+                                                                   std::span<const std::uint8_t> response) {
     if (response[0] == request[0] && response[1] == request[1])
         return {};
-    return std::unexpected(DnsErrorInfo{DnsError::PARSE, "DNS response transaction ID mismatch"});
+    return std::unexpected(domain::DnsErrorInfo{domain::DnsError::PARSE, "DNS response transaction ID mismatch"});
 }
 
-[[nodiscard]] std::expected<void, DnsErrorInfo> check_qdcount(std::span<const std::uint8_t> response) {
+[[nodiscard]] std::expected<void, domain::DnsErrorInfo> check_qdcount(std::span<const std::uint8_t> response) {
     const auto qdcount = Utils::Bytes::try_read_u16_be(response, 4);
     if (!qdcount)
-        return std::unexpected(DnsErrorInfo{DnsError::PARSE, "DNS response too short for QDCOUNT"});
+        return std::unexpected(domain::DnsErrorInfo{domain::DnsError::PARSE, "DNS response too short for QDCOUNT"});
     if (*qdcount == 1)
         return {};
-    return std::unexpected(
-        DnsErrorInfo{DnsError::PARSE, fmt::format("DNS response QDCOUNT is {} (expected 1)", *qdcount)});
+    return std::unexpected(domain::DnsErrorInfo{domain::DnsError::PARSE,
+                                                fmt::format("DNS response QDCOUNT is {} (expected 1)", *qdcount)});
 }
 
-[[nodiscard]] std::expected<void, DnsErrorInfo> check_question_echo(std::span<const std::uint8_t> request,
-                                                                    std::span<const std::uint8_t> response) {
+[[nodiscard]] std::expected<void, domain::DnsErrorInfo> check_question_echo(std::span<const std::uint8_t> request,
+                                                                            std::span<const std::uint8_t> response) {
     const auto req_qs_end = question_section_end(request);
     const auto rsp_qs_end = question_section_end(response);
 
     if (!req_qs_end || !rsp_qs_end) {
-        return std::unexpected(DnsErrorInfo{DnsError::PARSE, "DNS response has malformed question section"});
+        return std::unexpected(
+            domain::DnsErrorInfo{domain::DnsError::PARSE, "DNS response has malformed question section"});
     }
 
     const auto req_qs_len = *req_qs_end - dns::HEADER_SIZE;
@@ -104,7 +103,8 @@ constexpr size_t QUESTION_FIXED_SIZE = 4;
         return {};
     }
 
-    return std::unexpected(DnsErrorInfo{DnsError::PARSE, "DNS response question section does not match the query"});
+    return std::unexpected(
+        domain::DnsErrorInfo{domain::DnsError::PARSE, "DNS response question section does not match the query"});
 }
 }  // anonymous namespace
 
@@ -113,8 +113,8 @@ constexpr size_t QUESTION_FIXED_SIZE = 4;
 // ===========================================================================
 
 namespace dns::Validator {
-std::expected<void, DnsErrorInfo> validate_response(std::span<const std::uint8_t> request,
-                                                    std::span<const std::uint8_t> response) {
+std::expected<void, domain::DnsErrorInfo> validate_response(std::span<const std::uint8_t> request,
+                                                            std::span<const std::uint8_t> response) {
     auto result = check_min_header_size(response);
     if (!result)
         return result;

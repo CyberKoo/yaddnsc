@@ -17,7 +17,6 @@
 // environment validation exercise the actual plugin loader.
 // =============================================================================
 
-#include <csignal>
 #include <cstdlib>
 #include <exception>
 #include <filesystem>
@@ -116,7 +115,7 @@ std::string valid_config() {
 }
 
 // ---------------------------------------------------------------------------
-// run — invalid configurations fail before the scheduler starts
+// run — invalid configurations fail before the run root starts
 // ---------------------------------------------------------------------------
 
 TEST(CompositionDispatch, RunCommand_EnvironmentFailure_ReturnsFailure) {
@@ -163,20 +162,27 @@ TEST(CompositionDispatch, ConfigTestCommand_ValidConfig_Passes) {
 }
 
 TEST(CompositionDispatch, ConfigTestCommand_Quiet_StillPasses) {
-    // `config test --quiet` sets the *process-wide* spdlog level to off and
-    // never restores it, so this test must put it back or it silences logging
-    // for every case that runs after it in this binary.
     const auto previous_level = spdlog::get_level();
     const auto path = write_config("yaddnsc-compose-test-quiet.json", valid_config());
     const Cli::Command command{Cli::ConfigTestCommand{.config_path = path.string(), .quiet = true}};
     const auto rc = Composition::dispatch(command);
-    spdlog::set_level(previous_level);
+    EXPECT_EQ(spdlog::get_level(), previous_level);
     EXPECT_EQ(rc, 0);
     remove_file(path);
 }
 
+TEST(CompositionDispatch, ConfigTestCommand_QuietFailure_RestoresLogLevel) {
+    const auto previous_level = spdlog::get_level();
+    const auto path = write_config("yaddnsc-compose-quiet-bad.json", "{");
+    const Cli::Command command{Cli::ConfigTestCommand{.config_path = path.string(), .quiet = true}};
+    EXPECT_NE(Composition::dispatch(command), 0);
+    EXPECT_EQ(spdlog::get_level(), previous_level);
+    remove_file(path);
+}
+
 TEST(CompositionDispatch, ConfigTestCommand_InvalidConfig_Fails) {
-    // Truncated JSON: the parse error is collected, not thrown.
+    // Truncated JSON: the parse failure throws ConfigException, which the
+    // config-test handler presents as a verification error.
     const auto path = write_config("yaddnsc-compose-test-bad.json", R"({ "drivers": { "driver_dir": )");
     const Cli::Command command{Cli::ConfigTestCommand{.config_path = path.string(), .quiet = false}};
     EXPECT_NE(Composition::dispatch(command), 0);
@@ -184,7 +190,7 @@ TEST(CompositionDispatch, ConfigTestCommand_InvalidConfig_Fails) {
 }
 
 TEST(CompositionDispatch, ConfigTestCommand_EmptyDriverDir_Fails) {
-    // driver_dir set but empty throws ConfigVerificationException, which the
+    // driver_dir set but empty throws ConfigException, which the
     // config-test handler must present as a verification error rather than
     // letting it escape as a fatal.
     const auto path = write_config("yaddnsc-compose-test-emptydir.json", R"({
@@ -437,7 +443,7 @@ TEST(CompositionDispatch, RunCommand_MultipleConfigErrors_AreAggregated) {
   ]
 }
 )");
-    // run_command returns EXIT_FAILURE for an invalid config, and never
+    // The run handler returns EXIT_FAILURE for an invalid config and never
     // reaches the lifecycle, so this terminates.
     const Cli::Command command{Cli::RunCommand{.config_path = path.string(), .verbose = false}};
     std::ostringstream diagnostics;
@@ -461,14 +467,27 @@ TEST(CompositionDispatch, RunCommand_MultipleConfigErrors_AreAggregated) {
     remove_file(path);
 }
 
-TEST(CompositionDispatch, RunCommand_MalformedConfig_ThrowsToMainBoundary) {
-    // Unlike the diagnostic commands, `run` has no catch inside dispatch():
-    // bootstrap.h states that exceptions escape so main() can turn them into
-    // fatal log lines. A config that cannot even be parsed therefore throws
-    // rather than returning a code.
+TEST(CompositionDispatch, RunCommand_MalformedConfig_ReportsConfigError) {
+    // A config that cannot even be parsed is an expected startup failure: the
+    // run handler logs the parse diagnostic and returns EXIT_FAILURE instead
+    // of letting the exception escape dispatch().
     const auto path = write_config("yaddnsc-compose-run-malformed.json", R"({ "domains": [ )");
     const Cli::Command command{Cli::RunCommand{.config_path = path.string(), .verbose = false}};
-    EXPECT_ANY_THROW(static_cast<void>(Composition::dispatch(command)));
+    std::ostringstream diagnostics;
+    const auto sink = std::make_shared<spdlog::sinks::ostream_sink_mt>(diagnostics);
+    const auto logger = std::make_shared<spdlog::logger>("composition-test", sink);
+    const auto previous = spdlog::default_logger();
+
+    struct RestoreLogger {
+        std::shared_ptr<spdlog::logger> previous;
+
+        ~RestoreLogger() noexcept { spdlog::set_default_logger(previous); }
+    } restore_logger{previous};
+
+    spdlog::set_default_logger(logger);
+    EXPECT_EQ(Composition::dispatch(command), EXIT_FAILURE);
+    // The parse diagnostic names the offending file.
+    EXPECT_NE(diagnostics.str().find(path.string()), std::string::npos);
     remove_file(path);
 }
 

@@ -1,9 +1,7 @@
-//
-// Created by Kotarou on 2026/7/3.
-//
+#ifndef YADDNSC_DOMAIN_DNS_RECORD_KIND_H
+#define YADDNSC_DOMAIN_DNS_RECORD_KIND_H
 
-#ifndef YADDNSC_RECORD_KIND_H
-#define YADDNSC_RECORD_KIND_H
+namespace domain {
 
 /// DNS record kinds supported by the DDNS updater.
 ///
@@ -15,4 +13,6 @@ enum class RecordKind {
     TXT,   ///< Text record
 };
 
-#endif  // YADDNSC_RECORD_KIND_H
+}  // namespace domain
+
+#endif  // YADDNSC_DOMAIN_DNS_RECORD_KIND_H

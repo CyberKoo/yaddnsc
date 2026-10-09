@@ -57,9 +57,9 @@ using Code = domain::ConfigError::Code;
             .driver = std::move(driver_name),
             .subdomains = {{Config::SubdomainConfig{
                 .name = std::move(subdomain_name),
-                .type = RecordKind::A,
+                .type = domain::RecordKind::A,
                 .interface = "",
-                .ip_source = Config::IpSource::HTTP,
+                .ip_source = domain::IpSource::HTTP,
                 .ip_source_param = "https://api.ipify.org",
             }}},
         }},
@@ -201,7 +201,7 @@ TEST(StaticValidatorTest, SubdomainIntervalAtMinimum_NoErrors) {
 TEST(StaticValidatorTest, InterfaceSource_WithInterface_NoErrors) {
     const auto errors = validate_with([](Config::AppConfig& cfg) {
         auto& sub = cfg.domains[0].subdomains[0];
-        sub.ip_source = Config::IpSource::INTERFACE;
+        sub.ip_source = domain::IpSource::INTERFACE;
         sub.interface = "eth0";
         sub.ip_source_param = "";
     });
@@ -211,7 +211,7 @@ TEST(StaticValidatorTest, InterfaceSource_WithInterface_NoErrors) {
 TEST(StaticValidatorTest, InterfaceSource_EmptyInterface) {
     const auto errors = validate_with([](Config::AppConfig& cfg) {
         auto& sub = cfg.domains[0].subdomains[0];
-        sub.ip_source = Config::IpSource::INTERFACE;
+        sub.ip_source = domain::IpSource::INTERFACE;
         sub.interface = "";
         sub.ip_source_param = "";
     });
@@ -246,7 +246,7 @@ TEST(StaticValidatorTest, HttpSource_MissingHost) {
 TEST(StaticValidatorTest, MdnsSource_ValidLocalDomain_NoErrors) {
     const auto errors = validate_with([](Config::AppConfig& cfg) {
         auto& sub = cfg.domains[0].subdomains[0];
-        sub.ip_source = Config::IpSource::MDNS;
+        sub.ip_source = domain::IpSource::MDNS;
         sub.ip_source_param = "printer.local";
     });
     EXPECT_TRUE(errors.empty());
@@ -255,8 +255,8 @@ TEST(StaticValidatorTest, MdnsSource_ValidLocalDomain_NoErrors) {
 TEST(StaticValidatorTest, MdnsSource_TrailingDot_NoErrors) {
     const auto errors = validate_with([](Config::AppConfig& cfg) {
         auto& sub = cfg.domains[0].subdomains[0];
-        sub.type = RecordKind::AAAA;
-        sub.ip_source = Config::IpSource::MDNS;
+        sub.type = domain::RecordKind::AAAA;
+        sub.ip_source = domain::IpSource::MDNS;
         sub.ip_source_param = "printer.local.";
     });
     EXPECT_TRUE(errors.empty());
@@ -265,7 +265,7 @@ TEST(StaticValidatorTest, MdnsSource_TrailingDot_NoErrors) {
 TEST(StaticValidatorTest, MdnsSource_EmptyParam) {
     const auto errors = validate_with([](Config::AppConfig& cfg) {
         auto& sub = cfg.domains[0].subdomains[0];
-        sub.ip_source = Config::IpSource::MDNS;
+        sub.ip_source = domain::IpSource::MDNS;
         sub.ip_source_param = "";
     });
     ASSERT_EQ(errors.size(), 1U);
@@ -276,7 +276,7 @@ TEST(StaticValidatorTest, MdnsSource_EmptyParam) {
 TEST(StaticValidatorTest, MdnsSource_InvalidDomain) {
     const auto errors = validate_with([](Config::AppConfig& cfg) {
         auto& sub = cfg.domains[0].subdomains[0];
-        sub.ip_source = Config::IpSource::MDNS;
+        sub.ip_source = domain::IpSource::MDNS;
         sub.ip_source_param = "not valid .local";
     });
     ASSERT_GE(errors.size(), 1U);
@@ -288,7 +288,7 @@ TEST(StaticValidatorTest, MdnsSource_InvalidDomain) {
 TEST(StaticValidatorTest, MdnsSource_NonLocalSuffix) {
     const auto errors = validate_with([](Config::AppConfig& cfg) {
         auto& sub = cfg.domains[0].subdomains[0];
-        sub.ip_source = Config::IpSource::MDNS;
+        sub.ip_source = domain::IpSource::MDNS;
         sub.ip_source_param = "printer.example.com";
     });
     ASSERT_EQ(errors.size(), 1U);
@@ -301,8 +301,8 @@ TEST(StaticValidatorTest, MdnsSource_NonLocalSuffix) {
 TEST(StaticValidatorTest, MdnsSource_TxtType) {
     const auto errors = validate_with([](Config::AppConfig& cfg) {
         auto& sub = cfg.domains[0].subdomains[0];
-        sub.type = RecordKind::TXT;
-        sub.ip_source = Config::IpSource::MDNS;
+        sub.type = domain::RecordKind::TXT;
+        sub.ip_source = domain::IpSource::MDNS;
         sub.ip_source_param = "printer.local";
     });
     ASSERT_EQ(errors.size(), 1U);
@@ -365,7 +365,8 @@ TEST(StaticValidatorTest, ResolverDoHEmptyHost) {
     });
     ASSERT_EQ(errors.size(), 1U);
     EXPECT_EQ(errors[0].code, Code::INVALID_RESOLVER);
-    EXPECT_EQ(errors[0].message, R"(DoH/DoT resolver address "https:///dns-query" has an empty host)");
+    EXPECT_EQ(errors[0].message,
+              R"(Malformed resolver address "https:///dns-query": authority present but host is empty)");
 }
 
 TEST(StaticValidatorTest, ResolverDoTPortZero) {
@@ -421,8 +422,8 @@ TEST(StaticValidatorTest, MultiDomain_CollectsAcrossDomains) {
         .subdomains = {{
             Config::SubdomainConfig{
                 .name = "www",
-                .type = RecordKind::A,
-                .ip_source = Config::IpSource::HTTP,
+                .type = domain::RecordKind::A,
+                .ip_source = domain::IpSource::HTTP,
                 .ip_source_param = "https://api.ipify.org",
             },
         }},
@@ -494,7 +495,7 @@ TEST(StaticValidatorTest, MalformedResolverAddress_ReportedNotThrown) {
     // error on every entry path, never as an escaping Uri::parse exception.
     const auto errors = validate_with([](Config::AppConfig& cfg) {
         cfg.resolver.use_custom_servers = true;
-        cfg.resolver.servers = {Config::DnsServer{"https://[::1", 443}};
+        cfg.resolver.servers = {domain::DnsServer{"https://[::1", 443}};
     });
     ASSERT_EQ(errors.size(), 1U);
     EXPECT_EQ(errors.front().code, Code::INVALID_RESOLVER);

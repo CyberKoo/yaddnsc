@@ -1,9 +1,5 @@
-//
-// Created by Kotarou on 2026/9/17.
-//
-
-#ifndef YADDNSC_DOMAIN_RUNTIME_CONFIG_H
-#define YADDNSC_DOMAIN_RUNTIME_CONFIG_H
+#ifndef YADDNSC_DOMAIN_CONFIG_RUNTIME_CONFIG_H
+#define YADDNSC_DOMAIN_CONFIG_RUNTIME_CONFIG_H
 
 #include <filesystem>
 #include <optional>
@@ -38,11 +34,11 @@ struct DriverSettings {
 /// materializes the build-configured default when custom DNS is disabled, so
 /// infrastructure never has to infer user intent from an empty list.
 struct ResolverSettings {
-    std::vector<Config::DnsServer> servers{};                                 ///< Normalised server list
-    Config::ResolverStrategy strategy{Config::ResolverStrategy::CONCURRENT};  ///< Resolution strategy
+    std::vector<DnsServer> servers{};                         ///< Normalised server list
+    ResolverStrategy strategy{ResolverStrategy::CONCURRENT};  ///< Resolution strategy
     /// Effective bootstrap DNS servers for outbound hostname resolution
     /// (from bootstrap_dns, or /etc/resolv.conf filled in by composition).
-    std::vector<Config::DnsServer> bootstrap_servers{};
+    std::vector<DnsServer> bootstrap_servers{};
 };
 
 /// Per-subdomain runtime configuration.
@@ -50,7 +46,7 @@ struct SubdomainConfig {
     std::string name{};             ///< Subdomain label (e.g. "www", "@" for apex)
     RecordKind type{};              ///< DNS record type to update
     std::string interface{};        ///< Network interface name (INTERFACE source / HTTP bind)
-    Config::IpSource ip_source{};   ///< IP source backend
+    IpSource ip_source{};           ///< IP source backend
     std::string ip_source_param{};  ///< IP source parameter (URL, mDNS hostname, ...)
     bool allow_ula{false};          ///< Allow ULA (fc00::/7) for AAAA
     bool allow_local_link{false};   ///< Allow link-local (fe80::/10) for AAAA
@@ -76,4 +72,4 @@ struct RuntimeConfig {
 
 }  // namespace domain
 
-#endif  // YADDNSC_DOMAIN_RUNTIME_CONFIG_H
+#endif  // YADDNSC_DOMAIN_CONFIG_RUNTIME_CONFIG_H

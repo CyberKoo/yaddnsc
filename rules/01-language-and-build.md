@@ -15,9 +15,10 @@
 
 ## Dependencies
 
-- **Must** use the existing CPM.cmake setup for bundled dependencies, declare
-  an explicit release tag or full Git commit SHA, and avoid floating branches
-  or moving aliases such as `main`, `latest`, or `v1`.
+- **Must** use the established dependency bootstrap for bundled dependencies,
+  declare an explicit release tag or full Git commit SHA, and avoid floating
+  branches or moving aliases such as `main`, `latest`, or `v1`. The bootstrap
+  in use is recorded in [Dependency maintenance](../docs/development.md#dependency-maintenance).
 - **Prefer** upstream versioned release tags when available; use a full commit
   SHA when no suitable release exists or immutable source identity is needed.
   Release tags can be moved upstream: they are version selections, not immutable

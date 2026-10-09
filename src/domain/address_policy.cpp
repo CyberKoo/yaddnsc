@@ -1,7 +1,3 @@
-//
-// Created by Kotarou on 2026/9/27.
-//
-
 #include "address_policy.h"
 
 #include <optional>

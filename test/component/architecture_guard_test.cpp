@@ -1,0 +1,196 @@
+// Exercise the actual CMake guard against isolated source trees.
+#include <cerrno>
+#include <cstdio>
+#include <filesystem>
+#include <fstream>
+#include <iterator>
+#include <string>
+#include <string_view>
+
+#include <gtest/gtest.h>
+#include <sys/wait.h>
+#include <unistd.h>
+
+#include "component/process_test_support.h"
+
+namespace {
+
+struct GuardCase {
+    const char* name;
+    const char* source;
+    bool allowed;
+};
+
+class ApplicationCoroGuard : public ::testing::TestWithParam<GuardCase> {};
+
+TEST_P(ApplicationCoroGuard, Check_Source_EnforcesPublicBoundary) {
+    const GuardCase& test = GetParam();
+    ComponentTest::TempDirectory dir{(std::filesystem::temp_directory_path() / "yaddnsc-guard-XXXXXX").string()};
+    std::filesystem::create_directories(dir.path() / "src/application");
+    std::filesystem::create_directories(dir.path() / "include/yaddnsc/sdk");
+    // Other architecture checks require the SDK header to exist.
+    std::ofstream(dir.path() / "include/yaddnsc/sdk/driver_abi.h") << "#include <stdint.h>\n";
+    std::ofstream(dir.path() / "src/application/probe.cpp") << test.source;
+    const auto output = dir.path() / "output.txt";
+    const std::string root_argument = "-DPROJECT_SOURCE_DIR=" + dir.path().string();
+
+    const pid_t pid = ::fork();
+    ASSERT_NE(pid, -1);
+    if (pid == 0) {
+        if (std::freopen(output.c_str(), "w", stdout) == nullptr || ::dup2(STDOUT_FILENO, STDERR_FILENO) == -1) {
+            ::_exit(126);
+        }
+        ::execl(YADDNSC_TEST_CMAKE, YADDNSC_TEST_CMAKE, root_argument.c_str(), "-P", YADDNSC_TEST_GUARD, nullptr);
+        ::_exit(127);
+    }
+    int status = 0;
+    pid_t waited;
+    do {
+        waited = ::waitpid(pid, &status, 0);
+    } while (waited == -1 && errno == EINTR);
+    ASSERT_EQ(waited, pid);
+    ASSERT_TRUE(WIFEXITED(status));
+    const int exit_code = WEXITSTATUS(status);
+    ASSERT_NE(exit_code, 126);
+    ASSERT_NE(exit_code, 127);
+    std::ifstream stream{output};
+    const std::string diagnostic{std::istreambuf_iterator<char>{stream}, std::istreambuf_iterator<char>{}};
+    EXPECT_EQ(exit_code == 0, test.allowed) << diagnostic;
+    if (!test.allowed) {
+        EXPECT_NE(diagnostic.find("src/application/probe.cpp"), std::string::npos) << diagnostic;
+        EXPECT_NE(diagnostic.find("application"), std::string::npos) << diagnostic;
+    }
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    PublicApi, ApplicationCoroGuard,
+    ::testing::Values(
+        GuardCase{"PublicHeaders", R"(#include "infrastructure/coro/task.hpp"
+#include "infrastructure/coro/group.hpp"
+#include "infrastructure/coro/scope.hpp"
+#include "infrastructure/coro/now.hpp"
+#include "infrastructure/coro/time.h"
+#include "infrastructure/coro/fwd.h"
+#include "infrastructure/coro/cancel_scope.h"
+#include "infrastructure/coro/sleep.hpp"
+#include "infrastructure/coro/cancelled.h"
+#include "infrastructure/coro/checkpoint.hpp"
+#include "infrastructure/coro/signal.hpp"
+#include "infrastructure/coro/offload.hpp"
+#include "infrastructure/coro/async_mutex.hpp"
+)",
+                  true},
+        GuardCase{"PublicCancellation", "void stop(coro::TaskGroup& g) { g.scope().cancel(); g.cancel(); }", true},
+        GuardCase{"PublicState", "bool read(coro::CancelScope& s) { return s.cancelled() || s.timed_out(); }", true},
+        GuardCase{"UnrelatedRelease", "auto result = file.release(); auto other = tree.parent();", true},
+        GuardCase{"PublicAlias", "namespace c = ::coro; c::Task<void> f();", true},
+        GuardCase{"Comments", "/* coro::detail::GetContext c;\n coro::Loop loop; */\n// coro::GetContext{}\n", true},
+        // Regression: "//" inside a string literal is not a comment. Stripping
+        // comments before string literals truncated the rest of the line and
+        // silently disabled every symbol check on it, so a runtime type sitting
+        // next to an endpoint literal passed the guard.
+        GuardCase{"UrlLiteralDoesNotMaskRuntimeType",
+                  "static constexpr const char* kHost = \"https://dns.google\"; coro::Loop loop;", false},
+        GuardCase{"UrlLiteralOnItsOwnLineIsFine",
+                  "static constexpr const char* kHost = \"https://dns.google/dns-query\";\n", true},
+        GuardCase{"CommentedCodeAfterUrlIsStillExempt",
+                  "auto u = \"https://dns.google\";\n// coro::Loop loop;\n/* coro::detail::GetContext */\n", true},
+        GuardCase{"LoopHeader", "#include \"infrastructure/coro/loop.h\"\n", false},
+        GuardCase{"ClockHeader", "#include \"infrastructure/coro/clock.h\"\n", false},
+        GuardCase{"FrameHeader", "#include \"infrastructure/coro/detail/frame.h\"\n", false},
+        GuardCase{"FdHeader", "#include \"infrastructure/coro/fd_wait.hpp\"\n", false},
+        GuardCase{"ResultBoxHeader", "#include \"infrastructure/coro/detail/result_box.hpp\"\n", false},
+        GuardCase{"WaitNodeHeader", "#include \"infrastructure/coro/detail/wait_node.h\"\n", false},
+        GuardCase{"TimerNodeHeader", "#include \"infrastructure/coro/detail/timer_node.h\"\n", false},
+        GuardCase{"RunHeader", "#include \"infrastructure/coro/run.hpp\"\n", false},
+        GuardCase{"UmbrellaHeader", "#include \"infrastructure/coro/coro.h\"\n", false},
+        GuardCase{"Context", "auto c = co_await coro::GetContext{};", false},
+        GuardCase{"InternalContext", "auto c = co_await coro::detail::GetContext{};", false},
+        GuardCase{"LoopObject", "coro::Loop loop;", false}, GuardCase{"ClockObject", "coro::ManualClock clock;", false},
+        GuardCase{"FrameType", "coro::PromiseBase* frame;", false},
+        GuardCase{"WaitType", "coro::WaitNode node;", false},
+        GuardCase{"Alias", "namespace c = coro; auto c = co_await c::detail::GetContext{};", false},
+        GuardCase{"AliasChain", "namespace c = ::coro; namespace d = c; d::Loop loop;", false},
+        GuardCase{"UsingType", "using coro::Loop; Loop loop;", false},
+        GuardCase{"UsingNamespace", "using namespace coro; Loop loop;", false},
+        GuardCase{"InternalAlias", "namespace d = coro::detail;", false},
+        GuardCase{"SplitQualifier", "auto c = co_await coro\n :: detail\n :: GetContext{};", false},
+        GuardCase{"DeducedWaiter", "scope.remove_waiter(node);", false},
+        GuardCase{"CallbackAddress", "auto action = &coro::CancelScope::timeout_action;", false},
+        GuardCase{"TaskContext", "task.bind_context(loop, scope);", false},
+        GuardCase{"PromiseAlias", "using P = coro::Task<void>::promise_type;", false}),
+    [](const ::testing::TestParamInfo<GuardCase>& case_info) { return case_info.param.name; });
+
+// A normative rule states a discipline and links the owner document. Naming a
+// project path or symbol forces an edit on every rename, so the fact belongs in
+// an owner document under docs/.
+struct RulesCase {
+    const char* id;    // unique, identifier-safe
+    const char* file;  // which normative rules file it lands in
+    const char* source;
+    bool allowed;
+};
+
+class RulesFactGuard : public ::testing::TestWithParam<RulesCase> {};
+
+TEST_P(RulesFactGuard, Check_RuleStatesPrincipleNotProjectFact) {
+    const RulesCase& test = GetParam();
+    ComponentTest::TempDirectory dir{(std::filesystem::temp_directory_path() / "yaddnsc-rules-guard-XXXXXX").string()};
+    std::filesystem::create_directories(dir.path() / "rules");
+    std::filesystem::create_directories(dir.path() / "src/application");
+    std::filesystem::create_directories(dir.path() / "include/yaddnsc/sdk");
+    // The SDK header must exist before the C-ABI rule can run.
+    std::ofstream(dir.path() / "include/yaddnsc/sdk/driver_abi.h") << "#include <stdint.h>\n";
+    std::ofstream(dir.path() / "src/application/probe.cpp") << "\n";
+    std::ofstream(dir.path() / "rules" / test.file) << test.source;
+    const auto output = dir.path() / "output.txt";
+    const std::string root_argument = "-DPROJECT_SOURCE_DIR=" + dir.path().string();
+
+    const pid_t pid = ::fork();
+    ASSERT_NE(pid, -1);
+    if (pid == 0) {
+        if (std::freopen(output.c_str(), "w", stdout) == nullptr || ::dup2(STDOUT_FILENO, STDERR_FILENO) == -1) {
+            ::_exit(126);
+        }
+        ::execl(YADDNSC_TEST_CMAKE, YADDNSC_TEST_CMAKE, root_argument.c_str(), "-P", YADDNSC_TEST_GUARD, nullptr);
+        ::_exit(127);
+    }
+    int status = 0;
+    pid_t waited;
+    do {
+        waited = ::waitpid(pid, &status, 0);
+    } while (waited == -1 && errno == EINTR);
+    ASSERT_EQ(waited, pid);
+    ASSERT_TRUE(WIFEXITED(status));
+    const int exit_code = WEXITSTATUS(status);
+    ASSERT_NE(exit_code, 126);
+    ASSERT_NE(exit_code, 127);
+    std::ifstream stream{output};
+    const std::string diagnostic{std::istreambuf_iterator<char>{stream}, std::istreambuf_iterator<char>{}};
+    EXPECT_EQ(exit_code == 0, test.allowed) << diagnostic;
+    if (!test.allowed) {
+        EXPECT_NE(diagnostic.find("rules/"), std::string::npos) << diagnostic;
+    }
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    RulesFacts, RulesFactGuard,
+    ::testing::Values(
+        RulesCase{"PublicUtilPath", "02-implementation.md", "Reuse utilities from `include/yaddnsc/util/`.\n", false},
+        RulesCase{"QualifiedSymbol", "02-implementation.md", "Await `coro::Task` from the application layer.\n", false},
+        RulesCase{"LoggingMacro", "03-error-handling.md", "Log through the `YLOG_INFO` macro.\n", false},
+        RulesCase{"BudgetConstant", "04-quality-and-process.md", "One cycle is bounded by `UPDATE_BUDGET`.\n", false},
+        RulesCase{"SourcePath", "04-quality-and-process.md", "See `src/application/services.h`.\n", false},
+        RulesCase{"BootstrapName", "01-language-and-build.md", "Use the CPM.cmake setup in `cmake/`.\n", false},
+        RulesCase{"OwnerDocLink", "02-implementation.md", "See [Layers](../docs/architecture.md#layers).\n", true},
+        RulesCase{"SlashProse", "04-quality-and-process.md", "Build/test/CI details belong in `docs/development.md`.\n",
+                  true},
+        RulesCase{"PlainPrinciple", "01-language-and-build.md",
+                  "State the principle and link the owner document instead.\n", true},
+        RulesCase{"GenericPrinciple", "03-error-handling.md", "A deadline wraps the operation; see Architecture.\n",
+                  true},
+        RulesCase{"ExamplesExempt", "05-examples.md",
+                  "See `src/infrastructure/dns/resolver/resolver.h` for the contract.\n", true}),
+    [](const ::testing::TestParamInfo<RulesCase>& case_info) { return case_info.param.id; });
+
+}  // namespace

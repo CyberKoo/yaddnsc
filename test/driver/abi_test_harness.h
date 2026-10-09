@@ -1,7 +1,3 @@
-//
-// Created by Kotarou on 2026/9/17.
-//
-
 #ifndef YADDNSC_TEST_DRIVER_ABI_TEST_HARNESS_H
 #define YADDNSC_TEST_DRIVER_ABI_TEST_HARNESS_H
 

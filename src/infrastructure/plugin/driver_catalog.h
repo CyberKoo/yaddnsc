@@ -1,7 +1,3 @@
-//
-// Created by Kotarou on 2026/9/17.
-//
-
 #ifndef YADDNSC_INFRASTRUCTURE_PLUGIN_DRIVER_CATALOG_H
 #define YADDNSC_INFRASTRUCTURE_PLUGIN_DRIVER_CATALOG_H
 
@@ -12,6 +8,8 @@
 #include <string_view>
 #include <vector>
 
+#include <expected>
+
 #include "application/ports/driver_catalog.h"
 #include "infrastructure/plugin/plugin_loader.h"
 
@@ -21,13 +19,13 @@
 /// module alive (a lease) even if the entry is concurrently removed from the
 /// catalog.
 ///
-/// The application layer sees the catalog through the DriverCatalogPort
+/// The application layer sees the catalog through the app::DriverCatalogPort
 /// interface (loaded_drivers / describe); load/unload stay on this class.
 ///
 /// @note Not thread-safe for mutation, same as the legacy DriverManager: the
 ///       catalog is populated during initialisation and read-only during the
 ///       run loop.
-class DriverCatalog : public DriverCatalogPort {
+class DriverCatalog : public app::DriverCatalogPort {
 public:
     /// Load a driver plugin from the given filesystem path.
     /// A duplicate driver name is skipped with a warning (kept behaviour).
@@ -49,12 +47,13 @@ public:
     /// @throws DriverNotFoundException  If no driver with that name is loaded.
     [[nodiscard]] const DriverDescriptor& get_descriptor(std::string_view name) const;
 
-    /// DriverCatalogPort: names of all currently loaded drivers.
+    /// app::DriverCatalogPort: names of all currently loaded drivers.
     [[nodiscard]] std::vector<std::string> loaded_drivers() const override;
 
-    /// DriverCatalogPort: value-copy description of one loaded driver.
-    /// @throws DriverNotFoundException  If no driver with that name is loaded.
-    [[nodiscard]] DriverDescription describe(std::string_view name) const override;
+    /// app::DriverCatalogPort: value-copy description of one loaded driver.
+    /// Failure: DriverError::NOT_FOUND when absent; allocation failures propagate.
+    [[nodiscard]] std::expected<app::DriverDescription, domain::DriverError> describe(
+        std::string_view name) const override;
 
 private:
     std::map<std::string, std::shared_ptr<const PluginModule>, std::less<>> modules_;

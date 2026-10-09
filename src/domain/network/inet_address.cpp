@@ -1,7 +1,3 @@
-//
-// Created by Kotarou on 2026/6/29.
-//
-
 #include "inet_address.h"
 
 #include <algorithm>
@@ -14,6 +10,8 @@
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
+
+namespace domain {
 
 // inet_pton/inet_ntop are platform codecs only: this value object performs no
 // socket operation, DNS lookup, interface enumeration, or other network I/O.
@@ -208,3 +206,5 @@ std::uint32_t InetAddress::get_scope_id() const noexcept {
     auto* v6 = as_v6();
     return v6 ? v6->get_scope_id() : 0;
 }
+
+}  // namespace domain

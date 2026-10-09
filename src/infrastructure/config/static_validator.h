@@ -1,9 +1,5 @@
-//
-// Created by Kotarou on 2026/9/17.
-//
-
-#ifndef YADDNSC_CONFIG_STATIC_VALIDATOR_H
-#define YADDNSC_CONFIG_STATIC_VALIDATOR_H
+#ifndef YADDNSC_INFRASTRUCTURE_CONFIG_STATIC_VALIDATOR_H
+#define YADDNSC_INFRASTRUCTURE_CONFIG_STATIC_VALIDATOR_H
 
 #include <vector>
 
@@ -29,4 +25,4 @@ struct AppConfig;
     -> std::expected<domain::RuntimeConfig, std::vector<domain::ConfigError>>;
 }  // namespace Config
 
-#endif  // YADDNSC_CONFIG_STATIC_VALIDATOR_H
+#endif  // YADDNSC_INFRASTRUCTURE_CONFIG_STATIC_VALIDATOR_H

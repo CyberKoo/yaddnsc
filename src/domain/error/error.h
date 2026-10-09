@@ -1,9 +1,5 @@
-//
-// Created by Kotarou on 2026/9/17.
-//
-
-#ifndef YADDNSC_DOMAIN_ERROR_H
-#define YADDNSC_DOMAIN_ERROR_H
+#ifndef YADDNSC_DOMAIN_ERROR_ERROR_H
+#define YADDNSC_DOMAIN_ERROR_ERROR_H
 
 #include <string>
 
@@ -48,37 +44,20 @@ struct ConfigError {
 
 /// IP source port failure.
 struct IpSourceError {
-    enum class Code { UNAVAILABLE, NO_ADDRESS, CANCELLED, UNKNOWN };
+    enum class Code { UNAVAILABLE, NO_ADDRESS, UNKNOWN };
     Code code;
     std::string message;
 };
 
-/// Plugin loading / ABI-contract failure.
-///
-/// Loading failures surface as PluginError values from the plugin loader and
-/// are re-thrown as PluginLoadException at the DriverCatalog boundary (the
-/// fail-fast manual-load path); a single update failure is a DriverError.
-struct PluginError {
-    enum class Code {
-        LOAD_FAILED,         ///< dlopen failed (not a loadable module)
-        MISSING_SYMBOL,      ///< A required entry point is absent
-        ABI_MISMATCH,        ///< Magic number or ABI major/minor mismatch
-        CONTRACT_VIOLATION,  ///< The plugin violated the ABI contract at runtime
-    };
-    Code code;
-    std::string message;
-};
-
-/// Driver update failure (one update attempt through the driver gateway).
+/// Driver lookup, configuration validation, or update failure.
 /// `retry_after_seconds` is preserved whenever an upstream or transport
-/// failure supplies it; the executor reports it back to the scheduler, which
-/// moves the task's next deadline to honour the backoff.
+/// failure supplies it; the update workflow reports it back to its subdomain
+/// loop, which moves the task's next deadline to honour the backoff.
 struct DriverError {
     enum class Code {
         UPDATE_FAILED,  ///< Update was not applied (e.g. upstream rejected, or the host refused the record type)
         NOT_FOUND,      ///< Referenced driver is not loaded
         RATE_LIMITED,   ///< Upstream rate-limited the request
-        CANCELLED,      ///< Aborted via cancellation
         UNKNOWN,        ///< Any other failure (message carries details)
     };
     Code code;
@@ -93,14 +72,12 @@ struct DriverError {
 ///     candidate survived the address policy); the cycle is skipped and the
 ///     schedule carries on;
 ///   - DRIVER_FAILED — the driver gateway rejected the update (message and,
-///     retry_after_seconds are copied from DriverError; the executor feeds
-///     retry_after back to the scheduler for backoff
-///     rescheduling);
-///   - CANCELLED — the operation was stopped and must not begin later steps;
+///     retry_after_seconds are copied from DriverError; the subdomain loop
+///     feeds retry_after into the next delay for backoff rescheduling);
 ///   - UNKNOWN — an unexpected exception escaped the workflow (the legacy
 ///     catch-all boundary, now mapped to an error value).
 struct UpdateError {
-    enum class Code { DRIVER_FAILED, SKIPPED_NO_ADDRESS, CANCELLED, UNKNOWN };
+    enum class Code { DRIVER_FAILED, SKIPPED_NO_ADDRESS, UNKNOWN };
     Code code;
     std::string message;
     int retry_after_seconds{0};
@@ -108,4 +85,4 @@ struct UpdateError {
 
 }  // namespace domain
 
-#endif  // YADDNSC_DOMAIN_ERROR_H
+#endif  // YADDNSC_DOMAIN_ERROR_ERROR_H

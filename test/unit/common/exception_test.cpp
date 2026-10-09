@@ -1,6 +1,3 @@
-//
-// Created by Kotarou on 2026/7/7.
-//
 // Unit tests for exception classes.
 //
 // Verifies:
@@ -21,7 +18,7 @@
 #include <gtest/gtest.h>
 
 #include "domain/error/dns_error.h"
-#include "infrastructure/config/config_verification_exception.h"
+#include "infrastructure/config/config_exception.h"
 #include "infrastructure/dns/dns_lookup_exception.h"
 #include "infrastructure/plugin/plugin_load_exception.h"
 
@@ -59,16 +56,16 @@ TEST(ExceptionTest, PluginLoadException_CatchByYaddnscException) {
     }
 }
 
-// ── ConfigVerificationException ──────────────────────────────────────────────
+// ── ConfigException ──────────────────────────────────────────────────────────
 
-TEST(ExceptionTest, ConfigVerificationException_GetName_ReturnsCorrectType) {
-    ConfigVerificationException exc("config invalid");
-    EXPECT_EQ(exc.get_name(), "ConfigVerificationException");
+TEST(ExceptionTest, ConfigException_GetName_ReturnsCorrectType) {
+    ConfigException exc("config invalid");
+    EXPECT_EQ(exc.get_name(), "ConfigException");
 }
 
-TEST(ExceptionTest, ConfigVerificationException_IsYaddnscException) {
+TEST(ExceptionTest, ConfigException_IsYaddnscException) {
     try {
-        throw ConfigVerificationException("config invalid");
+        throw ConfigException("config invalid");
     } catch (const YaddnscException&) {
         SUCCEED();
     }
@@ -79,31 +76,31 @@ TEST(ExceptionTest, ConfigVerificationException_IsYaddnscException) {
 TEST(ExceptionTest, DnsLookupException_DefaultConstructor) {
     DnsLookupException exc("dns error");
     EXPECT_EQ(exc.get_name(), "DnsLookupException");
-    EXPECT_EQ(exc.get_error(), DnsError::UNKNOWN);
+    EXPECT_EQ(exc.get_error(), domain::DnsError::UNKNOWN);
 }
 
 TEST(ExceptionTest, DnsLookupException_WithErrorCode) {
-    DnsLookupException exc("nxdomain", DnsError::NX_DOMAIN);
-    EXPECT_EQ(exc.get_error(), DnsError::NX_DOMAIN);
+    DnsLookupException exc("nxdomain", domain::DnsError::NX_DOMAIN);
+    EXPECT_EQ(exc.get_error(), domain::DnsError::NX_DOMAIN);
     EXPECT_EQ(std::string_view(exc.what()), "nxdomain");
 }
 
 TEST(ExceptionTest, DnsLookupException_WithErrorCode_Retry) {
-    DnsLookupException exc("timeout", DnsError::RETRY);
-    EXPECT_EQ(exc.get_error(), DnsError::RETRY);
+    DnsLookupException exc("timeout", domain::DnsError::RETRY);
+    EXPECT_EQ(exc.get_error(), domain::DnsError::RETRY);
 }
 
 TEST(ExceptionTest, DnsLookupException_WrapYaddnscException) {
     PluginLoadException inner("inner");
-    DnsLookupException wrapped(std::move(inner), DnsError::CONNECTION);
-    EXPECT_EQ(wrapped.get_error(), DnsError::CONNECTION);
+    DnsLookupException wrapped(std::move(inner), domain::DnsError::CONNECTION);
+    EXPECT_EQ(wrapped.get_error(), domain::DnsError::CONNECTION);
     EXPECT_EQ(std::string_view(wrapped.what()), "inner");
 }
 
 TEST(ExceptionTest, DnsLookupException_WrapConstYaddnscException) {
     const PluginLoadException inner("inner");
-    DnsLookupException wrapped(inner, DnsError::CONFIG);
-    EXPECT_EQ(wrapped.get_error(), DnsError::CONFIG);
+    DnsLookupException wrapped(inner, domain::DnsError::CONFIG);
+    EXPECT_EQ(wrapped.get_error(), domain::DnsError::CONFIG);
 }
 
 // ── Inheritance hierarchy ────────────────────────────────────────────────────
@@ -111,13 +108,13 @@ TEST(ExceptionTest, DnsLookupException_WrapConstYaddnscException) {
 TEST(ExceptionTest, InheritanceHierarchy) {
     // Compile-time check: all concrete exception types inherit from YaddnscException.
     static_assert(std::is_base_of_v<YaddnscException, PluginLoadException>);
-    static_assert(std::is_base_of_v<YaddnscException, ConfigVerificationException>);
+    static_assert(std::is_base_of_v<YaddnscException, ConfigException>);
     static_assert(std::is_base_of_v<YaddnscException, DnsLookupException>);
 }
 
 TEST(ExceptionTest, AllExceptions_What_IsNonNull) {
     PluginLoadException bd("bd");
-    ConfigVerificationException cv("cv");
+    ConfigException cv("cv");
     DnsLookupException dl("dl");
 
     EXPECT_NE(bd.what(), nullptr);

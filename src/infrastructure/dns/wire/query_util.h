@@ -1,9 +1,5 @@
-//
-// Created by Kotarou on 2026/7/12.
-//
-
-#ifndef YADDNSC_DNS_WIRE_QUERY_UTIL_H
-#define YADDNSC_DNS_WIRE_QUERY_UTIL_H
+#ifndef YADDNSC_INFRASTRUCTURE_DNS_WIRE_QUERY_UTIL_H
+#define YADDNSC_INFRASTRUCTURE_DNS_WIRE_QUERY_UTIL_H
 
 #include <cstdint>
 #include <string_view>
@@ -37,4 +33,4 @@ namespace dns {
 
 }  // namespace dns
 
-#endif  // YADDNSC_DNS_WIRE_QUERY_UTIL_H
+#endif  // YADDNSC_INFRASTRUCTURE_DNS_WIRE_QUERY_UTIL_H

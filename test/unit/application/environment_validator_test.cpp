@@ -36,9 +36,9 @@ namespace {
         .subdomains = {{
             domain::SubdomainConfig{
                 .name = "www",
-                .type = RecordKind::A,
+                .type = domain::RecordKind::A,
                 .interface = std::move(interface),
-                .ip_source = Config::IpSource::HTTP,
+                .ip_source = domain::IpSource::HTTP,
                 .ip_source_param = "https://api.ipify.org",
                 .update_interval = 300,
             },
@@ -127,8 +127,8 @@ TEST(EnvironmentValidator, MultipleDomains_EveryDriverMustBeLoaded) {
         .subdomains = {{
             domain::SubdomainConfig{
                 .name = "@",
-                .type = RecordKind::AAAA,
-                .ip_source = Config::IpSource::HTTP,
+                .type = domain::RecordKind::AAAA,
+                .ip_source = domain::IpSource::HTTP,
                 .ip_source_param = "https://api6.ipify.org",
                 .update_interval = 120,
             },

@@ -1,6 +1,3 @@
-//
-// Created by Kotarou on 2026/7/7.
-//
 // Unit tests for dns/validator.h / validator.cpp — DNS response validation.
 //
 // This test constructs minimal raw DNS wire-format queries and responses
@@ -106,7 +103,7 @@ void expect_parse_error(std::span<const std::uint8_t> query, std::span<const std
     auto result = dns::Validator::validate_response(query, response);
     EXPECT_FALSE(result.has_value());
     if (!result.has_value()) {
-        EXPECT_EQ(result.error().code, DnsError::PARSE);
+        EXPECT_EQ(result.error().code, domain::DnsError::PARSE);
     }
 }
 
@@ -117,7 +114,7 @@ void expect_parse_error_msg(std::span<const std::uint8_t> query, std::span<const
     auto result = dns::Validator::validate_response(query, response);
     EXPECT_FALSE(result.has_value());
     if (!result.has_value()) {
-        EXPECT_EQ(result.error().code, DnsError::PARSE);
+        EXPECT_EQ(result.error().code, domain::DnsError::PARSE);
         EXPECT_NE(result.error().message.find(expected_substr), std::string_view::npos);
     }
 }

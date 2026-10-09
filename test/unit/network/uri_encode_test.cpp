@@ -1,6 +1,3 @@
-//
-// Created by Kotarou on 2026/7/7.
-//
 // Unit tests for uri.h / uri.cpp — percent-encoding and decoding.
 //
 // Verifies:
@@ -16,7 +13,7 @@
 
 #include <gtest/gtest.h>
 
-#include "infrastructure/net/http/uri.h"
+#include "infrastructure/uri/uri.h"
 
 // ===========================================================================
 // Percent encoding
@@ -49,6 +46,16 @@ TEST(UriDecodeTest, UnencodedPassthrough) {
 
 TEST(UriDecodeTest, MalformedPercentPreserved) {
     EXPECT_EQ(Uri::url_decode("%GG"), "%GG");
+}
+
+TEST(UriDecodeTest, PartialHexPreserved) {
+    // '4' parses as hex but 'G' does not — partial parse is still malformed.
+    EXPECT_EQ(Uri::url_decode("%4G"), "%4G");
+}
+
+TEST(UriDecodeTest, MalformedSequenceDoesNotConsumeNextPercent) {
+    // The '%' of the following valid sequence must not be eaten.
+    EXPECT_EQ(Uri::url_decode("%4%41"), "%4A");
 }
 
 TEST(UriDecodeTest, TrailingPercentPreserved) {

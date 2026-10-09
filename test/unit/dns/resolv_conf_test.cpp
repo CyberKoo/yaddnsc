@@ -2,7 +2,7 @@
 // Unit tests for dns::parse_resolv_conf — /etc/resolv.conf discovery.
 // =============================================================================
 
-#include "infrastructure/dns/resolv_conf.h"
+#include "infrastructure/dns/bootstrap/resolv_conf.h"
 
 #include <filesystem>
 #include <fstream>

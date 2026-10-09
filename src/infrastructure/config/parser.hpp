@@ -1,9 +1,5 @@
-//
-// Created by kotarou on 2026/6/17.
-//
-
-#ifndef YADDNSC_CONFIG_PARSER_HPP
-#define YADDNSC_CONFIG_PARSER_HPP
+#ifndef YADDNSC_INFRASTRUCTURE_CONFIG_PARSER_HPP
+#define YADDNSC_INFRASTRUCTURE_CONFIG_PARSER_HPP
 
 #include <glaze/glaze.hpp>
 
@@ -24,8 +20,8 @@ struct glz::meta<Config::DriverConfig> {
 /// glz::meta specialisation for DnsServer JSON mapping.
 /// Supports both "address" and "ipaddress" keys for backward compatibility.
 template<>
-struct glz::meta<Config::DnsServer> {
-    using T = Config::DnsServer;
+struct glz::meta<domain::DnsServer> {
+    using T = domain::DnsServer;
     static constexpr auto value = object("address", &T::address, "ipaddress", &T::address, "port", &T::port);
 };
 
@@ -37,10 +33,10 @@ struct glz::meta<Config::ResolverConfig> {
         object("use_custom_servers", &T::use_custom_servers, "servers", &T::servers, "strategy", &T::strategy);
 };
 
-/// glz::meta specialisation for Config::ResolverStrategy enum JSON mapping.
+/// glz::meta specialisation for domain::ResolverStrategy enum JSON mapping.
 template<>
-struct glz::meta<Config::ResolverStrategy> {
-    using enum Config::ResolverStrategy;
+struct glz::meta<domain::ResolverStrategy> {
+    using enum domain::ResolverStrategy;
     static constexpr auto value = enumerate("fallback", FALLBACK, "concurrent", CONCURRENT, "shuffle", SHUFFLE);
 };
 
@@ -70,11 +66,11 @@ struct glz::meta<Config::AppConfig> {
                                          "bootstrap_dns", &T::bootstrap_dns);
 };
 
-/// glz::meta specialisation for Config::IpSource enum JSON mapping.
+/// glz::meta specialisation for domain::IpSource enum JSON mapping.
 /// Supports both "interface", "http" / "url", and "mdns".
 template<>
-struct glz::meta<Config::IpSource> {
-    using enum Config::IpSource;
+struct glz::meta<domain::IpSource> {
+    using enum domain::IpSource;
     static constexpr auto value = enumerate("interface", INTERFACE, "http", HTTP, "url",
                                             HTTP,  // backward compatibility
                                             "mdns", MDNS);
@@ -82,9 +78,9 @@ struct glz::meta<Config::IpSource> {
 
 /// glz::meta specialisation for RecordKind enum JSON mapping.
 template<>
-struct glz::meta<RecordKind> {
-    using enum RecordKind;
+struct glz::meta<domain::RecordKind> {
+    using enum domain::RecordKind;
     static constexpr auto value = enumerate("a", A, "aaaa", AAAA, "txt", TXT);
 };
 
-#endif  // YADDNSC_CONFIG_PARSER_HPP
+#endif  // YADDNSC_INFRASTRUCTURE_CONFIG_PARSER_HPP

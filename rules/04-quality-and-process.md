@@ -5,8 +5,8 @@
 ## Concurrency
 
 - Shared mutable state **must** have a defined synchronization strategy; public interfaces **must** document their thread-safety guarantees and caller obligations.
-- Concurrency **must** go through the coroutine runtime (`src/infrastructure/coro/`). The process has exactly three threads: the loop thread (`coro::run`'s caller — all I/O, timers and coroutine resumption), the offload pool (`BS::thread_pool`, reached only through `coro::offload`), and the log drain thread. Code **must not** create additional threads, futures or thread pools. Blocking or CPU-bound work **must** leave the loop through `coro::offload` — the single documented exit, a `to_thread`-style hand-off — except for startup preparation (config load, plugin `dlopen`, environment check, trust-context build) that runs on the main thread before `coro::run`. The sanctioned in-loop blocking points are listed in the [blocking-operation inventory](../docs/architecture.md#blocking-operation-inventory).
-- Waiting **must** be a cancellable await, so scope cancellation reaches it; a deadline **must** be a cancel scope (`coro::with_timeout` / `coro::with_deadline`), not an I/O parameter. Signal handling **must** use `coro::on_signal`; a dedicated signal thread **must not** be introduced.
+- Concurrency **must** go through the project's coroutine runtime rather than raw threads, futures or thread pools. Blocking or CPU-bound work **must** leave the loop through the runtime's offload primitive. The thread model, the startup and foreign-function hand-offs that sit outside it, and the sanctioned blocking points are recorded in [Concurrency & I/O model](../docs/architecture.md#concurrency--io-model) and the [blocking-operation inventory](../docs/architecture.md#blocking-operation-inventory); what the guard does and does not prove about them lives in [Manual boundary review](../docs/development.md#manual-boundary-review).
+- Waiting **must** be a cancellable await, so scope cancellation reaches it; a deadline **must** wrap the operation as a cancel scope rather than travel down as an I/O parameter. Signal handling **must** go through the runtime's signal facility rather than a dedicated thread.
 - **Prefer** explicit ownership and dependency injection over global mutable state. Global/singleton ports **must not** be introduced (see [Function & Constructor Signatures](02-implementation.md#function--constructor-signatures)).
 - If non-port process-wide state is unavoidable, initialization **may** use a function-local static (Meyers singleton) for one-time construction, or `std::call_once` for a separate initialization operation. Neither protects subsequent mutation. `constinit` guarantees static initialization, not immutability or thread safety; access to mutable state still **must** be synchronized.
 
@@ -18,30 +18,20 @@
 
 ## Testing
 
-- Tests **must** use **GoogleTest**, with **GoogleMock** as the sole mocking framework; alternatives **must not** be introduced. Test names **must** follow `TEST(ClassName, MethodName_Scenario_ExpectedBehavior)`.
-- Behavior changes and bug fixes **must** have relevant tests, including failure paths. **Prefer** virtual interface-based mocks for external dependencies and integration tests for component boundaries.
+- Tests **must** cover changed behavior and its failure paths. **Prefer** virtual interface-based mocks for external dependencies and integration tests for component boundaries. The framework, mocking approach and test naming convention are fixed for this project; see [Tests](../docs/development.md#tests).
 - Relevant tests **must** pass before merge; available suites, commands, and CI coverage are documented in [Development](../docs/development.md#tests).
 - **Normally** aim for at least **80% line coverage**, prioritizing meaningful branch coverage on critical paths rather than tests written only to raise the percentage. This is a quality target, **not an implemented percentage gate**; reporting and enforcement status live in [Coverage](../docs/development.md#coverage).
 
 ## Logging
 
-Diagnostic logging **must** use the project's centralized logging system through the layer-specific entry points below. The facade requirement in [Components That Must Be Reused](02-implementation.md#components-that-must-be-reused) does not require injecting the application port into every layer. Ad-hoc loggers and diagnostic output via `std::cout`, `printf`, or `std::print` **must not** bypass this system.
+Diagnostic logging **must** use the project's centralized logging system. Each layer has exactly one designated entry point, tabulated in [Layers](../docs/architecture.md#layers); the facade requirement in [Components That Must Be Reused](02-implementation.md#components-that-must-be-reused) does not require injecting the application port into every layer. Ad-hoc loggers and diagnostic output via `std::cout`, `printf`, or `std::print` **must not** bypass this system. User-facing CLI output is presentation, not logging, and **must not** carry debug traces or internal-state warnings.
 
-### Layered Logging Policy
-
-| Layer | Required boundary / permitted entry point |
-|-------|-------------------------------------------|
-| **Domain** (`src/domain/`) | **Must not** perform logging or depend on logging ports/backends; diagnostics belong to callers. |
-| **Application** (`src/application/`) | **Must** use the injected `Logger` port and `YLOG_*` macros from `src/application/ports/log.h`; **must not** call spdlog directly. |
-| **Infrastructure / support** (`src/infrastructure/`, `src/support/`) | **May** use `SPDLOG_*` / spdlog directly through the centrally configured backend. **Must not** create independent sinks or global/singleton ports, or introduce an application `Logger` dependency solely for logging. |
-| **SDK / plugins** (`include/yaddnsc/sdk/`, `driver/`) | **Must** route diagnostic logs through Host Services (`yaddnsc_host_services::log`); C++ helpers **normally** use `YADDNSC_SDK_LOG_*` from `include/yaddnsc/sdk/driver.hpp`. **Must not** depend on host-internal logging headers or call spdlog directly. |
-| **CLI / composition** (`src/cli/`, `src/composition/`) | Host-adapter diagnostics **may** use the centrally configured spdlog backend. User-facing CLI output is not logging and **normally** uses `std::print` / `std::println` on stdout/stderr; debug traces and internal-state warnings **must not** be presented as command output. |
-
-The central production backend **must** supply timestamp, severity, source location, and message; SDK source locations **must** be forwarded through Host Services. The backend is asynchronous — a bounded queue drained by a background thread (see [Architecture](../docs/architecture.md#concurrency--io-model)) — so a log call never blocks the calling (loop) thread; a full queue discards the newest record rather than waiting. See [Layers](../docs/architecture.md#layers) and [Plugin boundary](../docs/architecture.md#plugin-boundary-v1-alpha) for dependency and ABI boundaries.
+The central production backend **must** supply timestamp, severity, source location, and message; SDK source locations **must** be forwarded through Host Services. A log call **must** return without blocking the calling (loop) thread: the backend is asynchronous and drained on its own thread (see [Concurrency & I/O model](../docs/architecture.md#concurrency--io-model)). See [Plugin boundary](../docs/architecture.md#plugin-boundary-v1-alpha) for ABI boundaries.
 
 ## Documentation
 
 - Public APIs **must** document contracts, ownership/lifetimes, failure behavior, and thread-safety obligations where applicable, using Doxygen-style `/** ... */` or `///` comments. **Prefer** comments explaining constraints and intent over restating code.
+- Source files **must not** contain IDE-generated author/date banners such as `Created by ...`. **Prefer** no file-level banner; a concise file comment **may** explain non-obvious responsibility, boundaries, or constraints, but **must not** merely restate the filename or declarations.
 - Planned improvements **may** be recorded as `// TODO(username): description`; TODOs **must not** replace required correctness or safety work.
 
 ## Performance Optimization
@@ -60,7 +50,7 @@ The central production backend **must** supply timestamp, severity, source locat
 
 - Releases **must** follow **Semantic Versioning** (`MAJOR.MINOR.PATCH`).
 - Commit messages **must** use **`<Type>: <description>`** (`Fix:`, `Feat:`, `Docs:`, `Refactor:`, `Test:`, `Chore:`), with a capitalized imperative description, e.g. `Fix: Harden URI port parsing against malformed values`. Scope prefixes such as `fix(core):` **must not** be used.
-- Commit messages **must** include a body summarizing changes as `- ` bullet points, separated from the subject by a blank line.
+- **Prefer** commit messages that include a body summarizing changes as `- ` bullet points, separated from the subject by a blank line. A trivial one-line change (typo, rename, comment) **may** have a subject only.
 - **Prefer** small, focused PRs (normally fewer than 400 changed lines) with linked issue tickets when applicable. Larger changes **may** remain together when splitting would obscure a cohesive change; explain the scope.
 - **Normally** squash-and-merge to mainline for a linear, bisectable history.
 
@@ -70,6 +60,8 @@ The central production backend **must** supply timestamp, severity, source locat
 - README files **must** be updated when a user-visible change affects their content, not for every internal change. Build/test/CI details belong in `docs/development.md`; provider parameters and SDK/ABI details belong in their respective owner documents.
 - When an affected document has language counterparts (e.g. `README.md` / `README_CN.md`, `DRIVERS.md` / `DRIVERS_CN.md`), all counterparts **must** be updated together with equivalent content. A language discrepancy is a documentation bug.
 - Adding, removing, or renaming a rules topic **must** update the relevant numbered rules file and the index in [`AGENTS.md`](../AGENTS.md) in the same change.
+- A normative rule states a discipline that holds in any C++ project. It **must not** name this project's source paths, layer directories, types, macros or budget constants; a rule that needs one states the principle and points at the owner document instead. Project facts — which layer owns which entry point, which framework a test tier uses, where a component lives — belong in `docs/`, so that a rename changes one document rather than every rule that mentions it. The `architecture_guard` check for this rule covers the path and symbol forms it can see; prose review covers the rest.
+- [Examples](05-examples.md) are non-normative and **may** name real files, because pointing at the actual interface is their purpose.
 
 ## Code Review Checklist
 

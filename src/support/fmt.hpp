@@ -1,9 +1,5 @@
-//
-// Created by Kotarou on 2026/6/17.
-//
-
-#ifndef YADDNSC_FMT_H
-#define YADDNSC_FMT_H
+#ifndef YADDNSC_SUPPORT_FMT_HPP
+#define YADDNSC_SUPPORT_FMT_HPP
 
 /// Polyfill: bridges std::format and the external fmt library so that the rest
 /// of the codebase can always use `fmt::format(...)`, `fmt::join(...)`, etc.
@@ -68,4 +64,4 @@ std::string join(Range&& range, std::string_view sep) {
 
 #endif  // YADDNSC_USE_STD_FORMAT
 
-#endif  // YADDNSC_FMT_H
+#endif  // YADDNSC_SUPPORT_FMT_HPP

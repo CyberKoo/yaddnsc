@@ -1,9 +1,5 @@
-//
-// Created by Kotarou on 2026/6/29.
-//
-
-#ifndef YADDNSC_NETWORK_INET_ADDRESS_H
-#define YADDNSC_NETWORK_INET_ADDRESS_H
+#ifndef YADDNSC_DOMAIN_NETWORK_INET_ADDRESS_H
+#define YADDNSC_DOMAIN_NETWORK_INET_ADDRESS_H
 
 #include <array>
 #include <cstdint>
@@ -17,6 +13,8 @@
 #include <stddef.h>
 
 #include "domain/network/address_family.h"
+
+namespace domain {
 
 // ---------------------------------------------------------------------------
 // Inet4Address — lightweight IPv4 address value type.
@@ -231,4 +229,6 @@ private:
     VariantType addr_;
 };
 
-#endif  // YADDNSC_NETWORK_INET_ADDRESS_H
+}  // namespace domain
+
+#endif  // YADDNSC_DOMAIN_NETWORK_INET_ADDRESS_H

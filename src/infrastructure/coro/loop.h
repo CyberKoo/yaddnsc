@@ -12,18 +12,22 @@
 // pending bit and writes one byte, and the loop turns that into ordinary
 // coroutine resumptions.
 //
-// Home of the runtime's two synchronization points: the inbox mutex (worker ->
-// loop) and the offload pool's own submit queue. Nothing else in the runtime is
-// shared between threads.
+// The public surface here is what a caller owns and observes: the clock, the
+// stop flag, the cross-thread ingress and the offload worker count. Scheduling
+// and the timer/fd/signal registrations are private and reached through
+// detail::LoopAccess, because each one is an invariant of a node the runtime
+// owns — a registration that outlived its node, or a resumption that skipped
+// the ready queue, would break the loop rather than the caller's code.
 //
 // The offload pool is BS::thread_pool (rule 02, Reuse Protocol): it is already
 // a bundled dependency, so the runtime reuses it instead of hand-rolling a
-// worker pool. It is included here because this header names the pool type;
-// offload() is the only gateway business code gets to it.
+// worker pool. It stays behind the nested Pool declaration below, so the pool's
+// type never reaches a consumer of Task — offload() submits through
+// submit_offload() and only loop.cpp names BS.
 //
 
-#ifndef YADDNSC_CORO_LOOP_H
-#define YADDNSC_CORO_LOOP_H
+#ifndef YADDNSC_INFRASTRUCTURE_CORO_LOOP_H
+#define YADDNSC_INFRASTRUCTURE_CORO_LOOP_H
 
 #include <csignal>
 #include <cstddef>
@@ -36,40 +40,26 @@
 #include <vector>
 
 #include "infrastructure/coro/clock.h"
+#include "infrastructure/coro/detail/frame.h"
 #include "infrastructure/coro/fwd.h"
 #include "support/util/fd.hpp"
 
-#include "BS_thread_pool.hpp"
-
 namespace coro {
 
+namespace detail {
+struct TimerNode;
 struct WaitNode;
-
-/// Opaque fd-registration token returned by Loop::add_fd and consumed by
-/// Loop::remove_fd.
+struct LoopAccess;
 using FdToken = std::uint64_t;
-
-/// Entry in the loop's timer heap.
-///
-/// Lives inside the waiting frame; the loop stores only a pointer to it, so a
-/// timer must be removed (not merely abandoned) before that frame dies.
-/// `action` runs on the loop thread and must not throw.
-struct TimerNode {
-    TimePoint deadline{};
-    std::uint64_t sequence = 0;
-    std::size_t heap_index = 0;
-    bool in_heap = false;
-    void (*action)(void*) noexcept = nullptr;
-    void* context = nullptr;
-};
+}  // namespace detail
 
 /// The single-threaded event loop plus its cross-thread ingress.
 ///
-/// Thread safety: every member except post() and offload_pool() is loop-thread
-/// only — calling schedule(), the timer/fd/signal registration, or run() from
-/// another thread is a data race. post() is the single cross-thread entry point
-/// and is safe to call from any thread; it never runs the callback inline, it
-/// only enqueues it for the loop thread.
+/// Thread safety: every member except post() is loop-thread only — calling
+/// schedule(), the timer/fd/signal registration, or run() from another thread is
+/// a data race. post() is the single cross-thread entry point and is safe to
+/// call from any thread; it never runs the callback inline, it only enqueues it
+/// for the loop thread.
 ///
 /// Lifetime: a loop outlives every task started on it. run() returns once the
 /// root task has completed, at which point structured scopes guarantee that no
@@ -100,19 +90,15 @@ public:
     /// Ask run() to return after the current iteration. Loop thread only.
     void request_stop() noexcept { stopped_ = true; }
 
-    /// Enqueue a frame for resumption on the next drain. Loop thread only.
-    /// Never throws, never resumes inline: the caller keeps running.
-    void schedule(PromiseBase& frame) noexcept;
-
     /// Cross-thread ingress: enqueue a callback for the loop thread.
     /// Callable from any thread; the callback itself runs on the loop thread.
     /// Allocates, so it may throw std::bad_alloc.
     void post(std::function<void()> fn);
 
-    /// Worker pool for offload(); created on first use. Loop thread only.
-    /// The pool is owned by the loop and outlives every job, because offload
-    /// jobs report back through post().
-    [[nodiscard]] BS::thread_pool<>& offload_pool();
+    /// Worker count of the offload pool, creating the pool on first call.
+    /// Loop thread only; the pool is owned by the loop and outlives every job,
+    /// because offload jobs report back through post().
+    [[nodiscard]] unsigned offload_workers();
 
     /// Pool size when set_offload_workers() was never called:
     /// min(hardware_concurrency(), 4), at least 2. The cap keeps the pool from
@@ -124,36 +110,17 @@ public:
     /// Worker count for the lazily created pool; set before the first offload.
     void set_offload_workers(unsigned workers) noexcept;
 
-    /// Arm `timer` to fire `action(context)` at `deadline`. Loop thread only.
-    /// Allocates (heap growth), so it may throw std::bad_alloc; in that case
-    /// the timer is not armed.
-    void add_timer(TimerNode& timer, TimePoint deadline, void (*action)(void*) noexcept, void* context);
-    /// Disarm `timer`. Idempotent; the timer must still be alive.
-    void remove_timer(TimerNode& timer) noexcept;
-
-    /// Poll `fd` for `events`; `fn(context, revents)` runs on the loop thread.
-    /// Loop thread only; allocates.
-    ///
-    /// Returns a registration token. Removal takes the token, not the fd, so
-    /// two waiters on one fd (a TLS read waiting POLLIN while a write waits
-    /// POLLOUT, say) each unregister themselves without disturbing the other.
-    [[nodiscard]] FdToken add_fd(int fd, short events, void (*fn)(void*, short) noexcept, void* context);
-    /// Stop polling a registration made by add_fd(). Idempotent.
-    void remove_fd(FdToken token) noexcept;
-
-    /// Park `node` for signal `sig`; `*delivered` is latched when it fires.
-    /// Loop thread only; allocates. The caller keeps `node` and `delivered`
-    /// alive until it disarms (the node doubles as its scope waiter).
-    void arm_signal(int sig, WaitNode& node, bool* delivered);
-    /// Drop a parked signal waiter. Idempotent; safe from the node's on_cancel.
-    void disarm_signal(int sig, WaitNode& node) noexcept;
-
     /// Run until the root task completes. Runs on the calling thread.
     void run();
 
 private:
+    friend struct detail::LoopAccess;
+
+    /// The worker pool, defined in loop.cpp so its third-party type stops here.
+    class Pool;
+
     struct FdEntry {
-        FdToken token = 0;
+        detail::FdToken token = 0;
         int fd = -1;
         short events = 0;
         void (*fn)(void*, short) noexcept = nullptr;
@@ -161,10 +128,41 @@ private:
     };
 
     struct SignalWaiter {
-        PromiseBase* waiter = nullptr;
-        WaitNode* node = nullptr;
+        detail::PromiseBase* waiter = nullptr;
+        detail::WaitNode* node = nullptr;
         bool* delivered = nullptr;
     };
+
+    /// Enqueue a frame for resumption on the next drain. Never throws and never
+    /// resumes inline: the caller keeps running.
+    void schedule(detail::PromiseBase& frame) noexcept;
+
+    /// Hand a job to the pool, creating it on first use. Never refuses work.
+    void submit_offload(std::function<void()> job);
+
+    /// Arm `timer` to fire `action(context)` at `deadline`. Allocates (heap
+    /// growth), so it may throw std::bad_alloc; in that case the timer is not
+    /// armed. The caller owns `timer` and must remove it before it dies.
+    void add_timer(detail::TimerNode& timer, TimePoint deadline, void (*action)(void*) noexcept, void* context);
+    /// Disarm `timer`. Idempotent; the timer must still be alive.
+    void remove_timer(detail::TimerNode& timer) noexcept;
+
+    /// Poll `fd` for `events`; `fn(context, revents)` runs on the loop thread.
+    /// Allocates, so it may throw std::bad_alloc.
+    ///
+    /// Returns a registration token. Removal takes the token, not the fd, so
+    /// two waiters on one fd (a TLS read waiting POLLIN while a write waits
+    /// POLLOUT, say) each unregister themselves without disturbing the other.
+    [[nodiscard]] detail::FdToken add_fd(int fd, short events, void (*fn)(void*, short) noexcept, void* context);
+    /// Stop polling a registration made by add_fd(). Idempotent.
+    void remove_fd(detail::FdToken token) noexcept;
+
+    /// Park `node` for signal `sig`; `*delivered` is latched when it fires.
+    /// Allocates. The caller keeps `node` and `delivered` alive until it disarms
+    /// (the node doubles as its scope waiter).
+    void arm_signal(int sig, detail::WaitNode& node, bool* delivered);
+    /// Drop a parked signal waiter. Idempotent; safe from the node's on_cancel.
+    void disarm_signal(int sig, detail::WaitNode& node) noexcept;
 
     void open_self_pipe();
     void close_self_pipe() noexcept;
@@ -181,25 +179,25 @@ private:
     void wake() noexcept;
 
     // Timer heap: an indexed binary min-heap ordered by (deadline, sequence).
-    void heap_push(TimerNode& timer);
-    void heap_remove(TimerNode& timer) noexcept;
+    void heap_push(detail::TimerNode& timer);
+    void heap_remove(detail::TimerNode& timer) noexcept;
     void heap_sift_up(std::size_t index) noexcept;
     void heap_sift_down(std::size_t index) noexcept;
-    [[nodiscard]] TimerNode* heap_min() const noexcept;
-    [[nodiscard]] TimerNode* heap_pop() noexcept;
+    [[nodiscard]] detail::TimerNode* heap_min() const noexcept;
+    [[nodiscard]] detail::TimerNode* heap_pop() noexcept;
 
     Clock* clock_ = nullptr;
     SystemClock system_clock_{};
 
-    PromiseBase* ready_head_ = nullptr;
-    PromiseBase* ready_tail_ = nullptr;
+    detail::PromiseBase* ready_head_ = nullptr;
+    detail::PromiseBase* ready_tail_ = nullptr;
 
-    std::vector<TimerNode*> timers_;
+    std::vector<detail::TimerNode*> timers_;
     std::uint64_t timer_sequence_ = 0;
 
     std::vector<FdEntry> fds_;
     std::uint64_t fd_sequence_ = 0;
-    FdToken self_pipe_token_ = 0;
+    detail::FdToken self_pipe_token_ = 0;
     Utils::UniqueFd pipe_read_;
     Utils::UniqueFd pipe_write_;
 
@@ -209,19 +207,12 @@ private:
     std::vector<std::vector<SignalWaiter>> signal_waiters_;
     std::vector<std::pair<int, struct sigaction>> saved_signals_;
 
-    std::unique_ptr<BS::thread_pool<>> pool_;
+    std::unique_ptr<Pool> pool_;
     unsigned pool_workers_ = default_offload_workers();
 
     bool stopped_ = false;
 };
 
-/// Schedule a parked frame for resumption on its own loop.
-inline void wake(PromiseBase& frame) noexcept {
-    if (frame.loop != nullptr) {
-        frame.loop->schedule(frame);
-    }
-}
-
 }  // namespace coro
 
-#endif  // YADDNSC_CORO_LOOP_H
+#endif  // YADDNSC_INFRASTRUCTURE_CORO_LOOP_H

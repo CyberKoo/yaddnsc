@@ -1,7 +1,3 @@
-//
-// Created by Kotarou on 2022/4/11.
-//
-
 #include "dnspod.h"
 
 #include <map>

@@ -1,6 +1,3 @@
-//
-// Created by Kotarou on 2026/7/7.
-//
 // Unit tests for uri.h / uri.cpp — query parameter extraction.
 //
 // Verifies:
@@ -18,7 +15,7 @@
 
 #include <gtest/gtest.h>
 
-#include "infrastructure/net/http/uri.h"
+#include "infrastructure/uri/uri.h"
 
 // ===========================================================================
 // Query parameters — basic
@@ -76,6 +73,22 @@ TEST(UriQueryTest, PlusKeptWhenDisabled) {
     auto params = uri.get_query_params(false);
     ASSERT_EQ(params.size(), 1U);
     EXPECT_EQ(params[0].second, "hello+world");
+}
+
+TEST(UriQueryTest, EncodedPlusStaysPlus) {
+    // "%2B" is an encoded literal '+' — it must survive plus_to_space.
+    auto uri = Uri::parse("http://example.com?a=%2B").value();
+    auto params = uri.get_query_params(true);
+    ASSERT_EQ(params.size(), 1U);
+    EXPECT_EQ(params[0].second, "+");
+}
+
+TEST(UriQueryTest, EncodedPlusVsRawPlus) {
+    auto uri = Uri::parse("http://example.com?a=%2B&b=+").value();
+    auto params = uri.get_query_params(true);
+    ASSERT_EQ(params.size(), 2U);
+    EXPECT_EQ(params[0].second, "+");
+    EXPECT_EQ(params[1].second, " ");
 }
 
 TEST(UriQueryTest, PercentDecoded) {

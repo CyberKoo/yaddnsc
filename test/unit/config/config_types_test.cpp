@@ -2,8 +2,8 @@
 // Unit tests for config/config.h — Configuration data types.
 //
 // Verifies:
-//   - Config::IpSource enum values.
-//   - Config::ResolverStrategy enum values.
+//   - domain::IpSource enum values.
+//   - domain::ResolverStrategy enum values.
 //   - Config structs (DriverConfig, ResolverConfig, SubdomainConfig,
 //     DomainConfig, AppConfig) default values and aggregate initialisation.
 // =============================================================================
@@ -22,43 +22,43 @@
 #include "infrastructure/config/config.h"
 
 // ===========================================================================
-// Config::IpSource
+// domain::IpSource
 // ===========================================================================
 
 TEST(ConfigIpSourceTest, EnumeratorValues_Defined) {
-    EXPECT_EQ(static_cast<int>(Config::IpSource::INTERFACE), 0);
-    EXPECT_EQ(static_cast<int>(Config::IpSource::HTTP), 1);
-    EXPECT_EQ(static_cast<int>(Config::IpSource::MDNS), 2);
+    EXPECT_EQ(static_cast<int>(domain::IpSource::INTERFACE), 0);
+    EXPECT_EQ(static_cast<int>(domain::IpSource::HTTP), 1);
+    EXPECT_EQ(static_cast<int>(domain::IpSource::MDNS), 2);
 }
 
 TEST(ConfigIpSourceTest, IsEnumClass) {
-    EXPECT_TRUE((std::is_enum_v<Config::IpSource>) );
-    EXPECT_FALSE((std::is_convertible_v<Config::IpSource, int>) );
+    EXPECT_TRUE((std::is_enum_v<domain::IpSource>) );
+    EXPECT_FALSE((std::is_convertible_v<domain::IpSource, int>) );
 }
 
 TEST(ConfigIpSourceTest, DefaultIsInterface) {
-    Config::IpSource src{};
-    EXPECT_EQ(src, Config::IpSource::INTERFACE);
+    domain::IpSource src{};
+    EXPECT_EQ(src, domain::IpSource::INTERFACE);
 }
 
 // ===========================================================================
-// Config::ResolverStrategy
+// domain::ResolverStrategy
 // ===========================================================================
 
 TEST(ConfigResolverStrategyTest, EnumeratorValues_Defined) {
-    EXPECT_EQ(static_cast<int>(Config::ResolverStrategy::FALLBACK), 0);
-    EXPECT_EQ(static_cast<int>(Config::ResolverStrategy::CONCURRENT), 1);
-    EXPECT_EQ(static_cast<int>(Config::ResolverStrategy::SHUFFLE), 2);
+    EXPECT_EQ(static_cast<int>(domain::ResolverStrategy::FALLBACK), 0);
+    EXPECT_EQ(static_cast<int>(domain::ResolverStrategy::CONCURRENT), 1);
+    EXPECT_EQ(static_cast<int>(domain::ResolverStrategy::SHUFFLE), 2);
 }
 
 TEST(ConfigResolverStrategyTest, IsEnumClass) {
-    EXPECT_TRUE((std::is_enum_v<Config::ResolverStrategy>) );
-    EXPECT_FALSE((std::is_convertible_v<Config::ResolverStrategy, int>) );
+    EXPECT_TRUE((std::is_enum_v<domain::ResolverStrategy>) );
+    EXPECT_FALSE((std::is_convertible_v<domain::ResolverStrategy, int>) );
 }
 
 TEST(ConfigResolverStrategyTest, DefaultIsFallback) {
-    Config::ResolverStrategy s{};
-    EXPECT_EQ(s, Config::ResolverStrategy::FALLBACK);
+    domain::ResolverStrategy s{};
+    EXPECT_EQ(s, domain::ResolverStrategy::FALLBACK);
 }
 
 // ===========================================================================
@@ -94,20 +94,20 @@ TEST(ConfigResolverConfigTest, DefaultValues) {
     Config::ResolverConfig cfg{};
     EXPECT_FALSE(cfg.use_custom_servers);
     EXPECT_TRUE(cfg.servers.empty());
-    EXPECT_EQ(cfg.strategy, Config::ResolverStrategy::CONCURRENT);
+    EXPECT_EQ(cfg.strategy, domain::ResolverStrategy::CONCURRENT);
 }
 
 TEST(ConfigResolverConfigTest, AggregateInit) {
     Config::ResolverConfig cfg{
         .use_custom_servers = true,
         .servers = {{"8.8.8.8", 53}},
-        .strategy = Config::ResolverStrategy::FALLBACK,
+        .strategy = domain::ResolverStrategy::FALLBACK,
     };
     EXPECT_TRUE(cfg.use_custom_servers);
     ASSERT_EQ(cfg.servers.size(), 1U);
     EXPECT_EQ(cfg.servers[0].address, "8.8.8.8");
     EXPECT_EQ(cfg.servers[0].port, 53);
-    EXPECT_EQ(cfg.strategy, Config::ResolverStrategy::FALLBACK);
+    EXPECT_EQ(cfg.strategy, domain::ResolverStrategy::FALLBACK);
 }
 
 // ===========================================================================
@@ -132,18 +132,18 @@ TEST(ConfigSubdomainConfigTest, DefaultValues) {
 TEST(ConfigSubdomainConfigTest, AggregateInit) {
     Config::SubdomainConfig cfg{
         .name = "www",
-        .type = RecordKind::AAAA,
+        .type = domain::RecordKind::AAAA,
         .interface = "eth0",
-        .ip_source = Config::IpSource::MDNS,
+        .ip_source = domain::IpSource::MDNS,
         .ip_source_param = "printer.local",
         .allow_ula = true,
         .allow_local_link = false,
         .update_interval = 60,
     };
     EXPECT_EQ(cfg.name, "www");
-    EXPECT_EQ(cfg.type, RecordKind::AAAA);
+    EXPECT_EQ(cfg.type, domain::RecordKind::AAAA);
     EXPECT_EQ(cfg.interface, "eth0");
-    EXPECT_EQ(cfg.ip_source, Config::IpSource::MDNS);
+    EXPECT_EQ(cfg.ip_source, domain::IpSource::MDNS);
     EXPECT_EQ(cfg.ip_source_param, "printer.local");
     EXPECT_TRUE(cfg.allow_ula);
     EXPECT_FALSE(cfg.allow_local_link);
@@ -166,7 +166,7 @@ TEST(ConfigDomainConfigTest, DefaultValues) {
 TEST(ConfigDomainConfigTest, AggregateInit) {
     Config::SubdomainConfig sub{
         .name = "@",
-        .type = RecordKind::A,
+        .type = domain::RecordKind::A,
     };
 
     Config::DomainConfig cfg{

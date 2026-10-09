@@ -26,7 +26,8 @@
 | Internal contract / invariant violated | Assertion for diagnosis; explicit safe production failure policy where required. |
 | Failure aborts the current operation with no recovery responsibility inside its call chain | Exceptions may propagate to the designated operation boundary. |
 | Third-party or permitted deep internal implementation throws | Translate at the adapter/public module boundary into the documented error type. |
-| Plugin C ABI entry point | Catch escaping C++ exceptions and convert to ABI status/error data; no exceptions may cross the ABI. |
+| Cooperative cancellation | A control-flow exception outside the `std::exception` hierarchy, which only the responsible scope absorbs. See [Concurrency & I/O model](../docs/architecture.md#concurrency--io-model). |
+| Foreign-function boundary | Catch escaping C++ exceptions and convert to the boundary's status/error data. |
 
 - C++ result APIs **must** use `std::expected`, not new C-style status/`errno` conventions. C/system APIs and the plugin ABI **may** retain required status representations; adapters **must** preserve/capture their errors and translate as appropriate.
 - Results that callers must inspect **must** be `[[nodiscard]]`. `expected` exposes failure in the type but does not force handling or prevent propagation. `.value()` on an error result throws `std::bad_expected_access`; **normally** branch on the result before accessing it.
@@ -43,6 +44,7 @@
 
 ## Exception Discipline & Catch Block Rules
 
+- Cooperative cancellation **must not** be translated into an ordinary operational error value or logged as a defect. A `catch (...)` around cancellable work **must** rethrow the cancellation control exception explicitly, except where the responsible scope absorbs it or a foreign-function boundary converts it to that boundary's status. Cancellation stays sticky at subsequent checkpoints; shielding is permitted for cleanup.
 - `catch` **may** perform boundary error translation, final error presentation/logging, propagation logging, or necessary cleanup/rollback. **Prefer** RAII cleanup and logging once at the boundary that owns the diagnostic.
 - `catch` **must not** select business recovery strategies, retry, or fall back to another backend. Translate the error first; normal caller control flow decides recovery.
 - Translation **must** occur at a documented adapter, module API, operation, or ABI boundary, not arbitrary internal call sites. Mapping exception types to error categories is permitted; it is not a recovery strategy.
@@ -58,4 +60,4 @@ Project-owned functions **normally** return `expected` directly for caller-handl
 3. Per-level `expected` forwarding would add genuinely excessive mechanical propagation without handling logic.
 4. The boundary performs translation and optional diagnostics only, not retry/fallback.
 
-The DNS wire parser (`src/infrastructure/dns/parser.cpp`) is the established example: malformed packets abort parsing internally, and resolver boundaries expose an error value. The malformed packet is an external failure, not necessarily fatal to the process. **Prefer** direct `expected` for new shallow parsers such as `Uri::parse`; if intermediate levels need to handle failures, use native `expected` there.
+The project's established parser is the reference case for this pattern: its working example is recorded in [Layers](../docs/architecture.md#layers). Malformed packets abort parsing internally, and resolver boundaries expose an error value. The malformed packet is an external failure rather than a fatal condition for the process. **Prefer** direct `expected` for new shallow parsers; if intermediate levels need to handle failures, use native `expected` there.

@@ -9,39 +9,45 @@
 # modules that actually use them. No static-initialization registration
 # exists anywhere in the tree, so plain static archives link correctly.
 #
-# Stage 3 removed the legacy synchronous tree; the surviving transport-adjacent
-# codec, URI and CA-discovery units were migrated under src/infrastructure/net/.
+# The coroutine network module is grouped by responsibility under address/,
+# transport/ (including its detail/ helpers), tls/ and http/; the shared URI
+# codec has its own target.
 # ==============================================================================
 
 # Coroutine runtime core — the loop (poll fd table, timer heap, ready queue,
 # cross-thread inbox), Task<T>, structured scopes, cancellation combinators,
 # cancellable sleeps, AsyncMutex, offload and signals. The offload
 # pool is BS::thread_pool, reused rather than hand-rolled (see the pool note in
-# src/infrastructure/coro/loop.h). It is named in the module's loop.h, so
-# BS_thread_pool is PUBLIC here; spdlog is PRIVATE (loop.cpp trace
-# diagnostics); everything else is the standard library and POSIX.
+# src/infrastructure/coro/loop.h); it is named only inside Loop::Pool in
+# loop.cpp, so BS_thread_pool is PRIVATE and never reaches a consumer of Task.
+# spdlog is PRIVATE too (loop.cpp trace diagnostics); everything else is the
+# standard library and POSIX.
 add_library(yaddnsc_coro STATIC
     src/infrastructure/coro/cancel_scope.cpp
     src/infrastructure/coro/loop.cpp
 )
 yaddnsc_production_module(yaddnsc_coro)
-# PUBLIC: loop.h exposes the pool type that offload() submits to.
-target_link_libraries(yaddnsc_coro PUBLIC BS_thread_pool PRIVATE spdlog::spdlog)
+target_link_libraries(yaddnsc_coro PRIVATE BS_thread_pool spdlog::spdlog)
 
 # Coroutine transport layer — TCP, TLS, UDP, the sockaddr codec (SocketAddr),
 # the pre-built TLS trust context and CA discovery. Targets are already-resolved
 # InetAddress values; resolving a hostname is the resolver's business, not the
 # transport's. OpenSSL is PUBLIC because tls_context.h publishes the SSL_CTX
 # handle type.
+add_library(yaddnsc_uri STATIC
+    src/infrastructure/uri/uri.cpp
+)
+yaddnsc_production_module(yaddnsc_uri)
+target_link_libraries(yaddnsc_uri PUBLIC yaddnsc_domain)
+
 add_library(yaddnsc_net STATIC
-    src/infrastructure/net/detail/socket_ops.cpp
-    src/infrastructure/net/socket_addr.cpp
-    src/infrastructure/net/tcp_stream.cpp
-    src/infrastructure/net/tls_stream.cpp
-    src/infrastructure/net/tls_context.cpp
-    src/infrastructure/net/udp_socket.cpp
-    src/infrastructure/net/tls/cert_util.cpp
-    src/infrastructure/net/http/uri.cpp
+    src/infrastructure/network/transport/socket_ops.cpp
+    src/infrastructure/network/address/socket_addr.cpp
+    src/infrastructure/network/transport/tcp_stream.cpp
+    src/infrastructure/network/tls/stream.cpp
+    src/infrastructure/network/tls/context.cpp
+    src/infrastructure/network/transport/udp_socket.cpp
+    src/infrastructure/network/tls/cert_util.cpp
 )
 yaddnsc_production_module(yaddnsc_net)
 target_link_libraries(yaddnsc_net
@@ -49,32 +55,49 @@ target_link_libraries(yaddnsc_net
     PRIVATE spdlog::spdlog yaddnsc_fmt
 )
 
-# Coroutine application protocols — the HTTP client, the URI codec and the DNS
-# subsystem. They share one archive because they are mutually dependent:
-# resolving a URL host needs the DNS bootstrap resolver, and DoH/DoT are DNS
-# resolvers built on the HTTP client and on the TLS stream.
-add_library(yaddnsc_coro_io STATIC
-    src/infrastructure/net/stream.cpp
-    src/infrastructure/net/http/protocol/wire.cpp
-    src/infrastructure/net/http/protocol/exchange.cpp
-    src/infrastructure/net/http/wire_request.cpp
-    src/infrastructure/net/http/redirect.cpp
-    src/infrastructure/net/http/transport.cpp
-    src/infrastructure/net/http/session.cpp
-    src/infrastructure/net/http/client.cpp
-    src/infrastructure/net/http/persistent_client.cpp
+# Low-level DNS exchange and bootstrap lookup. HTTP uses this to resolve URL
+# hosts; keeping it below both HTTP and the full DNS resolver avoids a target
+# cycle when DoH is built on the HTTP client.
+add_library(yaddnsc_dns_bootstrap STATIC
     src/infrastructure/dns/exchange.cpp
-    src/infrastructure/dns/bootstrap.cpp
-    src/infrastructure/dns/classic.cpp
-    src/infrastructure/dns/dot.cpp
-    src/infrastructure/dns/doh.cpp
+    src/infrastructure/dns/bootstrap/bootstrap.cpp
+)
+yaddnsc_production_module(yaddnsc_dns_bootstrap)
+target_link_libraries(yaddnsc_dns_bootstrap
+    PUBLIC yaddnsc_net yaddnsc_domain
+    PRIVATE yaddnsc_dns_classic spdlog::spdlog magic_enum yaddnsc_fmt
+)
+
+# Coroutine HTTP client and protocol implementation.
+add_library(yaddnsc_http STATIC
+    src/infrastructure/network/transport/stream.cpp
+    src/infrastructure/http/protocol/wire.cpp
+    src/infrastructure/http/protocol/exchange.cpp
+    src/infrastructure/http/wire_request.cpp
+    src/infrastructure/http/redirect.cpp
+    src/infrastructure/http/transport.cpp
+    src/infrastructure/http/session.cpp
+    src/infrastructure/http/client.cpp
+    src/infrastructure/http/persistent_client.cpp
+)
+yaddnsc_production_module(yaddnsc_http)
+target_link_libraries(yaddnsc_http
+    PUBLIC yaddnsc_net yaddnsc_uri yaddnsc_domain yaddnsc_dns_bootstrap
+    PRIVATE picohttpparser spdlog::spdlog yaddnsc_fmt
+)
+
+# Full coroutine DNS resolvers, including DoH (built on yaddnsc_http).
+add_library(yaddnsc_coro_dns STATIC
+    src/infrastructure/dns/resolver/classic.cpp
+    src/infrastructure/dns/resolver/dot.cpp
+    src/infrastructure/dns/resolver/doh.cpp
     src/infrastructure/dns/dispatcher.cpp
     src/infrastructure/dns/factory.cpp
 )
-yaddnsc_production_module(yaddnsc_coro_io)
-target_link_libraries(yaddnsc_coro_io
-    PUBLIC yaddnsc_net yaddnsc_domain
-    PRIVATE yaddnsc_dns_classic picohttpparser spdlog::spdlog magic_enum yaddnsc_fmt
+yaddnsc_production_module(yaddnsc_coro_dns)
+target_link_libraries(yaddnsc_coro_dns
+    PUBLIC yaddnsc_http yaddnsc_dns_bootstrap yaddnsc_uri yaddnsc_domain
+    PRIVATE yaddnsc_dns_classic spdlog::spdlog magic_enum yaddnsc_fmt
 )
 
 # Domain layer — pure rules and value types (no I/O, threading, or clock reads).
@@ -91,13 +114,13 @@ yaddnsc_production_module(yaddnsc_domain)
 # Domain has no third-party or infrastructure dependency.
 
 # Classic DNS wire logic — wire format, response parser/validator and the
-# resolv.conf reader. No sockets: the coroutine exchanges live in
-# yaddnsc_coro_io.
+# resolv.conf reader. The coroutine exchanges and bootstrap lookup are in
+# yaddnsc_dns_bootstrap.
 add_library(yaddnsc_dns_classic STATIC
     src/infrastructure/dns/validator.cpp
     src/infrastructure/dns/parser.cpp
     src/infrastructure/dns/wire/builder.cpp
-    src/infrastructure/dns/resolv_conf.cpp
+    src/infrastructure/dns/bootstrap/resolv_conf.cpp
 )
 yaddnsc_production_module(yaddnsc_dns_classic)
 target_link_libraries(yaddnsc_dns_classic
@@ -135,9 +158,9 @@ add_library(yaddnsc_config_infrastructure STATIC
 )
 yaddnsc_production_module(yaddnsc_config_infrastructure)
 # config/config.h exposes glaze types in its interface; the static validator
-# uses the URI codec for resolver-address checks.
+# uses the lightweight URI codec for resolver-address checks.
 target_link_libraries(yaddnsc_config_infrastructure
-    PUBLIC yaddnsc_domain yaddnsc_net glaze::glaze yaddnsc_fmt
+    PUBLIC yaddnsc_domain yaddnsc_uri glaze::glaze yaddnsc_fmt
     PRIVATE spdlog::spdlog
 )
 
@@ -177,7 +200,7 @@ add_library(yaddnsc_coro_plugin STATIC
 yaddnsc_production_module(yaddnsc_coro_plugin)
 target_link_libraries(yaddnsc_coro_plugin
     PUBLIC yaddnsc_plugin_infrastructure
-    PRIVATE yaddnsc_coro_io yaddnsc_net spdlog::spdlog yaddnsc_fmt
+    PRIVATE yaddnsc_http yaddnsc_net spdlog::spdlog yaddnsc_fmt
 )
 
 # Coroutine application layer — the per-subdomain scheduling coroutines, the run
@@ -185,9 +208,9 @@ target_link_libraries(yaddnsc_coro_plugin
 # the coroutine runtime and the domain layer only; it names application ports,
 # never a concrete infrastructure type.
 add_library(yaddnsc_coro_application STATIC
-    src/application/update_once.cpp
+    src/application/run_update_cycle.cpp
     src/application/subdomain_loop.cpp
-    src/application/run_scheduler.cpp
+    src/application/run_root.cpp
 )
 yaddnsc_production_module(yaddnsc_coro_application)
 target_link_libraries(yaddnsc_coro_application
@@ -206,7 +229,7 @@ add_library(yaddnsc_coro_ip_source STATIC
 )
 yaddnsc_production_module(yaddnsc_coro_ip_source)
 target_link_libraries(yaddnsc_coro_ip_source
-    PUBLIC yaddnsc_domain yaddnsc_coro_io yaddnsc_coro
+    PUBLIC yaddnsc_domain yaddnsc_coro_dns yaddnsc_coro
     PRIVATE yaddnsc_ip_source_infrastructure spdlog::spdlog yaddnsc_fmt
 )
 
@@ -239,12 +262,15 @@ add_library(yaddnsc_cli_adapter STATIC
 yaddnsc_production_module(yaddnsc_cli_adapter)
 target_link_libraries(yaddnsc_cli_adapter
     PUBLIC yaddnsc_application
-    PRIVATE CLI11::CLI11 magic_enum yaddnsc_fmt
+    PRIVATE CLI11::CLI11 magic_enum yaddnsc_fmt yaddnsc_net yaddnsc_uri
 )
 
 # Composition root — assembles concrete dependencies and dispatches commands.
 add_library(yaddnsc_composition STATIC
     src/composition/bootstrap.cpp
+    src/composition/assembly.cpp
+    src/composition/commands/run.cpp
+    src/composition/commands/diagnostics.cpp
 )
 yaddnsc_production_module(yaddnsc_composition)
 target_link_libraries(yaddnsc_composition
@@ -253,6 +279,7 @@ target_link_libraries(yaddnsc_composition
         yaddnsc_application
         yaddnsc_config_infrastructure
         yaddnsc_dns_classic
+        yaddnsc_coro_dns
         yaddnsc_ip_source_infrastructure
         yaddnsc_plugin_infrastructure
         yaddnsc_plugin_loader_adapter

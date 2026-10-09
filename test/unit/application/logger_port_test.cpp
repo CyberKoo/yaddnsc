@@ -1,62 +1,36 @@
 //
-// Unit tests for the Logger port default behaviour (src/application/ports/log.h).
+// LoggerPort default behaviour: log_explicit() forwards the record to log()
+// using the host location inside the default implementation. The recording
+// double inherits that default so the test checks its location as well.
 //
-// The port declares two virtual overloads: log() (source_location captured at
-// the call site) and log_explicit() (plain-data location from a driver plugin
-// logging through Host Services). The default log_explicit() drops the
-// explicit location and forwards to log() with a synthesized one — a Logger
-// implementation that does not override it (e.g. a minimal test double, or a
-// plugin-host logger that only implements log()) must still emit the record.
-// =============================================================================
 
 #include <string>
 #include <string_view>
-#include <vector>
 
 #include <gtest/gtest.h>
 
 #include "application/ports/log.h"
+#include "mocks/recording_logger.h"
 
-namespace {
-
-struct RecordedRecord {
-    LogLevel level;
-    std::string message;
-};
-
-/// Records every record. Deliberately does NOT override log_explicit() so the
-/// base-class default (forward to log() with a synthesized location) runs.
-class RecordingLogger final : public Logger {
-public:
-    [[nodiscard]] bool is_enabled(LogLevel) const override { return true; }
-
-    void log(LogLevel level, std::string_view message, const std::source_location&) const override {
-        records_.push_back(RecordedRecord{level, std::string(message)});
-    }
-
-    [[nodiscard]] const std::vector<RecordedRecord>& records() const { return records_; }
-
-private:
-    mutable std::vector<RecordedRecord> records_;
-};
-
-}  // namespace
-
-TEST(LoggerPortTest, DefaultLogExplicitForwardsLevelAndMessageToLog) {
+TEST(LoggerPortTest, LogExplicit_Default_ReplacesLocationAndPreservesRecord) {
     RecordingLogger logger;
 
-    logger.log_explicit(LogLevel::WARN, "via default explicit", "plugin.cpp", 7, "update");
+    logger.log_explicit(app::LogLevel::WARN, "via default explicit", "plugin.cpp", 7, "update");
 
     ASSERT_EQ(logger.records().size(), 1u);
-    EXPECT_EQ(logger.records()[0].level, LogLevel::WARN);
+    EXPECT_EQ(logger.records()[0].level, app::LogLevel::WARN);
     EXPECT_EQ(logger.records()[0].message, "via default explicit");
+    const auto& record = logger.records()[0];
+    EXPECT_TRUE(std::string_view(record.file).ends_with("application/ports/log.h"));
+    EXPECT_GT(record.line, 0);
+    EXPECT_NE(record.function.find("log_explicit"), std::string::npos);
 }
 
-TEST(LoggerPortTest, IsEnabledDrivesYlogMacroFormatting) {
+TEST(LoggerPortTest, Ylog_Enabled_FormatsMessage) {
     RecordingLogger logger;
     // The level is enabled, so the YLOG_* macro formats and emits...
     YLOG_WARN(logger, "formatted {}", 42);
     ASSERT_EQ(logger.records().size(), 1u);
-    EXPECT_EQ(logger.records()[0].level, LogLevel::WARN);
+    EXPECT_EQ(logger.records()[0].level, app::LogLevel::WARN);
     EXPECT_EQ(logger.records()[0].message, "formatted 42");
 }

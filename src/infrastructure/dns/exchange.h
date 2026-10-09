@@ -6,8 +6,8 @@
 // stays with the caller. These helpers own the socket work and nothing else.
 //
 
-#ifndef YADDNSC_DNS_EXCHANGE_H
-#define YADDNSC_DNS_EXCHANGE_H
+#ifndef YADDNSC_INFRASTRUCTURE_DNS_EXCHANGE_H
+#define YADDNSC_INFRASTRUCTURE_DNS_EXCHANGE_H
 
 #include <cstdint>
 #include <span>
@@ -25,18 +25,18 @@ namespace dns::detail {
 ///
 /// A datagram from any other address or port is ignored. Opens an ephemeral
 /// socket per call. Cancellation (including a deadline enforced by the caller's
-/// cancel scope) surfaces as DnsError::CANCELLED; a socket failure is
+/// cancel scope) surfaces as `coro::Cancelled`; a socket failure is
 /// DnsError::CONNECTION.
-[[nodiscard]] coro::Task<std::expected<std::vector<std::uint8_t>, DnsErrorInfo>> query_udp(
-    InetAddress server, std::uint16_t port, std::span<const std::uint8_t> query);
+[[nodiscard]] coro::Task<std::expected<std::vector<std::uint8_t>, domain::DnsErrorInfo>> query_udp(
+    domain::InetAddress server, std::uint16_t port, std::span<const std::uint8_t> query);
 
 /// Send `query` over TCP with the two-byte length prefix and return the answer.
 ///
 /// Opens a fresh connection per call. Failures map as above; a length prefix
 /// outside the classic limit is DnsError::PARSE.
-[[nodiscard]] coro::Task<std::expected<std::vector<std::uint8_t>, DnsErrorInfo>> query_tcp(
-    InetAddress server, std::uint16_t port, std::span<const std::uint8_t> query);
+[[nodiscard]] coro::Task<std::expected<std::vector<std::uint8_t>, domain::DnsErrorInfo>> query_tcp(
+    domain::InetAddress server, std::uint16_t port, std::span<const std::uint8_t> query);
 
 }  // namespace dns::detail
 
-#endif  // YADDNSC_DNS_EXCHANGE_H
+#endif  // YADDNSC_INFRASTRUCTURE_DNS_EXCHANGE_H

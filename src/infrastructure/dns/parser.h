@@ -1,11 +1,8 @@
-//
-// Created by Kotarou on 2026/7/7.
-//
 // Self-contained DNS wire-format parser (RFC 1035).
 //
 
-#ifndef YADDNSC_DNS_PARSER_H
-#define YADDNSC_DNS_PARSER_H
+#ifndef YADDNSC_INFRASTRUCTURE_DNS_PARSER_H
+#define YADDNSC_INFRASTRUCTURE_DNS_PARSER_H
 
 #include <cstddef>
 #include <cstdint>
@@ -113,4 +110,4 @@ private:
 };
 }  // namespace dns
 
-#endif  // YADDNSC_DNS_PARSER_H
+#endif  // YADDNSC_INFRASTRUCTURE_DNS_PARSER_H

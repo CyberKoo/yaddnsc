@@ -1,7 +1,3 @@
-//
-// Created by Kotarou on 2026/9/17.
-//
-
 /// Loader-rejection fixture: exports all four entry points but the descriptor
 /// carries the wrong magic number — the loader must reject it as "not a valid
 /// yaddnsc driver" before ever looking at the revision.

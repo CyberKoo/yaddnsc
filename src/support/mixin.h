@@ -1,7 +1,3 @@
-//
-// Created by Kotarou on 2022/5/19.
-//
-
 #ifndef YADDNSC_SUPPORT_MIXIN_H
 #define YADDNSC_SUPPORT_MIXIN_H
 

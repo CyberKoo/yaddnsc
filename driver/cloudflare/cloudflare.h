@@ -1,7 +1,3 @@
-//
-// Created by Kotarou on 2022/4/5.
-//
-
 #ifndef YADDNSC_DRV_CLOUDFLARE_CLOUDFLARE_H
 #define YADDNSC_DRV_CLOUDFLARE_CLOUDFLARE_H
 

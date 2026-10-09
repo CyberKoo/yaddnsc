@@ -2,8 +2,8 @@
 // dns — Dispatcher as an application ResolverPort.
 //
 
-#ifndef YADDNSC_DNS_RESOLVER_PORT_H
-#define YADDNSC_DNS_RESOLVER_PORT_H
+#ifndef YADDNSC_INFRASTRUCTURE_DNS_RESOLVER_PORT_H
+#define YADDNSC_INFRASTRUCTURE_DNS_RESOLVER_PORT_H
 
 #include <string>
 #include <utility>
@@ -26,8 +26,8 @@ class DispatcherResolverPort final : public app::ResolverPort {
 public:
     explicit DispatcherResolverPort(Dispatcher& dispatcher) noexcept : dispatcher_(dispatcher) {}
 
-    [[nodiscard]] coro::Task<std::expected<std::vector<std::string>, DnsErrorInfo>> resolve(
-        std::string host, RecordKind type) override {
+    [[nodiscard]] coro::Task<std::expected<std::vector<std::string>, domain::DnsErrorInfo>> resolve(
+        std::string host, domain::RecordKind type) override {
         co_return co_await dispatcher_.resolve(std::move(host), type);
     }
 
@@ -37,4 +37,4 @@ private:
 
 }  // namespace dns
 
-#endif  // YADDNSC_DNS_RESOLVER_PORT_H
+#endif  // YADDNSC_INFRASTRUCTURE_DNS_RESOLVER_PORT_H

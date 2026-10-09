@@ -2,8 +2,8 @@
 // plugin — the coroutine driver gateway over the v1 alpha C ABI plugin host.
 //
 
-#ifndef YADDNSC_PLUGIN_DRIVER_GATEWAY_H
-#define YADDNSC_PLUGIN_DRIVER_GATEWAY_H
+#ifndef YADDNSC_INFRASTRUCTURE_PLUGIN_DRIVER_GATEWAY_H
+#define YADDNSC_INFRASTRUCTURE_PLUGIN_DRIVER_GATEWAY_H
 
 #include <chrono>
 #include <memory>
@@ -14,11 +14,14 @@
 #include "application/ports.h"
 #include "domain/error/error.h"
 #include "infrastructure/coro/task.hpp"
-#include "infrastructure/net/http/types.h"
+#include "infrastructure/http/types.h"
 #include "infrastructure/plugin/bridge.h"
 
 class DriverCatalog;
-class Logger;
+
+namespace app {
+class LoggerPort;
+}
 
 namespace coro {
 class Loop;
@@ -64,9 +67,10 @@ public:
     ///                      coroutines; the application binds its root group
     ///                      here so bridge work is never detached.
     /// @param options       Exchange policy.
-    DriverGateway(const DriverCatalog& catalog, const Logger& logger, coro::Loop& loop, coro::TaskGroup& bridge_group);
-    DriverGateway(const DriverCatalog& catalog, const Logger& logger, coro::Loop& loop, coro::TaskGroup& bridge_group,
-                  Options options);
+    DriverGateway(const DriverCatalog& catalog, const app::LoggerPort& logger, coro::Loop& loop,
+                  coro::TaskGroup& bridge_group);
+    DriverGateway(const DriverCatalog& catalog, const app::LoggerPort& logger, coro::Loop& loop,
+                  coro::TaskGroup& bridge_group, Options options);
 
     DriverGateway(const DriverGateway&) = delete;
     DriverGateway& operator=(const DriverGateway&) = delete;
@@ -79,11 +83,11 @@ public:
     ///
     /// Failure: DriverError values; a defect (allocation, a host bug) escapes as
     /// an exception. Cancellation: the awaiting scope abandons the call — this
-    /// returns CANCELLED while a cycle that already started runs to completion
+    /// throws coro::Cancelled while a cycle that already started runs to completion
     /// on the worker; a cycle not yet started is dropped and never enters the
     /// driver.
-    [[nodiscard]] coro::Task<std::expected<void, domain::DriverError>> update(std::string driver_name,
-                                                                              domain::DriverUpdateCommand command) override;
+    [[nodiscard]] coro::Task<std::expected<void, domain::DriverError>> update(
+        std::string driver_name, domain::DriverUpdateCommand command) override;
 
     /// Validate one subdomain's driver_params JSON against the driver's schema
     /// without performing an update (the host's `config test` path). Runs the
@@ -91,18 +95,18 @@ public:
     /// yaddnsc_driver_validate entry stays optional: a plugin that omits it
     /// still loads and can update, but this call fails because the host cannot
     /// confirm driver_params.
-    [[nodiscard]] coro::Task<std::expected<void, domain::DriverError>> validate_config(std::string driver_name,
-                                                                                       std::string driver_param_json);
+    [[nodiscard]] coro::Task<std::expected<void, domain::DriverError>> validate_config(
+        std::string driver_name, std::string driver_param_json) override;
 
     /// The host-service HTTP bridge. Borrowed; lives as long as the gateway.
     [[nodiscard]] Bridge& bridge() noexcept { return *bridge_; }
 
 private:
     const DriverCatalog& catalog_;
-    const Logger& logger_;
+    const app::LoggerPort& logger_;
     std::shared_ptr<Bridge> bridge_;
 };
 
 }  // namespace plugin
 
-#endif  // YADDNSC_PLUGIN_DRIVER_GATEWAY_H
+#endif  // YADDNSC_INFRASTRUCTURE_PLUGIN_DRIVER_GATEWAY_H

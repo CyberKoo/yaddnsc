@@ -1,7 +1,3 @@
-//
-// Created by Kotarou on 2026/9/17.
-//
-
 #include "driver_catalog.h"
 
 #include <algorithm>
@@ -85,9 +81,13 @@ std::vector<std::string> DriverCatalog::loaded_drivers() const {
     return get_loaded_drivers();
 }
 
-DriverDescription DriverCatalog::describe(std::string_view name) const {
-    const auto& descriptor = get_descriptor(name);
-    return DriverDescription{
+std::expected<app::DriverDescription, domain::DriverError> DriverCatalog::describe(std::string_view name) const {
+    const auto module = find(name);
+    if (!module) {
+        return std::unexpected(domain::DriverError{domain::DriverError::Code::NOT_FOUND, {}});
+    }
+    const auto& descriptor = module->descriptor();
+    return app::DriverDescription{
         .name = descriptor.name,
         .version = descriptor.version,
         .author = descriptor.author,

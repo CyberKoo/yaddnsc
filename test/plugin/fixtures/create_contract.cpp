@@ -1,7 +1,3 @@
-//
-// Created by Kotarou on 2026/9/30.
-//
-
 /// Loader fixture for the create() handle contract.
 ///
 /// create_contract_set_mode:

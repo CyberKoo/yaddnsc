@@ -93,13 +93,13 @@ using dns::Strategy;
 
 /// One scripted reply: an error, a response, and an optional delay.
 struct FakeStep {
-    DnsErrorInfo error{};
+    domain::DnsErrorInfo error{};
     std::vector<std::uint8_t> response{};
     std::chrono::milliseconds delay{};
 };
 
 /// A scripted failure reply.
-[[nodiscard]] FakeStep error_step(DnsError code, std::string message, std::chrono::milliseconds delay = {}) {
+[[nodiscard]] FakeStep error_step(domain::DnsError code, std::string message, std::chrono::milliseconds delay = {}) {
     FakeStep step;
     step.error = {code, std::move(message)};
     step.delay = delay;
@@ -121,18 +121,15 @@ public:
 
     FakeResolver(std::string name, std::vector<Step> script) : name_(std::move(name)), script_(std::move(script)) {}
 
-    [[nodiscard]] coro::Task<std::expected<std::vector<std::uint8_t>, DnsErrorInfo>> query(std::string host,
-                                                                                           RecordKind kind) override {
+    [[nodiscard]] coro::Task<std::expected<std::vector<std::uint8_t>, domain::DnsErrorInfo>> query(
+        std::string host, domain::RecordKind kind) override {
         (void) host;
         (void) kind;
         ++calls_;
         const auto index = std::min(static_cast<std::size_t>(calls_ - 1), script_.size() - 1);
         const Step& step = script_[index];
         if (step.delay.count() > 0) {
-            const auto slept = co_await coro::sleep_for(step.delay);
-            if (!slept.has_value()) {
-                co_return std::unexpected(DnsErrorInfo{DnsError::CANCELLED, "fake resolver cancelled"});
-            }
+            co_await coro::sleep_for(step.delay);
         }
         if (!step.response.empty()) {
             co_return step.response;
@@ -151,11 +148,10 @@ private:
 };
 
 /// Resolve through a dispatcher inside a fresh loop.
-[[nodiscard]] std::expected<std::vector<std::string>, DnsErrorInfo> run_query(dns::Dispatcher& dispatcher,
-                                                                              std::string host = "yaddnsc.test",
-                                                                              const std::uint32_t max_retries = 1) {
-    return coro::run([&]() -> coro::Task<std::expected<std::vector<std::string>, DnsErrorInfo>> {
-        co_return co_await dispatcher.resolve(std::move(host), RecordKind::A, max_retries);
+[[nodiscard]] std::expected<std::vector<std::string>, domain::DnsErrorInfo> run_query(
+    dns::Dispatcher& dispatcher, std::string host = "yaddnsc.test", const std::uint32_t max_retries = 1) {
+    return coro::run([&]() -> coro::Task<std::expected<std::vector<std::string>, domain::DnsErrorInfo>> {
+        co_return co_await dispatcher.resolve(std::move(host), domain::RecordKind::A, max_retries);
     }());
 }
 
@@ -190,8 +186,8 @@ private:
 
 TEST(DnsDispatcher, singleResolver_retryableFailureThenAnswer_RetriesOnce) {
     Fakes fakes;
-    [[maybe_unused]] FakeResolver& resolver =
-        fakes.add("only", {error_step(DnsError::RETRY, "servfail"), response_step(a_response("yaddnsc.test", 42))});
+    [[maybe_unused]] FakeResolver& resolver = fakes.add(
+        "only", {error_step(domain::DnsError::RETRY, "servfail"), response_step(a_response("yaddnsc.test", 42))});
     dns::Dispatcher dispatcher{fakes.take(), Strategy::FALLBACK};
 
     const auto result = run_query(dispatcher, "yaddnsc.test", 1);
@@ -203,25 +199,26 @@ TEST(DnsDispatcher, singleResolver_retryableFailureThenAnswer_RetriesOnce) {
 
 TEST(DnsDispatcher, singleResolver_definitiveParseError_IsNotRetried) {
     Fakes fakes;
-    [[maybe_unused]] FakeResolver& resolver = fakes.add("only", {error_step(DnsError::PARSE, "malformed")});
+    [[maybe_unused]] FakeResolver& resolver = fakes.add("only", {error_step(domain::DnsError::PARSE, "malformed")});
     dns::Dispatcher dispatcher{fakes.take(), Strategy::FALLBACK};
 
     const auto result = run_query(dispatcher, "yaddnsc.test", 3);
 
     ASSERT_FALSE(result.has_value());
-    EXPECT_EQ(result.error().code, DnsError::PARSE);
+    EXPECT_EQ(result.error().code, domain::DnsError::PARSE);
     EXPECT_EQ(resolver.calls(), 1);  // no retry for a definitive error
 }
 
 TEST(DnsDispatcher, singleResolver_retriesExhausted_ReportsTheLastError) {
     Fakes fakes;
-    [[maybe_unused]] FakeResolver& resolver = fakes.add("only", {error_step(DnsError::CONNECTION, "unreachable")});
+    [[maybe_unused]] FakeResolver& resolver =
+        fakes.add("only", {error_step(domain::DnsError::CONNECTION, "unreachable")});
     dns::Dispatcher dispatcher{fakes.take(), Strategy::FALLBACK};
 
     const auto result = run_query(dispatcher, "yaddnsc.test", 2);
 
     ASSERT_FALSE(result.has_value());
-    EXPECT_EQ(result.error().code, DnsError::CONNECTION);
+    EXPECT_EQ(result.error().code, domain::DnsError::CONNECTION);
     EXPECT_EQ(resolver.calls(), 3);  // initial attempt plus two retries
 }
 
@@ -245,7 +242,7 @@ TEST(DnsDispatcher, fallback_firstBackendAnswers_StopsThere) {
 
 TEST(DnsDispatcher, fallback_transientFailure_MovesToTheNextBackend) {
     Fakes fakes;
-    [[maybe_unused]] FakeResolver& first = fakes.add("first", {error_step(DnsError::CONNECTION, "down")});
+    [[maybe_unused]] FakeResolver& first = fakes.add("first", {error_step(domain::DnsError::CONNECTION, "down")});
     [[maybe_unused]] FakeResolver& second = fakes.add("second", {response_step(a_response("yaddnsc.test", 42))});
     dns::Dispatcher dispatcher{fakes.take(), Strategy::FALLBACK};
 
@@ -265,13 +262,13 @@ TEST(DnsDispatcher, fallback_nxdomain_StopsTheSearch) {
     const auto result = run_query(dispatcher);
 
     ASSERT_FALSE(result.has_value());
-    EXPECT_EQ(result.error().code, DnsError::NX_DOMAIN);
+    EXPECT_EQ(result.error().code, domain::DnsError::NX_DOMAIN);
     EXPECT_EQ(second.calls(), 0);  // the name does not exist, so no other backend is asked
 }
 
 TEST(DnsDispatcher, shuffle_transientThenAnswer_StillResolves) {
     Fakes fakes;
-    [[maybe_unused]] FakeResolver& first = fakes.add("first", {error_step(DnsError::RETRY, "later")});
+    [[maybe_unused]] FakeResolver& first = fakes.add("first", {error_step(domain::DnsError::RETRY, "later")});
     [[maybe_unused]] FakeResolver& second = fakes.add("second", {response_step(a_response("yaddnsc.test", 42))});
     dns::Dispatcher dispatcher{fakes.take(), Strategy::SHUFFLE};
 
@@ -302,20 +299,22 @@ TEST(DnsDispatcher, concurrent_definitiveErrorSurvivesALaterTransientOne) {
     // The transient failure lands first; the definitive PARSE must not be
     // downgraded by it, whichever order the race completes in.
     Fakes fakes;
-    [[maybe_unused]] FakeResolver& transient = fakes.add("transient", {error_step(DnsError::RETRY, "servfail", 1ms)});
+    [[maybe_unused]] FakeResolver& transient =
+        fakes.add("transient", {error_step(domain::DnsError::RETRY, "servfail", 1ms)});
     [[maybe_unused]] FakeResolver& definitive =
-        fakes.add("definitive", {error_step(DnsError::PARSE, "malformed", 20ms)});
+        fakes.add("definitive", {error_step(domain::DnsError::PARSE, "malformed", 20ms)});
     dns::Dispatcher dispatcher{fakes.take(), Strategy::CONCURRENT};
 
     const auto result = run_query(dispatcher);
 
     ASSERT_FALSE(result.has_value());
-    EXPECT_EQ(result.error().code, DnsError::PARSE);
+    EXPECT_EQ(result.error().code, domain::DnsError::PARSE);
 }
 
 TEST(DnsDispatcher, concurrent_nxdomainPreferredOverTransient) {
     Fakes fakes;
-    [[maybe_unused]] FakeResolver& transient = fakes.add("transient", {error_step(DnsError::RETRY, "servfail", 1ms)});
+    [[maybe_unused]] FakeResolver& transient =
+        fakes.add("transient", {error_step(domain::DnsError::RETRY, "servfail", 1ms)});
     [[maybe_unused]] FakeResolver& missing =
         fakes.add("missing", {response_step(nxdomain_response("yaddnsc.test"), 20ms)});
     dns::Dispatcher dispatcher{fakes.take(), Strategy::CONCURRENT};
@@ -323,7 +322,7 @@ TEST(DnsDispatcher, concurrent_nxdomainPreferredOverTransient) {
     const auto result = run_query(dispatcher);
 
     ASSERT_FALSE(result.has_value());
-    EXPECT_EQ(result.error().code, DnsError::NX_DOMAIN);
+    EXPECT_EQ(result.error().code, domain::DnsError::NX_DOMAIN);
 }
 
 TEST(DnsDispatcher, concurrent_beyondThree_RefillsFreedSlots) {
@@ -331,7 +330,7 @@ TEST(DnsDispatcher, concurrent_beyondThree_RefillsFreedSlots) {
     // each failure frees its slot, so the fourth backend launches and answers.
     Fakes fakes;
     for (int i = 0; i < 3; ++i) {
-        (void) fakes.add("down" + std::to_string(i), {error_step(DnsError::RETRY, "down")});
+        (void) fakes.add("down" + std::to_string(i), {error_step(domain::DnsError::RETRY, "down")});
     }
     FakeResolver& answers = fakes.add("answers", {response_step(a_response("yaddnsc.test", 7))});
     dns::Dispatcher dispatcher{fakes.take(), Strategy::CONCURRENT};
@@ -348,9 +347,9 @@ TEST(DnsDispatcher, concurrent_freedSlotLaunchesTheNextBackendImmediately) {
     // theirs: the fourth backend launches at the first failure and beats the
     // slow answer. Wave semantics would let the slow answer win instead.
     Fakes fakes;
-    [[maybe_unused]] FakeResolver& down_a = fakes.add("down-a", {error_step(DnsError::RETRY, "down", 1ms)});
+    [[maybe_unused]] FakeResolver& down_a = fakes.add("down-a", {error_step(domain::DnsError::RETRY, "down", 1ms)});
     FakeResolver& slow = fakes.add("slow-answer", {response_step(a_response("yaddnsc.test", 2), 30ms)});
-    [[maybe_unused]] FakeResolver& down_b = fakes.add("down-b", {error_step(DnsError::RETRY, "down", 1ms)});
+    [[maybe_unused]] FakeResolver& down_b = fakes.add("down-b", {error_step(domain::DnsError::RETRY, "down", 1ms)});
     FakeResolver& answers = fakes.add("answers", {response_step(a_response("yaddnsc.test", 7), 1ms)});
     dns::Dispatcher dispatcher{fakes.take(), Strategy::CONCURRENT};
 
@@ -367,31 +366,31 @@ TEST(DnsDispatcher, concurrent_nxdomain_StopsFurtherLaunches) {
     // but the fourth backend is never launched.
     Fakes fakes;
     (void) fakes.add("missing", {response_step(nxdomain_response("yaddnsc.test"), 1ms)});
-    (void) fakes.add("down-a", {error_step(DnsError::RETRY, "down", 30ms)});
-    (void) fakes.add("down-b", {error_step(DnsError::RETRY, "down", 30ms)});
+    (void) fakes.add("down-a", {error_step(domain::DnsError::RETRY, "down", 30ms)});
+    (void) fakes.add("down-b", {error_step(domain::DnsError::RETRY, "down", 30ms)});
     FakeResolver& late = fakes.add("late", {response_step(a_response("yaddnsc.test", 7), 1ms)});
     dns::Dispatcher dispatcher{fakes.take(), Strategy::CONCURRENT};
 
     const auto result = run_query(dispatcher);
 
     ASSERT_FALSE(result.has_value());
-    EXPECT_EQ(result.error().code, DnsError::NX_DOMAIN);
+    EXPECT_EQ(result.error().code, domain::DnsError::NX_DOMAIN);
     EXPECT_EQ(late.calls(), 0);
 }
 
 TEST(DnsDispatcher, concurrent_definitive_StopsFurtherLaunches) {
     // A definitive PARSE failure ends the search the same way NXDOMAIN does.
     Fakes fakes;
-    (void) fakes.add("malformed", {error_step(DnsError::PARSE, "bad", 1ms)});
-    (void) fakes.add("down-a", {error_step(DnsError::RETRY, "down", 30ms)});
-    (void) fakes.add("down-b", {error_step(DnsError::RETRY, "down", 30ms)});
+    (void) fakes.add("malformed", {error_step(domain::DnsError::PARSE, "bad", 1ms)});
+    (void) fakes.add("down-a", {error_step(domain::DnsError::RETRY, "down", 30ms)});
+    (void) fakes.add("down-b", {error_step(domain::DnsError::RETRY, "down", 30ms)});
     FakeResolver& late = fakes.add("late", {response_step(a_response("yaddnsc.test", 7), 1ms)});
     dns::Dispatcher dispatcher{fakes.take(), Strategy::CONCURRENT};
 
     const auto result = run_query(dispatcher);
 
     ASSERT_FALSE(result.has_value());
-    EXPECT_EQ(result.error().code, DnsError::PARSE);
+    EXPECT_EQ(result.error().code, domain::DnsError::PARSE);
     EXPECT_EQ(late.calls(), 0);
 }
 
@@ -401,13 +400,14 @@ TEST(DnsDispatcher, concurrent_definitive_StopsFurtherLaunches) {
 
 TEST(DnsDispatcher, servfail_IsClassifiedAsRetryable) {
     Fakes fakes;
-    [[maybe_unused]] FakeResolver& resolver = fakes.add("only", {error_step(DnsError::RETRY, "server said so")});
+    [[maybe_unused]] FakeResolver& resolver =
+        fakes.add("only", {error_step(domain::DnsError::RETRY, "server said so")});
     dns::Dispatcher dispatcher{fakes.take(), Strategy::FALLBACK};
 
     const auto result = run_query(dispatcher, "yaddnsc.test", 0);
 
     ASSERT_FALSE(result.has_value());
-    EXPECT_EQ(result.error().code, DnsError::RETRY);
+    EXPECT_EQ(result.error().code, domain::DnsError::RETRY);
 }
 
 TEST(DnsDispatcher, noResolvers_IsAConfigError) {
@@ -416,7 +416,7 @@ TEST(DnsDispatcher, noResolvers_IsAConfigError) {
     const auto result = run_query(dispatcher);
 
     ASSERT_FALSE(result.has_value());
-    EXPECT_EQ(result.error().code, DnsError::CONFIG);
+    EXPECT_EQ(result.error().code, domain::DnsError::CONFIG);
 }
 
 // ---------------------------------------------------------------------------
@@ -429,10 +429,10 @@ TEST(DnsDispatcher, scopeTimeout_AbortsTheQueryAsCancelled) {
     dns::Dispatcher dispatcher{fakes.take(), Strategy::FALLBACK};
 
     bool timed_out = false;
-    std::optional<DnsErrorInfo> error;
+    std::optional<domain::DnsErrorInfo> error;
     coro::run([&]() -> coro::Task<void> {
-        const auto outcome = co_await coro::with_timeout(20ms, [&](coro::CancelScope&) -> coro::Task<void> {
-            auto result = co_await dispatcher.resolve("yaddnsc.test", RecordKind::A);
+        const auto outcome = co_await coro::with_timeout(20ms, [&]() -> coro::Task<void> {
+            auto result = co_await dispatcher.resolve("yaddnsc.test", domain::RecordKind::A);
             if (!result) {
                 error = result.error();
             }
@@ -443,8 +443,7 @@ TEST(DnsDispatcher, scopeTimeout_AbortsTheQueryAsCancelled) {
     }());
 
     EXPECT_TRUE(timed_out);
-    ASSERT_TRUE(error.has_value());
-    EXPECT_EQ(error->code, DnsError::CANCELLED);
+    EXPECT_FALSE(error.has_value());  // cancellation bypasses the recoverable error channel
 }
 
 TEST(DnsDispatcher, concurrent_cancellationLaunchesNothingNew) {
@@ -459,10 +458,10 @@ TEST(DnsDispatcher, concurrent_cancellationLaunchesNothingNew) {
     dns::Dispatcher dispatcher{fakes.take(), Strategy::CONCURRENT};
 
     bool timed_out = false;
-    std::optional<DnsErrorInfo> error;
+    std::optional<domain::DnsErrorInfo> error;
     coro::run([&]() -> coro::Task<void> {
-        const auto outcome = co_await coro::with_timeout(20ms, [&](coro::CancelScope&) -> coro::Task<void> {
-            auto result = co_await dispatcher.resolve("yaddnsc.test", RecordKind::A);
+        const auto outcome = co_await coro::with_timeout(20ms, [&]() -> coro::Task<void> {
+            auto result = co_await dispatcher.resolve("yaddnsc.test", domain::RecordKind::A);
             if (!result) {
                 error = result.error();
             }
@@ -473,8 +472,7 @@ TEST(DnsDispatcher, concurrent_cancellationLaunchesNothingNew) {
     }());
 
     EXPECT_TRUE(timed_out);
-    ASSERT_TRUE(error.has_value());
-    EXPECT_EQ(error->code, DnsError::CANCELLED);
+    EXPECT_FALSE(error.has_value());  // cancellation bypasses the recoverable error channel
     EXPECT_EQ(extra_a.calls(), 0);
     EXPECT_EQ(extra_b.calls(), 0);
 }

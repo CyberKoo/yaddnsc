@@ -1,9 +1,7 @@
-//
-// Created by Kotarou on 2022/4/6.
-//
+#ifndef YADDNSC_DOMAIN_NETWORK_ADDRESS_FAMILY_H
+#define YADDNSC_DOMAIN_NETWORK_ADDRESS_FAMILY_H
 
-#ifndef YADDNSC_ADDRESS_FAMILY_H
-#define YADDNSC_ADDRESS_FAMILY_H
+namespace domain {
 
 /// Protocol family for IP address selection.
 enum class AddressFamily {
@@ -12,4 +10,6 @@ enum class AddressFamily {
     IPV6          ///< IPv6 only
 };
 
-#endif  // YADDNSC_ADDRESS_FAMILY_H
+}  // namespace domain
+
+#endif  // YADDNSC_DOMAIN_NETWORK_ADDRESS_FAMILY_H

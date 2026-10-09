@@ -22,8 +22,8 @@
 #include <yaddnsc/sdk/driver_abi.h>
 
 #include "application/ports/log.h"
-#include "infrastructure/net/http/error.h"
-#include "infrastructure/net/http/types.h"
+#include "infrastructure/http/error.h"
+#include "infrastructure/http/types.h"
 
 namespace plugin {
 
@@ -63,20 +63,20 @@ void write_error(yaddnsc_error* out_error, yaddnsc_status status, std::string_vi
     out_error->struct_size = std::min(out_error->struct_size, static_cast<uint32_t>(sizeof(yaddnsc_error)));
 }
 
-[[nodiscard]] LogLevel to_log_level(yaddnsc_log_level level) noexcept {
+[[nodiscard]] app::LogLevel to_log_level(yaddnsc_log_level level) noexcept {
     switch (level) {
         case YADDNSC_LOG_TRACE:
-            return LogLevel::TRACE;
+            return app::LogLevel::TRACE;
         case YADDNSC_LOG_DEBUG:
-            return LogLevel::DEBUG;
+            return app::LogLevel::DEBUG;
         case YADDNSC_LOG_INFO:
-            return LogLevel::INFO;
+            return app::LogLevel::INFO;
         case YADDNSC_LOG_WARN:
-            return LogLevel::WARN;
+            return app::LogLevel::WARN;
         case YADDNSC_LOG_ERROR:
-            return LogLevel::ERROR;
+            return app::LogLevel::ERROR;
         default:
-            return LogLevel::INFO;
+            return app::LogLevel::INFO;
     }
 }
 
@@ -105,7 +105,8 @@ void write_error(yaddnsc_error* out_error, yaddnsc_status status, std::string_vi
 
 }  // namespace
 
-HostServicesContext::HostServicesContext(Bridge& bridge, const Logger& logger, std::shared_ptr<CallState> state)
+HostServicesContext::HostServicesContext(Bridge& bridge, const app::LoggerPort& logger,
+                                         std::shared_ptr<CallState> state)
     : bridge_(bridge), logger_(logger), state_(std::move(state)) {}
 
 std::string_view HostServicesContext::arena_copy(std::string_view value) {
@@ -137,7 +138,7 @@ void HostServicesContext::log_entry(void* context, yaddnsc_log_level level, yadd
 }
 
 yaddnsc_status HostServicesContext::http_exchange_unavailable_entry(void*, const yaddnsc_http_request*,
-                                                                     yaddnsc_http_response*, yaddnsc_error* out_error) {
+                                                                    yaddnsc_http_response*, yaddnsc_error* out_error) {
     write_error(out_error, YADDNSC_STATUS_INVALID_ARGUMENT,
                 "http_exchange is only available during yaddnsc_driver_update");
     return YADDNSC_STATUS_INVALID_ARGUMENT;
@@ -167,6 +168,9 @@ yaddnsc_status HostServicesContext::http_exchange_entry(void* context, const yad
     // fixed buffer, so handling allocation failure does not allocate again.
     try {
         return static_cast<HostServicesContext*>(context)->http_exchange(*request, out_response, out_error);
+    } catch (const coro::Cancelled&) {
+        write_error(out_error, YADDNSC_STATUS_CANCELLED, "HTTP exchange cancelled");
+        return YADDNSC_STATUS_CANCELLED;
     } catch (const std::exception& e) {
         write_error(out_error, YADDNSC_STATUS_INTERNAL_ERROR, copy_callback_error(e.what()));
     } catch (...) {
@@ -229,16 +233,9 @@ yaddnsc_status HostServicesContext::http_exchange(const yaddnsc_http_request& re
 
     if (!response) {
         const auto& error = response.error();
-        // The ABI surface is deliberately coarser than http's error model:
-        // only cancellation is distinguishable, and every other failure (TLS,
-        // connect, parse, size limits) becomes NETWORK_ERROR. The diagnosis
-        // still reaches the plugin in the message text — which the driver
-        // gateway forwards into DriverError, so the user sees it. Widening the
-        // status set means new yaddnsc_status values, i.e. an ABI change, not a
-        // local refactor: do not expand this ternary without bumping
-        // YADDNSC_DRIVER_ABI_MAJOR.
-        const yaddnsc_status status =
-            error.code == http::ErrorCode::CANCELLED ? YADDNSC_STATUS_CANCELLED : YADDNSC_STATUS_NETWORK_ERROR;
+        // The bridge translates cancellation, transport failures and defects
+        // into the existing ABI status vocabulary before fulfilling the promise.
+        const yaddnsc_status status = error.code;
         write_error(out_error, status, arena_copy(error.message), error.retry_after_seconds);
         return status;
     }

@@ -1,7 +1,3 @@
-//
-// Created by Kotarou on 2026/6/29.
-//
-
 #include "driver_loader.h"
 
 #include <exception>
@@ -13,7 +9,7 @@
 #include <spdlog/spdlog.h>
 
 #include "domain/config/runtime_config.h"
-#include "infrastructure/config/config_verification_exception.h"
+#include "infrastructure/config/config_exception.h"
 #include "infrastructure/plugin/driver_catalog.h"
 #include "support/util/algorithm.hpp"
 
@@ -29,7 +25,7 @@ namespace {
 [[nodiscard]] std::filesystem::path resolve_driver_base(const std::optional<std::filesystem::path>& driver_dir) {
     if (driver_dir.has_value()) {
         if (driver_dir->empty()) {
-            throw ConfigVerificationException("driver_dir is set but empty in configuration");
+            throw ConfigException("driver_dir is set but empty in configuration");
         }
         return driver_dir.value();
     }

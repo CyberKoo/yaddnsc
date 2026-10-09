@@ -1,7 +1,3 @@
-//
-// Created by Kotarou on 2026/9/17.
-//
-
 /// Loader-rejection fixture: ABI major 1, minor 1. The host provides minor 0
 /// and must reject a plugin that requires a newer minor.
 

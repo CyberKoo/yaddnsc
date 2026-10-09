@@ -2,8 +2,8 @@
 // plugin — the per-call Host Services table over the coroutine bridge.
 //
 
-#ifndef YADDNSC_PLUGIN_HOST_SERVICES_H
-#define YADDNSC_PLUGIN_HOST_SERVICES_H
+#ifndef YADDNSC_INFRASTRUCTURE_PLUGIN_HOST_SERVICES_H
+#define YADDNSC_INFRASTRUCTURE_PLUGIN_HOST_SERVICES_H
 
 #include <cstdint>
 #include <deque>
@@ -17,7 +17,9 @@
 
 #include "infrastructure/plugin/bridge.h"
 
-class Logger;
+namespace app {
+class LoggerPort;
+}
 
 namespace plugin {
 
@@ -38,7 +40,7 @@ public:
     /// @param bridge Host-service HTTP bridge, owned by the gateway.
     /// @param logger Log port receiving plugin log records.
     /// @param state  Per-call cancellation state, shared with the gateway.
-    HostServicesContext(Bridge& bridge, const Logger& logger, std::shared_ptr<CallState> state);
+    HostServicesContext(Bridge& bridge, const app::LoggerPort& logger, std::shared_ptr<CallState> state);
 
     /// Build the services table bound to this context. The returned table
     /// copies no state; it must not outlive the context.
@@ -86,14 +88,15 @@ private:
                                               yaddnsc_http_response* out_response, yaddnsc_error* out_error);
 
     static yaddnsc_status http_exchange_unavailable_entry(void* context, const yaddnsc_http_request* request,
-                                                          yaddnsc_http_response* out_response, yaddnsc_error* out_error);
+                                                          yaddnsc_http_response* out_response,
+                                                          yaddnsc_error* out_error);
 
     static std::int32_t is_cancelled_entry(void* context) noexcept {
         return static_cast<HostServicesContext*>(context)->is_cancelled();
     }
 
     Bridge& bridge_;
-    const Logger& logger_;
+    const app::LoggerPort& logger_;
     std::shared_ptr<CallState> state_;
 
     // Arenas — std::deque never invalidates references on push_back.
@@ -103,4 +106,4 @@ private:
 
 }  // namespace plugin
 
-#endif  // YADDNSC_PLUGIN_HOST_SERVICES_H
+#endif  // YADDNSC_INFRASTRUCTURE_PLUGIN_HOST_SERVICES_H

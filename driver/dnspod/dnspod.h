@@ -1,7 +1,3 @@
-//
-// Created by Kotarou on 2022/4/11.
-//
-
 #ifndef YADDNSC_DRV_DNSPOD_DNSPOD_H
 #define YADDNSC_DRV_DNSPOD_DNSPOD_H
 

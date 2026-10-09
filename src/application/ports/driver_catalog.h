@@ -1,13 +1,15 @@
-//
-// Created by Kotarou on 2026/9/17.
-//
-
 #ifndef YADDNSC_APPLICATION_PORTS_DRIVER_CATALOG_H
 #define YADDNSC_APPLICATION_PORTS_DRIVER_CATALOG_H
 
 #include <string>
 #include <string_view>
 #include <vector>
+
+#include <expected>
+
+#include "domain/error/error.h"
+
+namespace app {
 
 /// User-visible description of one loaded driver plugin (a plain value copy
 /// of the plugin's descriptor, so the port never hands out references into
@@ -27,9 +29,10 @@ struct DriverDescription {
 /// consume it. Mutating operations (load/unload) stay on the concrete
 /// catalog and never cross this boundary.
 ///
-/// Error contract: describe() throws DriverNotFoundException when the driver
-/// is not loaded — the legacy wording is preserved verbatim for the CLI's
-/// "Error: ..." output.
+/// Synchronous queries; populate the catalog before querying and do not mutate
+/// it concurrently. Returned descriptions own their strings. A missing driver
+/// is DriverError::NOT_FOUND with no message; the caller supplies the queried
+/// name to its presenter. Allocation failures propagate as exceptions.
 class DriverCatalogPort {
 public:
     virtual ~DriverCatalogPort() = default;
@@ -38,8 +41,11 @@ public:
     [[nodiscard]] virtual std::vector<std::string> loaded_drivers() const = 0;
 
     /// Description of one loaded driver.
-    /// @throws DriverNotFoundException  If no driver with that name is loaded.
-    [[nodiscard]] virtual DriverDescription describe(std::string_view name) const = 0;
+    /// Failure: DriverError::NOT_FOUND when the driver is not loaded.
+    [[nodiscard]] virtual std::expected<DriverDescription, domain::DriverError> describe(
+        std::string_view name) const = 0;
 };
+
+}  // namespace app
 
 #endif  // YADDNSC_APPLICATION_PORTS_DRIVER_CATALOG_H

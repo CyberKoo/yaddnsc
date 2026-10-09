@@ -1,7 +1,3 @@
-//
-// Created by Kotarou on 2026/9/17.
-//
-
 /// Loader fixture: a plugin whose entry points THROW across the C ABI — the
 /// shape of a misbehaving third-party plugin. The ABI forbids exceptions, so
 /// the host's PluginModule trampolines carry an exception firewall: it must

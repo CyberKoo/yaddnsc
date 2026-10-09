@@ -61,9 +61,11 @@ cmake --build build-tests --parallel
 ctest --test-dir build-tests --output-on-failure
 ```
 
-Tests use GoogleTest/GoogleMock. Component tests may use loopback sockets,
-local helper processes, or platform facilities; they do not require provider
-credentials or external DNS provider access.
+Tests use GoogleTest/GoogleMock as the project's fixed framework pair; a test
+names its case `TEST(ClassName, MethodName_Scenario_ExpectedBehavior)`.
+Component tests may use loopback sockets, local helper processes, or platform
+facilities; they do not require provider credentials or external DNS provider
+access.
 
 ### Test tiers
 
@@ -75,7 +77,7 @@ credentials or external DNS provider access.
 | Integration | `test/integration/`                  | Yes — the built `yaddnsc` binary      |
 | Benchmarks  | `test/perf/`                         | No — Google Benchmark                 |
 
-There is no system-test tier: `integration_scenarios` is the highest one.
+The test tiers end at `integration_scenarios`, the highest one.
 
 ### Integration scenarios
 
@@ -90,7 +92,7 @@ contracts that pull in opposite directions:
 - an HTTP IP source returning a non-address response → the update workflow
   reports no usable IP address and nothing is published;
 - no DNS answer → the update is still published, because
-  `src/application/update_once.cpp` treats an unverifiable current record as
+  the `run_update_cycle` implementation treats an unverifiable current record as
   an empty one. Pushing an unchanged record is harmless; skipping a changed
   one is not.
 
@@ -142,9 +144,8 @@ fastcov -g gcov-14 -d build-coverage \
   -o coverage.info --lcov
 ```
 
-The repository defines no coverage percentage failure threshold: 80% is not an
-implemented gate. Codecov upload errors can fail the job; that is not a coverage
-threshold check.
+Coverage is reported to Codecov; the repository sets no percentage failure
+threshold, so 80% stays a target. A Codecov upload error can fail the job.
 
 ## Sanitizers
 
@@ -220,24 +221,24 @@ by `ci.yml` path filters.
 
 - Linux arm64 Debug tests, Release builds with bundled/system spdlog (tests
   disabled), the dedicated `Sanitizer` build/tests, and coverage;
-- `linux-amd64-clang` is **disabled** (`if: false`). There is no active Linux
-  upstream-Clang CI job; macOS uses AppleClang.
+- `linux-amd64-clang` is **disabled** (`if: false`). Upstream Clang coverage on
+  Linux would come from that job; macOS uses AppleClang.
 
 Scheduled nightly builds run only when the recent-commit check passes; manual
 runs bypass that check. Linux arm64 is nightly/manual coverage, not a PR check.
 
 `yaddnsc_warnings` supplies `-Wall -Wextra -Wpedantic -Wshadow -Werror` to
 production modules, the executable, header checks, and tests that link the shared
-warning interfaces. SDK/C ABI/plugin-crypto targets have separate warning options;
-this is not a blanket claim for all targets or dependencies. `BuildOptions.cmake`
+warning interfaces. SDK/C ABI/plugin-crypto targets carry their own warning
+options. `BuildOptions.cmake`
 also suppresses `maybe-uninitialized` in `Sanitizer` builds and demotes
 `array-bounds` for system fmt below version 10. The conversion job adds
-`-Wconversion -Wsign-conversion`; these are not default local flags.
+`-Wconversion -Wsign-conversion` on top of the defaults above.
 
 ## Formatting and static analysis
 
-`.clang-format` is the formatting source of truth; neither workflow runs a
-clang-format check, so its presence is not a CI formatting gate.
+`.clang-format` is the formatting source of truth. Formatting is applied from
+it during development; CI enforces compilation and tests rather than style.
 
 `cmake/ClangTidy.cmake` attaches clang-tidy when the unversioned `clang-tidy`
 executable is found and the compiler ID matches Clang (including AppleClang).
@@ -268,9 +269,40 @@ still fail the build.
 ## Manual boundary review
 
 The `architecture_guard` ctest (`cmake/ArchitectureGuard.cmake`) checks textual
-boundaries — includes, layering, threads/futures, the cancellation token and the
-lazy TLS trust APIs — but it cannot judge every loop-safety decision. When
-touching startup, transport or IP-source code, confirm by hand:
+boundaries — includes, layering, threads/futures and the removed cancellation
+token — but it cannot judge every loop-safety decision. Loop safety itself (no
+blocking work on the loop thread, including OpenSSL's lazy trust loaders) is
+reviewed by hand; see the
+[blocking-operation inventory](architecture.md#blocking-operation-inventory).
+
+For `src/application/`, the guard allows direct coroutine includes only from
+`async_mutex.hpp`, `cancel_scope.h`, `cancelled.h`, `checkpoint.hpp`, `fwd.h`,
+`group.hpp`, `mutex_guard.hpp`, `now.hpp`, `offload.hpp`, `scope.hpp`,
+`scope_outcome.hpp`, `signal.hpp`, `sleep.hpp`, `task.hpp`, `task_group.hpp` and
+`time.h`. These coroutine include and internal-access checks apply only to
+`src/application/`, not to composition, infrastructure or tests.
+For application code, it rejects explicit internal types/context, `coro::detail`,
+coroutine namespace imports, `promise_type` access and waiter/context-management
+methods. Simple
+namespace aliases (including chains) and split qualifiers are normalized.
+String literals are blanked out before comments are stripped, so a `//` inside a
+URL does not truncate the rest of the line and hide a violation; block and line
+comments are otherwise ignored for these symbol checks. Public scope
+cancellation/state reads (`cancel()`, `cancelled()`, `timed_out()`,
+`throw_if_cancelled()`) and unrelated `release()` calls remain allowed.
+`test_architecture_guard_cases` runs the actual CMake script on isolated source
+fixtures, and `test_coro` checks that raw Task/group/Handle construction, Task
+context/frame access, and the loop's scheduling/registration services and the
+scope's waiter bookkeeping are unavailable to callers.
+
+These are textual checks: they do not resolve C++ types, all macros/aliases,
+relative or macro-generated includes, string literals, or arbitrary template
+metaprogramming. Public headers necessarily include implementation definitions;
+review must still check inferred objects and callbacks for runtime access.
+The normative boundary is in
+[Architecture](architecture.md#coroutine-api-boundary).
+
+When touching startup, transport or IP-source code, confirm by hand:
 
 - **`getifaddrs()` stays the only loop-thread blocking call in the IP source.**
   `ip_source/iface_util.cpp` reads a live snapshot per call; that is the

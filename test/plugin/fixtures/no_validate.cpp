@@ -1,7 +1,3 @@
-//
-// Created by Kotarou on 2026/9/17.
-//
-
 /// Loader fixture: a complete v1 alpha plugin that exports the four REQUIRED
 /// entry points but NOT the optional yaddnsc_driver_validate — the shape a
 /// third-party plugin built against an SDK predating the validate entry has.

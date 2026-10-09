@@ -12,6 +12,7 @@
 
 #include "domain/config/ip_source_kind.h"
 #include "domain/network/address_family.h"
+#include "infrastructure/coro/cancelled.h"
 #include "infrastructure/ip_source/http.h"
 #include "infrastructure/ip_source/iface.h"
 #include "infrastructure/ip_source/mdns.h"
@@ -22,14 +23,14 @@ namespace ipsource {
 namespace {
 
 /// Address family implied by the record type (A → IPv4, AAAA → IPv6).
-[[nodiscard]] constexpr AddressFamily type_to_family(RecordKind type) noexcept {
+[[nodiscard]] constexpr domain::AddressFamily type_to_family(domain::RecordKind type) noexcept {
     switch (type) {
-        case RecordKind::A:
-            return AddressFamily::IPV4;
-        case RecordKind::AAAA:
-            return AddressFamily::IPV6;
+        case domain::RecordKind::A:
+            return domain::AddressFamily::IPV4;
+        case domain::RecordKind::AAAA:
+            return domain::AddressFamily::IPV6;
         default:
-            return AddressFamily::UNSPECIFIED;
+            return domain::AddressFamily::UNSPECIFIED;
     }
 }
 
@@ -37,20 +38,20 @@ namespace {
 
 IpSourceAdapter::IpSourceAdapter(http::Options http_options) : options_(std::move(http_options)) {}
 
-coro::Task<std::expected<std::vector<InetAddress>, domain::IpSourceError>> IpSourceAdapter::resolve(
+coro::Task<std::expected<std::vector<domain::InetAddress>, domain::IpSourceError>> IpSourceAdapter::resolve(
     const domain::SubdomainConfig& config) {
     try {
         const auto family = type_to_family(config.type);
         switch (config.ip_source) {
-            case Config::IpSource::INTERFACE: {
+            case domain::IpSource::INTERFACE: {
                 InterfaceIpSource source{config.interface, family};
                 co_return co_await source.resolve();
             }
-            case Config::IpSource::HTTP: {
+            case domain::IpSource::HTTP: {
                 HttpIpSource source{config.ip_source_param, family, config.interface, options_};
                 co_return co_await source.resolve();
             }
-            case Config::IpSource::MDNS: {
+            case domain::IpSource::MDNS: {
                 MdnsIpSource source{config.ip_source_param, config.type, config.interface};
                 co_return co_await source.resolve();
             }
@@ -61,6 +62,8 @@ coro::Task<std::expected<std::vector<InetAddress>, domain::IpSourceError>> IpSou
         throw;
     } catch (const std::exception& error) {
         co_return std::unexpected(domain::IpSourceError{domain::IpSourceError::Code::UNKNOWN, error.what()});
+    } catch (const coro::Cancelled&) {
+        throw;
     } catch (...) {
         co_return std::unexpected(
             domain::IpSourceError{domain::IpSourceError::Code::UNKNOWN, "unknown non-standard exception"});

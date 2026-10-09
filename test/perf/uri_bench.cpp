@@ -7,7 +7,7 @@
 
 #include <benchmark/benchmark.h>
 
-#include "infrastructure/net/http/uri.h"
+#include "infrastructure/uri/uri.h"
 
 // =============================================================================
 // Uri::parse benchmarks — various URI shapes

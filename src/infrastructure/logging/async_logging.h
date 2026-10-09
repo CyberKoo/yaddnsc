@@ -17,7 +17,7 @@ namespace logging {
 /// Install the process-wide asynchronous pipeline.
 ///
 /// Initializes the spdlog thread pool and replaces the default logger — which
-/// both the Logger facade (via SpdlogLogger) and every direct SPDLOG_* call site
+/// both the app::LoggerPort facade (via SpdlogLogger) and every direct SPDLOG_* call site
 /// resolve through — with an async_logger over the same sinks, level and
 /// pattern. The `discard_new` overflow policy drops the newest record when the
 /// queue is full and increments the pool's discard counter.

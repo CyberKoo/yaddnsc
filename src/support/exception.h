@@ -1,9 +1,5 @@
-//
-// Created by Kotarou on 2022/4/7.
-//
-
-#ifndef YADDNSC_EXCEPTION_BASE_H
-#define YADDNSC_EXCEPTION_BASE_H
+#ifndef YADDNSC_SUPPORT_EXCEPTION_H
+#define YADDNSC_SUPPORT_EXCEPTION_H
 
 #include <stdexcept>
 #include <string>
@@ -22,4 +18,4 @@ public:
     [[nodiscard]] virtual std::string_view get_name() const noexcept = 0;
 };
 
-#endif  // YADDNSC_EXCEPTION_BASE_H
+#endif  // YADDNSC_SUPPORT_EXCEPTION_H

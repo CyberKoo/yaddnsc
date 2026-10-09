@@ -66,6 +66,9 @@ add_unit_test(update_decision SOURCE domain/update_decision_test.cpp)
 
 # environment_validator — driver-loaded / interface-exists checks against
 # fake catalog / interface ports
+add_unit_test(application_diagnostics SOURCE application/diagnostics_test.cpp)
+target_link_libraries(test_application_diagnostics PRIVATE yaddnsc_application GTest::gmock)
+
 add_unit_test(environment_validator SOURCE application/environment_validator_test.cpp)
 target_link_libraries(test_environment_validator PRIVATE yaddnsc_application GTest::gmock glaze::glaze)
 
@@ -77,11 +80,11 @@ add_unit_test(logger_port SOURCE application/logger_port_test.cpp)
 #  application/  —  the coroutine scheduler (subdomain loops + run root)
 # ============================================================================
 
-# coro_scheduler — the per-subdomain scheduling coroutine on a ManualClock and
-# the run root: interval/retry_after/force timing, update_once decisions, and
+# run_root — the per-subdomain loop coroutines on a ManualClock and the run
+# root itself: interval/retry_after/force timing, run_update_cycle decisions, and
 # supervisor + SIGINT shutdown, all driven by fake ports.
-add_unit_test(coro_scheduler SOURCE application/coro_scheduler_test.cpp)
-target_link_libraries(test_coro_scheduler PRIVATE yaddnsc_coro_application yaddnsc_coro yaddnsc_domain)
+add_unit_test(run_root SOURCE application/run_root_test.cpp)
+target_link_libraries(test_run_root PRIVATE yaddnsc_coro_application yaddnsc_coro yaddnsc_domain)
 
 # ============================================================================
 #  config/  —  configuration parsing, types, and validation
@@ -172,18 +175,18 @@ add_unit_test(inet_address SOURCE network/inet_address_test.cpp)
 add_unit_test(socket_addr SOURCE network/socket_addr_test.cpp)
 target_link_libraries(test_socket_addr PRIVATE yaddnsc_net)
 
-# URI parsing — the codec now lives in yaddnsc_net (src/infrastructure/net/http/uri.cpp)
+# URI parsing — the codec now lives in yaddnsc_uri (src/infrastructure/uri/uri.cpp)
 add_unit_test(uri_parse SOURCE network/uri_parse_test.cpp)
-target_link_libraries(test_uri_parse PRIVATE yaddnsc_net)
+target_link_libraries(test_uri_parse PRIVATE yaddnsc_uri)
 add_unit_test(uri_query SOURCE network/uri_query_test.cpp)
-target_link_libraries(test_uri_query PRIVATE yaddnsc_net)
+target_link_libraries(test_uri_query PRIVATE yaddnsc_uri)
 add_unit_test(uri_encode SOURCE network/uri_encode_test.cpp)
-target_link_libraries(test_uri_encode PRIVATE yaddnsc_net)
+target_link_libraries(test_uri_encode PRIVATE yaddnsc_uri)
 add_unit_test(uri_edge   SOURCE network/uri_edge_test.cpp)
-target_link_libraries(test_uri_edge PRIVATE yaddnsc_net)
+target_link_libraries(test_uri_edge PRIVATE yaddnsc_uri)
 
 # ============================================================================
-#  net/  —  coroutine transport layer (src/infrastructure/net/)
+#  net/  —  coroutine transport layer (src/infrastructure/network/)
 # ============================================================================
 
 # fd-wait checkpoint plus TcpStream / TlsStream / UdpSocket over loopback and
@@ -192,11 +195,11 @@ target_link_libraries(test_uri_edge PRIVATE yaddnsc_net)
 add_unit_test(net_coro_unit SOURCE net/net_coro_unit_test.cpp)
 target_link_libraries(test_net_coro_unit PRIVATE yaddnsc_net OpenSSL::SSL OpenSSL::Crypto)
 
-# HTTP protocol layer (src/infrastructure/net/http/) driven by a scripted
+# HTTP protocol layer (src/infrastructure/http/) driven by a scripted
 # in-memory stream: framing, 1xx, keep-alive carry-over, the lazy chunked read
 # window and the redirect policy.
 add_unit_test(net_coro_http SOURCE net/http_coro_test.cpp)
-target_link_libraries(test_net_coro_http PRIVATE yaddnsc_coro_io)
+target_link_libraries(test_net_coro_http PRIVATE yaddnsc_http)
 
 # ============================================================================
 #  dns/  —  coroutine DNS subsystem (src/infrastructure/dns/)
@@ -205,7 +208,7 @@ target_link_libraries(test_net_coro_http PRIVATE yaddnsc_coro_io)
 # Dispatcher strategies (fallback / shuffle / concurrent), retry policy and
 # error classification, driven by scripted in-memory resolvers.
 add_unit_test(dns_coro_dispatcher SOURCE dns/dispatcher_coro_test.cpp)
-target_link_libraries(test_dns_coro_dispatcher PRIVATE yaddnsc_coro_io)
+target_link_libraries(test_dns_coro_dispatcher PRIVATE yaddnsc_coro_dns)
 
 # ============================================================================
 #  logging/  —  the Logger port implementation on top of spdlog

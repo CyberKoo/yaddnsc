@@ -1,7 +1,3 @@
-//
-// Created by Kotarou on 2026/9/17.
-//
-
 /// Loader-rejection fixture: struct_size covers the version prefix and the
 /// descriptor reports ABI 1.0, but the size stops before the ABI 1.0 baseline.
 /// The loader must accept the version and then reject the short baseline.

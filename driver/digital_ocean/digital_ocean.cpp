@@ -1,7 +1,3 @@
-//
-// Created by Kotarou on 2022/4/5.
-//
-
 #include "digital_ocean.h"
 
 #include <optional>

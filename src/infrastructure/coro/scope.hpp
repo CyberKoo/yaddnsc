@@ -6,150 +6,43 @@
 // protects cleanup from an outer cancellation.
 //
 // A combinator runs its body in a child scope; every cancellable await in the
-// body returns `unexpected(operation_canceled)` once the scope is cancelled, so
-// the body decides how to finish. The scope absorbs its own cancellation: the
+// body throws `coro::Cancelled` once the scope is cancelled. The scope absorbs its own cancellation: the
 // combinator returns normally (or with the body's defect), and the caller reads
-// `timed_out()` / `cancelled()` from the returned outcome.
+// `timed_out` / `cancelled` from the returned outcome.
+//
+// current_scope() is the one way a body reaches the scope it is already running
+// in — for cancelling it from a sibling, or converting an ABI abort into
+// coroutine cancellation. It yields the scope and nothing else: no loop, no
+// clock, no frame.
+//
+// This header exposes the four combinators and current_scope(). The outcome type lives in
+// scope_outcome.hpp and the body they share in detail/scope_runner.hpp.
 //
 
-#ifndef YADDNSC_CORO_SCOPE_HPP
-#define YADDNSC_CORO_SCOPE_HPP
+#ifndef YADDNSC_INFRASTRUCTURE_CORO_SCOPE_HPP
+#define YADDNSC_INFRASTRUCTURE_CORO_SCOPE_HPP
 
-#include <exception>
-#include <optional>
-#include <type_traits>
 #include <utility>
 
-#include <coroutine>
-
 #include "infrastructure/coro/cancel_scope.h"
-#include "infrastructure/coro/clock.h"
-#include "infrastructure/coro/fwd.h"
-#include "infrastructure/coro/loop.h"
-#include "infrastructure/coro/result_box.hpp"
-#include "infrastructure/coro/task.hpp"
+#include "infrastructure/coro/detail/context_awaitables.h"
+#include "infrastructure/coro/detail/scope_runner.hpp"
+#include "infrastructure/coro/scope_outcome.hpp"
+#include "infrastructure/coro/time.h"
 
 namespace coro {
 
-/// Body result plus the scope state that produced it.
-///
-/// Ownership: owns the body's value. A combinator always waits for its body, so
-/// on a normal return `value` is engaged; a defect from the body is rethrown
-/// instead of being stored.
-/// Failure: reading `*outcome` when `has_value()` is false is a precondition
-/// violation.
-template<typename T>
-struct ScopeOutcome {
-    std::optional<T> value;
-    /// The combinator's own deadline fired.
-    bool timed_out = false;
-    /// The combinator's scope was cancelled (by itself or by an outer scope).
-    bool cancelled = false;
-
-    /// True when the body produced a value.
-    [[nodiscard]] bool has_value() const noexcept { return value.has_value(); }
-
-    /// Same as has_value(): the body completed and yielded a value.
-    [[nodiscard]] explicit operator bool() const noexcept { return value.has_value(); }
-
-    /// The body's value. Precondition: has_value().
-    [[nodiscard]] T& operator*() noexcept { return *value; }
-
-    /// The body's value. Precondition: has_value().
-    [[nodiscard]] const T& operator*() const noexcept { return *value; }
-
-    /// The body's value. Precondition: has_value().
-    [[nodiscard]] T* operator->() noexcept { return &*value; }
-
-    /// The body's value. Precondition: has_value().
-    [[nodiscard]] const T* operator->() const noexcept { return &*value; }
-};
-
-/// void specialization: completion is the only observable result.
-template<>
-struct ScopeOutcome<void> {
-    bool completed = false;
-    bool timed_out = false;
-    bool cancelled = false;
-
-    [[nodiscard]] explicit operator bool() const noexcept { return completed; }
-};
-
-namespace detail {
-
-/// Result type produced by a combinator body: `fn(scope)` returns Task<T>.
-template<typename Fn>
-using BodyResult = typename std::invoke_result_t<Fn&, CancelScope&>::ValueType;
-
-/// What a combinator asks run_scoped() to set up.
-struct ScopeSpec {
-    bool use_timeout = false;
-    bool use_deadline = false;
-    Duration timeout{};
-    TimePoint deadline{};
-    /// Shielded scopes ignore ancestor cancellation (non_cancellable).
-    bool shielded = false;
-};
-
-/// Runs `fn`'s body in a fresh child scope and reports how it ended.
-///
-/// Lifetime: the scope and the timer live in this coroutine's frame, which
-/// outlives the body because the body is joined before the outcome is built;
-/// the body's awaits therefore always have a valid scope to park on.
-template<typename Fn>
-Task<ScopeOutcome<BodyResult<Fn>>> run_scoped(Fn fn, ScopeSpec spec) {
-    using R = BodyResult<Fn>;
-    const Context context = co_await GetContext{};
-    CancelScope scope{context.scope, spec.shielded};
-    TimerNode timer{};
-    if (spec.use_timeout || spec.use_deadline) {
-        const TimePoint deadline = spec.use_deadline ? spec.deadline : context.loop->now() + spec.timeout;
-        context.loop->add_timer(timer, deadline, &CancelScope::timeout_action, &scope);
-    }
-
-    ResultBox<R> box;
-    std::exception_ptr error;
-    {
-        Task<R> body = fn(scope);
-        body.bind_context(*context.loop, scope);
-        try {
-            if constexpr (std::is_void_v<R>) {
-                co_await std::move(body);
-            } else {
-                box.value.emplace(co_await std::move(body));
-            }
-        } catch (...) {
-            error = std::current_exception();
-        }
-    }
-    context.loop->remove_timer(timer);
-
-    ScopeOutcome<R> outcome;
-    outcome.timed_out = scope.timed_out();
-    outcome.cancelled = scope.cancelled();
-    if (error != nullptr) {
-        std::rethrow_exception(error);
-    }
-    if constexpr (std::is_void_v<R>) {
-        outcome.completed = true;
-    } else {
-        outcome.value = std::move(box.value);
-    }
-    co_return outcome;
-}
-
-}  // namespace detail
-
 /// Run `fn` in a scope with a duration timeout `timeout`.
 ///
-/// `fn` receives the scope by reference (so it can read `timed_out()` inside
-/// the body) and returns the body task. On expiry the scope is cancelled, the
-/// body's awaits return `operation_canceled`, and the returned outcome reports
-/// `timed_out()`; the cancellation does not leak to the caller's scope.
+/// `fn` takes no arguments and returns the body task. On expiry the scope is
+/// cancelled, the body's awaits throw `coro::Cancelled`, and the returned
+/// outcome reports `timed_out`; own cancellation does not leak to the caller.
+/// Ancestor cancellation propagates instead of returning an outcome.
 /// Failure: allocation may throw; a body defect is rethrown.
 template<typename Fn>
 [[nodiscard]] auto with_timeout(Duration timeout, Fn fn) {
-    return detail::run_scoped(std::move(fn), detail::ScopeSpec{.use_timeout = true, .timeout = timeout});
+    return detail::run_scoped([fn = std::move(fn)](CancelScope&) mutable { return fn(); },
+                              detail::ScopeSpec{.use_timeout = true, .timeout = timeout});
 }
 
 /// Run `fn` in a scope with an absolute deadline on the loop clock.
@@ -157,7 +50,8 @@ template<typename Fn>
 /// Same contract as with_timeout, with the deadline expressed absolutely.
 template<typename Fn>
 [[nodiscard]] auto with_deadline(TimePoint deadline, Fn fn) {
-    return detail::run_scoped(std::move(fn), detail::ScopeSpec{.use_deadline = true, .deadline = deadline});
+    return detail::run_scoped([fn = std::move(fn)](CancelScope&) mutable { return fn(); },
+                              detail::ScopeSpec{.use_deadline = true, .deadline = deadline});
 }
 
 /// Run `fn` in a child scope the caller may cancel through the reference it
@@ -180,6 +74,17 @@ template<typename Fn>
     return detail::run_scoped(std::move(fn), detail::ScopeSpec{.shielded = true});
 }
 
+/// The innermost cancel scope of the awaiting coroutine.
+///
+/// Returns immediately without suspending, and borrows: the scope is owned by
+/// the combinator or group that created it and outlives this await. Reading it
+/// is not a cancellation checkpoint — only `cancel()` and `throw_if_cancelled()`
+/// change what the scope does, and both are explicit calls.
+/// Precondition: awaited inside coro::run, where every frame has a scope.
+[[nodiscard]] inline auto current_scope() noexcept {
+    return detail::CurrentScope{};
+}
+
 }  // namespace coro
 
-#endif  // YADDNSC_CORO_SCOPE_HPP
+#endif  // YADDNSC_INFRASTRUCTURE_CORO_SCOPE_HPP

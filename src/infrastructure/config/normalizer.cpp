@@ -1,7 +1,3 @@
-//
-// Created by Kotarou on 2026/9/17.
-//
-
 #include "normalizer.h"
 
 #include <filesystem>
@@ -44,9 +40,9 @@ auto normalize_subdomain(const SubdomainConfig& raw, int domain_interval) -> dom
     }
     return {
         .name = raw.name,
-        .type = raw.type.value_or(RecordKind::A),
+        .type = raw.type.value_or(domain::RecordKind::A),
         .interface = raw.interface,
-        .ip_source = raw.ip_source.value_or(IpSource::INTERFACE),
+        .ip_source = raw.ip_source.value_or(domain::IpSource::INTERFACE),
         .ip_source_param = raw.ip_source_param,
         .allow_ula = raw.allow_ula,
         .allow_local_link = raw.allow_local_link,

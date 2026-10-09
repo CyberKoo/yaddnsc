@@ -1,9 +1,5 @@
-//
-// Created by Kotarou on 2026/6/28.
-//
-
-#ifndef YADDNSC_DNS_UTIL_H
-#define YADDNSC_DNS_UTIL_H
+#ifndef YADDNSC_INFRASTRUCTURE_DNS_UTIL_HPP
+#define YADDNSC_INFRASTRUCTURE_DNS_UTIL_HPP
 
 #include <utility>
 
@@ -16,13 +12,13 @@ namespace dns::Util {
 ///
 /// @param kind  The RecordKind from the updater layer.
 /// @return      The corresponding RecordType for wire-format construction.
-[[nodiscard]] constexpr RecordType type_to_record_type(RecordKind kind) noexcept {
+[[nodiscard]] constexpr RecordType type_to_record_type(domain::RecordKind kind) noexcept {
     switch (kind) {
-        case RecordKind::A:
+        case domain::RecordKind::A:
             return RecordType::A;
-        case RecordKind::AAAA:
+        case domain::RecordKind::AAAA:
             return RecordType::AAAA;
-        case RecordKind::TXT:
+        case domain::RecordKind::TXT:
             return RecordType::TXT;
     }
     // All RecordKind enumerators are handled above.  The trailing
@@ -33,4 +29,4 @@ namespace dns::Util {
 }
 }  // namespace dns::Util
 
-#endif  // YADDNSC_DNS_UTIL_H
+#endif  // YADDNSC_INFRASTRUCTURE_DNS_UTIL_HPP

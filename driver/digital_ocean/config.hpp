@@ -1,7 +1,3 @@
-//
-// Created by Kotarou on 2026/6/20.
-//
-
 #ifndef YADDNSC_DRV_DIGITALOCEAN_CONFIG_HPP
 #define YADDNSC_DRV_DIGITALOCEAN_CONFIG_HPP
 

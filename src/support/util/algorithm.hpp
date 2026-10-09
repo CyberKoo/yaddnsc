@@ -1,9 +1,5 @@
-//
-// Created by Kotarou on 2026/6/18.
-//
-
-#ifndef YADDNSC_UTIL_ALGORITHM_H
-#define YADDNSC_UTIL_ALGORITHM_H
+#ifndef YADDNSC_SUPPORT_UTIL_ALGORITHM_HPP
+#define YADDNSC_SUPPORT_UTIL_ALGORITHM_HPP
 
 #include <cstddef>
 #include <unordered_set>
@@ -38,4 +34,4 @@ std::size_t dedupe(std::vector<T>& vec) {
 }
 }  // namespace Utils
 
-#endif  // YADDNSC_UTIL_ALGORITHM_H
+#endif  // YADDNSC_SUPPORT_UTIL_ALGORITHM_HPP

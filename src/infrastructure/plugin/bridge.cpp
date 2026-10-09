@@ -7,15 +7,17 @@
 #include <atomic>
 #include <chrono>
 #include <cstdint>
-#include <expected>
 #include <memory>
 #include <string>
 #include <utility>
 
+#include <expected>
+
+#include "infrastructure/coro/cancelled.h"
 #include "infrastructure/coro/group.hpp"
 #include "infrastructure/coro/loop.h"
 #include "infrastructure/coro/scope.hpp"
-#include "infrastructure/net/http/client.h"
+#include "infrastructure/http/client.h"
 #include "support/fmt.hpp"
 
 namespace plugin {
@@ -36,7 +38,7 @@ struct PromiseFulfil {
     std::shared_ptr<BridgeCall> call;
     bool done = false;
 
-    void set(std::expected<http::Response, http::Error> value) {
+    void set(std::expected<http::Response, BridgeError> value) {
         if (!done) {
             call->promise.set_value(std::move(value));
             done = true;
@@ -47,7 +49,7 @@ struct PromiseFulfil {
         if (!done) {
             done = true;
             try {
-                call->promise.set_value(std::unexpected(http::Error{http::ErrorCode::CANCELLED, "bridge cancelled"}));
+                call->promise.set_value(std::unexpected(BridgeError{YADDNSC_STATUS_CANCELLED, "bridge cancelled"}));
             } catch (...) {
                 // set_value allocates for the message; a failure here cannot be
                 // reported anywhere, and must not terminate.
@@ -62,8 +64,8 @@ namespace detail {
 
 coro::Task<void> serve_exchange(std::shared_ptr<const BridgeState> state, std::shared_ptr<BridgeCall> call) {
     PromiseFulfil fulfil{std::move(call)};
-    std::expected<http::Response, http::Error> result{std::unexpect,
-                                                      http::Error{http::ErrorCode::CANCELLED, "bridge cancelled"}};
+    std::expected<http::Response, BridgeError> result{std::unexpect,
+                                                      BridgeError{YADDNSC_STATUS_CANCELLED, "bridge cancelled"}};
     try {
         // A cancel() that landed before this coroutine started (its posted
         // scope lookup found nothing to cancel) is honoured here instead of
@@ -71,7 +73,7 @@ coro::Task<void> serve_exchange(std::shared_ptr<const BridgeState> state, std::s
         // moving `result`: GCC 15 at -O3 mis-reads the moved expected's union
         // storage in this coroutine frame as maybe-uninitialized.
         if (fulfil.call->cancelled.load(std::memory_order_acquire)) {
-            fulfil.set(std::unexpected(http::Error{http::ErrorCode::CANCELLED, "bridge cancelled"}));
+            fulfil.set(std::unexpected(BridgeError{YADDNSC_STATUS_CANCELLED, "bridge cancelled"}));
             co_return;
         }
         http::Client client{state->options};
@@ -80,44 +82,47 @@ coro::Task<void> serve_exchange(std::shared_ptr<const BridgeState> state, std::s
         // exchange itself, not just the worker's wait on it.
         auto scoped = co_await coro::with_cancel_scope(
             [&client, &state, &fulfil](coro::CancelScope& call_scope)
-                -> coro::Task<coro::ScopeOutcome<std::expected<http::Response, http::Error>>> {
+                -> coro::Task<coro::ScopeOutcome<std::expected<http::Response, BridgeError>>> {
                 fulfil.call->live_scope = &call_scope;
                 auto outcome = co_await coro::with_timeout(
-                    state->wait_budget,
-                    [&client, &fulfil](coro::CancelScope&) -> coro::Task<std::expected<http::Response, http::Error>> {
-                        co_return co_await client.exchange(fulfil.call->url, fulfil.call->request);
+                    state->wait_budget, [&client, &fulfil]() -> coro::Task<std::expected<http::Response, BridgeError>> {
+                        auto response = co_await client.exchange(fulfil.call->url, fulfil.call->request);
+                        if (!response) {
+                            auto& error = response.error();
+                            co_return std::unexpected(BridgeError{YADDNSC_STATUS_NETWORK_ERROR,
+                                                                  std::move(error.message), error.retry_after_seconds});
+                        }
+                        co_return std::move(*response);
                     });
                 fulfil.call->live_scope = nullptr;
                 co_return outcome;
             });
-        auto& outcome = *scoped;
-        if (outcome.timed_out) {
-            // The wait budget expired: a slow upstream, not an abandon. Report
-            // a network failure instead of a cancellation (the ABI maps only
-            // CANCELLED to YADDNSC_STATUS_CANCELLED), and leave the call's
-            // cancelled flag clear so the worker's is_cancelled() stays false —
-            // the legacy stack's socket timeout looked exactly like this.
-            result = std::unexpected(http::Error{http::ErrorCode::CONNECTION_LOST,
-                                                 fmt::format("timed out after {}ms", state->wait_budget.count())});
+        if (scoped.cancelled) {
+            fulfil.call->cancelled.store(true, std::memory_order_release);
+            result = std::unexpected(BridgeError{YADDNSC_STATUS_CANCELLED, "bridge cancelled"});
         } else {
-            // The call's own scope (Bridge::cancel) and the enclosing group
-            // scope (shutdown) both surface through the inner outcome: the
-            // cancelled exchange returns a CANCELLED value.
-            if (scoped.cancelled || outcome.cancelled) {
+            auto& outcome = *scoped;
+            if (outcome.timed_out) {
+                result = std::unexpected(BridgeError{YADDNSC_STATUS_NETWORK_ERROR,
+                                                     fmt::format("timed out after {}ms", state->wait_budget.count())});
+            } else if (outcome.cancelled) {
                 fulfil.call->cancelled.store(true, std::memory_order_release);
-            }
-            if (outcome.has_value()) {
-                result = std::move(*outcome);
+                result = std::unexpected(BridgeError{YADDNSC_STATUS_CANCELLED, "bridge cancelled"});
             } else {
-                result = std::unexpected(http::Error{http::ErrorCode::CANCELLED, "bridge wait budget expired"});
+                result = std::move(*outcome);
             }
         }
+    } catch (const coro::Cancelled&) {
+        fulfil.call->live_scope = nullptr;
+        fulfil.call->cancelled.store(true, std::memory_order_release);
+        result = std::unexpected(BridgeError{YADDNSC_STATUS_CANCELLED, "bridge cancelled"});
     } catch (...) {
         // A defect here (allocation or client bug) must not strand the worker:
-        // the promise is fulfilled with a cancellation value and the defect is
+        // the promise is fulfilled with an internal-error status and the defect is
         // swallowed, because the loop side has no caller to rethrow to.
-        result = std::unexpected(http::Error{http::ErrorCode::CANCELLED, "bridge internal error"});
+        result = std::unexpected(BridgeError{YADDNSC_STATUS_INTERNAL_ERROR, "bridge internal error"});
     }
+    fulfil.call->live_scope = nullptr;
     fulfil.set(std::move(result));
     co_return;
 }
@@ -131,10 +136,10 @@ Bridge::Bridge(coro::Loop& loop, coro::TaskGroup& spawn_group, http::Options opt
 
 Bridge::~Bridge() = default;
 
-std::expected<http::Response, http::Error> Bridge::exchange(std::shared_ptr<BridgeCall> call) {
+std::expected<http::Response, BridgeError> Bridge::exchange(std::shared_ptr<BridgeCall> call) {
     if (stopped()) {
         call->cancelled.store(true, std::memory_order_release);
-        return std::unexpected(http::Error{http::ErrorCode::CANCELLED, "bridge stopped"});
+        return std::unexpected(BridgeError{YADDNSC_STATUS_CANCELLED, "bridge stopped"});
     }
 
     // Read every member before the post: from here on the exchange touches only
@@ -152,13 +157,13 @@ std::expected<http::Response, http::Error> Bridge::exchange(std::shared_ptr<Brid
         loop->post([group, state, call] { group->spawn_discard(detail::serve_exchange(state, call)); });
     } catch (...) {
         call->cancelled.store(true, std::memory_order_release);
-        return std::unexpected(http::Error{http::ErrorCode::CANCELLED, "bridge post failed"});
+        return std::unexpected(BridgeError{YADDNSC_STATUS_CANCELLED, "bridge post failed"});
     }
 
     const auto budget = state->wait_budget + std::chrono::milliseconds{BRIDGE_WAIT_SLACK_MS};
     if (future.wait_for(budget) != std::future_status::ready) {
         call->cancelled.store(true, std::memory_order_release);
-        return std::unexpected(http::Error{http::ErrorCode::CANCELLED, "bridge wait budget expired"});
+        return std::unexpected(BridgeError{YADDNSC_STATUS_CANCELLED, "bridge wait budget expired"});
     }
     return future.get();
 }
@@ -177,7 +182,7 @@ void Bridge::cancel(std::shared_ptr<BridgeCall> call) noexcept {
         loop_->post([call = std::move(call)] {
             coro::CancelScope* const scope = call->live_scope;
             if (scope != nullptr) {
-                scope->cancel(coro::CancelCause::REQUESTED);
+                scope->cancel();
             }
         });
     } catch (...) {

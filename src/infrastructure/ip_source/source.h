@@ -7,8 +7,8 @@
 // coro::offload — that is a deliberate transition debt for stage 3.
 //
 
-#ifndef YADDNSC_IP_SOURCE_SOURCE_H
-#define YADDNSC_IP_SOURCE_SOURCE_H
+#ifndef YADDNSC_INFRASTRUCTURE_IP_SOURCE_SOURCE_H
+#define YADDNSC_INFRASTRUCTURE_IP_SOURCE_SOURCE_H
 
 #include <vector>
 
@@ -21,12 +21,12 @@
 namespace ipsource {
 
 /// Result of one source lookup: candidate addresses, or a structured failure.
-using Result = std::expected<std::vector<InetAddress>, domain::IpSourceError>;
+using Result = std::expected<std::vector<domain::InetAddress>, domain::IpSourceError>;
 
 /// One coroutine IP source.
 ///
 /// Cancellation: each await is a scope checkpoint; a cancelled scope yields an
-/// IpSourceError with Code::CANCELLED.
+/// `coro::Cancelled`.
 /// Thread safety: loop thread only.
 class CoroIpSource {
 public:
@@ -37,4 +37,4 @@ public:
 
 }  // namespace ipsource
 
-#endif  // YADDNSC_IP_SOURCE_SOURCE_H
+#endif  // YADDNSC_INFRASTRUCTURE_IP_SOURCE_SOURCE_H

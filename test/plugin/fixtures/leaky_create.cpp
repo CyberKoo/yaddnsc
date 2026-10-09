@@ -1,7 +1,3 @@
-//
-// Created by Kotarou on 2026/9/18.
-//
-
 /// Loader fixture: a plugin whose create() violates the handle-ownership
 /// contract — it stores a handle in *out_driver and THEN reports failure
 /// (status mode) or throws across the ABI (exception mode). The host's

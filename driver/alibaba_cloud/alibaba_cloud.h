@@ -1,7 +1,3 @@
-//
-// Created by Kotarou on 2026/7/13.
-//
-
 #ifndef YADDNSC_DRV_ALIBABA_CLOUD_ALIBABA_CLOUD_H
 #define YADDNSC_DRV_ALIBABA_CLOUD_ALIBABA_CLOUD_H
 

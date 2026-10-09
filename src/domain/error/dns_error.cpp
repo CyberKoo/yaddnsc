@@ -1,7 +1,6 @@
-//
-// Created by Kotarou on 2026/7/4.
-//
-#include "domain/error/dns_error.h"
+#include "dns_error.h"
+
+namespace domain {
 
 // ===========================================================================
 // error_to_str — convert DnsError enum to a human-readable string.
@@ -21,8 +20,6 @@ std::string_view error_to_str(DnsError error) {
             return "connection error (CONNECTION)";
         case DnsError::CONFIG:
             return "configuration error (CONFIG)";
-        case DnsError::CANCELLED:
-            return "cancelled (CANCELLED)";
         case DnsError::SERVER_REFUSED:
             return "server refused query (REFUSED)";
         case DnsError::UNKNOWN:
@@ -31,3 +28,5 @@ std::string_view error_to_str(DnsError error) {
             return "unknown DNS error";
     }
 }
+
+}  // namespace domain

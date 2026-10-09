@@ -128,7 +128,7 @@ TEST(ConfigParserTest, FullConfig_ParsesAllFields) {
     EXPECT_EQ(cfg.resolver.servers[0].port, 53);
     EXPECT_EQ(cfg.resolver.servers[1].address, "8.8.8.8");
     EXPECT_EQ(cfg.resolver.servers[1].port, 53);
-    EXPECT_EQ(cfg.resolver.strategy, Config::ResolverStrategy::FALLBACK);
+    EXPECT_EQ(cfg.resolver.strategy, domain::ResolverStrategy::FALLBACK);
 
     // Domains
     ASSERT_EQ(cfg.domains.size(), 1U);
@@ -142,13 +142,13 @@ TEST(ConfigParserTest, FullConfig_ParsesAllFields) {
     ASSERT_EQ(domain.subdomains.size(), 2U);
 
     EXPECT_EQ(domain.subdomains[0].name, "@");
-    EXPECT_EQ(domain.subdomains[0].type, RecordKind::A);
-    EXPECT_EQ(domain.subdomains[0].ip_source, Config::IpSource::HTTP);
+    EXPECT_EQ(domain.subdomains[0].type, domain::RecordKind::A);
+    EXPECT_EQ(domain.subdomains[0].ip_source, domain::IpSource::HTTP);
     EXPECT_EQ(domain.subdomains[0].ip_source_param, "https://api.ipify.org");
 
     EXPECT_EQ(domain.subdomains[1].name, "www");
-    EXPECT_EQ(domain.subdomains[1].type, RecordKind::AAAA);
-    EXPECT_EQ(domain.subdomains[1].ip_source, Config::IpSource::INTERFACE);
+    EXPECT_EQ(domain.subdomains[1].type, domain::RecordKind::AAAA);
+    EXPECT_EQ(domain.subdomains[1].ip_source, domain::IpSource::INTERFACE);
     EXPECT_EQ(domain.subdomains[1].interface, "eth0");
 }
 
@@ -165,7 +165,7 @@ TEST(ConfigParserTest, ShuffleStrategy_ParsesSuccessfully) {
     })";
     auto result = parse_config(json);
     ASSERT_TRUE(result.ok);
-    EXPECT_EQ(result.value.resolver.strategy, Config::ResolverStrategy::SHUFFLE);
+    EXPECT_EQ(result.value.resolver.strategy, domain::ResolverStrategy::SHUFFLE);
 }
 
 TEST(ConfigParserTest, ResolverConfig_DirectServerFields_ReturnUnknownKey) {
@@ -191,12 +191,12 @@ TEST(ConfigParserTest, BackwardCompat_Keys_AreAccepted) {
     EXPECT_TRUE(cfg.resolver.use_custom_servers);
     ASSERT_EQ(cfg.resolver.servers.size(), 1U);
     EXPECT_EQ(cfg.resolver.servers[0].address, "9.9.9.9");
-    EXPECT_EQ(cfg.resolver.strategy, Config::ResolverStrategy::CONCURRENT);
+    EXPECT_EQ(cfg.resolver.strategy, domain::ResolverStrategy::CONCURRENT);
 
     // "url" alias for IP source = HTTP
     ASSERT_EQ(cfg.domains.size(), 1U);
     ASSERT_EQ(cfg.domains[0].subdomains.size(), 1U);
-    EXPECT_EQ(cfg.domains[0].subdomains[0].ip_source, Config::IpSource::HTTP);
+    EXPECT_EQ(cfg.domains[0].subdomains[0].ip_source, domain::IpSource::HTTP);
     EXPECT_EQ(cfg.domains[0].subdomains[0].ip_source_param, "https://api6.ipify.org");
 }
 
@@ -221,9 +221,9 @@ TEST(ConfigParserTest, AllSubdomainFields_ParseCorrectly) {
     const auto& sub = domain.subdomains[0];
 
     EXPECT_EQ(sub.name, "api");
-    EXPECT_EQ(sub.type, RecordKind::TXT);
+    EXPECT_EQ(sub.type, domain::RecordKind::TXT);
     EXPECT_EQ(sub.interface, "bond0");
-    EXPECT_EQ(sub.ip_source, Config::IpSource::HTTP);
+    EXPECT_EQ(sub.ip_source, domain::IpSource::HTTP);
     EXPECT_EQ(sub.ip_source_param, "https://checkip.amazonaws.com");
     EXPECT_TRUE(sub.allow_ula);
     EXPECT_FALSE(sub.allow_local_link);
@@ -244,8 +244,8 @@ TEST(ConfigParserTest, MdnsConfig_ParsesSuccessfully) {
 
     const auto& sub = cfg.domains[0].subdomains[0];
     EXPECT_EQ(sub.name, "printer");
-    EXPECT_EQ(sub.type, RecordKind::A);
-    EXPECT_EQ(sub.ip_source, Config::IpSource::MDNS);
+    EXPECT_EQ(sub.type, domain::RecordKind::A);
+    EXPECT_EQ(sub.ip_source, domain::IpSource::MDNS);
     EXPECT_EQ(sub.ip_source_param, "printer.local");
 }
 

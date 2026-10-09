@@ -1,6 +1,3 @@
-//
-// Created by Kotarou on 2026/7/7.
-//
 // Self-contained DNS wire-format parser implementation.
 // See parser.h for details.
 //
@@ -73,7 +70,7 @@ std::string dns::RecordParser::decompress_name(const std::span<const std::uint8_
         if (current >= wire_len) {
             throw DnsLookupException(
                 fmt::format("DNS name decompression: offset {} beyond wire length {}", current, wire_len),
-                DnsError::PARSE);
+                domain::DnsError::PARSE);
         }
 
         const auto label_len = wire[current];
@@ -82,7 +79,7 @@ std::string dns::RecordParser::decompress_name(const std::span<const std::uint8_
         if ((label_len & 0xC0) == 0xC0) {
             if (current + 2 > wire_len) {
                 throw DnsLookupException(fmt::format("DNS name decompression: pointer at offset {} truncated", current),
-                                         DnsError::PARSE);
+                                         domain::DnsError::PARSE);
             }
 
             const auto ptr_offset =
@@ -91,7 +88,7 @@ std::string dns::RecordParser::decompress_name(const std::span<const std::uint8_
             if (indirections++ >= MAX_POINTER_DEPTH) {
                 throw DnsLookupException(
                     fmt::format("DNS name decompression: too many indirections ({})", MAX_POINTER_DEPTH),
-                    DnsError::PARSE);
+                    domain::DnsError::PARSE);
             }
 
             // Linear scan of visited offsets (max 16 iterations, no allocation).
@@ -99,7 +96,7 @@ std::string dns::RecordParser::decompress_name(const std::span<const std::uint8_
                 if (visited[i] == ptr_offset) {
                     throw DnsLookupException(
                         fmt::format("DNS name decompression: repeated pointer to offset {} (cycle)", ptr_offset),
-                        DnsError::PARSE);
+                        domain::DnsError::PARSE);
                 }
             }
             visited[visited_count++] = ptr_offset;
@@ -125,7 +122,7 @@ std::string dns::RecordParser::decompress_name(const std::span<const std::uint8_
         if (label_len > MAX_LABEL_LENGTH) {
             throw DnsLookupException(
                 fmt::format("DNS name decompression: invalid label length {} at offset {}", label_len, current),
-                DnsError::PARSE);
+                domain::DnsError::PARSE);
         }
 
         if (!result.empty()) {
@@ -136,7 +133,7 @@ std::string dns::RecordParser::decompress_name(const std::span<const std::uint8_
         if (current + label_len > wire_len) {
             throw DnsLookupException(
                 fmt::format("DNS name decompression: label of length {} extends past wire end", label_len),
-                DnsError::PARSE);
+                domain::DnsError::PARSE);
         }
 
         result.append(reinterpret_cast<const char*>(wire.data() + current), label_len);
@@ -146,7 +143,8 @@ std::string dns::RecordParser::decompress_name(const std::span<const std::uint8_
         // Pointer chains could otherwise expand far beyond the limit.
         if (result.size() > NAME_MAX_BYTES) {
             throw DnsLookupException(
-                fmt::format("DNS name decompression: expanded name exceeds {} bytes", NAME_MAX_BYTES), DnsError::PARSE);
+                fmt::format("DNS name decompression: expanded name exceeds {} bytes", NAME_MAX_BYTES),
+                domain::DnsError::PARSE);
         }
     }
 
@@ -160,11 +158,11 @@ std::string dns::RecordParser::decompress_name(const std::span<const std::uint8_
 std::string dns::RecordParser::format_a(const std::span<const std::uint8_t> rdata) {
     if (rdata.size() != 4) [[unlikely]] {
         throw DnsLookupException(fmt::format("Invalid A record: RDATA is {} byte(s) (expected 4)", rdata.size()),
-                                 DnsError::PARSE);
+                                 domain::DnsError::PARSE);
     }
     std::array<char, INET_ADDRSTRLEN> buf{};
     if (inet_ntop(AF_INET, rdata.data(), buf.data(), buf.size()) == nullptr) [[unlikely]] {
-        throw DnsLookupException("Invalid A record: address conversion failed", DnsError::PARSE);
+        throw DnsLookupException("Invalid A record: address conversion failed", domain::DnsError::PARSE);
     }
     return buf.data();
 }
@@ -172,11 +170,11 @@ std::string dns::RecordParser::format_a(const std::span<const std::uint8_t> rdat
 std::string dns::RecordParser::format_aaaa(const std::span<const std::uint8_t> rdata) {
     if (rdata.size() != 16) [[unlikely]] {
         throw DnsLookupException(fmt::format("Invalid AAAA record: RDATA is {} byte(s) (expected 16)", rdata.size()),
-                                 DnsError::PARSE);
+                                 domain::DnsError::PARSE);
     }
     std::array<char, INET6_ADDRSTRLEN> buf{};
     if (inet_ntop(AF_INET6, rdata.data(), buf.data(), buf.size()) == nullptr) [[unlikely]] {
-        throw DnsLookupException("Invalid AAAA record: address conversion failed", DnsError::PARSE);
+        throw DnsLookupException("Invalid AAAA record: address conversion failed", domain::DnsError::PARSE);
     }
     return buf.data();
 }
@@ -193,7 +191,7 @@ std::string dns::RecordParser::format_txt(const std::span<const std::uint8_t> rd
         if (pos + 1 + seg_len > rdlen) {
             throw DnsLookupException(
                 fmt::format("Invalid TXT record: segment length {} exceeds RDATA at offset {}", seg_len, pos),
-                DnsError::PARSE);
+                domain::DnsError::PARSE);
         }
         if (!result.empty()) {
             // Separate multiple character-strings with a space.
@@ -216,14 +214,14 @@ std::string dns::RecordParser::format_mx(const std::span<const std::uint8_t> wir
     const auto rdata = wire.subspan(rdata_offset, rdlen);
     const auto pref = Utils::Bytes::try_read_u16_be(rdata, 0);
     if (!pref) [[unlikely]] {
-        throw DnsLookupException("Invalid MX record: preference missing", DnsError::PARSE);
+        throw DnsLookupException("Invalid MX record: preference missing", domain::DnsError::PARSE);
     }
     size_t name_offset = rdata_offset + 2;
     auto name = decompress_name(wire, name_offset);
     // The name's wire representation must fit inside the RDATA; only a
     // compression pointer may leave it (RFC 1035 §4.1.4).
     if (name_offset > rdata_offset + rdlen) [[unlikely]] {
-        throw DnsLookupException("Invalid MX record: name extends past RDATA", DnsError::PARSE);
+        throw DnsLookupException("Invalid MX record: name extends past RDATA", domain::DnsError::PARSE);
     }
     return fmt::format("{} {}", *pref, name);
 }
@@ -243,10 +241,10 @@ std::string dns::RecordParser::format_soa(const std::span<const std::uint8_t> wi
     // compression pointer may leave it (RFC 1035 §4.1.4).
     const auto consumed = offset - rdata_offset;
     if (consumed > rdlen) [[unlikely]] {
-        throw DnsLookupException("Invalid SOA record: names extend past RDATA", DnsError::PARSE);
+        throw DnsLookupException("Invalid SOA record: names extend past RDATA", domain::DnsError::PARSE);
     }
     if (rdlen - consumed < 20) [[unlikely]] {
-        throw DnsLookupException("Invalid SOA record: RDATA truncated", DnsError::PARSE);
+        throw DnsLookupException("Invalid SOA record: RDATA truncated", domain::DnsError::PARSE);
     }
 
     // 5 × 32-bit integers (big-endian).
@@ -256,7 +254,7 @@ std::string dns::RecordParser::format_soa(const std::span<const std::uint8_t> wi
     const auto expire = Utils::Bytes::try_read_u32_be(rdata, consumed + 12);
     const auto minimum = Utils::Bytes::try_read_u32_be(rdata, consumed + 16);
     if (!serial || !refresh || !retry || !expire || !minimum) [[unlikely]] {
-        throw DnsLookupException("Invalid SOA record: fixed fields missing", DnsError::PARSE);
+        throw DnsLookupException("Invalid SOA record: fixed fields missing", domain::DnsError::PARSE);
     }
 
     return fmt::format("{} {} {} {} {} {} {}", mname, rname, *serial, *refresh, *retry, *expire, *minimum);
@@ -269,13 +267,13 @@ std::string dns::RecordParser::format_srv(const std::span<const std::uint8_t> wi
     const auto weight = Utils::Bytes::try_read_u16_be(rdata, 2);
     const auto port = Utils::Bytes::try_read_u16_be(rdata, 4);
     if (!priority || !weight || !port) [[unlikely]] {
-        throw DnsLookupException("Invalid SRV record: fixed fields missing", DnsError::PARSE);
+        throw DnsLookupException("Invalid SRV record: fixed fields missing", domain::DnsError::PARSE);
     }
 
     size_t offset = rdata_offset + 6;
     auto target = decompress_name(wire, offset);
     if (offset > rdata_offset + rdlen) [[unlikely]] {
-        throw DnsLookupException("Invalid SRV record: target extends past RDATA", DnsError::PARSE);
+        throw DnsLookupException("Invalid SRV record: target extends past RDATA", domain::DnsError::PARSE);
     }
 
     return fmt::format("{} {} {} {}", *priority, *weight, *port, target);
@@ -324,7 +322,7 @@ std::optional<dns::EdnsInfo> dns::RecordParser::parse_edns(const ResourceRecord&
         if (!opt_code || !opt_len_raw) [[unlikely]] {
             throw DnsLookupException(fmt::format("EDNS0 option header truncated at offset {} (remaining {} bytes)",
                                                  offset, rr.rdata.size() - offset),
-                                     DnsError::PARSE);
+                                     domain::DnsError::PARSE);
         }
         offset += 4;
 
@@ -332,7 +330,7 @@ std::optional<dns::EdnsInfo> dns::RecordParser::parse_edns(const ResourceRecord&
         if (offset + opt_len > rr.rdata.size()) {
             throw DnsLookupException(fmt::format("EDNS0 option truncated: code={}, declared length={}, remaining={}",
                                                  *opt_code, opt_len, rr.rdata.size() - offset),
-                                     DnsError::PARSE);
+                                     domain::DnsError::PARSE);
         }
 
         EdnsOption opt;
@@ -362,13 +360,15 @@ std::string dns::RecordParser::rdata_to_string(const ResourceRecord& rr, const s
     switch (rr.type) {
         case static_cast<std::uint16_t>(RecordType::A):
             if (rdlen != 4) [[unlikely]] {
-                throw DnsLookupException(fmt::format("Invalid A record RDATA length: {}", rdlen), DnsError::PARSE);
+                throw DnsLookupException(fmt::format("Invalid A record RDATA length: {}", rdlen),
+                                         domain::DnsError::PARSE);
             }
             return format_a(rdata);
 
         case static_cast<std::uint16_t>(RecordType::AAAA):
             if (rdlen != 16) [[unlikely]] {
-                throw DnsLookupException(fmt::format("Invalid AAAA record RDATA length: {}", rdlen), DnsError::PARSE);
+                throw DnsLookupException(fmt::format("Invalid AAAA record RDATA length: {}", rdlen),
+                                         domain::DnsError::PARSE);
             }
             return format_aaaa(rdata);
 
@@ -382,19 +382,22 @@ std::string dns::RecordParser::rdata_to_string(const ResourceRecord& rr, const s
 
         case static_cast<std::uint16_t>(RecordType::MX):
             if (rdlen < 3) [[unlikely]] {
-                throw DnsLookupException(fmt::format("Invalid MX record RDATA length: {}", rdlen), DnsError::PARSE);
+                throw DnsLookupException(fmt::format("Invalid MX record RDATA length: {}", rdlen),
+                                         domain::DnsError::PARSE);
             }
             return format_mx(wire, rr.rdata_offset, rdlen);
 
         case static_cast<std::uint16_t>(RecordType::SOA):
             if (rdlen < 22) [[unlikely]] {
-                throw DnsLookupException(fmt::format("Invalid SOA record RDATA length: {}", rdlen), DnsError::PARSE);
+                throw DnsLookupException(fmt::format("Invalid SOA record RDATA length: {}", rdlen),
+                                         domain::DnsError::PARSE);
             }
             return format_soa(wire, rr.rdata_offset, rdlen);
 
         case static_cast<std::uint16_t>(RecordType::SRV):
             if (rdlen < 7) [[unlikely]] {
-                throw DnsLookupException(fmt::format("Invalid SRV record RDATA length: {}", rdlen), DnsError::PARSE);
+                throw DnsLookupException(fmt::format("Invalid SRV record RDATA length: {}", rdlen),
+                                         domain::DnsError::PARSE);
             }
             return format_srv(wire, rr.rdata_offset, rdlen);
 
@@ -403,7 +406,7 @@ std::string dns::RecordParser::rdata_to_string(const ResourceRecord& rr, const s
             const auto type_str = type_name.empty() ? "?" : type_name.data();
             throw DnsLookupException(fmt::format("DNS parsing: record type {} ({}) is not supported yet", type_str,
                                                  static_cast<std::uint16_t>(rr.type)),
-                                     DnsError::PARSE);
+                                     domain::DnsError::PARSE);
         }
     }
 }
@@ -417,7 +420,7 @@ dns::ResourceRecord dns::RecordParser::parse_rr(const std::span<const std::uint8
     ResourceRecord rr{};
     rr.name = decompress_name(data, offset);
     if (offset + RR_FIXED_SIZE > data.size()) [[unlikely]] {
-        throw DnsLookupException(fmt::format("DNS RR header truncated at offset {}", offset), DnsError::PARSE);
+        throw DnsLookupException(fmt::format("DNS RR header truncated at offset {}", offset), domain::DnsError::PARSE);
     }
     rr.type = Utils::Bytes::read_u16_be(data.subspan(offset));
     rr.qclass = Utils::Bytes::read_u16_be(data.subspan(offset + 2));
@@ -426,7 +429,7 @@ dns::ResourceRecord dns::RecordParser::parse_rr(const std::span<const std::uint8
     offset += RR_FIXED_SIZE;
     if (offset + rd_length > data.size()) [[unlikely]] {
         throw DnsLookupException(fmt::format("DNS RDATA truncated at offset {} (declared {})", offset, rd_length),
-                                 DnsError::PARSE);
+                                 domain::DnsError::PARSE);
     }
     rr.rdata_offset = offset;
     // Skip RDATA copy for the fast path (parse_strings) since
@@ -443,7 +446,7 @@ dns::ParsedMessage dns::RecordParser::parse_message(const std::span<const std::u
     if (data.size() < HEADER_SIZE) [[unlikely]] {
         throw DnsLookupException(
             fmt::format("DNS packet too short: {} bytes (minimum {} bytes)", data.size(), HEADER_SIZE),
-            DnsError::PARSE);
+            domain::DnsError::PARSE);
     }
 
     ParsedMessage m{};
@@ -474,7 +477,7 @@ dns::ParsedMessage dns::RecordParser::parse_message(const std::span<const std::u
         q.qname = decompress_name(data, offset);
         if (offset + QUESTION_FIXED_SIZE > data.size()) [[unlikely]] {
             throw DnsLookupException(fmt::format("DNS question section truncated at offset {}", offset),
-                                     DnsError::PARSE);
+                                     domain::DnsError::PARSE);
         }
         q.qtype = Utils::Bytes::read_u16_be(data.subspan(offset));
         q.qclass = Utils::Bytes::read_u16_be(data.subspan(offset + 2));
@@ -533,7 +536,7 @@ std::string dns::RecordParser::parse_record(size_t index) const {
     if (index >= static_cast<size_t>(msg.ancount)) {
         throw DnsLookupException(
             fmt::format("DNS parse_record: index {} out of bounds (answer count: {})", index, msg.ancount),
-            DnsError::PARSE);
+            domain::DnsError::PARSE);
     }
 
     const auto& rr = msg.answers[index];

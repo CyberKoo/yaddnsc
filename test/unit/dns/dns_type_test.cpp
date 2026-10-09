@@ -1,7 +1,4 @@
-//
-// Created by Kotarou on 2026/7/7.
-//
-// Unit tests for record_kind.h and Config::DnsServer.
+// Unit tests for record_kind.h and domain::DnsServer.
 //
 // Verifies:
 //   - All RecordKind enumerator values exist.
@@ -19,37 +16,37 @@
 // ── RecordKind ─────────────────────────────────────────────────────
 
 TEST(RecordKindTest, EnumeratorValues_Defined) {
-    EXPECT_EQ(static_cast<int>(RecordKind::A), 0);
-    EXPECT_EQ(static_cast<int>(RecordKind::AAAA), 1);
-    EXPECT_EQ(static_cast<int>(RecordKind::TXT), 2);
+    EXPECT_EQ(static_cast<int>(domain::RecordKind::A), 0);
+    EXPECT_EQ(static_cast<int>(domain::RecordKind::AAAA), 1);
+    EXPECT_EQ(static_cast<int>(domain::RecordKind::TXT), 2);
 }
 
 TEST(RecordKindTest, IsEnumClass) {
-    EXPECT_TRUE((std::is_enum_v<RecordKind>) );
-    EXPECT_FALSE((std::is_convertible_v<RecordKind, int>) );
+    EXPECT_TRUE((std::is_enum_v<domain::RecordKind>) );
+    EXPECT_FALSE((std::is_convertible_v<domain::RecordKind, int>) );
 }
 
 TEST(RecordKindTest, DefaultValue_IsA) {
-    RecordKind t{};
-    EXPECT_EQ(t, RecordKind::A);
+    domain::RecordKind t{};
+    EXPECT_EQ(t, domain::RecordKind::A);
 }
 
 // ── DnsServer ──────────────────────────────────────────────────────
 
 TEST(DnsServerTest, DefaultPort_Is53) {
-    Config::DnsServer srv;
+    domain::DnsServer srv;
     EXPECT_EQ(srv.port, 53);
     EXPECT_TRUE(srv.address.empty());
 }
 
 TEST(DnsServerTest, AggregateInit) {
-    Config::DnsServer srv{.address = "1.1.1.1", .port = 853};
+    domain::DnsServer srv{.address = "1.1.1.1", .port = 853};
     EXPECT_EQ(srv.address, "1.1.1.1");
     EXPECT_EQ(srv.port, 853);
 }
 
 TEST(DnsServerTest, PartialAggregateInit) {
-    Config::DnsServer srv{.address = "8.8.8.8"};  // port defaults to 53
+    domain::DnsServer srv{.address = "8.8.8.8"};  // port defaults to 53
     EXPECT_EQ(srv.address, "8.8.8.8");
     EXPECT_EQ(srv.port, 53);
 }

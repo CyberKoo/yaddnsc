@@ -1,7 +1,3 @@
-//
-// Created by Kotarou on 2026/9/17.
-//
-
 #ifndef YADDNSC_APPLICATION_PORTS_NETWORK_INTERFACES_H
 #define YADDNSC_APPLICATION_PORTS_NETWORK_INTERFACES_H
 
@@ -11,7 +7,9 @@
 
 #include "domain/network/inet_address.h"
 
-/// NetworkInterfaces — application port for querying the host's network
+namespace app {
+
+/// NetworkInterfacesPort — application port for querying the host's network
 /// interfaces (names and assigned addresses).
 ///
 /// Used by the environment validator (does a configured interface exist?)
@@ -22,16 +20,18 @@
 /// std::nullopt from addresses() — never an exception. The legacy
 /// "Interface <name> not found" wording is preserved verbatim by the CLI
 /// presenter and by InterfaceIpSource. names() never fails.
-class NetworkInterfaces {
+class NetworkInterfacesPort {
 public:
-    virtual ~NetworkInterfaces() = default;
+    virtual ~NetworkInterfacesPort() = default;
 
     /// Names of all interfaces that carry at least one IPv4/IPv6 address.
     [[nodiscard]] virtual std::vector<std::string> names() const = 0;
 
     /// All addresses (v4 and v6) assigned to `name`; std::nullopt when the
     /// interface does not exist.
-    [[nodiscard]] virtual std::optional<std::vector<InetAddress>> addresses(const std::string& name) const = 0;
+    [[nodiscard]] virtual std::optional<std::vector<domain::InetAddress>> addresses(const std::string& name) const = 0;
 };
+
+}  // namespace app
 
 #endif  // YADDNSC_APPLICATION_PORTS_NETWORK_INTERFACES_H
