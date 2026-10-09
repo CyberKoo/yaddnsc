@@ -30,7 +30,7 @@ namespace coro {
 
 /// Why a scope was cancelled. Only `TIMEOUT` is observable through the scope;
 /// the distinction exists so `timed_out()` can be answered without translation.
-enum class CancelCause { REQUESTED, TIMEOUT, SHUTDOWN };
+enum class CancelCause { REQUESTED, TIMEOUT };
 
 /// One parked coroutine registered on a cancel scope.
 ///

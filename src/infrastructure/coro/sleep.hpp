@@ -140,9 +140,10 @@ private:
     bool armed_ = false;
 };
 
-/// Suspend for `delay` on the loop clock. Cancellable at the await; ignoring
-/// the returned cancellation flag is a supported usage (see the scheduling loop
-/// in the design), so the result is deliberately not [[nodiscard]].
+/// Suspend for `delay` on the loop clock. Cancellable at the await: a
+/// cancelled scope resumes the wait immediately, so a loop paced by sleeps
+/// must exit on a cancelled result or it hot-spins — in the scheduling loop
+/// the sleep is the shutdown checkpoint.
 inline SleepAwaitable sleep_for(Duration delay) noexcept {
     return SleepAwaitable::after(delay);
 }
