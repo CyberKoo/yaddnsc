@@ -7,8 +7,10 @@
 
 #include <expected>
 
-#include "application/ports.h"
 #include "application/ports/driver_catalog.h"
+#include "application/ports/gateway.h"
+#include "application/ports/resolver.h"
+#include "domain/config/runtime_config.h"
 #include "domain/error/dns_error_info.h"
 #include "domain/network/inet_address.h"
 #include "infrastructure/coro/task.hpp"

@@ -215,8 +215,12 @@ Dependency direction is enforced by the CMake target graph
   IP source kind, record kinds, addresses and DNS errors. Raw JSON DTOs in
   `Config` reference these domain types; their Glaze mappings stay in the config adapter.
 - `src/application/`: the coroutine use cases and the ports. It names domain
-  types, the public coroutine APIs and the injected ports; logging goes through
-  `ports/log.h`, and spdlog, Glaze, CLI11, OpenSSL and the dynamic loader are
+  types, the public coroutine APIs and the injected ports. Each external capability
+  has its contract header under `ports/`, regardless of whether its operations are
+  synchronous or coroutine-based; consumers include the contracts they use.
+  Port headers contain contracts and their value types, not formatting or call-site
+  conveniences. Logging uses the `ports/log.h` contract and the separate `log.h`
+  formatting facade. spdlog, Glaze, CLI11, OpenSSL and the dynamic loader are
   reached from `src/infrastructure/`.
 - `src/infrastructure/coro/`: the coroutine runtime — loop, `Task`, structured
   scopes, cancellation combinators, sleeps, `AsyncMutex`, `offload`, signals.
@@ -261,11 +265,14 @@ Dependency direction is enforced by the CMake target graph
 
 Each layer has exactly one designated diagnostic entry point. The requirement
 behind this table is in [Quality & Process](../rules/04-quality-and-process.md#logging).
+The Host Services adapter translates C ABI log records into the internal
+`LoggerPort` contract; public SDK headers do not depend on that C++ port.
+Changing the internal contract requires updating its host adapters, not the C ABI.
 
 | Layer | Entry point |
 |-------|-------------|
 | Domain | Diagnostics belong to the caller; the layer holds no logging dependency |
-| Application | the injected `app::LoggerPort` port and the `YLOG_*` macros in `ports/log.h` |
+| Application | the injected `app::LoggerPort` contract in `ports/log.h` and the `YLOG_*` formatting macros in `application/log.h` |
 | Infrastructure / support | `SPDLOG_*` through the centrally configured backend; no independent sinks, and no application port introduced for logging alone |
 | SDK / plugins | Host Services (`yaddnsc_host_services::log`); C++ helpers normally use the `YADDNSC_SDK_LOG_*` macros in `include/yaddnsc/sdk/driver.hpp` |
 | CLI / composition | the same spdlog backend for host diagnostics; user-facing output is presentation and uses `std::print` / `std::println` on stdout/stderr |

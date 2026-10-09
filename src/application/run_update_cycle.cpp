@@ -14,7 +14,7 @@
 
 #include <magic_enum/magic_enum.hpp>
 
-#include "application/ports/log.h"
+#include "application/log.h"
 #include "domain/address_policy.h"
 #include "domain/error/dns_error.h"
 #include "domain/error/dns_error_info.h"
@@ -170,13 +170,13 @@ coro::Task<UpdateCycleOutcome> run_update_cycle(const domain::UpdateTask& task, 
         // An allocation failure is not a retryable condition; it stays a defect
         // (design §7) instead of being downgraded to a value.
         throw;
+    } catch (const coro::Cancelled&) {
+        throw;
     } catch (const std::exception& e) {
         // Defence against unexpected exceptions only — expected failures are
         // error values handled above.
         YLOG_ERROR(services.logger, "Unhandled exception during update of {}. {}", task.fqdn, e.what());
         co_return std::unexpected(domain::UpdateError{domain::UpdateError::Code::UNKNOWN, e.what()});
-    } catch (const coro::Cancelled&) {
-        throw;
     } catch (...) {
         YLOG_ERROR(services.logger, "Unknown non-standard exception during update for {}", task.fqdn);
         co_return std::unexpected(

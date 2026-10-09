@@ -20,6 +20,7 @@ struct GuardCase {
     const char* source;
     bool allowed;
     const char* path{"src/application/probe.cpp"};
+    const char* expected_diagnostic{nullptr};
 };
 
 class ApplicationCoroGuard : public ::testing::TestWithParam<GuardCase> {};
@@ -31,6 +32,19 @@ TEST_P(ApplicationCoroGuard, Check_Source_EnforcesPublicBoundary) {
     std::filesystem::create_directories(dir.path() / "include/yaddnsc/sdk");
     // Other architecture checks require the SDK header to exist.
     std::ofstream(dir.path() / "include/yaddnsc/sdk/driver_abi.h") << "#include <stdint.h>\n";
+    std::filesystem::create_directories(dir.path() / "src/infrastructure/probe");
+    std::ofstream(dir.path() / "src/infrastructure/probe/types.h") << R"(
+// class CommentOnlyBackend {};
+/* struct AnotherCommentOnlyBackend {}; */
+namespace domain { class InetAddress; }
+namespace app { class NetworkInterfacesPort; }
+class NetworkInterfaces {};
+class RenamedBackend final : public app::NetworkInterfacesPort {};
+struct BackendState {};
+class BorrowedForwardOnly;
+namespace net { class Stream {}; }
+namespace Config { struct SubdomainConfig {}; }
+)";
     std::ofstream(dir.path() / test.path) << test.source;
     const auto output = dir.path() / "output.txt";
     const std::string root_argument = "-DPROJECT_SOURCE_DIR=" + dir.path().string();
@@ -60,6 +74,9 @@ TEST_P(ApplicationCoroGuard, Check_Source_EnforcesPublicBoundary) {
     if (!test.allowed) {
         EXPECT_NE(diagnostic.find(test.path), std::string::npos) << diagnostic;
     }
+    if (test.expected_diagnostic != nullptr) {
+        EXPECT_NE(diagnostic.find(test.expected_diagnostic), std::string::npos) << diagnostic;
+    }
 }
 
 INSTANTIATE_TEST_SUITE_P(
@@ -80,6 +97,142 @@ INSTANTIATE_TEST_SUITE_P(
 #include "infrastructure/coro/async_mutex.hpp"
 )",
                   true},
+        GuardCase{"PortContractsAndAggregation", R"(#ifndef YADDNSC_APPLICATION_PORTS_PROBE_H
+#define YADDNSC_APPLICATION_PORTS_PROBE_H
+#include <expected>
+#include <string_view>
+#include "domain/config/runtime.h"
+#include "application/ports/log.h"
+#include <application/ports/network_interfaces.h>
+#include "infrastructure/coro/task.hpp"
+#include <infrastructure/coro/cancel_scope.h>
+namespace app {
+class ProbePort { public: virtual ~ProbePort() = default; };
+class OtherPort { public: virtual ~OtherPort() = default; };
+struct ProbePorts { ProbePort& probe; OtherPort& other; };
+}
+#endif // YADDNSC_APPLICATION_PORTS_PROBE_H
+)",
+                  true, "src/application/ports/probe.h"},
+        GuardCase{"PortFmtHeader", "#include <fmt/format.h>\n", false, "src/application/ports/log.h",
+                  "must not include formatting implementations"},
+        GuardCase{"PortQuotedFmtHeader", "#include \"fmt/core.h\"\n", false, "src/application/ports/probe.hpp"},
+        GuardCase{"PortStandardFormat", "#include <format>\n", false, "src/application/ports/probe.h",
+                  "must not include formatting implementations"},
+        GuardCase{"PortSupportFmt", "#include \"support/fmt.hpp\"\n", false, "src/application/ports/log.h",
+                  "port contracts may include only"},
+        GuardCase{"PortAngleSupportFmt", "#include <support/fmt.hpp>\n", false, "src/application/ports/probe.h"},
+        GuardCase{"PortLoggingConvenience", "#include \"application/log.h\"\n", false, "src/application/ports/log.h",
+                  "port contracts may include only"},
+        GuardCase{"PortApplicationHeader", "#include \"application/services.h\"\n", false,
+                  "src/application/ports/probe.h"},
+        GuardCase{"PortSupportHelper", "#include \"support/string_util.hpp\"\n", false,
+                  "src/application/ports/nested/probe.hpp"},
+        GuardCase{"PortBareInternalHeader", "#include \"log.h\"\n", false, "src/application/ports/probe.h"},
+        GuardCase{"PortRelativeConvenience", "#include \"../log.h\"\n", false, "src/application/ports/probe.h"},
+        GuardCase{"PortTraversalConvenience", "#include \"application/ports/../log.h\"\n", false,
+                  "src/application/ports/probe.h"},
+        GuardCase{"PortDomainTraversal", "#include <domain/../support/fmt.hpp>\n", false,
+                  "src/application/ports/probe.h"},
+        GuardCase{"PortInternalCoro", "#include \"infrastructure/coro/loop.h\"\n", false,
+                  "src/application/ports/probe.h", "port contracts may include only"},
+        GuardCase{"PortFunctionMacro", "#define LOG_AT(level, ...) log(level, __VA_ARGS__)\n", false,
+                  "src/application/ports/log.h", "must not define function-like macros"},
+        GuardCase{"PortEmptyFunctionMacro", "# define HELPER() 0\n", false, "src/application/ports/nested/probe.hpp",
+                  "must not define function-like macros"},
+        GuardCase{"PortObjectMacrosAndComments", R"(#ifndef PROBE_H
+#define PROBE_H
+#define DEFAULT_VALUE (1)
+// #define HELPER(x) (x)
+/* #define HELPER() 0 */
+// #include "application/log.h"
+#endif
+)",
+                  true, "src/application/ports/probe.h"},
+        GuardCase{"ApplicationSupportStillAllowed", R"(#include "support/fmt.hpp"
+#include "support/string_util.hpp"
+#include "application/log.h"
+#include <fmt/format.h>
+#include <format>
+#define HELPER(x) (x)
+)",
+                  true, "src/application/probe.h"},
+        GuardCase{"LoggingConvenienceMacroStillAllowed", "#define LOG_AT(level, ...) log(level, __VA_ARGS__)\n", true,
+                  "src/application/log.h"},
+        GuardCase{"LegacyGlobalForward", "class NetworkInterfaces; void inspect(NetworkInterfaces&);", false,
+                  "src/application/diagnostics.h", "concrete type NetworkInterfaces"},
+        GuardCase{"RenamedGlobalForward", "class\n RenamedBackend\n;", false, "src/application/probe.hpp",
+                  "concrete type RenamedBackend"},
+        GuardCase{"GlobalStructForward", "struct BackendState;", false, "src/application/probe.cpp",
+                  "concrete type BackendState"},
+        GuardCase{"GlobalForwardAfterUrl", "auto u = \"https://example.org\"; class RenamedBackend;", false},
+        GuardCase{"GlobalForwardWithComments", "class /* explanation */ RenamedBackend /* split */;", false},
+        GuardCase{"InfrastructureType", "net::Stream* stream;", false, "src/application/probe.cpp",
+                  "infrastructure namespaces"},
+        GuardCase{"InfrastructureTypeAlias", "using Stream = ::net::Stream;", false},
+        GuardCase{"InfrastructureTypedef", "typedef net::Stream Stream;", false},
+        GuardCase{"InfrastructureNamespaceAlias", "namespace n = ::net; namespace other = n;", false},
+        GuardCase{"InfrastructureNestedAlias", "namespace n = net::detail;", false},
+        GuardCase{"InfrastructureImport", "using namespace ::net;", false},
+        GuardCase{"InfrastructureUnqualifiedImport", "using namespace net;", false},
+        GuardCase{"InfrastructureUsingType", "using net::Stream;", false},
+        GuardCase{"InfrastructureForward", "namespace net { class Stream; }", false},
+        GuardCase{"InfrastructureNestedForward", "namespace net::detail { struct Stream; }", false},
+        GuardCase{"InfrastructureSplitQualifier", "::net\n :: Stream* stream;", false},
+        GuardCase{"DnsType", "dns::Resolver* resolver;", false}, GuardCase{"HttpType", "http::Client* client;", false},
+        GuardCase{"IpSourceType", "ipsource::InterfaceIpSource* source;", false},
+        GuardCase{"ConfigType", "Config::AppConfig* config;", false},
+        GuardCase{"LoggingAlias", "namespace backend = logging;", false},
+        GuardCase{"PluginType", "plugin::Loader* loader;", false},
+        GuardCase{"InfrastructureRoot", "infrastructure::Backend* backend;", false},
+        GuardCase{"CertificateHelper", "Utils::Cert::load();", false},
+        GuardCase{"ReasonableForwards", R"(class ApplicationHelper;
+struct ApplicationState;
+class BorrowedForwardOnly;
+namespace domain { class InetAddress; struct RuntimeConfig; }
+namespace app { class NetworkInterfacesPort; class LoggerPort; struct Services; }
+namespace coro { template<class T> class Task; class CancelScope; }
+namespace a = app; namespace d = domain;
+using Port = a::NetworkInterfacesPort;
+coro::Task<void> inspect(Port&, d::InetAddress&);
+)",
+                  true, "src/application/probe.h"},
+        GuardCase{"ApplicationSameNameForward", "namespace app { class Stream; }", true},
+        GuardCase{"DomainConfigSameNameForward", R"(namespace domain {
+struct SubdomainConfig;
+}
+namespace app {
+class IpSourcePort { public: virtual void read(const domain::SubdomainConfig&) = 0; };
+}
+)",
+                  true, "src/application/ports/ip_source.h"},
+        GuardCase{"NestedBusinessSameNameForwards", R"(namespace domain::detail { struct SubdomainConfig; }
+namespace app { namespace detail { class Stream; } class RenamedBackend; }
+)",
+                  true},
+        GuardCase{"BusinessForwardDoesNotMaskGlobal", R"(namespace domain { struct SubdomainConfig; }
+namespace app { class RenamedBackend; }
+class RenamedBackend;
+)",
+                  false, "src/application/probe.h", "concrete type RenamedBackend"},
+        GuardCase{"GlobalForwardBetweenBlocks", R"(namespace app { class Stream; }
+struct BackendState;
+namespace domain { struct SubdomainConfig; }
+)",
+                  false, "src/application/probe.h", "concrete type BackendState"},
+        GuardCase{"SameNameDefinitionIsNotForward", "class Stream { struct Nested {}; };", true},
+        GuardCase{"InfrastructureReferenceInsideBusinessBlock", "namespace app { net::Stream* stream; }", false,
+                  "src/application/probe.h", "infrastructure namespaces"},
+        GuardCase{"InfrastructureGlobalImportAlias", "namespace n = ::infrastructure;", false},
+        GuardCase{"CommentOnlyDefinitions", "class CommentOnlyBackend; struct AnotherCommentOnlyBackend;", true},
+        GuardCase{"UnrelatedNames", "class RenamedBackendExtra; struct BackendStateView; namespace network {}", true},
+        GuardCase{"InfrastructureCommentsAndStrings", R"(// namespace n = net;
+/* namespace net { class Stream; } class NetworkInterfaces; */
+auto note = "net::Stream; class NetworkInterfaces;";
+)",
+                  true},
+        GuardCase{"CompositionMayUseConcreteTypes", "namespace n = net; class RenamedBackend;", true,
+                  "src/composition/probe.cpp"},
         GuardCase{"PublicCancellation", "void stop(coro::TaskGroup& g) { g.scope().cancel(); g.cancel(); }", true},
         GuardCase{"PublicState", "bool read(coro::CancelScope& s) { return s.cancelled() || s.timed_out(); }", true},
         GuardCase{"UnrelatedRelease", "auto result = file.release(); auto other = tree.parent();", true},
@@ -123,6 +276,7 @@ INSTANTIATE_TEST_SUITE_P(
         GuardCase{"AliasChain", "namespace c = ::coro; namespace d = c; d::Loop loop;", false},
         GuardCase{"UsingType", "using coro::Loop; Loop loop;", false},
         GuardCase{"UsingNamespace", "using namespace coro; Loop loop;", false},
+        GuardCase{"GlobalUsingNamespace", "using namespace ::coro; Loop loop;", false},
         GuardCase{"InternalAlias", "namespace d = coro::detail;", false},
         GuardCase{"SplitQualifier", "auto c = co_await coro\n :: detail\n :: GetContext{};", false},
         GuardCase{"DeducedWaiter", "scope.remove_waiter(node);", false},

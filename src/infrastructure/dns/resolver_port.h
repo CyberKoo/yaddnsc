@@ -11,7 +11,7 @@
 
 #include <expected>
 
-#include "application/ports.h"
+#include "application/ports/resolver.h"
 #include "domain/dns/record_kind.h"
 #include "domain/error/dns_error_info.h"
 #include "infrastructure/dns/dispatcher.h"

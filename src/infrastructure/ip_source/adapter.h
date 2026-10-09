@@ -9,7 +9,7 @@
 
 #include <expected>
 
-#include "application/ports.h"
+#include "application/ports/ip_source.h"
 #include "domain/config/runtime_config.h"
 #include "domain/error/error.h"
 #include "domain/network/inet_address.h"

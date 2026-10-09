@@ -4,8 +4,6 @@
 #include <source_location>
 #include <string_view>
 
-#include "support/fmt.hpp"
-
 namespace app {
 
 /// Log severity levels, ordered by verbosity (trace is the most verbose).
@@ -25,14 +23,13 @@ enum class LogLevel {
 /// implementations forward it to the logging backend (spdlog::source_loc for
 /// the SpdlogLogger), keeping the `%s` / `%#` pattern fields meaningful.
 ///
-/// Callers should use the YLOG_* macros below: they capture the call site via
-/// std::source_location::current() and skip message formatting entirely when
-/// the level is disabled.
+/// Application call sites may use the formatting facade in application/log.h.
+/// Adapters consume this contract directly without a formatting dependency.
 class LoggerPort {
 public:
     virtual ~LoggerPort() = default;
 
-    /// Whether `level` would be emitted — used by the macros to skip work.
+    /// Whether `level` would be emitted — allows callers to skip unnecessary work.
     [[nodiscard]] virtual bool is_enabled(LogLevel level) const = 0;
 
     /// Emit one already-formatted record.
@@ -52,20 +49,5 @@ public:
 
 }  // namespace app
 
-/// Log a formatted message at the given level through a LoggerPort.
-/// The format string and arguments are only evaluated when the level is
-/// enabled; the source location is captured at the call site.
-#define YLOG(logger, level, ...)                                                            \
-    do {                                                                                    \
-        if ((logger).is_enabled(level)) {                                                   \
-            (logger).log(level, fmt::format(__VA_ARGS__), std::source_location::current()); \
-        }                                                                                   \
-    } while (0)
-
-#define YLOG_DEBUG(logger, ...) YLOG(logger, app::LogLevel::DEBUG, __VA_ARGS__)
-#define YLOG_INFO(logger, ...) YLOG(logger, app::LogLevel::INFO, __VA_ARGS__)
-#define YLOG_WARN(logger, ...) YLOG(logger, app::LogLevel::WARN, __VA_ARGS__)
-#define YLOG_ERROR(logger, ...) YLOG(logger, app::LogLevel::ERROR, __VA_ARGS__)
-#define YLOG_CRITICAL(logger, ...) YLOG(logger, app::LogLevel::CRITICAL, __VA_ARGS__)
 
 #endif  // YADDNSC_APPLICATION_PORTS_LOG_H

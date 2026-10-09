@@ -85,19 +85,103 @@ foreach (f ${application_check_files})
     endforeach ()
 endforeach()
 
+# Port headers are pure contracts, not the application's formatting/helper layer.
+# Quoted includes and known source-root paths are internal; standard/third-party
+# angle includes retain the application policy except for formatting facilities.
+file(GLOB_RECURSE application_port_headers RELATIVE ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/src/application/ports/*.h
+    ${PROJECT_SOURCE_DIR}/src/application/ports/*.hpp)
+foreach (f ${application_port_headers})
+    file(STRINGS ${PROJECT_SOURCE_DIR}/${f} lines REGEX "${INC_RE}[<\"]")
+    foreach (line ${lines})
+        if (NOT line MATCHES "${INC_RE}([<\"])([^\">]+)[\">]")
+            continue()
+        endif ()
+        set(delimiter "${CMAKE_MATCH_1}")
+        set(include_path "${CMAKE_MATCH_2}")
+        if (include_path MATCHES "^(fmt/|format$)")
+            set(violations "${violations}\n  ${f}: port contracts must not include formatting implementations\n      ${line}")
+        elseif (delimiter STREQUAL "\""
+            OR include_path MATCHES "^(application|cli|composition|domain|infrastructure|support)/"
+            OR include_path MATCHES "^\\.")
+            if (NOT include_path MATCHES "(^|/)\\.\\.?(/|$)")
+                if (include_path MATCHES "^(domain/|application/ports/)")
+                    continue()
+                elseif (include_path MATCHES "^infrastructure/coro/(.+)$")
+                    list(FIND application_coro_headers "${CMAKE_MATCH_1}" public_header_index)
+                    if (NOT public_header_index EQUAL -1)
+                        continue()
+                    endif ()
+                endif ()
+            endif ()
+            set(violations "${violations}\n  ${f}: port contracts may include only domain/, application/ports/ and public coro headers internally\n      ${line}")
+        endif ()
+    endforeach ()
+endforeach ()
+guard_check("port contracts must not define function-like macros (keep conveniences in application/log.h)"
+    "^[ \t]*#[ \t]*define[ \t]+[A-Za-z_][A-Za-z_0-9]*\\("
+    ${PROJECT_SOURCE_DIR}/src/application/ports/*.h
+    ${PROJECT_SOURCE_DIR}/src/application/ports/*.hpp)
+
+# Reuse the same textual normalization for declarations and application uses.
+function(guard_normalize_code path output)
+    file(READ "${path}" code)
+    # Strings first: a URL's // must not hide the rest of the line.
+    string(REGEX REPLACE "\"[^\"\n]*\"" "\"\"" code "${code}")
+    string(REGEX REPLACE "/\\*([^*]|\\*+[^*/])*\\*+/" " " code "${code}")
+    string(REGEX REPLACE "//[^\n]*" " " code "${code}")
+    string(REGEX REPLACE "[ \t\r\n]+" " " code "${code}")
+    string(REGEX REPLACE "[ ]*::[ ]*" "::" code "${code}")
+    set(${output} "${code}" PARENT_SCOPE)
+endfunction()
+
+# Infrastructure type names are not identified by one historical concrete type.
+# Harvest ordinary definitions throughout each header, across all scopes.
+# Forward declarations alone do not count as definitions.
+# ponytail: this is a name inventory, not ownership resolution; only application
+# declarations outside brace blocks are checked against it (namespaces below).
+file(GLOB_RECURSE infrastructure_type_headers
+    ${PROJECT_SOURCE_DIR}/src/infrastructure/*.h
+    ${PROJECT_SOURCE_DIR}/src/infrastructure/*.hpp)
+list(FILTER infrastructure_type_headers EXCLUDE REGEX "/coro/")
+set(infrastructure_defined_type_names "")
+foreach (header ${infrastructure_type_headers})
+    guard_normalize_code("${header}" infrastructure_code)
+    string(REGEX MATCHALL "(class|struct) +[A-Za-z_][A-Za-z_0-9]* *(final *)?[:{]" definitions "${infrastructure_code}")
+    foreach (definition ${definitions})
+        string(REGEX REPLACE "^(class|struct) +([A-Za-z_][A-Za-z_0-9]*).*$" "\\2" type "${definition}")
+        list(APPEND infrastructure_defined_type_names "${type}")
+    endforeach ()
+endforeach ()
+list(REMOVE_DUPLICATES infrastructure_defined_type_names)
+
+# These implementation namespace roots must not be named, imported, reopened or
+# aliased by application code. coro has its own public API policy below.
+set(infrastructure_namespaces "infrastructure|net|dns|http|ipsource|Config|configuration|logging|plugin|Utils::Cert")
+
 # Coroutine symbol boundary: normalize simple aliases to coro, then reject
 # implementation types and namespace imports. Scope.cancel()/cancelled() and
 # unrelated objects' release()/parent() methods remain valid.
 foreach (f ${application_check_files})
-    file(READ ${PROJECT_SOURCE_DIR}/${f} application_code)
-    # Blank out string literals *before* stripping comments. "//" inside a URL
-    # literal is not a comment: treating it as one deletes the remainder of the
-    # line and silently disables every symbol check on that line.
-    string(REGEX REPLACE "\"[^\"\n]*\"" "\"\"" application_code "${application_code}")
-    string(REGEX REPLACE "/\\*([^*]|\\*+[^*/])*\\*+/" " " application_code "${application_code}")
-    string(REGEX REPLACE "//[^\n]*" " " application_code "${application_code}")
-    string(REGEX REPLACE "[ \t\r\n]+" " " application_code "${application_code}")
-    string(REGEX REPLACE "[ ]*::[ ]*" "::" application_code "${application_code}")
+    guard_normalize_code("${PROJECT_SOURCE_DIR}/${f}" application_code)
+    if (application_code MATCHES "(^|[^A-Za-z_0-9])(${infrastructure_namespaces})::"
+        OR application_code MATCHES "(^|[^A-Za-z_0-9])namespace (${infrastructure_namespaces}) *\\{"
+        OR application_code MATCHES "using namespace *(::)?(${infrastructure_namespaces}) *;"
+        OR application_code MATCHES "namespace [A-Za-z_][A-Za-z_0-9]* *= *(::)?(${infrastructure_namespaces}) *;")
+        set(violations "${violations}\n  ${f}: application must not name or alias infrastructure namespaces (inject application ports)")
+    endif ()
+    # Check only declarations outside brace blocks. This avoids confusing
+    # domain::SubdomainConfig with Config::SubdomainConfig, or app::Stream with
+    # net::Stream. Retain a marker so a definition cannot become a declaration.
+    set(application_outer_code "${application_code}")
+    while (application_outer_code MATCHES "\\{[^{}]*\\}")
+        string(REGEX REPLACE "\\{[^{}]*\\}" " @ " application_outer_code "${application_outer_code}")
+    endwhile ()
+    foreach (type ${infrastructure_defined_type_names})
+        if (application_outer_code MATCHES "(^|[^A-Za-z_0-9])(class|struct) +${type} *;")
+            set(violations "${violations}\n  ${f}: application must not forward-declare infrastructure concrete type ${type} (inject application ports)")
+        endif ()
+    endforeach ()
 
     # Iterate to handle aliases of aliases regardless of declaration order.
     set(alias_changed TRUE)
@@ -114,7 +198,7 @@ foreach (f ${application_check_files})
 
     set(coro_internal_types "detail|Context|GetContext|PromiseBase|TaskPromise|TaskAwaiter|FinalSuspend|TaskAccess|WaitNode|TimerNode|CancelCause|LoopAccess|ScopeAccess|GroupState|ChildSlot|Loop|Clock|SystemClock|ManualClock|FdAwaitable|FdToken|ResultBox")
     if (application_code MATCHES "(^|[^A-Za-z_0-9])coro::(${coro_internal_types})([^A-Za-z_0-9]|$)"
-        OR application_code MATCHES "using namespace (::)?coro([ ;:]|$)"
+        OR application_code MATCHES "using namespace *(::)?coro([ ;:]|$)"
         OR application_code MATCHES "namespace [A-Za-z_][A-Za-z_0-9]* *= *(::)?coro::"
         OR application_code MATCHES "::promise_type([^A-Za-z_0-9]|$)")
         set(violations "${violations}\n  ${f}: application must use public coro APIs, not runtime types/context or namespace imports")

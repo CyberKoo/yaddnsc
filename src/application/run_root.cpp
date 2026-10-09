@@ -13,7 +13,7 @@
 
 #include <unistd.h>
 
-#include "application/ports/log.h"
+#include "application/log.h"
 #include "application/subdomain_loop.h"
 #include "domain/fqdn.h"
 #include "infrastructure/coro/cancel_scope.h"

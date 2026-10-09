@@ -8,8 +8,10 @@
 #include <functional>
 #include <memory>
 
-#include "application/ports.h"
+#include "application/ports/gateway.h"
+#include "application/ports/ip_source.h"
 #include "application/ports/log.h"
+#include "application/ports/resolver.h"
 #include "infrastructure/coro/fwd.h"
 
 namespace app {

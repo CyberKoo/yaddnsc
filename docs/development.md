@@ -317,6 +317,40 @@ URL does not truncate the rest of the line and hide a violation; block and line
 comments are otherwise ignored for these symbol checks. Public scope
 cancellation/state reads (`cancel()`, `cancelled()`, `timed_out()`,
 `throw_if_cancelled()`) and unrelated `release()` calls remain allowed.
+Application symbol checks also reject references, imports, namespace reopening
+and simple aliases of infrastructure namespace roots (`net`, `dns`, `http`,
+`ipsource`, `Config`, `configuration`, `logging`, `plugin`, `infrastructure` and
+`Utils::Cert`), including nested/split qualifiers. An alias is rejected at its
+infrastructure target, so an alias chain does not need to be resolved. Keep this
+root list in the guard aligned with new infrastructure namespaces.
+To catch concrete-type forward declarations, the guard harvests ordinary
+`class`/`struct` definitions throughout infrastructure `.h`/`.hpp` headers
+(excluding the coroutine tree), then rejects matching application forward
+declarations outside brace blocks. For this name check only, innermost brace
+blocks are iteratively replaced with markers: declarations in `app`/`domain`
+namespace blocks may share infrastructure names, such as `app::Stream` versus
+`net::Stream` or `domain::SubdomainConfig` versus `Config::SubdomainConfig`.
+Infrastructure namespace checks still inspect the original normalized text,
+including references inside business namespace blocks. Thus the old `class NetworkInterfaces;`
+dependency in `diagnostics.h` and newly named implementation classes cannot
+bypass the include boundary merely by omitting the implementation include.
+Definitions, not borrowed forward declarations, populate this inventory;
+application/domain declarations and public coroutine APIs remain allowed.
+
+Pure contract headers under `src/application/ports/` (`.h`/`.hpp`, including
+subdirectories) have a narrower include boundary: internal includes may target
+only `domain/`, `application/ports/` or the public coroutine header whitelist
+above. All quoted includes and angle includes using known source-root paths are
+checked as internal; bare/relative quoted paths and traversal components are
+rejected. Standard-library angle includes remain allowed except `<format>`;
+`fmt/...` includes are also rejected. This blocks `support/fmt.hpp` and
+`application/log.h` from pulling formatting conveniences back into contracts.
+Function-like `#define NAME(...)` declarations are rejected in port headers;
+object-like macros, including include guards, remain allowed. This does not
+restrict the number of ports per header or legitimate contract aggregation.
+Ordinary application headers outside `ports/`, including the macro convenience
+layer `application/log.h`, may still use support helpers and formatting.
+
 `test_architecture_guard_cases` runs the actual CMake script on isolated source
 fixtures, and `test_coro` checks that raw Task/group/Handle construction, Task
 context/frame access, and the loop's scheduling/registration services and the
@@ -324,7 +358,23 @@ scope's waiter bookkeeping are unavailable to callers.
 
 These are textual checks: they do not resolve C++ types, all macros/aliases,
 relative or macro-generated includes, string literals, or arbitrary template
-metaprogramming. Public headers necessarily include implementation definitions;
+metaprogramming. The concrete-type inventory is a conservative name heuristic,
+not scope resolution: it also collects namespaced/nested definitions. Namespace
+checks likewise match names without resolving ownership; an unrelated nested
+namespace with a reserved infrastructure root name can be rejected.
+Macro/attribute-generated or otherwise nonordinary declarations, and
+implementation types exposed only through transitive includes or deduction still
+require review. Port include/macro checks are line-based: they do not expand
+macros or backslash-spliced directives, trace transitive includes, or fully lex
+multiline comments; review must check those forms too. The brace-block reduction
+is not C++ scope analysis: declarations inside any brace block are excluded from
+the inventory name check, and unmatched/macro-generated braces or nonordinary
+qualified declarations require review. A same-name declaration outside brace
+blocks is still conservatively rejected without proving infrastructure ownership;
+this policy does not ban same-name `app`/`domain` declarations in namespace blocks.
+Comment/string normalization is not a complete C++
+lexer (notably escaped quotes and raw strings), and inactive preprocessor branches
+are still scanned. Public headers necessarily include implementation definitions;
 review must still check inferred objects and callbacks for runtime access.
 The normative boundary is in
 [Architecture](architecture.md#coroutine-api-boundary).
