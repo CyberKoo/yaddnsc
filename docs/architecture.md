@@ -61,6 +61,26 @@ fire-and-forget child whose bookkeeping is shed at completion, which keeps a
 process-lifetime group bounded by its live children. The run root uses a
 supervisor group, so one subdomain failing leaves the others running.
 
+Child results are single-consumer: `co_await Handle<T>` claims the result at
+await entry, shared across handle copies and `next<T>()`. Joining an empty or
+already claimed handle throws `std::logic_error`. `next<T>()` returns `nullopt`
+as soon as there are no unclaimed children of type `T`, without waiting for
+other result types. Handles are borrowed and must not outlive the group.
+Keeping the body frame alive does not extend the lifetime of body locals that
+have already left scope; child references must still obey ordinary C++ lifetime
+rules.
+
+Completed task frames have RAII ownership while results are moved out, including
+throwing moves. Slot and wait registrations commit only after their fallible
+allocations succeed. Invalid or uncatchable signals fail at registration, and
+`sigaction` failures are reported rather than leaving an undeliverable wait.
+`coro::run` requires a fresh loop and structured root completion. Task defects
+still propagate normally. Exceptions escaping loop dispatch, or failure to post
+an offload completion, call `std::terminate`: losing a dispatch batch or completion
+cannot be recovered by safely unwinding parked frames. External stop before root
+completion is likewise fatal. Loop construction throws if its wake pipe cannot
+be created.
+
 **Cancellation is scope state.** `with_timeout`, `with_deadline`,
 `with_cancel_scope` and `non_cancellable` run a body in a child scope;
 cancellable waits are checkpoints, and a cancelled scope makes them throw
@@ -138,7 +158,12 @@ leaving cancellation to the enclosing await.
 
 **Leaving the loop.** `coro::offload(fn)` runs `fn` on the pool and returns its
 result through the loop. Cancellation is *abandon*: the await throws
-`Cancelled` while the work packet finishes on its own.
+`Cancelled` while the work packet finishes on its own. `offload` takes ownership
+of its callable immediately, so a task created from a temporary callable may be
+stored before it is awaited. Callable captures must own their data or refer to
+objects that outlive the worker, even after cancellation. Loop destruction joins
+workers before closing the wake pipe or destroying the inbox; an indefinitely
+blocked worker therefore also blocks loop destruction.
 
 **Plugin bridge.** The plugin C ABI is synchronous, so an update cycle runs on
 an offload worker. When the plugin calls `http_exchange`, the bridge posts a

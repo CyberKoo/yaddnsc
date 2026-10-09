@@ -7,6 +7,7 @@
 
 #include <chrono>
 #include <csignal>
+#include <stdexcept>
 
 #include <gtest/gtest.h>
 
@@ -105,6 +106,19 @@ TEST(Signal, on_signal_RepeatedSignals_HandledInLoop) {
 
     coro::run(loop, task());
     EXPECT_EQ(handled, 2);
+}
+
+TEST(Signal, on_signal_InvalidOrUncatchableSignal_ThrowsWithoutLeavingWaiters) {
+    for (int signal : {0, -1, 65, SIGKILL, SIGSTOP}) {
+        auto root = [signal]() -> coro::Task<void> {
+            co_await coro::with_cancel_scope([signal](coro::CancelScope& scope) -> coro::Task<void> {
+                EXPECT_THROW(co_await coro::on_signal(signal), std::invalid_argument);
+                // A failed registration must leave no dangling scope node.
+                scope.cancel();
+            });
+        };
+        coro::run(root());
+    }
 }
 
 }  // namespace

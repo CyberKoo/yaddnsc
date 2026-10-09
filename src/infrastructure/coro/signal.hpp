@@ -26,7 +26,9 @@ namespace coro {
 ///
 /// The signal handler is process-wide and installed for the lifetime of the
 /// loop, so a caller must not also rely on the default disposition of `sig`.
-/// Failure: allocation may throw.
+/// Failure: allocation may throw; invalid/uncatchable signals throw
+/// std::invalid_argument, and handler installation failure throws std::system_error.
+/// A failed registration leaves no waiter or changed signal disposition.
 [[nodiscard]] inline Task<void> on_signal(int sig) {
     co_return co_await detail::SignalAwaitable{sig};
 }

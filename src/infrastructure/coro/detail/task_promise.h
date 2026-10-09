@@ -160,18 +160,14 @@ public:
     /// out of the frame.
     T await_resume() {
         Handle handle = std::exchange(handle_, {});
+        const FrameOwner owner{handle};
         if (handle.promise().error) {
-            const std::exception_ptr error = handle.promise().error;
-            handle.destroy();
-            std::rethrow_exception(error);
+            std::rethrow_exception(handle.promise().error);
         }
         if constexpr (std::is_void_v<T>) {
-            handle.destroy();
             return;
         } else {
-            T result = std::move(*handle.promise().value);
-            handle.destroy();
-            return result;
+            return std::move(*handle.promise().value);
         }
     }
 

@@ -9,6 +9,7 @@
 #include <cstddef>
 #include <exception>
 #include <memory>
+#include <stdexcept>
 #include <type_traits>
 #include <utility>
 #include <vector>
@@ -152,6 +153,16 @@ struct GroupState {
         return nullptr;
     }
 
+    /// A result claimed by a join no longer belongs to next(), even if pending.
+    [[nodiscard]] bool has_unconsumed(const void* tag) const noexcept {
+        for (const auto& slot : children) {
+            if (slot->type_tag == tag && !slot->consumed) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /// Destroy every child frame. Children may refer to the body frame, so the
     /// body is destroyed only after this returns.
     void reap() noexcept {
@@ -254,7 +265,13 @@ template<typename T>
 struct JoinAwaiter {
     ChildSlot* slot = nullptr;
 
-    bool await_ready() const noexcept { return slot != nullptr && slot->done; }
+    bool await_ready() const {
+        if (slot == nullptr || slot->consumed) {
+            throw std::logic_error("join requires an unclaimed child result");
+        }
+        slot->consumed = true;
+        return slot->done;
+    }
 
     template<typename Promise>
     bool await_suspend(std::coroutine_handle<Promise> handle) {

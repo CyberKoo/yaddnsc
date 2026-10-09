@@ -28,15 +28,26 @@
 
 namespace coro {
 
+namespace detail {
+
+/// The lazy frame owns its callable, never a reference to a caller temporary.
+template<typename Fn>
+Task<std::invoke_result_t<Fn>> run_offload(std::shared_ptr<Fn> fn) {
+    co_return co_await OffloadAwaitable<Fn>{std::move(fn)};
+}
+
+}  // namespace detail
+
 /// Run `fn` on the offload pool; the result returns through the loop.
+/// Acquires ownership of the callable immediately, before the lazy task runs.
+/// Captured references must outlive the worker, including after cancellation.
 ///
 /// Cancellation: abandon (see above) — the await throws
 /// `coro::Cancelled`. Failure: allocation may throw; a defect
 /// thrown by `fn` is rethrown at the await point.
 template<typename F>
 [[nodiscard]] auto offload(F&& fn) -> Task<std::invoke_result_t<std::decay_t<F>>> {
-    co_return co_await detail::OffloadAwaitable<std::decay_t<F>>{
-        std::make_shared<std::decay_t<F>>(std::forward<F>(fn))};
+    return detail::run_offload(std::make_shared<std::decay_t<F>>(std::forward<F>(fn)));
 }
 
 }  // namespace coro

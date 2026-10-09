@@ -10,6 +10,21 @@
 
 namespace coro::detail {
 
+/// Owns a frame locally while a potentially throwing operation extracts its result.
+/// The frame must be unstarted or completed before this owner is destroyed.
+class FrameOwner {
+public:
+    explicit FrameOwner(std::coroutine_handle<> handle) noexcept : handle_(handle) {}
+
+    FrameOwner(const FrameOwner&) = delete;
+    FrameOwner& operator=(const FrameOwner&) = delete;
+
+    ~FrameOwner() noexcept { handle_.destroy(); }
+
+private:
+    std::coroutine_handle<> handle_;
+};
+
 /// Shared prefix of every runtime coroutine frame.
 ///
 /// Internal to the runtime: it is the frame header the loop and the scopes

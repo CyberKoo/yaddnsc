@@ -9,12 +9,6 @@
 // (unshielded) subtree; nothing uses file descriptors, pipes or a second
 // cancellation domain.
 //
-// Deliberate conflict with rule 02 ("the per-operation cancellation token must
-// be passed per operation, not stored as a member"): this runtime has no
-// cancellation tokens by design. Cancellation is scope state reached through
-// checkpoints, so there is nothing to pass per operation — see
-// .cache/coro_redesign.md §3.3. No token type is referenced anywhere here.
-//
 // The public surface is the four operations a caller performs on a scope it
 // was handed — observe, cancel, and observe cancellation again — plus the
 // constructor the runtime uses to build the tree. Waiter registration, cause

@@ -51,10 +51,12 @@ class Handle {
 public:
     Handle() = default;
 
-    /// True while the handle still refers to a live child slot.
-    [[nodiscard]] bool valid() const noexcept { return slot_ != nullptr; }
+    /// True while the group's live slot has an unclaimed result.
+    [[nodiscard]] bool valid() const noexcept { return slot_ != nullptr && !slot_->consumed; }
 
     /// Join the child: yields its value or rethrows the defect that aborted it.
+    /// Claims the result once, shared across Handle copies and next<T>().
+    /// An empty or already claimed handle throws std::logic_error.
     /// Not a cancellation checkpoint — the join always completes, because the
     /// child belongs to the group's scope and observes cancellation there.
     detail::JoinAwaiter<T> operator co_await() noexcept { return detail::JoinAwaiter<T>{slot_}; }
@@ -86,9 +88,11 @@ public:
     /// Failure: allocates; may throw std::bad_alloc.
     template<typename T>
     Handle<T> spawn(Task<T> task) {
+        assert(task.valid() && "spawn requires a valid task");
+        detail::ChildSlot* slot = state_->add_child(&detail::TypeTag<T>::VALUE);
         auto handle = detail::TaskAccess::release(task);
-        assert(handle && "spawn requires a valid task");
-        return Handle<T>{start_child(handle.promise(), &detail::TypeTag<T>::VALUE)};
+        start_child(handle.promise(), *slot);
+        return Handle<T>{slot};
     }
 
     /// Start a fire-and-forget child whose result is discarded.
@@ -103,10 +107,11 @@ public:
     /// siblings).
     /// Failure: allocates; may throw std::bad_alloc.
     void spawn_discard(Task<void> task) {
-        auto handle = detail::TaskAccess::release(task);
-        assert(handle && "spawn_discard requires a valid task");
-        detail::ChildSlot* slot = start_child(handle.promise(), nullptr);
+        assert(task.valid() && "spawn_discard requires a valid task");
+        detail::ChildSlot* slot = state_->add_child(nullptr);
         slot->discard = true;
+        auto handle = detail::TaskAccess::release(task);
+        start_child(handle.promise(), *slot);
     }
 
     /// Consume results of children whose result type is `T`, in completion
@@ -133,7 +138,7 @@ public:
                     co_return Result<T>{std::move(*promise->value)};
                 }
             }
-            if (state_->all_done()) {
+            if (!state_->has_unconsumed(&detail::TypeTag<T>::VALUE)) {
                 co_return std::nullopt;
             }
             co_await detail::NextAwaitable{state_};
@@ -153,17 +158,15 @@ private:
     explicit TaskGroup(detail::GroupState* state) noexcept : state_(state) {}
 
     /// Bind one not-yet-started frame to this group, allocate its slot and
-    /// schedule the first resumption. Allocates; may throw std::bad_alloc.
-    detail::ChildSlot* start_child(detail::PromiseBase& promise, const void* tag) {
-        detail::ChildSlot* slot = state_->add_child(tag);
+    /// schedule the first resumption. Slot allocation precedes ownership transfer.
+    void start_child(detail::PromiseBase& promise, detail::ChildSlot& slot) noexcept {
         promise.loop = state_->loop;
         promise.scope = &state_->scope;
         promise.context_bound = true;
         promise.completion_owner = state_;
         promise.completion = &detail::group_child_completed;
-        slot->frame = &promise;
+        slot.frame = &promise;
         detail::LoopAccess::schedule(*state_->loop, promise);
-        return slot;
     }
 
     detail::GroupState* state_ = nullptr;

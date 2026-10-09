@@ -114,7 +114,12 @@ struct OffloadAwaitable {
                     }
                 }
                 shared->completed.store(true, std::memory_order_release);
-                loop->post([shared] { offload_finish(*shared); });
+                try {
+                    loop->post([shared] { offload_finish(*shared); });
+                } catch (...) {
+                    // Losing a completion would leave its await parked forever.
+                    std::terminate();
+                }
             });
         } catch (...) {
             if (scope != nullptr) {

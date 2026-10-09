@@ -177,6 +177,21 @@ export ASAN_OPTIONS=detect_stack_use_after_return=1:strict_string_checks=1:detec
 
 Coverage uses `YADDNSC_SANITIZE_DEBUG=OFF` to avoid mixing instrumentation.
 
+### Coroutine regression tests
+
+```bash
+cmake --build build --target test_coro test_coro_allocation_failure --parallel
+ctest --test-dir build -R '^test_coro(_allocation_failure)?$' --output-on-failure
+```
+
+The allocation-failure binary replaces allocation functions only inside that
+executable. Its thread-local one-shot faults check failed group-slot allocation,
+timer-heap growth and signal registration without adding production test hooks.
+The core binary also checks deferred callable ownership, throwing result moves,
+single-consumer joins, typed completion exhaustion, abandoned-worker shutdown
+and the fatal loop-dispatch policy. Debug sanitizer builds exercise these same
+tests; a passing suite does not substitute for separate TSan/platform validation.
+
 ## Documentation
 
 Doxygen is optional:

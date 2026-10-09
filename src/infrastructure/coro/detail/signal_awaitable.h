@@ -33,7 +33,8 @@ public:
     constexpr bool await_ready() const noexcept { return false; }
 
     /// Installs the handler if needed and parks. Allocates (loop's waiter
-    /// list), so it may throw.
+    /// list), so it may throw. Invalid/uncatchable signals throw
+    /// std::invalid_argument; handler installation failure throws std::system_error.
     template<typename Promise>
     bool await_suspend(std::coroutine_handle<Promise> handle) {
         PromiseBase& promise = handle.promise();
@@ -50,10 +51,10 @@ public:
         node_.cancelled_flag = &cancelled_;
         node_.owner = this;
         node_.on_cancel = &SignalAwaitable::on_cancel;
+        LoopAccess::arm_signal(*loop_, sig_, node_, &delivered_);
         if (scope_ != nullptr) {
             ScopeAccess::add_waiter(*scope_, node_);
         }
-        LoopAccess::arm_signal(*loop_, sig_, node_, &delivered_);
         return true;
     }
 

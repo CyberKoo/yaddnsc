@@ -235,6 +235,10 @@ add_unit_test(coro
 )
 target_link_libraries(test_coro PRIVATE yaddnsc_coro)
 
+# Global allocation replacement is isolated from all other runtime tests.
+add_unit_test(coro_allocation_failure SOURCE unit/coro/allocation_failure_test.cpp)
+target_link_libraries(test_coro_allocation_failure PRIVATE yaddnsc_coro)
+
 add_subdirectory(component)
 
 # Performance benchmarks (require Google Benchmark)

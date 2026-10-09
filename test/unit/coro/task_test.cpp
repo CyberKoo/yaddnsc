@@ -13,6 +13,7 @@
 //
 
 #include <chrono>
+#include <memory>
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -45,21 +46,19 @@ template<typename T>
 concept PublicLoopScheduling = requires(T& loop, coro::detail::PromiseBase& frame) { loop.schedule(frame); };
 
 template<typename T>
-concept PublicLoopRegistration =
-    requires(T& loop, coro::detail::TimerNode& timer, coro::detail::WaitNode& node) {
-        loop.add_timer(timer, coro::TimePoint{}, nullptr, nullptr);
-        loop.remove_timer(timer);
-        loop.remove_fd(0);
-        loop.arm_signal(0, node, nullptr);
-        loop.disarm_signal(0, node);
-    };
+concept PublicLoopRegistration = requires(T& loop, coro::detail::TimerNode& timer, coro::detail::WaitNode& node) {
+    loop.add_timer(timer, coro::TimePoint{}, nullptr, nullptr);
+    loop.remove_timer(timer);
+    loop.remove_fd(0);
+    loop.arm_signal(0, node, nullptr);
+    loop.disarm_signal(0, node);
+};
 
 template<typename T>
 concept PublicLoopPool = requires(T& loop) { loop.offload_pool(); };
 
 template<typename T>
-concept PublicScopeWaiter =
-    requires(T& scope, coro::detail::WaitNode& node) { scope.add_waiter(node); };
+concept PublicScopeWaiter = requires(T& scope, coro::detail::WaitNode& node) { scope.add_waiter(node); };
 
 template<typename T>
 concept PublicScopeCause = requires(T& scope) {
@@ -465,6 +464,110 @@ TEST(TaskGroup, spawn_discard_ManyChildren_AllRunAndAreJoined) {
     };
     coro::run(task());
     EXPECT_EQ(completed, 500);
+}
+
+struct ThrowingMove {
+    std::shared_ptr<int> lifetime;
+    bool* moved;
+
+    ThrowingMove(std::shared_ptr<int> token, bool& flag) : lifetime(std::move(token)), moved(&flag) {}
+
+    ThrowingMove(ThrowingMove&& other) : moved(other.moved) {
+        if (std::exchange(*moved, true)) {
+            throw std::runtime_error("result move failed");
+        }
+        lifetime = std::move(other.lifetime);
+    }
+};
+
+coro::Task<ThrowingMove> throwing_move_result(std::shared_ptr<int> token, bool& moved) {
+    co_return ThrowingMove{std::move(token), moved};
+}
+
+TEST(Task, run_ResultMoveThrows_ReleasesRootFrame) {
+    auto token = std::make_shared<int>(1);
+    bool moved = false;
+    EXPECT_THROW({ [[maybe_unused]] auto result = coro::run(throwing_move_result(token, moved)); }, std::runtime_error);
+    EXPECT_EQ(token.use_count(), 1);
+}
+
+TEST(Task, await_ResultMoveThrows_ReleasesChildFrame) {
+    auto token = std::make_shared<int>(1);
+    bool moved = false;
+    auto parent = [&]() -> coro::Task<void> {
+        EXPECT_THROW(co_await throwing_move_result(token, moved), std::runtime_error);
+        EXPECT_EQ(token.use_count(), 1);
+    };
+    coro::run(parent());
+    EXPECT_EQ(token.use_count(), 1);
+}
+
+TEST(TaskGroup, next_NoMatchingChildren_ReturnsWithoutWaitingForOtherTypes) {
+    coro::ManualClock clock;
+    coro::Loop loop{clock};
+    bool cancelled = false;
+    auto root = [&]() -> coro::Task<void> {
+        co_await coro::task_group([&](coro::TaskGroup& group) -> coro::Task<void> {
+            group.spawn(wait_until_cancelled(cancelled));
+            EXPECT_FALSE((co_await group.next<int>()).has_value());
+            group.cancel();
+        });
+    };
+    coro::run(loop, root());
+}
+
+TEST(TaskGroup, next_LastMatchingChildConsumed_ReturnsWhileOtherTypesRun) {
+    coro::ManualClock clock;
+    coro::Loop loop{clock};
+    bool cancelled = false;
+    auto root = [&]() -> coro::Task<void> {
+        co_await coro::task_group([&](coro::TaskGroup& group) -> coro::Task<void> {
+            group.spawn(wait_until_cancelled(cancelled));
+            group.spawn(constant(42));
+            auto result = co_await group.next<int>();
+            EXPECT_TRUE(result.has_value());
+            EXPECT_FALSE((co_await group.next<int>()).has_value());
+            group.cancel();
+        });
+    };
+    coro::run(loop, root());
+}
+
+TEST(TaskGroup, join_ResultClaimedOnce_AcrossCopiesAndNext) {
+    auto root = []() -> coro::Task<void> {
+        co_await coro::task_group([](coro::TaskGroup& group) -> coro::Task<void> {
+            auto handle = group.spawn(constant(42));
+            auto copy = handle;
+            EXPECT_EQ(co_await handle, 42);
+            EXPECT_FALSE(copy.valid());
+            EXPECT_THROW(co_await copy, std::logic_error);
+            EXPECT_FALSE((co_await group.next<int>()).has_value());
+        });
+    };
+    coro::run(root());
+}
+
+TEST(TaskGroup, join_NextConsumedResult_RejectsJoin) {
+    auto root = []() -> coro::Task<void> {
+        co_await coro::task_group([](coro::TaskGroup& group) -> coro::Task<void> {
+            auto handle = group.spawn(constant(42));
+            EXPECT_TRUE((co_await group.next<int>()).has_value());
+            EXPECT_THROW(co_await handle, std::logic_error);
+            coro::Handle<int> empty;
+            EXPECT_THROW(co_await empty, std::logic_error);
+        });
+    };
+    coro::run(root());
+}
+
+TEST(Task, run_DispatchThrows_TerminatesInsteadOfUnwindingParkedFrames) {
+    EXPECT_DEATH(
+        {
+            coro::Loop loop;
+            loop.post([] { throw std::runtime_error("dispatch failed"); });
+            [[maybe_unused]] auto result = coro::run(loop, constant(1));
+        },
+        "");
 }
 
 }  // namespace

@@ -12,6 +12,7 @@
 #include <atomic>
 #include <chrono>
 #include <functional>
+#include <memory>
 #include <mutex>
 #include <stdexcept>
 #include <string>
@@ -198,6 +199,45 @@ TEST(Offload, offload_MoreJobsThanWorkers_BoundsConcurrency) {
     coro::run(loop, task());
     EXPECT_EQ(completed.load(), 6);
     EXPECT_LE(peak.load(), 2);
+}
+
+TEST(Offload, offload_DeferredTemporaryCallable_OwnsCallableBeforeStarting) {
+    auto task = coro::offload([data = std::make_unique<std::string>("owned")] { return *data; });
+    EXPECT_EQ(coro::run(std::move(task)), "owned");
+}
+
+TEST(Offload, offload_DeferredLvalueCallable_CopiesBeforeCallerChangesIt) {
+    std::function<int()> callable = [] { return 42; };
+    auto task = coro::offload(callable);
+    callable = [] { return 7; };
+    EXPECT_EQ(coro::run(std::move(task)), 42);
+}
+
+TEST(Offload, loop_DestroyedWithAbandonedWorker_JoinsBeforeClosingWakePipe) {
+    std::atomic<bool> started{false};
+    std::atomic<bool> finished{false};
+    {
+        coro::Loop loop;
+        auto root = [&]() -> coro::Task<void> {
+            auto outcome = co_await coro::with_cancel_scope([&](coro::CancelScope& scope) -> coro::Task<void> {
+                co_await coro::task_group([&](coro::TaskGroup& group) -> coro::Task<void> {
+                    group.spawn(run_pooled_job([&started, &finished] {
+                        started.store(true);
+                        std::this_thread::sleep_for(50ms);
+                        finished.store(true);
+                    }));
+                    while (!started.load()) {
+                        co_await coro::checkpoint();
+                    }
+                    scope.cancel();
+                });
+            });
+            EXPECT_TRUE(outcome.cancelled);
+        };
+        coro::run(loop, root());
+    }
+    EXPECT_TRUE(started.load());
+    EXPECT_TRUE(finished.load());
 }
 
 }  // namespace

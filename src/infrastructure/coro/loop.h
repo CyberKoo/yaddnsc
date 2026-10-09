@@ -68,10 +68,10 @@ using FdToken = std::uint64_t;
 /// touches shared state and the inbox, both of which outlive the join.
 class Loop {
 public:
-    /// Loop with an internal system clock.
+    /// Loop with an internal system clock. Throws if self-pipe creation fails.
     Loop();
     /// Loop with a caller-owned clock (manual clocks make timers deterministic).
-    /// The clock must outlive the loop.
+    /// The clock must outlive the loop. Throws if self-pipe creation fails.
     explicit Loop(Clock& clock);
     ~Loop() noexcept;
 
@@ -158,7 +158,8 @@ private:
     void remove_fd(detail::FdToken token) noexcept;
 
     /// Park `node` for signal `sig`; `*delivered` is latched when it fires.
-    /// Allocates. The caller keeps `node` and `delivered` alive until it disarms
+    /// Allocates; invalid signals or sigaction failure throw before registration.
+    /// The caller keeps `node` and `delivered` alive until it disarms
     /// (the node doubles as its scope waiter).
     void arm_signal(int sig, detail::WaitNode& node, bool* delivered);
     /// Drop a parked signal waiter. Idempotent; safe from the node's on_cancel.

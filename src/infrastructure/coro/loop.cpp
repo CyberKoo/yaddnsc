@@ -11,7 +11,9 @@
 #include <chrono>
 #include <climits>
 #include <cstring>
+#include <stdexcept>
 #include <string>
+#include <system_error>
 #include <thread>
 
 #include <bit>
@@ -48,6 +50,8 @@ namespace {
 std::atomic<int> signal_pipe_write_fd{-1};
 /// One pending bit per signal number (bit 0 == signal 1).
 std::atomic<unsigned long long> pending_signals{0};
+static_assert(std::atomic<int>::is_always_lock_free);
+static_assert(std::atomic<unsigned long long>::is_always_lock_free);
 
 /// Signals are 1-based; a 64-bit mask covers the whole POSIX range.
 constexpr int SIGNAL_CAPACITY = 65;
@@ -92,6 +96,7 @@ constexpr unsigned OFFLOAD_WORKER_LIMIT = 4;
 /// Signal handler: set a pending bit and nudge the loop. No allocation, no
 /// locks, no second notification domain.
 extern "C" void coro_signal_handler(int sig) {
+    const int saved_errno = errno;
     if (sig > 0 && sig < SIGNAL_CAPACITY) {
         pending_signals.fetch_or(1ULL << (sig - 1), std::memory_order_relaxed);
     }
@@ -100,6 +105,7 @@ extern "C" void coro_signal_handler(int sig) {
         const char byte = 0;
         [[maybe_unused]] const ssize_t written = ::write(fd, &byte, 1);
     }
+    errno = saved_errno;
 }
 
 Loop::Loop() : clock_(&system_clock_), signal_waiters_(static_cast<std::size_t>(SIGNAL_CAPACITY)) {
@@ -111,6 +117,9 @@ Loop::Loop(Clock& clock) : clock_(&clock), signal_waiters_(static_cast<std::size
 }
 
 Loop::~Loop() noexcept {
+    // Workers may still post after their awaits were cancelled. Join while
+    // both the inbox and the wake pipe are alive.
+    pool_.reset();
     restore_signals();
     close_self_pipe();
 }
@@ -118,7 +127,7 @@ Loop::~Loop() noexcept {
 void Loop::open_self_pipe() {
     auto [read_end, write_end] = Utils::make_pipe();
     if (!read_end || !write_end) {
-        return;
+        throw std::runtime_error("loop self-pipe creation failed");
     }
     pipe_read_ = std::move(read_end);
     pipe_write_ = std::move(write_end);
@@ -430,8 +439,8 @@ void Loop::remove_timer(detail::TimerNode& timer) noexcept {
 
 void Loop::heap_push(detail::TimerNode& timer) {
     timer.heap_index = timers_.size();
-    timer.in_heap = true;
     timers_.push_back(&timer);
+    timer.in_heap = true;
     heap_sift_up(timer.heap_index);
 }
 
@@ -524,22 +533,26 @@ void Loop::remove_fd(detail::FdToken token) noexcept {
 // ---------------------------------------------------------------------------
 
 void Loop::arm_signal(int sig, detail::WaitNode& node, bool* delivered) {
-    if (sig <= 0 || sig >= SIGNAL_CAPACITY) {
-        return;
+    if (sig <= 0 || sig >= SIGNAL_CAPACITY || sig == SIGKILL || sig == SIGSTOP) {
+        throw std::invalid_argument("signal cannot be awaited");
     }
+    auto& waiters = signal_waiters_[static_cast<std::size_t>(sig)];
+    waiters.reserve(waiters.size() + 1);
     const bool installed = std::any_of(saved_signals_.begin(), saved_signals_.end(),
                                        [sig](const auto& entry) { return entry.first == sig; });
     if (!installed) {
+        saved_signals_.reserve(saved_signals_.size() + 1);
         struct sigaction action{};
         action.sa_handler = &coro_signal_handler;
         sigemptyset(&action.sa_mask);
         action.sa_flags = SA_RESTART;
         struct sigaction previous{};
-        if (::sigaction(sig, &action, &previous) == 0) {
-            saved_signals_.emplace_back(sig, previous);
+        if (::sigaction(sig, &action, &previous) != 0) {
+            throw std::system_error(errno, std::generic_category(), "sigaction");
         }
+        saved_signals_.emplace_back(sig, previous);
     }
-    signal_waiters_[static_cast<std::size_t>(sig)].push_back(SignalWaiter{node.waiter, &node, delivered});
+    waiters.push_back(SignalWaiter{node.waiter, &node, delivered});
     SPDLOG_TRACE("armed signal waiter for signal {}", sig);
 }
 

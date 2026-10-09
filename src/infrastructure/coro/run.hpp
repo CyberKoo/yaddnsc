@@ -31,10 +31,14 @@ namespace coro {
 /// creates.
 /// Failure: rethrows the root task's defect; T's move constructor may throw
 /// when the result is moved out. A task that never completes never returns.
+/// An exception escaping loop dispatch is fatal (std::terminate): parked
+/// frames and lost callbacks cannot be safely unwound. Use a fresh loop for
+/// each run; externally stopping a live root violates this contract.
 /// Thread safety: must be called from the loop's own thread.
 template<typename T>
 [[nodiscard]] T run(Loop& loop, Task<T> task) {
     assert(task.valid() && "coro::run requires a valid task");
+    assert(!loop.stopped() && "coro::run requires a fresh loop");
     CancelScope root;
     auto handle = detail::TaskAccess::release(task);
     detail::PromiseBase& promise = handle.promise();
@@ -43,20 +47,25 @@ template<typename T>
     promise.context_bound = true;
     promise.is_root = true;
     detail::LoopAccess::schedule(loop, promise);
-    loop.run();
-
+    try {
+        loop.run();
+    } catch (...) {
+        // A dispatch failure can lose inbox completions or a detached ready
+        // batch. Unwinding parked frames cannot safely recover that state.
+        std::terminate();
+    }
+    if (!handle.done()) {
+        // An external stop cannot substitute for structured root completion.
+        std::terminate();
+    }
+    const detail::FrameOwner owner{handle};
     if (handle.promise().error) {
-        const std::exception_ptr error = handle.promise().error;
-        handle.destroy();
-        std::rethrow_exception(error);
+        std::rethrow_exception(handle.promise().error);
     }
     if constexpr (std::is_void_v<T>) {
-        handle.destroy();
         return;
     } else {
-        T result = std::move(*handle.promise().value);
-        handle.destroy();
-        return result;
+        return std::move(*handle.promise().value);
     }
 }
 
