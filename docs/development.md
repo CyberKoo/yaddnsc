@@ -63,13 +63,13 @@ credentials or external DNS provider access.
 
 ### Test tiers
 
-| Tier | Location | Runs the real binary? |
-|------|----------|------------------------|
-| Unit | `test/unit/` | No — pure logic, no I/O |
-| Component | `test/component/` | Real loopback sockets, multicast, TLS |
-| Plugin ABI | `test/plugin/`, `test/sdk_consumer/` | Loads a real `.so` via dlopen |
-| Integration | `test/integration/` | Yes — the built `yaddnsc` binary |
-| Benchmarks | `test/perf/` | No — Google Benchmark |
+| Tier        | Location                             | Runs the real binary?                 |
+| ----------- | ------------------------------------ | ------------------------------------- |
+| Unit        | `test/unit/`                         | No — pure logic, no I/O               |
+| Component   | `test/component/`                    | Real loopback sockets, multicast, TLS |
+| Plugin ABI  | `test/plugin/`, `test/sdk_consumer/` | Loads a real `.so` via dlopen         |
+| Integration | `test/integration/`                  | Yes — the built `yaddnsc` binary      |
+| Benchmarks  | `test/perf/`                         | No — Google Benchmark                 |
 
 There is no system-test tier: `integration_scenarios` is the highest one.
 
