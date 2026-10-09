@@ -90,16 +90,6 @@ public:
                                                              const ConnectOptions& options) = 0;
 };
 
-/// The production factory: TlsStream for TLS, TcpStream for plain TCP.
-class DefaultStreamFactory final : public StreamFactory {
-public:
-    [[nodiscard]] std::unique_ptr<Stream> create_tls(domain::InetAddress address, std::uint16_t port,
-                                                     const ConnectOptions& options, const TlsOptions& tls_options,
-                                                     std::shared_ptr<const TlsContext> tls_context) override;
-
-    [[nodiscard]] std::unique_ptr<Stream> create_tcp(domain::InetAddress address, std::uint16_t port,
-                                                     const ConnectOptions& options) override;
-};
 
 }  // namespace net
 

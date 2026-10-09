@@ -36,8 +36,8 @@ namespace dns {
 class DohResolver final : public Resolver {
 public:
     /// @param url      DoH endpoint, e.g. "https://dns.example/dns-query".
-    /// @param options  HTTP policy; its bootstrap DNS servers resolve the
-    ///                 endpoint host, and its TLS options are the endpoint's.
+    /// @param options  HTTP policy; its injected resolver resolves the endpoint
+    ///                 host, and its TLS options are the endpoint's.
     ///                 ALPN is forced to HTTP/1.1.
     /// @throws std::invalid_argument when `url` is not a valid https URL.
     DohResolver(std::string url, http::Options options);

@@ -15,8 +15,8 @@
 #include <string_view>
 #include <vector>
 
-#include "domain/config/dns_config.h"
 #include "domain/network/address_family.h"
+#include "infrastructure/network/address/resolver.h"
 #include "infrastructure/network/transport/options.h"
 #include "infrastructure/network/transport/stream.h"
 
@@ -102,7 +102,7 @@ struct Limits {
 /// Client-level options.
 ///
 /// Carries the whole policy in one place: protocol preferences, transport and
-/// TLS settings, and the bootstrap DNS servers used to turn a URL host into
+/// TLS settings, and the injected resolver used to turn a URL host into
 /// addresses. There is no timeout anywhere — a deadline is the caller's cancel
 /// scope.
 struct Options {
@@ -123,10 +123,9 @@ struct Options {
     /// opens. Null makes a TLS connection fail closed; build it off the loop
     /// with TlsContext::create before entering the loop.
     std::shared_ptr<const net::TlsContext> tls_context{};
-    /// Bootstrap DNS servers (IP literals) used to resolve a URL host. Empty
-    /// means hostnames fail fast with RESOLVE_FAILED; IP literals always work.
-    /// /etc/hosts and NSS are never consulted.
-    std::vector<domain::DnsServer> bootstrap_dns{};
+    /// Hostname resolver supplied by the assembly layer. Empty means hostnames
+    /// fail fast with RESOLVE_FAILED; IP literals bypass the resolver.
+    net::HostResolver resolve{};
     /// Restrict resolution to one address family.
     std::optional<domain::AddressFamily> address_family{};
     /// Stream source. Null selects the production factory; tests inject an

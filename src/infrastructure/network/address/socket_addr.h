@@ -11,6 +11,8 @@ namespace domain {
 class InetAddress;
 }
 
+namespace net {
+
 // ---------------------------------------------------------------------------
 // SocketAddr — type-safe C++ wrapper around sockaddr_storage.
 //
@@ -51,14 +53,11 @@ public:
 
     [[nodiscard]] socklen_t raw_len() const noexcept { return len_; }
 
-    /// Mutable raw pointer for recvfrom / accept to fill in.
-    [[nodiscard]] sockaddr* raw_mut() noexcept { return reinterpret_cast<sockaddr*>(&storage_); }
-
-    [[nodiscard]] socklen_t* raw_len_ptr() noexcept { return &len_; }
-
 private:
     sockaddr_storage storage_{};
     socklen_t len_{sizeof(storage_)};
 };
+
+}  // namespace net
 
 #endif  // YADDNSC_INFRASTRUCTURE_NET_ADDRESS_SOCKET_ADDR_H

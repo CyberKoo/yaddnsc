@@ -13,13 +13,13 @@
 #include "infrastructure/network/address/socket_addr.h"
 
 // =============================================================================
-// SocketAddr::from_inet
+// net::SocketAddr::from_inet
 // =============================================================================
 
 static void BM_SocketAddrFromInetV4(benchmark::State& state) {
     auto addr = domain::InetAddress::parse("192.168.1.1").value();
     for (auto _ : state) {
-        auto sa = SocketAddr::from_inet(addr, 53);
+        auto sa = net::SocketAddr::from_inet(addr, 53);
         benchmark::DoNotOptimize(sa);
     }
 }
@@ -29,7 +29,7 @@ BENCHMARK(BM_SocketAddrFromInetV4);
 static void BM_SocketAddrFromInetV6(benchmark::State& state) {
     auto addr = domain::InetAddress::parse("2001:db8::1").value();
     for (auto _ : state) {
-        auto sa = SocketAddr::from_inet(addr, 53);
+        auto sa = net::SocketAddr::from_inet(addr, 53);
         benchmark::DoNotOptimize(sa);
     }
 }
@@ -42,7 +42,7 @@ BENCHMARK(BM_SocketAddrFromInetV6);
 
 static void BM_SocketAddrToStringV4(benchmark::State& state) {
     auto addr = domain::InetAddress::parse("10.0.0.1").value();
-    auto sa = SocketAddr::from_inet(addr, 8080).value();
+    auto sa = net::SocketAddr::from_inet(addr, 8080).value();
     for (auto _ : state) {
         auto s = sa.to_string();
         benchmark::DoNotOptimize(s);
@@ -53,7 +53,7 @@ BENCHMARK(BM_SocketAddrToStringV4);
 
 static void BM_SocketAddrToStringV6(benchmark::State& state) {
     auto addr = domain::InetAddress::parse("::1").value();
-    auto sa = SocketAddr::from_inet(addr, 53).value();
+    auto sa = net::SocketAddr::from_inet(addr, 53).value();
     for (auto _ : state) {
         auto s = sa.to_string();
         benchmark::DoNotOptimize(s);
@@ -64,7 +64,7 @@ BENCHMARK(BM_SocketAddrToStringV6);
 
 static void BM_SocketAddrExtractAddress(benchmark::State& state) {
     auto addr = domain::InetAddress::parse("192.168.1.1").value();
-    auto sa = SocketAddr::from_inet(addr, 53).value();
+    auto sa = net::SocketAddr::from_inet(addr, 53).value();
     for (auto _ : state) {
         auto extracted = sa.address();
         benchmark::DoNotOptimize(extracted);
@@ -74,7 +74,7 @@ static void BM_SocketAddrExtractAddress(benchmark::State& state) {
 BENCHMARK(BM_SocketAddrExtractAddress);
 
 // =============================================================================
-// SocketAddr::from_raw (simulating recvfrom path)
+// net::SocketAddr::from_raw (simulating recvfrom path)
 // =============================================================================
 
 static void BM_SocketAddrFromRawV4(benchmark::State& state) {
@@ -83,7 +83,7 @@ static void BM_SocketAddrFromRawV4(benchmark::State& state) {
     sin.sin_port = __builtin_bswap16(53);
     sin.sin_addr.s_addr = __builtin_bswap32(0x08080808);  // 8.8.8.8
     for (auto _ : state) {
-        auto sa = SocketAddr::from_raw(reinterpret_cast<const sockaddr*>(&sin), sizeof(sin));
+        auto sa = net::SocketAddr::from_raw(reinterpret_cast<const sockaddr*>(&sin), sizeof(sin));
         benchmark::DoNotOptimize(sa);
     }
 }

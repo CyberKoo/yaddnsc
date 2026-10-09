@@ -159,12 +159,11 @@ struct BridgeState {
 /// bridge, and the group's scope must outlive every in-flight call. An in-flight
 /// exchange does not dereference the Bridge after exchange() returns, so the
 /// Bridge may be destroyed while a worker is still blocked on an abandoned call.
-/// Failure: BridgeError carries the existing ABI status. A stopped/cancelled
+/// Failure: BridgeError carries the existing ABI status. A cancelled
 /// call or expired synchronous wait is CANCELLED; an upstream timeout or
 /// recoverable HTTP failure is NETWORK_ERROR. Defects are INTERNAL_ERROR.
 /// Thread safety: exchange() may be called from any worker thread; the loop-side
-/// coroutine and the spawn group are loop-thread only. stop() is safe from any
-/// thread.
+/// coroutine and the spawn group are loop-thread only.
 class Bridge {
 public:
     /// @param loop          Loop that runs the exchanges.
@@ -198,20 +197,10 @@ public:
     /// is a no-op. Safe to call from any thread.
     void cancel(std::shared_ptr<BridgeCall> call) noexcept;
 
-    /// Stop accepting new calls. Already-spawned exchanges finish or are
-    /// cancelled with the spawn group's scope.
-    void stop() noexcept { stopped_.store(true, std::memory_order_release); }
-
-    [[nodiscard]] bool stopped() const noexcept { return stopped_.load(std::memory_order_acquire); }
-
-    /// The worker's wait budget, exposed so a caller can size its own bounds.
-    [[nodiscard]] std::chrono::milliseconds wait_budget() const noexcept { return state_->wait_budget; }
-
 private:
     coro::Loop* loop_;
     coro::TaskGroup* spawn_group_;
     std::shared_ptr<const detail::BridgeState> state_;
-    std::atomic<bool> stopped_{false};
 };
 
 }  // namespace plugin

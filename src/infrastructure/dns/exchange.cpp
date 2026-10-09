@@ -31,7 +31,7 @@ constexpr auto UDP_BUDGET = std::chrono::seconds(1);
 /// not share one clock), restored from the legacy resolver.
 constexpr auto TCP_OP_BUDGET = std::chrono::seconds(1);
 
-[[nodiscard]] domain::DnsErrorInfo map_io_error(const net::IoError /*error*/, const char* stage) {
+[[nodiscard]] domain::DnsErrorInfo connection_error(const char* stage) {
     return domain::DnsErrorInfo{domain::DnsError::CONNECTION, fmt::format("DNS {} failed", stage)};
 }
 
@@ -51,7 +51,7 @@ constexpr auto TCP_OP_BUDGET = std::chrono::seconds(1);
     const domain::InetAddress server, const std::uint16_t port, const std::span<const std::uint8_t> query) {
     net::UdpSocket socket{server.get_family()};
     if (auto sent = co_await socket.send_to(server, port, query); !sent) {
-        co_return std::unexpected(map_io_error(sent.error(), "send"));
+        co_return std::unexpected(connection_error("send"));
     }
 
     // The answer must come from the server that was asked; anything else is a
@@ -60,7 +60,7 @@ constexpr auto TCP_OP_BUDGET = std::chrono::seconds(1);
         std::array<std::uint8_t, dns::MAX_MESSAGE_SIZE> buffer{};
         auto received = co_await socket.recv_from(buffer);
         if (!received) {
-            co_return std::unexpected(map_io_error(received.error(), "receive"));
+            co_return std::unexpected(connection_error("receive"));
         }
         if (received->from != server || received->port != port) {
             continue;
@@ -100,7 +100,7 @@ coro::Task<std::expected<std::vector<std::uint8_t>, domain::DnsErrorInfo>> query
         co_return std::unexpected(budget_exceeded("TCP connect"));
     }
     if (!*connected) {
-        co_return std::unexpected(map_io_error(connected->error(), "connect"));
+        co_return std::unexpected(connection_error("connect"));
     }
 
     const auto framed = dns::frame_message(query);
@@ -117,7 +117,7 @@ coro::Task<std::expected<std::vector<std::uint8_t>, domain::DnsErrorInfo>> query
         co_return std::unexpected(budget_exceeded("TCP send"));
     }
     if (!*sent) {
-        co_return std::unexpected(map_io_error(sent->error(), "send"));
+        co_return std::unexpected(connection_error("send"));
     }
 
     std::array<std::uint8_t, 2> prefix{};
@@ -129,7 +129,7 @@ coro::Task<std::expected<std::vector<std::uint8_t>, domain::DnsErrorInfo>> query
         co_return std::unexpected(budget_exceeded("TCP receive"));
     }
     if (!*got_prefix) {
-        co_return std::unexpected(map_io_error(got_prefix->error(), "receive"));
+        co_return std::unexpected(connection_error("receive"));
     }
 
     const auto length = dns::read_length(prefix);
@@ -147,7 +147,7 @@ coro::Task<std::expected<std::vector<std::uint8_t>, domain::DnsErrorInfo>> query
         co_return std::unexpected(budget_exceeded("TCP receive"));
     }
     if (!*got_body) {
-        co_return std::unexpected(map_io_error(got_body->error(), "receive"));
+        co_return std::unexpected(connection_error("receive"));
     }
     co_return response;
 }

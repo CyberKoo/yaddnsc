@@ -225,9 +225,13 @@ Dependency direction is enforced by the CMake target graph
 - `src/infrastructure/network/`: lower-level network facilities grouped by
   concern. `address/` contains the socket-address codec, `transport/` the TCP/UDP
   streams, shared transport types and socket primitives, and `tls/` the TLS
-  stream, trust helpers and OpenSSL diagnostics.
+  stream, trust helpers and OpenSSL diagnostics. `factory/` assembles TCP and
+  TLS streams above their interface; `transport/` never includes `tls/`.
 - `src/infrastructure/http/`: the coroutine HTTP client and protocol implementation,
   built on `network/` and shared by DNS-over-HTTPS and IP-source adapters.
+  Hostname resolution is an injected `net::HostResolver`, not a concrete DNS
+  dependency. Composition and the DoH factory bind explicit bootstrap servers;
+  without a resolver, hostnames fail fast and IP literals still work.
 - `src/infrastructure/uri/`: the lightweight URI codec shared by config,
   HTTP, DNS and CLI code; it depends on domain address parsing, not transport.
 - `src/infrastructure/dns/`: the DNS wire layer plus the coroutine resolvers,

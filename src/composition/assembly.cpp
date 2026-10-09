@@ -13,6 +13,7 @@
 #include "infrastructure/config/config_exception.h"
 #include "infrastructure/config/normalizer.h"
 #include "infrastructure/config/static_validator.h"
+#include "infrastructure/dns/bootstrap/bootstrap.h"
 #include "infrastructure/dns/bootstrap/resolv_conf.h"
 #include "infrastructure/network/tls/context.h"
 #include "infrastructure/plugin/driver_loader.h"
@@ -64,7 +65,7 @@ void fill_bootstrap_servers(domain::RuntimeConfig& config) {
                                                    std::shared_ptr<const net::TlsContext> tls_context) {
     http::Options opts;
     opts.user_agent = YADDNSC::get_full_version();
-    opts.bootstrap_dns = resolver.bootstrap_servers;
+    opts.resolve = dns::make_bootstrap_resolver(resolver.bootstrap_servers);
     opts.tls_context = std::move(tls_context);
     return opts;
 }

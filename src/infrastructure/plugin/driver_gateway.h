@@ -53,7 +53,7 @@ class DriverGateway final : public app::GatewayPort {
 public:
     /// Construction-time policy.
     struct Options {
-        /// HTTP policy for the loop-side client (bootstrap DNS, TLS, factory).
+        /// HTTP policy for the loop-side client (hostname resolver, TLS, factory).
         http::Options http{};
         /// Upper bound on one bridged exchange, in milliseconds.
         std::chrono::milliseconds bridge_wait_budget{5000};

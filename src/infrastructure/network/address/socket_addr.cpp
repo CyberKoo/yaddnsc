@@ -10,6 +10,8 @@
 
 #include "domain/network/inet_address.h"
 
+namespace net {
+
 // ===========================================================================
 //  Factory methods
 // ===========================================================================
@@ -103,3 +105,5 @@ std::string SocketAddr::to_string() const {
     }
     return addr_str + ":" + std::to_string(p);
 }
+
+}  // namespace net

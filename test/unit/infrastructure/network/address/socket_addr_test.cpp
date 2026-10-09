@@ -2,11 +2,11 @@
 // Unit tests for network/socket_addr.h / socket_addr.cpp — SocketAddr type.
 //
 // Verifies:
-//   - SocketAddr::from_inet creates correct sockaddr_storage for IPv4 and IPv6.
-//   - SocketAddr::from_raw copies raw sockaddr data correctly.
-//   - SocketAddr::port() returns the correct port.
-//   - SocketAddr::address() returns the correct InetAddress.
-//   - SocketAddr::to_string() formats correctly.
+//   - net::SocketAddr::from_inet creates correct sockaddr_storage for IPv4 and IPv6.
+//   - net::SocketAddr::from_raw copies raw sockaddr data correctly.
+//   - net::SocketAddr::port() returns the correct port.
+//   - net::SocketAddr::address() returns the correct InetAddress.
+//   - net::SocketAddr::to_string() formats correctly.
 //   - Edge cases: AF_UNSPEC, zero-length input, null pointer.
 // =============================================================================
 
@@ -31,7 +31,7 @@ TEST(SocketAddrFromInetTest, Ipv4_Basic) {
     auto addr = domain::InetAddress::parse("192.168.1.1");
     ASSERT_TRUE(addr.has_value());
 
-    auto sock_addr = SocketAddr::from_inet(*addr, 8080);
+    auto sock_addr = net::SocketAddr::from_inet(*addr, 8080);
     ASSERT_TRUE(sock_addr.has_value());
 
     EXPECT_EQ(sock_addr->family(), AF_INET);
@@ -43,7 +43,7 @@ TEST(SocketAddrFromInetTest, Ipv4_PortZero) {
     auto addr = domain::InetAddress::parse("10.0.0.1");
     ASSERT_TRUE(addr.has_value());
 
-    auto sock_addr = SocketAddr::from_inet(*addr, 0);
+    auto sock_addr = net::SocketAddr::from_inet(*addr, 0);
     ASSERT_TRUE(sock_addr.has_value());
 
     EXPECT_EQ(sock_addr->port(), 0);
@@ -54,7 +54,7 @@ TEST(SocketAddrFromInetTest, Ipv4_PortMax) {
     auto addr = domain::InetAddress::parse("1.2.3.4");
     ASSERT_TRUE(addr.has_value());
 
-    auto sock_addr = SocketAddr::from_inet(*addr, 65535);
+    auto sock_addr = net::SocketAddr::from_inet(*addr, 65535);
     ASSERT_TRUE(sock_addr.has_value());
 
     EXPECT_EQ(sock_addr->port(), 65535);
@@ -64,7 +64,7 @@ TEST(SocketAddrFromInetTest, Ipv4_AddressRoundTrip) {
     auto addr = domain::InetAddress::parse("8.8.8.8");
     ASSERT_TRUE(addr.has_value());
 
-    auto sock_addr = SocketAddr::from_inet(*addr, 53);
+    auto sock_addr = net::SocketAddr::from_inet(*addr, 53);
     ASSERT_TRUE(sock_addr.has_value());
 
     auto parsed_addr = sock_addr->address();
@@ -81,7 +81,7 @@ TEST(SocketAddrFromInetTest, Ipv6_Basic) {
     auto addr = domain::InetAddress::parse("::1");
     ASSERT_TRUE(addr.has_value());
 
-    auto sock_addr = SocketAddr::from_inet(*addr, 443);
+    auto sock_addr = net::SocketAddr::from_inet(*addr, 443);
     ASSERT_TRUE(sock_addr.has_value());
 
     EXPECT_EQ(sock_addr->family(), AF_INET6);
@@ -97,7 +97,7 @@ TEST(SocketAddrFromInetTest, Ipv6_AddressRoundTrip) {
     auto addr = domain::InetAddress::parse("2001:db8::1");
     ASSERT_TRUE(addr.has_value());
 
-    auto sock_addr = SocketAddr::from_inet(*addr, 853);
+    auto sock_addr = net::SocketAddr::from_inet(*addr, 853);
     ASSERT_TRUE(sock_addr.has_value());
 
     auto parsed_addr = sock_addr->address();
@@ -112,7 +112,7 @@ TEST(SocketAddrFromInetTest, Ipv6_ScopeIdPreserved) {
     auto addr = domain::InetAddress::parse("fe80::1%5");
     ASSERT_TRUE(addr.has_value());
 
-    auto sock_addr = SocketAddr::from_inet(*addr, 5353);
+    auto sock_addr = net::SocketAddr::from_inet(*addr, 5353);
     ASSERT_TRUE(sock_addr.has_value());
 
     auto parsed_addr = sock_addr->address();
@@ -131,7 +131,7 @@ TEST(SocketAddrFromInetTest, Ipv6_PortAndAddress) {
     auto addr = domain::InetAddress::parse("fe80::1");
     ASSERT_TRUE(addr.has_value());
 
-    auto sock_addr = SocketAddr::from_inet(*addr, 12345);
+    auto sock_addr = net::SocketAddr::from_inet(*addr, 12345);
     ASSERT_TRUE(sock_addr.has_value());
 
     EXPECT_EQ(sock_addr->port(), 12345);
@@ -148,7 +148,7 @@ TEST(SocketAddrFromInetTest, Ipv6_PortAndAddress) {
 
 TEST(SocketAddrFromInetTest, DefaultInetAddress_ReturnsUnspec) {
     domain::InetAddress default_addr;
-    auto sock_addr = SocketAddr::from_inet(default_addr, 80);
+    auto sock_addr = net::SocketAddr::from_inet(default_addr, 80);
 
     // Default InetAddress is Inet4Address unspecified (0.0.0.0)
     ASSERT_TRUE(sock_addr.has_value());
@@ -166,7 +166,7 @@ TEST(SocketAddrFromRawTest, Ipv4_SockaddrIn) {
     sin.sin_port = htons(1234);
     sin.sin_addr.s_addr = htonl(0x01020304);  // 1.2.3.4
 
-    auto sock_addr = SocketAddr::from_raw(reinterpret_cast<const sockaddr*>(&sin), sizeof(sin));
+    auto sock_addr = net::SocketAddr::from_raw(reinterpret_cast<const sockaddr*>(&sin), sizeof(sin));
     EXPECT_EQ(sock_addr.family(), AF_INET);
     EXPECT_EQ(sock_addr.port(), 1234);
 
@@ -176,7 +176,7 @@ TEST(SocketAddrFromRawTest, Ipv4_SockaddrIn) {
 }
 
 TEST(SocketAddrFromRawTest, Ipv4_NullPtr_ReturnsUnspec) {
-    auto sock_addr = SocketAddr::from_raw(nullptr, 0);
+    auto sock_addr = net::SocketAddr::from_raw(nullptr, 0);
     EXPECT_EQ(sock_addr.family(), AF_UNSPEC);
     EXPECT_EQ(sock_addr.port(), 0);
     EXPECT_FALSE(sock_addr.address().has_value());
@@ -187,7 +187,7 @@ TEST(SocketAddrFromRawTest, Ipv4_ZeroLen_ReturnsUnspec) {
     struct sockaddr_in sin{};
     sin.sin_family = AF_INET;
 
-    auto sock_addr = SocketAddr::from_raw(reinterpret_cast<const sockaddr*>(&sin), 0);
+    auto sock_addr = net::SocketAddr::from_raw(reinterpret_cast<const sockaddr*>(&sin), 0);
     // len is 0, so nothing is copied — storage_ remains AF_UNSPEC
     EXPECT_EQ(sock_addr.family(), AF_UNSPEC);
 }
@@ -197,7 +197,7 @@ TEST(SocketAddrFromRawTest, Ipv4_ZeroLen_ReturnsUnspec) {
 // ===========================================================================
 
 TEST(SocketAddrAddressTest, UnspecFamily_ReturnsNullopt) {
-    SocketAddr default_addr;
+    net::SocketAddr default_addr;
     EXPECT_FALSE(default_addr.address().has_value());
 }
 
@@ -206,7 +206,7 @@ TEST(SocketAddrAddressTest, UnspecFamily_ReturnsNullopt) {
 // ===========================================================================
 
 TEST(SocketAddrToStringTest, Default_ReturnsUnspec) {
-    SocketAddr default_addr;
+    net::SocketAddr default_addr;
     EXPECT_EQ(default_addr.to_string(), "<unspec>");
 }
 
@@ -214,7 +214,7 @@ TEST(SocketAddrToStringTest, Ipv6Format) {
     auto addr = domain::InetAddress::parse("::1");
     ASSERT_TRUE(addr.has_value());
 
-    auto sock_addr = SocketAddr::from_inet(*addr, 443);
+    auto sock_addr = net::SocketAddr::from_inet(*addr, 443);
     ASSERT_TRUE(sock_addr.has_value());
 
     auto str = sock_addr->to_string();
@@ -225,7 +225,7 @@ TEST(SocketAddrToStringTest, Ipv4Format_NoBrackets) {
     auto addr = domain::InetAddress::parse("10.0.0.1");
     ASSERT_TRUE(addr.has_value());
 
-    auto sock_addr = SocketAddr::from_inet(*addr, 80);
+    auto sock_addr = net::SocketAddr::from_inet(*addr, 80);
     ASSERT_TRUE(sock_addr.has_value());
 
     auto str = sock_addr->to_string();
@@ -241,7 +241,7 @@ TEST(SocketAddrRawTest, RawLenV4) {
     auto addr = domain::InetAddress::parse("1.2.3.4");
     ASSERT_TRUE(addr.has_value());
 
-    auto sock_addr = SocketAddr::from_inet(*addr, 80);
+    auto sock_addr = net::SocketAddr::from_inet(*addr, 80);
     ASSERT_TRUE(sock_addr.has_value());
 
     EXPECT_EQ(sock_addr->raw_len(), sizeof(sockaddr_in));
@@ -252,7 +252,7 @@ TEST(SocketAddrRawTest, RawLenV6) {
     auto addr = domain::InetAddress::parse("::1");
     ASSERT_TRUE(addr.has_value());
 
-    auto sock_addr = SocketAddr::from_inet(*addr, 80);
+    auto sock_addr = net::SocketAddr::from_inet(*addr, 80);
     ASSERT_TRUE(sock_addr.has_value());
 
     EXPECT_EQ(sock_addr->raw_len(), sizeof(sockaddr_in6));

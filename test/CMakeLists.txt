@@ -8,10 +8,14 @@
 #     unit/                ←  unit-test targets (pure logic, no I/O)
 #       common/            ←  cross-module base types
 #       config/            ←  configuration tests
-#       core/              ←  core adapter tests (signal watcher, driver loader)
+#       domain/network/    ←  domain IP-address value tests
 #       dns/               ←  DNS protocol tests
+#       infrastructure/
+#         http/            ←  coroutine HTTP tests (scripted in-memory stream)
+#         network/         ←  coroutine transport/TLS tests; address/ codec tests
+#         plugin/          ←  driver loader tests and bad-driver fixture
+#         uri/             ←  URI parsing and encoding tests
 #       ip_source/         ←  IP-source abstraction tests (header-only)
-#       network/           ←  network address/path/URI tests
 #       util/              ←  utility tests (string, algorithm, etc.)
 #     component/           ←  component tests (real I/O on loopback)
 #     mocks/               ←  mock class headers
@@ -206,7 +210,6 @@ function(add_unit_test name)
     # GoogleTest prints the seed it used, so a failure replays with
     # --gtest_random_seed=<n>. State that must be process-wide (signal masks,
     # memoised CA-bundle lookups) belongs in its own executable; see
-    # core/signal_watcher_uninstalled_test.cpp and
     # component/cert_util_override_test.cpp.
     add_test(NAME test_${name} COMMAND test_${name} --gtest_shuffle)
 

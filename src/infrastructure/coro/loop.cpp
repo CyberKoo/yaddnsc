@@ -108,6 +108,28 @@ extern "C" void coro_signal_handler(int sig) {
     errno = saved_errno;
 }
 
+// The offload worker pool. Defined here so BS_thread_pool.hpp reaches exactly
+// one translation unit: loop.h declares Pool and nothing else names BS.
+//
+// Placement is load-bearing: Pool must be complete before any Loop constructor
+// or destructor is compiled. Unwinding out of a constructor destroys pool_,
+// which instantiates ~unique_ptr<Pool>; libc++ instantiates that destructor
+// eagerly and rejects an incomplete Pool, while libstdc++ happens to defer it
+// and accepts it. Do not move this below the constructors.
+class Loop::Pool {
+public:
+    explicit Pool(unsigned workers) : pool(workers) {}
+
+    /// Fire-and-forget: the job reports back through Loop::post(), so the pool
+    /// never holds a result slot and never refuses work.
+    void submit(std::function<void()> job) { pool.detach_task(std::move(job)); }
+
+    [[nodiscard]] unsigned workers() const { return pool.get_thread_count(); }
+
+private:
+    BS::thread_pool<> pool;
+};
+
 Loop::Loop() : clock_(&system_clock_), signal_waiters_(static_cast<std::size_t>(SIGNAL_CAPACITY)) {
     open_self_pipe();
 }
@@ -220,22 +242,6 @@ void Loop::process_inbox() {
         fn();
     }
 }
-
-// The offload worker pool. Defined here so BS_thread_pool.hpp reaches exactly
-// one translation unit: loop.h declares Pool and nothing else names BS.
-class Loop::Pool {
-public:
-    explicit Pool(unsigned workers) : pool(workers) {}
-
-    /// Fire-and-forget: the job reports back through Loop::post(), so the pool
-    /// never holds a result slot and never refuses work.
-    void submit(std::function<void()> job) { pool.detach_task(std::move(job)); }
-
-    [[nodiscard]] unsigned workers() const { return pool.get_thread_count(); }
-
-private:
-    BS::thread_pool<> pool;
-};
 
 void Loop::submit_offload(std::function<void()> job) {
     if (!pool_) {

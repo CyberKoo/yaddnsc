@@ -433,7 +433,7 @@ struct ChunkedBody {
     std::array<std::uint8_t, READ_CHUNK> buffer{};
     auto read = co_await stream.read_some(buffer);
     if (!read) {
-        co_return std::unexpected(map_io_error(read.error(), context));
+        co_return std::unexpected(connection_error(context));
     }
     if (*read == 0) {
         co_return std::unexpected(Error{ErrorCode::CONNECTION_LOST, fmt::format("{}: unexpected EOF", context)});
@@ -458,7 +458,7 @@ struct ChunkedBody {
         std::array<std::uint8_t, READ_CHUNK> buffer{};
         auto read = co_await stream.read_some(std::span(buffer.data(), needed));
         if (!read) {
-            co_return std::unexpected(map_io_error(read.error(), context));
+            co_return std::unexpected(connection_error(context));
         }
         if (*read == 0) {
             co_return std::unexpected(
@@ -541,8 +541,7 @@ struct ChunkedBody {
 
 /// Read a close-delimited body: the body runs until the peer closes.
 [[nodiscard]] coro::Task<std::expected<std::string, Error>> read_until_eof(net::Stream& stream, ReadWindow& window,
-                                                                           const Limits& limits,
-                                                                           const std::string_view context) {
+                                                                           const Limits& limits) {
     std::string body{window.view()};
     window.consume(window.size());
 
@@ -552,14 +551,8 @@ struct ChunkedBody {
         }
         std::array<std::uint8_t, READ_CHUNK> buffer{};
         auto read = co_await stream.read_some(buffer);
-        if (!read) {
-            if (read.error() == net::IoError::CONNECTION_FAILED) {
-                co_return body;  // EOF terminates the body.
-            }
-            co_return std::unexpected(map_io_error(read.error(), context));
-        }
-        if (*read == 0) {
-            co_return body;
+        if (!read || *read == 0) {
+            co_return body;  // EOF terminates the body.
         }
         body.append(reinterpret_cast<const char*>(buffer.data()), *read);
     }
@@ -578,7 +571,7 @@ coro::Task<std::expected<RawResponse, Error>> exchange(net::Stream& stream, cons
     const auto wire = serialize(request);
     const auto* wire_bytes = reinterpret_cast<const std::uint8_t*>(wire.data());
     if (auto sent = co_await stream.send_all(std::span(wire_bytes, wire.size())); !sent) {
-        co_return std::unexpected(map_io_error(sent.error(), context));
+        co_return std::unexpected(connection_error(context));
     }
 
     // ── Read headers (incremental parse) ──
@@ -618,7 +611,7 @@ coro::Task<std::expected<RawResponse, Error>> exchange(net::Stream& stream, cons
         const auto capacity = std::min(read_buffer.size(), limits.max_header_bytes - window.size());
         auto read = co_await stream.read_some(std::span(read_buffer.data(), capacity));
         if (!read) {
-            co_return std::unexpected(map_io_error(read.error(), context));
+            co_return std::unexpected(connection_error(context));
         }
         if (*read == 0) {
             co_return std::unexpected(Error{ErrorCode::CONNECTION_LOST, "connection closed before response headers"});
@@ -661,7 +654,7 @@ coro::Task<std::expected<RawResponse, Error>> exchange(net::Stream& stream, cons
             } else if (headers.has_content_length) {
                 body = std::string{};
             } else if (headers.connection_close) {
-                body = co_await read_until_eof(stream, window, limits, context);
+                body = co_await read_until_eof(stream, window, limits);
                 if (body && !body->empty()) {
                     co_return std::unexpected(
                         Error{ErrorCode::RESPONSE_PARSE_FAILED, "205 response has a non-empty body"});
@@ -683,7 +676,7 @@ coro::Task<std::expected<RawResponse, Error>> exchange(net::Stream& stream, cons
         body = std::move(chunked->body);
         trailers = std::move(chunked->trailers);
     } else {
-        body = co_await read_until_eof(stream, window, limits, context);
+        body = co_await read_until_eof(stream, window, limits);
     }
     if (!body) {
         co_return std::unexpected(std::move(body.error()));

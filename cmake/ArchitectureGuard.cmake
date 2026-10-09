@@ -33,6 +33,19 @@ endfunction()
 
 set(INC_RE "^[ \t]*#[ \t]*include[ \t]*")
 
+# Lower network primitives cannot assemble TLS implementations. HTTP resolves
+# names only through an injected capability, never a concrete DNS backend.
+guard_check("transport must not include TLS implementations (use network/factory)"
+    "${INC_RE}[<\"]infrastructure/network/(tls|factory)/"
+    ${PROJECT_SOURCE_DIR}/src/infrastructure/network/transport/*.h
+    ${PROJECT_SOURCE_DIR}/src/infrastructure/network/transport/*.hpp
+    ${PROJECT_SOURCE_DIR}/src/infrastructure/network/transport/*.cpp)
+guard_check("HTTP must not include concrete DNS implementations (inject HostResolver)"
+    "${INC_RE}[<\"]infrastructure/dns/"
+    ${PROJECT_SOURCE_DIR}/src/infrastructure/http/*.h
+    ${PROJECT_SOURCE_DIR}/src/infrastructure/http/*.hpp
+    ${PROJECT_SOURCE_DIR}/src/infrastructure/http/*.cpp)
+
 # ------------------------------------------------------------------------------
 # 1. domain: no infrastructure, third-party libraries or cancellation plumbing
 # ------------------------------------------------------------------------------

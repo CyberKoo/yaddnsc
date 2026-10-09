@@ -61,18 +61,6 @@ private:
 
 namespace detail {
 
-/// DNS wire type for an updater record kind.
-[[nodiscard]] constexpr dns::RecordType record_type_of(const domain::RecordKind kind) noexcept {
-    switch (kind) {
-        case domain::RecordKind::A:
-            return dns::RecordType::A;
-        case domain::RecordKind::AAAA:
-            return dns::RecordType::AAAA;
-        case domain::RecordKind::TXT:
-            return dns::RecordType::TXT;
-    }
-    return dns::RecordType::A;
-}
 
 /// True when the response header has the TC (truncated) bit set.
 [[nodiscard]] inline bool is_truncated(const std::span<const std::uint8_t> response) noexcept {

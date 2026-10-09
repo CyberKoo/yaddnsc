@@ -7,9 +7,8 @@
 #include <string>
 #include <utility>
 
-#include "infrastructure/dns/bootstrap/bootstrap.h"
 #include "infrastructure/http/wire_request.h"
-#include "support/fmt.hpp"
+#include "infrastructure/network/factory/default_stream_factory.h"
 
 namespace http {
 
@@ -18,7 +17,10 @@ coro::Task<std::expected<std::vector<domain::InetAddress>, Error>> resolve_host(
     if (const auto literal = domain::InetAddress::parse(host)) {
         co_return std::vector<domain::InetAddress>{*literal};
     }
-    auto resolved = co_await dns::bootstrap_resolve(std::move(host), options.address_family, options.bootstrap_dns);
+    if (!options.resolve) {
+        co_return std::unexpected(Error{ErrorCode::RESOLVE_FAILED, "no hostname resolver configured"});
+    }
+    auto resolved = co_await options.resolve(std::move(host), options.address_family);
     if (!resolved) {
         co_return std::unexpected(Error{ErrorCode::RESOLVE_FAILED, resolved.error().message});
     }
@@ -52,7 +54,7 @@ coro::Task<std::expected<std::unique_ptr<net::Stream>, Error>> connect_stream(
         if (connected) {
             co_return stream;
         }
-        last = map_connect_error(connected.error());
+        last = connect_error();
     }
     co_return std::unexpected(std::move(last));
 }

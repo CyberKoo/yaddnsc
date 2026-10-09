@@ -2,12 +2,12 @@
 // net — the production stream factory.
 //
 
-#include "stream.h"
+#include "default_stream_factory.h"
 
 #include <utility>
 
-#include "infrastructure/network/transport/tcp_stream.h"
 #include "infrastructure/network/tls/stream.h"
+#include "infrastructure/network/transport/tcp_stream.h"
 
 namespace net {
 

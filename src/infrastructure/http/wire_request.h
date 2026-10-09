@@ -51,13 +51,13 @@ namespace http {
 /// Request::content_type.
 [[nodiscard]] Request to_public_request(const protocol::WireRequest& wire);
 
-/// Map a transport I/O error to the domain error vocabulary.
-[[nodiscard]] Error map_io_error(net::IoError error, std::string_view stage);
+/// Construct an I/O failure in the HTTP error vocabulary.
+[[nodiscard]] Error connection_error(std::string_view stage);
 
-/// Map a connect failure. The stream bundles TCP connect and TLS handshake
+/// Construct a connect failure. The stream bundles TCP connect and TLS handshake
 /// into one call, so no phase is distinguished — the legacy stack did the
 /// same and reported both as CONNECT_FAILED.
-[[nodiscard]] Error map_connect_error(net::IoError error);
+[[nodiscard]] Error connect_error();
 
 }  // namespace http
 

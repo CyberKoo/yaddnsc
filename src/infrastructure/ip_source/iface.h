@@ -8,20 +8,22 @@
 #include <string>
 
 #include "domain/network/address_family.h"
+#include "infrastructure/coro/task.hpp"
 #include "infrastructure/ip_source/source.h"
 
 namespace ipsource {
 
 /// InterfaceIpSource — read addresses from a local network interface.
 ///
-/// getifaddrs() is a bounded syscall with a TTL cache (InterfaceUtil), so it
-/// runs directly on the loop instead of through offload; it never blocks on I/O
-/// or data whose size an external peer controls (design §6.3).
-class InterfaceIpSource final : public CoroIpSource {
+/// Each lookup reads a live getifaddrs() snapshot without a shared cache.
+/// This bounded kernel metadata read runs directly on the loop, not offload;
+/// its size is not controlled by an external peer.
+/// Thread safety: loop thread only.
+class InterfaceIpSource final {
 public:
     InterfaceIpSource(std::string interface_name, domain::AddressFamily address_family);
 
-    [[nodiscard]] coro::Task<Result> resolve() override;
+    [[nodiscard]] coro::Task<Result> resolve();
 
 private:
     std::string interface_name_;

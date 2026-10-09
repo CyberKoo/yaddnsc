@@ -138,7 +138,7 @@ coro::Task<std::expected<void, Error>> Session::ensure_stream() {
     }
     if (auto connected = co_await stream_->ensure_connected(); !connected) {
         drop_connection();
-        co_return std::unexpected(map_connect_error(connected.error()));
+        co_return std::unexpected(connect_error());
     }
     co_return {};
 }

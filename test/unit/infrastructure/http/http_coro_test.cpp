@@ -34,9 +34,9 @@
 #include "infrastructure/http/redirect.h"
 #include "infrastructure/http/session.h"
 #include "infrastructure/http/transport.h"
-#include "infrastructure/uri/uri.h"
 #include "infrastructure/http/wire_request.h"
 #include "infrastructure/network/transport/stream.h"
+#include "infrastructure/uri/uri.h"
 
 namespace {
 
@@ -113,6 +113,88 @@ private:
     return coro::run([&]() -> coro::Task<std::expected<http::protocol::RawResponse, http::Error>> {
         co_return co_await http::protocol::exchange(stream, request, limits, pending);
     }());
+}
+
+TEST(HttpResolveHost, Literal_WithoutResolver_ReturnsAddress) {
+    const http::Options options;
+    const auto result = coro::run(http::resolve_host("203.0.113.10", options));
+    ASSERT_TRUE(result.has_value());
+    ASSERT_EQ(result->size(), 1U);
+    EXPECT_EQ(result->front().to_string(), "203.0.113.10");
+}
+
+TEST(HttpResolveHost, Hostname_WithoutResolver_FailsExplicitly) {
+    const http::Options options;
+    const auto result = coro::run(http::resolve_host("example.test", options));
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error().code, ErrorCode::RESOLVE_FAILED);
+    EXPECT_EQ(result.error().message, "no hostname resolver configured");
+}
+
+TEST(HttpResolveHost, InjectedResolver_ReceivesHostnameAndFamily) {
+    http::Options options;
+    options.address_family = domain::AddressFamily::IPV6;
+    int calls = 0;
+    options.resolve = [&calls](std::string host, std::optional<domain::AddressFamily> family)
+        -> coro::Task<std::expected<std::vector<domain::InetAddress>, domain::DnsErrorInfo>> {
+        ++calls;
+        EXPECT_EQ(host, "example.test");
+        EXPECT_EQ(family, domain::AddressFamily::IPV6);
+        co_return std::vector<domain::InetAddress>{*domain::InetAddress::parse("2001:db8::10")};
+    };
+    const auto result = coro::run(http::resolve_host("example.test", options));
+    ASSERT_TRUE(result.has_value());
+    ASSERT_EQ(result->size(), 1U);
+    EXPECT_EQ(result->front().to_string(), "2001:db8::10");
+    EXPECT_EQ(calls, 1);
+    const auto literal = coro::run(http::resolve_host("203.0.113.10", options));
+    EXPECT_TRUE(literal.has_value());
+    EXPECT_EQ(calls, 1);
+}
+
+TEST(HttpResolveHost, ResolverFailure_PreservesDiagnostic) {
+    http::Options options;
+    options.resolve = [](std::string, std::optional<domain::AddressFamily>)
+        -> coro::Task<std::expected<std::vector<domain::InetAddress>, domain::DnsErrorInfo>> {
+        co_return std::unexpected(domain::DnsErrorInfo{domain::DnsError::NX_DOMAIN, "injected NXDOMAIN"});
+    };
+    const auto result = coro::run(http::resolve_host("example.test", options));
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error().code, ErrorCode::RESOLVE_FAILED);
+    EXPECT_EQ(result.error().message, "injected NXDOMAIN");
+}
+
+TEST(HttpResolveHost, ResolverCancellation_Propagates) {
+    http::Options options;
+    coro::CancelScope* active_scope = nullptr;
+    options.resolve = [&active_scope](std::string, std::optional<domain::AddressFamily>)
+        -> coro::Task<std::expected<std::vector<domain::InetAddress>, domain::DnsErrorInfo>> {
+        active_scope->cancel();
+        co_await coro::checkpoint();
+        co_return std::vector<domain::InetAddress>{};
+    };
+    bool returned = false;
+    coro::run([&]() -> coro::Task<void> {
+        const auto outcome = co_await coro::with_cancel_scope([&](coro::CancelScope& scope) -> coro::Task<void> {
+            active_scope = &scope;
+            [[maybe_unused]] const auto result = co_await http::resolve_host("example.test", options);
+            returned = true;
+        });
+        EXPECT_TRUE(outcome.cancelled);
+    }());
+    EXPECT_FALSE(returned);
+}
+
+TEST(HttpWireRequest, ConnectionError_PreservesCodeAndStageMessage) {
+    const auto error = http::connection_error("GET /index.html");
+    EXPECT_EQ(error.code, ErrorCode::CONNECTION_LOST);
+    EXPECT_EQ(error.message, "GET /index.html: connection lost");
+}
+
+TEST(HttpWireRequest, ConnectError_PreservesCodeAndMessage) {
+    const auto error = http::connect_error();
+    EXPECT_EQ(error.code, ErrorCode::CONNECT_FAILED);
+    EXPECT_EQ(error.message, "connect failed");
 }
 
 // ---------------------------------------------------------------------------

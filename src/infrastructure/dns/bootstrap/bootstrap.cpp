@@ -25,6 +25,13 @@
 #include "support/string_util.hpp"
 
 namespace dns {
+
+net::HostResolver make_bootstrap_resolver(std::vector<domain::DnsServer> servers) {
+    return [servers = std::move(servers)](std::string host, std::optional<domain::AddressFamily> family) {
+        return bootstrap_resolve(std::move(host), family, servers);
+    };
+}
+
 namespace {
 
 /// Outcome of resolving one record kind.

@@ -8,6 +8,7 @@
 #include <string>
 
 #include "domain/dns/record_kind.h"
+#include "infrastructure/coro/task.hpp"
 #include "infrastructure/ip_source/source.h"
 
 namespace ipsource {
@@ -19,14 +20,16 @@ namespace ipsource {
 /// builder and parser, and the response window is a cancel scope
 /// (`with_timeout`) rather than a blocking poll — the equivalent of the legacy
 /// 500 ms deadline.
-class MdnsIpSource final : public CoroIpSource {
+/// Cancellation: awaits are scope checkpoints and propagate coro::Cancelled.
+/// Thread safety: loop thread only.
+class MdnsIpSource final {
 public:
     /// @param hostname   mDNS name to query, e.g. "printer.local".
     /// @param type       RecordKind::A (IPv4 multicast) or AAAA (IPv6 multicast).
     /// @param interface  Outbound interface name; empty selects the kernel default.
     MdnsIpSource(std::string hostname, domain::RecordKind type, std::string interface);
 
-    [[nodiscard]] coro::Task<Result> resolve() override;
+    [[nodiscard]] coro::Task<Result> resolve();
 
 private:
     std::string hostname_;

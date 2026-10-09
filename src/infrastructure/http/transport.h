@@ -2,7 +2,7 @@
 // http — name resolution and stream connection shared by the clients.
 //
 // The HTTP layer never touches a socket directly: it resolves the URL host
-// through the configured bootstrap DNS, asks the injected StreamFactory (or the
+// through the injected hostname resolver, asks the StreamFactory (or the
 // production one) for a stream, and lets the stream connect. That keeps the fake
 // injection point in one place.
 //
@@ -28,11 +28,11 @@
 namespace http {
 
 /// Resolve `host` to candidate addresses: an IP literal short-circuits, anything
-/// else goes through the configured bootstrap DNS servers.
+/// else goes through Options::resolve.
 ///
-/// Failure: RESOLVE_FAILED when resolution fails, CONFIG when no bootstrap
-/// servers are configured for a hostname. The coroutine frame copies `host` and
-/// the server list, so nothing needs to outlive the call.
+/// Failure: RESOLVE_FAILED when resolution fails or no resolver is injected.
+/// The task owns `host` and borrows `options` until completion; cancellation
+/// propagates as coro::Cancelled.
 [[nodiscard]] coro::Task<std::expected<std::vector<domain::InetAddress>, Error>> resolve_host(std::string host,
                                                                                               const Options& options);
 

@@ -24,6 +24,7 @@
 #include "domain/network/address_family.h"
 #include "domain/network/inet_address.h"
 #include "infrastructure/coro/task.hpp"
+#include "infrastructure/network/address/resolver.h"
 
 namespace dns {
 
@@ -41,6 +42,10 @@ namespace dns {
 /// to a retryable error.
 [[nodiscard]] coro::Task<std::expected<std::vector<domain::InetAddress>, domain::DnsErrorInfo>> bootstrap_resolve(
     std::string host, std::optional<domain::AddressFamily> family, std::vector<domain::DnsServer> servers);
+
+/// Bind the explicit bootstrap server policy for injection into HTTP clients.
+/// Owns the server list; each returned task owns a copy for its lookup.
+[[nodiscard]] net::HostResolver make_bootstrap_resolver(std::vector<domain::DnsServer> servers);
 
 }  // namespace dns
 

@@ -20,6 +20,7 @@
 #include "application/ports/log.h"
 #include "infrastructure/coro/offload.hpp"
 #include "infrastructure/coro/scope.hpp"
+#include "infrastructure/plugin/abi_string.h"
 #include "infrastructure/plugin/driver_catalog.h"
 #include "infrastructure/plugin/driver_instance.h"
 #include "infrastructure/plugin/host_services.h"
@@ -57,10 +58,6 @@ struct AbiCancelled {};
             // INVALID_ARGUMENT and unknown codes indicate a contract bug.
             return {Code::UNKNOWN, message, 0};
     }
-}
-
-[[nodiscard]] std::string_view to_view(yaddnsc_string value) noexcept {
-    return value.data == nullptr ? std::string_view{} : std::string_view{value.data, value.size};
 }
 
 [[nodiscard]] bool has_valid_plugin_error(const yaddnsc_error& error, yaddnsc_status returned_status) noexcept {
@@ -148,7 +145,7 @@ struct AbiCancelled {};
         if (!has_valid_plugin_error(error, create_status)) {
             return std::unexpected(invalid_plugin_result(driver_name, "create"));
         }
-        return std::unexpected(map_error(create_status, to_view(error.message), driver_name, command.fqdn));
+        return std::unexpected(map_error(create_status, detail::to_view(error.message), driver_name, command.fqdn));
     }
 
     // From here on the instance owns the destroy() call; copy error bytes out
@@ -176,7 +173,7 @@ struct AbiCancelled {};
         return std::unexpected(invalid_plugin_result(driver_name, "update"));
     }
 
-    auto driver_error = map_error(status, to_view(error.message), driver_name, command.fqdn);
+    auto driver_error = map_error(status, detail::to_view(error.message), driver_name, command.fqdn);
     // The ABI field is uint32; clamp instead of narrowing so an out-of-range
     // plugin value saturates at INT_MAX rather than going negative.
     driver_error.retry_after_seconds = static_cast<int>(std::min<std::uint32_t>(
@@ -213,7 +210,7 @@ struct AbiCancelled {};
         if (!has_valid_plugin_error(error, create_status)) {
             return std::unexpected(invalid_plugin_result(driver_name, "create"));
         }
-        return std::unexpected(map_validate_error(create_status, to_view(error.message), driver_name));
+        return std::unexpected(map_validate_error(create_status, detail::to_view(error.message), driver_name));
     }
 
     DriverInstance instance{module, handle};
@@ -228,7 +225,7 @@ struct AbiCancelled {};
     if (!has_valid_plugin_error(error, status)) {
         return std::unexpected(invalid_plugin_result(driver_name, "validate"));
     }
-    return std::unexpected(map_validate_error(status, to_view(error.message), driver_name));
+    return std::unexpected(map_validate_error(status, detail::to_view(error.message), driver_name));
 }
 
 }  // namespace

@@ -137,11 +137,6 @@ Bridge::Bridge(coro::Loop& loop, coro::TaskGroup& spawn_group, http::Options opt
 Bridge::~Bridge() = default;
 
 std::expected<http::Response, BridgeError> Bridge::exchange(std::shared_ptr<BridgeCall> call) {
-    if (stopped()) {
-        call->cancelled.store(true, std::memory_order_release);
-        return std::unexpected(BridgeError{YADDNSC_STATUS_CANCELLED, "bridge stopped"});
-    }
-
     // Read every member before the post: from here on the exchange touches only
     // its own locals and the shared state, so the Bridge may be destroyed while
     // the worker is still blocked on an abandoned call.

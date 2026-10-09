@@ -26,7 +26,7 @@
 #include "infrastructure/dns/wire/builder.h"
 #include "infrastructure/dns/wire/framing.h"
 #include "infrastructure/dns/wire/query_util.h"
-#include "infrastructure/network/tls/stream.h"
+#include "infrastructure/network/factory/default_stream_factory.h"
 #include "support/fmt.hpp"
 #include "support/util/random.hpp"
 
@@ -68,11 +68,6 @@ constexpr std::size_t EDNS_PAD_OVERHEAD = 15;
     return dns::QueryBuilder{}.add_question(host, type).add_edns(512, 0, false, std::span(&padding_option, 1)).build();
 }
 
-/// Map a transport failure to the DNS vocabulary.
-[[nodiscard]] domain::DnsErrorInfo map_connect_error(const net::IoError /*error*/) {
-    return domain::DnsErrorInfo{domain::DnsError::CONNECTION, "DoT connection failed"};
-}
-
 /// Connect one stream under CONNECT_BUDGET. An expired budget is the legacy
 /// connect timeout and maps to RETRY; outer cancellation throws coro::Cancelled.
 [[nodiscard]] coro::Task<std::expected<void, domain::DnsErrorInfo>> connect_with_budget(net::Stream& stream) {
@@ -83,7 +78,7 @@ constexpr std::size_t EDNS_PAD_OVERHEAD = 15;
         co_return std::unexpected(domain::DnsErrorInfo{domain::DnsError::RETRY, "DoT connection timed out"});
     }
     if (!*connected) {
-        co_return std::unexpected(map_connect_error(connected->error()));
+        co_return std::unexpected(domain::DnsErrorInfo{domain::DnsError::CONNECTION, "DoT connection failed"});
     }
     co_return {};
 }

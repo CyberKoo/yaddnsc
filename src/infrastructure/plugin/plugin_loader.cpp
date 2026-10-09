@@ -14,6 +14,7 @@
 #include <yaddnsc/sdk/driver_abi.h>
 #include <yaddnsc/util/format.hpp>
 
+#include "infrastructure/plugin/abi_string.h"
 #include "infrastructure/plugin/shared_library.h"
 #include "support/fmt.hpp"
 
@@ -39,9 +40,6 @@ template<typename Signature>
     return symbol;
 }
 
-[[nodiscard]] std::string_view to_view(yaddnsc_string value) noexcept {
-    return value.data == nullptr ? std::string_view{} : std::string_view{value.data, value.size};
-}
 }  // anonymous namespace
 
 std::expected<PluginModule, plugin::PluginError> PluginModule::load(const std::string& path) {
@@ -146,10 +144,10 @@ std::expected<PluginModule, plugin::PluginError> PluginModule::load(const std::s
 
     // 7. Copy descriptor fields into host-owned storage.
     module.descriptor_ = DriverDescriptor{
-        .name = std::string(to_view(raw_descriptor->name)),
-        .version = std::string(to_view(raw_descriptor->version)),
-        .author = std::string(to_view(raw_descriptor->author)),
-        .description = std::string(to_view(raw_descriptor->description)),
+        .name = std::string(plugin::detail::to_view(raw_descriptor->name)),
+        .version = std::string(plugin::detail::to_view(raw_descriptor->version)),
+        .author = std::string(plugin::detail::to_view(raw_descriptor->author)),
+        .description = std::string(plugin::detail::to_view(raw_descriptor->description)),
         .capabilities = raw_descriptor->capabilities,
         .abi_major = raw_descriptor->abi_major,
         .abi_minor = raw_descriptor->abi_minor,

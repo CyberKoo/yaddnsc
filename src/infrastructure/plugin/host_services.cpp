@@ -24,14 +24,11 @@
 #include "application/ports/log.h"
 #include "infrastructure/http/error.h"
 #include "infrastructure/http/types.h"
+#include "infrastructure/plugin/abi_string.h"
 
 namespace plugin {
 
 namespace {
-
-[[nodiscard]] std::string_view to_view(yaddnsc_string value) noexcept {
-    return value.data == nullptr ? std::string_view{} : std::string_view{value.data, value.size};
-}
 
 /// The C callback firewall must not allocate while reporting an exception:
 /// allocation failure is precisely one of the cases it is handling.
@@ -119,11 +116,12 @@ void HostServicesContext::log(yaddnsc_log_level level, yaddnsc_string message,
     // and line > 0. Tolerate violations defensively — logging must never
     // fail an update.
     const std::string_view file =
-        (location != nullptr && location->file.data != nullptr) ? to_view(location->file) : std::string_view{};
+        (location != nullptr && location->file.data != nullptr) ? detail::to_view(location->file) : std::string_view{};
     const int line = location != nullptr ? location->line : 0;
-    const std::string_view function =
-        (location != nullptr && location->function.data != nullptr) ? to_view(location->function) : std::string_view{};
-    logger_.log_explicit(to_log_level(level), to_view(message), file, line, function);
+    const std::string_view function = (location != nullptr && location->function.data != nullptr)
+                                          ? detail::to_view(location->function)
+                                          : std::string_view{};
+    logger_.log_explicit(to_log_level(level), detail::to_view(message), file, line, function);
 }
 
 void HostServicesContext::log_entry(void* context, yaddnsc_log_level level, yaddnsc_string message,
@@ -216,16 +214,16 @@ yaddnsc_status HostServicesContext::http_exchange(const yaddnsc_http_request& re
     // Build the request the bridge will carry to the loop, then block the
     // worker on the loop-side answer.
     auto call = std::make_shared<BridgeCall>();
-    call->url = std::string(to_view(request.url));
+    call->url = std::string(detail::to_view(request.url));
     call->request.method = *method;
     for (size_t i = 0; i < request.header_count; ++i) {
-        call->request.headers.emplace(std::string(to_view(request.headers[i].name)),
-                                      std::string(to_view(request.headers[i].value)));
+        call->request.headers.emplace(std::string(detail::to_view(request.headers[i].name)),
+                                      std::string(detail::to_view(request.headers[i].value)));
     }
     if (request.body.data != nullptr) {
         call->request.set_body(std::span<const std::uint8_t>(request.body.data, request.body.size));
     }
-    call->request.content_type = std::string(to_view(request.content_type));
+    call->request.content_type = std::string(detail::to_view(request.content_type));
 
     state_->set_in_flight(call);
     auto response = bridge_.exchange(call);

@@ -12,11 +12,13 @@
 #include <vector>
 
 #include "domain/network/inet_address.h"
+#include "infrastructure/dns/bootstrap/bootstrap.h"
 #include "infrastructure/dns/resolver/classic.h"
 #include "infrastructure/dns/resolver/doh.h"
 #include "infrastructure/dns/resolver/dot.h"
 #include "infrastructure/uri/uri.h"
 #include "support/fmt.hpp"
+
 #include "version.h"
 
 namespace dns {
@@ -63,7 +65,7 @@ namespace {
         http::Options options;
         // The legacy DoH resolver always identified itself on the wire.
         options.user_agent = YADDNSC::get_full_version();
-        options.bootstrap_dns = bootstrap;
+        options.resolve = make_bootstrap_resolver(bootstrap);
         options.tls_context = std::move(tls_context);
         return std::make_unique<DohResolver>(server.address, std::move(options));
     }

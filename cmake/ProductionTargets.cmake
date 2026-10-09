@@ -10,8 +10,8 @@
 # exists anywhere in the tree, so plain static archives link correctly.
 #
 # The coroutine network module is grouped by responsibility under address/,
-# transport/ (including its detail/ helpers), tls/ and http/; the shared URI
-# codec has its own target.
+# transport/ (including its detail/ helpers), tls/ and factory/; HTTP and the
+# shared URI codec have their own targets.
 # ==============================================================================
 
 # Coroutine runtime core — the loop (poll fd table, timer heap, ready queue,
@@ -48,6 +48,7 @@ add_library(yaddnsc_net STATIC
     src/infrastructure/network/tls/context.cpp
     src/infrastructure/network/transport/udp_socket.cpp
     src/infrastructure/network/tls/cert_util.cpp
+    src/infrastructure/network/factory/default_stream_factory.cpp
 )
 yaddnsc_production_module(yaddnsc_net)
 target_link_libraries(yaddnsc_net
@@ -55,9 +56,8 @@ target_link_libraries(yaddnsc_net
     PRIVATE spdlog::spdlog yaddnsc_fmt
 )
 
-# Low-level DNS exchange and bootstrap lookup. HTTP uses this to resolve URL
-# hosts; keeping it below both HTTP and the full DNS resolver avoids a target
-# cycle when DoH is built on the HTTP client.
+# Low-level DNS exchange and bootstrap lookup. Assembly binds this policy to
+# the HTTP hostname resolver; HTTP itself has no concrete DNS dependency.
 add_library(yaddnsc_dns_bootstrap STATIC
     src/infrastructure/dns/exchange.cpp
     src/infrastructure/dns/bootstrap/bootstrap.cpp
@@ -70,7 +70,6 @@ target_link_libraries(yaddnsc_dns_bootstrap
 
 # Coroutine HTTP client and protocol implementation.
 add_library(yaddnsc_http STATIC
-    src/infrastructure/network/transport/stream.cpp
     src/infrastructure/http/protocol/wire.cpp
     src/infrastructure/http/protocol/exchange.cpp
     src/infrastructure/http/wire_request.cpp
@@ -82,7 +81,7 @@ add_library(yaddnsc_http STATIC
 )
 yaddnsc_production_module(yaddnsc_http)
 target_link_libraries(yaddnsc_http
-    PUBLIC yaddnsc_net yaddnsc_uri yaddnsc_domain yaddnsc_dns_bootstrap
+    PUBLIC yaddnsc_net yaddnsc_uri yaddnsc_domain
     PRIVATE picohttpparser spdlog::spdlog yaddnsc_fmt
 )
 

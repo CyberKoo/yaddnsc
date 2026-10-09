@@ -35,12 +35,13 @@
 #include "domain/error/dns_error_info.h"
 #include "infrastructure/coro/coro.h"
 #include "infrastructure/dns/bootstrap/bootstrap.h"
-#include "infrastructure/dns/resolver/classic.h"
 #include "infrastructure/dns/dispatcher.h"
+#include "infrastructure/dns/resolver/classic.h"
 #include "infrastructure/dns/resolver/doh.h"
 #include "infrastructure/dns/resolver/dot.h"
 #include "infrastructure/http/client.h"
 #include "infrastructure/http/persistent_client.h"
+#include "infrastructure/http/transport.h"
 #include "infrastructure/network/tls/context.h"
 #include "support/fmt.hpp"
 #include "support/util/fd.hpp"
@@ -485,11 +486,10 @@ TEST(NetCoroDns, bootstrap_nodataAnswerFallsThroughToTheNextServer) {
 
     const std::vector<domain::DnsServer> servers{{"127.0.0.1", static_cast<std::uint16_t>(BOOTSTRAP_FIRST_PORT)},
                                                  {"127.0.0.1", static_cast<std::uint16_t>(BOOTSTRAP_SECOND_PORT)}};
-    auto resolve = [&]() -> coro::Task<std::expected<std::vector<domain::InetAddress>, domain::DnsErrorInfo>> {
-        co_return co_await dns::bootstrap_resolve("nodata.yaddnsc.test", domain::AddressFamily::IPV4, servers);
-    };
-
-    const auto result = run_task(resolve());
+    http::Options options;
+    options.resolve = dns::make_bootstrap_resolver(servers);
+    options.address_family = domain::AddressFamily::IPV4;
+    const auto result = run_task(http::resolve_host("nodata.yaddnsc.test", options));
     ASSERT_TRUE(result.has_value()) << result.error().message;
     ASSERT_EQ(result->size(), 1u);
     EXPECT_EQ(result->front().to_string(), "198.51.100.77");

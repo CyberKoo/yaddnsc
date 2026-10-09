@@ -120,15 +120,11 @@ Request to_public_request(const protocol::WireRequest& wire) {
     return request;
 }
 
-Error map_io_error(const net::IoError error, const std::string_view stage) {
-    switch (error) {
-        case net::IoError::CONNECTION_FAILED:
-            return {ErrorCode::CONNECTION_LOST, fmt::format("{}: connection lost", stage)};
-    }
+Error connection_error(const std::string_view stage) {
     return {ErrorCode::CONNECTION_LOST, fmt::format("{}: connection lost", stage)};
 }
 
-Error map_connect_error(const net::IoError /*error*/) {
+Error connect_error() {
     // TCP refusal and TLS handshake failure are not distinguished (the stream
     // reports one CONNECTION_FAILED for both), matching the legacy mapping.
     return {ErrorCode::CONNECT_FAILED, "connect failed"};

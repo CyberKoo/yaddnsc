@@ -4,8 +4,7 @@
 // Deliberately small. Compared with the legacy Transport::Options:
 //   - connect_timeout / read_timeout / write_timeout are gone: a deadline is the
 //     caller's cancel scope (`with_timeout(...)`), never an I/O parameter;
-//   - bootstrap_dns is gone: resolving a hostname needs the resolver port, which
-//     arrives in stage 2b;
+//   - bootstrap_dns is gone: HTTP receives an injected hostname resolver;
 //   - address_family is gone: the connection target is an already-resolved
 //     InetAddress, so the family is carried by the value itself.
 // Nothing is silently accepted and ignored.

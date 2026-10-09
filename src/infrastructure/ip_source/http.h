@@ -8,8 +8,9 @@
 #include <string>
 
 #include "domain/network/address_family.h"
-#include "infrastructure/ip_source/source.h"
+#include "infrastructure/coro/task.hpp"
 #include "infrastructure/http/types.h"
+#include "infrastructure/ip_source/source.h"
 
 namespace ipsource {
 
@@ -17,16 +18,18 @@ namespace ipsource {
 ///
 /// Built on the coroutine http::Client; the address-family and interface
 /// overrides are applied on top of the composition root's shared HTTP policy.
-class HttpIpSource final : public CoroIpSource {
+/// Cancellation: awaits are scope checkpoints and propagate coro::Cancelled.
+/// Thread safety: loop thread only.
+class HttpIpSource final {
 public:
     /// @param url             HTTP IP-detection endpoint.
     /// @param address_family  Expected response family (UNSPECIFIED accepts any).
     /// @param bind_interface  Outbound interface (empty = any).
-    /// @param base_options    Shared HTTP policy (user agent, bootstrap DNS, CA).
+    /// @param base_options    Shared HTTP policy (user agent, resolver, CA).
     HttpIpSource(std::string url, domain::AddressFamily address_family, std::string bind_interface,
                  http::Options base_options);
 
-    [[nodiscard]] coro::Task<Result> resolve() override;
+    [[nodiscard]] coro::Task<Result> resolve();
 
 private:
     std::string url_;

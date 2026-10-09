@@ -41,7 +41,7 @@ class PersistentClient {
 public:
     /// @param base_url  Origin, e.g. "https://api.example.com" (a path is
     ///                  allowed and only used for relative fallback).
-    /// @param options   Client options, including the bootstrap DNS servers.
+    /// @param options   Client options, including the injected hostname resolver.
     /// @throws std::invalid_argument when base_url is not a valid http(s) URL.
     explicit PersistentClient(std::string base_url, Options options = {});
 

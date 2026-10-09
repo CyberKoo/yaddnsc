@@ -60,6 +60,9 @@ add_unit_test(address_policy SOURCE domain/address_policy_test.cpp)
 # (implementation in src/domain/update/update_decision.cpp, via test_support)
 add_unit_test(update_decision SOURCE domain/update_decision_test.cpp)
 
+# inet_address — uses src/domain/network/inet_address.cpp (via test_support)
+add_unit_test(inet_address SOURCE domain/network/inet_address_test.cpp)
+
 # ============================================================================
 #  application/  —  retained use cases and ports
 # ============================================================================
@@ -107,16 +110,16 @@ add_unit_test(config_loader SOURCE config/config_loader_test.cpp)
 target_link_libraries(test_config_loader PRIVATE yaddnsc_config_infrastructure)
 
 # ============================================================================
-#  core/  —  driver loading
+#  infrastructure/plugin/  —  driver loading
 # ============================================================================
 
 # driver_loader + driver_catalog — dlopen-based plugin loading
 # Fixture: a shared library that is deliberately NOT a yaddnsc driver —
 # verifies that auto-discovery skips foreign libraries instead of aborting.
 # MODULE produces a .so on both Linux and macOS (SHARED would be .dylib).
-add_library(yaddnsc_bad_driver_fixture MODULE core/bad_driver_fixture.cpp)
+add_library(yaddnsc_bad_driver_fixture MODULE infrastructure/plugin/bad_driver_fixture.cpp)
 
-add_unit_test(driver_loader SOURCE core/driver_loader_test.cpp)
+add_unit_test(driver_loader SOURCE infrastructure/plugin/driver_loader_test.cpp)
 target_link_libraries(test_driver_loader PRIVATE yaddnsc_prod_all)
 
 # macOS + ASan + dlopen plugins: ASan's ODR checker reports the driver's
@@ -165,40 +168,45 @@ add_unit_test(resolv_conf SOURCE dns/resolv_conf_test.cpp)
 target_link_libraries(test_resolv_conf PRIVATE yaddnsc_dns_classic)
 
 # ============================================================================
-#  network/  —  network address/path/URI parsing (pure logic, no I/O)
+#  infrastructure/network/address/  —  socket address codec (pure logic)
 # ============================================================================
 
-# inet_address — uses inet_address.cpp (already in test_support)
-add_unit_test(inet_address SOURCE network/inet_address_test.cpp)
-
 # socket_addr — value-type wrapper around sockaddr_storage
-add_unit_test(socket_addr SOURCE network/socket_addr_test.cpp)
+add_unit_test(socket_addr SOURCE infrastructure/network/address/socket_addr_test.cpp)
 target_link_libraries(test_socket_addr PRIVATE yaddnsc_net)
 
-# URI parsing — the codec now lives in yaddnsc_uri (src/infrastructure/uri/uri.cpp)
-add_unit_test(uri_parse SOURCE network/uri_parse_test.cpp)
+# ============================================================================
+#  infrastructure/uri/  —  URI parsing and encoding
+# ============================================================================
+
+# URI parsing — the codec lives in yaddnsc_uri (src/infrastructure/uri/uri.cpp)
+add_unit_test(uri_parse SOURCE infrastructure/uri/uri_parse_test.cpp)
 target_link_libraries(test_uri_parse PRIVATE yaddnsc_uri)
-add_unit_test(uri_query SOURCE network/uri_query_test.cpp)
+add_unit_test(uri_query SOURCE infrastructure/uri/uri_query_test.cpp)
 target_link_libraries(test_uri_query PRIVATE yaddnsc_uri)
-add_unit_test(uri_encode SOURCE network/uri_encode_test.cpp)
+add_unit_test(uri_encode SOURCE infrastructure/uri/uri_encode_test.cpp)
 target_link_libraries(test_uri_encode PRIVATE yaddnsc_uri)
-add_unit_test(uri_edge   SOURCE network/uri_edge_test.cpp)
+add_unit_test(uri_edge   SOURCE infrastructure/uri/uri_edge_test.cpp)
 target_link_libraries(test_uri_edge PRIVATE yaddnsc_uri)
 
 # ============================================================================
-#  net/  —  coroutine transport layer (src/infrastructure/network/)
+#  infrastructure/network/  —  coroutine transport and TLS facilities
 # ============================================================================
 
 # fd-wait checkpoint plus TcpStream / TlsStream / UdpSocket over loopback and
 # socketpair I/O. The TLS paths here are failure paths only; a real handshake
 # and certificate verification live in the component suite.
-add_unit_test(net_coro_unit SOURCE net/net_coro_unit_test.cpp)
+add_unit_test(net_coro_unit SOURCE infrastructure/network/net_coro_unit_test.cpp)
 target_link_libraries(test_net_coro_unit PRIVATE yaddnsc_net OpenSSL::SSL OpenSSL::Crypto)
+
+# ============================================================================
+#  infrastructure/http/  —  coroutine HTTP protocol layer
+# ============================================================================
 
 # HTTP protocol layer (src/infrastructure/http/) driven by a scripted
 # in-memory stream: framing, 1xx, keep-alive carry-over, the lazy chunked read
 # window and the redirect policy.
-add_unit_test(net_coro_http SOURCE net/http_coro_test.cpp)
+add_unit_test(net_coro_http SOURCE infrastructure/http/http_coro_test.cpp)
 target_link_libraries(test_net_coro_http PRIVATE yaddnsc_http)
 
 # ============================================================================

@@ -19,6 +19,7 @@ struct GuardCase {
     const char* name;
     const char* source;
     bool allowed;
+    const char* path{"src/application/probe.cpp"};
 };
 
 class ApplicationCoroGuard : public ::testing::TestWithParam<GuardCase> {};
@@ -26,11 +27,11 @@ class ApplicationCoroGuard : public ::testing::TestWithParam<GuardCase> {};
 TEST_P(ApplicationCoroGuard, Check_Source_EnforcesPublicBoundary) {
     const GuardCase& test = GetParam();
     ComponentTest::TempDirectory dir{(std::filesystem::temp_directory_path() / "yaddnsc-guard-XXXXXX").string()};
-    std::filesystem::create_directories(dir.path() / "src/application");
+    std::filesystem::create_directories((dir.path() / test.path).parent_path());
     std::filesystem::create_directories(dir.path() / "include/yaddnsc/sdk");
     // Other architecture checks require the SDK header to exist.
     std::ofstream(dir.path() / "include/yaddnsc/sdk/driver_abi.h") << "#include <stdint.h>\n";
-    std::ofstream(dir.path() / "src/application/probe.cpp") << test.source;
+    std::ofstream(dir.path() / test.path) << test.source;
     const auto output = dir.path() / "output.txt";
     const std::string root_argument = "-DPROJECT_SOURCE_DIR=" + dir.path().string();
 
@@ -57,8 +58,7 @@ TEST_P(ApplicationCoroGuard, Check_Source_EnforcesPublicBoundary) {
     const std::string diagnostic{std::istreambuf_iterator<char>{stream}, std::istreambuf_iterator<char>{}};
     EXPECT_EQ(exit_code == 0, test.allowed) << diagnostic;
     if (!test.allowed) {
-        EXPECT_NE(diagnostic.find("src/application/probe.cpp"), std::string::npos) << diagnostic;
-        EXPECT_NE(diagnostic.find("application"), std::string::npos) << diagnostic;
+        EXPECT_NE(diagnostic.find(test.path), std::string::npos) << diagnostic;
     }
 }
 
@@ -84,6 +84,16 @@ INSTANTIATE_TEST_SUITE_P(
         GuardCase{"PublicState", "bool read(coro::CancelScope& s) { return s.cancelled() || s.timed_out(); }", true},
         GuardCase{"UnrelatedRelease", "auto result = file.release(); auto other = tree.parent();", true},
         GuardCase{"PublicAlias", "namespace c = ::coro; c::Task<void> f();", true},
+        GuardCase{"TransportIncludesTls", "#include \"infrastructure/network/tls/stream.h\"\n", false,
+                  "src/infrastructure/network/transport/probe.cpp"},
+        GuardCase{"TransportIncludesFactory", "#include \"infrastructure/network/factory/default_stream_factory.h\"\n",
+                  false, "src/infrastructure/network/transport/probe.cpp"},
+        GuardCase{"FactoryIncludesTls", "#include \"infrastructure/network/tls/stream.h\"\n", true,
+                  "src/infrastructure/network/factory/probe.cpp"},
+        GuardCase{"HttpIncludesDns", "#include \"infrastructure/dns/bootstrap/bootstrap.h\"\n", false,
+                  "src/infrastructure/http/probe.cpp"},
+        GuardCase{"HttpIncludesResolver", "#include \"infrastructure/network/address/resolver.h\"\n", true,
+                  "src/infrastructure/http/probe.cpp"},
         GuardCase{"Comments", "/* coro::detail::GetContext c;\n coro::Loop loop; */\n// coro::GetContext{}\n", true},
         // Regression: "//" inside a string literal is not a comment. Stripping
         // comments before string literals truncated the rest of the line and
