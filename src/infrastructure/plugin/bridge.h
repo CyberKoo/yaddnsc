@@ -49,6 +49,7 @@
 #include <expected>
 #include <future>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <utility>
 
@@ -93,10 +94,28 @@ struct BridgeCall {
 struct CallState {
     /// Set when the enclosing scope cancelled this call (abandon).
     std::atomic<bool> cancelled{false};
-    /// The exchange currently in flight for this call, if any. Stored by the
-    /// worker around the blocking wait; read by is_cancelled() on the worker
-    /// and by the gateway's abandon path on the loop thread, hence atomic.
-    std::atomic<std::shared_ptr<BridgeCall>> in_flight;
+
+    /// Publish the exchange currently in flight for this call (worker, around
+    /// the blocking wait), nullptr once it ends.
+    ///
+    /// A mutex stands in for std::atomic<std::shared_ptr>: libc++ does not
+    /// implement that specialization (P0718R2), and every access here is a
+    /// cold path, so the lock is never meaningfully contended.
+    void set_in_flight(std::shared_ptr<BridgeCall> call) {
+        const std::lock_guard lock(in_flight_mutex);
+        in_flight_ = std::move(call);
+    }
+
+    /// The in-flight exchange, or nullptr. Read by is_cancelled() on the
+    /// worker and by the gateway's abandon path on the loop thread.
+    [[nodiscard]] std::shared_ptr<BridgeCall> in_flight_call() {
+        const std::lock_guard lock(in_flight_mutex);
+        return in_flight_;
+    }
+
+private:
+    std::mutex in_flight_mutex;
+    std::shared_ptr<BridgeCall> in_flight_;
 };
 
 namespace detail {

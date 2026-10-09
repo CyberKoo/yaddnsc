@@ -263,7 +263,7 @@ coro::Task<std::expected<void, domain::DriverError>> DriverGateway::update(std::
         state->cancelled.store(true, std::memory_order_release);
         // Abandoning the wait also aborts the in-flight bridge exchange: the
         // plugin's HTTP must not run to completion behind the caller's back.
-        bridge->cancel(state->in_flight.load(std::memory_order_acquire));
+        bridge->cancel(state->in_flight_call());
         co_return std::unexpected(domain::DriverError{
             domain::DriverError::Code::CANCELLED, fmt::format("Update for driver '{}' was cancelled", driver_name)});
     }
@@ -301,7 +301,7 @@ coro::Task<std::expected<void, domain::DriverError>> DriverGateway::validate_con
         state->cancelled.store(true, std::memory_order_release);
         // Symmetric with update(): validate's services table forbids HTTP, so
         // there is never an in-flight exchange here; the cancel is a no-op.
-        bridge->cancel(state->in_flight.load(std::memory_order_acquire));
+        bridge->cancel(state->in_flight_call());
         co_return std::unexpected(domain::DriverError{
             domain::DriverError::Code::CANCELLED,
             fmt::format("Validation for driver '{}' was cancelled", driver_name)});

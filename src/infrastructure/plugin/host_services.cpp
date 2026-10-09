@@ -223,9 +223,9 @@ yaddnsc_status HostServicesContext::http_exchange(const yaddnsc_http_request& re
     }
     call->request.content_type = std::string(to_view(request.content_type));
 
-    state_->in_flight.store(call, std::memory_order_release);
+    state_->set_in_flight(call);
     auto response = bridge_.exchange(call);
-    state_->in_flight.store(nullptr, std::memory_order_release);
+    state_->set_in_flight(nullptr);
 
     if (!response) {
         const auto& error = response.error();

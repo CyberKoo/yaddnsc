@@ -18,15 +18,15 @@
 # cancellable sleeps, AsyncMutex, offload and signals. The offload
 # pool is BS::thread_pool, reused rather than hand-rolled (see the pool note in
 # src/infrastructure/coro/loop.h). It is named in the module's loop.h, so
-# BS_thread_pool is PUBLIC here; everything else is the standard library and
-# POSIX.
+# BS_thread_pool is PUBLIC here; spdlog is PRIVATE (loop.cpp trace
+# diagnostics); everything else is the standard library and POSIX.
 add_library(yaddnsc_coro STATIC
     src/infrastructure/coro/cancel_scope.cpp
     src/infrastructure/coro/loop.cpp
 )
 yaddnsc_production_module(yaddnsc_coro)
 # PUBLIC: loop.h exposes the pool type that offload() submits to.
-target_link_libraries(yaddnsc_coro PUBLIC BS_thread_pool)
+target_link_libraries(yaddnsc_coro PUBLIC BS_thread_pool PRIVATE spdlog::spdlog)
 
 # Coroutine transport layer — TCP, TLS, UDP, the sockaddr codec (SocketAddr),
 # the pre-built TLS trust context and CA discovery. Targets are already-resolved

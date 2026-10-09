@@ -321,8 +321,10 @@ chmod 600 /etc/yaddnsc/config.json
 
 As a safeguard against accidental disclosure, `config show` masks values in
 `driver_params` whose key contains `token`, `password`, `secret`, or `key`
-(case-insensitive), printing them as `"***"`. The file on disk continues to
-hold the real values.
+(case-insensitive), printing them as `"***"`, and redacts credentials embedded
+in URLs — `scheme://user:pass@host` prints as `scheme://***@host` — in
+resolver server addresses and `ip_source_param`. The file on disk continues
+to hold the real values.
 
 ## IP Address Sources
 
@@ -396,9 +398,11 @@ configure the corresponding IP literal instead.
 Server certificate verification is always enabled. The CA bundle is located
 by consulting, in order: the `SSL_CERT_FILE` environment variable, the
 OpenSSL default location, and a set of platform-specific system paths. If no
-bundle is found, TLS connections fail rather than fall back to an unverified
-connection. `SSL_CERT_DIR` is not consulted; combine additional certificates
-into a single PEM bundle and point `SSL_CERT_FILE` at it:
+bundle file is found, yaddnsc falls back to the OpenSSL default certificate
+directory — which the `SSL_CERT_DIR` environment variable selects when set —
+and only when that directory cannot be loaded either do TLS connections fail.
+Verification is never disabled. To trust additional certificates, combine
+them into a single PEM bundle and point `SSL_CERT_FILE` at it:
 
 ```bash
 export SSL_CERT_FILE=/etc/ssl/private/company-ca-bundle.pem

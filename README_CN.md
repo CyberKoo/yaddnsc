@@ -302,8 +302,9 @@ chmod 600 /etc/yaddnsc/config.json
 ```
 
 作为防止意外泄露的措施，`config show` 会将 `driver_params` 中键名包含 `token`、
-`password`、`secret` 或 `key`（不区分大小写）的值显示为 `"***"`；磁盘上的配置文件
-仍保存真实值。
+`password`、`secret` 或 `key`（不区分大小写）的值显示为 `"***"`，并抹除解析器
+服务器地址与 `ip_source_param` 中 URL 内嵌的凭据（`scheme://user:pass@host`
+显示为 `scheme://***@host`）；磁盘上的配置文件仍保存真实值。
 
 ## IP 地址来源
 
@@ -365,9 +366,10 @@ URL、驱动使用的服务商 API 主机）一律通过内置 classic DNS 解�
 ## TLS 与 CA 证书
 
 服务器证书校验始终启用。CA 证书包按以下顺序确定：`SSL_CERT_FILE` 环境变量、
-OpenSSL 默认位置、若干平台相关的系统路径。若未找到任何证书包，TLS 连接将失败，
-而不会退化为不校验的连接。不支持 `SSL_CERT_DIR`；如需附加证书，请将其合并为单一
-PEM 证书包，并通过 `SSL_CERT_FILE` 指定：
+OpenSSL 默认位置、若干平台相关的系统路径。若未找到任何证书包文件，则回退加载
+OpenSSL 默认证书目录（已设置 `SSL_CERT_DIR` 环境变量时以该变量为准）；仅当该
+目录也无法加载时，TLS 连接才会失败。证书校验在任何情况下都不会关闭。如需附加
+证书，请将其合并为单一 PEM 证书包，并通过 `SSL_CERT_FILE` 指定：
 
 ```bash
 export SSL_CERT_FILE=/etc/ssl/private/company-ca-bundle.pem

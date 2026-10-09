@@ -7,13 +7,17 @@
 #include <algorithm>
 #include <atomic>
 #include <cassert>
+#include <cerrno>
 #include <chrono>
 #include <climits>
+#include <cstring>
+#include <string>
 #include <thread>
 
 #include <bit>
 #include <fcntl.h>
 #include <poll.h>
+#include <spdlog/spdlog.h>
 #include <unistd.h>
 
 #include "infrastructure/coro/cancel_scope.h"
@@ -49,6 +53,36 @@ constexpr int SIGNAL_CAPACITY = 65;
 /// least OFFLOAD_MIN_WORKERS.
 constexpr unsigned OFFLOAD_MIN_WORKERS = 2;
 constexpr unsigned OFFLOAD_WORKER_LIMIT = 4;
+
+/// Render poll() event bits as a readable "POLLIN|POLLHUP" string for traces.
+[[maybe_unused]] std::string describe_poll_events(short events) {
+    std::string out;
+    const auto append = [&out](const char* name) {
+        if (!out.empty()) {
+            out += '|';
+        }
+        out += name;
+    };
+    if ((events & POLLIN) != 0) {
+        append("POLLIN");
+    }
+    if ((events & POLLOUT) != 0) {
+        append("POLLOUT");
+    }
+    if ((events & POLLPRI) != 0) {
+        append("POLLPRI");
+    }
+    if ((events & POLLERR) != 0) {
+        append("POLLERR");
+    }
+    if ((events & POLLHUP) != 0) {
+        append("POLLHUP");
+    }
+    if ((events & POLLNVAL) != 0) {
+        append("POLLNVAL");
+    }
+    return out.empty() ? "0" : out;
+}
 
 }  // namespace
 
@@ -133,19 +167,23 @@ void Loop::schedule(PromiseBase& frame) noexcept {
         ready_head_ = &frame;
     }
     ready_tail_ = &frame;
+    SPDLOG_TRACE("scheduled frame {}", static_cast<const void*>(&frame));
 }
 
 void Loop::drain_ready() {
     PromiseBase* batch = ready_head_;
     ready_head_ = nullptr;
     ready_tail_ = nullptr;
+    [[maybe_unused]] std::size_t resumed = 0;
     while (batch != nullptr) {
         PromiseBase* next = batch->ready_next;
         batch->ready_next = nullptr;
         batch->in_ready = false;
         batch->self.resume();
+        ++resumed;
         batch = next;
     }
+    SPDLOG_TRACE("drained ready queue, resumed {} frame(s)", resumed);
 }
 
 void Loop::post(std::function<void()> fn) {
@@ -153,6 +191,7 @@ void Loop::post(std::function<void()> fn) {
         const std::lock_guard lock(inbox_mutex_);
         inbox_.push_back(std::move(fn));
     }
+    SPDLOG_TRACE("posted a cross-thread callback to the inbox");
     wake();
 }
 
@@ -161,6 +200,9 @@ void Loop::process_inbox() {
     {
         const std::lock_guard lock(inbox_mutex_);
         batch.swap(inbox_);
+    }
+    if (!batch.empty()) {
+        SPDLOG_TRACE("processing {} inbox callback(s)", batch.size());
     }
     for (std::function<void()>& fn : batch) {
         fn();
@@ -185,6 +227,7 @@ void Loop::set_offload_workers(unsigned workers) noexcept {
 
 void Loop::run() {
     assert(!fds_.empty() && "loop self-pipe unavailable: nothing could ever wake the loop");
+    SPDLOG_TRACE("run() starting");
     while (!stopped_) {
         // Signals are checked before everything else: a busy loop (e.g. the
         // cancellation storm of a shutdown drain) must not starve them, and a
@@ -207,6 +250,7 @@ void Loop::run() {
         }
         poll_once(poll_timeout_ms());
     }
+    SPDLOG_TRACE("run() returning, root task completed");
 }
 
 bool Loop::process_signals() noexcept {
@@ -214,6 +258,7 @@ bool Loop::process_signals() noexcept {
     if (mask == 0) {
         return false;
     }
+    SPDLOG_TRACE("processing pending signal mask {:#x}", mask);
     bool woke = false;
     unsigned long long remaining = mask;
     while (remaining != 0) {
@@ -225,6 +270,9 @@ bool Loop::process_signals() noexcept {
         }
         std::vector<SignalWaiter> parked;
         parked.swap(signal_waiters_[index]);
+        if (!parked.empty()) {
+            SPDLOG_TRACE("signal {} wakes {} waiter(s)", bit + 1, parked.size());
+        }
         for (SignalWaiter& entry : parked) {
             if (entry.node != nullptr) {
                 if (entry.node->linked && entry.node->scope != nullptr) {
@@ -286,10 +334,16 @@ void Loop::poll_once(int timeout_ms) {
     for (const FdEntry& entry : fds_) {
         pollfds.push_back(pollfd{entry.fd, entry.events, 0});
     }
+    SPDLOG_TRACE("poll() on {} fd(s), timeout {} ms", pollfds.size(), timeout_ms);
     const int ready = ::poll(pollfds.data(), static_cast<nfds_t>(pollfds.size()), timeout_ms);
-    if (ready <= 0) {
+    if (ready < 0) {
+        SPDLOG_TRACE("poll() failed: {}", std::strerror(errno));
         return;
     }
+    if (ready == 0) {
+        return;
+    }
+    SPDLOG_TRACE("poll() reported {} ready fd(s)", ready);
 
     // Snapshot the ready entries before dispatching: a callback may remove its
     // own registration (or another one), which would invalidate an index walk
@@ -297,16 +351,18 @@ void Loop::poll_once(int timeout_ms) {
     struct ReadyEntry {
         void (*fn)(void*, short) noexcept;
         void* context;
+        int fd;
         short revents;
     };
 
     std::vector<ReadyEntry> ready_entries;
     for (std::size_t i = 0; i < fds_.size(); ++i) {
         if (pollfds[i].revents != 0 && fds_[i].fn != nullptr) {
-            ready_entries.push_back(ReadyEntry{fds_[i].fn, fds_[i].context, pollfds[i].revents});
+            ready_entries.push_back(ReadyEntry{fds_[i].fn, fds_[i].context, fds_[i].fd, pollfds[i].revents});
         }
     }
     for (const ReadyEntry& entry : ready_entries) {
+        SPDLOG_TRACE("fd {} ready: {}", entry.fd, describe_poll_events(entry.revents));
         entry.fn(entry.context, entry.revents);
     }
 }
@@ -317,6 +373,7 @@ void Loop::fire_timers() noexcept {
             break;
         }
         TimerNode* const due = heap_pop();
+        SPDLOG_TRACE("firing timer {}", static_cast<const void*>(due));
         if (due->action != nullptr) {
             due->action(due->context);
         }
@@ -334,10 +391,13 @@ void Loop::add_timer(TimerNode& timer, TimePoint deadline, void (*action)(void*)
     timer.action = action;
     timer.context = context;
     heap_push(timer);
+    [[maybe_unused]] const auto in_ms = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - now()).count();
+    SPDLOG_TRACE("armed timer {} (fires in {} ms)", static_cast<const void*>(&timer), in_ms);
 }
 
 void Loop::remove_timer(TimerNode& timer) noexcept {
     if (timer.in_heap) {
+        SPDLOG_TRACE("disarmed timer {}", static_cast<const void*>(&timer));
         heap_remove(timer);
     }
 }
@@ -423,11 +483,14 @@ void Loop::heap_sift_down(std::size_t index) noexcept {
 FdToken Loop::add_fd(int fd, short events, void (*fn)(void*, short) noexcept, void* context) {
     const FdToken token = ++fd_sequence_;
     fds_.push_back(FdEntry{token, fd, events, fn, context});
+    SPDLOG_TRACE("registered fd {} for events {} (token {})", fd, describe_poll_events(events), token);
     return token;
 }
 
 void Loop::remove_fd(FdToken token) noexcept {
-    std::erase_if(fds_, [token](const FdEntry& entry) { return entry.token == token; });
+    [[maybe_unused]] const auto erased =
+        std::erase_if(fds_, [token](const FdEntry& entry) { return entry.token == token; });
+    SPDLOG_TRACE("remove_fd(token {}) erased {} registration(s)", token, erased);
 }
 
 // ---------------------------------------------------------------------------
@@ -451,6 +514,7 @@ void Loop::arm_signal(int sig, WaitNode& node, bool* delivered) {
         }
     }
     signal_waiters_[static_cast<std::size_t>(sig)].push_back(SignalWaiter{node.waiter, &node, delivered});
+    SPDLOG_TRACE("armed signal waiter for signal {}", sig);
 }
 
 void Loop::disarm_signal(int sig, WaitNode& node) noexcept {
@@ -458,7 +522,9 @@ void Loop::disarm_signal(int sig, WaitNode& node) noexcept {
         return;
     }
     auto& parked = signal_waiters_[static_cast<std::size_t>(sig)];
-    std::erase_if(parked, [&node](const SignalWaiter& entry) { return entry.node == &node; });
+    [[maybe_unused]] const auto erased =
+        std::erase_if(parked, [&node](const SignalWaiter& entry) { return entry.node == &node; });
+    SPDLOG_TRACE("disarmed signal waiter for signal {} ({} waiter(s) removed)", sig, erased);
 }
 
 }  // namespace coro
