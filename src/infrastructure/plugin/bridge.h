@@ -35,11 +35,10 @@
 //
 // The loop-side await additionally carries its own `with_timeout(wait_budget)`
 // ceiling, so a bridge call cannot hang the worker forever even if the bound
-// group's scope is never cancelled. This is the minimum acceptable cancellation
-// chain for this stage: abandon (the scope cancel aborts the loop-side await and
-// unblocks the worker) plus the per-exchange budget plus the shutdown scope.
-// A live per-call chain that cancels the in-flight bridge exchange the instant
-// the workflow's own scope is cancelled is deliberately not wired here.
+// group's scope is never cancelled. The full cancellation chain: a workflow
+// abandon reaches the *in-flight* exchange through Bridge::cancel — the call's
+// own cancel scope aborts the loop-side await and unblocks the worker at once —
+// plus the per-exchange budget plus the shutdown scope.
 //
 
 #ifndef YADDNSC_PLUGIN_BRIDGE_H
@@ -72,15 +71,21 @@ namespace plugin {
 /// the loop-side coroutine each hold a share, so an abandoned wait never leaves
 /// the loop side with a dangling promise.
 /// Thread safety: `cancelled` is the only field both sides touch, and it is
-/// atomic; the promise is written once, by the loop side.
+/// atomic; the promise is written once, by the loop side. `live_scope` is
+/// loop-thread only: serve_exchange publishes and clears it, and Bridge::cancel
+/// reads it from a lambda posted onto the loop.
 struct BridgeCall {
     std::string url;
     http::Request request;
     /// Fulfilled exactly once by the loop-side coroutine, on every path.
     std::promise<std::expected<http::Response, http::Error>> promise;
-    /// Latched when the workflow abandons the call or the bridge scope is
-    /// cancelled; read by the plugin's is_cancelled() polling.
+    /// Latched when the workflow abandons the call (Bridge::cancel) or the
+    /// bridge scope is cancelled; read by the plugin's is_cancelled() polling.
     std::atomic<bool> cancelled{false};
+    /// The cancel scope of the in-flight loop-side exchange, while it is
+    /// cancellable. Loop thread only (see above); null before the exchange
+    /// starts and after it leaves its scope.
+    coro::CancelScope* live_scope = nullptr;
 };
 
 /// Per-ABI-call state shared by the worker-side cycle and the plugin-facing
@@ -88,10 +93,10 @@ struct BridgeCall {
 struct CallState {
     /// Set when the enclosing scope cancelled this call (abandon).
     std::atomic<bool> cancelled{false};
-    /// The exchange currently in flight for this call, if any. Worker thread
-    /// only: the trampoline sets it around the blocking wait and is_cancelled()
-    /// reads it from the same thread.
-    std::shared_ptr<BridgeCall> in_flight;
+    /// The exchange currently in flight for this call, if any. Stored by the
+    /// worker around the blocking wait; read by is_cancelled() on the worker
+    /// and by the gateway's abandon path on the loop thread, hence atomic.
+    std::atomic<std::shared_ptr<BridgeCall>> in_flight;
 };
 
 namespace detail {
@@ -157,6 +162,13 @@ public:
     /// Worker side: run `call` on the loop and return its answer. Blocks the
     /// calling thread; may be called from any thread.
     [[nodiscard]] std::expected<http::Response, http::Error> exchange(std::shared_ptr<BridgeCall> call);
+
+    /// Abort the in-flight loop-side exchange of `call`, if any: the call's
+    /// own cancel scope is cancelled on the loop, so the HTTP await fails fast
+    /// and the blocked worker is released with a cancellation instead of
+    /// running the exchange to completion. Idempotent; a null or finished call
+    /// is a no-op. Safe to call from any thread.
+    void cancel(std::shared_ptr<BridgeCall> call) noexcept;
 
     /// Stop accepting new calls. Already-spawned exchanges finish or are
     /// cancelled with the spawn group's scope.

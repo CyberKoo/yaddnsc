@@ -38,13 +38,18 @@ namespace http {
 
 /// Connect to the first candidate address that accepts, in order.
 ///
-/// `tls` selects the TLS or the plain-TCP stream from the factory. `options`
-/// and `addresses` are borrowed for the duration of the task, which is awaited
-/// inline by the caller's own frame.
-/// Failure: CONNECT_FAILED / TLS_HANDSHAKE_FAILED for the last attempt,
-/// CANCELLED as soon as the scope is cancelled.
+/// `scheme` selects the TLS or the plain-TCP stream from the factory. For
+/// https, `host` — the origin name the addresses were resolved from — becomes
+/// the TLS identity (SNI and certificate verification) unless
+/// Options::tls.sni_hostname pins a name explicitly; an IP-literal host is
+/// never turned into SNI (RFC 6066 §3). `options` and `addresses` are borrowed
+/// for the duration of the task, which is awaited inline by the caller's own
+/// frame.
+/// Failure: CONNECT_FAILED for the last attempt, CANCELLED as soon as the
+/// scope is cancelled.
 [[nodiscard]] coro::Task<std::expected<std::unique_ptr<net::Stream>, Error>> connect_stream(
-    std::string_view scheme, std::span<const InetAddress> addresses, std::uint16_t port, const Options& options);
+    std::string_view scheme, std::string_view host, std::span<const InetAddress> addresses, std::uint16_t port,
+    const Options& options);
 
 }  // namespace http
 

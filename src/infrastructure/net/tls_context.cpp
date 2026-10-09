@@ -20,7 +20,8 @@ namespace net {
 namespace {
 
 /// The bundle to trust: the explicit path when set, otherwise discovery. Returns
-/// nullopt when no usable bundle exists (fail-closed).
+/// nullopt when no usable bundle exists; the caller then eagerly loads the
+/// OpenSSL default cert dir (the legacy fallback) before failing closed.
 [[nodiscard]] std::optional<std::string> resolve_ca_bundle(const TlsOptions& options) {
     if (options.ca_bundle) {
         return options.ca_bundle;
@@ -57,12 +58,21 @@ std::expected<std::shared_ptr<const TlsContext>, IoError> TlsContext::create(con
 
     SSL_CTX_set_verify(context.get(), SSL_VERIFY_PEER, nullptr);
     const std::optional<std::string> bundle = resolve_ca_bundle(options);
-    if (!bundle) {
+    if (bundle) {
+        if (SSL_CTX_load_verify_locations(context.get(), bundle->c_str(), nullptr) != 1) {
+            SPDLOG_ERROR("Failed to load CA bundle from {}: {}", *bundle, detail::ssl_errors());
+            return std::unexpected(IoError::CONNECTION_FAILED);
+        }
+    } else if (X509_STORE* store = SSL_CTX_get_cert_store(context.get());
+               X509_STORE_load_path(store, X509_get_default_cert_dir()) == 1) {
+        // Legacy fallback: no bundle file was discovered, but the OpenSSL
+        // default cert dir (a hashed dir without the bundle file — some
+        // minimal containers) may still verify. X509_STORE_load_path loads
+        // eagerly, so the loop thread never touches the filesystem mid-
+        // handshake; the lazy lookup registrars stay banned (rule 13).
+        SPDLOG_WARN("No TLS CA bundle discovered; loaded the OpenSSL default cert dir instead");
+    } else {
         SPDLOG_ERROR("No TLS CA bundle available; verification stays fail-closed");
-        return std::unexpected(IoError::CONNECTION_FAILED);
-    }
-    if (SSL_CTX_load_verify_locations(context.get(), bundle->c_str(), nullptr) != 1) {
-        SPDLOG_ERROR("Failed to load CA bundle from {}: {}", *bundle, detail::ssl_errors());
         return std::unexpected(IoError::CONNECTION_FAILED);
     }
 

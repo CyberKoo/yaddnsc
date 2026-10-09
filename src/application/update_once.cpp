@@ -31,8 +31,28 @@ coro::Task<UpdateOnceOutcome> update_once(const domain::UpdateTask& task, const 
 
     try {
         // --- Step 1: local IP -------------------------------------------------
+        // The source gets its own budget so a stalled provider (a peer that
+        // accepts and never answers) fails this cycle in seconds instead of
+        // holding it to UPDATE_BUDGET — the coroutine HTTP layer has no I/O
+        // timeout, so the bound is composed here like the DNS read below.
 
-        const auto candidates = co_await services.ip_source.resolve(subdomain);
+        const auto source_result = co_await coro::with_timeout(
+            IP_SOURCE_BUDGET,
+            [&services, &subdomain](coro::CancelScope&)
+                -> coro::Task<std::expected<std::vector<InetAddress>, domain::IpSourceError>> {
+                co_return co_await services.ip_source.resolve(subdomain);
+            });
+        if (source_result.timed_out) {
+            // Our own budget fired (checked before `cancelled` because the
+            // timer also marks the scope cancelled): a transient source
+            // failure, not an abort — skip this cycle.
+            const auto seconds = std::chrono::duration_cast<std::chrono::seconds>(IP_SOURCE_BUDGET).count();
+            YLOG_ERROR(services.logger, "Failed to resolve local IP address for {}, skipping the update: {}",
+                       task.fqdn, fmt::format("timed out after {}s", seconds));
+            co_return std::unexpected(domain::UpdateError{domain::UpdateError::Code::SKIPPED_NO_ADDRESS,
+                                                          fmt::format("IP source timed out after {}s", seconds)});
+        }
+        const auto& candidates = *source_result;
         if (!candidates) {
             if (candidates.error().code == domain::IpSourceError::Code::CANCELLED) {
                 co_return std::unexpected(

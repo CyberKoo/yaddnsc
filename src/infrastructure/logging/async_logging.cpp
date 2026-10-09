@@ -15,6 +15,7 @@
 #include <spdlog/spdlog.h>
 
 #include "logging_pattern.h"
+#include "support/fmt.hpp"
 
 namespace logging {
 namespace {
@@ -22,7 +23,9 @@ namespace {
 /// Bounded queue size: large enough for a startup burst (plugin logs, DNS
 /// debug) well above the steady-state rate. A full queue must not block the
 /// loop, so the overflow policy drops the newest records instead of waiting;
-/// their count is reported at shutdown.
+/// their count is reported at shutdown. spdlog keeps the drop count per
+/// policy: discard_new accumulates the pool's discard counter, overrun_oldest
+/// the overrun counter — shutdown() reads both.
 constexpr std::size_t LOG_QUEUE_CAPACITY = 8192;
 
 /// One drain thread. Logging is low-rate and its ordering is irrelevant, so a
@@ -54,17 +57,31 @@ void initialize() {
 
 void shutdown() noexcept {
     try {
-        // Read the overrun counter through a short-lived handle: keeping a
+        // Read the drop counters through a short-lived handle: keeping a
         // shared_ptr to the pool alive past spdlog::shutdown() would leave the
         // registry's reset as a no-op, and the pool's destructor — which posts
         // the terminate message and joins the drain thread — would never run.
+        // discard_new records land on the discard counter, overrun_oldest on
+        // the overrun counter; read both so a policy change never silences the
+        // warning again.
         std::size_t dropped = 0;
         {
             const auto pool = spdlog::thread_pool();
-            dropped = pool != nullptr ? pool->overrun_counter() : 0;
+            dropped = pool != nullptr ? pool->overrun_counter() + pool->discard_counter() : 0;
         }
         if (dropped > 0) {
-            SPDLOG_WARN("Log queue overflowed: {} record(s) discarded", dropped);
+            // Write the warning straight to the sinks: the queue may still be
+            // draining a backlog, and a queued WARN could itself be discarded
+            // by the very overflow it reports.
+            const auto logger = spdlog::default_logger();
+            if (logger != nullptr) {
+                const std::string text = fmt::format("Log queue overflowed: {} record(s) discarded", dropped);
+                const spdlog::details::log_msg record(spdlog::source_loc{}, logger->name(), spdlog::level::warn,
+                                                      std::string_view{text});
+                for (const auto& sink : logger->sinks()) {
+                    sink->log(record);
+                }
+            }
         }
         // spdlog::shutdown drops every logger and resets the thread pool; the
         // pool's destructor drains the remaining queue and joins the drain

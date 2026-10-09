@@ -14,6 +14,7 @@
 #include <cstdint>
 #include <memory>
 #include <span>
+#include <string>
 #include <vector>
 
 #include <expected>
@@ -102,6 +103,9 @@ private:
 
     /// Drive SSL_connect to completion, parking on the requested direction.
     [[nodiscard]] coro::Task<std::expected<void, IoError>> handshake();
+
+    /// "sni-name-or-ip:port" identifying the peer in log lines.
+    [[nodiscard]] std::string peer_label() const;
 
     TcpStream tcp_;
     TlsOptions tls_options_;

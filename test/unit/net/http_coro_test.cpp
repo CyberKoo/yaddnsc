@@ -3,20 +3,26 @@
 // in-memory stream (the net::Stream injection point).
 //
 // Covers: framing per framing style, 1xx interim handling, the upgrade reject,
-// keep-alive carry-over, the lazy chunked read window and the redirect policy.
+// keep-alive carry-over, the lazy chunked read window, the redirect policy,
+// transport connection setup and the session close deferral.
 //
 // NOTE: ASSERT_* macros expand to `return;`, which is ill-formed inside a
 // coroutine body; these tests use EXPECT_* only.
 //
 
 #include <algorithm>
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <deque>
 #include <map>
+#include <memory>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -26,6 +32,8 @@
 #include "infrastructure/net/http/protocol/read_window.h"
 #include "infrastructure/net/http/protocol/wire.h"
 #include "infrastructure/net/http/redirect.h"
+#include "infrastructure/net/http/session.h"
+#include "infrastructure/net/http/transport.h"
 #include "infrastructure/net/http/wire_request.h"
 #include "infrastructure/net/stream.h"
 #include "infrastructure/net/http/uri.h"
@@ -37,7 +45,7 @@ using http::protocol::ReadWindow;
 
 /// A scripted in-memory stream: serves the canned response in `chunk`-sized
 /// reads and records everything written to it.
-class ScriptedStream final : public net::Stream {
+class ScriptedStream : public net::Stream {
 public:
     explicit ScriptedStream(std::string incoming, const std::size_t chunk = 4096)
         : incoming_(std::move(incoming)), chunk_(chunk) {}
@@ -357,6 +365,222 @@ TEST(HttpRedirect, disabledFollowing_LeavesTheResponseAlone) {
 
     EXPECT_FALSE(evaluation.plan.has_value());
     EXPECT_FALSE(evaluation.limit_reached);
+}
+
+// ---------------------------------------------------------------------------
+// connection setup (transport): the TLS identity defaults to the origin host
+// ---------------------------------------------------------------------------
+
+/// A factory that records what the transport asked for and serves a scripted
+/// stream instead of opening a socket.
+class CapturingFactory final : public net::StreamFactory {
+public:
+    [[nodiscard]] std::unique_ptr<net::Stream> create_tls(InetAddress, std::uint16_t, const net::ConnectOptions&,
+                                                          const net::TlsOptions& tls_options,
+                                                          std::shared_ptr<const net::TlsContext>) override {
+        sni = tls_options.sni_hostname;
+        ++tls_calls;
+        return std::make_unique<ScriptedStream>("HTTP/1.1 204 No Content\r\n\r\n");
+    }
+
+    [[nodiscard]] std::unique_ptr<net::Stream> create_tcp(InetAddress, std::uint16_t,
+                                                          const net::ConnectOptions&) override {
+        ++tcp_calls;
+        return std::make_unique<ScriptedStream>("HTTP/1.1 204 No Content\r\n\r\n");
+    }
+
+    std::optional<std::string> sni;
+    int tls_calls{0};
+    int tcp_calls{0};
+};
+
+/// Connect through the capturing factory and return the resulting stream.
+[[nodiscard]] std::expected<std::unique_ptr<net::Stream>, http::Error> run_connect(
+    const std::string_view scheme, const std::string_view host, const InetAddress& address,
+    const http::Options& options) {
+    return coro::run([&]() -> coro::Task<std::expected<std::unique_ptr<net::Stream>, http::Error>> {
+        co_return co_await http::connect_stream(scheme, host, std::span(&address, 1), 443, options);
+    }());
+}
+
+TEST(HttpConnectStream, https_WithoutPinnedName_DefaultsSniToTheOriginHost) {
+    auto factory = std::make_shared<CapturingFactory>();
+    http::Options options;
+    options.factory = factory;
+    const auto address = InetAddress::parse("203.0.113.10").value();
+
+    const auto stream = run_connect("https", "example.test", address, options);
+
+    ASSERT_TRUE(stream.has_value());
+    EXPECT_EQ(factory->tls_calls, 1);
+    ASSERT_TRUE(factory->sni.has_value());
+    EXPECT_EQ(*factory->sni, "example.test");
+}
+
+TEST(HttpConnectStream, https_WithPinnedName_KeepsTheExplicitSni) {
+    auto factory = std::make_shared<CapturingFactory>();
+    http::Options options;
+    options.factory = factory;
+    options.tls.sni_hostname = "pinned.test";
+    const auto address = InetAddress::parse("203.0.113.10").value();
+
+    const auto stream = run_connect("https", "example.test", address, options);
+
+    ASSERT_TRUE(stream.has_value());
+    ASSERT_TRUE(factory->sni.has_value());
+    EXPECT_EQ(*factory->sni, "pinned.test");
+}
+
+TEST(HttpConnectStream, https_WithIpLiteralHost_NeverSetsSni) {
+    auto factory = std::make_shared<CapturingFactory>();
+    http::Options options;
+    options.factory = factory;
+    const auto address = InetAddress::parse("203.0.113.10").value();
+
+    const auto stream = run_connect("https", "203.0.113.10", address, options);
+
+    ASSERT_TRUE(stream.has_value());
+    EXPECT_EQ(factory->tls_calls, 1);
+    // RFC 6066 §3 forbids an IP literal in SNI, so nothing is filled in.
+    EXPECT_FALSE(factory->sni.has_value());
+}
+
+TEST(HttpConnectStream, https_WithIpv6LiteralHost_NeverSetsSni) {
+    auto factory = std::make_shared<CapturingFactory>();
+    http::Options options;
+    options.factory = factory;
+    const auto address = InetAddress::parse("2001:db8::10").value();
+
+    const auto stream = run_connect("https", "2001:db8::10", address, options);
+
+    ASSERT_TRUE(stream.has_value());
+    EXPECT_EQ(factory->tls_calls, 1);
+    EXPECT_FALSE(factory->sni.has_value());
+}
+
+TEST(HttpConnectStream, plain_http_OpensTcpAndNeverTouchesTheHostName) {
+    auto factory = std::make_shared<CapturingFactory>();
+    http::Options options;
+    options.factory = factory;
+    const auto address = InetAddress::parse("203.0.113.10").value();
+
+    const auto stream = run_connect("http", "example.test", address, options);
+
+    ASSERT_TRUE(stream.has_value());
+    EXPECT_EQ(factory->tcp_calls, 1);
+    EXPECT_EQ(factory->tls_calls, 0);
+    EXPECT_FALSE(factory->sni.has_value());
+}
+
+// ---------------------------------------------------------------------------
+// session: a close() that lands while another exchange holds the guard
+// ---------------------------------------------------------------------------
+
+/// A scripted stream whose connect check parks for one clock tick, so a test
+/// can act while an exchange holds the session guard inside ensure_stream().
+class SlowConnectStream final : public ScriptedStream {
+public:
+    using ScriptedStream::ScriptedStream;
+
+    [[nodiscard]] coro::Task<std::expected<void, net::IoError>> ensure_connected() override {
+        [[maybe_unused]] const auto slept = co_await coro::sleep_for(std::chrono::milliseconds{1});
+        // A resume after a mid-exchange teardown lands here, on the stream the
+        // exchange still borrows.
+        ++connect_checks;
+        co_return {};
+    }
+
+    int connect_checks{0};
+};
+
+/// Serves one queued response payload per TCP connection, on slow-connect
+/// streams, and counts the connections.
+class ScriptedSessionFactory final : public net::StreamFactory {
+public:
+    [[nodiscard]] std::unique_ptr<net::Stream> create_tls(InetAddress, std::uint16_t, const net::ConnectOptions&,
+                                                          const net::TlsOptions&,
+                                                          std::shared_ptr<const net::TlsContext>) override {
+        ++tls_calls;
+        return std::make_unique<SlowConnectStream>("");
+    }
+
+    [[nodiscard]] std::unique_ptr<net::Stream> create_tcp(InetAddress, std::uint16_t,
+                                                          const net::ConnectOptions&) override {
+        ++tcp_calls;
+        std::string payload;
+        if (!payloads.empty()) {
+            payload = std::move(payloads.front());
+            payloads.pop_front();
+        }
+        return std::make_unique<SlowConnectStream>(std::move(payload));
+    }
+
+    std::deque<std::string> payloads;
+    int tls_calls{0};
+    int tcp_calls{0};
+};
+
+// Regression test for the DoH teardown crash: a close() landing while a second
+// exchange holds the session guard must not tear down the stream that exchange
+// borrowed; the close is deferred to the guard's checkpoint instead. With the
+// manual clock the second exchange is parked inside the connection's connect
+// check when the close lands; the legacy unconditional close() destroyed the
+// borrowed stream there (a use-after-free on resume, seen under ASan).
+TEST(HttpSession, close_DuringQueuedExchange_DefersTeardownUntilCompletion) {
+    auto factory = std::make_shared<ScriptedSessionFactory>();
+    factory->payloads = {"HTTP/1.1 200 OK\r\nContent-Length: 3\r\n\r\none"
+                         "HTTP/1.1 200 OK\r\nContent-Length: 3\r\n\r\ntwo",
+                         "HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nthree"};
+    http::Options options;
+    options.factory = factory;
+    http::Session session{std::move(options), "http", "203.0.113.10", 8080};
+    const http::Request request;
+
+    std::optional<http::Response> first_response;
+    std::optional<http::Response> second_response;
+    std::optional<http::Response> third_response;
+    int calls_before_third = 0;
+    coro::ManualClock clock;
+    coro::Loop loop{clock};
+
+    auto task = [&]() -> coro::Task<void> {
+        co_await coro::task_group([&](coro::TaskGroup& group) -> coro::Task<void> {
+            auto first = group.spawn(session.exchange("/first", request));
+            auto second = group.spawn(session.exchange("/second", request));
+            // 2ms: the first exchange has completed on connection 1 and the
+            // second holds the session guard, parked in the connection's
+            // connect check. The close lands mid-exchange.
+            [[maybe_unused]] const auto slept = co_await coro::sleep_for(std::chrono::milliseconds{2});
+            session.close();
+            auto first_result = co_await first;
+            auto second_result = co_await second;
+            calls_before_third = factory->tcp_calls;
+            if (first_result.has_value()) {
+                first_response.emplace(std::move(*first_result));
+            }
+            if (second_result.has_value()) {
+                second_response.emplace(std::move(*second_result));
+            }
+            auto third_result = co_await session.exchange("/third", request);
+            if (third_result.has_value()) {
+                third_response.emplace(std::move(*third_result));
+            }
+            co_return;
+        });
+        co_return;
+    };
+
+    coro::run(loop, task());
+    ASSERT_TRUE(first_response.has_value());
+    EXPECT_EQ(first_response->text(), "one");
+    ASSERT_TRUE(second_response.has_value());
+    EXPECT_EQ(second_response->text(), "two");
+    // The second exchange reused connection 1; the deferred close dropped it
+    // only when that exchange completed.
+    EXPECT_EQ(calls_before_third, 1);
+    ASSERT_TRUE(third_response.has_value());
+    EXPECT_EQ(third_response->text(), "three");
+    EXPECT_EQ(factory->tcp_calls, 2);
 }
 
 }  // namespace

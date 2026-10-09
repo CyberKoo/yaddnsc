@@ -61,6 +61,17 @@ public:
     void log(LogLevel, std::string_view, const std::source_location&) const override {}
 };
 
+/// Logger double: records every emitted line.
+class RecordingLogger final : public Logger {
+public:
+    mutable std::vector<std::pair<LogLevel, std::string>> records;
+
+    [[nodiscard]] bool is_enabled(LogLevel) const override { return true; }
+    void log(LogLevel level, std::string_view message, const std::source_location&) const override {
+        records.emplace_back(level, message);
+    }
+};
+
 class FakeResolver final : public app::ResolverPort {
 public:
     std::vector<std::string> records{"198.51.100.1"};
@@ -85,6 +96,8 @@ public:
     std::vector<InetAddress> addresses{address("192.0.2.1")};
     /// Subdomain names for which resolve() throws std::bad_alloc (a defect).
     std::vector<std::string> fatal_subdomains;
+    /// When positive, resolve() parks this long (a source that never answers).
+    std::chrono::seconds hang{0};
     int calls = 0;
 
     coro::Task<std::expected<std::vector<InetAddress>, domain::IpSourceError>> resolve(
@@ -93,6 +106,13 @@ public:
         for (const auto& name : fatal_subdomains) {
             if (name == config.name) {
                 throw std::bad_alloc{};
+            }
+        }
+        if (hang.count() > 0) {
+            const auto slept = co_await coro::sleep_for(hang);
+            if (!slept.has_value()) {
+                co_return std::unexpected(
+                    domain::IpSourceError{domain::IpSourceError::Code::CANCELLED, "test source cancelled"});
             }
         }
         co_return addresses;
@@ -104,6 +124,8 @@ public:
     int calls = 0;
     /// Fail the first call with this retry_after (0 = never fail).
     int fail_first_retry_after = 0;
+    /// When positive, update() parks this long (a driver that never returns).
+    std::chrono::seconds hang{0};
     /// Invoked on every call, after the counters are updated.
     std::function<void()> on_call;
 
@@ -112,6 +134,13 @@ public:
         fqdns.push_back(command.fqdn);
         if (on_call) {
             on_call();
+        }
+        if (hang.count() > 0) {
+            const auto slept = co_await coro::sleep_for(hang);
+            if (!slept.has_value()) {
+                co_return std::unexpected(
+                    domain::DriverError{domain::DriverError::Code::CANCELLED, "test gateway cancelled"});
+            }
         }
         if (fail_first_retry_after > 0) {
             const int retry_after = fail_first_retry_after;
@@ -253,6 +282,62 @@ TEST(CoroScheduler, CancellationWakesTheLoopFromItsSleep) {
     // One cycle at t=0; the t=5 budget cancels the 100s sleep, so the loop exits
     // without a second cycle.
     EXPECT_EQ(gateway.calls, 1);
+}
+
+TEST(CoroScheduler, UpdateBudgetTimeoutIsAFailedCycleNotAShutdown) {
+    coro::ManualClock clock;
+    coro::Loop loop{clock};
+    FakeResolver resolver;
+    FakeIpSource ip_source;
+    FakeGateway gateway;
+    gateway.hang = 3600s;  // every cycle's driver call parks past UPDATE_BUDGET
+    NullLogger logger;
+    const app::Services services{resolver, ip_source, gateway, logger};
+    const auto config = make_config({make_subdomain("www", 10)}, 10, 0);
+
+    run_loop(loop, [&]() -> coro::Task<void> {
+        co_await coro::with_timeout(75s, [&](coro::CancelScope&) -> coro::Task<void> {
+            co_await app::subdomain_loop(config, 0, 0, services);
+            co_return;
+        });
+        co_return;
+    });
+
+    // Cycles at t=0, t=30 and t=60 each burn the full 30s UPDATE_BUDGET and
+    // fail; the loop must keep scheduling after a budget timeout instead of
+    // retiring the subdomain (the timer marks the scope cancelled, and the
+    // loop used to read that as a shutdown). A burnt budget exceeds the 10s
+    // interval, so the next cycle starts immediately (catch-up anchoring).
+    // The t=75 outer budget cancels cycle three's parked driver call.
+    EXPECT_EQ(gateway.calls, 3);
+}
+
+TEST(CoroScheduler, IpSourceTimeoutSkipsTheCycle) {
+    coro::ManualClock clock;
+    coro::Loop loop{clock};
+    FakeResolver resolver;
+    FakeIpSource ip_source;
+    ip_source.hang = 3600s;  // never answers within the source budget
+    FakeGateway gateway;
+    NullLogger logger;
+    const app::Services services{resolver, ip_source, gateway, logger};
+    const auto config = make_config({make_subdomain("www", 10)}, 10, 0);
+    const domain::UpdateTask task{config, 0, 0, "www.example.com", false};
+    const auto start = clock.now();
+
+    std::expected<app::UpdateCycleResult, domain::UpdateError> outcome;
+    run_loop(loop, [&]() -> coro::Task<void> {
+        outcome = co_await app::update_once(task, services);
+        co_return;
+    });
+
+    // The source's own budget fired: a transient failure that skips this cycle,
+    // not an abort and not a cycle-budget fire.
+    ASSERT_FALSE(outcome.has_value());
+    EXPECT_EQ(outcome.error().code, domain::UpdateError::Code::SKIPPED_NO_ADDRESS);
+    EXPECT_EQ(resolver.calls, 0);
+    EXPECT_EQ(gateway.calls, 0);
+    EXPECT_GE(clock.now() - start, std::chrono::seconds(10));
 }
 
 // ---------------------------------------------------------------------------
@@ -449,7 +534,7 @@ TEST(CoroScheduler, NextDelayHonoursRetryAfterAndInterval) {
 }
 
 // ---------------------------------------------------------------------------
-// run_scheduler: supervisor semantics and SIGINT shutdown
+// run_scheduler: supervisor semantics, SIGINT shutdown and the exit status
 // ---------------------------------------------------------------------------
 
 TEST(CoroScheduler, RunRootSupervisesSubdomainsAndStopsOnSigint) {
@@ -474,6 +559,7 @@ TEST(CoroScheduler, RunRootSupervisesSubdomainsAndStopsOnSigint) {
         .ip_source = ip_source,
         .logger = logger,
         .make_gateway = [&gateway](coro::TaskGroup&) -> app::GatewayPort& { return gateway; },
+        .drain_logs = nullptr,
     };
 
     const int code = coro::run(loop, app::run_scheduler(config, runtime_services));
@@ -485,4 +571,70 @@ TEST(CoroScheduler, RunRootSupervisesSubdomainsAndStopsOnSigint) {
         EXPECT_EQ(fqdn, "good.example.com");
     }
     EXPECT_FALSE(resolver.calls == 0);
+}
+
+TEST(CoroScheduler, RunRootReturnsFailureWhenEveryLoopDies) {
+    coro::Loop loop;
+    FakeResolver resolver;
+    FakeIpSource ip_source;
+    ip_source.fatal_subdomains.push_back("only");
+    FakeGateway gateway;
+    NullLogger logger;
+
+    const auto config = make_config({make_subdomain("only", 1)}, 1, 0);
+    const app::RuntimeServices runtime_services{
+        .resolver = resolver,
+        .ip_source = ip_source,
+        .logger = logger,
+        .make_gateway = [&gateway](coro::TaskGroup&) -> app::GatewayPort& { return gateway; },
+        .drain_logs = nullptr,
+    };
+
+    const int code = coro::run(loop, app::run_scheduler(config, runtime_services));
+
+    // No shutdown was requested, but every subdomain loop died of a defect:
+    // the process is functionally dead and must report a failure status so a
+    // supervisor (Restart=on-failure) starts it again.
+    EXPECT_EQ(code, EXIT_FAILURE);
+    EXPECT_EQ(gateway.calls, 0);
+}
+
+TEST(CoroScheduler, SubdomainDefectIsReportedAndSiblingsSurvive) {
+    coro::Loop loop;
+    FakeResolver resolver;
+    FakeIpSource ip_source;
+    ip_source.fatal_subdomains.push_back("bad");
+    FakeGateway gateway;
+    // The second successful cycle asks the process to shut down, which proves
+    // the healthy subdomain kept running after its sibling died.
+    gateway.on_call = [&gateway] {
+        if (gateway.calls >= 2) {
+            ::kill(::getpid(), SIGINT);
+        }
+    };
+    RecordingLogger logger;
+
+    const auto config = make_config({make_subdomain("bad", 1), make_subdomain("good", 1)}, 1, 0);
+    const app::RuntimeServices runtime_services{
+        .resolver = resolver,
+        .ip_source = ip_source,
+        .logger = logger,
+        .make_gateway = [&gateway](coro::TaskGroup&) -> app::GatewayPort& { return gateway; },
+        .drain_logs = nullptr,
+    };
+
+    const int code = coro::run(loop, app::run_scheduler(config, runtime_services));
+
+    EXPECT_EQ(code, EXIT_SUCCESS);
+    EXPECT_GE(gateway.calls, 2);
+    // A dead loop must never vanish silently: the defect is reported once,
+    // naming the subdomain.
+    bool reported = false;
+    for (const auto& [level, message] : logger.records) {
+        if (level == LogLevel::ERROR && message.find("bad.example.com") != std::string::npos &&
+            message.find("died") != std::string::npos) {
+            reported = true;
+        }
+    }
+    EXPECT_TRUE(reported);
 }

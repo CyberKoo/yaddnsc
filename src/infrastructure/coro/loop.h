@@ -113,6 +113,14 @@ public:
     /// The pool is owned by the loop and outlives every job, because offload
     /// jobs report back through post().
     [[nodiscard]] BS::thread_pool<>& offload_pool();
+
+    /// Pool size when set_offload_workers() was never called:
+    /// min(hardware_concurrency(), 4), at least 2. The cap keeps the pool from
+    /// scaling with core count on large hosts: offload work is blocking plugin
+    /// ABI cycles and similar calls, not CPU-bound parallelism. A
+    /// hardware_concurrency() of 0 (unknown) still yields the minimum.
+    [[nodiscard]] static unsigned default_offload_workers() noexcept;
+
     /// Worker count for the lazily created pool; set before the first offload.
     void set_offload_workers(unsigned workers) noexcept;
 
@@ -164,9 +172,9 @@ private:
     static void on_pipe_ready(void* context, short revents) noexcept;
 
     void drain_ready();
-    bool process_inbox();
+    void process_inbox();
     bool process_signals() noexcept;
-    bool fire_timers() noexcept;
+    void fire_timers() noexcept;
     [[nodiscard]] int poll_timeout_ms();
     void poll_once(int timeout_ms);
 
@@ -202,7 +210,7 @@ private:
     std::vector<std::pair<int, struct sigaction>> saved_signals_;
 
     std::unique_ptr<BS::thread_pool<>> pool_;
-    unsigned pool_workers_ = 0;
+    unsigned pool_workers_ = default_offload_workers();
 
     bool stopped_ = false;
 };

@@ -40,6 +40,13 @@ coro::Task<std::expected<Response, Error>> Session::exchange(std::string target,
         co_return std::unexpected(Error{ErrorCode::CANCELLED, "session lock wait cancelled"});
     }
 
+    // A close() that arrived while an exchange held the guard is honoured now,
+    // under the guard, before the connection is reused.
+    if (close_requested_) {
+        close_requested_ = false;
+        drop_connection();
+    }
+
     if (auto valid = validate_request(request); !valid) {
         co_return std::unexpected(std::move(valid.error()));
     }
@@ -97,6 +104,12 @@ coro::Task<std::expected<Response, Error>> Session::exchange(std::string target,
     if (!raw->reusable) {
         drop_connection();
     }
+    // A close() requested mid-exchange drops the connection as soon as the
+    // exchange completes, still under the guard.
+    if (close_requested_) {
+        close_requested_ = false;
+        drop_connection();
+    }
     co_return Response{raw->status, std::move(raw->body), std::move(raw->headers), std::move(raw->trailers)};
 }
 
@@ -105,12 +118,17 @@ coro::Task<std::expected<protocol::RawResponse, Error>> Session::do_exchange(con
 }
 
 coro::Task<std::expected<void, Error>> Session::ensure_stream() {
+    if (stream_ != nullptr && !stream_->connected()) {
+        // A dead connection is dropped so the reconnect re-resolves the
+        // hostname instead of redialling the cached address list.
+        drop_connection();
+    }
     if (stream_ == nullptr) {
         auto addresses = co_await resolve_host(host_, options_);
         if (!addresses) {
             co_return std::unexpected(std::move(addresses.error()));
         }
-        auto stream = co_await connect_stream(scheme_, *addresses, port_, options_);
+        auto stream = co_await connect_stream(scheme_, host_, *addresses, port_, options_);
         if (!stream) {
             co_return std::unexpected(std::move(stream.error()));
         }
@@ -119,12 +137,20 @@ coro::Task<std::expected<void, Error>> Session::ensure_stream() {
     }
     if (auto connected = co_await stream_->ensure_connected(); !connected) {
         drop_connection();
-        co_return std::unexpected(map_connect_error(connected.error(), scheme_ == "https"));
+        co_return std::unexpected(map_connect_error(connected.error()));
     }
     co_return {};
 }
 
 void Session::close() noexcept {
+    // Never touch stream_ outside the session guard: an in-flight exchange
+    // borrows it by reference for the whole exchange. While the mutex is held
+    // the close is deferred to the guard's next checkpoint inside exchange();
+    // an idle session drops the connection immediately.
+    if (mutex_.locked()) {
+        close_requested_ = true;
+        return;
+    }
     drop_connection();
 }
 

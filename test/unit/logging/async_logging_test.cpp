@@ -12,10 +12,12 @@
 #include "infrastructure/logging/async_logging.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cstddef>
 #include <memory>
 #include <source_location>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -28,6 +30,8 @@
 
 namespace {
 
+using namespace std::chrono_literals;
+
 /// spdlog sink that records every payload it receives.
 class CollectingSink final : public spdlog::sinks::base_sink<std::mutex> {
 public:
@@ -35,6 +39,25 @@ public:
 
 protected:
     void sink_it_(const spdlog::details::log_msg& msg) override {
+        messages.emplace_back(msg.payload.data(), msg.payload.size());
+    }
+
+    void flush_() override {}
+};
+
+/// Recording sink whose writes wait on a gate, so the drain thread can be held
+/// while the queue is flooded.
+class GatedSink final : public spdlog::sinks::base_sink<std::mutex> {
+public:
+    std::vector<std::string> messages;
+    std::atomic<bool> released{false};
+
+protected:
+    void sink_it_(const spdlog::details::log_msg& msg) override {
+        // Bounded spin: a broken gate must not hang the test binary.
+        for (int i = 0; !released.load(std::memory_order_acquire) && i < 50000; ++i) {
+            std::this_thread::sleep_for(100us);
+        }
         messages.emplace_back(msg.payload.data(), msg.payload.size());
     }
 
@@ -76,5 +99,40 @@ TEST(AsyncLogging, FacadeAndSpdlogMacroShareTheAsyncPipeline) {
 
     // Restore a synchronous default logger: the pipeline is gone, and a later
     // case in this binary must not log into a torn-down pool.
+    spdlog::set_default_logger(std::make_shared<spdlog::logger>("", sink));
+}
+
+TEST(AsyncLogging, DiscardNewOverflow_IsCountedAndReportedAtShutdown) {
+    auto sink = std::make_shared<GatedSink>();
+    spdlog::set_default_logger(std::make_shared<spdlog::logger>("", sink));
+
+    logging::initialize();
+
+    // Park the drain thread on the first write, then flood past the queue
+    // capacity (8192): the excess must be discarded, and discard_new counts
+    // those drops on the pool's discard counter.
+    SPDLOG_INFO("hold-the-drain-thread");
+    constexpr std::size_t flood = 8192 + 200;
+    for (std::size_t i = 0; i < flood; ++i) {
+        SPDLOG_INFO("flood-{}", i);
+    }
+
+    std::size_t dropped = 0;
+    {
+        const auto pool = spdlog::thread_pool();
+        ASSERT_NE(pool, nullptr);
+        dropped = pool->discard_counter();
+    }
+    EXPECT_GT(dropped, 0u);
+
+    sink->released.store(true, std::memory_order_release);
+    logging::shutdown();
+
+    // The drop must be visible: shutdown reports the discarded count at WARN.
+    const auto reported = std::any_of(sink->messages.begin(), sink->messages.end(), [](const std::string& message) {
+        return message.find("Log queue overflowed:") != std::string::npos;
+    });
+    EXPECT_TRUE(reported);
+
     spdlog::set_default_logger(std::make_shared<spdlog::logger>("", sink));
 }

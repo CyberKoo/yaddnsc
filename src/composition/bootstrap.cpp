@@ -39,6 +39,7 @@
 #include "infrastructure/coro/group.hpp"
 #include "infrastructure/coro/loop.h"
 #include "infrastructure/coro/run.hpp"
+#include "infrastructure/coro/scope.hpp"
 #include "infrastructure/dns/factory.h"
 #include "infrastructure/dns/resolver_port.h"
 #include "infrastructure/dns/resolv_conf.h"
@@ -155,6 +156,7 @@ int run_command(const Cli::RunCommand& command) {
         SPDLOG_CRITICAL(format_config_errors(env.error()));
         return EXIT_FAILURE;
     }
+    SPDLOG_INFO("All available interfaces: {}", fmt::format("{}", fmt::join(interfaces.names(), ", ")));
 
     const auto tls_context = make_default_tls_context();
     const auto http_options = make_coro_http_options(runtime->resolver, tls_context);
@@ -183,6 +185,7 @@ int run_command(const Cli::RunCommand& command) {
                             });
             return *gateway;
         },
+        .drain_logs = &logging::shutdown,
     };
     return coro::run(loop, app::run_scheduler(runtime, services));
 }
@@ -256,9 +259,32 @@ int execute_command(const Cli::DnsResolveCommand& command) {
     dns::DispatcherResolverPort resolver_port{*dispatcher};
     // One-shot command on a plain root scope: nothing is marked cancellable, so
     // Ctrl-C keeps the default disposition (no signal watcher is installed).
+    // The resolvers bound each operation, but the command still gets an overall
+    // budget so a pathological attempt chain always terminates; 30s covers the
+    // legacy worst case (bootstrap + two DoT/DoH attempts of connect + I/O).
+    constexpr auto DNS_COMMAND_BUDGET = std::chrono::seconds{30};
     coro::Loop loop;
     const app::DnsResolveOutcome outcome =
-        coro::run(loop, app::dns_resolve(resolver_port, command.host, command.type));
+        coro::run(loop, [&]() -> coro::Task<app::DnsResolveOutcome> {
+            auto bounded = co_await coro::with_timeout(
+                DNS_COMMAND_BUDGET, [&](coro::CancelScope&) -> coro::Task<app::DnsResolveOutcome> {
+                    co_return co_await app::dns_resolve(resolver_port, command.host, command.type);
+                });
+            if (bounded.timed_out) {
+                // Own budget fired (checked before `cancelled`): report it like
+                // a resolver failure — the presenter prints it and exits 0, the
+                // same shape a bounded lookup produced on the legacy stack.
+                co_return app::DnsResolveOutcome{
+                    .host = command.host,
+                    .type_text = command.type,
+                    .lookup = std::unexpected(DnsErrorInfo{
+                        DnsError::CONNECTION,
+                        fmt::format("DNS lookup timed out after {}s",
+                                    std::chrono::duration_cast<std::chrono::seconds>(DNS_COMMAND_BUDGET).count())}),
+                };
+            }
+            co_return std::move(*bounded);
+        }());
     return Cli::present_dns_resolve(outcome);
 }
 

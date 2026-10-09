@@ -58,8 +58,8 @@ public:
 /// GatewayPort — perform one driver update.
 ///
 /// Failure: DriverError values. Cancellation: the await is an abandon point —
-/// the driver cycle keeps its place on its lane and the result is
-/// DriverError::CANCELLED.
+/// a driver cycle that already started runs to completion while the result is
+/// DriverError::CANCELLED; a cycle not yet started never enters the driver.
 class GatewayPort {
 public:
     virtual ~GatewayPort() = default;

@@ -5,6 +5,7 @@
 #include "mdns.h"
 
 #include <array>
+#include <cerrno>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
@@ -30,6 +31,7 @@
 #include "infrastructure/dns/types.h"
 #include "infrastructure/dns/util.hpp"
 #include "infrastructure/dns/wire/builder.h"
+#include "infrastructure/ip_source/iface_util.h"
 #include "infrastructure/ip_source/mdns_response.h"
 #include "infrastructure/net/detail/socket_ops.h"
 #include "infrastructure/net/io_error.h"
@@ -59,6 +61,27 @@ constexpr std::uint16_t QU_BIT = 0x8000;
 [[nodiscard]] const Inet6Address& group_v6() {
     static const Inet6Address group = Inet6Address::parse(MDNS_IPV6_GROUP).value();
     return group;
+}
+
+/// Pick the interface's first IPv4 address for IGMP membership and multicast
+/// output. Falls back to INADDR_ANY (kernel routing table decides) when the
+/// interface is empty or has no IPv4 address.
+[[nodiscard]] in_addr pick_ipv4_interface_addr(const std::string& interface) {
+    if (!interface.empty()) {
+        if (const auto addresses = get_addresses(interface); addresses.has_value()) {
+            for (const InetAddress& address : *addresses) {
+                if (const Inet4Address* v4 = address.as_v4(); v4 != nullptr) {
+                    in_addr addr{};
+                    std::memcpy(&addr, v4->data(), sizeof(addr));
+                    return addr;
+                }
+            }
+        }
+        SPDLOG_WARN(R"(mDNS no IPv4 address found for interface "{}", falling back to INADDR_ANY)", interface);
+    }
+    in_addr addr{};
+    addr.s_addr = htonl(INADDR_ANY);
+    return addr;
 }
 
 /// RAII leave for a joined multicast group. A move from the reference argument
@@ -136,17 +159,42 @@ void set_int_option(const int fd, const int level, const int option, const int v
     }
 #endif
 
-    if (!interface.empty()) {
-        // Best-effort on platforms without SO_BINDTODEVICE; the helper logs once.
-        (void)net::detail::bind_to_interface(fd, interface);
-    }
-
     unsigned int if_index = 0;
     if (!interface.empty()) {
         if_index = ::if_nametoindex(interface.c_str());
         if (if_index == 0) {
             SPDLOG_WARN(R"(mDNS interface "{}" not found for "{}")", interface, hostname);
         }
+    } else if (family == AddressFamily::IPV6) {
+        // A link-local multicast join needs an explicit scope: with no interface
+        // configured, pick the default one (legacy behaviour). IPv4 stays on
+        // INADDR_ANY and lets the kernel routing table choose.
+        if (const auto default_index = get_default_interface_index(AddressFamily::IPV6); default_index.has_value()) {
+            if_index = *default_index;
+            char name[IF_NAMESIZE] = {};
+            const char* resolved = ::if_indextoname(if_index, name);
+            SPDLOG_DEBUG(R"(mDNS auto-selected interface "{}" for "{}" (type AAAA))", resolved != nullptr ? name : "?",
+                         hostname);
+        }
+    }
+
+    if (!interface.empty()) {
+#if defined(SO_BINDTODEVICE)
+        // Best-effort on platforms without SO_BINDTODEVICE; the helper logs once.
+        (void)net::detail::bind_to_interface(fd, interface);
+#elif defined(IP_BOUND_IF)
+        // macOS: there is no SO_BINDTODEVICE; pin the socket by interface index.
+        if (if_index > 0) {
+            const int level = family == AddressFamily::IPV6 ? IPPROTO_IPV6 : IPPROTO_IP;
+            const int option = family == AddressFamily::IPV6 ? IPV6_BOUND_IF : IP_BOUND_IF;
+            if (auto result = net::detail::set_socket_option(fd, level, option, &if_index, sizeof(if_index));
+                !result) {
+                SPDLOG_DEBUG(R"(mDNS setsockopt bound-if failed for "{}")", hostname);
+            }
+        }
+#endif
+        // FreeBSD has neither SO_BINDTODEVICE nor IP_BOUND_IF; the interface
+        // constraint is silently ignored there (an accepted trade-off).
     }
 
     if (family == AddressFamily::IPV6) {
@@ -166,35 +214,46 @@ void set_int_option(const int fd, const int level, const int option, const int v
         if (auto result = net::detail::set_socket_option(fd, IPPROTO_IPV6, IPV6_JOIN_GROUP, &membership,
                                                          sizeof(membership));
             !result) {
-            return std::unexpected(
-                domain::IpSourceError{domain::IpSourceError::Code::UNAVAILABLE, "mDNS IPV6_JOIN_GROUP failed"});
+            const int error_number = errno;
+            return std::unexpected(domain::IpSourceError{
+                domain::IpSourceError::Code::UNAVAILABLE,
+                fmt::format("mDNS IPV6_JOIN_GROUP failed: {}", std::strerror(error_number))});
         }
         guard = MembershipGuard{fd, IPPROTO_IPV6, IPV6_LEAVE_GROUP, &membership, sizeof(membership)};
         return {};
     }
 
-#if defined(__linux__)
     if (if_index > 0) {
+#if defined(__linux__)
         ip_mreqn output{};
         output.imr_ifindex = static_cast<int>(if_index);
         if (auto result = net::detail::set_socket_option(fd, IPPROTO_IP, IP_MULTICAST_IF, &output, sizeof(output));
             !result) {
             SPDLOG_DEBUG(R"(mDNS IP_MULTICAST_IF failed for "{}")", hostname);
         }
-    }
+#else
+        // macOS / BSD: IP_MULTICAST_IF expects the interface address, not an index.
+        const in_addr output = pick_ipv4_interface_addr(interface);
+        if (auto result = net::detail::set_socket_option(fd, IPPROTO_IP, IP_MULTICAST_IF, &output, sizeof(output));
+            !result) {
+            SPDLOG_DEBUG(R"(mDNS IP_MULTICAST_IF failed for "{}")", hostname);
+        }
 #endif
+    }
     // Without an explicit interface the kernel routing table picks the output
     // interface, which is the legacy behaviour too.
     set_int_option(fd, IPPROTO_IP, IP_MULTICAST_TTL, 255, "IP_MULTICAST_TTL", hostname);
 
     ip_mreq membership{};
     std::memcpy(&membership.imr_multiaddr, group_v4().data(), sizeof(membership.imr_multiaddr));
-    membership.imr_interface.s_addr = htonl(INADDR_ANY);
+    membership.imr_interface = pick_ipv4_interface_addr(interface);
     if (auto result = net::detail::set_socket_option(fd, IPPROTO_IP, IP_ADD_MEMBERSHIP, &membership,
                                                      sizeof(membership));
         !result) {
-        return std::unexpected(
-            domain::IpSourceError{domain::IpSourceError::Code::UNAVAILABLE, "mDNS IP_ADD_MEMBERSHIP failed"});
+        const int error_number = errno;
+        return std::unexpected(domain::IpSourceError{
+            domain::IpSourceError::Code::UNAVAILABLE,
+            fmt::format("mDNS IP_ADD_MEMBERSHIP failed: {}", std::strerror(error_number))});
     }
     guard = MembershipGuard{fd, IPPROTO_IP, IP_DROP_MEMBERSHIP, &membership, sizeof(membership)};
     return {};
@@ -208,8 +267,10 @@ void set_int_option(const int fd, const int level, const int option, const int v
 
     auto opened = net::detail::open_udp_socket(family);
     if (!opened) {
-        co_return std::unexpected(
-            domain::IpSourceError{domain::IpSourceError::Code::UNAVAILABLE, "mDNS socket creation failed"});
+        const int error_number = errno;
+        co_return std::unexpected(domain::IpSourceError{
+            domain::IpSourceError::Code::UNAVAILABLE,
+            fmt::format("mDNS socket creation failed: {}", std::strerror(error_number))});
     }
     const Utils::UniqueFd fd = std::move(*opened);
 
@@ -222,8 +283,10 @@ void set_int_option(const int fd, const int level, const int option, const int v
     // ephemeral port (which also avoids clashing with avahi/systemd-resolved).
     const InetAddress bind_address = ipv6 ? InetAddress{Inet6Address{}} : InetAddress{Inet4Address{}};
     if (auto bound = net::detail::bind_local(fd.get(), bind_address, 0); !bound) {
-        co_return std::unexpected(
-            domain::IpSourceError{domain::IpSourceError::Code::UNAVAILABLE, "mDNS bind failed"});
+        const int error_number = errno;
+        co_return std::unexpected(domain::IpSourceError{
+            domain::IpSourceError::Code::UNAVAILABLE,
+            fmt::format(R"(mDNS bind failed for "{}": {})", hostname, std::strerror(error_number))});
     }
 
     std::vector<std::uint8_t> query;

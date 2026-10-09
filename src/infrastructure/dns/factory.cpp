@@ -17,6 +17,7 @@
 #include "infrastructure/dns/dot.h"
 #include "infrastructure/net/http/uri.h"
 #include "support/fmt.hpp"
+#include "version.h"
 
 namespace dns {
 
@@ -60,6 +61,8 @@ namespace {
     }
     if (schema == "https") {
         http::Options options;
+        // The legacy DoH resolver always identified itself on the wire.
+        options.user_agent = YADDNSC::get_full_version();
         options.bootstrap_dns = bootstrap;
         options.tls_context = std::move(tls_context);
         return std::make_unique<DohResolver>(server.address, std::move(options));

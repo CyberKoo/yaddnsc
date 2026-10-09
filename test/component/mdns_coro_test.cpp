@@ -15,10 +15,13 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <random>
 #include <span>
 #include <string>
 #include <string_view>
+
+#include <netinet/in.h>
 
 #include <gtest/gtest.h>
 
@@ -51,25 +54,49 @@ using namespace std::chrono_literals;
     return name;
 }
 
-/// Probe for an IPv4 multicast route; a runner without one degenerates every
-/// mDNS path into a setup failure, so the timing assertion is skipped there.
-[[nodiscard]] bool multicast_available() {
-    auto socket = net::detail::open_udp_socket(AddressFamily::IPV4);
+/// Probe for a multicast route of @p family; a runner without one degenerates
+/// that family's mDNS path into a fast setup failure, so the timing assertion
+/// is skipped there. Mirrors the resolve path's observable setup — the group
+/// join (its one hard configuration error) and the query send — because either
+/// fails fast where the family is unroutable: FreeBSD, for example, rejects
+/// joining a link-local group without an interface index.
+[[nodiscard]] bool multicast_available(const AddressFamily family) {
+    auto socket = net::detail::open_udp_socket(family);
     if (!socket) {
         return false;
     }
-    const auto group = InetAddress::parse("224.0.0.251");
+    const bool ipv6 = family == AddressFamily::IPV6;
+    const auto group = InetAddress::parse(ipv6 ? "ff02::fb" : "224.0.0.251");
     if (!group) {
         return false;
     }
+    if (ipv6) {
+        ipv6_mreq membership{};
+        std::memcpy(&membership.ipv6mr_multiaddr, group->as_v6()->data(), sizeof(membership.ipv6mr_multiaddr));
+        membership.ipv6mr_interface = 0;
+        if (!net::detail::set_socket_option(socket->get(), IPPROTO_IPV6, IPV6_JOIN_GROUP, &membership,
+                                            sizeof(membership))) {
+            return false;
+        }
+    } else {
+        ip_mreq membership{};
+        std::memcpy(&membership.imr_multiaddr, group->as_v4()->data(), sizeof(membership.imr_multiaddr));
+        membership.imr_interface.s_addr = htonl(INADDR_ANY);
+        if (!net::detail::set_socket_option(socket->get(), IPPROTO_IP, IP_ADD_MEMBERSHIP, &membership,
+                                            sizeof(membership))) {
+            return false;
+        }
+    }
     coro::Loop loop;
     const std::uint8_t payload = 0;
-    return coro::run(loop, net::detail::send_datagram(socket->get(), *group, 5353, std::span{&payload, 1})).has_value();
+    return coro::run(loop, net::detail::send_datagram(socket->get(), *group, 5353, std::span{&payload, 1}))
+        .has_value();
 }
 
 /// One IPv4 or IPv6 lookup for an unanswerable name must fail, not hang.
 void expect_structured_failure(const RecordKind type) {
-    const bool multicast = multicast_available();
+    const AddressFamily family = type == RecordKind::AAAA ? AddressFamily::IPV6 : AddressFamily::IPV4;
+    const bool multicast = multicast_available(family);
 
     ipsource::MdnsIpSource source{unanswerable_hostname(), type, ""};
     coro::Loop loop;

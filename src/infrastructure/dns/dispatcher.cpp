@@ -102,25 +102,27 @@ struct Attempt {
 
 /// Collects the diagnosis of a concurrent batch without downgrading it.
 ///
-/// The first definitive error (PARSE/CONFIG) is kept: once one backend has
-/// proven the answer unparseable or the configuration broken, a later transient
-/// failure must not replace that diagnosis with a retryable one.
+/// NXDOMAIN outranks every other failure: one backend proving the name does
+/// not exist beats any other diagnosis. Next, the first definitive error
+/// (PARSE/CONFIG) is kept: once one backend has proven the answer unparseable
+/// or the configuration broken, a later transient failure must not replace
+/// that diagnosis with a retryable one.
 class BatchErrors {
 public:
     void note(const DnsErrorInfo& error) {
+        if (error.code == DnsError::NX_DOMAIN) {
+            if (!has_nxdomain_) {
+                nxdomain_ = error;
+                has_nxdomain_ = true;
+            }
+            return;
+        }
         if (has_definitive_) {
             return;
         }
         if (detail::is_definitive(error.code)) {
             definitive_ = error;
             has_definitive_ = true;
-            return;
-        }
-        if (error.code == DnsError::NX_DOMAIN) {
-            if (!has_nxdomain_) {
-                nxdomain_ = error;
-                has_nxdomain_ = true;
-            }
             return;
         }
         transient_ = error;
@@ -131,11 +133,11 @@ public:
     [[nodiscard]] bool has_nxdomain() const noexcept { return has_nxdomain_; }
 
     [[nodiscard]] DnsErrorInfo best(const std::string& host) const {
-        if (has_definitive_) {
-            return definitive_;
-        }
         if (has_nxdomain_) {
             return nxdomain_;
+        }
+        if (has_definitive_) {
+            return definitive_;
         }
         if (transient_.code != DnsError::UNKNOWN || !transient_.message.empty()) {
             return transient_;

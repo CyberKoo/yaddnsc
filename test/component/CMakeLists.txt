@@ -72,12 +72,13 @@ set_tests_properties(test_composition_bootstrap PROPERTIES
 
 # ============================================================================
 #  Coroutine transport (src/infrastructure/net/) — TCP echo, the shared Python
-#  TLS echo server (with its throwaway self-signed bundle), UDP datagrams and
-#  scope-driven timeouts over real loopback I/O.
+#  TLS echo server (with its throwaway self-signed bundle), UDP datagrams, the
+#  DNS wire exchange over IPv6 loopback and scope-driven timeouts over real
+#  loopback I/O.
 # ============================================================================
 
 add_unit_test(net_coro_component SOURCE net_coro_component_test.cpp)
-target_link_libraries(test_net_coro_component PRIVATE yaddnsc_net OpenSSL::SSL OpenSSL::Crypto)
+target_link_libraries(test_net_coro_component PRIVATE yaddnsc_coro_io OpenSSL::SSL OpenSSL::Crypto)
 target_compile_definitions(test_net_coro_component PRIVATE
     TEST_DATA_DIR="${PROJECT_SOURCE_DIR}/test/component"
 )

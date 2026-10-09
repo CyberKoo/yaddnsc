@@ -219,7 +219,7 @@ add_subdirectory(unit)
 
 # ---------------------------------------------------------------------------
 # Coroutine runtime core (src/infrastructure/coro/) — loop, Task, structured
-# scopes, cancellation combinators, sleeps, AsyncMutex, offload/SerialLane and
+# scopes, cancellation combinators, sleeps, AsyncMutex, offload and
 # signals. One binary keeps the async runtime tests together:
 #   ctest --test-dir <build> -R coro   (or run test_coro directly)
 # ---------------------------------------------------------------------------

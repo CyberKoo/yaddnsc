@@ -258,8 +258,8 @@ TEST(CancelScope, non_cancellable_UnderCancelledScope_StillCompletes) {
                 [[maybe_unused]] const auto slept = co_await coro::sleep_for(1s);  // cancelled here
                 auto shielded =
                     co_await coro::non_cancellable([&inner_completed](coro::CancelScope&) -> coro::Task<void> {
-                        const auto slept = co_await coro::sleep_for(20ms);
-                        inner_completed = slept.has_value();
+                        const auto resumed = co_await coro::sleep_for(20ms);
+                        inner_completed = resumed.has_value();
                         co_return;
                     });
                 EXPECT_TRUE(shielded.completed);
@@ -351,6 +351,52 @@ TEST(Sleep, sleep_until_AbsoluteDeadline_WakesAtDeadline) {
     coro::run(loop, task());
     EXPECT_TRUE(reached);
     EXPECT_GE(clock.now(), target);
+}
+
+// ---------------------------------------------------------------------------
+// loop scheduling fairness
+// ---------------------------------------------------------------------------
+
+TEST(CancelScope, with_timeout_BusyReadyQueue_TimerStillFires) {
+    // A self-re-filling ready queue must not starve the timer heap: every
+    // co_await below enqueues a child frame and every completion enqueues the
+    // continuation, so a loop that only fires timers once the ready queue is
+    // empty would report this 1ms timeout tens of milliseconds late — after
+    // the churn ends. The timeout must win while the churn still runs.
+    coro::Loop loop;
+    constexpr int churn_steps = 100000;
+    int churned = 0;
+    int churned_when_timed_out = -1;
+    bool timed_out = false;
+
+    auto churn = [&churned]() -> coro::Task<void> {
+        for (int i = 0; i < churn_steps; ++i) {
+            co_await []() -> coro::Task<void> { co_return; }();
+            ++churned;
+        }
+        co_return;
+    };
+
+    auto task = [&]() -> coro::Task<void> {
+        co_await coro::supervisor_group([&](coro::TaskGroup& group) -> coro::Task<void> {
+            group.spawn(churn());
+            const auto outcome = co_await coro::with_timeout(1ms, [](coro::CancelScope&) -> coro::Task<void> {
+                [[maybe_unused]] const auto slept = co_await coro::sleep_for(10s);
+                co_return;
+            });
+            timed_out = outcome.timed_out;
+            churned_when_timed_out = churned;
+            group.cancel();
+            co_return;
+        });
+        co_return;
+    };
+
+    coro::run(loop, task());
+    EXPECT_TRUE(timed_out);
+    // The timer fired mid-churn, not after the ready queue finally drained.
+    EXPECT_GE(churned_when_timed_out, 0);
+    EXPECT_LT(churned_when_timed_out, churn_steps);
 }
 
 }  // namespace

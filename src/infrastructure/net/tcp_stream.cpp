@@ -15,7 +15,7 @@
 namespace net {
 
 TcpStream::TcpStream(InetAddress address, const std::uint16_t port, ConnectOptions options)
-    : address_(std::move(address)), port_(port), options_(std::move(options)) {}
+    : address_(address), port_(port), options_(std::move(options)) {}
 
 TcpStream::~TcpStream() {
     close();

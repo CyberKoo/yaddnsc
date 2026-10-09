@@ -35,7 +35,9 @@ namespace dns {
 struct EndpointOptions {
     /// Outbound interface binding.
     net::ConnectOptions connect{};
-    /// TLS policy; the resolver fills in ALPN. `verify_peer` defaults to true.
+    /// TLS policy; the resolver fills in ALPN and defaults the SNI identity to
+    /// a named endpoint host (never an IP literal, RFC 6066 §3).
+    /// `verify_peer` defaults to true.
     net::TlsOptions tls{};
     /// Pre-built TLS trust context (off-loop, TlsContext::create). Null fails the
     /// TLS connection closed.

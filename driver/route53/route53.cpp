@@ -113,9 +113,9 @@ Result Route53Driver::update(UpdateContext& context) {
     // -----------------------------------------------------------------------
     //  AWS SigV4 signing
     // -----------------------------------------------------------------------
-    const auto amz_date = Signing::iso8601_timestamp();  // "YYYYMMDDTHHmmSSZ"
+    auto amz_date = Signing::iso8601_timestamp();        // "YYYYMMDDTHHmmSSZ"
     const auto date_stamp = Signing::iso8601_date();     // "YYYYMMDD"
-    const auto payload_hash = Signing::sha256_hex(body);
+    auto payload_hash = Signing::sha256_hex(body);
 
     // Signed headers (sorted alphabetically).
     constexpr std::string_view SIGNED_HEADERS = "host;x-amz-content-sha256;x-amz-date";

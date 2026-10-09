@@ -150,6 +150,6 @@ jobs:
             - name: Configure
               run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DYADDNSC_BUILD_TESTS=ON
             - name: Build plugin contract targets
-              run: ninja -C build -j$(nproc) test_plugin_abi_contract test_plugin_lifecycle test_abi_driver_gateway
+              run: ninja -C build -j$(nproc) test_plugin_abi_contract test_plugin_lifecycle test_coro_driver_gateway
             - name: Run plugin contract tests
-              run: ctest --test-dir build --output-on-failure -R 'plugin_abi_contract|plugin_lifecycle|abi_driver_gateway'
+              run: ctest --test-dir build --output-on-failure -R 'plugin_abi_contract|plugin_lifecycle|coro_driver_gateway'

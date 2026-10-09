@@ -80,9 +80,18 @@ public:
             return;
         }
         sigset_t pending{};
-        if (::sigpending(&pending) == 0 && ::sigismember(&pending, SIGPIPE) == 1) {
-            const timespec immediate{0, 0};
-            ::sigtimedwait(&pending, nullptr, &immediate);
+        if (::sigpending(&pending) == 0 && sigismember(&pending, SIGPIPE) == 1) {
+            // Consume the pending instance before unblocking, so it never
+            // reaches the default disposition. sigwait is the portable
+            // sigtimedwait: macOS lacks the latter, and there sigismember is
+            // a macro (no :: qualification). It cannot block here — the
+            // signal is pending and still blocked — and a SIGPIPE-only set
+            // leaves other pending signals to their handlers.
+            sigset_t pipe_only{};
+            sigemptyset(&pipe_only);
+            sigaddset(&pipe_only, SIGPIPE);
+            int consumed = 0;
+            (void)::sigwait(&pipe_only, &consumed);
         }
         ::pthread_sigmask(SIG_SETMASK, &previous_, nullptr);
     }
@@ -107,7 +116,7 @@ void SslDeleter::operator()(SSL* ssl) const noexcept {
 
 TlsStream::TlsStream(InetAddress address, const std::uint16_t port, std::shared_ptr<const TlsContext> context,
                      ConnectOptions options, TlsOptions tls_options)
-    : tcp_(std::move(address), port, std::move(options)), tls_options_(std::move(tls_options)),
+    : tcp_(address, port, std::move(options)), tls_options_(std::move(tls_options)),
       alpn_proto_(tls_options_.alpn_proto.begin(), tls_options_.alpn_proto.end()), context_(std::move(context)) {}
 
 TlsStream::~TlsStream() {
@@ -131,9 +140,14 @@ coro::Task<std::expected<void, IoError>> TlsStream::ensure_connected() {
         close();
         co_return std::unexpected(handshaken.error());
     }
-    SPDLOG_DEBUG("TLS session established with {}:{} ({})", ip_literal(tcp_.address()), tcp_.port(),
-                 SSL_get_version(ssl_.get()));
+    SPDLOG_DEBUG("TLS session established with {} ({})", peer_label(), SSL_get_version(ssl_.get()));
     co_return {};
+}
+
+std::string TlsStream::peer_label() const {
+    // The TLS identity when one is pinned, otherwise the connection target.
+    const std::string host = tls_options_.sni_hostname.value_or(ip_literal(tcp_.address()));
+    return host + ':' + std::to_string(tcp_.port());
 }
 
 std::expected<void, IoError> TlsStream::prepare_session() {
@@ -202,7 +216,9 @@ coro::Task<std::expected<void, IoError>> TlsStream::handshake() {
         }
         const int error = SSL_get_error(ssl_.get(), result);
         if (error != SSL_ERROR_WANT_READ && error != SSL_ERROR_WANT_WRITE) {
-            SPDLOG_DEBUG("TLS handshake failed: {}", detail::ssl_errors());
+            // A verification or handshake failure is worth an ERROR with the
+            // peer's identity — the legacy stack logged both.
+            SPDLOG_ERROR("TLS handshake failed for \"{}\": {}", peer_label(), detail::ssl_errors());
             co_return std::unexpected(IoError::CONNECTION_FAILED);
         }
         if (auto ready = co_await direction_wait(tcp_.native_handle(), error); !ready) {

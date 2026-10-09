@@ -10,6 +10,7 @@
 #ifndef YADDNSC_NET_HTTP_ERROR_H
 #define YADDNSC_NET_HTTP_ERROR_H
 
+#include <cstdint>
 #include <string>
 
 namespace http {
@@ -34,6 +35,8 @@ enum class ErrorCode {
 struct Error {
     ErrorCode code{ErrorCode::CONNECTION_LOST};
     std::string message;
+    /// Rate-limit hint carried through to the plugin ABI (0 = no hint).
+    uint32_t retry_after_seconds{0};
 };
 
 }  // namespace http

@@ -44,7 +44,7 @@ resumption goes through the ready queue so stack depth stays bounded.
 | Thread | Responsibility |
 |--------|----------------|
 | loop thread (`coro::run`'s caller) | all I/O, timers, coroutine resumption, bounded small computation |
-| offload pool (`BS::thread_pool`, reached only through `coro::offload`) | anything that may block or burn CPU: the plugin ABI cycle, mDNS, and CPU-intensive work in general — `offload` is the runtime's `to_thread` analogue, the single documented exit from the loop |
+| offload pool (`BS::thread_pool`, reached only through `coro::offload`; min(hardware cores, 4) workers, at least 2) | anything that may block or burn CPU: the plugin ABI cycle, mDNS, and CPU-intensive work in general — `offload` is the runtime's `to_thread` analogue, the single documented exit from the loop |
 | log drain thread (spdlog async sink) | writing log records off the loop |
 
 **Loop internals** (`src/infrastructure/coro/loop.h`): a `poll()` file-descriptor
@@ -55,7 +55,9 @@ synchronization points in the runtime.
 **Structured concurrency.** `coro::Task<T>` is lazy and runs inline at
 `co_await`. `task_group` cancels siblings on the first failure and rethrows
 after joining every child; `supervisor_group` reports a child failure through
-`next()` without touching its siblings. The run root uses a supervisor group, so
+`next()` without touching its siblings. `spawn_discard` starts a fire-and-forget
+child whose bookkeeping is shed at completion, which keeps a process-lifetime
+group bounded by its live children. The run root uses a supervisor group, so
 one subdomain failing never stops the others.
 
 **Cancellation is scope state, not a token.** `with_timeout`,
@@ -68,17 +70,21 @@ have no deadline arguments.
 
 **Leaving the loop.** `coro::offload(fn)` runs `fn` on the pool and returns its
 result through the loop; cancellation is *abandon* — the await returns a
-cancellation value while the work packet finishes on its own. `coro::SerialLane`
-serializes per-instance work on top of offload (one lane per driver name).
+cancellation value while the work packet finishes on its own.
 
 **Plugin bridge** (`src/infrastructure/plugin/bridge.h`). The plugin C ABI is
 synchronous, so each update cycle runs on an offload worker; when it calls
-`http_exchange`, the bridge posts a structured child coroutine into the
+`http_exchange`, the bridge posts a fire-and-forget child coroutine
+(`spawn_discard`, so the long-lived group sheds each completed exchange's frame
+and slot at once instead of accumulating them until shutdown) into the
 application's `TaskGroup` (passed in by the composition root), the loop runs the
 coroutine HTTP client, and the worker blocks on a `std::promise`/`std::future`
 until the loop fulfils it. That promise is the third synchronization boundary in
 the system; it exists only because the ABI may not be re-entered, and the
-blocked thread is a worker whose purpose is to block.
+blocked thread is a worker whose purpose is to block. Abandoning one update
+cancels its in-flight exchange's own cancel scope through `Bridge::cancel`, so
+the plugin's HTTP stops at once instead of running to completion behind the
+caller's back.
 
 **Scheduler dissolution** (`src/application/subdomain_loop.cpp`). There is no
 central scheduler queue, runner or executor: one long-lived coroutine per
@@ -88,7 +94,9 @@ provider-supplied `retry_after` overrides the next delay; the force-update
 interval latches exactly as the legacy scheduler did. One cycle is bounded by
 `UPDATE_BUDGET` (`with_timeout`), and the DNS read has its own shorter
 `DNS_READ_BUDGET` so a dead resolver surfaces in seconds instead of holding the
-whole cycle.
+whole cycle. A subdomain loop only returns under cancellation, so if every loop
+dies of a defect with no shutdown requested, the run root exits with a failure
+status and lets the supervisor (`Restart=on-failure`) start the daemon again.
 
 ### Blocking-operation inventory
 
@@ -101,7 +109,7 @@ runs before the loop starts. The remaining exceptions are deliberate and bounded
 | `getifaddrs()` | `infrastructure/ip_source/iface_util.cpp`, on the loop thread | A bounded kernel snapshot of local interface metadata: read-only system state, no network round trip, no attacker-controlled size |
 | startup file/loader I/O | `composition/bootstrap.cpp`, on the main thread before `coro::run` | Config read, static validation, plugin `dlopen`, the environment check and the trust-context build happen once, before any coroutine exists — there is no loop yet to block |
 | CA discovery + `SSL_CTX_load_verify_locations` | `infrastructure/net/tls_context.cpp`, off-loop only (`TlsContext::create`) | Reads the trust store once and shares one immutable context, so a handshake never touches the filesystem. OpenSSL's lazy trust-directory / default-path loaders are banned by the architecture guard for exactly this reason |
-| plugin ABI cycle (`create`/`update`/`destroy`) | offload pool, one serialized lane per driver (`coro::SerialLane`) | The C ABI is synchronous and must not run on the loop; the worker blocks on a promise until the bridge's HTTP child coroutine completes on the loop |
+| plugin ABI cycle (`create`/`update`/`destroy`) | offload pool; cycles of one driver run concurrently on distinct instances, bounded by the pool's worker count | The C ABI is synchronous and must not run on the loop; the worker blocks on a promise until the bridge's HTTP child coroutine completes on the loop |
 | log write | log drain thread (async spdlog sink) | Never blocks the caller; a full queue discards the newest record |
 | CPU-intensive work | any `coro::offload` call site | `offload` is the single exit for blocking *and* CPU-bound work (the `asyncio.to_thread` analogue); the total off-loop workload is structurally bounded by the configuration |
 
@@ -129,9 +137,8 @@ Dependency direction is enforced by the CMake target graph
   Glaze, CLI11, OpenSSL, or dlopen. Logging goes through the `ports/log.h`
   facade.
 - `src/infrastructure/coro/`: the coroutine runtime — loop, `Task`, structured
-  scopes, cancellation combinators, sleeps, `AsyncMutex`, `offload`,
-  `SerialLane`, signals. This is the only tree allowed to name threads, futures
-  or a thread pool.
+  scopes, cancellation combinators, sleeps, `AsyncMutex`, `offload`, signals.
+  This is the only tree allowed to name threads, futures or a thread pool.
 - `src/infrastructure/net/`: the transport and its shared codecs — TCP/TLS/UDP
   streams, the pre-built `tls_context` (off-loop trust material), `socket_addr`
   (POSIX sockaddr codec), `tls/cert_util` (CA discovery), and the coroutine HTTP

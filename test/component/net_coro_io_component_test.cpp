@@ -34,6 +34,7 @@
 #include "domain/dns/record_kind.h"
 #include "domain/error/dns_error_info.h"
 #include "infrastructure/coro/coro.h"
+#include "infrastructure/dns/bootstrap.h"
 #include "infrastructure/dns/classic.h"
 #include "infrastructure/dns/dispatcher.h"
 #include "infrastructure/dns/doh.h"
@@ -53,6 +54,8 @@ constexpr int CLASSIC_PORT = 21680;
 constexpr int DOH_PORT = 21681;
 constexpr int DOT_PORT = 21682;
 constexpr int DOT_TIMEOUT_PORT = 21683;
+constexpr int BOOTSTRAP_FIRST_PORT = 21684;
+constexpr int BOOTSTRAP_SECOND_PORT = 21685;
 
 [[nodiscard]] InetAddress loopback_v4() {
     const auto address = InetAddress::parse("127.0.0.1");
@@ -459,6 +462,68 @@ TEST(NetCoroDns, dispatcher_concurrentRaceAgainstRealBackends) {
 
     ASSERT_TRUE(result.has_value());
     EXPECT_EQ(*result, (std::vector<std::string>{"198.51.100.42"}));
+}
+
+// ---------------------------------------------------------------------------
+// bootstrap resolution across servers
+// ---------------------------------------------------------------------------
+
+TEST(NetCoroDns, bootstrap_nodataAnswerFallsThroughToTheNextServer) {
+    // The first server answers NODATA (NOERROR, empty answers) for the name;
+    // the second instance holds the record.
+    PythonServer first;
+    if (!first.start("dns_server.py", {std::to_string(BOOTSTRAP_FIRST_PORT)})) {
+        GTEST_SKIP() << "dns_server.py could not be started";
+    }
+    PythonServer second;
+    if (!second.start("dns_server.py",
+                      {std::to_string(BOOTSTRAP_SECOND_PORT),
+                       R"(--records={"nodata.yaddnsc.test":{"A":"198.51.100.77"}})"})) {
+        GTEST_SKIP() << "dns_server.py could not be started";
+    }
+    if (!first.wait_for_tcp(BOOTSTRAP_FIRST_PORT) || !second.wait_for_tcp(BOOTSTRAP_SECOND_PORT)) {
+        GTEST_SKIP() << "dns_server.py did not start";
+    }
+
+    const std::vector<Config::DnsServer> servers{{"127.0.0.1", static_cast<std::uint16_t>(BOOTSTRAP_FIRST_PORT)},
+                                                 {"127.0.0.1", static_cast<std::uint16_t>(BOOTSTRAP_SECOND_PORT)}};
+    auto resolve = [&]() -> coro::Task<std::expected<std::vector<InetAddress>, DnsErrorInfo>> {
+        co_return co_await dns::bootstrap_resolve("nodata.yaddnsc.test", AddressFamily::IPV4, servers);
+    };
+
+    const auto result = run_task(resolve());
+    ASSERT_TRUE(result.has_value()) << result.error().message;
+    ASSERT_EQ(result->size(), 1u);
+    EXPECT_EQ(result->front().to_string(), "198.51.100.77");
+}
+
+TEST(NetCoroDns, bootstrap_nxdomainFromOneServerStillTriesTheNext) {
+    // The first server NXDOMAINs the unknown name; the second holds its AAAA
+    // record. NXDOMAIN is authoritative for one server, not for the search.
+    PythonServer first;
+    if (!first.start("dns_server.py", {std::to_string(BOOTSTRAP_FIRST_PORT)})) {
+        GTEST_SKIP() << "dns_server.py could not be started";
+    }
+    PythonServer second;
+    if (!second.start("dns_server.py",
+                      {std::to_string(BOOTSTRAP_SECOND_PORT),
+                       R"(--records={"v6fallback.yaddnsc.test":{"AAAA":"2001:db8::77"}})"})) {
+        GTEST_SKIP() << "dns_server.py could not be started";
+    }
+    if (!first.wait_for_tcp(BOOTSTRAP_FIRST_PORT) || !second.wait_for_tcp(BOOTSTRAP_SECOND_PORT)) {
+        GTEST_SKIP() << "dns_server.py did not start";
+    }
+
+    const std::vector<Config::DnsServer> servers{{"127.0.0.1", static_cast<std::uint16_t>(BOOTSTRAP_FIRST_PORT)},
+                                                 {"127.0.0.1", static_cast<std::uint16_t>(BOOTSTRAP_SECOND_PORT)}};
+    auto resolve = [&]() -> coro::Task<std::expected<std::vector<InetAddress>, DnsErrorInfo>> {
+        co_return co_await dns::bootstrap_resolve("v6fallback.yaddnsc.test", AddressFamily::IPV6, servers);
+    };
+
+    const auto result = run_task(resolve());
+    ASSERT_TRUE(result.has_value()) << result.error().message;
+    ASSERT_EQ(result->size(), 1u);
+    EXPECT_EQ(result->front().to_string(), "2001:db8::77");
 }
 
 }  // namespace

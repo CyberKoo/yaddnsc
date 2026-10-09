@@ -9,6 +9,7 @@
 #include <cassert>
 #include <chrono>
 #include <climits>
+#include <thread>
 
 #include <bit>
 #include <fcntl.h>
@@ -43,6 +44,11 @@ std::atomic<unsigned long long> pending_signals{0};
 
 /// Signals are 1-based; a 64-bit mask covers the whole POSIX range.
 constexpr int SIGNAL_CAPACITY = 65;
+
+/// Offload pool sizing policy: min(hardware cores, OFFLOAD_WORKER_LIMIT), at
+/// least OFFLOAD_MIN_WORKERS.
+constexpr unsigned OFFLOAD_MIN_WORKERS = 2;
+constexpr unsigned OFFLOAD_WORKER_LIMIT = 4;
 
 }  // namespace
 
@@ -150,19 +156,15 @@ void Loop::post(std::function<void()> fn) {
     wake();
 }
 
-bool Loop::process_inbox() {
+void Loop::process_inbox() {
     std::deque<std::function<void()>> batch;
     {
         const std::lock_guard lock(inbox_mutex_);
         batch.swap(inbox_);
     }
-    if (batch.empty()) {
-        return false;
-    }
     for (std::function<void()>& fn : batch) {
         fn();
     }
-    return true;
 }
 
 BS::thread_pool<>& Loop::offload_pool() {
@@ -170,6 +172,10 @@ BS::thread_pool<>& Loop::offload_pool() {
         pool_ = std::make_unique<BS::thread_pool<>>(pool_workers_);
     }
     return *pool_;
+}
+
+unsigned Loop::default_offload_workers() noexcept {
+    return std::max(OFFLOAD_MIN_WORKERS, std::min(std::thread::hardware_concurrency(), OFFLOAD_WORKER_LIMIT));
 }
 
 void Loop::set_offload_workers(unsigned workers) noexcept {
@@ -180,17 +186,23 @@ void Loop::set_offload_workers(unsigned workers) noexcept {
 void Loop::run() {
     assert(!fds_.empty() && "loop self-pipe unavailable: nothing could ever wake the loop");
     while (!stopped_) {
-        if (ready_head_ != nullptr) {
-            drain_ready();
-            continue;
-        }
+        // Signals are checked before everything else: a busy loop (e.g. the
+        // cancellation storm of a shutdown drain) must not starve them, and a
+        // second SIGINT must stay deliverable while the drain runs.
         if (process_signals()) {
             continue;
         }
-        if (process_inbox()) {
-            continue;
-        }
-        if (fire_timers()) {
+        // Worker completions and due timers run on every iteration, ahead of
+        // the ready queue: a busy loop keeps re-filling the queue (every
+        // resumed frame can schedule the next one), so a ready-first order
+        // starves all three — a with_timeout would then fire late or never.
+        process_inbox();
+        fire_timers();
+        if (ready_head_ != nullptr) {
+            drain_ready();
+            // The drain re-filled the queue; keep I/O moving with a
+            // non-blocking scan instead of waiting for a quiet iteration.
+            poll_once(0);
             continue;
         }
         poll_once(poll_timeout_ms());
@@ -299,8 +311,7 @@ void Loop::poll_once(int timeout_ms) {
     }
 }
 
-bool Loop::fire_timers() noexcept {
-    bool fired = false;
+void Loop::fire_timers() noexcept {
     while (TimerNode* next = heap_min()) {
         if (next->deadline > clock_->now()) {
             break;
@@ -309,9 +320,7 @@ bool Loop::fire_timers() noexcept {
         if (due->action != nullptr) {
             due->action(due->context);
         }
-        fired = true;
     }
-    return fired;
 }
 
 // ---------------------------------------------------------------------------

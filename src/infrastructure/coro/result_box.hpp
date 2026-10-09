@@ -2,8 +2,8 @@
 // Coroutine runtime — void-safe result storage.
 //
 // std::optional<void> does not exist, so the primitives that may return either a
-// value or nothing (offload, SerialLane, the scope combinators) share this small
-// box instead of duplicating a partial specialization each time.
+// value or nothing (offload, the scope combinators) share this small box instead
+// of duplicating a partial specialization each time.
 //
 
 #ifndef YADDNSC_CORO_RESULT_BOX_HPP
@@ -16,8 +16,8 @@ namespace coro::detail {
 
 /// Storage for a callable's result.
 ///
-/// Not thread-safe; the owner synchronizes hand-offs (the offload and lane
-/// cells publish it through an atomic release/acquire pair).
+/// Not thread-safe; the owner synchronizes hand-offs (the offload cell
+/// publishes it through an atomic release/acquire pair).
 template<typename R>
 struct ResultBox {
     std::optional<R> value;

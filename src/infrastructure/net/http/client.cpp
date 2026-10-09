@@ -52,7 +52,7 @@ coro::Task<std::expected<Response, Error>> Client::exchange(std::string url, con
         if (!addresses) {
             co_return std::unexpected(std::move(addresses.error()));
         }
-        auto stream = co_await connect_stream(scheme, *addresses, port, options_);
+        auto stream = co_await connect_stream(scheme, host, *addresses, port, options_);
         if (!stream) {
             co_return std::unexpected(std::move(stream.error()));
         }

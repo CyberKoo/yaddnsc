@@ -84,8 +84,8 @@ add_unit_test(plugin_abi_contract SOURCE driver_abi_contract_test.cpp)
 add_unit_test(plugin_lifecycle SOURCE plugin_lifecycle_test.cpp)
 
 # Coroutine driver gateway — drives the same whiteboard plugin through the
-# coroutine bridge (worker ↔ loop HTTP, SerialLane, abandon, shutdown cancel)
-# against an in-process HTTP server.
+# coroutine bridge (worker ↔ loop HTTP, concurrent cycles, abandon, shutdown
+# cancel) against an in-process HTTP server.
 add_unit_test(coro_driver_gateway SOURCE coro_driver_gateway_test.cpp)
 target_link_libraries(test_coro_driver_gateway PRIVATE yaddnsc_prod_all yaddnsc_coro_plugin ${CMAKE_DL_LIBS})
 set_tests_properties(test_coro_driver_gateway PROPERTIES

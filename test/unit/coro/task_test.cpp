@@ -311,4 +311,91 @@ TEST(TaskGroup, cancel_Requested_StopsChildren) {
     EXPECT_TRUE(child_cancelled);
 }
 
+// ---------------------------------------------------------------------------
+// spawn_discard: fire-and-forget children with bounded bookkeeping
+// ---------------------------------------------------------------------------
+
+TEST(TaskGroup, spawn_discard_ScopeExitJoinsAChildStillInFlight) {
+    int completed = 0;
+    coro::ManualClock clock;
+    coro::Loop loop{clock};
+    auto task = [&completed]() -> coro::Task<void> {
+        co_await coro::supervisor_group([&completed](coro::TaskGroup& group) -> coro::Task<void> {
+            group.spawn_discard(increment_after_sleep(completed, 20ms));
+            // The body leaves at once; the group must still join the child
+            // instead of reaping its live frame.
+            co_return;
+        });
+        co_return;
+    };
+    coro::run(loop, task());
+    EXPECT_EQ(completed, 1);
+}
+
+TEST(TaskGroup, spawn_discard_IsNeverDeliveredThroughNext) {
+    int discard_completed = 0;
+    std::vector<int> delivered;
+    coro::ManualClock clock;
+    coro::Loop loop{clock};
+    auto task = [&discard_completed, &delivered]() -> coro::Task<void> {
+        co_await coro::supervisor_group(
+            [&discard_completed, &delivered](coro::TaskGroup& group) -> coro::Task<void> {
+                // The discard child finishes last, so the parked next() loop is
+                // woken by a completion it must not observe.
+                group.spawn(sleep_then_value(10ms, 7));
+                group.spawn_discard(increment_after_sleep(discard_completed, 30ms));
+                while (auto outcome = co_await group.next<int>()) {
+                    if (outcome->has_value()) {
+                        delivered.push_back(outcome->value());
+                    }
+                }
+                co_return;
+            });
+        co_return;
+    };
+    coro::run(loop, task());
+    EXPECT_EQ(delivered, (std::vector<int>{7}));
+    EXPECT_EQ(discard_completed, 1);
+}
+
+TEST(TaskGroup, spawn_discard_DefectCancelsSiblingsAndPropagates) {
+    // A discard child's defect is a child defect like any other: task_group
+    // cancels the siblings and rethrows it at scope exit.
+    bool sibling_cancelled = false;
+    coro::ManualClock clock;
+    coro::Loop loop{clock};
+    auto task = [&sibling_cancelled]() -> coro::Task<void> {
+        co_await coro::task_group([&sibling_cancelled](coro::TaskGroup& group) -> coro::Task<void> {
+            group.spawn_discard(fail_after_sleep(10ms, "discard boom"));
+            group.spawn(wait_until_cancelled(sibling_cancelled));
+            co_return;
+        });
+        co_return;
+    };
+    try {
+        coro::run(loop, task());
+        FAIL() << "a discard child's defect must propagate";
+    } catch (const std::runtime_error& error) {
+        EXPECT_STREQ(error.what(), "discard boom");
+    }
+    EXPECT_TRUE(sibling_cancelled);
+}
+
+TEST(TaskGroup, spawn_discard_ManyChildren_AllRunAndAreJoined) {
+    // Churn through many discard children in one group: every completion
+    // retires the previous one's frame, which the sanitizer build validates.
+    int completed = 0;
+    auto task = [&completed]() -> coro::Task<void> {
+        co_await coro::supervisor_group([&completed](coro::TaskGroup& group) -> coro::Task<void> {
+            for (int i = 0; i < 500; ++i) {
+                group.spawn_discard(increment_after_sleep(completed, 0ms));
+            }
+            co_return;
+        });
+        co_return;
+    };
+    coro::run(task());
+    EXPECT_EQ(completed, 500);
+}
+
 }  // namespace

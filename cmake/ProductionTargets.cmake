@@ -15,7 +15,7 @@
 
 # Coroutine runtime core — the loop (poll fd table, timer heap, ready queue,
 # cross-thread inbox), Task<T>, structured scopes, cancellation combinators,
-# cancellable sleeps, AsyncMutex, offload + SerialLane and signals. The offload
+# cancellable sleeps, AsyncMutex, offload and signals. The offload
 # pool is BS::thread_pool, reused rather than hand-rolled (see the pool note in
 # src/infrastructure/coro/loop.h). It is named in the module's loop.h, so
 # BS_thread_pool is PUBLIC here; everything else is the standard library and

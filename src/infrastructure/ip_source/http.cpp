@@ -53,7 +53,7 @@ coro::Task<Result> HttpIpSource::resolve() {
             domain::IpSourceError{domain::IpSourceError::Code::UNAVAILABLE,
                                   fmt::format(R"(HTTP IP source "{}" returned an address of the wrong family)", url_)});
     }
-    co_return std::vector<InetAddress>{*std::move(address)};
+    co_return std::vector<InetAddress>{*address};
 }
 
 }  // namespace ipsource

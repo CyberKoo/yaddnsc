@@ -7,8 +7,11 @@
 //   supervisor_group  a child failure is only reported; siblings are untouched
 //
 // `spawn` returns a Handle; `co_await handle` joins that child. `next()`
-// consumes child results in completion order. Scope exit always joins every
-// child and reaps its frame — there are no detached tasks.
+// consumes child results in completion order. `spawn_discard` starts a
+// fire-and-forget child whose slot leaves the bookkeeping the moment it
+// completes, so a group that lives for the whole process stays bounded by its
+// live children instead of its history. Scope exit always joins every child
+// and reaps its frame — there are no detached tasks.
 //
 // The body frame stays alive until every child it spawned has been reaped, so a
 // child may refer to the body's locals.
@@ -65,6 +68,9 @@ struct ChildSlot {
     ChildSlot* completed_next = nullptr;
     bool done = false;
     bool consumed = false;
+    /// spawn_discard child: the slot is erased at completion instead of
+    /// lingering until scope exit, and its result is never delivered.
+    bool discard = false;
 };
 
 /// Everything a running group needs; lives in the group combinator's frame.
@@ -83,6 +89,11 @@ struct GroupState {
     /// Scope every child runs in; cancelling it stops the children.
     CancelScope scope;
     std::vector<std::unique_ptr<ChildSlot>> children;
+    /// Completed discard child's frame, awaiting destruction. A completion hook
+    /// runs inside the child's own final suspend, where destroying that frame
+    /// is UB, so the hook parks it here and the next completion (or reap())
+    /// destroys it — the graveyard never holds more than one frame.
+    PromiseBase* graveyard = nullptr;
     ChildSlot* completed_head = nullptr;
     ChildSlot* completed_tail = nullptr;
     PromiseBase* next_head = nullptr;
@@ -109,14 +120,6 @@ struct GroupState {
             return;
         }
         slot->done = true;
-        ++done_count;
-        slot->completed_next = nullptr;
-        if (completed_tail != nullptr) {
-            completed_tail->completed_next = slot;
-        } else {
-            completed_head = slot;
-        }
-        completed_tail = slot;
         if (frame.failed() && !first_error) {
             first_error = frame.error;
             if (!supervisor) {
@@ -127,6 +130,24 @@ struct GroupState {
             PromiseBase* next = std::exchange(waiter->wait_next, nullptr);
             wake(*waiter);
             waiter = next;
+        }
+        if (slot->discard) {
+            // No FIFO entry and no result: the slot leaves the bookkeeping now.
+            // The frame is parked in the graveyard after destroying the
+            // previous occupant — this hook cannot destroy the frame it runs
+            // on. done_count is untouched: the slot no longer exists.
+            destroy_graveyard();
+            graveyard = &frame;
+            erase_slot(slot);
+        } else {
+            ++done_count;
+            slot->completed_next = nullptr;
+            if (completed_tail != nullptr) {
+                completed_tail->completed_next = slot;
+            } else {
+                completed_head = slot;
+            }
+            completed_tail = slot;
         }
         for (PromiseBase* waiter = std::exchange(next_head, nullptr); waiter != nullptr;) {
             PromiseBase* next = std::exchange(waiter->wait_next, nullptr);
@@ -156,6 +177,7 @@ struct GroupState {
     /// Destroy every child frame. Children may refer to the body frame, so the
     /// body is destroyed only after this returns.
     void reap() noexcept {
+        destroy_graveyard();
         for (auto& slot : children) {
             if (slot->frame != nullptr) {
                 slot->frame->self.destroy();
@@ -171,6 +193,26 @@ struct GroupState {
     }
 
 private:
+    /// Destroy the graveyard frame, if one is parked. Safe from any context:
+    /// the parked frame is completed and nobody references it any more.
+    void destroy_graveyard() noexcept {
+        if (graveyard != nullptr) {
+            graveyard->self.destroy();
+            graveyard = nullptr;
+        }
+    }
+
+    /// Remove a slot from the bookkeeping. Vector erase only moves the
+    /// unique_ptrs, so it cannot allocate; the slot must not be touched after.
+    void erase_slot(ChildSlot* slot) noexcept {
+        for (auto it = children.begin(); it != children.end(); ++it) {
+            if (it->get() == slot) {
+                children.erase(it);
+                return;
+            }
+        }
+    }
+
     ChildSlot* find(const PromiseBase& frame) const noexcept {
         for (const auto& candidate : children) {
             if (candidate->frame == &frame) {
@@ -287,7 +329,8 @@ private:
 /// The group handle passed to a task_group / supervisor_group body.
 ///
 /// Ownership: borrows; construct only through `task_group`/`supervisor_group`.
-/// A spawned child's frame is owned by the group until scope exit.
+/// A spawned child's frame is owned by the group until scope exit; a discard
+/// child's only until the next completion after its own.
 /// Thread safety: loop thread only; spawn/next/cancel are not reentrant.
 class TaskGroup {
 public:
@@ -306,16 +349,25 @@ public:
     Handle<T> spawn(Task<T> task) {
         auto handle = task.release();
         assert(handle && "spawn requires a valid task");
-        detail::ChildSlot* slot = state_->add_child(&detail::TypeTag<T>::VALUE);
-        PromiseBase& promise = handle.promise();
-        promise.loop = state_->loop;
-        promise.scope = &state_->scope;
-        promise.context_bound = true;
-        promise.completion_owner = state_;
-        promise.completion = &detail::group_child_completed;
-        slot->frame = &promise;
-        state_->loop->schedule(promise);
-        return Handle<T>{slot};
+        return Handle<T>{start_child(handle.promise(), &detail::TypeTag<T>::VALUE)};
+    }
+
+    /// Start a fire-and-forget child whose result is discarded.
+    ///
+    /// Unlike spawn(), a completed discard child leaves the bookkeeping at
+    /// once: its slot is erased when it finishes and its frame is destroyed by
+    /// the next completion or at scope exit, so a group that lives for the
+    /// whole process (the plugin bridge's) stays bounded by its live children
+    /// instead of accumulating every completed frame until shutdown. Scope exit
+    /// still joins a discard child that is in flight. A defect lands in the
+    /// group's first_error like any child's (and cancels a task_group's
+    /// siblings).
+    /// Failure: allocates; may throw std::bad_alloc.
+    void spawn_discard(Task<void> task) {
+        auto handle = task.release();
+        assert(handle && "spawn_discard requires a valid task");
+        detail::ChildSlot* slot = start_child(handle.promise(), nullptr);
+        slot->discard = true;
     }
 
     /// Consume results of children whose result type is `T`, in completion
@@ -352,6 +404,20 @@ public:
     [[nodiscard]] CancelScope& scope() noexcept { return state_->scope; }
 
 private:
+    /// Bind one not-yet-started frame to this group, allocate its slot and
+    /// schedule the first resumption. Allocates; may throw std::bad_alloc.
+    detail::ChildSlot* start_child(PromiseBase& promise, const void* tag) {
+        detail::ChildSlot* slot = state_->add_child(tag);
+        promise.loop = state_->loop;
+        promise.scope = &state_->scope;
+        promise.context_bound = true;
+        promise.completion_owner = state_;
+        promise.completion = &detail::group_child_completed;
+        slot->frame = &promise;
+        state_->loop->schedule(promise);
+        return slot;
+    }
+
     detail::GroupState* state_ = nullptr;
 };
 

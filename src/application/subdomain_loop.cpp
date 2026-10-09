@@ -65,7 +65,12 @@ coro::Task<void> subdomain_loop(std::shared_ptr<const domain::RuntimeConfig> con
             co_return;
         }
 
-        const bool force = evaluate_force(force_interval, last_force, context.loop->now());
+        // The interval is anchored at the cycle start, as the legacy queue's
+        // pop-and-reschedule did: a slow cycle shortens the following wait and
+        // a cycle that overran its interval is followed by an immediate one,
+        // so the long-run cadence does not drift by the cycle duration.
+        const auto cycle_start = context.loop->now();
+        const bool force = evaluate_force(force_interval, last_force, cycle_start);
         const domain::UpdateTask task{
             .config = config,
             .domain_index = domain_index,
@@ -79,19 +84,32 @@ coro::Task<void> subdomain_loop(std::shared_ptr<const domain::RuntimeConfig> con
                 co_return co_await update_once(task, services);
             });
 
-        if (outcome.cancelled) {
+        // The timer marks the scope cancelled too (timed_out implies
+        // cancelled), so the timeout case must be filtered out first: a budget
+        // timeout is a failed cycle, not a shutdown. The body already returned
+        // a CANCELLED UpdateError, which next_delay treats as an ordinary
+        // failure (interval, or retry_after if one was supplied).
+        if (outcome.cancelled && !outcome.timed_out) {
             // The enclosing scope was cancelled (shutdown): stop without running
             // another cycle.
             co_return;
         }
 
-        // A budget timeout is a failed cycle, not a shutdown: the body already
-        // returned a CANCELLED UpdateError, which next_delay treats as an
-        // ordinary failure (interval, or retry_after if one was supplied).
+        // A provider-supplied retry_after is anchored at the failure (the
+        // legacy request_retry did the same); the plain interval keeps the
+        // cycle-start anchoring described above.
+        const auto delay = next_delay(*outcome, update_interval);
+        const bool anchored_at_failure = !outcome->has_value() && outcome->error().retry_after_seconds > 0;
+        coro::Duration wait = delay;
+        if (!anchored_at_failure) {
+            const auto elapsed = context.loop->now() - cycle_start;
+            wait = delay > elapsed ? delay - elapsed : coro::Duration{};
+        }
+
         // The sleep is the shutdown checkpoint: a cancelled wait means the
         // enclosing scope was cancelled, so exit instead of pacing the next
         // cycle (a cancelled sleep resumes immediately and would hot-spin).
-        if (const auto slept = co_await coro::sleep_for(next_delay(*outcome, update_interval)); !slept) {
+        if (const auto slept = co_await coro::sleep_for(wait); !slept) {
             co_return;
         }
     }

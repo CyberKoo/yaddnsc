@@ -2,9 +2,11 @@
 """DNS server for component tests — fully async.
 
 Usage:
-    dns_server.py <port>
+    dns_server.py <port> [--udp-only] [--records=<json>]
 
 Listens on 127.0.0.1:<port> for both UDP and TCP DNS queries.
+--records replaces the built-in table for this instance, so two servers can
+hold different views of the same name (bootstrap fallback tests).
 
 Built-in records:
     yaddnsc.test          A    198.51.100.42
@@ -14,6 +16,7 @@ Built-in records:
 """
 
 import asyncio
+import json
 import socket
 import struct
 import signal
@@ -33,6 +36,9 @@ DEFAULT_RECORDS = {
 # Hostnames that trigger special behaviour.
 TRUNCATE_HOST = "truncate.yaddnsc.test"
 MALFORMED_HOST = "malformed.yaddnsc.test"
+# NOERROR with an empty answer section (NODATA), unless the instance's own
+# --records table holds the name — two instances can then disagree.
+NODATA_HOST = "nodata.yaddnsc.test"
 TIMEOUT_HOST = "timeout.yaddnsc.test"      # UDP: no response (triggers timeout)
 TCP_ERROR_HOST = "tcperror.yaddnsc.test"   # UDP: TC=1, TCP: invalid length (0)
 TCP_RESET_HOST = "tcpreset.yaddnsc.test"   # UDP: TC=1, TCP: close immediately
@@ -145,6 +151,12 @@ def build_response(ident: int, question: bytes, qname: str, qtype_str: str,
     if qname == MALFORMED_HOST:
         # Return garbage — should be rejected by the validator.
         return b"\x00" * 12 + question
+
+    if qname == NODATA_HOST and qname not in records:
+        # NODATA: NOERROR with an empty answer section — the name exists but
+        # has no records of the queried type.
+        header = struct.pack("!HHHHHH", ident, 0x8180, 1, 0, 0, 0)
+        return header + question
 
     if not rdata and qtype_str == "A":
         rdata = "198.51.100.1"  # fallback
@@ -312,6 +324,9 @@ async def main() -> None:
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 15353
     udp_only = "--udp-only" in sys.argv
     records = DEFAULT_RECORDS
+    for arg in sys.argv[2:]:
+        if arg.startswith("--records="):
+            records = json.loads(arg.removeprefix("--records="))
     shutdown_event = asyncio.Event()
 
     def handle_sig() -> None:

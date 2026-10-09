@@ -130,13 +130,12 @@ Error map_io_error(const net::IoError error, const std::string_view stage) {
     return {ErrorCode::CONNECTION_LOST, fmt::format("{}: connection lost", stage)};
 }
 
-Error map_connect_error(const net::IoError error, const bool tls) {
+Error map_connect_error(const net::IoError error) {
     if (error == net::IoError::CANCELLED) {
         return {ErrorCode::CANCELLED, "connect: cancelled"};
     }
-    if (tls) {
-        return {ErrorCode::TLS_HANDSHAKE_FAILED, "TLS handshake failed"};
-    }
+    // TCP refusal and TLS handshake failure are not distinguished (the stream
+    // reports one CONNECTION_FAILED for both), matching the legacy mapping.
     return {ErrorCode::CONNECT_FAILED, "connect failed"};
 }
 

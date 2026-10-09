@@ -54,8 +54,8 @@ template<typename First, typename... Rest>
     requires std::same_as<std::decay_t<First>, named_arg_t> && (std::same_as<std::decay_t<Rest>, named_arg_t> && ...)
 std::string format(std::string_view fmt_, First&& first, Rest&&... rest) {
     std::unordered_map<std::string, std::string> m;
-    m[std::string(first.name)] = std::move(first.value);
-    ((m[std::string(rest.name)] = std::move(rest.value)), ...);
+    m[std::string(first.name)] = std::forward<First>(first).value;
+    ((m[std::string(rest.name)] = std::forward<Rest>(rest).value), ...);
     std::string result(fmt_);
     for (const auto& [key, val] : m) {
         auto ph = std::string("{") + key + "}";

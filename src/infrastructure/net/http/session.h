@@ -38,7 +38,10 @@ namespace http {
 /// CANCELLED.
 /// Thread safety: not thread-safe as an object, but concurrent exchanges are
 /// serialized by the session's own mutex, so the *connection* is never used by
-/// two coroutines at once. Do not move a session while an exchange is in flight.
+/// two coroutines at once. The same holds for close(): while an exchange holds
+/// the mutex the close is deferred to a guard checkpoint instead of tearing
+/// down the borrowed stream mid-exchange. Do not move a session while an
+/// exchange is in flight.
 class Session {
 public:
     /// @param options  Client options (transport, TLS, limits, resolution).
@@ -60,7 +63,10 @@ public:
     /// a session is only ever pointed at its own origin.
     [[nodiscard]] coro::Task<std::expected<Response, Error>> exchange(std::string target, const Request& request);
 
-    /// Drop the connection; the session reconnects on the next exchange.
+    /// Drop the connection; the session reconnects on the next exchange. An
+    /// exchange in flight is left alone: the close is deferred to the session
+    /// guard's checkpoint and drops the connection as soon as the exchange
+    /// completes.
     void close() noexcept;
 
     [[nodiscard]] const std::string& scheme() const noexcept { return scheme_; }
@@ -83,6 +89,8 @@ private:
     std::uint16_t port_{0};
     coro::AsyncMutex mutex_;
     std::unique_ptr<net::Stream> stream_;
+    /// A close() that arrived while an exchange held the mutex.
+    bool close_requested_ = false;
     /// Bytes read past the previous response boundary.
     std::string pending_;
     std::optional<unsigned> keep_alive_remaining_;

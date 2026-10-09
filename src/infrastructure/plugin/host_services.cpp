@@ -223,9 +223,9 @@ yaddnsc_status HostServicesContext::http_exchange(const yaddnsc_http_request& re
     }
     call->request.content_type = std::string(to_view(request.content_type));
 
-    state_->in_flight = call;
+    state_->in_flight.store(call, std::memory_order_release);
     auto response = bridge_.exchange(call);
-    state_->in_flight.reset();
+    state_->in_flight.store(nullptr, std::memory_order_release);
 
     if (!response) {
         const auto& error = response.error();
@@ -239,7 +239,7 @@ yaddnsc_status HostServicesContext::http_exchange(const yaddnsc_http_request& re
         // YADDNSC_DRIVER_ABI_MAJOR.
         const yaddnsc_status status =
             error.code == http::ErrorCode::CANCELLED ? YADDNSC_STATUS_CANCELLED : YADDNSC_STATUS_NETWORK_ERROR;
-        write_error(out_error, status, arena_copy(error.message));
+        write_error(out_error, status, arena_copy(error.message), error.retry_after_seconds);
         return status;
     }
 

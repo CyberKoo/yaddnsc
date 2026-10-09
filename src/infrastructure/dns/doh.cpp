@@ -4,6 +4,7 @@
 
 #include "doh.h"
 
+#include <chrono>
 #include <cstdint>
 #include <exception>
 #include <new>
@@ -14,6 +15,7 @@
 
 #include <spdlog/spdlog.h>
 
+#include "infrastructure/coro/scope.hpp"
 #include "infrastructure/dns/dns_lookup_exception.h"
 #include "infrastructure/dns/util.hpp"
 #include "infrastructure/dns/validator.h"
@@ -28,6 +30,12 @@ namespace {
 
 /// ALPN identifier for HTTP/1.1 (RFC 7301) — DoH uses HTTP/1.1 here.
 constexpr unsigned char ALPN_HTTP_1_1[] = {8, 'h', 't', 't', 'p', '/', '1', '.', '1'};
+
+/// Per-attempt exchange budget, replacing the legacy per-operation transport
+/// timeouts (1s connect + 5s send/read): a stalled endpoint fails as
+/// CONNECTION (retryable at the dispatcher level) instead of parking until
+/// the caller's scope fires.
+constexpr auto EXCHANGE_BUDGET = std::chrono::seconds(10);
 
 /// Map an HTTP failure to the DNS vocabulary.
 [[nodiscard]] DnsErrorInfo map_http_error(const http::Error& error) {
@@ -98,21 +106,41 @@ coro::Task<std::expected<std::vector<std::uint8_t>, DnsErrorInfo>> DohResolver::
             if (attempt == 1) {
                 SPDLOG_DEBUG(R"(Connection to "{}" failed, reconnecting)", label_);
             }
-            auto response = co_await client_->exchange(target_, request);
+            auto exchanged = co_await coro::with_timeout(
+                EXCHANGE_BUDGET,
+                [this, &target = target_, &request](
+                    coro::CancelScope&) -> coro::Task<std::expected<http::Response, http::Error>> {
+                    co_return co_await client_->exchange(target, request);
+                });
+            if (exchanged.timed_out) {
+                // Own budget fired (checked before the body's CANCELLED value):
+                // the legacy transport-timeout path, mapped to CONNECTION. The
+                // cancelled exchange already dropped the connection inside the
+                // session, so a retry reconnects on its own.
+                if (attempt + 1 < MAX_ATTEMPTS) {
+                    continue;  // rebuild once, then give up
+                }
+                co_return std::unexpected(
+                    DnsErrorInfo{DnsError::CONNECTION,
+                                 fmt::format(R"(Failed to read response from "{}": timed out)", label_)});
+            }
+            auto& response = *exchanged;
             if (!response) {
                 if (response.error().code == http::ErrorCode::CANCELLED) {
                     co_return std::unexpected(map_http_error(response.error()));
                 }
-                client_->close();
+                // A failed exchange never leaves the connection behind: the
+                // session dropped it already.
                 if (attempt + 1 < MAX_ATTEMPTS) {
                     continue;  // rebuild once, then give up
                 }
                 co_return std::unexpected(map_http_error(response.error()));
             }
 
-            // RFC 8484 §4.2.1: only 200 carries a usable answer.
+            // RFC 8484 §4.2.1: only 200 carries a usable answer. Any other
+            // status is a per-query failure — the shared connection is healthy
+            // and stays open for the sibling queries.
             if (response->status != 200) {
-                client_->close();
                 co_return std::unexpected(
                     DnsErrorInfo{response->status >= 500 ? DnsError::RETRY : DnsError::SERVER_REFUSED,
                                  fmt::format("DoH endpoint returned HTTP status {}", response->status)});

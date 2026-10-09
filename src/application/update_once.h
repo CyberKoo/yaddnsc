@@ -24,6 +24,15 @@ namespace app {
 /// ceiling and matches the legacy per-query budgets (UDP 1s + TCP fallback 1s).
 inline constexpr std::chrono::seconds DNS_READ_BUDGET{4};
 
+/// Budget for resolving the local address inside one cycle.
+///
+/// The coroutine HTTP layer has no I/O timeout, so the bound is composed here,
+/// the same way as DNS_READ_BUDGET: a provider that accepts and never answers
+/// must fail this cycle in seconds instead of holding it to UPDATE_BUDGET
+/// (30s). 10s covers the legacy per-operation budgets (connect + send + read
+/// at 5s each could never all stall at once for a working endpoint).
+inline constexpr std::chrono::seconds IP_SOURCE_BUDGET{10};
+
 /// What one executed cycle decided (and did).
 struct UpdateCycleResult {
     domain::UpdateDecision decision;

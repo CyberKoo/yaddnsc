@@ -16,6 +16,7 @@
 #include "infrastructure/coro/loop.h"
 #include "infrastructure/coro/scope.hpp"
 #include "infrastructure/net/http/client.h"
+#include "support/fmt.hpp"
 
 namespace plugin {
 
@@ -64,18 +65,50 @@ coro::Task<void> serve_exchange(std::shared_ptr<const BridgeState> state, std::s
     std::expected<http::Response, http::Error> result{std::unexpect,
                                                       http::Error{http::ErrorCode::CANCELLED, "bridge cancelled"}};
     try {
-        http::Client client{state->options};
-        auto outcome = co_await coro::with_timeout(
-            state->wait_budget, [&client, &fulfil](coro::CancelScope&) -> coro::Task<std::expected<http::Response, http::Error>> {
-                co_return co_await client.exchange(fulfil.call->url, fulfil.call->request);
-            });
-        if (outcome.timed_out || outcome.cancelled) {
-            fulfil.call->cancelled.store(true, std::memory_order_release);
+        // A cancel() that landed before this coroutine started (its posted
+        // scope lookup found nothing to cancel) is honoured here instead of
+        // starting a doomed exchange.
+        if (fulfil.call->cancelled.load(std::memory_order_acquire)) {
+            fulfil.set(std::move(result));
+            co_return;
         }
-        if (outcome.has_value()) {
-            result = std::move(*outcome);
+        http::Client client{state->options};
+        // The exchange runs in the call's own cancel scope, published as
+        // live_scope: a workflow abandon (Bridge::cancel) cancels the in-flight
+        // exchange itself, not just the worker's wait on it.
+        auto scoped = co_await coro::with_cancel_scope(
+            [&client, &state, &fulfil](coro::CancelScope& call_scope)
+                -> coro::Task<coro::ScopeOutcome<std::expected<http::Response, http::Error>>> {
+                fulfil.call->live_scope = &call_scope;
+                auto outcome = co_await coro::with_timeout(
+                    state->wait_budget,
+                    [&client, &fulfil](coro::CancelScope&) -> coro::Task<std::expected<http::Response, http::Error>> {
+                        co_return co_await client.exchange(fulfil.call->url, fulfil.call->request);
+                    });
+                fulfil.call->live_scope = nullptr;
+                co_return outcome;
+            });
+        auto& outcome = *scoped;
+        if (outcome.timed_out) {
+            // The wait budget expired: a slow upstream, not an abandon. Report
+            // a network failure instead of a cancellation (the ABI maps only
+            // CANCELLED to YADDNSC_STATUS_CANCELLED), and leave the call's
+            // cancelled flag clear so the worker's is_cancelled() stays false —
+            // the legacy stack's socket timeout looked exactly like this.
+            result = std::unexpected(http::Error{http::ErrorCode::CONNECTION_LOST,
+                                                 fmt::format("timed out after {}ms", state->wait_budget.count())});
         } else {
-            result = std::unexpected(http::Error{http::ErrorCode::CANCELLED, "bridge wait budget expired"});
+            // The call's own scope (Bridge::cancel) and the enclosing group
+            // scope (shutdown) both surface through the inner outcome: the
+            // cancelled exchange returns a CANCELLED value.
+            if (scoped.cancelled || outcome.cancelled) {
+                fulfil.call->cancelled.store(true, std::memory_order_release);
+            }
+            if (outcome.has_value()) {
+                result = std::move(*outcome);
+            } else {
+                result = std::unexpected(http::Error{http::ErrorCode::CANCELLED, "bridge wait budget expired"});
+            }
         }
     } catch (...) {
         // A defect here (allocation or client bug) must not strand the worker:
@@ -111,7 +144,10 @@ std::expected<http::Response, http::Error> Bridge::exchange(std::shared_ptr<Brid
     auto future = call->promise.get_future();
 
     try {
-        loop->post([group, state, call] { group->spawn(detail::serve_exchange(state, call)); });
+        // spawn_discard: the group lives for the whole daemon, so a completed
+        // exchange must leave the bookkeeping at once instead of accumulating
+        // its frame and slot until shutdown.
+        loop->post([group, state, call] { group->spawn_discard(detail::serve_exchange(state, call)); });
     } catch (...) {
         call->cancelled.store(true, std::memory_order_release);
         return std::unexpected(http::Error{http::ErrorCode::CANCELLED, "bridge post failed"});
@@ -123,6 +159,29 @@ std::expected<http::Response, http::Error> Bridge::exchange(std::shared_ptr<Brid
         return std::unexpected(http::Error{http::ErrorCode::CANCELLED, "bridge wait budget expired"});
     }
     return future.get();
+}
+
+void Bridge::cancel(std::shared_ptr<BridgeCall> call) noexcept {
+    if (call == nullptr) {
+        return;
+    }
+    // Latch the flag at once (any thread): a serve_exchange that has not
+    // started yet sees it and never starts the exchange.
+    call->cancelled.store(true, std::memory_order_release);
+    try {
+        // The scope itself is loop-thread state, so the cancel is delivered
+        // through the inbox; a call whose exchange already finished reads as
+        // null and is skipped.
+        loop_->post([call = std::move(call)] {
+            coro::CancelScope* const scope = call->live_scope;
+            if (scope != nullptr) {
+                scope->cancel(coro::CancelCause::REQUESTED);
+            }
+        });
+    } catch (...) {
+        // The post allocates; without it the in-flight exchange finishes on its
+        // own wait budget, which is the pre-cancel behaviour for this one call.
+    }
 }
 
 }  // namespace plugin

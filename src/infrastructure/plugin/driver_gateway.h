@@ -6,17 +6,13 @@
 #define YADDNSC_PLUGIN_DRIVER_GATEWAY_H
 
 #include <chrono>
-#include <cstddef>
 #include <memory>
 #include <string>
-#include <string_view>
-#include <unordered_map>
 
 #include <expected>
 
 #include "application/ports.h"
 #include "domain/error/error.h"
-#include "infrastructure/coro/serial_lane.hpp"
 #include "infrastructure/coro/task.hpp"
 #include "infrastructure/net/http/types.h"
 #include "infrastructure/plugin/bridge.h"
@@ -39,9 +35,9 @@ namespace plugin {
 /// (the plugin C ABI is synchronous and must not run on the loop), and host HTTP
 /// reaches the loop through the Bridge.
 ///
-/// Ordering: every driver name owns one SerialLane, so its create/update/destroy
-/// cycles execute in submission order. Under abandon an abandoned cycle still
-/// holds its place on the lane, so a later cycle waits behind it.
+/// Concurrency: cycles run concurrently, including cycles of one driver — the
+/// ABI guarantees that distinct driver instances may run in parallel, and every
+/// cycle creates a fresh instance. The offload pool's worker count is the bound.
 ///
 /// Status mapping (yaddnsc_status → domain::DriverError) is the legacy one: the
 /// capability gate runs before create() and returns UPDATE_FAILED directly.
@@ -49,8 +45,7 @@ namespace plugin {
 /// Implements app::GatewayPort, so the application layer reaches it through the
 /// port instead of this concrete type.
 ///
-/// Thread safety: every method is loop-thread only. Retire a driver's lane only
-/// after it is unloaded and no further cycles will be submitted for that name.
+/// Thread safety: every method is loop-thread only.
 class DriverGateway final : public app::GatewayPort {
 public:
     /// Construction-time policy.
@@ -78,42 +73,34 @@ public:
     DriverGateway(DriverGateway&&) = delete;
     DriverGateway& operator=(DriverGateway&&) = delete;
 
-    /// Perform one update through the lane of `driver_name`.
+    ~DriverGateway() noexcept override = default;
+
+    /// Perform one update cycle of `driver_name` on an offload worker.
     ///
     /// Failure: DriverError values; a defect (allocation, a host bug) escapes as
     /// an exception. Cancellation: the awaiting scope abandons the call — this
-    /// returns CANCELLED while the cycle keeps its place on the lane and runs to
-    /// completion on the worker.
+    /// returns CANCELLED while a cycle that already started runs to completion
+    /// on the worker; a cycle not yet started is dropped and never enters the
+    /// driver.
     [[nodiscard]] coro::Task<std::expected<void, domain::DriverError>> update(std::string driver_name,
                                                                               domain::DriverUpdateCommand command) override;
 
     /// Validate one subdomain's driver_params JSON against the driver's schema
     /// without performing an update (the host's `config test` path). Runs the
-    /// same create → validate → destroy cycle on the name's lane. The optional
+    /// same create → validate → destroy cycle on an offload worker. The optional
     /// yaddnsc_driver_validate entry stays optional: a plugin that omits it
     /// still loads and can update, but this call fails because the host cannot
     /// confirm driver_params.
     [[nodiscard]] coro::Task<std::expected<void, domain::DriverError>> validate_config(std::string driver_name,
                                                                                        std::string driver_param_json);
 
-    /// Drop a driver's lane. Call after the driver is unloaded and no further
-    /// cycles will be submitted for that name; in-flight and queued cycles hold
-    /// their own share of the lane, so they still drain and report.
-    void retire(std::string_view driver_name) noexcept;
-
-    /// Number of live lanes; one per driver name that has been used.
-    [[nodiscard]] std::size_t lane_count() const noexcept { return lanes_.size(); }
-
     /// The host-service HTTP bridge. Borrowed; lives as long as the gateway.
     [[nodiscard]] Bridge& bridge() noexcept { return *bridge_; }
 
 private:
-    [[nodiscard]] std::shared_ptr<coro::SerialLane> lane_for(std::string_view driver_name);
-
     const DriverCatalog& catalog_;
     const Logger& logger_;
     std::shared_ptr<Bridge> bridge_;
-    std::unordered_map<std::string, std::shared_ptr<coro::SerialLane>> lanes_;
 };
 
 }  // namespace plugin

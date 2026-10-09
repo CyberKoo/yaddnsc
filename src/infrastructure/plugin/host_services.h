@@ -70,7 +70,7 @@ public:
         if (state_->cancelled.load(std::memory_order_acquire)) {
             return 1;
         }
-        const std::shared_ptr<BridgeCall>& call = state_->in_flight;
+        const std::shared_ptr<BridgeCall> call = state_->in_flight.load(std::memory_order_acquire);
         return call != nullptr && call->cancelled.load(std::memory_order_acquire) ? 1 : 0;
     }
 

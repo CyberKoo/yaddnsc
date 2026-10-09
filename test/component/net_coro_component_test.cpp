@@ -1,10 +1,12 @@
 //
-// Component tests for the coroutine transport layer (src/infrastructure/net/).
+// Component tests for the coroutine transport layer (src/infrastructure/net/)
+// plus the DNS wire exchange built on it.
 //
 // Real I/O on loopback: an in-process TCP echo server for the plain-TCP paths
 // and the shared Python TLS echo server (test/component/tls_echo_server.py) for
 // the TLS paths, including certificate verification against a throwaway
-// self-signed bundle.
+// self-signed bundle. UDP and the DNS wire exchange are served by in-process
+// datagram sockets, on IPv6 loopback where the exchange is exercised.
 //
 // NOTE: ASSERT_* macros expand to `return;`, which is ill-formed inside a
 // coroutine body; these tests use EXPECT_* only inside coroutine bodies.
@@ -34,6 +36,7 @@
 
 #include "domain/network/inet_address.h"
 #include "infrastructure/coro/coro.h"
+#include "infrastructure/dns/exchange.h"
 #include "infrastructure/net/io_error.h"
 #include "infrastructure/net/tcp_stream.h"
 #include "infrastructure/net/tls_context.h"
@@ -536,6 +539,69 @@ TEST(NetCoroUdpSocket, recv_from_NoTrafficWithTimeout_TimesOut) {
     EXPECT_TRUE(timed_out);
     ASSERT_TRUE(error.has_value());
     EXPECT_EQ(*error, IoError::CANCELLED);
+}
+
+// ---------------------------------------------------------------------------
+// DNS wire exchange (dns::detail) over an IPv6 server
+// ---------------------------------------------------------------------------
+
+[[nodiscard]] InetAddress loopback_v6() {
+    const auto address = InetAddress::parse("::1");
+    EXPECT_TRUE(address.has_value());
+    return address.value_or(InetAddress{});
+}
+
+/// Answer exactly one datagram with `reply`.
+coro::Task<void> answer_one(net::UdpSocket& server, const std::vector<std::uint8_t>& reply, bool& answered) {
+    std::array<std::uint8_t, BUFFER_SIZE> buffer{};
+    const auto datagram = co_await server.recv_from(buffer);
+    if (!datagram) {
+        co_return;
+    }
+    if (const auto sent = co_await server.send_to(datagram->from, datagram->port, reply)) {
+        answered = true;
+    }
+    co_return;
+}
+
+// Regression test: exchange_udp used to bind its socket to the IPv4 wildcard
+// even for an IPv6 server, so every IPv6 classic/bootstrap query failed before
+// the first send. The socket must open lazily on the send instead.
+TEST(NetCoroDnsExchange, query_udp_Ipv6Server_RoundTrips) {
+    net::UdpSocket server{AddressFamily::IPV6};
+    if (!server.bind(loopback_v6(), 0).has_value()) {
+        GTEST_SKIP() << "IPv6 loopback is unavailable on this host";
+    }
+    const auto server_port = server.local_port();
+    ASSERT_TRUE(server_port.has_value());
+
+    const std::vector<std::uint8_t> query{0xDE, 0xAD, 0xBE, 0xEF};
+    const std::vector<std::uint8_t> reply{0x01, 0x02, 0x03};
+    bool answered = false;
+    bool timed_out = false;
+    std::vector<std::uint8_t> answer;
+
+    auto task = [&]() -> coro::Task<void> {
+        const auto outcome =
+            co_await coro::with_timeout(2s, [&](coro::CancelScope&) -> coro::Task<void> {
+                co_await coro::task_group([&](coro::TaskGroup& group) -> coro::Task<void> {
+                    group.spawn(answer_one(server, reply, answered));
+                    const auto result = co_await dns::detail::query_udp(loopback_v6(), *server_port, query);
+                    if (result) {
+                        answer = *result;
+                    }
+                    co_return;
+                });
+                co_return;
+            });
+        timed_out = outcome.timed_out;
+        co_return;
+    };
+    run_task(task());
+
+    EXPECT_FALSE(timed_out);
+    EXPECT_TRUE(answered);
+    EXPECT_EQ(answer, reply);
 }
 
 }  // namespace

@@ -23,11 +23,10 @@ namespace app {
 
 struct Services;
 
-/// Overall budget for one update cycle, enforced by with_timeout. It replaces
-/// every legacy I/O timeout parameter: the old transport defaulted each
-/// connect/read/write to a few seconds, and the legacy workflow chained an IP
-/// source fetch, a DNS read and an HTTP driver call, so ~30s bounds the whole
-/// cycle generously without letting a wedged provider stall a subdomain.
+/// Overall budget for one update cycle, enforced by with_timeout. It is the
+/// last-resort bound behind the narrower budgets inside the cycle (IP source,
+/// DNS read, per-exchange I/O): a wedged provider can never stall a subdomain
+/// for longer than this.
 inline constexpr std::chrono::seconds UPDATE_BUDGET{30};
 
 /// The delay before the next cycle of a subdomain loop.

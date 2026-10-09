@@ -4,6 +4,7 @@
 
 #include "transport.h"
 
+#include <string>
 #include <utility>
 
 #include "infrastructure/dns/bootstrap.h"
@@ -24,8 +25,8 @@ coro::Task<std::expected<std::vector<InetAddress>, Error>> resolve_host(std::str
 }
 
 coro::Task<std::expected<std::unique_ptr<net::Stream>, Error>> connect_stream(
-    const std::string_view scheme, const std::span<const InetAddress> addresses, const std::uint16_t port,
-    const Options& options) {
+    const std::string_view scheme, const std::string_view host, const std::span<const InetAddress> addresses,
+    const std::uint16_t port, const Options& options) {
     const bool tls = scheme == "https";
 
     // A stateless fallback keeps the production factory out of global state while
@@ -33,15 +34,24 @@ coro::Task<std::expected<std::unique_ptr<net::Stream>, Error>> connect_stream(
     net::DefaultStreamFactory fallback;
     net::StreamFactory& factory = options.factory != nullptr ? *options.factory : fallback;
 
+    // A host*name* is the default TLS identity (SNI and certificate
+    // verification); a name pinned in Options::tls wins. An IP-literal host is
+    // never copied: RFC 6066 §3 forbids an IP literal in SNI, and verification
+    // then targets the connection IP by default.
+    net::TlsOptions tls_options = options.tls;
+    if (tls && !tls_options.sni_hostname.has_value() && !InetAddress::parse(host).has_value()) {
+        tls_options.sni_hostname = std::string(host);
+    }
+
     Error last{ErrorCode::CONNECT_FAILED, "no address to connect to"};
     for (const InetAddress& address : addresses) {
-        auto stream = tls ? factory.create_tls(address, port, options.connect, options.tls, options.tls_context)
+        auto stream = tls ? factory.create_tls(address, port, options.connect, tls_options, options.tls_context)
                           : factory.create_tcp(address, port, options.connect);
         auto connected = co_await stream->ensure_connected();
         if (connected) {
             co_return stream;
         }
-        last = map_connect_error(connected.error(), tls);
+        last = map_connect_error(connected.error());
         if (last.code == ErrorCode::CANCELLED) {
             co_return std::unexpected(std::move(last));
         }

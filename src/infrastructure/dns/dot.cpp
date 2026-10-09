@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cstddef>
 #include <exception>
 #include <new>
@@ -16,6 +17,7 @@
 
 #include <spdlog/spdlog.h>
 
+#include "infrastructure/coro/scope.hpp"
 #include "infrastructure/dns/bootstrap.h"
 #include "infrastructure/dns/exchange.h"
 #include "infrastructure/dns/dns_lookup_exception.h"
@@ -33,6 +35,16 @@ namespace {
 
 /// ALPN identifier for DNS over TLS (RFC 7858 §3.4).
 constexpr unsigned char ALPN_DOT[] = {3, 'd', 'o', 't'};
+
+/// Connection-establishment budget (connect + TLS handshake), restored from
+/// the legacy TLS_CONNECT_TIMEOUT: a black-holed endpoint fails as RETRY in
+/// about a second instead of parking until the caller's scope fires.
+constexpr auto CONNECT_BUDGET = std::chrono::seconds(1);
+
+/// Post-connect budget for one send/read operation, restored from the legacy
+/// per-operation transport defaults. An expiry is a broken session, mapped to
+/// CONNECTION (the legacy "Failed to read from ..." path), not to RETRY.
+constexpr auto IO_BUDGET = std::chrono::seconds(5);
 
 /// RFC 7830 padding block size for a DoT query.
 constexpr std::size_t PAD_BLOCK = 128;
@@ -64,11 +76,34 @@ constexpr std::size_t EDNS_PAD_OVERHEAD = 15;
     return DnsErrorInfo{DnsError::CONNECTION, "DoT connection failed"};
 }
 
+/// Connect one stream under CONNECT_BUDGET. An expired budget is the legacy
+/// connect timeout and maps to RETRY; outer cancellation stays CANCELLED.
+[[nodiscard]] coro::Task<std::expected<void, DnsErrorInfo>> connect_with_budget(net::Stream& stream) {
+    auto connected = co_await coro::with_timeout(
+        CONNECT_BUDGET, [&stream](coro::CancelScope&) -> coro::Task<std::expected<void, net::IoError>> {
+            co_return co_await stream.ensure_connected();
+        });
+    if (connected.timed_out) {
+        co_return std::unexpected(DnsErrorInfo{DnsError::RETRY, "DoT connection timed out"});
+    }
+    if (!*connected) {
+        co_return std::unexpected(map_connect_error(connected->error()));
+    }
+    co_return {};
+}
+
 }  // namespace
 
 DotResolver::DotResolver(std::string host, const std::uint16_t port, EndpointOptions options)
     : host_(std::move(host)), port_(port), options_(std::move(options)) {
     options_.tls.alpn_proto = ALPN_DOT;
+    // A named endpoint host is the default TLS identity (SNI and certificate
+    // verification) unless the caller pinned a name. An IP-literal endpoint is
+    // never copied: RFC 6066 §3 forbids an IP literal in SNI, and verification
+    // then targets the connection IP by default.
+    if (!options_.tls.sni_hostname.has_value() && !InetAddress::parse(host_).has_value()) {
+        options_.tls.sni_hostname = host_;
+    }
 }
 
 DotResolver::~DotResolver() {
@@ -111,10 +146,22 @@ coro::Task<std::expected<std::vector<std::uint8_t>, DnsErrorInfo>> DotResolver::
                 co_return std::unexpected(std::move(ready.error()));
             }
 
-            auto sent = co_await stream_->send_all(*framed);
-            if (!sent) {
+            auto sent = co_await coro::with_timeout(
+                IO_BUDGET, [this, &framed](coro::CancelScope&) -> coro::Task<std::expected<void, net::IoError>> {
+                    co_return co_await stream_->send_all(*framed);
+                });
+            if (sent.timed_out) {
+                // Own budget fired (checked before the body's CANCELLED value):
+                // a broken session, retried once like any transient failure.
                 close();
-                if (sent.error() == net::IoError::CANCELLED) {
+                if (attempt == 0) {
+                    continue;
+                }
+                co_return std::unexpected(DnsErrorInfo{DnsError::CONNECTION, "DoT send timed out"});
+            }
+            if (!*sent) {
+                close();
+                if (sent->error() == net::IoError::CANCELLED) {
                     co_return std::unexpected(DnsErrorInfo{DnsError::CANCELLED, "DoT send cancelled"});
                 }
                 if (attempt == 0) {
@@ -124,9 +171,20 @@ coro::Task<std::expected<std::vector<std::uint8_t>, DnsErrorInfo>> DotResolver::
             }
 
             std::array<std::uint8_t, 2> prefix{};
-            if (auto got = co_await stream_->read_exact(prefix); !got) {
+            auto got_prefix = co_await coro::with_timeout(
+                IO_BUDGET, [this, &prefix](coro::CancelScope&) -> coro::Task<std::expected<void, net::IoError>> {
+                    co_return co_await stream_->read_exact(prefix);
+                });
+            if (got_prefix.timed_out) {
                 close();
-                if (got.error() == net::IoError::CANCELLED) {
+                if (attempt == 0) {
+                    continue;
+                }
+                co_return std::unexpected(DnsErrorInfo{DnsError::CONNECTION, "DoT receive timed out"});
+            }
+            if (!*got_prefix) {
+                close();
+                if (got_prefix->error() == net::IoError::CANCELLED) {
                     co_return std::unexpected(DnsErrorInfo{DnsError::CANCELLED, "DoT receive cancelled"});
                 }
                 if (attempt == 0) {
@@ -134,17 +192,31 @@ coro::Task<std::expected<std::vector<std::uint8_t>, DnsErrorInfo>> DotResolver::
                 }
                 co_return std::unexpected(DnsErrorInfo{DnsError::CONNECTION, "DoT receive failed"});
             }
-            const auto length = dns::read_length(prefix);
-            if (!length) {
+            // The two-byte prefix bounds the response to 65535 octets, so only
+            // a zero length is invalid — DoT answers may exceed the classic
+            // UDP/TCP cap (read_length's MAX_MESSAGE_SIZE).
+            const auto length = dns::announced_length(prefix);
+            if (length == 0) {
                 close();
                 co_return std::unexpected(
-                    DnsErrorInfo{DnsError::PARSE, "DoT server announced an invalid message length"});
+                    DnsErrorInfo{DnsError::PARSE, "DoT server announced a zero-length response"});
             }
 
-            std::vector<std::uint8_t> response(*length);
-            if (auto got = co_await stream_->read_exact(response); !got) {
+            std::vector<std::uint8_t> response(length);
+            auto got_body = co_await coro::with_timeout(
+                IO_BUDGET, [this, &response](coro::CancelScope&) -> coro::Task<std::expected<void, net::IoError>> {
+                    co_return co_await stream_->read_exact(response);
+                });
+            if (got_body.timed_out) {
                 close();
-                if (got.error() == net::IoError::CANCELLED) {
+                if (attempt == 0) {
+                    continue;
+                }
+                co_return std::unexpected(DnsErrorInfo{DnsError::CONNECTION, "DoT receive timed out"});
+            }
+            if (!*got_body) {
+                close();
+                if (got_body->error() == net::IoError::CANCELLED) {
                     co_return std::unexpected(DnsErrorInfo{DnsError::CANCELLED, "DoT receive cancelled"});
                 }
                 if (attempt == 0) {
@@ -172,11 +244,7 @@ coro::Task<std::expected<std::vector<std::uint8_t>, DnsErrorInfo>> DotResolver::
 
 coro::Task<std::expected<void, DnsErrorInfo>> DotResolver::ensure_stream() {
     if (stream_ != nullptr) {
-        auto connected = co_await stream_->ensure_connected();
-        if (connected) {
-            co_return {};
-        }
-        co_return std::unexpected(map_connect_error(connected.error()));
+        co_return co_await connect_with_budget(*stream_);
     }
 
     auto addresses = co_await bootstrap_resolve(host_, std::nullopt, options_.bootstrap_dns);
@@ -190,12 +258,12 @@ coro::Task<std::expected<void, DnsErrorInfo>> DotResolver::ensure_stream() {
     DnsErrorInfo last{DnsError::CONNECTION, "no DoT address"};
     for (const InetAddress& address : *addresses) {
         auto stream = factory.create_tls(address, port_, options_.connect, options_.tls, options_.tls_context);
-        auto connected = co_await stream->ensure_connected();
+        auto connected = co_await connect_with_budget(*stream);
         if (connected) {
             stream_ = std::move(stream);
             co_return {};
         }
-        last = map_connect_error(connected.error());
+        last = std::move(connected.error());
         if (last.code == DnsError::CANCELLED) {
             co_return std::unexpected(std::move(last));
         }

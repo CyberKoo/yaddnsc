@@ -29,9 +29,12 @@ struct ConnectOptions {
 
 /// TLS-only options, accepted exclusively by TlsStream.
 struct TlsOptions {
-    /// Hostname used for SNI and certificate verification. Default: the
-    /// connection target itself, i.e. verification against the IP literal and no
-    /// SNI (RFC 6066 §3 forbids an IP literal in SNI).
+    /// Hostname used for SNI and certificate verification. Layers that know the
+    /// origin name (the HTTP clients, the DoT resolver) default this to the
+    /// target host when it is a name — never an IP literal, which RFC 6066 §3
+    /// forbids in SNI; an explicitly empty string suppresses that default.
+    /// With no name, the connection target itself is the identity: verification
+    /// against the IP literal and no SNI.
     std::optional<std::string> sni_hostname{};
 
     /// ALPN protocol bytes, e.g. {2, 'h', '2'}. Copied at construction.

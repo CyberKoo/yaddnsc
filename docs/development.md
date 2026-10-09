@@ -76,7 +76,9 @@ There is no system-test tier: `integration_scenarios` is the highest one.
 ### Integration scenarios
 
 `test/integration/run_ctest.sh` drives the real binary against a Python DNS
-simulator (`test/integration/sim/server.py`, aiohttp + dnslib). It covers
+simulator (`test/integration/sim/server.py`, aiohttp + dnslib). The tier is
+registered only when bash and Python3 are found at configure time (bash is a
+ports/pkg install on FreeBSD, not part of the base system). It covers
 three end-to-end update paths (interface/classic, http/DoT, interface/DoH),
 the read-only CLI subcommands and their exit codes, and two failure
 contracts that pull in opposite directions:

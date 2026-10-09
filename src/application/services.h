@@ -34,6 +34,9 @@ struct RuntimeServices {
     IpSourcePort& ip_source;
     const Logger& logger;
     std::function<GatewayPort&(coro::TaskGroup& bridge_group)> make_gateway;
+    /// Flush and stop the async log pipeline. The escalating second SIGINT calls
+    /// this right before `_exit`, which skips the normal drain in main().
+    std::function<void()> drain_logs;
 };
 
 }  // namespace app

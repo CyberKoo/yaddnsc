@@ -15,6 +15,7 @@
 #include <vector>
 
 #include <ifaddrs.h>
+#include <net/if.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
 
@@ -86,6 +87,24 @@ std::optional<std::vector<InetAddress>> ipsource::get_addresses(const std::strin
     auto all = enumerate_interfaces();
     if (const auto it = all.find(interface_name); it != all.end()) {
         return it->second;
+    }
+    return std::nullopt;
+}
+
+std::optional<unsigned int> ipsource::get_default_interface_index(const AddressFamily family) {
+    const auto native = family == AddressFamily::IPV6 ? AF_INET6 : AF_INET;
+    auto ifaddrs = query_ifaddrs();
+    for (auto* ifa = ifaddrs.get(); ifa != nullptr; ifa = ifa->ifa_next) {
+        if (ifa->ifa_addr == nullptr || static_cast<int>(ifa->ifa_addr->sa_family) != native) {
+            continue;
+        }
+        if ((ifa->ifa_flags & IFF_UP) == 0 || (ifa->ifa_flags & IFF_LOOPBACK) != 0 ||
+            (ifa->ifa_flags & IFF_POINTOPOINT) != 0) {
+            continue;
+        }
+        if (const unsigned int index = ::if_nametoindex(ifa->ifa_name); index > 0) {
+            return index;
+        }
     }
     return std::nullopt;
 }

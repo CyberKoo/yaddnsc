@@ -2,7 +2,8 @@
 # Integration tests — end-to-end workflows in a controlled I/O environment
 #
 # These tests exercise complete workflows (config → resolve → update) using
-# real I/O on loopback.  They require Python3 + dnslib for the sim server.
+# real I/O on loopback.  They require bash plus Python3 + dnslib for the sim
+# server.
 #
 # Usage:
 #   cmake -B build -DYADDNSC_BUILD_TESTS=ON
@@ -19,10 +20,19 @@ if(NOT Python3_FOUND)
     return()
 endif()
 
+# The scenario driver is a bash script; bash is not in the base system on
+# FreeBSD, so degrade the same way when it is absent.
+find_program(BASH_EXECUTABLE NAMES bash)
+
+if(NOT BASH_EXECUTABLE)
+    message(STATUS "Integration tests: disabled (bash not found)")
+    return()
+endif()
+
 # These tests spawn a real sim server and exercise the full binary,
 # so they depend on yaddnsc and the simple driver being built first.
 add_test(NAME integration_scenarios
-    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/run_ctest.sh
+    COMMAND ${BASH_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/run_ctest.sh
         ${CMAKE_SOURCE_DIR}
         ${CMAKE_BINARY_DIR}
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}

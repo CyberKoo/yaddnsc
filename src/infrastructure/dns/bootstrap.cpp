@@ -70,22 +70,27 @@ struct KindResult {
 }
 
 /// Query one record kind against every server in order.
+///
+/// A server that cannot answer — transport failure, a malformed response, an
+/// authoritative NXDOMAIN, or a NODATA answer — never ends the search: the
+/// error is recorded and the next server is tried, because a later server can
+/// still hold the records (split-horizon DNS, partial views).
 [[nodiscard]] coro::Task<KindResult> resolve_kind(std::string host, const RecordKind kind,
                                                   std::vector<Config::DnsServer> servers) {
     KindResult result;
     result.error = DnsErrorInfo{DnsError::NODATA, fmt::format(R"(DNS lookup for "{}" returned no records)", host)};
 
-    try {
-        for (const Config::DnsServer& server : servers) {
-            const auto address = InetAddress::parse(server.address);
-            if (!address.has_value()) {
-                // A bootstrap server must be an IP literal — a config defect, not
-                // a transient failure, so it stops the search.
-                result.error = DnsErrorInfo{
-                    DnsError::CONFIG, fmt::format(R"(Bootstrap DNS server "{}" is not an IP literal)", server.address)};
-                co_return result;
-            }
+    for (const Config::DnsServer& server : servers) {
+        const auto address = InetAddress::parse(server.address);
+        if (!address.has_value()) {
+            // A bootstrap server must be an IP literal — a config defect for
+            // this entry; the remaining servers can still answer.
+            result.error = DnsErrorInfo{
+                DnsError::CONFIG, fmt::format(R"(Bootstrap DNS server "{}" is not an IP literal)", server.address)};
+            continue;
+        }
 
+        try {
             const auto query = dns::build_query(host, dns::Util::type_to_record_type(kind));
             auto response = co_await detail::query_udp(*address, server.port, query);
             if (!response) {
@@ -121,23 +126,23 @@ struct KindResult {
 
             auto found = extract_addresses(*response, host, kind);
             if (!found) {
-                // NXDOMAIN is authoritative for the name: no other server can
-                // answer this kind either.
+                // NXDOMAIN is authoritative for the name on this server only.
                 result.error = std::move(found.error());
+                continue;
+            }
+            if (!found->empty()) {
+                result.addresses = std::move(*found);
                 co_return result;
             }
-            result.addresses = std::move(*found);
-            co_return result;
+            // NODATA: a valid answer with no records of this kind.
+        } catch (const std::bad_alloc&) {
+            throw;  // an allocation failure is never downgraded to a retryable error
+        } catch (const DnsLookupException& error) {
+            result.error = DnsErrorInfo{error.get_error(), error.what()};
+        } catch (const std::exception& error) {
+            result.error = DnsErrorInfo{
+                DnsError::PARSE, fmt::format(R"(Failed to build or parse a query for "{}": {})", host, error.what())};
         }
-    } catch (const std::bad_alloc&) {
-        throw;  // an allocation failure is never downgraded to a retryable error
-    } catch (const DnsLookupException& error) {
-        result.error = DnsErrorInfo{error.get_error(), error.what()};
-        co_return result;
-    } catch (const std::exception& error) {
-        result.error = DnsErrorInfo{
-            DnsError::PARSE, fmt::format(R"(Failed to build or parse a query for "{}": {})", host, error.what())};
-        co_return result;
     }
 
     co_return result;

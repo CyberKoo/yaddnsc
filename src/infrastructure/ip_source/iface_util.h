@@ -9,6 +9,8 @@
 #include <string>
 #include <vector>
 
+#include "domain/network/address_family.h"
+
 class InetAddress;
 
 /// InterfaceUtil — low-level utility for enumerating local network interfaces
@@ -32,6 +34,11 @@ namespace ipsource {
 /// @return                IP addresses assigned to the interface;
 ///                        std::nullopt when the interface does not exist.
 [[nodiscard]] std::optional<std::vector<InetAddress>> get_addresses(const std::string& interface_name);
+
+/// Get the index of the default interface for a family: the first interface
+/// that is UP, neither loopback nor point-to-point, and carries an address of
+/// that family. std::nullopt when none qualifies.
+[[nodiscard]] std::optional<unsigned int> get_default_interface_index(AddressFamily family);
 }  // namespace ipsource
 
 #endif  // YADDNSC_INTERFACE_UTIL_H

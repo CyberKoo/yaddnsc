@@ -2,8 +2,8 @@
 // Coroutine runtime — umbrella header.
 //
 // Everything a composition-layer caller needs: the loop entry point, Task and
-// its structured scopes, cancellation combinators, sleeps, AsyncMutex, offload,
-// SerialLane and signals. No I/O yet — transport primitives arrive in stage 2.
+// its structured scopes, cancellation combinators, sleeps, AsyncMutex, offload
+// and signals. No I/O yet — transport primitives arrive in stage 2.
 //
 // Thread safety: everything here is loop-thread only except Loop::post and the
 // offload worker boundary, which are documented at their declarations.
@@ -23,7 +23,6 @@
 #include "infrastructure/coro/result_box.hpp"
 #include "infrastructure/coro/run.hpp"
 #include "infrastructure/coro/scope.hpp"
-#include "infrastructure/coro/serial_lane.hpp"
 #include "infrastructure/coro/signal.hpp"
 #include "infrastructure/coro/sleep.hpp"
 #include "infrastructure/coro/task.hpp"

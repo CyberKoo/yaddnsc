@@ -1,5 +1,5 @@
 //
-// Coroutine runtime — offload and SerialLane.
+// Coroutine runtime — offload.
 //
 // These tests use the system clock and real worker threads. Timing margins are
 // generous so the assertions do not depend on machine speed.
@@ -8,6 +8,7 @@
 // coroutine body; these tests use EXPECT_* only.
 //
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <functional>
@@ -29,6 +30,19 @@ coro::Task<void> run_pooled_job(std::function<void()> job) {
     auto result = co_await coro::offload(std::move(job));
     EXPECT_TRUE(result.has_value());
     co_return;
+}
+
+TEST(Offload, defaultOffloadWorkers_NoExplicitSetting_FollowsSizingPolicy) {
+    // The production default: min(hardware cores, 4), at least 2. A default-
+    // constructed loop must never fall through to the library's
+    // hardware_concurrency() fallback.
+    EXPECT_EQ(coro::Loop::default_offload_workers(),
+              std::max(2u, std::min(std::thread::hardware_concurrency(), 4u)));
+}
+
+TEST(Offload, offloadPool_NoExplicitSetting_UsesDefaultWorkerCount) {
+    coro::Loop loop;
+    EXPECT_EQ(loop.offload_pool().get_thread_count(), coro::Loop::default_offload_workers());
 }
 
 TEST(Offload, offload_Callable_ReturnsResultFromWorkerThread) {
@@ -187,65 +201,6 @@ TEST(Offload, offload_MoreJobsThanWorkers_BoundsConcurrency) {
     coro::run(loop, task());
     EXPECT_EQ(completed.load(), 6);
     EXPECT_LE(peak.load(), 2);
-}
-
-// ---------------------------------------------------------------------------
-// SerialLane
-// ---------------------------------------------------------------------------
-
-TEST(SerialLane, submit_FirstJobAbandoned_KeepsSubmissionOrder) {
-    coro::Loop loop;
-    coro::SerialLane lane;
-    std::mutex order_mutex;
-    std::vector<int> order;
-    bool first_abandoned = false;
-
-    auto work = [&order_mutex, &order](int id, int delay_ms) {
-        return [&order_mutex, &order, id, delay_ms]() {
-            std::this_thread::sleep_for(std::chrono::milliseconds(delay_ms));
-            const std::lock_guard lock(order_mutex);
-            order.push_back(id);
-        };
-    };
-
-    auto task = [&lane, &work, &first_abandoned]() -> coro::Task<void> {
-        auto abandoned = co_await coro::with_timeout(
-            10ms, [&lane, &work, &first_abandoned](coro::CancelScope& scope) -> coro::Task<void> {
-                auto result = co_await lane.submit(work(1, 80));
-                first_abandoned = !result.has_value() && scope.timed_out();
-                co_return;
-            });
-        EXPECT_TRUE(abandoned.timed_out);
-        // Submitted while the abandoned job is still running on the worker: the
-        // lane must not start it until that job has completed.
-        auto second = co_await lane.submit(work(2, 0));
-        EXPECT_TRUE(second.has_value());
-        co_return;
-    };
-
-    coro::run(loop, task());
-    EXPECT_TRUE(first_abandoned);
-    EXPECT_EQ(order, (std::vector<int>{1, 2}));
-}
-
-TEST(SerialLane, submit_SequentialJobs_ReturnsValuesInOrder) {
-    coro::Loop loop;
-    coro::SerialLane lane;
-    std::vector<int> results;
-
-    auto task = [&lane, &results]() -> coro::Task<void> {
-        for (int i = 0; i < 4; ++i) {
-            auto result = co_await lane.submit([i]() -> int { return i * 10; });
-            EXPECT_TRUE(result.has_value());
-            if (result.has_value()) {
-                results.push_back(*result);
-            }
-        }
-        co_return;
-    };
-
-    coro::run(loop, task());
-    EXPECT_EQ(results, (std::vector<int>{0, 10, 20, 30}));
 }
 
 }  // namespace
