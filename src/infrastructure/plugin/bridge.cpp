@@ -67,9 +67,11 @@ coro::Task<void> serve_exchange(std::shared_ptr<const BridgeState> state, std::s
     try {
         // A cancel() that landed before this coroutine started (its posted
         // scope lookup found nothing to cancel) is honoured here instead of
-        // starting a doomed exchange.
+        // starting a doomed exchange. Set from a fresh error rather than
+        // moving `result`: GCC 15 at -O3 mis-reads the moved expected's union
+        // storage in this coroutine frame as maybe-uninitialized.
         if (fulfil.call->cancelled.load(std::memory_order_acquire)) {
-            fulfil.set(std::move(result));
+            fulfil.set(std::unexpected(http::Error{http::ErrorCode::CANCELLED, "bridge cancelled"}));
             co_return;
         }
         http::Client client{state->options};
