@@ -168,14 +168,14 @@ bool Route53Driver::check_response(const HttpResponse& response, const Services&
 
     if (response.status_code == 200) {
         // Route 53 returns HTTP 200 with <ChangeResourceRecordSetsResponse> on success.
-        xml_raii::unique_doc doc(
+        xml_raii::UniqueXmlDoc doc(
             xmlReadMemory(response.body.data(), static_cast<int>(response.body.size()), nullptr, nullptr, 0));
         if (!doc) {
             YADDNSC_SDK_LOG_ERROR(services, "Failed to parse Route 53 response XML");
             return false;
         }
 
-        xml_raii::unique_xpath_ctx xpath_ctx(xmlXPathNewContext(doc.get()));
+        xml_raii::UniqueXPathCtx xpath_ctx(xmlXPathNewContext(doc.get()));
         if (!xpath_ctx) {
             YADDNSC_SDK_LOG_ERROR(services, "Failed to create XPath context");
             return false;
@@ -189,7 +189,7 @@ bool Route53Driver::check_response(const HttpResponse& response, const Services&
 
         // Extract <ChangeInfo><Status> text.
         constexpr const char* XPATH_STATUS = "//r53:ChangeResourceRecordSetsResponse/r53:ChangeInfo/r53:Status/text()";
-        xml_raii::unique_xpath_obj result(xmlXPathEvalExpression(BAD_CAST XPATH_STATUS, xpath_ctx.get()));
+        xml_raii::UniqueXPathObj result(xmlXPathEvalExpression(BAD_CAST XPATH_STATUS, xpath_ctx.get()));
 
         bool success = false;
         if (result && result->nodesetval && result->nodesetval->nodeNr > 0) {
@@ -213,13 +213,13 @@ bool Route53Driver::check_response(const HttpResponse& response, const Services&
 
     // ── Error response: parse <ErrorResponse> XML ────────────────────────────
     if (!response.body.empty()) {
-        xml_raii::unique_doc doc(
+        xml_raii::UniqueXmlDoc doc(
             xmlReadMemory(response.body.data(), static_cast<int>(response.body.size()), nullptr, nullptr, 0));
         if (doc) {
-            xml_raii::unique_xpath_ctx xpath_ctx(xmlXPathNewContext(doc.get()));
+            xml_raii::UniqueXPathCtx xpath_ctx(xmlXPathNewContext(doc.get()));
             if (xpath_ctx) {
                 xmlXPathRegisterNs(xpath_ctx.get(), BAD_CAST "r53", BAD_CAST R53_XMLNS);
-                xml_raii::unique_xpath_obj errors(xmlXPathEvalExpression(BAD_CAST "//r53:Error", xpath_ctx.get()));
+                xml_raii::UniqueXPathObj errors(xmlXPathEvalExpression(BAD_CAST "//r53:Error", xpath_ctx.get()));
                 if (errors && errors->nodesetval) {
                     for (int i = 0; i < errors->nodesetval->nodeNr; ++i) {
                         xmlNodePtr error_node = errors->nodesetval->nodeTab[i];
@@ -263,7 +263,7 @@ std::string Route53Driver::build_xml_body(const std::string& fqdn, std::string_v
                                           int ttl) {
     // Build the UPSERT XML document using libxml2's tree API.
     // This ensures proper XML escaping, namespace handling, and encoding.
-    xml_raii::unique_doc doc(xmlNewDoc(BAD_CAST "1.0"));
+    xml_raii::UniqueXmlDoc doc(xmlNewDoc(BAD_CAST "1.0"));
     if (!doc)
         return {};
 

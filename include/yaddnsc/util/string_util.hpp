@@ -38,14 +38,14 @@ concept StringViewable = std::is_constructible_v<std::string_view, const T&>;
 
 namespace detail {
 // Single definition to avoid repeated instantiation in each template
-inline constexpr std::array<char, 256> lower_table = []() noexcept {
+inline constexpr std::array<char, 256> LOWER_TABLE = []() noexcept {
     std::array<char, 256> table{};
     for (size_t i = 0; i < 256; ++i)
         table[i] = (i >= 'A' && i <= 'Z') ? static_cast<char>(i + 32) : static_cast<char>(i);
     return table;
 }();
 
-inline constexpr std::array<char, 256> upper_table = []() noexcept {
+inline constexpr std::array<char, 256> UPPER_TABLE = []() noexcept {
     std::array<char, 256> table{};
     for (size_t i = 0; i < 256; ++i)
         table[i] = (i >= 'a' && i <= 'z') ? static_cast<char>(i - 32) : static_cast<char>(i);
@@ -68,7 +68,7 @@ concept PairViewable = std::ranges::input_range<const T> && requires(std::ranges
 template<MutableCharBuffer T>
 void to_lower(T& buf) noexcept {
     std::ranges::transform(buf, buf.begin(),
-                           [&](char c) noexcept { return detail::lower_table[static_cast<std::uint8_t>(c)]; });
+                           [&](char c) noexcept { return detail::LOWER_TABLE[static_cast<std::uint8_t>(c)]; });
 }
 
 /// Convert all characters in a mutable buffer to uppercase in place.
@@ -76,7 +76,7 @@ void to_lower(T& buf) noexcept {
 template<MutableCharBuffer T>
 void to_upper(T& buf) noexcept {
     std::ranges::transform(buf, buf.begin(),
-                           [&](char c) noexcept { return detail::upper_table[static_cast<std::uint8_t>(c)]; });
+                           [&](char c) noexcept { return detail::UPPER_TABLE[static_cast<std::uint8_t>(c)]; });
 }
 
 // ── Copying case conversion ───────────────────────────────────────────────────
@@ -103,21 +103,21 @@ std::string to_upper_copy(T&& str) {
 
 // ── Case-insensitive comparison ──────────────────────────────────────────────
 
-/// Case-insensitive string equality using the compile-time lower_table.
+/// Case-insensitive string equality using the compile-time LOWER_TABLE.
 /// Zero allocation — compares through the lookup table in place.
 [[nodiscard]] inline bool iequals(std::string_view a, std::string_view b) noexcept {
     if (a.size() != b.size())
         return false;
     for (size_t i = 0; i < a.size(); ++i) {
-        const auto ca = detail::lower_table[static_cast<std::uint8_t>(a[i])];
-        const auto cb = detail::lower_table[static_cast<std::uint8_t>(b[i])];
+        const auto ca = detail::LOWER_TABLE[static_cast<std::uint8_t>(a[i])];
+        const auto cb = detail::LOWER_TABLE[static_cast<std::uint8_t>(b[i])];
         if (ca != cb)
             return false;
     }
     return true;
 }
 
-/// Case-insensitive substring search using the compile-time lower_table.
+/// Case-insensitive substring search using the compile-time LOWER_TABLE.
 /// Zero allocation.
 [[nodiscard]] inline bool icontains(std::string_view haystack, std::string_view needle) noexcept {
     if (needle.size() > haystack.size())
@@ -125,8 +125,8 @@ std::string to_upper_copy(T&& str) {
     for (size_t start = 0; start <= haystack.size() - needle.size(); ++start) {
         bool match = true;
         for (size_t i = 0; i < needle.size(); ++i) {
-            const auto h = detail::lower_table[static_cast<std::uint8_t>(haystack[start + i])];
-            const auto n = detail::lower_table[static_cast<std::uint8_t>(needle[i])];
+            const auto h = detail::LOWER_TABLE[static_cast<std::uint8_t>(haystack[start + i])];
+            const auto n = detail::LOWER_TABLE[static_cast<std::uint8_t>(needle[i])];
             if (h != n) {
                 match = false;
                 break;

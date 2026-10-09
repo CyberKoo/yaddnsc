@@ -79,7 +79,7 @@ namespace detail {
 
 /// Result type produced by a combinator body: `fn(scope)` returns Task<T>.
 template<typename Fn>
-using BodyResult = typename std::invoke_result_t<Fn&, CancelScope&>::value_type;
+using BodyResult = typename std::invoke_result_t<Fn&, CancelScope&>::ValueType;
 
 /// What a combinator asks run_scoped() to set up.
 struct ScopeSpec {

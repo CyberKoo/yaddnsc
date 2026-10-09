@@ -79,7 +79,7 @@ TEST(Inet4AddressTest, Parse_TooManyOctets_ReturnsNullopt) {
 }
 
 TEST(Inet4AddressTest, FromBytes_RoundTrip) {
-    Inet4Address::addr_type bytes = {10, 0, 0, 1};
+    Inet4Address::AddrType bytes = {10, 0, 0, 1};
     auto addr = Inet4Address::from_bytes(bytes);
     EXPECT_EQ(addr.to_string(), "10.0.0.1");
     EXPECT_EQ(addr.get_address(), bytes);
@@ -116,14 +116,14 @@ TEST(Inet4AddressTest, DataAccess) {
 }
 
 TEST(Inet4AddressTest, FromArray_DelegatesToFromBytes) {
-    Inet4Address::addr_type bytes = {10, 0, 0, 1};
+    Inet4Address::AddrType bytes = {10, 0, 0, 1};
     auto addr = Inet4Address::from_array(bytes);
     EXPECT_EQ(addr.to_string(), "10.0.0.1");
     EXPECT_EQ(addr.get_address(), bytes);
 }
 
 TEST(Inet4AddressTest, AddrAccessor) {
-    Inet4Address::addr_type bytes = {192, 168, 1, 1};
+    Inet4Address::AddrType bytes = {192, 168, 1, 1};
     auto addr = Inet4Address::from_bytes(bytes);
     EXPECT_EQ(addr.addr(), bytes);
 }
@@ -191,7 +191,7 @@ TEST(Inet6AddressTest, Parse_Invalid_ReturnsNullopt) {
 }
 
 TEST(Inet6AddressTest, FromBytes_RoundTrip) {
-    Inet6Address::addr_type bytes = {0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1};  // 2001:db8::1
+    Inet6Address::AddrType bytes = {0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1};  // 2001:db8::1
     auto addr = Inet6Address::from_bytes(bytes);
     EXPECT_EQ(addr.get_address(), bytes);
 }
@@ -232,7 +232,7 @@ TEST(Inet6AddressTest, ScopeId) {
 }
 
 TEST(Inet6AddressTest, ToString_OmitsScopeId) {
-    Inet6Address::addr_type bytes = {0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2};
+    Inet6Address::AddrType bytes = {0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2};
     auto addr = Inet6Address::from_bytes(bytes);
     addr.set_scope_id(5);
     EXPECT_EQ(addr.get_scope_id(), 5U);
@@ -240,13 +240,13 @@ TEST(Inet6AddressTest, ToString_OmitsScopeId) {
 }
 
 TEST(Inet6AddressTest, FromArray_DelegatesToFromBytes) {
-    Inet6Address::addr_type bytes = {0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1};
+    Inet6Address::AddrType bytes = {0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1};
     auto addr = Inet6Address::from_array(bytes);
     EXPECT_EQ(addr.get_address(), bytes);
 }
 
 TEST(Inet6AddressTest, AddrAccessor) {
-    Inet6Address::addr_type bytes = {0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1};
+    Inet6Address::AddrType bytes = {0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1};
     auto addr = Inet6Address::from_bytes(bytes);
     EXPECT_EQ(addr.addr(), bytes);
 }

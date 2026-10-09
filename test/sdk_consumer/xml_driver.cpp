@@ -6,7 +6,7 @@ namespace sdk = yaddnsc::sdk;
 class XmlDriver final : public yaddnsc::sdk::Driver {
 public:
     [[nodiscard]] sdk::Result update([[maybe_unused]] sdk::UpdateContext& context) override {
-        xml_raii::unique_doc doc(xmlReadMemory("<root/>", 7, nullptr, nullptr, XML_PARSE_NONET));
+        xml_raii::UniqueXmlDoc doc(xmlReadMemory("<root/>", 7, nullptr, nullptr, XML_PARSE_NONET));
         if (!doc) {
             return std::unexpected(sdk::Error{YADDNSC_STATUS_INTERNAL_ERROR, "libxml2 parse failed", 0});
         }

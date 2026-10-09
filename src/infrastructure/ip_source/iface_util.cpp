@@ -52,14 +52,14 @@ using IfAddrPtr = std::unique_ptr<ifaddrs, decltype(&freeifaddrs)>;
         const auto family = ifa->ifa_addr->sa_family;
         if (family == AF_INET) {
             const auto* in = reinterpret_cast<const sockaddr_in*>(ifa->ifa_addr);
-            Inet4Address::addr_type array{};
+            Inet4Address::AddrType array{};
             const auto bytes =
                 std::span{reinterpret_cast<const std::uint8_t*>(&in->sin_addr.s_addr), Inet4Address::ADDR_LEN};
             std::ranges::copy(bytes, array.begin());
             result[ifa->ifa_name].emplace_back(Inet4Address::from_bytes(array));
         } else if (family == AF_INET6) {
             const auto* in6 = reinterpret_cast<const sockaddr_in6*>(ifa->ifa_addr);
-            Inet6Address::addr_type array{};
+            Inet6Address::AddrType array{};
             std::ranges::copy(in6->sin6_addr.s6_addr, array.begin());
             auto address = Inet6Address::from_bytes(array);
             address.set_scope_id(in6->sin6_scope_id);

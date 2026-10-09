@@ -37,7 +37,8 @@ struct Context {
 ///
 /// Used by the scope combinators and the task group to learn where they run;
 /// `co_await GetContext{}` returns the Context and never parks.
-struct GetContext {
+class GetContext {
+public:
     bool await_ready() const noexcept { return false; }
 
     template<typename Promise>
@@ -133,8 +134,8 @@ struct TaskPromise<void> : PromiseBase {
 template<typename T>
 class TaskAwaiter {
 public:
-    using promise_type = TaskPromise<T>;
-    using Handle = std::coroutine_handle<promise_type>;
+    using PromiseType = TaskPromise<T>;
+    using Handle = std::coroutine_handle<PromiseType>;
 
     TaskAwaiter() = default;
 
@@ -208,7 +209,7 @@ class Task {
 public:
     using promise_type = TaskPromise<T>;
     using Handle = std::coroutine_handle<promise_type>;
-    using value_type = T;
+    using ValueType = T;
 
     Task() = default;
 

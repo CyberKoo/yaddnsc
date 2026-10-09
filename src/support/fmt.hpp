@@ -24,7 +24,7 @@ namespace fmt {
 // SDK (yaddnsc/util/format.hpp).
 using yaddnsc::util::fmt::arg;
 using yaddnsc::util::fmt::format;
-using yaddnsc::util::fmt::named_arg_t;
+using yaddnsc::util::fmt::NamedArg;
 
 using std::basic_format_args;
 using std::format_args;

@@ -21,19 +21,19 @@ struct XmlDocDeleter {
     void operator()(xmlDoc* doc) const noexcept { xmlFreeDoc(doc); }
 };
 
-using unique_doc = std::unique_ptr<xmlDoc, XmlDocDeleter>;
+using UniqueXmlDoc = std::unique_ptr<xmlDoc, XmlDocDeleter>;
 
 struct XPathCtxDeleter {
     void operator()(xmlXPathContext* ctx) const noexcept { xmlXPathFreeContext(ctx); }
 };
 
-using unique_xpath_ctx = std::unique_ptr<xmlXPathContext, XPathCtxDeleter>;
+using UniqueXPathCtx = std::unique_ptr<xmlXPathContext, XPathCtxDeleter>;
 
 struct XPathObjDeleter {
     void operator()(xmlXPathObject* obj) const noexcept { xmlXPathFreeObject(obj); }
 };
 
-using unique_xpath_obj = std::unique_ptr<xmlXPathObject, XPathObjDeleter>;
+using UniqueXPathObj = std::unique_ptr<xmlXPathObject, XPathObjDeleter>;
 
 }  // namespace xml_raii
 

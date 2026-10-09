@@ -40,13 +40,13 @@ std::optional<Inet4Address> Inet4Address::parse(std::string_view addr) {
     return result;
 }
 
-Inet4Address Inet4Address::from_bytes(const addr_type& bytes) noexcept {
+Inet4Address Inet4Address::from_bytes(const AddrType& bytes) noexcept {
     Inet4Address result;
     result.addr_ = bytes;
     return result;
 }
 
-Inet4Address Inet4Address::from_array(const addr_type& addr) noexcept {
+Inet4Address Inet4Address::from_array(const AddrType& addr) noexcept {
     return from_bytes(addr);
 }
 
@@ -106,13 +106,13 @@ std::optional<Inet6Address> Inet6Address::parse(std::string_view addr) {
     return result;
 }
 
-Inet6Address Inet6Address::from_bytes(const addr_type& bytes) noexcept {
+Inet6Address Inet6Address::from_bytes(const AddrType& bytes) noexcept {
     Inet6Address result;
     result.addr_ = bytes;
     return result;
 }
 
-Inet6Address Inet6Address::from_array(const addr_type& addr) noexcept {
+Inet6Address Inet6Address::from_array(const AddrType& addr) noexcept {
     return from_bytes(addr);
 }
 
@@ -149,12 +149,12 @@ std::optional<InetAddress> InetAddress::parse(std::string_view addr) {
 std::optional<InetAddress> InetAddress::from_bytes(std::span<const std::uint8_t> bytes) {
     switch (bytes.size()) {
         case 4: {
-            Inet4Address::addr_type arr{};
+            Inet4Address::AddrType arr{};
             std::ranges::copy(bytes, arr.begin());
             return InetAddress{Inet4Address::from_bytes(arr)};
         }
         case 16: {
-            Inet6Address::addr_type arr{};
+            Inet6Address::AddrType arr{};
             std::ranges::copy(bytes, arr.begin());
             return InetAddress{Inet6Address::from_bytes(arr)};
         }

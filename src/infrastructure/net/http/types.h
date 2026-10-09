@@ -68,13 +68,13 @@ class Response {
 public:
     Response(int status_code, std::string body, std::multimap<std::string, std::string> response_headers,
              std::multimap<std::string, std::string> response_trailers = {})
-        : status(status_code), headers(std::move(response_headers)), trailers(std::move(response_trailers)),
+        : status_(status_code), headers_(std::move(response_headers)), trailers_(std::move(response_trailers)),
           body_(std::move(body)) {}
 
-    int status{0};
-    std::multimap<std::string, std::string> headers;
+    int status_{0};
+    std::multimap<std::string, std::string> headers_;
     /// Trailer fields received after a chunked body.
-    std::multimap<std::string, std::string> trailers;
+    std::multimap<std::string, std::string> trailers_;
 
     /// The body as text (no encoding conversion).
     [[nodiscard]] std::string_view text() const noexcept { return body_; }

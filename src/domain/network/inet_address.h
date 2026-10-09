@@ -24,7 +24,7 @@
 class Inet4Address {
 public:
     static constexpr size_t ADDR_LEN = 4;
-    using addr_type = std::array<std::uint8_t, ADDR_LEN>;
+    using AddrType = std::array<std::uint8_t, ADDR_LEN>;
 
     /// Default-constructs 0.0.0.0 (unspecified).
     Inet4Address() noexcept = default;
@@ -35,9 +35,9 @@ public:
     static std::optional<Inet4Address> parse(std::string_view addr);
 
     /// Create from 4 raw bytes (network byte order).
-    static Inet4Address from_bytes(const addr_type& bytes) noexcept;
+    static Inet4Address from_bytes(const AddrType& bytes) noexcept;
 
-    static Inet4Address from_array(const addr_type& addr) noexcept;
+    static Inet4Address from_array(const AddrType& addr) noexcept;
 
     // ---- accessors ---------------------------------------------------------
 
@@ -45,7 +45,7 @@ public:
 
     [[nodiscard]] std::string to_string() const;
 
-    [[nodiscard]] constexpr const addr_type& get_address() const noexcept { return addr_; }
+    [[nodiscard]] constexpr const AddrType& get_address() const noexcept { return addr_; }
 
     // ---- classification ----------------------------------------------------
 
@@ -54,7 +54,7 @@ public:
     [[nodiscard]] constexpr bool is_multicast() const noexcept { return (addr_[0] & 0xf0) == 0xe0; }
 
     [[nodiscard]] constexpr bool is_unspecified() const noexcept {
-        static constexpr addr_type zero{};
+        static constexpr AddrType zero{};
         return addr_ == zero;
     }
 
@@ -66,10 +66,10 @@ public:
 
     [[nodiscard]] constexpr const std::uint8_t* data() const noexcept { return addr_.data(); }
 
-    [[nodiscard]] constexpr const addr_type& addr() const noexcept { return addr_; }
+    [[nodiscard]] constexpr const AddrType& addr() const noexcept { return addr_; }
 
 private:
-    addr_type addr_{};
+    AddrType addr_{};
 };
 
 // ---------------------------------------------------------------------------
@@ -78,7 +78,7 @@ private:
 class Inet6Address {
 public:
     static constexpr size_t ADDR_LEN = 16;
-    using addr_type = std::array<std::uint8_t, ADDR_LEN>;
+    using AddrType = std::array<std::uint8_t, ADDR_LEN>;
 
     /// Default-constructs :: (unspecified).
     Inet6Address() noexcept = default;
@@ -90,9 +90,9 @@ public:
     static std::optional<Inet6Address> parse(std::string_view addr);
 
     /// Create from 16 raw bytes (network byte order).
-    static Inet6Address from_bytes(const addr_type& bytes) noexcept;
+    static Inet6Address from_bytes(const AddrType& bytes) noexcept;
 
-    static Inet6Address from_array(const addr_type& addr) noexcept;
+    static Inet6Address from_array(const AddrType& addr) noexcept;
 
     // ---- accessors ---------------------------------------------------------
 
@@ -101,19 +101,19 @@ public:
     /// Text form from inet_ntop. A stored scope id is not included.
     [[nodiscard]] std::string to_string() const;
 
-    [[nodiscard]] constexpr const addr_type& get_address() const noexcept { return addr_; }
+    [[nodiscard]] constexpr const AddrType& get_address() const noexcept { return addr_; }
 
     // ---- classification ----------------------------------------------------
 
     [[nodiscard]] constexpr bool is_loopback() const noexcept {
-        static constexpr addr_type loopback{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1};
+        static constexpr AddrType loopback{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1};
         return addr_ == loopback;
     }
 
     [[nodiscard]] constexpr bool is_multicast() const noexcept { return addr_[0] == 0xff; }
 
     [[nodiscard]] constexpr bool is_unspecified() const noexcept {
-        static constexpr addr_type zero{};
+        static constexpr AddrType zero{};
         return addr_ == zero;
     }
 
@@ -141,10 +141,10 @@ public:
 
     [[nodiscard]] constexpr const std::uint8_t* data() const noexcept { return addr_.data(); }
 
-    [[nodiscard]] constexpr const addr_type& addr() const noexcept { return addr_; }
+    [[nodiscard]] constexpr const AddrType& addr() const noexcept { return addr_; }
 
 private:
-    addr_type addr_{};
+    AddrType addr_{};
     std::uint32_t scope_id_{0};
 };
 
@@ -156,7 +156,7 @@ private:
 // ---------------------------------------------------------------------------
 class InetAddress {
 public:
-    using variant_type = std::variant<Inet4Address, Inet6Address>;
+    using VariantType = std::variant<Inet4Address, Inet6Address>;
 
     /// Default-constructs holding Inet4Address{} (0.0.0.0).
     InetAddress() noexcept = default;
@@ -228,7 +228,7 @@ public:
     }
 
 private:
-    variant_type addr_;
+    VariantType addr_;
 };
 
 #endif  // YADDNSC_NETWORK_INET_ADDRESS_H

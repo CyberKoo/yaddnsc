@@ -99,7 +99,7 @@ bool NamecheapDriver::check_response(const HttpResponse& response, const Service
 
     // Parse the XML response with libxml2.
     // All libxml2 resources are RAII-managed via xml_raii wrappers.
-    xml_raii::unique_doc doc(
+    xml_raii::UniqueXmlDoc doc(
         xmlReadMemory(response.body.data(), static_cast<int>(response.body.size()), nullptr, nullptr, 0));
 
     if (!doc) {
@@ -107,14 +107,14 @@ bool NamecheapDriver::check_response(const HttpResponse& response, const Service
         return false;
     }
 
-    xml_raii::unique_xpath_ctx xpath_ctx(xmlXPathNewContext(doc.get()));
+    xml_raii::UniqueXPathCtx xpath_ctx(xmlXPathNewContext(doc.get()));
     if (!xpath_ctx) {
         YADDNSC_SDK_LOG_ERROR(services, "Failed to create XPath context");
         return false;
     }
 
     // Extract <ErrCount> — "0" means success.
-    xml_raii::unique_xpath_obj err_count_nodes(xmlXPathEvalExpression(BAD_CAST "//ErrCount/text()", xpath_ctx.get()));
+    xml_raii::UniqueXPathObj err_count_nodes(xmlXPathEvalExpression(BAD_CAST "//ErrCount/text()", xpath_ctx.get()));
 
     bool success = false;
 
@@ -126,7 +126,7 @@ bool NamecheapDriver::check_response(const HttpResponse& response, const Service
 
             if (count == "0") {
                 // Success — log the updated IP address from <IP>.
-                xml_raii::unique_xpath_obj ip_nodes(xmlXPathEvalExpression(BAD_CAST "//IP/text()", xpath_ctx.get()));
+                xml_raii::UniqueXPathObj ip_nodes(xmlXPathEvalExpression(BAD_CAST "//IP/text()", xpath_ctx.get()));
                 if (ip_nodes && ip_nodes->nodesetval && ip_nodes->nodesetval->nodeNr > 0) {
                     xmlChar* ip_text = xmlNodeGetContent(ip_nodes->nodesetval->nodeTab[0]);
                     YADDNSC_SDK_LOG_DEBUG(services, "DNS record updated successfully to {}",
@@ -137,7 +137,7 @@ bool NamecheapDriver::check_response(const HttpResponse& response, const Service
 
             } else {
                 // Error — extract error messages from <errors> children.
-                xml_raii::unique_xpath_obj err_msg_nodes(
+                xml_raii::UniqueXPathObj err_msg_nodes(
                     xmlXPathEvalExpression(BAD_CAST "//errors/*/text()", xpath_ctx.get()));
                 if (err_msg_nodes && err_msg_nodes->nodesetval) {
                     for (int i = 0; i < err_msg_nodes->nodesetval->nodeNr; ++i) {

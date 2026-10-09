@@ -129,7 +129,7 @@ TEST(StringUtilCaseTest, ToUpperCopy_ReturnsNewString) {
 }
 
 TEST(StringUtilCaseTest, ToLowerCopy_NonAsciiPreserved) {
-    // Non-ASCII bytes should pass through unchanged (lower_table maps them 1:1)
+    // Non-ASCII bytes should pass through unchanged (LOWER_TABLE maps them 1:1)
     auto result = StringUtil::to_lower_copy("\xC3\x9C");  // Ü in UTF-8
     EXPECT_EQ(result, "\xC3\x9C");
 }

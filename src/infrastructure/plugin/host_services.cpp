@@ -245,13 +245,13 @@ yaddnsc_status HostServicesContext::http_exchange(const yaddnsc_http_request& re
 
     // Fill the caller-provided response struct; every view points into this
     // context's arena and stays valid until the cycle returns.
-    out_response->status_code = static_cast<uint32_t>(response->status);
+    out_response->status_code = static_cast<uint32_t>(response->status_);
     const std::string_view body = arena_copy(response->text());
     out_response->body = yaddnsc_bytes{reinterpret_cast<const uint8_t*>(body.data()), body.size()};
 
     auto& header_array = header_array_arena_.emplace_back();
-    header_array.reserve(response->headers.size());
-    for (const auto& [name, value] : response->headers) {
+    header_array.reserve(response->headers_.size());
+    for (const auto& [name, value] : response->headers_) {
         header_array.push_back({yaddnsc_string{arena_copy(name).data(), name.size()},
                                 yaddnsc_string{arena_copy(value).data(), value.size()}});
     }

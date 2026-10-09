@@ -22,12 +22,12 @@
 namespace yaddnsc::util::fmt {
 
 /// A named argument, stored as a string value.
-struct named_arg_t {
+struct NamedArg {
     std::string_view name;
     std::string value;
 
     template<typename T>
-    static named_arg_t create(std::string_view name, T&& val) {
+    static NamedArg create(std::string_view name, T&& val) {
         if constexpr (std::constructible_from<std::string, T> && !std::is_arithmetic_v<std::decay_t<T>>) {
             return {name, std::string(std::forward<T>(val))};
         } else {
@@ -38,20 +38,20 @@ struct named_arg_t {
 
 /// Create a named argument.
 template<typename T>
-named_arg_t arg(std::string_view name, T&& value) {
-    return named_arg_t::create(name, std::forward<T>(value));
+NamedArg arg(std::string_view name, T&& value) {
+    return NamedArg::create(name, std::forward<T>(value));
 }
 
 /// Format with positional arguments — delegates to std::format.
 template<typename... Args>
-    requires(!(std::same_as<std::decay_t<Args>, named_arg_t> || ...))
+    requires(!(std::same_as<std::decay_t<Args>, NamedArg> || ...))
 std::string format(std::format_string<Args...> fmt, Args&&... args) {
     return std::format(fmt, std::forward<Args>(args)...);
 }
 
 /// Format with named arguments — replaces {KEY} with corresponding values.
 template<typename First, typename... Rest>
-    requires std::same_as<std::decay_t<First>, named_arg_t> && (std::same_as<std::decay_t<Rest>, named_arg_t> && ...)
+    requires std::same_as<std::decay_t<First>, NamedArg> && (std::same_as<std::decay_t<Rest>, NamedArg> && ...)
 std::string format(std::string_view fmt_, First&& first, Rest&&... rest) {
     std::unordered_map<std::string, std::string> m;
     m[std::string(first.name)] = std::forward<First>(first).value;

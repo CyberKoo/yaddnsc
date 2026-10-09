@@ -73,13 +73,13 @@ std::optional<InetAddress> SocketAddr::address() const noexcept {
     switch (storage_.ss_family) {
         case AF_INET: {
             const auto& sin = reinterpret_cast<const sockaddr_in*>(&storage_);
-            Inet4Address::addr_type bytes{};
+            Inet4Address::AddrType bytes{};
             std::copy_n(reinterpret_cast<const std::uint8_t*>(&sin->sin_addr), 4, bytes.begin());
             return InetAddress{Inet4Address::from_bytes(bytes)};
         }
         case AF_INET6: {
             const auto& sin6 = reinterpret_cast<const sockaddr_in6*>(&storage_);
-            Inet6Address::addr_type bytes{};
+            Inet6Address::AddrType bytes{};
             std::copy_n(reinterpret_cast<const std::uint8_t*>(&sin6->sin6_addr), 16, bytes.begin());
             auto v6 = Inet6Address::from_bytes(bytes);
             if (sin6->sin6_scope_id != 0) {

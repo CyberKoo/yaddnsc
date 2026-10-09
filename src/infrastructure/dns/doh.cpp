@@ -140,10 +140,10 @@ coro::Task<std::expected<std::vector<std::uint8_t>, DnsErrorInfo>> DohResolver::
             // RFC 8484 §4.2.1: only 200 carries a usable answer. Any other
             // status is a per-query failure — the shared connection is healthy
             // and stays open for the sibling queries.
-            if (response->status != 200) {
+            if (response->status_ != 200) {
                 co_return std::unexpected(
-                    DnsErrorInfo{response->status >= 500 ? DnsError::RETRY : DnsError::SERVER_REFUSED,
-                                 fmt::format("DoH endpoint returned HTTP status {}", response->status)});
+                    DnsErrorInfo{response->status_ >= 500 ? DnsError::RETRY : DnsError::SERVER_REFUSED,
+                                 fmt::format("DoH endpoint returned HTTP status {}", response->status_)});
             }
 
             const auto octets = response->bytes();

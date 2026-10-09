@@ -82,7 +82,7 @@ coro::Task<std::expected<Response, Error>> PersistentClient::exchange(std::strin
 
         auto wire = build_wire_request(current, scheme_, host_, port_, options_);
         wire.target = current_target;
-        const auto eval = evaluate_redirect(raw->status, raw->headers, redirect_count, options_, wire, *uri);
+        const auto eval = evaluate_redirect(raw->status_, raw->headers_, redirect_count, options_, wire, *uri);
         if (!eval.plan.has_value()) {
             if (eval.limit_reached) {
                 co_return std::unexpected(Error{ErrorCode::REDIRECT_LIMIT_EXCEEDED, "redirect limit exceeded"});
