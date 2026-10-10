@@ -11,7 +11,7 @@ contract.
 argv
   |
   v
-main() -> Cli::parse -> Composition::dispatch
+main() -> Cli::parse -> Composition::run
   |                         (async logging install; config load, plugin dlopen,
   |                          environment validation and trust-context build on
   |                          the main thread, before the loop starts)
@@ -28,11 +28,11 @@ supervisor_group
 ```
 
 The executable is a thin `main()` over `Cli::parse` and
-`Composition::dispatch`. The composition root is the only place concrete
+`Composition::run`. The composition root is the only place concrete
 infrastructure is assembled; the application layer reaches it through ports.
 Each command handler owns its own presentation and exit code for its expected
-failures; `main()` catches defects escaping dispatch and owns the logging
-pipeline's lifetime.
+failures; `Composition::run` owns the logging pipeline's lifetime around
+dispatch and catches defects escaping it.
 
 ## Concurrency & I/O model
 
