@@ -1,7 +1,7 @@
 //
 // Unit tests for GoDaddyDriver (driver/godaddy/)
 //
-// Verifies (through the v1 alpha ABI entries and FakeHostServices):
+// Verifies (through the v1 ABI entries and FakeHostServices):
 //   - descriptor returns expected metadata (name/version/author/capabilities).
 //   - update builds the correct GoDaddy API URL with domain/type/name.
 //   - update sets the sso-key Authorization header.

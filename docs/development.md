@@ -250,6 +250,57 @@ source revision. CPM's source cache is not a binary cache, and the setup provide
 neither a general transitive-version resolver nor automatic vulnerability
 scanning.
 
+## Plugin ABI changes
+
+The v1 plugin ABI (`include/yaddnsc/sdk/driver_abi.h`) is **stable since ABI
+1.0** — it is the only stable surface across the `.so` boundary, and the
+rules in its header comment are the contract. The C++ helper layer
+(`include/yaddnsc/sdk/driver.hpp`) is source-level and may evolve freely as
+long as the entry points it emits keep conforming to the C ABI.
+
+### Bump classification
+
+Minor bump (`YADDNSC_DRIVER_ABI_MINOR` + 1):
+
+- appending a field to one of the versioned top-level structs
+  (`yaddnsc_error`, `yaddnsc_http_request`, `yaddnsc_http_response`,
+  `yaddnsc_update_request`, `yaddnsc_driver_descriptor`,
+  `yaddnsc_host_services`);
+- adding a host-services callback, capability bit, status code, log level,
+  or HTTP method.
+
+Major bump (`YADDNSC_DRIVER_ABI_MAJOR` + 1 — a new ABI; open a design
+discussion first):
+
+- moving, inserting, or removing a field, or growing a leaf type
+  (`yaddnsc_string`, `yaddnsc_bytes`, `yaddnsc_source_location`,
+  `yaddnsc_http_header`);
+- changing a pinned constant value, an entry-point signature, or the
+  semantics of an existing field;
+- adding a required entry point.
+
+### Minor-bump checklist
+
+Every ABI minor bump must:
+
+1. append new fields at the END of the struct — existing offsets never move
+   (note: inserting into tail padding changes no offset, and is still
+   forbidden);
+2. read every post-1.0 field behind `yaddnsc_struct_has_field`;
+3. pin new constant values in the assertion block of `driver_abi.h`, and
+   update the `YADDNSC_DRIVER_ABI_MINOR` pin there;
+4. keep the `YADDNSC_*_MIN_SIZE` macros pointed at the ABI 1.0 baseline —
+   never retarget them;
+5. keep `test_abi_freeze_compat` green: the frozen v1.0 plugin under
+   `test/plugin/abi_baseline/` compiles against the frozen 1.0 header copy
+   and must keep loading and running unchanged;
+6. never edit the frozen copy — CI verifies its sha256
+   (`test/plugin/abi_baseline/v1_0/driver_abi.h.sha256`).
+
+The compile-time pins in `driver_abi.h` (constant values, field offsets,
+baselines, leaf sizes, alignment) run in every build on every target, so a
+violation fails compilation before any test runs.
+
 ## CI and warning gates
 
 End-user build instructions live in the README. The workflows currently cover
@@ -266,7 +317,9 @@ by `ci.yml` path filters.
 - `benchmark` (PR only) — Google Benchmark smoke run, with no stored historical
   baseline, comparison step, or performance-regression threshold;
 - `plugin-contract` — builds the whiteboard test plugin and runs the dlopen /
-  Host Services ABI contract tests explicitly.
+  Host Services ABI contract tests explicitly; also verifies the frozen ABI 1.0
+  baseline header by sha256 and runs the frozen-plugin compatibility test
+  (`test_abi_freeze_compat`).
 
 `nightly.yml`:
 

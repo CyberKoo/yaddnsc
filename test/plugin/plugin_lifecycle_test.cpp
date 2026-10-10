@@ -1,4 +1,4 @@
-/// Plugin lifecycle contract tests for the v1 alpha ABI: descriptor validation, create → update → destroy ordering,
+/// Plugin lifecycle contract tests for the v1 ABI: descriptor validation, create → update → destroy ordering,
 /// concurrent instances of one module, module lease vs. dlclose ordering, and the loader's rejection matrix (missing
 /// file/symbols, magic, revision, descriptor struct_size) including the manual-load fail-fast vs. auto-discover skip
 /// policy from the README behaviour table.
@@ -241,8 +241,8 @@ TEST(PluginLifecycle, LoaderRejectsWrongRevision) {
     EXPECT_EQ(module.error().code, plugin::PluginError::Code::ABI_MISMATCH);
     EXPECT_THAT(module.error().message, ::testing::HasSubstr(BAD_REVISION_FIXTURE));
     EXPECT_THAT(module.error().message, ::testing::HasSubstr("reports ABI 0.0"));
-    EXPECT_THAT(module.error().message, ::testing::HasSubstr("host provides 1.0"));
-    EXPECT_THAT(module.error().message, ::testing::HasSubstr("rebuild the driver with the current SDK"));
+    EXPECT_THAT(module.error().message, ::testing::HasSubstr("this host implements ABI 1.x"));
+    EXPECT_THAT(module.error().message, ::testing::HasSubstr("use a driver built for ABI v1"));
 }
 
 TEST(PluginLifecycle, LoaderRejectsWrongMagic) {
@@ -257,9 +257,9 @@ TEST(PluginLifecycle, LoaderRejectsMissingEntryPoints) {
     auto module = PluginModule::load(MISSING_SYMBOL_FIXTURE);
     ASSERT_FALSE(module.has_value());
     EXPECT_EQ(module.error().code, plugin::PluginError::Code::MISSING_SYMBOL);
-    EXPECT_THAT(module.error().message, ::testing::HasSubstr("does not export the required v1 alpha entry points"));
+    EXPECT_THAT(module.error().message, ::testing::HasSubstr("does not export the required v1 entry points"));
     EXPECT_THAT(module.error().message, ::testing::HasSubstr(MISSING_SYMBOL_FIXTURE));
-    EXPECT_THAT(module.error().message, ::testing::HasSubstr("rebuild the driver with the current SDK"));
+    EXPECT_THAT(module.error().message, ::testing::HasSubstr("use a driver built for ABI v1"));
 }
 
 TEST(PluginLifecycle, LoaderRejectsNewerMinor) {
@@ -267,9 +267,9 @@ TEST(PluginLifecycle, LoaderRejectsNewerMinor) {
     ASSERT_FALSE(module.has_value());
     EXPECT_EQ(module.error().code, plugin::PluginError::Code::ABI_MISMATCH);
     EXPECT_THAT(module.error().message, ::testing::HasSubstr(NEWER_MINOR_FIXTURE));
-    EXPECT_THAT(module.error().message, ::testing::HasSubstr("reports ABI 1.1"));
-    EXPECT_THAT(module.error().message, ::testing::HasSubstr("host provides 1.0"));
-    EXPECT_THAT(module.error().message, ::testing::HasSubstr("rebuild the driver with the current SDK"));
+    EXPECT_THAT(module.error().message, ::testing::HasSubstr("requires ABI 1.1"));
+    EXPECT_THAT(module.error().message, ::testing::HasSubstr("this host provides 1.0"));
+    EXPECT_THAT(module.error().message, ::testing::HasSubstr("upgrade yaddnsc"));
 }
 
 TEST(PluginLifecycle, LoaderRejectsBaselineBelowAbi10) {

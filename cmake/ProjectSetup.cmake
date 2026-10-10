@@ -35,7 +35,7 @@ else ()
   message(FATAL_ERROR "Unsupported compiler: ${CMAKE_CXX_COMPILER_ID}. yaddnsc requires GCC 14+, Clang 19+, or AppleClang 15+.")
 endif ()
 
-# The v1 alpha plugin ABI is LP64. driver_abi.h static_asserts the same layout
+# The v1 plugin ABI is LP64. driver_abi.h static_asserts the same layout
 # for plugins built outside this project.
 if (NOT CMAKE_SIZEOF_VOID_P EQUAL 8)
   message(FATAL_ERROR "yaddnsc requires a 64-bit target (sizeof(void*) == 8). This compiler's pointer width is ${CMAKE_SIZEOF_VOID_P} bytes.")

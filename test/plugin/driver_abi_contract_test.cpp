@@ -1,4 +1,4 @@
-/// Host-side contract tests for the v1 alpha plugin ABI.
+/// Host-side contract tests for the v1 plugin ABI.
 ///
 /// Two angles:
 ///   - direct calls against the host services table (HostServicesContext)

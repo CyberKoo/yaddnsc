@@ -20,10 +20,13 @@
 struct yaddnsc_driver;
 
 namespace {
-/// Shared tail of every ABI-mismatch message: points the user at the
-/// remedy.
-constexpr std::string_view ABI_CHANGED_HINT =
-    "The v1 alpha plugin interface has changed, rebuild the driver with the current SDK.";
+/// Remedy hints for load-time rejection, picked by which side of the version
+/// handshake failed: a different major means the plugin is not built for
+/// this ABI at all; a newer minor means the host is older than the plugin
+/// requires.
+constexpr std::string_view ABI_INCOMPATIBLE_HINT =
+    "The plugin is incompatible with this host; use a driver built for ABI v1.";
+constexpr std::string_view HOST_TOO_OLD_HINT = "The plugin requires a newer host; upgrade yaddnsc.";
 
 [[nodiscard]] plugin::PluginError make_error(plugin::PluginError::Code code, std::string message) {
     return plugin::PluginError{code, std::move(message)};
@@ -61,9 +64,9 @@ std::expected<PluginModule, plugin::PluginError> PluginModule::load(const std::s
     if (module.get_descriptor_ == nullptr || module.create_ == nullptr || module.destroy_ == nullptr ||
         module.update_ == nullptr) {
         return std::unexpected(make_error(plugin::PluginError::Code::MISSING_SYMBOL,
-                                          fmt::format("Driver '{}' does not export the required v1 alpha entry "
+                                          fmt::format("Driver '{}' does not export the required v1 entry "
                                                       "points (get_descriptor/create/destroy/update). {}",
-                                                      path, ABI_CHANGED_HINT)));
+                                                      path, ABI_INCOMPATIBLE_HINT)));
     }
 
     // 2b. The OPTIONAL validate entry (optional since ABI 1.0): absence is
@@ -98,22 +101,29 @@ std::expected<PluginModule, plugin::PluginError> PluginModule::load(const std::s
         return std::unexpected(make_error(
             plugin::PluginError::Code::ABI_MISMATCH,
             fmt::format("Driver '{}' descriptor struct_size {} does not cover the ABI version prefix {}. {}", path,
-                        raw_descriptor->struct_size, YADDNSC_ABI_VERSION_PREFIX_SIZE, ABI_CHANGED_HINT)));
+                        raw_descriptor->struct_size, YADDNSC_ABI_VERSION_PREFIX_SIZE, ABI_INCOMPATIBLE_HINT)));
     }
-    if (raw_descriptor->abi_major != YADDNSC_DRIVER_ABI_MAJOR ||
-        !yaddnsc_abi_provides(YADDNSC_DRIVER_ABI_MAJOR, YADDNSC_DRIVER_ABI_MINOR, raw_descriptor->abi_major,
+    if (raw_descriptor->abi_major != YADDNSC_DRIVER_ABI_MAJOR) {
+        return std::unexpected(make_error(
+            plugin::PluginError::Code::ABI_MISMATCH,
+            fmt::format("Driver '{}' reports ABI {}.{}, but this host implements ABI {}.x. {}", path,
+                        raw_descriptor->abi_major, raw_descriptor->abi_minor, YADDNSC_DRIVER_ABI_MAJOR,
+                        ABI_INCOMPATIBLE_HINT)));
+    }
+    if (!yaddnsc_abi_provides(YADDNSC_DRIVER_ABI_MAJOR, YADDNSC_DRIVER_ABI_MINOR, raw_descriptor->abi_major,
                               raw_descriptor->abi_minor)) {
         return std::unexpected(
             make_error(plugin::PluginError::Code::ABI_MISMATCH,
-                       fmt::format("Driver '{}' reports ABI {}.{}, host provides {}.{}. {}", path,
+                       fmt::format("Driver '{}' requires ABI {}.{}, but this host provides {}.{}. {}", path,
                                    raw_descriptor->abi_major, raw_descriptor->abi_minor, YADDNSC_DRIVER_ABI_MAJOR,
-                                   YADDNSC_DRIVER_ABI_MINOR, ABI_CHANGED_HINT)));
+                                   YADDNSC_DRIVER_ABI_MINOR, HOST_TOO_OLD_HINT)));
     }
     if (raw_descriptor->struct_size < YADDNSC_DRIVER_DESCRIPTOR_MIN_SIZE) {
         return std::unexpected(
             make_error(plugin::PluginError::Code::ABI_MISMATCH,
                        fmt::format("Driver '{}' descriptor struct_size {} is below the ABI 1.0 baseline {}. {}", path,
-                                   raw_descriptor->struct_size, YADDNSC_DRIVER_DESCRIPTOR_MIN_SIZE, ABI_CHANGED_HINT)));
+                                   raw_descriptor->struct_size, YADDNSC_DRIVER_DESCRIPTOR_MIN_SIZE,
+                                   ABI_INCOMPATIBLE_HINT)));
     }
     if (raw_descriptor->magic != YADDNSC_DRIVER_MAGIC) {
         return std::unexpected(

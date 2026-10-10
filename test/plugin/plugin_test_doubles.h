@@ -1,7 +1,7 @@
 #ifndef YADDNSC_TEST_PLUGIN_PLUGIN_TEST_DOUBLES_H
 #define YADDNSC_TEST_PLUGIN_PLUGIN_TEST_DOUBLES_H
 
-/// Shared test doubles for the v1 alpha plugin contract tests.
+/// Shared test doubles for the v1 plugin contract tests.
 ///
 /// A scripted host-services table (log / http_exchange / is_cancelled) that
 /// mirrors the ABI's memory and struct_size rules, a recording logger, and

@@ -1,7 +1,7 @@
 //
 // Unit tests for AlibabaCloudDriver (driver/alibaba_cloud/)
 //
-// Verifies (through the v1 alpha ABI entries and FakeHostServices):
+// Verifies (through the v1 ABI entries and FakeHostServices):
 //   - descriptor returns expected metadata (name/version/author/capabilities).
 //   - update builds the correct Alibaba Cloud API URL, method, content type.
 //   - update body contains all required RPC parameters and the signature.

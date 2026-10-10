@@ -1,7 +1,7 @@
-/// Whiteboard contract-test plugin for the v1 alpha ABI.
+/// Whiteboard contract-test plugin for the v1 ABI.
 ///
 /// Behaviour is steered entirely through driver_param_json so the host-side
-/// contract tests can exercise every documented guarantee of the v1 alpha
+/// contract tests can exercise every documented guarantee of the v1
 /// plugin ABI against a real dlopen'ed module:
 ///
 ///   {"op":"success"}                          — return OK

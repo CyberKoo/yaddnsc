@@ -9,7 +9,7 @@
 include(Drivers)
 
 # ---------------------------------------------------------------------------
-# Helper: add an ABI-style driver test target (v1 alpha plugin interface)
+# Helper: add an ABI-style driver test target (v1 plugin interface)
 #
 #   add_abi_driver_test(<name> <driver_name> [extra_sources ...])
 #

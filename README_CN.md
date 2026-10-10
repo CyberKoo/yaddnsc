@@ -9,7 +9,9 @@
 
 > **发布状态：** 预发布阶段，最新版本见 [GitHub Releases](https://github.com/CyberKoo/yaddnsc/releases)。
 > `master` 分支对应已发布版本，`dev` 分支汇集面向下一版本的变更，`v0.x` 分支继续支持
-> 旧工具链。驱动插件 ABI 为 v1 alpha，版本 1.0。major 相同且插件 minor 不高于宿主 minor 时可以加载；major 不同，或插件要求更高的 minor 时，须用当前 SDK 重新编译。
+> 旧工具链。驱动插件 ABI 为 v1（版本 1.0），**自 1.0 起保持稳定**：基于 ABI 1.0 构建的插件可在任何
+> 实现 ABI 1.x 的宿主上加载运行。major 相同且插件 minor 不高于宿主 minor 时可以加载；major 不同
+> 表示插件面向另一代 ABI 构建，插件要求更高的 minor 时请升级 yaddnsc。
 
 yaddnsc 是一个动态 DNS 客户端。它按配置周期性地获取每条记录的 IP 地址——来源可以
 是本地网络接口、HTTP(S) 端点或组播 DNS——并与 DNS 中当前发布的地址进行比对；两者

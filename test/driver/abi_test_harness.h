@@ -1,7 +1,7 @@
 #ifndef YADDNSC_TEST_DRIVER_ABI_TEST_HARNESS_H
 #define YADDNSC_TEST_DRIVER_ABI_TEST_HARNESS_H
 
-/// Shared harness for driver tests on the v1 alpha ABI.
+/// Shared harness for driver tests on the v1 ABI.
 ///
 /// FakeHostServices implements the host services table in-process: it
 /// captures every outgoing request (owned copies), replays queued

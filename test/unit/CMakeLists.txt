@@ -277,7 +277,7 @@ add_unit_test(validation    SOURCE support/validation_test.cpp)
 add_unit_test(sdk_helpers   SOURCE sdk/sdk_helpers_test.cpp)
 add_unit_test(sdk_driver_helpers SOURCE sdk/sdk_driver_helpers_test.cpp)
 
-# driver_magic — the YADDNSC_DRIVER_MAGIC constant in the v1 alpha ABI header
+# driver_magic — the YADDNSC_DRIVER_MAGIC constant in the v1 ABI header
 add_unit_test(driver_magic SOURCE sdk/driver_magic_test.cpp)
 
 # ============================================================================

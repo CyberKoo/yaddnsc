@@ -1,3 +1,15 @@
+/*
+ * DO NOT EDIT — frozen ABI 1.0 baseline.
+ *
+ * Byte-for-byte snapshot of include/yaddnsc/sdk/driver_abi.h taken at the
+ * ABI 1.0 freeze (plus this banner). Guarded by driver_abi.h.sha256, checked
+ * in CI. The frozen v1.0 plugin (test/plugin/abi_baseline/frozen_v1_0_plugin.cpp)
+ * compiles against THIS copy, so a host-side change that breaks ABI 1.0
+ * compatibility turns test_abi_freeze_compat red.
+ *
+ * Never modify this file. ABI evolution appends to the LIVE header only;
+ * see docs/development.md#plugin-abi-changes.
+ */
 #ifndef YADDNSC_SDK_DRIVER_ABI_H
 #define YADDNSC_SDK_DRIVER_ABI_H
 

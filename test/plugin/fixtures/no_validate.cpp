@@ -1,4 +1,4 @@
-/// Loader fixture: a complete v1 alpha plugin that exports the four REQUIRED
+/// Loader fixture: a complete v1 plugin that exports the four REQUIRED
 /// entry points but NOT the optional yaddnsc_driver_validate — the shape a
 /// third-party plugin built against an SDK predating the validate entry has.
 /// The loader must accept it, and config validation must skip the
@@ -6,11 +6,7 @@
 
 #include <yaddnsc/sdk/driver_abi.h>
 
-#if defined(_WIN32)
-#define FIXTURE_EXPORT __declspec(dllexport)
-#else
 #define FIXTURE_EXPORT __attribute__((visibility("default")))
-#endif
 
 namespace {
 constexpr yaddnsc_driver_descriptor DESCRIPTOR = {

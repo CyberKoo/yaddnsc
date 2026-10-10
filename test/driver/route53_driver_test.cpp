@@ -1,7 +1,7 @@
 //
 // Unit tests for Route53Driver (driver/route53/)
 //
-// Verifies (through the v1 alpha ABI entries and FakeHostServices):
+// Verifies (through the v1 ABI entries and FakeHostServices):
 //   - descriptor returns expected metadata (name/version/author/capabilities).
 //   - update builds the correct Route 53 API URL.
 //   - update sets required SigV4 headers.

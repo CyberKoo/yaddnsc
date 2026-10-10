@@ -281,10 +281,10 @@ Changing the internal contract requires updating its host adapters, not the C AB
 | SDK / plugins | Host Services (`yaddnsc_host_services::log`); C++ helpers normally use the `YADDNSC_SDK_LOG_*` macros in `include/yaddnsc/sdk/driver.hpp` |
 | CLI / composition | the same spdlog backend for host diagnostics; user-facing output is presentation and uses `std::print` / `std::println` on stdout/stderr |
 
-## Plugin boundary (v1 alpha)
+## Plugin boundary (v1)
 
 Drivers are runtime-loaded shared libraries talking to the host exclusively
-through the **v1 alpha C ABI** (`include/yaddnsc/sdk/driver_abi.h`) plus an
+through the **v1 C ABI** (`include/yaddnsc/sdk/driver_abi.h`) plus an
 optional C++ helper layer (`include/yaddnsc/sdk/driver.hpp`). What crosses the
 `.so` boundary is C-representable: fixed-width integers, NUL-terminated
 buffers, and plain structs with explicit sizes. Host Services carry the C++

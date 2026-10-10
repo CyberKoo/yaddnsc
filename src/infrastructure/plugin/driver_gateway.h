@@ -1,5 +1,5 @@
 //
-// plugin — the coroutine driver gateway over the v1 alpha C ABI plugin host.
+// plugin — the coroutine driver gateway over the v1 C ABI plugin host.
 //
 
 #ifndef YADDNSC_INFRASTRUCTURE_PLUGIN_DRIVER_GATEWAY_H
@@ -26,7 +26,7 @@ class TaskGroup;
 namespace plugin {
 class Bridge;
 
-/// DriverGateway — coroutine DriverGateway over the v1 alpha C ABI plugin host.
+/// DriverGateway — coroutine DriverGateway over the v1 C ABI plugin host.
 ///
 /// Every update() call runs the full create → update → destroy cycle on a fresh
 /// driver instance bound to a per-call HostServicesContext (one arena, one

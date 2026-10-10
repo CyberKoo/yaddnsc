@@ -10,9 +10,12 @@
 > **Status:** pre-release — see [GitHub Releases](https://github.com/CyberKoo/yaddnsc/releases)
 > for the latest version. `master` tracks releases, `dev` accumulates changes
 > intended for the next one, and `v0.x` remains available for older toolchains.
-> The driver plugin ABI is v1 alpha, version 1.0. A plugin loads when its
-> major matches and its minor is no higher than the host's. A different major,
-> or a plugin that requires a newer minor, needs a rebuild against the current SDK.
+> The driver plugin ABI is v1, version 1.0, and **stable since 1.0**: a plugin
+> built against ABI 1.0 loads and runs on every host implementing ABI 1.x. A
+> plugin loads when its major matches and its minor is no higher than the
+> host's. A different major means the plugin was built for a different ABI
+> generation; a newer minor means the host is older than the plugin requires
+> (upgrade yaddnsc).
 
 yaddnsc is a dynamic DNS client. For every configured record it periodically
 acquires an IP address — from a local network interface, an HTTP(S) endpoint,

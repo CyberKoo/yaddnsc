@@ -1,14 +1,10 @@
-/// Loader-rejection fixture: a structurally complete v1 alpha plugin whose
+/// Loader-rejection fixture: a structurally complete v1 plugin whose
 /// descriptor reports ABI major 0. The host implements major 1 only and must
 /// reject it before interpreting the 1.0 tail.
 
 #include <yaddnsc/sdk/driver_abi.h>
 
-#if defined(_WIN32)
-#define FIXTURE_EXPORT __declspec(dllexport)
-#else
 #define FIXTURE_EXPORT __attribute__((visibility("default")))
-#endif
 
 namespace {
 constexpr yaddnsc_driver_descriptor DESCRIPTOR = {

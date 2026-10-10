@@ -1,7 +1,7 @@
 //
 // Unit tests for DnsPodDriver (driver/dnspod/)
 //
-// Verifies (through the v1 alpha ABI entries and FakeHostServices):
+// Verifies (through the v1 ABI entries and FakeHostServices):
 //   - descriptor returns expected metadata (name/version/author/capabilities).
 //   - update builds the correct DNSPod API URL (CN / global endpoint).
 //   - update produces a form-encoded body with all expected fields.

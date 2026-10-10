@@ -1,7 +1,7 @@
 //
 // Unit tests for SimpleDriver (driver/simple/)
 //
-// Verifies (through the v1 alpha ABI entries and FakeHostServices):
+// Verifies (through the v1 ABI entries and FakeHostServices):
 //   - descriptor returns expected metadata (name/version/author/capabilities).
 //   - update substitutes URL template variables (context + config params) correctly.
 //   - update with missing/non-object/non-string url config returns INVALID_CONFIG.

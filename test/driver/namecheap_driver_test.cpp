@@ -1,7 +1,7 @@
 //
 // Unit tests for NamecheapDriver (driver/namecheap/)
 //
-// Verifies (through the v1 alpha ABI entries and FakeHostServices):
+// Verifies (through the v1 ABI entries and FakeHostServices):
 //   - descriptor returns expected metadata (name/version/author/capabilities).
 //   - update builds the correct Namecheap DDNS API URL (GET, no body).
 //   - update handles bare-domain (apex) records correctly.

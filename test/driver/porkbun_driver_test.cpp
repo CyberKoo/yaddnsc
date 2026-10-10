@@ -1,7 +1,7 @@
 //
 // Unit tests for PorkbunDriver (driver/porkbun/)
 //
-// Verifies (through the v1 alpha ABI entries and FakeHostServices):
+// Verifies (through the v1 ABI entries and FakeHostServices):
 //   - descriptor returns expected metadata (name/version/author/capabilities).
 //   - update builds the correct Porkbun API URL (editByNameType).
 //   - update sets header auth keys (X-API-Key / X-Secret-API-Key).

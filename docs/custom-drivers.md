@@ -7,7 +7,7 @@ yaddnsc. End users configuring one of the bundled providers should start with
 ## Compatibility
 
 Drivers are runtime-loaded shared libraries that talk to the host exclusively
-through the **v1 alpha plugin ABI** — a small pure-C surface declared in
+through the **v1 plugin ABI** — a small pure-C surface declared in
 `include/yaddnsc/sdk/driver_abi.h`, plus an optional C++ helper layer in
 `include/yaddnsc/sdk/driver.hpp`. No C++ exceptions, STL containers, or host
 objects ever cross the `.so` boundary, so a driver does not need to share the
@@ -15,10 +15,19 @@ host's exact standard-library internals. It must still be built with a C++23
 compiler on a 64-bit platform.
 
 The current ABI version is **1.0** (`YADDNSC_DRIVER_ABI_MAJOR` 1,
-`YADDNSC_DRIVER_ABI_MINOR` 0). The host is the provider. It loads a plugin
-whose major matches and whose minor is no higher than the host's, and a
-plugin accepts a services table on the same rule. A plugin's minor is the
-minimum host minor it requires.
+`YADDNSC_DRIVER_ABI_MINOR` 0), and **the ABI is stable since 1.0**: a driver
+built against ABI 1.0 loads and runs on every host implementing ABI 1.x.
+Three version numbers exist and only the first constrains loading: the **ABI
+version** (this section), the **SDK source version** (the `driver.hpp`
+helper layer; it evolves with the project and fixes bugs without touching
+the ABI), and the **yaddnsc application version**.
+
+The host is the provider. It loads a plugin whose major matches and whose
+minor is no higher than the host's, and a plugin accepts a services table on
+the same rule. A plugin's minor is the minimum host minor it requires. One
+plugin binary serves exactly one ABI major: the exported entry-point symbol
+names are fixed, so a single `.so` cannot offer v1 and a future v2 side by
+side.
 
 Within a major, fields are only appended to the versioned structs. New host
 callbacks, capability bits, status codes, log levels, and HTTP methods are
@@ -26,7 +35,9 @@ minor bumps. Moving or removing a field, growing a leaf type, or adding a
 required entry point is a major bump. `YADDNSC_*_MIN_SIZE` is the ABI 1.0
 baseline and stays there when a later minor appends a field. A different
 major, or a plugin that requires a newer minor, is rejected at load time.
-Rebuild the driver against the current SDK — do not bypass the check.
+Never bypass the version check: a minor rejection means the host is older
+than the driver requires (upgrade yaddnsc); a major rejection means the
+driver was built for a different ABI generation.
 
 This C ABI is new in this release. Drivers written against the old C++ plugin
 API are completely incompatible and cannot load at all — they must be rebuilt

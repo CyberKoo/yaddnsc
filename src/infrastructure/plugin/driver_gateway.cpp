@@ -1,5 +1,5 @@
 //
-// plugin — the coroutine driver gateway over the v1 alpha C ABI plugin host
+// plugin — the coroutine driver gateway over the v1 C ABI plugin host
 // (implementation).
 //
 

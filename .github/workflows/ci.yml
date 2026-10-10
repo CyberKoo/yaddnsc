@@ -145,11 +145,15 @@ jobs:
         steps:
             - name: Checkout
               uses: actions/checkout@v7
+            - name: Verify frozen ABI 1.0 baseline integrity
+              # The frozen v1.0 header copy must never be edited; it is the
+              # reference the ABI freeze promise is tested against.
+              run: cd test/plugin/abi_baseline/v1_0 && sha256sum -c driver_abi.h.sha256
             - name: Install dependencies
               run: sudo apt update; sudo apt install -y cmake git ninja-build gcc-14 g++-14 libssl-dev zlib1g zlib1g-dev pkg-config python3-venv
             - name: Configure
               run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DYADDNSC_BUILD_TESTS=ON
             - name: Build plugin contract targets
-              run: ninja -C build -j$(nproc) test_plugin_abi_contract test_plugin_lifecycle test_coro_driver_gateway
+              run: ninja -C build -j$(nproc) test_plugin_abi_contract test_plugin_lifecycle test_abi_freeze_compat test_coro_driver_gateway
             - name: Run plugin contract tests
-              run: ctest --test-dir build --output-on-failure -R 'plugin_abi_contract|plugin_lifecycle|coro_driver_gateway'
+              run: ctest --test-dir build --output-on-failure -R 'plugin_abi_contract|plugin_lifecycle|abi_freeze_compat|coro_driver_gateway'

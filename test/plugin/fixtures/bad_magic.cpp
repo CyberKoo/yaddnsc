@@ -5,11 +5,7 @@
 #include <stdint.h>
 #include <yaddnsc/sdk/driver_abi.h>
 
-#if defined(_WIN32)
-#define FIXTURE_EXPORT __declspec(dllexport)
-#else
 #define FIXTURE_EXPORT __attribute__((visibility("default")))
-#endif
 
 namespace {
 constexpr yaddnsc_driver_descriptor DESCRIPTOR = {

@@ -1,7 +1,7 @@
 //
 // Unit tests for DigitalOceanDriver (driver/digital_ocean/)
 //
-// Verifies (through the v1 alpha ABI entries and FakeHostServices):
+// Verifies (through the v1 ABI entries and FakeHostServices):
 //   - descriptor returns expected metadata (name/version/author/capabilities).
 //   - update builds the correct DigitalOcean API URL, method, auth header, body.
 //   - update with missing config fields returns INVALID_CONFIG.

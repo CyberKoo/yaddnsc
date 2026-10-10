@@ -14,7 +14,7 @@
 #     fixtures/            ←  shared test-data builders
 #     integration/         ←  integration tests (real I/O in controlled env)
 #     perf/                ←  micro-benchmarks (Google Benchmark)
-#     plugin/              ←  v1 alpha plugin ABI contract tests (dlopen)
+#     plugin/              ←  v1 plugin ABI contract tests (dlopen)
 # ==============================================================================
 
 # Clang 19.x needs -fexperimental-library for std::stop_token, std::jthread, etc.
@@ -228,7 +228,7 @@ add_subdirectory(integration)
 # Driver-specific tests (require driver source files, no dlopen)
 add_subdirectory(driver)
 
-# Plugin contract tests (v1 alpha C ABI; dlopen a whiteboard test plugin)
+# Plugin contract tests (v1 C ABI; dlopen a whiteboard test plugin)
 add_subdirectory(plugin)
 
 # ============================================================================

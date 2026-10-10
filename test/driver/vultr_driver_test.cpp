@@ -1,7 +1,7 @@
 //
 // Unit tests for VultrDriver (driver/vultr/)
 //
-// Verifies (through the v1 alpha ABI entries and FakeHostServices):
+// Verifies (through the v1 ABI entries and FakeHostServices):
 //   - descriptor returns expected metadata (name/version/author/capabilities).
 //   - update builds the correct Vultr API URL with domain/record_id.
 //   - update sets Bearer authorization.

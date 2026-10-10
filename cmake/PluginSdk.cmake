@@ -1,4 +1,4 @@
-# SDK interface for driver plugins — the ONLY supported surface: the v1 alpha
+# SDK interface for driver plugins — the ONLY supported surface: the v1
 # C ABI plus the C++ helper layer (yaddnsc/sdk/*). Deliberately does NOT expose
 # the host's src/ include root or host-only dependencies.
 add_library(yaddnsc_plugin_sdk INTERFACE)
@@ -12,7 +12,7 @@ target_link_libraries(yaddnsc_plugin_sdk INTERFACE glaze::glaze)
 target_compile_features(yaddnsc_plugin_sdk INTERFACE cxx_std_23)
 target_compile_options(yaddnsc_plugin_sdk INTERFACE -Wall -Wextra -Wpedantic -Werror -fvisibility=hidden)
 
-# C11 compile of the v1 alpha ABI header. An OBJECT library is not linked; a
+# C11 compile of the v1 ABI header. An OBJECT library is not linked; a
 # warning or a layout assert fails the build even when tests are disabled.
 add_library(yaddnsc_c_abi_compile OBJECT test/plugin/c_abi_compile.c)
 target_include_directories(yaddnsc_c_abi_compile PRIVATE ${PROJECT_SOURCE_DIR}/include)

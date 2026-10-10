@@ -1,5 +1,5 @@
 # ==============================================================================
-# Plugin contract tests (v1 alpha C ABI)
+# Plugin contract tests (v1 C ABI)
 #
 # A whiteboard test plugin (real MODULE .so, dlopen'ed by the tests) plus
 # deliberately broken fixture libraries for the loader rejection matrix and
@@ -78,10 +78,30 @@ set_target_properties(yaddnsc_fixture_validate_http PROPERTIES PREFIX "" OUTPUT_
 target_include_directories(yaddnsc_fixture_validate_http PRIVATE ${PROJECT_SOURCE_DIR}/include)
 
 # ---------------------------------------------------------------------------
+# Frozen ABI 1.0 baseline plugin — compiles ONLY against the frozen v1.0
+# header copy (abi_baseline/v1_0/), never the live include/ tree. The copy is
+# sha256-guarded in CI. This is the freeze tripwire: a host-side change that
+# breaks ABI 1.0 compatibility turns test_abi_freeze_compat red.
+# ---------------------------------------------------------------------------
+add_library(yaddnsc_fixture_frozen_v1_0 MODULE abi_baseline/frozen_v1_0_plugin.cpp)
+set_target_properties(yaddnsc_fixture_frozen_v1_0 PROPERTIES PREFIX "" OUTPUT_NAME "frozen_v1_0")
+target_include_directories(yaddnsc_fixture_frozen_v1_0 PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/abi_baseline/v1_0)
+
+# ---------------------------------------------------------------------------
 # Test binaries
 # ---------------------------------------------------------------------------
 add_unit_test(plugin_abi_contract SOURCE driver_abi_contract_test.cpp)
 add_unit_test(plugin_lifecycle SOURCE plugin_lifecycle_test.cpp)
+
+# Frozen ABI 1.0 baseline — dlopen the frozen-header plugin and drive a full
+# cycle through the production PluginModule.
+add_unit_test(abi_freeze_compat SOURCE abi_freeze_compat_test.cpp)
+target_link_libraries(test_abi_freeze_compat PRIVATE yaddnsc_prod_all ${CMAKE_DL_LIBS})
+set_tests_properties(test_abi_freeze_compat PROPERTIES
+    ENVIRONMENT "ASAN_OPTIONS=detect_odr_violation=0:detect_stack_use_after_return=1:strict_string_checks=1:detect_invalid_pointer_pairs=2")
+target_compile_definitions(test_abi_freeze_compat PRIVATE
+    FROZEN_V1_0_FIXTURE="$<TARGET_FILE:yaddnsc_fixture_frozen_v1_0>")
+add_dependencies(test_abi_freeze_compat yaddnsc_fixture_frozen_v1_0)
 
 # Coroutine driver gateway — drives the same whiteboard plugin through the
 # coroutine bridge (worker ↔ loop HTTP, concurrent cycles, abandon, shutdown

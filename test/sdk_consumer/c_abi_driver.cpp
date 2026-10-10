@@ -1,10 +1,6 @@
 #include <yaddnsc/sdk/driver_abi.h>
 
-#if defined(_WIN32)
-#define EXAMPLE_EXPORT __declspec(dllexport)
-#else
 #define EXAMPLE_EXPORT __attribute__((visibility("default")))
-#endif
 
 namespace {
 
@@ -16,7 +12,7 @@ constexpr yaddnsc_driver_descriptor descriptor{
     .name = {"consumer_c_abi", sizeof("consumer_c_abi") - 1},
     .version = {"1", sizeof("1") - 1},
     .author = {"yaddnsc", sizeof("yaddnsc") - 1},
-    .description = {"installed v1 alpha C ABI consumer", sizeof("installed v1 alpha C ABI consumer") - 1},
+    .description = {"installed v1 C ABI consumer", sizeof("installed v1 C ABI consumer") - 1},
     .capabilities = YADDNSC_DRIVER_CAPABILITY_A,
 };
 

@@ -1,7 +1,7 @@
 #ifndef YADDNSC_SDK_DRIVER_HPP
 #define YADDNSC_SDK_DRIVER_HPP
 
-/// C++ helper layer over the v1 alpha plugin C ABI (driver_abi.h).
+/// C++ helper layer over the v1 plugin C ABI (driver_abi.h).
 ///
 /// This header is a source-level helper compiled into each plugin. It is not
 /// itself an ABI: exceptions, STL containers, and C++ objects stay on this
@@ -45,11 +45,7 @@
 #include "yaddnsc/sdk/format.hpp"  // IWYU pragma: keep — clangd misses fmt:: usage in uninstantiated template bodies
 #include "yaddnsc/sdk/redact.hpp"
 
-#if defined(_WIN32)
-#define YADDNSC_SDK_EXPORT __declspec(dllexport)
-#else
 #define YADDNSC_SDK_EXPORT __attribute__((visibility("default")))
-#endif
 
 namespace yaddnsc::sdk {
 

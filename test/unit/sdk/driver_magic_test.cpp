@@ -1,5 +1,5 @@
 //
-// Unit tests for the YADDNSC_DRIVER_MAGIC constant in the v1 alpha plugin
+// Unit tests for the YADDNSC_DRIVER_MAGIC constant in the v1 plugin
 // ABI header (<yaddnsc/sdk/driver_abi.h>).
 //
 // Verifies:

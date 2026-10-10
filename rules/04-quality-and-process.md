@@ -21,12 +21,13 @@
 - Tests **must** cover changed behavior and its failure paths. **Prefer** virtual interface-based mocks for external dependencies and integration tests for component boundaries. The framework, mocking approach and test naming convention are fixed for this project; see [Tests](../docs/development.md#tests).
 - Relevant tests **must** pass before merge; available suites, commands, and CI coverage are documented in [Development](../docs/development.md#tests).
 - **Normally** aim for at least **80% line coverage**, prioritizing meaningful branch coverage on critical paths rather than tests written only to raise the percentage. This is a quality target, **not an implemented percentage gate**; reporting and enforcement status live in [Coverage](../docs/development.md#coverage).
+- Changes to the plugin ABI **must** follow the bump classification and minor-bump checklist in [Plugin ABI changes](../docs/development.md#plugin-abi-changes); the frozen ABI compatibility test **must** stay green, and the frozen baseline header **must not** be edited.
 
 ## Logging
 
 Diagnostic logging **must** use the project's centralized logging system. Each layer has exactly one designated entry point, tabulated in [Layers](../docs/architecture.md#layers); the facade requirement in [Components That Must Be Reused](02-implementation.md#components-that-must-be-reused) does not require injecting the application port into every layer. Ad-hoc loggers and diagnostic output via `std::cout`, `printf`, or `std::print` **must not** bypass this system. User-facing CLI output is presentation, not logging, and **must not** carry debug traces or internal-state warnings.
 
-The central production backend **must** supply timestamp, severity, source location, and message; SDK source locations **must** be forwarded through Host Services. A log call **must** return without blocking the calling (loop) thread: the backend is asynchronous and drained on its own thread (see [Concurrency & I/O model](../docs/architecture.md#concurrency--io-model)). See [Plugin boundary](../docs/architecture.md#plugin-boundary-v1-alpha) for ABI boundaries.
+The central production backend **must** supply timestamp, severity, source location, and message; SDK source locations **must** be forwarded through Host Services. A log call **must** return without blocking the calling (loop) thread: the backend is asynchronous and drained on its own thread (see [Concurrency & I/O model](../docs/architecture.md#concurrency--io-model)). See [Plugin boundary](../docs/architecture.md#plugin-boundary-v1) for ABI boundaries.
 
 ## Documentation
 

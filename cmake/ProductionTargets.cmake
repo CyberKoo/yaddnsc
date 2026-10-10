@@ -178,7 +178,7 @@ target_link_libraries(yaddnsc_ip_source_infrastructure
     PRIVATE yaddnsc_dns_classic spdlog::spdlog yaddnsc_fmt
 )
 
-# Plugin host infrastructure — the v1 alpha C ABI loader, catalog and leases.
+# Plugin host infrastructure — the v1 C ABI loader, catalog and leases.
 add_library(yaddnsc_plugin_infrastructure STATIC
     src/infrastructure/plugin/shared_library.cpp
     src/infrastructure/plugin/plugin_loader.cpp
