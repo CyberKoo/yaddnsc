@@ -2,16 +2,16 @@
 
 #include <yaddnsc/sdk/driver.hpp>
 #include <yaddnsc/sdk/driver_abi.h>
-#include <yaddnsc/util/format.hpp>
-#include <yaddnsc/util/string_util.hpp>
+#include <yaddnsc/sdk/format.hpp>
+#include <yaddnsc/sdk/string_util.hpp>
 #include <string>
 #include <string_view>
 #include <utility>
 #include <optional>  // IWYU pragma: keep — sdk::HttpRequest aggregate init needs its std::optional member complete; clangd sees no spelled use
 #include <vector>  // IWYU pragma: keep — sdk::HttpRequest aggregate init needs its std::vector member complete; clangd sees no spelled use
 
-namespace fmt = yaddnsc::util::fmt;
-namespace string_util = yaddnsc::util;
+namespace fmt = yaddnsc::sdk::fmt;
+namespace string_util = yaddnsc::sdk::string_util;
 using yaddnsc::sdk::Error;
 using yaddnsc::sdk::HttpRequest;
 using yaddnsc::sdk::HttpResponse;
