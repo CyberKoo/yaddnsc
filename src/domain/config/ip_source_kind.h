@@ -5,7 +5,7 @@
 ///
 /// Lives in a dependency-free header so the domain runtime model can use the
 /// enum without pulling in the Glaze-based raw config DTO. The glaze mapping
-/// (including the legacy "url" alias) stays in src/infrastructure/config/parser.hpp.
+/// (including the legacy "url" alias) stays in src/infrastructure/config/glaze_meta.hpp.
 namespace domain {
 enum class IpSource {
     INTERFACE,  ///< Read IP from a local network interface

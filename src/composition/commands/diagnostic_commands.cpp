@@ -1,4 +1,4 @@
-#include "diagnostics.h"
+#include "diagnostic_commands.h"
 
 #include <magic_enum/magic_enum.hpp>
 #include <spdlog/spdlog.h>
@@ -25,7 +25,7 @@
 #include "coro/run.hpp"
 #include "infrastructure/dns/dispatcher.h"  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 #include "infrastructure/dns/factory.h"
-#include "infrastructure/dns/resolver_port.h"
+#include "infrastructure/dns/resolver_adapter.h"
 #include "infrastructure/ip_source/system_network_interfaces.h"
 #include "infrastructure/logging/spdlog_logger.h"
 #include "infrastructure/plugin/driver_gateway.h"

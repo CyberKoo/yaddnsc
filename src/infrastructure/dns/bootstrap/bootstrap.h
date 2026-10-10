@@ -21,7 +21,7 @@
 #include "domain/error/dns_error_info.h"
 #include "domain/network/inet_address.h"
 #include "coro/task.hpp"
-#include "infrastructure/network/address/resolver.h"
+#include "infrastructure/network/address/host_resolver.h"
 
 namespace domain {
 enum class AddressFamily;

@@ -9,7 +9,7 @@
 
 #include "coro/task.hpp"
 #include "infrastructure/http/types.h"
-#include "infrastructure/ip_source/source.h"
+#include "infrastructure/ip_source/result.h"
 
 namespace domain {
 enum class AddressFamily;

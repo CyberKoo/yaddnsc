@@ -7,7 +7,7 @@
 #include <spdlog/spdlog.h>
 
 #include "cli/presenter.h"
-#include "composition/commands/diagnostics.h"
+#include "composition/commands/diagnostic_commands.h"
 #include "composition/commands/run.h"
 #include "infrastructure/logging/async_logging.h"
 

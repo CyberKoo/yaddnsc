@@ -2,8 +2,8 @@
 // dns — Dispatcher as an application ResolverPort.
 //
 
-#ifndef YADDNSC_INFRASTRUCTURE_DNS_RESOLVER_PORT_H
-#define YADDNSC_INFRASTRUCTURE_DNS_RESOLVER_PORT_H
+#ifndef YADDNSC_INFRASTRUCTURE_DNS_RESOLVER_ADAPTER_H
+#define YADDNSC_INFRASTRUCTURE_DNS_RESOLVER_ADAPTER_H
 
 #include <string>
 #include <utility>
@@ -37,4 +37,4 @@ private:
 
 }  // namespace dns
 
-#endif  // YADDNSC_INFRASTRUCTURE_DNS_RESOLVER_PORT_H
+#endif  // YADDNSC_INFRASTRUCTURE_DNS_RESOLVER_ADAPTER_H

@@ -15,7 +15,7 @@
 #include <functional>
 #include <vector>
 
-#include "application/log.h"
+#include "application/log_macros.h"
 #include "application/subdomain_loop.h"
 #include "domain/fqdn.h"
 #include "coro/cancel_scope.h"

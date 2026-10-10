@@ -27,7 +27,7 @@
 #include "domain/config/runtime_config.h"
 #include "domain/dns/record_kind.h"
 #include "infrastructure/config/config.h"
-#include "infrastructure/config/parser.hpp"  // IWYU pragma: keep — registers glz::meta specializations
+#include "infrastructure/config/glaze_meta.hpp"  // IWYU pragma: keep — registers glz::meta specializations
 
 namespace {
 

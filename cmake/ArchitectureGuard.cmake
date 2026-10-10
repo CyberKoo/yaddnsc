@@ -118,7 +118,7 @@ foreach (f ${application_port_headers})
         endif ()
     endforeach ()
 endforeach ()
-guard_check("port contracts must not define function-like macros (keep conveniences in application/log.h)"
+guard_check("port contracts must not define function-like macros (keep conveniences in application/log_macros.h)"
     "^[ \t]*#[ \t]*define[ \t]+[A-Za-z_][A-Za-z_0-9]*\\("
     ${PROJECT_SOURCE_DIR}/src/application/ports/*.h
     ${PROJECT_SOURCE_DIR}/src/application/ports/*.hpp)

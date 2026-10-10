@@ -1,5 +1,5 @@
-#ifndef YADDNSC_INFRASTRUCTURE_CONFIG_PARSER_HPP
-#define YADDNSC_INFRASTRUCTURE_CONFIG_PARSER_HPP
+#ifndef YADDNSC_INFRASTRUCTURE_CONFIG_GLAZE_META_HPP
+#define YADDNSC_INFRASTRUCTURE_CONFIG_GLAZE_META_HPP
 
 #include <glaze/glaze.hpp>
 
@@ -84,4 +84,4 @@ struct glz::meta<domain::RecordKind> {
     static constexpr auto value = enumerate("a", A, "aaaa", AAAA, "txt", TXT);
 };
 
-#endif  // YADDNSC_INFRASTRUCTURE_CONFIG_PARSER_HPP
+#endif  // YADDNSC_INFRASTRUCTURE_CONFIG_GLAZE_META_HPP

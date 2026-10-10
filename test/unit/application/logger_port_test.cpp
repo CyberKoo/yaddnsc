@@ -10,7 +10,7 @@
 
 #include <gtest/gtest.h>
 
-#include "application/log.h"
+#include "application/log_macros.h"
 #include "application/ports/log.h"
 #include "mocks/null_logger.h"
 #include "mocks/recording_logger.h"

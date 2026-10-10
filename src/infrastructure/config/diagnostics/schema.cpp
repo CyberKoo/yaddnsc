@@ -10,7 +10,7 @@
 #include <vector>
 #include <initializer_list>
 
-#include "infrastructure/config/parser.hpp"  // IWYU pragma: keep — glz::meta for Config::AppConfig
+#include "infrastructure/config/glaze_meta.hpp"  // IWYU pragma: keep — glz::meta for Config::AppConfig
 
 namespace Config {
 struct AppConfig;

@@ -2,8 +2,8 @@
 // ip_source — shared IP-source result type.
 //
 
-#ifndef YADDNSC_INFRASTRUCTURE_IP_SOURCE_SOURCE_H
-#define YADDNSC_INFRASTRUCTURE_IP_SOURCE_SOURCE_H
+#ifndef YADDNSC_INFRASTRUCTURE_IP_SOURCE_RESULT_H
+#define YADDNSC_INFRASTRUCTURE_IP_SOURCE_RESULT_H
 
 #include <vector>
 
@@ -19,4 +19,4 @@ using Result = std::expected<std::vector<domain::InetAddress>, domain::IpSourceE
 
 }  // namespace ipsource
 
-#endif  // YADDNSC_INFRASTRUCTURE_IP_SOURCE_SOURCE_H
+#endif  // YADDNSC_INFRASTRUCTURE_IP_SOURCE_RESULT_H

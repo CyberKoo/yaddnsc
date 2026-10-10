@@ -14,7 +14,7 @@
 #include <string_view>
 #include <vector>
 
-#include "application/log.h"
+#include "application/log_macros.h"
 #include "domain/address_policy.h"
 #include "domain/error/dns_error.h"
 #include "domain/error/dns_error_info.h"

@@ -23,7 +23,7 @@ enum class LogLevel {
 /// implementations forward it to the logging backend (spdlog::source_loc for
 /// the SpdlogLogger), keeping the `%s` / `%#` pattern fields meaningful.
 ///
-/// Application call sites may use the formatting facade in application/log.h.
+/// Application call sites may use the formatting facade in application/log_macros.h.
 /// Adapters consume this contract directly without a formatting dependency.
 class LoggerPort {
 public:

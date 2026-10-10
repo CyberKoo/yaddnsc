@@ -1,5 +1,5 @@
-#ifndef YADDNSC_APPLICATION_LOG_H
-#define YADDNSC_APPLICATION_LOG_H
+#ifndef YADDNSC_APPLICATION_LOG_MACROS_H
+#define YADDNSC_APPLICATION_LOG_MACROS_H
 
 #include <source_location>          // IWYU pragma: keep — used in the YLOG macro body
 
@@ -21,4 +21,4 @@
 #define YLOG_ERROR(logger, ...) YLOG(logger, app::LogLevel::ERROR, __VA_ARGS__)
 #define YLOG_CRITICAL(logger, ...) YLOG(logger, app::LogLevel::CRITICAL, __VA_ARGS__)
 
-#endif  // YADDNSC_APPLICATION_LOG_H
+#endif  // YADDNSC_APPLICATION_LOG_MACROS_H

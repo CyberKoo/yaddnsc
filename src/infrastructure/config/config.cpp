@@ -13,7 +13,7 @@
 #include "infrastructure/config/diagnostics/parse_diagnostic.h"
 #include "support/fmt.hpp"
 
-#include "parser.hpp"  // IWYU pragma: keep
+#include "glaze_meta.hpp"  // IWYU pragma: keep
 
 namespace {
 [[nodiscard]] bool is_sensitive_key(std::string_view key) {

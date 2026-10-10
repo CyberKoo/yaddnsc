@@ -92,7 +92,7 @@ struct FileError {
 
 For concrete boundary implementations, see `include/yaddnsc/sdk/driver.hpp` and
 the DNS resolver adapters (`src/infrastructure/dns/resolver/resolver.h`,
-`resolver_port.h`, and the `classic` / `dot` / `doh` implementations). These
+`resolver_adapter.h`, and the `classic` / `dot` / `doh` implementations). These
 illustrate two distinct contracts:
 
 - The plugin C ABI contains C++ exceptions and reports ABI status/error data without allowing an exception to escape.

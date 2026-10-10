@@ -1,5 +1,5 @@
-#ifndef YADDNSC_COMPOSITION_COMMANDS_DIAGNOSTICS_H
-#define YADDNSC_COMPOSITION_COMMANDS_DIAGNOSTICS_H
+#ifndef YADDNSC_COMPOSITION_COMMANDS_DIAGNOSTIC_COMMANDS_H
+#define YADDNSC_COMPOSITION_COMMANDS_DIAGNOSTIC_COMMANDS_H
 
 namespace Cli {
 struct ConfigShowCommand;
@@ -26,4 +26,4 @@ namespace Composition {
 [[nodiscard]] int execute_command(const Cli::ConfigTestCommand& command);
 [[nodiscard]] int execute_command(const Cli::InfoCommand& command);
 }  // namespace Composition
-#endif  // YADDNSC_COMPOSITION_COMMANDS_DIAGNOSTICS_H
+#endif  // YADDNSC_COMPOSITION_COMMANDS_DIAGNOSTIC_COMMANDS_H

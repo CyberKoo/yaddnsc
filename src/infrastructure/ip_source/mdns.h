@@ -8,7 +8,7 @@
 #include <string>
 
 #include "coro/task.hpp"
-#include "infrastructure/ip_source/source.h"
+#include "infrastructure/ip_source/result.h"
 
 namespace domain {
 enum class RecordKind;

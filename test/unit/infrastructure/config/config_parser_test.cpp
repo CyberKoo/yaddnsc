@@ -1,5 +1,5 @@
 //
-// Unit tests for config/parser.hpp — glaze-based JSON config parsing.
+// Unit tests for config/glaze_meta.hpp — glaze-based JSON config parsing.
 //
 // Verifies:
 //   - Minimal config parses successfully with default values.
@@ -25,7 +25,7 @@
 #include "domain/dns/record_kind.h"
 #include "fixtures/sample_config.h"
 #include "infrastructure/config/config.h"
-#include "infrastructure/config/parser.hpp"  // IWYU pragma: keep — registers glz::meta specializations
+#include "infrastructure/config/glaze_meta.hpp"  // IWYU pragma: keep — registers glz::meta specializations
 
 // ===========================================================================
 // Config::AppConfig parsing helpers

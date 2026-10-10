@@ -339,12 +339,12 @@ above. All quoted includes and angle includes using known source-root paths are
 checked as internal; bare/relative quoted paths and traversal components are
 rejected. Standard-library angle includes remain allowed except `<format>`;
 `fmt/...` includes are also rejected. This blocks `support/fmt.hpp` and
-`application/log.h` from pulling formatting conveniences back into contracts.
+`application/log_macros.h` from pulling formatting conveniences back into contracts.
 Function-like `#define NAME(...)` declarations are rejected in port headers;
 object-like macros, including include guards, remain allowed. This does not
 restrict the number of ports per header or legitimate contract aggregation.
 Ordinary application headers outside `ports/`, including the macro convenience
-layer `application/log.h`, may still use support helpers and formatting.
+layer `application/log_macros.h`, may still use support helpers and formatting.
 
 `test_architecture_guard_cases` runs the actual CMake script on isolated source
 fixtures, and `test_coro` checks that raw Task/group/Handle construction, Task

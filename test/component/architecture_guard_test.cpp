@@ -120,15 +120,15 @@ struct ProbePorts { ProbePort& probe; OtherPort& other; };
         GuardCase{"PortSupportFmt", "#include \"support/fmt.hpp\"\n", false, "src/application/ports/log.h",
                   "port contracts may include only"},
         GuardCase{"PortAngleSupportFmt", "#include <support/fmt.hpp>\n", false, "src/application/ports/probe.h"},
-        GuardCase{"PortLoggingConvenience", "#include \"application/log.h\"\n", false, "src/application/ports/log.h",
+        GuardCase{"PortLoggingConvenience", "#include \"application/log_macros.h\"\n", false, "src/application/ports/log.h",
                   "port contracts may include only"},
         GuardCase{"PortApplicationHeader", "#include \"application/services.h\"\n", false,
                   "src/application/ports/probe.h"},
         GuardCase{"PortSupportHelper", "#include \"support/string_util.hpp\"\n", false,
                   "src/application/ports/nested/probe.hpp"},
         GuardCase{"PortBareInternalHeader", "#include \"log.h\"\n", false, "src/application/ports/probe.h"},
-        GuardCase{"PortRelativeConvenience", "#include \"../log.h\"\n", false, "src/application/ports/probe.h"},
-        GuardCase{"PortTraversalConvenience", "#include \"application/ports/../log.h\"\n", false,
+        GuardCase{"PortRelativeConvenience", "#include \"../log_macros.h\"\n", false, "src/application/ports/probe.h"},
+        GuardCase{"PortTraversalConvenience", "#include \"application/ports/../log_macros.h\"\n", false,
                   "src/application/ports/probe.h"},
         GuardCase{"PortDomainTraversal", "#include <domain/../support/fmt.hpp>\n", false,
                   "src/application/ports/probe.h"},
@@ -143,20 +143,20 @@ struct ProbePorts { ProbePort& probe; OtherPort& other; };
 #define DEFAULT_VALUE (1)
 // #define HELPER(x) (x)
 /* #define HELPER() 0 */
-// #include "application/log.h"
+// #include "application/log_macros.h"
 #endif
 )",
                   true, "src/application/ports/probe.h"},
         GuardCase{"ApplicationSupportStillAllowed", R"(#include "support/fmt.hpp"
 #include "support/string_util.hpp"
-#include "application/log.h"
+#include "application/log_macros.h"
 #include <fmt/format.h>
 #include <format>
 #define HELPER(x) (x)
 )",
                   true, "src/application/probe.h"},
         GuardCase{"LoggingConvenienceMacroStillAllowed", "#define LOG_AT(level, ...) log(level, __VA_ARGS__)\n", true,
-                  "src/application/log.h"},
+                  "src/application/log_macros.h"},
         GuardCase{"LegacyGlobalForward", "class NetworkInterfaces; void inspect(NetworkInterfaces&);", false,
                   "src/application/diagnostics.h", "concrete type NetworkInterfaces"},
         GuardCase{"RenamedGlobalForward", "class\n RenamedBackend\n;", false, "src/application/probe.hpp",
@@ -243,7 +243,7 @@ auto note = "net::Stream; class NetworkInterfaces;";
                   "src/infrastructure/network/factory/probe.cpp"},
         GuardCase{"HttpIncludesDns", "#include \"infrastructure/dns/bootstrap/bootstrap.h\"\n", false,
                   "src/infrastructure/http/probe.cpp"},
-        GuardCase{"HttpIncludesResolver", "#include \"infrastructure/network/address/resolver.h\"\n", true,
+        GuardCase{"HttpIncludesResolver", "#include \"infrastructure/network/address/host_resolver.h\"\n", true,
                   "src/infrastructure/http/probe.cpp"},
         GuardCase{"Comments", "/* coro::detail::GetContext c;\n coro::Loop loop; */\n// coro::GetContext{}\n", true},
         // Regression: "//" inside a string literal is not a comment. Stripping

@@ -15,7 +15,7 @@
 #include <string_view>
 
 #include "domain/network/address_family.h"
-#include "infrastructure/network/address/resolver.h"
+#include "infrastructure/network/address/host_resolver.h"
 #include "infrastructure/network/transport/options.h"
 #include "infrastructure/network/transport/stream.h"
 
