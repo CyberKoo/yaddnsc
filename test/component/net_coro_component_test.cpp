@@ -3,8 +3,8 @@
 // plus the DNS wire exchange built on it.
 //
 // Real I/O on loopback: an in-process TCP echo server for the plain-TCP paths
-// and the shared Python TLS echo server (test/component/tls_echo_server.py) for
-// the TLS paths, including certificate verification against a throwaway
+// and the shared Python TLS echo server (test/component/servers/tls_echo_server.py)
+// for the TLS paths, including certificate verification against a throwaway
 // self-signed bundle. UDP and the DNS wire exchange are served by in-process
 // datagram sockets, on IPv6 loopback where the exchange is exercised.
 //

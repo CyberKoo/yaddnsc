@@ -80,7 +80,7 @@ set_tests_properties(test_composition_bootstrap PROPERTIES
 add_unit_test(net_coro_component SOURCE net_coro_component_test.cpp)
 target_link_libraries(test_net_coro_component PRIVATE yaddnsc_dns_bootstrap yaddnsc_coro_dns OpenSSL::SSL OpenSSL::Crypto)
 target_compile_definitions(test_net_coro_component PRIVATE
-    TEST_DATA_DIR="${PROJECT_SOURCE_DIR}/test/component"
+    TEST_DATA_DIR="${PROJECT_SOURCE_DIR}/test/component/servers"
 )
 
 # Coroutine HTTP client and DNS subsystem over real loopback I/O: an in-process
@@ -89,7 +89,7 @@ target_compile_definitions(test_net_coro_component PRIVATE
 add_unit_test(net_coro_io_component SOURCE net_coro_io_component_test.cpp)
 target_link_libraries(test_net_coro_io_component PRIVATE yaddnsc_http yaddnsc_coro_dns OpenSSL::SSL OpenSSL::Crypto)
 target_compile_definitions(test_net_coro_io_component PRIVATE
-    TEST_DATA_DIR="${PROJECT_SOURCE_DIR}/test/component"
+    TEST_DATA_DIR="${PROJECT_SOURCE_DIR}/test/component/servers"
 )
 
 # ============================================================================
