@@ -1,4 +1,11 @@
 // Exercise the actual CMake guard against isolated source trees.
+//
+// This is the regression suite for cmake/ArchitectureGuard.cmake: each case
+// builds a synthetic source tree in a temp directory and runs the guard script
+// against it, proving a violation pattern is rejected (or a clean tree
+// accepted). It complements, and does not duplicate, the top-level CTest entry
+// `architecture_guard`, which runs the same script once over the real source
+// tree as a gate.
 #include <cerrno>
 #include <cstdio>
 #include <filesystem>

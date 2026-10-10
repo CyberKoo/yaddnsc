@@ -36,38 +36,24 @@ target_compile_definitions(test_cert_util_override PRIVATE
 )
 
 # ============================================================================
-#  CLI layer + composition root — pure parser tests, presenter output,
-#  diagnostics over fake ports, and Composition::dispatch golden paths
-#  (config show/test, driver list/info, dns resolver, interface, info)
+#  Composition root — Composition::dispatch golden paths for the diagnostic
+#  commands (config show/test, driver list/info, dns resolver, interface,
+#  info), incl. the parse → dispatch round trip.
 #
-#  Requires a built driver .so (simple) for the config-test and driver
-#  dispatch paths.
+#  The pure CLI halves (parser, presenters, completion-script sync) live in
+#  test/unit/cli/. Requires a built driver .so (simple) for the config-test
+#  and driver dispatch paths.
 # ============================================================================
 
 add_unit_test(cli SOURCE cli_test.cpp)
-target_link_libraries(test_cli PRIVATE yaddnsc_prod_all yaddnsc_coro_application yaddnsc_coro GTest::gmock)
+target_link_libraries(test_cli PRIVATE yaddnsc_prod_all yaddnsc_coro_application yaddnsc_coro)
 target_compile_definitions(test_cli PRIVATE
-    TEST_DRIVER_DIR="${CMAKE_BINARY_DIR}/driver"
-    YADDNSC_TEMPLATE_DIR="${PROJECT_SOURCE_DIR}/template")
+    TEST_DRIVER_DIR="${CMAKE_BINARY_DIR}/driver")
 # simple.so must be built before the test runs (dlopen dependency).
 add_dependencies(test_cli simple)
 # macOS + ASan + dlopen plugins: disable the ODR checker for the plugin's
 # vtables (same known false positive as test_driver_loader).
 set_tests_properties(test_cli PROPERTIES
-    ENVIRONMENT "ASAN_OPTIONS=detect_odr_violation=0:detect_stack_use_after_return=1:strict_string_checks=1:detect_invalid_pointer_pairs=2")
-
-# composition root — dispatch() over every command variant; needs the real
-# simple.so so driver diagnostics and environment validation use the actual
-# plugin loader.
-add_unit_test(composition_bootstrap SOURCE composition_bootstrap_test.cpp)
-target_link_libraries(test_composition_bootstrap PRIVATE yaddnsc_prod_all GTest::gmock glaze::glaze OpenSSL::Crypto)
-target_compile_definitions(test_composition_bootstrap PRIVATE
-    YADDNSC_TEST_DRIVER_DIR="$<TARGET_FILE_DIR:simple>"
-    YADDNSC_TEST_DRIVER_FILE="$<TARGET_FILE:simple>"
-)
-
-add_dependencies(test_composition_bootstrap simple)
-set_tests_properties(test_composition_bootstrap PROPERTIES
     ENVIRONMENT "ASAN_OPTIONS=detect_odr_violation=0:detect_stack_use_after_return=1:strict_string_checks=1:detect_invalid_pointer_pairs=2")
 
 # ============================================================================

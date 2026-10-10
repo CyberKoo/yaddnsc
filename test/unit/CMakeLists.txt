@@ -70,6 +70,23 @@ add_unit_test(run_root SOURCE application/run_root_test.cpp)
 target_link_libraries(test_run_root PRIVATE yaddnsc_coro_application yaddnsc_coro yaddnsc_domain)
 
 # ============================================================================
+#  cli/  —  argument parsing and output presentation (src/cli/)
+# ============================================================================
+
+# parser — subcommand routing, aliases, options, --help/--version
+add_unit_test(cli_parser SOURCE cli/parser_test.cpp)
+target_link_libraries(test_cli_parser PRIVATE yaddnsc_cli_adapter)
+
+# presenter — stdout/stderr wording and exit codes over hand-built outcomes
+add_unit_test(cli_presenter SOURCE cli/presenter_test.cpp)
+target_link_libraries(test_cli_presenter PRIVATE yaddnsc_cli_adapter)
+
+# completion — the shell scripts under template/ stay in sync with the
+# parser's command/alias set; reads files only, links no production code
+add_unit_test(cli_completion SOURCE cli/completion_test.cpp)
+target_compile_definitions(test_cli_completion PRIVATE YADDNSC_TEMPLATE_DIR="${PROJECT_SOURCE_DIR}/template")
+
+# ============================================================================
 #  coro/  —  the coroutine runtime (src/coro/)
 # ============================================================================
 
