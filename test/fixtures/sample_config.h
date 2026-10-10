@@ -70,27 +70,6 @@ inline constexpr std::string_view MDNS_CONFIG = R"({
     ]
 })";
 
-// ── Config with backward-compatible "url" IP source ───────────────
-
-inline constexpr std::string_view BACKWARD_COMPAT_CONFIG = R"({
-    "drivers": { "auto_discover": true },
-    "resolver": {
-        "use_custom_servers": true,
-        "servers": [{"address": "9.9.9.9", "port": 53}],
-        "strategy": "concurrent"
-    },
-    "domains": [
-        {
-            "name": "example.org",
-            "update_interval": 120,
-            "driver": "digital_ocean",
-            "subdomains": [
-                {"name": "blog", "type": "aaaa", "ip_source": "url", "ip_source_param": "https://api6.ipify.org"}
-            ]
-        }
-    ]
-})";
-
 // ── Config with all SubdomainConfig fields ───────────────────────────────────
 
 inline constexpr std::string_view ALL_SUBDOMAIN_FIELDS = R"({
@@ -105,7 +84,7 @@ inline constexpr std::string_view ALL_SUBDOMAIN_FIELDS = R"({
             "subdomains": [
                 {
                     "name": "api",
-                    "type": "txt",
+                    "type": "aaaa",
                     "interface": "bond0",
                     "ip_source": "http",
                     "ip_source_param": "https://checkip.amazonaws.com",

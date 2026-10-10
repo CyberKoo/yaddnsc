@@ -68,20 +68,17 @@ struct glz::meta<Config::AppConfig> {
 };
 
 /// glz::meta specialisation for domain::IpSource enum JSON mapping.
-/// Supports both "interface", "http" / "url", and "mdns".
 template<>
 struct glz::meta<domain::IpSource> {
     using enum domain::IpSource;
-    static constexpr auto value = enumerate("interface", INTERFACE, "http", HTTP, "url",
-                                            HTTP,  // backward compatibility
-                                            "mdns", MDNS);
+    static constexpr auto value = enumerate("interface", INTERFACE, "http", HTTP, "mdns", MDNS);
 };
 
 /// glz::meta specialisation for RecordKind enum JSON mapping.
 template<>
 struct glz::meta<domain::RecordKind> {
     using enum domain::RecordKind;
-    static constexpr auto value = enumerate("a", A, "aaaa", AAAA, "txt", TXT);
+    static constexpr auto value = enumerate("a", A, "aaaa", AAAA);
 };
 
 #endif  // YADDNSC_INFRASTRUCTURE_CONFIG_GLAZE_META_HPP

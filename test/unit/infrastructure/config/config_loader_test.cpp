@@ -214,7 +214,7 @@ TEST(ConfigLoaderTest, WrongEnumInNestedList_ListsTheAcceptedValues) {
 
     EXPECT_NE(message.find("\"domains[0].subdomains[0].type\""), std::string::npos) << message;
     EXPECT_NE(message.find("\"a\""), std::string::npos) << message;
-    EXPECT_NE(message.find("\"txt\""), std::string::npos) << message;
+    EXPECT_NE(message.find("\"aaaa\""), std::string::npos) << message;
 }
 
 TEST(ConfigLoaderTest, QuotedNumber_NamesTheKeyAndTheExpectedType) {
@@ -972,7 +972,7 @@ TEST(DiagnosticSchemaTest, ExpectationFor_IndexedAndNullablePaths_ReturnsTypeAnd
     const auto source = expectation_for(path);
     EXPECT_EQ(source.type, JsonKind::STRING);
     EXPECT_TRUE(source.nullable);
-    EXPECT_THAT(source.values, testing::ElementsAre("interface", "http", "url", "mdns"));
+    EXPECT_THAT(source.values, testing::ElementsAre("interface", "http", "mdns"));
 
     path.back().key = "allow_ula";
     const auto boolean = expectation_for(path);

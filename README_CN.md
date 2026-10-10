@@ -265,6 +265,8 @@ yaddnsc config test -c /etc/yaddnsc/config.json -q
 | `domains[].subdomains[].driver_param` | 改名为 `driver_params`，其中的参数内容保持不变。 |
 | `resolver.address` 或 `resolver.ipaddress`，以及 `resolver.port` | 将服务器移入 `resolver.servers`，例如 `"servers": [{"address": "1.1.1.1", "port": 53}]`，并删除直接放在 `resolver` 下的这些字段。 |
 | `domains[].subdomains[].ip_type` | 删除该字段；记录的 `type` 决定地址族：`a` 使用 IPv4，`aaaa` 使用 IPv6。 |
+| `"ip_source": "url"` | 改用 `"http"`；旧别名会被拒绝。 |
+| `"type": "txt"` | 改用 `a` 或 `aaaa`；`txt` 在解析配置时即被拒绝。 |
 
 `resolver.servers[]` 内的字段以及插件 SDK/ABI 的 `driver_param_json` 字段保持不变。
 迁移后，先校验配置，再启动客户端：
@@ -290,7 +292,7 @@ yaddnsc config test -c /etc/yaddnsc/config.json
 | `domains[]` | `driver` | 处理该域名的驱动模块名称。 |
 | `domains[]` | `subdomains` | 该域名下受管理的记录，至少一条。 |
 | `subdomains[]` | `name` | 记录标签；`@` 表示域名顶点（apex）记录。 |
-| `subdomains[]` | `type` | `a` 或 `aaaa`；省略时按 `a` 处理。`txt` 可以被解析，`yaddnsc dns resolve` 也可以查询它。更新时宿主会在调用驱动之前拒绝其他类型。 |
+| `subdomains[]` | `type` | `a` 或 `aaaa`；省略时按 `a` 处理。其他值在解析配置时即被拒绝。 |
 | `subdomains[]` | `ip_source` | `interface`、`http` 或 `mdns`，详见 [IP 地址来源](#ip-地址来源)。 |
 | `subdomains[]` | `ip_source_param` | `http` 来源使用 URL，`mdns` 来源使用主机名；`interface` 来源不使用该字段。 |
 | `subdomains[]` | `interface` | 网络接口名称；`interface` 来源必填，其余网络来源可选。 |

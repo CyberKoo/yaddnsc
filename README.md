@@ -282,6 +282,8 @@ compatibility aliases or automatic migration.
 | `domains[].subdomains[].driver_param` | Rename to `driver_params`; keep its contents unchanged. |
 | `resolver.address` or `resolver.ipaddress`, with `resolver.port` | Move the server into `resolver.servers`, for example `"servers": [{"address": "1.1.1.1", "port": 53}]`, and remove the direct fields. |
 | `domains[].subdomains[].ip_type` | Remove it. The record's `type` selects the address family: `a` uses IPv4 and `aaaa` uses IPv6. |
+| `"ip_source": "url"` | Spell it `"http"`; the legacy alias is rejected. |
+| `"type": "txt"` | Use `a` or `aaaa`; `txt` is rejected when the configuration is parsed. |
 
 The fields inside `resolver.servers[]` and the plugin SDK/ABI field
 `driver_param_json` are unchanged. After migration, validate the file before
@@ -308,7 +310,7 @@ yaddnsc config test -c /etc/yaddnsc/config.json
 | `domains[]` | `driver` | Name of the driver module handling this domain. |
 | `domains[]` | `subdomains` | Records managed under this domain; at least one is required. |
 | `subdomains[]` | `name` | Record label; `@` denotes the apex of the domain. |
-| `subdomains[]` | `type` | `a` or `aaaa`; when omitted, `a` is assumed. `txt` parses, and `yaddnsc dns resolve` can query it. The host rejects an update of any other type before the driver runs. |
+| `subdomains[]` | `type` | `a` or `aaaa`; when omitted, `a` is assumed. Any other value is rejected when the configuration is parsed. |
 | `subdomains[]` | `ip_source` | `interface`, `http`, or `mdns`. See [IP Address Sources](#ip-address-sources). |
 | `subdomains[]` | `ip_source_param` | URL for the `http` source, host name for the `mdns` source; unused by `interface`. |
 | `subdomains[]` | `interface` | Interface name. Required by the `interface` source; optional for the network-based sources. |

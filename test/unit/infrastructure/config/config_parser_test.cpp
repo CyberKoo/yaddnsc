@@ -4,7 +4,7 @@
 // Verifies:
 //   - Minimal config parses successfully with default values.
 //   - Full config with all fields parses correctly.
-//   - Backward-compatible IP source name ("url") works.
+//   - Removed IP source name ("url") and record type ("txt") are rejected.
 //   - All SubdomainConfig fields round-trip correctly.
 //   - Invalid JSON is rejected.
 //   - Wrong type values produce errors.
@@ -181,22 +181,16 @@ TEST(ConfigParserTest, ResolverConfig_Serialization_ContainsOnlyListSettings) {
     EXPECT_EQ(*written, R"({"use_custom_servers":false,"servers":[],"strategy":"concurrent"})");
 }
 
-TEST(ConfigParserTest, BackwardCompat_Keys_AreAccepted) {
-    auto result = parse_config(Fixtures::BACKWARD_COMPAT_CONFIG);
-    ASSERT_TRUE(result.ok);
+TEST(ConfigParserTest, SubdomainConfig_RemovedUrlIpSource_IsRejected) {
+    Config::SubdomainConfig config;
+    const auto error = glz::read_json(config, std::string{R"({"ip_source":"url"})"});
+    EXPECT_EQ(error.ec, glz::error_code::unexpected_enum);
+}
 
-    const auto& cfg = result.value;
-
-    EXPECT_TRUE(cfg.resolver.use_custom_servers);
-    ASSERT_EQ(cfg.resolver.servers.size(), 1U);
-    EXPECT_EQ(cfg.resolver.servers[0].address, "9.9.9.9");
-    EXPECT_EQ(cfg.resolver.strategy, domain::ResolverStrategy::CONCURRENT);
-
-    // "url" alias for IP source = HTTP
-    ASSERT_EQ(cfg.domains.size(), 1U);
-    ASSERT_EQ(cfg.domains[0].subdomains.size(), 1U);
-    EXPECT_EQ(cfg.domains[0].subdomains[0].ip_source, domain::IpSource::HTTP);
-    EXPECT_EQ(cfg.domains[0].subdomains[0].ip_source_param, "https://api6.ipify.org");
+TEST(ConfigParserTest, SubdomainConfig_RemovedTxtType_IsRejected) {
+    Config::SubdomainConfig config;
+    const auto error = glz::read_json(config, std::string{R"({"type":"txt"})"});
+    EXPECT_EQ(error.ec, glz::error_code::unexpected_enum);
 }
 
 // ===========================================================================
@@ -220,7 +214,7 @@ TEST(ConfigParserTest, AllSubdomainFields_ParseCorrectly) {
     const auto& sub = domain.subdomains[0];
 
     EXPECT_EQ(sub.name, "api");
-    EXPECT_EQ(sub.type, domain::RecordKind::TXT);
+    EXPECT_EQ(sub.type, domain::RecordKind::AAAA);
     EXPECT_EQ(sub.interface, "bond0");
     EXPECT_EQ(sub.ip_source, domain::IpSource::HTTP);
     EXPECT_EQ(sub.ip_source_param, "https://checkip.amazonaws.com");
