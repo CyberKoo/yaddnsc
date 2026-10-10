@@ -79,7 +79,9 @@ still propagate normally. Exceptions escaping loop dispatch, or failure to post
 an offload completion, call `std::terminate`: losing a dispatch batch or completion
 cannot be recovered by safely unwinding parked frames. External stop before root
 completion is likewise fatal. Loop construction throws if its wake pipe cannot
-be created.
+be created, or if another loop is already alive: the signal handler's
+process-wide state serves exactly one loop per process, and a second live loop
+would silently misroute the first loop's signals.
 
 **Cancellation is scope state.** `with_timeout`, `with_deadline`,
 `with_cancel_scope` and `non_cancellable` run a body in a child scope;

@@ -60,6 +60,12 @@ namespace {
 // (not a port), they are set/cleared by the owning Loop's lifetime, and a
 // process runs one loop at a time, which is the documented model.
 //
+// Because this state can serve exactly one loop, the one-live-loop model is
+// enforced (loop_slot_taken below) rather than left to convention: with two
+// live loops the newer one would hijack the pipe writes, and its
+// process_signals() would consume the older loop's pending bits — a silent
+// misdelivery with no observable failure at the point of the mistake.
+//
 // Synchronization strategy: single-word atomics only. relaxed is enough for
 // the handler (it publishes a bit and a byte; every ordering that matters is
 // established by the self-pipe read), and the loop uses acquire on its reads
@@ -69,6 +75,8 @@ namespace {
 std::atomic<int> signal_pipe_write_fd{-1};
 /// One pending bit per signal number (bit 0 == signal 1).
 std::atomic<unsigned long long> pending_signals{0};
+/// True while a Loop is alive; constructors take the slot, ~Loop() returns it.
+std::atomic<bool> loop_slot_taken{false};
 static_assert(std::atomic<int>::is_always_lock_free);
 static_assert(std::atomic<unsigned long long>::is_always_lock_free);
 
@@ -108,6 +116,19 @@ std::string describe_poll_events(short events) {
         append("POLLNVAL");
     }
     return out.empty() ? "0" : out;
+}
+
+/// Take the process-wide loop slot. Throws std::logic_error when another loop
+/// is alive; a constructor that fails after acquiring rolls back with
+/// release_loop_slot().
+void acquire_loop_slot() {
+    if (loop_slot_taken.exchange(true, std::memory_order_acq_rel)) {
+        throw std::logic_error("a coro::Loop is already alive in this process");
+    }
+}
+
+void release_loop_slot() noexcept {
+    loop_slot_taken.store(false, std::memory_order_release);
 }
 
 }  // namespace
@@ -153,11 +174,23 @@ private:
 };
 
 Loop::Loop() : clock_(&system_clock_), signal_waiters_(static_cast<std::size_t>(SIGNAL_CAPACITY)) {
-    open_self_pipe();
+    acquire_loop_slot();
+    try {
+        open_self_pipe();
+    } catch (...) {
+        release_loop_slot();
+        throw;
+    }
 }
 
 Loop::Loop(Clock& clock) : clock_(&clock), signal_waiters_(static_cast<std::size_t>(SIGNAL_CAPACITY)) {
-    open_self_pipe();
+    acquire_loop_slot();
+    try {
+        open_self_pipe();
+    } catch (...) {
+        release_loop_slot();
+        throw;
+    }
 }
 
 Loop::~Loop() noexcept {
@@ -166,6 +199,7 @@ Loop::~Loop() noexcept {
     pool_.reset();
     restore_signals();
     close_self_pipe();
+    release_loop_slot();
 }
 
 void Loop::open_self_pipe() {
@@ -215,6 +249,12 @@ void Loop::wake() noexcept {
 
 void Loop::schedule(detail::PromiseBase& frame) noexcept {
     assert(!frame.in_ready && "frame scheduled twice while already ready");
+    if (frame.in_ready) {
+        // Release-mode policy (rule 03): the awaitable's scheduled flag already
+        // guarantees a single wakeup, so a duplicate schedule carries no
+        // information; dropping it keeps the intrusive ready list intact.
+        return;
+    }
     frame.in_ready = true;
     frame.ready_next = nullptr;
     if (ready_tail_ != nullptr) {
@@ -395,13 +435,16 @@ void Loop::poll_once(int timeout_ms) {
     if (fds_.empty()) {
         return;
     }
-    std::vector<pollfd> pollfds;
-    pollfds.reserve(fds_.size());
+    // The scratch buffers are members reused across rounds (clear() keeps the
+    // allocation): a busy loop polls every iteration, so fresh locals would
+    // cost a malloc/free pair per round plus growth reallocation on events.
+    pollfds_scratch_.clear();
+    pollfds_scratch_.reserve(fds_.size());
     for (const FdEntry& entry : fds_) {
-        pollfds.push_back(pollfd{entry.fd, entry.events, 0});
+        pollfds_scratch_.push_back(pollfd{entry.fd, entry.events, 0});
     }
-    CORO_TRACE("poll() on {} fd(s), timeout {} ms", pollfds.size(), timeout_ms);
-    const int ready = ::poll(pollfds.data(), static_cast<nfds_t>(pollfds.size()), timeout_ms);
+    CORO_TRACE("poll() on {} fd(s), timeout {} ms", pollfds_scratch_.size(), timeout_ms);
+    const int ready = ::poll(pollfds_scratch_.data(), static_cast<nfds_t>(pollfds_scratch_.size()), timeout_ms);
     if (ready < 0) {
         CORO_TRACE("poll() failed: {}", std::strerror(errno));
         return;
@@ -414,20 +457,14 @@ void Loop::poll_once(int timeout_ms) {
     // Snapshot the ready entries before dispatching: a callback may remove its
     // own registration (or another one), which would invalidate an index walk
     // over fds_ while it is being iterated.
-    struct ReadyEntry {
-        void (*fn)(void*, short) noexcept;
-        void* context;
-        int fd;
-        short revents;
-    };
-
-    std::vector<ReadyEntry> ready_entries;
+    ready_entries_scratch_.clear();
     for (std::size_t i = 0; i < fds_.size(); ++i) {
-        if (pollfds[i].revents != 0 && fds_[i].fn != nullptr) {
-            ready_entries.push_back(ReadyEntry{fds_[i].fn, fds_[i].context, fds_[i].fd, pollfds[i].revents});
+        if (pollfds_scratch_[i].revents != 0 && fds_[i].fn != nullptr) {
+            ready_entries_scratch_.push_back(
+                ReadyEntry{fds_[i].fn, fds_[i].context, fds_[i].fd, pollfds_scratch_[i].revents});
         }
     }
-    for (const ReadyEntry& entry : ready_entries) {
+    for (const ReadyEntry& entry : ready_entries_scratch_) {
         CORO_TRACE("fd {} ready: {}", entry.fd, describe_poll_events(entry.revents));
         entry.fn(entry.context, entry.revents);
     }

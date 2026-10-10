@@ -72,7 +72,9 @@ template<typename T>
 /// Run `task` to completion on a fresh loop with the system clock.
 ///
 /// Same contract as above; use the Loop overload when a manual clock or a
-/// specific worker count is needed.
+/// specific worker count is needed. The loop is constructed inside this call,
+/// so it throws std::logic_error when any loop is already alive — most often
+/// a caller-owned loop whose lifetime has not ended yet.
 template<typename T>
 [[nodiscard]] T run(Task<T> task) {
     Loop loop;

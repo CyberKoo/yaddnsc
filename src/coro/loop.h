@@ -42,6 +42,8 @@
 #include <utility>
 #include <vector>
 
+#include <poll.h>  // pollfd scratch members below; a POSIX header in a public header, accepted — the runtime is POSIX-only
+
 #include "coro/clock.h"
 #include "support/util/fd.hpp"
 #include "coro/time.h"
@@ -64,6 +66,11 @@ using FdToken = std::uint64_t;
 /// call from any thread; it never runs the callback inline, it only enqueues it
 /// for the loop thread.
 ///
+/// Instances: one live loop per process. The signal handler reaches the loop
+/// through process-wide file-scope state (loop.cpp) that can serve exactly one
+/// loop, so the constructors throw std::logic_error when another loop is
+/// alive. Sequential loops are fine.
+///
 /// Lifetime: a loop outlives every task started on it. run() returns once the
 /// root task has completed, at which point structured scopes guarantee that no
 /// descendant frame is still parked. The destructor joins the offload pool, so
@@ -71,10 +78,11 @@ using FdToken = std::uint64_t;
 /// touches shared state and the inbox, both of which outlive the join.
 class Loop {
 public:
-    /// Loop with an internal system clock. Throws if self-pipe creation fails.
+    /// Loop with an internal system clock. Throws std::logic_error if another
+    /// loop is alive, std::runtime_error if self-pipe creation fails.
     Loop();
     /// Loop with a caller-owned clock (manual clocks make timers deterministic).
-    /// The clock must outlive the loop. Throws if self-pipe creation fails.
+    /// The clock must outlive the loop. Same failure contract as Loop().
     explicit Loop(Clock& clock);
     ~Loop() noexcept;
 
@@ -95,6 +103,8 @@ public:
 
     /// Cross-thread ingress: enqueue a callback for the loop thread.
     /// Callable from any thread; the callback itself runs on the loop thread.
+    /// The callback runs inline during inbox processing, ahead of the ready
+    /// queue: it must only schedule or signal, never block or do heavy work.
     /// Allocates, so it may throw std::bad_alloc.
     void post(std::function<void()> fn);
 
@@ -147,8 +157,18 @@ private:
         detail::WaitNode* node = nullptr;
     };
 
+    /// One ready fd, snapshotted before dispatch: a callback may remove its own
+    /// registration, so poll_once never walks fds_ while dispatching.
+    struct ReadyEntry {
+        void (*fn)(void*, short) noexcept;
+        void* context;
+        int fd;
+        short revents;
+    };
+
     /// Enqueue a frame for resumption on the next drain. Never throws and never
-    /// resumes inline: the caller keeps running.
+    /// resumes inline: the caller keeps running. A frame already queued is not
+    /// queued twice — a duplicate wakeup carries no information.
     void schedule(detail::PromiseBase& frame) noexcept;
 
     /// Hand a job to the pool, creating it on first use. Never refuses work.
@@ -212,6 +232,9 @@ private:
 
     std::vector<FdEntry> fds_;
     std::uint64_t fd_sequence_ = 0;
+    // poll_once scratch, reused across rounds instead of re-allocated.
+    std::vector<pollfd> pollfds_scratch_;
+    std::vector<ReadyEntry> ready_entries_scratch_;
     detail::FdToken self_pipe_token_ = 0;
     Utils::UniqueFd pipe_read_;
     Utils::UniqueFd pipe_write_;

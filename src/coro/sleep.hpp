@@ -21,11 +21,14 @@ namespace coro {
 /// Suspend for `delay` on the loop clock. Cancellable at the await: a
 /// cancelled scope throws `Cancelled` immediately. Even a zero-delay sleep
 /// yields to the loop when the scope is active.
+/// Timer resolution is 1 ms (poll() granularity): shorter delays round up,
+/// and a timer never fires before its deadline.
 [[nodiscard]] inline auto sleep_for(Duration delay) noexcept {
     return detail::SleepAwaitable::after(delay);
 }
 
 /// Suspend until `deadline` on the loop clock. Cancellable at the await.
+/// Resolution is 1 ms; a deadline never fires early.
 [[nodiscard]] inline auto sleep_until(TimePoint deadline) noexcept {
     return detail::SleepAwaitable::at(deadline);
 }

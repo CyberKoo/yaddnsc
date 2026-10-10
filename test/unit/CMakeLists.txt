@@ -102,6 +102,7 @@ add_unit_test(coro
            coro/offload_test.cpp
            coro/signal_test.cpp
            coro/trace_sink_test.cpp
+           coro/loop_test.cpp
 )
 target_link_libraries(test_coro PRIVATE yaddnsc_coro)
 
