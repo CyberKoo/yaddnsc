@@ -48,9 +48,7 @@ Result CloudflareDriver::update(UpdateContext& context) {
     request.content_type = "application/json";
     request.method = Method::PUT;
 
-    return run_update(context, DRIVER_NAME, request, [](const HttpResponse& response, const Services& services) {
-        return check_response(response, services);
-    });
+    return run_update(context, DRIVER_NAME, request, check_response);
 }
 
 bool CloudflareDriver::check_response(const HttpResponse& response, const Services& services) {

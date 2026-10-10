@@ -49,9 +49,7 @@ Result VultrDriver::update(UpdateContext& context) {
     request.content_type = "application/json";
     request.method = Method::PATCH;
 
-    return run_update(context, DRIVER_NAME, request, [](const HttpResponse& response, const Services& services) {
-        return check_response(response, services);
-    });
+    return run_update(context, DRIVER_NAME, request, check_response);
 }
 
 bool VultrDriver::check_response(const HttpResponse& response, const Services& services) {

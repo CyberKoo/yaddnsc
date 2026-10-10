@@ -150,9 +150,7 @@ Result Route53Driver::update(UpdateContext& context) {
     request.headers.push_back({"X-Amz-Content-SHA256", std::move(payload_hash)});
     request.headers.push_back({"Authorization", std::move(authorization)});
 
-    return run_update(context, DRIVER_NAME, request, [](const HttpResponse& response, const Services& services) {
-        return check_response(response, services);
-    });
+    return run_update(context, DRIVER_NAME, request, check_response);
 }
 
 // =============================================================================

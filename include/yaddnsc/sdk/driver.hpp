@@ -616,9 +616,8 @@ protected:
     /// provider accepted the update. A rejection of HTTP 401 or 403 is
     /// AUTHENTICATION_FAILED. A rejection of HTTP 429 is RATE_LIMITED and
     /// carries Retry-After. Any other rejection is UPSTREAM_REJECTED.
-    template<typename CheckFn>
     static Result run_update(UpdateContext& context, std::string_view driver_name, const HttpRequest& request,
-                             CheckFn&& check_response,
+                             bool (*check_response)(const HttpResponse&, const Services&),
                              const std::source_location& location = std::source_location::current()) {
         const auto& params = context.request();
         const auto file = location.file_name();

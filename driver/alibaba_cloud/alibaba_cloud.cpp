@@ -123,9 +123,7 @@ Result AlibabaCloudDriver::update(UpdateContext& context) {
 
     HttpRequest request = generate_request(cfg, params);
 
-    return run_update(context, DRIVER_NAME, request, [](const HttpResponse& response, const Services& services) {
-        return check_response(response, services);
-    });
+    return run_update(context, DRIVER_NAME, request, check_response);
 }
 
 HttpRequest AlibabaCloudDriver::generate_request(const AlibabaParams& cfg, const yaddnsc::sdk::UpdateRequest& ctx) {

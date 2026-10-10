@@ -63,9 +63,7 @@ Result NamecheapDriver::update(UpdateContext& context) {
 
     auto request = generate_request(cfg, params);
 
-    return run_update(context, DRIVER_NAME, request, [](const HttpResponse& response, const Services& services) {
-        return check_response(response, services);
-    });
+    return run_update(context, DRIVER_NAME, request, check_response);
 }
 
 // =============================================================================
