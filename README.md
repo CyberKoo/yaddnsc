@@ -43,13 +43,14 @@ carry its own type, address source, and update interval.
 
 - Multiple domains and records managed from one JSON configuration.
 - Independent record type (A/AAAA), address source, and update interval per
-  record, with an optional periodic forced update.
+  record, plus an optional forced-update interval per domain.
 - Address acquisition from a local interface, an HTTP(S) endpoint, or mDNS.
-- Twelve provider drivers shipped as loadable modules; additional drivers can
+- Twelve driver modules shipped as loadable plugins; additional drivers can
   be built against the installed SDK.
 - DNS resolution over UDP/TCP, DNS-over-HTTPS, or DNS-over-TLS, with
   concurrent, fallback, and shuffle query strategies.
-- Configuration and driver parameter validation before the update loop starts.
+- Configuration validation before the update loop starts, and driver parameter
+  validation in `config test`.
 - Graceful shutdown on SIGINT/SIGTERM with cancellation of in-flight requests.
 - Linux (glibc and musl) and macOS (arm64).
 
@@ -312,8 +313,8 @@ yaddnsc config test -c /etc/yaddnsc/config.json
 | `subdomains[]` | `ip_source_param` | URL for the `http` source, host name for the `mdns` source; unused by `interface`. |
 | `subdomains[]` | `interface` | Interface name. Required by the `interface` source; optional for the network-based sources. |
 | `subdomains[]` | `update_interval` | Per-record interval in seconds. `0` (default) inherits the domain interval. |
-| `subdomains[]` | `allow_ula` | Accept IPv6 unique-local addresses (fc00::/7) from an interface source. Default `false`. |
-| `subdomains[]` | `allow_local_link` | Accept IPv6 link-local addresses (fe80::/10) from an interface source. Default `false`. |
+| `subdomains[]` | `allow_ula` | Accept IPv6 unique-local addresses (fc00::/7) from any address source. Default `false`. |
+| `subdomains[]` | `allow_local_link` | Accept IPv6 link-local addresses (fe80::/10) from any address source. Default `false`. |
 | `subdomains[]` | `driver_params` | Driver-specific parameters. Valid only at subdomain level; see [DRIVERS.md](DRIVERS.md). |
 
 ### Credentials
@@ -391,7 +392,7 @@ With several servers configured, `strategy` controls the query order:
 
 | Strategy | Behaviour |
 |---|---|
-| `concurrent` | Queries resolvers in parallel and adopts the first successful answer. |
+| `concurrent` | Races up to three resolvers at a time, launching the next as each one fails, and adopts the first successful answer. |
 | `fallback` | Queries resolvers sequentially in the configured order. |
 | `shuffle` | Queries resolvers sequentially in an order randomized per query. |
 

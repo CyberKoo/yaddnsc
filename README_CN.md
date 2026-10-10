@@ -43,7 +43,8 @@ yaddnsc 是一个动态 DNS 客户端。它按配置周期性地获取每条记�
   驱动。
 - DNS 解析支持 UDP/TCP、DNS-over-HTTPS 与 DNS-over-TLS，并提供并发、回退、随机
   三种查询策略。
-- 更新循环启动前对配置与驱动参数进行校验。
+- 更新循环启动前校验配置、驱动是否已加载以及所引用的网络接口是否存在；此外
+  `config test` 还会通过插件 ABI 校验每条记录的 `driver_params`。
 - 收到 SIGINT/SIGTERM 后执行有序退出，并取消进行中的网络请求。
 - 支持 Linux（glibc 与 musl）及 macOS（arm64）。
 
@@ -284,7 +285,7 @@ yaddnsc config test -c /etc/yaddnsc/config.json
 | `resolver` | `strategy` | `concurrent`（默认）、`fallback` 或 `shuffle`。 |
 | （顶层） | `bootstrap_dns` | bootstrap DNS 服务器（IP 字面量），用于解析所有出站端点的主机名（DoH/DoT 服务器、`http` IP 源 URL、服务商 API 主机）。缺省使用 `/etc/resolv.conf` 的 nameserver。详见 [DNS 解析器](#dns-解析器)。 |
 | `domains[]` | `name` | 受管理的域名，例如 `example.com`。 |
-| `domains[]` | `update_interval` | 更新间隔，单位秒；默认下限为 60，可在构建时调整。 |
+| `domains[]` | `update_interval` | 更新间隔，单位秒；不得小于 60，该下限可通过 `-DYADDNSC_MIN_UPDATE_INTERVAL=...` 在构建时调整。 |
 | `domains[]` | `force_update` | 强制更新间隔，单位秒；到达该间隔时不与 DNS 比对即推送更新。`0`（默认）表示关闭；非零时不得小于 `update_interval`。 |
 | `domains[]` | `driver` | 处理该域名的驱动模块名称。 |
 | `domains[]` | `subdomains` | 该域名下受管理的记录，至少一条。 |
@@ -294,8 +295,8 @@ yaddnsc config test -c /etc/yaddnsc/config.json
 | `subdomains[]` | `ip_source_param` | `http` 来源使用 URL，`mdns` 来源使用主机名；`interface` 来源不使用该字段。 |
 | `subdomains[]` | `interface` | 网络接口名称；`interface` 来源必填，其余网络来源可选。 |
 | `subdomains[]` | `update_interval` | 单条记录的更新间隔，单位秒；`0`（默认）表示继承域名级间隔。 |
-| `subdomains[]` | `allow_ula` | 允许接口来源采用 IPv6 唯一本地地址（fc00::/7），默认 `false`。 |
-| `subdomains[]` | `allow_local_link` | 允许接口来源采用 IPv6 链路本地地址（fe80::/10），默认 `false`。 |
+| `subdomains[]` | `allow_ula` | 允许在 AAAA 记录中采用 IPv6 唯一本地地址（fc00::/7），默认 `false`。 |
+| `subdomains[]` | `allow_local_link` | 允许在 AAAA 记录中采用 IPv6 链路本地地址（fe80::/10），默认 `false`。 |
 | `subdomains[]` | `driver_params` | 驱动专有参数，仅在子域名层级有效，详见 [DRIVERS_CN.md](DRIVERS_CN.md)。 |
 
 ### 凭据保护
@@ -339,8 +340,9 @@ IPv6 唯一本地地址与链路本地地址不参与选取。
 通过 `-DYADDNSC_DEFAULT_DNS_SERVER=...` 与 `-DYADDNSC_DEFAULT_DNS_PORT=...` 修改。
 
 将 `use_custom_servers` 设为 `true` 即以配置的服务器列表取代内置服务器。此时须通过
-`servers` 数组提供至少一个服务器；自定义服务器为空属于非法配置，`run` 与
-`config test` 均会校验失败。`use_custom_servers` 为 `false` 时，配置的服务器列表被忽略。
+`servers` 数组提供至少一个服务器；自定义服务器为空属于非法配置，
+`run`、`config test` 与 `dns resolve` 均会校验失败。
+`use_custom_servers` 为 `false` 时，配置的服务器列表被忽略。
 
 服务器条目的 `address` 形式决定所用协议：
 
@@ -360,7 +362,7 @@ classic 解析器只拨号该字面量与条目 `port`，其余内容只会被�
 
 | 策略 | 行为 |
 |---|---|
-| `concurrent` | 并行查询各解析器，采用最先返回的成功结果。 |
+| `concurrent` | 并行查询各解析器，同时最多 3 个在途查询，采用最先返回的成功结果。 |
 | `fallback` | 按配置顺序依次查询。 |
 | `shuffle` | 每次查询随机排列顺序后依次查询。 |
 

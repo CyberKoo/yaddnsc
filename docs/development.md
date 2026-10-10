@@ -21,6 +21,30 @@ with `-DYADDNSC_ENABLE_TRACE=ON`.
 Supported current toolchains are CMake 3.28+, a 64-bit target, C++23-capable
 GCC 14+, Clang 19+, or Apple Clang 15+, and OpenSSL 3.0+.
 
+### Build options
+
+The cache variables below are defined in `cmake/ProjectSetup.cmake` and
+`cmake/Packaging.cmake`; `YADDNSC_BUILD_DOCS` and `YADDNSC_IWYU` are defined
+beside the features they gate (see [Documentation](#documentation) and
+[Include hygiene](#include-hygiene) below).
+
+- `YADDNSC_BUILD_TESTS` (default `OFF`) adds `test/` and enables CTest;
+- `YADDNSC_DEVELOPMENT` (default `ON`) embeds `git describe` version info in
+  the binary; `OFF` forces `RELEASE`;
+- `YADDNSC_SANITIZE_DEBUG` (default `ON`) adds ASan/UBSan in `Debug`;
+- `YADDNSC_ENABLE_TRACE` (default `OFF`) compiles trace-level logging in;
+- `YADDNSC_USE_SYSTEM_SPDLOG` (default `OFF`) uses the system spdlog instead of
+  the bundled CPM version;
+- `YADDNSC_LOGGING_PATTERN` (default
+  `"[%D %T.%e] [%^%8l%$] [%8!t] [%15!s:%-4#] %v"`) is passed to
+  `spdlog::set_pattern()`;
+- `YADDNSC_MIN_UPDATE_INTERVAL` (default `60`) is the minimum allowed update
+  interval in seconds; a negative value fails the configure;
+- `YADDNSC_DEFAULT_DNS_SERVER` (default `1.1.1.1`) and
+  `YADDNSC_DEFAULT_DNS_PORT` (default `53`) are the fallback resolver used when
+  no nameserver is configured; the address is validated as an IPv4/IPv6 literal;
+- `YADDNSC_ENABLE_DEB` (default `OFF`) enables CPack DEB generation.
+
 ### Build layout
 
 The root `CMakeLists.txt` orchestrates the build. Edit the module under `cmake/`
@@ -61,6 +85,20 @@ cmake --build build-tests --parallel
 ctest --test-dir build-tests --output-on-failure
 ```
 
+Two convenience targets avoid building everything first: `drivers` builds the
+bundled driver plugins, and `tests` builds every test executable plus
+`yaddnsc` and the drivers:
+
+```bash
+cmake --build build-tests --target drivers
+cmake --build build-tests --target tests
+```
+
+`integration_scenarios` hard-requires the `yaddnsc` binary and the `simple`
+driver `.so` to be built already and fails with a clear message otherwise.
+The `bench_*` targets are `EXCLUDE_FROM_ALL`, so benchmarks are built only when
+asked for (`cmake --build build-tests --target bench_dns_parser`).
+
 Tests use GoogleTest/GoogleMock as the project's fixed framework pair; a test
 names its case `TEST(ClassName, MethodName_Scenario_ExpectedBehavior)`.
 Component tests may use loopback sockets, local helper processes, or platform
@@ -71,7 +109,7 @@ access.
 
 | Tier        | Location                             | Runs the real binary?                 |
 | ----------- | ------------------------------------ | ------------------------------------- |
-| Unit        | `test/unit/`                         | No — pure logic, no I/O               |
+| Unit        | `test/unit/`                         | No — no external network or real provider; loopback sockets and temp files do occur |
 | Driver      | `test/driver/`                       | No — each driver is compiled into its test binary and driven through the C ABI with fake host services |
 | Component   | `test/component/`                    | Real loopback sockets, multicast, TLS |
 | Plugin ABI  | `test/plugin/`, `test/sdk_consumer/` | Loads a real `.so` via dlopen         |
@@ -80,26 +118,28 @@ access.
 
 The driver list behind `test/driver/` comes from `cmake/Drivers.cmake`, the
 same source `driver/` builds from, so a new bundled driver gets its test
-target automatically.
+target automatically — except for libxml2-based drivers such as `namecheap`
+and `route53`, whose test targets are skipped when libxml2 was not found.
 
 `test/sdk_consumer/` is the exception in the table: it is not part of the
 CTest tree but a standalone CMake project that builds against the *installed*
 package (see below).
 
-Within `test/unit/`, the layout mirrors the `src/` layering wholesale:
-`domain/`, `application/`, `coro/`, `infrastructure/<module>/` and `support/`
-hold the tests of their namesake source layer. Two extra directories have no
-`src/` counterpart: `sdk/` covers the public plugin headers, and
-`plugin_support/` the crypto helper library. CTest target names are stable
-across moves; only file paths follow the source tree.
+Within `test/unit/`, the layout mirrors the `src/` layering: `domain/`,
+`application/`, `cli/`, `coro/`, `infrastructure/<module>/` and `support/`
+hold the tests of their namesake source layer; `src/composition/` has no unit
+counterpart. Two extra directories have no `src/` counterpart: `sdk/` covers
+the public plugin headers, and `plugin_support/` the crypto helper library.
+CTest target names are stable across moves; only file paths follow the source
+tree.
 
 The component tier's wire-protocol helpers live in `test/component/servers/`:
 small Python DNS/DoH/DoT/TLS echo servers that the test binaries start on
 loopback ports. They answer single protocol exchanges for in-process clients
 — unlike `test/integration/sim/server.py`, which emulates a complete provider
-plus DNS for the real `yaddnsc` binary end to end.
-
-The test tiers end at `integration_scenarios`, the highest one.
+plus DNS for the real `yaddnsc` binary end to end. When one of those servers
+cannot start, the affected component cases call `GTEST_SKIP()` instead of
+failing, so a green component run is not by itself proof they executed.
 
 ### Integration scenarios
 
@@ -108,8 +148,10 @@ simulator (`test/integration/sim/server.py`, aiohttp + dnslib). The tier is
 registered only when bash and Python3 are found at configure time (bash is a
 ports/pkg install on FreeBSD, not part of the base system). It covers
 three end-to-end update paths (interface/classic, http/DoT, interface/DoH),
-the read-only CLI subcommands and their exit codes, and two failure
-contracts that pull in opposite directions:
+the read-only CLI subcommands and their exit codes, two negative `config test`
+checks (a malformed config and a missing file must both be reported), a run
+against a malformed config that must abort instead of looping on it, and two
+failure contracts that pull in opposite directions:
 
 - an HTTP IP source returning a non-address response → the update workflow
   reports no usable IP address and nothing is published;
@@ -123,6 +165,17 @@ Run just this tier:
 ```bash
 ctest --test-dir build-tests -R integration_scenarios --output-on-failure
 ```
+
+**Check for skipped execution.** `integration_scenarios` carries
+`SKIP_RETURN_CODE 77`, so CTest reports the test as skipped when
+`python3 -m venv` cannot bootstrap pip (`python3-venv` missing). A successful
+CTest exit does not prove the scenarios executed — use verbose output
+(`ctest -V -R integration_scenarios`) and check for `ALL SCENARIOS PASSED`.
+Negative update scenarios require the expected workflow diagnostic and a
+successful shutdown; simulator reset/log failures are test failures, not
+evidence that no update was sent. The mDNS group users (`test_mdns_coro`,
+`integration_scenarios`) hold the `mdns-multicast` `RESOURCE_LOCK` and must not
+be run concurrently outside CTest.
 
 ### SDK consumer (manual validation)
 
@@ -138,21 +191,22 @@ cmake -S test/sdk_consumer -B build-sdk-consumer -DCMAKE_PREFIX_PATH=/tmp/yaddns
 cmake --build build-sdk-consumer
 ```
 
-**Check for skipped execution.** `SKIP_RETURN_CODE 77` makes CTest report
-this test as skipped when `python3 -m venv` cannot bootstrap pip
-(`python3-venv` missing). A successful CTest exit does not prove the scenarios
-executed — use verbose output (`ctest -V -R integration_scenarios`) and check
-for `ALL SCENARIOS PASSED`. Negative update scenarios require the expected
-workflow diagnostic and a successful shutdown; simulator reset/log failures
-are test failures, not evidence that no update was sent. The mDNS group users
-(`test_mdns_coro`, `integration_scenarios`) hold the `mdns-multicast`
-`RESOURCE_LOCK` and must not be run concurrently outside CTest.
+Two preconditions come from how the installed package is assembled. The
+`plugin_sdk_xml` component exists only when libxml2 was found when yaddnsc
+itself was configured; without it, `yaddnscConfig.cmake` marks the component
+not found and `check_required_components` fails the consumer configure. And
+because that config file calls `find_dependency(glaze CONFIG)`, Glaze's
+installed package metadata must be findable too — `Dependencies.cmake` forces
+`glaze_INSTALL ON` so `cmake --install` lays it down next to the yaddnsc config,
+but an install that skipped it needs a `CMAKE_PREFIX_PATH` that covers Glaze.
+
+No CI job runs this tier; it is manual validation only.
 
 ### Local CI simulation
 
-`test/ci-sim/` builds and runs the project inside Alpine containers and is a
-**local** tool for reproducing the CI environment; it is not invoked by any
-workflow.
+`test/ci-sim/` builds and runs the project inside Ubuntu 24.04 containers —
+Alpine/musl only under `--musl` — and is a **local** tool for reproducing the
+CI environment; it is not invoked by any workflow.
 
 ```bash
 ./test/ci-sim/run.sh          # linux-amd64
@@ -216,8 +270,8 @@ Coverage uses `YADDNSC_SANITIZE_DEBUG=OFF` to avoid mixing instrumentation.
 ### Coroutine regression tests
 
 ```bash
-cmake --build build --target test_coro test_coro_allocation_failure --parallel
-ctest --test-dir build -R '^test_coro(_allocation_failure)?$' --output-on-failure
+cmake --build build-tests --target test_coro test_coro_allocation_failure --parallel
+ctest --test-dir build-tests -R '^test_coro(_allocation_failure)?$' --output-on-failure
 ```
 
 The allocation-failure binary replaces allocation functions only inside that
@@ -346,10 +400,14 @@ it during development; CI enforces compilation and tests rather than style.
 
 `cmake/ClangTidy.cmake` attaches clang-tidy when the unversioned `clang-tidy`
 executable is found and the compiler ID matches Clang (including AppleClang).
-Otherwise analysis is skipped. `.clang-tidy` enables `bugprone-use-after-move`
-and `clang-analyzer-cplusplus.InnerPointer`, but not
-`readability-identifier-naming` or `clang-analyzer-cplusplus.Move`. It does not
-automatically enforce the naming rules. No `WarningsAsErrors` or
+The nightly `linux-amd64-clang` job (currently `if: false`) installs the
+versioned `clang-tidy-19`, which that unversioned-only lookup would not pick up.
+Otherwise analysis is skipped. `.clang-tidy` enables a long `Checks` list of
+roughly 150 entries across bugprone, clang-analyzer, cert, cppcoreguidelines,
+google, hicpp, misc, modernize, performance, readability and concurrency —
+including `bugprone-use-after-move` and `clang-analyzer-cplusplus.InnerPointer`,
+but not `readability-identifier-naming` or `clang-analyzer-cplusplus.Move`. It
+does not automatically enforce the naming rules. No `WarningsAsErrors` or
 `--warnings-as-errors` setting promotes tidy warnings to failures; compiler
 `-Werror` is not a clang-tidy diagnostic gate. Tool execution/parsing errors may
 still fail the build.
@@ -364,9 +422,9 @@ still fail the build.
   Installing Homebrew IWYU in the macOS job does not activate it with AppleClang.
 - **Header self-containment**: in non-Release builds, `yaddnsc_header_checks`
   compiles individual headers matching `src/*.{h,hpp}`, `include/*.{h,hpp}`,
-  and `plugin_support/crypto/*.h` recursively. `xml_raii.hpp` is excluded when LibXml2
-  is unavailable. This is a default-build check, not coverage of every header
-  in every configuration.
+  `driver/*/*.{h,hpp}` and `plugin_support/crypto/*.h` recursively.
+  `xml_raii.hpp` is excluded when LibXml2 is unavailable. This is a
+  default-build check, not coverage of every header in every configuration.
 - **Editor feedback**: `.clangd` sets `UnusedIncludes` and `MissingIncludes`
   to `Strict`; editor diagnostics are not CI gates.
 
@@ -379,12 +437,41 @@ blocking work on the loop thread, including OpenSSL's lazy trust loaders) is
 reviewed by hand; see the
 [blocking-operation inventory](architecture.md#blocking-operation-inventory).
 
+Beyond the application-layer checks described below, the same script also
+enforces, in `cmake/ArchitectureGuard.cmake`:
+
+- lower layers stay below their public capability: `src/domain/` may not include
+  `infrastructure/`, Glaze, spdlog, CLI11 or cancellation-token headers, and
+  `src/coro/` may not include spdlog (loop trace output goes out through the
+  injected `Loop::TraceSink`);
+- `network/transport/` may not include the TLS or factory internals, and
+  `http/` may not include concrete `dns/` backends — both take an injected
+  capability instead;
+- plugins are SDK-only: no host `src/` modules and no legacy utility headers
+  (`core_logger*`, `CORE_LOG*`, `xml_raii.h`, `form_encode.h`, `uri.h`,
+  `fmt.hpp`, `string_util.hpp`, `HttpClient*`, `spdlog/`), since logging
+  travels through Host Services;
+- `include/yaddnsc/sdk/driver_abi.h` may include only C standard headers
+  (`stddef.h`, `stdint.h`, `stdbool.h`);
+- no parallel HTTP types: no `HttpTransport`, `HttpRequest` or `HttpResponse`
+  definitions outside the plugin SDK's own ABI DTOs;
+- host `src/` code may not include `yaddnsc/sdk/driver.hpp` — the host speaks
+  `driver_abi.h` only;
+- no `-rdynamic`, `export-dynamic` or `dynamic_lookup` in any CMake file, so
+  plugins cannot resolve host symbols (`ENABLE_EXPORTS` is deliberately not
+  matched);
+- `rules/01`–`rules/04` stay fact-free: a backticked project path, an
+  `ns::symbol`, a `YADDNSC_*`/`YLOG_*` constant or a `*_BUDGET` constant in a
+  normative rule fails the build, which keeps those documents from restating
+  project state.
+
 For `src/application/`, the guard allows direct coroutine includes only from
 `async_mutex.hpp`, `cancel_scope.h`, `cancelled.h`, `checkpoint.hpp`, `fwd.h`,
 `group.hpp`, `mutex_guard.hpp`, `now.hpp`, `offload.hpp`, `scope.hpp`,
 `scope_outcome.hpp`, `signal.hpp`, `sleep.hpp`, `task.hpp`, `task_group.hpp` and
 `time.h`. These coroutine include and internal-access checks apply only to
-`src/application/`, not to composition, infrastructure or tests.
+`src/application/`; the thread/future include check is wider and globs
+`src/application/`, `src/infrastructure/` and `src/composition/` together.
 For application code, it rejects explicit internal types/context, `coro::detail`,
 coroutine namespace imports, `promise_type` access and waiter/context-management
 methods. Simple
