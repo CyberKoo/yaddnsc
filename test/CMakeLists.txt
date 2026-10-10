@@ -5,18 +5,10 @@
 #   test/
 #     CMakeLists.txt       ←  this file — loads GoogleTest, defines test_support
 #                                 and the add_unit_test helper
-#     unit/                ←  unit-test targets (pure logic, no I/O)
-#       common/            ←  cross-module base types
-#       config/            ←  configuration tests
-#       domain/network/    ←  domain IP-address value tests
-#       dns/               ←  DNS protocol tests
-#       infrastructure/
-#         http/            ←  coroutine HTTP tests (scripted in-memory stream)
-#         network/         ←  coroutine transport/TLS tests; address/ codec tests
-#         plugin/          ←  driver loader tests and bad-driver fixture
-#         uri/             ←  URI parsing and encoding tests
-#       ip_source/         ←  IP-source abstraction tests (header-only)
-#       util/              ←  utility tests (string, algorithm, etc.)
+#     unit/                ←  unit-test targets (pure logic, no I/O); the layout
+#                                 mirrors src/: domain/, application/, coro/,
+#                                 infrastructure/<module>/, support/, plus sdk/
+#                                 (public plugin headers) and plugin_support/
 #     component/           ←  component tests (real I/O on loopback)
 #     mocks/               ←  mock class headers
 #     fixtures/            ←  shared test-data builders

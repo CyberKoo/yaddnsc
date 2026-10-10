@@ -77,17 +77,12 @@ access.
 | Integration | `test/integration/`                  | Yes — the built `yaddnsc` binary      |
 | Benchmarks  | `test/perf/`                         | No — Google Benchmark                 |
 
-Within `test/unit/`, the migrated tests mirror their current `src/` owners:
-
-- `domain/network/` — `inet_address` value tests;
-- `infrastructure/plugin/` — driver loader/catalog tests and the bad-driver fixture;
-- `infrastructure/network/address/` — `socket_addr` codec tests;
-- `infrastructure/network/` — combined coroutine transport/TLS tests;
-- `infrastructure/uri/` — URI parsing and encoding tests;
-- `infrastructure/http/` — HTTP tests driven by a scripted in-memory stream.
-
-These replace the former mixed `core/`, `network/`, and `net/` directories;
-CTest target names and test behavior are unchanged.
+Within `test/unit/`, the layout mirrors the `src/` layering wholesale:
+`domain/`, `application/`, `coro/`, `infrastructure/<module>/` and `support/`
+hold the tests of their namesake source layer. Two extra directories have no
+`src/` counterpart: `sdk/` covers the public plugin headers, and
+`plugin_support/` the crypto helper library. CTest target names are stable
+across moves; only file paths follow the source tree.
 
 The test tiers end at `integration_scenarios`, the highest one.
 
