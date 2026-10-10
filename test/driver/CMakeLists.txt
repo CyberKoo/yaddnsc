@@ -3,7 +3,10 @@
 #
 # These tests compile the driver source files directly (no dlopen) and drive
 # them through their C entry points with FakeHostServices (abi_test_harness.h).
+# Every bundled driver gets a test; the list comes from cmake/Drivers.cmake.
 # ==============================================================================
+
+include(Drivers)
 
 # ---------------------------------------------------------------------------
 # Helper: add an ABI-style driver test target (v1 alpha plugin interface)
@@ -23,45 +26,35 @@ function(add_abi_driver_test name driver_name)
         ${ARGN}
     )
     target_link_libraries(test_driver_${name} PRIVATE yaddnsc_plugin_sdk)
-    target_include_directories(test_driver_${name} PRIVATE
-        ${driver_dir}
-        ${PROJECT_SOURCE_DIR}/plugin_support/crypto
-    )
+    target_include_directories(test_driver_${name} PRIVATE ${driver_dir})
 endfunction()
 
 # ============================================================================
-# Individual driver tests  (no special dependencies beyond glaze+spdlog)
+#  One test per bundled driver
 # ============================================================================
-add_abi_driver_test(simple simple)
-add_abi_driver_test(duckdns duckdns)
-add_abi_driver_test(cloudflare cloudflare)
-add_abi_driver_test(digital_ocean digital_ocean)
-add_abi_driver_test(dnspod dnspod)
-add_abi_driver_test(godaddy godaddy)
-add_abi_driver_test(linode linode)
-add_abi_driver_test(porkbun porkbun)
-add_abi_driver_test(vultr vultr)
+foreach (DRIVER_NAME ${YADDNSC_DRIVERS})
+    if ((DRIVER_NAME STREQUAL "namecheap" OR DRIVER_NAME STREQUAL "route53")
+        AND NOT YADDNSC_HAS_SDK_XML_COMPONENT)
+        # libxml2-based drivers build only with the SDK XML component.
+        continue ()
+    endif ()
+    add_abi_driver_test(${DRIVER_NAME} ${DRIVER_NAME})
+endforeach ()
 
 # ============================================================================
-# AlibabaCloudDriver  —  requires Signing::* implementation (+ OpenSSL)
+#  Extra per-driver dependencies
 # ============================================================================
-add_abi_driver_test(alibaba_cloud alibaba_cloud)
+
+# AlibabaCloudDriver — requires Signing::* implementation (+ OpenSSL)
 target_link_libraries(test_driver_alibaba_cloud PRIVATE yaddnsc_plugin_support_crypto OpenSSL::Crypto)
 
-# ============================================================================
-# libxml2-based drivers  —  NamecheapDriver, Route53Driver
-# ============================================================================
-find_package(LibXml2 QUIET)
-if(LibXml2_FOUND)
+if(YADDNSC_HAS_SDK_XML_COMPONENT)
     # Namecheap — XML response parsing only, no signing
-    add_abi_driver_test(namecheap namecheap)
-    target_link_libraries(test_driver_namecheap PRIVATE LibXml2::LibXml2)
+    target_link_libraries(test_driver_namecheap PRIVATE yaddnsc_plugin_sdk_xml)
 
     # Route53 — XML request body + XML response parsing + AWS SigV4 signing
-    add_abi_driver_test(route53 route53)
-    target_link_libraries(test_driver_route53 PRIVATE yaddnsc_plugin_support_crypto LibXml2::LibXml2 OpenSSL::Crypto)
-
-    message(STATUS "libxml2 found — building namecheap and route53 driver tests")
+    target_link_libraries(test_driver_route53 PRIVATE yaddnsc_plugin_sdk_xml yaddnsc_plugin_support_crypto
+        OpenSSL::Crypto)
 else()
     message(STATUS "libxml2 not found — skipping namecheap and route53 driver tests")
 endif()

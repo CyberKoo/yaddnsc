@@ -93,65 +93,33 @@ HttpRequest NamecheapDriver::generate_request(const NamecheapParams& cfg, const 
 bool NamecheapDriver::check_response(const HttpResponse& response, const Services& services) {
     YADDNSC_SDK_LOG_TRACE(services, "Got {} from server.", response.body);
 
-    // Parse the XML response with libxml2.
-    // All libxml2 resources are RAII-managed via xml_raii wrappers.
-    xml_raii::UniqueXmlDoc doc(
-        xmlReadMemory(response.body.data(), static_cast<int>(response.body.size()), nullptr, nullptr, 0));
-
+    const auto doc = xml_raii::XmlDocument::parse(response.body);
     if (!doc) {
         YADDNSC_SDK_LOG_ERROR(services, "Failed to parse Namecheap API response XML");
         return false;
     }
 
-    xml_raii::UniqueXPathCtx xpath_ctx(xmlXPathNewContext(doc.get()));
-    if (!xpath_ctx) {
-        YADDNSC_SDK_LOG_ERROR(services, "Failed to create XPath context");
+    // Extract <ErrCount> — "0" means success.
+    const auto count = doc->first_text("//ErrCount/text()");
+    if (!count) {
+        YADDNSC_SDK_LOG_ERROR(services, "Namecheap API response missing <ErrCount> element");
         return false;
     }
 
-    // Extract <ErrCount> — "0" means success.
-    xml_raii::UniqueXPathObj err_count_nodes(xmlXPathEvalExpression(BAD_CAST "//ErrCount/text()", xpath_ctx.get()));
-
-    bool success = false;
-
-    if (err_count_nodes && err_count_nodes->nodesetval && err_count_nodes->nodesetval->nodeNr > 0) {
-        xmlChar* count_text = xmlNodeGetContent(err_count_nodes->nodesetval->nodeTab[0]);
-
-        if (count_text) {
-            std::string_view count(reinterpret_cast<const char*>(count_text));
-
-            if (count == "0") {
-                // Success — log the updated IP address from <IP>.
-                xml_raii::UniqueXPathObj ip_nodes(xmlXPathEvalExpression(BAD_CAST "//IP/text()", xpath_ctx.get()));
-                if (ip_nodes && ip_nodes->nodesetval && ip_nodes->nodesetval->nodeNr > 0) {
-                    xmlChar* ip_text = xmlNodeGetContent(ip_nodes->nodesetval->nodeTab[0]);
-                    YADDNSC_SDK_LOG_DEBUG(services, "DNS record updated successfully to {}",
-                                          ip_text ? reinterpret_cast<const char*>(ip_text) : "unknown");
-                    xmlFree(ip_text);
-                }
-                success = true;
-
-            } else {
-                // Error — extract error messages from <errors> children.
-                xml_raii::UniqueXPathObj err_msg_nodes(
-                    xmlXPathEvalExpression(BAD_CAST "//errors/*/text()", xpath_ctx.get()));
-                if (err_msg_nodes && err_msg_nodes->nodesetval) {
-                    for (int i = 0; i < err_msg_nodes->nodesetval->nodeNr; ++i) {
-                        xmlChar* err_text = xmlNodeGetContent(err_msg_nodes->nodesetval->nodeTab[i]);
-                        YADDNSC_SDK_LOG_ERROR(services, "Namecheap API error: {}",
-                                              err_text ? reinterpret_cast<const char*>(err_text) : "unknown");
-                        xmlFree(err_text);
-                    }
-                } else {
-                    YADDNSC_SDK_LOG_ERROR(services, "Namecheap API error (ErrCount: {})", count);
-                }
-            }
-
-            xmlFree(count_text);
-        }
-    } else {
-        YADDNSC_SDK_LOG_ERROR(services, "Namecheap API response missing <ErrCount> element");
+    if (*count == "0") {
+        // Success — log the updated IP address from <IP>.
+        const auto ip = doc->first_text("//IP/text()");
+        YADDNSC_SDK_LOG_DEBUG(services, "DNS record updated successfully to {}", ip.value_or("unknown"));
+        return true;
     }
 
-    return success;
+    // Error — extract error messages from <errors> children.
+    const auto messages = doc->all_text("//errors/*/text()");
+    if (messages.empty()) {
+        YADDNSC_SDK_LOG_ERROR(services, "Namecheap API error (ErrCount: {})", *count);
+    }
+    for (const auto& message : messages) {
+        YADDNSC_SDK_LOG_ERROR(services, "Namecheap API error: {}", message);
+    }
+    return false;
 }

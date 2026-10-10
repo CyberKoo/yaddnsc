@@ -164,82 +164,63 @@ bool Route53Driver::check_response(const HttpResponse& response, const Services&
 
     if (response.status_code == 200) {
         // Route 53 returns HTTP 200 with <ChangeResourceRecordSetsResponse> on success.
-        xml_raii::UniqueXmlDoc doc(
-            xmlReadMemory(response.body.data(), static_cast<int>(response.body.size()), nullptr, nullptr, 0));
+        auto doc = xml_raii::XmlDocument::parse(response.body);
         if (!doc) {
             YADDNSC_SDK_LOG_ERROR(services, "Failed to parse Route 53 response XML");
             return false;
         }
 
-        xml_raii::UniqueXPathCtx xpath_ctx(xmlXPathNewContext(doc.get()));
-        if (!xpath_ctx) {
-            YADDNSC_SDK_LOG_ERROR(services, "Failed to create XPath context");
-            return false;
-        }
-
         // Register the Route 53 XML namespace.
-        if (xmlXPathRegisterNs(xpath_ctx.get(), BAD_CAST "r53", BAD_CAST R53_XMLNS) != 0) {
+        if (!doc->register_ns("r53", R53_XMLNS)) {
             YADDNSC_SDK_LOG_ERROR(services, "Failed to register Route 53 XML namespace");
             return false;
         }
 
         // Extract <ChangeInfo><Status> text.
         constexpr const char* XPATH_STATUS = "//r53:ChangeResourceRecordSetsResponse/r53:ChangeInfo/r53:Status/text()";
-        xml_raii::UniqueXPathObj result(xmlXPathEvalExpression(BAD_CAST XPATH_STATUS, xpath_ctx.get()));
-
-        bool success = false;
-        if (result && result->nodesetval && result->nodesetval->nodeNr > 0) {
-            xmlChar* status_text = xmlNodeGetContent(result->nodesetval->nodeTab[0]);
-            if (status_text) {
-                std::string_view status(reinterpret_cast<const char*>(status_text));
-                success = (status == "PENDING" || status == "INSYNC");
-                if (success) {
-                    YADDNSC_SDK_LOG_DEBUG(services, "DNS record updated successfully (status: {})", status);
-                } else {
-                    YADDNSC_SDK_LOG_ERROR(services, "Route 53 returned unexpected status: {}", status);
-                }
-                xmlFree(status_text);
-            }
-        } else {
+        const auto status = doc->first_text(XPATH_STATUS);
+        if (!status) {
             YADDNSC_SDK_LOG_ERROR(services, "Route 53 response missing <ChangeInfo><Status> element");
+            return false;
         }
 
+        const bool success = (*status == "PENDING" || *status == "INSYNC");
+        if (success) {
+            YADDNSC_SDK_LOG_DEBUG(services, "DNS record updated successfully (status: {})", *status);
+        } else {
+            YADDNSC_SDK_LOG_ERROR(services, "Route 53 returned unexpected status: {}", *status);
+        }
         return success;
     }
 
     // ── Error response: parse <ErrorResponse> XML ────────────────────────────
     if (!response.body.empty()) {
-        xml_raii::UniqueXmlDoc doc(
-            xmlReadMemory(response.body.data(), static_cast<int>(response.body.size()), nullptr, nullptr, 0));
-        if (doc) {
-            xml_raii::UniqueXPathCtx xpath_ctx(xmlXPathNewContext(doc.get()));
-            if (xpath_ctx) {
-                xmlXPathRegisterNs(xpath_ctx.get(), BAD_CAST "r53", BAD_CAST R53_XMLNS);
-                xml_raii::UniqueXPathObj errors(xmlXPathEvalExpression(BAD_CAST "//r53:Error", xpath_ctx.get()));
-                if (errors && errors->nodesetval) {
-                    for (int i = 0; i < errors->nodesetval->nodeNr; ++i) {
-                        xmlNodePtr error_node = errors->nodesetval->nodeTab[i];
-                        xmlChar* code = nullptr;
-                        xmlChar* msg = nullptr;
-                        for (xmlNodePtr child = error_node->children; child; child = child->next) {
-                            if (child->type == XML_ELEMENT_NODE) {
-                                if (xmlStrEqual(child->name, BAD_CAST "Code")) {
-                                    code = xmlNodeGetContent(child);
-                                } else if (xmlStrEqual(child->name, BAD_CAST "Message")) {
-                                    msg = xmlNodeGetContent(child);
-                                }
+        auto doc = xml_raii::XmlDocument::parse(response.body);
+        if (doc && doc->register_ns("r53", R53_XMLNS)) {
+            const auto errors = doc->eval("//r53:Error");
+            if (errors && errors->nodesetval) {
+                for (int i = 0; i < errors->nodesetval->nodeNr; ++i) {
+                    xmlNodePtr error_node = errors->nodesetval->nodeTab[i];
+                    xmlChar* code = nullptr;
+                    xmlChar* msg = nullptr;
+                    for (xmlNodePtr child = error_node->children; child; child = child->next) {
+                        if (child->type == XML_ELEMENT_NODE) {
+                            if (xmlStrEqual(child->name, BAD_CAST "Code")) {
+                                code = xmlNodeGetContent(child);
+                            } else if (xmlStrEqual(child->name, BAD_CAST "Message")) {
+                                msg = xmlNodeGetContent(child);
                             }
                         }
-                        YADDNSC_SDK_LOG_ERROR(services, "Route 53 API error: {} ({})",
-                                              msg ? reinterpret_cast<const char*>(msg) : "unknown",
-                                              code ? reinterpret_cast<const char*>(code) : "no code");
-                        xmlFree(code);
-                        xmlFree(msg);
                     }
-                } else {
-                    YADDNSC_SDK_LOG_ERROR(services, "Route 53 API error (HTTP {}): {}", response.status_code,
-                                          response.body);
+                    YADDNSC_SDK_LOG_ERROR(services, "Route 53 API error: {} ({})",
+                                          msg ? reinterpret_cast<const char*>(msg) : "unknown",
+                                          code ? reinterpret_cast<const char*>(code) : "no code");
+                    xmlFree(code);
+                    xmlFree(msg);
                 }
+            } else {
+                YADDNSC_SDK_LOG_ERROR(services, "Route 53 API error (HTTP {}): {}", response.status_code,
+                                      response.body);
             }
         } else {
             YADDNSC_SDK_LOG_ERROR(services, "Route 53 API error (HTTP {}): {}", response.status_code, response.body);

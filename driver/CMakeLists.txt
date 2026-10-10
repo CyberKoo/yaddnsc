@@ -5,23 +5,9 @@ cmake_minimum_required(VERSION 3.22...3.31 FATAL_ERROR)
 # ==============================================================================
 add_custom_target(drivers)
 
-# The set of bundled drivers is an explicit, auditable list — no directory
-# globbing. Runtime auto-discovery (skipping foreign libraries in the driver
-# directory) is unaffected by this build-time list.
-set(YADDNSC_DRIVERS
-    alibaba_cloud
-    cloudflare
-    digital_ocean
-    dnspod
-    duckdns
-    godaddy
-    linode
-    namecheap
-    porkbun
-    route53
-    simple
-    vultr
-)
+# The bundled-driver list lives in cmake/Drivers.cmake (single source of
+# truth, shared with the driver tests).
+include(Drivers)
 
 foreach (DRIVER_NAME ${YADDNSC_DRIVERS})
     message(STATUS "Build driver ${DRIVER_NAME}")
