@@ -7,9 +7,12 @@
 
 #include <string>
 
-#include "domain/network/address_family.h"
 #include "infrastructure/coro/task.hpp"
 #include "infrastructure/ip_source/source.h"
+
+namespace domain {
+enum class AddressFamily;
+}  // namespace domain
 
 namespace ipsource {
 

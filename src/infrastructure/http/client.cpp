@@ -4,16 +4,27 @@
 
 #include "client.h"
 
+#include <coroutine>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 #include <cstdint>
+#include <expected>
 #include <string>
 #include <utility>
+#include <map>
+#include <memory>
+#include <optional>
+#include <span>
+#include <string_view>
+#include <vector>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 
+#include "domain/network/inet_address.h"  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 #include "infrastructure/http/protocol/exchange.h"
 #include "infrastructure/http/redirect.h"
 #include "infrastructure/http/transport.h"
 #include "infrastructure/http/wire_request.h"
 #include "infrastructure/uri/uri.h"
 #include "support/fmt.hpp"
+#include "infrastructure/http/protocol/wire.h"
+#include "yaddnsc/util/format.hpp"  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 
 namespace http {
 namespace {

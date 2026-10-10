@@ -2,7 +2,6 @@
 // Benchmarks for URI parsing, encoding, and decoding.
 // =============================================================================
 
-#include <string>
 #include <string_view>
 
 #include <benchmark/benchmark.h>

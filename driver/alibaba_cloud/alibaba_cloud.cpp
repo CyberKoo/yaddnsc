@@ -1,8 +1,12 @@
 #include "alibaba_cloud.h"
 
+#include <yaddnsc/sdk/driver.hpp>
+#include <yaddnsc/sdk/driver_abi.h>
+#include <yaddnsc/sdk/url_encode.hpp>
+#include <yaddnsc/util/format.hpp>
+#include <yaddnsc/util/url_encode.hpp>
 #include <algorithm>
 #include <chrono>
-#include <compare>
 #include <cstdint>
 #include <optional>
 #include <random>
@@ -10,13 +14,7 @@
 #include <string>
 #include <utility>
 #include <vector>
-
-#include <glaze/glaze.hpp>
-#include <yaddnsc/sdk/driver.hpp>
-#include <yaddnsc/sdk/driver_abi.h>
-#include <yaddnsc/sdk/url_encode.hpp>
-#include <yaddnsc/util/format.hpp>
-#include <yaddnsc/util/url_encode.hpp>
+#include <compare>  // IWYU pragma: keep — sort comparator's operator< is attributed to <compare> by IWYU; clangd does not
 
 #include "config.hpp"
 #include "response.hpp"

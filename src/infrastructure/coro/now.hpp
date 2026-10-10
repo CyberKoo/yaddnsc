@@ -9,8 +9,7 @@
 #ifndef YADDNSC_INFRASTRUCTURE_CORO_NOW_HPP
 #define YADDNSC_INFRASTRUCTURE_CORO_NOW_HPP
 
-#include "infrastructure/coro/detail/context_awaitables.h"
-#include "infrastructure/coro/time.h"
+#include "infrastructure/coro/detail/context_awaitables.h"  // IWYU pragma: export
 
 namespace coro {
 

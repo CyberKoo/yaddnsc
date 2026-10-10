@@ -4,17 +4,18 @@
 #include <optional>
 #include <string>
 #include <vector>
-
 #include <expected>
 
 #include "application/ports/driver_catalog.h"
-#include "application/ports/gateway.h"
-#include "application/ports/resolver.h"
-#include "domain/config/runtime_config.h"
 #include "domain/error/dns_error_info.h"
 #include "domain/network/inet_address.h"
 #include "infrastructure/coro/task.hpp"
 #include "infrastructure/coro/time.h"
+#include "domain/error/error.h"
+
+namespace domain {
+struct RuntimeConfig;
+}  // namespace domain
 
 /// Diagnostic command handlers — thin application functions over the ports.
 ///
@@ -24,6 +25,8 @@
 namespace app {
 
 class NetworkInterfacesPort;
+class GatewayPort;
+class ResolverPort;
 
 /// One row of `driver list`: the loaded name plus either its descriptor
 /// or the structured error from the failed descriptor query.
@@ -90,7 +93,7 @@ struct ConfigTestError {
 
 /// Outcome of a `config test` run: nullopt error means the test passed.
 struct ConfigTestOutcome {
-    bool quiet;  ///< -q/--quiet: no stdout on success
+    bool quiet{false};  ///< -q/--quiet: no stdout on success
     std::optional<ConfigTestError> error;
 };
 

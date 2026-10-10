@@ -7,16 +7,14 @@
 // legacy "overlapping call is an error" rejection.
 //
 
-#ifndef YADDNSC_INFRASTRUCTURE_NET_HTTP_SESSION_H
-#define YADDNSC_INFRASTRUCTURE_NET_HTTP_SESSION_H
+#ifndef YADDNSC_INFRASTRUCTURE_HTTP_SESSION_H
+#define YADDNSC_INFRASTRUCTURE_HTTP_SESSION_H
 
 #include <chrono>
 #include <cstdint>
 #include <memory>
 #include <optional>
 #include <string>
-#include <string_view>
-
 #include <expected>
 
 #include "infrastructure/coro/async_mutex.hpp"
@@ -24,9 +22,15 @@
 #include "infrastructure/http/error.h"
 #include "infrastructure/http/protocol/exchange.h"
 #include "infrastructure/http/types.h"
-#include "infrastructure/network/transport/stream.h"
+
+namespace net {
+class Stream;
+}  // namespace net
 
 namespace http {
+namespace protocol {
+struct WireRequest;
+}  // namespace protocol
 
 /// One origin's persistent connection.
 ///
@@ -99,4 +103,4 @@ private:
 
 }  // namespace http
 
-#endif  // YADDNSC_INFRASTRUCTURE_NET_HTTP_SESSION_H
+#endif  // YADDNSC_INFRASTRUCTURE_HTTP_SESSION_H

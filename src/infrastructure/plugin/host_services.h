@@ -5,15 +5,14 @@
 #ifndef YADDNSC_INFRASTRUCTURE_PLUGIN_HOST_SERVICES_H
 #define YADDNSC_INFRASTRUCTURE_PLUGIN_HOST_SERVICES_H
 
+#include <yaddnsc/sdk/driver_abi.h>
 #include <cstdint>
 #include <deque>
 #include <memory>
 #include <string>
 #include <string_view>
 #include <vector>
-
-#include <stdint.h>
-#include <yaddnsc/sdk/driver_abi.h>
+#include <atomic>
 
 #include "infrastructure/plugin/bridge.h"
 

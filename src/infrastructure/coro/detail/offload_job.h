@@ -10,7 +10,6 @@
 #include <exception>
 #include <memory>
 #include <type_traits>
-#include <utility>
 
 #include <coroutine>
 
@@ -35,7 +34,6 @@ struct OffloadSlot {
     std::atomic<bool> completed{false};
     PromiseBase* waiter = nullptr;
     bool awaiting = false;
-    bool cancelled = false;
     WaitNode node{};
 };
 
@@ -90,14 +88,12 @@ struct OffloadAwaitable {
         state->node.scope = scope;
         assert(loop != nullptr && "offload must be awaited inside coro::run");
         if (scope != nullptr && scope->cancelled()) {
-            state->cancelled = true;
             return false;
         }
         state->waiter = &promise;
         state->awaiting = true;
         if (scope != nullptr) {
             state->node.waiter = &promise;
-            state->node.cancelled_flag = &state->cancelled;
             state->node.owner = state.get();
             state->node.on_cancel = &OffloadAwaitable::on_cancel;
             ScopeAccess::add_waiter(*scope, state->node);

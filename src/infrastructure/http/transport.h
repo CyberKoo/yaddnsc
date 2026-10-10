@@ -7,8 +7,8 @@
 // injection point in one place.
 //
 
-#ifndef YADDNSC_INFRASTRUCTURE_NET_HTTP_TRANSPORT_H
-#define YADDNSC_INFRASTRUCTURE_NET_HTTP_TRANSPORT_H
+#ifndef YADDNSC_INFRASTRUCTURE_HTTP_TRANSPORT_H
+#define YADDNSC_INFRASTRUCTURE_HTTP_TRANSPORT_H
 
 #include <cstdint>
 #include <memory>
@@ -16,16 +16,15 @@
 #include <string>
 #include <string_view>
 #include <vector>
-
 #include <expected>
 
 #include "domain/network/inet_address.h"
 #include "infrastructure/coro/task.hpp"
 #include "infrastructure/http/error.h"
-#include "infrastructure/http/types.h"
 #include "infrastructure/network/transport/stream.h"
 
 namespace http {
+struct Options;
 
 /// Resolve `host` to candidate addresses: an IP literal short-circuits, anything
 /// else goes through Options::resolve.
@@ -52,4 +51,4 @@ namespace http {
 
 }  // namespace http
 
-#endif  // YADDNSC_INFRASTRUCTURE_NET_HTTP_TRANSPORT_H
+#endif  // YADDNSC_INFRASTRUCTURE_HTTP_TRANSPORT_H

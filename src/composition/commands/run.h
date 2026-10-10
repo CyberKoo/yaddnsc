@@ -1,6 +1,9 @@
 #ifndef YADDNSC_COMPOSITION_COMMANDS_RUN_H
 #define YADDNSC_COMPOSITION_COMMANDS_RUN_H
-#include "cli/command.h"
+
+namespace Cli {
+struct RunCommand;
+}  // namespace Cli
 
 namespace Composition {
 /// Assemble and run the application. Expected startup failures are logged;

@@ -1,10 +1,10 @@
 #include "environment_validator.h"
 
-#include <algorithm>
-#include <ranges>
-#include <string>
-
 #include <yaddnsc/util/format.hpp>
+#include <algorithm>
+#include <expected>
+#include <string>
+#include <ranges>  // IWYU pragma: keep — IWYU attributes std::ranges::find (__find_fn) here; clangd attributes it to <algorithm>
 
 #include "application/ports/driver_catalog.h"
 #include "application/ports/network_interfaces.h"

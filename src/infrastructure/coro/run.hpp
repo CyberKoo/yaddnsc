@@ -17,7 +17,7 @@
 #include "infrastructure/coro/cancel_scope.h"
 #include "infrastructure/coro/detail/access.h"
 #include "infrastructure/coro/detail/frame.h"
-#include "infrastructure/coro/detail/task_promise.h"
+#include "infrastructure/coro/detail/task_promise.h"  // IWYU pragma: export
 #include "infrastructure/coro/loop.h"
 #include "infrastructure/coro/task.hpp"
 

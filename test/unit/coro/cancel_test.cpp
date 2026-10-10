@@ -13,7 +13,6 @@
 #include <vector>
 
 #include <gtest/gtest.h>
-
 #include "infrastructure/coro/coro.h"
 
 namespace {

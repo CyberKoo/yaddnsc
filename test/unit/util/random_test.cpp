@@ -15,7 +15,6 @@
 #include <cstdint>
 #include <random>
 #include <set>
-#include <string>
 #include <type_traits>
 
 #include <gtest/gtest.h>

@@ -1,5 +1,9 @@
 #include "iface_util.h"
 
+#include <ifaddrs.h>
+#include <net/if.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
 #include <algorithm>
 #include <cstdint>
 #include <iterator>
@@ -10,12 +14,8 @@
 #include <utility>
 #include <vector>
 
-#include <ifaddrs.h>
-#include <net/if.h>
-#include <netinet/in.h>
-#include <sys/socket.h>
-
 #include "domain/network/inet_address.h"
+#include "domain/network/address_family.h"
 
 // ===========================================================================
 // Internal enumeration

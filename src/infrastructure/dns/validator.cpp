@@ -1,14 +1,13 @@
 #include "infrastructure/dns/validator.h"
 
+#include <yaddnsc/util/format.hpp>
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <span>
-#include <string>
-
 #include <expected>
-#include <yaddnsc/util/format.hpp>
+#include <string>  // IWYU pragma: keep — fmt::format returns std::string temporaries; clangd sees no spelled use
 
 #include "domain/error/dns_error.h"
 #include "infrastructure/dns/types.h"

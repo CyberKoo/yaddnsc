@@ -17,9 +17,7 @@
 #include <condition_variable>
 #include <cstdint>
 #include <functional>
-#include <memory>
 #include <mutex>
-#include <source_location>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -252,6 +250,28 @@ private:
     return fmt::format(R"({{"op":"exchange","http_count":{},"url":"http://127.0.0.1:{}"}})", count, port);
 }
 
+/// Waits until `server` has taken `expected` requests, then cancels `cycle` so
+/// the update it owns is abandoned mid-exchange. Returns whether the server got
+/// there within `give_up`, so a cycle that never issues its request fails the
+/// test instead of hanging it.
+///
+/// Driving the abandon off the request rather than a fixed delay is what makes
+/// it deterministic. Before the request lands the cycle may still be queued in
+/// the offload pool, and a cancel then drops that queued job instead of
+/// cancelling a running exchange — the behaviour
+/// AbandonedQueuedCycle_DoesNotEnterTheDriver covers. A fixed delay short
+/// enough to abandon a running cycle is also short enough to lose that race on
+/// a cold pool.
+[[nodiscard]] coro::Task<bool> abandon_when_requested(const LoopbackHttpServer& server, const std::uint32_t expected,
+                                                      coro::TaskGroup& cycle, std::chrono::milliseconds give_up = 20s) {
+    const auto deadline = std::chrono::steady_clock::now() + give_up;
+    while (server.request_count() < expected && std::chrono::steady_clock::now() < deadline) {
+        co_await coro::sleep_for(1ms);
+    }
+    cycle.cancel();
+    co_return server.request_count() >= expected;
+}
+
 /// Run a task-factory lambda on `loop` (coro::run takes an already-built Task).
 template<typename Fn>
 void run_loop(coro::Loop& loop, Fn&& body) {
@@ -353,20 +373,23 @@ TEST_F(CoroDriverGatewayTest, AbandonedCycleCancelsItsInFlightExchange) {
     // short of the 30s bridge budget.
     LoopbackHttpServer server{30s};
     coro::Loop loop;
-    bool abandoned_returned = false;
-    bool timed_out = false;
+    bool saw_request = false;
     const std::string params = exchange_params(server.port(), 1);
 
     const auto started = std::chrono::steady_clock::now();
     run_loop(loop, [&]() -> coro::Task<void> {
         co_await coro::supervisor_group([&](coro::TaskGroup& group) -> coro::Task<void> {
             plugin::DriverGateway gateway(catalog_, logger_, loop, group, default_options(30s));
-            const auto outcome = co_await coro::with_timeout(30ms, [&]() -> coro::Task<void> {
-                co_await gateway.update(DRIVER_NAME, make_command(params));
-                abandoned_returned = true;
+            // A nested group scopes the abandon to this one update; the outer
+            // scope, and with it the gateway's bridge, stay live.
+            co_await coro::supervisor_group([&](coro::TaskGroup& cycle) -> coro::Task<void> {
+                // Not joined: a cancelled child carries no result value, so a
+                // join would read an empty optional. The group joins it at
+                // scope exit.
+                cycle.spawn(gateway.update(DRIVER_NAME, make_command(params)));
+                saw_request = co_await abandon_when_requested(server, 1, cycle);
                 co_return;
             });
-            timed_out = outcome.timed_out;
             co_return;
         });
         co_return;
@@ -374,8 +397,9 @@ TEST_F(CoroDriverGatewayTest, AbandonedCycleCancelsItsInFlightExchange) {
     const auto elapsed =
         std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - started);
 
-    EXPECT_TRUE(timed_out);
-    EXPECT_FALSE(abandoned_returned);
+    // The exchange really was in flight, so the abandon cancelled a running
+    // cycle rather than dropping a queued one.
+    EXPECT_TRUE(saw_request);
     // The in-flight exchange was cancelled, so the plugin's update returned
     // CANCELLED and the worker's cycle wound down at once instead of waiting
     // out the 30s server hold.
@@ -404,20 +428,22 @@ TEST_F(CoroDriverGatewayTest, AbandonedCycleWindsDownAndFreesTheNextUpdate) {
 
     LoopbackHttpServer server{200ms};
     coro::Loop loop;
-    bool abandoned_returned = false;
     std::expected<void, domain::DriverError> second_result;
-    bool timed_out = false;
+    bool saw_request = false;
     const std::string params = exchange_params(server.port(), 1);
 
     run_loop(loop, [&]() -> coro::Task<void> {
         co_await coro::supervisor_group([&](coro::TaskGroup& group) -> coro::Task<void> {
             plugin::DriverGateway gateway(catalog_, logger_, loop, group, default_options());
-            const auto outcome = co_await coro::with_timeout(30ms, [&]() -> coro::Task<void> {
-                co_await gateway.update(DRIVER_NAME, make_command(params));
-                abandoned_returned = true;
+            // A nested group scopes the abandon to this one update; the outer
+            // scope, and with it the gateway's bridge, stay live. Spawning the
+            // member coroutine directly keeps its frame off GCC's elision
+            // path, which would hand spawn() a stack frame to own.
+            co_await coro::supervisor_group([&](coro::TaskGroup& cycle) -> coro::Task<void> {
+                cycle.spawn(gateway.update(DRIVER_NAME, make_command(params)));
+                saw_request = co_await abandon_when_requested(server, 1, cycle);
                 co_return;
             });
-            timed_out = outcome.timed_out;
             // The abandoned cycle's in-flight exchange is cancelled and its
             // wind-down runs on the worker; this update does not wait for it.
             second_result = co_await gateway.update(DRIVER_NAME, make_command(params));
@@ -426,8 +452,9 @@ TEST_F(CoroDriverGatewayTest, AbandonedCycleWindsDownAndFreesTheNextUpdate) {
         co_return;
     });
 
-    EXPECT_TRUE(timed_out);
-    EXPECT_FALSE(abandoned_returned);
+    // The first cycle's exchange was in flight when the abandon landed, so the
+    // cancel reached a running cycle rather than dropping a queued one.
+    EXPECT_TRUE(saw_request);
     ASSERT_TRUE(second_result.has_value()) << second_result.error().message;
 
     // Both cycles ran the full create → update → destroy sequence: the
@@ -526,24 +553,19 @@ TEST_F(CoroDriverGatewayTest, ShutdownCancelsInFlightBridgeExchange) {
     // the worker short of the 30s bridge budget.
     LoopbackHttpServer server{30s};
     coro::Loop loop;
-    bool abandoned_returned = false;
+    bool saw_request = false;
     const std::string params = exchange_params(server.port(), 1);
 
     const auto started = std::chrono::steady_clock::now();
     run_loop(loop, [&]() -> coro::Task<void> {
         co_await coro::supervisor_group([&](coro::TaskGroup& group) -> coro::Task<void> {
             plugin::DriverGateway gateway(catalog_, logger_, loop, group, default_options(30s));
-            const auto outcome = co_await coro::with_timeout(30ms, [&]() -> coro::Task<void> {
-                co_await gateway.update(DRIVER_NAME, make_command(params));
-                abandoned_returned = true;
-                co_return;
-            });
-            EXPECT_TRUE(outcome.timed_out);
-            // Shutdown: cancel the bridge scope. The in-flight exchange is
-            // cancelled at its await, the promise is fulfilled with a
-            // cancellation error, and the worker unblocks instead of waiting
-            // out the 30s budget.
-            group.cancel();
+            group.spawn(gateway.update(DRIVER_NAME, make_command(params)));
+            // Shutdown: cancel the bridge scope once the exchange is in flight.
+            // The exchange is cancelled at its await, the promise is fulfilled
+            // with a cancellation error, and the worker unblocks instead of
+            // waiting out the 30s budget.
+            saw_request = co_await abandon_when_requested(server, 1, group);
             co_return;
         });
         co_return;
@@ -551,6 +573,9 @@ TEST_F(CoroDriverGatewayTest, ShutdownCancelsInFlightBridgeExchange) {
     const auto elapsed =
         std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - started);
 
+    // The request was in flight, so shutdown is what released the worker
+    // rather than a cycle that was still queued when the scope came down.
+    EXPECT_TRUE(saw_request);
     EXPECT_LT(elapsed, 5s);
 }
 

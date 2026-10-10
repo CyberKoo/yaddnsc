@@ -14,17 +14,19 @@
 #include <cstdint>
 #include <memory>
 #include <string>
-#include <string_view>
 #include <vector>
-
 #include <expected>
+#include <cstddef>
 
-#include "domain/dns/record_kind.h"
 #include "domain/error/dns_error_info.h"
 #include "infrastructure/coro/task.hpp"
-#include "infrastructure/dns/resolver/resolver.h"
+
+namespace domain {
+enum class RecordKind;
+}  // namespace domain
 
 namespace dns {
+class Resolver;
 
 /// How a dispatcher uses its backends.
 enum class Strategy {

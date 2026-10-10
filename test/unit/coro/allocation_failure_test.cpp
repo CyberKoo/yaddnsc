@@ -1,6 +1,5 @@
 // Isolated allocator fault injection: no production hooks and no effect on
 // other test binaries. Only the calling thread's selected allocation fails.
-#include <csignal>
 #include <cstddef>
 #include <cstdlib>
 #include <memory>

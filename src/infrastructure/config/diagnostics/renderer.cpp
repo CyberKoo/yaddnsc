@@ -1,13 +1,14 @@
 #include "renderer.h"
 
+#include <yaddnsc/util/format.hpp>
 #include <algorithm>
 #include <string>
 #include <string_view>
 #include <vector>
 
-#include <yaddnsc/util/format.hpp>
-
 #include "support/fmt.hpp"
+#include "infrastructure/config/diagnostics/decision.h"
+#include "infrastructure/config/diagnostics/types.h"
 
 namespace Config::Diagnostic {
 namespace {

@@ -11,9 +11,12 @@
 #include <memory>
 #include <vector>
 
-#include "domain/config/dns_config.h"
-#include "domain/config/runtime_config.h"
 #include "infrastructure/dns/dispatcher.h"
+
+namespace domain {
+struct DnsServer;
+struct ResolverSettings;
+}  // namespace domain
 
 namespace net {
 class TlsContext;

@@ -8,6 +8,8 @@
 #include <cassert>
 
 #include "infrastructure/coro/detail/access.h"
+#include "infrastructure/coro/cancelled.h"
+#include "infrastructure/coro/detail/wait_node.h"
 
 namespace coro {
 

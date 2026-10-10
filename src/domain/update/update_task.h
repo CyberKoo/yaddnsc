@@ -1,9 +1,7 @@
 #ifndef YADDNSC_DOMAIN_UPDATE_UPDATE_TASK_H
 #define YADDNSC_DOMAIN_UPDATE_UPDATE_TASK_H
 
-
 #include <string>
-#include <string_view>
 
 #include "domain/config/runtime_config.h"
 

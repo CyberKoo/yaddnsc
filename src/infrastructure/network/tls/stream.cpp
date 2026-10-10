@@ -4,24 +4,28 @@
 
 #include "stream.h"
 
-#include <array>
-#include <ctime>
-#include <limits>
-#include <string>
-#include <utility>
-
 #include <arpa/inet.h>
+#include <coroutine>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 #include <openssl/ssl.h>
-#include <openssl/x509_vfy.h>
-#include <pthread.h>
 #include <signal.h>
 #include <spdlog/spdlog.h>
 #include <sys/socket.h>
+#include <netinet/in.h>
+#include <openssl/x509.h>
+#include <array>
+#include <expected>
+#include <limits>
+#include <string>
+#include <utility>
+#include <optional>
+#include <span>
 
 #include "infrastructure/coro/checkpoint.hpp"
 #include "infrastructure/coro/fd_wait.hpp"
 #include "infrastructure/network/tls/openssl_error.hpp"
 #include "infrastructure/network/tls/context.h"
+#include "domain/network/address_family.h"
+#include "infrastructure/coro/cancelled.h"
 
 namespace net {
 namespace {

@@ -7,8 +7,8 @@
 // lived in an anonymous-namespace-adjacent helper header.
 //
 
-#ifndef YADDNSC_INFRASTRUCTURE_NET_HTTP_PROTOCOL_FIELD_CHARS_HPP
-#define YADDNSC_INFRASTRUCTURE_NET_HTTP_PROTOCOL_FIELD_CHARS_HPP
+#ifndef YADDNSC_INFRASTRUCTURE_HTTP_PROTOCOL_FIELD_CHARS_HPP
+#define YADDNSC_INFRASTRUCTURE_HTTP_PROTOCOL_FIELD_CHARS_HPP
 
 #include <cctype>
 #include <string_view>
@@ -46,4 +46,4 @@ namespace http::protocol {
 
 }  // namespace http::protocol
 
-#endif  // YADDNSC_INFRASTRUCTURE_NET_HTTP_PROTOCOL_FIELD_CHARS_HPP
+#endif  // YADDNSC_INFRASTRUCTURE_HTTP_PROTOCOL_FIELD_CHARS_HPP

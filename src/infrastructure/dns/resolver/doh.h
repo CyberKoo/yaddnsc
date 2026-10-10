@@ -13,14 +13,13 @@
 #include <memory>
 #include <string>
 #include <string_view>
-#include <vector>
 
-#include <expected>
-
-#include "domain/error/dns_error_info.h"
-#include "infrastructure/coro/task.hpp"
 #include "infrastructure/dns/resolver/resolver.h"
-#include "infrastructure/http/persistent_client.h"
+
+namespace http {
+class PersistentClient;
+struct Options;
+}  // namespace http
 
 namespace dns {
 

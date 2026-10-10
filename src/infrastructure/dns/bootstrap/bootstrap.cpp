@@ -4,11 +4,12 @@
 
 #include "bootstrap.h"
 
+#include <coroutine>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 #include <cstdint>
-#include <exception>
+#include <expected>
 #include <new>
 #include <span>
-#include <string_view>
+#include <type_traits>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 #include <utility>
 #include <vector>
 
@@ -19,10 +20,15 @@
 #include "infrastructure/dns/resolver/resolver.h"
 #include "infrastructure/dns/util.hpp"
 #include "infrastructure/dns/validator.h"
-#include "infrastructure/dns/wire/builder.h"
 #include "infrastructure/dns/wire/query_util.h"
 #include "support/fmt.hpp"
-#include "support/string_util.hpp"
+#include "domain/config/dns_config.h"
+#include "domain/dns/record_kind.h"
+#include "domain/error/dns_error.h"
+#include "domain/network/address_family.h"
+#include "infrastructure/coro/task_group.hpp"
+#include "infrastructure/dns/types.h"
+#include "yaddnsc/util/format.hpp"  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 
 namespace dns {
 

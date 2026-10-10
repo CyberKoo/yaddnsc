@@ -4,14 +4,16 @@
 
 #include "run_root.h"
 
+#include <coroutine>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
+#include <optional>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
+#include <unistd.h>
 #include <csignal>
-#include <cstddef>
 #include <cstdlib>
 #include <memory>
 #include <string>
-#include <utility>
-
-#include <unistd.h>
+#include <exception>
+#include <functional>
+#include <vector>
 
 #include "application/log.h"
 #include "application/subdomain_loop.h"
@@ -20,9 +22,12 @@
 #include "infrastructure/coro/cancelled.h"
 #include "infrastructure/coro/group.hpp"
 #include "infrastructure/coro/signal.hpp"
-#include "support/fmt.hpp"
+#include "application/services.h"
+#include "domain/config/runtime_config.h"
+#include "infrastructure/coro/task_group.hpp"
 
 namespace app {
+class LoggerPort;
 
 namespace {
 

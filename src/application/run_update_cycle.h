@@ -6,16 +6,18 @@
 #define YADDNSC_APPLICATION_RUN_UPDATE_CYCLE_H
 
 #include <chrono>
-
 #include <expected>
 
-#include "application/services.h"
 #include "domain/error/error.h"
-#include "domain/update/update_decision.h"
-#include "domain/update/update_task.h"
 #include "infrastructure/coro/task.hpp"
 
+namespace domain {
+enum class UpdateDecision;
+struct UpdateTask;
+}  // namespace domain
+
 namespace app {
+struct Services;
 
 /// Overall budget for one update cycle; narrower stage budgets below allow
 /// the cycle to handle a stalled source or DNS read before this final bound.

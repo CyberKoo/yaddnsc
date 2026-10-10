@@ -17,7 +17,7 @@
 #define YADDNSC_INFRASTRUCTURE_CORO_ASYNC_MUTEX_HPP
 
 #include "infrastructure/coro/detail/mutex_state.h"
-#include "infrastructure/coro/detail/mutex_wait.h"
+#include "infrastructure/coro/detail/mutex_wait.h"  // IWYU pragma: export
 #include "infrastructure/coro/mutex_guard.hpp"
 
 namespace coro {

@@ -3,11 +3,12 @@
 
 #include <glaze/glaze.hpp>
 
+// IWYU misses that the glz::meta specialisations below name these types.
+
+#include "config.h"                          // IWYU pragma: keep
 #include "domain/config/dns_config.h"
 #include "domain/config/ip_source_kind.h"
 #include "domain/dns/record_kind.h"
-
-#include "config.h"
 
 /// glz::meta specialisation for Config::DriverConfig JSON mapping.
 template<>

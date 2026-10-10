@@ -30,7 +30,6 @@
 #include "domain/dns/record_kind.h"
 #include "domain/error/error.h"
 #include "domain/fqdn.h"
-#include "domain/network/address_family.h"
 #include "infrastructure/config/config.h"
 #include "support/fmt.hpp"
 
@@ -392,6 +391,55 @@ TEST(StaticValidatorTest, ResolverBracketedIPv6WithPort_Rejected) {
     EXPECT_THAT(errors[0].message, HasSubstr(R"(set "port" on the server entry instead)"));
 }
 
+// A scheme other than "https" (DoH) or "tls" (DoT) has no resolver backend:
+// the factory throws std::invalid_argument for it, which escapes validation
+// and surfaces as an unhandled exception on the run path. It must be a
+// collected config error here instead.
+TEST(StaticValidatorTest, ResolverUnknownScheme_Rejected) {
+    const auto errors = validate_with([](Config::AppConfig& cfg) {
+        cfg.resolver.use_custom_servers = true;
+        cfg.resolver.servers = {{"ftp://1.1.1.1", 53}};
+    });
+    ASSERT_EQ(errors.size(), 1U);
+    EXPECT_EQ(errors[0].code, Code::INVALID_RESOLVER);
+    EXPECT_THAT(errors[0].message, HasSubstr(R"(unsupported scheme "ftp")"));
+}
+
+// http is not a resolver backend either (only DoH over https is). The error
+// must name the scheme, not point at the port field — the port here is only
+// the well-known default the parser filled in.
+TEST(StaticValidatorTest, ResolverHttpScheme_Rejected) {
+    const auto errors = validate_with([](Config::AppConfig& cfg) {
+        cfg.resolver.use_custom_servers = true;
+        cfg.resolver.servers = {{"http://1.1.1.1", 53}};
+    });
+    ASSERT_EQ(errors.size(), 1U);
+    EXPECT_EQ(errors[0].code, Code::INVALID_RESOLVER);
+    EXPECT_THAT(errors[0].message, HasSubstr(R"(unsupported scheme "http")"));
+}
+
+// A classic resolver dials the host and DnsServer::port only, so a path or
+// query written into the address would be dropped without a word.
+TEST(StaticValidatorTest, ResolverAddressWithPath_Rejected) {
+    const auto errors = validate_with([](Config::AppConfig& cfg) {
+        cfg.resolver.use_custom_servers = true;
+        cfg.resolver.servers = {{"1.1.1.1/extra", 53}};
+    });
+    ASSERT_EQ(errors.size(), 1U);
+    EXPECT_EQ(errors[0].code, Code::INVALID_RESOLVER);
+    EXPECT_THAT(errors[0].message, HasSubstr("path or query"));
+}
+
+TEST(StaticValidatorTest, ResolverAddressWithQuery_Rejected) {
+    const auto errors = validate_with([](Config::AppConfig& cfg) {
+        cfg.resolver.use_custom_servers = true;
+        cfg.resolver.servers = {{"1.1.1.1?x=1", 53}};
+    });
+    ASSERT_EQ(errors.size(), 1U);
+    EXPECT_EQ(errors[0].code, Code::INVALID_RESOLVER);
+    EXPECT_THAT(errors[0].message, HasSubstr("path or query"));
+}
+
 // A bracketed authority that is not a valid IPv6 literal is a malformed URI,
 // not a bad IP literal — it keeps the Uri-specific diagnostic.
 TEST(StaticValidatorTest, ResolverBracketedGarbage_MalformedNotInvalidLiteral) {
@@ -574,6 +622,15 @@ TEST(StaticValidatorTest, BootstrapDns_WithScheme_Rejected) {
     const auto errors = validate_with([](Config::AppConfig& cfg) { cfg.bootstrap_dns = "https://1.1.1.1"; });
     ASSERT_EQ(errors.size(), 1U);
     EXPECT_EQ(errors.front().code, Code::INVALID_BOOTSTRAP_DNS);
+}
+
+// bootstrap_dns is dialled as a bare IP endpoint; a trailing path or query
+// has no meaning there and would be normalised away silently.
+TEST(StaticValidatorTest, BootstrapDns_WithPath_Rejected) {
+    const auto errors = validate_with([](Config::AppConfig& cfg) { cfg.bootstrap_dns = "1.1.1.1/extra"; });
+    ASSERT_EQ(errors.size(), 1U);
+    EXPECT_EQ(errors.front().code, Code::INVALID_BOOTSTRAP_DNS);
+    EXPECT_THAT(errors.front().message, HasSubstr("1.1.1.1/extra"));
 }
 
 TEST(StaticValidatorTest, MalformedResolverAddress_ReportedNotThrown) {

@@ -18,13 +18,10 @@
 // =============================================================================
 
 #include <cstdlib>
-#include <exception>
 #include <filesystem>
 #include <fstream>
-#include <initializer_list>
 #include <memory>
 #include <sstream>
-#include <stdexcept>
 #include <string>
 #include <string_view>
 

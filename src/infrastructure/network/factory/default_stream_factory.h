@@ -2,10 +2,7 @@
 #define YADDNSC_INFRASTRUCTURE_NETWORK_FACTORY_DEFAULT_STREAM_FACTORY_H
 
 #include <cstdint>
-#include <memory>
 
-#include "domain/network/inet_address.h"
-#include "infrastructure/network/transport/options.h"
 #include "infrastructure/network/transport/stream.h"
 
 namespace net {

@@ -1,28 +1,45 @@
 #include "run.h"
 
+#include <spdlog/spdlog.h>
+#include <functional>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 #include <cstdlib>
 #include <memory>
 #include <utility>
-
-#include <spdlog/spdlog.h>
+#include <expected>
+#include <span>
+#include <string>
+#include <string_view>
+#include <vector>
 
 #include "application/environment_validator.h"
 #include "application/run_root.h"
 #include "application/services.h"
 #include "composition/assembly.h"
+#include "domain/config/dns_config.h"  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
+#include "domain/error/error.h"  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 #include "infrastructure/config/config_exception.h"
-#include "infrastructure/coro/group.hpp"
 #include "infrastructure/coro/loop.h"
 #include "infrastructure/coro/run.hpp"
+#include "infrastructure/dns/dispatcher.h"  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 #include "infrastructure/dns/factory.h"
 #include "infrastructure/dns/resolver_port.h"
 #include "infrastructure/ip_source/adapter.h"
 #include "infrastructure/ip_source/system_network_interfaces.h"
 #include "infrastructure/logging/async_logging.h"
 #include "infrastructure/logging/spdlog_logger.h"
+#include "infrastructure/plugin/driver_catalog.h"  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 #include "infrastructure/plugin/driver_gateway.h"
 #include "support/exception.h"
 #include "support/fmt.hpp"
+#include "cli/command.h"
+#include "domain/config/runtime_config.h"
+#include "infrastructure/http/types.h"
+#include "yaddnsc/util/format.hpp"  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
+#include "application/ports/gateway.h"  // IWYU pragma: keep — make_gateway yields std::unique_ptr<GatewayPort>; clangd sees no spelled use
+
+namespace coro {
+class TaskGroup;
+}  // namespace coro
 
 namespace Composition {
 /// Startup preparation and the run root.
@@ -83,7 +100,7 @@ int execute_command(const Cli::RunCommand& command) {
         SPDLOG_CRITICAL("{}", e.what());
         return EXIT_FAILURE;
     } catch (const YaddnscException& e) {
-        SPDLOG_CRITICAL("{}: {}", e.get_name(), e.what());
+        SPDLOG_CRITICAL("Fatal error {}: {}", e.get_name(), e.what());
         return EXIT_FAILURE;
     }
 }

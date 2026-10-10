@@ -2,7 +2,6 @@
 #define YADDNSC_SUPPORT_EXCEPTION_H
 
 #include <stdexcept>
-#include <string>
 #include <string_view>
 
 /// Base exception class for all yaddnsc-specific errors.

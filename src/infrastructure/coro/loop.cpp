@@ -4,28 +4,31 @@
 
 #include "loop.h"
 
+#include <compare>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
+#include <poll.h>
+#include <spdlog/spdlog.h>
+#include <unistd.h>
+#include <sys/types.h>
 #include <algorithm>
 #include <atomic>
 #include <cassert>
 #include <cerrno>
 #include <chrono>
 #include <climits>
-#include <cstring>
+#include <csignal>  // IWYU pragma: keep — clang resolves sigaction/SA_RESTART transitively, GCC does not
+#include <cstring>  // IWYU pragma: keep — clang resolves std::strerror transitively, GCC does not
 #include <stdexcept>
 #include <string>
 #include <system_error>
 #include <thread>
-
 #include <bit>
-#include <fcntl.h>
-#include <poll.h>
-#include <spdlog/spdlog.h>
-#include <unistd.h>
+#include <coroutine>
 
 #include "infrastructure/coro/detail/access.h"
 #include "infrastructure/coro/detail/timer_node.h"
-
 #include "BS_thread_pool.hpp"
+#include "infrastructure/coro/detail/frame.h"
+#include "infrastructure/coro/detail/wait_node.h"
 
 namespace coro {
 
@@ -321,9 +324,6 @@ bool Loop::process_signals() noexcept {
                 }
                 entry.node->scheduled = true;
             }
-            if (entry.delivered != nullptr) {
-                *entry.delivered = true;
-            }
             if (entry.waiter != nullptr) {
                 schedule(*entry.waiter);
                 woke = true;
@@ -538,7 +538,7 @@ void Loop::remove_fd(detail::FdToken token) noexcept {
 // Signals.
 // ---------------------------------------------------------------------------
 
-void Loop::arm_signal(int sig, detail::WaitNode& node, bool* delivered) {
+void Loop::arm_signal(int sig, detail::WaitNode& node) {
     if (sig <= 0 || sig >= SIGNAL_CAPACITY || sig == SIGKILL || sig == SIGSTOP) {
         throw std::invalid_argument("signal cannot be awaited");
     }
@@ -558,7 +558,7 @@ void Loop::arm_signal(int sig, detail::WaitNode& node, bool* delivered) {
         }
         saved_signals_.emplace_back(sig, previous);
     }
-    waiters.push_back(SignalWaiter{node.waiter, &node, delivered});
+    waiters.push_back(SignalWaiter{node.waiter, &node});
     SPDLOG_TRACE("armed signal waiter for signal {}", sig);
 }
 

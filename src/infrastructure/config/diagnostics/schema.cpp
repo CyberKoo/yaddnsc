@@ -1,15 +1,20 @@
 #include "schema.h"
 
+#include <glaze/glaze.hpp>
+#include <glaze/json/generic_fwd.hpp>
 #include <algorithm>
+#include <ranges>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 #include <string>
 #include <string_view>
 #include <utility>
 #include <vector>
-
-#include <glaze/glaze.hpp>
-#include <glaze/json/schema.hpp>
+#include <initializer_list>
 
 #include "infrastructure/config/parser.hpp"  // IWYU pragma: keep — glz::meta for Config::AppConfig
+
+namespace Config {
+struct AppConfig;
+}  // namespace Config
 
 namespace Config::Diagnostic {
 namespace {

@@ -7,7 +7,6 @@
 #define YADDNSC_INFRASTRUCTURE_CORO_DETAIL_GROUP_RUNNER_HPP
 
 #include <exception>
-#include <utility>
 
 #include <coroutine>
 

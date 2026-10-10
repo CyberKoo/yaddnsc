@@ -10,7 +10,6 @@
 #include <utility>
 
 #include <gtest/gtest.h>
-
 #include "infrastructure/coro/coro.h"
 
 namespace {

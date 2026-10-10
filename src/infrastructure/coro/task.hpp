@@ -22,9 +22,8 @@
 
 #include <coroutine>
 
-#include "infrastructure/coro/detail/context.h"
 #include "infrastructure/coro/detail/frame.h"
-#include "infrastructure/coro/detail/task_promise.h"
+#include "infrastructure/coro/detail/task_promise.h"  // IWYU pragma: export
 #include "infrastructure/coro/fwd.h"
 #include "infrastructure/coro/loop.h"
 

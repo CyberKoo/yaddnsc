@@ -22,7 +22,6 @@
 #include <yaddnsc/sdk/driver_abi.h>
 
 #include "domain/config/runtime_config.h"
-#include "domain/error/error.h"
 #include "infrastructure/plugin/driver_catalog.h"
 #include "infrastructure/plugin/driver_instance.h"
 #include "infrastructure/plugin/driver_loader.h"

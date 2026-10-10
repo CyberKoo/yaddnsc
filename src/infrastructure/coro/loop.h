@@ -29,7 +29,7 @@
 #ifndef YADDNSC_INFRASTRUCTURE_CORO_LOOP_H
 #define YADDNSC_INFRASTRUCTURE_CORO_LOOP_H
 
-#include <csignal>
+#include <csignal>  // IWYU pragma: keep — saved_signals_ instantiations need a complete sigaction (GCC)
 #include <cstddef>
 #include <cstdint>
 #include <deque>
@@ -40,16 +40,16 @@
 #include <vector>
 
 #include "infrastructure/coro/clock.h"
-#include "infrastructure/coro/detail/frame.h"
-#include "infrastructure/coro/fwd.h"
 #include "support/util/fd.hpp"
+#include "infrastructure/coro/time.h"
 
 namespace coro {
-
 namespace detail {
+struct PromiseBase;
 struct TimerNode;
 struct WaitNode;
 struct LoopAccess;
+
 using FdToken = std::uint64_t;
 }  // namespace detail
 
@@ -130,7 +130,6 @@ private:
     struct SignalWaiter {
         detail::PromiseBase* waiter = nullptr;
         detail::WaitNode* node = nullptr;
-        bool* delivered = nullptr;
     };
 
     /// Enqueue a frame for resumption on the next drain. Never throws and never
@@ -157,11 +156,11 @@ private:
     /// Stop polling a registration made by add_fd(). Idempotent.
     void remove_fd(detail::FdToken token) noexcept;
 
-    /// Park `node` for signal `sig`; `*delivered` is latched when it fires.
+    /// Park `node` for signal `sig`.
     /// Allocates; invalid signals or sigaction failure throw before registration.
-    /// The caller keeps `node` and `delivered` alive until it disarms
+    /// The caller keeps `node` alive until it disarms
     /// (the node doubles as its scope waiter).
-    void arm_signal(int sig, detail::WaitNode& node, bool* delivered);
+    void arm_signal(int sig, detail::WaitNode& node);
     /// Drop a parked signal waiter. Idempotent; safe from the node's on_cancel.
     void disarm_signal(int sig, detail::WaitNode& node) noexcept;
 

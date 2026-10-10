@@ -15,7 +15,7 @@
 #ifndef YADDNSC_INFRASTRUCTURE_CORO_FD_WAIT_HPP
 #define YADDNSC_INFRASTRUCTURE_CORO_FD_WAIT_HPP
 
-#include "infrastructure/coro/detail/fd_awaitable.h"
+#include "infrastructure/coro/detail/fd_awaitable.h"  // IWYU pragma: export
 
 namespace coro {
 

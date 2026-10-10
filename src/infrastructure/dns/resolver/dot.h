@@ -18,7 +18,6 @@
 #include <string>
 #include <string_view>
 #include <vector>
-
 #include <expected>
 
 #include "domain/config/dns_config.h"
@@ -27,7 +26,12 @@
 #include "infrastructure/coro/task.hpp"
 #include "infrastructure/dns/resolver/resolver.h"
 #include "infrastructure/network/transport/options.h"
-#include "infrastructure/network/transport/stream.h"
+
+namespace net {
+class Stream;
+class StreamFactory;
+class TlsContext;
+}  // namespace net
 
 namespace dns {
 

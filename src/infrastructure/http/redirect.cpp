@@ -9,11 +9,15 @@
 #include <string_view>
 #include <utility>
 #include <vector>
+#include <expected>
 
 #include "infrastructure/http/wire_request.h"
 #include "infrastructure/uri/uri.h"
 #include "support/fmt.hpp"
-#include "support/string_util.hpp"
+#include "infrastructure/http/types.h"
+#include "yaddnsc/util/format.hpp"  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
+#include "support/string_util.hpp"  // IWYU pragma: keep — the StringUtil namespace alias lives here
+#include "yaddnsc/util/string_util.hpp"
 
 namespace http {
 namespace {

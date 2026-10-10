@@ -5,15 +5,7 @@
 #ifndef YADDNSC_INFRASTRUCTURE_IP_SOURCE_ADAPTER_H
 #define YADDNSC_INFRASTRUCTURE_IP_SOURCE_ADAPTER_H
 
-#include <vector>
-
-#include <expected>
-
 #include "application/ports/ip_source.h"
-#include "domain/config/runtime_config.h"
-#include "domain/error/error.h"
-#include "domain/network/inet_address.h"
-#include "infrastructure/coro/task.hpp"
 #include "infrastructure/http/types.h"
 
 namespace ipsource {

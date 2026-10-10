@@ -12,7 +12,6 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
-#include <span>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -25,11 +24,11 @@
 #include "domain/error/dns_error_info.h"
 #include "infrastructure/coro/coro.h"
 #include "infrastructure/dns/dispatcher.h"
+#include "infrastructure/dns/resolver/resolver.h"
 
 namespace {
 
 using namespace std::chrono_literals;
-
 
 using dns::Strategy;
 

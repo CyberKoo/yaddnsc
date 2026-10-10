@@ -8,8 +8,8 @@
 // and Content-Type on the wire comes only from Request::content_type.
 //
 
-#ifndef YADDNSC_INFRASTRUCTURE_NET_HTTP_WIRE_REQUEST_H
-#define YADDNSC_INFRASTRUCTURE_NET_HTTP_WIRE_REQUEST_H
+#ifndef YADDNSC_INFRASTRUCTURE_HTTP_WIRE_REQUEST_H
+#define YADDNSC_INFRASTRUCTURE_HTTP_WIRE_REQUEST_H
 
 #include <cstdint>
 #include <string>
@@ -61,4 +61,4 @@ namespace http {
 
 }  // namespace http
 
-#endif  // YADDNSC_INFRASTRUCTURE_NET_HTTP_WIRE_REQUEST_H
+#endif  // YADDNSC_INFRASTRUCTURE_HTTP_WIRE_REQUEST_H

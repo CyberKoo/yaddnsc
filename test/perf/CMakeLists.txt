@@ -78,3 +78,6 @@ target_link_libraries(bench_socket_addr PRIVATE yaddnsc_net)
 
 add_benchmark(builder)
 target_link_libraries(bench_builder PRIVATE yaddnsc_dns_classic)
+
+add_benchmark(coro_offload)
+target_link_libraries(bench_coro_offload PRIVATE yaddnsc_coro)

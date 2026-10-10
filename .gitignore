@@ -91,3 +91,4 @@ config*.json
 # IDE settings - catch-all; the granular JetBrains rules above are kept for
 # reference and to stay in sync with the upstream template.
 .idea/
+.zed/

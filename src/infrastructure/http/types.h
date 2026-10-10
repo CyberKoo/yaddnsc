@@ -2,8 +2,8 @@
 // http — public value types, limits and options.
 //
 
-#ifndef YADDNSC_INFRASTRUCTURE_NET_HTTP_TYPES_H
-#define YADDNSC_INFRASTRUCTURE_NET_HTTP_TYPES_H
+#ifndef YADDNSC_INFRASTRUCTURE_HTTP_TYPES_H
+#define YADDNSC_INFRASTRUCTURE_HTTP_TYPES_H
 
 #include <cstddef>
 #include <cstdint>
@@ -13,7 +13,6 @@
 #include <span>
 #include <string>
 #include <string_view>
-#include <vector>
 
 #include "domain/network/address_family.h"
 #include "infrastructure/network/address/resolver.h"
@@ -135,4 +134,4 @@ struct Options {
 
 }  // namespace http
 
-#endif  // YADDNSC_INFRASTRUCTURE_NET_HTTP_TYPES_H
+#endif  // YADDNSC_INFRASTRUCTURE_HTTP_TYPES_H

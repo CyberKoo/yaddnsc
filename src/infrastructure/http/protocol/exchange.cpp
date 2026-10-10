@@ -4,28 +4,32 @@
 
 #include "exchange.h"
 
+#include <coroutine>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
+#include <picohttpparser.h>
+#include <spdlog/spdlog.h>
 #include <algorithm>
 #include <array>
 #include <charconv>
 #include <cstddef>
 #include <cstdint>
+#include <expected>
 #include <optional>
 #include <span>
 #include <string>
 #include <string_view>
 #include <system_error>
 #include <utility>
-#include <vector>
-
-#include <picohttpparser.h>
-#include <spdlog/spdlog.h>
+#include <vector>  // IWYU pragma: keep — range-for over the std::vector returned by StringUtil::split; clangd sees no spelled use
 
 #include "infrastructure/http/protocol/field_chars.hpp"
 #include "infrastructure/http/protocol/read_window.h"
 #include "infrastructure/http/protocol/wire.h"
 #include "infrastructure/http/wire_request.h"
 #include "support/fmt.hpp"
-#include "support/string_util.hpp"
+#include "infrastructure/network/transport/stream.h"
+#include "yaddnsc/util/format.hpp"  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
+#include "support/string_util.hpp"  // IWYU pragma: keep — the StringUtil namespace alias lives here
+#include "yaddnsc/util/string_util.hpp"
 
 namespace http::protocol {
 

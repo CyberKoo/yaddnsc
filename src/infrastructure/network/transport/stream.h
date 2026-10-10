@@ -7,8 +7,8 @@
 // reactor, no cancellation token and no timeout parameter anywhere.
 //
 
-#ifndef YADDNSC_INFRASTRUCTURE_NET_TRANSPORT_STREAM_H
-#define YADDNSC_INFRASTRUCTURE_NET_TRANSPORT_STREAM_H
+#ifndef YADDNSC_INFRASTRUCTURE_NETWORK_TRANSPORT_STREAM_H
+#define YADDNSC_INFRASTRUCTURE_NETWORK_TRANSPORT_STREAM_H
 
 #include <cstddef>
 #include <cstdint>
@@ -93,4 +93,4 @@ public:
 
 }  // namespace net
 
-#endif  // YADDNSC_INFRASTRUCTURE_NET_TRANSPORT_STREAM_H
+#endif  // YADDNSC_INFRASTRUCTURE_NETWORK_TRANSPORT_STREAM_H

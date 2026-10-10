@@ -1,10 +1,17 @@
 #include "parse_diagnostic.h"
 
+#include <vector>
+
 #include "infrastructure/config/diagnostics/decision.h"
 #include "infrastructure/config/diagnostics/error_adapter.h"
 #include "infrastructure/config/diagnostics/locator.h"
 #include "infrastructure/config/diagnostics/renderer.h"
 #include "infrastructure/config/diagnostics/schema.h"
+#include "infrastructure/config/diagnostics/types.h"
+
+namespace glz {
+enum struct error_code : uint32_t;
+}  // namespace glz
 
 namespace Config::Diagnostic {
 

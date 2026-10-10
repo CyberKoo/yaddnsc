@@ -10,12 +10,12 @@
 #ifndef YADDNSC_APPLICATION_SUBDOMAIN_LOOP_H
 #define YADDNSC_APPLICATION_SUBDOMAIN_LOOP_H
 
-#include <chrono>
-
-#include "application/run_update_cycle.h"
-#include "domain/config/runtime_config.h"
 #include "infrastructure/coro/task.hpp"
-#include "infrastructure/coro/time.h"
+
+namespace domain {
+struct DomainConfig;
+struct SubdomainConfig;
+}  // namespace domain
 
 namespace app {
 

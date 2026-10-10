@@ -6,18 +6,27 @@
 
 #include <array>
 #include <chrono>
+#include <coroutine>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 #include <cstddef>
 #include <cstdint>
+#include <expected>
 #include <span>
+#include <string>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 #include <utility>
 #include <vector>
 
-#include "domain/dns/record_kind.h"
 #include "infrastructure/coro/scope.hpp"
 #include "infrastructure/dns/wire/framing.h"
 #include "infrastructure/network/transport/tcp_stream.h"
 #include "infrastructure/network/transport/udp_socket.h"
 #include "support/fmt.hpp"
+#include "domain/error/dns_error.h"
+#include "infrastructure/network/transport/datagram.h"
+#include "yaddnsc/util/format.hpp"  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
+
+namespace net {
+enum class IoError;
+}  // namespace net
 
 namespace dns::detail {
 namespace {

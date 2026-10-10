@@ -39,9 +39,7 @@ struct LoopAccess {
 
     static void remove_fd(Loop& loop, FdToken token) noexcept { loop.remove_fd(token); }
 
-    static void arm_signal(Loop& loop, int sig, WaitNode& node, bool* delivered) {
-        loop.arm_signal(sig, node, delivered);
-    }
+    static void arm_signal(Loop& loop, int sig, WaitNode& node) { loop.arm_signal(sig, node); }
 
     static void disarm_signal(Loop& loop, int sig, WaitNode& node) noexcept { loop.disarm_signal(sig, node); }
 

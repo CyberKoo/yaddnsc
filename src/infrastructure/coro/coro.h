@@ -31,6 +31,7 @@
 #ifndef YADDNSC_INFRASTRUCTURE_CORO_CORO_H
 #define YADDNSC_INFRASTRUCTURE_CORO_CORO_H
 
+// IWYU pragma: begin_exports
 #include "infrastructure/coro/async_mutex.hpp"
 #include "infrastructure/coro/cancel_scope.h"
 #include "infrastructure/coro/cancelled.h"
@@ -51,5 +52,6 @@
 #include "infrastructure/coro/task.hpp"
 #include "infrastructure/coro/task_group.hpp"
 #include "infrastructure/coro/time.h"
+// IWYU pragma: end_exports
 
 #endif  // YADDNSC_INFRASTRUCTURE_CORO_CORO_H

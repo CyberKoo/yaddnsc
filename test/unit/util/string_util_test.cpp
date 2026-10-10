@@ -11,8 +11,6 @@
 //   - str_to_bool
 // =============================================================================
 
-#include "support/string_util.hpp"
-
 #include <array>
 #include <stdexcept>
 #include <string>
@@ -23,6 +21,7 @@
 
 #include <gtest/gtest.h>
 #include <stddef.h>
+#include "support/string_util.hpp"  // IWYU pragma: keep — the StringUtil namespace alias lives here
 #include <yaddnsc/util/string_util.hpp>
 
 // ===========================================================================

@@ -2,8 +2,10 @@
 #define YADDNSC_INFRASTRUCTURE_PLUGIN_DRIVER_INSTANCE_H
 
 #include <memory>
+#include <utility>
 
 #include "infrastructure/plugin/plugin_loader.h"
+#include "yaddnsc/sdk/driver_abi.h"
 
 /// DriverInstance — one live driver instance plus a lease on its module.
 ///

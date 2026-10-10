@@ -5,8 +5,8 @@
 // the decision not to follow. No I/O.
 //
 
-#ifndef YADDNSC_INFRASTRUCTURE_NET_HTTP_REDIRECT_H
-#define YADDNSC_INFRASTRUCTURE_NET_HTTP_REDIRECT_H
+#ifndef YADDNSC_INFRASTRUCTURE_HTTP_REDIRECT_H
+#define YADDNSC_INFRASTRUCTURE_HTTP_REDIRECT_H
 
 #include <cstdint>
 #include <map>
@@ -14,11 +14,11 @@
 #include <string>
 
 #include "infrastructure/http/protocol/wire.h"
-#include "infrastructure/http/types.h"
 
 class Uri;
 
 namespace http {
+struct Options;
 
 /// A resolved redirect target plus the request to send there.
 struct RedirectPlan {
@@ -49,4 +49,4 @@ struct RedirectEval {
 
 }  // namespace http
 
-#endif  // YADDNSC_INFRASTRUCTURE_NET_HTTP_REDIRECT_H
+#endif  // YADDNSC_INFRASTRUCTURE_HTTP_REDIRECT_H

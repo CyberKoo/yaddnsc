@@ -1,21 +1,22 @@
 #include "normalizer.h"
 
-#include <filesystem>
-#include <optional>
-#include <string>
-#include <vector>
-
 #include <glaze/glaze.hpp>
 #include <glaze/json/generic.hpp>
 #include <spdlog/spdlog.h>
+#include <filesystem>
+#include <optional>
+#include <string>
+#include <string_view>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
+#include <vector>
+#include <expected>
 
-#include "domain/config/dns_config.h"
 #include "domain/dns/record_kind.h"
 #include "infrastructure/config/config.h"
 #include "infrastructure/config/ip_literal.h"
 #include "infrastructure/uri/uri.h"
-
 #include "resolver_config.h"
+#include "domain/config/ip_source_kind.h"
+#include "domain/config/dns_config.h"  // IWYU pragma: keep — push_back({…}) constructs domain::DnsServer; clangd sees no spelled use
 
 namespace Config {
 

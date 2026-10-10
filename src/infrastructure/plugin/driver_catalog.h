@@ -8,8 +8,6 @@
 #include <string_view>
 #include <vector>
 
-#include <expected>
-
 #include "application/ports/driver_catalog.h"
 #include "infrastructure/plugin/plugin_loader.h"
 

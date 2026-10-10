@@ -4,6 +4,8 @@
 
 #include "udp_socket.h"
 
+#include <coroutine>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
+#include <expected>
 #include <utility>
 
 #include "infrastructure/network/transport/socket_ops.h"

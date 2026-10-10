@@ -22,7 +22,6 @@
 #include <vector>
 
 #include <gtest/gtest.h>
-
 #include "infrastructure/coro/coro.h"
 
 namespace {
@@ -50,7 +49,7 @@ concept PublicLoopRegistration = requires(T& loop, coro::detail::TimerNode& time
     loop.add_timer(timer, coro::TimePoint{}, nullptr, nullptr);
     loop.remove_timer(timer);
     loop.remove_fd(0);
-    loop.arm_signal(0, node, nullptr);
+    loop.arm_signal(0, node);
     loop.disarm_signal(0, node);
 };
 

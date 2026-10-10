@@ -9,13 +9,8 @@
 #include <memory>
 #include <string>
 
-#include <expected>
-
 #include "application/ports/gateway.h"
-#include "domain/error/error.h"
-#include "infrastructure/coro/task.hpp"
 #include "infrastructure/http/types.h"
-#include "infrastructure/plugin/bridge.h"
 
 class DriverCatalog;
 
@@ -29,6 +24,7 @@ class TaskGroup;
 }  // namespace coro
 
 namespace plugin {
+class Bridge;
 
 /// DriverGateway — coroutine DriverGateway over the v1 alpha C ABI plugin host.
 ///

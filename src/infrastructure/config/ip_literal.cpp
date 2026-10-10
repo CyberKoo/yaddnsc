@@ -4,6 +4,7 @@
 #include <string_view>
 
 #include "domain/network/inet_address.h"
+#include "infrastructure/uri/uri.h"
 
 namespace Config {
 

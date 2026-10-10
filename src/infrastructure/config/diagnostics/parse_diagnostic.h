@@ -1,11 +1,14 @@
 #ifndef YADDNSC_INFRASTRUCTURE_CONFIG_DIAGNOSTICS_PARSE_DIAGNOSTIC_H
 #define YADDNSC_INFRASTRUCTURE_CONFIG_DIAGNOSTICS_PARSE_DIAGNOSTIC_H
 
+#include <stdint.h>
 #include <cstddef>
 #include <string>
 #include <string_view>
 
-#include <glaze/core/context.hpp>
+namespace glz {
+enum struct error_code : uint32_t;
+}  // namespace glz
 
 namespace Config::Diagnostic {
 

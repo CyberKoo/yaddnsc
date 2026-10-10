@@ -44,6 +44,8 @@
 #ifndef YADDNSC_INFRASTRUCTURE_PLUGIN_BRIDGE_H
 #define YADDNSC_INFRASTRUCTURE_PLUGIN_BRIDGE_H
 
+#include <yaddnsc/sdk/driver_abi.h>
+#include <stdint.h>
 #include <atomic>
 #include <chrono>
 #include <future>
@@ -51,18 +53,15 @@
 #include <mutex>
 #include <string>
 #include <utility>
-
 #include <expected>
-#include <yaddnsc/sdk/driver_abi.h>
 
-#include "infrastructure/coro/fwd.h"
 #include "infrastructure/coro/task.hpp"
-#include "infrastructure/http/error.h"
 #include "infrastructure/http/types.h"
 
 namespace coro {
 class Loop;
 class TaskGroup;
+class CancelScope;
 }  // namespace coro
 
 namespace plugin {

@@ -1,6 +1,7 @@
 #include "system_network_interfaces.h"
 
 #include <vector>
+#include <optional>
 
 #include "infrastructure/ip_source/iface_util.h"
 

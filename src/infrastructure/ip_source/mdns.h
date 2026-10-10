@@ -7,9 +7,12 @@
 
 #include <string>
 
-#include "domain/dns/record_kind.h"
 #include "infrastructure/coro/task.hpp"
 #include "infrastructure/ip_source/source.h"
+
+namespace domain {
+enum class RecordKind;
+}  // namespace domain
 
 namespace ipsource {
 

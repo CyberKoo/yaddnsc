@@ -10,17 +10,13 @@
 
 #include <algorithm>
 #include <atomic>
-#include <chrono>
 #include <functional>
 #include <memory>
-#include <mutex>
 #include <stdexcept>
 #include <string>
 #include <thread>
-#include <vector>
 
 #include <gtest/gtest.h>
-
 #include "infrastructure/coro/coro.h"
 
 namespace {

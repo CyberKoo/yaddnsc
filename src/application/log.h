@@ -1,10 +1,10 @@
 #ifndef YADDNSC_APPLICATION_LOG_H
 #define YADDNSC_APPLICATION_LOG_H
 
-#include <source_location>
+#include <source_location>          // IWYU pragma: keep — used in the YLOG macro body
 
-#include "application/ports/log.h"
-#include "support/fmt.hpp"
+#include "application/ports/log.h"  // IWYU pragma: keep — LoggerPort is the YLOG macro's parameter type
+#include "support/fmt.hpp"          // IWYU pragma: keep — fmt::format in the YLOG macro body
 
 /// Format a message only when its level is enabled, capturing the call site.
 /// The logger expression must identify the same logger on each evaluation.

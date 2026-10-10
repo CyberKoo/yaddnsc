@@ -1,15 +1,15 @@
 #include "infrastructure/ip_source/mdns_response.h"
 
 #include <optional>
-#include <string>
+#include <string>  // IWYU pragma: keep — rr.name/record are std::string used through conversion; clangd sees no spelled use
 
 #include <stddef.h>
+#include "support/string_util.hpp"  // IWYU pragma: keep — the StringUtil namespace alias lives here
 #include <yaddnsc/util/string_util.hpp>
 
 #include "domain/dns/record_kind.h"
 #include "infrastructure/dns/parser.h"
 #include "infrastructure/dns/types.h"
-#include "support/string_util.hpp"
 
 namespace {
 [[nodiscard]] bool name_matches(std::string_view record_name, std::string_view queried) noexcept {

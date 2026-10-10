@@ -7,6 +7,7 @@
 #include <cstddef>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -16,6 +17,7 @@
 
 #include "logging_pattern.h"
 #include "support/fmt.hpp"
+#include "yaddnsc/util/format.hpp"  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 
 namespace logging {
 namespace {

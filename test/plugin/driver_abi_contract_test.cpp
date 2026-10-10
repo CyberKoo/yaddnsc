@@ -30,7 +30,6 @@
 #include <yaddnsc/sdk/driver_abi.h>
 
 #include "application/ports/log.h"
-#include "domain/error/error.h"
 #include "infrastructure/plugin/plugin_loader.h"
 #include "infrastructure/plugin/shared_library.h"
 #include "plugin/plugin_test_doubles.h"

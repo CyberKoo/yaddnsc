@@ -7,18 +7,13 @@
 // surfaces as coro::Cancelled.
 //
 
-#ifndef YADDNSC_INFRASTRUCTURE_NET_TRANSPORT_TCP_STREAM_H
-#define YADDNSC_INFRASTRUCTURE_NET_TRANSPORT_TCP_STREAM_H
+#ifndef YADDNSC_INFRASTRUCTURE_NETWORK_TRANSPORT_TCP_STREAM_H
+#define YADDNSC_INFRASTRUCTURE_NETWORK_TRANSPORT_TCP_STREAM_H
 
 #include <cstddef>
 #include <cstdint>
-#include <span>
-
-#include <expected>
 
 #include "domain/network/inet_address.h"
-#include "infrastructure/coro/task.hpp"
-#include "infrastructure/network/transport/io_error.h"
 #include "infrastructure/network/transport/options.h"
 #include "infrastructure/network/transport/stream.h"
 #include "support/util/fd.hpp"
@@ -100,4 +95,4 @@ private:
 
 }  // namespace net
 
-#endif  // YADDNSC_INFRASTRUCTURE_NET_TRANSPORT_TCP_STREAM_H
+#endif  // YADDNSC_INFRASTRUCTURE_NETWORK_TRANSPORT_TCP_STREAM_H

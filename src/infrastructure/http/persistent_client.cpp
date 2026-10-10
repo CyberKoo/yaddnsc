@@ -4,16 +4,22 @@
 
 #include "persistent_client.h"
 
+#include <coroutine>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 #include <cstdint>
+#include <expected>
 #include <stdexcept>
 #include <string>
 #include <utility>
+#include <optional>
+#include <string_view>
 
 #include "infrastructure/http/client.h"
 #include "infrastructure/http/redirect.h"
 #include "infrastructure/http/wire_request.h"
 #include "infrastructure/uri/uri.h"
 #include "support/fmt.hpp"
+#include "infrastructure/http/protocol/wire.h"
+#include "yaddnsc/util/format.hpp"  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 
 namespace http {
 namespace {

@@ -1,24 +1,26 @@
 #include "assembly.h"
 
+#include <spdlog/spdlog.h>
 #include <chrono>
 #include <memory>
 #include <span>
 #include <string>
 #include <string_view>
 #include <utility>
+#include <expected>
+#include <vector>
 
-#include <spdlog/spdlog.h>
-
+#include "domain/config/dns_config.h"  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 #include "infrastructure/config/config.h"
 #include "infrastructure/config/config_exception.h"
-#include "infrastructure/config/normalizer.h"
 #include "infrastructure/config/static_validator.h"
 #include "infrastructure/dns/bootstrap/bootstrap.h"
 #include "infrastructure/dns/bootstrap/resolv_conf.h"
 #include "infrastructure/network/tls/context.h"
 #include "infrastructure/plugin/driver_loader.h"
-
 #include "version.h"
+#include "domain/error/error.h"
+#include "infrastructure/network/transport/options.h"
 
 namespace Composition::internal {
 /// Map a --log-level token to the spdlog level. The CLI restricts the value

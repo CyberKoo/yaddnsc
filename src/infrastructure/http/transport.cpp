@@ -4,11 +4,17 @@
 
 #include "transport.h"
 
+#include <coroutine>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
+#include <expected>
 #include <string>
 #include <utility>
+#include <optional>
 
 #include "infrastructure/http/wire_request.h"
 #include "infrastructure/network/factory/default_stream_factory.h"
+#include "domain/error/dns_error_info.h"
+#include "infrastructure/http/types.h"
+#include "infrastructure/network/transport/options.h"
 
 namespace http {
 

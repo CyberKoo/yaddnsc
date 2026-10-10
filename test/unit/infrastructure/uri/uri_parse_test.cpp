@@ -7,8 +7,6 @@
 //   - Path extraction with and without scheme.
 // =============================================================================
 
-#include <string>
-
 #include <gtest/gtest.h>
 
 #include "infrastructure/uri/uri.h"

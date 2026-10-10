@@ -8,13 +8,8 @@
 #include <cstdint>
 #include <string>
 #include <string_view>
-#include <vector>
 
-#include <expected>
-
-#include "domain/error/dns_error_info.h"
 #include "domain/network/inet_address.h"
-#include "infrastructure/coro/task.hpp"
 #include "infrastructure/dns/resolver/resolver.h"
 
 namespace dns {

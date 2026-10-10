@@ -6,19 +6,25 @@
 
 #include <atomic>
 #include <chrono>
+#include <coroutine>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <type_traits>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 #include <utility>
-
 #include <expected>
+#include <functional>
 
 #include "infrastructure/coro/cancelled.h"
-#include "infrastructure/coro/group.hpp"
 #include "infrastructure/coro/loop.h"
 #include "infrastructure/coro/scope.hpp"
 #include "infrastructure/http/client.h"
 #include "support/fmt.hpp"
+#include "infrastructure/coro/cancel_scope.h"
+#include "infrastructure/coro/task_group.hpp"
+#include "infrastructure/http/error.h"
+#include "yaddnsc/sdk/driver_abi.h"
+#include "yaddnsc/util/format.hpp"  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 
 namespace plugin {
 

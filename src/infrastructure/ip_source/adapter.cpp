@@ -5,7 +5,8 @@
 
 #include "adapter.h"
 
-#include <exception>
+#include <coroutine>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
+#include <expected>
 #include <new>
 #include <string>
 #include <utility>
@@ -16,7 +17,10 @@
 #include "infrastructure/ip_source/http.h"
 #include "infrastructure/ip_source/iface.h"
 #include "infrastructure/ip_source/mdns.h"
-#include "infrastructure/ip_source/source.h"
+#include "domain/config/runtime_config.h"
+#include "domain/dns/record_kind.h"
+#include "domain/error/error.h"
+#include "infrastructure/coro/task.hpp"
 
 namespace ipsource {
 
@@ -60,10 +64,10 @@ coro::Task<std::expected<std::vector<domain::InetAddress>, domain::IpSourceError
             domain::IpSourceError{domain::IpSourceError::Code::UNKNOWN, "unknown IP source kind"});
     } catch (const std::bad_alloc&) {
         throw;
-    } catch (const std::exception& error) {
-        co_return std::unexpected(domain::IpSourceError{domain::IpSourceError::Code::UNKNOWN, error.what()});
     } catch (const coro::Cancelled&) {
         throw;
+    } catch (const std::exception& error) {
+        co_return std::unexpected(domain::IpSourceError{domain::IpSourceError::Code::UNKNOWN, error.what()});
     } catch (...) {
         co_return std::unexpected(
             domain::IpSourceError{domain::IpSourceError::Code::UNKNOWN, "unknown non-standard exception"});

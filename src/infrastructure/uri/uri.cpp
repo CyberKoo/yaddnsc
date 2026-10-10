@@ -5,6 +5,7 @@
 #include <cctype>
 #include <charconv>
 #include <cstddef>
+#include <expected>
 #include <optional>
 #include <string>
 #include <string_view>

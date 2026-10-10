@@ -1,15 +1,14 @@
 #include "simple.h"
 
-#include <optional>
-#include <string>
-#include <string_view>
-#include <utility>
-#include <vector>
-
 #include <yaddnsc/sdk/driver.hpp>
 #include <yaddnsc/sdk/driver_abi.h>
 #include <yaddnsc/util/format.hpp>
 #include <yaddnsc/util/string_util.hpp>
+#include <string>
+#include <string_view>
+#include <utility>
+#include <optional>  // IWYU pragma: keep — sdk::HttpRequest aggregate init needs its std::optional member complete; clangd sees no spelled use
+#include <vector>  // IWYU pragma: keep — sdk::HttpRequest aggregate init needs its std::vector member complete; clangd sees no spelled use
 
 namespace fmt = yaddnsc::util::fmt;
 namespace string_util = yaddnsc::util;

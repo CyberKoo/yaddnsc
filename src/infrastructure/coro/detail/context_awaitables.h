@@ -47,6 +47,7 @@ public:
     template<typename Promise>
     void await_suspend(std::coroutine_handle<Promise> handle) {
         PromiseBase& frame = handle.promise();
+        assert(frame.loop != nullptr && "checkpoint() must be awaited inside coro::run");
         scope_ = frame.scope;
         if (scope_ != nullptr) {
             scope_->throw_if_cancelled();

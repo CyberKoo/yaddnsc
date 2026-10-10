@@ -4,11 +4,11 @@
 
 #include "resolv_conf.h"
 
+#include <optional>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
+#include <spdlog/spdlog.h>
 #include <fstream>
 #include <sstream>
 #include <string>
-
-#include <spdlog/spdlog.h>
 
 #include "domain/network/inet_address.h"
 

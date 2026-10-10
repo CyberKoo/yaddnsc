@@ -21,13 +21,13 @@
 
 #include <vector>
 
-#include "infrastructure/coro/cancelled.h"
-#include "infrastructure/coro/detail/wait_node.h"
-
 namespace coro {
+class Cancelled;
 
 namespace detail {
 struct ScopeAccess;
+enum class CancelCause;
+struct WaitNode;
 }  // namespace detail
 
 /// A node in the cancel-scope tree.

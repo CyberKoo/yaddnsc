@@ -1,6 +1,5 @@
 #include "application/diagnostics.h"
 
-#include <chrono>
 #include <new>
 #include <stdexcept>
 #include <string>
@@ -11,6 +10,11 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include "application/ports/gateway.h"
+#include "application/ports/resolver.h"
+#include "domain/config/runtime_config.h"
+#include "domain/dns/record_kind.h"
+#include "domain/update/driver_update_command.h"
 #include "infrastructure/coro/coro.h"
 #include "mocks/mock_ports.h"
 

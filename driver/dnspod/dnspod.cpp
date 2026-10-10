@@ -1,17 +1,16 @@
 #include "dnspod.h"
 
+#include <yaddnsc/sdk/driver.hpp>
+#include <yaddnsc/sdk/driver_abi.h>
+#include <yaddnsc/sdk/form_encode.hpp>
+#include <yaddnsc/util/format.hpp>
 #include <map>
 #include <optional>
 #include <string>
 #include <string_view>
 #include <unordered_map>
-#include <utility>
-#include <vector>
-
-#include <yaddnsc/sdk/driver.hpp>
-#include <yaddnsc/sdk/driver_abi.h>
-#include <yaddnsc/sdk/form_encode.hpp>
-#include <yaddnsc/util/format.hpp>
+#include <utility>  // IWYU pragma: keep — ERROR_CODES' braced entries construct std::pair; clangd sees no spelled use
+#include <vector>  // IWYU pragma: keep — sdk::HttpRequest aggregate init needs its std::vector member complete; clangd sees no spelled use
 
 #include "config.hpp"
 #include "response.hpp"

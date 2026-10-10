@@ -6,12 +6,13 @@
 // Content-Type as applicable. serialize() produces the exact bytes sent.
 //
 
-#ifndef YADDNSC_INFRASTRUCTURE_NET_HTTP_PROTOCOL_WIRE_H
-#define YADDNSC_INFRASTRUCTURE_NET_HTTP_PROTOCOL_WIRE_H
+#ifndef YADDNSC_INFRASTRUCTURE_HTTP_PROTOCOL_WIRE_H
+#define YADDNSC_INFRASTRUCTURE_HTTP_PROTOCOL_WIRE_H
 
 #include <optional>
 #include <string>
 #include <string_view>
+#include <map>
 
 #include "infrastructure/http/types.h"
 
@@ -34,4 +35,4 @@ struct WireRequest {
 
 }  // namespace http::protocol
 
-#endif  // YADDNSC_INFRASTRUCTURE_NET_HTTP_PROTOCOL_WIRE_H
+#endif  // YADDNSC_INFRASTRUCTURE_HTTP_PROTOCOL_WIRE_H

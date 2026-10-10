@@ -5,10 +5,9 @@
 #include <string>
 #include <vector>
 
-#include "domain/network/address_family.h"
-
 namespace domain {
 class InetAddress;
+enum class AddressFamily;
 }
 
 /// InterfaceUtil — low-level utility for enumerating local network interfaces

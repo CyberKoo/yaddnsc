@@ -4,24 +4,25 @@
 
 #include "mdns.h"
 
+#include <net/if.h>
+#include <netinet/in.h>
+#include <spdlog/spdlog.h>
+#include <sys/socket.h>
+#include <arpa/inet.h>
+#include <coroutine>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 #include <array>
 #include <cerrno>
 #include <chrono>
-#include <cstddef>
 #include <cstdint>
 #include <cstring>
-#include <exception>
+#include <expected>
 #include <new>
 #include <span>
 #include <string>
 #include <string_view>
 #include <utility>
 #include <vector>
-
-#include <net/if.h>
-#include <netinet/in.h>
-#include <spdlog/spdlog.h>
-#include <sys/socket.h>
+#include <optional>
 
 #include "domain/error/error.h"
 #include "domain/network/address_family.h"
@@ -35,9 +36,11 @@
 #include "infrastructure/ip_source/iface_util.h"
 #include "infrastructure/ip_source/mdns_response.h"
 #include "infrastructure/network/transport/socket_ops.h"
-#include "infrastructure/network/transport/io_error.h"
 #include "support/fmt.hpp"
 #include "support/util/fd.hpp"
+#include "domain/dns/record_kind.h"
+#include "infrastructure/network/transport/datagram.h"
+#include "yaddnsc/util/format.hpp"  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 
 namespace ipsource {
 namespace {
@@ -336,11 +339,11 @@ void set_int_option(const int fd, const int level, const int option, const int v
             results = ipsource::parse_response(std::span{buffer.data(), datagram->size}, hostname, type);
         } catch (const std::bad_alloc&) {
             throw;
+        } catch (const coro::Cancelled&) {
+            throw;
         } catch (const std::exception& error) {
             SPDLOG_TRACE(R"(mDNS discarding unparseable response for "{}": {})", hostname, error.what());
             continue;
-        } catch (const coro::Cancelled&) {
-            throw;
         } catch (...) {
             SPDLOG_TRACE(R"(mDNS discarding response for "{}": unknown parser exception)", hostname);
             continue;

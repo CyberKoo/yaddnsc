@@ -14,10 +14,8 @@
 #include <chrono>
 #include <cstdint>
 #include <cstdlib>
-#include <filesystem>
 #include <memory>
 #include <optional>
-#include <span>
 #include <string>
 #include <thread>
 #include <vector>
@@ -39,7 +37,6 @@
 #include "infrastructure/dns/resolver/classic.h"
 #include "infrastructure/dns/resolver/doh.h"
 #include "infrastructure/dns/resolver/dot.h"
-#include "infrastructure/http/client.h"
 #include "infrastructure/http/persistent_client.h"
 #include "infrastructure/http/transport.h"
 #include "infrastructure/network/tls/context.h"
@@ -49,7 +46,6 @@
 namespace {
 
 using namespace std::chrono_literals;
-
 
 constexpr int CLASSIC_PORT = 21680;
 constexpr int DOH_PORT = 21681;

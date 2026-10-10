@@ -1,5 +1,5 @@
-#ifndef YADDNSC_INFRASTRUCTURE_NET_TLS_CERT_UTIL_H
-#define YADDNSC_INFRASTRUCTURE_NET_TLS_CERT_UTIL_H
+#ifndef YADDNSC_INFRASTRUCTURE_NETWORK_TLS_CERT_UTIL_H
+#define YADDNSC_INFRASTRUCTURE_NETWORK_TLS_CERT_UTIL_H
 
 #include <optional>
 #include <string>
@@ -27,4 +27,4 @@ namespace Utils::Cert {
 [[nodiscard]] std::optional<std::string> get_system_ca_path();
 }  // namespace Utils::Cert
 
-#endif  // YADDNSC_INFRASTRUCTURE_NET_TLS_CERT_UTIL_H
+#endif  // YADDNSC_INFRASTRUCTURE_NETWORK_TLS_CERT_UTIL_H

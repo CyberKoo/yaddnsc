@@ -26,7 +26,6 @@
 #include "domain/config/ip_source_kind.h"
 #include "domain/config/runtime_config.h"
 #include "domain/dns/record_kind.h"
-#include "domain/network/address_family.h"
 #include "infrastructure/config/config.h"
 #include "infrastructure/config/parser.hpp"  // IWYU pragma: keep — registers glz::meta specializations
 

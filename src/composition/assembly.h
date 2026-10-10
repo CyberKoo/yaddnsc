@@ -1,18 +1,21 @@
 #ifndef YADDNSC_COMPOSITION_ASSEMBLY_H
 #define YADDNSC_COMPOSITION_ASSEMBLY_H
 
+#include <spdlog/spdlog.h>
 #include <memory>
 #include <span>
 #include <string>
 #include <string_view>
 
-#include <spdlog/common.h>
-
 #include "domain/config/runtime_config.h"
-#include "domain/error/error.h"
 #include "infrastructure/http/types.h"
 #include "infrastructure/plugin/driver_catalog.h"
 #include "infrastructure/plugin/driver_gateway.h"
+#include "infrastructure/network/tls/context.h"
+
+namespace domain {
+struct ConfigError;
+}  // namespace domain
 
 namespace Composition::internal {
 /// Internal startup helpers; call on the main thread before coro::run.

@@ -9,7 +9,7 @@
 #ifndef YADDNSC_INFRASTRUCTURE_CORO_CHECKPOINT_HPP
 #define YADDNSC_INFRASTRUCTURE_CORO_CHECKPOINT_HPP
 
-#include "infrastructure/coro/detail/context_awaitables.h"
+#include "infrastructure/coro/detail/context_awaitables.h"  // IWYU pragma: export
 
 namespace coro {
 

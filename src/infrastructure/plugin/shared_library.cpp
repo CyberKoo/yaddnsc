@@ -1,5 +1,6 @@
 #include "shared_library.h"
 
+#include <expected>
 #include <utility>
 
 #include <dlfcn.h>

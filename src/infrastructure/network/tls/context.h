@@ -7,18 +7,17 @@
 // never loads a CA bundle during a handshake.
 //
 
-#ifndef YADDNSC_INFRASTRUCTURE_NET_TLS_CONTEXT_H
-#define YADDNSC_INFRASTRUCTURE_NET_TLS_CONTEXT_H
+#ifndef YADDNSC_INFRASTRUCTURE_NETWORK_TLS_CONTEXT_H
+#define YADDNSC_INFRASTRUCTURE_NETWORK_TLS_CONTEXT_H
 
-#include <memory>
-
-#include <expected>
 #include <openssl/types.h>
+#include <memory>
+#include <expected>
 
 #include "infrastructure/network/transport/io_error.h"
-#include "infrastructure/network/transport/options.h"
 
 namespace net {
+struct TlsOptions;
 
 /// An immutable OpenSSL client SSL_CTX plus the verification policy it was
 /// built from.
@@ -63,4 +62,4 @@ private:
 
 }  // namespace net
 
-#endif  // YADDNSC_INFRASTRUCTURE_NET_TLS_CONTEXT_H
+#endif  // YADDNSC_INFRASTRUCTURE_NETWORK_TLS_CONTEXT_H

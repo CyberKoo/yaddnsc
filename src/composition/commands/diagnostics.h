@@ -1,6 +1,17 @@
 #ifndef YADDNSC_COMPOSITION_COMMANDS_DIAGNOSTICS_H
 #define YADDNSC_COMPOSITION_COMMANDS_DIAGNOSTICS_H
-#include "cli/command.h"
+
+namespace Cli {
+struct ConfigShowCommand;
+struct ConfigTestCommand;
+struct DnsResolveCommand;
+struct DnsResolverCommand;
+struct DriverInfoCommand;
+struct DriverListCommand;
+struct InfoCommand;
+struct InterfaceIpCommand;
+struct InterfaceListCommand;
+}  // namespace Cli
 
 namespace Composition {
 /// Assemble diagnostics; config test presents its own failures, others propagate

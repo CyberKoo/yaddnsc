@@ -7,18 +7,16 @@
 // any other await. No timeout parameter: a deadline is the caller's cancel scope.
 //
 
-#ifndef YADDNSC_INFRASTRUCTURE_NET_TLS_STREAM_H
-#define YADDNSC_INFRASTRUCTURE_NET_TLS_STREAM_H
+#ifndef YADDNSC_INFRASTRUCTURE_NETWORK_TLS_STREAM_H
+#define YADDNSC_INFRASTRUCTURE_NETWORK_TLS_STREAM_H
 
+#include <openssl/types.h>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
-#include <span>
 #include <string>
 #include <vector>
-
 #include <expected>
-#include <openssl/types.h>
 
 #include "domain/network/inet_address.h"
 #include "infrastructure/coro/task.hpp"
@@ -116,4 +114,4 @@ private:
 
 }  // namespace net
 
-#endif  // YADDNSC_INFRASTRUCTURE_NET_TLS_STREAM_H
+#endif  // YADDNSC_INFRASTRUCTURE_NETWORK_TLS_STREAM_H

@@ -4,6 +4,7 @@
 #include <vector>
 
 #include "domain/network/address_family.h"
+#include "domain/dns/record_kind.h"
 
 namespace domain {
 

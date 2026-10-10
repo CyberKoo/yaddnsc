@@ -1,13 +1,13 @@
 #include "spdlog_logger.h"
 
+#include <spdlog/spdlog.h>
 #include <cstdint>
 #include <mutex>
 #include <source_location>
 #include <string>
 #include <string_view>
 #include <unordered_set>
-
-#include <spdlog/spdlog.h>
+#include <utility>
 
 namespace {
 [[nodiscard]] constexpr spdlog::level::level_enum to_spdlog_level(app::LogLevel level) noexcept {

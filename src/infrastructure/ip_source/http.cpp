@@ -4,15 +4,23 @@
 
 #include "http.h"
 
+#include <coroutine>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
+#include <expected>
 #include <string>
 #include <utility>
 #include <vector>
+#include <optional>
 
 #include "domain/network/inet_address.h"
 #include "infrastructure/http/client.h"
 #include "infrastructure/http/error.h"
 #include "support/fmt.hpp"
-#include "support/string_util.hpp"
+#include "domain/error/error.h"
+#include "domain/network/address_family.h"
+#include "infrastructure/network/transport/options.h"
+#include "yaddnsc/util/format.hpp"  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
+#include "support/string_util.hpp"  // IWYU pragma: keep — the StringUtil namespace alias lives here
+#include "yaddnsc/util/string_util.hpp"
 
 namespace ipsource {
 

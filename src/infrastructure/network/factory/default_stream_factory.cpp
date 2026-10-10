@@ -5,9 +5,11 @@
 #include "default_stream_factory.h"
 
 #include <utility>
+#include <memory>
 
 #include "infrastructure/network/tls/stream.h"
 #include "infrastructure/network/transport/tcp_stream.h"
+#include "domain/network/inet_address.h"
 
 namespace net {
 

@@ -5,8 +5,8 @@
 // coro::Cancelled; deadlines are represented by the caller's ScopeOutcome.
 //
 
-#ifndef YADDNSC_INFRASTRUCTURE_NET_HTTP_ERROR_H
-#define YADDNSC_INFRASTRUCTURE_NET_HTTP_ERROR_H
+#ifndef YADDNSC_INFRASTRUCTURE_HTTP_ERROR_H
+#define YADDNSC_INFRASTRUCTURE_HTTP_ERROR_H
 
 #include <cstdint>
 #include <string>
@@ -39,4 +39,4 @@ struct Error {
 
 }  // namespace http
 
-#endif  // YADDNSC_INFRASTRUCTURE_NET_HTTP_ERROR_H
+#endif  // YADDNSC_INFRASTRUCTURE_HTTP_ERROR_H

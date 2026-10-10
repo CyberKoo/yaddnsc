@@ -2,13 +2,13 @@
 // http — full HTTP/1.x request-response exchange over a net::Stream.
 //
 // The protocol layer is transport-agnostic: it drives any net::Stream, so a
-// test can script an in-memory stream. Cancellation is the awaiting task's cancel
-// scope and surfaces as `coro::Cancelled`, mapped to `coro::Cancelled`
-// here. There is no timeout parameter.
+// test can script an in-memory stream. Cancellation is the awaiting task's
+// cancel scope and surfaces as `coro::Cancelled`. There is no timeout
+// parameter.
 //
 
-#ifndef YADDNSC_INFRASTRUCTURE_NET_HTTP_PROTOCOL_EXCHANGE_H
-#define YADDNSC_INFRASTRUCTURE_NET_HTTP_PROTOCOL_EXCHANGE_H
+#ifndef YADDNSC_INFRASTRUCTURE_HTTP_PROTOCOL_EXCHANGE_H
+#define YADDNSC_INFRASTRUCTURE_HTTP_PROTOCOL_EXCHANGE_H
 
 #include <cstddef>
 #include <cstdint>
@@ -17,13 +17,15 @@
 #include <span>
 #include <string>
 #include <string_view>
-
 #include <expected>
 
 #include "infrastructure/coro/task.hpp"
 #include "infrastructure/http/error.h"
 #include "infrastructure/http/types.h"
-#include "infrastructure/network/transport/stream.h"
+
+namespace net {
+class Stream;
+}  // namespace net
 
 namespace http::protocol {
 
@@ -76,4 +78,4 @@ struct RawResponse {
 
 }  // namespace http::protocol
 
-#endif  // YADDNSC_INFRASTRUCTURE_NET_HTTP_PROTOCOL_EXCHANGE_H
+#endif  // YADDNSC_INFRASTRUCTURE_HTTP_PROTOCOL_EXCHANGE_H

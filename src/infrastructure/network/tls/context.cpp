@@ -4,17 +4,19 @@
 
 #include "context.h"
 
+#include <openssl/ssl.h>
+#include <spdlog/spdlog.h>
+#include <openssl/prov_ssl.h>
+#include <openssl/x509.h>
+#include <expected>
 #include <memory>
 #include <optional>
 #include <string>
 #include <utility>
 
-#include <openssl/ssl.h>
-
-#include <spdlog/spdlog.h>
-
 #include "infrastructure/network/tls/openssl_error.hpp"
 #include "infrastructure/network/tls/cert_util.h"
+#include "infrastructure/network/transport/options.h"
 
 namespace net {
 namespace {

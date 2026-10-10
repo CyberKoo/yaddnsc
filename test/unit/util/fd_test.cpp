@@ -15,7 +15,6 @@
 
 #include "support/util/fd.hpp"
 
-#include <string>
 #include <type_traits>
 #include <utility>
 

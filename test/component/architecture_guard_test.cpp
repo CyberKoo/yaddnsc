@@ -5,7 +5,6 @@
 #include <fstream>
 #include <iterator>
 #include <string>
-#include <string_view>
 
 #include <gtest/gtest.h>
 #include <sys/wait.h>
@@ -100,7 +99,6 @@ INSTANTIATE_TEST_SUITE_P(
         GuardCase{"PortContractsAndAggregation", R"(#ifndef YADDNSC_APPLICATION_PORTS_PROBE_H
 #define YADDNSC_APPLICATION_PORTS_PROBE_H
 #include <expected>
-#include <string_view>
 #include "domain/config/runtime.h"
 #include "application/ports/log.h"
 #include <application/ports/network_interfaces.h>

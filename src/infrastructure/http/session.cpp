@@ -6,13 +6,20 @@
 
 #include <algorithm>
 #include <chrono>
+#include <compare>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
+#include <coroutine>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
+#include <expected>
 #include <map>
 #include <utility>
+#include <span>
+#include <vector>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 
+#include "domain/network/inet_address.h"  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 #include "infrastructure/http/protocol/wire.h"
 #include "infrastructure/http/transport.h"
 #include "infrastructure/http/wire_request.h"
-#include "support/fmt.hpp"
+#include "infrastructure/coro/cancelled.h"
+#include "infrastructure/network/transport/stream.h"
 
 namespace http {
 namespace {

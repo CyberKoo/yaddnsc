@@ -4,7 +4,11 @@
 #include <string>
 #include <string_view>
 
-#include "infrastructure/config/diagnostics/decision.h"
+namespace Config {
+namespace Diagnostic {
+struct Diagnosis;
+}  // namespace Diagnostic
+}  // namespace Config
 
 namespace Config::Diagnostic {
 

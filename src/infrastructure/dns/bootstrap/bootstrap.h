@@ -16,15 +16,17 @@
 #include <optional>
 #include <string>
 #include <vector>
-
 #include <expected>
 
-#include "domain/config/dns_config.h"
 #include "domain/error/dns_error_info.h"
-#include "domain/network/address_family.h"
 #include "domain/network/inet_address.h"
 #include "infrastructure/coro/task.hpp"
 #include "infrastructure/network/address/resolver.h"
+
+namespace domain {
+enum class AddressFamily;
+struct DnsServer;
+}  // namespace domain
 
 namespace dns {
 

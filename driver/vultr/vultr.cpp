@@ -1,12 +1,12 @@
 #include "vultr.h"
 
-#include <optional>
-#include <string>
-
 #include <glaze/glaze.hpp>
 #include <yaddnsc/sdk/driver.hpp>
 #include <yaddnsc/sdk/driver_abi.h>
 #include <yaddnsc/util/format.hpp>
+#include <optional>
+#include <string>
+#include <vector>
 
 #include "config.hpp"
 #include "response.hpp"

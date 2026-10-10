@@ -1,18 +1,17 @@
 #include "plugin_loader.h"
 
+#include <spdlog/spdlog.h>
+#include <yaddnsc/sdk/driver_abi.h>
+#include <yaddnsc/util/format.hpp>
 #include <algorithm>
 #include <array>
 #include <cstdint>
 #include <cstring>
-#include <exception>
+#include <expected>
 #include <new>
 #include <string_view>
 #include <type_traits>
 #include <utility>
-
-#include <spdlog/spdlog.h>
-#include <yaddnsc/sdk/driver_abi.h>
-#include <yaddnsc/util/format.hpp>
 
 #include "infrastructure/plugin/abi_string.h"
 #include "infrastructure/plugin/shared_library.h"

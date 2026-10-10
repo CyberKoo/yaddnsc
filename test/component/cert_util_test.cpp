@@ -3,7 +3,6 @@
 
 #include "infrastructure/network/tls/cert_util.h"
 
-#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <optional>

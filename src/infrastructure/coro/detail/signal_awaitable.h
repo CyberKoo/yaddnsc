@@ -44,14 +44,12 @@ public:
             throw std::logic_error("signal wait requires a running loop");
         }
         if (scope_ != nullptr && scope_->cancelled()) {
-            cancelled_ = true;
             return false;
         }
         node_.waiter = &promise;
-        node_.cancelled_flag = &cancelled_;
         node_.owner = this;
         node_.on_cancel = &SignalAwaitable::on_cancel;
-        LoopAccess::arm_signal(*loop_, sig_, node_, &delivered_);
+        LoopAccess::arm_signal(*loop_, sig_, node_);
         if (scope_ != nullptr) {
             ScopeAccess::add_waiter(*scope_, node_);
         }
@@ -85,8 +83,6 @@ private:
     Loop* loop_ = nullptr;
     CancelScope* scope_ = nullptr;
     WaitNode node_{};
-    bool cancelled_ = false;
-    bool delivered_ = false;
 };
 
 }  // namespace coro::detail

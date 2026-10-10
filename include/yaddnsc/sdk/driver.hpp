@@ -42,7 +42,7 @@
 #include <glaze/glaze.hpp>
 
 #include "yaddnsc/sdk/driver_abi.h"
-#include "yaddnsc/sdk/format.hpp"
+#include "yaddnsc/sdk/format.hpp"  // IWYU pragma: keep — clangd misses fmt:: usage in uninstantiated template bodies
 #include "yaddnsc/sdk/redact.hpp"
 
 #if defined(_WIN32)

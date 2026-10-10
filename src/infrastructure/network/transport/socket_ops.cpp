@@ -4,24 +4,23 @@
 
 #include "socket_ops.h"
 
-#include <cerrno>
-#include <cstring>
-#include <limits>
-#include <mutex>
-#include <optional>
-
+#include <coroutine>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 #include <fcntl.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <spdlog/spdlog.h>
 #include <sys/socket.h>
-#include <unistd.h>
+#include <sys/types.h>
+#include <cerrno>
+#include <cstring>
+#include <expected>
+#include <optional>
 
 #include "infrastructure/coro/checkpoint.hpp"
 #include "infrastructure/coro/fd_wait.hpp"
 #include "infrastructure/network/address/socket_addr.h"
-
 #include "config_cmake.h"
+#include "domain/network/address_family.h"
 
 namespace net::detail {
 namespace {

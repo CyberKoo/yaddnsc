@@ -5,15 +5,20 @@
 #include "subdomain_loop.h"
 
 #include <chrono>
-#include <memory>
-#include <utility>
+#include <compare>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
+#include <coroutine>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
+#include <expected>
+#include <string>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 
-#include "application/services.h"
 #include "domain/fqdn.h"
 #include "domain/update/update_task.h"
 #include "infrastructure/coro/now.hpp"
 #include "infrastructure/coro/scope.hpp"
 #include "infrastructure/coro/sleep.hpp"
+#include "application/run_update_cycle.h"
+#include "domain/config/runtime_config.h"
+#include "domain/error/error.h"
+#include "infrastructure/coro/time.h"
 
 namespace app {
 

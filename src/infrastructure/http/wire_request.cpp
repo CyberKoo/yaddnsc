@@ -4,15 +4,17 @@
 
 #include "wire_request.h"
 
+#include <expected>
 #include <map>
 #include <optional>
 #include <string>
-#include <utility>
 
 #include "infrastructure/http/protocol/field_chars.hpp"
 #include "infrastructure/uri/uri.h"
 #include "support/fmt.hpp"
-#include "support/string_util.hpp"
+#include "yaddnsc/util/format.hpp"  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
+#include "support/string_util.hpp"  // IWYU pragma: keep — the StringUtil namespace alias lives here
+#include "yaddnsc/util/string_util.hpp"
 
 namespace http {
 namespace {

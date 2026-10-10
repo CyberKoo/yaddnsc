@@ -11,11 +11,14 @@
 
 #include <memory>
 
-#include "application/services.h"
-#include "domain/config/runtime_config.h"
 #include "infrastructure/coro/task.hpp"
 
+namespace domain {
+struct RuntimeConfig;
+}  // namespace domain
+
 namespace app {
+struct RuntimeServices;
 
 /// Run the daemon until a shutdown signal cancels it.
 ///

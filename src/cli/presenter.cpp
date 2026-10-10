@@ -1,16 +1,15 @@
 #include "presenter.h"
 
+#include <magic_enum/magic_enum.hpp>
+#include <yaddnsc/util/format.hpp>
 #include <array>
 #include <cstdlib>
 #include <iostream>
 #include <optional>
 #include <ranges>
 #include <string_view>
-
 #include <expected>
-#include <magic_enum/magic_enum.hpp>
 #include <print>
-#include <yaddnsc/util/format.hpp>
 
 #include "application/diagnostics.h"
 #include "domain/config/dns_config.h"
@@ -20,11 +19,12 @@
 #include "domain/network/inet_address.h"
 #include "infrastructure/uri/uri.h"
 #include "support/fmt.hpp"
-
 #include "build_id.hpp"
 #include "min_update_interval.h"
 #include "resolver_config.h"
 #include "version.h"
+#include "application/ports/driver_catalog.h"
+#include "domain/error/error.h"
 
 namespace {
 std::string driver_description_error(std::string_view name, const domain::DriverError& error) {

@@ -4,14 +4,22 @@
 
 #include "tcp_stream.h"
 
-#include <cerrno>
-#include <utility>
-
+#include <coroutine>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 #include <spdlog/spdlog.h>
+#include <string>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 #include <sys/socket.h>
+#include <sys/types.h>
+#include <cerrno>
+#include <expected>
+#include <utility>
+#include <optional>
+#include <span>
 
 #include "infrastructure/coro/checkpoint.hpp"
 #include "infrastructure/network/transport/socket_ops.h"
+#include "infrastructure/coro/cancelled.h"
+#include "infrastructure/coro/task.hpp"
+#include "infrastructure/network/transport/io_error.h"
 
 namespace net {
 

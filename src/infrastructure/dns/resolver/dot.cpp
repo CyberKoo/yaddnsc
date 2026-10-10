@@ -4,31 +4,40 @@
 
 #include "dot.h"
 
+#include <spdlog/spdlog.h>
+#include <coroutine>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 #include <algorithm>
 #include <array>
 #include <chrono>
 #include <cstddef>
-#include <exception>
+#include <expected>
 #include <new>
 #include <span>
 #include <string>
 #include <utility>
 #include <vector>
-
-#include <spdlog/spdlog.h>
+#include <optional>
 
 #include "infrastructure/coro/scope.hpp"
 #include "infrastructure/dns/bootstrap/bootstrap.h"
 #include "infrastructure/dns/dns_lookup_exception.h"
-#include "infrastructure/dns/exchange.h"
 #include "infrastructure/dns/util.hpp"
 #include "infrastructure/dns/validator.h"
 #include "infrastructure/dns/wire/builder.h"
 #include "infrastructure/dns/wire/framing.h"
-#include "infrastructure/dns/wire/query_util.h"
 #include "infrastructure/network/factory/default_stream_factory.h"
 #include "support/fmt.hpp"
 #include "support/util/random.hpp"
+#include "domain/error/dns_error.h"
+#include "domain/network/inet_address.h"
+#include "infrastructure/coro/cancelled.h"
+#include "infrastructure/dns/types.h"
+#include "infrastructure/network/transport/stream.h"
+#include "yaddnsc/util/format.hpp"  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
+
+namespace net {
+enum class IoError;
+}  // namespace net
 
 namespace dns {
 namespace {
@@ -106,7 +115,6 @@ coro::Task<std::expected<std::vector<std::uint8_t>, domain::DnsErrorInfo>> DotRe
     // Waiting semantics: a concurrent query queues on the session, it is not
     // refused.
     auto guard = co_await mutex_.lock();
-
 
     try {
         const auto record_type = dns::Util::type_to_record_type(kind);

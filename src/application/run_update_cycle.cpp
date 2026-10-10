@@ -4,24 +4,34 @@
 
 #include "run_update_cycle.h"
 
+#include <magic_enum/magic_enum.hpp>
+#include <coroutine>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 #include <chrono>
-#include <cstddef>
+#include <expected>
 #include <new>
 #include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
 
-#include <magic_enum/magic_enum.hpp>
-
 #include "application/log.h"
 #include "domain/address_policy.h"
 #include "domain/error/dns_error.h"
 #include "domain/error/dns_error_info.h"
+#include "domain/error/error.h"
 #include "domain/network/inet_address.h"
 #include "infrastructure/coro/cancelled.h"
 #include "infrastructure/coro/scope.hpp"
 #include "support/fmt.hpp"
+#include "application/ports/gateway.h"
+#include "application/ports/ip_source.h"
+#include "application/ports/resolver.h"
+#include "application/services.h"
+#include "domain/config/runtime_config.h"
+#include "domain/update/driver_update_command.h"
+#include "domain/update/update_decision.h"
+#include "domain/update/update_task.h"
+#include "yaddnsc/util/format.hpp"  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 
 namespace app {
 

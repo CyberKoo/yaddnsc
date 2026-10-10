@@ -10,6 +10,8 @@
 #include <string>
 #include <utility>
 #include <vector>
+#include <expected>
+#include <optional>
 
 #include "domain/network/inet_address.h"
 #include "infrastructure/dns/bootstrap/bootstrap.h"
@@ -18,8 +20,12 @@
 #include "infrastructure/dns/resolver/dot.h"
 #include "infrastructure/uri/uri.h"
 #include "support/fmt.hpp"
-
 #include "version.h"
+#include "domain/config/dns_config.h"
+#include "domain/config/runtime_config.h"
+#include "infrastructure/dns/resolver/resolver.h"
+#include "infrastructure/http/types.h"
+#include "yaddnsc/util/format.hpp"  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 
 namespace dns {
 

@@ -1,28 +1,44 @@
 #include "diagnostics.h"
 
+#include <magic_enum/magic_enum.hpp>
+#include <spdlog/spdlog.h>
+#include <coroutine>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 #include <chrono>
 #include <exception>
 #include <optional>
 #include <string>
-
-#include <magic_enum/magic_enum.hpp>
-#include <spdlog/spdlog.h>
+#include <expected>
+#include <memory>
+#include <span>
+#include <vector>
 
 #include "application/diagnostics.h"
 #include "application/environment_validator.h"
 #include "cli/presenter.h"
 #include "composition/assembly.h"
+#include "domain/config/dns_config.h"  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
+#include "domain/error/error.h"  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 #include "infrastructure/config/config.h"
 #include "infrastructure/config/config_exception.h"
 #include "infrastructure/coro/group.hpp"
 #include "infrastructure/coro/loop.h"
 #include "infrastructure/coro/run.hpp"
+#include "infrastructure/dns/dispatcher.h"  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 #include "infrastructure/dns/factory.h"
 #include "infrastructure/dns/resolver_port.h"
 #include "infrastructure/ip_source/system_network_interfaces.h"
 #include "infrastructure/logging/spdlog_logger.h"
 #include "infrastructure/plugin/driver_gateway.h"
 #include "support/exception.h"
+#include "cli/command.h"
+#include "domain/config/runtime_config.h"
+#include "infrastructure/coro/task.hpp"
+#include "infrastructure/plugin/driver_catalog.h"
+#include "infrastructure/http/types.h"  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
+
+namespace coro {
+class TaskGroup;
+}  // namespace coro
 
 namespace Composition {
 int execute_command(const Cli::DriverListCommand& command) {

@@ -11,15 +11,11 @@
 
 #include "application/run_root.h"
 
-#include <atomic>
 #include <chrono>
 #include <csignal>
-#include <cstddef>
-#include <cstdint>
 #include <cstdlib>
 #include <functional>
 #include <memory>
-#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -596,10 +592,6 @@ TEST(RunRoot, RunUpdateCycleExternalCancelDoesNotPublish) {
     EXPECT_TRUE(cancelled);
     EXPECT_EQ(gateway.calls, 0);
 }
-
-// ---------------------------------------------------------------------------
-// next_delay
-// ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
 // run_root: supervisor semantics, SIGINT shutdown and the exit status

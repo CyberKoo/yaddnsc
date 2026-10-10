@@ -1,6 +1,7 @@
 #include "error_adapter.h"
 
 #include <glaze/glaze.hpp>
+#include <string>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 
 namespace Config::Diagnostic {
 

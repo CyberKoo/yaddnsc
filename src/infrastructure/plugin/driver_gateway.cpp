@@ -5,19 +5,20 @@
 
 #include "driver_gateway.h"
 
+#include <coroutine>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
+#include <yaddnsc/sdk/driver_abi.h>
 #include <algorithm>
 #include <cstdint>
+#include <expected>
 #include <limits>
 #include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
 #include <utility>
+#include <atomic>
+#include <type_traits>
 
-#include <stdint.h>
-#include <yaddnsc/sdk/driver_abi.h>
-
-#include "application/ports/log.h"
 #include "infrastructure/coro/offload.hpp"
 #include "infrastructure/coro/scope.hpp"
 #include "infrastructure/plugin/abi_string.h"
@@ -26,6 +27,13 @@
 #include "infrastructure/plugin/host_services.h"
 #include "infrastructure/plugin/plugin_loader.h"
 #include "support/fmt.hpp"
+#include "domain/error/error.h"
+#include "domain/update/driver_update_command.h"
+#include "infrastructure/coro/cancel_scope.h"
+#include "infrastructure/coro/cancelled.h"
+#include "infrastructure/coro/task.hpp"
+#include "infrastructure/plugin/bridge.h"
+#include "yaddnsc/util/format.hpp"  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 
 namespace plugin {
 

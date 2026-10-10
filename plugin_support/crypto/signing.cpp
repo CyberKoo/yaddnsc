@@ -1,15 +1,15 @@
 #include "signing.h"
 
+#include <openssl/evp.h>
+#include <openssl/types.h>
 #include <chrono>
 #include <cstdint>
 #include <memory>
 #include <span>
 #include <string>
 #include <vector>
-
 #include <format>
-#include <openssl/evp.h>
-#include <openssl/types.h>
+#include <cstddef>
 
 // ===========================================================================
 //  Internal helpers

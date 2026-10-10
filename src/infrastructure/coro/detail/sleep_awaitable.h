@@ -52,7 +52,6 @@ public:
         }
         const TimePoint deadline = relative_ ? loop_->now() + delay_ : deadline_;
         if (scope_ != nullptr && scope_->cancelled()) {
-            cancelled_ = true;
             return false;
         }
         if (deadline <= loop_->now()) {
@@ -87,7 +86,6 @@ private:
         LoopAccess::add_timer(*self.loop_, self.timer_, deadline, &SleepAwaitable::on_timer, &self);
         self.armed_ = true;
         self.node_.waiter = &promise;
-        self.node_.cancelled_flag = &self.cancelled_;
         self.node_.owner = &self;
         self.node_.on_cancel = &SleepAwaitable::on_cancel;
         if (self.scope_ != nullptr) {
@@ -126,7 +124,6 @@ private:
     PromiseBase* frame_ = nullptr;
     TimerNode timer_{};
     WaitNode node_{};
-    bool cancelled_ = false;
     bool armed_ = false;
 };
 

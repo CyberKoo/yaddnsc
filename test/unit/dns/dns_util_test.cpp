@@ -8,7 +8,6 @@
 #include <array>
 #include <cstdint>
 #include <span>
-#include <string>
 
 #include <gtest/gtest.h>
 

@@ -1,13 +1,5 @@
 #include "route53.h"
 
-#include <cstddef>
-#include <cstdint>
-#include <optional>
-#include <span>
-#include <string>
-#include <utility>
-#include <vector>
-
 #include <libxml/parser.h>
 #include <libxml/xmlmemory.h>
 #include <libxml/xmlstring.h>
@@ -17,6 +9,14 @@
 #include <yaddnsc/sdk/driver_abi.h>
 #include <yaddnsc/sdk/xml_raii.hpp>
 #include <yaddnsc/util/format.hpp>
+#include <cstddef>
+#include <cstdint>
+#include <optional>
+#include <span>
+#include <string>
+#include <utility>
+#include <vector>
+#include <memory>
 
 #include "config.hpp"
 #include "signing.h"

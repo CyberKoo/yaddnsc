@@ -1,16 +1,25 @@
 #include "diagnostics.h"
 
+#include <magic_enum/magic_enum.hpp>
+#include <coroutine>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 #include <chrono>
+#include <expected>
 #include <string>
 #include <utility>
 
-#include <magic_enum/magic_enum.hpp>
-
 #include "application/ports/network_interfaces.h"
-#include "domain/dns/record_kind.h"
 #include "domain/fqdn.h"
 #include "infrastructure/coro/scope.hpp"
 #include "support/fmt.hpp"
+#include "application/ports/gateway.h"
+#include "application/ports/resolver.h"
+#include "domain/config/runtime_config.h"
+#include "domain/error/dns_error.h"
+#include "yaddnsc/util/format.hpp"  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
+
+namespace domain {
+enum class RecordKind;
+}  // namespace domain
 
 namespace app {
 

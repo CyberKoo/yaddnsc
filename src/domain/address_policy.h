@@ -4,10 +4,10 @@
 #include <optional>
 #include <vector>
 
-#include "domain/dns/record_kind.h"
 #include "domain/network/inet_address.h"
 
 namespace domain {
+enum class RecordKind;
 
 /// Address selection policy for a subdomain update.
 ///

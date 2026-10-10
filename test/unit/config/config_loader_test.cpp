@@ -30,7 +30,7 @@
 #include "infrastructure/config/diagnostics/renderer.h"
 #include "infrastructure/config/diagnostics/schema.h"
 #include "infrastructure/config/diagnostics/types.h"
-#include "infrastructure/config/parser.hpp"
+#include "infrastructure/config/parser.hpp"  // IWYU pragma: keep — registers glz::meta specializations
 
 // ── Helper: write a temp config file ───────────────────────────────────────
 

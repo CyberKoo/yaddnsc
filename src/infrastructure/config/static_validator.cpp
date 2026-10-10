@@ -1,22 +1,21 @@
 #include "static_validator.h"
 
+#include <yaddnsc/util/format.hpp>
+#include <expected>
 #include <string>
 #include <string_view>
 #include <utility>
-
-#include <yaddnsc/util/format.hpp>
+#include <optional>
 
 #include "domain/config/dns_config.h"
 #include "domain/config/ip_source_kind.h"
 #include "domain/dns/record_kind.h"
 #include "domain/fqdn.h"
-#include "domain/network/inet_address.h"
 #include "infrastructure/config/config.h"
 #include "infrastructure/config/ip_literal.h"
 #include "infrastructure/uri/uri.h"
 #include "support/fmt.hpp"
 #include "support/util/validation.hpp"
-
 #include "min_update_interval.h"
 #include "normalizer.h"
 
@@ -117,6 +116,27 @@ void validate_resolver_address(std::vector<domain::ConfigError>& errors, const s
         return;
     }
 
+    // A scheme other than https (DoH) or tls (DoT) has no resolver backend:
+    // the factory throws std::invalid_argument for it, which would escape as
+    // an unhandled exception on the run path. Report it as a config error.
+    if (!uri->get_schema().empty()) {
+        push_error(errors, Code::INVALID_RESOLVER,
+                   fmt::format(R"(Resolver address "{}" has unsupported scheme "{}"; )"
+                               R"(use "https", "tls" or a bare IP literal)",
+                               address, uri->get_schema()));
+        return;
+    }
+
+    // A classic resolver dials the host and DnsServer::port only, so a path
+    // or query written into the address would be silently dropped.
+    if (!uri->get_path().empty() || !uri->get_query_string().empty()) {
+        push_error(errors, Code::INVALID_RESOLVER,
+                   fmt::format(R"(Resolver address "{}" carries a path or query; a classic resolver )"
+                               R"(dials host:port only)",
+                               address));
+        return;
+    }
+
     // Plain DNS address — must be a valid IP literal. bare_ip_host judges
     // the authority host in either spelling (bare or bracketed IPv6); the
     // brackets are URI syntax, not part of the address.
@@ -201,12 +221,13 @@ auto validate_static(const AppConfig& raw) -> std::vector<domain::ConfigError> {
 
     // Bootstrap DNS server — must be an IP literal when set (hostnames would
     // be circular: bootstrap DNS is what resolves hostnames). Both IPv6
-    // spellings are accepted, but there is no port field to carry an
-    // authority port, so one is rejected here rather than dropped later.
+    // spellings are accepted, but there is no field to carry a scheme, port
+    // or path, so they are rejected here rather than dropped later.
     if (!raw.bootstrap_dns.empty()) {
         const auto uri = Uri::parse(raw.bootstrap_dns);
-        const bool literal =
-            uri.has_value() && uri->get_schema().empty() && uri->get_port() == 0 && bare_ip_host(*uri).has_value();
+        const bool literal = uri.has_value() && uri->get_schema().empty() && uri->get_port() == 0 &&
+                             uri->get_path().empty() && uri->get_query_string().empty() &&
+                             bare_ip_host(*uri).has_value();
         if (!literal) {
             push_error(errors, Code::INVALID_BOOTSTRAP_DNS,
                        fmt::format(R"(Invalid bootstrap_dns "{}": must be an IP literal, with or without )"

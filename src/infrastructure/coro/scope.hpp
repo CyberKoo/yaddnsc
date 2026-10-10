@@ -25,9 +25,9 @@
 #include <utility>
 
 #include "infrastructure/coro/cancel_scope.h"
-#include "infrastructure/coro/detail/context_awaitables.h"
+#include "infrastructure/coro/detail/context_awaitables.h"  // IWYU pragma: export
 #include "infrastructure/coro/detail/scope_runner.hpp"
-#include "infrastructure/coro/scope_outcome.hpp"
+#include "infrastructure/coro/scope_outcome.hpp"  // IWYU pragma: export
 #include "infrastructure/coro/time.h"
 
 namespace coro {

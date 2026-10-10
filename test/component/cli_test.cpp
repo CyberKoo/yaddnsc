@@ -43,7 +43,6 @@
 
 #include "application/diagnostics.h"
 #include "application/ports/driver_catalog.h"
-#include "application/ports/gateway.h"
 #include "application/ports/resolver.h"
 #include "cli/command.h"
 #include "cli/parser.h"

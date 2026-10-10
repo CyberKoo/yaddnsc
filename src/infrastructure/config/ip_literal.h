@@ -8,7 +8,7 @@
 #include <optional>
 #include <string_view>
 
-#include "infrastructure/uri/uri.h"
+class Uri;
 
 namespace Config {
 

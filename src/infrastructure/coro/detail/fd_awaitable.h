@@ -53,12 +53,10 @@ public:
             throw std::logic_error("fd wait requires a running loop and an open descriptor");
         }
         if (scope_ != nullptr && scope_->cancelled()) {
-            cancelled_ = true;
             return false;
         }
         frame_ = &promise;
         node_.waiter = &promise;
-        node_.cancelled_flag = &cancelled_;
         node_.owner = this;
         node_.on_cancel = &FdAwaitable::on_cancel;
         token_ = LoopAccess::add_fd(*loop_, fd_, events_, &FdAwaitable::on_ready, this);
@@ -120,7 +118,6 @@ private:
     PromiseBase* frame_ = nullptr;
     FdToken token_ = 0;
     WaitNode node_{};
-    bool cancelled_ = false;
     bool armed_ = false;
 };
 

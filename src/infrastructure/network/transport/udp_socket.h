@@ -6,14 +6,12 @@
 // ephemeral local port the way a UDP client expects.
 //
 
-#ifndef YADDNSC_INFRASTRUCTURE_NET_TRANSPORT_UDP_SOCKET_H
-#define YADDNSC_INFRASTRUCTURE_NET_TRANSPORT_UDP_SOCKET_H
+#ifndef YADDNSC_INFRASTRUCTURE_NETWORK_TRANSPORT_UDP_SOCKET_H
+#define YADDNSC_INFRASTRUCTURE_NETWORK_TRANSPORT_UDP_SOCKET_H
 
-#include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <span>
-
 #include <expected>
 
 #include "domain/network/address_family.h"
@@ -81,4 +79,4 @@ private:
 
 }  // namespace net
 
-#endif  // YADDNSC_INFRASTRUCTURE_NET_TRANSPORT_UDP_SOCKET_H
+#endif  // YADDNSC_INFRASTRUCTURE_NETWORK_TRANSPORT_UDP_SOCKET_H

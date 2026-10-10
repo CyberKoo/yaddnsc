@@ -1,7 +1,6 @@
 #ifndef YADDNSC_DRV_LINODE_RESPONSE_H
 #define YADDNSC_DRV_LINODE_RESPONSE_H
 
-#include <optional>
 #include <string>
 #include <vector>
 
