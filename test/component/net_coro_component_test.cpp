@@ -35,7 +35,7 @@
 #include <unistd.h>
 
 #include "domain/network/inet_address.h"
-#include "infrastructure/coro/coro.h"
+#include "coro/coro.h"
 #include "infrastructure/dns/exchange.h"
 #include "infrastructure/network/transport/io_error.h"
 #include "infrastructure/network/transport/tcp_stream.h"

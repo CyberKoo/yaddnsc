@@ -11,7 +11,7 @@
 
 #include <memory>
 
-#include "infrastructure/coro/task.hpp"
+#include "coro/task.hpp"
 
 namespace domain {
 struct RuntimeConfig;

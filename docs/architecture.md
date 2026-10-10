@@ -37,7 +37,7 @@ pipeline's lifetime.
 ## Concurrency & I/O model
 
 The whole system is built on the coroutine runtime in
-`src/infrastructure/coro/`. Its axioms: the loop thread does loop work only;
+`src/coro/`. Its axioms: the loop thread does loop work only;
 every coroutine belongs to a scope that joins its children; a deadline and a
 shutdown are the same thing (a cancelled scope); every resumption goes through
 the ready queue, so stack depth stays bounded.
@@ -50,7 +50,7 @@ the ready queue, so stack depth stays bounded.
 | offload pool (`BS::thread_pool`, reached through `coro::offload`; min(hardware cores, 4) workers, at least 2) | anything that may block or burn CPU: the plugin ABI cycle, mDNS, and CPU-intensive work in general — `offload` is the runtime's `to_thread` analogue and the single exit from the loop |
 | log drain thread (spdlog async sink) | writing log records off the loop |
 
-**Loop internals** (`src/infrastructure/coro/loop.h`): a `poll()` descriptor
+**Loop internals** (`src/coro/loop.h`): a `poll()` descriptor
 table, a timer heap, a ready queue and a cross-thread inbox.
 
 **Structured concurrency.** `coro::Task<T>` is lazy and runs inline at
@@ -105,12 +105,12 @@ implementations reach directly and share with each other. The application
 surface is task ownership and structured groups, the cancellation combinators
 and `ScopeOutcome`, cancellable waits, loop time as values, `checkpoint()`,
 `current_scope()`, `offload`, `MutexGuard`, and the public forward declarations
-— declared in `src/infrastructure/coro/` and enumerated by the guard allowlist
+— declared in `src/coro/` and enumerated by the guard allowlist
 in `cmake/ArchitectureGuard.cmake`.
 
 Shared runtime implementation types — frames, promises, awaiters, waiter and
 timer nodes, result storage, group bookkeeping, and loop/scope access helpers —
-live in `src/infrastructure/coro/detail/` under `coro::detail`. Public classes
+live in `src/coro/detail/` under `coro::detail`. Public classes
 may keep private helper types and state inside the class. Public template
 headers include the complete definitions they need; this does not require every
 private implementation type to move into `detail/`. Application code must not
@@ -207,7 +207,9 @@ TTL cache with a single-flight mutex, a retrying sleep — routes its work throu
 Dependency direction is enforced by the CMake target graph
 (`yaddnsc_domain` ← `yaddnsc_application` ← infrastructure/adapters ←
 `yaddnsc_composition` ← executable) and policed textually by the
-`architecture_guard` ctest (`cmake/ArchitectureGuard.cmake`).
+`architecture_guard` ctest (`cmake/ArchitectureGuard.cmake`). `yaddnsc_coro`
+is a base module beside `yaddnsc_domain` — it depends on neither, and the
+application names only its public headers.
 
 - `src/domain/`: rules and value types. Values in, values out; `std::chrono`
   supplies time and duration values, and reading the system clock happens above.
@@ -222,7 +224,7 @@ Dependency direction is enforced by the CMake target graph
   conveniences. Logging uses the `ports/log.h` contract and the separate `log.h`
   formatting facade. spdlog, Glaze, CLI11, OpenSSL and the dynamic loader are
   reached from `src/infrastructure/`.
-- `src/infrastructure/coro/`: the coroutine runtime — loop, `Task`, structured
+- `src/coro/`: the coroutine runtime — loop, `Task`, structured
   scopes, cancellation combinators, sleeps, `AsyncMutex`, `offload`, signals.
   Threads, futures and the thread pool live here, plus the plugin bridge's one
   blocking handoff.

@@ -15,10 +15,10 @@
 #include <optional>
 #include <span>
 
-#include "infrastructure/coro/checkpoint.hpp"
+#include "coro/checkpoint.hpp"
 #include "infrastructure/network/transport/socket_ops.h"
-#include "infrastructure/coro/cancelled.h"
-#include "infrastructure/coro/task.hpp"
+#include "coro/cancelled.h"
+#include "coro/task.hpp"
 #include "infrastructure/network/transport/io_error.h"
 
 namespace net {

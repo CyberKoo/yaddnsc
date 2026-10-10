@@ -20,12 +20,12 @@
 #include <optional>
 #include <span>
 
-#include "infrastructure/coro/checkpoint.hpp"
-#include "infrastructure/coro/fd_wait.hpp"
+#include "coro/checkpoint.hpp"
+#include "coro/fd_wait.hpp"
 #include "infrastructure/network/tls/openssl_error.hpp"
 #include "infrastructure/network/tls/context.h"
 #include "domain/network/address_family.h"
-#include "infrastructure/coro/cancelled.h"
+#include "coro/cancelled.h"
 
 namespace net {
 namespace {

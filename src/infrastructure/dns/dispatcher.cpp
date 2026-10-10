@@ -23,16 +23,16 @@
 #include <string_view>
 
 #include "domain/error/dns_error.h"
-#include "infrastructure/coro/group.hpp"
-#include "infrastructure/coro/scope.hpp"
-#include "infrastructure/coro/scope_outcome.hpp"  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
-#include "infrastructure/coro/sleep.hpp"
+#include "coro/group.hpp"
+#include "coro/scope.hpp"
+#include "coro/scope_outcome.hpp"  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
+#include "coro/sleep.hpp"
 #include "infrastructure/dns/dns_lookup_exception.h"
 #include "infrastructure/dns/parser.h"
 #include "support/fmt.hpp"
 #include "support/util/random.hpp"
-#include "infrastructure/coro/cancel_scope.h"
-#include "infrastructure/coro/task_group.hpp"
+#include "coro/cancel_scope.h"
+#include "coro/task_group.hpp"
 #include "infrastructure/dns/resolver/resolver.h"
 #include "infrastructure/dns/types.h"
 #include "yaddnsc/util/format.hpp"  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not

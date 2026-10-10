@@ -18,8 +18,8 @@
 #include "domain/config/dns_config.h"  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 #include "domain/error/error.h"  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 #include "infrastructure/config/config_exception.h"
-#include "infrastructure/coro/loop.h"
-#include "infrastructure/coro/run.hpp"
+#include "coro/loop.h"
+#include "coro/run.hpp"
 #include "infrastructure/dns/dispatcher.h"  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 #include "infrastructure/dns/factory.h"
 #include "infrastructure/dns/resolver_port.h"

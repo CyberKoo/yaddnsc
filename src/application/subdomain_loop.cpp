@@ -12,13 +12,13 @@
 
 #include "domain/fqdn.h"
 #include "domain/update/update_task.h"
-#include "infrastructure/coro/now.hpp"
-#include "infrastructure/coro/scope.hpp"
-#include "infrastructure/coro/sleep.hpp"
+#include "coro/now.hpp"
+#include "coro/scope.hpp"
+#include "coro/sleep.hpp"
 #include "application/run_update_cycle.h"
 #include "domain/config/runtime_config.h"
 #include "domain/error/error.h"
-#include "infrastructure/coro/time.h"
+#include "coro/time.h"
 
 namespace app {
 

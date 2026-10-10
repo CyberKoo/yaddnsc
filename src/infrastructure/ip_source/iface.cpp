@@ -13,7 +13,7 @@
 #include <vector>  // IWYU pragma: keep — std::erase_if overload for std::vector lives here; clangd sees no spelled use
 
 #include "domain/network/inet_address.h"
-#include "infrastructure/coro/cancelled.h"
+#include "coro/cancelled.h"
 #include "infrastructure/ip_source/iface_util.h"
 #include "support/fmt.hpp"
 #include "domain/error/error.h"

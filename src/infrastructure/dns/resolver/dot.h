@@ -22,8 +22,8 @@
 
 #include "domain/config/dns_config.h"
 #include "domain/error/dns_error_info.h"
-#include "infrastructure/coro/async_mutex.hpp"
-#include "infrastructure/coro/task.hpp"
+#include "coro/async_mutex.hpp"
+#include "coro/task.hpp"
 #include "infrastructure/dns/resolver/resolver.h"
 #include "infrastructure/network/transport/options.h"
 

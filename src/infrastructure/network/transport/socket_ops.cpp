@@ -16,8 +16,8 @@
 #include <expected>
 #include <optional>
 
-#include "infrastructure/coro/checkpoint.hpp"
-#include "infrastructure/coro/fd_wait.hpp"
+#include "coro/checkpoint.hpp"
+#include "coro/fd_wait.hpp"
 #include "infrastructure/network/address/socket_addr.h"
 #include "config_cmake.h"
 #include "domain/network/address_family.h"

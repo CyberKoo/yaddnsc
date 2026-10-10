@@ -8,10 +8,10 @@
 
 #include <gtest/gtest.h>
 
-#include "infrastructure/coro/coro.h"
-#include "infrastructure/coro/detail/access.h"
-#include "infrastructure/coro/detail/signal_awaitable.h"
-#include "infrastructure/coro/detail/timer_node.h"
+#include "coro/coro.h"
+#include "coro/detail/access.h"
+#include "coro/detail/signal_awaitable.h"
+#include "coro/detail/timer_node.h"
 
 namespace {
 thread_local int allocations_before_failure = -1;

@@ -81,19 +81,19 @@ namespace Config { struct SubdomainConfig {}; }
 INSTANTIATE_TEST_SUITE_P(
     PublicApi, ApplicationCoroGuard,
     ::testing::Values(
-        GuardCase{"PublicHeaders", R"(#include "infrastructure/coro/task.hpp"
-#include "infrastructure/coro/group.hpp"
-#include "infrastructure/coro/scope.hpp"
-#include "infrastructure/coro/now.hpp"
-#include "infrastructure/coro/time.h"
-#include "infrastructure/coro/fwd.h"
-#include "infrastructure/coro/cancel_scope.h"
-#include "infrastructure/coro/sleep.hpp"
-#include "infrastructure/coro/cancelled.h"
-#include "infrastructure/coro/checkpoint.hpp"
-#include "infrastructure/coro/signal.hpp"
-#include "infrastructure/coro/offload.hpp"
-#include "infrastructure/coro/async_mutex.hpp"
+        GuardCase{"PublicHeaders", R"(#include "coro/task.hpp"
+#include "coro/group.hpp"
+#include "coro/scope.hpp"
+#include "coro/now.hpp"
+#include "coro/time.h"
+#include "coro/fwd.h"
+#include "coro/cancel_scope.h"
+#include "coro/sleep.hpp"
+#include "coro/cancelled.h"
+#include "coro/checkpoint.hpp"
+#include "coro/signal.hpp"
+#include "coro/offload.hpp"
+#include "coro/async_mutex.hpp"
 )",
                   true},
         GuardCase{"PortContractsAndAggregation", R"(#ifndef YADDNSC_APPLICATION_PORTS_PROBE_H
@@ -102,8 +102,8 @@ INSTANTIATE_TEST_SUITE_P(
 #include "domain/config/runtime.h"
 #include "application/ports/log.h"
 #include <application/ports/network_interfaces.h>
-#include "infrastructure/coro/task.hpp"
-#include <infrastructure/coro/cancel_scope.h>
+#include "coro/task.hpp"
+#include <coro/cancel_scope.h>
 namespace app {
 class ProbePort { public: virtual ~ProbePort() = default; };
 class OtherPort { public: virtual ~OtherPort() = default; };
@@ -132,7 +132,7 @@ struct ProbePorts { ProbePort& probe; OtherPort& other; };
                   "src/application/ports/probe.h"},
         GuardCase{"PortDomainTraversal", "#include <domain/../support/fmt.hpp>\n", false,
                   "src/application/ports/probe.h"},
-        GuardCase{"PortInternalCoro", "#include \"infrastructure/coro/loop.h\"\n", false,
+        GuardCase{"PortInternalCoro", "#include \"coro/loop.h\"\n", false,
                   "src/application/ports/probe.h", "port contracts may include only"},
         GuardCase{"PortFunctionMacro", "#define LOG_AT(level, ...) log(level, __VA_ARGS__)\n", false,
                   "src/application/ports/log.h", "must not define function-like macros"},
@@ -256,15 +256,15 @@ auto note = "net::Stream; class NetworkInterfaces;";
                   "static constexpr const char* kHost = \"https://dns.google/dns-query\";\n", true},
         GuardCase{"CommentedCodeAfterUrlIsStillExempt",
                   "auto u = \"https://dns.google\";\n// coro::Loop loop;\n/* coro::detail::GetContext */\n", true},
-        GuardCase{"LoopHeader", "#include \"infrastructure/coro/loop.h\"\n", false},
-        GuardCase{"ClockHeader", "#include \"infrastructure/coro/clock.h\"\n", false},
-        GuardCase{"FrameHeader", "#include \"infrastructure/coro/detail/frame.h\"\n", false},
-        GuardCase{"FdHeader", "#include \"infrastructure/coro/fd_wait.hpp\"\n", false},
-        GuardCase{"ResultBoxHeader", "#include \"infrastructure/coro/detail/result_box.hpp\"\n", false},
-        GuardCase{"WaitNodeHeader", "#include \"infrastructure/coro/detail/wait_node.h\"\n", false},
-        GuardCase{"TimerNodeHeader", "#include \"infrastructure/coro/detail/timer_node.h\"\n", false},
-        GuardCase{"RunHeader", "#include \"infrastructure/coro/run.hpp\"\n", false},
-        GuardCase{"UmbrellaHeader", "#include \"infrastructure/coro/coro.h\"\n", false},
+        GuardCase{"LoopHeader", "#include \"coro/loop.h\"\n", false},
+        GuardCase{"ClockHeader", "#include \"coro/clock.h\"\n", false},
+        GuardCase{"FrameHeader", "#include \"coro/detail/frame.h\"\n", false},
+        GuardCase{"FdHeader", "#include \"coro/fd_wait.hpp\"\n", false},
+        GuardCase{"ResultBoxHeader", "#include \"coro/detail/result_box.hpp\"\n", false},
+        GuardCase{"WaitNodeHeader", "#include \"coro/detail/wait_node.h\"\n", false},
+        GuardCase{"TimerNodeHeader", "#include \"coro/detail/timer_node.h\"\n", false},
+        GuardCase{"RunHeader", "#include \"coro/run.hpp\"\n", false},
+        GuardCase{"UmbrellaHeader", "#include \"coro/coro.h\"\n", false},
         GuardCase{"Context", "auto c = co_await coro::GetContext{};", false},
         GuardCase{"InternalContext", "auto c = co_await coro::detail::GetContext{};", false},
         GuardCase{"LoopObject", "coro::Loop loop;", false}, GuardCase{"ClockObject", "coro::ManualClock clock;", false},

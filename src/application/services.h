@@ -12,7 +12,7 @@
 #include "application/ports/ip_source.h"
 #include "application/ports/log.h"
 #include "application/ports/resolver.h"
-#include "infrastructure/coro/fwd.h"
+#include "coro/fwd.h"
 
 namespace app {
 

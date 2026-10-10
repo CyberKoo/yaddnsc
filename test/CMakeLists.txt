@@ -222,26 +222,6 @@ endfunction()
 # ---------------------------------------------------------------------------
 add_subdirectory(unit)
 
-# ---------------------------------------------------------------------------
-# Coroutine runtime core (src/infrastructure/coro/) — loop, Task, structured
-# scopes, cancellation combinators, sleeps, clock reads, AsyncMutex, offload
-# and signals. One binary keeps the async runtime tests together:
-#   ctest --test-dir <build> -R coro   (or run test_coro directly)
-# ---------------------------------------------------------------------------
-add_unit_test(coro
-    SOURCE unit/coro/task_test.cpp
-           unit/coro/cancel_test.cpp
-           unit/coro/async_mutex_test.cpp
-           unit/coro/now_test.cpp
-           unit/coro/offload_test.cpp
-           unit/coro/signal_test.cpp
-)
-target_link_libraries(test_coro PRIVATE yaddnsc_coro)
-
-# Global allocation replacement is isolated from all other runtime tests.
-add_unit_test(coro_allocation_failure SOURCE unit/coro/allocation_failure_test.cpp)
-target_link_libraries(test_coro_allocation_failure PRIVATE yaddnsc_coro)
-
 add_subdirectory(component)
 
 # Performance benchmarks (require Google Benchmark)

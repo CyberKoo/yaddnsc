@@ -38,7 +38,7 @@
 #include "domain/network/inet_address.h"
 #include "domain/update/update_decision.h"
 #include "domain/update/update_task.h"
-#include "infrastructure/coro/coro.h"
+#include "coro/coro.h"
 #include "mocks/null_logger.h"
 #include "mocks/recording_logger.h"
 

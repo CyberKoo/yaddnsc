@@ -7,7 +7,7 @@
 
 #include "domain/error/error.h"
 #include "domain/network/inet_address.h"
-#include "infrastructure/coro/task.hpp"
+#include "coro/task.hpp"
 
 namespace domain {
 struct SubdomainConfig;

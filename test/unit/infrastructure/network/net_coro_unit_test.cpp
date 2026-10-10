@@ -25,8 +25,8 @@
 #include <unistd.h>
 
 #include "domain/network/inet_address.h"
-#include "infrastructure/coro/coro.h"
-#include "infrastructure/coro/fd_wait.hpp"
+#include "coro/coro.h"
+#include "coro/fd_wait.hpp"
 #include "infrastructure/network/tls/context.h"
 #include "infrastructure/network/tls/stream.h"
 #include "infrastructure/network/transport/io_error.h"

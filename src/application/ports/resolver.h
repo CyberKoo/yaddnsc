@@ -8,7 +8,7 @@
 
 #include "domain/dns/record_kind.h"
 #include "domain/error/dns_error_info.h"
-#include "infrastructure/coro/task.hpp"
+#include "coro/task.hpp"
 
 namespace app {
 

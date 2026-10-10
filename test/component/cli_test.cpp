@@ -53,7 +53,7 @@
 #include "domain/error/dns_error_info.h"
 #include "domain/network/inet_address.h"
 #include "fixtures/sample_config.h"
-#include "infrastructure/coro/coro.h"
+#include "coro/coro.h"
 #include "infrastructure/ip_source/system_network_interfaces.h"
 #include "mocks/mock_ports.h"
 

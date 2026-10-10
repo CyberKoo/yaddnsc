@@ -18,13 +18,13 @@
 # cross-thread inbox), Task<T>, structured scopes, cancellation combinators,
 # cancellable sleeps, AsyncMutex, offload and signals. The offload
 # pool is BS::thread_pool, reused rather than hand-rolled (see the pool note in
-# src/infrastructure/coro/loop.h); it is named only inside Loop::Pool in
+# src/coro/loop.h); it is named only inside Loop::Pool in
 # loop.cpp, so BS_thread_pool is PRIVATE and never reaches a consumer of Task.
 # spdlog is PRIVATE too (loop.cpp trace diagnostics); everything else is the
 # standard library and POSIX.
 add_library(yaddnsc_coro STATIC
-    src/infrastructure/coro/cancel_scope.cpp
-    src/infrastructure/coro/loop.cpp
+    src/coro/cancel_scope.cpp
+    src/coro/loop.cpp
 )
 yaddnsc_production_module(yaddnsc_coro)
 target_link_libraries(yaddnsc_coro PRIVATE BS_thread_pool spdlog::spdlog)

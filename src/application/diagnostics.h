@@ -9,8 +9,8 @@
 #include "application/ports/driver_catalog.h"
 #include "domain/error/dns_error_info.h"
 #include "domain/network/inet_address.h"
-#include "infrastructure/coro/task.hpp"
-#include "infrastructure/coro/time.h"
+#include "coro/task.hpp"
+#include "coro/time.h"
 #include "domain/error/error.h"
 
 namespace domain {

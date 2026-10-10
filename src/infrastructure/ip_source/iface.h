@@ -7,7 +7,7 @@
 
 #include <string>
 
-#include "infrastructure/coro/task.hpp"
+#include "coro/task.hpp"
 #include "infrastructure/ip_source/source.h"
 
 namespace domain {

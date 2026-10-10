@@ -29,7 +29,7 @@
 #include "domain/error/error.h"
 #include "domain/network/address_family.h"
 #include "domain/network/inet_address.h"
-#include "infrastructure/coro/coro.h"
+#include "coro/coro.h"
 #include "infrastructure/ip_source/mdns.h"
 #include "infrastructure/network/transport/socket_ops.h"
 #include "support/util/random.hpp"

@@ -18,7 +18,7 @@
 #include "infrastructure/http/protocol/wire.h"
 #include "infrastructure/http/transport.h"
 #include "infrastructure/http/wire_request.h"
-#include "infrastructure/coro/cancelled.h"
+#include "coro/cancelled.h"
 #include "infrastructure/network/transport/stream.h"
 
 namespace http {

@@ -10,7 +10,7 @@
 #include <stdexcept>
 
 #include <gtest/gtest.h>
-#include "infrastructure/coro/coro.h"
+#include "coro/coro.h"
 
 namespace {
 

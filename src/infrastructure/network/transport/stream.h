@@ -18,7 +18,7 @@
 #include <expected>
 
 #include "domain/network/inet_address.h"
-#include "infrastructure/coro/task.hpp"
+#include "coro/task.hpp"
 #include "infrastructure/network/transport/io_error.h"
 #include "infrastructure/network/transport/options.h"
 

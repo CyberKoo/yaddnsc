@@ -13,14 +13,14 @@
 
 #include "domain/config/ip_source_kind.h"
 #include "domain/network/address_family.h"
-#include "infrastructure/coro/cancelled.h"
+#include "coro/cancelled.h"
 #include "infrastructure/ip_source/http.h"
 #include "infrastructure/ip_source/iface.h"
 #include "infrastructure/ip_source/mdns.h"
 #include "domain/config/runtime_config.h"
 #include "domain/dns/record_kind.h"
 #include "domain/error/error.h"
-#include "infrastructure/coro/task.hpp"
+#include "coro/task.hpp"
 
 namespace ipsource {
 

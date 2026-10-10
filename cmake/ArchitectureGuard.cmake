@@ -69,12 +69,12 @@ file(GLOB_RECURSE application_check_files RELATIVE ${PROJECT_SOURCE_DIR}
     ${PROJECT_SOURCE_DIR}/src/application/*.cpp)
 foreach (f ${application_check_files})
     file(STRINGS ${PROJECT_SOURCE_DIR}/${f} lines REGEX
-        "${INC_RE}[<\"](infrastructure/|composition/|cli/|spdlog/|glaze/|CLI/|openssl/|dlfcn\\.h)")
+        "${INC_RE}[<\"](infrastructure/|coro/|composition/|cli/|spdlog/|glaze/|CLI/|openssl/|dlfcn\\.h)")
     foreach (line ${lines})
         if (line MATCHES "^[ \t]*(//|/\\*|\\*)")
             continue()
         endif ()
-        if (line MATCHES "${INC_RE}[<\"]infrastructure/coro/([^\">]+)[\">]")
+        if (line MATCHES "${INC_RE}[<\"]coro/([^\">]+)[\">]")
             list(FIND application_coro_headers "${CMAKE_MATCH_1}" public_header_index)
             if (NOT public_header_index EQUAL -1)
                 continue()
@@ -102,12 +102,12 @@ foreach (f ${application_port_headers})
         if (include_path MATCHES "^(fmt/|format$)")
             set(violations "${violations}\n  ${f}: port contracts must not include formatting implementations\n      ${line}")
         elseif (delimiter STREQUAL "\""
-            OR include_path MATCHES "^(application|cli|composition|domain|infrastructure|support)/"
+            OR include_path MATCHES "^(application|cli|composition|coro|domain|infrastructure|support)/"
             OR include_path MATCHES "^\\.")
             if (NOT include_path MATCHES "(^|/)\\.\\.?(/|$)")
                 if (include_path MATCHES "^(domain/|application/ports/)")
                     continue()
-                elseif (include_path MATCHES "^infrastructure/coro/(.+)$")
+                elseif (include_path MATCHES "^coro/(.+)$")
                     list(FIND application_coro_headers "${CMAKE_MATCH_1}" public_header_index)
                     if (NOT public_header_index EQUAL -1)
                         continue()
@@ -143,7 +143,6 @@ endfunction()
 file(GLOB_RECURSE infrastructure_type_headers
     ${PROJECT_SOURCE_DIR}/src/infrastructure/*.h
     ${PROJECT_SOURCE_DIR}/src/infrastructure/*.hpp)
-list(FILTER infrastructure_type_headers EXCLUDE REGEX "/coro/")
 set(infrastructure_defined_type_names "")
 foreach (header ${infrastructure_type_headers})
     guard_normalize_code("${header}" infrastructure_code)
@@ -326,7 +325,7 @@ endforeach ()
 # ------------------------------------------------------------------------------
 # 9. Concurrency is an implementation detail of the coroutine runtime. A direct
 #     <thread>, <future> or BS::thread_pool include is allowed only in the
-#     runtime (src/infrastructure/coro/) and in the single place that must hand
+#     runtime (src/coro/) and in the single place that must hand
 #     a result back across the synchronous plugin ABI boundary
 #     (src/infrastructure/plugin/bridge.*). Everywhere else in the
 #     application / infrastructure / composition layers, route the work through
@@ -350,7 +349,8 @@ file(GLOB_RECURSE concurrency_check_files RELATIVE ${PROJECT_SOURCE_DIR}
     ${PROJECT_SOURCE_DIR}/src/composition/*.h
     ${PROJECT_SOURCE_DIR}/src/composition/*.hpp
     ${PROJECT_SOURCE_DIR}/src/composition/*.cpp)
-list(FILTER concurrency_check_files EXCLUDE REGEX "^src/infrastructure/coro/")
+# The runtime itself (src/coro/) is deliberately not globbed: that is where
+# these facilities belong.
 list(FILTER concurrency_check_files EXCLUDE REGEX "^src/infrastructure/plugin/bridge\\.(h|cpp)$")
 foreach (f ${concurrency_check_files})
     file(STRINGS ${PROJECT_SOURCE_DIR}/${f} lines REGEX "${INC_RE}[<\"]((thread|future)>|BS_thread_pool)")

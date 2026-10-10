@@ -18,7 +18,7 @@
 #include <vector>
 #include <optional>
 
-#include "infrastructure/coro/scope.hpp"
+#include "coro/scope.hpp"
 #include "infrastructure/dns/bootstrap/bootstrap.h"
 #include "infrastructure/dns/dns_lookup_exception.h"
 #include "infrastructure/dns/util.hpp"
@@ -30,7 +30,7 @@
 #include "support/util/random.hpp"
 #include "domain/error/dns_error.h"
 #include "domain/network/inet_address.h"
-#include "infrastructure/coro/cancelled.h"
+#include "coro/cancelled.h"
 #include "infrastructure/dns/types.h"
 #include "infrastructure/network/transport/stream.h"
 #include "yaddnsc/util/format.hpp"  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not

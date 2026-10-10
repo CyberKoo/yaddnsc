@@ -13,7 +13,7 @@
 #include <utility>
 #include <vector>
 
-#include "infrastructure/coro/group.hpp"
+#include "coro/group.hpp"
 #include "infrastructure/dns/dns_lookup_exception.h"
 #include "infrastructure/dns/exchange.h"
 #include "infrastructure/dns/parser.h"
@@ -26,7 +26,7 @@
 #include "domain/dns/record_kind.h"
 #include "domain/error/dns_error.h"
 #include "domain/network/address_family.h"
-#include "infrastructure/coro/task_group.hpp"
+#include "coro/task_group.hpp"
 #include "infrastructure/dns/types.h"
 #include "yaddnsc/util/format.hpp"  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 

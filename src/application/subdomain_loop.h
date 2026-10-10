@@ -10,7 +10,7 @@
 #ifndef YADDNSC_APPLICATION_SUBDOMAIN_LOOP_H
 #define YADDNSC_APPLICATION_SUBDOMAIN_LOOP_H
 
-#include "infrastructure/coro/task.hpp"
+#include "coro/task.hpp"
 
 namespace domain {
 struct DomainConfig;

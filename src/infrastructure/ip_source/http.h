@@ -7,7 +7,7 @@
 
 #include <string>
 
-#include "infrastructure/coro/task.hpp"
+#include "coro/task.hpp"
 #include "infrastructure/http/types.h"
 #include "infrastructure/ip_source/source.h"
 

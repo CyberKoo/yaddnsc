@@ -20,9 +20,9 @@
 #include "domain/error/error.h"  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 #include "infrastructure/config/config.h"
 #include "infrastructure/config/config_exception.h"
-#include "infrastructure/coro/group.hpp"
-#include "infrastructure/coro/loop.h"
-#include "infrastructure/coro/run.hpp"
+#include "coro/group.hpp"
+#include "coro/loop.h"
+#include "coro/run.hpp"
 #include "infrastructure/dns/dispatcher.h"  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 #include "infrastructure/dns/factory.h"
 #include "infrastructure/dns/resolver_port.h"
@@ -32,7 +32,7 @@
 #include "support/exception.h"
 #include "cli/command.h"
 #include "domain/config/runtime_config.h"
-#include "infrastructure/coro/task.hpp"
+#include "coro/task.hpp"
 #include "infrastructure/plugin/driver_catalog.h"
 #include "infrastructure/http/types.h"  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 

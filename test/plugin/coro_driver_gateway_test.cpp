@@ -32,7 +32,7 @@
 #include <unistd.h>
 
 #include "domain/error/error.h"
-#include "infrastructure/coro/coro.h"
+#include "coro/coro.h"
 #include "infrastructure/plugin/driver_catalog.h"
 #include "infrastructure/plugin/driver_gateway.h"
 #include "infrastructure/plugin/shared_library.h"

@@ -15,13 +15,13 @@
 #include <expected>
 #include <functional>
 
-#include "infrastructure/coro/cancelled.h"
-#include "infrastructure/coro/loop.h"
-#include "infrastructure/coro/scope.hpp"
+#include "coro/cancelled.h"
+#include "coro/loop.h"
+#include "coro/scope.hpp"
 #include "infrastructure/http/client.h"
 #include "support/fmt.hpp"
-#include "infrastructure/coro/cancel_scope.h"
-#include "infrastructure/coro/task_group.hpp"
+#include "coro/cancel_scope.h"
+#include "coro/task_group.hpp"
 #include "infrastructure/http/error.h"
 #include "yaddnsc/sdk/driver_abi.h"
 #include "yaddnsc/util/format.hpp"  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not

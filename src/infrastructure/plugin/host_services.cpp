@@ -22,7 +22,7 @@
 #include "application/ports/log.h"
 #include "infrastructure/http/types.h"
 #include "infrastructure/plugin/abi_string.h"
-#include "infrastructure/coro/cancelled.h"
+#include "coro/cancelled.h"
 
 namespace plugin {
 

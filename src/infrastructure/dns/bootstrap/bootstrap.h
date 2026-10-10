@@ -20,7 +20,7 @@
 
 #include "domain/error/dns_error_info.h"
 #include "domain/network/inet_address.h"
-#include "infrastructure/coro/task.hpp"
+#include "coro/task.hpp"
 #include "infrastructure/network/address/resolver.h"
 
 namespace domain {

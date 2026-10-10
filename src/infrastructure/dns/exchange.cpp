@@ -15,7 +15,7 @@
 #include <utility>
 #include <vector>
 
-#include "infrastructure/coro/scope.hpp"
+#include "coro/scope.hpp"
 #include "infrastructure/dns/wire/framing.h"
 #include "infrastructure/network/transport/tcp_stream.h"
 #include "infrastructure/network/transport/udp_socket.h"

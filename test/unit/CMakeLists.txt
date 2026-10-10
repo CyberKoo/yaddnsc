@@ -89,6 +89,28 @@ add_unit_test(run_root SOURCE application/run_root_test.cpp)
 target_link_libraries(test_run_root PRIVATE yaddnsc_coro_application yaddnsc_coro yaddnsc_domain)
 
 # ============================================================================
+#  coro/  —  the coroutine runtime (src/coro/)
+# ============================================================================
+
+# Coroutine runtime core — loop, Task, structured scopes, cancellation
+# combinators, sleeps, clock reads, AsyncMutex, offload and signals. One
+# binary keeps the async runtime tests together:
+#   ctest --test-dir <build> -R coro   (or run test_coro directly)
+add_unit_test(coro
+    SOURCE coro/task_test.cpp
+           coro/cancel_test.cpp
+           coro/async_mutex_test.cpp
+           coro/now_test.cpp
+           coro/offload_test.cpp
+           coro/signal_test.cpp
+)
+target_link_libraries(test_coro PRIVATE yaddnsc_coro)
+
+# Global allocation replacement is isolated from all other runtime tests.
+add_unit_test(coro_allocation_failure SOURCE coro/allocation_failure_test.cpp)
+target_link_libraries(test_coro_allocation_failure PRIVATE yaddnsc_coro)
+
+# ============================================================================
 #  config/  —  configuration parsing, types, and validation
 # ============================================================================
 

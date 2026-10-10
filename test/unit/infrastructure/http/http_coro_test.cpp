@@ -27,7 +27,7 @@
 
 #include <gtest/gtest.h>
 
-#include "infrastructure/coro/coro.h"
+#include "coro/coro.h"
 #include "infrastructure/http/protocol/exchange.h"
 #include "infrastructure/http/protocol/read_window.h"
 #include "infrastructure/http/protocol/wire.h"

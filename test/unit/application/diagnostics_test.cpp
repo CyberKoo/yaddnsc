@@ -15,7 +15,7 @@
 #include "domain/config/runtime_config.h"
 #include "domain/dns/record_kind.h"
 #include "domain/update/driver_update_command.h"
-#include "infrastructure/coro/coro.h"
+#include "coro/coro.h"
 #include "mocks/mock_ports.h"
 
 namespace {

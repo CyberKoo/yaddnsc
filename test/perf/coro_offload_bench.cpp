@@ -5,7 +5,7 @@
 #include <benchmark/benchmark.h>
 
 #include <cstdint>
-#include "infrastructure/coro/coro.h"
+#include "coro/coro.h"
 
 namespace {
 constexpr int kIter = 2000;

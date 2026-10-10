@@ -18,13 +18,13 @@
 #include "application/log.h"
 #include "application/subdomain_loop.h"
 #include "domain/fqdn.h"
-#include "infrastructure/coro/cancel_scope.h"
-#include "infrastructure/coro/cancelled.h"
-#include "infrastructure/coro/group.hpp"
-#include "infrastructure/coro/signal.hpp"
+#include "coro/cancel_scope.h"
+#include "coro/cancelled.h"
+#include "coro/group.hpp"
+#include "coro/signal.hpp"
 #include "application/services.h"
 #include "domain/config/runtime_config.h"
-#include "infrastructure/coro/task_group.hpp"
+#include "coro/task_group.hpp"
 
 namespace app {
 class LoggerPort;

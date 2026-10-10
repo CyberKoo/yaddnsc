@@ -9,7 +9,7 @@
 
 #include "application/ports/network_interfaces.h"
 #include "domain/fqdn.h"
-#include "infrastructure/coro/scope.hpp"
+#include "coro/scope.hpp"
 #include "support/fmt.hpp"
 #include "application/ports/gateway.h"
 #include "application/ports/resolver.h"

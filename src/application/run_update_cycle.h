@@ -9,7 +9,7 @@
 #include <expected>
 
 #include "domain/error/error.h"
-#include "infrastructure/coro/task.hpp"
+#include "coro/task.hpp"
 
 namespace domain {
 enum class UpdateDecision;

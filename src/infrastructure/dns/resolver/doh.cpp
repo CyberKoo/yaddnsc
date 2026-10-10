@@ -17,7 +17,7 @@
 #include <map>
 #include <stdexcept>
 
-#include "infrastructure/coro/scope.hpp"
+#include "coro/scope.hpp"
 #include "infrastructure/dns/dns_lookup_exception.h"
 #include "infrastructure/dns/util.hpp"
 #include "infrastructure/dns/validator.h"
@@ -26,7 +26,7 @@
 #include "support/fmt.hpp"
 #include "domain/error/dns_error.h"
 #include "domain/error/dns_error_info.h"
-#include "infrastructure/coro/task.hpp"
+#include "coro/task.hpp"
 #include "infrastructure/http/error.h"
 #include "infrastructure/http/persistent_client.h"
 #include "infrastructure/http/types.h"

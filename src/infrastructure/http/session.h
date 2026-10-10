@@ -17,8 +17,8 @@
 #include <string>
 #include <expected>
 
-#include "infrastructure/coro/async_mutex.hpp"
-#include "infrastructure/coro/task.hpp"
+#include "coro/async_mutex.hpp"
+#include "coro/task.hpp"
 #include "infrastructure/http/error.h"
 #include "infrastructure/http/protocol/exchange.h"
 #include "infrastructure/http/types.h"

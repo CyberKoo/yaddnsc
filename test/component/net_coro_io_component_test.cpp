@@ -31,7 +31,7 @@
 
 #include "domain/dns/record_kind.h"
 #include "domain/error/dns_error_info.h"
-#include "infrastructure/coro/coro.h"
+#include "coro/coro.h"
 #include "infrastructure/dns/bootstrap/bootstrap.h"
 #include "infrastructure/dns/dispatcher.h"
 #include "infrastructure/dns/resolver/classic.h"

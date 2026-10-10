@@ -20,7 +20,7 @@
 #include "support/fmt.hpp"
 #include "domain/error/dns_error.h"
 #include "domain/error/dns_error_info.h"
-#include "infrastructure/coro/task.hpp"
+#include "coro/task.hpp"
 #include "yaddnsc/util/format.hpp"  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 
 namespace dns {

@@ -19,8 +19,8 @@
 #include <atomic>
 #include <type_traits>
 
-#include "infrastructure/coro/offload.hpp"
-#include "infrastructure/coro/scope.hpp"
+#include "coro/offload.hpp"
+#include "coro/scope.hpp"
 #include "infrastructure/plugin/abi_string.h"
 #include "infrastructure/plugin/driver_catalog.h"
 #include "infrastructure/plugin/driver_instance.h"
@@ -29,9 +29,9 @@
 #include "support/fmt.hpp"
 #include "domain/error/error.h"
 #include "domain/update/driver_update_command.h"
-#include "infrastructure/coro/cancel_scope.h"
-#include "infrastructure/coro/cancelled.h"
-#include "infrastructure/coro/task.hpp"
+#include "coro/cancel_scope.h"
+#include "coro/cancelled.h"
+#include "coro/task.hpp"
 #include "infrastructure/plugin/bridge.h"
 #include "yaddnsc/util/format.hpp"  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 
