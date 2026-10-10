@@ -1,5 +1,5 @@
-#ifndef YADDNSC_DRV_VULTR_RESPONSE_H
-#define YADDNSC_DRV_VULTR_RESPONSE_H
+#ifndef YADDNSC_DRV_VULTR_RESPONSE_HPP
+#define YADDNSC_DRV_VULTR_RESPONSE_HPP
 
 #include <cstdint>
 #include <string>
@@ -18,4 +18,4 @@ struct glz::meta<VultrErrorResponse> {
     static constexpr auto value = object("error", &T::error, "status", &T::status);
 };
 
-#endif  // YADDNSC_DRV_VULTR_RESPONSE_H
+#endif  // YADDNSC_DRV_VULTR_RESPONSE_HPP

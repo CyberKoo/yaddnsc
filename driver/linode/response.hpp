@@ -1,5 +1,5 @@
-#ifndef YADDNSC_DRV_LINODE_RESPONSE_H
-#define YADDNSC_DRV_LINODE_RESPONSE_H
+#ifndef YADDNSC_DRV_LINODE_RESPONSE_HPP
+#define YADDNSC_DRV_LINODE_RESPONSE_HPP
 
 #include <string>
 #include <vector>
@@ -29,4 +29,4 @@ struct glz::meta<LinodeErrorResponse> {
     static constexpr auto value = object("errors", &T::errors);
 };
 
-#endif  // YADDNSC_DRV_LINODE_RESPONSE_H
+#endif  // YADDNSC_DRV_LINODE_RESPONSE_HPP

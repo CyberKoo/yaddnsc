@@ -1,5 +1,5 @@
-#ifndef YADDNSC_DRV_CLOUDFLARE_RESPONSE_H
-#define YADDNSC_DRV_CLOUDFLARE_RESPONSE_H
+#ifndef YADDNSC_DRV_CLOUDFLARE_RESPONSE_HPP
+#define YADDNSC_DRV_CLOUDFLARE_RESPONSE_HPP
 
 #include <cstdint>
 #include <optional>
@@ -87,4 +87,4 @@ struct glz::meta<CloudflareResponse> {
         object("success", &T::success, "errors", &T::errors, "messages", &T::messages, "result", &T::result);
 };
 
-#endif  // YADDNSC_DRV_CLOUDFLARE_RESPONSE_H
+#endif  // YADDNSC_DRV_CLOUDFLARE_RESPONSE_HPP

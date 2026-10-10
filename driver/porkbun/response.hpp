@@ -1,5 +1,5 @@
-#ifndef YADDNSC_DRV_PORKBUN_RESPONSE_H
-#define YADDNSC_DRV_PORKBUN_RESPONSE_H
+#ifndef YADDNSC_DRV_PORKBUN_RESPONSE_HPP
+#define YADDNSC_DRV_PORKBUN_RESPONSE_HPP
 
 #include <optional>
 #include <string>
@@ -19,4 +19,4 @@ struct glz::meta<PorkbunResponse> {
     static constexpr auto value = object("status", &T::status, "message", &T::message, "code", &T::code);
 };
 
-#endif  // YADDNSC_DRV_PORKBUN_RESPONSE_H
+#endif  // YADDNSC_DRV_PORKBUN_RESPONSE_HPP

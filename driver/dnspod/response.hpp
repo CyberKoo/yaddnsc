@@ -1,5 +1,5 @@
-#ifndef YADDNSC_DRV_DNSPOD_RESPONSE_H
-#define YADDNSC_DRV_DNSPOD_RESPONSE_H
+#ifndef YADDNSC_DRV_DNSPOD_RESPONSE_HPP
+#define YADDNSC_DRV_DNSPOD_RESPONSE_HPP
 
 #include <cstdint>
 #include <optional>
@@ -39,4 +39,4 @@ struct glz::meta<DnsPodRecord> {
     static constexpr auto value = object("id", &T::id, "name", &T::name, "value", &T::value);
 };
 
-#endif  // YADDNSC_DRV_DNSPOD_RESPONSE_H
+#endif  // YADDNSC_DRV_DNSPOD_RESPONSE_HPP
