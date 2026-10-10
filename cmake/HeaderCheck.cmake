@@ -13,14 +13,15 @@ file(GLOB_RECURSE YADDNSC_HEADER_CHECK_FILES CONFIGURE_DEPENDS
     ${PROJECT_SOURCE_DIR}/src/*.hpp
     ${PROJECT_SOURCE_DIR}/include/*.h
     ${PROJECT_SOURCE_DIR}/include/*.hpp
+    ${PROJECT_SOURCE_DIR}/driver/*/*.h
+    ${PROJECT_SOURCE_DIR}/driver/*/*.hpp
     ${PROJECT_SOURCE_DIR}/plugin_support/crypto/*.h
 )
 
-# xml_raii.hpp includes <libxml/parser.h>; libxml2 is an optional dependency
-# (only the route53/namecheap drivers use it), so only check the header when
-# the library is available.
-find_package(LibXml2 QUIET)
-if(NOT LibXml2_FOUND)
+# xml_raii.hpp includes <libxml/parser.h>; libxml2 is an opt-in SDK component
+# (cmake/PluginSdk.cmake performs the single find_package), so only check the
+# header when the component exists.
+if(NOT YADDNSC_HAS_SDK_XML_COMPONENT)
     list(FILTER YADDNSC_HEADER_CHECK_FILES EXCLUDE REGEX "xml_raii\\.hpp$")
 endif()
 
@@ -43,7 +44,7 @@ target_link_libraries(yaddnsc_header_checks PRIVATE
     yaddnsc_internal_headers
     yaddnsc_plugin_sdk
     OpenSSL::Crypto
-    $<$<BOOL:${LibXml2_FOUND}>:LibXml2::LibXml2>
+    $<$<BOOL:${YADDNSC_HAS_SDK_XML_COMPONENT}>:yaddnsc_plugin_sdk_xml>
 )
 # Third-party headers referenced from first-party headers.
 foreach(dep IN ITEMS BS_thread_pool spdlog::spdlog fmt::fmt)
