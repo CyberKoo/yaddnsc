@@ -6,8 +6,8 @@
 #include <libxml/xpath.h>
 #include <yaddnsc/sdk/driver.hpp>
 #include <yaddnsc/sdk/driver_abi.h>
+#include <yaddnsc/sdk/format.hpp>
 #include <yaddnsc/sdk/xml_raii.hpp>
-#include <yaddnsc/util/format.hpp>
 #include <memory>
 #include <string>
 #include <string_view>

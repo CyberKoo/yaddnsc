@@ -1,6 +1,5 @@
 #include "diagnostics.h"
 
-#include <magic_enum/magic_enum.hpp>
 #include <coroutine>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 #include <chrono>
 #include <expected>
@@ -8,6 +7,7 @@
 #include <utility>
 
 #include "application/ports/network_interfaces.h"
+#include "domain/dns/record_kind.h"
 #include "domain/fqdn.h"
 #include "coro/scope.hpp"
 #include "support/fmt.hpp"
@@ -16,10 +16,6 @@
 #include "domain/config/runtime_config.h"
 #include "domain/error/dns_error.h"
 #include "yaddnsc/util/format.hpp"  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
-
-namespace domain {
-enum class RecordKind;
-}  // namespace domain
 
 namespace app {
 
@@ -45,7 +41,7 @@ std::vector<InterfaceListItem> list_interfaces(const NetworkInterfacesPort& inte
 coro::Task<DnsResolveOutcome> dns_resolve(ResolverPort& resolver, std::string host, std::string type_text) {
     DnsResolveOutcome outcome{.host = std::move(host), .type_text = std::move(type_text), .lookup = std::nullopt};
 
-    const auto type = magic_enum::enum_cast<domain::RecordKind>(outcome.type_text, magic_enum::case_insensitive);
+    const auto type = domain::record_kind_from_str(outcome.type_text);
     if (!type.has_value()) {
         co_return outcome;  // lookup stays nullopt — unknown record type
     }

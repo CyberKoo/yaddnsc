@@ -2,9 +2,8 @@
 
 #include <yaddnsc/sdk/driver.hpp>
 #include <yaddnsc/sdk/driver_abi.h>
+#include <yaddnsc/sdk/format.hpp>
 #include <yaddnsc/sdk/url_encode.hpp>
-#include <yaddnsc/util/format.hpp>
-#include <yaddnsc/util/url_encode.hpp>
 #include <algorithm>
 #include <chrono>
 #include <cstdint>

@@ -106,6 +106,7 @@ add_library(yaddnsc_domain STATIC
     src/domain/update/update_decision.cpp
     src/domain/network/inet_address.cpp
     src/domain/error/dns_error.cpp
+    src/domain/dns/record_kind.cpp
     src/domain/address_policy.cpp
     src/domain/fqdn.cpp
 )
@@ -140,7 +141,6 @@ target_link_libraries(yaddnsc_application
     # PUBLIC yaddnsc_coro: application/diagnostics.h returns a coro::Task, so
     # every consumer needs the runtime's headers (and its BS_thread_pool path).
     PUBLIC yaddnsc_domain yaddnsc_fmt yaddnsc_coro
-    PRIVATE magic_enum
 )
 
 # Configuration infrastructure — JSON parsing, normalization, validation.
@@ -215,7 +215,7 @@ add_library(yaddnsc_coro_application STATIC
 yaddnsc_production_module(yaddnsc_coro_application)
 target_link_libraries(yaddnsc_coro_application
     PUBLIC yaddnsc_domain yaddnsc_coro
-    PRIVATE yaddnsc_application magic_enum yaddnsc_fmt
+    PRIVATE yaddnsc_application yaddnsc_fmt
 )
 
 # Coroutine IP sources — interface / HTTP / mDNS, plus the app::IpSourcePort

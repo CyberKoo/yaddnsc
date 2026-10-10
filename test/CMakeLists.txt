@@ -85,6 +85,7 @@ add_library(test_support STATIC
     ${PROJECT_SOURCE_DIR}/src/domain/error/dns_error.cpp
     ${PROJECT_SOURCE_DIR}/src/domain/network/inet_address.cpp
     ${PROJECT_SOURCE_DIR}/src/domain/update/update_decision.cpp
+    ${PROJECT_SOURCE_DIR}/src/domain/dns/record_kind.cpp
     ${PROJECT_SOURCE_DIR}/src/domain/address_policy.cpp
     ${PROJECT_SOURCE_DIR}/src/domain/fqdn.cpp
 )

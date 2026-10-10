@@ -7,8 +7,8 @@
 #include <libxml/xpathInternals.h>
 #include <yaddnsc/sdk/driver.hpp>
 #include <yaddnsc/sdk/driver_abi.h>
+#include <yaddnsc/sdk/format.hpp>
 #include <yaddnsc/sdk/xml_raii.hpp>
-#include <yaddnsc/util/format.hpp>
 #include <cstddef>
 #include <cstdint>
 #include <optional>

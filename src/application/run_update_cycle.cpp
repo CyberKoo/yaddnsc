@@ -4,7 +4,6 @@
 
 #include "run_update_cycle.h"
 
-#include <magic_enum/magic_enum.hpp>
 #include <coroutine>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 #include <chrono>
 #include <expected>
@@ -16,6 +15,7 @@
 
 #include "application/log_macros.h"
 #include "domain/address_policy.h"
+#include "domain/dns/record_kind.h"
 #include "domain/error/dns_error.h"
 #include "domain/error/dns_error_info.h"
 #include "domain/error/error.h"
@@ -37,8 +37,7 @@ namespace app {
 
 coro::Task<UpdateCycleOutcome> run_update_cycle(const domain::UpdateTask& task, const Services& services) {
     const auto& subdomain = task.subdomain;
-    const auto rd_type_name = magic_enum::enum_name(subdomain.type);
-    const std::string_view rd_type = rd_type_name.empty() ? std::string_view{"UNKNOWN"} : rd_type_name;
+    const std::string_view rd_type = domain::record_kind_to_str(subdomain.type);
 
     try {
         // --- Step 1: local IP -------------------------------------------------

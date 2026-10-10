@@ -69,7 +69,7 @@ file(GLOB_RECURSE application_check_files RELATIVE ${PROJECT_SOURCE_DIR}
     ${PROJECT_SOURCE_DIR}/src/application/*.cpp)
 foreach (f ${application_check_files})
     file(STRINGS ${PROJECT_SOURCE_DIR}/${f} lines REGEX
-        "${INC_RE}[<\"](infrastructure/|coro/|composition/|cli/|spdlog/|glaze/|CLI/|openssl/|dlfcn\\.h)")
+        "${INC_RE}[<\"](infrastructure/|coro/|composition/|cli/|spdlog/|glaze/|CLI/|magic_enum/|openssl/|dlfcn\\.h)")
     foreach (line ${lines})
         if (line MATCHES "^[ \t]*(//|/\\*|\\*)")
             continue()
@@ -81,7 +81,7 @@ foreach (f ${application_check_files})
             endif ()
         endif ()
         string(STRIP "${line}" stripped)
-        set(violations "${violations}\n  ${f}: application may include only public coro headers, not infrastructure/spdlog/Glaze/CLI11/OpenSSL/dlopen\n      ${stripped}")
+        set(violations "${violations}\n  ${f}: application may include only public coro headers, not infrastructure/spdlog/Glaze/CLI11/magic_enum/OpenSSL/dlopen\n      ${stripped}")
     endforeach ()
 endforeach()
 
@@ -217,7 +217,7 @@ endforeach ()
 #    no spdlog (logging goes through Host Services)
 # ------------------------------------------------------------------------------
 guard_check("plugins must not include host src/ module headers"
-    "${INC_RE}[<\"](\\.\\./|(core|application|infrastructure|domain|config|network|http_client|cli|composition|dns|ip_source|util|support)/)"
+    "${INC_RE}[<\"](\\.\\./|yaddnsc/util/|(core|application|infrastructure|domain|config|network|http_client|cli|composition|dns|ip_source|util|support)/)"
     ${PROJECT_SOURCE_DIR}/driver/*.h
     ${PROJECT_SOURCE_DIR}/driver/*.hpp
     ${PROJECT_SOURCE_DIR}/driver/*.cpp)

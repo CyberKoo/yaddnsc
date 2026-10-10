@@ -6,6 +6,8 @@
 //   - enum class semantics prevent implicit conversion.
 //   - Default-initialised value is A (first enumerator).
 //   - All three values are distinct.
+//   - record_kind_to_str / record_kind_from_str round-trip every kind,
+//     parse case-insensitively and reject unknown text.
 // =============================================================================
 
 #include "domain/dns/record_kind.h"
@@ -52,4 +54,33 @@ TEST(RecordKindTest, Switch_CoversAllValues) {
     EXPECT_STREQ(classify(domain::RecordKind::A), "A");
     EXPECT_STREQ(classify(domain::RecordKind::AAAA), "AAAA");
     EXPECT_STREQ(classify(domain::RecordKind::TXT), "TXT");
+}
+
+TEST(RecordKindTest, ToStr_AllValues) {
+    EXPECT_EQ(domain::record_kind_to_str(domain::RecordKind::A), "A");
+    EXPECT_EQ(domain::record_kind_to_str(domain::RecordKind::AAAA), "AAAA");
+    EXPECT_EQ(domain::record_kind_to_str(domain::RecordKind::TXT), "TXT");
+}
+
+TEST(RecordKindTest, ToStr_OutOfRange_RendersUnknown) {
+    EXPECT_EQ(domain::record_kind_to_str(static_cast<domain::RecordKind>(42)), "UNKNOWN");
+}
+
+TEST(RecordKindTest, FromStr_ValidMnemonics) {
+    EXPECT_EQ(domain::record_kind_from_str("A"), domain::RecordKind::A);
+    EXPECT_EQ(domain::record_kind_from_str("AAAA"), domain::RecordKind::AAAA);
+    EXPECT_EQ(domain::record_kind_from_str("TXT"), domain::RecordKind::TXT);
+}
+
+TEST(RecordKindTest, FromStr_CaseInsensitive) {
+    EXPECT_EQ(domain::record_kind_from_str("a"), domain::RecordKind::A);
+    EXPECT_EQ(domain::record_kind_from_str("aaaa"), domain::RecordKind::AAAA);
+    EXPECT_EQ(domain::record_kind_from_str("tXt"), domain::RecordKind::TXT);
+}
+
+TEST(RecordKindTest, FromStr_RejectsUnknown) {
+    EXPECT_FALSE(domain::record_kind_from_str("").has_value());
+    EXPECT_FALSE(domain::record_kind_from_str("MX").has_value());
+    EXPECT_FALSE(domain::record_kind_from_str("AAAAA").has_value());
+    EXPECT_FALSE(domain::record_kind_from_str(" A").has_value());
 }

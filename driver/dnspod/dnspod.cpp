@@ -3,7 +3,7 @@
 #include <yaddnsc/sdk/driver.hpp>
 #include <yaddnsc/sdk/driver_abi.h>
 #include <yaddnsc/sdk/form_encode.hpp>
-#include <yaddnsc/util/format.hpp>
+#include <yaddnsc/sdk/format.hpp>
 #include <map>
 #include <optional>
 #include <string>

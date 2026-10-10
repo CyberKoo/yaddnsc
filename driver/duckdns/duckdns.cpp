@@ -2,7 +2,7 @@
 
 #include <yaddnsc/sdk/driver.hpp>
 #include <yaddnsc/sdk/driver_abi.h>
-#include <yaddnsc/util/format.hpp>
+#include <yaddnsc/sdk/format.hpp>
 #include <optional>
 #include <vector>  // IWYU pragma: keep — sdk::HttpRequest aggregate init needs its std::vector member complete; clangd sees no spelled use
 

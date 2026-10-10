@@ -5,7 +5,7 @@
 #include <glaze/glaze.hpp>
 #include <yaddnsc/sdk/driver.hpp>
 #include <yaddnsc/sdk/driver_abi.h>
-#include <yaddnsc/util/format.hpp>
+#include <yaddnsc/sdk/format.hpp>
 
 #include "config.hpp"
 #include "response.hpp"

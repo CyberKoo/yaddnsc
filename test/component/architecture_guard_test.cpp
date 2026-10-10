@@ -280,7 +280,12 @@ auto note = "net::Stream; class NetworkInterfaces;";
         GuardCase{"DeducedWaiter", "scope.remove_waiter(node);", false},
         GuardCase{"CallbackAddress", "auto action = &coro::CancelScope::timeout_action;", false},
         GuardCase{"TaskContext", "task.bind_context(loop, scope);", false},
-        GuardCase{"PromiseAlias", "using P = coro::Task<void>::promise_type;", false}),
+        GuardCase{"PromiseAlias", "using P = coro::Task<void>::promise_type;", false},
+        GuardCase{"ThirdPartyReflection", "#include <magic_enum/magic_enum.hpp>\n", false},
+        GuardCase{"PluginSdkFacadeAllowed",
+                  "#include <yaddnsc/sdk/driver.hpp>\n#include <yaddnsc/sdk/format.hpp>\n", true, "driver/probe.cpp"},
+        GuardCase{"PluginUtilBypass", "#include <yaddnsc/util/format.hpp>\n", false, "driver/probe.cpp",
+                  "host src/ module headers"}),
     [](const ::testing::TestParamInfo<GuardCase>& case_info) { return case_info.param.name; });
 
 // A normative rule states a discipline and links the owner document. Naming a
