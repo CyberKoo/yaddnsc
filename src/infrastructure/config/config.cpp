@@ -12,10 +12,13 @@
 #include "infrastructure/config/config_exception.h"
 #include "infrastructure/config/diagnostics/parse_diagnostic.h"
 #include "support/fmt.hpp"
+#include "support/redact.hpp"
 
 #include "glaze_meta.hpp"  // IWYU pragma: keep
 
 namespace {
+using Utils::redact_uri_credentials;
+
 [[nodiscard]] bool is_sensitive_key(std::string_view key) {
     std::string lower(key.size(), '\0');
     std::ranges::transform(key, lower.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
@@ -36,22 +39,6 @@ void redact_sensitive_fields(glz::generic& value) {
         for (auto& element : value.get_array()) {
             redact_sensitive_fields(element);
         }
-    }
-}
-
-/// Replace URI userinfo ("scheme://user:pass@host/...") with "***" — the
-/// address fields (resolver servers, ip_source_param) are plain strings that
-/// may embed credentials.
-void redact_uri_credentials(std::string& text) {
-    const auto scheme_end = text.find("://");
-    if (scheme_end == std::string::npos) {
-        return;
-    }
-    const auto authority_start = scheme_end + 3;
-    const auto authority_end = text.find('/', authority_start);
-    const auto at = text.find('@', authority_start);
-    if (at != std::string::npos && (authority_end == std::string::npos || at < authority_end)) {
-        text.replace(authority_start, at - authority_start, "***");
     }
 }
 }  // namespace

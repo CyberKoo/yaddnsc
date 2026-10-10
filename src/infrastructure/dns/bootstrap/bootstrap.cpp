@@ -4,6 +4,7 @@
 
 #include "bootstrap.h"
 
+#include <spdlog/spdlog.h>
 #include <coroutine>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 #include <cstdint>
 #include <expected>
@@ -22,6 +23,7 @@
 #include "infrastructure/dns/validator.h"
 #include "infrastructure/dns/wire/query_util.h"
 #include "support/fmt.hpp"
+#include "support/redact.hpp"
 #include "domain/config/dns_config.h"
 #include "domain/dns/record_kind.h"
 #include "domain/error/dns_error.h"
@@ -98,7 +100,10 @@ struct KindResult {
         const auto address = domain::InetAddress::parse(server.address);
         if (!address.has_value()) {
             // A bootstrap server must be an IP literal — a config defect for
-            // this entry; the remaining servers can still answer.
+            // this entry; the remaining servers can still answer. Redact:
+            // the raw string may embed URI userinfo.
+            SPDLOG_WARN(R"(Skipping bootstrap DNS server "{}": not an IP literal)",
+                        Utils::redacted_uri_credentials(server.address));
             result.error =
                 domain::DnsErrorInfo{domain::DnsError::CONFIG,
                                      fmt::format(R"(Bootstrap DNS server "{}" is not an IP literal)", server.address)};

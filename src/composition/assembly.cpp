@@ -102,7 +102,7 @@ void fill_bootstrap_servers(domain::RuntimeConfig& config) {
 /// connection then fails closed at connect, the same outcome the per-stream lazy
 /// load produced.
 [[nodiscard]] std::shared_ptr<const net::TlsContext> make_default_tls_context() {
-    auto created = net::TlsContext::create(net::TlsOptions{});
+    auto created = net::TlsContext::create(net::TlsTrustOptions{});
     if (!created) {
         SPDLOG_WARN("No usable TLS trust context could be built; TLS targets will fail to connect");
         return nullptr;

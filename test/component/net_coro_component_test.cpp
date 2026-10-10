@@ -197,7 +197,7 @@ protected:
     /// Build the trust context the stream under test needs from @p options. The
     /// test fails (rather than silently skipping) when the requested policy
     /// cannot produce a context.
-    [[nodiscard]] std::shared_ptr<const net::TlsContext> client_context(const net::TlsOptions& options) {
+    [[nodiscard]] std::shared_ptr<const net::TlsContext> client_context(const net::TlsTrustOptions& options) {
         auto context = net::TlsContext::create(options);
         EXPECT_TRUE(context.has_value()) << "TlsContext::create failed";
         return context.value_or(nullptr);
@@ -355,7 +355,7 @@ TEST_F(TlsEchoServerTest, ensure_connected_VerifiedSelfSignedBundle_RoundTrips) 
 TEST_F(TlsEchoServerTest, ensure_connected_UnverifiableCertificate_FailsClosed) {
     // Default verification against the system trust store: a self-signed
     // certificate must be rejected, not silently accepted.
-    auto context = net::TlsContext::create(net::TlsOptions{});
+    auto context = net::TlsContext::create(net::TlsTrustOptions{});
     if (!context.has_value()) {
         GTEST_SKIP() << "no system CA bundle available";
     }
@@ -379,9 +379,10 @@ TEST_F(TlsEchoServerTest, ensure_connected_UnverifiableCertificate_FailsClosed) 
 TEST_F(TlsEchoServerTest, ensure_connected_SniHostnameWithVerificationDisabled_Connects) {
     // Drives the name-based branch: SNI plus the OpenSSL 4 host-verification call
     // on the SSL verify parameter. The server certificate is for 127.0.0.1, so
-    // verification stays off; this proves the branch itself does not fail.
-    net::TlsStream stream{loopback_v4(), TLS_ECHO_PORT,
-                          client_context({.sni_hostname = "dns.example.com", .verify_peer = false})};
+    // verification stays off; this proves the branch itself does not fail. The
+    // SNI name goes to the stream — the trust context never carried it.
+    net::TlsStream stream{loopback_v4(), TLS_ECHO_PORT, client_context({.verify_peer = false}), {},
+                          {.sni_hostname = "dns.example.com"}};
 
     const std::vector<std::uint8_t> payload{7, 7};
     const std::vector<std::uint8_t> message = framed(payload);

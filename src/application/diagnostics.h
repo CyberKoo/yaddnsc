@@ -45,9 +45,9 @@ struct InterfaceListItem {
     std::vector<domain::InetAddress> addresses;
 };
 
-/// List every interface with its addresses. A name that disappears between
-/// names() and addresses() (same cache snapshot, so only past the TTL)
-/// degrades to an empty address row instead of aborting the listing.
+/// List every interface with its addresses. Rows come from a single
+/// enumeration pass (NetworkInterfacesPort::list()), so an interface that
+/// disappears mid-listing simply has no row.
 [[nodiscard]] std::vector<InterfaceListItem> list_interfaces(const NetworkInterfacesPort& interfaces);
 
 /// Outcome of one `dns resolve` command.

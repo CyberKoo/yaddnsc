@@ -17,7 +17,7 @@
 #include "infrastructure/network/transport/io_error.h"
 
 namespace net {
-struct TlsOptions;
+struct TlsTrustOptions;
 
 /// An immutable OpenSSL client SSL_CTX plus the verification policy it was
 /// built from.
@@ -40,7 +40,7 @@ public:
     /// `ca_bundle` when present, otherwise Utils::Cert::discover_ca_bundle(); if
     /// neither yields a usable bundle the call fails instead of registering a
     /// lazy trust-directory lookup that would read files during a handshake.
-    [[nodiscard]] static std::expected<std::shared_ptr<const TlsContext>, IoError> create(const TlsOptions& options);
+    [[nodiscard]] static std::expected<std::shared_ptr<const TlsContext>, IoError> create(const TlsTrustOptions& options);
 
     /// Borrowed OpenSSL handle; never null for a built context.
     [[nodiscard]] SSL_CTX* native_handle() const noexcept { return context_.get(); }

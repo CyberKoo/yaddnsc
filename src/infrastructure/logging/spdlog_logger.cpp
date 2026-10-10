@@ -45,22 +45,30 @@ namespace {
 }  // namespace
 
 bool SpdlogLogger::is_enabled(app::LogLevel level) const {
-    return spdlog::should_log(to_spdlog_level(level));
+    const auto* const logger = spdlog::default_logger_raw();
+    // Null after logging::shutdown(): there is nowhere left to write.
+    return logger != nullptr && logger->should_log(to_spdlog_level(level));
 }
 
 void SpdlogLogger::log(app::LogLevel level, std::string_view message, const std::source_location& loc) const {
+    auto* const logger = spdlog::default_logger_raw();
+    if (logger == nullptr) {
+        return;  // pipeline shut down — drop instead of dereferencing null
+    }
     const spdlog::source_loc spd_loc{loc.file_name(), static_cast<std::int32_t>(loc.line()), loc.function_name()};
-    spdlog::default_logger_raw()->log(spd_loc, to_spdlog_level(level),
-                                      spdlog::string_view_t(message.data(), message.size()));
+    logger->log(spd_loc, to_spdlog_level(level), spdlog::string_view_t(message.data(), message.size()));
 }
 
 void SpdlogLogger::log_explicit(app::LogLevel level, std::string_view message, std::string_view file, int line,
                                 std::string_view function) const {
+    auto* const logger = spdlog::default_logger_raw();
+    if (logger == nullptr) {
+        return;  // pipeline shut down — drop instead of dereferencing null
+    }
     // Intern the location strings: an async logger queues a copy of the
     // source_loc pointers and formats on its drain thread, which would outlive
     // these plugin-supplied views.
     const spdlog::source_loc spd_loc{intern_source_string(file), static_cast<std::int32_t>(line),
                                      intern_source_string(function)};
-    spdlog::default_logger_raw()->log(spd_loc, to_spdlog_level(level),
-                                      spdlog::string_view_t(message.data(), message.size()));
+    logger->log(spd_loc, to_spdlog_level(level), spdlog::string_view_t(message.data(), message.size()));
 }

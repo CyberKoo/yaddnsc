@@ -45,9 +45,11 @@ namespace {
 /// ALPN identifier for DNS over TLS (RFC 7858 §3.4).
 constexpr unsigned char ALPN_DOT[] = {3, 'd', 'o', 't'};
 
-/// Connection-establishment budget (connect + TLS handshake), restored from
-/// the legacy TLS_CONNECT_TIMEOUT: a black-holed endpoint fails as RETRY in
-/// about a second instead of parking until the caller's scope fires.
+/// Budget for one connection-establishment phase — the name resolution, or one
+/// address's connect + TLS handshake — restored from the legacy
+/// TLS_CONNECT_TIMEOUT: a black-holed phase fails as RETRY in about a second
+/// instead of parking until the caller's scope fires. Each phase and each
+/// address gets its own budget, so a slow phase never eats the next one's.
 constexpr auto CONNECT_BUDGET = std::chrono::seconds(1);
 
 /// Post-connect budget for one send/read operation, restored from the legacy
@@ -229,8 +231,9 @@ coro::Task<std::expected<std::vector<std::uint8_t>, domain::DnsErrorInfo>> DotRe
     } catch (const DnsLookupException& error) {
         co_return std::unexpected(domain::DnsErrorInfo{error.get_error(), error.what()});
     } catch (const std::exception& error) {
+        // See ClassicResolver: unexpected exceptions stay retryable as UNKNOWN.
         co_return std::unexpected(domain::DnsErrorInfo{
-            domain::DnsError::PARSE, fmt::format(R"(DoT query for "{}" failed: {})", host, error.what())});
+            domain::DnsError::UNKNOWN, fmt::format(R"(DoT query for "{}" failed: {})", host, error.what())});
     }
 }
 
@@ -239,16 +242,31 @@ coro::Task<std::expected<void, domain::DnsErrorInfo>> DotResolver::ensure_stream
         co_return co_await connect_with_budget(*stream_);
     }
 
-    auto addresses = co_await bootstrap_resolve(host_, std::nullopt, options_.bootstrap_dns);
-    if (!addresses) {
-        co_return std::unexpected(std::move(addresses.error()));
+    // Name resolution gets its own CONNECT_BUDGET: with k bootstrap servers an
+    // unbounded resolve could otherwise take k × UDP budget before the first
+    // connect attempt even starts. It stays separate from the per-address
+    // connect budgets below — a slow resolve must not eat the connect/TLS
+    // handshake budget, and one black-holed address must not eat the next
+    // address's.
+    auto resolved = co_await coro::with_timeout(
+        CONNECT_BUDGET, [this]() -> coro::Task<std::expected<std::vector<domain::InetAddress>, domain::DnsErrorInfo>> {
+            if (options_.resolve) {
+                co_return co_await options_.resolve(host_, std::nullopt);
+            }
+            co_return co_await bootstrap_resolve(host_, std::nullopt, options_.bootstrap_dns);
+        });
+    if (resolved.timed_out) {
+        co_return std::unexpected(domain::DnsErrorInfo{domain::DnsError::RETRY, "DoT name resolution timed out"});
+    }
+    if (!*resolved) {
+        co_return std::unexpected(std::move(resolved->error()));
     }
 
     net::DefaultStreamFactory fallback;
     net::StreamFactory& factory = options_.factory != nullptr ? *options_.factory : fallback;
 
     domain::DnsErrorInfo last{domain::DnsError::CONNECTION, "no DoT address"};
-    for (const domain::InetAddress& address : *addresses) {
+    for (const domain::InetAddress& address : **resolved) {
         auto stream = factory.create_tls(address, port_, options_.connect, options_.tls, options_.tls_context);
         auto connected = co_await connect_with_budget(*stream);
         if (connected) {

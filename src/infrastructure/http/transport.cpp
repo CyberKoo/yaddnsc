@@ -10,6 +10,8 @@
 #include <utility>
 #include <optional>
 
+#include "coro/scope.hpp"
+#include "coro/task.hpp"
 #include "infrastructure/http/wire_request.h"
 #include "infrastructure/network/factory/default_stream_factory.h"
 #include "domain/error/dns_error_info.h"
@@ -56,8 +58,21 @@ coro::Task<std::expected<std::unique_ptr<net::Stream>, Error>> connect_stream(
     for (const domain::InetAddress& address : addresses) {
         auto stream = tls ? factory.create_tls(address, port, options.connect, tls_options, options.tls_context)
                           : factory.create_tcp(address, port, options.connect);
-        auto connected = co_await stream->ensure_connected();
-        if (connected) {
+        auto attempt = [&stream]() -> coro::Task<std::expected<void, net::IoError>> {
+            co_return co_await stream->ensure_connected();
+        };
+        if (options.connect_timeout.count() > 0) {
+            // The per-address connect budget is the legacy transport connect
+            // timeout: expiry skips to the next candidate as CONNECT_FAILED.
+            auto bounded = co_await coro::with_timeout(options.connect_timeout, std::move(attempt));
+            if (bounded.timed_out) {
+                last = Error{ErrorCode::CONNECT_FAILED, "connection timed out"};
+                continue;
+            }
+            if (*bounded) {
+                co_return stream;
+            }
+        } else if (auto connected = co_await attempt(); connected) {
             co_return stream;
         }
         last = connect_error();

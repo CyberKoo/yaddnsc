@@ -1,5 +1,7 @@
 #include "bootstrap.h"
 
+#include <unistd.h>
+#include <csignal>
 #include <cstdlib>
 #include <exception>
 #include <variant>
@@ -9,6 +11,7 @@
 #include "cli/presenter.h"
 #include "composition/commands/diagnostic_commands.h"
 #include "composition/commands/run.h"
+#include "composition/startup_signals.h"
 #include "infrastructure/logging/async_logging.h"
 
 namespace {
@@ -49,5 +52,14 @@ int Composition::run(const Cli::Command& command) {
     // Drain the async pipeline and report any dropped records before returning;
     // this single point also flushes the fatal boundary's last record.
     logging::shutdown();
+
+    // The run command's counting handler is still installed (the Loop's
+    // destructor restored it), so a repeated Ctrl-C during the drain was
+    // counted rather than swallowed; force the same exit status the in-loop
+    // watcher produced. Out-of-loop arrivals are all this sees — the loop-phase
+    // count lived and acted inside the run root.
+    if (startup_signal_counts().sigint >= 2) {
+        ::_exit(128 + SIGINT);
+    }
     return exit_code;
 }

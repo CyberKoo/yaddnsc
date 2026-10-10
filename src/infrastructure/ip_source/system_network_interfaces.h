@@ -16,6 +16,9 @@ public:
 
     /// std::nullopt when the interface does not exist.
     [[nodiscard]] std::optional<std::vector<domain::InetAddress>> addresses(const std::string& name) const override;
+
+    /// One getifaddrs() pass for the whole listing.
+    [[nodiscard]] std::vector<app::InterfaceInfo> list() const override;
 };
 
 #endif  // YADDNSC_INFRASTRUCTURE_IP_SOURCE_SYSTEM_NETWORK_INTERFACES_H

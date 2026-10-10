@@ -29,11 +29,10 @@ std::vector<DriverListItem> list_drivers(const DriverCatalogPort& catalog) {
 
 std::vector<InterfaceListItem> list_interfaces(const NetworkInterfacesPort& interfaces) {
     std::vector<InterfaceListItem> items;
-    for (const auto& name : interfaces.names()) {
-        // names() only yields interfaces from the same cached snapshot that
-        // addresses() reads, so a missing entry degrades to an empty row.
-        items.push_back(InterfaceListItem{
-            .name = name, .addresses = interfaces.addresses(name).value_or(std::vector<domain::InetAddress>{})});
+    // One enumeration pass: every row comes from the same live snapshot, so a
+    // disappearing interface degrades to a missing row instead of an empty one.
+    for (auto& row : interfaces.list()) {
+        items.push_back(InterfaceListItem{.name = std::move(row.name), .addresses = std::move(row.addresses)});
     }
     return items;
 }

@@ -270,6 +270,7 @@ target_link_libraries(yaddnsc_cli_adapter
 add_library(yaddnsc_composition STATIC
     src/composition/bootstrap.cpp
     src/composition/assembly.cpp
+    src/composition/startup_signals.cpp
     src/composition/commands/run.cpp
     src/composition/commands/diagnostic_commands.cpp
 )

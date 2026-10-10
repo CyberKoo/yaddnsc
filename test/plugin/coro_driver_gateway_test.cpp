@@ -580,22 +580,23 @@ TEST_F(CoroDriverGatewayTest, ShutdownCancelsInFlightBridgeExchange) {
     EXPECT_LT(elapsed, 5s);
 }
 
-TEST_F(CoroDriverGatewayTest, PluginCancelledStatus_PropagatesAsControlException) {
+TEST_F(CoroDriverGatewayTest, PluginCancelledStatus_BecomesAnErrorValueOnALiveScope) {
     coro::Loop loop;
-    bool returned = false;
-    bool cancelled = false;
+    std::expected<void, domain::DriverError> result;
     run_loop(loop, [&]() -> coro::Task<void> {
         co_await coro::supervisor_group([&](coro::TaskGroup& group) -> coro::Task<void> {
             plugin::DriverGateway gateway(catalog_, logger_, loop, group, default_options());
-            const auto outcome = co_await coro::with_cancel_scope([&](coro::CancelScope&) -> coro::Task<void> {
-                co_await gateway.update(DRIVER_NAME, make_command(R"({"op":"fail","status":"cancelled"})"));
-                returned = true;
-            });
-            cancelled = outcome.cancelled && !outcome.completed;
+            result = co_await gateway.update(DRIVER_NAME, make_command(R"({"op":"fail","status":"cancelled"})"));
+            co_return;
         });
     });
-    EXPECT_FALSE(returned);
-    EXPECT_TRUE(cancelled);
+    // A driver-reported cancellation on a live scope is one failed cycle, not
+    // the end of the subdomain loop: the caller gets an error value and the
+    // schedule retries on the next interval (the legacy mapping). Only a
+    // host-originated cancel still propagates as coro::Cancelled — that path
+    // is covered by the AbandonedCycle tests above.
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error().code, domain::DriverError::Code::UPDATE_FAILED);
 }
 
 // ---------------------------------------------------------------------------

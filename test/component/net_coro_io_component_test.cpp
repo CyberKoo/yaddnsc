@@ -60,8 +60,8 @@ constexpr int BOOTSTRAP_SECOND_PORT = 21685;
     return address.value_or(domain::InetAddress{});
 }
 
-/// Build the off-loop trust context a resolver's TLS options ask for.
-[[nodiscard]] std::shared_ptr<const net::TlsContext> client_context(const net::TlsOptions& options) {
+/// Build the off-loop trust context a resolver's trust options ask for.
+[[nodiscard]] std::shared_ptr<const net::TlsContext> client_context(const net::TlsTrustOptions& options) {
     auto context = net::TlsContext::create(options);
     EXPECT_TRUE(context.has_value()) << "TlsContext::create failed";
     return context.value_or(nullptr);
@@ -319,8 +319,7 @@ TEST(NetCoroDns, doh_resolvesThroughThePersistentHttpSession) {
     }
 
     http::Options options;
-    options.tls.verify_peer = false;
-    options.tls_context = client_context(options.tls);
+    options.tls_context = client_context({.verify_peer = false});
     dns::DohResolver resolver{fmt::format("https://127.0.0.1:{}/dns-query", DOH_PORT), options};
 
     auto resolve = [&]() -> coro::Task<std::pair<bool, bool>> {
@@ -349,8 +348,7 @@ TEST(NetCoroDns, dot_resolvesOverTlsWithPadding) {
     }
 
     dns::EndpointOptions options;
-    options.tls.verify_peer = false;
-    options.tls_context = client_context(options.tls);
+    options.tls_context = client_context({.verify_peer = false});
     dns::DotResolver resolver{"127.0.0.1", DOT_PORT, options};
 
     auto resolve = [&]() -> coro::Task<std::pair<bool, bool>> {
@@ -381,8 +379,7 @@ TEST(NetCoroDns, dot_peerClosesWithoutAnswering_FailsCleanly) {
     }
 
     dns::EndpointOptions options;
-    options.tls.verify_peer = false;
-    options.tls_context = client_context(options.tls);
+    options.tls_context = client_context({.verify_peer = false});
     dns::DotResolver resolver{"127.0.0.1", DOT_TIMEOUT_PORT, options};
 
     const auto result = run_task([&]() -> coro::Task<std::expected<std::vector<std::uint8_t>, domain::DnsErrorInfo>> {
@@ -408,8 +405,7 @@ TEST(NetCoroDns, doh_scopeTimeout_abortsTheQuery) {
     }
 
     http::Options options;
-    options.tls.verify_peer = false;
-    options.tls_context = client_context(options.tls);
+    options.tls_context = client_context({.verify_peer = false});
     dns::DohResolver resolver{fmt::format("https://127.0.0.1:{}/dns-query", DOH_PORT), options};
 
     // doh_server.py accepts this name and then never answers, so only the

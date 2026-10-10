@@ -24,7 +24,7 @@ namespace {
 /// The bundle to trust: the explicit path when set, otherwise discovery. Returns
 /// nullopt when no usable bundle exists; the caller then eagerly loads the
 /// OpenSSL default cert dir (the legacy fallback) before failing closed.
-[[nodiscard]] std::optional<std::string> resolve_ca_bundle(const TlsOptions& options) {
+[[nodiscard]] std::optional<std::string> resolve_ca_bundle(const TlsTrustOptions& options) {
     if (options.ca_bundle) {
         return options.ca_bundle;
     }
@@ -35,7 +35,7 @@ namespace {
 
 TlsContext::TlsContext(ConstructionKey, std::shared_ptr<SSL_CTX> context) : context_(std::move(context)) {}
 
-std::expected<std::shared_ptr<const TlsContext>, IoError> TlsContext::create(const TlsOptions& options) {
+std::expected<std::shared_ptr<const TlsContext>, IoError> TlsContext::create(const TlsTrustOptions& options) {
     // A path with an embedded NUL would be silently truncated by c_str().
     if (options.ca_bundle && options.ca_bundle->find('\0') != std::string::npos) {
         SPDLOG_ERROR("TLS CA bundle path contains a NUL byte");

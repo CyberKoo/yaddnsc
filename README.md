@@ -345,9 +345,10 @@ are excluded unless `allow_ula` or `allow_local_link` is set.
 ### `http`
 
 Issues a request to the URL in `ip_source_param` and parses the response body
-as a bare IP address. HTTPS endpoints are recommended. The optional
-`interface` field binds the outgoing request to a specific interface, subject
-to system routing and permissions.
+as a bare IP address. HTTPS endpoints are recommended. The URL is parsed
+strictly: whitespace and control characters are rejected at validation time.
+The optional `interface` field binds the outgoing request to a specific
+interface, subject to system routing and permissions.
 
 ### `mdns`
 
@@ -373,11 +374,18 @@ The `address` of a server entry selects the protocol:
 
 | Form | Protocol | Port |
 |---|---|---|
-| Bare IP or host name, plus `port` | DNS over UDP, with TCP fallback | `port` (default 53) |
+| Bare IPv4 or IPv6 literal | DNS over UDP, with TCP fallback | Entry `port` (default 53) |
 | `https://host/path` | DNS-over-HTTPS | Taken from the URI, default 443 |
 | `tls://host[:port]` | DNS-over-TLS | Taken from the URI, default 853 |
 
-For the URI forms the `port` field of the entry is ignored.
+For the URI forms the `port` field of the entry is ignored; an explicit
+`:0` port is rejected. An IPv6 literal may be written bare
+(`2606:4700:4700::1111`) or bracketed (`[2606:4700:4700::1111]`). The bare
+form accepts IP literals only — a host name, an embedded port, a path, or a
+query is rejected by validation, because the classic resolver dials only the
+literal and the entry's `port` and anything else would be silently dropped.
+All forms are parsed strictly: whitespace and control characters in the
+address are rejected at validation time.
 
 With several servers configured, `strategy` controls the query order:
 

@@ -25,6 +25,13 @@ struct Services {
     const LoggerPort& logger;
 };
 
+/// Stop-signal counts observed before (or after) the event loop's watch; see
+/// RuntimeServices::startup_signals.
+struct StartupSignalCounts {
+    int sigint{0};
+    int sigterm{0};
+};
+
 /// RuntimeServices — what the run root needs.
 ///
 /// The driver gateway needs a TaskGroup to spawn its bridge coroutines into,
@@ -39,6 +46,11 @@ struct RuntimeServices {
     /// Flush and stop the async log pipeline. The escalating second SIGINT calls
     /// this right before `_exit`, which skips the normal drain in main().
     std::function<void()> drain_logs;
+    /// Signals counted before the loop started (the composition root installs a
+    /// counting handler for the startup phase). The run root folds them into
+    /// its shutdown state, so a startup Ctrl-C is a graceful exit, not a bare
+    /// kill. Empty means no startup bookkeeping (tests).
+    std::function<StartupSignalCounts()> startup_signals;
 };
 
 }  // namespace app

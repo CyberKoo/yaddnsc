@@ -23,6 +23,7 @@
 
 #include <expected>
 #include <gtest/gtest.h>
+#include <thread>
 #include <unistd.h>
 
 #include "application/ports/log.h"
@@ -142,6 +143,10 @@ public:
     struct State {
         int calls = 0;
         std::vector<std::string> fqdns;
+        /// When positive, update() parks this long inside a shielded scope — a
+        /// driver that keeps working through the shutdown request, which keeps
+        /// the drain phase (and the signal watchers) alive for its duration.
+        std::chrono::seconds shielded_hang{0};
         /// Invoked on every call, after the counters are updated.
         std::function<void()> on_call;
     };
@@ -158,6 +163,13 @@ public:
         state_->fqdns.push_back(command.fqdn);
         if (state_->on_call) {
             state_->on_call();
+        }
+        if (state_->shielded_hang.count() > 0) {
+            const auto hang = state_->shielded_hang;
+            co_await coro::non_cancellable([hang](coro::CancelScope&) -> coro::Task<void> {
+                co_await coro::sleep_for(hang);
+                co_return;
+            });
         }
         co_return std::expected<void, domain::DriverError>{};
     }
@@ -623,6 +635,7 @@ TEST(RunRoot, RunRootSupervisesSubdomainsAndStopsOnSigint) {
             return std::make_unique<ProbeGateway>(gateway_state);
         },
         .drain_logs = nullptr,
+        .startup_signals = nullptr,
     };
 
     const int code = coro::run(loop, app::run_root(config, runtime_services));
@@ -636,15 +649,16 @@ TEST(RunRoot, RunRootSupervisesSubdomainsAndStopsOnSigint) {
     EXPECT_FALSE(resolver.calls == 0);
 }
 
-TEST(RunRoot, RunRootReturnsFailureWhenEveryLoopDies) {
-    coro::Loop loop;
+TEST(RunRoot, SubdomainDefectRestartsTheLoopAfterTheInterval) {
+    coro::ManualClock clock;
+    coro::Loop loop{clock};
     FakeResolver resolver;
     FakeIpSource ip_source;
     ip_source.fatal_subdomains.push_back("only");
     const auto gateway_state = std::make_shared<ProbeGateway::State>();
-    NullLogger logger;
+    RecordingLogger logger;
 
-    const auto config = make_config({make_subdomain("only", 1)}, 1, 0);
+    const auto config = make_config({make_subdomain("only", 10)}, 10, 0);
     const app::RuntimeServices runtime_services{
         .resolver = resolver,
         .ip_source = ip_source,
@@ -653,15 +667,34 @@ TEST(RunRoot, RunRootReturnsFailureWhenEveryLoopDies) {
             return std::make_unique<ProbeGateway>(gateway_state);
         },
         .drain_logs = nullptr,
+        .startup_signals = nullptr,
     };
 
-    const int code = coro::run(loop, app::run_root(config, runtime_services));
+    auto task = [&]() -> coro::Task<void> {
+        const auto outcome = co_await coro::with_timeout(35s, [&]() -> coro::Task<void> {
+            co_await app::run_root(config, runtime_services);
+        });
+        // A defect no longer retires the subdomain: the daemon keeps running
+        // until something cancels it (here: the test's budget).
+        EXPECT_TRUE(outcome.timed_out);
+    };
+    coro::run(loop, task());
 
-    // No shutdown was requested, but every subdomain loop died of a defect:
-    // the process is functionally dead and must report a failure status so a
-    // supervisor (Restart=on-failure) starts it again.
-    EXPECT_EQ(code, EXIT_FAILURE);
+    // Defects at t=0, 10, 20, 30: the legacy queue retried a failed task on
+    // the interval, and so does the supervising guard.
+    EXPECT_EQ(ip_source.calls, 4);
     EXPECT_EQ(gateway_state->calls, 0);
+
+    // A dead loop never vanishes silently: every defect is reported, naming
+    // the subdomain.
+    int deaths = 0;
+    for (const auto& record : logger.records()) {
+        if (record.level == app::LogLevel::ERROR && record.message.find("only.example.com") != std::string::npos &&
+            record.message.find("died") != std::string::npos) {
+            ++deaths;
+        }
+    }
+    EXPECT_GE(deaths, 3);
 }
 
 TEST(RunRoot, SubdomainDefectIsReportedAndSiblingsSurvive) {
@@ -689,6 +722,7 @@ TEST(RunRoot, SubdomainDefectIsReportedAndSiblingsSurvive) {
             return std::make_unique<ProbeGateway>(gateway_state);
         },
         .drain_logs = nullptr,
+        .startup_signals = nullptr,
     };
 
     const int code = coro::run(loop, app::run_root(config, runtime_services));
@@ -709,6 +743,103 @@ TEST(RunRoot, SubdomainDefectIsReportedAndSiblingsSurvive) {
     EXPECT_TRUE(reported);
 }
 
+TEST(RunRoot, SigtermStopsTheRunWithSuccess) {
+    coro::Loop loop;
+    FakeResolver resolver;
+    FakeIpSource ip_source;
+    const auto gateway_state = std::make_shared<ProbeGateway::State>();
+    ProbeGateway::State* state = gateway_state.get();
+    gateway_state->on_call = [state] {
+        if (state->calls >= 1) {
+            ::kill(::getpid(), SIGTERM);
+        }
+    };
+    NullLogger logger;
+
+    const auto config = make_config({make_subdomain("www", 100)}, 100, 0);
+    const app::RuntimeServices runtime_services{
+        .resolver = resolver,
+        .ip_source = ip_source,
+        .logger = logger,
+        .make_gateway = [&gateway_state](coro::TaskGroup&) -> std::unique_ptr<app::GatewayPort> {
+            return std::make_unique<ProbeGateway>(gateway_state);
+        },
+        .drain_logs = nullptr,
+        .startup_signals = nullptr,
+    };
+
+    const int code = coro::run(loop, app::run_root(config, runtime_services));
+
+    EXPECT_EQ(code, EXIT_SUCCESS);
+    EXPECT_EQ(gateway_state->calls, 1);
+}
+
+TEST(RunRoot, StartupSignalCountsRequestShutdownBeforeWorkStarts) {
+    // A SIGINT that arrived while the composition root was still loading (the
+    // counting handler covers that phase) is folded into the shutdown state:
+    // the run ends gracefully instead of starting cycles that must unwind.
+    coro::Loop loop;
+    FakeResolver resolver;
+    FakeIpSource ip_source;
+    const auto gateway_state = std::make_shared<ProbeGateway::State>();
+    NullLogger logger;
+
+    const auto config = make_config({make_subdomain("www", 100)}, 100, 0);
+    const app::RuntimeServices runtime_services{
+        .resolver = resolver,
+        .ip_source = ip_source,
+        .logger = logger,
+        .make_gateway = [&gateway_state](coro::TaskGroup&) -> std::unique_ptr<app::GatewayPort> {
+            return std::make_unique<ProbeGateway>(gateway_state);
+        },
+        .drain_logs = nullptr,
+        .startup_signals = [] { return app::StartupSignalCounts{.sigint = 1, .sigterm = 0}; },
+    };
+
+    const int code = coro::run(loop, app::run_root(config, runtime_services));
+
+    EXPECT_EQ(code, EXIT_SUCCESS);
+    EXPECT_EQ(gateway_state->calls, 0);  // no update was ever published
+}
+
+/// The death-test scenario, factored out: EXPECT_EXIT is a macro and the
+/// designated initializers below contain top-level commas it would split on.
+void run_until_second_sigint() {
+    coro::Loop loop;
+    FakeResolver resolver;
+    FakeIpSource ip_source;
+    const auto gateway_state = std::make_shared<ProbeGateway::State>();
+    // The shielded hang keeps the drain phase alive long enough for the
+    // second SIGINT to reach the still-armed watcher.
+    gateway_state->shielded_hang = 1s;
+    gateway_state->on_call = [] {
+        std::thread([] {
+            ::kill(::getpid(), SIGINT);
+            std::this_thread::sleep_for(50ms);
+            ::kill(::getpid(), SIGINT);
+        }).detach();
+    };
+    NullLogger logger;
+
+    const auto config = make_config({make_subdomain("www", 100)}, 100, 0);
+    const app::RuntimeServices runtime_services{
+        .resolver = resolver,
+        .ip_source = ip_source,
+        .logger = logger,
+        .make_gateway = [&gateway_state](coro::TaskGroup&) -> std::unique_ptr<app::GatewayPort> {
+            return std::make_unique<ProbeGateway>(gateway_state);
+        },
+        .drain_logs = nullptr,
+        .startup_signals = nullptr,
+    };
+    const int code = coro::run(loop, app::run_root(config, runtime_services));
+    ::_exit(code);  // reached only when the escalation did not fire
+}
+
+TEST(RunRoot, SecondSigintForcesImmediateTermination) {
+    EXPECT_EXIT(run_until_second_sigint(), ::testing::ExitedWithCode(128 + SIGINT), "");
+}
+
 TEST(RunRoot, RunRoot_AncestorCancellation_DrainsAndPropagates) {
     coro::ManualClock clock;
     coro::Loop loop{clock};
@@ -725,6 +856,7 @@ TEST(RunRoot, RunRoot_AncestorCancellation_DrainsAndPropagates) {
             return std::make_unique<ProbeGateway>(gateway_state);
         },
         .drain_logs = nullptr,
+        .startup_signals = nullptr,
     };
     bool root_returned = false;
     auto task = [&]() -> coro::Task<void> {

@@ -21,6 +21,7 @@
 
 #include "coro/offload.hpp"
 #include "coro/scope.hpp"
+#include "application/log_macros.h"
 #include "infrastructure/plugin/abi_string.h"
 #include "infrastructure/plugin/driver_catalog.h"
 #include "infrastructure/plugin/driver_instance.h"
@@ -263,6 +264,7 @@ coro::Task<std::expected<void, domain::DriverError>> DriverGateway::update(std::
     auto state = std::make_shared<CallState>();
     auto bridge = bridge_;
     const app::LoggerPort* const logger = &logger_;
+    const std::string fqdn = command.fqdn;
     coro::CancelScope& scope = co_await coro::current_scope();
     try {
         co_return co_await coro::offload([module, command = std::move(command), bridge, logger,
@@ -270,9 +272,19 @@ coro::Task<std::expected<void, domain::DriverError>> DriverGateway::update(std::
             return run_update_cycle(module, command, *bridge, *logger, state);
         });
     } catch (const AbiCancelled&) {
-        scope.cancel();
-        scope.throw_if_cancelled();
-        throw;  // cancellation_origin is guaranteed after cancel()
+        if (scope.cancelled()) {
+            // Host teardown (shutdown or an outer budget) already cancelled
+            // this scope: propagate the cancellation.
+            scope.throw_if_cancelled();
+        }
+        // A driver-reported cancellation on a live scope — including a bridge
+        // wait-budget expiry while the loop was busy — is one failed cycle,
+        // not the end of the subdomain loop: the legacy stack mapped it to an
+        // error value and the schedule retried on the next interval.
+        YLOG_WARN(logger_, "Driver '{}' reported cancellation for {}; the cycle fails and retries on schedule",
+                  driver_name, fqdn);
+        co_return std::unexpected(domain::DriverError{domain::DriverError::Code::UPDATE_FAILED,
+                                                      fmt::format("Driver '{}' reported cancellation for {}", driver_name, fqdn), 0});
     } catch (const coro::Cancelled&) {
         state->cancelled.store(true, std::memory_order_release);
         bridge->cancel(state->in_flight_call());

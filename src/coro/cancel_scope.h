@@ -68,9 +68,9 @@ public:
     /// cancelled, and return normally otherwise.
     ///
     /// This is how a caller turns an observed cancellation into control flow:
-    /// the plugin gateway calls `cancel()` then `throw_if_cancelled()` to convert
-    /// an ABI abort into a coroutine cancellation. Cancellation is sticky, so
-    /// every later checkpoint observes it again.
+    /// the plugin gateway checks `cancelled()` and then this to propagate a
+    /// host-originated abort as coroutine cancellation. Cancellation is
+    /// sticky, so every later checkpoint observes it again.
     void throw_if_cancelled() const;
 
 private:

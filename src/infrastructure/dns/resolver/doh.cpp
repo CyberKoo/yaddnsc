@@ -40,10 +40,11 @@ namespace {
 constexpr unsigned char ALPN_HTTP_1_1[] = {8, 'h', 't', 't', 'p', '/', '1', '.', '1'};
 
 /// Per-attempt exchange budget, replacing the legacy per-operation transport
-/// timeouts (1s connect + 5s send/read): a stalled endpoint fails as
-/// CONNECTION (retryable at the dispatcher level) instead of parking until
-/// the caller's scope fires.
-constexpr auto EXCHANGE_BUDGET = std::chrono::seconds(10);
+/// timeouts (1s connect + 5s send/read, which could never all stall at once for
+/// a working endpoint): a stalled endpoint fails as CONNECTION (retryable at
+/// the dispatcher level) instead of parking until the caller's scope fires. The
+/// connect phase itself is bounded tighter by Options::connect_timeout (1s).
+constexpr auto EXCHANGE_BUDGET = std::chrono::seconds(6);
 
 /// Map an HTTP failure to the DNS vocabulary.
 [[nodiscard]] domain::DnsErrorInfo map_http_error(const http::Error& error) {
@@ -162,8 +163,9 @@ coro::Task<std::expected<std::vector<std::uint8_t>, domain::DnsErrorInfo>> DohRe
     } catch (const DnsLookupException& error) {
         co_return std::unexpected(domain::DnsErrorInfo{error.get_error(), error.what()});
     } catch (const std::exception& error) {
+        // See ClassicResolver: unexpected exceptions stay retryable as UNKNOWN.
         co_return std::unexpected(domain::DnsErrorInfo{
-            domain::DnsError::PARSE, fmt::format(R"(DoH query for "{}" failed: {})", host, error.what())});
+            domain::DnsError::UNKNOWN, fmt::format(R"(DoH query for "{}" failed: {})", host, error.what())});
     }
 }
 

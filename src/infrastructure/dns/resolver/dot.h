@@ -25,6 +25,7 @@
 #include "coro/async_mutex.hpp"
 #include "coro/task.hpp"
 #include "infrastructure/dns/resolver/resolver.h"
+#include "infrastructure/network/address/host_resolver.h"
 #include "infrastructure/network/transport/options.h"
 
 namespace net {
@@ -40,14 +41,17 @@ struct EndpointOptions {
     /// Outbound interface binding.
     net::ConnectOptions connect{};
     /// TLS policy; the resolver fills in ALPN and defaults the SNI identity to
-    /// a named endpoint host (never an IP literal, RFC 6066 §3).
-    /// `verify_peer` defaults to true.
+    /// a named endpoint host (never an IP literal, RFC 6066 §3). Trust policy
+    /// (verification, CA bundle) belongs to the context below.
     net::TlsOptions tls{};
     /// Pre-built TLS trust context (off-loop, TlsContext::create). Null fails the
     /// TLS connection closed.
     std::shared_ptr<const net::TlsContext> tls_context{};
     /// Bootstrap DNS servers used to resolve the endpoint host.
     std::vector<domain::DnsServer> bootstrap_dns{};
+    /// Hostname lookup override; empty resolves through bootstrap_dns.
+    /// Tests inject here.
+    net::HostResolver resolve{};
     /// Stream source; null selects the production factory. Tests inject here.
     std::shared_ptr<net::StreamFactory> factory{};
 };

@@ -253,13 +253,12 @@ TEST(ApplicationDiagnostics, DnsResolve_ErrorPassesThrough) {
 
 TEST(ApplicationDiagnostics, ListInterfaces_CollectsAddresses) {
     MockNetworkInterfaces interfaces;
-    ON_CALL(interfaces, names()).WillByDefault(::testing::Return(std::vector<std::string>{"lo", "eth0"}));
-    ON_CALL(interfaces, addresses("lo"))
-        .WillByDefault(::testing::Return(std::optional<std::vector<domain::InetAddress>>{
-            std::vector<domain::InetAddress>{domain::InetAddress(*domain::Inet4Address::parse("127.0.0.1"))}}));
-    ON_CALL(interfaces, addresses("eth0"))
-        .WillByDefault(
-            ::testing::Return(std::optional<std::vector<domain::InetAddress>>{std::vector<domain::InetAddress>{}}));
+    ON_CALL(interfaces, list())
+        .WillByDefault(::testing::Return(std::vector<app::InterfaceInfo>{
+            {.name = "lo",
+             .addresses = {domain::InetAddress(*domain::Inet4Address::parse("127.0.0.1"))}},
+            {.name = "eth0", .addresses = {}},
+        }));
 
     const auto items = app::list_interfaces(interfaces);
     ASSERT_EQ(items.size(), 2);

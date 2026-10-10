@@ -87,6 +87,16 @@ std::optional<std::vector<domain::InetAddress>> ipsource::get_addresses(const st
     return std::nullopt;
 }
 
+std::vector<ipsource::InterfaceAddresses> ipsource::get_all() {
+    auto interface_map = enumerate_interfaces();
+    std::vector<InterfaceAddresses> all;
+    all.reserve(interface_map.size());
+    for (auto& [name, addresses] : interface_map) {
+        all.push_back(InterfaceAddresses{.name = name, .addresses = std::move(addresses)});
+    }
+    return all;
+}
+
 std::optional<unsigned int> ipsource::get_default_interface_index(const domain::AddressFamily family) {
     const auto native = family == domain::AddressFamily::IPV6 ? AF_INET6 : AF_INET;
     auto ifaddrs = query_ifaddrs();

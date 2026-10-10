@@ -406,7 +406,7 @@ TEST(TcpStream, read_some_BeforeConnecting_Fails) {
 
 TEST(TlsStream, ensure_connected_PlainPeer_FailsHandshake) {
     LoopbackServer server{LoopbackServer::Mode::CLOSE};
-    auto context = net::TlsContext::create(net::TlsOptions{.verify_peer = false});
+    auto context = net::TlsContext::create(net::TlsTrustOptions{.verify_peer = false});
     ASSERT_TRUE(context.has_value());
     net::TlsStream stream{loopback_v4(), server.port(), std::move(*context)};
 
@@ -425,7 +425,7 @@ TEST(TlsStream, ensure_connected_PlainPeer_FailsHandshake) {
 }
 
 TEST(TlsStream, read_some_BeforeConnecting_Fails) {
-    auto context = net::TlsContext::create(net::TlsOptions{.verify_peer = false});
+    auto context = net::TlsContext::create(net::TlsTrustOptions{.verify_peer = false});
     ASSERT_TRUE(context.has_value());
     net::TlsStream stream{loopback_v4(), 9, std::move(*context)};
     std::optional<IoError> error;

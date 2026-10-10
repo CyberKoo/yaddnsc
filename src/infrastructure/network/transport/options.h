@@ -26,7 +26,11 @@ struct ConnectOptions {
     std::optional<std::string> interface{};
 };
 
-/// TLS-only options, accepted exclusively by TlsStream.
+/// Per-stream TLS options, accepted exclusively by TlsStream.
+///
+/// Trust policy lives in TlsTrustOptions instead: it is consumed once by
+/// TlsContext::create() and shared through the built context, so a field set
+/// here can never be silently ignored.
 struct TlsOptions {
     /// Hostname used for SNI and certificate verification. Layers that know the
     /// origin name (the HTTP clients, the DoT resolver) default this to the
@@ -38,14 +42,17 @@ struct TlsOptions {
 
     /// ALPN protocol bytes, e.g. {2, 'h', '2'}. Copied at construction.
     std::span<const unsigned char> alpn_proto{};
+};
 
+/// Trust policy, consumed exactly once by TlsContext::create().
+struct TlsTrustOptions {
     /// Verify the peer certificate (fail-closed). Default: true.
     bool verify_peer{true};
 
-    /// Explicit CA bundle path, consumed by TlsContext::create(). Default:
-    /// Utils::Cert::discover_ca_bundle(). When neither yields a bundle,
-    /// verification stays fail-closed and the context cannot be built; OpenSSL's
-    /// lazy default verify paths are deliberately never used.
+    /// Explicit CA bundle path. Default: Utils::Cert::discover_ca_bundle().
+    /// When neither yields a bundle, verification stays fail-closed and the
+    /// context cannot be built; OpenSSL's lazy default verify paths are
+    /// deliberately never used.
     std::optional<std::string> ca_bundle{};
 };
 

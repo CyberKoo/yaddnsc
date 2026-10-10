@@ -13,6 +13,7 @@
 
 #include <spdlog/async.h>
 #include <spdlog/sinks/sink.h>
+#include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/spdlog.h>
 
 #include "logging_pattern.h"
@@ -90,6 +91,11 @@ void shutdown() noexcept {
         // thread, so everything enqueued (including a fatal record) is written
         // before this returns.
         spdlog::shutdown();
+        // Leave a synchronous stderr fallback behind: the default logger is
+        // null after shutdown, and any late SPDLOG_* call (the drain tail is
+        // still unwinding) would otherwise dereference it.
+        spdlog::set_default_logger(spdlog::stderr_color_mt("tail"));
+        spdlog::set_pattern(std::string{YADDNSC_LOGGING_PATTERN});
     } catch (...) {
         // Shutdown must never terminate the process, and there is nothing left
         // to report to.

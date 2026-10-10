@@ -195,6 +195,13 @@ target_link_libraries(test_dns_coro_dispatcher PRIVATE yaddnsc_coro_dns)
 add_unit_test(dns_factory SOURCE infrastructure/dns/factory_test.cpp)
 target_link_libraries(test_dns_factory PRIVATE yaddnsc_coro_dns)
 
+# DoT / DoH budgets and error mapping, driven by an injected in-memory
+# StreamFactory on a manual clock: the DoT connect budget, the catch-all
+# UNKNOWN mapping of both resolvers, the DoH per-address connect timeout and
+# the bootstrap server policy. No sockets.
+add_unit_test(dns_coro_resolver SOURCE infrastructure/dns/resolver_coro_test.cpp)
+target_link_libraries(test_dns_coro_resolver PRIVATE yaddnsc_coro_dns yaddnsc_coro)
+
 # ============================================================================
 #  infrastructure/network/  —  transport, TLS and the socket-address codec
 # ============================================================================

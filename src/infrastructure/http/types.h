@@ -5,6 +5,7 @@
 #ifndef YADDNSC_INFRASTRUCTURE_HTTP_TYPES_H
 #define YADDNSC_INFRASTRUCTURE_HTTP_TYPES_H
 
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <map>
@@ -102,8 +103,10 @@ struct Limits {
 ///
 /// Carries the whole policy in one place: protocol preferences, transport and
 /// TLS settings, and the injected resolver used to turn a URL host into
-/// addresses. There is no timeout anywhere — a deadline is the caller's cancel
-/// scope.
+/// addresses. Every other deadline is the caller's cancel scope; only the
+/// connect phase carries its own budget, because the legacy per-operation
+/// transport timeouts bounded exactly that phase and the exchange scope cannot
+/// tell a black-holed peer apart from a slow one.
 struct Options {
     /// Version emitted in requests; responses may use either version.
     HttpVersion version{HttpVersion::V1_1};
@@ -114,9 +117,12 @@ struct Options {
     bool follow_redirects{true};
     int max_redirects{10};
     Limits limits{};
+    /// Per-address connect budget (the legacy transport connect timeout). An
+    /// expired budget skips to the next resolved address; zero disables it.
+    std::chrono::milliseconds connect_timeout{5000};
     /// Transport-level settings (outbound interface).
     net::ConnectOptions connect{};
-    /// TLS settings (SNI, ALPN, verification, CA bundle).
+    /// TLS settings (SNI, ALPN). Trust policy comes from the context below.
     net::TlsOptions tls{};
     /// Pre-built TLS trust context, shared by every https stream this client
     /// opens. Null makes a TLS connection fail closed; build it off the loop

@@ -22,6 +22,7 @@ public:
     MOCK_METHOD(std::vector<std::string>, names, (), (const, override));
     MOCK_METHOD((std::optional<std::vector<domain::InetAddress>>), addresses, (const std::string& name),
                 (const, override));
+    MOCK_METHOD(std::vector<app::InterfaceInfo>, list, (), (const, override));
 };
 
 class MockDriverCatalogPort final : public app::DriverCatalogPort {

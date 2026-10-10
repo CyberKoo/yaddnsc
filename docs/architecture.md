@@ -24,7 +24,8 @@ supervisor_group
   |     |                     ordering state (interval, backoff, force-update
   |     |                     latch) lives in the frame
   |     +-- run_update_cycle       IP source -> DNS read -> decide -> driver update
-  +-- signal watchers         SIGINT / SIGTERM -> cancel the work scope
+  +-- signal watchers         SIGINT / SIGTERM -> cancel the work scope;
+  |                           a second SIGINT drains logs and _exit(130)s
 ```
 
 The executable is a thin `main()` over `Cli::parse` and
@@ -33,6 +34,15 @@ infrastructure is assembled; the application layer reaches it through ports.
 Each command handler owns its own presentation and exit code for its expected
 failures; `Composition::run` owns the logging pipeline's lifetime around
 dispatch and catches defects escaping it.
+
+The loop's signal watcher exists only while the loop runs, so a minimal
+counting handler (`composition/startup_signals.h`) covers the gaps: it is
+installed before config load, the blocking startup steps check the counters
+between milestones, and the run root folds the counts into its shutdown
+state — a SIGINT/SIGTERM caught during startup requests shutdown before any
+work starts, and a repeat SIGINT still escalates. After the loop exits, the
+drain tail checks the counters once more and answers a second SIGINT with
+`_exit(128 + SIGINT)`.
 
 ## Concurrency & I/O model
 
@@ -96,7 +106,11 @@ scope state rather than as a child defect. Cleanup runs inside
 `non_cancellable`, then lets cancellation propagate. Broad coroutine catches
 rethrow `Cancelled` ahead of other failures; plugin C ABI adapters convert it to
 `YADDNSC_STATUS_CANCELLED`, and ABI values a plugin returns are converted back
-at the driver gateway.
+at the driver gateway. A plugin that *returns* `YADDNSC_STATUS_CANCELLED`
+while its host scope is still live is not treated as control flow — the
+gateway logs it and converts it to a `DriverError::UPDATE_FAILED` value, so
+the cycle is retried like any other update failure; only cancellation the
+host actually initiated propagates as `Cancelled`.
 
 ### Coroutine API boundary
 
@@ -180,9 +194,11 @@ force-update time, retry back-off — as frame locals, and reusing one
 `UpdateTask` across cycles. A provider-supplied `retry_after` overrides the next
 delay and the force-update interval latches. Each cycle is bounded by its own
 timeout, with a shorter one around the DNS read, so a dead resolver surfaces in
-seconds. A subdomain loop returns under cancellation; if every loop dies of a
-defect with no shutdown requested, the run root exits with a failure status and
-lets the supervisor (`Restart=on-failure`) start the daemon again.
+seconds. A subdomain loop returns under cancellation. A defect escaping a loop
+is logged and the guard restarts the loop after one update interval — the
+legacy scheduler's queue also retried a failed workflow on the next interval,
+so a defect never retires the subdomain, and a non-positive configured
+interval is clamped to a minimum rather than spinning.
 
 ### Blocking-operation inventory
 
@@ -245,7 +261,10 @@ application names only its public headers.
   HTTP, DNS and CLI code; it depends on domain address parsing, not transport.
 - `src/infrastructure/dns/`: the DNS wire layer plus the coroutine resolvers,
   the dispatcher, the factory and the resolver port adapter. `dns_classic` is
-  the lower target.
+  the lower target. The factory maps the address URI scheme to a closed set of
+  backends (classic, DoT, DoH); there is no runtime registry — tests inject
+  fakes through the `Dispatcher` constructor and the resolver options' factory
+  and resolve seams.
 - `src/infrastructure/ip_source/`: interface, HTTP and mDNS IP sources behind
   the IP-source port.
 - `src/infrastructure/plugin/`: the plugin host — loader, catalog, instance

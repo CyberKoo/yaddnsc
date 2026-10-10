@@ -62,8 +62,11 @@ coro::Task<std::expected<std::vector<std::uint8_t>, domain::DnsErrorInfo>> Class
     } catch (const DnsLookupException& error) {
         co_return std::unexpected(domain::DnsErrorInfo{error.get_error(), error.what()});
     } catch (const std::exception& error) {
+        // An unexpected exception is a transient defect of this attempt, not a
+        // deterministic parse failure: UNKNOWN keeps the dispatcher falling
+        // over to the next backend instead of abandoning the search.
         co_return std::unexpected(domain::DnsErrorInfo{
-            domain::DnsError::PARSE, fmt::format(R"(Classic DNS query for "{}" failed: {})", host, error.what())});
+            domain::DnsError::UNKNOWN, fmt::format(R"(Classic DNS query for "{}" failed: {})", host, error.what())});
     }
 }
 

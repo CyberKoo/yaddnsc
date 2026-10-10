@@ -135,6 +135,12 @@ request. A driver that receives `CANCELLED` stops the current update. A
 driver that performs several exchanges may poll between calls to bail out
 early.
 
+Returning `YADDNSC_STATUS_CANCELLED` from `yaddnsc_driver_update()` is only
+meaningful while the operation really is cancelled (`is_cancelled()` non-zero);
+the host then propagates it as cancellation. A spontaneous `CANCELLED` on a
+live operation is logged and treated as one failed update — the subdomain
+loop keeps running and retries on the next interval.
+
 The `services` and `context` pointers may be saved during
 `yaddnsc_driver_create()` and stay valid until the matching
 `yaddnsc_driver_destroy()` returns. Do not use them after that, and do not

@@ -33,8 +33,9 @@ struct Services;
 /// state. A cancelled enclosing scope throws `coro::Cancelled` from the
 /// in-flight cycle or pacing sleep, and
 /// the loop exits instead of starting another cycle.
-/// Failure: an escaping defect (e.g. allocation failure) aborts this subdomain
-/// only; the runner's supervisor group keeps the siblings running.
+/// Failure: an escaping defect (e.g. allocation failure) propagates to the
+/// runner's supervisor, which logs it and restarts the loop after one update
+/// interval — the legacy scheduler's queue kept retrying too.
 [[nodiscard]] coro::Task<void> subdomain_loop(const domain::DomainConfig& domain,
                                               const domain::SubdomainConfig& subdomain,
                                               const Services& services);

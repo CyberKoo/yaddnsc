@@ -9,6 +9,12 @@
 
 namespace app {
 
+/// One interface row: its name and assigned addresses.
+struct InterfaceInfo {
+    std::string name;
+    std::vector<domain::InetAddress> addresses;
+};
+
 /// NetworkInterfacesPort — application port for querying the host's network
 /// interfaces (names and assigned addresses).
 ///
@@ -19,7 +25,7 @@ namespace app {
 /// Error contract: a missing interface is a routine outcome, reported as
 /// std::nullopt from addresses() — never an exception. The legacy
 /// "Interface <name> not found" wording is preserved verbatim by the CLI
-/// presenter and by InterfaceIpSource. names() never fails.
+/// presenter and by InterfaceIpSource. names() and list() never fail.
 class NetworkInterfacesPort {
 public:
     virtual ~NetworkInterfacesPort() = default;
@@ -30,6 +36,10 @@ public:
     /// All addresses (v4 and v6) assigned to `name`; std::nullopt when the
     /// interface does not exist.
     [[nodiscard]] virtual std::optional<std::vector<domain::InetAddress>> addresses(const std::string& name) const = 0;
+
+    /// Every interface with its addresses from a single enumeration pass —
+    /// the consistent read for listings (a name cannot vanish mid-row).
+    [[nodiscard]] virtual std::vector<InterfaceInfo> list() const = 0;
 };
 
 }  // namespace app
