@@ -162,7 +162,7 @@ coro::Task<int> run_root(std::shared_ptr<const domain::RuntimeConfig> config, Ru
     for (const auto& domain : config->domains) {
         task_count += domain.subdomains.size();
     }
-    YLOG_INFO(services.logger, "Run root initialised with {} tasks", task_count);
+    YLOG_INFO(services.logger, "Starting update loops for {} records", task_count);
 
     ShutdownState shutdown;
     if (services.startup_signals) {
