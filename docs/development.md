@@ -72,10 +72,19 @@ access.
 | Tier        | Location                             | Runs the real binary?                 |
 | ----------- | ------------------------------------ | ------------------------------------- |
 | Unit        | `test/unit/`                         | No — pure logic, no I/O               |
+| Driver      | `test/driver/`                       | No — each driver is compiled into its test binary and driven through the C ABI with fake host services |
 | Component   | `test/component/`                    | Real loopback sockets, multicast, TLS |
 | Plugin ABI  | `test/plugin/`, `test/sdk_consumer/` | Loads a real `.so` via dlopen         |
 | Integration | `test/integration/`                  | Yes — the built `yaddnsc` binary      |
 | Benchmarks  | `test/perf/`                         | No — Google Benchmark                 |
+
+The driver list behind `test/driver/` comes from `cmake/Drivers.cmake`, the
+same source `driver/` builds from, so a new bundled driver gets its test
+target automatically.
+
+`test/sdk_consumer/` is the exception in the table: it is not part of the
+CTest tree but a standalone CMake project that builds against the *installed*
+package (see below).
 
 Within `test/unit/`, the layout mirrors the `src/` layering wholesale:
 `domain/`, `application/`, `coro/`, `infrastructure/<module>/` and `support/`
@@ -83,6 +92,12 @@ hold the tests of their namesake source layer. Two extra directories have no
 `src/` counterpart: `sdk/` covers the public plugin headers, and
 `plugin_support/` the crypto helper library. CTest target names are stable
 across moves; only file paths follow the source tree.
+
+The component tier's wire-protocol helpers live in `test/component/servers/`:
+small Python DNS/DoH/DoT/TLS echo servers that the test binaries start on
+loopback ports. They answer single protocol exchanges for in-process clients
+— unlike `test/integration/sim/server.py`, which emulates a complete provider
+plus DNS for the real `yaddnsc` binary end to end.
 
 The test tiers end at `integration_scenarios`, the highest one.
 
@@ -107,6 +122,20 @@ Run just this tier:
 
 ```bash
 ctest --test-dir build-tests -R integration_scenarios --output-on-failure
+```
+
+### SDK consumer (manual validation)
+
+`test/sdk_consumer/` is a standalone CMake project, kept outside the yaddnsc
+build graph on purpose: it proves the installed package — not source-tree
+include paths or CPM targets — supplies every supported SDK edge (C ABI,
+HTTP, XML, crypto). It is not wired into CTest; run it against an install
+prefix:
+
+```bash
+cmake --install build-tests --prefix /tmp/yaddnsc-sdk
+cmake -S test/sdk_consumer -B build-sdk-consumer -DCMAKE_PREFIX_PATH=/tmp/yaddnsc-sdk
+cmake --build build-sdk-consumer
 ```
 
 **Check for skipped execution.** `SKIP_RETURN_CODE 77` makes CTest report
