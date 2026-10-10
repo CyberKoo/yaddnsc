@@ -68,6 +68,7 @@ int execute_command(const Cli::DnsResolveCommand& command) {
     dns::DispatcherResolverPort resolver_port{*dispatcher};
     // A plain root preserves the default Ctrl-C disposition for this one-shot command.
     coro::Loop loop;
+    internal::install_loop_trace_sink(loop);
     const auto outcome =
         coro::run(loop, app::dns_resolve_command(resolver_port, command.host, command.type, std::chrono::seconds{30}));
     return Cli::present_dns_resolve(outcome);
@@ -123,6 +124,7 @@ int execute_command(const Cli::ConfigTestCommand& command) {
         // reach http_exchange here and no TLS context is needed.
         const auto http_options = internal::make_coro_http_options(config.resolver, nullptr);
         coro::Loop loop;
+        internal::install_loop_trace_sink(loop);
         coro::run(loop, coro::supervisor_group([&config, &driver_catalog, &logger, &loop,
                                                 &http_options](coro::TaskGroup& group) -> coro::Task<void> {
                       plugin::DriverGateway gateway(driver_catalog, logger, loop, group,

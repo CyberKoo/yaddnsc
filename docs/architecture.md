@@ -227,7 +227,8 @@ application names only its public headers.
 - `src/coro/`: the coroutine runtime — loop, `Task`, structured
   scopes, cancellation combinators, sleeps, `AsyncMutex`, `offload`, signals.
   Threads, futures and the thread pool live here, plus the plugin bridge's one
-  blocking handoff.
+  blocking handoff. Loop trace diagnostics leave through the injected
+  `Loop::TraceSink`; the runtime itself holds no logging backend.
 - `src/infrastructure/network/`: lower-level network facilities grouped by
   concern. `address/` contains the socket-address codec, `transport/` the TCP/UDP
   streams, shared transport types and socket primitives, and `tls/` the TLS
@@ -274,6 +275,7 @@ Changing the internal contract requires updating its host adapters, not the C AB
 | Layer | Entry point |
 |-------|-------------|
 | Domain | Diagnostics belong to the caller; the layer holds no logging dependency |
+| Coroutine runtime | the injected `Loop::TraceSink` (`coro/loop.h`), wired to the central backend by composition; the module itself holds no logging dependency |
 | Application | the injected `app::LoggerPort` contract in `ports/log.h` and the `YLOG_*` formatting macros in `application/log_macros.h` |
 | Infrastructure / support | `SPDLOG_*` through the centrally configured backend; no independent sinks, and no application port introduced for logging alone |
 | SDK / plugins | Host Services (`yaddnsc_host_services::log`); C++ helpers normally use the `YADDNSC_SDK_LOG_*` macros in `include/yaddnsc/sdk/driver.hpp` |

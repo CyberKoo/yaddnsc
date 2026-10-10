@@ -13,7 +13,8 @@
 // coroutine resumptions.
 //
 // The public surface here is what a caller owns and observes: the clock, the
-// stop flag, the cross-thread ingress and the offload worker count. Scheduling
+// stop flag, the cross-thread ingress, the offload worker count and the trace
+// sink. Scheduling
 // and the timer/fd/signal registrations are private and reached through
 // detail::LoopAccess, because each one is an invariant of a node the runtime
 // owns — a registration that outlived its node, or a resumption that skipped
@@ -36,6 +37,8 @@
 #include <functional>
 #include <memory>
 #include <mutex>
+#include <source_location>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -94,6 +97,17 @@ public:
     /// Callable from any thread; the callback itself runs on the loop thread.
     /// Allocates, so it may throw std::bad_alloc.
     void post(std::function<void()> fn);
+
+    /// Diagnostic trace sink: when set, the loop reports internal scheduling
+    /// events (ready-queue drains, poll cycles, timer/fd/signal registration)
+    /// as pre-formatted text together with the reporting call site. The runtime
+    /// holds no logging backend — this sink is the only way those diagnostics
+    /// leave the module; composition wires it to the central logging backend.
+    /// The sink runs on the loop thread, must not throw, and must not call back
+    /// into the loop. nullptr (the default) disables tracing: each trace site
+    /// then costs a single null check. Set before run(); loop thread only.
+    using TraceSink = void (*)(void* context, std::string_view message, const std::source_location& where) noexcept;
+    void set_trace_sink(TraceSink sink, void* context) noexcept;
 
     /// Worker count of the offload pool, creating the pool on first call.
     /// Loop thread only; the pool is owned by the loop and outlives every job,
@@ -209,6 +223,9 @@ private:
 
     std::unique_ptr<Pool> pool_;
     unsigned pool_workers_ = default_offload_workers();
+
+    TraceSink trace_sink_ = nullptr;
+    void* trace_context_ = nullptr;
 
     bool stopped_ = false;
 };

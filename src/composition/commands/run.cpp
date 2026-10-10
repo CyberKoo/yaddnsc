@@ -80,6 +80,7 @@ int execute_command(const Cli::RunCommand& command) {
 
         // The loop object is created here, but nothing runs until coro::run below.
         coro::Loop loop;
+        internal::install_loop_trace_sink(loop);
 
         // The driver gateway needs the runner's bridge TaskGroup, which only
         // exists inside the run; the run root calls make_gateway with its root

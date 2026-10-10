@@ -3,6 +3,7 @@
 #include <spdlog/spdlog.h>
 #include <chrono>
 #include <memory>
+#include <source_location>
 #include <span>
 #include <string>
 #include <string_view>
@@ -19,6 +20,7 @@
 #include "infrastructure/network/tls/context.h"
 #include "infrastructure/plugin/driver_loader.h"
 #include "version.h"
+#include "coro/loop.h"
 #include "domain/error/error.h"
 #include "infrastructure/network/transport/options.h"
 
@@ -39,6 +41,28 @@ namespace Composition::internal {
         return spdlog::level::warn;
     }
     return spdlog::level::err;
+}
+
+/// Loop trace diagnostics ride the same compile-time gate as the rest of the
+/// trace logging (YADDNSC_ENABLE_TRACE): when traces are compiled out the sink
+/// stays null and every loop trace site costs one null check. When compiled
+/// in, the runtime level filter (--log-level) applies inside spdlog as usual.
+void install_loop_trace_sink(coro::Loop& loop) {
+#if SPDLOG_ACTIVE_LEVEL <= SPDLOG_LEVEL_TRACE
+    loop.set_trace_sink(
+        [](void*, std::string_view message, const std::source_location& where) noexcept {
+            try {
+                spdlog::default_logger_raw()->log(
+                    spdlog::source_loc{where.file_name(), static_cast<int>(where.line()), where.function_name()},
+                    spdlog::level::trace, "{}", message);
+            } catch (...) {
+                // A diagnostic callback must not propagate into the loop.
+            }
+        },
+        nullptr);
+#else
+    static_cast<void>(loop);
+#endif
 }
 
 /// Fill in the effective bootstrap DNS server list: the configured

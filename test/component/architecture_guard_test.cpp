@@ -252,6 +252,10 @@ auto note = "net::Stream; class NetworkInterfaces;";
                   "src/infrastructure/http/probe.cpp"},
         GuardCase{"HttpIncludesResolver", "#include \"infrastructure/network/address/host_resolver.h\"\n", true,
                   "src/infrastructure/http/probe.cpp"},
+        GuardCase{"CoroLoggingBackend", "#include <spdlog/spdlog.h>\n", false, "src/coro/probe.cpp",
+                  "must not include a logging backend"},
+        GuardCase{"CoroFmtFacadeAndPosixAllowed", "#include \"support/fmt.hpp\"\n#include <poll.h>\n", true,
+                  "src/coro/probe.cpp"},
         GuardCase{"Comments", "/* coro::detail::GetContext c;\n coro::Loop loop; */\n// coro::GetContext{}\n", true},
         // Regression: "//" inside a string literal is not a comment. Stripping
         // comments before string literals truncated the rest of the line and

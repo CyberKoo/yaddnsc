@@ -17,10 +17,17 @@ namespace domain {
 struct ConfigError;
 }  // namespace domain
 
+namespace coro {
+class Loop;
+}  // namespace coro
+
 namespace Composition::internal {
 /// Internal startup helpers; call on the main thread before coro::run.
 /// Configuration and loader failures abort the command; allocation defects propagate.
 [[nodiscard]] spdlog::level::level_enum to_log_level(std::string_view level);
+/// Wire the loop's trace diagnostics into the central logging backend.
+/// A no-op unless the binary was built with trace logging compiled in.
+void install_loop_trace_sink(coro::Loop& loop);
 [[nodiscard]] domain::RuntimeConfig load_runtime_config(const std::string& path);
 [[nodiscard]] DriverCatalog load_catalog(const domain::RuntimeConfig& config);
 [[nodiscard]] std::string format_config_errors(std::span<const domain::ConfigError> errors);

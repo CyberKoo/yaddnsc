@@ -20,14 +20,15 @@
 # pool is BS::thread_pool, reused rather than hand-rolled (see the pool note in
 # src/coro/loop.h); it is named only inside Loop::Pool in
 # loop.cpp, so BS_thread_pool is PRIVATE and never reaches a consumer of Task.
-# spdlog is PRIVATE too (loop.cpp trace diagnostics); everything else is the
-# standard library and POSIX.
+# Loop trace diagnostics leave through the injected Loop::TraceSink, formatted
+# via the fmt facade (yaddnsc_fmt) — the module holds no logging backend;
+# everything else is the standard library and POSIX.
 add_library(yaddnsc_coro STATIC
     src/coro/cancel_scope.cpp
     src/coro/loop.cpp
 )
 yaddnsc_production_module(yaddnsc_coro)
-target_link_libraries(yaddnsc_coro PRIVATE BS_thread_pool spdlog::spdlog)
+target_link_libraries(yaddnsc_coro PRIVATE BS_thread_pool yaddnsc_fmt)
 
 # Coroutine transport layer — TCP, TLS, UDP, the sockaddr codec (SocketAddr),
 # the pre-built TLS trust context and CA discovery. Targets are already-resolved

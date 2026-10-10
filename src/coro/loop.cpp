@@ -6,7 +6,6 @@
 
 #include <compare>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 #include <poll.h>
-#include <spdlog/spdlog.h>
 #include <unistd.h>
 #include <sys/types.h>
 #include <algorithm>
@@ -17,6 +16,7 @@
 #include <climits>
 #include <csignal>  // IWYU pragma: keep — clang resolves sigaction/SA_RESTART transitively, GCC does not
 #include <cstring>  // IWYU pragma: keep — clang resolves std::strerror transitively, GCC does not
+#include <source_location>
 #include <stdexcept>
 #include <string>
 #include <system_error>
@@ -29,6 +29,22 @@
 #include "BS_thread_pool.hpp"
 #include "coro/detail/frame.h"
 #include "coro/detail/wait_node.h"
+#include "support/fmt.hpp"  // IWYU pragma: keep — fmt::format in the CORO_TRACE macro body
+
+// Trace diagnostics leave the runtime through the injected sink (loop.h);
+// with no sink installed, each site costs one null check. Formatting and the
+// sink call stay inside the catch-all: several sites sit in noexcept paths,
+// and a diagnostic must never take the runtime down.
+#define CORO_TRACE(...)                                                        \
+    do {                                                                       \
+        if (trace_sink_ != nullptr) {                                          \
+            try {                                                              \
+                trace_sink_(trace_context_, fmt::format(__VA_ARGS__),          \
+                            std::source_location::current());                  \
+            } catch (...) {                                                    \
+            }                                                                  \
+        }                                                                      \
+    } while (false)
 
 namespace coro {
 
@@ -65,7 +81,7 @@ constexpr unsigned OFFLOAD_MIN_WORKERS = 2;
 constexpr unsigned OFFLOAD_WORKER_LIMIT = 4;
 
 /// Render poll() event bits as a readable "POLLIN|POLLHUP" string for traces.
-[[maybe_unused]] std::string describe_poll_events(short events) {
+std::string describe_poll_events(short events) {
     std::string out;
     const auto append = [&out](const char* name) {
         if (!out.empty()) {
@@ -204,14 +220,14 @@ void Loop::schedule(detail::PromiseBase& frame) noexcept {
         ready_head_ = &frame;
     }
     ready_tail_ = &frame;
-    SPDLOG_TRACE("scheduled frame {}", static_cast<const void*>(&frame));
+    CORO_TRACE("scheduled frame {}", static_cast<const void*>(&frame));
 }
 
 void Loop::drain_ready() {
     detail::PromiseBase* batch = ready_head_;
     ready_head_ = nullptr;
     ready_tail_ = nullptr;
-    [[maybe_unused]] std::size_t resumed = 0;
+    std::size_t resumed = 0;
     while (batch != nullptr) {
         detail::PromiseBase* next = batch->ready_next;
         batch->ready_next = nullptr;
@@ -220,7 +236,7 @@ void Loop::drain_ready() {
         ++resumed;
         batch = next;
     }
-    SPDLOG_TRACE("drained ready queue, resumed {} frame(s)", resumed);
+    CORO_TRACE("drained ready queue, resumed {} frame(s)", resumed);
 }
 
 void Loop::post(std::function<void()> fn) {
@@ -228,7 +244,7 @@ void Loop::post(std::function<void()> fn) {
         const std::lock_guard lock(inbox_mutex_);
         inbox_.push_back(std::move(fn));
     }
-    SPDLOG_TRACE("posted a cross-thread callback to the inbox");
+    CORO_TRACE("posted a cross-thread callback to the inbox");
     wake();
 }
 
@@ -239,7 +255,7 @@ void Loop::process_inbox() {
         batch.swap(inbox_);
     }
     if (!batch.empty()) {
-        SPDLOG_TRACE("processing {} inbox callback(s)", batch.size());
+        CORO_TRACE("processing {} inbox callback(s)", batch.size());
     }
     for (std::function<void()>& fn : batch) {
         fn();
@@ -269,9 +285,14 @@ void Loop::set_offload_workers(unsigned workers) noexcept {
     pool_workers_ = workers;
 }
 
+void Loop::set_trace_sink(TraceSink sink, void* context) noexcept {
+    trace_sink_ = sink;
+    trace_context_ = context;
+}
+
 void Loop::run() {
     assert(!fds_.empty() && "loop self-pipe unavailable: nothing could ever wake the loop");
-    SPDLOG_TRACE("run() starting");
+    CORO_TRACE("run() starting");
     while (!stopped_) {
         // Signals are checked before everything else: a busy loop (e.g. the
         // cancellation storm of a shutdown drain) must not starve them, and a
@@ -294,7 +315,7 @@ void Loop::run() {
         }
         poll_once(poll_timeout_ms());
     }
-    SPDLOG_TRACE("run() returning, root task completed");
+    CORO_TRACE("run() returning, root task completed");
 }
 
 bool Loop::process_signals() noexcept {
@@ -302,7 +323,7 @@ bool Loop::process_signals() noexcept {
     if (mask == 0) {
         return false;
     }
-    SPDLOG_TRACE("processing pending signal mask {:#x}", mask);
+    CORO_TRACE("processing pending signal mask {:#x}", mask);
     bool woke = false;
     unsigned long long remaining = mask;
     while (remaining != 0) {
@@ -315,7 +336,7 @@ bool Loop::process_signals() noexcept {
         std::vector<SignalWaiter> parked;
         parked.swap(signal_waiters_[index]);
         if (!parked.empty()) {
-            SPDLOG_TRACE("signal {} wakes {} waiter(s)", bit + 1, parked.size());
+            CORO_TRACE("signal {} wakes {} waiter(s)", bit + 1, parked.size());
         }
         for (SignalWaiter& entry : parked) {
             if (entry.node != nullptr) {
@@ -375,16 +396,16 @@ void Loop::poll_once(int timeout_ms) {
     for (const FdEntry& entry : fds_) {
         pollfds.push_back(pollfd{entry.fd, entry.events, 0});
     }
-    SPDLOG_TRACE("poll() on {} fd(s), timeout {} ms", pollfds.size(), timeout_ms);
+    CORO_TRACE("poll() on {} fd(s), timeout {} ms", pollfds.size(), timeout_ms);
     const int ready = ::poll(pollfds.data(), static_cast<nfds_t>(pollfds.size()), timeout_ms);
     if (ready < 0) {
-        SPDLOG_TRACE("poll() failed: {}", std::strerror(errno));
+        CORO_TRACE("poll() failed: {}", std::strerror(errno));
         return;
     }
     if (ready == 0) {
         return;
     }
-    SPDLOG_TRACE("poll() reported {} ready fd(s)", ready);
+    CORO_TRACE("poll() reported {} ready fd(s)", ready);
 
     // Snapshot the ready entries before dispatching: a callback may remove its
     // own registration (or another one), which would invalidate an index walk
@@ -403,7 +424,7 @@ void Loop::poll_once(int timeout_ms) {
         }
     }
     for (const ReadyEntry& entry : ready_entries) {
-        SPDLOG_TRACE("fd {} ready: {}", entry.fd, describe_poll_events(entry.revents));
+        CORO_TRACE("fd {} ready: {}", entry.fd, describe_poll_events(entry.revents));
         entry.fn(entry.context, entry.revents);
     }
 }
@@ -414,7 +435,7 @@ void Loop::fire_timers() noexcept {
             break;
         }
         detail::TimerNode* const due = heap_pop();
-        SPDLOG_TRACE("firing timer {}", static_cast<const void*>(due));
+        CORO_TRACE("firing timer {}", static_cast<const void*>(due));
         if (due->action != nullptr) {
             due->action(due->context);
         }
@@ -432,13 +453,13 @@ void Loop::add_timer(detail::TimerNode& timer, TimePoint deadline, void (*action
     timer.action = action;
     timer.context = context;
     heap_push(timer);
-    [[maybe_unused]] const auto in_ms = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - now()).count();
-    SPDLOG_TRACE("armed timer {} (fires in {} ms)", static_cast<const void*>(&timer), in_ms);
+    const auto in_ms = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - now()).count();
+    CORO_TRACE("armed timer {} (fires in {} ms)", static_cast<const void*>(&timer), in_ms);
 }
 
 void Loop::remove_timer(detail::TimerNode& timer) noexcept {
     if (timer.in_heap) {
-        SPDLOG_TRACE("disarmed timer {}", static_cast<const void*>(&timer));
+        CORO_TRACE("disarmed timer {}", static_cast<const void*>(&timer));
         heap_remove(timer);
     }
 }
@@ -524,14 +545,13 @@ void Loop::heap_sift_down(std::size_t index) noexcept {
 detail::FdToken Loop::add_fd(int fd, short events, void (*fn)(void*, short) noexcept, void* context) {
     const detail::FdToken token = ++fd_sequence_;
     fds_.push_back(FdEntry{token, fd, events, fn, context});
-    SPDLOG_TRACE("registered fd {} for events {} (token {})", fd, describe_poll_events(events), token);
+    CORO_TRACE("registered fd {} for events {} (token {})", fd, describe_poll_events(events), token);
     return token;
 }
 
 void Loop::remove_fd(detail::FdToken token) noexcept {
-    [[maybe_unused]] const auto erased =
-        std::erase_if(fds_, [token](const FdEntry& entry) { return entry.token == token; });
-    SPDLOG_TRACE("remove_fd(token {}) erased {} registration(s)", token, erased);
+    const auto erased = std::erase_if(fds_, [token](const FdEntry& entry) { return entry.token == token; });
+    CORO_TRACE("remove_fd(token {}) erased {} registration(s)", token, erased);
 }
 
 // ---------------------------------------------------------------------------
@@ -559,7 +579,7 @@ void Loop::arm_signal(int sig, detail::WaitNode& node) {
         saved_signals_.emplace_back(sig, previous);
     }
     waiters.push_back(SignalWaiter{node.waiter, &node});
-    SPDLOG_TRACE("armed signal waiter for signal {}", sig);
+    CORO_TRACE("armed signal waiter for signal {}", sig);
 }
 
 void Loop::disarm_signal(int sig, detail::WaitNode& node) noexcept {
@@ -567,9 +587,10 @@ void Loop::disarm_signal(int sig, detail::WaitNode& node) noexcept {
         return;
     }
     auto& parked = signal_waiters_[static_cast<std::size_t>(sig)];
-    [[maybe_unused]] const auto erased =
-        std::erase_if(parked, [&node](const SignalWaiter& entry) { return entry.node == &node; });
-    SPDLOG_TRACE("disarmed signal waiter for signal {} ({} waiter(s) removed)", sig, erased);
+    const auto erased = std::erase_if(parked, [&node](const SignalWaiter& entry) { return entry.node == &node; });
+    CORO_TRACE("disarmed signal waiter for signal {} ({} waiter(s) removed)", sig, erased);
 }
 
 }  // namespace coro
+
+#undef CORO_TRACE

@@ -56,6 +56,17 @@ guard_check("domain must not include infrastructure/Glaze/spdlog/CLI11/Cancellat
     ${PROJECT_SOURCE_DIR}/src/domain/*.cpp)
 
 # ------------------------------------------------------------------------------
+# coro: like domain, the coroutine runtime is a base module. It holds no logging
+# backend — loop trace diagnostics leave through the injected Loop::TraceSink,
+# and composition wires that sink to the central backend.
+# ------------------------------------------------------------------------------
+guard_check("the coroutine runtime must not include a logging backend (composition wires Loop::TraceSink)"
+    "${INC_RE}[<\"]spdlog/"
+    ${PROJECT_SOURCE_DIR}/src/coro/*.h
+    ${PROJECT_SOURCE_DIR}/src/coro/*.hpp
+    ${PROJECT_SOURCE_DIR}/src/coro/*.cpp)
+
+# ------------------------------------------------------------------------------
 # 2. application: no infrastructure implementation headers or third-party I/O.
 #    Only the listed public coroutine headers are allowed. Template headers may
 #    include runtime internals themselves; application code cannot name them.
@@ -424,4 +435,4 @@ if (violations)
     message(FATAL_ERROR "Architecture guard violations:${violations}\n")
 endif ()
 
-message(STATUS "Architecture guard: OK (domain/application/plugin/SDK/layering/concurrency/token/rules checks passed)")
+message(STATUS "Architecture guard: OK (domain/coro/application/plugin/SDK/layering/concurrency/token/rules checks passed)")
