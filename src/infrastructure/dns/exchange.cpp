@@ -40,14 +40,18 @@ constexpr auto UDP_BUDGET = std::chrono::seconds(1);
 /// not share one clock), restored from the legacy resolver.
 constexpr auto TCP_OP_BUDGET = std::chrono::seconds(1);
 
-[[nodiscard]] domain::DnsErrorInfo connection_error(const char* stage) {
-    return domain::DnsErrorInfo{domain::DnsError::CONNECTION, fmt::format("DNS {} failed", stage)};
+[[nodiscard]] domain::DnsErrorInfo connection_error(const char* stage, const domain::InetAddress& server,
+                                                    const std::uint16_t port) {
+    return domain::DnsErrorInfo{domain::DnsError::CONNECTION,
+                                fmt::format("DNS {} to {}:{} failed", stage, server.to_string(), port)};
 }
 
 /// A budget expiry is the legacy transport timeout: RETRY, so the dispatcher
 /// retries (single resolver) or fails over (multiple resolvers).
-[[nodiscard]] domain::DnsErrorInfo budget_exceeded(const char* stage) {
-    return domain::DnsErrorInfo{domain::DnsError::RETRY, fmt::format("DNS {} timed out", stage)};
+[[nodiscard]] domain::DnsErrorInfo budget_exceeded(const char* stage, const domain::InetAddress& server,
+                                                   const std::uint16_t port, const std::chrono::seconds budget) {
+    return domain::DnsErrorInfo{domain::DnsError::RETRY, fmt::format("DNS {} to {}:{} timed out after {}s", stage,
+                                                                     server.to_string(), port, budget.count())};
 }
 
 /// One UDP exchange: send the query, then wait for the answer from the asked
@@ -60,7 +64,7 @@ constexpr auto TCP_OP_BUDGET = std::chrono::seconds(1);
     const domain::InetAddress server, const std::uint16_t port, const std::span<const std::uint8_t> query) {
     net::UdpSocket socket{server.get_family()};
     if (auto sent = co_await socket.send_to(server, port, query); !sent) {
-        co_return std::unexpected(connection_error("send"));
+        co_return std::unexpected(connection_error("UDP send", server, port));
     }
 
     // The answer must come from the server that was asked; anything else is a
@@ -69,7 +73,7 @@ constexpr auto TCP_OP_BUDGET = std::chrono::seconds(1);
         std::array<std::uint8_t, dns::MAX_MESSAGE_SIZE> buffer{};
         auto received = co_await socket.recv_from(buffer);
         if (!received) {
-            co_return std::unexpected(connection_error("receive"));
+            co_return std::unexpected(connection_error("UDP receive", server, port));
         }
         if (received->from != server || received->port != port) {
             continue;
@@ -93,7 +97,7 @@ coro::Task<std::expected<std::vector<std::uint8_t>, domain::DnsErrorInfo>> query
     // checked first: an expired own budget is the legacy timeout, anything
     // else is the body's own result, including outer cancellation.
     if (outcome.timed_out) {
-        co_return std::unexpected(budget_exceeded("UDP query"));
+        co_return std::unexpected(budget_exceeded("UDP query", server, port, UDP_BUDGET));
     }
     co_return std::move(*outcome);
 }
@@ -106,10 +110,10 @@ coro::Task<std::expected<std::vector<std::uint8_t>, domain::DnsErrorInfo>> query
         TCP_OP_BUDGET,
         [&stream]() -> coro::Task<std::expected<void, net::IoError>> { co_return co_await stream.ensure_connected(); });
     if (connected.timed_out) {
-        co_return std::unexpected(budget_exceeded("TCP connect"));
+        co_return std::unexpected(budget_exceeded("TCP connect", server, port, TCP_OP_BUDGET));
     }
     if (!*connected) {
-        co_return std::unexpected(connection_error("connect"));
+        co_return std::unexpected(connection_error("TCP connect", server, port));
     }
 
     const auto framed = dns::frame_message(query);
@@ -123,10 +127,10 @@ coro::Task<std::expected<std::vector<std::uint8_t>, domain::DnsErrorInfo>> query
                                                 co_return co_await stream.send_all(*framed);
                                             });
     if (sent.timed_out) {
-        co_return std::unexpected(budget_exceeded("TCP send"));
+        co_return std::unexpected(budget_exceeded("TCP send", server, port, TCP_OP_BUDGET));
     }
     if (!*sent) {
-        co_return std::unexpected(connection_error("send"));
+        co_return std::unexpected(connection_error("TCP send", server, port));
     }
 
     std::array<std::uint8_t, 2> prefix{};
@@ -135,10 +139,10 @@ coro::Task<std::expected<std::vector<std::uint8_t>, domain::DnsErrorInfo>> query
             co_return co_await stream.read_exact(prefix);
         });
     if (got_prefix.timed_out) {
-        co_return std::unexpected(budget_exceeded("TCP receive"));
+        co_return std::unexpected(budget_exceeded("TCP receive", server, port, TCP_OP_BUDGET));
     }
     if (!*got_prefix) {
-        co_return std::unexpected(connection_error("receive"));
+        co_return std::unexpected(connection_error("TCP receive", server, port));
     }
 
     const auto length = dns::read_length(prefix);
@@ -153,10 +157,10 @@ coro::Task<std::expected<std::vector<std::uint8_t>, domain::DnsErrorInfo>> query
             co_return co_await stream.read_exact(response);
         });
     if (got_body.timed_out) {
-        co_return std::unexpected(budget_exceeded("TCP receive"));
+        co_return std::unexpected(budget_exceeded("TCP receive", server, port, TCP_OP_BUDGET));
     }
     if (!*got_body) {
-        co_return std::unexpected(connection_error("receive"));
+        co_return std::unexpected(connection_error("TCP receive", server, port));
     }
     co_return response;
 }

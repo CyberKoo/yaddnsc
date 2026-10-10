@@ -30,7 +30,7 @@ public:
     }
 
     /// Driver-side driver_params validation (optional ABI entry; the module
-    /// returns OK when the plugin does not export it).
+    /// fails closed with INVALID_CONFIG when the plugin does not export it).
     [[nodiscard]] yaddnsc_status validate(yaddnsc_string driver_param_json, yaddnsc_error& out_error) const {
         return module_->validate(handle_, driver_param_json, out_error);
     }

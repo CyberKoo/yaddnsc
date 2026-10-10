@@ -26,6 +26,7 @@
 
 #include <arpa/inet.h>
 #include <expected>
+#include <gmock/gmock.h>
 #include <gtest/gtest.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
@@ -595,4 +596,32 @@ TEST_F(CoroDriverGatewayTest, PluginCancelledStatus_PropagatesAsControlException
     });
     EXPECT_FALSE(returned);
     EXPECT_TRUE(cancelled);
+}
+
+// ---------------------------------------------------------------------------
+// Config validation
+// ---------------------------------------------------------------------------
+
+TEST(CoroDriverGatewayValidate, MissingValidateEntryFailsConfigTest) {
+    DriverCatalog catalog;
+    ASSERT_NO_THROW(catalog.load_driver(std::string(NO_VALIDATE_FIXTURE)));
+    NullLogger logger;
+
+    coro::Loop loop;
+    std::expected<void, domain::DriverError> result;
+    run_loop(loop, [&]() -> coro::Task<void> {
+        co_await coro::supervisor_group([&](coro::TaskGroup& group) -> coro::Task<void> {
+            plugin::DriverGateway gateway(catalog, logger, loop, group, default_options());
+            result = co_await gateway.validate_config("no_validate", R"({"anything":true})");
+            co_return;
+        });
+        co_return;
+    });
+
+    // The plugin predates the optional entry. config test fails because the
+    // host cannot confirm driver_params (the ABI contract), not because the
+    // plugin rejected anything.
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error().code, domain::DriverError::Code::UNKNOWN);
+    EXPECT_THAT(result.error().message, ::testing::HasSubstr("does not provide yaddnsc_driver_validate"));
 }

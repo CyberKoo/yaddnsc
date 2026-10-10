@@ -23,6 +23,7 @@
 #include <string_view>
 
 #include "domain/error/dns_error.h"
+#include "coro/cancelled.h"
 #include "coro/group.hpp"
 #include "coro/scope.hpp"
 #include "coro/scope_outcome.hpp"  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
@@ -100,6 +101,12 @@ struct Attempt {
                     fmt::format(R"(DNS lookup for "{}" returned RCODE {})", host, static_cast<int>(parsed.rcode))};
                 co_return attempt;
         }
+    } catch (const coro::Cancelled&) {
+        // Race losers unwind here when the winner cancels the scope. Trace and
+        // rethrow: cancellation is control flow, and this line is the only
+        // record that the losing upstream was discarded, not stuck.
+        SPDLOG_TRACE(R"(Resolver #{} cancelled while querying "{}")", attempt.id, host);
+        throw;
     } catch (const std::bad_alloc&) {
         throw;
     } catch (const DnsLookupException& error) {

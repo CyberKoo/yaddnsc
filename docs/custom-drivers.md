@@ -135,6 +135,13 @@ exceptions escaping `create`/`update`/`validate` are converted to
 `YADDNSC_STATUS_INTERNAL_ERROR`, and an exception escaping `destroy` is
 logged and swallowed — never retried, never replaced by a fallback.
 
+The firewall is a backstop, not a portability promise: it assumes the plugin
+shares an ABI-compatible C++ runtime with the host. An exception escaping
+from a plugin built with an incompatible runtime is undefined behaviour
+before the firewall can run. SDK-built plugins never rely on it — the
+`YADDNSC_DEFINE_DRIVER` entry points forward to `noexcept` helpers that
+catch everything.
+
 Handle ownership: on `YADDNSC_STATUS_OK`, `*out_driver` is non-NULL and the
 host owns the instance, including the matching `yaddnsc_driver_destroy()`
 call. `OK` with a NULL handle is a contract violation; the host turns it

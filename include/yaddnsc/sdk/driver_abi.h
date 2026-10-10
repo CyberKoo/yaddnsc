@@ -343,7 +343,12 @@ struct yaddnsc_host_services {
  * passes and no schema check runs. Override it to check the schema.
  *
  * No entry point may let a C++ exception cross the ABI. The yaddnsc host
- * also catches exceptions as a backstop; another host may not.
+ * also catches exceptions as a backstop; another host may not. The backstop
+ * assumes the plugin shares an ABI-compatible C++ runtime with the host —
+ * an escape from a plugin built with an incompatible runtime is undefined
+ * before any catch runs. The SDK entry points forward to noexcept helpers
+ * that catch everything, so a plugin built with YADDNSC_DEFINE_DRIVER never
+ * relies on the backstop.
  */
 
 yaddnsc_status yaddnsc_driver_get_descriptor(const yaddnsc_driver_descriptor** out_descriptor);

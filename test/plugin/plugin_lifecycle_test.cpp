@@ -320,16 +320,20 @@ TEST(PluginLifecycle, LoaderAcceptsPluginWithoutOptionalValidateEntry) {
     EXPECT_FALSE(module->supports_validate());
 }
 
-TEST(PluginLifecycle, LoaderValidateReturnsOkWhenEntryIsMissing) {
+TEST(PluginLifecycle, LoaderValidateFailsClosedWhenEntryIsMissing) {
     auto module = PluginModule::load(NO_VALIDATE_FIXTURE);
     ASSERT_TRUE(module.has_value()) << module.error().message;
 
-    // The loader trampoline reports OK without calling a plugin. config test
-    // does not treat that OK as a checked configuration.
+    // The trampoline fails closed without calling a plugin: without the entry
+    // the host cannot confirm driver_params, so the absence is a validation
+    // failure, never a silent pass.
     yaddnsc_error error{};
     error.struct_size = static_cast<uint32_t>(sizeof(error));
     const yaddnsc_string param{R"({"anything":true})", 16};
-    EXPECT_EQ(module->validate(nullptr, param, error), YADDNSC_STATUS_OK);
+    EXPECT_EQ(module->validate(nullptr, param, error), YADDNSC_STATUS_INVALID_CONFIG);
+    EXPECT_EQ(error.status, YADDNSC_STATUS_INVALID_CONFIG);
+    EXPECT_THAT(std::string(error.message.data, error.message.size),
+                ::testing::HasSubstr("does not export yaddnsc_driver_validate"));
 }
 
 TEST(PluginLifecycle, ValidateEntryAvailableOnCurrentSdkPlugin) {

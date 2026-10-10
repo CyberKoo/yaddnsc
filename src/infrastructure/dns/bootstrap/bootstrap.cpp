@@ -180,6 +180,14 @@ struct KindResult {
     return second;
 }
 
+/// Attach the one fact a per-server error cannot carry: the name being
+/// resolved. Without it a transport failure surfaces as a bare "timed out"
+/// with no hint about which hostname was being looked up.
+[[nodiscard]] domain::DnsErrorInfo with_host(const std::string& host, domain::DnsErrorInfo error) {
+    error.message = fmt::format(R"(Cannot resolve "{}": {})", host, error.message);
+    return error;
+}
+
 }  // namespace
 
 coro::Task<std::expected<std::vector<domain::InetAddress>, domain::DnsErrorInfo>> bootstrap_resolve(
@@ -197,7 +205,7 @@ coro::Task<std::expected<std::vector<domain::InetAddress>, domain::DnsErrorInfo>
     if (kinds.size() == 1) {
         auto result = co_await resolve_kind(host, kinds.front(), std::move(servers));
         if (result.addresses.empty()) {
-            co_return std::unexpected(std::move(result.error));
+            co_return std::unexpected(with_host(host, std::move(result.error)));
         }
         co_return std::move(result.addresses);
     }
@@ -216,7 +224,7 @@ coro::Task<std::expected<std::vector<domain::InetAddress>, domain::DnsErrorInfo>
     addresses.insert(addresses.end(), ipv4.addresses.begin(), ipv4.addresses.end());
     addresses.insert(addresses.end(), ipv6.addresses.begin(), ipv6.addresses.end());
     if (addresses.empty()) {
-        co_return std::unexpected(best_error(ipv4.error, ipv6.error));
+        co_return std::unexpected(with_host(host, best_error(ipv4.error, ipv6.error)));
     }
     co_return addresses;
 }

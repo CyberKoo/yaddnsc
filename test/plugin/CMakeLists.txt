@@ -38,8 +38,8 @@ endforeach()
 
 # ---------------------------------------------------------------------------
 # Optional-entry fixture — a complete, loadable plugin that predates the
-# OPTIONAL yaddnsc_driver_validate entry. The loader must accept it and the
-# host must skip the driver-side driver_params check instead of failing.
+# OPTIONAL yaddnsc_driver_validate entry. The loader must accept it, and
+# config test must fail closed: the host cannot confirm driver_params.
 # ---------------------------------------------------------------------------
 add_library(yaddnsc_fixture_no_validate MODULE fixtures/no_validate.cpp)
 set_target_properties(yaddnsc_fixture_no_validate PROPERTIES PREFIX "" OUTPUT_NAME "no_validate")
@@ -92,8 +92,10 @@ set_tests_properties(test_coro_driver_gateway PROPERTIES
     ENVIRONMENT "ASAN_OPTIONS=detect_odr_violation=0:detect_stack_use_after_return=1:strict_string_checks=1:detect_invalid_pointer_pairs=2")
 target_compile_definitions(test_coro_driver_gateway PRIVATE
     TEST_PLUGIN_PATH="$<TARGET_FILE:yaddnsc_test_driver_plugin>"
+    NO_VALIDATE_FIXTURE="$<TARGET_FILE:yaddnsc_fixture_no_validate>"
     THROWING_FIXTURE="$<TARGET_FILE:yaddnsc_fixture_throwing>")
-add_dependencies(test_coro_driver_gateway yaddnsc_test_driver_plugin yaddnsc_fixture_throwing)
+add_dependencies(test_coro_driver_gateway yaddnsc_test_driver_plugin yaddnsc_fixture_no_validate
+    yaddnsc_fixture_throwing)
 
 foreach(test_target test_plugin_abi_contract test_plugin_lifecycle)
     target_link_libraries(${test_target} PRIVATE yaddnsc_prod_all ${CMAKE_DL_LIBS})

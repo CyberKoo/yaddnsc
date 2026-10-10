@@ -44,8 +44,7 @@ coro::Task<Result> HttpIpSource::resolve() {
     if (!response) {
         const auto code = domain::IpSourceError::Code::UNAVAILABLE;
         co_return std::unexpected(domain::IpSourceError{
-            code,
-            fmt::format(R"(HTTP IP source "{}" did not return a valid response: {})", url_, response.error().message)});
+            code, fmt::format(R"(HTTP IP source "{}" request failed: {})", url_, response.error().message)});
     }
 
     auto address = domain::InetAddress::parse(StringUtil::trim(response->text()));

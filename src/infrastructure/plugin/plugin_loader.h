@@ -76,9 +76,12 @@ public:
     [[nodiscard]] bool supports_validate() const noexcept { return validate_ != nullptr; }
 
     /// Validate a driver_params JSON against the plugin's schema, behind the
-    /// same exception firewall as the other trampolines. When the plugin
-    /// does not export the optional entry this returns OK. That OK means
-    /// "no driver-side validation", not "the configuration is valid".
+    /// same exception firewall as the other trampolines. When the plugin does
+    /// not export the optional entry this fails closed with
+    /// YADDNSC_STATUS_INVALID_CONFIG: the host cannot confirm driver_params
+    /// without the entry, so the absence is a validation failure, not a pass.
+    /// Callers that want a friendlier message gate on supports_validate()
+    /// first (DriverGateway::validate_config does).
     [[nodiscard]] yaddnsc_status validate(yaddnsc_driver* driver, yaddnsc_string driver_param_json,
                                           yaddnsc_error& out_error) const;
 

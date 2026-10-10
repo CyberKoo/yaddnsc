@@ -229,8 +229,12 @@ yaddnsc_status PluginModule::update(yaddnsc_driver* driver, const yaddnsc_update
 
 yaddnsc_status PluginModule::validate(yaddnsc_driver* driver, yaddnsc_string driver_param_json,
                                       yaddnsc_error& out_error) const {
+    // Fail closed: without the entry the host cannot confirm driver_params,
+    // so the absence is a validation failure, never a silent pass.
     if (validate_ == nullptr) {
-        return YADDNSC_STATUS_OK;
+        write_entry_error(out_error, "plugin does not export yaddnsc_driver_validate; driver_params was not checked",
+                          YADDNSC_STATUS_INVALID_CONFIG);
+        return YADDNSC_STATUS_INVALID_CONFIG;
     }
     try {
         return validate_(driver, driver_param_json, &out_error);

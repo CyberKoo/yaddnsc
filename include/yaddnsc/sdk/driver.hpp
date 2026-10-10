@@ -188,17 +188,16 @@ namespace detail {
 }
 
 /// Copy @p message into a fixed thread-local buffer without allocating.
-/// A null @p message selects @p fallback. The returned view is valid until
-/// the next call on this thread and must be copied by the caller before then.
-[[nodiscard]] inline std::string_view copy_bounded(const char* message, std::string_view fallback) noexcept {
+/// A @p message with null data selects @p fallback. The returned view is
+/// valid until the next call on this thread and must be copied by the caller
+/// before then.
+[[nodiscard]] inline std::string_view copy_bounded(std::string_view message, std::string_view fallback) noexcept {
     constexpr std::size_t capacity = 512;
     thread_local std::array<char, capacity> storage{};
-    const bool use_fallback = message == nullptr;
-    const char* source = use_fallback ? fallback.data() : message;
-    const std::size_t available = use_fallback ? fallback.size() : std::char_traits<char>::length(message);
-    const std::size_t size = available < (storage.size() - 1) ? available : (storage.size() - 1);
-    if (size != 0 && source != nullptr) {
-        std::memcpy(storage.data(), source, size);
+    const std::string_view source = message.data() == nullptr ? fallback : message;
+    const std::size_t size = source.size() < (storage.size() - 1) ? source.size() : (storage.size() - 1);
+    if (size != 0) {
+        std::memcpy(storage.data(), source.data(), size);
     }
     storage[size] = '\0';
     return {storage.data(), size};
@@ -691,7 +690,7 @@ inline yaddnsc_status create_driver(const yaddnsc_host_services* services, yaddn
     } catch (const std::exception& e) {
         reported = copy_bounded(e.what(), fallback);
     } catch (...) {
-        reported = copy_bounded(nullptr, fallback);
+        reported = copy_bounded({}, fallback);
     }
     write_error(out_error, YADDNSC_STATUS_INTERNAL_ERROR, reported, 0);
     return YADDNSC_STATUS_INTERNAL_ERROR;
@@ -750,7 +749,7 @@ inline yaddnsc_status update_driver(yaddnsc_driver* driver, const yaddnsc_update
                     0);
         return YADDNSC_STATUS_INTERNAL_ERROR;
     } catch (...) {
-        write_error(out_error, YADDNSC_STATUS_INTERNAL_ERROR, copy_bounded(nullptr, "unknown exception during update"),
+        write_error(out_error, YADDNSC_STATUS_INTERNAL_ERROR, copy_bounded({}, "unknown exception during update"),
                     0);
         return YADDNSC_STATUS_INTERNAL_ERROR;
     }
@@ -793,8 +792,8 @@ inline yaddnsc_status validate_driver(yaddnsc_driver* driver, yaddnsc_string dri
                     copy_bounded(e.what(), "unknown exception during validate"), 0);
         return YADDNSC_STATUS_INTERNAL_ERROR;
     } catch (...) {
-        write_error(out_error, YADDNSC_STATUS_INTERNAL_ERROR,
-                    copy_bounded(nullptr, "unknown exception during validate"), 0);
+        write_error(out_error, YADDNSC_STATUS_INTERNAL_ERROR, copy_bounded({}, "unknown exception during validate"),
+                    0);
         return YADDNSC_STATUS_INTERNAL_ERROR;
     }
 }
