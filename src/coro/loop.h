@@ -99,8 +99,9 @@ public:
     void post(std::function<void()> fn);
 
     /// Diagnostic trace sink: when set, the loop reports internal scheduling
-    /// events (ready-queue drains, poll cycles, timer/fd/signal registration)
-    /// as pre-formatted text together with the reporting call site. The runtime
+    /// events (ready-queue drains, poll cycles, timer/fd/signal registration,
+    /// offload submissions) as pre-formatted text together with the reporting
+    /// call site. The runtime
     /// holds no logging backend — this sink is the only way those diagnostics
     /// leave the module; composition wires it to the central logging backend.
     /// The sink runs on the loop thread, must not throw, and must not call back

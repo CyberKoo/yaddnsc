@@ -145,6 +145,9 @@ public:
 
     [[nodiscard]] unsigned workers() const { return pool.get_thread_count(); }
 
+    /// Jobs still waiting for a free worker; the saturation signal for traces.
+    [[nodiscard]] std::size_t queued() const { return pool.get_tasks_queued(); }
+
 private:
     BS::thread_pool<> pool;
 };
@@ -220,7 +223,6 @@ void Loop::schedule(detail::PromiseBase& frame) noexcept {
         ready_head_ = &frame;
     }
     ready_tail_ = &frame;
-    CORO_TRACE("scheduled frame {}", static_cast<const void*>(&frame));
 }
 
 void Loop::drain_ready() {
@@ -265,8 +267,10 @@ void Loop::process_inbox() {
 void Loop::submit_offload(std::function<void()> job) {
     if (!pool_) {
         pool_ = std::make_unique<Pool>(pool_workers_);
+        CORO_TRACE("created offload pool with {} worker(s)", pool_workers_);
     }
     pool_->submit(std::move(job));
+    CORO_TRACE("submitted offload job, {} now queued", pool_->queued());
 }
 
 unsigned Loop::offload_workers() {
