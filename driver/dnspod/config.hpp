@@ -7,7 +7,7 @@
 #include <glaze/glaze.hpp>
 
 /// DNSPod API driver configuration parameters.
-struct DNSPodParams {
+struct DnsPodParams {
     std::string domain_id;                   ///< DNSPod domain ID
     std::string record_id;                   ///< DNS record ID to update
     std::string login_token;                 ///< DNSPod API login token
@@ -17,8 +17,8 @@ struct DNSPodParams {
 };
 
 template<>
-struct glz::meta<DNSPodParams> {
-    using T = DNSPodParams;
+struct glz::meta<DnsPodParams> {
+    using T = DnsPodParams;
     static constexpr auto value =
         object("domain_id", &T::domain_id, "record_id", &T::record_id, "login_token", &T::login_token, "record_line",
                &T::record_line, "record_line_id", &T::record_line_id, "global", &T::global);

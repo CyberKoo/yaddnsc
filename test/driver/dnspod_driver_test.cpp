@@ -1,5 +1,5 @@
 //
-// Unit tests for DNSPodDriver (driver/dnspod/)
+// Unit tests for DnsPodDriver (driver/dnspod/)
 //
 // Verifies (through the v1 alpha ABI entries and FakeHostServices):
 //   - descriptor returns expected metadata (name/version/author/capabilities).
@@ -55,7 +55,7 @@ constexpr std::string_view GLOBAL_CONFIG = R"({
 
 // ── Tests ──────────────────────────────────────────────────────────────────
 
-TEST(DNSPodDriverTest, Descriptor_ReturnsExpectedMetadata) {
+TEST(DnsPodDriverTest, Descriptor_ReturnsExpectedMetadata) {
     const yaddnsc_driver_descriptor* descriptor = nullptr;
     ASSERT_EQ(yaddnsc_driver_get_descriptor(&descriptor), YADDNSC_STATUS_OK);
     ASSERT_NE(descriptor, nullptr);
@@ -71,7 +71,7 @@ TEST(DNSPodDriverTest, Descriptor_ReturnsExpectedMetadata) {
     EXPECT_NE(descriptor->capabilities & YADDNSC_DRIVER_CAPABILITY_AAAA, 0u);
 }
 
-TEST(DNSPodDriverTest, Update_DefaultEndpointCn) {
+TEST(DnsPodDriverTest, Update_DefaultEndpointCn) {
     FakeHostServices fake;
     fake.queue_response(200, SUCCESS_WITH_RECORD);
 
@@ -87,7 +87,7 @@ TEST(DNSPodDriverTest, Update_DefaultEndpointCn) {
     EXPECT_EQ(request.content_type, "application/x-www-form-urlencoded");
 }
 
-TEST(DNSPodDriverTest, Update_GlobalEndpoint) {
+TEST(DnsPodDriverTest, Update_GlobalEndpoint) {
     FakeHostServices fake;
     fake.queue_response(200, SUCCESS_WITH_RECORD);
 
@@ -99,7 +99,7 @@ TEST(DNSPodDriverTest, Update_GlobalEndpoint) {
     EXPECT_EQ(fake.requests[0].url, "https://api.dnspod.com/Record.Ddns");
 }
 
-TEST(DNSPodDriverTest, Update_BodyContainsRequiredFields) {
+TEST(DnsPodDriverTest, Update_BodyContainsRequiredFields) {
     FakeHostServices fake;
     fake.queue_response(200, SUCCESS_WITH_RECORD);
 
@@ -120,7 +120,7 @@ TEST(DNSPodDriverTest, Update_BodyContainsRequiredFields) {
     EXPECT_TRUE(body.find("format=json") != std::string::npos);
 }
 
-TEST(DNSPodDriverTest, Update_DefaultRecordLine_Cn) {
+TEST(DnsPodDriverTest, Update_DefaultRecordLine_Cn) {
     FakeHostServices fake;
     fake.queue_response(200, SUCCESS_WITH_RECORD);
 
@@ -136,7 +136,7 @@ TEST(DNSPodDriverTest, Update_DefaultRecordLine_Cn) {
                 body.find("record_line=默认") != std::string::npos);
 }
 
-TEST(DNSPodDriverTest, Update_DefaultRecordLine_Global) {
+TEST(DnsPodDriverTest, Update_DefaultRecordLine_Global) {
     FakeHostServices fake;
     fake.queue_response(200, SUCCESS_WITH_RECORD);
 
@@ -149,7 +149,7 @@ TEST(DNSPodDriverTest, Update_DefaultRecordLine_Global) {
     EXPECT_TRUE(fake.requests[0].body->find("record_line=default") != std::string::npos);
 }
 
-TEST(DNSPodDriverTest, Update_CustomRecordLine) {
+TEST(DnsPodDriverTest, Update_CustomRecordLine) {
     FakeHostServices fake;
     fake.queue_response(200, SUCCESS_WITH_RECORD);
 
@@ -171,7 +171,7 @@ TEST(DNSPodDriverTest, Update_CustomRecordLine) {
     EXPECT_TRUE(fake.requests[0].body->find("record_line=unicom") != std::string::npos);
 }
 
-TEST(DNSPodDriverTest, Update_MissingDomainId_ReturnsInvalidConfig) {
+TEST(DnsPodDriverTest, Update_MissingDomainId_ReturnsInvalidConfig) {
     FakeHostServices fake;
     const auto result = run_abi_update(fake, R"({"record_id": "rec456", "login_token": "token123"})", "1.2.3.4", "A",
                                        "example.com", "@", "example.com");
@@ -180,7 +180,7 @@ TEST(DNSPodDriverTest, Update_MissingDomainId_ReturnsInvalidConfig) {
     EXPECT_TRUE(fake.requests.empty());
 }
 
-TEST(DNSPodDriverTest, Update_MissingLoginToken_ReturnsInvalidConfig) {
+TEST(DnsPodDriverTest, Update_MissingLoginToken_ReturnsInvalidConfig) {
     FakeHostServices fake;
     const auto result = run_abi_update(fake, R"({"domain_id": "dom123", "record_id": "rec456"})", "1.2.3.4", "A",
                                        "example.com", "@", "example.com");
@@ -189,7 +189,7 @@ TEST(DNSPodDriverTest, Update_MissingLoginToken_ReturnsInvalidConfig) {
     EXPECT_TRUE(fake.requests.empty());
 }
 
-TEST(DNSPodDriverTest, Update_StatusCode1WithRecord_ReturnsOk) {
+TEST(DnsPodDriverTest, Update_StatusCode1WithRecord_ReturnsOk) {
     FakeHostServices fake;
     fake.queue_response(200, R"({
         "status": {"code": "1", "message": "Action completed successfully", "created_at": "2024-01-01 00:00:00"},
@@ -200,7 +200,7 @@ TEST(DNSPodDriverTest, Update_StatusCode1WithRecord_ReturnsOk) {
     EXPECT_EQ(result.status, YADDNSC_STATUS_OK) << result.error_message;
 }
 
-TEST(DNSPodDriverTest, Update_StatusCode1NoRecord_ReturnsOk) {
+TEST(DnsPodDriverTest, Update_StatusCode1NoRecord_ReturnsOk) {
     FakeHostServices fake;
     fake.queue_response(200, R"({
         "status": {"code": "1", "message": "Action completed successfully", "created_at": "2024-01-01 00:00:00"}
@@ -210,7 +210,7 @@ TEST(DNSPodDriverTest, Update_StatusCode1NoRecord_ReturnsOk) {
     EXPECT_EQ(result.status, YADDNSC_STATUS_OK) << result.error_message;
 }
 
-TEST(DNSPodDriverTest, Update_ErrorStatusCode_ReturnsUpstreamRejected) {
+TEST(DnsPodDriverTest, Update_ErrorStatusCode_ReturnsUpstreamRejected) {
     FakeHostServices fake;
     fake.queue_response(200, R"({
         "status": {"code": "-1", "message": "Login fails", "created_at": "2024-01-01 00:00:00"}
@@ -220,7 +220,7 @@ TEST(DNSPodDriverTest, Update_ErrorStatusCode_ReturnsUpstreamRejected) {
     EXPECT_EQ(result.status, YADDNSC_STATUS_UPSTREAM_REJECTED);
 }
 
-TEST(DNSPodDriverTest, Update_MissingStatus_ReturnsUpstreamRejected) {
+TEST(DnsPodDriverTest, Update_MissingStatus_ReturnsUpstreamRejected) {
     FakeHostServices fake;
     fake.queue_response(200, R"({"record": {"id": 123, "name": "www", "value": "1.2.3.4"}})");
     const auto result = run_abi_update(fake, CONFIG, "1.2.3.4", "A", "example.com", "www", "www.example.com");
@@ -228,7 +228,7 @@ TEST(DNSPodDriverTest, Update_MissingStatus_ReturnsUpstreamRejected) {
     EXPECT_EQ(result.status, YADDNSC_STATUS_UPSTREAM_REJECTED);
 }
 
-TEST(DNSPodDriverTest, Update_UnparseableBody_ReturnsUpstreamRejected) {
+TEST(DnsPodDriverTest, Update_UnparseableBody_ReturnsUpstreamRejected) {
     FakeHostServices fake;
     fake.queue_response(200, "not-json");
     const auto result = run_abi_update(fake, CONFIG, "1.2.3.4", "A", "example.com", "www", "www.example.com");
@@ -236,7 +236,7 @@ TEST(DNSPodDriverTest, Update_UnparseableBody_ReturnsUpstreamRejected) {
     EXPECT_EQ(result.status, YADDNSC_STATUS_UPSTREAM_REJECTED);
 }
 
-TEST(DNSPodDriverTest, Update_EmptyBody_ReturnsUpstreamRejected) {
+TEST(DnsPodDriverTest, Update_EmptyBody_ReturnsUpstreamRejected) {
     FakeHostServices fake;
     fake.queue_response(200, "");
     const auto result = run_abi_update(fake, CONFIG, "1.2.3.4", "A", "example.com", "www", "www.example.com");
@@ -250,7 +250,7 @@ TEST(DNSPodDriverTest, Update_EmptyBody_ReturnsUpstreamRejected) {
 // valid config passes; a missing required key and malformed JSON both map to
 // YADDNSC_STATUS_INVALID_CONFIG. No HTTP exchange is queued or expected.
 
-TEST(DNSPodDriverTest, Validate_ValidConfig_Succeeds) {
+TEST(DnsPodDriverTest, Validate_ValidConfig_Succeeds) {
     FakeHostServices fake;
     const auto result = run_abi_validate(fake, CONFIG);
     EXPECT_EQ(result.create_status, YADDNSC_STATUS_OK) << result.error_message;
@@ -258,7 +258,7 @@ TEST(DNSPodDriverTest, Validate_ValidConfig_Succeeds) {
     EXPECT_TRUE(fake.requests.empty());
 }
 
-TEST(DNSPodDriverTest, Validate_MissingLoginToken_ReturnsInvalidConfig) {
+TEST(DnsPodDriverTest, Validate_MissingLoginToken_ReturnsInvalidConfig) {
     FakeHostServices fake;
     const auto result = run_abi_validate(fake, R"({"domain_id":"dom123","record_id":"rec456"})");
     EXPECT_EQ(result.create_status, YADDNSC_STATUS_OK) << result.error_message;
@@ -267,14 +267,14 @@ TEST(DNSPodDriverTest, Validate_MissingLoginToken_ReturnsInvalidConfig) {
     EXPECT_TRUE(fake.requests.empty());
 }
 
-TEST(DNSPodDriverTest, Validate_MalformedJson_ReturnsInvalidConfig) {
+TEST(DnsPodDriverTest, Validate_MalformedJson_ReturnsInvalidConfig) {
     FakeHostServices fake;
     const auto result = run_abi_validate(fake, R"({invalid)");
     EXPECT_EQ(result.status, YADDNSC_STATUS_INVALID_CONFIG);
     EXPECT_TRUE(fake.requests.empty());
 }
 
-TEST(DNSPodDriverTest, Entries_NullArgumentsRejected) {
+TEST(DnsPodDriverTest, Entries_NullArgumentsRejected) {
     EXPECT_EQ(yaddnsc_driver_get_descriptor(nullptr), YADDNSC_STATUS_INVALID_ARGUMENT);
     EXPECT_EQ(yaddnsc_driver_update(nullptr, nullptr, nullptr), YADDNSC_STATUS_INVALID_ARGUMENT);
     yaddnsc_driver_destroy(nullptr);  // must be a no-op, must not crash

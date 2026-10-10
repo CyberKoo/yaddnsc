@@ -1,5 +1,5 @@
-#ifndef YADDNSC_DRV_DIGITALOCEAN_DIGITALOCEAN_H
-#define YADDNSC_DRV_DIGITALOCEAN_DIGITALOCEAN_H
+#ifndef YADDNSC_DRV_DIGITAL_OCEAN_DIGITAL_OCEAN_H
+#define YADDNSC_DRV_DIGITAL_OCEAN_DIGITAL_OCEAN_H
 
 #include <string_view>
 
@@ -26,4 +26,4 @@ private:
                                              const yaddnsc::sdk::Services& services);
 };
 
-#endif  // YADDNSC_DRV_DIGITALOCEAN_DIGITALOCEAN_H
+#endif  // YADDNSC_DRV_DIGITAL_OCEAN_DIGITAL_OCEAN_H

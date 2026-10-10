@@ -1,5 +1,5 @@
-#ifndef YADDNSC_DRV_DIGITALOCEAN_RESPONSE_H
-#define YADDNSC_DRV_DIGITALOCEAN_RESPONSE_H
+#ifndef YADDNSC_DRV_DIGITAL_OCEAN_RESPONSE_H
+#define YADDNSC_DRV_DIGITAL_OCEAN_RESPONSE_H
 
 #include <cstdint>
 #include <optional>
@@ -56,4 +56,4 @@ struct glz::meta<DigitalOceanErrorResponse> {
     static constexpr auto value = object("id", &T::id, "message", &T::message);
 };
 
-#endif  // YADDNSC_DRV_DIGITALOCEAN_RESPONSE_H
+#endif  // YADDNSC_DRV_DIGITAL_OCEAN_RESPONSE_H

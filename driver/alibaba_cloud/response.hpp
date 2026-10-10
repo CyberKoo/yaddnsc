@@ -1,5 +1,5 @@
-#ifndef YADDNSC_DRV_ALIBABA_CLOUD_RESPONSE_HPP
-#define YADDNSC_DRV_ALIBABA_CLOUD_RESPONSE_HPP
+#ifndef YADDNSC_DRV_ALIBABA_CLOUD_RESPONSE_H
+#define YADDNSC_DRV_ALIBABA_CLOUD_RESPONSE_H
 
 #include <optional>
 #include <string>
@@ -33,4 +33,4 @@ struct glz::meta<AlibabaErrorResponse> {
         object("Code", &T::code, "Message", &T::message, "RequestId", &T::request_id, "HostId", &T::host_id);
 };
 
-#endif  // YADDNSC_DRV_ALIBABA_CLOUD_RESPONSE_HPP
+#endif  // YADDNSC_DRV_ALIBABA_CLOUD_RESPONSE_H

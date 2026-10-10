@@ -5,15 +5,15 @@
 
 #include <yaddnsc/sdk/driver.hpp>
 
-struct DNSPodParams;
+struct DnsPodParams;
 
 /// DNSPod API driver for DNS record updates.
 ///
 /// Implements the DNSPod API for updating DNS records via their
 /// Record.Modify endpoint.
-class DNSPodDriver final : public yaddnsc::sdk::Driver {
+class DnsPodDriver final : public yaddnsc::sdk::Driver {
 public:
-    ~DNSPodDriver() override = default;
+    ~DnsPodDriver() override = default;
 
     /// Perform one update: generate-request → HTTP exchange → check-response.
     [[nodiscard]] yaddnsc::sdk::Result update(yaddnsc::sdk::UpdateContext& context) override;
@@ -24,7 +24,7 @@ public:
 
 private:
     /// Build the DNSPod API request from parsed config and update params.
-    [[nodiscard]] static yaddnsc::sdk::HttpRequest generate_request(const DNSPodParams& cfg,
+    [[nodiscard]] static yaddnsc::sdk::HttpRequest generate_request(const DnsPodParams& cfg,
                                                                     const yaddnsc::sdk::UpdateRequest& request);
 
     /// Validate the DNSPod API response.

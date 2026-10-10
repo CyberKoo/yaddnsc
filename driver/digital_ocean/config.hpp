@@ -1,5 +1,5 @@
-#ifndef YADDNSC_DRV_DIGITALOCEAN_CONFIG_HPP
-#define YADDNSC_DRV_DIGITALOCEAN_CONFIG_HPP
+#ifndef YADDNSC_DRV_DIGITAL_OCEAN_CONFIG_HPP
+#define YADDNSC_DRV_DIGITAL_OCEAN_CONFIG_HPP
 
 #include <string>
 
@@ -12,7 +12,7 @@ struct DigitalOceanParams {
 };
 
 /// DigitalOcean API request body for DNS record updates.
-struct DigitalOceanBody {
+struct DigitalOceanRequestBody {
     std::string data;  ///< Record value (IP address)
 };
 
@@ -23,9 +23,9 @@ struct glz::meta<DigitalOceanParams> {
 };
 
 template<>
-struct glz::meta<DigitalOceanBody> {
-    using T = DigitalOceanBody;
+struct glz::meta<DigitalOceanRequestBody> {
+    using T = DigitalOceanRequestBody;
     static constexpr auto value = object("data", &T::data);
 };
 
-#endif  // YADDNSC_DRV_DIGITALOCEAN_CONFIG_HPP
+#endif  // YADDNSC_DRV_DIGITAL_OCEAN_CONFIG_HPP

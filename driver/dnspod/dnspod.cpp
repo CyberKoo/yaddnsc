@@ -57,27 +57,27 @@ const std::unordered_map<std::string_view, std::string_view> ERROR_CODES = {
 };
 }  // namespace
 
-YADDNSC_DEFINE_DRIVER(DNSPodDriver, "dnspod", "Updates DNS records via the DNSPod API", "Kotarou", "2.0.0",
+YADDNSC_DEFINE_DRIVER(DnsPodDriver, "dnspod", "Updates DNS records via the DNSPod API", "Kotarou", "2.0.0",
                       YADDNSC_DRIVER_CAPABILITY_A | YADDNSC_DRIVER_CAPABILITY_AAAA)
 
-Result DNSPodDriver::validate(std::string_view driver_param_json) const {
+Result DnsPodDriver::validate(std::string_view driver_param_json) const {
     // Reuses the update-time schema: parse_config throws ConfigParseError on
     // missing keys or malformed values, which the ABI entry maps to
     // YADDNSC_STATUS_INVALID_CONFIG.
-    [[maybe_unused]] const auto cfg = parse_config<DNSPodParams>(driver_param_json);
+    [[maybe_unused]] const auto cfg = parse_config<DnsPodParams>(driver_param_json);
     return {};
 }
 
-Result DNSPodDriver::update(UpdateContext& context) {
+Result DnsPodDriver::update(UpdateContext& context) {
     const auto& params = context.request();
-    const auto cfg = parse_config<DNSPodParams>(params.driver_param_json);
+    const auto cfg = parse_config<DnsPodParams>(params.driver_param_json);
 
     auto request = generate_request(cfg, params);
 
     return run_update(context, DRIVER_NAME, request, check_response);
 }
 
-HttpRequest DNSPodDriver::generate_request(const DNSPodParams& cfg, const UpdateRequest& params) {
+HttpRequest DnsPodDriver::generate_request(const DnsPodParams& cfg, const UpdateRequest& params) {
     // record_line: optional, with dynamic default based on global flag
     auto record_line = cfg.record_line.value_or(cfg.global ? "default" : "默认");
 
@@ -98,7 +98,7 @@ HttpRequest DNSPodDriver::generate_request(const DNSPodParams& cfg, const Update
     return request;
 }
 
-bool DNSPodDriver::check_response(const HttpResponse& response, const Services& services) {
+bool DnsPodDriver::check_response(const HttpResponse& response, const Services& services) {
     YADDNSC_SDK_LOG_TRACE(services, "Got {} from server.", response.body);
 
     auto resp = parse_response<DnsPodResponse>(response.body);
@@ -129,7 +129,7 @@ bool DNSPodDriver::check_response(const HttpResponse& response, const Services& 
     return false;
 }
 
-std::string_view DNSPodDriver::describe_error_code(std::string_view code) {
+std::string_view DnsPodDriver::describe_error_code(std::string_view code) {
     const auto it = ERROR_CODES.find(code);
     return it != ERROR_CODES.end() ? it->second : "Unknown error code";
 }

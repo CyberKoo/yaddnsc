@@ -44,7 +44,7 @@ Result DigitalOceanDriver::update(UpdateContext& context) {
     HttpRequest request{};
     request.url = fmt::format(API_URL, fmt::arg("DOMAIN", params.domain), fmt::arg("RECORD_ID", cfg.record_id));
     request.headers.push_back({"Authorization", fmt::format("Bearer {}", cfg.token)});
-    request.body = glz::write_json(DigitalOceanBody{.data = std::string(params.ip_address)}).value_or("{}");
+    request.body = glz::write_json(DigitalOceanRequestBody{.data = std::string(params.ip_address)}).value_or("{}");
     request.content_type = "application/json";
     request.method = Method::PUT;
 
