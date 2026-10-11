@@ -352,7 +352,7 @@ void set_int_option(const int fd, const int level, const int option, const int v
             SPDLOG_TRACE(R"(mDNS no matching records in response for "{}")", hostname);
             continue;
         }
-        for (const auto& address : results) {
+        for ([[maybe_unused]] const auto& address : results) {
             SPDLOG_TRACE(R"(mDNS resolved "{}" -> {})", hostname, address.to_string());
         }
         co_return results;

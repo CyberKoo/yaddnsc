@@ -547,7 +547,7 @@ dns::ParsedResponse dns::RecordParser::parse_response(const std::span<const std:
 }
 
 dns::FormattedResponse dns::RecordParser::parse_strings(const std::span<const std::uint8_t> data,
-                                                        const std::string& host,
+                                                        [[maybe_unused]] const std::string& host,
                                                         const std::optional<RecordType> type_filter) {
     // Fast path: parse without copying RDATA — rdata_to_string reads
     // directly from the wire buffer via rdata_offset.
