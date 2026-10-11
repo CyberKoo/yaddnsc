@@ -81,7 +81,7 @@ struct Attempt {
                     co_return attempt;
                 }
                 attempt.error = domain::DnsErrorInfo{
-                    domain::DnsError::NODATA, fmt::format(R"(DNS lookup for domain "{}" returned no records)", host)};
+                    domain::DnsError::NODATA, fmt::format(R"(DNS lookup for "{}" returned no records)", host)};
                 co_return attempt;
             case dns::Rcode::NXDOMAIN:
                 attempt.error = domain::DnsErrorInfo{domain::DnsError::NX_DOMAIN,
@@ -162,7 +162,7 @@ public:
             return transient_;
         }
         return domain::DnsErrorInfo{domain::DnsError::NODATA,
-                                    fmt::format(R"(DNS lookup for domain "{}" returned no records)", host)};
+                                    fmt::format(R"(DNS lookup for "{}" returned no records)", host)};
     }
 
 private:
@@ -245,7 +245,7 @@ private:
 [[nodiscard]] coro::Task<std::expected<std::vector<std::string>, domain::DnsErrorInfo>> run_sequential(
     const std::span<Resolver* const> order, std::string host, const domain::RecordKind kind) {
     domain::DnsErrorInfo last{domain::DnsError::NODATA,
-                              fmt::format(R"(DNS lookup for domain "{}" returned no records)", host)};
+                              fmt::format(R"(DNS lookup for "{}" returned no records)", host)};
 
     for (Resolver* resolver : order) {
         auto attempt = co_await attempt_one(*resolver, host, kind);
@@ -269,7 +269,7 @@ private:
         SPDLOG_DEBUG(R"(Fallback resolver #{} returned a retryable error, moving to next)", id);
     }
     if (order.size() > 1) {
-        SPDLOG_ERROR(R"(All {} fallback resolver(s) failed for domain "{}", last error: {})", order.size(), host,
+        SPDLOG_ERROR(R"(All {} fallback resolver(s) failed for "{}", last error: {})", order.size(), host,
                      domain::error_to_str(last.code));
     }
     co_return std::unexpected(std::move(last));
@@ -310,7 +310,7 @@ coro::Task<std::expected<std::vector<std::string>, domain::DnsErrorInfo>> Dispat
         // that exhausted every backend on transient failures is reported here.
         if (!result.has_value() && !detail::is_definitive(result.error().code) &&
             result.error().code != domain::DnsError::NX_DOMAIN) {
-            SPDLOG_ERROR(R"(All {} resolver(s) failed for domain "{}", last error: {})", all.size(), host,
+            SPDLOG_ERROR(R"(All {} resolver(s) failed for "{}", last error: {})", all.size(), host,
                          domain::error_to_str(result.error().code));
         }
         co_return result;
@@ -342,7 +342,7 @@ coro::Task<std::expected<std::vector<std::string>, domain::DnsErrorInfo>> Dispat
             if (attempt.error.code == domain::DnsError::NODATA) {
                 SPDLOG_DEBUG(R"(DNS lookup for "{}" returned no records)", host);
             } else {
-                SPDLOG_WARN(R"(DNS lookup for domain "{}" type: {} failed after {} retries. Error: {})", host,
+                SPDLOG_WARN(R"(DNS lookup for "{}" ({}) failed after {} retries: {})", host,
                             magic_enum::enum_name(kind), attempt_index, domain::error_to_str(attempt.error.code));
             }
             co_return std::unexpected(std::move(attempt.error));

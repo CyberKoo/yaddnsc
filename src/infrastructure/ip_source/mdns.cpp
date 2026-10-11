@@ -223,7 +223,7 @@ void set_int_option(const int fd, const int level, const int option, const int v
             const int error_number = errno;
             return std::unexpected(
                 domain::IpSourceError{domain::IpSourceError::Code::UNAVAILABLE,
-                                      fmt::format("mDNS IPV6_JOIN_GROUP failed: {}", std::strerror(error_number))});
+                                      fmt::format("mDNS IPV6_JOIN_GROUP failed ({})", std::strerror(error_number))});
         }
         guard = MembershipGuard{fd, IPPROTO_IPV6, IPV6_LEAVE_GROUP, &membership, sizeof(membership)};
         return {};
@@ -259,7 +259,7 @@ void set_int_option(const int fd, const int level, const int option, const int v
         const int error_number = errno;
         return std::unexpected(
             domain::IpSourceError{domain::IpSourceError::Code::UNAVAILABLE,
-                                  fmt::format("mDNS IP_ADD_MEMBERSHIP failed: {}", std::strerror(error_number))});
+                                  fmt::format("mDNS IP_ADD_MEMBERSHIP failed ({})", std::strerror(error_number))});
     }
     guard = MembershipGuard{fd, IPPROTO_IP, IP_DROP_MEMBERSHIP, &membership, sizeof(membership)};
     return {};
@@ -276,7 +276,7 @@ void set_int_option(const int fd, const int level, const int option, const int v
         const int error_number = errno;
         co_return std::unexpected(
             domain::IpSourceError{domain::IpSourceError::Code::UNAVAILABLE,
-                                  fmt::format("mDNS socket creation failed: {}", std::strerror(error_number))});
+                                  fmt::format("mDNS socket creation failed ({})", std::strerror(error_number))});
     }
     const Utils::UniqueFd fd = std::move(*opened);
 
@@ -293,7 +293,7 @@ void set_int_option(const int fd, const int level, const int option, const int v
         const int error_number = errno;
         co_return std::unexpected(domain::IpSourceError{
             domain::IpSourceError::Code::UNAVAILABLE,
-            fmt::format(R"(mDNS bind failed for "{}": {})", hostname, std::strerror(error_number))});
+            fmt::format(R"(mDNS bind for "{}" failed ({}))", hostname, std::strerror(error_number))});
     }
 
     std::vector<std::uint8_t> query;
@@ -307,7 +307,7 @@ void set_int_option(const int fd, const int level, const int option, const int v
     } catch (const DnsPacketException& error) {
         co_return std::unexpected(domain::IpSourceError{
             domain::IpSourceError::Code::UNAVAILABLE,
-            fmt::format(R"(mDNS query construction failed for "{}": {})", hostname, error.what())});
+            fmt::format(R"(mDNS query construction for "{}" failed ({}))", hostname, error.what())});
     }
 
     const domain::InetAddress destination = ipv6 ? domain::InetAddress{group_v6()} : domain::InetAddress{group_v4()};

@@ -56,16 +56,18 @@ coro::Task<UpdateCycleOutcome> run_update_cycle(const domain::UpdateTask& task, 
             // Our own budget fired: a transient source
             // failure, not an abort — skip this cycle.
             const auto seconds = std::chrono::duration_cast<std::chrono::seconds>(IP_SOURCE_BUDGET).count();
-            YLOG_ERROR(services.logger, "Failed to resolve local IP address for {}, skipping the update: {}", task.fqdn,
-                       fmt::format("timed out after {}s", seconds));
+            YLOG_ERROR(services.logger,
+                       "Failed to resolve the local IP address: the IP source timed out after {}s. Skipping the update "
+                       "for {} ({}).",
+                       seconds, task.fqdn, rd_type);
             co_return std::unexpected(domain::UpdateError{domain::UpdateError::Code::SKIPPED_NO_ADDRESS,
                                                           fmt::format("IP source timed out after {}s", seconds)});
         }
 
         const auto& candidates = *source_result;
         if (!candidates) {
-            YLOG_ERROR(services.logger, "Failed to resolve local IP address for {}, skipping the update: {}", task.fqdn,
-                       candidates.error().message);
+            YLOG_ERROR(services.logger, "Failed to resolve the local IP address: {}. Skipping the update for {} ({}).",
+                       candidates.error().message, task.fqdn, rd_type);
             co_return std::unexpected(
                 domain::UpdateError{domain::UpdateError::Code::SKIPPED_NO_ADDRESS, candidates.error().message});
         }
@@ -73,7 +75,8 @@ coro::Task<UpdateCycleOutcome> run_update_cycle(const domain::UpdateTask& task, 
         const auto local_ip =
             domain::select_address(*candidates, subdomain.type, {subdomain.allow_ula, subdomain.allow_local_link});
         if (!local_ip) {
-            YLOG_WARN(services.logger, "No valid IP address found for {}, skipping the update", task.fqdn);
+            YLOG_WARN(services.logger, "No valid IP address found. Skipping the update for {} ({}).", task.fqdn,
+                      rd_type);
             co_return std::unexpected(
                 domain::UpdateError{domain::UpdateError::Code::SKIPPED_NO_ADDRESS, "No valid IP address found"});
         }
@@ -155,13 +158,13 @@ coro::Task<UpdateCycleOutcome> run_update_cycle(const domain::UpdateTask& task, 
         if (!result) {
             switch (result.error().code) {
                 case domain::DriverError::Code::NOT_FOUND:
-                    YLOG_ERROR(services.logger, "Driver '{}' not found for task '{}', skipping: {}", task.domain.driver,
-                               task.fqdn, result.error().message);
+                    YLOG_ERROR(services.logger, "{}. Skipping the update for {} ({}).", result.error().message,
+                               task.fqdn, rd_type);
                     break;
                 case domain::DriverError::Code::UNKNOWN:
                     // Exception escaped the driver (e.g. parameter parse failure) —
                     // same wording the legacy catch-all produced.
-                    YLOG_ERROR(services.logger, "Unhandled exception during update of {}. {}", task.fqdn,
+                    YLOG_ERROR(services.logger, "Unhandled exception during update of {}: {}", task.fqdn,
                                result.error().message);
                     break;
                 default:
@@ -184,7 +187,7 @@ coro::Task<UpdateCycleOutcome> run_update_cycle(const domain::UpdateTask& task, 
     } catch (const std::exception& e) {
         // Defence against unexpected exceptions only — expected failures are
         // error values handled above.
-        YLOG_ERROR(services.logger, "Unhandled exception during update of {}. {}", task.fqdn, e.what());
+        YLOG_ERROR(services.logger, "Unhandled exception during update of {}: {}", task.fqdn, e.what());
         co_return std::unexpected(domain::UpdateError{domain::UpdateError::Code::UNKNOWN, e.what()});
     } catch (...) {
         YLOG_ERROR(services.logger, "Unknown non-standard exception during update for {}", task.fqdn);

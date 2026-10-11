@@ -484,7 +484,7 @@ run_cycle \
     "NONE"
 rm -f "${NO_ADDRESS_CFG}"
 if [ "${LAST_CYCLE_OK}" = true ] && [ "${LAST_UPDATES}" -eq 0 ] &&
-        grep -qE 'Failed to resolve local IP address.*skipping the update|No valid IP address found.*skipping the update' "${LAST_LOG}"; then
+        grep -qE 'Skipping the update for' "${LAST_LOG}"; then
     echo "  ✓ ip-source-failure-publishes-nothing PASS"
 else
     echo "  ✗ ip-source-failure-publishes-nothing FAIL (${LAST_UPDATES} update(s); expected a completed no-address workflow)"

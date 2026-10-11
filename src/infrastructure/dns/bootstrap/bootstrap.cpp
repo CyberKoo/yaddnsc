@@ -96,6 +96,13 @@ struct KindResult {
     result.error =
         domain::DnsErrorInfo{domain::DnsError::NODATA, fmt::format(R"(DNS lookup for "{}" returned no records)", host)};
 
+    // A per-server failure keeps its full transport detail at debug level, so
+    // the message handed to with_host can stay terse.
+    const auto record_failure = [&result, &host](const domain::DnsServer& server, domain::DnsErrorInfo error) {
+        SPDLOG_DEBUG(R"(DNS lookup for "{}" via {}:{} failed: {})", host, server.address, server.port, error.message);
+        result.error = std::move(error);
+    };
+
     for (const domain::DnsServer& server : servers) {
         const auto address = domain::InetAddress::parse(server.address);
         if (!address.has_value()) {
@@ -114,23 +121,23 @@ struct KindResult {
             const auto query = dns::build_query(host, dns::Util::type_to_record_type(kind));
             auto response = co_await detail::query_udp(*address, server.port, query);
             if (!response) {
-                result.error = std::move(response.error());
+                record_failure(server, std::move(response.error()));
                 continue;
             }
 
             if (auto valid = dns::Validator::validate_response(query, *response); !valid) {
-                result.error = std::move(valid.error());
+                record_failure(server, std::move(valid.error()));
                 continue;
             }
 
             if (detail::is_truncated(*response)) {
                 auto over_tcp = co_await detail::query_tcp(*address, server.port, query);
                 if (!over_tcp) {
-                    result.error = std::move(over_tcp.error());
+                    record_failure(server, std::move(over_tcp.error()));
                     continue;
                 }
                 if (auto valid = dns::Validator::validate_response(query, *over_tcp); !valid) {
-                    result.error = std::move(valid.error());
+                    record_failure(server, std::move(valid.error()));
                     continue;
                 }
                 response = std::move(over_tcp);
@@ -150,11 +157,12 @@ struct KindResult {
         } catch (const std::bad_alloc&) {
             throw;  // an allocation failure is never downgraded to a retryable error
         } catch (const DnsLookupException& error) {
-            result.error = domain::DnsErrorInfo{error.get_error(), error.what()};
+            record_failure(server, {error.get_error(), error.what()});
         } catch (const std::exception& error) {
-            result.error = domain::DnsErrorInfo{
-                domain::DnsError::PARSE,
-                fmt::format(R"(Failed to build or parse a query for "{}": {})", host, error.what())};
+            record_failure(server,
+                           domain::DnsErrorInfo{
+                               domain::DnsError::PARSE,
+                               fmt::format(R"(Failed to build or parse a query for "{}": {})", host, error.what())});
         }
     }
 
@@ -186,10 +194,23 @@ struct KindResult {
 }
 
 /// Attach the one fact a per-server error cannot carry: the name being
-/// resolved. Without it a transport failure surfaces as a bare "timed out"
-/// with no hint about which hostname was being looked up.
+/// resolved. Transport failures (RETRY/CONNECTION) carry per-server detail —
+/// server, port, budget — that is logged at the failure point, so here they
+/// collapse to the bare summary. Messages that already name the host
+/// (NXDOMAIN, NODATA) pass through unchanged instead of naming it twice.
 [[nodiscard]] domain::DnsErrorInfo with_host(const std::string& host, domain::DnsErrorInfo error) {
-    error.message = fmt::format(R"(Cannot resolve "{}": {})", host, error.message);
+    switch (error.code) {
+        case domain::DnsError::RETRY:
+        case domain::DnsError::CONNECTION:
+            error.message = fmt::format(R"(Cannot resolve "{}")", host);
+            break;
+        case domain::DnsError::NX_DOMAIN:
+        case domain::DnsError::NODATA:
+            break;
+        default:
+            error.message = fmt::format(R"(Cannot resolve "{}": {})", host, error.message);
+            break;
+    }
     return error;
 }
 

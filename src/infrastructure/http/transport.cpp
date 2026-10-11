@@ -17,6 +17,8 @@
 #include "domain/error/dns_error_info.h"
 #include "infrastructure/http/types.h"
 #include "infrastructure/network/transport/options.h"
+#include "support/fmt.hpp"
+#include "yaddnsc/util/format.hpp"  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 
 namespace http {
 
@@ -66,7 +68,7 @@ coro::Task<std::expected<std::unique_ptr<net::Stream>, Error>> connect_stream(
             // timeout: expiry skips to the next candidate as CONNECT_FAILED.
             auto bounded = co_await coro::with_timeout(options.connect_timeout, std::move(attempt));
             if (bounded.timed_out) {
-                last = Error{ErrorCode::CONNECT_FAILED, "connection timed out"};
+                last = Error{ErrorCode::CONNECT_FAILED, fmt::format(R"(Connection to "{}" timed out)", host)};
                 continue;
             }
             if (*bounded) {
@@ -75,7 +77,7 @@ coro::Task<std::expected<std::unique_ptr<net::Stream>, Error>> connect_stream(
         } else if (auto connected = co_await attempt(); connected) {
             co_return stream;
         }
-        last = connect_error();
+        last = connect_error(host);
     }
     co_return std::unexpected(std::move(last));
 }

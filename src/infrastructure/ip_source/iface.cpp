@@ -30,7 +30,7 @@ coro::Task<Result> InterfaceIpSource::resolve() {
         auto addresses = ipsource::get_addresses(interface_name_);
         if (!addresses.has_value()) {
             co_return std::unexpected(domain::IpSourceError{domain::IpSourceError::Code::UNAVAILABLE,
-                                                            fmt::format("Interface {} not found", interface_name_)});
+                                                            fmt::format(R"(interface "{}" not found)", interface_name_)});
         }
 
         if (address_family_ != domain::AddressFamily::UNSPECIFIED) {

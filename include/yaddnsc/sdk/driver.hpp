@@ -626,7 +626,7 @@ protected:
         auto response = context.exchange(request);
         if (!response) {
             detail::log_message(detail::to_services(context), YADDNSC_LOG_WARN, file, line, function,
-                                "Domain {} ({}) update failed (HTTP error: {})", params.fqdn, params.record_type,
+                                "Domain {} ({}) update failed: {}", params.fqdn, params.record_type,
                                 response.error().message);
             return std::unexpected(
                 Error{response.error().status, response.error().message, response.error().retry_after_seconds});

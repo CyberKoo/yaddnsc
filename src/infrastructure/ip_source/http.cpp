@@ -4,6 +4,7 @@
 
 #include "http.h"
 
+#include <spdlog/spdlog.h>
 #include <coroutine>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 #include <expected>
 #include <string>
@@ -14,7 +15,7 @@
 #include "domain/network/inet_address.h"
 #include "infrastructure/http/client.h"
 #include "infrastructure/http/error.h"
-#include "support/fmt.hpp"
+#include "infrastructure/http/wire_request.h"
 #include "domain/error/error.h"
 #include "domain/network/address_family.h"
 #include "infrastructure/network/transport/options.h"
@@ -42,21 +43,24 @@ coro::Task<Result> HttpIpSource::resolve() {
     http::Client client{options_};
     auto response = co_await client.exchange(url_, request);
     if (!response) {
+        // The transport message (which names the host) stays at debug level;
+        // the cycle log gets a short reason phrase naming the server by role.
+        SPDLOG_DEBUG(R"(HTTP IP source "{}" request failed: {})", url_, response.error().message);
         const auto code = domain::IpSourceError::Code::UNAVAILABLE;
-        co_return std::unexpected(domain::IpSourceError{
-            code, fmt::format(R"(HTTP IP source "{}" request failed: {})", url_, response.error().message)});
+        co_return std::unexpected(
+            domain::IpSourceError{code, http::failure_reason("IP source server", response.error())});
     }
 
     auto address = domain::InetAddress::parse(StringUtil::trim(response->text()));
     if (!address.has_value()) {
         co_return std::unexpected(
             domain::IpSourceError{domain::IpSourceError::Code::UNAVAILABLE,
-                                  fmt::format(R"(HTTP IP source "{}" did not return a valid message)", url_)});
+                                  "the IP source server did not return a valid IP address"});
     }
     if (address_family_ != domain::AddressFamily::UNSPECIFIED && address->get_family() != address_family_) {
         co_return std::unexpected(
             domain::IpSourceError{domain::IpSourceError::Code::UNAVAILABLE,
-                                  fmt::format(R"(HTTP IP source "{}" returned an address of the wrong family)", url_)});
+                                  "the IP source server returned an address of the wrong family"});
     }
     co_return std::vector<domain::InetAddress>{*address};
 }

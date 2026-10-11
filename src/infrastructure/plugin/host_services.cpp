@@ -165,7 +165,7 @@ yaddnsc_status HostServicesContext::http_exchange_entry(void* context, const yad
     try {
         return static_cast<HostServicesContext*>(context)->http_exchange(*request, out_response, out_error);
     } catch (const coro::Cancelled&) {
-        write_error(out_error, YADDNSC_STATUS_CANCELLED, "HTTP exchange cancelled");
+        write_error(out_error, YADDNSC_STATUS_CANCELLED, "the request was cancelled");
         return YADDNSC_STATUS_CANCELLED;
     } catch (const std::exception& e) {
         write_error(out_error, YADDNSC_STATUS_INTERNAL_ERROR, copy_callback_error(e.what()));
@@ -205,7 +205,7 @@ yaddnsc_status HostServicesContext::http_exchange(const yaddnsc_http_request& re
         }
     }
     if (is_cancelled() != 0) {
-        write_error(out_error, YADDNSC_STATUS_CANCELLED, "HTTP exchange cancelled");
+        write_error(out_error, YADDNSC_STATUS_CANCELLED, "the request was cancelled");
         return YADDNSC_STATUS_CANCELLED;
     }
 

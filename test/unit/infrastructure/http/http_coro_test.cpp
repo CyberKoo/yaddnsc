@@ -192,9 +192,9 @@ TEST(HttpWireRequest, ConnectionError_PreservesCodeAndStageMessage) {
 }
 
 TEST(HttpWireRequest, ConnectError_PreservesCodeAndMessage) {
-    const auto error = http::connect_error();
+    const auto error = http::connect_error("example.test");
     EXPECT_EQ(error.code, ErrorCode::CONNECT_FAILED);
-    EXPECT_EQ(error.message, "connect failed");
+    EXPECT_EQ(error.message, R"(Cannot connect to "example.test")");
 }
 
 // ---------------------------------------------------------------------------
