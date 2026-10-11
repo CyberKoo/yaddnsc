@@ -31,7 +31,7 @@ coro::Task<std::expected<std::vector<std::uint8_t>, domain::DnsErrorInfo>> Class
         SPDLOG_TRACE(R"(Resolver #{} DNS lookup for "{}")", id(), host);
 
         const auto record_type = dns::Util::type_to_record_type(kind);
-        SPDLOG_DEBUG(R"(Resolver #{} Resolving "{}" (type {}) via {}:{})", id(), host,
+        SPDLOG_TRACE(R"(Resolver #{} Resolving "{}" (type {}) via {}:{})", id(), host,
                      static_cast<std::uint16_t>(record_type), server_.to_string(), port_);
 
         const auto query_bytes = dns::build_query(host, record_type);

@@ -19,7 +19,7 @@ std::vector<domain::DnsServer> parse_resolv_conf(const std::filesystem::path& pa
 
     std::ifstream in(path);
     if (!in) {
-        SPDLOG_DEBUG(R"(Cannot open "{}" — no resolv.conf bootstrap servers)", path.string());
+        SPDLOG_DEBUG(R"(Cannot open "{}" -- no resolv.conf bootstrap servers)", path.string());
         return servers;
     }
 

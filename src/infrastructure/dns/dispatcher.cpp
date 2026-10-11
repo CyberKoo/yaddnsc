@@ -206,7 +206,7 @@ private:
                 }
                 const Attempt& attempt = outcome->value();
                 if (attempt.ok) {
-                    SPDLOG_DEBUG(R"(Resolver #{} returned {} record(s) for "{}")", attempt.id, attempt.records.size(),
+                    SPDLOG_TRACE(R"(Resolver #{} returned {} record(s) for "{}")", attempt.id, attempt.records.size(),
                                  host);
                     winner = attempt.records;
                     race.cancel();  // wake the losers; scope exit joins them
@@ -214,13 +214,13 @@ private:
                 }
 
                 if (attempt.error.code == domain::DnsError::NX_DOMAIN) {
-                    SPDLOG_DEBUG(R"(Resolver #{} returned NXDOMAIN for "{}")", attempt.id, host);
+                    SPDLOG_TRACE(R"(Resolver #{} returned NXDOMAIN for "{}")", attempt.id, host);
                 } else if (detail::is_definitive(attempt.error.code)) {
                     SPDLOG_TRACE(R"(Resolver #{} failed for "{}": {})", attempt.id, host,
                                  domain::error_to_str(attempt.error.code));
                 } else {
-                    SPDLOG_TRACE(R"(Resolver #{} returned {} for "{}")", attempt.id, host,
-                                 domain::error_to_str(attempt.error.code));
+                    SPDLOG_TRACE(R"(Resolver #{} returned {} for "{}")", attempt.id,
+                                 domain::error_to_str(attempt.error.code), host);
                 }
                 errors.note(attempt.error);
                 if (attempt.error.code == domain::DnsError::NX_DOMAIN || detail::is_definitive(attempt.error.code)) {
@@ -255,22 +255,22 @@ private:
                 SPDLOG_WARN(R"(Resolver #{} Domain "{}" resolved to more than one address (count: {}))", id, host,
                             attempt.records.size());
             }
-            SPDLOG_DEBUG(R"(Fallback resolver #{} returned {} record(s) for "{}": {})", id, attempt.records.size(),
+            SPDLOG_TRACE(R"(Fallback resolver #{} returned {} record(s) for "{}": {})", id, attempt.records.size(),
                          host, fmt::join(attempt.records, ", "));
             co_return std::move(attempt.records);
         }
 
-        SPDLOG_DEBUG(R"(Fallback resolver #{} failed for "{}": {})", id, host,
+        SPDLOG_TRACE(R"(Fallback resolver #{} failed for "{}": {})", id, host,
                      domain::error_to_str(attempt.error.code));
         last = std::move(attempt.error);
         if (detail::is_definitive(last.code) || last.code == domain::DnsError::NX_DOMAIN) {
             co_return std::unexpected(std::move(last));
         }
-        SPDLOG_DEBUG(R"(Fallback resolver #{} returned a retryable error, moving to next)", id);
+        SPDLOG_TRACE(R"(Fallback resolver #{} returned a retryable error, moving to next)", id);
     }
     if (order.size() > 1) {
-        SPDLOG_ERROR(R"(All {} fallback resolver(s) failed for "{}", last error: {})", order.size(), host,
-                     domain::error_to_str(last.code));
+        SPDLOG_WARN(R"(All {} fallback resolver(s) failed for "{}": {})", order.size(), host,
+                    domain::error_to_str(last.code));
     }
     co_return std::unexpected(std::move(last));
 }
@@ -310,8 +310,8 @@ coro::Task<std::expected<std::vector<std::string>, domain::DnsErrorInfo>> Dispat
         // that exhausted every backend on transient failures is reported here.
         if (!result.has_value() && !detail::is_definitive(result.error().code) &&
             result.error().code != domain::DnsError::NX_DOMAIN) {
-            SPDLOG_ERROR(R"(All {} resolver(s) failed for "{}", last error: {})", all.size(), host,
-                         domain::error_to_str(result.error().code));
+            SPDLOG_WARN(R"(All {} resolver(s) failed for "{}": {})", all.size(), host,
+                        domain::error_to_str(result.error().code));
         }
         co_return result;
     }
@@ -340,7 +340,7 @@ coro::Task<std::expected<std::vector<std::string>, domain::DnsErrorInfo>> Dispat
         }
         if (!detail::is_retryable(attempt.error.code) || attempt_index >= max_retries) {
             if (attempt.error.code == domain::DnsError::NODATA) {
-                SPDLOG_DEBUG(R"(DNS lookup for "{}" returned no records)", host);
+                SPDLOG_TRACE(R"(DNS lookup for "{}" returned no records)", host);
             } else {
                 SPDLOG_WARN(R"(DNS lookup for "{}" ({}) failed after {} retries: {})", host,
                             magic_enum::enum_name(kind), attempt_index, domain::error_to_str(attempt.error.code));
@@ -348,7 +348,7 @@ coro::Task<std::expected<std::vector<std::string>, domain::DnsErrorInfo>> Dispat
             co_return std::unexpected(std::move(attempt.error));
         }
 
-        SPDLOG_DEBUG("retrying... (counter {})", attempt_index + 1);
+        SPDLOG_TRACE("Retrying... (counter {})", attempt_index + 1);
 
         // Backoff is a cancellable sleep: a cancelled scope aborts the wait and
         // the query, with no thread and no derived cancellation domain.

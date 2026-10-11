@@ -24,6 +24,7 @@ using yaddnsc::sdk::Method;
 using yaddnsc::sdk::Result;
 using yaddnsc::sdk::Services;
 using yaddnsc::sdk::UpdateContext;
+using yaddnsc::sdk::redact::truncate_for_log;
 
 namespace {
 constexpr std::string_view API_URL = "https://api.godaddy.com/v1/domains/{DOMAIN}/records/{TYPE}/{NAME}";
@@ -75,7 +76,14 @@ Result GoDaddyDriver::update(UpdateContext& context) {
 }
 
 bool GoDaddyDriver::check_response(const HttpResponse& response, const Services& services) {
-    YADDNSC_SDK_LOG_TRACE(services, "Got {} from server.", response.body);
+    YADDNSC_SDK_LOG_TRACE(services, "Got {} from server", truncate_for_log(response.body));
+
+    // 429 and 5xx are retried by the next update cycle; the rest needs operator action.
+    if (yaddnsc::sdk::detail::is_transient_status(response.status_code)) {
+        YADDNSC_SDK_LOG_WARN(services, "GoDaddy API request failed with HTTP status {}: {}", response.status_code,
+                             truncate_for_log(response.body));
+        return false;
+    }
 
     // GoDaddy returns 200 OK with an empty body on success.
     if (response.status_code == 200) {
@@ -85,7 +93,8 @@ bool GoDaddyDriver::check_response(const HttpResponse& response, const Services&
 
     // Error responses typically include a JSON body with error details.
     if (!response.body.empty()) {
-        YADDNSC_SDK_LOG_ERROR(services, "GoDaddy API error (HTTP {}): {}", response.status_code, response.body);
+        YADDNSC_SDK_LOG_ERROR(services, "GoDaddy API request failed with HTTP status {}: {}", response.status_code,
+                              truncate_for_log(response.body));
     } else {
         YADDNSC_SDK_LOG_ERROR(services, "GoDaddy API request failed with HTTP status {}", response.status_code);
     }

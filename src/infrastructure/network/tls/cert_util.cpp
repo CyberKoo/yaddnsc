@@ -74,7 +74,7 @@ std::optional<std::string> get_system_ca_path() {
 
         SPDLOG_WARN(
             "CA bundle not found; certificate verification stays enabled and TLS connections will fail "
-            "if no trust store is available.");
+            "if no trust store is available");
         return std::nullopt;
     }();
 
@@ -115,7 +115,7 @@ std::optional<std::string> discover_ca_bundle() {
 
         SPDLOG_WARN(
             "CA bundle not found; certificate verification stays enabled and TLS connections will fail "
-            "if no trust store is available.");
+            "if no trust store is available");
         return std::nullopt;
     }();
 

@@ -256,6 +256,11 @@ target_link_libraries(test_spdlog_logger PRIVATE yaddnsc_logging_adapter spdlog:
 add_unit_test(async_logging SOURCE infrastructure/logging/async_logging_test.cpp)
 target_link_libraries(test_async_logging PRIVATE yaddnsc_logging_adapter spdlog::spdlog)
 
+# level_enabled — the header-only severity guard: it follows the active spdlog
+# level and reports disabled once shutdown left no default logger. Header-only,
+# so it needs no production module beyond the spdlog the test config provides.
+add_unit_test(level_enabled SOURCE infrastructure/logging/level_enabled_test.cpp)
+
 # ============================================================================
 #  infrastructure/ip_source/  —  IP-source abstraction
 # ============================================================================

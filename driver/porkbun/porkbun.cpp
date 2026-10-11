@@ -20,6 +20,7 @@ using yaddnsc::sdk::Result;
 using yaddnsc::sdk::Services;
 using yaddnsc::sdk::UpdateContext;
 using yaddnsc::sdk::UpdateRequest;
+using yaddnsc::sdk::redact::truncate_for_log;
 
 namespace {
 constexpr std::string_view API_URL =
@@ -60,21 +61,28 @@ Result PorkbunDriver::update(UpdateContext& context) {
 }
 
 bool PorkbunDriver::check_response(const HttpResponse& response, const Services& services) {
-    YADDNSC_SDK_LOG_TRACE(services, "Got {} from server.", response.body);
+    YADDNSC_SDK_LOG_TRACE(services, "Got {} from server", truncate_for_log(response.body));
 
     auto resp = parse_response<PorkbunResponse>(response.body);
+    if (resp && resp->status == "SUCCESS") {
+        YADDNSC_SDK_LOG_DEBUG(services, "DNS record updated successfully");
+        return true;
+    }
+
+    // 429 and 5xx are retried by the next update cycle; the rest needs operator action.
+    if (yaddnsc::sdk::detail::is_transient_status(response.status_code)) {
+        YADDNSC_SDK_LOG_WARN(services, "Porkbun API request failed with HTTP status {}: {}", response.status_code,
+                             truncate_for_log(response.body));
+        return false;
+    }
+
     if (!resp) {
         YADDNSC_SDK_LOG_ERROR(services, "Failed to parse Porkbun API response");
         return false;
     }
 
-    if (resp->status == "SUCCESS") {
-        YADDNSC_SDK_LOG_DEBUG(services, "DNS record updated successfully");
-        return true;
-    }
-
     if (resp->message.has_value()) {
-        YADDNSC_SDK_LOG_ERROR(services, "Porkbun API error ({}): {}", resp->code.value_or("unknown"),
+        YADDNSC_SDK_LOG_ERROR(services, "Porkbun API error {}: {}", resp->code.value_or("unknown"),
                               resp->message.value());
     } else {
         YADDNSC_SDK_LOG_ERROR(services, "Porkbun API request failed with status: {}", resp->status);

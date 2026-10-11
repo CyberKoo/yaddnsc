@@ -6,6 +6,7 @@
 #include "driver_gateway.h"
 
 #include <coroutine>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
+#include <spdlog/spdlog.h>
 #include <yaddnsc/sdk/driver_abi.h>
 #include <algorithm>
 #include <cstdint>
@@ -21,7 +22,6 @@
 
 #include "coro/offload.hpp"
 #include "coro/scope.hpp"
-#include "application/log_macros.h"
 #include "infrastructure/plugin/abi_string.h"
 #include "infrastructure/plugin/driver_catalog.h"
 #include "infrastructure/plugin/driver_instance.h"
@@ -281,8 +281,8 @@ coro::Task<std::expected<void, domain::DriverError>> DriverGateway::update(std::
         // wait-budget expiry while the loop was busy — is one failed cycle,
         // not the end of the subdomain loop: the legacy stack mapped it to an
         // error value and the schedule retried on the next interval.
-        YLOG_WARN(logger_, "Driver '{}' reported cancellation for {}; the cycle fails and retries on schedule",
-                  driver_name, fqdn);
+        SPDLOG_WARN(R"(Driver '{}' reported cancellation for "{}"; the cycle fails and retries on schedule)",
+                    driver_name, fqdn);
         co_return std::unexpected(domain::DriverError{domain::DriverError::Code::UPDATE_FAILED,
                                                       fmt::format("Driver '{}' reported cancellation for {}", driver_name, fqdn), 0});
     } catch (const coro::Cancelled&) {

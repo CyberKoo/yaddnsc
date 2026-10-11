@@ -144,7 +144,8 @@ using ExchangeResult = std::expected<HttpResponse, HttpError>;
 
 /// Render an HttpRequest for log output:
 /// Request(body="...", content_type="...", method="...", header="...")
-/// Sensitive header values and body/query parameters are redacted.
+/// Sensitive header values and body/query parameters are redacted; the body
+/// is truncated to the log budget.
 [[nodiscard]] inline std::string format_request(const HttpRequest& request) {
     std::string headers;
     for (const auto& [name, value] : request.headers) {
@@ -158,7 +159,7 @@ using ExchangeResult = std::expected<HttpResponse, HttpError>;
     }
 
     return fmt::format(R"(Request(body="{}", content_type="{}", method="{}", header="{}"))",
-                       redact::redact_body(request.body.value_or("")), request.content_type,
+                       redact::truncate_for_log(redact::redact_body(request.body.value_or(""))), request.content_type,
                        method_name(request.method), headers);
 }
 
@@ -542,6 +543,14 @@ struct UpstreamFailure {
     return {};
 }
 
+/// Whether an upstream rejection clears without operator action: rate
+/// limiting and server-side failures are retried by the next update cycle,
+/// so a driver reports them as degradation rather than as a failed unit of
+/// work. Every other status (auth, validation, not found) stays a failure.
+[[nodiscard]] constexpr bool is_transient_status(std::uint32_t status_code) noexcept {
+    return status_code == 429 || (status_code >= 500 && status_code < 600);
+}
+
 }  // namespace detail
 
 /* ── Driver base class ────────────────────────────────────────────────────*/
@@ -620,13 +629,13 @@ protected:
         const auto function = location.function_name();
 
         detail::log_message(detail::to_services(context), YADDNSC_LOG_DEBUG, file, line, function,
-                            "Domain {} ({}) received DNS record update request from driver {}, {}", params.fqdn,
+                            "Domain \"{}\" ({}) received DNS record update request from driver '{}', {}", params.fqdn,
                             params.record_type, driver_name, format_request(request));
 
         auto response = context.exchange(request);
         if (!response) {
             detail::log_message(detail::to_services(context), YADDNSC_LOG_WARN, file, line, function,
-                                "Domain {} ({}) update failed: {}", params.fqdn, params.record_type,
+                                "Domain \"{}\" ({}) update failed: {}", params.fqdn, params.record_type,
                                 response.error().message);
             return std::unexpected(
                 Error{response.error().status, response.error().message, response.error().retry_after_seconds});
@@ -635,7 +644,7 @@ protected:
         if (!check_response(*response, context.services())) {
             const auto failure = detail::classify_upstream_failure(*response);
             detail::log_message(detail::to_services(context), YADDNSC_LOG_WARN, file, line, function,
-                                "Domain {} ({}) update rejected by upstream", params.fqdn, params.record_type);
+                                "Domain \"{}\" ({}) update rejected by upstream", params.fqdn, params.record_type);
             return std::unexpected(
                 Error{failure.status,
                       fmt::format("Domain {} ({}) update rejected by upstream", params.fqdn, params.record_type),

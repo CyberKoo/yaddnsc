@@ -112,9 +112,9 @@ std::unique_ptr<Dispatcher> make_dispatcher(const domain::ResolverSettings& sett
         backends.push_back(make_backend(server, bootstrap, tls_context));
         // make_backend() already validated the address, so this cannot fail.
         const auto uri = Uri::parse(server.address).value();
-        SPDLOG_INFO("DNS resolver #{}: {} ({})", backends.size(),
-                    Utils::redacted_uri_credentials(
-                        uri.get_schema().empty() ? std::string(uri.get_host_literal()) : uri.get_origin()),
+        SPDLOG_INFO("DNS resolver #{}: \"{}\" ({})", backends.size(),
+                    Utils::redacted_uri_credentials(uri.get_schema().empty() ? std::string(uri.get_host_literal())
+                                                                             : uri.get_origin()),
                     backend_type(uri.get_schema()));
     }
 

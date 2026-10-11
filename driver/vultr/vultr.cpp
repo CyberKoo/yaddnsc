@@ -19,6 +19,7 @@ using yaddnsc::sdk::Method;
 using yaddnsc::sdk::Result;
 using yaddnsc::sdk::Services;
 using yaddnsc::sdk::UpdateContext;
+using yaddnsc::sdk::redact::truncate_for_log;
 
 namespace {
 constexpr std::string_view API_URL = "https://api.vultr.com/v2/domains/{DOMAIN}/records/{RECORD_ID}";
@@ -53,7 +54,14 @@ Result VultrDriver::update(UpdateContext& context) {
 }
 
 bool VultrDriver::check_response(const HttpResponse& response, const Services& services) {
-    YADDNSC_SDK_LOG_TRACE(services, "Got {} from server.", response.body);
+    YADDNSC_SDK_LOG_TRACE(services, "Got {} from server", truncate_for_log(response.body));
+
+    // 429 and 5xx are retried by the next update cycle; the rest needs operator action.
+    if (yaddnsc::sdk::detail::is_transient_status(response.status_code)) {
+        YADDNSC_SDK_LOG_WARN(services, "Vultr API request failed with HTTP status {}: {}", response.status_code,
+                             truncate_for_log(response.body));
+        return false;
+    }
 
     // Vultr returns 204 No Content with an empty body on success.
     if (response.status_code == 204) {
@@ -64,9 +72,10 @@ bool VultrDriver::check_response(const HttpResponse& response, const Services& s
     // Error responses include a JSON body with an error message.
     if (!response.body.empty()) {
         if (auto result = parse_response<VultrErrorResponse>(response.body); result && !result->error.empty()) {
-            YADDNSC_SDK_LOG_ERROR(services, "Vultr API error (status {}): {}", result->status, result->error);
+            YADDNSC_SDK_LOG_ERROR(services, "Vultr API error with status {}: {}", result->status, result->error);
         } else {
-            YADDNSC_SDK_LOG_ERROR(services, "Vultr API error (HTTP {}): {}", response.status_code, response.body);
+            YADDNSC_SDK_LOG_ERROR(services, "Vultr API request failed with HTTP status {}: {}", response.status_code,
+                                  truncate_for_log(response.body));
         }
     } else {
         YADDNSC_SDK_LOG_ERROR(services, "Vultr API request failed with HTTP status {}", response.status_code);

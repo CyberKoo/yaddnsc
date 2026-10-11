@@ -19,6 +19,7 @@ using yaddnsc::sdk::Result;
 using yaddnsc::sdk::Services;
 using yaddnsc::sdk::UpdateContext;
 using yaddnsc::sdk::UpdateRequest;
+using yaddnsc::sdk::redact::truncate_for_log;
 
 namespace {
 constexpr std::string_view API_URL = "https://api.linode.com/v4/domains/{DOMAIN_ID}/records/{RECORD_ID}";
@@ -51,7 +52,14 @@ Result LinodeDriver::update(UpdateContext& context) {
 }
 
 bool LinodeDriver::check_response(const HttpResponse& response, const Services& services) {
-    YADDNSC_SDK_LOG_TRACE(services, "Got {} from server.", response.body);
+    YADDNSC_SDK_LOG_TRACE(services, "Got {} from server", truncate_for_log(response.body));
+
+    // 429 and 5xx are retried by the next update cycle; the rest needs operator action.
+    if (yaddnsc::sdk::detail::is_transient_status(response.status_code)) {
+        YADDNSC_SDK_LOG_WARN(services, "Linode API request failed with HTTP status {}: {}", response.status_code,
+                             truncate_for_log(response.body));
+        return false;
+    }
 
     // Linode returns 200 OK with the updated record object on success.
     if (response.status_code == 200) {
@@ -63,11 +71,15 @@ bool LinodeDriver::check_response(const HttpResponse& response, const Services& 
     if (!response.body.empty()) {
         if (auto result = parse_response<LinodeErrorResponse>(response.body); result && !result->errors.empty()) {
             for (const auto& err : result->errors) {
-                YADDNSC_SDK_LOG_ERROR(services, "Linode API error{}: {}",
-                                      err.field.empty() ? "" : fmt::format(" ({})", err.field), err.reason);
+                if (err.field.empty()) {
+                    YADDNSC_SDK_LOG_ERROR(services, "Linode API error: {}", err.reason);
+                } else {
+                    YADDNSC_SDK_LOG_ERROR(services, "Linode API error in field {}: {}", err.field, err.reason);
+                }
             }
         } else {
-            YADDNSC_SDK_LOG_ERROR(services, "Linode API error (HTTP {}): {}", response.status_code, response.body);
+            YADDNSC_SDK_LOG_ERROR(services, "Linode API request failed with HTTP status {}: {}", response.status_code,
+                                  truncate_for_log(response.body));
         }
     } else {
         YADDNSC_SDK_LOG_ERROR(services, "Linode API request failed with HTTP status {}", response.status_code);

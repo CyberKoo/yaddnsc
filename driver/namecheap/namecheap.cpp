@@ -26,6 +26,7 @@ using yaddnsc::sdk::Result;
 using yaddnsc::sdk::Services;
 using yaddnsc::sdk::UpdateContext;
 using yaddnsc::sdk::UpdateRequest;
+using yaddnsc::sdk::redact::truncate_for_log;
 
 namespace {
 constexpr std::string_view API_URL = "https://dynamicdns.park-your-domain.com/update";
@@ -89,32 +90,40 @@ HttpRequest NamecheapDriver::generate_request(const NamecheapParams& cfg, const 
 // =============================================================================
 
 bool NamecheapDriver::check_response(const HttpResponse& response, const Services& services) {
-    YADDNSC_SDK_LOG_TRACE(services, "Got {} from server.", response.body);
+    YADDNSC_SDK_LOG_TRACE(services, "Got {} from server", truncate_for_log(response.body));
 
     const auto doc = xml_raii::XmlDocument::parse(response.body);
-    if (!doc) {
-        YADDNSC_SDK_LOG_ERROR(services, "Failed to parse Namecheap API response XML");
-        return false;
-    }
 
     // Extract <ErrCount> — "0" means success.
-    const auto count = doc->first_text("//ErrCount/text()");
-    if (!count) {
-        YADDNSC_SDK_LOG_ERROR(services, "Namecheap API response missing <ErrCount> element");
-        return false;
-    }
-
-    if (*count == "0") {
+    const auto count = doc ? doc->first_text("//ErrCount/text()") : std::nullopt;
+    if (count && *count == "0") {
         // Success — log the updated IP address from <IP>.
         const auto ip = doc->first_text("//IP/text()");
         YADDNSC_SDK_LOG_DEBUG(services, "DNS record updated successfully to {}", ip.value_or("unknown"));
         return true;
     }
 
+    // 429 and 5xx are retried by the next update cycle; the rest needs operator action.
+    if (yaddnsc::sdk::detail::is_transient_status(response.status_code)) {
+        YADDNSC_SDK_LOG_WARN(services, "Namecheap API request failed with HTTP status {}: {}", response.status_code,
+                             truncate_for_log(response.body));
+        return false;
+    }
+
+    if (!doc) {
+        YADDNSC_SDK_LOG_ERROR(services, "Failed to parse Namecheap API response XML");
+        return false;
+    }
+
+    if (!count) {
+        YADDNSC_SDK_LOG_ERROR(services, "Namecheap API response missing <ErrCount> element");
+        return false;
+    }
+
     // Error — extract error messages from <errors> children.
     const auto messages = doc->all_text("//errors/*/text()");
     if (messages.empty()) {
-        YADDNSC_SDK_LOG_ERROR(services, "Namecheap API error (ErrCount: {})", *count);
+        YADDNSC_SDK_LOG_ERROR(services, "Namecheap API returned ErrCount {} without an error message", *count);
     }
     for (const auto& message : messages) {
         YADDNSC_SDK_LOG_ERROR(services, "Namecheap API error: {}", message);

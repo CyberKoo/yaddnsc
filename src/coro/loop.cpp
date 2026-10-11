@@ -278,7 +278,7 @@ void Loop::drain_ready() {
         ++resumed;
         batch = next;
     }
-    CORO_TRACE("drained ready queue, resumed {} frame(s)", resumed);
+    CORO_TRACE("Drained ready queue, resumed {} frame(s)", resumed);
 }
 
 void Loop::post(std::function<void()> fn) {
@@ -286,7 +286,7 @@ void Loop::post(std::function<void()> fn) {
         const std::lock_guard lock(inbox_mutex_);
         inbox_.push_back(std::move(fn));
     }
-    CORO_TRACE("posted a cross-thread callback to the inbox");
+    CORO_TRACE("Posted a cross-thread callback to the inbox");
     wake();
 }
 
@@ -297,7 +297,7 @@ void Loop::process_inbox() {
         batch.swap(inbox_);
     }
     if (!batch.empty()) {
-        CORO_TRACE("processing {} inbox callback(s)", batch.size());
+        CORO_TRACE("Processing {} inbox callback(s)", batch.size());
     }
     for (std::function<void()>& fn : batch) {
         fn();
@@ -307,10 +307,10 @@ void Loop::process_inbox() {
 void Loop::submit_offload(std::function<void()> job) {
     if (!pool_) {
         pool_ = std::make_unique<Pool>(pool_workers_);
-        CORO_TRACE("created offload pool with {} worker(s)", pool_workers_);
+        CORO_TRACE("Created offload pool with {} worker(s)", pool_workers_);
     }
     pool_->submit(std::move(job));
-    CORO_TRACE("submitted offload job, {} now queued", pool_->queued());
+    CORO_TRACE("Submitted offload job, {} now queued", pool_->queued());
 }
 
 unsigned Loop::offload_workers() {
@@ -367,7 +367,7 @@ bool Loop::process_signals() noexcept {
     if (mask == 0) {
         return false;
     }
-    CORO_TRACE("processing pending signal mask {:#x}", mask);
+    CORO_TRACE("Processing pending signal mask {:#x}", mask);
     bool woke = false;
     unsigned long long remaining = mask;
     while (remaining != 0) {
@@ -380,7 +380,7 @@ bool Loop::process_signals() noexcept {
         std::vector<SignalWaiter> parked;
         parked.swap(signal_waiters_[index]);
         if (!parked.empty()) {
-            CORO_TRACE("signal {} wakes {} waiter(s)", bit + 1, parked.size());
+            CORO_TRACE("Signal {} wakes {} waiter(s)", bit + 1, parked.size());
         }
         for (SignalWaiter& entry : parked) {
             if (entry.node != nullptr) {
@@ -465,7 +465,7 @@ void Loop::poll_once(int timeout_ms) {
         }
     }
     for (const ReadyEntry& entry : ready_entries_scratch_) {
-        CORO_TRACE("fd {} ready: {}", entry.fd, describe_poll_events(entry.revents));
+        CORO_TRACE("Fd {} ready: {}", entry.fd, describe_poll_events(entry.revents));
         entry.fn(entry.context, entry.revents);
     }
 }
@@ -476,7 +476,7 @@ void Loop::fire_timers() noexcept {
             break;
         }
         detail::TimerNode* const due = heap_pop();
-        CORO_TRACE("firing timer {}", static_cast<const void*>(due));
+        CORO_TRACE("Firing timer {}", static_cast<const void*>(due));
         if (due->action != nullptr) {
             due->action(due->context);
         }
@@ -495,12 +495,12 @@ void Loop::add_timer(detail::TimerNode& timer, TimePoint deadline, void (*action
     timer.context = context;
     heap_push(timer);
     const auto in_ms = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - now()).count();
-    CORO_TRACE("armed timer {} (fires in {} ms)", static_cast<const void*>(&timer), in_ms);
+    CORO_TRACE("Armed timer {} (fires in {} ms)", static_cast<const void*>(&timer), in_ms);
 }
 
 void Loop::remove_timer(detail::TimerNode& timer) noexcept {
     if (timer.in_heap) {
-        CORO_TRACE("disarmed timer {}", static_cast<const void*>(&timer));
+        CORO_TRACE("Disarmed timer {}", static_cast<const void*>(&timer));
         heap_remove(timer);
     }
 }
@@ -586,7 +586,7 @@ void Loop::heap_sift_down(std::size_t index) noexcept {
 detail::FdToken Loop::add_fd(int fd, short events, void (*fn)(void*, short) noexcept, void* context) {
     const detail::FdToken token = ++fd_sequence_;
     fds_.push_back(FdEntry{token, fd, events, fn, context});
-    CORO_TRACE("registered fd {} for events {} (token {})", fd, describe_poll_events(events), token);
+    CORO_TRACE("Registered fd {} for events {} (token {})", fd, describe_poll_events(events), token);
     return token;
 }
 
@@ -620,7 +620,7 @@ void Loop::arm_signal(int sig, detail::WaitNode& node) {
         saved_signals_.emplace_back(sig, previous);
     }
     waiters.push_back(SignalWaiter{node.waiter, &node});
-    CORO_TRACE("armed signal waiter for signal {}", sig);
+    CORO_TRACE("Armed signal waiter for signal {}", sig);
 }
 
 void Loop::disarm_signal(int sig, detail::WaitNode& node) noexcept {
@@ -629,7 +629,7 @@ void Loop::disarm_signal(int sig, detail::WaitNode& node) noexcept {
     }
     auto& parked = signal_waiters_[static_cast<std::size_t>(sig)];
     const auto erased = std::erase_if(parked, [&node](const SignalWaiter& entry) { return entry.node == &node; });
-    CORO_TRACE("disarmed signal waiter for signal {} ({} waiter(s) removed)", sig, erased);
+    CORO_TRACE("Disarmed signal waiter for signal {} ({} waiter(s) removed)", sig, erased);
 }
 
 }  // namespace coro

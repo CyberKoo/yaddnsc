@@ -20,6 +20,7 @@ using yaddnsc::sdk::Result;
 using yaddnsc::sdk::Services;
 using yaddnsc::sdk::UpdateContext;
 using yaddnsc::sdk::UpdateRequest;
+using yaddnsc::sdk::redact::truncate_for_log;
 
 namespace {
 constexpr std::string_view API_URL = "https://api.cloudflare.com/client/v4/zones/{ZONE_ID}/dns_records/{RECORD_ID}";
@@ -52,32 +53,39 @@ Result CloudflareDriver::update(UpdateContext& context) {
 }
 
 bool CloudflareDriver::check_response(const HttpResponse& response, const Services& services) {
-    YADDNSC_SDK_LOG_TRACE(services, "Got {} from server.", response.body);
+    YADDNSC_SDK_LOG_TRACE(services, "Got {} from server", truncate_for_log(response.body));
 
     auto resp = parse_response<CloudflareResponse>(response.body);
+    if (resp && resp->success) {
+        if (resp->result.has_value()) {
+            auto& record = resp->result.value();
+            YADDNSC_SDK_LOG_DEBUG(services, "DNS record updated successfully: {} {} -> {} (TTL: {}, proxied: {})",
+                                  record.type, record.name, record.content, record.ttl, record.proxied ? "yes" : "no");
+        }
+        return true;
+    }
+
+    // 429 and 5xx are retried by the next update cycle; the rest needs operator action.
+    if (yaddnsc::sdk::detail::is_transient_status(response.status_code)) {
+        YADDNSC_SDK_LOG_WARN(services, "Cloudflare API request failed with HTTP status {}: {}", response.status_code,
+                             truncate_for_log(response.body));
+        return false;
+    }
+
     if (!resp) {
         YADDNSC_SDK_LOG_ERROR(services, "Failed to parse Cloudflare API response");
         return false;
     }
-    if (!resp->success) {
-        for (const auto& error : resp->errors) {
-            if (error.source.has_value()) {
-                YADDNSC_SDK_LOG_ERROR(services, "Cloudflare API error ({}): {} [{}]", error.code, error.message,
-                                      error.source->pointer);
-            } else {
-                YADDNSC_SDK_LOG_ERROR(services, "Cloudflare API error ({}): {}", error.code, error.message);
-            }
+    for (const auto& error : resp->errors) {
+        if (error.source.has_value()) {
+            YADDNSC_SDK_LOG_ERROR(services, "Cloudflare API error {} at {}: {}", error.code, error.source->pointer,
+                                  error.message);
+        } else {
+            YADDNSC_SDK_LOG_ERROR(services, "Cloudflare API error {}: {}", error.code, error.message);
         }
-        return false;
     }
 
-    if (resp->result.has_value()) {
-        auto& record = resp->result.value();
-        YADDNSC_SDK_LOG_DEBUG(services, "DNS record updated successfully: {} {} -> {} (TTL: {}, proxied: {})",
-                              record.type, record.name, record.content, record.ttl, record.proxied ? "yes" : "no");
-    }
-
-    return true;
+    return false;
 }
 
 std::string CloudflareDriver::generate_body(const CloudflareParams& cfg, const UpdateRequest& request) {

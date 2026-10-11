@@ -29,6 +29,33 @@ Diagnostic logging **must** use the project's centralized logging system. Each l
 
 The central production backend **must** supply timestamp, severity, source location, and message; SDK source locations **must** be forwarded through Host Services. A log call **must** return without blocking the calling (loop) thread: the backend is asynchronous and drained on its own thread (see [Concurrency & I/O model](../docs/architecture.md#concurrency--io-model)). See [Plugin boundary](../docs/architecture.md#plugin-boundary-v1) for ABI boundaries.
 
+### Severity Semantics
+
+Severity **must** classify the event's consequence for the process, and the same event **must** carry the same severity at every layer where it is logged:
+
+| Level | Meaning |
+|-------|---------|
+| TRACE | Detail of a single request or I/O operation; high volume, useful only while following one interaction |
+| DEBUG | Per-iteration or component lifecycle events (an attempt, a reconnect, a skipped step with its reason); the narrative of normal operation |
+| INFO | Startup, shutdown, and successful completion of the primary periodic work; state an operator checks |
+| WARN | Self-healing degradation: operation continues through retry, fallback, or clamping without operator action |
+| ERROR | The current unit of work failed and does not recover on its own — its result is lost, operator action (credentials, configuration) is required, or a subsystem crashed unexpectedly |
+| CRITICAL | Process termination is imminent |
+
+Expected transient conditions handled by design (timeouts, empty results, fallback, rate limiting) are **WARN**, not ERROR. An unexpected crash, or a condition that persists until someone intervenes, is **ERROR**.
+
+### Message Text
+
+- The format string **must** be a string literal, so placeholder and type mismatches are compile-time errors.
+- A message is a single concise statement: ASCII-only, first letter capitalized, and **must not** end with a period; an in-progress action **may** end with `...`. A message **may** instead begin with a component, interface, or configuration token in its native spelling (including lowercase) as a prefix.
+- Hostname, FQDN, and URL values **must** be double-quoted (`"{}"`); plugin-identity tokens (names, symbols, library paths) and configuration literals use single quotes (`'{}'`); numbers, host:port pairs, and enum names stay bare.
+- Error detail **must** be appended last as `: {}`; qualifiers (status codes, subsystems) belong inside the sentence, not in a parenthesized suffix.
+- Payload bodies **may** be logged only truncated to a fixed byte budget; sensitive content remains subject to [Security](#security).
+
+### Lazy Argument Evaluation
+
+A log argument with non-trivial cost or side effects **must** be evaluated only when its level is enabled — guard the call with the layer's severity query or use a macro that formats lazily. Macros that forward arguments into a formatting call evaluate them before the level check, so the cost and side effects otherwise happen on every call.
+
 ## Documentation
 
 - Public APIs **must** document contracts, ownership/lifetimes, failure behavior, and thread-safety obligations where applicable, using Doxygen-style `/** ... */` or `///` comments. **Prefer** comments explaining constraints and intent over restating code.
@@ -74,6 +101,6 @@ Every review **must** check the applicable items below and identify validation g
 - [ ] Error contracts, exception safety, `noexcept`, and catch boundaries follow [Error Handling](03-error-handling.md), particularly [Exception Safety & noexcept](03-error-handling.md#exception-safety--noexcept) and [Exception Discipline & Catch Block Rules](03-error-handling.md#exception-discipline--catch-block-rules).
 - [ ] External validation, bounds, and side-effect-free assertions follow [Security](#security) and [Contracts & Assertions](03-error-handling.md#contracts--assertions).
 - [ ] Shared-state synchronization and documented thread-safety follow [Concurrency](#concurrency).
-- [ ] Logging respects [Layered Logging Policy](#layered-logging-policy), CLI output separation, and sensitive-data restrictions.
+- [ ] Logging respects the [Logging](#logging) policy — layered entry points, severity semantics, message text, lazy evaluation — CLI output separation, and sensitive-data restrictions.
 - [ ] Relevant tests cover changed behavior and failure paths; results and platform-validation gaps are recorded, and performance claims have measurements.
 - [ ] Relevant owner documentation and its language counterparts are synchronized per [Documentation Maintenance](#documentation-maintenance).

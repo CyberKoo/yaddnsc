@@ -54,6 +54,12 @@ DNS_RESPONSES: dict[str, dict[str, str]] = {
 update_requests: list[dict] = []
 _update_lock = asyncio.Lock()
 
+# Every DNS query the sim receives, as {"proto", "qname", "qtype"}. The
+# resolver's own per-query log lines are TRACE-level and compiled out of
+# default builds, so scenarios assert resolver activity on the wire instead.
+# Appends happen synchronously inside the single asyncio loop — no lock needed.
+dns_queries: list[dict] = []
+
 # ---------------------------------------------------------------------------
 # DNS wire-format helpers  (RFC 1035)
 # ---------------------------------------------------------------------------
@@ -189,6 +195,8 @@ class DNSProtocol(asyncio.DatagramProtocol):
             ident, qname, qtype_str = parse_dns_query(data)
             if not qname:
                 return
+            if not self.is_mdns:
+                dns_queries.append({"proto": "udp", "qname": qname, "qtype": qtype_str})
             log.debug("DNS/%s query: %s %s from %s",
                        "mDNS" if self.is_mdns else "UDP", qtype_str, qname, addr)
 
@@ -252,6 +260,7 @@ async def handle_dot_client(reader: asyncio.StreamReader, writer: asyncio.Stream
         query = await reader.readexactly(length)
 
         ident, qname, qtype_str = parse_dns_query(query)
+        dns_queries.append({"proto": "dot", "qname": qname, "qtype": qtype_str})
         log.debug("DoT query: %s %s", qtype_str, qname)
 
         rdata = resolve(qname, qtype_str)
@@ -300,6 +309,7 @@ async def doh_handler(request: web.Request) -> web.Response:
         return web.Response(status=400)
 
     ident, qname, qtype_str = parse_dns_query(body)
+    dns_queries.append({"proto": "doh", "qname": qname, "qtype": qtype_str})
     log.debug("DoH POST: %s %s", qtype_str, qname)
 
     rdata = resolve(qname, qtype_str)
@@ -346,6 +356,10 @@ async def api_logs(request: web.Request) -> web.Response:
         return web.json_response(list(update_requests))
 
 
+async def api_dns_logs(request: web.Request) -> web.Response:
+    return web.json_response(list(dns_queries))
+
+
 async def api_myip(request: web.Request) -> web.Response:
     return web.Response(
         text="198.51.100.1",
@@ -356,6 +370,7 @@ async def api_myip(request: web.Request) -> web.Response:
 async def api_reset(request: web.Request) -> web.Response:
     async with _update_lock:
         update_requests.clear()
+        dns_queries.clear()
     return web.json_response({"reset": True})
 
 
@@ -389,6 +404,7 @@ def build_api_app() -> web.Application:
 
     app.router.add_get("/health", api_health)
     app.router.add_get("/logs", api_logs)
+    app.router.add_get("/dns-logs", api_dns_logs)
     app.router.add_get("/myip", api_myip)
     app.router.add_get("/reset", api_reset)
     app.router.add_get("/update", api_update_get)

@@ -429,10 +429,35 @@ foreach (rf ${rules_check_files})
 endforeach ()
 
 # ------------------------------------------------------------------------------
+# 12. Logging entry points do not cross layers. The application layer logs
+#     through its formatting convenience macros; infrastructure logs through
+#     spdlog directly (see the logging entry point table in
+#     docs/architecture.md). Holding an application port below is legitimate —
+#     the plugin host forwards plugin log records through the injected logger —
+#     so only the convenience macros are rejected here, not the port.
+#
+#     Textual, like the other checks: it sees the include and the macro
+#     invocation. Reimplementing the same call against the port directly
+#     (logger.log(app::LogLevel::WARN, ...)) is not matched and stays a review
+#     item.
+# ------------------------------------------------------------------------------
+guard_check("infrastructure must not include the application logging convenience macros (log through spdlog)"
+    "${INC_RE}[<\"][^>\"]*application/log_macros\\.h[\">]"
+    ${PROJECT_SOURCE_DIR}/src/infrastructure/*.h
+    ${PROJECT_SOURCE_DIR}/src/infrastructure/*.hpp
+    ${PROJECT_SOURCE_DIR}/src/infrastructure/*.cpp)
+
+guard_check("infrastructure must not use the application logging convenience macros (log through spdlog)"
+    "(^|[^A-Za-z_0-9])YLOG_[A-Z_]+\\("
+    ${PROJECT_SOURCE_DIR}/src/infrastructure/*.h
+    ${PROJECT_SOURCE_DIR}/src/infrastructure/*.hpp
+    ${PROJECT_SOURCE_DIR}/src/infrastructure/*.cpp)
+
+# ------------------------------------------------------------------------------
 # Verdict
 # ------------------------------------------------------------------------------
 if (violations)
     message(FATAL_ERROR "Architecture guard violations:${violations}\n")
 endif ()
 
-message(STATUS "Architecture guard: OK (domain/coro/application/plugin/SDK/layering/concurrency/token/rules checks passed)")
+message(STATUS "Architecture guard: OK (domain/coro/application/plugin/SDK/layering/concurrency/token/rules/logging checks passed)")

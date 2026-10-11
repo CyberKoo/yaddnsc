@@ -20,6 +20,7 @@ using yaddnsc::sdk::Result;
 using yaddnsc::sdk::Services;
 using yaddnsc::sdk::UpdateContext;
 using yaddnsc::sdk::UpdateRequest;
+using yaddnsc::sdk::redact::truncate_for_log;
 
 namespace {
 constexpr std::string_view DRIVER_NAME = "simple";
@@ -82,7 +83,15 @@ HttpRequest SimpleDriver::generate_request(const UpdateRequest& params) {
 }
 
 bool SimpleDriver::check_response(const HttpResponse& response, const Services& services) {
-    YADDNSC_SDK_LOG_DEBUG(services, "Status: {}, Response: {}", response.status_code, string_util::trim(response.body));
+    YADDNSC_SDK_LOG_DEBUG(services, "Status: {}, Response: {}", response.status_code,
+                          truncate_for_log(string_util::trim(response.body)));
+
+    // 429 and 5xx are retried by the next update cycle; the rest needs operator action.
+    if (yaddnsc::sdk::detail::is_transient_status(response.status_code)) {
+        YADDNSC_SDK_LOG_WARN(services, "HTTP request failed with status code {}: {}", response.status_code,
+                             truncate_for_log(string_util::trim(response.body)));
+        return false;
+    }
 
     if (response.status_code >= 300) {
         YADDNSC_SDK_LOG_ERROR(services, "HTTP request failed with status code {}", response.status_code);

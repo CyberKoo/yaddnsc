@@ -353,7 +353,7 @@ void set_int_option(const int fd, const int level, const int option, const int v
             continue;
         }
         for (const auto& address : results) {
-            SPDLOG_DEBUG(R"(mDNS resolved "{}" -> {})", hostname, address.to_string());
+            SPDLOG_TRACE(R"(mDNS resolved "{}" -> {})", hostname, address.to_string());
         }
         co_return results;
     }

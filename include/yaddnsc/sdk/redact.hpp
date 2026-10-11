@@ -172,6 +172,25 @@ namespace yaddnsc::sdk::redact {
     return std::string(path.substr(0, q + 1)) + redact_body(path.substr(q + 1));
 }
 
+/// Maximum payload bytes one log line may carry. Bodies past this budget are
+/// cut down before they reach a log call so that a large upstream response
+/// cannot flood the log.
+inline constexpr std::size_t LOG_BODY_BUDGET = 512;
+
+/// Stands in for the bytes dropped once a body reaches LOG_BODY_BUDGET.
+inline constexpr std::string_view LOG_BODY_TRUNCATION_MARKER = "...";
+
+/// Return @p body capped at LOG_BODY_BUDGET bytes, marked as truncated when
+/// content was cut. Wrap every payload body logged by a driver in this.
+[[nodiscard]] inline std::string truncate_for_log(std::string_view body) {
+    if (body.size() <= LOG_BODY_BUDGET) {
+        return std::string(body);
+    }
+    std::string out(body.substr(0, LOG_BODY_BUDGET - LOG_BODY_TRUNCATION_MARKER.size()));
+    out += LOG_BODY_TRUNCATION_MARKER;
+    return out;
+}
+
 }  // namespace yaddnsc::sdk::redact
 
 #endif  // YADDNSC_SDK_REDACT_HPP

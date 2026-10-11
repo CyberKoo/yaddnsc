@@ -101,7 +101,7 @@ int execute_command(const Cli::RunCommand& command) {
             SPDLOG_CRITICAL("{}", internal::format_config_errors(env.error()));
             return EXIT_FAILURE;
         }
-        SPDLOG_INFO("All available interfaces: {}", fmt::format("{}", fmt::join(interfaces.names(), ", ")));
+        SPDLOG_INFO("All available interfaces: {}", fmt::join(interfaces.names(), ", "));
 
         const auto tls_context = internal::make_default_tls_context();
         if (startup_stop_requested()) {

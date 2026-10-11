@@ -426,7 +426,9 @@ implementations into the driver. Use the bundled
 `driver/cloudflare/` as the reference implementation and keep
 provider-specific credentials in `driver_params`.
 Do not put credentials in source code or log messages — the SDK log helpers
-redact sensitive request fields by default.
+redact sensitive request fields by default. Payload bodies additionally carry
+a fixed log budget: pass them through `redact::truncate_for_log` (declared in
+`redact.hpp`) so an oversized upstream response cannot flood the log.
 
 Drivers that need request signing can link the optional
 `yaddnsc::plugin_support_crypto` component — a prebuilt static library

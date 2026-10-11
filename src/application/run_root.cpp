@@ -94,9 +94,9 @@ coro::Task<void> guarded_subdomain_loop(const domain::DomainConfig& domain, cons
     // non-positive interval would turn the pacing sleep into a hot spin.
     domain::SubdomainConfig effective = subdomain;
     if (effective.update_interval <= 0) {
-        YLOG_CRITICAL(services.logger,
-                      "Subdomain {} has a non-positive update interval ({}); clamping to the minimum {}s", fqdn,
-                      subdomain.update_interval, YADDNSC_MIN_UPDATE_INTERVAL);
+        YLOG_WARN(services.logger,
+                  "Subdomain \"{}\" has a non-positive update interval ({}); clamping to the minimum {}s", fqdn,
+                  subdomain.update_interval, YADDNSC_MIN_UPDATE_INTERVAL);
         effective.update_interval = YADDNSC_MIN_UPDATE_INTERVAL;
     }
 
@@ -105,15 +105,16 @@ coro::Task<void> guarded_subdomain_loop(const domain::DomainConfig& domain, cons
             co_await subdomain_loop(domain, effective, services);
             co_return;
         } catch (const coro::Cancelled&) {
-            YLOG_DEBUG(services.logger, "Subdomain loop for {} stopped", fqdn);
+            YLOG_DEBUG(services.logger, "Subdomain loop for \"{}\" stopped", fqdn);
             throw;
         } catch (const std::exception& error) {
-            YLOG_ERROR(services.logger, "Subdomain loop for {} died: {}; restarting after the update interval", fqdn,
-                       error.what());
+            YLOG_ERROR(services.logger, "Subdomain loop for \"{}\" died: {}; restarting after the update interval",
+                       fqdn, error.what());
         } catch (...) {
-            YLOG_ERROR(services.logger,
-                       "Subdomain loop for {} died with a non-standard exception; restarting after the update interval",
-                       fqdn);
+            YLOG_ERROR(
+                services.logger,
+                "Subdomain loop for \"{}\" died with a non-standard exception; restarting after the update interval",
+                fqdn);
         }
         co_await coro::sleep_for(std::chrono::seconds(effective.update_interval));
     }

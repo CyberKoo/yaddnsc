@@ -56,18 +56,19 @@ coro::Task<UpdateCycleOutcome> run_update_cycle(const domain::UpdateTask& task, 
             // Our own budget fired: a transient source
             // failure, not an abort — skip this cycle.
             const auto seconds = std::chrono::duration_cast<std::chrono::seconds>(IP_SOURCE_BUDGET).count();
-            YLOG_ERROR(services.logger,
-                       "Failed to resolve the local IP address: the IP source timed out after {}s. Skipping the update "
-                       "for {} ({}).",
-                       seconds, task.fqdn, rd_type);
+            YLOG_WARN(services.logger,
+                      "Failed to resolve the local IP address: the IP source timed out after {}s. Skipping the update "
+                      "for \"{}\" ({})",
+                      seconds, task.fqdn, rd_type);
             co_return std::unexpected(domain::UpdateError{domain::UpdateError::Code::SKIPPED_NO_ADDRESS,
                                                           fmt::format("IP source timed out after {}s", seconds)});
         }
 
         const auto& candidates = *source_result;
         if (!candidates) {
-            YLOG_ERROR(services.logger, "Failed to resolve the local IP address: {}. Skipping the update for {} ({}).",
-                       candidates.error().message, task.fqdn, rd_type);
+            YLOG_WARN(services.logger,
+                      "Failed to resolve the local IP address: {}. Skipping the update for \"{}\" ({})",
+                      candidates.error().message, task.fqdn, rd_type);
             co_return std::unexpected(
                 domain::UpdateError{domain::UpdateError::Code::SKIPPED_NO_ADDRESS, candidates.error().message});
         }
@@ -75,7 +76,7 @@ coro::Task<UpdateCycleOutcome> run_update_cycle(const domain::UpdateTask& task, 
         const auto local_ip =
             domain::select_address(*candidates, subdomain.type, {subdomain.allow_ula, subdomain.allow_local_link});
         if (!local_ip) {
-            YLOG_WARN(services.logger, "No valid IP address found. Skipping the update for {} ({}).", task.fqdn,
+            YLOG_WARN(services.logger, "No valid IP address found. Skipping the update for \"{}\" ({})", task.fqdn,
                       rd_type);
             co_return std::unexpected(
                 domain::UpdateError{domain::UpdateError::Code::SKIPPED_NO_ADDRESS, "No valid IP address found"});
@@ -101,17 +102,16 @@ coro::Task<UpdateCycleOutcome> run_update_cycle(const domain::UpdateTask& task, 
             if (read.timed_out) {
                 // Our own budget fired: a transient read failure, not an abort —
                 // proceed with the update on an empty record list.
-                YLOG_DEBUG(services.logger,
-                           R"(DNS lookup for "{}" failed: timed out after {}s, proceeding with update)", task.fqdn,
-                           std::chrono::duration_cast<std::chrono::seconds>(DNS_READ_BUDGET).count());
+                YLOG_WARN(services.logger, R"(DNS lookup for "{}" failed: timed out after {}s, proceeding with update)",
+                          task.fqdn, std::chrono::duration_cast<std::chrono::seconds>(DNS_READ_BUDGET).count());
             } else if (read.has_value()) {
                 const auto& resolved = *read;
                 if (!resolved) {
                     // Cannot verify the current record (transient failure, NXDOMAIN,
                     // NODATA, ...) — proceed with the update anyway: pushing an
                     // unchanged record is harmless, while skipping a changed one is not.
-                    YLOG_DEBUG(services.logger, R"(DNS lookup for "{}" failed: {} ({}), proceeding with update)",
-                               task.fqdn, resolved.error().message, domain::error_to_str(resolved.error().code));
+                    YLOG_WARN(services.logger, R"(DNS lookup for "{}" failed: {} ({}), proceeding with update)",
+                              task.fqdn, resolved.error().message, domain::error_to_str(resolved.error().code));
                 } else {
                     records = *resolved;
                 }
@@ -129,17 +129,17 @@ coro::Task<UpdateCycleOutcome> run_update_cycle(const domain::UpdateTask& task, 
                 co_return std::unexpected(
                     domain::UpdateError{domain::UpdateError::Code::SKIPPED_NO_ADDRESS, "No valid IP address found"});
             case domain::UpdateDecision::SKIP_UNCHANGED:
-                YLOG_DEBUG(services.logger, "Domain {} ({}) unchanged ({}), skipping update", task.fqdn, rd_type,
+                YLOG_DEBUG(services.logger, "Domain \"{}\" ({}) unchanged ({}), skipping update", task.fqdn, rd_type,
                            records.front());
                 co_return UpdateCycleResult{decision};
             case domain::UpdateDecision::UPDATE_CHANGED:
                 if (!records.empty()) {
-                    YLOG_DEBUG(services.logger, "Domain {} ({}) will be updated to {} (was {})", task.fqdn, rd_type,
+                    YLOG_DEBUG(services.logger, "Domain \"{}\" ({}) will be updated to {} (was {})", task.fqdn, rd_type,
                                local_addr, records.front());
                 }
                 break;
             case domain::UpdateDecision::UPDATE_FORCED:
-                YLOG_INFO(services.logger, "Force update triggered for {}", task.fqdn);
+                YLOG_INFO(services.logger, "Force update triggered for \"{}\"", task.fqdn);
                 break;
         }
 
@@ -158,13 +158,13 @@ coro::Task<UpdateCycleOutcome> run_update_cycle(const domain::UpdateTask& task, 
         if (!result) {
             switch (result.error().code) {
                 case domain::DriverError::Code::NOT_FOUND:
-                    YLOG_ERROR(services.logger, "{}. Skipping the update for {} ({}).", result.error().message,
+                    YLOG_ERROR(services.logger, "{}. Skipping the update for \"{}\" ({})", result.error().message,
                                task.fqdn, rd_type);
                     break;
                 case domain::DriverError::Code::UNKNOWN:
                     // Exception escaped the driver (e.g. parameter parse failure) —
                     // same wording the legacy catch-all produced.
-                    YLOG_ERROR(services.logger, "Unhandled exception during update of {}: {}", task.fqdn,
+                    YLOG_ERROR(services.logger, "Unhandled exception during update of \"{}\": {}", task.fqdn,
                                result.error().message);
                     break;
                 default:
@@ -176,7 +176,7 @@ coro::Task<UpdateCycleOutcome> run_update_cycle(const domain::UpdateTask& task, 
                                                           result.error().message, result.error().retry_after_seconds});
         }
 
-        YLOG_INFO(services.logger, "Domain {} ({}) updated to {}", task.fqdn, rd_type, local_addr);
+        YLOG_INFO(services.logger, "Domain \"{}\" ({}) updated to {}", task.fqdn, rd_type, local_addr);
         co_return UpdateCycleResult{decision};
     } catch (const std::bad_alloc&) {
         // An allocation failure is not a retryable condition; it stays a defect
@@ -187,10 +187,10 @@ coro::Task<UpdateCycleOutcome> run_update_cycle(const domain::UpdateTask& task, 
     } catch (const std::exception& e) {
         // Defence against unexpected exceptions only — expected failures are
         // error values handled above.
-        YLOG_ERROR(services.logger, "Unhandled exception during update of {}: {}", task.fqdn, e.what());
+        YLOG_ERROR(services.logger, "Unhandled exception during update of \"{}\": {}", task.fqdn, e.what());
         co_return std::unexpected(domain::UpdateError{domain::UpdateError::Code::UNKNOWN, e.what()});
     } catch (...) {
-        YLOG_ERROR(services.logger, "Unknown non-standard exception during update for {}", task.fqdn);
+        YLOG_ERROR(services.logger, "Unknown non-standard exception during update for \"{}\"", task.fqdn);
         co_return std::unexpected(
             domain::UpdateError{domain::UpdateError::Code::UNKNOWN, "Unknown non-standard exception"});
     }

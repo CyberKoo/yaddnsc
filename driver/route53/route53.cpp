@@ -29,6 +29,7 @@ using yaddnsc::sdk::Method;
 using yaddnsc::sdk::Result;
 using yaddnsc::sdk::Services;
 using yaddnsc::sdk::UpdateContext;
+using yaddnsc::sdk::redact::truncate_for_log;
 
 namespace {
 
@@ -158,7 +159,14 @@ Result Route53Driver::update(UpdateContext& context) {
 // =============================================================================
 
 bool Route53Driver::check_response(const HttpResponse& response, const Services& services) {
-    YADDNSC_SDK_LOG_TRACE(services, "Got {} from server.", response.body);
+    YADDNSC_SDK_LOG_TRACE(services, "Got {} from server", truncate_for_log(response.body));
+
+    // 429 and 5xx are retried by the next update cycle; the rest needs operator action.
+    if (yaddnsc::sdk::detail::is_transient_status(response.status_code)) {
+        YADDNSC_SDK_LOG_WARN(services, "Route 53 API request failed with HTTP status {}: {}", response.status_code,
+                             truncate_for_log(response.body));
+        return false;
+    }
 
     if (response.status_code == 200) {
         // Route 53 returns HTTP 200 with <ChangeResourceRecordSetsResponse> on success.
@@ -210,18 +218,19 @@ bool Route53Driver::check_response(const HttpResponse& response, const Services&
                             }
                         }
                     }
-                    YADDNSC_SDK_LOG_ERROR(services, "Route 53 API error: {} ({})",
-                                          msg ? reinterpret_cast<const char*>(msg) : "unknown",
-                                          code ? reinterpret_cast<const char*>(code) : "no code");
+                    YADDNSC_SDK_LOG_ERROR(services, "Route 53 API error code {}: {}",
+                                          code ? reinterpret_cast<const char*>(code) : "no code",
+                                          msg ? reinterpret_cast<const char*>(msg) : "unknown");
                     xmlFree(code);
                     xmlFree(msg);
                 }
             } else {
-                YADDNSC_SDK_LOG_ERROR(services, "Route 53 API error (HTTP {}): {}", response.status_code,
-                                      response.body);
+                YADDNSC_SDK_LOG_ERROR(services, "Route 53 API request failed with HTTP status {}: {}",
+                                      response.status_code, truncate_for_log(response.body));
             }
         } else {
-            YADDNSC_SDK_LOG_ERROR(services, "Route 53 API error (HTTP {}): {}", response.status_code, response.body);
+            YADDNSC_SDK_LOG_ERROR(services, "Route 53 API request failed with HTTP status {}: {}", response.status_code,
+                                  truncate_for_log(response.body));
         }
     } else {
         YADDNSC_SDK_LOG_ERROR(services, "Route 53 API request failed with HTTP status {}", response.status_code);

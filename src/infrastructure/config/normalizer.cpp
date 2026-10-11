@@ -36,10 +36,10 @@ auto normalize_resolver(const ResolverConfig& raw) -> domain::ResolverSettings {
 
 auto normalize_subdomain(const SubdomainConfig& raw, int domain_interval) -> domain::SubdomainConfig {
     if (!raw.type.has_value()) {
-        SPDLOG_WARN("Subdomain {} has no record type configured, treating it as an A record", raw.name);
+        SPDLOG_WARN("Subdomain \"{}\" has no record type configured, treating it as an A record", raw.name);
     }
     if (!raw.ip_source.has_value()) {
-        SPDLOG_WARN("Subdomain {} has no ip_source configured, defaulting to 'interface'", raw.name);
+        SPDLOG_WARN("Subdomain \"{}\" has no ip_source configured, defaulting to 'interface'", raw.name);
     }
     return {
         .name = raw.name,

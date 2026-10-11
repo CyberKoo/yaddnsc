@@ -222,7 +222,7 @@ run_scenario() {
     local config="$2"
     local expect_ip="$3"
     local expect_tag="$4"
-    local resolver_ok_pattern="${5:-}"
+    local resolver_expect="${5:-}"
 
     echo ""
     echo "=== Scenario: ${name} ==="
@@ -273,14 +273,25 @@ sys.exit(1)
         update_ok=false
     fi
 
-    # Verify resolver actually succeeded (if pattern provided)
+    # Verify the resolver actually put the query on the wire (if expected, as
+    # "proto:qname"). Per-query client log lines are TRACE and compiled out of
+    # default builds, so the sim's DNS query record is the source of truth.
     local resolver_ok=true
-    if [ -n "${resolver_ok_pattern}" ]; then
-        if ! grep -q "${resolver_ok_pattern}" "${yaddnsc_out}" 2>/dev/null; then
+    if [ -n "${resolver_expect}" ]; then
+        local dns_logs
+        dns_logs=$(curl -sf "http://127.0.0.1:${SIM_API_PORT}/dns-logs") || dns_logs="[]"
+        if ! echo "${dns_logs}" | python3 -c "
+import sys, json
+proto, _, qname = '${resolver_expect}'.partition(':')
+for q in json.load(sys.stdin):
+    if q.get('proto') == proto and q.get('qname') == qname:
+        sys.exit(0)
+print('FAIL: no %s query for %s in the sim DNS log' % (proto, qname), file=sys.stderr)
+sys.exit(1)
+"; then
             resolver_ok=false
-            echo "  RESOLVER FAIL: pattern '${resolver_ok_pattern}' not found in yaddnsc output"
-            # Print relevant lines for debugging
-            grep -i "resolver\|query\|tls\|connection" "${yaddnsc_out}" 2>/dev/null | sed 's/^/    | /'
+            echo "  RESOLVER FAIL: sim recorded no '${resolver_expect}' query"
+            echo "${dns_logs}" | sed 's/^/    | /'
         fi
     fi
 
@@ -300,7 +311,7 @@ run_scenario \
     "${SCRIPT_DIR}/configs/config.classic.json" \
     "127.0.0.1" \
     "source=iface&resolver=classic" \
-    "Resolving.*iface.yaddnsc.test"
+    "udp:iface.yaddnsc.test"
 
 # === HTTP source + DoT resolver ===
 run_scenario \
@@ -308,7 +319,7 @@ run_scenario \
     "${SCRIPT_DIR}/configs/config.dot.json" \
     "198.51.100.1" \
     "source=http&resolver=dot" \
-    "query succeeded.*http.yaddnsc.test"
+    "dot:http.yaddnsc.test"
 
 # === INTERFACE source + DoH resolver ===
 run_scenario \
@@ -316,7 +327,7 @@ run_scenario \
     "${SCRIPT_DIR}/configs/config.doh.iface.json" \
     "127.0.0.1" \
     "source=iface&resolver=doh" \
-    "query succeeded.*iface.yaddnsc.test"
+    "doh:iface.yaddnsc.test"
 
 # ---------------------------------------------------------------------------
 # 6. CLI surface — user-visible contracts

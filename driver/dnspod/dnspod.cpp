@@ -24,6 +24,7 @@ using yaddnsc::sdk::Result;
 using yaddnsc::sdk::Services;
 using yaddnsc::sdk::UpdateContext;
 using yaddnsc::sdk::UpdateRequest;
+using yaddnsc::sdk::redact::truncate_for_log;
 
 namespace {
 constexpr std::string_view API_URL_CN = "https://dnsapi.cn/Record.Ddns";
@@ -99,21 +100,10 @@ HttpRequest DnsPodDriver::generate_request(const DnsPodParams& cfg, const Update
 }
 
 bool DnsPodDriver::check_response(const HttpResponse& response, const Services& services) {
-    YADDNSC_SDK_LOG_TRACE(services, "Got {} from server.", response.body);
+    YADDNSC_SDK_LOG_TRACE(services, "Got {} from server", truncate_for_log(response.body));
 
     auto resp = parse_response<DnsPodResponse>(response.body);
-    if (!resp) {
-        YADDNSC_SDK_LOG_ERROR(services, "Failed to parse DNSPod API response");
-        return false;
-    }
-
-    if (!resp->status.has_value()) {
-        YADDNSC_SDK_LOG_ERROR(services, "Server returned an unknown error, raw response: {}", response.body);
-        return false;
-    }
-
-    auto& status = resp->status.value();
-    if (status.code == "1") {
+    if (resp && resp->status.has_value() && resp->status->code == "1") {
         if (resp->record.has_value()) {
             auto& record = resp->record.value();
             YADDNSC_SDK_LOG_DEBUG(services, "Record updated successfully, id: {}, name: {}, value: {}", record.id,
@@ -122,8 +112,27 @@ bool DnsPodDriver::check_response(const HttpResponse& response, const Services& 
         return true;
     }
 
+    // 429 and 5xx are retried by the next update cycle; the rest needs operator action.
+    if (yaddnsc::sdk::detail::is_transient_status(response.status_code)) {
+        YADDNSC_SDK_LOG_WARN(services, "DNSPod API request failed with HTTP status {}: {}", response.status_code,
+                             truncate_for_log(response.body));
+        return false;
+    }
+
+    if (!resp) {
+        YADDNSC_SDK_LOG_ERROR(services, "Failed to parse DNSPod API response");
+        return false;
+    }
+
+    if (!resp->status.has_value()) {
+        YADDNSC_SDK_LOG_ERROR(services, "Server returned an unknown error, raw response: {}",
+                              truncate_for_log(response.body));
+        return false;
+    }
+
+    auto& status = resp->status.value();
     auto description = describe_error_code(status.code);
-    YADDNSC_SDK_LOG_ERROR(services, "DNSPod API error: {} (code: {}, description: {})", status.message, status.code,
+    YADDNSC_SDK_LOG_ERROR(services, "DNSPod API error code {} with message {}: {}", status.code, status.message,
                           description);
 
     return false;

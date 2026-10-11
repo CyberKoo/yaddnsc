@@ -17,6 +17,7 @@ using yaddnsc::sdk::Result;
 using yaddnsc::sdk::Services;
 using yaddnsc::sdk::UpdateContext;
 using yaddnsc::sdk::UpdateRequest;
+using yaddnsc::sdk::redact::truncate_for_log;
 
 namespace {
 constexpr std::string_view API_URL = "https://www.duckdns.org/update";
@@ -46,20 +47,27 @@ Result DuckDnsDriver::update(UpdateContext& context) {
 }
 
 bool DuckDnsDriver::check_response(const HttpResponse& response, const Services& services) {
-    YADDNSC_SDK_LOG_TRACE(services, "Got {} from server.", response.body);
+    YADDNSC_SDK_LOG_TRACE(services, "Got {} from server", truncate_for_log(response.body));
 
     // DuckDNS returns:
     //   "OK"           — success (non-verbose)
     //   "OK\n..."      — success (verbose mode)
     //   "KO"           — failure
+    // Acceptance is reported in the body, so the body decides the outcome and
+    // a success body wins over the status code.
     if (response.body.starts_with("OK")) {
-        if (response.body.size() > 2) {
-            YADDNSC_SDK_LOG_DEBUG(services, "DNS record updated successfully: {}", response.body);
-        }
+        YADDNSC_SDK_LOG_INFO(services, "DNS record updated successfully");
         return true;
     }
 
-    YADDNSC_SDK_LOG_ERROR(services, "DuckDNS API error: {}", response.body);
+    // 429 and 5xx are retried by the next update cycle; the rest needs operator action.
+    if (yaddnsc::sdk::detail::is_transient_status(response.status_code)) {
+        YADDNSC_SDK_LOG_WARN(services, "DuckDNS request failed with HTTP status {}: {}", response.status_code,
+                             truncate_for_log(response.body));
+        return false;
+    }
+
+    YADDNSC_SDK_LOG_ERROR(services, "DuckDNS API error: {}", truncate_for_log(response.body));
     return false;
 }
 

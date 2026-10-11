@@ -689,8 +689,8 @@ coro::Task<std::expected<RawResponse, Error>> exchange(net::Stream& stream, cons
     // Leftover bytes belong to the next response on a keep-alive connection.
     pending = window.take_rest();
 
-    SPDLOG_DEBUG("{} {} -> {} ({} bytes)", method_name(request.method), request_path(request.target), headers.status,
-                 body->size());
+    SPDLOG_TRACE("{} \"{}\" -> {} ({} bytes)", method_name(request.method), request_path(request.target),
+                 headers.status, body->size());
 
     const bool request_closes = std::ranges::any_of(request.headers, [](const auto& header) {
         return StringUtil::iequals(header.first, "connection") && has_token(header.second, "close");

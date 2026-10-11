@@ -22,6 +22,7 @@
 
 #include "coro/checkpoint.hpp"
 #include "coro/fd_wait.hpp"
+#include "infrastructure/logging/level_enabled.h"
 #include "infrastructure/network/tls/openssl_error.hpp"
 #include "infrastructure/network/tls/context.h"
 #include "domain/network/address_family.h"
@@ -151,7 +152,10 @@ coro::Task<std::expected<void, IoError>> TlsStream::ensure_connected() {
         close();
         throw;
     }
-    SPDLOG_DEBUG("TLS session established with {} ({})", peer_label(), SSL_get_version(ssl_.get()));
+    if (logging::level_enabled(spdlog::level::debug)) {
+        // peer_label() allocates twice — build it only for a record that is written.
+        SPDLOG_DEBUG(R"(TLS session established with "{}" ({}))", peer_label(), SSL_get_version(ssl_.get()));
+    }
     co_return {};
 }
 
@@ -230,7 +234,7 @@ coro::Task<std::expected<void, IoError>> TlsStream::handshake() {
         if (error != SSL_ERROR_WANT_READ && error != SSL_ERROR_WANT_WRITE) {
             // A verification or handshake failure is worth an ERROR with the
             // peer's identity — the legacy stack logged both.
-            SPDLOG_ERROR("TLS handshake failed for \"{}\": {}", peer_label(), detail::ssl_errors());
+            SPDLOG_ERROR(R"(TLS handshake failed for "{}": {})", peer_label(), detail::ssl_errors());
             co_return std::unexpected(IoError::CONNECTION_FAILED);
         }
         co_await direction_wait(tcp_.native_handle(), error);
@@ -256,7 +260,9 @@ coro::Task<std::expected<std::size_t, IoError>> TlsStream::read_some(std::span<s
             co_await direction_wait(tcp_.native_handle(), error);
             continue;
         }
-        SPDLOG_DEBUG("TLS read failed: {}", detail::ssl_errors());
+        if (logging::level_enabled(spdlog::level::debug)) {
+            SPDLOG_DEBUG("TLS read failed: {}", detail::ssl_errors());
+        }
         co_return std::unexpected(IoError::CONNECTION_FAILED);  // includes a clean shutdown
     }
 }
@@ -295,7 +301,9 @@ coro::Task<std::expected<void, IoError>> TlsStream::send_all(std::span<const std
             co_await direction_wait(tcp_.native_handle(), error);
             continue;
         }
-        SPDLOG_DEBUG("TLS write failed: {}", detail::ssl_errors());
+        if (logging::level_enabled(spdlog::level::debug)) {
+            SPDLOG_DEBUG("TLS write failed: {}", detail::ssl_errors());
+        }
         co_return std::unexpected(IoError::CONNECTION_FAILED);
     }
     co_return {};

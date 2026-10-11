@@ -97,7 +97,7 @@ coro::Task<std::expected<std::vector<std::uint8_t>, domain::DnsErrorInfo>> DohRe
     std::string host, const domain::RecordKind kind) {
     try {
         const auto record_type = dns::Util::type_to_record_type(kind);
-        SPDLOG_DEBUG(R"(Resolver #{} lookup for domain "{}" (type {}))", id(), host,
+        SPDLOG_TRACE(R"(Resolver #{} lookup for domain "{}" (type {}))", id(), host,
                      static_cast<std::uint16_t>(record_type));
 
         const auto query_bytes = dns::build_query(host, record_type);
@@ -154,7 +154,7 @@ coro::Task<std::expected<std::vector<std::uint8_t>, domain::DnsErrorInfo>> DohRe
             if (auto valid = dns::Validator::validate_response(query_bytes, body); !valid) {
                 co_return std::unexpected(std::move(valid.error()));
             }
-            SPDLOG_DEBUG(R"(Resolver #{} query succeeded ({} bytes) for "{}")", id(), body.size(), host);
+            SPDLOG_TRACE(R"(Resolver #{} query succeeded ({} bytes) for "{}")", id(), body.size(), host);
             co_return body;
         }
         co_return std::unexpected(domain::DnsErrorInfo{domain::DnsError::CONNECTION, "DoH query failed"});

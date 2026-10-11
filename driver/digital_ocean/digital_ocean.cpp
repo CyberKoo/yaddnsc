@@ -20,6 +20,7 @@ using yaddnsc::sdk::Method;
 using yaddnsc::sdk::Result;
 using yaddnsc::sdk::Services;
 using yaddnsc::sdk::UpdateContext;
+using yaddnsc::sdk::redact::truncate_for_log;
 
 namespace {
 constexpr std::string_view API_URL = "https://api.digitalocean.com/v2/domains/{DOMAIN}/records/{RECORD_ID}";
@@ -52,7 +53,7 @@ Result DigitalOceanDriver::update(UpdateContext& context) {
 }
 
 bool DigitalOceanDriver::check_response(const HttpResponse& response, const Services& services) {
-    YADDNSC_SDK_LOG_TRACE(services, "Got {} from server.", response.body);
+    YADDNSC_SDK_LOG_TRACE(services, "Got {} from server", truncate_for_log(response.body));
 
     // Success response: { "domain_record": { ... } }. Tolerant parsing means
     // any JSON object parses, so the presence of domain_record is what
@@ -64,10 +65,17 @@ bool DigitalOceanDriver::check_response(const HttpResponse& response, const Serv
         return true;
     }
 
+    // 429 and 5xx are retried by the next update cycle; the rest needs operator action.
+    if (yaddnsc::sdk::detail::is_transient_status(response.status_code)) {
+        YADDNSC_SDK_LOG_WARN(services, "DigitalOcean API request failed with HTTP status {}: {}", response.status_code,
+                             truncate_for_log(response.body));
+        return false;
+    }
+
     // Error response: { "id": "...", "message": "..." }
     if (auto result = parse_response<DigitalOceanErrorResponse>(response.body);
         result && (!result->id.empty() || !result->message.empty())) {
-        YADDNSC_SDK_LOG_ERROR(services, "DigitalOcean API error ({}): {}", result->id, result->message);
+        YADDNSC_SDK_LOG_ERROR(services, "DigitalOcean API error {}: {}", result->id, result->message);
         return false;
     }
 

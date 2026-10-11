@@ -27,6 +27,7 @@ using yaddnsc::sdk::Method;
 using yaddnsc::sdk::Result;
 using yaddnsc::sdk::Services;
 using yaddnsc::sdk::UpdateContext;
+using yaddnsc::sdk::redact::truncate_for_log;
 
 namespace {
 
@@ -173,7 +174,7 @@ HttpRequest AlibabaCloudDriver::generate_request(const AlibabaParams& cfg, const
 }
 
 bool AlibabaCloudDriver::check_response(const HttpResponse& response, const Services& services) {
-    YADDNSC_SDK_LOG_TRACE(services, "Got {} from server.", response.body);
+    YADDNSC_SDK_LOG_TRACE(services, "Got {} from server", truncate_for_log(response.body));
 
     if (response.status_code == 200) {
         // On success, Alibaba DNS returns JSON with RecordId.
@@ -187,13 +188,20 @@ bool AlibabaCloudDriver::check_response(const HttpResponse& response, const Serv
         return false;
     }
 
+    // 429 and 5xx are retried by the next update cycle; the rest needs operator action.
+    if (yaddnsc::sdk::detail::is_transient_status(response.status_code)) {
+        YADDNSC_SDK_LOG_WARN(services, "Alibaba Cloud API request failed with HTTP status {}: {}", response.status_code,
+                             truncate_for_log(response.body));
+        return false;
+    }
+
     // Error responses include JSON with Code and Message.
     if (!response.body.empty()) {
         if (auto result = parse_response<AlibabaErrorResponse>(response.body)) {
-            YADDNSC_SDK_LOG_ERROR(services, "Alibaba Cloud API error: {} ({})", result->message, result->code);
+            YADDNSC_SDK_LOG_ERROR(services, "Alibaba Cloud API error {}: {}", result->code, result->message);
         } else {
-            YADDNSC_SDK_LOG_ERROR(services, "Alibaba Cloud API error (HTTP {}): {}", response.status_code,
-                                  response.body);
+            YADDNSC_SDK_LOG_ERROR(services, "Alibaba Cloud API request failed with HTTP status {}: {}",
+                                  response.status_code, truncate_for_log(response.body));
         }
     } else {
         YADDNSC_SDK_LOG_ERROR(services, "Alibaba Cloud API request failed with HTTP status {}", response.status_code);
