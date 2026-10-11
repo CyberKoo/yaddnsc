@@ -1,12 +1,11 @@
 //
 // logging — the asynchronous log pipeline.
 //
-// Design .cache/coro_redesign.md §2 (thread list) and §6.4: logging is ordinary
-// off-loop work. One bounded queue plus one background drain thread — the third
-// system thread, after the loop and the offload pool — carries every record off
-// the loop, so a log call never blocks on a file/console write. Overflow
-// discards the newest record and bumps spdlog's discard counter; the count is
-// reported at shutdown.
+// Logging is ordinary off-loop work. One bounded queue plus one background
+// drain thread — the third system thread, after the loop and the offload
+// pool — carries every record off the loop, so a log call never blocks on a
+// file/console write. Overflow discards the newest record and bumps spdlog's
+// discard counter; the count is reported at shutdown.
 //
 
 #ifndef YADDNSC_INFRASTRUCTURE_LOGGING_ASYNC_LOGGING_H
