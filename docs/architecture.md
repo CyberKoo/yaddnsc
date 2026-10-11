@@ -108,7 +108,10 @@ Child results are single-consumer: `co_await Handle<T>` claims the result at
 await entry, shared across handle copies and `next<T>()`. Joining an empty or
 already claimed handle throws `std::logic_error`. `next<T>()` returns `nullopt`
 as soon as there are no unclaimed children of type `T`, without waiting for
-other result types. Handles are borrowed and must not outlive the group.
+other result types. A Handle shares ownership of the child's bookkeeping slot,
+so one that outlives the group is dead but memory-safe: `valid()` is false and
+joining throws `std::logic_error`, the same failure as an empty or claimed
+handle. The child frame itself is still destroyed at scope exit.
 Keeping the body frame alive does not extend the lifetime of body locals that
 have already left scope; child references must still obey ordinary C++ lifetime
 rules.

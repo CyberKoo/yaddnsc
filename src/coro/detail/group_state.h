@@ -36,8 +36,9 @@ struct TypeTag {
 
 /// One spawned child: its frame plus the bookkeeping the group needs.
 ///
-/// Owned by GroupState and destroyed in reap(); borrows `frame`, which the
-/// group also owns.
+/// Owned jointly by the group and any live Handle, so the slot outlives its
+/// group and a stale Handle reads as dead instead of dangling. `frame` is
+/// borrowed: the group owns it and destroys it in reap().
 struct ChildSlot {
     PromiseBase* frame = nullptr;
     const void* type_tag = nullptr;
@@ -67,7 +68,7 @@ struct GroupState {
     bool supervisor = false;
     /// Scope every child runs in; cancelling it stops the children.
     CancelScope scope;
-    std::vector<std::unique_ptr<ChildSlot>> children;
+    std::vector<std::shared_ptr<ChildSlot>> children;
     /// Completed discard child's frame, awaiting destruction. A completion hook
     /// runs inside the child's own final suspend, where destroying that frame
     /// is UB, so the hook parks it here and the next completion (or reap())
@@ -82,13 +83,13 @@ struct GroupState {
 
     [[nodiscard]] bool all_done() const noexcept { return done_count == children.size(); }
 
-    /// Allocates one slot; called from spawn(), which may throw.
-    ChildSlot* add_child(const void* tag) {
-        auto slot = std::make_unique<ChildSlot>();
+    /// Allocates one slot; called from spawn(), which may throw. The returned
+    /// reference is shared so the caller can hand it to a Handle.
+    std::shared_ptr<ChildSlot> add_child(const void* tag) {
+        auto slot = std::make_shared<ChildSlot>();
         slot->type_tag = tag;
-        ChildSlot* raw = slot.get();
-        children.push_back(std::move(slot));
-        return raw;
+        children.push_back(slot);
+        return slot;
     }
 
     /// Child completion hook: runs inside the child's final suspend on the loop
@@ -163,8 +164,10 @@ struct GroupState {
         return false;
     }
 
-    /// Destroy every child frame. Children may refer to the body frame, so the
-    /// body is destroyed only after this returns.
+    /// Destroy every child frame and drop the group's slot references. Children
+    /// may refer to the body frame, so the body is destroyed only after this
+    /// returns. A slot itself stays alive while a Handle holds it; the cleared
+    /// frame pointer is the dead signal Handles and joiners check.
     void reap() noexcept {
         destroy_graveyard();
         for (auto& slot : children) {
@@ -260,13 +263,15 @@ struct AllDoneAwaitable {
     void await_resume() const noexcept {}
 };
 
-/// Awaits one child frame; used by Handle's operator co_await.
+/// Awaits one child frame; used by Handle's operator co_await. Holding the
+/// slot keeps it alive across the suspension, so a group destroyed before the
+/// join resumes turns into a logic_error instead of a dangling read.
 template<typename T>
 struct JoinAwaiter {
-    ChildSlot* slot = nullptr;
+    std::shared_ptr<ChildSlot> slot;
 
     bool await_ready() const {
-        if (slot == nullptr || slot->consumed) {
+        if (slot == nullptr || slot->frame == nullptr || slot->consumed) {
             throw std::logic_error("join requires an unclaimed child result");
         }
         slot->consumed = true;
@@ -282,6 +287,9 @@ struct JoinAwaiter {
     }
 
     T await_resume() {
+        if (slot->frame == nullptr) {
+            throw std::logic_error("join requires an unclaimed child result");
+        }
         auto* promise = static_cast<TaskPromise<T>*>(slot->frame);
         if (promise->error) {
             std::rethrow_exception(promise->error);

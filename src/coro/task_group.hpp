@@ -15,6 +15,7 @@
 #define YADDNSC_INFRASTRUCTURE_CORO_TASK_GROUP_HPP
 
 #include <cassert>
+#include <memory>
 #include <optional>
 #include <type_traits>
 #include <utility>
@@ -42,17 +43,22 @@ using Result = std::expected<T, std::exception_ptr>;
 
 /// A joiner for a spawned child.
 ///
-/// Ownership: non-owning. The group owns the child frame and destroys it at
-/// scope exit, so a Handle must not outlive its group, and must not be used
-/// after the group's `next<T>()`/join cycle has consumed the child.
+/// Ownership: shares the child's bookkeeping slot, so the slot stays alive as
+/// long as any Handle does. The child frame is still owned by the group and
+/// destroyed at scope exit, so a Handle that outlives its group is dead but
+/// memory-safe: valid() is false and joining throws std::logic_error — the
+/// same failure as an empty handle or one whose result the group's
+/// `next<T>()`/join cycle has already consumed.
 /// Failure: `co_await handle` rethrows the defect that aborted the child.
 template<typename T>
 class Handle {
 public:
     Handle() = default;
 
-    /// True while the group's live slot has an unclaimed result.
-    [[nodiscard]] bool valid() const noexcept { return slot_ != nullptr && !slot_->consumed; }
+    /// True while the group is alive and its slot holds an unclaimed result.
+    [[nodiscard]] bool valid() const noexcept {
+        return slot_ != nullptr && slot_->frame != nullptr && !slot_->consumed;
+    }
 
     /// Join the child: yields its value or rethrows the defect that aborted it.
     /// Claims the result once, shared across Handle copies and next<T>().
@@ -64,9 +70,9 @@ public:
 private:
     friend class TaskGroup;
 
-    explicit Handle(detail::ChildSlot* slot) noexcept : slot_(slot) {}
+    explicit Handle(std::shared_ptr<detail::ChildSlot> slot) noexcept : slot_(std::move(slot)) {}
 
-    detail::ChildSlot* slot_ = nullptr;
+    std::shared_ptr<detail::ChildSlot> slot_;
 };
 
 /// The group handle passed to a task_group / supervisor_group body.
@@ -89,10 +95,10 @@ public:
     template<typename T>
     Handle<T> spawn(Task<T> task) {
         assert(task.valid() && "spawn requires a valid task");
-        detail::ChildSlot* slot = state_->add_child(&detail::TypeTag<T>::VALUE);
+        auto slot = state_->add_child(&detail::TypeTag<T>::VALUE);
         auto handle = detail::TaskAccess::release(task);
         start_child(handle.promise(), *slot);
-        return Handle<T>{slot};
+        return Handle<T>{std::move(slot)};
     }
 
     /// Start a fire-and-forget child whose result is discarded.
@@ -108,7 +114,7 @@ public:
     /// Failure: allocates; may throw std::bad_alloc.
     void spawn_discard(Task<void> task) {
         assert(task.valid() && "spawn_discard requires a valid task");
-        detail::ChildSlot* slot = state_->add_child(nullptr);
+        auto slot = state_->add_child(nullptr);
         slot->discard = true;
         auto handle = detail::TaskAccess::release(task);
         start_child(handle.promise(), *slot);

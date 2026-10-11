@@ -559,6 +559,26 @@ TEST(TaskGroup, join_NextConsumedResult_RejectsJoin) {
     coro::run(root());
 }
 
+TEST(TaskGroup, join_HandleOutlivingGroup_FailsSafely) {
+    coro::Handle<int> smuggled;
+    auto root = [&smuggled]() -> coro::Task<void> {
+        co_await coro::task_group([&smuggled](coro::TaskGroup& group) -> coro::Task<void> {
+            smuggled = group.spawn(constant(42));
+            co_return;
+        });
+        co_return;
+    };
+    coro::run(root());
+    // The group is destroyed; the handle must read as dead, not dangle.
+    EXPECT_FALSE(smuggled.valid());
+
+    auto join_stale = [&smuggled]() -> coro::Task<void> {
+        EXPECT_THROW(co_await smuggled, std::logic_error);
+        co_return;
+    };
+    coro::run(join_stale());
+}
+
 TEST(Task, run_DispatchThrows_TerminatesInsteadOfUnwindingParkedFrames) {
     EXPECT_DEATH(
         {
