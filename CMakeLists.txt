@@ -24,7 +24,6 @@ else ()
   message(STATUS "spdlog: bundled (CPM)")
 endif ()
 
-message(STATUS "DNS stack: built-in (no libresolv)")
 message(STATUS "Default DNS server: ${YADDNSC_DEFAULT_DNS_SERVER}:${YADDNSC_DEFAULT_DNS_PORT}")
 
 # Documentation.

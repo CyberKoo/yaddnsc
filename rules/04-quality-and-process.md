@@ -51,7 +51,7 @@ The central production backend **must** supply timestamp, severity, source locat
 
 - Releases **must** follow **Semantic Versioning** (`MAJOR.MINOR.PATCH`).
 - Commit messages **must** use **`<Type>: <description>`** (`Fix:`, `Feat:`, `Docs:`, `Refactor:`, `Test:`, `Chore:`), with a capitalized imperative description, e.g. `Fix: Harden URI port parsing against malformed values`. Scope prefixes such as `fix(core):` **must not** be used.
-- **Prefer** commit messages that include a body summarizing changes as `- ` bullet points, separated from the subject by a blank line. A trivial one-line change (typo, rename, comment) **may** have a subject only.
+- **Prefer** commit messages that include a body summarizing changes as `- ` bullet points, separated from the subject by a blank line. Bullet points **must not** carry implementation details (function/type names, line-level edits, internal control flow); they state **what** changed and **why** from the reviewer's perspective — the diff already records the **how**. A trivial one-line change (typo, rename, comment) **may** have a subject only.
 - **Prefer** small, focused PRs (normally fewer than 400 changed lines) with linked issue tickets when applicable. Larger changes **may** remain together when splitting would obscure a cohesive change; explain the scope.
 - **Normally** squash-and-merge to mainline for a linear, bisectable history.
 
