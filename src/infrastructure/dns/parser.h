@@ -44,22 +44,30 @@ public:
     /// original ResourceRecord answers (raw RDATA, TTL, type).
     ///
     /// @param data  Span covering the raw packet bytes.
-    /// @param host  Optional hostname for sanity checking (CNAME chain detection).
+    /// @param host  Optional hostname, reserved for diagnostics.
     /// @return      Structured result with RCODE and raw answer records.
+    /// @throws DnsLookupException on malformed packets.
     [[nodiscard]] static ParsedResponse parse_response(std::span<const std::uint8_t> data,
                                                        const std::string& host = {});
 
-    /// Convenience: parse all answer records and return pre-formatted
+    /// Convenience: parse the answer records and return pre-formatted
     /// string values (IPs, hostnames, text, etc.).
     ///
     /// Preferred entry point for callers that only need the RCODE and
     /// formatted values.
     ///
-    /// @param data  Span covering the raw packet bytes.
-    /// @param host  Optional hostname for sanity checking (CNAME chain detection).
+    /// @param data         Span covering the raw packet bytes.
+    /// @param host         Optional hostname, used in diagnostic logging.
+    /// @param type_filter  When set, only answer records of this type are
+    ///                     formatted and returned: CNAME hops and any other
+    ///                     non-matching records are skipped, so an RFC 1034
+    ///                     §3.6.2 chain never surfaces a hostname where the
+    ///                     caller expects an address.
     /// @return      Structured result with RCODE and pre-formatted record values.
+    /// @throws DnsLookupException on malformed packets.
     [[nodiscard]] static FormattedResponse parse_strings(std::span<const std::uint8_t> data,
-                                                         const std::string& host = {});
+                                                         const std::string& host = {},
+                                                         std::optional<RecordType> type_filter = std::nullopt);
 
     // ── Full-message accessors (EDNS0-aware) ──
 
@@ -100,8 +108,6 @@ private:
     [[nodiscard]] static std::string format_soa(std::span<const std::uint8_t> wire, size_t rdata_offset, size_t rdlen);
 
     [[nodiscard]] static std::string format_srv(std::span<const std::uint8_t> wire, size_t rdata_offset, size_t rdlen);
-
-    [[nodiscard]] static std::string format_generic(std::span<const std::uint8_t> rdata);
 
     // ── EDNS0 parsing ──
     [[nodiscard]] static std::optional<EdnsInfo> parse_edns(const ResourceRecord& rr);

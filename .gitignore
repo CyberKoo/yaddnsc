@@ -92,3 +92,7 @@ config*.json
 # reference and to stay in sync with the upstream template.
 .idea/
 .zed/
+
+# Python
+__pycache__/
+*.py[cod]

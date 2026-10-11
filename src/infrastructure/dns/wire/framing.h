@@ -27,16 +27,15 @@
 
 namespace dns {
 
-/// Largest DNS message accepted on the classic UDP and TCP paths.
-///
-/// UDP uses it as the receive buffer size, TCP as the ceiling on the length
-/// a peer may announce in its prefix.
+/// Largest DNS message accepted on the classic UDP path — the receive buffer
+/// size for one datagram. The TCP paths accept up to the 16-bit prefix's
+/// 65535-octet maximum instead (RFC 1035 §4.2.2).
 inline constexpr std::size_t MAX_MESSAGE_SIZE = 4096;
 
 /// Why a message length could not be framed or read.
 enum class FrameError {
     MESSAGE_TOO_LARGE,  ///< payload longer than a 16-bit prefix can announce
-    INVALID_LENGTH,     ///< announced length is 0 or above MAX_MESSAGE_SIZE
+    INVALID_LENGTH,     ///< announced length is 0
 };
 
 /// Prepend the two-byte big-endian length prefix to @p message.
@@ -55,24 +54,16 @@ enum class FrameError {
     return framed;
 }
 
-/// Decode the two-byte big-endian length prefix without validating it.
-///
-/// Lets a caller report the announced value when read_length() rejects it,
-/// without decoding the prefix a second time.
-[[nodiscard]] inline std::size_t announced_length(const std::span<const std::uint8_t, 2> prefix) noexcept {
-    std::uint16_t be_len = 0;
-    std::memcpy(&be_len, prefix.data(), sizeof(be_len));
-    return ntohs(be_len);
-}
-
 /// Read the two-byte big-endian length prefix.
 ///
-/// @returns INVALID_LENGTH when the announced length is 0 or above
-///          MAX_MESSAGE_SIZE. Use announced_length() to report the value.
+/// The prefix is 16 bits, so the announced length is inherently bounded by
+/// 65535 (RFC 1035 §4.2.2); only a zero length is invalid.
 [[nodiscard]] inline std::expected<std::size_t, FrameError> read_length(
     const std::span<const std::uint8_t, 2> prefix) {
-    const std::size_t length = announced_length(prefix);
-    if (length == 0 || length > MAX_MESSAGE_SIZE) {
+    std::uint16_t be_len = 0;
+    std::memcpy(&be_len, prefix.data(), sizeof(be_len));
+    const std::size_t length = ntohs(be_len);
+    if (length == 0) {
         return std::unexpected(FrameError::INVALID_LENGTH);
     }
     return length;

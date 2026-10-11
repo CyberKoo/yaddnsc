@@ -90,6 +90,71 @@ using dns::Strategy;
     return out;
 }
 
+/// Build the typical answer to an A query on a CNAME'd `name` (RFC 1034
+/// §3.6.2): the CNAME hop first, then the target's A record. The A record's
+/// NAME is a compression pointer into the CNAME's RDATA.
+[[nodiscard]] std::vector<std::uint8_t> cname_a_response(const std::string_view name, const std::string_view target,
+                                                         const std::uint8_t last_octet) {
+    std::vector<std::uint8_t> out;
+    const auto u16 = [&out](const std::uint16_t value) {
+        out.push_back(static_cast<std::uint8_t>(value >> 8));
+        out.push_back(static_cast<std::uint8_t>(value & 0xFF));
+    };
+    const auto u32 = [&out](const std::uint32_t value) {
+        out.push_back(static_cast<std::uint8_t>(value >> 24));
+        out.push_back(static_cast<std::uint8_t>((value >> 16) & 0xFF));
+        out.push_back(static_cast<std::uint8_t>((value >> 8) & 0xFF));
+        out.push_back(static_cast<std::uint8_t>(value & 0xFF));
+    };
+    const auto encode = [&out](const std::string_view full_name) {
+        std::string_view rest = full_name;
+        while (!rest.empty()) {
+            const auto dot = rest.find('.');
+            const auto label = rest.substr(0, dot);
+            out.push_back(static_cast<std::uint8_t>(label.size()));
+            out.insert(out.end(), label.begin(), label.end());
+            if (dot == std::string_view::npos) {
+                break;
+            }
+            rest = rest.substr(dot + 1);
+        }
+        out.push_back(0);  // root label
+    };
+
+    u16(0x1234);  // id
+    u16(0x8180);  // QR | RD | RA
+    u16(1);       // qdcount
+    u16(2);       // ancount
+    u16(0);
+    u16(0);
+
+    encode(name);
+    u16(1);  // QTYPE A
+    u16(1);  // QCLASS IN
+
+    u16(0xC00C);  // name pointer to offset 12
+    u16(5);       // TYPE CNAME
+    u16(1);       // CLASS IN
+    u32(60);      // TTL
+    const auto rdlength_pos = out.size();
+    u16(0);                  // RDLENGTH placeholder
+    const auto rdata_start = out.size();  // the A record's NAME points here
+    encode(target);
+    out[rdlength_pos] = static_cast<std::uint8_t>((out.size() - rdata_start) >> 8);
+    out[rdlength_pos + 1] = static_cast<std::uint8_t>((out.size() - rdata_start) & 0xFF);
+
+    u16(static_cast<std::uint16_t>(0xC000 | rdata_start));  // name pointer to the target's wire form
+    u16(1);                                                 // TYPE A
+    u16(1);                                                 // CLASS IN
+    u32(60);                                                // TTL
+    u16(4);                                                 // RDLENGTH
+    out.push_back(198);
+    out.push_back(51);
+    out.push_back(100);
+    out.push_back(last_octet);
+    return out;
+}
+
 /// One scripted reply: an error, a response, and an optional delay.
 struct FakeStep {
     domain::DnsErrorInfo error{};
@@ -263,6 +328,23 @@ TEST(DnsDispatcher, fallback_nxdomain_StopsTheSearch) {
     ASSERT_FALSE(result.has_value());
     EXPECT_EQ(result.error().code, domain::DnsError::NX_DOMAIN);
     EXPECT_EQ(second.calls(), 0);  // the name does not exist, so no other backend is asked
+}
+
+// ---------------------------------------------------------------------------
+// answer filtering: CNAME chains hand only address records to the caller
+// ---------------------------------------------------------------------------
+
+TEST(DnsDispatcher, fallback_cnameChain_ReturnsOnlyTheAddressRecords) {
+    // An A query on a CNAME'd name answers [CNAME, A]: only the A record may
+    // reach the update decision — the CNAME hop's value is a hostname.
+    Fakes fakes;
+    (void) fakes.add("only", {response_step(cname_a_response("yaddnsc.test", "cdn.yaddnsc.test", 42))});
+    dns::Dispatcher dispatcher{fakes.take(), Strategy::FALLBACK};
+
+    const auto result = run_query(dispatcher);
+
+    ASSERT_TRUE(result.has_value());
+    EXPECT_EQ(*result, (std::vector<std::string>{"198.51.100.42"}));
 }
 
 TEST(DnsDispatcher, shuffle_transientThenAnswer_StillResolves) {
@@ -474,6 +556,49 @@ TEST(DnsDispatcher, concurrent_cancellationLaunchesNothingNew) {
     EXPECT_FALSE(error.has_value());  // cancellation bypasses the recoverable error channel
     EXPECT_EQ(extra_a.calls(), 0);
     EXPECT_EQ(extra_b.calls(), 0);
+}
+
+// ---------------------------------------------------------------------------
+// error aggregation
+// ---------------------------------------------------------------------------
+
+TEST(DnsDispatcher, concurrent_allBackendsReturnUnknownWithEmptyMessage_ReportsUnknownVerbatim) {
+    // The old sentinel sniffing rewrote a real {UNKNOWN, ""} into a fabricated
+    // NODATA; the explicit flag keeps the actual diagnosis.
+    Fakes fakes;
+    (void) fakes.add("one", {error_step(domain::DnsError::UNKNOWN, "")});
+    (void) fakes.add("two", {error_step(domain::DnsError::UNKNOWN, "")});
+    dns::Dispatcher dispatcher{fakes.take(), Strategy::CONCURRENT};
+
+    const auto result = run_query(dispatcher);
+
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error().code, domain::DnsError::UNKNOWN);
+    EXPECT_TRUE(result.error().message.empty());
+}
+
+TEST(DnsDispatcher, fallback_allBackendsReturnNoRecords_ReportsNodata) {
+    Fakes fakes;
+    (void) fakes.add("one", {error_step(domain::DnsError::NODATA, "no records")});
+    (void) fakes.add("two", {error_step(domain::DnsError::NODATA, "no records")});
+    dns::Dispatcher dispatcher{fakes.take(), Strategy::FALLBACK};
+
+    const auto result = run_query(dispatcher);
+
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error().code, domain::DnsError::NODATA);
+}
+
+TEST(DnsDispatcher, concurrent_allBackendsReturnNoRecords_ReportsNodata) {
+    Fakes fakes;
+    (void) fakes.add("one", {error_step(domain::DnsError::NODATA, "no records")});
+    (void) fakes.add("two", {error_step(domain::DnsError::NODATA, "no records")});
+    dns::Dispatcher dispatcher{fakes.take(), Strategy::CONCURRENT};
+
+    const auto result = run_query(dispatcher);
+
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error().code, domain::DnsError::NODATA);
 }
 
 }  // namespace

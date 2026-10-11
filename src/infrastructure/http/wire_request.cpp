@@ -4,16 +4,17 @@
 
 #include "wire_request.h"
 
-#include <expected>
 #include <map>
 #include <optional>
 #include <string>
 
+#include <expected>
+
 #include "infrastructure/http/protocol/field_chars.hpp"
 #include "infrastructure/uri/uri.h"
 #include "support/fmt.hpp"
-#include "yaddnsc/util/format.hpp"  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 #include "support/string_util.hpp"  // IWYU pragma: keep — the StringUtil namespace alias lives here
+#include "yaddnsc/util/format.hpp"  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 #include "yaddnsc/util/string_util.hpp"
 
 namespace http {
@@ -47,7 +48,7 @@ std::string make_target(const Uri& uri) {
     if (target.empty()) {
         target = "/";
     }
-    if (const auto query = uri.get_query_string(); !query.empty()) {
+    if (const auto query = uri.get_query_string(); uri.has_query()) {
         target += '?';
         target += query;
     }

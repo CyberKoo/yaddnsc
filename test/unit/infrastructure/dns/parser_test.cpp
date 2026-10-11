@@ -202,6 +202,66 @@ std::vector<std::uint8_t> make_cname_response(std::uint16_t txid, std::string_vi
     return buf;
 }
 
+/// Build a DNS response with a CNAME record followed by an A record for the
+/// target — the typical answer to an A query on a CNAME'd name (RFC 1034
+/// §3.6.2). The A record's NAME is a compression pointer to the CNAME's RDATA.
+std::vector<std::uint8_t> make_cname_chain_response(std::uint16_t txid, std::string_view cname_target,
+                                                    std::array<std::uint8_t, 4> target_ip, std::uint32_t ttl = 300) {
+    std::vector<std::uint8_t> buf;
+    buf.resize(12, 0);
+    write_u16_be(buf, 0, txid);
+    buf[2] = 0x81;
+    buf[3] = 0x80;
+    write_u16_be(buf, 4, 1);  // QDCOUNT
+    write_u16_be(buf, 6, 2);  // ANCOUNT
+
+    // Question: www.example.com A IN
+    encode_name(buf, "www.example.com");
+    buf.push_back(0x00);
+    buf.push_back(0x01);
+    buf.push_back(0x00);
+    buf.push_back(0x01);
+
+    // Answer 1: CNAME www.example.com → cname_target
+    buf.push_back(0xC0);
+    buf.push_back(0x0C);
+    buf.push_back(0x00);
+    buf.push_back(0x05);
+    buf.push_back(0x00);
+    buf.push_back(0x01);
+    buf.push_back(static_cast<std::uint8_t>(ttl >> 24));
+    buf.push_back(static_cast<std::uint8_t>(ttl >> 16));
+    buf.push_back(static_cast<std::uint8_t>(ttl >> 8));
+    buf.push_back(static_cast<std::uint8_t>(ttl & 0xFF));
+
+    const size_t rdlength_offset = buf.size();
+    buf.push_back(0x00);
+    buf.push_back(0x00);
+    const size_t rdata_start = buf.size();  // the A record's NAME points here
+    encode_name(buf, cname_target);
+    const auto rdlength = static_cast<uint16_t>(buf.size() - rdata_start);
+    buf[rdlength_offset] = static_cast<uint8_t>(rdlength >> 8);
+    buf[rdlength_offset + 1] = static_cast<uint8_t>(rdlength & 0xFF);
+
+    // Answer 2: A cname_target → target_ip
+    buf.push_back(static_cast<std::uint8_t>(0xC0 | (rdata_start >> 8)));
+    buf.push_back(static_cast<std::uint8_t>(rdata_start & 0xFF));
+    buf.push_back(0x00);
+    buf.push_back(0x01);
+    buf.push_back(0x00);
+    buf.push_back(0x01);
+    buf.push_back(static_cast<std::uint8_t>(ttl >> 24));
+    buf.push_back(static_cast<std::uint8_t>(ttl >> 16));
+    buf.push_back(static_cast<std::uint8_t>(ttl >> 8));
+    buf.push_back(static_cast<std::uint8_t>(ttl & 0xFF));
+    buf.push_back(0x00);
+    buf.push_back(0x04);
+    for (auto byte : target_ip) {
+        buf.push_back(byte);
+    }
+    return buf;
+}
+
 /// Build a DNS response with an NS record (type 2).
 std::vector<std::uint8_t> make_ns_response(std::uint16_t txid, std::string_view ns_target, std::uint32_t ttl = 300) {
     std::vector<std::uint8_t> buf;
@@ -621,6 +681,44 @@ TEST(DnsParserTest, ParseCnameRecord) {
     ASSERT_EQ(parsed.records.size(), 1U);
     EXPECT_EQ(parsed.records[0], "target.example.com");
     EXPECT_EQ(parsed.rcode, dns::Rcode::NOERROR);
+}
+
+// ===========================================================================
+// parse_strings type_filter — CNAME chains and off-type records are skipped
+// ===========================================================================
+
+TEST(DnsParserTest, ParseStrings_TypeFilter_KeepsOnlyMatchingRecords) {
+    // An A query on a CNAME'd name answers [CNAME, A]: only the A record is a
+    // result — the CNAME value is a hostname, not an address.
+    auto response = make_cname_chain_response(0x1234, "target.example.net", {203, 0, 113, 7});
+    auto parsed = dns::RecordParser::parse_strings(response, "www.example.com", dns::RecordType::A);
+    ASSERT_EQ(parsed.records.size(), 1U);
+    EXPECT_EQ(parsed.records[0], "203.0.113.7");
+    EXPECT_EQ(parsed.rcode, dns::Rcode::NOERROR);
+}
+
+TEST(DnsParserTest, ParseStrings_WithoutFilter_ReturnsEveryRecord) {
+    auto response = make_cname_chain_response(0x1234, "target.example.net", {203, 0, 113, 7});
+    auto parsed = dns::RecordParser::parse_strings(response);
+    ASSERT_EQ(parsed.records.size(), 2U);
+    EXPECT_EQ(parsed.records[0], "target.example.net");
+    EXPECT_EQ(parsed.records[1], "203.0.113.7");
+}
+
+TEST(DnsParserTest, ParseStrings_TypeFilter_CnameOnlyAnswerYieldsEmpty) {
+    // A CNAME whose target's A record is not in the answer section yields no
+    // result for an A query (the dispatcher reports NODATA).
+    auto response = make_cname_response(0x1234, "target.example.net");
+    auto parsed = dns::RecordParser::parse_strings(response, "www.example.com", dns::RecordType::A);
+    EXPECT_EQ(parsed.rcode, dns::Rcode::NOERROR);
+    EXPECT_TRUE(parsed.records.empty());
+}
+
+TEST(DnsParserTest, ParseStrings_TypeFilter_OffTypeRecordsAreSkipped) {
+    auto response = make_a_response(0x1234, {192, 0, 2, 1});
+    auto parsed = dns::RecordParser::parse_strings(response, "example.com", dns::RecordType::AAAA);
+    EXPECT_EQ(parsed.rcode, dns::Rcode::NOERROR);
+    EXPECT_TRUE(parsed.records.empty());
 }
 
 // ===========================================================================

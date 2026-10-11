@@ -1,5 +1,6 @@
 #include "update_decision.h"
 
+#include <algorithm>
 #include <optional>
 #include <string>
 #include <vector>
@@ -14,7 +15,7 @@ UpdateDecision decide_update(const std::vector<std::string>& current_records,
     if (force_update) {
         return UpdateDecision::UPDATE_FORCED;
     }
-    if (!current_records.empty() && current_records.front() == *local_address) {
+    if (std::ranges::find(current_records, *local_address) != current_records.end()) {
         return UpdateDecision::SKIP_UNCHANGED;
     }
     return UpdateDecision::UPDATE_CHANGED;

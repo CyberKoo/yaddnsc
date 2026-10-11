@@ -11,15 +11,16 @@
 /// Locked behaviours (legacy Updater semantics):
 ///   - no local address          → SKIP_NO_ADDRESS (the driver is never called);
 ///   - force_update              → UPDATE_FORCED (DNS records are not consulted);
-///   - the FIRST record equals the local address → SKIP_UNCHANGED;
+///   - ANY record equals the local address → SKIP_UNCHANGED;
 ///   - everything else — including an empty record list, whether the lookup
 ///     succeeded empty or failed and was mapped to empty — is UPDATE_CHANGED.
-/// Only the first record is ever compared; no "skip because no record" state
-/// exists.
+/// Every record participates in the comparison: a round-robin RRset stays
+/// unchanged as long as the local address is still in it. No "skip because
+/// no record" state exists.
 namespace domain {
 
 enum class UpdateDecision {
-    SKIP_UNCHANGED,   ///< First DNS record already equals the local address
+    SKIP_UNCHANGED,   ///< A DNS record already equals the local address
     UPDATE_CHANGED,   ///< Records differ (or are unavailable) — update
     UPDATE_FORCED,    ///< force_update cycle — update without comparing
     SKIP_NO_ADDRESS,  ///< No usable local address — do not call the driver

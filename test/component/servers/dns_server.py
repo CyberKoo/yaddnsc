@@ -44,7 +44,8 @@ TCP_ERROR_HOST = "tcperror.yaddnsc.test"   # UDP: TC=1, TCP: invalid length (0)
 TCP_RESET_HOST = "tcpreset.yaddnsc.test"   # UDP: TC=1, TCP: close immediately
 TCP_TIMEOUT_HOST = "tcptimeout.yaddnsc.test"  # UDP: TC=1, TCP: accept but hang
 TCP_GARBAGE_HOST = "tcpgarbage.yaddnsc.test"  # UDP: TC=1, TCP: garbage response
-TCP_LARGE_HOST = "tcplarge.yaddnsc.test"     # UDP: TC=1, TCP: length > 4096
+TCP_LARGE_HOST = "tcplarge.yaddnsc.test"     # UDP: TC=1, TCP: a valid answer > 4096 bytes
+UDP_LARGE_HOST = "udplarge.yaddnsc.test"     # UDP: a valid answer > 4096 bytes WITHOUT TC (kernel-truncates at the client); TCP: normal
 TCP_CONNECT_FAIL_HOST = "tcpconnectfail.yaddnsc.test"  # UDP: TC=1, TCP: no listener
 TCP_BODYTRUNC_HOST = "tcpbodytrunc.yaddnsc.test"  # UDP: TC=1, TCP: length 100, only 10 bytes sent
 
@@ -131,6 +132,14 @@ def build_response(ident: int, question: bytes, qname: str, qtype_str: str,
     # ── Timeout host: no response on UDP (triggers resolver timeout) ─────
     if qname == TIMEOUT_HOST and is_udp:
         return None
+
+    # ── Oversized UDP answer WITHOUT the TC bit: the client's receive ─────
+    # buffer truncates it at the kernel level — only a client that detects
+    # that (MSG_TRUNC) falls back to TCP instead of failing to parse.
+    if qname == UDP_LARGE_HOST and is_udp:
+        header = struct.pack("!HHHHHH", ident, 0x8180, 1, 1, 0, 0)
+        body = header + question + build_a_record("198.51.100.55")
+        return body + b"\x00" * (5000 - len(body))
 
     # ── TCP error hosts: TC=1 on UDP to force TCP fallback ───────────────
     if qname in (TCP_ERROR_HOST, TCP_RESET_HOST, TCP_TIMEOUT_HOST,
@@ -267,8 +276,16 @@ async def handle_tcp_client(reader: asyncio.StreamReader,
             return
 
         if qname == TCP_LARGE_HOST:
-            # Send length prefix > 4096 — resolver rejects.
-            writer.write(struct.pack("!H", 5000))
+            # A legitimate answer larger than the legacy 4096 classic cap:
+            # RFC 1035 §4.2.2 allows 65535, so the resolver must accept it.
+            # The trailing zero padding sits past every section and is ignored
+            # by the message parser.
+            response = build_response(ident, question, qname, qtype_str,
+                                      records, is_udp=False)
+            if response is None:
+                return
+            padded = response + b"\x00" * (5000 - len(response))
+            writer.write(struct.pack("!H", len(padded)) + padded)
             await writer.drain()
             return
 

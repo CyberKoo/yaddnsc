@@ -173,9 +173,35 @@ TEST(DnsValidatorTest, QdcountNotOne_ReturnsParseError) {
     auto query = make_query_example();
     auto response = make_valid_response();
 
-    // Set QDCOUNT = 0 (not 1)
+    // Set QDCOUNT = 0 (not 1) on a NOERROR response — a successful answer
+    // must echo the question, so this stays malformed.
     response[4] = 0;
     response[5] = 0;
+
+    expect_parse_error(query, response);
+}
+
+TEST(DnsValidatorTest, QdcountZeroWithErrorRcode_Succeeds) {
+    auto query = make_query_example();
+    auto response = make_valid_response();
+
+    // QDCOUNT = 0 with an error RCODE (FORMERR=1): servers may legally omit
+    // the question section in an error response, and the RCODE classification
+    // upstream decides the outcome.
+    response[4] = 0;
+    response[5] = 0;
+    response[3] = 0x81;  // RA=1, RCODE=FORMERR
+
+    expect_valid(query, response);
+}
+
+TEST(DnsValidatorTest, QdcountTwo_ReturnsParseError) {
+    auto query = make_query_example();
+    auto response = make_valid_response();
+
+    // QDCOUNT = 2 is suspicious for a single-question query regardless of RCODE.
+    response[4] = 0;
+    response[5] = 2;
 
     expect_parse_error(query, response);
 }
@@ -243,6 +269,19 @@ TEST(DnsValidatorTest, ShortQuery_QuestionSectionEnd_ReturnsNullopt) {
     auto response = make_valid_response();
 
     expect_parse_error(short_query, response);
+}
+
+// ===========================================================================
+// check_txid — request shorter than a DNS header is rejected before any read
+// ===========================================================================
+
+TEST(DnsValidatorTest, ShortRequest_TxidCheck_ReturnsParseError) {
+    // A two-byte request matches the response TXID, but is no valid query —
+    // the guard must fire before question-section parsing.
+    std::vector<std::uint8_t> short_request{0x12, 0x34};
+    auto response = make_valid_response();
+
+    expect_parse_error_msg(short_request, response, "request too short");
 }
 
 // ===========================================================================

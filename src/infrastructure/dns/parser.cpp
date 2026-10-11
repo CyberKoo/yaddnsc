@@ -91,7 +91,7 @@ std::string dns::RecordParser::decompress_name(const std::span<const std::uint8_
                     domain::DnsError::PARSE);
             }
 
-            // Linear scan of visited offsets (max 16 iterations, no allocation).
+            // Linear scan of visited offsets (at most MAX_POINTER_DEPTH iterations).
             for (size_t i = 0; i < visited_count; ++i) {
                 if (visited[i] == ptr_offset) {
                     throw DnsLookupException(
@@ -277,20 +277,6 @@ std::string dns::RecordParser::format_srv(const std::span<const std::uint8_t> wi
     }
 
     return fmt::format("{} {} {} {}", *priority, *weight, *port, target);
-}
-
-std::string dns::RecordParser::format_generic(const std::span<const std::uint8_t> rdata) {
-    // Hex dump for unknown record types.
-    const auto rdlen = rdata.size();
-    std::string result;
-    result.reserve(rdlen * 2 + 2);
-    result = "0x";
-    static constexpr auto hex = "0123456789abcdef";
-    for (size_t i = 0; i < rdlen; ++i) {
-        result += hex[(rdata[i] >> 4) & 0x0F];
-        result += hex[rdata[i] & 0x0F];
-    }
-    return result;
 }
 
 // =============================================================================
@@ -561,7 +547,8 @@ dns::ParsedResponse dns::RecordParser::parse_response(const std::span<const std:
 }
 
 dns::FormattedResponse dns::RecordParser::parse_strings(const std::span<const std::uint8_t> data,
-                                                        [[maybe_unused]] const std::string& host) {
+                                                        const std::string& host,
+                                                        const std::optional<RecordType> type_filter) {
     // Fast path: parse without copying RDATA — rdata_to_string reads
     // directly from the wire buffer via rdata_offset.
     auto msg = parse_message(data, false);
@@ -571,7 +558,14 @@ dns::FormattedResponse dns::RecordParser::parse_strings(const std::span<const st
     if (response.rcode == Rcode::NOERROR) [[likely]] {
         response.records.reserve(msg.answers.size());
         for (size_t i = 0; i < msg.answers.size(); ++i) {
-            auto record = rdata_to_string(msg.answers[i], data);
+            const auto& answer = msg.answers[i];
+            // Skip records that do not answer the query — above all the CNAME
+            // hops of an RFC 1034 §3.6.2 chain, whose value is a hostname, not
+            // the address the caller asked for.
+            if (type_filter.has_value() && answer.type != static_cast<std::uint16_t>(*type_filter)) {
+                continue;
+            }
+            auto record = rdata_to_string(answer, data);
             SPDLOG_TRACE(R"(DNS answer #{} for "{}": {})", i, host, record);
             response.records.push_back(std::move(record));
         }

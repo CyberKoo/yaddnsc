@@ -1,6 +1,8 @@
 #ifndef YADDNSC_INFRASTRUCTURE_DNS_DNS_PACKET_EXCEPTION_H
 #define YADDNSC_INFRASTRUCTURE_DNS_DNS_PACKET_EXCEPTION_H
 
+#include <string_view>
+
 #include "support/exception.h"
 
 /// Thrown when a DNS wire-format packet cannot be constructed.

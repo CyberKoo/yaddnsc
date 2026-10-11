@@ -209,8 +209,7 @@ TEST(RecordParser, ParseStrings_UnknownRecordType_ThrowsParseError) {
 
 TEST(RecordParser, ParseStrings_PrivateUseType_ThrowsParseError) {
     // Unknown types (including the private-use range) are rejected outright:
-    // rdata_to_string has no generic fallback, so format_generic is not
-    // reachable through the public parsers.
+    // rdata_to_string has no generic fallback.
     const auto buf = make_response(65280, {0xDE, 0xAD, 0xBE, 0xEF}, 4);
     EXPECT_THROW(parse_strings_consume(buf), DnsLookupException);
 }

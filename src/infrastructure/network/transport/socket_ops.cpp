@@ -249,12 +249,17 @@ coro::Task<std::expected<Datagram, IoError>> recv_datagram(const int fd, const s
     for (;;) {
         sockaddr_storage storage{};
         socklen_t length = sizeof(storage);
+        // MSG_TRUNC makes the call return the datagram's real length, so a
+        // packet that did not fit the buffer is detected instead of being
+        // silently cut (a truncated DNS answer must fall back to TCP).
         const ssize_t received =
-            ::recvfrom(fd, buf.data(), buf.size(), 0, reinterpret_cast<sockaddr*>(&storage), &length);
+            ::recvfrom(fd, buf.data(), buf.size(), MSG_TRUNC, reinterpret_cast<sockaddr*>(&storage), &length);
         if (received >= 0) {
             const SocketAddr peer = SocketAddr::from_raw(reinterpret_cast<const sockaddr*>(&storage), length);
             const std::optional<domain::InetAddress> from = peer.address();
-            co_return Datagram{static_cast<std::size_t>(received), from.value_or(domain::InetAddress{}), peer.port()};
+            const auto full_length = static_cast<std::size_t>(received);
+            const auto copied = full_length < buf.size() ? full_length : buf.size();
+            co_return Datagram{copied, from.value_or(domain::InetAddress{}), peer.port(), full_length > buf.size()};
         }
         if (errno == EINTR) {
             continue;

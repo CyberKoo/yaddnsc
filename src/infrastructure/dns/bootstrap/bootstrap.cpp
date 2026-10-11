@@ -4,32 +4,34 @@
 
 #include "bootstrap.h"
 
-#include <spdlog/spdlog.h>
-#include <coroutine>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 #include <cstdint>
-#include <expected>
 #include <new>
 #include <span>
 #include <type_traits>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 #include <utility>
 #include <vector>
 
+#include <coroutine>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
+
+#include <expected>
+#include <spdlog/spdlog.h>
+
 #include "coro/group.hpp"
+#include "coro/task_group.hpp"
+#include "domain/config/dns_config.h"
+#include "domain/dns/record_kind.h"
+#include "domain/error/dns_error.h"
+#include "domain/network/address_family.h"
 #include "infrastructure/dns/dns_lookup_exception.h"
 #include "infrastructure/dns/exchange.h"
 #include "infrastructure/dns/parser.h"
 #include "infrastructure/dns/resolver/resolver.h"
+#include "infrastructure/dns/types.h"
 #include "infrastructure/dns/util.hpp"
 #include "infrastructure/dns/validator.h"
 #include "infrastructure/dns/wire/query_util.h"
 #include "support/fmt.hpp"
 #include "support/redact.hpp"
-#include "domain/config/dns_config.h"
-#include "domain/dns/record_kind.h"
-#include "domain/error/dns_error.h"
-#include "domain/network/address_family.h"
-#include "coro/task_group.hpp"
-#include "infrastructure/dns/types.h"
 #include "yaddnsc/util/format.hpp"  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 
 namespace dns {
@@ -119,18 +121,28 @@ struct KindResult {
 
         try {
             const auto query = dns::build_query(host, dns::Util::type_to_record_type(kind));
-            auto response = co_await detail::query_udp(*address, server.port, query);
-            if (!response) {
-                record_failure(server, std::move(response.error()));
+            auto udp = co_await detail::query_udp(*address, server.port, query);
+            if (!udp) {
+                record_failure(server, std::move(udp.error()));
                 continue;
             }
 
-            if (auto valid = dns::Validator::validate_response(query, *response); !valid) {
-                record_failure(server, std::move(valid.error()));
-                continue;
+            std::vector<std::uint8_t> response;
+            // Kernel-level truncation (an oversized datagram) is retried over
+            // TCP exactly like a TC-bit answer; partial bytes are never parsed.
+            bool truncated = udp->truncated;
+            if (!truncated) {
+                if (auto valid = dns::Validator::validate_response(query, udp->bytes); !valid) {
+                    record_failure(server, std::move(valid.error()));
+                    continue;
+                }
+                truncated = detail::is_truncated(udp->bytes);
+                if (!truncated) {
+                    response = std::move(udp->bytes);
+                }
             }
 
-            if (detail::is_truncated(*response)) {
+            if (truncated) {
                 auto over_tcp = co_await detail::query_tcp(*address, server.port, query);
                 if (!over_tcp) {
                     record_failure(server, std::move(over_tcp.error()));
@@ -140,10 +152,15 @@ struct KindResult {
                     record_failure(server, std::move(valid.error()));
                     continue;
                 }
-                response = std::move(over_tcp);
+                if (detail::is_truncated(*over_tcp)) {
+                    // RFC 7766 §8: TC on a TCP answer marks a broken server.
+                    record_failure(server, {domain::DnsError::RETRY, "DNS server returned a truncated TCP response"});
+                    continue;
+                }
+                response = std::move(*over_tcp);
             }
 
-            auto found = extract_addresses(*response, host, kind);
+            auto found = extract_addresses(response, host, kind);
             if (!found) {
                 // NXDOMAIN is authoritative for the name on this server only.
                 result.error = std::move(found.error());
@@ -159,10 +176,9 @@ struct KindResult {
         } catch (const DnsLookupException& error) {
             record_failure(server, {error.get_error(), error.what()});
         } catch (const std::exception& error) {
-            record_failure(server,
-                           domain::DnsErrorInfo{
-                               domain::DnsError::PARSE,
-                               fmt::format(R"(Failed to build or parse a query for "{}": {})", host, error.what())});
+            record_failure(server, domain::DnsErrorInfo{domain::DnsError::PARSE,
+                                                        fmt::format(R"(Failed to build or parse a query for "{}": {})",
+                                                                    host, error.what())});
         }
     }
 

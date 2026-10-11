@@ -27,12 +27,15 @@ namespace net {
 ///
 /// The socket is created on first use (bind() or the first send_to/recv_from),
 /// non-blocking and close-on-exec. Datagrams larger than the caller's buffer are
-/// truncated, not rejected.
+/// truncated, not rejected — the returned Datagram's `truncated` flag reports it.
 ///
 /// Ownership: one socket object owns one fd, released by close() or destruction.
 /// Non-movable, so `this` stays valid for every Task it returns.
 /// Failure: expected<T, IoError>. Sending to a target of a different family than
 /// the socket is CONNECTION_FAILED.
+/// Cancellation: send_to and recv_from are checkpoint-cancellable awaits — a
+/// cancelled scope (including one cancelled by the caller's deadline) throws
+/// coro::Cancelled. The socket owns no timeout of its own.
 /// Thread safety: not thread-safe and not concurrent-safe.
 class UdpSocket {
 public:

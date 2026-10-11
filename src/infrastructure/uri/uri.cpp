@@ -5,7 +5,6 @@
 #include <cctype>
 #include <charconv>
 #include <cstddef>
-#include <expected>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -14,6 +13,7 @@
 #include <utility>
 #include <vector>
 
+#include <expected>
 #include <yaddnsc/util/url_encode.hpp>
 
 #include "domain/network/inet_address.h"
@@ -60,8 +60,10 @@ constexpr std::string_view DEFAULT_PATH = "/";
 /// Bytes that may never appear raw in a URI: ASCII controls, space, DEL.
 /// Bytes ≥ 0x80 are tolerated (IRI convention; curl accepts them too).
 [[nodiscard]] bool has_invalid_character(std::string_view s) noexcept {
-    return std::any_of(s.begin(), s.end(),
-                       [](char c) { auto const uc = static_cast<unsigned char>(c); return uc <= 0x20 || uc == 0x7F; });
+    return std::any_of(s.begin(), s.end(), [](char c) {
+        auto const uc = static_cast<unsigned char>(c);
+        return uc <= 0x20 || uc == 0x7F;
+    });
 }
 
 /// Parse a port substring into port_out.  An empty port is legal per
@@ -90,10 +92,41 @@ void lowercase_range(std::string& s, std::size_t pos, std::size_t len) noexcept 
     std::transform(start, start + static_cast<std::ptrdiff_t>(len), start,
                    [](unsigned char c) -> char { return static_cast<char>(std::tolower(c)); });
 }
+
+/// RFC 3986 §5.2.4: move segments verbatim so empty segments and escapes survive.
+[[nodiscard]] std::string remove_dot_segments(std::string_view input) {
+    std::string output;
+    while (!input.empty()) {
+        if (input.starts_with("../")) {
+            input.remove_prefix(3);
+        } else if (input.starts_with("./")) {
+            input.remove_prefix(2);
+        } else if (input.starts_with("/./") || input == "/.") {
+            input = input == "/." ? "/" : input.substr(2);
+        } else if (input.starts_with("/../") || input == "/..") {
+            input = input == "/.." ? "/" : input.substr(3);
+            const auto slash = output.rfind('/');
+            output.resize(slash == std::string::npos ? 0 : slash);
+        } else if (input == "." || input == "..") {
+            input = {};
+        } else {
+            const auto slash = input.find('/', input.starts_with('/') ? 1 : 0);
+            const auto count = slash == std::string_view::npos ? input.size() : slash;
+            output.append(input.substr(0, count));
+            input.remove_prefix(count);
+        }
+    }
+    return output;
+}
+
 }  // namespace
 
 std::string_view error_message(const UriError err) noexcept {
     switch (err) {
+        case UriError::INVALID_BASE_URI:
+            return "resolution base requires a scheme and host";
+        case UriError::UNSUPPORTED_REFERENCE:
+            return "resolution requires an authority-based hierarchical URI";
         case UriError::INVALID_CHARACTER:
             return "input contains a space, control character, or DEL";
         case UriError::INVALID_SCHEME:
@@ -127,6 +160,75 @@ std::expected<Uri, UriError> Uri::parse(std::string_view uri) {
         result->port_.emplace(0);
     }
     return result;
+}
+
+bool Uri::has_query() const noexcept {
+    return query_string_.pos != 0;
+}
+
+std::expected<Uri, UriError> Uri::resolve(std::string_view reference) const {
+    if (get_schema().empty() || get_host().empty()) {
+        return std::unexpected(UriError::INVALID_BASE_URI);
+    }
+    if (has_invalid_character(reference)) {
+        return std::unexpected(UriError::INVALID_CHARACTER);
+    }
+    reference = reference.substr(0, reference.find('#'));
+    const auto colon = reference.find(':');
+    const bool has_scheme =
+        colon != std::string_view::npos && reference.substr(0, colon).find_first_of("/?") == std::string_view::npos;
+    if (has_scheme && !is_valid_scheme(reference.substr(0, colon))) {
+        return std::unexpected(UriError::INVALID_SCHEME);
+    }
+    if (has_scheme && !reference.substr(colon + 1).starts_with("//")) {
+        return std::unexpected(UriError::UNSUPPORTED_REFERENCE);
+    }
+
+    // Absolute and network-path references replace authority; relative references
+    // retain the original authority spelling, including an explicitly zero port.
+    std::string absolute;
+    if (has_scheme) {
+        absolute = reference;
+    } else if (reference.starts_with("//")) {
+        absolute = get_schema();
+        absolute += ':';
+        absolute += reference;
+    }
+    if (has_scheme || reference.starts_with("//")) {
+        auto parsed = parse(absolute);
+        if (!parsed) {
+            return std::unexpected(parsed.error());
+        }
+        const auto authority_end = absolute.find_first_of("/?#", absolute.find("://") + 3);
+        absolute.resize(authority_end == std::string::npos ? absolute.size() : authority_end);
+        absolute += remove_dot_segments(parsed->get_path());
+        if (parsed->has_query()) {
+            absolute += '?';
+            absolute += parsed->get_query_string();
+        }
+    } else {
+        const auto authority_end = raw_uri_.find_first_of("/?#", get_schema().size() + 3);
+        absolute = raw_uri_.substr(0, authority_end);
+        const auto query = reference.find('?');
+        const auto path = reference.substr(0, query);
+        if (path.empty()) {
+            absolute += get_path();
+        } else if (path.starts_with('/')) {
+            absolute += remove_dot_segments(path);
+        } else {
+            std::string merged{get_path()};
+            merged.resize(merged.rfind('/') + 1);
+            merged += path;
+            absolute += remove_dot_segments(merged);
+        }
+        if (query != std::string_view::npos) {
+            absolute += reference.substr(query);
+        } else if (path.empty() && has_query()) {
+            absolute += '?';
+            absolute += get_query_string();
+        }
+    }
+    return parse(absolute);
 }
 
 std::expected<Uri, UriError> Uri::parse_impl(std::string_view uri) {

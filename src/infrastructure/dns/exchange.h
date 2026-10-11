@@ -21,19 +21,28 @@
 
 namespace dns::detail {
 
+/// One UDP answer: the received bytes, plus whether the datagram was cut off
+/// by the receive buffer. Kernel-level truncation does not necessarily set the
+/// TC bit, so the caller must fall back to TCP on `truncated` exactly as it
+/// would for a TC-bit answer (the partial bytes are unusable and dropped).
+struct UdpAnswer {
+    std::vector<std::uint8_t> bytes;
+    bool truncated = false;
+};
+
 /// Send `query` over UDP and return the first answer from `server`.
 ///
 /// A datagram from any other address or port is ignored. Opens an ephemeral
 /// socket per call. Cancellation (including a deadline enforced by the caller's
 /// cancel scope) surfaces as `coro::Cancelled`; a socket failure is
 /// DnsError::CONNECTION.
-[[nodiscard]] coro::Task<std::expected<std::vector<std::uint8_t>, domain::DnsErrorInfo>> query_udp(
+[[nodiscard]] coro::Task<std::expected<UdpAnswer, domain::DnsErrorInfo>> query_udp(
     domain::InetAddress server, std::uint16_t port, std::span<const std::uint8_t> query);
 
 /// Send `query` over TCP with the two-byte length prefix and return the answer.
 ///
-/// Opens a fresh connection per call. Failures map as above; a length prefix
-/// outside the classic limit is DnsError::PARSE.
+/// Opens a fresh connection per call. Failures map as above; a zero length
+/// prefix is DnsError::PARSE.
 [[nodiscard]] coro::Task<std::expected<std::vector<std::uint8_t>, domain::DnsErrorInfo>> query_tcp(
     domain::InetAddress server, std::uint16_t port, std::span<const std::uint8_t> query);
 

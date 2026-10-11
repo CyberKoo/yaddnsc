@@ -27,9 +27,12 @@ namespace dns {
 ///
 /// Ownership: owns one persistent HTTP client (and therefore its connection to
 /// the DoH endpoint).
-/// Failure: expected<raw response, DnsErrorInfo>. A non-200 response is
-/// SERVER_REFUSED (4xx) or RETRY (5xx); a lost connection is retried once, which
-/// is the legacy 2-attempt policy.
+/// Failure: expected<raw response, DnsErrorInfo>. A non-2xx response is
+/// SERVER_REFUSED (<5xx) or RETRY (5xx); redirects are never followed (RFC 8484
+/// §3), a non-DNS Content-Type is PARSE, and a truncated (TC) answer is RETRY.
+/// A transport failure is CONNECTION, an oversized response RETRY, and a
+/// request or endpoint this client cannot use CONFIG or PARSE (definitive).
+/// A lost connection is retried once, which is the legacy 2-attempt policy.
 /// Thread safety: concurrent queries are serialized by the client's session
 /// mutex, so the connection is never shared by two coroutines at once.
 class DohResolver final : public Resolver {

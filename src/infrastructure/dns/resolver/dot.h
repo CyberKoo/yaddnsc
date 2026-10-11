@@ -6,8 +6,9 @@
 // connection is rebuilt once, which is the legacy 2-attempt policy expressed as
 // two awaits instead of two threads.
 //
-// Queries are padded to a 128-octet block (RFC 7830 / RFC 7858 §3.5) and framed
-// with the two-byte length prefix, and the ALPN identifier "dot" is offered.
+// Queries carry the EDNS(0) padding option (RFC 7830) sized to the 128-octet
+// query block of RFC 8467 §4.1, and are framed with the two-byte length
+// prefix. The ALPN identifier "dot" is offered.
 //
 
 #ifndef YADDNSC_INFRASTRUCTURE_DNS_RESOLVER_DOT_H
@@ -61,7 +62,9 @@ struct EndpointOptions {
 /// Ownership: owns one persistent TLS stream (rebuilt on loss) and the mutex
 /// that serializes it.
 /// Failure: expected<raw response, DnsErrorInfo>; a lost connection is retried
-/// once, and everything else is reported as is.
+/// once, and everything else is reported as is. A bootstrap failure that answers
+/// NXDOMAIN or NODATA for the endpoint host is reported as CONNECTION, since it
+/// describes the endpoint rather than the queried domain.
 /// Thread safety: concurrent queries are serialized by the session mutex; the
 /// resolver itself is used from the loop thread only.
 class DotResolver final : public Resolver {

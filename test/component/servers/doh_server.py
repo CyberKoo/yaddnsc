@@ -37,6 +37,9 @@ MALFORMED_HOST = "doh-malformed.yaddnsc.test"
 CHUNKED_HOST = "doh-chunked.yaddnsc.test"
 INVALID_DNS_HOST = "doh-invalid-dns.yaddnsc.test"
 MALFORMED_HEADER_HOST = "doh-malformed-header.yaddnsc.test"
+REDIRECT_HOST = "doh-redirect.yaddnsc.test"  # 308 back to this endpoint — must NOT be followed
+TC_HOST = "doh-tc.yaddnsc.test"              # 200 + dns-message body with the TC bit set
+CREATED_201_HOST = "doh-201.yaddnsc.test"    # 201 instead of 200 — any 2xx is a valid answer
 
 TYPE_MAP = {1: "A", 28: "AAAA"}
 
@@ -252,6 +255,39 @@ async def handle_doh_client(reader: asyncio.StreamReader,
                 b"\r\n"
             )
             writer.write(resp)
+            await writer.drain()
+            return
+
+        if qname == REDIRECT_HOST:
+            # RFC 8484 §3: a DoH client must not use a URI it was not
+            # configured with — the resolver must report this, not follow it.
+            resp = (
+                b"HTTP/1.1 308 Permanent Redirect\r\n"
+                b"Location: /dns-query\r\n"
+                b"Content-Length: 0\r\n"
+                b"Connection: close\r\n"
+                b"\r\n"
+            )
+            writer.write(resp)
+            await writer.drain()
+            return
+
+        if qname == TC_HOST:
+            # 200 with a well-formed dns-message body, but the TC bit is set.
+            dns_body = build_dns_response(ident, question, qname, qtype_str)
+            if dns_body is None:
+                return
+            dns_body = bytes([dns_body[0], dns_body[1], dns_body[2] | 0x02]) + dns_body[3:]
+            writer.write(build_http_response(200, "application/dns-message", dns_body))
+            await writer.drain()
+            return
+
+        if qname == CREATED_201_HOST:
+            # Any 2xx status carries a usable DNS answer (RFC 8484 §4.2.1).
+            dns_body = build_dns_response(ident, question, qname, qtype_str)
+            if dns_body is None:
+                return
+            writer.write(build_http_response(201, "application/dns-message", dns_body))
             await writer.drain()
             return
 

@@ -5,9 +5,9 @@
 // Locked behaviours (legacy Updater semantics):
 //   - no local address             → SKIP_NO_ADDRESS (driver never called)
 //   - force_update                 → UPDATE_FORCED (DNS not consulted)
-//   - FIRST record == local        → SKIP_UNCHANGED
+//   - ANY record == local          → SKIP_UNCHANGED
 //   - everything else (incl. empty record list, however it arose) → UPDATE_CHANGED
-// Only the first record participates in the comparison.
+// Every record participates in the comparison.
 //
 
 #include "domain/update/update_decision.h"
@@ -44,15 +44,20 @@ TEST(UpdateDecision, ForceUpdateIgnoresDnsRecords) {
     EXPECT_EQ(decide_update({}, LOCAL, true), UpdateDecision::UPDATE_FORCED);
 }
 
-// ── first record equals local → SKIP_UNCHANGED ────────────────────────────────
+// ── any record equals local → SKIP_UNCHANGED ──────────────────────────────────
 
 TEST(UpdateDecision, FirstRecordMatchingLocalSkips) {
     EXPECT_EQ(decide_update({"198.51.100.1"}, LOCAL, false), UpdateDecision::SKIP_UNCHANGED);
 }
 
-TEST(UpdateDecision, OnlyTheFirstRecordIsCompared) {
-    // The second record differs from the local address; it must not matter.
-    EXPECT_EQ(decide_update({"198.51.100.1", "203.0.113.9"}, LOCAL, false), UpdateDecision::SKIP_UNCHANGED);
+TEST(UpdateDecision, MatchingNonFirstRecordSkips) {
+    // Any record matching the local address means unchanged, not just the
+    // first: a round-robin RRset must not churn an update every cycle.
+    EXPECT_EQ(decide_update({"203.0.113.9", "198.51.100.1"}, LOCAL, false), UpdateDecision::SKIP_UNCHANGED);
+}
+
+TEST(UpdateDecision, NoMatchingRecordUpdates) {
+    EXPECT_EQ(decide_update({"203.0.113.9", "192.0.2.1"}, LOCAL, false), UpdateDecision::UPDATE_CHANGED);
 }
 
 // ── everything else → UPDATE_CHANGED ──────────────────────────────────────────

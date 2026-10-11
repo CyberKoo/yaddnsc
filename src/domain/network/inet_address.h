@@ -83,7 +83,9 @@ public:
 
     // ---- factory methods ---------------------------------------------------
 
-    /// Parse an IPv6 string (with or without scope ID, e.g. "fe80::1%eth0").
+    /// Parse an IPv6 string, with or without a numeric scope ID ("fe80::1%2").
+    /// An interface name ("fe80::1%eth0") is not a scope id this type can hold
+    /// and is rejected like any other parse failure.
     /// Returns std::nullopt on failure.
     static std::optional<Inet6Address> parse(std::string_view addr);
 

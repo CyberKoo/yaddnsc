@@ -5,9 +5,7 @@
 #include "dispatcher.h"
 
 #include <coroutine>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
-#include <magic_enum/magic_enum.hpp>
 #include <ratio>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
-#include <spdlog/spdlog.h>
 #include <algorithm>
 #include <atomic>
 #include <chrono>
@@ -22,6 +20,9 @@
 #include <vector>
 #include <string_view>
 
+#include <spdlog/spdlog.h>
+#include <magic_enum/magic_enum.hpp>
+
 #include "domain/error/dns_error.h"
 #include "coro/cancelled.h"
 #include "coro/group.hpp"
@@ -30,12 +31,14 @@
 #include "coro/sleep.hpp"
 #include "infrastructure/dns/dns_lookup_exception.h"
 #include "infrastructure/dns/parser.h"
+#include "infrastructure/dns/util.hpp"
 #include "support/fmt.hpp"
 #include "support/util/random.hpp"
 #include "coro/cancel_scope.h"
 #include "coro/task_group.hpp"
 #include "infrastructure/dns/resolver/resolver.h"
 #include "infrastructure/dns/types.h"
+#include "infrastructure/logging/level_enabled.h"
 #include "yaddnsc/util/format.hpp"  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 
 namespace domain {
@@ -72,7 +75,7 @@ struct Attempt {
             co_return attempt;
         }
 
-        const auto parsed = dns::RecordParser::parse_strings(*raw, host);
+        const auto parsed = dns::RecordParser::parse_strings(*raw, host, dns::Util::type_to_record_type(kind));
         switch (parsed.rcode) {
             case dns::Rcode::NOERROR:
                 if (!parsed.records.empty()) {
@@ -113,6 +116,10 @@ struct Attempt {
         attempt.error = domain::DnsErrorInfo{error.get_error(), error.what()};
         co_return attempt;
     } catch (const std::exception& error) {
+        // A defect reaching here escaped the resolver and the parser without
+        // being classified: the error value below hides it from the caller, so
+        // the boundary records it before translating.
+        SPDLOG_WARN(R"(Unexpected exception from resolver #{} for "{}": {})", attempt.id, host, error.what());
         attempt.error = domain::DnsErrorInfo{domain::DnsError::UNKNOWN,
                                              fmt::format(R"(DNS lookup for "{}" failed: {})", host, error.what())};
         co_return attempt;
@@ -145,6 +152,7 @@ public:
             return;
         }
         transient_ = error;
+        has_transient_ = true;
     }
 
     [[nodiscard]] bool has_definitive() const noexcept { return has_definitive_; }
@@ -158,19 +166,22 @@ public:
         if (has_definitive_) {
             return definitive_;
         }
-        if (transient_.code != domain::DnsError::UNKNOWN || !transient_.message.empty()) {
+        if (has_transient_) {
             return transient_;
         }
-        return domain::DnsErrorInfo{domain::DnsError::NODATA,
-                                    fmt::format(R"(DNS lookup for "{}" returned no records)", host)};
+        // Defensive: no backend reported a failure at all. Naming no records
+        // would be a diagnosis no resolver made, so say what is known instead.
+        return domain::DnsErrorInfo{domain::DnsError::UNKNOWN,
+                                    fmt::format(R"(No resolver reported a diagnosis for "{}")", host)};
     }
 
 private:
     domain::DnsErrorInfo definitive_;
     domain::DnsErrorInfo nxdomain_;
-    domain::DnsErrorInfo transient_{domain::DnsError::NODATA, {}};
+    domain::DnsErrorInfo transient_;
     bool has_definitive_ = false;
     bool has_nxdomain_ = false;
+    bool has_transient_ = false;
 };
 
 /// Race every backend with at most MAX_CONCURRENT_RESOLVERS queries in flight.
@@ -202,7 +213,11 @@ private:
             // Completion order decides, not launch order.
             while (auto outcome = co_await group.next<Attempt>()) {
                 if (!outcome->has_value()) {
-                    break;  // a child threw: the group rethrows after joining
+                    // Defensive: a child defect cancels the group scope as the
+                    // child finishes, so the next next() call raises Cancelled
+                    // at its checkpoint and the defect itself is rethrown by
+                    // run_group after the join.
+                    break;
                 }
                 const Attempt& attempt = outcome->value();
                 if (attempt.ok) {
@@ -252,11 +267,14 @@ private:
         const auto id = attempt.id;
         if (attempt.ok) {
             if (attempt.records.size() > 1) {
-                SPDLOG_WARN(R"(Resolver #{} Domain "{}" resolved to more than one address (count: {}))", id, host,
-                            attempt.records.size());
+                SPDLOG_DEBUG(R"(Resolver #{} Domain "{}" resolved to more than one address (count: {}))", id, host,
+                             attempt.records.size());
             }
-            SPDLOG_TRACE(R"(Fallback resolver #{} returned {} record(s) for "{}": {})", id, attempt.records.size(),
-                         host, fmt::join(attempt.records, ", "));
+            // fmt::join copies the records into a temporary — build it only for a written record.
+            if (logging::level_enabled(spdlog::level::trace)) {
+                SPDLOG_TRACE(R"(Fallback resolver #{} returned {} record(s) for "{}": {})", id, attempt.records.size(),
+                             host, fmt::join(attempt.records, ", "));
+            }
             co_return std::move(attempt.records);
         }
 
@@ -269,8 +287,14 @@ private:
         SPDLOG_TRACE(R"(Fallback resolver #{} returned a retryable error, moving to next)", id);
     }
     if (order.size() > 1) {
-        SPDLOG_WARN(R"(All {} fallback resolver(s) failed for "{}": {})", order.size(), host,
-                    domain::error_to_str(last.code));
+        if (last.code == domain::DnsError::NODATA) {
+            // NOERROR without answers is the state of every name before its
+            // first DDNS update, so it is an answer rather than a failure.
+            SPDLOG_TRACE(R"(All {} fallback resolver(s) returned no records for "{}")", order.size(), host);
+        } else {
+            SPDLOG_WARN(R"(All {} fallback resolver(s) failed for "{}": {})", order.size(), host,
+                        domain::error_to_str(last.code));
+        }
     }
     co_return std::unexpected(std::move(last));
 }
@@ -308,10 +332,15 @@ coro::Task<std::expected<std::vector<std::string>, domain::DnsErrorInfo>> Dispat
         auto result = co_await run_concurrent_race(all, host, kind);
         // Definitive diagnoses end the search inside the race; only a walk
         // that exhausted every backend on transient failures is reported here.
-        if (!result.has_value() && !detail::is_definitive(result.error().code) &&
-            result.error().code != domain::DnsError::NX_DOMAIN) {
-            SPDLOG_WARN(R"(All {} resolver(s) failed for "{}": {})", all.size(), host,
-                        domain::error_to_str(result.error().code));
+        if (!result.has_value()) {
+            const auto code = result.error().code;
+            if (code == domain::DnsError::NODATA) {
+                // NOERROR without answers is the state of every name before
+                // its first DDNS update, so it is an answer rather than a failure.
+                SPDLOG_TRACE(R"(All {} resolver(s) returned no records for "{}")", all.size(), host);
+            } else if (!detail::is_definitive(code) && code != domain::DnsError::NX_DOMAIN) {
+                SPDLOG_WARN(R"(All {} resolver(s) failed for "{}": {})", all.size(), host, domain::error_to_str(code));
+            }
         }
         co_return result;
     }
@@ -333,8 +362,8 @@ coro::Task<std::expected<std::vector<std::string>, domain::DnsErrorInfo>> Dispat
         auto attempt = co_await attempt_one(*resolvers_.front(), host, kind);
         if (attempt.ok) {
             if (attempt.records.size() > 1) {
-                SPDLOG_WARN(R"(Domain "{}" resolved to more than one address (count: {}))", host,
-                            attempt.records.size());
+                SPDLOG_DEBUG(R"(Domain "{}" resolved to more than one address (count: {}))", host,
+                             attempt.records.size());
             }
             co_return std::move(attempt.records);
         }

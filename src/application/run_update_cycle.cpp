@@ -118,7 +118,7 @@ coro::Task<UpdateCycleOutcome> run_update_cycle(const domain::UpdateTask& task, 
             }
         }
 
-        // --- Step 3: decision (only the FIRST record is compared) -------------
+        // --- Step 3: decision (any record matching the local address means unchanged) ---
 
         const auto local_addr = local_ip->to_string();
         const auto decision = domain::decide_update(records, local_addr, task.force_update);
@@ -130,12 +130,12 @@ coro::Task<UpdateCycleOutcome> run_update_cycle(const domain::UpdateTask& task, 
                     domain::UpdateError{domain::UpdateError::Code::SKIPPED_NO_ADDRESS, "No valid IP address found"});
             case domain::UpdateDecision::SKIP_UNCHANGED:
                 YLOG_DEBUG(services.logger, "Domain \"{}\" ({}) unchanged ({}), skipping update", task.fqdn, rd_type,
-                           records.front());
+                           local_addr);
                 co_return UpdateCycleResult{decision};
             case domain::UpdateDecision::UPDATE_CHANGED:
                 if (!records.empty()) {
                     YLOG_DEBUG(services.logger, "Domain \"{}\" ({}) will be updated to {} (was {})", task.fqdn, rd_type,
-                               local_addr, records.front());
+                               local_addr, fmt::join(records, ", "));
                 }
                 break;
             case domain::UpdateDecision::UPDATE_FORCED:

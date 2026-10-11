@@ -300,6 +300,50 @@ TEST(NetCoroDns, classic_resolvesOverUdpAndOverTcpOnTruncation) {
     EXPECT_TRUE(truncated);  // TC set on UDP, answered over TCP
 }
 
+TEST(NetCoroDns, classic_acceptsTcpAnswersBeyondTheLegacyCap) {
+    // tcplarge.yaddnsc.test: UDP gets TC=1, then TCP answers with a valid
+    // 5000-byte message — beyond the legacy 4096 classic cap but within the
+    // 65535 the two-byte prefix allows (RFC 1035 §4.2.2).
+    PythonServer server;
+    if (!server.start("dns_server.py", {std::to_string(CLASSIC_PORT)})) {
+        GTEST_SKIP() << "dns_server.py could not be started";
+    }
+    if (!server.wait_for_tcp(CLASSIC_PORT)) {
+        GTEST_SKIP() << "dns_server.py did not start";
+    }
+
+    dns::ClassicResolver resolver{loopback_v4(), CLASSIC_PORT};
+
+    const auto result = run_task([&]() -> coro::Task<std::expected<std::vector<std::uint8_t>, domain::DnsErrorInfo>> {
+        co_return co_await resolver.query("tcplarge.yaddnsc.test", domain::RecordKind::A);
+    }());
+
+    ASSERT_TRUE(result.has_value());
+    EXPECT_EQ(result->size(), 5000U);
+}
+
+TEST(NetCoroDns, classic_oversizedUdpDatagramWithoutTc_FallsBackToTcp) {
+    // udplarge.yaddnsc.test: UDP answers 5000 bytes WITHOUT the TC bit, so the
+    // kernel truncates the datagram — only a client that detects that
+    // (MSG_TRUNC) falls back to TCP instead of failing to parse.
+    PythonServer server;
+    if (!server.start("dns_server.py", {std::to_string(CLASSIC_PORT)})) {
+        GTEST_SKIP() << "dns_server.py could not be started";
+    }
+    if (!server.wait_for_tcp(CLASSIC_PORT)) {
+        GTEST_SKIP() << "dns_server.py did not start";
+    }
+
+    dns::ClassicResolver resolver{loopback_v4(), CLASSIC_PORT};
+
+    const auto result = run_task([&]() -> coro::Task<std::expected<std::vector<std::uint8_t>, domain::DnsErrorInfo>> {
+        co_return co_await resolver.query("udplarge.yaddnsc.test", domain::RecordKind::A);
+    }());
+
+    ASSERT_TRUE(result.has_value());
+    EXPECT_FALSE(result->empty());
+}
+
 // ---------------------------------------------------------------------------
 // DoH and DoT against the shared Python servers
 // ---------------------------------------------------------------------------
@@ -331,6 +375,50 @@ TEST(NetCoroDns, doh_resolvesThroughThePersistentHttpSession) {
     const auto [ipv4_ok, ipv6_ok] = run_task(resolve());
     EXPECT_TRUE(ipv4_ok);  // A answered over HTTPS
     EXPECT_TRUE(ipv6_ok);  // AAAA answered on the reused TLS session
+}
+
+TEST(NetCoroDns, doh_enforcesResponseSemantics) {
+    std::string directory;
+    const auto cert = make_self_signed_cert(directory);
+    if (!cert.has_value()) {
+        GTEST_SKIP() << "failed to generate a throwaway certificate";
+    }
+    PythonServer server;
+    if (!server.start("doh_server.py", {std::to_string(DOH_PORT), *cert, directory + "/key.pem"})) {
+        GTEST_SKIP() << "doh_server.py could not be started";
+    }
+    if (!server.wait_for_tcp(DOH_PORT)) {
+        GTEST_SKIP() << "doh_server.py did not start";
+    }
+
+    http::Options options;
+    options.tls_context = client_context({.verify_peer = false});
+    dns::DohResolver resolver{fmt::format("https://127.0.0.1:{}/dns-query", DOH_PORT), options};
+
+    using QueryResult = std::expected<std::vector<std::uint8_t>, domain::DnsErrorInfo>;
+    auto resolve = [&]() -> coro::Task<std::array<QueryResult, 4>> {
+        std::array<QueryResult, 4> results;
+        results[0] = co_await resolver.query("doh-redirect.yaddnsc.test", domain::RecordKind::A);
+        results[1] = co_await resolver.query("doh-201.yaddnsc.test", domain::RecordKind::A);
+        results[2] = co_await resolver.query("doh-tc.yaddnsc.test", domain::RecordKind::A);
+        results[3] = co_await resolver.query("doh-malformed.yaddnsc.test", domain::RecordKind::A);
+        co_return results;
+    };
+
+    const auto results = run_task(resolve());
+
+    // RFC 8484 §3: the redirect back to this same endpoint is never followed.
+    ASSERT_FALSE(results[0].has_value());
+    EXPECT_EQ(results[0].error().code, domain::DnsError::SERVER_REFUSED);
+    // RFC 8484 §4.2.1: any 2xx status carries a usable answer, not only 200.
+    EXPECT_TRUE(results[1].has_value());
+    // A TC answer has no TCP fallback in DoH: transient, so the dispatcher can
+    // fail over to another backend instead of parsing partial data.
+    ASSERT_FALSE(results[2].has_value());
+    EXPECT_EQ(results[2].error().code, domain::DnsError::RETRY);
+    // A non-DNS Content-Type is a definitive endpoint defect (RFC 8484 §5.4).
+    ASSERT_FALSE(results[3].has_value());
+    EXPECT_EQ(results[3].error().code, domain::DnsError::PARSE);
 }
 
 TEST(NetCoroDns, dot_resolvesOverTlsWithPadding) {

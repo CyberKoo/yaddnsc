@@ -6,7 +6,6 @@
 
 #include <spdlog/spdlog.h>
 #include <coroutine>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
-#include <algorithm>
 #include <array>
 #include <chrono>
 #include <cstddef>
@@ -21,13 +20,13 @@
 #include "coro/scope.hpp"
 #include "infrastructure/dns/bootstrap/bootstrap.h"
 #include "infrastructure/dns/dns_lookup_exception.h"
+#include "infrastructure/dns/dns_packet_exception.h"
 #include "infrastructure/dns/util.hpp"
 #include "infrastructure/dns/validator.h"
 #include "infrastructure/dns/wire/builder.h"
 #include "infrastructure/dns/wire/framing.h"
 #include "infrastructure/network/factory/default_stream_factory.h"
 #include "support/fmt.hpp"
-#include "support/util/random.hpp"
 #include "domain/error/dns_error.h"
 #include "domain/network/inet_address.h"
 #include "coro/cancelled.h"
@@ -42,7 +41,9 @@ enum class IoError;
 namespace dns {
 namespace {
 
-/// ALPN identifier for DNS over TLS (RFC 7858 §3.4).
+/// ALPN protocol identifier "dot". The IANA ALPN Protocol IDs registry
+/// registers it under RFC 7858, whose text never discusses ALPN, so there is
+/// no section of it to point at.
 constexpr unsigned char ALPN_DOT[] = {3, 'd', 'o', 't'};
 
 /// Budget for one connection-establishment phase — the name resolution, or one
@@ -52,12 +53,16 @@ constexpr unsigned char ALPN_DOT[] = {3, 'd', 'o', 't'};
 /// address gets its own budget, so a slow phase never eats the next one's.
 constexpr auto CONNECT_BUDGET = std::chrono::seconds(1);
 
-/// Post-connect budget for one send/read operation, restored from the legacy
-/// per-operation transport defaults. An expiry is a broken session, mapped to
-/// CONNECTION (the legacy "Failed to read from ..." path), not to RETRY.
-constexpr auto IO_BUDGET = std::chrono::seconds(5);
+/// Post-connect budget for one send/read operation. An expiry is a broken
+/// session, mapped to CONNECTION (the legacy "Failed to read from ..." path),
+/// not to RETRY. 1s keeps one operation well under the caller's DNS read
+/// budget (DNS_READ_BUDGET, 4s) — but only per phase: an endpoint with several
+/// addresses spends one connect budget per address plus the resolve and I/O
+/// budgets, so their sum can exceed that 4s and the caller's scope
+/// cancellation becomes the effective bound.
+constexpr auto IO_BUDGET = std::chrono::seconds(1);
 
-/// RFC 7830 padding block size for a DoT query.
+/// RFC 8467 §4.1 query block length for a DoT query.
 constexpr std::size_t PAD_BLOCK = 128;
 
 /// EDNS0 padding-option overhead excluding the padding bytes themselves:
@@ -65,15 +70,17 @@ constexpr std::size_t PAD_BLOCK = 128;
 /// option length(2).
 constexpr std::size_t EDNS_PAD_OVERHEAD = 15;
 
-/// Build a query padded to the next 128-octet block (RFC 7830 §3).
+/// Build a query padded to the next 128-octet block (RFC 7830 option, RFC 8467
+/// §4.1 block length; the TCP length prefix is excluded from the block per
+/// RFC 8467 §3).
 [[nodiscard]] std::vector<std::uint8_t> build_padded_query(const std::string& host, const dns::RecordType type) {
     const auto base = dns::QueryBuilder{}.add_question(host, type).build();
 
     const std::size_t raw_size = base.size() + EDNS_PAD_OVERHEAD;
     const std::size_t pad_length = raw_size % PAD_BLOCK == 0 ? PAD_BLOCK : PAD_BLOCK - raw_size % PAD_BLOCK;
 
+    // RFC 7830 §3: the padding octets SHOULD be set to 0x00.
     std::vector<std::uint8_t> padding(pad_length);
-    std::ranges::generate(padding, [] { return static_cast<std::uint8_t>(Utils::Random::engine()()); });
     const dns::EdnsOption padding_option{12, padding};  // option 12 = padding
 
     return dns::QueryBuilder{}.add_question(host, type).add_edns(512, 0, false, std::span(&padding_option, 1)).build();
@@ -92,6 +99,20 @@ constexpr std::size_t EDNS_PAD_OVERHEAD = 15;
         co_return std::unexpected(domain::DnsErrorInfo{domain::DnsError::CONNECTION, "DoT connection failed"});
     }
     co_return {};
+}
+
+/// Endpoint bootstrap failures answer about the endpoint name, not about the
+/// queried domain: NXDOMAIN or NODATA for the DoT host only means this host is
+/// unknown here, never an authoritative verdict on the caller's host. Reported
+/// as-is they would end the dispatcher's search instead of failing over, so
+/// they are rewritten to the retryable CONNECTION, like a DoH endpoint whose
+/// own resolution fails (map_http_error).
+[[nodiscard]] domain::DnsErrorInfo map_resolve_error(const std::string& host, domain::DnsErrorInfo error) {
+    if (error.code == domain::DnsError::NX_DOMAIN || error.code == domain::DnsError::NODATA) {
+        return domain::DnsErrorInfo{domain::DnsError::CONNECTION,
+                                    fmt::format(R"(DoT endpoint "{}" resolution failed: {})", host, error.message)};
+    }
+    return error;
 }
 
 }  // namespace
@@ -130,10 +151,11 @@ coro::Task<std::expected<std::vector<std::uint8_t>, domain::DnsErrorInfo>> DotRe
                 domain::DnsErrorInfo{domain::DnsError::PARSE, "DoT query exceeds the framing limit"});
         }
 
-        const std::string label = fmt::format("{}:{}", host_, port_);
         for (int attempt = 0; attempt < 2; ++attempt) {
             if (attempt == 1) {
-                SPDLOG_DEBUG(R"(Connection to "{}" failed, reconnecting)", label);
+                // No prebuilt label: the arguments are formatted by spdlog only
+                // when DEBUG is enabled, and only this branch records them.
+                SPDLOG_DEBUG(R"(Connection to {}:{} failed, reconnecting)", host_, port_);
                 close();  // rebuild once on a transient failure
             }
             if (auto ready = co_await ensure_stream(); !ready) {
@@ -185,17 +207,16 @@ coro::Task<std::expected<std::vector<std::uint8_t>, domain::DnsErrorInfo>> DotRe
                 }
                 co_return std::unexpected(domain::DnsErrorInfo{domain::DnsError::CONNECTION, "DoT receive failed"});
             }
-            // The two-byte prefix bounds the response to 65535 octets, so only
-            // a zero length is invalid — DoT answers may exceed the classic
-            // UDP/TCP cap (read_length's MAX_MESSAGE_SIZE).
-            const auto length = dns::announced_length(prefix);
-            if (length == 0) {
+            // The two-byte prefix bounds the response to 65535 octets
+            // (RFC 1035 §4.2.2), so only a zero length is invalid.
+            const auto length = dns::read_length(prefix);
+            if (!length) {
                 close();
                 co_return std::unexpected(
                     domain::DnsErrorInfo{domain::DnsError::PARSE, "DoT server announced a zero-length response"});
             }
 
-            std::vector<std::uint8_t> response(length);
+            std::vector<std::uint8_t> response(*length);
             auto got_body = co_await coro::with_timeout(
                 IO_BUDGET, [this, &response]() -> coro::Task<std::expected<void, net::IoError>> {
                     co_return co_await stream_->read_exact(response);
@@ -230,7 +251,15 @@ coro::Task<std::expected<std::vector<std::uint8_t>, domain::DnsErrorInfo>> DotRe
         throw;  // allocation failures are never downgraded to a retryable error
     } catch (const DnsLookupException& error) {
         co_return std::unexpected(domain::DnsErrorInfo{error.get_error(), error.what()});
+    } catch (const DnsPacketException& error) {
+        // Packet construction failure is a definitive input defect (e.g. an
+        // over-long name), never a transient transport error (see ClassicResolver).
+        co_return std::unexpected(domain::DnsErrorInfo{
+            domain::DnsError::PARSE, fmt::format(R"(Failed to build a DNS query for "{}": {})", host, error.what())});
     } catch (const std::exception& error) {
+        // Nothing in this path is expected to throw, so log the exception that
+        // was not handled by a catch above before it is downgraded.
+        SPDLOG_WARN(R"(Resolver #{} DoT query for "{}" raised an unexpected exception: {})", id(), host, error.what());
         // See ClassicResolver: unexpected exceptions stay retryable as UNKNOWN.
         co_return std::unexpected(domain::DnsErrorInfo{
             domain::DnsError::UNKNOWN, fmt::format(R"(DoT query for "{}" failed: {})", host, error.what())});
@@ -259,7 +288,7 @@ coro::Task<std::expected<void, domain::DnsErrorInfo>> DotResolver::ensure_stream
         co_return std::unexpected(domain::DnsErrorInfo{domain::DnsError::RETRY, "DoT name resolution timed out"});
     }
     if (!*resolved) {
-        co_return std::unexpected(std::move(resolved->error()));
+        co_return std::unexpected(map_resolve_error(host_, std::move(resolved->error())));
     }
 
     net::DefaultStreamFactory fallback;

@@ -1,6 +1,9 @@
 #ifndef YADDNSC_INFRASTRUCTURE_DNS_DNS_LOOKUP_EXCEPTION_H
 #define YADDNSC_INFRASTRUCTURE_DNS_DNS_LOOKUP_EXCEPTION_H
 
+#include <string>
+#include <utility>
+
 #include "domain/error/dns_error.h"
 #include "support/exception.h"
 
@@ -20,7 +23,7 @@ public:
     DnsLookupException(const char* msg, domain::DnsError err) : YaddnscException(msg), error_(err) {}
 
     /// Construct by wrapping another exception with a DNS error code.
-    DnsLookupException(YaddnscException&& exc, domain::DnsError err) : YaddnscException(exc), error_(err) {}
+    DnsLookupException(YaddnscException&& exc, domain::DnsError err) : YaddnscException(std::move(exc)), error_(err) {}
 
     /// @overload
     DnsLookupException(const YaddnscException& exc, domain::DnsError err) : YaddnscException(exc), error_(err) {}

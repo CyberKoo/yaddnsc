@@ -378,6 +378,35 @@ TEST(HttpRedirect, moved_permanently_RewritesToGetAndKeepsTheOrigin) {
     EXPECT_FALSE(evaluation.plan->next.body.has_value());
 }
 
+TEST(HttpRedirect, Resolve_RelativeReferences_UsesUriResolution) {
+    const auto current = get_request("/a//b?q=old");
+    const auto uri = Uri::parse("https://example.test/a//b?q=old").value();
+    const http::Options options;
+    const std::pair<std::string_view, std::string_view> cases[] = {
+        {"next", "/a//next"},
+        {"../next", "/a/next"},
+        {"/x/.", "/x/"},
+        {"/x/..", "/"},
+        {"?", "/a//b?"},
+        {"#frag", "/a//b?q=old"},
+        {"  /new?x=1#frag  ", "/new?x=1"},
+        {"//example.test/new", "/new"},
+        {"https://example.test/x/../y", "/y"},
+    };
+    for (const auto& [location, target] : cases) {
+        SCOPED_TRACE(location);
+        const auto evaluation =
+            http::evaluate_redirect(302, {{"Location", std::string(location)}}, 0, options, current, uri);
+        ASSERT_TRUE(evaluation.plan.has_value());
+        EXPECT_EQ(evaluation.plan->next.target, target);
+        EXPECT_FALSE(evaluation.plan->cross_origin);
+    }
+    for (const auto location : {"a b", "//bad:65536", "mailto:user", "ftp://example.test/new"}) {
+        SCOPED_TRACE(location);
+        EXPECT_FALSE(http::evaluate_redirect(302, {{"Location", location}}, 0, options, current, uri).plan.has_value());
+    }
+}
+
 TEST(HttpRedirect, temporary_redirect_307_PreservesMethodAndBody) {
     auto current = get_request("/old");
     current.method = http::Method::POST;

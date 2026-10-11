@@ -67,30 +67,25 @@ std::optional<Inet6Address> Inet6Address::parse(std::string_view addr) {
 
     auto s = std::string(addr);
 
-    // Extract scope ID if present ("fe80::1%eth0").
+    // Extract the scope ID if present ("fe80::1%2"). Only a numeric id is
+    // accepted: a name such as "%eth0" cannot be resolved here, and dropping it
+    // would leave a link-local address with no zone, which times out on every
+    // dial without a word of logging.
     std::uint32_t scope_id = 0;
     if (s.contains('%')) {
-        auto pct = s.find('%');
-        auto scope_str = s.substr(pct + 1);
+        const auto pct = s.find('%');
+        const auto scope_str = s.substr(pct + 1);
         s.resize(pct);
 
-        // A bare trailing '%' with no scope is malformed — reject it instead
-        // of silently parsing the address without a zone.
-        if (scope_str.empty()) {
-            return std::nullopt;
-        }
-
-        // Parse directly into the 32-bit scope id: std::from_chars reports
-        // std::errc::result_out_of_range when the text does not fit, so an
-        // oversized scope id is rejected instead of silently truncated.
+        // std::from_chars reports std::errc::invalid_argument for text that is
+        // not a number and std::errc::result_out_of_range for a value that does
+        // not fit; neither may leave the zone silently empty.
         std::uint32_t val = 0;
-        auto [ptr, ec] = std::from_chars(scope_str.data(), scope_str.data() + scope_str.size(), val);
-        if (ec == std::errc::result_out_of_range) {
+        const auto [ptr, ec] = std::from_chars(scope_str.data(), scope_str.data() + scope_str.size(), val);
+        if (ec != std::errc{} || ptr != scope_str.data() + scope_str.size()) {
             return std::nullopt;
         }
-        if (ec == std::errc{} && ptr == scope_str.data() + scope_str.size()) {
-            scope_id = val;
-        }
+        scope_id = val;
     }
 
     in6_addr in{};

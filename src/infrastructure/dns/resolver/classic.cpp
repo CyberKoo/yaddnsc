@@ -14,9 +14,11 @@
 
 #include "infrastructure/dns/exchange.h"
 #include "infrastructure/dns/dns_lookup_exception.h"
+#include "infrastructure/dns/dns_packet_exception.h"
 #include "infrastructure/dns/util.hpp"
 #include "infrastructure/dns/validator.h"
 #include "infrastructure/dns/wire/query_util.h"
+#include "infrastructure/logging/level_enabled.h"
 #include "support/fmt.hpp"
 #include "domain/error/dns_error.h"
 #include "domain/error/dns_error_info.h"
@@ -31,20 +33,31 @@ coro::Task<std::expected<std::vector<std::uint8_t>, domain::DnsErrorInfo>> Class
         SPDLOG_TRACE(R"(Resolver #{} DNS lookup for "{}")", id(), host);
 
         const auto record_type = dns::Util::type_to_record_type(kind);
-        SPDLOG_TRACE(R"(Resolver #{} Resolving "{}" (type {}) via {}:{})", id(), host,
-                     static_cast<std::uint16_t>(record_type), server_.to_string(), port_);
+        // to_string() allocates — build the endpoint only for a written record.
+        if (logging::level_enabled(spdlog::level::trace)) {
+            SPDLOG_TRACE(R"(Resolver #{} Resolving "{}" (type {}) via {}:{})", id(), host,
+                         static_cast<std::uint16_t>(record_type), server_.to_string(), port_);
+        }
 
         const auto query_bytes = dns::build_query(host, record_type);
 
-        auto response = co_await detail::query_udp(server_, port_, query_bytes);
-        if (!response) {
-            co_return std::unexpected(std::move(response.error()));
+        auto udp = co_await detail::query_udp(server_, port_, query_bytes);
+        if (!udp) {
+            co_return std::unexpected(std::move(udp.error()));
         }
-        if (auto valid = dns::Validator::validate_response(query_bytes, *response); !valid) {
-            co_return std::unexpected(std::move(valid.error()));
+
+        // Kernel-level truncation (the datagram exceeded the receive buffer)
+        // needs the same TCP retry as a TC-bit answer, but the partial bytes
+        // must never be validated or parsed.
+        bool truncated = udp->truncated;
+        if (!truncated) {
+            if (auto valid = dns::Validator::validate_response(query_bytes, udp->bytes); !valid) {
+                co_return std::unexpected(std::move(valid.error()));
+            }
+            truncated = detail::is_truncated(udp->bytes);
         }
-        if (!detail::is_truncated(*response)) {
-            co_return std::move(*response);
+        if (!truncated) {
+            co_return std::move(udp->bytes);
         }
 
         // A truncated UDP answer is retried over TCP against the same server.
@@ -56,15 +69,36 @@ coro::Task<std::expected<std::vector<std::uint8_t>, domain::DnsErrorInfo>> Class
         if (auto valid = dns::Validator::validate_response(query_bytes, *over_tcp); !valid) {
             co_return std::unexpected(std::move(valid.error()));
         }
+        if (detail::is_truncated(*over_tcp)) {
+            // TC on a TCP answer is a broken server, not a transport condition:
+            // the retry already ran, so the answer cannot be completed. RFC 7766
+            // §8 only governs the TCP length prefix, so treating this as RETRY is
+            // this implementation's policy — the dispatcher moves to the next
+            // backend instead of parsing an incomplete message.
+            SPDLOG_WARN(R"(Resolver #{} TCP response for "{}" still has TC set; treating it as a broken server)", id(),
+                        host);
+            co_return std::unexpected(
+                domain::DnsErrorInfo{domain::DnsError::RETRY,
+                                     fmt::format(R"(DNS server {}:{} returned a truncated TCP response for "{}")",
+                                                 server_.to_string(), port_, host)});
+        }
         co_return std::move(*over_tcp);
     } catch (const std::bad_alloc&) {
         throw;  // allocation failures are never downgraded to a retryable error
     } catch (const DnsLookupException& error) {
         co_return std::unexpected(domain::DnsErrorInfo{error.get_error(), error.what()});
+    } catch (const DnsPacketException& error) {
+        // Packet construction failure is a definitive input defect (e.g. an
+        // over-long name), never a transient transport error — the dispatcher
+        // must not burn a retry on it (same classification as bootstrap).
+        co_return std::unexpected(domain::DnsErrorInfo{
+            domain::DnsError::PARSE, fmt::format(R"(Failed to build a DNS query for "{}": {})", host, error.what())});
     } catch (const std::exception& error) {
         // An unexpected exception is a transient defect of this attempt, not a
         // deterministic parse failure: UNKNOWN keeps the dispatcher falling
-        // over to the next backend instead of abandoning the search.
+        // over to the next backend instead of abandoning the search. Warn so
+        // the defect is visible — nothing below this catch reports it.
+        SPDLOG_WARN(R"(Resolver #{} unexpected exception while querying "{}": {})", id(), host, error.what());
         co_return std::unexpected(domain::DnsErrorInfo{
             domain::DnsError::UNKNOWN, fmt::format(R"(Classic DNS query for "{}" failed: {})", host, error.what())});
     }

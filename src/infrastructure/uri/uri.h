@@ -10,8 +10,10 @@
 
 #include <expected>
 
-/// Error conditions reported by Uri::parse for malformed input.
+/// Error conditions reported by Uri parsing and reference resolution.
 enum class UriError {
+    INVALID_BASE_URI,       ///< resolution requires a scheme and non-empty authority
+    UNSUPPORTED_REFERENCE,  ///< resolution only supports scheme://authority hierarchical URIs
     INVALID_CHARACTER,      ///< space, control character, or DEL in the input
     INVALID_SCHEME,         ///< scheme violates RFC 3986 §3.1 (ALPHA, then ALPHA/DIGIT/'+'/'-'/'.')
     EMPTY_HOST,             ///< authority present but host empty (scheme given, or ":port" form)
@@ -37,7 +39,8 @@ enum class UriError {
 /// IPv6 literals, and non-numeric or out-of-range ports.  By design it stays
 /// lenient about: empty input (yields an all-empty Uri), a trailing colon
 /// with an empty port, bare (unbracketed) IPv6 hosts, and UTF-8 bytes ≥ 0x80.
-/// userinfo and network-path references ("//host") are not supported.
+/// parse() does not support userinfo or network-path references ("//host").
+/// resolve() supports network-path references relative to an absolute base.
 ///
 /// Memory model: only raw_uri_ owns a string buffer; all other string-like
 /// fields are Slice offsets into it.  getters return string_views pointing
@@ -54,6 +57,20 @@ public:
     ///             caller-recoverable condition, so it is reported as a value,
     ///             never thrown.
     [[nodiscard]] static std::expected<Uri, UriError> parse(std::string_view uri);
+
+    /// Resolve a reference against this absolute, authority-based URI using RFC 3986 §5.2.
+    /// Supports absolute scheme://host URIs, //host references, absolute/relative paths,
+    /// query-only, fragment-only and empty references. Removes dot segments without
+    /// decoding percent escapes or collapsing repeated slashes. Fragments are discarded.
+    /// Empty references inherit the base path/query; an explicit empty query replaces it.
+    /// The result owns its storage. Input is not trimmed and follows parse() validation.
+    /// Returns INVALID_BASE_URI for a base without scheme/host, UNSUPPORTED_REFERENCE
+    /// for non-authority scheme forms, or the corresponding parse error otherwise.
+    /// This method may run concurrently with other reads that do not mutate lazy caches.
+    [[nodiscard]] std::expected<Uri, UriError> resolve(std::string_view reference) const;
+
+    /// Whether a query delimiter is present, including an explicitly empty query.
+    [[nodiscard]] bool has_query() const noexcept;
 
     /// Return the scheme component.
     /// e.g. for "https://example.com/path" -> "https"

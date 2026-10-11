@@ -224,6 +224,8 @@ target_link_libraries(test_net_coro_unit PRIVATE yaddnsc_net OpenSSL::SSL OpenSS
 # URI parsing — the codec lives in yaddnsc_uri (src/infrastructure/uri/uri.cpp)
 add_unit_test(uri_parse SOURCE infrastructure/uri/uri_parse_test.cpp)
 target_link_libraries(test_uri_parse PRIVATE yaddnsc_uri)
+add_unit_test(uri_resolve SOURCE infrastructure/uri/uri_resolve_test.cpp)
+target_link_libraries(test_uri_resolve PRIVATE yaddnsc_uri)
 add_unit_test(uri_query SOURCE infrastructure/uri/uri_query_test.cpp)
 target_link_libraries(test_uri_query PRIVATE yaddnsc_uri)
 add_unit_test(uri_encode SOURCE infrastructure/uri/uri_encode_test.cpp)

@@ -44,8 +44,13 @@ enum class Strategy {
 /// retried with a cancellable backoff; in multi-backend mode the redundancy of
 /// several backends replaces retries.
 /// Cancellation: `coro::Cancelled` as a value; every await is a checkpoint.
-/// Thread safety: not thread-safe as an object; concurrent queries on one
-/// dispatcher are not supported (each backend owns its own session state).
+/// Thread safety: resolve() runs concurrently, once per subdomain loop, and
+/// one dispatcher serves all of them. Safety comes from the backends, each of
+/// which serializes its own session — DoT behind an AsyncMutex around the
+/// whole session, DoH behind the PersistentClient's mutex, Classic with a
+/// socket per query — while the dispatcher itself changes nothing after
+/// construction. A DoT query queued behind an in-flight session waits for it,
+/// and that wait is spent out of the caller's DNS read budget.
 class Dispatcher {
 public:
     explicit Dispatcher(std::vector<std::unique_ptr<Resolver>> resolvers, Strategy strategy = Strategy::CONCURRENT);

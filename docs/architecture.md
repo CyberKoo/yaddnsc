@@ -335,6 +335,11 @@ public headers.
   without a resolver, hostnames fail fast and IP literals still work.
 - `src/infrastructure/uri/`: the lightweight URI codec shared by config,
   HTTP, DNS and CLI code; it depends on domain address parsing, not transport.
+  `Uri::resolve()` owns authority-based reference resolution and dot-segment
+  removal (RFC 3986 §5.2); `parse()` retains its lenient bare-host semantics.
+  Resolution preserves repeated slashes, percent escapes and explicit empty
+  queries, discards fragments, and requires a base with scheme and host.
+  HTTP owns redirect status, protocol/downgrade and credential policies.
 - `src/infrastructure/dns/`: the DNS wire layer plus the coroutine resolvers,
   the dispatcher, the factory and the resolver port adapter. `dns_classic` is
   the lower target. The factory maps the address URI scheme to a closed set of

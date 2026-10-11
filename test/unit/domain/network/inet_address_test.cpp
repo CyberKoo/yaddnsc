@@ -168,15 +168,6 @@ TEST(Inet6AddressTest, Parse_UniqueLocal) {
     EXPECT_FALSE(addr->is_link_local());
 }
 
-TEST(Inet6AddressTest, Parse_WithScopeId) {
-    // Scope ID may be parsed differently on different platforms.
-    auto addr = domain::Inet6Address::parse("fe80::1%eth0");
-    ASSERT_TRUE(addr.has_value());
-    // On Linux, non-numeric scope IDs are silently ignored.
-    // The address itself should still be valid.
-    EXPECT_TRUE(addr->is_link_local());
-}
-
 TEST(Inet6AddressTest, Parse_Empty_ReturnsNullopt) {
     auto addr = domain::Inet6Address::parse("");
     EXPECT_FALSE(addr.has_value());
@@ -209,11 +200,10 @@ TEST(Inet6AddressTest, Parse_WithEmptyScopeId) {
 }
 
 TEST(Inet6AddressTest, Parse_WithNonNumericScopeId) {
-    // Non-numeric scope ID (e.g. interface name) — from_chars fails, scope stays 0
+    // An interface name is not a scope id this type can hold. Dropping it would
+    // yield a zone-less link-local address that times out silently on every dial.
     auto addr = domain::Inet6Address::parse("fe80::1%eth0");
-    ASSERT_TRUE(addr.has_value());
-    EXPECT_TRUE(addr->is_link_local());
-    EXPECT_EQ(addr->get_scope_id(), 0U);
+    EXPECT_FALSE(addr.has_value());
 }
 
 TEST(Inet6AddressTest, Parse_ScopeIdOutOfRange_ReturnsNullopt) {

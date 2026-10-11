@@ -582,7 +582,8 @@ TEST(NetCoroDnsExchange, query_udp_Ipv6Server_RoundTrips) {
                 group.spawn(answer_one(server, reply, answered));
                 const auto result = co_await dns::detail::query_udp(loopback_v6(), *server_port, query);
                 if (result) {
-                    answer = *result;
+                    answer = result->bytes;
+                    EXPECT_FALSE(result->truncated);
                 }
                 co_return;
             });

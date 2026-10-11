@@ -19,6 +19,8 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <algorithm>
+#include <cstring>
 #include <memory>
 #include <optional>
 #include <span>
@@ -38,6 +40,7 @@
 #include "domain/network/address_family.h"
 #include "domain/network/inet_address.h"
 #include "infrastructure/dns/bootstrap/bootstrap.h"
+#include "infrastructure/dns/resolver/classic.h"
 #include "infrastructure/dns/resolver/doh.h"
 #include "infrastructure/dns/resolver/dot.h"
 #include "infrastructure/dns/resolver/resolver.h"
@@ -335,9 +338,207 @@ TEST(DohResolver, connectTimeoutFailsAsConnectionBeforeTheExchangeBudget) {
     // A black-holed endpoint is a connection failure, not a stalled exchange.
     EXPECT_EQ(result->error().code, domain::DnsError::CONNECTION);
     // The one retry spent its own connect budget too: 2 × connect_timeout, far
-    // below the 6s exchange budget that would otherwise have been waited out.
+    // below the 1s exchange budget that would otherwise have been waited out.
     EXPECT_EQ(factory->tls_calls, 2);
     EXPECT_EQ(clock.now() - start, 200ms);
+}
+
+// ---------------------------------------------------------------------------
+// DoT: a bootstrap verdict about the endpoint is not a verdict on the query
+// ---------------------------------------------------------------------------
+
+/// Injected endpoint resolution that always fails with `code`.
+[[nodiscard]] net::HostResolver failing_resolve(const domain::DnsError code, std::string message) {
+    return [code, message = std::move(message)](std::string, std::optional<domain::AddressFamily>)
+        -> coro::Task<ResolveResult> {
+        co_return std::unexpected(domain::DnsErrorInfo{code, message});
+    };
+}
+
+TEST(DotResolver, endpointNxdomainFallsBackAsConnection) {
+    // NXDOMAIN for the endpoint host says nothing about the queried name, so
+    // it must surface as a retryable connection failure instead of the
+    // dispatcher's stop-the-search NXDOMAIN.
+    dns::EndpointOptions options;
+    options.factory = std::make_shared<ThrowingFactory>();  // never reached: resolution fails first
+    options.resolve = failing_resolve(domain::DnsError::NX_DOMAIN, "injected NXDOMAIN");
+    dns::DotResolver resolver{"dot.test", 853, std::move(options)};
+
+    const auto result = coro::run(resolver.query("x.test", domain::RecordKind::A));
+
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error().code, domain::DnsError::CONNECTION);
+    EXPECT_TRUE(dns::detail::is_retryable(result.error().code));
+    EXPECT_NE(result.error().message.find(R"(DoT endpoint "dot.test" resolution failed: injected NXDOMAIN)"),
+              std::string::npos);
+}
+
+TEST(DotResolver, endpointNodataFallsBackAsConnection) {
+    dns::EndpointOptions options;
+    options.factory = std::make_shared<ThrowingFactory>();  // never reached: resolution fails first
+    options.resolve = failing_resolve(domain::DnsError::NODATA, "injected NODATA");
+    dns::DotResolver resolver{"dot.test", 853, std::move(options)};
+
+    const auto result = coro::run(resolver.query("x.test", domain::RecordKind::A));
+
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error().code, domain::DnsError::CONNECTION);
+    EXPECT_TRUE(dns::detail::is_retryable(result.error().code));
+}
+
+TEST(DotResolver, endpointConfigFailurePassesThroughUnchanged) {
+    dns::EndpointOptions options;
+    options.factory = std::make_shared<ThrowingFactory>();  // never reached: resolution fails first
+    options.resolve = failing_resolve(domain::DnsError::CONFIG, "no bootstrap DNS servers are configured");
+    dns::DotResolver resolver{"dot.test", 853, std::move(options)};
+
+    const auto result = coro::run(resolver.query("x.test", domain::RecordKind::A));
+
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error().code, domain::DnsError::CONFIG);
+    EXPECT_TRUE(dns::detail::is_definitive(result.error().code));
+    EXPECT_EQ(result.error().message, "no bootstrap DNS servers are configured");
+}
+
+// ---------------------------------------------------------------------------
+// DoH: the HTTP-to-DNS failure mapping direction
+// ---------------------------------------------------------------------------
+
+/// A stream that connects instantly and replays a scripted response once.
+class ScriptedStream final : public net::Stream {
+public:
+    explicit ScriptedStream(std::string script) : script_(std::move(script)) {}
+
+    [[nodiscard]] coro::Task<std::expected<void, net::IoError>> ensure_connected() override { co_return {}; }
+
+    [[nodiscard]] coro::Task<std::expected<std::size_t, net::IoError>> read_some(
+        std::span<std::uint8_t> buf) override {
+        const std::size_t count = std::min(buf.size(), script_.size() - cursor_);
+        std::memcpy(buf.data(), script_.data() + cursor_, count);
+        cursor_ += count;
+        co_return count;
+    }
+
+    [[nodiscard]] coro::Task<std::expected<void, net::IoError>> read_exact(std::span<std::uint8_t> buf) override {
+        std::size_t filled = 0;
+        while (filled < buf.size()) {
+            auto read = co_await read_some(buf.subspan(filled));
+            if (!read || *read == 0) {
+                co_return std::unexpected(net::IoError::CONNECTION_FAILED);
+            }
+            filled += *read;
+        }
+        co_return {};
+    }
+
+    [[nodiscard]] coro::Task<std::expected<void, net::IoError>> send_all(std::span<const std::uint8_t>) override {
+        co_return {};
+    }
+
+    void close() noexcept override {}
+
+    [[nodiscard]] bool connected() const noexcept override { return true; }
+
+private:
+    std::string script_;
+    std::size_t cursor_{0};
+};
+
+/// Hands out a fresh ScriptedStream per dial, replaying the same script, so
+/// the DoH retry reads it again.
+class ScriptFactory final : public net::StreamFactory {
+public:
+    explicit ScriptFactory(std::string script) : script_(std::move(script)) {}
+
+    [[nodiscard]] std::unique_ptr<net::Stream> create_tls(domain::InetAddress, std::uint16_t,
+                                                          const net::ConnectOptions&, const net::TlsOptions&,
+                                                          std::shared_ptr<const net::TlsContext>) override {
+        return std::make_unique<ScriptedStream>(script_);
+    }
+
+    [[nodiscard]] std::unique_ptr<net::Stream> create_tcp(domain::InetAddress, std::uint16_t,
+                                                          const net::ConnectOptions&) override {
+        return std::make_unique<ScriptedStream>(script_);
+    }
+
+private:
+    std::string script_;
+};
+
+TEST(DohResolver, oversizedResponseIsRetryableSoTheSearchFallsOver) {
+    // An oversized answer is a property of this one endpoint, not a verdict on
+    // the name: RETRY lets the dispatcher try the next backend (the old PARSE
+    // mapping ended the search outright).
+    http::Options options;
+    options.limits.max_header_bytes = 64;
+    options.factory = std::make_shared<ScriptFactory>(
+        "HTTP/1.1 200 OK\r\nContent-Type: application/dns-message\r\nContent-Length: 0\r\n\r\n");
+    dns::DohResolver resolver{DOH_URL, options};
+
+    const auto result = coro::run(resolver.query("x.test", domain::RecordKind::A));
+
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error().code, domain::DnsError::RETRY);
+    EXPECT_TRUE(dns::detail::is_retryable(result.error().code));
+}
+
+TEST(DohResolver, protocolUpgradeAnswerIsADefinitiveConfigFailure) {
+    http::Options options;
+    options.factory = std::make_shared<ScriptFactory>(
+        "HTTP/1.1 101 Switching Protocols\r\nConnection: upgrade\r\nUpgrade: h2c\r\nContent-Length: 0\r\n\r\n");
+    dns::DohResolver resolver{DOH_URL, options};
+
+    const auto result = coro::run(resolver.query("x.test", domain::RecordKind::A));
+
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error().code, domain::DnsError::CONFIG);
+    EXPECT_TRUE(dns::detail::is_definitive(result.error().code));
+}
+
+// ---------------------------------------------------------------------------
+// packet construction failure is a definitive PARSE in every resolver
+// ---------------------------------------------------------------------------
+
+/// A hostname whose first label exceeds 63 octets: building the query throws
+/// DnsPacketException before any I/O, in every resolver.
+[[nodiscard]] const std::string& overlong_label_host() {
+    static const std::string host = std::string(64, 'x') + ".test";
+    return host;
+}
+
+TEST(DotResolver, packetConstructionFailureIsDefinitiveParse) {
+    dns::EndpointOptions options;
+    options.factory = std::make_shared<ThrowingFactory>();  // never reached: construction fails first
+    dns::DotResolver resolver{"203.0.113.10", 853, options};
+
+    const auto result = coro::run(resolver.query(overlong_label_host(), domain::RecordKind::A));
+
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error().code, domain::DnsError::PARSE);
+    EXPECT_TRUE(dns::detail::is_definitive(result.error().code));
+}
+
+TEST(DohResolver, packetConstructionFailureIsDefinitiveParse) {
+    http::Options options;
+    options.factory = std::make_shared<ThrowingFactory>();
+    dns::DohResolver resolver{DOH_URL, options};
+
+    const auto result = coro::run(resolver.query(overlong_label_host(), domain::RecordKind::A));
+
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error().code, domain::DnsError::PARSE);
+    EXPECT_TRUE(dns::detail::is_definitive(result.error().code));
+}
+
+TEST(ClassicResolver, packetConstructionFailureIsDefinitiveParse) {
+    // No network: building the query fails before a socket is opened.
+    dns::ClassicResolver resolver{*domain::InetAddress::parse("203.0.113.10"), 53};
+
+    const auto result = coro::run(resolver.query(overlong_label_host(), domain::RecordKind::A));
+
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error().code, domain::DnsError::PARSE);
+    EXPECT_TRUE(dns::detail::is_definitive(result.error().code));
 }
 
 // ---------------------------------------------------------------------------
@@ -351,6 +552,51 @@ TEST(BootstrapResolve, nonLiteralServerIsSkippedAndReportedAsConfig) {
     ASSERT_FALSE(result.has_value());
     EXPECT_EQ(result.error().code, domain::DnsError::CONFIG);
     EXPECT_NE(result.error().message.find("not an IP literal"), std::string::npos);
+}
+
+TEST(BootstrapResolve, packetConstructionFailureIsDefinitiveParse) {
+    // No network: building the query fails before a socket is opened, and a
+    // construction defect must stay definitive instead of falling into the
+    // generic catch as a retryable error.
+    const auto result = coro::run(dns::bootstrap_resolve(overlong_label_host(), std::nullopt, {{"192.0.2.1", 53}}));
+
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error().code, domain::DnsError::PARSE);
+    EXPECT_TRUE(dns::detail::is_definitive(result.error().code));
+}
+
+TEST(BootstrapResolve, definitiveErrorSurvivesALaterTransientFailure) {
+    // One real UDP socket towards TEST-NET-1 (192.0.2.1): the send is queued
+    // silently and the receive is cut by the UDP budget on the manual clock,
+    // so the transient failure costs no wall-clock time. The first server's
+    // CONFIG (definitive) must survive the second server's transient failure.
+    coro::ManualClock clock;
+    coro::Loop loop{clock};
+    std::optional<ResolveResult> result;
+    // A named list: a braced-init-list argument inside the coroutine lambda
+    // trips a GCC modules-ts gimplifier ICE.
+    const std::vector<domain::DnsServer> servers{{"not-an-ip", 53}, {"192.0.2.1", 53}};
+    run_loop(loop, [&]() -> coro::Task<void> {
+        result.emplace(co_await dns::bootstrap_resolve("example.org", domain::AddressFamily::IPV4, servers));
+        co_return;
+    });
+
+    ASSERT_TRUE(result.has_value());
+    ASSERT_FALSE(result->has_value());
+    EXPECT_EQ(result->error().code, domain::DnsError::CONFIG);
+    EXPECT_NE(result->error().message.find("not an IP literal"), std::string::npos);
+}
+
+TEST(BootstrapResolve, nonLiteralServerAddressIsRedactedInTheError) {
+    // A configured address may embed URI userinfo; the error message must not
+    // leak it into the logs it is destined for.
+    const auto result =
+        coro::run(dns::bootstrap_resolve("example.org", std::nullopt, {{"https://user:secret@not-an-ip", 53}}));
+
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error().code, domain::DnsError::CONFIG);
+    EXPECT_EQ(result.error().message.find("secret"), std::string::npos);
+    EXPECT_NE(result.error().message.find("***"), std::string::npos);
 }
 
 }  // namespace

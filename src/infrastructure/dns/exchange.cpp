@@ -58,9 +58,9 @@ constexpr auto TCP_OP_BUDGET = std::chrono::seconds(1);
 /// server only. The socket is never bound explicitly: it opens lazily on the
 /// first send and the kernel picks a same-family wildcard with an ephemeral
 /// port, which keeps IPv6 servers working (an explicit wildcard bind would
-/// have to match the family). Cancellation throws coro::Cancelled;
-/// values.
-[[nodiscard]] coro::Task<std::expected<std::vector<std::uint8_t>, domain::DnsErrorInfo>> exchange_udp(
+/// have to match the family). Cancellation throws coro::Cancelled; a socket
+/// failure comes back as DnsError::CONNECTION.
+[[nodiscard]] coro::Task<std::expected<UdpAnswer, domain::DnsErrorInfo>> exchange_udp(
     const domain::InetAddress server, const std::uint16_t port, const std::span<const std::uint8_t> query) {
     net::UdpSocket socket{server.get_family()};
     if (auto sent = co_await socket.send_to(server, port, query); !sent) {
@@ -78,19 +78,26 @@ constexpr auto TCP_OP_BUDGET = std::chrono::seconds(1);
         if (received->from != server || received->port != port) {
             continue;
         }
-        co_return std::vector<std::uint8_t>(buffer.begin(),
-                                            buffer.begin() + static_cast<std::ptrdiff_t>(received->size));
+        if (received->truncated) {
+            // The datagram did not fit the buffer: unusable over UDP. The
+            // caller retries over TCP, exactly as for a TC-bit answer.
+            co_return UdpAnswer{.bytes = {}, .truncated = true};
+        }
+        co_return UdpAnswer{
+            .bytes =
+                std::vector<std::uint8_t>(buffer.begin(),
+                                           buffer.begin() + static_cast<std::ptrdiff_t>(received->size)),
+        };
     }
 }
 
 }  // namespace
 
-coro::Task<std::expected<std::vector<std::uint8_t>, domain::DnsErrorInfo>> query_udp(
+coro::Task<std::expected<UdpAnswer, domain::DnsErrorInfo>> query_udp(
     const domain::InetAddress server, const std::uint16_t port, const std::span<const std::uint8_t> query) {
     // The send and the wait share one budget, as the legacy deadline did.
     auto outcome = co_await coro::with_timeout(
-        UDP_BUDGET,
-        [server, port, query]() -> coro::Task<std::expected<std::vector<std::uint8_t>, domain::DnsErrorInfo>> {
+        UDP_BUDGET, [server, port, query]() -> coro::Task<std::expected<UdpAnswer, domain::DnsErrorInfo>> {
             co_return co_await exchange_udp(server, port, query);
         });
     // timed_out implies cancelled (the timer marks the scope), so it must be

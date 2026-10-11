@@ -69,17 +69,26 @@ constexpr size_t QUESTION_FIXED_SIZE = 4;
 
 [[nodiscard]] std::expected<void, domain::DnsErrorInfo> check_txid(std::span<const std::uint8_t> request,
                                                                    std::span<const std::uint8_t> response) {
+    if (request.size() < dns::HEADER_SIZE)
+        return std::unexpected(domain::DnsErrorInfo{domain::DnsError::PARSE, "DNS request too short for validation"});
     if (response[0] == request[0] && response[1] == request[1])
         return {};
     return std::unexpected(domain::DnsErrorInfo{domain::DnsError::PARSE, "DNS response transaction ID mismatch"});
 }
 
-[[nodiscard]] std::expected<void, domain::DnsErrorInfo> check_qdcount(std::span<const std::uint8_t> response) {
+/// QDCOUNT policy: a NOERROR response must echo exactly one question, but an
+/// error response may legally omit the question section (QDCOUNT=0) — then
+/// there is nothing to echo and the RCODE classification decides the outcome.
+/// @return true when a question is present and must be echo-checked.
+[[nodiscard]] std::expected<bool, domain::DnsErrorInfo> check_question_count(std::span<const std::uint8_t> response) {
     const auto qdcount = Utils::Bytes::try_read_u16_be(response, 4);
     if (!qdcount)
         return std::unexpected(domain::DnsErrorInfo{domain::DnsError::PARSE, "DNS response too short for QDCOUNT"});
     if (*qdcount == 1)
-        return {};
+        return true;
+    const auto rcode = static_cast<std::uint8_t>(response[3] & 0x0F);
+    if (*qdcount == 0 && rcode != 0)
+        return false;
     return std::unexpected(domain::DnsErrorInfo{domain::DnsError::PARSE,
                                                 fmt::format("DNS response QDCOUNT is {} (expected 1)", *qdcount)});
 }
@@ -126,9 +135,13 @@ std::expected<void, domain::DnsErrorInfo> validate_response(std::span<const std:
     if (!result)
         return result;
 
-    result = check_qdcount(response);
-    if (!result)
-        return result;
+    const auto question_present = check_question_count(response);
+    if (!question_present)
+        return std::unexpected(question_present.error());
+
+    // An error response without a question section has nothing to echo.
+    if (!*question_present)
+        return {};
 
     return check_question_echo(request, response);
 }
