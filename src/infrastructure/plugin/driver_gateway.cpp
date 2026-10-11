@@ -5,35 +5,37 @@
 
 #include "driver_gateway.h"
 
-#include <coroutine>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
-#include <spdlog/spdlog.h>
-#include <yaddnsc/sdk/driver_abi.h>
 #include <algorithm>
+#include <atomic>
 #include <cstdint>
-#include <expected>
 #include <limits>
 #include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
-#include <utility>
-#include <atomic>
 #include <type_traits>
+#include <utility>
 
+#include <coroutine>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
+
+#include <expected>
+#include <spdlog/spdlog.h>
+#include <yaddnsc/sdk/driver_abi.h>
+
+#include "coro/cancel_scope.h"
+#include "coro/cancelled.h"
 #include "coro/offload.hpp"
 #include "coro/scope.hpp"
+#include "coro/task.hpp"
+#include "domain/error/error.h"
+#include "domain/update/driver_update_command.h"
 #include "infrastructure/plugin/abi_string.h"
+#include "infrastructure/plugin/bridge.h"
 #include "infrastructure/plugin/driver_catalog.h"
 #include "infrastructure/plugin/driver_instance.h"
 #include "infrastructure/plugin/host_services.h"
 #include "infrastructure/plugin/plugin_loader.h"
 #include "support/fmt.hpp"
-#include "domain/error/error.h"
-#include "domain/update/driver_update_command.h"
-#include "coro/cancel_scope.h"
-#include "coro/cancelled.h"
-#include "coro/task.hpp"
-#include "infrastructure/plugin/bridge.h"
 #include "yaddnsc/util/format.hpp"  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 
 namespace plugin {
@@ -277,14 +279,14 @@ coro::Task<std::expected<void, domain::DriverError>> DriverGateway::update(std::
             // this scope: propagate the cancellation.
             scope.throw_if_cancelled();
         }
-        // A driver-reported cancellation on a live scope — including a bridge
-        // wait-budget expiry while the loop was busy — is one failed cycle,
+        // A driver-reported cancellation on a live scope is one failed cycle,
         // not the end of the subdomain loop: the legacy stack mapped it to an
         // error value and the schedule retried on the next interval.
         SPDLOG_WARN(R"(Driver '{}' reported cancellation for "{}"; the cycle fails and retries on schedule)",
                     driver_name, fqdn);
-        co_return std::unexpected(domain::DriverError{domain::DriverError::Code::UPDATE_FAILED,
-                                                      fmt::format("Driver '{}' reported cancellation for {}", driver_name, fqdn), 0});
+        co_return std::unexpected(
+            domain::DriverError{domain::DriverError::Code::UPDATE_FAILED,
+                                fmt::format("Driver '{}' reported cancellation for {}", driver_name, fqdn), 0});
     } catch (const coro::Cancelled&) {
         state->cancelled.store(true, std::memory_order_release);
         bridge->cancel(state->in_flight_call());
@@ -320,9 +322,13 @@ coro::Task<std::expected<void, domain::DriverError>> DriverGateway::validate_con
             return run_validate_cycle(module, param, *bridge, *logger, state);
         });
     } catch (const AbiCancelled&) {
-        scope.cancel();
+        // A foreign status is not a host cancellation request. Only an already
+        // cancelled host scope propagates control flow; live-scope validation
+        // failure must reach the config-test verification boundary as a value.
         scope.throw_if_cancelled();
-        throw;  // cancellation_origin is guaranteed after cancel()
+        co_return std::unexpected(domain::DriverError{
+            domain::DriverError::Code::UNKNOWN,
+            fmt::format("Driver '{}' reported cancellation during configuration validation", driver_name), 0});
     } catch (const coro::Cancelled&) {
         state->cancelled.store(true, std::memory_order_release);
         bridge->cancel(state->in_flight_call());

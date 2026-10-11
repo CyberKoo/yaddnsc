@@ -1,41 +1,43 @@
 #include "diagnostic_commands.h"
 
-#include <magic_enum/magic_enum.hpp>
-#include <spdlog/spdlog.h>
-#include <coroutine>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 #include <chrono>
 #include <exception>
+#include <memory>
 #include <optional>
+#include <span>
 #include <stdexcept>
 #include <string>
-#include <expected>
-#include <memory>
-#include <span>
 #include <vector>
+
+#include <coroutine>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
+
+#include <expected>
+#include <magic_enum/magic_enum.hpp>
+#include <spdlog/spdlog.h>
 
 #include "application/diagnostics.h"
 #include "application/environment_validator.h"
+#include "cli/command.h"
 #include "cli/presenter.h"
 #include "composition/assembly.h"
-#include "domain/config/dns_config.h"  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
-#include "domain/error/error.h"  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
-#include "infrastructure/config/config.h"
-#include "infrastructure/config/config_exception.h"
 #include "coro/group.hpp"
 #include "coro/loop.h"
 #include "coro/run.hpp"
+#include "coro/task.hpp"
+#include "domain/config/dns_config.h"  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
+#include "domain/config/runtime_config.h"
+#include "domain/error/error.h"  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
+#include "infrastructure/config/config.h"
+#include "infrastructure/config/config_exception.h"
 #include "infrastructure/dns/dispatcher.h"  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 #include "infrastructure/dns/factory.h"
 #include "infrastructure/dns/resolver_adapter.h"
+#include "infrastructure/http/types.h"  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 #include "infrastructure/ip_source/system_network_interfaces.h"
 #include "infrastructure/logging/spdlog_logger.h"
+#include "infrastructure/plugin/driver_catalog.h"
 #include "infrastructure/plugin/driver_gateway.h"
 #include "support/exception.h"
-#include "cli/command.h"
-#include "domain/config/runtime_config.h"
-#include "coro/task.hpp"
-#include "infrastructure/plugin/driver_catalog.h"
-#include "infrastructure/http/types.h"  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 
 namespace coro {
 class TaskGroup;
@@ -140,11 +142,14 @@ int execute_command(const Cli::ConfigTestCommand& command) {
                                                 &http_options](coro::TaskGroup& group) -> coro::Task<void> {
                       plugin::DriverGateway gateway(driver_catalog, logger, loop, group,
                                                     internal::make_gateway_options(http_options));
-                      const auto validated = co_await app::validate_driver_configs(gateway, config);
-                      if (!validated) {
-                          // Abort this config-test operation through its existing verification boundary.
-                          throw ConfigException(validated.error());
-                      }
+                      // Keep gateway alive through child cleanup, including a
+                      // validation defect or host cancellation.
+                      co_await group.with_children([&]() -> coro::Task<void> {
+                          const auto validated = co_await app::validate_driver_configs(gateway, config);
+                          if (!validated) {
+                              throw ConfigException(validated.error());
+                          }
+                      });
                   }));
 
         return Cli::present_config_test({.quiet = command.quiet, .error = std::nullopt});

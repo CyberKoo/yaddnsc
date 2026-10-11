@@ -4,12 +4,15 @@
 //
 
 #include <algorithm>
+#include <atomic>
 #include <source_location>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <vector>
 
 #include <gtest/gtest.h>
+
 #include "coro/coro.h"
 
 namespace {
@@ -55,6 +58,33 @@ TEST(TraceSink, InstalledSink_ReceivesEventsWithCallSite) {
     EXPECT_TRUE(std::ranges::all_of(recorder.records, [](const TraceRecord& record) {
         return record.file.find("loop.cpp") != std::string::npos && record.line > 0;
     }));
+}
+
+TEST(TraceSink, CrossThreadPosts_SinkAlwaysRunsOnLoopThread) {
+    struct State {
+        std::thread::id owner = std::this_thread::get_id();
+        std::atomic<bool> wrong_thread{false};
+    } state;
+
+    coro::Loop loop;
+    loop.set_trace_sink(
+        [](void* context, std::string_view, const std::source_location&) noexcept {
+            auto& observed = *static_cast<State*>(context);
+            if (std::this_thread::get_id() != observed.owner) {
+                observed.wrong_thread.store(true);
+            }
+        },
+        &state);
+    auto root = [&]() -> coro::Task<void> {
+        co_await coro::task_group([](coro::TaskGroup& group) -> coro::Task<void> {
+            for (int i = 0; i < 20; ++i) {
+                group.spawn(coro::offload([] {}));
+            }
+            co_return;
+        });
+    };
+    coro::run(loop, root());
+    EXPECT_FALSE(state.wrong_thread.load());
 }
 
 TEST(TraceSink, ClearedSink_StaysSilent) {

@@ -4,37 +4,34 @@
 
 #include "bridge.h"
 
-#include <spdlog/spdlog.h>
 #include <atomic>
 #include <chrono>
-#include <coroutine>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <string>
 #include <type_traits>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 #include <utility>
-#include <expected>
-#include <functional>
 
+#include <coroutine>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
+
+#include <expected>
+#include <spdlog/spdlog.h>
+
+#include "coro/cancel_scope.h"
 #include "coro/cancelled.h"
 #include "coro/loop.h"
 #include "coro/scope.hpp"
-#include "infrastructure/http/client.h"
-#include "infrastructure/http/wire_request.h"
-#include "coro/cancel_scope.h"
 #include "coro/task_group.hpp"
+#include "infrastructure/http/client.h"
 #include "infrastructure/http/error.h"
+#include "infrastructure/http/wire_request.h"
 #include "yaddnsc/sdk/driver_abi.h"
 #include "yaddnsc/util/format.hpp"  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 
 namespace plugin {
 
 namespace {
-
-/// Head-room the worker waits beyond the loop-side budget, so the loop's
-/// `with_timeout` always fires first and the worker observes a real error
-/// instead of a bare wait timeout.
-constexpr std::int64_t BRIDGE_WAIT_SLACK_MS = 250;
 
 /// Fulfils a bridge promise exactly once, on every path.
 ///
@@ -56,7 +53,7 @@ struct PromiseFulfil {
         if (!done) {
             done = true;
             try {
-                call->promise.set_value(std::unexpected(BridgeError{YADDNSC_STATUS_CANCELLED, "the request was cancelled"}));
+                call->promise.set_value(std::unexpected(BridgeError{YADDNSC_STATUS_CANCELLED, {}}));
             } catch (...) {
                 // set_value allocates for the message; a failure here cannot be
                 // reported anywhere, and must not terminate.
@@ -71,8 +68,8 @@ namespace detail {
 
 coro::Task<void> serve_exchange(std::shared_ptr<const BridgeState> state, std::shared_ptr<BridgeCall> call) {
     PromiseFulfil fulfil{std::move(call)};
-    std::expected<http::Response, BridgeError> result{std::unexpect,
-                                                      BridgeError{YADDNSC_STATUS_CANCELLED, "the request was cancelled"}};
+    std::expected<http::Response, BridgeError> result{
+        std::unexpect, BridgeError{YADDNSC_STATUS_CANCELLED, "the request was cancelled"}};
     try {
         // A cancel() that landed before this coroutine started (its posted
         // scope lookup found nothing to cancel) is honoured here instead of
@@ -88,11 +85,19 @@ coro::Task<void> serve_exchange(std::shared_ptr<const BridgeState> state, std::s
         // live_scope: a workflow abandon (Bridge::cancel) cancels the in-flight
         // exchange itself, not just the worker's wait on it.
         auto scoped = co_await coro::with_cancel_scope(
-            [&client, &state, &fulfil](coro::CancelScope& call_scope)
+            [&client, &fulfil](coro::CancelScope& call_scope)
                 -> coro::Task<coro::ScopeOutcome<std::expected<http::Response, BridgeError>>> {
                 fulfil.call->live_scope = &call_scope;
-                auto outcome = co_await coro::with_timeout(
-                    state->wait_budget, [&client, &fulfil]() -> coro::Task<std::expected<http::Response, BridgeError>> {
+                struct ScopeBorrow {
+                    BridgeCall& call;
+                    ~ScopeBorrow() noexcept { call.live_scope = nullptr; }
+                };
+                // Clear on body unwind, before run_scoped destroys its scope
+                // and before the outer continuation can be resumed later.
+                const ScopeBorrow borrow{*fulfil.call};
+                auto outcome = co_await coro::with_deadline(
+                    fulfil.call->deadline,
+                    [&client, &fulfil]() -> coro::Task<std::expected<http::Response, BridgeError>> {
                         auto response = co_await client.exchange(fulfil.call->url, fulfil.call->request);
                         if (!response) {
                             auto& error = response.error();
@@ -103,7 +108,6 @@ coro::Task<void> serve_exchange(std::shared_ptr<const BridgeState> state, std::s
                         }
                         co_return std::move(*response);
                     });
-                fulfil.call->live_scope = nullptr;
                 co_return outcome;
             });
         if (scoped.cancelled) {
@@ -129,7 +133,8 @@ coro::Task<void> serve_exchange(std::shared_ptr<const BridgeState> state, std::s
         // A defect here (allocation or client bug) must not strand the worker:
         // the promise is fulfilled with an internal-error status and the defect is
         // swallowed, because the loop side has no caller to rethrow to.
-        result = std::unexpected(BridgeError{YADDNSC_STATUS_INTERNAL_ERROR, "the request failed due to an internal error"});
+        result =
+            std::unexpected(BridgeError{YADDNSC_STATUS_INTERNAL_ERROR, "the request failed due to an internal error"});
     }
     fulfil.call->live_scope = nullptr;
     fulfil.set(std::move(result));
@@ -140,7 +145,7 @@ coro::Task<void> serve_exchange(std::shared_ptr<const BridgeState> state, std::s
 
 Bridge::Bridge(coro::Loop& loop, coro::TaskGroup& spawn_group, http::Options options,
                std::chrono::milliseconds wait_budget)
-    : loop_(&loop), spawn_group_(&spawn_group),
+    : loop_(&loop), group_lifetime_(coro::detail::GroupAccess::lifetime(spawn_group)),
       state_(std::make_shared<const detail::BridgeState>(detail::BridgeState{std::move(options), wait_budget})) {}
 
 Bridge::~Bridge() = default;
@@ -150,24 +155,40 @@ std::expected<http::Response, BridgeError> Bridge::exchange(std::shared_ptr<Brid
     // its own locals and the shared state, so the Bridge may be destroyed while
     // the worker is still blocked on an abandoned call.
     coro::Loop* const loop = loop_;
-    coro::TaskGroup* const group = spawn_group_;
+    const auto lifetime = group_lifetime_;
     const std::shared_ptr<const detail::BridgeState> state = state_;
     auto future = call->promise.get_future();
+    call->deadline = std::chrono::steady_clock::now() + state->wait_budget;
 
     try {
         // spawn_discard: the group lives for the whole daemon, so a completed
         // exchange must leave the bookkeeping at once instead of accumulating
         // its frame and slot until shutdown.
-        loop->post([group, state, call] { group->spawn_discard(detail::serve_exchange(state, call)); });
+        loop->post([lifetime, state, call] {
+            // Admission happens on the loop, where scope closure and posting
+            // cannot race. The shared token survives the group it refers to.
+            auto* group = lifetime->group;
+            if (group == nullptr || group->scope().cancelled() || call->cancelled.load(std::memory_order_acquire)) {
+                call->cancelled.store(true, std::memory_order_release);
+                call->promise.set_value(std::unexpected(BridgeError{YADDNSC_STATUS_CANCELLED, {}}));
+                return;
+            }
+            try {
+                group->spawn_discard(detail::serve_exchange(state, call));
+            } catch (...) {
+                // Starting a child may allocate; dispatch failure is a request
+                // failure, not an exception escaping the loop callback.
+                call->promise.set_value(std::unexpected(BridgeError{YADDNSC_STATUS_INTERNAL_ERROR, {}}));
+            }
+        });
     } catch (...) {
         call->cancelled.store(true, std::memory_order_release);
         return std::unexpected(BridgeError{YADDNSC_STATUS_CANCELLED, "the request could not be dispatched"});
     }
 
-    const auto budget = state->wait_budget + std::chrono::milliseconds{BRIDGE_WAIT_SLACK_MS};
-    if (future.wait_for(budget) != std::future_status::ready) {
-        call->cancelled.store(true, std::memory_order_release);
-        return std::unexpected(BridgeError{YADDNSC_STATUS_CANCELLED, "the request timed out"});
+    if (future.wait_until(call->deadline) != std::future_status::ready) {
+        cancel(call);
+        return std::unexpected(BridgeError{YADDNSC_STATUS_NETWORK_ERROR, "the API server did not respond in time"});
     }
     return future.get();
 }

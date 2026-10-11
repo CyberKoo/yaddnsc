@@ -179,6 +179,9 @@ public:
     /// INVALID_CONFIG mapping and message pass-through.
     Result validate(std::string_view driver_param_json) const override {
         const auto config = parse_config<TestDriverConfig>(driver_param_json);
+        if (config.op.value_or("success") == "cancel_validate") {
+            return std::unexpected(Error{YADDNSC_STATUS_CANCELLED, "validation cancelled by plugin", 0});
+        }
         if (config.op.value_or("success") == "reject_validate") {
             return std::unexpected(Error{YADDNSC_STATUS_INVALID_CONFIG,
                                          config.message.value_or("driver_params rejected by test plugin"), 0});

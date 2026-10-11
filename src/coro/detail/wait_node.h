@@ -31,6 +31,9 @@ struct WaitNode {
     bool linked = false;
     /// Prevents a second schedule when cancellation races with normal completion.
     bool scheduled = false;
+    /// Joined worker waits receive cancellation notification but resume only
+    /// when the worker has actually stopped using borrowed resources.
+    bool wake_on_cancel = true;
 };
 
 }  // namespace coro::detail

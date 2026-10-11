@@ -26,6 +26,7 @@
 
 #include "coro/cancel_scope.h"
 #include "coro/detail/access.h"
+#include "coro/detail/context_awaitables.h"
 #include "coro/detail/group_state.h"
 #include "coro/detail/task_promise.h"  // IWYU pragma: export
 #include "coro/fwd.h"
@@ -45,7 +46,7 @@ using Result = std::expected<T, std::exception_ptr>;
 ///
 /// Ownership: shares the child's bookkeeping slot, so the slot stays alive as
 /// long as any Handle does. The child frame is still owned by the group and
-/// destroyed at scope exit, so a Handle that outlives its group is dead but
+/// destroyed after result consumption or at scope exit, so a Handle that outlives its group is dead but
 /// memory-safe: valid() is false and joining throws std::logic_error — the
 /// same failure as an empty handle or one whose result the group's
 /// `next<T>()`/join cycle has already consumed.
@@ -78,8 +79,9 @@ private:
 /// The group handle passed to a task_group / supervisor_group body.
 ///
 /// Ownership: borrows; construct only through `task_group`/`supervisor_group`.
-/// A spawned child's frame is owned by the group until scope exit; a discard
-/// child's only until the next completion after its own.
+/// A child's frame is owned until result consumption or scope exit; successful
+/// discard frames are reaped by the loop immediately after completion.
+/// Children borrowing body locals must be drained before those locals leave scope.
 /// Thread safety: loop thread only; spawn/next/cancel are not reentrant.
 class TaskGroup {
 public:
@@ -103,14 +105,10 @@ public:
 
     /// Start a fire-and-forget child whose result is discarded.
     ///
-    /// Unlike spawn(), a completed discard child leaves the bookkeeping at
-    /// once: its slot is erased when it finishes and its frame is destroyed by
-    /// the next completion or at scope exit, so a group that lives for the
-    /// whole process (the plugin bridge's) stays bounded by its live children
-    /// instead of accumulating every completed frame until shutdown. Scope exit
-    /// still joins a discard child that is in flight. A defect lands in the
-    /// group's first_error like any child's (and cancels a task_group's
-    /// siblings).
+    /// Successful/cancelled children are reaped in the loop's safe phase.
+    /// A defect cancels siblings in task_group; in supervisor_group it remains
+    /// unobserved and is reported by GroupError at exit. Discarding a result
+    /// never silently discards a defect. Scope exit joins every live child.
     /// Failure: allocates; may throw std::bad_alloc.
     void spawn_discard(Task<void> task) {
         assert(task.valid() && "spawn_discard requires a valid task");
@@ -123,14 +121,16 @@ public:
     /// Consume results of children whose result type is `T`, in completion
     /// order. Returns nullopt once no such child can complete any more.
     ///
-    /// Cancellation: a checkpoint; the group's own scope governs the
-    /// children. Failure: allocation may throw; the returned deferred defect is
-    /// a value in the Result.
+    /// Cancellation: observes the awaiting coroutine's current scope. Cancelling
+    /// this wait neither cancels the group's children nor consumes a result.
+    /// Failure: allocation/moving T may throw; child defects are Result values.
     template<typename T>
     [[nodiscard]] Task<std::optional<Result<T>>> next() {
+        CancelScope& caller_scope = co_await detail::CurrentScope{};
         for (;;) {
-            state_->scope.throw_if_cancelled();
+            caller_scope.throw_if_cancelled();
             if (detail::ChildSlot* slot = state_->take_completed(&detail::TypeTag<T>::VALUE)) {
+                const detail::ConsumedChild consume{*slot};
                 auto* promise = static_cast<detail::TaskPromise<T>*>(slot->frame);
                 if (promise->cancellation) {
                     continue;  // cancelled children have no result value
@@ -151,6 +151,35 @@ public:
         }
     }
 
+    /// Wait for all currently owned children without observing caller cancellation.
+    /// Use before body-local resources leave scope, including cleanup paths.
+    /// No spawn may race a drain. Result consumption remains separate.
+    [[nodiscard]] Task<void> join() { co_await detail::AllDoneAwaitable{state_}; }
+
+    /// Run a body and drain this group's children before returning, on success,
+    /// defect or cancellation. On abnormal exit cancel first, then join, then
+    /// rethrow. Resources borrowed by children belong outside fn's body (for
+    /// example in the enclosing group callback), so they remain alive during
+    /// this cleanup. fn returns Task<void>; calls must not overlap.
+    /// Allocation/body defects may throw; loop thread only.
+    template<typename Fn>
+    [[nodiscard]] Task<void> with_children(Fn fn) {
+        std::exception_ptr error;
+        try {
+            co_await fn();
+        } catch (const Cancelled&) {
+            error = std::current_exception();
+            cancel();
+        } catch (...) {
+            error = std::current_exception();
+            cancel();
+        }
+        co_await join();
+        if (error) {
+            std::rethrow_exception(error);
+        }
+    }
+
     /// Cancel every child (and the group body) of this group.
     void cancel() noexcept { detail::ScopeAccess::cancel(state_->scope, detail::CancelCause::REQUESTED); }
 
@@ -161,7 +190,9 @@ private:
     template<typename Fn, bool Supervisor>
     friend Task<void> detail::run_group(Fn fn);
 
-    explicit TaskGroup(detail::GroupState* state) noexcept : state_(state) {}
+    friend struct detail::GroupAccess;
+
+    explicit TaskGroup(detail::GroupState* state) noexcept : state_(state) { state_->lifetime->group = this; }
 
     /// Bind one not-yet-started frame to this group, allocate its slot and
     /// schedule the first resumption. Slot allocation precedes ownership transfer.
@@ -169,7 +200,7 @@ private:
         promise.loop = state_->loop;
         promise.scope = &state_->scope;
         promise.context_bound = true;
-        promise.completion_owner = state_;
+        promise.completion_owner = &slot;
         promise.completion = &detail::group_child_completed;
         slot.frame = &promise;
         detail::LoopAccess::schedule(*state_->loop, promise);
@@ -177,6 +208,10 @@ private:
 
     detail::GroupState* state_ = nullptr;
 };
+
+inline std::shared_ptr<detail::GroupLifetime> detail::GroupAccess::lifetime(TaskGroup& group) noexcept {
+    return group.state_->lifetime;
+}
 
 }  // namespace coro
 

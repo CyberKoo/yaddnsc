@@ -13,6 +13,7 @@
 #include <vector>
 
 #include <gtest/gtest.h>
+
 #include "coro/coro.h"
 
 namespace {
@@ -192,6 +193,11 @@ TEST(CancelScope, with_cancel_scope_CancelledByPeer_StopsBody) {
         auto outcome = co_await coro::with_cancel_scope(
             [&victim_cancelled, &victim_scope](coro::CancelScope& scope) -> coro::Task<void> {
                 victim_scope = &scope;
+                struct ClearBorrow {
+                    coro::CancelScope*& pointer;
+                    ~ClearBorrow() noexcept { pointer = nullptr; }
+                };
+                const ClearBorrow clear{victim_scope};
                 try {
                     co_await coro::sleep_for(10s);
 
@@ -225,6 +231,7 @@ TEST(CancelScope, with_cancel_scope_CancelledByPeer_StopsBody) {
     coro::run(loop, task());
     EXPECT_TRUE(canceller_saw_scope);
     EXPECT_TRUE(victim_cancelled);
+    EXPECT_EQ(victim_scope, nullptr);
 }
 
 // ---------------------------------------------------------------------------

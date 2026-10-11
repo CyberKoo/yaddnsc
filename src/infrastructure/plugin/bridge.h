@@ -11,7 +11,7 @@
 //   HostServicesContext::http_exchange
 //     -> Bridge::exchange
 //          loop.post(spawn serve)
-//          future.wait_for(budget)         serve(call)  [structured child of
+//          future.wait_until(deadline)    serve(call)  [structured child of
 //          future.get()  <---- set_value <---            the bound TaskGroup]
 //                                            http::Client::exchange
 //
@@ -33,19 +33,17 @@
 // into an immutable shared block at exchange() time, so an abandoned exchange
 // may outlive the Bridge itself without dangling.
 //
-// The loop-side await additionally carries its own `with_timeout(wait_budget)`
-// ceiling, so a bridge call cannot hang the worker forever even if the bound
-// group's scope is never cancelled. The full cancellation chain: a workflow
-// abandon reaches the *in-flight* exchange through Bridge::cancel — the call's
-// own cancel scope aborts the loop-side await and unblocks the worker at once —
-// plus the per-exchange budget plus the shutdown scope.
+// Admission uses a shared group lifetime token, checked only on the loop.
+// Requests posted after group closure are rejected without dereferencing a dead
+// group. Dispatch/start failures fulfil the promise instead of escaping the
+// loop callback. Worker waiting and loop I/O share one absolute steady-clock
+// deadline, including queueing; worker expiry requests actual exchange cancel.
+// There is no slack-based assumption that loop timer processing happens first.
 //
 
 #ifndef YADDNSC_INFRASTRUCTURE_PLUGIN_BRIDGE_H
 #define YADDNSC_INFRASTRUCTURE_PLUGIN_BRIDGE_H
 
-#include <yaddnsc/sdk/driver_abi.h>
-#include <stdint.h>
 #include <atomic>
 #include <chrono>
 #include <future>
@@ -53,7 +51,10 @@
 #include <mutex>
 #include <string>
 #include <utility>
+
 #include <expected>
+#include <stdint.h>
+#include <yaddnsc/sdk/driver_abi.h>
 
 #include "coro/task.hpp"
 #include "infrastructure/http/types.h"
@@ -62,6 +63,10 @@ namespace coro {
 class Loop;
 class TaskGroup;
 class CancelScope;
+
+namespace detail {
+struct GroupLifetime;
+}
 }  // namespace coro
 
 namespace plugin {
@@ -79,8 +84,8 @@ struct BridgeError {
 /// Ownership: held by std::shared_ptr; the worker, the posted spawn closure and
 /// the loop-side coroutine each hold a share, so an abandoned wait never leaves
 /// the loop side with a dangling promise.
-/// Thread safety: `cancelled` is the only field both sides touch, and it is
-/// atomic; the promise is written once, by the loop side. `live_scope` is
+/// Thread safety: `cancelled` is atomic, deadline/request are immutable after
+/// posting, and the promise synchronizes result delivery. `live_scope` is
 /// loop-thread only: serve_exchange publishes and clears it, and Bridge::cancel
 /// reads it from a lambda posted onto the loop.
 struct BridgeCall {
@@ -95,6 +100,9 @@ struct BridgeCall {
     /// cancellable. Loop thread only (see above); null before the exchange
     /// starts and after it leaves its scope.
     coro::CancelScope* live_scope = nullptr;
+    /// One absolute budget shared by dispatch, loop I/O and worker waiting.
+    /// Written before posting; immutable after admission.
+    std::chrono::steady_clock::time_point deadline{};
 };
 
 /// Per-ABI-call state shared by the worker-side cycle and the plugin-facing
@@ -154,13 +162,14 @@ struct BridgeState {
 
 /// Carries host-service HTTP requests from a worker to the loop.
 ///
-/// Ownership: borrows the loop and the spawn group; both must outlive the
-/// bridge, and the group's scope must outlive every in-flight call. An in-flight
-/// exchange does not dereference the Bridge after exchange() returns, so the
-/// Bridge may be destroyed while a worker is still blocked on an abandoned call.
+/// Ownership: borrows the loop, which must outlive the bridge and its callers.
+/// A shared loop-thread lifetime token closes group ingress before exit drain;
+/// the bridge may outlive the group, but then exchanges are rejected. Workers
+/// hold their Bridge share through exchange(); request coroutines hold immutable
+/// policy/call state independently. Submitted offloads finish before run returns.
 /// Failure: BridgeError carries the existing ABI status. A cancelled
-/// call or expired synchronous wait is CANCELLED; an upstream timeout or
-/// recoverable HTTP failure is NETWORK_ERROR. Defects are INTERNAL_ERROR.
+/// call/closed group is CANCELLED; deadline expiry or recoverable HTTP failure
+/// is NETWORK_ERROR. Defects are INTERNAL_ERROR.
 /// Thread safety: exchange() may be called from any worker thread; the loop-side
 /// coroutine and the spawn group are loop-thread only.
 class Bridge {
@@ -170,11 +179,9 @@ public:
     ///                      application binds its own root group here so bridge
     ///                      work is never a detached task.
     /// @param options       HTTP policy for the loop-side client.
-    /// @param wait_budget   Upper bound on one exchange, enforced twice: the
-    ///                      loop-side await is wrapped in it, and the worker
-    ///                      waits slightly longer so the promise always wins the
-    ///                      race and the worker never observes a timeout for an
-    ///                      exchange the loop is still running.
+    /// @param wait_budget   Single absolute budget for admission and I/O. Both
+    ///                      worker and loop observe this same deadline; worker
+    ///                      expiry cancels the loop-side request.
     Bridge(coro::Loop& loop, coro::TaskGroup& spawn_group, http::Options options,
            std::chrono::milliseconds wait_budget);
 
@@ -198,7 +205,7 @@ public:
 
 private:
     coro::Loop* loop_;
-    coro::TaskGroup* spawn_group_;
+    std::shared_ptr<coro::detail::GroupLifetime> group_lifetime_;
     std::shared_ptr<const detail::BridgeState> state_;
 };
 

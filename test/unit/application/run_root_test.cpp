@@ -18,18 +18,19 @@
 #include <memory>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <utility>
 #include <vector>
 
 #include <expected>
 #include <gtest/gtest.h>
-#include <thread>
 #include <unistd.h>
 
 #include "application/ports/log.h"
+#include "application/run_update_cycle.h"
 #include "application/services.h"
 #include "application/subdomain_loop.h"
-#include "application/run_update_cycle.h"
+#include "coro/coro.h"
 #include "domain/config/dns_config.h"
 #include "domain/config/ip_source_kind.h"
 #include "domain/config/runtime_config.h"
@@ -39,7 +40,6 @@
 #include "domain/network/inet_address.h"
 #include "domain/update/update_decision.h"
 #include "domain/update/update_task.h"
-#include "coro/coro.h"
 #include "mocks/null_logger.h"
 #include "mocks/recording_logger.h"
 
@@ -142,6 +142,8 @@ class ProbeGateway final : public app::GatewayPort {
 public:
     struct State {
         int calls = 0;
+        bool destroyed = false;
+        bool child_drained = false;
         std::vector<std::string> fqdns;
         /// When positive, update() parks this long inside a shielded scope — a
         /// driver that keeps working through the shutdown request, which keeps
@@ -152,6 +154,8 @@ public:
     };
 
     explicit ProbeGateway(std::shared_ptr<State> state) : state_(std::move(state)) {}
+
+    ~ProbeGateway() noexcept override { state_->destroyed = true; }
 
     coro::Task<std::expected<void, domain::DriverError>> validate_config(std::string, std::string) override {
         co_return std::expected<void, domain::DriverError>{};
@@ -671,9 +675,8 @@ TEST(RunRoot, SubdomainDefectRestartsTheLoopAfterTheInterval) {
     };
 
     auto task = [&]() -> coro::Task<void> {
-        const auto outcome = co_await coro::with_timeout(35s, [&]() -> coro::Task<void> {
-            co_await app::run_root(config, runtime_services);
-        });
+        const auto outcome = co_await coro::with_timeout(
+            35s, [&]() -> coro::Task<void> { co_await app::run_root(config, runtime_services); });
         // A defect no longer retires the subdomain: the daemon keeps running
         // until something cancels it (here: the test's budget).
         EXPECT_TRUE(outcome.timed_out);
@@ -838,6 +841,50 @@ void run_until_second_sigint() {
 
 TEST(RunRoot, SecondSigintForcesImmediateTermination) {
     EXPECT_EXIT(run_until_second_sigint(), ::testing::ExitedWithCode(128 + SIGINT), "");
+}
+
+coro::Task<void> gateway_child_cleanup(std::shared_ptr<ProbeGateway::State> state) {
+    bool cancelled = false;
+    try {
+        co_await coro::sleep_for(100s);
+    } catch (const coro::Cancelled&) {
+        cancelled = true;
+    }
+    EXPECT_TRUE(cancelled);
+    co_await coro::non_cancellable([state](coro::CancelScope&) -> coro::Task<void> {
+        co_await coro::sleep_for(10ms);
+        EXPECT_FALSE(state->destroyed);
+        state->child_drained = true;
+    });
+}
+
+TEST(RunRoot, AncestorCancellation_KeepsGatewayAliveThroughBridgeChildCleanup) {
+    coro::ManualClock clock;
+    coro::Loop loop{clock};
+    FakeResolver resolver;
+    FakeIpSource ip_source;
+    NullLogger logger;
+    const auto state = std::make_shared<ProbeGateway::State>();
+    const auto config = make_config({make_subdomain("www", 100)}, 100, 0);
+    const app::RuntimeServices services{
+        .resolver = resolver,
+        .ip_source = ip_source,
+        .logger = logger,
+        .make_gateway = [state](coro::TaskGroup& root) -> std::unique_ptr<app::GatewayPort> {
+            root.spawn_discard(gateway_child_cleanup(state));
+            return std::make_unique<ProbeGateway>(state);
+        },
+        .drain_logs = nullptr,
+        .startup_signals = nullptr,
+    };
+    auto task = [&]() -> coro::Task<void> {
+        auto outcome = co_await coro::with_timeout(5s, [&]() { return app::run_root(config, services); });
+        EXPECT_TRUE(outcome.timed_out);
+        EXPECT_TRUE(state->child_drained);
+        EXPECT_TRUE(state->destroyed);
+    };
+    coro::run(loop, task());
+    EXPECT_EQ(clock.now().time_since_epoch(), 5010ms);
 }
 
 TEST(RunRoot, RunRoot_AncestorCancellation_DrainsAndPropagates) {

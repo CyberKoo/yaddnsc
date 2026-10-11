@@ -8,9 +8,10 @@
 // NOT a coroutine ([dcl.fct.def.coroutine]) but an ordinary function that
 // falls off its end without returning the Task — UB that GCC 15 turns into
 // an infinite loop in Release (UBSan reports the missing return in Debug).
+#include <cstdint>
+
 #include <benchmark/benchmark.h>
 
-#include <cstdint>
 #include "coro/coro.h"
 
 namespace {
@@ -21,6 +22,23 @@ coro::Task<void> offload_roundtrips() {
     for (int i = 0; i < kIter; ++i) {
         benchmark::DoNotOptimize(co_await coro::offload([] { return 1; }));
     }
+}
+
+coro::Task<int> child_value() {
+    co_return 1;
+}
+
+coro::Task<void> group_consumption(bool next) {
+    co_await coro::task_group([next](coro::TaskGroup& group) -> coro::Task<void> {
+        for (int i = 0; i < kIter; ++i) {
+            auto handle = group.spawn(child_value());
+            if (next) {
+                benchmark::DoNotOptimize((co_await group.next<int>())->value());
+            } else {
+                benchmark::DoNotOptimize(co_await handle);
+            }
+        }
+    });
 }
 
 coro::Task<void> checkpoints() {
@@ -56,13 +74,24 @@ static void BM_offload_roundtrip(benchmark::State& state) {
         coro::run(offload_roundtrips());
     }
 }
+
 BENCHMARK(BM_offload_roundtrip);
+
+static void BM_group_consumption(benchmark::State& state) {
+    for (auto _ : state) {
+        coro::run(group_consumption(state.range(0) != 0));
+    }
+    state.SetItemsProcessed(state.iterations() * kIter);
+}
+
+BENCHMARK(BM_group_consumption)->Arg(0)->Arg(1);
 
 static void BM_checkpoint(benchmark::State& state) {
     for (auto _ : state) {
         coro::run(checkpoints());
     }
 }
+
 BENCHMARK(BM_checkpoint);
 
 static void BM_inline_compute(benchmark::State& state) {
@@ -70,6 +99,7 @@ static void BM_inline_compute(benchmark::State& state) {
         coro::run(inline_compute());
     }
 }
+
 BENCHMARK(BM_inline_compute);
 
 static void BM_no_await(benchmark::State& state) {
@@ -77,4 +107,5 @@ static void BM_no_await(benchmark::State& state) {
         coro::run(no_await());
     }
 }
+
 BENCHMARK(BM_no_await);

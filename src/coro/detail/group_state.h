@@ -1,11 +1,8 @@
-// Coroutine runtime — the bookkeeping behind TaskGroup.
-//
-// A group keeps its children in intrusive links (no allocation on completion,
-// so the completion hook can be noexcept) and hands the public TaskGroup a
-// state pointer. Everything here is unreachable except through TaskGroup.
+// Coroutine runtime — scope-owned children, result claims and completion waits.
 #ifndef YADDNSC_INFRASTRUCTURE_CORO_DETAIL_GROUP_STATE_H
 #define YADDNSC_INFRASTRUCTURE_CORO_DETAIL_GROUP_STATE_H
 
+#include <cassert>
 #include <cstddef>
 #include <exception>
 #include <memory>
@@ -20,6 +17,7 @@
 #include "coro/detail/access.h"
 #include "coro/detail/frame.h"
 #include "coro/detail/task_promise.h"
+#include "coro/detail/wait_node.h"
 #include "coro/fwd.h"
 #include "coro/loop.h"
 
@@ -28,35 +26,40 @@ namespace coro::detail {
 template<typename Fn, bool Supervisor>
 Task<void> run_group(Fn fn);
 
-/// Compile-time child identity, used to match `next<T>()` against a spawn.
 template<typename T>
 struct TypeTag {
     static constexpr int VALUE = 0;
 };
 
-/// One spawned child: its frame plus the bookkeeping the group needs.
-///
-/// Owned jointly by the group and any live Handle, so the slot outlives its
-/// group and a stale Handle reads as dead instead of dangling. `frame` is
-/// borrowed: the group owns it and destroys it in reap().
+struct GroupState;
+struct NextAwaitable;
+
+/// Shared only to diagnose stale Handles; execution and results remain scope-owned.
 struct ChildSlot {
+    GroupState* owner = nullptr;
+    std::size_t index = 0;
     PromiseBase* frame = nullptr;
     const void* type_tag = nullptr;
-    /// Head of the intrusive list of frames parked in `co_await handle`.
     PromiseBase* join_head = nullptr;
-    /// Intrusive completion FIFO link (completion order == next() order).
     ChildSlot* completed_next = nullptr;
+    ChildSlot* completed_prev = nullptr;
+    bool in_completed = false;
     bool done = false;
     bool consumed = false;
-    /// spawn_discard child: the slot is erased at completion instead of
-    /// lingering until scope exit, and its result is never delivered.
     bool discard = false;
 };
 
-/// Everything a running group needs; lives in the group combinator's frame.
-///
-/// Loop-thread only. All bookkeeping is intrusive, so child completion never
-/// allocates and the completion hook can be noexcept.
+/// Loop-thread lifetime token. A posted infrastructure callback must check this
+/// token on the loop, never retain a raw TaskGroup beyond its body lifetime.
+struct GroupLifetime {
+    TaskGroup* group = nullptr;
+};
+
+/// Infrastructure-only ingress token; read exclusively by loop callbacks.
+struct GroupAccess {
+    static std::shared_ptr<GroupLifetime> lifetime(TaskGroup& group) noexcept;
+};
+
 struct GroupState {
     GroupState(Loop* loop_ptr, CancelScope* parent, bool supervised)
         : loop(loop_ptr), supervisor(supervised), scope(parent, false) {}
@@ -64,191 +67,251 @@ struct GroupState {
     GroupState(const GroupState&) = delete;
     GroupState& operator=(const GroupState&) = delete;
 
+    ~GroupState() noexcept {
+        assert(all_done());
+        reap();
+    }
+
     Loop* loop = nullptr;
     bool supervisor = false;
-    /// Scope every child runs in; cancelling it stops the children.
     CancelScope scope;
     std::vector<std::shared_ptr<ChildSlot>> children;
-    /// Completed discard child's frame, awaiting destruction. A completion hook
-    /// runs inside the child's own final suspend, where destroying that frame
-    /// is UB, so the hook parks it here and the next completion (or reap())
-    /// destroys it — the graveyard never holds more than one frame.
-    PromiseBase* graveyard = nullptr;
+    std::shared_ptr<GroupLifetime> lifetime = std::make_shared<GroupLifetime>();
     ChildSlot* completed_head = nullptr;
     ChildSlot* completed_tail = nullptr;
-    PromiseBase* next_head = nullptr;
+    NextAwaitable* next_head = nullptr;
     PromiseBase* done_waiter = nullptr;
     std::exception_ptr first_error;
-    std::size_t done_count = 0;
+    std::size_t active_count = 0;
 
-    [[nodiscard]] bool all_done() const noexcept { return done_count == children.size(); }
+    [[nodiscard]] bool all_done() const noexcept { return active_count == 0; }
 
-    /// Allocates one slot; called from spawn(), which may throw. The returned
-    /// reference is shared so the caller can hand it to a Handle.
     std::shared_ptr<ChildSlot> add_child(const void* tag) {
         auto slot = std::make_shared<ChildSlot>();
+        slot->owner = this;
+        slot->index = children.size();
         slot->type_tag = tag;
         children.push_back(slot);
+        ++active_count;
         return slot;
     }
 
-    /// Child completion hook: runs inside the child's final suspend on the loop
-    /// thread. Allocation-free by construction, hence noexcept.
-    void child_finished(PromiseBase& frame) noexcept {
-        ChildSlot* slot = find(frame);
-        if (slot == nullptr) {
+    void child_finished(ChildSlot& slot, PromiseBase& frame) noexcept;
+    void wake_next() noexcept;
+
+    void unlink_completed(ChildSlot& slot) noexcept {
+        if (!slot.in_completed) {
             return;
         }
-        slot->done = true;
-        if (frame.failed() && !first_error) {
-            first_error = frame.error;
-            if (!supervisor) {
-                ScopeAccess::cancel(scope, CancelCause::REQUESTED);
-            }
-        }
-        for (PromiseBase* waiter = std::exchange(slot->join_head, nullptr); waiter != nullptr;) {
-            PromiseBase* next = std::exchange(waiter->wait_next, nullptr);
-            wake(*waiter);
-            waiter = next;
-        }
-        if (slot->discard) {
-            // No FIFO entry and no result: the slot leaves the bookkeeping now.
-            // The frame is parked in the graveyard after destroying the
-            // previous occupant — this hook cannot destroy the frame it runs
-            // on. done_count is untouched: the slot no longer exists.
-            destroy_graveyard();
-            graveyard = &frame;
-            erase_slot(slot);
+        if (slot.completed_prev != nullptr) {
+            slot.completed_prev->completed_next = slot.completed_next;
         } else {
-            ++done_count;
-            slot->completed_next = nullptr;
-            if (completed_tail != nullptr) {
-                completed_tail->completed_next = slot;
-            } else {
-                completed_head = slot;
-            }
-            completed_tail = slot;
+            completed_head = slot.completed_next;
         }
-        for (PromiseBase* waiter = std::exchange(next_head, nullptr); waiter != nullptr;) {
-            PromiseBase* next = std::exchange(waiter->wait_next, nullptr);
-            wake(*waiter);
-            waiter = next;
+        if (slot.completed_next != nullptr) {
+            slot.completed_next->completed_prev = slot.completed_prev;
+        } else {
+            completed_tail = slot.completed_prev;
         }
-        if (done_waiter != nullptr && all_done()) {
-            PromiseBase* waiter = std::exchange(done_waiter, nullptr);
-            wake(*waiter);
-        }
+        slot.completed_next = nullptr;
+        slot.completed_prev = nullptr;
+        slot.in_completed = false;
     }
 
-    /// Pop the oldest unconsumed completed child of the given result type.
+    /// Claim and unlink, but keep the frame alive through result extraction.
     ChildSlot* take_completed(const void* tag) noexcept {
-        ChildSlot* previous = nullptr;
         for (ChildSlot* slot = completed_head; slot != nullptr; slot = slot->completed_next) {
             if (slot->type_tag == tag && !slot->consumed) {
                 slot->consumed = true;
-                unlink_completed(previous, slot);
+                unlink_completed(*slot);
                 return slot;
             }
-            previous = slot;
         }
         return nullptr;
     }
 
-    /// A result claimed by a join no longer belongs to next(), even if pending.
     [[nodiscard]] bool has_unconsumed(const void* tag) const noexcept {
         for (const auto& slot : children) {
-            if (slot->type_tag == tag && !slot->consumed) {
+            if (!slot->discard && slot->type_tag == tag && !slot->consumed) {
                 return true;
             }
         }
         return false;
     }
 
-    /// Destroy every child frame and drop the group's slot references. Children
-    /// may refer to the body frame, so the body is destroyed only after this
-    /// returns. A slot itself stays alive while a Handle holds it; the cleared
-    /// frame pointer is the dead signal Handles and joiners check.
-    void reap() noexcept {
-        destroy_graveyard();
-        for (auto& slot : children) {
-            if (slot->frame != nullptr) {
-                slot->frame->self.destroy();
-                slot->frame = nullptr;
+    /// Consumption is terminal even if moving the value throws. This is called
+    /// only after completion, outside the child's final_suspend.
+    void retire(ChildSlot& slot) noexcept {
+        assert(slot.done);
+        unlink_completed(slot);
+        PromiseBase* frame = std::exchange(slot.frame, nullptr);
+        slot.owner = nullptr;
+        erase_slot(slot);
+        frame->self.destroy();
+    }
+
+    void erase_slot(ChildSlot& slot) noexcept {
+        const std::size_t index = slot.index;
+        if (index + 1 != children.size()) {
+            children[index] = std::move(children.back());
+            children[index]->index = index;
+        }
+        children.pop_back();
+    }
+
+    /// Only unobserved supervised failures remain here: observed results retire
+    /// their slots; failed discard children are deliberately retained for exit.
+    [[nodiscard]] std::vector<std::exception_ptr> unobserved_errors() const {
+        std::vector<std::exception_ptr> errors;
+        for (const auto& slot : children) {
+            if (slot->frame->failed()) {
+                errors.push_back(slot->frame->error);
             }
+        }
+        return errors;
+    }
+
+    void reap() noexcept {
+        lifetime->group = nullptr;
+        for (auto& slot : children) {
+            slot->frame->self.destroy();
+            slot->frame = nullptr;
+            slot->owner = nullptr;
         }
         children.clear();
         completed_head = nullptr;
         completed_tail = nullptr;
         next_head = nullptr;
         done_waiter = nullptr;
-        done_count = 0;
-    }
-
-private:
-    /// Destroy the graveyard frame, if one is parked. Safe from any context:
-    /// the parked frame is completed and nobody references it any more.
-    void destroy_graveyard() noexcept {
-        if (graveyard != nullptr) {
-            graveyard->self.destroy();
-            graveyard = nullptr;
-        }
-    }
-
-    /// Remove a slot from the bookkeeping. Vector erase only moves the
-    /// unique_ptrs, so it cannot allocate; the slot must not be touched after.
-    void erase_slot(ChildSlot* slot) noexcept {
-        for (auto it = children.begin(); it != children.end(); ++it) {
-            if (it->get() == slot) {
-                children.erase(it);
-                return;
-            }
-        }
-    }
-
-    ChildSlot* find(const PromiseBase& frame) const noexcept {
-        for (const auto& candidate : children) {
-            if (candidate->frame == &frame) {
-                return candidate.get();
-            }
-        }
-        return nullptr;
-    }
-
-    void unlink_completed(ChildSlot* previous, ChildSlot* slot) noexcept {
-        if (previous != nullptr) {
-            previous->completed_next = slot->completed_next;
-        } else {
-            completed_head = slot->completed_next;
-        }
-        if (completed_tail == slot) {
-            completed_tail = previous;
-        }
-        slot->completed_next = nullptr;
     }
 };
 
-inline void group_child_completed(void* owner, PromiseBase& frame) noexcept {
-    static_cast<GroupState*>(owner)->child_finished(frame);
-}
-
-/// Parks the awaiting frame until any child completes.
+/// A waiter belongs to its caller's scope, not to the result producer's scope.
+/// Cancellation detaches just this subscription; no child result is claimed.
 struct NextAwaitable {
-    GroupState* state = nullptr;
+    explicit NextAwaitable(GroupState* group) noexcept : state(group) {}
+
+    NextAwaitable(const NextAwaitable&) = delete;
+    NextAwaitable& operator=(const NextAwaitable&) = delete;
+    GroupState* state;
+    NextAwaitable* next = nullptr;
+    NextAwaitable* prev = nullptr;
+    WaitNode node{};
+    bool linked = false;
 
     constexpr bool await_ready() const noexcept { return false; }
 
     template<typename Promise>
     bool await_suspend(std::coroutine_handle<Promise> handle) {
         PromiseBase& waiter = handle.promise();
-        waiter.wait_next = state->next_head;
-        state->next_head = &waiter;
+        node.scope = waiter.scope;
+        if (node.scope != nullptr) {
+            node.scope->throw_if_cancelled();
+        }
+        node.waiter = &waiter;
+        node.owner = this;
+        node.on_cancel = [](WaitNode& cancelled) noexcept { static_cast<NextAwaitable*>(cancelled.owner)->detach(); };
+        next = state->next_head;
+        if (next != nullptr) {
+            next->prev = this;
+        }
+        state->next_head = this;
+        linked = true;
+        if (node.scope != nullptr) {
+            ScopeAccess::add_waiter(*node.scope, node);
+        }
         return true;
     }
 
-    void await_resume() const noexcept {}
+    void detach() noexcept {
+        if (!linked) {
+            return;
+        }
+        if (prev != nullptr) {
+            prev->next = next;
+        } else {
+            state->next_head = next;
+        }
+        if (next != nullptr) {
+            next->prev = prev;
+        }
+        next = nullptr;
+        prev = nullptr;
+        linked = false;
+    }
+
+    void resolve() noexcept {
+        detach();
+        if (node.linked) {
+            ScopeAccess::remove_waiter(*node.scope, node);
+        }
+        if (!node.scheduled) {
+            node.scheduled = true;
+            wake(*node.waiter);
+        }
+    }
+
+    void await_resume() const {
+        if (node.scope != nullptr) {
+            node.scope->throw_if_cancelled();
+        }
+    }
 };
 
-/// Parks the awaiting frame until every child has completed.
+inline void GroupState::wake_next() noexcept {
+    while (next_head != nullptr) {
+        next_head->resolve();
+    }
+}
+
+inline void GroupState::child_finished(ChildSlot& slot, PromiseBase& frame) noexcept {
+    slot.done = true;
+    --active_count;
+    if (frame.failed() && !supervisor && !first_error) {
+        first_error = frame.error;
+        ScopeAccess::cancel(scope, CancelCause::REQUESTED);
+    }
+    for (PromiseBase* waiter = std::exchange(slot.join_head, nullptr); waiter != nullptr;) {
+        PromiseBase* next = std::exchange(waiter->wait_next, nullptr);
+        wake(*waiter);
+        waiter = next;
+    }
+    if (slot.discard && !frame.failed()) {
+        // Reaping belongs to the loop's safe phase, not another child's hook.
+        slot.frame = nullptr;
+        slot.owner = nullptr;
+        erase_slot(slot);
+        LoopAccess::defer_reap(*loop, frame);
+    } else if (!slot.discard) {
+        slot.completed_prev = completed_tail;
+        slot.in_completed = true;
+        if (completed_tail != nullptr) {
+            completed_tail->completed_next = &slot;
+        } else {
+            completed_head = &slot;
+        }
+        completed_tail = &slot;
+    }
+    wake_next();
+    if (done_waiter != nullptr && all_done()) {
+        wake(*std::exchange(done_waiter, nullptr));
+    }
+}
+
+inline void group_child_completed(void* owner, PromiseBase& frame) noexcept {
+    auto& slot = *static_cast<ChildSlot*>(owner);
+    slot.owner->child_finished(slot, frame);
+}
+
+/// Exception-safe consumption: frame and history retire even on a throwing move.
+struct ConsumedChild {
+    ChildSlot& slot;
+
+    ~ConsumedChild() noexcept { slot.owner->retire(slot); }
+};
+
+/// Internal drain is intentionally not a cancellation checkpoint. Children must
+/// finish before their owner or borrowed outer resources can be destroyed.
 struct AllDoneAwaitable {
     GroupState* state = nullptr;
 
@@ -256,6 +319,9 @@ struct AllDoneAwaitable {
 
     template<typename Promise>
     bool await_suspend(std::coroutine_handle<Promise> handle) {
+        if (state->done_waiter != nullptr) {
+            throw std::logic_error("only one group drain may be active");
+        }
         state->done_waiter = &handle.promise();
         return true;
     }
@@ -263,9 +329,7 @@ struct AllDoneAwaitable {
     void await_resume() const noexcept {}
 };
 
-/// Awaits one child frame; used by Handle's operator co_await. Holding the
-/// slot keeps it alive across the suspension, so a group destroyed before the
-/// join resumes turns into a logic_error instead of a dangling read.
+/// Handle join retains its existing non-interruptible, single-consumer contract.
 template<typename T>
 struct JoinAwaiter {
     std::shared_ptr<ChildSlot> slot;
@@ -290,6 +354,7 @@ struct JoinAwaiter {
         if (slot->frame == nullptr) {
             throw std::logic_error("join requires an unclaimed child result");
         }
+        const ConsumedChild consume{*slot};
         auto* promise = static_cast<TaskPromise<T>*>(slot->frame);
         if (promise->error) {
             std::rethrow_exception(promise->error);
@@ -302,10 +367,7 @@ struct JoinAwaiter {
     }
 };
 
-/// Starts a not-yet-started frame and parks the caller until it finishes,
-/// *without* destroying it. The group uses this so the body frame outlives the
-/// children it spawned: children commonly capture the body's locals, and the
-/// body is reaped together with them at scope exit.
+/// Keep the body frame (not already-destroyed body locals) until owner exit.
 struct StartAndAwait {
     PromiseBase* frame = nullptr;
 
@@ -321,5 +383,4 @@ struct StartAndAwait {
 };
 
 }  // namespace coro::detail
-
 #endif  // YADDNSC_INFRASTRUCTURE_CORO_DETAIL_GROUP_STATE_H

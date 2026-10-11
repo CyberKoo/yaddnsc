@@ -1,7 +1,8 @@
 //
 // Coroutine runtime — entry point.
 //
-// The loop runs on the calling thread and returns when the root task completes.
+// The loop runs on the calling thread and returns after root completion and
+// submitted worker drain, keeping cross-thread inbox delivery alive throughout.
 // Tests may pass a loop built on a manual clock; time control is a loop property
 // and never penetrates the task API.
 //
@@ -31,6 +32,8 @@ namespace coro {
 /// creates.
 /// Failure: rethrows the root task's defect; T's move constructor may throw
 /// when the result is moved out. A task that never completes never returns.
+/// After root completion the loop pumps worker completions before returning;
+/// abandon ends an await, not the runtime's ownership of submitted work.
 /// An exception escaping loop dispatch is fatal (std::terminate): parked
 /// frames and lost callbacks cannot be safely unwound. Use a fresh loop for
 /// each run; externally stopping a live root violates this contract.

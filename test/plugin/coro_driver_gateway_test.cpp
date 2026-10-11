@@ -32,8 +32,9 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
-#include "domain/error/error.h"
 #include "coro/coro.h"
+#include "domain/error/error.h"
+#include "infrastructure/plugin/bridge.h"
 #include "infrastructure/plugin/driver_catalog.h"
 #include "infrastructure/plugin/driver_gateway.h"
 #include "infrastructure/plugin/shared_library.h"
@@ -323,6 +324,42 @@ protected:
 // Bridge round-trip
 // ---------------------------------------------------------------------------
 
+TEST(Bridge, SubmissionAfterGroupClosure_RejectsWithoutTouchingDeadGroup) {
+    coro::Loop loop;
+    std::shared_ptr<plugin::Bridge> bridge;
+    auto root = [&]() -> coro::Task<void> {
+        co_await coro::supervisor_group([&](coro::TaskGroup& group) -> coro::Task<void> {
+            bridge = std::make_shared<plugin::Bridge>(loop, group, http::Options{}, 100ms);
+            co_return;
+        });
+        auto call = std::make_shared<plugin::BridgeCall>();
+        call->url = "http://127.0.0.1:1/";
+        auto result = co_await coro::offload_joined([bridge, call] { return bridge->exchange(call); });
+        EXPECT_FALSE(result.has_value());
+        EXPECT_EQ(result.error().code, YADDNSC_STATUS_CANCELLED);
+    };
+    coro::run(loop, root());
+}
+
+TEST(Bridge, WorkerDeadline_CancelsRunningExchangeWithoutSlack) {
+    LoopbackHttpServer server{500ms};
+    coro::Loop loop;
+    auto root = [&]() -> coro::Task<void> {
+        co_await coro::supervisor_group([&](coro::TaskGroup& group) -> coro::Task<void> {
+            auto bridge = std::make_shared<plugin::Bridge>(loop, group, http::Options{}, 30ms);
+            auto call = std::make_shared<plugin::BridgeCall>();
+            call->url = fmt::format("http://127.0.0.1:{}/", server.port());
+            const auto start = std::chrono::steady_clock::now();
+            auto result = co_await coro::offload_joined([bridge, call] { return bridge->exchange(call); });
+            EXPECT_FALSE(result.has_value());
+            EXPECT_EQ(result.error().code, YADDNSC_STATUS_NETWORK_ERROR);
+            co_await group.join();
+            EXPECT_LT(std::chrono::steady_clock::now() - start, 200ms);
+        });
+    };
+    coro::run(loop, root());
+}
+
 TEST_F(CoroDriverGatewayTest, HttpExchangeRoundTripsThroughTheBridge) {
     LoopbackHttpServer server{0ms};
     coro::Loop loop;
@@ -366,9 +403,11 @@ TEST_F(CoroDriverGatewayTest, ConcurrentCyclesOfOneDriverRunInParallel) {
     run_loop(loop, [&]() -> coro::Task<void> {
         co_await coro::supervisor_group([&](coro::TaskGroup& group) -> coro::Task<void> {
             plugin::DriverGateway gateway(catalog_, logger_, loop, group, default_options(30s));
-            auto first = group.spawn(gateway.update(DRIVER_NAME, make_command(params)));
-            second_result = co_await gateway.update(DRIVER_NAME, make_command(params));
-            first_result = co_await first;
+            co_await group.with_children([&]() -> coro::Task<void> {
+                auto first = group.spawn(gateway.update(DRIVER_NAME, make_command(params)));
+                second_result = co_await gateway.update(DRIVER_NAME, make_command(params));
+                first_result = co_await first;
+            });
             co_return;
         });
         co_return;
@@ -413,9 +452,8 @@ TEST_F(CoroDriverGatewayTest, AbandonedCycleCancelsItsInFlightExchange) {
             // A nested group scopes the abandon to this one update; the outer
             // scope, and with it the gateway's bridge, stay live.
             co_await coro::supervisor_group([&](coro::TaskGroup& cycle) -> coro::Task<void> {
-                // Not joined: a cancelled child carries no result value, so a
-                // join would read an empty optional. The group joins it at
-                // scope exit.
+                // No result is needed: Handle join would rethrow Cancelled,
+                // while group exit drains and absorbs its own cancellation.
                 cycle.spawn(gateway.update(DRIVER_NAME, make_command(params)));
                 saw_request = co_await abandon_when_requested(server, 1, cycle);
                 co_return;
@@ -436,18 +474,9 @@ TEST_F(CoroDriverGatewayTest, AbandonedCycleCancelsItsInFlightExchange) {
     // broken. 25s stays clear of the 30s alternative; anything past it means
     // the abandon did not release the loop side.
     EXPECT_LT(elapsed, 25s);
-    // The worker thread unwinds (plugin update returns, destroy runs) a moment
-    // after the loop side is released; wait for it, bounded well under the
-    // 30s the un-cancelled exchange would have taken.
-    PluginState state;
-    const auto deadline = std::chrono::steady_clock::now() + 10s;
-    do {
-        state = control.state();
-        if (state.destroys == 1u) {
-            break;
-        }
-        std::this_thread::sleep_for(5ms);
-    } while (std::chrono::steady_clock::now() < deadline);
+    // run() has drained every submitted worker, so ABI destroy is already
+    // complete. Polling here would hide a broken worker-lifetime contract.
+    const PluginState state = control.state();
     EXPECT_EQ(state.creates, 1u);
     EXPECT_EQ(state.updates, 1u);
     EXPECT_EQ(state.destroys, 1u);
@@ -519,18 +548,20 @@ TEST_F(CoroDriverGatewayTest, AbandonedQueuedCycle_DoesNotEnterTheDriver) {
     run_loop(loop, [&]() -> coro::Task<void> {
         co_await coro::supervisor_group([&](coro::TaskGroup& group) -> coro::Task<void> {
             plugin::DriverGateway gateway(catalog_, logger_, loop, group, default_options());
-            auto first = group.spawn(gateway.update(DRIVER_NAME, make_command(params)));
-            // Let the first cycle reach the worker before queueing the second.
-            co_await coro::sleep_for(20ms);
-            const auto outcome = co_await coro::with_timeout(20ms, [&]() -> coro::Task<void> {
-                co_await gateway.update(DRIVER_NAME, make_command(params));
-                abandoned_returned = true;
-                co_return;
+            co_await group.with_children([&]() -> coro::Task<void> {
+                auto first = group.spawn(gateway.update(DRIVER_NAME, make_command(params)));
+                // Let the first cycle reach the worker before queueing the second.
+                co_await coro::sleep_for(20ms);
+                const auto outcome = co_await coro::with_timeout(20ms, [&]() -> coro::Task<void> {
+                    co_await gateway.update(DRIVER_NAME, make_command(params));
+                    abandoned_returned = true;
+                    co_return;
+                });
+                timed_out = outcome.timed_out;
+                // Drains the pool queue behind the cancelled queued job.
+                third_result = co_await gateway.update(DRIVER_NAME, make_command(params));
+                first_result = co_await first;
             });
-            timed_out = outcome.timed_out;
-            // Drains the pool queue behind the cancelled queued job.
-            third_result = co_await gateway.update(DRIVER_NAME, make_command(params));
-            first_result = co_await first;
             co_return;
         });
         co_return;
@@ -592,12 +623,11 @@ TEST_F(CoroDriverGatewayTest, ShutdownCancelsInFlightBridgeExchange) {
     run_loop(loop, [&]() -> coro::Task<void> {
         co_await coro::supervisor_group([&](coro::TaskGroup& group) -> coro::Task<void> {
             plugin::DriverGateway gateway(catalog_, logger_, loop, group, default_options(30s));
-            group.spawn(gateway.update(DRIVER_NAME, make_command(params)));
-            // Shutdown: cancel the bridge scope once the exchange is in flight.
-            // The exchange is cancelled at its await, the promise is fulfilled
-            // with a cancellation error, and the worker unblocks instead of
-            // waiting out the 30s budget.
-            saw_request = co_await abandon_when_requested(server, 1, group);
+            co_await group.with_children([&]() -> coro::Task<void> {
+                group.spawn(gateway.update(DRIVER_NAME, make_command(params)));
+                // Cancel bridge I/O, then drain before gateway is destroyed.
+                saw_request = co_await abandon_when_requested(server, 1, group);
+            });
             co_return;
         });
         co_return;
@@ -636,6 +666,23 @@ TEST_F(CoroDriverGatewayTest, PluginCancelledStatus_BecomesAnErrorValueOnALiveSc
 // ---------------------------------------------------------------------------
 // Config validation
 // ---------------------------------------------------------------------------
+
+TEST_F(CoroDriverGatewayTest, ValidationCancelledStatus_IsFailureValueWithoutCancellingHost) {
+    coro::Loop loop;
+    run_loop(loop, [&]() -> coro::Task<void> {
+        co_await coro::supervisor_group([&](coro::TaskGroup& group) -> coro::Task<void> {
+            plugin::DriverGateway gateway(catalog_, logger_, loop, group, default_options());
+            co_await group.with_children([&]() -> coro::Task<void> {
+                auto result = co_await gateway.validate_config(DRIVER_NAME, R"({"op":"cancel_validate"})");
+                EXPECT_FALSE(result.has_value());
+                EXPECT_EQ(result.error().code, domain::DriverError::Code::UNKNOWN);
+                EXPECT_FALSE(group.scope().cancelled());
+                // Foreign failure must not abort validation of the next entry.
+                EXPECT_TRUE((co_await gateway.validate_config(DRIVER_NAME, R"({})")).has_value());
+            });
+        });
+    });
+}
 
 TEST(CoroDriverGatewayValidate, MissingValidateEntryFailsConfigTest) {
     DriverCatalog catalog;

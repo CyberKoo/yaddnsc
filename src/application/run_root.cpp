@@ -4,30 +4,33 @@
 
 #include "run_root.h"
 
-#include <coroutine>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
-#include <optional>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
-#include <unistd.h>
 #include <chrono>
 #include <csignal>
 #include <cstdlib>
-#include <memory>
-#include <string>
 #include <exception>
 #include <functional>
+#include <memory>
+#include <optional>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
+#include <string>
 #include <vector>
 
+#include <coroutine>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
+
+#include <unistd.h>
+
 #include "application/log_macros.h"
+#include "application/services.h"
 #include "application/subdomain_loop.h"
-#include "domain/fqdn.h"
 #include "coro/cancel_scope.h"
 #include "coro/cancelled.h"
 #include "coro/group.hpp"
 #include "coro/signal.hpp"
 #include "coro/sleep.hpp"
-#include "min_update_interval.h"
-#include "application/services.h"
-#include "domain/config/runtime_config.h"
 #include "coro/task_group.hpp"
+#include "domain/config/runtime_config.h"
+#include "domain/fqdn.h"
+
+#include "min_update_interval.h"
 
 namespace app {
 class LoggerPort;
@@ -140,18 +143,21 @@ coro::Task<void> run_work(const std::shared_ptr<const domain::RuntimeConfig>& co
     co_await coro::supervisor_group([&](coro::TaskGroup& work) -> coro::Task<void> {
         shutdown.work_scope = &work.scope();
         const ResetWorkScope reset{shutdown};
-        if (shutdown.requested) {
-            work.cancel();
-        }
-        for (const auto& domain : config->domains) {
-            for (const auto& subdomain : domain.subdomains) {
-                work.spawn(guarded_subdomain_loop(domain, subdomain, services));
+        // This phase needs a drain, not cancellable result collection. Keep
+        // reset outside the child body so even partial-launch defects cancel
+        // and join every loop before the published scope borrow is cleared.
+        co_await work.with_children([&]() -> coro::Task<void> {
+            if (shutdown.requested) {
+                work.cancel();
+                co_return;  // no work should start after a startup shutdown
             }
-        }
-        // Keep the borrow published until every loop has ended, then clear it
-        // before the group scope is destroyed and a watcher can run again.
-        while (co_await work.next<void>()) {
-        }
+            work.scope().throw_if_cancelled();
+            for (const auto& domain : config->domains) {
+                for (const auto& subdomain : domain.subdomains) {
+                    work.spawn(guarded_subdomain_loop(domain, subdomain, services));
+                }
+            }
+        });
         co_return;
     });
 }
@@ -178,16 +184,15 @@ coro::Task<int> run_root(std::shared_ptr<const domain::RuntimeConfig> config, Ru
         const auto gateway = services.make_gateway(root);
         const Services svc{services.resolver, services.ip_source, *gateway, services.logger};
 
-        // Watchers live in the root scope, not the work scope, so the shutdown
-        // they trigger does not end them; the second SIGINT can still be caught.
-        // They are cancelled explicitly by root.cancel() once the work is done.
-        root.spawn(watch_signal(SIGINT, true, shutdown, services.logger, services.drain_logs));
-        root.spawn(watch_signal(SIGTERM, false, shutdown, services.logger, services.drain_logs));
-
-        co_await run_work(config, svc, shutdown);
-
-        // The work is finished: stop the watchers so the root group can join.
-        root.cancel();
+        // gateway/svc stay in this outer body while with_children drains both
+        // watchers and bridge requests, including defect/cancellation exits.
+        co_await root.with_children([&]() -> coro::Task<void> {
+            // Watchers outlive the work scope so a second SIGINT can escalate.
+            root.spawn(watch_signal(SIGINT, true, shutdown, services.logger, services.drain_logs));
+            root.spawn(watch_signal(SIGTERM, false, shutdown, services.logger, services.drain_logs));
+            co_await run_work(config, svc, shutdown);
+            root.cancel();
+        });
         co_return;
     });
     YLOG_INFO(services.logger, "All tasks drained, shutting down");

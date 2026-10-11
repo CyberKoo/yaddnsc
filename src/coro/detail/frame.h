@@ -19,7 +19,11 @@ public:
     FrameOwner(const FrameOwner&) = delete;
     FrameOwner& operator=(const FrameOwner&) = delete;
 
-    ~FrameOwner() noexcept { handle_.destroy(); }
+    ~FrameOwner() noexcept {
+        if (handle_) {
+            handle_.destroy();
+        }
+    }
 
 private:
     std::coroutine_handle<> handle_;
@@ -38,6 +42,8 @@ struct PromiseBase {
     std::coroutine_handle<> self{};
     /// Intrusive ready-queue link; a frame is queued at most once.
     PromiseBase* ready_next = nullptr;
+    /// Completed frames awaiting loop-side destruction after final_suspend.
+    PromiseBase* reap_next = nullptr;
     /// Intrusive link for group waiter lists (join / next()).
     PromiseBase* wait_next = nullptr;
     /// Frame to resume when this frame completes (null for the root task and

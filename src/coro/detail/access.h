@@ -26,6 +26,8 @@ namespace coro::detail {
 struct LoopAccess {
     static void schedule(Loop& loop, PromiseBase& frame) noexcept { loop.schedule(frame); }
 
+    static void defer_reap(Loop& loop, PromiseBase& frame) noexcept { loop.defer_reap(frame); }
+
     static void add_timer(Loop& loop, TimerNode& timer, TimePoint deadline, void (*action)(void*) noexcept,
                           void* context) {
         loop.add_timer(timer, deadline, action, context);
@@ -43,9 +45,7 @@ struct LoopAccess {
 
     static void disarm_signal(Loop& loop, int sig, WaitNode& node) noexcept { loop.disarm_signal(sig, node); }
 
-    static void submit_offload(Loop& loop, std::function<void()> job) {
-        loop.submit_offload(std::move(job));
-    }
+    static void submit_offload(Loop& loop, std::function<void()> job) { loop.submit_offload(std::move(job)); }
 };
 
 /// Runtime-only access to a scope's waiter bookkeeping and cancellation cause.

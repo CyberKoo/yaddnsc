@@ -22,7 +22,9 @@
 #include <vector>
 
 #include <gtest/gtest.h>
+
 #include "coro/coro.h"
+#include "coro/group_error.h"
 
 namespace {
 
@@ -221,8 +223,8 @@ TEST(TaskGroup, spawn_ThenJoin_YieldsEveryValue) {
 TEST(TaskGroup, spawn_AwaitHandleOfThrowingChild_RethrowsAtJoin) {
     bool caught = false;
     auto task = [&caught]() -> coro::Task<void> {
-        // supervisor_group reports a child defect instead of propagating it, so
-        // the only path left is the Handle join.
+        // Handle consumption observes the defect. supervisor_group must not
+        // report that same failure again as an unobserved exit error.
         co_await coro::supervisor_group([&caught](coro::TaskGroup& group) -> coro::Task<void> {
             auto handle = group.spawn(throw_runtime_error("child boom"));
             try {
@@ -587,6 +589,202 @@ TEST(Task, run_DispatchThrows_TerminatesInsteadOfUnwindingParkedFrames) {
             [[maybe_unused]] auto result = coro::run(loop, constant(1));
         },
         "");
+}
+
+coro::Task<void> hold_parameter(std::shared_ptr<int> token) {
+    EXPECT_NE(token, nullptr);
+    co_await coro::checkpoint();
+}
+
+TEST(TaskGroup, next_LocalTimeout_DetachesWaitWithoutCancellingOrClaimingChild) {
+    coro::ManualClock clock;
+    coro::Loop loop{clock};
+    auto root = []() -> coro::Task<void> {
+        co_await coro::supervisor_group([](coro::TaskGroup& group) -> coro::Task<void> {
+            auto handle = group.spawn(sleep_then_value(100ms, 42));
+            const auto start = co_await coro::current_time();
+            for (int i = 0; i < 3; ++i) {
+                auto outcome = co_await coro::with_timeout(10ms, [&group]() -> coro::Task<void> {
+                    [[maybe_unused]] auto result = co_await group.next<int>();
+                    ADD_FAILURE() << "cancelled result wait must not consume";
+                });
+                EXPECT_TRUE(outcome.timed_out);
+                EXPECT_TRUE(handle.valid());
+                EXPECT_FALSE(group.scope().cancelled());
+            }
+            EXPECT_EQ((co_await coro::current_time()) - start, 30ms);
+            auto result = co_await group.next<int>();
+            EXPECT_EQ(result->value(), 42);
+            EXPECT_FALSE(handle.valid());
+            EXPECT_FALSE((co_await group.next<int>()).has_value());
+        });
+    };
+    coro::run(loop, root());
+}
+
+TEST(TaskGroup, next_AlreadyCancelledCaller_DoesNotClaimReadyResult) {
+    auto root = []() -> coro::Task<void> {
+        co_await coro::supervisor_group([](coro::TaskGroup& group) -> coro::Task<void> {
+            auto handle = group.spawn(constant(42));
+            co_await group.join();
+            auto outcome = co_await coro::with_cancel_scope([&group](coro::CancelScope& scope) -> coro::Task<void> {
+                scope.cancel();
+                [[maybe_unused]] auto result = co_await group.next<int>();
+            });
+            EXPECT_TRUE(outcome.cancelled);
+            EXPECT_TRUE(handle.valid());
+            EXPECT_EQ(co_await handle, 42);
+        });
+    };
+    coro::run(root());
+}
+
+TEST(TaskGroup, next_CompletionAndTimeoutSameDeadline_CancellationWinsWithoutClaim) {
+    coro::ManualClock clock;
+    coro::Loop loop{clock};
+    auto root = []() -> coro::Task<void> {
+        co_await coro::supervisor_group([](coro::TaskGroup& group) -> coro::Task<void> {
+            auto handle = group.spawn(sleep_then_value(10ms, 42));
+            auto outcome = co_await coro::with_timeout(10ms, [&group]() -> coro::Task<void> {
+                [[maybe_unused]] auto result = co_await group.next<int>();
+                ADD_FAILURE();
+            });
+            EXPECT_TRUE(outcome.timed_out);
+            EXPECT_EQ(co_await handle, 42);
+        });
+    };
+    coro::run(loop, root());
+}
+
+TEST(TaskGroup, Consumption_ReleasesFrameAndBoundsHistoryWhileGroupLives) {
+    auto root = []() -> coro::Task<void> {
+        co_await coro::task_group([](coro::TaskGroup& group) -> coro::Task<void> {
+            for (int i = 0; i < 1000; ++i) {
+                auto token = std::make_shared<int>(1);
+                auto handle = group.spawn(hold_parameter(token));
+                if (i % 2 == 0) {
+                    co_await handle;
+                } else {
+                    EXPECT_TRUE((co_await group.next<void>())->has_value());
+                }
+                EXPECT_EQ(token.use_count(), 1);
+                EXPECT_FALSE(handle.valid());
+            }
+            group.spawn(constant(42));
+            EXPECT_EQ((co_await group.next<int>())->value(), 42);
+        });
+    };
+    coro::run(root());
+}
+
+TEST(TaskGroup, Consumption_ThrowingMoveStillReleasesFrame) {
+    auto root = []() -> coro::Task<void> {
+        co_await coro::supervisor_group([](coro::TaskGroup& group) -> coro::Task<void> {
+            auto token = std::make_shared<int>(1);
+            bool moved = false;
+            auto handle = group.spawn(throwing_move_result(token, moved));
+            EXPECT_THROW(co_await handle, std::runtime_error);
+            EXPECT_EQ(token.use_count(), 1);
+            moved = false;
+            group.spawn(throwing_move_result(token, moved));
+            EXPECT_THROW(co_await group.next<ThrowingMove>(), std::runtime_error);
+            EXPECT_EQ(token.use_count(), 1);
+        });
+    };
+    coro::run(root());
+}
+
+TEST(TaskGroup, Supervisor_UnobservedFailuresAreReportedAfterSiblingsFinish) {
+    coro::ManualClock clock;
+    coro::Loop loop{clock};
+    int finished = 0;
+    auto root = [&finished]() -> coro::Task<void> {
+        co_await coro::supervisor_group([&finished](coro::TaskGroup& group) -> coro::Task<void> {
+            group.spawn_discard(throw_runtime_error("discard"));
+            group.spawn(throw_runtime_error("unclaimed"));
+            group.spawn(increment_after_sleep(finished, 10ms));
+            co_return;
+        });
+    };
+    try {
+        coro::run(loop, root());
+        FAIL();
+    } catch (const coro::GroupError& error) {
+        EXPECT_EQ(error.errors().size(), 2u);
+    }
+    EXPECT_EQ(finished, 1);
+}
+
+TEST(TaskGroup, join_BodyLocalResourcesRemainAliveThroughCancellationDrain) {
+    coro::ManualClock clock;
+    coro::Loop loop{clock};
+    auto root = []() -> coro::Task<void> {
+        co_await coro::task_group([](coro::TaskGroup& group) -> coro::Task<void> {
+            auto token = std::make_shared<int>(1);
+            group.spawn(hold_parameter(token));
+            group.cancel();
+            co_await group.join();
+            // Cancellation cannot skip the drain or destroy resources early.
+            EXPECT_EQ(token.use_count(), 2);
+        });
+    };
+    coro::run(loop, root());
+}
+
+coro::Task<void> borrow_until_cancelled(const std::weak_ptr<int>& token, bool& finished) {
+    try {
+        co_await coro::sleep_for(100ms);
+    } catch (const coro::Cancelled&) {
+        EXPECT_FALSE(token.expired());
+        finished = true;
+        throw;
+    }
+}
+
+TEST(TaskGroup, with_children_DefectDrainsBeforeOuterBodyResourcesDestruct) {
+    bool finished = false;
+    auto root = [&]() -> coro::Task<void> {
+        co_await coro::supervisor_group([&](coro::TaskGroup& group) -> coro::Task<void> {
+            auto resource = std::make_shared<int>(1);
+            const std::weak_ptr<int> borrow = resource;
+            EXPECT_THROW(co_await group.with_children([&]() -> coro::Task<void> {
+                group.spawn(borrow_until_cancelled(borrow, finished));
+                co_await coro::checkpoint();
+                throw std::runtime_error("body failure");
+            }),
+                         std::runtime_error);
+            EXPECT_TRUE(finished);
+            EXPECT_FALSE(borrow.expired());
+        });
+    };
+    coro::run(root());
+    EXPECT_TRUE(finished);
+}
+
+TEST(TaskGroup, BodyFactoryThrowsAfterSpawning_StillCancelsAndDrains) {
+    bool cancelled = false;
+    auto root = [&]() -> coro::Task<void> {
+        co_await coro::task_group([&](coro::TaskGroup& group) -> coro::Task<void> {
+            group.spawn(wait_until_cancelled(cancelled));
+            // Deliberately not a coroutine: failure happens while constructing
+            // the body, after execution ownership has already been transferred.
+            throw std::runtime_error("factory failure");
+        });
+    };
+    EXPECT_THROW(coro::run(root()), std::runtime_error);
+    EXPECT_TRUE(cancelled);
+}
+
+TEST(TaskGroup, SuccessfulDiscard_FrameIsReapedBeforeNextLoopTurn) {
+    auto root = []() -> coro::Task<void> {
+        co_await coro::supervisor_group([](coro::TaskGroup& group) -> coro::Task<void> {
+            auto token = std::make_shared<int>(1);
+            group.spawn_discard(hold_parameter(token));
+            co_await group.join();
+            EXPECT_EQ(token.use_count(), 1);
+        });
+    };
+    coro::run(root());
 }
 
 }  // namespace

@@ -13,10 +13,12 @@
 #include <functional>
 #include <memory>
 #include <stdexcept>
+#include <stop_token>
 #include <string>
 #include <thread>
 
 #include <gtest/gtest.h>
+
 #include "coro/coro.h"
 
 namespace {
@@ -119,10 +121,8 @@ TEST(Offload, offload_AbandonedWhileRunning_JobStillFinishes) {
     coro::run(loop, task());
     EXPECT_TRUE(timed_out);
     EXPECT_TRUE(started.load());
-    // The abandoned job still runs to completion; its result is discarded.
-    for (int i = 0; i < 200 && !finished.load(); ++i) {
-        std::this_thread::sleep_for(5ms);
-    }
+    // Abandon ended the await, but run() must drain the actual worker. Do not
+    // poll after return: that would hide a broken runtime lifetime guarantee.
     EXPECT_TRUE(finished.load());
 }
 
@@ -234,6 +234,112 @@ TEST(Offload, loop_DestroyedWithAbandonedWorker_JoinsBeforeClosingWakePipe) {
     }
     EXPECT_TRUE(started.load());
     EXPECT_TRUE(finished.load());
+}
+
+TEST(Offload, Joined_CancellationWaitsForWorkerBeforeUnwindingBorrowedResources) {
+    std::atomic<bool> started{false};
+    std::atomic<bool> finished{false};
+    auto root = [&]() -> coro::Task<void> {
+        auto outcome = co_await coro::with_timeout(20ms, [&]() -> coro::Task<void> {
+            int borrowed = 42;
+            try {
+                co_await coro::offload_joined([&] {
+                    started.store(true);
+                    std::this_thread::sleep_for(60ms);
+                    EXPECT_EQ(borrowed, 42);
+                    finished.store(true);
+                });
+            } catch (const coro::Cancelled&) {
+                EXPECT_TRUE(finished.load());
+                throw;
+            }
+        });
+        EXPECT_TRUE(outcome.timed_out);
+        EXPECT_TRUE(finished.load());
+    };
+    coro::run(root());
+    EXPECT_TRUE(started.load());
+}
+
+TEST(Offload, Joined_CooperativeWorkerReceivesStopAndIsJoined) {
+    std::atomic<bool> stopped{false};
+    auto root = [&]() -> coro::Task<void> {
+        auto outcome = co_await coro::with_timeout(20ms, [&]() -> coro::Task<void> {
+            co_await coro::offload_joined([&](std::stop_token token) {
+                while (!token.stop_requested()) {
+                    std::this_thread::sleep_for(1ms);
+                }
+                stopped.store(true);
+            });
+        });
+        EXPECT_TRUE(outcome.timed_out);
+        EXPECT_TRUE(stopped.load());
+    };
+    coro::run(root());
+}
+
+TEST(Offload, Joined_AlreadyCancelled_DoesNotStartCallable) {
+    bool ran = false;
+    auto root = [&]() -> coro::Task<void> {
+        auto outcome = co_await coro::with_cancel_scope([&](coro::CancelScope& scope) -> coro::Task<void> {
+            scope.cancel();
+            co_await coro::offload_joined([&](std::stop_token) { ran = true; });
+        });
+        EXPECT_TRUE(outcome.cancelled);
+    };
+    coro::run(root());
+    EXPECT_FALSE(ran);
+}
+
+TEST(Offload, Joined_QueuedCancellation_SkipsWorkAndWaitsForQueueCompletion) {
+    coro::Loop loop;
+    loop.set_offload_workers(1);
+    std::atomic<bool> blocker_started{false};
+    std::atomic<bool> blocker_finished{false};
+    bool ran = false;
+    auto blocker = [&]() -> coro::Task<void> {
+        co_await coro::offload([&] {
+            blocker_started.store(true);
+            std::this_thread::sleep_for(60ms);
+            blocker_finished.store(true);
+        });
+    };
+    auto root = [&]() -> coro::Task<void> {
+        co_await coro::task_group([&](coro::TaskGroup& group) -> coro::Task<void> {
+            group.spawn(blocker());
+            while (!blocker_started.load()) {
+                co_await coro::checkpoint();
+            }
+            auto outcome = co_await coro::with_timeout(
+                10ms, [&]() -> coro::Task<void> { co_await coro::offload_joined([&] { ran = true; }); });
+            EXPECT_TRUE(outcome.timed_out);
+            EXPECT_TRUE(blocker_finished.load());
+        });
+    };
+    coro::run(loop, root());
+    EXPECT_FALSE(ran);
+}
+
+TEST(Offload, RootExit_PumpsInboxUntilAbandonedWorkersFinish) {
+    coro::Loop loop;
+    std::atomic<bool> callback{false};
+    std::atomic<bool> worker_done{false};
+    auto root = [&]() -> coro::Task<void> {
+        auto outcome = co_await coro::with_timeout(10ms, [&]() -> coro::Task<void> {
+            co_await coro::offload([&] {
+                std::this_thread::sleep_for(30ms);
+                loop.post([&] { callback.store(true); });
+                while (!callback.load()) {
+                    std::this_thread::sleep_for(1ms);
+                }
+                worker_done.store(true);
+            });
+        });
+        EXPECT_TRUE(outcome.timed_out);
+    };
+    coro::run(loop, root());
+    EXPECT_TRUE(callback.load());
+    EXPECT_TRUE(worker_done.load());
 }
 
 }  // namespace

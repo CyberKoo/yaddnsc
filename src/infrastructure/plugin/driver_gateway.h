@@ -57,7 +57,9 @@ public:
 
     /// @param catalog       Loaded-plugin registry (non-owning; must outlive
     ///                      the gateway — it does in the composition root).
-    /// @param logger        Log port receiving plugin log records (non-owning).
+    /// @param logger        Log port receiving plugin log records (non-owning);
+    ///                      must outlive all submitted cycles, including abandoned
+    ///                      workers: keep it alive until coro::run returns.
     /// @param loop          Loop that runs the bridge's exchanges.
     /// @param bridge_group  Structured scope for the bridge's loop-side
     ///                      coroutines; the application binds its root group
@@ -90,7 +92,9 @@ public:
     /// same create → validate → destroy cycle on an offload worker. The optional
     /// yaddnsc_driver_validate entry stays optional: a plugin that omits it
     /// still loads and can update, but this call fails because the host cannot
-    /// confirm driver_params.
+    /// confirm driver_params. A plugin-reported CANCELLED on a live host scope
+    /// is a validation error value, not a request to cancel the host. Uses the
+    /// same abandon/worker-lifetime contract as update().
     [[nodiscard]] coro::Task<std::expected<void, domain::DriverError>> validate_config(
         std::string driver_name, std::string driver_param_json) override;
 

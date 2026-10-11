@@ -72,7 +72,7 @@ guard_check("the coroutine runtime must not include a logging backend (compositi
 #    include runtime internals themselves; application code cannot name them.
 # ------------------------------------------------------------------------------
 set(application_coro_headers
-    async_mutex.hpp cancel_scope.h cancelled.h checkpoint.hpp fwd.h group.hpp mutex_guard.hpp now.hpp
+    async_mutex.hpp cancel_scope.h cancelled.h checkpoint.hpp fwd.h group.hpp group_error.h mutex_guard.hpp now.hpp
     offload.hpp scope.hpp scope_outcome.hpp signal.hpp sleep.hpp task.hpp task_group.hpp time.h)
 file(GLOB_RECURSE application_check_files RELATIVE ${PROJECT_SOURCE_DIR}
     ${PROJECT_SOURCE_DIR}/src/application/*.h

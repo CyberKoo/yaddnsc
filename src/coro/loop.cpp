@@ -4,16 +4,13 @@
 
 #include "loop.h"
 
-#include <compare>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
-#include <poll.h>
-#include <unistd.h>
-#include <sys/types.h>
 #include <algorithm>
 #include <atomic>
 #include <cassert>
 #include <cerrno>
 #include <chrono>
 #include <climits>
+#include <compare>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 #include <csignal>  // IWYU pragma: keep — clang resolves sigaction/SA_RESTART transitively, GCC does not
 #include <cstring>  // IWYU pragma: keep — clang resolves std::strerror transitively, GCC does not
 #include <source_location>
@@ -21,29 +18,34 @@
 #include <string>
 #include <system_error>
 #include <thread>
-#include <bit>
+
 #include <coroutine>
 
+#include <bit>
+#include <poll.h>
+#include <sys/types.h>
+#include <unistd.h>
+
 #include "coro/detail/access.h"
-#include "coro/detail/timer_node.h"
-#include "BS_thread_pool.hpp"
 #include "coro/detail/frame.h"
+#include "coro/detail/timer_node.h"
 #include "coro/detail/wait_node.h"
 #include "support/fmt.hpp"  // IWYU pragma: keep — fmt::format in the CORO_TRACE macro body
+
+#include "BS_thread_pool.hpp"
 
 // Trace diagnostics leave the runtime through the injected sink (loop.h);
 // with no sink installed, each site costs one null check. Formatting and the
 // sink call stay inside the catch-all: several sites sit in noexcept paths,
 // and a diagnostic must never take the runtime down.
-#define CORO_TRACE(...)                                                        \
-    do {                                                                       \
-        if (trace_sink_ != nullptr) {                                          \
-            try {                                                              \
-                trace_sink_(trace_context_, fmt::format(__VA_ARGS__),          \
-                            std::source_location::current());                  \
-            } catch (...) {                                                    \
-            }                                                                  \
-        }                                                                      \
+#define CORO_TRACE(...)                                                                                 \
+    do {                                                                                                \
+        if (trace_sink_ != nullptr) {                                                                   \
+            try {                                                                                       \
+                trace_sink_(trace_context_, fmt::format(__VA_ARGS__), std::source_location::current()); \
+            } catch (...) {                                                                             \
+            }                                                                                           \
+        }                                                                                               \
     } while (false)
 
 namespace coro {
@@ -265,6 +267,20 @@ void Loop::schedule(detail::PromiseBase& frame) noexcept {
     ready_tail_ = &frame;
 }
 
+void Loop::defer_reap(detail::PromiseBase& frame) noexcept {
+    assert(frame.continuation == nullptr && !frame.in_ready);
+    frame.reap_next = reap_head_;
+    reap_head_ = &frame;
+}
+
+void Loop::reap_completed() noexcept {
+    while (reap_head_ != nullptr) {
+        auto* frame = reap_head_;
+        reap_head_ = frame->reap_next;
+        frame->self.destroy();
+    }
+}
+
 void Loop::drain_ready() {
     detail::PromiseBase* batch = ready_head_;
     ready_head_ = nullptr;
@@ -275,6 +291,7 @@ void Loop::drain_ready() {
         batch->ready_next = nullptr;
         batch->in_ready = false;
         batch->self.resume();
+        reap_completed();
         ++resumed;
         batch = next;
     }
@@ -286,7 +303,7 @@ void Loop::post(std::function<void()> fn) {
         const std::lock_guard lock(inbox_mutex_);
         inbox_.push_back(std::move(fn));
     }
-    CORO_TRACE("Posted a cross-thread callback to the inbox");
+    // Diagnostics are emitted when the inbox is consumed on the loop thread.
     wake();
 }
 
@@ -309,7 +326,21 @@ void Loop::submit_offload(std::function<void()> job) {
         pool_ = std::make_unique<Pool>(pool_workers_);
         CORO_TRACE("Created offload pool with {} worker(s)", pool_workers_);
     }
-    pool_->submit(std::move(job));
+    ++offload_pending_;
+    try {
+        pool_->submit([this, job = std::move(job)]() mutable {
+            job();
+            job = {};  // release user/shared captures before completion accounting
+            try {
+                post([this] { --offload_pending_; });
+            } catch (...) {
+                std::terminate();  // completion accounting cannot be lost
+            }
+        });
+    } catch (...) {
+        --offload_pending_;
+        throw;
+    }
     CORO_TRACE("Submitted offload job, {} now queued", pool_->queued());
 }
 
@@ -337,7 +368,7 @@ void Loop::set_trace_sink(TraceSink sink, void* context) noexcept {
 void Loop::run() {
     assert(!fds_.empty() && "loop self-pipe unavailable: nothing could ever wake the loop");
     CORO_TRACE("run() starting");
-    while (!stopped_) {
+    while (!stopped_ || offload_pending_ != 0) {
         // Signals are checked before everything else: a busy loop (e.g. the
         // cancellation storm of a shutdown drain) must not starve them, and a
         // second SIGINT must stay deliverable while the drain runs.
@@ -350,6 +381,9 @@ void Loop::run() {
         // starves all three — a with_timeout would then fire late or never.
         process_inbox();
         fire_timers();
+        if (stopped_ && offload_pending_ == 0 && ready_head_ == nullptr) {
+            break;
+        }
         if (ready_head_ != nullptr) {
             drain_ready();
             // The drain re-filled the queue; keep I/O moving with a

@@ -45,8 +45,8 @@
 #include <poll.h>  // pollfd scratch members below; a POSIX header in a public header, accepted — the runtime is POSIX-only
 
 #include "coro/clock.h"
-#include "support/util/fd.hpp"
 #include "coro/time.h"
+#include "support/util/fd.hpp"
 
 namespace coro {
 namespace detail {
@@ -72,10 +72,11 @@ using FdToken = std::uint64_t;
 /// alive. Sequential loops are fine.
 ///
 /// Lifetime: a loop outlives every task started on it. run() returns once the
-/// root task has completed, at which point structured scopes guarantee that no
-/// descendant frame is still parked. The destructor joins the offload pool, so
-/// a job abandoned by a cancelled await may still be running; such a job only
-/// touches shared state and the inbox, both of which outlive the join.
+/// root task and every submitted offload job have completed. After root exit,
+/// the loop continues processing the inbox until abandoned workers finish, so
+/// workers can complete their loop hand-offs. Their callables must own any data
+/// whose task scope has already exited. A blocked worker can still block run().
+/// The destructor joins the pool before closing the pipe/inbox.
 class Loop {
 public:
     /// Loop with an internal system clock. Throws std::logic_error if another
@@ -98,14 +99,17 @@ public:
     /// True once the root task has completed and run() has been asked to return.
     [[nodiscard]] bool stopped() const noexcept { return stopped_; }
 
-    /// Ask run() to return after the current iteration. Loop thread only.
+    /// Mark root completion; run() still drains submitted workers. Loop thread only.
+    /// This is not cancellation: external stop with a live root is fatal in coro::run.
     void request_stop() noexcept { stopped_ = true; }
 
     /// Cross-thread ingress: enqueue a callback for the loop thread.
     /// Callable from any thread; the callback itself runs on the loop thread.
     /// The callback runs inline during inbox processing, ahead of the ready
     /// queue: it must only schedule or signal, never block or do heavy work.
-    /// Allocates, so it may throw std::bad_alloc.
+    /// The callback must not throw; an escaping exception is fatal dispatch failure.
+    /// Allocates, so posting may throw std::bad_alloc. Caller must ensure the loop
+    /// outlives posting; submitted offload work is joined before run() returns.
     void post(std::function<void()> fn);
 
     /// Diagnostic trace sink: when set, the loop reports internal scheduling
@@ -135,7 +139,7 @@ public:
     /// Worker count for the lazily created pool; set before the first offload.
     void set_offload_workers(unsigned workers) noexcept;
 
-    /// Run until the root task completes. Runs on the calling thread.
+    /// Run until root completion and submitted-worker drain. Runs on the caller.
     void run();
 
 private:
@@ -204,6 +208,8 @@ private:
     void restore_signals() noexcept;
     static void on_pipe_ready(void* context, short revents) noexcept;
 
+    void defer_reap(detail::PromiseBase& frame) noexcept;
+    void reap_completed() noexcept;
     void drain_ready();
     void process_inbox();
     bool process_signals() noexcept;
@@ -226,6 +232,7 @@ private:
 
     detail::PromiseBase* ready_head_ = nullptr;
     detail::PromiseBase* ready_tail_ = nullptr;
+    detail::PromiseBase* reap_head_ = nullptr;
 
     std::vector<detail::TimerNode*> timers_;
     std::uint64_t timer_sequence_ = 0;
@@ -247,6 +254,8 @@ private:
 
     std::unique_ptr<Pool> pool_;
     unsigned pool_workers_ = default_offload_workers();
+    /// Loop-thread count, decremented by completion callbacks after worker exit.
+    std::size_t offload_pending_ = 0;
 
     TraceSink trace_sink_ = nullptr;
     void* trace_context_ = nullptr;

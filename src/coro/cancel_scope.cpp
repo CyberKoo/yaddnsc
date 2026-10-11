@@ -7,8 +7,8 @@
 #include <algorithm>
 #include <cassert>
 
-#include "coro/detail/access.h"
 #include "coro/cancelled.h"
+#include "coro/detail/access.h"
 #include "coro/detail/wait_node.h"
 
 namespace coro {
@@ -117,7 +117,7 @@ void CancelScope::wake_subtree() noexcept {
         if (node->on_cancel != nullptr) {
             node->on_cancel(*node);
         }
-        if (!node->scheduled) {
+        if (!node->scheduled && node->wake_on_cancel) {
             node->scheduled = true;
             if (node->cancelled_flag != nullptr) {
                 *node->cancelled_flag = true;

@@ -90,11 +90,14 @@ table, a timer heap, a ready queue and a cross-thread inbox.
 
 **Structured concurrency.** `coro::Task<T>` is lazy and runs inline at
 `co_await`. `task_group` cancels siblings on the first failure and rethrows
-after joining every child; `supervisor_group` reports a child failure through
-`next()` while its siblings keep running. `spawn_discard` starts a
-fire-and-forget child whose bookkeeping is shed at completion, which keeps a
-process-lifetime group bounded by its live children. The run root uses a
-supervisor group, so one subdomain failing leaves the others running.
+after joining every child; `supervisor_group` keeps siblings running and reports
+observed defects through `next()`/Handle. At exit, every unobserved child defect
+(including discarded results) is reported in `GroupError::errors()`; supervision
+is not permission to silently lose failures. Successful/cancelled discard frames
+are reaped by the loop after resume returns, never inside their final suspend.
+Consumed ordinary children retire their frames and slots immediately, including
+throwing result moves. Unconsumed results and unobserved failures remain until
+scope exit. The run root guards subdomain failures so siblings keep running.
 
 The DNS dispatcher is the runtime's other large user. The concurrent strategy
 races up to `MAX_CONCURRENT_RESOLVERS` (3) backends in a `task_group`: each
@@ -105,9 +108,10 @@ not on a thread. INVALID_QUERY alone ends a group search; PARSE/CONFIG are
 endpoint diagnoses. Sequential and concurrent strategies share error precedence:
 INVALID_QUERY, CONFIG, PARSE, operational failure, NODATA, NXDOMAIN. A failed view
 must not be turned into a definitive negative answer. The bootstrap resolver
-starts A/AAAA children in a `task_group`; after the first success, a 50ms timer
-sibling bounds collection of the other family. Scope exit cancels/joins remaining
-children while preserving collected addresses.
+starts A/AAAA children in a `task_group`; after the first success, a 50ms
+`with_timeout` bounds the next result wait without consuming a late result.
+The enclosing collection scope then cancels/joins remaining children while
+preserving collected addresses; there is no synthetic timer result child.
 
 DNS response matching compares opcode, ID and semantic QNAME/QTYPE/QCLASS,
 independent of case or compression encoding, while preserving label boundaries.
@@ -138,10 +142,23 @@ as soon as there are no unclaimed children of type `T`, without waiting for
 other result types. A Handle shares ownership of the child's bookkeeping slot,
 so one that outlives the group is dead but memory-safe: `valid()` is false and
 joining throws `std::logic_error`, the same failure as an empty or claimed
-handle. The child frame itself is still destroyed at scope exit.
-Keeping the body frame alive does not extend the lifetime of body locals that
-have already left scope; child references must still obey ordinary C++ lifetime
-rules.
+handle. Consumption destroys the completed child frame and removes its slot;
+Handle copies retain only a safe invalidation record, not execution ownership.
+
+`next<T>()` observes its caller's current cancel scope, not the group's scope.
+A cancelled waiter detaches its subscription without claiming a result or
+cancelling the producers. Completion/cancellation enqueue at most one resume;
+sticky cancellation wins before result consumption. Handle joins retain their
+non-interruptible contract. `TaskGroup::join()` is an internal-style drain:
+it waits for owned children despite caller cancellation, without consuming results.
+
+Keeping the body frame alive does not extend body-local object lifetimes.
+Prefer resources outside the group call. For resources in the outer group body,
+use `co_await group.with_children(fn)` before they leave scope: it cancels on
+abnormal exit, drains children on every exit, then rethrows the original error.
+Resources must be outside **fn's** coroutine body; callback locals still follow
+ordinary C++ destruction rules. The run root uses this boundary to keep its
+gateway/services alive through watcher and bridge-request cleanup.
 
 Completed task frames have RAII ownership while results are moved out, including
 throwing moves. Slot and wait registrations commit only after their fallible
@@ -202,7 +219,10 @@ at the driver gateway. A plugin that *returns* `YADDNSC_STATUS_CANCELLED`
 while its host scope is still live is not treated as control flow — the
 gateway logs it and converts it to a `DriverError::UPDATE_FAILED` value, so
 the cycle is retried like any other update failure; only cancellation the
-host actually initiated propagates as `Cancelled`.
+host actually initiated propagates as `Cancelled`. Validation follows the same
+distinction: a plugin-reported CANCELLED on a live scope becomes a validation
+error value, so config test reports failure instead of silently absorbing a
+newly manufactured host cancellation.
 
 ### Coroutine API boundary
 
@@ -211,7 +231,7 @@ The implicit runtime context, loop and clock objects, coroutine frames,
 registrations and scope waiter lists stay inside the runtime, which
 implementations reach directly and share with each other. The application
 surface is task ownership and structured groups (`task.hpp`, `group.hpp`,
-`task_group.hpp`, `fwd.h`), the cancellation combinators (`scope.hpp`),
+`task_group.hpp`, `group_error.h`, `fwd.h`), the cancellation combinators (`scope.hpp`),
 `ScopeOutcome` (`scope_outcome.hpp`), `CancelScope` and `coro::Cancelled`
 (`cancel_scope.h`, `cancelled.h`), cancellable waits (`sleep.hpp`,
 `signal.hpp`), loop time as values (`now.hpp`, `time.h`), `checkpoint()`
@@ -267,11 +287,13 @@ checkpoint; cancelling it (`cancel()`) and re-observing cancellation
 (`throw_if_cancelled()`) are explicit calls, and the latter is how the plugin
 gateway turns a synchronous ABI abort into coroutine cancellation. The run
 root borrows `work.scope()` and stores that borrow to cancel its work from a
-sibling signal watcher, and clears it before the group scope is destroyed.
+sibling signal watcher. Its work body uses `with_children` to drain (not `next()`
+result collection), keeping the borrow published through partial-launch cleanup
+and cancellation drain, then clears it before the group scope is destroyed.
 
 **Checkpoints.** `checkpoint()` yields and checks cancellation explicitly; use
 it in CPU loops. Sleep, fd waits, signal waits, mutex acquisition, offload and
-transport I/O are checkpoints too. Awaiting a `Task` or `Handle` propagates its
+transport I/O and group `next()` are checkpoints too. Awaiting a `Task` or `Handle` propagates its
 result; `current_time()` is a plain value read that returns immediately,
 leaving cancellation to the enclosing await.
 
@@ -280,19 +302,31 @@ result through the loop. Cancellation is *abandon*: the await throws
 `Cancelled` while the work packet finishes on its own. `offload` takes ownership
 of its callable immediately, so a task created from a temporary callable may be
 stored before it is awaited. Callable captures must own their data or refer to
-objects that outlive the worker, even after cancellation. Loop destruction joins
-workers before closing the wake pipe or destroying the inbox; an indefinitely
-blocked worker therefore also blocks loop destruction.
+objects that outlive the worker, even after cancellation.
+`offload_joined(fn)` instead delays cancellation unwind until the worker actually
+finishes, so resources borrowed by its callable may be local to the awaiting
+operation. A no-argument callable cannot be interrupted once running; a callable
+accepting `std::stop_token` receives a stop request and may cooperate. Stop
+callbacks run at cancellation on the loop and must not block or re-enter it.
+Queued cancelled jobs are skipped. After root completion, `run()` keeps pumping
+the inbox until all submitted work and completion accounting have drained;
+workers may finish loop hand-offs, but cannot start requests in a closed group.
+An uncooperative indefinitely blocked worker still prevents run() returning:
+there is no hard thread-kill or bounded-shutdown guarantee.
 
 **Plugin bridge.** The plugin C ABI is synchronous, so an update cycle runs on
 an offload worker. When the plugin calls `http_exchange`, the bridge posts a
 fire-and-forget child coroutine into the application's `TaskGroup` (supplied by
 the composition root); the loop runs the coroutine HTTP client and the worker
-waits for it. Each exchange is bounded: the gateway's `bridge_wait_budget`
-(5s) wraps the loop-side coroutine, and the worker waits 250ms longer, so the
-loop's timeout always fires first and the worker observes a real error instead
-of a bare wait timeout. Abandoning one update cancels that exchange's own
-scope, so the plugin's HTTP stops at once.
+waits for it. Admission checks a shared group lifetime token on the loop;
+body exit closes ingress before drain, so posted callbacks cannot dereference
+a destroyed group. Child-start allocation failure fulfils the request with an
+INTERNAL_ERROR instead of escaping dispatch. One absolute steady-clock deadline
+from the gateway's `bridge_wait_budget` (5s) covers dispatch, queueing and I/O:
+worker wait_until and loop with_deadline use the same point. Worker expiry posts
+actual cancellation and returns NETWORK_ERROR; no 250ms slack or ordering
+assumption remains. Abandoning an update cancels its exchange scope. ABI data,
+module leases and plugin status translation remain plugin responsibilities.
 
 **Subdomain loops.** Each subdomain is one long-lived coroutine that sleeps,
 updates and repeats, reusing one `UpdateTask` across cycles and carrying only

@@ -280,8 +280,12 @@ The allocation-failure binary replaces allocation functions only inside that
 executable. Its thread-local one-shot faults check failed group-slot allocation,
 timer-heap growth and signal registration without adding production test hooks.
 The core binary also checks deferred callable ownership, throwing result moves,
-single-consumer joins, typed completion exhaustion, abandoned-worker shutdown
-and the fatal loop-dispatch policy. Debug sanitizer builds exercise these same
+single-consumer joins, typed completion exhaustion, caller-scope result-wait
+cancellation (including completion/timeout ties), consumption-time frame recovery,
+unobserved supervisor failures, exception-safe body/resource drains, joined and
+cooperative worker cancellation, inbox pumping after root exit, loop-thread-only
+trace callbacks and the fatal loop-dispatch policy. Plugin tests cover closed-group
+admission and single-deadline bridge timeout. Debug sanitizer builds exercise these same
 tests; a passing suite does not substitute for separate TSan/platform validation.
 
 ## Documentation
@@ -469,7 +473,7 @@ enforces, in `cmake/ArchitectureGuard.cmake`:
 
 For `src/application/`, the guard allows direct coroutine includes only from
 `async_mutex.hpp`, `cancel_scope.h`, `cancelled.h`, `checkpoint.hpp`, `fwd.h`,
-`group.hpp`, `mutex_guard.hpp`, `now.hpp`, `offload.hpp`, `scope.hpp`,
+`group.hpp`, `group_error.h`, `mutex_guard.hpp`, `now.hpp`, `offload.hpp`, `scope.hpp`,
 `scope_outcome.hpp`, `signal.hpp`, `sleep.hpp`, `task.hpp`, `task_group.hpp` and
 `time.h`. These coroutine include and internal-access checks apply only to
 `src/application/`; the thread/future include check is wider and globs

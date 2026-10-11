@@ -13,6 +13,7 @@
 #include "coro/detail/access.h"
 #include "coro/detail/context.h"
 #include "coro/detail/group_state.h"
+#include "coro/group_error.h"
 #include "coro/task.hpp"
 #include "coro/task_group.hpp"
 
@@ -24,26 +25,56 @@ Task<void> run_group(Fn fn) {
     GroupState state{context.loop, context.scope, Supervisor};
     TaskGroup group{&state};
 
-    Task<void> body = fn(group);
-    TaskAccess::bind_context(body, *context.loop, state.scope);
-    auto body_handle = TaskAccess::release(body);
-    co_await StartAndAwait{&body_handle.promise()};
-    const std::exception_ptr body_error = body_handle.promise().error;
+    std::coroutine_handle<TaskPromise<void>> body_handle{};
+    std::exception_ptr body_error;
+    bool body_cancelled = false;
+    try {
+        Task<void> body = fn(group);
+        TaskAccess::bind_context(body, *context.loop, state.scope);
+        body_handle = TaskAccess::release(body);
+        co_await StartAndAwait{&body_handle.promise()};
+        body_error = body_handle.promise().error;
+        body_cancelled = body_handle.promise().cancellation;
+    } catch (const Cancelled&) {
+        body_error = std::current_exception();
+        body_cancelled = true;
+    } catch (...) {
+        body_error = std::current_exception();
+    }
+    state.lifetime->group = nullptr;  // close ingress before exit drain
 
-    if (body_error && !body_handle.promise().cancellation) {
+    if (body_error && !body_cancelled) {
         ScopeAccess::cancel(state.scope, CancelCause::REQUESTED);
     }
     while (!state.all_done()) {
         co_await AllDoneAwaitable{&state};
     }
+    // Outcome collection can allocate; keep both owners exception-safe.
+    const FrameOwner body_owner{body_handle};
     const std::exception_ptr child_error = state.first_error;
+    std::vector<std::exception_ptr> unobserved;
+    try {
+        if constexpr (Supervisor) {
+            unobserved = state.unobserved_errors();
+        }
+    } catch (...) {
+        // Even aggregation allocation failure must reap children before the
+        // retained body parameters/closure are released.
+        state.reap();
+        throw;
+    }
     state.reap();
-    // The body frame stays alive until every child it spawned has been reaped.
-    body_handle.destroy();
 
     if constexpr (!Supervisor) {
         if (child_error) {
             std::rethrow_exception(child_error);
+        }
+    } else {
+        if (!unobserved.empty()) {
+            if (body_error && !body_cancelled) {
+                unobserved.push_back(body_error);
+            }
+            throw GroupError{std::move(unobserved)};
         }
     }
     try {

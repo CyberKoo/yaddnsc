@@ -182,12 +182,6 @@ struct KindResult {
     co_return result;
 }
 
-/// Timer sibling: unlike timing only a group joiner, completion wakes next().
-[[nodiscard]] coro::Task<bool> collection_window() {
-    co_await coro::sleep_for(std::chrono::milliseconds(50));
-    co_return false;
-}
-
 /// Adapter so a kind can be resolved by a spawned group child.
 [[nodiscard]] coro::Task<bool> resolve_into(std::string host, const domain::RecordKind kind,
                                             std::vector<domain::DnsServer> servers, KindResult* out) {
@@ -262,16 +256,20 @@ coro::Task<std::expected<std::vector<domain::InetAddress>, domain::DnsErrorInfo>
             group.spawn(resolve_into(host, domain::RecordKind::A, servers, &ipv4));
             group.spawn(resolve_into(host, domain::RecordKind::AAAA, servers, &ipv6));
             auto first = co_await group.next<bool>();
-            if (!first || !first->has_value())
+            // task_group defects cancel this caller before delivery and are
+            // rethrown after drain. A delivered Result therefore holds a value.
+            if (!first)
                 co_return;
             if (!first->value()) {
                 [[maybe_unused]] auto second = co_await group.next<bool>();
                 co_return;
             }
-            // group.next() joins children; use a timer sibling rather than
-            // timing out only its waiter while the resolving child lives on.
-            group.spawn(collection_window());
-            [[maybe_unused]] auto second = co_await group.next<bool>();
+            // Bound just collection: the timeout detaches next() without
+            // consuming a late result. Then cancel and structurally drain the
+            // unresolved family through the enclosing collection scope.
+            [[maybe_unused]] auto window = co_await coro::with_timeout(
+                std::chrono::milliseconds(50),
+                [&group]() -> coro::Task<void> { [[maybe_unused]] auto second = co_await group.next<bool>(); });
             collection.cancel();
         });
     });
