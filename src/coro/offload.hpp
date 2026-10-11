@@ -15,6 +15,9 @@
 // surfaces `coro::Cancelled`. A defect thrown by the callable is rethrown at
 // the await point — offload is not an exception channel of its own.
 //
+// Awaiting outside coro::run is a programming defect: assertion-diagnosed in
+// Debug builds, undefined behavior in Release.
+//
 
 #ifndef YADDNSC_INFRASTRUCTURE_CORO_OFFLOAD_HPP
 #define YADDNSC_INFRASTRUCTURE_CORO_OFFLOAD_HPP
@@ -45,6 +48,7 @@ Task<std::invoke_result_t<Fn>> run_offload(std::shared_ptr<Fn> fn) {
 /// Cancellation: abandon (see above) — the await throws
 /// `coro::Cancelled`. Failure: allocation may throw; a defect
 /// thrown by `fn` is rethrown at the await point.
+/// Precondition: awaited inside coro::run (see the header note).
 template<typename F>
 [[nodiscard]] auto offload(F&& fn) -> Task<std::invoke_result_t<std::decay_t<F>>> {
     return detail::run_offload(std::make_shared<std::decay_t<F>>(std::forward<F>(fn)));

@@ -13,6 +13,9 @@
 // The wait is cancellable (it registers on the awaiting scope), so a scope
 // timeout ends a pending signal wait by throwing Cancelled from Task<void>.
 //
+// Awaiting outside coro::run is a programming defect: assertion-diagnosed in
+// Debug builds, undefined behavior in Release.
+//
 
 #ifndef YADDNSC_INFRASTRUCTURE_CORO_SIGNAL_HPP
 #define YADDNSC_INFRASTRUCTURE_CORO_SIGNAL_HPP
@@ -29,6 +32,7 @@ namespace coro {
 /// Failure: allocation may throw; invalid/uncatchable signals throw
 /// std::invalid_argument, and handler installation failure throws std::system_error.
 /// A failed registration leaves no waiter or changed signal disposition.
+/// Precondition: awaited inside coro::run (see the header note).
 [[nodiscard]] inline Task<void> on_signal(int sig) {
     co_return co_await detail::SignalAwaitable{sig};
 }

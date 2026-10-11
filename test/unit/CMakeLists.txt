@@ -103,6 +103,7 @@ add_unit_test(coro
            coro/signal_test.cpp
            coro/trace_sink_test.cpp
            coro/loop_test.cpp
+           coro/context_contract_test.cpp
 )
 target_link_libraries(test_coro PRIVATE yaddnsc_coro)
 

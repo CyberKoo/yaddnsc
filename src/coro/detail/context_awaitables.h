@@ -38,6 +38,7 @@ private:
 
 /// Yields to the loop and observes sticky cancellation.
 ///
+/// Precondition: awaited inside coro::run (the frame must run on a loop).
 /// The frame is re-queued rather than resumed inline, so a checkpoint cannot
 /// deepen the stack.
 class CheckpointAwaitable {
@@ -67,6 +68,7 @@ private:
 
 /// Reads the innermost cancel scope of the awaiting frame.
 ///
+/// Precondition: awaited inside coro::run, where every frame has a scope.
 /// This is what a caller uses to reach the scope it is already running in; it
 /// deliberately yields no loop, no clock and no frame, so the runtime's
 /// implicit context stays runtime-internal.

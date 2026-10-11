@@ -2,6 +2,7 @@
 #ifndef YADDNSC_INFRASTRUCTURE_CORO_DETAIL_FD_AWAITABLE_H
 #define YADDNSC_INFRASTRUCTURE_CORO_DETAIL_FD_AWAITABLE_H
 
+#include <cassert>
 #include <stdexcept>
 
 #include <coroutine>
@@ -18,13 +19,14 @@ namespace coro::detail {
 
 /// Awaits one direction of readiness on a file descriptor.
 ///
+/// Precondition: awaited inside coro::run (the frame must run on a loop).
 /// Ownership: borrows `fd`; the caller keeps the descriptor open until the await
 /// completes. The registration is released before the awaiting frame is resumed,
 /// so a resume can never race the next poll() round.
 /// Cancellation: a checkpoint — a cancelled scope resumes the frame early with
 /// `coro::Cancelled` and leaves the descriptor untouched.
-/// Failure: throws `Cancelled` on cancellation; a missing loop or invalid
-/// descriptor throws `std::logic_error`.
+/// Failure: throws `Cancelled` on cancellation; an invalid descriptor throws
+/// `std::invalid_argument`.
 /// Thread safety: loop thread only.
 class FdAwaitable {
 public:
@@ -49,8 +51,9 @@ public:
         PromiseBase& promise = handle.promise();
         loop_ = promise.loop;
         scope_ = promise.scope;
-        if (loop_ == nullptr || fd_ < 0) {
-            throw std::logic_error("fd wait requires a running loop and an open descriptor");
+        assert(loop_ != nullptr && "wait_readable()/wait_writable() must be awaited inside coro::run");
+        if (fd_ < 0) {
+            throw std::invalid_argument("fd wait requires an open descriptor");
         }
         if (scope_ != nullptr && scope_->cancelled()) {
             return false;

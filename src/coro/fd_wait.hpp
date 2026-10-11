@@ -11,6 +11,10 @@
 // (`Loop` comes from the ambient context), and no second notification path (the
 // registration is dropped before the frame is resumed).
 //
+// Awaiting outside coro::run is a programming defect: assertion-diagnosed in
+// Debug builds, undefined behavior in Release. A negative `fd` is an argument
+// error instead: the await throws std::invalid_argument.
+//
 
 #ifndef YADDNSC_INFRASTRUCTURE_CORO_FD_WAIT_HPP
 #define YADDNSC_INFRASTRUCTURE_CORO_FD_WAIT_HPP
@@ -20,11 +24,15 @@
 namespace coro {
 
 /// Suspend until `fd` is readable (or reports EOF/error as readable).
+/// Throws std::invalid_argument when `fd` is not an open descriptor.
+/// Precondition: awaited inside coro::run (see the header note).
 [[nodiscard]] inline auto wait_readable(int fd) noexcept {
     return detail::FdAwaitable::readable(fd);
 }
 
 /// Suspend until `fd` is writable.
+/// Throws std::invalid_argument when `fd` is not an open descriptor.
+/// Precondition: awaited inside coro::run (see the header note).
 [[nodiscard]] inline auto wait_writable(int fd) noexcept {
     return detail::FdAwaitable::writable(fd);
 }

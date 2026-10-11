@@ -2,7 +2,7 @@
 #ifndef YADDNSC_INFRASTRUCTURE_CORO_DETAIL_SLEEP_AWAITABLE_H
 #define YADDNSC_INFRASTRUCTURE_CORO_DETAIL_SLEEP_AWAITABLE_H
 
-#include <stdexcept>
+#include <cassert>
 
 #include <coroutine>
 
@@ -18,6 +18,7 @@ namespace coro::detail {
 
 /// Awaits a point in time on the loop clock.
 ///
+/// Precondition: awaited inside coro::run (the frame must run on a loop).
 /// Ownership: the timer node and the scope waiter are members, so they live in
 /// the awaiting frame and die with it; the loop and the scope hold pointers to
 /// them only while the frame is parked.
@@ -47,9 +48,7 @@ public:
         PromiseBase& promise = handle.promise();
         loop_ = promise.loop;
         scope_ = promise.scope;
-        if (loop_ == nullptr) {
-            throw std::logic_error("sleep requires a running loop");
-        }
+        assert(loop_ != nullptr && "sleep_for()/sleep_until() must be awaited inside coro::run");
         const TimePoint deadline = relative_ ? loop_->now() + delay_ : deadline_;
         if (scope_ != nullptr && scope_->cancelled()) {
             return false;

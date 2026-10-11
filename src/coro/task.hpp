@@ -9,6 +9,9 @@
 // The implicit context (loop + innermost cancel scope) is inherited by every
 // awaited task; nothing is threaded through call signatures.
 //
+// Awaiting outside coro::run is a programming defect: assertion-diagnosed in
+// Debug builds, undefined behavior in Release.
+//
 // The promise, the awaiter and the ownership backdoor live in
 // detail/task_promise.h. What stays here is the task itself plus the two
 // get_return_object() definitions, which have to follow Task<T> because they
@@ -67,6 +70,7 @@ public:
 
     /// Single-shot: awaiting transfers the frame to an internal awaiter.
     /// An awaited lvalue task becomes invalid.
+    /// Precondition: awaited inside coro::run (see the header note).
     detail::TaskAwaiter<T> operator co_await() noexcept { return detail::TaskAwaiter<T>{release()}; }
 
 private:

@@ -5,6 +5,7 @@
 #ifndef YADDNSC_INFRASTRUCTURE_CORO_DETAIL_TASK_PROMISE_H
 #define YADDNSC_INFRASTRUCTURE_CORO_DETAIL_TASK_PROMISE_H
 
+#include <cassert>
 #include <exception>
 #include <optional>
 #include <type_traits>
@@ -112,6 +113,8 @@ struct TaskPromise<void> : PromiseBase {
 
 /// Awaiter for an inline `co_await task`.
 ///
+/// Precondition: awaited inside coro::run (the awaiting frame must run on a
+/// loop); everything the child parks on is inherited from that frame.
 /// Ownership: takes over the child frame and destroys it on resume, so the
 /// awaiter (and therefore the awaiting frame) owns the frame across the
 /// suspension. Awaiting a task is not a cancellation checkpoint: the child
@@ -146,6 +149,7 @@ public:
     template<typename Promise>
     void await_suspend(std::coroutine_handle<Promise> parent) noexcept {
         PromiseBase& parent_promise = parent.promise();
+        assert(parent_promise.loop != nullptr && "a task must be awaited inside coro::run");
         PromiseBase& child = handle_.promise();
         if (!child.context_bound) {
             child.loop = parent_promise.loop;

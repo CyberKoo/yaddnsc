@@ -6,6 +6,9 @@
 // cancellation therefore returns before the deadline, and the await surfaces the
 // cancellation as `coro::Cancelled` — the control exception channel.
 //
+// Awaiting outside coro::run is a programming defect: assertion-diagnosed in
+// Debug builds, undefined behavior in Release.
+//
 // The awaitable itself is detail: the return type is deduced, so a caller never
 // names it.
 //
@@ -23,12 +26,14 @@ namespace coro {
 /// yields to the loop when the scope is active.
 /// Timer resolution is 1 ms (poll() granularity): shorter delays round up,
 /// and a timer never fires before its deadline.
+/// Precondition: awaited inside coro::run (see the header note).
 [[nodiscard]] inline auto sleep_for(Duration delay) noexcept {
     return detail::SleepAwaitable::after(delay);
 }
 
 /// Suspend until `deadline` on the loop clock. Cancellable at the await.
 /// Resolution is 1 ms; a deadline never fires early.
+/// Precondition: awaited inside coro::run (see the header note).
 [[nodiscard]] inline auto sleep_until(TimePoint deadline) noexcept {
     return detail::SleepAwaitable::at(deadline);
 }

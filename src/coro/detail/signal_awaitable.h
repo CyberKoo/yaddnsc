@@ -2,7 +2,7 @@
 #ifndef YADDNSC_INFRASTRUCTURE_CORO_DETAIL_SIGNAL_AWAITABLE_H
 #define YADDNSC_INFRASTRUCTURE_CORO_DETAIL_SIGNAL_AWAITABLE_H
 
-#include <stdexcept>
+#include <cassert>
 
 #include <coroutine>
 
@@ -16,6 +16,7 @@ namespace coro::detail {
 
 /// Awaits one delivery of a signal.
 ///
+/// Precondition: awaited inside coro::run (the frame must run on a loop).
 /// Ownership: registers a wait node on the awaiting scope and an entry in the
 /// loop's per-signal list; both are removed on resume, and the frame must stay
 /// alive while parked.
@@ -40,9 +41,7 @@ public:
         PromiseBase& promise = handle.promise();
         loop_ = promise.loop;
         scope_ = promise.scope;
-        if (loop_ == nullptr) {
-            throw std::logic_error("signal wait requires a running loop");
-        }
+        assert(loop_ != nullptr && "on_signal() must be awaited inside coro::run");
         if (scope_ != nullptr && scope_->cancelled()) {
             return false;
         }

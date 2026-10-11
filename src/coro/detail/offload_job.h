@@ -63,6 +63,7 @@ void offload_finish(OffloadState<R>& state) noexcept {
 
 /// Awaits one offload job.
 ///
+/// Precondition: awaited inside coro::run (the frame must run on a loop).
 /// Ownership: the job holds a shared_ptr to the callable and to the result
 /// cell, so both outlive an abandoned await. The awaiter registers a scope
 /// waiter; on cancellation the wait stops but the job is not interrupted.

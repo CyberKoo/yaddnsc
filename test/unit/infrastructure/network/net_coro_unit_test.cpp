@@ -15,6 +15,7 @@
 #include <cstdint>
 #include <optional>
 #include <span>
+#include <stdexcept>
 #include <thread>
 #include <utility>
 
@@ -230,17 +231,17 @@ TEST(FdWait, wait_writable_OpenSocket_ReportsReady) {
 }
 
 TEST(FdWait, wait_readable_InvalidDescriptor_ThrowsContractError) {
-    bool cancelled = false;
-    auto task = [&cancelled]() -> coro::Task<void> {
+    bool rejected = false;
+    auto task = [&rejected]() -> coro::Task<void> {
         try {
             co_await coro::wait_readable(-1);
-        } catch (const std::logic_error&) {
-            cancelled = true;
+        } catch (const std::invalid_argument&) {
+            rejected = true;
         }
         co_return;
     };
     run_task(task());
-    EXPECT_TRUE(cancelled);
+    EXPECT_TRUE(rejected);
 }
 
 // ---------------------------------------------------------------------------
