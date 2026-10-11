@@ -34,7 +34,9 @@ beside the features they gate (see [Documentation](#documentation) and
 - `YADDNSC_SANITIZE_DEBUG` (default `ON`) adds ASan/UBSan in `Debug`;
 - `YADDNSC_ENABLE_TRACE` (default `OFF`) compiles trace-level logging in;
 - `YADDNSC_USE_SYSTEM_SPDLOG` (default `OFF`) uses the system spdlog instead of
-  the bundled CPM version;
+  the bundled CPM version; with spdlog < 1.15 (e.g. Ubuntu 24.04's 1.12) the
+  async log queue falls back from the `discard_new` to the `overrun_oldest`
+  overflow policy;
 - `YADDNSC_LOGGING_PATTERN` (default
   `"[%D %T.%e] [%^%8l%$] [%8!t] [%15!s:%-4#] %v"`) is passed to
   `spdlog::set_pattern()`;

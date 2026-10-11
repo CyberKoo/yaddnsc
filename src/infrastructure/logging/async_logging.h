@@ -4,8 +4,9 @@
 // Logging is ordinary off-loop work. One bounded queue plus one background
 // drain thread — the third system thread, after the loop and the offload
 // pool — carries every record off the loop, so a log call never blocks on a
-// file/console write. Overflow discards the newest record and bumps spdlog's
-// discard counter; the count is reported at shutdown.
+// file/console write. Overflow drops a record (the incoming one where spdlog
+// offers discard_new, otherwise the oldest queued) and bumps the pool's drop
+// counters; the count is reported at shutdown.
 //
 
 #ifndef YADDNSC_INFRASTRUCTURE_LOGGING_ASYNC_LOGGING_H
@@ -18,8 +19,9 @@ namespace logging {
 /// Initializes the spdlog thread pool and replaces the default logger — which
 /// both the app::LoggerPort facade (via SpdlogLogger) and every direct SPDLOG_* call site
 /// resolve through — with an async_logger over the same sinks, level and
-/// pattern. The `discard_new` overflow policy drops the newest record when the
-/// queue is full and increments the pool's discard counter.
+/// pattern. The overflow policy drops a record when the queue is full
+/// (`discard_new`, or `overrun_oldest` on spdlog < 1.15) and increments the
+/// pool's drop counters.
 void initialize();
 
 /// Drain the pipeline and report dropped records, then release it.

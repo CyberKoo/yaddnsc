@@ -15,6 +15,7 @@
 #include <spdlog/sinks/sink.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/spdlog.h>
+#include <spdlog/version.h>
 
 #include "logging_pattern.h"
 #include "support/fmt.hpp"
@@ -25,11 +26,20 @@ namespace {
 
 /// Bounded queue size: large enough for a startup burst (plugin logs, DNS
 /// debug) well above the steady-state rate. A full queue must not block the
-/// loop, so the overflow policy drops the newest records instead of waiting;
-/// their count is reported at shutdown. spdlog keeps the drop count per
-/// policy: discard_new accumulates the pool's discard counter, overrun_oldest
-/// the overrun counter — shutdown() reads both.
+/// loop, so the overflow policy drops records instead of waiting; their count
+/// is reported at shutdown.
 constexpr std::size_t LOG_QUEUE_CAPACITY = 8192;
+
+/// Overflow policy: discard_new drops the incoming record and accumulates the
+/// pool's discard counter, but exists only since spdlog 1.15; older releases
+/// offer only one non-blocking policy, overrun_oldest, which drops the oldest
+/// queued record onto the overrun counter. shutdown() reads whichever
+/// counters the version provides.
+#if SPDLOG_VERSION >= 11500
+constexpr auto OVERFLOW_POLICY = spdlog::async_overflow_policy::discard_new;
+#else
+constexpr auto OVERFLOW_POLICY = spdlog::async_overflow_policy::overrun_oldest;
+#endif
 
 /// One drain thread. Logging is low-rate and its ordering is irrelevant, so a
 /// single worker cannot become a bottleneck; this is the third system thread
@@ -46,8 +56,7 @@ void initialize() {
 
     spdlog::init_thread_pool(LOG_QUEUE_CAPACITY, LOG_DRAIN_THREADS);
     auto async = std::make_shared<spdlog::async_logger>(existing->name(), sinks.begin(), sinks.end(),
-                                                        spdlog::thread_pool(),
-                                                        spdlog::async_overflow_policy::discard_new);
+                                                        spdlog::thread_pool(), OVERFLOW_POLICY);
     async->set_level(existing->level());
     async->flush_on(existing->flush_level());
 
@@ -65,12 +74,17 @@ void shutdown() noexcept {
         // registry's reset as a no-op, and the pool's destructor — which posts
         // the terminate message and joins the drain thread — would never run.
         // discard_new records land on the discard counter, overrun_oldest on
-        // the overrun counter; read both so a policy change never silences the
-        // warning again.
+        // the overrun counter; the discard counter exists only since spdlog
+        // 1.15, alongside the policy.
         std::size_t dropped = 0;
         {
             const auto pool = spdlog::thread_pool();
-            dropped = pool != nullptr ? pool->overrun_counter() + pool->discard_counter() : 0;
+            if (pool != nullptr) {
+                dropped = pool->overrun_counter();
+#if SPDLOG_VERSION >= 11500
+                dropped += pool->discard_counter();
+#endif
+            }
         }
         if (dropped > 0) {
             // Write the warning straight to the sinks: the queue may still be

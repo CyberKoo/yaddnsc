@@ -24,6 +24,7 @@
 #include <spdlog/async.h>
 #include <spdlog/sinks/base_sink.h>
 #include <spdlog/spdlog.h>
+#include <spdlog/version.h>
 
 #include "application/ports/log.h"
 #include "infrastructure/logging/spdlog_logger.h"
@@ -102,15 +103,16 @@ TEST(AsyncLogging, FacadeAndSpdlogMacroShareTheAsyncPipeline) {
     spdlog::set_default_logger(std::make_shared<spdlog::logger>("", sink));
 }
 
-TEST(AsyncLogging, DiscardNewOverflow_IsCountedAndReportedAtShutdown) {
+TEST(AsyncLogging, Overflow_IsCountedAndReportedAtShutdown) {
     auto sink = std::make_shared<GatedSink>();
     spdlog::set_default_logger(std::make_shared<spdlog::logger>("", sink));
 
     logging::initialize();
 
     // Park the drain thread on the first write, then flood past the queue
-    // capacity (8192): the excess must be discarded, and discard_new counts
-    // those drops on the pool's discard counter.
+    // capacity (8192): the excess must be dropped — counted on the discard
+    // counter under discard_new, on the overrun counter under the overrun_oldest
+    // fallback (spdlog < 1.15).
     SPDLOG_INFO("hold-the-drain-thread");
     constexpr std::size_t flood = 8192 + 200;
     for (std::size_t i = 0; i < flood; ++i) {
@@ -121,7 +123,11 @@ TEST(AsyncLogging, DiscardNewOverflow_IsCountedAndReportedAtShutdown) {
     {
         const auto pool = spdlog::thread_pool();
         ASSERT_NE(pool, nullptr);
+#if SPDLOG_VERSION >= 11500
         dropped = pool->discard_counter();
+#else
+        dropped = pool->overrun_counter();
+#endif
     }
     EXPECT_GT(dropped, 0u);
 
