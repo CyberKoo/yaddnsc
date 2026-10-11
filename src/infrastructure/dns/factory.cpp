@@ -20,6 +20,7 @@
 #include "infrastructure/dns/resolver/classic.h"
 #include "infrastructure/dns/resolver/doh.h"
 #include "infrastructure/dns/resolver/dot.h"
+#include "infrastructure/dns/wire/framing.h"
 #include "infrastructure/uri/uri.h"
 #include "support/fmt.hpp"
 #include "support/redact.hpp"
@@ -81,6 +82,9 @@ namespace {
         options.connect_timeout = std::chrono::seconds(1);
         options.resolve = make_bootstrap_resolver(bootstrap);
         options.tls_context = std::move(tls_context);
+        // A DoH body is one DNS message: hold it to the same bound the
+        // length-prefixed TCP paths enforce instead of the HTTP default.
+        options.limits.max_body_bytes = MAX_RESPONSE_SIZE;
         return std::make_unique<DohResolver>(server.address, std::move(options));
     }
     throw std::invalid_argument(

@@ -482,6 +482,40 @@ TEST(DohResolver, oversizedResponseIsRetryableSoTheSearchFallsOver) {
     EXPECT_TRUE(dns::detail::is_retryable(result.error().code));
 }
 
+// ---------------------------------------------------------------------------
+// Oversized responses fail over, on DoH's body cap and DoT's length prefix
+// ---------------------------------------------------------------------------
+
+TEST(DohResolver, oversizedBodyIsRetryableSoTheSearchFallsOver) {
+    // The Content-Length check fires at header parse, so the script ends with
+    // the headers: the body is never read.
+    http::Options options;
+    options.limits.max_body_bytes = 64;
+    options.factory = std::make_shared<ScriptFactory>(
+        "HTTP/1.1 200 OK\r\nContent-Type: application/dns-message\r\nContent-Length: 100\r\n\r\n");
+    dns::DohResolver resolver{DOH_URL, options};
+
+    const auto result = coro::run(resolver.query("x.test", domain::RecordKind::A));
+
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error().code, domain::DnsError::RETRY);
+    EXPECT_TRUE(dns::detail::is_retryable(result.error().code));
+}
+
+TEST(DotResolver, oversizedAnnouncedLengthIsRetryableSoTheSearchFallsOver) {
+    // 0xFFFF announces 65535 octets — past MAX_RESPONSE_SIZE, so the resolver
+    // rejects the endpoint right after the prefix without buffering the body.
+    dns::EndpointOptions options;
+    options.factory = std::make_shared<ScriptFactory>("\xff\xff");
+    dns::DotResolver resolver{"203.0.113.10", 853, options};
+
+    const auto result = coro::run(resolver.query("x.test", domain::RecordKind::A));
+
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error().code, domain::DnsError::RETRY);
+    EXPECT_TRUE(dns::detail::is_retryable(result.error().code));
+}
+
 TEST(DohResolver, protocolUpgradeAnswerIsADefinitiveConfigFailure) {
     http::Options options;
     options.factory = std::make_shared<ScriptFactory>(

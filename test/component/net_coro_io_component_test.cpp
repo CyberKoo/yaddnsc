@@ -322,6 +322,29 @@ TEST(NetCoroDns, classic_acceptsTcpAnswersBeyondTheLegacyCap) {
     EXPECT_EQ(result->size(), 5000U);
 }
 
+TEST(NetCoroDns, classic_rejectsTcpAnswersBeyondTheAcceptedBound) {
+    // tcphuge.yaddnsc.test: UDP gets TC=1, then TCP announces 20000 bytes —
+    // past MAX_RESPONSE_SIZE. The resolver must reject the endpoint as
+    // retryable right after the prefix instead of buffering the body, so the
+    // dispatcher can fall over to the next server.
+    PythonServer server;
+    if (!server.start("dns_server.py", {std::to_string(CLASSIC_PORT)})) {
+        GTEST_SKIP() << "dns_server.py could not be started";
+    }
+    if (!server.wait_for_tcp(CLASSIC_PORT)) {
+        GTEST_SKIP() << "dns_server.py did not start";
+    }
+
+    dns::ClassicResolver resolver{loopback_v4(), CLASSIC_PORT};
+
+    const auto result = run_task([&]() -> coro::Task<std::expected<std::vector<std::uint8_t>, domain::DnsErrorInfo>> {
+        co_return co_await resolver.query("tcphuge.yaddnsc.test", domain::RecordKind::A);
+    }());
+
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error().code, domain::DnsError::RETRY);
+}
+
 TEST(NetCoroDns, classic_oversizedUdpDatagramWithoutTc_FallsBackToTcp) {
     // udplarge.yaddnsc.test: UDP answers 5000 bytes WITHOUT the TC bit, so the
     // kernel truncates the datagram — only a client that detects that

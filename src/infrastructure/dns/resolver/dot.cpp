@@ -207,11 +207,19 @@ coro::Task<std::expected<std::vector<std::uint8_t>, domain::DnsErrorInfo>> DotRe
                 }
                 co_return std::unexpected(domain::DnsErrorInfo{domain::DnsError::CONNECTION, "DoT receive failed"});
             }
-            // The two-byte prefix bounds the response to 65535 octets
-            // (RFC 1035 §4.2.2), so only a zero length is invalid.
+            // The announced length is bounded by MAX_RESPONSE_SIZE, far below
+            // the 65535 the prefix could encode (RFC 1035 §4.2.2).
             const auto length = dns::read_length(prefix);
             if (!length) {
                 close();
+                if (length.error() == dns::FrameError::MESSAGE_TOO_LARGE) {
+                    // An oversized announcement is this endpoint's defect, not
+                    // a verdict on the name: RETRY lets the dispatcher fall
+                    // over to the next server (the DoH oversized-body mapping
+                    // does the same).
+                    co_return std::unexpected(
+                        domain::DnsErrorInfo{domain::DnsError::RETRY, "DoT server announced an oversized response"});
+                }
                 co_return std::unexpected(
                     domain::DnsErrorInfo{domain::DnsError::PARSE, "DoT server announced a zero-length response"});
             }

@@ -182,6 +182,10 @@ add_unit_test(dns_parser_malformed SOURCE infrastructure/dns/parser_malformed_te
 target_link_libraries(test_dns_parser PRIVATE yaddnsc_dns_classic)
 target_link_libraries(test_dns_parser_malformed PRIVATE yaddnsc_dns_classic)
 
+# wire framing — the TCP length-prefix codec and its size bounds
+add_unit_test(dns_framing SOURCE infrastructure/dns/framing_test.cpp)
+target_link_libraries(test_dns_framing PRIVATE yaddnsc_dns_classic)
+
 # resolv_conf — /etc/resolv.conf nameserver discovery
 add_unit_test(resolv_conf SOURCE infrastructure/dns/resolv_conf_test.cpp)
 target_link_libraries(test_resolv_conf PRIVATE yaddnsc_dns_classic)

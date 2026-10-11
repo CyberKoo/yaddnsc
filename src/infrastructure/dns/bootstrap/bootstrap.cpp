@@ -99,9 +99,13 @@ struct KindResult {
         domain::DnsErrorInfo{domain::DnsError::NODATA, fmt::format(R"(DNS lookup for "{}" returned no records)", host)};
 
     // A per-server failure keeps its full transport detail at debug level, so
-    // the message handed to with_host can stay terse.
+    // the message handed to with_host can stay terse. A later transient
+    // failure must not bury an earlier definitive verdict.
     const auto record_failure = [&result, &host](const domain::DnsServer& server, domain::DnsErrorInfo error) {
         SPDLOG_DEBUG(R"(DNS lookup for "{}" via {}:{} failed: {})", host, server.address, server.port, error.message);
+        if (detail::is_definitive(result.error.code) && !detail::is_definitive(error.code)) {
+            return;
+        }
         result.error = std::move(error);
     };
 
@@ -110,12 +114,14 @@ struct KindResult {
         if (!address.has_value()) {
             // A bootstrap server must be an IP literal — a config defect for
             // this entry; the remaining servers can still answer. Redact:
-            // the raw string may embed URI userinfo.
+            // the raw string may embed URI userinfo, and the error message is
+            // handed to the caller just like the log line is.
             SPDLOG_WARN(R"(Skipping bootstrap DNS server "{}": not an IP literal)",
                         Utils::redacted_uri_credentials(server.address));
-            result.error =
-                domain::DnsErrorInfo{domain::DnsError::CONFIG,
-                                     fmt::format(R"(Bootstrap DNS server "{}" is not an IP literal)", server.address)};
+            result.error = domain::DnsErrorInfo{
+                domain::DnsError::CONFIG,
+                fmt::format(R"(Bootstrap DNS server "{}" is not an IP literal)",
+                            Utils::redacted_uri_credentials(server.address))};
             continue;
         }
 

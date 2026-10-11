@@ -48,6 +48,7 @@ TCP_LARGE_HOST = "tcplarge.yaddnsc.test"     # UDP: TC=1, TCP: a valid answer > 
 UDP_LARGE_HOST = "udplarge.yaddnsc.test"     # UDP: a valid answer > 4096 bytes WITHOUT TC (kernel-truncates at the client); TCP: normal
 TCP_CONNECT_FAIL_HOST = "tcpconnectfail.yaddnsc.test"  # UDP: TC=1, TCP: no listener
 TCP_BODYTRUNC_HOST = "tcpbodytrunc.yaddnsc.test"  # UDP: TC=1, TCP: length 100, only 10 bytes sent
+TCP_HUGE_HOST = "tcphuge.yaddnsc.test"     # UDP: TC=1, TCP: announces 20000 bytes (past the client's accepted bound)
 
 HOST = "127.0.0.1"
 TYPE_MAP = {1: "A", 28: "AAAA"}
@@ -144,7 +145,7 @@ def build_response(ident: int, question: bytes, qname: str, qtype_str: str,
     # ── TCP error hosts: TC=1 on UDP to force TCP fallback ───────────────
     if qname in (TCP_ERROR_HOST, TCP_RESET_HOST, TCP_TIMEOUT_HOST,
                  TCP_GARBAGE_HOST, TCP_LARGE_HOST, TCP_CONNECT_FAIL_HOST,
-                 TCP_BODYTRUNC_HOST) and is_udp:
+                 TCP_BODYTRUNC_HOST, TCP_HUGE_HOST) and is_udp:
         # Return truncated response (TC=1) — triggers TCP fallback.
         flags = 0x8380
         header = struct.pack("!HHHHHH", ident, flags, 1, 0, 0, 0)
@@ -299,6 +300,15 @@ async def handle_tcp_client(reader: asyncio.StreamReader,
             # Declare 100 bytes but send only 10, then close — the resolver
             # sees EOF while reading the response body.
             writer.write(struct.pack("!H", 100) + b"\x00" * 10)
+            await writer.drain()
+            return
+
+        if qname == TCP_HUGE_HOST:
+            # Announce 20000 bytes — past the resolver's accepted response
+            # bound, so it must reject right after the prefix instead of
+            # buffering the body. The write below may already race the
+            # client's close; the except clause absorbs that.
+            writer.write(struct.pack("!H", 20000) + b"\x00" * 20000)
             await writer.drain()
             return
 

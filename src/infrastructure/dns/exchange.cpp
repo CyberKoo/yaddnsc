@@ -154,6 +154,13 @@ coro::Task<std::expected<std::vector<std::uint8_t>, domain::DnsErrorInfo>> query
 
     const auto length = dns::read_length(prefix);
     if (!length) {
+        if (length.error() == dns::FrameError::MESSAGE_TOO_LARGE) {
+            // An oversized announcement is this one server's defect, not a
+            // verdict on the name: RETRY lets the dispatcher fall over to the
+            // next server (the DoT and DoH oversized mappings agree).
+            co_return std::unexpected(
+                domain::DnsErrorInfo{domain::DnsError::RETRY, "DNS server announced an oversized TCP message"});
+        }
         co_return std::unexpected(
             domain::DnsErrorInfo{domain::DnsError::PARSE, "DNS server announced an invalid TCP message length"});
     }
