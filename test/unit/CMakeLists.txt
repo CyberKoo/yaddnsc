@@ -198,7 +198,7 @@ target_link_libraries(test_dns_coro_dispatcher PRIVATE yaddnsc_coro_dns)
 # Server-address → backend mapping (bare / bracketed IPv6, IPv4, schemas).
 # Builds backend objects only — no sockets, no queries.
 add_unit_test(dns_factory SOURCE infrastructure/dns/factory_test.cpp)
-target_link_libraries(test_dns_factory PRIVATE yaddnsc_coro_dns)
+target_link_libraries(test_dns_factory PRIVATE yaddnsc_coro_dns yaddnsc_config_infrastructure)
 
 # DoT / DoH budgets and error mapping, driven by an injected in-memory
 # StreamFactory on a manual clock: the DoT connect budget, the catch-all

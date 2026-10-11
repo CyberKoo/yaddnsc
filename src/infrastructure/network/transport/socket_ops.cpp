@@ -4,23 +4,27 @@
 
 #include "socket_ops.h"
 
+#include <cerrno>
+#include <cstring>
+#include <optional>
+
 #include <coroutine>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
+
+#include <expected>
 #include <fcntl.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <spdlog/spdlog.h>
 #include <sys/socket.h>
 #include <sys/types.h>
-#include <cerrno>
-#include <cstring>
-#include <expected>
-#include <optional>
+#include <sys/uio.h>
 
 #include "coro/checkpoint.hpp"
 #include "coro/fd_wait.hpp"
-#include "infrastructure/network/address/socket_addr.h"
-#include "config_cmake.h"
 #include "domain/network/address_family.h"
+#include "infrastructure/network/address/socket_addr.h"
+
+#include "config_cmake.h"
 
 namespace net::detail {
 namespace {
@@ -248,18 +252,21 @@ coro::Task<std::expected<Datagram, IoError>> recv_datagram(const int fd, const s
     co_await coro::checkpoint();
     for (;;) {
         sockaddr_storage storage{};
-        socklen_t length = sizeof(storage);
-        // MSG_TRUNC makes the call return the datagram's real length, so a
-        // packet that did not fit the buffer is detected instead of being
-        // silently cut (a truncated DNS answer must fall back to TCP).
-        const ssize_t received =
-            ::recvfrom(fd, buf.data(), buf.size(), MSG_TRUNC, reinterpret_cast<sockaddr*>(&storage), &length);
+        iovec buffer{buf.data(), buf.size()};
+        msghdr message{};
+        message.msg_name = &storage;
+        message.msg_namelen = sizeof(storage);
+        message.msg_iov = &buffer;
+        message.msg_iovlen = 1;
+        // The output flag detects truncation on both Linux and macOS;
+        // recvfrom's input MSG_TRUNC/full-length behavior is Linux-specific.
+        const ssize_t received = ::recvmsg(fd, &message, 0);
         if (received >= 0) {
-            const SocketAddr peer = SocketAddr::from_raw(reinterpret_cast<const sockaddr*>(&storage), length);
+            const SocketAddr peer =
+                SocketAddr::from_raw(reinterpret_cast<const sockaddr*>(&storage), message.msg_namelen);
             const std::optional<domain::InetAddress> from = peer.address();
-            const auto full_length = static_cast<std::size_t>(received);
-            const auto copied = full_length < buf.size() ? full_length : buf.size();
-            co_return Datagram{copied, from.value_or(domain::InetAddress{}), peer.port(), full_length > buf.size()};
+            co_return Datagram{static_cast<std::size_t>(received), from.value_or(domain::InetAddress{}), peer.port(),
+                               (message.msg_flags & MSG_TRUNC) != 0};
         }
         if (errno == EINTR) {
             continue;
@@ -268,7 +275,7 @@ coro::Task<std::expected<Datagram, IoError>> recv_datagram(const int fd, const s
             co_await coro::wait_readable(fd);
             continue;
         }
-        SPDLOG_DEBUG("recvfrom failed: {}", std::strerror(errno));
+        SPDLOG_DEBUG("recvmsg failed: {}", std::strerror(errno));
         co_return std::unexpected(IoError::CONNECTION_FAILED);
     }
 }

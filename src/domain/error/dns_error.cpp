@@ -14,6 +14,8 @@ std::string_view error_to_str(DnsError error) {
             return "retry (TRY_AGAIN)";
         case DnsError::NODATA:
             return "no data (NO_DATA)";
+        case DnsError::INVALID_QUERY:
+            return "invalid DNS query (INVALID_QUERY)";
         case DnsError::PARSE:
             return "DNS record parse error (PARSE)";
         case DnsError::CONNECTION:

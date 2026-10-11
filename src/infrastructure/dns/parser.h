@@ -9,10 +9,13 @@
 #include <optional>
 #include <span>
 #include <string>
+#include <string_view>
 
 #include "infrastructure/dns/types.h"
 
 namespace dns {
+/// DNS name equality: ASCII case-insensitive, ignoring the terminal root dot.
+[[nodiscard]] bool name_matches(std::string_view first, std::string_view second) noexcept;
 // =============================================================================
 // RecordParser — self-contained DNS wire-format parser (no libresolv)
 // =============================================================================
@@ -31,6 +34,10 @@ public:
     /// @throws DnsLookupException on malformed packets.
     explicit RecordParser(std::span<const std::uint8_t> data);
 
+    /// Decode the first question without requiring a complete RR section.
+    /// Used to match even a truncated UDP reply. Throws DnsLookupException on malformed input.
+    [[nodiscard]] static Question parse_question(std::span<const std::uint8_t> data);
+
     /// Return the number of answer records in the parsed response.
     [[nodiscard]] size_t record_count() const noexcept;
 
@@ -44,11 +51,15 @@ public:
     /// original ResourceRecord answers (raw RDATA, TTL, type).
     ///
     /// @param data  Span covering the raw packet bytes.
-    /// @param host  Optional hostname, reserved for diagnostics.
+    /// @param host  When nonempty, retain only IN answers for this name or its CNAME chain.
+    ///              An empty host disables answer filtering altogether — the diagnostic
+    ///              mode that hands back every answer of the packet. A caller issuing a
+    ///              real query must normalise its name first (e.g. the empty string to
+    ///              "."), otherwise foreign owners and foreign classes reach the caller.
     /// @return      Structured result with RCODE and raw answer records.
     /// @throws DnsLookupException on malformed packets.
-    [[nodiscard]] static ParsedResponse parse_response(std::span<const std::uint8_t> data,
-                                                       const std::string& host = {});
+    [[nodiscard]] static ParsedResponse parse_response(std::span<const std::uint8_t> data, const std::string& host = {},
+                                                       std::optional<RecordType> type_filter = std::nullopt);
 
     /// Convenience: parse the answer records and return pre-formatted
     /// string values (IPs, hostnames, text, etc.).
@@ -57,7 +68,10 @@ public:
     /// formatted values.
     ///
     /// @param data         Span covering the raw packet bytes.
-    /// @param host         Optional hostname, used in diagnostic logging.
+    /// @param host         Same host contract as parse_response: an empty host skips
+    ///                     the owner/class filtering for diagnostic use, and a caller
+    ///                     issuing a real query must normalise its name first
+    ///                     (e.g. "" to "."). type_filter applies either way.
     /// @param type_filter  When set, only answer records of this type are
     ///                     formatted and returned: CNAME hops and any other
     ///                     non-matching records are skipped, so an RFC 1034
@@ -110,7 +124,12 @@ private:
     [[nodiscard]] static std::string format_srv(std::span<const std::uint8_t> wire, size_t rdata_offset, size_t rdlen);
 
     // ── EDNS0 parsing ──
-    [[nodiscard]] static std::optional<EdnsInfo> parse_edns(const ResourceRecord& rr);
+    [[nodiscard]] static std::optional<EdnsInfo> parse_edns(const ResourceRecord& rr,
+                                                            std::span<const std::uint8_t> wire);
+
+    /// Validate the CNAME chain and remove foreign owners/classes.
+    static void filter_answers(ParsedMessage& message, std::span<const std::uint8_t> wire, const std::string& host,
+                               std::optional<RecordType> type_filter);
 
     ParsedMessage message_;
 };

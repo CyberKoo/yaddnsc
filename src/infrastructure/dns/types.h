@@ -1,6 +1,7 @@
 #ifndef YADDNSC_INFRASTRUCTURE_DNS_TYPES_H
 #define YADDNSC_INFRASTRUCTURE_DNS_TYPES_H
 
+#include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -36,7 +37,7 @@ enum class RecordClass : std::uint16_t {
 };
 
 /// DNS response codes (RCODE), including EDNS0 extended codes.
-enum class Rcode : std::uint8_t {
+enum class Rcode : std::uint16_t {
     NOERROR = 0,
     FORMERR = 1,
     SERVFAIL = 2,

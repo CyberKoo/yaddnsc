@@ -6,6 +6,7 @@
 #include <chrono>
 #include <exception>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <expected>
 #include <memory>
@@ -64,7 +65,17 @@ int execute_command(const Cli::InterfaceIpCommand& command) {
 int execute_command(const Cli::DnsResolveCommand& command) {
     const auto config = internal::load_runtime_config(command.config_path);
     const auto tls_context = internal::make_default_tls_context();
-    const auto dispatcher = dns::make_dispatcher(config.resolver, config.resolver.bootstrap_servers, tls_context);
+    const auto dispatcher = [&] {
+        try {
+            return dns::make_dispatcher(config.resolver, config.resolver.bootstrap_servers, tls_context);
+        } catch (const std::invalid_argument& error) {
+            // Same translation as the run command: factory checks protect
+            // direct callers too, so drift from static validation is a
+            // configuration failure rather than an internal exception type
+            // escaping into this command's presentation.
+            throw ConfigException(error.what());
+        }
+    }();
     dns::DispatcherResolverPort resolver_port{*dispatcher};
     // A plain root preserves the default Ctrl-C disposition for this one-shot command.
     coro::Loop loop;

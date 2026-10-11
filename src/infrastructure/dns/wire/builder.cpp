@@ -37,6 +37,9 @@ public:
     //   - any label exceeds 63 octets
     //   - the encoded name exceeds 255 octets
     void encode_name(std::string_view name) {
+        if (name.find('\0') != std::string_view::npos) {
+            throw DnsPacketException("DNS query name contains an embedded NUL");
+        }
         if (name.empty() || name == ".") {
             // Root label only — empty name or bare dot represents the root.
             buf_.push_back(0);
@@ -111,7 +114,7 @@ constexpr std::uint16_t OPT_RR_TYPE = 41;
 /// @param rcode   Response code (4 bits, 0 = NOERROR).
 /// @return        The packed 16-bit flags field value.
 [[nodiscard]] std::uint16_t build_flags(bool qr, std::uint8_t opcode, bool aa, bool tc, bool rd, bool ra,
-                                        std::uint8_t rcode) noexcept {
+                                        std::uint16_t rcode) noexcept {
     return static_cast<std::uint16_t>((qr ? FLAG_QR : 0) | (static_cast<std::uint16_t>(opcode & 0x0F) << 11) |
                                       (aa ? FLAG_AA : 0) | (tc ? FLAG_TC : 0) | (rd ? FLAG_RD : 0) |
                                       (ra ? FLAG_RA : 0) | (rcode & 0x0F));
@@ -203,6 +206,12 @@ std::vector<std::uint8_t> QueryBuilder::build() const {
         throw DnsPacketException("Query must have at least one question");
     }
 
+    if (std::to_underlying(rcode_) > 0x0fff || (std::to_underlying(rcode_) > 15 && !edns_)) {
+        throw DnsPacketException("Extended DNS RCODE requires EDNS and must fit 12 bits");
+    }
+    if (questions_.size() > 0xffff) {
+        throw DnsPacketException("Too many DNS questions");
+    }
     WireWriter w;
 
     const auto qdcount = static_cast<std::uint16_t>(questions_.size());
@@ -248,13 +257,15 @@ std::vector<std::uint8_t> QueryBuilder::build() const {
         // Class: sender's UDP payload size.
         w.write_uint16(edns.udp_payload_size);
 
-        // TTL: extended RCODE (0) | version | DO bit | Z
-        // bits 31-24: extended RCODE (we use header rcode, so 0 here)
+        // TTL: extended RCODE | version | DO bit | Z
+        // bits 31-24: upper eight bits of the 12-bit RCODE
         // bits 23-16: version
         // bit 15:     DNSSEC OK (DO)
         // bits 14-0:  Z (must be 0)
-        const auto ttl = static_cast<std::uint32_t>((static_cast<std::uint32_t>(edns.version) << 16) |
-                                                    (edns.dnssec_ok ? std::uint32_t{0x8000} : std::uint32_t{0}));
+        const auto ttl =
+            static_cast<std::uint32_t>((static_cast<std::uint32_t>(std::to_underlying(rcode_) >> 4) << 24) |
+                                       (static_cast<std::uint32_t>(edns.version) << 16) |
+                                       (edns.dnssec_ok ? std::uint32_t{0x8000} : std::uint32_t{0}));
         w.write_uint32(ttl);
 
         // RDLENGTH and RDATA (options).

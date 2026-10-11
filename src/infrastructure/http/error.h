@@ -17,6 +17,7 @@ namespace http {
 enum class ErrorCode {
 
     RESOLVE_FAILED,           ///< The host could not be resolved.
+    QUEUE_TIMEOUT,            ///< The local persistent session remained busy.
     CONNECT_FAILED,           ///< TCP connect failed for every candidate address.
     TLS_HANDSHAKE_FAILED,     ///< TLS handshake or certificate verification failed.
     CONNECTION_LOST,          ///< I/O failed on an established connection.

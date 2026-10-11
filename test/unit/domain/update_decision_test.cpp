@@ -2,12 +2,13 @@
 // UpdateDecision unit tests — domain::decide_update is a pure function over
 // already-fetched inputs.
 //
-// Locked behaviours (legacy Updater semantics):
+// Decision policy:
 //   - no local address             → SKIP_NO_ADDRESS (driver never called)
 //   - force_update                 → UPDATE_FORCED (DNS not consulted)
-//   - ANY record == local          → SKIP_UNCHANGED
+//   - non-empty RRset, every record == local → SKIP_UNCHANGED
 //   - everything else (incl. empty record list, however it arose) → UPDATE_CHANGED
-// Every record participates in the comparison.
+// The comparison is an all_of over the whole RRset: one record differing from
+// local is enough to update.
 //
 
 #include "domain/update/update_decision.h"
@@ -44,16 +45,21 @@ TEST(UpdateDecision, ForceUpdateIgnoresDnsRecords) {
     EXPECT_EQ(decide_update({}, LOCAL, true), UpdateDecision::UPDATE_FORCED);
 }
 
-// ── any record equals local → SKIP_UNCHANGED ──────────────────────────────────
+// ── all records equal local → SKIP_UNCHANGED ──────────────────────────────────
 
 TEST(UpdateDecision, FirstRecordMatchingLocalSkips) {
     EXPECT_EQ(decide_update({"198.51.100.1"}, LOCAL, false), UpdateDecision::SKIP_UNCHANGED);
 }
 
-TEST(UpdateDecision, MatchingNonFirstRecordSkips) {
-    // Any record matching the local address means unchanged, not just the
-    // first: a round-robin RRset must not churn an update every cycle.
-    EXPECT_EQ(decide_update({"203.0.113.9", "198.51.100.1"}, LOCAL, false), UpdateDecision::SKIP_UNCHANGED);
+TEST(UpdateDecision, MatchingSiblingDoesNotHideAStaleManagedRecord) {
+    // DNS cannot say which address belongs to the configured record_id.
+    // Neither answer order may cause a stale managed record to be skipped.
+    EXPECT_EQ(decide_update({"203.0.113.9", "198.51.100.1"}, LOCAL, false), UpdateDecision::UPDATE_CHANGED);
+    EXPECT_EQ(decide_update({"198.51.100.1", "203.0.113.9"}, LOCAL, false), UpdateDecision::UPDATE_CHANGED);
+}
+
+TEST(UpdateDecision, AllMatchingRecordsSkip) {
+    EXPECT_EQ(decide_update({"198.51.100.1", "198.51.100.1"}, LOCAL, false), UpdateDecision::SKIP_UNCHANGED);
 }
 
 TEST(UpdateDecision, NoMatchingRecordUpdates) {

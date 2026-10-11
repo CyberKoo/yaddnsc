@@ -109,6 +109,14 @@ void validate_resolver_address(std::vector<domain::ConfigError>& errors, const s
             push_error(errors, Code::INVALID_RESOLVER,
                        fmt::format(R"(DoH/DoT resolver address "{}" has an empty host)", address));
         }
+        // The scheme was parsed out of this "://", so the offset is in range;
+        // scanning from 0 otherwise keeps the start defined instead of
+        // wrapping npos.
+        const auto scheme_end = address.find("://");
+        const auto authority_start = scheme_end == std::string::npos ? 0 : scheme_end + 3;
+        if (uri->get_schema() == "tls" && address.find_first_of("/?#", authority_start) != std::string::npos) {
+            push_error(errors, Code::INVALID_RESOLVER, "DoT endpoint must not contain a path, query or fragment");
+        }
         if (uri->get_port() == 0) {
             push_error(errors, Code::INVALID_RESOLVER,
                        fmt::format(R"(DoH/DoT resolver address "{}" has port 0)", address));
@@ -129,7 +137,7 @@ void validate_resolver_address(std::vector<domain::ConfigError>& errors, const s
 
     // A classic resolver dials the host and DnsServer::port only, so a path
     // or query written into the address would be silently dropped.
-    if (!uri->get_path().empty() || !uri->get_query_string().empty()) {
+    if (!uri->get_path().empty() || uri->has_query() || address.find('#') != std::string::npos) {
         push_error(errors, Code::INVALID_RESOLVER,
                    fmt::format(R"(Resolver address "{}" carries a path or query; a classic resolver )"
                                R"(dials host:port only)",
@@ -215,7 +223,19 @@ auto validate_static(const AppConfig& raw) -> std::vector<domain::ConfigError> {
                        "use_custom_servers is enabled but no custom resolver servers are configured");
         }
         for (const auto& server : raw.resolver.servers) {
+            const auto reported = errors.size();
             validate_resolver_address(errors, server.address);
+            // One finding per entry: an address the address check already
+            // rejected says everything there is to say about this server, and
+            // the port check below would only repeat it against the same
+            // entry. Other entries still report their own defects.
+            if (errors.size() != reported) {
+                continue;
+            }
+            const auto uri = Uri::parse(server.address);
+            if (uri && uri->get_schema().empty() && server.port == 0) {
+                push_error(errors, Code::INVALID_RESOLVER, "Classic DNS port must not be zero");
+            }
         }
     }
 

@@ -4,9 +4,12 @@
 
 #include "bootstrap.h"
 
+#include <chrono>
 #include <cstdint>
 #include <new>
 #include <span>
+#include <string>
+#include <string_view>
 #include <type_traits>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 #include <utility>
 #include <vector>
@@ -17,19 +20,21 @@
 #include <spdlog/spdlog.h>
 
 #include "coro/group.hpp"
+#include "coro/scope.hpp"
+#include "coro/sleep.hpp"
 #include "coro/task_group.hpp"
 #include "domain/config/dns_config.h"
 #include "domain/dns/record_kind.h"
 #include "domain/error/dns_error.h"
 #include "domain/network/address_family.h"
 #include "infrastructure/dns/dns_lookup_exception.h"
+#include "infrastructure/dns/dns_packet_exception.h"
 #include "infrastructure/dns/exchange.h"
 #include "infrastructure/dns/parser.h"
-#include "infrastructure/dns/resolver/resolver.h"
 #include "infrastructure/dns/types.h"
 #include "infrastructure/dns/util.hpp"
-#include "infrastructure/dns/validator.h"
 #include "infrastructure/dns/wire/query_util.h"
+#include "infrastructure/logging/level_enabled.h"
 #include "support/fmt.hpp"
 #include "support/redact.hpp"
 #include "yaddnsc/util/format.hpp"  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
@@ -47,7 +52,12 @@ namespace {
 /// Outcome of resolving one record kind.
 struct KindResult {
     std::vector<domain::InetAddress> addresses;
-    domain::DnsErrorInfo error{domain::DnsError::NODATA, "no records"};
+    /// Diagnosis of a run that ended with no address. It names `host` because
+    /// with_host() passes NODATA through unchanged instead of naming it twice.
+    domain::DnsErrorInfo error;
+
+    explicit KindResult(const std::string& host)
+        : error{domain::DnsError::NODATA, fmt::format(R"(DNS lookup for "{}" returned no records)", host)} {}
 };
 
 /// The record kinds a family preference expands to (A first).
@@ -63,21 +73,25 @@ struct KindResult {
 
 /// Pull the addresses of `type` out of a validated response.
 ///
-/// NXDOMAIN is authoritative for the name and reported as an error.
+/// RCODE describes this server's view; negative answers still allow failover.
 [[nodiscard]] std::expected<std::vector<domain::InetAddress>, domain::DnsErrorInfo> extract_addresses(
     const std::vector<std::uint8_t>& response, const std::string& host, const domain::RecordKind kind) {
     const auto expected_type = static_cast<std::uint16_t>(dns::Util::type_to_record_type(kind));
-    const auto parsed = dns::RecordParser::parse_response(response, host);
+    const auto parsed = dns::RecordParser::parse_response(response, host, dns::Util::type_to_record_type(kind));
 
-    if (parsed.rcode == dns::Rcode::NXDOMAIN) {
-        return std::unexpected(domain::DnsErrorInfo{domain::DnsError::NX_DOMAIN,
-                                                    fmt::format(R"(Domain "{}" does not exist (NXDOMAIN))", host)});
+    if (auto error = Util::rcode_error(parsed.rcode, host)) {
+        return std::unexpected(std::move(*error));
     }
 
     std::vector<domain::InetAddress> addresses;
     for (const auto& record : parsed.answers) {
         if (record.type != expected_type) {
             continue;
+        }
+        const auto expected_length = kind == domain::RecordKind::A ? 4U : 16U;
+        if (record.rdata.size() != expected_length) {
+            return std::unexpected(
+                domain::DnsErrorInfo{domain::DnsError::PARSE, "DNS address RDATA length does not match its type"});
         }
         if (auto address = domain::InetAddress::from_bytes(record.rdata)) {
             addresses.push_back(*address);
@@ -94,89 +108,66 @@ struct KindResult {
 /// still hold the records (split-horizon DNS, partial views).
 [[nodiscard]] coro::Task<KindResult> resolve_kind(std::string host, const domain::RecordKind kind,
                                                   std::vector<domain::DnsServer> servers) {
-    KindResult result;
-    result.error =
-        domain::DnsErrorInfo{domain::DnsError::NODATA, fmt::format(R"(DNS lookup for "{}" returned no records)", host)};
+    KindResult result{host};
 
     // A per-server failure keeps its full transport detail at debug level, so
     // the message handed to with_host can stay terse. A later transient
-    // failure must not bury an earlier definitive verdict.
-    const auto record_failure = [&result, &host](const domain::DnsServer& server, domain::DnsErrorInfo error) {
-        SPDLOG_DEBUG(R"(DNS lookup for "{}" via {}:{} failed: {})", host, server.address, server.port, error.message);
-        if (detail::is_definitive(result.error.code) && !detail::is_definitive(error.code)) {
+    // failure must not bury an earlier structural/configuration diagnosis.
+    bool has_failure = false;
+    const auto record_failure = [&result, &host, &has_failure](const domain::DnsServer& server,
+                                                               domain::DnsErrorInfo error) {
+        if (logging::level_enabled(spdlog::level::debug)) {
+            SPDLOG_DEBUG(R"(DNS lookup for "{}" via "{}":{} failed: {})", host,
+                         Utils::redacted_uri_credentials(server.address), server.port, error.message);
+        }
+        if (has_failure && Util::error_priority(result.error.code) >= Util::error_priority(error.code)) {
             return;
         }
         result.error = std::move(error);
+        has_failure = true;
     };
 
     for (const domain::DnsServer& server : servers) {
         const auto address = domain::InetAddress::parse(server.address);
-        if (!address.has_value()) {
-            // A bootstrap server must be an IP literal — a config defect for
-            // this entry; the remaining servers can still answer. Redact:
-            // the raw string may embed URI userinfo, and the error message is
-            // handed to the caller just like the log line is.
-            SPDLOG_WARN(R"(Skipping bootstrap DNS server "{}": not an IP literal)",
-                        Utils::redacted_uri_credentials(server.address));
-            result.error = domain::DnsErrorInfo{
-                domain::DnsError::CONFIG,
-                fmt::format(R"(Bootstrap DNS server "{}" is not an IP literal)",
-                            Utils::redacted_uri_credentials(server.address))};
+        if (!address.has_value() || server.port == 0) {
+            // A bootstrap server must be an IP literal with a nonzero port — a
+            // config defect for this entry; the remaining servers can still
+            // answer. Report the defect that was actually found rather than
+            // both at once, and redact: the raw string may embed URI userinfo,
+            // and the error message is handed to the caller just like the log
+            // line is.
+            const auto redacted = Utils::redacted_uri_credentials(server.address);
+            const std::string_view defect =
+                address.has_value() ? "must use a nonzero port" : "must be an IP literal with a nonzero port";
+            SPDLOG_WARN(R"(Skipping bootstrap DNS server "{}": {})", redacted, defect);
+            record_failure(server,
+                           domain::DnsErrorInfo{domain::DnsError::CONFIG,
+                                                fmt::format(R"(Bootstrap DNS server "{}" {})", redacted, defect)});
             continue;
         }
 
         try {
             const auto query = dns::build_query(host, dns::Util::type_to_record_type(kind));
-            auto udp = co_await detail::query_udp(*address, server.port, query);
-            if (!udp) {
-                record_failure(server, std::move(udp.error()));
+            auto response = co_await detail::query_classic(*address, server.port, query);
+            if (!response) {
+                record_failure(server, std::move(response.error()));
                 continue;
             }
-
-            std::vector<std::uint8_t> response;
-            // Kernel-level truncation (an oversized datagram) is retried over
-            // TCP exactly like a TC-bit answer; partial bytes are never parsed.
-            bool truncated = udp->truncated;
-            if (!truncated) {
-                if (auto valid = dns::Validator::validate_response(query, udp->bytes); !valid) {
-                    record_failure(server, std::move(valid.error()));
-                    continue;
-                }
-                truncated = detail::is_truncated(udp->bytes);
-                if (!truncated) {
-                    response = std::move(udp->bytes);
-                }
-            }
-
-            if (truncated) {
-                auto over_tcp = co_await detail::query_tcp(*address, server.port, query);
-                if (!over_tcp) {
-                    record_failure(server, std::move(over_tcp.error()));
-                    continue;
-                }
-                if (auto valid = dns::Validator::validate_response(query, *over_tcp); !valid) {
-                    record_failure(server, std::move(valid.error()));
-                    continue;
-                }
-                if (detail::is_truncated(*over_tcp)) {
-                    // RFC 7766 §8: TC on a TCP answer marks a broken server.
-                    record_failure(server, {domain::DnsError::RETRY, "DNS server returned a truncated TCP response"});
-                    continue;
-                }
-                response = std::move(*over_tcp);
-            }
-
-            auto found = extract_addresses(response, host, kind);
+            auto found = extract_addresses(*response, host, kind);
             if (!found) {
                 // NXDOMAIN is authoritative for the name on this server only.
-                result.error = std::move(found.error());
+                record_failure(server, std::move(found.error()));
                 continue;
             }
             if (!found->empty()) {
                 result.addresses = std::move(*found);
                 co_return result;
             }
-            // NODATA: a valid answer with no records of this kind.
+            record_failure(server, {domain::DnsError::NODATA,
+                                    fmt::format(R"(DNS lookup for "{}" returned no usable records)", host)});
+        } catch (const DnsPacketException& error) {
+            result.error = {domain::DnsError::INVALID_QUERY, error.what()};
+            co_return result;
         } catch (const std::bad_alloc&) {
             throw;  // an allocation failure is never downgraded to a retryable error
         } catch (const DnsLookupException& error) {
@@ -191,28 +182,22 @@ struct KindResult {
     co_return result;
 }
 
-/// Adapter so a kind can be resolved by a spawned group child.
-[[nodiscard]] coro::Task<void> resolve_into(std::string host, const domain::RecordKind kind,
-                                            std::vector<domain::DnsServer> servers, KindResult* out) {
-    *out = co_await resolve_kind(std::move(host), kind, std::move(servers));
-    co_return;
+/// Timer sibling: unlike timing only a group joiner, completion wakes next().
+[[nodiscard]] coro::Task<bool> collection_window() {
+    co_await coro::sleep_for(std::chrono::milliseconds(50));
+    co_return false;
 }
 
-/// Prefer a definitive error, then NXDOMAIN, over a transient one.
+/// Adapter so a kind can be resolved by a spawned group child.
+[[nodiscard]] coro::Task<bool> resolve_into(std::string host, const domain::RecordKind kind,
+                                            std::vector<domain::DnsServer> servers, KindResult* out) {
+    *out = co_await resolve_kind(std::move(host), kind, std::move(servers));
+    co_return !out->addresses.empty();
+}
+
+/// Use the same failure precedence as the dispatcher; positives are handled first.
 [[nodiscard]] domain::DnsErrorInfo best_error(const domain::DnsErrorInfo& first, const domain::DnsErrorInfo& second) {
-    if (detail::is_definitive(first.code)) {
-        return first;
-    }
-    if (detail::is_definitive(second.code)) {
-        return second;
-    }
-    if (first.code == domain::DnsError::NX_DOMAIN) {
-        return first;
-    }
-    if (second.code == domain::DnsError::NX_DOMAIN) {
-        return second;
-    }
-    return second;
+    return Util::error_priority(first.code) >= Util::error_priority(second.code) ? first : second;
 }
 
 /// Attach the one fact a per-server error cannot carry: the name being
@@ -241,6 +226,13 @@ struct KindResult {
 coro::Task<std::expected<std::vector<domain::InetAddress>, domain::DnsErrorInfo>> bootstrap_resolve(
     std::string host, const std::optional<domain::AddressFamily> family, std::vector<domain::DnsServer> servers) {
     if (const auto literal = domain::InetAddress::parse(host)) {
+        if (family && literal->get_family() != *family) {
+            // The literal contradicts the family the caller asked for: a local
+            // parameter mismatch, not a name that exists without the records.
+            co_return std::unexpected(domain::DnsErrorInfo{
+                domain::DnsError::CONFIG,
+                fmt::format(R"(IP literal "{}" does not match the requested address family)", host)});
+        }
         co_return std::vector<domain::InetAddress>{*literal};
     }
     if (servers.empty()) {
@@ -249,6 +241,8 @@ coro::Task<std::expected<std::vector<domain::InetAddress>, domain::DnsErrorInfo>
                                  fmt::format(R"(Cannot resolve "{}": no bootstrap DNS servers are configured)", host)});
     }
 
+    if (host.empty())
+        host = ".";
     const auto kinds = kinds_for(family);
     if (kinds.size() == 1) {
         auto result = co_await resolve_kind(host, kinds.front(), std::move(servers));
@@ -258,14 +252,28 @@ coro::Task<std::expected<std::vector<domain::InetAddress>, domain::DnsErrorInfo>
         co_return std::move(result.addresses);
     }
 
-    // No family preference: A and AAAA are queried concurrently and each keeps
-    // what it finds, so a server that answers only one family still contributes.
-    KindResult ipv4;
-    KindResult ipv6;
-    co_await coro::task_group([&host, &servers, &ipv4, &ipv6](coro::TaskGroup& group) -> coro::Task<void> {
-        group.spawn(resolve_into(host, domain::RecordKind::A, servers, &ipv4));
-        group.spawn(resolve_into(host, domain::RecordKind::AAAA, servers, &ipv6));
-        co_return;
+    // Once one family succeeds, collect the other for at most 50ms. A silent
+    // family must not discard an address we can already connect to. The local
+    // scope cancels and joins unfinished children; ancestor cancellation propagates.
+    KindResult ipv4{host};
+    KindResult ipv6{host};
+    co_await coro::with_cancel_scope([&](coro::CancelScope& collection) -> coro::Task<void> {
+        co_await coro::task_group([&](coro::TaskGroup& group) -> coro::Task<void> {
+            group.spawn(resolve_into(host, domain::RecordKind::A, servers, &ipv4));
+            group.spawn(resolve_into(host, domain::RecordKind::AAAA, servers, &ipv6));
+            auto first = co_await group.next<bool>();
+            if (!first || !first->has_value())
+                co_return;
+            if (!first->value()) {
+                [[maybe_unused]] auto second = co_await group.next<bool>();
+                co_return;
+            }
+            // group.next() joins children; use a timer sibling rather than
+            // timing out only its waiter while the resolving child lives on.
+            group.spawn(collection_window());
+            [[maybe_unused]] auto second = co_await group.next<bool>();
+            collection.cancel();
+        });
     });
 
     std::vector<domain::InetAddress> addresses;

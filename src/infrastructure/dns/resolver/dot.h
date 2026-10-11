@@ -2,9 +2,8 @@
 // dns — DNS over TLS (RFC 7858), one persistent connection per resolver.
 //
 // The connection is reused across queries and serialized by an AsyncMutex: a
-// concurrent query waits for the connection instead of being refused. A lost
-// connection is rebuilt once, which is the legacy 2-attempt policy expressed as
-// two awaits instead of two threads.
+// concurrent query waits within a bounded queue. Whole-query retries belong
+// to the dispatcher; failed sessions are discarded before another attempt.
 //
 // Queries carry the EDNS(0) padding option (RFC 7830) sized to the 128-octet
 // query block of RFC 8467 §4.1, and are framed with the two-byte length
@@ -61,10 +60,12 @@ struct EndpointOptions {
 ///
 /// Ownership: owns one persistent TLS stream (rebuilt on loss) and the mutex
 /// that serializes it.
-/// Failure: expected<raw response, DnsErrorInfo>; a lost connection is retried
-/// once, and everything else is reported as is. A bootstrap failure that answers
-/// NXDOMAIN or NODATA for the endpoint host is reported as CONNECTION, since it
-/// describes the endpoint rather than the queried domain.
+/// Failure: expected<raw response, DnsErrorInfo>. One 1.5s attempt includes
+/// queueing, bootstrap and I/O; the queue and each address connect are capped
+/// at 500ms. Endpoint bootstrap errors become CONNECTION, never a verdict on
+/// the queried domain. Malformed/TC replies become PARSE and allow failover.
+/// Whole-query retries belong to Dispatcher. A lost reused connection may be
+/// repaired once within the same attempt budget.
 /// Thread safety: concurrent queries are serialized by the session mutex; the
 /// resolver itself is used from the loop thread only.
 class DotResolver final : public Resolver {
@@ -86,10 +87,15 @@ public:
 
     [[nodiscard]] std::string_view name() const noexcept override { return "DNS-Over-TLS"; }
 
-    /// Drop the connection; the next query reconnects.
+    /// Drop the connection; defer safely while a query holds the session guard.
+    /// The next query reconnects. Call on the loop thread only.
     void close() noexcept;
 
 private:
+    [[nodiscard]] coro::Task<std::expected<std::vector<std::uint8_t>, domain::DnsErrorInfo>> query_once(
+        std::string host, domain::RecordKind kind);
+    void drop_stream() noexcept;
+
     [[nodiscard]] coro::Task<std::expected<void, domain::DnsErrorInfo>> ensure_stream();
 
     std::string host_;
@@ -97,6 +103,7 @@ private:
     EndpointOptions options_;
     coro::AsyncMutex mutex_;
     std::unique_ptr<net::Stream> stream_;
+    bool close_requested_{false};
 };
 
 }  // namespace dns

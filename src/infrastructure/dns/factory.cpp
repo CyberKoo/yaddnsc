@@ -57,6 +57,10 @@ namespace {
 
     const std::string schema{uri->get_schema()};
     if (schema.empty()) {
+        if (uri->get_port() != 0 || !uri->get_path().empty() || uri->has_query() ||
+            server.address.find('#') != std::string::npos) {
+            throw std::invalid_argument("Classic DNS address must be a bare IP literal; set port on the server entry");
+        }
         // The bare authority host, never get_host_literal(): that accessor
         // brackets IPv6 for URL building, so "[2606:4700:4700::1111]" would
         // reach inet_pton with its brackets and be rejected as a non-literal.
@@ -68,7 +72,24 @@ namespace {
         return std::make_unique<ClassicResolver>(*address, server.port);
     }
     if (schema == "tls") {
-        const auto port = static_cast<std::uint16_t>(uri->get_port() != 0 ? uri->get_port() : 853);
+        // A DoT endpoint is an authority and nothing else. The "tls" schema
+        // came from this very "://", so the offset is in range; scanning from
+        // 0 otherwise keeps the start defined instead of wrapping npos.
+        const auto scheme_end = server.address.find("://");
+        const auto authority_start = scheme_end == std::string::npos ? 0 : scheme_end + 3;
+        if (server.address.find_first_of("/?#", authority_start) != std::string::npos) {
+            throw std::invalid_argument("DoT endpoint must not contain a path, query or fragment");
+        }
+        // The scheme's well-known port (Uri::parse) is the only default left.
+        // A zero here means the address never carried one and the map has no
+        // "tls" entry, so name that cause instead of letting DotResolver
+        // report a bare "nonzero port" complaint.
+        const auto port = static_cast<std::uint16_t>(uri->get_port());
+        if (port == 0) {
+            throw std::invalid_argument(
+                fmt::format(R"(DoT resolver address "{}" did not resolve to a port; write it as "tls://host:port")",
+                            server.address));
+        }
         EndpointOptions options;
         options.bootstrap_dns = bootstrap;
         options.tls_context = std::move(tls_context);
@@ -76,15 +97,9 @@ namespace {
     }
     if (schema == "https") {
         http::Options options;
-        // The legacy DoH resolver always identified itself on the wire, and
-        // bounded the connect phase at 1s (the read phase is EXCHANGE_BUDGET's).
         options.user_agent = YADDNSC::get_full_version();
-        options.connect_timeout = std::chrono::seconds(1);
         options.resolve = make_bootstrap_resolver(bootstrap);
         options.tls_context = std::move(tls_context);
-        // A DoH body is one DNS message: hold it to the same bound the
-        // length-prefixed TCP paths enforce instead of the HTTP default.
-        options.limits.max_body_bytes = MAX_RESPONSE_SIZE;
         return std::make_unique<DohResolver>(server.address, std::move(options));
     }
     throw std::invalid_argument(

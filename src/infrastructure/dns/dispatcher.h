@@ -2,7 +2,7 @@
 // dns — resolver dispatcher: fallback, shuffle and concurrent strategies.
 //
 // The concurrent race is the redesign's task_group showcase: at most
-// MAX_CONCURRENT_RESOLVERS queries fly at once, each transient failure launches
+// MAX_CONCURRENT_RESOLVERS queries fly at once, each endpoint failure launches
 // the next backend at once, the winner cancels its siblings through a child
 // cancel scope, and scope exit still joins and reaps every child (design §3.2).
 // Retry backoff is a cancellable sleep, not a thread.
@@ -38,19 +38,20 @@ enum class Strategy {
 /// Composes resolver backends behind one query operation.
 ///
 /// Ownership: owns the backends.
-/// Failure: expected<records, DnsErrorInfo>. A definitive error (PARSE/CONFIG)
-/// recorded by any backend is never replaced by a later transient one, and
-/// NXDOMAIN stops the search. A retryable failure in single-backend mode is
-/// retried with a cancellable backoff; in multi-backend mode the redundancy of
-/// several backends replaces retries.
-/// Cancellation: `coro::Cancelled` as a value; every await is a checkpoint.
+/// Failure: expected<records, DnsErrorInfo>. INVALID_QUERY alone ends a search.
+/// Endpoint failures and negative answers permit all remaining backends; the
+/// first positive answer wins. Without a positive, precedence is INVALID_QUERY,
+/// CONFIG, PARSE, operational failure, NODATA, then NXDOMAIN. Single-backend
+/// retry uses a cancellable backoff. Multiple backends exhaust alternatives
+/// first, then allow at most one recovery round for transient failures.
+/// Cancellation throws `coro::Cancelled`; children are cancelled and joined.
 /// Thread safety: resolve() runs concurrently, once per subdomain loop, and
 /// one dispatcher serves all of them. Safety comes from the backends, each of
 /// which serializes its own session — DoT behind an AsyncMutex around the
 /// whole session, DoH behind the PersistentClient's mutex, Classic with a
 /// socket per query — while the dispatcher itself changes nothing after
-/// construction. A DoT query queued behind an in-flight session waits for it,
-/// and that wait is spent out of the caller's DNS read budget.
+/// construction. Encrypted backends include a bounded session wait in their
+/// attempt budget; ancestor cancellation remains the overall hard bound.
 class Dispatcher {
 public:
     explicit Dispatcher(std::vector<std::unique_ptr<Resolver>> resolvers, Strategy strategy = Strategy::CONCURRENT);
@@ -64,8 +65,12 @@ public:
 
     /// Look `host` up and return the formatted record values.
     ///
-    /// @param max_retries  Extra attempts on a retryable failure
-    ///                     (single-backend mode only).
+    /// @param max_retries  Extra attempts for one backend. One backend retries
+    ///                     while the failure is retryable, up to this many
+    ///                     times. Several backends first exhaust the list and
+    ///                     then allow at most one recovery round for the
+    ///                     CONNECTION/RETRY backends they collected; zero
+    ///                     disables that round.
     /// @param backoff_ms   Base backoff; attempt `n` waits `backoff_ms * n`.
     [[nodiscard]] coro::Task<std::expected<std::vector<std::string>, domain::DnsErrorInfo>> resolve(
         std::string host, domain::RecordKind kind, std::uint32_t max_retries = DEFAULT_MAX_RETRIES,

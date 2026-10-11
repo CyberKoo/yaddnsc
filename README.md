@@ -319,6 +319,13 @@ yaddnsc config test -c /etc/yaddnsc/config.json
 | `subdomains[]` | `allow_local_link` | Accept IPv6 link-local addresses (fe80::/10) from any address source. Default `false`. |
 | `subdomains[]` | `driver_params` | Driver-specific parameters. Valid only at subdomain level; see [DRIVERS.md](DRIVERS.md). |
 
+### Update Comparison
+
+Unless forced, an update is skipped only when DNS finds records of the configured
+type and all addresses match the local address. Failed lookups or missing records
+still trigger an update. If DNS returns different addresses, an update may be
+attempted every cycle even when the configured record is already correct.
+
 ### Credentials
 
 `driver_params` commonly contains API tokens or keys. Keep the configuration
@@ -386,9 +393,9 @@ For the URI forms the `port` field of the entry is ignored; an explicit
 (`2606:4700:4700::1111`) or bracketed (`[2606:4700:4700::1111]`). The bare
 form accepts IP literals only — a host name, an embedded port, a path, or a
 query is rejected by validation, because the classic resolver dials only the
-literal and the entry's `port` and anything else would be silently dropped.
-All forms are parsed strictly: whitespace and control characters in the
-address are rejected at validation time.
+literal and the entry's nonzero `port`. DoT addresses must not include a path,
+query or fragment. Whitespace and control characters in server addresses are
+rejected during validation.
 
 With several servers configured, `strategy` controls the query order:
 
@@ -397,6 +404,9 @@ With several servers configured, `strategy` controls the query order:
 | `concurrent` | Races up to three resolvers at a time, launching the next as each one fails, and adopts the first successful answer. |
 | `fallback` | Queries resolvers sequentially in the configured order. |
 | `shuffle` | Queries resolvers sequentially in an order randomized per query. |
+
+If one server fails or finds no records, the other configured servers are still
+tried; the first usable answer is adopted.
 
 ### Hostname resolution (bootstrap DNS)
 

@@ -13,6 +13,7 @@ Built-in records (same as dns_server.py):
     dot-reset.yaddnsc.test    —  close immediately after accepting
     dot-malformed.yaddnsc.test  —  return garbage response
     dot-zerolength.yaddnsc.test —  return 2-byte length prefix of 0
+    dot-tc.yaddnsc.test        —  return a valid DNS response with TC set
 """
 
 import asyncio
@@ -32,6 +33,7 @@ TIMEOUT_HOST = "dot-timeout.yaddnsc.test"
 RESET_HOST = "dot-reset.yaddnsc.test"
 MALFORMED_HOST = "dot-malformed.yaddnsc.test"
 ZERO_LENGTH_HOST = "dot-zerolength.yaddnsc.test"
+TRUNCATE_HOST = "dot-tc.yaddnsc.test"
 
 TYPE_MAP = {1: "A", 28: "AAAA"}
 
@@ -132,6 +134,10 @@ def build_response(ident: int, question: bytes, qname: str, qtype_str: str,
         # we return a special marker and the wire framing layer handles it.
         return b"\x00\x00"  # 2-byte zero length
 
+    if qname == TRUNCATE_HOST:
+        # Well-framed but incomplete: the client must not parse this as NODATA.
+        return struct.pack("!HHHHHH", ident, 0x8380, 1, 0, 0, 0) + question
+
     if not rdata and qtype_str == "A":
         rdata = "198.51.100.1"
 
@@ -153,36 +159,25 @@ async def handle_dot_client(reader: asyncio.StreamReader,
                             writer: asyncio.StreamWriter) -> None:
     """Handle a single DoT (TLS + DNS) connection."""
     try:
-        # Read 2-byte big-endian length prefix (RFC 7858 §3.3)
-        raw_len = await reader.readexactly(2)
-        msg_len = struct.unpack("!H", raw_len)[0]
-
-        if msg_len == 0:
-            return
-
-        data = await reader.readexactly(msg_len)
-        ident, qname, qtype_str, question = parse_query(data)
-        if not qname:
-            return
-
-        response = build_response(ident, question, qname, qtype_str, DEFAULT_RECORDS)
-
-        if response is None:
-            # Timeout host: never respond
-            return
-
-        if response == b"":
-            # Reset host: close immediately
-            return
-
-        if response == b"\x00\x00":
-            # Zero-length: write 2-byte 0 length prefix
-            writer.write(b"\x00\x00")
+        while True:
+            # Persistent, length-framed connection (RFC 7858 §3.3).
+            raw_len = await reader.readexactly(2)
+            msg_len = struct.unpack("!H", raw_len)[0]
+            if msg_len == 0:
+                return
+            data = await reader.readexactly(msg_len)
+            ident, qname, qtype_str, question = parse_query(data)
+            if not qname:
+                return
+            response = build_response(ident, question, qname, qtype_str, DEFAULT_RECORDS)
+            if response is None or response == b"":
+                return
+            if response == b"\x00\x00":
+                writer.write(b"\x00\x00")
+                await writer.drain()
+                return
+            writer.write(struct.pack("!H", len(response)) + response)
             await writer.drain()
-            return
-
-        writer.write(struct.pack("!H", len(response)) + response)
-        await writer.drain()
 
     except asyncio.IncompleteReadError:
         pass
@@ -192,7 +187,7 @@ async def handle_dot_client(reader: asyncio.StreamReader,
         writer.close()
         try:
             await writer.wait_closed()
-        except (BrokenPipeError, ConnectionResetError):
+        except (BrokenPipeError, ConnectionResetError, ssl.SSLError):
             pass
 
 

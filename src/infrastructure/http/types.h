@@ -49,6 +49,9 @@ struct Request {
     std::multimap<std::string, std::string> headers{};
     std::optional<std::string> body{};
     std::string content_type{};
+    /// Explicitly safe to replay on a lost reused connection (e.g. a read-only
+    /// POST). Default false; callers must establish idempotence before enabling.
+    bool replay_safe{false};
 
     /// Attach a text body (JSON, form-encoded, ...).
     void set_body(const std::string_view text) { body = std::string(text); }
@@ -103,10 +106,9 @@ struct Limits {
 ///
 /// Carries the whole policy in one place: protocol preferences, transport and
 /// TLS settings, and the injected resolver used to turn a URL host into
-/// addresses. Every other deadline is the caller's cancel scope; only the
-/// connect phase carries its own budget, because the legacy per-operation
-/// transport timeouts bounded exactly that phase and the exchange scope cannot
-/// tell a black-holed peer apart from a slow one.
+/// addresses. The caller scope bounds the exchange; optional local queue and
+/// per-address connect budgets can fail a busy session or skip a black-holed
+/// candidate without exhausting that entire exchange budget.
 struct Options {
     /// Version emitted in requests; responses may use either version.
     HttpVersion version{HttpVersion::V1_1};
@@ -120,6 +122,8 @@ struct Options {
     /// Per-address connect budget (the legacy transport connect timeout). An
     /// expired budget skips to the next resolved address; zero disables it.
     std::chrono::milliseconds connect_timeout{5000};
+    /// Optional session-queue budget; zero leaves queueing to the caller scope.
+    std::chrono::milliseconds queue_timeout{0};
     /// Transport-level settings (outbound interface).
     net::ConnectOptions connect{};
     /// TLS settings (SNI, ALPN). Trust policy comes from the context below.

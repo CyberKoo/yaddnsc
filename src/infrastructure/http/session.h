@@ -37,7 +37,9 @@ struct WireRequest;
 /// Ownership: owns the stream and the pending read buffer; close() releases the
 /// connection but the session stays usable (the next exchange reconnects).
 /// Failure: expected<Response, Error>. A lost connection is retried once for an
-/// idempotent request (RFC 9110 §9.2.2); any other failure is reported as is.
+/// idempotent HTTP method (RFC 9110 §9.2.2), or an explicitly replay-safe request
+/// on a reused connection. Other failures are reported as is. An optional queue
+/// timeout reports QUEUE_TIMEOUT without touching the active owner's connection.
 /// Cancellation: a cancelled wait on the session lock or on the connection is
 /// observed by throwing `coro::Cancelled`.
 /// Thread safety: not thread-safe as an object, but concurrent exchanges are

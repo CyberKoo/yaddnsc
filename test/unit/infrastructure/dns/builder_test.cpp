@@ -23,6 +23,7 @@
 #include <stddef.h>
 
 #include "infrastructure/dns/dns_packet_exception.h"
+#include "infrastructure/dns/parser.h"
 #include "infrastructure/dns/types.h"
 
 // ===========================================================================
@@ -546,6 +547,38 @@ TEST(QueryBuilderTest, ExceptionGetName) {
 // ===========================================================================
 //  RCODE
 // ===========================================================================
+
+TEST(QueryBuilderTest, EmbeddedNulInQueryNameIsRejected) {
+    const std::string host("foo\0bar.test", 12);
+    EXPECT_THROW(
+        { [[maybe_unused]] const auto wire = dns::QueryBuilder{}.add_question(host, dns::RecordType::A).build(); },
+        DnsPacketException);
+}
+
+TEST(QueryBuilderTest, ExtendedRcodeIsEncodedWithoutNarrowing) {
+    const auto wire = dns::QueryBuilder{}
+                          .add_question("example.com", dns::RecordType::A)
+                          .rcode(static_cast<dns::Rcode>(256))
+                          .add_edns(1232)
+                          .build();
+    const auto parsed = dns::RecordParser::parse_response(wire);
+    EXPECT_EQ(static_cast<std::uint16_t>(parsed.rcode), 256U);
+    EXPECT_THROW(
+        {
+            [[maybe_unused]] const auto invalid =
+                dns::QueryBuilder{}.add_question("example.com", dns::RecordType::A).rcode(dns::Rcode::BADVERS).build();
+        },
+        DnsPacketException);
+    EXPECT_THROW(
+        {
+            [[maybe_unused]] const auto invalid = dns::QueryBuilder{}
+                                                      .add_question("example.com", dns::RecordType::A)
+                                                      .rcode(static_cast<dns::Rcode>(4096))
+                                                      .add_edns(1232)
+                                                      .build();
+        },
+        DnsPacketException);
+}
 
 TEST(QueryBuilderTest, RcodeSetsHeaderBits) {
     auto packet = dns::QueryBuilder{}

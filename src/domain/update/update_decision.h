@@ -8,19 +8,20 @@
 /// UpdateDecision — pure decision over already-fetched inputs for one update
 /// cycle.
 ///
-/// Locked behaviours (legacy Updater semantics):
+/// Decision policy:
 ///   - no local address          → SKIP_NO_ADDRESS (the driver is never called);
 ///   - force_update              → UPDATE_FORCED (DNS records are not consulted);
-///   - ANY record equals the local address → SKIP_UNCHANGED;
+///   - a non-empty RRset with EVERY record equal to the local address → SKIP_UNCHANGED;
 ///   - everything else — including an empty record list, whether the lookup
 ///     succeeded empty or failed and was mapped to empty — is UPDATE_CHANGED.
-/// Every record participates in the comparison: a round-robin RRset stays
-/// unchanged as long as the local address is still in it. No "skip because
-/// no record" state exists.
+/// DNS cannot identify the provider's managed record_id. A matching sibling
+/// must not hide a stale managed record, so mixed-address RRsets are updated
+/// conservatively even when one address matches. No "skip because no record"
+/// state exists.
 namespace domain {
 
 enum class UpdateDecision {
-    SKIP_UNCHANGED,   ///< A DNS record already equals the local address
+    SKIP_UNCHANGED,   ///< All returned DNS records equal the local address
     UPDATE_CHANGED,   ///< Records differ (or are unavailable) — update
     UPDATE_FORCED,    ///< force_update cycle — update without comparing
     SKIP_NO_ADDRESS,  ///< No usable local address — do not call the driver

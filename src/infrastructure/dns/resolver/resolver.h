@@ -10,26 +10,25 @@
 #define YADDNSC_INFRASTRUCTURE_DNS_RESOLVER_RESOLVER_H
 
 #include <cstdint>
-#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
 
 #include <expected>
 
+#include "coro/task.hpp"
 #include "domain/dns/record_kind.h"
 #include "domain/error/dns_error_info.h"
-#include "coro/task.hpp"
-#include "infrastructure/dns/types.h"
 
 namespace dns {
 
 /// One DNS backend.
 ///
 /// Failure: recoverable errors use expected<raw response, DnsErrorInfo>.
-/// Cancellation throws `coro::Cancelled`; PARSE and CONFIG
-/// are definitive (they must not be downgraded to a retryable error); RETRY,
-/// CONNECTION, SERVER_REFUSED, NODATA and UNKNOWN are transient.
+/// Cancellation throws `coro::Cancelled`. Only INVALID_QUERY ends a group
+/// search; PARSE, CONFIG and negative answers describe this backend. RETRY,
+/// CONNECTION may be retried against the same backend. UNKNOWN is retried
+/// only by the single-backend policy, not multi-backend recovery.
 /// Thread safety: a resolver may hold mutable session state (a persistent
 /// connection), so query() is not const; it is not thread-safe and is used from
 /// the loop thread only.
@@ -61,15 +60,10 @@ private:
 
 namespace detail {
 
-
-/// True when the response header has the TC (truncated) bit set.
-[[nodiscard]] inline bool is_truncated(const std::span<const std::uint8_t> response) noexcept {
-    return response.size() >= dns::HEADER_SIZE && (response[2] & 0x02) != 0;
-}
-
-/// True when an error is permanent for this name and must stop the search.
+/// True only for INVALID_QUERY, the single error that stops the search for
+/// this name: every other code describes this backend and stays retryable.
 [[nodiscard]] constexpr bool is_definitive(const domain::DnsError code) noexcept {
-    return code == domain::DnsError::PARSE || code == domain::DnsError::CONFIG;
+    return code == domain::DnsError::INVALID_QUERY;
 }
 
 /// True when a retry of the same query could succeed.

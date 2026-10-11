@@ -607,6 +607,119 @@ std::vector<std::uint8_t> make_edns_response(std::uint16_t txid, bool with_optio
 // A record parsing
 // ===========================================================================
 
+TEST(DnsParserTest, ForeignOwnersAndClassesAreNotQueryAnswers) {
+    const auto original = make_a_response(0x1234, {192, 0, 2, 1});
+    const auto owner = original.size() - 16;
+    for (const bool foreign_owner : {false, true}) {
+        auto wire = original;
+        if (foreign_owner) {
+            std::vector<std::uint8_t> name;
+            encode_name(name, "foreign.test");
+            wire.erase(wire.begin() + static_cast<std::ptrdiff_t>(owner),
+                       wire.begin() + static_cast<std::ptrdiff_t>(owner + 2));
+            wire.insert(wire.begin() + static_cast<std::ptrdiff_t>(owner), name.begin(), name.end());
+        } else {
+            wire[owner + 5] = 3;  // CH, not IN.
+        }
+        EXPECT_TRUE(dns::RecordParser::parse_strings(wire, "example.com", dns::RecordType::A).records.empty());
+        EXPECT_TRUE(dns::RecordParser::parse_response(wire, "example.com", dns::RecordType::A).answers.empty());
+    }
+    EXPECT_EQ(dns::RecordParser::parse_strings(original, "EXAMPLE.COM.", dns::RecordType::A).records,
+              (std::vector<std::string>{"192.0.2.1"}));
+}
+
+TEST(DnsParserTest, ExtendedRcodePreservesAllTwelveBitsInBothEntryPoints) {
+    for (const std::uint16_t code : {16, 256, 4095}) {
+        auto wire = make_a_response(0x1234, {192, 0, 2, 1});
+        wire[3] = static_cast<std::uint8_t>(0x80 | (code & 15));
+        wire[11] = 1;
+        const std::vector<std::uint8_t> opt{0, 0, 41, 0x10, 0, static_cast<std::uint8_t>(code >> 4), 0, 0, 0, 0, 0};
+        wire.insert(wire.end(), opt.begin(), opt.end());
+        const auto fast = dns::RecordParser::parse_strings(wire, "example.com", dns::RecordType::A);
+        const auto full = dns::RecordParser::parse_response(wire, "example.com", dns::RecordType::A);
+        EXPECT_EQ(static_cast<std::uint16_t>(fast.rcode), code);
+        EXPECT_EQ(fast.rcode, full.rcode);
+        EXPECT_TRUE(fast.records.empty());
+        EXPECT_TRUE(full.answers.empty());
+    }
+}
+
+TEST(DnsParserTest, BothEntryPointsRejectMalformedEdnsOptions) {
+    for (const auto& data : {std::vector<std::uint8_t>{0, 12, 0, 10}, std::vector<std::uint8_t>{0, 12, 0}}) {
+        auto wire = make_a_response(0x1234, {192, 0, 2, 1});
+        wire[11] = 1;
+        wire.insert(wire.end(), {0, 0, 41, 0x10, 0, 0, 0, 0, 0, 0, static_cast<std::uint8_t>(data.size())});
+        wire.insert(wire.end(), data.begin(), data.end());
+        EXPECT_THROW(
+            { [[maybe_unused]] const auto parsed = dns::RecordParser::parse_strings(wire); }, DnsLookupException);
+        EXPECT_THROW(
+            { [[maybe_unused]] const auto parsed = dns::RecordParser::parse_response(wire); }, DnsLookupException);
+    }
+}
+
+TEST(DnsParserTest, ReferralWithoutFinalRecordsIsNotNodata) {
+    auto wire = make_ns_response(0x1234, "ns.example.com");
+    wire[7] = 0;  // NS is in authority, not the answer section.
+    wire[9] = 1;
+    EXPECT_THROW(
+        {
+            [[maybe_unused]] const auto parsed =
+                dns::RecordParser::parse_strings(wire, "example.com", dns::RecordType::A);
+        },
+        DnsLookupException);
+    EXPECT_THROW(
+        {
+            [[maybe_unused]] const auto parsed =
+                dns::RecordParser::parse_response(wire, "example.com", dns::RecordType::A);
+        },
+        DnsLookupException);
+}
+
+TEST(DnsParserTest, CnameWorkIsBoundedToSixteenHops) {
+    for (const unsigned hops : {16U, 17U}) {
+        auto wire = make_cname_response(0x1234, "alias0.example.com");
+        for (unsigned i = 1; i < hops; ++i) {
+            encode_name(wire, "alias" + std::to_string(i - 1) + ".example.com");
+            wire.insert(wire.end(), {0, 5, 0, 1, 0, 0, 0, 60, 0, 0});
+            const auto length_offset = wire.size() - 2;
+            const auto start = wire.size();
+            encode_name(wire, "alias" + std::to_string(i) + ".example.com");
+            write_u16_be(wire, length_offset, static_cast<std::uint16_t>(wire.size() - start));
+        }
+        encode_name(wire, "alias" + std::to_string(hops - 1) + ".example.com");
+        wire.insert(wire.end(), {0, 1, 0, 1, 0, 0, 0, 60, 0, 4, 192, 0, 2, 7});
+        write_u16_be(wire, 6, static_cast<std::uint16_t>(hops + 1));
+        if (hops == 16) {
+            const auto parsed = dns::RecordParser::parse_strings(wire, "www.example.com", dns::RecordType::A);
+            ASSERT_EQ(parsed.records.size(), 1U);
+            EXPECT_EQ(parsed.records.front(), "192.0.2.7");
+        } else {
+            EXPECT_THROW(
+                {
+                    [[maybe_unused]] const auto result =
+                        dns::RecordParser::parse_strings(wire, "www.example.com", dns::RecordType::A);
+                },
+                DnsLookupException);
+        }
+    }
+}
+
+TEST(DnsParserTest, QueryAnswerRejectsCnameCycles) {
+    const auto wire = make_cname_response(0x1234, "WWW.EXAMPLE.COM.");
+    EXPECT_THROW(
+        {
+            [[maybe_unused]] const auto parsed =
+                dns::RecordParser::parse_strings(wire, "www.example.com", dns::RecordType::A);
+        },
+        DnsLookupException);
+    EXPECT_THROW(
+        {
+            [[maybe_unused]] const auto parsed =
+                dns::RecordParser::parse_response(wire, "www.example.com", dns::RecordType::A);
+        },
+        DnsLookupException);
+}
+
 TEST(DnsParserTest, ParseSingleARecord) {
     auto response = make_a_response(0x1234, {192, 168, 1, 1});
     auto parsed = dns::RecordParser::parse_strings(response);
@@ -705,13 +818,32 @@ TEST(DnsParserTest, ParseStrings_WithoutFilter_ReturnsEveryRecord) {
     EXPECT_EQ(parsed.records[1], "203.0.113.7");
 }
 
-TEST(DnsParserTest, ParseStrings_TypeFilter_CnameOnlyAnswerYieldsEmpty) {
-    // A CNAME whose target's A record is not in the answer section yields no
-    // result for an A query (the dispatcher reports NODATA).
-    auto response = make_cname_response(0x1234, "target.example.net");
-    auto parsed = dns::RecordParser::parse_strings(response, "www.example.com", dns::RecordType::A);
-    EXPECT_EQ(parsed.rcode, dns::Rcode::NOERROR);
-    EXPECT_TRUE(parsed.records.empty());
+TEST(DnsParserTest, CnameWithNegativeSoaEvidenceCanYieldNodata) {
+    auto wire = make_cname_response(0x1234, "target.example.net");
+    wire[9] = 1;
+    std::vector<std::uint8_t> soa;
+    encode_name(soa, "example.net");
+    soa.insert(soa.end(), {0, 6, 0, 1, 0, 0, 0, 60, 0, 22});
+    soa.resize(soa.size() + 22, 0);  // Two root names plus five 32-bit SOA fields.
+    wire.insert(wire.end(), soa.begin(), soa.end());
+    EXPECT_TRUE(dns::RecordParser::parse_strings(wire, "www.example.com", dns::RecordType::A).records.empty());
+    EXPECT_TRUE(dns::RecordParser::parse_response(wire, "www.example.com", dns::RecordType::A).answers.empty());
+}
+
+TEST(DnsParserTest, CnameOnlyIsIncompleteNotNodata) {
+    const auto response = make_cname_response(0x1234, "target.example.net");
+    EXPECT_THROW(
+        {
+            [[maybe_unused]] const auto parsed =
+                dns::RecordParser::parse_strings(response, "www.example.com", dns::RecordType::A);
+        },
+        DnsLookupException);
+    EXPECT_THROW(
+        {
+            [[maybe_unused]] const auto parsed =
+                dns::RecordParser::parse_response(response, "www.example.com", dns::RecordType::A);
+        },
+        DnsLookupException);
 }
 
 TEST(DnsParserTest, ParseStrings_TypeFilter_OffTypeRecordsAreSkipped) {
@@ -1868,11 +2000,11 @@ TEST(DnsParserTest, Edns0_TruncatedOption_Throws) {
     EXPECT_THROW((dns::RecordParser{response}), DnsLookupException);
 }
 
-TEST(DnsParserTest, Edns0_NonRootName_NotDetected) {
-    // An OPT-typed record with a non-root name is not EDNS0 (RFC 6891 §6.1).
-    auto response = make_custom_edns_response({0x03, 'w', 'w', 'w', 0x00}, {}, 0x00000000);
-    dns::RecordParser parser(response);
-    EXPECT_FALSE(parser.edns().has_value());
+TEST(DnsParserTest, Edns0_NonRootName_IsRejected) {
+    const auto response = make_custom_edns_response({0x03, 'w', 'w', 'w', 0x00}, {}, 0x00000000);
+    EXPECT_THROW({ [[maybe_unused]] const auto parser = dns::RecordParser{response}; }, DnsLookupException);
+    EXPECT_THROW(
+        { [[maybe_unused]] const auto parser = dns::RecordParser::parse_strings(response); }, DnsLookupException);
 }
 
 TEST(DnsParserTest, Edns0_ExtendedRcode_Combined) {

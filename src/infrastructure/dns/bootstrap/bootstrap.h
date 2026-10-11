@@ -6,8 +6,14 @@
 // order; a truncated UDP answer is retried over TCP against the same address.
 //
 // When the caller expresses no address-family preference, A and AAAA are queried
-// concurrently and each type keeps whatever it finds — the result is the union,
-// not the first family to answer.
+// concurrently. What the first family to settle reports decides how the other one
+// is awaited:
+//   * a usable result — the other family then gets a 50ms collection window;
+//     unfinished work is cancelled and joined, not left detached;
+//   * no usable result — the remaining family is awaited to its own end instead,
+//     because its diagnosis may outrank the one already in hand. That wait has no
+//     50ms cap: it ends only when that family settles on its own server, UDP
+//     budget and TCP fallback deadlines.
 //
 
 #ifndef YADDNSC_INFRASTRUCTURE_DNS_BOOTSTRAP_BOOTSTRAP_H
@@ -32,14 +38,17 @@ namespace dns {
 
 /// Resolve `host` to addresses through the given bootstrap servers.
 ///
-/// @param host     Hostname to resolve; an IP literal is returned as-is.
+/// @param host     Hostname to resolve; an IP literal bypasses DNS but must match `family`
+///                 — a literal of the other family is a local CONFIG mismatch, not a name
+///                 without records.
 /// @param family   Restrict to one family, or nullopt for both (A first).
 /// @param servers  Bootstrap servers (IP literals); an empty list is a CONFIG
 ///                 error because /etc/hosts and NSS are never consulted.
-/// @return         The addresses found, or the most informative error: a
-///                 definitive error (PARSE/CONFIG) is never replaced by a later
-///                 transient one, and NXDOMAIN stops the current server.
-///                 Cancellation is `coro::Cancelled`.
+/// @return         Addresses collected, or the highest-priority diagnosis:
+///                 INVALID_QUERY, CONFIG, PARSE, operational failures, NODATA,
+///                 then NXDOMAIN. Endpoint failures/negative answers allow the
+///                 next server; invalid local input stops the lookup.
+///                 Ancestor cancellation throws `coro::Cancelled`.
 /// Failure: allocation failures (std::bad_alloc) are rethrown, never downgraded
 /// to a retryable error.
 [[nodiscard]] coro::Task<std::expected<std::vector<domain::InetAddress>, domain::DnsErrorInfo>> bootstrap_resolve(

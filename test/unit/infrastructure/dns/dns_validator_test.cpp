@@ -30,6 +30,7 @@
 
 #include "domain/error/dns_error.h"
 #include "domain/error/dns_error_info.h"
+#include "infrastructure/dns/parser.h"
 #include "infrastructure/dns/validator.h"
 
 // ===========================================================================
@@ -264,31 +265,35 @@ TEST(DnsValidatorTest, TooShort_ReportedBeforeOtherChecks) {
 // question_section_end — short query (< 12 bytes) on request
 // ===========================================================================
 
-TEST(DnsValidatorTest, ShortQuery_QuestionSectionEnd_ReturnsNullopt) {
+TEST(DnsValidatorTest, ShortQuery_ReturnsInvalidQuery) {
     std::vector<std::uint8_t> short_query{0x12, 0x34, 0x00};  // 3 bytes, TXID matches response
     auto response = make_valid_response();
 
-    expect_parse_error(short_query, response);
+    const auto result = dns::Validator::validate_response(short_query, response);
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error().code, domain::DnsError::INVALID_QUERY);
 }
 
 // ===========================================================================
 // check_txid — request shorter than a DNS header is rejected before any read
 // ===========================================================================
 
-TEST(DnsValidatorTest, ShortRequest_TxidCheck_ReturnsParseError) {
+TEST(DnsValidatorTest, ShortRequest_ReturnsInvalidQuery) {
     // A two-byte request matches the response TXID, but is no valid query —
     // the guard must fire before question-section parsing.
     std::vector<std::uint8_t> short_request{0x12, 0x34};
     auto response = make_valid_response();
 
-    expect_parse_error_msg(short_request, response, "request too short");
+    const auto result = dns::Validator::validate_response(short_request, response);
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error().code, domain::DnsError::INVALID_QUERY);
 }
 
 // ===========================================================================
 // question_section_end — response QDCOUNT == 0
 // ===========================================================================
 
-TEST(DnsValidatorTest, ResponseQdcountZero_QuestionSectionEnd_ReturnsNullopt) {
+TEST(DnsValidatorTest, RequestQdcountZero_ReturnsInvalidQuery) {
     std::vector<std::uint8_t> query = make_query_example();
     // Set QDCOUNT = 0 on the query
     query[4] = 0;
@@ -296,14 +301,16 @@ TEST(DnsValidatorTest, ResponseQdcountZero_QuestionSectionEnd_ReturnsNullopt) {
 
     auto response = make_valid_response();
 
-    expect_parse_error_msg(query, response, "malformed");
+    const auto result = dns::Validator::validate_response(query, response);
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error().code, domain::DnsError::INVALID_QUERY);
 }
 
 // ===========================================================================
 // check_question_echo — rsp_qs_end is nullopt (skip_name returns std::nullopt)
 // ===========================================================================
 
-TEST(DnsValidatorTest, ResponseMalformedQname_SkipName_ReturnsNullopt) {
+TEST(DnsValidatorTest, ResponseMalformedQname_ReturnsParseError) {
     auto query = make_query_example();
     auto response = make_valid_response();
 
@@ -331,7 +338,7 @@ TEST(DnsValidatorTest, QuestionSectionEcho_ParseableButDifferent_ReturnsParseErr
 // skip_name compression pointer (line 33)
 // ===========================================================================
 
-TEST(DnsValidatorTest, QuestionSection_CompressionPointer_Skipped) {
+TEST(DnsValidatorTest, CompressedQuestionMatchesSemanticEcho) {
     // Build a response where the question section uses a compression pointer.
     // The full QNAME is placed at a different position, and position 12 has
     // a compression pointer (0xC0, offset) to it.
@@ -386,8 +393,99 @@ TEST(DnsValidatorTest, QuestionSection_CompressionPointer_Skipped) {
     // The request must have the same QNAME uncompressed.
     auto request = make_query_example();
 
-    // The overall validation will fail because the raw question section bytes
-    // differ (compressed vs uncompressed). But skip_name's compression pointer
-    // branch is exercised during the parsing.
+    // Different wire encodings of the same question are semantically equal.
+    expect_valid(request, response);
+}
+
+TEST(DnsValidatorTest, LiteralDotInsideALabelIsNotASeparator) {
+    const auto request = make_query_example();
+    auto response = make_valid_response();
+    response[12] = 11;  // One label "example.com", not labels "example" and "com".
+    response[20] = '.';
     expect_parse_error(request, response);
+}
+
+TEST(DnsValidatorTest, QuestionNameCaseIsInsensitive) {
+    auto request = make_query_example();
+    auto response = make_valid_response();
+    response[13] = 'E';
+    response[21] = 'C';
+    expect_valid(request, response);
+}
+
+TEST(DnsValidatorTest, MatchingSeparatesUnrelatedPacketsFromMalformedAnswers) {
+    const auto request = make_query_example();
+    auto unrelated = make_valid_response();
+    unrelated[1] ^= 1;
+    const auto ignored = dns::Validator::match_response(request, unrelated);
+    ASSERT_TRUE(ignored);
+    EXPECT_FALSE(*ignored);
+    auto malformed = make_valid_response();
+    malformed.resize(5);
+    const auto failed = dns::Validator::match_response(request, malformed);
+    ASSERT_FALSE(failed);
+    EXPECT_EQ(failed.error().code, domain::DnsError::PARSE);
+    auto invalid = request;
+    invalid.resize(13);
+    const auto local = dns::Validator::match_response(invalid, unrelated);
+    ASSERT_FALSE(local);
+    EXPECT_EQ(local.error().code, domain::DnsError::INVALID_QUERY);
+}
+
+TEST(DnsValidatorTest, WrongOpcodeIsRejected) {
+    auto request = make_query_example();
+    auto response = make_valid_response();
+    response[2] |= 0x28;
+    expect_parse_error_msg(request, response, "opcode");
+}
+
+TEST(DnsValidatorTest, PreparsedRequestIsNotReadAgainForItsQuestion) {
+    // The three-argument overload exists so a receive loop that answers many
+    // datagrams pays one request-side parse per query, not one per datagram.
+    // It therefore compares only the header of `request`; the question comes
+    // from `asked`, and a request whose question bytes no longer parse still
+    // matches a well-formed answer.
+    const auto request = make_query_example();
+    const auto asked = dns::RecordParser::parse_question(request);
+    const auto response = make_valid_response();
+
+    auto damaged = request;
+    damaged[12] = 100;  // a label length the parser rejects
+    const auto rejected = dns::Validator::validate_query(damaged);
+    ASSERT_FALSE(rejected);
+    EXPECT_EQ(rejected.error().code, domain::DnsError::INVALID_QUERY);
+
+    const auto matched = dns::Validator::match_response(damaged, asked, response);
+    ASSERT_TRUE(matched);
+    EXPECT_TRUE(*matched);
+}
+
+TEST(DnsValidatorTest, PreparsedOverloadKeepsTheUnrelatedAndMalformedSplit) {
+    const auto request = make_query_example();
+    const auto asked = dns::RecordParser::parse_question(request);
+
+    auto unrelated = make_valid_response();
+    unrelated[1] ^= 1;
+    const auto ignored = dns::Validator::match_response(request, asked, unrelated);
+    ASSERT_TRUE(ignored);
+    EXPECT_FALSE(*ignored);
+
+    auto malformed = make_valid_response();
+    malformed.resize(5);
+    const auto failed = dns::Validator::match_response(request, asked, malformed);
+    ASSERT_FALSE(failed);
+    EXPECT_EQ(failed.error().code, domain::DnsError::PARSE);
+
+    auto echo_mismatch = make_valid_response();
+    echo_mismatch[13] = 'f';
+    EXPECT_FALSE(*dns::Validator::match_response(request, asked, echo_mismatch));
+}
+
+TEST(DnsValidatorTest, QuestionTypeAndClassMustMatch) {
+    const auto request = make_query_example();
+    for (const auto offset : {26U, 28U}) {
+        auto response = make_valid_response();
+        response[offset] = 3;
+        expect_parse_error(request, response);
+    }
 }

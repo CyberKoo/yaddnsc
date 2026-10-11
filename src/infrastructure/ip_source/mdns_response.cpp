@@ -11,29 +11,22 @@
 #include "infrastructure/dns/parser.h"
 #include "infrastructure/dns/types.h"
 
-namespace {
-[[nodiscard]] bool name_matches(std::string_view record_name, std::string_view queried) noexcept {
-    if (!record_name.empty() && record_name.back() == '.') {
-        record_name.remove_suffix(1);
-    }
-    if (!queried.empty() && queried.back() == '.') {
-        queried.remove_suffix(1);
-    }
-    return StringUtil::iequals(record_name, queried);
-}
-}  // namespace
-
 std::vector<domain::InetAddress> ipsource::parse_response(const std::span<const std::uint8_t> packet,
                                                           const std::string_view hostname,
                                                           const domain::RecordKind type) {
     dns::RecordParser parser(packet);
     const auto& msg = parser.message();
     std::vector<domain::InetAddress> results;
+    if (!msg.qr || !msg.aa || msg.opcode != 0 || msg.rcode != dns::Rcode::NOERROR || msg.tc) {
+        return results;
+    }
     results.reserve(msg.answers.size());
 
     for (size_t i = 0; i < msg.answers.size(); ++i) {
         const auto& rr = msg.answers[i];
-        if (!name_matches(rr.name, hostname)) {
+        // The high CLASS bit is the mDNS cache-flush flag, not part of the class.
+        if (rr.ttl == 0 || (rr.qclass & 0x7fff) != static_cast<std::uint16_t>(dns::RecordClass::IN) ||
+            !dns::name_matches(rr.name, hostname)) {
             continue;
         }
         if (type == domain::RecordKind::A && rr.type != static_cast<std::uint16_t>(dns::RecordType::A)) {

@@ -22,8 +22,9 @@
 #include <vector>
 
 #include <arpa/inet.h>
-
 #include <expected>
+
+#include "infrastructure/dns/types.h"
 
 namespace dns {
 
@@ -81,6 +82,12 @@ enum class FrameError {
     return length;
 }
 
+namespace detail {
+/// True when the response header has the TC bit set; short headers are false.
+[[nodiscard]] inline bool is_truncated(std::span<const std::uint8_t> response) noexcept {
+    return response.size() >= HEADER_SIZE && (response[2] & 0x02) != 0;
+}
+}  // namespace detail
 }  // namespace dns
 
 #endif  // YADDNSC_INFRASTRUCTURE_DNS_WIRE_FRAMING_H

@@ -118,7 +118,7 @@ coro::Task<UpdateCycleOutcome> run_update_cycle(const domain::UpdateTask& task, 
             }
         }
 
-        // --- Step 3: decision (any record matching the local address means unchanged) ---
+        // --- Step 3: decision (only an entirely matching RRset means unchanged) ---
 
         const auto local_addr = local_ip->to_string();
         const auto decision = domain::decide_update(records, local_addr, task.force_update);

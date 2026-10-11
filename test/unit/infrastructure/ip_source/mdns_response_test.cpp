@@ -63,6 +63,38 @@ std::vector<std::uint8_t> response(
 }
 }  // namespace
 
+TEST(MdnsResponse, RejectsQueryErrorOpcodeAndTruncatedPackets) {
+    for (const unsigned kind : {0U, 1U, 2U, 3U, 4U}) {
+        auto packet = response({{"host.local", 1, {192, 0, 2, 7}}});
+        if (kind == 0)
+            packet[2] &= 0x7f;
+        if (kind == 1)
+            packet[3] = 2;
+        if (kind == 2)
+            packet[2] |= 0x28;
+        if (kind == 3)
+            packet[2] |= 2;
+        if (kind == 4)
+            packet[2] &= static_cast<std::uint8_t>(~4U);
+        EXPECT_TRUE(ipsource::parse_response(packet, "host.local", domain::RecordKind::A).empty());
+    }
+}
+
+TEST(MdnsResponse, GoodbyeRecordsAreNotAvailableAddresses) {
+    auto packet = response({{"host.local", 1, {192, 0, 2, 7}}});
+    packet[packet.size() - 7] = 0;  // TTL 60 -> 0: mDNS goodbye.
+    EXPECT_TRUE(ipsource::parse_response(packet, "host.local", domain::RecordKind::A).empty());
+}
+
+TEST(MdnsResponse, ChecksInternetClassWhileAllowingCacheFlushFlag) {
+    auto packet = response({{"host.local", 1, {192, 0, 2, 7}}});
+    packet[packet.size() - 11] = 3;
+    EXPECT_TRUE(ipsource::parse_response(packet, "host.local", domain::RecordKind::A).empty());
+    packet[packet.size() - 11] = 1;
+    packet[packet.size() - 12] = 0x80;
+    EXPECT_EQ(ipsource::parse_response(packet, "host.local", domain::RecordKind::A).size(), 1U);
+}
+
 TEST(MdnsResponse, MatchesOwnerIgnoringCaseAndTrailingDot) {
     const auto packet = response({{"Printer.LOCAL.", 1, {192, 0, 2, 7}}});
     const auto result = ipsource::parse_response(packet, "printer.local", domain::RecordKind::A);

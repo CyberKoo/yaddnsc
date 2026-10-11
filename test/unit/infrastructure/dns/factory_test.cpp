@@ -7,6 +7,7 @@
 
 #include "infrastructure/dns/factory.h"
 
+#include <algorithm>
 #include <memory>
 #include <stdexcept>
 #include <utility>
@@ -16,6 +17,10 @@
 
 #include "domain/config/dns_config.h"
 #include "domain/config/runtime_config.h"
+#include "domain/error/error.h"
+#include "infrastructure/config/config.h"
+#include "infrastructure/config/static_validator.h"
+#include "infrastructure/uri/uri.h"
 
 namespace {
 
@@ -28,6 +33,69 @@ namespace {
 /// Build a dispatcher holding a single configured server.
 [[nodiscard]] std::unique_ptr<dns::Dispatcher> build(const domain::DnsServer& server) {
     return dns::make_dispatcher(settings_with({server}), {}, nullptr);
+}
+
+TEST(DnsFactoryTest, StaticValidationAndFactoryAgreeOnEndpoints) {
+    for (const auto& server : std::vector<domain::DnsServer>{{"1.1.1.1", 53},
+                                                             {"[::1]", 53},
+                                                             {"::1", 53},
+                                                             {"2606:4700:4700::1111", 53},
+                                                             {"1.1.1.1:53", 53},
+                                                             {"[::1]:53", 53},
+                                                             {"1.1.1.1", 0},
+                                                             {"1.1.1.1/path", 53},
+                                                             {"1.1.1.1?", 53},
+                                                             {"1.1.1.1#x", 53},
+                                                             {"tls://dns.test", 853},
+                                                             {"tls://dns.test:8853", 853},
+                                                             {"tls://dns.test/", 853},
+                                                             {"tls://dns.test:0", 853},
+                                                             {"tls://dns.test?", 853},
+                                                             {"tls://dns.test#x", 853},
+                                                             {"https://dns.test/dns-query", 53},
+                                                             {"https://dns.test", 443},
+                                                             {"https://dns.test:0/dns-query", 53},
+                                                             {"ftp://dns.test", 53}}) {
+        SCOPED_TRACE(server.address);
+        Config::AppConfig raw;
+        raw.resolver.use_custom_servers = true;
+        raw.resolver.servers = {server};
+        const auto errors = Config::validate_static(raw);
+        const bool rejected = std::ranges::any_of(
+            errors, [](const auto& error) { return error.code == domain::ConfigError::Code::INVALID_RESOLVER; });
+        bool factory_rejected = false;
+        try {
+            [[maybe_unused]] const auto dispatcher = build(server);
+        } catch (const std::invalid_argument&) {
+            factory_rejected = true;
+        }
+        EXPECT_EQ(rejected, factory_rejected);
+    }
+}
+
+TEST(DnsFactoryTest, DirectFactoryRejectsZeroPortsAndIgnoredComponents) {
+    for (const auto& server : std::vector<domain::DnsServer>{{"127.0.0.1", 0},
+                                                             {"127.0.0.1:53", 53},
+                                                             {"127.0.0.1?", 53},
+                                                             {"tls://dns.test:0", 853},
+                                                             {"tls://dns.test/", 853},
+                                                             {"tls://dns.test/path", 853},
+                                                             {"tls://dns.test?", 853},
+                                                             {"tls://dns.test#fragment", 853}}) {
+        EXPECT_THROW({ [[maybe_unused]] const auto dispatcher = build(server); }, std::invalid_argument);
+    }
+    EXPECT_NO_THROW({ [[maybe_unused]] const auto dispatcher = build({"tls://dns.test", 853}); });
+}
+
+// The factory carries no port fallback of its own any more: a "tls" endpoint
+// written without a port is completed by Uri's well-known port map. This pins
+// that contract, so losing the "tls" entry there fails here instead of the
+// resolver dialling port 0 in production.
+TEST(DnsFactoryTest, DotWithoutExplicitPort_UsesTheWellKnownTlsPort) {
+    const auto uri = Uri::parse("tls://dns.test");
+    ASSERT_TRUE(uri.has_value());
+    EXPECT_EQ(uri->get_port(), 853);
+    EXPECT_NO_THROW({ [[maybe_unused]] const auto dispatcher = build({"tls://dns.test", 853}); });
 }
 
 TEST(DnsFactoryTest, ClassicIPv4_BuildsBackend) {

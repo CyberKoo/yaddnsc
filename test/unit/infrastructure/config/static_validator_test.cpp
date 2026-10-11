@@ -99,6 +99,53 @@ TEST(MakeFqdnTest, DeepSubdomain) {
 // validate_static — domain-level checks
 // ===========================================================================
 
+TEST(StaticValidatorTest, ClassicPortZeroIsRejected) {
+    const auto errors = validate_with([](Config::AppConfig& cfg) {
+        cfg.resolver.use_custom_servers = true;
+        cfg.resolver.servers = {{.address = "127.0.0.1", .port = 0}};
+    });
+    ASSERT_EQ(errors.size(), 1U);
+    EXPECT_EQ(errors.front().code, Code::INVALID_RESOLVER);
+}
+
+// One entry, one finding. A rejected address already describes the whole
+// server, so the same entry must not also be reported as a zero-port classic
+// endpoint — the user edits one line, not two.
+TEST(StaticValidatorTest, InvalidAddressWithZeroPort_ReportsOneError) {
+    for (const std::string address : {"not-an-ip", "999.999.999.999", "1.1.1.1:53", "https://[::1"}) {
+        const auto errors = validate_with([&address](Config::AppConfig& cfg) {
+            cfg.resolver.use_custom_servers = true;
+            cfg.resolver.servers = {{.address = address, .port = 0}};
+        });
+        SCOPED_TRACE(address);
+        ASSERT_EQ(errors.size(), 1U);
+        EXPECT_EQ(errors.front().code, Code::INVALID_RESOLVER);
+    }
+}
+
+// The zero-port check still stands on its own for a well-formed classic entry.
+TEST(StaticValidatorTest, ClassicPortZeroOnValidAddress_ReportsOneError) {
+    const auto errors = validate_with([](Config::AppConfig& cfg) {
+        cfg.resolver.use_custom_servers = true;
+        cfg.resolver.servers = {{.address = "::1", .port = 0}};
+    });
+    ASSERT_EQ(errors.size(), 1U);
+    EXPECT_EQ(errors.front().code, Code::INVALID_RESOLVER);
+    EXPECT_EQ(errors.front().message, "Classic DNS port must not be zero");
+}
+
+TEST(StaticValidatorTest, DoTRejectsIgnoredUriComponents) {
+    for (const std::string address : {"tls://dns.test/", "tls://dns.test/path", "tls://dns.test?", "tls://dns.test?q=1",
+                                      "tls://dns.test#fragment"}) {
+        const auto errors = validate_with([&address](Config::AppConfig& cfg) {
+            cfg.resolver.use_custom_servers = true;
+            cfg.resolver.servers = {{.address = address, .port = 853}};
+        });
+        ASSERT_EQ(errors.size(), 1U) << address;
+        EXPECT_EQ(errors.front().code, Code::INVALID_RESOLVER);
+    }
+}
+
 TEST(StaticValidatorTest, ValidConfig_NoErrors) {
     EXPECT_TRUE(Config::validate_static(make_domain_config()).empty());
 }

@@ -3,6 +3,7 @@
 //
 #include "parser.h"
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <string>
@@ -19,6 +20,7 @@
 #include "domain/error/dns_error.h"
 #include "infrastructure/dns/dns_lookup_exception.h"
 #include "support/fmt.hpp"
+#include "support/string_util.hpp"
 #include "support/util/bytes.hpp"
 
 // =============================================================================
@@ -45,6 +47,19 @@ constexpr uint8_t FLAGS3_RCODE = 0x0F;  // byte 3, lower 4 bits
 constexpr uint32_t EDNS_TTL_RCODE_MASK = 0xFF000000U;
 constexpr uint32_t EDNS_TTL_VERSION_MASK = 0x00FF0000U;
 constexpr uint32_t EDNS_TTL_DO_MASK = 0x00008000U;
+
+// Preserve label boundaries and binary octets in the dot-delimited presentation.
+// In particular, a literal dot inside one label is not a label separator.
+void append_name_octet(std::string& out, const std::uint8_t byte) {
+    if (byte == '.' || byte == '\\' || byte < 32 || byte == 127) {
+        out += '\\';
+        out += static_cast<char>('0' + byte / 100);
+        out += static_cast<char>('0' + (byte / 10) % 10);
+        out += static_cast<char>('0' + byte % 10);
+    } else {
+        out += static_cast<char>(byte);
+    }
+}
 }  // anonymous namespace
 
 // =============================================================================
@@ -59,6 +74,7 @@ std::string dns::RecordParser::decompress_name(const std::span<const std::uint8_
     const auto wire_len = wire.size();
     std::array<size_t, MAX_POINTER_DEPTH> visited{};
     size_t visited_count = 0;
+    size_t expanded_size = 1;  // Root byte, plus each length-prefixed label.
     std::string result;
     result.reserve(NAME_MAX_BYTES);
 
@@ -136,12 +152,13 @@ std::string dns::RecordParser::decompress_name(const std::span<const std::uint8_
                 domain::DnsError::PARSE);
         }
 
-        result.append(reinterpret_cast<const char*>(wire.data() + current), label_len);
+        for (const auto byte : wire.subspan(current, label_len))
+            append_name_octet(result, byte);
         current += label_len;
+        expanded_size += 1 + label_len;
 
-        // RFC 1035 §2.3.4: an expanded name must not exceed 255 octets.
-        // Pointer chains could otherwise expand far beyond the limit.
-        if (result.size() > NAME_MAX_BYTES) {
+        // Count wire octets, not escaped presentation characters.
+        if (expanded_size > NAME_MAX_BYTES) {
             throw DnsLookupException(
                 fmt::format("DNS name decompression: expanded name exceeds {} bytes", NAME_MAX_BYTES),
                 domain::DnsError::PARSE);
@@ -283,7 +300,8 @@ std::string dns::RecordParser::format_srv(const std::span<const std::uint8_t> wi
 // EDNS0 parsing (RFC 6891)
 // =============================================================================
 
-std::optional<dns::EdnsInfo> dns::RecordParser::parse_edns(const ResourceRecord& rr) {
+std::optional<dns::EdnsInfo> dns::RecordParser::parse_edns(const ResourceRecord& rr,
+                                                           const std::span<const std::uint8_t> wire) {
     if (rr.type != static_cast<std::uint16_t>(RecordType::OPT)) {
         return std::nullopt;
     }
@@ -300,28 +318,30 @@ std::optional<dns::EdnsInfo> dns::RecordParser::parse_edns(const ResourceRecord&
     info.version = static_cast<uint8_t>((ttl_val & EDNS_TTL_VERSION_MASK) >> 16);
     info.dnssec_ok = (ttl_val & EDNS_TTL_DO_MASK) != 0;
 
-    // Parse EDNS0 options (variable-length).
+    // Both parser entry points validate the same wire bytes, even without an RDATA copy.
+    const auto length = Utils::Bytes::read_u16_be(wire.subspan(rr.rdata_offset - 2));
+    const auto rdata = wire.subspan(rr.rdata_offset, length);
     size_t offset = 0;
-    while (offset + 4 <= rr.rdata.size()) {
-        const auto opt_code = Utils::Bytes::try_read_u16_be(rr.rdata, offset);
-        const auto opt_len_raw = Utils::Bytes::try_read_u16_be(rr.rdata, offset + 2);
+    while (offset < rdata.size()) {
+        const auto opt_code = Utils::Bytes::try_read_u16_be(rdata, offset);
+        const auto opt_len_raw = Utils::Bytes::try_read_u16_be(rdata, offset + 2);
         if (!opt_code || !opt_len_raw) [[unlikely]] {
             throw DnsLookupException(fmt::format("EDNS0 option header truncated at offset {} (remaining {} bytes)",
-                                                 offset, rr.rdata.size() - offset),
+                                                 offset, rdata.size() - offset),
                                      domain::DnsError::PARSE);
         }
         offset += 4;
 
         const auto opt_len = static_cast<size_t>(*opt_len_raw);
-        if (offset + opt_len > rr.rdata.size()) {
+        if (offset + opt_len > rdata.size()) {
             throw DnsLookupException(fmt::format("EDNS0 option truncated: code={}, declared length={}, remaining={}",
-                                                 *opt_code, opt_len, rr.rdata.size() - offset),
+                                                 *opt_code, opt_len, rdata.size() - offset),
                                      domain::DnsError::PARSE);
         }
 
         EdnsOption opt;
         opt.code = *opt_code;
-        opt.data.assign(rr.rdata.data() + offset, rr.rdata.data() + offset + opt_len);
+        opt.data.assign(rdata.data() + offset, rdata.data() + offset + opt_len);
         offset += opt_len;
 
         info.options.push_back(std::move(opt));
@@ -454,6 +474,12 @@ dns::ParsedMessage dns::RecordParser::parse_message(const std::span<const std::u
     m.nscount = Utils::Bytes::read_u16_be(data.subspan(8));
     m.arcount = Utils::Bytes::read_u16_be(data.subspan(10));
 
+    // Reject impossible counts before reserving attacker-controlled capacities.
+    const auto minimum_size = HEADER_SIZE + size_t{m.qdcount} * QUESTION_FIXED_SIZE + size_t{m.qdcount} +
+                              (size_t{m.ancount} + m.nscount + m.arcount) * (RR_FIXED_SIZE + 1);
+    if (minimum_size > data.size()) {
+        throw DnsLookupException("DNS section counts exceed the available packet bytes", domain::DnsError::PARSE);
+    }
     size_t offset = HEADER_SIZE;
 
     // ── Parse question section ──
@@ -489,15 +515,21 @@ dns::ParsedMessage dns::RecordParser::parse_message(const std::span<const std::u
         // Check for EDNS0 OPT pseudo-record (RFC 6891 §6.1).
         // The NAME must be the root label (0x00, which decompresses to an
         // empty string), and CLASS must carry a non-zero UDP payload size.
-        if (rr.type == static_cast<std::uint16_t>(RecordType::OPT) && rr.name.empty() && rr.qclass > 0) [[unlikely]] {
-            m.edns = parse_edns(rr);
+        if (rr.type == static_cast<std::uint16_t>(RecordType::OPT)) [[unlikely]] {
+            if (!rr.name.empty() || rr.qclass == 0) {
+                throw DnsLookupException("Invalid OPT owner or payload size", domain::DnsError::PARSE);
+            }
+            if (m.edns) {
+                throw DnsLookupException("DNS response has duplicate OPT records", domain::DnsError::PARSE);
+            }
+            m.edns = parse_edns(rr, data);
         }
         m.additionals.push_back(std::move(rr));
     }
 
     // ── Combine RCODE with EDNS0 extended RCODE ──
     if (m.edns.has_value()) [[unlikely]] {
-        m.rcode = static_cast<Rcode>(static_cast<uint8_t>(m.rcode) | (m.edns->extended_rcode << 4));
+        m.rcode = static_cast<Rcode>(static_cast<std::uint16_t>(m.rcode) | (m.edns->extended_rcode << 4));
     }
 
     return m;
@@ -506,6 +538,90 @@ dns::ParsedMessage dns::RecordParser::parse_message(const std::span<const std::u
 // =============================================================================
 // RecordParser public API
 // =============================================================================
+
+bool dns::name_matches(std::string_view first, std::string_view second) noexcept {
+    if (first.ends_with('.'))
+        first.remove_suffix(1);
+    if (second.ends_with('.'))
+        second.remove_suffix(1);
+    return StringUtil::iequals(first, second);
+}
+
+dns::Question dns::RecordParser::parse_question(const std::span<const std::uint8_t> data) {
+    size_t offset = HEADER_SIZE;
+    Question question{};
+    question.qname = decompress_name(data, offset);
+    if (offset + QUESTION_FIXED_SIZE > data.size()) {
+        throw DnsLookupException("DNS question section truncated", domain::DnsError::PARSE);
+    }
+    question.qtype = Utils::Bytes::read_u16_be(data.subspan(offset));
+    question.qclass = Utils::Bytes::read_u16_be(data.subspan(offset + 2));
+    return question;
+}
+
+void dns::RecordParser::filter_answers(ParsedMessage& message, const std::span<const std::uint8_t> wire,
+                                       const std::string& host, const std::optional<RecordType> type_filter) {
+    if (host.empty())
+        return;
+    std::string presented_host;
+    for (const unsigned char byte : host) {
+        if (byte == '.')
+            presented_host += '.';
+        else
+            append_name_octet(presented_host, byte);
+    }
+    std::vector<std::string> chain{std::move(presented_host)};
+    for (;;) {
+        std::optional<std::string> target;
+        for (const auto& rr : message.answers) {
+            if (rr.qclass != static_cast<std::uint16_t>(RecordClass::IN) ||
+                rr.type != static_cast<std::uint16_t>(RecordType::CNAME) || !name_matches(rr.name, chain.back())) {
+                continue;
+            }
+            size_t end = rr.rdata_offset;
+            auto next = decompress_name(wire, end);
+            const auto length = Utils::Bytes::read_u16_be(wire.subspan(rr.rdata_offset - 2));
+            if (end != rr.rdata_offset + length || (target && !name_matches(*target, next))) {
+                throw DnsLookupException("Invalid or conflicting CNAME RDATA", domain::DnsError::PARSE);
+            }
+            target = std::move(next);
+        }
+        if (!target)
+            break;
+        // Bound both repeated answer scans and cycle checks on hostile packets.
+        // Sixteen alias hops cover ordinary DDNS/CDN names without unbounded work.
+        if (chain.size() > 16) {
+            throw DnsLookupException("DNS CNAME chain exceeds 16 hops", domain::DnsError::PARSE);
+        }
+        if (std::ranges::any_of(chain, [&target](const auto& name) { return name_matches(name, *target); })) {
+            throw DnsLookupException("DNS CNAME chain contains a cycle", domain::DnsError::PARSE);
+        }
+        chain.push_back(std::move(*target));
+    }
+    if (type_filter && std::ranges::none_of(message.answers, [&chain, type_filter](const auto& rr) {
+            return rr.qclass == static_cast<std::uint16_t>(RecordClass::IN) &&
+                   rr.type == static_cast<std::uint16_t>(*type_filter) && name_matches(rr.name, chain.back());
+        })) {
+        const auto has_authority = [&message](RecordType type) {
+            return std::ranges::any_of(message.authorities, [type](const auto& rr) {
+                return rr.qclass == static_cast<std::uint16_t>(RecordClass::IN) &&
+                       rr.type == static_cast<std::uint16_t>(type);
+            });
+        };
+        if ((chain.size() > 1 || has_authority(RecordType::NS)) && !has_authority(RecordType::SOA)) {
+            throw DnsLookupException("DNS response is CNAME-only or a referral, not a complete answer",
+                                     domain::DnsError::PARSE);
+        }
+    }
+    std::erase_if(message.answers, [&chain](const auto& rr) {
+        if (rr.qclass != static_cast<std::uint16_t>(RecordClass::IN))
+            return true;
+        if (rr.type == static_cast<std::uint16_t>(RecordType::CNAME)) {
+            return !std::ranges::any_of(chain, [&rr](const auto& name) { return name_matches(rr.name, name); });
+        }
+        return !name_matches(rr.name, chain.back());
+    });
+}
 
 dns::RecordParser::RecordParser(const std::span<const std::uint8_t> data) : wire_(data) {
     message_ = parse_message(data);
@@ -533,14 +649,20 @@ std::string dns::RecordParser::parse_record(size_t index) const {
     return rdata_to_string(rr, wire_);
 }
 
-dns::ParsedResponse dns::RecordParser::parse_response(const std::span<const std::uint8_t> data,
-                                                      [[maybe_unused]] const std::string& host) {
-    RecordParser parser(data);
+dns::ParsedResponse dns::RecordParser::parse_response(const std::span<const std::uint8_t> data, const std::string& host,
+                                                      const std::optional<RecordType> type_filter) {
+    auto message = parse_message(data);
     ParsedResponse response;
-    response.rcode = parser.message().rcode;
+    response.rcode = message.rcode;
 
     if (response.rcode == Rcode::NOERROR) {
-        response.answers = parser.message().answers;
+        filter_answers(message, data, host, type_filter);
+        if (type_filter) {
+            std::erase_if(message.answers, [type_filter](const auto& rr) {
+                return rr.type != static_cast<std::uint16_t>(*type_filter);
+            });
+        }
+        response.answers = std::move(message.answers);
     }
 
     return response;
@@ -556,6 +678,7 @@ dns::FormattedResponse dns::RecordParser::parse_strings(const std::span<const st
     response.rcode = msg.rcode;
 
     if (response.rcode == Rcode::NOERROR) [[likely]] {
+        filter_answers(msg, data, host, type_filter);
         response.records.reserve(msg.answers.size());
         for (size_t i = 0; i < msg.answers.size(); ++i) {
             const auto& answer = msg.answers[i];

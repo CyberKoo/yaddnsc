@@ -11,12 +11,13 @@ namespace domain {
 ///       `<arpa/nameser.h>` defines `NXDOMAIN` as `ns_r_nxdomain`, which would
 ///       cause a preprocessor conflict if we used the bare NXDOMAIN name.
 enum class DnsError {
-    NX_DOMAIN,       ///< Domain does not exist (NXDOMAIN)
-    RETRY,           ///< Transient failure, retry may succeed
-    NODATA,          ///< Domain exists but no records of the requested type
-    PARSE,           ///< Failed to parse DNS response
-    CONNECTION,      ///< Connection to DNS server failed
-    CONFIG,          ///< Invalid configuration
+    NX_DOMAIN,      ///< Domain does not exist (NXDOMAIN)
+    RETRY,          ///< Transient failure, retry may succeed
+    NODATA,         ///< Domain exists but no records of the requested type
+    INVALID_QUERY,  ///< Local query name/type cannot be encoded; no backend can answer
+    PARSE,          ///< This endpoint returned a malformed or unusable DNS response
+    CONNECTION,     ///< Connection to DNS server failed
+    CONFIG,         ///< Invalid configuration
 
     SERVER_REFUSED,  ///< Server refused query (policy, rate-limit, not authoritative)
     UNKNOWN          ///< Unrecognised or uncategorised error

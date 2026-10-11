@@ -1,9 +1,7 @@
 //
 // dns — shared classic wire exchanges over the coroutine transport.
 //
-// Both the bootstrap resolver and the classic resolver send one query and read
-// one answer; they differ only in what they do with a truncated reply, which
-// stays with the caller. These helpers own the socket work and nothing else.
+// Bootstrap and Classic share matching, UDP-to-TCP fallback and attempt budgets.
 //
 
 #ifndef YADDNSC_INFRASTRUCTURE_DNS_EXCHANGE_H
@@ -21,29 +19,37 @@
 
 namespace dns::detail {
 
+/// Exchanges own their sockets and copy endpoints; the query bytes are borrowed
+/// until the task completes. Independent calls may run concurrently on the loop.
+
 /// One UDP answer: the received bytes, plus whether the datagram was cut off
 /// by the receive buffer. Kernel-level truncation does not necessarily set the
 /// TC bit, so the caller must fall back to TCP on `truncated` exactly as it
-/// would for a TC-bit answer (the partial bytes are unusable and dropped).
+/// would for a TC-bit answer (partial RR bytes must not be parsed).
 struct UdpAnswer {
     std::vector<std::uint8_t> bytes;
     bool truncated = false;
 };
 
-/// Send `query` over UDP and return the first answer from `server`.
+/// Complete a classic exchange within ATTEMPT_BUDGET, including UDP-to-TCP
+/// fallback. Both transports must match the query; TC over TCP is a PARSE
+/// error. A whole-attempt timeout returns RETRY and identifies UDP or TCP
+/// fallback. Used by the Classic backend and bootstrap to keep their policies
+/// identical.
+[[nodiscard]] coro::Task<std::expected<std::vector<std::uint8_t>, domain::DnsErrorInfo>> query_classic(
+    domain::InetAddress server, std::uint16_t port, std::span<const std::uint8_t> query);
+
+/// Send `query` over UDP and return the first matching answer from `server`.
 ///
-/// A datagram from any other address or port is ignored. Opens an ephemeral
+/// Ignore mismatched source, ID, opcode or question without resetting the
+/// WIRE_BUDGET exchange budget. Invalid local requests are rejected before
+/// I/O; malformed matching responses return PARSE. Periodically yield while
+/// discarding floods. Match even a kernel-truncated packet's header/question.
+/// Opens an ephemeral
 /// socket per call. Cancellation (including a deadline enforced by the caller's
 /// cancel scope) surfaces as `coro::Cancelled`; a socket failure is
 /// DnsError::CONNECTION.
 [[nodiscard]] coro::Task<std::expected<UdpAnswer, domain::DnsErrorInfo>> query_udp(
-    domain::InetAddress server, std::uint16_t port, std::span<const std::uint8_t> query);
-
-/// Send `query` over TCP with the two-byte length prefix and return the answer.
-///
-/// Opens a fresh connection per call. Failures map as above; a zero length
-/// prefix is DnsError::PARSE.
-[[nodiscard]] coro::Task<std::expected<std::vector<std::uint8_t>, domain::DnsErrorInfo>> query_tcp(
     domain::InetAddress server, std::uint16_t port, std::span<const std::uint8_t> query);
 
 }  // namespace dns::detail

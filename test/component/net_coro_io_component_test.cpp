@@ -16,11 +16,13 @@
 #include <cstdlib>
 #include <memory>
 #include <optional>
+#include <span>
 #include <string>
 #include <thread>
 #include <vector>
 
 #include <arpa/inet.h>
+#include <expected>
 #include <gtest/gtest.h>
 #include <netinet/in.h>
 #include <signal.h>
@@ -29,17 +31,22 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+#include "coro/coro.h"
 #include "domain/dns/record_kind.h"
 #include "domain/error/dns_error_info.h"
-#include "coro/coro.h"
 #include "infrastructure/dns/bootstrap/bootstrap.h"
 #include "infrastructure/dns/dispatcher.h"
+#include "infrastructure/dns/exchange.h"
+#include "infrastructure/dns/parser.h"
+#include "infrastructure/dns/query_budget.hpp"
 #include "infrastructure/dns/resolver/classic.h"
 #include "infrastructure/dns/resolver/doh.h"
 #include "infrastructure/dns/resolver/dot.h"
+#include "infrastructure/dns/wire/builder.h"
 #include "infrastructure/http/persistent_client.h"
 #include "infrastructure/http/transport.h"
 #include "infrastructure/network/tls/context.h"
+#include "infrastructure/network/transport/udp_socket.h"
 #include "support/fmt.hpp"
 #include "support/util/fd.hpp"
 
@@ -342,7 +349,7 @@ TEST(NetCoroDns, classic_rejectsTcpAnswersBeyondTheAcceptedBound) {
     }());
 
     ASSERT_FALSE(result.has_value());
-    EXPECT_EQ(result.error().code, domain::DnsError::RETRY);
+    EXPECT_EQ(result.error().code, domain::DnsError::PARSE);
 }
 
 TEST(NetCoroDns, classic_oversizedUdpDatagramWithoutTc_FallsBackToTcp) {
@@ -438,10 +445,23 @@ TEST(NetCoroDns, doh_enforcesResponseSemantics) {
     // A TC answer has no TCP fallback in DoH: transient, so the dispatcher can
     // fail over to another backend instead of parsing partial data.
     ASSERT_FALSE(results[2].has_value());
-    EXPECT_EQ(results[2].error().code, domain::DnsError::RETRY);
-    // A non-DNS Content-Type is a definitive endpoint defect (RFC 8484 §5.4).
+    EXPECT_EQ(results[2].error().code, domain::DnsError::PARSE);
+    // A non-DNS Content-Type is only this endpoint's failure.
     ASSERT_FALSE(results[3].has_value());
     EXPECT_EQ(results[3].error().code, domain::DnsError::PARSE);
+
+    PythonServer classic;
+    if (!classic.start("dns_server.py", {std::to_string(CLASSIC_PORT)}) || !classic.wait_for_tcp(CLASSIC_PORT)) {
+        GTEST_SKIP() << "dns_server.py did not start";
+    }
+    std::vector<std::unique_ptr<dns::Resolver>> resolvers;
+    resolvers.push_back(
+        std::make_unique<dns::DohResolver>(fmt::format("https://127.0.0.1:{}/dns-query", DOH_PORT), options));
+    resolvers.push_back(std::make_unique<dns::ClassicResolver>(loopback_v4(), CLASSIC_PORT));
+    dns::Dispatcher dispatcher{std::move(resolvers), dns::Strategy::FALLBACK};
+    const auto fallback = run_task(dispatcher.resolve("doh-malformed.yaddnsc.test", domain::RecordKind::A));
+    ASSERT_TRUE(fallback.has_value()) << fallback.error().message;
+    EXPECT_EQ(*fallback, (std::vector<std::string>{"198.51.100.1"}));
 }
 
 TEST(NetCoroDns, dot_resolvesOverTlsWithPadding) {
@@ -462,15 +482,20 @@ TEST(NetCoroDns, dot_resolvesOverTlsWithPadding) {
     options.tls_context = client_context({.verify_peer = false});
     dns::DotResolver resolver{"127.0.0.1", DOT_PORT, options};
 
-    auto resolve = [&]() -> coro::Task<std::pair<bool, bool>> {
-        auto first = co_await resolver.query("yaddnsc.test", domain::RecordKind::A);
-        auto second = co_await resolver.query("yaddnsc.test", domain::RecordKind::A);
-        co_return std::pair{first.has_value() && !first->empty(), second.has_value() && !second->empty()};
+    using QueryResult = std::expected<std::vector<std::uint8_t>, domain::DnsErrorInfo>;
+    auto resolve = [&]() -> coro::Task<std::array<QueryResult, 3>> {
+        std::array<QueryResult, 3> results;
+        results[0] = co_await resolver.query("yaddnsc.test", domain::RecordKind::A);
+        results[1] = co_await resolver.query("dot-tc.yaddnsc.test", domain::RecordKind::A);
+        results[2] = co_await resolver.query("yaddnsc.test", domain::RecordKind::A);
+        co_return results;
     };
 
-    const auto [first_ok, second_ok] = run_task(resolve());
-    EXPECT_TRUE(first_ok);   // padded query answered
-    EXPECT_TRUE(second_ok);  // second query on the persistent connection
+    const auto results = run_task(resolve());
+    EXPECT_TRUE(results[0].has_value());  // padded query answered
+    ASSERT_FALSE(results[1].has_value());
+    EXPECT_EQ(results[1].error().code, domain::DnsError::PARSE);
+    EXPECT_TRUE(results[2].has_value());  // next query still works after the rejected answer
 }
 
 TEST(NetCoroDns, dot_peerClosesWithoutAnswering_FailsCleanly) {
@@ -598,6 +623,32 @@ TEST(NetCoroDns, bootstrap_nodataAnswerFallsThroughToTheNextServer) {
     EXPECT_EQ(result->front().to_string(), "198.51.100.77");
 }
 
+TEST(NetCoroDns, bootstrap_configErrorSurvivesNxdomainButDoesNotHideSuccess) {
+    PythonServer server;
+    if (!server.start("dns_server.py", {std::to_string(BOOTSTRAP_FIRST_PORT)}) ||
+        !server.wait_for_tcp(BOOTSTRAP_FIRST_PORT)) {
+        GTEST_SKIP() << "dns_server.py did not start";
+    }
+
+    const domain::DnsServer valid{"127.0.0.1", static_cast<std::uint16_t>(BOOTSTRAP_FIRST_PORT)};
+    const domain::DnsServer invalid{"not-an-ip", 53};
+    const std::vector<std::vector<domain::DnsServer>> orders{{invalid, valid}, {valid, invalid}};
+    for (const auto& servers : orders) {
+        // This server NXDOMAINs AAAA for an unknown name. CONFIG must win
+        // regardless of whether it occurs before or after that answer.
+        const auto result =
+            run_task(dns::bootstrap_resolve("unknown.yaddnsc.test", domain::AddressFamily::IPV6, servers));
+        ASSERT_FALSE(result.has_value());
+        EXPECT_EQ(result.error().code, domain::DnsError::CONFIG);
+        EXPECT_NE(result.error().message.find("IP literal"), std::string::npos);
+
+        const auto success = run_task(dns::bootstrap_resolve("yaddnsc.test", domain::AddressFamily::IPV6, servers));
+        ASSERT_TRUE(success.has_value()) << success.error().message;
+        ASSERT_EQ(success->size(), 1U);
+        EXPECT_EQ(success->front().to_string(), "2001:db8::42");
+    }
+}
+
 TEST(NetCoroDns, bootstrap_nxdomainFromOneServerStillTriesTheNext) {
     // The first server NXDOMAINs the unknown name; the second holds its AAAA
     // record. NXDOMAIN is authoritative for one server, not for the search.
@@ -624,6 +675,214 @@ TEST(NetCoroDns, bootstrap_nxdomainFromOneServerStillTriesTheNext) {
     ASSERT_TRUE(result.has_value()) << result.error().message;
     ASSERT_EQ(result->size(), 1u);
     EXPECT_EQ(result->front().to_string(), "2001:db8::77");
+}
+
+enum class UdpReplyCase { STRAY_THEN_VALID, MALFORMED, LATE_TC };
+
+coro::Task<void> answer_udp(net::UdpSocket& server, const UdpReplyCase kind) {
+    std::array<std::uint8_t, 4096> buffer{};
+    const auto received = co_await server.recv_from(buffer);
+    EXPECT_TRUE(received.has_value());
+    if (!received)
+        co_return;
+    std::vector<std::uint8_t> reply(buffer.begin(), buffer.begin() + received->size);
+    reply[2] |= 0x80;
+    if (kind == UdpReplyCase::MALFORMED) {
+        reply.resize(5);  // Matching ID, incomplete header.
+    } else if (kind == UdpReplyCase::LATE_TC) {
+        co_await coro::sleep_for(900ms);
+        reply[2] |= 2;
+    } else {
+        auto stray = reply;
+        stray[1] ^= 1;
+        EXPECT_TRUE((co_await server.send_to(received->from, received->port, stray)).has_value());
+        stray = reply;
+        stray[13] = 'y';
+        EXPECT_TRUE((co_await server.send_to(received->from, received->port, stray)).has_value());
+    }
+    EXPECT_TRUE((co_await server.send_to(received->from, received->port, reply)).has_value());
+}
+
+TEST(NetCoroDns, udpDistinguishesInvalidLocalMalformedRemoteAndStrayPackets) {
+    const auto query = dns::QueryBuilder{}.add_question("x.test", dns::RecordType::A).build();
+    for (const auto kind : {UdpReplyCase::MALFORMED, UdpReplyCase::STRAY_THEN_VALID}) {
+        net::UdpSocket server;
+        ASSERT_TRUE(server.bind(loopback_v4(), 0));
+        const auto port = *server.local_port();
+        bool timed_out = true;
+        std::optional<std::expected<dns::detail::UdpAnswer, domain::DnsErrorInfo>> result;
+        run_task([&]() -> coro::Task<void> {
+            co_await coro::task_group([&](coro::TaskGroup& group) -> coro::Task<void> {
+                group.spawn(answer_udp(server, kind));
+                auto outcome = co_await coro::with_timeout(
+                    250ms, [&]() { return dns::detail::query_udp(loopback_v4(), port, query); });
+                timed_out = outcome.timed_out;
+                if (!timed_out)
+                    result.emplace(std::move(*outcome));
+            });
+        }());
+        ASSERT_FALSE(timed_out);
+        ASSERT_TRUE(result);
+        if (kind == UdpReplyCase::MALFORMED) {
+            ASSERT_FALSE(*result);
+            EXPECT_EQ(result->error().code, domain::DnsError::PARSE);
+        } else {
+            EXPECT_TRUE(result->has_value());
+        }
+    }
+    auto invalid = query;
+    invalid.resize(13);
+    const auto local = run_task(dns::detail::query_udp(loopback_v4(), 0, invalid));
+    ASSERT_FALSE(local);
+    EXPECT_EQ(local.error().code, domain::DnsError::INVALID_QUERY);
+}
+
+coro::Task<void> flood_unrelated_replies(net::UdpSocket& server) {
+    std::array<std::uint8_t, 4096> buffer{};
+    const auto received = co_await server.recv_from(buffer);
+    if (!received)
+        co_return;
+    std::vector<std::uint8_t> reply(buffer.begin(), buffer.begin() + received->size);
+    reply[2] |= 0x80;
+    reply[1] ^= 1;
+    for (;;) {
+        for (unsigned i = 0; i < 64; ++i) {
+            if (!(co_await server.send_to(received->from, received->port, reply)))
+                co_return;
+        }
+        co_await coro::sleep_for(1ms);
+    }
+}
+
+TEST(NetCoroDns, strayFloodCannotResetTheUdpBudgetOrStarveItsTimer) {
+    net::UdpSocket server;
+    ASSERT_TRUE(server.bind(loopback_v4(), 0));
+    const auto port = *server.local_port();
+    const auto query = dns::QueryBuilder{}.add_question("x.test", dns::RecordType::A).build();
+    bool timed_out = true;
+    std::optional<std::expected<dns::detail::UdpAnswer, domain::DnsErrorInfo>> result;
+    run_task([&]() -> coro::Task<void> {
+        co_await coro::with_cancel_scope([&](coro::CancelScope& scope) -> coro::Task<void> {
+            co_await coro::task_group([&](coro::TaskGroup& group) -> coro::Task<void> {
+                group.spawn(flood_unrelated_replies(server));
+                auto outcome = co_await coro::with_timeout(
+                    1300ms, [&]() { return dns::detail::query_udp(loopback_v4(), port, query); });
+                timed_out = outcome.timed_out;
+                if (!timed_out)
+                    result.emplace(std::move(*outcome));
+                scope.cancel();
+            });
+        });
+    }());
+    ASSERT_FALSE(timed_out);
+    ASSERT_TRUE(result);
+    ASSERT_FALSE(*result);
+    EXPECT_EQ(result->error().code, domain::DnsError::RETRY);
+    EXPECT_NE(result->error().message.find("UDP query"), std::string::npos);
+    // The reported budget is the constant, not a literal spelled into the message.
+    EXPECT_NE(result->error().message.find(std::to_string(dns::detail::WIRE_BUDGET.count()) + "ms"), std::string::npos);
+}
+
+TEST(NetCoroDns, lateTruncationPreservesTcpFallbackTimeoutStage) {
+    // A listening backlog completes TCP connect but never supplies a DNS reply.
+    Utils::UniqueFd listener{::socket(AF_INET, SOCK_STREAM, 0)};
+    ASSERT_GE(listener.get(), 0);
+    sockaddr_in address{};
+    address.sin_family = AF_INET;
+    address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    ASSERT_EQ(::bind(listener.get(), reinterpret_cast<sockaddr*>(&address), sizeof(address)), 0);
+    ASSERT_EQ(::listen(listener.get(), 1), 0);
+    socklen_t length = sizeof(address);
+    ASSERT_EQ(::getsockname(listener.get(), reinterpret_cast<sockaddr*>(&address), &length), 0);
+    const auto port = ntohs(address.sin_port);
+    net::UdpSocket server;
+    ASSERT_TRUE(server.bind(loopback_v4(), port));
+    const auto query = dns::QueryBuilder{}.add_question("x.test", dns::RecordType::A).build();
+    std::optional<std::expected<std::vector<std::uint8_t>, domain::DnsErrorInfo>> result;
+    run_task([&]() -> coro::Task<void> {
+        co_await coro::task_group([&](coro::TaskGroup& group) -> coro::Task<void> {
+            group.spawn(answer_udp(server, UdpReplyCase::LATE_TC));
+            result.emplace(co_await dns::detail::query_classic(loopback_v4(), port, query));
+        });
+    }());
+    ASSERT_TRUE(result);
+    ASSERT_FALSE(*result);
+    EXPECT_EQ(result->error().code, domain::DnsError::RETRY);
+    EXPECT_NE(result->error().message.find("TCP fallback"), std::string::npos);
+    EXPECT_NE(result->error().message.find(std::to_string(dns::detail::ATTEMPT_BUDGET.count()) + "ms"),
+              std::string::npos);
+}
+
+// One deterministic bootstrap response; ignore the other family when requested.
+coro::Task<void> answer_bootstrap(net::UdpSocket& server, const std::uint8_t rcode, const std::size_t address_length,
+                                  const std::uint16_t wanted_type) {
+    for (;;) {
+        std::array<std::uint8_t, 4096> buffer{};
+        const auto received = co_await server.recv_from(buffer);
+        if (!received)
+            co_return;
+        const auto packet = std::span(buffer).first(received->size);
+        const auto question = dns::RecordParser::parse_question(packet);
+        if (question.qtype != wanted_type)
+            continue;
+        std::vector<std::uint8_t> response(packet.begin(), packet.end() - 11);  // Remove the empty query OPT.
+        response[11] = 0;
+        response[2] |= 0x80;
+        response[3] = static_cast<std::uint8_t>(0x80 | rcode);
+        if (address_length != 0) {
+            response[7] = 1;
+            response.insert(response.end(), {0xc0, 12, 0, static_cast<std::uint8_t>(wanted_type), 0, 1, 0, 0, 0, 60, 0,
+                                             static_cast<std::uint8_t>(address_length)});
+            response.resize(response.size() + address_length, 0);
+            response.back() = 42;
+        }
+        const auto sent = co_await server.send_to(received->from, received->port, response);
+        EXPECT_TRUE(sent.has_value());
+        co_return;
+    }
+}
+
+TEST(NetCoroDns, bootstrap_classifiesServerErrorsAndRejectsWrongAddressLength) {
+    for (const std::uint8_t rcode : {2, 5, 0}) {
+        net::UdpSocket server;
+        ASSERT_TRUE(server.bind(loopback_v4(), 0).has_value());
+        const std::vector<domain::DnsServer> servers{{"127.0.0.1", *server.local_port()}};
+        std::optional<std::expected<std::vector<domain::InetAddress>, domain::DnsErrorInfo>> result;
+        run_task([&]() -> coro::Task<void> {
+            co_await coro::task_group([&](coro::TaskGroup& group) -> coro::Task<void> {
+                group.spawn(answer_bootstrap(server, rcode, rcode == 0 ? 16 : 0, 1));
+                result.emplace(co_await dns::bootstrap_resolve("x.test", domain::AddressFamily::IPV4, servers));
+            });
+        }());
+        ASSERT_TRUE(result.has_value());
+        ASSERT_FALSE(result->has_value());
+        EXPECT_EQ(result->error().code, rcode == 2   ? domain::DnsError::RETRY
+                                        : rcode == 5 ? domain::DnsError::SERVER_REFUSED
+                                                     : domain::DnsError::PARSE);
+    }
+}
+
+TEST(NetCoroDns, bootstrap_returnsAvailableFamilyInsteadOfWaitingForSilentSibling) {
+    for (const bool ipv6 : {false, true}) {
+        net::UdpSocket server;
+        ASSERT_TRUE(server.bind(loopback_v4(), 0).has_value());
+        const std::vector<domain::DnsServer> servers{{"127.0.0.1", *server.local_port()}};
+        bool timed_out = true;
+        std::vector<domain::InetAddress> addresses;
+        run_task([&]() -> coro::Task<void> {
+            co_await coro::task_group([&](coro::TaskGroup& group) -> coro::Task<void> {
+                group.spawn(answer_bootstrap(server, 0, ipv6 ? 16 : 4, ipv6 ? 28 : 1));
+                auto outcome = co_await coro::with_timeout(
+                    1s, [&]() { return dns::bootstrap_resolve("x.test", std::nullopt, servers); });
+                timed_out = outcome.timed_out;
+                if (outcome.has_value() && *outcome)
+                    addresses = **outcome;
+            });
+        }());
+        EXPECT_FALSE(timed_out);
+        ASSERT_EQ(addresses.size(), 1U);
+        EXPECT_EQ(addresses.front().get_family(), ipv6 ? domain::AddressFamily::IPV6 : domain::AddressFamily::IPV4);
+    }
 }
 
 }  // namespace

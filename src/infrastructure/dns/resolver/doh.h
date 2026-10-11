@@ -27,12 +27,13 @@ namespace dns {
 ///
 /// Ownership: owns one persistent HTTP client (and therefore its connection to
 /// the DoH endpoint).
-/// Failure: expected<raw response, DnsErrorInfo>. A non-2xx response is
-/// SERVER_REFUSED (<5xx) or RETRY (5xx); redirects are never followed (RFC 8484
-/// §3), a non-DNS Content-Type is PARSE, and a truncated (TC) answer is RETRY.
-/// A transport failure is CONNECTION, an oversized response RETRY, and a
-/// request or endpoint this client cannot use CONFIG or PARSE (definitive).
-/// A lost connection is retried once, which is the legacy 2-attempt policy.
+/// Failure: expected<raw response, DnsErrorInfo>. Non-2xx is SERVER_REFUSED,
+/// except 429/5xx (RETRY). Invalid remote responses are PARSE and permit
+/// failover, not same-backend retry. Whole-query retries belong to Dispatcher;
+/// a lost reused session may be repaired/replayed once within the same attempt.
+/// Each attempt has a 1.5s budget including the bounded session queue;
+/// each candidate address has at most 500ms to connect. Body size is capped at
+/// 16KiB even for direct construction. Redirects are rejected as a local policy.
 /// Thread safety: concurrent queries are serialized by the client's session
 /// mutex, so the connection is never shared by two coroutines at once.
 class DohResolver final : public Resolver {
@@ -60,9 +61,10 @@ public:
     void close() noexcept;
 
 private:
+    [[nodiscard]] coro::Task<std::expected<std::vector<std::uint8_t>, domain::DnsErrorInfo>> query_once(
+        std::string host, domain::RecordKind kind);
+
     std::string target_;
-    /// "scheme://host:port" label for diagnostics.
-    std::string label_;
     std::shared_ptr<http::PersistentClient> client_;
 };
 

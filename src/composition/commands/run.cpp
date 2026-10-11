@@ -1,29 +1,35 @@
 #include "run.h"
 
-#include <spdlog/spdlog.h>
-#include <functional>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 #include <cstdlib>
+#include <functional>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 #include <memory>
-#include <utility>
-#include <expected>
 #include <span>
+#include <stdexcept>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
+#include <expected>
+#include <spdlog/spdlog.h>
+
 #include "application/environment_validator.h"
+#include "application/ports/gateway.h"  // IWYU pragma: keep — make_gateway yields std::unique_ptr<GatewayPort>; clangd sees no spelled use
 #include "application/run_root.h"
 #include "application/services.h"
+#include "cli/command.h"
 #include "composition/assembly.h"
 #include "composition/startup_signals.h"
-#include "domain/config/dns_config.h"  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
-#include "domain/error/error.h"  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
-#include "infrastructure/config/config_exception.h"
 #include "coro/loop.h"
 #include "coro/run.hpp"
+#include "domain/config/dns_config.h"  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
+#include "domain/config/runtime_config.h"
+#include "domain/error/error.h"  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
+#include "infrastructure/config/config_exception.h"
 #include "infrastructure/dns/dispatcher.h"  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 #include "infrastructure/dns/factory.h"
 #include "infrastructure/dns/resolver_adapter.h"
+#include "infrastructure/http/types.h"
 #include "infrastructure/ip_source/adapter.h"
 #include "infrastructure/ip_source/system_network_interfaces.h"
 #include "infrastructure/logging/async_logging.h"
@@ -32,11 +38,7 @@
 #include "infrastructure/plugin/driver_gateway.h"
 #include "support/exception.h"
 #include "support/fmt.hpp"
-#include "cli/command.h"
-#include "domain/config/runtime_config.h"
-#include "infrastructure/http/types.h"
 #include "yaddnsc/util/format.hpp"  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
-#include "application/ports/gateway.h"  // IWYU pragma: keep — make_gateway yields std::unique_ptr<GatewayPort>; clangd sees no spelled use
 
 namespace coro {
 class TaskGroup;
@@ -109,8 +111,15 @@ int execute_command(const Cli::RunCommand& command) {
             return EXIT_SUCCESS;
         }
         const auto http_options = internal::make_coro_http_options(runtime->resolver, tls_context);
-        const auto dispatcher =
-            dns::make_dispatcher(runtime->resolver, runtime->resolver.bootstrap_servers, tls_context);
+        const auto dispatcher = [&] {
+            try {
+                return dns::make_dispatcher(runtime->resolver, runtime->resolver.bootstrap_servers, tls_context);
+            } catch (const std::invalid_argument& error) {
+                // Factory checks protect direct callers too. Treat any drift
+                // from static validation as configuration failure at startup.
+                throw ConfigException(error.what());
+            }
+        }();
         dns::DispatcherResolverPort resolver_port{*dispatcher};
         ipsource::IpSourceAdapter ip_source{http_options};
 

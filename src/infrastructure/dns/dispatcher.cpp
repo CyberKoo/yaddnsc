@@ -4,41 +4,45 @@
 
 #include "dispatcher.h"
 
-#include <coroutine>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
-#include <ratio>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 #include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
-#include <expected>
+#include <map>
 #include <new>
 #include <optional>
+#include <ratio>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 #include <span>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
-#include <string_view>
 
-#include <spdlog/spdlog.h>
+#include <coroutine>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
+
+#include <expected>
 #include <magic_enum/magic_enum.hpp>
+#include <spdlog/spdlog.h>
 
-#include "domain/error/dns_error.h"
+#include "coro/cancel_scope.h"
 #include "coro/cancelled.h"
 #include "coro/group.hpp"
 #include "coro/scope.hpp"
 #include "coro/scope_outcome.hpp"  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 #include "coro/sleep.hpp"
-#include "infrastructure/dns/dns_lookup_exception.h"
-#include "infrastructure/dns/parser.h"
-#include "infrastructure/dns/util.hpp"
-#include "support/fmt.hpp"
-#include "support/util/random.hpp"
-#include "coro/cancel_scope.h"
 #include "coro/task_group.hpp"
+#include "domain/error/dns_error.h"
+#include "infrastructure/dns/dns_lookup_exception.h"
+#include "infrastructure/dns/dns_packet_exception.h"
+#include "infrastructure/dns/parser.h"
 #include "infrastructure/dns/resolver/resolver.h"
 #include "infrastructure/dns/types.h"
+#include "infrastructure/dns/util.hpp"
+#include "infrastructure/dns/wire/query_util.h"
 #include "infrastructure/logging/level_enabled.h"
+#include "support/fmt.hpp"
+#include "support/util/random.hpp"
 #include "yaddnsc/util/format.hpp"  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 
 namespace domain {
@@ -54,6 +58,7 @@ std::atomic<std::uint64_t> next_resolver_id{0};
 
 /// Outcome of one backend attempt.
 struct Attempt {
+    Resolver* backend = nullptr;  // Borrowed from the dispatcher; groups join before its destruction.
     std::uint64_t id = 0;
     bool ok = false;
     std::vector<std::string> records;
@@ -67,6 +72,7 @@ struct Attempt {
 /// rethrown so it cannot masquerade as a retryable DNS error.
 [[nodiscard]] coro::Task<Attempt> attempt_one(Resolver& resolver, std::string host, const domain::RecordKind kind) {
     Attempt attempt;
+    attempt.backend = &resolver;
     attempt.id = resolver.id();
     try {
         auto raw = co_await resolver.query(host, kind);
@@ -76,34 +82,16 @@ struct Attempt {
         }
 
         const auto parsed = dns::RecordParser::parse_strings(*raw, host, dns::Util::type_to_record_type(kind));
-        switch (parsed.rcode) {
-            case dns::Rcode::NOERROR:
-                if (!parsed.records.empty()) {
-                    attempt.ok = true;
-                    attempt.records = parsed.records;
-                    co_return attempt;
-                }
-                attempt.error = domain::DnsErrorInfo{
-                    domain::DnsError::NODATA, fmt::format(R"(DNS lookup for "{}" returned no records)", host)};
-                co_return attempt;
-            case dns::Rcode::NXDOMAIN:
-                attempt.error = domain::DnsErrorInfo{domain::DnsError::NX_DOMAIN,
-                                                     fmt::format(R"(Domain "{}" does not exist (NXDOMAIN))", host)};
-                co_return attempt;
-            case dns::Rcode::SERVFAIL:
-                attempt.error = domain::DnsErrorInfo{domain::DnsError::RETRY,
-                                                     fmt::format(R"(DNS server returned SERVFAIL for "{}")", host)};
-                co_return attempt;
-            case dns::Rcode::REFUSED:
-                attempt.error = domain::DnsErrorInfo{domain::DnsError::SERVER_REFUSED,
-                                                     fmt::format(R"(DNS server refused the query for "{}")", host)};
-                co_return attempt;
-            default:
-                attempt.error = domain::DnsErrorInfo{
-                    domain::DnsError::UNKNOWN,
-                    fmt::format(R"(DNS lookup for "{}" returned RCODE {})", host, static_cast<int>(parsed.rcode))};
-                co_return attempt;
+        if (auto error = dns::Util::rcode_error(parsed.rcode, host)) {
+            attempt.error = std::move(*error);
+        } else if (!parsed.records.empty()) {
+            attempt.ok = true;
+            attempt.records = parsed.records;
+        } else {
+            attempt.error = domain::DnsErrorInfo{
+                domain::DnsError::NODATA, fmt::format(R"(DNS lookup for "{}" returned no usable records)", host)};
         }
+        co_return attempt;
     } catch (const coro::Cancelled&) {
         // Race losers unwind here when the winner cancels the scope. Trace and
         // rethrow: cancellation is control flow, and this line is the only
@@ -126,74 +114,48 @@ struct Attempt {
     }
 }
 
-/// Collects the diagnosis of a concurrent race without downgrading it.
-///
-/// NXDOMAIN outranks every other failure: one backend proving the name does
-/// not exist beats any other diagnosis. Next, the first definitive error
-/// (PARSE/CONFIG) is kept: once one backend has proven the answer unparseable
-/// or the configuration broken, a later transient failure must not replace
-/// that diagnosis with a retryable one.
+/// The same failure precedence applies to sequential and concurrent searches.
 class BatchErrors {
 public:
-    void note(const domain::DnsErrorInfo& error) {
-        if (error.code == domain::DnsError::NX_DOMAIN) {
-            if (!has_nxdomain_) {
-                nxdomain_ = error;
-                has_nxdomain_ = true;
-            }
-            return;
-        }
-        if (has_definitive_) {
-            return;
-        }
-        if (detail::is_definitive(error.code)) {
-            definitive_ = error;
-            has_definitive_ = true;
-            return;
-        }
-        transient_ = error;
-        has_transient_ = true;
+    void note(const Attempt& attempt) {
+        // A recovery result supersedes that backend's earlier transient failure.
+        errors_.insert_or_assign(attempt.id, attempt.error);
     }
 
-    [[nodiscard]] bool has_definitive() const noexcept { return has_definitive_; }
-
-    [[nodiscard]] bool has_nxdomain() const noexcept { return has_nxdomain_; }
-
     [[nodiscard]] domain::DnsErrorInfo best(const std::string& host) const {
-        if (has_nxdomain_) {
-            return nxdomain_;
+        if (errors_.empty())
+            return {domain::DnsError::UNKNOWN, fmt::format(R"(No resolver reported a diagnosis for "{}")", host)};
+        auto result = errors_.begin()->second;
+        std::size_t nxdomains = 0;
+        std::size_t nodata = 0;
+        for (const auto& entry : errors_) {
+            const auto& error = entry.second;
+            nxdomains += error.code == domain::DnsError::NX_DOMAIN ? 1U : 0U;
+            nodata += error.code == domain::DnsError::NODATA ? 1U : 0U;
+            if (Util::error_priority(error.code) > Util::error_priority(result.code))
+                result = error;
         }
-        if (has_definitive_) {
-            return definitive_;
+        if ((nxdomains != 0 && result.code != domain::DnsError::NX_DOMAIN) ||
+            (nodata != 0 && result.code != domain::DnsError::NODATA)) {
+            result.message += fmt::format("; negative responses: NXDOMAIN={}, NODATA={}", nxdomains, nodata);
         }
-        if (has_transient_) {
-            return transient_;
-        }
-        // Defensive: no backend reported a failure at all. Naming no records
-        // would be a diagnosis no resolver made, so say what is known instead.
-        return domain::DnsErrorInfo{domain::DnsError::UNKNOWN,
-                                    fmt::format(R"(No resolver reported a diagnosis for "{}")", host)};
+        return result;
     }
 
 private:
-    domain::DnsErrorInfo definitive_;
-    domain::DnsErrorInfo nxdomain_;
-    domain::DnsErrorInfo transient_;
-    bool has_definitive_ = false;
-    bool has_nxdomain_ = false;
-    bool has_transient_ = false;
+    std::map<std::uint64_t, domain::DnsErrorInfo> errors_;
 };
 
 /// Race every backend with at most MAX_CONCURRENT_RESOLVERS queries in flight.
 ///
 /// The first answer wins and cancels the in-flight losers; every transient
 /// failure frees its slot and launches the next backend at once instead of
-/// waiting for a whole wave to settle. A definitive diagnosis (or NXDOMAIN)
-/// stops further launches while the in-flight queries settle.
+/// waiting for a whole wave to settle. Negative answers and endpoint failures
+/// free slots too; only INVALID_QUERY ends the search without a positive answer.
 [[nodiscard]] coro::Task<std::expected<std::vector<std::string>, domain::DnsErrorInfo>> run_concurrent_race(
-    const std::span<Resolver* const> resolvers, std::string host, const domain::RecordKind kind) {
+    const std::span<Resolver* const> resolvers, std::string host, const domain::RecordKind kind, BatchErrors& errors,
+    std::vector<Resolver*>& retry) {
     std::optional<std::vector<std::string>> winner;
-    BatchErrors errors;
 
     // A child scope lets the winner cancel its siblings while the group still
     // joins and reaps every child on exit.
@@ -209,16 +171,13 @@ private:
             for (std::size_t i = 0; i < Dispatcher::MAX_CONCURRENT_RESOLVERS; ++i) {
                 launch();
             }
-            bool search_over = false;
             // Completion order decides, not launch order.
             while (auto outcome = co_await group.next<Attempt>()) {
-                if (!outcome->has_value()) {
-                    // Defensive: a child defect cancels the group scope as the
-                    // child finishes, so the next next() call raises Cancelled
-                    // at its checkpoint and the defect itself is rethrown by
-                    // run_group after the join.
-                    break;
-                }
+                // A defective child can never surface here: its completion
+                // cancels this group scope before next() is woken, so the next
+                // call raises Cancelled at its checkpoint and run_group rethrows
+                // the defect after the join. Cancelled children are skipped by
+                // next() itself, so every outcome below carries a value.
                 const Attempt& attempt = outcome->value();
                 if (attempt.ok) {
                     SPDLOG_TRACE(R"(Resolver #{} returned {} record(s) for "{}")", attempt.id, attempt.records.size(),
@@ -237,13 +196,16 @@ private:
                     SPDLOG_TRACE(R"(Resolver #{} returned {} for "{}")", attempt.id,
                                  domain::error_to_str(attempt.error.code), host);
                 }
-                errors.note(attempt.error);
-                if (attempt.error.code == domain::DnsError::NX_DOMAIN || detail::is_definitive(attempt.error.code)) {
-                    search_over = true;  // in-flight queries settle; nothing new launches
+                errors.note(attempt);
+                if (detail::is_definitive(attempt.error.code)) {
+                    race.cancel();
+                    break;
                 }
-                if (!search_over) {
-                    launch();  // a transient failure frees its slot at once
+                if (attempt.error.code == domain::DnsError::CONNECTION ||
+                    attempt.error.code == domain::DnsError::RETRY) {
+                    retry.push_back(attempt.backend);
                 }
+                launch();  // every endpoint failure/negative answer frees its slot
             }
             co_return;
         });
@@ -258,10 +220,8 @@ private:
 
 /// Walk backends in order; stop on any answer or definitive failure.
 [[nodiscard]] coro::Task<std::expected<std::vector<std::string>, domain::DnsErrorInfo>> run_sequential(
-    const std::span<Resolver* const> order, std::string host, const domain::RecordKind kind) {
-    domain::DnsErrorInfo last{domain::DnsError::NODATA,
-                              fmt::format(R"(DNS lookup for "{}" returned no records)", host)};
-
+    const std::span<Resolver* const> order, std::string host, const domain::RecordKind kind, BatchErrors& errors,
+    std::vector<Resolver*>& retry) {
     for (Resolver* resolver : order) {
         auto attempt = co_await attempt_one(*resolver, host, kind);
         const auto id = attempt.id;
@@ -280,12 +240,15 @@ private:
 
         SPDLOG_TRACE(R"(Fallback resolver #{} failed for "{}": {})", id, host,
                      domain::error_to_str(attempt.error.code));
-        last = std::move(attempt.error);
-        if (detail::is_definitive(last.code) || last.code == domain::DnsError::NX_DOMAIN) {
-            co_return std::unexpected(std::move(last));
+        if (detail::is_definitive(attempt.error.code)) {
+            co_return std::unexpected(std::move(attempt.error));
         }
-        SPDLOG_TRACE(R"(Fallback resolver #{} returned a retryable error, moving to next)", id);
+        errors.note(attempt);
+        if (attempt.error.code == domain::DnsError::CONNECTION || attempt.error.code == domain::DnsError::RETRY)
+            retry.push_back(resolver);
+        SPDLOG_TRACE(R"(Fallback resolver #{} could not answer, moving to next)", id);
     }
+    auto last = errors.best(host);
     if (order.size() > 1) {
         if (last.code == domain::DnsError::NODATA) {
             // NOERROR without answers is the state of every name before its
@@ -316,6 +279,18 @@ coro::Task<std::expected<std::vector<std::string>, domain::DnsErrorInfo>> Dispat
         co_return std::unexpected(domain::DnsErrorInfo{domain::DnsError::CONFIG, "no DNS resolvers are configured"});
     }
 
+    if (host.empty())
+        host = ".";  // Root name, not the parser's unfiltered diagnostic mode.
+    // Map a local input defect to INVALID_QUERY before any backend is reached.
+    // Every backend still builds its own query — the transaction ID must differ
+    // per packet — so the win is failing the search here rather than after a
+    // backend has already queued, built and sent a request.
+    try {
+        [[maybe_unused]] const auto checked = build_query(host, Util::type_to_record_type(kind));
+    } catch (const DnsPacketException& error) {
+        co_return std::unexpected(domain::DnsErrorInfo{domain::DnsError::INVALID_QUERY, error.what()});
+    }
+
     std::vector<Resolver*> all;
     all.reserve(resolvers_.size());
     for (const auto& resolver : resolvers_) {
@@ -326,34 +301,23 @@ coro::Task<std::expected<std::vector<std::string>, domain::DnsErrorInfo>> Dispat
         co_return co_await run_single(host, kind, max_retries, backoff_ms);
     }
 
-    if (strategy_ == Strategy::CONCURRENT) {
-        SPDLOG_DEBUG(R"(Concurrent mode: {} resolver(s) for "{}", {} at a time)", all.size(), host,
-                     MAX_CONCURRENT_RESOLVERS);
-        auto result = co_await run_concurrent_race(all, host, kind);
-        // Definitive diagnoses end the search inside the race; only a walk
-        // that exhausted every backend on transient failures is reported here.
-        if (!result.has_value()) {
-            const auto code = result.error().code;
-            if (code == domain::DnsError::NODATA) {
-                // NOERROR without answers is the state of every name before
-                // its first DDNS update, so it is an answer rather than a failure.
-                SPDLOG_TRACE(R"(All {} resolver(s) returned no records for "{}")", all.size(), host);
-            } else if (!detail::is_definitive(code) && code != domain::DnsError::NX_DOMAIN) {
-                SPDLOG_WARN(R"(All {} resolver(s) failed for "{}": {})", all.size(), host, domain::error_to_str(code));
-            }
+    if (strategy_ == Strategy::SHUFFLE)
+        std::ranges::shuffle(all, Utils::Random::engine());
+    BatchErrors errors;
+    // Exhaust alternatives first. At most one recovery round for transient
+    // failures, never for malformed/negative answers. Ancestor budgets still
+    // cancel long candidate lists; no nested backend retry multiplication.
+    for (std::uint32_t round = 0;; ++round) {
+        std::vector<Resolver*> retry;
+        auto result = strategy_ == Strategy::CONCURRENT ? co_await run_concurrent_race(all, host, kind, errors, retry)
+                                                        : co_await run_sequential(all, host, kind, errors, retry);
+        if (result || detail::is_definitive(result.error().code) || retry.empty() ||
+            round >= std::min(max_retries, 1U)) {
+            co_return result;
         }
-        co_return result;
+        co_await coro::sleep_for(std::chrono::milliseconds(backoff_ms));
+        all = std::move(retry);
     }
-
-    if (strategy_ == Strategy::SHUFFLE) {
-        SPDLOG_DEBUG(R"(Shuffle mode: trying {} resolver(s) in random order for "{}")", all.size(), host);
-        std::vector<Resolver*> shuffled = all;
-        std::ranges::shuffle(shuffled, Utils::Random::engine());
-        co_return co_await run_sequential(shuffled, host, kind);
-    }
-
-    SPDLOG_DEBUG(R"(Fallback mode: trying {} resolver(s) in configured order for "{}")", all.size(), host);
-    co_return co_await run_sequential(all, host, kind);
 }
 
 coro::Task<std::expected<std::vector<std::string>, domain::DnsErrorInfo>> Dispatcher::run_single(

@@ -16,10 +16,10 @@
 // coroutine body; these tests use EXPECT_* only.
 //
 
+#include <algorithm>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
-#include <algorithm>
 #include <cstring>
 #include <memory>
 #include <optional>
@@ -40,10 +40,12 @@
 #include "domain/network/address_family.h"
 #include "domain/network/inet_address.h"
 #include "infrastructure/dns/bootstrap/bootstrap.h"
+#include "infrastructure/dns/dispatcher.h"
 #include "infrastructure/dns/resolver/classic.h"
 #include "infrastructure/dns/resolver/doh.h"
 #include "infrastructure/dns/resolver/dot.h"
 #include "infrastructure/dns/resolver/resolver.h"
+#include "infrastructure/dns/wire/builder.h"
 #include "infrastructure/http/types.h"
 #include "infrastructure/network/transport/io_error.h"
 #include "infrastructure/network/transport/stream.h"
@@ -211,11 +213,9 @@ TEST(DotResolver, connectBudgetExpiresAsRetryWhenTheStreamNeverConnects) {
     ASSERT_TRUE(result.has_value());
     ASSERT_FALSE(result->has_value());
     EXPECT_EQ(result->error().code, domain::DnsError::RETRY);
-    // Both attempts dialled the endpoint and each one spent the full connect
-    // budget, so the query failed after 2 × CONNECT_BUDGET rather than parking
-    // until the caller's scope fired.
-    EXPECT_EQ(factory->tls_calls, 2);
-    EXPECT_EQ(clock.now() - start, 2s);
+    // One attempt; whole-query retry belongs to the dispatcher.
+    EXPECT_EQ(factory->tls_calls, 1);
+    EXPECT_EQ(clock.now() - start, 500ms);
 }
 
 TEST(DotResolver, multiAddressFallbackGivesEachAddressItsOwnConnectBudget) {
@@ -243,18 +243,17 @@ TEST(DotResolver, multiAddressFallbackGivesEachAddressItsOwnConnectBudget) {
 
     ASSERT_TRUE(result.has_value());
     ASSERT_FALSE(result->has_value());
-    // The second address connected and failed the write, on both attempts.
+    // The second address connected and failed the write.
     EXPECT_EQ(result->error().code, domain::DnsError::CONNECTION);
     // A black-holed first address spends only its own budget: the second
     // address is dialled on every attempt instead of being cancelled together
     // with the first address's expired budget.
-    const std::vector<domain::InetAddress> expected{black_holed, reachable, black_holed, reachable};
+    const std::vector<domain::InetAddress> expected{black_holed, reachable};
     EXPECT_EQ(factory->dialled, expected);
-    // 2 attempts × 1 black-holed connect budget; the rest is instant.
-    EXPECT_EQ(clock.now() - start, 2s);
+    EXPECT_EQ(clock.now() - start, 500ms);
 }
 
-TEST(DotResolver, nameResolutionBudgetExpiresAsRetry) {
+TEST(DotResolver, nameResolutionConsumesTheWholeAttemptBudget) {
     coro::ManualClock clock;
     coro::Loop loop{clock};
     auto factory = std::make_shared<HangingFactory>();
@@ -275,12 +274,10 @@ TEST(DotResolver, nameResolutionBudgetExpiresAsRetry) {
 
     ASSERT_TRUE(result.has_value());
     ASSERT_FALSE(result->has_value());
-    EXPECT_EQ(result->error().code, domain::DnsError::RETRY);
-    EXPECT_NE(result->error().message.find("name resolution"), std::string::npos);
-    // The resolve timed out before any address existed, so nothing was dialled.
+    EXPECT_EQ(result->error().code, domain::DnsError::CONNECTION);
+    EXPECT_NE(result->error().message.find("attempt timed out"), std::string::npos);
     EXPECT_EQ(factory->tls_calls, 0);
-    // Both attempts spent the resolution budget: 2 × CONNECT_BUDGET.
-    EXPECT_EQ(clock.now() - start, 2s);
+    EXPECT_EQ(clock.now() - start, 1500ms);
 }
 
 TEST(DotResolver, factoryDefectIsUnknownSoTheSearchFallsOver) {
@@ -337,10 +334,8 @@ TEST(DohResolver, connectTimeoutFailsAsConnectionBeforeTheExchangeBudget) {
     ASSERT_FALSE(result->has_value());
     // A black-holed endpoint is a connection failure, not a stalled exchange.
     EXPECT_EQ(result->error().code, domain::DnsError::CONNECTION);
-    // The one retry spent its own connect budget too: 2 × connect_timeout, far
-    // below the 1s exchange budget that would otherwise have been waited out.
-    EXPECT_EQ(factory->tls_calls, 2);
-    EXPECT_EQ(clock.now() - start, 200ms);
+    EXPECT_EQ(factory->tls_calls, 1);
+    EXPECT_EQ(clock.now() - start, 100ms);
 }
 
 // ---------------------------------------------------------------------------
@@ -358,7 +353,7 @@ TEST(DohResolver, connectTimeoutFailsAsConnectionBeforeTheExchangeBudget) {
 TEST(DotResolver, endpointNxdomainFallsBackAsConnection) {
     // NXDOMAIN for the endpoint host says nothing about the queried name, so
     // it must surface as a retryable connection failure instead of the
-    // dispatcher's stop-the-search NXDOMAIN.
+    // dispatcher's negative answer about the caller's name.
     dns::EndpointOptions options;
     options.factory = std::make_shared<ThrowingFactory>();  // never reached: resolution fails first
     options.resolve = failing_resolve(domain::DnsError::NX_DOMAIN, "injected NXDOMAIN");
@@ -386,7 +381,7 @@ TEST(DotResolver, endpointNodataFallsBackAsConnection) {
     EXPECT_TRUE(dns::detail::is_retryable(result.error().code));
 }
 
-TEST(DotResolver, endpointConfigFailurePassesThroughUnchanged) {
+TEST(DotResolver, endpointConfigFailureIsScopedToTheEndpoint) {
     dns::EndpointOptions options;
     options.factory = std::make_shared<ThrowingFactory>();  // never reached: resolution fails first
     options.resolve = failing_resolve(domain::DnsError::CONFIG, "no bootstrap DNS servers are configured");
@@ -395,9 +390,9 @@ TEST(DotResolver, endpointConfigFailurePassesThroughUnchanged) {
     const auto result = coro::run(resolver.query("x.test", domain::RecordKind::A));
 
     ASSERT_FALSE(result.has_value());
-    EXPECT_EQ(result.error().code, domain::DnsError::CONFIG);
-    EXPECT_TRUE(dns::detail::is_definitive(result.error().code));
-    EXPECT_EQ(result.error().message, "no bootstrap DNS servers are configured");
+    EXPECT_EQ(result.error().code, domain::DnsError::CONNECTION);
+    EXPECT_FALSE(dns::detail::is_definitive(result.error().code));
+    EXPECT_NE(result.error().message.find("no bootstrap DNS servers are configured"), std::string::npos);
 }
 
 // ---------------------------------------------------------------------------
@@ -445,7 +440,7 @@ private:
 };
 
 /// Hands out a fresh ScriptedStream per dial, replaying the same script, so
-/// the DoH retry reads it again.
+/// each dispatcher attempt can read the script again.
 class ScriptFactory final : public net::StreamFactory {
 public:
     explicit ScriptFactory(std::string script) : script_(std::move(script)) {}
@@ -465,10 +460,8 @@ private:
     std::string script_;
 };
 
-TEST(DohResolver, oversizedResponseIsRetryableSoTheSearchFallsOver) {
-    // An oversized answer is a property of this one endpoint, not a verdict on
-    // the name: RETRY lets the dispatcher try the next backend (the old PARSE
-    // mapping ended the search outright).
+TEST(DohResolver, oversizedResponseAllowsFailoverWithoutSameBackendRetry) {
+    // PARSE describes this endpoint's unusable reply; it does not end the group search.
     http::Options options;
     options.limits.max_header_bytes = 64;
     options.factory = std::make_shared<ScriptFactory>(
@@ -478,15 +471,15 @@ TEST(DohResolver, oversizedResponseIsRetryableSoTheSearchFallsOver) {
     const auto result = coro::run(resolver.query("x.test", domain::RecordKind::A));
 
     ASSERT_FALSE(result.has_value());
-    EXPECT_EQ(result.error().code, domain::DnsError::RETRY);
-    EXPECT_TRUE(dns::detail::is_retryable(result.error().code));
+    EXPECT_EQ(result.error().code, domain::DnsError::PARSE);
+    EXPECT_FALSE(dns::detail::is_definitive(result.error().code));
 }
 
 // ---------------------------------------------------------------------------
 // Oversized responses fail over, on DoH's body cap and DoT's length prefix
 // ---------------------------------------------------------------------------
 
-TEST(DohResolver, oversizedBodyIsRetryableSoTheSearchFallsOver) {
+TEST(DohResolver, oversizedBodyAllowsFailoverWithoutSameBackendRetry) {
     // The Content-Length check fires at header parse, so the script ends with
     // the headers: the body is never read.
     http::Options options;
@@ -498,11 +491,11 @@ TEST(DohResolver, oversizedBodyIsRetryableSoTheSearchFallsOver) {
     const auto result = coro::run(resolver.query("x.test", domain::RecordKind::A));
 
     ASSERT_FALSE(result.has_value());
-    EXPECT_EQ(result.error().code, domain::DnsError::RETRY);
-    EXPECT_TRUE(dns::detail::is_retryable(result.error().code));
+    EXPECT_EQ(result.error().code, domain::DnsError::PARSE);
+    EXPECT_FALSE(dns::detail::is_definitive(result.error().code));
 }
 
-TEST(DotResolver, oversizedAnnouncedLengthIsRetryableSoTheSearchFallsOver) {
+TEST(DotResolver, oversizedAnnouncedLengthAllowsFailover) {
     // 0xFFFF announces 65535 octets — past MAX_RESPONSE_SIZE, so the resolver
     // rejects the endpoint right after the prefix without buffering the body.
     dns::EndpointOptions options;
@@ -512,11 +505,11 @@ TEST(DotResolver, oversizedAnnouncedLengthIsRetryableSoTheSearchFallsOver) {
     const auto result = coro::run(resolver.query("x.test", domain::RecordKind::A));
 
     ASSERT_FALSE(result.has_value());
-    EXPECT_EQ(result.error().code, domain::DnsError::RETRY);
-    EXPECT_TRUE(dns::detail::is_retryable(result.error().code));
+    EXPECT_EQ(result.error().code, domain::DnsError::PARSE);
+    EXPECT_FALSE(dns::detail::is_definitive(result.error().code));
 }
 
-TEST(DohResolver, protocolUpgradeAnswerIsADefinitiveConfigFailure) {
+TEST(DohResolver, protocolUpgradeAnswerAllowsFailover) {
     http::Options options;
     options.factory = std::make_shared<ScriptFactory>(
         "HTTP/1.1 101 Switching Protocols\r\nConnection: upgrade\r\nUpgrade: h2c\r\nContent-Length: 0\r\n\r\n");
@@ -525,12 +518,34 @@ TEST(DohResolver, protocolUpgradeAnswerIsADefinitiveConfigFailure) {
     const auto result = coro::run(resolver.query("x.test", domain::RecordKind::A));
 
     ASSERT_FALSE(result.has_value());
-    EXPECT_EQ(result.error().code, domain::DnsError::CONFIG);
-    EXPECT_TRUE(dns::detail::is_definitive(result.error().code));
+    EXPECT_EQ(result.error().code, domain::DnsError::PARSE);
+    EXPECT_FALSE(dns::detail::is_definitive(result.error().code));
+}
+
+TEST(DohResolver, unusableRemoteResponsesAllowFailover) {
+    const std::vector<std::string> scripts{
+        "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: 0\r\n\r\n",
+        "HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n",
+        "HTTP/1.1 200 OK\r\nContent-Length: invalid\r\n\r\n",
+        // Correct Content-Type, but a body too short to contain a DNS header.
+        "HTTP/1.1 200 OK\r\nContent-Type: application/dns-message\r\nContent-Length: 1\r\n\r\nx",
+    };
+    for (const auto& script : scripts) {
+        SCOPED_TRACE(script);
+        http::Options options;
+        options.factory = std::make_shared<ScriptFactory>(script);
+        dns::DohResolver resolver{DOH_URL, options};
+
+        const auto result = coro::run(resolver.query("x.test", domain::RecordKind::A));
+
+        ASSERT_FALSE(result.has_value());
+        EXPECT_EQ(result.error().code, domain::DnsError::PARSE);
+        EXPECT_FALSE(dns::detail::is_definitive(result.error().code));
+    }
 }
 
 // ---------------------------------------------------------------------------
-// packet construction failure is a definitive PARSE in every resolver
+// packet construction failure is INVALID_QUERY in every resolver
 // ---------------------------------------------------------------------------
 
 /// A hostname whose first label exceeds 63 octets: building the query throws
@@ -540,38 +555,31 @@ TEST(DohResolver, protocolUpgradeAnswerIsADefinitiveConfigFailure) {
     return host;
 }
 
-TEST(DotResolver, packetConstructionFailureIsDefinitiveParse) {
+TEST(DotResolver, packetConstructionFailureIsInvalidQuery) {
     dns::EndpointOptions options;
-    options.factory = std::make_shared<ThrowingFactory>();  // never reached: construction fails first
+    options.factory = std::make_shared<ThrowingFactory>();
     dns::DotResolver resolver{"203.0.113.10", 853, options};
-
     const auto result = coro::run(resolver.query(overlong_label_host(), domain::RecordKind::A));
-
     ASSERT_FALSE(result.has_value());
-    EXPECT_EQ(result.error().code, domain::DnsError::PARSE);
+    EXPECT_EQ(result.error().code, domain::DnsError::INVALID_QUERY);
     EXPECT_TRUE(dns::detail::is_definitive(result.error().code));
 }
 
-TEST(DohResolver, packetConstructionFailureIsDefinitiveParse) {
+TEST(DohResolver, packetConstructionFailureIsInvalidQuery) {
     http::Options options;
     options.factory = std::make_shared<ThrowingFactory>();
     dns::DohResolver resolver{DOH_URL, options};
-
     const auto result = coro::run(resolver.query(overlong_label_host(), domain::RecordKind::A));
-
     ASSERT_FALSE(result.has_value());
-    EXPECT_EQ(result.error().code, domain::DnsError::PARSE);
+    EXPECT_EQ(result.error().code, domain::DnsError::INVALID_QUERY);
     EXPECT_TRUE(dns::detail::is_definitive(result.error().code));
 }
 
-TEST(ClassicResolver, packetConstructionFailureIsDefinitiveParse) {
-    // No network: building the query fails before a socket is opened.
+TEST(ClassicResolver, packetConstructionFailureIsInvalidQuery) {
     dns::ClassicResolver resolver{*domain::InetAddress::parse("203.0.113.10"), 53};
-
     const auto result = coro::run(resolver.query(overlong_label_host(), domain::RecordKind::A));
-
     ASSERT_FALSE(result.has_value());
-    EXPECT_EQ(result.error().code, domain::DnsError::PARSE);
+    EXPECT_EQ(result.error().code, domain::DnsError::INVALID_QUERY);
     EXPECT_TRUE(dns::detail::is_definitive(result.error().code));
 }
 
@@ -585,17 +593,25 @@ TEST(BootstrapResolve, nonLiteralServerIsSkippedAndReportedAsConfig) {
 
     ASSERT_FALSE(result.has_value());
     EXPECT_EQ(result.error().code, domain::DnsError::CONFIG);
-    EXPECT_NE(result.error().message.find("not an IP literal"), std::string::npos);
+    EXPECT_NE(result.error().message.find("IP literal"), std::string::npos);
 }
 
-TEST(BootstrapResolve, packetConstructionFailureIsDefinitiveParse) {
-    // No network: building the query fails before a socket is opened, and a
-    // construction defect must stay definitive instead of falling into the
-    // generic catch as a retryable error.
-    const auto result = coro::run(dns::bootstrap_resolve(overlong_label_host(), std::nullopt, {{"192.0.2.1", 53}}));
+TEST(BootstrapResolve, zeroPortServerIsSkippedAndReportedAsConfig) {
+    // The other half of the server-entry policy: the address parses, so only the
+    // port is wrong. It must name that defect and not the address one, and no
+    // query is ever sent towards the missing port.
+    const auto result = coro::run(dns::bootstrap_resolve("example.org", std::nullopt, {{"192.0.2.1", 0}}));
 
     ASSERT_FALSE(result.has_value());
-    EXPECT_EQ(result.error().code, domain::DnsError::PARSE);
+    EXPECT_EQ(result.error().code, domain::DnsError::CONFIG);
+    EXPECT_NE(result.error().message.find("nonzero port"), std::string::npos);
+    EXPECT_EQ(result.error().message.find("IP literal"), std::string::npos);
+}
+
+TEST(BootstrapResolve, packetConstructionFailureIsInvalidQuery) {
+    const auto result = coro::run(dns::bootstrap_resolve(overlong_label_host(), std::nullopt, {{"192.0.2.1", 53}}));
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error().code, domain::DnsError::INVALID_QUERY);
     EXPECT_TRUE(dns::detail::is_definitive(result.error().code));
 }
 
@@ -603,7 +619,7 @@ TEST(BootstrapResolve, definitiveErrorSurvivesALaterTransientFailure) {
     // One real UDP socket towards TEST-NET-1 (192.0.2.1): the send is queued
     // silently and the receive is cut by the UDP budget on the manual clock,
     // so the transient failure costs no wall-clock time. The first server's
-    // CONFIG (definitive) must survive the second server's transient failure.
+    // CONFIG diagnosis must survive the second server's transient failure.
     coro::ManualClock clock;
     coro::Loop loop{clock};
     std::optional<ResolveResult> result;
@@ -618,7 +634,7 @@ TEST(BootstrapResolve, definitiveErrorSurvivesALaterTransientFailure) {
     ASSERT_TRUE(result.has_value());
     ASSERT_FALSE(result->has_value());
     EXPECT_EQ(result->error().code, domain::DnsError::CONFIG);
-    EXPECT_NE(result->error().message.find("not an IP literal"), std::string::npos);
+    EXPECT_NE(result->error().message.find("IP literal"), std::string::npos);
 }
 
 TEST(BootstrapResolve, nonLiteralServerAddressIsRedactedInTheError) {
@@ -631,6 +647,306 @@ TEST(BootstrapResolve, nonLiteralServerAddressIsRedactedInTheError) {
     EXPECT_EQ(result.error().code, domain::DnsError::CONFIG);
     EXPECT_EQ(result.error().message.find("secret"), std::string::npos);
     EXPECT_NE(result.error().message.find("***"), std::string::npos);
+}
+
+TEST(DohResolver, blackHoledFirstAddressDoesNotPreventTryingTheSecond) {
+    const auto dead = *domain::InetAddress::parse("203.0.113.10");
+    const auto good = *domain::InetAddress::parse("203.0.113.11");
+    auto factory = std::make_shared<FallbackFactory>(dead);
+    http::Options options;
+    options.factory = factory;
+    options.connect_timeout = 1s;  // Constructor caps this below the complete attempt.
+    options.resolve = [dead, good](std::string, std::optional<domain::AddressFamily>) -> coro::Task<ResolveResult> {
+        co_return std::vector<domain::InetAddress>{dead, good};
+    };
+    dns::DohResolver resolver{"https://doh.test/dns-query", options};
+    coro::ManualClock clock;
+    coro::Loop loop{clock};
+    const auto result = coro::run(loop, resolver.query("x.test", domain::RecordKind::A));
+    EXPECT_FALSE(result.has_value());
+    EXPECT_EQ(factory->dialled, (std::vector<domain::InetAddress>{dead, good}));
+}
+
+TEST(DohResolver, directConstructionEnforcesHttpsAndTheResponseCap) {
+    EXPECT_THROW(
+        { dns::DohResolver resolver("http://203.0.113.10/dns-query", http::Options{}); }, std::invalid_argument);
+    http::Options options;
+    options.factory = std::make_shared<ScriptFactory>(
+        "HTTP/1.1 200 OK\r\nContent-Type: application/dns-message\r\nContent-Length: 20000\r\n\r\n");
+    dns::DohResolver resolver{DOH_URL, options};
+    const auto result = coro::run(resolver.query("x.test", domain::RecordKind::A));
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error().code, domain::DnsError::PARSE);
+    EXPECT_NE(result.error().message.find("Content-Length exceeds limit"), std::string::npos);
+}
+
+TEST(DohResolver, rateLimitingIsRetryable) {
+    http::Options options;
+    options.factory = std::make_shared<ScriptFactory>("HTTP/1.1 429 Too Many Requests\r\nContent-Length: 0\r\n\r\n");
+    dns::DohResolver resolver{DOH_URL, options};
+    const auto result = coro::run(resolver.query("x.test", domain::RecordKind::A));
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error().code, domain::DnsError::RETRY);
+}
+
+class StalledReadStream final : public net::Stream {
+public:
+    explicit StalledReadStream(int& closed) : closed_(closed) {}
+
+    coro::Task<std::expected<void, net::IoError>> ensure_connected() override { co_return {}; }
+
+    coro::Task<std::expected<std::size_t, net::IoError>> read_some(std::span<std::uint8_t>) override {
+        co_await coro::sleep_for(1h);
+        co_return 0;
+    }
+
+    coro::Task<std::expected<void, net::IoError>> read_exact(std::span<std::uint8_t>) override {
+        co_await coro::sleep_for(1h);
+        co_return {};
+    }
+
+    coro::Task<std::expected<void, net::IoError>> send_all(std::span<const std::uint8_t>) override { co_return {}; }
+
+    void close() noexcept override {
+        if (connected_)
+            ++closed_;
+        connected_ = false;
+    }
+
+    bool connected() const noexcept override { return connected_; }
+
+private:
+    int& closed_;
+    bool connected_{true};
+};
+
+class StalledReadFactory final : public net::StreamFactory {
+public:
+    std::unique_ptr<net::Stream> create_tls(domain::InetAddress, std::uint16_t, const net::ConnectOptions&,
+                                            const net::TlsOptions&, std::shared_ptr<const net::TlsContext>) override {
+        ++tls_calls;
+        return std::make_unique<StalledReadStream>(closed);
+    }
+
+    std::unique_ptr<net::Stream> create_tcp(domain::InetAddress, std::uint16_t, const net::ConnectOptions&) override {
+        return std::make_unique<StalledReadStream>(closed);
+    }
+
+    int tls_calls{0};
+    int closed{0};
+};
+
+// Echo one x.test query, then simulate an idle peer that closed the connection.
+class StaleEchoStream final : public net::Stream {
+public:
+    explicit StaleEchoStream(bool dot) : dot_(dot) {}
+
+    coro::Task<std::expected<void, net::IoError>> ensure_connected() override { co_return {}; }
+
+    coro::Task<std::expected<void, net::IoError>> send_all(std::span<const std::uint8_t> bytes) override {
+        if (sent_)
+            co_return std::unexpected(net::IoError::CONNECTION_FAILED);
+        sent_ = true;
+        std::span<const std::uint8_t> query;
+        if (dot_) {
+            query = bytes.subspan(2);
+        } else {
+            const std::string_view wire(reinterpret_cast<const char*>(bytes.data()), bytes.size());
+            query = bytes.subspan(wire.find("\r\n\r\n") + 4);
+        }
+        const auto id = static_cast<std::uint16_t>((static_cast<std::uint16_t>(query[0]) << 8) | query[1]);
+        auto answer = dns::QueryBuilder{}.id(id).qr(true).ra(true).add_question("x.test", dns::RecordType::A).build();
+        answer[7] = 1;
+        answer.insert(answer.end(), {0xc0, 12, 0, 1, 0, 1, 0, 0, 0, 60, 0, 4, 192, 0, 2, 42});
+        if (dot_) {
+            response_.push_back(static_cast<std::uint8_t>(answer.size() >> 8));
+            response_.push_back(static_cast<std::uint8_t>(answer.size()));
+        } else {
+            response_ = "HTTP/1.1 200 OK\r\nContent-Type: application/dns-message\r\nContent-Length: " +
+                        std::to_string(answer.size()) + "\r\n\r\n";
+        }
+        response_.append(reinterpret_cast<const char*>(answer.data()), answer.size());
+        co_return {};
+    }
+
+    coro::Task<std::expected<std::size_t, net::IoError>> read_some(std::span<std::uint8_t> out) override {
+        const auto count = std::min(out.size(), response_.size() - cursor_);
+        std::memcpy(out.data(), response_.data() + cursor_, count);
+        cursor_ += count;
+        co_return count;
+    }
+
+    coro::Task<std::expected<void, net::IoError>> read_exact(std::span<std::uint8_t> out) override {
+        const auto count = co_await read_some(out);
+        if (!count || *count != out.size())
+            co_return std::unexpected(net::IoError::CONNECTION_FAILED);
+        co_return {};
+    }
+
+    void close() noexcept override { connected_ = false; }
+
+    bool connected() const noexcept override { return connected_; }
+
+private:
+    bool dot_;
+    bool sent_{false};
+    bool connected_{true};
+    std::string response_;
+    std::size_t cursor_{0};
+};
+
+class StaleEchoFactory final : public net::StreamFactory {
+public:
+    explicit StaleEchoFactory(bool dot) : dot_(dot) {}
+
+    std::unique_ptr<net::Stream> create_tls(domain::InetAddress, std::uint16_t, const net::ConnectOptions&,
+                                            const net::TlsOptions&, std::shared_ptr<const net::TlsContext>) override {
+        ++tls_calls;
+        return std::make_unique<StaleEchoStream>(dot_);
+    }
+
+    std::unique_ptr<net::Stream> create_tcp(domain::InetAddress, std::uint16_t, const net::ConnectOptions&) override {
+        return std::make_unique<StaleEchoStream>(dot_);
+    }
+
+    int tls_calls{0};
+
+private:
+    bool dot_;
+};
+
+TEST(EncryptedResolvers, lostReusedConnectionIsRepairedWithinTheSameAttempt) {
+    for (const bool dot : {false, true}) {
+        auto factory = std::make_shared<StaleEchoFactory>(dot);
+        std::unique_ptr<dns::Resolver> resolver;
+        if (dot) {
+            dns::EndpointOptions options;
+            options.factory = factory;
+            resolver = std::make_unique<dns::DotResolver>("203.0.113.10", 853, options);
+        } else {
+            http::Options options;
+            options.factory = factory;
+            resolver = std::make_unique<dns::DohResolver>(DOH_URL, options);
+        }
+        coro::run([&]() -> coro::Task<void> {
+            for (int i = 0; i < 2; ++i) {
+                const auto result = co_await resolver->query("x.test", domain::RecordKind::A);
+                EXPECT_TRUE(result.has_value());
+            }
+        }());
+        EXPECT_EQ(factory->tls_calls, 2);
+    }
+}
+
+TEST(DotResolver, closeWhileAnActiveQueryOwnsTheStreamIsDeferred) {
+    auto factory = std::make_shared<StalledReadFactory>();
+    dns::EndpointOptions options;
+    options.factory = factory;
+    dns::DotResolver resolver{"203.0.113.10", 853, options};
+    coro::ManualClock clock;
+    coro::Loop loop{clock};
+    auto owner = [&]() -> coro::Task<void> {
+        const auto result = co_await resolver.query("x.test", domain::RecordKind::A);
+        EXPECT_FALSE(result.has_value());
+    };
+    run_loop(loop, [&]() -> coro::Task<void> {
+        co_await coro::task_group([&](coro::TaskGroup& group) -> coro::Task<void> {
+            group.spawn(owner());
+            co_await coro::sleep_for(5ms);
+            resolver.close();
+            EXPECT_EQ(factory->closed, 0);
+        });
+        const auto next = co_await resolver.query("x.test", domain::RecordKind::A);
+        EXPECT_FALSE(next.has_value());
+    });
+    EXPECT_EQ(factory->tls_calls, 2);
+    EXPECT_EQ(factory->closed, 2);
+}
+
+TEST(EncryptedResolvers, wholeQueryRetriesFitInsideTheApplicationBudget) {
+    for (const bool dot : {false, true}) {
+        for (const int count : {1, 2}) {
+            auto factory = std::make_shared<StalledReadFactory>();
+            std::vector<std::unique_ptr<dns::Resolver>> backends;
+            for (int i = 0; i < count; ++i) {
+                if (dot) {
+                    dns::EndpointOptions options;
+                    options.factory = factory;
+                    backends.push_back(std::make_unique<dns::DotResolver>("203.0.113.10", 853, options));
+                } else {
+                    http::Options options;
+                    options.factory = factory;
+                    backends.push_back(std::make_unique<dns::DohResolver>(DOH_URL, options));
+                }
+            }
+            dns::Dispatcher dispatcher{std::move(backends)};
+            coro::ManualClock clock;
+            coro::Loop loop{clock};
+            const auto start = clock.now();
+            bool timed_out = true;
+            std::optional<std::expected<std::vector<std::string>, domain::DnsErrorInfo>> result;
+            run_loop(loop, [&]() -> coro::Task<void> {
+                auto outcome = co_await coro::with_timeout(
+                    4s, [&]() { return dispatcher.resolve("x.test", domain::RecordKind::A); });
+                timed_out = outcome.timed_out;
+                if (outcome.has_value())
+                    result.emplace(std::move(*outcome));
+            });
+            EXPECT_FALSE(timed_out);
+            ASSERT_TRUE(result.has_value());
+            ASSERT_FALSE(result->has_value());
+            EXPECT_EQ(factory->tls_calls, 2 * count);
+            EXPECT_EQ(factory->closed, 2 * count);
+            EXPECT_EQ(clock.now() - start, 3050ms);
+        }
+    }
+}
+
+TEST(EncryptedResolvers, queueTimeoutDoesNotCloseTheActiveQuerysConnection) {
+    for (const bool dot : {false, true}) {
+        auto factory = std::make_shared<StalledReadFactory>();
+        std::unique_ptr<dns::Resolver> resolver;
+        if (dot) {
+            dns::EndpointOptions options;
+            options.factory = factory;
+            resolver = std::make_unique<dns::DotResolver>("203.0.113.10", 853, options);
+        } else {
+            http::Options options;
+            options.factory = factory;
+            resolver = std::make_unique<dns::DohResolver>(DOH_URL, options);
+        }
+        coro::ManualClock clock;
+        coro::Loop loop{clock};
+        auto owner = [&]() -> coro::Task<void> {
+            const auto result = co_await resolver->query("x.test", domain::RecordKind::A);
+            EXPECT_FALSE(result.has_value());
+        };
+        run_loop(loop, [&]() -> coro::Task<void> {
+            co_await coro::task_group([&](coro::TaskGroup& group) -> coro::Task<void> {
+                group.spawn(owner());
+                co_await coro::sleep_for(5ms);
+                const auto queued = co_await resolver->query("x.test", domain::RecordKind::A);
+                EXPECT_FALSE(queued.has_value());
+                if (!queued) {
+                    EXPECT_EQ(queued.error().code, domain::DnsError::RETRY);
+                    EXPECT_NE(queued.error().message.find("queue"), std::string::npos);
+                }
+                EXPECT_EQ(factory->closed, 0);
+            });
+        });
+        EXPECT_EQ(factory->tls_calls, 1);
+        EXPECT_EQ(factory->closed, 1);
+    }
+}
+
+TEST(BootstrapResolve, literalAddressMustMatchRequestedFamily) {
+    // A literal of the wrong family is a local parameter mismatch: CONFIG, not a
+    // NODATA claim about a name that exists without the requested records.
+    const auto result = coro::run(dns::bootstrap_resolve("::1", domain::AddressFamily::IPV4, {}));
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error().code, domain::DnsError::CONFIG);
+    EXPECT_NE(result.error().message.find("::1"), std::string::npos);
+    EXPECT_NE(result.error().message.find("does not match the requested address family"), std::string::npos);
 }
 
 }  // namespace

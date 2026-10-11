@@ -20,11 +20,13 @@
 #include <expected>
 #include <gtest/gtest.h>
 
+#include "coro/coro.h"
 #include "domain/dns/record_kind.h"
 #include "domain/error/dns_error_info.h"
-#include "coro/coro.h"
 #include "infrastructure/dns/dispatcher.h"
+#include "infrastructure/dns/query_budget.hpp"
 #include "infrastructure/dns/resolver/resolver.h"
+#include "infrastructure/dns/util.hpp"
 
 namespace {
 
@@ -248,6 +250,88 @@ private:
 // single backend: retry policy
 // ---------------------------------------------------------------------------
 
+TEST(DnsUtil, RcodeClassificationAndFailurePriority) {
+    EXPECT_FALSE(dns::Util::rcode_error(dns::Rcode::NOERROR, "x.test"));
+    for (const auto& [rcode, code] : std::vector<std::pair<dns::Rcode, domain::DnsError>>{
+             {dns::Rcode::NXDOMAIN, domain::DnsError::NX_DOMAIN},
+             {dns::Rcode::SERVFAIL, domain::DnsError::RETRY},
+             {dns::Rcode::REFUSED, domain::DnsError::SERVER_REFUSED},
+             {static_cast<dns::Rcode>(256), domain::DnsError::UNKNOWN}}) {
+        const auto error = dns::Util::rcode_error(rcode, "x.test");
+        ASSERT_TRUE(error);
+        EXPECT_EQ(error->code, code);
+        EXPECT_NE(error->message.find("x.test"), std::string::npos);
+        if (rcode == static_cast<dns::Rcode>(256)) {
+            EXPECT_NE(error->message.find("256"), std::string::npos);
+        }
+    }
+    const std::vector order{domain::DnsError::INVALID_QUERY, domain::DnsError::CONFIG, domain::DnsError::PARSE,
+                            domain::DnsError::CONNECTION,    domain::DnsError::NODATA, domain::DnsError::NX_DOMAIN};
+    for (std::size_t i = 1; i < order.size(); ++i)
+        EXPECT_GT(dns::Util::error_priority(order[i - 1]), dns::Util::error_priority(order[i]));
+    EXPECT_EQ(dns::Util::error_priority(domain::DnsError::RETRY),
+              dns::Util::error_priority(domain::DnsError::CONNECTION));
+}
+
+TEST(DnsDispatcher, multiBackendRetriesTransientFailuresAfterAlternatives) {
+    for (const auto strategy : {Strategy::CONCURRENT, Strategy::FALLBACK, Strategy::SHUFFLE}) {
+        Fakes fakes;
+        auto& transient = fakes.add("transient", {error_step(domain::DnsError::CONNECTION, "fresh RST"),
+                                                  response_step(a_response("yaddnsc.test", 42))});
+        auto& negative = fakes.add("negative", {response_step(nxdomain_response("yaddnsc.test"))});
+        dns::Dispatcher dispatcher{fakes.take(), strategy};
+        const auto result = run_query(dispatcher);
+        ASSERT_TRUE(result);
+        EXPECT_EQ(transient.calls(), 2);
+        EXPECT_EQ(negative.calls(), 1);
+    }
+}
+
+TEST(DnsDispatcher, multiBackendDoesNotRetryUnknownOrMalformedFailures) {
+    for (const auto strategy : {Strategy::CONCURRENT, Strategy::FALLBACK, Strategy::SHUFFLE}) {
+        Fakes fakes;
+        auto& unknown = fakes.add("unknown", {error_step(domain::DnsError::UNKNOWN, "unsupported RCODE")});
+        auto& malformed = fakes.add("malformed", {error_step(domain::DnsError::PARSE, "bad response")});
+        dns::Dispatcher dispatcher{fakes.take(), strategy};
+        const auto result = run_query(dispatcher, "yaddnsc.test", 8);
+        ASSERT_FALSE(result);
+        EXPECT_EQ(result.error().code, domain::DnsError::PARSE);
+        EXPECT_EQ(unknown.calls(), 1);
+        EXPECT_EQ(malformed.calls(), 1);
+    }
+}
+
+TEST(DnsDispatcher, recoveryNegativeAnswerSupersedesAnEarlierTransientFailure) {
+    for (const auto strategy : {Strategy::CONCURRENT, Strategy::FALLBACK, Strategy::SHUFFLE}) {
+        Fakes fakes;
+        auto& recovered = fakes.add("recovered", {error_step(domain::DnsError::CONNECTION, "fresh RST"),
+                                                  response_step(nxdomain_response("yaddnsc.test"))});
+        fakes.add("negative", {response_step(nxdomain_response("yaddnsc.test"))});
+        dns::Dispatcher dispatcher{fakes.take(), strategy};
+        const auto result = run_query(dispatcher);
+        ASSERT_FALSE(result);
+        EXPECT_EQ(result.error().code, domain::DnsError::NX_DOMAIN);
+        EXPECT_EQ(recovered.calls(), 2);
+    }
+}
+
+TEST(DnsDispatcher, multiBackendRecoveryIsAtMostOneRoundAndPreservesNegativeEvidence) {
+    for (const auto strategy : {Strategy::CONCURRENT, Strategy::FALLBACK, Strategy::SHUFFLE}) {
+        for (const auto retries : {0U, 8U}) {
+            Fakes fakes;
+            auto& failed = fakes.add("failed", {error_step(domain::DnsError::CONNECTION, "fresh RST")});
+            auto& negative = fakes.add("negative", {response_step(nxdomain_response("yaddnsc.test"))});
+            dns::Dispatcher dispatcher{fakes.take(), strategy};
+            const auto result = run_query(dispatcher, "yaddnsc.test", retries);
+            ASSERT_FALSE(result);
+            EXPECT_EQ(result.error().code, domain::DnsError::CONNECTION);
+            EXPECT_NE(result.error().message.find("NXDOMAIN=1"), std::string::npos);
+            EXPECT_EQ(failed.calls(), retries == 0 ? 1 : 2);
+            EXPECT_EQ(negative.calls(), 1);
+        }
+    }
+}
+
 TEST(DnsDispatcher, singleResolver_retryableFailureThenAnswer_RetriesOnce) {
     Fakes fakes;
     [[maybe_unused]] FakeResolver& resolver = fakes.add(
@@ -261,7 +345,7 @@ TEST(DnsDispatcher, singleResolver_retryableFailureThenAnswer_RetriesOnce) {
     EXPECT_EQ(resolver.calls(), 2);
 }
 
-TEST(DnsDispatcher, singleResolver_definitiveParseError_IsNotRetried) {
+TEST(DnsDispatcher, singleResolver_parseFailure_IsNotRetried) {
     Fakes fakes;
     [[maybe_unused]] FakeResolver& resolver = fakes.add("only", {error_step(domain::DnsError::PARSE, "malformed")});
     dns::Dispatcher dispatcher{fakes.take(), Strategy::FALLBACK};
@@ -270,7 +354,7 @@ TEST(DnsDispatcher, singleResolver_definitiveParseError_IsNotRetried) {
 
     ASSERT_FALSE(result.has_value());
     EXPECT_EQ(result.error().code, domain::DnsError::PARSE);
-    EXPECT_EQ(resolver.calls(), 1);  // no retry for a definitive error
+    EXPECT_EQ(resolver.calls(), 1);  // malformed remote replies allow failover, not identical retries
 }
 
 TEST(DnsDispatcher, singleResolver_retriesExhausted_ReportsTheLastError) {
@@ -317,7 +401,7 @@ TEST(DnsDispatcher, fallback_transientFailure_MovesToTheNextBackend) {
     EXPECT_EQ(second.calls(), 1);
 }
 
-TEST(DnsDispatcher, fallback_nxdomain_StopsTheSearch) {
+TEST(DnsDispatcher, fallback_nxdomain_TriesTheNextView) {
     Fakes fakes;
     [[maybe_unused]] FakeResolver& first = fakes.add("first", {response_step(nxdomain_response("yaddnsc.test"))});
     [[maybe_unused]] FakeResolver& second = fakes.add("second", {response_step(a_response("yaddnsc.test", 42))});
@@ -325,9 +409,9 @@ TEST(DnsDispatcher, fallback_nxdomain_StopsTheSearch) {
 
     const auto result = run_query(dispatcher);
 
-    ASSERT_FALSE(result.has_value());
-    EXPECT_EQ(result.error().code, domain::DnsError::NX_DOMAIN);
-    EXPECT_EQ(second.calls(), 0);  // the name does not exist, so no other backend is asked
+    ASSERT_TRUE(result.has_value());
+    EXPECT_EQ(*result, (std::vector<std::string>{"198.51.100.42"}));
+    EXPECT_EQ(second.calls(), 1);
 }
 
 // ---------------------------------------------------------------------------
@@ -376,9 +460,8 @@ TEST(DnsDispatcher, concurrent_fastestAnswerWins) {
     EXPECT_EQ(fast.calls(), 1);
 }
 
-TEST(DnsDispatcher, concurrent_definitiveErrorSurvivesALaterTransientOne) {
-    // The transient failure lands first; the definitive PARSE must not be
-    // downgraded by it, whichever order the race completes in.
+TEST(DnsDispatcher, concurrent_structuralDiagnosisSurvivesATransientOne) {
+    // Structural failure is retained in the diagnosis, but does not stop the search.
     Fakes fakes;
     [[maybe_unused]] FakeResolver& transient =
         fakes.add("transient", {error_step(domain::DnsError::RETRY, "servfail", 1ms)});
@@ -392,7 +475,7 @@ TEST(DnsDispatcher, concurrent_definitiveErrorSurvivesALaterTransientOne) {
     EXPECT_EQ(result.error().code, domain::DnsError::PARSE);
 }
 
-TEST(DnsDispatcher, concurrent_nxdomainPreferredOverTransient) {
+TEST(DnsDispatcher, concurrent_failedViewDoesNotBecomeANegativeVerdict) {
     Fakes fakes;
     [[maybe_unused]] FakeResolver& transient =
         fakes.add("transient", {error_step(domain::DnsError::RETRY, "servfail", 1ms)});
@@ -403,7 +486,7 @@ TEST(DnsDispatcher, concurrent_nxdomainPreferredOverTransient) {
     const auto result = run_query(dispatcher);
 
     ASSERT_FALSE(result.has_value());
-    EXPECT_EQ(result.error().code, domain::DnsError::NX_DOMAIN);
+    EXPECT_EQ(result.error().code, domain::DnsError::RETRY);
 }
 
 TEST(DnsDispatcher, concurrent_beyondThree_RefillsFreedSlots) {
@@ -442,9 +525,8 @@ TEST(DnsDispatcher, concurrent_freedSlotLaunchesTheNextBackendImmediately) {
     EXPECT_EQ(answers.calls(), 1);
 }
 
-TEST(DnsDispatcher, concurrent_nxdomain_StopsFurtherLaunches) {
-    // NXDOMAIN from one backend ends the search: the in-flight queries settle,
-    // but the fourth backend is never launched.
+TEST(DnsDispatcher, concurrent_nxdomain_LaunchesTheFourthBackend) {
+    // A negative answer frees a slot for another view.
     Fakes fakes;
     (void) fakes.add("missing", {response_step(nxdomain_response("yaddnsc.test"), 1ms)});
     (void) fakes.add("down-a", {error_step(domain::DnsError::RETRY, "down", 30ms)});
@@ -454,13 +536,13 @@ TEST(DnsDispatcher, concurrent_nxdomain_StopsFurtherLaunches) {
 
     const auto result = run_query(dispatcher);
 
-    ASSERT_FALSE(result.has_value());
-    EXPECT_EQ(result.error().code, domain::DnsError::NX_DOMAIN);
-    EXPECT_EQ(late.calls(), 0);
+    ASSERT_TRUE(result.has_value());
+    EXPECT_EQ(*result, (std::vector<std::string>{"198.51.100.7"}));
+    EXPECT_EQ(late.calls(), 1);
 }
 
-TEST(DnsDispatcher, concurrent_definitive_StopsFurtherLaunches) {
-    // A definitive PARSE failure ends the search the same way NXDOMAIN does.
+TEST(DnsDispatcher, concurrent_parseFailure_LaunchesTheFourthBackend) {
+    // Remote parsing failure affects only its backend.
     Fakes fakes;
     (void) fakes.add("malformed", {error_step(domain::DnsError::PARSE, "bad", 1ms)});
     (void) fakes.add("down-a", {error_step(domain::DnsError::RETRY, "down", 30ms)});
@@ -470,9 +552,9 @@ TEST(DnsDispatcher, concurrent_definitive_StopsFurtherLaunches) {
 
     const auto result = run_query(dispatcher);
 
-    ASSERT_FALSE(result.has_value());
-    EXPECT_EQ(result.error().code, domain::DnsError::PARSE);
-    EXPECT_EQ(late.calls(), 0);
+    ASSERT_TRUE(result.has_value());
+    EXPECT_EQ(*result, (std::vector<std::string>{"198.51.100.7"}));
+    EXPECT_EQ(late.calls(), 1);
 }
 
 // ---------------------------------------------------------------------------
@@ -599,6 +681,98 @@ TEST(DnsDispatcher, concurrent_allBackendsReturnNoRecords_ReportsNodata) {
 
     ASSERT_FALSE(result.has_value());
     EXPECT_EQ(result.error().code, domain::DnsError::NODATA);
+}
+
+TEST(DnsDispatcher, everyStrategyContinuesAfterEndpointErrorsAndNegativeAnswers) {
+    for (const auto strategy : {Strategy::FALLBACK, Strategy::SHUFFLE, Strategy::CONCURRENT}) {
+        for (const auto code : {domain::DnsError::PARSE, domain::DnsError::CONFIG, domain::DnsError::NX_DOMAIN,
+                                domain::DnsError::NODATA}) {
+            Fakes fakes;
+            fakes.add("bad", {error_step(code, "endpoint failure")});
+            auto& good = fakes.add("good", {response_step(a_response("yaddnsc.test", 43))});
+            dns::Dispatcher dispatcher{fakes.take(), strategy};
+            const auto result = run_query(dispatcher);
+            ASSERT_TRUE(result.has_value());
+            EXPECT_EQ(*result, (std::vector<std::string>{"198.51.100.43"}));
+            EXPECT_EQ(good.calls(), 1);
+        }
+    }
+}
+
+TEST(DnsDispatcher, malformedRdataDoesNotBlockFallback) {
+    auto wire = a_response("yaddnsc.test", 42);
+    wire.pop_back();
+    wire[wire.size() - 4] = 3;  // RDLENGTH: three octets, not a valid A address.
+    Fakes fakes;
+    fakes.add("bad", {response_step(wire)});
+    auto& good = fakes.add("good", {response_step(a_response("yaddnsc.test", 43))});
+    dns::Dispatcher dispatcher{fakes.take(), Strategy::FALLBACK};
+    const auto result = run_query(dispatcher);
+    ASSERT_TRUE(result.has_value());
+    EXPECT_EQ(good.calls(), 1);
+    EXPECT_EQ(*result, (std::vector<std::string>{"198.51.100.43"}));
+}
+
+TEST(DnsDispatcher, invalidLocalQueryCallsNoBackendInAnyStrategy) {
+    for (const auto strategy : {Strategy::FALLBACK, Strategy::SHUFFLE, Strategy::CONCURRENT}) {
+        Fakes fakes;
+        auto& first = fakes.add("first", {error_step(domain::DnsError::RETRY, "unused")});
+        auto& second = fakes.add("second", {error_step(domain::DnsError::RETRY, "unused")});
+        dns::Dispatcher dispatcher{fakes.take(), strategy};
+        const auto result = run_query(dispatcher, std::string(64, 'x') + ".test");
+        ASSERT_FALSE(result.has_value());
+        EXPECT_EQ(result.error().code, domain::DnsError::INVALID_QUERY);
+        EXPECT_EQ(first.calls(), 0);
+        EXPECT_EQ(second.calls(), 0);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// attempt budget (dns/detail/query_budget.hpp)
+// ---------------------------------------------------------------------------
+
+TEST(DnsDispatcher, bounded_querySelfCancelledBodyYieldsAResultInsteadOfReadingAnEmptyOutcome) {
+    // with_timeout absorbs a cancellation its body raised itself, so the
+    // outcome comes back with no value and no timeout flag. bounded_query used
+    // to move out of that empty outcome; it must return a defined result and
+    // must not turn the cancellation into a caller-visible timeout.
+    bool timed_out = false;
+    std::optional<domain::DnsErrorInfo> error;
+    coro::run([&]() -> coro::Task<void> {
+        const auto outcome = co_await coro::with_timeout(5s, [&]() -> coro::Task<void> {
+            const auto result = co_await dns::detail::bounded_query(
+                []() -> coro::Task<std::expected<std::vector<std::uint8_t>, domain::DnsErrorInfo>> {
+                    (co_await coro::current_scope()).cancel();
+                    co_await coro::sleep_for(1s);  // a checkpoint that observes the cancellation
+                    co_return std::vector<std::uint8_t>{0x01};
+                });
+            if (!result)
+                error = result.error();
+            co_return;
+        });
+        timed_out = outcome.timed_out;
+        co_return;
+    }());
+
+    EXPECT_FALSE(timed_out);
+    ASSERT_TRUE(error.has_value());
+    EXPECT_EQ(error->code, domain::DnsError::CONNECTION);
+}
+
+TEST(DnsDispatcher, failurePrecedenceIsIndependentOfStrategyAndServerOrder) {
+    for (const auto strategy : {Strategy::FALLBACK, Strategy::SHUFFLE, Strategy::CONCURRENT}) {
+        for (const bool reversed : {false, true}) {
+            Fakes fakes;
+            const auto first = reversed ? domain::DnsError::NX_DOMAIN : domain::DnsError::PARSE;
+            const auto second = reversed ? domain::DnsError::PARSE : domain::DnsError::NX_DOMAIN;
+            fakes.add("first", {error_step(first, "first")});
+            fakes.add("second", {error_step(second, "second")});
+            dns::Dispatcher dispatcher{fakes.take(), strategy};
+            const auto result = run_query(dispatcher);
+            ASSERT_FALSE(result.has_value());
+            EXPECT_EQ(result.error().code, domain::DnsError::PARSE);
+        }
+    }
 }
 
 }  // namespace

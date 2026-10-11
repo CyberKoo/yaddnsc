@@ -512,6 +512,39 @@ TEST(NetCoroUdpSocket, send_to_ManyDatagrams_KeepsBoundariesAndSenders) {
     }
 }
 
+TEST(NetCoroUdpSocket, recv_from_ReportsTruncationWithoutConfusingAnExactFit) {
+    net::UdpSocket receiver;
+    net::UdpSocket sender;
+    ASSERT_TRUE(receiver.bind(loopback_v4(), 0).has_value());
+    ASSERT_TRUE(sender.bind(loopback_v4(), 0).has_value());
+    const auto receiver_port = receiver.local_port();
+    const auto sender_port = sender.local_port();
+    ASSERT_TRUE(receiver_port.has_value());
+    ASSERT_TRUE(sender_port.has_value());
+
+    auto task = [&]() -> coro::Task<void> {
+        // Short, exact-fit and oversized datagrams exercise the output flag,
+        // not a platform-specific full-length return value from recvfrom.
+        for (const std::size_t size : {3U, 4U, 5U}) {
+            const std::vector<std::uint8_t> payload(size, 42);
+            EXPECT_TRUE((co_await sender.send_to(loopback_v4(), *receiver_port, payload)).has_value());
+            std::array<std::uint8_t, 4> buffer{};
+            auto datagram = co_await receiver.recv_from(buffer);
+            EXPECT_TRUE(datagram.has_value());
+            if (!datagram) {
+                co_return;
+            }
+            EXPECT_EQ(datagram->size, std::min(size, buffer.size()));
+            EXPECT_EQ(datagram->truncated, size > buffer.size());
+            EXPECT_EQ(datagram->from, loopback_v4());
+            EXPECT_EQ(datagram->port, *sender_port);
+            EXPECT_EQ(buffer[0], 42);
+        }
+        co_return;
+    };
+    run_task(task());
+}
+
 TEST(NetCoroUdpSocket, recv_from_NoTrafficWithTimeout_TimesOut) {
     net::UdpSocket socket;
     ASSERT_TRUE(socket.bind(loopback_v4(), 0).has_value());
@@ -570,8 +603,10 @@ TEST(NetCoroDnsExchange, query_udp_Ipv6Server_RoundTrips) {
     const auto server_port = server.local_port();
     ASSERT_TRUE(server_port.has_value());
 
-    const std::vector<std::uint8_t> query{0xDE, 0xAD, 0xBE, 0xEF};
-    const std::vector<std::uint8_t> reply{0x01, 0x02, 0x03};
+    // A root-name A question, with a matching empty NOERROR answer.
+    const std::vector<std::uint8_t> query{0xDE, 0xAD, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1};
+    auto reply = query;
+    reply[2] |= 0x80;
     bool answered = false;
     bool timed_out = false;
     std::vector<std::uint8_t> answer;
@@ -597,6 +632,40 @@ TEST(NetCoroDnsExchange, query_udp_Ipv6Server_RoundTrips) {
     EXPECT_FALSE(timed_out);
     EXPECT_TRUE(answered);
     EXPECT_EQ(answer, reply);
+}
+
+TEST(NetCoroDnsExchange, strayRepliesDoNotPreventTheMatchingAnswer) {
+    net::UdpSocket server;
+    ASSERT_TRUE(server.bind(loopback_v4(), 0).has_value());
+    const auto port = *server.local_port();
+    const std::vector<std::uint8_t> query{0x12, 0x34, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1};
+    auto valid = query;
+    valid[2] |= 0x80;
+    auto serve = [&]() -> coro::Task<void> {
+        std::array<std::uint8_t, 4096> buffer{};
+        const auto received = co_await server.recv_from(buffer);
+        if (!received)
+            co_return;
+        for (const auto changed : {0U, 2U, 14U, 16U}) {
+            auto stray = valid;
+            stray[changed] ^= 0x20;
+            const auto sent = co_await server.send_to(received->from, received->port, stray);
+            EXPECT_TRUE(sent.has_value());
+        }
+        const auto sent = co_await server.send_to(received->from, received->port, valid);
+        EXPECT_TRUE(sent.has_value());
+    };
+    std::vector<std::uint8_t> answer;
+    run_task([&]() -> coro::Task<void> {
+        co_await coro::task_group([&](coro::TaskGroup& group) -> coro::Task<void> {
+            group.spawn(serve());
+            const auto result = co_await dns::detail::query_udp(loopback_v4(), port, query);
+            EXPECT_TRUE(result.has_value());
+            if (result)
+                answer = result->bytes;
+        });
+    }());
+    EXPECT_EQ(answer, valid);
 }
 
 }  // namespace

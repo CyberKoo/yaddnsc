@@ -137,6 +137,8 @@ std::string failure_reason(const std::string_view role, const Error& error) {
     switch (error.code) {
         case ErrorCode::RESOLVE_FAILED:
             return fmt::format("cannot resolve the {}", role);
+        case ErrorCode::QUEUE_TIMEOUT:
+            return fmt::format("the local session for the {} remained busy", role);
         case ErrorCode::CONNECT_FAILED:
             return fmt::format("cannot connect to the {}", role);
         case ErrorCode::TLS_HANDSHAKE_FAILED:

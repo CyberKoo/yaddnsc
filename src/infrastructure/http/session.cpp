@@ -7,18 +7,22 @@
 #include <algorithm>
 #include <chrono>
 #include <compare>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
-#include <coroutine>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
-#include <expected>
 #include <map>
-#include <utility>
+#include <optional>
 #include <span>
+#include <utility>
 #include <vector>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 
+#include <coroutine>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
+
+#include <expected>
+
+#include "coro/cancelled.h"
+#include "coro/scope.hpp"
 #include "domain/network/inet_address.h"  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 #include "infrastructure/http/protocol/wire.h"
 #include "infrastructure/http/transport.h"
 #include "infrastructure/http/wire_request.h"
-#include "coro/cancelled.h"
 #include "infrastructure/network/transport/stream.h"
 
 namespace http {
@@ -42,7 +46,17 @@ Session::~Session() {
 coro::Task<std::expected<Response, Error>> Session::exchange(std::string target, const Request& request) {
     // Waiting semantics: a second concurrent exchange queues here instead of
     // being rejected. A cancelled wait leaves the session untouched.
-    auto guard = co_await mutex_.lock();
+    auto wait = [this]() -> coro::Task<coro::AsyncMutex::Guard> { co_return co_await mutex_.lock(); };
+    std::optional<coro::AsyncMutex::Guard> guard;
+    if (options_.queue_timeout.count() > 0) {
+        auto queued = co_await coro::with_timeout(options_.queue_timeout, wait);
+        if (queued.timed_out) {
+            co_return std::unexpected(Error{ErrorCode::QUEUE_TIMEOUT, "HTTP session queue timed out"});
+        }
+        guard.emplace(std::move(*queued));
+    } else {
+        guard.emplace(co_await wait());
+    }
     try {
         // A close() that arrived while an exchange held the guard is honoured now,
         // under the guard, before the connection is reused.
@@ -60,6 +74,7 @@ coro::Task<std::expected<Response, Error>> Session::exchange(std::string target,
             std::chrono::steady_clock::now() >= *keep_alive_deadline_) {
             drop_connection();
         }
+        const bool reused = stream_ != nullptr && stream_->connected();
         if (auto ready = co_await ensure_stream(); !ready) {
             co_return std::unexpected(std::move(ready.error()));
         }
@@ -69,7 +84,8 @@ coro::Task<std::expected<Response, Error>> Session::exchange(std::string target,
 
         auto raw = co_await do_exchange(wire);
         if (!raw) {
-            const bool retry = raw.error().code == ErrorCode::CONNECTION_LOST && is_idempotent(wire.method);
+            const bool retry = raw.error().code == ErrorCode::CONNECTION_LOST &&
+                               (is_idempotent(wire.method) || (request.replay_safe && reused));
             // A failed exchange can leave unread bytes on the stream, so it is never
             // reused: either the retry rebuilds it or the failure is reported.
             drop_connection();

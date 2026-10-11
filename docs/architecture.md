@@ -98,11 +98,38 @@ supervisor group, so one subdomain failing leaves the others running.
 
 The DNS dispatcher is the runtime's other large user. The concurrent strategy
 races up to `MAX_CONCURRENT_RESOLVERS` (3) backends in a `task_group`: each
-transient failure launches the next backend at once, the winner cancels its
+endpoint failure or negative answer launches the next backend at once, the winner cancels its
 losing siblings through a child scope, and scope exit still joins and reaps
 every child. Retries wait on a linear cancellable backoff sleep on the loop,
-not on a thread. The bootstrap resolver races its A and AAAA queries through a
-`task_group` the same way.
+not on a thread. INVALID_QUERY alone ends a group search; PARSE/CONFIG are
+endpoint diagnoses. Sequential and concurrent strategies share error precedence:
+INVALID_QUERY, CONFIG, PARSE, operational failure, NODATA, NXDOMAIN. A failed view
+must not be turned into a definitive negative answer. The bootstrap resolver
+starts A/AAAA children in a `task_group`; after the first success, a 50ms timer
+sibling bounds collection of the other family. Scope exit cancels/joins remaining
+children while preserving collected addresses.
+
+DNS response matching compares opcode, ID and semantic QNAME/QTYPE/QCLASS,
+independent of case or compression encoding, while preserving label boundaries.
+The parser filters IN answers by owner and the in-answer CNAME chain; bootstrap
+also enforces A/AAAA lengths. Fast and full parser entry points share EDNS option
+validation and preserve the full 12-bit RCODE. CNAME-only replies without SOA
+negative evidence and referrals are unusable endpoint answers, not NODATA;
+there is no recursive referral chasing. mDNS has its own QR/opcode/RCODE/CLASS
+checks, masking the cache-flush bit. TCP/DoT/DoH accept at most 16KiB as a resource
+policy, not a DNS protocol limit. DoH enforces HTTPS and this cap even for direct
+construction, uses HTTP/1.1 and rejects all redirects as a local safety policy.
+
+CNAME traversal accepts at most 16 alias hops, bounding repeated answer scans
+and cycle checks even on hostile packets. Shared DNS wire/exchange helpers must
+not include the higher-level resolver facades; architecture_guard checks this.
+
+The DDNS decision remains fail-open on lookup errors: it still attempts the
+provider update. SKIP_UNCHANGED requires a nonempty RRset whose addresses all
+match the local IP. DNS cannot identify the provider's configured record_id, so
+one matching sibling must not hide a stale managed record. Mixed RRsets may
+therefore cause a provider request every cycle; the driver still updates only
+its configured record or record set.
 
 Child results are single-consumer: `co_await Handle<T>` claims the result at
 await entry, shared across handle copies and `next<T>()`. Joining an empty or
@@ -138,8 +165,33 @@ is why the transport layer takes its deadline from the surrounding scope
 rather than from an argument — its connect/read/write timeout options are gone
 (`network/transport/options.h`). The HTTP layer is the exception:
 `http::Options::connect_timeout` is a real per-address budget, 5s by default
-and 1s for the DoH resolver, and an expired budget skips to the next resolved
-address instead of failing the exchange. Cancellation is sticky until the
+and at most 500ms for the DoH resolver; an expired budget skips to the next
+resolved address instead of immediately failing the exchange. HTTP sessions may
+also bound local queueing with `queue_timeout` (disabled by default); a queued
+timeout never closes the active owner's connection. DoH/DoT use 500ms queue
+budgets inside a complete 1.5s DNS attempt, including bootstrap/connect/I/O.
+DoT uses the same per-address 500ms connect cap. Classic TCP connect/send/read
+share a 1s wire-exchange budget instead of independent clocks, subject to the
+remaining 1.5s attempt budget. A late truncated UDP answer may leave less than
+1s for TCP; timeout diagnostics retain the TCP-fallback stage and RETRY code.
+UDP validates local questions before I/O, discards unrelated replies, and reports
+malformed matching replies as PARSE. Discard bursts periodically yield without
+resetting the deadline or letting foreign packets force an early failure.
+Only Dispatcher retries entire DNS queries. A single backend defaults to two
+attempts; multiple backends exhaust alternatives first, then perform at most one
+recovery round for CONNECTION/RETRY failures (disabled when max_retries is zero).
+Negative answers, malformed responses and unknown failures are not retried in
+multi-backend recovery. A recovery result supersedes that backend's earlier
+failure when aggregating the final diagnosis. Two default attempts
+plus 50ms backoff fit the application's 4s hard bound for a single backend or one
+concurrent wave; longer candidate lists remain subject to that caller bound.
+Direct backend calls perform one attempt. Failed group results preserve counts
+of negative responses alongside the operational diagnosis, without treating an
+unanswered view as NXDOMAIN. Positive answers still take precedence; there is no
+new early-negative timer. A lost
+reused DoH/DoT connection may be repaired once within that same attempt's
+remaining budget, not with a restarted clock. DoH marks its read-only POST as
+explicitly replay-safe; ordinary HTTP POST requests are not automatically replayed. Cancellation is sticky until the
 responsible scope exits; a scope absorbs its own cancellation while ancestor
 cancellation propagates; groups join all children before propagating it, as
 scope state rather than as a child defect. Cleanup runs inside

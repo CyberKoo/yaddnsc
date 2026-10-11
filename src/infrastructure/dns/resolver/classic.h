@@ -6,6 +6,7 @@
 #define YADDNSC_INFRASTRUCTURE_DNS_RESOLVER_CLASSIC_H
 
 #include <cstdint>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 
@@ -21,7 +22,11 @@ namespace dns {
 /// Failure: expected<raw response, DnsErrorInfo>.
 class ClassicResolver final : public Resolver {
 public:
-    ClassicResolver(domain::InetAddress server, std::uint16_t port) noexcept : server_(server), port_(port) {}
+    /// Throws std::invalid_argument for port zero.
+    ClassicResolver(domain::InetAddress server, std::uint16_t port) : server_(server), port_(port) {
+        if (port == 0)
+            throw std::invalid_argument("Classic DNS port must not be zero");
+    }
 
     [[nodiscard]] coro::Task<std::expected<std::vector<std::uint8_t>, domain::DnsErrorInfo>> query(
         std::string host, domain::RecordKind kind) override;
