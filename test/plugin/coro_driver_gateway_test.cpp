@@ -16,8 +16,8 @@
 #include <chrono>
 #include <condition_variable>
 #include <cstdint>
-#include <functional>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -97,32 +97,27 @@ private:
     GetState get_ = nullptr;
 };
 
-/// In-process HTTP/1.1 server: one handler thread per connection. Each request
-/// holds the connection for `hold` (or until shutdown) before answering, which
-/// lets tests create slow and never-answering exchanges. The optional callback
-/// runs as soon as a request is read.
+/// In-process HTTP/1.1 server: one handler thread per connection. In hold mode
+/// each request holds the connection for `hold` (or until shutdown) before
+/// answering, which lets tests create slow and never-answering exchanges. In
+/// Barrier mode requests are answered by a rendezvous instead of a clock.
 class LoopbackHttpServer {
 public:
-    using OnRequest = std::function<void(std::uint32_t index)>;
+    /// Rendezvous answer mode: each request waits until `count` requests have
+    /// arrived, then all are answered together. The rendezvous is only
+    /// reachable while every client holds an exchange in flight, so meeting it
+    /// proves concurrency without any wall-clock budget. `give_up` bounds the
+    /// wait so a client that arrives alone (the serialized regression) is
+    /// answered after the deadline instead of hanging the test; barrier_met()
+    /// then reports false.
+    struct Barrier {
+        std::uint32_t count;
+        std::chrono::milliseconds give_up;
+    };
 
-    explicit LoopbackHttpServer(std::chrono::milliseconds hold, OnRequest on_request = {})
-        : hold_(hold), on_request_(std::move(on_request)) {
-        listener_.reset(::socket(AF_INET, SOCK_STREAM, 0));
-        const int enabled = 1;
-        ::setsockopt(listener_.get(), SOL_SOCKET, SO_REUSEADDR, &enabled, sizeof(enabled));
+    explicit LoopbackHttpServer(std::chrono::milliseconds hold) : LoopbackHttpServer(hold, std::nullopt) {}
 
-        sockaddr_in address{};
-        address.sin_family = AF_INET;
-        address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-        address.sin_port = 0;
-        ::bind(listener_.get(), reinterpret_cast<sockaddr*>(&address), sizeof(address));
-
-        socklen_t length = sizeof(address);
-        ::getsockname(listener_.get(), reinterpret_cast<sockaddr*>(&address), &length);
-        port_ = ntohs(address.sin_port);
-        ::listen(listener_.get(), 16);
-        accept_thread_ = std::jthread([this] { accept_loop(); });
-    }
+    explicit LoopbackHttpServer(Barrier barrier) : LoopbackHttpServer(0ms, barrier) {}
 
     ~LoopbackHttpServer() {
         {
@@ -159,7 +154,30 @@ public:
 
     [[nodiscard]] std::uint32_t request_count() const noexcept { return requests_.load(); }
 
+    /// Whether the rendezvous was reached rather than the give-up deadline.
+    /// Meaningful only for a Barrier server, after the clients have finished.
+    [[nodiscard]] bool barrier_met() const noexcept { return !barrier_missed_.load(); }
+
 private:
+    LoopbackHttpServer(std::chrono::milliseconds hold, std::optional<Barrier> barrier)
+        : hold_(hold), barrier_(barrier) {
+        listener_.reset(::socket(AF_INET, SOCK_STREAM, 0));
+        const int enabled = 1;
+        ::setsockopt(listener_.get(), SOL_SOCKET, SO_REUSEADDR, &enabled, sizeof(enabled));
+
+        sockaddr_in address{};
+        address.sin_family = AF_INET;
+        address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+        address.sin_port = 0;
+        ::bind(listener_.get(), reinterpret_cast<sockaddr*>(&address), sizeof(address));
+
+        socklen_t length = sizeof(address);
+        ::getsockname(listener_.get(), reinterpret_cast<sockaddr*>(&address), &length);
+        port_ = ntohs(address.sin_port);
+        ::listen(listener_.get(), 16);
+        accept_thread_ = std::jthread([this] { accept_loop(); });
+    }
+
     void accept_loop() {
         for (;;) {
             {
@@ -194,14 +212,24 @@ private:
             }
             buffer.append(chunk.data(), static_cast<std::size_t>(got));
         }
-        const std::uint32_t index = requests_.fetch_add(1);
-        if (on_request_) {
-            on_request_(index);
+        requests_.fetch_add(1);
+        if (barrier_.has_value()) {
+            // Wake handlers already parked at the rendezvous: this arrival may
+            // be the one that completes it.
+            cv_.notify_all();
         }
 
         {
             std::unique_lock lock(mutex_);
-            cv_.wait_for(lock, hold_, [this] { return stop_; });
+            if (barrier_.has_value()) {
+                const bool met = cv_.wait_for(lock, barrier_->give_up,
+                                              [this] { return stop_ || requests_.load() >= barrier_->count; });
+                if (!met && !stop_) {
+                    barrier_missed_ = true;
+                }
+            } else {
+                cv_.wait_for(lock, hold_, [this] { return stop_; });
+            }
         }
         if (stop_) {
             return;
@@ -219,10 +247,11 @@ private:
     }
 
     std::chrono::milliseconds hold_;
-    OnRequest on_request_;
+    std::optional<Barrier> barrier_;
     Utils::UniqueFd listener_;
     std::uint16_t port_{0};
     std::atomic<std::uint32_t> requests_{0};
+    std::atomic<bool> barrier_missed_{false};
     std::mutex mutex_;
     std::condition_variable cv_;
     bool stop_ = false;
@@ -321,23 +350,22 @@ TEST_F(CoroDriverGatewayTest, ConcurrentCyclesOfOneDriverRunInParallel) {
     PluginControl control{std::string(PLUGIN_PATH)};
     control.reset();
 
-    std::mutex snapshot_mutex;
-    std::vector<PluginState> at_request;
-    LoopbackHttpServer server{300ms, [&](std::uint32_t) {
-                                  const PluginState snapshot = control.state();
-                                  const std::lock_guard lock(snapshot_mutex);
-                                  at_request.push_back(snapshot);
-                              }};
+    // Each request blocks until both have arrived: the rendezvous is only
+    // reachable while both cycles hold an exchange in flight, so meeting it is
+    // the concurrency proof — no wall-clock budget involved. A serialized pair
+    // never meets it and is answered after the give-up instead of hanging. The
+    // bridge budget (30s) far exceeds the give-up so that in the serialized
+    // case the barrier — not the budget — is what releases and fails the test.
+    LoopbackHttpServer server{LoopbackHttpServer::Barrier{.count = 2, .give_up = 10s}};
 
     coro::Loop loop;
     std::expected<void, domain::DriverError> first_result;
     std::expected<void, domain::DriverError> second_result;
     const std::string params = exchange_params(server.port(), 1);
 
-    const auto started = std::chrono::steady_clock::now();
     run_loop(loop, [&]() -> coro::Task<void> {
         co_await coro::supervisor_group([&](coro::TaskGroup& group) -> coro::Task<void> {
-            plugin::DriverGateway gateway(catalog_, logger_, loop, group, default_options());
+            plugin::DriverGateway gateway(catalog_, logger_, loop, group, default_options(30s));
             auto first = group.spawn(gateway.update(DRIVER_NAME, make_command(params)));
             second_result = co_await gateway.update(DRIVER_NAME, make_command(params));
             first_result = co_await first;
@@ -345,20 +373,21 @@ TEST_F(CoroDriverGatewayTest, ConcurrentCyclesOfOneDriverRunInParallel) {
         });
         co_return;
     });
-    const auto elapsed =
-        std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - started);
 
     ASSERT_TRUE(first_result.has_value()) << first_result.error().message;
     ASSERT_TRUE(second_result.has_value()) << second_result.error().message;
-    // Neither cycle waited for the other: both exchanges began while no instance
-    // had been destroyed yet. The ABI allows concurrent cycles on distinct
-    // instances, and every cycle creates a fresh one.
-    ASSERT_EQ(at_request.size(), 2u);
-    EXPECT_EQ(at_request[0].destroys, 0u);
-    EXPECT_EQ(at_request[1].destroys, 0u);
-    // Concurrent cycles finish in about one hold, not two.
-    EXPECT_LT(elapsed, 500ms);
+    // Both exchanges were in flight at once — the ABI allows concurrent cycles
+    // on distinct instances, and every cycle creates a fresh one. A serialized
+    // pair would have missed the rendezvous and hit the give-up deadline.
+    EXPECT_TRUE(server.barrier_met());
     EXPECT_EQ(server.request_count(), 2u);
+    // Both cycles ran the full create → update → destroy sequence; the worker
+    // destroys the instance before its result reaches the loop, so the counts
+    // are settled by the time run_loop returns.
+    const PluginState state = control.state();
+    EXPECT_EQ(state.creates, 2u);
+    EXPECT_EQ(state.updates, 2u);
+    EXPECT_EQ(state.destroys, 2u);
 }
 
 // ---------------------------------------------------------------------------
@@ -401,15 +430,17 @@ TEST_F(CoroDriverGatewayTest, AbandonedCycleCancelsItsInFlightExchange) {
     // The exchange really was in flight, so the abandon cancelled a running
     // cycle rather than dropping a queued one.
     EXPECT_TRUE(saw_request);
-    // The in-flight exchange was cancelled, so the plugin's update returned
-    // CANCELLED and the worker's cycle wound down at once instead of waiting
-    // out the 30s server hold.
-    EXPECT_LT(elapsed, 5s);
+    // This bound discriminates between the two ways run_loop can return, not
+    // machine speed: released by the cancel (scheduling latency only) versus
+    // waiting out the 30s server hold / bridge budget when the cancel path is
+    // broken. 25s stays clear of the 30s alternative; anything past it means
+    // the abandon did not release the loop side.
+    EXPECT_LT(elapsed, 25s);
     // The worker thread unwinds (plugin update returns, destroy runs) a moment
     // after the loop side is released; wait for it, bounded well under the
     // 30s the un-cancelled exchange would have taken.
     PluginState state;
-    const auto deadline = std::chrono::steady_clock::now() + 5s;
+    const auto deadline = std::chrono::steady_clock::now() + 10s;
     do {
         state = control.state();
         if (state.destroys == 1u) {
@@ -577,7 +608,10 @@ TEST_F(CoroDriverGatewayTest, ShutdownCancelsInFlightBridgeExchange) {
     // The request was in flight, so shutdown is what released the worker
     // rather than a cycle that was still queued when the scope came down.
     EXPECT_TRUE(saw_request);
-    EXPECT_LT(elapsed, 5s);
+    // Same discrimination as the abandon test: released by the cancellation
+    // (scheduling latency only) versus waiting out the 30s budget when the
+    // shutdown path is broken. Anything past 25s means the latter.
+    EXPECT_LT(elapsed, 25s);
 }
 
 TEST_F(CoroDriverGatewayTest, PluginCancelledStatus_BecomesAnErrorValueOnALiveScope) {

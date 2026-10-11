@@ -39,7 +39,7 @@ add_test(NAME integration_scenarios
 )
 
 set_tests_properties(integration_scenarios PROPERTIES
-    TIMEOUT 120
+    TIMEOUT 300
     RESOURCE_LOCK "integration;mdns-multicast"
     SKIP_RETURN_CODE 77
     # Debug builds instrument both yaddnsc and dlopen'ed .so files with ASan,

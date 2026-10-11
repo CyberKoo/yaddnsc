@@ -148,6 +148,73 @@ case "$(uname -s)" in
 esac
 
 # ---------------------------------------------------------------------------
+# Event-driven synchronisation.
+#
+# Never synchronise on fixed sleeps: a loaded runner stretches daemon startup
+# and the update cycle arbitrarily. Every wait below polls for the decisive
+# event — an update landing in the sim log, or a line in the daemon's output —
+# and the numeric deadline only keeps a broken workflow from hanging the suite.
+# ---------------------------------------------------------------------------
+
+# Poll the sim request log until a request whose path contains both <tag> and
+# "ip=<ip>" arrives (an empty <tag> matches any recorded update), or until
+# <deadline> seconds pass. Returns non-zero on timeout.
+wait_for_update() {
+    local tag="$1" ip="$2" deadline="$3"
+    local end=$((SECONDS + deadline))
+    while [ "${SECONDS}" -lt "${end}" ]; do
+        if curl -sf "http://127.0.0.1:${SIM_API_PORT}/logs" 2>/dev/null | python3 -c "
+import sys, json
+tag, ip = sys.argv[1], sys.argv[2]
+try:
+    logs = json.load(sys.stdin)
+except ValueError:
+    sys.exit(1)
+sys.exit(0 if any(tag in r.get('path', '') and f'ip={ip}' in r.get('path', '') for r in logs) else 1)
+" "${tag}" "${ip}"; then
+            return 0
+        fi
+        sleep 0.2
+    done
+    return 1
+}
+
+# Poll <file> until <regex> matches, or until <deadline> seconds pass.
+wait_for_pattern() {
+    local file="$1" regex="$2" deadline="$3"
+    local end=$((SECONDS + deadline))
+    while [ "${SECONDS}" -lt "${end}" ]; do
+        if grep -qE "${regex}" "${file}" 2>/dev/null; then
+            return 0
+        fi
+        sleep 0.2
+    done
+    return 1
+}
+
+# True while <pid> is a live, non-zombie process.
+process_alive() {
+    local state
+    state=$(ps -o state= -p "$1" 2>/dev/null) || return 1
+    [ -n "${state}" ] && [[ "${state}" != Z* ]]
+}
+
+# SIGTERM <pid>, then allow up to <grace> seconds for a clean exit before
+# SIGKILL. A zombie satisfies kill -0, so liveness goes through ps instead.
+stop_daemon() {
+    local pid="$1" grace="$2"
+    kill "${pid}" 2>/dev/null || true
+    local end=$((SECONDS + grace))
+    while process_alive "${pid}"; do
+        if [ "${SECONDS}" -ge "${end}" ]; then
+            kill -9 "${pid}" 2>/dev/null || true
+            return
+        fi
+        sleep 0.1
+    done
+}
+
+# ---------------------------------------------------------------------------
 # 5. Run test scenarios
 # ---------------------------------------------------------------------------
 run_scenario() {
@@ -173,16 +240,17 @@ run_scenario() {
     # Reset sim logs
     curl -sf "http://127.0.0.1:${SIM_API_PORT:-8080}/reset" > /dev/null 2>&1 || true
 
-    # Run yaddnsc with a 4-second total timeout.
-    # 2s for the update cycle, then SIGTERM + 2s grace before SIGKILL.
+    # The update landing in the sim log is the cycle's completion: stop the
+    # daemon as soon as it arrives. The 30s bound never synchronises a healthy
+    # run — it only releases a broken one, which the checks below then fail.
     "${YADDNSC_BIN}" run -c "${tmpfile}" -d > "${yaddnsc_out}" 2>&1 &
     local pid=$!
-    sleep 2
-    kill "${pid}" 2>/dev/null || true
-    sleep 2
-    if kill -0 "${pid}" 2>/dev/null; then
-        kill -9 "${pid}" 2>/dev/null || true
+    if wait_for_update "${expect_tag}" "${expect_ip}" 30; then
+        echo "  update landed in the sim log"
+    else
+        echo "  update did not land within 30s"
     fi
+    stop_daemon "${pid}" 10
     wait "${pid}" 2>/dev/null || true
     echo "  yaddnsc exited"
 
@@ -377,17 +445,21 @@ LAST_CYCLE_OK=false
 # A UDP port with nothing bound, so every resolver query times out.
 DEAD_DNS_PORT=$(python3 -c "import socket; s=socket.socket(socket.AF_INET, socket.SOCK_DGRAM); s.bind(('127.0.0.1', 0)); print(s.getsockname()[1]); s.close()")
 
-# run_cycle <name> <template-config> <settle-seconds> <iface|NONE> <dns-port|NONE>
+# run_cycle <name> <template-config> <wait-spec> <iface|NONE> <dns-port|NONE>
 #
 # Runs one update cycle and records in LAST_UPDATES how many /update requests
 # the provider received. The caller decides whether that count is correct.
+# <wait-spec> decides when the daemon is stopped: "sim-update" waits until an
+# /update request lands in the sim log, "log:<regex>" until the daemon's own
+# output matches. Both carry a 30s deadline that only releases a broken
+# workflow — a healthy cycle stops the moment the terminal event arrives.
 # Pass NONE for <iface> to keep the real loopback, or for <dns-port> to keep
 # the template's resolver port. The sed overrides are built as an array
 # because the patterns contain spaces and must not be word-split.
 run_cycle() {
     local name="$1"
     local config="$2"
-    local settle="$3"
+    local wait_spec="$3"
     local iface="$4"
     local dns_port="$5"
 
@@ -421,12 +493,19 @@ run_cycle() {
     set +e
     "${YADDNSC_BIN}" run -c "${cfg}" -d > "${out}" 2>&1 &
     pid=$!
-    sleep "${settle}"
-    kill "${pid}" 2>/dev/null || true
-    sleep 1
-    if kill -0 "${pid}" 2>/dev/null; then
-        kill -9 "${pid}" 2>/dev/null || true
-    fi
+    case "${wait_spec}" in
+        sim-update)
+            wait_for_update "" "" 30 || echo "  no update reached the sim within 30s"
+            ;;
+        log:*)
+            wait_for_pattern "${out}" "${wait_spec#log:}" 30 || echo "  '${wait_spec#log:}' did not appear within 30s"
+            ;;
+        *)
+            echo "  ERROR: unknown wait spec '${wait_spec}'"
+            PASS=false
+            ;;
+    esac
+    stop_daemon "${pid}" 10
     wait "${pid}" 2>/dev/null
     rc=$?
     set -e
@@ -479,7 +558,7 @@ PY
 run_cycle \
     "ip-source-failure-publishes-nothing" \
     "${NO_ADDRESS_CFG}" \
-    5 \
+    "log:Skipping the update for" \
     "NONE" \
     "NONE"
 rm -f "${NO_ADDRESS_CFG}"
@@ -501,7 +580,7 @@ rm -f "${LAST_LOG}"
 run_cycle \
     "resolver-failure-still-publishes" \
     "${SCRIPT_DIR}/configs/config.classic.json" \
-    6 \
+    "sim-update" \
     "NONE" \
     "${DEAD_DNS_PORT}"
 if [ "${LAST_CYCLE_OK}" = true ] && [ "${LAST_UPDATES}" -ge 1 ] &&

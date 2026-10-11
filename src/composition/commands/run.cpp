@@ -61,10 +61,17 @@ namespace {
 /// to touch the loop. Only the run root then runs inside coro::run.
 int execute_command(const Cli::RunCommand& command) {
     if (!command.log_level.empty()) {
-        spdlog::set_level(internal::to_log_level(command.log_level));
+        const auto level = internal::to_log_level(command.log_level);
+        spdlog::set_level(level);
+        if (level <= spdlog::level::debug) {
+            // Debug runs are foreground sessions: flush every record so the
+            // output survives a crash and appears live through pipes and files.
+            spdlog::flush_on(spdlog::level::debug);
+        }
         SPDLOG_DEBUG("Log level set to {}", command.log_level);
     } else if (command.verbose) {
         spdlog::set_level(spdlog::level::debug);
+        spdlog::flush_on(spdlog::level::debug);
         SPDLOG_DEBUG("Verbose mode enabled");
     }
 
