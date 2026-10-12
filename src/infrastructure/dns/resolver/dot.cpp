@@ -15,7 +15,6 @@
 #include "coro/cancelled.h"
 #include "coro/scope.hpp"
 #include "infrastructure/dns/bootstrap/bootstrap.h"
-#include "infrastructure/dns/dns_lookup_exception.h"
 #include "infrastructure/dns/dns_packet_exception.h"
 #include "infrastructure/dns/query_budget.hpp"
 #include "infrastructure/dns/util.hpp"
@@ -41,9 +40,10 @@ constexpr std::size_t EDNS_PAD_OVERHEAD = 15;
     return QueryBuilder{}.add_question(host, type).add_edns(512, 0, false, std::span(&padding, 1)).build();
 }
 
-[[nodiscard]] coro::Task<std::expected<void, domain::DnsErrorInfo>> connect_with_budget(net::Stream& stream) {
+[[nodiscard]] coro::Task<std::expected<void, domain::DnsErrorInfo>> connect_with_budget(net::Stream& stream,
+                                                                                        const Policy& policy) {
     auto connected =
-        co_await coro::with_timeout(detail::CONNECT_BUDGET, [&stream]() { return stream.ensure_connected(); });
+        co_await coro::with_timeout(policy.connect_budget, [&stream]() { return stream.ensure_connected(); });
     if (connected.timed_out) {
         co_return std::unexpected(domain::DnsErrorInfo{domain::DnsError::RETRY, "DoT connection timed out"});
     }
@@ -99,18 +99,12 @@ DotResolver::~DotResolver() {
 
 coro::Task<std::expected<std::vector<std::uint8_t>, domain::DnsErrorInfo>> DotResolver::query(
     std::string host, const domain::RecordKind kind) {
-    co_return co_await detail::bounded_query([this, &host, kind]() { return query_once(host, kind); });
+    auto guard = co_await mutex_.lock();
+    co_return co_await detail::bounded_query([this, &host, kind]() { return query_once(host, kind); }, options_.policy);
 }
 
 coro::Task<std::expected<std::vector<std::uint8_t>, domain::DnsErrorInfo>> DotResolver::query_once(
     std::string host, const domain::RecordKind kind) {
-    auto queued = co_await coro::with_timeout(
-        detail::SESSION_WAIT_BUDGET,
-        [this]() -> coro::Task<coro::AsyncMutex::Guard> { co_return co_await mutex_.lock(); });
-    if (queued.timed_out) {
-        co_return std::unexpected(domain::DnsErrorInfo{domain::DnsError::RETRY, "DoT session queue timed out"});
-    }
-    auto guard = std::move(*queued);
     try {
         if (close_requested_) {
             close_requested_ = false;
@@ -133,7 +127,7 @@ coro::Task<std::expected<std::vector<std::uint8_t>, domain::DnsErrorInfo>> DotRe
             drop_stream();
             if (!repair)
                 co_return std::unexpected(std::move(response.error()));
-            // Repair only a lost old session, within the same 1.5s clock.
+            // Repair only a lost old session, within the same attempt scope.
             if (auto ready = co_await ensure_stream(); !ready) {
                 co_return std::unexpected(std::move(ready.error()));
             }
@@ -155,18 +149,13 @@ coro::Task<std::expected<std::vector<std::uint8_t>, domain::DnsErrorInfo>> DotRe
     } catch (const std::bad_alloc&) {
         drop_stream();
         throw;
-    } catch (const DnsLookupException& error) {
-        drop_stream();
-        co_return std::unexpected(domain::DnsErrorInfo{error.get_error(), error.what()});
     } catch (const DnsPacketException& error) {
         co_return std::unexpected(
             domain::DnsErrorInfo{domain::DnsError::INVALID_QUERY,
                                  fmt::format(R"(Failed to build a DNS query for "{}": {})", host, error.what())});
-    } catch (const std::exception& error) {
+    } catch (...) {
         drop_stream();
-        SPDLOG_WARN(R"(Resolver #{} DoT query for "{}" raised an unexpected exception: {})", id(), host, error.what());
-        co_return std::unexpected(domain::DnsErrorInfo{
-            domain::DnsError::UNKNOWN, fmt::format(R"(DoT query for "{}" failed: {})", host, error.what())});
+        throw;
     }
 }
 
@@ -175,8 +164,9 @@ coro::Task<std::expected<void, domain::DnsErrorInfo>> DotResolver::ensure_stream
         drop_stream();
     if (stream_)
         co_return {};
-    auto resolved = options_.resolve ? co_await options_.resolve(host_, std::nullopt)
-                                     : co_await bootstrap_resolve(host_, std::nullopt, options_.bootstrap_dns);
+    auto resolved = options_.resolve
+                        ? co_await options_.resolve(host_, std::nullopt)
+                        : co_await bootstrap_resolve(host_, std::nullopt, options_.bootstrap_dns, options_.policy);
     if (!resolved) {
         co_return std::unexpected(domain::DnsErrorInfo{
             domain::DnsError::CONNECTION,
@@ -187,7 +177,7 @@ coro::Task<std::expected<void, domain::DnsErrorInfo>> DotResolver::ensure_stream
     domain::DnsErrorInfo last{domain::DnsError::CONNECTION, "No DoT address"};
     for (const auto& address : *resolved) {
         auto stream = factory.create_tls(address, port_, options_.connect, options_.tls, options_.tls_context);
-        auto connected = co_await connect_with_budget(*stream);
+        auto connected = co_await connect_with_budget(*stream, options_.policy);
         if (connected) {
             stream_ = std::move(stream);
             co_return {};

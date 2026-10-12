@@ -139,7 +139,7 @@ using dns::Strategy;
     u16(1);       // CLASS IN
     u32(60);      // TTL
     const auto rdlength_pos = out.size();
-    u16(0);                  // RDLENGTH placeholder
+    u16(0);                               // RDLENGTH placeholder
     const auto rdata_start = out.size();  // the A record's NAME points here
     encode(target);
     out[rdlength_pos] = static_cast<std::uint8_t>((out.size() - rdata_start) >> 8);
@@ -731,32 +731,16 @@ TEST(DnsDispatcher, invalidLocalQueryCallsNoBackendInAnyStrategy) {
 // attempt budget (dns/detail/query_budget.hpp)
 // ---------------------------------------------------------------------------
 
-TEST(DnsDispatcher, bounded_querySelfCancelledBodyYieldsAResultInsteadOfReadingAnEmptyOutcome) {
-    // with_timeout absorbs a cancellation its body raised itself, so the
-    // outcome comes back with no value and no timeout flag. bounded_query used
-    // to move out of that empty outcome; it must return a defined result and
-    // must not turn the cancellation into a caller-visible timeout.
-    bool timed_out = false;
-    std::optional<domain::DnsErrorInfo> error;
-    coro::run([&]() -> coro::Task<void> {
-        const auto outcome = co_await coro::with_timeout(5s, [&]() -> coro::Task<void> {
-            const auto result = co_await dns::detail::bounded_query(
-                []() -> coro::Task<std::expected<std::vector<std::uint8_t>, domain::DnsErrorInfo>> {
-                    (co_await coro::current_scope()).cancel();
-                    co_await coro::sleep_for(1s);  // a checkpoint that observes the cancellation
-                    co_return std::vector<std::uint8_t>{0x01};
-                });
-            if (!result)
-                error = result.error();
-            co_return;
-        });
-        timed_out = outcome.timed_out;
-        co_return;
-    }());
-
-    EXPECT_FALSE(timed_out);
-    ASSERT_TRUE(error.has_value());
-    EXPECT_EQ(error->code, domain::DnsError::CONNECTION);
+TEST(DnsDispatcher, BoundedQuery_SelfCancelledBody_PropagatesCancellation) {
+    const auto query = []() -> coro::Task<void> {
+        [[maybe_unused]] auto result = co_await dns::detail::bounded_query(
+            []() -> coro::Task<std::expected<std::vector<std::uint8_t>, domain::DnsErrorInfo>> {
+                (co_await coro::current_scope()).cancel();
+                co_await coro::checkpoint();
+                co_return std::vector<std::uint8_t>{0x01};
+            });
+    };
+    EXPECT_THROW(coro::run(query()), coro::Cancelled);
 }
 
 TEST(DnsDispatcher, failurePrecedenceIsIndependentOfStrategyAndServerOrder) {
@@ -776,3 +760,24 @@ TEST(DnsDispatcher, failurePrecedenceIsIndependentOfStrategyAndServerOrder) {
 }
 
 }  // namespace
+
+TEST(DnsDispatcher, Resolve_UnknownRcode_DoesNotRetrySingleBackend) {
+    Fakes fakes;
+    auto& backend = fakes.add("unknown", {error_step(domain::DnsError::UNKNOWN, "unsupported RCODE")});
+    dns::Dispatcher dispatcher{fakes.take()};
+    const auto result = run_query(dispatcher);
+    ASSERT_FALSE(result);
+    EXPECT_EQ(result.error().code, domain::DnsError::UNKNOWN);
+    EXPECT_EQ(backend.calls(), 1);
+}
+
+TEST(DnsDispatcher, Resolve_InjectedRetryPolicy_IsUsedByPortEntryPoint) {
+    Fakes fakes;
+    auto& backend = fakes.add("unavailable", {error_step(domain::DnsError::CONNECTION, "unavailable")});
+    dns::Policy policy;
+    policy.max_retries = 0;
+    dns::Dispatcher dispatcher{fakes.take(), dns::Strategy::CONCURRENT, policy};
+    const auto result = coro::run(dispatcher.resolve("yaddnsc.test", domain::RecordKind::A));
+    ASSERT_FALSE(result);
+    EXPECT_EQ(backend.calls(), 1);
+}

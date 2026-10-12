@@ -76,30 +76,39 @@ TEST(MdnsResponse, RejectsQueryErrorOpcodeAndTruncatedPackets) {
             packet[2] |= 2;
         if (kind == 4)
             packet[2] &= static_cast<std::uint8_t>(~4U);
-        EXPECT_TRUE(ipsource::parse_response(packet, "host.local", domain::RecordKind::A).empty());
+        const auto parsed = ipsource::parse_response(packet, "host.local", domain::RecordKind::A);
+        ASSERT_TRUE(parsed);
+        EXPECT_TRUE(parsed->empty());
     }
 }
 
 TEST(MdnsResponse, GoodbyeRecordsAreNotAvailableAddresses) {
     auto packet = response({{"host.local", 1, {192, 0, 2, 7}}});
     packet[packet.size() - 7] = 0;  // TTL 60 -> 0: mDNS goodbye.
-    EXPECT_TRUE(ipsource::parse_response(packet, "host.local", domain::RecordKind::A).empty());
+    const auto parsed = ipsource::parse_response(packet, "host.local", domain::RecordKind::A);
+    ASSERT_TRUE(parsed);
+    EXPECT_TRUE(parsed->empty());
 }
 
 TEST(MdnsResponse, ChecksInternetClassWhileAllowingCacheFlushFlag) {
     auto packet = response({{"host.local", 1, {192, 0, 2, 7}}});
     packet[packet.size() - 11] = 3;
-    EXPECT_TRUE(ipsource::parse_response(packet, "host.local", domain::RecordKind::A).empty());
+    const auto foreign_class = ipsource::parse_response(packet, "host.local", domain::RecordKind::A);
+    ASSERT_TRUE(foreign_class);
+    EXPECT_TRUE(foreign_class->empty());
     packet[packet.size() - 11] = 1;
     packet[packet.size() - 12] = 0x80;
-    EXPECT_EQ(ipsource::parse_response(packet, "host.local", domain::RecordKind::A).size(), 1U);
+    const auto cache_flush = ipsource::parse_response(packet, "host.local", domain::RecordKind::A);
+    ASSERT_TRUE(cache_flush);
+    EXPECT_EQ(cache_flush->size(), 1U);
 }
 
 TEST(MdnsResponse, MatchesOwnerIgnoringCaseAndTrailingDot) {
     const auto packet = response({{"Printer.LOCAL.", 1, {192, 0, 2, 7}}});
     const auto result = ipsource::parse_response(packet, "printer.local", domain::RecordKind::A);
-    ASSERT_EQ(result.size(), 1);
-    EXPECT_EQ(result.front().to_string(), "192.0.2.7");
+    ASSERT_TRUE(result.has_value());
+    ASSERT_EQ(result->size(), 1);
+    EXPECT_EQ(result->front().to_string(), "192.0.2.7");
 }
 
 TEST(MdnsResponse, FiltersOwnerAndRecordType) {
@@ -110,12 +119,14 @@ TEST(MdnsResponse, FiltersOwnerAndRecordType) {
     });
 
     const auto ipv4 = ipsource::parse_response(packet, "printer.local.", domain::RecordKind::A);
-    ASSERT_EQ(ipv4.size(), 1);
-    EXPECT_EQ(ipv4.front().to_string(), "198.51.100.9");
+    ASSERT_TRUE(ipv4.has_value());
+    ASSERT_EQ(ipv4->size(), 1);
+    EXPECT_EQ(ipv4->front().to_string(), "198.51.100.9");
 
     const auto ipv6 = ipsource::parse_response(packet, "printer.local", domain::RecordKind::AAAA);
-    ASSERT_EQ(ipv6.size(), 1);
-    EXPECT_EQ(ipv6.front().to_string(), "2001:db8::1");
+    ASSERT_TRUE(ipv6.has_value());
+    ASSERT_EQ(ipv6->size(), 1);
+    EXPECT_EQ(ipv6->front().to_string(), "2001:db8::1");
 }
 
 TEST(MdnsResponse, AcceptsMultipleMatchingAnswers) {
@@ -124,16 +135,19 @@ TEST(MdnsResponse, AcceptsMultipleMatchingAnswers) {
         {"printer.local", 1, {192, 0, 2, 11}},
     });
     const auto result = ipsource::parse_response(packet, "printer.local", domain::RecordKind::A);
-    ASSERT_EQ(result.size(), 2);
-    EXPECT_EQ(result[0].to_string(), "192.0.2.10");
-    EXPECT_EQ(result[1].to_string(), "192.0.2.11");
+    ASSERT_TRUE(result.has_value());
+    ASSERT_EQ(result->size(), 2);
+    EXPECT_EQ((*result)[0].to_string(), "192.0.2.10");
+    EXPECT_EQ((*result)[1].to_string(), "192.0.2.11");
 }
 
 TEST(MdnsResponse, RejectsMalformedPacketAndInvalidRdata) {
-    EXPECT_THROW(static_cast<void>(
-                     ipsource::parse_response(std::vector<std::uint8_t>{0, 1}, "printer.local", domain::RecordKind::A)),
-                 std::exception);
+    const auto truncated =
+        ipsource::parse_response(std::vector<std::uint8_t>{0, 1}, "printer.local", domain::RecordKind::A);
+    ASSERT_FALSE(truncated);
+    EXPECT_EQ(truncated.error().code, domain::DnsError::PARSE);
     const auto invalid_rdata = response({{"printer.local", 1, {192, 0, 2}}});
-    EXPECT_THROW(static_cast<void>(ipsource::parse_response(invalid_rdata, "printer.local", domain::RecordKind::A)),
-                 std::exception);
+    const auto invalid = ipsource::parse_response(invalid_rdata, "printer.local", domain::RecordKind::A);
+    ASSERT_FALSE(invalid);
+    EXPECT_EQ(invalid.error().code, domain::DnsError::PARSE);
 }

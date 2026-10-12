@@ -69,7 +69,8 @@ int execute_command(const Cli::DnsResolveCommand& command) {
     const auto tls_context = internal::make_default_tls_context();
     const auto dispatcher = [&] {
         try {
-            return dns::make_dispatcher(config.resolver, config.resolver.bootstrap_servers, tls_context);
+            return dns::make_dispatcher(config.resolver, config.resolver.bootstrap_servers, tls_context,
+                                        internal::DNS_POLICY);
         } catch (const std::invalid_argument& error) {
             // Same translation as the run command: factory checks protect
             // direct callers too, so drift from static validation is a

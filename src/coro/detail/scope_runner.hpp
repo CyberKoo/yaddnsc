@@ -69,7 +69,8 @@ Task<ScopeOutcome<BodyResult<Fn>>> run_scoped(Fn fn, ScopeSpec spec) {
             }
         } catch (const Cancelled& cancellation) {
             cancelled = true;
-            if (!ScopeAccess::absorbs(scope, cancellation)) {
+            if (!ScopeAccess::absorbs(scope, cancellation) ||
+                ((spec.use_timeout || spec.use_deadline) && !scope.timed_out())) {
                 error = std::current_exception();
             }
         } catch (...) {
@@ -87,7 +88,8 @@ Task<ScopeOutcome<BodyResult<Fn>>> run_scoped(Fn fn, ScopeSpec spec) {
         }
         scope.throw_if_cancelled();
     } catch (const Cancelled& cancellation) {
-        if (!ScopeAccess::absorbs(scope, cancellation)) {
+        if (!ScopeAccess::absorbs(scope, cancellation) ||
+            ((spec.use_timeout || spec.use_deadline) && !scope.timed_out())) {
             scope.throw_if_cancelled();
             throw;
         }

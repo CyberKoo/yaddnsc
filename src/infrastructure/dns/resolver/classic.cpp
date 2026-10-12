@@ -17,7 +17,6 @@
 #include "coro/task.hpp"
 #include "domain/error/dns_error.h"
 #include "domain/error/dns_error_info.h"
-#include "infrastructure/dns/dns_lookup_exception.h"
 #include "infrastructure/dns/dns_packet_exception.h"
 #include "infrastructure/dns/exchange.h"
 #include "infrastructure/dns/util.hpp"
@@ -42,11 +41,9 @@ coro::Task<std::expected<std::vector<std::uint8_t>, domain::DnsErrorInfo>> Class
 
         const auto query_bytes = dns::build_query(host, record_type);
 
-        co_return co_await detail::query_classic(server_, port_, query_bytes);
+        co_return co_await detail::query_classic(server_, port_, query_bytes, policy_);
     } catch (const std::bad_alloc&) {
         throw;  // allocation failures are never downgraded to a retryable error
-    } catch (const DnsLookupException& error) {
-        co_return std::unexpected(domain::DnsErrorInfo{error.get_error(), error.what()});
     } catch (const DnsPacketException& error) {
         // Packet construction failure is a definitive input defect (e.g. an
         // over-long name), never a transient transport error — the dispatcher
@@ -54,14 +51,6 @@ coro::Task<std::expected<std::vector<std::uint8_t>, domain::DnsErrorInfo>> Class
         co_return std::unexpected(
             domain::DnsErrorInfo{domain::DnsError::INVALID_QUERY,
                                  fmt::format(R"(Failed to build a DNS query for "{}": {})", host, error.what())});
-    } catch (const std::exception& error) {
-        // An unexpected exception is a transient defect of this attempt, not a
-        // deterministic parse failure: UNKNOWN keeps the dispatcher falling
-        // over to the next backend instead of abandoning the search. Warn so
-        // the defect is visible — nothing below this catch reports it.
-        SPDLOG_WARN(R"(Resolver #{} unexpected exception while querying "{}": {})", id(), host, error.what());
-        co_return std::unexpected(domain::DnsErrorInfo{
-            domain::DnsError::UNKNOWN, fmt::format(R"(Classic DNS query for "{}" failed: {})", host, error.what())});
     }
 }
 

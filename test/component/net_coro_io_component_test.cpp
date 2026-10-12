@@ -780,7 +780,8 @@ TEST(NetCoroDns, strayFloodCannotResetTheUdpBudgetOrStarveItsTimer) {
     EXPECT_EQ(result->error().code, domain::DnsError::RETRY);
     EXPECT_NE(result->error().message.find("UDP query"), std::string::npos);
     // The reported budget is the constant, not a literal spelled into the message.
-    EXPECT_NE(result->error().message.find(std::to_string(dns::detail::WIRE_BUDGET.count()) + "ms"), std::string::npos);
+    EXPECT_NE(result->error().message.find(std::to_string(dns::Policy{}.wire_budget.count()) + "ms"),
+              std::string::npos);
 }
 
 TEST(NetCoroDns, lateTruncationPreservesTcpFallbackTimeoutStage) {
@@ -809,7 +810,7 @@ TEST(NetCoroDns, lateTruncationPreservesTcpFallbackTimeoutStage) {
     ASSERT_FALSE(*result);
     EXPECT_EQ(result->error().code, domain::DnsError::RETRY);
     EXPECT_NE(result->error().message.find("TCP fallback"), std::string::npos);
-    EXPECT_NE(result->error().message.find(std::to_string(dns::detail::ATTEMPT_BUDGET.count()) + "ms"),
+    EXPECT_NE(result->error().message.find(std::to_string(dns::Policy{}.attempt_budget.count()) + "ms"),
               std::string::npos);
 }
 
@@ -886,3 +887,36 @@ TEST(NetCoroDns, bootstrap_returnsAvailableFamilyInsteadOfWaitingForSilentSiblin
 }
 
 }  // namespace
+
+TEST(NetCoroDns, Bootstrap_TwoSilentServers_StillReachesHealthyThirdWithinAttemptBudget) {
+    net::UdpSocket silent_first;
+    net::UdpSocket silent_second;
+    net::UdpSocket healthy;
+    ASSERT_TRUE(silent_first.bind(loopback_v4(), 0));
+    ASSERT_TRUE(silent_second.bind(loopback_v4(), 0));
+    ASSERT_TRUE(healthy.bind(loopback_v4(), 0));
+    const std::vector<domain::DnsServer> servers{
+        {"127.0.0.1", *silent_first.local_port()},
+        {"127.0.0.1", *silent_second.local_port()},
+        {"127.0.0.1", *healthy.local_port()},
+    };
+    std::optional<std::expected<std::vector<domain::InetAddress>, domain::DnsErrorInfo>> result;
+    bool timed_out = true;
+    run_task([&]() -> coro::Task<void> {
+        co_await coro::task_group([&](coro::TaskGroup& group) -> coro::Task<void> {
+            group.spawn(answer_bootstrap(healthy, 0, 4, 1));
+            const auto outcome = co_await coro::with_timeout(dns::Policy{}.attempt_budget, [&]() {
+                return dns::bootstrap_resolve("x.test", domain::AddressFamily::IPV4, servers);
+            });
+            timed_out = outcome.timed_out;
+            if (outcome)
+                result = *outcome;
+            group.cancel();
+        });
+    }());
+    EXPECT_FALSE(timed_out);
+    ASSERT_TRUE(result);
+    ASSERT_TRUE(*result);
+    ASSERT_EQ((*result)->size(), 1U);
+    EXPECT_EQ((*result)->front().to_string(), "0.0.0.42");
+}

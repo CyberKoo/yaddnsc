@@ -1,0 +1,18 @@
+# Keep the Docker build context limited to actual sources.
+# A stale local build tree carries a CMakeCache.txt with host paths that
+# breaks the in-container configure step.
+
+.git/
+.cache/
+
+# Local build trees
+build/
+build-*/
+cmake-build-*/
+
+# Package output produced by docker/build-deb.sh
+deb-out/
+
+# IDE settings
+.idea/
+.zed/

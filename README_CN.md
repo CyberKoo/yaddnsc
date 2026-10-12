@@ -288,7 +288,7 @@ yaddnsc config test -c /etc/yaddnsc/config.json
 | （顶层） | `bootstrap_dns` | bootstrap DNS 服务器（IP 字面量），用于解析所有出站端点的主机名（DoH/DoT 服务器、`http` IP 源 URL、服务商 API 主机）。缺省使用 `/etc/resolv.conf` 的 nameserver。详见 [DNS 解析器](#dns-解析器)。 |
 | `domains[]` | `name` | 受管理的域名，例如 `example.com`。 |
 | `domains[]` | `update_interval` | 更新间隔，单位秒；不得小于 60，该下限可通过 `-DYADDNSC_MIN_UPDATE_INTERVAL=...` 在构建时调整。 |
-| `domains[]` | `force_update` | 强制更新间隔，单位秒；到达该间隔时不与 DNS 比对即推送更新。`0`（默认）表示关闭；非零时不得小于 `update_interval`。 |
+| `domains[]` | `force_update` | 强制更新间隔，单位秒；到达该间隔时不与 DNS 比对即推送更新。成功完成强制更新后重新计时；失败时保留待更新状态，后续重试仍执行强制更新。`0`（默认）表示关闭；非零时不得小于 `update_interval`。 |
 | `domains[]` | `driver` | 处理该域名的驱动模块名称。 |
 | `domains[]` | `subdomains` | 该域名下受管理的记录，至少一条。 |
 | `subdomains[]` | `name` | 记录标签；`@` 表示域名顶点（apex）记录。 |

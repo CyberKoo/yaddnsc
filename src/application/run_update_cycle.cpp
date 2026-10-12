@@ -4,33 +4,35 @@
 
 #include "run_update_cycle.h"
 
-#include <coroutine>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 #include <chrono>
-#include <expected>
 #include <new>
 #include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
 
+#include <coroutine>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
+
+#include <expected>
+
 #include "application/log_macros.h"
+#include "application/ports/gateway.h"
+#include "application/ports/ip_source.h"
+#include "application/ports/resolver.h"
+#include "application/services.h"
+#include "coro/cancelled.h"
+#include "coro/scope.hpp"
 #include "domain/address_policy.h"
+#include "domain/config/runtime_config.h"
 #include "domain/dns/record_kind.h"
 #include "domain/error/dns_error.h"
 #include "domain/error/dns_error_info.h"
 #include "domain/error/error.h"
 #include "domain/network/inet_address.h"
-#include "coro/cancelled.h"
-#include "coro/scope.hpp"
-#include "support/fmt.hpp"
-#include "application/ports/gateway.h"
-#include "application/ports/ip_source.h"
-#include "application/ports/resolver.h"
-#include "application/services.h"
-#include "domain/config/runtime_config.h"
 #include "domain/update/driver_update_command.h"
 #include "domain/update/update_decision.h"
 #include "domain/update/update_task.h"
+#include "support/fmt.hpp"
 #include "yaddnsc/util/format.hpp"  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 
 namespace app {
@@ -43,11 +45,11 @@ coro::Task<UpdateCycleOutcome> run_update_cycle(const domain::UpdateTask& task, 
         // --- Step 1: local IP -------------------------------------------------
         // The source gets its own budget so a stalled provider (a peer that
         // accepts and never answers) fails this cycle in seconds instead of
-        // holding it to UPDATE_BUDGET — the coroutine HTTP layer has no I/O
+        // holding it to the cycle budget — the coroutine HTTP layer has no I/O
         // timeout, so the bound is composed here like the DNS read below.
 
         const auto source_result = co_await coro::with_timeout(
-            IP_SOURCE_BUDGET,
+            services.policy.ip_source_budget,
             [&services,
              &subdomain]() -> coro::Task<std::expected<std::vector<domain::InetAddress>, domain::IpSourceError>> {
                 co_return co_await services.ip_source.resolve(subdomain);
@@ -55,7 +57,8 @@ coro::Task<UpdateCycleOutcome> run_update_cycle(const domain::UpdateTask& task, 
         if (source_result.timed_out) {
             // Our own budget fired: a transient source
             // failure, not an abort — skip this cycle.
-            const auto seconds = std::chrono::duration_cast<std::chrono::seconds>(IP_SOURCE_BUDGET).count();
+            const auto seconds =
+                std::chrono::duration_cast<std::chrono::seconds>(services.policy.ip_source_budget).count();
             YLOG_WARN(services.logger,
                       "Failed to resolve the local IP address: the IP source timed out after {}s. Skipping the update "
                       "for \"{}\" ({})",
@@ -90,10 +93,10 @@ coro::Task<UpdateCycleOutcome> run_update_cycle(const domain::UpdateTask& task, 
         if (!task.force_update) {
             // The read gets its own budget so a resolver that never answers
             // surfaces in seconds instead of holding the whole cycle to
-            // UPDATE_BUDGET. Timeout is a scope property composed here, not an
+            // cycle budget. Timeout is a scope property composed here, not an
             // I/O parameter — the new exchange layer has none.
             const auto read = co_await coro::with_timeout(
-                DNS_READ_BUDGET,
+                services.policy.dns_read_budget,
                 [&services, &task,
                  &subdomain]() -> coro::Task<std::expected<std::vector<std::string>, domain::DnsErrorInfo>> {
                     co_return co_await services.resolver.resolve(task.fqdn, subdomain.type);
@@ -103,8 +106,9 @@ coro::Task<UpdateCycleOutcome> run_update_cycle(const domain::UpdateTask& task, 
                 // Our own budget fired: a transient read failure, not an abort —
                 // proceed with the update on an empty record list.
                 YLOG_WARN(services.logger, R"(DNS lookup for "{}" failed: timed out after {}s, proceeding with update)",
-                          task.fqdn, std::chrono::duration_cast<std::chrono::seconds>(DNS_READ_BUDGET).count());
-            } else if (read.has_value()) {
+                          task.fqdn,
+                          std::chrono::duration_cast<std::chrono::seconds>(services.policy.dns_read_budget).count());
+            } else {
                 const auto& resolved = *read;
                 if (!resolved) {
                     // Cannot verify the current record (transient failure, NXDOMAIN,

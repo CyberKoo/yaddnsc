@@ -5,7 +5,6 @@
 #include "dispatcher.h"
 
 #include <algorithm>
-#include <atomic>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
@@ -14,6 +13,7 @@
 #include <optional>
 #include <ratio>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 #include <span>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -52,10 +52,6 @@ enum class RecordKind;
 namespace dns {
 namespace {
 
-/// Process-wide resolver id source; the Dispatcher assigns one per backend so
-/// the diagnostics carry the legacy `Resolver #N` label.
-std::atomic<std::uint64_t> next_resolver_id{0};
-
 /// Outcome of one backend attempt.
 struct Attempt {
     Resolver* backend = nullptr;  // Borrowed from the dispatcher; groups join before its destruction.
@@ -81,12 +77,12 @@ struct Attempt {
             co_return attempt;
         }
 
-        const auto parsed = dns::RecordParser::parse_strings(*raw, host, dns::Util::type_to_record_type(kind));
+        auto parsed = dns::RecordParser::parse_strings(*raw, host, dns::Util::type_to_record_type(kind));
         if (auto error = dns::Util::rcode_error(parsed.rcode, host)) {
             attempt.error = std::move(*error);
         } else if (!parsed.records.empty()) {
             attempt.ok = true;
-            attempt.records = parsed.records;
+            attempt.records = std::move(parsed.records);
         } else {
             attempt.error = domain::DnsErrorInfo{
                 domain::DnsError::NODATA, fmt::format(R"(DNS lookup for "{}" returned no usable records)", host)};
@@ -102,14 +98,6 @@ struct Attempt {
         throw;
     } catch (const DnsLookupException& error) {
         attempt.error = domain::DnsErrorInfo{error.get_error(), error.what()};
-        co_return attempt;
-    } catch (const std::exception& error) {
-        // A defect reaching here escaped the resolver and the parser without
-        // being classified: the error value below hides it from the caller, so
-        // the boundary records it before translating.
-        SPDLOG_WARN(R"(Unexpected exception from resolver #{} for "{}": {})", attempt.id, host, error.what());
-        attempt.error = domain::DnsErrorInfo{domain::DnsError::UNKNOWN,
-                                             fmt::format(R"(DNS lookup for "{}" failed: {})", host, error.what())};
         co_return attempt;
     }
 }
@@ -146,7 +134,7 @@ private:
     std::map<std::uint64_t, domain::DnsErrorInfo> errors_;
 };
 
-/// Race every backend with at most MAX_CONCURRENT_RESOLVERS queries in flight.
+/// Race every backend within the injected concurrency limit.
 ///
 /// The first answer wins and cancels the in-flight losers; every transient
 /// failure frees its slot and launches the next backend at once instead of
@@ -154,7 +142,7 @@ private:
 /// free slots too; only INVALID_QUERY ends the search without a positive answer.
 [[nodiscard]] coro::Task<std::expected<std::vector<std::string>, domain::DnsErrorInfo>> run_concurrent_race(
     const std::span<Resolver* const> resolvers, std::string host, const domain::RecordKind kind, BatchErrors& errors,
-    std::vector<Resolver*>& retry) {
+    std::vector<Resolver*>& retry, const std::size_t max_concurrent) {
     std::optional<std::vector<std::string>> winner;
 
     // A child scope lets the winner cancel its siblings while the group still
@@ -168,7 +156,7 @@ private:
                     ++pending;
                 }
             };
-            for (std::size_t i = 0; i < Dispatcher::MAX_CONCURRENT_RESOLVERS; ++i) {
+            for (std::size_t i = 0; i < max_concurrent; ++i) {
                 launch();
             }
             // Completion order decides, not launch order.
@@ -264,17 +252,30 @@ private:
 
 }  // namespace
 
-Dispatcher::Dispatcher(std::vector<std::unique_ptr<Resolver>> resolvers, const Strategy strategy)
-    : resolvers_(std::move(resolvers)), strategy_(strategy) {
-    for (const auto& resolver : resolvers_) {
-        resolver->set_id(next_resolver_id.fetch_add(1, std::memory_order_relaxed));
+Dispatcher::Dispatcher(std::vector<std::unique_ptr<Resolver>> resolvers, const Strategy strategy, Policy policy)
+    : resolvers_(std::move(resolvers)), strategy_(strategy), policy_(policy) {
+    if (policy_.max_concurrent == 0)
+        throw std::invalid_argument("DNS concurrency must be positive");
+    for (std::size_t i = 0; i < resolvers_.size(); ++i) {
+        resolvers_[i]->set_id(i + 1);
     }
 }
 
 Dispatcher::~Dispatcher() = default;
 
 coro::Task<std::expected<std::vector<std::string>, domain::DnsErrorInfo>> Dispatcher::resolve(
+    std::string host, const domain::RecordKind kind) {
+    co_return co_await resolve_impl(std::move(host), kind, policy_.max_retries, policy_.retry_backoff);
+}
+
+coro::Task<std::expected<std::vector<std::string>, domain::DnsErrorInfo>> Dispatcher::resolve(
     std::string host, const domain::RecordKind kind, const std::uint32_t max_retries, const std::uint32_t backoff_ms) {
+    co_return co_await resolve_impl(std::move(host), kind, max_retries, std::chrono::milliseconds(backoff_ms));
+}
+
+coro::Task<std::expected<std::vector<std::string>, domain::DnsErrorInfo>> Dispatcher::resolve_impl(
+    std::string host, const domain::RecordKind kind, const std::uint32_t max_retries,
+    const std::chrono::milliseconds backoff) {
     if (resolvers_.empty()) {
         co_return std::unexpected(domain::DnsErrorInfo{domain::DnsError::CONFIG, "no DNS resolvers are configured"});
     }
@@ -298,7 +299,7 @@ coro::Task<std::expected<std::vector<std::string>, domain::DnsErrorInfo>> Dispat
     }
 
     if (all.size() == 1) {
-        co_return co_await run_single(host, kind, max_retries, backoff_ms);
+        co_return co_await run_single(host, kind, max_retries, backoff);
     }
 
     if (strategy_ == Strategy::SHUFFLE)
@@ -309,19 +310,21 @@ coro::Task<std::expected<std::vector<std::string>, domain::DnsErrorInfo>> Dispat
     // cancel long candidate lists; no nested backend retry multiplication.
     for (std::uint32_t round = 0;; ++round) {
         std::vector<Resolver*> retry;
-        auto result = strategy_ == Strategy::CONCURRENT ? co_await run_concurrent_race(all, host, kind, errors, retry)
-                                                        : co_await run_sequential(all, host, kind, errors, retry);
+        auto result = strategy_ == Strategy::CONCURRENT
+                          ? co_await run_concurrent_race(all, host, kind, errors, retry, policy_.max_concurrent)
+                          : co_await run_sequential(all, host, kind, errors, retry);
         if (result || detail::is_definitive(result.error().code) || retry.empty() ||
             round >= std::min(max_retries, 1U)) {
             co_return result;
         }
-        co_await coro::sleep_for(std::chrono::milliseconds(backoff_ms));
+        co_await coro::sleep_for(backoff);
         all = std::move(retry);
     }
 }
 
 coro::Task<std::expected<std::vector<std::string>, domain::DnsErrorInfo>> Dispatcher::run_single(
-    std::string host, const domain::RecordKind kind, const std::uint32_t max_retries, const std::uint32_t backoff_ms) {
+    std::string host, const domain::RecordKind kind, const std::uint32_t max_retries,
+    const std::chrono::milliseconds backoff) {
     for (std::uint32_t attempt_index = 0;; ++attempt_index) {
         auto attempt = co_await attempt_one(*resolvers_.front(), host, kind);
         if (attempt.ok) {
@@ -345,7 +348,7 @@ coro::Task<std::expected<std::vector<std::string>, domain::DnsErrorInfo>> Dispat
 
         // Backoff is a cancellable sleep: a cancelled scope aborts the wait and
         // the query, with no thread and no derived cancellation domain.
-        co_await coro::sleep_for(std::chrono::milliseconds(backoff_ms) * (attempt_index + 1));
+        co_await coro::sleep_for(backoff * (attempt_index + 1));
     }
 }
 

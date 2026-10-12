@@ -6,39 +6,34 @@
 
 #include <chrono>
 #include <compare>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
-#include <coroutine>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
-#include <expected>
-#include <string>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
+#include <string>   // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 
-#include "domain/fqdn.h"
-#include "domain/update/update_task.h"
+#include <coroutine>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
+
+#include <expected>
+
+#include "application/run_update_cycle.h"
+#include "application/services.h"
 #include "coro/now.hpp"
 #include "coro/scope.hpp"
 #include "coro/sleep.hpp"
-#include "application/run_update_cycle.h"
+#include "coro/time.h"
 #include "domain/config/runtime_config.h"
 #include "domain/error/error.h"
-#include "coro/time.h"
+#include "domain/fqdn.h"
+#include "domain/update/update_task.h"
 
 namespace app {
 
 namespace {
 
-/// Evaluate and latch the force-update flag for one cycle.
-///
-/// The rule: a non-positive interval never forces, and a cycle whose elapsed
-/// time since the last forced cycle reaches the interval forces and latches
-/// `last_force` to now.
-[[nodiscard]] bool evaluate_force(int force_interval, coro::TimePoint& last_force, coro::TimePoint now) noexcept {
+/// A failed forced cycle remains due until publishing succeeds.
+[[nodiscard]] bool evaluate_force(int force_interval, coro::TimePoint last_force, coro::TimePoint now) noexcept {
     if (force_interval <= 0) {
         return false;
     }
     const auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - last_force).count();
-    if (elapsed >= force_interval) {
-        last_force = now;
-        return true;
-    }
-    return false;
+    return elapsed >= force_interval;
 }
 
 coro::Duration next_delay(const UpdateCycleOutcome& outcome, int update_interval) noexcept {
@@ -73,11 +68,14 @@ coro::Task<void> subdomain_loop(const domain::DomainConfig& domain, const domain
         const auto cycle_start = co_await coro::current_time();
         task.force_update = evaluate_force(force_interval, last_force, cycle_start);
 
-        const auto outcome = co_await coro::with_timeout(
-            UPDATE_BUDGET,
-            [&task, &services]() -> coro::Task<UpdateCycleOutcome> { co_return co_await run_update_cycle(task, services); });
+        const auto outcome = co_await coro::with_timeout(services.policy.update_budget,
+                                                         [&task, &services]() -> coro::Task<UpdateCycleOutcome> {
+                                                             co_return co_await run_update_cycle(task, services);
+                                                         });
 
-        // Own budget expiry retries on the interval; shutdown propagates.
+        if (!outcome.timed_out && outcome->has_value() && task.force_update) {
+            last_force = co_await coro::current_time();
+        }
 
         // A provider-supplied retry_after is anchored at the failure (the
         // legacy request_retry did the same); the plain interval keeps the

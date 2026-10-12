@@ -547,3 +547,39 @@ TEST(Offload, AlreadyCancelled_DoesNotStartWorker) {
 }
 
 }  // namespace
+
+TEST(CancelScope, DeadlineScope_ManualCancellation_PropagatesWithoutEmptyOutcome) {
+    for (const bool absolute : {false, true}) {
+        for (const bool checkpoint : {false, true}) {
+            coro::ManualClock clock;
+            coro::Loop loop{clock};
+            auto body = [checkpoint]() -> coro::Task<int> {
+                (co_await coro::current_scope()).cancel();
+                if (checkpoint)
+                    co_await coro::checkpoint();
+                co_return 42;
+            };
+            auto bounded = [&]() -> coro::Task<void> {
+                if (absolute) {
+                    [[maybe_unused]] auto outcome = co_await coro::with_deadline(clock.now() + 1s, body);
+                } else {
+                    [[maybe_unused]] auto outcome = co_await coro::with_timeout(1s, body);
+                }
+            };
+            EXPECT_THROW(coro::run(loop, bounded()), coro::Cancelled);
+        }
+    }
+}
+
+TEST(CancelScope, DeadlineScope_ManualCancelBeforeSlowCleanup_DoesNotBecomeTimeout) {
+    coro::ManualClock clock;
+    coro::Loop loop{clock};
+    auto task = []() -> coro::Task<void> {
+        [[maybe_unused]] auto outcome = co_await coro::with_timeout(10ms, []() -> coro::Task<void> {
+            (co_await coro::current_scope()).cancel();
+            [[maybe_unused]] auto cleanup = co_await coro::non_cancellable(
+                [](coro::CancelScope&) -> coro::Task<void> { co_await coro::sleep_for(20ms); });
+        });
+    };
+    EXPECT_THROW(coro::run(loop, task()), coro::Cancelled);
+}

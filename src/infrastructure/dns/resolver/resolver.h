@@ -27,8 +27,7 @@ namespace dns {
 /// Failure: recoverable errors use expected<raw response, DnsErrorInfo>.
 /// Cancellation throws `coro::Cancelled`. Only INVALID_QUERY ends a group
 /// search; PARSE, CONFIG and negative answers describe this backend. RETRY,
-/// CONNECTION may be retried against the same backend. UNKNOWN is retried
-/// only by the single-backend policy, not multi-backend recovery.
+/// CONNECTION may be retried against the same backend. UNKNOWN does not justify retrying the same backend.
 /// Thread safety: a resolver may hold mutable session state (a persistent
 /// connection), so query() is not const; it is not thread-safe and is used from
 /// the loop thread only.
@@ -40,6 +39,7 @@ public:
     virtual ~Resolver() = default;
 
     /// Query `host` for `kind` and return the raw response message.
+    /// The task owns its arguments and borrows this resolver until completion.
     [[nodiscard]] virtual coro::Task<std::expected<std::vector<std::uint8_t>, domain::DnsErrorInfo>> query(
         std::string host, domain::RecordKind kind) = 0;
 
@@ -61,14 +61,14 @@ private:
 namespace detail {
 
 /// True only for INVALID_QUERY, the single error that stops the search for
-/// this name: every other code describes this backend and stays retryable.
+/// this name: every other code describes this backend and allows searching other backends.
 [[nodiscard]] constexpr bool is_definitive(const domain::DnsError code) noexcept {
     return code == domain::DnsError::INVALID_QUERY;
 }
 
 /// True when a retry of the same query could succeed.
 [[nodiscard]] constexpr bool is_retryable(const domain::DnsError code) noexcept {
-    return code == domain::DnsError::RETRY || code == domain::DnsError::UNKNOWN || code == domain::DnsError::CONNECTION;
+    return code == domain::DnsError::RETRY || code == domain::DnsError::CONNECTION;
 }
 
 }  // namespace detail

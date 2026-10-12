@@ -99,12 +99,10 @@ void CancelScope::remove_waiter(detail::WaitNode& node) noexcept {
 }
 
 void CancelScope::cancel(detail::CancelCause cause) noexcept {
-    if (cause == detail::CancelCause::TIMEOUT) {
-        timed_out_ = true;
-    }
     if (cancelled_) {
         return;
     }
+    timed_out_ = cause == detail::CancelCause::TIMEOUT;
     cancelled_ = true;
     wake_subtree();
 }

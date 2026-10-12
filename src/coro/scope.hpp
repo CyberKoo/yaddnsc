@@ -6,9 +6,9 @@
 // protects cleanup from an outer cancellation.
 //
 // A combinator runs its body in a child scope; every cancellable await in the
-// body throws `coro::Cancelled` once the scope is cancelled. The scope absorbs its own cancellation: the
-// combinator returns normally (or with the body's defect), and the caller reads
-// `timed_out` / `cancelled` from the returned outcome.
+// body throws `coro::Cancelled` once the scope is cancelled. Deadline combinators
+// absorb their own timeout only; explicit cancellation scopes absorb their own
+// cancellation. Other cancellation propagates after the body unwinds.
 //
 // current_scope() is the one way a body reaches the scope it is already running
 // in — for cancelling it from a sibling, or converting an ABI abort into
@@ -36,8 +36,9 @@ namespace coro {
 ///
 /// `fn` takes no arguments and returns the body task. On expiry the scope is
 /// cancelled, the body's awaits throw `coro::Cancelled`, and the returned
-/// outcome reports `timed_out`; own cancellation does not leak to the caller.
-/// Ancestor cancellation propagates instead of returning an outcome.
+/// outcome reports `timed_out`. Manual cancellation, including cancellation
+/// initiated by the body, propagates instead of returning an empty outcome.
+/// Therefore a non-timeout outcome always contains the body's result.
 /// Failure: allocation may throw; a body defect is rethrown.
 template<typename Fn>
 [[nodiscard]] auto with_timeout(Duration timeout, Fn fn) {

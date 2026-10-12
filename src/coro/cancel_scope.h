@@ -54,7 +54,8 @@ public:
     /// True when this scope or any unshielded ancestor is cancelled.
     [[nodiscard]] bool cancelled() const noexcept;
 
-    /// True when this scope's own deadline fired (never set by an outer cancel).
+    /// True when this scope's own deadline initiated cancellation.
+    /// A later deadline does not replace an earlier manual cancellation.
     [[nodiscard]] bool timed_out() const noexcept { return timed_out_; }
 
     /// Cancel this scope and wake every waiter in its unshielded subtree.

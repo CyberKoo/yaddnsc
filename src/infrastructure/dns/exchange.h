@@ -13,9 +13,10 @@
 
 #include <expected>
 
+#include "coro/task.hpp"
 #include "domain/error/dns_error_info.h"
 #include "domain/network/inet_address.h"
-#include "coro/task.hpp"
+#include "infrastructure/dns/policy.h"
 
 namespace dns::detail {
 
@@ -31,26 +32,28 @@ struct UdpAnswer {
     bool truncated = false;
 };
 
-/// Complete a classic exchange within ATTEMPT_BUDGET, including UDP-to-TCP
+/// Complete a classic exchange within the policy's attempt budget, including UDP-to-TCP
 /// fallback. Both transports must match the query; TC over TCP is a PARSE
 /// error. A whole-attempt timeout returns RETRY and identifies UDP or TCP
 /// fallback. Used by the Classic backend and bootstrap to keep their policies
 /// identical.
 [[nodiscard]] coro::Task<std::expected<std::vector<std::uint8_t>, domain::DnsErrorInfo>> query_classic(
-    domain::InetAddress server, std::uint16_t port, std::span<const std::uint8_t> query);
+    domain::InetAddress server, std::uint16_t port, std::span<const std::uint8_t> query, Policy policy = {});
 
 /// Send `query` over UDP and return the first matching answer from `server`.
 ///
 /// Ignore mismatched source, ID, opcode or question without resetting the
-/// WIRE_BUDGET exchange budget. Invalid local requests are rejected before
+/// policy's wire-exchange budget. Invalid local requests are rejected before
 /// I/O; malformed matching responses return PARSE. Periodically yield while
 /// discarding floods. Match even a kernel-truncated packet's header/question.
 /// Opens an ephemeral
 /// socket per call. Cancellation (including a deadline enforced by the caller's
 /// cancel scope) surfaces as `coro::Cancelled`; a socket failure is
 /// DnsError::CONNECTION.
-[[nodiscard]] coro::Task<std::expected<UdpAnswer, domain::DnsErrorInfo>> query_udp(
-    domain::InetAddress server, std::uint16_t port, std::span<const std::uint8_t> query);
+[[nodiscard]] coro::Task<std::expected<UdpAnswer, domain::DnsErrorInfo>> query_udp(domain::InetAddress server,
+                                                                                   std::uint16_t port,
+                                                                                   std::span<const std::uint8_t> query,
+                                                                                   Policy policy = {});
 
 }  // namespace dns::detail
 

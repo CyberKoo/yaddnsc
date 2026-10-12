@@ -34,9 +34,9 @@ struct RuntimeServices;
 /// bridge coroutines are structured children of the root group.
 ///
 /// Returns EXIT_SUCCESS after a graceful shutdown. Second SIGINT terminates the
-/// process (128 + SIGINT), matching the legacy SignalWatcher.
-[[nodiscard]] coro::Task<int> run_root(std::shared_ptr<const domain::RuntimeConfig> config,
-                                       RuntimeServices services);
+/// process through the injected adapter with status 128 + SIGINT; no log drain
+/// blocks this escalation.
+[[nodiscard]] coro::Task<int> run_root(std::shared_ptr<const domain::RuntimeConfig> config, RuntimeServices services);
 
 }  // namespace app
 

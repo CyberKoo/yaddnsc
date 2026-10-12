@@ -11,6 +11,7 @@
 #include <string_view>
 
 #include "domain/network/inet_address.h"
+#include "infrastructure/dns/policy.h"
 #include "infrastructure/dns/resolver/resolver.h"
 
 namespace dns {
@@ -23,7 +24,8 @@ namespace dns {
 class ClassicResolver final : public Resolver {
 public:
     /// Throws std::invalid_argument for port zero.
-    ClassicResolver(domain::InetAddress server, std::uint16_t port) : server_(server), port_(port) {
+    ClassicResolver(domain::InetAddress server, std::uint16_t port, Policy policy = {})
+        : server_(server), port_(port), policy_(policy) {
         if (port == 0)
             throw std::invalid_argument("Classic DNS port must not be zero");
     }
@@ -40,6 +42,7 @@ public:
 private:
     domain::InetAddress server_;
     std::uint16_t port_{53};
+    Policy policy_;
 };
 
 }  // namespace dns

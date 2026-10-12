@@ -4,42 +4,45 @@
 
 #include "mdns.h"
 
-#include <net/if.h>
-#include <netinet/in.h>
-#include <spdlog/spdlog.h>
-#include <sys/socket.h>
-#include <arpa/inet.h>
-#include <coroutine>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 #include <array>
 #include <cerrno>
 #include <chrono>
 #include <cstdint>
 #include <cstring>
-#include <expected>
 #include <new>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
 #include <utility>
 #include <vector>
-#include <optional>
 
+#include <coroutine>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
+
+#include <arpa/inet.h>
+#include <expected>
+#include <net/if.h>
+#include <netinet/in.h>
+#include <spdlog/spdlog.h>
+#include <sys/socket.h>
+
+#include "coro/cancelled.h"
+#include "coro/scope.hpp"
+#include "domain/dns/record_kind.h"
 #include "domain/error/error.h"
 #include "domain/network/address_family.h"
 #include "domain/network/inet_address.h"
-#include "coro/cancelled.h"
-#include "coro/scope.hpp"
 #include "infrastructure/dns/dns_packet_exception.h"
 #include "infrastructure/dns/types.h"
 #include "infrastructure/dns/util.hpp"
 #include "infrastructure/dns/wire/builder.h"
 #include "infrastructure/ip_source/iface_util.h"
 #include "infrastructure/ip_source/mdns_response.h"
+#include "infrastructure/logging/level_enabled.h"
+#include "infrastructure/network/transport/datagram.h"
 #include "infrastructure/network/transport/socket_ops.h"
 #include "support/fmt.hpp"
 #include "support/util/fd.hpp"
-#include "domain/dns/record_kind.h"
-#include "infrastructure/network/transport/datagram.h"
 #include "yaddnsc/util/format.hpp"  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 
 namespace ipsource {
@@ -334,28 +337,21 @@ void set_int_option(const int fd, const int level, const int option, const int v
             continue;
         }
 
-        std::vector<domain::InetAddress> results;
-        try {
-            results = ipsource::parse_response(std::span{buffer.data(), datagram->size}, hostname, type);
-        } catch (const std::bad_alloc&) {
-            throw;
-        } catch (const coro::Cancelled&) {
-            throw;
-        } catch (const std::exception& error) {
-            SPDLOG_TRACE(R"(mDNS discarding unparseable response for "{}": {})", hostname, error.what());
-            continue;
-        } catch (...) {
-            SPDLOG_TRACE(R"(mDNS discarding response for "{}": unknown parser exception)", hostname);
+        auto parsed = ipsource::parse_response(std::span{buffer.data(), datagram->size}, hostname, type);
+        if (!parsed) {
+            SPDLOG_TRACE(R"(mDNS discarding unparseable response for "{}": {})", hostname, parsed.error().message);
             continue;
         }
+        auto& results = *parsed;
         if (results.empty()) {
             SPDLOG_TRACE(R"(mDNS no matching records in response for "{}")", hostname);
             continue;
         }
         for ([[maybe_unused]] const auto& address : results) {
-            SPDLOG_TRACE(R"(mDNS resolved "{}" -> {})", hostname, address.to_string());
+            if (logging::level_enabled(spdlog::level::trace))
+                SPDLOG_TRACE(R"(mDNS resolved "{}" -> {})", hostname, address.to_string());
         }
-        co_return results;
+        co_return std::move(results);
     }
 }
 

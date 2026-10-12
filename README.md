@@ -306,7 +306,7 @@ yaddnsc config test -c /etc/yaddnsc/config.json
 | (top level) | `bootstrap_dns` | IP literal of the bootstrap DNS server used to resolve hostnames of outbound endpoints (DoH/DoT servers, `http` IP source URLs, provider API hosts). Default: `/etc/resolv.conf` nameservers. See [DNS Resolver](#dns-resolver). |
 | `domains[]` | `name` | Managed domain, for example `example.com`. |
 | `domains[]` | `update_interval` | Update interval in seconds. The default lower bound is 60, adjustable at build time. |
-| `domains[]` | `force_update` | Interval in seconds at which an update is pushed unconditionally, without comparing against DNS. `0` (default) disables it; otherwise the value must not be smaller than `update_interval`. |
+| `domains[]` | `force_update` | Interval in seconds at which an update is pushed unconditionally, without comparing against DNS. The interval restarts after a successful forced update; a failed attempt remains due for retry. `0` (default) disables it; otherwise the value must not be smaller than `update_interval`. |
 | `domains[]` | `driver` | Name of the driver module handling this domain. |
 | `domains[]` | `subdomains` | Records managed under this domain; at least one is required. |
 | `subdomains[]` | `name` | Record label; `@` denotes the apex of the domain. |

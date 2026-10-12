@@ -1,17 +1,20 @@
 #ifndef YADDNSC_COMPOSITION_ASSEMBLY_H
 #define YADDNSC_COMPOSITION_ASSEMBLY_H
 
-#include <spdlog/spdlog.h>
 #include <memory>
 #include <span>
 #include <string>
 #include <string_view>
 
+#include <spdlog/spdlog.h>
+
+#include "application/services.h"
 #include "domain/config/runtime_config.h"
+#include "infrastructure/dns/policy.h"
 #include "infrastructure/http/types.h"
+#include "infrastructure/network/tls/context.h"
 #include "infrastructure/plugin/driver_catalog.h"
 #include "infrastructure/plugin/driver_gateway.h"
-#include "infrastructure/network/tls/context.h"
 
 namespace domain {
 struct ConfigError;
@@ -22,6 +25,9 @@ class Loop;
 }  // namespace coro
 
 namespace Composition::internal {
+/// Production defaults shared by the command assembly paths.
+inline constexpr dns::Policy DNS_POLICY{};
+inline constexpr app::UpdatePolicy UPDATE_POLICY{};
 /// Internal startup helpers; call on the main thread before coro::run.
 /// Configuration and loader failures abort the command; allocation defects propagate.
 [[nodiscard]] spdlog::level::level_enum to_log_level(std::string_view level);

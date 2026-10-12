@@ -2,7 +2,7 @@
 // dns — resolver dispatcher: fallback, shuffle and concurrent strategies.
 //
 // The concurrent race is the redesign's task_group showcase: at most
-// MAX_CONCURRENT_RESOLVERS queries fly at once, each endpoint failure launches
+// the configured concurrency limit queries fly at once; each endpoint failure launches
 // the next backend at once, the winner cancels its siblings through a child
 // cancel scope, and scope exit still joins and reaps every child (design §3.2).
 // Retry backoff is a cancellable sleep, not a thread.
@@ -11,15 +11,18 @@
 #ifndef YADDNSC_INFRASTRUCTURE_DNS_DISPATCHER_H
 #define YADDNSC_INFRASTRUCTURE_DNS_DISPATCHER_H
 
+#include <chrono>
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
-#include <expected>
-#include <cstddef>
 
-#include "domain/error/dns_error_info.h"
+#include <expected>
+
 #include "coro/task.hpp"
+#include "domain/error/dns_error_info.h"
+#include "infrastructure/dns/policy.h"
 
 namespace domain {
 enum class RecordKind;
@@ -32,7 +35,7 @@ class Resolver;
 enum class Strategy {
     FALLBACK,    ///< Try backends in configured order until one answers.
     SHUFFLE,     ///< Same, in a random order per query.
-    CONCURRENT,  ///< Race up to three backends at a time; the first answer wins.
+    CONCURRENT,  ///< Race backends within the policy limit; the first answer wins.
 };
 
 /// Composes resolver backends behind one query operation.
@@ -50,11 +53,12 @@ enum class Strategy {
 /// which serializes its own session — DoT behind an AsyncMutex around the
 /// whole session, DoH behind the PersistentClient's mutex, Classic with a
 /// socket per query — while the dispatcher itself changes nothing after
-/// construction. Encrypted backends include a bounded session wait in their
-/// attempt budget; ancestor cancellation remains the overall hard bound.
+/// construction. Encrypted backends wait for admission before their attempt
+/// starts; caller cancellation bounds that wait. Internal defects propagate.
 class Dispatcher {
 public:
-    explicit Dispatcher(std::vector<std::unique_ptr<Resolver>> resolvers, Strategy strategy = Strategy::CONCURRENT);
+    explicit Dispatcher(std::vector<std::unique_ptr<Resolver>> resolvers, Strategy strategy = Strategy::CONCURRENT,
+                        Policy policy = {});
 
     ~Dispatcher();
 
@@ -73,27 +77,31 @@ public:
     ///                     disables that round.
     /// @param backoff_ms   Base backoff; attempt `n` waits `backoff_ms * n`.
     [[nodiscard]] coro::Task<std::expected<std::vector<std::string>, domain::DnsErrorInfo>> resolve(
-        std::string host, domain::RecordKind kind, std::uint32_t max_retries = DEFAULT_MAX_RETRIES,
+        std::string host, domain::RecordKind kind, std::uint32_t max_retries,
         std::uint32_t backoff_ms = DEFAULT_BACKOFF_MS);
+
+    /// Resolve using the policy supplied at construction.
+    [[nodiscard]] coro::Task<std::expected<std::vector<std::string>, domain::DnsErrorInfo>> resolve(
+        std::string host, domain::RecordKind kind);
 
     /// Backend count.
     [[nodiscard]] std::size_t size() const noexcept { return resolvers_.size(); }
 
     [[nodiscard]] Strategy strategy() const noexcept { return strategy_; }
 
-    /// Default retry policy of the port-style entry point.
-    static constexpr std::uint32_t DEFAULT_MAX_RETRIES = 1;
     static constexpr std::uint32_t DEFAULT_BACKOFF_MS = 50;
-    /// Most backends a concurrent race keeps in flight at once.
-    static constexpr std::size_t MAX_CONCURRENT_RESOLVERS = 3;
 
 private:
+    [[nodiscard]] coro::Task<std::expected<std::vector<std::string>, domain::DnsErrorInfo>> resolve_impl(
+        std::string host, domain::RecordKind kind, std::uint32_t max_retries, std::chrono::milliseconds backoff);
+
     /// Single backend with retry.
     [[nodiscard]] coro::Task<std::expected<std::vector<std::string>, domain::DnsErrorInfo>> run_single(
-        std::string host, domain::RecordKind kind, std::uint32_t max_retries, std::uint32_t backoff_ms);
+        std::string host, domain::RecordKind kind, std::uint32_t max_retries, std::chrono::milliseconds backoff);
 
     std::vector<std::unique_ptr<Resolver>> resolvers_;
     Strategy strategy_{Strategy::CONCURRENT};
+    Policy policy_;
 };
 
 }  // namespace dns

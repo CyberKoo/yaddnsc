@@ -4,32 +4,34 @@
 
 #include "factory.h"
 
-#include <spdlog/spdlog.h>
 #include <chrono>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <utility>
 #include <vector>
-#include <expected>
-#include <optional>
 
+#include <expected>
+#include <spdlog/spdlog.h>
+
+#include "domain/config/dns_config.h"
+#include "domain/config/runtime_config.h"
 #include "domain/network/inet_address.h"
 #include "infrastructure/dns/bootstrap/bootstrap.h"
 #include "infrastructure/dns/resolver/classic.h"
 #include "infrastructure/dns/resolver/doh.h"
 #include "infrastructure/dns/resolver/dot.h"
+#include "infrastructure/dns/resolver/resolver.h"
 #include "infrastructure/dns/wire/framing.h"
+#include "infrastructure/http/types.h"
 #include "infrastructure/uri/uri.h"
 #include "support/fmt.hpp"
 #include "support/redact.hpp"
-#include "version.h"
-#include "domain/config/dns_config.h"
-#include "domain/config/runtime_config.h"
-#include "infrastructure/dns/resolver/resolver.h"
-#include "infrastructure/http/types.h"
 #include "yaddnsc/util/format.hpp"  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
+
+#include "version.h"
 
 namespace dns {
 
@@ -49,7 +51,8 @@ namespace {
 
 [[nodiscard]] std::unique_ptr<Resolver> make_backend(const domain::DnsServer& server,
                                                      const std::vector<domain::DnsServer>& bootstrap,
-                                                     std::shared_ptr<const net::TlsContext> tls_context) {
+                                                     std::shared_ptr<const net::TlsContext> tls_context,
+                                                     Policy policy) {
     const auto uri = Uri::parse(server.address);
     if (!uri.has_value()) {
         throw std::invalid_argument(fmt::format(R"(Malformed resolver address "{}")", server.address));
@@ -69,7 +72,7 @@ namespace {
             throw std::invalid_argument(
                 fmt::format(R"(Classic resolver address "{}" is not an IP literal)", server.address));
         }
-        return std::make_unique<ClassicResolver>(*address, server.port);
+        return std::make_unique<ClassicResolver>(*address, server.port, policy);
     }
     if (schema == "tls") {
         // A DoT endpoint is an authority and nothing else. The "tls" schema
@@ -91,6 +94,7 @@ namespace {
                             server.address));
         }
         EndpointOptions options;
+        options.policy = policy;
         options.bootstrap_dns = bootstrap;
         options.tls_context = std::move(tls_context);
         return std::make_unique<DotResolver>(std::string(uri->get_host()), port, std::move(options));
@@ -98,9 +102,9 @@ namespace {
     if (schema == "https") {
         http::Options options;
         options.user_agent = YADDNSC::get_full_version();
-        options.resolve = make_bootstrap_resolver(bootstrap);
+        options.resolve = make_bootstrap_resolver(bootstrap, policy);
         options.tls_context = std::move(tls_context);
-        return std::make_unique<DohResolver>(server.address, std::move(options));
+        return std::make_unique<DohResolver>(server.address, std::move(options), policy);
     }
     throw std::invalid_argument(
         fmt::format(R"(No coroutine resolver backend for schema "{}" (server: {}))", schema, server.address));
@@ -110,7 +114,7 @@ namespace {
 
 std::unique_ptr<Dispatcher> make_dispatcher(const domain::ResolverSettings& settings,
                                             std::vector<domain::DnsServer> bootstrap,
-                                            std::shared_ptr<const net::TlsContext> tls_context) {
+                                            std::shared_ptr<const net::TlsContext> tls_context, Policy policy) {
     if (settings.servers.empty()) {
         throw std::invalid_argument("ResolverSettings.servers must not be empty");
     }
@@ -128,7 +132,7 @@ std::unique_ptr<Dispatcher> make_dispatcher(const domain::ResolverSettings& sett
     std::vector<std::unique_ptr<Resolver>> backends;
     backends.reserve(settings.servers.size());
     for (const auto& server : settings.servers) {
-        backends.push_back(make_backend(server, bootstrap, tls_context));
+        backends.push_back(make_backend(server, bootstrap, tls_context, policy));
         // make_backend() already validated the address, so this cannot fail.
         const auto uri = Uri::parse(server.address).value();
         SPDLOG_INFO("DNS resolver #{}: \"{}\" ({})", backends.size(),
@@ -154,7 +158,7 @@ std::unique_ptr<Dispatcher> make_dispatcher(const domain::ResolverSettings& sett
                     strategy_name(settings.strategy));
     }
 
-    return std::make_unique<Dispatcher>(std::move(backends), to_strategy(settings.strategy));
+    return std::make_unique<Dispatcher>(std::move(backends), to_strategy(settings.strategy), policy);
 }
 
 }  // namespace dns

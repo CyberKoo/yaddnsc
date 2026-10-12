@@ -1,6 +1,5 @@
 #include "assembly.h"
 
-#include <spdlog/spdlog.h>
 #include <chrono>
 #include <memory>
 #include <source_location>
@@ -8,21 +7,24 @@
 #include <string>
 #include <string_view>
 #include <utility>
-#include <expected>
 #include <vector>
 
+#include <expected>
+#include <spdlog/spdlog.h>
+
+#include "coro/loop.h"
 #include "domain/config/dns_config.h"  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
+#include "domain/error/error.h"
 #include "infrastructure/config/config.h"
 #include "infrastructure/config/config_exception.h"
 #include "infrastructure/config/static_validator.h"
 #include "infrastructure/dns/bootstrap/bootstrap.h"
 #include "infrastructure/dns/bootstrap/resolv_conf.h"
 #include "infrastructure/network/tls/context.h"
-#include "infrastructure/plugin/driver_loader.h"
-#include "version.h"
-#include "coro/loop.h"
-#include "domain/error/error.h"
 #include "infrastructure/network/transport/options.h"
+#include "infrastructure/plugin/driver_loader.h"
+
+#include "version.h"
 
 namespace Composition::internal {
 /// Map a --log-level token to the spdlog level. The CLI restricts the value
@@ -91,7 +93,7 @@ void fill_bootstrap_servers(domain::RuntimeConfig& config) {
                                                    std::shared_ptr<const net::TlsContext> tls_context) {
     http::Options opts;
     opts.user_agent = YADDNSC::get_full_version();
-    opts.resolve = dns::make_bootstrap_resolver(resolver.bootstrap_servers);
+    opts.resolve = dns::make_bootstrap_resolver(resolver.bootstrap_servers, DNS_POLICY);
     opts.tls_context = std::move(tls_context);
     return opts;
 }

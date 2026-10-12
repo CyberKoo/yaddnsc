@@ -34,10 +34,9 @@ namespace {
 }
 
 [[nodiscard]] domain::DnsErrorInfo budget_exceeded(const char* stage, const domain::InetAddress& server,
-                                                   const std::uint16_t port) {
-    return {domain::DnsError::RETRY,
-            fmt::format("DNS {} to {}:{} timed out after {}ms", stage, server.to_string(), port,
-                        std::chrono::duration_cast<std::chrono::milliseconds>(WIRE_BUDGET).count())};
+                                                   const std::uint16_t port, const Policy& policy) {
+    return {domain::DnsError::RETRY, fmt::format("DNS {} to {}:{} timed out after {}ms", stage, server.to_string(),
+                                                 port, policy.wire_budget.count())};
 }
 
 [[nodiscard]] coro::Task<std::expected<UdpAnswer, domain::DnsErrorInfo>> exchange_udp(
@@ -107,18 +106,20 @@ namespace {
 
 // TCP is an implementation detail of classic fallback, not a public exchange.
 coro::Task<std::expected<std::vector<std::uint8_t>, domain::DnsErrorInfo>> query_tcp(
-    const domain::InetAddress server, const std::uint16_t port, const std::span<const std::uint8_t> query) {
-    auto outcome =
-        co_await coro::with_timeout(WIRE_BUDGET, [server, port, query]() { return exchange_tcp(server, port, query); });
+    const domain::InetAddress server, const std::uint16_t port, const std::span<const std::uint8_t> query,
+    const Policy policy) {
+    auto outcome = co_await coro::with_timeout(policy.wire_budget,
+                                               [server, port, query]() { return exchange_tcp(server, port, query); });
     if (outcome.timed_out)
-        co_return std::unexpected(budget_exceeded("TCP query", server, port));
+        co_return std::unexpected(budget_exceeded("TCP query", server, port, policy));
     co_return std::move(*outcome);
 }
 }  // namespace
 
 coro::Task<std::expected<UdpAnswer, domain::DnsErrorInfo>> query_udp(const domain::InetAddress server,
                                                                      const std::uint16_t port,
-                                                                     const std::span<const std::uint8_t> query) {
+                                                                     const std::span<const std::uint8_t> query,
+                                                                     const Policy policy) {
     if (auto valid = Validator::validate_query(query); !valid)
         co_return std::unexpected(std::move(valid.error()));
     // The request never changes while the receive loop runs, so its question is
@@ -130,26 +131,27 @@ coro::Task<std::expected<UdpAnswer, domain::DnsErrorInfo>> query_udp(const domai
         co_return std::unexpected(domain::DnsErrorInfo{domain::DnsError::INVALID_QUERY, error.what()});
     }
     auto outcome = co_await coro::with_timeout(
-        WIRE_BUDGET, [server, port, query, &asked]() { return exchange_udp(server, port, query, asked); });
+        policy.wire_budget, [server, port, query, &asked]() { return exchange_udp(server, port, query, asked); });
     if (outcome.timed_out)
-        co_return std::unexpected(budget_exceeded("UDP query", server, port));
+        co_return std::unexpected(budget_exceeded("UDP query", server, port, policy));
     co_return std::move(*outcome);
 }
 
 coro::Task<std::expected<std::vector<std::uint8_t>, domain::DnsErrorInfo>> query_classic(
-    const domain::InetAddress server, const std::uint16_t port, const std::span<const std::uint8_t> query) {
+    const domain::InetAddress server, const std::uint16_t port, const std::span<const std::uint8_t> query,
+    const Policy policy) {
     bool tcp_started = false;
     auto outcome = co_await coro::with_timeout(
-        ATTEMPT_BUDGET,
-        [server, port, query,
+        policy.attempt_budget,
+        [server, port, query, policy,
          &tcp_started]() -> coro::Task<std::expected<std::vector<std::uint8_t>, domain::DnsErrorInfo>> {
-            auto udp = co_await query_udp(server, port, query);
+            auto udp = co_await query_udp(server, port, query, policy);
             if (!udp)
                 co_return std::unexpected(std::move(udp.error()));
             if (!udp->truncated && !is_truncated(udp->bytes))
                 co_return std::move(udp->bytes);
             tcp_started = true;
-            auto tcp = co_await query_tcp(server, port, query);
+            auto tcp = co_await query_tcp(server, port, query, policy);
             if (!tcp)
                 co_return std::unexpected(std::move(tcp.error()));
             if (auto valid = Validator::validate_response(query, *tcp); !valid) {
@@ -165,7 +167,7 @@ coro::Task<std::expected<std::vector<std::uint8_t>, domain::DnsErrorInfo>> query
         co_return std::unexpected(domain::DnsErrorInfo{
             domain::DnsError::RETRY,
             fmt::format("DNS {} to {}:{} exhausted the {}ms attempt budget", tcp_started ? "TCP fallback" : "UDP query",
-                        server.to_string(), port, ATTEMPT_BUDGET.count())});
+                        server.to_string(), port, policy.attempt_budget.count())});
     }
     co_return std::move(*outcome);
 }

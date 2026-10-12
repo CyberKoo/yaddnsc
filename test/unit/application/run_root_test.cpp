@@ -638,7 +638,7 @@ TEST(RunRoot, RunRootSupervisesSubdomainsAndStopsOnSigint) {
         .make_gateway = [&gateway_state](coro::TaskGroup&) -> std::unique_ptr<app::GatewayPort> {
             return std::make_unique<ProbeGateway>(gateway_state);
         },
-        .drain_logs = nullptr,
+        .force_exit = [](int status) { std::_Exit(status); },
         .startup_signals = nullptr,
     };
 
@@ -670,7 +670,7 @@ TEST(RunRoot, SubdomainDefectRestartsTheLoopAfterTheInterval) {
         .make_gateway = [&gateway_state](coro::TaskGroup&) -> std::unique_ptr<app::GatewayPort> {
             return std::make_unique<ProbeGateway>(gateway_state);
         },
-        .drain_logs = nullptr,
+        .force_exit = [](int status) { std::_Exit(status); },
         .startup_signals = nullptr,
     };
 
@@ -724,7 +724,7 @@ TEST(RunRoot, SubdomainDefectIsReportedAndSiblingsSurvive) {
         .make_gateway = [&gateway_state](coro::TaskGroup&) -> std::unique_ptr<app::GatewayPort> {
             return std::make_unique<ProbeGateway>(gateway_state);
         },
-        .drain_logs = nullptr,
+        .force_exit = [](int status) { std::_Exit(status); },
         .startup_signals = nullptr,
     };
 
@@ -767,7 +767,7 @@ TEST(RunRoot, SigtermStopsTheRunWithSuccess) {
         .make_gateway = [&gateway_state](coro::TaskGroup&) -> std::unique_ptr<app::GatewayPort> {
             return std::make_unique<ProbeGateway>(gateway_state);
         },
-        .drain_logs = nullptr,
+        .force_exit = [](int status) { std::_Exit(status); },
         .startup_signals = nullptr,
     };
 
@@ -795,7 +795,7 @@ TEST(RunRoot, StartupSignalCountsRequestShutdownBeforeWorkStarts) {
         .make_gateway = [&gateway_state](coro::TaskGroup&) -> std::unique_ptr<app::GatewayPort> {
             return std::make_unique<ProbeGateway>(gateway_state);
         },
-        .drain_logs = nullptr,
+        .force_exit = [](int status) { std::_Exit(status); },
         .startup_signals = [] { return app::StartupSignalCounts{.sigint = 1, .sigterm = 0}; },
     };
 
@@ -832,7 +832,7 @@ void run_until_second_sigint() {
         .make_gateway = [&gateway_state](coro::TaskGroup&) -> std::unique_ptr<app::GatewayPort> {
             return std::make_unique<ProbeGateway>(gateway_state);
         },
-        .drain_logs = nullptr,
+        .force_exit = [](int status) { std::_Exit(status); },
         .startup_signals = nullptr,
     };
     const int code = coro::run(loop, app::run_root(config, runtime_services));
@@ -874,7 +874,7 @@ TEST(RunRoot, AncestorCancellation_KeepsGatewayAliveThroughBridgeChildCleanup) {
             root.spawn_discard(gateway_child_cleanup(state));
             return std::make_unique<ProbeGateway>(state);
         },
-        .drain_logs = nullptr,
+        .force_exit = [](int status) { std::_Exit(status); },
         .startup_signals = nullptr,
     };
     auto task = [&]() -> coro::Task<void> {
@@ -902,7 +902,7 @@ TEST(RunRoot, RunRoot_AncestorCancellation_DrainsAndPropagates) {
         .make_gateway = [&gateway_state](coro::TaskGroup&) -> std::unique_ptr<app::GatewayPort> {
             return std::make_unique<ProbeGateway>(gateway_state);
         },
-        .drain_logs = nullptr,
+        .force_exit = [](int status) { std::_Exit(status); },
         .startup_signals = nullptr,
     };
     bool root_returned = false;
@@ -917,4 +917,65 @@ TEST(RunRoot, RunRoot_AncestorCancellation_DrainsAndPropagates) {
     coro::run(loop, task());
     EXPECT_FALSE(root_returned);
     EXPECT_EQ(gateway_state->calls, 1);
+}
+
+TEST(RunRoot, SubdomainLoop_FailedForcedPublish_RetriesBeforeNextForceInterval) {
+    coro::ManualClock clock;
+    coro::Loop loop{clock};
+    FakeResolver resolver;
+    resolver.records = {"192.0.2.1"};
+    FakeIpSource ip_source;
+    FakeGateway gateway;
+    gateway.fail_first_retry_after = 10;
+    NullLogger logger;
+    const app::Services services{resolver, ip_source, gateway, logger};
+    const auto config = make_config({make_subdomain("www", 10)}, 10, 60);
+    run_loop(loop, [&]() -> coro::Task<void> {
+        co_await coro::with_timeout(
+            25s, [&]() { return app::subdomain_loop(config->domains[0], config->domains[0].subdomains[0], services); });
+    });
+    EXPECT_EQ(gateway.calls, 2);
+    EXPECT_EQ(resolver.calls, 1);
+}
+
+TEST(RunRoot, SubdomainLoop_ForcedPublishTimesOut_RemainsDue) {
+    coro::ManualClock clock;
+    coro::Loop loop{clock};
+    FakeResolver resolver;
+    resolver.records = {"192.0.2.1"};
+    FakeIpSource ip_source;
+    FakeGateway gateway;
+    gateway.on_call = [&] { gateway.hang = gateway.calls == 1 ? 3600s : 0s; };
+    NullLogger logger;
+    const app::Services services{resolver, ip_source, gateway, logger};
+    const auto config = make_config({make_subdomain("www", 10)}, 10, 60);
+    run_loop(loop, [&]() -> coro::Task<void> {
+        co_await coro::with_timeout(
+            45s, [&]() { return app::subdomain_loop(config->domains[0], config->domains[0].subdomains[0], services); });
+    });
+    EXPECT_EQ(gateway.calls, 2);
+    EXPECT_EQ(resolver.calls, 1);
+}
+
+TEST(RunRoot, SubdomainLoop_NoLocalAddress_RemainsDueForForcedPublish) {
+    coro::ManualClock clock;
+    coro::Loop loop{clock};
+    FakeResolver resolver;
+    resolver.records = {"192.0.2.1"};
+    FakeIpSource ip_source;
+    ip_source.addresses.clear();
+    ip_source.on_resolved = [&] {
+        if (ip_source.calls > 1)
+            ip_source.addresses = {address("192.0.2.1")};
+    };
+    FakeGateway gateway;
+    NullLogger logger;
+    const app::Services services{resolver, ip_source, gateway, logger};
+    const auto config = make_config({make_subdomain("www", 10)}, 10, 60);
+    run_loop(loop, [&]() -> coro::Task<void> {
+        co_await coro::with_timeout(
+            25s, [&]() { return app::subdomain_loop(config->domains[0], config->domains[0].subdomains[0], services); });
+    });
+    EXPECT_EQ(gateway.calls, 1);
+    EXPECT_EQ(resolver.calls, 1);
 }

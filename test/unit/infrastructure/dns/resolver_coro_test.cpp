@@ -280,38 +280,30 @@ TEST(DotResolver, nameResolutionConsumesTheWholeAttemptBudget) {
     EXPECT_EQ(clock.now() - start, 1500ms);
 }
 
-TEST(DotResolver, factoryDefectIsUnknownSoTheSearchFallsOver) {
+TEST(DotResolver, Query_FactoryDefect_PropagatesToOperationBoundary) {
     auto factory = std::make_shared<ThrowingFactory>();
     dns::EndpointOptions options;
     options.factory = factory;
     dns::DotResolver resolver{"203.0.113.10", 853, options};
 
-    const auto result = coro::run(resolver.query("x.test", domain::RecordKind::A));
-
-    ASSERT_FALSE(result.has_value());
-    EXPECT_EQ(result.error().code, domain::DnsError::UNKNOWN);
-    // An unexpected exception is not a deterministic parse failure: it must
-    // stay retryable so the dispatcher tries the next backend.
-    EXPECT_TRUE(dns::detail::is_retryable(result.error().code));
-    EXPECT_FALSE(dns::detail::is_definitive(result.error().code));
+    EXPECT_THROW(
+        { [[maybe_unused]] auto result = coro::run(resolver.query("x.test", domain::RecordKind::A)); },
+        std::runtime_error);
 }
 
 // ---------------------------------------------------------------------------
 // DoH: the catch-all and the per-address connect timeout
 // ---------------------------------------------------------------------------
 
-TEST(DohResolver, factoryDefectIsUnknownSoTheSearchFallsOver) {
+TEST(DohResolver, Query_FactoryDefect_PropagatesToOperationBoundary) {
     auto factory = std::make_shared<ThrowingFactory>();
     http::Options options;
     options.factory = factory;
     dns::DohResolver resolver{DOH_URL, options};
 
-    const auto result = coro::run(resolver.query("x.test", domain::RecordKind::A));
-
-    ASSERT_FALSE(result.has_value());
-    EXPECT_EQ(result.error().code, domain::DnsError::UNKNOWN);
-    EXPECT_TRUE(dns::detail::is_retryable(result.error().code));
-    EXPECT_FALSE(dns::detail::is_definitive(result.error().code));
+    EXPECT_THROW(
+        { [[maybe_unused]] auto result = coro::run(resolver.query("x.test", domain::RecordKind::A)); },
+        std::runtime_error);
 }
 
 TEST(DohResolver, connectTimeoutFailsAsConnectionBeforeTheExchangeBudget) {
@@ -344,8 +336,8 @@ TEST(DohResolver, connectTimeoutFailsAsConnectionBeforeTheExchangeBudget) {
 
 /// Injected endpoint resolution that always fails with `code`.
 [[nodiscard]] net::HostResolver failing_resolve(const domain::DnsError code, std::string message) {
-    return [code, message = std::move(message)](std::string, std::optional<domain::AddressFamily>)
-        -> coro::Task<ResolveResult> {
+    return [code, message = std::move(message)](std::string,
+                                                std::optional<domain::AddressFamily>) -> coro::Task<ResolveResult> {
         co_return std::unexpected(domain::DnsErrorInfo{code, message});
     };
 }
@@ -406,8 +398,7 @@ public:
 
     [[nodiscard]] coro::Task<std::expected<void, net::IoError>> ensure_connected() override { co_return {}; }
 
-    [[nodiscard]] coro::Task<std::expected<std::size_t, net::IoError>> read_some(
-        std::span<std::uint8_t> buf) override {
+    [[nodiscard]] coro::Task<std::expected<std::size_t, net::IoError>> read_some(std::span<std::uint8_t> buf) override {
         const std::size_t count = std::min(buf.size(), script_.size() - cursor_);
         std::memcpy(buf.data(), script_.data() + cursor_, count);
         cursor_ += count;
@@ -902,7 +893,7 @@ TEST(EncryptedResolvers, wholeQueryRetriesFitInsideTheApplicationBudget) {
     }
 }
 
-TEST(EncryptedResolvers, queueTimeoutDoesNotCloseTheActiveQuerysConnection) {
+TEST(EncryptedResolvers, Query_CancelledSessionWait_LeavesActiveConnectionUntouched) {
     for (const bool dot : {false, true}) {
         auto factory = std::make_shared<StalledReadFactory>();
         std::unique_ptr<dns::Resolver> resolver;
@@ -925,12 +916,9 @@ TEST(EncryptedResolvers, queueTimeoutDoesNotCloseTheActiveQuerysConnection) {
             co_await coro::task_group([&](coro::TaskGroup& group) -> coro::Task<void> {
                 group.spawn(owner());
                 co_await coro::sleep_for(5ms);
-                const auto queued = co_await resolver->query("x.test", domain::RecordKind::A);
-                EXPECT_FALSE(queued.has_value());
-                if (!queued) {
-                    EXPECT_EQ(queued.error().code, domain::DnsError::RETRY);
-                    EXPECT_NE(queued.error().message.find("queue"), std::string::npos);
-                }
+                const auto wait = co_await coro::with_timeout(
+                    500ms, [&]() { return resolver->query("x.test", domain::RecordKind::A); });
+                EXPECT_TRUE(wait.timed_out);
                 EXPECT_EQ(factory->closed, 0);
             });
         });
@@ -949,4 +937,102 @@ TEST(BootstrapResolve, literalAddressMustMatchRequestedFamily) {
     EXPECT_NE(result.error().message.find("does not match the requested address family"), std::string::npos);
 }
 
+class DelayedEchoStream final : public net::Stream {
+public:
+    explicit DelayedEchoStream(bool dot) : inner_(dot) {}
+
+    coro::Task<std::expected<void, net::IoError>> ensure_connected() override {
+        co_return co_await inner_.ensure_connected();
+    }
+
+    coro::Task<std::expected<void, net::IoError>> send_all(std::span<const std::uint8_t> bytes) override {
+        auto result = co_await inner_.send_all(bytes);
+        if (result)
+            co_await coro::sleep_for(300ms);
+        co_return result;
+    }
+
+    coro::Task<std::expected<std::size_t, net::IoError>> read_some(std::span<std::uint8_t> bytes) override {
+        co_return co_await inner_.read_some(bytes);
+    }
+
+    coro::Task<std::expected<void, net::IoError>> read_exact(std::span<std::uint8_t> bytes) override {
+        co_return co_await inner_.read_exact(bytes);
+    }
+
+    void close() noexcept override { inner_.close(); }
+
+    bool connected() const noexcept override { return inner_.connected(); }
+
+private:
+    StaleEchoStream inner_;
+};
+
+class DelayedEchoFactory final : public net::StreamFactory {
+public:
+    explicit DelayedEchoFactory(bool dot) : dot_(dot) {}
+
+    std::unique_ptr<net::Stream> create_tls(domain::InetAddress, std::uint16_t, const net::ConnectOptions&,
+                                            const net::TlsOptions&, std::shared_ptr<const net::TlsContext>) override {
+        return std::make_unique<DelayedEchoStream>(dot_);
+    }
+
+    std::unique_ptr<net::Stream> create_tcp(domain::InetAddress, std::uint16_t, const net::ConnectOptions&) override {
+        return std::make_unique<DelayedEchoStream>(dot_);
+    }
+
+private:
+    bool dot_;
+};
+
+TEST(EncryptedResolvers, Query_ConcurrentHealthyRequests_WaitWithoutBackendRetry) {
+    for (bool dot : {true, false}) {
+        auto factory = std::make_shared<DelayedEchoFactory>(dot);
+        std::unique_ptr<dns::Resolver> resolver;
+        if (dot) {
+            dns::EndpointOptions options;
+            options.factory = factory;
+            resolver = std::make_unique<dns::DotResolver>("203.0.113.10", 853, options);
+        } else {
+            http::Options options;
+            options.factory = factory;
+            resolver = std::make_unique<dns::DohResolver>(DOH_URL, options);
+        }
+        coro::ManualClock clock;
+        coro::Loop loop{clock};
+        int successes = 0, queue_failures = 0;
+        auto query = [&]() -> coro::Task<void> {
+            auto result = co_await resolver->query("x.test", domain::RecordKind::A);
+            if (result)
+                ++successes;
+            else if (result.error().message.find("queue") != std::string::npos)
+                ++queue_failures;
+        };
+        run_loop(loop, [&]() -> coro::Task<void> {
+            co_await coro::task_group([&](coro::TaskGroup& group) -> coro::Task<void> {
+                for (int i = 0; i < 4; ++i)
+                    group.spawn(query());
+                co_return;
+            });
+        });
+        EXPECT_EQ(successes, 4);
+        EXPECT_EQ(queue_failures, 0);
+    }
+}
+
 }  // namespace
+
+TEST(DotResolver, Query_InjectedPolicy_UsesConfiguredConnectBudget) {
+    coro::ManualClock clock;
+    coro::Loop loop{clock};
+    dns::EndpointOptions options;
+    options.factory = std::make_shared<HangingFactory>();
+    options.policy.connect_budget = 25ms;
+    options.policy.attempt_budget = 100ms;
+    dns::DotResolver resolver{"203.0.113.10", 853, options};
+    const auto start = clock.now();
+    const auto result = coro::run(loop, resolver.query("x.test", domain::RecordKind::A));
+    ASSERT_FALSE(result);
+    EXPECT_EQ(result.error().code, domain::DnsError::RETRY);
+    EXPECT_EQ(clock.now() - start, 25ms);
+}

@@ -13,11 +13,11 @@
 
 #include "application/ports/gateway.h"
 #include "application/ports/resolver.h"
+#include "coro/coro.h"
 #include "domain/config/runtime_config.h"
 #include "domain/dns/record_kind.h"
 #include "domain/network/inet_address.h"
 #include "domain/update/driver_update_command.h"
-#include "coro/coro.h"
 #include "mocks/mock_ports.h"
 
 namespace {
@@ -255,8 +255,7 @@ TEST(ApplicationDiagnostics, ListInterfaces_CollectsAddresses) {
     MockNetworkInterfaces interfaces;
     ON_CALL(interfaces, list())
         .WillByDefault(::testing::Return(std::vector<app::InterfaceInfo>{
-            {.name = "lo",
-             .addresses = {domain::InetAddress(*domain::Inet4Address::parse("127.0.0.1"))}},
+            {.name = "lo", .addresses = {domain::InetAddress(*domain::Inet4Address::parse("127.0.0.1"))}},
             {.name = "eth0", .addresses = {}},
         }));
 
@@ -266,4 +265,17 @@ TEST(ApplicationDiagnostics, ListInterfaces_CollectsAddresses) {
     EXPECT_EQ(items[0].addresses.size(), 1);
     EXPECT_EQ(items[1].name, "eth0");
     EXPECT_TRUE(items[1].addresses.empty());
+}
+
+TEST(ApplicationDiagnostics, DnsResolveCommand_SelfCancelledPort_PropagatesCancellation) {
+    testing::StrictMock<MockResolver> resolver;
+    EXPECT_CALL(resolver, resolve("example.com", domain::RecordKind::A))
+        .WillOnce([](std::string, domain::RecordKind) -> coro::Task<LookupResult> {
+            (co_await coro::current_scope()).cancel();
+            co_await coro::checkpoint();
+            co_return std::vector<std::string>{};
+        });
+    EXPECT_THROW(
+        { [[maybe_unused]] auto outcome = coro::run(app::dns_resolve_command(resolver, "example.com", "A", 30s)); },
+        coro::Cancelled);
 }

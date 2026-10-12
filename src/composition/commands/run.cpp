@@ -32,7 +32,6 @@
 #include "infrastructure/http/types.h"
 #include "infrastructure/ip_source/adapter.h"
 #include "infrastructure/ip_source/system_network_interfaces.h"
-#include "infrastructure/logging/async_logging.h"
 #include "infrastructure/logging/spdlog_logger.h"
 #include "infrastructure/plugin/driver_catalog.h"  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 #include "infrastructure/plugin/driver_gateway.h"
@@ -113,7 +112,8 @@ int execute_command(const Cli::RunCommand& command) {
         const auto http_options = internal::make_coro_http_options(runtime->resolver, tls_context);
         const auto dispatcher = [&] {
             try {
-                return dns::make_dispatcher(runtime->resolver, runtime->resolver.bootstrap_servers, tls_context);
+                return dns::make_dispatcher(runtime->resolver, runtime->resolver.bootstrap_servers, tls_context,
+                                            internal::DNS_POLICY);
             } catch (const std::invalid_argument& error) {
                 // Factory checks protect direct callers too. Treat any drift
                 // from static validation as configuration failure at startup.
@@ -144,8 +144,9 @@ int execute_command(const Cli::RunCommand& command) {
                         return std::make_unique<plugin::DriverGateway>(driver_catalog, logger, loop, group,
                                                                        internal::make_gateway_options(http_options));
                     },
-                .drain_logs = [] { logging::shutdown(); },
+                .force_exit = [](int status) { std::_Exit(status); },
                 .startup_signals = &startup_signal_counts,
+                .policy = internal::UPDATE_POLICY,
             };
             exit_code = coro::run(loop, app::run_root(runtime, services));
         }

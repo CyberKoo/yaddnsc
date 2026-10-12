@@ -22,12 +22,12 @@ coro::run(loop, app::run_root(config, services))
   v
 supervisor_group                root scope
   +-- signal watchers         SIGINT / SIGTERM -> cancel the work scope;
-  |     |                     a second SIGINT drains logs and _exit(130)s
+  |     |                     a second SIGINT invokes the immediate-exit adapter
   +-- work scope              a second supervisor_group, a scope of its own,
         |                     cancelled by the watchers
         +-- subdomain_loop     one long-lived coroutine per subdomain; its
         |     |                pacing state (update interval, force-update
-        |     |                latch, cycle start) lives in the frame
+        |     |                completion time, cycle start) lives in the frame
         |     +-- run_update_cycle    IP source -> DNS read -> decide -> driver update
 ```
 
@@ -58,6 +58,11 @@ state — a SIGINT/SIGTERM caught during startup requests shutdown before any
 work starts, and a repeat SIGINT still escalates. After the loop exits, the
 drain tail checks the counters once more and answers a second SIGINT with
 `_exit(128 + SIGINT)`.
+
+While the loop runs, second-SIGINT escalation invokes the injected process
+adapter immediately (`std::_Exit`), without waiting for the log pipeline. Normal
+shutdown still drains logs after leaving the loop; forced termination may lose
+queued diagnostics.
 
 ## Concurrency & I/O model
 
@@ -100,14 +105,17 @@ throwing result moves. Unconsumed results and unobserved failures remain until
 scope exit. The run root guards subdomain failures so siblings keep running.
 
 The DNS dispatcher is the runtime's other large user. The concurrent strategy
-races up to `MAX_CONCURRENT_RESOLVERS` (3) backends in a `task_group`: each
+races up to `dns::Policy::max_concurrent` (3 by default) backends in a `task_group`: each
 endpoint failure or negative answer launches the next backend at once, the winner cancels its
 losing siblings through a child scope, and scope exit still joins and reaps
 every child. Retries wait on a linear cancellable backoff sleep on the loop,
 not on a thread. INVALID_QUERY alone ends a group search; PARSE/CONFIG are
 endpoint diagnoses. Sequential and concurrent strategies share error precedence:
 INVALID_QUERY, CONFIG, PARSE, operational failure, NODATA, NXDOMAIN. A failed view
-must not be turned into a definitive negative answer. The bootstrap resolver
+must not be turned into a definitive negative answer. Bootstrap races a bounded
+set of servers per family, replacing failures immediately; silent servers do
+not delay the other candidates in that set. It does not retry a server in one
+lookup, and shares the classic wire exchange with Dispatcher backends. It
 starts A/AAAA children in a `task_group`; after the first success, a 50ms
 `with_timeout` bounds the next result wait without consuming a late result.
 The enclosing collection scope then cancels/joins remaining children while
@@ -185,9 +193,16 @@ rather than from an argument — its connect/read/write timeout options are gone
 and at most 500ms for the DoH resolver; an expired budget skips to the next
 resolved address instead of immediately failing the exchange. HTTP sessions may
 also bound local queueing with `queue_timeout` (disabled by default); a queued
-timeout never closes the active owner's connection. DoH/DoT use 500ms queue
-budgets inside a complete 1.5s DNS attempt, including bootstrap/connect/I/O.
-DoT uses the same per-address 500ms connect cap. Classic TCP connect/send/read
+timeout never closes the active owner's connection. DoH/DoT wait for their
+single session under the caller's scope, before starting an attempt. Admission
+does not become an endpoint error or consume a Dispatcher retry. The admitted
+attempt defaults to 1.5s for bootstrap/connect/I/O, with a 500ms per-address
+connect cap. Session ownership stays exclusive throughout an exchange; a
+cancelled waiter leaves the active connection untouched. DNS policies are
+assembled in `composition/assembly.h` and copied into the factory, dispatcher,
+backends and bootstrap resolver. Application stage budgets travel in
+`app::UpdatePolicy`, injected through the services bundle.
+Classic TCP connect/send/read
 share a 1s wire-exchange budget instead of independent clocks, subject to the
 remaining 1.5s attempt budget. A late truncated UDP answer may leave less than
 1s for TCP; timeout diagnostics retain the TCP-fallback stage and RETRY code.
@@ -197,11 +212,16 @@ resetting the deadline or letting foreign packets force an early failure.
 Only Dispatcher retries entire DNS queries. A single backend defaults to two
 attempts; multiple backends exhaust alternatives first, then perform at most one
 recovery round for CONNECTION/RETRY failures (disabled when max_retries is zero).
-Negative answers, malformed responses and unknown failures are not retried in
-multi-backend recovery. A recovery result supersedes that backend's earlier
+Negative answers, malformed responses and unknown RCODEs are not retried
+against the same backend, regardless of backend count. Unexpected exceptions
+propagate to the operation/supervision boundary rather than becoming UNKNOWN
+DNS failures; known parser exceptions are translated at one-attempt boundaries.
+A recovery result supersedes that backend's earlier
 failure when aggregating the final diagnosis. Two default attempts
-plus 50ms backoff fit the application's 4s hard bound for a single backend or one
-concurrent wave; longer candidate lists remain subject to that caller bound.
+plus 50ms backoff take 3.05s of admitted work for a single backend or one
+concurrent wave. Admission and longer candidate lists remain subject to the
+application's 4s caller bound; stage budgets do not guarantee every candidate
+will complete.
 Direct backend calls perform one attempt. Failed group results preserve counts
 of negative responses alongside the operational diagnosis, without treating an
 unanswered view as NXDOMAIN. Positive answers still take precedence; there is no
@@ -209,8 +229,12 @@ new early-negative timer. A lost
 reused DoH/DoT connection may be repaired once within that same attempt's
 remaining budget, not with a restarted clock. DoH marks its read-only POST as
 explicitly replay-safe; ordinary HTTP POST requests are not automatically replayed. Cancellation is sticky until the
-responsible scope exits; a scope absorbs its own cancellation while ancestor
-cancellation propagates; groups join all children before propagating it, as
+responsible scope exits. The first local cancellation trigger retains its cause,
+including during
+shielded cleanup. Deadline combinators absorb only their own timeout:
+a non-timeout return always contains the body result, and manual cancellation
+(including body-initiated cancellation) propagates. Explicit cancel scopes
+absorb their own cancellation; groups join all children before propagating it, as
 scope state rather than as a child defect. Cleanup runs inside
 `non_cancellable`, then lets cancellation propagate. Broad coroutine catches
 rethrow `Cancelled` ahead of other failures; plugin C ABI adapters convert it to
@@ -330,8 +354,12 @@ module leases and plugin status translation remain plugin responsibilities.
 
 **Subdomain loops.** Each subdomain is one long-lived coroutine that sleeps,
 updates and repeats, reusing one `UpdateTask` across cycles and carrying only
-its pacing state — update interval, force-update latch, cycle start — as frame
-locals. There is no accumulated back-off state: each cycle recomputes its own
+its pacing state — update interval, last successful forced publication, cycle
+start — as frame locals. A forced update stays due after missing addresses,
+failed publication or cycle timeout; only successful forced publication commits
+the force-update completion time. A provider retry therefore retries the
+unfinished forced publication even when DNS already matches the local address.
+There is no accumulated back-off state: each cycle recomputes its own
 delay, a provider-supplied `retry_after` overriding the interval, anchored at
 the failure when one is supplied and at the cycle start otherwise. Each cycle
 is bounded by its own timeout, with a shorter one around the DNS read, so a

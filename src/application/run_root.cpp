@@ -11,12 +11,11 @@
 #include <functional>
 #include <memory>
 #include <optional>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
+#include <stdexcept>
 #include <string>
 #include <vector>
 
 #include <coroutine>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
-
-#include <unistd.h>
 
 #include "application/log_macros.h"
 #include "application/services.h"
@@ -57,20 +56,16 @@ struct ShutdownState {
 /// Cancellation: when the root scope is cancelled the parked on_signal await
 /// throws `coro::Cancelled`, which unwinds this watcher.
 coro::Task<void> watch_signal(int sig, bool escalate, ShutdownState& state, const LoggerPort& logger,
-                              const std::function<void()>& drain_logs) {
+                              const std::function<void(int)>& force_exit) {
     for (;;) {
         co_await coro::on_signal(sig);
         if (escalate) {
             if (++state.sigint_count >= 2) {
                 YLOG_CRITICAL(logger, "Second SIGINT received, forcing immediate termination");
-                // _exit skips the normal drain in main(): empty the async queue
-                // now, or the critical line above (and anything still queued)
-                // would be lost — the legacy synchronous logger wrote before
-                // exiting.
-                if (drain_logs) {
-                    drain_logs();
+                if (force_exit) {
+                    force_exit(128 + sig);
                 }
-                ::_exit(128 + sig);
+                throw std::logic_error("Forced-exit adapter is missing or returned");
             }
             YLOG_INFO(logger, "Received SIGINT, initiating graceful shutdown (press Ctrl-C again to force quit)...");
         } else {
@@ -182,14 +177,14 @@ coro::Task<int> run_root(std::shared_ptr<const domain::RuntimeConfig> config, Ru
     }
     co_await coro::supervisor_group([&](coro::TaskGroup& root) -> coro::Task<void> {
         const auto gateway = services.make_gateway(root);
-        const Services svc{services.resolver, services.ip_source, *gateway, services.logger};
+        const Services svc{services.resolver, services.ip_source, *gateway, services.logger, services.policy};
 
         // gateway/svc stay in this outer body while with_children drains both
         // watchers and bridge requests, including defect/cancellation exits.
         co_await root.with_children([&]() -> coro::Task<void> {
             // Watchers outlive the work scope so a second SIGINT can escalate.
-            root.spawn(watch_signal(SIGINT, true, shutdown, services.logger, services.drain_logs));
-            root.spawn(watch_signal(SIGTERM, false, shutdown, services.logger, services.drain_logs));
+            root.spawn(watch_signal(SIGINT, true, shutdown, services.logger, services.force_exit));
+            root.spawn(watch_signal(SIGTERM, false, shutdown, services.logger, services.force_exit));
             co_await run_work(config, svc, shutdown);
             root.cancel();
         });

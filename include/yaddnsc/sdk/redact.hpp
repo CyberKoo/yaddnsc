@@ -186,8 +186,10 @@ inline constexpr std::string_view LOG_BODY_TRUNCATION_MARKER = "...";
     if (body.size() <= LOG_BODY_BUDGET) {
         return std::string(body);
     }
-    std::string out(body.substr(0, LOG_BODY_BUDGET - LOG_BODY_TRUNCATION_MARKER.size()));
-    out += LOG_BODY_TRUNCATION_MARKER;
+    std::string out;
+    out.reserve(LOG_BODY_BUDGET);
+    out.append(body.data(), LOG_BODY_BUDGET - LOG_BODY_TRUNCATION_MARKER.size());
+    out.append(LOG_BODY_TRUNCATION_MARKER);
     return out;
 }
 

@@ -134,6 +134,10 @@ coro::Task<std::expected<Response, Error>> Session::exchange(std::string target,
     } catch (const coro::Cancelled&) {
         drop_connection();
         throw;
+    } catch (...) {
+        // A partially exchanged response cannot be reused after a defect.
+        drop_connection();
+        throw;
     }
 }
 

@@ -12,7 +12,6 @@
 #include <expected>
 #include <spdlog/spdlog.h>
 
-#include "infrastructure/dns/dns_lookup_exception.h"
 #include "infrastructure/dns/dns_packet_exception.h"
 #include "infrastructure/dns/query_budget.hpp"
 #include "infrastructure/dns/util.hpp"
@@ -42,7 +41,7 @@ constexpr unsigned char ALPN_HTTP_1_1[] = {8, 'h', 't', 't', 'p', '/', '1', '.',
         case http::ErrorCode::REDIRECT_LIMIT_EXCEEDED:
             return {domain::DnsError::PARSE, error.message};
         case http::ErrorCode::QUEUE_TIMEOUT:
-            return {domain::DnsError::RETRY, error.message};
+            throw std::logic_error("DoH session admission unexpectedly timed out");
         case http::ErrorCode::INVALID_URL:
             return {domain::DnsError::CONFIG, error.message};
         default:
@@ -59,27 +58,26 @@ constexpr unsigned char ALPN_HTTP_1_1[] = {8, 'h', 't', 't', 'p', '/', '1', '.',
 }
 }  // namespace
 
-DohResolver::DohResolver(std::string url, http::Options options) : target_(endpoint_target(url)), client_(nullptr) {
+DohResolver::DohResolver(std::string url, http::Options options, Policy policy)
+    : target_(endpoint_target(url)), policy_(policy) {
     options.tls.alpn_proto = ALPN_HTTP_1_1;
     // Local safety policy: only query the configured URI; reject all redirects.
     options.follow_redirects = false;
     options.limits.max_body_bytes = std::min(options.limits.max_body_bytes, MAX_RESPONSE_SIZE);
-    if (options.connect_timeout.count() <= 0 || options.connect_timeout > detail::CONNECT_BUDGET) {
-        options.connect_timeout = detail::CONNECT_BUDGET;
+    if (options.connect_timeout.count() <= 0 || options.connect_timeout > policy_.connect_budget) {
+        options.connect_timeout = policy_.connect_budget;
     }
-    // Same policy as the connect budget: fill the default only when the caller
-    // left queueing unbounded, and keep an explicit budget it asked for.
-    if (options.queue_timeout.count() <= 0) {
-        options.queue_timeout = detail::SESSION_WAIT_BUDGET;
-    }
-    client_ = std::make_shared<http::PersistentClient>(std::move(url), std::move(options));
+    // Admission waits on our own mutex, before the backend attempt starts.
+    options.queue_timeout = std::chrono::milliseconds::zero();
+    client_ = std::make_unique<http::PersistentClient>(std::move(url), std::move(options));
 }
 
 DohResolver::~DohResolver() = default;
 
 coro::Task<std::expected<std::vector<std::uint8_t>, domain::DnsErrorInfo>> DohResolver::query(
     std::string host, const domain::RecordKind kind) {
-    co_return co_await detail::bounded_query([this, &host, kind]() { return query_once(host, kind); });
+    auto guard = co_await mutex_.lock();
+    co_return co_await detail::bounded_query([this, &host, kind]() { return query_once(host, kind); }, policy_);
 }
 
 coro::Task<std::expected<std::vector<std::uint8_t>, domain::DnsErrorInfo>> DohResolver::query_once(
@@ -134,16 +132,10 @@ coro::Task<std::expected<std::vector<std::uint8_t>, domain::DnsErrorInfo>> DohRe
         co_return body;
     } catch (const std::bad_alloc&) {
         throw;
-    } catch (const DnsLookupException& error) {
-        co_return std::unexpected(domain::DnsErrorInfo{error.get_error(), error.what()});
     } catch (const DnsPacketException& error) {
         co_return std::unexpected(
             domain::DnsErrorInfo{domain::DnsError::INVALID_QUERY,
                                  fmt::format(R"(Failed to build a DNS query for "{}": {})", host, error.what())});
-    } catch (const std::exception& error) {
-        SPDLOG_WARN(R"(Resolver #{} DoH query for "{}" raised an unexpected exception: {})", id(), host, error.what());
-        co_return std::unexpected(domain::DnsErrorInfo{
-            domain::DnsError::UNKNOWN, fmt::format(R"(DoH query for "{}" failed: {})", host, error.what())});
     }
 }
 

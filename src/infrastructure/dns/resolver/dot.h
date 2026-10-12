@@ -2,7 +2,7 @@
 // dns — DNS over TLS (RFC 7858), one persistent connection per resolver.
 //
 // The connection is reused across queries and serialized by an AsyncMutex: a
-// concurrent query waits within a bounded queue. Whole-query retries belong
+// concurrent query waits under its caller's cancellation scope. Whole-query retries belong
 // to the dispatcher; failed sessions are discarded before another attempt.
 //
 // Queries carry the EDNS(0) padding option (RFC 7830) sized to the 128-octet
@@ -18,12 +18,14 @@
 #include <string>
 #include <string_view>
 #include <vector>
+
 #include <expected>
 
-#include "domain/config/dns_config.h"
-#include "domain/error/dns_error_info.h"
 #include "coro/async_mutex.hpp"
 #include "coro/task.hpp"
+#include "domain/config/dns_config.h"
+#include "domain/error/dns_error_info.h"
+#include "infrastructure/dns/policy.h"
 #include "infrastructure/dns/resolver/resolver.h"
 #include "infrastructure/network/address/host_resolver.h"
 #include "infrastructure/network/transport/options.h"
@@ -38,6 +40,8 @@ namespace dns {
 
 /// Transport settings for a TLS-based resolver endpoint.
 struct EndpointOptions {
+    /// Local budgets for admitted queries and bootstrap scheduling.
+    Policy policy{};
     /// Outbound interface binding.
     net::ConnectOptions connect{};
     /// TLS policy; the resolver fills in ALPN and defaults the SNI identity to
@@ -60,14 +64,13 @@ struct EndpointOptions {
 ///
 /// Ownership: owns one persistent TLS stream (rebuilt on loss) and the mutex
 /// that serializes it.
-/// Failure: expected<raw response, DnsErrorInfo>. One 1.5s attempt includes
-/// queueing, bootstrap and I/O; the queue and each address connect are capped
-/// at 500ms. Endpoint bootstrap errors become CONNECTION, never a verdict on
-/// the queried domain. Malformed/TC replies become PARSE and allow failover.
-/// Whole-query retries belong to Dispatcher. A lost reused connection may be
-/// repaired once within the same attempt budget.
-/// Thread safety: concurrent queries are serialized by the session mutex; the
-/// resolver itself is used from the loop thread only.
+/// Failure: expected<raw response, DnsErrorInfo>. Admission waits under the
+/// caller scope. The admitted attempt bounds bootstrap and I/O; per-address
+/// connect scopes use the injected policy (defaults: 1.5s and 500ms).
+/// Internal defects propagate; cancellation releases the session. Endpoint bootstrap errors become CONNECTION, never a
+/// verdict on the queried domain. Malformed/TC replies become PARSE and allow failover. Whole-query retries belong to
+/// Dispatcher. A lost reused connection may be repaired once within the same attempt budget. Thread safety: concurrent
+/// queries are serialized by the session mutex; the resolver itself is used from the loop thread only.
 class DotResolver final : public Resolver {
 public:
     /// @param host  Endpoint host (IP literal or a name resolved via bootstrap).
