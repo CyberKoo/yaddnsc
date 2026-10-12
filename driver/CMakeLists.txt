@@ -58,7 +58,7 @@ foreach (DRIVER_NAME ${YADDNSC_DRIVERS})
       # -----------------------------------------------------------------------
       # Install rules
       # -----------------------------------------------------------------------
-      install(TARGETS ${DRIVER_NAME} LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}/yaddnsc/drivers)
+      install(TARGETS ${DRIVER_NAME} LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}/yaddnsc/drivers COMPONENT runtime)
 
     endif ()
 endforeach ()

@@ -82,8 +82,8 @@ RUN cmake --build build -j "$(nproc)"
 # Generate DEB package
 RUN cpack --config build/CPackConfig.cmake -G DEB
 
-# Output the .deb
-RUN mkdir -p /deb-out && mv yaddnsc_*.deb /deb-out/
+# Output the .deb packages (yaddnsc + yaddnsc-dev)
+RUN mkdir -p /deb-out && mv yaddnsc*.deb /deb-out/
 
 FROM scratch AS export
 COPY --from=builder /deb-out /

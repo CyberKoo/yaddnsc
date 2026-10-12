@@ -11,6 +11,7 @@
 #   ./docker/build-deb.sh 24.04 --extra "-DSOME_VAR=ON"  # any other cmake option
 #
 # Output:  ./deb-out/<ubuntu-version>/yaddnsc_<ver>_<arch>.deb
+#          ./deb-out/<ubuntu-version>/yaddnsc-dev_<ver>_<arch>.deb
 
 set -euo pipefail
 
@@ -78,5 +79,5 @@ for UBUNTU_VERSION in "$@"; do
         "${SCRIPT_DIR}"
 
     echo "→ Output: ${VERSION_OUTPUT_DIR}/"
-    ls -lh "${VERSION_OUTPUT_DIR}"/yaddnsc_*.deb 2>/dev/null || true
+    ls -lh "${VERSION_OUTPUT_DIR}"/yaddnsc*.deb 2>/dev/null || true
 done

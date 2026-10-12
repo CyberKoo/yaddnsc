@@ -45,7 +45,10 @@ beside the features they gate (see [Documentation](#documentation) and
 - `YADDNSC_DEFAULT_DNS_SERVER` (default `1.1.1.1`) and
   `YADDNSC_DEFAULT_DNS_PORT` (default `53`) are the fallback resolver used when
   no nameserver is configured; the address is validated as an IPv4/IPv6 literal;
-- `YADDNSC_ENABLE_DEB` (default `OFF`) enables CPack DEB generation.
+- `YADDNSC_ENABLE_DEB` (default `OFF`) enables CPack DEB generation, producing
+  two packages: `yaddnsc` (binary, drivers, config, systemd unit, shell
+  completions) and `yaddnsc-dev` (plugin SDK headers, CMake package config,
+  crypto support library).
 
 ### Build layout
 

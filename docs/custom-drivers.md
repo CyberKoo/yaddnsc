@@ -239,8 +239,8 @@ schema check (the bundled drivers are one-liners calling `parse_config<T>`).
 
 ## Recommended build
 
-Third-party drivers build against the installed yaddnsc package — no host
-sources needed:
+Third-party drivers build against the installed SDK — the `yaddnsc-dev`
+package when installing from DEB — no host sources needed:
 
 ```cmake
 find_package(yaddnsc CONFIG REQUIRED COMPONENTS plugin_sdk)  # + plugin_sdk_xml / plugin_support_crypto if needed
@@ -307,7 +307,9 @@ package, not the source tree.
 ## SDK distribution
 
 The SDK is installed alongside the host so third-party drivers can build
-without the host sources:
+without the host sources. DEB packaging splits these files into two packages:
+`yaddnsc` (binary, bundled drivers, config, systemd unit, shell completions)
+and `yaddnsc-dev` (everything else below):
 
 - headers: `<prefix>/include/yaddnsc/sdk/` (the C ABI + C++ helper layer) and
   `<prefix>/include/yaddnsc/util/` (shared string/format/URL utilities);

@@ -12,6 +12,8 @@ find_package(OpenSSL 3.0 REQUIRED)
 # Glaze as a subproject, where its default is not to install package metadata;
 # enable that metadata so an installed SDK never points consumers at this build
 # tree's CPM cache.
+# Glaze installs under its own "glaze_Development" component, which
+# Packaging.cmake folds into the yaddnsc-dev package via component grouping.
 set(glaze_INSTALL ON CACHE BOOL "Install Glaze package metadata for the yaddnsc SDK" FORCE)
 CPMAddPackage(
     NAME glaze

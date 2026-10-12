@@ -12,7 +12,7 @@ include(Packaging)
 # ==============================================================================
 # Binary
 # ==============================================================================
-install(TARGETS yaddnsc RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+install(TARGETS yaddnsc RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR} COMPONENT runtime)
 
 # ==============================================================================
 # Default configuration file
@@ -23,9 +23,9 @@ install(TARGETS yaddnsc RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 if (YADDNSC_ENABLE_DEB)
     # Absolute path — install to /etc/yaddnsc/ regardless of prefix.
     # CPack DEB generator auto-detects files under /etc/ as conffiles.
-    install(FILES ${CMAKE_SOURCE_DIR}/template/deb/yaddnsc_config.json DESTINATION /etc/yaddnsc RENAME config.json)
+    install(FILES ${CMAKE_SOURCE_DIR}/template/deb/yaddnsc_config.json DESTINATION /etc/yaddnsc RENAME config.json COMPONENT runtime)
 else ()
-    install(FILES ${CMAKE_SOURCE_DIR}/template/deb/yaddnsc_config.json DESTINATION ${CMAKE_INSTALL_SYSCONFDIR}/yaddnsc RENAME config.json)
+    install(FILES ${CMAKE_SOURCE_DIR}/template/deb/yaddnsc_config.json DESTINATION ${CMAKE_INSTALL_SYSCONFDIR}/yaddnsc RENAME config.json COMPONENT runtime)
 endif ()
 
 # System config directory for yaddnsc — this is the runtime path used by the
@@ -63,7 +63,7 @@ if (SYSTEMD_UNIT_DIR)
             "${CMAKE_BINARY_DIR}/generated/yaddnsc.service"
             @ONLY
     )
-    install(FILES "${CMAKE_BINARY_DIR}/generated/yaddnsc.service" DESTINATION "${SYSTEMD_UNIT_DIR}")
+    install(FILES "${CMAKE_BINARY_DIR}/generated/yaddnsc.service" DESTINATION "${SYSTEMD_UNIT_DIR}" COMPONENT runtime)
 endif ()
 
 # ==============================================================================
@@ -82,6 +82,7 @@ endif ()
 install(
     FILES ${CMAKE_SOURCE_DIR}/template/zsh/_yaddnsc
     DESTINATION ${YADDNSC_ZSH_COMPLETION_DIR}
+    COMPONENT runtime
 )
 
 # -- bash --
@@ -91,6 +92,7 @@ install(
 install(
     FILES ${CMAKE_SOURCE_DIR}/template/bash/yaddnsc
     DESTINATION "share/bash-completion/completions"
+    COMPONENT runtime
 )
 
 # -- fish --
@@ -103,6 +105,7 @@ endif ()
 install(
     FILES ${CMAKE_SOURCE_DIR}/template/fish/yaddnsc.fish
     DESTINATION ${YADDNSC_FISH_COMPLETION_DIR}
+    COMPONENT runtime
 )
 
 # ==============================================================================
@@ -110,36 +113,43 @@ install(
 # ==============================================================================
 # Third-party drivers build without the host sources.  Export actual CMake
 # targets instead of relying on source-tree-only interface libraries or a
-# hand-assembled crypto source path.
+# hand-assembled crypto source path.  All files in this section belong to the
+# "dev" component, which CPack packs into the separate yaddnsc-dev package.
 install(
     DIRECTORY ${CMAKE_SOURCE_DIR}/include/yaddnsc/sdk
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/yaddnsc
+    COMPONENT dev
 )
 install(
     DIRECTORY ${CMAKE_SOURCE_DIR}/include/yaddnsc/util
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/yaddnsc
+    COMPONENT dev
 )
 
 install(
     TARGETS yaddnsc_plugin_sdk
     EXPORT yaddnscSdkTargets
+    COMPONENT dev
     INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
 )
 install(
     TARGETS yaddnsc_plugin_support_crypto
     EXPORT yaddnscPluginSupportCryptoTargets
+    COMPONENT dev
     ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
     INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/yaddnsc/plugin_support/crypto
 )
 install(
     FILES ${CMAKE_SOURCE_DIR}/plugin_support/crypto/signing.h
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/yaddnsc/plugin_support/crypto
+    COMPONENT dev
 )
 
 if (YADDNSC_HAS_SDK_XML_COMPONENT)
     install(
         TARGETS yaddnsc_plugin_sdk_xml
         EXPORT yaddnscXmlTargets
+        COMPONENT dev
         INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
     )
 endif ()
@@ -151,12 +161,14 @@ install(
     FILE yaddnscSdkTargets.cmake
     NAMESPACE yaddnsc::
     DESTINATION ${YADDNSC_CMAKE_INSTALL_DIR}
+    COMPONENT dev
 )
 install(
     EXPORT yaddnscPluginSupportCryptoTargets
     FILE yaddnscPluginSupportCryptoTargets.cmake
     NAMESPACE yaddnsc::
     DESTINATION ${YADDNSC_CMAKE_INSTALL_DIR}
+    COMPONENT dev
 )
 if (YADDNSC_HAS_SDK_XML_COMPONENT)
     install(
@@ -164,6 +176,7 @@ if (YADDNSC_HAS_SDK_XML_COMPONENT)
         FILE yaddnscXmlTargets.cmake
         NAMESPACE yaddnsc::
         DESTINATION ${YADDNSC_CMAKE_INSTALL_DIR}
+        COMPONENT dev
     )
 endif ()
 
@@ -183,4 +196,5 @@ install(
         ${CMAKE_CURRENT_BINARY_DIR}/yaddnscConfig.cmake
         ${CMAKE_CURRENT_BINARY_DIR}/yaddnscConfigVersion.cmake
     DESTINATION ${YADDNSC_CMAKE_INSTALL_DIR}
+    COMPONENT dev
 )
