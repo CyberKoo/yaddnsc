@@ -10,15 +10,16 @@
 #ifndef YADDNSC_INFRASTRUCTURE_HTTP_SESSION_H
 #define YADDNSC_INFRASTRUCTURE_HTTP_SESSION_H
 
-#include <chrono>
 #include <cstdint>
 #include <memory>
 #include <optional>
 #include <string>
+
 #include <expected>
 
 #include "coro/async_mutex.hpp"
 #include "coro/task.hpp"
+#include "coro/time.h"
 #include "infrastructure/http/error.h"
 #include "infrastructure/http/protocol/exchange.h"
 #include "infrastructure/http/types.h"
@@ -41,7 +42,10 @@ struct WireRequest;
 /// on a reused connection. Other failures are reported as is. An optional queue
 /// timeout reports QUEUE_TIMEOUT without touching the active owner's connection.
 /// Cancellation: a cancelled wait on the session lock or on the connection is
-/// observed by throwing `coro::Cancelled`.
+/// observed by throwing `coro::Cancelled`. The caller must wrap the complete
+/// exchange in a deadline scope for a bounded request; connect and queue budgets
+/// do not bound response reads. Keep-alive expiry uses the loop clock and is
+/// checked on reuse, not by a background timer.
 /// Thread safety: not thread-safe as an object, but concurrent exchanges are
 /// serialized by the session's own mutex, so the *connection* is never used by
 /// two coroutines at once. The same holds for close(): while an exchange holds
@@ -100,7 +104,7 @@ private:
     /// Bytes read past the previous response boundary.
     std::string pending_;
     std::optional<unsigned> keep_alive_remaining_;
-    std::optional<std::chrono::steady_clock::time_point> keep_alive_deadline_;
+    std::optional<coro::TimePoint> keep_alive_deadline_;
 };
 
 }  // namespace http

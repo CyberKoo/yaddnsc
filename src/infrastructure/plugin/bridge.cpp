@@ -21,6 +21,7 @@
 #include "coro/cancel_scope.h"
 #include "coro/cancelled.h"
 #include "coro/loop.h"
+#include "coro/now.hpp"
 #include "coro/scope.hpp"
 #include "coro/task_group.hpp"
 #include "infrastructure/http/client.h"
@@ -80,12 +81,23 @@ coro::Task<void> serve_exchange(std::shared_ptr<const BridgeState> state, std::s
             fulfil.set(std::unexpected(BridgeError{YADDNSC_STATUS_CANCELLED, "the request was cancelled"}));
             co_return;
         }
+        (co_await coro::current_scope()).throw_if_cancelled();
+        // Only durations cross clock domains. Sample loop time first so the
+        // translation cannot extend the worker's real-time budget.
+        const auto loop_now = co_await coro::current_time();
+        const auto remaining = fulfil.call->worker_deadline - std::chrono::steady_clock::now();
+        if (remaining <= std::chrono::steady_clock::duration::zero()) {
+            fulfil.set(
+                std::unexpected(BridgeError{YADDNSC_STATUS_NETWORK_ERROR, "the API server did not respond in time"}));
+            co_return;
+        }
+        const auto loop_deadline = loop_now + remaining;
         http::Client client{state->options};
         // The exchange runs in the call's own cancel scope, published as
         // live_scope: a workflow abandon (Bridge::cancel) cancels the in-flight
         // exchange itself, not just the worker's wait on it.
         auto scoped = co_await coro::with_cancel_scope(
-            [&client, &fulfil](coro::CancelScope& call_scope)
+            [&client, &fulfil, loop_deadline](coro::CancelScope& call_scope)
                 -> coro::Task<coro::ScopeOutcome<std::expected<http::Response, BridgeError>>> {
                 fulfil.call->live_scope = &call_scope;
                 struct ScopeBorrow {
@@ -95,9 +107,14 @@ coro::Task<void> serve_exchange(std::shared_ptr<const BridgeState> state, std::s
                 // Clear on body unwind, before run_scoped destroys its scope
                 // and before the outer continuation can be resumed later.
                 const ScopeBorrow borrow{*fulfil.call};
+                // Cancellation can land after the entry check but before this
+                // scope is published. Its earlier inbox lookup then saw null.
+                if (fulfil.call->cancelled.load(std::memory_order_acquire)) {
+                    call_scope.cancel();
+                }
+                call_scope.throw_if_cancelled();
                 auto outcome = co_await coro::with_deadline(
-                    fulfil.call->deadline,
-                    [&client, &fulfil]() -> coro::Task<std::expected<http::Response, BridgeError>> {
+                    loop_deadline, [&client, &fulfil]() -> coro::Task<std::expected<http::Response, BridgeError>> {
                         auto response = co_await client.exchange(fulfil.call->url, fulfil.call->request);
                         if (!response) {
                             auto& error = response.error();
@@ -158,7 +175,7 @@ std::expected<http::Response, BridgeError> Bridge::exchange(std::shared_ptr<Brid
     const auto lifetime = group_lifetime_;
     const std::shared_ptr<const detail::BridgeState> state = state_;
     auto future = call->promise.get_future();
-    call->deadline = std::chrono::steady_clock::now() + state->wait_budget;
+    call->worker_deadline = std::chrono::steady_clock::now() + state->wait_budget;
 
     try {
         // spawn_discard: the group lives for the whole daemon, so a completed
@@ -186,7 +203,7 @@ std::expected<http::Response, BridgeError> Bridge::exchange(std::shared_ptr<Brid
         return std::unexpected(BridgeError{YADDNSC_STATUS_CANCELLED, "the request could not be dispatched"});
     }
 
-    if (future.wait_until(call->deadline) != std::future_status::ready) {
+    if (future.wait_until(call->worker_deadline) != std::future_status::ready) {
         cancel(call);
         return std::unexpected(BridgeError{YADDNSC_STATUS_NETWORK_ERROR, "the API server did not respond in time"});
     }

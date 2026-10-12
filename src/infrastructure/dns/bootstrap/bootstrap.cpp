@@ -36,6 +36,7 @@
 #include "infrastructure/logging/level_enabled.h"
 #include "support/fmt.hpp"
 #include "support/redact.hpp"
+#include "support/util/random.hpp"
 #include "yaddnsc/util/format.hpp"  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 
 namespace dns {
@@ -134,6 +135,9 @@ struct ServerResult {
                 domain::DnsError::NODATA, fmt::format(R"(DNS lookup for "{}" returned no usable records)", host)});
         }
         co_return ServerResult{index, std::move(addresses)};
+    } catch (const Utils::Random::EntropyError& error) {
+        co_return ServerResult{index,
+                               std::unexpected(domain::DnsErrorInfo{domain::DnsError::CONNECTION, error.what()})};
     } catch (const DnsPacketException& error) {
         co_return ServerResult{index,
                                std::unexpected(domain::DnsErrorInfo{domain::DnsError::INVALID_QUERY, error.what()})};

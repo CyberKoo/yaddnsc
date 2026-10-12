@@ -24,6 +24,7 @@
 #include "infrastructure/network/factory/default_stream_factory.h"
 #include "infrastructure/network/transport/stream.h"
 #include "support/fmt.hpp"
+#include "support/util/random.hpp"
 #include "yaddnsc/util/format.hpp"
 
 namespace dns {
@@ -33,7 +34,7 @@ constexpr std::size_t PAD_BLOCK = 128;
 constexpr std::size_t EDNS_PAD_OVERHEAD = 15;
 
 [[nodiscard]] std::vector<std::uint8_t> build_padded_query(const std::string& host, const RecordType type) {
-    const auto base = QueryBuilder{}.add_question(host, type).build();
+    const auto base = QueryBuilder{0}.add_question(host, type).build();
     const auto raw_size = base.size() + EDNS_PAD_OVERHEAD;
     const auto pad_length = raw_size % PAD_BLOCK == 0 ? PAD_BLOCK : PAD_BLOCK - raw_size % PAD_BLOCK;
     const EdnsOption padding{12, std::vector<std::uint8_t>(pad_length)};
@@ -149,6 +150,8 @@ coro::Task<std::expected<std::vector<std::uint8_t>, domain::DnsErrorInfo>> DotRe
     } catch (const std::bad_alloc&) {
         drop_stream();
         throw;
+    } catch (const Utils::Random::EntropyError& error) {
+        co_return std::unexpected(domain::DnsErrorInfo{domain::DnsError::CONNECTION, error.what()});
     } catch (const DnsPacketException& error) {
         co_return std::unexpected(
             domain::DnsErrorInfo{domain::DnsError::INVALID_QUERY,

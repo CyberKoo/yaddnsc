@@ -285,8 +285,20 @@ single-consumer joins, typed completion exhaustion, caller-scope result-wait
 cancellation (including completion/timeout ties), consumption-time frame recovery,
 unobserved supervisor failures, exception-safe body/resource drains, joined and
 cooperative worker cancellation, inbox pumping after root exit, loop-thread-only
-trace callbacks and the fatal loop-dispatch policy. Plugin tests cover closed-group
-admission and single-deadline bridge timeout. Debug sanitizer builds exercise these same
+trace callbacks and the fatal loop-dispatch policy. Plugin tests cover closed-group admission, worker-deadline bridge timeout,
+remaining-budget translation to a manual loop clock with fake transports, and
+cancellation before the exchange scope is published. HTTP session tests cover
+loop-clock keep-alive expiry and cancellation of stalled writes/header/body
+reads without retaining the stream or session mutex. The isolated
+`test_random_failure` executable replaces RAND_bytes to verify checked entropy
+failure, explicit-ID construction without entropy and operational resolver
+translation. It also drives Dispatcher with one or three real backends under
+all three strategies: preflight acquires no entropy, backend CONNECTION results
+receive the configured recovery attempt, and invalid names are rejected before
+entropy acquisition. It does not change OpenSSL configuration in other test
+processes.
+mDNS receive tests use isolated loopback sockets to verify mixed discard bursts,
+backoff, the unchanged caller window and cancellation during backoff. Debug sanitizer builds exercise these same
 tests; a passing suite does not substitute for separate TSan/platform validation.
 
 ## Documentation
@@ -552,16 +564,38 @@ The normative boundary is in
 
 When touching startup, transport or IP-source code, confirm by hand:
 
-- **`getifaddrs()` stays the only loop-thread blocking call in the IP source.**
-  `ip_source/iface_util.cpp` reads a live snapshot per call; that is the
-  sanctioned exception (bounded kernel metadata). Do not add a cache, a mutex or
-  a single-flight wait around it.
+- **Interface metadata stays an explicit synchronous exception.**
+  `ip_source/iface_util.cpp` reads a live snapshot per call for the interface
+  source, selected IPv4 mDNS and automatic IPv6 mDNS selection. Name/index
+  lookups in mDNS are synchronous too. These are local-state operations, not a
+  strict latency guarantee. Do not add a cache, a mutex or a single-flight wait
+  around them. Moving them to offload needs latency evidence and a review of
+  contention with plugin workers.
 - **A CA bundle is only ever loaded off the loop.** Build trust material with
   `net::TlsContext::create` before `coro::run` or from `coro::offload`. A stream
   receives a pre-built context and must never load a CA bundle or register a lazy
   verify path during a handshake.
-- **Blocking primitives do not enter a production loop path.** `src/support/` is
-  a generic helper layer; a cache or retry helper that takes a lock or sleeps does
-  not belong on a coroutine path. Route blocking or CPU-bound work through
-  `coro::offload` — see the blocking-operation inventory in
-  [Architecture](architecture.md#blocking-operation-inventory).
+- **New blocking primitives do not enter a production loop path.**
+  `src/support/` is a generic helper layer; random_device initialization and
+  OpenSSL RAND calls are synchronous exceptions, not guaranteed non-blocking.
+  Cryptographic failure must not fall back to the non-cryptographic PRNG. A new
+  cache or retry helper that takes a lock or sleeps does not belong on a
+  coroutine path. Route other blocking or CPU-bound work through `coro::offload`
+  — see the inventory in [Architecture](architecture.md#blocking-operation-inventory).
+- **Clock domains do not cross as absolute timestamps.** Worker future waits
+  use real time; bridge scopes translate only the remaining duration into loop
+  time. Session keep-alive uses loop time. Use fake transports with ManualClock
+  and SystemClock for real-worker/socket tests; an auto-jumping clock cannot
+  make external progress deterministic.
+- **Transport simplification preserves cancellation.** Empty buffers and
+  invalid streams must still observe an already cancelled scope. Keep yielding
+  cancellation points in the underlying I/O, not redundantly in every wrapper.
+  The `bench_tcp_prefix` target measures buffered two-byte prefixes through the
+  actual TCP stream; use a separate Release build for timing, not sanitizer
+  results:
+
+  ```bash
+  cmake -S . -B build-perf -DCMAKE_BUILD_TYPE=Release -DYADDNSC_BUILD_TESTS=ON
+  cmake --build build-perf --target bench_tcp_prefix --parallel
+  ./build-perf/test/perf/bench_tcp_prefix --benchmark_repetitions=5
+  ```

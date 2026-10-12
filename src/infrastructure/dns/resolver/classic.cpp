@@ -23,6 +23,7 @@
 #include "infrastructure/dns/wire/query_util.h"
 #include "infrastructure/logging/level_enabled.h"
 #include "support/fmt.hpp"
+#include "support/util/random.hpp"
 #include "yaddnsc/util/format.hpp"  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 
 namespace dns {
@@ -44,6 +45,8 @@ coro::Task<std::expected<std::vector<std::uint8_t>, domain::DnsErrorInfo>> Class
         co_return co_await detail::query_classic(server_, port_, query_bytes, policy_);
     } catch (const std::bad_alloc&) {
         throw;  // allocation failures are never downgraded to a retryable error
+    } catch (const Utils::Random::EntropyError& error) {
+        co_return std::unexpected(domain::DnsErrorInfo{domain::DnsError::CONNECTION, error.what()});
     } catch (const DnsPacketException& error) {
         // Packet construction failure is a definitive input defect (e.g. an
         // over-long name), never a transient transport error — the dispatcher

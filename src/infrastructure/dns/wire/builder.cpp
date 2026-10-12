@@ -125,11 +125,16 @@ constexpr std::uint16_t OPT_RR_TYPE = 41;
 //  QueryBuilder  —  public fluent builder
 // ===========================================================================
 
-QueryBuilder::QueryBuilder() : id_(0), qr_(false), opcode_(0), aa_(false), tc_(false), rd_(true), ra_(false) {
-    // Cryptographically secure random ID (unpredictable against
-    // response-spoofing attacks; see Utils::Random::crypto_u16).
-    id_ = Utils::Random::crypto_u16();
+QueryBuilder::QueryBuilder() : QueryBuilder(0) {
+    const auto id = Utils::Random::crypto_u16();
+    if (!id) {
+        throw id.error();
+    }
+    id_ = *id;
 }
+
+QueryBuilder::QueryBuilder(const std::uint16_t id) noexcept
+    : id_(id), qr_(false), opcode_(0), aa_(false), tc_(false), rd_(true), ra_(false) {}
 
 QueryBuilder& QueryBuilder::id(std::uint16_t id) noexcept {
     id_ = id;

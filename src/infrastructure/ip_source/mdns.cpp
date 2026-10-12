@@ -28,6 +28,7 @@
 
 #include "coro/cancelled.h"
 #include "coro/scope.hpp"
+#include "coro/sleep.hpp"
 #include "domain/dns/record_kind.h"
 #include "domain/error/error.h"
 #include "domain/network/address_family.h"
@@ -37,6 +38,7 @@
 #include "infrastructure/dns/util.hpp"
 #include "infrastructure/dns/wire/builder.h"
 #include "infrastructure/ip_source/iface_util.h"
+#include "infrastructure/ip_source/mdns_receive.h"
 #include "infrastructure/ip_source/mdns_response.h"
 #include "infrastructure/logging/level_enabled.h"
 #include "infrastructure/network/transport/datagram.h"
@@ -50,6 +52,7 @@ namespace {
 
 constexpr std::uint16_t MDNS_PORT = 5353;
 constexpr std::chrono::milliseconds MDNS_TIMEOUT{500};
+constexpr std::size_t DISCARD_BURST = 32;
 constexpr std::string_view MDNS_IPV4_GROUP = "224.0.0.251";
 constexpr std::string_view MDNS_IPV6_GROUP = "ff02::fb";
 
@@ -301,8 +304,7 @@ void set_int_option(const int fd, const int level, const int option, const int v
 
     std::vector<std::uint8_t> query;
     try {
-        query = dns::QueryBuilder{}
-                    .id(0)
+        query = dns::QueryBuilder{0}
                     .rd(false)
                     .add_question_raw_qclass(hostname, dns::Util::type_to_record_type(type),
                                              static_cast<std::uint16_t>(dns::RecordClass::IN) | QU_BIT)
@@ -319,13 +321,29 @@ void set_int_option(const int fd, const int level, const int option, const int v
                                                         fmt::format(R"(mDNS send failed for "{}")", hostname)});
     }
 
+    co_return co_await detail::receive_mdns(fd.get(), hostname, type);
+}
+
+}  // namespace
+
+namespace detail {
+
+coro::Task<Result> receive_mdns(const int fd, const std::string& hostname, const domain::RecordKind type) {
     std::vector<std::uint8_t> buffer(MDNS_RECV_BUF_SIZE);
+    std::size_t discarded = 0;
     for (;;) {
-        auto datagram = co_await net::detail::recv_datagram(fd.get(), buffer);
+        // Invalid traffic cannot spin continuously or reset the response
+        // window. Every discard path shares this cancellable backoff.
+        if (discarded == DISCARD_BURST) {
+            discarded = 0;
+            co_await coro::sleep_for(std::chrono::milliseconds{1});
+        }
+        auto datagram = co_await net::detail::recv_datagram(fd, buffer);
         if (!datagram) {
             co_return std::unexpected(domain::IpSourceError{domain::IpSourceError::Code::UNAVAILABLE,
                                                             fmt::format(R"(mDNS receive failed for "{}")", hostname)});
         }
+        ++discarded;
         if (datagram->size == 0) {
             continue;
         }
@@ -355,7 +373,7 @@ void set_int_option(const int fd, const int level, const int option, const int v
     }
 }
 
-}  // namespace
+}  // namespace detail
 
 MdnsIpSource::MdnsIpSource(std::string hostname, domain::RecordKind type, std::string interface)
     : hostname_(std::move(hostname)), type_(type), interface_(std::move(interface)) {}

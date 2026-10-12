@@ -27,7 +27,10 @@ namespace http {
 /// redirects is decided by Options::follow_redirects.
 /// Cancellation: the awaiting task's cancel scope; a cancelled await surfaces as
 /// `coro::Cancelled`, and a caller-imposed deadline is reported by that scope
-/// (`ScopeOutcome::timed_out()`), never by this layer.
+/// (`ScopeOutcome::timed_out`), never by this layer. For a bounded request the
+/// caller must wrap the full exchange in a deadline scope; the per-address
+/// connect budget (including TLS handshake) does not bound response reads.
+/// Without a deadline, stalled I/O waits until caller cancellation.
 /// Thread safety: an exchange only mutates the connection it created, so
 /// distinct concurrent exchanges on one client are safe; each owns its stream.
 class Client {

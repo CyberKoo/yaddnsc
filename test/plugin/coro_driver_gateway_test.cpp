@@ -11,11 +11,14 @@
 // coroutine body; coroutine bodies use EXPECT_* only.
 //
 
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
 #include <cstdint>
+#include <cstring>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <string>
@@ -34,6 +37,7 @@
 
 #include "coro/coro.h"
 #include "domain/error/error.h"
+#include "infrastructure/network/transport/stream.h"
 #include "infrastructure/plugin/bridge.h"
 #include "infrastructure/plugin/driver_catalog.h"
 #include "infrastructure/plugin/driver_gateway.h"
@@ -339,6 +343,156 @@ TEST(Bridge, SubmissionAfterGroupClosure_RejectsWithoutTouchingDeadGroup) {
         EXPECT_EQ(result.error().code, YADDNSC_STATUS_CANCELLED);
     };
     coro::run(loop, root());
+}
+
+namespace {
+
+class ClockedBridgeStream final : public net::Stream {
+public:
+    explicit ClockedBridgeStream(coro::Duration delay) : delay_(delay) {}
+
+    coro::Task<std::expected<void, net::IoError>> ensure_connected() override {
+        co_await coro::sleep_for(delay_);
+        co_return {};
+    }
+
+    coro::Task<std::expected<std::size_t, net::IoError>> read_some(std::span<std::uint8_t> buffer) override {
+        constexpr std::string_view response = "HTTP/1.1 204 No Content\r\n\r\n";
+        const auto count = std::min(buffer.size(), response.size() - cursor_);
+        std::memcpy(buffer.data(), response.data() + cursor_, count);
+        cursor_ += count;
+        co_return count;
+    }
+
+    coro::Task<std::expected<void, net::IoError>> read_exact(std::span<std::uint8_t>) override {
+        co_return std::unexpected(net::IoError::CONNECTION_FAILED);
+    }
+
+    coro::Task<std::expected<void, net::IoError>> send_all(std::span<const std::uint8_t>) override { co_return {}; }
+
+    void close() noexcept override {}
+
+    bool connected() const noexcept override { return true; }
+
+private:
+    coro::Duration delay_;
+    std::size_t cursor_ = 0;
+};
+
+class ClockedBridgeFactory final : public net::StreamFactory {
+public:
+    explicit ClockedBridgeFactory(coro::Duration delay) : delay_(delay) {}
+
+    std::unique_ptr<net::Stream> create_tls(domain::InetAddress, std::uint16_t, const net::ConnectOptions&,
+                                            const net::TlsOptions&, std::shared_ptr<const net::TlsContext>) override {
+        ++calls_;
+        return std::make_unique<ClockedBridgeStream>(delay_);
+    }
+
+    std::unique_ptr<net::Stream> create_tcp(domain::InetAddress, std::uint16_t, const net::ConnectOptions&) override {
+        ++calls_;
+        return std::make_unique<ClockedBridgeStream>(delay_);
+    }
+
+    int calls_ = 0;
+
+private:
+    coro::Duration delay_;
+};
+
+}  // namespace
+
+TEST(Bridge, ManualClock_RemainingBudgetUsesLoopEpoch) {
+    auto factory = std::make_shared<ClockedBridgeFactory>(1h);
+    http::Options options;
+    options.factory = factory;
+    options.connect_timeout = 0ms;
+    auto state = std::make_shared<const plugin::detail::BridgeState>(plugin::detail::BridgeState{options, 5s});
+    auto call = std::make_shared<plugin::BridgeCall>();
+    call->url = "http://127.0.0.1/";
+    // Dispatch has already consumed all but 1s of the original 5s budget.
+    // The real-time margin tolerates a descheduled runner; fake I/O is virtual.
+    call->worker_deadline = std::chrono::steady_clock::now() + 1s;
+    auto result = call->promise.get_future();
+    const coro::TimePoint start{10s};
+    coro::ManualClock clock{start};
+    coro::Loop loop{clock};
+    coro::run(loop, plugin::detail::serve_exchange(state, call));
+    const auto response = result.get();
+    ASSERT_FALSE(response.has_value());
+    EXPECT_EQ(response.error().code, YADDNSC_STATUS_NETWORK_ERROR);
+    EXPECT_GT(clock.now(), start);
+    EXPECT_LE(clock.now() - start, 1s);
+    EXPECT_EQ(factory->calls_, 1);
+    EXPECT_EQ(call->live_scope, nullptr);
+}
+
+TEST(Bridge, ExpiredWorkerBudget_DoesNotStartHttp) {
+    auto factory = std::make_shared<ClockedBridgeFactory>(1ms);
+    http::Options options;
+    options.factory = factory;
+    auto state = std::make_shared<const plugin::detail::BridgeState>(plugin::detail::BridgeState{options, 5s});
+    auto call = std::make_shared<plugin::BridgeCall>();
+    call->url = "http://127.0.0.1/";
+    call->worker_deadline = std::chrono::steady_clock::now() - 1ms;
+    auto result = call->promise.get_future();
+    coro::ManualClock clock;
+    coro::Loop loop{clock};
+    coro::run(loop, plugin::detail::serve_exchange(state, call));
+    const auto response = result.get();
+    ASSERT_FALSE(response.has_value());
+    EXPECT_EQ(response.error().code, YADDNSC_STATUS_NETWORK_ERROR);
+    EXPECT_EQ(factory->calls_, 0);
+    EXPECT_EQ(clock.now(), coro::TimePoint{});
+}
+
+TEST(Bridge, ManualClock_ResponseBeforeDeadlineCompletes) {
+    auto factory = std::make_shared<ClockedBridgeFactory>(1ms);
+    http::Options options;
+    options.factory = factory;
+    auto state = std::make_shared<const plugin::detail::BridgeState>(plugin::detail::BridgeState{options, 5s});
+    auto call = std::make_shared<plugin::BridgeCall>();
+    call->url = "http://127.0.0.1/";
+    call->worker_deadline = std::chrono::steady_clock::now() + 5s;
+    auto result = call->promise.get_future();
+    coro::ManualClock clock;
+    coro::Loop loop{clock};
+    coro::run(loop, plugin::detail::serve_exchange(state, call));
+    const auto response = result.get();
+    ASSERT_TRUE(response.has_value());
+    EXPECT_EQ(response->status_, 204);
+    EXPECT_EQ(clock.now(), coro::TimePoint{1ms});
+    EXPECT_EQ(call->live_scope, nullptr);
+}
+
+TEST(Bridge, CancelBeforeScopePublication_DoesNotStartHttp) {
+    auto factory = std::make_shared<ClockedBridgeFactory>(1ms);
+    http::Options options;
+    options.factory = factory;
+    auto state = std::make_shared<const plugin::detail::BridgeState>(plugin::detail::BridgeState{options, 5s});
+    auto call = std::make_shared<plugin::BridgeCall>();
+    call->url = "http://127.0.0.1/";
+    call->worker_deadline = std::chrono::steady_clock::now() + 5s;
+    auto result = call->promise.get_future();
+    coro::ManualClock clock;
+    coro::Loop loop{clock};
+    auto task = [&]() -> coro::Task<void> {
+        co_await coro::supervisor_group([&](coro::TaskGroup& group) -> coro::Task<void> {
+            auto serving = group.spawn(plugin::detail::serve_exchange(state, call));
+            co_await coro::checkpoint();
+            // serve_exchange has passed its entry check, but with_cancel_scope
+            // has not published live_scope yet. Mirror cancel's latched flag.
+            EXPECT_EQ(call->live_scope, nullptr);
+            call->cancelled.store(true, std::memory_order_release);
+            co_await serving;
+        });
+    };
+    coro::run(loop, task());
+    const auto response = result.get();
+    ASSERT_FALSE(response.has_value());
+    EXPECT_EQ(response.error().code, YADDNSC_STATUS_CANCELLED);
+    EXPECT_EQ(factory->calls_, 0);
+    EXPECT_EQ(call->live_scope, nullptr);
 }
 
 TEST(Bridge, WorkerDeadline_CancelsRunningExchangeWithoutSlack) {

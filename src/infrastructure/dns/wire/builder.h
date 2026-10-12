@@ -27,8 +27,7 @@ namespace dns {
 ///
 /// For full control:
 /// @code
-///   auto packet = QueryBuilder{}
-///       .id(0x1234)
+///   auto packet = QueryBuilder{0x1234}
 ///       .rd(true)
 ///       .add_question("example.com", RecordType::AAAA)
 ///       .add_question("example.com", RecordType::A)
@@ -43,7 +42,14 @@ public:
     ///   - OPCODE: 0 (standard query)
     ///   - RD: true (recursion desired)
     ///   - All other flags: false
+    /// @throws Utils::Random::EntropyError if the cryptographic source fails;
+    ///         construction aborts rather than using a predictable ID.
     QueryBuilder();
+
+    /// Construct with an explicit ID without acquiring entropy. Used for mDNS,
+    /// responses, input preflight and wire-size calculations, not transmitted
+    /// ordinary unicast queries.
+    explicit QueryBuilder(std::uint16_t id) noexcept;
 
     // ── Header flags ──────────────────────────────────────────────
 

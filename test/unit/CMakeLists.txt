@@ -300,6 +300,9 @@ add_unit_test(fd            SOURCE support/fd_test.cpp)
 add_unit_test(fmt_polyfill  SOURCE support/fmt_polyfill_test.cpp)
 add_unit_test(random        SOURCE support/random_test.cpp)
 target_link_libraries(test_random PRIVATE OpenSSL::Crypto)
+# RAND_bytes is replaced only in this executable to exercise fail-closed paths.
+add_unit_test(random_failure SOURCE support/random_failure_test.cpp)
+target_link_libraries(test_random_failure PRIVATE yaddnsc_coro_dns)
 add_unit_test(string_util   SOURCE support/string_util_test.cpp)
 add_unit_test(validation    SOURCE support/validation_test.cpp)
 

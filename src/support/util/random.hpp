@@ -2,8 +2,10 @@
 #define YADDNSC_SUPPORT_UTIL_RANDOM_HPP
 
 #include <cstdint>
+#include <exception>
 #include <random>
 
+#include <expected>
 #include <openssl/rand.h>
 
 namespace Utils::Random {
@@ -16,15 +18,21 @@ namespace Utils::Random {
     return eng;
 }
 
+/// Entropy acquisition failed. Fixed, allocation-free error data; wire builders
+/// may throw this to abort construction, and resolver boundaries translate it.
+class EntropyError final : public std::exception {
+public:
+    [[nodiscard]] const char* what() const noexcept override { return "Cryptographic random source unavailable"; }
+};
+
 /// Cryptographically secure random 16-bit value (OpenSSL RAND_bytes).
 ///
-/// Used for DNS transaction IDs, which must be unpredictable to resist
-/// response spoofing.  Falls back to the thread-local PRNG only if the
-/// CSPRNG fails (essentially never on a healthy system).
-[[nodiscard]] inline std::uint16_t crypto_u16() noexcept {
+/// Failure: EntropyError if RAND fails; never substitutes a predictable PRNG.
+/// RAND may initialize or reseed its generator synchronously on the caller.
+[[nodiscard]] inline std::expected<std::uint16_t, EntropyError> crypto_u16() noexcept {
     std::uint16_t value = 0;
     if (RAND_bytes(reinterpret_cast<unsigned char*>(&value), sizeof(value)) != 1) {
-        value = static_cast<std::uint16_t>(engine()());
+        return std::unexpected(EntropyError{});
     }
     return value;
 }

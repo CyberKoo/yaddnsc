@@ -633,6 +633,174 @@ public:
     int tcp_calls{0};
 };
 
+enum class StalledHttpStage { CONNECT, WRITE, HEADERS, BODY };
+
+class StalledHttpStream final : public ScriptedStream {
+public:
+    StalledHttpStream(StalledHttpStage stage, int& closed, int& destroyed)
+        : ScriptedStream(stage == StalledHttpStage::BODY ? "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\na" : ""),
+          stage_(stage), closed_(closed), destroyed_(destroyed) {}
+
+    ~StalledHttpStream() override { ++destroyed_; }
+
+    coro::Task<std::expected<void, net::IoError>> ensure_connected() override {
+        if (stage_ == StalledHttpStage::CONNECT) {
+            co_await coro::sleep_for(std::chrono::hours{1});
+        }
+        co_return {};
+    }
+
+    coro::Task<std::expected<std::size_t, net::IoError>> read_some(std::span<std::uint8_t> buffer) override {
+        const auto read = co_await ScriptedStream::read_some(buffer);
+        if (read && *read == 0) {
+            co_await coro::sleep_for(std::chrono::hours{1});
+        }
+        co_return read;
+    }
+
+    coro::Task<std::expected<void, net::IoError>> send_all(std::span<const std::uint8_t> data) override {
+        if (stage_ == StalledHttpStage::WRITE) {
+            co_await coro::sleep_for(std::chrono::hours{1});
+        }
+        co_return co_await ScriptedStream::send_all(data);
+    }
+
+    void close() noexcept override { ++closed_; }
+
+private:
+    StalledHttpStage stage_;
+    int& closed_;
+    int& destroyed_;
+};
+
+class StalledHttpFactory final : public net::StreamFactory {
+public:
+    explicit StalledHttpFactory(StalledHttpStage stage) : stage_(stage) {}
+
+    std::unique_ptr<net::Stream> create_tls(domain::InetAddress, std::uint16_t, const net::ConnectOptions&,
+                                            const net::TlsOptions&, std::shared_ptr<const net::TlsContext>) override {
+        return std::make_unique<StalledHttpStream>(stage_, closed_, destroyed_);
+    }
+
+    std::unique_ptr<net::Stream> create_tcp(domain::InetAddress, std::uint16_t, const net::ConnectOptions&) override {
+        return std::make_unique<StalledHttpStream>(stage_, closed_, destroyed_);
+    }
+
+    int closed_ = 0;
+    int destroyed_ = 0;
+
+private:
+    StalledHttpStage stage_;
+};
+
+TEST(HttpSession, StalledExchange_CallerBudgetReleasesStreamAndMutex) {
+    using namespace std::chrono_literals;
+    for (const auto stage :
+         {StalledHttpStage::CONNECT, StalledHttpStage::WRITE, StalledHttpStage::HEADERS, StalledHttpStage::BODY}) {
+        SCOPED_TRACE(static_cast<int>(stage));
+        auto factory = std::make_shared<StalledHttpFactory>(stage);
+        http::Options options;
+        options.factory = factory;
+        options.connect_timeout = 10ms;
+        http::Session session{std::move(options), "https", "203.0.113.10", 443};
+        const http::Request request;
+        coro::ManualClock clock;
+        coro::Loop loop{clock};
+        auto task = [&]() -> coro::Task<void> {
+            const auto outcome = co_await coro::with_timeout(20ms, [&] { return session.exchange("/", request); });
+            if (stage == StalledHttpStage::CONNECT) {
+                EXPECT_FALSE(outcome.timed_out);
+                EXPECT_TRUE(outcome.has_value());
+                if (outcome.has_value()) {
+                    EXPECT_FALSE(outcome->has_value());
+                    if (!*outcome) {
+                        EXPECT_EQ(outcome->error().code, ErrorCode::CONNECT_FAILED);
+                    }
+                }
+            } else {
+                EXPECT_TRUE(outcome.timed_out);
+                EXPECT_EQ(factory->closed_, 1);
+            }
+            EXPECT_EQ(factory->destroyed_, 1);
+            http::Request invalid;
+            invalid.headers.emplace("Invalid Header", "value");
+            const auto next = co_await coro::with_timeout(1ms, [&] { return session.exchange("/", invalid); });
+            EXPECT_FALSE(next.timed_out);
+            if (next.has_value()) {
+                EXPECT_FALSE(next->has_value());
+                if (!*next) {
+                    EXPECT_EQ(next->error().code, ErrorCode::INVALID_REQUEST);
+                }
+            }
+        };
+        coro::run(loop, task());
+        EXPECT_EQ(clock.now(), coro::TimePoint{stage == StalledHttpStage::CONNECT ? 10ms : 20ms});
+    }
+}
+
+TEST(HttpSession, KeepAliveDeadline_LoopTimeControlsReuse) {
+    using namespace std::chrono_literals;
+    for (const auto idle : {1999ms, 2000ms, 2001ms, 100000ms}) {
+        SCOPED_TRACE(idle.count());
+        auto factory = std::make_shared<ScriptedSessionFactory>();
+        const std::string response = "HTTP/1.1 200 OK\r\nContent-Length: 0\r\nKeep-Alive: timeout=2\r\n\r\n";
+        factory->payloads = {response + response, response};
+        http::Options options;
+        options.factory = factory;
+        http::Session session{std::move(options), "http", "203.0.113.10", 8080};
+        const http::Request request;
+        coro::ManualClock clock;
+        coro::Loop loop{clock};
+        auto task = [&]() -> coro::Task<void> {
+            EXPECT_TRUE((co_await session.exchange("/first", request)).has_value());
+            clock.advance(idle);
+            EXPECT_TRUE((co_await session.exchange("/second", request)).has_value());
+        };
+        coro::run(loop, task());
+        EXPECT_EQ(factory->tcp_calls, idle < 2s ? 1 : 2);
+    }
+}
+
+TEST(HttpSession, KeepAliveDeadline_AbsentHeaderDoesNotExpire) {
+    auto factory = std::make_shared<ScriptedSessionFactory>();
+    const std::string response = "HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n";
+    factory->payloads = {response + response};
+    http::Options options;
+    options.factory = factory;
+    http::Session session{std::move(options), "http", "203.0.113.10", 8080};
+    const http::Request request;
+    coro::ManualClock clock;
+    coro::Loop loop{clock};
+    auto task = [&]() -> coro::Task<void> {
+        EXPECT_TRUE((co_await session.exchange("/first", request)).has_value());
+        clock.advance(std::chrono::hours{1});
+        EXPECT_TRUE((co_await session.exchange("/second", request)).has_value());
+    };
+    coro::run(loop, task());
+    EXPECT_EQ(factory->tcp_calls, 1);
+}
+
+TEST(HttpSession, Close_ClearsThePreviousKeepAliveDeadline) {
+    auto factory = std::make_shared<ScriptedSessionFactory>();
+    const std::string response = "HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n";
+    factory->payloads = {"HTTP/1.1 200 OK\r\nContent-Length: 0\r\nKeep-Alive: timeout=2\r\n\r\n", response + response};
+    http::Options options;
+    options.factory = factory;
+    http::Session session{std::move(options), "http", "203.0.113.10", 8080};
+    const http::Request request;
+    coro::ManualClock clock;
+    coro::Loop loop{clock};
+    auto task = [&]() -> coro::Task<void> {
+        EXPECT_TRUE((co_await session.exchange("/first", request)).has_value());
+        session.close();
+        EXPECT_TRUE((co_await session.exchange("/second", request)).has_value());
+        clock.advance(std::chrono::hours{1});
+        EXPECT_TRUE((co_await session.exchange("/third", request)).has_value());
+    };
+    coro::run(loop, task());
+    EXPECT_EQ(factory->tcp_calls, 2);
+}
+
 // Regression test for the DoH teardown crash: a close() landing while a second
 // exchange holds the session guard must not tear down the stream that exchange
 // borrowed; the close is deferred to the guard's checkpoint instead. With the

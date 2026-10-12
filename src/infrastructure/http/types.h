@@ -119,8 +119,9 @@ struct Options {
     bool follow_redirects{true};
     int max_redirects{10};
     Limits limits{};
-    /// Per-address connect budget (the legacy transport connect timeout). An
-    /// expired budget skips to the next resolved address; zero disables it.
+    /// Per-address connection budget, including the TLS handshake. An expired
+    /// budget skips to the next resolved address; zero disables it. This is not
+    /// a whole-exchange deadline: response reads require the caller's scope.
     std::chrono::milliseconds connect_timeout{5000};
     /// Optional session-queue budget; zero leaves queueing to the caller scope.
     std::chrono::milliseconds queue_timeout{0};

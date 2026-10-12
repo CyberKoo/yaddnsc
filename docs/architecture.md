@@ -95,7 +95,7 @@ every coroutine belongs to a scope that joins its children; a deadline and a
 shutdown are the same thing (a cancelled scope); every resumption goes through
 the ready queue, so stack depth stays bounded.
 
-**Threads.** There are at most three:
+**Threads.** There are three roles (the worker role may contain multiple threads):
 
 | Thread | Responsibility |
 |--------|----------------|
@@ -116,8 +116,10 @@ driver ABI cycle — and gets all three.
 **Loop internals** (`src/coro/loop.h`): a `poll()` descriptor
 table, a timer heap, a ready queue and a cross-thread inbox.
 
-**Structured concurrency.** `coro::Task<T>` is lazy and runs inline at
-`co_await`. `task_group` cancels siblings on the first failure and rethrows
+**Structured concurrency.** `coro::Task<T>` is lazy. An ordinary `co_await`
+schedules the child through the ready queue, then resumes the parent through
+that queue when the child completes; it is not an inline call or a cancellation
+checkpoint. `task_group` cancels siblings on the first failure and rethrows
 after joining every child; `supervisor_group` keeps siblings running and reports
 observed defects through `next()`/Handle. At exit, every unobserved child defect
 (including discarded results) is reported in `GroupError::errors()`; supervision
@@ -134,8 +136,13 @@ losing siblings through a child scope, and scope exit still joins and reaps
 every child. Retries wait on a linear cancellable backoff sleep on the loop,
 not on a thread. INVALID_QUERY alone ends a group search; PARSE/CONFIG are
 endpoint diagnoses. Sequential and concurrent strategies share error precedence:
-INVALID_QUERY, CONFIG, PARSE, operational failure, NODATA, NXDOMAIN. A failed view
-must not be turned into a definitive negative answer. Bootstrap races a bounded
+INVALID_QUERY, CONFIG, PARSE, operational failure, NODATA, NXDOMAIN. Dispatcher
+input preflight builds an unsent fixed-ID packet and does not acquire entropy.
+Only actual backend/bootstrap queries acquire secure IDs; their entropy failures
+return CONNECTION, so dispatcher failover/retry remains reachable rather than
+losing the error to an exception from preflight. Invalid names still return
+INVALID_QUERY before a backend is called, even when the entropy source is down.
+A failed view must not be turned into a definitive negative answer. Bootstrap races a bounded
 set of servers per family, replacing failures immediately; silent servers do
 not delay the other candidates in that set. It does not retry a server in one
 lookup, and shares the classic wire exchange with Dispatcher backends. It
@@ -229,8 +236,9 @@ share a 1s wire-exchange budget instead of independent clocks, subject to the
 remaining 1.5s attempt budget. A late truncated UDP answer may leave less than
 1s for TCP; timeout diagnostics retain the TCP-fallback stage and RETRY code.
 UDP validates local questions before I/O, discards unrelated replies, and reports
-malformed matching replies as PARSE. Discard bursts periodically yield without
-resetting the deadline or letting foreign packets force an early failure.
+malformed matching replies as PARSE. Discard bursts periodically back off (1ms per 32 discarded datagrams) without
+resetting the deadline or letting foreign packets force an early failure. mDNS
+uses the same burst limit within its original 500ms response window.
 Only Dispatcher retries entire DNS queries. A single backend defaults to two
 attempts; multiple backends exhaust alternatives first, then perform at most one
 recovery round for CONNECTION/RETRY failures (disabled when max_retries is zero).
@@ -284,8 +292,9 @@ values (`now.hpp`, `time.h`), `checkpoint()`
 (`checkpoint.hpp`), `offload` (`offload.hpp`) and `MutexGuard`
 (`async_mutex.hpp`, `mutex_guard.hpp`) — all declared in `src/coro/` and
 enumerated by the guard allowlist in `cmake/ArchitectureGuard.cmake`. The
-allowlist admits more than `src/application/` uses today: `offload` and
-`current_scope()` are reached only by `plugin/driver_gateway.cpp`, and
+allowlist admits more than `src/application/` uses today: `offload` is reached
+only by `plugin/driver_gateway.cpp`; `current_scope()` also serves the bridge
+and non-yielding transport cancellation checks, and
 `MutexGuard` only by `dns/resolver/doh.h`, `dns/resolver/dot.h` and
 `http/session.h`.
 
@@ -326,8 +335,9 @@ guard's coroutine header allowlist and internal-access checks apply only to
 
 A scope an application holds is always the one a combinator passed to its body
 or `TaskGroup::scope()`; `current_scope()` is the same borrow reached
-implicitly, and only the driver gateway uses it
-(`plugin/driver_gateway.cpp`). It is borrowed for the lifetime of that
+implicitly. The driver gateway uses it for ABI cancellation translation;
+TCP stream wrappers and aggregate socket operations use it to observe sticky
+cancellation without adding a second yield before the underlying I/O. It is borrowed for the lifetime of that
 combinator or group and used on the loop thread. Reading it is not a
 checkpoint; cancelling it (`cancel()`) and re-observing cancellation
 (`throw_if_cancelled()`) are explicit calls, and the latter is how the plugin
@@ -339,9 +349,12 @@ and cancellation drain, then clears it before the group scope is destroyed.
 
 **Checkpoints.** `checkpoint()` yields and checks cancellation explicitly; use
 it in CPU loops. Sleep, fd waits, stop waits, mutex acquisition, offload and
-transport I/O and group `next()` are checkpoints too. Awaiting a `Task` or `Handle` propagates its
-result; `current_time()` is a plain value read that returns immediately,
-leaving cancellation to the enclosing await.
+transport I/O and group `next()` are checkpoints too. TCP wrappers and aggregate
+reads/writes check cancellation without yielding; each underlying recv/send
+keeps its checkpoint and cancellable fd wait. Empty-buffer and invalid-stream
+returns still observe cancellation. Awaiting a `Task` or `Handle` propagates its
+result, but is not itself a cancellation check; `current_time()` reads loop time
+without suspending.
 
 **Leaving the loop.** `coro::offload(fn)` runs `fn` on the pool and returns its
 result through the loop. Cancellation is *abandon*: the await throws
@@ -367,12 +380,28 @@ the composition root); the loop runs the coroutine HTTP client and the worker
 waits for it. Admission checks a shared group lifetime token on the loop;
 body exit closes ingress before drain, so posted callbacks cannot dereference
 a destroyed group. Child-start allocation failure fulfils the request with an
-INTERNAL_ERROR instead of escaping dispatch. One absolute steady-clock deadline
-from the gateway's `bridge_wait_budget` (5s) covers dispatch, queueing and I/O:
-worker wait_until and loop with_deadline use the same point. Worker expiry posts
-actual cancellation and returns NETWORK_ERROR; no 250ms slack or ordering
-assumption remains. Abandoning an update cancels its exchange scope. ABI data,
-module leases and plugin status translation remain plugin responsibilities.
+INTERNAL_ERROR instead of escaping dispatch. A real steady-clock deadline from
+the gateway's `bridge_wait_budget` (5s) bounds worker waiting, including dispatch,
+queueing and I/O. At admission, the remaining real duration is translated into
+an absolute loop-clock deadline; dispatch does not restart a full budget. An
+already expired request never starts HTTP. Worker expiry posts actual
+cancellation and returns NETWORK_ERROR; no slack or ordering assumption remains.
+The cancelled latch is checked both at entry and after publishing the exchange
+scope, so a cancellation delivered before publication cannot be lost.
+Abandoning an update cancels its exchange scope, not the worker thread. Its slot
+is released only when the plugin function returns. Each HTTP callback has its
+own bridge budget; it does not bound the whole plugin function. ABI data, module
+leases and plugin status translation remain plugin responsibilities.
+
+HTTP keep-alive deadlines also use loop time and are checked before reuse, not
+by a background expiry timer. ManualClock tests use in-memory transport fakes;
+real workers and real sockets still require SystemClock for end-to-end timing.
+Translating a duration does not make cross-thread execution deterministic.
+Production HTTP exchanges are bounded by the application IP-source/DNS scopes
+or the bridge scope. Per-address connect budgets include TLS handshake; they
+and optional queue budgets do not bound a complete response read. A direct
+client caller must wrap the whole exchange for a deadline, otherwise stalled
+I/O waits until caller cancellation.
 
 **Subdomain tasks.** Each subdomain is one long-lived coroutine that sleeps,
 updates and repeats, reusing one `UpdateTask` across cycles and carrying only
@@ -396,19 +425,20 @@ interval is clamped to a minimum rather than spinning.
 
 ### Blocking-operation inventory
 
-The loop thread stays non-blocking, and so is the socket path it drives:
-sockets are opened with `O_NONBLOCK` (`network/transport/socket_ops.cpp`), so
-connect, send, recv and the SSL calls return `EAGAIN` into an fd wait instead
-of parking the thread — DNS, provider HTTP and the mDNS query (a non-blocking
-datagram socket bounded by a 500ms `with_timeout` window) all run on the loop.
-What is left blocks — a `getifaddrs()`, a file read, a `dlopen`, a provider
-call — and each of those reaches the system through `coro::offload` or during
-startup, before the loop starts. A few points sit on a specific thread by
-design, each bounded:
+Network waits do not park the loop thread: sockets are opened with `O_NONBLOCK`
+(`network/transport/socket_ops.cpp`), so connect/send/recv wait on readiness when
+needed; SSL calls await the direction indicated by WANT_READ/WANT_WRITE. DNS,
+provider HTTP and the 500ms mDNS window all use cancellable loop I/O. This is not
+a guarantee that every system or library call on the loop has zero latency.
+File/loader I/O runs at startup and plugin ABI work uses offload. The sanctioned
+local metadata and randomness calls below remain synchronous; they have no
+strict wall-time bound.
 
-| Blocking point | Where | Why it is bounded |
-|----------------|-------|-------------------|
-| `getifaddrs()` | `infrastructure/ip_source/iface_util.cpp`, on the loop thread | A kernel snapshot of local interface metadata: read-only system state, with a size the kernel fixes and no network round trip |
+| Blocking/synchronous point | Where | Limits and caveats |
+|----------------------------|-------|--------------------|
+| `getifaddrs()` | `infrastructure/ip_source/iface_util.cpp`, on the loop thread | Live local metadata snapshot, no remote resolution and no cache. Called by the interface source, explicitly selected IPv4 mDNS, and automatic IPv6 mDNS interface selection; local-state size limits work, not elapsed time |
+| interface name/index lookup | `infrastructure/ip_source/mdns.cpp` and `iface_util.cpp`, on the loop thread | `if_nametoindex` for explicit/automatic selection and `if_indextoname` for diagnostics are synchronous local metadata operations |
+| random acquisition | `support/util/random.hpp`, called by DNS builders and dispatcher shuffling on the loop | RAND_bytes may initialize/reseed or synchronize; random_device seeds the thread-local mt19937 on first use. No guaranteed latency bound. Unsent dispatcher preflight, fixed-ID mDNS and DoT wire sizing bypass secure-ID acquisition; cryptographic failure is an operational DNS error, never a predictable fallback |
 | startup file/loader I/O | `composition/assembly.cpp` and `composition/commands/`, on the main thread before `coro::run` | Config read, static validation, plugin `dlopen`, the environment check and the trust-context build happen once, before any coroutine exists |
 | `/etc/resolv.conf` read | `infrastructure/dns/bootstrap/resolv_conf.cpp`, reached from `composition/assembly.cpp` on the main thread | A `std::ifstream` of a small system file, read once at startup to fill the bootstrap server list when none is configured |
 | CA discovery + trust-store load | `infrastructure/network/tls/context.cpp`, off-loop only (`TlsContext::create`) | Bundle discovery is a function-local static, so the filesystem is touched once per process rather than per `create()`; trust material is then populated eagerly during `create()` through `SSL_CTX_load_verify_locations`, or `X509_STORE_load_path` on the OpenSSL default cert dir as the fallback — never the lazy registrars. One immutable context is shared, so a handshake runs entirely from memory |
@@ -416,11 +446,11 @@ design, each bounded:
 | log write | log drain thread (async spdlog sink) | The caller hands the record over and continues; a full queue discards the newest record |
 | CPU-intensive work | any `coro::offload` call site | `offload` is the single exit for blocking *and* CPU-bound work (the `asyncio.to_thread` analogue); the total off-loop workload is structurally bounded by the configuration |
 
-`src/support/util/` holds generic, non-blocking helpers only — algorithm
-search, byte order, file-descriptor ownership, randomness (which seeds from
-OpenSSL's `RAND`) and input validation. None of them blocks; a helper that
-needs to will route its work through `coro::offload` rather than park its
-caller.
+`src/support/util/` holds generic helpers — algorithm search, byte order,
+file-descriptor ownership, randomness and input validation. Randomness is the
+synchronous exception recorded above, not an absolute non-blocking guarantee.
+Other blocking or CPU-intensive additions must use `coro::offload`. Do not
+replace CSPRNG transaction IDs with mt19937 to avoid entropy cost.
 
 ## Layers
 

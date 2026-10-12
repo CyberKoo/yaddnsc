@@ -171,6 +171,13 @@ TEST(QueryBuilderTest, BuildsAaaaRecord) {
 //  Custom header fields
 // ===========================================================================
 
+TEST(QueryBuilderTest, ExplicitIdConstructor_PreservesDefaultsAndSetter) {
+    const auto packet = dns::QueryBuilder{0xABCD}.add_question("example.com", dns::RecordType::A).build();
+    expect_header(packet, 0xABCD, 0x0100, 1, 0, 0, 0);
+    const auto changed = dns::QueryBuilder{0}.id(0x1234).add_question("example.com", dns::RecordType::A).build();
+    EXPECT_EQ(read_u16(changed, 0), 0x1234);
+}
+
 TEST(QueryBuilderTest, CustomId) {
     auto packet = dns::QueryBuilder{}.id(0xABCD).add_question("example.com", dns::RecordType::A).build();
 

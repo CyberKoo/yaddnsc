@@ -25,12 +25,13 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
-#include "domain/network/inet_address.h"
 #include "coro/coro.h"
 #include "coro/fd_wait.hpp"
+#include "domain/network/inet_address.h"
 #include "infrastructure/network/tls/context.h"
 #include "infrastructure/network/tls/stream.h"
 #include "infrastructure/network/transport/io_error.h"
+#include "infrastructure/network/transport/socket_ops.h"
 #include "infrastructure/network/transport/tcp_stream.h"
 #include "infrastructure/network/transport/udp_socket.h"
 #include "support/util/fd.hpp"
@@ -399,6 +400,54 @@ TEST(TcpStream, read_some_BeforeConnecting_Fails) {
     run_task(task());
     ASSERT_TRUE(error.has_value());
     EXPECT_EQ(*error, IoError::CONNECTION_FAILED);
+}
+
+TEST(TcpStream, CancelledScope_EarlyReturnsStillThrow) {
+    net::TcpStream stream{loopback_v4(), 9};
+    LoopbackServer server{LoopbackServer::Mode::ECHO};
+    net::TcpStream connected{loopback_v4(), server.port()};
+    auto task = [&]() -> coro::Task<void> {
+        EXPECT_TRUE((co_await connected.ensure_connected()).has_value());
+        const auto outcome = co_await coro::with_cancel_scope([&](coro::CancelScope& scope) -> coro::Task<void> {
+            scope.cancel();
+            std::array<std::uint8_t, 1> buffer{};
+            EXPECT_THROW(co_await stream.ensure_connected(), coro::Cancelled);
+            EXPECT_THROW(co_await connected.ensure_connected(), coro::Cancelled);
+            EXPECT_THROW(co_await stream.read_some({}), coro::Cancelled);
+            EXPECT_THROW(co_await stream.read_some(buffer), coro::Cancelled);
+            EXPECT_THROW(co_await stream.read_exact({}), coro::Cancelled);
+            EXPECT_THROW(co_await stream.read_exact(buffer), coro::Cancelled);
+            EXPECT_THROW(co_await stream.send_all({}), coro::Cancelled);
+            EXPECT_THROW(co_await stream.send_all(buffer), coro::Cancelled);
+            EXPECT_THROW(co_await net::detail::recv_exact(-1, {}), coro::Cancelled);
+            EXPECT_THROW(co_await net::detail::send_all(-1, {}), coro::Cancelled);
+        });
+        EXPECT_TRUE(outcome.cancelled);
+    };
+    run_task(task());
+}
+
+TEST(SocketOps, RecvExact_BufferedPrefixReadsWithoutLosingCancellation) {
+    auto pair = SocketPair::create();
+    ASSERT_TRUE(pair.has_value());
+    const std::array<std::uint8_t, 2> prefix{0, 42};
+    ASSERT_EQ(::send(pair->second(), prefix.data(), prefix.size(), 0), 2);
+    std::array<std::uint8_t, 2> received{};
+    EXPECT_TRUE(run_task(net::detail::recv_exact(pair->first(), received)).has_value());
+    EXPECT_EQ(received, prefix);
+    auto task = [&]() -> coro::Task<void> {
+        EXPECT_EQ(::send(pair->second(), prefix.data(), prefix.size(), 0), 2);
+        const auto outcome = co_await coro::with_cancel_scope([&](coro::CancelScope& scope) -> coro::Task<void> {
+            scope.cancel();
+            EXPECT_THROW(co_await net::detail::recv_exact(pair->first(), received), coro::Cancelled);
+            EXPECT_THROW(co_await net::detail::send_all(pair->first(), prefix), coro::Cancelled);
+        });
+        EXPECT_TRUE(outcome.cancelled);
+        std::array<std::uint8_t, 2> queued{};
+        EXPECT_EQ(::recv(pair->first(), queued.data(), queued.size(), MSG_PEEK | MSG_DONTWAIT), 2);
+        EXPECT_EQ(queued, prefix);
+    };
+    run_task(task());
 }
 
 // ---------------------------------------------------------------------------

@@ -4,22 +4,24 @@
 
 #include "tcp_stream.h"
 
-#include <coroutine>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
-#include <spdlog/spdlog.h>
-#include <string>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
-#include <sys/socket.h>
-#include <sys/types.h>
 #include <cerrno>
-#include <expected>
-#include <utility>
 #include <optional>
 #include <span>
+#include <string>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
+#include <utility>
 
-#include "coro/checkpoint.hpp"
-#include "infrastructure/network/transport/socket_ops.h"
+#include <coroutine>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
+
+#include <expected>
+#include <spdlog/spdlog.h>
+#include <sys/socket.h>
+#include <sys/types.h>
+
 #include "coro/cancelled.h"
+#include "coro/scope.hpp"
 #include "coro/task.hpp"
 #include "infrastructure/network/transport/io_error.h"
+#include "infrastructure/network/transport/socket_ops.h"
 
 namespace net {
 
@@ -31,7 +33,7 @@ TcpStream::~TcpStream() {
 }
 
 coro::Task<std::expected<void, IoError>> TcpStream::ensure_connected() {
-    co_await coro::checkpoint();
+    (co_await coro::current_scope()).throw_if_cancelled();
     if (connected_ && is_healthy()) {
         co_return {};
     }
@@ -67,7 +69,7 @@ coro::Task<std::expected<void, IoError>> TcpStream::ensure_connected() {
 }
 
 coro::Task<std::expected<std::size_t, IoError>> TcpStream::read_some(std::span<std::uint8_t> buf) {
-    co_await coro::checkpoint();
+    (co_await coro::current_scope()).throw_if_cancelled();
     if (buf.empty()) {
         co_return 0;
     }
@@ -86,7 +88,7 @@ coro::Task<std::expected<std::size_t, IoError>> TcpStream::read_some(std::span<s
 }
 
 coro::Task<std::expected<void, IoError>> TcpStream::read_exact(std::span<std::uint8_t> buf) {
-    co_await coro::checkpoint();
+    (co_await coro::current_scope()).throw_if_cancelled();
     if (buf.empty()) {
         co_return {};
     }
@@ -97,7 +99,7 @@ coro::Task<std::expected<void, IoError>> TcpStream::read_exact(std::span<std::ui
 }
 
 coro::Task<std::expected<void, IoError>> TcpStream::send_all(std::span<const std::uint8_t> data) {
-    co_await coro::checkpoint();
+    (co_await coro::current_scope()).throw_if_cancelled();
     if (data.empty()) {
         co_return {};
     }

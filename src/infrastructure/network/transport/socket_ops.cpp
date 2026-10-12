@@ -21,6 +21,7 @@
 
 #include "coro/checkpoint.hpp"
 #include "coro/fd_wait.hpp"
+#include "coro/scope.hpp"
 #include "domain/network/address_family.h"
 #include "infrastructure/network/address/socket_addr.h"
 
@@ -220,7 +221,7 @@ coro::Task<std::expected<std::size_t, IoError>> send_some(const int fd, const st
 }
 
 coro::Task<std::expected<void, IoError>> recv_exact(const int fd, const std::span<std::uint8_t> buf) {
-    co_await coro::checkpoint();
+    (co_await coro::current_scope()).throw_if_cancelled();
     auto remaining = buf;
     while (!remaining.empty()) {
         auto received = co_await recv_some(fd, remaining);
@@ -236,7 +237,7 @@ coro::Task<std::expected<void, IoError>> recv_exact(const int fd, const std::spa
 }
 
 coro::Task<std::expected<void, IoError>> send_all(const int fd, const std::span<const std::uint8_t> data) {
-    co_await coro::checkpoint();
+    (co_await coro::current_scope()).throw_if_cancelled();
     auto remaining = data;
     while (!remaining.empty()) {
         auto sent = co_await send_some(fd, remaining);

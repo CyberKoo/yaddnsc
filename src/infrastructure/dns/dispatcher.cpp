@@ -39,7 +39,7 @@
 #include "infrastructure/dns/resolver/resolver.h"
 #include "infrastructure/dns/types.h"
 #include "infrastructure/dns/util.hpp"
-#include "infrastructure/dns/wire/query_util.h"
+#include "infrastructure/dns/wire/builder.h"
 #include "infrastructure/logging/level_enabled.h"
 #include "support/fmt.hpp"
 #include "support/util/random.hpp"
@@ -271,12 +271,12 @@ coro::Task<std::expected<std::vector<std::string>, domain::DnsErrorInfo>> Dispat
 
     if (host.empty())
         host = ".";  // Root name, not the parser's unfiltered diagnostic mode.
-    // Map a local input defect to INVALID_QUERY before any backend is reached.
-    // Every backend still builds its own query — the transaction ID must differ
-    // per packet — so the win is failing the search here rather than after a
-    // backend has already queued, built and sent a request.
+    // Validate local input without entropy: this packet is never sent. Actual
+    // backends acquire secure IDs and translate entropy failure to CONNECTION,
+    // so it participates in the same failover/retry policy as other operations.
     try {
-        [[maybe_unused]] const auto checked = build_query(host, Util::type_to_record_type(kind));
+        [[maybe_unused]] const auto checked =
+            QueryBuilder{0}.add_question(host, Util::type_to_record_type(kind)).build();
     } catch (const DnsPacketException& error) {
         co_return std::unexpected(domain::DnsErrorInfo{domain::DnsError::INVALID_QUERY, error.what()});
     }

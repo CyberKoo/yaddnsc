@@ -47,6 +47,8 @@ enum class Strategy {
 /// CONFIG, PARSE, operational failure, NODATA, then NXDOMAIN. Single-backend
 /// retry uses a cancellable backoff. Multiple backends exhaust alternatives
 /// first, then allow at most one recovery round for transient failures.
+/// Input preflight does not acquire entropy. Backend secure-ID failures return
+/// CONNECTION and participate in the normal failover/retry policy.
 /// Cancellation throws `coro::Cancelled`; children are cancelled and joined.
 /// Thread safety: resolve() runs concurrently, once per subdomain task, and
 /// one dispatcher serves all of them. Safety comes from the backends, each of

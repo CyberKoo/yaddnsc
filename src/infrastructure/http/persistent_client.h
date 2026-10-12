@@ -36,7 +36,10 @@ struct Origin {
 /// Failure: expected<Response, Error>; the constructor rejects an invalid base
 /// URL by throwing std::invalid_argument (a precondition the caller cannot
 /// recover from).
-/// Thread safety: the session serializes concurrent exchanges.
+/// Cancellation: inherited from the caller scope. Bound the complete exchange
+/// with a deadline scope; local connect/queue budgets do not bound response
+/// reads. Keep-alive expiry uses loop time and is checked before reuse.
+/// Thread safety: loop-thread only; the session serializes concurrent exchanges.
 class PersistentClient {
 public:
     /// @param base_url  Origin, e.g. "https://api.example.com" (a path is

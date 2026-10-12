@@ -19,6 +19,11 @@
 
 #include <gtest/gtest.h>
 
+TEST(RandomCryptoTest, HealthySource_ReturnsCheckedValue) {
+    const auto value = Utils::Random::crypto_u16();
+    ASSERT_TRUE(value.has_value());
+}
+
 TEST(RandomEngineTest, ReturnsReferenceToMt19937) {
     // Verify the return type is std::mt19937& (not a copy).
     auto& eng = Utils::Random::engine();

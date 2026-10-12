@@ -37,8 +37,10 @@ namespace dns {
 /// policy defaults to a 1.5s attempt and a 500ms per-address connect budget.
 /// Internal defects propagate; cancellation releases the session. Body size is capped at
 /// 16KiB even for direct construction. Redirects are rejected as a local policy.
-/// Thread safety: concurrent queries are serialized by the client's session
-/// mutex, so the connection is never shared by two coroutines at once.
+/// Thread safety: loop-thread only. The resolver mutex serializes admission
+/// before the attempt budget starts; the client's session mutex independently
+/// protects HTTP connection ownership and deferred close. Neither is a
+/// cross-thread lock.
 class DohResolver final : public Resolver {
 public:
     /// @param url      DoH endpoint, e.g. "https://dns.example/dns-query".

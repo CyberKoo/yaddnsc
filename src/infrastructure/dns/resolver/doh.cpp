@@ -25,6 +25,7 @@
 #include "infrastructure/uri/uri.h"
 #include "support/fmt.hpp"
 #include "support/string_util.hpp"
+#include "support/util/random.hpp"
 #include "yaddnsc/util/format.hpp"
 
 namespace dns {
@@ -132,6 +133,8 @@ coro::Task<std::expected<std::vector<std::uint8_t>, domain::DnsErrorInfo>> DohRe
         co_return body;
     } catch (const std::bad_alloc&) {
         throw;
+    } catch (const Utils::Random::EntropyError& error) {
+        co_return std::unexpected(domain::DnsErrorInfo{domain::DnsError::CONNECTION, error.what()});
     } catch (const DnsPacketException& error) {
         co_return std::unexpected(
             domain::DnsErrorInfo{domain::DnsError::INVALID_QUERY,

@@ -36,8 +36,10 @@
 // Admission uses a shared group lifetime token, checked only on the loop.
 // Requests posted after group closure are rejected without dereferencing a dead
 // group. Dispatch/start failures fulfil the promise instead of escaping the
-// loop callback. Worker waiting and loop I/O share one absolute steady-clock
-// deadline, including queueing; worker expiry requests actual exchange cancel.
+// loop callback. Worker waiting uses an absolute steady-clock deadline,
+// including queueing. At admission its remaining duration is translated to a
+// loop-clock deadline; worker expiry requests actual exchange cancel. A manual
+// loop clock does not make real workers or sockets deterministic.
 // There is no slack-based assumption that loop timer processing happens first.
 //
 
@@ -84,7 +86,7 @@ struct BridgeError {
 /// Ownership: held by std::shared_ptr; the worker, the posted spawn closure and
 /// the loop-side coroutine each hold a share, so an abandoned wait never leaves
 /// the loop side with a dangling promise.
-/// Thread safety: `cancelled` is atomic, deadline/request are immutable after
+/// Thread safety: `cancelled` is atomic, worker_deadline/request are immutable after
 /// posting, and the promise synchronizes result delivery. `live_scope` is
 /// loop-thread only: serve_exchange publishes and clears it, and Bridge::cancel
 /// reads it from a lambda posted onto the loop.
@@ -100,9 +102,10 @@ struct BridgeCall {
     /// cancellable. Loop thread only (see above); null before the exchange
     /// starts and after it leaves its scope.
     coro::CancelScope* live_scope = nullptr;
-    /// One absolute budget shared by dispatch, loop I/O and worker waiting.
-    /// Written before posting; immutable after admission.
-    std::chrono::steady_clock::time_point deadline{};
+    /// Real-time boundary covering dispatch, loop I/O and worker waiting.
+    /// Written before posting; immutable afterwards. Never registered directly
+    /// on the loop clock: serve_exchange translates the remaining duration.
+    std::chrono::steady_clock::time_point worker_deadline{};
 };
 
 /// Per-ABI-call state shared by the worker-side cycle and the plugin-facing
@@ -179,9 +182,9 @@ public:
     ///                      application binds its own root group here so bridge
     ///                      work is never a detached task.
     /// @param options       HTTP policy for the loop-side client.
-    /// @param wait_budget   Single absolute budget for admission and I/O. Both
-    ///                      worker and loop observe this same deadline; worker
-    ///                      expiry cancels the loop-side request.
+    /// @param wait_budget   Real-time budget for admission and I/O. The loop
+    ///                      translates the remaining budget to its own clock;
+    ///                      worker expiry cancels the loop-side request.
     Bridge(coro::Loop& loop, coro::TaskGroup& spawn_group, http::Options options,
            std::chrono::milliseconds wait_budget);
 

@@ -27,6 +27,11 @@ namespace dns {
 /// @param host  The domain name to query (e.g. "example.com").
 /// @param type  The DNS record type (e.g. RecordType::A, RecordType::AAAA).
 /// @return      A buffer containing the raw DNS query packet bytes.
+/// @throws DnsPacketException for invalid wire input; Utils::Random::EntropyError
+///         when a secure transaction ID cannot be acquired. Backend and bootstrap
+///         boundaries distinguish these as INVALID_QUERY and CONNECTION errors.
+///         Dispatcher input preflight uses an explicit-ID builder, not this
+///         entropy-acquiring helper; secure-ID failure stays inside an attempt.
 [[nodiscard]] inline std::vector<std::uint8_t> build_query(std::string_view host, RecordType type) {
     return QueryBuilder{}.add_question(host, type).add_edns(/*udp_payload_size=*/1232).build();
 }

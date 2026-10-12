@@ -18,6 +18,7 @@
 #include <expected>
 
 #include "coro/cancelled.h"
+#include "coro/now.hpp"
 #include "coro/scope.hpp"
 #include "domain/network/inet_address.h"  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 #include "infrastructure/http/protocol/wire.h"
@@ -71,7 +72,7 @@ coro::Task<std::expected<Response, Error>> Session::exchange(std::string target,
 
         // An expired keep-alive deadline retires the connection before reuse.
         if (stream_ != nullptr && keep_alive_deadline_.has_value() &&
-            std::chrono::steady_clock::now() >= *keep_alive_deadline_) {
+            co_await coro::current_time() >= *keep_alive_deadline_) {
             drop_connection();
         }
         const bool reused = stream_ != nullptr && stream_->connected();
@@ -110,7 +111,7 @@ coro::Task<std::expected<Response, Error>> Session::exchange(std::string target,
                                         : *raw->keep_alive_max;
         }
         if (raw->keep_alive_timeout.has_value()) {
-            keep_alive_deadline_ = std::chrono::steady_clock::now() + std::chrono::seconds(*raw->keep_alive_timeout);
+            keep_alive_deadline_ = co_await coro::current_time() + std::chrono::seconds(*raw->keep_alive_timeout);
         }
         if (keep_alive_remaining_.has_value()) {
             if (*keep_alive_remaining_ > 0) {
