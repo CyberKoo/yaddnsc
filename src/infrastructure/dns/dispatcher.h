@@ -48,7 +48,7 @@ enum class Strategy {
 /// retry uses a cancellable backoff. Multiple backends exhaust alternatives
 /// first, then allow at most one recovery round for transient failures.
 /// Cancellation throws `coro::Cancelled`; children are cancelled and joined.
-/// Thread safety: resolve() runs concurrently, once per subdomain loop, and
+/// Thread safety: resolve() runs concurrently, once per subdomain task, and
 /// one dispatcher serves all of them. Safety comes from the backends, each of
 /// which serializes its own session — DoT behind an AsyncMutex around the
 /// whole session, DoH behind the PersistentClient's mutex, Classic with a

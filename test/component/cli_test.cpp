@@ -1,5 +1,5 @@
 //
-// Component tests for Composition::dispatch — end-to-end golden behaviour of
+// Component tests for Composition::run — end-to-end golden behaviour of
 // the diagnostic commands (config show/test, run validation ordering, driver
 // list/info, interface list/ip, dns resolver, info), incl. exit codes and
 // stderr wording.
@@ -69,8 +69,8 @@ namespace {
     return std::string(R"({"drivers":{"driver_dir":")") + TEST_DRIVER_DIR +
            R"(/simple","auto_discover":true,"load":[]},"resolver":{"use_custom_servers":false},)"
            R"("domains":[{"name":"yaddnsc.test","update_interval":60,"driver":"simple",)"
-           R"("subdomains":[{"name":"iface","type":"a","ip_source":"interface","interface":")" + iface +
-           R"(","driver_params":)" + driver_params + R"(}]}]})";
+           R"("subdomains":[{"name":"iface","type":"a","ip_source":"interface","interface":")" +
+           iface + R"(","driver_params":)" + driver_params + R"(}]}]})";
 }
 
 /// Any interface name known to the OS (loopback at minimum).
@@ -104,29 +104,29 @@ private:
 }  // namespace
 
 // ===========================================================================
-//  Composition::dispatch — config show / config test
+//  Composition::run — config show / config test
 // ===========================================================================
 
-TEST(CliConfigTest, DispatchShow_ValidConfig_ReturnsZero) {
+TEST(CliConfigTest, RunShow_ValidConfig_ReturnsZero) {
     TempConfigFile cfg{std::string(Fixtures::MINIMAL_CONFIG)};
-    EXPECT_EQ(Composition::dispatch(Cli::ConfigShowCommand{cfg.path()}), EXIT_SUCCESS);
+    EXPECT_EQ(Composition::run(Cli::ConfigShowCommand{cfg.path()}), EXIT_SUCCESS);
 }
 
-TEST(CliConfigTest, DispatchShow_InvalidJson_ReturnsFailure) {
+TEST(CliConfigTest, RunShow_InvalidJson_ReturnsFailure) {
     TempConfigFile cfg{std::string(Fixtures::INVALID_JSON)};
-    EXPECT_EQ(Composition::dispatch(Cli::ConfigShowCommand{cfg.path()}), EXIT_FAILURE);
+    EXPECT_EQ(Composition::run(Cli::ConfigShowCommand{cfg.path()}), EXIT_FAILURE);
 }
 
-TEST(CliConfigTest, DispatchShow_InvalidJson_PrintsErrorToStderr) {
+TEST(CliConfigTest, RunShow_InvalidJson_PrintsErrorToStderr) {
     TempConfigFile cfg{std::string(Fixtures::INVALID_JSON)};
 
     StreamCapture err{STDERR_FILENO};
-    EXPECT_EQ(Composition::dispatch(Cli::ConfigShowCommand{cfg.path()}), EXIT_FAILURE);
+    EXPECT_EQ(Composition::run(Cli::ConfigShowCommand{cfg.path()}), EXIT_FAILURE);
     EXPECT_NE(err.str().find("Error: "), std::string::npos);
 }
 
-TEST(CliConfigTest, DispatchShow_MissingFile_ReturnsFailure) {
-    EXPECT_EQ(Composition::dispatch(Cli::ConfigShowCommand{"/nonexistent/yaddnsc_config.json"}), EXIT_FAILURE);
+TEST(CliConfigTest, RunShow_MissingFile_ReturnsFailure) {
+    EXPECT_EQ(Composition::run(Cli::ConfigShowCommand{"/nonexistent/yaddnsc_config.json"}), EXIT_FAILURE);
 }
 
 // Intentional behaviour: config show redacts sensitive driver_params fields by
@@ -134,7 +134,7 @@ TEST(CliConfigTest, DispatchShow_MissingFile_ReturnsFailure) {
 // contains "token", "password", "secret" or "key"; the whole value is
 // replaced with "***". Only fake placeholder values are used here — real
 // tokens must never appear in golden files.
-TEST(CliConfigTest, DispatchShow_RedactsSensitiveDriverParams) {
+TEST(CliConfigTest, RunShow_RedactsSensitiveDriverParams) {
     const std::string config_json = R"({
         "drivers": {"auto_discover": false, "load": []},
         "resolver": {"use_custom_servers": false},
@@ -162,7 +162,7 @@ TEST(CliConfigTest, DispatchShow_RedactsSensitiveDriverParams) {
     TempConfigFile cfg(config_json);
 
     StdoutCapture capture;
-    EXPECT_EQ(Composition::dispatch(Cli::ConfigShowCommand{cfg.path()}), EXIT_SUCCESS);
+    EXPECT_EQ(Composition::run(Cli::ConfigShowCommand{cfg.path()}), EXIT_SUCCESS);
     const std::string out = capture.str();
 
     // Every sensitive value is replaced, whatever its original type or nesting.
@@ -185,7 +185,7 @@ TEST(CliConfigTest, DispatchShow_RedactsSensitiveDriverParams) {
 
 // Address fields are plain strings, so key-based redaction cannot see
 // credentials embedded as URI userinfo; they are masked separately.
-TEST(CliConfigTest, DispatchShow_RedactsUriCredentials) {
+TEST(CliConfigTest, RunShow_RedactsUriCredentials) {
     const std::string config_json = R"({
         "drivers": {"auto_discover": false, "load": []},
         "resolver": {
@@ -207,7 +207,7 @@ TEST(CliConfigTest, DispatchShow_RedactsUriCredentials) {
     TempConfigFile cfg(config_json);
 
     StdoutCapture capture;
-    EXPECT_EQ(Composition::dispatch(Cli::ConfigShowCommand{cfg.path()}), EXIT_SUCCESS);
+    EXPECT_EQ(Composition::run(Cli::ConfigShowCommand{cfg.path()}), EXIT_SUCCESS);
     const std::string out = capture.str();
 
     EXPECT_EQ(out.find("fake-user"), std::string::npos);
@@ -216,61 +216,61 @@ TEST(CliConfigTest, DispatchShow_RedactsUriCredentials) {
     EXPECT_NE(out.find("https://***@ifconfig.example.net/ip"), std::string::npos);
 }
 
-TEST(CliConfigTest, DispatchTest_ValidConfig_ReturnsZero) {
+TEST(CliConfigTest, RunTest_ValidConfig_ReturnsZero) {
     TempConfigFile cfg(config_with_simple_driver());
-    EXPECT_EQ(Composition::dispatch(Cli::ConfigTestCommand{cfg.path()}), EXIT_SUCCESS);
+    EXPECT_EQ(Composition::run(Cli::ConfigTestCommand{cfg.path()}), EXIT_SUCCESS);
 }
 
-TEST(CliConfigTest, DispatchTest_AutoDiscoverValidConfig_ReturnsZero) {
+TEST(CliConfigTest, RunTest_AutoDiscoverValidConfig_ReturnsZero) {
     // auto_discover over the real driver directory, with a driver_params the
     // simple driver's own schema accepts.
     const auto iface = any_interface_name();
     ASSERT_FALSE(iface.empty()) << "no network interfaces available";
     TempConfigFile cfg(config_with_interface_source(iface, R"({"url":"http://127.0.0.1:1/ip?ip={ip_addr}"})"));
 
-    EXPECT_EQ(Composition::dispatch(Cli::ConfigTestCommand{cfg.path()}), EXIT_SUCCESS);
+    EXPECT_EQ(Composition::run(Cli::ConfigTestCommand{cfg.path()}), EXIT_SUCCESS);
 }
 
-TEST(CliConfigTest, DispatchTest_ValidConfig_PrintsPassed) {
+TEST(CliConfigTest, RunTest_ValidConfig_PrintsPassed) {
     TempConfigFile cfg(config_with_simple_driver());
 
     StdoutCapture capture;
-    EXPECT_EQ(Composition::dispatch(Cli::ConfigTestCommand{cfg.path()}), EXIT_SUCCESS);
+    EXPECT_EQ(Composition::run(Cli::ConfigTestCommand{cfg.path()}), EXIT_SUCCESS);
     EXPECT_NE(capture.str().find("Configuration file test passed"), std::string::npos);
 }
 
-TEST(CliConfigTest, DispatchTest_Quiet_PrintsNothingAndPreservesLogLevel) {
+TEST(CliConfigTest, RunTest_Quiet_PrintsNothingAndPreservesLogLevel) {
     TempConfigFile cfg(config_with_simple_driver());
 
     const auto previous_level = spdlog::get_level();
     StdoutCapture capture;
-    EXPECT_EQ(Composition::dispatch(Cli::ConfigTestCommand{cfg.path(), /*quiet=*/true}), EXIT_SUCCESS);
+    EXPECT_EQ(Composition::run(Cli::ConfigTestCommand{cfg.path(), /*quiet=*/true}), EXIT_SUCCESS);
     EXPECT_EQ(capture.str(), "");
     EXPECT_EQ(spdlog::get_level(), previous_level);
 }
 
-TEST(CliConfigTest, DispatchTest_QuietFailure_RestoresLogLevel) {
+TEST(CliConfigTest, RunTest_QuietFailure_RestoresLogLevel) {
     // A quiet failure must still restore the global log level it lowered.
     const auto previous_level = spdlog::get_level();
     TempConfigFile cfg("{");
-    EXPECT_EQ(Composition::dispatch(Cli::ConfigTestCommand{cfg.path(), /*quiet=*/true}), EXIT_FAILURE);
+    EXPECT_EQ(Composition::run(Cli::ConfigTestCommand{cfg.path(), /*quiet=*/true}), EXIT_FAILURE);
     EXPECT_EQ(spdlog::get_level(), previous_level);
 }
 
-TEST(CliConfigTest, DispatchTest_EmptyDriverDir_ReturnsFailure) {
+TEST(CliConfigTest, RunTest_EmptyDriverDir_ReturnsFailure) {
     // driver_dir set but empty → ConfigException at load time.
     TempConfigFile cfg(
         R"({"drivers":{"auto_discover":false,"driver_dir":"","load":["simple/simple.so"]},"resolver":{"use_custom_servers":false},"domains":[]})");
-    EXPECT_EQ(Composition::dispatch(Cli::ConfigTestCommand{cfg.path()}), EXIT_FAILURE);
+    EXPECT_EQ(Composition::run(Cli::ConfigTestCommand{cfg.path()}), EXIT_FAILURE);
 }
 
-TEST(CliConfigTest, DispatchTest_BadDriver_ReturnsFailure) {
+TEST(CliConfigTest, RunTest_BadDriver_ReturnsFailure) {
     // A driver file that does not exist → PluginLoadException (YaddnscException).
     TempConfigFile cfg(config_bad_driver());
-    EXPECT_EQ(Composition::dispatch(Cli::ConfigTestCommand{cfg.path()}), EXIT_FAILURE);
+    EXPECT_EQ(Composition::run(Cli::ConfigTestCommand{cfg.path()}), EXIT_FAILURE);
 }
 
-TEST(CliConfigTest, DispatchTest_EmptyCustomResolverFailsBeforeDriverLoading) {
+TEST(CliConfigTest, RunTest_EmptyCustomResolverFailsBeforeDriverLoading) {
     // The deliberately missing driver must never be considered: static
     // resolver validation happens before catalog loading and environment
     // validation on every runtime path.
@@ -280,20 +280,20 @@ TEST(CliConfigTest, DispatchTest_EmptyCustomResolverFailsBeforeDriverLoading) {
     TempConfigFile cfg(config);
 
     StreamCapture err{STDERR_FILENO};
-    EXPECT_EQ(Composition::dispatch(Cli::ConfigTestCommand{cfg.path()}), EXIT_FAILURE);
+    EXPECT_EQ(Composition::run(Cli::ConfigTestCommand{cfg.path()}), EXIT_FAILURE);
     EXPECT_NE(err.str().find("Configuration verification failed: use_custom_servers is enabled but no custom resolver "
                              "servers are configured"),
               std::string::npos);
 }
 
-TEST(CliConfigTest, DispatchTest_InterfaceMissing_ReturnsFailure) {
+TEST(CliConfigTest, RunTest_InterfaceMissing_ReturnsFailure) {
     // Environment validation: the interface the subdomain names does not
     // exist, so the config is rejected before any update runs.
     TempConfigFile cfg(config_with_interface_source("no-such-if0", R"({"url":"http://127.0.0.1:1/ip"})"));
-    EXPECT_EQ(Composition::dispatch(Cli::ConfigTestCommand{cfg.path()}), EXIT_FAILURE);
+    EXPECT_EQ(Composition::run(Cli::ConfigTestCommand{cfg.path()}), EXIT_FAILURE);
 }
 
-TEST(CliConfigTest, DispatchTest_DriverParamRejectedByDriver_ReturnsFailure) {
+TEST(CliConfigTest, RunTest_DriverParamRejectedByDriver_ReturnsFailure) {
     // The simple driver requires "url" in driver_params. An empty object must
     // be rejected through the driver's own validate entry point, which is the
     // host's way of catching a bad config before the first update.
@@ -301,19 +301,19 @@ TEST(CliConfigTest, DispatchTest_DriverParamRejectedByDriver_ReturnsFailure) {
     ASSERT_FALSE(iface.empty()) << "no network interfaces available";
     TempConfigFile cfg(config_with_interface_source(iface, "{}"));
 
-    EXPECT_EQ(Composition::dispatch(Cli::ConfigTestCommand{cfg.path()}), EXIT_FAILURE);
+    EXPECT_EQ(Composition::run(Cli::ConfigTestCommand{cfg.path()}), EXIT_FAILURE);
 }
 
-TEST(CliConfigTest, DispatchTest_InvalidJson_ReturnsFailure) {
+TEST(CliConfigTest, RunTest_InvalidJson_ReturnsFailure) {
     TempConfigFile cfg{std::string(Fixtures::INVALID_JSON)};
-    EXPECT_EQ(Composition::dispatch(Cli::ConfigTestCommand{cfg.path()}), EXIT_FAILURE);
+    EXPECT_EQ(Composition::run(Cli::ConfigTestCommand{cfg.path()}), EXIT_FAILURE);
 }
 
-TEST(CliConfigTest, DispatchTest_MissingFile_ReturnsFailure) {
-    EXPECT_EQ(Composition::dispatch(Cli::ConfigTestCommand{"/nonexistent/yaddnsc_config.json"}), EXIT_FAILURE);
+TEST(CliConfigTest, RunTest_MissingFile_ReturnsFailure) {
+    EXPECT_EQ(Composition::run(Cli::ConfigTestCommand{"/nonexistent/yaddnsc_config.json"}), EXIT_FAILURE);
 }
 
-TEST(CliConfigTest, DispatchTest_DriverNotLoaded_ReturnsFailure) {
+TEST(CliConfigTest, RunTest_DriverNotLoaded_ReturnsFailure) {
     // A domain whose referenced driver is not loaded → environment validation
     // failure (after drivers load successfully). update_interval is set so
     // static validation passes and the environment check is what fails.
@@ -326,26 +326,26 @@ TEST(CliConfigTest, DispatchTest_DriverNotLoaded_ReturnsFailure) {
     TempConfigFile cfg(invalid_domain_config);
 
     StreamCapture err{STDERR_FILENO};
-    EXPECT_EQ(Composition::dispatch(Cli::ConfigTestCommand{cfg.path()}), EXIT_FAILURE);
+    EXPECT_EQ(Composition::run(Cli::ConfigTestCommand{cfg.path()}), EXIT_FAILURE);
     EXPECT_NE(err.str().find("Configuration verification failed: Driver cloudflare not found"), std::string::npos);
 }
 
 // parse → dispatch round trip: the wiring from argv to exit code.
-TEST(CliConfigTest, ParseThenDispatch_TestQuietAlias_ReturnsZero) {
+TEST(CliConfigTest, ParseThenRun_TestQuietAlias_ReturnsZero) {
     TempConfigFile cfg(config_with_simple_driver());
     auto parsed = parse({"yaddnsc", "config", "t", "-q", "-c", cfg.path()});
     ASSERT_TRUE(parsed.command.has_value());
 
     StdoutCapture capture;
-    EXPECT_EQ(Composition::dispatch(*parsed.command), EXIT_SUCCESS);
+    EXPECT_EQ(Composition::run(*parsed.command), EXIT_SUCCESS);
     EXPECT_EQ(capture.str(), "");
 }
 
 // ===========================================================================
-//  Composition::dispatch — run
+//  Composition::run — run
 // ===========================================================================
 
-TEST(CliRunTest, DispatchRun_EmptyCustomResolverFailsBeforeDriverLoading) {
+TEST(CliRunTest, Run_EmptyCustomResolverFailsBeforeDriverLoading) {
     // Same guarantee as config test, on the run path: static resolver
     // validation precedes driver loading, resolver creation and scheduling,
     // so the deliberately missing driver must never be considered.
@@ -361,7 +361,7 @@ TEST(CliRunTest, DispatchRun_EmptyCustomResolverFailsBeforeDriverLoading) {
 
     StreamCapture out{STDOUT_FILENO};
     StreamCapture err{STDERR_FILENO};
-    EXPECT_EQ(Composition::dispatch(Cli::RunCommand{cfg.path()}), EXIT_FAILURE);
+    EXPECT_EQ(Composition::run(Cli::RunCommand{cfg.path()}), EXIT_FAILURE);
 
     spdlog::set_level(previous_level);
 
@@ -373,15 +373,14 @@ TEST(CliRunTest, DispatchRun_EmptyCustomResolverFailsBeforeDriverLoading) {
     EXPECT_EQ(logged.find("definitely_missing_driver"), std::string::npos);
 }
 
-TEST(CliRunTest, DispatchRun_InterfaceMissing_ReturnsFailure) {
+TEST(CliRunTest, Run_InterfaceMissing_ReturnsFailure) {
     // Environment validation failure on the run path: the named interface
-    // does not exist, so the run root never starts.
-    TempConfigFile cfg(
-        config_with_interface_source("no-such-if0", R"({"url":"http://127.0.0.1:1/ip?ip={ip_addr}"})"));
-    EXPECT_EQ(Composition::dispatch(Cli::RunCommand{cfg.path()}), EXIT_FAILURE);
+    // does not exist, so the main loop never starts.
+    TempConfigFile cfg(config_with_interface_source("no-such-if0", R"({"url":"http://127.0.0.1:1/ip?ip={ip_addr}"})"));
+    EXPECT_EQ(Composition::run(Cli::RunCommand{cfg.path()}), EXIT_FAILURE);
 }
 
-TEST(CliRunTest, DispatchRun_MultipleConfigErrors_AreAggregated) {
+TEST(CliRunTest, Run_MultipleConfigErrors_AreAggregated) {
     // Two independent problems in one file. The run path joins every
     // collected message into a single critical line, so a user fixes the
     // whole config in one pass instead of rediscovering errors one run at
@@ -417,134 +416,135 @@ TEST(CliRunTest, DispatchRun_MultipleConfigErrors_AreAggregated) {
     // The run handler returns EXIT_FAILURE for an invalid config and never
     // reaches the lifecycle, so this terminates.
     LoggerCapture logs;
-    EXPECT_EQ(Composition::dispatch(Cli::RunCommand{cfg.path()}), EXIT_FAILURE);
+    EXPECT_EQ(Composition::run(Cli::RunCommand{cfg.path()}), EXIT_FAILURE);
     EXPECT_NE(logs.str().find("Subdomain a.yaddnsc.test uses interface IP source but 'interface' field is empty"),
               std::string::npos);
     EXPECT_NE(logs.str().find("Subdomain b.yaddnsc.test uses interface IP source but 'interface' field is empty"),
               std::string::npos);
 }
 
-TEST(CliRunTest, DispatchRun_MalformedConfig_ReportsConfigError) {
+TEST(CliRunTest, Run_MalformedConfig_ReportsConfigError) {
     // A config that cannot even be parsed is an expected startup failure: the
     // run handler logs the parse diagnostic and returns EXIT_FAILURE instead
-    // of letting the exception escape dispatch().
+    // of letting the exception escape run().
     TempConfigFile cfg{R"({ "domains": [ )"};
     LoggerCapture logs;
-    EXPECT_EQ(Composition::dispatch(Cli::RunCommand{cfg.path()}), EXIT_FAILURE);
+    EXPECT_EQ(Composition::run(Cli::RunCommand{cfg.path()}), EXIT_FAILURE);
     // The parse diagnostic names the offending file.
     EXPECT_NE(logs.str().find(cfg.path()), std::string::npos);
 }
 
 // ===========================================================================
-//  Composition::dispatch — driver list / info
+//  Composition::run — driver list / info
 // ===========================================================================
 
-TEST(CliDriverTest, DispatchList_WithDrivers_ReturnsZero) {
+TEST(CliDriverTest, RunList_WithDrivers_ReturnsZero) {
     TempConfigFile cfg(config_with_simple_driver());
 
     StdoutCapture capture;
-    EXPECT_EQ(Composition::dispatch(Cli::DriverListCommand{cfg.path()}), EXIT_SUCCESS);
+    EXPECT_EQ(Composition::run(Cli::DriverListCommand{cfg.path()}), EXIT_SUCCESS);
     const std::string out = capture.str();
     EXPECT_NE(out.find("Loaded drivers (1):"), std::string::npos);
     EXPECT_NE(out.find("simple"), std::string::npos);
 }
 
-TEST(CliDriverTest, DispatchList_NoDrivers_ReturnsZero) {
+TEST(CliDriverTest, RunList_NoDrivers_ReturnsZero) {
     TempConfigFile cfg(config_no_drivers());
 
     StdoutCapture capture;
-    EXPECT_EQ(Composition::dispatch(Cli::DriverListCommand{cfg.path()}), EXIT_SUCCESS);
+    EXPECT_EQ(Composition::run(Cli::DriverListCommand{cfg.path()}), EXIT_SUCCESS);
     EXPECT_NE(capture.str().find("No drivers loaded."), std::string::npos);
 }
 
-TEST(CliDriverTest, DispatchList_InvalidConfig_ReturnsFailure) {
+TEST(CliDriverTest, RunList_InvalidConfig_ReturnsFailure) {
     TempConfigFile cfg{"{ not json"};
-    EXPECT_EQ(Composition::dispatch(Cli::DriverListCommand{cfg.path()}), EXIT_FAILURE);
+    EXPECT_EQ(Composition::run(Cli::DriverListCommand{cfg.path()}), EXIT_FAILURE);
 }
 
-TEST(CliDriverTest, DispatchInfo_KnownDriver_ReturnsZero) {
+TEST(CliDriverTest, RunInfo_KnownDriver_ReturnsZero) {
     TempConfigFile cfg(config_with_simple_driver());
 
     StdoutCapture capture;
-    EXPECT_EQ(Composition::dispatch(Cli::DriverInfoCommand{cfg.path(), "simple"}), EXIT_SUCCESS);
+    EXPECT_EQ(Composition::run(Cli::DriverInfoCommand{cfg.path(), "simple"}), EXIT_SUCCESS);
     const std::string out = capture.str();
     EXPECT_NE(out.find("Name:        simple"), std::string::npos);
     EXPECT_NE(out.find("Version:     "), std::string::npos);
 }
 
-TEST(CliDriverTest, DispatchInfo_UnknownDriver_ReturnsFailure) {
+TEST(CliDriverTest, RunInfo_UnknownDriver_ReturnsFailure) {
+    LoggerCapture logs;
     TempConfigFile cfg(config_with_simple_driver());
 
     StreamCapture err{STDERR_FILENO};
     StdoutCapture out;
-    EXPECT_EQ(Composition::dispatch(Cli::DriverInfoCommand{cfg.path(), "not_a_driver"}), EXIT_FAILURE);
+    EXPECT_EQ(Composition::run(Cli::DriverInfoCommand{cfg.path(), "not_a_driver"}), EXIT_FAILURE);
     EXPECT_EQ(err.str(), "Error: Driver 'not_a_driver' is not loaded\n");
     EXPECT_EQ(out.str().find("Name:"), std::string::npos);
 }
 
 // ===========================================================================
-//  Composition::dispatch — interface list / ip
+//  Composition::run — interface list / ip
 // ===========================================================================
 
-TEST(CliInterfaceTest, DispatchList_ReturnsZero) {
-    EXPECT_EQ(Composition::dispatch(Cli::InterfaceListCommand{}), EXIT_SUCCESS);
+TEST(CliInterfaceTest, RunList_ReturnsZero) {
+    EXPECT_EQ(Composition::run(Cli::InterfaceListCommand{}), EXIT_SUCCESS);
 }
 
-TEST(CliInterfaceTest, DispatchIp_KnownInterface_ReturnsZero) {
+TEST(CliInterfaceTest, RunIp_KnownInterface_ReturnsZero) {
     const auto iface = any_interface_name();
     ASSERT_FALSE(iface.empty()) << "no network interfaces available";
 
     StdoutCapture capture;
-    EXPECT_EQ(Composition::dispatch(Cli::InterfaceIpCommand{iface}), EXIT_SUCCESS);
+    EXPECT_EQ(Composition::run(Cli::InterfaceIpCommand{iface}), EXIT_SUCCESS);
     EXPECT_NE(capture.str().find("Interface: " + iface), std::string::npos);
 }
 
-TEST(CliInterfaceTest, DispatchIp_UnknownInterface_ReturnsFailure) {
+TEST(CliInterfaceTest, RunIp_UnknownInterface_ReturnsFailure) {
     StreamCapture err{STDERR_FILENO};
-    EXPECT_EQ(Composition::dispatch(Cli::InterfaceIpCommand{"yaddnsc_definitely_no_such_iface"}), EXIT_FAILURE);
+    EXPECT_EQ(Composition::run(Cli::InterfaceIpCommand{"yaddnsc_definitely_no_such_iface"}), EXIT_FAILURE);
     EXPECT_NE(err.str().find("Error: Interface yaddnsc_definitely_no_such_iface not found"), std::string::npos);
 }
 
 // ===========================================================================
-//  Composition::dispatch — dns resolver / info
+//  Composition::run — dns resolver / info
 // ===========================================================================
 
-TEST(CliDnsTest, DispatchResolver_Default_ReturnsZero) {
+TEST(CliDnsTest, RunResolver_Default_ReturnsZero) {
     TempConfigFile cfg{std::string(Fixtures::MINIMAL_CONFIG)};
 
     StdoutCapture capture;
-    EXPECT_EQ(Composition::dispatch(Cli::DnsResolverCommand{cfg.path()}), EXIT_SUCCESS);
+    EXPECT_EQ(Composition::run(Cli::DnsResolverCommand{cfg.path()}), EXIT_SUCCESS);
     EXPECT_NE(capture.str().find("DNS resolver configuration:"), std::string::npos);
 }
 
-TEST(CliDnsTest, DispatchResolver_UriServers_ReturnsZero) {
+TEST(CliDnsTest, RunResolver_UriServers_ReturnsZero) {
     TempConfigFile cfg{
         R"({"drivers":{"auto_discover":false,"load":[]},"resolver":{"use_custom_servers":true,"servers":[{"address":"https://1.1.1.1/dns-query","port":443}]},"domains":[]})"};
 
     StdoutCapture capture;
-    EXPECT_EQ(Composition::dispatch(Cli::DnsResolverCommand{cfg.path()}), EXIT_SUCCESS);
+    EXPECT_EQ(Composition::run(Cli::DnsResolverCommand{cfg.path()}), EXIT_SUCCESS);
     EXPECT_NE(capture.str().find("https://1.1.1.1/dns-query"), std::string::npos);
 }
 
-TEST(CliDnsTest, DispatchResolver_BareServers_ReturnsZero) {
+TEST(CliDnsTest, RunResolver_BareServers_ReturnsZero) {
     TempConfigFile cfg{
         R"({"drivers":{"auto_discover":false,"load":[]},"resolver":{"use_custom_servers":true,"servers":[{"address":"8.8.8.8","port":53}]},"domains":[]})"};
 
     StdoutCapture capture;
-    EXPECT_EQ(Composition::dispatch(Cli::DnsResolverCommand{cfg.path()}), EXIT_SUCCESS);
+    EXPECT_EQ(Composition::run(Cli::DnsResolverCommand{cfg.path()}), EXIT_SUCCESS);
     EXPECT_NE(capture.str().find("8.8.8.8:53"), std::string::npos);
 }
 
-TEST(CliDnsTest, DispatchResolver_SingleEntryList_ReturnsZero) {
+TEST(CliDnsTest, RunResolver_SingleEntryList_ReturnsZero) {
     TempConfigFile cfg{
         R"({"drivers":{"auto_discover":false,"load":[]},"resolver":{"use_custom_servers":true,"servers":[{"address":"9.9.9.9","port":53}]},"domains":[]})"};
 
     StdoutCapture capture;
-    EXPECT_EQ(Composition::dispatch(Cli::DnsResolverCommand{cfg.path()}), EXIT_SUCCESS);
+    EXPECT_EQ(Composition::run(Cli::DnsResolverCommand{cfg.path()}), EXIT_SUCCESS);
     EXPECT_NE(capture.str().find("9.9.9.9:53"), std::string::npos);
 }
 
-TEST(CliDnsTest, DispatchResolver_MultipleServers_AreAllListed) {
+TEST(CliDnsTest, RunResolver_MultipleServers_AreAllListed) {
     TempConfigFile cfg{R"({
   "drivers": { "auto_discover": false, "load": [] },
   "resolver": {
@@ -560,14 +560,14 @@ TEST(CliDnsTest, DispatchResolver_MultipleServers_AreAllListed) {
 )"};
 
     StdoutCapture capture;
-    EXPECT_EQ(Composition::dispatch(Cli::DnsResolverCommand{cfg.path()}), EXIT_SUCCESS);
+    EXPECT_EQ(Composition::run(Cli::DnsResolverCommand{cfg.path()}), EXIT_SUCCESS);
     const std::string out = capture.str();
     EXPECT_NE(out.find("1.1.1.1:53"), std::string::npos);
     EXPECT_NE(out.find("tls://8.8.8.8"), std::string::npos);
     EXPECT_NE(out.find("https://dns.example/dns-query"), std::string::npos);
 }
 
-TEST(CliDnsTest, DispatchResolver_UnparsableAddress_FallsBackToRaw) {
+TEST(CliDnsTest, RunResolver_UnparsableAddress_FallsBackToRaw) {
     // The display helper must never fail: a malformed address is shown as-is.
     TempConfigFile cfg{R"({
   "drivers": { "auto_discover": false, "load": [] },
@@ -579,7 +579,7 @@ TEST(CliDnsTest, DispatchResolver_UnparsableAddress_FallsBackToRaw) {
 }
 )"};
 
-    EXPECT_EQ(Composition::dispatch(Cli::DnsResolverCommand{cfg.path()}), EXIT_SUCCESS);
+    EXPECT_EQ(Composition::run(Cli::DnsResolverCommand{cfg.path()}), EXIT_SUCCESS);
 }
 
 // The dns resolve dispatch path builds a real resolver dispatcher from the
@@ -587,7 +587,8 @@ TEST(CliDnsTest, DispatchResolver_UnparsableAddress_FallsBackToRaw) {
 // app::dns_resolve returns "no lookup" and the presenter reports the
 // valid set. Command is constructed directly (the parser would reject the
 // type), keeping the test on loopback-free, deterministic ground.
-TEST(CliDnsTest, DispatchResolve_UnknownType_PrintsValidTypes) {
+TEST(CliDnsTest, RunResolve_UnknownType_PrintsValidTypes) {
+    LoggerCapture logs;
     // The dispatch path validates the config before resolving, so the file
     // must hold at least one statically-valid domain.
     TempConfigFile cfg{
@@ -595,20 +596,20 @@ TEST(CliDnsTest, DispatchResolve_UnknownType_PrintsValidTypes) {
         one_http_domain() + "}"};
 
     StreamCapture err{STDERR_FILENO};
-    EXPECT_EQ(Composition::dispatch(Cli::DnsResolveCommand{cfg.path(), "example.com", "BOGUS"}), EXIT_FAILURE);
+    EXPECT_EQ(Composition::run(Cli::DnsResolveCommand{cfg.path(), "example.com", "BOGUS"}), EXIT_FAILURE);
     EXPECT_EQ(err.str(), "Error: unknown record type 'BOGUS'.\nValid types: A, AAAA, TXT\n");
 }
 
-TEST(CliDnsTest, DispatchResolve_MissingConfig_ReturnsFailure) {
+TEST(CliDnsTest, RunResolve_MissingConfig_ReturnsFailure) {
     StreamCapture err{STDERR_FILENO};
-    EXPECT_EQ(Composition::dispatch(Cli::DnsResolveCommand{"/nonexistent/yaddnsc_config.json", "example.com", "A"}),
+    EXPECT_EQ(Composition::run(Cli::DnsResolveCommand{"/nonexistent/yaddnsc_config.json", "example.com", "A"}),
               EXIT_FAILURE);
     EXPECT_NE(err.str().find("Error: "), std::string::npos);
 }
 
-TEST(CliInfoTest, DispatchInfo_PrintsKeyFields) {
+TEST(CliInfoTest, RunInfo_PrintsKeyFields) {
     StdoutCapture capture;
-    EXPECT_EQ(Composition::dispatch(Cli::InfoCommand{}), EXIT_SUCCESS);
+    EXPECT_EQ(Composition::run(Cli::InfoCommand{}), EXIT_SUCCESS);
     const std::string out = capture.str();
 
     EXPECT_NE(out.find("Version:"), std::string::npos);

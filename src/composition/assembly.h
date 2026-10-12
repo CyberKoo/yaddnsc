@@ -1,6 +1,7 @@
 #ifndef YADDNSC_COMPOSITION_ASSEMBLY_H
 #define YADDNSC_COMPOSITION_ASSEMBLY_H
 
+#include <chrono>
 #include <memory>
 #include <span>
 #include <string>
@@ -27,7 +28,11 @@ class Loop;
 namespace Composition::internal {
 /// Production defaults shared by the command assembly paths.
 inline constexpr dns::Policy DNS_POLICY{};
-inline constexpr app::UpdatePolicy UPDATE_POLICY{};
+/// Per-record budget for one driver's configuration validation. Injected, not
+/// defaulted downstream, so `run` and `config test` apply the same deadline to
+/// the same plugin call.
+inline constexpr std::chrono::milliseconds CONFIG_VALIDATION_BUDGET{5000};
+inline constexpr app::UpdatePolicy UPDATE_POLICY{.driver_validation_budget = CONFIG_VALIDATION_BUDGET};
 /// Internal startup helpers; call on the main thread before coro::run.
 /// Configuration and loader failures abort the command; allocation defects propagate.
 [[nodiscard]] spdlog::level::level_enum to_log_level(std::string_view level);

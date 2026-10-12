@@ -35,6 +35,7 @@ struct ConfigError {
         NO_RESOLVER_SERVERS,    ///< use_custom_servers set but no servers configured
         INVALID_BOOTSTRAP_DNS,  ///< bootstrap_dns is not a valid IP literal
         DRIVER_NOT_FOUND,       ///< Referenced driver plugin is not loaded
+        DRIVER_UNSUPPORTED_RECORD,  ///< Referenced driver has no capability for a configured record type
         INTERFACE_NOT_FOUND,    ///< Referenced network interface does not exist
     };
 
@@ -72,7 +73,7 @@ struct DriverError {
 ///     candidate survived the address policy); the cycle is skipped and the
 ///     schedule carries on;
 ///   - DRIVER_FAILED — the driver gateway rejected the update (message and,
-///     retry_after_seconds are copied from DriverError; the subdomain loop
+///     retry_after_seconds are copied from DriverError; the subdomain task
 ///     feeds retry_after into the next delay for backoff rescheduling);
 ///   - UNKNOWN — an unexpected exception escaped the workflow (the legacy
 ///     catch-all boundary, now mapped to an error value).

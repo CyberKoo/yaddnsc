@@ -63,11 +63,25 @@ target_link_libraries(test_environment_validator PRIVATE yaddnsc_application GTe
 # the YLOG_* macros format only when is_enabled() (recording double, header-only)
 add_unit_test(logger_port SOURCE application/logger_port_test.cpp)
 
-# run_root — the per-subdomain loop coroutines on a ManualClock and the run
-# root itself: interval/retry_after/force timing, run_update_cycle decisions, and
+# main_loop — the per-subdomain task coroutines on a ManualClock and the main
+# loop itself: interval/retry_after/force timing, update_task decisions, and
 # supervisor + SIGINT shutdown, all driven by fake ports.
-add_unit_test(run_root SOURCE application/run_root_test.cpp)
-target_link_libraries(test_run_root PRIVATE yaddnsc_coro_application yaddnsc_coro yaddnsc_domain)
+add_unit_test(main_loop SOURCE application/main_loop_test.cpp)
+target_link_libraries(test_main_loop PRIVATE yaddnsc_coro_application yaddnsc_coro yaddnsc_domain)
+
+# ============================================================================
+#  coro/  —  process stop-signal ownership
+# ============================================================================
+
+# stop_signals — one process handler and a latched pipe for startup, runtime
+# and drain; ownership restores handlers between tests/runs.
+add_unit_test(stop_signals SOURCE coro/stop_signals_test.cpp)
+target_link_libraries(test_stop_signals PRIVATE yaddnsc_coro)
+# Inject handler-installation failures without a production test hook.
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    target_link_options(test_stop_signals PRIVATE "LINKER:--wrap=sigaction")
+    target_compile_definitions(test_stop_signals PRIVATE YADDNSC_TEST_WRAP_SIGACTION=1)
+endif()
 
 # ============================================================================
 #  cli/  —  argument parsing and output presentation (src/cli/)
@@ -91,7 +105,7 @@ target_compile_definitions(test_cli_completion PRIVATE YADDNSC_TEMPLATE_DIR="${P
 # ============================================================================
 
 # Coroutine runtime core — loop, Task, structured scopes, cancellation
-# combinators, sleeps, clock reads, AsyncMutex, offload and signals. One
+# combinators, sleeps, clock reads, AsyncMutex, offload and process stop handling. One
 # binary keeps the async runtime tests together:
 #   ctest --test-dir <build> -R coro   (or run test_coro directly)
 add_unit_test(coro
@@ -100,7 +114,6 @@ add_unit_test(coro
            coro/async_mutex_test.cpp
            coro/now_test.cpp
            coro/offload_test.cpp
-           coro/signal_test.cpp
            coro/trace_sink_test.cpp
            coro/loop_test.cpp
            coro/context_contract_test.cpp

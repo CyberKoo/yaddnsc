@@ -5,23 +5,20 @@
 #include "loop.h"
 
 #include <algorithm>
-#include <atomic>
 #include <cassert>
 #include <cerrno>
 #include <chrono>
 #include <climits>
 #include <compare>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
-#include <csignal>  // IWYU pragma: keep — clang resolves sigaction/SA_RESTART transitively, GCC does not
 #include <cstring>  // IWYU pragma: keep — clang resolves std::strerror transitively, GCC does not
 #include <source_location>
 #include <stdexcept>
 #include <string>
-#include <system_error>
 #include <thread>
+#include <utility>
 
 #include <coroutine>
 
-#include <bit>
 #include <poll.h>
 #include <sys/types.h>
 #include <unistd.h>
@@ -51,39 +48,6 @@
 namespace coro {
 
 namespace {
-
-// Process-wide state shared with the signal handler.
-//
-// Justification for globals (rule 04: "prefer explicit ownership over global
-// mutable state"; rule 02: "global/singleton ports must not be introduced"):
-// a POSIX signal handler is an extern "C" free function — it cannot capture a
-// Loop pointer, and async-signal-safety forbids taking a lock, allocating or
-// touching anything but lock-free atomics and write(2). These are plain data
-// (not a port), they are set/cleared by the owning Loop's lifetime, and a
-// process runs one loop at a time, which is the documented model.
-//
-// Because this state can serve exactly one loop, the one-live-loop model is
-// enforced (loop_slot_taken below) rather than left to convention: with two
-// live loops the newer one would hijack the pipe writes, and its
-// process_signals() would consume the older loop's pending bits — a silent
-// misdelivery with no observable failure at the point of the mistake.
-//
-// Synchronization strategy: single-word atomics only. relaxed is enough for
-// the handler (it publishes a bit and a byte; every ordering that matters is
-// established by the self-pipe read), and the loop uses acquire on its reads
-// so it observes the handler's bit before it acts on it.
-
-/// Write end of the process self-pipe; -1 when no loop owns a pipe.
-std::atomic<int> signal_pipe_write_fd{-1};
-/// One pending bit per signal number (bit 0 == signal 1).
-std::atomic<unsigned long long> pending_signals{0};
-/// True while a Loop is alive; constructors take the slot, ~Loop() returns it.
-std::atomic<bool> loop_slot_taken{false};
-static_assert(std::atomic<int>::is_always_lock_free);
-static_assert(std::atomic<unsigned long long>::is_always_lock_free);
-
-/// Signals are 1-based; a 64-bit mask covers the whole POSIX range.
-constexpr int SIGNAL_CAPACITY = 65;
 
 /// Offload pool sizing policy: min(hardware cores, OFFLOAD_WORKER_LIMIT), at
 /// least OFFLOAD_MIN_WORKERS.
@@ -120,35 +84,7 @@ std::string describe_poll_events(short events) {
     return out.empty() ? "0" : out;
 }
 
-/// Take the process-wide loop slot. Throws std::logic_error when another loop
-/// is alive; a constructor that fails after acquiring rolls back with
-/// release_loop_slot().
-void acquire_loop_slot() {
-    if (loop_slot_taken.exchange(true, std::memory_order_acq_rel)) {
-        throw std::logic_error("a coro::Loop is already alive in this process");
-    }
-}
-
-void release_loop_slot() noexcept {
-    loop_slot_taken.store(false, std::memory_order_release);
-}
-
 }  // namespace
-
-/// Signal handler: set a pending bit and nudge the loop. No allocation, no
-/// locks, no second notification domain.
-extern "C" void coro_signal_handler(int sig) {
-    const int saved_errno = errno;
-    if (sig > 0 && sig < SIGNAL_CAPACITY) {
-        pending_signals.fetch_or(1ULL << (sig - 1), std::memory_order_relaxed);
-    }
-    const int fd = signal_pipe_write_fd.load(std::memory_order_relaxed);
-    if (fd >= 0) {
-        const char byte = 0;
-        [[maybe_unused]] const ssize_t written = ::write(fd, &byte, 1);
-    }
-    errno = saved_errno;
-}
 
 // The offload worker pool. Defined here so BS_thread_pool.hpp reaches exactly
 // one translation unit: loop.h declares Pool and nothing else names BS.
@@ -175,33 +111,19 @@ private:
     BS::thread_pool<> pool;
 };
 
-Loop::Loop() : clock_(&system_clock_), signal_waiters_(static_cast<std::size_t>(SIGNAL_CAPACITY)) {
-    acquire_loop_slot();
-    try {
-        open_self_pipe();
-    } catch (...) {
-        release_loop_slot();
-        throw;
-    }
+Loop::Loop() : clock_(&system_clock_) {
+    open_self_pipe();
 }
 
-Loop::Loop(Clock& clock) : clock_(&clock), signal_waiters_(static_cast<std::size_t>(SIGNAL_CAPACITY)) {
-    acquire_loop_slot();
-    try {
-        open_self_pipe();
-    } catch (...) {
-        release_loop_slot();
-        throw;
-    }
+Loop::Loop(Clock& clock) : clock_(&clock) {
+    open_self_pipe();
 }
 
 Loop::~Loop() noexcept {
     // Workers may still post after their awaits were cancelled. Join while
     // both the inbox and the wake pipe are alive.
     pool_.reset();
-    restore_signals();
     close_self_pipe();
-    release_loop_slot();
 }
 
 void Loop::open_self_pipe() {
@@ -212,23 +134,13 @@ void Loop::open_self_pipe() {
     pipe_read_ = std::move(read_end);
     pipe_write_ = std::move(write_end);
     self_pipe_token_ = add_fd(pipe_read_.get(), POLLIN, &Loop::on_pipe_ready, this);
-    signal_pipe_write_fd.store(pipe_write_.get(), std::memory_order_release);
 }
 
 void Loop::close_self_pipe() noexcept {
-    int expected = pipe_write_.get();
-    signal_pipe_write_fd.compare_exchange_strong(expected, -1, std::memory_order_acq_rel);
     remove_fd(self_pipe_token_);
     self_pipe_token_ = 0;
     pipe_read_.reset();
     pipe_write_.reset();
-}
-
-void Loop::restore_signals() noexcept {
-    for (const auto& [sig, action] : saved_signals_) {
-        ::sigaction(sig, &action, nullptr);
-    }
-    saved_signals_.clear();
 }
 
 void Loop::on_pipe_ready(void* context, short /*revents*/) noexcept {
@@ -369,12 +281,6 @@ void Loop::run() {
     assert(!fds_.empty() && "loop self-pipe unavailable: nothing could ever wake the loop");
     CORO_TRACE("run() starting");
     while (!stopped_ || offload_pending_ != 0) {
-        // Signals are checked before everything else: a busy loop (e.g. the
-        // cancellation storm of a shutdown drain) must not starve them, and a
-        // second SIGINT must stay deliverable while the drain runs.
-        if (process_signals()) {
-            continue;
-        }
         // Worker completions and due timers run on every iteration, ahead of
         // the ready queue: a busy loop keeps re-filling the queue (every
         // resumed frame can schedule the next one), so a ready-first order
@@ -396,42 +302,6 @@ void Loop::run() {
     CORO_TRACE("run() returning, root task completed");
 }
 
-bool Loop::process_signals() noexcept {
-    const unsigned long long mask = pending_signals.exchange(0, std::memory_order_acq_rel);
-    if (mask == 0) {
-        return false;
-    }
-    CORO_TRACE("Processing pending signal mask {:#x}", mask);
-    bool woke = false;
-    unsigned long long remaining = mask;
-    while (remaining != 0) {
-        const int bit = std::countr_zero(remaining);
-        remaining &= remaining - 1;
-        const auto index = static_cast<std::size_t>(bit) + 1;
-        if (index >= signal_waiters_.size()) {
-            continue;
-        }
-        std::vector<SignalWaiter> parked;
-        parked.swap(signal_waiters_[index]);
-        if (!parked.empty()) {
-            CORO_TRACE("Signal {} wakes {} waiter(s)", bit + 1, parked.size());
-        }
-        for (SignalWaiter& entry : parked) {
-            if (entry.node != nullptr) {
-                if (entry.node->linked && entry.node->scope != nullptr) {
-                    detail::ScopeAccess::remove_waiter(*entry.node->scope, *entry.node);
-                }
-                entry.node->scheduled = true;
-            }
-            if (entry.waiter != nullptr) {
-                schedule(*entry.waiter);
-                woke = true;
-            }
-        }
-    }
-    return woke;
-}
-
 int Loop::poll_timeout_ms() {
     if (ready_head_ != nullptr) {
         return 0;
@@ -442,13 +312,10 @@ int Loop::poll_timeout_ms() {
             return 0;
         }
     }
-    if (pending_signals.load(std::memory_order_acquire) != 0) {
-        return 0;
-    }
     detail::TimerNode* next = heap_min();
     if (next == nullptr) {
         // A manual clock cannot be advanced by a blocking poll; return
-        // immediately so the loop stays responsive to post()/signals.
+        // immediately so the loop stays responsive to cross-thread posts and fd readiness.
         return clock_->manual() ? 0 : -1;
     }
     if (clock_->manual()) {
@@ -627,43 +494,6 @@ detail::FdToken Loop::add_fd(int fd, short events, void (*fn)(void*, short) noex
 void Loop::remove_fd(detail::FdToken token) noexcept {
     const auto erased = std::erase_if(fds_, [token](const FdEntry& entry) { return entry.token == token; });
     CORO_TRACE("remove_fd(token {}) erased {} registration(s)", token, erased);
-}
-
-// ---------------------------------------------------------------------------
-// Signals.
-// ---------------------------------------------------------------------------
-
-void Loop::arm_signal(int sig, detail::WaitNode& node) {
-    if (sig <= 0 || sig >= SIGNAL_CAPACITY || sig == SIGKILL || sig == SIGSTOP) {
-        throw std::invalid_argument("signal cannot be awaited");
-    }
-    auto& waiters = signal_waiters_[static_cast<std::size_t>(sig)];
-    waiters.reserve(waiters.size() + 1);
-    const bool installed = std::any_of(saved_signals_.begin(), saved_signals_.end(),
-                                       [sig](const auto& entry) { return entry.first == sig; });
-    if (!installed) {
-        saved_signals_.reserve(saved_signals_.size() + 1);
-        struct sigaction action{};
-        action.sa_handler = &coro_signal_handler;
-        sigemptyset(&action.sa_mask);
-        action.sa_flags = SA_RESTART;
-        struct sigaction previous{};
-        if (::sigaction(sig, &action, &previous) != 0) {
-            throw std::system_error(errno, std::generic_category(), "sigaction");
-        }
-        saved_signals_.emplace_back(sig, previous);
-    }
-    waiters.push_back(SignalWaiter{node.waiter, &node});
-    CORO_TRACE("Armed signal waiter for signal {}", sig);
-}
-
-void Loop::disarm_signal(int sig, detail::WaitNode& node) noexcept {
-    if (sig <= 0 || sig >= SIGNAL_CAPACITY) {
-        return;
-    }
-    auto& parked = signal_waiters_[static_cast<std::size_t>(sig)];
-    const auto erased = std::erase_if(parked, [&node](const SignalWaiter& entry) { return entry.node == &node; });
-    CORO_TRACE("Disarmed signal waiter for signal {} ({} waiter(s) removed)", sig, erased);
 }
 
 }  // namespace coro

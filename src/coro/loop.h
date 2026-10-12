@@ -8,14 +8,13 @@
 // frame never runs on a caller's stack, so stack depth stays bounded and
 // scheduling stays fair.
 //
-// Signal delivery uses the same self-pipe as the inbox: the handler only sets a
-// pending bit and writes one byte, and the loop turns that into ordinary
-// coroutine resumptions.
+// The self-pipe wakes poll() for cross-thread inbox delivery. StopSignals owns
+// process handlers separately and uses ordinary fd readiness for stop waits.
 //
 // The public surface here is what a caller owns and observes: the clock, the
 // stop flag, the cross-thread ingress, the offload worker count and the trace
 // sink. Scheduling
-// and the timer/fd/signal registrations are private and reached through
+// and the timer/fd registrations are private and reached through
 // detail::LoopAccess, because each one is an invariant of a node the runtime
 // owns — a registration that outlived its node, or a resumption that skipped
 // the ready queue, would break the loop rather than the caller's code.
@@ -30,7 +29,6 @@
 #ifndef YADDNSC_INFRASTRUCTURE_CORO_LOOP_H
 #define YADDNSC_INFRASTRUCTURE_CORO_LOOP_H
 
-#include <csignal>  // IWYU pragma: keep — saved_signals_ instantiations need a complete sigaction (GCC)
 #include <cstddef>
 #include <cstdint>
 #include <deque>
@@ -39,7 +37,6 @@
 #include <mutex>
 #include <source_location>
 #include <string_view>
-#include <utility>
 #include <vector>
 
 #include <poll.h>  // pollfd scratch members below; a POSIX header in a public header, accepted — the runtime is POSIX-only
@@ -52,7 +49,6 @@ namespace coro {
 namespace detail {
 struct PromiseBase;
 struct TimerNode;
-struct WaitNode;
 struct LoopAccess;
 
 using FdToken = std::uint64_t;
@@ -61,26 +57,16 @@ using FdToken = std::uint64_t;
 /// The single-threaded event loop plus its cross-thread ingress.
 ///
 /// Thread safety: every member except post() is loop-thread only — calling
-/// schedule(), the timer/fd/signal registration, or run() from another thread is
+/// schedule(), the timer/fd registration, or run() from another thread is
 /// a data race. post() is the single cross-thread entry point and is safe to
 /// call from any thread; it never runs the callback inline, it only enqueues it
 /// for the loop thread.
 ///
-/// Instances: one live loop per process. The signal handler reaches the loop
-/// through process-wide file-scope state (loop.cpp) that can serve exactly one
-/// loop, so the constructors throw std::logic_error when another loop is
-/// alive. Sequential loops are fine.
-///
-/// Lifetime: a loop outlives every task started on it. run() returns once the
-/// root task and every submitted offload job have completed. After root exit,
-/// the loop continues processing the inbox until abandoned workers finish, so
-/// workers can complete their loop hand-offs. Their callables must own any data
-/// whose task scope has already exited. A blocked worker can still block run().
-/// The destructor joins the pool before closing the pipe/inbox.
+/// Instances own independent scheduling and wake state.
 class Loop {
 public:
-    /// Loop with an internal system clock. Throws std::logic_error if another
-    /// loop is alive, std::runtime_error if self-pipe creation fails.
+    /// Loop with an internal system clock. Throws std::runtime_error if
+    /// self-pipe creation fails; allocation failures propagate.
     Loop();
     /// Loop with a caller-owned clock (manual clocks make timers deterministic).
     /// The clock must outlive the loop. Same failure contract as Loop().
@@ -113,7 +99,7 @@ public:
     void post(std::function<void()> fn);
 
     /// Diagnostic trace sink: when set, the loop reports internal scheduling
-    /// events (ready-queue drains, poll cycles, timer/fd/signal registration,
+    /// events (ready-queue drains, poll cycles, timer/fd registration,
     /// offload submissions) as pre-formatted text together with the reporting
     /// call site. The runtime
     /// holds no logging backend — this sink is the only way those diagnostics
@@ -156,11 +142,6 @@ private:
         void* context = nullptr;
     };
 
-    struct SignalWaiter {
-        detail::PromiseBase* waiter = nullptr;
-        detail::WaitNode* node = nullptr;
-    };
-
     /// One ready fd, snapshotted before dispatch: a callback may remove its own
     /// registration, so poll_once never walks fds_ while dispatching.
     struct ReadyEntry {
@@ -195,24 +176,14 @@ private:
     /// Stop polling a registration made by add_fd(). Idempotent.
     void remove_fd(detail::FdToken token) noexcept;
 
-    /// Park `node` for signal `sig`.
-    /// Allocates; invalid signals or sigaction failure throw before registration.
-    /// The caller keeps `node` alive until it disarms
-    /// (the node doubles as its scope waiter).
-    void arm_signal(int sig, detail::WaitNode& node);
-    /// Drop a parked signal waiter. Idempotent; safe from the node's on_cancel.
-    void disarm_signal(int sig, detail::WaitNode& node) noexcept;
-
     void open_self_pipe();
     void close_self_pipe() noexcept;
-    void restore_signals() noexcept;
     static void on_pipe_ready(void* context, short revents) noexcept;
 
     void defer_reap(detail::PromiseBase& frame) noexcept;
     void reap_completed() noexcept;
     void drain_ready();
     void process_inbox();
-    bool process_signals() noexcept;
     void fire_timers() noexcept;
     [[nodiscard]] int poll_timeout_ms();
     void poll_once(int timeout_ms);
@@ -249,8 +220,6 @@ private:
     std::mutex inbox_mutex_;
     std::deque<std::function<void()>> inbox_;
 
-    std::vector<std::vector<SignalWaiter>> signal_waiters_;
-    std::vector<std::pair<int, struct sigaction>> saved_signals_;
 
     std::unique_ptr<Pool> pool_;
     unsigned pool_workers_ = default_offload_workers();

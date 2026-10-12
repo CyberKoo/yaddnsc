@@ -1,12 +1,3 @@
-//
-// Coroutine runtime — one live loop per process, enforced by the constructor:
-// the signal handler's file-scope state (loop.cpp) cannot serve two loops, so
-// a second live loop fails loudly instead of misrouting the first loop's
-// signals.
-//
-
-#include <stdexcept>
-
 #include <gtest/gtest.h>
 
 #include "coro/coro.h"
@@ -19,16 +10,22 @@ coro::Task<int> forty_two() {
 
 }  // namespace
 
-TEST(Loop, SecondLiveLoop_ConstructionThrows_FirstStaysUsable) {
+TEST(Loop, LiveLoopsKeepInboxAndWakeStateIndependent) {
     coro::Loop first;
-    EXPECT_THROW(coro::Loop second, std::logic_error);
     coro::ManualClock clock;
-    EXPECT_THROW(coro::Loop with_clock(clock), std::logic_error);
-    // The failed constructions leave the first loop fully functional.
+    coro::Loop second{clock};
+    bool first_posted = false;
+    bool second_posted = false;
+    first.post([&first_posted] { first_posted = true; });
+    second.post([&second_posted] { second_posted = true; });
     EXPECT_EQ(coro::run(first, forty_two()), 42);
+    EXPECT_TRUE(first_posted);
+    EXPECT_FALSE(second_posted);
+    EXPECT_EQ(coro::run(second, forty_two()), 42);
+    EXPECT_TRUE(second_posted);
 }
 
-TEST(Loop, SequentialLoops_ReacquireTheSlot) {
+TEST(Loop, SequentialLoopsRunIndependently) {
     {
         coro::Loop first;
         EXPECT_EQ(coro::run(first, forty_two()), 42);

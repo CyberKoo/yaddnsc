@@ -7,6 +7,7 @@
 
 #include <expected>
 
+#include "domain/dns/record_kind.h"
 #include "domain/error/error.h"
 
 namespace app {
@@ -19,6 +20,14 @@ struct DriverDescription {
     std::string version;
     std::string author;
     std::string description;
+    /// Record types this driver can publish, translated from the plugin's ABI
+    /// capability bits. Empty is legal and means the driver supports no ABI
+    /// 1.0 record type — a configuration naming one cannot work.
+    std::vector<domain::RecordKind> supported_records;
+    /// Whether the plugin exports the optional yaddnsc_driver_validate entry.
+    /// False means the host cannot confirm this driver's driver_params; the
+    /// driver still loads and updates.
+    bool supports_validate{false};
 };
 
 /// DriverCatalogPort — application port for querying which driver plugins

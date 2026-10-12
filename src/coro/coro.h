@@ -3,10 +3,11 @@
 //
 // Everything a composition-layer caller needs: the loop entry point, Task and
 // its structured scopes, cancellation combinators, sleeps, AsyncMutex, offload
-// and signals.
+// and process stop signals.
 //
 // Thread safety: everything here is loop-thread only except Loop::post and the
-// offload worker boundary, which are documented at their declarations.
+// offload worker boundary. StopSignals owns process handlers outside run(); its
+// wait is loop-thread only. See each declaration for lifetime requirements.
 //
 // Dependency rule for this module
 // ------------------------------
@@ -47,8 +48,8 @@
 #include "coro/run.hpp"
 #include "coro/scope.hpp"
 #include "coro/scope_outcome.hpp"
-#include "coro/signal.hpp"
 #include "coro/sleep.hpp"
+#include "coro/stop_signals.h"
 #include "coro/task.hpp"
 #include "coro/task_group.hpp"
 #include "coro/time.h"

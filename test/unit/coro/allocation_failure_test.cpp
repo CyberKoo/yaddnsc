@@ -10,7 +10,6 @@
 
 #include "coro/coro.h"
 #include "coro/detail/access.h"
-#include "coro/detail/signal_awaitable.h"
 #include "coro/detail/timer_node.h"
 
 namespace {
@@ -141,36 +140,6 @@ TEST(CoroAllocationFailure, add_timer_HeapGrowthThrows_LeavesTimerUnarmedAndReus
     EXPECT_TRUE(timer.in_heap);
     coro::detail::LoopAccess::remove_timer(loop, timer);
     EXPECT_FALSE(timer.in_heap);
-}
-
-TEST(CoroAllocationFailure, on_signal_RegistrationThrows_LeavesNoWaiterOrInstalledHandler) {
-    // Fail either the waiter-list reservation or the saved-disposition
-    // reservation; both must happen before the process disposition changes.
-    for (int after : {0, 1}) {
-        struct sigaction before{};
-        ASSERT_EQ(::sigaction(SIGUSR1, nullptr, &before), 0);
-        auto root = [after]() -> coro::Task<void> {
-            coro::CancelScope& scope = co_await coro::current_scope();
-            bool caught = false;
-            {
-                const FailAllocation failure{after};
-                try {
-                    co_await coro::detail::SignalAwaitable{SIGUSR1};
-                } catch (const std::bad_alloc&) {
-                    caught = true;
-                }
-            }
-            EXPECT_TRUE(caught);
-            scope.cancel();
-        };
-        {
-            coro::Loop loop;
-            coro::run(loop, root());
-            struct sigaction current{};
-            ASSERT_EQ(::sigaction(SIGUSR1, nullptr, &current), 0);
-            EXPECT_EQ(current.sa_handler, before.sa_handler);
-        }
-    }
 }
 
 }  // namespace

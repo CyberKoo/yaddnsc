@@ -2,7 +2,7 @@
 // app — one coroutine update cycle (implementation).
 //
 
-#include "run_update_cycle.h"
+#include "update_task.h"
 
 #include <chrono>
 #include <new>
@@ -37,7 +37,7 @@
 
 namespace app {
 
-coro::Task<UpdateCycleOutcome> run_update_cycle(const domain::UpdateTask& task, const Services& services) {
+coro::Task<UpdateCycleOutcome> update_task(const domain::UpdateTask& task, const Services& services) {
     const auto& subdomain = task.subdomain;
     const std::string_view rd_type = domain::record_kind_to_str(subdomain.type);
 

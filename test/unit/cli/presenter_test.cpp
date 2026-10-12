@@ -15,6 +15,7 @@
 
 #include "application/diagnostics.h"
 #include "cli/presenter.h"
+#include "domain/dns/record_kind.h"
 #include "domain/error/dns_error.h"
 #include "domain/error/dns_error_info.h"
 #include "fixtures/cli_test_support.h"
@@ -61,7 +62,12 @@ TEST(CliPresenterTest, DriverList_PerDriverFailure_PrintsInlineError) {
     std::vector<app::DriverListItem> items;
     items.push_back(app::DriverListItem{
         .name = "good",
-        .detail = app::DriverDescription{.name = "good", .version = "1.0", .author = "a", .description = "d"}});
+        .detail = app::DriverDescription{.name = "good",
+                                         .version = "1.0",
+                                         .author = "a",
+                                         .description = "d",
+                                         .supported_records = {domain::RecordKind::A},
+                                         .supports_validate = true}});
     items.push_back(app::DriverListItem{
         .name = "bad",
         .detail = std::unexpected(domain::DriverError{domain::DriverError::Code::NOT_FOUND, {}})});

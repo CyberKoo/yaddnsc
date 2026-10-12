@@ -73,7 +73,7 @@ guard_check("the coroutine runtime must not include a logging backend (compositi
 # ------------------------------------------------------------------------------
 set(application_coro_headers
     async_mutex.hpp cancel_scope.h cancelled.h checkpoint.hpp fwd.h group.hpp group_error.h mutex_guard.hpp now.hpp
-    offload.hpp scope.hpp scope_outcome.hpp signal.hpp sleep.hpp task.hpp task_group.hpp time.h)
+    offload.hpp scope.hpp scope_outcome.hpp sleep.hpp task.hpp task_group.hpp time.h)
 file(GLOB_RECURSE application_check_files RELATIVE ${PROJECT_SOURCE_DIR}
     ${PROJECT_SOURCE_DIR}/src/application/*.h
     ${PROJECT_SOURCE_DIR}/src/application/*.hpp

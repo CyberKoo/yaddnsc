@@ -15,8 +15,9 @@ struct AppConfig;
 /// collects ALL violations as values, in the same order the legacy
 /// fail-fast ConfigValidator visited them. Messages are kept verbatim.
 ///
-/// Environment-dependent checks (driver loaded, interface exists) are NOT
-/// performed here; they remain in EnvironmentValidator (validator.hpp).
+/// Environment-dependent checks (driver loaded, interface exists, driver
+/// supports a configured record type) are NOT performed here; they remain in
+/// app::validate_environment, which collects violations the same way.
 [[nodiscard]] auto validate_static(const AppConfig& raw) -> std::vector<domain::ConfigError>;
 
 /// validate_static + normalize: on success returns the runtime

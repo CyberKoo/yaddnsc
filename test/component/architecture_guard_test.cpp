@@ -98,7 +98,6 @@ INSTANTIATE_TEST_SUITE_P(
 #include "coro/sleep.hpp"
 #include "coro/cancelled.h"
 #include "coro/checkpoint.hpp"
-#include "coro/signal.hpp"
 #include "coro/offload.hpp"
 #include "coro/async_mutex.hpp"
 )",

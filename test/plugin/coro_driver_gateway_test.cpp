@@ -655,7 +655,7 @@ TEST_F(CoroDriverGatewayTest, PluginCancelledStatus_BecomesAnErrorValueOnALiveSc
         });
     });
     // A driver-reported cancellation on a live scope is one failed cycle, not
-    // the end of the subdomain loop: the caller gets an error value and the
+    // the end of the subdomain task: the caller gets an error value and the
     // schedule retries on the next interval (the legacy mapping). Only a
     // host-originated cancel still propagates as coro::Cancelled — that path
     // is covered by the AbandonedCycle tests above.

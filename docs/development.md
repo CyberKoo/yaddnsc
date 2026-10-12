@@ -158,7 +158,7 @@ failure contracts that pull in opposite directions:
 - an HTTP IP source returning a non-address response → the update workflow
   reports no usable IP address and nothing is published;
 - no DNS answer → the update is still published, because
-  the `run_update_cycle` implementation treats an unverifiable current record as
+  the `update_task` implementation treats an unverifiable current record as
   an empty one. Pushing an unchanged record is harmless; skipping a changed
   one is not.
 
@@ -272,13 +272,14 @@ Coverage uses `YADDNSC_SANITIZE_DEBUG=OFF` to avoid mixing instrumentation.
 ### Coroutine regression tests
 
 ```bash
-cmake --build build-tests --target test_coro test_coro_allocation_failure --parallel
-ctest --test-dir build-tests -R '^test_coro(_allocation_failure)?$' --output-on-failure
+cmake --build build-tests --target test_coro test_coro_allocation_failure test_stop_signals --parallel
+ctest --test-dir build-tests -R '^(test_coro(_allocation_failure)?|test_stop_signals)$' --output-on-failure
 ```
 
 The allocation-failure binary replaces allocation functions only inside that
-executable. Its thread-local one-shot faults check failed group-slot allocation,
-timer-heap growth and signal registration without adding production test hooks.
+executable. Its thread-local one-shot faults check failed group-slot allocation
+and timer-heap growth without adding production test hooks. Process stop tests
+cover early arrivals, fd wakeup, repeated Ctrl-C, and handler restoration.
 The core binary also checks deferred callable ownership, throwing result moves,
 single-consumer joins, typed completion exhaustion, caller-scope result-wait
 cancellation (including completion/timeout ties), consumption-time frame recovery,
@@ -474,7 +475,7 @@ enforces, in `cmake/ArchitectureGuard.cmake`:
 For `src/application/`, the guard allows direct coroutine includes only from
 `async_mutex.hpp`, `cancel_scope.h`, `cancelled.h`, `checkpoint.hpp`, `fwd.h`,
 `group.hpp`, `group_error.h`, `mutex_guard.hpp`, `now.hpp`, `offload.hpp`, `scope.hpp`,
-`scope_outcome.hpp`, `signal.hpp`, `sleep.hpp`, `task.hpp`, `task_group.hpp` and
+`scope_outcome.hpp`, `sleep.hpp`, `task.hpp`, `task_group.hpp` and
 `time.h`. These coroutine include and internal-access checks apply only to
 `src/application/`; the thread/future include check is wider and globs
 `src/application/`, `src/infrastructure/` and `src/composition/` together.

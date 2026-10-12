@@ -10,7 +10,7 @@ namespace domain {
 /// UpdateTask — a self-contained value type describing one DNS record update
 ///              that the update workflow should carry out.
 ///
-/// Borrows the immutable configuration for one record update. A subdomain loop
+/// Borrows the immutable configuration for one record update. A subdomain task
 /// owns one task and reuses its FQDN across cycles; only force_update changes,
 /// after the previous update has completed.
 struct UpdateTask {

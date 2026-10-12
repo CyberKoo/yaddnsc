@@ -17,18 +17,17 @@ main() -> Cli::parse -> Composition::run
   |                          trust-context build on the main thread, before the
   |                          loop starts)
   v
-coro::run(loop, app::run_root(config, services))
+coro::run(loop, app::main_loop(config, services))
   |
   v
-supervisor_group                root scope
-  +-- signal watchers         SIGINT / SIGTERM -> cancel the work scope;
-  |     |                     a second SIGINT invokes the immediate-exit adapter
-  +-- work scope              a second supervisor_group, a scope of its own,
-        |                     cancelled by the watchers
-        +-- subdomain_loop     one long-lived coroutine per subdomain; its
+task_group                      fail-fast root scope
+  +-- stop watcher            await the process adapter's latched stop request
+  +-- work scope              supervisor_group, cancelled by the stop watcher
+        +-- startup validation   every record's driver_params, under a per-record budget
+        +-- subdomain_task     one long-lived coroutine per subdomain; its
         |     |                pacing state (update interval, force-update
         |     |                completion time, cycle start) lives in the frame
-        |     +-- run_update_cycle    IP source -> DNS read -> decide -> driver update
+        |     +-- update_task         IP source -> DNS read -> decide -> driver update
 ```
 
 The executable is a thin `main()` over `Cli::parse` and
@@ -36,33 +35,57 @@ The executable is a thin `main()` over `Cli::parse` and
 infrastructure is assembled; the application layer reaches it through ports.
 Each command handler owns its own presentation and exit code for its expected
 failures; `Composition::run` owns the logging pipeline's lifetime around
-dispatch and catches defects escaping it.
+command execution and catches defects escaping it. The same run entry point
+is used by the executable and command component tests.
 
-The work group is nested in the root group, and the watchers live in the outer
-scope so the cancellation they trigger does not cancel them; the root cancels
-them explicitly once the work has ended. If every loop ends without a
-shutdown having been requested, the run root logs CRITICAL and returns
-`EXIT_FAILURE`, so a supervisor with `Restart=on-failure` replaces the husk
-instead of leaving it.
+The work group isolates subdomain failures. Root-child defects cancel the run;
+`with_children` keeps gateway and service borrows alive until cleanup finishes.
+If every update task ends without a stop request, the main loop logs CRITICAL
+and returns `EXIT_FAILURE`.
+
+**Stop signals.** Composition owns one runtime `coro::StopSignals` instance before startup
+and keeps it alive through `coro::run`, plugin unload and log drain. The same
+SIGINT/SIGTERM handler stays installed for that whole lifetime. A first stop
+request writes one byte to a nonblocking pipe; the byte is not consumed, so
+requests before or during a coroutine wait remain observable. The application
+queries the latched request before starting work and awaits it through injected
+callbacks. The adapter waits with the runtime's cancellable `wait_readable`,
+without periodic latch polling or busy-waiting. Synchronous startup deliberately
+checks the latch after configuration load, plugin loading and trust-context
+creation, then before validation and update-task launch. These milestone checks
+let each blocking step finish before a graceful stop; exit-code selection also
+queries the same latch. There is no handler handover, count merge or queue-round
+contract. `StopSignals` is the sole process-signal facility; Loop owns no signal
+handlers.
+A second SIGINT calls `_exit(128 + SIGINT)` directly from the handler, including
+while a plugin worker or log drain is blocked. Destruction restores the previous
+handlers after workers and logging have finished. The runtime owns the raw process signal state; application code sees only the two stop callbacks.
+
+**Startup validation.** Each record's `driver_params` are checked through the
+optional ABI entry before any update task is spawned, inside the cancellable
+work scope and under a per-record budget (5s, injected by the composition root
+as `CONFIG_VALIDATION_BUDGET`) so each record has a bounded validation wait and a
+shutdown signal still aborts the wait. Records sharing an identical
+(driver, `driver_params`) pair are checked once, so duplicated records do not
+multiply the wait. A synchronous plugin call already
+running on a worker must still finish before `coro::run` returns. A record whose
+driver explicitly rejects its parameters, or whose budget expires, fails the startup with `EXIT_FAILURE`
+instead of publishing updates against a configuration the driver says is
+wrong. A driver that exports no validation entry is warned about and skipped
+under `run`, because refusing to start would break a configuration that updates
+correctly; `config test` requires the entry, since answering "is this
+configuration good?" is that command's entire purpose. Record types the driver
+has no ABI capability for are rejected earlier still, by the environment
+validator, so a mismatched `A`/`AAAA` is a configuration error rather than a
+per-cycle failure.
 
 The diagnostic commands run on the same runtime with a loop of their own.
 `dns resolve` bounds its lookup at 30s; `config test` validates every
 subdomain's `driver_params` through the optional ABI entry in a one-shot
 group whose scope owns the bridge coroutines.
 
-The loop's signal watcher exists only while the loop runs, so a minimal
-counting handler (`composition/startup_signals.h`) covers the gaps: it is
-installed before config load, the blocking startup steps check the counters
-between milestones, and the run root folds the counts into its shutdown
-state — a SIGINT/SIGTERM caught during startup requests shutdown before any
-work starts, and a repeat SIGINT still escalates. After the loop exits, the
-drain tail checks the counters once more and answers a second SIGINT with
-`_exit(128 + SIGINT)`.
-
-While the loop runs, second-SIGINT escalation invokes the injected process
-adapter immediately (`std::_Exit`), without waiting for the log pipeline. Normal
-shutdown still drains logs after leaving the loop; forced termination may lose
-queued diagnostics.
+Normal shutdown drains submitted workers and logs. Forced termination may lose
+queued diagnostics; it never waits for that drain.
 
 ## Concurrency & I/O model
 
@@ -102,7 +125,7 @@ is not permission to silently lose failures. Successful/cancelled discard frames
 are reaped by the loop after resume returns, never inside their final suspend.
 Consumed ordinary children retire their frames and slots immediately, including
 throwing result moves. Unconsumed results and unobserved failures remain until
-scope exit. The run root guards subdomain failures so siblings keep running.
+scope exit. The main loop guards subdomain failures so siblings keep running.
 
 The DNS dispatcher is the runtime's other large user. The concurrent strategy
 races up to `dns::Policy::max_concurrent` (3 by default) backends in a `task_group`: each
@@ -165,21 +188,20 @@ Prefer resources outside the group call. For resources in the outer group body,
 use `co_await group.with_children(fn)` before they leave scope: it cancels on
 abnormal exit, drains children on every exit, then rethrows the original error.
 Resources must be outside **fn's** coroutine body; callback locals still follow
-ordinary C++ destruction rules. The run root uses this boundary to keep its
+ordinary C++ destruction rules. The main loop uses this boundary to keep its
 gateway/services alive through watcher and bridge-request cleanup.
 
 Completed task frames have RAII ownership while results are moved out, including
 throwing moves. Slot and wait registrations commit only after their fallible
-allocations succeed. Invalid or uncatchable signals fail at registration, and
-`sigaction` failures are reported rather than leaving an undeliverable wait.
+allocations succeed. StopSignals reports pipe/handler installation failures
+before command execution and rolls back partial handler installation.
 `coro::run` requires a fresh loop and structured root completion. Task defects
 still propagate normally. Exceptions escaping loop dispatch, or failure to post
 an offload completion, call `std::terminate`: losing a dispatch batch or completion
 cannot be recovered by safely unwinding parked frames. External stop before root
 completion is likewise fatal. Loop construction throws if its wake pipe cannot
-be created, or if another loop is already alive: the signal handler's
-process-wide state serves exactly one loop per process, and a second live loop
-would silently misroute the first loop's signals.
+be created. Loop instances own independent scheduling, inbox and wake-pipe
+state; only the process-wide StopSignals owner is exclusive.
 
 **Cancellation is scope state.** `with_timeout`, `with_deadline`,
 `with_cancel_scope` and `non_cancellable` run a body in a child scope;
@@ -257,8 +279,8 @@ implementations reach directly and share with each other. The application
 surface is task ownership and structured groups (`task.hpp`, `group.hpp`,
 `task_group.hpp`, `group_error.h`, `fwd.h`), the cancellation combinators (`scope.hpp`),
 `ScopeOutcome` (`scope_outcome.hpp`), `CancelScope` and `coro::Cancelled`
-(`cancel_scope.h`, `cancelled.h`), cancellable waits (`sleep.hpp`,
-`signal.hpp`), loop time as values (`now.hpp`, `time.h`), `checkpoint()`
+(`cancel_scope.h`, `cancelled.h`), cancellable sleeps (`sleep.hpp`), loop time as
+values (`now.hpp`, `time.h`), `checkpoint()`
 (`checkpoint.hpp`), `offload` (`offload.hpp`) and `MutexGuard`
 (`async_mutex.hpp`, `mutex_guard.hpp`) — all declared in `src/coro/` and
 enumerated by the guard allowlist in `cmake/ArchitectureGuard.cmake`. The
@@ -316,7 +338,7 @@ result collection), keeping the borrow published through partial-launch cleanup
 and cancellation drain, then clears it before the group scope is destroyed.
 
 **Checkpoints.** `checkpoint()` yields and checks cancellation explicitly; use
-it in CPU loops. Sleep, fd waits, signal waits, mutex acquisition, offload and
+it in CPU loops. Sleep, fd waits, stop waits, mutex acquisition, offload and
 transport I/O and group `next()` are checkpoints too. Awaiting a `Task` or `Handle` propagates its
 result; `current_time()` is a plain value read that returns immediately,
 leaving cancellation to the enclosing await.
@@ -352,7 +374,7 @@ actual cancellation and returns NETWORK_ERROR; no 250ms slack or ordering
 assumption remains. Abandoning an update cancels its exchange scope. ABI data,
 module leases and plugin status translation remain plugin responsibilities.
 
-**Subdomain loops.** Each subdomain is one long-lived coroutine that sleeps,
+**Subdomain tasks.** Each subdomain is one long-lived coroutine that sleeps,
 updates and repeats, reusing one `UpdateTask` across cycles and carrying only
 its pacing state — update interval, last successful forced publication, cycle
 start — as frame locals. A forced update stays due after missing addresses,
@@ -363,12 +385,13 @@ There is no accumulated back-off state: each cycle recomputes its own
 delay, a provider-supplied `retry_after` overriding the interval, anchored at
 the failure when one is supplied and at the cycle start otherwise. Each cycle
 is bounded by its own timeout, with a shorter one around the DNS read, so a
-dead resolver surfaces in seconds. A subdomain loop exits under cancellation:
-`coro::Cancelled` propagates out of the pacing sleep and the run root logs it
-and rethrows, so the group's cancel ends the work phase. A defect escaping a
-loop is logged and the guard restarts the loop after one update interval — the
-legacy scheduler's queue also retried a failed workflow on the next interval,
-so a defect never retires the subdomain, and a non-positive configured
+dead resolver surfaces in seconds. A subdomain task exits under cancellation:
+`coro::Cancelled` propagates out of the pacing sleep and the task logs it
+and rethrows, so the group's cancel ends the work phase. One scheduling loop
+owns both normal cycles and retries. A defect escaping a cycle is logged and
+retried after one full update interval; the next cycle is forced when force
+updates are enabled, preserving the former restart policy. A defect therefore
+never retires the subdomain, and a non-positive configured
 interval is clamped to a minimum rather than spinning.
 
 ### Blocking-operation inventory
@@ -410,8 +433,8 @@ coarsens a graph of about twenty module targets — one per concern
 `yaddnsc_dns_classic`, `yaddnsc_dns_bootstrap`, `yaddnsc_coro_dns`, the
 `yaddnsc_*_infrastructure` and `yaddnsc_*_adapter` sets). `src/application/`
 is split in two: `yaddnsc_application` carries the diagnostics and the
-environment validator, `yaddnsc_coro_application` the run root, the subdomain
-loop and the update cycle. `yaddnsc_coro` is a base module beside
+environment validator, `yaddnsc_coro_application` the main loop, the subdomain
+task and the update task. `yaddnsc_coro` is a base module beside
 `yaddnsc_domain` — it depends on neither, and the application names only its
 public headers.
 
@@ -430,7 +453,7 @@ public headers.
   loader are reached only from `src/infrastructure/`; CLI11 from
   `src/cli/parser.cpp`, and OpenSSL also from `src/support/util/random.hpp`.
 - `src/coro/`: the coroutine runtime — loop, `Task`, structured
-  scopes, cancellation combinators, sleeps, `AsyncMutex`, `offload`, signals.
+  scopes, cancellation combinators, sleeps, `AsyncMutex`, `offload`, and process stop signals.
   The thread pool lives here, owned by `Loop` and sized by
   `default_offload_workers()`, but the runtime keeps no futures of its own:
   `offload` carries a result through the loop's single cross-thread channel
@@ -521,9 +544,12 @@ services a plugin needs — HTTP, logging, cancellation.
   `upgrade yaddnsc.`.
 - Four entry points are required (`get_descriptor`, `create`, `destroy`,
   `update`); a fifth, `yaddnsc_driver_validate`, is optional since ABI 1.0 — the
-  host dlsym-probes it so `config test` can check `driver_params` against the
-  driver's schema. Without it the plugin provides no such check, `config test`
-  fails, and the plugin still loads and can update.
+  host dlsym-probes it and reports the answer through
+  `GatewayPort::supports_validate`, so `driver_params` can be checked against
+  the driver's schema before any update is published. Without it the plugin
+  provides no such check: `config test` fails, and `run` warns and continues
+  with the parameters unchecked. The plugin still loads and can update either
+  way, so a driver built against an older ABI keeps working.
 - Capability bits are enforced before the plugin runs: `A` and `AAAA` are
   delivered when the matching bit is set, and a record type outside that set
   ends as `DriverError::UPDATE_FAILED`, a host-side decision that produces no

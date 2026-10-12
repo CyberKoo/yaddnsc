@@ -22,6 +22,8 @@ struct UpdatePolicy {
     std::chrono::milliseconds update_budget{30000};
     std::chrono::milliseconds dns_read_budget{4000};
     std::chrono::milliseconds ip_source_budget{10000};
+    /// Per-record deadline for the pre-start configuration validation sweep.
+    std::chrono::milliseconds driver_validation_budget{5000};
 };
 
 /// Services — what one update cycle needs. All references are non-owning and
@@ -34,32 +36,23 @@ struct Services {
     UpdatePolicy policy{};
 };
 
-/// Stop-signal counts observed before (or after) the event loop's watch; see
-/// RuntimeServices::startup_signals.
-struct StartupSignalCounts {
-    int sigint{0};
-    int sigterm{0};
-};
-
-/// RuntimeServices — what the run root needs.
+/// RuntimeServices — what the main loop needs.
 ///
 /// The driver gateway needs a TaskGroup to spawn its bridge coroutines into,
 /// and that group only exists inside coro::run; `make_gateway` is therefore
-/// called once, at the top of the run, with the runner's root group, and the
-/// run root owns the returned gateway for the whole run.
+/// called once, at the top of the run, with the main loop's root group, and the
+/// main loop owns the returned gateway for the whole run.
 struct RuntimeServices {
     ResolverPort& resolver;
     IpSourcePort& ip_source;
     const LoggerPort& logger;
     std::function<std::unique_ptr<GatewayPort>(coro::TaskGroup& bridge_group)> make_gateway;
-    /// Immediately terminate with the supplied status. Must not wait for I/O
-    /// or return; composition supplies the process adapter.
-    std::function<void(int)> force_exit;
-    /// Signals counted before the loop started (the composition root installs a
-    /// counting handler for the startup phase). The run root folds them into
-    /// its shutdown state, so a startup Ctrl-C is a graceful exit, not a bare
-    /// kill. Empty means no startup bookkeeping (tests).
-    std::function<StartupSignalCounts()> startup_signals;
+    /// Latched process stop request; safe to query before launching work.
+    /// Both callbacks are required and their owner must outlive coro::run.
+    std::function<bool()> stop_requested;
+    /// Cancellable wait for that same request, including an earlier arrival.
+    /// The process adapter owns signal installation and forced termination.
+    std::function<coro::Task<void>()> wait_for_stop;
     UpdatePolicy policy{};
 };
 

@@ -128,7 +128,7 @@ struct AbiCancelled {};
 ///
 /// The module lease and the per-call state are shared_ptr parameters, so an
 /// abandoned cycle keeps both alive until it finishes.
-[[nodiscard]] std::expected<void, domain::DriverError> run_update_cycle(
+[[nodiscard]] std::expected<void, domain::DriverError> run_update_task(
     const std::shared_ptr<const PluginModule>& module, const domain::DriverUpdateCommand& command, Bridge& bridge,
     const app::LoggerPort& logger, const std::shared_ptr<CallState>& state) {
     const std::string_view driver_name = module->descriptor().name;
@@ -271,7 +271,7 @@ coro::Task<std::expected<void, domain::DriverError>> DriverGateway::update(std::
     try {
         co_return co_await coro::offload([module, command = std::move(command), bridge, logger,
                                           state]() mutable -> std::expected<void, domain::DriverError> {
-            return run_update_cycle(module, command, *bridge, *logger, state);
+            return run_update_task(module, command, *bridge, *logger, state);
         });
     } catch (const AbiCancelled&) {
         if (scope.cancelled()) {
@@ -292,6 +292,11 @@ coro::Task<std::expected<void, domain::DriverError>> DriverGateway::update(std::
         bridge->cancel(state->in_flight_call());
         throw;
     }
+}
+
+bool DriverGateway::supports_validate(std::string_view driver_name) const {
+    const auto module = catalog_.find(driver_name);
+    return module != nullptr && module->supports_validate();
 }
 
 coro::Task<std::expected<void, domain::DriverError>> DriverGateway::validate_config(std::string driver_name,

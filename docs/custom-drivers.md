@@ -185,7 +185,7 @@ meaningful only while the operation really is cancelled (`is_cancelled()`
 non-zero) — but the host does not use your view to decide propagation. It
 compares the cancel scope of the update call: a cancelled scope (shutdown, or
 an outer budget) propagates and unwinds, while a cancellation returned on a
-live scope is logged and counted as one failed update — the subdomain loop
+live scope is logged and counted as one failed update — the subdomain task
 keeps running and retries on the next interval. Report what you observed, not
 what you assume.
 
@@ -502,7 +502,7 @@ Three deadlines bound the wire time:
 - 5s to connect per resolved address. An expired connect budget moves on to
   the next address instead of failing the exchange, so a multi-address host
   can take longer than 5s to fail.
-- 30s for a whole update cycle. When it expires, the subdomain loop waits the
+- 30s for a whole update cycle. When it expires, the subdomain task waits the
   normal interval and tries again; it does not tear anything down.
 
 One exchange is limited to 64 KiB of headers and 16 MiB of body.

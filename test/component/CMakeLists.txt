@@ -36,13 +36,13 @@ target_compile_definitions(test_cert_util_override PRIVATE
 )
 
 # ============================================================================
-#  Composition root — Composition::dispatch golden paths for the diagnostic
+#  Composition root — Composition::run golden paths for the diagnostic
 #  commands (config show/test, driver list/info, dns resolver, interface,
-#  info), incl. the parse → dispatch round trip.
+#  info), incl. the parse → run round trip.
 #
 #  The pure CLI halves (parser, presenters, completion-script sync) live in
 #  test/unit/cli/. Requires a built driver .so (simple) for the config-test
-#  and driver dispatch paths.
+#  and driver command paths.
 # ============================================================================
 
 add_unit_test(cli SOURCE cli_test.cpp)

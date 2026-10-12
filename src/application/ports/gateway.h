@@ -2,6 +2,7 @@
 #define YADDNSC_APPLICATION_PORTS_GATEWAY_H
 
 #include <string>
+#include <string_view>
 
 #include <expected>
 
@@ -20,6 +21,12 @@ namespace app {
 class GatewayPort {
 public:
     virtual ~GatewayPort() = default;
+
+    /// Whether this driver can have its parameters checked through
+    /// validate_config. False when the plugin does not export the optional
+    /// validation entry: the driver still loads and updates, but the host
+    /// cannot confirm its configuration.
+    [[nodiscard]] virtual bool supports_validate(std::string_view driver_name) const = 0;
 
     /// Diagnostic path for `config test`, outside the update-loop lifecycle.
     /// Validate driver parameters without updating. A missing validation entry

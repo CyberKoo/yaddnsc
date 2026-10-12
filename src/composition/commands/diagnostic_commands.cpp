@@ -146,9 +146,14 @@ int execute_command(const Cli::ConfigTestCommand& command) {
                       // Keep gateway alive through child cleanup, including a
                       // validation defect or host cancellation.
                       co_await group.with_children([&]() -> coro::Task<void> {
-                          const auto validated = co_await app::validate_driver_configs(gateway, config);
-                          if (!validated) {
-                              throw ConfigException(validated.error());
+                          // `config test` exists to answer whether the
+                          // configuration is good, so a driver that cannot be
+                          // checked is a failure, not a warning.
+                          const auto outcome = co_await app::validate_driver_configs(
+                              gateway, config, app::ConfigValidationMode::REQUIRE_VALIDATION,
+                              internal::CONFIG_VALIDATION_BUDGET);
+                          if (!outcome.rejection.empty()) {
+                              throw ConfigException(outcome.rejection);
                           }
                       });
                   }));

@@ -3,24 +3,14 @@
 
 #include "cli/command.h"
 
-/// Routes commands to their composition handlers and selects the error presentation.
 namespace Composition {
 
-/// Execute a parsed command end-to-end.
-/// @return the process exit code.
-///
-/// Every command handler is total for its expected failures: each maps them
-/// to its own presentation (run logs through the async pipeline; diagnostic
-/// commands print "Error: <what>" on stderr) and exit code. Only defects
-/// escape dispatch; run() is the process-level boundary for those.
-[[nodiscard]] int dispatch(const Cli::Command& command);
-
-/// Execute a parsed command with the process-wide logging pipeline installed.
-/// @return the process exit code.
-///
-/// Owns the async logging lifetime around dispatch(): an exception escaping
-/// dispatch is recorded as a fatal log line, and the pipeline is drained (with
-/// dropped records reported) before returning, so the fatal record is flushed.
+/// Execute a parsed command with process logging and error presentation.
+/// Owns the logging pipeline and, for RunCommand, the stop-signal handler until
+/// command execution, workers/plugins and logging have all finished. Expected
+/// command failures use their command-specific presentation and exit code;
+/// escaping defects are logged at this process boundary. Drains logs before
+/// returning the process exit code. Call on the main thread.
 [[nodiscard]] int run(const Cli::Command& command);
 
 }  // namespace Composition

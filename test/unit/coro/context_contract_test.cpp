@@ -5,7 +5,7 @@
 // and only coro::run() (or a context it spawned) binds that context. Awaiting
 // from a frame nobody bound is a programming defect, diagnosed by assertion;
 // these death tests pin down the diagnosis at the runtime's await entry points:
-// co_await Task itself, plus the three awaitables that used to throw
+// co_await Task itself, plus the two awaitables that used to throw
 // std::logic_error instead. Assertions compile out under NDEBUG, so the file
 // is empty in a Release test build.
 //
@@ -14,14 +14,13 @@
 //
 
 #include <chrono>
+
 #include <coroutine>
-#include <csignal>
 
 #include <gtest/gtest.h>
 
 #include "coro/coro.h"
 #include "coro/detail/frame.h"
-#include "coro/detail/signal_awaitable.h"
 
 #ifndef NDEBUG
 
@@ -35,13 +34,18 @@ struct UnboundTask {
         UnboundTask get_return_object() noexcept {
             return UnboundTask{std::coroutine_handle<promise_type>::from_promise(*this)};
         }
+
         std::suspend_always initial_suspend() noexcept { return {}; }
+
         std::suspend_always final_suspend() noexcept { return {}; }
+
         void return_void() noexcept {}
+
         void unhandled_exception() { std::terminate(); }
     };
 
     std::coroutine_handle<promise_type> handle;
+
     ~UnboundTask() { handle.destroy(); }
 };
 
@@ -50,9 +54,7 @@ struct UnboundTask {
 TEST(ContextContract, task_await_OutsideRun_AssertionDiagnosed) {
     EXPECT_DEATH(
         {
-            UnboundTask frame = []() -> UnboundTask {
-                co_await []() -> coro::Task<void> { co_return; }();
-            }();
+            UnboundTask frame = []() -> UnboundTask { co_await []() -> coro::Task<void> { co_return; }(); }();
             frame.handle.resume();
         },
         "must be awaited inside coro::run");
@@ -72,17 +74,6 @@ TEST(ContextContract, wait_readable_OutsideRun_AssertionDiagnosed) {
         {
             // fd 0 passes the fd_ < 0 guard, so only the missing loop can fire.
             UnboundTask frame = []() -> UnboundTask { co_await coro::wait_readable(0); }();
-            frame.handle.resume();
-        },
-        "must be awaited inside coro::run");
-}
-
-TEST(ContextContract, on_signal_OutsideRun_AssertionDiagnosed) {
-    EXPECT_DEATH(
-        {
-            // The public on_signal() wraps this awaitable in a Task; awaiting
-            // the awaitable directly isolates its own contract.
-            UnboundTask frame = []() -> UnboundTask { co_await coro::detail::SignalAwaitable{SIGUSR1}; }();
             frame.handle.resume();
         },
         "must be awaited inside coro::run");

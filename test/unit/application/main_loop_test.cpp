@@ -1,5 +1,5 @@
 //
-// Run-root tests — the per-subdomain loop coroutine and the run root.
+// Main-loop tests — the per-subdomain task coroutine and the main loop.
 //
 // Timeline behaviour is deterministic: the loop runs on a ManualClock, so
 // "sleep for the update interval" really advances simulated time. The run-root
@@ -9,13 +9,14 @@
 // coroutine body; coroutine bodies use EXPECT_* only.
 //
 
-#include "application/run_root.h"
+#include "application/tasks/main_loop.h"
 
 #include <chrono>
 #include <csignal>
 #include <cstdlib>
 #include <functional>
 #include <memory>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -27,10 +28,11 @@
 #include <unistd.h>
 
 #include "application/ports/log.h"
-#include "application/run_update_cycle.h"
 #include "application/services.h"
-#include "application/subdomain_loop.h"
+#include "application/tasks/subdomain_task.h"
+#include "application/tasks/update_task.h"
 #include "coro/coro.h"
+#include "coro/stop_signals.h"
 #include "domain/config/dns_config.h"
 #include "domain/config/ip_source_kind.h"
 #include "domain/config/runtime_config.h"
@@ -109,7 +111,24 @@ public:
     /// Invoked on every call, after the counters are updated.
     std::function<void()> on_call;
 
+    /// Validation surface: counts calls, optionally rejects or hangs.
+    struct Validation {
+        bool available{true};
+        int calls{0};
+        std::optional<domain::DriverError> rejection;
+        std::chrono::seconds hang{0};
+    } validation{};
+
+    bool supports_validate(std::string_view) const override { return validation.available; }
+
     coro::Task<std::expected<void, domain::DriverError>> validate_config(std::string, std::string) override {
+        ++validation.calls;
+        if (validation.hang.count() > 0) {
+            co_await coro::sleep_for(validation.hang);
+        }
+        if (validation.rejection.has_value()) {
+            co_return std::unexpected(*validation.rejection);
+        }
         co_return std::expected<void, domain::DriverError>{};
     }
 
@@ -135,9 +154,9 @@ public:
     std::vector<std::string> fqdns;
 };
 
-/// A gateway whose bookkeeping lives in shared state. The run root owns the
+/// A gateway whose bookkeeping lives in shared state. The main loop owns the
 /// gateway (unique_ptr factory) and destroys it when the run ends, so a test
-/// that drives run_root inspects this shared state instead of the object.
+/// that drives main_loop inspects this shared state instead of the object.
 class ProbeGateway final : public app::GatewayPort {
 public:
     struct State {
@@ -145,6 +164,15 @@ public:
         bool destroyed = false;
         bool child_drained = false;
         std::vector<std::string> fqdns;
+
+        /// Startup-validation surface, shared like the rest of the probe state.
+        struct Validation {
+            bool available{true};
+            int calls{0};
+            std::optional<domain::DriverError> rejection;
+            std::chrono::seconds hang{0};
+        } validation{};
+
         /// When positive, update() parks this long inside a shielded scope — a
         /// driver that keeps working through the shutdown request, which keeps
         /// the drain phase (and the signal watchers) alive for its duration.
@@ -157,7 +185,16 @@ public:
 
     ~ProbeGateway() noexcept override { state_->destroyed = true; }
 
+    bool supports_validate(std::string_view) const override { return state_->validation.available; }
+
     coro::Task<std::expected<void, domain::DriverError>> validate_config(std::string, std::string) override {
+        ++state_->validation.calls;
+        if (state_->validation.hang.count() > 0) {
+            co_await coro::sleep_for(state_->validation.hang);
+        }
+        if (state_->validation.rejection.has_value()) {
+            co_return std::unexpected(*state_->validation.rejection);
+        }
         co_return std::expected<void, domain::DriverError>{};
     }
 
@@ -213,13 +250,20 @@ void run_loop(coro::Loop& loop, Fn&& body) {
     coro::run(loop, body());
 }
 
+/// Drive the main loop for tests that assert on how it fails rather than on the
+/// status it returns. coro::run is [[nodiscard]]; the failure is the outcome.
+void run_main_loop(coro::Loop& loop, const std::shared_ptr<const domain::RuntimeConfig>& config,
+                   const app::RuntimeServices& services) {
+    [[maybe_unused]] const int code = coro::run(loop, app::main_loop(config, services));
+}
+
 }  // namespace
 
 // ---------------------------------------------------------------------------
-// subdomain_loop timing (ManualClock)
+// subdomain_task timing (ManualClock)
 // ---------------------------------------------------------------------------
 
-TEST(RunRoot, SubdomainLoopRunsOnTheUpdateInterval) {
+TEST(MainLoop, SubdomainTaskRunsOnTheUpdateInterval) {
     coro::ManualClock clock;
     coro::Loop loop{clock};
     FakeResolver resolver;
@@ -231,7 +275,7 @@ TEST(RunRoot, SubdomainLoopRunsOnTheUpdateInterval) {
 
     run_loop(loop, [&]() -> coro::Task<void> {
         co_await coro::with_timeout(25s, [&]() -> coro::Task<void> {
-            co_await app::subdomain_loop(config->domains[0], config->domains[0].subdomains[0], services);
+            co_await app::subdomain_task(config->domains[0], config->domains[0].subdomains[0], services);
             co_return;
         });
         co_return;
@@ -242,7 +286,7 @@ TEST(RunRoot, SubdomainLoopRunsOnTheUpdateInterval) {
     EXPECT_EQ(resolver.calls, 3);
 }
 
-TEST(RunRoot, RetryAfterOverridesTheUpdateInterval) {
+TEST(MainLoop, RetryAfterOverridesTheUpdateInterval) {
     coro::ManualClock clock;
     coro::Loop loop{clock};
     FakeResolver resolver;
@@ -255,7 +299,7 @@ TEST(RunRoot, RetryAfterOverridesTheUpdateInterval) {
 
     run_loop(loop, [&]() -> coro::Task<void> {
         co_await coro::with_timeout(45s, [&]() -> coro::Task<void> {
-            co_await app::subdomain_loop(config->domains[0], config->domains[0].subdomains[0], services);
+            co_await app::subdomain_task(config->domains[0], config->domains[0].subdomains[0], services);
             co_return;
         });
         co_return;
@@ -265,7 +309,7 @@ TEST(RunRoot, RetryAfterOverridesTheUpdateInterval) {
     EXPECT_EQ(gateway.calls, 3);
 }
 
-TEST(RunRoot, ForceUpdateIntervalSkipsTheDnsRead) {
+TEST(MainLoop, ForceUpdateIntervalSkipsTheDnsRead) {
     coro::ManualClock clock;
     coro::Loop loop{clock};
     FakeResolver resolver;
@@ -277,7 +321,7 @@ TEST(RunRoot, ForceUpdateIntervalSkipsTheDnsRead) {
 
     run_loop(loop, [&]() -> coro::Task<void> {
         co_await coro::with_timeout(25s, [&]() -> coro::Task<void> {
-            co_await app::subdomain_loop(config->domains[0], config->domains[0].subdomains[0], services);
+            co_await app::subdomain_task(config->domains[0], config->domains[0].subdomains[0], services);
             co_return;
         });
         co_return;
@@ -289,7 +333,7 @@ TEST(RunRoot, ForceUpdateIntervalSkipsTheDnsRead) {
     EXPECT_EQ(resolver.calls, 1);
 }
 
-TEST(RunRoot, CancellationWakesTheLoopFromItsSleep) {
+TEST(MainLoop, CancellationWakesTheLoopFromItsSleep) {
     coro::ManualClock clock;
     coro::Loop loop{clock};
     FakeResolver resolver;
@@ -301,7 +345,7 @@ TEST(RunRoot, CancellationWakesTheLoopFromItsSleep) {
 
     run_loop(loop, [&]() -> coro::Task<void> {
         co_await coro::with_timeout(5s, [&]() -> coro::Task<void> {
-            co_await app::subdomain_loop(config->domains[0], config->domains[0].subdomains[0], services);
+            co_await app::subdomain_task(config->domains[0], config->domains[0].subdomains[0], services);
             co_return;
         });
         co_return;
@@ -312,7 +356,7 @@ TEST(RunRoot, CancellationWakesTheLoopFromItsSleep) {
     EXPECT_EQ(gateway.calls, 1);
 }
 
-TEST(RunRoot, SubdomainLoop_AlreadyCancelled_DoesNotResolveDnsOrPublish) {
+TEST(MainLoop, SubdomainTask_AlreadyCancelled_DoesNotResolveDnsOrPublish) {
     // Cover both ordinary DNS verification and forced publishing.
     for (const int force_interval : {0, 60}) {
         coro::ManualClock clock;
@@ -327,7 +371,7 @@ TEST(RunRoot, SubdomainLoop_AlreadyCancelled_DoesNotResolveDnsOrPublish) {
         run_loop(loop, [&]() -> coro::Task<void> {
             co_await coro::with_cancel_scope([&](coro::CancelScope& scope) -> coro::Task<void> {
                 scope.cancel();
-                co_await app::subdomain_loop(config->domains[0], config->domains[0].subdomains[0], services);
+                co_await app::subdomain_task(config->domains[0], config->domains[0].subdomains[0], services);
             });
         });
 
@@ -339,7 +383,7 @@ TEST(RunRoot, SubdomainLoop_AlreadyCancelled_DoesNotResolveDnsOrPublish) {
     }
 }
 
-TEST(RunRoot, SubdomainLoop_SourceCompletedBeforeCancel_DoesNotResolveDnsOrPublish) {
+TEST(MainLoop, SubdomainTask_SourceCompletedBeforeCancel_DoesNotResolveDnsOrPublish) {
     // Cover both ordinary DNS verification and forced publishing.
     for (const int force_interval : {0, 60}) {
         coro::ManualClock clock;
@@ -362,7 +406,7 @@ TEST(RunRoot, SubdomainLoop_SourceCompletedBeforeCancel_DoesNotResolveDnsOrPubli
                         scope.cancel();
                     });
                 };
-                co_await app::subdomain_loop(config->domains[0], config->domains[0].subdomains[0], services);
+                co_await app::subdomain_task(config->domains[0], config->domains[0].subdomains[0], services);
                 ip_source.on_resolved = {};
             });
         });
@@ -374,7 +418,7 @@ TEST(RunRoot, SubdomainLoop_SourceCompletedBeforeCancel_DoesNotResolveDnsOrPubli
     }
 }
 
-TEST(RunRoot, UpdateBudgetTimeoutIsAFailedCycleNotAShutdown) {
+TEST(MainLoop, UpdateBudgetTimeoutIsAFailedCycleNotAShutdown) {
     coro::ManualClock clock;
     coro::Loop loop{clock};
     FakeResolver resolver;
@@ -387,7 +431,7 @@ TEST(RunRoot, UpdateBudgetTimeoutIsAFailedCycleNotAShutdown) {
 
     run_loop(loop, [&]() -> coro::Task<void> {
         co_await coro::with_timeout(75s, [&]() -> coro::Task<void> {
-            co_await app::subdomain_loop(config->domains[0], config->domains[0].subdomains[0], services);
+            co_await app::subdomain_task(config->domains[0], config->domains[0].subdomains[0], services);
             co_return;
         });
         co_return;
@@ -402,7 +446,7 @@ TEST(RunRoot, UpdateBudgetTimeoutIsAFailedCycleNotAShutdown) {
     EXPECT_EQ(gateway.calls, 3);
 }
 
-TEST(RunRoot, IpSourceTimeoutSkipsTheCycle) {
+TEST(MainLoop, IpSourceTimeoutSkipsTheCycle) {
     coro::ManualClock clock;
     coro::Loop loop{clock};
     FakeResolver resolver;
@@ -417,7 +461,7 @@ TEST(RunRoot, IpSourceTimeoutSkipsTheCycle) {
 
     std::expected<app::UpdateCycleResult, domain::UpdateError> outcome;
     run_loop(loop, [&]() -> coro::Task<void> {
-        outcome = co_await app::run_update_cycle(task, services);
+        outcome = co_await app::update_task(task, services);
         co_return;
     });
 
@@ -431,10 +475,10 @@ TEST(RunRoot, IpSourceTimeoutSkipsTheCycle) {
 }
 
 // ---------------------------------------------------------------------------
-// run_update_cycle decisions
+// update_task decisions
 // ---------------------------------------------------------------------------
 
-TEST(RunRoot, RunUpdateCycleSkipsWhenTheRecordIsUnchanged) {
+TEST(MainLoop, UpdateTaskSkipsWhenTheRecordIsUnchanged) {
     coro::Loop loop;
     FakeResolver resolver;
     resolver.records = {"192.0.2.1"};
@@ -447,7 +491,7 @@ TEST(RunRoot, RunUpdateCycleSkipsWhenTheRecordIsUnchanged) {
 
     std::expected<app::UpdateCycleResult, domain::UpdateError> outcome;
     run_loop(loop, [&]() -> coro::Task<void> {
-        outcome = co_await app::run_update_cycle(task, services);
+        outcome = co_await app::update_task(task, services);
         co_return;
     });
 
@@ -456,7 +500,7 @@ TEST(RunRoot, RunUpdateCycleSkipsWhenTheRecordIsUnchanged) {
     EXPECT_EQ(gateway.calls, 0);
 }
 
-TEST(RunRoot, RunUpdateCycleUpdatesWhenTheRecordChanged) {
+TEST(MainLoop, UpdateTaskUpdatesWhenTheRecordChanged) {
     coro::Loop loop;
     FakeResolver resolver;
     resolver.records = {"198.51.100.1"};
@@ -469,7 +513,7 @@ TEST(RunRoot, RunUpdateCycleUpdatesWhenTheRecordChanged) {
 
     std::expected<app::UpdateCycleResult, domain::UpdateError> outcome;
     run_loop(loop, [&]() -> coro::Task<void> {
-        outcome = co_await app::run_update_cycle(task, services);
+        outcome = co_await app::update_task(task, services);
         co_return;
     });
 
@@ -480,7 +524,7 @@ TEST(RunRoot, RunUpdateCycleUpdatesWhenTheRecordChanged) {
     EXPECT_EQ(gateway.fqdns[0], "www.example.com");
 }
 
-TEST(RunRoot, RunUpdateCycleForceSkipsTheResolver) {
+TEST(MainLoop, UpdateTaskForceSkipsTheResolver) {
     coro::Loop loop;
     FakeResolver resolver;
     FakeIpSource ip_source;
@@ -492,7 +536,7 @@ TEST(RunRoot, RunUpdateCycleForceSkipsTheResolver) {
 
     std::expected<app::UpdateCycleResult, domain::UpdateError> outcome;
     run_loop(loop, [&]() -> coro::Task<void> {
-        outcome = co_await app::run_update_cycle(task, services);
+        outcome = co_await app::update_task(task, services);
         co_return;
     });
 
@@ -502,7 +546,7 @@ TEST(RunRoot, RunUpdateCycleForceSkipsTheResolver) {
     EXPECT_EQ(gateway.calls, 1);
 }
 
-TEST(RunRoot, RunUpdateCyclePropagatesDriverRetryAfter) {
+TEST(MainLoop, UpdateTaskPropagatesDriverRetryAfter) {
     coro::Loop loop;
     FakeResolver resolver;
     resolver.records = {"198.51.100.1"};
@@ -516,7 +560,7 @@ TEST(RunRoot, RunUpdateCyclePropagatesDriverRetryAfter) {
 
     std::expected<app::UpdateCycleResult, domain::UpdateError> outcome;
     run_loop(loop, [&]() -> coro::Task<void> {
-        outcome = co_await app::run_update_cycle(task, services);
+        outcome = co_await app::update_task(task, services);
         co_return;
     });
 
@@ -525,7 +569,7 @@ TEST(RunRoot, RunUpdateCyclePropagatesDriverRetryAfter) {
     EXPECT_EQ(outcome.error().retry_after_seconds, 42);
 }
 
-TEST(RunRoot, RunUpdateCycleSkipsWhenNoLocalAddress) {
+TEST(MainLoop, UpdateTaskSkipsWhenNoLocalAddress) {
     coro::Loop loop;
     FakeResolver resolver;
     FakeIpSource ip_source;
@@ -538,7 +582,7 @@ TEST(RunRoot, RunUpdateCycleSkipsWhenNoLocalAddress) {
 
     std::expected<app::UpdateCycleResult, domain::UpdateError> outcome;
     run_loop(loop, [&]() -> coro::Task<void> {
-        outcome = co_await app::run_update_cycle(task, services);
+        outcome = co_await app::update_task(task, services);
         co_return;
     });
 
@@ -551,7 +595,7 @@ TEST(RunRoot, RunUpdateCycleSkipsWhenNoLocalAddress) {
 // DNS read budget (timeout is a scope property composed in the workflow)
 // ---------------------------------------------------------------------------
 
-TEST(RunRoot, RunUpdateCycleDnsReadTimeoutStillPublishes) {
+TEST(MainLoop, UpdateTaskDnsReadTimeoutStillPublishes) {
     coro::ManualClock clock;
     coro::Loop loop{clock};
     FakeResolver resolver;
@@ -566,7 +610,7 @@ TEST(RunRoot, RunUpdateCycleDnsReadTimeoutStillPublishes) {
 
     std::expected<app::UpdateCycleResult, domain::UpdateError> outcome;
     run_loop(loop, [&]() -> coro::Task<void> {
-        outcome = co_await app::run_update_cycle(task, services);
+        outcome = co_await app::update_task(task, services);
         co_return;
     });
 
@@ -578,7 +622,7 @@ TEST(RunRoot, RunUpdateCycleDnsReadTimeoutStillPublishes) {
     EXPECT_GE(clock.now() - start, std::chrono::seconds(4));
 }
 
-TEST(RunRoot, RunUpdateCycleExternalCancelDoesNotPublish) {
+TEST(MainLoop, UpdateTaskExternalCancelDoesNotPublish) {
     coro::ManualClock clock;
     coro::Loop loop{clock};
     FakeResolver resolver;
@@ -596,7 +640,7 @@ TEST(RunRoot, RunUpdateCycleExternalCancelDoesNotPublish) {
         // The outer scope fires at 2s, before the 4s read budget: an external
         // cancel, not our timeout, must abort without publishing.
         const auto outcome = co_await coro::with_timeout(2s, [&]() -> coro::Task<void> {
-            co_await app::run_update_cycle(task, services);
+            co_await app::update_task(task, services);
             returned = true;
             co_return;
         });
@@ -610,10 +654,11 @@ TEST(RunRoot, RunUpdateCycleExternalCancelDoesNotPublish) {
 }
 
 // ---------------------------------------------------------------------------
-// run_root: supervisor semantics, SIGINT shutdown and the exit status
+// main_loop: supervisor semantics, SIGINT shutdown and the exit status
 // ---------------------------------------------------------------------------
 
-TEST(RunRoot, RunRootSupervisesSubdomainsAndStopsOnSigint) {
+TEST(MainLoop, MainLoopSupervisesSubdomainsAndStopsOnSigint) {
+    const coro::StopSignals stop;
     coro::Loop loop;
     FakeResolver resolver;
     resolver.records = {"198.51.100.1"};
@@ -638,11 +683,11 @@ TEST(RunRoot, RunRootSupervisesSubdomainsAndStopsOnSigint) {
         .make_gateway = [&gateway_state](coro::TaskGroup&) -> std::unique_ptr<app::GatewayPort> {
             return std::make_unique<ProbeGateway>(gateway_state);
         },
-        .force_exit = [](int status) { std::_Exit(status); },
-        .startup_signals = nullptr,
+        .stop_requested = [&stop] { return stop.requested(); },
+        .wait_for_stop = [&stop] { return stop.wait(); },
     };
 
-    const int code = coro::run(loop, app::run_root(config, runtime_services));
+    const int code = coro::run(loop, app::main_loop(config, runtime_services));
 
     EXPECT_EQ(code, EXIT_SUCCESS);
     // The healthy subdomain updated at least twice; the failing one never did.
@@ -653,7 +698,8 @@ TEST(RunRoot, RunRootSupervisesSubdomainsAndStopsOnSigint) {
     EXPECT_FALSE(resolver.calls == 0);
 }
 
-TEST(RunRoot, SubdomainDefectRestartsTheLoopAfterTheInterval) {
+TEST(MainLoop, SubdomainDefectRetriesTheCycleAfterTheInterval) {
+    const coro::StopSignals stop;
     coro::ManualClock clock;
     coro::Loop loop{clock};
     FakeResolver resolver;
@@ -670,13 +716,13 @@ TEST(RunRoot, SubdomainDefectRestartsTheLoopAfterTheInterval) {
         .make_gateway = [&gateway_state](coro::TaskGroup&) -> std::unique_ptr<app::GatewayPort> {
             return std::make_unique<ProbeGateway>(gateway_state);
         },
-        .force_exit = [](int status) { std::_Exit(status); },
-        .startup_signals = nullptr,
+        .stop_requested = [&stop] { return stop.requested(); },
+        .wait_for_stop = [&stop] { return stop.wait(); },
     };
 
     auto task = [&]() -> coro::Task<void> {
         const auto outcome = co_await coro::with_timeout(
-            35s, [&]() -> coro::Task<void> { co_await app::run_root(config, runtime_services); });
+            35s, [&]() -> coro::Task<void> { co_await app::main_loop(config, runtime_services); });
         // A defect no longer retires the subdomain: the daemon keeps running
         // until something cancels it (here: the test's budget).
         EXPECT_TRUE(outcome.timed_out);
@@ -684,23 +730,24 @@ TEST(RunRoot, SubdomainDefectRestartsTheLoopAfterTheInterval) {
     coro::run(loop, task());
 
     // Defects at t=0, 10, 20, 30: the legacy queue retried a failed task on
-    // the interval, and so does the supervising guard.
+    // the interval, and so does the subdomain task.
     EXPECT_EQ(ip_source.calls, 4);
     EXPECT_EQ(gateway_state->calls, 0);
 
-    // A dead loop never vanishes silently: every defect is reported, naming
+    // A failed cycle never vanishes silently: every defect is reported, naming
     // the subdomain.
-    int deaths = 0;
+    int failures = 0;
     for (const auto& record : logger.records()) {
         if (record.level == app::LogLevel::ERROR && record.message.find("only.example.com") != std::string::npos &&
-            record.message.find("died") != std::string::npos) {
-            ++deaths;
+            record.message.find("failed") != std::string::npos) {
+            ++failures;
         }
     }
-    EXPECT_GE(deaths, 3);
+    EXPECT_GE(failures, 3);
 }
 
-TEST(RunRoot, SubdomainDefectIsReportedAndSiblingsSurvive) {
+TEST(MainLoop, SubdomainDefectIsReportedAndSiblingsSurvive) {
+    const coro::StopSignals stop;
     coro::Loop loop;
     FakeResolver resolver;
     FakeIpSource ip_source;
@@ -724,29 +771,30 @@ TEST(RunRoot, SubdomainDefectIsReportedAndSiblingsSurvive) {
         .make_gateway = [&gateway_state](coro::TaskGroup&) -> std::unique_ptr<app::GatewayPort> {
             return std::make_unique<ProbeGateway>(gateway_state);
         },
-        .force_exit = [](int status) { std::_Exit(status); },
-        .startup_signals = nullptr,
+        .stop_requested = [&stop] { return stop.requested(); },
+        .wait_for_stop = [&stop] { return stop.wait(); },
     };
 
-    const int code = coro::run(loop, app::run_root(config, runtime_services));
+    const int code = coro::run(loop, app::main_loop(config, runtime_services));
 
     EXPECT_EQ(code, EXIT_SUCCESS);
     EXPECT_GE(gateway_state->calls, 2);
-    // A dead loop must never vanish silently: the defect is reported once,
+    // A failed cycle must never vanish silently: the defect is reported,
     // naming the subdomain.
     bool reported = false;
     for (const auto& record : logger.records()) {
         const auto level = record.level;
         const auto& message = record.message;
         if (level == app::LogLevel::ERROR && message.find("bad.example.com") != std::string::npos &&
-            message.find("died") != std::string::npos) {
+            message.find("failed") != std::string::npos) {
             reported = true;
         }
     }
     EXPECT_TRUE(reported);
 }
 
-TEST(RunRoot, SigtermStopsTheRunWithSuccess) {
+TEST(MainLoop, SigtermStopsTheRunWithSuccess) {
+    const coro::StopSignals stop;
     coro::Loop loop;
     FakeResolver resolver;
     FakeIpSource ip_source;
@@ -767,20 +815,20 @@ TEST(RunRoot, SigtermStopsTheRunWithSuccess) {
         .make_gateway = [&gateway_state](coro::TaskGroup&) -> std::unique_ptr<app::GatewayPort> {
             return std::make_unique<ProbeGateway>(gateway_state);
         },
-        .force_exit = [](int status) { std::_Exit(status); },
-        .startup_signals = nullptr,
+        .stop_requested = [&stop] { return stop.requested(); },
+        .wait_for_stop = [&stop] { return stop.wait(); },
     };
 
-    const int code = coro::run(loop, app::run_root(config, runtime_services));
+    const int code = coro::run(loop, app::main_loop(config, runtime_services));
 
     EXPECT_EQ(code, EXIT_SUCCESS);
     EXPECT_EQ(gateway_state->calls, 1);
 }
 
-TEST(RunRoot, StartupSignalCountsRequestShutdownBeforeWorkStarts) {
-    // A SIGINT that arrived while the composition root was still loading (the
-    // counting handler covers that phase) is folded into the shutdown state:
-    // the run ends gracefully instead of starting cycles that must unwind.
+TEST(MainLoop, AlreadyRequestedStopSkipsValidationAndUpdates) {
+    const coro::StopSignals stop;
+    ::kill(::getpid(), SIGINT);
+    // An earlier request is latched; no watcher scheduling order is involved.
     coro::Loop loop;
     FakeResolver resolver;
     FakeIpSource ip_source;
@@ -795,25 +843,27 @@ TEST(RunRoot, StartupSignalCountsRequestShutdownBeforeWorkStarts) {
         .make_gateway = [&gateway_state](coro::TaskGroup&) -> std::unique_ptr<app::GatewayPort> {
             return std::make_unique<ProbeGateway>(gateway_state);
         },
-        .force_exit = [](int status) { std::_Exit(status); },
-        .startup_signals = [] { return app::StartupSignalCounts{.sigint = 1, .sigterm = 0}; },
+        .stop_requested = [&stop] { return stop.requested(); },
+        .wait_for_stop = [&stop] { return stop.wait(); },
     };
 
-    const int code = coro::run(loop, app::run_root(config, runtime_services));
+    const int code = coro::run(loop, app::main_loop(config, runtime_services));
 
     EXPECT_EQ(code, EXIT_SUCCESS);
-    EXPECT_EQ(gateway_state->calls, 0);  // no update was ever published
+    EXPECT_EQ(gateway_state->calls, 0);
+    EXPECT_EQ(gateway_state->validation.calls, 0);
 }
 
 /// The death-test scenario, factored out: EXPECT_EXIT is a macro and the
 /// designated initializers below contain top-level commas it would split on.
 void run_until_second_sigint() {
+    const coro::StopSignals stop;
     coro::Loop loop;
     FakeResolver resolver;
     FakeIpSource ip_source;
     const auto gateway_state = std::make_shared<ProbeGateway::State>();
     // The shielded hang keeps the drain phase alive long enough for the
-    // second SIGINT to reach the still-armed watcher.
+    // second SIGINT to reach the same process handler during drain.
     gateway_state->shielded_hang = 1s;
     gateway_state->on_call = [] {
         std::thread([] {
@@ -832,15 +882,257 @@ void run_until_second_sigint() {
         .make_gateway = [&gateway_state](coro::TaskGroup&) -> std::unique_ptr<app::GatewayPort> {
             return std::make_unique<ProbeGateway>(gateway_state);
         },
-        .force_exit = [](int status) { std::_Exit(status); },
-        .startup_signals = nullptr,
+        .stop_requested = [&stop] { return stop.requested(); },
+        .wait_for_stop = [&stop] { return stop.wait(); },
     };
-    const int code = coro::run(loop, app::run_root(config, runtime_services));
+    const int code = coro::run(loop, app::main_loop(config, runtime_services));
     ::_exit(code);  // reached only when the escalation did not fire
 }
 
-TEST(RunRoot, SecondSigintForcesImmediateTermination) {
+TEST(MainLoop, SecondSigintForcesImmediateTermination) {
     EXPECT_EXIT(run_until_second_sigint(), ::testing::ExitedWithCode(128 + SIGINT), "");
+}
+
+// ---------------------------------------------------------------------------
+// main_loop: startup driver-parameter validation
+// ---------------------------------------------------------------------------
+
+TEST(MainLoop, StartupValidation_RejectionFailsBeforeAnyUpdate) {
+    const coro::StopSignals stop;
+    coro::Loop loop;
+    FakeResolver resolver;
+    FakeIpSource ip_source;
+    NullLogger logger;
+    const auto gateway_state = std::make_shared<ProbeGateway::State>();
+    gateway_state->validation.rejection =
+        domain::DriverError{domain::DriverError::Code::UPDATE_FAILED, "missing url", 0};
+
+    const auto config = make_config({make_subdomain("www", 100)}, 100, 0);
+    const app::RuntimeServices runtime_services{
+        .resolver = resolver,
+        .ip_source = ip_source,
+        .logger = logger,
+        .make_gateway = [&gateway_state](coro::TaskGroup&) -> std::unique_ptr<app::GatewayPort> {
+            return std::make_unique<ProbeGateway>(gateway_state);
+        },
+        .stop_requested = [&stop] { return stop.requested(); },
+        .wait_for_stop = [&stop] { return stop.wait(); },
+    };
+
+    const int code = coro::run(loop, app::main_loop(config, runtime_services));
+
+    // A driver that says its parameters are wrong must not have any update
+    // published against them, and the startup has to fail so a supervisor does
+    // not restart into the same mistake.
+    EXPECT_EQ(code, EXIT_FAILURE);
+    EXPECT_EQ(gateway_state->validation.calls, 1);
+    EXPECT_EQ(gateway_state->calls, 0);
+}
+
+TEST(MainLoop, StartupValidation_DriverWithoutEntryWarnsAndRuns) {
+    const coro::StopSignals stop;
+    coro::Loop loop;
+    FakeResolver resolver;
+    resolver.records = {"198.51.100.1"};
+    FakeIpSource ip_source;
+    RecordingLogger logger;
+    const auto gateway_state = std::make_shared<ProbeGateway::State>();
+    gateway_state->validation.available = false;
+    ProbeGateway::State* state = gateway_state.get();
+    gateway_state->on_call = [state] {
+        if (state->calls >= 1) {
+            ::kill(::getpid(), SIGINT);
+        }
+    };
+
+    const auto config = make_config({make_subdomain("www", 100)}, 100, 0);
+    const app::RuntimeServices runtime_services{
+        .resolver = resolver,
+        .ip_source = ip_source,
+        .logger = logger,
+        .make_gateway = [&gateway_state](coro::TaskGroup&) -> std::unique_ptr<app::GatewayPort> {
+            return std::make_unique<ProbeGateway>(gateway_state);
+        },
+        .stop_requested = [&stop] { return stop.requested(); },
+        .wait_for_stop = [&stop] { return stop.wait(); },
+    };
+
+    const int code = coro::run(loop, app::main_loop(config, runtime_services));
+
+    // A plugin built against an older ABI cannot stop a daemon that updates
+    // correctly; the run warns and proceeds.
+    EXPECT_EQ(code, EXIT_SUCCESS);
+    EXPECT_EQ(gateway_state->validation.calls, 0);
+    EXPECT_EQ(gateway_state->calls, 1);
+
+    bool warned = false;
+    for (const auto& record : logger.records()) {
+        if (record.level == app::LogLevel::WARN && record.message.find("fake-driver") != std::string::npos &&
+            record.message.find("no configuration validation") != std::string::npos) {
+            warned = true;
+        }
+    }
+    EXPECT_TRUE(warned);
+}
+
+TEST(MainLoop, StartupValidation_TimeoutFailsBeforeAnyUpdate) {
+    const coro::StopSignals stop;
+    coro::ManualClock clock;
+    coro::Loop loop{clock};
+    FakeResolver resolver;
+    FakeIpSource ip_source;
+    NullLogger logger;
+    const auto gateway_state = std::make_shared<ProbeGateway::State>();
+    gateway_state->validation.hang = 3600s;  // never answers within the budget
+
+    const auto config = make_config({make_subdomain("www", 100)}, 100, 0);
+    const app::RuntimeServices runtime_services{
+        .resolver = resolver,
+        .ip_source = ip_source,
+        .logger = logger,
+        .make_gateway = [&gateway_state](coro::TaskGroup&) -> std::unique_ptr<app::GatewayPort> {
+            return std::make_unique<ProbeGateway>(gateway_state);
+        },
+        .stop_requested = [&stop] { return stop.requested(); },
+        .wait_for_stop = [&stop] { return stop.wait(); },
+        .policy = app::UpdatePolicy{.driver_validation_budget = 5s},
+    };
+
+    const int code = coro::run(loop, app::main_loop(config, runtime_services));
+
+    EXPECT_EQ(code, EXIT_FAILURE);
+    EXPECT_EQ(gateway_state->calls, 0);
+}
+
+TEST(MainLoop, StartupValidation_AncestorCancellationSkipsUpdates) {
+    const coro::StopSignals stop;
+    coro::ManualClock clock;
+    coro::Loop loop{clock};
+    FakeResolver resolver;
+    FakeIpSource ip_source;
+    NullLogger logger;
+    const auto gateway_state = std::make_shared<ProbeGateway::State>();
+    gateway_state->validation.hang = 3600s;  // parks inside the budget
+    // The validation hangs, so the run is cancelled from outside — the shape a
+    // SIGINT during a slow startup has.
+    bool completed = false;
+
+    const auto config = make_config({make_subdomain("www", 100)}, 100, 0);
+    const app::RuntimeServices runtime_services{
+        .resolver = resolver,
+        .ip_source = ip_source,
+        .logger = logger,
+        .make_gateway = [&gateway_state](coro::TaskGroup&) -> std::unique_ptr<app::GatewayPort> {
+            return std::make_unique<ProbeGateway>(gateway_state);
+        },
+        .stop_requested = [&stop] { return stop.requested(); },
+        .wait_for_stop = [&stop] { return stop.wait(); },
+        .policy = app::UpdatePolicy{.driver_validation_budget = 3600s},
+    };
+
+    const auto outcome = coro::run(loop, coro::with_timeout(5s, [&]() -> coro::Task<int> {
+                                       co_return co_await app::main_loop(config, runtime_services);
+                                   }));
+    completed = !outcome.timed_out;
+
+    // Validation runs inside the cancellable scope, so the budget is a shield
+    // the outer scope tears down rather than something the run has to finish.
+    EXPECT_FALSE(completed);
+    EXPECT_EQ(gateway_state->calls, 0);
+    EXPECT_EQ(gateway_state->validation.calls, 1);
+}
+
+TEST(MainLoop, StopSignalCancelsStartupValidation) {
+    const coro::StopSignals stop;
+    coro::Loop loop;
+    FakeResolver resolver;
+    FakeIpSource ip_source;
+    NullLogger logger;
+    const auto state = std::make_shared<ProbeGateway::State>();
+    state->validation.hang = 3600s;
+    const auto config = make_config({make_subdomain("www", 100)}, 100, 0);
+    const app::RuntimeServices services{
+        .resolver = resolver,
+        .ip_source = ip_source,
+        .logger = logger,
+        .make_gateway = [state](coro::TaskGroup&) -> std::unique_ptr<app::GatewayPort> {
+            return std::make_unique<ProbeGateway>(state);
+        },
+        .stop_requested = [&stop] { return stop.requested(); },
+        .wait_for_stop = [&stop] { return stop.wait(); },
+        .policy = app::UpdatePolicy{.driver_validation_budget = 3600s},
+    };
+    std::thread sender([] {
+        std::this_thread::sleep_for(50ms);
+        ::kill(::getpid(), SIGTERM);
+    });
+    const int code = coro::run(loop, app::main_loop(config, services));
+    sender.join();
+    EXPECT_EQ(code, EXIT_SUCCESS);
+    EXPECT_EQ(state->validation.calls, 1);
+    EXPECT_EQ(state->calls, 0);
+    EXPECT_TRUE(state->destroyed);
+}
+
+TEST(MainLoop, SigtermDuringGatewayConstructionStopsBeforeAnyUpdate) {
+    const coro::StopSignals stop;
+    // The same handler latches a stop during gateway construction. No watcher
+    // has to be armed yet, and neither validation nor updates may start.
+
+    coro::Loop loop;
+    FakeResolver resolver;
+    FakeIpSource ip_source;
+    const auto gateway_state = std::make_shared<ProbeGateway::State>();
+    NullLogger logger;
+
+    const auto config = make_config({make_subdomain("www", 100)}, 100, 0);
+    const app::RuntimeServices runtime_services{
+        .resolver = resolver,
+        .ip_source = ip_source,
+        .logger = logger,
+        .make_gateway = [&gateway_state](coro::TaskGroup&) -> std::unique_ptr<app::GatewayPort> {
+            ::kill(::getpid(), SIGTERM);
+            return std::make_unique<ProbeGateway>(gateway_state);
+        },
+        .stop_requested = [&stop] { return stop.requested(); },
+        .wait_for_stop = [&stop] { return stop.wait(); },
+    };
+
+    const int code = coro::run(loop, app::main_loop(config, runtime_services));
+
+    EXPECT_EQ(code, EXIT_SUCCESS);
+    EXPECT_TRUE(stop.requested());
+    EXPECT_EQ(gateway_state->calls, 0);
+    EXPECT_TRUE(gateway_state->destroyed);
+}
+
+TEST(MainLoop, StopWaitFailureCancelsRunBeforeAnyUpdate) {
+    const coro::StopSignals stop;
+    // A defect inside the awaited task must reach the fail-fast root group,
+    // rather than being hidden in a side channel until a handover checkpoint.
+    coro::Loop loop;
+    FakeResolver resolver;
+    FakeIpSource ip_source;
+    const auto gateway_state = std::make_shared<ProbeGateway::State>();
+    NullLogger logger;
+
+    const auto config = make_config({make_subdomain("www", 100)}, 100, 0);
+    const app::RuntimeServices runtime_services{
+        .resolver = resolver,
+        .ip_source = ip_source,
+        .logger = logger,
+        .make_gateway = [&gateway_state](coro::TaskGroup&) -> std::unique_ptr<app::GatewayPort> {
+            return std::make_unique<ProbeGateway>(gateway_state);
+        },
+        .stop_requested = [&stop] { return stop.requested(); },
+        .wait_for_stop = []() -> coro::Task<void> {
+            throw std::invalid_argument("stop wait failed");
+            co_return;
+        },
+    };
+
+    EXPECT_THROW(run_main_loop(loop, config, runtime_services), std::invalid_argument);
+    EXPECT_EQ(gateway_state->calls, 0);
 }
 
 coro::Task<void> gateway_child_cleanup(std::shared_ptr<ProbeGateway::State> state) {
@@ -858,7 +1150,8 @@ coro::Task<void> gateway_child_cleanup(std::shared_ptr<ProbeGateway::State> stat
     });
 }
 
-TEST(RunRoot, AncestorCancellation_KeepsGatewayAliveThroughBridgeChildCleanup) {
+TEST(MainLoop, AncestorCancellation_KeepsGatewayAliveThroughBridgeChildCleanup) {
+    const coro::StopSignals stop;
     coro::ManualClock clock;
     coro::Loop loop{clock};
     FakeResolver resolver;
@@ -874,11 +1167,11 @@ TEST(RunRoot, AncestorCancellation_KeepsGatewayAliveThroughBridgeChildCleanup) {
             root.spawn_discard(gateway_child_cleanup(state));
             return std::make_unique<ProbeGateway>(state);
         },
-        .force_exit = [](int status) { std::_Exit(status); },
-        .startup_signals = nullptr,
+        .stop_requested = [&stop] { return stop.requested(); },
+        .wait_for_stop = [&stop] { return stop.wait(); },
     };
     auto task = [&]() -> coro::Task<void> {
-        auto outcome = co_await coro::with_timeout(5s, [&]() { return app::run_root(config, services); });
+        auto outcome = co_await coro::with_timeout(5s, [&]() { return app::main_loop(config, services); });
         EXPECT_TRUE(outcome.timed_out);
         EXPECT_TRUE(state->child_drained);
         EXPECT_TRUE(state->destroyed);
@@ -887,7 +1180,8 @@ TEST(RunRoot, AncestorCancellation_KeepsGatewayAliveThroughBridgeChildCleanup) {
     EXPECT_EQ(clock.now().time_since_epoch(), 5010ms);
 }
 
-TEST(RunRoot, RunRoot_AncestorCancellation_DrainsAndPropagates) {
+TEST(MainLoop, MainLoop_AncestorCancellation_DrainsAndPropagates) {
+    const coro::StopSignals stop;
     coro::ManualClock clock;
     coro::Loop loop{clock};
     FakeResolver resolver;
@@ -902,13 +1196,13 @@ TEST(RunRoot, RunRoot_AncestorCancellation_DrainsAndPropagates) {
         .make_gateway = [&gateway_state](coro::TaskGroup&) -> std::unique_ptr<app::GatewayPort> {
             return std::make_unique<ProbeGateway>(gateway_state);
         },
-        .force_exit = [](int status) { std::_Exit(status); },
-        .startup_signals = nullptr,
+        .stop_requested = [&stop] { return stop.requested(); },
+        .wait_for_stop = [&stop] { return stop.wait(); },
     };
     bool root_returned = false;
     auto task = [&]() -> coro::Task<void> {
         const auto outcome = co_await coro::with_timeout(5s, [&]() -> coro::Task<void> {
-            co_await app::run_root(config, services);
+            co_await app::main_loop(config, services);
             root_returned = true;
         });
         EXPECT_TRUE(outcome.timed_out);
@@ -919,7 +1213,32 @@ TEST(RunRoot, RunRoot_AncestorCancellation_DrainsAndPropagates) {
     EXPECT_EQ(gateway_state->calls, 1);
 }
 
-TEST(RunRoot, SubdomainLoop_FailedForcedPublish_RetriesBeforeNextForceInterval) {
+TEST(MainLoop, SubdomainTask_DefectAfterForcedPublish_PreservesTheRestartForcePolicy) {
+    coro::ManualClock clock;
+    coro::Loop loop{clock};
+    FakeResolver resolver;
+    resolver.records = {"192.0.2.1"};
+    FakeIpSource ip_source;
+    ip_source.on_resolved = [&] {
+        if (ip_source.calls == 2) {
+            throw std::bad_alloc{};
+        }
+    };
+    FakeGateway gateway;
+    NullLogger logger;
+    const app::Services services{resolver, ip_source, gateway, logger};
+    const auto config = make_config({make_subdomain("www", 10)}, 10, 60);
+    run_loop(loop, [&]() -> coro::Task<void> {
+        co_await coro::with_timeout(
+            35s, [&]() { return app::subdomain_task(config->domains[0], config->domains[0].subdomains[0], services); });
+    });
+    // Publish at t=0; defect at t=10; force again at t=20; DNS check at t=30.
+    EXPECT_EQ(ip_source.calls, 4);
+    EXPECT_EQ(gateway.calls, 2);
+    EXPECT_EQ(resolver.calls, 1);
+}
+
+TEST(MainLoop, SubdomainTask_FailedForcedPublish_RetriesBeforeNextForceInterval) {
     coro::ManualClock clock;
     coro::Loop loop{clock};
     FakeResolver resolver;
@@ -932,13 +1251,13 @@ TEST(RunRoot, SubdomainLoop_FailedForcedPublish_RetriesBeforeNextForceInterval) 
     const auto config = make_config({make_subdomain("www", 10)}, 10, 60);
     run_loop(loop, [&]() -> coro::Task<void> {
         co_await coro::with_timeout(
-            25s, [&]() { return app::subdomain_loop(config->domains[0], config->domains[0].subdomains[0], services); });
+            25s, [&]() { return app::subdomain_task(config->domains[0], config->domains[0].subdomains[0], services); });
     });
     EXPECT_EQ(gateway.calls, 2);
     EXPECT_EQ(resolver.calls, 1);
 }
 
-TEST(RunRoot, SubdomainLoop_ForcedPublishTimesOut_RemainsDue) {
+TEST(MainLoop, SubdomainTask_ForcedPublishTimesOut_RemainsDue) {
     coro::ManualClock clock;
     coro::Loop loop{clock};
     FakeResolver resolver;
@@ -951,13 +1270,13 @@ TEST(RunRoot, SubdomainLoop_ForcedPublishTimesOut_RemainsDue) {
     const auto config = make_config({make_subdomain("www", 10)}, 10, 60);
     run_loop(loop, [&]() -> coro::Task<void> {
         co_await coro::with_timeout(
-            45s, [&]() { return app::subdomain_loop(config->domains[0], config->domains[0].subdomains[0], services); });
+            45s, [&]() { return app::subdomain_task(config->domains[0], config->domains[0].subdomains[0], services); });
     });
     EXPECT_EQ(gateway.calls, 2);
     EXPECT_EQ(resolver.calls, 1);
 }
 
-TEST(RunRoot, SubdomainLoop_NoLocalAddress_RemainsDueForForcedPublish) {
+TEST(MainLoop, SubdomainTask_NoLocalAddress_RemainsDueForForcedPublish) {
     coro::ManualClock clock;
     coro::Loop loop{clock};
     FakeResolver resolver;
@@ -974,7 +1293,7 @@ TEST(RunRoot, SubdomainLoop_NoLocalAddress_RemainsDueForForcedPublish) {
     const auto config = make_config({make_subdomain("www", 10)}, 10, 60);
     run_loop(loop, [&]() -> coro::Task<void> {
         co_await coro::with_timeout(
-            25s, [&]() { return app::subdomain_loop(config->domains[0], config->domains[0].subdomains[0], services); });
+            25s, [&]() { return app::subdomain_task(config->domains[0], config->domains[0].subdomains[0], services); });
     });
     EXPECT_EQ(gateway.calls, 1);
     EXPECT_EQ(resolver.calls, 1);

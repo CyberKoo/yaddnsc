@@ -16,7 +16,7 @@
 
 # Coroutine runtime core — the loop (poll fd table, timer heap, ready queue,
 # cross-thread inbox), Task<T>, structured scopes, cancellation combinators,
-# cancellable sleeps, AsyncMutex, offload and signals. The offload
+# cancellable sleeps, AsyncMutex, offload and process stop handling. The offload
 # pool is BS::thread_pool, reused rather than hand-rolled (see the pool note in
 # src/coro/loop.h); it is named only inside Loop::Pool in
 # loop.cpp, so BS_thread_pool is PRIVATE and never reaches a consumer of Task.
@@ -26,6 +26,7 @@
 add_library(yaddnsc_coro STATIC
     src/coro/cancel_scope.cpp
     src/coro/loop.cpp
+    src/coro/stop_signals.cpp
 )
 yaddnsc_production_module(yaddnsc_coro)
 target_link_libraries(yaddnsc_coro PRIVATE BS_thread_pool yaddnsc_fmt)
@@ -205,13 +206,13 @@ target_link_libraries(yaddnsc_coro_plugin
 )
 
 # Coroutine application layer — the per-subdomain scheduling coroutines, the run
-# root and the coroutine diagnostic handlers (src/application/). Built on
+# root and the coroutine diagnostic handlers (src/application/tasks/). Built on
 # the coroutine runtime and the domain layer only; it names application ports,
 # never a concrete infrastructure type.
 add_library(yaddnsc_coro_application STATIC
-    src/application/run_update_cycle.cpp
-    src/application/subdomain_loop.cpp
-    src/application/run_root.cpp
+    src/application/tasks/update_task.cpp
+    src/application/tasks/subdomain_task.cpp
+    src/application/tasks/main_loop.cpp
 )
 yaddnsc_production_module(yaddnsc_coro_application)
 target_link_libraries(yaddnsc_coro_application
@@ -270,7 +271,6 @@ target_link_libraries(yaddnsc_cli_adapter
 add_library(yaddnsc_composition STATIC
     src/composition/bootstrap.cpp
     src/composition/assembly.cpp
-    src/composition/startup_signals.cpp
     src/composition/commands/run.cpp
     src/composition/commands/diagnostic_commands.cpp
 )

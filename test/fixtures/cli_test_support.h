@@ -1,7 +1,7 @@
 //
 // Shared helpers for CLI tests: argv construction, temp config files, and
 // stdout/stderr capture. Used by both the pure unit tests (test/unit/cli/)
-// and the dispatch component tests (test/component/cli_test.cpp).
+// and the command component tests (test/component/cli_test.cpp).
 // =============================================================================
 
 #ifndef YADDNSC_TEST_FIXTURES_CLI_TEST_SUPPORT_H

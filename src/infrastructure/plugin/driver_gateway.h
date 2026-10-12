@@ -87,6 +87,13 @@ public:
     [[nodiscard]] coro::Task<std::expected<void, domain::DriverError>> update(
         std::string driver_name, domain::DriverUpdateCommand command) override;
 
+    /// app::GatewayPort: whether the plugin exports the optional
+    /// yaddnsc_driver_validate entry. A driver that does not still loads and
+    /// updates; this is what lets the caller pick between requiring the check
+    /// (`config test`) and warning past it (`run`). An unknown driver answers
+    /// false — there is nothing to validate against.
+    [[nodiscard]] bool supports_validate(std::string_view driver_name) const override;
+
     /// Validate one subdomain's driver_params JSON against the driver's schema
     /// without performing an update (the host's `config test` path). Runs the
     /// same create → validate → destroy cycle on an offload worker. The optional

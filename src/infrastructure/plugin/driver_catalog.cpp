@@ -6,8 +6,10 @@
 #include <filesystem>
 #include <iterator>
 #include <utility>
+#include <vector>
 #include <expected>
 
+#include "domain/dns/record_kind.h"
 #include "domain/error/error.h"
 #include "infrastructure/plugin/driver_not_found_exception.h"
 #include "infrastructure/plugin/plugin_load_exception.h"
@@ -87,10 +89,25 @@ std::expected<app::DriverDescription, domain::DriverError> DriverCatalog::descri
         return std::unexpected(domain::DriverError{domain::DriverError::Code::NOT_FOUND, {}});
     }
     const auto& descriptor = module->descriptor();
+
+    // Capability bits are the host-side record-type gate (see
+    // YADDNSC_DRIVER_CAPABILITY_* in the ABI header); translating them here
+    // keeps the application layer free of ABI numbers. ABI 1.0 has a bit for
+    // A and AAAA only, so every other record kind is simply absent.
+    std::vector<domain::RecordKind> supported_records;
+    if ((descriptor.capabilities & YADDNSC_DRIVER_CAPABILITY_A) != 0) {
+        supported_records.push_back(domain::RecordKind::A);
+    }
+    if ((descriptor.capabilities & YADDNSC_DRIVER_CAPABILITY_AAAA) != 0) {
+        supported_records.push_back(domain::RecordKind::AAAA);
+    }
+
     return app::DriverDescription{
         .name = descriptor.name,
         .version = descriptor.version,
         .author = descriptor.author,
         .description = descriptor.description,
+        .supported_records = std::move(supported_records),
+        .supports_validate = module->supports_validate(),
     };
 }
