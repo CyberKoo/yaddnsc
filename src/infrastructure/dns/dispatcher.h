@@ -67,20 +67,12 @@ public:
     Dispatcher(Dispatcher&&) = delete;
     Dispatcher& operator=(Dispatcher&&) = delete;
 
-    /// Look `host` up and return the formatted record values.
-    ///
-    /// @param max_retries  Extra attempts for one backend. One backend retries
-    ///                     while the failure is retryable, up to this many
-    ///                     times. Several backends first exhaust the list and
-    ///                     then allow at most one recovery round for the
-    ///                     CONNECTION/RETRY backends they collected; zero
-    ///                     disables that round.
-    /// @param backoff_ms   Base backoff; attempt `n` waits `backoff_ms * n`.
-    [[nodiscard]] coro::Task<std::expected<std::vector<std::string>, domain::DnsErrorInfo>> resolve(
-        std::string host, domain::RecordKind kind, std::uint32_t max_retries,
-        std::uint32_t backoff_ms = DEFAULT_BACKOFF_MS);
-
-    /// Resolve using the policy supplied at construction.
+    /// Look `host` up and return the formatted record values, using the retry
+    /// policy supplied at construction: one backend retries while the failure
+    /// is retryable, up to `Policy::max_retries` times; several backends first
+    /// exhaust the list and then allow at most one recovery round for the
+    /// CONNECTION/RETRY backends they collected; zero disables that round.
+    /// Attempt `n` waits `Policy::retry_backoff * n` before retrying.
     [[nodiscard]] coro::Task<std::expected<std::vector<std::string>, domain::DnsErrorInfo>> resolve(
         std::string host, domain::RecordKind kind);
 
@@ -89,12 +81,7 @@ public:
 
     [[nodiscard]] Strategy strategy() const noexcept { return strategy_; }
 
-    static constexpr std::uint32_t DEFAULT_BACKOFF_MS = 50;
-
 private:
-    [[nodiscard]] coro::Task<std::expected<std::vector<std::string>, domain::DnsErrorInfo>> resolve_impl(
-        std::string host, domain::RecordKind kind, std::uint32_t max_retries, std::chrono::milliseconds backoff);
-
     /// Single backend with retry.
     [[nodiscard]] coro::Task<std::expected<std::vector<std::string>, domain::DnsErrorInfo>> run_single(
         std::string host, domain::RecordKind kind, std::uint32_t max_retries, std::chrono::milliseconds backoff);

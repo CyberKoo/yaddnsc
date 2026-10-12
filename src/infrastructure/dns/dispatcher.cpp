@@ -265,17 +265,6 @@ Dispatcher::~Dispatcher() = default;
 
 coro::Task<std::expected<std::vector<std::string>, domain::DnsErrorInfo>> Dispatcher::resolve(
     std::string host, const domain::RecordKind kind) {
-    co_return co_await resolve_impl(std::move(host), kind, policy_.max_retries, policy_.retry_backoff);
-}
-
-coro::Task<std::expected<std::vector<std::string>, domain::DnsErrorInfo>> Dispatcher::resolve(
-    std::string host, const domain::RecordKind kind, const std::uint32_t max_retries, const std::uint32_t backoff_ms) {
-    co_return co_await resolve_impl(std::move(host), kind, max_retries, std::chrono::milliseconds(backoff_ms));
-}
-
-coro::Task<std::expected<std::vector<std::string>, domain::DnsErrorInfo>> Dispatcher::resolve_impl(
-    std::string host, const domain::RecordKind kind, const std::uint32_t max_retries,
-    const std::chrono::milliseconds backoff) {
     if (resolvers_.empty()) {
         co_return std::unexpected(domain::DnsErrorInfo{domain::DnsError::CONFIG, "no DNS resolvers are configured"});
     }
@@ -299,7 +288,7 @@ coro::Task<std::expected<std::vector<std::string>, domain::DnsErrorInfo>> Dispat
     }
 
     if (all.size() == 1) {
-        co_return co_await run_single(host, kind, max_retries, backoff);
+        co_return co_await run_single(host, kind, policy_.max_retries, policy_.retry_backoff);
     }
 
     if (strategy_ == Strategy::SHUFFLE)
@@ -314,10 +303,10 @@ coro::Task<std::expected<std::vector<std::string>, domain::DnsErrorInfo>> Dispat
                           ? co_await run_concurrent_race(all, host, kind, errors, retry, policy_.max_concurrent)
                           : co_await run_sequential(all, host, kind, errors, retry);
         if (result || detail::is_definitive(result.error().code) || retry.empty() ||
-            round >= std::min(max_retries, 1U)) {
+            round >= std::min(policy_.max_retries, 1U)) {
             co_return result;
         }
-        co_await coro::sleep_for(backoff);
+        co_await coro::sleep_for(policy_.retry_backoff);
         all = std::move(retry);
     }
 }

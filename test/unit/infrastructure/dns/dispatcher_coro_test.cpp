@@ -215,10 +215,17 @@ private:
 
 /// Resolve through a dispatcher inside a fresh loop.
 [[nodiscard]] std::expected<std::vector<std::string>, domain::DnsErrorInfo> run_query(
-    dns::Dispatcher& dispatcher, std::string host = "yaddnsc.test", const std::uint32_t max_retries = 1) {
+    dns::Dispatcher& dispatcher, std::string host = "yaddnsc.test") {
     return coro::run([&]() -> coro::Task<std::expected<std::vector<std::string>, domain::DnsErrorInfo>> {
-        co_return co_await dispatcher.resolve(std::move(host), domain::RecordKind::A, max_retries);
+        co_return co_await dispatcher.resolve(std::move(host), domain::RecordKind::A);
     }());
+}
+
+/// Policy with the retry count a retry test asks for; the rest stays default.
+[[nodiscard]] dns::Policy retry_policy(const std::uint32_t max_retries) {
+    dns::Policy policy;
+    policy.max_retries = max_retries;
+    return policy;
 }
 
 /// Owns the fake backends and hands their ownership to a dispatcher, while
@@ -292,8 +299,8 @@ TEST(DnsDispatcher, multiBackendDoesNotRetryUnknownOrMalformedFailures) {
         Fakes fakes;
         auto& unknown = fakes.add("unknown", {error_step(domain::DnsError::UNKNOWN, "unsupported RCODE")});
         auto& malformed = fakes.add("malformed", {error_step(domain::DnsError::PARSE, "bad response")});
-        dns::Dispatcher dispatcher{fakes.take(), strategy};
-        const auto result = run_query(dispatcher, "yaddnsc.test", 8);
+        dns::Dispatcher dispatcher{fakes.take(), strategy, retry_policy(8)};
+        const auto result = run_query(dispatcher);
         ASSERT_FALSE(result);
         EXPECT_EQ(result.error().code, domain::DnsError::PARSE);
         EXPECT_EQ(unknown.calls(), 1);
@@ -321,8 +328,8 @@ TEST(DnsDispatcher, multiBackendRecoveryIsAtMostOneRoundAndPreservesNegativeEvid
             Fakes fakes;
             auto& failed = fakes.add("failed", {error_step(domain::DnsError::CONNECTION, "fresh RST")});
             auto& negative = fakes.add("negative", {response_step(nxdomain_response("yaddnsc.test"))});
-            dns::Dispatcher dispatcher{fakes.take(), strategy};
-            const auto result = run_query(dispatcher, "yaddnsc.test", retries);
+            dns::Dispatcher dispatcher{fakes.take(), strategy, retry_policy(retries)};
+            const auto result = run_query(dispatcher);
             ASSERT_FALSE(result);
             EXPECT_EQ(result.error().code, domain::DnsError::CONNECTION);
             EXPECT_NE(result.error().message.find("NXDOMAIN=1"), std::string::npos);
@@ -338,7 +345,7 @@ TEST(DnsDispatcher, singleResolver_retryableFailureThenAnswer_RetriesOnce) {
         "only", {error_step(domain::DnsError::RETRY, "servfail"), response_step(a_response("yaddnsc.test", 42))});
     dns::Dispatcher dispatcher{fakes.take(), Strategy::FALLBACK};
 
-    const auto result = run_query(dispatcher, "yaddnsc.test", 1);
+    const auto result = run_query(dispatcher);
 
     ASSERT_TRUE(result.has_value());
     EXPECT_EQ(*result, (std::vector<std::string>{"198.51.100.42"}));
@@ -348,9 +355,9 @@ TEST(DnsDispatcher, singleResolver_retryableFailureThenAnswer_RetriesOnce) {
 TEST(DnsDispatcher, singleResolver_parseFailure_IsNotRetried) {
     Fakes fakes;
     [[maybe_unused]] FakeResolver& resolver = fakes.add("only", {error_step(domain::DnsError::PARSE, "malformed")});
-    dns::Dispatcher dispatcher{fakes.take(), Strategy::FALLBACK};
+    dns::Dispatcher dispatcher{fakes.take(), Strategy::FALLBACK, retry_policy(3)};
 
-    const auto result = run_query(dispatcher, "yaddnsc.test", 3);
+    const auto result = run_query(dispatcher);
 
     ASSERT_FALSE(result.has_value());
     EXPECT_EQ(result.error().code, domain::DnsError::PARSE);
@@ -361,9 +368,9 @@ TEST(DnsDispatcher, singleResolver_retriesExhausted_ReportsTheLastError) {
     Fakes fakes;
     [[maybe_unused]] FakeResolver& resolver =
         fakes.add("only", {error_step(domain::DnsError::CONNECTION, "unreachable")});
-    dns::Dispatcher dispatcher{fakes.take(), Strategy::FALLBACK};
+    dns::Dispatcher dispatcher{fakes.take(), Strategy::FALLBACK, retry_policy(2)};
 
-    const auto result = run_query(dispatcher, "yaddnsc.test", 2);
+    const auto result = run_query(dispatcher);
 
     ASSERT_FALSE(result.has_value());
     EXPECT_EQ(result.error().code, domain::DnsError::CONNECTION);
@@ -565,9 +572,9 @@ TEST(DnsDispatcher, servfail_IsClassifiedAsRetryable) {
     Fakes fakes;
     [[maybe_unused]] FakeResolver& resolver =
         fakes.add("only", {error_step(domain::DnsError::RETRY, "server said so")});
-    dns::Dispatcher dispatcher{fakes.take(), Strategy::FALLBACK};
+    dns::Dispatcher dispatcher{fakes.take(), Strategy::FALLBACK, retry_policy(0)};
 
-    const auto result = run_query(dispatcher, "yaddnsc.test", 0);
+    const auto result = run_query(dispatcher);
 
     ASSERT_FALSE(result.has_value());
     EXPECT_EQ(result.error().code, domain::DnsError::RETRY);

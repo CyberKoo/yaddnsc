@@ -111,9 +111,14 @@ struct ServerResult {
                                                     std::size_t index, Policy policy) {
     const auto address = domain::InetAddress::parse(server.address);
     if (!address || server.port == 0) {
+        // A bootstrap server must be an IP literal with a nonzero port — a
+        // config defect for this entry; the remaining servers can still answer.
+        // Warn at warn level: the race loop below records the failure only at
+        // debug level, and a skipped server is worth seeing without it.
         const auto redacted = Utils::redacted_uri_credentials(server.address);
         const std::string_view defect =
             address ? "must use a nonzero port" : "must be an IP literal with a nonzero port";
+        SPDLOG_WARN(R"(Skipping bootstrap DNS server "{}": {})", redacted, defect);
         co_return ServerResult{
             index, std::unexpected(domain::DnsErrorInfo{
                        domain::DnsError::CONFIG, fmt::format(R"(Bootstrap DNS server "{}" {})", redacted, defect)})};
