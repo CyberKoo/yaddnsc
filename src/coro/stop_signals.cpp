@@ -10,6 +10,7 @@
 #include <unistd.h>
 
 #include "coro/fd_wait.hpp"
+#include "coro/scope.hpp"
 
 namespace {
 
@@ -87,6 +88,7 @@ bool coro::StopSignals::requested() const noexcept {
 }
 
 coro::Task<void> coro::StopSignals::wait() const {
+    (co_await coro::current_scope()).throw_if_cancelled();
     if (!requested()) {
         // The byte stays in the pipe: readiness is a durable stop latch, so a
         // signal between the check and registration cannot be lost.

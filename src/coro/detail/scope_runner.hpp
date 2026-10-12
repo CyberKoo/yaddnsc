@@ -18,6 +18,7 @@
 #include "coro/detail/context.h"
 #include "coro/detail/result_box.hpp"
 #include "coro/detail/task_promise.h"
+#include "coro/detail/time_math.h"
 #include "coro/detail/timer_node.h"
 #include "coro/loop.h"
 #include "coro/scope_outcome.hpp"
@@ -51,7 +52,8 @@ Task<ScopeOutcome<BodyResult<Fn>>> run_scoped(Fn fn, ScopeSpec spec) {
     CancelScope scope{context.scope, spec.shielded};
     TimerNode timer{};
     if (spec.use_timeout || spec.use_deadline) {
-        const TimePoint deadline = spec.use_deadline ? spec.deadline : context.loop->now() + spec.timeout;
+        const TimePoint deadline =
+            spec.use_deadline ? spec.deadline : saturated_deadline(context.loop->now(), spec.timeout);
         LoopAccess::add_timer(*context.loop, timer, deadline, &ScopeAccess::timeout_action, &scope);
     }
 
@@ -99,7 +101,7 @@ Task<ScopeOutcome<BodyResult<Fn>>> run_scoped(Fn fn, ScopeSpec spec) {
         outcome.completed = !cancelled;
     } else {
         if (!cancelled) {
-            outcome.value = std::move(box.value);
+            outcome.value.emplace(std::move(*box.value));
         }
     }
     co_return outcome;

@@ -9,6 +9,7 @@
 #include "coro/cancel_scope.h"
 #include "coro/detail/access.h"
 #include "coro/detail/frame.h"
+#include "coro/detail/time_math.h"
 #include "coro/detail/timer_node.h"
 #include "coro/detail/wait_node.h"
 #include "coro/loop.h"
@@ -49,7 +50,7 @@ public:
         loop_ = promise.loop;
         scope_ = promise.scope;
         assert(loop_ != nullptr && "sleep_for()/sleep_until() must be awaited inside coro::run");
-        const TimePoint deadline = relative_ ? loop_->now() + delay_ : deadline_;
+        const TimePoint deadline = relative_ ? saturated_deadline(loop_->now(), delay_) : deadline_;
         if (scope_ != nullptr && scope_->cancelled()) {
             return false;
         }

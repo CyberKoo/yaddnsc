@@ -339,6 +339,7 @@ struct JoinAwaiter {
             throw std::logic_error("join requires an unclaimed child result");
         }
         slot->consumed = true;
+        slot->owner->wake_next();  // claims can exhaust a pending typed next()
         return slot->done;
     }
 

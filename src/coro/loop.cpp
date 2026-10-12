@@ -14,6 +14,7 @@
 #include <source_location>
 #include <stdexcept>
 #include <string>
+#include <system_error>
 #include <thread>
 #include <utility>
 
@@ -25,6 +26,7 @@
 
 #include "coro/detail/access.h"
 #include "coro/detail/frame.h"
+#include "coro/detail/time_math.h"
 #include "coro/detail/timer_node.h"
 #include "coro/detail/wait_node.h"
 #include "support/fmt.hpp"  // IWYU pragma: keep — fmt::format in the CORO_TRACE macro body
@@ -158,7 +160,14 @@ void Loop::wake() noexcept {
         return;
     }
     const char byte = 0;
-    [[maybe_unused]] const ssize_t written = ::write(pipe_write_.get(), &byte, 1);
+    ssize_t written;
+    do {
+        written = ::write(pipe_write_.get(), &byte, 1);
+    } while (written < 0 && errno == EINTR);
+    if (written == 1 || (written < 0 && (errno == EAGAIN || errno == EWOULDBLOCK))) {
+        return;  // a full pipe already carries a wakeup
+    }
+    std::terminate();  // a queued callback must not lose its only wakeup
 }
 
 void Loop::schedule(detail::PromiseBase& frame) noexcept {
@@ -321,7 +330,7 @@ int Loop::poll_timeout_ms() {
     if (clock_->manual()) {
         clock_->jump_to(next->deadline);
     }
-    const Duration remaining = next->deadline - clock_->now();
+    const Duration remaining = detail::saturated_difference(next->deadline, clock_->now());
     if (remaining <= Duration::zero()) {
         return 0;
     }
@@ -347,8 +356,11 @@ void Loop::poll_once(int timeout_ms) {
     CORO_TRACE("poll() on {} fd(s), timeout {} ms", pollfds_scratch_.size(), timeout_ms);
     const int ready = ::poll(pollfds_scratch_.data(), static_cast<nfds_t>(pollfds_scratch_.size()), timeout_ms);
     if (ready < 0) {
-        CORO_TRACE("poll() failed: {}", std::strerror(errno));
-        return;
+        const int error = errno;
+        if (error == EINTR) {
+            return;  // reprocess inbox/timers before retrying
+        }
+        throw std::system_error(error, std::generic_category(), "loop poll");
     }
     if (ready == 0) {
         return;
@@ -395,8 +407,9 @@ void Loop::add_timer(detail::TimerNode& timer, TimePoint deadline, void (*action
     timer.action = action;
     timer.context = context;
     heap_push(timer);
-    const auto in_ms = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - now()).count();
-    CORO_TRACE("Armed timer {} (fires in {} ms)", static_cast<const void*>(&timer), in_ms);
+    CORO_TRACE(
+        "Armed timer {} (fires in {} ms)", static_cast<const void*>(&timer),
+        std::chrono::duration_cast<std::chrono::milliseconds>(detail::saturated_difference(deadline, now())).count());
 }
 
 void Loop::remove_timer(detail::TimerNode& timer) noexcept {

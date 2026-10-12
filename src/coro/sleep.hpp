@@ -23,7 +23,9 @@ namespace coro {
 
 /// Suspend for `delay` on the loop clock. Cancellable at the await: a
 /// cancelled scope throws `Cancelled` immediately. Even a zero-delay sleep
-/// yields to the loop when the scope is active.
+/// yields to the loop when the scope is active. Negative delays also yield
+/// without waiting. Unrepresentable relative deadlines saturate to the nearest
+/// TimePoint limit instead of overflowing.
 /// Timer resolution is 1 ms (poll() granularity): shorter delays round up,
 /// and a timer never fires before its deadline.
 /// Precondition: awaited inside coro::run (see the header note).

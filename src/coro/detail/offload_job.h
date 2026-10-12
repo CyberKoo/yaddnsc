@@ -79,7 +79,7 @@ void offload_finish(OffloadState<R>& state) noexcept {
 template<typename F, bool Joined = false>
 struct OffloadAwaitable {
     using Fn = std::decay_t<F>;
-    using R = std::invoke_result_t<Fn>;
+    using R = std::invoke_result_t<Fn&>;
 
     std::shared_ptr<Fn> fn;
     std::shared_ptr<OffloadState<R>> state = std::make_shared<OffloadState<R>>();

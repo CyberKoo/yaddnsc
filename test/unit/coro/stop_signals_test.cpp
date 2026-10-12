@@ -13,6 +13,7 @@
 
 #include "coro/loop.h"
 #include "coro/run.hpp"
+#include "coro/scope.hpp"
 
 #ifdef YADDNSC_TEST_WRAP_SIGACTION
 namespace {
@@ -83,6 +84,24 @@ TEST(StopSignals, SigtermWakesAnAlreadyWaitingLoop) {
     coro::run(loop, stop.wait());
     sender.join();
     EXPECT_TRUE(stop.requested());
+}
+
+TEST(StopSignals, LatchedSignal_StillObservesCallerCancellation) {
+    const coro::StopSignals stop;
+    ::kill(::getpid(), SIGTERM);
+    ASSERT_TRUE(stop.requested());
+    bool after_wait = false;
+    auto root = [&]() -> coro::Task<void> {
+        const auto outcome = co_await coro::with_cancel_scope([&](coro::CancelScope& scope) -> coro::Task<void> {
+            scope.cancel();
+            co_await stop.wait();
+            after_wait = true;
+        });
+        EXPECT_TRUE(outcome.cancelled);
+        EXPECT_FALSE(outcome.completed);
+    };
+    coro::run(root());
+    EXPECT_FALSE(after_wait);
 }
 
 TEST(StopSignals, RepeatedSigtermKeepsTheStopLatched) {

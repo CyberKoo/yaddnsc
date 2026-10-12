@@ -83,6 +83,9 @@ public:
         if (scope_ != nullptr) {
             scope_->throw_if_cancelled();
         }
+        if ((revents_ & POLLNVAL) != 0) {
+            throw std::invalid_argument("fd wait requires an open descriptor");
+        }
     }
 
 private:
@@ -90,8 +93,9 @@ private:
 
     /// Loop dispatch: unregister first (so the next poll() round cannot fire this
     /// registration twice), then wake the frame through the ready queue.
-    static void on_ready(void* context, short /*revents*/) noexcept {
+    static void on_ready(void* context, short revents) noexcept {
         auto* self = static_cast<FdAwaitable*>(context);
+        self->revents_ = revents;
         if (self->armed_) {
             LoopAccess::remove_fd(*self->loop_, self->token_);
             self->armed_ = false;
@@ -116,6 +120,7 @@ private:
 
     int fd_ = -1;
     short events_ = 0;
+    short revents_ = 0;
     Loop* loop_ = nullptr;
     CancelScope* scope_ = nullptr;
     PromiseBase* frame_ = nullptr;

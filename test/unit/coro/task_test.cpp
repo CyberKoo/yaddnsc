@@ -785,4 +785,81 @@ TEST(TaskGroup, SuccessfulDiscard_FrameIsReapedBeforeNextLoopTurn) {
     coro::run(root());
 }
 
+TEST(Task, await_EmptyOrAlreadyAwaitedTask_ThrowsLogicError) {
+    auto root = []() -> coro::Task<void> {
+        coro::Task<int> empty;
+        EXPECT_THROW(co_await empty, std::logic_error);
+        auto task = constant(42);
+        EXPECT_EQ(co_await task, 42);
+        EXPECT_THROW(co_await task, std::logic_error);
+    };
+    coro::run(root());
+}
+
+TEST(TaskGroup, BodyNestedManualCancellation_CancelsChildrenBeforeDrain) {
+    for (const bool supervisor : {false, true}) {
+        for (const bool absolute : {false, true}) {
+            coro::ManualClock clock;
+            coro::Loop loop{clock};
+            bool child_cancelled = false;
+            auto root = [&]() -> coro::Task<void> {
+                // Guard the broken implementation too: a regression fails at
+                // 100ms instead of leaving the entire test binary parked.
+                [[maybe_unused]] auto guarded = co_await coro::with_timeout(100ms, [&]() -> coro::Task<void> {
+                    auto body = [&](coro::TaskGroup& group) -> coro::Task<void> {
+                        group.spawn(wait_until_cancelled(child_cancelled));
+                        auto cancel_body = []() -> coro::Task<void> {
+                            co_await coro::sleep_for(1ms);
+                            (co_await coro::current_scope()).cancel();
+                            co_await coro::checkpoint();
+                        };
+                        if (absolute) {
+                            [[maybe_unused]] auto outcome = co_await coro::with_deadline(clock.now() + 1s, cancel_body);
+                        } else {
+                            [[maybe_unused]] auto outcome = co_await coro::with_timeout(1s, cancel_body);
+                        }
+                    };
+                    if (supervisor) {
+                        co_await coro::supervisor_group(body);
+                    } else {
+                        co_await coro::task_group(body);
+                    }
+                });
+            };
+            EXPECT_THROW(coro::run(loop, root()), coro::Cancelled);
+            EXPECT_TRUE(child_cancelled);
+            EXPECT_EQ(clock.now().time_since_epoch(), 1ms);
+        }
+    }
+}
+
+coro::Task<void> observe_exhaustion(coro::TaskGroup& group, bool& exhausted) {
+    EXPECT_FALSE((co_await group.next<int>()).has_value());
+    exhausted = true;
+}
+
+coro::Task<void> consume_handle(coro::Handle<int> handle) {
+    EXPECT_EQ(co_await handle, 42);
+}
+
+TEST(TaskGroup, HandleClaim_WakesNextBeforeProducerCompletes) {
+    coro::ManualClock clock;
+    coro::Loop loop{clock};
+    bool exhausted = false;
+    auto root = [&]() -> coro::Task<void> {
+        co_await coro::supervisor_group([&](coro::TaskGroup& group) -> coro::Task<void> {
+            auto handle = group.spawn(sleep_then_value(100ms, 42));
+            group.spawn_discard(observe_exhaustion(group, exhausted));
+            co_await coro::sleep_for(1ms);  // next() has parked
+            group.spawn_discard(consume_handle(handle));
+            co_await coro::sleep_for(1ms);
+            EXPECT_TRUE(exhausted);
+            EXPECT_EQ(clock.now().time_since_epoch(), 2ms);
+            co_await group.join();
+        });
+    };
+    coro::run(loop, root());
+    EXPECT_TRUE(exhausted);
+}
+
 }  // namespace

@@ -39,6 +39,9 @@ namespace coro {
 /// outcome reports `timed_out`. Manual cancellation, including cancellation
 /// initiated by the body, propagates instead of returning an empty outcome.
 /// Therefore a non-timeout outcome always contains the body's result.
+/// Nonpositive timeouts arm an already-due deadline. Unrepresentable relative
+/// deadlines saturate to the nearest TimePoint limit. Results need only be
+/// move-constructible, not move-assignable.
 /// Failure: allocation may throw; a body defect is rethrown.
 template<typename Fn>
 [[nodiscard]] auto with_timeout(Duration timeout, Fn fn) {

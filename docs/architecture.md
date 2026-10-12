@@ -177,7 +177,8 @@ Child results are single-consumer: `co_await Handle<T>` claims the result at
 await entry, shared across handle copies and `next<T>()`. Joining an empty or
 already claimed handle throws `std::logic_error`. `next<T>()` returns `nullopt`
 as soon as there are no unclaimed children of type `T`, without waiting for
-other result types. A Handle shares ownership of the child's bookkeeping slot,
+other result types. Handle claims notify parked `next()` callers immediately,
+even before the claimed producer finishes. A Handle shares ownership of the child's bookkeeping slot,
 so one that outlives the group is dead but memory-safe: `valid()` is false and
 joining throws `std::logic_error`, the same failure as an empty or claimed
 handle. Consumption destroys the completed child frame and removes its slot;
@@ -201,14 +202,29 @@ gateway/services alive through watcher and bridge-request cleanup.
 Completed task frames have RAII ownership while results are moved out, including
 throwing moves. Slot and wait registrations commit only after their fallible
 allocations succeed. StopSignals reports pipe/handler installation failures
-before command execution and rolls back partial handler installation.
+before command execution and rolls back partial handler installation. A latched
+stop wait still checks caller cancellation. Awaiting an empty or previously
+awaited Task throws `std::logic_error`; closed nonnegative descriptors report
+`POLLNVAL` as an invalid fd, not successful readiness.
 `coro::run` requires a fresh loop and structured root completion. Task defects
 still propagate normally. Exceptions escaping loop dispatch, or failure to post
 an offload completion, call `std::terminate`: losing a dispatch batch or completion
 cannot be recovered by safely unwinding parked frames. External stop before root
 completion is likewise fatal. Loop construction throws if its wake pipe cannot
 be created. Loop instances own independent scheduling, inbox and wake-pipe
-state; only the process-wide StopSignals owner is exclusive.
+state; only the process-wide StopSignals owner is exclusive. Wake-pipe writes
+retry `EINTR` and tolerate `EAGAIN` because a full pipe is already readable;
+other wake failures are fatal. Poll interruptions return to inbox/timer
+processing; other poll errors follow the fatal dispatch policy rather than
+silently spinning.
+
+Group bodies cancel their children on every abnormal exit, including cancellation
+propagated from a nested deadline scope whose manual cancellation did not cancel
+the group itself. They still drain all children before propagating the outcome.
+Relative sleep/timeout deadlines and internal time differences saturate at their
+representation limits. Nonpositive sleeps yield without waiting; nonpositive
+timeouts arm already-due deadlines. Scope results require move construction,
+not move assignment.
 
 **Cancellation is scope state.** `with_timeout`, `with_deadline`,
 `with_cancel_scope` and `non_cancellable` run a body in a child scope;
@@ -357,7 +373,8 @@ result, but is not itself a cancellation check; `current_time()` reads loop time
 without suspending.
 
 **Leaving the loop.** `coro::offload(fn)` runs `fn` on the pool and returns its
-result through the loop. Cancellation is *abandon*: the await throws
+result through the loop. Its owned callable is invoked as an lvalue, including
+the cooperative joined form. Cancellation is *abandon*: the await throws
 `Cancelled` while the work packet finishes on its own. `offload` takes ownership
 of its callable immediately, so a task created from a temporary callable may be
 stored before it is awaited. Callable captures must own their data or refer to

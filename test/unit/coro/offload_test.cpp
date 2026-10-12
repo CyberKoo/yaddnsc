@@ -342,4 +342,22 @@ TEST(Offload, RootExit_PumpsInboxUntilAbandonedWorkersFinish) {
     EXPECT_TRUE(worker_done.load());
 }
 
+struct LvalueCallable {
+    int operator()() & { return 42; }
+
+    int operator()() && = delete;
+};
+
+struct CooperativeLvalueCallable {
+    int operator()(std::stop_token token) & { return token.stop_requested() ? 0 : 43; }
+
+    int operator()(std::stop_token) && = delete;
+};
+
+TEST(Offload, LvalueQualifiedCallable_IsInvokedAsAnOwnedLvalue) {
+    EXPECT_EQ(coro::run(coro::offload(LvalueCallable{})), 42);
+    EXPECT_EQ(coro::run(coro::offload_joined(LvalueCallable{})), 42);
+    EXPECT_EQ(coro::run(coro::offload_joined(CooperativeLvalueCallable{})), 43);
+}
+
 }  // namespace

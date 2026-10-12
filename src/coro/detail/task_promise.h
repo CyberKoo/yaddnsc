@@ -8,6 +8,7 @@
 #include <cassert>
 #include <exception>
 #include <optional>
+#include <stdexcept>
 #include <type_traits>
 #include <utility>
 
@@ -147,9 +148,12 @@ public:
     /// Hands the child to the ready queue; the parent parks and keeps running
     /// nothing until the loop resumes it.
     template<typename Promise>
-    void await_suspend(std::coroutine_handle<Promise> parent) noexcept {
+    void await_suspend(std::coroutine_handle<Promise> parent) {
         PromiseBase& parent_promise = parent.promise();
         assert(parent_promise.loop != nullptr && "a task must be awaited inside coro::run");
+        if (!handle_) {
+            throw std::logic_error("await requires a valid task");
+        }
         PromiseBase& child = handle_.promise();
         if (!child.context_bound) {
             child.loop = parent_promise.loop;

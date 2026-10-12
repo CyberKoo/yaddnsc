@@ -272,20 +272,28 @@ Coverage uses `YADDNSC_SANITIZE_DEBUG=OFF` to avoid mixing instrumentation.
 ### Coroutine regression tests
 
 ```bash
-cmake --build build-tests --target test_coro test_coro_allocation_failure test_stop_signals --parallel
-ctest --test-dir build-tests -R '^(test_coro(_allocation_failure)?|test_stop_signals)$' --output-on-failure
+# Linux: omit test_coro_syscall_failure on other platforms.
+cmake --build build-tests --target test_coro test_coro_allocation_failure test_coro_syscall_failure test_stop_signals --parallel
+ctest --test-dir build-tests -R '^(test_coro(_allocation_failure|_syscall_failure)?|test_stop_signals)$' --output-on-failure
 ```
 
 The allocation-failure binary replaces allocation functions only inside that
 executable. Its thread-local one-shot faults check failed group-slot allocation
 and timer-heap growth without adding production test hooks. Process stop tests
-cover early arrivals, fd wakeup, repeated Ctrl-C, and handler restoration.
+cover early arrivals, fd wakeup, repeated Ctrl-C, handler restoration and
+cancellation of already-latched waits. The Linux-only syscall-failure binary
+uses linker wrapping to check interrupted/full/failed wake writes and
+interrupted/failed poll dispatch without production hooks.
 The core binary also checks deferred callable ownership, throwing result moves,
 single-consumer joins, typed completion exhaustion, caller-scope result-wait
 cancellation (including completion/timeout ties), consumption-time frame recovery,
 unobserved supervisor failures, exception-safe body/resource drains, joined and
 cooperative worker cancellation, inbox pumping after root exit, loop-thread-only
-trace callbacks and the fatal loop-dispatch policy. Plugin tests cover closed-group admission, worker-deadline bridge timeout,
+trace callbacks and the fatal loop-dispatch policy. Regressions also cover
+nested manual cancellation draining group children, Handle claims waking typed
+result waiters, empty Task awaits, closed nonnegative fds versus hangup readiness,
+nonassignable scope results, lvalue-qualified offload callables and saturated
+time arithmetic at representation limits. Plugin tests cover closed-group admission, worker-deadline bridge timeout,
 remaining-budget translation to a manual loop clock with fake transports, and
 cancellation before the exchange scope is published. HTTP session tests cover
 loop-clock keep-alive expiry and cancellation of stalled writes/header/body

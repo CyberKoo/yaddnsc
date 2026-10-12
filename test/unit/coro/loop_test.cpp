@@ -1,3 +1,5 @@
+#include <stdexcept>
+
 #include <gtest/gtest.h>
 
 #include "coro/coro.h"
@@ -23,6 +25,31 @@ TEST(Loop, LiveLoopsKeepInboxAndWakeStateIndependent) {
     EXPECT_FALSE(second_posted);
     EXPECT_EQ(coro::run(second, forty_two()), 42);
     EXPECT_TRUE(second_posted);
+}
+
+TEST(FdWait, ClosedNonnegativeDescriptor_IsRejectedInBothDirections) {
+    for (const bool writable : {false, true}) {
+        coro::Loop loop;
+        auto [read_end, write_end] = Utils::make_pipe();
+        ASSERT_TRUE(read_end);
+        ASSERT_TRUE(write_end);
+        const int fd = read_end.get();
+        read_end.reset();
+        auto root = [fd, writable]() -> coro::Task<void> {
+            co_await (writable ? coro::wait_writable(fd) : coro::wait_readable(fd));
+        };
+        EXPECT_THROW(coro::run(loop, root()), std::invalid_argument);
+    }
+}
+
+TEST(FdWait, Hangup_RemainsReadinessRatherThanAnInvalidDescriptor) {
+    coro::Loop loop;
+    auto [read_end, write_end] = Utils::make_pipe();
+    ASSERT_TRUE(read_end);
+    ASSERT_TRUE(write_end);
+    write_end.reset();
+    auto root = [fd = read_end.get()]() -> coro::Task<void> { co_await coro::wait_readable(fd); };
+    EXPECT_NO_THROW(coro::run(loop, root()));
 }
 
 TEST(Loop, SequentialLoopsRunIndependently) {

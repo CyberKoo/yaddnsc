@@ -70,6 +70,7 @@ public:
 
     /// Single-shot: awaiting transfers the frame to an internal awaiter.
     /// An awaited lvalue task becomes invalid.
+    /// Awaiting an empty or already awaited task throws std::logic_error.
     /// Precondition: awaited inside coro::run (see the header note).
     detail::TaskAwaiter<T> operator co_await() noexcept { return detail::TaskAwaiter<T>{release()}; }
 

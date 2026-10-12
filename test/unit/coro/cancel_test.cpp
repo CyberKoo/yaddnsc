@@ -8,13 +8,16 @@
 #include <atomic>
 #include <chrono>
 #include <exception>
+#include <source_location>
 #include <stdexcept>
+#include <string_view>
 #include <type_traits>
 #include <vector>
 
 #include <gtest/gtest.h>
 
 #include "coro/coro.h"
+#include "coro/detail/time_math.h"
 
 namespace {
 
@@ -544,6 +547,137 @@ TEST(Offload, AlreadyCancelled_DoesNotStartWorker) {
         EXPECT_FALSE(outcome.completed);
     }());
     EXPECT_FALSE(started.load());
+}
+
+struct ConstructOnly {
+    explicit ConstructOnly(int number) : value(number) {}
+
+    ConstructOnly(ConstructOnly&&) = default;
+    ConstructOnly& operator=(ConstructOnly&&) = delete;
+    ConstructOnly(const ConstructOnly&) = delete;
+    ConstructOnly& operator=(const ConstructOnly&) = delete;
+    int value;
+};
+
+coro::Task<ConstructOnly> construct_only_result() {
+    co_return ConstructOnly{42};
+}
+
+TEST(CancelScope, Combinators_AllowMoveConstructibleNonassignableResults) {
+    coro::ManualClock clock;
+    coro::Loop loop{clock};
+    auto root = [&]() -> coro::Task<void> {
+        auto timed = co_await coro::with_timeout(1s, construct_only_result);
+        EXPECT_TRUE(timed.has_value());
+        if (timed.has_value()) {
+            EXPECT_EQ(timed->value, 42);
+        }
+        auto deadline = co_await coro::with_deadline(clock.now() + 1s, construct_only_result);
+        EXPECT_TRUE(deadline.has_value());
+        if (deadline.has_value()) {
+            EXPECT_EQ(deadline->value, 42);
+        }
+        auto explicit_scope =
+            co_await coro::with_cancel_scope([](coro::CancelScope&) { return construct_only_result(); });
+        EXPECT_TRUE(explicit_scope.has_value());
+        if (explicit_scope.has_value()) {
+            EXPECT_EQ(explicit_scope->value, 42);
+        }
+        auto shield = co_await coro::non_cancellable([](coro::CancelScope&) { return construct_only_result(); });
+        EXPECT_TRUE(shield.has_value());
+        if (shield.has_value()) {
+            EXPECT_EQ(shield->value, 42);
+        }
+    };
+    coro::run(loop, root());
+}
+
+TEST(CoroTime, SaturatingArithmetic_HandlesBothRepresentationLimits) {
+    using coro::Duration;
+    using coro::TimePoint;
+    using coro::detail::saturated_deadline;
+    using coro::detail::saturated_difference;
+    static_assert(saturated_deadline(TimePoint::max(), Duration{1}) == TimePoint::max());
+    static_assert(saturated_deadline(TimePoint::min(), Duration{-1}) == TimePoint::min());
+    static_assert(saturated_difference(TimePoint::max(), TimePoint::min()) == Duration::max());
+    static_assert(saturated_difference(TimePoint::min(), TimePoint::max()) == Duration::min());
+    EXPECT_EQ(saturated_deadline(TimePoint{Duration{1}}, Duration::max()), TimePoint::max());
+    EXPECT_EQ(saturated_deadline(TimePoint{Duration{-1}}, Duration::min()), TimePoint::min());
+    EXPECT_EQ(saturated_deadline(TimePoint{Duration{10}}, Duration{-5}), TimePoint{Duration{5}});
+    EXPECT_EQ(saturated_difference(TimePoint{Duration{5}}, TimePoint{Duration{10}}), Duration{-5});
+    EXPECT_EQ(saturated_deadline(TimePoint::min(), Duration::max()), TimePoint{Duration{-1}});
+    EXPECT_EQ(saturated_deadline(TimePoint::max(), Duration::min()), TimePoint{Duration{-1}});
+}
+
+TEST(Sleep, ExtremeDurations_SaturateAndPreserveAlreadyDueYield) {
+    {
+        coro::ManualClock clock{coro::TimePoint{coro::Duration{1}}};
+        coro::Loop loop{clock};
+        auto root = []() -> coro::Task<void> { co_await coro::sleep_for(coro::Duration::max()); };
+        coro::run(loop, root());
+        EXPECT_EQ(clock.now(), coro::TimePoint::max());
+    }
+    {
+        const auto start = coro::TimePoint::min() + coro::Duration{1};
+        coro::ManualClock clock{start};
+        coro::Loop loop{clock};
+        auto root = []() -> coro::Task<void> { co_await coro::sleep_for(coro::Duration::min()); };
+        coro::run(loop, root());
+        EXPECT_EQ(clock.now(), start);
+    }
+}
+
+TEST(CancelScope, MaximumTimeout_DoesNotWrapIntoAnExpiredDeadline) {
+    coro::ManualClock clock{coro::TimePoint{coro::Duration{1}}};
+    coro::Loop loop{clock};
+    auto root = []() -> coro::Task<void> {
+        auto outcome = co_await coro::with_timeout(coro::Duration::max(), []() -> coro::Task<int> {
+            co_await coro::sleep_for(coro::Duration{1});
+            co_return 42;
+        });
+        EXPECT_FALSE(outcome.timed_out);
+        EXPECT_TRUE(outcome.has_value());
+        if (outcome.has_value()) {
+            EXPECT_EQ(*outcome, 42);
+        }
+    };
+    coro::run(loop, root());
+    EXPECT_EQ(clock.now().time_since_epoch(), coro::Duration{2});
+}
+
+TEST(CancelScope, AlreadyDueTimeoutsAndExtremePastDeadline_ExpireWithoutAdvancingClock) {
+    for (const auto timeout : {coro::Duration::zero(), coro::Duration{-1}, coro::Duration::min()}) {
+        coro::ManualClock clock{coro::TimePoint{coro::Duration{1}}};
+        coro::Loop loop{clock};
+        auto root = [timeout]() -> coro::Task<void> {
+            const auto outcome =
+                co_await coro::with_timeout(timeout, []() -> coro::Task<void> { co_await coro::checkpoint(); });
+            EXPECT_TRUE(outcome.timed_out);
+            EXPECT_FALSE(outcome.completed);
+        };
+        coro::run(loop, root());
+        EXPECT_EQ(clock.now().time_since_epoch(), coro::Duration{1});
+    }
+    coro::ManualClock clock{coro::TimePoint{coro::Duration{1}}};
+    coro::Loop loop{clock};
+    loop.set_trace_sink([](void*, std::string_view, const std::source_location&) noexcept {}, nullptr);
+    auto root = []() -> coro::Task<void> {
+        const auto outcome = co_await coro::with_deadline(coro::TimePoint::min(),
+                                                          []() -> coro::Task<void> { co_await coro::checkpoint(); });
+        EXPECT_TRUE(outcome.timed_out);
+        EXPECT_FALSE(outcome.completed);
+    };
+    coro::run(loop, root());
+    EXPECT_EQ(clock.now().time_since_epoch(), coro::Duration{1});
+}
+
+TEST(Sleep, ExtremeAbsoluteDeadline_TraceDistanceDoesNotOverflow) {
+    coro::ManualClock clock{coro::TimePoint::min()};
+    coro::Loop loop{clock};
+    loop.set_trace_sink([](void*, std::string_view, const std::source_location&) noexcept {}, nullptr);
+    auto root = []() -> coro::Task<void> { co_await coro::sleep_until(coro::TimePoint::max()); };
+    coro::run(loop, root());
+    EXPECT_EQ(clock.now(), coro::TimePoint::max());
 }
 
 }  // namespace

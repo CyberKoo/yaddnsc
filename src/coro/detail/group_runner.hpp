@@ -43,7 +43,9 @@ Task<void> run_group(Fn fn) {
     }
     state.lifetime->group = nullptr;  // close ingress before exit drain
 
-    if (body_error && !body_cancelled) {
+    if (body_error) {
+        // Cancellation may originate in a nested deadline scope, not this
+        // group's ancestry. Every abnormal body exit must stop its children.
         ScopeAccess::cancel(state.scope, CancelCause::REQUESTED);
     }
     while (!state.all_done()) {

@@ -96,6 +96,8 @@ public:
     /// The callback must not throw; an escaping exception is fatal dispatch failure.
     /// Allocates, so posting may throw std::bad_alloc. Caller must ensure the loop
     /// outlives posting; submitted offload work is joined before run() returns.
+    /// Interrupted wake writes retry; a full pipe already carries a wakeup.
+    /// Other wake failures terminate rather than silently lose delivery.
     void post(std::function<void()> fn);
 
     /// Diagnostic trace sink: when set, the loop reports internal scheduling
