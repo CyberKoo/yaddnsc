@@ -279,7 +279,9 @@ ctest --test-dir build-tests -R '^(test_coro(_allocation_failure|_syscall_failur
 
 The allocation-failure binary replaces allocation functions only inside that
 executable. Its thread-local one-shot faults check failed group-slot allocation
-and timer-heap growth without adding production test hooks. Process stop tests
+and timer-heap growth without adding production test hooks. It also verifies
+that scope registration, removal and tree traversal do not consume an injected
+allocation failure. Process stop tests
 cover early arrivals, fd wakeup, repeated Ctrl-C, handler restoration and
 cancellation of already-latched waits. The Linux-only syscall-failure binary
 uses linker wrapping to check interrupted/full/failed wake writes and
@@ -293,7 +295,12 @@ trace callbacks and the fatal loop-dispatch policy. Regressions also cover
 nested manual cancellation draining group children, Handle claims waking typed
 result waiters, empty Task awaits, closed nonnegative fds versus hangup readiness,
 nonassignable scope results, lvalue-qualified offload callables and saturated
-time arithmetic at representation limits. Plugin tests cover closed-group admission, worker-deadline bridge timeout,
+time arithmetic at representation limits. Cancellation-tree tests cover sibling
+removal and reinsertion, const observer scopes, depth-first/waiter ordering,
+shielding, subtree boundaries and fatal destruction with live children. A
+100,000-scope chain is cancelled in a child process with at most 1 MiB of native
+stack, so an unlimited host stack cannot hide recursive traversal regressions.
+Plugin tests cover closed-group admission, worker-deadline bridge timeout,
 remaining-budget translation to a manual loop clock with fake transports, and
 cancellation before the exchange scope is published. HTTP session tests cover
 loop-clock keep-alive expiry and cancellation of stalled writes/header/body

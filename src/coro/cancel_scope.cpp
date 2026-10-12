@@ -4,8 +4,8 @@
 
 #include "cancel_scope.h"
 
-#include <algorithm>
 #include <cassert>
+#include <exception>
 
 #include "coro/cancelled.h"
 #include "coro/detail/access.h"
@@ -13,19 +13,34 @@
 
 namespace coro {
 
-CancelScope::CancelScope(CancelScope* parent, bool shielded) : parent_(parent), shielded_(shielded) {
+CancelScope::CancelScope(CancelScope* parent, bool shielded) noexcept : parent_(parent), shielded_(shielded) {
     if (parent_ != nullptr) {
-        parent_->children_.push_back(this);
+        prev_sibling_ = parent_->children_tail_;
+        if (prev_sibling_ != nullptr) {
+            prev_sibling_->next_sibling_ = this;
+        } else {
+            parent_->children_head_ = this;
+        }
+        parent_->children_tail_ = this;
     }
 }
 
 CancelScope::~CancelScope() noexcept {
     assert(waiters_head_ == nullptr && "cancel scope destroyed while a waiter is still parked");
+    assert(children_head_ == nullptr && "cancel scope destroyed before its children");
+    if (waiters_head_ != nullptr || children_head_ != nullptr) {
+        std::terminate();  // live nodes would retain dangling tree/waiter links
+    }
     if (parent_ != nullptr) {
-        auto& siblings = parent_->children_;
-        const auto it = std::find(siblings.begin(), siblings.end(), this);
-        if (it != siblings.end()) {
-            siblings.erase(it);
+        if (prev_sibling_ != nullptr) {
+            prev_sibling_->next_sibling_ = next_sibling_;
+        } else {
+            parent_->children_head_ = next_sibling_;
+        }
+        if (next_sibling_ != nullptr) {
+            next_sibling_->prev_sibling_ = prev_sibling_;
+        } else {
+            parent_->children_tail_ = prev_sibling_;
         }
     }
 }
@@ -108,6 +123,37 @@ void CancelScope::cancel(detail::CancelCause cause) noexcept {
 }
 
 void CancelScope::wake_subtree() noexcept {
+    CancelScope* scope = this;
+    for (;;) {
+        scope->wake_waiters();
+        CancelScope* child = scope->children_head_;
+        while (child != nullptr && child->shielded_) {
+            child = child->next_sibling_;
+        }
+        if (child != nullptr) {
+            scope = child;
+            continue;
+        }
+        // Walk back up without a recursion stack, skipping shielded siblings
+        // and never crossing the initiating scope's subtree boundary.
+        while (scope != this) {
+            CancelScope* sibling = scope->next_sibling_;
+            while (sibling != nullptr && sibling->shielded_) {
+                sibling = sibling->next_sibling_;
+            }
+            if (sibling != nullptr) {
+                scope = sibling;
+                break;
+            }
+            scope = scope->parent_;
+        }
+        if (scope == this) {
+            return;
+        }
+    }
+}
+
+void CancelScope::wake_waiters() noexcept {
     detail::WaitNode* node = waiters_head_;
     while (node != nullptr) {
         detail::WaitNode* next = node->next;
@@ -125,13 +171,6 @@ void CancelScope::wake_subtree() noexcept {
             }
         }
         node = next;
-    }
-    // A shielded child scope keeps its own (and its subtree's) cancellation
-    // state untouched, so ancestor cancellation never reaches it.
-    for (CancelScope* child : children_) {
-        if (!child->shielded_) {
-            child->wake_subtree();
-        }
     }
 }
 

@@ -1,5 +1,6 @@
 // Isolated allocator fault injection: no production hooks and no effect on
 // other test binaries. Only the calling thread's selected allocation fails.
+#include <array>
 #include <cstddef>
 #include <cstdlib>
 #include <memory>
@@ -11,6 +12,7 @@
 #include "coro/coro.h"
 #include "coro/detail/access.h"
 #include "coro/detail/timer_node.h"
+#include "coro/detail/wait_node.h"
 
 namespace {
 thread_local int allocations_before_failure = -1;
@@ -140,6 +142,56 @@ TEST(CoroAllocationFailure, add_timer_HeapGrowthThrows_LeavesTimerUnarmedAndReus
     EXPECT_TRUE(timer.in_heap);
     coro::detail::LoopAccess::remove_timer(loop, timer);
     EXPECT_FALSE(timer.in_heap);
+}
+
+TEST(CoroAllocationFailure, ScopeRegistrationAndRemoval_DoNotAllocate) {
+    coro::CancelScope root;
+    bool completed = false;
+    bool allocation_unused = false;
+    {
+        const FailAllocation failure;
+        try {
+            coro::CancelScope first{&root};
+            coro::CancelScope second{&first};
+            completed = true;
+        } catch (const std::bad_alloc&) {
+            // The old vector-backed child registration consumed the fault.
+        }
+        allocation_unused = allocations_before_failure == 0;
+    }
+    EXPECT_TRUE(completed);
+    EXPECT_TRUE(allocation_unused);
+}
+
+TEST(CoroAllocationFailure, ScopeCancellation_TraversesBranchesWithoutAllocating) {
+    coro::CancelScope root;
+    coro::CancelScope first{&root};
+    coro::CancelScope leaf{&first};
+    coro::CancelScope sibling{&root};
+    coro::CancelScope shield{&root, true};
+    std::array<coro::detail::WaitNode, 4> nodes{};
+    const std::array scopes{&first, &leaf, &sibling, &shield};
+    int notifications = 0;
+    for (std::size_t i = 0; i < nodes.size(); ++i) {
+        nodes[i].owner = &notifications;
+        nodes[i].on_cancel = [](coro::detail::WaitNode& node) noexcept { ++*static_cast<int*>(node.owner); };
+        coro::detail::ScopeAccess::add_waiter(*scopes[i], nodes[i]);
+    }
+    bool allocation_unused = false;
+    {
+        const FailAllocation failure;
+        root.cancel();
+        allocation_unused = allocations_before_failure == 0;
+    }
+    EXPECT_TRUE(allocation_unused);
+    EXPECT_EQ(notifications, 3);
+    EXPECT_FALSE(nodes[0].linked);
+    EXPECT_FALSE(nodes[1].linked);
+    EXPECT_FALSE(nodes[2].linked);
+    EXPECT_TRUE(nodes[3].linked);
+    EXPECT_FALSE(nodes[3].scheduled);
+    shield.cancel();
+    EXPECT_EQ(notifications, 4);
 }
 
 }  // namespace

@@ -226,6 +226,16 @@ representation limits. Nonpositive sleeps yield without waiting; nonpositive
 timeouts arm already-due deadlines. Scope results require move construction,
 not move assignment.
 
+Cancel scopes borrow intrusive parent/child/sibling links: registration and
+removal allocate nothing, and children retain creation order. Cancellation
+walks the unshielded subtree iteratively in depth-first order, using constant
+auxiliary space and native stack regardless of scope depth. Waiter order and
+shield boundaries are unchanged; cancelling a shield itself still reaches its
+unshielded descendants. A scope must outlive its children and parked waiters;
+destruction with either still present is assertion-diagnosed and fatal in
+production. Cancellation hooks, including worker stop callbacks, may run
+synchronously and must not block, destroy scopes or re-enter the runtime.
+
 **Cancellation is scope state.** `with_timeout`, `with_deadline`,
 `with_cancel_scope` and `non_cancellable` run a body in a child scope;
 cancellable waits are checkpoints, and a cancelled scope makes them throw

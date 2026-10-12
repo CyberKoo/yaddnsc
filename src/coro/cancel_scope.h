@@ -19,8 +19,6 @@
 #ifndef YADDNSC_INFRASTRUCTURE_CORO_CANCEL_SCOPE_H
 #define YADDNSC_INFRASTRUCTURE_CORO_CANCEL_SCOPE_H
 
-#include <vector>
-
 namespace coro {
 class Cancelled;
 
@@ -41,11 +39,13 @@ struct WaitNode;
 class CancelScope {
 public:
     /// `parent` may be null for the root scope; `shielded` marks a scope that
-    /// ignores ancestor cancellation (see non_cancellable).
-    explicit CancelScope(CancelScope* parent = nullptr, bool shielded = false);
+    /// ignores ancestor cancellation (see non_cancellable). Registration is
+    /// allocation-free; the parent must outlive this scope.
+    explicit CancelScope(CancelScope* parent = nullptr, bool shielded = false) noexcept;
 
-    /// Detaches from the parent. Precondition: no waiter is still parked here
-    /// (a scope is destroyed only after its subtree has finished).
+    /// Detaches from the parent. Precondition: no waiter or child scope remains
+    /// (a scope is destroyed only after its subtree has finished). Violations
+    /// terminate in production, with assertions for Debug diagnosis.
     ~CancelScope() noexcept;
 
     CancelScope(const CancelScope&) = delete;
@@ -60,9 +60,11 @@ public:
 
     /// Cancel this scope and wake every waiter in its unshielded subtree.
     ///
-    /// Idempotent. Waking only enqueues the waiters on the ready queue, so this
-    /// never resumes a frame inline and never runs user code. Never throws: it
-    /// only sets flags, unlinks nodes and calls the no-throw on_cancel hooks.
+    /// Idempotent. Waiters are only enqueued, never resumed inline. Never
+    /// throws: it sets flags, unlinks nodes and calls no-throw cancellation
+    /// hooks. Traversal is iterative and allocation-free regardless of depth.
+    /// Hooks (including worker stop callbacks) may run synchronously; they
+    /// must not block, destroy scopes or re-enter the runtime.
     void cancel() noexcept;
 
     /// Throw `Cancelled` when this scope or an unshielded ancestor is
@@ -103,10 +105,17 @@ private:
     [[nodiscard]] const CancelScope* cancellation_origin() const noexcept;
 
     void wake_subtree() noexcept;
+    void wake_waiters() noexcept;
     void unlink(detail::WaitNode& node) noexcept;
 
+    // Borrowed intrusive tree links; scopes remain owned by their frames.
+    // Appending children preserves registration order during cancellation.
     CancelScope* parent_ = nullptr;
-    std::vector<CancelScope*> children_;
+    CancelScope* children_head_ = nullptr;
+    CancelScope* children_tail_ = nullptr;
+    // Neighbours may be const observer scopes; membership is bookkeeping.
+    mutable CancelScope* next_sibling_ = nullptr;
+    mutable CancelScope* prev_sibling_ = nullptr;
     detail::WaitNode* waiters_head_ = nullptr;
     bool cancelled_ = false;
     bool timed_out_ = false;

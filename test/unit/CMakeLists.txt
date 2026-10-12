@@ -111,6 +111,7 @@ target_compile_definitions(test_cli_completion PRIVATE YADDNSC_TEMPLATE_DIR="${P
 add_unit_test(coro
     SOURCE coro/task_test.cpp
            coro/cancel_test.cpp
+           coro/cancel_tree_test.cpp
            coro/async_mutex_test.cpp
            coro/now_test.cpp
            coro/offload_test.cpp
