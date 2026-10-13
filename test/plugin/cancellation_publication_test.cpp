@@ -156,12 +156,12 @@ TEST(PluginAllocationFailure, PostAllocationFailure_ReportsWorkerDefectWithoutRe
             call->url = "http://127.0.0.1/";
             const std::weak_ptr<plugin::BridgeCall> weak = call;
             auto response = co_await coro::offload_joined([bridge, call = std::move(call)] {
-                // Bridge's posted ingress closure owns these three leases.
-                failure_size = 3 * sizeof(std::shared_ptr<void>);
+                // Fail the first worker-thread allocation inside exchange(): the
+                // posted ingress closure (or its queue node). Its footprint is
+                // standard-library dependent, so arm a wildcard, not a size.
                 allocations_before_failure = 0;
                 auto value = bridge->exchange(call);
                 allocations_before_failure = -1;
-                failure_size = 0;
                 return value;
             });
             EXPECT_FALSE(response);
