@@ -157,3 +157,26 @@ jobs:
               run: ninja -C build -j$(nproc) test_plugin_abi_contract test_plugin_lifecycle test_abi_freeze_compat test_coro_driver_gateway
             - name: Run plugin contract tests
               run: ctest --test-dir build --output-on-failure -R 'plugin_abi_contract|plugin_lifecycle|abi_freeze_compat|coro_driver_gateway'
+
+    sdk-package:
+        runs-on: ubuntu-24.04
+        env:
+            CC: gcc-14
+            CXX: g++-14
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v7
+            - name: Install packaging dependencies
+              run: sudo apt-get update && sudo apt-get install -y cmake git ninja-build gcc-14 g++-14 libssl-dev libxml2-dev zlib1g-dev pkg-config
+            - name: Configure SDK development package
+              run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DYADDNSC_ENABLE_DEB=ON
+            - name: Package header-only SDK
+              run: cpack --config build/CPackConfig.cmake -D 'CPACK_COMPONENTS_ALL=dev;glaze_Development' -B sdk-deb
+            - name: Install and consume final DEB in a clean container
+              run: |
+                  docker run --rm -v "$PWD/sdk-deb:/packages:ro" ubuntu:24.04 bash -euxc '
+                    apt-get update
+                    apt-get install -y cmake gcc-14 g++-14 ninja-build /packages/yaddnsc-dev_*.deb
+                    ! dpkg-query -W yaddnsc
+                    CC=gcc-14 CXX=g++-14 cmake -DSDK_PREFIX=/usr -DWORK_DIR=/tmp/sdk-check -DVERIFY_OLD_CXX_ABI=ON -P /usr/share/yaddnsc/examples/verify.cmake
+                  '

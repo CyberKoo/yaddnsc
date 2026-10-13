@@ -19,8 +19,10 @@ The optional C++ helper layer needs a C++23 compiler. Either way the platform
 must be 64-bit and little-endian.
 
 The current ABI version is **1.0** (`YADDNSC_DRIVER_ABI_MAJOR` 1,
-`YADDNSC_DRIVER_ABI_MINOR` 0), and **the ABI is stable since 1.0**: a driver
-built against ABI 1.0 loads and runs on every host implementing ABI 1.x.
+`YADDNSC_DRIVER_ABI_MINOR` 0), and **the ABI is stable since the 1.0.0
+release**: a driver built against ABI 1.0 loads and runs on every host
+implementing ABI 1.x. The ABI was unfinalized through the 1.0.0-alpha series;
+drivers built against alpha.1–alpha.4 must be recompiled.
 Three version numbers exist and only the first constrains loading: the **ABI
 version** (this section), the **SDK source version** (the `driver.hpp`
 helper layer; it evolves with the project and fixes bugs without touching
@@ -100,17 +102,19 @@ so who sets it depends on the direction of the call:
   the real `sizeof(yaddnsc_driver_descriptor)`**, and every string view in it
   must point at static storage that outlives the call, not a temporary or a
   heap buffer. `YADDNSC_DEFINE_DRIVER` builds it as a `constexpr` object whose
-  views are string literals. The host only reads the size and copies the
+  views are literals or constexpr character arrays. The host only reads the size and copies the
   fields out; it never writes back into the descriptor.
 
 Leaf types do not have `struct_size` and are not prefix-compatible:
 `yaddnsc_string`, `yaddnsc_bytes`, `yaddnsc_source_location`, and
 `yaddnsc_http_header`. Do not append fields to them.
 
-For a versioned struct:
+For an extensible struct (only descriptor/Services carry major/minor; the other
+structures use `struct_size` and their enclosing protocol version):
 
 - a value below the ABI 1.0 baseline — the `YADDNSC_*_MIN_SIZE` constants in
-  `driver_abi.h` — is rejected once the version has been accepted;
+  `driver_abi.h` — is rejected for required inputs/outputs after protocol/version validation;
+  optional `out_error` below that baseline is left unchanged;
 - a larger value may carry fields added by a later minor. Readers use
   `yaddnsc_struct_has_field` before touching those fields and ignore a tail
   they do not know. Writers only write fields fully inside the supplied
@@ -125,8 +129,13 @@ may use `data == NULL`; a view with `size > 0` and `data == NULL` is invalid.
 The same rule applies to arrays such as HTTP header lists: `count == 0` with
 a `NULL` pointer is legal, `count > 0` with a `NULL` pointer is not.
 
-Every message view the ABI returns is borrowed. Copy it before the call
-returns. Do not cache it.
+Inputs and log arguments are borrowed only during the receiving call; copy
+before returning if retaining them. Returned error messages remain valid after
+return until the next ABI entry/service callback on the same thread, instance
+destruction, or module unload, whichever happens first: copy before that event.
+HTTP response views survive exchanges until update returns. Descriptor views
+survive while the module is loaded. Services/context are usable from create
+through matching destroy on the cycle's worker and must not cross cycles.
 
 An HTTP request body uses `data == NULL` as a presence bit:
 
@@ -222,18 +231,21 @@ Four entry points are **required**: `yaddnsc_driver_get_descriptor`,
 since ABI 1.0: the host probes it with `dlsym`. When the symbol is absent,
 the plugin still loads and can perform updates, and `yaddnsc config test`
 fails because it cannot confirm `driver_params`. `YADDNSC_DEFINE_DRIVER`
-always exports the entry. The C++ helper's default `Driver::validate()`
-returns success, so config test passes and no schema check runs. Override
-it.
+always exports the entry. `Driver::validate()` is pure virtual: each driver
+must explicitly validate its schema and semantics; parameterless drivers may
+explicitly return success.
 
 `yaddnsc_driver_validate` lets `yaddnsc config test` check a driver's
 `driver_params` against the driver's own schema without performing an update.
-It is called on a live instance between create and destroy, must not use host
-services (no HTTP exchange is available), and returns
+It is called on a fresh instance between create and destroy, must not perform
+HTTP exchanges, and returns
 `YADDNSC_STATUS_INVALID_CONFIG` with a human-readable message when the
 parameter is unacceptable. The SDK's C++ helper layer emits it automatically
 from `YADDNSC_DEFINE_DRIVER`; override `Driver::validate()` to add the
-schema check (the bundled drivers are one-liners calling `parse_config<T>`).
+schema and semantic checks. See the [changelog](../CHANGELOG.md) for source
+and behavior changes. Bundled drivers reuse their checked parser in
+validate and update, rejecting missing/wrong-type/null/empty required strings
+before HTTP. Supplied TTL values cannot be negative.
 
 ## Recommended build
 
@@ -241,26 +253,35 @@ Third-party drivers build against the installed SDK — the `yaddnsc-dev`
 package when installing from DEB — no host sources needed:
 
 ```cmake
-find_package(yaddnsc CONFIG REQUIRED COMPONENTS plugin_sdk)  # + plugin_sdk_xml / plugin_support_crypto if needed
+find_package(yaddnsc CONFIG REQUIRED COMPONENTS plugin_sdk)  # + plugin_sdk_xml / plugin_sdk_crypto if needed
 
 add_library(my_driver MODULE my_driver.cpp)
 target_link_libraries(my_driver PRIVATE yaddnsc::plugin_sdk)
 ```
 
-`plugin_sdk` is the default component. The package config resolves the Glaze
-dependency automatically (`find_dependency(glaze CONFIG)`), and
-`yaddnsc::plugin_sdk` carries the C++23 requirement and the SDK warning flags
-`-Wall -Wextra -Wpedantic -Werror -fvisibility=hidden`, so the snippet above
-is the entire build setup for a JSON-only driver. Two of those flags matter to
-a driver author:
+`plugin_sdk` is the default component and requires **exactly Glaze v7.8.2**
+(`find_dependency(glaze 7.8.2 EXACT CONFIG)`). `yaddnsc-dev` bundles that release,
+including headers and package metadata. CMake skips incompatible candidates in
+earlier prefixes and can select the bundled copy. If no exact copy is available,
+configure fails with the expected version and instructions to check
+`CMAKE_PREFIX_PATH`, `glaze_DIR` and stale caches.
 
-- `-Werror`: your translation units must compile warning-clean. A single
-  unused parameter or sign-compare fails the build.
-- `-fvisibility=hidden`: nothing is exported unless you say so. The entry
-  points need default visibility or the host's `dlsym` will not find them —
-  `YADDNSC_SDK_EXPORT` when you build through `driver.hpp`, your own
-  `__attribute__((visibility("default")))` in a pure-C ABI driver. Export the
-  `yaddnsc_driver_*` entry points and nothing else.
+The SDK propagates include paths, C++23 and necessary dependencies. Consumers
+own their warnings and `-Werror` policy. Set visibility on the plugin itself:
+
+```cmake
+set_target_properties(my_driver PROPERTIES PREFIX "" OUTPUT_NAME "my_driver"
+    CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN YES)
+```
+
+Export each `yaddnsc_driver_*` entry with default visibility:
+`YADDNSC_DEFINE_DRIVER` handles this for C++, while C plugins use their own
+`__attribute__((visibility("default")))`. First-party drivers still compile
+with `-Wall -Wextra -Wpedantic -Werror` privately.
+
+Pure C11 plugins use `find_package(yaddnsc CONFIG REQUIRED COMPONENTS plugin_abi)`
+and link `yaddnsc::plugin_abi`. This target has neither Glaze nor a C++ language
+requirement. The installed examples include an actual `.c` module.
 
 Drivers that parse XML responses link the separate `plugin_sdk_xml`
 component instead: `yaddnsc::plugin_sdk_xml` implies `yaddnsc::plugin_sdk`
@@ -269,27 +290,28 @@ includes libxml2, so only drivers that include `yaddnsc/sdk/xml_raii.hpp`
 need this component, and it exists only in packages built with libxml2
 available.
 
-Drivers that sign requests add the `plugin_support_crypto` package component
-and link `yaddnsc::plugin_support_crypto` (HMAC/SHA/hex/base64):
+Drivers that sign requests add the `plugin_sdk_crypto` package component
+and link `yaddnsc::plugin_sdk_crypto` (HMAC/SHA/hex/base64):
 
 ```cmake
-find_package(yaddnsc CONFIG REQUIRED COMPONENTS plugin_sdk plugin_support_crypto)
-target_link_libraries(my_driver PRIVATE yaddnsc::plugin_sdk yaddnsc::plugin_support_crypto)
+find_package(yaddnsc CONFIG REQUIRED COMPONENTS plugin_sdk plugin_sdk_crypto)
+target_link_libraries(my_driver PRIVATE yaddnsc::plugin_sdk yaddnsc::plugin_sdk_crypto)
 ```
 
-Request `plugin_sdk` (or `plugin_sdk_xml`) alongside it: the crypto component
-alone resolves only the crypto target, not the SDK include directory or the
-C++23 requirement, so a crypto-only `find_package` produces a driver that
-cannot find `<yaddnsc/sdk/driver.hpp>`. `yaddnsc::plugin_support_crypto`
-supplies the include directory for `<signing.h>`.
+Include `<yaddnsc/sdk/signing.hpp>` and use `yaddnsc::sdk::signing`
+(`Signing` remains a source compatibility alias). The crypto target carries the
+SDK include directory, C++23 and `OpenSSL::Crypto`, and emits no library.
+Crypto-only consumers do not need Glaze. Request `plugin_sdk` as well when using
+`driver.hpp`. Consumers compile signing with their own toolchain and standard
+library ABI; OpenSSL 3.0+ remains a compile/link dependency. Signing algorithms
+and the existing empty-result failure behavior are unchanged in this migration.
 
-**Breaking SDK packaging change:** the crypto support library now lives under
-`plugin_support/crypto/`. Consumers must update their crypto component and target
-to the names above and any explicit header paths to
-`yaddnsc/plugin_support/crypto/signing.h`. The static archive is now named
-`libyaddnsc_plugin_support_crypto.a`; its exported targets file is
-`yaddnscPluginSupportCryptoTargets.cmake`. The signing functions and plugin C ABI
-are unchanged.
+XML types live in `yaddnsc::sdk::xml`; the `xml_raii` alias remains available.
+`OPTIONAL_COMPONENTS plugin_sdk_xml plugin_sdk_crypto` leaves the package usable
+when their dependencies are missing, marking just those components unavailable.
+Requesting them with `COMPONENTS` makes them required. `driver.hpp` remains the
+combined C++ HTTP/logging/JSON entry point; splitting it further is deferred
+until a non-JSON C++ consumer needs it.
 
 When developing inside the yaddnsc source tree (for example for a driver that
 will be bundled), link the in-tree target instead and rebuild the project:
@@ -304,7 +326,7 @@ package, not the source tree.
 
 ## SDK distribution
 
-The SDK is installed alongside the host so third-party drivers can build
+The SDK can be installed independently of the host so third-party drivers can build
 without the host sources. DEB packaging splits these files into two packages:
 `yaddnsc` (binary, bundled drivers, config, systemd unit, shell completions)
 and `yaddnsc-dev` (everything else below):
@@ -312,14 +334,15 @@ and `yaddnsc-dev` (everything else below):
 - headers: `<prefix>/include/yaddnsc/sdk/` (the C ABI + C++ helper layer) and
   `<prefix>/include/yaddnsc/util/` (shared string/format/URL utilities);
 - CMake package: `${CMAKE_INSTALL_LIBDIR}/cmake/yaddnsc` under the prefix
-  (normally `<prefix>/lib/cmake/yaddnsc/`), exporting three components —
-  `yaddnsc::plugin_sdk` (the default), `yaddnsc::plugin_sdk_xml`, and
-  `yaddnsc::plugin_support_crypto`;
-- crypto helpers: a prebuilt static library with position-independent code,
-  installed under `${CMAKE_INSTALL_LIBDIR}` (normally `<prefix>/lib/`), with
-  its header at `<prefix>/include/yaddnsc/plugin_support/crypto/signing.h`. The
-  target links `OpenSSL::Crypto` PUBLIC, so the OpenSSL dependency reaches
-  the final driver module automatically;
+  (normally `<prefix>/lib/cmake/yaddnsc/`), exporting four components —
+  `yaddnsc::plugin_abi`, `yaddnsc::plugin_sdk` (the default), `yaddnsc::plugin_sdk_xml`, and
+  `yaddnsc::plugin_sdk_crypto`;
+- crypto helpers: header-only `<prefix>/include/yaddnsc/sdk/signing.hpp`,
+  compiled by the consumer and linked to `OpenSSL::Crypto` through the optional
+  `yaddnsc::plugin_sdk_crypto` interface target; no C++ archive is distributed;
+- standalone examples: `<prefix>/share/yaddnsc/examples` (C, HTTP, XML, crypto,
+  a loader and installation checks). The development DEB does not depend on
+  the same-version host runtime, and can be installed on SDK-only build machines;
 - bundled drivers: `${CMAKE_INSTALL_LIBDIR}/yaddnsc/drivers` (normally
   `<prefix>/lib/yaddnsc/drivers/`). That path is also the compiled-in default
   `driver_dir` (`YADDNSC_DEFAULT_DRIVER_DIR`), so an installed driver is found
@@ -337,7 +360,7 @@ above. Runtime auto-discovery (skipping foreign libraries in the driver
 directory) is unaffected.
 
 Standalone consumer examples that build against the installed package live in
-`test/sdk_consumer/` (`c_abi_driver.cpp`, `http_driver.cpp`, `xml_driver.cpp`,
+`test/sdk_consumer/` (`c_abi_driver.c`, `http_driver.cpp`, `xml_driver.cpp`,
 `crypto_driver.cpp`).
 
 ## Driver responsibilities
@@ -360,7 +383,10 @@ A driver:
 - reports outcomes as `yaddnsc::sdk::Error` values with the appropriate
   `YADDNSC_STATUS_*` code;
 - exports itself with
-  `YADDNSC_DEFINE_DRIVER(YourDriver, "<name>", "<description>", "<author>", "<version>", YADDNSC_DRIVER_CAPABILITY_A | YADDNSC_DRIVER_CAPABILITY_AAAA)`.
+  `YADDNSC_DEFINE_DRIVER(YourDriver, "<name>", "<description>", "<author>", "<version>", YADDNSC_DRIVER_CAPABILITY_A | YADDNSC_DRIVER_CAPABILITY_AAAA, 0)`.
+  The final argument is the minimum host ABI minor actually required; it must
+  be supported by this SDK. Descriptor strings must be constexpr NUL-terminated
+  character arrays (including literals), never pointers.
 
 Each update call runs on a fresh driver instance (`create → update →
 destroy`), so instance state never leaks between updates. **Different
@@ -392,14 +418,12 @@ The services table may be stored on the instance from `create` until
 points. `http_exchange` may be called only from `update`, on that call's
 thread. `create`, `destroy`, and `validate` must not perform an exchange.
 
-The table **differs per cycle**, and `create` is handed the table of its own
-cycle, not a neutral one:
-
-- update cycle: `create`, `update`, and `destroy` share a working
-  `http_exchange`;
-- validate cycle (`config test`): the same no-HTTP table goes to `create`,
-  `validate`, and `destroy`. Its exchange entry fails with
-  `INVALID_ARGUMENT` and never touches the network.
+Each cycle owns its own context. Its exchange callback checks the current
+phase through that context, including when the plugin saved a copy of the
+Services table: only update permits HTTP. Create, validate and destroy return
+`INVALID_ARGUMENT` without touching the network. Keeping a previous cycle's
+context is still forbidden; calling such a dangling pointer is a use-after-free,
+which a phase check cannot make safe.
 
 So `create` must not assume an exchange is available, and must not require
 HTTP to finish setting up the instance.
@@ -429,7 +453,8 @@ That SDK surface is small and complete: `driver_abi.h` (the C ABI),
 `driver.hpp` (the C++ helper layer), `string_util.hpp`, `format.hpp`,
 `url_encode.hpp` (percent-encoding), `form_encode.hpp` (form encoding), and
 `redact.hpp` (pulled in by `driver.hpp`; the redaction behind the log
-helpers), plus `xml_raii.hpp` for XML drivers. Use them instead of copying
+helpers), `signing.hpp` for crypto, `version.hpp` for source version checks,
+and `xml_raii.hpp` for XML drivers. Use them instead of copying
 implementations into the driver. Use the bundled
 `driver/cloudflare/` as the reference implementation and keep
 provider-specific credentials in `driver_params`.
@@ -439,14 +464,15 @@ a fixed log budget: pass them through `redact::truncate_for_log` (declared in
 `redact.hpp`) so an oversized upstream response cannot flood the log.
 
 Drivers that need request signing can link the optional
-`yaddnsc::plugin_support_crypto` component — a prebuilt static library
-(HMAC/SHA/hex/base64).
+`yaddnsc::plugin_sdk_crypto` component — header-only signing helpers
+(HMAC/SHA/hex/base64) linked to OpenSSL.
 
 ## Standalone shared library
 
 Standalone builds are discouraged. If unavoidable, the driver must be built as
-a `MODULE` library with position-independent code against the SDK of the
-exact yaddnsc version it will run with, exporting only the
+a `MODULE` library with position-independent code against the SDK source
+version it needs, declaring its minimum runtime ABI requirement and exporting
+only the
 `yaddnsc_driver_*` ABI entry points — the four required ones plus the
 optional `yaddnsc_driver_validate` when provided — and nothing else. A
 successful compilation alone does not guarantee compatibility — the
@@ -533,3 +559,40 @@ One exchange is limited to 64 KiB of headers and 16 MiB of body.
 The SDK headers in `include/yaddnsc/sdk/` are the source of truth for the
 plugin interface; this guide intentionally avoids duplicating their full API
 documentation.
+
+## SDK source API and migration notes
+
+`<yaddnsc/sdk/version.hpp>` exposes `YADDNSC_SDK_VERSION` and its major/minor/patch
+macros, initially matching the application version. The CMake package version
+selects source compatibility; the descriptor's ABI version selects runtime
+compatibility. Only the C ABI is a stable binary interface. Installed headers
+under `yaddnsc/sdk` and `yaddnsc/util` are supported source APIs; their documented
+namespace aliases do not create separate implementations. CMake is the formal
+build entry point; pkg-config is deferred until a consumer needs it.
+
+Source changes for this SDK revision:
+
+- Implement `Driver::validate()` explicitly and reuse update-time parsing plus
+  semantic checks. It no longer defaults to successful validation.
+- Add the minimum ABI minor (currently `0`) to `YADDNSC_DEFINE_DRIVER`.
+  Literals/constexpr arrays work; pointer descriptor strings fail compilation.
+- Replace `<signing.h>` and the old crypto component/target with
+  `<yaddnsc/sdk/signing.hpp>` and `plugin_sdk_crypto` / `yaddnsc::plugin_sdk_crypto`.
+  There is no prebuilt signing archive.
+- Optional construction as `YourDriver(Services)` enables initialization logs;
+  the zero-argument constructor remains supported. HTTP stays unavailable then.
+- `run_update` accepts capturing response checkers returning `Result` and preserves
+  their detailed errors; existing bool checkers retain HTTP-status classification.
+- Named formatting scans the original template only. `{{`/`}}` escape braces,
+  unknown/unclosed placeholders are preserved, and the last duplicate name wins.
+- Logging macros protect service lookup, argument evaluation, formatting and
+  callbacks from exceptions, and skip arguments if no logger exists. No runtime
+  log-level query is added in ABI 1.0.
+- Request logs include a redacted URL. JSON bodies are parsed recursively;
+  malformed/unrecognised content is hidden. Form/query values end only at `&`;
+  encoded keys are classified after decoding. Standard sensitive headers remain
+  protected. Arbitrary provider log strings still require author review.
+
+The plugin C ABI remains 1.0, with unchanged layout and entry points. Sensitive
+field metadata and a fail-closed default for old plugins' `config show` output
+are future ABI work, not implemented by this revision.

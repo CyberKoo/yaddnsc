@@ -46,14 +46,14 @@ endforeach ()
 # ============================================================================
 
 # AlibabaCloudDriver — requires Signing::* implementation (+ OpenSSL)
-target_link_libraries(test_driver_alibaba_cloud PRIVATE yaddnsc_plugin_support_crypto OpenSSL::Crypto)
+target_link_libraries(test_driver_alibaba_cloud PRIVATE yaddnsc_plugin_sdk_crypto OpenSSL::Crypto)
 
 if(YADDNSC_HAS_SDK_XML_COMPONENT)
     # Namecheap — XML response parsing only, no signing
     target_link_libraries(test_driver_namecheap PRIVATE yaddnsc_plugin_sdk_xml)
 
     # Route53 — XML request body + XML response parsing + AWS SigV4 signing
-    target_link_libraries(test_driver_route53 PRIVATE yaddnsc_plugin_sdk_xml yaddnsc_plugin_support_crypto
+    target_link_libraries(test_driver_route53 PRIVATE yaddnsc_plugin_sdk_xml yaddnsc_plugin_sdk_crypto
         OpenSSL::Crypto)
 else()
     message(STATUS "libxml2 not found — skipping namecheap and route53 driver tests")

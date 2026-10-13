@@ -26,6 +26,9 @@ public:
     [[nodiscard]] yaddnsc::sdk::Result validate(std::string_view driver_param_json) const override;
 
 private:
+    /// Shared schema and semantic validation for validate/update.
+    [[nodiscard]] static DuckDnsParams parse_params(std::string_view json);
+
     /// Build the DuckDNS API request URL from config and update params.
     static std::string generate_url(const DuckDnsParams& cfg, const yaddnsc::sdk::UpdateRequest& request);
 

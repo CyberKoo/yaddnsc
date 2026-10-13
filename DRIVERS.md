@@ -5,6 +5,8 @@ the parameter reference for each of them. For installation and general
 configuration see [README.md](README.md); for developing additional drivers
 see [docs/custom-drivers.md](docs/custom-drivers.md).
 
+Required credential/identifier strings must be nonempty. Configuration validation and updates use the same checked parser; missing, null or wrong-type required fields fail before HTTP. Supplied TTL values cannot be negative.
+
 ## General Rules
 
 - A domain selects its driver through the `driver` field, using the
@@ -131,14 +133,14 @@ Records: A, AAAA (existing record). Uses the
 | `domain_id` | Yes | — | Domain ID |
 | `record_id` | Yes | — | Record ID |
 | `login_token` | Yes | — | API token in `ID,Token` format |
-| `global` | Yes | — | `false` selects the China endpoint, `true` the international endpoint |
-| `record_line_id` | Yes | — | Record line ID; use `"0"` for the default line |
+| `global` | No | `false` | `false` selects the China endpoint, `true` the international endpoint |
+| `record_line_id` | No | `"0"` | Record line ID; use `"0"` for the default line |
 | `record_line` | No | `"默认"` (China) / `"default"` (international) | Record line name |
 
-`global` and `record_line_id` behave like fixed settings, yet the driver
-treats them as required keys: omitting either one fails validation. The
-`login_token` must be comma-separated in `ID,Token` form. The API enforces
-rate limiting; requests rejected with error code `-2` indicate excessive
+`global` and `record_line_id` may be omitted to use their defaults. An
+explicitly empty `record_line` or `record_line_id` is rejected, even when the
+other field is supplied. The `login_token` must be comma-separated in
+`ID,Token` form. The API enforces rate limiting; requests rejected with error code `-2` indicate excessive
 frequency.
 
 ## DuckDNS (`duckdns`)
@@ -243,6 +245,8 @@ request to a URL built from a template.
 | Parameter | Required | Default | Description |
 |---|---|---|---|
 | `url` | Yes | — | HTTP(S) URL template containing `{key}` placeholders |
+
+Template substitution scans only the original URL. Inserted values are literal; `{{` and `}}` escape braces. Unknown placeholders stay unchanged, and configured string values retain precedence over built-in context placeholders.
 
 Any additional string-valued key in `driver_params` becomes a substitution
 variable `{key}`. The following built-in variables are always available:

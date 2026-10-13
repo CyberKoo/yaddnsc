@@ -23,6 +23,9 @@ public:
     [[nodiscard]] yaddnsc::sdk::Result validate(std::string_view driver_param_json) const override;
 
 private:
+    /// Shared schema and semantic validation for validate/update.
+    [[nodiscard]] static DnsPodParams parse_params(std::string_view json);
+
     /// Build the DNSPod API request from parsed config and update params.
     [[nodiscard]] static yaddnsc::sdk::HttpRequest generate_request(const DnsPodParams& cfg,
                                                                     const yaddnsc::sdk::UpdateRequest& request);

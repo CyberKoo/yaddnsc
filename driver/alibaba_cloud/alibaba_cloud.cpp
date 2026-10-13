@@ -1,11 +1,8 @@
 #include "alibaba_cloud.h"
 
-#include <yaddnsc/sdk/driver.hpp>
-#include <yaddnsc/sdk/driver_abi.h>
-#include <yaddnsc/sdk/format.hpp>
-#include <yaddnsc/sdk/url_encode.hpp>
 #include <algorithm>
 #include <chrono>
+#include <compare>  // IWYU pragma: keep — sort comparator's operator< is attributed to <compare> by IWYU; clangd does not
 #include <cstdint>
 #include <optional>
 #include <random>
@@ -13,11 +10,15 @@
 #include <string>
 #include <utility>
 #include <vector>
-#include <compare>  // IWYU pragma: keep — sort comparator's operator< is attributed to <compare> by IWYU; clangd does not
+
+#include <yaddnsc/sdk/driver.hpp>
+#include <yaddnsc/sdk/driver_abi.h>
+#include <yaddnsc/sdk/format.hpp>
+#include <yaddnsc/sdk/signing.hpp>
+#include <yaddnsc/sdk/url_encode.hpp>
 
 #include "config.hpp"
 #include "response.hpp"
-#include "signing.h"
 
 namespace fmt = yaddnsc::sdk::fmt;
 using yaddnsc::sdk::Error;
@@ -108,19 +109,33 @@ using ParamList = std::vector<std::pair<std::string, std::string>>;
 }  // anonymous namespace
 
 YADDNSC_DEFINE_DRIVER(AlibabaCloudDriver, "alibaba_cloud", "Updates DNS records via the Alibaba Cloud DNS API",
-                      "Kotarou", "1.0.0", YADDNSC_DRIVER_CAPABILITY_A | YADDNSC_DRIVER_CAPABILITY_AAAA)
+                      "Kotarou", "1.0.0", YADDNSC_DRIVER_CAPABILITY_A | YADDNSC_DRIVER_CAPABILITY_AAAA, 0)
+
+AlibabaParams AlibabaCloudDriver::parse_params(std::string_view json) {
+    auto cfg = parse_config<AlibabaParams>(json);
+    if (cfg.access_key_id.empty()) {
+        throw yaddnsc::sdk::ConfigParseError("Required parameter 'access_key_id' must not be empty");
+    }
+    if (cfg.access_key_secret.empty()) {
+        throw yaddnsc::sdk::ConfigParseError("Required parameter 'access_key_secret' must not be empty");
+    }
+    if (cfg.record_id.empty()) {
+        throw yaddnsc::sdk::ConfigParseError("Required parameter 'record_id' must not be empty");
+    }
+    if (cfg.ttl && *cfg.ttl < 0) {
+        throw yaddnsc::sdk::ConfigParseError("Parameter 'ttl' must not be negative");
+    }
+    return cfg;
+}
 
 Result AlibabaCloudDriver::validate(std::string_view driver_param_json) const {
-    // Reuses the update-time schema: parse_config throws ConfigParseError on
-    // missing keys or malformed values, which the ABI entry maps to
-    // YADDNSC_STATUS_INVALID_CONFIG.
-    [[maybe_unused]] const auto cfg = parse_config<AlibabaParams>(driver_param_json);
+    [[maybe_unused]] const auto cfg = parse_params(driver_param_json);
     return {};
 }
 
 Result AlibabaCloudDriver::update(UpdateContext& context) {
     const auto& params = context.request();
-    const auto cfg = parse_config<AlibabaParams>(params.driver_param_json);
+    const auto cfg = parse_params(params.driver_param_json);
 
     HttpRequest request = generate_request(cfg, params);
 

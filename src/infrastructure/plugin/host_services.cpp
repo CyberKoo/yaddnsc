@@ -134,18 +134,10 @@ void HostServicesContext::log_entry(void* context, yaddnsc_log_level level, yadd
     }
 }
 
-yaddnsc_status HostServicesContext::http_exchange_unavailable_entry(void*, const yaddnsc_http_request*,
-                                                                    yaddnsc_http_response*, yaddnsc_error* out_error) {
-    write_error(out_error, YADDNSC_STATUS_INVALID_ARGUMENT,
-                "http_exchange is only available during yaddnsc_driver_update");
-    return YADDNSC_STATUS_INVALID_ARGUMENT;
-}
-
 yaddnsc_status HostServicesContext::http_exchange_entry(void* context, const yaddnsc_http_request* request,
                                                         yaddnsc_http_response* out_response, yaddnsc_error* out_error) {
-    if (context == nullptr || request == nullptr || out_response == nullptr || out_error == nullptr) {
-        write_error(out_error, YADDNSC_STATUS_INVALID_ARGUMENT,
-                    "context, request, out_response and out_error must not be null");
+    if (context == nullptr || request == nullptr || out_response == nullptr) {
+        write_error(out_error, YADDNSC_STATUS_INVALID_ARGUMENT, "context, request and out_response must not be null");
         return YADDNSC_STATUS_INVALID_ARGUMENT;
     }
     if (request->struct_size < YADDNSC_HTTP_REQUEST_MIN_SIZE) {
@@ -156,8 +148,9 @@ yaddnsc_status HostServicesContext::http_exchange_entry(void* context, const yad
         write_error(out_error, YADDNSC_STATUS_INVALID_ARGUMENT, "http response struct_size too small");
         return YADDNSC_STATUS_INVALID_ARGUMENT;
     }
-    if (out_error->struct_size < YADDNSC_ERROR_MIN_SIZE) {
-        write_error(out_error, YADDNSC_STATUS_INVALID_ARGUMENT, "error struct_size too small");
+    if (static_cast<HostServicesContext*>(context)->phase_ != Phase::UPDATE) {
+        write_error(out_error, YADDNSC_STATUS_INVALID_ARGUMENT,
+                    "http_exchange is only available during yaddnsc_driver_update");
         return YADDNSC_STATUS_INVALID_ARGUMENT;
     }
     // A host exception (including bad_alloc while copying into the arena)
@@ -234,7 +227,9 @@ yaddnsc_status HostServicesContext::http_exchange(const yaddnsc_http_request& re
         // The bridge translates cancellation, transport failures and defects
         // into the existing ABI status vocabulary before fulfilling the promise.
         const yaddnsc_status status = error.code;
-        write_error(out_error, status, arena_copy(error.message), error.retry_after_seconds);
+        if (out_error != nullptr && out_error->struct_size >= YADDNSC_ERROR_MIN_SIZE) {
+            write_error(out_error, status, arena_copy(error.message), error.retry_after_seconds);
+        }
         return status;
     }
 

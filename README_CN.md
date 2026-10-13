@@ -9,8 +9,9 @@
 
 > **发布状态：** 预发布阶段，最新版本见 [GitHub Releases](https://github.com/CyberKoo/yaddnsc/releases)。
 > `master` 分支对应已发布版本，`dev` 分支汇集面向下一版本的变更，`v0.x` 分支继续支持
-> 旧工具链。驱动插件 ABI 为 v1（版本 1.0），**自 1.0 起保持稳定**：基于 ABI 1.0 构建的插件可在任何
-> 实现 ABI 1.x 的宿主上加载运行。major 相同且插件 minor 不高于宿主 minor 时可以加载；major 不同
+> 旧工具链。驱动插件 ABI 为 v1（版本 1.0），**自 1.0.0 正式版起保持稳定**：基于 ABI 1.0 构建的插件可在任何
+> 实现 ABI 1.x 的宿主上加载运行。（1.0.0-alpha 系列期间 ABI 未定稿，基于 alpha.1–alpha.4 构建的插件必须
+> 重新编译。）major 相同且插件 minor 不高于宿主 minor 时可以加载；major 不同
 > 表示插件面向另一代 ABI 构建，插件要求更高的 minor 时请升级 yaddnsc。
 
 yaddnsc 是一个动态 DNS 客户端。它按配置周期性地获取每条记录的 IP 地址——来源可以
@@ -253,27 +254,9 @@ yaddnsc config test -c /etc/yaddnsc/config.json -q
 }
 ```
 
-### 配置格式的不兼容变更（Breaking Changes）
-
-配置格式发生了不兼容变更。升级前请迁移已有配置文件；旧键会被作为未知字段拒绝，
-没有兼容别名或自动迁移。
-
-| 原有键 | 迁移方式 |
-|---|---|
-| 顶层 `driver` | 改名为 `drivers`；`domains[].driver` 保持不变。 |
-| `resolver.use_custom_server` | 改名为 `resolver.use_custom_servers`。 |
-| `domains[].subdomains[].driver_param` | 改名为 `driver_params`，其中的参数内容保持不变。 |
-| `resolver.address` 或 `resolver.ipaddress`，以及 `resolver.port` | 将服务器移入 `resolver.servers`，例如 `"servers": [{"address": "1.1.1.1", "port": 53}]`，并删除直接放在 `resolver` 下的这些字段。 |
-| `domains[].subdomains[].ip_type` | 删除该字段；记录的 `type` 决定地址族：`a` 使用 IPv4，`aaaa` 使用 IPv6。 |
-| `"ip_source": "url"` | 改用 `"http"`；旧别名会被拒绝。 |
-| `"type": "txt"` | 改用 `a` 或 `aaaa`；`txt` 在解析配置时即被拒绝。 |
-
-`resolver.servers[]` 内的字段以及插件 SDK/ABI 的 `driver_param_json` 字段保持不变。
-迁移后，先校验配置，再启动客户端：
-
-```bash
-yaddnsc config test -c /etc/yaddnsc/config.json
-```
+配置格式在 1.0.0 alpha 系列中发生过不兼容变更，迁移方式见
+[CHANGELOG.md](CHANGELOG.md)。迁移后先执行
+`yaddnsc config test -c /etc/yaddnsc/config.json` 校验配置，再启动客户端。
 
 ### 字段说明
 

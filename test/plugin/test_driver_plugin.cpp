@@ -194,8 +194,8 @@ public:
         return std::unexpected(Error{YADDNSC_STATUS_INTERNAL_ERROR, fmt::format("unknown op: {}", op), 0});
     }
 
-    /// OPTIONAL ABI entry backing: the default Driver::validate accepts
-    /// everything; "reject_validate" lets host-side tests exercise the
+    /// OPTIONAL ABI entry backing: the test plugin explicitly accepts its
+    /// control schema; "reject_validate" lets host-side tests exercise the
     /// INVALID_CONFIG mapping and message pass-through.
     Result validate(std::string_view driver_param_json) const override {
         check_thread();
@@ -318,7 +318,7 @@ private:
 };
 
 YADDNSC_DEFINE_DRIVER(TestDriver, "test_driver_plugin", "Contract-test whiteboard driver", "yaddnsc", "0.0.0",
-                      YADDNSC_DRIVER_CAPABILITY_A | YADDNSC_DRIVER_CAPABILITY_AAAA)
+                      YADDNSC_DRIVER_CAPABILITY_A | YADDNSC_DRIVER_CAPABILITY_AAAA, 0)
 
 /* ── Test control exports (not part of the driver ABI) ────────────────────*/
 

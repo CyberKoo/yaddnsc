@@ -29,19 +29,30 @@ constexpr std::string_view DRIVER_NAME = "porkbun";
 }  // namespace
 
 YADDNSC_DEFINE_DRIVER(PorkbunDriver, "porkbun", "Updates DNS records via the Porkbun API", "Kotarou", "1.0.0",
-                      YADDNSC_DRIVER_CAPABILITY_A | YADDNSC_DRIVER_CAPABILITY_AAAA)
+                      YADDNSC_DRIVER_CAPABILITY_A | YADDNSC_DRIVER_CAPABILITY_AAAA, 0)
+
+PorkbunParams PorkbunDriver::parse_params(std::string_view json) {
+    auto cfg = parse_config<PorkbunParams>(json);
+    if (cfg.api_key.empty()) {
+        throw yaddnsc::sdk::ConfigParseError("Required parameter 'api_key' must not be empty");
+    }
+    if (cfg.secret_api_key.empty()) {
+        throw yaddnsc::sdk::ConfigParseError("Required parameter 'secret_api_key' must not be empty");
+    }
+    if (cfg.ttl && *cfg.ttl < 0) {
+        throw yaddnsc::sdk::ConfigParseError("Parameter 'ttl' must not be negative");
+    }
+    return cfg;
+}
 
 Result PorkbunDriver::validate(std::string_view driver_param_json) const {
-    // Reuses the update-time schema: parse_config throws ConfigParseError on
-    // missing keys or malformed values, which the ABI entry maps to
-    // YADDNSC_STATUS_INVALID_CONFIG.
-    [[maybe_unused]] const auto cfg = parse_config<PorkbunParams>(driver_param_json);
+    [[maybe_unused]] const auto cfg = parse_params(driver_param_json);
     return {};
 }
 
 Result PorkbunDriver::update(UpdateContext& context) {
     const auto& params = context.request();
-    const auto cfg = parse_config<PorkbunParams>(params.driver_param_json);
+    const auto cfg = parse_params(params.driver_param_json);
 
     HttpRequest request{};
 

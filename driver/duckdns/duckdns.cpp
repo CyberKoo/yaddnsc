@@ -1,10 +1,11 @@
 #include "duckdns.h"
 
+#include <optional>
+#include <vector>  // IWYU pragma: keep — sdk::HttpRequest aggregate init needs its std::vector member complete; clangd sees no spelled use
+
 #include <yaddnsc/sdk/driver.hpp>
 #include <yaddnsc/sdk/driver_abi.h>
 #include <yaddnsc/sdk/format.hpp>
-#include <optional>
-#include <vector>  // IWYU pragma: keep — sdk::HttpRequest aggregate init needs its std::vector member complete; clangd sees no spelled use
 
 #include "config.hpp"
 
@@ -25,19 +26,24 @@ constexpr std::string_view DRIVER_NAME = "duckdns";
 }  // namespace
 
 YADDNSC_DEFINE_DRIVER(DuckDnsDriver, "duckdns", "Updates DNS records via the DuckDNS API", "Kotarou", "1.0.0",
-                      YADDNSC_DRIVER_CAPABILITY_A | YADDNSC_DRIVER_CAPABILITY_AAAA)
+                      YADDNSC_DRIVER_CAPABILITY_A | YADDNSC_DRIVER_CAPABILITY_AAAA, 0)
+
+DuckDnsParams DuckDnsDriver::parse_params(std::string_view json) {
+    auto cfg = parse_config<DuckDnsParams>(json);
+    if (cfg.token.empty()) {
+        throw yaddnsc::sdk::ConfigParseError("Required parameter 'token' must not be empty");
+    }
+    return cfg;
+}
 
 Result DuckDnsDriver::validate(std::string_view driver_param_json) const {
-    // Reuses the update-time schema: parse_config throws ConfigParseError on
-    // missing keys or malformed values, which the ABI entry maps to
-    // YADDNSC_STATUS_INVALID_CONFIG.
-    [[maybe_unused]] const auto cfg = parse_config<DuckDnsParams>(driver_param_json);
+    [[maybe_unused]] const auto cfg = parse_params(driver_param_json);
     return {};
 }
 
 Result DuckDnsDriver::update(UpdateContext& context) {
     const auto& params = context.request();
-    const auto cfg = parse_config<DuckDnsParams>(params.driver_param_json);
+    const auto cfg = parse_params(params.driver_param_json);
 
     HttpRequest request{};
     request.url = generate_url(cfg, params);

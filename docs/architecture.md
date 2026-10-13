@@ -587,10 +587,9 @@ public headers.
   `yaddnsc/util/*` from `driver/**`, so a plugin reaches the same utilities
   through the SDK re-exports (`include/yaddnsc/sdk/format.hpp`).
 - `driver/`: bundled provider plugins, built against the public headers.
-- `plugin_support/crypto/`: crypto helpers bundled for the plugins that sign
-  requests (`signing.cpp/h`, target `yaddnsc_plugin_support_crypto`, installed
-  to `include/yaddnsc/plugin_support/crypto`). Linked by `alibaba_cloud` and
-  `route53`; the host executable never links it.
+- `include/yaddnsc/sdk/signing.hpp`: header-only crypto helpers for plugins
+  (`yaddnsc_plugin_sdk_crypto` interface target). Consumers compile the helpers
+  and link OpenSSL; no precompiled C++ objects cross toolchain boundaries.
 
 ### Logging entry points
 
@@ -614,7 +613,7 @@ Changing the internal contract requires updating its host adapters, not the C AB
 Drivers are runtime-loaded shared libraries talking to the host exclusively
 through the **v1 C ABI** (`include/yaddnsc/sdk/driver_abi.h`) plus an
 optional C++ helper layer (`include/yaddnsc/sdk/driver.hpp`). What crosses the
-`.so` boundary is C-representable: fixed-width integers, NUL-terminated
+`.so` boundary is C-representable: fixed-width integers, length-delimited borrowed
 buffers, and plain structs with explicit sizes. Host Services carry the C++
 services a plugin needs — HTTP, logging, cancellation.
 
@@ -641,6 +640,12 @@ services a plugin needs — HTTP, logging, cancellation.
   Instances of the same module may update concurrently, and each instance
   serves one update at a time. Each instance runs its own `create()`,
   independent of process lifetime.
+- Host Services contexts track create/update/validate/destroy on the cycle's
+  worker. HTTP is accepted only during update, even through saved service-table
+  copies. Contexts are destroyed after the cycle and must not cross cycles.
+  Inputs/log arguments expire on return to the sender; returned errors are
+  copied before the next same-thread ABI operation or destruction; HTTP response
+  arenas last through update, and descriptors last while the module is loaded.
 - Provider HTTP, logging and cancellation reach the plugin through Host
   Services: the host owns the HTTP client (reached through the bridge) and the
   log sink, forwarding source location to `spdlog::source_loc`.

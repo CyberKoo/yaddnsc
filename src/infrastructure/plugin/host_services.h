@@ -44,21 +44,23 @@ public:
     /// Build the services table bound to this context. The returned table
     /// copies no state; it must not outlive the context.
     ///
-    /// @param http_enabled When false, http_exchange fails with
-    ///                     INVALID_ARGUMENT and does not touch the network.
-    ///                     validate_config uses that table; update uses the
-    ///                     real exchange.
-    [[nodiscard]] yaddnsc_host_services make_services(bool http_enabled = true) noexcept {
+    [[nodiscard]] yaddnsc_host_services make_services() noexcept {
         return yaddnsc_host_services{
             .struct_size = static_cast<uint32_t>(sizeof(yaddnsc_host_services)),
             .abi_major = YADDNSC_DRIVER_ABI_MAJOR,
             .abi_minor = YADDNSC_DRIVER_ABI_MINOR,
             .context = this,
             .log = &log_entry,
-            .http_exchange = http_enabled ? &http_exchange_entry : &http_exchange_unavailable_entry,
+            .http_exchange = &http_exchange_entry,
             .is_cancelled = &is_cancelled_entry,
         };
     }
+
+    enum class Phase { CREATE, UPDATE, VALIDATE, DESTROY };
+
+    /// Only the worker running this cycle changes its phase. Saved copies of
+    /// the service table observe the same phase through their context pointer.
+    void set_phase(Phase phase) noexcept { phase_ = phase; }
 
     // Trampoline bodies (called through the C function pointers above).
     void log(yaddnsc_log_level level, yaddnsc_string message, const yaddnsc_source_location* location);
@@ -85,14 +87,11 @@ private:
     static yaddnsc_status http_exchange_entry(void* context, const yaddnsc_http_request* request,
                                               yaddnsc_http_response* out_response, yaddnsc_error* out_error);
 
-    static yaddnsc_status http_exchange_unavailable_entry(void* context, const yaddnsc_http_request* request,
-                                                          yaddnsc_http_response* out_response,
-                                                          yaddnsc_error* out_error);
-
     static std::int32_t is_cancelled_entry(void* context) noexcept {
         return static_cast<HostServicesContext*>(context)->is_cancelled();
     }
 
+    Phase phase_ = Phase::CREATE;
     Bridge& bridge_;
     const app::LoggerPort& logger_;
     std::shared_ptr<CallState> state_;

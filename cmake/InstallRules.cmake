@@ -58,6 +58,14 @@ if (YADDNSC_ENABLE_DEB AND NOT SYSTEMD_UNIT_DIR)
 endif ()
 
 if (SYSTEMD_UNIT_DIR)
+    # The unit embeds absolute binary paths.  DEB contents follow the CPack
+    # packaging prefix, so the unit must too — CMAKE_INSTALL_FULL_BINDIR would
+    # silently diverge when the configure-time prefix differs from it.
+    if (YADDNSC_ENABLE_DEB)
+        set(YADDNSC_UNIT_BINDIR "${CPACK_PACKAGING_INSTALL_PREFIX}/${CMAKE_INSTALL_BINDIR}")
+    else ()
+        set(YADDNSC_UNIT_BINDIR "${CMAKE_INSTALL_FULL_BINDIR}")
+    endif ()
     configure_file(
             "${CMAKE_SOURCE_DIR}/template/deb/yaddnsc.service.in"
             "${CMAKE_BINARY_DIR}/generated/yaddnsc.service"
@@ -120,6 +128,8 @@ install(
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/yaddnsc
     COMPONENT dev
 )
+install(FILES ${PROJECT_BINARY_DIR}/generated/sdk_include/yaddnsc/sdk/version.hpp
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/yaddnsc/sdk COMPONENT dev)
 install(
     DIRECTORY ${CMAKE_SOURCE_DIR}/include/yaddnsc/util
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/yaddnsc
@@ -127,24 +137,23 @@ install(
 )
 
 install(
+    TARGETS yaddnsc_plugin_abi
+    EXPORT yaddnscAbiTargets
+    COMPONENT dev
+    INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+)
+install(
     TARGETS yaddnsc_plugin_sdk
     EXPORT yaddnscSdkTargets
     COMPONENT dev
     INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
 )
 install(
-    TARGETS yaddnsc_plugin_support_crypto
-    EXPORT yaddnscPluginSupportCryptoTargets
+    TARGETS yaddnsc_plugin_sdk_crypto
+    EXPORT yaddnscCryptoTargets
     COMPONENT dev
-    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
-    INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/yaddnsc/plugin_support/crypto
+    INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
 )
-install(
-    FILES ${CMAKE_SOURCE_DIR}/plugin_support/crypto/signing.h
-    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/yaddnsc/plugin_support/crypto
-    COMPONENT dev
-)
-
 if (YADDNSC_HAS_SDK_XML_COMPONENT)
     install(
         TARGETS yaddnsc_plugin_sdk_xml
@@ -157,6 +166,13 @@ endif ()
 set(YADDNSC_CMAKE_INSTALL_DIR "${CMAKE_INSTALL_LIBDIR}/cmake/yaddnsc")
 
 install(
+    EXPORT yaddnscAbiTargets
+    FILE yaddnscAbiTargets.cmake
+    NAMESPACE yaddnsc::
+    DESTINATION ${YADDNSC_CMAKE_INSTALL_DIR}
+    COMPONENT dev
+)
+install(
     EXPORT yaddnscSdkTargets
     FILE yaddnscSdkTargets.cmake
     NAMESPACE yaddnsc::
@@ -164,8 +180,8 @@ install(
     COMPONENT dev
 )
 install(
-    EXPORT yaddnscPluginSupportCryptoTargets
-    FILE yaddnscPluginSupportCryptoTargets.cmake
+    EXPORT yaddnscCryptoTargets
+    FILE yaddnscCryptoTargets.cmake
     NAMESPACE yaddnsc::
     DESTINATION ${YADDNSC_CMAKE_INSTALL_DIR}
     COMPONENT dev
@@ -198,3 +214,7 @@ install(
     DESTINATION ${YADDNSC_CMAKE_INSTALL_DIR}
     COMPONENT dev
 )
+
+install(DIRECTORY ${PROJECT_SOURCE_DIR}/test/sdk_consumer/
+    DESTINATION ${CMAKE_INSTALL_DATADIR}/yaddnsc/examples COMPONENT dev
+    FILES_MATCHING PATTERN "*.cpp" PATTERN "*.c" PATTERN "CMakeLists.txt" PATTERN "README.md" PATTERN "verify.cmake")

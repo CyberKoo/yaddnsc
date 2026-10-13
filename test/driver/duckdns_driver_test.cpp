@@ -16,6 +16,7 @@
 #include <string_view>
 #include <vector>
 
+#include <glaze/glaze.hpp>
 #include <gtest/gtest.h>
 #include <yaddnsc/sdk/driver_abi.h>
 
@@ -189,4 +190,29 @@ TEST(DuckDnsDriverTest, Entries_NullArgumentsRejected) {
     EXPECT_EQ(yaddnsc_driver_get_descriptor(nullptr), YADDNSC_STATUS_INVALID_ARGUMENT);
     EXPECT_EQ(yaddnsc_driver_update(nullptr, nullptr, nullptr), YADDNSC_STATUS_INVALID_ARGUMENT);
     yaddnsc_driver_destroy(nullptr);  // must be a no-op, must not crash
+}
+
+TEST(DuckDnsDriverTest, ValidateAndUpdateRejectInvalidRequiredFieldsBeforeHttp) {
+    for (const auto field : {"token"}) {
+        for (int kind = 0; kind < 4; ++kind) {
+            glz::generic config;
+            ASSERT_FALSE(glz::read_json(config, CONFIG));
+            if (kind == 0)
+                config[field] = std::string{};
+            else if (kind == 1)
+                config[field] = nullptr;
+            else if (kind == 2)
+                config[field] = 42;
+            else
+                config.get_object().erase(field);
+            const auto json = glz::write_json(config);
+            ASSERT_TRUE(json);
+            FakeHostServices fake;
+            EXPECT_EQ(run_abi_validate(fake, *json).status, YADDNSC_STATUS_INVALID_CONFIG) << field << " kind " << kind;
+            EXPECT_EQ(run_abi_update(fake, *json, "1.2.3.4", "A", "example.com", "www", "www.example.com").status,
+                      YADDNSC_STATUS_INVALID_CONFIG)
+                << field << " kind " << kind;
+            EXPECT_TRUE(fake.requests.empty());
+        }
+    }
 }

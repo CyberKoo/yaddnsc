@@ -298,8 +298,7 @@ file(GLOB_RECURSE cmake_files RELATIVE ${PROJECT_SOURCE_DIR}
     ${PROJECT_SOURCE_DIR}/CMakeLists.txt
     ${PROJECT_SOURCE_DIR}/cmake/*.cmake
     ${PROJECT_SOURCE_DIR}/driver/*/CMakeLists.txt
-    ${PROJECT_SOURCE_DIR}/test/*/CMakeLists.txt
-    ${PROJECT_SOURCE_DIR}/plugin_support/crypto/CMakeLists.txt)
+    ${PROJECT_SOURCE_DIR}/test/*/CMakeLists.txt)
 # The guard script itself contains these patterns as literals.
 list(FILTER cmake_files EXCLUDE REGEX "^cmake/ArchitectureGuard\\.cmake$")
 foreach (f ${cmake_files})

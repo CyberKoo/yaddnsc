@@ -1,10 +1,12 @@
 #ifndef YADDNSC_SDK_XML_RAII_HPP
 #define YADDNSC_SDK_XML_RAII_HPP
 
+#include <limits>
 #include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 #include <libxml/parser.h>
@@ -17,7 +19,13 @@
 /// These ensure that xmlDoc, xmlXPathContext, and xmlXPathObject are
 /// automatically freed when they go out of scope, eliminating manual
 /// cleanup and providing exception safety.
-namespace xml_raii {
+namespace yaddnsc::sdk::xml {
+
+struct XmlTextDeleter {
+    void operator()(xmlChar* text) const noexcept { xmlFree(text); }
+};
+
+using UniqueXmlText = std::unique_ptr<xmlChar, XmlTextDeleter>;
 
 struct XmlDocDeleter {
     void operator()(xmlDoc* doc) const noexcept { xmlFreeDoc(doc); }
@@ -42,11 +50,16 @@ using UniqueXPathObj = std::unique_ptr<xmlXPathObject, XPathObjDeleter>;
 /// Owns the document and its XPath context, so the common provider-response
 /// patterns — one text node at a path, or the text of every matching node —
 /// do not repeat the parse/context/node-set plumbing at each call site.
+/// Confine each document and its mutable XPath context to one thread;
+/// independent documents may be used concurrently.
 class XmlDocument {
-  public:
+public:
     /// Parse @p body. Returns nullopt when libxml2 rejects the document or
     /// the XPath context cannot be created.
     [[nodiscard]] static std::optional<XmlDocument> parse(std::string_view body) {
+        if (body.size() > static_cast<std::size_t>(std::numeric_limits<int>::max())) {
+            return std::nullopt;
+        }
         UniqueXmlDoc doc(xmlReadMemory(body.data(), static_cast<int>(body.size()), nullptr, nullptr, 0));
         if (!doc) {
             return std::nullopt;
@@ -71,12 +84,11 @@ class XmlDocument {
         if (!result || result->nodesetval == nullptr || result->nodesetval->nodeNr == 0) {
             return std::nullopt;
         }
-        xmlChar* text = xmlNodeGetContent(result->nodesetval->nodeTab[0]);
+        const UniqueXmlText text(xmlNodeGetContent(result->nodesetval->nodeTab[0]));
         if (text == nullptr) {
             return std::nullopt;
         }
-        std::string value(reinterpret_cast<const char*>(text));
-        xmlFree(text);
+        std::string value(reinterpret_cast<const char*>(text.get()));
         return value;
     }
 
@@ -88,10 +100,9 @@ class XmlDocument {
             return values;
         }
         for (int i = 0; i < result->nodesetval->nodeNr; ++i) {
-            xmlChar* text = xmlNodeGetContent(result->nodesetval->nodeTab[i]);
+            const UniqueXmlText text(xmlNodeGetContent(result->nodesetval->nodeTab[i]));
             if (text != nullptr) {
-                values.emplace_back(reinterpret_cast<const char*>(text));
-                xmlFree(text);
+                values.emplace_back(reinterpret_cast<const char*>(text.get()));
             }
         }
         return values;
@@ -102,13 +113,16 @@ class XmlDocument {
         return UniqueXPathObj(xmlXPathEvalExpression(reinterpret_cast<const xmlChar*>(xpath), ctx_.get()));
     }
 
-  private:
+private:
     XmlDocument(UniqueXmlDoc doc, UniqueXPathCtx ctx) : doc_(std::move(doc)), ctx_(std::move(ctx)) {}
 
     UniqueXmlDoc doc_;
     UniqueXPathCtx ctx_;
 };
 
-}  // namespace xml_raii
+}  // namespace yaddnsc::sdk::xml
+
+/// Compatibility alias for existing driver sources.
+namespace xml_raii = yaddnsc::sdk::xml;
 
 #endif  // YADDNSC_SDK_XML_RAII_HPP

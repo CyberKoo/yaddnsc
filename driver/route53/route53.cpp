@@ -1,5 +1,14 @@
 #include "route53.h"
 
+#include <cstddef>
+#include <cstdint>
+#include <memory>
+#include <optional>
+#include <span>
+#include <string>
+#include <utility>
+#include <vector>
+
 #include <libxml/parser.h>
 #include <libxml/xmlmemory.h>
 #include <libxml/xmlstring.h>
@@ -8,18 +17,10 @@
 #include <yaddnsc/sdk/driver.hpp>
 #include <yaddnsc/sdk/driver_abi.h>
 #include <yaddnsc/sdk/format.hpp>
+#include <yaddnsc/sdk/signing.hpp>
 #include <yaddnsc/sdk/xml_raii.hpp>
-#include <cstddef>
-#include <cstdint>
-#include <optional>
-#include <span>
-#include <string>
-#include <utility>
-#include <vector>
-#include <memory>
 
 #include "config.hpp"
-#include "signing.h"
 
 namespace fmt = yaddnsc::sdk::fmt;
 using yaddnsc::sdk::Error;
@@ -78,23 +79,43 @@ constexpr std::string_view DRIVER_NAME = "route53";
 }  // anonymous namespace
 
 YADDNSC_DEFINE_DRIVER(Route53Driver, "route53", "Updates DNS records via the AWS Route 53 API", "Kotarou", "1.0.0",
-                      YADDNSC_DRIVER_CAPABILITY_A | YADDNSC_DRIVER_CAPABILITY_AAAA)
+                      YADDNSC_DRIVER_CAPABILITY_A | YADDNSC_DRIVER_CAPABILITY_AAAA, 0)
 
 // =============================================================================
 //  Route53Driver::update
 // =============================================================================
 
+Route53Params Route53Driver::parse_params(std::string_view json) {
+    auto cfg = parse_config<Route53Params>(json);
+    if (cfg.access_key_id.empty()) {
+        throw yaddnsc::sdk::ConfigParseError("Required parameter 'access_key_id' must not be empty");
+    }
+    if (cfg.secret_access_key.empty()) {
+        throw yaddnsc::sdk::ConfigParseError("Required parameter 'secret_access_key' must not be empty");
+    }
+    if (cfg.hosted_zone_id.empty()) {
+        throw yaddnsc::sdk::ConfigParseError("Required parameter 'hosted_zone_id' must not be empty");
+    }
+    if (cfg.region.empty()) {
+        throw yaddnsc::sdk::ConfigParseError("Required parameter 'region' must not be empty");
+    }
+    if (cfg.record_name.empty()) {
+        throw yaddnsc::sdk::ConfigParseError("Required parameter 'record_name' must not be empty");
+    }
+    if (cfg.ttl && *cfg.ttl < 0) {
+        throw yaddnsc::sdk::ConfigParseError("Parameter 'ttl' must not be negative");
+    }
+    return cfg;
+}
+
 Result Route53Driver::validate(std::string_view driver_param_json) const {
-    // Reuses the update-time schema: parse_config throws ConfigParseError on
-    // missing keys or malformed values, which the ABI entry maps to
-    // YADDNSC_STATUS_INVALID_CONFIG.
-    [[maybe_unused]] const auto cfg = parse_config<Route53Params>(driver_param_json);
+    [[maybe_unused]] const auto cfg = parse_params(driver_param_json);
     return {};
 }
 
 Result Route53Driver::update(UpdateContext& context) {
     const auto& params = context.request();
-    const auto cfg = parse_config<Route53Params>(params.driver_param_json);
+    const auto cfg = parse_params(params.driver_param_json);
 
     // Route 53 requires the FQDN with a trailing dot.
     auto fqdn = ensure_trailing_dot(params.fqdn);
@@ -110,8 +131,8 @@ Result Route53Driver::update(UpdateContext& context) {
     // -----------------------------------------------------------------------
     //  AWS SigV4 signing
     // -----------------------------------------------------------------------
-    auto amz_date = Signing::iso8601_timestamp();        // "YYYYMMDDTHHmmSSZ"
-    const auto date_stamp = Signing::iso8601_date();     // "YYYYMMDD"
+    auto amz_date = Signing::iso8601_timestamp();     // "YYYYMMDDTHHmmSSZ"
+    const auto date_stamp = Signing::iso8601_date();  // "YYYYMMDD"
     auto payload_hash = Signing::sha256_hex(body);
 
     // Signed headers (sorted alphabetically).

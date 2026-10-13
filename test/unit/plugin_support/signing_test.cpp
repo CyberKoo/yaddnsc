@@ -1,5 +1,5 @@
 //
-// Unit tests for src/support/util/signing.cpp — cryptographic primitives.
+// Unit tests for <yaddnsc/sdk/signing.hpp> — cryptographic primitives.
 //
 // Verifies:
 //   - sha256 / sha1 produce known digests.
@@ -11,8 +11,6 @@
 //   - iso8601_timestamp / iso8601_date produce valid ISO 8601 format.
 // =============================================================================
 
-#include "signing.h"
-
 #include <array>
 #include <cstdint>
 #include <cstdlib>
@@ -22,6 +20,7 @@
 #include <vector>
 
 #include <gtest/gtest.h>
+#include <yaddnsc/sdk/signing.hpp>
 
 // ── Known test vectors ─────────────────────────────────────────────────────
 

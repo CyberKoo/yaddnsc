@@ -262,3 +262,23 @@ TEST(SimpleDriverTest, Entries_NullArgumentsRejected) {
     EXPECT_EQ(yaddnsc_driver_update(nullptr, nullptr, nullptr), YADDNSC_STATUS_INVALID_ARGUMENT);
     yaddnsc_driver_destroy(nullptr);  // must be a no-op, must not crash
 }
+
+TEST(SimpleDriverTest, ValidateAndUpdateRejectEmptyUrlBeforeHttp) {
+    FakeHostServices fake;
+    constexpr std::string_view json = R"({"url":""})";
+    EXPECT_EQ(run_abi_validate(fake, json).status, YADDNSC_STATUS_INVALID_CONFIG);
+    EXPECT_EQ(run_abi_update(fake, json, "1.2.3.4", "A", "example.com", "www", "www.example.com").status,
+              YADDNSC_STATUS_INVALID_CONFIG);
+    EXPECT_TRUE(fake.requests.empty());
+}
+
+TEST(SimpleDriverTest, TemplateValuesAreLiteralAndKeepExistingConfigPrecedence) {
+    FakeHostServices fake;
+    fake.queue_response(200, "success");
+    const auto result = run_abi_update(
+        fake, R"({"url":"https://example.com/{token}?ip={ip_addr}","token":"{ip_addr}","ip_addr":"config-ip"})",
+        "1.2.3.4", "A", "example.com", "www", "www.example.com");
+    ASSERT_EQ(result.status, YADDNSC_STATUS_OK);
+    ASSERT_EQ(fake.requests.size(), 1u);
+    EXPECT_EQ(fake.requests[0].url, "https://example.com/{ip_addr}?ip=config-ip");
+}

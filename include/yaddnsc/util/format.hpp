@@ -45,21 +45,45 @@ std::string format(std::format_string<Args...> fmt, Args&&... args) {
     return std::format(fmt, std::forward<Args>(args)...);
 }
 
-/// Format with named arguments — replaces {KEY} with corresponding values.
+/// Replace placeholders in the original template only; inserted values are literal.
+/// {{ and }} escape braces. Unknown/unclosed placeholders are preserved.
+/// For duplicate names the last argument wins.
+[[nodiscard]] inline std::string format_named(std::string_view fmt_,
+                                              const std::unordered_map<std::string, std::string>& values) {
+    std::string result;
+    result.reserve(fmt_.size());
+    for (std::size_t pos = 0; pos < fmt_.size();) {
+        if (fmt_.substr(pos, 2) == "{{" || fmt_.substr(pos, 2) == "}}") {
+            result += fmt_[pos];
+            pos += 2;
+        } else if (fmt_[pos] == '{') {
+            const auto end = fmt_.find('}', pos + 1);
+            if (end == std::string_view::npos) {
+                result.append(fmt_.substr(pos));
+                break;
+            }
+            const auto found = values.find(std::string(fmt_.substr(pos + 1, end - pos - 1)));
+            if (found == values.end()) {
+                result.append(fmt_.substr(pos, end - pos + 1));
+            } else {
+                result.append(found->second);
+            }
+            pos = end + 1;
+        } else {
+            result += fmt_[pos++];
+        }
+    }
+    return result;
+}
+
+/// Named arguments use format_named; the last duplicate name wins.
 template<typename First, typename... Rest>
     requires std::same_as<std::decay_t<First>, NamedArg> && (std::same_as<std::decay_t<Rest>, NamedArg> && ...)
 std::string format(std::string_view fmt_, First&& first, Rest&&... rest) {
     std::unordered_map<std::string, std::string> m;
     m[std::string(first.name)] = std::forward<First>(first).value;
     ((m[std::string(rest.name)] = std::forward<Rest>(rest).value), ...);
-    std::string result(fmt_);
-    for (const auto& [key, val] : m) {
-        auto ph = std::string("{") + key + "}";
-        for (auto pos = result.find(ph); pos != std::string::npos; pos = result.find(ph, pos + val.size())) {
-            result.replace(pos, ph.length(), val);
-        }
-    }
-    return result;
+    return format_named(fmt_, m);
 }
 
 }  // namespace yaddnsc::util::fmt

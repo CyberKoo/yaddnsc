@@ -113,6 +113,7 @@ TEST(PluginCancellationPublication, CancelDuringRequestCopy_LoopRejectsLateAdmis
             co_await group.with_children([&]() -> coro::Task<void> {
                 auto worker = coro::offload_joined([&] {
                     plugin::HostServicesContext context{*bridge, logger, cycle};
+                    context.set_phase(plugin::HostServicesContext::Phase::UPDATE);
                     const auto services = context.make_services();
                     constexpr std::string_view url = "http://127.0.0.1:1/never-admit";
                     yaddnsc_http_request request{};

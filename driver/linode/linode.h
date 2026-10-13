@@ -7,6 +7,8 @@
 
 #include <yaddnsc/sdk/driver.hpp>
 
+struct LinodeParams;
+
 /// Linode API v4 driver for DNS record updates.
 ///
 /// Implements the Linode DNS API for updating A and AAAA records
@@ -25,6 +27,9 @@ public:
     [[nodiscard]] yaddnsc::sdk::Result validate(std::string_view driver_param_json) const override;
 
 private:
+    /// Shared schema and semantic validation for validate/update.
+    [[nodiscard]] static LinodeParams parse_params(std::string_view json);
+
     /// Build the JSON request body for a Linode DNS record update.
     static std::string generate_body(const yaddnsc::sdk::UpdateRequest& request, std::optional<int> ttl_sec);
 

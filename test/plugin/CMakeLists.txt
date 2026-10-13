@@ -173,3 +173,10 @@ add_dependencies(test_plugin_cancellation_publication yaddnsc_test_driver_plugin
 set_tests_properties(test_plugin_cancellation_publication PROPERTIES
     ENVIRONMENT "ASAN_OPTIONS=detect_odr_violation=0:detect_stack_use_after_return=1:strict_string_checks=1:detect_invalid_pointer_pairs=2"
     TIMEOUT 20)
+
+add_library(yaddnsc_fixture_phase_http MODULE fixtures/phase_http.cpp)
+target_link_libraries(yaddnsc_fixture_phase_http PRIVATE yaddnsc_plugin_sdk)
+set_target_properties(yaddnsc_fixture_phase_http PROPERTIES PREFIX "" OUTPUT_NAME "phase_http")
+add_sanitizer_flags(yaddnsc_fixture_phase_http)
+target_compile_definitions(test_coro_driver_gateway PRIVATE PHASE_HTTP_FIXTURE="$<TARGET_FILE:yaddnsc_fixture_phase_http>")
+add_dependencies(test_coro_driver_gateway yaddnsc_fixture_phase_http)

@@ -48,7 +48,7 @@ beside the features they gate (see [Documentation](#documentation) and
 - `YADDNSC_ENABLE_DEB` (default `OFF`) enables CPack DEB generation, producing
   two packages: `yaddnsc` (binary, drivers, config, systemd unit, shell
   completions) and `yaddnsc-dev` (plugin SDK headers, CMake package config,
-  crypto support library).
+  header-only signing helpers and bundled Glaze).
 
 ### Build layout
 
@@ -68,12 +68,11 @@ that owns the relevant concern; keep the root file focused on loading order:
    and their dependency graph, using the shared interfaces and helper.
 6. `Executable.cmake` — main executable linking, sanitizer application,
    Release stripping, and IPO.
-7. `PluginSdk.cmake` — SDK/XML handling and C ABI checks, which are built
+7. `PluginSdk.cmake` — SDK/XML/crypto handling and C ABI checks, which are built
    regardless of `YADDNSC_BUILD_TESTS`.
 
 Keep the configuration summary and Doxygen setup between `Executable.cmake`
-and `PluginSdk.cmake`. After the SDK, retain this order: `plugin_support/crypto/`,
-`driver/`, `HeaderCheck.cmake`, `test/`, then `InstallRules.cmake`, preserving
+and `PluginSdk.cmake`. After the SDK, retain this order: `driver/`, `HeaderCheck.cmake`, `test/`, then `InstallRules.cmake`, preserving
 existing conditions. The SDK must be available before its consumers.
 
 Use `include()` for these modules to preserve the root directory context;
@@ -134,7 +133,7 @@ Within `test/unit/`, the layout mirrors the `src/` layering: `domain/`,
 `application/`, `cli/`, `coro/`, `infrastructure/<module>/` and `support/`
 hold the tests of their namesake source layer; `src/composition/` has no unit
 counterpart. Two extra directories have no `src/` counterpart: `sdk/` covers
-the public plugin headers, and `plugin_support/` the crypto helper library.
+the public plugin headers, and `plugin_support/` tests the SDK signing helpers.
 CTest target names are stable across moves; only file paths follow the source
 tree.
 
@@ -213,30 +212,35 @@ and `/1` (offload round trip). Run benchmarks in Release without sanitizers;
 these compare cost, not a guaranteed kernel-call latency or throughput improvement.
 Existing loopback, TLS and multicast test environment requirements still apply.
 
-### SDK consumer (manual validation)
+### Installed SDK consumer validation
 
-`test/sdk_consumer/` is a standalone CMake project, kept outside the yaddnsc
-build graph on purpose: it proves the installed package — not source-tree
-include paths or CPM targets — supplies every supported SDK edge (C ABI,
-HTTP, XML, crypto). It is not wired into CTest; run it against an install
-prefix:
+CTest's `sdk_install_consumer` installs the `dev` and `glaze_Development`
+components into a fresh per-invocation prefix (concurrent CTest runs are isolated), copies the installed examples outside the
+checkout, builds real C11/C++ HTTP/XML/crypto modules and loads them through
+`dlopen` for complete ABI cycles. Crypto uses multiple translation units; GCC
+also tests the alternate libstdc++ ABI. Consumers are built without host
+sanitizers or source/CPM include paths. Checks cover no imposed warning/visibility
+policy, exact Glaze selection/failure diagnostics, missing optional dependencies,
+pure C without Glaze/OpenSSL, and install-prefix relocation.
 
 ```bash
-cmake --install build-tests --prefix /tmp/yaddnsc-sdk
-cmake -S test/sdk_consumer -B build-sdk-consumer -DCMAKE_PREFIX_PATH=/tmp/yaddnsc-sdk
-cmake --build build-sdk-consumer
+ctest --test-dir build-tests --output-on-failure -R sdk_install_consumer
+# Or check an already installed development component/package:
+cmake -DSDK_PREFIX=/tmp/yaddnsc-sdk -DWORK_DIR=/tmp/sdk-check \
+  -DVERIFY_OLD_CXX_ABI=ON -P test/sdk_consumer/verify.cmake
 ```
 
-Two preconditions come from how the installed package is assembled. The
-`plugin_sdk_xml` component exists only when libxml2 was found when yaddnsc
-itself was configured; without it, `yaddnscConfig.cmake` marks the component
-not found and `check_required_components` fails the consumer configure. And
-because that config file calls `find_dependency(glaze CONFIG)`, Glaze's
-installed package metadata must be findable too — `Dependencies.cmake` forces
-`glaze_INSTALL ON` so `cmake --install` lays it down next to the yaddnsc config,
-but an install that skipped it needs a `CMAKE_PREFIX_PATH` that covers Glaze.
+The development package requires exactly Glaze v7.8.2 and includes its metadata;
+`cmake --install --component dev` alone is incomplete for C++ JSON consumers:
+install `glaze_Development` into the same prefix too. XML is an optional component
+available only when the host was configured with libxml2. Crypto is header-only
+in `include/yaddnsc/sdk/signing.hpp` and requires OpenSSL 3.0+.
 
-No CI job runs this tier; it is manual validation only.
+The `sdk-package` CI job configures a Release package, generates the final
+`yaddnsc-dev` DEB (no host build is needed for header-only development contents),
+installs it and its declared dependencies in a fresh Ubuntu container, and runs
+the installed verification script with no host package or source checkout.
+The final runtime DEB is built by release workflows separately.
 
 ### Local CI simulation
 
@@ -526,7 +530,7 @@ still fail the build.
   Installing Homebrew IWYU in the macOS job does not activate it with AppleClang.
 - **Header self-containment**: in non-Release builds, `yaddnsc_header_checks`
   compiles individual headers matching `src/*.{h,hpp}`, `include/*.{h,hpp}`,
-  `driver/*/*.{h,hpp}` and `plugin_support/crypto/*.h` recursively.
+  `driver/*/*.{h,hpp}` recursively (including signing under the SDK tree).
   `xml_raii.hpp` is excluded when LibXml2 is unavailable. This is a
   default-build check, not coverage of every header in every configuration.
 - **Editor feedback**: `.clangd` sets `UnusedIncludes` and `MissingIncludes`

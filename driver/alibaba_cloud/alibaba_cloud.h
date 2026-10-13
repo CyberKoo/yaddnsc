@@ -29,6 +29,9 @@ public:
     [[nodiscard]] yaddnsc::sdk::Result validate(std::string_view driver_param_json) const override;
 
 private:
+    /// Shared schema and semantic validation for validate/update.
+    [[nodiscard]] static AlibabaParams parse_params(std::string_view json);
+
     /// Build an Alibaba Cloud DNS UpdateDomainRecord request with RPC signature.
     static yaddnsc::sdk::HttpRequest generate_request(const AlibabaParams& cfg,
                                                       const yaddnsc::sdk::UpdateRequest& request);

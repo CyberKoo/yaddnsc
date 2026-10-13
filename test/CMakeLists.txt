@@ -255,3 +255,10 @@ get_property(all_test_targets GLOBAL PROPERTY YADDNSC_TEST_TARGETS)
 # The 'tests' target also needs yaddnsc (for integration tests) and the driver
 # shared libraries (for driver_loader tests) to be built.
 add_custom_target(tests DEPENDS ${all_test_targets} yaddnsc drivers)
+
+# Install headers/metadata, then consume them outside the host build graph.
+add_test(NAME sdk_install_consumer COMMAND ${CMAKE_COMMAND}
+    -DBUILD_DIR=${PROJECT_BINARY_DIR} -DWORK_DIR=${PROJECT_BINARY_DIR}/sdk-consumer-check
+    -DVERIFY_OLD_CXX_ABI=$<STREQUAL:${CMAKE_CXX_COMPILER_ID},GNU>
+    -P ${PROJECT_SOURCE_DIR}/test/sdk_consumer/install_verify.cmake)
+set_tests_properties(sdk_install_consumer PROPERTIES TIMEOUT 600)

@@ -4,6 +4,8 @@ yaddnsc 随附十二个以可加载模块形式提供的服务商驱动，本文
 安装与通用配置请参阅 [README_CN.md](README_CN.md)；开发新的驱动请参阅
 [docs/custom-drivers.md](docs/custom-drivers.md)。
 
+必填的凭据和标识字符串不得为空。配置校验和更新共用同一解析与语义检查；必填字段缺失、为 null 或类型错误时，会在 HTTP 请求前失败。显式提供的 TTL 不得为负数。
+
 ## 通用规则
 
 - 域名通过 `driver` 字段选用驱动，取值为下表中的配置名称。
@@ -123,12 +125,13 @@ API 中查询。
 | `domain_id` | 是 | — | 域名 ID |
 | `record_id` | 是 | — | 记录 ID |
 | `login_token` | 是 | — | API 令牌，格式为 `ID,Token` |
-| `global` | 是 | — | `false` 使用国内端点，`true` 使用国际端点 |
-| `record_line_id` | 是 | — | 记录线路 ID；默认线路填 `"0"` |
+| `global` | 否 | `false` | `false` 使用国内端点，`true` 使用国际端点 |
+| `record_line_id` | 否 | `"0"` | 记录线路 ID；默认线路填 `"0"` |
 | `record_line` | 否 | `"默认"`（国内）/ `"default"`（国际） | 记录线路名称 |
 
-`global` 与 `record_line_id` 虽属于固定取值类设置，但驱动将其视为必填键，省略
-任一均会导致校验失败。`login_token` 必须是以逗号分隔的 `ID,Token` 形式。该 API
+`global` 与 `record_line_id` 可省略，省略时采用默认值。显式提供的 `record_line`
+或 `record_line_id` 不得为空字符串，即使另一个字段已提供也会被拒绝。
+`login_token` 必须是以逗号分隔的 `ID,Token` 形式。该 API
 设有频率限制，返回错误码 `-2` 表示请求过于频繁。
 
 ## DuckDNS（`duckdns`）
@@ -229,6 +232,8 @@ Linode API 仅接受一组固定的 TTL 取值，其余取值会被拒绝；非�
 | 参数 | 必填 | 默认值 | 说明 |
 |---|---|---|---|
 | `url` | 是 | — | 含有 `{key}` 占位符的 HTTP(S) URL 模板 |
+
+模板替换只扫描原始 URL，插入值按字面内容使用；`{{` 和 `}}` 用于转义大括号。未知占位符保持原样，配置中的字符串值仍优先于内置上下文占位符。
 
 `driver_params` 中其余字符串类型的键均可作为 `{key}` 形式的替换变量使用。以下
 内置变量始终可用：

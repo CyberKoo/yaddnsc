@@ -27,6 +27,9 @@ public:
     [[nodiscard]] yaddnsc::sdk::Result validate(std::string_view driver_param_json) const override;
 
 private:
+    /// Shared schema and semantic validation for validate/update.
+    [[nodiscard]] static NamecheapParams parse_params(std::string_view json);
+
     /// Build the GET request for a Namecheap DDNS update.
     ///
     /// The `host` parameter uses the subdomain label directly; for a

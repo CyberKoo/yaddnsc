@@ -1,5 +1,12 @@
 #include "namecheap.h"
 
+#include <memory>
+#include <optional>  // IWYU pragma: keep — sdk::HttpRequest aggregate init needs its std::optional member complete; clangd sees no spelled use
+#include <string>
+#include <string_view>
+#include <vector>  // IWYU pragma: keep — sdk::HttpRequest aggregate init needs its std::vector member complete; clangd sees no spelled use
+
+#include <expected>
 #include <libxml/parser.h>
 #include <libxml/xmlmemory.h>
 #include <libxml/xmlstring.h>
@@ -8,12 +15,6 @@
 #include <yaddnsc/sdk/driver_abi.h>
 #include <yaddnsc/sdk/format.hpp>
 #include <yaddnsc/sdk/xml_raii.hpp>
-#include <memory>
-#include <string>
-#include <string_view>
-#include <expected>
-#include <optional>  // IWYU pragma: keep — sdk::HttpRequest aggregate init needs its std::optional member complete; clangd sees no spelled use
-#include <vector>  // IWYU pragma: keep — sdk::HttpRequest aggregate init needs its std::vector member complete; clangd sees no spelled use
 
 #include "config.hpp"
 
@@ -34,17 +35,22 @@ constexpr std::string_view DRIVER_NAME = "namecheap";
 }  // namespace
 
 YADDNSC_DEFINE_DRIVER(NamecheapDriver, "namecheap", "Updates DNS records via the Namecheap Dynamic DNS API", "Kotarou",
-                      "1.0.0", YADDNSC_DRIVER_CAPABILITY_A)
+                      "1.0.0", YADDNSC_DRIVER_CAPABILITY_A, 0)
 
 // =============================================================================
 //  NamecheapDriver::update
 // =============================================================================
 
+NamecheapParams NamecheapDriver::parse_params(std::string_view json) {
+    auto cfg = parse_config<NamecheapParams>(json);
+    if (cfg.password.empty()) {
+        throw yaddnsc::sdk::ConfigParseError("Required parameter 'password' must not be empty");
+    }
+    return cfg;
+}
+
 Result NamecheapDriver::validate(std::string_view driver_param_json) const {
-    // Reuses the update-time schema: parse_config throws ConfigParseError on
-    // missing keys or malformed values, which the ABI entry maps to
-    // YADDNSC_STATUS_INVALID_CONFIG.
-    [[maybe_unused]] const auto cfg = parse_config<NamecheapParams>(driver_param_json);
+    [[maybe_unused]] const auto cfg = parse_params(driver_param_json);
     return {};
 }
 
@@ -60,7 +66,7 @@ Result NamecheapDriver::update(UpdateContext& context) {
                                      0});
     }
 
-    const auto cfg = parse_config<NamecheapParams>(params.driver_param_json);
+    const auto cfg = parse_params(params.driver_param_json);
 
     auto request = generate_request(cfg, params);
 

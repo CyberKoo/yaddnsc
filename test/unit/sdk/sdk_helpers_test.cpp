@@ -153,6 +153,8 @@ struct std::formatter<ThrowingFormatArg, char> {
 
 class LongMessageDriver final : public yaddnsc::sdk::Driver {
 public:
+    yaddnsc::sdk::Result validate(std::string_view) const override { return {}; }
+
     LongMessageDriver() { throw std::runtime_error(std::string(800, 'x')); }
 
     yaddnsc::sdk::Result update(yaddnsc::sdk::UpdateContext&) override { return {}; }
@@ -160,6 +162,8 @@ public:
 
 class UpdateThrowDriver final : public yaddnsc::sdk::Driver {
 public:
+    yaddnsc::sdk::Result validate(std::string_view) const override { return {}; }
+
     yaddnsc::sdk::Result update(yaddnsc::sdk::UpdateContext&) override {
         throw std::runtime_error(std::string(800, 'y'));
     }
@@ -167,6 +171,8 @@ public:
 
 class LogThrowDriver final : public yaddnsc::sdk::Driver {
 public:
+    yaddnsc::sdk::Result validate(std::string_view) const override { return {}; }
+
     yaddnsc::sdk::Result update(yaddnsc::sdk::UpdateContext& context) override {
         YADDNSC_SDK_LOG_INFO(context, "{}", ThrowingFormatArg{});
         return {};
@@ -426,10 +432,10 @@ TEST(SdkHelpersTest, RedactBody_FormSuffixKey) {
 TEST(SdkHelpersTest, RedactBody_Form_ValueTerminators) {
     // Every value terminator must stop the redacted span: '&', ',', '}', '\n', '\r'.
     EXPECT_EQ(redact::redact_body("token=abc&next=1"), "token=***&next=1");
-    EXPECT_EQ(redact::redact_body("token=abc,next=1"), "token=***,next=1");
-    EXPECT_EQ(redact::redact_body("token=abc}next"), "token=***}next");
-    EXPECT_EQ(redact::redact_body("token=abc\nnext=1"), "token=***\nnext=1");
-    EXPECT_EQ(redact::redact_body("token=abc\r\nnext=1"), "token=***\r\nnext=1");
+    EXPECT_EQ(redact::redact_body("token=abc,next=1"), "token=***");
+    EXPECT_EQ(redact::redact_body("token=abc}next"), "token=***");
+    EXPECT_EQ(redact::redact_body("token=abc\nnext=1"), "token=***");
+    EXPECT_EQ(redact::redact_body("token=abc\r\nnext=1"), "token=***");
 }
 
 TEST(SdkHelpersTest, RedactBody_Form_TrailingValue) {
@@ -442,36 +448,36 @@ TEST(SdkHelpersTest, RedactBody_Form_TrailingValue) {
 // ===========================================================================
 
 TEST(SdkHelpersTest, RedactBody_JsonSensitiveKey) {
-    EXPECT_EQ(redact::redact_body(R"({"token": "abc"})"), R"({"token": ***})");
+    EXPECT_EQ(redact::redact_body(R"({"token": "abc"})"), R"({"token":"***"})");
 }
 
 TEST(SdkHelpersTest, RedactBody_JsonSpaceAroundColon) {
-    EXPECT_EQ(redact::redact_body(R"({"token" : "abc"})"), R"({"token" : ***})");
+    EXPECT_EQ(redact::redact_body(R"({"token" : "abc"})"), R"({"token":"***"})");
 }
 
 TEST(SdkHelpersTest, RedactBody_JsonMultipleSpacesBeforeValue) {
-    EXPECT_EQ(redact::redact_body(R"({"token":   "abc"})"), R"({"token":   ***})");
+    EXPECT_EQ(redact::redact_body(R"({"token":   "abc"})"), R"({"token":"***"})");
 }
 
 TEST(SdkHelpersTest, RedactBody_JsonCommaSeparated) {
-    EXPECT_EQ(redact::redact_body(R"({"token":"a", "host":"h"})"), R"({"token":***, "host":"h"})");
+    EXPECT_EQ(redact::redact_body(R"({"token":"a", "host":"h"})"), R"({"token":"***","host":"h"})");
 }
 
 TEST(SdkHelpersTest, RedactBody_JsonNonSensitivePassThrough) {
-    EXPECT_EQ(redact::redact_body(R"({"host": "h", "port": 80})"), R"({"host": "h", "port": 80})");
+    EXPECT_EQ(redact::redact_body(R"({"host": "h", "port": 80})"), R"({"host":"h","port":80})");
 }
 
 TEST(SdkHelpersTest, RedactBody_JsonMixed) {
     EXPECT_EQ(redact::redact_body(R"({"host":"h","password":"p","ttl":60})"),
-              R"({"host":"h","password":***,"ttl":60})");
+              R"({"host":"h","password":"***","ttl":60})");
 }
 
-TEST(SdkHelpersTest, RedactBody_JsonUnterminatedKey_AppendsRest) {
-    EXPECT_EQ(redact::redact_body(R"({"unterminated)"), R"({"unterminated)");
+TEST(SdkHelpersTest, RedactBody_JsonUnterminatedKey_HidesContent) {
+    EXPECT_EQ(redact::redact_body(R"({"unterminated)"), "***");
 }
 
-TEST(SdkHelpersTest, RedactBody_QuoteWithoutColon_PassThrough) {
-    EXPECT_EQ(redact::redact_body(R"("hostname" then text)"), R"("hostname" then text)");
+TEST(SdkHelpersTest, RedactBody_QuoteWithoutColon_HidesContent) {
+    EXPECT_EQ(redact::redact_body(R"("hostname" then text)"), "***");
 }
 
 // ===========================================================================
@@ -537,7 +543,7 @@ TEST(SdkHelpersTest, Format_RedactsSensitiveHeader) {
 
 TEST(SdkHelpersTest, Format_RedactsSensitiveBody) {
     const auto out = yaddnsc::sdk::format_request(make_request(yaddnsc::sdk::Method::POST, R"({"token": "abc"})"));
-    EXPECT_TRUE(out.find(R"("token": ***)") != std::string::npos);
+    EXPECT_TRUE(out.find(R"("token":"***")") != std::string::npos);
     EXPECT_TRUE(out.find("abc") == std::string::npos);
 }
 
@@ -604,4 +610,139 @@ TEST(SdkHelpersTest, RetryAfter_DelaySecondsAndHttpDate) {
     const auto future = retry_after_seconds(response_with(429, {{"Retry-After", "Tue, 01 Jan 2036 00:00:00 GMT"}}));
     EXPECT_GT(future, 0u);
     EXPECT_LT(future, std::numeric_limits<uint32_t>::max());
+}
+
+TEST(SdkHelpersTest, RedactJsonParsesSecretsWithCommasEscapesNestedObjectsAndArrays) {
+    const auto output = redact::redact_body(
+        R"({"token":"SYNTHETIC_A,SYNTHETIC_B","nested":[{"pass\u0077ord":{"value":"SECRET"},"host":"safe"}],"secretapikey":"PORKBUN"})");
+    EXPECT_EQ(output.find("SYNTHETIC"), std::string::npos);
+    EXPECT_EQ(output.find("SECRET"), std::string::npos);
+    EXPECT_EQ(output.find("PORKBUN"), std::string::npos);
+    EXPECT_NE(output.find("safe"), std::string::npos);
+    glz::generic parsed;
+    EXPECT_FALSE(glz::read_json(parsed, output));
+    EXPECT_EQ(redact::redact_body(R"({"token":"SECRET",)"), "***");
+    EXPECT_EQ(redact::redact_body(R"({"host":"safe"} trailing SECRET)"), "***");
+}
+
+TEST(SdkHelpersTest, RedactFormDecodesKeysAndHidesMalformedContent) {
+    EXPECT_EQ(redact::redact_body("%74oken=SECRET_A,SECRET_B&host=safe"), "%74oken=***&host=safe");
+    EXPECT_EQ(redact::redact_body("token=SECRET&broken"), "***");
+    EXPECT_EQ(redact::redact_body("to%XXken=SECRET"), "***");
+    EXPECT_EQ(redact::redact_body("unstructured SECRET"), "***");
+}
+
+TEST(SdkHelpersTest, FormatRequestIncludesRedactedUrl) {
+    yaddnsc::sdk::HttpRequest request;
+    request.url = "https://example.com/update?token=SECRET_A,SECRET_B&host=safe";
+    const auto output = yaddnsc::sdk::format_request(request);
+    EXPECT_EQ(output.find("SECRET"), std::string::npos);
+    EXPECT_NE(output.find("https://example.com/update?token=***&host=safe"), std::string::npos);
+}
+
+TEST(SdkHelpersTest, LoggingProtectsArgumentAndServiceEvaluation) {
+    StubHost host;
+    auto table = host.table();
+    int evaluations = 0;
+    const auto throwing_arg = [&]() -> int {
+        ++evaluations;
+        throw std::runtime_error("argument failed");
+    };
+    EXPECT_NO_THROW(YADDNSC_SDK_LOG_INFO(&table, "{}", throwing_arg()));
+    EXPECT_EQ(evaluations, 1);
+    table.log = nullptr;
+    EXPECT_NO_THROW(YADDNSC_SDK_LOG_INFO(&table, "{}", throwing_arg()));
+    EXPECT_NO_THROW(YADDNSC_SDK_LOG_INFO(static_cast<const yaddnsc_host_services*>(nullptr), "{}", throwing_arg()));
+    EXPECT_EQ(evaluations, 1);
+    const auto throwing_services = []() -> const yaddnsc_host_services* { throw std::runtime_error("lookup failed"); };
+    EXPECT_NO_THROW(YADDNSC_SDK_LOG_INFO(throwing_services(), "{}", throwing_arg()));
+    EXPECT_EQ(evaluations, 1);
+}
+
+TEST(SdkHelpersTest, NamedFormattingOnlyScansTemplateAndDefinesEscapingAndDuplicates) {
+    using yaddnsc::sdk::fmt::arg;
+    using yaddnsc::sdk::fmt::format;
+    EXPECT_EQ(format("{a}|{b}", arg("a", "{b}"), arg("b", "VALUE")), "{b}|VALUE");
+    EXPECT_EQ(format("{a}|{b}", arg("b", "VALUE"), arg("a", "{b}")), "{b}|VALUE");
+    EXPECT_EQ(format("{{a}}|{unknown}|{a}|{unclosed", arg("a", "first"), arg("a", "last")),
+              "{a}|{unknown}|last|{unclosed");
+}
+
+namespace {
+template<typename T>
+concept DescriptorString = requires(T& value) { yaddnsc::sdk::detail::descriptor_string(value); };
+static_assert(DescriptorString<const char[4]>);
+static_assert(!DescriptorString<const char*>);
+constexpr char DESCRIPTOR_NAME[] = "abc";
+constexpr auto DESCRIPTOR_VIEW = yaddnsc::sdk::detail::descriptor_string(DESCRIPTOR_NAME);
+static_assert(DESCRIPTOR_VIEW.size == 3);
+
+class MissingValidateDriver final : public yaddnsc::sdk::Driver {
+public:
+    yaddnsc::sdk::Result update(yaddnsc::sdk::UpdateContext&) override { return {}; }
+};
+
+static_assert(std::is_abstract_v<MissingValidateDriver>);
+}  // namespace
+
+class InjectedServicesDriver final : public yaddnsc::sdk::Driver {
+public:
+    explicit InjectedServicesDriver(yaddnsc::sdk::Services services) {
+        if (services.get() == nullptr)
+            throw std::runtime_error("services not injected");
+        YADDNSC_SDK_LOG_INFO(services, "Constructing driver");
+    }
+
+    yaddnsc::sdk::Result validate(std::string_view) const override { return {}; }
+
+    yaddnsc::sdk::Result update(yaddnsc::sdk::UpdateContext&) override { return {}; }
+};
+
+TEST(SdkHelpersTest, CreateSupportsServicesInjectionAndCopiesOnlyKnownCapacity) {
+    StubHost host;
+    auto table = host.table();
+    table.struct_size = YADDNSC_HOST_SERVICES_MIN_SIZE;
+    yaddnsc_driver* driver = nullptr;
+    EXPECT_EQ((yaddnsc::sdk::detail::create_driver<InjectedServicesDriver>(&table, &driver, nullptr)),
+              YADDNSC_STATUS_OK);
+    ASSERT_NE(driver, nullptr);
+    yaddnsc::sdk::detail::destroy_driver(driver);
+    table.struct_size = YADDNSC_HOST_SERVICES_MIN_SIZE - 1;
+    EXPECT_EQ((yaddnsc::sdk::detail::create_driver<InjectedServicesDriver>(&table, &driver, nullptr)),
+              YADDNSC_STATUS_INVALID_ARGUMENT);
+    EXPECT_EQ(driver, nullptr);
+}
+
+class RunUpdateProbe : public yaddnsc::sdk::Driver {
+public:
+    using Driver::run_update;
+};
+
+TEST(SdkHelpersTest, RunUpdateAcceptsCapturingCheckerAndPreservesDetailedResult) {
+    StubHost host;
+    const auto table = host.table();
+    yaddnsc::sdk::UpdateRequest parameters{};
+    yaddnsc::sdk::UpdateContext context(parameters, &table);
+    yaddnsc::sdk::HttpRequest request;
+    request.url = "https://example.com";
+    const std::string detail = "provider response missing record_id";
+    auto result = RunUpdateProbe::run_update(
+        context, "test", request,
+        [&](const yaddnsc::sdk::HttpResponse&, const yaddnsc::sdk::Services&) -> yaddnsc::sdk::Result {
+            return std::unexpected(yaddnsc::sdk::Error{YADDNSC_STATUS_INVALID_RESPONSE, detail, 17});
+        });
+    ASSERT_FALSE(result);
+    EXPECT_EQ(result.error().status, YADDNSC_STATUS_INVALID_RESPONSE);
+    EXPECT_EQ(result.error().message, detail);
+    EXPECT_EQ(result.error().retry_after_seconds, 17u);
+}
+
+TEST(SdkHelpersTest, RedactionUsesDeclaredMediaTypeAndHidesUnsupportedOrMalformedBodies) {
+    EXPECT_EQ(redact::redact_body("token=secret", "application/json"), "***");
+    EXPECT_EQ(redact::redact_body(R"({"token":"secret"})", "application/problem+json; charset=utf-8"),
+              R"({"token":"***"})");
+    EXPECT_EQ(redact::redact_body("host=safe&token=secret", "application/x-www-form-urlencoded"),
+              "host=safe&token=***");
+    EXPECT_EQ(redact::redact_body("opaque secret", "text/plain"), "***");
+    EXPECT_EQ(redact::redact_body(R"("secret")", "application/json"), "***");
 }

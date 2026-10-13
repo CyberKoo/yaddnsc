@@ -18,7 +18,7 @@
 ///     plus the optional validate entry,
 ///
 /// Plugins must not include host-internal headers; this layer plus
-/// driver_abi.h is the entire supported surface.
+/// the public SDK/util headers form the supported source surface.
 
 #include <array>
 #include <charconv>
@@ -26,6 +26,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <functional>
 #include <limits>
 #include <memory>
 #include <optional>
@@ -37,6 +38,8 @@
 #include <type_traits>
 #include <utility>
 #include <vector>
+
+#include <concepts>
 
 #include <expected>
 #include <glaze/glaze.hpp>
@@ -158,14 +161,34 @@ using ExchangeResult = std::expected<HttpResponse, HttpError>;
         headers.erase(headers.size() - 2);
     }
 
-    return fmt::format(R"(Request(body="{}", content_type="{}", method="{}", header="{}"))",
-                       redact::truncate_for_log(redact::redact_body(request.body.value_or(""))), request.content_type,
-                       method_name(request.method), headers);
+    return fmt::format(R"(Request(body="{}", content_type="{}", method="{}", url="{}", header="{}"))",
+                       redact::truncate_for_log(redact::redact_body(request.body.value_or(""), request.content_type)),
+                       request.content_type, method_name(request.method), redact::redact_url_query(request.url),
+                       headers);
 }
 
 /* ── Low-level view helpers ───────────────────────────────────────────────*/
 
 namespace detail {
+
+/// Descriptor strings must be constexpr NUL-terminated arrays, never pointers.
+template<std::size_t N>
+[[nodiscard]] consteval yaddnsc_string descriptor_string(const char (&value)[N]) {
+    static_assert(N > 0);
+    if (value[N - 1] != '\0') {
+        throw "descriptor strings must be NUL-terminated";
+    }
+    return {value, N - 1};
+}
+
+/// Copy only fields covered by the provider's capacity; never read its tail.
+[[nodiscard]] inline yaddnsc_host_services copy_services(const yaddnsc_host_services& source) noexcept {
+    yaddnsc_host_services result{};
+    std::memcpy(&result, &source, source.struct_size < sizeof(result) ? source.struct_size : sizeof(result));
+    result.struct_size =
+        static_cast<uint32_t>(source.struct_size < sizeof(result) ? source.struct_size : sizeof(result));
+    return result;
+}
 
 [[nodiscard]] inline yaddnsc_string make_view(std::string_view view) noexcept {
     return {view.data(), view.size()};
@@ -257,8 +280,7 @@ public:
     /// back as HttpError; provider status codes arrive in HttpResponse.
     [[nodiscard]] ExchangeResult exchange(const HttpRequest& request) const {
         if (services_ == nullptr || services_->struct_size < YADDNSC_ABI_VERSION_PREFIX_SIZE ||
-            !yaddnsc_abi_provides(services_->abi_major, services_->abi_minor, YADDNSC_DRIVER_ABI_MAJOR,
-                                  YADDNSC_DRIVER_ABI_MINOR) ||
+            !yaddnsc_abi_provides(services_->abi_major, services_->abi_minor, YADDNSC_DRIVER_ABI_MAJOR, 0) ||
             services_->struct_size < YADDNSC_HOST_SERVICES_MIN_SIZE || services_->context == nullptr ||
             services_->http_exchange == nullptr) {
             return std::unexpected(HttpError{YADDNSC_STATUS_INTERNAL_ERROR, "invalid host services table", 0});
@@ -377,6 +399,20 @@ inline void log_message(const yaddnsc_host_services* services, yaddnsc_log_level
         const std::string message = fmt::format(fmt, std::forward<Args>(args)...);
         const yaddnsc_source_location location{make_view(file), line, make_view(function)};
         services->log(services->context, level, make_view(message), &location);
+    } catch (...) {
+    }
+}
+
+/// Best-effort diagnostic boundary including service lookup and argument evaluation.
+/// The callable runs only when a log callback exists. All diagnostic failures
+/// are discarded; they never change the business-operation result.
+template<typename GetServices, typename Log>
+inline void log_lazy(GetServices&& get_services, Log&& log) noexcept {
+    try {
+        const auto* services = to_services(get_services());
+        if (services != nullptr && services->log != nullptr) {
+            log(services);
+        }
     } catch (...) {
     }
 }
@@ -567,18 +603,12 @@ public:
     /// Validate a driver_param JSON against this driver's schema without
     /// performing an update. The host calls it from `config test` through the
     /// OPTIONAL yaddnsc_driver_validate entry (dlsym-probed).
-    /// YADDNSC_DEFINE_DRIVER always exports that entry. This default returns
-    /// success, so config test passes without a schema check. When the symbol
-    /// is absent the plugin still loads, and config test fails because the
-    /// host cannot confirm driver_param.
-    ///
-    /// Override with the canonical one-liner
-    /// `parse_config<YourParams>(driver_param_json); return {};` — a thrown
-    /// ConfigParseError maps to YADDNSC_STATUS_INVALID_CONFIG. Runs on a
-    /// freshly created instance between create() and destroy(): it must not
-    /// rely on state left by a previous call and must not touch host
-    /// services (no HTTP exchange happens during validation).
-    [[nodiscard]] virtual Result validate([[maybe_unused]] std::string_view driver_param_json) const { return {}; }
+    /// YADDNSC_DEFINE_DRIVER always exports that entry. Each driver must
+    /// explicitly validate its schema and semantics; parameterless drivers
+    /// may return success. Reuse the same parser in validate and update.
+    /// ConfigParseError maps to YADDNSC_STATUS_INVALID_CONFIG. Validation
+    /// uses a fresh instance and must not perform HTTP exchanges.
+    [[nodiscard]] virtual Result validate(std::string_view driver_param_json) const = 0;
 
 protected:
     /// Parse the driver_param JSON into a typed struct with built-in
@@ -620,17 +650,24 @@ protected:
     /// provider accepted the update. A rejection of HTTP 401 or 403 is
     /// AUTHENTICATION_FAILED. A rejection of HTTP 429 is RATE_LIMITED and
     /// carries Retry-After. Any other rejection is UPSTREAM_REJECTED.
+    /// A capturing callable may instead return Result; its detailed Error is
+    /// propagated unchanged. The bool checker form remains source-compatible.
+    template<typename CheckResponse>
     static Result run_update(UpdateContext& context, std::string_view driver_name, const HttpRequest& request,
-                             bool (*check_response)(const HttpResponse&, const Services&),
+                             CheckResponse&& check_response,
                              const std::source_location& location = std::source_location::current()) {
         const auto& params = context.request();
         const auto file = location.file_name();
         const auto line = static_cast<int32_t>(location.line());
         const auto function = location.function_name();
 
-        detail::log_message(detail::to_services(context), YADDNSC_LOG_DEBUG, file, line, function,
-                            "Domain \"{}\" ({}) received DNS record update request from driver '{}', {}", params.fqdn,
-                            params.record_type, driver_name, format_request(request));
+        detail::log_lazy([&] { return context.services(); },
+                         [&](const auto* services) {
+                             detail::log_message(
+                                 services, YADDNSC_LOG_DEBUG, file, line, function,
+                                 "Domain \"{}\" ({}) received DNS record update request from driver '{}', {}",
+                                 params.fqdn, params.record_type, driver_name, format_request(request));
+                         });
 
         auto response = context.exchange(request);
         if (!response) {
@@ -641,7 +678,11 @@ protected:
                 Error{response.error().status, response.error().message, response.error().retry_after_seconds});
         }
 
-        if (!check_response(*response, context.services())) {
+        auto checked = std::invoke(std::forward<CheckResponse>(check_response), *response, context.services());
+        if (!checked) {
+            if constexpr (std::same_as<decltype(checked), Result>) {
+                return checked;  // Preserve the checker's detailed parse/provider error.
+            }
             const auto failure = detail::classify_upstream_failure(*response);
             detail::log_message(detail::to_services(context), YADDNSC_LOG_WARN, file, line, function,
                                 "Domain \"{}\" ({}) update rejected by upstream", params.fqdn, params.record_type);
@@ -660,12 +701,13 @@ protected:
 namespace detail {
 
 struct DriverInstance {
-    std::unique_ptr<Driver> driver;
+    // Driver destruction may log through injected Services; destroy it first.
     yaddnsc_host_services services{};
     std::string error_storage;
+    std::unique_ptr<Driver> driver;
 };
 
-template<typename DriverClass>
+template<typename DriverClass, uint16_t RequiredMinor = 0>
 inline yaddnsc_status create_driver(const yaddnsc_host_services* services, yaddnsc_driver** out_driver,
                                     yaddnsc_error* out_error) noexcept {
     if (services == nullptr || out_driver == nullptr) {
@@ -674,8 +716,7 @@ inline yaddnsc_status create_driver(const yaddnsc_host_services* services, yaddn
     }
     *out_driver = nullptr;
     if (services->struct_size < YADDNSC_ABI_VERSION_PREFIX_SIZE ||
-        !yaddnsc_abi_provides(services->abi_major, services->abi_minor, YADDNSC_DRIVER_ABI_MAJOR,
-                              YADDNSC_DRIVER_ABI_MINOR) ||
+        !yaddnsc_abi_provides(services->abi_major, services->abi_minor, YADDNSC_DRIVER_ABI_MAJOR, RequiredMinor) ||
         services->struct_size < YADDNSC_HOST_SERVICES_MIN_SIZE || services->context == nullptr ||
         services->log == nullptr || services->http_exchange == nullptr || services->is_cancelled == nullptr) {
         write_error(out_error, YADDNSC_STATUS_INVALID_ARGUMENT, "incompatible host services table", 0);
@@ -688,8 +729,12 @@ inline yaddnsc_status create_driver(const yaddnsc_host_services* services, yaddn
     std::string_view reported;
     try {
         auto instance = std::make_unique<DriverInstance>();
-        instance->services = *services;
-        instance->driver = std::make_unique<DriverClass>();
+        instance->services = copy_services(*services);
+        if constexpr (std::is_constructible_v<DriverClass, Services>) {
+            instance->driver = std::make_unique<DriverClass>(Services{&instance->services});
+        } else {
+            instance->driver = std::make_unique<DriverClass>();
+        }
         *out_driver = reinterpret_cast<yaddnsc_driver*>(instance.release());  // NOLINT
         return YADDNSC_STATUS_OK;
     } catch (const std::exception& e) {
@@ -754,8 +799,7 @@ inline yaddnsc_status update_driver(yaddnsc_driver* driver, const yaddnsc_update
                     0);
         return YADDNSC_STATUS_INTERNAL_ERROR;
     } catch (...) {
-        write_error(out_error, YADDNSC_STATUS_INTERNAL_ERROR, copy_bounded({}, "unknown exception during update"),
-                    0);
+        write_error(out_error, YADDNSC_STATUS_INTERNAL_ERROR, copy_bounded({}, "unknown exception during update"), 0);
         return YADDNSC_STATUS_INTERNAL_ERROR;
     }
 }
@@ -797,8 +841,7 @@ inline yaddnsc_status validate_driver(yaddnsc_driver* driver, yaddnsc_string dri
                     copy_bounded(e.what(), "unknown exception during validate"), 0);
         return YADDNSC_STATUS_INTERNAL_ERROR;
     } catch (...) {
-        write_error(out_error, YADDNSC_STATUS_INTERNAL_ERROR, copy_bounded({}, "unknown exception during validate"),
-                    0);
+        write_error(out_error, YADDNSC_STATUS_INTERNAL_ERROR, copy_bounded({}, "unknown exception during validate"), 0);
         return YADDNSC_STATUS_INTERNAL_ERROR;
     }
 }
@@ -809,21 +852,20 @@ inline yaddnsc_status validate_driver(yaddnsc_driver* driver, yaddnsc_string dri
 
 /* ── Logging macros ───────────────────────────────────────────────────────*/
 
-#define YADDNSC_SDK_LOG_TRACE(svc, ...)                                                                        \
-    ::yaddnsc::sdk::detail::log_message(::yaddnsc::sdk::detail::to_services(svc), YADDNSC_LOG_TRACE, __FILE__, \
-                                        __LINE__, __FUNCTION__, __VA_ARGS__)
-#define YADDNSC_SDK_LOG_DEBUG(svc, ...)                                                                        \
-    ::yaddnsc::sdk::detail::log_message(::yaddnsc::sdk::detail::to_services(svc), YADDNSC_LOG_DEBUG, __FILE__, \
-                                        __LINE__, __FUNCTION__, __VA_ARGS__)
-#define YADDNSC_SDK_LOG_INFO(svc, ...)                                                                        \
-    ::yaddnsc::sdk::detail::log_message(::yaddnsc::sdk::detail::to_services(svc), YADDNSC_LOG_INFO, __FILE__, \
-                                        __LINE__, __FUNCTION__, __VA_ARGS__)
-#define YADDNSC_SDK_LOG_WARN(svc, ...)                                                                        \
-    ::yaddnsc::sdk::detail::log_message(::yaddnsc::sdk::detail::to_services(svc), YADDNSC_LOG_WARN, __FILE__, \
-                                        __LINE__, __FUNCTION__, __VA_ARGS__)
-#define YADDNSC_SDK_LOG_ERROR(svc, ...)                                                                        \
-    ::yaddnsc::sdk::detail::log_message(::yaddnsc::sdk::detail::to_services(svc), YADDNSC_LOG_ERROR, __FILE__, \
-                                        __LINE__, __FUNCTION__, __VA_ARGS__)
+#define YADDNSC_SDK_LOG(svc, level, ...)                                                                             \
+    [&](const char* yaddnsc_log_function) {                                                                          \
+        ::yaddnsc::sdk::detail::log_lazy([&]() { return ::yaddnsc::sdk::detail::to_services(svc); },                 \
+                                         [&](const yaddnsc_host_services* yaddnsc_log_services) {                    \
+                                             ::yaddnsc::sdk::detail::log_message(yaddnsc_log_services, level,        \
+                                                                                 __FILE__, __LINE__,                 \
+                                                                                 yaddnsc_log_function, __VA_ARGS__); \
+                                         });                                                                         \
+    }(__FUNCTION__)
+#define YADDNSC_SDK_LOG_TRACE(svc, ...) YADDNSC_SDK_LOG(svc, YADDNSC_LOG_TRACE, __VA_ARGS__)
+#define YADDNSC_SDK_LOG_DEBUG(svc, ...) YADDNSC_SDK_LOG(svc, YADDNSC_LOG_DEBUG, __VA_ARGS__)
+#define YADDNSC_SDK_LOG_INFO(svc, ...) YADDNSC_SDK_LOG(svc, YADDNSC_LOG_INFO, __VA_ARGS__)
+#define YADDNSC_SDK_LOG_WARN(svc, ...) YADDNSC_SDK_LOG(svc, YADDNSC_LOG_WARN, __VA_ARGS__)
+#define YADDNSC_SDK_LOG_ERROR(svc, ...) YADDNSC_SDK_LOG(svc, YADDNSC_LOG_ERROR, __VA_ARGS__)
 
 /* ── Driver definition macro ──────────────────────────────────────────────*/
 
@@ -834,50 +876,51 @@ inline yaddnsc_status validate_driver(yaddnsc_driver* driver, yaddnsc_string dri
 /// @code{.cpp}
 ///   class MyDriver final : public yaddnsc::sdk::Driver { ... };
 ///   YADDNSC_DEFINE_DRIVER(MyDriver, "my_driver", "description", "Author",
-///                         "1.0.0", YADDNSC_DRIVER_CAPABILITY_A | YADDNSC_DRIVER_CAPABILITY_AAAA)
+///                         "1.0.0", YADDNSC_DRIVER_CAPABILITY_A | YADDNSC_DRIVER_CAPABILITY_AAAA, 0)
 /// @endcode
-#define YADDNSC_DEFINE_DRIVER(DriverClass, driver_name, driver_description, driver_author, driver_version, \
-                              driver_capabilities)                                                         \
-    namespace {                                                                                            \
-    constexpr yaddnsc_driver_descriptor YADDNSC_SDK_DESCRIPTOR = {                                         \
-        .struct_size = sizeof(yaddnsc_driver_descriptor),                                                  \
-        .abi_major = YADDNSC_DRIVER_ABI_MAJOR,                                                             \
-        .abi_minor = YADDNSC_DRIVER_ABI_MINOR,                                                             \
-        .magic = YADDNSC_DRIVER_MAGIC,                                                                     \
-        .name = {driver_name, sizeof(driver_name) - 1},                                                    \
-        .version = {driver_version, sizeof(driver_version) - 1},                                           \
-        .author = {driver_author, sizeof(driver_author) - 1},                                              \
-        .description = {driver_description, sizeof(driver_description) - 1},                               \
-        .capabilities = (driver_capabilities),                                                             \
-    };                                                                                                     \
-    }                                                                                                      \
-                                                                                                           \
-    extern "C" YADDNSC_SDK_EXPORT yaddnsc_status yaddnsc_driver_get_descriptor(                            \
-        const yaddnsc_driver_descriptor** out_descriptor) {                                                \
-        if (out_descriptor == nullptr) {                                                                   \
-            return YADDNSC_STATUS_INVALID_ARGUMENT;                                                        \
-        }                                                                                                  \
-        *out_descriptor = &YADDNSC_SDK_DESCRIPTOR;                                                         \
-        return YADDNSC_STATUS_OK;                                                                          \
-    }                                                                                                      \
-                                                                                                           \
-    extern "C" YADDNSC_SDK_EXPORT yaddnsc_status yaddnsc_driver_create(                                    \
-        const yaddnsc_host_services* services, yaddnsc_driver** out_driver, yaddnsc_error* out_error) {    \
-        return ::yaddnsc::sdk::detail::create_driver<DriverClass>(services, out_driver, out_error);        \
-    }                                                                                                      \
-                                                                                                           \
-    extern "C" YADDNSC_SDK_EXPORT void yaddnsc_driver_destroy(yaddnsc_driver* driver) {                    \
-        ::yaddnsc::sdk::detail::destroy_driver(driver);                                                    \
-    }                                                                                                      \
-                                                                                                           \
-    extern "C" YADDNSC_SDK_EXPORT yaddnsc_status yaddnsc_driver_update(                                    \
-        yaddnsc_driver* driver, const yaddnsc_update_request* request, yaddnsc_error* out_error) {         \
-        return ::yaddnsc::sdk::detail::update_driver(driver, request, out_error);                          \
-    }                                                                                                      \
-                                                                                                           \
-    extern "C" YADDNSC_SDK_EXPORT yaddnsc_status yaddnsc_driver_validate(                                  \
-        yaddnsc_driver* driver, yaddnsc_string driver_param_json, yaddnsc_error* out_error) {              \
-        return ::yaddnsc::sdk::detail::validate_driver(driver, driver_param_json, out_error);              \
+#define YADDNSC_DEFINE_DRIVER(DriverClass, driver_name, driver_description, driver_author, driver_version,             \
+                              driver_capabilities, minimum_abi_minor)                                                  \
+    namespace {                                                                                                        \
+    static_assert((minimum_abi_minor) >= 0 && (minimum_abi_minor) <= YADDNSC_DRIVER_ABI_MINOR);                        \
+    constexpr yaddnsc_driver_descriptor YADDNSC_SDK_DESCRIPTOR = {                                                     \
+        .struct_size = sizeof(yaddnsc_driver_descriptor),                                                              \
+        .abi_major = YADDNSC_DRIVER_ABI_MAJOR,                                                                         \
+        .abi_minor = (minimum_abi_minor),                                                                              \
+        .magic = YADDNSC_DRIVER_MAGIC,                                                                                 \
+        .name = ::yaddnsc::sdk::detail::descriptor_string(driver_name),                                                \
+        .version = ::yaddnsc::sdk::detail::descriptor_string(driver_version),                                          \
+        .author = ::yaddnsc::sdk::detail::descriptor_string(driver_author),                                            \
+        .description = ::yaddnsc::sdk::detail::descriptor_string(driver_description),                                  \
+        .capabilities = (driver_capabilities),                                                                         \
+    };                                                                                                                 \
+    }                                                                                                                  \
+                                                                                                                       \
+    extern "C" YADDNSC_SDK_EXPORT yaddnsc_status yaddnsc_driver_get_descriptor(                                        \
+        const yaddnsc_driver_descriptor** out_descriptor) {                                                            \
+        if (out_descriptor == nullptr) {                                                                               \
+            return YADDNSC_STATUS_INVALID_ARGUMENT;                                                                    \
+        }                                                                                                              \
+        *out_descriptor = &YADDNSC_SDK_DESCRIPTOR;                                                                     \
+        return YADDNSC_STATUS_OK;                                                                                      \
+    }                                                                                                                  \
+                                                                                                                       \
+    extern "C" YADDNSC_SDK_EXPORT yaddnsc_status yaddnsc_driver_create(                                                \
+        const yaddnsc_host_services* services, yaddnsc_driver** out_driver, yaddnsc_error* out_error) {                \
+        return ::yaddnsc::sdk::detail::create_driver<DriverClass, minimum_abi_minor>(services, out_driver, out_error); \
+    }                                                                                                                  \
+                                                                                                                       \
+    extern "C" YADDNSC_SDK_EXPORT void yaddnsc_driver_destroy(yaddnsc_driver* driver) {                                \
+        ::yaddnsc::sdk::detail::destroy_driver(driver);                                                                \
+    }                                                                                                                  \
+                                                                                                                       \
+    extern "C" YADDNSC_SDK_EXPORT yaddnsc_status yaddnsc_driver_update(                                                \
+        yaddnsc_driver* driver, const yaddnsc_update_request* request, yaddnsc_error* out_error) {                     \
+        return ::yaddnsc::sdk::detail::update_driver(driver, request, out_error);                                      \
+    }                                                                                                                  \
+                                                                                                                       \
+    extern "C" YADDNSC_SDK_EXPORT yaddnsc_status yaddnsc_driver_validate(                                              \
+        yaddnsc_driver* driver, yaddnsc_string driver_param_json, yaddnsc_error* out_error) {                          \
+        return ::yaddnsc::sdk::detail::validate_driver(driver, driver_param_json, out_error);                          \
     }
 
 #endif  // YADDNSC_SDK_DRIVER_HPP

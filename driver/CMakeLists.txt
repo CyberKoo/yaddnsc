@@ -20,7 +20,8 @@ foreach (DRIVER_NAME ${YADDNSC_DRIVERS})
 
       # Output filename is <name>.so (no lib prefix) so the driver loader can
       # find it by just <name>.  The CMake target is also named <name>.
-      set_target_properties(${DRIVER_NAME} PROPERTIES PREFIX "" OUTPUT_NAME "${DRIVER_NAME}")
+      set_target_properties(${DRIVER_NAME} PROPERTIES PREFIX "" OUTPUT_NAME "${DRIVER_NAME}"
+          CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN YES)
 
       # -----------------------------------------------------------------------
       # Drivers are self-contained plugins: they link only the SDK (per-driver
@@ -28,7 +29,7 @@ foreach (DRIVER_NAME ${YADDNSC_DRIVERS})
       # -----------------------------------------------------------------------
 
       # Driver-specific extra compile options
-      target_compile_options(${DRIVER_NAME} PRIVATE -Wnon-virtual-dtor)
+      target_compile_options(${DRIVER_NAME} PRIVATE -Wall -Wextra -Wpedantic -Werror -Wnon-virtual-dtor)
 
       # Sanitizer instrumentation (must match the main executable's flags)
       add_sanitizer_flags(${DRIVER_NAME})

@@ -8,12 +8,12 @@
 
 /// DNSPod API driver configuration parameters.
 struct DnsPodParams {
-    std::string domain_id;                   ///< DNSPod domain ID
-    std::string record_id;                   ///< DNS record ID to update
-    std::string login_token;                 ///< DNSPod API login token
-    std::optional<std::string> record_line;  ///< Record line (e.g. "默认", "电信")
-    std::string record_line_id{"0"};         ///< Record line ID (default: "0")
-    bool global{false};                      ///< Whether the record is global (load balancing)
+    std::string domain_id;                           ///< DNSPod domain ID
+    std::string record_id;                           ///< DNS record ID to update
+    std::string login_token;                         ///< DNSPod API login token
+    std::optional<std::string> record_line;          ///< Record line (e.g. "默认", "电信")
+    std::optional<std::string> record_line_id{"0"};  ///< Record line ID (default: "0")
+    std::optional<bool> global{false};               ///< Whether the record is global (load balancing)
 };
 
 template<>

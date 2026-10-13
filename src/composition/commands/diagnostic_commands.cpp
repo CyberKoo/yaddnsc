@@ -134,7 +134,7 @@ int execute_command(const Cli::ConfigTestCommand& command) {
         // The coroutine gateway needs a loop and a bridge group, so the check
         // runs in a one-shot loop whose group owns the bridge coroutines.
         const SpdlogLogger logger;
-        // validate_config runs with make_services(false), so the plugin cannot
+        // validate_config runs in the VALIDATE phase, so the plugin cannot
         // reach http_exchange here and no TLS context is needed.
         const auto http_options = internal::make_coro_http_options(config.resolver, nullptr);
         coro::Loop loop;

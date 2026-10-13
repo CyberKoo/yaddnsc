@@ -45,19 +45,30 @@ struct glz::meta<GoDaddyRecordBody> {
 };
 
 YADDNSC_DEFINE_DRIVER(GoDaddyDriver, "godaddy", "Updates DNS records via the GoDaddy API", "Kotarou", "1.0.0",
-                      YADDNSC_DRIVER_CAPABILITY_A | YADDNSC_DRIVER_CAPABILITY_AAAA)
+                      YADDNSC_DRIVER_CAPABILITY_A | YADDNSC_DRIVER_CAPABILITY_AAAA, 0)
+
+GoDaddyParams GoDaddyDriver::parse_params(std::string_view json) {
+    auto cfg = parse_config<GoDaddyParams>(json);
+    if (cfg.key.empty()) {
+        throw yaddnsc::sdk::ConfigParseError("Required parameter 'key' must not be empty");
+    }
+    if (cfg.secret.empty()) {
+        throw yaddnsc::sdk::ConfigParseError("Required parameter 'secret' must not be empty");
+    }
+    if (cfg.ttl && *cfg.ttl < 0) {
+        throw yaddnsc::sdk::ConfigParseError("Parameter 'ttl' must not be negative");
+    }
+    return cfg;
+}
 
 Result GoDaddyDriver::validate(std::string_view driver_param_json) const {
-    // Reuses the update-time schema: parse_config throws ConfigParseError on
-    // missing keys or malformed values, which the ABI entry maps to
-    // YADDNSC_STATUS_INVALID_CONFIG.
-    [[maybe_unused]] const auto cfg = parse_config<GoDaddyParams>(driver_param_json);
+    [[maybe_unused]] const auto cfg = parse_params(driver_param_json);
     return {};
 }
 
 Result GoDaddyDriver::update(UpdateContext& context) {
     const auto& params = context.request();
-    const auto cfg = parse_config<GoDaddyParams>(params.driver_param_json);
+    const auto cfg = parse_params(params.driver_param_json);
 
     HttpRequest request{};
     request.url = fmt::format(API_URL, fmt::arg("DOMAIN", params.domain), fmt::arg("TYPE", params.record_type),

@@ -5,6 +5,8 @@
 
 #include <yaddnsc/sdk/driver.hpp>
 
+struct VultrParams;
+
 /// Vultr API v2 driver for DNS record updates.
 ///
 /// Implements the Vultr DNS API for updating A and AAAA records
@@ -23,6 +25,9 @@ public:
     [[nodiscard]] yaddnsc::sdk::Result validate(std::string_view driver_param_json) const override;
 
 private:
+    /// Shared schema and semantic validation for validate/update.
+    [[nodiscard]] static VultrParams parse_params(std::string_view json);
+
     /// Validate the Vultr API response.
     [[nodiscard]] static bool check_response(const yaddnsc::sdk::HttpResponse& response,
                                              const yaddnsc::sdk::Services& services);

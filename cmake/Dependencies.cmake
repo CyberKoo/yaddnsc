@@ -14,11 +14,12 @@ find_package(OpenSSL 3.0 REQUIRED)
 # tree's CPM cache.
 # Glaze installs under its own "glaze_Development" component, which
 # Packaging.cmake folds into the yaddnsc-dev package via component grouping.
+set(YADDNSC_GLAZE_VERSION "7.8.2")
 set(glaze_INSTALL ON CACHE BOOL "Install Glaze package metadata for the yaddnsc SDK" FORCE)
 CPMAddPackage(
     NAME glaze
     GITHUB_REPOSITORY stephenberry/glaze
-    GIT_TAG v7.8.2
+    GIT_TAG v${YADDNSC_GLAZE_VERSION}
     EXCLUDE_FROM_ALL NO
     SYSTEM YES
     OPTIONS "glaze_INSTALL ON"

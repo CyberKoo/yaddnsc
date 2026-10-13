@@ -11,8 +11,11 @@
 
 #include <algorithm>
 #include <cctype>
+#include <optional>
 #include <string>
 #include <string_view>
+
+#include <glaze/glaze.hpp>
 
 namespace yaddnsc::sdk::redact {
 
@@ -44,6 +47,8 @@ namespace yaddnsc::sdk::redact {
         "token",
         "api_key",
         "apikey",
+        "secretapikey",
+        "key",
         "auth",
         "secret",
         "client_secret",
@@ -87,89 +92,122 @@ namespace yaddnsc::sdk::redact {
     return prev == '&' || prev == ',' || prev == ' ' || prev == '\n' || prev == '\r';
 }
 
-/// Redact the values of sensitive parameters in a body or query string.
-///
-/// Handles both form-encoding ("key=value&...") and JSON
-/// ("\"key\": value") shapes with a single scan. Non-sensitive keys
-/// and values are preserved verbatim. This is a best-effort textual
-/// redaction for logging purposes only — it is not a parser.
-[[nodiscard]] inline std::string redact_body(std::string_view body) {
+namespace detail {
+
+inline void redact_json(glz::generic& value) {
+    if (value.is_object()) {
+        for (auto& [key, child] : value.get_object()) {
+            if (is_sensitive_param(key)) {
+                child = std::string("***");
+            } else {
+                redact_json(child);
+            }
+        }
+    } else if (value.is_array()) {
+        for (auto& child : value.get_array()) {
+            redact_json(child);
+        }
+    }
+}
+
+[[nodiscard]] inline int hex_digit(char c) noexcept {
+    if (c >= '0' && c <= '9')
+        return c - '0';
+    if (c >= 'a' && c <= 'f')
+        return c - 'a' + 10;
+    if (c >= 'A' && c <= 'F')
+        return c - 'A' + 10;
+    return -1;
+}
+
+[[nodiscard]] inline std::optional<std::string> decode_key(std::string_view key) {
+    std::string decoded;
+    for (std::size_t i = 0; i < key.size(); ++i) {
+        char c = key[i];
+        if (c == '%') {
+            if (i + 2 >= key.size())
+                return std::nullopt;
+            const int high = hex_digit(key[i + 1]);
+            const int low = hex_digit(key[i + 2]);
+            if (high < 0 || low < 0)
+                return std::nullopt;
+            c = static_cast<char>(high * 16 + low);
+            i += 2;
+        } else if (c == '+') {
+            c = ' ';
+        }
+        if (!is_key_char(c))
+            return std::nullopt;
+        decoded += c;
+    }
+    if (decoded.empty())
+        return std::nullopt;
+    return decoded;
+}
+
+}  // namespace detail
+
+/// Parse form/query pairs using '&' as the only separator. Commas, quotes,
+/// braces and newlines belong to a value, including a secret value.
+/// Percent-encoded keys are decoded before classification. Malformed keys
+/// or pairs hide the whole input; redaction never falls back to raw input.
+[[nodiscard]] inline std::string redact_form(std::string_view body) {
     std::string result;
-    result.reserve(body.size());
-
-    const auto value_end = [&body](std::size_t start) {
-        std::size_t pos = start;
-        while (pos < body.size() && body[pos] != '&' && body[pos] != ',' && body[pos] != '}' && body[pos] != '\n' &&
-               body[pos] != '\r') {
-            ++pos;
-        }
-        return pos;
-    };
-
-    std::size_t pos = 0;
-    while (pos < body.size()) {
-        // ── JSON shape: '"key"' followed by ':' ──
-        if (body[pos] == '"') {
-            const auto key_end = body.find('"', pos + 1);
-            if (key_end == std::string_view::npos) {
-                result.append(body.substr(pos));
-                break;
-            }
-            std::size_t colon = key_end + 1;
-            while (colon < body.size() && (body[colon] == ' ' || body[colon] == '\t')) {
-                ++colon;
-            }
-            if (colon < body.size() && body[colon] == ':') {
-                const auto key = body.substr(pos + 1, key_end - pos - 1);
-                if (is_sensitive_param(key)) {
-                    // Copy '"key":' + whitespace, then replace the value.
-                    std::size_t val_start = colon + 1;
-                    while (val_start < body.size() && (body[val_start] == ' ' || body[val_start] == '\t')) {
-                        ++val_start;
-                    }
-                    result.append(body.substr(pos, val_start - pos));
-                    result.append("***");
-                    pos = value_end(val_start);
-                    continue;
-                }
-            }
-            result.append(body.substr(pos, key_end + 1 - pos));
-            pos = key_end + 1;
-            continue;
-        }
-
-        // ── Form shape: 'key=' at a key position ──
-        if (is_key_position(body, pos)) {
-            std::size_t k = pos;
-            while (k < body.size() && is_key_char(body[k])) {
-                ++k;
-            }
-            if (k < body.size() && body[k] == '=') {
-                const auto key = body.substr(pos, k - pos);
-                if (is_sensitive_param(key)) {
-                    const auto val_start = k + 1;
-                    result.append(body.substr(pos, val_start - pos));  // "key="
-                    result.append("***");
-                    pos = value_end(val_start);
-                    continue;
-                }
-            }
-        }
-
-        result += body[pos];
-        ++pos;
+    while (!body.empty()) {
+        const auto end = body.find('&');
+        const auto pair = body.substr(0, end);
+        const auto equals = pair.find('=');
+        if (equals == std::string_view::npos)
+            return "***";
+        const auto key = detail::decode_key(pair.substr(0, equals));
+        if (!key)
+            return "***";
+        result.append(pair.substr(0, equals + 1));
+        result.append(is_sensitive_param(*key) ? "***" : pair.substr(equals + 1));
+        if (end == std::string_view::npos)
+            break;
+        result += '&';
+        body.remove_prefix(end + 1);
     }
     return result;
 }
 
-/// Redact sensitive query parameters in a request path (e.g. DuckDNS
-/// carries the API token in the URL). Non-query paths pass through.
-[[nodiscard]] inline std::string redact_url_query(std::string_view path) {
-    const auto q = path.find('?');
-    if (q == std::string_view::npos) {
-        return std::string(path);
+/// Parse JSON before recursively redacting sensitive keys, including nested
+/// objects/arrays and escaped keys. Invalid or unrecognised content is hidden.
+/// Non-JSON input is accepted only as a form/query sequence of key=value pairs.
+/// JSON output is compact and may differ in whitespace/key order from input.
+[[nodiscard]] inline std::string redact_body(std::string_view body, std::string_view content_type = {}) {
+    if (body.empty())
+        return {};
+    const auto first = body.find_first_not_of(" \t\r\n");
+    if (first == std::string_view::npos)
+        return "***";
+    const auto media_type = to_lower(content_type.substr(0, content_type.find(';')));
+    const bool json = media_type == "application/json" || media_type.ends_with("+json");
+    if (json || (media_type.empty() && (body[first] == '{' || body[first] == '[' || body[first] == '"'))) {
+        glz::generic value;
+        if (glz::read<glz::opts_validate{}>(value, body))
+            return "***";
+        if (!value.is_object() && !value.is_array())
+            return "***";
+        detail::redact_json(value);
+        const auto result = glz::write_json(value);
+        return result ? *result : "***";
     }
-    return std::string(path.substr(0, q + 1)) + redact_body(path.substr(q + 1));
+    if (!media_type.empty() && media_type != "application/x-www-form-urlencoded")
+        return "***";
+    return redact_form(body);
+}
+
+/// Redact the query and hide fragments (never sent to the server). Invalid
+/// query syntax hides the whole query rather than exposing a credential.
+[[nodiscard]] inline std::string redact_url_query(std::string_view path) {
+    const auto fragment = path.find('#');
+    path = path.substr(0, fragment);
+    const auto q = path.find('?');
+    if (q == std::string_view::npos)
+        return std::string(path);
+    return std::string(path.substr(0, q + 1)) + redact_form(path.substr(q + 1));
 }
 
 /// Maximum payload bytes one log line may carry. Bodies past this budget are

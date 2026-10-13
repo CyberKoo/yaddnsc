@@ -28,19 +28,33 @@ constexpr std::string_view DRIVER_NAME = "cloudflare";
 }  // namespace
 
 YADDNSC_DEFINE_DRIVER(CloudflareDriver, "cloudflare", "Updates DNS records via the Cloudflare API", "Kotarou", "2.0.0",
-                      YADDNSC_DRIVER_CAPABILITY_A | YADDNSC_DRIVER_CAPABILITY_AAAA)
+                      YADDNSC_DRIVER_CAPABILITY_A | YADDNSC_DRIVER_CAPABILITY_AAAA, 0)
+
+CloudflareParams CloudflareDriver::parse_params(std::string_view json) {
+    auto cfg = parse_config<CloudflareParams>(json);
+    if (cfg.zone_id.empty()) {
+        throw yaddnsc::sdk::ConfigParseError("Required parameter 'zone_id' must not be empty");
+    }
+    if (cfg.record_id.empty()) {
+        throw yaddnsc::sdk::ConfigParseError("Required parameter 'record_id' must not be empty");
+    }
+    if (cfg.token.empty()) {
+        throw yaddnsc::sdk::ConfigParseError("Required parameter 'token' must not be empty");
+    }
+    if (cfg.ttl && *cfg.ttl < 0) {
+        throw yaddnsc::sdk::ConfigParseError("Parameter 'ttl' must not be negative");
+    }
+    return cfg;
+}
 
 Result CloudflareDriver::validate(std::string_view driver_param_json) const {
-    // Reuses the update-time schema: parse_config throws ConfigParseError on
-    // missing keys or malformed values, which the ABI entry maps to
-    // YADDNSC_STATUS_INVALID_CONFIG.
-    [[maybe_unused]] const auto cfg = parse_config<CloudflareParams>(driver_param_json);
+    [[maybe_unused]] const auto cfg = parse_params(driver_param_json);
     return {};
 }
 
 Result CloudflareDriver::update(UpdateContext& context) {
     const auto& params = context.request();
-    const auto cfg = parse_config<CloudflareParams>(params.driver_param_json);
+    const auto cfg = parse_params(params.driver_param_json);
 
     HttpRequest request{};
     request.url = fmt::format(API_URL, fmt::arg("ZONE_ID", cfg.zone_id), fmt::arg("RECORD_ID", cfg.record_id));

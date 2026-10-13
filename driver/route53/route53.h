@@ -6,6 +6,8 @@
 
 #include <yaddnsc/sdk/driver.hpp>
 
+struct Route53Params;
+
 /// AWS Route 53 DNS driver for updating A and AAAA records.
 ///
 /// Implements the Route 53 ChangeResourceRecordSets API using AWS SigV4
@@ -29,6 +31,9 @@ public:
     [[nodiscard]] yaddnsc::sdk::Result validate(std::string_view driver_param_json) const override;
 
 private:
+    /// Shared schema and semantic validation for validate/update.
+    [[nodiscard]] static Route53Params parse_params(std::string_view json);
+
     /// Validate the Route 53 API response (XML with libxml2).
     [[nodiscard]] static bool check_response(const yaddnsc::sdk::HttpResponse& response,
                                              const yaddnsc::sdk::Services& services);

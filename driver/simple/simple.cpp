@@ -1,14 +1,16 @@
 #include "simple.h"
 
+#include <optional>  // IWYU pragma: keep — sdk::HttpRequest aggregate init needs its std::optional member complete; clangd sees no spelled use
+#include <string>
+#include <string_view>
+#include <unordered_map>
+#include <utility>
+#include <vector>  // IWYU pragma: keep — sdk::HttpRequest aggregate init needs its std::vector member complete; clangd sees no spelled use
+
 #include <yaddnsc/sdk/driver.hpp>
 #include <yaddnsc/sdk/driver_abi.h>
 #include <yaddnsc/sdk/format.hpp>
 #include <yaddnsc/sdk/string_util.hpp>
-#include <string>
-#include <string_view>
-#include <utility>
-#include <optional>  // IWYU pragma: keep — sdk::HttpRequest aggregate init needs its std::optional member complete; clangd sees no spelled use
-#include <vector>  // IWYU pragma: keep — sdk::HttpRequest aggregate init needs its std::vector member complete; clangd sees no spelled use
 
 namespace fmt = yaddnsc::sdk::fmt;
 namespace string_util = yaddnsc::sdk::string_util;
@@ -27,7 +29,7 @@ constexpr std::string_view DRIVER_NAME = "simple";
 }  // namespace
 
 YADDNSC_DEFINE_DRIVER(SimpleDriver, "simple", "Generic HTTP driver with URL template substitution", "Kotarou", "2.0.0",
-                      YADDNSC_DRIVER_CAPABILITY_A | YADDNSC_DRIVER_CAPABILITY_AAAA)
+                      YADDNSC_DRIVER_CAPABILITY_A | YADDNSC_DRIVER_CAPABILITY_AAAA, 0)
 
 Result SimpleDriver::update(UpdateContext& context) {
     const auto& params = context.request();
@@ -46,7 +48,7 @@ Result SimpleDriver::validate(std::string_view driver_param_json) const {
 
 glz::generic SimpleDriver::parse_driver_param(std::string_view driver_param_json) {
     auto full = parse_config<glz::generic>(driver_param_json);
-    if (!full.is_object() || !full.contains("url") || !full["url"].is_string()) {
+    if (!full.is_object() || !full.contains("url") || !full["url"].is_string() || full["url"].get_string().empty()) {
         throw yaddnsc::sdk::ConfigParseError(
             "Driver configuration parse error: Missing required parameter \"url\" in driver config");
     }
@@ -56,25 +58,18 @@ glz::generic SimpleDriver::parse_driver_param(std::string_view driver_param_json
 HttpRequest SimpleDriver::generate_request(const UpdateRequest& params) {
     auto full = parse_driver_param(params.driver_param_json);
     auto& obj = full.get_object();
-    auto url = obj["url"].get_string();
-
-    // Substitute all keys into the URL template: config params first, then context
-    const auto substitute = [&url](std::string_view key, std::string_view val) {
-        const auto target = fmt::format("{{{}}}", key);
-        string_util::replace_all(url, target, val);
-    };
-
+    std::unordered_map<std::string, std::string> values;
     for (auto& [key, val] : obj) {
-        if (key != "url" && val.is_string()) {
-            substitute(key, val.get_string());
-        }
+        if (key != "url" && val.is_string())
+            values[key] = val.get_string();
     }
-
-    substitute("ip_addr", params.ip_address);
-    substitute("rd_type", params.record_type);
-    substitute("domain", params.domain);
-    substitute("subdomain", params.subdomain);
-    substitute("fqdn", params.fqdn);
+    // Config parameters retain their existing precedence over context fields.
+    values.try_emplace("ip_addr", params.ip_address);
+    values.try_emplace("rd_type", params.record_type);
+    values.try_emplace("domain", params.domain);
+    values.try_emplace("subdomain", params.subdomain);
+    values.try_emplace("fqdn", params.fqdn);
+    auto url = fmt::format_named(obj["url"].get_string(), values);
 
     HttpRequest request{};
     request.url = std::move(url);

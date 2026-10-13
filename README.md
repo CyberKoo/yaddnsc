@@ -10,8 +10,10 @@
 > **Status:** pre-release — see [GitHub Releases](https://github.com/CyberKoo/yaddnsc/releases)
 > for the latest version. `master` tracks releases, `dev` accumulates changes
 > intended for the next one, and `v0.x` remains available for older toolchains.
-> The driver plugin ABI is v1, version 1.0, and **stable since 1.0**: a plugin
-> built against ABI 1.0 loads and runs on every host implementing ABI 1.x. A
+> The driver plugin ABI is v1, version 1.0, and **stable since the 1.0.0
+> release**: a plugin built against ABI 1.0 loads and runs on every host
+> implementing ABI 1.x. (The ABI was unfinalized through the 1.0.0-alpha
+> series; plugins built against alpha.1–alpha.4 must be recompiled.) A
 > plugin loads when its major matches and its minor is no higher than the
 > host's. A different major means the plugin was built for a different ABI
 > generation; a newer minor means the host is older than the plugin requires
@@ -269,29 +271,10 @@ rejected; `config` is only a command group.
 }
 ```
 
-### Breaking Configuration Changes
-
-The configuration format has changed incompatibly. Update existing configuration
-files before upgrading; the old keys are rejected as unknown fields, with no
-compatibility aliases or automatic migration.
-
-| Previous key | Migration |
-|---|---|
-| Top-level `driver` | Rename to `drivers`. Keep `domains[].driver` unchanged. |
-| `resolver.use_custom_server` | Rename to `resolver.use_custom_servers`. |
-| `domains[].subdomains[].driver_param` | Rename to `driver_params`; keep its contents unchanged. |
-| `resolver.address` or `resolver.ipaddress`, with `resolver.port` | Move the server into `resolver.servers`, for example `"servers": [{"address": "1.1.1.1", "port": 53}]`, and remove the direct fields. |
-| `domains[].subdomains[].ip_type` | Remove it. The record's `type` selects the address family: `a` uses IPv4 and `aaaa` uses IPv6. |
-| `"ip_source": "url"` | Spell it `"http"`; the legacy alias is rejected. |
-| `"type": "txt"` | Use `a` or `aaaa`; `txt` is rejected when the configuration is parsed. |
-
-The fields inside `resolver.servers[]` and the plugin SDK/ABI field
-`driver_param_json` are unchanged. After migration, validate the file before
-starting the client:
-
-```bash
-yaddnsc config test -c /etc/yaddnsc/config.json
-```
+The configuration format changed incompatibly during the 1.0.0 alpha series;
+see [CHANGELOG.md](CHANGELOG.md) for the migration tables. Validate a migrated
+file with `yaddnsc config test -c /etc/yaddnsc/config.json` before starting
+the client.
 
 ### Field Reference
 

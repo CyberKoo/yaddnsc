@@ -5,6 +5,8 @@
 
 #include <yaddnsc/sdk/driver.hpp>
 
+struct GoDaddyParams;
+
 /// GoDaddy API driver for DNS record updates.
 ///
 /// Implements the GoDaddy Domains API v1 for updating DNS records
@@ -23,6 +25,9 @@ public:
     [[nodiscard]] yaddnsc::sdk::Result validate(std::string_view driver_param_json) const override;
 
 private:
+    /// Shared schema and semantic validation for validate/update.
+    [[nodiscard]] static GoDaddyParams parse_params(std::string_view json);
+
     /// Validate the GoDaddy API response.
     [[nodiscard]] static bool check_response(const yaddnsc::sdk::HttpResponse& response,
                                              const yaddnsc::sdk::Services& services);

@@ -1,9 +1,5 @@
 #include "dnspod.h"
 
-#include <yaddnsc/sdk/driver.hpp>
-#include <yaddnsc/sdk/driver_abi.h>
-#include <yaddnsc/sdk/form_encode.hpp>
-#include <yaddnsc/sdk/format.hpp>
 #include <map>
 #include <optional>
 #include <string>
@@ -11,6 +7,11 @@
 #include <unordered_map>
 #include <utility>  // IWYU pragma: keep — ERROR_CODES' braced entries construct std::pair; clangd sees no spelled use
 #include <vector>  // IWYU pragma: keep — sdk::HttpRequest aggregate init needs its std::vector member complete; clangd sees no spelled use
+
+#include <yaddnsc/sdk/driver.hpp>
+#include <yaddnsc/sdk/driver_abi.h>
+#include <yaddnsc/sdk/form_encode.hpp>
+#include <yaddnsc/sdk/format.hpp>
 
 #include "config.hpp"
 #include "response.hpp"
@@ -59,19 +60,36 @@ const std::unordered_map<std::string_view, std::string_view> ERROR_CODES = {
 }  // namespace
 
 YADDNSC_DEFINE_DRIVER(DnsPodDriver, "dnspod", "Updates DNS records via the DNSPod API", "Kotarou", "2.0.0",
-                      YADDNSC_DRIVER_CAPABILITY_A | YADDNSC_DRIVER_CAPABILITY_AAAA)
+                      YADDNSC_DRIVER_CAPABILITY_A | YADDNSC_DRIVER_CAPABILITY_AAAA, 0)
+
+DnsPodParams DnsPodDriver::parse_params(std::string_view json) {
+    auto cfg = parse_config<DnsPodParams>(json);
+    if (cfg.domain_id.empty()) {
+        throw yaddnsc::sdk::ConfigParseError("Required parameter 'domain_id' must not be empty");
+    }
+    if (cfg.record_id.empty()) {
+        throw yaddnsc::sdk::ConfigParseError("Required parameter 'record_id' must not be empty");
+    }
+    if (cfg.login_token.empty()) {
+        throw yaddnsc::sdk::ConfigParseError("Required parameter 'login_token' must not be empty");
+    }
+    if (cfg.record_line && cfg.record_line->empty()) {
+        throw yaddnsc::sdk::ConfigParseError("Parameter 'record_line' must not be empty when provided");
+    }
+    if (cfg.record_line_id && cfg.record_line_id->empty()) {
+        throw yaddnsc::sdk::ConfigParseError("Parameter 'record_line_id' must not be empty when provided");
+    }
+    return cfg;
+}
 
 Result DnsPodDriver::validate(std::string_view driver_param_json) const {
-    // Reuses the update-time schema: parse_config throws ConfigParseError on
-    // missing keys or malformed values, which the ABI entry maps to
-    // YADDNSC_STATUS_INVALID_CONFIG.
-    [[maybe_unused]] const auto cfg = parse_config<DnsPodParams>(driver_param_json);
+    [[maybe_unused]] const auto cfg = parse_params(driver_param_json);
     return {};
 }
 
 Result DnsPodDriver::update(UpdateContext& context) {
     const auto& params = context.request();
-    const auto cfg = parse_config<DnsPodParams>(params.driver_param_json);
+    const auto cfg = parse_params(params.driver_param_json);
 
     auto request = generate_request(cfg, params);
 
@@ -80,10 +98,10 @@ Result DnsPodDriver::update(UpdateContext& context) {
 
 HttpRequest DnsPodDriver::generate_request(const DnsPodParams& cfg, const UpdateRequest& params) {
     // record_line: optional, with dynamic default based on global flag
-    auto record_line = cfg.record_line.value_or(cfg.global ? "default" : "默认");
+    auto record_line = cfg.record_line.value_or(cfg.global.value_or(false) ? "default" : "默认");
 
     HttpRequest request{};
-    request.url = std::string(cfg.global ? API_URL_GLOBAL : API_URL_CN);
+    request.url = std::string(cfg.global.value_or(false) ? API_URL_GLOBAL : API_URL_CN);
     request.body = yaddnsc::sdk::encode_form({{"login_token", cfg.login_token},
                                               {"domain_id", cfg.domain_id},
                                               {"record_id", cfg.record_id},
@@ -91,7 +109,7 @@ HttpRequest DnsPodDriver::generate_request(const DnsPodParams& cfg, const Update
                                               {"record_type", std::string(params.record_type)},
                                               {"value", std::string(params.ip_address)},
                                               {"record_line", record_line},
-                                              {"record_line_id", cfg.record_line_id},
+                                              {"record_line_id", cfg.record_line_id.value_or("0")},
                                               {"format", "json"}});
     request.content_type = "application/x-www-form-urlencoded";
     request.method = Method::POST;

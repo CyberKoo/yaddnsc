@@ -54,8 +54,8 @@ set(CPACK_PACKAGING_INSTALL_PREFIX "/usr")
 # ---------------------------------------------------------------------------
 # Components — the install tree splits into two DEB packages:
 #   runtime → yaddnsc      (binary, drivers, config, systemd unit, completions)
-#   devel   → yaddnsc-dev  (plugin SDK headers, CMake package config, static
-#                           plugin support library, bundled Glaze metadata)
+#   devel   → yaddnsc-dev  (plugin SDK headers, CMake package config, header-only
+#                           plugin support helpers, bundled Glaze metadata)
 # "devel" is a component GROUP (the name must not clash with a component):
 # Glaze's own install rules hardcode their "glaze_Development" component, so
 # it joins the project's "dev" component in the same package via grouping
@@ -68,13 +68,12 @@ set(CPACK_COMPONENTS_ALL runtime dev glaze_Development)
 set(CPACK_COMPONENT_RUNTIME_DISPLAY_NAME "yaddnsc runtime")
 set(CPACK_COMPONENT_DEV_DISPLAY_NAME "yaddnsc plugin development files")
 set(CPACK_COMPONENT_DEV_GROUP devel)
-set(CPACK_COMPONENT_DEV_DEPENDS runtime)
 set(CPACK_COMPONENT_GLAZE_DEVELOPMENT_GROUP devel)
 set(CPACK_COMPONENT_GLAZE_DEVELOPMENT_HIDDEN ON)
 
 set(CPACK_DEBIAN_DEVEL_DESCRIPTION
         "Plugin development files for yaddnsc — C++ SDK headers, CMake package \
-configuration, and the plugin crypto support library.")
+configuration, and header-only plugin crypto helpers.")
 
 # ---------------------------------------------------------------------------
 # DEB-specific settings
@@ -115,9 +114,8 @@ set(CPACK_DEBIAN_RUNTIME_PACKAGE_CONTROL_EXTRA
 set(CPACK_DEBIAN_DEVEL_PACKAGE_NAME "yaddnsc-dev")
 set(CPACK_DEBIAN_DEVEL_PACKAGE_SECTION "libdevel")
 
-# Exact-version dependency on the matching runtime package.  The crypto SDK
-# calls find_dependency(OpenSSL 3.0), so pull in libssl-dev as well.
-set(CPACK_DEBIAN_DEVEL_PACKAGE_DEPENDS "yaddnsc (= ${PACKAGE_VERSION}), libssl-dev")
+# SDK-only build machines do not need the host runtime. Crypto requires OpenSSL 3.
+set(CPACK_DEBIAN_DEVEL_PACKAGE_DEPENDS "libssl-dev (>= 3.0)")
 if (YADDNSC_HAS_SDK_XML_COMPONENT)
     # The plugin_sdk_xml component calls find_dependency(LibXml2).
     string(APPEND CPACK_DEBIAN_DEVEL_PACKAGE_DEPENDS ", libxml2-dev")

@@ -266,6 +266,7 @@ protected:
         bridge_ = make_closed_bridge(loop_);
         state_ = std::make_shared<plugin::CallState>();
         context_ = std::make_unique<plugin::HostServicesContext>(*bridge_, logger_, state_);
+        context_->set_phase(plugin::HostServicesContext::Phase::UPDATE);
     }
 
     coro::Loop loop_;
@@ -367,8 +368,9 @@ TEST_F(HostServicesTest, Log_LoggerDefect_DoesNotEscapeIntoThePluginFrame) {
 //  http_exchange — the unavailable table
 // ===========================================================================
 
-TEST_F(HostServicesTest, Exchange_WhenHttpDisabled_RejectsWithoutTouchingTheBridge) {
-    const auto services = context_->make_services(false);
+TEST_F(HostServicesTest, Exchange_DuringValidatePhase_RejectsWithoutTouchingTheBridge) {
+    context_->set_phase(plugin::HostServicesContext::Phase::VALIDATE);
+    const auto services = context_->make_services();
     const auto request = valid_request();
     auto response = sized_response();
     auto error = sized_error();
@@ -390,7 +392,7 @@ TEST_F(HostServicesTest, Exchange_WhenHttpDisabled_RejectsWithoutTouchingTheBrid
 TEST_F(HostServicesTest, Exchange_RejectsNullContextRequestAndOutResponse) {
     const auto services = context_->make_services();
     const auto request = valid_request();
-    constexpr std::string_view message = "context, request, out_response and out_error must not be null";
+    constexpr std::string_view message = "context, request and out_response must not be null";
 
     {  // null context
         auto response = sized_response();
@@ -413,9 +415,9 @@ TEST_F(HostServicesTest, Exchange_RejectsNullContextRequestAndOutResponse) {
     }
     {  // null out_error: the returned status stays authoritative, and the
         // error struct is left untouched because there is none.
+        state_->cancelled.store(true);
         auto response = sized_response();
-        EXPECT_EQ(services.http_exchange(services.context, &request, &response, nullptr),
-                  YADDNSC_STATUS_INVALID_ARGUMENT);
+        EXPECT_EQ(services.http_exchange(services.context, &request, &response, nullptr), YADDNSC_STATUS_CANCELLED);
         EXPECT_EQ(response.status_code, 0u);
         EXPECT_EQ(response.header_count, 0u);
     }
@@ -443,7 +445,8 @@ TEST_F(HostServicesTest, Exchange_RejectsUndersizedResponseStruct) {
     EXPECT_EQ(message_of(error), "http response struct_size too small");
 }
 
-TEST_F(HostServicesTest, Exchange_RejectsUndersizedErrorStructAndLeavesItUnchanged) {
+TEST_F(HostServicesTest, Exchange_AcceptsUndersizedErrorStructAndLeavesItUnchanged) {
+    state_->cancelled.store(true);
     const auto services = context_->make_services();
     const auto request = valid_request();
     auto response = sized_response();
@@ -451,7 +454,7 @@ TEST_F(HostServicesTest, Exchange_RejectsUndersizedErrorStructAndLeavesItUnchang
     error.struct_size = YADDNSC_ERROR_MIN_SIZE - 1;
     error.status = YADDNSC_STATUS_NETWORK_ERROR;
 
-    EXPECT_EQ(services.http_exchange(services.context, &request, &response, &error), YADDNSC_STATUS_INVALID_ARGUMENT);
+    EXPECT_EQ(services.http_exchange(services.context, &request, &response, &error), YADDNSC_STATUS_CANCELLED);
 
     // Below the ABI 1.0 baseline write_error refuses to write, so the field
     // the caller supplied survives untouched.
@@ -650,3 +653,21 @@ TEST_F(HostServicesTest, Exchange_RepeatedHostDefects_PreserveOnlyTheFirstOne) {
 }
 
 }  // namespace
+
+TEST_F(HostServicesTest, SavedServicesTableChecksEveryCurrentPhase) {
+    const auto services = context_->make_services();
+    const auto request = valid_request();
+    auto response = sized_response();
+    auto error = sized_error();
+    for (auto phase : {plugin::HostServicesContext::Phase::CREATE, plugin::HostServicesContext::Phase::VALIDATE,
+                       plugin::HostServicesContext::Phase::DESTROY}) {
+        context_->set_phase(phase);
+        EXPECT_EQ(services.http_exchange(services.context, &request, &response, &error),
+                  YADDNSC_STATUS_INVALID_ARGUMENT);
+        EXPECT_EQ(message_of(error), "http_exchange is only available during yaddnsc_driver_update");
+        EXPECT_FALSE(state_->worker_error);
+    }
+    context_->set_phase(plugin::HostServicesContext::Phase::UPDATE);
+    state_->cancelled.store(true);
+    EXPECT_EQ(services.http_exchange(services.context, &request, &response, nullptr), YADDNSC_STATUS_CANCELLED);
+}

@@ -127,6 +127,13 @@ struct AbiCancelled {};
     return {domain::DriverError::Code::UNKNOWN, message, 0};
 }
 
+/// Declared after DriverInstance: unwinding switches phase before destroying it.
+struct DestroyPhase {
+    HostServicesContext& context;
+
+    ~DestroyPhase() noexcept { context.set_phase(HostServicesContext::Phase::DESTROY); }
+};
+
 /// One create → update → destroy cycle, executed on an offload worker.
 ///
 /// The module lease and the per-call state are shared_ptr parameters, so an
@@ -145,7 +152,7 @@ struct AbiCancelled {};
     }
 
     HostServicesContext context{bridge, logger, state};
-    const auto services = context.make_services(true);
+    const auto services = context.make_services();
 
     yaddnsc_error error{};
     error.struct_size = static_cast<uint32_t>(sizeof(error));
@@ -166,6 +173,8 @@ struct AbiCancelled {};
     // synchronously after update() returns, before destroy.
     DriverInstance instance{module, handle};
 
+    DestroyPhase destroy_phase{context};
+
     const yaddnsc_update_request request{
         .struct_size = static_cast<uint32_t>(sizeof(request)),
         .ip_address = {command.ip_addr.data(), command.ip_addr.size()},
@@ -179,7 +188,9 @@ struct AbiCancelled {};
 
     error = {};
     error.struct_size = static_cast<uint32_t>(sizeof(error));
+    context.set_phase(HostServicesContext::Phase::UPDATE);
     const yaddnsc_status status = instance.update(request, error);
+    context.set_phase(HostServicesContext::Phase::DESTROY);
     if (status == YADDNSC_STATUS_OK) {
         return {};
     }
@@ -210,7 +221,7 @@ struct AbiCancelled {};
     }
 
     HostServicesContext context{bridge, logger, state};
-    const auto services = context.make_services(false);
+    const auto services = context.make_services();
 
     yaddnsc_error error{};
     error.struct_size = static_cast<uint32_t>(sizeof(error));
@@ -229,10 +240,14 @@ struct AbiCancelled {};
 
     DriverInstance instance{module, handle};
 
+    DestroyPhase destroy_phase{context};
+
     error = {};
     error.struct_size = static_cast<uint32_t>(sizeof(error));
     const yaddnsc_string param{driver_param_json.data(), driver_param_json.size()};
+    context.set_phase(HostServicesContext::Phase::VALIDATE);
     const yaddnsc_status status = instance.validate(param, error);
+    context.set_phase(HostServicesContext::Phase::DESTROY);
     if (status == YADDNSC_STATUS_OK) {
         return {};
     }

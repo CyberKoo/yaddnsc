@@ -452,11 +452,19 @@ add_unit_test(sdk_driver_helpers SOURCE sdk/sdk_driver_helpers_test.cpp)
 add_unit_test(driver_magic SOURCE sdk/driver_magic_test.cpp)
 
 # ============================================================================
-#  plugin_support/  —  the crypto helper library (plugin_support/crypto/)
+#  plugin_support/ — tests for SDK signing helpers
 # ============================================================================
 
 # signing — cryptographic primitives (SHA, HMAC, Base64, hex) from the
-# plugin crypto library (also linked into signing-enabled drivers).
+# header-only SDK (also used by signing-enabled drivers).
 add_unit_test(signing SOURCE plugin_support/signing_test.cpp)
-target_include_directories(test_signing PRIVATE ${PROJECT_SOURCE_DIR}/plugin_support/crypto)
-target_link_libraries(test_signing PRIVATE yaddnsc_plugin_support_crypto OpenSSL::Crypto)
+target_link_libraries(test_signing PRIVATE yaddnsc_plugin_sdk_crypto OpenSSL::Crypto)
+
+if(YADDNSC_HAS_SDK_XML_COMPONENT)
+    add_unit_test(xml_raii SOURCE sdk/xml_raii_test.cpp)
+    target_link_libraries(test_xml_raii PRIVATE yaddnsc_plugin_sdk_xml)
+endif()
+if(YADDNSC_HAS_SDK_XML_COMPONENT)
+    add_unit_test(xml_raii_allocation SOURCE sdk/xml_raii_allocation_test.cpp)
+    target_link_libraries(test_xml_raii_allocation PRIVATE yaddnsc_plugin_sdk_xml)
+endif()

@@ -6,6 +6,8 @@ namespace sdk = yaddnsc::sdk;
 
 class HttpDriver final : public yaddnsc::sdk::Driver {
 public:
+    yaddnsc::sdk::Result validate(std::string_view) const override { return {}; }
+
     [[nodiscard]] sdk::Result update(sdk::UpdateContext& context) override {
         const sdk::HttpRequest request{
             .method = sdk::Method::GET,
@@ -24,4 +26,4 @@ public:
 };
 
 YADDNSC_DEFINE_DRIVER(HttpDriver, "consumer_http", "installed C++ HTTP SDK consumer", "yaddnsc", "1",
-                      YADDNSC_DRIVER_CAPABILITY_A)
+                      YADDNSC_DRIVER_CAPABILITY_A, 0)

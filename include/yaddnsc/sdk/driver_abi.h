@@ -20,16 +20,16 @@
  * This header is pure C and may only depend on <stddef.h> and <stdint.h>.
  *
  * The version is abi_major.abi_minor. ABI 1.0 is major 1, minor 0.
- * The first 8 bytes of every versioned struct are the version prefix
+ * Only the descriptor and Host Services begin with the 8-byte version prefix
  * (struct_size, abi_major, abi_minor). That prefix does not move, including
  * across a major bump, so a host can read it before interpreting the rest.
  * The host is the provider: it loads a plugin when it provides the plugin's
  * declared version, and a plugin accepts a services table when that table
- * provides the version the plugin was compiled against. Same major, and the
+ * provides the minimum version the plugin requires. Same major, and the
  * provider's minor is at least the minor required. A plugin's minor is the
  * minimum host minor it requires.
  *
- * Within a major, fields are only appended to the versioned top-level
+ * Within a major, fields are only appended to the extensible top-level
  * structs: yaddnsc_error, yaddnsc_http_request, yaddnsc_http_response,
  * yaddnsc_update_request, yaddnsc_driver_descriptor, yaddnsc_host_services.
  * New callbacks, capability bits, status codes, log levels, and HTTP methods
@@ -40,9 +40,11 @@
  * yaddnsc_http_header) have a fixed layout and no version field; do not
  * append fields to them. YADDNSC_*_MIN_SIZE is the ABI 1.0 baseline and
  * stays pointed at that baseline when a later minor appends a field. A
- * struct_size below the baseline is rejected once the version has been
- * accepted. Readers use yaddnsc_struct_has_field before touching a field
- * added after ABI 1.0.
+ * struct_size below the baseline is rejected for required inputs/outputs;
+ * optional out_error below the baseline is left unchanged. The enclosing
+ * protocol supplies the version for structures without major/minor fields.
+ * Readers use yaddnsc_struct_has_field before touching a field added after
+ * ABI 1.0.
  *
  * Plugins are in-process trusted code, not a sandbox. A plugin can abort,
  * loop forever, corrupt host memory, or call the system directly.
@@ -67,7 +69,7 @@ extern "C" {
 
 /* True when the provider implements every requirement of need. The host is
  * the provider on both sides: it provides the version a plugin declares, and
- * its services table provides the version the plugin was compiled against.
+ * its services table provides the minimum version the plugin requires.
  */
 static inline int yaddnsc_abi_provides(uint16_t provider_major, uint16_t provider_minor, uint16_t need_major,
                                        uint16_t need_minor) {
@@ -77,10 +79,16 @@ static inline int yaddnsc_abi_provides(uint16_t provider_major, uint16_t provide
 /* ── View types ───────────────────────────────────────────────────────────
  * Borrowed views: `data` is not necessarily NUL-terminated, `size` is the
  * only valid length. size == 0 with data == NULL is legal; size > 0 with
- * data == NULL is invalid. Every message view returned by the ABI is
- * borrowed: the caller must copy it before the call returns and must not
- * cache it. Views expire when the call returns unless a stricter lifetime
- * is documented for the specific callback.
+ * data == NULL is invalid. All views borrow storage:
+ * - Input views and log arguments are valid only during the receiving call;
+ *   the receiver must copy them before returning if it needs to retain them.
+ * - Returned error messages are valid after return until the next ABI entry
+ *   or service callback on the same thread, instance destruction, or module
+ *   unload, whichever happens first. The caller copies them before that event.
+ * - HTTP responses remain valid until the current update returns, across
+ *   exchanges. Descriptor views remain valid while the module is loaded.
+ * - Services and context may be used from create through matching destroy
+ *   on that cycle's worker; they must never be retained across cycles.
  *
  * HTTP request body is the one view with a presence bit:
  *   {NULL, 0}     no body
@@ -352,8 +360,8 @@ struct yaddnsc_host_services {
  * host resolves it with dlsym. When it is absent, the plugin still loads
  * and can update, and config test fails because the host cannot confirm
  * driver_param. YADDNSC_DEFINE_DRIVER always exports the entry. The C++
- * helper's default Driver::validate() returns success, so config test
- * passes and no schema check runs. Override it to check the schema.
+ * helper's Driver::validate() is pure virtual: plugins must explicitly
+ * check their schema and semantics (or accept parameterless configuration).
  *
  * No entry point may let a C++ exception cross the ABI. The yaddnsc host
  * also catches exceptions as a backstop; another host may not. The backstop

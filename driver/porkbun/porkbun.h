@@ -26,6 +26,9 @@ public:
     [[nodiscard]] yaddnsc::sdk::Result validate(std::string_view driver_param_json) const override;
 
 private:
+    /// Shared schema and semantic validation for validate/update.
+    [[nodiscard]] static PorkbunParams parse_params(std::string_view json);
+
     /// Build the JSON request body for a Porkbun DNS record update.
     static std::string generate_body(const PorkbunParams& cfg, const yaddnsc::sdk::UpdateRequest& request);
 

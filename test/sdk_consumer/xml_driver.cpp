@@ -5,6 +5,8 @@ namespace sdk = yaddnsc::sdk;
 
 class XmlDriver final : public yaddnsc::sdk::Driver {
 public:
+    yaddnsc::sdk::Result validate(std::string_view) const override { return {}; }
+
     [[nodiscard]] sdk::Result update([[maybe_unused]] sdk::UpdateContext& context) override {
         xml_raii::UniqueXmlDoc doc(xmlReadMemory("<root/>", 7, nullptr, nullptr, XML_PARSE_NONET));
         if (!doc) {
@@ -15,4 +17,4 @@ public:
 };
 
 YADDNSC_DEFINE_DRIVER(XmlDriver, "consumer_xml", "installed XML SDK consumer", "yaddnsc", "1",
-                      YADDNSC_DRIVER_CAPABILITY_A)
+                      YADDNSC_DRIVER_CAPABILITY_A, 0)

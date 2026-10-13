@@ -1190,3 +1190,31 @@ TEST(Bridge, CycleLiveSet_DoesNotKeepRequestOrOwnerAliveWithoutRetirementErase) 
     EXPECT_TRUE(request.expired());
     EXPECT_TRUE(owner.expired());
 }
+
+TEST(CoroDriverGatewayPhases, SavedServicesRejectHttpDuringCreateValidateDestroyAndAcceptOptionalErrors) {
+    DriverCatalog catalog;
+    NullLogger logger;
+    ASSERT_NO_THROW(catalog.load_driver(PHASE_HTTP_FIXTURE));
+    auto library = SharedLibrary::open(PHASE_HTTP_FIXTURE);
+    ASSERT_TRUE(library);
+    const auto destroy_status = reinterpret_cast<yaddnsc_status (*)()>(library->resolve("test_destroy_http_status"));
+    ASSERT_NE(destroy_status, nullptr);
+    LoopbackHttpServer server{0ms};
+    coro::Loop loop;
+    auto root = [&]() -> coro::Task<void> {
+        co_await coro::task_group([&](coro::TaskGroup& group) -> coro::Task<void> {
+            plugin::DriverGateway gateway(catalog, logger, loop, group, default_options());
+            co_await group.with_children([&]() -> coro::Task<void> {
+                const auto update = co_await gateway.update(
+                    "phase_http", make_command(fmt::format("http://127.0.0.1:{}/", server.port())));
+                EXPECT_TRUE(update.has_value());
+                EXPECT_EQ(destroy_status(), YADDNSC_STATUS_INVALID_ARGUMENT);
+                const auto validation = co_await gateway.validate_config("phase_http", "{}");
+                EXPECT_TRUE(validation.has_value());
+                EXPECT_EQ(destroy_status(), YADDNSC_STATUS_INVALID_ARGUMENT);
+            });
+        });
+    };
+    coro::run(loop, root());
+    EXPECT_EQ(server.request_count(), 3u);
+}
