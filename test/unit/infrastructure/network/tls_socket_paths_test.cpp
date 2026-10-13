@@ -14,18 +14,19 @@
 // test/component/cert_util_test.cpp), so they are not reachable here.
 //
 
+#include <algorithm>
 #include <filesystem>
 #include <string>
 #include <system_error>
 
 #include <expected>
 #include <gtest/gtest.h>
-#include <net/if.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
 
 #include "domain/network/address_family.h"
 #include "domain/network/inet_address.h"
+#include "infrastructure/ip_source/iface_util.h"
 #include "infrastructure/network/tls/cert_util.h"
 #include "infrastructure/network/transport/socket_ops.h"
 
@@ -48,6 +49,20 @@ constexpr int CLOSED_FD = -1;
     return net::detail::open_udp_socket(domain::AddressFamily::IPV4);
 }
 
+/// The interface that owns 127.0.0.1 — "lo" on Linux, "lo0" on the BSDs.
+[[nodiscard]] std::string loopback_interface() {
+    for (const auto& entry : ipsource::get_all()) {
+        const bool owns_loopback = std::ranges::any_of(entry.addresses, [](const domain::InetAddress& address) {
+            const auto* v4 = address.as_v4();
+            return v4 != nullptr && v4->to_string() == "127.0.0.1";
+        });
+        if (owns_loopback) {
+            return entry.name;
+        }
+    }
+    return {};
+}
+
 // ---------------------------------------------------------------------------
 // bind_to_interface — SO_BINDTODEVICE, with an empty name short-circuiting it
 // ---------------------------------------------------------------------------
@@ -68,11 +83,14 @@ TEST(SocketOpsPaths, BindToInterface_ClosedDescriptor_Fails) {
 }
 
 TEST(SocketOpsPaths, BindToInterface_LiveSocket_BindsToTheNamedInterface) {
-    ASSERT_NE(::if_nametoindex("lo"), 0u);  // no loopback interface: nothing to bind to
+    const std::string loopback = loopback_interface();
+    if (loopback.empty()) {
+        GTEST_SKIP() << "no interface owns 127.0.0.1";
+    }
     auto socket = open_udp_socket();
     ASSERT_TRUE(socket.has_value());
 
-    EXPECT_TRUE(net::detail::bind_to_interface(socket->get(), "lo").has_value());
+    EXPECT_TRUE(net::detail::bind_to_interface(socket->get(), loopback).has_value());
 }
 
 // ---------------------------------------------------------------------------

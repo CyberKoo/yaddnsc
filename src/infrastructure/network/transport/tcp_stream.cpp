@@ -122,6 +122,14 @@ bool TcpStream::is_healthy() const noexcept {
     if (!fd_) {
         return false;
     }
+    // A pending socket error settles the question on every platform — a peer
+    // reset surfaces as ECONNRESET here. A MSG_PEEK recv does not report it on
+    // the BSDs, where the peek keeps answering EAGAIN on a dead socket.
+    int pending = 0;
+    socklen_t length = sizeof(pending);
+    if (::getsockopt(fd_.get(), SOL_SOCKET, SO_ERROR, &pending, &length) == 0 && pending != 0) {
+        return false;
+    }
     std::uint8_t probe = 0;
     const ssize_t peeked = ::recv(fd_.get(), &probe, sizeof(probe), MSG_PEEK | MSG_DONTWAIT);
     if (peeked > 0) {

@@ -329,9 +329,10 @@ add_unit_test(net_coro_unit SOURCE infrastructure/network/net_coro_unit_test.cpp
 target_link_libraries(test_net_coro_unit PRIVATE yaddnsc_net OpenSSL::SSL OpenSSL::Crypto)
 
 # net_socket_paths — socket_ops EBADF / empty-interface / loopback success
-# paths and the shuffle-safe CA-bundle discovery invariants
+# paths and the shuffle-safe CA-bundle discovery invariants. The loopback
+# interface name comes from the ipsource getifaddrs snapshot ("lo" vs "lo0").
 add_unit_test(net_socket_paths SOURCE infrastructure/network/tls_socket_paths_test.cpp)
-target_link_libraries(test_net_socket_paths PRIVATE yaddnsc_net OpenSSL::Crypto)
+target_link_libraries(test_net_socket_paths PRIVATE yaddnsc_net yaddnsc_ip_source_infrastructure OpenSSL::Crypto)
 
 # net_stream_paths — TcpStream/TlsStream paths over loopback that an echo
 # round-trip never reaches: SNI/ALPN session construction and the health probe

@@ -204,8 +204,10 @@ public:
         HOLD,
         /// Accept and close at once: the client sees an orderly peer close.
         CLOSE,
-        /// Accept and abort with SO_LINGER off: the client sees a reset, not an
-        /// orderly close, so a peek reports the error rather than EOF or EAGAIN.
+        /// Accept, wait for the client's first byte, then abort with SO_LINGER
+        /// off: the client sees a reset, not an orderly close, so the probe
+        /// reports the pending error rather than EOF or EAGAIN. Waiting for
+        /// the byte keeps the abort from racing the client's connect.
         RESET,
         /// Record whatever the client writes, then close.
         CAPTURE,
@@ -271,6 +273,14 @@ private:
             }
             const Utils::UniqueFd connection{raw};
             if (mode_ == Mode::RESET) {
+                // Abort only after the client's first byte lands, so the reset
+                // never races the connect itself; the poll budget just bounds a
+                // client that goes away without writing.
+                pollfd descriptor{connection.get(), POLLIN, 0};
+                if (::poll(&descriptor, 1, 1000) > 0) {
+                    std::array<char, 64> chunk{};
+                    (void) ::recv(connection.get(), chunk.data(), chunk.size(), MSG_DONTWAIT);
+                }
                 const struct linger abort_linger {
                     .l_onoff = 1, .l_linger = 0
                 };
@@ -626,9 +636,15 @@ TEST(TcpStreamPaths, connected_AfterPeerReset_ReportsFalseWithASocketError) {
         if (!co_await stream.ensure_connected()) {
             co_return;
         }
-        // The abort may land just after connect() returns; poll until the probe
-        // sees it. A reset is neither EOF (0) nor "nothing queued yet" (EAGAIN):
-        // the peek reports the socket error itself.
+        // The peer holds the abort until this byte lands, so the reset cannot
+        // race the connect itself: it is sent once both sides are established.
+        const std::array<std::uint8_t, 1> go{0};
+        if (!co_await stream.send_all(go)) {
+            co_return;
+        }
+        // The abort may land just after the write; poll until the probe sees
+        // it. A reset is neither EOF (0) nor "nothing queued yet" (EAGAIN):
+        // the pending socket error settles it.
         for (int attempt = 0; attempt < 500 && stream.connected(); ++attempt) {
             std::this_thread::sleep_for(1ms);
         }
