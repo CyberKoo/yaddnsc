@@ -192,8 +192,13 @@ jobs:
                   fastcov -g gcov-14 -d build \
                       -i "src/" "include/" "driver/" \
                       -e "test/" "_deps/" "/usr/" "*/generated/" \
-                      -o coverage.info --lcov
-                  lcov --list coverage.info --ignore-errors inconsistent
+                      -B -o coverage.info --lcov
+                  lcov --list coverage.info --ignore-errors inconsistent --rc lcov_branch_coverage=1
+            # Two-track gate: coroutine TUs (line data collapses under GCC's
+            # coroutine split) on branch coverage, all other TUs on line
+            # coverage. Runs from the checkout on the host python3 — no deps.
+            - name: Coverage gate
+              run: python3 test/coverage_gate.py coverage.info
             - name: Upload coverage reports to Codecov
               uses: codecov/codecov-action@v5
               with:

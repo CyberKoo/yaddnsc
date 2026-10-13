@@ -267,11 +267,46 @@ ctest --test-dir build-coverage --output-on-failure
 fastcov -g gcov-14 -d build-coverage \
   -i "src/" "include/" "driver/" \
   -e "test/" "_deps/" "/usr/" "*/generated/" \
-  -o coverage.info --lcov
+  -B -o coverage.info --lcov
 ```
 
-Coverage is reported to Codecov; the repository sets no percentage failure
-threshold, so 80% stays a target. A Codecov upload error can fail the job.
+`-B` keeps all branch records. It matters here because GCC's coroutine split
+clones each coroutine body into `.actor`/`.destroy` functions with their own
+counter arrays, and gcov's line table collapses those clones away — coroutine
+bodies largely disappear from the *line* report (e.g. a 200-line task
+coroutine may report only its ramp entry lines), so line coverage is
+optimistically skewed on coroutine-heavy files while missing exactly the
+cancellation / timeout / redirect paths. Branch records survive the collapse
+and are the reliable signal for that code; fastcov's `-b` (useful branches
+only) filters most of them out, so use `-B`. Read the branch column of the
+lcov summary alongside the line column.
+
+Even the branch numbers have a hard ceiling: gcov reports only the *ramp*
+function's branch table, and much of it is coroutine-lowering plumbing
+(state-machine dispatch, frame EH edges, `bad_alloc` unwinds) that no test can
+reach — several coroutine TUs sit at their proven artifact ceiling (e.g.
+`update_task.cpp` 33%, `transport.cpp` 32%) with every behavioural branch
+already covered. Chase behaviour, not the number.
+
+### Coverage gate
+
+`test/coverage_gate.py` enforces a two-track gate on the tracefile (the
+nightly coverage job runs it before the Codecov upload):
+
+```bash
+python3 test/coverage_gate.py coverage.info            # add -v to list tracks
+```
+
+- A TU whose source contains `co_await` / `co_return` / `co_yield` is a
+  *coroutine TU*: its line data is collapsed as described above, so it is
+  gated on **branch coverage** (floor: 48%).
+- Every other TU is gated on **line coverage** (floor: 80%).
+
+A line-only tracefile is rejected, so the gate cannot pass silently without
+branch data. Both floors are ratchets — raise them with `--line-min` /
+`--branch-min` (and then the defaults) as coverage improves; never lower
+them. 80% remains the line-coverage target. A Codecov upload error can also
+fail the job.
 
 ## Sanitizers
 
@@ -446,7 +481,8 @@ by `ci.yml` path filters.
 `nightly.yml`:
 
 - Linux arm64 Debug tests, Release builds with bundled/system spdlog (tests
-  disabled), the dedicated `Sanitizer` build/tests, and coverage;
+  disabled), the dedicated `Sanitizer` build/tests, and coverage (with the
+  two-track coverage gate, see "Coverage" above);
 - `linux-amd64-clang` is **disabled** (`if: false`). Upstream Clang coverage on
   Linux would come from that job; macOS uses AppleClang.
 

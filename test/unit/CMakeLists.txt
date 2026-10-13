@@ -69,6 +69,22 @@ add_unit_test(logger_port SOURCE application/logger_port_test.cpp)
 add_unit_test(main_loop SOURCE application/main_loop_test.cpp)
 target_link_libraries(test_main_loop PRIVATE yaddnsc_coro_application yaddnsc_coro yaddnsc_domain)
 
+# diagnostics_paths — list_drivers / list_interfaces enumeration shapes and
+# port failures, the dns_resolve record-kind table, the validation sweep's
+# zero/multi-domain and dedup branches
+add_unit_test(diagnostics_paths SOURCE application/diagnostics_paths_test.cpp)
+target_link_libraries(test_diagnostics_paths PRIVATE yaddnsc_coro_application yaddnsc_application yaddnsc_coro yaddnsc_domain)
+
+# update_task_paths — a single update cycle's port-failure arms and the three
+# exception arms
+add_unit_test(update_task_paths SOURCE application/update_task_paths_test.cpp)
+target_link_libraries(test_update_task_paths PRIVATE yaddnsc_coro_application yaddnsc_coro yaddnsc_domain)
+
+# subdomain_task_paths — non-positive interval clamping and the force-due
+# equality boundary, on a ManualClock
+add_unit_test(subdomain_task_paths SOURCE application/subdomain_task_paths_test.cpp)
+target_link_libraries(test_subdomain_task_paths PRIVATE yaddnsc_coro_application yaddnsc_coro yaddnsc_domain)
+
 # ============================================================================
 #  coro/  —  process stop-signal ownership
 # ============================================================================
@@ -118,6 +134,7 @@ add_unit_test(coro
            coro/trace_sink_test.cpp
            coro/loop_test.cpp
            coro/context_contract_test.cpp
+           coro/task_group_contract_test.cpp
 )
 target_link_libraries(test_coro PRIVATE yaddnsc_coro)
 
@@ -131,6 +148,21 @@ endif()
 # Global allocation replacement is isolated from all other runtime tests.
 add_unit_test(coro_allocation_failure SOURCE coro/allocation_failure_test.cpp)
 target_link_libraries(test_coro_allocation_failure PRIVATE yaddnsc_coro)
+
+# ============================================================================
+#  composition/  —  the composition root (src/composition/)
+# ============================================================================
+
+# composition_assembly — log-level mapping, the fill_bootstrap_servers early
+# return, gateway / HTTP option construction and the config-error formatter
+add_unit_test(composition_assembly SOURCE composition/assembly_test.cpp)
+target_link_libraries(test_composition_assembly PRIVATE yaddnsc_prod_all)
+
+# run_command — the CLI token → severity mapping and the update-policy budget
+# invariants execute_command wires in (the command itself needs real I/O and
+# stays in test/component/cli_test.cpp)
+add_unit_test(run_command SOURCE composition/run_command_test.cpp)
+target_link_libraries(test_run_command PRIVATE yaddnsc_prod_all)
 
 # ============================================================================
 #  infrastructure/config/  —  configuration parsing, types, and validation
@@ -151,6 +183,16 @@ target_link_libraries(test_config_static_validator PRIVATE yaddnsc_config_infras
 # config_loader — JSON config file parsing
 add_unit_test(config_loader SOURCE infrastructure/config/config_loader_test.cpp)
 target_link_libraries(test_config_loader PRIVATE yaddnsc_config_infrastructure)
+
+# diagnostics_renderer — the config diagnostics wording: every named ErrorKind
+# sentence and the prose-kind fallback, asserted through render()
+add_unit_test(diagnostics_renderer SOURCE infrastructure/config/diagnostics_renderer_test.cpp)
+target_link_libraries(test_diagnostics_renderer PRIVATE yaddnsc_config_infrastructure)
+
+# diagnostics_error_adapter — glz::error_code → ErrorKind mapping incl. the
+# OTHER fallback keeping the Glaze code name
+add_unit_test(diagnostics_error_adapter SOURCE infrastructure/config/diagnostics_error_adapter_test.cpp)
+target_link_libraries(test_diagnostics_error_adapter PRIVATE yaddnsc_config_infrastructure)
 
 # ============================================================================
 #  infrastructure/plugin/  —  driver loading
@@ -177,6 +219,16 @@ target_compile_definitions(test_driver_loader PRIVATE
 target_link_libraries(test_driver_loader PRIVATE ${CMAKE_DL_LIBS})
 # simple.so must be built before the test runs (dlopen dependency).
 add_dependencies(test_driver_loader simple yaddnsc_bad_driver_fixture)
+
+# host_services — the host-side ABI callbacks: log-level / HTTP-method mapping,
+# request-view validation and the exception arms, driven through a closed Bridge
+add_unit_test(host_services SOURCE infrastructure/plugin/host_services_test.cpp)
+target_link_libraries(test_host_services PRIVATE yaddnsc_prod_all)
+
+# bridge_branch — the Bridge ingress closure arms: closed-group start_cycle,
+# spawn / dispatch allocation failures, and the cancel() no-op arms
+add_unit_test(bridge_branch SOURCE infrastructure/plugin/bridge_branch_test.cpp)
+target_link_libraries(test_bridge_branch PRIVATE yaddnsc_prod_all)
 
 # ============================================================================
 #  infrastructure/dns/  —  wire format, parser, resolvers, dispatcher
@@ -216,6 +268,19 @@ target_link_libraries(test_resolv_conf PRIVATE yaddnsc_dns_classic)
 add_unit_test(dns_coro_dispatcher SOURCE infrastructure/dns/dispatcher_coro_test.cpp)
 target_link_libraries(test_dns_coro_dispatcher PRIVATE yaddnsc_coro_dns)
 
+# dns_coro_dispatcher_paths — the concurrency guard, the negative-answer
+# summary, the single-candidate recovery round and the race that ends without
+# a diagnosis, on scripted in-memory resolvers
+add_unit_test(dns_coro_dispatcher_paths SOURCE infrastructure/dns/dispatcher_paths_test.cpp)
+target_link_libraries(test_dns_coro_dispatcher_paths PRIVATE yaddnsc_coro_dns)
+
+# dns_coro_bootstrap_paths — the bootstrap server-entry policy and one server's
+# response, driven by an in-memory replacement for dns::detail::query_classic
+# (see the file header). Links ONLY yaddnsc_coro_dns: anything else defining
+# query_classic would collide with the stand-in at link time.
+add_unit_test(dns_coro_bootstrap_paths SOURCE infrastructure/dns/bootstrap_paths_test.cpp)
+target_link_libraries(test_dns_coro_bootstrap_paths PRIVATE yaddnsc_coro_dns)
+
 # Server-address → backend mapping (bare / bracketed IPv6, IPv4, schemas).
 # Builds backend objects only — no sockets, no queries.
 add_unit_test(dns_factory SOURCE infrastructure/dns/factory_test.cpp)
@@ -227,6 +292,26 @@ target_link_libraries(test_dns_factory PRIVATE yaddnsc_coro_dns yaddnsc_config_i
 # the bootstrap server policy. No sockets.
 add_unit_test(dns_coro_resolver SOURCE infrastructure/dns/resolver_coro_test.cpp)
 target_link_libraries(test_dns_coro_resolver PRIVATE yaddnsc_coro_dns yaddnsc_coro)
+
+# dns_coro_doh_paths — DoH close() idempotence / keep-alive release and the
+# INVALID_URL → CONFIG error mapping, on an injected in-memory StreamFactory
+add_unit_test(dns_coro_doh_paths SOURCE infrastructure/dns/doh_paths_test.cpp)
+target_link_libraries(test_dns_coro_doh_paths PRIVATE yaddnsc_coro_dns yaddnsc_coro)
+
+# dns_coro_dot_paths — the DoT endpoint contract enforced at construction, the
+# SNI default, and close() on a resolver that owns a connection
+add_unit_test(dns_coro_dot_paths SOURCE infrastructure/dns/dot_paths_test.cpp)
+target_link_libraries(test_dns_coro_dot_paths PRIVATE yaddnsc_coro_dns yaddnsc_coro)
+
+# dns_coro_exchange_socket_failure — the classic UDP exchange's
+# connection_error() arm, reached by replacing socket(2); own executable
+# because the replacement is process-wide
+add_unit_test(dns_coro_exchange_socket_failure SOURCE infrastructure/dns/exchange_socket_failure_test.cpp)
+target_link_libraries(test_dns_coro_exchange_socket_failure PRIVATE yaddnsc_coro_dns yaddnsc_coro)
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    target_compile_definitions(test_dns_coro_exchange_socket_failure PRIVATE YADDNSC_TEST_WRAP_SOCKET=1)
+    target_link_options(test_dns_coro_exchange_socket_failure PRIVATE "LINKER:--wrap=socket")
+endif()
 
 # ============================================================================
 #  infrastructure/network/  —  transport, TLS and the socket-address codec
@@ -241,6 +326,17 @@ target_link_libraries(test_socket_addr PRIVATE yaddnsc_net)
 # and certificate verification live in the component suite.
 add_unit_test(net_coro_unit SOURCE infrastructure/network/net_coro_unit_test.cpp)
 target_link_libraries(test_net_coro_unit PRIVATE yaddnsc_net OpenSSL::SSL OpenSSL::Crypto)
+
+# net_socket_paths — socket_ops EBADF / empty-interface / loopback success
+# paths and the shuffle-safe CA-bundle discovery invariants
+add_unit_test(net_socket_paths SOURCE infrastructure/network/tls_socket_paths_test.cpp)
+target_link_libraries(test_net_socket_paths PRIVATE yaddnsc_net OpenSSL::Crypto)
+
+# net_stream_paths — TcpStream/TlsStream paths over loopback that an echo
+# round-trip never reaches: SNI/ALPN session construction and the health probe
+# (EOF, idle, peer reset). Failure paths only; no real handshake.
+add_unit_test(net_stream_paths SOURCE infrastructure/network/net_stream_paths_test.cpp)
+target_link_libraries(test_net_stream_paths PRIVATE yaddnsc_net OpenSSL::SSL OpenSSL::Crypto)
 
 # ============================================================================
 #  infrastructure/uri/  —  URI parsing and encoding
@@ -264,8 +360,17 @@ target_link_libraries(test_uri_edge PRIVATE yaddnsc_uri)
 
 # HTTP protocol layer (src/infrastructure/http/) driven by a scripted
 # in-memory stream: framing, 1xx, keep-alive carry-over, the lazy chunked read
-# window and the redirect policy.
-add_unit_test(net_coro_http SOURCE infrastructure/http/http_coro_test.cpp)
+# window and the redirect policy, plus wire-request construction/validation
+# and the exchange request/response grammar guards, and the client/session/
+# persistent-client paths (redirect loop, replay, keep-alive budget, queue
+# timeout, origin/target resolution).
+add_unit_test(net_coro_http
+    SOURCE infrastructure/http/http_coro_test.cpp
+           infrastructure/http/wire_request_test.cpp
+           infrastructure/http/exchange_paths_test.cpp
+           infrastructure/http/client_redirect_test.cpp
+           infrastructure/http/session_paths_test.cpp
+)
 target_link_libraries(test_net_coro_http PRIVATE yaddnsc_http)
 
 # ============================================================================
@@ -296,6 +401,26 @@ add_unit_test(level_enabled SOURCE infrastructure/logging/level_enabled_test.cpp
 # socket lifecycle is covered by the component test.
 add_unit_test(mdns_response SOURCE infrastructure/ip_source/mdns_response_test.cpp)
 target_link_libraries(test_mdns_response PRIVATE yaddnsc_ip_source_infrastructure)
+
+# mdns_query — the socket setup (interface metadata, multicast options, group
+# join) reached through MdnsIpSource::resolve(), with setsockopt fault
+# injection; the rejected group join ends every lookup before it is sent.
+add_unit_test(mdns_query SOURCE infrastructure/ip_source/mdns_query_test.cpp)
+target_link_libraries(test_mdns_query PRIVATE yaddnsc_coro_ip_source yaddnsc_coro
+                                              yaddnsc_ip_source_infrastructure yaddnsc_net)
+# Fault injection for setsockopt; the cases compile only under this macro.
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    target_compile_definitions(test_mdns_query PRIVATE YADDNSC_TEST_WRAP_SETSOCKOPT=1)
+    target_link_options(test_mdns_query PRIVATE "LINKER:--wrap=setsockopt")
+endif()
+
+# ip_source_paths — the interface, HTTP and adapter sources: the record-kind →
+# address-family mapping, the family/interface overrides applied at HttpIpSource
+# construction, and the HTTP response grammar, all on in-memory injection points
+# (net::StreamFactory + hostname resolver) and a getifaddrs snapshot. No sockets.
+add_unit_test(ip_source_paths SOURCE infrastructure/ip_source/ip_source_paths_test.cpp)
+target_link_libraries(test_ip_source_paths PRIVATE yaddnsc_coro_ip_source yaddnsc_coro
+                                                   yaddnsc_ip_source_infrastructure yaddnsc_net)
 
 # ============================================================================
 #  support/  —  algorithms, containers, formatting, platform wrappers
