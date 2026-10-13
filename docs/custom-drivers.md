@@ -171,14 +171,12 @@ request. A driver that receives `CANCELLED` stops the current update. A
 driver that performs several exchanges may poll between calls to bail out
 early.
 
-`CANCELLED` is also the routine answer to a host-side wait, not just to your
-own cancellation. Every host-service exchange runs under a wall-clock budget
-(5s), and the worker waits that budget plus a small slack for the loop-side
-answer; when the loop does not answer in time the exchange returns
-`CANCELLED` with "bridge wait budget expired" although nothing was cancelled.
-That is what the worker's extra slack is for: a busy or blocked host loop, so
-a spontaneous `CANCELLED` is a routine possibility and not by itself a
-shutdown signal. Treat it as one failed exchange and let the update fail.
+Every host-service exchange runs under a wall-clock budget (5s), covering
+dispatch, loop I/O and worker waiting. Expiry returns `NETWORK_ERROR` with
+"the API server did not respond in time" and cancels any retiring loop-side
+request. A cycle cancellation or closed group returns `CANCELLED`. Neither
+status by itself proves host-global shutdown; `is_cancelled()` observes this
+cycle's cancellation state.
 
 Returning `YADDNSC_STATUS_CANCELLED` from `yaddnsc_driver_update()` stays
 meaningful only while the operation really is cancelled (`is_cancelled()`
@@ -379,6 +377,14 @@ so an exchange costs a thread hop and is bounded by the wait budget below.
 That split does not change what a driver may see: the plugin still runs
 entirely on one thread inside one entry-point call, so the rule below holds.
 
+The host retains a cycle owner until the worker and all HTTP children really
+finish. Cancelling the awaiting caller prevents later HTTP admission and cancels
+existing exchanges, while create/update/destroy remain on the same worker. A
+worker waiting for HTTP continues to occupy its capacity under the synchronous
+v1 contract. A queued cycle cancelled before admission never enters the plugin.
+Host defects that arrive after caller cancellation remain observable at the root
+error boundary. The host cannot forcibly terminate an uncooperative plugin.
+
 The services table may be stored on the instance from `create` until
 `destroy`. Do not hand it to another thread, and do not use it after
 `destroy` returns. Do not cache response views past the return of
@@ -518,9 +524,9 @@ One exchange is limited to 64 KiB of headers and 16 MiB of body.
 - Magic mismatch, a different ABI major, or a plugin minor newer than the
   host: rebuild the driver with the current SDK headers. The host pins the
   layout and refuses a module built for a different ABI generation.
-- `http_exchange` returns `CANCELLED` with "bridge wait budget expired" on an
-  operation that was never cancelled: the 5s exchange budget ran out while
-  the host's loop was busy. One failed exchange, not a shutdown.
+- `http_exchange` returns `NETWORK_ERROR` with "the API server did not respond
+  in time": the exchange budget expired, including time waiting for loop
+  dispatch. This fails the exchange; it does not imply host shutdown.
 - Missing required parameters: compare `driver_params` with the provider entry
   in [`DRIVERS.md`](../DRIVERS.md).
 

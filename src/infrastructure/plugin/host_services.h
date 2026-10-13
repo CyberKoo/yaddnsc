@@ -5,14 +5,15 @@
 #ifndef YADDNSC_INFRASTRUCTURE_PLUGIN_HOST_SERVICES_H
 #define YADDNSC_INFRASTRUCTURE_PLUGIN_HOST_SERVICES_H
 
-#include <yaddnsc/sdk/driver_abi.h>
+#include <atomic>
 #include <cstdint>
 #include <deque>
 #include <memory>
 #include <string>
 #include <string_view>
 #include <vector>
-#include <atomic>
+
+#include <yaddnsc/sdk/driver_abi.h>
 
 #include "infrastructure/plugin/bridge.h"
 
@@ -27,8 +28,7 @@ namespace plugin {
 ///
 /// One context is constructed on the offload worker for every ABI cycle and
 /// bound to the Bridge and the logger. Cancellation is observed through the
-/// call's shared CallState: the abandon latch the gateway sets, plus the
-/// in-flight exchange's own flag. It owns the response arena: every string and
+/// cycle owner's shared cancellation latch. It owns the response arena: every string and
 /// header array a plugin may borrow stays valid until the cycle returns, across
 /// multiple exchanges (the ABI memory rules).
 ///
@@ -66,13 +66,12 @@ public:
                                  yaddnsc_error* out_error);
 
     /// 0 while this cycle is active; non-zero once it was cancelled (either the
-    /// gateway abandoned it or the in-flight bridge exchange was cancelled).
+    /// caller or root scope cancelled it). Operation timeouts remain separate.
     [[nodiscard]] std::int32_t is_cancelled() const noexcept {
         if (state_->cancelled.load(std::memory_order_acquire)) {
             return 1;
         }
-        const std::shared_ptr<BridgeCall> call = state_->in_flight_call();
-        return call != nullptr && call->cancelled.load(std::memory_order_acquire) ? 1 : 0;
+        return 0;
     }
 
 private:

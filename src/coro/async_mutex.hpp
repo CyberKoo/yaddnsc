@@ -39,7 +39,8 @@ public:
 
     /// Awaiting the returned object yields `Guard`; cancellation throws
     /// `coro::Cancelled` and removes the waiter without granting the lock.
-    /// The mutex must outlive the await.
+    /// The returned operation may be reused; each await has independent state.
+    /// The mutex must outlive the operation, every await and every Guard.
     [[nodiscard]] detail::AsyncMutexLockAwaitable lock() noexcept { return detail::AsyncMutexLockAwaitable{state_}; }
 
     /// True while the mutex is held by someone.

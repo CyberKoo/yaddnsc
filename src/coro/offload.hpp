@@ -9,11 +9,11 @@
 // no std::future anywhere — the shared result cell carries the outcome back
 // through the loop's single cross-thread channel.
 //
-// The pool never refuses work (BS's queue is unbounded and submission cannot
-// fail for capacity reasons). Cancellation is abandon: a queued-not-started job
-// is dropped, a running job finishes with its result discarded, and the await
-// surfaces `coro::Cancelled`. offload_joined instead waits for actual worker
-// completion before cancellation unwinds, optionally supplying a stop_token.
+// Admission is FIFO on the loop, bounded by the configured worker count before
+// submission to BS. Cancellation removes an unsubmitted job and its captures;
+// a submitted job holds capacity until actual completion. offload abandons a
+// running wait; offload_joined instead waits for actual worker completion,
+// optionally supplying a stop_token.
 // run() drains submitted jobs even after root completion, pumping the inbox.
 // A defect thrown by the callable is rethrown at
 // the await point — offload is not an exception channel of its own.
@@ -66,6 +66,8 @@ Task<std::invoke_result_t<Fn&, std::stop_token>> run_cooperative_offload(std::sh
 /// Acquires ownership of the callable immediately, before the lazy task runs.
 /// Invokes the owned callable as an lvalue on the worker.
 /// Captured references must outlive the worker, including after cancellation.
+/// Unsubmitted callable destruction happens on the loop; capture destructors
+/// must not block or re-enter the runtime.
 ///
 /// Cancellation: abandon (see above) — the await throws
 /// `coro::Cancelled`. Failure: allocation may throw; a defect
@@ -83,6 +85,7 @@ template<typename F>
 /// std::stop_token may cooperate; token callbacks must not block or re-enter the
 /// loop because cancellation requests originate on the loop thread. Neither
 /// form guarantees a wall-clock limit for uncooperative synchronous code.
+/// Worker defects remain observable even during cancelled cleanup.
 /// Owns the callable immediately; allocation/worker defects may throw. Loop
 /// thread only at await; the callable executes on a pool worker.
 template<typename F>

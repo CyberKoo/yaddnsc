@@ -9,6 +9,7 @@
 #include <atomic>
 #include <cassert>
 #include <exception>
+#include <functional>
 #include <memory>
 #include <stop_token>
 #include <type_traits>
@@ -23,6 +24,18 @@
 #include "coro/loop.h"
 
 namespace coro::detail {
+
+/// One cancellable FIFO admission, owned by the awaiter's shared state.
+/// job is moved to the pool on admission; clearing it breaks its state lease.
+struct OffloadAdmission {
+    OffloadAdmission* next = nullptr;
+    OffloadAdmission* prev = nullptr;
+    std::function<void()> job;
+    void (*failed)(void*, std::exception_ptr) noexcept = nullptr;
+    void* owner = nullptr;
+    bool linked = false;
+    bool submitted = false;
+};
 
 /// State shared between the loop-side awaiter and the worker job.
 ///
@@ -41,6 +54,8 @@ struct OffloadSlot {
     PromiseBase* waiter = nullptr;
     bool awaiting = false;
     WaitNode node{};
+    Loop* loop = nullptr;
+    OffloadAdmission admission{};
 };
 
 template<typename R>
@@ -93,6 +108,7 @@ struct OffloadAwaitable {
         PromiseBase& promise = handle.promise();
         Loop* loop = promise.loop;
         CancelScope* scope = promise.scope;
+        state->loop = loop;
         state->node.scope = scope;
         state->join_on_cancel = Joined;
         state->node.wake_on_cancel = !Joined;
@@ -108,10 +124,10 @@ struct OffloadAwaitable {
             state->node.on_cancel = &OffloadAwaitable::on_cancel;
             ScopeAccess::add_waiter(*scope, state->node);
         }
-        std::shared_ptr<Fn> work = fn;
+        std::shared_ptr<Fn> work = std::move(fn);
         std::shared_ptr<OffloadState<R>> shared = state;
         try {
-            LoopAccess::submit_offload(*loop, [work, shared, loop]() mutable {
+            state->admission.job = [work = std::move(work), shared, loop]() mutable {
                 if (!shared->cancelled.load(std::memory_order_acquire)) {
                     try {
                         shared->result.invoke(*work);
@@ -129,8 +145,17 @@ struct OffloadAwaitable {
                     // Losing a completion would leave its await parked forever.
                     std::terminate();
                 }
-            });
+            };
+            state->admission.owner = state.get();
+            state->admission.failed = [](void* owner, std::exception_ptr error) noexcept {
+                auto& failed = *static_cast<OffloadState<R>*>(owner);
+                failed.error = std::move(error);
+                failed.completed.store(true, std::memory_order_release);
+                offload_finish(failed);
+            };
+            LoopAccess::admit_offload(*loop, state->admission);
         } catch (...) {
+            state->admission.job = {};
             if (scope != nullptr) {
                 ScopeAccess::remove_waiter(*scope, state->node);
             }
@@ -144,6 +169,12 @@ struct OffloadAwaitable {
     R await_resume() {
         if (state->node.linked && state->node.scope != nullptr) {
             ScopeAccess::remove_waiter(*state->node.scope, state->node);
+        }
+        if constexpr (Joined) {
+            // Joining owns the defect boundary even if its caller stopped waiting.
+            if (state->error) {
+                std::rethrow_exception(state->error);
+            }
         }
         if (state->node.scope != nullptr && state->node.scope->cancelled()) {
             // A completed job can be abandoned before its parent resumes too.
@@ -166,6 +197,10 @@ struct OffloadAwaitable {
     static void on_cancel(WaitNode& node) noexcept {
         auto* state = static_cast<OffloadState<R>*>(node.owner);
         state->cancelled.store(true, std::memory_order_release);
+        if (!state->admission.submitted) {
+            LoopAccess::cancel_offload(*state->loop, state->admission);
+            node.wake_on_cancel = true;  // no submitted work remains to join
+        }
         if (state->join_on_cancel) {
             // request_stop may invoke callbacks inline: the public contract
             // requires them to be non-blocking and not re-enter the loop.

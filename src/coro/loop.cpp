@@ -11,11 +11,13 @@
 #include <climits>
 #include <compare>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 #include <cstring>  // IWYU pragma: keep — clang resolves std::strerror transitively, GCC does not
+#include <exception>
 #include <source_location>
 #include <stdexcept>
 #include <string>
 #include <system_error>
 #include <thread>
+#include <type_traits>
 #include <utility>
 
 #include <coroutine>
@@ -24,12 +26,12 @@
 #include <sys/types.h>
 #include <unistd.h>
 
-#include "coro/detail/access.h"
 #include "coro/detail/frame.h"
+#include "coro/detail/offload_job.h"
 #include "coro/detail/time_math.h"
 #include "coro/detail/timer_node.h"
-#include "coro/detail/wait_node.h"
-#include "support/fmt.hpp"  // IWYU pragma: keep — fmt::format in the CORO_TRACE macro body
+#include "support/fmt.hpp"
+#include "yaddnsc/util/format.hpp"  // IWYU pragma: keep — fmt::format in the CORO_TRACE macro body
 
 #include "BS_thread_pool.hpp"
 
@@ -122,6 +124,10 @@ Loop::Loop(Clock& clock) : clock_(&clock) {
 }
 
 Loop::~Loop() noexcept {
+    assert(offload_head_ == nullptr && offload_tail_ == nullptr && "destroying loop with live admission waiters");
+    if (offload_head_ != nullptr || offload_tail_ != nullptr) {
+        std::terminate();
+    }
     // Workers may still post after their awaits were cancelled. Join while
     // both the inbox and the wake pipe are alive.
     pool_.reset();
@@ -242,6 +248,64 @@ void Loop::process_inbox() {
     }
 }
 
+void Loop::cancel_offload(detail::OffloadAdmission& admission) noexcept {
+    if (admission.linked) {
+        if (admission.prev != nullptr) {
+            admission.prev->next = admission.next;
+        } else {
+            offload_head_ = admission.next;
+        }
+        if (admission.next != nullptr) {
+            admission.next->prev = admission.prev;
+        } else {
+            offload_tail_ = admission.prev;
+        }
+        admission.linked = false;
+        admission.next = nullptr;
+        admission.prev = nullptr;
+    }
+    admission.job = {};
+}
+
+void Loop::admit_offload(detail::OffloadAdmission& admission) {
+    if (!admission.job || admission.failed == nullptr) {
+        throw std::logic_error("offload admission requires a job and failure completion");
+    }
+    const unsigned capacity = offload_workers();
+    if (offload_pending_ < capacity && offload_head_ == nullptr) {
+        submit_offload(std::move(admission.job));
+        admission.submitted = true;
+        return;
+    }
+    admission.prev = offload_tail_;
+    if (offload_tail_ != nullptr) {
+        offload_tail_->next = &admission;
+    } else {
+        offload_head_ = &admission;
+    }
+    offload_tail_ = &admission;
+    admission.linked = true;
+}
+
+void Loop::dispatch_offloads() noexcept {
+    assert(pool_ != nullptr && "dispatch requires an initialized offload pool");
+    if (!pool_) {
+        std::terminate();
+    }
+    while (offload_head_ != nullptr && offload_pending_ < pool_->workers()) {
+        auto& admission = *offload_head_;
+        auto job = std::move(admission.job);
+        cancel_offload(admission);
+        try {
+            submit_offload(std::move(job));
+            admission.submitted = true;
+        } catch (...) {
+            // The awaiter still owns admission; failures complete it on the loop.
+            admission.failed(admission.owner, std::current_exception());
+        }
+    }
+}
+
 void Loop::submit_offload(std::function<void()> job) {
     if (!pool_) {
         pool_ = std::make_unique<Pool>(pool_workers_);
@@ -253,7 +317,10 @@ void Loop::submit_offload(std::function<void()> job) {
             job();
             job = {};  // release user/shared captures before completion accounting
             try {
-                post([this] { --offload_pending_; });
+                post([this] {
+                    --offload_pending_;
+                    dispatch_offloads();
+                });
             } catch (...) {
                 std::terminate();  // completion accounting cannot be lost
             }
@@ -278,7 +345,7 @@ unsigned Loop::default_offload_workers() noexcept {
 
 void Loop::set_offload_workers(unsigned workers) noexcept {
     assert(pool_ == nullptr && "worker count must be set before the first offload");
-    pool_workers_ = workers;
+    pool_workers_ = std::max(1U, workers);
 }
 
 void Loop::set_trace_sink(TraceSink sink, void* context) noexcept {

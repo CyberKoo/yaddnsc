@@ -143,7 +143,7 @@ coro::Task<std::expected<Response, Error>> Session::exchange(std::string target,
 }
 
 coro::Task<std::expected<protocol::RawResponse, Error>> Session::do_exchange(const protocol::WireRequest& wire) {
-    co_return co_await protocol::exchange(*stream_, wire, options_.limits, pending_);
+    return protocol::exchange(*stream_, wire, options_.limits, pending_);
 }
 
 coro::Task<std::expected<void, Error>> Session::ensure_stream() {

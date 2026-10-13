@@ -24,9 +24,12 @@
 
 #include "coro/cancel_scope.h"
 #include "coro/cancelled.h"
+#include "coro/detail/access.h"
+#include "coro/group.hpp"
 #include "coro/offload.hpp"
 #include "coro/scope.hpp"
 #include "coro/task.hpp"
+#include "coro/task_group.hpp"
 #include "domain/error/error.h"
 #include "domain/update/driver_update_command.h"
 #include "infrastructure/plugin/abi_string.h"
@@ -239,6 +242,210 @@ struct AbiCancelled {};
     return std::unexpected(map_validate_error(status, detail::to_view(error.message), driver_name));
 }
 
+/// A scope observer signals the independent owner; no runtime reentry in hooks.
+class CycleCancellation {
+public:
+    CycleCancellation(coro::CancelScope& scope, CallState& state) noexcept {
+        node_.owner = &state;
+        node_.wake_on_cancel = false;
+        node_.on_cancel = [](coro::detail::WaitNode& node) noexcept {
+            static_cast<CallState*>(node.owner)->request_cancel();
+        };
+        if (scope.cancelled()) {
+            state.request_cancel();
+        } else {
+            coro::detail::ScopeAccess::add_waiter(scope, node_);
+        }
+    }
+
+    CycleCancellation(const CycleCancellation&) = delete;
+    CycleCancellation& operator=(const CycleCancellation&) = delete;
+
+    ~CycleCancellation() noexcept {
+        if (node_.linked) {
+            coro::detail::ScopeAccess::remove_waiter(*node_.scope, node_);
+        }
+    }
+
+private:
+    coro::detail::WaitNode node_{};
+};
+
+struct CycleEvent {
+    CallState& state;
+
+    [[nodiscard]] bool await_ready() const noexcept {
+        return state.worker_done || (state.cancelled.load(std::memory_order_acquire) && !state.cancellation_applied);
+    }
+
+    template<typename Promise>
+    void await_suspend(std::coroutine_handle<Promise> frame) noexcept {
+        state.control = &frame.promise();
+    }
+
+    void await_resume() const noexcept {}
+};
+
+struct CycleResult {
+    std::shared_ptr<CallState> state;
+    coro::detail::WaitNode node{};
+
+    // The coroutine protocol invokes this through its awaiter object.
+    // NOLINTNEXTLINE(readability-convert-member-functions-to-static)
+    [[nodiscard]] constexpr bool await_ready() const noexcept { return false; }
+
+    template<typename Promise>
+    bool await_suspend(std::coroutine_handle<Promise> frame) {
+        node.scope = frame.promise().scope;
+        node.scope->throw_if_cancelled();
+        if (state->owner_done) {
+            return false;
+        }
+        node.waiter = &frame.promise();
+        node.owner = state.get();
+        node.on_cancel = [](coro::detail::WaitNode& cancelled) noexcept {
+            auto& cycle = *static_cast<CallState*>(cancelled.owner);
+            cycle.subscriber = nullptr;
+            cycle.request_cancel();
+        };
+        state->subscriber = &node;
+        coro::detail::ScopeAccess::add_waiter(*node.scope, node);
+        return true;
+    }
+
+    std::expected<void, domain::DriverError> await_resume() {
+        if (node.linked) {
+            coro::detail::ScopeAccess::remove_waiter(*node.scope, node);
+        }
+        state->subscriber = nullptr;
+        state->signal();
+        node.scope->throw_if_cancelled();
+        if (state->error) {
+            state->error_observed = true;
+            std::rethrow_exception(state->error);
+        }
+        if (state->plugin_cancelled) {
+            throw AbiCancelled{};
+        }
+        return std::move(state->result);
+    }
+};
+
+struct CycleAcknowledgement {
+    CallState& state;
+
+    [[nodiscard]] bool await_ready() const noexcept { return state.subscriber == nullptr; }
+
+    template<typename Promise>
+    void await_suspend(std::coroutine_handle<Promise> frame) noexcept {
+        state.control = &frame.promise();
+    }
+
+    void await_resume() const noexcept {}
+};
+
+template<typename Work>
+coro::Task<void> cycle_worker(std::shared_ptr<CallState> state, Work work) {
+    try {
+        auto outcome = co_await coro::with_cancel_scope(
+            [&](coro::CancelScope& scope) -> coro::Task<std::expected<void, domain::DriverError>> {
+                state->worker_scope = &scope;
+                struct ScopeBorrow {
+                    CallState& state;
+                    ~ScopeBorrow() noexcept { state.worker_scope = nullptr; }
+                };
+                const ScopeBorrow borrow{*state};
+                if (state->cancelled.load(std::memory_order_acquire)) {
+                    scope.cancel();
+                }
+                co_return co_await coro::offload_joined(std::move(work));
+            });
+        if (!outcome.cancelled) {
+            state->result = std::move(*outcome);
+        } else {
+            state->plugin_cancelled = true;
+        }
+    } catch (const AbiCancelled&) {
+        state->plugin_cancelled = true;
+    } catch (const coro::Cancelled&) {
+        state->request_cancel();
+        state->plugin_cancelled = true;
+    } catch (...) {
+        if (!state->error) {
+            state->error = std::current_exception();
+        }
+    }
+    if (state->worker_error && !state->error) {
+        state->error = state->worker_error;
+    }
+    state->worker_done = true;
+    state->signal();
+}
+
+/// Parent scope and controller outlive a cancelled caller and all real work.
+template<typename Work>
+coro::Task<void> own_cycle(std::shared_ptr<CallState> state, Work work) {
+    auto& parent = co_await coro::current_scope();
+    const CycleCancellation cancellation{parent, *state};
+    try {
+        co_await coro::non_cancellable([&](coro::CancelScope&) -> coro::Task<void> {
+            co_await coro::supervisor_group([&](coro::TaskGroup& group) -> coro::Task<void> {
+                state->lifetime = coro::detail::GroupAccess::lifetime(group);
+                group.spawn_discard(cycle_worker(state, std::move(work)));
+                while (!state->worker_done) {
+                    if (state->cancelled.load(std::memory_order_acquire)) {
+                        state->cancellation_applied = true;
+                        if (state->worker_scope != nullptr) {
+                            state->worker_scope->cancel();
+                        }
+                        for (const auto& tracked : state->calls) {
+                            if (const auto call = tracked.lock()) {
+                                call->cancelled.store(true, std::memory_order_release);
+                                if (call->live_scope != nullptr) {
+                                    call->live_scope->cancel();
+                                }
+                            }
+                        }
+                    }
+                    co_await CycleEvent{*state};
+                }
+                // A worker's budget may have expired while HTTP is still retiring.
+                for (const auto& tracked : state->calls) {
+                    if (const auto call = tracked.lock()) {
+                        call->cancelled.store(true, std::memory_order_release);
+                        if (call->live_scope != nullptr) {
+                            call->live_scope->cancel();
+                        }
+                    }
+                }
+                co_await group.join();
+            });
+        });
+    } catch (const coro::Cancelled&) {
+        state->request_cancel();
+        state->plugin_cancelled = true;
+    } catch (...) {
+        if (!state->error) {
+            state->error = std::current_exception();
+        }
+    }
+    state->owner_done = true;
+    if (auto* subscriber = state->subscriber; subscriber != nullptr) {
+        if (!subscriber->scheduled) {
+            subscriber->scheduled = true;
+            coro::detail::wake(*subscriber->waiter);
+        }
+    }
+    // Keep the error boundary alive through the subscriber's last cancellation
+    // checkpoint: publishing a result does not prove it was observed.
+    while (state->subscriber != nullptr) {
+        co_await CycleAcknowledgement{*state};
+    }
+    if (state->error && !state->error_observed) {
+        std::rethrow_exception(state->error);
+    }
+}
+
 }  // namespace
 
 DriverGateway::DriverGateway(const DriverCatalog& catalog, const app::LoggerPort& logger, coro::Loop& loop,
@@ -268,11 +475,15 @@ coro::Task<std::expected<void, domain::DriverError>> DriverGateway::update(std::
     const app::LoggerPort* const logger = &logger_;
     const std::string fqdn = command.fqdn;
     coro::CancelScope& scope = co_await coro::current_scope();
+    scope.throw_if_cancelled();
+    const CycleCancellation cancellation{scope, *state};
+    bridge->start_cycle(own_cycle(state,
+                                  [module, command = std::move(command), bridge, logger,
+                                   state]() mutable -> std::expected<void, domain::DriverError> {
+                                      return run_update_task(module, command, *bridge, *logger, state);
+                                  }));
     try {
-        co_return co_await coro::offload([module, command = std::move(command), bridge, logger,
-                                          state]() mutable -> std::expected<void, domain::DriverError> {
-            return run_update_task(module, command, *bridge, *logger, state);
-        });
+        co_return co_await CycleResult{state};
     } catch (const AbiCancelled&) {
         if (scope.cancelled()) {
             // Host teardown (shutdown or an outer budget) already cancelled
@@ -288,8 +499,7 @@ coro::Task<std::expected<void, domain::DriverError>> DriverGateway::update(std::
             domain::DriverError{domain::DriverError::Code::UPDATE_FAILED,
                                 fmt::format("Driver '{}' reported cancellation for {}", driver_name, fqdn), 0});
     } catch (const coro::Cancelled&) {
-        state->cancelled.store(true, std::memory_order_release);
-        bridge->cancel(state->in_flight_call());
+        state->request_cancel();
         throw;
     }
 }
@@ -321,11 +531,15 @@ coro::Task<std::expected<void, domain::DriverError>> DriverGateway::validate_con
     auto bridge = bridge_;
     const app::LoggerPort* const logger = &logger_;
     coro::CancelScope& scope = co_await coro::current_scope();
+    scope.throw_if_cancelled();
+    const CycleCancellation cancellation{scope, *state};
+    bridge->start_cycle(own_cycle(state,
+                                  [module, param = std::move(driver_param_json), bridge, logger,
+                                   state]() mutable -> std::expected<void, domain::DriverError> {
+                                      return run_validate_cycle(module, param, *bridge, *logger, state);
+                                  }));
     try {
-        co_return co_await coro::offload([module, param = std::move(driver_param_json), bridge, logger,
-                                          state]() mutable -> std::expected<void, domain::DriverError> {
-            return run_validate_cycle(module, param, *bridge, *logger, state);
-        });
+        co_return co_await CycleResult{state};
     } catch (const AbiCancelled&) {
         // A foreign status is not a host cancellation request. Only an already
         // cancelled host scope propagates control flow; live-scope validation
@@ -335,8 +549,7 @@ coro::Task<std::expected<void, domain::DriverError>> DriverGateway::validate_con
             domain::DriverError::Code::UNKNOWN,
             fmt::format("Driver '{}' reported cancellation during configuration validation", driver_name), 0});
     } catch (const coro::Cancelled&) {
-        state->cancelled.store(true, std::memory_order_release);
-        bridge->cancel(state->in_flight_call());
+        state->request_cancel();
         throw;
     }
 }

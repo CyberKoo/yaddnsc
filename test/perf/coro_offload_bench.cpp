@@ -13,6 +13,8 @@
 #include <benchmark/benchmark.h>
 
 #include "coro/coro.h"
+#include "domain/network/inet_address.h"
+#include "infrastructure/ip_source/iface_util.h"
 
 namespace {
 
@@ -109,3 +111,23 @@ static void BM_no_await(benchmark::State& state) {
 }
 
 BENCHMARK(BM_no_await);
+
+// Compare the old synchronous metadata path with the owned offload path.
+// This measures lookup/round-trip cost, not a latency bound for getifaddrs.
+static void BM_metadata_snapshot(benchmark::State& state) {
+    for (auto _ : state) {
+        auto query = [&]() -> coro::Task<void> {
+            for (int i = 0; i < kIter; ++i) {
+                if (state.range(0) == 0) {
+                    benchmark::DoNotOptimize(ipsource::get_all());
+                } else {
+                    benchmark::DoNotOptimize(co_await coro::offload([] { return ipsource::get_all(); }));
+                }
+            }
+        };
+        coro::run(query());
+    }
+    state.SetItemsProcessed(state.iterations() * kIter);
+}
+
+BENCHMARK(BM_metadata_snapshot)->Arg(0)->Arg(1)->UseRealTime();

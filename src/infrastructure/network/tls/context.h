@@ -10,9 +10,10 @@
 #ifndef YADDNSC_INFRASTRUCTURE_NETWORK_TLS_CONTEXT_H
 #define YADDNSC_INFRASTRUCTURE_NETWORK_TLS_CONTEXT_H
 
-#include <openssl/types.h>
 #include <memory>
+
 #include <expected>
+#include <openssl/types.h>
 
 #include "infrastructure/network/transport/io_error.h"
 
@@ -38,9 +39,14 @@ public:
     ///
     /// Fail-closed: with verify_peer set, the CA bundle is the explicit
     /// `ca_bundle` when present, otherwise Utils::Cert::discover_ca_bundle(); if
-    /// neither yields a usable bundle the call fails instead of registering a
-    /// lazy trust-directory lookup that would read files during a handshake.
-    [[nodiscard]] static std::expected<std::shared_ptr<const TlsContext>, IoError> create(const TlsTrustOptions& options);
+    /// neither yields a bundle, eager-load hashed PEM certificate/CRL entries
+    /// from the OpenSSL default cert directory. Missing/empty or malformed
+    /// indexed sources fail closed; a single bad indexed entry rejects the
+    /// whole directory snapshot, including dangling links and hash mismatches.
+    /// This is stricter than lazy lookup. No lazy directory lookup is installed.
+    /// Trusted AUX is preserved; rebuilding is required to refresh the snapshot.
+    [[nodiscard]] static std::expected<std::shared_ptr<const TlsContext>, IoError> create(
+        const TlsTrustOptions& options);
 
     /// Borrowed OpenSSL handle; never null for a built context.
     [[nodiscard]] SSL_CTX* native_handle() const noexcept { return context_.get(); }

@@ -17,7 +17,7 @@
 namespace coro {
 
 namespace detail {
-class AsyncMutexLockAwaitable;
+class AsyncMutexLockAwaiter;
 }  // namespace detail
 
 /// RAII ownership of an AsyncMutex; unlocks on destruction or `unlock()`.
@@ -50,7 +50,7 @@ public:
     [[nodiscard]] explicit operator bool() const noexcept { return state_ != nullptr; }
 
 private:
-    friend class detail::AsyncMutexLockAwaitable;
+    friend class detail::AsyncMutexLockAwaiter;
 
     /// Only the lock awaitable hands one out, so a caller can never manufacture
     /// ownership of a lock it does not hold.

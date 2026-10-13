@@ -17,12 +17,14 @@
 namespace coro::detail {
 
 /// Awaits one AsyncMutex, yielding its public RAII guard.
-class AsyncMutexLockAwaitable {
+class AsyncMutexLockAwaiter {
 public:
-    explicit AsyncMutexLockAwaitable(MutexState& state) noexcept : state_(&state) {}
+    explicit AsyncMutexLockAwaiter(MutexState& state) noexcept : state_(&state) {}
 
-    AsyncMutexLockAwaitable(const AsyncMutexLockAwaitable&) = delete;
-    AsyncMutexLockAwaitable& operator=(const AsyncMutexLockAwaitable&) = delete;
+    AsyncMutexLockAwaiter(const AsyncMutexLockAwaiter&) = delete;
+    AsyncMutexLockAwaiter& operator=(const AsyncMutexLockAwaiter&) = delete;
+    AsyncMutexLockAwaiter(AsyncMutexLockAwaiter&&) = delete;
+    AsyncMutexLockAwaiter& operator=(AsyncMutexLockAwaiter&&) = delete;
 
     constexpr bool await_ready() const noexcept { return false; }
 
@@ -42,7 +44,7 @@ public:
         node_.waiter = &promise;
         node_.cancelled_flag = &cancelled_;
         node_.owner = this;
-        node_.on_cancel = &AsyncMutexLockAwaitable::on_cancel;
+        node_.on_cancel = &AsyncMutexLockAwaiter::on_cancel;
         state_->enqueue(&node_);
         if (scope_ != nullptr) {
             ScopeAccess::add_waiter(*scope_, node_);
@@ -64,7 +66,7 @@ public:
 
 private:
     static void on_cancel(WaitNode& node) noexcept {
-        auto* self = static_cast<AsyncMutexLockAwaitable*>(node.owner);
+        auto* self = static_cast<AsyncMutexLockAwaiter*>(node.owner);
         self->state_->drop(node);
     }
 
@@ -72,6 +74,17 @@ private:
     CancelScope* scope_ = nullptr;
     WaitNode node_{};
     bool cancelled_ = false;
+};
+
+/// Reusable lock operation; each await owns an independent registration.
+class AsyncMutexLockAwaitable {
+public:
+    explicit AsyncMutexLockAwaitable(MutexState& state) noexcept : state_(&state) {}
+
+    [[nodiscard]] AsyncMutexLockAwaiter operator co_await() const noexcept { return AsyncMutexLockAwaiter{*state_}; }
+
+private:
+    MutexState* state_;
 };
 
 }  // namespace coro::detail

@@ -13,7 +13,11 @@
 //
 
 #include <chrono>
+#include <exception>
+#include <functional>
+#include <initializer_list>
 #include <memory>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -21,10 +25,19 @@
 #include <utility>
 #include <vector>
 
+#include <coroutine>
+
+#include <expected>
 #include <gtest/gtest.h>
 
 #include "coro/coro.h"
-#include "coro/group_error.h"
+#include "coro/detail/group_state.h"
+#include "coro/detail/wait_node.h"
+
+namespace coro::detail {
+struct PromiseBase;
+struct TimerNode;
+}  // namespace coro::detail
 
 namespace {
 
@@ -471,6 +484,8 @@ struct ThrowingMove {
 
     ThrowingMove(std::shared_ptr<int> token, bool& flag) : lifetime(std::move(token)), moved(&flag) {}
 
+    // Intentionally throws to verify exception-safe result retirement.
+    // NOLINTNEXTLINE(performance-noexcept-move-constructor)
     ThrowingMove(ThrowingMove&& other) : moved(other.moved) {
         if (std::exchange(*moved, true)) {
             throw std::runtime_error("result move failed");
@@ -860,6 +875,93 @@ TEST(TaskGroup, HandleClaim_WakesNextBeforeProducerCompletes) {
     };
     coro::run(loop, root());
     EXPECT_TRUE(exhausted);
+}
+
+TEST(TaskGroup, join_ConcurrentCopies_RejectsReservationAndCancelRestoresResult) {
+    coro::ManualClock clock;
+    coro::Loop loop{clock};
+    bool reserved = false;
+    coro::CancelScope* waiter_scope = nullptr;
+    auto root = [&]() -> coro::Task<void> {
+        co_await coro::supervisor_group([&](coro::TaskGroup& group) -> coro::Task<void> {
+            auto producer = []() -> coro::Task<int> {
+                co_await coro::sleep_for(100ms);
+                co_return 42;
+            };
+            auto handle = group.spawn(producer());
+            auto copy = handle;
+            auto first = [&]() -> coro::Task<void> {
+                const auto outcome =
+                    co_await coro::with_cancel_scope([&](coro::CancelScope& scope) -> coro::Task<void> {
+                        waiter_scope = &scope;
+                        reserved = true;
+                        [[maybe_unused]] auto value = co_await handle;
+                    });
+                EXPECT_TRUE(outcome.cancelled);
+            };
+            auto waiter = group.spawn(first());
+            while (!reserved) {
+                co_await coro::checkpoint();
+            }
+            EXPECT_FALSE(copy.valid());
+            EXPECT_THROW(co_await copy, std::logic_error);
+            waiter_scope->cancel();
+            co_await waiter;
+            EXPECT_TRUE(copy.valid());
+            EXPECT_EQ(co_await copy, 42);
+        });
+    };
+    coro::run(loop, root());
+}
+
+TEST(TaskGroup, join_LocalTimeout_ReleasesReservationAndLeavesProducerRunning) {
+    coro::ManualClock clock;
+    coro::Loop loop{clock};
+    auto root = [&]() -> coro::Task<void> {
+        co_await coro::task_group([&](coro::TaskGroup& group) -> coro::Task<void> {
+            auto handle = group.spawn(sleep_then_value(100ms, 42));
+            auto outcome = co_await coro::with_timeout(5ms, [&]() -> coro::Task<int> { co_return co_await handle; });
+            EXPECT_TRUE(outcome.timed_out);
+            EXPECT_EQ(clock.now(), coro::TimePoint{} + 5ms);
+            EXPECT_TRUE(handle.valid());
+            EXPECT_FALSE(group.scope().cancelled());
+            EXPECT_EQ(co_await handle, 42);
+        });
+    };
+    coro::run(loop, root());
+}
+
+TEST(TaskGroup, join_CompletionAndTimeoutSameDeadline_LeavesResultUnconsumed) {
+    coro::ManualClock clock;
+    coro::Loop loop{clock};
+    auto root = [&]() -> coro::Task<void> {
+        co_await coro::task_group([&](coro::TaskGroup& group) -> coro::Task<void> {
+            auto handle = group.spawn(sleep_then_value(5ms, 42));
+            auto outcome = co_await coro::with_timeout(5ms, [&]() -> coro::Task<int> { co_return co_await handle; });
+            EXPECT_TRUE(outcome.timed_out);
+            EXPECT_TRUE(handle.valid());
+            EXPECT_EQ((co_await group.next<int>())->value(), 42);
+            EXPECT_FALSE(handle.valid());
+        });
+    };
+    coro::run(loop, root());
+}
+
+TEST(TaskGroup, join_AlreadyCancelledCaller_DoesNotReserveReadyResult) {
+    auto root = []() -> coro::Task<void> {
+        co_await coro::task_group([](coro::TaskGroup& group) -> coro::Task<void> {
+            auto handle = group.spawn(constant(42));
+            co_await group.join();
+            auto outcome = co_await coro::with_cancel_scope([&](coro::CancelScope& scope) -> coro::Task<void> {
+                scope.cancel();
+                [[maybe_unused]] auto result = co_await handle;
+            });
+            EXPECT_TRUE(outcome.cancelled);
+            EXPECT_TRUE(handle.valid());
+            EXPECT_EQ(co_await handle, 42);
+        });
+    };
+    coro::run(root());
 }
 
 }  // namespace

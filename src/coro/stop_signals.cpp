@@ -7,8 +7,12 @@
 #include <system_error>
 #include <utility>
 
+#include <coroutine>
+
+#include <sys/types.h>
 #include <unistd.h>
 
+#include "coro/cancel_scope.h"
 #include "coro/fd_wait.hpp"
 #include "coro/scope.hpp"
 
@@ -83,6 +87,8 @@ coro::StopSignals::~StopSignals() noexcept {
     signal_write_fd.store(-1);
 }
 
+// Keep observation tied to the owner of the installed process handlers.
+// NOLINTNEXTLINE(readability-convert-member-functions-to-static)
 bool coro::StopSignals::requested() const noexcept {
     return stop_requested.load(std::memory_order_relaxed) != 0;
 }

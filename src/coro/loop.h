@@ -50,6 +50,7 @@ namespace detail {
 struct PromiseBase;
 struct TimerNode;
 struct LoopAccess;
+struct OffloadAdmission;
 
 using FdToken = std::uint64_t;
 }  // namespace detail
@@ -125,6 +126,7 @@ public:
     [[nodiscard]] static unsigned default_offload_workers() noexcept;
 
     /// Worker count for the lazily created pool; set before the first offload.
+    /// Zero is normalized to one; capacity never uses BS hardware defaults.
     void set_offload_workers(unsigned workers) noexcept;
 
     /// Run until root completion and submitted-worker drain. Runs on the caller.
@@ -158,7 +160,10 @@ private:
     /// queued twice — a duplicate wakeup carries no information.
     void schedule(detail::PromiseBase& frame) noexcept;
 
-    /// Hand a job to the pool, creating it on first use. Never refuses work.
+    /// Admission precedes submission; queued registrations are loop-owned borrows.
+    void admit_offload(detail::OffloadAdmission& admission);
+    void cancel_offload(detail::OffloadAdmission& admission) noexcept;
+    void dispatch_offloads() noexcept;
     void submit_offload(std::function<void()> job);
 
     /// Arm `timer` to fire `action(context)` at `deadline`. Allocates (heap
@@ -227,6 +232,8 @@ private:
     unsigned pool_workers_ = default_offload_workers();
     /// Loop-thread count, decremented by completion callbacks after worker exit.
     std::size_t offload_pending_ = 0;
+    detail::OffloadAdmission* offload_head_ = nullptr;
+    detail::OffloadAdmission* offload_tail_ = nullptr;
 
     TraceSink trace_sink_ = nullptr;
     void* trace_context_ = nullptr;

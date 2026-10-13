@@ -25,19 +25,15 @@ namespace coro::detail {
 /// them only while the frame is parked.
 /// Cancellation: a checkpoint — a cancelled scope resumes the frame early.
 /// Thread safety: loop thread only.
-class SleepAwaitable {
+class SleepAwaiter {
 public:
-    /// Suspend for `delay` relative to the loop clock.
-    static SleepAwaitable after(Duration delay) noexcept { return SleepAwaitable{delay, TimePoint{}, true}; }
-
-    /// Suspend until an absolute loop-clock time.
-    static SleepAwaitable at(TimePoint deadline) noexcept { return SleepAwaitable{Duration{}, deadline, false}; }
-
-    SleepAwaitable(const SleepAwaitable&) = delete;
-    SleepAwaitable& operator=(const SleepAwaitable&) = delete;
-    SleepAwaitable(SleepAwaitable&&) = delete;
-    SleepAwaitable& operator=(SleepAwaitable&&) = delete;
-    ~SleepAwaitable() = default;
+    SleepAwaiter(const SleepAwaiter&) = delete;
+    SleepAwaiter& operator=(const SleepAwaiter&) = delete;
+    SleepAwaiter(SleepAwaiter&&) = delete;
+    SleepAwaiter& operator=(SleepAwaiter&&) = delete;
+    // Started frames drain before destruction; firing/cancellation removes
+    // registration before resume. Destroying a parked frame is not supported.
+    ~SleepAwaiter() = default;
 
     constexpr bool await_ready() const noexcept { return false; }
 
@@ -77,17 +73,18 @@ public:
         }
     }
 
-private:
-    SleepAwaitable(Duration delay, TimePoint deadline, bool relative) noexcept
+public:
+    SleepAwaiter(Duration delay, TimePoint deadline, bool relative) noexcept
         : delay_(delay), deadline_(deadline), relative_(relative) {}
 
-    static void arm(SleepAwaitable& self, PromiseBase& promise, TimePoint deadline) {
+private:
+    static void arm(SleepAwaiter& self, PromiseBase& promise, TimePoint deadline) {
         self.frame_ = &promise;
-        LoopAccess::add_timer(*self.loop_, self.timer_, deadline, &SleepAwaitable::on_timer, &self);
+        LoopAccess::add_timer(*self.loop_, self.timer_, deadline, &SleepAwaiter::on_timer, &self);
         self.armed_ = true;
         self.node_.waiter = &promise;
         self.node_.owner = &self;
-        self.node_.on_cancel = &SleepAwaitable::on_cancel;
+        self.node_.on_cancel = &SleepAwaiter::on_cancel;
         if (self.scope_ != nullptr) {
             ScopeAccess::add_waiter(*self.scope_, self.node_);
         }
@@ -96,7 +93,7 @@ private:
     /// Timer action: the loop has already popped the timer and runs this on the
     /// loop thread. Never throws.
     static void on_timer(void* context) noexcept {
-        auto* self = static_cast<SleepAwaitable*>(context);
+        auto* self = static_cast<SleepAwaiter*>(context);
         self->armed_ = false;
         if (self->node_.linked && self->node_.scope != nullptr) {
             ScopeAccess::remove_waiter(*self->node_.scope, self->node_);
@@ -109,7 +106,7 @@ private:
     /// Cancellation hook: drop the timer so the deadline cannot fire later.
     /// Never throws; runs on the loop thread.
     static void on_cancel(WaitNode& node) noexcept {
-        auto* self = static_cast<SleepAwaitable*>(node.owner);
+        auto* self = static_cast<SleepAwaiter*>(node.owner);
         if (self->armed_) {
             LoopAccess::remove_timer(*self->loop_, self->timer_);
             self->armed_ = false;
@@ -125,6 +122,24 @@ private:
     TimerNode timer_{};
     WaitNode node_{};
     bool armed_ = false;
+};
+
+/// Reusable timer operation; relative deadlines are sampled at each await.
+class SleepAwaitable {
+public:
+    static SleepAwaitable after(Duration delay) noexcept { return SleepAwaitable{delay, TimePoint{}, true}; }
+
+    static SleepAwaitable at(TimePoint deadline) noexcept { return SleepAwaitable{Duration{}, deadline, false}; }
+
+    [[nodiscard]] SleepAwaiter operator co_await() const noexcept { return SleepAwaiter{delay_, deadline_, relative_}; }
+
+private:
+    SleepAwaitable(Duration delay, TimePoint deadline, bool relative) noexcept
+        : delay_(delay), deadline_(deadline), relative_(relative) {}
+
+    Duration delay_;
+    TimePoint deadline_;
+    bool relative_;
 };
 
 }  // namespace coro::detail

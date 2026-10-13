@@ -550,4 +550,23 @@ TEST(UdpSocket, recv_from_ScopeTimesOut_ReportsCancelled) {
     EXPECT_FALSE(error.has_value());  // cancellation bypasses the recoverable error channel
 }
 
+TEST(FdWait, ReusedAfterCancellationAndReadiness_DoesNotRetainRegistrationState) {
+    auto pair = SocketPair::create();
+    ASSERT_TRUE(pair);
+    coro::Loop loop;
+    auto root = [&]() -> coro::Task<void> {
+        const auto readable = coro::wait_readable(pair->first());
+        auto timeout = co_await coro::with_timeout(1ms, [&]() -> coro::Task<void> { co_await readable; });
+        EXPECT_TRUE(timeout.timed_out);
+        const char byte = 'x';
+        EXPECT_EQ(::write(pair->second(), &byte, 1), 1);
+        co_await readable;
+        char received{};
+        EXPECT_EQ(::read(pair->first(), &received, 1), 1);
+        timeout = co_await coro::with_timeout(1ms, [&]() -> coro::Task<void> { co_await readable; });
+        EXPECT_TRUE(timeout.timed_out);
+    };
+    coro::run(loop, root());
+}
+
 }  // namespace

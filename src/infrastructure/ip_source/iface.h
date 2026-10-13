@@ -19,8 +19,8 @@ namespace ipsource {
 /// InterfaceIpSource — read addresses from a local network interface.
 ///
 /// Each lookup reads a live getifaddrs() snapshot without a shared cache.
-/// This bounded kernel metadata read runs directly on the loop, not offload;
-/// its size is not controlled by an external peer.
+/// Metadata reads run in owned offload packets, so cancellation can release
+/// the caller while the worker finishes without borrowing this source.
 /// Thread safety: loop thread only.
 class InterfaceIpSource final {
 public:

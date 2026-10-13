@@ -26,6 +26,14 @@ target_compile_definitions(test_cert_util_test PRIVATE
     YADDNSC_TEST_BINARY="$<TARGET_FILE:test_cert_util_test>"
 )
 
+# No system trust files are modified. Discovery/default-directory adapters are
+# isolated in this binary; the actual context factory and loader are linked.
+add_unit_test(trust_fallback SOURCE trust_fallback_test.cpp)
+target_link_libraries(test_trust_fallback PRIVATE yaddnsc_net OpenSSL::SSL OpenSSL::Crypto)
+target_compile_definitions(test_trust_fallback PRIVATE
+    YADDNSC_TEST_BINARY="$<TARGET_FILE:test_trust_fallback>"
+)
+
 # cert_util env-var hit — SEPARATE binary because discover_ca_bundle() caches
 # its result on the first call in the process; the env-var-hit branch can only
 # be reached when the first call sees a valid SSL_CERT_FILE.
@@ -96,3 +104,8 @@ target_compile_definitions(test_architecture_guard_cases PRIVATE
     YADDNSC_TEST_CMAKE="${CMAKE_COMMAND}"
     YADDNSC_TEST_GUARD="${PROJECT_SOURCE_DIR}/cmake/ArchitectureGuard.cmake"
 )
+
+# getifaddrs rendezvous lives in its own executable to isolate interposition.
+add_unit_test(ip_source_offload SOURCE ip_source_offload_test.cpp)
+target_link_libraries(test_ip_source_offload PRIVATE yaddnsc_coro_ip_source)
+set_tests_properties(test_ip_source_offload PROPERTIES TIMEOUT 15)

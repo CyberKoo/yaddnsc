@@ -182,6 +182,37 @@ evidence that no update was sent. The mDNS group users (`test_mdns_coro`,
 `integration_scenarios`) hold the `mdns-multicast` `RESOURCE_LOCK` and must not
 be run concurrently outside CTest.
 
+### Coroutine cancellation regressions
+
+The runtime suite covers reusable mutex/sleep operations, cancellable Handle
+reservations and offload admission/capture release. `test_net_coro_unit` covers
+fd-operation reuse, while runtime tests exercise concurrent lock descriptors,
+Handle reservation conflicts, FIFO admission and capacity held through running
+cancellation. `test_coro_allocation_failure` checks pool initialization and both
+immediate/deferred submission failures, as well as mutex queue growth failure.
+`test_plugin_cancellation_publication` uses an isolated allocator rendezvous to
+cancel after the Host Services entry check and before request copying completes.
+It also injects worker post, loop admission and real gateway request-copy failures.
+`test_ip_source_offload` interposes `getifaddrs` in its own executable: a blocked
+metadata read must allow a loop timer to cancel the caller, and source destruction
+must not invalidate the remaining worker packet. Its socket interposition also
+proves default IPv4 mDNS proceeds to socket setup while the pool is saturated,
+and checks interface filtering, IPv6 scope IDs and structured SIGTERM cancellation.
+Gateway tests verify same-thread ABI cycles, host cancellation of validation,
+overlapping retiring HTTP requests, and cancellation after result publication.
+Host defects reach active callers or the root error boundary after abandonment.
+The certificate suite snapshots multiple issuers and AUX, rejects misnamed roots,
+and fixes the fail-closed policy for malformed entries, directories and dangling
+links alongside valid roots. `test_trust_fallback` runs the real context factory
+in fresh processes with isolated discovery/default-directory adapters, covering
+directory-only trust and explicit-bundle precedence. No production test hooks
+are added. The real TLS component verifies a peer after snapshot source removal.
+
+`bench_coro_offload` includes `BM_metadata_snapshot/0` (synchronous lookup baseline)
+and `/1` (offload round trip). Run benchmarks in Release without sanitizers;
+these compare cost, not a guaranteed kernel-call latency or throughput improvement.
+Existing loopback, TLS and multicast test environment requirements still apply.
+
 ### SDK consumer (manual validation)
 
 `test/sdk_consumer/` is a standalone CMake project, kept outside the yaddnsc
@@ -582,13 +613,14 @@ The normative boundary is in
 
 When touching startup, transport or IP-source code, confirm by hand:
 
-- **Interface metadata stays an explicit synchronous exception.**
-  `ip_source/iface_util.cpp` reads a live snapshot per call for the interface
-  source, selected IPv4 mDNS and automatic IPv6 mDNS selection. Name/index
-  lookups in mDNS are synchronous too. These are local-state operations, not a
-  strict latency guarantee. Do not add a cache, a mutex or a single-flight wait
-  around them. Moving them to offload needs latency evidence and a review of
-  contention with plugin workers.
+- **Runtime interface metadata reads leave the loop.** Interface and mDNS
+  sources read live snapshots and name/index metadata through owned
+  `coro::offload` packets, sharing admission with plugin workers. The enclosing
+  timeout covers admission and reading; default IPv4 mDNS uses INADDR_ANY
+  without metadata or worker admission. Startup/CLI listings stay synchronous.
+  Do not add a cache, mutex or single-flight wait. Keep blocked-provider and
+  pool-saturation regressions, and measure loop responsiveness as well as lookup
+  wall time when changing this boundary.
 - **A CA bundle is only ever loaded off the loop.** Build trust material with
   `net::TlsContext::create` before `coro::run` or from `coro::offload`. A stream
   receives a pre-built context and must never load a CA bundle or register a lazy

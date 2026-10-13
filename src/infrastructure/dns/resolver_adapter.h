@@ -28,7 +28,7 @@ public:
 
     [[nodiscard]] coro::Task<std::expected<std::vector<std::string>, domain::DnsErrorInfo>> resolve(
         std::string host, domain::RecordKind type) override {
-        co_return co_await dispatcher_.resolve(std::move(host), type);
+        return dispatcher_.resolve(std::move(host), type);
     }
 
 private:

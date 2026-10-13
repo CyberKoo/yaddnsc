@@ -80,7 +80,7 @@ add_benchmark(builder)
 target_link_libraries(bench_builder PRIVATE yaddnsc_dns_classic)
 
 add_benchmark(coro_offload)
-target_link_libraries(bench_coro_offload PRIVATE yaddnsc_coro)
+target_link_libraries(bench_coro_offload PRIVATE yaddnsc_coro yaddnsc_ip_source_infrastructure)
 
 add_benchmark(tcp_prefix)
 target_link_libraries(bench_tcp_prefix PRIVATE yaddnsc_net)

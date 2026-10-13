@@ -6,6 +6,9 @@
 // cancellation therefore returns before the deadline, and the await surfaces the
 // cancellation as `coro::Cancelled` — the control exception channel.
 //
+// The returned operation may be reused; each await owns an independent
+// registration, and a relative deadline is sampled anew at every await.
+//
 // Awaiting outside coro::run is a programming defect: assertion-diagnosed in
 // Debug builds, undefined behavior in Release.
 //

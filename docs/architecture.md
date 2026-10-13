@@ -173,8 +173,9 @@ one matching sibling must not hide a stale managed record. Mixed RRsets may
 therefore cause a provider request every cycle; the driver still updates only
 its configured record or record set.
 
-Child results are single-consumer: `co_await Handle<T>` claims the result at
-await entry, shared across handle copies and `next<T>()`. Joining an empty or
+Child results are single-consumer: `co_await Handle<T>` reserves the result at
+await entry, shared across handle copies and `next<T>()`, and commits consumption
+only when the wait resumes successfully. Cancelling releases the reservation. Joining an empty or
 already claimed handle throws `std::logic_error`. `next<T>()` returns `nullopt`
 as soon as there are no unclaimed children of type `T`, without waiting for
 other result types. Handle claims notify parked `next()` callers immediately,
@@ -187,8 +188,8 @@ Handle copies retain only a safe invalidation record, not execution ownership.
 `next<T>()` observes its caller's current cancel scope, not the group's scope.
 A cancelled waiter detaches its subscription without claiming a result or
 cancelling the producers. Completion/cancellation enqueue at most one resume;
-sticky cancellation wins before result consumption. Handle joins retain their
-non-interruptible contract. `TaskGroup::join()` is an internal-style drain:
+sticky cancellation wins before result consumption. Handle result waits follow
+the same caller-scope rule, without cancelling the producer. `TaskGroup::join()` is an internal-style drain:
 it waits for owned children despite caller cancellation, without consuming results.
 
 Keeping the body frame alive does not extend body-local object lifetimes.
@@ -378,9 +379,12 @@ it in CPU loops. Sleep, fd waits, stop waits, mutex acquisition, offload and
 transport I/O and group `next()` are checkpoints too. TCP wrappers and aggregate
 reads/writes check cancellation without yielding; each underlying recv/send
 keeps its checkpoint and cancellable fd wait. Empty-buffer and invalid-stream
-returns still observe cancellation. Awaiting a `Task` or `Handle` propagates its
-result, but is not itself a cancellation check; `current_time()` reads loop time
-without suspending.
+returns still observe cancellation. Handle result waits are checkpoints; inline
+`Task` composition propagates the child's result and cancellation rather than
+adding a checkpoint. `current_time()` reads loop time without suspending.
+Mutex, sleep and fd operations are reusable descriptors: each `co_await` creates
+its own registration, so a completed or cancelled wait leaves no state in the
+operation. Relative sleep deadlines are sampled at each await.
 
 **Leaving the loop.** `coro::offload(fn)` runs `fn` on the pool and returns its
 result through the loop. Its owned callable is invoked as an lvalue, including
@@ -394,31 +398,51 @@ finishes, so resources borrowed by its callable may be local to the awaiting
 operation. A no-argument callable cannot be interrupted once running; a callable
 accepting `std::stop_token` receives a stop request and may cooperate. Stop
 callbacks run at cancellation on the loop and must not block or re-enter it.
-Queued cancelled jobs are skipped. After root completion, `run()` keeps pumping
+Admission is FIFO on the loop before BS submission, with capacity equal to the
+configured worker count. Cancelling an unsubmitted job removes it and releases
+its captures immediately, including for joined waits. Submitted jobs retain their
+capacity until actual completion, even when abandoned; queued submitted jobs are
+skipped when cancelled. Joined waits also report worker defects that occur during
+cancelled cleanup; cancellation does not hide a defect from their owner.
+After root completion, `run()` keeps pumping
 the inbox until all submitted work and completion accounting have drained;
 workers may finish loop hand-offs, but cannot start requests in a closed group.
 An uncooperative indefinitely blocked worker still prevents run() returning:
 there is no hard thread-kill or bounded-shutdown guarantee.
 
-**Plugin bridge.** The plugin C ABI is synchronous, so an update cycle runs on
-an offload worker. When the plugin calls `http_exchange`, the bridge posts a
-fire-and-forget child coroutine into the application's `TaskGroup` (supplied by
-the composition root); the loop runs the coroutine HTTP client and the worker
-waits for it. Admission checks a shared group lifetime token on the loop;
-body exit closes ingress before drain, so posted callbacks cannot dereference
-a destroyed group. Child-start allocation failure fulfils the request with an
-INTERNAL_ERROR instead of escaping dispatch. A real steady-clock deadline from
-the gateway's `bridge_wait_budget` (5s) bounds worker waiting, including dispatch,
-queueing and I/O. At admission, the remaining real duration is translated into
-an absolute loop-clock deadline; dispatch does not restart a full budget. An
-already expired request never starts HTTP. Worker expiry posts actual
-cancellation and returns NETWORK_ERROR; no slack or ordering assumption remains.
-The cancelled latch is checked both at entry and after publishing the exchange
-scope, so a cancellation delivered before publication cannot be lost.
-Abandoning an update cancels its exchange scope, not the worker thread. Its slot
-is released only when the plugin function returns. Each HTTP callback has its
-own bridge budget; it does not bound the whole plugin function. ABI data, module
-leases and plugin status translation remain plugin responsibilities.
+**Plugin bridge.** The synchronous v1 C ABI runs create/update/destroy in one
+worker packet on one thread. A cycle owner is a discard child of the composition
+root's long-lived group. It owns a shielded group containing the joined worker
+and all live or retiring HTTP children. A separate loop controller remains
+runnable while the worker is parked. Caller/root cancellation hooks latch the
+cycle state and wake that controller without allocation or runtime reentry.
+The controller cancels the worker wait and every live HTTP scope; submitted
+synchronous work still drains to actual completion.
+
+Host Services copies a request on the worker and posts it to the loop. Admission
+checks the cycle's sticky cancellation and group lifetime token before starting
+HTTP; requests copied after the caller's cancellation are rejected. Publication
+of the HTTP scope repeats the latch check. Operation registration and scope
+cancellation belong to the loop; the worker only reads the atomic cancellation
+view. The cycle's live set holds weak references; the group and each request
+own actual work, so retirement does not rely on erasing a shared-ownership ring.
+Completed request registrations are removed; completed owner frames are
+reaped rather than retained until shutdown.
+
+Each exchange has a steady-clock `bridge_wait_budget` (5s), covering dispatch
+and I/O. Its remaining duration becomes a loop-clock deadline without restarting
+the budget. Worker expiry returns NETWORK_ERROR and requests cancellation; owner
+exit drains the HTTP child even when the worker has already stopped waiting.
+Cycle cancellation returns CANCELLED. The caller may leave immediately, but ABI
+arenas, module/logger leases and worker capacity survive to real completion.
+An active caller receives host defects; the owner retains its error boundary
+until the subscriber consumes the result or cancels. An unobserved late host
+defect reaches the root group's error boundary. Ordinary cancelled/operational unused outcomes
+are retired. Direct Bridge exchanges without a cycle report INTERNAL_ERROR to
+their worker and propagate the host defect to the bound group's error boundary.
+Synchronous HTTP still occupies its v1 worker, and an uncooperative
+plugin can prevent shutdown completing. HTTP/DNS transport dependencies use loop
+I/O and must not require another worker in the same saturated pool.
 
 HTTP keep-alive deadlines also use loop time and are checked before reuse, not
 by a background expiry timer. ManualClock tests use in-memory transport fakes;
@@ -458,17 +482,19 @@ needed; SSL calls await the direction indicated by WANT_READ/WANT_WRITE. DNS,
 provider HTTP and the 500ms mDNS window all use cancellable loop I/O. This is not
 a guarantee that every system or library call on the loop has zero latency.
 File/loader I/O runs at startup and plugin ABI work uses offload. The sanctioned
-local metadata and randomness calls below remain synchronous; they have no
-strict wall-time bound.
+randomness calls below remain synchronous and have no strict wall-time bound.
+Runtime network-interface metadata uses owned offload packets; socket setup and
+I/O remain on the loop. Default IPv4 mDNS uses INADDR_ANY without metadata and
+therefore does not wait for worker capacity. Startup/CLI metadata queries before run remain synchronous.
 
 | Blocking/synchronous point | Where | Limits and caveats |
 |----------------------------|-------|--------------------|
-| `getifaddrs()` | `infrastructure/ip_source/iface_util.cpp`, on the loop thread | Live local metadata snapshot, no remote resolution and no cache. Called by the interface source, explicitly selected IPv4 mDNS, and automatic IPv6 mDNS interface selection; local-state size limits work, not elapsed time |
-| interface name/index lookup | `infrastructure/ip_source/mdns.cpp` and `iface_util.cpp`, on the loop thread | `if_nametoindex` for explicit/automatic selection and `if_indextoname` for diagnostics are synchronous local metadata operations |
+| `getifaddrs()` | `infrastructure/ip_source/iface_util.cpp`, offload for runtime interface/mDNS sources; synchronous before run | Live owned snapshot with IPv6 scope IDs, no cache; the caller deadline covers admission and work. Abandoned packets own all inputs until completion |
+| interface name/index lookup | `infrastructure/ip_source/mdns.cpp` and `iface_util.cpp`, offload for runtime selection | Index/address/name are computed before socket setup; no socket is passed to the worker. IPv4 default routing and IPv6 interface filtering are unchanged |
 | random acquisition | `support/util/random.hpp`, called by DNS builders and dispatcher shuffling on the loop | RAND_bytes may initialize/reseed or synchronize; random_device seeds the thread-local mt19937 on first use. No guaranteed latency bound. Unsent dispatcher preflight, fixed-ID mDNS and DoT wire sizing bypass secure-ID acquisition; cryptographic failure is an operational DNS error, never a predictable fallback |
 | startup file/loader I/O | `composition/assembly.cpp` and `composition/commands/`, on the main thread before `coro::run` | Config read, static validation, plugin `dlopen`, the environment check and the trust-context build happen once, before any coroutine exists |
 | `/etc/resolv.conf` read | `infrastructure/dns/bootstrap/resolv_conf.cpp`, reached from `composition/assembly.cpp` on the main thread | A `std::ifstream` of a small system file, read once at startup to fill the bootstrap server list when none is configured |
-| CA discovery + trust-store load | `infrastructure/network/tls/context.cpp`, off-loop only (`TlsContext::create`) | Bundle discovery is a function-local static, so the filesystem is touched once per process rather than per `create()`; trust material is then populated eagerly during `create()` through `SSL_CTX_load_verify_locations`, or `X509_STORE_load_path` on the OpenSSL default cert dir as the fallback — never the lazy registrars. One immutable context is shared, so a handshake runs entirely from memory |
+| CA discovery + trust-store load | `infrastructure/network/tls/context.cpp`, off-loop only (`TlsContext::create`) | Bundle discovery is a function-local static, so the filesystem is touched once per process rather than per `create()`; trust material is then populated eagerly during `create()` through `SSL_CTX_load_verify_locations`, or eager `X509_STORE_load_file` for each hashed certificate/CRL entry in the default cert dir. Trusted PEM AUX is preserved; missing/empty directories or any unreadable, malformed or hash-mismatched indexed entry reject the entire snapshot (stricter than lazy lookup). No lazy hash-dir lookup is installed, and existing contexts keep their snapshot until rebuilt. One immutable context is shared; handshake verification reads the trust snapshot instead of the filesystem |
 | plugin ABI cycle (`create`/`update`/`destroy`) | offload pool; cycles of one driver run concurrently on distinct instances, bounded by the pool's worker count | The C ABI is synchronous, so the cycle runs on a worker and waits until the bridge's HTTP child coroutine completes on the loop |
 | log write | log drain thread (async spdlog sink) | The caller hands the record over and continues; a full queue discards the newest record |
 | CPU-intensive work | any `coro::offload` call site | `offload` is the single exit for blocking *and* CPU-bound work (the `asyncio.to_thread` analogue); the total off-loop workload is structurally bounded by the configuration |

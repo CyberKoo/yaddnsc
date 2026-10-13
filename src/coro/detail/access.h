@@ -41,7 +41,9 @@ struct LoopAccess {
 
     static void remove_fd(Loop& loop, FdToken token) noexcept { loop.remove_fd(token); }
 
-    static void submit_offload(Loop& loop, std::function<void()> job) { loop.submit_offload(std::move(job)); }
+    static void admit_offload(Loop& loop, OffloadAdmission& admission) { loop.admit_offload(admission); }
+
+    static void cancel_offload(Loop& loop, OffloadAdmission& admission) noexcept { loop.cancel_offload(admission); }
 };
 
 /// Runtime-only access to a scope's waiter bookkeeping and cancellation cause.

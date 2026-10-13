@@ -24,14 +24,12 @@
 // promise is written on the loop and read on the worker, so the loop cannot
 // deadlock against it.
 //
-// Cancellation and lifetime: the loop-side coroutine is spawned into a
-// TaskGroup the composition root owns, so it is structured, not detached. When
-// that group's scope is cancelled (shutdown), the in-flight exchange is
-// cancelled at its await, the promise is fulfilled with a cancellation error,
-// and the waiting worker unblocks. The coroutine shares no mutable state with
-// the Bridge object: everything it needs (HTTP policy, wait budget) is copied
-// into an immutable shared block at exchange() time, so an abandoned exchange
-// may outlive the Bridge itself without dangling.
+// Cancellation and lifetime: gateway cycles own a shielded group containing
+// joined worker work and all live/retiring HTTP children. The root owns the
+// cycle, and an independent loop controller handles cancellation while the
+// worker waits. Sticky cycle cancellation participates in loop admission, so
+// a late worker publication cannot start an exchange after caller cancellation.
+// Standalone Bridge calls use the supplied root group directly.
 //
 // Admission uses a shared group lifetime token, checked only on the loop.
 // Requests posted after group closure are rejected without dereferencing a dead
@@ -48,17 +46,20 @@
 
 #include <atomic>
 #include <chrono>
+#include <cstdint>
+#include <exception>
 #include <future>
 #include <memory>
-#include <mutex>
 #include <string>
 #include <utility>
+#include <vector>
 
 #include <expected>
-#include <stdint.h>
 #include <yaddnsc/sdk/driver_abi.h>
 
+#include "coro/detail/wait_node.h"
 #include "coro/task.hpp"
+#include "domain/error/error.h"
 #include "infrastructure/http/types.h"
 
 namespace coro {
@@ -80,17 +81,21 @@ struct BridgeError {
     uint32_t retry_after_seconds = 0;
 };
 
+struct CallState;
+
 /// One bridged exchange: everything the loop side needs, plus the shared cell
 /// the worker waits on.
 ///
 /// Ownership: held by std::shared_ptr; the worker, the posted spawn closure and
 /// the loop-side coroutine each hold a share, so an abandoned wait never leaves
-/// the loop side with a dangling promise.
+/// the loop side with a dangling promise. cycle optionally retains its owner;
+/// the loop removes the call from that owner's weak live set on completion.
 /// Thread safety: `cancelled` is atomic, worker_deadline/request are immutable after
 /// posting, and the promise synchronizes result delivery. `live_scope` is
 /// loop-thread only: serve_exchange publishes and clears it, and Bridge::cancel
 /// reads it from a lambda posted onto the loop.
 struct BridgeCall {
+    std::shared_ptr<CallState> cycle;
     std::string url;
     http::Request request;
     /// Fulfilled exactly once by the loop-side coroutine, on every path.
@@ -108,33 +113,36 @@ struct BridgeCall {
     std::chrono::steady_clock::time_point worker_deadline{};
 };
 
-/// Per-ABI-call state shared by the worker-side cycle and the plugin-facing
-/// predicates.
+/// One cycle owner: only cancelled crosses threads; all other fields are loop-only.
+/// The owner and worker retain leases until HTTP children and real work finish.
 struct CallState {
-    /// Set when the enclosing scope cancelled this call (abandon).
     std::atomic<bool> cancelled{false};
+    std::shared_ptr<coro::detail::GroupLifetime> lifetime;
+    // The group owns HTTP children; tracking borrows without a cycle->call->cycle ring.
+    std::vector<std::weak_ptr<BridgeCall>> calls;
+    coro::detail::PromiseBase* control = nullptr;
+    coro::detail::WaitNode* subscriber = nullptr;
+    std::expected<void, domain::DriverError> result;
+    std::exception_ptr error;
+    /// Worker-only until joined completion publishes it to the loop.
+    std::exception_ptr worker_error;
+    coro::CancelScope* worker_scope = nullptr;
+    bool error_observed = false;
+    bool plugin_cancelled = false;
+    bool worker_done = false;
+    bool owner_done = false;
+    bool cancellation_applied = false;
 
-    /// Publish the exchange currently in flight for this call (worker, around
-    /// the blocking wait), nullptr once it ends.
-    ///
-    /// A mutex stands in for std::atomic<std::shared_ptr>: libc++ does not
-    /// implement that specialization (P0718R2), and every access here is a
-    /// cold path, so the lock is never meaningfully contended.
-    void set_in_flight(std::shared_ptr<BridgeCall> call) {
-        const std::lock_guard lock(in_flight_mutex);
-        in_flight_ = std::move(call);
+    /// Worker-only until joined completion; preserve the first host defect.
+    void record_worker_error(std::exception_ptr defect) noexcept {
+        if (!worker_error) {
+            worker_error = std::move(defect);
+        }
     }
 
-    /// The in-flight exchange, or nullptr. Read by is_cancelled() on the
-    /// worker and by the gateway's abandon path on the loop thread.
-    [[nodiscard]] std::shared_ptr<BridgeCall> in_flight_call() {
-        const std::lock_guard lock(in_flight_mutex);
-        return in_flight_;
-    }
-
-private:
-    std::mutex in_flight_mutex;
-    std::shared_ptr<BridgeCall> in_flight_;
+    /// Loop-only signal; cancellation hooks may call this without allocation.
+    void signal() noexcept;
+    void request_cancel() noexcept;
 };
 
 namespace detail {
@@ -194,6 +202,10 @@ public:
     Bridge& operator=(const Bridge&) = delete;
     Bridge(Bridge&&) = delete;
     Bridge& operator=(Bridge&&) = delete;
+
+    /// Start an owned cycle in the long-lived root group. Loop thread only.
+    /// Allocation may throw; closed ingress throws std::logic_error.
+    void start_cycle(coro::Task<void> cycle);
 
     /// Worker side: run `call` on the loop and return its answer. Blocks the
     /// calling thread; may be called from any thread.

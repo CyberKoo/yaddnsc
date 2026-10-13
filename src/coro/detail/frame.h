@@ -44,8 +44,6 @@ struct PromiseBase {
     PromiseBase* ready_next = nullptr;
     /// Completed frames awaiting loop-side destruction after final_suspend.
     PromiseBase* reap_next = nullptr;
-    /// Intrusive link for group waiter lists (join / next()).
-    PromiseBase* wait_next = nullptr;
     /// Frame to resume when this frame completes (null for the root task and
     /// for group children, which are woken through `completion`).
     PromiseBase* continuation = nullptr;

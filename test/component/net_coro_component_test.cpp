@@ -16,6 +16,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
 #include <cstdlib>
 #include <filesystem>
 #include <memory>
@@ -28,19 +29,22 @@
 #include <arpa/inet.h>
 #include <gtest/gtest.h>
 #include <netinet/in.h>
+#include <openssl/pem.h>
+#include <openssl/ssl.h>
 #include <signal.h>
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
-#include "domain/network/inet_address.h"
 #include "coro/coro.h"
+#include "domain/network/inet_address.h"
 #include "infrastructure/dns/exchange.h"
-#include "infrastructure/network/transport/io_error.h"
-#include "infrastructure/network/transport/tcp_stream.h"
 #include "infrastructure/network/tls/context.h"
 #include "infrastructure/network/tls/stream.h"
+#include "infrastructure/network/tls/trust_store.h"
+#include "infrastructure/network/transport/io_error.h"
+#include "infrastructure/network/transport/tcp_stream.h"
 #include "infrastructure/network/transport/udp_socket.h"
 #include "support/util/fd.hpp"
 
@@ -381,8 +385,8 @@ TEST_F(TlsEchoServerTest, ensure_connected_SniHostnameWithVerificationDisabled_C
     // on the SSL verify parameter. The server certificate is for 127.0.0.1, so
     // verification stays off; this proves the branch itself does not fail. The
     // SNI name goes to the stream — the trust context never carried it.
-    net::TlsStream stream{loopback_v4(), TLS_ECHO_PORT, client_context({.verify_peer = false}), {},
-                          {.sni_hostname = "dns.example.com"}};
+    net::TlsStream stream{
+        loopback_v4(), TLS_ECHO_PORT, client_context({.verify_peer = false}), {}, {.sni_hostname = "dns.example.com"}};
 
     const std::vector<std::uint8_t> payload{7, 7};
     const std::vector<std::uint8_t> message = framed(payload);
@@ -669,3 +673,30 @@ TEST(NetCoroDnsExchange, strayRepliesDoNotPreventTheMatchingAnswer) {
 }
 
 }  // namespace
+
+TEST_F(TlsEchoServerTest, ensure_connected_DirectorySnapshotWithSourcesRemoved_VerifiesPeer) {
+    const auto context = client_context({.ca_bundle = cert_path()});
+    ASSERT_TRUE(context);
+    const std::filesystem::path dir = std::filesystem::path(cert_path()).parent_path() / "hashed";
+    std::filesystem::create_directory(dir);
+    const std::unique_ptr<BIO, decltype(&BIO_free)> pem{BIO_new_file(cert_path().c_str(), "r"), &BIO_free};
+    ASSERT_TRUE(pem);
+    const std::unique_ptr<X509, decltype(&X509_free)> cert{PEM_read_bio_X509(pem.get(), nullptr, nullptr, nullptr),
+                                                           &X509_free};
+    ASSERT_TRUE(cert);
+    char hash_name[32]{};
+    std::snprintf(hash_name, sizeof(hash_name), "%08lx.0", X509_subject_name_hash(cert.get()));
+    std::filesystem::copy_file(cert_path(), dir / hash_name);
+    std::unique_ptr<X509_STORE, decltype(&X509_STORE_free)> store{X509_STORE_new(), &X509_STORE_free};
+    ASSERT_TRUE(store);
+    ASSERT_TRUE(net::detail::load_trust_directory(*store, dir));
+    // Replace the initially loaded bundle store before any stream uses context.
+    SSL_CTX_set_cert_store(context->native_handle(), store.release());
+    std::filesystem::remove_all(dir);
+    std::filesystem::remove(cert_path());
+    net::TlsStream stream{loopback_v4(), TLS_ECHO_PORT, context};
+    bool connected = false;
+    auto task = [&]() -> coro::Task<void> { connected = (co_await stream.ensure_connected()).has_value(); };
+    run_task(task());
+    EXPECT_TRUE(connected);
+}

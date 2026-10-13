@@ -24,6 +24,7 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -66,6 +67,9 @@ std::atomic<uint64_t> g_destroys{0};
 std::atomic<uint64_t> g_last_create_seq{0};
 std::atomic<uint64_t> g_last_update_seq{0};
 std::atomic<uint64_t> g_last_destroy_seq{0};
+std::atomic<uint64_t> g_thread_violations{0};
+std::atomic<bool> g_validation_started{false};
+std::atomic<bool> g_release_validation{false};
 
 void tick(std::atomic<uint64_t>& slot) {
     const uint64_t seq = g_clock.fetch_add(1, std::memory_order_relaxed) + 1;
@@ -129,11 +133,13 @@ public:
     }
 
     ~TestDriver() override {
+        check_thread();
         g_destroys.fetch_add(1, std::memory_order_relaxed);
         tick(g_last_destroy_seq);
     }
 
     Result update(UpdateContext& context) override {
+        check_thread();
         g_updates.fetch_add(1, std::memory_order_relaxed);
         tick(g_last_update_seq);
 
@@ -147,8 +153,22 @@ public:
             return std::unexpected(Error{status_by_name(config.status.value_or("internal_error")),
                                          config.message.value_or(""), config.retry_after.value_or(0)});
         }
-        if (op == "exchange") {
+        if (op == "exchange" || op == "log_then_exchange") {
             return run_exchanges(context, config);
+        }
+        if (op == "exchange_after_timeout") {
+            HttpRequest request;
+            request.url = config.url.value_or("http://127.0.0.1/");
+            auto first = context.exchange(request);
+            if (first || first.error().status != YADDNSC_STATUS_NETWORK_ERROR) {
+                return std::unexpected(Error{YADDNSC_STATUS_INTERNAL_ERROR, "first exchange must time out", 0});
+            }
+            auto second = context.exchange(request);
+            if (!second) {
+                return std::unexpected(
+                    Error{second.error().status, second.error().message, second.error().retry_after_seconds});
+            }
+            return {};
         }
         if (op == "log_macro") {
             YADDNSC_SDK_LOG_INFO(context, "{}", config.message.value_or("marker"));
@@ -178,7 +198,13 @@ public:
     /// everything; "reject_validate" lets host-side tests exercise the
     /// INVALID_CONFIG mapping and message pass-through.
     Result validate(std::string_view driver_param_json) const override {
+        check_thread();
         const auto config = parse_config<TestDriverConfig>(driver_param_json);
+        if (config.op.value_or("success") == "wait_validate") {
+            g_validation_started.store(true);
+            g_release_validation.wait(false);
+            return {};
+        }
         if (config.op.value_or("success") == "cancel_validate") {
             return std::unexpected(Error{YADDNSC_STATUS_CANCELLED, "validation cancelled by plugin", 0});
         }
@@ -190,6 +216,14 @@ public:
     }
 
 private:
+    const std::thread::id creator_thread_ = std::this_thread::get_id();
+
+    void check_thread() const noexcept {
+        if (std::this_thread::get_id() != creator_thread_) {
+            g_thread_violations.fetch_add(1);
+        }
+    }
+
     /// Perform `http_count` exchanges; after each one, every previously
     /// received response view must still byte-compare equal to its snapshot
     /// (the ABI contract: views live until yaddnsc_driver_update() returns).
@@ -222,6 +256,9 @@ private:
             request.body = fmt::format("plugin-request-{}", i);
             request.content_type = "application/json";
 
+            if (config.op.value_or("") == "log_then_exchange") {
+                YADDNSC_SDK_LOG_INFO(context, "inject host request allocation failure");
+            }
             auto response = context.exchange(request);
             if (!response) {
                 return std::unexpected(Error{response.error().status,
@@ -290,6 +327,9 @@ extern "C" YADDNSC_SDK_EXPORT void test_plugin_set_create_failures(int count) {
 }
 
 extern "C" YADDNSC_SDK_EXPORT void test_plugin_reset_state() {
+    g_thread_violations.store(0);
+    g_validation_started.store(false);
+    g_release_validation.store(false);
     g_create_failures.store(0, std::memory_order_relaxed);
     g_clock.store(0, std::memory_order_relaxed);
     g_creates.store(0, std::memory_order_relaxed);
@@ -298,6 +338,19 @@ extern "C" YADDNSC_SDK_EXPORT void test_plugin_reset_state() {
     g_last_create_seq.store(0, std::memory_order_relaxed);
     g_last_update_seq.store(0, std::memory_order_relaxed);
     g_last_destroy_seq.store(0, std::memory_order_relaxed);
+}
+
+extern "C" YADDNSC_SDK_EXPORT uint64_t test_plugin_thread_violations() {
+    return g_thread_violations.load();
+}
+
+extern "C" YADDNSC_SDK_EXPORT bool test_plugin_validation_started() {
+    return g_validation_started.load();
+}
+
+extern "C" YADDNSC_SDK_EXPORT void test_plugin_release_validation() {
+    g_release_validation.store(true);
+    g_release_validation.notify_one();
 }
 
 extern "C" YADDNSC_SDK_EXPORT void test_plugin_get_state(uint64_t* creates, uint64_t* updates, uint64_t* destroys,

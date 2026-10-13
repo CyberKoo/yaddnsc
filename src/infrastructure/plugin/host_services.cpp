@@ -5,24 +5,25 @@
 
 #include "host_services.h"
 
-#include <yaddnsc/sdk/driver_abi.h>
 #include <algorithm>
 #include <array>
 #include <cstdint>
 #include <cstring>
 #include <exception>
+#include <map>
 #include <optional>
 #include <span>
 #include <string>
 #include <string_view>
 #include <utility>
+
 #include <expected>
-#include <map>
+#include <yaddnsc/sdk/driver_abi.h>
 
 #include "application/ports/log.h"
+#include "coro/cancelled.h"
 #include "infrastructure/http/types.h"
 #include "infrastructure/plugin/abi_string.h"
-#include "coro/cancelled.h"
 
 namespace plugin {
 
@@ -168,8 +169,10 @@ yaddnsc_status HostServicesContext::http_exchange_entry(void* context, const yad
         write_error(out_error, YADDNSC_STATUS_CANCELLED, "the request was cancelled");
         return YADDNSC_STATUS_CANCELLED;
     } catch (const std::exception& e) {
+        static_cast<HostServicesContext*>(context)->state_->record_worker_error(std::current_exception());
         write_error(out_error, YADDNSC_STATUS_INTERNAL_ERROR, copy_callback_error(e.what()));
     } catch (...) {
+        static_cast<HostServicesContext*>(context)->state_->record_worker_error(std::current_exception());
         write_error(out_error, YADDNSC_STATUS_INTERNAL_ERROR, "unknown host exception during http exchange");
     }
     return YADDNSC_STATUS_INTERNAL_ERROR;
@@ -223,9 +226,8 @@ yaddnsc_status HostServicesContext::http_exchange(const yaddnsc_http_request& re
     }
     call->request.content_type = std::string(detail::to_view(request.content_type));
 
-    state_->set_in_flight(call);
+    call->cycle = state_;
     auto response = bridge_.exchange(call);
-    state_->set_in_flight(nullptr);
 
     if (!response) {
         const auto& error = response.error();

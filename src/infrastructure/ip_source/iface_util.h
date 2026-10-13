@@ -8,7 +8,7 @@
 namespace domain {
 class InetAddress;
 enum class AddressFamily;
-}
+}  // namespace domain
 
 /// InterfaceUtil — low-level utility for enumerating local network interfaces
 ///                 and their IP addresses.
@@ -17,8 +17,9 @@ enum class AddressFamily;
 /// single-flight completion waits. A name may disappear between calls; the
 /// one-pass get_all() is the consistent read for listings.
 ///
-/// getifaddrs() is a kernel call that returns a bounded, small snapshot, so it
-/// is an accepted blocking point on the loop thread (system metadata read).
+/// These synchronous metadata reads may block. Call them before the loop
+/// starts, or in an owned coro::offload packet during runtime; never directly
+/// on the loop thread. Worker inputs and snapshots must own their storage.
 ///
 /// @note Thread-safe: snapshots are owned independently by each caller.
 namespace ipsource {

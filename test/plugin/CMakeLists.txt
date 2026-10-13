@@ -162,3 +162,14 @@ foreach(test_target test_plugin_abi_contract test_plugin_lifecycle)
         yaddnsc_fixture_create_contract
         yaddnsc_fixture_validate_http)
 endforeach()
+
+# Separate allocator rendezvous: does not affect dlopen or other test binaries.
+add_unit_test(plugin_cancellation_publication SOURCE cancellation_publication_test.cpp)
+target_link_libraries(test_plugin_cancellation_publication PRIVATE yaddnsc_coro_plugin)
+target_compile_definitions(test_plugin_cancellation_publication PRIVATE
+    TEST_PLUGIN_PATH="$<TARGET_FILE:yaddnsc_test_driver_plugin>"
+)
+add_dependencies(test_plugin_cancellation_publication yaddnsc_test_driver_plugin)
+set_tests_properties(test_plugin_cancellation_publication PROPERTIES
+    ENVIRONMENT "ASAN_OPTIONS=detect_odr_violation=0:detect_stack_use_after_return=1:strict_string_checks=1:detect_invalid_pointer_pairs=2"
+    TIMEOUT 20)

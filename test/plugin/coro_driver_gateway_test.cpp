@@ -21,6 +21,7 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -76,6 +77,12 @@ public:
         library_ = std::move(*library);
         reset_ = reinterpret_cast<void (*)()>(library_.resolve("test_plugin_reset_state"));  // NOLINT
         get_ = reinterpret_cast<GetState>(library_.resolve("test_plugin_get_state"));        // NOLINT
+        thread_violations_ =
+            reinterpret_cast<std::uint64_t (*)()>(library_.resolve("test_plugin_thread_violations"));  // NOLINT
+        validation_started_ =
+            reinterpret_cast<bool (*)()>(library_.resolve("test_plugin_validation_started"));  // NOLINT
+        release_validation_ =
+            reinterpret_cast<void (*)()>(library_.resolve("test_plugin_release_validation"));  // NOLINT
     }
 
     void reset() const {
@@ -93,6 +100,12 @@ public:
         return value;
     }
 
+    [[nodiscard]] std::uint64_t thread_violations() const { return thread_violations_(); }
+
+    [[nodiscard]] bool validation_started() const { return validation_started_(); }
+
+    void release_validation() const { release_validation_(); }
+
 private:
     using GetState = void (*)(std::uint64_t*, std::uint64_t*, std::uint64_t*, std::uint64_t*, std::uint64_t*,
                               std::uint64_t*);
@@ -100,6 +113,9 @@ private:
     SharedLibrary library_;
     void (*reset_)() = nullptr;
     GetState get_ = nullptr;
+    std::uint64_t (*thread_violations_)() = nullptr;
+    bool (*validation_started_)() = nullptr;
+    void (*release_validation_)() = nullptr;
 };
 
 /// In-process HTTP/1.1 server: one handler thread per connection. In hold mode
@@ -137,7 +153,8 @@ public:
                 address.sin_family = AF_INET;
                 address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
                 address.sin_port = htons(port_);
-                ::connect(wake, reinterpret_cast<sockaddr*>(&address), sizeof(address));
+                [[maybe_unused]] const int woke =
+                    ::connect(wake, reinterpret_cast<sockaddr*>(&address), sizeof(address));
                 ::close(wake);
             }
             listener_.reset();
@@ -174,7 +191,9 @@ private:
         address.sin_family = AF_INET;
         address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
         address.sin_port = 0;
-        ::bind(listener_.get(), reinterpret_cast<sockaddr*>(&address), sizeof(address));
+        if (::bind(listener_.get(), reinterpret_cast<sockaddr*>(&address), sizeof(address)) != 0) {
+            throw std::runtime_error("cannot bind loopback HTTP test listener");
+        }
 
         socklen_t length = sizeof(address);
         ::getsockname(listener_.get(), reinterpret_cast<sockaddr*>(&address), &length);
@@ -347,7 +366,7 @@ TEST(Bridge, SubmissionAfterGroupClosure_RejectsWithoutTouchingDeadGroup) {
 
 namespace {
 
-class ClockedBridgeStream final : public net::Stream {
+class ClockedBridgeStream : public net::Stream {
 public:
     explicit ClockedBridgeStream(coro::Duration delay) : delay_(delay) {}
 
@@ -372,14 +391,14 @@ public:
 
     void close() noexcept override {}
 
-    bool connected() const noexcept override { return true; }
+    [[nodiscard]] bool connected() const noexcept override { return true; }
 
 private:
     coro::Duration delay_;
     std::size_t cursor_ = 0;
 };
 
-class ClockedBridgeFactory final : public net::StreamFactory {
+class ClockedBridgeFactory : public net::StreamFactory {
 public:
     explicit ClockedBridgeFactory(coro::Duration delay) : delay_(delay) {}
 
@@ -398,6 +417,76 @@ public:
 
 private:
     coro::Duration delay_;
+};
+
+/// A defect during shielded transport cleanup remains a host defect after cancel.
+class DefectiveCleanupStream final : public ClockedBridgeStream {
+public:
+    explicit DefectiveCleanupStream(bool& entered) : ClockedBridgeStream(0ms), entered_(entered) {}
+
+    coro::Task<std::expected<void, net::IoError>> ensure_connected() override {
+        entered_ = true;
+        co_await coro::non_cancellable([](coro::CancelScope&) -> coro::Task<void> {
+            co_await coro::sleep_for(10ms);
+            throw std::runtime_error("host transport cleanup defect");
+        });
+        co_return {};
+    }
+
+private:
+    bool& entered_;
+};
+
+class DefectiveCleanupFactory final : public ClockedBridgeFactory {
+public:
+    DefectiveCleanupFactory() : ClockedBridgeFactory(0ms) {}
+
+    std::unique_ptr<net::Stream> create_tcp(domain::InetAddress, std::uint16_t, const net::ConnectOptions&) override {
+        return std::make_unique<DefectiveCleanupStream>(entered);
+    }
+
+    bool entered = false;
+};
+
+class RetiringStream final : public ClockedBridgeStream {
+public:
+    RetiringStream(bool first, bool& release, int& alive)
+        : ClockedBridgeStream(0ms), first_(first), release_(release), alive_(alive) {
+        ++alive_;
+    }
+
+    ~RetiringStream() override { --alive_; }
+
+    coro::Task<std::expected<void, net::IoError>> ensure_connected() override {
+        if (first_) {
+            co_await coro::non_cancellable([&](coro::CancelScope&) -> coro::Task<void> {
+                while (!release_) {
+                    co_await coro::checkpoint();
+                }
+            });
+            co_await coro::checkpoint();
+        } else {
+            co_await coro::sleep_for(30s);
+        }
+        co_return {};
+    }
+
+private:
+    bool first_;
+    bool& release_;
+    int& alive_;
+};
+
+class RetiringFactory final : public ClockedBridgeFactory {
+public:
+    RetiringFactory() : ClockedBridgeFactory(0ms) {}
+
+    std::unique_ptr<net::Stream> create_tcp(domain::InetAddress, std::uint16_t, const net::ConnectOptions&) override {
+        return std::make_unique<RetiringStream>(++calls_ == 1, release, alive);
+    }
+
+    bool release = false;
+    int alive = 0;
 };
 
 }  // namespace
@@ -860,4 +949,244 @@ TEST(CoroDriverGatewayValidate, MissingValidateEntryFailsConfigTest) {
     ASSERT_FALSE(result.has_value());
     EXPECT_EQ(result.error().code, domain::DriverError::Code::UNKNOWN);
     EXPECT_THAT(result.error().message, ::testing::HasSubstr("does not provide yaddnsc_driver_validate"));
+}
+
+TEST_F(CoroDriverGatewayTest, HostDefect_WithActiveCaller_IsRethrownAfterCycleDrain) {
+    PluginControl control{std::string(PLUGIN_PATH)};
+    control.reset();
+    auto factory = std::make_shared<DefectiveCleanupFactory>();
+    auto options = default_options();
+    options.http.factory = factory;
+    coro::Loop loop;
+    auto root = [&]() -> coro::Task<void> {
+        co_await coro::supervisor_group([&](coro::TaskGroup& group) -> coro::Task<void> {
+            plugin::DriverGateway gateway(catalog_, logger_, loop, group, options);
+            co_await group.with_children([&]() -> coro::Task<void> {
+                EXPECT_THROW(co_await gateway.update(DRIVER_NAME, make_command(exchange_params(1, 1))),
+                             std::runtime_error);
+            });
+        });
+    };
+    coro::run(loop, root());
+    EXPECT_TRUE(factory->entered);
+    EXPECT_EQ(control.state().destroys, 1u);
+}
+
+TEST_F(CoroDriverGatewayTest, HostDefect_AfterCallerCancellation_ReachesRootErrorBoundary) {
+    PluginControl control{std::string(PLUGIN_PATH)};
+    control.reset();
+    auto factory = std::make_shared<DefectiveCleanupFactory>();
+    auto options = default_options();
+    options.http.factory = factory;
+    coro::Loop loop;
+    auto root = [&]() -> coro::Task<void> {
+        co_await coro::supervisor_group([&](coro::TaskGroup& group) -> coro::Task<void> {
+            plugin::DriverGateway gateway(catalog_, logger_, loop, group, options);
+            co_await group.with_children([&]() -> coro::Task<void> {
+                co_await coro::supervisor_group([&](coro::TaskGroup& callers) -> coro::Task<void> {
+                    callers.spawn(gateway.update(DRIVER_NAME, make_command(exchange_params(1, 1))));
+                    while (!factory->entered) {
+                        co_await coro::checkpoint();
+                    }
+                    callers.cancel();
+                });
+            });
+        });
+    };
+    EXPECT_THROW(coro::run(loop, root()), coro::GroupError);
+    EXPECT_EQ(control.state().destroys, 1u);
+}
+
+TEST(Bridge, UnboundCycle_RejectsWithoutStartingHttp) {
+    coro::Loop loop;
+    yaddnsc_status status = YADDNSC_STATUS_OK;
+    auto root = [&]() -> coro::Task<void> {
+        co_await coro::task_group([&](coro::TaskGroup& group) -> coro::Task<void> {
+            auto bridge = std::make_shared<plugin::Bridge>(loop, group, http::Options{}, 100ms);
+            auto call = std::make_shared<plugin::BridgeCall>();
+            call->cycle = std::make_shared<plugin::CallState>();
+            call->url = "http://127.0.0.1:1/never-admit";
+            auto response = co_await coro::offload_joined([bridge, call] { return bridge->exchange(call); });
+            EXPECT_FALSE(response.has_value());
+            status = response ? YADDNSC_STATUS_OK : response.error().code;
+        });
+    };
+    coro::run(loop, root());
+    EXPECT_EQ(status, YADDNSC_STATUS_CANCELLED);
+}
+
+TEST_F(CoroDriverGatewayTest, UpdateAndValidation_CreateEntryAndDestroyRemainOnOneWorkerThread) {
+    PluginControl control{std::string(PLUGIN_PATH)};
+    control.reset();
+    coro::Loop loop;
+    auto root = [&]() -> coro::Task<void> {
+        co_await coro::task_group([&](coro::TaskGroup& group) -> coro::Task<void> {
+            plugin::DriverGateway gateway(catalog_, logger_, loop, group);
+            co_await group.with_children([&]() -> coro::Task<void> {
+                EXPECT_TRUE(co_await gateway.update(DRIVER_NAME, make_command(R"({"op":"success"})")));
+                EXPECT_TRUE(co_await gateway.validate_config(DRIVER_NAME, R"({"op":"success"})"));
+            });
+        });
+    };
+    coro::run(loop, root());
+    EXPECT_EQ(control.state().creates, 2U);
+    EXPECT_EQ(control.state().destroys, 2U);
+    EXPECT_EQ(control.thread_violations(), 0U);
+}
+
+TEST_F(CoroDriverGatewayTest, Validation_HostCancellationReturnsBeforeUncooperativeWorkerThenDrains) {
+    PluginControl control{std::string(PLUGIN_PATH)};
+    control.reset();
+    coro::Loop loop;
+    auto root = [&]() -> coro::Task<void> {
+        co_await coro::supervisor_group([&](coro::TaskGroup& group) -> coro::Task<void> {
+            plugin::DriverGateway gateway(catalog_, logger_, loop, group);
+            co_await group.with_children([&]() -> coro::Task<void> {
+                const auto outcome =
+                    co_await coro::with_cancel_scope([&](coro::CancelScope& scope) -> coro::Task<void> {
+                        auto cancel = [&]() -> coro::Task<void> {
+                            while (!control.validation_started()) {
+                                co_await coro::checkpoint();
+                            }
+                            scope.cancel();
+                        };
+                        group.spawn_discard(cancel());
+                        [[maybe_unused]] auto result =
+                            co_await gateway.validate_config(DRIVER_NAME, R"({"op":"wait_validate"})");
+                        ADD_FAILURE() << "validation must observe host cancellation";
+                    });
+                EXPECT_TRUE(outcome.cancelled);
+                EXPECT_EQ(control.state().destroys, 0U);
+                control.release_validation();
+            });
+        });
+    };
+    coro::run(loop, root());
+    EXPECT_EQ(control.state().destroys, 1U);
+    EXPECT_EQ(control.thread_violations(), 0U);
+}
+
+TEST_F(CoroDriverGatewayTest, CompletionPublishedBeforeCallerResumes_CancellationWinsAndPreservesDefectBoundary) {
+    for (bool defect : {false, true}) {
+        PluginControl control{std::string(PLUGIN_PATH)};
+        control.reset();
+        auto options = default_options();
+        if (defect) {
+            options.http.factory = std::make_shared<DefectiveCleanupFactory>();
+        }
+        coro::Loop loop;
+        bool cancelled_queued_result = false;
+        auto root = [&]() -> coro::Task<void> {
+            co_await coro::supervisor_group([&](coro::TaskGroup& group) -> coro::Task<void> {
+                plugin::DriverGateway gateway(catalog_, logger_, loop, group, options);
+                co_await group.with_children([&]() -> coro::Task<void> {
+                    const auto outcome =
+                        co_await coro::with_cancel_scope([&](coro::CancelScope& scope) -> coro::Task<void> {
+                            auto task = gateway.update(
+                                DRIVER_NAME, make_command(defect ? exchange_params(1) : R"({"op":"success"})"));
+                            // Test-only frame observation: transfer ownership back to a
+                            // Task immediately; no production hook or detached frame.
+                            const auto frame = coro::detail::TaskAccess::release(task);
+                            task = frame.promise().get_return_object();
+                            auto cancel = [&]() -> coro::Task<void> {
+                                // This observer is queued before the gateway's first
+                                // resume. Arm only after its initial result subscription.
+                                while (frame.promise().in_ready) {
+                                    co_await coro::checkpoint();
+                                }
+                                while (!frame.promise().in_ready) {
+                                    co_await coro::checkpoint();
+                                }
+                                cancelled_queued_result = true;
+                                scope.cancel();
+                            };
+                            group.spawn_discard(cancel());
+                            [[maybe_unused]] auto result = co_await std::move(task);
+                            ADD_FAILURE() << "cancelled subscriber must not consume the published result";
+                        });
+                    EXPECT_TRUE(outcome.cancelled);
+                });
+            });
+        };
+        if (defect) {
+            EXPECT_THROW(coro::run(loop, root()), coro::GroupError);
+        } else {
+            EXPECT_NO_THROW(coro::run(loop, root()));
+        }
+        EXPECT_TRUE(cancelled_queued_result);
+        EXPECT_EQ(control.state().destroys, 1U);
+    }
+}
+
+TEST_F(CoroDriverGatewayTest, OneCycle_TimedOutHttpRemainsOwnedWhileSecondExchangeStartsAndCancels) {
+    PluginControl control{std::string(PLUGIN_PATH)};
+    control.reset();
+    auto factory = std::make_shared<RetiringFactory>();
+    auto options = default_options(100ms);
+    options.http.factory = factory;
+    options.http.connect_timeout = 0ms;
+    coro::Loop loop;
+    auto root = [&]() -> coro::Task<void> {
+        co_await coro::supervisor_group([&](coro::TaskGroup& group) -> coro::Task<void> {
+            plugin::DriverGateway gateway(catalog_, logger_, loop, group, options);
+            co_await group.with_children([&]() -> coro::Task<void> {
+                const auto outcome =
+                    co_await coro::with_cancel_scope([&](coro::CancelScope& scope) -> coro::Task<void> {
+                        auto cancel = [&]() -> coro::Task<void> {
+                            while (factory->calls_ < 2) {
+                                co_await coro::checkpoint();
+                            }
+                            EXPECT_EQ(factory->alive, 2);
+                            scope.cancel();
+                        };
+                        group.spawn_discard(cancel());
+                        [[maybe_unused]] auto result = co_await gateway.update(
+                            DRIVER_NAME, make_command(R"({"op":"exchange_after_timeout","url":"http://127.0.0.1/"})"));
+                    });
+                EXPECT_TRUE(outcome.cancelled);
+                EXPECT_GT(factory->alive, 0);
+                factory->release = true;
+            });
+        });
+    };
+    coro::run(loop, root());
+    EXPECT_EQ(factory->calls_, 2);
+    EXPECT_EQ(factory->alive, 0);
+    EXPECT_EQ(control.state().destroys, 1U);
+    EXPECT_EQ(control.thread_violations(), 0U);
+}
+
+TEST(Bridge, WithoutCycle_HostDefectIsReportedToGroupAndWorker) {
+    coro::Loop loop;
+    http::Options options;
+    options.factory = std::make_shared<DefectiveCleanupFactory>();
+    yaddnsc_status status = YADDNSC_STATUS_OK;
+    auto root = [&]() -> coro::Task<void> {
+        co_await coro::supervisor_group([&](coro::TaskGroup& group) -> coro::Task<void> {
+            auto bridge = std::make_shared<plugin::Bridge>(loop, group, options, 5s);
+            auto call = std::make_shared<plugin::BridgeCall>();
+            call->url = "http://127.0.0.1/";
+            const auto response = co_await coro::offload_joined([bridge, call] { return bridge->exchange(call); });
+            EXPECT_FALSE(response);
+            if (!response) {
+                status = response.error().code;
+            }
+        });
+    };
+    EXPECT_THROW(coro::run(loop, root()), coro::GroupError);
+    EXPECT_EQ(status, YADDNSC_STATUS_INTERNAL_ERROR);
+}
+
+TEST(Bridge, CycleLiveSet_DoesNotKeepRequestOrOwnerAliveWithoutRetirementErase) {
+    auto cycle = std::make_shared<plugin::CallState>();
+    auto call = std::make_shared<plugin::BridgeCall>();
+    call->cycle = cycle;
+    cycle->calls.push_back(call);
+    const std::weak_ptr<plugin::CallState> owner = cycle;
+    const std::weak_ptr<plugin::BridgeCall> request = call;
+    cycle.reset();
+    EXPECT_FALSE(owner.expired());  // a live request still keeps its owner
+    call.reset();
+    EXPECT_TRUE(request.expired());
+    EXPECT_TRUE(owner.expired());
 }

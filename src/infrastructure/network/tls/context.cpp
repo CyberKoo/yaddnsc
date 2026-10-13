@@ -4,18 +4,27 @@
 
 #include "context.h"
 
-#include <openssl/ssl.h>
-#include <spdlog/spdlog.h>
-#include <openssl/prov_ssl.h>
-#include <openssl/x509.h>
-#include <expected>
+#include <algorithm>
+#include <charconv>
+#include <cstdint>
+#include <filesystem>
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
+#include <system_error>
 #include <utility>
+#include <vector>
 
-#include "infrastructure/network/tls/openssl_error.hpp"
+#include <expected>
+#include <openssl/prov_ssl.h>
+#include <openssl/ssl.h>
+#include <openssl/x509.h>
+#include <spdlog/spdlog.h>
+
 #include "infrastructure/network/tls/cert_util.h"
+#include "infrastructure/network/tls/openssl_error.hpp"
+#include "infrastructure/network/tls/trust_store.h"
 #include "infrastructure/network/transport/options.h"
 
 namespace net {
@@ -32,6 +41,101 @@ namespace {
 }
 
 }  // namespace
+
+std::expected<void, IoError> detail::load_trust_directory(X509_STORE& store, const std::filesystem::path& directory) {
+    std::error_code error;
+    std::filesystem::directory_iterator entry{directory, error};
+    const std::filesystem::directory_iterator end;
+    if (error) {
+        return std::unexpected(IoError::CONNECTION_FAILED);
+    }
+
+    struct IndexedFile {
+        std::string prefix;
+        std::uint64_t index;
+        unsigned long hash;
+        bool crl;
+        std::filesystem::path path;
+    };
+
+    std::vector<IndexedFile> files;
+    for (; entry != end; entry.increment(error)) {
+        if (error) {
+            return std::unexpected(IoError::CONNECTION_FAILED);
+        }
+        const std::string name = entry->path().filename().string();
+        // OpenSSL's hash entries: hhhhhhhh.N (cert) or hhhhhhhh.rN (CRL).
+        if (name.size() < 10 || name[8] != '.' || !std::all_of(name.begin(), name.begin() + 8, [](char c) {
+                return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f');
+            })) {
+            continue;
+        }
+        const std::string_view suffix{name.data() + 9, name.size() - 9};
+        const auto digits = suffix.starts_with('r') ? suffix.substr(1) : suffix;
+        if (digits.empty() || !std::all_of(digits.begin(), digits.end(), [](char c) { return c >= '0' && c <= '9'; })) {
+            continue;
+        }
+        std::uint64_t index = 0;
+        const auto parsed = std::from_chars(digits.data(), digits.data() + digits.size(), index);
+        if (parsed.ec != std::errc{} || (digits.size() > 1 && digits.front() == '0')) {
+            continue;
+        }
+        unsigned long hash = 0;
+        std::from_chars(name.data(), name.data() + 8, hash, 16);
+        files.push_back(
+            {name.substr(0, suffix.starts_with('r') ? 10 : 9), index, hash, suffix.starts_with('r'), entry->path()});
+    }
+    if (error) {
+        return std::unexpected(IoError::CONNECTION_FAILED);
+    }
+    std::ranges::sort(files, [](const IndexedFile& left, const IndexedFile& right) {
+        return left.prefix == right.prefix ? left.index < right.index : left.prefix < right.prefix;
+    });
+    std::string prefix;
+    std::uint64_t expected_index = 0;
+    bool certificate_loaded = false;
+    for (const auto& file : files) {
+        if (file.prefix != prefix) {
+            prefix = file.prefix;
+            expected_index = 0;
+        }
+        // Hash lookup stops at the first missing suffix; preserve that boundary.
+        if (file.index != expected_index) {
+            continue;
+        }
+        ++expected_index;
+        // Stage each eager load before admitting trust: a syntactically indexed
+        // file with another subject/issuer hash must not expand the snapshot.
+        // The OpenSSL loader preserves AUX and CRLs; symlinks are followed.
+        const std::unique_ptr<X509_STORE, decltype(&X509_STORE_free)> staged{X509_STORE_new(), &X509_STORE_free};
+        if (!std::filesystem::is_regular_file(file.path, error) || error || !staged ||
+            X509_STORE_load_file(staged.get(), file.path.c_str()) != 1) {
+            return std::unexpected(IoError::CONNECTION_FAILED);
+        }
+        const auto* objects = X509_STORE_get0_objects(staged.get());
+        for (int i = 0; i < sk_X509_OBJECT_num(objects); ++i) {
+            auto* object = sk_X509_OBJECT_value(objects, i);
+            if (!file.crl && X509_OBJECT_get_type(object) == X509_LU_X509) {
+                X509* cert = X509_OBJECT_get0_X509(object);
+                if (X509_subject_name_hash(cert) != file.hash || X509_STORE_add_cert(&store, cert) != 1) {
+                    return std::unexpected(IoError::CONNECTION_FAILED);
+                }
+                certificate_loaded = true;
+            } else if (file.crl && X509_OBJECT_get_type(object) == X509_LU_CRL) {
+                X509_CRL* crl = X509_OBJECT_get0_X509_CRL(object);
+                if (X509_NAME_hash(X509_CRL_get_issuer(crl)) != file.hash || X509_STORE_add_crl(&store, crl) != 1) {
+                    return std::unexpected(IoError::CONNECTION_FAILED);
+                }
+            } else {
+                return std::unexpected(IoError::CONNECTION_FAILED);
+            }
+        }
+    }
+    if (certificate_loaded) {
+        return {};
+    }
+    return std::unexpected(IoError::CONNECTION_FAILED);
+}
 
 TlsContext::TlsContext(ConstructionKey, std::shared_ptr<SSL_CTX> context) : context_(std::move(context)) {}
 
@@ -65,17 +169,13 @@ std::expected<std::shared_ptr<const TlsContext>, IoError> TlsContext::create(con
             SPDLOG_ERROR("Failed to load CA bundle from {}: {}", *bundle, detail::ssl_errors());
             return std::unexpected(IoError::CONNECTION_FAILED);
         }
-    } else if (X509_STORE* store = SSL_CTX_get_cert_store(context.get());
-               X509_STORE_load_path(store, X509_get_default_cert_dir()) == 1) {
-        // Legacy fallback: no bundle file was discovered, but the OpenSSL
-        // default cert dir (a hashed dir without the bundle file — some
-        // minimal containers) may still verify. X509_STORE_load_path loads
-        // eagerly, so the loop thread never touches the filesystem mid-
-        // handshake; the lazy lookup registrars stay banned (rule 13).
-        SPDLOG_WARN("No TLS CA bundle discovered; loaded the OpenSSL default cert dir instead");
     } else {
-        SPDLOG_ERROR("No TLS CA bundle available; verification stays fail-closed");
-        return std::unexpected(IoError::CONNECTION_FAILED);
+        X509_STORE* store = SSL_CTX_get_cert_store(context.get());
+        if (store == nullptr || !detail::load_trust_directory(*store, X509_get_default_cert_dir())) {
+            SPDLOG_ERROR("No usable TLS trust snapshot available; verification stays fail-closed");
+            return std::unexpected(IoError::CONNECTION_FAILED);
+        }
+        SPDLOG_WARN("No TLS CA bundle discovered; snapshotted the OpenSSL default cert dir instead");
     }
 
     return std::shared_ptr<const TlsContext>(new TlsContext(ConstructionKey{}, std::move(context)));

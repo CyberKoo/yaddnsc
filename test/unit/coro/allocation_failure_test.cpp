@@ -1,8 +1,10 @@
 // Isolated allocator fault injection: no production hooks and no effect on
 // other test binaries. Only the calling thread's selected allocation fails.
 #include <array>
+#include <atomic>
 #include <cstddef>
 #include <cstdlib>
+#include <functional>
 #include <memory>
 #include <new>
 #include <utility>
@@ -11,14 +13,18 @@
 
 #include "coro/coro.h"
 #include "coro/detail/access.h"
+#include "coro/detail/offload_job.h"
 #include "coro/detail/timer_node.h"
 #include "coro/detail/wait_node.h"
 
+// Replacement allocators require the matching malloc/free ownership boundary.
+// NOLINTBEGIN(cppcoreguidelines-no-malloc, cppcoreguidelines-owning-memory)
 namespace {
 thread_local int allocations_before_failure = -1;
+thread_local std::size_t failure_size = 0;
 
 void* allocate(std::size_t size) {
-    if (allocations_before_failure == 0) {
+    if (allocations_before_failure == 0 && (failure_size == 0 || size == failure_size)) {
         allocations_before_failure = -1;
         throw std::bad_alloc{};
     }
@@ -38,7 +44,10 @@ public:
     FailAllocation(const FailAllocation&) = delete;
     FailAllocation& operator=(const FailAllocation&) = delete;
 
-    ~FailAllocation() noexcept { allocations_before_failure = -1; }
+    ~FailAllocation() noexcept {
+        allocations_before_failure = -1;
+        failure_size = 0;
+    }
 };
 }  // namespace
 
@@ -86,6 +95,8 @@ void operator delete(void* pointer, std::size_t) noexcept {
 void operator delete[](void* pointer, std::size_t) noexcept {
     std::free(pointer);
 }
+
+// NOLINTEND(cppcoreguidelines-no-malloc, cppcoreguidelines-owning-memory)
 
 namespace {
 
@@ -192,6 +203,124 @@ TEST(CoroAllocationFailure, ScopeCancellation_TraversesBranchesWithoutAllocating
     EXPECT_FALSE(nodes[3].scheduled);
     shield.cancel();
     EXPECT_EQ(notifications, 4);
+}
+
+TEST(CoroAllocationFailure, offload_SubmissionAllocationThrows_RollsBackRealCapacity) {
+    coro::Loop loop;
+    loop.set_offload_workers(1);
+    EXPECT_EQ(loop.offload_workers(), 1u);
+    std::atomic<bool> ran{false};
+    coro::detail::OffloadAdmission admission;
+    // The callback must match OffloadAdmission::failed's ownership signature.
+    // NOLINTNEXTLINE(performance-unnecessary-value-param)
+    admission.failed = [](void*, std::exception_ptr) noexcept {};
+    admission.job = [&] { ran.store(true); };
+    {
+        const FailAllocation failure;
+        EXPECT_THROW(coro::detail::LoopAccess::admit_offload(loop, admission), std::bad_alloc);
+    }
+    EXPECT_FALSE(admission.submitted);
+    EXPECT_FALSE(admission.linked);
+    EXPECT_FALSE(ran.load());
+    EXPECT_EQ(coro::run(loop, coro::offload([] { return 42; })), 42);
+}
+
+TEST(CoroAllocationFailure, offload_PoolInitializationThrows_LaterAdmissionSucceeds) {
+    coro::Loop loop;
+    loop.set_offload_workers(1);
+    coro::detail::OffloadAdmission admission;
+    // The callback must match OffloadAdmission::failed's ownership signature.
+    // NOLINTNEXTLINE(performance-unnecessary-value-param)
+    admission.failed = [](void*, std::exception_ptr) noexcept {};
+    admission.job = [] {};
+    {
+        const FailAllocation failure;
+        EXPECT_THROW(coro::detail::LoopAccess::admit_offload(loop, admission), std::bad_alloc);
+    }
+    EXPECT_FALSE(admission.submitted);
+    EXPECT_FALSE(admission.linked);
+    EXPECT_EQ(coro::run(loop, coro::offload([] { return 42; })), 42);
+}
+
+TEST(CoroAllocationFailure, offload_DeferredSubmissionFailure_CompletesAndDispatchesSuccessor) {
+    coro::Loop loop;
+    loop.set_offload_workers(1);
+    std::atomic<bool> release{false};
+    std::atomic<bool> successor_ran{false};
+    bool failed = false;
+    coro::detail::OffloadAdmission blocker;
+    // The callback must match OffloadAdmission::failed's ownership signature.
+    // NOLINTNEXTLINE(performance-unnecessary-value-param)
+    blocker.failed = [](void*, std::exception_ptr) noexcept { std::terminate(); };
+    blocker.job = [&] { release.wait(false); };
+    coro::detail::LoopAccess::admit_offload(loop, blocker);
+    coro::detail::OffloadAdmission queued;
+    queued.owner = &failed;
+    queued.failed = [](void* owner, std::exception_ptr error) noexcept {
+        try {
+            std::rethrow_exception(std::move(error));
+        } catch (const std::bad_alloc&) {
+            *static_cast<bool*>(owner) = true;
+        } catch (...) {
+            std::terminate();
+        }
+    };
+    queued.job = [] { ADD_FAILURE() << "failed submission must not execute"; };
+    coro::detail::LoopAccess::admit_offload(loop, queued);
+    EXPECT_TRUE(queued.linked);
+    auto root = [&]() -> coro::Task<void> {
+        // Only fail the pool wrapper's std::function allocation, not inbox or
+        // coroutine allocations needed to deliver its failure completion.
+        struct PoolCapture {
+            coro::Loop* loop;
+            std::function<void()> job;
+        };
+        const FailAllocation failure;
+        failure_size = sizeof(PoolCapture);
+        release.store(true);
+        release.notify_one();
+        while (!failed) {
+            co_await coro::checkpoint();
+        }
+        co_await coro::offload_joined([&] { successor_ran.store(true); });
+        EXPECT_TRUE(failed);
+        EXPECT_FALSE(queued.linked);
+        EXPECT_FALSE(queued.submitted);
+    };
+    coro::run(loop, root());
+    EXPECT_TRUE(successor_ran.load());
+}
+
+TEST(CoroAllocationFailure, MutexQueueAllocationThrows_NoScopeRegistrationOrLockLeak) {
+    coro::detail::MutexState state;
+    EXPECT_TRUE(state.try_acquire());
+    // std::deque grows in blocks. Fail its next allocation without assuming
+    // how many pointers this standard library stores in the current block.
+    std::array<coro::detail::WaitNode, 4096> nodes{};
+    std::size_t queued = 0;
+    bool caught = false;
+    {
+        const FailAllocation failure;
+        try {
+            for (; queued < nodes.size(); ++queued) {
+                state.enqueue(&nodes[queued]);
+            }
+        } catch (const std::bad_alloc&) {
+            caught = true;
+        }
+    }
+    EXPECT_TRUE(caught);
+    if (caught) {
+        EXPECT_FALSE(nodes[queued].linked);
+    }
+    EXPECT_TRUE(state.locked);
+    for (std::size_t i = 0; i < queued; ++i) {
+        state.drop(nodes[i]);
+    }
+    state.release();
+    EXPECT_FALSE(state.locked);
+    EXPECT_TRUE(state.try_acquire());
+    state.release();
 }
 
 }  // namespace

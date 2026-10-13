@@ -56,16 +56,17 @@ class Handle {
 public:
     Handle() = default;
 
-    /// True while the group is alive and its slot holds an unclaimed result.
+    /// True while the group is alive and its result is neither reserved by an
+    /// active Handle waiter nor consumed. Cancellation releases a reservation.
     [[nodiscard]] bool valid() const noexcept {
-        return slot_ != nullptr && slot_->frame != nullptr && !slot_->consumed;
+        return slot_ != nullptr && slot_->frame != nullptr && !slot_->consumed && !slot_->reserved;
     }
 
     /// Join the child: yields its value or rethrows the defect that aborted it.
     /// Claims the result once, shared across Handle copies and next<T>().
     /// An empty or already claimed handle throws std::logic_error.
-    /// Not a cancellation checkpoint — the join always completes, because the
-    /// child belongs to the group's scope and observes cancellation there.
+    /// Cancellation releases the reservation without consuming the result or
+    /// cancelling the producer. Group lifetime drains remain non-cancellable.
     detail::JoinAwaiter<T> operator co_await() noexcept { return detail::JoinAwaiter<T>{slot_}; }
 
 private:

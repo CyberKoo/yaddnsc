@@ -7,9 +7,14 @@
 //
 
 #include <algorithm>
+#include <chrono>
+#include <string>
 #include <vector>
 
+#include <coroutine>
+
 #include <gtest/gtest.h>
+
 #include "coro/coro.h"
 
 namespace {
@@ -153,6 +158,68 @@ TEST(AsyncMutex, CancellationAfterHandoff_ReleasesGrantedLock) {
     }());
     EXPECT_TRUE(cancelled);
     EXPECT_FALSE(waiter_returned);
+    EXPECT_FALSE(mutex.locked());
+}
+
+TEST(AsyncMutex, SharedDescriptor_ConcurrentFramesHaveIndependentRegistrations) {
+    coro::AsyncMutex mutex;
+    const auto operation = mutex.lock();
+    coro::ManualClock clock;
+    coro::Loop loop{clock};
+    std::vector<int> entered;
+    int active = 0;
+    auto contender = [&](int id) -> coro::Task<void> {
+        auto guard = co_await operation;
+        EXPECT_EQ(++active, 1);
+        entered.push_back(id);
+        co_await coro::sleep_for(1ms);
+        --active;
+    };
+    auto root = [&]() -> coro::Task<void> {
+        co_await coro::task_group([&](coro::TaskGroup& group) -> coro::Task<void> {
+            group.spawn(contender(1));
+            group.spawn(contender(2));
+            co_await group.join();
+        });
+    };
+    coro::run(loop, root());
+    EXPECT_EQ(entered, (std::vector<int>{1, 2}));
+    EXPECT_FALSE(mutex.locked());
+}
+
+TEST(AsyncMutex, lock_ReusedAfterCancellationAndHandoff_HasIndependentWaitState) {
+    coro::ManualClock clock;
+    coro::Loop loop{clock};
+    coro::AsyncMutex mutex;
+    auto root = [&]() -> coro::Task<void> {
+        const auto operation = mutex.lock();
+        auto holder = co_await operation;
+        auto timeout = co_await coro::with_timeout(
+            1ms, [&]() -> coro::Task<void> { [[maybe_unused]] auto blocked = co_await operation; });
+        EXPECT_TRUE(timeout.timed_out);
+        holder.unlock();
+        {
+            auto guard = co_await operation;
+            EXPECT_TRUE(static_cast<bool>(guard));
+        }
+        EXPECT_FALSE(mutex.locked());
+        co_await coro::task_group([&](coro::TaskGroup& group) -> coro::Task<void> {
+            auto guard = co_await operation;
+            auto release = [&]() -> coro::Task<void> {
+                co_await coro::sleep_for(1ms);
+                guard.unlock();
+            };
+            group.spawn(release());
+            auto handed = co_await operation;
+            EXPECT_TRUE(static_cast<bool>(handed));
+            handed.unlock();
+            auto reused = co_await operation;
+            EXPECT_TRUE(static_cast<bool>(reused));
+            co_await group.join();
+            co_return;
+        });
+    };
+    coro::run(loop, root());
     EXPECT_FALSE(mutex.locked());
 }
 

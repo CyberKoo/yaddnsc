@@ -7,12 +7,18 @@
 
 #include <atomic>
 #include <chrono>
+#include <compare>
 #include <exception>
+#include <initializer_list>
+#include <ratio>
 #include <source_location>
 #include <stdexcept>
+#include <string>
 #include <string_view>
 #include <type_traits>
 #include <vector>
+
+#include <coroutine>
 
 #include <gtest/gtest.h>
 
@@ -678,6 +684,22 @@ TEST(Sleep, ExtremeAbsoluteDeadline_TraceDistanceDoesNotOverflow) {
     auto root = []() -> coro::Task<void> { co_await coro::sleep_until(coro::TimePoint::max()); };
     coro::run(loop, root());
     EXPECT_EQ(clock.now(), coro::TimePoint::max());
+}
+
+TEST(Cancellation, sleep_ReusedAfterCancellation_RearmsRelativeTimer) {
+    coro::ManualClock clock;
+    coro::Loop loop{clock};
+    auto root = [&]() -> coro::Task<void> {
+        const auto operation = coro::sleep_for(10ms);
+        auto outcome = co_await coro::with_timeout(1ms, [&]() -> coro::Task<void> { co_await operation; });
+        EXPECT_TRUE(outcome.timed_out);
+        co_await operation;
+        co_await operation;
+        EXPECT_EQ(clock.now(), coro::TimePoint{} + 21ms);
+        outcome = co_await coro::with_timeout(1ms, [&]() -> coro::Task<void> { co_await operation; });
+        EXPECT_TRUE(outcome.timed_out);
+    };
+    coro::run(loop, root());
 }
 
 }  // namespace

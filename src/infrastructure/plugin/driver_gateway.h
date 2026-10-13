@@ -83,7 +83,8 @@ public:
     /// an exception. Cancellation: the awaiting scope abandons the call — this
     /// throws coro::Cancelled while a cycle that already started runs to completion
     /// on the worker; a cycle not yet started is dropped and never enters the
-    /// driver.
+    /// driver. A root-owned cycle drains the joined worker and every HTTP child;
+    /// host defects remain observable even after caller cancellation.
     [[nodiscard]] coro::Task<std::expected<void, domain::DriverError>> update(
         std::string driver_name, domain::DriverUpdateCommand command) override;
 

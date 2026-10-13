@@ -11,6 +11,9 @@
 // (`Loop` comes from the ambient context), and no second notification path (the
 // registration is dropped before the frame is resumed).
 //
+// The returned operation may be reused; each await owns an independent
+// registration.
+//
 // Awaiting outside coro::run is a programming defect: assertion-diagnosed in
 // Debug builds, undefined behavior in Release. A negative `fd` is an argument
 // error instead: the await throws std::invalid_argument.

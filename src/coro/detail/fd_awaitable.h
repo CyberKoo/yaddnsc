@@ -28,19 +28,15 @@ namespace coro::detail {
 /// Failure: throws `Cancelled` on cancellation; an invalid descriptor throws
 /// `std::invalid_argument`.
 /// Thread safety: loop thread only.
-class FdAwaitable {
+class FdAwaiter {
 public:
-    /// Wait for POLLIN: readable, or EOF/error reported as readable.
-    static FdAwaitable readable(int fd) noexcept { return FdAwaitable{fd, POLLIN}; }
-
-    /// Wait for POLLOUT: writable (also how a non-blocking connect completes).
-    static FdAwaitable writable(int fd) noexcept { return FdAwaitable{fd, POLLOUT}; }
-
-    FdAwaitable(const FdAwaitable&) = delete;
-    FdAwaitable& operator=(const FdAwaitable&) = delete;
-    FdAwaitable(FdAwaitable&&) = delete;
-    FdAwaitable& operator=(FdAwaitable&&) = delete;
-    ~FdAwaitable() = default;
+    FdAwaiter(const FdAwaiter&) = delete;
+    FdAwaiter& operator=(const FdAwaiter&) = delete;
+    FdAwaiter(FdAwaiter&&) = delete;
+    FdAwaiter& operator=(FdAwaiter&&) = delete;
+    // Started frames drain before destruction; readiness/cancellation removes
+    // registration before resume. Destroying a parked frame is not supported.
+    ~FdAwaiter() = default;
 
     constexpr bool await_ready() const noexcept { return false; }
 
@@ -61,8 +57,8 @@ public:
         frame_ = &promise;
         node_.waiter = &promise;
         node_.owner = this;
-        node_.on_cancel = &FdAwaitable::on_cancel;
-        token_ = LoopAccess::add_fd(*loop_, fd_, events_, &FdAwaitable::on_ready, this);
+        node_.on_cancel = &FdAwaiter::on_cancel;
+        token_ = LoopAccess::add_fd(*loop_, fd_, events_, &FdAwaiter::on_ready, this);
         armed_ = true;
         if (scope_ != nullptr) {
             ScopeAccess::add_waiter(*scope_, node_);
@@ -88,13 +84,14 @@ public:
         }
     }
 
-private:
-    FdAwaitable(int fd, short events) noexcept : fd_(fd), events_(events) {}
+public:
+    FdAwaiter(int fd, short events) noexcept : fd_(fd), events_(events) {}
 
+private:
     /// Loop dispatch: unregister first (so the next poll() round cannot fire this
     /// registration twice), then wake the frame through the ready queue.
     static void on_ready(void* context, short revents) noexcept {
-        auto* self = static_cast<FdAwaitable*>(context);
+        auto* self = static_cast<FdAwaiter*>(context);
         self->revents_ = revents;
         if (self->armed_) {
             LoopAccess::remove_fd(*self->loop_, self->token_);
@@ -111,7 +108,7 @@ private:
     /// Cancellation hook: drop the registration so poll() stops reporting it.
     /// Never throws; runs on the loop thread.
     static void on_cancel(WaitNode& node) noexcept {
-        auto* self = static_cast<FdAwaitable*>(node.owner);
+        auto* self = static_cast<FdAwaiter*>(node.owner);
         if (self->armed_) {
             LoopAccess::remove_fd(*self->loop_, self->token_);
             self->armed_ = false;
@@ -127,6 +124,22 @@ private:
     FdToken token_ = 0;
     WaitNode node_{};
     bool armed_ = false;
+};
+
+/// Reusable readiness operation; borrows the fd until each await finishes.
+class FdAwaitable {
+public:
+    static FdAwaitable readable(int fd) noexcept { return FdAwaitable{fd, POLLIN}; }
+
+    static FdAwaitable writable(int fd) noexcept { return FdAwaitable{fd, POLLOUT}; }
+
+    [[nodiscard]] FdAwaiter operator co_await() const noexcept { return FdAwaiter{fd_, events_}; }
+
+private:
+    FdAwaitable(int fd, short events) noexcept : fd_(fd), events_(events) {}
+
+    int fd_;
+    short events_;
 };
 
 }  // namespace coro::detail

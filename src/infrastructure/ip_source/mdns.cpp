@@ -27,6 +27,7 @@
 #include <sys/socket.h>
 
 #include "coro/cancelled.h"
+#include "coro/offload.hpp"
 #include "coro/scope.hpp"
 #include "coro/sleep.hpp"
 #include "domain/dns/record_kind.h"
@@ -94,6 +95,37 @@ constexpr std::uint16_t QU_BIT = 0x8000;
     return addr;
 }
 
+/// Owned interface metadata; no socket or borrowed ifaddrs reaches a worker.
+struct InterfaceMetadata {
+    unsigned int index = 0;
+    in_addr ipv4{};
+};
+
+[[nodiscard]] InterfaceMetadata read_interface_metadata(const std::string& interface, domain::AddressFamily family,
+                                                        const std::string& hostname) {
+    unsigned int if_index = 0;
+    if (!interface.empty()) {
+        if_index = ::if_nametoindex(interface.c_str());
+        if (if_index == 0) {
+            SPDLOG_WARN(R"(mDNS interface "{}" not found for "{}")", interface, hostname);
+        }
+    } else if (family == domain::AddressFamily::IPV6) {
+        // A link-local multicast join needs an explicit scope: with no interface
+        // configured, pick the default one (legacy behaviour). IPv4 stays on
+        // INADDR_ANY and lets the kernel routing table choose.
+        if (const auto default_index = get_default_interface_index(domain::AddressFamily::IPV6);
+            default_index.has_value()) {
+            if_index = *default_index;
+            char name[IF_NAMESIZE] = {};
+            const char* resolved = ::if_indextoname(if_index, name);
+            SPDLOG_DEBUG(R"(mDNS auto-selected interface "{}" for "{}" (type AAAA))", resolved != nullptr ? name : "?",
+                         hostname);
+        }
+    }
+
+    return {if_index, family == domain::AddressFamily::IPV4 ? pick_ipv4_interface_addr(interface) : in_addr{}};
+}
+
 /// RAII leave for a joined multicast group. A move from the reference argument
 /// is not needed: the guard copies the membership request.
 class MembershipGuard {
@@ -107,7 +139,8 @@ public:
 
     ~MembershipGuard() noexcept {
         if (fd_ >= 0) {
-            (void) net::detail::set_socket_option(fd_, level_, leave_option_, request_.data(), size_);
+            [[maybe_unused]] const auto leave_result =
+                net::detail::set_socket_option(fd_, level_, leave_option_, request_.data(), size_);
         }
     }
 
@@ -133,7 +166,8 @@ public:
 private:
     void leave() noexcept {
         if (fd_ >= 0) {
-            (void) net::detail::set_socket_option(fd_, level_, leave_option_, request_.data(), size_);
+            [[maybe_unused]] const auto leave_result =
+                net::detail::set_socket_option(fd_, level_, leave_option_, request_.data(), size_);
         }
     }
 
@@ -158,11 +192,9 @@ void set_int_option(const int fd, const int level, const int option, const int v
 /// Mirrors the legacy socket configuration: SO_REUSEPORT for coexistence, the
 /// optional SO_BINDTODEVICE, IPV6_V6ONLY, the multicast output interface and
 /// TTL/hop limit, then the group join (whose failure is the one hard error).
-[[nodiscard]] std::expected<void, domain::IpSourceError> configure_socket(const int fd,
-                                                                          const domain::AddressFamily family,
-                                                                          const std::string& interface,
-                                                                          const std::string& hostname,
-                                                                          MembershipGuard& guard) {
+[[nodiscard]] std::expected<void, domain::IpSourceError> configure_socket(
+    const int fd, const domain::AddressFamily family, const std::string& interface, const std::string& hostname,
+    MembershipGuard& guard, const InterfaceMetadata& metadata) {
 #ifdef SO_REUSEPORT
     const int enabled = 1;
     if (auto result = net::detail::set_socket_option(fd, SOL_SOCKET, SO_REUSEPORT, &enabled, sizeof(enabled));
@@ -171,30 +203,12 @@ void set_int_option(const int fd, const int level, const int option, const int v
     }
 #endif
 
-    unsigned int if_index = 0;
-    if (!interface.empty()) {
-        if_index = ::if_nametoindex(interface.c_str());
-        if (if_index == 0) {
-            SPDLOG_WARN(R"(mDNS interface "{}" not found for "{}")", interface, hostname);
-        }
-    } else if (family == domain::AddressFamily::IPV6) {
-        // A link-local multicast join needs an explicit scope: with no interface
-        // configured, pick the default one (legacy behaviour). IPv4 stays on
-        // INADDR_ANY and lets the kernel routing table choose.
-        if (const auto default_index = get_default_interface_index(domain::AddressFamily::IPV6);
-            default_index.has_value()) {
-            if_index = *default_index;
-            char name[IF_NAMESIZE] = {};
-            const char* resolved = ::if_indextoname(if_index, name);
-            SPDLOG_DEBUG(R"(mDNS auto-selected interface "{}" for "{}" (type AAAA))", resolved != nullptr ? name : "?",
-                         hostname);
-        }
-    }
+    const unsigned int if_index = metadata.index;
 
     if (!interface.empty()) {
 #if defined(SO_BINDTODEVICE)
         // Best-effort on platforms without SO_BINDTODEVICE; the helper logs once.
-        (void) net::detail::bind_to_interface(fd, interface);
+        [[maybe_unused]] const auto bound = net::detail::bind_to_interface(fd, interface);
 #elif defined(IP_BOUND_IF)
         // macOS: there is no SO_BINDTODEVICE; pin the socket by interface index.
         if (if_index > 0) {
@@ -245,7 +259,7 @@ void set_int_option(const int fd, const int level, const int option, const int v
         }
 #else
         // macOS / BSD: IP_MULTICAST_IF expects the interface address, not an index.
-        const in_addr output = pick_ipv4_interface_addr(interface);
+        const in_addr output = metadata.ipv4;
         if (auto result = net::detail::set_socket_option(fd, IPPROTO_IP, IP_MULTICAST_IF, &output, sizeof(output));
             !result) {
             SPDLOG_DEBUG(R"(mDNS IP_MULTICAST_IF failed for "{}")", hostname);
@@ -258,7 +272,7 @@ void set_int_option(const int fd, const int level, const int option, const int v
 
     ip_mreq membership{};
     std::memcpy(&membership.imr_multiaddr, group_v4().data(), sizeof(membership.imr_multiaddr));
-    membership.imr_interface = pick_ipv4_interface_addr(interface);
+    membership.imr_interface = metadata.ipv4;
     if (auto result =
             net::detail::set_socket_option(fd, IPPROTO_IP, IP_ADD_MEMBERSHIP, &membership, sizeof(membership));
         !result) {
@@ -277,6 +291,13 @@ void set_int_option(const int fd, const int level, const int option, const int v
                                          const std::string& interface, const bool ipv6) {
     const domain::AddressFamily family = ipv6 ? domain::AddressFamily::IPV6 : domain::AddressFamily::IPV4;
 
+    // The enclosing timeout covers admission, metadata and socket I/O together.
+    InterfaceMetadata metadata;
+    if (!interface.empty() || ipv6) {
+        metadata = co_await coro::offload(
+            [interface, family, hostname] { return read_interface_metadata(interface, family, hostname); });
+    }
+    // IPv4's default INADDR_ANY needs no metadata or worker capacity.
     auto opened = net::detail::open_udp_socket(family);
     if (!opened) {
         const int error_number = errno;
@@ -287,7 +308,7 @@ void set_int_option(const int fd, const int level, const int option, const int v
     const Utils::UniqueFd fd = std::move(*opened);
 
     MembershipGuard guard;
-    if (auto configured = configure_socket(fd.get(), family, interface, hostname, guard); !configured) {
+    if (auto configured = configure_socket(fd.get(), family, interface, hostname, guard, metadata); !configured) {
         co_return std::unexpected(std::move(configured.error()));
     }
 

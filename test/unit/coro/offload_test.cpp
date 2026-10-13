@@ -9,6 +9,7 @@
 //
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <functional>
 #include <memory>
@@ -16,10 +17,13 @@
 #include <stop_token>
 #include <string>
 #include <thread>
+#include <vector>
 
 #include <gtest/gtest.h>
 
 #include "coro/coro.h"
+#include "coro/detail/access.h"
+#include "coro/detail/offload_job.h"
 
 namespace {
 
@@ -265,7 +269,7 @@ TEST(Offload, Joined_CooperativeWorkerReceivesStopAndIsJoined) {
     std::atomic<bool> stopped{false};
     auto root = [&]() -> coro::Task<void> {
         auto outcome = co_await coro::with_timeout(20ms, [&]() -> coro::Task<void> {
-            co_await coro::offload_joined([&](std::stop_token token) {
+            co_await coro::offload_joined([&](const std::stop_token& token) {
                 while (!token.stop_requested()) {
                     std::this_thread::sleep_for(1ms);
                 }
@@ -283,7 +287,7 @@ TEST(Offload, Joined_AlreadyCancelled_DoesNotStartCallable) {
     auto root = [&]() -> coro::Task<void> {
         auto outcome = co_await coro::with_cancel_scope([&](coro::CancelScope& scope) -> coro::Task<void> {
             scope.cancel();
-            co_await coro::offload_joined([&](std::stop_token) { ran = true; });
+            co_await coro::offload_joined([&](const std::stop_token&) { ran = true; });
         });
         EXPECT_TRUE(outcome.cancelled);
     };
@@ -291,7 +295,7 @@ TEST(Offload, Joined_AlreadyCancelled_DoesNotStartCallable) {
     EXPECT_FALSE(ran);
 }
 
-TEST(Offload, Joined_QueuedCancellation_SkipsWorkAndWaitsForQueueCompletion) {
+TEST(Offload, Joined_AdmissionCancellation_SkipsWorkWithoutWaitingForBusyWorker) {
     coro::Loop loop;
     loop.set_offload_workers(1);
     std::atomic<bool> blocker_started{false};
@@ -313,7 +317,7 @@ TEST(Offload, Joined_QueuedCancellation_SkipsWorkAndWaitsForQueueCompletion) {
             auto outcome = co_await coro::with_timeout(
                 10ms, [&]() -> coro::Task<void> { co_await coro::offload_joined([&] { ran = true; }); });
             EXPECT_TRUE(outcome.timed_out);
-            EXPECT_TRUE(blocker_finished.load());
+            EXPECT_FALSE(blocker_finished.load());
         });
     };
     coro::run(loop, root());
@@ -349,15 +353,148 @@ struct LvalueCallable {
 };
 
 struct CooperativeLvalueCallable {
-    int operator()(std::stop_token token) & { return token.stop_requested() ? 0 : 43; }
+    int operator()(const std::stop_token& token) & { return token.stop_requested() ? 0 : 43; }
 
-    int operator()(std::stop_token) && = delete;
+    int operator()(const std::stop_token&) && = delete;
 };
 
 TEST(Offload, LvalueQualifiedCallable_IsInvokedAsAnOwnedLvalue) {
     EXPECT_EQ(coro::run(coro::offload(LvalueCallable{})), 42);
     EXPECT_EQ(coro::run(coro::offload_joined(LvalueCallable{})), 42);
     EXPECT_EQ(coro::run(coro::offload_joined(CooperativeLvalueCallable{})), 43);
+}
+
+TEST(Offload, Admission_RepeatedCancellation_ReleasesCapturesBeforeWorkerFinishes) {
+    coro::Loop loop;
+    loop.set_offload_workers(1);
+    std::atomic<bool> started{false};
+    std::atomic<bool> release{false};
+    bool ran = false;
+    auto blocker = [&]() -> coro::Task<void> {
+        co_await coro::offload_joined([&] {
+            started.store(true);
+            started.notify_one();
+            release.wait(false);
+        });
+    };
+    auto root = [&]() -> coro::Task<void> {
+        co_await coro::task_group([&](coro::TaskGroup& group) -> coro::Task<void> {
+            group.spawn(blocker());
+            while (!started.load()) {
+                co_await coro::checkpoint();
+            }
+            for (int i = 0; i < 32; ++i) {
+                auto lease = std::make_shared<int>(i);
+                const std::weak_ptr<int> weak = lease;
+                auto queued = coro::offload([lease = std::move(lease), &ran] { ran = true; });
+                auto outcome =
+                    co_await coro::with_timeout(1ms, [&]() -> coro::Task<void> { co_await std::move(queued); });
+                EXPECT_TRUE(outcome.timed_out);
+                EXPECT_TRUE(weak.expired());
+            }
+            release.store(true);
+            release.notify_one();
+        });
+    };
+    coro::run(loop, root());
+    EXPECT_FALSE(ran);
+}
+
+TEST(Offload, Joined_DefectAfterCancellation_IsStillReported) {
+    auto root = []() -> coro::Task<void> {
+        co_await coro::task_group([](coro::TaskGroup& group) -> coro::Task<void> {
+            std::atomic<bool> started{false};
+            EXPECT_THROW(co_await coro::with_cancel_scope([&](coro::CancelScope& scope) -> coro::Task<void> {
+                             auto cancel = [&]() -> coro::Task<void> {
+                                 while (!started.load()) {
+                                     co_await coro::checkpoint();
+                                 }
+                                 scope.cancel();
+                             };
+                             group.spawn_discard(cancel());
+                             co_await coro::offload_joined([&](const std::stop_token& stop) {
+                                 std::atomic<bool> cancelled{false};
+                                 const std::stop_callback notify{stop, [&] {
+                                                                     cancelled.store(true);
+                                                                     cancelled.notify_one();
+                                                                 }};
+                                 started.store(true);
+                                 cancelled.wait(false);
+                                 throw std::runtime_error("defect during worker cleanup");
+                             });
+                         }),
+                         std::runtime_error);
+        });
+    };
+    coro::run(root());
+}
+
+TEST(Offload, Admission_FifoSurvivesRunningCancellationAndHoldsCapacityUntilActualCompletion) {
+    for (bool joined : {false, true}) {
+        coro::Loop loop;
+        loop.set_offload_workers(1);
+        std::atomic<bool> started{false};
+        std::atomic<bool> release{false};
+        coro::CancelScope* running_scope = nullptr;
+        bool caller_finished = false;
+        std::vector<int> order;  // accessed by the single worker, read only after drain
+        auto running = [&]() -> coro::Task<void> {
+            const auto outcome = co_await coro::with_cancel_scope([&](coro::CancelScope& scope) -> coro::Task<void> {
+                running_scope = &scope;
+                auto work = [&] {
+                    started.store(true);
+                    release.wait(false);
+                };
+                if (joined) {
+                    co_await coro::offload_joined(work);
+                } else {
+                    co_await coro::offload(work);
+                }
+            });
+            EXPECT_TRUE(outcome.cancelled);
+            caller_finished = true;
+        };
+        auto root = [&]() -> coro::Task<void> {
+            co_await coro::task_group([&](coro::TaskGroup& group) -> coro::Task<void> {
+                group.spawn(running());
+                while (!started.load()) {
+                    co_await coro::checkpoint();
+                }
+                std::array<coro::detail::OffloadAdmission, 3> queued;
+                for (std::size_t i = 0; i < queued.size(); ++i) {
+                    // Fixed callback signature; failure is fatal in this test.
+                    // NOLINTNEXTLINE(performance-unnecessary-value-param)
+                    queued[i].failed = [](void*, std::exception_ptr) noexcept { std::terminate(); };
+                    queued[i].job = [&, i] {
+                        EXPECT_TRUE(release.load());
+                        order.push_back(static_cast<int>(i));
+                    };
+                    coro::detail::LoopAccess::admit_offload(loop, queued[i]);
+                    EXPECT_TRUE(queued[i].linked);
+                    EXPECT_FALSE(queued[i].submitted);
+                }
+                running_scope->cancel();
+                if (!joined) {
+                    while (!caller_finished) {
+                        co_await coro::checkpoint();
+                    }
+                }
+                EXPECT_EQ(caller_finished, !joined);
+                for (const auto& admission : queued) {
+                    EXPECT_TRUE(admission.linked);
+                    EXPECT_FALSE(admission.submitted);
+                }
+                release.store(true);
+                release.notify_one();
+                // This sentinel queues behind the three admissions and proves
+                // their nodes have been submitted before their storage leaves.
+                co_await coro::offload_joined([] {});
+                co_await group.join();
+                EXPECT_EQ(order, (std::vector<int>{0, 1, 2}));
+            });
+        };
+        coro::run(loop, root());
+    }
 }
 
 }  // namespace

@@ -40,7 +40,8 @@ struct ChildSlot {
     std::size_t index = 0;
     PromiseBase* frame = nullptr;
     const void* type_tag = nullptr;
-    PromiseBase* join_head = nullptr;
+    WaitNode* join_waiter = nullptr;
+    bool reserved = false;
     ChildSlot* completed_next = nullptr;
     ChildSlot* completed_prev = nullptr;
     bool in_completed = false;
@@ -121,7 +122,7 @@ struct GroupState {
     /// Claim and unlink, but keep the frame alive through result extraction.
     ChildSlot* take_completed(const void* tag) noexcept {
         for (ChildSlot* slot = completed_head; slot != nullptr; slot = slot->completed_next) {
-            if (slot->type_tag == tag && !slot->consumed) {
+            if (slot->type_tag == tag && !slot->consumed && !slot->reserved) {
                 slot->consumed = true;
                 unlink_completed(*slot);
                 return slot;
@@ -132,7 +133,7 @@ struct GroupState {
 
     [[nodiscard]] bool has_unconsumed(const void* tag) const noexcept {
         for (const auto& slot : children) {
-            if (!slot->discard && slot->type_tag == tag && !slot->consumed) {
+            if (!slot->discard && slot->type_tag == tag && !slot->consumed && !slot->reserved) {
                 return true;
             }
         }
@@ -271,10 +272,9 @@ inline void GroupState::child_finished(ChildSlot& slot, PromiseBase& frame) noex
         first_error = frame.error;
         ScopeAccess::cancel(scope, CancelCause::REQUESTED);
     }
-    for (PromiseBase* waiter = std::exchange(slot.join_head, nullptr); waiter != nullptr;) {
-        PromiseBase* next = std::exchange(waiter->wait_next, nullptr);
-        wake(*waiter);
-        waiter = next;
+    if (WaitNode* waiter = std::exchange(slot.join_waiter, nullptr); waiter != nullptr && !waiter->scheduled) {
+        waiter->scheduled = true;
+        wake(*waiter->waiter);
     }
     if (slot.discard && !frame.failed()) {
         // Reaping belongs to the loop's safe phase, not another child's hook.
@@ -329,32 +329,81 @@ struct AllDoneAwaitable {
     void await_resume() const noexcept {}
 };
 
-/// Handle join retains its existing non-interruptible, single-consumer contract.
+/// A single-consumer result reservation, cancellable independently of its producer.
 template<typename T>
 struct JoinAwaiter {
-    std::shared_ptr<ChildSlot> slot;
+    explicit JoinAwaiter(std::shared_ptr<ChildSlot> child) noexcept : slot(std::move(child)) {}
 
-    bool await_ready() const {
-        if (slot == nullptr || slot->frame == nullptr || slot->consumed) {
-            throw std::logic_error("join requires an unclaimed child result");
+    JoinAwaiter(const JoinAwaiter&) = delete;
+    JoinAwaiter& operator=(const JoinAwaiter&) = delete;
+
+    // Started frames are drained, never destroyed while parked. Do not detach
+    // here: a scheduled continuation would still refer to the destroyed frame.
+    ~JoinAwaiter() noexcept {
+        assert(!reserved && !node.linked && "destroying an active Handle result wait");
+        if (reserved || node.linked) {
+            std::terminate();
         }
-        slot->consumed = true;
-        slot->owner->wake_next();  // claims can exhaust a pending typed next()
-        return slot->done;
     }
+
+    std::shared_ptr<ChildSlot> slot;
+    WaitNode node{};
+    bool reserved = false;
+
+    constexpr bool await_ready() const noexcept { return false; }
 
     template<typename Promise>
     bool await_suspend(std::coroutine_handle<Promise> handle) {
-        PromiseBase& waiter = handle.promise();
-        waiter.wait_next = slot->join_head;
-        slot->join_head = &waiter;
+        node.scope = handle.promise().scope;
+        if (node.scope != nullptr) {
+            node.scope->throw_if_cancelled();
+        }
+        if (slot == nullptr || slot->frame == nullptr || slot->consumed || slot->reserved) {
+            throw std::logic_error("join requires an unclaimed child result");
+        }
+        slot->reserved = true;
+        reserved = true;
+        slot->owner->wake_next();
+        if (slot->done) {
+            return false;
+        }
+        node.waiter = &handle.promise();
+        node.owner = this;
+        node.on_cancel = [](WaitNode& cancelled) noexcept { static_cast<JoinAwaiter*>(cancelled.owner)->release(); };
+        slot->join_waiter = &node;
+        if (node.scope != nullptr) {
+            ScopeAccess::add_waiter(*node.scope, node);
+        }
         return true;
     }
 
+    void release() noexcept {
+        if (!reserved) {
+            return;
+        }
+        if (slot->join_waiter == &node) {
+            slot->join_waiter = nullptr;
+        }
+        slot->reserved = false;
+        reserved = false;
+        if (slot->owner != nullptr) {
+            slot->owner->wake_next();
+        }
+    }
+
     T await_resume() {
+        if (node.linked) {
+            ScopeAccess::remove_waiter(*node.scope, node);
+        }
+        if (node.scope != nullptr && node.scope->cancelled()) {
+            release();
+            node.scope->throw_if_cancelled();
+        }
         if (slot->frame == nullptr) {
             throw std::logic_error("join requires an unclaimed child result");
         }
+        slot->consumed = true;
+        release();
         const ConsumedChild consume{*slot};
         auto* promise = static_cast<TaskPromise<T>*>(slot->frame);
         if (promise->error) {
