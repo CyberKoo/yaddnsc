@@ -135,6 +135,7 @@ add_unit_test(coro
            coro/loop_test.cpp
            coro/context_contract_test.cpp
            coro/task_group_contract_test.cpp
+           coro/scope_group_paths_test.cpp
 )
 target_link_libraries(test_coro PRIVATE yaddnsc_coro)
 
