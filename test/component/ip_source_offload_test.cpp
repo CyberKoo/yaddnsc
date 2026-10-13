@@ -103,8 +103,11 @@ TEST(IpSourceOffload, DefaultIpv4_NoMetadata_DoesNotWaitForSaturatedPool) {
                 co_await coro::checkpoint();
             }
             ipsource::MdnsIpSource source{"test.invalid", domain::RecordKind::A, ""};
+            // Watchdog, not a latency bound: a resolve that wrongly queued behind the
+            // saturated pool would hang forever (release_worker comes only after this
+            // await), so any budget catches it; 2s absorbs CI scheduling jitter.
             auto outcome = co_await coro::with_timeout(
-                20ms, [&]() -> coro::Task<ipsource::Result> { co_return co_await source.resolve(); });
+                2s, [&]() -> coro::Task<ipsource::Result> { co_return co_await source.resolve(); });
             EXPECT_FALSE(outcome.timed_out);
             EXPECT_TRUE(socket_opened.load());
             EXPECT_FALSE(metadata_started.load());
