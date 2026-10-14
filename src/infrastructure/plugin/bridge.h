@@ -48,15 +48,17 @@
 #include <chrono>
 #include <cstdint>
 #include <exception>
+#include <expected>
 #include <future>
 #include <memory>
 #include <string>
 #include <utility>
 #include <vector>
 
-#include <expected>
 #include <yaddnsc/sdk/driver_abi.h>
 
+#include "coro/host.hpp"
+#include "coro/notification.hpp"
 #include "coro/task.hpp"
 #include "domain/error/error.h"
 #include "infrastructure/http/types.h"
@@ -65,12 +67,6 @@ namespace coro {
 class Loop;
 class TaskGroup;
 class CancelScope;
-
-namespace detail {
-struct GroupLifetime;
-struct PromiseBase;
-struct WaitNode;
-}
 }  // namespace coro
 
 namespace plugin {
@@ -118,21 +114,23 @@ struct BridgeCall {
 /// The owner and worker retain leases until HTTP children and real work finish.
 struct CallState {
     std::atomic<bool> cancelled{false};
-    std::shared_ptr<coro::detail::GroupLifetime> lifetime;
+    coro::GroupToken lifetime;
     // The group owns HTTP children; tracking borrows without a cycle->call->cycle ring.
     std::vector<std::weak_ptr<BridgeCall>> calls;
-    coro::detail::PromiseBase* control = nullptr;
-    coro::detail::WaitNode* subscriber = nullptr;
+    /// Owner-side events: cancel requests, worker completion, subscriber exit.
+    coro::Notification owner_changed;
+    /// The owner published the cycle's result (or defect). Awaiting it consumes
+    /// one publication; cancellation of the subscriber's scope still wins.
+    coro::Notification result_ready;
     std::expected<void, domain::DriverError> result;
     std::exception_ptr error;
     /// Worker-only until joined completion publishes it to the loop.
     std::exception_ptr worker_error;
     coro::CancelScope* worker_scope = nullptr;
+    bool subscriber_active = false;
     bool error_observed = false;
     bool plugin_cancelled = false;
     bool worker_done = false;
-    bool owner_done = false;
-    bool cancellation_applied = false;
 
     /// Worker-only until joined completion; preserve the first host defect.
     void record_worker_error(std::exception_ptr defect) noexcept {
@@ -142,7 +140,6 @@ struct CallState {
     }
 
     /// Loop-only signal; cancellation hooks may call this without allocation.
-    void signal() noexcept;
     void request_cancel() noexcept;
 };
 
@@ -205,8 +202,11 @@ public:
     Bridge& operator=(Bridge&&) = delete;
 
     /// Start an owned cycle in the long-lived root group. Loop thread only.
+    /// `state` must outlive the cycle; a submission failure is published to the
+    /// subscriber through the allocation-free notification before the error
+    /// propagates, so no caller can hang on a cycle that never started.
     /// Allocation may throw; closed ingress throws std::logic_error.
-    void start_cycle(coro::Task<void> cycle);
+    void start_cycle(const std::shared_ptr<CallState>& state, coro::Task<void> cycle);
 
     /// Worker side: run `call` on the loop and return its answer. Blocks the
     /// calling thread; may be called from any thread.
@@ -221,7 +221,7 @@ public:
 
 private:
     coro::Loop* loop_;
-    std::shared_ptr<coro::detail::GroupLifetime> group_lifetime_;
+    coro::GroupToken group_lifetime_;
     std::shared_ptr<const detail::BridgeState> state_;
 };
 

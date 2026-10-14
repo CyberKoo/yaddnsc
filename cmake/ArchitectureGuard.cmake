@@ -67,13 +67,61 @@ guard_check("the coroutine runtime must not include a logging backend (compositi
     ${PROJECT_SOURCE_DIR}/src/coro/*.cpp)
 
 # ------------------------------------------------------------------------------
+# coro/detail is runtime-private. Host code bridging foreign threads into the
+# runtime (custom awaitables, cancellation observers, group lifetime tokens)
+# goes through the opaque primitives in coro/host.hpp instead of touching the
+# waiter bookkeeping directly. Tests stay white-box and are not scanned here.
+# ------------------------------------------------------------------------------
+guard_check("coro detail headers are runtime-private outside src/coro (hosts use coro/host.hpp)"
+    "${INC_RE}[<\"]coro/detail/"
+    ${PROJECT_SOURCE_DIR}/src/application/*.h
+    ${PROJECT_SOURCE_DIR}/src/application/*.hpp
+    ${PROJECT_SOURCE_DIR}/src/application/*.cpp
+    ${PROJECT_SOURCE_DIR}/src/cli/*.h
+    ${PROJECT_SOURCE_DIR}/src/cli/*.hpp
+    ${PROJECT_SOURCE_DIR}/src/cli/*.cpp
+    ${PROJECT_SOURCE_DIR}/src/composition/*.h
+    ${PROJECT_SOURCE_DIR}/src/composition/*.hpp
+    ${PROJECT_SOURCE_DIR}/src/composition/*.cpp
+    ${PROJECT_SOURCE_DIR}/src/domain/*.h
+    ${PROJECT_SOURCE_DIR}/src/domain/*.hpp
+    ${PROJECT_SOURCE_DIR}/src/domain/*.cpp
+    ${PROJECT_SOURCE_DIR}/src/infrastructure/*.h
+    ${PROJECT_SOURCE_DIR}/src/infrastructure/*.hpp
+    ${PROJECT_SOURCE_DIR}/src/infrastructure/*.cpp
+    ${PROJECT_SOURCE_DIR}/src/support/*.h
+    ${PROJECT_SOURCE_DIR}/src/support/*.hpp
+    ${PROJECT_SOURCE_DIR}/src/support/*.cpp)
+
+guard_check("coro detail types are runtime-private outside src/coro (hosts use coro/host.hpp)"
+    "(^|[^A-Za-z_0-9])coro::detail"
+    ${PROJECT_SOURCE_DIR}/src/application/*.h
+    ${PROJECT_SOURCE_DIR}/src/application/*.hpp
+    ${PROJECT_SOURCE_DIR}/src/application/*.cpp
+    ${PROJECT_SOURCE_DIR}/src/cli/*.h
+    ${PROJECT_SOURCE_DIR}/src/cli/*.hpp
+    ${PROJECT_SOURCE_DIR}/src/cli/*.cpp
+    ${PROJECT_SOURCE_DIR}/src/composition/*.h
+    ${PROJECT_SOURCE_DIR}/src/composition/*.hpp
+    ${PROJECT_SOURCE_DIR}/src/composition/*.cpp
+    ${PROJECT_SOURCE_DIR}/src/domain/*.h
+    ${PROJECT_SOURCE_DIR}/src/domain/*.hpp
+    ${PROJECT_SOURCE_DIR}/src/domain/*.cpp
+    ${PROJECT_SOURCE_DIR}/src/infrastructure/*.h
+    ${PROJECT_SOURCE_DIR}/src/infrastructure/*.hpp
+    ${PROJECT_SOURCE_DIR}/src/infrastructure/*.cpp
+    ${PROJECT_SOURCE_DIR}/src/support/*.h
+    ${PROJECT_SOURCE_DIR}/src/support/*.hpp
+    ${PROJECT_SOURCE_DIR}/src/support/*.cpp)
+
+# ------------------------------------------------------------------------------
 # 2. application: no infrastructure implementation headers or third-party I/O.
 #    Only the listed public coroutine headers are allowed. Template headers may
 #    include runtime internals themselves; application code cannot name them.
 # ------------------------------------------------------------------------------
 set(application_coro_headers
-    async_mutex.hpp cancel_scope.h cancelled.h checkpoint.hpp fwd.h group.hpp group_error.h mutex_guard.hpp now.hpp
-    offload.hpp scope.hpp scope_outcome.hpp sleep.hpp task.hpp task_group.hpp time.h)
+    async_mutex.hpp cancel_scope.h cancelled.h checkpoint.hpp fwd.h group.hpp group_error.h mutex_guard.hpp notification.hpp
+    now.hpp offload.hpp scope.hpp scope_outcome.hpp sleep.hpp task.hpp task_group.hpp time.h)
 file(GLOB_RECURSE application_check_files RELATIVE ${PROJECT_SOURCE_DIR}
     ${PROJECT_SOURCE_DIR}/src/application/*.h
     ${PROJECT_SOURCE_DIR}/src/application/*.hpp

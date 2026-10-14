@@ -12,6 +12,7 @@
 #include <chrono>
 #include <coroutine>
 #include <cstdlib>
+#include <exception>
 #include <expected>
 #include <memory>
 #include <new>
@@ -24,8 +25,10 @@
 #include "coro/checkpoint.hpp"
 #include "coro/group.hpp"
 #include "coro/loop.h"
+#include "coro/notification.hpp"
 #include "coro/offload.hpp"
 #include "coro/run.hpp"
+#include "coro/scope.hpp"
 #include "coro/task.hpp"
 #include "infrastructure/http/types.h"
 #include "infrastructure/plugin/bridge.h"
@@ -153,7 +156,7 @@ TEST(BridgeIngress, StartCycle_AfterGroupClosed_ThrowsInsteadOfPublishing) {
         // The group exited: its ingress token closed, so the dead group is
         // never dereferenced and the cycle is refused as a value.
         try {
-            bridge->start_cycle(noop_cycle());
+            bridge->start_cycle(std::make_shared<plugin::CallState>(), noop_cycle());
         } catch (const std::logic_error&) {
             caught = true;
         }
@@ -166,24 +169,34 @@ TEST(BridgeIngress, StartCycle_AfterGroupClosed_ThrowsInsteadOfPublishing) {
 TEST(BridgeIngress, StartCycle_SlotAllocationFailure_PropagatesAndKeepsTheGroupUsable) {
     coro::Loop loop;
     bool caught = false;
+    bool failure_published = false;
+    bool failure_notified = false;
     bool second_cycle_published = false;
 
     auto root = [&]() -> coro::Task<void> {
         co_await coro::supervisor_group([&](coro::TaskGroup& group) -> coro::Task<void> {
             plugin::Bridge bridge{loop, group, http::Options{}, kWaitBudget};
+            auto state = std::make_shared<plugin::CallState>();
             auto cycle = noop_cycle();
             {
                 // Slot allocation precedes ownership transfer, so the group is
                 // left untouched and can still accept work afterwards.
                 const FailNextAllocation failure;
                 try {
-                    bridge.start_cycle(std::move(cycle));
+                    bridge.start_cycle(state, std::move(cycle));
                 } catch (const std::bad_alloc&) {
                     caught = true;
                 }
             }
+            // The owner never started: the failure was recorded and published
+            // through the allocation-free notification, so a subscriber's wait
+            // ends instead of hanging.
+            failure_published = state->error != nullptr;
+            const auto probe = co_await coro::with_timeout(
+                std::chrono::milliseconds{1}, [&]() -> coro::Task<void> { co_await state->result_ready.wait(); });
+            failure_notified = probe.completed;
             try {
-                bridge.start_cycle(noop_cycle());
+                bridge.start_cycle(std::make_shared<plugin::CallState>(), noop_cycle());
                 second_cycle_published = true;
             } catch (const std::bad_alloc&) {
                 ADD_FAILURE() << "a failed spawn must not poison the group";
@@ -194,6 +207,8 @@ TEST(BridgeIngress, StartCycle_SlotAllocationFailure_PropagatesAndKeepsTheGroupU
     coro::run(loop, root());
 
     EXPECT_TRUE(caught);
+    EXPECT_TRUE(failure_published);
+    EXPECT_TRUE(failure_notified);
     EXPECT_TRUE(second_cycle_published);
 }
 

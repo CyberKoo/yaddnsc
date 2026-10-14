@@ -7,6 +7,8 @@
 #include <atomic>
 #include <chrono>
 #include <compare>
+#include <coroutine>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
+#include <expected>
 #include <functional>
 #include <memory>
 #include <ratio>
@@ -16,15 +18,11 @@
 #include <type_traits>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 #include <utility>
 
-#include <coroutine>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
-
-#include <expected>
 #include <spdlog/spdlog.h>
 
 #include "coro/cancel_scope.h"
 #include "coro/cancelled.h"
-#include "coro/detail/access.h"
-#include "coro/detail/group_state.h"
+#include "coro/host.hpp"
 #include "coro/loop.h"
 #include "coro/now.hpp"
 #include "coro/scope.hpp"
@@ -177,28 +175,30 @@ coro::Task<void> serve_exchange(std::shared_ptr<const BridgeState> state, std::s
 
 Bridge::Bridge(coro::Loop& loop, coro::TaskGroup& spawn_group, http::Options options,
                std::chrono::milliseconds wait_budget)
-    : loop_(&loop), group_lifetime_(coro::detail::GroupAccess::lifetime(spawn_group)),
+    : loop_(&loop), group_lifetime_(coro::group_token(spawn_group)),
       state_(std::make_shared<const detail::BridgeState>(detail::BridgeState{std::move(options), wait_budget})) {}
 
 Bridge::~Bridge() = default;
 
-void CallState::signal() noexcept {
-    if (auto* waiter = std::exchange(control, nullptr)) {
-        coro::detail::wake(*waiter);
-    }
-}
-
 void CallState::request_cancel() noexcept {
     cancelled.store(true, std::memory_order_release);
-    signal();
+    owner_changed.notify();
 }
 
-void Bridge::start_cycle(coro::Task<void> cycle) {
-    auto* group = group_lifetime_->group;
+void Bridge::start_cycle(const std::shared_ptr<CallState>& state, coro::Task<void> cycle) {
+    auto* group = group_lifetime_.get();
     if (group == nullptr) {
         throw std::logic_error("plugin cycle requires a live root group");
     }
-    group->spawn_discard(std::move(cycle));
+    try {
+        group->spawn_discard(std::move(cycle));
+    } catch (...) {
+        // The owner never started: publish through the allocation-free
+        // notification so a subscriber that reaches the wait cannot hang.
+        state->error = std::current_exception();
+        state->result_ready.notify();
+        throw;
+    }
 }
 
 // A worker retains its own lease independently of the caller and posted children.
@@ -221,7 +221,7 @@ std::expected<http::Response, BridgeError> Bridge::exchange(std::shared_ptr<Brid
             // Admission happens on the loop, where scope closure and posting
             // cannot race. The shared token survives the group it refers to.
             const auto owner = call->cycle ? call->cycle->lifetime : lifetime;
-            auto* group = owner ? owner->group : nullptr;
+            auto* group = owner.get();
             if (group == nullptr || group->scope().cancelled() || call->cancelled.load(std::memory_order_acquire) ||
                 (call->cycle && call->cycle->cancelled.load(std::memory_order_acquire))) {
                 call->cancelled.store(true, std::memory_order_release);

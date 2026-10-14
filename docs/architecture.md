@@ -316,12 +316,13 @@ surface is task ownership and structured groups (`task.hpp`, `group.hpp`,
 `ScopeOutcome` (`scope_outcome.hpp`), `CancelScope` and `coro::Cancelled`
 (`cancel_scope.h`, `cancelled.h`), cancellable sleeps (`sleep.hpp`), loop time as
 values (`now.hpp`, `time.h`), `checkpoint()`
-(`checkpoint.hpp`), `offload` (`offload.hpp`) and `MutexGuard`
-(`async_mutex.hpp`, `mutex_guard.hpp`) — all declared in `src/coro/` and
+(`checkpoint.hpp`), `offload` (`offload.hpp`), `MutexGuard`
+(`async_mutex.hpp`, `mutex_guard.hpp`) and `Notification` (`notification.hpp`)
+— all declared in `src/coro/` and
 enumerated by the guard allowlist in `cmake/ArchitectureGuard.cmake`. The
-allowlist admits more than `src/application/` uses today: `offload` is reached
-only by `plugin/driver_gateway.cpp`; `current_scope()` also serves the bridge
-and non-yielding transport cancellation checks, and
+allowlist admits more than `src/application/` uses today: `offload` and
+`Notification` are reached only by the plugin host; `current_scope()` also
+serves the bridge and non-yielding transport cancellation checks, and
 `MutexGuard` only by `dns/resolver/doh.h`, `dns/resolver/dot.h` and
 `http/session.h`.
 
@@ -331,7 +332,8 @@ live in `src/coro/detail/` under `coro::detail`. Public classes
 may keep private helper types and state inside the class. Public template
 headers include the complete definitions they need; this does not require every
 private implementation type to move into `detail/`. Application code must not
-include, name or access runtime internals.
+include, name or access runtime internals; other modules reach them only
+through the host surface above.
 
 `Loop` and `CancelScope` keep their scheduling, registration and waiter
 bookkeeping private. `coro::detail::LoopAccess` and `coro::detail::ScopeAccess`
@@ -339,6 +341,19 @@ are the only ways in, so a caller cannot bypass the ready queue or leave a waite
 linked into a scope it does not own. The offload pool's third-party type stops
 at `Loop::Pool` in `loop.cpp`, so including a task no longer compiles a thread
 pool.
+
+Host code that bridges foreign threads into the runtime — the plugin host over
+the driver ABI — does not touch those internals either. Waiting and
+notification are covered by the public `coro::Notification`: a single-waiter,
+coalescing signal whose `wait()` parks on the caller's own scope and whose
+`notify()` wakes through the ready queue without allocating. What remains in
+`coro/host.hpp`, the second, narrower door, is what a host still cannot express
+with public primitives: `CancelObserver` (an RAII hook that observes one
+scope's cancellation while the coroutine waits on another, e.g. inside a
+shield) and `GroupToken` (a group lifetime token read only on the loop). The
+architecture guard rejects `coro/detail/` includes and `coro::detail` symbols
+in every module outside `src/coro/`, so the waiter bookkeeping stays inside the
+runtime for all layers.
 
 **Header layering inside the runtime.** `detail/` is a namespace and directory
 of this module, not a layer of its own: a detail header implements the public

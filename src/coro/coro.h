@@ -2,8 +2,8 @@
 // Coroutine runtime — umbrella header.
 //
 // Everything a composition-layer caller needs: the loop entry point, Task and
-// its structured scopes, cancellation combinators, sleeps, AsyncMutex, offload
-// and process stop signals.
+// its structured scopes, cancellation combinators, sleeps, AsyncMutex,
+// Notification, offload and process stop signals.
 //
 // Thread safety: everything here is loop-thread only except Loop::post and the
 // offload worker boundary. StopSignals owns process handlers outside run(); its
@@ -43,6 +43,7 @@
 #include "coro/group.hpp"
 #include "coro/loop.h"
 #include "coro/mutex_guard.hpp"
+#include "coro/notification.hpp"
 #include "coro/now.hpp"
 #include "coro/offload.hpp"
 #include "coro/run.hpp"

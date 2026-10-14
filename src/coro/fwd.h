@@ -14,6 +14,7 @@ class Clock;
 class Loop;
 class ManualClock;
 class MutexGuard;
+class Notification;
 class SystemClock;
 class TaskGroup;
 

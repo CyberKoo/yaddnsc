@@ -18,7 +18,7 @@
 
 #include "application/ports/log.h"
 #include "coro/coro.h"
-#include "coro/detail/group_state.h"
+#include "coro/host.hpp"
 #include "domain/update/driver_update_command.h"
 #include "infrastructure/http/types.h"
 #include "infrastructure/plugin/bridge.h"
@@ -120,7 +120,7 @@ TEST(PluginCancellationPublication, CancelDuringRequestCopy_LoopRejectsLateAdmis
     auto root = [&]() -> coro::Task<void> {
         co_await coro::task_group([&](coro::TaskGroup& group) -> coro::Task<void> {
             auto cycle = std::make_shared<plugin::CallState>();
-            cycle->lifetime = coro::detail::GroupAccess::lifetime(group);
+            cycle->lifetime = coro::group_token(group);
             auto bridge = std::make_shared<plugin::Bridge>(loop, group, http::Options{}, std::chrono::seconds{5});
             co_await group.with_children([&]() -> coro::Task<void> {
                 auto worker = coro::offload_joined([&] {
@@ -162,7 +162,7 @@ TEST(PluginAllocationFailure, PostAllocationFailure_ReportsWorkerDefectWithoutRe
     auto root = [&]() -> coro::Task<void> {
         co_await coro::task_group([&](coro::TaskGroup& group) -> coro::Task<void> {
             auto cycle = std::make_shared<plugin::CallState>();
-            cycle->lifetime = coro::detail::GroupAccess::lifetime(group);
+            cycle->lifetime = coro::group_token(group);
             auto bridge = std::make_shared<plugin::Bridge>(loop, group, http::Options{}, std::chrono::seconds{5});
             auto call = std::make_shared<plugin::BridgeCall>();
             call->cycle = cycle;
@@ -192,7 +192,7 @@ TEST(PluginAllocationFailure, LoopAdmissionAllocationFailure_CompletesPromiseAnd
     auto root = [&]() -> coro::Task<void> {
         co_await coro::task_group([&](coro::TaskGroup& group) -> coro::Task<void> {
             auto cycle = std::make_shared<plugin::CallState>();
-            cycle->lifetime = coro::detail::GroupAccess::lifetime(group);
+            cycle->lifetime = coro::group_token(group);
             auto bridge = std::make_shared<plugin::Bridge>(loop, group, http::Options{}, std::chrono::seconds{5});
             auto call = std::make_shared<plugin::BridgeCall>();
             call->cycle = cycle;

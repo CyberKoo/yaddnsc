@@ -7,8 +7,10 @@
 
 #include <algorithm>
 #include <atomic>
+#include <coroutine>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 #include <cstdint>
 #include <exception>
+#include <expected>
 #include <limits>
 #include <memory>
 #include <optional>
@@ -18,18 +20,14 @@
 #include <utility>
 #include <vector>
 
-#include <coroutine>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
-
-#include <expected>
 #include <spdlog/spdlog.h>
 #include <yaddnsc/sdk/driver_abi.h>
 
 #include "coro/cancel_scope.h"
 #include "coro/cancelled.h"
-#include "coro/detail/access.h"
-#include "coro/detail/group_state.h"
-#include "coro/detail/wait_node.h"
 #include "coro/group.hpp"
+#include "coro/host.hpp"
+#include "coro/notification.hpp"
 #include "coro/offload.hpp"
 #include "coro/scope.hpp"
 #include "coro/task.hpp"
@@ -261,106 +259,26 @@ struct DestroyPhase {
     return std::unexpected(map_validate_error(status, detail::to_view(error.message), driver_name));
 }
 
-/// A scope observer signals the independent owner; no runtime reentry in hooks.
-class CycleCancellation {
-public:
-    CycleCancellation(coro::CancelScope& scope, CallState& state) noexcept {
-        node_.owner = &state;
-        node_.wake_on_cancel = false;
-        node_.on_cancel = [](coro::detail::WaitNode& node) noexcept {
-            static_cast<CallState*>(node.owner)->request_cancel();
-        };
-        if (scope.cancelled()) {
-            state.request_cancel();
-        } else {
-            coro::detail::ScopeAccess::add_waiter(scope, node_);
-        }
-    }
+/// A scope cancel hook signals the cycle; no runtime reentry in hooks.
+void request_cancel_hook(void* owner) noexcept {
+    static_cast<CallState*>(owner)->request_cancel();
+}
 
-    CycleCancellation(const CycleCancellation&) = delete;
-    CycleCancellation& operator=(const CycleCancellation&) = delete;
-
-    ~CycleCancellation() noexcept {
-        if (node_.linked) {
-            coro::detail::ScopeAccess::remove_waiter(*node_.scope, node_);
-        }
-    }
-
-private:
-    coro::detail::WaitNode node_{};
-};
-
-struct CycleEvent {
+/// Caller-side subscription to a cycle result. Armed before the owner starts,
+/// so the owner's acknowledgement wait cannot miss it; released exactly once —
+/// on normal return, cancellation or defect alike — which notifies the owner.
+struct CycleSubscription {
     CallState& state;
 
-    [[nodiscard]] bool await_ready() const noexcept {
-        return state.worker_done || (state.cancelled.load(std::memory_order_acquire) && !state.cancellation_applied);
+    explicit CycleSubscription(CallState& cycle) noexcept : state(cycle) { state.subscriber_active = true; }
+
+    CycleSubscription(const CycleSubscription&) = delete;
+    CycleSubscription& operator=(const CycleSubscription&) = delete;
+
+    ~CycleSubscription() noexcept {
+        state.subscriber_active = false;
+        state.owner_changed.notify();
     }
-
-    template<typename Promise>
-    void await_suspend(std::coroutine_handle<Promise> frame) noexcept {
-        state.control = &frame.promise();
-    }
-
-    void await_resume() const noexcept {}
-};
-
-struct CycleResult {
-    std::shared_ptr<CallState> state;
-    coro::detail::WaitNode node{};
-
-    // The coroutine protocol invokes this through its awaiter object.
-    // NOLINTNEXTLINE(readability-convert-member-functions-to-static)
-    [[nodiscard]] constexpr bool await_ready() const noexcept { return false; }
-
-    template<typename Promise>
-    bool await_suspend(std::coroutine_handle<Promise> frame) {
-        node.scope = frame.promise().scope;
-        node.scope->throw_if_cancelled();
-        if (state->owner_done) {
-            return false;
-        }
-        node.waiter = &frame.promise();
-        node.owner = state.get();
-        node.on_cancel = [](coro::detail::WaitNode& cancelled) noexcept {
-            auto& cycle = *static_cast<CallState*>(cancelled.owner);
-            cycle.subscriber = nullptr;
-            cycle.request_cancel();
-        };
-        state->subscriber = &node;
-        coro::detail::ScopeAccess::add_waiter(*node.scope, node);
-        return true;
-    }
-
-    std::expected<void, domain::DriverError> await_resume() {
-        if (node.linked) {
-            coro::detail::ScopeAccess::remove_waiter(*node.scope, node);
-        }
-        state->subscriber = nullptr;
-        state->signal();
-        node.scope->throw_if_cancelled();
-        if (state->error) {
-            state->error_observed = true;
-            std::rethrow_exception(state->error);
-        }
-        if (state->plugin_cancelled) {
-            throw AbiCancelled{};
-        }
-        return std::move(state->result);
-    }
-};
-
-struct CycleAcknowledgement {
-    CallState& state;
-
-    [[nodiscard]] bool await_ready() const noexcept { return state.subscriber == nullptr; }
-
-    template<typename Promise>
-    void await_suspend(std::coroutine_handle<Promise> frame) noexcept {
-        state.control = &frame.promise();
-    }
-
-    void await_resume() const noexcept {}
 };
 
 template<typename Work>
@@ -398,47 +316,45 @@ coro::Task<void> cycle_worker(std::shared_ptr<CallState> state, Work work) {
         state->error = state->worker_error;
     }
     state->worker_done = true;
-    state->signal();
+    state->owner_changed.notify();
 }
 
-/// Parent scope and controller outlive a cancelled caller and all real work.
+/// The shielded cycle body: drain the real work, publish the outcome, and wait
+/// for the subscriber's release. Everything past the group join must not be
+/// interrupted by root cancellation — a broken acknowledgement wait could drop
+/// a late defect — so make_cycle_owner wraps this whole body in one shield.
 template<typename Work>
-coro::Task<void> own_cycle(std::shared_ptr<CallState> state, Work work) {
-    auto& parent = co_await coro::current_scope();
-    const CycleCancellation cancellation{parent, *state};
+coro::Task<void> cycle_body(std::shared_ptr<CallState> state, Work work) {
     try {
-        co_await coro::non_cancellable([&](coro::CancelScope&) -> coro::Task<void> {
-            co_await coro::supervisor_group([&](coro::TaskGroup& group) -> coro::Task<void> {
-                state->lifetime = coro::detail::GroupAccess::lifetime(group);
-                group.spawn_discard(cycle_worker(state, std::move(work)));
-                while (!state->worker_done) {
-                    if (state->cancelled.load(std::memory_order_acquire)) {
-                        state->cancellation_applied = true;
-                        if (state->worker_scope != nullptr) {
-                            state->worker_scope->cancel();
-                        }
-                        for (const auto& tracked : state->calls) {
-                            if (const auto call = tracked.lock()) {
-                                call->cancelled.store(true, std::memory_order_release);
-                                if (call->live_scope != nullptr) {
-                                    call->live_scope->cancel();
-                                }
+        co_await coro::supervisor_group([&](coro::TaskGroup& group) -> coro::Task<void> {
+            state->lifetime = coro::group_token(group);
+            group.spawn_discard(cycle_worker(state, std::move(work)));
+            while (!state->worker_done) {
+                if (state->cancelled.load(std::memory_order_acquire)) {
+                    if (state->worker_scope != nullptr) {
+                        state->worker_scope->cancel();
+                    }
+                    for (const auto& tracked : state->calls) {
+                        if (const auto call = tracked.lock()) {
+                            call->cancelled.store(true, std::memory_order_release);
+                            if (call->live_scope != nullptr) {
+                                call->live_scope->cancel();
                             }
                         }
                     }
-                    co_await CycleEvent{*state};
                 }
-                // A worker's budget may have expired while HTTP is still retiring.
-                for (const auto& tracked : state->calls) {
-                    if (const auto call = tracked.lock()) {
-                        call->cancelled.store(true, std::memory_order_release);
-                        if (call->live_scope != nullptr) {
-                            call->live_scope->cancel();
-                        }
+                co_await state->owner_changed.wait();
+            }
+            // A worker's budget may have expired while HTTP is still retiring.
+            for (const auto& tracked : state->calls) {
+                if (const auto call = tracked.lock()) {
+                    call->cancelled.store(true, std::memory_order_release);
+                    if (call->live_scope != nullptr) {
+                        call->live_scope->cancel();
                     }
                 }
-                co_await group.join();
-            });
+            }
+            co_await group.join();
         });
     } catch (const coro::Cancelled&) {
         state->request_cancel();
@@ -448,21 +364,49 @@ coro::Task<void> own_cycle(std::shared_ptr<CallState> state, Work work) {
             state->error = std::current_exception();
         }
     }
-    state->owner_done = true;
-    if (auto* subscriber = state->subscriber; subscriber != nullptr) {
-        if (!subscriber->scheduled) {
-            subscriber->scheduled = true;
-            coro::detail::wake(*subscriber->waiter);
-        }
-    }
+    state->result_ready.notify();
     // Keep the error boundary alive through the subscriber's last cancellation
     // checkpoint: publishing a result does not prove it was observed.
-    while (state->subscriber != nullptr) {
-        co_await CycleAcknowledgement{*state};
+    while (state->subscriber_active) {
+        co_await state->owner_changed.wait();
+    }
+}
+
+/// Parent scope and controller outlive a cancelled caller and all real work.
+///
+/// The shielded body is pre-built by make_cycle_owner: every frame allocation
+/// happened before submission, so after it the shielded publish/acknowledge
+/// epilogue is the only publication path — there is no fallback wait outside
+/// the shield that a root cancellation could break (which would drop the
+/// recorded defect).
+coro::Task<void> own_cycle(std::shared_ptr<CallState> state, coro::Task<coro::ScopeOutcome<void>> shielded) {
+    auto& parent = co_await coro::current_scope();
+    const coro::CancelObserver cancellation{parent, state.get(), &request_cancel_hook};
+    try {
+        co_await std::move(shielded);
+    } catch (const coro::Cancelled&) {
+        state->request_cancel();
+        state->plugin_cancelled = true;
+    } catch (...) {
+        if (!state->error) {
+            state->error = std::current_exception();
+        }
     }
     if (state->error && !state->error_observed) {
         std::rethrow_exception(state->error);
     }
+}
+
+/// Assemble an owned cycle: shielded body plus its owner wrapper. All frame
+/// allocations happen here, before start_cycle submits the owner, so an
+/// allocation failure propagates to the caller instead of leaving a running
+/// owner without its shield.
+template<typename Work>
+coro::Task<void> make_cycle_owner(std::shared_ptr<CallState> state, Work work) {
+    // The shield's callable only moves the pre-created body task.
+    auto shielded = coro::non_cancellable(
+        [body = cycle_body(state, std::move(work))](coro::CancelScope&) mutable { return std::move(body); });
+    return own_cycle(state, std::move(shielded));
 }
 
 }  // namespace
@@ -495,14 +439,23 @@ coro::Task<std::expected<void, domain::DriverError>> DriverGateway::update(std::
     const std::string fqdn = command.fqdn;
     coro::CancelScope& scope = co_await coro::current_scope();
     scope.throw_if_cancelled();
-    const CycleCancellation cancellation{scope, *state};
-    bridge->start_cycle(own_cycle(state,
-                                  [module, command = std::move(command), bridge, logger,
-                                   state]() mutable -> std::expected<void, domain::DriverError> {
-                                      return run_update_task(module, command, *bridge, *logger, state);
-                                  }));
+    const coro::CancelObserver cancellation{scope, state.get(), &request_cancel_hook};
+    const CycleSubscription subscription{*state};
+    bridge->start_cycle(state, make_cycle_owner(state,
+                                                [module, command = std::move(command), bridge, logger,
+                                                 state]() mutable -> std::expected<void, domain::DriverError> {
+                                                    return run_update_task(module, command, *bridge, *logger, state);
+                                                }));
     try {
-        co_return co_await CycleResult{state};
+        co_await state->result_ready.wait();
+        if (state->error) {
+            state->error_observed = true;
+            std::rethrow_exception(state->error);
+        }
+        if (state->plugin_cancelled) {
+            throw AbiCancelled{};
+        }
+        co_return std::move(state->result);
     } catch (const AbiCancelled&) {
         if (scope.cancelled()) {
             // Host teardown (shutdown or an outer budget) already cancelled
@@ -551,14 +504,23 @@ coro::Task<std::expected<void, domain::DriverError>> DriverGateway::validate_con
     const app::LoggerPort* const logger = &logger_;
     coro::CancelScope& scope = co_await coro::current_scope();
     scope.throw_if_cancelled();
-    const CycleCancellation cancellation{scope, *state};
-    bridge->start_cycle(own_cycle(state,
-                                  [module, param = std::move(driver_param_json), bridge, logger,
-                                   state]() mutable -> std::expected<void, domain::DriverError> {
-                                      return run_validate_cycle(module, param, *bridge, *logger, state);
-                                  }));
+    const coro::CancelObserver cancellation{scope, state.get(), &request_cancel_hook};
+    const CycleSubscription subscription{*state};
+    bridge->start_cycle(state, make_cycle_owner(state,
+                                                [module, param = std::move(driver_param_json), bridge, logger,
+                                                 state]() mutable -> std::expected<void, domain::DriverError> {
+                                                    return run_validate_cycle(module, param, *bridge, *logger, state);
+                                                }));
     try {
-        co_return co_await CycleResult{state};
+        co_await state->result_ready.wait();
+        if (state->error) {
+            state->error_observed = true;
+            std::rethrow_exception(state->error);
+        }
+        if (state->plugin_cancelled) {
+            throw AbiCancelled{};
+        }
+        co_return std::move(state->result);
     } catch (const AbiCancelled&) {
         // A foreign status is not a host cancellation request. Only an already
         // cancelled host scope propagates control flow; live-scope validation
