@@ -12,8 +12,9 @@
 > intended for the next one, and `v0.x` remains available for older toolchains.
 > The driver plugin ABI is v1, version 1.0, and **stable since the 1.0.0
 > release**: a plugin built against ABI 1.0 loads and runs on every host
-> implementing ABI 1.x. (The ABI was unfinalized through the 1.0.0-alpha
-> series; plugins built against alpha.1–alpha.4 must be recompiled.) A
+> implementing ABI 1.x. The ABI was frozen at 1.0.0-alpha.5: plugins built
+> against alpha.5 or later already implement ABI 1.0; plugins built against
+> alpha.1–alpha.4 predate the freeze and must be recompiled. A
 > plugin loads when its major matches and its minor is no higher than the
 > host's. A different major means the plugin was built for a different ABI
 > generation; a newer minor means the host is older than the plugin requires
@@ -109,10 +110,16 @@ configuration under `<sysconfdir>/yaddnsc/config.json`. Use
 ```bash
 cmake -S . -B build \
   -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_INSTALL_PREFIX=/usr \
   -DYADDNSC_ENABLE_DEB=ON
 cmake --build build --parallel
 cpack --config build/CPackConfig.cmake -G DEB
 ```
+
+Setting the prefix to `/usr` lets GNUInstallDirs select the distribution's
+multiarch library directory (`lib/x86_64-linux-gnu` on Debian/Ubuntu) for the
+packaged files; either way, the compiled-in default driver directory matches
+the packaged location.
 
 Alternatively, `docker/build-deb.sh` builds the package inside an Ubuntu
 container (24.04 by default) and writes the result to `deb-out/`; consult the

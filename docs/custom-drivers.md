@@ -21,8 +21,9 @@ must be 64-bit and little-endian.
 The current ABI version is **1.0** (`YADDNSC_DRIVER_ABI_MAJOR` 1,
 `YADDNSC_DRIVER_ABI_MINOR` 0), and **the ABI is stable since the 1.0.0
 release**: a driver built against ABI 1.0 loads and runs on every host
-implementing ABI 1.x. The ABI was unfinalized through the 1.0.0-alpha series;
-drivers built against alpha.1–alpha.4 must be recompiled.
+implementing ABI 1.x. The ABI was frozen at 1.0.0-alpha.5, so drivers built
+against alpha.5 or later already implement ABI 1.0; drivers built against
+alpha.1–alpha.4 predate the freeze and must be recompiled.
 Three version numbers exist and only the first constrains loading: the **ABI
 version** (this section), the **SDK source version** (the `driver.hpp`
 helper layer; it evolves with the project and fixes bugs without touching

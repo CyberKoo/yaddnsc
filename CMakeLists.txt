@@ -3,9 +3,8 @@ project(yaddnsc VERSION 1.0.0)
 
 list(APPEND CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/cmake)
 
-# Project configuration and generated headers.
+# Project configuration.
 include(ProjectSetup)
-include(GeneratedHeaders)
 
 # Third-party dependencies, then first-party build configuration.
 include(Dependencies)
@@ -49,3 +48,8 @@ endif ()
 
 # Installation and packaging.
 include(InstallRules)
+
+# Generated headers come last: paths baked into them (the default driver
+# directory in config_cmake.h) follow the packaging configuration set up by
+# InstallRules/Packaging.
+include(GeneratedHeaders)

@@ -9,9 +9,10 @@ section here.
 
 ## [Unreleased]
 
-This revision keeps the plugin C ABI at **1.0** (entry points and struct
-layouts unchanged; existing ABI 1.0 plugin binaries remain compatible) while
-revising the plugin SDK, build packaging and diagnostics. Migration steps:
+This revision keeps the plugin C ABI at **1.0** (frozen at 1.0.0-alpha.5;
+entry points and struct layouts are unchanged, so plugin binaries built
+against alpha.5 or later remain compatible) while revising the plugin SDK,
+build packaging and diagnostics. Migration steps:
 [SDK source API and migration notes](docs/custom-drivers.md#sdk-source-api-and-migration-notes).
 
 ### Breaking
@@ -27,6 +28,9 @@ revising the plugin SDK, build packaging and diagnostics. Migration steps:
   Signing is header-only; no precompiled archive ships in `yaddnsc-dev`.
 - The C++ SDK requires exactly Glaze v7.8.2 (bundled with `yaddnsc-dev`);
   other versions fail at configure time with a clear diagnostic.
+- Host HTTP services accept exchanges only during an update, including through
+  saved copies of the cycle's service table; calls from create/validate/destroy
+  are rejected.
 
 ### Changed
 
@@ -43,10 +47,8 @@ revising the plugin SDK, build packaging and diagnostics. Migration steps:
   credential/identifier strings must be nonempty, TTL/`ttl_sec` cannot be
   negative, and both fail before any HTTP call. DNSPod's `global` and
   `record_line_id` are now truly optional with documented defaults.
-- Host HTTP services accept exchanges only during an update, including through
-  saved copies of the cycle's service table; create/validate/destroy reject
-  them. A null or undersized `out_error` no longer blocks an otherwise valid
-  call.
+- A null or undersized `out_error` no longer blocks an otherwise valid host
+  service call.
 
 ### Added
 
@@ -72,6 +74,10 @@ revising the plugin SDK, build packaging and diagnostics. Migration steps:
   fails mid-conversion.
 - The systemd unit in DEB packages now embeds the packaging prefix (`/usr`)
   regardless of the configure-time `CMAKE_INSTALL_PREFIX`.
+- The compiled-in default driver directory in DEB packages now follows the
+  packaging prefix (`/usr`) as well — a package configured without
+  `-DCMAKE_INSTALL_PREFIX=/usr` no longer looks for drivers under
+  `/usr/local`.
 
 ## [1.0.0-alpha.6] - 2026-10-11
 

@@ -10,8 +10,9 @@
 > **发布状态：** 预发布阶段，最新版本见 [GitHub Releases](https://github.com/CyberKoo/yaddnsc/releases)。
 > `master` 分支对应已发布版本，`dev` 分支汇集面向下一版本的变更，`v0.x` 分支继续支持
 > 旧工具链。驱动插件 ABI 为 v1（版本 1.0），**自 1.0.0 正式版起保持稳定**：基于 ABI 1.0 构建的插件可在任何
-> 实现 ABI 1.x 的宿主上加载运行。（1.0.0-alpha 系列期间 ABI 未定稿，基于 alpha.1–alpha.4 构建的插件必须
-> 重新编译。）major 相同且插件 minor 不高于宿主 minor 时可以加载；major 不同
+> 实现 ABI 1.x 的宿主上加载运行。ABI 于 1.0.0-alpha.5 冻结：基于 alpha.5 及之后版本构建的插件已实现
+> ABI 1.0；基于 alpha.1–alpha.4 构建的插件早于冻结点，必须重新编译。major 相同且插件 minor 不高于宿主
+> minor 时可以加载；major 不同
 > 表示插件面向另一代 ABI 构建，插件要求更高的 minor 时请升级 yaddnsc。
 
 yaddnsc 是一个动态 DNS 客户端。它按配置周期性地获取每条记录的 IP 地址——来源可以
@@ -98,10 +99,15 @@ sudo cmake --install build
 ```bash
 cmake -S . -B build \
   -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_INSTALL_PREFIX=/usr \
   -DYADDNSC_ENABLE_DEB=ON
 cmake --build build --parallel
 cpack --config build/CPackConfig.cmake -G DEB
 ```
+
+将前缀设为 `/usr` 可让 GNUInstallDirs 为打包文件选用发行版的 multiarch 库目录
+（Debian/Ubuntu 上为 `lib/x86_64-linux-gnu`）；无论前缀如何，编译进二进制的默认
+驱动目录都与软件包内的实际位置一致。
 
 也可以使用 `docker/build-deb.sh` 在 Ubuntu 容器内完成构建（默认 24.04），产物输出
 至 `deb-out/`；可用选项请参阅脚本头部注释。
