@@ -844,7 +844,8 @@ coro::Task<void> answer_bootstrap(net::UdpSocket& server, const std::uint8_t rco
 }
 
 TEST(NetCoroDns, bootstrap_classifiesServerErrorsAndRejectsWrongAddressLength) {
-    for (const std::uint8_t rcode : {2, 5, 0}) {
+    constexpr std::array<std::uint8_t, 3> RCODES{2, 5, 0};
+    for (const std::uint8_t rcode : RCODES) {
         net::UdpSocket server;
         ASSERT_TRUE(server.bind(loopback_v4(), 0).has_value());
         const std::vector<domain::DnsServer> servers{{"127.0.0.1", *server.local_port()}};

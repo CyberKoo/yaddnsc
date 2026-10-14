@@ -143,7 +143,7 @@ enum class ClientHelloShape {
         return std::nullopt;
     }
     at += 2 + 32;
-    at += 1 + record[at];  // session_id
+    at += 1u + record[at];  // session_id
     if (record.size() < at + 2) {
         return std::nullopt;
     }
@@ -151,7 +151,7 @@ enum class ClientHelloShape {
     if (record.size() < at + 1) {
         return std::nullopt;
     }
-    at += 1 + record[at];  // compression methods
+    at += 1u + record[at];  // compression methods
     if (record.size() < at + 2) {
         return std::span<const std::uint8_t>{record.data() + at, 0};  // no extension block at all
     }

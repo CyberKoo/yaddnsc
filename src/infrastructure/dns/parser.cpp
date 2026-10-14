@@ -564,7 +564,8 @@ void dns::RecordParser::filter_answers(ParsedMessage& message, const std::span<c
     if (host.empty())
         return;
     std::string presented_host;
-    for (const unsigned char byte : host) {
+    for (const char raw : host) {
+        const auto byte = static_cast<unsigned char>(raw);
         if (byte == '.')
             presented_host += '.';
         else

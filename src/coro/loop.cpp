@@ -106,7 +106,7 @@ public:
     /// never holds a result slot and never refuses work.
     void submit(std::function<void()> job) { pool.detach_task(std::move(job)); }
 
-    [[nodiscard]] unsigned workers() const { return pool.get_thread_count(); }
+    [[nodiscard]] unsigned workers() const { return static_cast<unsigned>(pool.get_thread_count()); }
 
     /// Jobs still waiting for a free worker; the saturation signal for traces.
     [[nodiscard]] std::size_t queued() const { return pool.get_tasks_queued(); }

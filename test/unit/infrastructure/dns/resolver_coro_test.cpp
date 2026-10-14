@@ -750,8 +750,8 @@ public:
         answer[7] = 1;
         answer.insert(answer.end(), {0xc0, 12, 0, 1, 0, 1, 0, 0, 0, 60, 0, 4, 192, 0, 2, 42});
         if (dot_) {
-            response_.push_back(static_cast<std::uint8_t>(answer.size() >> 8));
-            response_.push_back(static_cast<std::uint8_t>(answer.size()));
+            response_.push_back(static_cast<char>(static_cast<std::uint8_t>(answer.size() >> 8)));
+            response_.push_back(static_cast<char>(static_cast<std::uint8_t>(answer.size())));
         } else {
             response_ = "HTTP/1.1 200 OK\r\nContent-Type: application/dns-message\r\nContent-Length: " +
                         std::to_string(answer.size()) + "\r\n\r\n";

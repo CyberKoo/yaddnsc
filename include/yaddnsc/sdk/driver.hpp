@@ -449,7 +449,7 @@ inline void log_lazy(GetServices&& get_services, Log&& log) noexcept {
     year -= month <= 2;
     const int era = (year >= 0 ? year : year - 399) / 400;
     const unsigned yoe = static_cast<unsigned>(year - era * 400);
-    const unsigned doy = (153 * (month + (month > 2 ? -3 : 9)) + 2) / 5 + day - 1;
+    const unsigned doy = (153 * (month + static_cast<unsigned>(month > 2 ? -3 : 9)) + 2) / 5 + day - 1;
     const unsigned doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
     return era * 146097 + static_cast<int>(doe) - 719468;
 }

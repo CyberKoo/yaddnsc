@@ -629,7 +629,8 @@ TEST(DnsParserTest, ForeignOwnersAndClassesAreNotQueryAnswers) {
 }
 
 TEST(DnsParserTest, ExtendedRcodePreservesAllTwelveBitsInBothEntryPoints) {
-    for (const std::uint16_t code : {16, 256, 4095}) {
+    constexpr std::array<std::uint16_t, 3> RCODES{16, 256, 4095};
+    for (const std::uint16_t code : RCODES) {
         auto wire = make_a_response(0x1234, {192, 0, 2, 1});
         wire[3] = static_cast<std::uint8_t>(0x80 | (code & 15));
         wire[11] = 1;

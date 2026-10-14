@@ -65,8 +65,8 @@ public:
         auto answer = dns::QueryBuilder{}.id(id).qr(true).ra(true).add_question("x.test", dns::RecordType::A).build();
         answer[7] = 1;  // ANCOUNT
         answer.insert(answer.end(), {0xc0, 0x0c, 0, 1, 0, 1, 0, 0, 0, 60, 0, 4, 192, 0, 2, 42});
-        response_.push_back(static_cast<std::uint8_t>(answer.size() >> 8));
-        response_.push_back(static_cast<std::uint8_t>(answer.size()));
+        response_.push_back(static_cast<char>(static_cast<std::uint8_t>(answer.size() >> 8)));
+        response_.push_back(static_cast<char>(static_cast<std::uint8_t>(answer.size())));
         response_.append(reinterpret_cast<const char*>(answer.data()), answer.size());
         co_return {};
     }
