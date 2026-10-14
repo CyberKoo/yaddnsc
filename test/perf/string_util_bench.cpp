@@ -16,7 +16,7 @@
 static void BM_StrSplitFew(benchmark::State& state) {
     constexpr std::string_view input = "a,b,c,d";
     for (auto _ : state) {
-        auto parts = StringUtil::split(input, ",");
+        auto parts = yaddnsc::util::split(input, ",");
         benchmark::DoNotOptimize(parts);
     }
 }
@@ -30,7 +30,7 @@ static void BM_StrSplitMany(benchmark::State& state) {
     }
     input.pop_back();  // trailing comma
     for (auto _ : state) {
-        auto parts = StringUtil::split(input, ",");
+        auto parts = yaddnsc::util::split(input, ",");
         benchmark::DoNotOptimize(parts);
     }
 }
@@ -40,7 +40,7 @@ BENCHMARK(BM_StrSplitMany);
 static void BM_StrJoinFew(benchmark::State& state) {
     std::vector<std::string> parts = {"a", "b", "c", "d"};
     for (auto _ : state) {
-        auto result = StringUtil::join(parts, ",");
+        auto result = yaddnsc::util::join(parts, ",");
         benchmark::DoNotOptimize(result);
     }
 }
@@ -54,7 +54,7 @@ BENCHMARK(BM_StrJoinFew);
 static void BM_StrTrim(benchmark::State& state) {
     constexpr std::string_view input = "  \t  hello world  \n  ";
     for (auto _ : state) {
-        auto result = StringUtil::trim(input);
+        auto result = yaddnsc::util::trim(input);
         benchmark::DoNotOptimize(result);
     }
 }
@@ -69,7 +69,7 @@ static void BM_StrReplaceAll(benchmark::State& state) {
     std::string input = "the quick brown fox jumps over the lazy dog";
     for (auto _ : state) {
         auto s = input;
-        StringUtil::replace_all(s, "the", "a");
+        yaddnsc::util::replace_all(s, "the", "a");
         benchmark::DoNotOptimize(s);
     }
 }
@@ -83,7 +83,7 @@ BENCHMARK(BM_StrReplaceAll);
 static void BM_StrToLower(benchmark::State& state) {
     constexpr std::string_view input = "HELLO WORLD! THIS IS A TEST STRING.";
     for (auto _ : state) {
-        auto result = StringUtil::to_lower_copy(input);
+        auto result = yaddnsc::util::to_lower_copy(input);
         benchmark::DoNotOptimize(result);
     }
 }
@@ -93,7 +93,7 @@ BENCHMARK(BM_StrToLower);
 static void BM_StrToUpper(benchmark::State& state) {
     constexpr std::string_view input = "hello world! this is a test string.";
     for (auto _ : state) {
-        auto result = StringUtil::to_upper_copy(input);
+        auto result = yaddnsc::util::to_upper_copy(input);
         benchmark::DoNotOptimize(result);
     }
 }
@@ -108,7 +108,7 @@ static void BM_StrIEquals(benchmark::State& state) {
     constexpr std::string_view a = "Content-Type";
     constexpr std::string_view b = "content-type";
     for (auto _ : state) {
-        auto result = StringUtil::iequals(a, b);
+        auto result = yaddnsc::util::iequals(a, b);
         benchmark::DoNotOptimize(result);
     }
 }
@@ -119,7 +119,7 @@ static void BM_StrIContains(benchmark::State& state) {
     constexpr std::string_view haystack = "The Quick Brown Fox Jumps Over The Lazy Dog";
     constexpr std::string_view needle = "fox";
     for (auto _ : state) {
-        auto result = StringUtil::icontains(haystack, needle);
+        auto result = yaddnsc::util::icontains(haystack, needle);
         benchmark::DoNotOptimize(result);
     }
 }
@@ -134,7 +134,7 @@ static void BM_StrReverse(benchmark::State& state) {
     constexpr std::string_view input = "hello world! this is a test string to reverse.";
     for (auto _ : state) {
         auto s = std::string(input);
-        StringUtil::reverse(s);
+        yaddnsc::util::reverse(s);
         benchmark::DoNotOptimize(s);
     }
 }
