@@ -327,21 +327,39 @@ TEST(Offload, Joined_AdmissionCancellation_SkipsWorkWithoutWaitingForBusyWorker)
 TEST(Offload, RootExit_PumpsInboxUntilAbandonedWorkersFinish) {
     coro::Loop loop;
     std::atomic<bool> callback{false};
+    std::atomic<bool> worker_started{false};
     std::atomic<bool> worker_done{false};
+    auto worker = [&]() -> coro::Task<void> {
+        co_await coro::offload([&] {
+            worker_started.store(true);
+            std::this_thread::sleep_for(30ms);
+            loop.post([&] { callback.store(true); });
+            while (!callback.load()) {
+                std::this_thread::sleep_for(1ms);
+            }
+            worker_done.store(true);
+        });
+    };
     auto root = [&]() -> coro::Task<void> {
-        auto outcome = co_await coro::with_timeout(10ms, [&]() -> coro::Task<void> {
-            co_await coro::offload([&] {
-                std::this_thread::sleep_for(30ms);
-                loop.post([&] { callback.store(true); });
-                while (!callback.load()) {
-                    std::this_thread::sleep_for(1ms);
+        auto outcome = co_await coro::with_cancel_scope([&](coro::CancelScope& scope) -> coro::Task<void> {
+            // Cancellation is unreachable until the callable is running: a job
+            // whose pool worker has not started yet is dropped without running
+            // it, so a deadline armed at admission would abandon nothing and
+            // leave the test asserting nothing.
+            co_await coro::task_group([&](coro::TaskGroup& group) -> coro::Task<void> {
+                group.spawn(worker());
+                while (!worker_started.load()) {
+                    co_await coro::checkpoint();
                 }
-                worker_done.store(true);
+                scope.cancel();
             });
         });
-        EXPECT_TRUE(outcome.timed_out);
+        EXPECT_TRUE(outcome.cancelled);
     };
     coro::run(loop, root());
+    // Abandon ended the child's await, but run() must keep pumping the inbox
+    // for the still-running worker. Do not poll after return: that would hide a
+    // broken runtime lifetime guarantee.
     EXPECT_TRUE(callback.load());
     EXPECT_TRUE(worker_done.load());
 }

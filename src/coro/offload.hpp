@@ -10,9 +10,11 @@
 // through the loop's single cross-thread channel.
 //
 // Admission is FIFO on the loop, bounded by the configured worker count before
-// submission to BS. Cancellation removes an unsubmitted job and its captures;
-// a submitted job holds capacity until actual completion. offload abandons a
-// running wait; offload_joined instead waits for actual worker completion,
+// submission to BS. Cancellation removes an unsubmitted job and its captures,
+// and a submitted job a worker has not begun yet: the callable is skipped when
+// the pool reaches it after cancellation. A submitted job holds capacity until
+// actual completion. offload abandons a running wait; offload_joined instead
+// waits for actual worker completion,
 // optionally supplying a stop_token.
 // run() drains submitted jobs even after root completion, pumping the inbox.
 // A defect thrown by the callable is rethrown at
