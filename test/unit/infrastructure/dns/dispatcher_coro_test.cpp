@@ -9,7 +9,10 @@
 
 #include <algorithm>
 #include <chrono>
+#include <coroutine>
+#include <cstddef>
 #include <cstdint>
+#include <initializer_list>
 #include <memory>
 #include <optional>
 #include <string>
@@ -22,10 +25,13 @@
 
 #include "coro/coro.h"
 #include "domain/dns/record_kind.h"
+#include "domain/error/dns_error.h"
 #include "domain/error/dns_error_info.h"
 #include "infrastructure/dns/dispatcher.h"
+#include "infrastructure/dns/policy.h"
 #include "infrastructure/dns/query_budget.hpp"
 #include "infrastructure/dns/resolver/resolver.h"
+#include "infrastructure/dns/types.h"
 #include "infrastructure/dns/util.hpp"
 
 namespace {

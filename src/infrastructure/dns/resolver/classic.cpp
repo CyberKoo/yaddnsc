@@ -6,8 +6,6 @@
 
 #include <new>
 #include <span>
-#include <utility>
-#include <vector>
 
 #include <coroutine>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 

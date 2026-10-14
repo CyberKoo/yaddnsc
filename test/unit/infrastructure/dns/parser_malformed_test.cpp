@@ -11,12 +11,14 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <initializer_list>
 #include <span>
 #include <string>
 #include <vector>
 
 #include <gtest/gtest.h>
 
+#include "domain/error/dns_error.h"
 #include "infrastructure/dns/dns_lookup_exception.h"
 #include "infrastructure/dns/types.h"
 

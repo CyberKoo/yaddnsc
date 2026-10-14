@@ -1,7 +1,10 @@
 #include "dot.h"
 
 #include <array>
+#include <cstddef>
+#include <functional>
 #include <new>
+#include <optional>
 #include <span>
 #include <stdexcept>
 #include <utility>
@@ -14,9 +17,12 @@
 
 #include "coro/cancelled.h"
 #include "coro/scope.hpp"
+#include "domain/error/dns_error.h"
+#include "domain/network/inet_address.h"
 #include "infrastructure/dns/bootstrap/bootstrap.h"
 #include "infrastructure/dns/dns_packet_exception.h"
 #include "infrastructure/dns/query_budget.hpp"
+#include "infrastructure/dns/types.h"
 #include "infrastructure/dns/util.hpp"
 #include "infrastructure/dns/validator.h"
 #include "infrastructure/dns/wire/builder.h"

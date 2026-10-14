@@ -1,20 +1,32 @@
 // Isolated allocation rendezvous reproduces cancellation after the Host Services
 // entry check but before request publication, without production test hooks.
 #include <atomic>
+#include <chrono>
+#include <coroutine>
 #include <cstdlib>
+#include <expected>
+#include <functional>
 #include <memory>
 #include <new>
 #include <string>
 #include <string_view>
+#include <type_traits>
+#include <utility>
+#include <vector>
 
 #include <gtest/gtest.h>
 
+#include "application/ports/log.h"
 #include "coro/coro.h"
+#include "coro/detail/group_state.h"
+#include "domain/update/driver_update_command.h"
+#include "infrastructure/http/types.h"
 #include "infrastructure/plugin/bridge.h"
 #include "infrastructure/plugin/driver_catalog.h"
 #include "infrastructure/plugin/driver_gateway.h"
 #include "infrastructure/plugin/host_services.h"
 #include "mocks/null_logger.h"
+#include "yaddnsc/sdk/driver_abi.h"
 
 // Replacement allocators require the matching malloc/free ownership boundary.
 // NOLINTBEGIN(cppcoreguidelines-no-malloc, cppcoreguidelines-owning-memory)

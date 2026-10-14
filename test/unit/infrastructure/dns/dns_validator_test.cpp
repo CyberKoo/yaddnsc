@@ -20,6 +20,7 @@
 // =============================================================================
 
 #include <cstdint>
+#include <initializer_list>
 #include <span>
 #include <string>
 #include <string_view>

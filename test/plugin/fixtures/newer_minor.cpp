@@ -1,6 +1,7 @@
 /// Loader-rejection fixture: ABI major 1, minor 1. The host provides minor 0
 /// and must reject a plugin that requires a newer minor.
 
+#include <stdint.h>
 #include <yaddnsc/sdk/driver_abi.h>
 
 #define FIXTURE_EXPORT __attribute__((visibility("default")))

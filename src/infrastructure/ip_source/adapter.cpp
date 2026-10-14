@@ -6,6 +6,7 @@
 #include "adapter.h"
 
 #include <coroutine>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
+#include <exception>
 #include <expected>
 #include <new>
 #include <string>

@@ -240,7 +240,8 @@ The `sdk-package` CI job configures a Release package, generates the final
 `yaddnsc-dev` DEB (no host build is needed for header-only development contents),
 installs it and its declared dependencies in a fresh Ubuntu container, and runs
 the installed verification script with no host package or source checkout.
-The final runtime DEB is built by release workflows separately.
+The final runtime DEB is built separately via `docker/build-deb.sh`
+(local Docker build, see above); this repository has no release workflow.
 
 ### Local CI simulation
 
@@ -487,11 +488,16 @@ by `ci.yml` path filters.
 - Linux arm64 Debug tests, Release builds with bundled/system spdlog (tests
   disabled), the dedicated `Sanitizer` build/tests, and coverage (with the
   two-track coverage gate, see "Coverage" above);
-- `linux-amd64-clang` is **disabled** (`if: false`). Upstream Clang coverage on
-  Linux would come from that job; macOS uses AppleClang.
+- `linux-amd64-lint` — compile-only static analysis under upstream Clang
+  (no tests run): IWYU violations fail the build, compiler warnings fail via
+  `-Werror`; clang-tidy diagnostics are reported but not promoted to errors.
+  macOS uses AppleClang.
 
 Scheduled nightly builds run only when the recent-commit check passes; manual
-runs bypass that check. Linux arm64 is nightly/manual coverage, not a PR check.
+runs bypass that check. Scheduled runs execute from the default branch's
+workflow file but check out, build, and test the `dev` branch (`NIGHTLY_REF`);
+manual runs build the branch selected in the dispatch UI. Linux arm64 is
+nightly/manual coverage, not a PR check.
 
 `yaddnsc_warnings` supplies `-Wall -Wextra -Wpedantic -Wshadow -Werror` to
 production modules, the executable, header checks, and tests that link the shared
@@ -506,10 +512,10 @@ also suppresses `maybe-uninitialized` in `Sanitizer` builds and demotes
 `.clang-format` is the formatting source of truth. Formatting is applied from
 it during development; CI enforces compilation and tests rather than style.
 
-`cmake/ClangTidy.cmake` attaches clang-tidy when the unversioned `clang-tidy`
-executable is found and the compiler ID matches Clang (including AppleClang).
-The nightly `linux-amd64-clang` job (currently `if: false`) installs the
-versioned `clang-tidy-19`, which that unversioned-only lookup would not pick up.
+`cmake/ClangTidy.cmake` attaches clang-tidy when a `clang-tidy` executable is
+found — the unversioned name is preferred, versioned `clang-tidy-N` names are
+accepted as fallback — and the compiler ID matches Clang (including AppleClang).
+The nightly `linux-amd64-lint` job exercises it under upstream Clang.
 Otherwise analysis is skipped. `.clang-tidy` enables a long `Checks` list of
 roughly 150 entries across bugprone, clang-analyzer, cert, cppcoreguidelines,
 google, hicpp, misc, modernize, performance, readability and concurrency —
@@ -527,7 +533,8 @@ still fail the build.
   `--error` to fail on violations and `.iwyu-mappings.imp` for mappings.
   Activation occurs after third-party targets are created; generated header-check
   translation units opt out. Disable locally with `-DYADDNSC_IWYU=OFF`.
-  Installing Homebrew IWYU in the macOS job does not activate it with AppleClang.
+  CI coverage comes from the nightly `linux-amd64-lint` job (upstream Clang);
+  the macOS job uses AppleClang, which IWYU deliberately skips.
 - **Header self-containment**: in non-Release builds, `yaddnsc_header_checks`
   compiles individual headers matching `src/*.{h,hpp}`, `include/*.{h,hpp}`,
   `driver/*/*.{h,hpp}` recursively (including signing under the SDK tree).

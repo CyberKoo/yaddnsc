@@ -10,9 +10,12 @@
 #include <algorithm>
 #include <memory>
 #include <stdexcept>
+#include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
+#include <expected>
 #include <gtest/gtest.h>
 
 #include "domain/config/dns_config.h"

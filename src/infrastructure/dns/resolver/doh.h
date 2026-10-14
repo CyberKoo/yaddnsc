@@ -13,8 +13,13 @@
 #include <memory>
 #include <string>
 #include <string_view>
+#include <vector>
+
+#include <expected>
 
 #include "coro/async_mutex.hpp"
+#include "coro/task.hpp"
+#include "domain/error/dns_error_info.h"
 #include "infrastructure/dns/policy.h"
 #include "infrastructure/dns/resolver/resolver.h"
 
@@ -22,6 +27,10 @@ namespace http {
 class PersistentClient;
 struct Options;
 }  // namespace http
+
+namespace domain {
+enum class RecordKind;
+}  // namespace domain
 
 namespace dns {
 

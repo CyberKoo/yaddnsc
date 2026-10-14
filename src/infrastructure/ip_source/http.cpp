@@ -8,6 +8,7 @@
 #include <coroutine>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 #include <expected>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 #include <optional>

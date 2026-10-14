@@ -15,20 +15,28 @@
 
 #include <array>
 #include <cstdint>
+#include <expected>
 #include <initializer_list>
 #include <limits>
 #include <map>
 #include <optional>
 #include <stdexcept>
 #include <string>
+#include <string_view>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
 #include <format>
+#include <glaze/glaze.hpp>
+#include <glaze/json/generic_fwd.hpp>
 #include <gtest/gtest.h>
 #include <yaddnsc/sdk/driver.hpp>
 #include <yaddnsc/sdk/form_encode.hpp>
 #include <yaddnsc/sdk/redact.hpp>
+
+#include "yaddnsc/sdk/driver_abi.h"
+#include "yaddnsc/sdk/format.hpp"
 
 namespace redact = yaddnsc::sdk::redact;
 

@@ -15,6 +15,9 @@ on:
             - ".gitignore"
             - "LICENSE"
 
+permissions:
+    contents: read
+
 concurrency:
     group: ${{ github.workflow }}-${{ github.ref }}
     cancel-in-progress: true
@@ -22,37 +25,45 @@ concurrency:
 jobs:
     linux-amd64:
         runs-on: ubuntu-24.04
+        timeout-minutes: 30
         steps:
             - name: Checkout
               uses: actions/checkout@v7
+            - name: Cache CPM dependencies
+              uses: actions/cache@v4
+              with:
+                  path: ~/.cache/CPM
+                  key: cpm-${{ runner.os }}-${{ hashFiles('cmake/Dependencies.cmake', 'test/CMakeLists.txt') }}
+                  restore-keys: cpm-${{ runner.os }}-
             - name: Install dependencies
-              run: sudo apt update; sudo apt install -y cmake git ninja-build gcc-14 g++-14 libssl-dev zlib1g zlib1g-dev pkg-config python3-venv curl
+              run: sudo apt update && sudo apt install -y cmake git ninja-build gcc-14 g++-14 libssl-dev zlib1g-dev pkg-config python3-venv curl
             - name: Configure
               env:
                   CC: gcc-14
                   CXX: g++-14
-              run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DYADDNSC_BUILD_TESTS=ON
+              run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DYADDNSC_BUILD_TESTS=ON -DCPM_SOURCE_CACHE=$HOME/.cache/CPM
             - name: Build
-              env:
-                  CC: gcc-14
-                  CXX: g++-14
               run: ninja -C build -j$(nproc)
             - name: Test
-              env:
-                  CC: gcc-14
-                  CXX: g++-14
               run: ctest --test-dir build --output-on-failure -j$(nproc)
 
     linux-amd64-musl:
         runs-on: ubuntu-24.04
+        timeout-minutes: 30
         container: alpine:3
         steps:
             - name: Checkout
               uses: actions/checkout@v7
+            - name: Cache CPM dependencies
+              uses: actions/cache@v4
+              with:
+                  path: ~/.cache/CPM
+                  key: cpm-${{ runner.os }}-${{ hashFiles('cmake/Dependencies.cmake', 'test/CMakeLists.txt') }}
+                  restore-keys: cpm-${{ runner.os }}-
             - name: Install dependencies
               run: apk add --no-cache build-base git cmake samurai openssl openssl-dev zlib-dev pkgconfig
             - name: Configure
-              run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DYADDNSC_BUILD_TESTS=ON
+              run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DYADDNSC_BUILD_TESTS=ON -DCPM_SOURCE_CACHE=$HOME/.cache/CPM
             - name: Build
               run: ninja -C build -j$(nproc)
             - name: Test
@@ -60,19 +71,26 @@ jobs:
 
     macos-arm64:
         runs-on: macos-26
+        timeout-minutes: 30
+        env:
+            HOMEBREW_NO_AUTO_UPDATE: 1
         steps:
             - name: Checkout
               uses: actions/checkout@v7
+            - name: Cache CPM dependencies
+              uses: actions/cache@v4
+              with:
+                  path: ~/.cache/CPM
+                  key: cpm-${{ runner.os }}-${{ hashFiles('cmake/Dependencies.cmake', 'test/CMakeLists.txt') }}
+                  restore-keys: cpm-${{ runner.os }}-
             - name: Install dependencies
-              run: brew update; brew install cmake git ninja openssl@3 pkg-config include-what-you-use
+              run: brew install cmake ninja openssl@3 pkg-config
             - name: Configure
-              run: cmake -B build -G Ninja -DOPENSSL_ROOT_DIR=/opt/homebrew/opt/openssl@3/ -DCMAKE_BUILD_TYPE=Debug -DYADDNSC_BUILD_TESTS=ON
+              run: cmake -B build -G Ninja -DOPENSSL_ROOT_DIR=/opt/homebrew/opt/openssl@3/ -DCMAKE_BUILD_TYPE=Debug -DYADDNSC_BUILD_TESTS=ON -DCPM_SOURCE_CACHE=$HOME/.cache/CPM
             - name: Build
               run: ninja -C build -j$(getconf _NPROCESSORS_ONLN)
             - name: Test
               run: ctest --test-dir build --output-on-failure -j$(getconf _NPROCESSORS_ONLN)
-
-
 
     # ----------------------------------------------------------------------
     # Conversion warning gate.
@@ -85,17 +103,25 @@ jobs:
     conversion-gate:
         if: github.event_name == 'pull_request'
         runs-on: ubuntu-24.04
+        timeout-minutes: 30
         env:
             CC: gcc-14
             CXX: g++-14
         steps:
             - name: Checkout
               uses: actions/checkout@v7
+            - name: Cache CPM dependencies
+              uses: actions/cache@v4
+              with:
+                  path: ~/.cache/CPM
+                  key: cpm-${{ runner.os }}-${{ hashFiles('cmake/Dependencies.cmake', 'test/CMakeLists.txt') }}
+                  restore-keys: cpm-${{ runner.os }}-
             - name: Install dependencies
-              run: sudo apt update; sudo apt install -y cmake git ninja-build gcc-14 g++-14 libssl-dev zlib1g zlib1g-dev pkg-config
+              run: sudo apt update && sudo apt install -y cmake git ninja-build gcc-14 g++-14 libssl-dev zlib1g-dev pkg-config
             - name: Configure
               run: >-
                   cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DYADDNSC_BUILD_TESTS=ON
+                  -DCPM_SOURCE_CACHE=$HOME/.cache/CPM
                   -DCMAKE_CXX_FLAGS="-Wconversion -Wsign-conversion"
             - name: Build
               run: ninja -C build -j$(nproc)
@@ -110,21 +136,27 @@ jobs:
     benchmark:
         if: github.event_name == 'pull_request'
         runs-on: ubuntu-24.04
+        timeout-minutes: 30
         env:
             CC: gcc-14
             CXX: g++-14
         steps:
             - name: Checkout
               uses: actions/checkout@v7
+            - name: Cache CPM dependencies
+              uses: actions/cache@v4
+              with:
+                  path: ~/.cache/CPM
+                  key: cpm-${{ runner.os }}-${{ hashFiles('cmake/Dependencies.cmake', 'test/CMakeLists.txt') }}
+                  restore-keys: cpm-${{ runner.os }}-
             - name: Install dependencies
-              run: sudo apt update; sudo apt install -y cmake git ninja-build gcc-14 g++-14 libssl-dev zlib1g zlib1g-dev pkg-config
+              run: sudo apt update && sudo apt install -y cmake git ninja-build gcc-14 g++-14 libssl-dev zlib1g-dev pkg-config
             - name: Configure
-              run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DYADDNSC_BUILD_TESTS=ON
+              run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DYADDNSC_BUILD_TESTS=ON -DCPM_SOURCE_CACHE=$HOME/.cache/CPM
             - name: Build benchmarks
               run: ninja -C build -j$(nproc) bench_dns_parser bench_uri bench_string_util bench_inet_address bench_socket_addr bench_builder
             - name: Run benchmarks
               run: |
-                  set -o pipefail
                   for b in bench_dns_parser bench_uri bench_string_util bench_inet_address bench_socket_addr bench_builder; do
                       echo "=== $b ==="
                       ./build/test/perf/$b --benchmark_format=console 2>&1 | tail -n +12
@@ -139,6 +171,7 @@ jobs:
     # ----------------------------------------------------------------------
     plugin-contract:
         runs-on: ubuntu-24.04
+        timeout-minutes: 30
         env:
             CC: gcc-14
             CXX: g++-14
@@ -149,10 +182,16 @@ jobs:
               # The frozen v1.0 header copy must never be edited; it is the
               # reference the ABI freeze promise is tested against.
               run: cd test/plugin/abi_baseline/v1_0 && sha256sum -c driver_abi.h.sha256
+            - name: Cache CPM dependencies
+              uses: actions/cache@v4
+              with:
+                  path: ~/.cache/CPM
+                  key: cpm-${{ runner.os }}-${{ hashFiles('cmake/Dependencies.cmake', 'test/CMakeLists.txt') }}
+                  restore-keys: cpm-${{ runner.os }}-
             - name: Install dependencies
-              run: sudo apt update; sudo apt install -y cmake git ninja-build gcc-14 g++-14 libssl-dev zlib1g zlib1g-dev pkg-config python3-venv
+              run: sudo apt update && sudo apt install -y cmake git ninja-build gcc-14 g++-14 libssl-dev zlib1g-dev pkg-config python3-venv
             - name: Configure
-              run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DYADDNSC_BUILD_TESTS=ON
+              run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DYADDNSC_BUILD_TESTS=ON -DCPM_SOURCE_CACHE=$HOME/.cache/CPM
             - name: Build plugin contract targets
               run: ninja -C build -j$(nproc) test_plugin_abi_contract test_plugin_lifecycle test_abi_freeze_compat test_coro_driver_gateway
             - name: Run plugin contract tests
@@ -160,16 +199,23 @@ jobs:
 
     sdk-package:
         runs-on: ubuntu-24.04
+        timeout-minutes: 45
         env:
             CC: gcc-14
             CXX: g++-14
         steps:
             - name: Checkout
               uses: actions/checkout@v7
+            - name: Cache CPM dependencies
+              uses: actions/cache@v4
+              with:
+                  path: ~/.cache/CPM
+                  key: cpm-${{ runner.os }}-${{ hashFiles('cmake/Dependencies.cmake', 'test/CMakeLists.txt') }}
+                  restore-keys: cpm-${{ runner.os }}-
             - name: Install packaging dependencies
               run: sudo apt-get update && sudo apt-get install -y cmake git ninja-build gcc-14 g++-14 libssl-dev libxml2-dev zlib1g-dev pkg-config
             - name: Configure SDK development package
-              run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DYADDNSC_ENABLE_DEB=ON
+              run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DYADDNSC_ENABLE_DEB=ON -DCPM_SOURCE_CACHE=$HOME/.cache/CPM
             - name: Package header-only SDK
               run: cpack --config build/CPackConfig.cmake -D 'CPACK_COMPONENTS_ALL=dev;glaze_Development' -B sdk-deb
             - name: Install and consume final DEB in a clean container

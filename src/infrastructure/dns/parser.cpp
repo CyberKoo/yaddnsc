@@ -22,6 +22,7 @@
 #include "support/fmt.hpp"
 #include "support/string_util.hpp"
 #include "support/util/bytes.hpp"
+#include "yaddnsc/util/string_util.hpp"
 
 // =============================================================================
 // Internal constants

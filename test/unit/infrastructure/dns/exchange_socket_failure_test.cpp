@@ -17,17 +17,20 @@
 #include <cerrno>
 #include <cstdint>
 #include <optional>
+#include <span>
+#include <string>
+#include <string_view>
 #include <vector>
 
 #include <expected>
 #include <gtest/gtest.h>
-#include <sys/socket.h>
 
 #include "coro/coro.h"
 #include "domain/error/dns_error.h"
 #include "domain/error/dns_error_info.h"
 #include "domain/network/inet_address.h"
 #include "infrastructure/dns/exchange.h"
+#include "infrastructure/dns/types.h"
 #include "infrastructure/dns/wire/query_util.h"
 
 namespace {

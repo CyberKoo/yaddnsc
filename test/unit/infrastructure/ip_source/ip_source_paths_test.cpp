@@ -14,7 +14,8 @@
 //
 
 #include <algorithm>
-#include <cstddef>
+#include <chrono>
+#include <coroutine>
 #include <cstdint>
 #include <cstring>
 #include <memory>
@@ -32,7 +33,6 @@
 #include "domain/config/ip_source_kind.h"
 #include "domain/config/runtime_config.h"
 #include "domain/dns/record_kind.h"
-#include "domain/error/dns_error_info.h"
 #include "domain/error/error.h"
 #include "domain/network/address_family.h"
 #include "domain/network/inet_address.h"
@@ -42,7 +42,13 @@
 #include "infrastructure/ip_source/iface.h"
 #include "infrastructure/ip_source/iface_util.h"
 #include "infrastructure/ip_source/result.h"
+#include "infrastructure/network/transport/io_error.h"
+#include "infrastructure/network/transport/options.h"
 #include "infrastructure/network/transport/stream.h"
+
+namespace domain {
+struct DnsErrorInfo;
+}  // namespace domain
 
 namespace {
 

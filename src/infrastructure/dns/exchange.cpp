@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <span>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -17,7 +18,7 @@
 #include "domain/error/dns_error.h"
 #include "infrastructure/dns/dns_lookup_exception.h"
 #include "infrastructure/dns/parser.h"
-#include "infrastructure/dns/query_budget.hpp"
+#include "infrastructure/dns/types.h"
 #include "infrastructure/dns/validator.h"
 #include "infrastructure/dns/wire/framing.h"
 #include "infrastructure/network/transport/datagram.h"

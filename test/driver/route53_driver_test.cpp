@@ -14,6 +14,7 @@
 //   - HTTP 403 is AUTHENTICATION_FAILED.
 // =============================================================================
 
+#include <initializer_list>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -21,6 +22,7 @@
 
 #include <format>
 #include <glaze/glaze.hpp>
+#include <glaze/json/generic_fwd.hpp>
 #include <gtest/gtest.h>
 #include <yaddnsc/sdk/driver_abi.h>
 

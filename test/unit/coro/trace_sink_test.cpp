@@ -11,6 +11,8 @@
 #include <thread>
 #include <vector>
 
+#include <coroutine>
+
 #include <gtest/gtest.h>
 
 #include "coro/coro.h"

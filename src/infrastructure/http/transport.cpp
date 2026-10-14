@@ -18,6 +18,10 @@
 #include "infrastructure/http/types.h"
 #include "infrastructure/network/transport/options.h"
 #include "support/fmt.hpp"
+
+namespace net {
+enum class IoError;
+}  // namespace net
 #include "yaddnsc/util/format.hpp"  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 
 namespace http {

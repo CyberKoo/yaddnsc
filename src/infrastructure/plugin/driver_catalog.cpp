@@ -16,6 +16,7 @@
 #include "infrastructure/plugin/plugin_loader.h"
 #include "support/fmt.hpp"
 #include "infrastructure/plugin/plugin_error.h"
+#include "yaddnsc/sdk/driver_abi.h"
 
 namespace {
 [[nodiscard]] std::string_view get_driver_lib_name(std::string_view path) {

@@ -28,6 +28,7 @@
 #include <gtest/gtest.h>
 #include <spdlog/spdlog.h>
 
+#include "domain/config/dns_config.h"
 #include "domain/config/runtime_config.h"
 #include "domain/error/error.h"
 #include "infrastructure/dns/policy.h"

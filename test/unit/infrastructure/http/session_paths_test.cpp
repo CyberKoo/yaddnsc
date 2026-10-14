@@ -16,12 +16,15 @@
 // coroutine body; the coroutines here use EXPECT_* only.
 //
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
-#include <cstddef>
+#include <coroutine>
 #include <cstdint>
 #include <cstring>
 #include <deque>
+#include <initializer_list>
+#include <map>
 #include <memory>
 #include <optional>
 #include <span>
@@ -35,9 +38,13 @@
 #include <gtest/gtest.h>
 
 #include "coro/coro.h"
+#include "coro/detail/group_state.h"
+#include "domain/network/inet_address.h"
+#include "infrastructure/http/error.h"
 #include "infrastructure/http/persistent_client.h"
 #include "infrastructure/http/session.h"
 #include "infrastructure/http/types.h"
+#include "infrastructure/network/transport/io_error.h"
 #include "infrastructure/network/transport/stream.h"
 
 namespace {

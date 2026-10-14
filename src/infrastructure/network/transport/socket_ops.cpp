@@ -19,6 +19,7 @@
 #include <sys/types.h>
 #include <sys/uio.h>
 
+#include "coro/cancel_scope.h"
 #include "coro/checkpoint.hpp"
 #include "coro/fd_wait.hpp"
 #include "coro/scope.hpp"

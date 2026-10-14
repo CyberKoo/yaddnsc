@@ -1,25 +1,35 @@
 // Replace RAND_bytes only in this executable: no production fault hooks and
 // no process-global OpenSSL configuration changes in the normal test suites.
 #include <chrono>
+#include <cstdint>
+#include <expected>
+#include <initializer_list>
 #include <memory>
+#include <optional>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
 #include <gtest/gtest.h>
+#include <openssl/rand.h>
 
 #include "coro/coro.h"
 #include "domain/config/dns_config.h"
 #include "domain/dns/record_kind.h"
 #include "domain/error/dns_error.h"
+#include "domain/error/dns_error_info.h"
 #include "domain/network/address_family.h"
 #include "domain/network/inet_address.h"
 #include "infrastructure/dns/bootstrap/bootstrap.h"
 #include "infrastructure/dns/dispatcher.h"
+#include "infrastructure/dns/policy.h"
 #include "infrastructure/dns/resolver/classic.h"
 #include "infrastructure/dns/resolver/doh.h"
 #include "infrastructure/dns/resolver/dot.h"
+#include "infrastructure/dns/resolver/resolver.h"
+#include "infrastructure/dns/types.h"
 #include "infrastructure/dns/wire/builder.h"
 #include "infrastructure/http/types.h"
 #include "infrastructure/network/transport/stream.h"

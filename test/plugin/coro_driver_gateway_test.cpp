@@ -15,12 +15,18 @@
 #include <array>
 #include <atomic>
 #include <chrono>
+#include <compare>
 #include <condition_variable>
+#include <coroutine>
 #include <cstdint>
 #include <cstring>
+#include <future>
+#include <initializer_list>
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <ratio>
+#include <span>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -34,10 +40,16 @@
 #include <gtest/gtest.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
+#include <sys/types.h>
 #include <unistd.h>
 
 #include "coro/coro.h"
+#include "coro/detail/group_state.h"
 #include "domain/error/error.h"
+#include "domain/network/inet_address.h"
+#include "domain/update/driver_update_command.h"
+#include "infrastructure/http/types.h"
+#include "infrastructure/network/transport/io_error.h"
 #include "infrastructure/network/transport/stream.h"
 #include "infrastructure/plugin/bridge.h"
 #include "infrastructure/plugin/driver_catalog.h"
@@ -46,6 +58,8 @@
 #include "mocks/null_logger.h"
 #include "support/fmt.hpp"
 #include "support/util/fd.hpp"
+#include "yaddnsc/sdk/driver_abi.h"
+#include "yaddnsc/util/format.hpp"
 
 namespace {
 

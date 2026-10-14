@@ -2,17 +2,22 @@
 // other test binaries. Only the calling thread's selected allocation fails.
 #include <array>
 #include <atomic>
-#include <cstddef>
 #include <cstdlib>
+#include <exception>
 #include <functional>
+#include <initializer_list>
 #include <memory>
 #include <new>
+#include <string>
 #include <utility>
+
+#include <coroutine>
 
 #include <gtest/gtest.h>
 
 #include "coro/coro.h"
 #include "coro/detail/access.h"
+#include "coro/detail/mutex_state.h"
 #include "coro/detail/offload_job.h"
 #include "coro/detail/timer_node.h"
 #include "coro/detail/wait_node.h"

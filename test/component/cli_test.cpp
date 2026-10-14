@@ -16,16 +16,19 @@
 
 #include <cstdlib>
 #include <memory>
+#include <optional>
 #include <sstream>
 #include <string>
-#include <utility>
+#include <string_view>
 #include <vector>
 
 #include <gtest/gtest.h>
 #include <spdlog/sinks/ostream_sink.h>
 #include <spdlog/spdlog.h>
+#include <unistd.h>
 
 #include "cli/command.h"
+#include "cli/parser.h"
 #include "composition/bootstrap.h"
 #include "fixtures/cli_test_support.h"
 #include "fixtures/sample_config.h"

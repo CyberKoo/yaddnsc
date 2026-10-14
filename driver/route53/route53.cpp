@@ -2,7 +2,6 @@
 
 #include <cstddef>
 #include <cstdint>
-#include <memory>
 #include <optional>
 #include <span>
 #include <string>
@@ -13,10 +12,10 @@
 #include <libxml/xmlmemory.h>
 #include <libxml/xmlstring.h>
 #include <libxml/xpath.h>
-#include <libxml/xpathInternals.h>
 #include <yaddnsc/sdk/driver.hpp>
 #include <yaddnsc/sdk/driver_abi.h>
 #include <yaddnsc/sdk/format.hpp>
+#include <yaddnsc/sdk/redact.hpp>
 #include <yaddnsc/sdk/signing.hpp>
 #include <yaddnsc/sdk/xml_raii.hpp>
 

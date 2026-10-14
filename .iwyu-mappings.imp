@@ -17,6 +17,23 @@
   { include: ["@<spdlog/details/thread_pool.*", "private", "<spdlog/async.h>", "public"] },
   { include: ["@<spdlog/([^sa/]|s[^pi]).*", "private", "<spdlog/spdlog.h>", "public"] },
 
+  # iwyu 0.23 bundles clang-19-era libc++ mappings; libc++ 21 declares
+  # std::erase_if(vector) in the private submodule header <__vector/erase.h>,
+  # which those mappings do not cover. Redirect it to the public umbrella.
+  { include: ["@<__vector/erase\\.h>", "private", "<vector>", "public"] },
+  # Same story for std::bad_alloc, which libc++ 21 declares in
+  # <__new/exceptions.h> instead of the mapped umbrella <new>.
+  { include: ["@<__new/exceptions\\.h>", "private", "<new>", "public"] },
+  # More libc++ submodule splits with the same coverage gap.
+  { include: ["@<__cstddef/byte\\.h>", "private", "<cstddef>", "public"] },
+  { include: ["@<__new/nothrow_t\\.h>", "private", "<new>", "public"] },
+  { include: ["@<__ostream/basic_ostream\\.h>", "private", "<ostream>", "public"] },
+  { include: ["@<__ostream/print\\.h>", "private", "<print>", "public"] },
+  { include: ["@<__vector/comparison\\.h>", "private", "<vector>", "public"] },
+  # __hash_table backs both unordered containers; the TU that triggered this
+  # iterates an unordered_set, whose umbrella is already included there.
+  { include: ["@<__hash_table>", "private", "<unordered_set>", "public"] },
+
   # iwyu 0.23's bundled GCC-15 libstdc++ mappings mis-attribute these symbols
   # (std::vector -> <format>, std::pair -> <ranges>, ranges::find -> <ranges>
   # where it is not even declared). Pin them to their defining headers.

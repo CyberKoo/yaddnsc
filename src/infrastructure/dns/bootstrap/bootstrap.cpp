@@ -5,7 +5,7 @@
 #include "bootstrap.h"
 
 #include <algorithm>
-#include <chrono>
+#include <cstddef>
 #include <cstdint>
 #include <span>
 #include <string>
@@ -19,6 +19,7 @@
 #include <expected>
 #include <spdlog/spdlog.h>
 
+#include "coro/cancel_scope.h"
 #include "coro/group.hpp"
 #include "coro/scope.hpp"
 #include "coro/task_group.hpp"

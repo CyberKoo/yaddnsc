@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cstdint>
+#include <exception>
 #include <limits>
 #include <memory>
 #include <optional>
@@ -15,6 +16,7 @@
 #include <string_view>
 #include <type_traits>
 #include <utility>
+#include <vector>
 
 #include <coroutine>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 
@@ -25,6 +27,8 @@
 #include "coro/cancel_scope.h"
 #include "coro/cancelled.h"
 #include "coro/detail/access.h"
+#include "coro/detail/group_state.h"
+#include "coro/detail/wait_node.h"
 #include "coro/group.hpp"
 #include "coro/offload.hpp"
 #include "coro/scope.hpp"

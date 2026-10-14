@@ -1,5 +1,7 @@
 #include <cstdlib>
+#include <initializer_list>
 #include <new>
+#include <optional>
 #include <string>
 
 #include <gtest/gtest.h>

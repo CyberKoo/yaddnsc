@@ -15,7 +15,10 @@
 #include <csignal>
 #include <cstdlib>
 #include <functional>
+#include <initializer_list>
 #include <memory>
+#include <new>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -23,23 +26,27 @@
 #include <utility>
 #include <vector>
 
+#include <coroutine>
+
 #include <expected>
 #include <gtest/gtest.h>
 #include <unistd.h>
 
+#include "application/ports/gateway.h"
+#include "application/ports/ip_source.h"
 #include "application/ports/log.h"
+#include "application/ports/resolver.h"
 #include "application/services.h"
 #include "application/tasks/subdomain_task.h"
 #include "application/tasks/update_task.h"
 #include "coro/coro.h"
-#include "coro/stop_signals.h"
 #include "domain/config/dns_config.h"
 #include "domain/config/ip_source_kind.h"
 #include "domain/config/runtime_config.h"
 #include "domain/dns/record_kind.h"
-#include "domain/error/dns_error_info.h"
 #include "domain/error/error.h"
 #include "domain/network/inet_address.h"
+#include "domain/update/driver_update_command.h"
 #include "domain/update/update_decision.h"
 #include "domain/update/update_task.h"
 #include "mocks/null_logger.h"

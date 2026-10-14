@@ -9,6 +9,7 @@
 #include <fstream>
 #include <sstream>
 #include <string>
+#include <string_view>
 
 #include "domain/network/inet_address.h"
 

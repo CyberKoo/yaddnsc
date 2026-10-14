@@ -15,10 +15,10 @@
 
 #include "support/util/fd.hpp"
 
+#include <string>
 #include <type_traits>
 #include <utility>
 
-#include <errno.h>
 #include <fcntl.h>
 #include <gtest/gtest.h>
 #include <sys/types.h>

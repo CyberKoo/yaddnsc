@@ -12,6 +12,7 @@
 #include <yaddnsc/sdk/driver_abi.h>
 #include <yaddnsc/sdk/form_encode.hpp>
 #include <yaddnsc/sdk/format.hpp>
+#include <yaddnsc/sdk/redact.hpp>
 
 #include "config.hpp"
 #include "response.hpp"

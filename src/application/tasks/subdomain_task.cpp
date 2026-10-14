@@ -7,6 +7,7 @@
 #include <chrono>
 #include <compare>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 #include <exception>
+#include <ratio>
 #include <string>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 
 #include <coroutine>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not

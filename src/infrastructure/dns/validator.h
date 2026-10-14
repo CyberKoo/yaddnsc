@@ -7,7 +7,10 @@
 #include <expected>
 
 #include "domain/error/dns_error_info.h"
-#include "infrastructure/dns/types.h"
+
+namespace dns {
+struct Question;
+}  // namespace dns
 
 /// Validate a DNS response against its request.
 ///

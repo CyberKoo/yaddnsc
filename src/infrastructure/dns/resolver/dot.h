@@ -36,6 +36,10 @@ class StreamFactory;
 class TlsContext;
 }  // namespace net
 
+namespace domain {
+enum class RecordKind;
+}  // namespace domain
+
 namespace dns {
 
 /// Transport settings for a TLS-based resolver endpoint.

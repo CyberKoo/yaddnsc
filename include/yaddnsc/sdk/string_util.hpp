@@ -6,7 +6,7 @@
 /// <yaddnsc/util/string_util.hpp>; this header exposes it under the SDK
 /// namespace.
 
-#include <yaddnsc/util/string_util.hpp>
+#include <yaddnsc/util/string_util.hpp>  // IWYU pragma: export
 
 namespace yaddnsc::sdk {
 

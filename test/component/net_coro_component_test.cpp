@@ -14,23 +14,33 @@
 
 #include <algorithm>
 #include <array>
-#include <cstddef>
+#include <chrono>
+#include <compare>
+#include <coroutine>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <expected>
 #include <filesystem>
+#include <initializer_list>
 #include <memory>
 #include <optional>
 #include <span>
 #include <string>
+#include <string_view>
+#include <system_error>
 #include <thread>
+#include <utility>
 #include <vector>
 
 #include <arpa/inet.h>
 #include <gtest/gtest.h>
 #include <netinet/in.h>
+#include <openssl/bio.h>
 #include <openssl/pem.h>
 #include <openssl/ssl.h>
+#include <openssl/types.h>
+#include <openssl/x509.h>
 #include <signal.h>
 #include <sys/socket.h>
 #include <sys/types.h>
@@ -38,12 +48,15 @@
 #include <unistd.h>
 
 #include "coro/coro.h"
+#include "domain/network/address_family.h"
 #include "domain/network/inet_address.h"
 #include "infrastructure/dns/exchange.h"
 #include "infrastructure/network/tls/context.h"
 #include "infrastructure/network/tls/stream.h"
 #include "infrastructure/network/tls/trust_store.h"
+#include "infrastructure/network/transport/datagram.h"
 #include "infrastructure/network/transport/io_error.h"
+#include "infrastructure/network/transport/options.h"
 #include "infrastructure/network/transport/tcp_stream.h"
 #include "infrastructure/network/transport/udp_socket.h"
 #include "support/util/fd.hpp"

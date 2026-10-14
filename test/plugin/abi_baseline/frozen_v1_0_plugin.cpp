@@ -12,6 +12,8 @@
 
 #include <new>
 
+#include <stddef.h>
+#include <stdint.h>
 #include <yaddnsc/sdk/driver_abi.h>
 
 #define FROZEN_EXPORT __attribute__((visibility("default")))

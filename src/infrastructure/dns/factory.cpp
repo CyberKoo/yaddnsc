@@ -4,12 +4,12 @@
 
 #include "factory.h"
 
-#include <chrono>
 #include <cstdint>
 #include <memory>
 #include <optional>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -24,7 +24,6 @@
 #include "infrastructure/dns/resolver/doh.h"
 #include "infrastructure/dns/resolver/dot.h"
 #include "infrastructure/dns/resolver/resolver.h"
-#include "infrastructure/dns/wire/framing.h"
 #include "infrastructure/http/types.h"
 #include "infrastructure/uri/uri.h"
 #include "support/fmt.hpp"

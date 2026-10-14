@@ -14,6 +14,7 @@
 #include <yaddnsc/sdk/driver.hpp>
 #include <yaddnsc/sdk/driver_abi.h>
 #include <yaddnsc/sdk/format.hpp>
+#include <yaddnsc/sdk/redact.hpp>
 #include <yaddnsc/sdk/signing.hpp>
 #include <yaddnsc/sdk/url_encode.hpp>
 

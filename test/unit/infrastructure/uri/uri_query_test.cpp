@@ -9,7 +9,10 @@
 //   - Trailing/leading/double ampersand handling.
 // =============================================================================
 
+#include <expected>
 #include <string>
+#include <string_view>
+#include <utility>
 #include <vector>
 
 #include <gtest/gtest.h>

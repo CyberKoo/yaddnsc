@@ -12,6 +12,7 @@
 
 #include "domain/dns/record_kind.h"
 
+#include <string>
 #include <type_traits>
 
 #include <gtest/gtest.h>

@@ -11,23 +11,34 @@
 //
 
 #include <algorithm>
+#include <chrono>
+#include <cstddef>
+#include <initializer_list>
+#include <new>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <string_view>
 #include <utility>
 #include <vector>
 
+#include <coroutine>
+
 #include <expected>
 #include <gtest/gtest.h>
 
 #include "application/diagnostics.h"
+#include "application/ports/driver_catalog.h"
 #include "application/ports/gateway.h"
 #include "application/ports/network_interfaces.h"
 #include "application/ports/resolver.h"
 #include "coro/coro.h"
 #include "domain/config/runtime_config.h"
 #include "domain/dns/record_kind.h"
+#include "domain/error/dns_error_info.h"
+#include "domain/error/error.h"
 #include "domain/network/inet_address.h"
+#include "domain/update/driver_update_command.h"
 
 namespace {
 

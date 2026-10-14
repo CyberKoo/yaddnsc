@@ -14,7 +14,10 @@
 
 #include <algorithm>
 #include <chrono>
+#include <coroutine>
+#include <cstddef>
 #include <cstdint>
+#include <initializer_list>
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -30,6 +33,7 @@
 #include "domain/error/dns_error.h"
 #include "domain/error/dns_error_info.h"
 #include "infrastructure/dns/dispatcher.h"
+#include "infrastructure/dns/policy.h"
 #include "infrastructure/dns/resolver/resolver.h"
 
 namespace {

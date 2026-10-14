@@ -4,6 +4,7 @@
 
 #include "iface.h"
 
+#include <exception>
 #include <new>
 #include <optional>
 #include <string>

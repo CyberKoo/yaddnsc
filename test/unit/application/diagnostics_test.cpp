@@ -1,24 +1,33 @@
 #include "application/diagnostics.h"
 
+#include <chrono>
 #include <new>
 #include <optional>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
+
+#include <coroutine>
 
 #include <expected>
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
 #include "application/ports/gateway.h"
+#include "application/ports/network_interfaces.h"
 #include "application/ports/resolver.h"
 #include "coro/coro.h"
 #include "domain/config/runtime_config.h"
 #include "domain/dns/record_kind.h"
+#include "domain/error/dns_error.h"
 #include "domain/network/inet_address.h"
-#include "domain/update/driver_update_command.h"
 #include "mocks/mock_ports.h"
+
+namespace domain {
+struct DriverUpdateCommand;
+}  // namespace domain
 
 namespace {
 using namespace std::chrono_literals;

@@ -10,8 +10,7 @@
 #include "infrastructure/logging/level_enabled.h"
 
 #include <memory>
-#include <mutex>
-#include <utility>
+#include <string>
 
 #include <gtest/gtest.h>
 #include <spdlog/sinks/null_sink.h>

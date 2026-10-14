@@ -16,19 +16,23 @@
 
 #include <algorithm>
 #include <filesystem>
+#include <optional>
 #include <string>
+#include <string_view>
 #include <system_error>
+#include <vector>
 
 #include <expected>
 #include <gtest/gtest.h>
-#include <netinet/in.h>
 #include <sys/socket.h>
 
 #include "domain/network/address_family.h"
 #include "domain/network/inet_address.h"
 #include "infrastructure/ip_source/iface_util.h"
 #include "infrastructure/network/tls/cert_util.h"
+#include "infrastructure/network/transport/io_error.h"
 #include "infrastructure/network/transport/socket_ops.h"
+#include "support/util/fd.hpp"
 
 namespace {
 

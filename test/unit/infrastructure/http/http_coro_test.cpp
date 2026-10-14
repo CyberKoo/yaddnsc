@@ -12,10 +12,12 @@
 
 #include <algorithm>
 #include <chrono>
-#include <cstddef>
+#include <compare>
+#include <coroutine>
 #include <cstdint>
 #include <cstring>
 #include <deque>
+#include <initializer_list>
 #include <map>
 #include <memory>
 #include <optional>
@@ -25,16 +27,26 @@
 #include <utility>
 #include <vector>
 
+#include <expected>
 #include <gtest/gtest.h>
 
 #include "coro/coro.h"
+#include "coro/detail/group_state.h"
+#include "domain/error/dns_error.h"
+#include "domain/error/dns_error_info.h"
+#include "domain/network/address_family.h"
+#include "domain/network/inet_address.h"
+#include "infrastructure/http/error.h"
 #include "infrastructure/http/protocol/exchange.h"
 #include "infrastructure/http/protocol/read_window.h"
 #include "infrastructure/http/protocol/wire.h"
 #include "infrastructure/http/redirect.h"
 #include "infrastructure/http/session.h"
 #include "infrastructure/http/transport.h"
+#include "infrastructure/http/types.h"
 #include "infrastructure/http/wire_request.h"
+#include "infrastructure/network/transport/io_error.h"
+#include "infrastructure/network/transport/options.h"
 #include "infrastructure/network/transport/stream.h"
 #include "infrastructure/uri/uri.h"
 

@@ -15,9 +15,12 @@
 //
 
 #include <algorithm>
-#include <cstddef>
+#include <coroutine>
 #include <cstdint>
 #include <cstring>
+#include <initializer_list>
+#include <map>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -27,8 +30,11 @@
 #include <gtest/gtest.h>
 
 #include "coro/coro.h"
+#include "infrastructure/http/error.h"
 #include "infrastructure/http/protocol/exchange.h"
 #include "infrastructure/http/protocol/wire.h"
+#include "infrastructure/http/types.h"
+#include "infrastructure/network/transport/io_error.h"
 #include "infrastructure/network/transport/stream.h"
 
 namespace {

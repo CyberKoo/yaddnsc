@@ -4,6 +4,8 @@
 #include <optional>
 #include <ranges>  // IWYU pragma: keep — IWYU attributes std::ranges::find (__find_fn) here; clangd attributes it to <algorithm>
 #include <string>
+#include <string_view>
+#include <utility>
 #include <vector>
 
 #include <expected>

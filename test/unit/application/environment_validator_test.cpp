@@ -19,6 +19,7 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include "application/ports/driver_catalog.h"
 #include "domain/config/ip_source_kind.h"
 #include "domain/config/runtime_config.h"
 #include "domain/dns/record_kind.h"

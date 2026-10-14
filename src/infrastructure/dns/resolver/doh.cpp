@@ -1,7 +1,12 @@
 #include "doh.h"
 
 #include <algorithm>
+#include <chrono>
+#include <compare>
+#include <map>
 #include <new>
+#include <ratio>
+#include <span>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -12,6 +17,7 @@
 #include <expected>
 #include <spdlog/spdlog.h>
 
+#include "domain/error/dns_error.h"
 #include "infrastructure/dns/dns_packet_exception.h"
 #include "infrastructure/dns/query_budget.hpp"
 #include "infrastructure/dns/util.hpp"
@@ -22,11 +28,13 @@
 #include "infrastructure/http/persistent_client.h"
 #include "infrastructure/http/types.h"
 #include "infrastructure/http/wire_request.h"
+#include "infrastructure/network/transport/options.h"
 #include "infrastructure/uri/uri.h"
 #include "support/fmt.hpp"
 #include "support/string_util.hpp"
 #include "support/util/random.hpp"
 #include "yaddnsc/util/format.hpp"
+#include "yaddnsc/util/string_util.hpp"
 
 namespace dns {
 namespace {

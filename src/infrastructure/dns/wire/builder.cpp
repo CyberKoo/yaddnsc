@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <utility>
 
+#include <expected>
 #include <yaddnsc/util/format.hpp>
 
 #include "infrastructure/dns/dns_packet_exception.h"

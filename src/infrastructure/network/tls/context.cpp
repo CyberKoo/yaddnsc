@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <charconv>
+#include <compare>
 #include <cstdint>
 #include <filesystem>
 #include <memory>

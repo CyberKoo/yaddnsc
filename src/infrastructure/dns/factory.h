@@ -12,6 +12,7 @@
 #include <vector>
 
 #include "infrastructure/dns/dispatcher.h"
+#include "infrastructure/dns/policy.h"  // IWYU pragma: keep — Policy default argument requires the complete type
 
 namespace domain {
 struct DnsServer;

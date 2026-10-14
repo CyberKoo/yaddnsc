@@ -10,12 +10,14 @@
 //   - update returns UPSTREAM_REJECTED for non-200 error/empty bodies.
 // =============================================================================
 
+#include <initializer_list>
 #include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
 
 #include <glaze/glaze.hpp>
+#include <glaze/json/generic_fwd.hpp>
 #include <gtest/gtest.h>
 #include <yaddnsc/sdk/driver_abi.h>
 

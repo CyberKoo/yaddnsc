@@ -16,7 +16,7 @@
 #include "coro/task.hpp"
 #include "domain/error/dns_error_info.h"
 #include "domain/network/inet_address.h"
-#include "infrastructure/dns/policy.h"
+#include "infrastructure/dns/policy.h"  // IWYU pragma: keep — Policy default argument requires the complete type
 
 namespace dns::detail {
 

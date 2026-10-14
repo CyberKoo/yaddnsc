@@ -2,7 +2,9 @@
 
 #include <vector>
 #include <optional>
+#include <utility>
 
+#include "domain/network/inet_address.h"
 #include "infrastructure/ip_source/iface_util.h"
 
 std::vector<std::string> SystemNetworkInterfaces::names() const {

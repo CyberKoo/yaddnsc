@@ -1,19 +1,15 @@
 #include "namecheap.h"
 
-#include <memory>
 #include <optional>  // IWYU pragma: keep — sdk::HttpRequest aggregate init needs its std::optional member complete; clangd sees no spelled use
 #include <string>
 #include <string_view>
 #include <vector>  // IWYU pragma: keep — sdk::HttpRequest aggregate init needs its std::vector member complete; clangd sees no spelled use
 
 #include <expected>
-#include <libxml/parser.h>
-#include <libxml/xmlmemory.h>
-#include <libxml/xmlstring.h>
-#include <libxml/xpath.h>
 #include <yaddnsc/sdk/driver.hpp>
 #include <yaddnsc/sdk/driver_abi.h>
 #include <yaddnsc/sdk/format.hpp>
+#include <yaddnsc/sdk/redact.hpp>
 #include <yaddnsc/sdk/xml_raii.hpp>
 
 #include "config.hpp"

@@ -9,14 +9,18 @@
 /// See docs/development.md#plugin-abi-changes.
 
 #include <cstdint>
+#include <expected>
+#include <map>
 #include <string>
 #include <string_view>
+#include <vector>
 
-#include <gmock/gmock.h>
 #include <gtest/gtest.h>
 #include <yaddnsc/sdk/driver_abi.h>
 
+#include "infrastructure/plugin/plugin_error.h"
 #include "infrastructure/plugin/plugin_loader.h"
+#include "mocks/recording_logger.h"
 #include "plugin/plugin_test_doubles.h"
 
 namespace {

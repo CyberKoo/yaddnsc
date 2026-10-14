@@ -13,10 +13,13 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <cstddef>
 #include <memory>
+#include <mutex>
 #include <source_location>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <vector>
 
@@ -24,7 +27,6 @@
 #include <spdlog/async.h>
 #include <spdlog/sinks/base_sink.h>
 #include <spdlog/spdlog.h>
-#include <spdlog/version.h>
 
 #include "application/ports/log.h"
 #include "infrastructure/logging/spdlog_logger.h"

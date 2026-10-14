@@ -8,6 +8,7 @@
 
 #include "domain/error/dns_error.h"
 
+#include <string>
 #include <string_view>
 #include <type_traits>
 

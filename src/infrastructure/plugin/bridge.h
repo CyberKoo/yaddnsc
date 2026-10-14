@@ -57,7 +57,6 @@
 #include <expected>
 #include <yaddnsc/sdk/driver_abi.h>
 
-#include "coro/detail/wait_node.h"
 #include "coro/task.hpp"
 #include "domain/error/error.h"
 #include "infrastructure/http/types.h"
@@ -69,6 +68,8 @@ class CancelScope;
 
 namespace detail {
 struct GroupLifetime;
+struct PromiseBase;
+struct WaitNode;
 }
 }  // namespace coro
 

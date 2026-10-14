@@ -30,8 +30,10 @@
 #include <yaddnsc/sdk/driver_abi.h>
 
 #include "application/ports/log.h"
+#include "infrastructure/plugin/plugin_error.h"
 #include "infrastructure/plugin/plugin_loader.h"
 #include "infrastructure/plugin/shared_library.h"
+#include "mocks/recording_logger.h"
 #include "plugin/plugin_test_doubles.h"
 
 namespace {

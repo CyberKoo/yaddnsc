@@ -5,8 +5,9 @@
 #include <string>
 #include <vector>
 
+#include "domain/network/inet_address.h"
+
 namespace domain {
-class InetAddress;
 enum class AddressFamily;
 }  // namespace domain
 

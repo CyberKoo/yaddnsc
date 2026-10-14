@@ -19,6 +19,7 @@
 //
 
 #include <chrono>
+#include <coroutine>
 #include <cstddef>
 #include <cstdint>
 #include <map>
@@ -34,7 +35,6 @@
 
 #include "coro/coro.h"
 #include "domain/config/dns_config.h"
-#include "domain/dns/record_kind.h"
 #include "domain/error/dns_error.h"
 #include "domain/error/dns_error_info.h"
 #include "domain/network/address_family.h"

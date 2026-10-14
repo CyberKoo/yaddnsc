@@ -17,12 +17,13 @@
 
 #include <array>
 #include <chrono>
-#include <cstddef>
+#include <coroutine>
 #include <cstdlib>
 #include <exception>
+#include <initializer_list>
+#include <iterator>
 #include <memory>
 #include <new>
-#include <source_location>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -36,9 +37,14 @@
 #include "coro/group.hpp"
 #include "coro/loop.h"
 #include "coro/run.hpp"
-#include "coro/task_group.hpp"
+#include "coro/task.hpp"
 #include "infrastructure/http/types.h"
 #include "infrastructure/plugin/bridge.h"
+#include "yaddnsc/sdk/driver_abi.h"
+
+namespace coro {
+class TaskGroup;
+}  // namespace coro
 
 // Replacement allocators require the matching malloc/free ownership boundary.
 // NOLINTBEGIN(cppcoreguidelines-no-malloc, cppcoreguidelines-owning-memory)

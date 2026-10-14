@@ -2,9 +2,9 @@
 
 #include <cstddef>
 #include <cstdint>
-#include <exception>
 #include <initializer_list>
 #include <span>
+#include <string>
 #include <string_view>
 #include <tuple>
 #include <vector>
@@ -12,6 +12,7 @@
 #include <gtest/gtest.h>
 
 #include "domain/dns/record_kind.h"
+#include "domain/error/dns_error.h"
 
 namespace {
 void append_u16(std::vector<std::uint8_t>& out, const std::uint16_t value) {

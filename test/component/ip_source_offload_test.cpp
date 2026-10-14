@@ -2,10 +2,17 @@
 #include <array>
 #include <atomic>
 #include <cerrno>
+#include <chrono>
+#include <coroutine>
 #include <csignal>
 #include <cstring>
+#include <expected>
+#include <initializer_list>
 #include <memory>
+#include <optional>
+#include <string>
 #include <string_view>
+#include <vector>
 
 #include <gtest/gtest.h>
 #include <ifaddrs.h>
@@ -16,9 +23,11 @@
 #include "coro/coro.h"
 #include "domain/dns/record_kind.h"
 #include "domain/network/address_family.h"
+#include "domain/network/inet_address.h"
 #include "infrastructure/ip_source/iface.h"
 #include "infrastructure/ip_source/iface_util.h"
 #include "infrastructure/ip_source/mdns.h"
+#include "infrastructure/ip_source/result.h"
 
 namespace {
 std::atomic<bool> metadata_started{false};

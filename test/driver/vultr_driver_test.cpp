@@ -12,12 +12,15 @@
 //   - HTTP 401 is AUTHENTICATION_FAILED; HTTP 429 is RATE_LIMITED.
 // =============================================================================
 
+#include <initializer_list>
 #include <optional>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 #include <glaze/glaze.hpp>
+#include <glaze/json/generic_fwd.hpp>
 #include <gtest/gtest.h>
 #include <yaddnsc/sdk/driver_abi.h>
 

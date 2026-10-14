@@ -8,6 +8,7 @@
 #include <yaddnsc/sdk/driver.hpp>
 #include <yaddnsc/sdk/driver_abi.h>
 #include <yaddnsc/sdk/format.hpp>
+#include <yaddnsc/sdk/redact.hpp>
 
 #include "config.hpp"
 

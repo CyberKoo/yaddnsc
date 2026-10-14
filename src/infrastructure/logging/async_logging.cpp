@@ -15,7 +15,6 @@
 #include <spdlog/sinks/sink.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/spdlog.h>
-#include <spdlog/version.h>
 
 #include "logging_pattern.h"
 #include "support/fmt.hpp"

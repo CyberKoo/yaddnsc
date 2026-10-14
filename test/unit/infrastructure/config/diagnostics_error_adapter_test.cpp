@@ -13,10 +13,14 @@
 //     and complete-string inspection only for an enum mismatch.
 // =============================================================================
 
+#include <string>
+
 #include <glaze/glaze.hpp>
 #include <gtest/gtest.h>
 
 #include "infrastructure/config/diagnostics/error_adapter.h"
+#include "infrastructure/config/diagnostics/locator.h"
+#include "infrastructure/config/diagnostics/types.h"
 
 namespace {
 

@@ -77,7 +77,19 @@ A log argument with non-trivial cost or side effects **must** be evaluated only 
 ## Version Control & Collaboration
 
 - Releases **must** follow **Semantic Versioning** (`MAJOR.MINOR.PATCH`).
-- Commit messages **must** use **`<Type>: <description>`** (`Fix:`, `Feat:`, `Docs:`, `Refactor:`, `Test:`, `Chore:`), with a capitalized imperative description, e.g. `Fix: Harden URI port parsing against malformed values`. Scope prefixes such as `fix(core):` **must not** be used.
+- Commit messages **must** use **`<Type>: <description>`**, with a capitalized imperative description, e.g. `Fix: Harden URI port parsing against malformed values`. Scope prefixes such as `fix(core):` **must not** be used. The type **must** be one of:
+  - `Fix:` — corrects wrong behavior.
+  - `Feat:` — adds a user-visible capability.
+  - `Perf:` — improves performance without changing behavior.
+  - `Refactor:` — restructures code without changing behavior; not merely formatting.
+  - `Style:` — formatting/whitespace only; no semantic change at all.
+  - `Docs:` — documentation only.
+  - `Test:` — adds or fixes tests without touching production code.
+  - `Build:` — build system, compiler configuration, or toolchain.
+  - `CI:` — CI workflows and automation configuration.
+  - `Deps:` — adds, removes, or bumps a dependency.
+  - `Revert:` — reverts a previous commit; the subject names the reverted change.
+  - `Chore:` — other maintenance that fits none of the above.
 - **Prefer** commit messages that include a body summarizing changes as `- ` bullet points, separated from the subject by a blank line. Bullet points **must not** carry implementation details (function/type names, line-level edits, internal control flow); they state **what** changed and **why** from the reviewer's perspective — the diff already records the **how**. A trivial one-line change (typo, rename, comment) **may** have a subject only.
 - **Prefer** small, focused PRs (normally fewer than 400 changed lines) with linked issue tickets when applicable. Larger changes **may** remain together when splitting would obscure a cohesive change; explain the scope.
 - **Normally** squash-and-merge to mainline for a linear, bisectable history.

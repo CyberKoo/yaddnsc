@@ -2,6 +2,7 @@
 /// descriptor reports ABI major 0. The host implements major 1 only and must
 /// reject it before interpreting the 1.0 tail.
 
+#include <stdint.h>
 #include <yaddnsc/sdk/driver_abi.h>
 
 #define FIXTURE_EXPORT __attribute__((visibility("default")))

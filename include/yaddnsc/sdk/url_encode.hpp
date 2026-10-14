@@ -6,7 +6,7 @@
 /// implementation lives in <yaddnsc/util/url_encode.hpp>; this header exposes
 /// it under the SDK namespace.
 
-#include <yaddnsc/util/url_encode.hpp>
+#include <yaddnsc/util/url_encode.hpp>  // IWYU pragma: export
 
 namespace yaddnsc::sdk {
 

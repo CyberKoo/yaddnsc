@@ -12,13 +12,18 @@
 
 #include <array>
 #include <chrono>
+#include <compare>
+#include <coroutine>
 #include <cstdint>
 #include <cstdlib>
+#include <initializer_list>
 #include <memory>
 #include <optional>
 #include <span>
 #include <string>
+#include <string_view>
 #include <thread>
+#include <utility>
 #include <vector>
 
 #include <arpa/inet.h>
@@ -32,23 +37,37 @@
 #include <unistd.h>
 
 #include "coro/coro.h"
+#include "domain/config/dns_config.h"
 #include "domain/dns/record_kind.h"
+#include "domain/error/dns_error.h"
 #include "domain/error/dns_error_info.h"
+#include "domain/network/address_family.h"
+#include "domain/network/inet_address.h"
 #include "infrastructure/dns/bootstrap/bootstrap.h"
 #include "infrastructure/dns/dispatcher.h"
 #include "infrastructure/dns/exchange.h"
 #include "infrastructure/dns/parser.h"
-#include "infrastructure/dns/query_budget.hpp"
+#include "infrastructure/dns/policy.h"
 #include "infrastructure/dns/resolver/classic.h"
 #include "infrastructure/dns/resolver/doh.h"
 #include "infrastructure/dns/resolver/dot.h"
+#include "infrastructure/dns/resolver/resolver.h"
+#include "infrastructure/dns/types.h"
 #include "infrastructure/dns/wire/builder.h"
+#include "infrastructure/http/error.h"
 #include "infrastructure/http/persistent_client.h"
 #include "infrastructure/http/transport.h"
+#include "infrastructure/http/types.h"
 #include "infrastructure/network/tls/context.h"
+#include "infrastructure/network/transport/datagram.h"
 #include "infrastructure/network/transport/udp_socket.h"
 #include "support/fmt.hpp"
 #include "support/util/fd.hpp"
+#include "yaddnsc/util/format.hpp"
+
+namespace net {
+struct TlsTrustOptions;
+}  // namespace net
 
 namespace {
 

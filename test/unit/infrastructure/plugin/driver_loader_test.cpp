@@ -14,6 +14,7 @@
 
 #include <cstdio>
 #include <cstdlib>
+#include <expected>
 #include <filesystem>
 #include <optional>
 #include <string>
@@ -23,11 +24,14 @@
 #include <gtest/gtest.h>
 #include <unistd.h>
 
+#include "application/ports/driver_catalog.h"
 #include "domain/config/runtime_config.h"
+#include "domain/error/error.h"
 #include "infrastructure/config/config_exception.h"
 #include "infrastructure/plugin/driver_catalog.h"
 #include "infrastructure/plugin/driver_not_found_exception.h"
 #include "infrastructure/plugin/plugin_load_exception.h"
+#include "infrastructure/plugin/plugin_loader.h"
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 

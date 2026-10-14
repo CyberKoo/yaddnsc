@@ -6,7 +6,7 @@
 /// implementation lives in <yaddnsc/util/format.hpp>; this header exposes it
 /// under the SDK namespace.
 
-#include <yaddnsc/util/format.hpp>
+#include <yaddnsc/util/format.hpp>  // IWYU pragma: export
 
 namespace yaddnsc::sdk {
 

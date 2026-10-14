@@ -8,7 +8,7 @@
 #include <functional>
 #include <memory>
 #include <optional>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
-#include <stdexcept>
+#include <string>
 #include <vector>
 
 #include <coroutine>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
@@ -23,7 +23,6 @@
 #include "domain/config/runtime_config.h"
 
 namespace app {
-class LoggerPort;
 
 namespace {
 

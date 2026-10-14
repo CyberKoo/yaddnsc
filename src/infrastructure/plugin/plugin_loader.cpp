@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <cstring>
 #include <expected>
+#include <exception>
 #include <new>
 #include <string_view>
 #include <type_traits>

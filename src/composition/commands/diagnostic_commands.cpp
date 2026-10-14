@@ -24,6 +24,7 @@
 #include "coro/loop.h"
 #include "coro/run.hpp"
 #include "coro/task.hpp"
+#include "coro/task_group.hpp"
 #include "domain/config/dns_config.h"  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 #include "domain/config/runtime_config.h"
 #include "domain/error/error.h"  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
@@ -31,6 +32,7 @@
 #include "infrastructure/config/config_exception.h"
 #include "infrastructure/dns/dispatcher.h"  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 #include "infrastructure/dns/factory.h"
+#include "infrastructure/dns/policy.h"
 #include "infrastructure/dns/resolver_adapter.h"
 #include "infrastructure/http/types.h"  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 #include "infrastructure/ip_source/system_network_interfaces.h"
@@ -39,9 +41,9 @@
 #include "infrastructure/plugin/driver_gateway.h"
 #include "support/exception.h"
 
-namespace coro {
-class TaskGroup;
-}  // namespace coro
+namespace net {
+class TlsContext;
+}  // namespace net
 
 namespace Composition {
 int execute_command(const Cli::DriverListCommand& command) {

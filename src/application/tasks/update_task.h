@@ -9,8 +9,6 @@
 #ifndef YADDNSC_APPLICATION_TASKS_UPDATE_TASK_H
 #define YADDNSC_APPLICATION_TASKS_UPDATE_TASK_H
 
-#include <chrono>
-
 #include <expected>
 
 #include "coro/task.hpp"

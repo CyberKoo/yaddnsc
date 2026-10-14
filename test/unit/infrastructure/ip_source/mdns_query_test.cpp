@@ -18,7 +18,8 @@
 
 #include <algorithm>
 #include <cerrno>
-#include <cstddef>
+#include <expected>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -27,7 +28,6 @@
 #include <gtest/gtest.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
-#include <sys/types.h>
 
 #include "coro/coro.h"
 #include "domain/dns/record_kind.h"
@@ -38,6 +38,7 @@
 #include "infrastructure/ip_source/mdns.h"
 #include "infrastructure/ip_source/result.h"
 #include "infrastructure/network/transport/socket_ops.h"
+#include "support/util/fd.hpp"
 
 namespace {
 

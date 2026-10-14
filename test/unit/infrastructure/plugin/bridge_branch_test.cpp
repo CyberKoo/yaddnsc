@@ -10,9 +10,9 @@
 
 #include <atomic>
 #include <chrono>
-#include <cstddef>
+#include <coroutine>
 #include <cstdlib>
-#include <exception>
+#include <expected>
 #include <memory>
 #include <new>
 #include <stdexcept>
@@ -27,9 +27,13 @@
 #include "coro/offload.hpp"
 #include "coro/run.hpp"
 #include "coro/task.hpp"
-#include "coro/task_group.hpp"
 #include "infrastructure/http/types.h"
 #include "infrastructure/plugin/bridge.h"
+#include "yaddnsc/sdk/driver_abi.h"
+
+namespace coro {
+class TaskGroup;
+}  // namespace coro
 
 // Replacement allocators require the matching malloc/free ownership boundary.
 // NOLINTBEGIN(cppcoreguidelines-no-malloc, cppcoreguidelines-owning-memory)

@@ -2,7 +2,6 @@
 
 #include <chrono>
 #include <memory>
-#include <source_location>
 #include <span>
 #include <string>
 #include <string_view>
@@ -12,7 +11,6 @@
 #include <expected>
 #include <spdlog/spdlog.h>
 
-#include "coro/loop.h"
 #include "domain/config/dns_config.h"  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 #include "domain/error/error.h"
 #include "infrastructure/config/config.h"

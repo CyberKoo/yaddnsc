@@ -11,13 +11,23 @@
 //
 
 #include <chrono>
+#include <functional>
+#include <new>
+#include <optional>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <vector>
+
+#include <coroutine>
 
 #include <expected>
 #include <gtest/gtest.h>
 
+#include "application/ports/gateway.h"
+#include "application/ports/ip_source.h"
+#include "application/ports/log.h"
+#include "application/ports/resolver.h"
 #include "application/services.h"
 #include "application/tasks/update_task.h"
 #include "coro/coro.h"
@@ -29,6 +39,7 @@
 #include "domain/error/error.h"
 #include "domain/fqdn.h"
 #include "domain/network/inet_address.h"
+#include "domain/update/driver_update_command.h"
 #include "domain/update/update_decision.h"
 #include "domain/update/update_task.h"
 #include "mocks/recording_logger.h"

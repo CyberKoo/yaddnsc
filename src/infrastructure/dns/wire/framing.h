@@ -14,7 +14,6 @@
 #ifndef YADDNSC_INFRASTRUCTURE_DNS_WIRE_FRAMING_H
 #define YADDNSC_INFRASTRUCTURE_DNS_WIRE_FRAMING_H
 
-#include <cstddef>
 #include <cstdint>
 #include <cstring>
 #include <limits>

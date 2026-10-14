@@ -11,7 +11,9 @@
 
 #include "infrastructure/http/wire_request.h"
 
-#include <cstddef>
+#include <initializer_list>
+#include <map>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <utility>

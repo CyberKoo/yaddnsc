@@ -7,7 +7,10 @@
 //
 
 #include <chrono>
+#include <string>
 #include <utility>
+
+#include <coroutine>
 
 #include <gtest/gtest.h>
 #include "coro/coro.h"

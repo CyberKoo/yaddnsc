@@ -1,8 +1,13 @@
 #include <atomic>
+#include <expected>
+#include <initializer_list>
 #include <stdexcept>
+#include <string>
 #include <string_view>
 
 #include <yaddnsc/sdk/driver.hpp>
+
+#include "yaddnsc/sdk/driver_abi.h"
 
 namespace {
 std::atomic<yaddnsc_status> destroy_status{YADDNSC_STATUS_OK};

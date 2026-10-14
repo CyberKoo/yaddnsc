@@ -14,10 +14,11 @@
 
 #include <algorithm>
 #include <array>
-#include <cstddef>
+#include <coroutine>
 #include <cstdint>
 #include <cstring>
 #include <memory>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -34,6 +35,7 @@
 #include "domain/network/inet_address.h"
 #include "infrastructure/dns/exchange.h"
 #include "infrastructure/dns/resolver/doh.h"
+#include "infrastructure/dns/types.h"
 #include "infrastructure/dns/wire/builder.h"
 #include "infrastructure/http/types.h"
 #include "infrastructure/network/transport/io_error.h"

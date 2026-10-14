@@ -11,7 +11,7 @@
 //
 
 #include <algorithm>
-#include <cstddef>
+#include <coroutine>
 #include <cstdint>
 #include <cstring>
 #include <memory>
@@ -28,15 +28,19 @@
 
 #include "coro/coro.h"
 #include "domain/dns/record_kind.h"
-#include "domain/error/dns_error.h"
 #include "domain/error/dns_error_info.h"
-#include "domain/network/address_family.h"
 #include "domain/network/inet_address.h"
 #include "infrastructure/dns/resolver/dot.h"
+#include "infrastructure/dns/types.h"
 #include "infrastructure/dns/wire/builder.h"
+#include "infrastructure/network/address/host_resolver.h"
 #include "infrastructure/network/transport/io_error.h"
 #include "infrastructure/network/transport/options.h"
 #include "infrastructure/network/transport/stream.h"
+
+namespace domain {
+enum class AddressFamily;
+}  // namespace domain
 
 namespace {
 

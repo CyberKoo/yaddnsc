@@ -17,10 +17,11 @@
 
 #include <algorithm>
 #include <chrono>
-#include <cstddef>
+#include <coroutine>
 #include <cstdint>
 #include <cstring>
 #include <deque>
+#include <map>
 #include <memory>
 #include <optional>
 #include <span>
@@ -35,8 +36,10 @@
 #include "coro/coro.h"
 #include "domain/network/inet_address.h"
 #include "infrastructure/http/client.h"
+#include "infrastructure/http/error.h"
 #include "infrastructure/http/transport.h"
 #include "infrastructure/http/types.h"
+#include "infrastructure/network/transport/io_error.h"
 #include "infrastructure/network/transport/stream.h"
 
 namespace {

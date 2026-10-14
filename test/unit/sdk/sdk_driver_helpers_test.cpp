@@ -15,12 +15,14 @@
 #include <chrono>
 #include <cstdint>
 #include <ctime>
+#include <cwchar>
 #include <format>
 #include <initializer_list>
 #include <limits>
 #include <optional>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 #include <gtest/gtest.h>

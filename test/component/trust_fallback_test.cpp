@@ -1,12 +1,15 @@
 // Isolated link-time adapters drive the real TlsContext::create fallback;
 // production discovery and its static cache are tested in cert_util_test.
+#include <expected>
 #include <filesystem>
+#include <memory>
 #include <optional>
 #include <string>
 
 #include <gtest/gtest.h>
 #include <openssl/ssl.h>
-#include <openssl/x509_vfy.h>
+#include <openssl/types.h>
+#include <openssl/x509.h>
 
 #include "infrastructure/network/tls/cert_util.h"
 #include "infrastructure/network/tls/context.h"

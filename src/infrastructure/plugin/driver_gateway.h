@@ -8,6 +8,7 @@
 #include <chrono>
 #include <memory>
 #include <string>
+#include <string_view>
 
 #include "application/ports/gateway.h"
 #include "infrastructure/http/types.h"

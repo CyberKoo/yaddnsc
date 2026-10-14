@@ -1,9 +1,9 @@
 #include "diagnostics.h"
 
 #include <coroutine>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
+#include <algorithm>
 #include <chrono>
 #include <expected>
-#include <ranges>
 #include <set>
 #include <string>
 #include <string_view>

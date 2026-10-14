@@ -4,14 +4,15 @@
 
 #include "bridge.h"
 
-#include <algorithm>
 #include <atomic>
 #include <chrono>
-#include <cstdint>
+#include <compare>
 #include <functional>
 #include <memory>
+#include <ratio>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <type_traits>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 #include <utility>
 
@@ -22,6 +23,8 @@
 
 #include "coro/cancel_scope.h"
 #include "coro/cancelled.h"
+#include "coro/detail/access.h"
+#include "coro/detail/group_state.h"
 #include "coro/loop.h"
 #include "coro/now.hpp"
 #include "coro/scope.hpp"

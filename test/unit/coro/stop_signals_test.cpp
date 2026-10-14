@@ -4,13 +4,18 @@
 #include <cerrno>
 #include <chrono>
 #include <csignal>
+#include <cstdlib>
 #include <stdexcept>
+#include <string>
 #include <system_error>
 #include <thread>
+
+#include <coroutine>
 
 #include <gtest/gtest.h>
 #include <unistd.h>
 
+#include "coro/cancel_scope.h"
 #include "coro/loop.h"
 #include "coro/run.hpp"
 #include "coro/scope.hpp"

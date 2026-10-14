@@ -14,9 +14,11 @@
 
 #include <array>
 #include <chrono>
-#include <cstddef>
+#include <coroutine>
 #include <cstdint>
 #include <cstring>
+#include <expected>
+#include <optional>
 #include <random>
 #include <span>
 #include <string>
@@ -24,6 +26,7 @@
 #include <utility>
 #include <vector>
 
+#include <arpa/inet.h>
 #include <gtest/gtest.h>
 #include <netinet/in.h>
 
@@ -32,9 +35,11 @@
 #include "domain/error/error.h"
 #include "domain/network/address_family.h"
 #include "domain/network/inet_address.h"
+#include "infrastructure/dns/types.h"
 #include "infrastructure/dns/wire/builder.h"
 #include "infrastructure/ip_source/mdns.h"
 #include "infrastructure/ip_source/mdns_receive.h"
+#include "infrastructure/ip_source/result.h"
 #include "infrastructure/network/transport/socket_ops.h"
 #include "infrastructure/network/transport/udp_socket.h"
 #include "support/util/fd.hpp"

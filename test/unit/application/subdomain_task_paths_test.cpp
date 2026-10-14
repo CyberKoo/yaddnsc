@@ -10,21 +10,27 @@
 //
 
 #include <chrono>
+#include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
+
+#include <coroutine>
 
 #include <expected>
 #include <gtest/gtest.h>
 
+#include "application/ports/gateway.h"
+#include "application/ports/ip_source.h"
+#include "application/ports/log.h"
+#include "application/ports/resolver.h"
 #include "application/services.h"
 #include "application/tasks/subdomain_task.h"
 #include "coro/coro.h"
-#include "domain/config/ip_source_kind.h"
 #include "domain/config/runtime_config.h"
-#include "domain/dns/record_kind.h"
-#include "domain/error/dns_error_info.h"
 #include "domain/error/error.h"
 #include "domain/network/inet_address.h"
+#include "domain/update/driver_update_command.h"
 #include "mocks/recording_logger.h"
 
 #include "min_update_interval.h"

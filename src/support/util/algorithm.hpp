@@ -2,6 +2,7 @@
 #define YADDNSC_SUPPORT_UTIL_ALGORITHM_HPP
 
 #include <cstddef>
+#include <functional>
 #include <unordered_set>
 #include <vector>
 

@@ -5,19 +5,22 @@
 // =============================================================================
 
 #include <cstdlib>
+#include <optional>
 #include <stdexcept>
 #include <string>
-#include <utility>
 #include <vector>
 
 #include <expected>
 #include <gtest/gtest.h>
+#include <unistd.h>
 
 #include "application/diagnostics.h"
+#include "application/ports/driver_catalog.h"
 #include "cli/presenter.h"
 #include "domain/dns/record_kind.h"
 #include "domain/error/dns_error.h"
 #include "domain/error/dns_error_info.h"
+#include "domain/error/error.h"
 #include "fixtures/cli_test_support.h"
 
 using namespace CliTestSupport;

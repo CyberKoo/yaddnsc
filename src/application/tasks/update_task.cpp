@@ -5,6 +5,7 @@
 #include "update_task.h"
 
 #include <chrono>
+#include <exception>
 #include <new>
 #include <optional>
 #include <string>

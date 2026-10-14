@@ -18,6 +18,7 @@
 #include <expected>
 
 #include "coro/cancelled.h"
+#include "coro/mutex_guard.hpp"
 #include "coro/now.hpp"
 #include "coro/scope.hpp"
 #include "domain/network/inet_address.h"  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not

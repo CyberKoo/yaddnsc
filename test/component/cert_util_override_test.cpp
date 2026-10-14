@@ -1,7 +1,10 @@
 // The first discover_ca_bundle() call must observe the explicit environment
 // override, even when GoogleTest repeats this case or shuffles other cases.
 
+#include <filesystem>
 #include <fstream>
+#include <optional>
+#include <string>
 
 #include <gtest/gtest.h>
 

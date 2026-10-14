@@ -1,8 +1,10 @@
 # ==============================================================================
 # Clang-Tidy (static analysis)
 # ==============================================================================
-# Find the clang-tidy executable on the system
-find_program(CLANG_TIDY_EXE NAMES "clang-tidy")
+# Find the clang-tidy executable on the system. Prefer the unversioned name
+# (distro default); fall back to versioned binaries installed alongside a
+# specific LLVM toolchain.
+find_program(CLANG_TIDY_EXE NAMES clang-tidy clang-tidy-21 clang-tidy-20 clang-tidy-19 clang-tidy-18)
 
 if(CLANG_TIDY_EXE)
     message(STATUS "Clang-Tidy found: ${CLANG_TIDY_EXE}")

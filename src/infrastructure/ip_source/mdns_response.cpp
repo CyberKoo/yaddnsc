@@ -4,7 +4,6 @@
 #include <string>  // IWYU pragma: keep — rr.name/record are std::string used through conversion; clangd sees no spelled use
 
 #include <stddef.h>
-#include <yaddnsc/util/string_util.hpp>
 
 #include "domain/dns/record_kind.h"
 #include "infrastructure/dns/dns_lookup_exception.h"

@@ -7,6 +7,7 @@
 
 #include "domain/network/address_family.h"
 
+#include <string>
 #include <type_traits>
 
 #include <gtest/gtest.h>

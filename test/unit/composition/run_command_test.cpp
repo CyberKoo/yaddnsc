@@ -32,9 +32,11 @@
 
 #include <array>
 #include <chrono>
+#include <initializer_list>
 #include <set>
 #include <string>
 #include <string_view>
+#include <utility>
 
 #include <gtest/gtest.h>
 #include <spdlog/spdlog.h>

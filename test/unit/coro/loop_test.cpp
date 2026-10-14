@@ -1,8 +1,14 @@
+#include <functional>
+#include <initializer_list>
 #include <stdexcept>
+#include <string>
+
+#include <coroutine>
 
 #include <gtest/gtest.h>
 
 #include "coro/coro.h"
+#include "support/util/fd.hpp"
 
 namespace {
 

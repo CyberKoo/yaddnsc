@@ -18,14 +18,17 @@
 
 #include <algorithm>
 #include <chrono>
-#include <cstddef>
+#include <coroutine>
 #include <cstdint>
 #include <cstring>
+#include <initializer_list>
 #include <memory>
 #include <optional>
 #include <span>
 #include <stdexcept>
 #include <string>
+#include <string_view>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -41,12 +44,15 @@
 #include "domain/network/inet_address.h"
 #include "infrastructure/dns/bootstrap/bootstrap.h"
 #include "infrastructure/dns/dispatcher.h"
+#include "infrastructure/dns/policy.h"
 #include "infrastructure/dns/resolver/classic.h"
 #include "infrastructure/dns/resolver/doh.h"
 #include "infrastructure/dns/resolver/dot.h"
 #include "infrastructure/dns/resolver/resolver.h"
+#include "infrastructure/dns/types.h"
 #include "infrastructure/dns/wire/builder.h"
 #include "infrastructure/http/types.h"
+#include "infrastructure/network/address/host_resolver.h"
 #include "infrastructure/network/transport/io_error.h"
 #include "infrastructure/network/transport/stream.h"
 

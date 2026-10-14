@@ -3,6 +3,7 @@
 // invalid field so PluginModule::load is exercised through a real .so.
 //
 
+#include <stdint.h>
 #include <yaddnsc/sdk/driver_abi.h>
 
 #define FIXTURE_EXPORT __attribute__((visibility("default")))

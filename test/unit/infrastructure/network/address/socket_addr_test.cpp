@@ -14,6 +14,7 @@
 
 #include <optional>
 #include <string>
+#include <string_view>
 
 #include <arpa/inet.h>
 #include <gtest/gtest.h>

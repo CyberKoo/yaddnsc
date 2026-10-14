@@ -14,6 +14,8 @@
 #include <string>
 
 #include <gtest/gtest.h>
+#include <stdlib.h>
+#include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
 

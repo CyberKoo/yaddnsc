@@ -16,6 +16,7 @@
 #include <cstdint>
 #include <optional>
 #include <span>
+#include <string>
 
 #include <gtest/gtest.h>
 

@@ -9,7 +9,6 @@
 #include <chrono>
 #include <cstdint>
 #include <cstring>
-#include <new>
 #include <optional>
 #include <span>
 #include <string>
@@ -26,7 +25,6 @@
 #include <spdlog/spdlog.h>
 #include <sys/socket.h>
 
-#include "coro/cancelled.h"
 #include "coro/offload.hpp"
 #include "coro/scope.hpp"
 #include "coro/sleep.hpp"
