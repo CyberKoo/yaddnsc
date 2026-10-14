@@ -265,7 +265,7 @@ remaining 1.5s attempt budget. A late truncated UDP answer may leave less than
 UDP validates local questions before I/O, discards unrelated replies, and reports
 malformed matching replies as PARSE. Discard bursts periodically back off (1ms per 32 discarded datagrams) without
 resetting the deadline or letting foreign packets force an early failure. mDNS
-uses the same burst limit within its original 500ms response window.
+uses the same burst limit within its 2s response window.
 Only Dispatcher retries entire DNS queries. A single backend defaults to two
 attempts; multiple backends exhaust alternatives first, then perform at most one
 recovery round for CONNECTION/RETRY failures (disabled when max_retries is zero).
@@ -479,7 +479,7 @@ interval is clamped to a minimum rather than spinning.
 Network waits do not park the loop thread: sockets are opened with `O_NONBLOCK`
 (`network/transport/socket_ops.cpp`), so connect/send/recv wait on readiness when
 needed; SSL calls await the direction indicated by WANT_READ/WANT_WRITE. DNS,
-provider HTTP and the 500ms mDNS window all use cancellable loop I/O. This is not
+provider HTTP and the 2s mDNS window all use cancellable loop I/O. This is not
 a guarantee that every system or library call on the loop has zero latency.
 File/loader I/O runs at startup and plugin ABI work uses offload. The sanctioned
 randomness calls below remain synchronous and have no strict wall-time bound.

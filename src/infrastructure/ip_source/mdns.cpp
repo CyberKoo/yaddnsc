@@ -52,7 +52,7 @@ namespace ipsource {
 namespace {
 
 constexpr std::uint16_t MDNS_PORT = 5353;
-constexpr std::chrono::milliseconds MDNS_TIMEOUT{500};
+constexpr std::chrono::milliseconds MDNS_TIMEOUT{2000};
 constexpr std::size_t DISCARD_BURST = 32;
 constexpr std::string_view MDNS_IPV4_GROUP = "224.0.0.251";
 constexpr std::string_view MDNS_IPV6_GROUP = "ff02::fb";

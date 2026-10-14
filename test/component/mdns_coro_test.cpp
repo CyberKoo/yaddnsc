@@ -2,7 +2,7 @@
 // Component test for the coroutine mDNS IP source.
 //
 // A random-UUID `.local` name is never answered, so resolve() must end in a
-// structured failure after the 500 ms response window rather than hanging. The
+// structured failure after the 2 s response window rather than hanging. The
 // IPv4 cases join 224.0.0.251:5353, so this target holds the "mdns-multicast"
 // RESOURCE_LOCK (see component/CMakeLists.txt) exactly like the legacy mDNS
 // suites.
