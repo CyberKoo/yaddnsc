@@ -677,7 +677,7 @@ constexpr char DESCRIPTOR_NAME[] = "abc";
 constexpr auto DESCRIPTOR_VIEW = yaddnsc::sdk::detail::descriptor_string(DESCRIPTOR_NAME);
 static_assert(DESCRIPTOR_VIEW.size == 3);
 
-class MissingValidateDriver final : public yaddnsc::sdk::Driver {
+class MissingValidateDriver : public yaddnsc::sdk::Driver {
 public:
     yaddnsc::sdk::Result update(yaddnsc::sdk::UpdateContext&) override { return {}; }
 };
