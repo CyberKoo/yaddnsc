@@ -253,12 +253,12 @@ private:
 
     std::unique_ptr<Pool> pool_;
     unsigned pool_workers_ = default_offload_workers();
-    /// Submitted-but-unfinished worker jobs; decremented by workers at exit.
-    /// The dirty flag is set before the decrement, so a loop that observes a
-    /// zero count also observes a pending dispatch: dispatch_offloads() runs
-    /// on the loop thread only.
+    /// Submitted-but-unfinished worker jobs; workers count down at exit and
+    /// wake the loop. This counter is the entire completion protocol — the
+    /// loop re-dispatches queued admissions every iteration, so the dispatch
+    /// and drain paths can never observe torn flag/counter state.
+    /// dispatch_offloads() and all queue links below run on the loop thread.
     std::atomic<std::size_t> offload_pending_{0};
-    std::atomic<bool> offload_dirty_{false};
     detail::OffloadAdmission* offload_head_ = nullptr;
     detail::OffloadAdmission* offload_tail_ = nullptr;
 

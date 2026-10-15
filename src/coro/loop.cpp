@@ -401,13 +401,13 @@ void Loop::submit_offload(std::function<void()> job) {
     }
     offload_pending_.fetch_add(1, std::memory_order_relaxed);
     try {
-        // Worker-slot accounting is the loop's own concern, not the job's:
-        // flag a dispatch first, then count down — a loop that observes a zero
-        // pending count is guaranteed to also observe the dispatch flag.
+        // Worker-slot accounting is the loop's own concern, not the job's.
+        // The countdown is the only cross-thread completion state: the loop
+        // re-evaluates queued admissions every iteration, so no flag or store
+        // ordering between two atomics can strand a dispatch.
         pool_->submit([this, job = std::move(job)]() mutable {
             job();
             job = {};  // release user/shared captures promptly after the run
-            offload_dirty_.store(true, std::memory_order_release);
             offload_pending_.fetch_sub(1, std::memory_order_release);
             wake();
         });
@@ -442,16 +442,16 @@ void Loop::set_trace_sink(TraceSink sink, void* context) noexcept {
 void Loop::run() {
     assert(!fds_.empty() && "loop self-pipe unavailable: nothing could ever wake the loop");
     CORO_TRACE("run() starting");
-    while (!stopped_ || offload_pending_.load(std::memory_order_acquire) != 0 ||
-           offload_dirty_.load(std::memory_order_acquire)) {
+    while (!stopped_ || offload_pending_.load(std::memory_order_acquire) != 0 || offload_head_ != nullptr) {
         // Worker completions and due timers run on every iteration, ahead of
         // the ready queue: a busy loop keeps re-filling the queue (every
         // resumed frame can schedule the next one), so a ready-first order
         // starves all three — a with_timeout would then fire late or never.
         process_inbox();
-        // Worker-slot accounting is flag-based (no callback): free the slots
-        // and dispatch queued admissions before anything else.
-        if (offload_dirty_.exchange(false, std::memory_order_acq_rel)) {
+        // Worker completions free slots without any flag or callback: queued
+        // admissions are re-dispatched every iteration, ahead of the ready
+        // queue. An empty queue makes this a single pointer test.
+        if (offload_head_ != nullptr) {
             dispatch_offloads();
         }
         // One time view per iteration: fire_timers no longer pays a virtual
@@ -459,8 +459,11 @@ void Loop::run() {
         // processing fires next iteration instead — sub-millisecond drift.
         const TimePoint now = clock_->now();
         fire_timers(now);
+        // Queued admissions hold the loop too: a worker's countdown lands
+        // before its wake, so the pending count alone can read idle while
+        // work still waits for a slot (~Loop terminates on live waiters).
         if (stopped_ && ready_head_ == nullptr && offload_pending_.load(std::memory_order_acquire) == 0 &&
-            !offload_dirty_.load(std::memory_order_acquire)) {
+            offload_head_ == nullptr) {
             break;
         }
         if (ready_head_ != nullptr) {
