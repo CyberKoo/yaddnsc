@@ -180,6 +180,11 @@ readability-use-anyofallof,
 concurrency-mt-unsafe
 '
 
+# The lint gate fails on any enabled diagnostic; NOLINT annotations with the
+# specific check name are the sanctioned way to mark intentional constructs
+# (e.g. ld --wrap symbol names).
+WarningsAsErrors: '*'
+
 CheckOptions:
   - key: modernize-use-auto.MinTypeNameLength
     value: '5'

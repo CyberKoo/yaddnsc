@@ -490,7 +490,7 @@ by `ci.yml` path filters.
   two-track coverage gate, see "Coverage" above);
 - `linux-amd64-lint` — compile-only static analysis under upstream Clang
   (no tests run): IWYU violations fail the build, compiler warnings fail via
-  `-Werror`; clang-tidy diagnostics are reported but not promoted to errors.
+  `-Werror`, and clang-tidy diagnostics fail via `WarningsAsErrors: '*'`.
   macOS uses AppleClang.
 
 Scheduled nightly builds run only when the recent-commit check passes; manual
@@ -521,9 +521,11 @@ roughly 150 entries across bugprone, clang-analyzer, cert, cppcoreguidelines,
 google, hicpp, misc, modernize, performance, readability and concurrency —
 including `bugprone-use-after-move` and `clang-analyzer-cplusplus.InnerPointer`,
 but not `readability-identifier-naming` or `clang-analyzer-cplusplus.Move`. It
-does not automatically enforce the naming rules. No `WarningsAsErrors` or
-`--warnings-as-errors` setting promotes tidy warnings to failures; compiler
-`-Werror` is not a clang-tidy diagnostic gate. Tool execution/parsing errors may
+does not automatically enforce the naming rules. `WarningsAsErrors: '*'` turns
+every enabled diagnostic into a build failure, so the lint job gates on tidy
+findings; intentional constructs (ld `--wrap` symbol names, coroutine promise
+protocol methods, moved-from state assertions) are annotated in source with a
+check-named `NOLINT` and a reason. Tool execution/parsing errors may
 still fail the build.
 
 ## Include hygiene
