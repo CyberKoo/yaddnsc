@@ -50,7 +50,10 @@ request writes one byte to a nonblocking pipe; the byte is not consumed, so
 requests before or during a coroutine wait remain observable. The application
 queries the latched request before starting work and awaits it through injected
 callbacks. The adapter waits with the runtime's cancellable `wait_readable`,
-without periodic latch polling or busy-waiting. Synchronous startup deliberately
+without periodic latch polling or busy-waiting; only if the loop's event source
+itself is impaired (a sustained poll() failure fails the wait) does the wait
+fall back to observing the atomic stop latch on the timer heap, which does not
+depend on poll(). Synchronous startup deliberately
 checks the latch after configuration load, plugin loading and trust-context
 creation, then before validation and update-task launch. These milestone checks
 let each blocking step finish before a graceful stop; exit-code selection also
@@ -208,16 +211,20 @@ stop wait still checks caller cancellation. Awaiting an empty or previously
 awaited Task throws `std::logic_error`; closed nonnegative descriptors report
 `POLLNVAL` as an invalid fd, not successful readiness.
 `coro::run` requires a fresh loop and structured root completion. Task defects
-still propagate normally. Exceptions escaping loop dispatch, or failure to post
-an offload completion, call `std::terminate`: losing a dispatch batch or completion
-cannot be recovered by safely unwinding parked frames. External stop before root
-completion is likewise fatal. Loop construction throws if its wake pipe cannot
-be created. Loop instances own independent scheduling, inbox and wake-pipe
-state; only the process-wide StopSignals owner is exclusive. Wake-pipe writes
-retry `EINTR` and tolerate `EAGAIN` because a full pipe is already readable;
-other wake failures are fatal. Poll interruptions return to inbox/timer
-processing; other poll errors follow the fatal dispatch policy rather than
-silently spinning.
+still propagate normally. Exceptions escaping loop dispatch call
+`std::terminate`: losing a dispatch batch cannot be recovered by safely
+unwinding parked frames. External stop before root completion is likewise
+fatal. Loop construction throws if its wake pipe cannot be created. Loop
+instances own independent scheduling, inbox and wake-pipe state; only the
+process-wide StopSignals owner is exclusive. Wake-pipe writes retry `EINTR`
+and tolerate `EAGAIN` because a full pipe is already readable; other wake
+failures are fatal. Poll failures are classified: interruptions return to
+inbox/timer processing; `ENOMEM` is an operational event-source failure — the
+loop paces itself on a capped backoff, and once the failure is sustained it
+fails every registered fd wait with the poll errno (fd waits resolve to an
+`std::error_code` instead of readiness) and keeps running, so in-flight
+queries shed load rather than die with the process. `EINVAL`/`EFAULT` indict
+the loop's own call construction and stay on the fatal dispatch path.
 
 Group bodies cancel their children on every abnormal exit, including cancellation
 propagated from a nested deadline scope whose manual cancellation did not cancel

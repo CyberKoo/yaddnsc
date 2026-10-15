@@ -16,6 +16,7 @@
 #include <chrono>
 #include <exception>
 #include <string>
+#include <system_error>
 
 #include <coroutine>
 
@@ -81,7 +82,9 @@ TEST(ContextContract, wait_readable_OutsideRun_AssertionDiagnosed) {
     EXPECT_DEATH(
         {
             // fd 0 passes the fd_ < 0 guard, so only the missing loop can fire.
-            UnboundTask frame = []() -> UnboundTask { co_await coro::wait_readable(0); }();
+            UnboundTask frame = []() -> UnboundTask {
+                [[maybe_unused]] const std::error_code wait = co_await coro::wait_readable(0);
+            }();
             frame.handle.resume();
         },
         "must be awaited inside coro::run");

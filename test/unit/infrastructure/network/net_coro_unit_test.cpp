@@ -22,6 +22,7 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <thread>
 #include <utility>
 
@@ -196,7 +197,7 @@ TEST(FdWait, wait_readable_ByteQueued_ReportsReady) {
 
     bool ready = false;
     auto task = [&ready, fd = pair->first()]() -> coro::Task<void> {
-        co_await coro::wait_readable(fd);
+        EXPECT_FALSE(co_await coro::wait_readable(fd));
         ready = true;
         co_return;
     };
@@ -213,7 +214,9 @@ TEST(FdWait, wait_readable_NoData_IsCancelledByScopeTimeout) {
     auto task = [&cancelled, &timed_out, fd = pair->first()]() -> coro::Task<void> {
         const auto outcome = co_await coro::with_timeout(20ms, [&cancelled, fd]() -> coro::Task<void> {
             try {
-                co_await coro::wait_readable(fd);
+                // Cancellation wins before the wait resolves; the resolution
+                // value is never observed on this path.
+                [[maybe_unused]] const std::error_code wait = co_await coro::wait_readable(fd);
             } catch (const coro::Cancelled&) {
                 cancelled = true;
                 throw;
@@ -234,7 +237,7 @@ TEST(FdWait, wait_writable_OpenSocket_ReportsReady) {
 
     bool ready = false;
     auto task = [&ready, fd = pair->first()]() -> coro::Task<void> {
-        co_await coro::wait_writable(fd);
+        EXPECT_FALSE(co_await coro::wait_writable(fd));
         ready = true;
         co_return;
     };
@@ -246,7 +249,8 @@ TEST(FdWait, wait_readable_InvalidDescriptor_ThrowsContractError) {
     bool rejected = false;
     auto task = [&rejected]() -> coro::Task<void> {
         try {
-            co_await coro::wait_readable(-1);
+            // A negative fd throws before any resolution value exists.
+            [[maybe_unused]] const std::error_code wait = co_await coro::wait_readable(-1);
         } catch (const std::invalid_argument&) {
             rejected = true;
         }
@@ -567,14 +571,19 @@ TEST(FdWait, ReusedAfterCancellationAndReadiness_DoesNotRetainRegistrationState)
     coro::Loop loop;
     auto root = [&]() -> coro::Task<void> {
         const auto readable = coro::wait_readable(pair->first());
-        auto timeout = co_await coro::with_timeout(1ms, [&]() -> coro::Task<void> { co_await readable; });
+        auto timeout = co_await coro::with_timeout(1ms, [&]() -> coro::Task<void> {
+            // Times out; the resolution value is never observed on this path.
+            [[maybe_unused]] const std::error_code wait = co_await readable;
+        });
         EXPECT_TRUE(timeout.timed_out);
         const char byte = 'x';
         EXPECT_EQ(::write(pair->second(), &byte, 1), 1);
-        co_await readable;
+        EXPECT_FALSE(co_await readable);
         char received{};
         EXPECT_EQ(::read(pair->first(), &received, 1), 1);
-        timeout = co_await coro::with_timeout(1ms, [&]() -> coro::Task<void> { co_await readable; });
+        timeout = co_await coro::with_timeout(1ms, [&]() -> coro::Task<void> {
+            [[maybe_unused]] const std::error_code wait = co_await readable;
+        });
         EXPECT_TRUE(timeout.timed_out);
     };
     coro::run(loop, root());

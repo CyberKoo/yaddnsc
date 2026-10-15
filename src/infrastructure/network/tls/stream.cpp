@@ -17,6 +17,7 @@
 #include <limits>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <utility>
 #include <optional>
 #include <span>
@@ -238,7 +239,10 @@ coro::Task<std::expected<void, IoError>> TlsStream::handshake() {
             SPDLOG_ERROR(R"(TLS handshake failed for "{}": {})", peer_label(), detail::ssl_errors());
             co_return std::unexpected(IoError::CONNECTION_FAILED);
         }
-        co_await direction_wait(tcp_.native_handle(), error);
+        if (const std::error_code wait = co_await direction_wait(tcp_.native_handle(), error)) {
+            SPDLOG_DEBUG("TLS handshake wait failed: {}", wait.message());
+            co_return std::unexpected(IoError::CONNECTION_FAILED);
+        }
     }
 }
 
@@ -258,7 +262,10 @@ coro::Task<std::expected<std::size_t, IoError>> TlsStream::read_some(std::span<s
         }
         const int error = SSL_get_error(ssl_.get(), received);
         if (error == SSL_ERROR_WANT_READ || error == SSL_ERROR_WANT_WRITE) {
-            co_await direction_wait(tcp_.native_handle(), error);
+            if (const std::error_code wait = co_await direction_wait(tcp_.native_handle(), error)) {
+                SPDLOG_DEBUG("TLS fd wait failed: {}", wait.message());
+                co_return std::unexpected(IoError::CONNECTION_FAILED);
+            }
             continue;
         }
         if (logging::level_enabled(spdlog::level::debug)) {
@@ -299,7 +306,10 @@ coro::Task<std::expected<void, IoError>> TlsStream::send_all(std::span<const std
         }
         const int error = SSL_get_error(ssl_.get(), sent);
         if (error == SSL_ERROR_WANT_READ || error == SSL_ERROR_WANT_WRITE) {
-            co_await direction_wait(tcp_.native_handle(), error);
+            if (const std::error_code wait = co_await direction_wait(tcp_.native_handle(), error)) {
+                SPDLOG_DEBUG("TLS fd wait failed: {}", wait.message());
+                co_return std::unexpected(IoError::CONNECTION_FAILED);
+            }
             continue;
         }
         if (logging::level_enabled(spdlog::level::debug)) {

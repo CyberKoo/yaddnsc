@@ -34,9 +34,13 @@ namespace coro {
 /// when the result is moved out. A task that never completes never returns.
 /// After root completion the loop pumps worker completions before returning;
 /// abandon ends an await, not the runtime's ownership of submitted work.
-/// An exception escaping loop dispatch is fatal (std::terminate): parked
-/// frames and lost callbacks cannot be safely unwound. Use a fresh loop for
-/// each run; externally stopping a live root violates this contract.
+/// Failure taxonomy: an operational poll() failure (ENOMEM) is not fatal —
+/// the loop paces itself, and sustained impairment fails fd waits with the
+/// poll errno (loop.h). What stays fatal is a dispatch failure: an exception
+/// escaping loop dispatch, or a defect in the loop's own call construction
+/// (EINVAL/EFAULT from poll), calls std::terminate — parked frames and lost
+/// callbacks cannot be safely unwound. Use a fresh loop for each run;
+/// externally stopping a live root violates this contract.
 /// Thread safety: must be called from the loop's own thread.
 template<typename T>
 [[nodiscard]] T run(Loop& loop, Task<T> task) {

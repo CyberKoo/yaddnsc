@@ -4,6 +4,7 @@
 
 #include <cassert>
 #include <stdexcept>
+#include <system_error>
 
 #include <coroutine>
 
@@ -11,6 +12,7 @@
 
 #include "coro/cancel_scope.h"
 #include "coro/detail/access.h"
+#include "coro/detail/fd_entry.h"
 #include "coro/detail/frame.h"
 #include "coro/detail/wait_node.h"
 #include "coro/loop.h"
@@ -25,8 +27,9 @@ namespace coro::detail {
 /// so a resume can never race the next poll() round.
 /// Cancellation: a checkpoint — a cancelled scope resumes the frame early with
 /// `coro::Cancelled` and leaves the descriptor untouched.
-/// Failure: throws `Cancelled` on cancellation; an invalid descriptor throws
-/// `std::invalid_argument`.
+/// Failure: the wait resolves to the loop's poll errno when the event source
+/// itself is impaired; throws `Cancelled` on cancellation; an invalid
+/// descriptor is a contract defect and throws `std::invalid_argument`.
 /// Thread safety: loop thread only.
 class FdAwaiter {
 public:
@@ -58,30 +61,40 @@ public:
         node_.waiter = &promise;
         node_.owner = this;
         node_.on_cancel = &FdAwaiter::on_cancel;
-        token_ = LoopAccess::add_fd(*loop_, fd_, events_, &FdAwaiter::on_ready, this);
-        armed_ = true;
+        entry_.fd = fd_;
+        entry_.events = events_;
+        entry_.fn = &FdAwaiter::on_ready;
+        entry_.context = this;
+        LoopAccess::add_fd(*loop_, entry_);
         if (scope_ != nullptr) {
             ScopeAccess::add_waiter(*scope_, node_);
         }
         return true;
     }
 
-    /// Returns nothing once the direction is ready, `coro::Cancelled` when
-    /// the scope cancelled the wait. Cancellation throws `Cancelled`; the fd is untouched.
-    void await_resume() {
+    /// Resolution: an empty error_code once the direction is ready, or the
+    /// loop's poll errno when the event source itself failed the wait. A
+    /// socket-level POLLERR with a healthy loop is left for the next syscall
+    /// on the fd to report. Cancellation throws `Cancelled`; a closed
+    /// descriptor is a contract defect and throws std::invalid_argument.
+    [[nodiscard]] std::error_code await_resume() {
         if (node_.linked && node_.scope != nullptr) {
             ScopeAccess::remove_waiter(*node_.scope, node_);
         }
-        if (armed_) {
-            LoopAccess::remove_fd(*loop_, token_);
-            armed_ = false;
-        }
+        LoopAccess::remove_fd(*loop_, entry_);
         if (scope_ != nullptr) {
             scope_->throw_if_cancelled();
         }
         if ((revents_ & POLLNVAL) != 0) {
             throw std::invalid_argument("fd wait requires an open descriptor");
         }
+        if ((revents_ & POLLERR) != 0) {
+            const int error = LoopAccess::poll_error(*loop_);
+            if (error != 0) {
+                return std::error_code(error, std::generic_category());
+            }
+        }
+        return {};
     }
 
 public:
@@ -93,10 +106,7 @@ private:
     static void on_ready(void* context, short revents) noexcept {
         auto* self = static_cast<FdAwaiter*>(context);
         self->revents_ = revents;
-        if (self->armed_) {
-            LoopAccess::remove_fd(*self->loop_, self->token_);
-            self->armed_ = false;
-        }
+        LoopAccess::remove_fd(*self->loop_, self->entry_);
         if (self->node_.linked && self->node_.scope != nullptr) {
             ScopeAccess::remove_waiter(*self->node_.scope, self->node_);
         }
@@ -109,10 +119,7 @@ private:
     /// Never throws; runs on the loop thread.
     static void on_cancel(WaitNode& node) noexcept {
         auto* self = static_cast<FdAwaiter*>(node.owner);
-        if (self->armed_) {
-            LoopAccess::remove_fd(*self->loop_, self->token_);
-            self->armed_ = false;
-        }
+        LoopAccess::remove_fd(*self->loop_, self->entry_);
     }
 
     int fd_ = -1;
@@ -121,9 +128,8 @@ private:
     Loop* loop_ = nullptr;
     CancelScope* scope_ = nullptr;
     PromiseBase* frame_ = nullptr;
-    FdToken token_ = 0;
+    FdEntry entry_{};
     WaitNode node_{};
-    bool armed_ = false;
 };
 
 /// Reusable readiness operation; borrows the fd until each await finishes.

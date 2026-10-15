@@ -60,10 +60,11 @@ template<typename T>
 concept PublicLoopScheduling = requires(T& loop, coro::detail::PromiseBase& frame) { loop.schedule(frame); };
 
 template<typename T>
-concept PublicLoopRegistration = requires(T& loop, coro::detail::TimerNode& timer) {
+concept PublicLoopRegistration = requires(T& loop, coro::detail::TimerNode& timer, coro::detail::FdEntry& entry) {
     loop.add_timer(timer, coro::TimePoint{}, nullptr, nullptr);
     loop.remove_timer(timer);
-    loop.remove_fd(0);
+    loop.add_fd(entry);
+    loop.remove_fd(entry);
 };
 
 template<typename T>

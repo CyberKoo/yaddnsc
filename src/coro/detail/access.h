@@ -11,7 +11,9 @@
 #include <utility>
 
 #include "coro/cancel_scope.h"
+#include "coro/detail/fd_entry.h"
 #include "coro/detail/frame.h"
+#include "coro/detail/inbox_node.h"
 #include "coro/detail/timer_node.h"
 #include "coro/detail/wait_node.h"
 #include "coro/loop.h"
@@ -35,15 +37,17 @@ struct LoopAccess {
 
     static void remove_timer(Loop& loop, TimerNode& timer) noexcept { loop.remove_timer(timer); }
 
-    static FdToken add_fd(Loop& loop, int fd, short events, void (*fn)(void*, short) noexcept, void* context) {
-        return loop.add_fd(fd, events, fn, context);
-    }
+    static void add_fd(Loop& loop, FdEntry& entry) { loop.add_fd(entry); }
 
-    static void remove_fd(Loop& loop, FdToken token) noexcept { loop.remove_fd(token); }
+    static void remove_fd(Loop& loop, FdEntry& entry) noexcept { loop.remove_fd(entry); }
+
+    [[nodiscard]] static int poll_error(const Loop& loop) noexcept { return loop.poll_error(); }
 
     static void admit_offload(Loop& loop, OffloadAdmission& admission) { loop.admit_offload(admission); }
 
     static void cancel_offload(Loop& loop, OffloadAdmission& admission) noexcept { loop.cancel_offload(admission); }
+
+    static void post_node(Loop& loop, InboxNode& node) noexcept { loop.post_node(node); }
 };
 
 /// Runtime-only access to a scope's waiter bookkeeping and cancellation cause.

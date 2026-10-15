@@ -2,6 +2,7 @@
 #include <initializer_list>
 #include <stdexcept>
 #include <string>
+#include <system_error>
 
 #include <coroutine>
 
@@ -42,7 +43,9 @@ TEST(FdWait, ClosedNonnegativeDescriptor_IsRejectedInBothDirections) {
         const int fd = read_end.get();
         read_end.reset();
         auto root = [fd, writable]() -> coro::Task<void> {
-            co_await (writable ? coro::wait_writable(fd) : coro::wait_readable(fd));
+            // A closed fd rejects through the contract error, not the value channel.
+            [[maybe_unused]] const std::error_code wait =
+                co_await (writable ? coro::wait_writable(fd) : coro::wait_readable(fd));
         };
         EXPECT_THROW(coro::run(loop, root()), std::invalid_argument);
     }
@@ -54,7 +57,10 @@ TEST(FdWait, Hangup_RemainsReadinessRatherThanAnInvalidDescriptor) {
     ASSERT_TRUE(read_end);
     ASSERT_TRUE(write_end);
     write_end.reset();
-    auto root = [fd = read_end.get()]() -> coro::Task<void> { co_await coro::wait_readable(fd); };
+    auto root = [fd = read_end.get()]() -> coro::Task<void> {
+        // Hangup arrives as readiness: the wait resolves successfully.
+        EXPECT_FALSE(co_await coro::wait_readable(fd));
+    };
     EXPECT_NO_THROW(coro::run(loop, root()));
 }
 

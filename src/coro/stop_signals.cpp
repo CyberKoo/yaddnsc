@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <cerrno>
+#include <chrono>
 #include <csignal>
 #include <stdexcept>
 #include <system_error>
@@ -15,6 +16,7 @@
 #include "coro/cancel_scope.h"
 #include "coro/fd_wait.hpp"
 #include "coro/scope.hpp"
+#include "coro/sleep.hpp"
 
 namespace {
 
@@ -98,6 +100,14 @@ coro::Task<void> coro::StopSignals::wait() const {
     if (!requested()) {
         // The byte stays in the pipe: readiness is a durable stop latch, so a
         // signal between the check and registration cannot be lost.
-        co_await coro::wait_readable(read_.get());
+        if (const std::error_code error [[maybe_unused]] = co_await coro::wait_readable(read_.get())) {
+            // The event source is impaired (a loop-level poll failure), so fd
+            // readiness is unreachable for now. The signal handler's atomic
+            // latch still works; observe it on the timer heap — timers do not
+            // depend on poll() — until a stop lands or the wait is cancelled.
+            while (!requested()) {
+                co_await coro::sleep_for(std::chrono::milliseconds{20});
+            }
+        }
     }
 }

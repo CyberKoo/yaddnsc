@@ -7,6 +7,7 @@
 #include <cerrno>
 #include <cstring>
 #include <optional>
+#include <system_error>
 
 #include <coroutine>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 
@@ -170,7 +171,10 @@ coro::Task<std::expected<void, IoError>> connect_socket(const int fd, const doma
         break;  // completion is signalled by writability, then SO_ERROR
     }
 
-    co_await coro::wait_writable(fd);
+    if (const std::error_code wait = co_await coro::wait_writable(fd)) {
+        SPDLOG_DEBUG("connect wait failed: {}", wait.message());
+        co_return std::unexpected(IoError::CONNECTION_FAILED);
+    }
 
     int so_error = 0;
     socklen_t length = sizeof(so_error);
@@ -194,7 +198,10 @@ coro::Task<std::expected<std::size_t, IoError>> recv_some(const int fd, const st
             continue;
         }
         if (would_block(errno)) {
-            co_await coro::wait_readable(fd);
+            if (const std::error_code wait = co_await coro::wait_readable(fd)) {
+                SPDLOG_DEBUG("read wait failed: {}", wait.message());
+                co_return std::unexpected(IoError::CONNECTION_FAILED);
+            }
             continue;
         }
         SPDLOG_DEBUG("recv failed: {}", std::strerror(errno));
@@ -213,7 +220,10 @@ coro::Task<std::expected<std::size_t, IoError>> send_some(const int fd, const st
             continue;
         }
         if (would_block(errno)) {
-            co_await coro::wait_writable(fd);
+            if (const std::error_code wait = co_await coro::wait_writable(fd)) {
+                SPDLOG_DEBUG("write wait failed: {}", wait.message());
+                co_return std::unexpected(IoError::CONNECTION_FAILED);
+            }
             continue;
         }
         SPDLOG_DEBUG("send failed: {}", std::strerror(errno));
@@ -274,7 +284,10 @@ coro::Task<std::expected<Datagram, IoError>> recv_datagram(const int fd, const s
             continue;
         }
         if (would_block(errno)) {
-            co_await coro::wait_readable(fd);
+            if (const std::error_code wait = co_await coro::wait_readable(fd)) {
+                SPDLOG_DEBUG("read wait failed: {}", wait.message());
+                co_return std::unexpected(IoError::CONNECTION_FAILED);
+            }
             continue;
         }
         SPDLOG_DEBUG("recvmsg failed: {}", std::strerror(errno));
@@ -299,7 +312,10 @@ coro::Task<std::expected<void, IoError>> send_datagram(const int fd, const domai
             continue;
         }
         if (would_block(errno)) {
-            co_await coro::wait_writable(fd);
+            if (const std::error_code wait = co_await coro::wait_writable(fd)) {
+                SPDLOG_DEBUG("write wait failed: {}", wait.message());
+                co_return std::unexpected(IoError::CONNECTION_FAILED);
+            }
             continue;
         }
         SPDLOG_DEBUG("sendto failed: {}", std::strerror(errno));

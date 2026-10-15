@@ -19,6 +19,7 @@
 #include "coro/cancel_scope.h"
 #include "coro/detail/access.h"
 #include "coro/detail/frame.h"
+#include "coro/detail/inbox_node.h"
 #include "coro/detail/result_box.hpp"
 #include "coro/detail/wait_node.h"
 #include "coro/loop.h"
@@ -56,6 +57,14 @@ struct OffloadSlot {
     WaitNode node{};
     Loop* loop = nullptr;
     OffloadAdmission admission{};
+    /// Embedded inbox node for the completion path: the worker posts it with
+    /// zero allocation, so a completed job's wakeup can never be lost.
+    InboxNode completion_node{};
+    /// Self-lease keeping this state (and the embedded node) alive between the
+    /// worker's post and the trampoline's run — an abandoned await drops its
+    /// own reference earlier. The trampoline moves the lease out, breaking the
+    /// cycle; loop teardown clears it through the node's dispose hook.
+    std::shared_ptr<OffloadSlot> completion_lease;
 };
 
 template<typename R>
@@ -118,6 +127,9 @@ struct OffloadAwaitable {
         }
         state->waiter = &promise;
         state->awaiting = true;
+        state->completion_node.context = state.get();
+        state->completion_node.run = &OffloadAwaitable::completion_trampoline;
+        state->completion_node.dispose = &OffloadAwaitable::dispose_completion;
         if (scope != nullptr) {
             state->node.waiter = &promise;
             state->node.owner = state.get();
@@ -139,12 +151,12 @@ struct OffloadAwaitable {
                 // joined completion must not race callable capture destruction.
                 work.reset();
                 shared->completed.store(true, std::memory_order_release);
-                try {
-                    loop->post([shared] { offload_finish(*shared); });
-                } catch (...) {
-                    // Losing a completion would leave its await parked forever.
-                    std::terminate();
-                }
+                // The self-lease keeps the state (and the embedded node) alive
+                // until the loop runs the trampoline, which moves the lease out.
+                // Posting is allocation-free and non-throwing: a completed job's
+                // wakeup can never be lost.
+                shared->completion_lease = shared;
+                LoopAccess::post_node(*loop, shared->completion_node);
             };
             state->admission.owner = state.get();
             state->admission.failed = [](void* owner, std::exception_ptr error) noexcept {
@@ -190,6 +202,22 @@ struct OffloadAwaitable {
         } else {
             return state->result.take();
         }
+    }
+
+    /// Inbox completion entry (loop thread): wake the awaiter unless the wait
+    /// was abandoned. Worker-slot accounting is the loop's own concern and
+    /// rides the submission wrapper, not this node.
+    static void completion_trampoline(InboxNode& node) noexcept {
+        auto& state = *static_cast<OffloadState<R>*>(node.context);
+        auto lease [[maybe_unused]] = std::move(state.completion_lease);  // breaks the self-reference
+        offload_finish(state);
+    }
+
+    /// Teardown hook for an orphaned completion node: drop the self-lease
+    /// without running the completion (the loop is gone).
+    static void dispose_completion(InboxNode& node) noexcept {
+        auto& state = *static_cast<OffloadState<R>*>(node.context);
+        state.completion_lease.reset();
     }
 
     /// Cancellation hook: marks the job abandoned so a not-yet-started job is

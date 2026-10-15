@@ -12,6 +12,7 @@
 #include <compare>  // IWYU pragma: keep — IWYU attributes coroutine lowering here; clangd does not
 #include <cstring>  // IWYU pragma: keep — clang resolves std::strerror transitively, GCC does not
 #include <exception>
+#include <functional>
 #include <source_location>
 #include <stdexcept>
 #include <string>
@@ -24,9 +25,11 @@
 
 #include <poll.h>
 #include <sys/types.h>
+#include <time.h>
 #include <unistd.h>
 
 #include "coro/detail/frame.h"
+#include "coro/detail/inbox_node.h"
 #include "coro/detail/offload_job.h"
 #include "coro/detail/time_math.h"
 #include "coro/detail/timer_node.h"
@@ -58,6 +61,22 @@ namespace {
 constexpr unsigned OFFLOAD_MIN_WORKERS = 2;
 constexpr unsigned OFFLOAD_WORKER_LIMIT = 4;
 
+/// Consecutive poll() failures before the loop sheds load. Below the threshold
+/// a failure is absorbed invisibly: registrations stay armed and poll() is
+/// level-triggered, so no readiness is lost when the next poll succeeds. At or
+/// above it, every registered wait is failed with the poll errno — sustained
+/// memory pressure sheds in-flight queries instead of letting them pile up.
+constexpr unsigned POLL_FAILURE_SHED_THRESHOLD = 8;
+/// Pacing between failed poll() attempts: 1 ms doubling, capped. nanosleep
+/// allocates nothing, so it stays usable under the ENOMEM being paced.
+constexpr unsigned POLL_BACKOFF_SHIFT_MAX = 6;
+constexpr long long POLL_BACKOFF_CAP_MS = 50;
+
+/// Frames drained between post-drain poll(0) scans while the ready queue keeps
+/// re-filling itself; bounds I/O latency during compute-heavy stretches. A
+/// skipped scan delays readiness but never loses it — poll() is level-triggered.
+constexpr std::size_t DRAIN_POLL_FRAME_BUDGET = 64;
+
 /// Render poll() event bits as a readable "POLLIN|POLLHUP" string for traces.
 std::string describe_poll_events(short events) {
     std::string out;
@@ -88,6 +107,31 @@ std::string describe_poll_events(short events) {
     return out.empty() ? "0" : out;
 }
 
+/// The heap closure behind the generic post(): one node per post, destroyed
+/// after it runs or at loop teardown. Offload completions ride nodes embedded
+/// in their own state instead and never touch this path.
+struct ClosureNode {
+    detail::InboxNode node;
+    std::function<void()> fn;
+};
+
+/// Runs and destroys a posted closure node (loop thread).
+void run_closure_node(detail::InboxNode& node) noexcept {
+    const std::unique_ptr<ClosureNode> owner{static_cast<ClosureNode*>(node.context)};
+    try {
+        owner->fn();
+    } catch (...) {
+        // post() contract: the callback must not throw. An escaping exception
+        // is a fatal dispatch failure — the remaining queue cannot be unwound.
+        std::terminate();
+    }
+}
+
+/// Teardown hook for an orphaned closure node: destroy it without running.
+void dispose_closure_node(detail::InboxNode& node) noexcept {
+    const std::unique_ptr<ClosureNode> discard{static_cast<ClosureNode*>(node.context)};
+}
+
 }  // namespace
 
 // The offload worker pool. Defined here so BS_thread_pool.hpp reaches exactly
@@ -102,8 +146,9 @@ class Loop::Pool {
 public:
     explicit Pool(unsigned workers) : pool(workers) {}
 
-    /// Fire-and-forget: the job reports back through Loop::post(), so the pool
-    /// never holds a result slot and never refuses work.
+    /// Fire-and-forget: the job reports back through its embedded completion
+    /// node and the wrapper's accounting flag, so the pool never holds a
+    /// result slot and never refuses work.
     void submit(std::function<void()> job) { pool.detach_task(std::move(job)); }
 
     [[nodiscard]] unsigned workers() const { return static_cast<unsigned>(pool.get_thread_count()); }
@@ -131,6 +176,16 @@ Loop::~Loop() noexcept {
     // Workers may still post after their awaits were cancelled. Join while
     // both the inbox and the wake pipe are alive.
     pool_.reset();
+    // Inbox nodes queued past the last process_inbox never run: release them
+    // through their dispose hooks without running any callback.
+    detail::InboxNode* orphans = inbox_head_.exchange(nullptr, std::memory_order_relaxed);
+    while (orphans != nullptr) {
+        detail::InboxNode* next = orphans->next;
+        if (orphans->dispose != nullptr) {
+            orphans->dispose(*orphans);
+        }
+        orphans = next;
+    }
     close_self_pipe();
 }
 
@@ -141,12 +196,16 @@ void Loop::open_self_pipe() {
     }
     pipe_read_ = std::move(read_end);
     pipe_write_ = std::move(write_end);
-    self_pipe_token_ = add_fd(pipe_read_.get(), POLLIN, &Loop::on_pipe_ready, this);
+    pipe_entry_.fd = pipe_read_.get();
+    pipe_entry_.events = POLLIN;
+    pipe_entry_.fn = &Loop::on_pipe_ready;
+    pipe_entry_.context = this;
+    add_fd(pipe_entry_);
 }
 
 void Loop::close_self_pipe() noexcept {
-    remove_fd(self_pipe_token_);
-    self_pipe_token_ = 0;
+    remove_fd(pipe_entry_);
+    pipe_entry_.fd = -1;
     pipe_read_.reset();
     pipe_write_.reset();
 }
@@ -208,7 +267,7 @@ void Loop::reap_completed() noexcept {
     }
 }
 
-void Loop::drain_ready() {
+std::size_t Loop::drain_ready() {
     detail::PromiseBase* batch = ready_head_;
     ready_head_ = nullptr;
     ready_tail_ = nullptr;
@@ -218,33 +277,58 @@ void Loop::drain_ready() {
         batch->ready_next = nullptr;
         batch->in_ready = false;
         batch->self.resume();
-        reap_completed();
         ++resumed;
         batch = next;
     }
+    // Reap once per batch, not per frame: `next` was captured before resume(),
+    // so destroying completed frames cannot disturb the walk.
+    reap_completed();
     CORO_TRACE("Drained ready queue, resumed {} frame(s)", resumed);
+    return resumed;
 }
 
 void Loop::post(std::function<void()> fn) {
-    {
-        const std::lock_guard lock(inbox_mutex_);
-        inbox_.push_back(std::move(fn));
+    auto node = std::make_unique<ClosureNode>();
+    node->node.context = node.get();
+    node->node.run = &run_closure_node;
+    node->node.dispose = &dispose_closure_node;
+    node->fn = std::move(fn);
+    post_node(node->node);
+    node.release();  // posted: the loop owns the closure until it runs or teardown
+}
+
+void Loop::post_node(detail::InboxNode& node) noexcept {
+    // Treiber push: link before the publishing CAS. Nodes are never re-posted
+    // before running, so the stack needs no ABA guard (see detail/inbox_node.h).
+    node.next = inbox_head_.load(std::memory_order_relaxed);
+    while (!inbox_head_.compare_exchange_weak(node.next, &node, std::memory_order_release,
+                                              std::memory_order_relaxed)) {
     }
     // Diagnostics are emitted when the inbox is consumed on the loop thread.
     wake();
 }
 
 void Loop::process_inbox() {
-    std::deque<std::function<void()>> batch;
-    {
-        const std::lock_guard lock(inbox_mutex_);
-        batch.swap(inbox_);
+    // Steal the producer stack, then reverse it for FIFO dispatch. Producers
+    // racing the steal land on the next stack; their wake() byte still arrives,
+    // so nothing is lost — only deferred one round.
+    detail::InboxNode* stack = inbox_head_.exchange(nullptr, std::memory_order_acquire);
+    detail::InboxNode* fifo = nullptr;
+    std::size_t count = 0;
+    while (stack != nullptr) {
+        detail::InboxNode* next = stack->next;
+        stack->next = fifo;
+        fifo = stack;
+        stack = next;
+        ++count;
     }
-    if (!batch.empty()) {
-        CORO_TRACE("Processing {} inbox callback(s)", batch.size());
+    if (count != 0) {
+        CORO_TRACE("Processing {} inbox callback(s)", count);
     }
-    for (std::function<void()>& fn : batch) {
-        fn();
+    while (fifo != nullptr) {
+        detail::InboxNode* node = fifo;
+        fifo = fifo->next;
+        node->run(*node);
     }
 }
 
@@ -311,22 +395,20 @@ void Loop::submit_offload(std::function<void()> job) {
         pool_ = std::make_unique<Pool>(pool_workers_);
         CORO_TRACE("Created offload pool with {} worker(s)", pool_workers_);
     }
-    ++offload_pending_;
+    offload_pending_.fetch_add(1, std::memory_order_relaxed);
     try {
+        // Worker-slot accounting is the loop's own concern, not the job's:
+        // flag a dispatch first, then count down — a loop that observes a zero
+        // pending count is guaranteed to also observe the dispatch flag.
         pool_->submit([this, job = std::move(job)]() mutable {
             job();
-            job = {};  // release user/shared captures before completion accounting
-            try {
-                post([this] {
-                    --offload_pending_;
-                    dispatch_offloads();
-                });
-            } catch (...) {
-                std::terminate();  // completion accounting cannot be lost
-            }
+            job = {};  // release user/shared captures promptly after the run
+            offload_dirty_.store(true, std::memory_order_release);
+            offload_pending_.fetch_sub(1, std::memory_order_release);
+            wake();
         });
     } catch (...) {
-        --offload_pending_;
+        offload_pending_.fetch_sub(1, std::memory_order_relaxed);
         throw;
     }
     CORO_TRACE("Submitted offload job, {} now queued", pool_->queued());
@@ -356,21 +438,37 @@ void Loop::set_trace_sink(TraceSink sink, void* context) noexcept {
 void Loop::run() {
     assert(!fds_.empty() && "loop self-pipe unavailable: nothing could ever wake the loop");
     CORO_TRACE("run() starting");
-    while (!stopped_ || offload_pending_ != 0) {
+    while (!stopped_ || offload_pending_.load(std::memory_order_acquire) != 0 ||
+           offload_dirty_.load(std::memory_order_acquire)) {
         // Worker completions and due timers run on every iteration, ahead of
         // the ready queue: a busy loop keeps re-filling the queue (every
         // resumed frame can schedule the next one), so a ready-first order
         // starves all three — a with_timeout would then fire late or never.
         process_inbox();
-        fire_timers();
-        if (stopped_ && offload_pending_ == 0 && ready_head_ == nullptr) {
+        // Worker-slot accounting is flag-based (no callback): free the slots
+        // and dispatch queued admissions before anything else.
+        if (offload_dirty_.exchange(false, std::memory_order_acq_rel)) {
+            dispatch_offloads();
+        }
+        // One time view per iteration: fire_timers no longer pays a virtual
+        // clock call per due timer. A timer that becomes due during inbox
+        // processing fires next iteration instead — sub-millisecond drift.
+        const TimePoint now = clock_->now();
+        fire_timers(now);
+        if (stopped_ && ready_head_ == nullptr && offload_pending_.load(std::memory_order_acquire) == 0 &&
+            !offload_dirty_.load(std::memory_order_acquire)) {
             break;
         }
         if (ready_head_ != nullptr) {
-            drain_ready();
-            // The drain re-filled the queue; keep I/O moving with a
-            // non-blocking scan instead of waiting for a quiet iteration.
-            poll_once(0);
+            frames_since_poll_ += drain_ready();
+            // Keep I/O moving with a non-blocking scan, but paced: the frame
+            // budget bounds the stretch a self-re-filling ready chain can run
+            // without one; a changed registration table always forces a scan
+            // so fresh fds are picked up promptly.
+            if (frames_since_poll_ >= DRAIN_POLL_FRAME_BUDGET || poll_revision_ != fds_revision_) {
+                frames_since_poll_ = 0;
+                poll_once(0);
+            }
             continue;
         }
         poll_once(poll_timeout_ms());
@@ -382,11 +480,11 @@ int Loop::poll_timeout_ms() {
     if (ready_head_ != nullptr) {
         return 0;
     }
-    {
-        const std::lock_guard lock(inbox_mutex_);
-        if (!inbox_.empty()) {
-            return 0;
-        }
+    // Relaxed peek only: a post racing past it still writes the wake pipe,
+    // which poll() then reports — this check exists to skip one syscall round
+    // trip, not to guarantee delivery.
+    if (inbox_head_.load(std::memory_order_relaxed) != nullptr) {
+        return 0;
     }
     detail::TimerNode* next = heap_min();
     if (next == nullptr) {
@@ -413,12 +511,15 @@ void Loop::poll_once(int timeout_ms) {
         return;
     }
     // The scratch buffers are members reused across rounds (clear() keeps the
-    // allocation): a busy loop polls every iteration, so fresh locals would
-    // cost a malloc/free pair per round plus growth reallocation on events.
-    pollfds_scratch_.clear();
-    pollfds_scratch_.reserve(fds_.size());
-    for (const FdEntry& entry : fds_) {
-        pollfds_scratch_.push_back(pollfd{entry.fd, entry.events, 0});
+    // allocation). poll() writes only revents, so the fd/events array is
+    // rebuilt only when the registration table changed since the last poll.
+    if (poll_revision_ != fds_revision_) {
+        pollfds_scratch_.clear();
+        pollfds_scratch_.reserve(fds_.size());
+        for (const detail::FdEntry* entry : fds_) {
+            pollfds_scratch_.push_back(pollfd{entry->fd, entry->events, 0});
+        }
+        poll_revision_ = fds_revision_;
     }
     CORO_TRACE("poll() on {} fd(s), timeout {} ms", pollfds_scratch_.size(), timeout_ms);
     const int ready = ::poll(pollfds_scratch_.data(), static_cast<nfds_t>(pollfds_scratch_.size()), timeout_ms);
@@ -427,7 +528,18 @@ void Loop::poll_once(int timeout_ms) {
         if (error == EINTR) {
             return;  // reprocess inbox/timers before retrying
         }
-        throw std::system_error(error, std::generic_category(), "loop poll");
+        if (error != ENOMEM) {
+            // EINVAL/EFAULT indict this call's own construction (a defect), not
+            // the environment: stays on the fatal dispatch-failure path.
+            throw std::system_error(error, std::generic_category(), "loop poll");
+        }
+        on_poll_impaired(error);
+        return;
+    }
+    if (poll_failures_ != 0) {
+        CORO_TRACE("poll() recovered after {} consecutive failure(s)", poll_failures_);
+        poll_failures_ = 0;
+        poll_error_ = 0;
     }
     if (ready == 0) {
         return;
@@ -439,9 +551,9 @@ void Loop::poll_once(int timeout_ms) {
     // over fds_ while it is being iterated.
     ready_entries_scratch_.clear();
     for (std::size_t i = 0; i < fds_.size(); ++i) {
-        if (pollfds_scratch_[i].revents != 0 && fds_[i].fn != nullptr) {
+        if (pollfds_scratch_[i].revents != 0 && fds_[i]->fn != nullptr) {
             ready_entries_scratch_.push_back(
-                ReadyEntry{fds_[i].fn, fds_[i].context, fds_[i].fd, pollfds_scratch_[i].revents});
+                ReadyEntry{fds_[i]->fn, fds_[i]->context, fds_[i]->fd, pollfds_scratch_[i].revents});
         }
     }
     for (const ReadyEntry& entry : ready_entries_scratch_) {
@@ -450,9 +562,35 @@ void Loop::poll_once(int timeout_ms) {
     }
 }
 
-void Loop::fire_timers() noexcept {
+void Loop::on_poll_impaired(const int error) noexcept {
+    ++poll_failures_;
+    poll_error_ = error;
+    CORO_TRACE("poll() impaired: {} (consecutive failure {})", std::strerror(error), poll_failures_);
+    if (poll_failures_ >= POLL_FAILURE_SHED_THRESHOLD) {
+        // Fail every registered wait with the poll errno. Same snapshot
+        // discipline as event dispatch: callbacks unregister themselves.
+        ready_entries_scratch_.clear();
+        for (const detail::FdEntry* entry : fds_) {
+            if (entry->fn != nullptr) {
+                ready_entries_scratch_.push_back(ReadyEntry{entry->fn, entry->context, entry->fd, POLLERR});
+            }
+        }
+        for (const ReadyEntry& entry : ready_entries_scratch_) {
+            entry.fn(entry.context, entry.revents);
+        }
+    }
+    // The event source cannot pace the loop while it is itself failing, and
+    // nanosleep is the remaining wait primitive that allocates nothing. A
+    // signal interrupting the sleep only shortens this round's pacing.
+    const unsigned shift = std::min(poll_failures_ - 1, POLL_BACKOFF_SHIFT_MAX);
+    const auto millis = std::min(1LL << shift, POLL_BACKOFF_CAP_MS);
+    const timespec duration{.tv_sec = millis / 1000, .tv_nsec = (millis % 1000) * 1'000'000};
+    ::nanosleep(&duration, nullptr);
+}
+
+void Loop::fire_timers(const TimePoint now) noexcept {
     while (detail::TimerNode* next = heap_min()) {
-        if (next->deadline > clock_->now()) {
+        if (next->deadline > now) {
             break;
         }
         detail::TimerNode* const due = heap_pop();
@@ -564,16 +702,27 @@ void Loop::heap_sift_down(std::size_t index) noexcept {
 // File descriptors.
 // ---------------------------------------------------------------------------
 
-detail::FdToken Loop::add_fd(int fd, short events, void (*fn)(void*, short) noexcept, void* context) {
-    const detail::FdToken token = ++fd_sequence_;
-    fds_.push_back(FdEntry{token, fd, events, fn, context});
-    CORO_TRACE("Registered fd {} for events {} (token {})", fd, describe_poll_events(events), token);
-    return token;
+void Loop::add_fd(detail::FdEntry& entry) {
+    fds_.push_back(&entry);  // may throw; the entry stays unlinked
+    entry.index = fds_.size() - 1;
+    entry.linked = true;
+    ++fds_revision_;
+    CORO_TRACE("Registered fd {} for events {}", entry.fd, describe_poll_events(entry.events));
 }
 
-void Loop::remove_fd(detail::FdToken token) noexcept {
-    const auto erased = std::erase_if(fds_, [token](const FdEntry& entry) { return entry.token == token; });
-    CORO_TRACE("remove_fd(token {}) erased {} registration(s)", token, erased);
+void Loop::remove_fd(detail::FdEntry& entry) noexcept {
+    if (!entry.linked) {
+        return;
+    }
+    entry.linked = false;
+    const std::size_t index = entry.index;
+    assert(index < fds_.size() && fds_[index] == &entry && "fd table/index desynchronized");
+    detail::FdEntry* moved = fds_.back();  // swap-with-last: no compaction walk
+    fds_[index] = moved;
+    moved->index = index;
+    fds_.pop_back();
+    ++fds_revision_;
+    CORO_TRACE("Unregistered fd {}", entry.fd);
 }
 
 }  // namespace coro

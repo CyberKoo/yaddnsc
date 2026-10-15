@@ -29,12 +29,11 @@
 #ifndef YADDNSC_INFRASTRUCTURE_CORO_LOOP_H
 #define YADDNSC_INFRASTRUCTURE_CORO_LOOP_H
 
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
-#include <deque>
 #include <functional>
 #include <memory>
-#include <mutex>
 #include <source_location>
 #include <string_view>
 #include <vector>
@@ -42,6 +41,7 @@
 #include <poll.h>  // pollfd scratch members below; a POSIX header in a public header, accepted — the runtime is POSIX-only
 
 #include "coro/clock.h"
+#include "coro/detail/fd_entry.h"
 #include "coro/time.h"
 #include "support/util/fd.hpp"
 
@@ -51,17 +51,16 @@ struct PromiseBase;
 struct TimerNode;
 struct LoopAccess;
 struct OffloadAdmission;
-
-using FdToken = std::uint64_t;
+struct InboxNode;
 }  // namespace detail
 
 /// The single-threaded event loop plus its cross-thread ingress.
 ///
-/// Thread safety: every member except post() is loop-thread only — calling
-/// schedule(), the timer/fd registration, or run() from another thread is
-/// a data race. post() is the single cross-thread entry point and is safe to
-/// call from any thread; it never runs the callback inline, it only enqueues it
-/// for the loop thread.
+/// Thread safety: every member except post()/post_node() is loop-thread only —
+/// calling schedule(), the timer/fd registration, or run() from another thread
+/// is a data race. post() and post_node() are the only cross-thread entry
+/// points; they never run the callback inline, they only enqueue it for the
+/// loop thread.
 ///
 /// Instances own independent scheduling and wake state.
 class Loop {
@@ -95,10 +94,11 @@ public:
     /// The callback runs inline during inbox processing, ahead of the ready
     /// queue: it must only schedule or signal, never block or do heavy work.
     /// The callback must not throw; an escaping exception is fatal dispatch failure.
-    /// Allocates, so posting may throw std::bad_alloc. Caller must ensure the loop
-    /// outlives posting; submitted offload work is joined before run() returns.
-    /// Interrupted wake writes retry; a full pipe already carries a wakeup.
-    /// Other wake failures terminate rather than silently lose delivery.
+    /// Allocates (one closure node), so posting may throw std::bad_alloc.
+    /// Caller must ensure the loop outlives posting; submitted offload work is
+    /// joined before run() returns. Interrupted wake writes retry; a full pipe
+    /// already carries a wakeup. Other wake failures terminate rather than
+    /// silently lose delivery.
     void post(std::function<void()> fn);
 
     /// Diagnostic trace sink: when set, the loop reports internal scheduling
@@ -138,14 +138,6 @@ private:
     /// The worker pool, defined in loop.cpp so its third-party type stops here.
     class Pool;
 
-    struct FdEntry {
-        detail::FdToken token = 0;
-        int fd = -1;
-        short events = 0;
-        void (*fn)(void*, short) noexcept = nullptr;
-        void* context = nullptr;
-    };
-
     /// One ready fd, snapshotted before dispatch: a callback may remove its own
     /// registration, so poll_once never walks fds_ while dispatching.
     struct ReadyEntry {
@@ -173,15 +165,15 @@ private:
     /// Disarm `timer`. Idempotent; the timer must still be alive.
     void remove_timer(detail::TimerNode& timer) noexcept;
 
-    /// Poll `fd` for `events`; `fn(context, revents)` runs on the loop thread.
-    /// Allocates, so it may throw std::bad_alloc.
+    /// Register `entry` for poll() dispatch; `entry` carries the fd, the events
+    /// and the callback. Allocates (table growth), so it may throw std::bad_alloc;
+    /// in that case the entry is not linked.
     ///
-    /// Returns a registration token. Removal takes the token, not the fd, so
-    /// two waiters on one fd (a TLS read waiting POLLIN while a write waits
-    /// POLLOUT, say) each unregister themselves without disturbing the other.
-    [[nodiscard]] detail::FdToken add_fd(int fd, short events, void (*fn)(void*, short) noexcept, void* context);
+    /// The caller owns `entry` and must remove it before it dies; two entries on
+    /// one fd are independent registrations.
+    void add_fd(detail::FdEntry& entry);
     /// Stop polling a registration made by add_fd(). Idempotent.
-    void remove_fd(detail::FdToken token) noexcept;
+    void remove_fd(detail::FdEntry& entry) noexcept;
 
     void open_self_pipe();
     void close_self_pipe() noexcept;
@@ -189,11 +181,29 @@ private:
 
     void defer_reap(detail::PromiseBase& frame) noexcept;
     void reap_completed() noexcept;
-    void drain_ready();
+    /// Resumes the queued batch; returns the resumed frame count (the drain
+    /// budget input that paces post-drain poll scans).
+    std::size_t drain_ready();
     void process_inbox();
-    void fire_timers() noexcept;
+    /// Fires due timers against the iteration's single time view.
+    void fire_timers(TimePoint now) noexcept;
     [[nodiscard]] int poll_timeout_ms();
     void poll_once(int timeout_ms);
+
+    /// Event-source impairment: poll() failed with an operational error. Fails
+    /// every registered wait once failure is sustained, then paces the next
+    /// attempt; the loop itself keeps running (timers, inbox, ready queue are
+    /// not poll()-dependent). Never throws.
+    void on_poll_impaired(int error) noexcept;
+    /// The errno of the current poll() impairment, or 0 when healthy. fd wait
+    /// resolution reads this to tell a loop-level wait failure (reported to the
+    /// waiter) from a socket-level POLLERR (left for the next syscall).
+    [[nodiscard]] int poll_error() const noexcept { return poll_error_; }
+
+    /// Enqueue a caller-owned inbox node from any thread; allocation-free and
+    /// never throws, so completion paths cannot lose delivery. The node must
+    /// not be re-posted before its run() executes (see detail/inbox_node.h).
+    void post_node(detail::InboxNode& node) noexcept;
 
     void wake() noexcept;
 
@@ -211,27 +221,44 @@ private:
     detail::PromiseBase* ready_head_ = nullptr;
     detail::PromiseBase* ready_tail_ = nullptr;
     detail::PromiseBase* reap_head_ = nullptr;
+    // Frames resumed since the last poll; paces the post-drain poll(0) scan.
+    std::size_t frames_since_poll_ = 0;
 
     std::vector<detail::TimerNode*> timers_;
     std::uint64_t timer_sequence_ = 0;
 
-    std::vector<FdEntry> fds_;
-    std::uint64_t fd_sequence_ = 0;
+    // Poll-order table of borrowed registration nodes; entries are owned by
+    // their awaitables. fds_revision_ bumps on every add/remove and gates the
+    // pollfds_scratch_ rebuild in poll_once (poll() writes only revents, so a
+    // scratch built from an unchanged table stays valid).
+    std::vector<detail::FdEntry*> fds_;
+    std::uint64_t fds_revision_ = 0;
+    std::uint64_t poll_revision_ = 0;
     // poll_once scratch, reused across rounds instead of re-allocated.
     std::vector<pollfd> pollfds_scratch_;
     std::vector<ReadyEntry> ready_entries_scratch_;
-    detail::FdToken self_pipe_token_ = 0;
+    detail::FdEntry pipe_entry_{};
     Utils::UniqueFd pipe_read_;
     Utils::UniqueFd pipe_write_;
+    // poll() impairment state: the errno of the last failed poll (0 = healthy)
+    // and the consecutive-failure count that drives shedding and pacing.
+    int poll_error_ = 0;
+    unsigned poll_failures_ = 0;
 
-    std::mutex inbox_mutex_;
-    std::deque<std::function<void()>> inbox_;
+    // Cross-thread ingress: a lock-free producer stack. Producers push and wake
+    // the self-pipe; the loop thread steals the whole stack with one exchange
+    // (an empty steal is a single atomic read, no lock) and dispatches FIFO.
+    std::atomic<detail::InboxNode*> inbox_head_{nullptr};
 
 
     std::unique_ptr<Pool> pool_;
     unsigned pool_workers_ = default_offload_workers();
-    /// Loop-thread count, decremented by completion callbacks after worker exit.
-    std::size_t offload_pending_ = 0;
+    /// Submitted-but-unfinished worker jobs; decremented by workers at exit.
+    /// The dirty flag is set before the decrement, so a loop that observes a
+    /// zero count also observes a pending dispatch: dispatch_offloads() runs
+    /// on the loop thread only.
+    std::atomic<std::size_t> offload_pending_{0};
+    std::atomic<bool> offload_dirty_{false};
     detail::OffloadAdmission* offload_head_ = nullptr;
     detail::OffloadAdmission* offload_tail_ = nullptr;
 

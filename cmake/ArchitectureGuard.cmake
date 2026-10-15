@@ -254,7 +254,7 @@ foreach (f ${application_check_files})
         endif ()
     endwhile ()
 
-    set(coro_internal_types "detail|Context|GetContext|PromiseBase|TaskPromise|TaskAwaiter|FinalSuspend|TaskAccess|WaitNode|TimerNode|CancelCause|LoopAccess|ScopeAccess|GroupState|ChildSlot|Loop|Clock|SystemClock|ManualClock|FdAwaitable|FdToken|ResultBox")
+    set(coro_internal_types "detail|Context|GetContext|PromiseBase|TaskPromise|TaskAwaiter|FinalSuspend|TaskAccess|WaitNode|TimerNode|CancelCause|LoopAccess|ScopeAccess|GroupState|ChildSlot|Loop|Clock|SystemClock|ManualClock|FdAwaitable|FdEntry|ResultBox")
     if (application_code MATCHES "(^|[^A-Za-z_0-9])coro::(${coro_internal_types})([^A-Za-z_0-9]|$)"
         OR application_code MATCHES "using namespace *(::)?coro([ ;:]|$)"
         OR application_code MATCHES "namespace [A-Za-z_][A-Za-z_0-9]* *= *(::)?coro::"
