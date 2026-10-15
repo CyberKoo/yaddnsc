@@ -165,7 +165,7 @@ endforeach()
 
 # Separate allocator rendezvous: does not affect dlopen or other test binaries.
 add_unit_test(plugin_cancellation_publication SOURCE cancellation_publication_test.cpp)
-target_link_libraries(test_plugin_cancellation_publication PRIVATE yaddnsc_coro_plugin)
+target_link_libraries(test_plugin_cancellation_publication PRIVATE yaddnsc_coro_plugin test_allocation_fault)
 target_compile_definitions(test_plugin_cancellation_publication PRIVATE
     TEST_PLUGIN_PATH="$<TARGET_FILE:yaddnsc_test_driver_plugin>"
 )

@@ -3,7 +3,6 @@
 #include <atomic>
 #include <chrono>
 #include <coroutine>
-#include <cstdlib>
 #include <expected>
 #include <functional>
 #include <memory>
@@ -25,11 +24,10 @@
 #include "infrastructure/plugin/driver_catalog.h"
 #include "infrastructure/plugin/driver_gateway.h"
 #include "infrastructure/plugin/host_services.h"
+#include "mocks/allocation_fault.h"
 #include "mocks/null_logger.h"
 #include "yaddnsc/sdk/driver_abi.h"
 
-// Replacement allocators require the matching malloc/free ownership boundary.
-// NOLINTBEGIN(cppcoreguidelines-no-malloc, cppcoreguidelines-owning-memory)
 namespace {
 thread_local bool stop_at_allocation = false;
 std::atomic<bool> allocation_reached{false};
@@ -39,7 +37,7 @@ thread_local std::size_t failure_size = 0;
 thread_local bool measure_next_allocation = false;
 std::size_t bridge_call_allocation_size = 0;
 
-void* allocate(std::size_t size) {
+void allocation_hook(std::size_t size) {
     if (measure_next_allocation) {
         bridge_call_allocation_size = size;
         measure_next_allocation = false;
@@ -57,59 +55,14 @@ void* allocate(std::size_t size) {
         allocation_reached.store(true);
         release_allocation.wait(false);
     }
-    if (void* memory = std::malloc(size == 0 ? 1 : size)) {
-        return memory;
-    }
-    throw std::bad_alloc{};
 }
+
+// Arm this binary's allocation-fault hook before any test runs.
+[[maybe_unused]] const bool allocation_hook_armed = [] {
+    test::set_allocation_fault_hook(&allocation_hook);
+    return true;
+}();
 }  // namespace
-
-// Test-only replacement allocation functions, paired with malloc/free.
-void* operator new(std::size_t size) {
-    return allocate(size);
-}
-
-void* operator new[](std::size_t size) {
-    return allocate(size);
-}
-
-void* operator new(std::size_t size, const std::nothrow_t&) noexcept {
-    try {
-        return allocate(size);
-    } catch (...) {
-        return nullptr;
-    }
-}
-
-void* operator new[](std::size_t size, const std::nothrow_t& tag) noexcept {
-    return ::operator new(size, tag);
-}
-
-void operator delete(void* pointer, const std::nothrow_t&) noexcept {
-    std::free(pointer);
-}
-
-void operator delete[](void* pointer, const std::nothrow_t&) noexcept {
-    std::free(pointer);
-}
-
-void operator delete(void* pointer) noexcept {
-    std::free(pointer);
-}
-
-void operator delete[](void* pointer) noexcept {
-    std::free(pointer);
-}
-
-void operator delete(void* pointer, std::size_t) noexcept {
-    std::free(pointer);
-}
-
-void operator delete[](void* pointer, std::size_t) noexcept {
-    std::free(pointer);
-}
-
-// NOLINTEND(cppcoreguidelines-no-malloc, cppcoreguidelines-owning-memory)
 
 TEST(PluginCancellationPublication, CancelDuringRequestCopy_LoopRejectsLateAdmission) {
     allocation_reached.store(false);

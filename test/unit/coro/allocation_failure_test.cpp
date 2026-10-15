@@ -2,7 +2,6 @@
 // other test binaries. Only the calling thread's selected allocation fails.
 #include <array>
 #include <atomic>
-#include <cstdlib>
 #include <exception>
 #include <functional>
 #include <initializer_list>
@@ -22,13 +21,13 @@
 #include "coro/detail/timer_node.h"
 #include "coro/detail/wait_node.h"
 
-// Replacement allocators require the matching malloc/free ownership boundary.
-// NOLINTBEGIN(cppcoreguidelines-no-malloc, cppcoreguidelines-owning-memory)
+#include "mocks/allocation_fault.h"
+
 namespace {
 thread_local int allocations_before_failure = -1;
 thread_local std::size_t failure_size = 0;
 
-void* allocate(std::size_t size) {
+void allocation_hook(std::size_t size) {
     if (allocations_before_failure == 0 && (failure_size == 0 || size == failure_size)) {
         allocations_before_failure = -1;
         throw std::bad_alloc{};
@@ -36,10 +35,6 @@ void* allocate(std::size_t size) {
     if (allocations_before_failure > 0) {
         --allocations_before_failure;
     }
-    if (void* pointer = std::malloc(size == 0 ? 1 : size)) {
-        return pointer;
-    }
-    throw std::bad_alloc{};
 }
 
 class FailAllocation {
@@ -54,54 +49,13 @@ public:
         failure_size = 0;
     }
 };
+
+// Arm this binary's allocation-fault hook before any test runs.
+[[maybe_unused]] const bool allocation_hook_armed = [] {
+    test::set_allocation_fault_hook(&allocation_hook);
+    return true;
+}();
 }  // namespace
-
-// Test-only replacement allocation functions, paired with malloc/free.
-void* operator new(std::size_t size) {
-    return allocate(size);
-}
-
-void* operator new[](std::size_t size) {
-    return allocate(size);
-}
-
-void* operator new(std::size_t size, const std::nothrow_t&) noexcept {
-    try {
-        return allocate(size);
-    } catch (...) {
-        return nullptr;
-    }
-}
-
-void* operator new[](std::size_t size, const std::nothrow_t& tag) noexcept {
-    return ::operator new(size, tag);
-}
-
-void operator delete(void* pointer, const std::nothrow_t&) noexcept {
-    std::free(pointer);
-}
-
-void operator delete[](void* pointer, const std::nothrow_t&) noexcept {
-    std::free(pointer);
-}
-
-void operator delete(void* pointer) noexcept {
-    std::free(pointer);
-}
-
-void operator delete[](void* pointer) noexcept {
-    std::free(pointer);
-}
-
-void operator delete(void* pointer, std::size_t) noexcept {
-    std::free(pointer);
-}
-
-void operator delete[](void* pointer, std::size_t) noexcept {
-    std::free(pointer);
-}
-
-// NOLINTEND(cppcoreguidelines-no-malloc, cppcoreguidelines-owning-memory)
 
 namespace {
 
@@ -262,8 +216,11 @@ TEST(CoroAllocationFailure, offload_DeferredSubmissionFailure_CompletesAndDispat
     coro::detail::OffloadAdmission queued;
     queued.owner = &failed;
     queued.failed = [](void* owner, std::exception_ptr error) noexcept {
+        // The callback signature takes ownership by value, so move the
+        // exception_ptr out once instead of rethrowing through the parameter.
+        std::exception_ptr thrown = std::move(error);
         try {
-            std::rethrow_exception(std::move(error));
+            std::rethrow_exception(thrown);
         } catch (const std::bad_alloc&) {
             *static_cast<bool*>(owner) = true;
         } catch (...) {

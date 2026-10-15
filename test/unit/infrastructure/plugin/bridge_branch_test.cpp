@@ -11,7 +11,6 @@
 #include <atomic>
 #include <chrono>
 #include <coroutine>
-#include <cstdlib>
 #include <exception>
 #include <expected>
 #include <memory>
@@ -32,20 +31,19 @@
 #include "coro/task.hpp"
 #include "infrastructure/http/types.h"
 #include "infrastructure/plugin/bridge.h"
+#include "mocks/allocation_fault.h"
 #include "yaddnsc/sdk/driver_abi.h"
 
 namespace coro {
 class TaskGroup;
 }  // namespace coro
 
-// Replacement allocators require the matching malloc/free ownership boundary.
-// NOLINTBEGIN(cppcoreguidelines-no-malloc, cppcoreguidelines-owning-memory)
 namespace {
 
 /// Allocations left before the next one on this thread throws. -1 disarms.
 thread_local int allocations_before_failure = -1;
 
-void* allocate(std::size_t size) {
+void allocation_hook(std::size_t /*size*/) {
     if (allocations_before_failure == 0) {
         allocations_before_failure = -1;
         throw std::bad_alloc{};
@@ -53,10 +51,6 @@ void* allocate(std::size_t size) {
     if (allocations_before_failure > 0) {
         --allocations_before_failure;
     }
-    if (void* pointer = std::malloc(size == 0 ? 1 : size)) {
-        return pointer;
-    }
-    throw std::bad_alloc{};
 }
 
 /// Arms one allocation failure on the calling thread. Keep the window as
@@ -72,55 +66,13 @@ public:
     ~FailNextAllocation() noexcept { allocations_before_failure = -1; }
 };
 
+// Arm this binary's allocation-fault hook before any test runs.
+[[maybe_unused]] const bool allocation_hook_armed = [] {
+    test::set_allocation_fault_hook(&allocation_hook);
+    return true;
+}();
 
 }  // namespace
-
-// Test-only replacement allocation functions, paired with malloc/free.
-void* operator new(std::size_t size) {
-    return allocate(size);
-}
-
-void* operator new[](std::size_t size) {
-    return allocate(size);
-}
-
-void* operator new(std::size_t size, const std::nothrow_t&) noexcept {
-    try {
-        return allocate(size);
-    } catch (...) {
-        return nullptr;
-    }
-}
-
-void* operator new[](std::size_t size, const std::nothrow_t& tag) noexcept {
-    return ::operator new(size, tag);
-}
-
-void operator delete(void* pointer) noexcept {
-    std::free(pointer);
-}
-
-void operator delete[](void* pointer) noexcept {
-    std::free(pointer);
-}
-
-void operator delete(void* pointer, const std::nothrow_t&) noexcept {
-    std::free(pointer);
-}
-
-void operator delete[](void* pointer, const std::nothrow_t&) noexcept {
-    std::free(pointer);
-}
-
-void operator delete(void* pointer, std::size_t) noexcept {
-    std::free(pointer);
-}
-
-void operator delete[](void* pointer, std::size_t) noexcept {
-    std::free(pointer);
-}
-
-// NOLINTEND(cppcoreguidelines-no-malloc, cppcoreguidelines-owning-memory)
 
 namespace {
 

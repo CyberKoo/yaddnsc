@@ -110,6 +110,23 @@ target_link_libraries(test_support PUBLIC
 )
 
 # ---------------------------------------------------------------------------
+# test_allocation_fault  —  allocation-fault injection for fault-injection
+# test binaries (mocks/allocation_fault.h).
+#
+# The replaced global operator new/delete family must live in its own
+# translation unit: inlined into test code it trips GCC's
+# -Wmismatched-new-delete under -Werror, and partially replaced families
+# break ASan's alloc/dealloc pairing. An OBJECT library is used so the
+# replacement object is always linked in whole, never dropped by archive
+# member extraction.
+# ---------------------------------------------------------------------------
+add_library(test_allocation_fault OBJECT mocks/allocation_fault.cpp)
+target_include_directories(test_allocation_fault PRIVATE
+    ${PROJECT_SOURCE_DIR}/test
+)
+target_link_libraries(test_allocation_fault PRIVATE yaddnsc_warnings)
+
+# ---------------------------------------------------------------------------
 # yaddnsc_test_config  —  compile config for test targets.
 # Test targets inherit the same strict warnings as production code
 # (via yaddnsc_warnings); pre-existing test warnings must be fixed,

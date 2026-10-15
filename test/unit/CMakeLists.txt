@@ -150,7 +150,7 @@ endif()
 
 # Global allocation replacement is isolated from all other runtime tests.
 add_unit_test(coro_allocation_failure SOURCE coro/allocation_failure_test.cpp)
-target_link_libraries(test_coro_allocation_failure PRIVATE yaddnsc_coro)
+target_link_libraries(test_coro_allocation_failure PRIVATE yaddnsc_coro test_allocation_fault)
 
 # ============================================================================
 #  composition/  —  the composition root (src/composition/)
@@ -226,12 +226,12 @@ add_dependencies(test_driver_loader simple yaddnsc_bad_driver_fixture)
 # host_services — the host-side ABI callbacks: log-level / HTTP-method mapping,
 # request-view validation and the exception arms, driven through a closed Bridge
 add_unit_test(host_services SOURCE infrastructure/plugin/host_services_test.cpp)
-target_link_libraries(test_host_services PRIVATE yaddnsc_prod_all)
+target_link_libraries(test_host_services PRIVATE yaddnsc_prod_all test_allocation_fault)
 
 # bridge_branch — the Bridge ingress closure arms: closed-group start_cycle,
 # spawn / dispatch allocation failures, and the cancel() no-op arms
 add_unit_test(bridge_branch SOURCE infrastructure/plugin/bridge_branch_test.cpp)
-target_link_libraries(test_bridge_branch PRIVATE yaddnsc_prod_all)
+target_link_libraries(test_bridge_branch PRIVATE yaddnsc_prod_all test_allocation_fault)
 
 # ============================================================================
 #  infrastructure/dns/  —  wire format, parser, resolvers, dispatcher
@@ -468,5 +468,5 @@ if(YADDNSC_HAS_SDK_XML_COMPONENT)
 endif()
 if(YADDNSC_HAS_SDK_XML_COMPONENT)
     add_unit_test(xml_raii_allocation SOURCE sdk/xml_raii_allocation_test.cpp)
-    target_link_libraries(test_xml_raii_allocation PRIVATE yaddnsc_plugin_sdk_xml)
+    target_link_libraries(test_xml_raii_allocation PRIVATE yaddnsc_plugin_sdk_xml test_allocation_fault)
 endif()
