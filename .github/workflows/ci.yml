@@ -123,7 +123,15 @@ jobs:
             - name: Test
               env:
                   TSAN_OPTIONS: halt_on_error=0 history_size=7 second_deadlock_stack=1 report_bugs=1
-              run: ctest --test-dir build --output-on-failure -j2
+              # -E: test_stop_signals checks signal dispositions and exit codes
+              # through a forked death-test child; an asynchronous SIGINT landing
+              # inside TSan-intercepted code deadlocks libtsan on the CI runners
+              # (the child hangs, the parent waits forever). The suite shares no
+              # mutable state across threads — atomics and a pipe only — so TSan
+              # has nothing to detect in it.
+              # --timeout: turn any future per-test hang into a bounded failure
+              # instead of a cancelled 30-minute job with no diagnostics.
+              run: ctest --test-dir build --output-on-failure -j2 --timeout 300 -E '^test_stop_signals$'
 
     # ----------------------------------------------------------------------
     # Conversion warning gate.

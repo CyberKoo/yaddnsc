@@ -351,11 +351,15 @@ support musl, and C++23 coroutines under Darwin TSan are unverified:
 cmake -S . -B build-tsan -DCMAKE_BUILD_TYPE=ThreadSanitizer -DYADDNSC_BUILD_TESTS=ON
 cmake --build build-tsan --parallel
 TSAN_OPTIONS="halt_on_error=0 history_size=7 second_deadlock_stack=1 report_bugs=1" \
-  ctest --test-dir build-tsan --output-on-failure
+  ctest --test-dir build-tsan --output-on-failure --timeout 300 -E '^test_stop_signals$'
 ```
 
 TSan reports make the test binaries exit non-zero, so a green run means zero
-warnings.
+warnings. `test_stop_signals` is excluded: its death test forks a child whose
+asynchronous second SIGINT can land inside TSan-intercepted code and deadlock
+libtsan, and the suite checks signal dispositions and exit codes rather than
+shared state, so TSan has nothing to detect there. The `--timeout` bounds any
+other hung test instead of waiting out the CI job timeout.
 
 Coverage uses `YADDNSC_SANITIZE_DEBUG=OFF` to avoid mixing instrumentation.
 
@@ -491,8 +495,9 @@ by `ci.yml` path filters.
 - `linux-amd64` — GCC Debug + full test suite (includes the plugin contract
   tests and the `architecture_guard` boundary checks);
 - `linux-amd64-musl`, `macos-arm64` — platform matrix (glibc/musl/macOS);
-- `thread-sanitizer` — `ThreadSanitizer` build type + full test suite,
-  Ubuntu-only (see "Sanitizers" for the platform rationale);
+- `thread-sanitizer` — `ThreadSanitizer` build type + full test suite minus
+  `test_stop_signals` (see "Sanitizers" for the exclusion and the platform
+  rationale);
 - `conversion-gate` (PR only) — `-Wconversion -Wsign-conversion` build;
 - `benchmark` (PR only) — Google Benchmark smoke run, with no stored historical
   baseline, comparison step, or performance-regression threshold;
